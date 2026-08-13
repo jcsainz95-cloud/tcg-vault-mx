@@ -19,13 +19,19 @@ npm run start:dev                    # API en http://localhost:3001/api/v1
 
 - **Prefijo de API:** `/api/v1` (todas las rutas). Coincide con el contrato.
 - **Puerto:** `3001` (coincide con `Dockerfile.backend` y `docker-compose.yml`).
-- **Usuarios sembrados:** `admin@tcg.local` / `ChangeMe123!` (super_admin, configurable por
-  `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`) y `operador@tcg.local` / `Operador123!` (vault_operator).
+- **Usuarios sembrados (SEC-C1 — ya NO hay contraseñas hardcodeadas):**
+  - `admin@tcg.local` (super_admin) — password **obligatoria por `SEED_ADMIN_PASSWORD`**
+    (email configurable por `SEED_ADMIN_EMAIL`).
+  - `operador@tcg.local` (vault_operator) — password **obligatoria por `SEED_OPERATOR_PASSWORD`**
+    (email configurable por `SEED_OPERATOR_EMAIL`).
+  - En entornos **no-locales** (`NODE_ENV` ≠ `development`/`test`/`local`) el seed **falla** si
+    esas envs faltan (sin defaults débiles). En local, si faltan, usa un fallback **solo-desarrollo**
+    (aleatorio) y avisa por consola — nunca reutilizable fuera de local.
 
 ## 2. Cómo testear
 
 ```bash
-npm test               # unit + smoke de DI (42 tests). NO requiere Postgres/Redis/MinIO.
+npm test               # unit + smoke de DI (59 tests). NO requiere Postgres/Redis/MinIO.
 npm run test:integration  # E2E contra infra REAL (Postgres/Redis/MinIO/Stripe). Ver §8.
 npm run lint           # eslint (0 errores)
 npm run typecheck      # tsc --noEmit (0 errores)
@@ -92,6 +98,16 @@ npm run build          # nest build → dist/
 
 ## 5. Variables de entorno faltantes / notas para **devops** (no edité `.env.example`)
 
+- **`SEED_ADMIN_PASSWORD`** y **`SEED_OPERATOR_PASSWORD`** (SEC-C1) — **NUEVAS y obligatorias** para
+  sembrar cualquier entorno no-local. **Solicitud a devops:** añadirlas a `.env.example` (vacías, con
+  comentario "obligatoria en no-local; usar secreto fuerte") y **rotar** la credencial del operador que
+  antes estaba en el repo (`Operador123!`) y la del admin (`ChangeMe123!`). Emparejables con
+  `SEED_ADMIN_EMAIL`/`SEED_OPERATOR_EMAIL` (opcionales). El seed **rechaza el arranque** en no-local si
+  faltan. Recomendado moverlas a un secret manager (no `.env` en el host) — ver banderas de SECURITY_NOTES §3.
+- **Rate-limiting (SEC-C1):** el `ThrottlerModule` usa storage **in-memory por instancia**. En despliegue
+  **multi-instancia** devops debe: (a) añadir storage compartido (Redis) para un límite global real, y
+  (b) configurar `trust proxy`/`X-Forwarded-For` en el borde para que el tracker use la IP real del
+  cliente (detrás de proxy). Además conviene un **rate-limit/WAF en el borde** como capa extra.
 - **`BANXICO_SIE_TOKEN`** — `ARCHITECTURE §8` lo pide para el FX automático (API SIE de Banxico), pero
   `.env.example` solo tiene `FX_SOURCE`/`FX_API_KEY`. El código lee **`BANXICO_SIE_TOKEN` y, si falta,
   cae a `FX_API_KEY`**. **Solicitud a devops:** añadir `BANXICO_SIE_TOKEN=` a `.env.example`. Sin token,
@@ -151,7 +167,7 @@ npm run build          # nest build → dist/
 - ✅ Endpoints del contrato implementados (auth, users, catalog, vault, checkout/orders, shipments,
   buylist, disputes, uploads, webhooks, admin M1–M10, dashboard).
 - ✅ Enums/DTOs/errorCodes alineados con `API_CONTRACT.md`.
-- ✅ Tests unitarios de lógica crítica pasan (`npm test` = 23 verdes).
+- ✅ Tests unitarios de lógica crítica pasan (`npm test` = 59 verdes, incluye la suite de seguridad §9).
 - ⚠️ **Integración con infra real** (Postgres/Redis/MinIO/Stripe test): QA debe levantar
   `docker compose up -d`, `prisma migrate deploy`, `npm run seed`, y usar `stripe listen` para webhooks.
 - ⚠️ **Providers de precio graded/sealed** son stubs (devuelven `null` ⇒ precio pendiente + override
@@ -228,5 +244,47 @@ npm run test:integration
 - **Ejecutable aquí vs pendiente de infra:** en esta sesión **no hay daemon Docker**, así que la
   suite queda **lista y verificada a nivel de compilación** (typecheck/lint/build verdes, arranca
   el `AppModule` y falla limpio en la conexión a Postgres). Se ejecuta en verde en CI/local con la
-  infra levantada. Los tests **unitarios** siguen intactos (`npm test` = 42 verdes, sin infra).
+  infra levantada. Los tests **unitarios** siguen intactos (`npm test` = 59 verdes, sin infra).
 ```
+
+## 9. Remediación de seguridad (veredicto RECHAZADO → hallazgos cerrados por backend)
+
+> Cierre de los hallazgos de `docs/SECURITY_NOTES.md` / `docs/PENTEST_NOTES.md` cuyo **rol dueño es
+> backend**. Los de rol **devops** (bucket privado, rotación de secretos, WAF, bump de framework) se
+> coordinan por separado (ver §5 y el checklist de abajo). Todo cerrado con tests + `lint/typecheck/
+> test/build` en verde.
+
+| ID | Fix (backend) | Test |
+|---|---|---|
+| **SEC-C1** rate-limit + seed | `@nestjs/throttler` global (`ThrottlerGuard` como 1er APP_GUARD, 300/min) + `@Throttle` estrecho en `/auth/login` y `/auth/register` (**5/min**) y `/auth/refresh` (20/min); webhook Stripe `@SkipThrottle`. Seed sin passwords hardcodeadas: `SEED_ADMIN_PASSWORD`/`SEED_OPERATOR_PASSWORD` obligatorias en no-local, falla si faltan. | `test/auth.throttle.spec.ts`, `test/seed.password.spec.ts` |
+| **SEC-A1** categoría buylist server-side | `createRequest` **deriva `category` de la rareza real** (`categoryForRarity`) e **ignora** la del DTO; aplica en cotización y persistencia. | `test/buylist.security.spec.ts` (DTO malicioso `ex_plus` sobre común → 50c, no infla) |
+| **SEC-A2** topes atómicos (TOCTOU) | Lectura del acumulado mensual + creación de `SellRequest` en **transacción SERIALIZABLE** (`monthUsedCentsTx` sobre `tx`); tope por-solicitud fuera (no depende de concurrencia). | `test/buylist.security.spec.ts` (isolation serializable; 2 concurrentes → 1 sola creada) |
+| **SEC-A3** doble convert-to-inventory | `@unique` en `InventoryItem.sourceSellRequestItemId` (+ migración `20260813120000_unique_source_sell_request_item`); `convertToInventory` captura **P2002** y lo trata como "ya convertido". | `test/buylist.security.spec.ts` (2 conversiones → 1 solo InventoryItem) |
+| **SEC-A4** PII/KYC al `vault_operator` | `getUser(id, role)`: proyección **reducida** para no-super_admin (CLABE **enmascarada** a últimos 4; INE/RFC **omitidos**; `billingProfile: null`; `ineOnFile` booleano). Controller pasa el rol. | `test/admin.pii.spec.ts` (operador sin PII sensible; super_admin ficha completa) |
+| **SEC-A5** INE/KYC por presign de lectura | `UploadsService.presignGet(key, 300s)` (GET prefirmado); `DisputesService.adminGet` sirve fotos por presign, **no** por `S3_PUBLIC_BASE_URL`. (devops hace el bucket privado.) | `test/disputes.presign.spec.ts` |
+| **SEC-C2** deps runtime | `@nestjs/config`→**4.0.4** (elimina `lodash` high); `overrides`: `multer@^2.2.0` (high), `qs@^6.15.3`, `express@^4.22.2`, `body-parser@^1.20.6`. `npm audit --omit=dev` = **0 high / 0 critical**. | `npm audit --omit=dev` (ver abajo) |
+| **SEC-M3** (deuda, incluida) refund | Refund exige `status='settled'`; idempotencia obligatoria hacia Stripe (deriva `refund-<orderId>` si no viene header). | cubierto por lógica; e2e de órdenes |
+| **SEC-M5** (deuda, incluida) pay-spei | `paySpei` idempotente (si ya `pagada` → devuelve) + transición atómica `updateMany` con guardia de estado (`count===1`). | `test/buylist.security.spec.ts` |
+
+**`npm audit --omit=dev` (runtime) tras el fix:** `{ high: 0, critical: 0, moderate: 4 }`. Los 4 moderados
+son **de framework y sin fix sin salto de major**, se documentan como deuda no explotable en este código:
+- `@nestjs/core` / `@nestjs/platform-express` (GHSA-36xv-jgw5-4q75, moderate): el único fix es **NestJS 11**
+  (major, rompe toda la app). Se pospone a un upgrade coordinado de framework (**devops/backend**, no
+  bloqueante — es moderate, no high/critical).
+- `file-type` vía `@nestjs/common` (moderate, DoS parseando media malformada): transitivo; **no alcanzable**
+  en nuestro código — no parseamos archivos subidos en el servidor (los uploads van directo a S3 por presign).
+- Nota: mantuve **NestJS 10** a propósito para no arriesgar un major; los highs de runtime (`multer`,
+  `lodash`) se cerraron con `overrides` + `@nestjs/config@4`, más quirúrgico y de bajo riesgo. `multer` no
+  se usa (no hay `FileInterceptor`; uploads por presign), así que el override es seguro.
+
+### Pendientes de **devops** para completar el cierre (coordinar)
+- **SEC-C1:** añadir `SEED_ADMIN_PASSWORD`/`SEED_OPERATOR_PASSWORD` a `.env.example`; **rotar** las
+  credenciales sembradas antiguas; storage Redis para throttler + `trust proxy` + WAF en el borde (ver §5).
+- **SEC-A5:** bucket **privado** (sin ACL público-lectura) para `kyc_ine`/`dispute_claim`; el backend ya
+  sirve por presign. (El `S3_PUBLIC_BASE_URL` sigue usándose solo para **fotos de catálogo** públicas,
+  que son producto y sí deben ser públicas — no es PII.)
+- **SEC-C2:** mantener el gate `security-sast.yml` como required check; evaluar el salto a NestJS 11 en un
+  sprint de hardening para cerrar los 4 moderados de framework.
+- **Deuda restante (no de este encargo):** SEC-M1/M2/M4 (CORS allow-list, JWT en localStorage=frontend,
+  helmet/headers B3, presign upload content-type B4) siguen como **deuda aceptada con disparador** en
+  SECURITY_NOTES §2.

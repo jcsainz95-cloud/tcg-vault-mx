@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuditModule } from './modules/audit/audit.module';
@@ -26,6 +27,11 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    // SEC-C1: rate-limiting global (defensa contra fuerza bruta / DoS de app).
+    // Límite general holgado; los endpoints de auth sensibles lo endurecen con @Throttle.
+    // Storage in-memory (por instancia). En despliegue multi-instancia devops debe
+    // añadir storage compartido (Redis) y `trust proxy` en el borde (ver DEVOPS_NOTES).
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
     PrismaModule,
     AuditModule,
     SettingsModule,
@@ -45,7 +51,9 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     JobsModule,
   ],
   providers: [
-    // Orden: autenticación → rol → dinero saliente. (APP_GUARD respeta el orden.)
+    // Orden: rate-limit → autenticación → rol → dinero saliente. (APP_GUARD respeta el orden.)
+    // El throttling corre antes que la autenticación para frenar fuerza bruta en /auth/login.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: MoneyOutGuard },

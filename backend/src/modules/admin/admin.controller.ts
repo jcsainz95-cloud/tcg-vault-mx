@@ -42,8 +42,9 @@ export class AdminUsersController {
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.admin.getUser(id);
+  get(@Param('id') id: string, @CurrentUser('role') role: Role) {
+    // SEC-A4: la proyección de PII depende del rol (operador recibe ficha reducida).
+    return this.admin.getUser(id, role);
   }
 
   @Patch(':id/kyc')

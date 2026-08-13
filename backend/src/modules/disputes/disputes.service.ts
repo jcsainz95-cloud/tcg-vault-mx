@@ -3,17 +3,23 @@ import { MovementReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { StripeService } from '../payments/stripe.service';
+import { UploadsService } from '../uploads/uploads.service';
 
 @Injectable()
 export class DisputesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
+    private readonly uploads: UploadsService,
   ) {}
 
-  private photoUrl(key: string): string {
-    const base = process.env.S3_PUBLIC_BASE_URL ?? '';
-    return `${base}/${key}`;
+  /**
+   * SEC-A5: las fotos de disputa e INGRESO (evidencia canónica) pueden contener PII /
+   * identificar al cliente; NO se sirven por URL pública del bucket. Se genera una URL
+   * prefirmada de LECTURA de vida corta (bucket privado, garantizado por devops).
+   */
+  private photoUrl(key: string): Promise<string> {
+    return this.uploads.presignGet(key);
   }
 
   /**
@@ -98,8 +104,12 @@ export class DisputesService {
       include: { inventoryItem: { include: { card: true } } },
     });
     if (!dispute) throw BusinessException.notFound();
-    const ingressPhotoUrls = (dispute.ingressPhotoKeys as string[] | null)?.map((k) => this.photoUrl(k)) ?? [];
-    const claimPhotoUrls = (dispute.claimPhotoKeys as string[] | null)?.map((k) => this.photoUrl(k)) ?? [];
+    const ingressPhotoUrls = await Promise.all(
+      ((dispute.ingressPhotoKeys as string[] | null) ?? []).map((k) => this.photoUrl(k)),
+    );
+    const claimPhotoUrls = await Promise.all(
+      ((dispute.claimPhotoKeys as string[] | null) ?? []).map((k) => this.photoUrl(k)),
+    );
     return {
       id: dispute.id,
       status: dispute.status,

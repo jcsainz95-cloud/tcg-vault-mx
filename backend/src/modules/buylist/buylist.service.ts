@@ -80,7 +80,10 @@ export class BuylistService {
       );
     }
 
-    // Cotiza cada item.
+    // Cotiza cada item. SEC-A1: la `category` (que determina el monto a pagar) NO se
+    // toma del DTO del cliente; se DERIVA server-side de la rareza real de la carta vía
+    // la tabla rareza→categoría (dial M2/M10). Así un DTO malicioso (p. ej. `ex_plus`
+    // sobre una común de alta referencia) no puede inflar `quotedTotalCents`.
     const itemsData: {
       cardId: string;
       productType: ProductType;
@@ -91,11 +94,14 @@ export class BuylistService {
     }[] = [];
     let quotedTotalCents = 0;
     for (const it of items) {
+      const card = await this.prisma.card.findUnique({ where: { id: it.cardId } });
+      if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
+      const category = await this.categoryForRarity(card.rarity);
       const gradeKey = this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition });
       const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey);
       const referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-      const q = quoteAcquisition(it.category, referenceMxnCents);
+      const q = quoteAcquisition(category, referenceMxnCents);
       if (q.status === 'precio_pendiente') {
         await this.pricing.escalatePending(it.cardId, it.productType, gradeKey, 'buylist');
       }
@@ -104,7 +110,7 @@ export class BuylistService {
         cardId: it.cardId,
         productType: it.productType,
         rawCondition: it.rawCondition,
-        category: it.category,
+        category,
         quotedPriceCents: q.quotedPriceCents,
         itemStatus: q.status,
       });
@@ -119,19 +125,13 @@ export class BuylistService {
       (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_MONTH_CENTS));
     const ineThreshold = await this.settings.getNumber(SettingKey.INE_THRESHOLD_CENTS);
 
+    // El tope por-solicitud no depende de concurrencia (es sobre el total de ESTA
+    // solicitud), se valida fuera de la transacción.
     if (quotedTotalCents > capPerRequest) {
       throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-request cap exceeded', {
         scope: 'per_request',
         capCents: capPerRequest,
         wouldBeCents: quotedTotalCents,
-      });
-    }
-    const monthUsed = await this.users.monthUsedCents(userId);
-    if (monthUsed + quotedTotalCents > capPerMonth) {
-      throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month cap exceeded', {
-        scope: 'per_month',
-        capCents: capPerMonth,
-        wouldBeCents: monthUsed + quotedTotalCents,
       });
     }
 
@@ -163,18 +163,36 @@ export class BuylistService {
       },
     });
 
-    const request = await this.prisma.sellRequest.create({
-      data: {
-        userId,
-        status: 'cotizada',
-        quotedTotalCents,
-        clabeSnapshot: clabe,
-        ineRequired,
-        ineProvided,
-        items: { create: itemsData },
+    // SEC-A2: el tope MENSUAL sufre TOCTOU si se lee `monthUsed` y luego se crea sin
+    // atomicidad (N solicitudes concurrentes leen el mismo acumulado y todas pasan).
+    // Se lee el acumulado y se crea la solicitud DENTRO de una transacción SERIALIZABLE:
+    // dos solicitudes concurrentes cerca del tope entran en conflicto de serialización y
+    // solo una prospera, cerrando el bypass del límite AML/mensual.
+    const request = await this.prisma.$transaction(
+      async (tx) => {
+        const monthUsed = await this.monthUsedCentsTx(tx, userId);
+        if (monthUsed + quotedTotalCents > capPerMonth) {
+          throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month cap exceeded', {
+            scope: 'per_month',
+            capCents: capPerMonth,
+            wouldBeCents: monthUsed + quotedTotalCents,
+          });
+        }
+        return tx.sellRequest.create({
+          data: {
+            userId,
+            status: 'cotizada',
+            quotedTotalCents,
+            clabeSnapshot: clabe,
+            ineRequired,
+            ineProvided,
+            items: { create: itemsData },
+          },
+          include: { items: { include: { card: true } } },
+        });
       },
-      include: { items: { include: { card: true } } },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return {
       sellRequestId: request.id,
@@ -183,6 +201,26 @@ export class BuylistService {
       ineRequired,
       items: request.items.map((i) => this.itemDTO(i)),
     };
+  }
+
+  /**
+   * SEC-A2: acumulado del mes en curso leído sobre el cliente transaccional (`tx`), para
+   * que el chequeo del tope mensual y la creación de la solicitud sean atómicos bajo
+   * aislamiento serializable. Misma regla que `UsersService.monthUsedCents`.
+   */
+  private async monthUsedCentsTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
+    const start = new Date();
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
+    const agg = await tx.sellRequest.aggregate({
+      where: {
+        userId,
+        createdAt: { gte: start },
+        status: { notIn: ['rechazada', 'abandonada'] },
+      },
+      _sum: { quotedTotalCents: true },
+    });
+    return agg._sum.quotedTotalCents ?? 0;
   }
 
   private itemDTO(i: {
@@ -332,40 +370,57 @@ export class BuylistService {
       include: { card: true },
     });
     if (!item) throw BusinessException.notFound();
+    // Guardia rápida (pre-check): si ya está convertido, es idempotente.
     if (item.inventoryItemId) {
       return { inventoryItemId: item.inventoryItemId, alreadyConverted: true };
     }
-    const folio = await this.prisma.nextFolio();
-    const created = await this.prisma.$transaction(async (tx) => {
-      const inv = await tx.inventoryItem.create({
-        data: {
-          folio,
-          cardId: item.cardId,
-          productType: item.productType,
-          rawCondition: item.rawCondition,
-          ownerType: 'platform',
-          status: 'in_stock',
-          acquisitionType: 'buylist',
-          acquisitionCostCents: item.approvedPriceCents ?? item.quotedPriceCents ?? 0,
-          sourceSellRequestItemId: item.id,
-        },
+    // SEC-A3: el pre-check por sí solo sufre TOCTOU (dos llamadas concurrentes ven
+    // `inventoryItemId=null`). La guardia real es el índice único en
+    // `InventoryItem.sourceSellRequestItemId`: la creación concurrente colisiona (P2002)
+    // y se resuelve como "ya convertido", garantizando UN solo InventoryItem.
+    try {
+      const folio = await this.prisma.nextFolio();
+      const created = await this.prisma.$transaction(async (tx) => {
+        const inv = await tx.inventoryItem.create({
+          data: {
+            folio,
+            cardId: item.cardId,
+            productType: item.productType,
+            rawCondition: item.rawCondition,
+            ownerType: 'platform',
+            status: 'in_stock',
+            acquisitionType: 'buylist',
+            acquisitionCostCents: item.approvedPriceCents ?? item.quotedPriceCents ?? 0,
+            sourceSellRequestItemId: item.id,
+          },
+        });
+        await tx.inventoryMovement.create({
+          data: {
+            itemId: inv.id,
+            toStatus: 'in_stock',
+            reason: MovementReason.buylist_convert,
+            actorUserId,
+            note: `from sellRequestItem ${item.id}`,
+          },
+        });
+        await tx.sellRequestItem.update({
+          where: { id: itemId },
+          data: { itemStatus: 'convertida_inventario', inventoryItemId: inv.id },
+        });
+        return inv;
       });
-      await tx.inventoryMovement.create({
-        data: {
-          itemId: inv.id,
-          toStatus: 'in_stock',
-          reason: MovementReason.buylist_convert,
-          actorUserId,
-          note: `from sellRequestItem ${item.id}`,
-        },
-      });
-      await tx.sellRequestItem.update({
-        where: { id: itemId },
-        data: { itemStatus: 'convertida_inventario', inventoryItemId: inv.id },
-      });
-      return inv;
-    });
-    return { inventoryItemId: created.id, folio: created.folio };
+      return { inventoryItemId: created.id, folio: created.folio };
+    } catch (e) {
+      // Violación de unicidad → otra conversión ganó la carrera: ya convertido.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const existing = await this.prisma.inventoryItem.findFirst({
+          where: { sourceSellRequestItemId: itemId },
+          select: { id: true },
+        });
+        return { inventoryItemId: existing?.id, alreadyConverted: true };
+      }
+      throw e;
+    }
   }
 
   /**
@@ -375,15 +430,32 @@ export class BuylistService {
   async paySpei(id: string, speiReference: string, paidBy: string) {
     const req = await this.prisma.sellRequest.findUnique({ where: { id } });
     if (!req) throw BusinessException.notFound();
+    // SEC-M5: idempotencia — si ya está pagada, no se hace un segundo asiento; se
+    // devuelve el estado existente (dos POST /pay-spei concurrentes o reintentos).
+    if (req.status === 'pagada') {
+      return req;
+    }
     if (!['aprobada', 'verificacion'].includes(req.status) || !req.verifiedAt) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'Payment allowed only after receipt/verification and approval',
       );
     }
-    return this.prisma.sellRequest.update({
-      where: { id },
+    // SEC-M5: transición atómica con guardia de estado (patrón count===1). El
+    // `updateMany` solo prospera si la solicitud sigue en un estado pagable; dos
+    // llamadas concurrentes → solo una hace la transición a `pagada`.
+    const res = await this.prisma.sellRequest.updateMany({
+      where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
       data: { status: 'pagada', speiReference, paidBy, paidAt: new Date() },
     });
+    if (res.count !== 1) {
+      const current = await this.prisma.sellRequest.findUnique({ where: { id } });
+      if (current?.status === 'pagada') return current;
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'Payment allowed only after receipt/verification and approval',
+      );
+    }
+    return this.prisma.sellRequest.findUnique({ where: { id } });
   }
 }

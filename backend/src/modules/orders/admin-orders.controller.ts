@@ -74,7 +74,18 @@ export class AdminOrdersController {
     if (!order.stripePaymentIntentId) {
       throw BusinessException.validation('VALIDATION_ERROR', 'Order has no payment intent');
     }
-    const refundId = await this.stripe.refund(order.stripePaymentIntentId, idempotencyKey);
+    // SEC-M3: guardia de estado — solo se reembolsa una orden `settled`. Evita reembolsos
+    // sobre órdenes ya reembolsadas/en contracargo/pendientes y transiciones inconsistentes.
+    if (order.status !== 'settled') {
+      throw BusinessException.validation('VALIDATION_ERROR', 'Only a settled order can be refunded', {
+        status: order.status,
+      });
+    }
+    // SEC-M3: idempotencia obligatoria hacia Stripe. Si el cliente no envía
+    // `Idempotency-Key`, se deriva una determinista por orden para que reintentos no
+    // generen reembolsos duplicados.
+    const idem = idempotencyKey ?? `refund-${order.id}`;
+    const refundId = await this.stripe.refund(order.stripePaymentIntentId, idem);
     await this.prisma.order.update({
       where: { id },
       data: { status: 'refunded', refundedAt: new Date() },

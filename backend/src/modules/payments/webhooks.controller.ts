@@ -1,4 +1,5 @@
 import { Controller, Headers, HttpCode, Logger, Post, Req } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { Public } from '../../common/decorators/public.decorator';
 import { PaymentsService } from './payments.service';
@@ -8,6 +9,9 @@ import { BusinessException } from '../../common/business.exception';
  * POST /webhooks/stripe — Firma verificada. Idempotente. API_CONTRACT §9.
  * Requiere el raw body (configurado en main.ts).
  */
+// SEC-C1: el webhook de Stripe es legítimo y de alto volumen (firma verificada +
+// idempotencia); se exime del rate-limit global para no descartar eventos válidos.
+@SkipThrottle()
 @Controller('webhooks')
 export class WebhooksController {
   private readonly logger = new Logger(WebhooksController.name);

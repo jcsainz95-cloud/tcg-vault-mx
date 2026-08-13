@@ -9,6 +9,34 @@ import { SETTING_DEFAULTS } from '../src/modules/settings/settings.constants';
 
 const prisma = new PrismaClient();
 
+/**
+ * SEC-C1: sin contraseñas hardcodeadas. Se exigen por env
+ * (`SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_PASSWORD`). En entornos NO-locales el seed
+ * FALLA si faltan (nunca se usan defaults débiles). En local (NODE_ENV `development`,
+ * `test`, o sin definir) se permite un fallback SOLO para arrancar el entorno de
+ * desarrollo; nunca debe usarse ese fallback en staging/producción.
+ */
+export function isLocalEnv(): boolean {
+  const env = process.env.NODE_ENV ?? 'development';
+  return env === 'development' || env === 'test' || env === 'local';
+}
+
+export function requiredSeedPassword(envVar: string, localFallback: string): string {
+  const value = process.env[envVar];
+  if (value && value.length > 0) return value;
+  if (!isLocalEnv()) {
+    throw new Error(
+      `${envVar} is required to seed a non-local environment (NODE_ENV=${process.env.NODE_ENV}). ` +
+        'Refusing to seed with a weak/default password. Set a strong value and re-run.',
+    );
+  }
+  console.warn(
+    `[seed] ${envVar} not set — using a LOCAL-ONLY dev fallback. ` +
+      'Do NOT rely on this outside local development.',
+  );
+  return localFallback;
+}
+
 async function main() {
   // 1. Diales M10 (ConfigSetting) con sus defaults.
   for (const [key, value] of Object.entries(SETTING_DEFAULTS)) {
@@ -22,7 +50,7 @@ async function main() {
 
   // 2. Usuario super_admin (el negocio ES el admin en el MVP).
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@tcg.local';
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe123!';
+  const adminPassword = requiredSeedPassword('SEED_ADMIN_PASSWORD', 'LocalDevAdmin!' + Date.now());
   await prisma.user.upsert({
     where: { email: adminEmail },
     create: {
@@ -36,20 +64,22 @@ async function main() {
   });
   console.log(`super_admin: ${adminEmail} (password por env SEED_ADMIN_PASSWORD).`);
 
-  // 3. Operador de bóveda (rol limitado).
-  const opEmail = 'operador@tcg.local';
+  // 3. Operador de bóveda (rol limitado). SEC-C1: password por env obligatoria en
+  //    entornos no-locales; se eliminó la credencial de operador hardcodeada previa.
+  const opEmail = process.env.SEED_OPERATOR_EMAIL ?? 'operador@tcg.local';
+  const opPassword = requiredSeedPassword('SEED_OPERATOR_PASSWORD', 'LocalDevOperator!' + Date.now());
   await prisma.user.upsert({
     where: { email: opEmail },
     create: {
       email: opEmail,
-      passwordHash: await argon2.hash('Operador123!'),
+      passwordHash: await argon2.hash(opPassword),
       name: 'Operador Bóveda',
       role: 'vault_operator',
       locale: 'es',
     },
     update: {},
   });
-  console.log(`vault_operator: ${opEmail}`);
+  console.log(`vault_operator: ${opEmail} (password por env SEED_OPERATOR_PASSWORD).`);
 
   // 4. FxRate inicial (colchón por defecto). Override manual hasta que corra Banxico.
   const today = new Date();
@@ -110,11 +140,15 @@ async function main() {
   console.log('Seed completo.');
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+// CLI runner: solo ejecuta el seed cuando se invoca directamente (permite importar los
+// helpers desde tests sin abrir conexión a la base).
+if (require.main === module) {
+  main()
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}

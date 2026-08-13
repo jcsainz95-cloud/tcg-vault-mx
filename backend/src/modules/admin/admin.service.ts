@@ -9,6 +9,13 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
   return { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) };
 }
 
+/** SEC-A4: enmascara la CLABE dejando solo los últimos 4 dígitos (ej. `**************5678`). */
+function maskClabe(clabe?: string | null): string | undefined {
+  if (!clabe) return undefined;
+  const last4 = clabe.slice(-4);
+  return `${'*'.repeat(Math.max(0, clabe.length - 4))}${last4}`;
+}
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -35,8 +42,16 @@ export class AdminService {
     return { data, page, pageSize, total };
   }
 
-  /** Ficha 360° (compras, bóveda, buylist, disputas, KYC). API_CONTRACT §M6. */
-  async getUser(id: string) {
+  /**
+   * Ficha 360° (compras, bóveda, buylist, disputas, KYC). API_CONTRACT §M6.
+   *
+   * SEC-A4: segregación de funciones. El `vault_operator` es un rol de menor confianza
+   * (opera M1/M4/M5 hasta verificación; sin finanzas/config). NO debe ver PII bancaria/
+   * fiscal/identidad. Se le entrega una proyección REDUCIDA: sin CLABE/RFC/INE completos
+   * (CLABE enmascarada a los últimos 4; RFC e INE keys omitidos; billingProfile omitido).
+   * El `super_admin` recibe la ficha completa. ARCHITECTURE §7 (M6: operador ver limitado).
+   */
+  async getUser(id: string, role?: Role) {
     const user = await this.prisma.user.findUnique({
       where: { id },
       include: {
@@ -51,7 +66,29 @@ export class AdminService {
     });
     if (!user) throw BusinessException.notFound();
     const { passwordHash: _pw, ...safe } = user;
-    return safe;
+
+    if (role === Role.super_admin) return safe;
+
+    // Proyección reducida para vault_operator (y cualquier rol no super_admin).
+    return {
+      ...safe,
+      // KYC: solo estado/límites y una CLABE ENMASCARADA; sin INE ni CLABE completa.
+      kycProfile: safe.kycProfile
+        ? {
+            id: safe.kycProfile.id,
+            userId: safe.kycProfile.userId,
+            legalName: safe.kycProfile.legalName,
+            kycStatus: safe.kycProfile.kycStatus,
+            clabe: maskClabe(safe.kycProfile.clabe),
+            ineOnFile: Boolean(safe.kycProfile.ineFrontKey && safe.kycProfile.ineBackKey),
+            capPerRequestCentsOverride: safe.kycProfile.capPerRequestCentsOverride,
+            capPerMonthCentsOverride: safe.kycProfile.capPerMonthCentsOverride,
+            verifiedAt: safe.kycProfile.verifiedAt,
+          }
+        : null,
+      // Perfil de facturación (RFC/datos fiscales): oculto al operador.
+      billingProfile: null,
+    };
   }
 
   async updateUserKyc(

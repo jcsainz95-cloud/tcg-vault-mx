@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 
@@ -44,5 +44,17 @@ export class UploadsService {
       headers: { 'Content-Type': contentType },
       expiresAt: new Date(Date.now() + 900 * 1000).toISOString(),
     };
+  }
+
+  /**
+   * SEC-A5: URL prefirmada de LECTURA (GET) de vida corta. Reemplaza el modelo de "URL
+   * pública del bucket" para servir documentos sensibles (INE/KYC, fotos de disputa).
+   * El bucket debe ser PRIVADO (sin ACL público-lectura) — lo garantiza devops en infra.
+   * @param expiresIn segundos de validez (por defecto 300s = 5 min).
+   */
+  async presignGet(key: string, expiresIn = 300): Promise<string> {
+    const bucket = this.config.get<string>('S3_BUCKET') ?? 'tcg-photos';
+    const command = new GetObjectCommand({ Bucket: bucket, Key: key });
+    return getSignedUrl(this.s3, command, { expiresIn });
   }
 }
