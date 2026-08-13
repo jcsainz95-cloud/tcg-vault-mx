@@ -68,10 +68,10 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'settled' }) }),
     );
     expect(tx.inventoryItem.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { ownershipStatus: 'settled' } }),
+      expect.objectContaining({ data: { status: 'in_custody', ownershipStatus: 'settled' } }),
     );
     expect(tx.inventoryMovement.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ reason: 'settle' }) }),
+      expect.objectContaining({ data: expect.objectContaining({ reason: 'settle', toStatus: 'in_custody' }) }),
     );
   });
 

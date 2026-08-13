@@ -104,8 +104,14 @@ export class AdminService {
         cogsCents += it.inventoryItem.acquisitionCostCents ?? 0;
       }
     }
+    // Fix correctness #3: los envíos también se acotan al periodo, por su fecha de
+    // liquidación (`pickingAt` = cuando payment_intent.succeeded los movió a picking).
+    const shipmentRange = range(from, to);
     const shipments = await this.prisma.shipmentRequest.findMany({
-      where: { status: { in: ['picking', 'guia', 'enviado', 'entregado'] } },
+      where: {
+        status: { in: ['picking', 'guia', 'enviado', 'entregado'] },
+        ...(shipmentRange ? { pickingAt: shipmentRange } : {}),
+      },
     });
     let shippingCents = 0;
     for (const s of shipments) {
@@ -181,13 +187,20 @@ export class AdminService {
 
   // ---------------- M9 Reports ----------------
 
+  /**
+   * Fix correctness #3: TODAS las métricas del periodo respetan el rango de fechas por
+   * su fecha de realización: usuarios por alta, ventas por `settledAt`, buylist por
+   * `paidAt`, retiros entregados por `deliveredAt`.
+   */
   async launchMetrics(from?: string, to?: string) {
-    const createdAt = range(from, to);
+    const r = range(from, to);
     const [users, salesSettled, buylistPaid, withdrawalsNoDispute] = await Promise.all([
-      this.prisma.user.count({ where: { role: 'customer', ...(createdAt ? { createdAt } : {}) } }),
-      this.prisma.order.count({ where: { status: 'settled' } }),
-      this.prisma.sellRequest.count({ where: { status: 'pagada' } }),
-      this.prisma.shipmentRequest.count({ where: { status: 'entregado' } }),
+      this.prisma.user.count({ where: { role: 'customer', ...(r ? { createdAt: r } : {}) } }),
+      this.prisma.order.count({ where: { status: 'settled', ...(r ? { settledAt: r } : {}) } }),
+      this.prisma.sellRequest.count({ where: { status: 'pagada', ...(r ? { paidAt: r } : {}) } }),
+      this.prisma.shipmentRequest.count({
+        where: { status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
+      }),
     ]);
     return {
       users,
@@ -200,18 +213,41 @@ export class AdminService {
 
   // ---------------- Dashboard (8 tarjetas) ----------------
 
-  async dashboard(role: Role) {
+  /** Rango del periodo del dashboard: from/to explícitos o el mes calendario en curso (UTC). */
+  private resolvePeriod(from?: string, to?: string): { gte: Date; lte: Date } {
+    if (from || to) {
+      const now = new Date();
+      return { gte: from ? new Date(from) : new Date(0), lte: to ? new Date(to) : now };
+    }
+    const start = new Date();
+    start.setUTCDate(1);
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setUTCMonth(end.getUTCMonth() + 1);
+    return { gte: start, lte: end };
+  }
+
+  /**
+   * Dashboard (8 tarjetas). Fix correctness #3: las tarjetas "del periodo"
+   * (profit/sales/buylist) respetan un rango real de fechas. Si no se pasa `from/to`,
+   * el periodo por defecto es el MES CALENDARIO en curso (UTC). Las tarjetas de backlog
+   * (workQueue/dataHealth) y los snapshots (inventoryValue/custodyValue) y el acumulado
+   * de launchProgress NO son periódicos por diseño.
+   */
+  async dashboard(role: Role, from?: string, to?: string) {
     const isSuperAdmin = role === Role.super_admin;
+    const period = this.resolvePeriod(from, to);
+
     const [salesCount, salesAgg, shipmentsQueue, buylistQueue, disputesQueue, pendingPrices, buylistPeriodAgg, buylistPeriodCount, lastSync, lastFx, users, salesSettled, buylistPaid, withdrawals] =
       await Promise.all([
-        this.prisma.order.count({ where: { status: 'settled' } }),
-        this.prisma.order.aggregate({ where: { status: 'settled' }, _sum: { totalCents: true } }),
+        this.prisma.order.count({ where: { status: 'settled', settledAt: period } }),
+        this.prisma.order.aggregate({ where: { status: 'settled', settledAt: period }, _sum: { totalCents: true } }),
         this.prisma.shipmentRequest.count({ where: { status: { in: ['solicitado', 'picking', 'guia'] } } }),
         this.prisma.sellRequest.count({ where: { status: { in: ['cotizada', 'recibida', 'verificacion', 'aprobada'] } } }),
         this.prisma.dispute.count({ where: { status: { in: ['abierta', 'en_revision'] } } }),
         this.prisma.pendingPriceEntry.count({ where: { status: 'open' } }),
-        this.prisma.sellRequest.aggregate({ where: { status: 'pagada' }, _sum: { approvedTotalCents: true } }),
-        this.prisma.sellRequest.count({ where: { status: 'pagada' } }),
+        this.prisma.sellRequest.aggregate({ where: { status: 'pagada', paidAt: period }, _sum: { approvedTotalCents: true } }),
+        this.prisma.sellRequest.count({ where: { status: 'pagada', paidAt: period } }),
         this.prisma.priceReference.findFirst({ orderBy: { createdAt: 'desc' } }),
         this.prisma.fxRate.findFirst({ orderBy: { createdAt: 'desc' } }),
         this.prisma.user.count({ where: { role: 'customer' } }),
@@ -220,7 +256,9 @@ export class AdminService {
         this.prisma.shipmentRequest.count({ where: { status: 'entregado' } }),
       ]);
 
-    const pnl = isSuperAdmin ? await this.pnl() : null;
+    const periodFrom = period.gte?.toISOString();
+    const periodTo = period.lte?.toISOString();
+    const pnl = isSuperAdmin ? await this.pnl(periodFrom, periodTo) : null;
     const invValue = isSuperAdmin ? await this.inventoryValue() : null;
     const custody = isSuperAdmin ? await this.custodyValue() : null;
 

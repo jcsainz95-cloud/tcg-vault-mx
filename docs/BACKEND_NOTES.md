@@ -113,9 +113,18 @@ npm run build     # nest build → dist/
 - **Precio de venta** = `round(referencia × (1 + salesMarkupPct/100))` (dial `sales_markup_pct`, default 15%),
   o `listPriceCents` override. El **valor de mercado** mostrado y la valuación de portafolio usan la
   **referencia** pura.
-- **Titularidad:** compra ⇒ `ownerType=customer, ownershipStatus=pending, status=in_custody`; webhook
-  `succeeded` ⇒ `settled`; `dispute.created` ⇒ revierte a plataforma (`listed`), `Order=chargeback`,
-  movimiento `chargeback_return`. Todo transaccional con `InventoryMovement`.
+- **Titularidad / reserva (ARCHITECTURE §8):** checkout ⇒ **reserva ATÓMICA** con
+  `status=reserved, ownerType=customer, ownershipStatus=pending` vía `updateMany` con guardia de estado
+  vendible + `count===1` (evita doble venta de pieza única; el 2º checkout concurrente recibe
+  `ITEM_UNAVAILABLE`). Webhook `succeeded` ⇒ `reserved → in_custody`, `ownershipStatus=settled`.
+  `payment_failed` ⇒ `reserved → listed` (libera). `dispute.created` ⇒ revierte a plataforma (`listed`),
+  `Order=chargeback`, movimiento `chargeback_return`. Todo transaccional con `InventoryMovement`.
+- **Diales M10 validados:** `PUT /admin/settings` valida cada dial por tipo+rango (p. ej.
+  `stripe_fee_pct ∈ [0,1)`, porcentajes ≥ 0, cents enteros ≥ 0) y **rechaza keys desconocidas** con `422`
+  (validación "todo o nada"). Evita que un dial mal escrito rompa la matemática de `money.ts`.
+- **Reportes por periodo:** `pnl` (órdenes por `settledAt`, envíos por `pickingAt`), `launchMetrics`
+  (ventas `settledAt`, buylist `paidAt`, retiros `deliveredAt`) y `dashboard` (tarjetas de periodo con
+  `from/to` opcionales; default = mes calendario UTC en curso) acotan realmente por fecha.
 - **Precio pendiente (transversal):** si no hay referencia y no hay override, se crea `PendingPriceEntry`
   (una abierta por combinación) y **nunca se descarta** la carta. Aplica a catálogo/portafolio/buylist/
   inventario (aportación en especie sin referencia ⇒ `422 PRICE_PENDING` + cola).

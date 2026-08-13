@@ -55,6 +55,46 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   },
 };
 
+const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
+
+function isInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && Number.isFinite(v);
+}
+function isNum(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * Validadores por dial (fix correctness #2). Cada uno devuelve un mensaje de error o
+ * `null` si es válido. Rangos coherentes con la matemática de `money.ts` para que un
+ * dial mal escrito NO rompa el checkout (NaN / división por cero / negativos).
+ */
+export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string | null> = {
+  [SettingKey.SHIPPING_FEE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.APORTACION_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
+  [SettingKey.IVA_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
+  [SettingKey.SALES_MARKUP_PCT]: (v) => (isNum(v) && v >= 0 ? null : 'must be a number >= 0'),
+  // stripe_fee_pct es una FRACCIÓN en [0,1); si fuera >= 1 el gross-up dividiría por <= 0.
+  [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),
+  [SettingKey.STRIPE_FEE_FIXED_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.INE_THRESHOLD_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.REPO_CAP_PER_CARD_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  [SettingKey.FX_BUFFER_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
+  // override de FX: null (sin override) o un tipo de cambio positivo.
+  [SettingKey.FX_MANUAL_OVERRIDE_RATE]: (v) =>
+    v === null || (isNum(v) && v > 0) ? null : 'must be null or a number > 0',
+  [SettingKey.PRICING_PROVIDER_RAW]: (v) =>
+    typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
+  [SettingKey.PRICING_PROVIDER_GRADED]: (v) =>
+    typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
+  [SettingKey.PRICING_PROVIDER_SEALED]: (v) =>
+    typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
+  [SettingKey.RARITY_MAP]: (v) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) ? null : 'must be an object map',
+};
+
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
 export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   shippingFeeCents: SettingKey.SHIPPING_FEE_CENTS,

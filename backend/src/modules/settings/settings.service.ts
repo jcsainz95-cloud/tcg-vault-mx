@@ -1,7 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeFeeConfig } from '../../common/money';
-import { SETTING_DEFAULTS, SETTING_DTO_MAP, SettingKey, SettingKeyType } from './settings.constants';
+import { BusinessException } from '../../common/business.exception';
+import {
+  SETTING_DEFAULTS,
+  SETTING_DTO_MAP,
+  SETTING_VALIDATORS,
+  SettingKey,
+  SettingKeyType,
+} from './settings.constants';
 
 /**
  * SettingsService — Lectura/escritura de los diales M10 (ConfigSetting).
@@ -43,15 +50,40 @@ export class SettingsService {
     return dto;
   }
 
-  /** Actualiza uno o varios diales (upsert). Devuelve los cambios aplicados. */
+  /**
+   * Actualiza uno o varios diales (upsert). Devuelve los cambios aplicados.
+   * Fix correctness #2: valida CADA dial por tipo+rango antes de persistir y RECHAZA
+   * keys desconocidas con 422 (antes se ignoraban en silencio). La validación es
+   * "todo o nada": si algún valor es inválido, no se escribe ninguno.
+   */
   async update(
     dtoPartial: Record<string, unknown>,
     actorUserId?: string,
   ): Promise<Record<string, unknown>> {
-    const applied: Record<string, unknown> = {};
+    const errors: Record<string, string> = {};
+    const validated: { dtoKey: string; settingKey: SettingKeyType; value: unknown }[] = [];
+
     for (const [dtoKey, value] of Object.entries(dtoPartial)) {
       const settingKey = SETTING_DTO_MAP[dtoKey];
-      if (!settingKey) continue;
+      if (!settingKey) {
+        errors[dtoKey] = 'unknown setting key';
+        continue;
+      }
+      const validate = SETTING_VALIDATORS[settingKey];
+      const msg = validate ? validate(value) : null;
+      if (msg) {
+        errors[dtoKey] = msg;
+        continue;
+      }
+      validated.push({ dtoKey, settingKey, value });
+    }
+
+    if (Object.keys(errors).length > 0) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid settings payload', { errors });
+    }
+
+    const applied: Record<string, unknown> = {};
+    for (const { dtoKey, settingKey, value } of validated) {
       await this.prisma.configSetting.upsert({
         where: { key: settingKey },
         create: { key: settingKey, valueJson: value as object, updatedBy: actorUserId },

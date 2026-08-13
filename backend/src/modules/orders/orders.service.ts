@@ -111,11 +111,24 @@ export class OrdersService {
       ? await this.prisma.billingProfile.findFirst({ where: { id: billingProfileId, userId } })
       : await this.prisma.billingProfile.findUnique({ where: { userId } });
 
-    // Reserva transaccional + creación de Order pending; items a customer/pending/in_custody.
+    // Reserva ATÓMICA de cada pieza única + creación de la Order pending (ARCHITECTURE §8).
+    // Se usa updateMany con guardia de estado vendible (listed/in_stock) y se exige
+    // count===1: si dos checkouts concurrentes compiten por el mismo item, solo uno gana
+    // la transición a `reserved`; el otro recibe ITEM_UNAVAILABLE. Transición de estados:
+    //   listed/in_stock → reserved (aquí) → in_custody (settle) | listed (pago falla/contracargo).
     const order = await this.prisma.$transaction(async (tx) => {
       for (const item of items) {
-        const fresh = await tx.inventoryItem.findUnique({ where: { id: item.id } });
-        if (!fresh || !['listed', 'in_stock'].includes(fresh.status)) {
+        const reserved = await tx.inventoryItem.updateMany({
+          where: { id: item.id, status: { in: ['listed', 'in_stock'] } },
+          data: {
+            status: 'reserved',
+            ownerType: 'customer',
+            ownerUserId: userId,
+            ownershipStatus: 'pending',
+          },
+        });
+        if (reserved.count !== 1) {
+          // Otro checkout ya reservó/vendió esta pieza (o cambió de estado).
           throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
         }
       }
@@ -133,17 +146,6 @@ export class OrdersService {
           items: { create: orderItemsData },
         },
       });
-      for (const item of items) {
-        await tx.inventoryItem.update({
-          where: { id: item.id },
-          data: {
-            status: 'in_custody',
-            ownerType: 'customer',
-            ownerUserId: userId,
-            ownershipStatus: 'pending',
-          },
-        });
-      }
       return created;
     });
 

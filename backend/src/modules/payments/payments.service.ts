@@ -92,15 +92,16 @@ export class PaymentsService {
         for (const oi of order.items) {
           const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
           if (!item) continue;
+          // Transición de reserva a custodia liquidada: reserved → in_custody, settled.
           await tx.inventoryItem.update({
             where: { id: oi.inventoryItemId },
-            data: { ownershipStatus: 'settled' },
+            data: { status: 'in_custody', ownershipStatus: 'settled' },
           });
           await tx.inventoryMovement.create({
             data: {
               itemId: oi.inventoryItemId,
               fromStatus: item.status,
-              toStatus: item.status,
+              toStatus: 'in_custody',
               reason: MovementReason.settle,
               note: `order ${order.id} settled`,
             },

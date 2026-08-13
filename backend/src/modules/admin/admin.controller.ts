@@ -163,7 +163,11 @@ export class AdminDashboardController {
   constructor(private readonly admin: AdminService) {}
 
   @Get()
-  dashboard(@CurrentUser('role') role: Role) {
-    return this.admin.dashboard(role);
+  dashboard(
+    @CurrentUser('role') role: Role,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.admin.dashboard(role, from, to);
   }
 }
