@@ -180,14 +180,17 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 
 **Catálogo y precio**
 1. Un visitante puede navegar el catálogo y filtrar por al menos set, rareza y condición.
-2. Una ficha de carta muestra el precio de referencia en MXN derivado de TCGPlayer/pokemontcg.io, con
-   fecha del último refresco; el refresco ocurre al menos una vez al día.
+2. Una ficha de carta muestra el precio de referencia en MXN (sin IVA) según la fuente que corresponde a
+   su tipo de producto —pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas y
+   sellado, con override manual como respaldo—, con fecha del último refresco; el refresco (cache diario)
+   ocurre al menos una vez al día y solo cubre las cartas en bóveda.
 3. Una carta sin precio en la web de referencia se muestra como **"precio pendiente"** y NO se puede
    comprar hasta que el dueño le fija precio a mano.
 
 **Compra y bóveda**
-4. Un comprador puede pagar con Stripe; el checkout muestra una **línea explícita** con el costo de
-   procesamiento trasladado, y el total cobrado incluye ese costo.
+4. Un comprador puede pagar con Stripe; el checkout muestra una **línea explícita de costo de
+   procesamiento trasladado** y una **línea explícita de IVA 16%** (además del subtotal), y el total
+   cobrado incluye ambas.
 5. Tras un pago exitoso, la carta aparece en la bóveda del comprador con titularidad `pending` y
    cambia a `settled` cuando el pago se liquida.
 6. Un usuario NO tiene saldo/wallet en ninguna vista; todo se maneja por transacción.
@@ -200,8 +203,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
    rompen el cálculo (se excluyen o marcan claramente).
 
 **Retiro / envío**
-9. Un usuario puede solicitar el retiro de 1 o más cartas `settled` sin mínimo de cantidad; el sistema
-   cobra una **tarifa fija de envío** al comprador antes de generar la solicitud.
+9. Un usuario puede solicitar el retiro de 1 o más cartas `settled` sin mínimo de cantidad, **a cualquier
+   dirección nacional (México)**; el sistema cobra una **tarifa fija de envío** (default **MX$175**,
+   tomada de M10) al comprador antes de generar la solicitud.
 10. Una carta `pending` NO puede incluirse en una solicitud de retiro.
 11. El admin/operador puede capturar un número de guía y la solicitud avanza por los estados
     `solicitado → picking → guía → enviado → entregado`.
@@ -211,9 +215,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     MX$1.50, EX o superior = 40% del precio de referencia.
 13. Una carta de buylist sin precio de referencia entra a la **cola de precio pendiente** y no se cotiza
     automáticamente hasta que el dueño fija su precio.
-14. El sistema bloquea solicitudes que excedan el **tope por solicitud** o el **tope mensual** del usuario,
-    exige **INE** cuando se supera el tope configurado, y solo permite registrar pago SPEI a una CLABE a
-    nombre del propio usuario.
+14. El sistema bloquea solicitudes que excedan el **tope por solicitud** (default MX$3,000) o el **tope
+    mensual** (default MX$10,000) del usuario, exige **INE** cuando se supera el tope configurado, y solo
+    permite registrar pago SPEI a una CLABE a nombre del propio usuario.
 15. En el pipeline de buylist el dueño puede **aceptar carta por carta** (cherry-pick), ajustar o
     rechazar, y una carta aprobada se **convierte a inventario en un clic**.
 16. Una solicitud de buylist sin respuesta del usuario a un ajuste se **rechaza a los 7 días**; una
@@ -222,13 +226,16 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 **Back-office (M1–M10) y roles**
 17. En M1, cada item físico tiene **folio legible** (ej. `INV-000123`), **fotos anverso/reverso**,
     **ubicación CAJA/FILA/SLOT** y un **historial de movimientos**; se puede marcar pérdida/daño.
-18. En M2 se puede sincronizar precios desde pokemontcg.io, hacer **override manual**, y configurar el
-    **tipo de cambio USD→MXN con colchón** y la **tabla rareza→categoría de buylist**.
+18. En M2 se puede sincronizar precios de las cartas en bóveda desde la fuente que corresponde a cada tipo
+    (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas y sellado), hacer
+    **override manual** siempre, y configurar el **tipo de cambio USD→MXN con colchón**, la **tabla
+    rareza→categoría de buylist** y el **`PricingProvider`** por tipo de producto.
 19. En M3 una orden refleja los estados `pending/settled/fallida/reembolsada/contracargo` con desglose
     que incluye la **línea de Stripe**, y el súper-admin puede emitir un **reembolso**.
 20. En M4 existe una **lista de picking ordenada por ubicación**.
-21. En M7 el P&L calcula **ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia**, y
-    muestra **valor de inventario (a referencia y a costo)** y **valor en custodia de clientes**, con **export CSV**.
+21. En M7 el P&L calcula **ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia**, muestra
+    **valor de inventario (a referencia y a costo)**, **valor en custodia de clientes** y el **IVA cobrado**
+    (para conciliación/CFDI), con **export CSV**.
 22. En M8, ante una disputa de condición, el admin ve un **comparador de fotos (ingreso vs reclamo)** y
     puede ejecutar la **recompra** como remedio.
 23. En M10 existe una **bitácora de auditoría global** (quién/qué/cuándo) y los **diales/config se editan
@@ -244,11 +251,14 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 
 **Inventario inicial**
 28. El alta de una carta propia calcula su costo como **precio de referencia del día × % configurable**
-    (default ej. 70%), el % es editable, y el registro queda marcado como **"aportación en especie"**.
+    (default **70%**), el % es editable, y el registro queda marcado como **"aportación en especie"**.
 
 **Transversal — valuación**
 29. En cualquier módulo (buylist, inventario, portafolio), una carta sin precio en la web nunca se
     descarta: se marca "precio pendiente" y se **escala al dueño** para fijarlo a mano.
+30. El checkout genera/registra los datos necesarios para **facturación CFDI** del IVA cobrado, y ese IVA
+    queda disponible en M7 para conciliación.
+31. La aplicación **rechaza direcciones de envío/retiro fuera de México** (solo nacional en el MVP).
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -258,9 +268,13 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Fiscal — buylist**: comprar cartas a particulares y pagar por SPEI tiene implicaciones fiscales
   (comprobación, retenciones, límites). Validar con contador; los topes por solicitud/mes y el requisito
   de INE son mitigaciones iniciales, no una postura fiscal completa.
-- **ToS de las APIs de precio**: revisar los **términos de uso de pokemontcg.io / TCGPlayer** (y
-  PriceCharting) para confirmar que está permitido mostrar precios de referencia y valuar portafolios
-  comercialmente, y bajo qué atribución/límites de rate.
+- **Fiscal — IVA/CFDI**: cobrar IVA 16% obliga a **emitir CFDI** y a manejar régimen fiscal, RFC del
+  cliente y timbrado (PAC). Validar con contador el flujo de facturación y el momento de emisión; el MVP
+  debe al menos **registrar el IVA cobrado y los datos de facturación**.
+- **ToS de las APIs de precio**: revisar los **términos de uso de pokemontcg.io / TCGPlayer**,
+  **PokemonPriceTracker** y **PokeTrace** para confirmar que está permitido mostrar precios de referencia y
+  valuar portafolios comercialmente, bajo qué atribución y **respetando los límites de rate del free tier**
+  (100/día y 250/día respectivamente); el diseño ya mitiga esto priciando solo la bóveda + cache diario.
 - **Fiscal/legal — valuación en MXN a mercado**: confirmar que mostrar valor de portafolio a clientes no
   crea expectativa contractual de recompra a ese valor (más allá del remedio de recompra ya definido).
 
@@ -273,21 +287,23 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 - El back-office opera el ciclo completo (compra → bóveda → retiro y cotización → recepción → pago) sin
   intervención fuera de la herramienta.
 
-## Preguntas abiertas para el humano
-> Ambigüedades reales no cubiertas por las decisiones cerradas. No se asumen; se preguntan.
-1. **Parámetros de lanzamiento N/X/Y/Z**: ¿qué valores concretos definen "lanzado" (usuarios, ventas,
-   buylist aprobadas, retiros sin disputa) y en qué ventana exacta (30 o 60 días)?
-2. **Límite de almacenamiento gratis**: ¿cuál es el límite declarado del MVP — **meses** (ej. 12),
-   **tope de cartas por usuario**, o ambos? Definir el número exacto.
-3. **Tarifa fija de envío**: ¿monto exacto dentro del rango MX$150–200 y qué cubre el seguro (tope de
-   valor asegurado por paquete)?
-4. **Tope por carta en pérdida/daño**: ¿cuál es el monto/regla del tope de reposición por carta?
-5. **% de costo de aportación en especie**: ¿el default es 70% u otro valor de arranque?
-6. **Topes de buylist e INE**: confirmar montos definitivos (¿MX$3,000 por solicitud, MX$10,000/mes,
-   INE sobre qué umbral exacto?).
-7. **PriceCharting en MVP**: ¿se incluye desde el inicio para gradeada/sellado, o se pospone y el
-   sellado se precia 100% por override manual?
-8. **Alcance geográfico y de envío**: ¿el envío/retiro es solo nacional (México) en el MVP? ¿Aplica a
-   todo el país o a zonas específicas?
-9. **Impuestos al comprador**: ¿el precio y checkout deben incluir/desglosar **IVA** u otros impuestos,
-   o el precio de referencia se muestra tal cual sin impuestos?
+## Decisiones tomadas (antes preguntas abiertas)
+> Las 9 preguntas del borrador previo quedaron resueltas por el humano y ya están integradas arriba.
+> Se conservan aquí como registro de decisión.
+1. **Impuestos/IVA** → precios **sin IVA**; **IVA 16%** como línea aparte en checkout, incluido en el total;
+   implica **CFDI** (bandera fiscal + requisito de checkout y M7).
+2. **Alcance geográfico** → **solo nacional (todo México)** en MVP; internacional es fase 2.
+3. **Almacenamiento en bóveda** → **sin límite explícito** en MVP; solo se declara en términos el derecho
+   genérico a cobrar custodia en fase 2.
+4. **Fuentes de precio** → MVP 100% free: pokemontcg.io (raw/singles) + PokemonPriceTracker/PokeTrace
+   (gradeadas y sellado) + override manual; solo se prician cartas en bóveda con cache diario;
+   **PriceCharting fuera del MVP**; `PricingProvider` intercambiable para escalar a plan de pago.
+5. **Tarifa de envío** → default **MX$175** (configurable en M10).
+6. **Costo de aportación en especie** → default **70%** (configurable).
+7. **Topes de buylist** → **MX$3,000/solicitud**, **MX$10,000/mes**, **INE sobre el tope** (configurables).
+8. **Tope de reposición por carta** → **configurable por el dueño** en M10.
+
+## Único pendiente no bloqueante
+- **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
+  ventas `settled`, buylist aprobadas/pagadas, retiros sin disputa, ventana 30–60 días). No bloquean el
+  desarrollo del MVP.
