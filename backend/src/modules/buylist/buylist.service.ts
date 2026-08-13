@@ -6,6 +6,8 @@ import { PricingService } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
+import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
+import { maskClabe } from '../../common/crypto/pii-mask';
 import { quoteAcquisition } from '../../common/money';
 
 interface QuoteItemInput {
@@ -22,6 +24,7 @@ export class BuylistService {
     private readonly pricing: PricingService,
     private readonly settings: SettingsService,
     private readonly users: UsersService,
+    private readonly pii: PiiCryptoService,
   ) {}
 
   /** Cotizador público (stateless). API_CONTRACT §6. */
@@ -72,8 +75,10 @@ export class BuylistService {
       throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
     }
     // La CLABE debe estar a nombre del propio usuario: se valida contra la KYC declarada.
+    // SEC/PII: el match se hace por BLIND INDEX (HMAC), SIN descifrar la CLABE almacenada.
     const kyc = await this.prisma.kycProfile.findUnique({ where: { userId } });
-    if (kyc?.clabe && kyc.clabe !== clabe) {
+    const incomingHmac = this.pii.clabeBlindIndex(clabe);
+    if (kyc?.clabeHmac && !this.pii.blindIndexEquals(kyc.clabeHmac, incomingHmac)) {
       throw BusinessException.validation(
         'CLABE_NOT_OWN_NAME',
         'CLABE must match the one on file (own name)',
@@ -146,18 +151,21 @@ export class BuylistService {
       });
     }
 
-    // Persiste CLABE/INE en KYC declarada.
+    // Persiste CLABE/INE en KYC declarada. CLABE cifrada en reposo + blind index.
+    const clabeEnc = this.pii.encrypt(clabe);
     await this.prisma.kycProfile.upsert({
       where: { userId },
       create: {
         userId,
-        clabe,
+        clabeEnc,
+        clabeHmac: incomingHmac,
         ineFrontKey: ineUploadKeys?.front,
         ineBackKey: ineUploadKeys?.back,
         kycStatus: 'pending',
       },
       update: {
-        clabe,
+        clabeEnc,
+        clabeHmac: incomingHmac,
         ...(ineUploadKeys?.front ? { ineFrontKey: ineUploadKeys.front } : {}),
         ...(ineUploadKeys?.back ? { ineBackKey: ineUploadKeys.back } : {}),
       },
@@ -183,7 +191,7 @@ export class BuylistService {
             userId,
             status: 'cotizada',
             quotedTotalCents,
-            clabeSnapshot: clabe,
+            clabeSnapshotEnc: clabeEnc,
             ineRequired,
             ineProvided,
             items: { create: itemsData },
@@ -308,7 +316,29 @@ export class BuylistService {
       include: { items: { include: { card: true } } },
     });
     if (!req) throw BusinessException.notFound();
-    return req;
+    // La CLABE cifrada NUNCA se expone en la vista de detalle; solo por el reveal dedicado.
+    const { clabeSnapshotEnc: _enc, ...safe } = req;
+    return { ...safe, clabeMasked: maskClabe(this.pii.decryptOptional(_enc)) };
+  }
+
+  /**
+   * Reveal on-demand de la CLABE COMPLETA (18 dígitos) para ejecutar el pago SPEI.
+   * Marcado @MoneyOut (solo super_admin) y AUDITADO en el controller. Descifra el
+   * snapshot cifrado de la solicitud (o, en su defecto, la CLABE de KYC). No enmascara:
+   * es el único punto del sistema que devuelve la CLABE en claro, para copiarla a la banca.
+   */
+  async revealClabe(id: string): Promise<{ sellRequestId: string; clabe: string }> {
+    const req = await this.prisma.sellRequest.findUnique({ where: { id } });
+    if (!req) throw BusinessException.notFound();
+    let clabe = this.pii.decryptOptional(req.clabeSnapshotEnc);
+    if (!clabe) {
+      const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: req.userId } });
+      clabe = this.pii.decryptOptional(kyc?.clabeEnc);
+    }
+    if (!clabe) {
+      throw BusinessException.notFound('NOT_FOUND', 'No CLABE on file for this request');
+    }
+    return { sellRequestId: id, clabe };
   }
 
   async receive(id: string) {

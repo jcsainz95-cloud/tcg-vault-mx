@@ -1,6 +1,8 @@
+import { ConfigService } from '@nestjs/config';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 
 /**
  * Fix correctness #3: los reportes "del periodo" respetan el rango de fechas por su
@@ -32,7 +34,11 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
       user: { count: jest.fn().mockResolvedValue(0) },
       inventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new AdminService(prisma as unknown as PrismaService, {} as PricingService);
+    service = new AdminService(
+      prisma as unknown as PrismaService,
+      {} as PricingService,
+      new PiiCryptoService(new ConfigService({})),
+    );
   });
 
   it('pnl scopes BOTH orders (settledAt) and shipments (pickingAt) by the period', async () => {

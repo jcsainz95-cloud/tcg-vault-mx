@@ -209,8 +209,12 @@ model KycProfile {
   userId                    String    @unique
   user                      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   legalName                 String?
-  rfc                       String?
-  clabe                     String?
+  // PII cifrada en reposo (AES-256-GCM, formato `v1:iv:tag:ct`). Ver PiiCryptoService.
+  rfcEnc                    String?
+  clabeEnc                  String?
+  // Blind index (HMAC-SHA256) de la CLABE normalizada: permite el match "a nombre propio"
+  // (CLABE_NOT_OWN_NAME) y detectar CLABE compartida entre cuentas SIN descifrar.
+  clabeHmac                 String?
   ineFrontKey               String?
   ineBackKey                String?
   kycStatus                 KycStatus @default(none)
@@ -220,13 +224,16 @@ model KycProfile {
   verifiedAt                DateTime?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
+
+  @@index([clabeHmac])
 }
 
 model BillingProfile {
   id             String   @id @default(uuid())
   userId         String   @unique
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rfc            String
+  // RFC cifrado en reposo (AES-256-GCM). Ver PiiCryptoService.
+  rfcEnc         String
   razonSocial    String
   regimenFiscal  String
   usoCfdi        String
@@ -503,7 +510,8 @@ model SellRequest {
   status            SellRequestStatus @default(cotizada)
   quotedTotalCents  Int               @default(0)
   approvedTotalCents Int?
-  clabeSnapshot     String?
+  // Snapshot de CLABE cifrado en reposo (AES-256-GCM). Reveal on-demand para pagar SPEI.
+  clabeSnapshotEnc  String?
   ineRequired       Boolean           @default(false)
   ineProvided       Boolean           @default(false)
   speiReference     String?

@@ -37,6 +37,27 @@ export class AdminBuylistController {
     return this.buylist.adminGet(id);
   }
 
+  /**
+   * Reveal on-demand de la CLABE COMPLETA (18 dígitos) para copiarla a la banca al hacer
+   * el SPEI. SOLO `super_admin` (@MoneyOut) y AUDITADO en AuditLog (quién/cuándo/qué
+   * solicitud). Es el ÚNICO endpoint que devuelve la CLABE en claro; el resto enmascara.
+   * Solicitud de contrato al arquitecto (ver docs/BACKEND_NOTES.md).
+   */
+  @Get(':id/reveal-clabe')
+  @Roles(Role.super_admin)
+  @MoneyOut()
+  async revealClabe(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    const res = await this.buylist.revealClabe(id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.reveal_clabe',
+      entityType: 'SellRequest',
+      entityId: id,
+    });
+    return res;
+  }
+
   @Post(':id/receive')
   async receive(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     const res = await this.buylist.receive(id);

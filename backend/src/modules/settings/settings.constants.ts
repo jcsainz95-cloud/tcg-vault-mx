@@ -19,6 +19,10 @@ export const SettingKey = {
   PRICING_PROVIDER_GRADED: 'pricing_provider_graded',
   PRICING_PROVIDER_SEALED: 'pricing_provider_sealed',
   RARITY_MAP: 'rarity_map',
+  // Retención de INE (días desde el cierre/pago de la solicitud) antes de purgar imágenes.
+  // Dial interno (LFPDPPP): NO se expone en el DTO de M10 hasta que el arquitecto lo
+  // formalice en el contrato (ver docs/BACKEND_NOTES.md).
+  INE_RETENTION_DAYS: 'ine_retention_days',
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -40,6 +44,7 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.PRICING_PROVIDER_RAW]: 'pokemontcg_io',
   [SettingKey.PRICING_PROVIDER_GRADED]: 'pokemonpricetracker',
   [SettingKey.PRICING_PROVIDER_SEALED]: 'pokemonpricetracker',
+  [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.RARITY_MAP]: {
     Common: 'comun',
     Uncommon: 'comun',
@@ -93,6 +98,7 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
   [SettingKey.RARITY_MAP]: (v) =>
     v !== null && typeof v === 'object' && !Array.isArray(v) ? null : 'must be an object map',
+  [SettingKey.INE_RETENTION_DAYS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (days)'),
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */

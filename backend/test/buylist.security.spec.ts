@@ -1,9 +1,13 @@
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
+import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+
+const pii = new PiiCryptoService(new ConfigService({}));
 
 /**
  * Pruebas de seguridad de buylist:
@@ -72,6 +76,7 @@ describe('BuylistService.createRequest — SEC-A1 categoría derivada del servid
       buildPricing(1_000_000), // referencia alta: ex_plus daría 400,000c
       buildSettings(100_000_000),
       {} as UsersService,
+      pii,
     );
 
     const res = await svc.createRequest(
@@ -102,7 +107,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
         return cb(prisma);
       }),
     };
-    const svc = new BuylistService(prisma as PrismaService, buildPricing(null), buildSettings(100_000_000), {} as UsersService);
+    const svc = new BuylistService(prisma as PrismaService, buildPricing(null), buildSettings(100_000_000), {} as UsersService, pii);
     await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any, category: 'comun' as any }], VALID_CLABE);
 
     expect(txOpts?.isolationLevel).toBe(Prisma.TransactionIsolationLevel.Serializable);
@@ -127,7 +132,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
         $transaction: jest.fn(async (cb: any) => cb(prisma)),
       };
       // Tope mensual = 80c; cada solicitud común = 50c → la segunda (50+50=100) excede.
-      return new BuylistService(prisma as PrismaService, buildPricing(null), buildSettings(80), {} as UsersService);
+      return new BuylistService(prisma as PrismaService, buildPricing(null), buildSettings(80), {} as UsersService, pii);
     }
 
     const item = [{ cardId: 'c', productType: 'raw' as any, category: 'comun' as any }];
@@ -175,7 +180,7 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
       },
       inventoryMovement: { create: jest.fn() },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
 
     const res1 = await svc.convertToInventory('sri-1', 'actor');
     const res2 = await svc.convertToInventory('sri-1', 'actor');
@@ -197,7 +202,7 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
         update: jest.fn(),
       },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
     expect(res).toMatchObject({ status: 'pagada' });
     expect(prisma.sellRequest.updateMany).not.toHaveBeenCalled();
@@ -213,7 +218,7 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService);
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
     expect(res).toMatchObject({ status: 'pagada' });
     const call = prisma.sellRequest.updateMany.mock.calls[0][0];

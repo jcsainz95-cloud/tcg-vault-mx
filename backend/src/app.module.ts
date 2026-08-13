@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
+import { CryptoModule } from './common/crypto/crypto.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -33,6 +34,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     // añadir storage compartido (Redis) y `trust proxy` en el borde (ver DEVOPS_NOTES).
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
     PrismaModule,
+    CryptoModule,
     AuditModule,
     SettingsModule,
     PaymentsModule,

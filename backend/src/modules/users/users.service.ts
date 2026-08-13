@@ -3,6 +3,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
+import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
+import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import {
   AddressDto,
   BillingProfileDto,
@@ -21,6 +23,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
+    private readonly pii: PiiCryptoService,
   ) {}
 
   async me(userId: string) {
@@ -94,15 +97,22 @@ export class UsersService {
   // ---------------- Billing profile (CFDI) ----------------
 
   async getBillingProfile(userId: string) {
-    return this.prisma.billingProfile.findUnique({ where: { userId } });
+    const bp = await this.prisma.billingProfile.findUnique({ where: { userId } });
+    if (!bp) return null;
+    // El RFC va cifrado en reposo; en la vista se devuelve ENMASCARADO (nunca en claro).
+    const { rfcEnc, ...rest } = bp;
+    return { ...rest, rfc: maskRfc(this.pii.decryptOptional(rfcEnc)) };
   }
 
   async putBillingProfile(userId: string, dto: BillingProfileDto) {
-    return this.prisma.billingProfile.upsert({
+    const { rfc, ...rest } = dto;
+    const rfcEnc = this.pii.encrypt(rfc);
+    await this.prisma.billingProfile.upsert({
       where: { userId },
-      create: { ...dto, userId },
-      update: dto,
+      create: { ...rest, rfcEnc, userId },
+      update: { ...rest, rfcEnc },
     });
+    return this.getBillingProfile(userId);
   }
 
   // ---------------- KYC ----------------
@@ -118,7 +128,8 @@ export class UsersService {
     const monthUsedCents = await this.monthUsedCents(userId);
     return {
       kycStatus: kyc?.kycStatus ?? 'none',
-      clabe: kyc?.clabe ?? undefined,
+      // CLABE cifrada en reposo → se devuelve ENMASCARADA (`****1234`), nunca en claro.
+      clabe: maskClabe(this.pii.decryptOptional(kyc?.clabeEnc)),
       ineOnFile: Boolean(kyc?.ineFrontKey && kyc?.ineBackKey),
       capPerRequestCents,
       capPerMonthCents,
@@ -147,7 +158,11 @@ export class UsersService {
       throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
     }
     const data: Record<string, unknown> = {};
-    if (dto.clabe) data.clabe = dto.clabe;
+    if (dto.clabe) {
+      // Cifra la CLABE en reposo y guarda su blind index (para el match a nombre propio).
+      data.clabeEnc = this.pii.encrypt(dto.clabe);
+      data.clabeHmac = this.pii.clabeBlindIndex(dto.clabe);
+    }
     if (dto.ineFrontUploadKey) data.ineFrontKey = dto.ineFrontUploadKey;
     if (dto.ineBackUploadKey) data.ineBackKey = dto.ineBackUploadKey;
     await this.prisma.kycProfile.upsert({

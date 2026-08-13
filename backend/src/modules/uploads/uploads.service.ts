@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
 
@@ -56,5 +61,14 @@ export class UploadsService {
     const bucket = this.config.get<string>('S3_BUCKET') ?? 'tcg-photos';
     const command = new GetObjectCommand({ Bucket: bucket, Key: key });
     return getSignedUrl(this.s3, command, { expiresIn });
+  }
+
+  /**
+   * Borra un objeto del bucket (retención de PII: purga de imágenes de INE vencidas).
+   * DELETE de S3/MinIO es idempotente: borrar una key inexistente no falla.
+   */
+  async deleteObject(key: string): Promise<void> {
+    const bucket = this.config.get<string>('S3_BUCKET') ?? 'tcg-photos';
+    await this.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   }
 }

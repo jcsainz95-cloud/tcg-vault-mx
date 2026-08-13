@@ -1,13 +1,21 @@
+import { ConfigService } from '@nestjs/config';
 import { Role } from '@prisma/client';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { maskRfc } from '../src/common/crypto/pii-mask';
 
 /**
- * SEC-A4: segregación de funciones. El `vault_operator` NO debe ver PII bancaria/fiscal/
- * identidad (CLABE/RFC/INE). Recibe una ficha reducida; el `super_admin`, la completa.
+ * SEC-A4 + endurecimiento PII: la CLABE/RFC viven CIFRADOS en reposo y en la ficha 360°
+ * se devuelven SIEMPRE enmascarados (nunca en claro), incluso para `super_admin`. El
+ * `vault_operator` recibe una ficha aún más reducida (sin RFC ni INE keys, sin billing).
  */
-describe('AdminService.getUser — SEC-A4 proyección de PII por rol', () => {
+describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
+  const pii = new PiiCryptoService(new ConfigService({}));
+  const CLABE = '012345678901234567';
+  const RFC = 'XAXX010101000';
+
   function buildService() {
     const prisma: any = {
       user: {
@@ -21,8 +29,9 @@ describe('AdminService.getUser — SEC-A4 proyección de PII por rol', () => {
             id: 'k1',
             userId: 'u1',
             legalName: 'Cliente Legal',
-            rfc: 'XAXX010101000',
-            clabe: '012345678901234567',
+            rfcEnc: pii.encrypt(RFC),
+            clabeEnc: pii.encrypt(CLABE),
+            clabeHmac: pii.clabeBlindIndex(CLABE),
             ineFrontKey: 'kyc_ine/2026/front.jpg',
             ineBackKey: 'kyc_ine/2026/back.jpg',
             kycStatus: 'verified',
@@ -30,7 +39,7 @@ describe('AdminService.getUser — SEC-A4 proyección de PII por rol', () => {
             capPerMonthCentsOverride: null,
             verifiedAt: new Date(),
           },
-          billingProfile: { id: 'b1', userId: 'u1', rfc: 'XAXX010101000', razonSocial: 'ACME' },
+          billingProfile: { id: 'b1', userId: 'u1', rfcEnc: pii.encrypt(RFC), razonSocial: 'ACME' },
           addresses: [],
           orders: [],
           sellRequests: [],
@@ -39,16 +48,21 @@ describe('AdminService.getUser — SEC-A4 proyección de PII por rol', () => {
         }),
       },
     };
-    return { prisma, service: new AdminService(prisma as PrismaService, {} as PricingService) };
+    return {
+      prisma,
+      service: new AdminService(prisma as PrismaService, {} as PricingService, pii),
+    };
   }
 
-  it('vault_operator: sin CLABE completa (enmascarada), sin RFC ni INE keys, sin billingProfile', async () => {
+  it('vault_operator: CLABE enmascarada, sin RFC ni INE keys, sin billingProfile', async () => {
     const { service } = buildService();
     const res: any = await service.getUser('u1', Role.vault_operator);
 
-    // CLABE enmascarada (solo últimos 4).
     expect(res.kycProfile.clabe).toBe('**************4567');
     expect(res.kycProfile.clabe).not.toContain('012345678901');
+    // Nunca la CLABE cifrada ni el blind index.
+    expect(res.kycProfile.clabeEnc).toBeUndefined();
+    expect(res.kycProfile.clabeHmac).toBeUndefined();
     // INE nunca como keys; solo un booleano de presencia.
     expect(res.kycProfile.ineFrontKey).toBeUndefined();
     expect(res.kycProfile.ineBackKey).toBeUndefined();
@@ -56,20 +70,30 @@ describe('AdminService.getUser — SEC-A4 proyección de PII por rol', () => {
     // RFC (KYC y billing) oculto.
     expect(res.kycProfile.rfc).toBeUndefined();
     expect(res.billingProfile).toBeNull();
-    // Nunca el hash de password.
     expect(res.passwordHash).toBeUndefined();
-    // Sigue siendo una ficha útil (estado KYC, límites).
     expect(res.kycProfile.kycStatus).toBe('verified');
   });
 
-  it('super_admin: recibe la ficha completa (CLABE, RFC, INE keys, billingProfile)', async () => {
+  it('super_admin: CLABE y RFC ENMASCARADOS (nunca en claro), sin cifrado crudo', async () => {
     const { service } = buildService();
     const res: any = await service.getUser('u1', Role.super_admin);
 
-    expect(res.kycProfile.clabe).toBe('012345678901234567');
+    // CLABE/RFC enmascarados: el reveal en claro solo por el endpoint dedicado.
+    expect(res.kycProfile.clabe).toBe('**************4567');
+    expect(res.kycProfile.rfc).toBe(maskRfc(RFC));
+    expect(res.kycProfile.rfc).not.toBe(RFC);
+    // El texto cifrado y el blind index no se filtran.
+    expect(res.kycProfile.clabeEnc).toBeUndefined();
+    expect(res.kycProfile.rfcEnc).toBeUndefined();
+    expect(res.kycProfile.clabeHmac).toBeUndefined();
+    // INE keys visibles al super_admin (para servir la imagen por presigned GET).
     expect(res.kycProfile.ineFrontKey).toBe('kyc_ine/2026/front.jpg');
-    expect(res.kycProfile.rfc).toBe('XAXX010101000');
-    expect(res.billingProfile).toMatchObject({ rfc: 'XAXX010101000' });
+    // Billing con RFC enmascarado, sin rfcEnc crudo.
+    expect(res.billingProfile.rfc).toBe(maskRfc(RFC));
+    expect(res.billingProfile.rfcEnc).toBeUndefined();
     expect(res.passwordHash).toBeUndefined();
+    // En ninguna proyección aparece la CLABE en claro.
+    expect(JSON.stringify(res)).not.toContain(CLABE);
+    expect(JSON.stringify(res)).not.toContain(RFC);
   });
 });

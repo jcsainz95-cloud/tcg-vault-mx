@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
+import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
+import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
 
 function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
@@ -9,18 +11,12 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
   return { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) };
 }
 
-/** SEC-A4: enmascara la CLABE dejando solo los últimos 4 dígitos (ej. `**************5678`). */
-function maskClabe(clabe?: string | null): string | undefined {
-  if (!clabe) return undefined;
-  const last4 = clabe.slice(-4);
-  return `${'*'.repeat(Math.max(0, clabe.length - 4))}${last4}`;
-}
-
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
+    private readonly pii: PiiCryptoService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -45,11 +41,15 @@ export class AdminService {
   /**
    * Ficha 360° (compras, bóveda, buylist, disputas, KYC). API_CONTRACT §M6.
    *
+   * PII cifrada en reposo: la CLABE y el RFC se descifran y se devuelven SIEMPRE
+   * ENMASCARADOS (nunca en claro), incluso para `super_admin`. La CLABE en claro solo
+   * se obtiene por el endpoint dedicado `reveal-clabe` (money-out + auditado) al pagar SPEI.
+   *
    * SEC-A4: segregación de funciones. El `vault_operator` es un rol de menor confianza
    * (opera M1/M4/M5 hasta verificación; sin finanzas/config). NO debe ver PII bancaria/
-   * fiscal/identidad. Se le entrega una proyección REDUCIDA: sin CLABE/RFC/INE completos
-   * (CLABE enmascarada a los últimos 4; RFC e INE keys omitidos; billingProfile omitido).
-   * El `super_admin` recibe la ficha completa. ARCHITECTURE §7 (M6: operador ver limitado).
+   * fiscal/identidad. Se le entrega una proyección REDUCIDA: CLABE enmascarada; RFC e INE
+   * keys omitidos; billingProfile omitido. El `super_admin` ve CLABE/RFC enmascarados +
+   * INE keys (para servir la imagen por presigned GET) + billingProfile con RFC enmascarado.
    */
   async getUser(id: string, role?: Role) {
     const user = await this.prisma.user.findUnique({
@@ -66,20 +66,43 @@ export class AdminService {
     });
     if (!user) throw BusinessException.notFound();
     const { passwordHash: _pw, ...safe } = user;
+    const clabeMasked = maskClabe(this.pii.decryptOptional(safe.kycProfile?.clabeEnc));
 
-    if (role === Role.super_admin) return safe;
+    if (role === Role.super_admin) {
+      // super_admin: ficha completa PERO con CLABE/RFC enmascarados (nunca en claro).
+      return {
+        ...safe,
+        kycProfile: safe.kycProfile
+          ? (() => {
+              const { clabeEnc: _c, rfcEnc: _r, clabeHmac: _h, ...rest } = safe.kycProfile;
+              return {
+                ...rest,
+                clabe: clabeMasked,
+                rfc: maskRfc(this.pii.decryptOptional(_r)),
+                ineOnFile: Boolean(safe.kycProfile.ineFrontKey && safe.kycProfile.ineBackKey),
+              };
+            })()
+          : null,
+        billingProfile: safe.billingProfile
+          ? (() => {
+              const { rfcEnc: _r, ...rest } = safe.billingProfile;
+              return { ...rest, rfc: maskRfc(this.pii.decryptOptional(_r)) };
+            })()
+          : null,
+      };
+    }
 
     // Proyección reducida para vault_operator (y cualquier rol no super_admin).
     return {
       ...safe,
-      // KYC: solo estado/límites y una CLABE ENMASCARADA; sin INE ni CLABE completa.
+      // KYC: solo estado/límites y una CLABE ENMASCARADA; sin INE ni CLABE/RFC completos.
       kycProfile: safe.kycProfile
         ? {
             id: safe.kycProfile.id,
             userId: safe.kycProfile.userId,
             legalName: safe.kycProfile.legalName,
             kycStatus: safe.kycProfile.kycStatus,
-            clabe: maskClabe(safe.kycProfile.clabe),
+            clabe: clabeMasked,
             ineOnFile: Boolean(safe.kycProfile.ineFrontKey && safe.kycProfile.ineBackKey),
             capPerRequestCentsOverride: safe.kycProfile.capPerRequestCentsOverride,
             capPerMonthCentsOverride: safe.kycProfile.capPerMonthCentsOverride,
