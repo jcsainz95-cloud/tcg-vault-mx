@@ -175,9 +175,14 @@ export class ShipmentsService {
     return shipment;
   }
 
-  /** Lista de picking ordenada por ubicación (API_CONTRACT §M4). */
+  /**
+   * Lista de picking ordenada por ubicación (API_CONTRACT §M4).
+   * Fix QA #3: SOLO envíos ya liquidados (status `picking`). Un envío `solicitado`
+   * aún no está pagado (solo avanza a `picking` tras `payment_intent.succeeded`), así
+   * que NO debe aparecer en la lista de picking (evita preparar retiros no cobrados).
+   */
   async pickingList(date?: string) {
-    const where: Prisma.ShipmentRequestWhereInput = { status: { in: ['picking', 'solicitado'] } };
+    const where: Prisma.ShipmentRequestWhereInput = { status: 'picking' };
     if (date) {
       const d = new Date(date);
       const next = new Date(d.getTime() + 24 * 3600 * 1000);

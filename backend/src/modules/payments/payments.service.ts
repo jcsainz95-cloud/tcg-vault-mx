@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { MovementReason } from '@prisma/client';
+import { MovementReason, Prisma } from '@prisma/client';
 import Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
@@ -22,13 +22,33 @@ export class PaymentsService {
     return this.stripe.constructEvent(payload, signature);
   }
 
-  /** Punto de entrada del webhook. Idempotente por event.id. */
+  /**
+   * Punto de entrada del webhook. Idempotente por event.id.
+   *
+   * Idempotencia ATÓMICA (fix QA #2): se intenta `create` del registro PRIMERO y se
+   * usa la violación de unique (P2002) como guardia de "ya procesado". Así, dos
+   * entregas concurrentes del mismo event.id no pueden doble-procesar (solo una gana
+   * el insert; la otra ve P2002 y hace no-op).
+   *
+   * "Procesado SOLO tras éxito" (fix QA #1): si el handler lanza, se BORRA el registro
+   * de idempotencia y se RE-LANZA la excepción. El controller responde != 2xx y Stripe
+   * reintenta; el evento NO queda marcado como procesado. Los eventos ya procesados o
+   * no manejados retornan normalmente (el controller responde 200).
+   */
   async handleEvent(event: Stripe.Event): Promise<void> {
-    const already = await this.prisma.processedStripeEvent.findUnique({ where: { id: event.id } });
-    if (already) {
-      this.logger.debug(`Stripe event ${event.id} ya procesado; ignorado.`);
-      return;
+    // Guardia de idempotencia atómica: intenta reservar el event.id.
+    try {
+      await this.prisma.processedStripeEvent.create({
+        data: { id: event.id, type: event.type },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        this.logger.debug(`Stripe event ${event.id} ya procesado/en curso; ignorado.`);
+        return;
+      }
+      throw e;
     }
+
     try {
       switch (event.type) {
         case 'payment_intent.succeeded':
@@ -46,8 +66,13 @@ export class PaymentsService {
         default:
           this.logger.debug(`Evento no manejado: ${event.type}`);
       }
-    } finally {
-      await this.prisma.processedStripeEvent.create({ data: { id: event.id, type: event.type } });
+    } catch (e) {
+      // El handler falló (p. ej. DB transitoria): revierte la marca de idempotencia
+      // para que Stripe pueda reintegrar el evento en un reintento, y propaga el error.
+      await this.prisma.processedStripeEvent
+        .delete({ where: { id: event.id } })
+        .catch(() => undefined);
+      throw e;
     }
   }
 

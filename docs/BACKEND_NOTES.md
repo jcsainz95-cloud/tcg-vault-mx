@@ -80,6 +80,13 @@ npm run build     # nest build → dist/
 3. **Dashboard money-masking.** El contrato muestra `profitPeriodCents/inventoryValueCents/custodyValueCents`
    en el ejemplo, y aclara que se **omiten/enmascaran** para `vault_operator`. Los **omito** (no vienen en
    el JSON) para ese rol. Si se prefiere enviarlos como `null`, avísese. **No bloquea.**
+4. **Semántica de error del webhook Stripe (correctness fix de QA).** `API_CONTRACT §9` dice "Res 200
+   siempre que la firma sea válida; los errores de negocio se registran, no se devuelven a Stripe". Tras
+   el hallazgo de QA (un fallo transitorio dejaba la orden en `pending` para siempre), ahora distingo:
+   firma inválida → 400; evento ya procesado o no manejado → **200**; pero si el **handler falla**
+   (excepción, p. ej. DB transitoria) → se **propaga 5xx** para que **Stripe reintegre/reintente** y el
+   evento **no** quede marcado como procesado. Es un refinamiento del texto del contrato (no un cambio de
+   esquema/DTO); lo señalo por si el arquitecto quiere precisar la redacción de §9. **No bloquea.**
 
 ## 5. Variables de entorno faltantes / notas para **devops** (no edité `.env.example`)
 
@@ -120,7 +127,10 @@ npm run build     # nest build → dist/
 - **Errores:** shape del contrato `{ error: { code, message, details } }` vía `AllExceptionsFilter`.
   `BusinessException` lleva el `errorCode` estable (i18n en frontend). El backend **no** traduce textos.
 - **Folios:** secuencia Postgres `inventory_folio_seq` (creada en la migración) → `INV-000123`.
-- **Idempotencia:** webhooks por `ProcessedStripeEvent(event.id)`; endpoints de pago aceptan
+- **Idempotencia (webhooks):** guardia **atómica** por `ProcessedStripeEvent(event.id)` — se hace
+  `create` primero y se usa la violación de unique (P2002) como "ya procesado" (evita doble-`settled`
+  ante entregas concurrentes). El evento se marca procesado **solo tras éxito** del handler; si el handler
+  falla, se **borra** la marca y se **re-lanza** (Stripe reintenta). Los endpoints de pago aceptan
   `Idempotency-Key` (se pasa a Stripe).
 - **Migraciones:** una sola migración inicial `0000000000000_init` (generada con `prisma migrate diff`,
   sin DB) + la secuencia de folios apéndice. `prisma migrate deploy` la aplica en CI/prod.

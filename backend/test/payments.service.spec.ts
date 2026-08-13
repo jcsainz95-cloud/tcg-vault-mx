@@ -1,14 +1,24 @@
+import { Prisma } from '@prisma/client';
 import { PaymentsService } from '../src/modules/payments/payments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 
+/** Error P2002 (unique violation) tal como lo lanza Prisma. */
+function uniqueViolation(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    code: 'P2002',
+    clientVersion: 'test',
+  });
+}
+
 /**
  * Verifica el ciclo de titularidad pending→settled y la reversión por contracargo
- * (ARCHITECTURE §3.3), incluida la idempotencia por event.id.
+ * (ARCHITECTURE §3.3), incluida la idempotencia ATÓMICA por event.id (fix QA #1 y #2).
  */
 describe('PaymentsService — titularidad pending→settled y contracargo', () => {
   let prisma: any;
   let payments: PaymentsService;
+  let processedIds: Set<string>;
 
   const makeTx = () => ({
     order: { update: jest.fn().mockResolvedValue({}) },
@@ -21,11 +31,20 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
 
   beforeEach(() => {
     const tx = makeTx();
+    processedIds = new Set<string>();
     prisma = {
       _tx: tx,
       processedStripeEvent: {
-        findUnique: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue({}),
+        // Guardia atómica: create inserta; si el id ya existe, lanza P2002.
+        create: jest.fn(async ({ data }: any) => {
+          if (processedIds.has(data.id)) throw uniqueViolation();
+          processedIds.add(data.id);
+          return data;
+        }),
+        delete: jest.fn(async ({ where }: any) => {
+          processedIds.delete(where.id);
+          return {};
+        }),
       },
       order: {
         findUnique: jest.fn(),
@@ -56,11 +75,64 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     );
   });
 
-  it('is idempotent: a processed event is skipped', async () => {
-    prisma.processedStripeEvent.findUnique.mockResolvedValue({ id: 'evt_1' });
+  it('is idempotent: an already-processed event is skipped (no re-processing)', async () => {
+    processedIds.add('evt_1'); // ya procesado previamente
     const spy = jest.spyOn(payments, 'onPaymentSucceeded');
-    await payments.handleEvent({ id: 'evt_1', type: 'payment_intent.succeeded', data: { object: { id: 'pi_1' } } } as any);
+    await payments.handleEvent({
+      id: 'evt_1',
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_1' } },
+    } as any);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('fix QA #2: double concurrent delivery of the same event → a single settled', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o1',
+      status: 'pending',
+      items: [{ inventoryItemId: 'item1' }],
+    });
+    const evt = {
+      id: 'evt_dup',
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_1' } },
+    } as any;
+    const spy = jest.spyOn(payments, 'onPaymentSucceeded');
+
+    // Dos entregas del MISMO event.id: la 2ª ve P2002 en el create y hace no-op.
+    await Promise.all([payments.handleEvent(evt), payments.handleEvent(evt)]);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    // El transaccional de settled corre una sola vez.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma._tx.order.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('fix QA #1: handler failure deletes idempotency mark and rethrows (Stripe retries)', async () => {
+    // Primer intento: onPaymentSucceeded falla (p. ej. DB transitoria).
+    prisma.order.findUnique.mockRejectedValueOnce(new Error('DB down'));
+    const evt = {
+      id: 'evt_fail',
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_1' } },
+    } as any;
+
+    await expect(payments.handleEvent(evt)).rejects.toThrow('DB down');
+    // La marca de idempotencia se revirtió → el evento NO quedó como procesado.
+    expect(processedIds.has('evt_fail')).toBe(false);
+    expect(prisma.processedStripeEvent.delete).toHaveBeenCalledWith({ where: { id: 'evt_fail' } });
+
+    // Reintento de Stripe: ahora sí procesa y liquida.
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o1',
+      status: 'pending',
+      items: [{ inventoryItemId: 'item1' }],
+    });
+    await payments.handleEvent(evt);
+    expect(processedIds.has('evt_fail')).toBe(true);
+    expect(prisma._tx.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'settled' }) }),
+    );
   });
 
   it('already-settled order is not re-processed', async () => {
