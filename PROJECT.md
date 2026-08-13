@@ -84,6 +84,12 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Cartas sin precio en la web → **cola de "precio pendiente"** para que el dueño las fije.
 - [ ] Recepción física, verificación de condición, aprobación/ajuste y **pago (SPEI)** los opera el
       admin a mano (ver back-office M5). El dueño **decide carta por carta** (cherry-pick).
+- [ ] **Mensaje explícito de "pago tras recepción"**: el cotizador/solicitud y los términos comunican
+      claramente al vendedor que **el pago se realiza DESPUÉS de que recibimos y verificamos la carta**
+      (no por adelantado), alineado con el pipeline `recibida → verificación → aprobada → pagada`.
+- [ ] **Guía de empaque/envío seguro** visible en el flujo de buylist **antes de crear la solicitud**:
+      sugiere proteger la carta con **sleeve** y **top loader**, sobre rígido, sobre acolchado, etc.,
+      para minimizar daños en tránsito y disputas.
 - [ ] **Límites anti-fraude/KYC** (defaults configurables en M10): tope por solicitud **MX$3,000** y por
       mes **MX$10,000**; pago solo por SPEI a una cuenta **a nombre del propio usuario**; **INE** requerido
       cuando se supera el tope.
@@ -169,7 +175,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     tier alcance. **PriceCharting no se usa en el MVP.**
 - **Valuación de portafolio del usuario**: base en las fuentes anteriores, en **MXN**, **refresco diario**.
 - **Alcance geográfico**: **solo nacional (todo México)** en el MVP; internacional es fase 2.
-- **Catálogo en inglés** en el MVP (sin localización del catálogo).
+- **Plataforma bilingüe ES/EN (i18n)**: toda la **UI/plataforma** (todos los textos de la aplicación) debe
+  estar disponible en **español e inglés**, con **default español** y toggle a inglés.
+- **Datos del catálogo en inglés**: esto aplica **solo a los datos de las cartas** (nombres y sets vienen en
+  inglés desde pokemontcg.io y **no se traducen**). No contradice el punto anterior: la **UI sí es bilingüe**,
+  los **datos del catálogo** permanecen en inglés.
 - **Panel de administración responsive** con **captura de fotos desde móvil**.
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos).
 - **Branch de trabajo**: `claude/tcg-cards-marketplace-oijthj`.
@@ -259,6 +269,17 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 30. El checkout genera/registra los datos necesarios para **facturación CFDI** del IVA cobrado, y ese IVA
     queda disponible en M7 para conciliación.
 31. La aplicación **rechaza direcciones de envío/retiro fuera de México** (solo nacional en el MVP).
+
+**Idioma / i18n**
+32. El usuario puede **cambiar el idioma de la interfaz entre español e inglés** (default español) y
+    **todos los textos de la aplicación** se muestran en el idioma elegido (los datos del catálogo
+    permanecen en inglés por diseño).
+
+**Buylist — messaging y guía**
+33. El cotizador/solicitud de buylist muestra claramente el mensaje de que el **pago ocurre tras la
+    recepción y verificación** de la carta (no por adelantado).
+34. Existe una **guía de empaque/envío seguro** accesible desde el flujo de buylist que menciona
+    explícitamente **sleeve** y **top loader**.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
