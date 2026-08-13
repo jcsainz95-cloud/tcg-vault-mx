@@ -20,6 +20,7 @@ import { BuylistModule } from './modules/buylist/buylist.module';
 import { DisputesModule } from './modules/disputes/disputes.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { HealthModule } from './modules/health/health.module';
 import { JobsModule } from './jobs/jobs.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -50,6 +51,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     DisputesModule,
     UploadsModule,
     AdminModule,
+    HealthModule,
     JobsModule,
   ],
   providers: [

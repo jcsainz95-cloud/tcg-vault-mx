@@ -73,6 +73,7 @@ npm run build          # nest build → dist/
 | **admin** (M6/M7/M9 + dashboard) | ✅ Completo | P&L, inventory-value, custody-value, IVA, export CSV, launch-metrics, dashboard 8 tarjetas (dinero enmascarado a `vault_operator`). |
 | **settings/audit** (M10) | ✅ Completo | Diales en DB (editables sin redeploy), bitácora global. |
 | **jobs** (BullMQ) | ⚠️ **Lógica completa, scheduling pendiente** | `price-sync`, `fx-refresh`, `buylist-sweep`, `dispute-deadline` implementados como servicios ejecutables. La **programación repetible BullMQ/Redis** es un wrapper de despliegue aún **no cableado** (ver §5). `price-sync` y `fx-refresh` se pueden disparar por endpoint admin. |
+| **health** (infra) | ✅ Completo | `GET /api/v1/health` **público** (sin auth, sin rate-limit). `SELECT 1` a Postgres + `PING` a Redis opcional. Ver §12. |
 
 ## 4. Solicitudes de cambio de contrato al **arquitecto** (no edité el contrato)
 
@@ -425,3 +426,37 @@ gross-up con IVA y neto exacto, rollback de PI en orders y shipments, contracarg
 cierre de disputa won/funds_reinstated/lost, refund parcial vs total sin re-agregar, `payment_intent.canceled`
 en orden y envío, y recompra de disputa sin revertir la carta). Migración nueva
 `20260813140000_order_chargeback_manual_and_dispute_outcome` (2 columnas escalares en `Order`).
+
+## 12. Health endpoint (`GET /api/v1/health`) — para el healthcheck de Railway (devops)
+
+> Encargo: dar a la plataforma (Railway) una sonda barata de salud. Trabajo solo en `backend/`.
+
+- **Ruta exacta:** `GET /api/v1/health` — **pública** (`@Public()` salta el `JwtAuthGuard` global)
+  y **sin rate-limit** (`@SkipThrottle()`, para no gastar cupo con sondas frecuentes).
+- **Módulo propio, sin dependencias nuevas:** `src/modules/health/{health.module,health.controller,health.service}.ts`.
+  No usé `@nestjs/terminus` (no estaba instalado y habría añadido peso); es un check simple hecho a mano.
+- **Respuesta:**
+  - **200** cuando las dependencias responden: `{ status: 'ok', uptime, timestamp, db, redis }`
+    (`uptime` en segundos, `timestamp` ISO-8601). Ej. `{ status:'ok', uptime:1234, timestamp:'...', db:'up', redis:'skipped' }`.
+  - **503** cuando algo está caído: `{ status: 'degraded', uptime, timestamp, db, redis }`
+    con `db`/`redis ∈ up|down|skipped`.
+- **Chequeo ligero de dependencias:** `SELECT 1` a Postgres vía `PrismaService`. **Redis: `PING` solo si hay
+  cliente disponible.** Hoy **no** hay cliente Redis registrado en el `AppModule` (los jobs BullMQ aún no
+  están cableados, ver §3/§5), así que `redis` sale como **`skipped`** y **NO** degrada la salud. Si devops
+  registra un provider bajo el token `HEALTH_REDIS_CLIENT` (interfaz `{ ping(): Promise<string> }`), el
+  health lo pingueará automáticamente y `redis` pasará a `up`/`down`. Un `down` real (DB o Redis) da 503.
+- **Barato a propósito:** sin escrituras, sin locks, sin llamadas externas de negocio.
+
+### Acción para **devops**
+- **Fijar `healthcheckPath: "/api/v1/health"` en `railway.json`** (y el healthcheck del `docker-compose`/
+  CI si aplica). El endpoint ya está listo y no requiere auth ni cabeceras.
+- Considerar un `healthcheckTimeout` holgado (p. ej. 30 s) para tolerar el arranque de Prisma.
+
+### Solicitud de cambio de contrato al **arquitecto** (no edité `API_CONTRACT.md`)
+10. **Formalizar `GET /api/v1/health`** en el contrato (sección de **salud/infra**): público, `200
+    { status:'ok', uptime, timestamp, db, redis }` / `503 { status:'degraded', ... }`. Hoy es un endpoint
+    operativo (no de negocio) que el contrato aún no describe. **No bloquea.**
+
+**Verde (este encargo):** `lint` + `typecheck` + `build` OK; `npm test` = **99 verdes** (antes 95; +4 del
+health: 200/ok sin Redis, 200/ok con Redis PING, 503 por DB caída, 503 por PING de Redis fallido). El smoke
+de DI (`app.module.spec`) sigue verde con el `HealthModule` cableado.
