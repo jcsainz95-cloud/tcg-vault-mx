@@ -39,18 +39,23 @@ DisputeStatus       = abierta | en_revision | resuelta_recompra | rechazada
 PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual
 KycStatus           = none | pending | verified | rejected
 AcquisitionType     = aportacion_en_especie | buylist | compra
-CfdiStatus          = registrado | emitido | no_aplica
+CfdiStatus          = registrado | no_aplica          // MVP sin PAC; "emitido" reservado para fase 2
 ```
 
 ### DTOs base (compartidos)
 ```ts
 Money        = { amountCents: number, currency: "MXN" }
-PriceInfo    = { status: "priced" | "pending", priceMxnCents?: number, source?: PriceSource, capturedDate?: string }
+// PriceInfo describe el VALOR DE REFERENCIA (valor de mercado), no el precio de venta.
+PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, source?: PriceSource, capturedDate?: string }
 CardDTO      = { id, externalId, name, number, rarity, supertype, subtypes: string[],
                  setId, setName, imageSmallUrl, imageLargeUrl }
+// referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, gradingCompany?, gradeValue?,
-                 price: PriceInfo, sellable: boolean, frontPhotoUrl?, backPhotoUrl? }
-BreakdownDTO = { subtotalCents, processingFeeCents, ivaCents, ivaRatePct, totalCents, currency: "MXN" }
+                 referenceValue: PriceInfo, salePriceCents?: number, sellable: boolean,
+                 frontPhotoUrl?, backPhotoUrl? }
+// Desglose del checkout. base = subtotal + iva se recibe íntegro; el fee es gross-up de la comisión Stripe (SIN IVA).
+// ivaCents grava subtotal (compras) o envío (retiros). totalCents = subtotal + ivaCents + processingFeeCents.
+BreakdownDTO = { subtotalCents, ivaCents, ivaRatePct, processingFeeCents, totalCents, currency: "MXN" }
 ```
 
 ---
@@ -109,7 +114,7 @@ Res `200`: `ListingDTO`. Err `404`.
 ### GET /api/v1/catalog/sets — `public`
 Res `200`: `{ data: [{ id, name, series, releaseDate }] }` (datos en inglés).
 
-**Nota de precio pendiente:** un `ListingDTO` con `price.status="pending"` tiene `sellable=false`. Intentar comprarlo devuelve `422 PRICE_PENDING`.
+**Nota de precio pendiente:** un `ListingDTO` con `referenceValue.status="pending"` (y sin `salePriceCents` por override) tiene `sellable=false`. Intentar comprarlo devuelve `422 PRICE_PENDING`. El `salePriceCents` visible al cliente es el precio de venta (referencia × (1+markup) u override); `referenceValue` es el valor de mercado informativo.
 
 ---
 
@@ -123,12 +128,12 @@ Res `200`:
     "inventoryItemId": "…", "folio": "INV-000123", "card": { "…": "CardDTO" },
     "productType": "raw", "rawCondition": "NM",
     "ownershipStatus": "settled", "status": "in_custody",
-    "value": { "status": "priced", "priceMxnCents": 12500, "capturedDate": "2026-08-13" }
+    "referenceValue": { "status": "priced", "referenceMxnCents": 12500, "capturedDate": "2026-08-13" }
   }],
   "portfolio": { "totalValueMxnCents": 543200, "pendingPriceCount": 2, "currency": "MXN" }
 }
 ```
-Las cartas `price.status="pending"` se **excluyen** del total y se reportan en `pendingPriceCount` (no rompen el cálculo).
+El valor del portafolio se calcula contra el **valor de referencia** (no el precio de venta). Las cartas `referenceValue.status="pending"` se **excluyen** del total y se reportan en `pendingPriceCount` (no rompen el cálculo).
 
 ### GET /api/v1/vault/holdings/:inventoryItemId — `customer`
 Res `200`: holding detallado (incluye fotos de ingreso, movimientos visibles al dueño). Err `403` si no es del usuario.
@@ -152,7 +157,7 @@ Res `201`:
   "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" } }
 ```
 Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `400 BILLING_PROFILE_REQUIRED`.
-Notas: `breakdown` incluye **línea de fee de procesamiento trasladado** y **línea de IVA 16% desglosado**; total = subtotal + fee + IVA.
+Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
 
 ### GET /api/v1/orders — `customer`
 Res `200`: `{ data: OrderSummaryDTO[], page, pageSize, total }`.
@@ -163,25 +168,31 @@ Res `200`:
 { "id": "…", "status": "settled", "createdAt": "…", "settledAt": "…",
   "breakdown": { "…": "BreakdownDTO" },
   "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
-  "cfdiStatus": "registrado", "stripePaymentIntentId": "pi_…" }
+  "cfdiStatus": "registrado", "invoiceRequested": false, "stripePaymentIntentId": "pi_…" }
 ```
 Err `403/404`.
 
 Tras `settled`, los items aparecen en la bóveda con `ownershipStatus=settled`. En `pending` ya están en la bóveda con `ownershipStatus=pending`.
+
+### POST /api/v1/orders/:orderId/request-invoice — `customer`
+CFDI en MVP **sin PAC**: no timbra. Marca la orden como "factura solicitada" y la UI muestra la instrucción de enviar los datos fiscales por correo (timbrado manual). Timbrado real = fase 2.
+Req: `{}` (usa el `BillingProfile` en archivo) → Res `200`: `{ orderId, invoiceRequested: true, instructions: "SEND_FISCAL_DATA_BY_EMAIL" }`.
+El IVA cobrado ya queda registrado en `Order.ivaCents` (disponible en M7).
 
 ---
 
 ## 5. Retiros / envíos (comprador)
 
 ### POST /api/v1/shipments/quote — `customer`
+El IVA 16% grava la **tarifa de envío**; el fee de procesamiento es gross-up (sin IVA). `totalCents = shippingFee + iva + processingFee`.
 Req: `{ inventoryItemIds: string[], addressId: string }`
-Res `200`: `{ shippingFeeCents: 17500, ivaCents, totalCents, currency: "MXN", eligibleItemIds, ineligible: [{ inventoryItemId, reason }] }`
-Err: `422 ADDRESS_NOT_MX`, `422 ITEM_NOT_SETTLED`.
+Res `200`: `{ breakdown: { subtotalCents: 17500, ivaCents, ivaRatePct, processingFeeCents, totalCents, currency: "MXN" }, eligibleItemIds, ineligible: [{ inventoryItemId, reason }] }`
+(nota: en retiros `subtotalCents` = tarifa de envío). Err: `422 ADDRESS_NOT_MX`, `422 ITEM_NOT_SETTLED`.
 
 ### POST /api/v1/shipments — `customer`
-Cobra la tarifa fija (Stripe) **antes** de crear la solicitud; solo items `settled`.
+Cobra la tarifa (envío + IVA + fee gross-up) por **Stripe ANTES** de crear la solicitud; solo items `settled`. La `ShipmentRequest` nace en `solicitado` con el `PaymentIntent` asociado y **solo avanza a `picking` una vez liquidado** (webhook `payment_intent.succeeded`). No hay wallet.
 Req: `{ inventoryItemIds: string[], addressId: string }` + `Idempotency-Key`
-Res `201`: `{ shipmentId, status: "solicitado", shippingFeeCents, stripe: { paymentIntentId, clientSecret } }`
+Res `201`: `{ shipmentId, status: "solicitado", breakdown: { "…": "BreakdownDTO" }, stripe: { paymentIntentId, clientSecret } }`
 Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), `422 ADDRESS_NOT_MX`, `409 ITEM_IN_ANOTHER_SHIPMENT`.
 
 ### GET /api/v1/shipments — `customer` → lista propia.
@@ -276,7 +287,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `POST /api/v1/admin/pricing/override` — override manual (respaldo siempre disponible).
   Req: `{ cardId, productType, gradeKey, priceMxnCents }` → crea `PriceReference` `source=manual`, resuelve `PendingPriceEntry`.
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
-- FX: `GET /api/v1/admin/fx`, `PUT /api/v1/admin/fx` — Req `{ rate, bufferPct, effectiveDate }` (fuente por confirmar; ver Preguntas de ARCHITECTURE).
+- FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: "banxico"|"manual", effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate, bufferPct }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
 - Tabla rareza→categoría: `GET /api/v1/admin/pricing/rarity-map`, `PUT /api/v1/admin/pricing/rarity-map` — Req `{ entries: [{ rarity, category }] }`.
 
 ### M3 — Ventas / órdenes (`vault_operator` lectura; `super_admin` reembolso)
@@ -323,7 +334,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `GET /api/v1/admin/reports/export.csv` — `?report=&from=&to=`.
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed }`.
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed }`.
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
 
@@ -355,10 +366,14 @@ AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entit
 ---
 
 ## 12. Notas de coherencia con PROJECT.md
-- Precios de catálogo/ficha **sin IVA**; IVA 16% y fee de procesamiento se agregan **en checkout** (`BreakdownDTO`).
+- Precios de catálogo/ficha **sin IVA**. Se distingue **valor de referencia** (mercado, `referenceValue`) del **precio de venta** (`salePriceCents` = referencia × (1+`salesMarkupPct`) u override). IVA 16% y fee de procesamiento se agregan **en checkout** (`BreakdownDTO`).
+- **Fee de procesamiento = gross-up** de la comisión Stripe (para recibir íntegro subtotal+IVA); **sin IVA sobre el fee**. IVA grava subtotal (compra) y tarifa de envío (retiro).
+- **CFDI sin PAC en MVP**: factura por correo (`POST /orders/:id/request-invoice`); IVA cobrado registrado en M7. Timbrado real = fase 2.
+- **FX automático (Banxico) + colchón + override manual** (M10); job diario `fx-refresh`.
+- **Envío se cobra por Stripe ANTES** de crear la solicitud; avanza a picking solo tras `payment_intent.succeeded`.
 - Carta "precio pendiente" → `sellable=false`, compra bloqueada con `PRICE_PENDING`; escalada al dueño vía `PendingPriceEntry`.
 - Retiro solo sobre `settled` (`ITEM_NOT_SETTLED`); direcciones solo MX (`ADDRESS_NOT_MX`).
 - Buylist: cotización por regla (común/reverse/EX+), topes y INE (`BUYLIST_LIMIT_EXCEEDED`, `INE_REQUIRED`), pago SPEI **solo súper-admin** tras recepción/verificación.
 - Contracargo revierte item a inventario de plataforma (webhook `charge.dispute.created`).
-- Los montos exactos de los diales (envío 17500, IVA 16, tope 300000/1000000, aportación 70%) provienen de `ConfigSetting` (M10), no hardcode; los valores aquí son defaults.
+- Los montos exactos de los diales (envío 17500, IVA 16, markup de venta, tarifa Stripe, tope 300000/1000000, aportación 70%) provienen de `ConfigSetting` (M10), no hardcode; los valores aquí son defaults.
 ```

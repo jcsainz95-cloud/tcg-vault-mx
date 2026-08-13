@@ -160,7 +160,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
   - `ownerType` (`platform | customer`), `ownerUserId?` (cuando `customer`).
   - `ownershipStatus?` (`pending | settled`, solo cuando `ownerType=customer`; ver §3.3).
 - Estado operativo: `status` (`in_stock | listed | reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`).
-- Precio de venta: `listPriceCents?` (MXN sin IVA; si null y sin `PriceReference` → **"precio pendiente"**, no vendible).
+- Precio de venta: `listPriceCents?` (MXN sin IVA; **= `round(referenciaMxn × (1 + salesMarkupPct/100))`** con `salesMarkupPct` dial M10, o override manual directo; si null y sin `PriceReference` → **"precio pendiente"**, no vendible). El **valor de referencia** (valor de mercado mostrado) es el de `PriceReference`, distinto del precio de venta.
 - Costo y adquisición: `acquisitionType` (`aportacion_en_especie | buylist | compra`), `acquisitionCostCents`, `acquisitionPct?` (ej. 70 para aportación en especie), `sourceSellRequestItemId?`.
 - `createdAt`, `updatedAt`.
 - Índices: `folio` único, `(cardId)`, `(status)`, `(ownerUserId)`, `(locationId)`.
@@ -178,13 +178,14 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - Regla transversal: una carta sin precio **nunca se descarta**; entra aquí y se escala al súper-admin.
 
 #### FxRate (M2/M10 — USD→MXN con colchón)
-- `id`, `base` (`USD`), `quote` (`MXN`), `rate` (decimal), `bufferPct` (dial M10), `effectiveDate` (date), `source` (`manual | banxico` — ver Preguntas), `createdAt`.
+- `id`, `base` (`USD`), `quote` (`MXN`), `rate` (decimal), `bufferPct` (dial M10), `effectiveDate` (date), `source` (`banxico | manual`), `createdAt`.
+- Automático: job diario `fx-refresh` obtiene el `rate` de **Banxico (SIE)**, aplica el colchón y escribe `source=banxico`. **Override manual** (dial M10) escribe `source=manual` y **tiene prioridad** sobre el automático del mismo día; también es el fallback si el fetch falla.
 - El precio MXN mostrado = `priceUsd × rate × (1 + bufferPct/100)`.
 
 #### Order (M3 — venta de cartas)
 - `id`, `userId`, `status` (`pending | settled | failed | refunded | chargeback`).
 - Desglose (todo en centavos MXN): `subtotalCents` (suma de líneas sin IVA), `processingFeeCents` (**fee de Stripe trasladado al comprador**, línea visible), `ivaCents` (**16% desglosado**), `totalCents` (= subtotal + fee + IVA).
-- `ivaRatePct` (snapshot del dial, default 16), `stripePaymentIntentId?`, `stripeChargeId?`, `billingSnapshot` (JSONB, datos CFDI al momento), `cfdiStatus` (`registrado | emitido | no_aplica` — MVP registra, no timbra; ver Preguntas), `createdAt`, `settledAt?`, `refundedAt?`.
+- `ivaRatePct` (snapshot del dial, default 16), `stripePaymentIntentId?`, `stripeChargeId?`, `billingSnapshot` (JSONB, datos CFDI al momento), `cfdiStatus` (`registrado | no_aplica` en MVP — sin PAC; `emitido` reservado para fase 2), `invoiceRequested` (bool, default false — el cliente pide factura por correo), `createdAt`, `settledAt?`, `refundedAt?`.
 - Índices: `(userId)`, `(status)`, `stripePaymentIntentId` único.
 
 #### OrderItem
@@ -215,8 +216,8 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - Remedio: `resolution?`, `repurchaseOrderId?` (recompra al precio pagado), `deadlineAt` (**7 días desde entrega**), `createdAt`, `resolvedAt?`, `resolvedBy?`.
 
 #### ConfigSetting (M10 — diales editables sin deploy)
-- `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
-- Defaults iniciales: envío 17500, aportación 70, IVA 16, tope solicitud 300000, tope mes 1000000, INE = tope solicitud, colchón FX configurable, providers según tabla de PROJECT.
+- `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `sales_markup_pct`, `stripe_fee_pct`, `stripe_fee_fixed_cents`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `fx_manual_override_rate`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
+- Defaults iniciales: envío 17500, aportación 70, IVA 16, **markup de venta configurable (`sales_markup_pct`)**, **tarifa Stripe MX (`stripe_fee_pct`, `stripe_fee_fixed_cents`) para el gross-up**, tope solicitud 300000, tope mes 1000000, INE = tope solicitud, colchón FX configurable + override manual, providers según tabla de PROJECT.
 
 #### AuditLog (M10 — bitácora global)
 - `id`, `actorUserId`, `actorRole`, `action` (string, ej. `order.refund`, `sellrequest.pay_spei`, `settings.update`, `inventory.mark_damaged`), `entityType`, `entityId`, `before?` (JSONB), `after?` (JSONB), `ip?`, `createdAt`.
@@ -313,11 +314,30 @@ Ver §6. El backend expone **enums y `errorCode`s**, no textos traducidos.
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
 - **Montos:** enteros en centavos MXN; IVA siempre desglosado y persistido en `Order.ivaCents` para M7/CFDI.
+
+### 5.1 Cálculo del checkout (precio de venta, IVA y fee gross-up)
+Orden de compra de cartas:
+```
+salePriceCents(item) = item.listPriceCents  // = round(referenciaMxn × (1 + salesMarkupPct/100)), o override manual
+subtotalCents        = Σ salePriceCents(item)
+ivaCents             = round(subtotalCents × ivaPct/100)                 // ivaPct default 16
+baseCents            = subtotalCents + ivaCents                          // lo que la plataforma debe recibir íntegro
+// Gross-up de la comisión Stripe MX (pct + fija), configurable:
+totalCents           = ceil( (baseCents + stripeFixedCents) / (1 − stripePct) )
+processingFeeCents   = totalCents − baseCents                            // línea visible, SIN IVA adicional
+```
+Retiro/envío (mismo gross-up, IVA sobre el envío):
+```
+baseCents          = shippingFeeCents + round(shippingFeeCents × ivaPct/100)
+totalCents         = ceil( (baseCents + stripeFixedCents) / (1 − stripePct) )
+processingFeeCents = totalCents − baseCents
+```
+`stripePct` y `stripeFixedCents` son diales de M10 (tarifa MX vigente de Stripe). El `processingFeeCents` es lo que la plataforma cede a Stripe, trasladado al comprador; tras la comisión, la plataforma recibe `baseCents` íntegro. El fee **no** vuelve a gravarse con IVA.
 - **Seguridad/roles:** 3 roles. Autorización por **acción**, no solo por ruta (§7). Guard `MoneyOutGuard` exige `super_admin` para pagos SPEI y reembolsos; todo intento (permitido o bloqueado) se audita.
 - **Fotos:** subida directa a object storage con **presigned URLs**; la DB guarda solo keys. Captura móvil vía navegador (`capture`). Las fotos de ingreso raw son evidencia canónica de disputas.
 - **Sync de precios/FX (jobs BullMQ):**
   - `price-sync` diario: recorre solo cartas **en bóveda**, respeta rate-limit del free tier, escribe `PriceReference` del día, genera `PendingPriceEntry` para faltantes.
-  - `fx-refresh` diario: actualiza `FxRate` (fuente por confirmar; ver Preguntas) + aplica colchón.
+  - `fx-refresh` diario: obtiene USD→MXN de **Banxico (SIE)**, aplica el colchón (`fx_buffer_pct`) y escribe `FxRate` (`source=banxico`); si falla o hay override manual (M10), usa `source=manual` como fallback/prioridad.
   - `buylist-sweep`: 7 días sin respuesta a ajuste → `rechazada`; 30 días de abandono → `convertida a inventario`.
   - `dispute-deadline`: cierra ventana de recompra a 7 días desde entrega.
 - **Validaciones duras:** dirección de envío/retiro **debe ser MX** (rechazo si no); retiro solo sobre `settled`; carta "precio pendiente" **no comprable**; topes de buylist (por solicitud/mes) e INE sobre tope.
@@ -367,14 +387,14 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`
 - `POKEMONTCG_IO_API_KEY`, `POKEMONPRICETRACKER_API_KEY`, `POKETRACE_API_KEY`
 - Object storage: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`
-- FX (si se automatiza): `FX_SOURCE`, `FX_API_KEY?` (o modo manual vía dial)
+- FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
 - `APP_BASE_URL`, `DEFAULT_LOCALE=es`
 
 Riesgos técnicos:
 - **Rate-limit free tier** (100/día, 250/día): mitigado priciando solo bóveda + cache diario + cola; si crece la bóveda, puede requerir plan de pago (dial permite el cambio).
 - **Idempotencia de webhooks** Stripe: obligatoria para no duplicar `settled`/reversos.
 - **Consistencia de titularidad**: transiciones `pending→settled` y reversión por contracargo deben ser transaccionales con `InventoryMovement`.
-- **CFDI/PAC**: el MVP **registra** datos e IVA cobrado; el timbrado real (PAC) queda como integración posterior (bandera fiscal de PROJECT). Confirmar (Preguntas).
+- **CFDI/PAC**: el MVP **registra** datos e IVA cobrado y ofrece **solicitud de factura por correo** (sin PAC); el timbrado real (PAC) es **fase 2** (bandera fiscal de PROJECT).
 - **Concurrencia de venta**: un `InventoryItem` es pieza única; el checkout debe **reservar** (`status=reserved`) para evitar doble compra.
 
 ---
@@ -384,13 +404,13 @@ Ninguna. Proyecto greenfield: aún no existe código en `backend/` ni `frontend/
 
 ---
 
-## 10. Preguntas para el humano / product-owner
-Ambigüedades reales no resueltas por `PROJECT.md` (no se asumen; se documentan). Ninguna bloquea que backend/frontend arranquen las áreas no afectadas.
+## 10. Decisiones resueltas (antes "Preguntas para el humano")
+Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran como decisiones firmes en este documento y en el contrato. Se conservan aquí como registro.
 
-1. **Fórmula del fee de procesamiento trasladado.** PROJECT exige una línea visible de "costo de procesamiento trasladado al comprador", pero no fija la fórmula. ¿Gross-up para que la plataforma reciba neto exacto (subtotal+IVA), usando la tarifa Stripe MX (~3.6% + $3 MXN)? ¿Se redondea? Propuesta por defecto: gross-up sobre (subtotal+IVA) con la tarifa vigente de Stripe MX, redondeo al centavo.
-2. **IVA sobre envío y sobre el fee.** ¿El IVA 16% aplica solo al subtotal de cartas, o también a la tarifa de envío (MX$175) y a la línea de fee? Propuesta por defecto: IVA aplica al subtotal de cartas y a la tarifa de envío (servicios gravados); el fee de procesamiento se traslada tal cual. Confirmar con contador.
-3. **Precio de venta de la carta.** ¿El precio de venta al cliente es exactamente el precio de referencia MXN del día (sin margen adicional), siendo el margen el spread de compra 40/70%? Propuesta por defecto: `listPrice = referencia MXN del día`. Confirmar si habrá markup.
-4. **CFDI en el MVP.** ¿Se integra un PAC para timbrar en el MVP, o solo se **registran** datos + IVA cobrado (timbrado manual/posterior)? Propuesta por defecto: solo registrar (sin PAC) en MVP.
-5. **Fuente del tipo de cambio USD→MXN.** El colchón es un dial, pero no se define de dónde sale el `rate` base. ¿Dial manual del admin, o fetch automático (ej. Banxico/API)? Propuesta por defecto: dial manual en M10, con opción futura de automatizar.
-6. **Cobro de la tarifa de envío.** Se asume que el envío se cobra por Stripe (mismo mecanismo que la compra) antes de generar la solicitud. Confirmar que no hay otra vía (no hay wallet).
+1. **Precio de venta = referencia del día + MARKUP configurable (dial M10).** El **valor de mercado** que se muestra es la **referencia** (`priceMxnCents` de `PriceReference`). El **precio de venta** es `round(referenciaMxn × (1 + salesMarkupPct/100))`. `salesMarkupPct` es un dial de M10 (`sales_markup_pct`). Se persiste como `InventoryItem.listPriceCents` al listar (o se calcula al vuelo si null) y se congela en `OrderItem.unitPriceCents` al checkout. En los DTOs se distingue `referenceValue` (valor de mercado) de `salePrice` (precio de venta). El override manual de precio puede fijar directamente el `listPriceCents` sin aplicar markup.
+2. **Fee de procesamiento Stripe = GROSS-UP.** El fee trasladado se calcula para que, tras la comisión de Stripe (tarifa MX), la plataforma reciba **íntegro** `subtotal + IVA`. Fórmula (ver §5.1): `total = (base + fija) / (1 − pct)`, `fee = total − base`, donde `base = subtotal + IVA`. Se persiste en `Order.processingFeeCents` y es una línea visible del `BreakdownDTO`. El fee **no** lleva IVA adicional.
+3. **IVA 16% sobre `subtotal + envío`.** El IVA grava el subtotal de cartas **y** la tarifa de envío (servicio gravado). El **fee de procesamiento va tal cual (sin IVA)**. Default a validar con contador. En compras de carrito el `ivaCents = round((subtotal) × ivaPct/100)`; en retiros `ivaCents = round(shippingFee × ivaPct/100)`.
+4. **CFDI sin PAC en el MVP.** No se integra PAC ni se timbra en el MVP. El flujo de factura es **manual por correo**: la UI muestra la instrucción de que, para pedir factura, el cliente envíe un correo con sus datos fiscales. El sistema guarda el **IVA cobrado por orden** (M7) y un flag `invoiceRequested` (opcional) por orden. **Timbrado real = fase 2.** `CfdiStatus` se reduce a `registrado | no_aplica` en MVP (`emitido` queda reservado para fase 2).
+5. **FX USD→MXN automático (Banxico) + colchón + override manual.** Job diario `fx-refresh` obtiene el tipo de cambio de una fuente tipo **Banxico** (SIE), aplica el **colchón** (`fx_buffer_pct`, dial M10) y escribe `FxRate` (`source=banxico`). Si el fetch falla o el admin fija un override, se usa `FxRate` con `source=manual` (dial M10) como fallback; el override tiene prioridad sobre el valor automático del mismo día.
+6. **Cobro del envío por Stripe ANTES de generar la solicitud de retiro.** El retiro cobra la tarifa fija (+ IVA) vía `PaymentIntent` de Stripe; la `ShipmentRequest` se crea en `solicitado` con el `PaymentIntent` asociado y solo se procesa (picking) una vez liquidado (webhook `payment_intent.succeeded`). No hay wallet.
 ```
