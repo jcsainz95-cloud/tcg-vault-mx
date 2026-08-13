@@ -35,21 +35,32 @@ next-intl (nada hardcodeado).
   CFDI en el resumen del pago.
 - **Página de términos/política** nueva: `src/app/[locale]/(storefront)/terminos/page.tsx`
   (ruta `/es/terminos` y `/en/terminos`, dentro del layout storefront). Server component con
-  `generateMetadata` propio. Namespace i18n `legal.*` con: intro, **reembolsos/ventas finales**
-  (`refundTitle`/`refundBody`) y **disputa de condición** (`disputeTitle`/`disputeBody`/
-  `disputeOutcome`: 7 días, fotos, compensa y conservas la carta). Usa tokens del DESIGN_SYSTEM
-  (Banner warning + card con borde).
+  `generateMetadata` propio. Namespace i18n `legal.*` con: intro, **alcance por tipo de producto**
+  (`scopeNote`: aplica a raw, sellado y gradeadas), **reembolsos/ventas finales**
+  (`refundTitle`/`refundBody`), **excepción por error de la plataforma**
+  (`platformErrorTitle`/`platformErrorBody`: cobro duplicado o compra sin inventario real → siempre
+  se reembolsa, sin disputa) y **disputa de condición** (`disputeTitle`/`disputeBody`/
+  `disputeWindowNote`/`disputeOutcome`: 7 días naturales **contados desde la entrega** del envío,
+  fotos, compensa y conservas la carta). Usa tokens del DESIGN_SYSTEM (Banner warning + cards con
+  borde; icono `BadgeCheck` success para el error de plataforma, `ShieldCheck` info para disputa).
+  Coherente con el contrato: el reembolso por error de plataforma se materializa vía
+  `charge.refunded` (§9) / `POST /admin/orders/:id/refund` (M3, super_admin); la ventana de disputa
+  refleja `422 DISPUTE_WINDOW_CLOSED` ("fuera de 7 días desde entrega", §7). Solo texto, sin cambio
+  de contrato.
 - **Enlaces a términos**: desde el **checkout** (banner) y desde el **footer** del storefront
   (`(storefront)/layout.tsx`, `nav.terms` "Términos y política"/"Terms & policy").
 - Claves i18n nuevas (paridad ES↔EN, cubierta por `i18n-parity.test.ts`): `nav.terms`,
-  `checkout.finalSaleNotice`, `checkout.viewTerms`, y el namespace `legal.*` completo.
+  `checkout.finalSaleNotice`, `checkout.viewTerms`, y el namespace `legal.*` completo (incl.
+  `scopeNote`, `platformErrorTitle`/`platformErrorBody`, `disputeWindowNote`).
 
 ### E2E añadidos/ajustados (en `e2e/checkout.spec.ts`)
 
 - El aviso de ventas finales aparece en **checkout ES** (`finalSaleNotice` + enlace `viewTerms`) y
   en **checkout EN** (`finalSaleNotice`).
-- El enlace de términos navega a `/es/terminos` y muestra la política (refund + disputa).
-- La página de términos existe y muestra la política también en **inglés** (`/en/terminos`).
+- El enlace de términos navega a `/es/terminos` y muestra la política (refund + disputa +
+  excepción por error de plataforma + alcance por tipo de producto + ventana desde la entrega).
+- La página de términos existe y muestra la política también en **inglés** (`/en/terminos`),
+  incluidas las mismas aclaraciones (`platformErrorBody`, `disputeWindowNote`, `scopeNote`).
 
 Suite E2E total: **30/30** en verde (antes 28). Unit **10/10**, `lint`/`typecheck`/`build` en verde.
 

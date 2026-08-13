@@ -197,10 +197,14 @@
   "legal": {
     "title": "Terms & policy",
     "intro": "These terms apply to every purchase and to card custody at TCG Vault MX.",
+    "scopeNote": "The policy applies to every product type: raw, sealed and graded cards.",
     "refundTitle": "Refunds and final sales",
     "refundBody": "All sales are final. Once you buy a card, the sale is not eligible for a refund or cancellation.",
+    "platformErrorTitle": "Exception: platform error",
+    "platformErrorBody": "If the problem is an error on our side —for example, a duplicate charge or a purchase with no real inventory backing it— we always refund you, with no need to open a dispute.",
     "disputeTitle": "Exception: damaged or wrong card",
-    "disputeBody": "The only exception is receiving a damaged or wrong card. In that case you may open a condition dispute within 7 days of shipment delivery, attaching photos that evidence the issue.",
+    "disputeBody": "Another exception is receiving a damaged or wrong card. In that case you may open a condition dispute within 7 calendar days, counted from shipment delivery, attaching photos that evidence the issue.",
+    "disputeWindowNote": "The 7-day window starts on the day the shipment is delivered, not on the purchase or payment date.",
     "disputeOutcome": "If the dispute is upheld, we compensate you for the damage or error and you keep the card: there is no product return.",
     "questionsTitle": "Questions",
     "questionsBody": "For any clarification about these terms, email us at soporte@tcgvault.mx."

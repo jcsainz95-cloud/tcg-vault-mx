@@ -197,10 +197,14 @@
   "legal": {
     "title": "Términos y política",
     "intro": "Estos términos aplican a todas las compras y a la custodia de cartas en TCG Vault MX.",
+    "scopeNote": "La política aplica a todo tipo de producto: cartas raw, selladas y gradeadas.",
     "refundTitle": "Reembolsos y ventas finales",
     "refundBody": "Todas las ventas son finales. Una vez que compras una carta, la venta no admite reembolso ni cancelación.",
+    "platformErrorTitle": "Excepción: error de la plataforma",
+    "platformErrorBody": "Si el problema es un error nuestro —por ejemplo, un cobro duplicado o una compra sin inventario real que la respalde— siempre te reembolsamos, sin necesidad de abrir una disputa.",
     "disputeTitle": "Excepción: carta dañada o equivocada",
-    "disputeBody": "La única excepción es recibir una carta dañada o equivocada. En ese caso puedes abrir una disputa de condición dentro de los 7 días posteriores a la entrega del envío, adjuntando fotos que evidencien el problema.",
+    "disputeBody": "Otra excepción es recibir una carta dañada o equivocada. En ese caso puedes abrir una disputa de condición dentro de los 7 días naturales, contados a partir de la entrega del envío, adjuntando fotos que evidencien el problema.",
+    "disputeWindowNote": "El plazo de 7 días empieza a correr el día en que se entrega el envío, no en la fecha de compra ni de pago.",
     "disputeOutcome": "Si la disputa procede, te compensamos por el daño o el error y conservas la carta: no hay devolución del producto.",
     "questionsTitle": "Dudas",
     "questionsBody": "Para cualquier aclaración sobre estos términos, escríbenos a soporte@tcgvault.mx."
