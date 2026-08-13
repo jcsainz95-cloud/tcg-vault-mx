@@ -1,0 +1,384 @@
+<title>Equipo de Desarrollo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #EEF1F6;
+    --surface: #FFFFFF;
+    --surface-2: #F4F6FA;
+    --ink: #16202E;
+    --muted: #5B6675;
+    --border: #DBE1EA;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+    /* fases */
+    --c-def: #0E7C86;   /* definición */
+    --c-arch: #3D5A98;  /* diseño técnico */
+    --c-ux: #A24C67;    /* diseño visual */
+    --c-impl: #2F8F5B;  /* implementación */
+    --c-verify: #9A7220;/* verificación */
+    --c-deliver: #BF5E2E;/* infra & entrega */
+    --accent: var(--c-def);
+    color-scheme: light;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --bg: #0E1420;
+      --surface: #161F2C;
+      --surface-2: #1C2635;
+      --ink: #E7ECF3;
+      --muted: #95A0B2;
+      --border: #29323F;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+      --c-def: #37B3BE;
+      --c-arch: #8098D8;
+      --c-ux: #DB8DA9;
+      --c-impl: #54C083;
+      --c-verify: #D6B24E;
+      --c-deliver: #E3865A;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1420;
+    --surface: #161F2C;
+    --surface-2: #1C2635;
+    --ink: #E7ECF3;
+    --muted: #95A0B2;
+    --border: #29323F;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    --c-def: #37B3BE;
+    --c-arch: #8098D8;
+    --c-ux: #DB8DA9;
+    --c-impl: #54C083;
+    --c-verify: #D6B24E;
+    --c-deliver: #E3865A;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: clamp(28px, 5vw, 64px) clamp(18px, 4vw, 40px) 72px; }
+
+  /* Header */
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--accent); display: inline-block; }
+  h1 { font-size: clamp(30px, 5.5vw, 50px); line-height: 1.05; margin: 0 0 16px; letter-spacing: -.02em; text-wrap: balance; }
+  .lede { font-size: clamp(15.5px, 2.3vw, 18px); color: var(--muted); max-width: 60ch; margin: 0 0 26px; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+    padding: 4px 10px; border-radius: 999px;
+  }
+
+  section { margin-top: clamp(44px, 7vw, 72px); }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 4px; }
+  h2 { font-size: clamp(19px, 3vw, 24px); margin: 0; letter-spacing: -.01em; }
+  .sec-num { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--muted); }
+  .sec-sub { color: var(--muted); font-size: 14.5px; margin: 6px 0 24px; max-width: 62ch; }
+
+  /* Diagram */
+  .diagram-frame {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    box-shadow: var(--shadow); padding: 22px; overflow-x: auto;
+  }
+  .diagram-frame svg { display: block; width: 100%; min-width: 720px; height: auto; color: var(--ink); }
+  figure { margin: 0; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 14px; text-align: center; }
+
+  .flow-line { stroke: var(--ink); stroke-width: 1.6; fill: none; opacity: .55; }
+  .node-box { fill: var(--surface-2); stroke: var(--border); stroke-width: 1.4; }
+  .node-label { fill: var(--ink); font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
+  .node-dot-def { fill: var(--c-def); } .node-dot-arch { fill: var(--c-arch); }
+  .node-dot-ux { fill: var(--c-ux); } .node-dot-impl { fill: var(--c-impl); }
+  .node-dot-verify { fill: var(--c-verify); } .node-dot-deliver { fill: var(--c-deliver); }
+  .cluster-box { fill: var(--surface-2); stroke: var(--c-impl); stroke-width: 1.5; stroke-dasharray: 2 4; opacity: 1; }
+  .cluster-title { fill: var(--muted); font-size: 11px; letter-spacing: .12em; font-family: ui-monospace, Menlo, monospace; }
+  .pill { fill: var(--surface); stroke: var(--border); stroke-width: 1.2; }
+  .idea-node { fill: var(--surface); stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 3 3; }
+  .fb { fill: none; stroke-width: 1.5; stroke-dasharray: 5 4; }
+  .fb-reject { stroke: var(--c-deliver); }
+  .fb-contract { stroke: var(--c-arch); }
+  .fb-label { font-size: 11.5px; font-family: ui-monospace, Menlo, monospace; }
+  .fb-label-reject { fill: var(--c-deliver); }
+  .fb-label-contract { fill: var(--c-arch); }
+  .mk-ink { fill: var(--ink); opacity: .6; }
+  .mk-reject { fill: var(--c-deliver); }
+  .mk-contract { fill: var(--c-arch); }
+
+  /* Role cards */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 18px 16px; box-shadow: var(--shadow);
+    border-top: 3px solid var(--role); display: flex; flex-direction: column; gap: 10px;
+  }
+  .card-top { display: flex; align-items: center; gap: 11px; }
+  .mono-chip {
+    width: 38px; height: 38px; border-radius: 9px; flex: none;
+    display: grid; place-items: center; font-family: ui-monospace, Menlo, monospace;
+    font-size: 14px; font-weight: 600; letter-spacing: .02em;
+    color: #fff; background: var(--role);
+  }
+  .role-name { font-family: ui-monospace, Menlo, monospace; font-size: 15.5px; font-weight: 600; }
+  .phase { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--role); font-family: ui-monospace, Menlo, monospace; }
+  .card p { margin: 0; font-size: 14px; color: var(--ink); }
+  .card .writes { font-size: 12.5px; color: var(--muted); }
+  .card .writes b { color: var(--ink); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+  .chip { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; }
+  .card.only-reads .writes b { color: var(--muted); font-weight: 500; font-style: italic; }
+
+  /* Ownership table */
+  .table-frame { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; background: var(--surface); font-size: 13.5px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--surface-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.path code { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--ink); }
+  td.owner { white-space: nowrap; }
+  .owner-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+
+  /* Callout */
+  .callout {
+    background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+    border-radius: 12px; padding: 20px 22px; box-shadow: var(--shadow);
+  }
+  .callout h3 { margin: 0 0 8px; font-size: 16px; }
+  .callout p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .callout code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--ink); background: var(--surface-2); padding: 1px 6px; border-radius: 5px; }
+
+  .design-note { margin-top: 18px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .step { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+  .step .n { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--c-ux); letter-spacing: .1em; }
+  .step p { margin: 6px 0 0; font-size: 13.5px; }
+  .step b { font-weight: 600; }
+
+  footer { margin-top: 64px; padding-top: 22px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+  footer code { font-family: ui-monospace, Menlo, monospace; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card { transition: transform .15s ease, box-shadow .15s ease; }
+    .card:hover { transform: translateY(-2px); }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Claude Code · Subagentes</p>
+    <h1>El equipo de desarrollo de 8 agentes</h1>
+    <p class="lede">Un equipo de subagentes con roles separados que lleva una idea desde el concepto hasta el despliegue. La sesión principal orquesta; cada rol es dueño de su parte y se comunica con los demás a través de documentos en <span class="mono">docs/</span>.</p>
+    <div class="meta-row">
+      <span class="tag">8 roles</span>
+      <span class="tag">handoffs por documentos</span>
+      <span class="tag">propiedad de archivos estricta</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>El flujo de trabajo</h2></div>
+    <p class="sec-sub">Una idea recorre el pipeline de izquierda a derecha. En el centro, cuatro roles construyen en paralelo. Las flechas punteadas son las vueltas atrás: rechazos de QA/tech&nbsp;lead y solicitudes de cambio de contrato.</p>
+
+    <div class="diagram-frame">
+      <figure>
+        <svg viewBox="0 0 1240 392" role="img" aria-label="Diagrama del flujo del equipo: idea, product-owner produce PROJECT.md, arquitecto produce el contrato, luego ux-ui, backend, frontend y devops construyen en paralelo, después qa verifica, techlead revisa y devops despliega. Dos bucles punteados: rechazo de QA o techlead hacia el rol responsable, y solicitud de cambio de contrato hacia el arquitecto.">
+          <defs>
+            <marker id="ar-ink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" class="mk-ink"/>
+            </marker>
+            <marker id="ar-reject" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" class="mk-reject"/>
+            </marker>
+            <marker id="ar-contract" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" class="mk-contract"/>
+            </marker>
+          </defs>
+
+          <!-- connectors -->
+          <line class="flow-line" x1="84"  y1="130" x2="112" y2="130" marker-end="url(#ar-ink)"/>
+          <line class="flow-line" x1="266" y1="130" x2="294" y2="130" marker-end="url(#ar-ink)"/>
+          <line class="flow-line" x1="430" y1="130" x2="458" y2="130" marker-end="url(#ar-ink)"/>
+          <line class="flow-line" x1="778" y1="130" x2="808" y2="130" marker-end="url(#ar-ink)"/>
+          <line class="flow-line" x1="896" y1="130" x2="924" y2="130" marker-end="url(#ar-ink)"/>
+          <line class="flow-line" x1="1048" y1="130" x2="1076" y2="130" marker-end="url(#ar-ink)"/>
+
+          <!-- idea -->
+          <rect class="idea-node" x="20" y="112" width="64" height="36" rx="18"/>
+          <text class="node-label" x="52" y="134" text-anchor="middle" style="fill:var(--muted)">idea</text>
+
+          <!-- product-owner -->
+          <rect class="node-box" x="116" y="107" width="150" height="46" rx="10"/>
+          <circle class="node-dot-def" cx="134" cy="130" r="5"/>
+          <text class="node-label" x="148" y="134">product-owner</text>
+
+          <!-- arquitecto -->
+          <rect class="node-box" x="298" y="107" width="132" height="46" rx="10"/>
+          <circle class="node-dot-arch" cx="316" cy="130" r="5"/>
+          <text class="node-label" x="330" y="134">arquitecto</text>
+
+          <!-- parallel cluster -->
+          <rect class="cluster-box" x="462" y="56" width="316" height="196" rx="14"/>
+          <text class="cluster-title" x="620" y="78" text-anchor="middle">CONSTRUCCIÓN EN PARALELO</text>
+
+          <rect class="pill" x="486" y="92"  width="268" height="34" rx="9"/>
+          <circle class="node-dot-ux" cx="506" cy="109" r="5"/>
+          <text class="node-label" x="520" y="113">ux-ui · sistema de diseño</text>
+
+          <rect class="pill" x="486" y="132" width="268" height="34" rx="9"/>
+          <circle class="node-dot-impl" cx="506" cy="149" r="5"/>
+          <text class="node-label" x="520" y="153">backend · API + BD</text>
+
+          <rect class="pill" x="486" y="172" width="268" height="34" rx="9"/>
+          <circle class="node-dot-impl" cx="506" cy="189" r="5"/>
+          <text class="node-label" x="520" y="193">frontend · UI</text>
+
+          <rect class="pill" x="486" y="212" width="268" height="34" rx="9"/>
+          <circle class="node-dot-deliver" cx="506" cy="229" r="5"/>
+          <text class="node-label" x="520" y="233">devops · entorno</text>
+
+          <!-- qa -->
+          <rect class="node-box" x="812" y="107" width="84" height="46" rx="10"/>
+          <circle class="node-dot-verify" cx="830" cy="130" r="5"/>
+          <text class="node-label" x="844" y="134">qa</text>
+
+          <!-- techlead -->
+          <rect class="node-box" x="924" y="107" width="124" height="46" rx="10"/>
+          <circle class="node-dot-verify" cx="942" cy="130" r="5"/>
+          <text class="node-label" x="956" y="134">techlead</text>
+
+          <!-- deploy -->
+          <rect class="node-box" x="1076" y="107" width="150" height="46" rx="10"/>
+          <circle class="node-dot-deliver" cx="1094" cy="130" r="5"/>
+          <text class="node-label" x="1108" y="134">devops · deploy</text>
+
+          <!-- feedback: reject loop (techlead/qa -> cluster) -->
+          <path class="fb fb-reject" d="M 986 155 C 986 350, 632 350, 632 254" marker-end="url(#ar-reject)"/>
+          <text class="fb-label fb-label-reject" x="808" y="366" text-anchor="middle">rechazo → rol responsable</text>
+
+          <!-- feedback: contract change (cluster -> arquitecto) -->
+          <path class="fb fb-contract" d="M 560 254 C 560 312, 364 316, 364 155" marker-end="url(#ar-contract)"/>
+          <text class="fb-label fb-label-contract" x="452" y="300" text-anchor="middle">cambio de contrato</text>
+        </svg>
+        <figcaption>El contrato de API es la interfaz entre backend y frontend; el sistema de diseño guía la UI. QA y tech&nbsp;lead solo aprueban o rechazan — nunca corrigen el código de otro rol.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>Los 8 roles</h2></div>
+    <p class="sec-sub">Cada tarjeta muestra la fase, la responsabilidad principal, lo que el rol escribe y las herramientas que tiene asignadas.</p>
+
+    <div class="grid">
+      <article class="card" style="--role: var(--c-def)">
+        <div class="card-top"><div class="mono-chip">PO</div><div><div class="phase">Definición</div><div class="role-name">product-owner</div></div></div>
+        <p>Aterriza la idea cruda en un <span class="mono">PROJECT.md</span> completo y sin ambigüedades. El humano aprueba.</p>
+        <div class="writes">Escribe: <b>PROJECT.md</b></div>
+        <div class="chips"><span class="chip">Read</span><span class="chip">Grep</span><span class="chip">Glob</span><span class="chip">Write</span><span class="chip">Edit</span></div>
+      </article>
+
+      <article class="card" style="--role: var(--c-arch)">
+        <div class="card-top"><div class="mono-chip">AR</div><div><div class="phase">Diseño técnico</div><div class="role-name">arquitecto</div></div></div>
+        <p>Define arquitectura, estructura y el contrato de API que une backend y frontend. No implementa.</p>
+        <div class="writes">Escribe: <b>docs/ARCHITECTURE.md · API_CONTRACT.md</b></div>
+        <div class="chips"><span class="chip">Read</span><span class="chip">Grep</span><span class="chip">Glob</span><span class="chip">Write</span><span class="chip">Edit</span></div>
+      </article>
+
+      <article class="card" style="--role: var(--c-ux)">
+        <div class="card-top"><div class="mono-chip">UX</div><div><div class="phase">Diseño visual</div><div class="role-name">ux-ui</div></div></div>
+        <p>Define el sistema de diseño y codifica los mockups de <b>Claude Design</b> en tokens versionados.</p>
+        <div class="writes">Escribe: <b>docs/DESIGN_SYSTEM.md</b></div>
+        <div class="chips"><span class="chip">Read</span><span class="chip">Grep</span><span class="chip">Glob</span><span class="chip">Write</span><span class="chip">Edit</span></div>
+      </article>
+
+      <article class="card" style="--role: var(--c-impl)">
+        <div class="card-top"><div class="mono-chip">BE</div><div><div class="phase">Implementación</div><div class="role-name">backend</div></div></div>
+        <p>Implementa servidor, API y base de datos exactamente según el contrato.</p>
+        <div class="writes">Escribe: <b>backend/ · docs/BACKEND_NOTES.md</b></div>
+        <div class="chips"><span class="chip">Read</span><span class="chip">Grep</span><span class="chip">Glob</span><span class="chip">Write</span><span class="chip">Edit</span><span class="chip">Bash</span></div>
+      </article>
+
+      <article class="card" style="--role: var(--c-impl)">
+        <div class="card-top"><div class="mono-chip">FE</div><div><div class="phase">Implementación</div><div class="role-name">frontend</div></div></div>
+        <p>Implementa la UI consumiendo el contrato y siguiendo el sistema de diseño. No improvisa estilos.</p>
+        <div class="writes">Escribe: <b>frontend/ · docs/FRONTEND_NOTES.md</b></div>
+        <div class="chips"><span class="chip">Read</span><span class="chip">Grep</span><span class="chip">Glob</span><span class="chip">Write</span><span class="chip">Edit</span><span class="chip">Bash</span></div>
+      </article>
+
+      <article class="card only-reads" style="--role: var(--c-verify)">
+        <div class="card-top"><div class="mono-chip">QA</div><div><div class="phase">Verificación</div><div class="role-name">qa</div></div></div>
+        <p>Verifica que <em>funciona</em>: tests, contrato y seguridad básica. Emite veredicto; solo reporta.</p>
+        <div class="writes">Escribe: <b>nada — solo lee y reporta</b></div>
+        <div class="chips"><span class="chip">Read</span><span class="chip">Grep</span><span class="chip">Glob</span><span class="chip">Bash</span></div>
+      </article>
+
+      <article class="card only-reads" style="--role: var(--c-verify)">
+        <div class="card-top"><div class="mono-chip">TL</div><div><div class="phase">Verificación</div><div class="role-name">techlead</div></div></div>
+        <p>Revisa que esté <em>bien hecho</em>: diseño, mantenibilidad y deuda técnica. Corre con Opus.</p>
+        <div class="writes">Escribe: <b>nada — solo lee y reporta</b></div>
+        <div class="chips"><span class="chip">Read</span><span class="chip">Grep</span><span class="chip">Glob</span></div>
+      </article>
+
+      <article class="card" style="--role: var(--c-deliver)">
+        <div class="card-top"><div class="mono-chip">DO</div><div><div class="phase">Infra &amp; Entrega</div><div class="role-name">devops</div></div></div>
+        <p>Prepara el entorno y CI/CD, y despliega solo lo que tenga ambos veredictos aprobados.</p>
+        <div class="writes">Escribe: <b>Dockerfile · CI · scripts/ · DEVOPS_NOTES.md</b></div>
+        <div class="chips"><span class="chip">Read</span><span class="chip">Grep</span><span class="chip">Glob</span><span class="chip">Write</span><span class="chip">Edit</span><span class="chip">Bash</span></div>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>Propiedad de archivos</h2></div>
+    <p class="sec-sub">La regla de oro para que nadie se pise: cada ruta tiene un único dueño de escritura. Todos leen; solo uno escribe.</p>
+    <div class="table-frame">
+      <table>
+        <thead><tr><th>Ruta</th><th>Escribe</th><th>Leen</th></tr></thead>
+        <tbody>
+          <tr><td class="path"><code>PROJECT.md</code></td><td class="owner"><span class="owner-dot" style="background:var(--c-def)"></span>product-owner <span style="color:var(--muted)">(humano aprueba)</span></td><td>todos</td></tr>
+          <tr><td class="path"><code>docs/ARCHITECTURE.md</code> · <code>API_CONTRACT.md</code></td><td class="owner"><span class="owner-dot" style="background:var(--c-arch)"></span>arquitecto</td><td>todos</td></tr>
+          <tr><td class="path"><code>docs/DESIGN_SYSTEM.md</code></td><td class="owner"><span class="owner-dot" style="background:var(--c-ux)"></span>ux-ui</td><td>todos</td></tr>
+          <tr><td class="path"><code>backend/</code> · <code>docs/BACKEND_NOTES.md</code></td><td class="owner"><span class="owner-dot" style="background:var(--c-impl)"></span>backend</td><td>todos</td></tr>
+          <tr><td class="path"><code>frontend/</code> · <code>docs/FRONTEND_NOTES.md</code></td><td class="owner"><span class="owner-dot" style="background:var(--c-impl)"></span>frontend</td><td>todos</td></tr>
+          <tr><td class="path"><code>Dockerfile</code> · <code>.github/workflows/</code> · <code>scripts/</code> · deploy</td><td class="owner"><span class="owner-dot" style="background:var(--c-deliver)"></span>devops</td><td>todos</td></tr>
+          <tr><td class="path"><code>docs/TECH_DEBT.md</code></td><td class="owner"><span class="owner-dot" style="background:var(--muted)"></span>rol dueño del código <span style="color:var(--muted)">(a petición del techlead)</span></td><td>todos</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Diseño visual con Claude Design</h2></div>
+    <p class="sec-sub">Para que la UI quede atractiva, el rol <span class="mono">ux-ui</span> se apoya en Claude Design (Anthropic Labs). El humano diseña; el agente lo versiona.</p>
+    <div class="design-note">
+      <div class="step"><span class="n">PASO 1 · HUMANO</span><p>Usas <b>Claude Design</b> en Claude.ai para crear mockups y look&nbsp;&&nbsp;feel desde un prompt, tu código o Figma.</p></div>
+      <div class="step"><span class="n">PASO 2 · UX-UI</span><p>El agente toma ese diseño como insumo y lo codifica en <span class="mono">docs/DESIGN_SYSTEM.md</span> (tokens, tipografía, componentes).</p></div>
+      <div class="step"><span class="n">PASO 3 · FRONTEND</span><p>El <b>frontend</b> implementa la UI siguiendo ese sistema de diseño como fuente de verdad.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Regla de conflicto</h2></div>
+    <div class="callout">
+      <h3>Ante cualquier ambigüedad, hay una jerarquía</h3>
+      <p><code>PROJECT.md</code> manda sobre el contrato · el contrato manda sobre el código. Si <code>PROJECT.md</code> es ambiguo, se pregunta al humano — no se asume. Si backend o frontend necesitan cambiar el contrato, la solicitud pasa primero por el arquitecto.</p>
+    </div>
+  </section>
+
+  <footer>
+    Plantilla <span class="mono">dev-team</span> para Claude Code · edita los agentes con el comando <code>/agents</code> · las definiciones viven en <code>.claude/agents/</code>.
+  </footer>
+</div>
