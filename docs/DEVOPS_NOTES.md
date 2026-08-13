@@ -104,7 +104,7 @@ tocar nada. Requieren **credenciales reales** antes de usar esas funciones:
 | `POKEMONPRICETRACKER_API_KEY` | Precios gradeadas/sellado | PokemonPriceTracker (free tier) |
 | `POKETRACE_API_KEY` | Respaldo gradeadas/sellado | PokeTrace (free tier) |
 | `S3_*` (endpoint/bucket/keys/public-url) | Fotos. Local=MinIO (ya puesto); prod=R2/S3 | Cloudflare R2 o AWS S3 |
-| `FX_SOURCE`, `FX_API_KEY` | Tipo de cambio USD→MXN (default `manual`) | Solo si se automatiza (ver ARCH Preg. 5) |
+| `FX_SOURCE`, `BANXICO_SIE_TOKEN` | Tipo de cambio USD→MXN. Fuente decidida: **Banxico (SIE)** automático + colchón + override manual. `FX_SOURCE=banxico`; token en `BANXICO_SIE_TOKEN`. Si el token queda vacío, cae a override manual / último FX. | Token SIE de Banxico (gratis en el portal SIE) |
 | `DATABASE_URL`, `REDIS_URL`, `POSTGRES_*`, `MINIO_ROOT_*` | Infra local | Ya listos en `.env.example` |
 | `NEXT_PUBLIC_*` | Config del frontend expuesta al browser | Solo claves **públicas** |
 
@@ -242,7 +242,8 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 - [ ] Que exista código en `backend/` y `frontend/` con scripts `lint/typecheck/test/build`.
 - [ ] **Doble veredicto** QA + techlead (DoD de `CLAUDE.md`).
 - [ ] El humano provee credenciales prod: **Stripe live**, keys de las 3 APIs de precio,
-      bucket **R2/S3**, secrets JWT nuevos, y define **FX_SOURCE** (manual vs automático).
+      bucket **R2/S3**, secrets JWT nuevos, y el **`BANXICO_SIE_TOKEN`** (fuente de FX ya
+      decidida: **Banxico SIE** automático + colchón + override manual; Pregunta 5 resuelta).
 - [ ] Elegir/confirmar plataformas (propuesta: Vercel + Railway + R2) — validar con arquitecto.
 - [ ] Dominios y DNS a nombre del negocio.
 - [ ] Banderas de `PROJECT.md` no técnicas (legal custodia, fiscal CFDI/PAC) — no bloquean
