@@ -91,10 +91,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: npm audit (gate high/critical)
+      # GATE BLOQUEANTE (SEC-C2): falla en high/critical de dependencias de
+      # RUNTIME (--omit=dev en audit-npm.sh). Cubre el bump de next/next-intl/
+      # postcss (frontend) y express/multer/qs (backend). Es required check.
+      - name: npm audit (gate high/critical — runtime)
         run: ./security/scripts/audit-npm.sh
         env:
           AUDIT_LEVEL: high
+      # VISIBILIDAD NO BLOQUEANTE (SEC-C2): reporta también criticals de
+      # devDependencies (p. ej. vitest). No bloquea el pipeline —son supply-chain
+      # de tooling, deuda aceptada— pero deja el hallazgo en el log del PR.
+      - name: npm audit (informativo — incluye devDependencies)
+        if: always()
+        continue-on-error: true
+        run: |
+          for app in backend frontend; do
+            if [ -f "$app/package.json" ]; then
+              echo "== npm audit (con dev) en $app =="
+              ( cd "$app" && npm audit --audit-level=critical || true )
+            fi
+          done
 
   # ---------------------------------------------------------------------------
   # Trivy filesystem — CVEs de dependencias. ACTIVO.

@@ -78,11 +78,20 @@ Servicios y accesos tras `dev-up`:
 - Redis: `localhost:6379`.
 - MinIO API: `http://localhost:9000` · Consola: `http://localhost:9001`
   (login con `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`). El bucket `tcg-photos`
-  se crea solo (init container `createbuckets`) con lectura pública para servir fotos.
+  se crea solo (init container `createbuckets`). **SEC-A5: es PRIVADO** — los
+  prefijos `kyc_ine/` y `dispute_claim/` NO tienen lectura anónima; solo
+  `inventory_photo/` (catálogo público) queda con lectura anónima en local. Ver §15.
+- **SEC-M4:** los puertos de datos (Postgres 5432, Redis 6379, MinIO 9000/9001) se
+  publican **solo en `127.0.0.1`**, nunca en `0.0.0.0`/LAN. El backend del perfil
+  `apps` los alcanza por la red de compose (hosts `postgres`/`redis`/`minio`), no
+  por el puerto de host.
 
-Usuarios sembrados (por `seed.sh` → `backend` seed): `admin@tcg.local` / `ChangeMe123!`
-(super_admin; configurable con `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`) y
-`operador@tcg.local` / `Operador123!` (vault_operator). **Cambia estas credenciales en prod.**
+Usuarios sembrados (por `seed.sh` → `backend` seed): super_admin (`SEED_ADMIN_EMAIL`
+/`SEED_ADMIN_PASSWORD`) y vault_operator (`SEED_OPERATOR_EMAIL`/`SEED_OPERATOR_PASSWORD`).
+**SEC-C1: define contraseñas fuertes en `.env` ANTES del seed** (`openssl rand -base64 24`).
+Si van vacías, el backend aún cae a defaults débiles (`ChangeMe123!` / `Operador123!`
+hardcodeada) — es un fix pendiente de **rol backend**; hasta entonces **rota ambas
+credenciales tras el primer login**. Nunca arranques un entorno accesible con defaults.
 
 Apagar:
 
@@ -130,7 +139,7 @@ antes de usar esas funciones:
 | `S3_*` (endpoint/bucket/keys/public-url/force-path-style) | Fotos. Local=MinIO (ya puesto); prod=R2/S3 | Cloudflare R2 o AWS S3 |
 | `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` | Tipo de cambio USD→MXN automático (Banxico SIE) + colchón + override manual (M10). El backend lee `BANXICO_SIE_TOKEN` y, si falta, cae a `FX_API_KEY`, y si tampoco, a override manual / último FxRate. | Token SIE de Banxico (gratis en el portal SIE) |
 | `DATABASE_URL`, `REDIS_URL`, `POSTGRES_*`, `MINIO_ROOT_*` | Infra | Ya listos en `.env.example` (local); en prod = credenciales del proveedor |
-| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Credenciales del super_admin sembrado | Definir credenciales fuertes en prod antes del seed |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_EMAIL`, `SEED_OPERATOR_PASSWORD` | Credenciales de las cuentas sembradas (super_admin + vault_operator). **SEC-C1: sin default débil**, generar fuertes (`openssl rand -base64 24`) | Definir en prod ANTES del seed y rotar tras primer login |
 | `NEXT_PUBLIC_*` | Config del frontend expuesta al browser (incluye `NEXT_PUBLIC_USE_MOCKS=false`) | Solo claves **públicas** |
 
 > Los **diales de negocio** (tarifa MX$175, IVA 16%, topes MX$3,000/10,000, aportación 70%, markup de
@@ -306,11 +315,16 @@ Validaciones estáticas corridas (reales):
       el FX usa override manual (dial M10). `FX_SOURCE=banxico`.
 - [ ] **JWT secrets** nuevos y únicos de prod: `openssl rand -hex 48` para `JWT_ACCESS_SECRET` y otro
       distinto para `JWT_REFRESH_SECRET`.
-- [ ] **Object storage R2/S3**: crear bucket privado; obtener `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`,
-      `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL` (CDN). `S3_FORCE_PATH_STYLE=false`
-      en R2/S3 (true solo MinIO). Configurar **CORS del bucket** permitiendo el dominio del frontend
-      (métodos PUT/GET) para los presigned uploads.
-- [ ] **SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD** fuertes (super_admin del negocio).
+- [ ] **Object storage R2/S3 (SEC-A5)**: crear bucket **PRIVADO** — sin lectura pública anónima,
+      **Block Public Access** activado (S3) / sin política pública (R2). Obtener `S3_ENDPOINT`,
+      `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. `S3_FORCE_PATH_STYLE=false`
+      en R2/S3 (true solo MinIO). Los prefijos `kyc_ine/` y `dispute_claim/` (INE/PII) se sirven
+      **solo por presigned GET** (lo implementa backend); no deben quedar detrás de una base pública.
+      `S3_PUBLIC_BASE_URL` (CDN) expone **únicamente** el prefijo público `inventory_photo/`.
+      **CORS del bucket:** allow-list **solo** el dominio del frontend (`APP_BASE_URL`), métodos
+      **PUT** (subida presignada) y **GET** (descarga presignada); nunca `AllowedOrigins: ["*"]`.
+- [ ] **SEED_ADMIN_* / SEED_OPERATOR_*** fuertes (super_admin + vault_operator) — SEC-C1,
+      `openssl rand -base64 24` por cada una. Rótalas tras el primer login.
 
 **B. Dominios y red** — [HUMANO]
 - [ ] Dominio del negocio; DNS: `app.tudominio.com` → frontend, `api.tudominio.com` → backend.
@@ -466,4 +480,92 @@ Fuera de la ventana: `ALLOW_PROD_DAST=0` (o sin definir). Los scripts abortan so
 - `deploy.yml` / `security-scheduled.yml`: cargar `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `STAGING_BASE_URL`,
   `PROD_BASE_URL`, `STRIPE_TEST_*` como GitHub Secrets; descomentar los pasos de deploy y el trigger
   `push` a la rama de release; proteger el Environment `production` con *required reviewers*.
+
+---
+
+## 15. Remediación de seguridad (hallazgos de `docs/SECURITY_NOTES.md`)
+
+Cambios de infraestructura hechos por devops para los hallazgos que le tocan. Los de código
+(backend/frontend) siguen abiertos con su rol dueño y se listan al final como dependencias.
+
+### 15.1 SEC-A5 — Object storage privado (INE/KYC/PII)
+
+- **Prod (R2/S3):** bucket **privado**, sin lectura pública anónima (Block Public Access / sin política
+  pública). Los prefijos sensibles `kyc_ine/` y `dispute_claim/` se sirven **solo por presigned GET de
+  vida corta** (implementación = **rol backend**, aún abierto: `disputes.service.ts`/`catalog.service.ts`
+  usan `S3_PUBLIC_BASE_URL`). `S3_PUBLIC_BASE_URL`/CDN expone **únicamente** `inventory_photo/`.
+- **CORS del bucket:** allow-list solo `APP_BASE_URL` (dominio del front), métodos **PUT** y **GET**.
+  Nunca `AllowedOrigins: ["*"]`. Ejemplo de política R2/S3:
+
+  ```json
+  [{ "AllowedOrigins": ["https://app.tudominio.com"],
+     "AllowedMethods": ["PUT", "GET"],
+     "AllowedHeaders": ["content-type"],
+     "MaxAgeSeconds": 3000 }]
+  ```
+
+- **Local/staging (MinIO):** `createbuckets` deja el bucket **privado** (`mc anonymous set none`) y solo
+  publica el prefijo de catálogo (`mc anonymous set download .../inventory_photo`). Una corrida vieja con
+  lectura pública total queda reprivatizada al re-levantar. Efecto: en local, las fotos de KYC/disputa ya
+  **no** cargan por URL pública — es lo correcto; cargarán cuando backend sirva por presigned GET.
+
+### 15.2 SEC-C1 — Secretos y credenciales sembradas
+
+- `.env.example`: **sin defaults débiles** para credenciales administrativas. `SEED_ADMIN_PASSWORD`,
+  `SEED_OPERATOR_PASSWORD` (nueva) y `SEED_OPERATOR_EMAIL` (nueva) van vacías con la marca
+  *"OBLIGATORIO, generar fuerte"*. Ambos compose pasan las 4 variables al backend.
+- **Pendiente de backend:** eliminar los fallbacks débiles del seed (`ChangeMe123!` del admin y la
+  `Operador123!` **hardcodeada** del operador) y leer `SEED_OPERATOR_PASSWORD` como obligatoria. Hasta
+  entonces la mitigación devops es: definir las env fuertes + **rotar tras el primer login**.
+
+**Rotación de secretos (runbook):**
+1. **JWT (`JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`):** generar nuevos (`openssl rand -hex 48`),
+   cargar en el secret manager de la plataforma, redeploy backend. **Efecto:** invalida todas las
+   sesiones → los usuarios re-login. Rotar los dos juntos.
+2. **Credenciales sembradas (admin/operador):** cambiar la contraseña desde el panel; si se filtró la
+   del operador del repo, cambiarla **ya** (era `Operador123!`). No re-seedear en prod con defaults.
+3. **Stripe / APIs de precio / Banxico:** rotar la clave en el proveedor, actualizar el secret manager,
+   redeploy. Para Stripe, recrear el webhook y actualizar `STRIPE_WEBHOOK_SECRET`.
+4. **Object storage (`S3_*`):** rotar el par de llaves en R2/S3, actualizar el secret manager, redeploy.
+5. **Postgres/Redis:** rotar credenciales del proveedor gestionado; actualizar `DATABASE_URL`/`REDIS_URL`.
+6. **Regla:** los secretos viven en el secret manager de la plataforma, **nunca** en el repo ni en un
+   `.env` versionado. `gitleaks` (en `security-sast.yml`) vigila fugas en cada push.
+
+**Rate-limit / WAF en el borde (mitiga SEC-C1 fuerza bruta de login):**
+- El lockout/throttle de `/auth/login` y `/auth/register` es **backend** (`@nestjs/throttler`, abierto).
+- **En el borde (recomendado, complementario):** activar el WAF/rate-limit del proveedor —
+  **Cloudflare** delante de Vercel/Railway (Rate Limiting Rules sobre las rutas de auth + reglas
+  OWASP del WAF managed), o el rate-limit nativo de Railway. Objetivo: acotar intentos por IP a las
+  rutas de login/registro y money-out antes de que lleguen al backend.
+
+### 15.3 SEC-M4 — Compose sin defaults inseguros expuestos
+
+- Puertos de datos (Postgres/Redis/MinIO API+consola) publicados **solo en `127.0.0.1`** en
+  `docker-compose.yml` y `docker-compose.staging.yml`. No se exponen a `0.0.0.0`/LAN.
+- Credenciales por **variable de entorno** (los defaults inline son de **dev local** explícito y ahora
+  solo alcanzables desde localhost). En prod los valores vienen del secret manager (no de estos defaults).
+
+### 15.4 SEC-C2 — Gate SAST que bloquea el bump de dependencias
+
+- `security-sast.yml` **ya falla en high/critical** vía `npm audit` (runtime, `--omit=dev`),
+  `trivy fs` y `trivy image` (HIGH/CRITICAL, `exit-code: 1`). **Confirmado.** Cubre el bump de
+  `next`/`next-intl`/`postcss` (frontend) y `express`/`multer`/`qs` (backend) — cuando el rol
+  backend/frontend suba versiones, el pipeline lo verifica.
+- **Endurecido:** añadido un paso **informativo no bloqueante** que audita también `devDependencies`
+  (criticals de tooling tipo `vitest`) para dejar el hallazgo visible en el log del PR sin frenar el
+  pipeline (deuda de supply-chain de tooling, aceptada).
+- **Required check:** `sast-ok` (de `security-sast.yml`) debe estar como *required status check* en la
+  protección de la rama de release, junto con `ci-ok`.
+
+### 15.5 Hallazgos que NO son de devops (dependencias abiertas)
+
+Estos siguen abiertos con su rol dueño (devops no toca código de app):
+- **backend:** SEC-C1 (throttler + operador por env), SEC-A1/A2/A3 (buylist/conversión atómicas),
+  SEC-A4 (proyección PII para `vault_operator`), **SEC-A5 parte app** (servir INE/disputa por presigned
+  GET, no por `S3_PUBLIC_BASE_URL`), SEC-C2 (bump de deps), y deuda SEC-M1/M3/M5/B1..B4.
+- **frontend:** SEC-M2 (token fuera de `localStorage`) + SEC-C2 (bump `next`/`next-intl`/`postcss`).
+
+> Mientras SEC-A5 (parte backend) no esté, las fotos de KYC/disputa **no se sirven** en local (el bucket
+> ya es privado); esto es intencional y correcto. El deploy a prod no debe activar lectura pública del
+> bucket para "arreglar" la visualización: la solución es el presigned GET del backend.
 

@@ -41,8 +41,9 @@ services:
       POSTGRES_USER: ${STAGING_POSTGRES_USER:-tcg_staging}
       POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD:-tcg_staging_password}
       POSTGRES_DB: ${STAGING_POSTGRES_DB:-tcg_staging}
+    # SEC-M4: bind SOLO a localhost (base de staging no expuesta a la LAN).
     ports:
-      - "${STAGING_POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${STAGING_POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_staging:/var/lib/postgresql/data
     healthcheck:
@@ -59,8 +60,9 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
+    # SEC-M4: bind SOLO a localhost.
     ports:
-      - "${STAGING_REDIS_PORT:-6380}:6379"
+      - "127.0.0.1:${STAGING_REDIS_PORT:-6380}:6379"
     volumes:
       - redis_staging:/data
     healthcheck:
@@ -82,9 +84,10 @@ services:
     environment:
       MINIO_ROOT_USER: ${STAGING_MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging}
+    # SEC-M4: bind SOLO a localhost (API + consola de staging).
     ports:
-      - "${STAGING_MINIO_API_PORT:-9010}:9000"
-      - "${STAGING_MINIO_CONSOLE_PORT:-9011}:9001"
+      - "127.0.0.1:${STAGING_MINIO_API_PORT:-9010}:9000"
+      - "127.0.0.1:${STAGING_MINIO_CONSOLE_PORT:-9011}:9001"
     volumes:
       - minio_staging:/data
     healthcheck:
@@ -96,6 +99,8 @@ services:
 
   # ---------------------------------------------------------------------------
   # createbuckets — init container: crea el bucket de staging y sale.
+  # SEC-A5: mismo modelo que el compose local — bucket PRIVADO; kyc_ine/ y
+  # dispute_claim/ NUNCA públicos (presigned GET); solo inventory_photo/ público.
   # ---------------------------------------------------------------------------
   createbuckets:
     image: minio/mc:latest
@@ -106,8 +111,9 @@ services:
       /bin/sh -c "
       mc alias set staging http://minio:9000 ${STAGING_MINIO_ROOT_USER:-minioadmin} ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging} &&
       mc mb --ignore-existing staging/${S3_BUCKET:-tcg-photos} &&
-      mc anonymous set download staging/${S3_BUCKET:-tcg-photos} &&
-      echo 'Bucket de staging ${S3_BUCKET:-tcg-photos} listo.' &&
+      mc anonymous set none staging/${S3_BUCKET:-tcg-photos} &&
+      mc anonymous set download staging/${S3_BUCKET:-tcg-photos}/inventory_photo &&
+      echo 'Bucket de staging ${S3_BUCKET:-tcg-photos} listo: privado; solo inventory_photo/ publico.' &&
       exit 0
       "
     restart: "no"
@@ -159,6 +165,8 @@ services:
       BANXICO_SIE_TOKEN: ${BANXICO_SIE_TOKEN:-}
       SEED_ADMIN_EMAIL: ${STAGING_SEED_ADMIN_EMAIL:-admin@staging.local}
       SEED_ADMIN_PASSWORD: ${STAGING_SEED_ADMIN_PASSWORD:-StagingAdmin123!}
+      SEED_OPERATOR_EMAIL: ${STAGING_SEED_OPERATOR_EMAIL:-operador@staging.local}
+      SEED_OPERATOR_PASSWORD: ${STAGING_SEED_OPERATOR_PASSWORD:-StagingOperator123!}
       APP_BASE_URL: ${STAGING_APP_BASE_URL:-http://localhost:3010}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
     ports:

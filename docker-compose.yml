@@ -35,8 +35,11 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-tcg}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tcg_local_dev_password}
       POSTGRES_DB: ${POSTGRES_DB:-tcg_marketplace}
+    # SEC-M4: bind SOLO a localhost. La base nunca se publica en 0.0.0.0 (LAN).
+    # El backend en el perfil "apps" la alcanza por la red de compose (host
+    # 'postgres'), no por este puerto; este mapeo es para psql/prisma desde tu host.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -53,8 +56,9 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
+    # SEC-M4: bind SOLO a localhost (no exponer Redis a la LAN).
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -76,9 +80,10 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_local_dev}
+    # SEC-M4: bind SOLO a localhost (API + consola no expuestas a la LAN).
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -90,8 +95,13 @@ services:
 
   # ---------------------------------------------------------------------------
   # createbuckets — init container: crea el bucket y sale (no queda corriendo).
-  # Deja el bucket con lectura pública anónima para servir fotos vía URL en
-  # local (en prod se usa CDN/política del proveedor R2/S3).
+  # SEC-A5: bucket PRIVADO por defecto. Los prefijos sensibles (kyc_ine/,
+  # dispute_claim/) contienen INE/PII y NUNCA son de lectura pública: se sirven
+  # por presigned GET (backend). Solo inventory_photo/ (fotos de catálogo) queda
+  # con lectura anónima para servir el catálogo en local vía URL. 'set none'
+  # primero garantiza que un bucket preexistente (de una corrida vieja con
+  # lectura pública total) quede reprivatizado. En prod (R2/S3) el bucket va
+  # 100% privado + CDN que exponga únicamente el prefijo público.
   # ---------------------------------------------------------------------------
   createbuckets:
     image: minio/mc:latest
@@ -102,8 +112,9 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin_local_dev} &&
       mc mb --ignore-existing local/${S3_BUCKET:-tcg-photos} &&
-      mc anonymous set download local/${S3_BUCKET:-tcg-photos} &&
-      echo 'Bucket ${S3_BUCKET:-tcg-photos} listo.' &&
+      mc anonymous set none local/${S3_BUCKET:-tcg-photos} &&
+      mc anonymous set download local/${S3_BUCKET:-tcg-photos}/inventory_photo &&
+      echo 'Bucket ${S3_BUCKET:-tcg-photos} listo: privado; kyc_ine/ y dispute_claim/ NO publicos; inventory_photo/ publico.' &&
       exit 0
       "
     restart: "no"
@@ -165,9 +176,12 @@ services:
       # Token de la API SIE de Banxico (FX USD->MXN automático). Si va vacío, el
       # backend cae a override manual / último FxRate (no se rompe).
       BANXICO_SIE_TOKEN: ${BANXICO_SIE_TOKEN:-}
-      # Usuario super_admin sembrado por seed.sh (opcionales, tienen default en el seed).
+      # Cuentas sembradas por seed.sh. SEC-C1: define contraseñas fuertes en .env;
+      # backend debe leerlas como obligatorias (hoy aún cae a defaults débiles).
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_OPERATOR_EMAIL: ${SEED_OPERATOR_EMAIL:-}
+      SEED_OPERATOR_PASSWORD: ${SEED_OPERATOR_PASSWORD:-}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
     ports:
