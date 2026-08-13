@@ -114,8 +114,8 @@ services:
       mc mb --ignore-existing local/${S3_BUCKET:-tcg-photos} &&
       mc anonymous set none local/${S3_BUCKET:-tcg-photos} &&
       mc anonymous set download local/${S3_BUCKET:-tcg-photos}/inventory_photo &&
-      mc ilm rule add --expire-days ${INE_RETENTION_DAYS:-1825} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || mc ilm add --expiry-days ${INE_RETENTION_DAYS:-1825} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || echo 'aviso: no se pudo fijar lifecycle kyc_ine/ (mc sin soporte ilm); backend sigue borrando por retencion.' &&
-      echo 'Bucket ${S3_BUCKET:-tcg-photos} listo: privado; kyc_ine/ y dispute_claim/ NO publicos; inventory_photo/ publico; lifecycle kyc_ine/ expira a ${INE_RETENTION_DAYS:-1825} dias.' &&
+      mc ilm rule add --expire-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || mc ilm add --expiry-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || echo 'aviso: no se pudo fijar lifecycle kyc_ine/ (mc sin soporte ilm); backend sigue borrando por retencion.' &&
+      echo 'Bucket ${S3_BUCKET:-tcg-photos} listo: privado; kyc_ine/ y dispute_claim/ NO publicos; inventory_photo/ publico; lifecycle kyc_ine/ expira a ${INE_RETENTION_DAYS:-180} dias.' &&
       exit 0
       "
     restart: "no"
@@ -164,7 +164,7 @@ services:
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       # Retención de INE del KYC (kyc_ine/). El backend borra; el bucket expira
       # como capa extra (ver createbuckets). Mantener igual al dial M10 si aplica.
-      INE_RETENTION_DAYS: ${INE_RETENTION_DAYS:-1825}
+      INE_RETENTION_DAYS: ${INE_RETENTION_DAYS:-180}
       # Endurecimiento PII: cifrado en reposo (CLABE/RFC) + blind index (CLABE).
       # En local pueden ir vacías (greenfield); en no-local son obligatorias y el
       # backend debe abortar si faltan. En prod: KMS / secret manager.

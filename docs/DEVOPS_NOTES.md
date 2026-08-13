@@ -138,7 +138,7 @@ antes de usar esas funciones:
 | `POKETRACE_API_KEY` | Respaldo gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
 | `S3_*` (endpoint/bucket/keys/public-url/force-path-style) | Fotos. Local=MinIO (ya puesto); prod=R2/S3 | Cloudflare R2 o AWS S3 |
 | `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` | Endurecimiento PII: cifrado AES-256 en reposo de CLABE/RFC + HMAC del blind index de CLABE (match sin descifrar). **Distintas entre sí**. Vacías OK en local (greenfield); **OBLIGATORIAS en no-local** (backend aborta si faltan). | Generar: `openssl rand -base64 32` (una por cada una); en prod, **KMS/secret manager** |
-| `INE_RETENTION_DAYS` | Días de retención de la INE del KYC (`kyc_ine/`). El backend borra; el bucket expira como capa extra. Igual al dial M10 si aplica. | Valor **legal/fiscal** — confirmar con contador (default 1825 ≈ 5 años) |
+| `INE_RETENTION_DAYS` | Días de retención de la INE del KYC (`kyc_ine/`). El backend borra; el bucket expira como capa extra. Igual al dial M10 (fuente de verdad). | Valor **legal/fiscal** — **fijado en 180 días** por decisión de negocio, alineado con el dial M10 del backend |
 | `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` | Tipo de cambio USD→MXN automático (Banxico SIE) + colchón + override manual (M10). El backend lee `BANXICO_SIE_TOKEN` y, si falta, cae a `FX_API_KEY`, y si tampoco, a override manual / último FxRate. | Token SIE de Banxico (gratis en el portal SIE) |
 | `DATABASE_URL`, `REDIS_URL`, `POSTGRES_*`, `MINIO_ROOT_*` | Infra | Ya listos en `.env.example` (local); en prod = credenciales del proveedor |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_EMAIL`, `SEED_OPERATOR_PASSWORD` | Credenciales de las cuentas sembradas (super_admin + vault_operator). **SEC-C1: sin default débil**, generar fuertes (`openssl rand -base64 24`) | Definir en prod ANTES del seed y rotar tras primer login |
@@ -632,14 +632,14 @@ el prefijo `kyc_ine/` alineada con `INE_RETENTION_DAYS`:
       "ID": "expire-kyc-ine",
       "Filter": { "Prefix": "kyc_ine/" },
       "Status": "Enabled",
-      "Expiration": { "Days": 1825 }
+      "Expiration": { "Days": 180 }
   }] }
   ```
 
   (En R2, la regla equivalente de Object lifecycle por prefijo `kyc_ine/`.)
 - **Fuente de verdad:** si la retención es un **dial de M10** (ConfigSetting) del lado backend, mantén
-  `INE_RETENTION_DAYS` y la regla del bucket **con el mismo número** que el dial. El valor concreto (default
-  1825 ≈ 5 años) es una **decisión legal/fiscal** — confirmar con contador/abogado (ver PROJECT.md ›
-  Riesgos). El lifecycle del bucket es un **respaldo**, no sustituye ni al borrado del backend ni al
-  requisito legal de conservación mínima.
+  `INE_RETENTION_DAYS` y la regla del bucket **con el mismo número** que el dial. El valor concreto quedó
+  **fijado en 180 días** por decisión de negocio (legal/fiscal), **alineado con el dial M10 del backend**
+  (fuente de verdad del borrado; ver PROJECT.md › Riesgos). El lifecycle del bucket es un **respaldo**, no
+  sustituye ni al borrado del backend ni al requisito legal de conservación mínima.
 
