@@ -55,9 +55,8 @@ contrato, **`c137c83`** devops). Re-verifiqué **en el código y con las specs**
 `test/ine-retention.spec.ts`). El warning de clave dev local aparece como se espera en el arranque de test.
 
 **Conclusión ronda 3:** la bandera de **CLABE en claro / INE sin retención pasa de ABIERTA → RESUELTA.**
-No abre ningún hallazgo Crítico/Alto nuevo. Queda **una** decisión legal pendiente del humano: el **valor**
-de `INE_RETENTION_DAYS` (ver §2, bandera nueva) — hoy **inconsistente** entre backend (seed 180 días) y
-devops (env/lifecycle 1825 días).
+No abre ningún hallazgo Crítico/Alto nuevo. La **retención de INE quedó fijada en 180 días**, alineada
+entre backend (dial M10, fuente de verdad) y devops (env/lifecycle); ver §2.4 (bandera **RESUELTA**).
 
 ---
 
@@ -102,15 +101,14 @@ blind index + reveal auditado + retención de INE** (ronda 3, §0.b). Ver PENTES
    prod estas llaves deben vivir en un **KMS/secret manager** (no `.env` en host), con **rotación** y política
    de re-cifrado (el formato versionado `v1:` ya deja lugar para migrar a `v2`). Confirmar con devops el
    provisioning en el secret manager de prod.
-4. **CONFIRMAR el valor legal de `INE_RETENTION_DAYS` (decisión del humano — inconsistencia activa).** Hoy
-   los dos lados NO coinciden: **backend siembra 180 días** (`settings.constants.ts:47`, doc `BACKEND_NOTES.md:331,344`)
-   y **devops usa 1825 días** (≈ 5 años) en env/lifecycle (`.env.example:151`, `docker-compose.yml:167`,
-   `docker-compose.staging.yml:151`, `DEVOPS_NOTES.md:141,635`). El **dial en BD (settings) es la fuente de
-   verdad del borrado por el backend**; el lifecycle del bucket es 2ª capa y debe fijarse **con el mismo
-   número**. Legal/fiscal/contador debe definir el valor único (LFPDPPP: minimización + retención justificada)
-   y luego alinear **ambos** lados. Hasta entonces la INE podría purgarse antes (180d) de lo que el bucket
-   expira (1825d), o viceversa. **No es bloqueante de seguridad** (el mecanismo funciona), pero sí una
-   decisión de negocio/legal pendiente.
+4. **`INE_RETENTION_DAYS` — RESUELTA (retención fijada en 180 días, alineada backend+devops).** El humano
+   **decidió la retención de INE en 180 días** y devops alineó env/lifecycle a ese valor. La **fuente de
+   verdad** es el **dial M10 del backend** (`settings.constants.ts:47`), que ya sembraba 180. Ambos lados
+   coinciden ahora: backend (dial en BD) y devops (`.env.example`, `docker-compose.yml`,
+   `docker-compose.staging.yml`, `DEVOPS_NOTES.md`), con el lifecycle del bucket (2ª capa) usando el
+   **mismo número**. Queda como buena práctica registrar la justificación legal/fiscal de los 180 días
+   (LFPDPPP: minimización + retención justificada) en el aviso de privacidad (§2.5). **Ya no hay
+   inconsistencia; no es bandera pendiente.**
 5. **Legal/PII (México):** custodia implica figura de **depositario** y contrato de custodia. INE/CLABE/RFC
    caen bajo **LFPDPPP**: el cifrado en reposo + enmascarado + reveal auditado + retención ya están
    implementados (§0.b); falta el **aviso de privacidad** y la validación jurídica de la política de
@@ -140,9 +138,9 @@ como deuda aceptada). El gate `security-sast.yml` sigue fallando en high/critica
 2. Cerrar la deuda §1 según sus disparadores (CORS, localStorage/CSP, helmet, presign content-type,
    defaults de compose, scheduling BullMQ de retención, bump de NestJS) **antes** de exponer a público o
    mover dinero real.
-3. **Pentest de tercero + bug bounty** (§2.1), **KMS + rotación de llaves de PII en prod** (§2.3),
-   **DAST en staging** (§2.2) y **definir/alinear `INE_RETENTION_DAYS`** (§2.4, decisión legal, hoy
-   inconsistente 180 vs 1825) antes de operar con dinero real.
+3. **Pentest de tercero + bug bounty** (§2.1), **KMS + rotación de llaves de PII en prod** (§2.3) y
+   **DAST en staging** (§2.2) antes de operar con dinero real. (`INE_RETENTION_DAYS` ya quedó **RESUELTA**:
+   180 días, alineada backend+devops — §2.4.)
 
 **Estado:** apto para avanzar a staging y pruebas dinámicas. La PII sensible (CLABE/RFC/INE) queda
 **cifrada en reposo, enmascarada por defecto, revelada solo por super_admin auditado, y con retención de
