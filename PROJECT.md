@@ -1,12 +1,15 @@
-# PROJECT.md — Marketplace TCG con Bóveda (Pokémon, México)
+# PROJECT.md — TCG Vault MX — Marketplace TCG con Bóveda (Pokémon, México)
 
+> **Nombre comercial / marca:** **TCG Vault MX**. Es el nombre que se usa en la interfaz, la
+> comunicación y los términos. "Marketplace TCG con Bóveda" es solo el título descriptivo del proyecto.
+>
 > Estado: borrador para aprobación del humano. Todas las decisiones de alcance y de negocio están
 > cerradas; no quedan preguntas abiertas bloqueantes. Lo único no fijado son las **metas de
 > lanzamiento N/X/Y/Z**, que el humano define al momento de lanzar (no bloquean el desarrollo).
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
-Un marketplace de cartas Pokémon (TCG) en México que vende **cartas individuales** con
+**TCG Vault MX** es un marketplace de cartas Pokémon (TCG) en México que vende **cartas individuales** con
 **precio de mercado visible** y una **BÓVEDA/CUSTODIA**: la plataforma guarda físicamente las
 cartas compradas —autenticadas y con condición garantizada— y las envía solo cuando el usuario
 lo pide, para completar colecciones sin envíos innecesarios.
@@ -64,6 +67,16 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Al pagar, la carta comprada entra a la **bóveda del usuario** con titularidad `pending`.
 - [ ] Cuando el pago se liquida, la titularidad pasa a `settled`.
 - [ ] **Sin wallet de saldo**: el dinero se liquida por transacción; la plataforma no guarda saldo del usuario.
+- [ ] **Ventas finales — sin reembolso voluntario**: una vez comprada una carta **no hay reembolso**, ni
+      estando en bóveda ni ya enviada. El **checkout muestra un aviso explícito** de "ventas finales, sin
+      reembolso salvo carta dañada o equivocada", con enlace a la **página de términos/políticas**.
+- [ ] **Única excepción — disputa de condición**: si la carta **llega/está dañada o equivocada**, aplica la
+      **disputa de condición** (ventana de **7 días**, con las **fotos de ingreso** a bóveda como evidencia
+      canónica). Si procede, el **súper-admin compensa recomprando al precio pagado** y el **cliente conserva
+      la carta** (NO se exige devolución; el envío de regreso no es requisito para compensar).
+- [ ] **Contracargo bancario ≠ reembolso**: se aclara al cliente (en términos/FAQ) que un **contracargo** es
+      un proceso que puede iniciar **con su banco de forma independiente**, distinto de la política de
+      reembolsos de la plataforma.
 - [ ] **Contracargo**: revierte la carta al inventario de la plataforma y refleja el estado de la orden.
 
 ### C. Bóveda y portafolio (comprador)
@@ -121,7 +134,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M7 — Finanzas**: **P&L** (ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia),
       **valor de inventario a referencia vs costo**, **valor en custodia de clientes**, **IVA cobrado
       registrado** (para conciliación/CFDI), **export CSV**.
-- [ ] **M8 — Disputas**: **comparador de fotos** (ingreso vs reclamo), **recompra** como remedio.
+- [ ] **M8 — Disputas**: **comparador de fotos** (ingreso vs reclamo), **recompra al precio pagado** como
+      remedio (carta dañada/equivocada, ventana 7 días, **sin exigir devolución**; solo súper-admin).
 - [ ] **M9 — Reportes mínimos**: métricas de lanzamiento + **export**.
 - [ ] **M10 — Config y bitácora**: **diales editables sin deploy** + **auditoría global** (quién / qué / cuándo).
       Diales con **valores por defecto** (todos configurables): **markup de precio de venta** (% sobre la
@@ -149,8 +163,17 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **Responsabilidad por pérdida/daño en custodia**: reposición al **precio de referencia del día del
       incidente**, con **tope por carta configurable por el dueño** (M10). Seguro formal = bandera legal, no
       bloquea MVP técnico.
-- [ ] **Disputas de condición (raw)**: las **fotos de ingreso a bóveda son la evidencia canónica**;
-      decide el admin; remedio = **recompra al precio pagado dentro de 7 días de recibido el envío**.
+- [ ] **Ventas finales (sin reembolso voluntario)**: toda compra es **final**; no hay reembolso a solicitud
+      del cliente, ni con la carta en bóveda ni ya enviada. La **única excepción** es la disputa de condición
+      (carta dañada/equivocada) descrita abajo. Esta política se comunica en el **checkout** y en la
+      **página de términos/políticas**.
+- [ ] **Disputas de condición (carta dañada o equivocada)**: única vía de compensación. Las **fotos de
+      ingreso a bóveda son la evidencia canónica**; decide el admin/súper-admin dentro de una **ventana de 7
+      días**; si procede, remedio = **recompra al precio pagado**, y el **cliente conserva la carta** (NO se
+      exige devolución; el envío de regreso no es requisito para compensar).
+- [ ] **Contracargo bancario (independiente)**: el cliente puede iniciar un **contracargo con su banco** por
+      su cuenta; es un proceso ajeno a la política de reembolsos de la plataforma y se maneja según la regla
+      de contracargo (revierte la carta al inventario y refleja el estado de la orden).
 - [ ] **Buylist — plazos**: sin respuesta del usuario a un ajuste: **7 días → rechazo**;
       **abandono a 30 días → pasa a inventario**.
 
@@ -195,6 +218,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   inglés desde pokemontcg.io y **no se traducen**). No contradice el punto anterior: la **UI sí es bilingüe**,
   los **datos del catálogo** permanecen en inglés.
 - **Panel de administración responsive** con **captura de fotos desde móvil**.
+- **Política de reembolsos — VENTAS FINALES**: no hay reembolso voluntario tras la compra (en bóveda o
+  enviada). **Única excepción**: **disputa de condición** por carta **dañada/equivocada** (ventana 7 días,
+  fotos de ingreso como evidencia) → el súper-admin **recompra al precio pagado** y el **cliente conserva la
+  carta** (sin devolución). Un **contracargo bancario** es un proceso independiente que el cliente inicia con
+  su banco. El **checkout debe mostrar el aviso** y debe existir una **página de términos/políticas** con el
+  texto completo.
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos).
 - **Branch de trabajo**: `claude/tcg-cards-marketplace-oijthj`.
 - Stack, base de datos y despliegue: **a decisión del arquitecto** (nada predefinido por el humano).
@@ -223,6 +252,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 6. Un usuario NO tiene saldo/wallet en ninguna vista; todo se maneja por transacción.
 7. Un contracargo mueve la carta afectada de la bóveda del usuario de vuelta al inventario de la
    plataforma y la orden queda en estado `contracargo`.
+7b. El **checkout muestra el aviso de "ventas finales, sin reembolso salvo carta dañada/equivocada"**
+   (con enlace a los términos), y **existe una página de términos/políticas** que describe la política
+   completa: ventas finales, la excepción de disputa de condición (ventana 7 días, recompra al precio
+   pagado con el cliente conservando la carta) y la aclaración de que el contracargo bancario es un proceso
+   independiente ante el banco del cliente.
 
 **Portafolio**
 8. "Mi bóveda" lista las cartas del usuario y muestra un **valor total de portafolio** en MXN,
@@ -263,8 +297,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 21. En M7 el P&L calcula **ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia**, muestra
     **valor de inventario (a referencia y a costo)**, **valor en custodia de clientes** y el **IVA cobrado**
     (para conciliación/CFDI), con **export CSV**.
-22. En M8, ante una disputa de condición, el admin ve un **comparador de fotos (ingreso vs reclamo)** y
-    puede ejecutar la **recompra** como remedio.
+22. En M8, ante una disputa de condición (carta dañada/equivocada, dentro de la ventana de 7 días), el
+    admin ve un **comparador de fotos (ingreso vs reclamo)** y puede ejecutar la **recompra al precio
+    pagado** como remedio; la ejecución **no exige devolución de la carta** (el cliente la conserva) y solo
+    la realiza el súper-admin.
 23. En M10 existe una **bitácora de auditoría global** (quién/qué/cuándo) y los **diales/config se editan
     sin necesidad de redeploy**.
 24. El **dashboard** muestra las ~8 tarjetas definidas (ganancia del periodo, ventas, cola de trabajo,
@@ -348,6 +384,11 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    y la valuación de portafolio siguen usando la **referencia** pura.
 10. **Facturación CFDI** → **manual por correo** en el MVP (sin timbrado con PAC); IVA sigue desglosado en
    checkout y registrado en M7; timbrado automático = fase 2.
+11. **Nombre comercial / marca** → **TCG Vault MX** (nombre usado en UI, comunicación y términos).
+12. **Política de reembolsos** → **VENTAS FINALES**: sin reembolso voluntario tras la compra; única
+   excepción = disputa de condición por carta dañada/equivocada (ventana 7 días, fotos de ingreso) con
+   **recompra al precio pagado y el cliente conserva la carta** (sin devolución). El contracargo bancario es
+   un proceso independiente ante el banco del cliente. El checkout muestra el aviso y hay página de términos.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
