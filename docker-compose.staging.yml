@@ -113,7 +113,8 @@ services:
       mc mb --ignore-existing staging/${S3_BUCKET:-tcg-photos} &&
       mc anonymous set none staging/${S3_BUCKET:-tcg-photos} &&
       mc anonymous set download staging/${S3_BUCKET:-tcg-photos}/inventory_photo &&
-      echo 'Bucket de staging ${S3_BUCKET:-tcg-photos} listo: privado; solo inventory_photo/ publico.' &&
+      mc ilm rule add --expire-days ${INE_RETENTION_DAYS:-1825} --prefix 'kyc_ine/' staging/${S3_BUCKET:-tcg-photos} || mc ilm add --expiry-days ${INE_RETENTION_DAYS:-1825} --prefix 'kyc_ine/' staging/${S3_BUCKET:-tcg-photos} || echo 'aviso: no se pudo fijar lifecycle kyc_ine/ (mc sin soporte ilm); backend sigue borrando por retencion.' &&
+      echo 'Bucket de staging ${S3_BUCKET:-tcg-photos} listo: privado; solo inventory_photo/ publico; lifecycle kyc_ine/ expira a ${INE_RETENTION_DAYS:-1825} dias.' &&
       exit 0
       "
     restart: "no"
@@ -147,6 +148,12 @@ services:
       S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging}
       S3_PUBLIC_BASE_URL: ${STAGING_S3_PUBLIC_BASE_URL:-http://localhost:9010/tcg-photos}
       S3_FORCE_PATH_STYLE: "true"
+      INE_RETENTION_DAYS: ${INE_RETENTION_DAYS:-1825}
+      # Endurecimiento PII. Staging corre en modo production (validaciones
+      # estrictas): estas son OBLIGATORIAS. En local caen a dummies distintos
+      # entre sí; en el staging real los inyecta el secret manager. Nunca reales.
+      PII_ENCRYPTION_KEY: ${STAGING_PII_ENCRYPTION_KEY:-staging_pii_enc_key_change_me_32bytes}
+      PII_HMAC_KEY: ${STAGING_PII_HMAC_KEY:-staging_pii_hmac_key_change_me_distinct}
       # Secretos de staging: en local caen a dummies; en el staging real los
       # inyecta el secret manager de la plataforma. NUNCA reales de prod.
       JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:-staging_access_secret_change_me}

@@ -137,6 +137,8 @@ antes de usar esas funciones:
 | `POKEMONPRICETRACKER_API_KEY` | Precios gradeadas/sellado | PokemonPriceTracker (free tier) — **provider stub, ver BE-6** |
 | `POKETRACE_API_KEY` | Respaldo gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
 | `S3_*` (endpoint/bucket/keys/public-url/force-path-style) | Fotos. Local=MinIO (ya puesto); prod=R2/S3 | Cloudflare R2 o AWS S3 |
+| `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` | Endurecimiento PII: cifrado AES-256 en reposo de CLABE/RFC + HMAC del blind index de CLABE (match sin descifrar). **Distintas entre sí**. Vacías OK en local (greenfield); **OBLIGATORIAS en no-local** (backend aborta si faltan). | Generar: `openssl rand -base64 32` (una por cada una); en prod, **KMS/secret manager** |
+| `INE_RETENTION_DAYS` | Días de retención de la INE del KYC (`kyc_ine/`). El backend borra; el bucket expira como capa extra. Igual al dial M10 si aplica. | Valor **legal/fiscal** — confirmar con contador (default 1825 ≈ 5 años) |
 | `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` | Tipo de cambio USD→MXN automático (Banxico SIE) + colchón + override manual (M10). El backend lee `BANXICO_SIE_TOKEN` y, si falta, cae a `FX_API_KEY`, y si tampoco, a override manual / último FxRate. | Token SIE de Banxico (gratis en el portal SIE) |
 | `DATABASE_URL`, `REDIS_URL`, `POSTGRES_*`, `MINIO_ROOT_*` | Infra | Ya listos en `.env.example` (local); en prod = credenciales del proveedor |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_EMAIL`, `SEED_OPERATOR_PASSWORD` | Credenciales de las cuentas sembradas (super_admin + vault_operator). **SEC-C1: sin default débil**, generar fuertes (`openssl rand -base64 24`) | Definir en prod ANTES del seed y rotar tras primer login |
@@ -528,7 +530,9 @@ Cambios de infraestructura hechos por devops para los hallazgos que le tocan. Lo
    redeploy. Para Stripe, recrear el webhook y actualizar `STRIPE_WEBHOOK_SECRET`.
 4. **Object storage (`S3_*`):** rotar el par de llaves en R2/S3, actualizar el secret manager, redeploy.
 5. **Postgres/Redis:** rotar credenciales del proveedor gestionado; actualizar `DATABASE_URL`/`REDIS_URL`.
-6. **Regla:** los secretos viven en el secret manager de la plataforma, **nunca** en el repo ni en un
+6. **PII (`PII_ENCRYPTION_KEY`/`PII_HMAC_KEY`):** ver §15.6 — implica **re-cifrar** los datos (y recalcular
+   el blind index si rota la HMAC). En greenfield sin datos es trivial (basta cargar las nuevas y redeploy).
+7. **Regla:** los secretos viven en el secret manager de la plataforma, **nunca** en el repo ni en un
    `.env` versionado. `gitleaks` (en `security-sast.yml`) vigila fugas en cada push.
 
 **Rate-limit / WAF en el borde (mitiga SEC-C1 fuerza bruta de login):**
@@ -568,4 +572,74 @@ Estos siguen abiertos con su rol dueño (devops no toca código de app):
 > Mientras SEC-A5 (parte backend) no esté, las fotos de KYC/disputa **no se sirven** en local (el bucket
 > ya es privado); esto es intencional y correcto. El deploy a prod no debe activar lectura pública del
 > bucket para "arreglar" la visualización: la solución es el presigned GET del backend.
+
+### 15.6 Endurecimiento de PII — cifrado (CLABE/RFC) + retención de INE
+
+Apoyo de infraestructura al endurecimiento de PII que implementa **backend** (el cifrado, el blind
+index y el job de borrado por retención son código de `backend/`; devops solo aporta las llaves, su
+gestión y la capa extra de retención en el bucket).
+
+**Llaves (`.env.example`, ambos compose → backend):**
+
+| Llave | Uso | Reglas |
+|---|---|---|
+| `PII_ENCRYPTION_KEY` | AES-256 para cifrar CLABE/RFC en reposo (BD) | `openssl rand -base64 32`; **OBLIGATORIA en no-local** (backend aborta si falta); en prod por **KMS/secret manager** |
+| `PII_HMAC_KEY` | HMAC del **blind index** de CLABE (match/dedup sin descifrar) | `openssl rand -base64 32`; **DISTINTA** de `PII_ENCRYPTION_KEY`; **OBLIGATORIA en no-local**; KMS en prod |
+
+- **Local (`docker-compose.yml`):** ambas se pasan al backend **vacías por default** (`:-`) — válido en
+  greenfield sin datos. Si backend endurece la validación también en dev, genera las dos y ponlas en `.env`.
+- **Staging (`docker-compose.staging.yml`):** staging corre en `NODE_ENV=production` (validación estricta),
+  así que son **obligatorias**; en local caen a dummies **distintas entre sí** (`STAGING_PII_ENCRYPTION_KEY`
+  / `STAGING_PII_HMAC_KEY`), y en el staging real las inyecta el secret manager. Nunca valores de prod.
+- **Prod:** viven **solo** en el KMS/secret manager de la plataforma (Railway secrets / KMS). Nunca en el
+  repo ni en un `.env` versionado; `gitleaks` (SAST) vigila fugas.
+
+**Gestión por KMS / secret manager (prod):**
+- Cargar `PII_ENCRYPTION_KEY` y `PII_HMAC_KEY` como secrets del servicio backend (no build args: son de
+  runtime, del lado servidor, nunca `NEXT_PUBLIC_*`). Idealmente respaldadas por un KMS (envelope
+  encryption) o, como mínimo, el secret store cifrado del proveedor con acceso restringido y auditado.
+- Deben estar presentes **antes** del primer arranque del backend en no-local (si no, aborta por diseño).
+
+**Rotación de las llaves de PII (runbook):**
+> Rotar una llave de PII **no** es como rotar un JWT: los datos ya cifrados/indexados dependen de la llave
+> vieja. Hay que **re-cifrar** (y, si rota la HMAC, **recalcular el blind index**) fila por fila.
+1. **Greenfield (sin datos reales de PII) — caso actual:** trivial. Generar la(s) nueva(s) llave(s),
+   cargarlas en el secret manager, **redeploy**. Como no hay CLABE/RFC almacenados, no hay nada que
+   re-cifrar. Es el escenario de este MVP hasta que entren clientes reales.
+2. **Con datos en prod:**
+   a. Generar la nueva llave y cargarla en el secret manager **junto a la vieja** (el backend necesita
+      soportar leer-con-vieja / escribir-con-nueva; esto es capacidad de **backend** — coordínalo con ese rol).
+   b. Correr una **migración de re-cifrado** (job de backend) que descifra con la llave vieja y re-cifra
+      con la nueva; si rota `PII_HMAC_KEY`, recalcula el blind index de cada CLABE.
+   c. **Tomar snapshot de la BD antes** (regla de oro del rollback §7).
+   d. Cuando 100% de filas estén migradas, **retirar la llave vieja** del secret manager y redeploy.
+- **Separación de dominios:** rotar `PII_ENCRYPTION_KEY` y `PII_HMAC_KEY` de forma **independiente**;
+  mantenerlas **distintas** siempre (misma llave para cifrado y HMAC anula la protección del blind index).
+
+**Retención de INE — lifecycle del bucket (capa extra, `INE_RETENTION_DAYS`):**
+El borrado efectivo de las INE (`kyc_ine/`) lo hace el **backend** (job de retención). Como **segunda
+capa** (defensa en profundidad, por si ese job falla), el bucket tiene una **regla de expiración** sobre
+el prefijo `kyc_ine/` alineada con `INE_RETENTION_DAYS`:
+- **Local/staging (MinIO):** el init container `createbuckets` fija la regla con
+  `mc ilm rule add --expire-days ${INE_RETENTION_DAYS} --prefix 'kyc_ine/' <alias>/<bucket>` (con fallback
+  a la sintaxis vieja `mc ilm add --expiry-days`; si la imagen de `mc` no soporta ILM, imprime un aviso y
+  no rompe el arranque — el borrado del backend sigue siendo la vía principal).
+- **Prod (Cloudflare R2 / AWS S3):** configurar una **Lifecycle rule** equivalente en el proveedor,
+  prefijo `kyc_ine/`, expiración = `INE_RETENTION_DAYS` días. Ejemplo S3:
+
+  ```json
+  { "Rules": [{
+      "ID": "expire-kyc-ine",
+      "Filter": { "Prefix": "kyc_ine/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 1825 }
+  }] }
+  ```
+
+  (En R2, la regla equivalente de Object lifecycle por prefijo `kyc_ine/`.)
+- **Fuente de verdad:** si la retención es un **dial de M10** (ConfigSetting) del lado backend, mantén
+  `INE_RETENTION_DAYS` y la regla del bucket **con el mismo número** que el dial. El valor concreto (default
+  1825 ≈ 5 años) es una **decisión legal/fiscal** — confirmar con contador/abogado (ver PROJECT.md ›
+  Riesgos). El lifecycle del bucket es un **respaldo**, no sustituye ni al borrado del backend ni al
+  requisito legal de conservación mínima.
 
