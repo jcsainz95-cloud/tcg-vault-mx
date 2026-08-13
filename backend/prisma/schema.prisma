@@ -1,0 +1,598 @@
+// Prisma schema — Marketplace TCG con Bóveda (Pokémon, México)
+// Propiedad: backend. Modelo de datos según ARCHITECTURE.md §3.
+// Convención de dinero: enteros en centavos MXN (*Cents). No hay wallet/saldo.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================= ENUMS =============================
+
+enum Role {
+  customer
+  vault_operator
+  super_admin
+}
+
+enum Locale {
+  es
+  en
+}
+
+enum UserStatus {
+  active
+  blocked
+}
+
+enum ProductType {
+  graded
+  sealed
+  raw
+}
+
+enum RawCondition {
+  NM
+  LP
+  MP
+  HP
+  DMG
+}
+
+enum GradingCompany {
+  PSA
+  CGC
+}
+
+enum OwnerType {
+  platform
+  customer
+}
+
+enum OwnershipStatus {
+  pending
+  settled
+}
+
+enum InventoryStatus {
+  in_stock
+  listed
+  reserved
+  in_custody
+  picking
+  shipped
+  delivered
+  lost
+  damaged
+  withdrawn
+}
+
+enum VaultZone {
+  platform_stock
+  customer_custody
+}
+
+enum OrderStatus {
+  pending
+  settled
+  failed
+  refunded
+  chargeback
+}
+
+enum ShipmentStatus {
+  solicitado
+  picking
+  guia
+  enviado
+  entregado
+  cancelado
+}
+
+enum SellRequestStatus {
+  cotizada
+  recibida
+  verificacion
+  aprobada
+  pagada
+  rechazada
+  abandonada
+}
+
+enum SellItemStatus {
+  cotizada
+  precio_pendiente
+  recibida
+  verificacion
+  aprobada
+  ajustada
+  rechazada
+  pagada
+  convertida_inventario
+}
+
+enum BuylistCategory {
+  comun
+  reverse_holo
+  ex_plus
+}
+
+enum DisputeStatus {
+  abierta
+  en_revision
+  resuelta_recompra
+  rechazada
+}
+
+enum PriceSource {
+  pokemontcg_io
+  pokemonpricetracker
+  poketrace
+  manual
+}
+
+enum KycStatus {
+  none
+  pending
+  verified
+  rejected
+}
+
+enum AcquisitionType {
+  aportacion_en_especie
+  buylist
+  compra
+}
+
+enum CfdiStatus {
+  registrado
+  no_aplica
+}
+
+enum MovementReason {
+  alta
+  move
+  sale
+  settle
+  chargeback_return
+  withdrawal
+  lost
+  damaged
+  buylist_convert
+}
+
+enum PendingPriceContext {
+  catalog
+  portfolio
+  buylist
+  inventory
+}
+
+enum PendingPriceStatus {
+  open
+  resolved
+}
+
+// ============================= USER / KYC / BILLING =============================
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(customer)
+  name         String
+  phone        String?
+  locale       Locale     @default(es)
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  kycProfile      KycProfile?
+  billingProfile  BillingProfile?
+  addresses       Address[]
+  orders          Order[]
+  shipmentRequests ShipmentRequest[]
+  sellRequests    SellRequest[]
+  disputes        Dispute[]
+  ownedItems      InventoryItem[] @relation("OwnerUser")
+
+  @@index([role])
+  @@index([status])
+}
+
+model KycProfile {
+  id                        String    @id @default(uuid())
+  userId                    String    @unique
+  user                      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  legalName                 String?
+  rfc                       String?
+  clabe                     String?
+  ineFrontKey               String?
+  ineBackKey                String?
+  kycStatus                 KycStatus @default(none)
+  capPerRequestCentsOverride Int?
+  capPerMonthCentsOverride   Int?
+  verifiedBy                String?
+  verifiedAt                DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+}
+
+model BillingProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rfc            String
+  razonSocial    String
+  regimenFiscal  String
+  usoCfdi        String
+  postalCode     String
+  email          String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Address {
+  id           String  @id @default(uuid())
+  userId       String
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  line1        String
+  line2        String?
+  neighborhood String?
+  city         String
+  state        String
+  postalCode   String
+  country      String  @default("MX")
+  phone        String
+  isDefault    Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ============================= CATALOG =============================
+
+model CardSet {
+  id           String   @id @default(uuid())
+  externalId   String   @unique
+  name         String
+  series       String?
+  releaseDate  String?
+  printedTotal Int?
+  ptcgoCode    String?
+  createdAt    DateTime @default(now())
+
+  cards Card[]
+}
+
+model Card {
+  id            String   @id @default(uuid())
+  externalId    String   @unique
+  setId         String
+  set           CardSet  @relation(fields: [setId], references: [id])
+  name          String
+  number        String
+  rarity        String?
+  supertype     String?
+  subtypes      Json?
+  imageSmallUrl String?
+  imageLargeUrl String?
+  tcgplayerId   String?
+  createdAt     DateTime @default(now())
+
+  inventoryItems   InventoryItem[]
+  priceReferences  PriceReference[]
+  pendingPrices    PendingPriceEntry[]
+  sellRequestItems SellRequestItem[]
+
+  @@index([setId])
+  @@index([name])
+  @@index([rarity])
+}
+
+// ============================= INVENTORY / VAULT =============================
+
+model VaultLocation {
+  id       String    @id @default(uuid())
+  zone     VaultZone
+  box      String
+  row      String
+  slot     String
+  label    String
+  isActive Boolean   @default(true)
+  createdAt DateTime @default(now())
+
+  items InventoryItem[]
+
+  @@unique([zone, box, row, slot])
+}
+
+model InventoryItem {
+  id             String          @id @default(uuid())
+  folio          String          @unique
+  cardId         String
+  card           Card            @relation(fields: [cardId], references: [id])
+  productType    ProductType
+  rawCondition   RawCondition?
+  gradingCompany GradingCompany?
+  gradeValue     String?
+  frontPhotoKey  String?
+  backPhotoKey   String?
+  extraPhotoKeys Json?
+  locationId     String?
+  location       VaultLocation?  @relation(fields: [locationId], references: [id])
+  ownerType      OwnerType       @default(platform)
+  ownerUserId    String?
+  ownerUser      User?           @relation("OwnerUser", fields: [ownerUserId], references: [id])
+  ownershipStatus OwnershipStatus?
+  status         InventoryStatus @default(in_stock)
+  listPriceCents Int?
+  acquisitionType AcquisitionType
+  acquisitionCostCents Int?
+  acquisitionPct  Int?
+  sourceSellRequestItemId String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  movements   InventoryMovement[]
+  orderItems  OrderItem[]
+  shipmentItems ShipmentItem[]
+  disputes    Dispute[]
+
+  @@index([cardId])
+  @@index([status])
+  @@index([ownerUserId])
+  @@index([locationId])
+}
+
+model InventoryMovement {
+  id             String        @id @default(uuid())
+  itemId         String
+  item           InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  fromLocationId String?
+  toLocationId   String?
+  fromStatus     InventoryStatus?
+  toStatus       InventoryStatus?
+  reason         MovementReason
+  actorUserId    String?
+  note           String?
+  createdAt      DateTime      @default(now())
+
+  @@index([itemId])
+}
+
+// ============================= PRICING / FX =============================
+
+model PriceReference {
+  id              String      @id @default(uuid())
+  cardId          String
+  card            Card        @relation(fields: [cardId], references: [id])
+  productType     ProductType
+  gradeKey        String
+  source          PriceSource
+  priceUsdCents   Int?
+  fxRate          Decimal?    @db.Decimal(12, 6)
+  fxBufferPct     Decimal?    @db.Decimal(6, 3)
+  priceMxnCents   Int
+  capturedDate    DateTime    @db.Date
+  isManualOverride Boolean    @default(false)
+  createdAt       DateTime    @default(now())
+
+  @@unique([cardId, productType, gradeKey, capturedDate])
+  @@index([cardId])
+}
+
+model PendingPriceEntry {
+  id                String              @id @default(uuid())
+  cardId            String
+  card              Card                @relation(fields: [cardId], references: [id])
+  productType       ProductType
+  gradeKey          String
+  context           PendingPriceContext
+  refId             String?
+  status            PendingPriceStatus  @default(open)
+  resolvedPriceRefId String?
+  createdAt         DateTime            @default(now())
+  resolvedAt        DateTime?
+
+  @@index([status])
+}
+
+model FxRate {
+  id            String      @id @default(uuid())
+  base          String      @default("USD")
+  quote         String      @default("MXN")
+  rate          Decimal     @db.Decimal(12, 6)
+  bufferPct     Decimal     @db.Decimal(6, 3)
+  effectiveDate DateTime    @db.Date
+  source        String // banxico | manual (fuente propia; ver ARCHITECTURE §3.2)
+  createdAt     DateTime    @default(now())
+
+  @@index([effectiveDate])
+}
+
+// ============================= ORDERS =============================
+
+model Order {
+  id                    String      @id @default(uuid())
+  userId                String
+  user                  User        @relation(fields: [userId], references: [id])
+  status                OrderStatus @default(pending)
+  subtotalCents         Int
+  processingFeeCents    Int
+  ivaCents              Int
+  totalCents            Int
+  ivaRatePct            Int         @default(16)
+  stripePaymentIntentId String?     @unique
+  stripeChargeId        String?
+  billingSnapshot       Json?
+  cfdiStatus            CfdiStatus  @default(no_aplica)
+  invoiceRequested      Boolean     @default(false)
+  createdAt             DateTime    @default(now())
+  settledAt             DateTime?
+  refundedAt            DateTime?
+
+  items OrderItem[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OrderItem {
+  id              String        @id @default(uuid())
+  orderId         String
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  cardSnapshot    Json
+  unitPriceCents  Int
+
+  @@index([orderId])
+}
+
+// ============================= SHIPMENTS =============================
+
+model ShipmentRequest {
+  id                    String         @id @default(uuid())
+  userId                String
+  user                  User           @relation(fields: [userId], references: [id])
+  addressSnapshot       Json
+  status                ShipmentStatus @default(solicitado)
+  shippingFeeCents      Int
+  ivaCents              Int            @default(0)
+  processingFeeCents    Int            @default(0)
+  totalCents            Int            @default(0)
+  stripePaymentIntentId String?        @unique
+  carrier               String?
+  trackingNumber        String?
+  requestedAt           DateTime       @default(now())
+  pickingAt             DateTime?
+  shippedAt             DateTime?
+  deliveredAt           DateTime?
+
+  items ShipmentItem[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model ShipmentItem {
+  id                String          @id @default(uuid())
+  shipmentRequestId String
+  shipmentRequest   ShipmentRequest @relation(fields: [shipmentRequestId], references: [id], onDelete: Cascade)
+  inventoryItemId   String
+  inventoryItem     InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([shipmentRequestId])
+}
+
+// ============================= BUYLIST =============================
+
+model SellRequest {
+  id                String            @id @default(uuid())
+  userId            String
+  user              User              @relation(fields: [userId], references: [id])
+  status            SellRequestStatus @default(cotizada)
+  quotedTotalCents  Int               @default(0)
+  approvedTotalCents Int?
+  clabeSnapshot     String?
+  ineRequired       Boolean           @default(false)
+  ineProvided       Boolean           @default(false)
+  speiReference     String?
+  paidBy            String?
+  paidAt            DateTime?
+  createdAt         DateTime          @default(now())
+  receivedAt        DateTime?
+  verifiedAt        DateTime?
+  approvedAt        DateTime?
+  adjustmentSentAt  DateTime?
+  deadlineAt        DateTime?
+
+  items SellRequestItem[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SellRequestItem {
+  id              String          @id @default(uuid())
+  sellRequestId   String
+  sellRequest     SellRequest     @relation(fields: [sellRequestId], references: [id], onDelete: Cascade)
+  cardId          String
+  card            Card            @relation(fields: [cardId], references: [id])
+  productType     ProductType
+  rawCondition    RawCondition?
+  category        BuylistCategory
+  quotedPriceCents Int?
+  approvedPriceCents Int?
+  itemStatus      SellItemStatus  @default(cotizada)
+  inventoryItemId String?
+  photoKeys       Json?
+
+  @@index([sellRequestId])
+}
+
+// ============================= DISPUTES =============================
+
+model Dispute {
+  id               String        @id @default(uuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id])
+  inventoryItemId  String
+  inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  orderItemId      String?
+  type             String        @default("condition_raw")
+  status           DisputeStatus @default(abierta)
+  ingressPhotoKeys Json?
+  claimPhotoKeys   Json?
+  description      String
+  resolution       String?
+  repurchaseOrderId String?
+  deadlineAt       DateTime
+  createdAt        DateTime      @default(now())
+  resolvedAt       DateTime?
+  resolvedBy       String?
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================= CONFIG / AUDIT =============================
+
+model ConfigSetting {
+  key       String   @id
+  valueJson Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt @default(now())
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?
+  actorRole   Role?
+  action      String
+  entityType  String?
+  entityId    String?
+  before      Json?
+  after       Json?
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+// ============================= STRIPE IDEMPOTENCY =============================
+
+model ProcessedStripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+}

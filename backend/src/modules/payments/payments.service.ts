@@ -1,0 +1,168 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { MovementReason } from '@prisma/client';
+import Stripe from 'stripe';
+import { PrismaService } from '../../prisma/prisma.service';
+import { StripeService } from './stripe.service';
+
+/**
+ * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
+ * Transiciones transaccionales de titularidad (pending→settled) y reversión por
+ * contracargo, con InventoryMovement. Idempotencia por event.id (ProcessedStripeEvent).
+ */
+@Injectable()
+export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stripe: StripeService,
+  ) {}
+
+  verifyAndParse(payload: Buffer, signature: string): Stripe.Event {
+    return this.stripe.constructEvent(payload, signature);
+  }
+
+  /** Punto de entrada del webhook. Idempotente por event.id. */
+  async handleEvent(event: Stripe.Event): Promise<void> {
+    const already = await this.prisma.processedStripeEvent.findUnique({ where: { id: event.id } });
+    if (already) {
+      this.logger.debug(`Stripe event ${event.id} ya procesado; ignorado.`);
+      return;
+    }
+    try {
+      switch (event.type) {
+        case 'payment_intent.succeeded':
+          await this.onPaymentSucceeded((event.data.object as Stripe.PaymentIntent).id);
+          break;
+        case 'payment_intent.payment_failed':
+          await this.onPaymentFailed((event.data.object as Stripe.PaymentIntent).id);
+          break;
+        case 'charge.refunded':
+          await this.onChargeRefunded(event.data.object as Stripe.Charge);
+          break;
+        case 'charge.dispute.created':
+          await this.onChargeDispute(event.data.object as Stripe.Dispute);
+          break;
+        default:
+          this.logger.debug(`Evento no manejado: ${event.type}`);
+      }
+    } finally {
+      await this.prisma.processedStripeEvent.create({ data: { id: event.id, type: event.type } });
+    }
+  }
+
+  /** payment_intent.succeeded → Order settled + items settled; o liquida envío → picking. */
+  async onPaymentSucceeded(paymentIntentId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { stripePaymentIntentId: paymentIntentId },
+      include: { items: true },
+    });
+    if (order) {
+      if (order.status === 'settled') return;
+      await this.prisma.$transaction(async (tx) => {
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: 'settled', settledAt: new Date() },
+        });
+        for (const oi of order.items) {
+          const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
+          if (!item) continue;
+          await tx.inventoryItem.update({
+            where: { id: oi.inventoryItemId },
+            data: { ownershipStatus: 'settled' },
+          });
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: oi.inventoryItemId,
+              fromStatus: item.status,
+              toStatus: item.status,
+              reason: MovementReason.settle,
+              note: `order ${order.id} settled`,
+            },
+          });
+        }
+      });
+      return;
+    }
+    // ¿Es el pago de un envío? Avanza a picking.
+    const shipment = await this.prisma.shipmentRequest.findUnique({
+      where: { stripePaymentIntentId: paymentIntentId },
+    });
+    if (shipment && shipment.status === 'solicitado') {
+      await this.prisma.shipmentRequest.update({
+        where: { id: shipment.id },
+        data: { status: 'picking', pickingAt: new Date() },
+      });
+    }
+  }
+
+  /** payment_intent.payment_failed → Order failed + libera reserva (reserved→listed). */
+  async onPaymentFailed(paymentIntentId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { stripePaymentIntentId: paymentIntentId },
+      include: { items: true },
+    });
+    if (!order || order.status !== 'pending') return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({ where: { id: order.id }, data: { status: 'failed' } });
+      for (const oi of order.items) {
+        await tx.inventoryItem.update({
+          where: { id: oi.inventoryItemId },
+          data: {
+            status: 'listed',
+            ownerType: 'platform',
+            ownerUserId: null,
+            ownershipStatus: null,
+          },
+        });
+      }
+    });
+  }
+
+  async onChargeRefunded(charge: Stripe.Charge): Promise<void> {
+    const pi = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id;
+    if (!pi) return;
+    const order = await this.prisma.order.findUnique({ where: { stripePaymentIntentId: pi } });
+    if (!order) return;
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { status: 'refunded', refundedAt: new Date() },
+    });
+  }
+
+  /** charge.dispute.created (contracargo) → Order chargeback + item revierte a plataforma. */
+  async onChargeDispute(dispute: Stripe.Dispute): Promise<void> {
+    const pi = typeof dispute.payment_intent === 'string' ? dispute.payment_intent : dispute.payment_intent?.id;
+    if (!pi) return;
+    const order = await this.prisma.order.findUnique({
+      where: { stripePaymentIntentId: pi },
+      include: { items: true },
+    });
+    if (!order) return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({ where: { id: order.id }, data: { status: 'chargeback' } });
+      for (const oi of order.items) {
+        const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
+        if (!item) continue;
+        await tx.inventoryItem.update({
+          where: { id: oi.inventoryItemId },
+          data: {
+            ownerType: 'platform',
+            ownerUserId: null,
+            ownershipStatus: null,
+            status: 'listed',
+          },
+        });
+        await tx.inventoryMovement.create({
+          data: {
+            itemId: oi.inventoryItemId,
+            fromStatus: item.status,
+            toStatus: 'listed',
+            reason: MovementReason.chargeback_return,
+            note: `chargeback order ${order.id}`,
+          },
+        });
+      }
+    });
+  }
+}
