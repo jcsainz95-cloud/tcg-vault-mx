@@ -1,180 +1,104 @@
 # SECURITY_NOTES.md — Ingeniería de seguridad (blue team)
 
 > **Rol:** consolidación defensiva + veredicto. Insumo principal: `docs/PENTEST_NOTES.md` (red team).
-> **Método:** validación estática cruzando cada hallazgo del pentester contra el código
-> (`backend/`, `frontend/`), config devops (`docker-compose.yml`, `.env.example`, `.github/workflows/`,
-> `security/`) y `npm audit` re-ejecutado en esta sesión. **No hay target vivo** → los vectores que
-> requieren instancia se marcan **[pendiente de target]**.
+> **Método:** validación estática cruzando cada hallazgo contra el código (`backend/`, `frontend/`),
+> config devops (`docker-compose.yml`, `.env.example`, `.github/workflows/`, `security/`) y `npm audit`.
 > **Regla:** solo se escribe este archivo; no se corrige código. Cada hallazgo indica el **rol dueño**.
 > **La vara sube por el negocio:** custodia de bienes de valor + dinero saliente + PII sensible
-> (INE / CLABE / RFC). Esto reclasifica dos hallazgos "Media" del pentester a **Alta**.
-> Fecha: 2026-08-13.
+> (INE / CLABE / RFC).
+> Fecha ronda 1 (RECHAZO): 2026-08-13. Fecha ronda 2 (RE-VERIFICACIÓN): 2026-08-13.
 
 ---
 
-## 0. Resultado de la validación (qué confirmé, descarté o reclasifiqué)
+## 0. RE-VERIFICACIÓN tras la ronda de fixes (esta sesión)
 
-Revisé los 16 hallazgos + 3 positivos del pentester. **Todos se confirman en código.** Ajustes:
+En la ronda 1 **RECHACÉ** con 7 bloqueantes (2 Críticos, 5 Altos: SEC-C1, C2, A1, A2, A3, A4, A5).
+Los roles aplicaron fixes (commits `e504466` backend, `cb1eb2b` frontend, `9a47f16` devops).
+Re-verifiqué cada uno **en el código, no por confianza**. Resultado:
 
-| ID pentester | Veredicto blue team | Cambio |
+| ID | Estado | Evidencia verificada |
 |---|---|---|
-| C-1, C-2 | **Confirmado** | Se mantienen Críticos |
-| A-1, A-2, A-3 | **Confirmado** | Se mantienen Altos |
-| M-1 (PII a `vault_operator`) | **Confirmado + RECLASIFICADO → Alta** | Exposición determinista de CLABE/RFC/INE a rol de menor confianza en negocio de PII |
-| M-2 (INE por URL pública) | **Confirmado + RECLASIFICADO → Alta** | Documentos de identidad oficiales no pueden servirse con modelo de "URL pública" |
-| M-3, M-4, M-5, M-6, M-7 | **Confirmado** | Se mantienen Medias (deuda con disparador) |
-| B-1…B-4 | **Confirmado** | Se mantienen Bajas |
-| I-1, I-2, I-3 | **Confirmado (positivos)** | Defensas reales; no se duplican |
+| **SEC-C1** | **CERRADO** | `@nestjs/throttler` en deps; `ThrottlerModule` global 300/min + `ThrottlerGuard` como primer `APP_GUARD` (`app.module.ts:34,56`); `@Throttle` login/register 5/min y refresh 20/min (`auth.controller.ts:12,22,31`); seed sin passwords hardcodeadas, exige `SEED_ADMIN_PASSWORD`/`SEED_OPERATOR_PASSWORD` y **falla** en no-local (`seed.ts:24-38,53,70`). Fuerza bruta: remediado en código; **re-test en vivo pendiente de staging**. |
+| **SEC-C2** | **CERRADO** | `npm audit --omit=dev` (esta sesión): **frontend = 0 vulnerabilidades**; **backend = 0 high/critical, 4 moderate** (todas de framework: `@nestjs/core`, `@nestjs/platform-express`, `file-type` x2 vía `@nestjs/common`). Los críticos/high runtime que motivaron el rechazo ya no aparecen. Las 4 moderate quedan como **deuda de framework** (ver §2). |
+| **SEC-A1** | **CERRADO** | `buylist.service.ts:99` deriva `category = await this.categoryForRarity(card.rarity)` dentro de `createRequest`; el `it.category` del DTO ya **no** alimenta `quoteAcquisition` (:104). Un DTO malicioso `ex_plus` sobre una común no infla el pago. |
+| **SEC-A2** | **CERRADO (código)** | `buylist.service.ts:171-195` — lectura de `monthUsed` (`monthUsedCentsTx`, :211-224) y creación del `SellRequest` en un `$transaction` con `isolationLevel: Serializable`. Dos solicitudes concurrentes cerca del tope entran en conflicto de serialización. Carrera: **re-test en vivo pendiente de staging** (DAST). |
+| **SEC-A3** | **CERRADO** | `schema.prisma:341` `sourceSellRequestItemId String? @unique`; migración `20260813120000_unique_source_sell_request_item/migration.sql:9` crea el índice único; `buylist.service.ts:381-423` crea el `InventoryItem` en `$transaction` y captura **P2002** resolviendo como "ya convertido". Garantiza UN solo InventoryItem. Carrera: **re-test en vivo pendiente de staging**. |
+| **SEC-A4** | **CERRADO** | `admin.service.ts:54-92` `getUser(id, role)` — para no-`super_admin` (operador) devuelve CLABE **enmascarada** (`maskClabe`, :12-17), `ineOnFile:boolean` en vez de las keys de INE, y `billingProfile:null` (RFC oculto). El controller pasa el rol real (`admin.controller.ts:45-47`). Segregación de funciones restaurada. |
+| **SEC-A5** | **CERRADO** | App: `disputes.service.ts:21-23` sirve INE/disputa por `uploads.presignGet` (GET prefirmado 300s, `uploads.service.ts:55-59`), no por `S3_PUBLIC_BASE_URL`. Infra: `docker-compose.yml:115-117` `createbuckets` deja el bucket privado (`mc anonymous set none`) y publica **solo** `inventory_photo/`; documentado en `DEVOPS_NOTES.md:493-508` (prod R2/S3 con Block Public Access, prefijos `kyc_ine/`/`dispute_claim/` solo por presigned GET). |
 
-**Evidencia nueva de mi sesión:**
-- `npm audit --omit=dev` (solo runtime, no dev): **frontend** = 1 crítica (`next-intl` prototype pollution + open redirect) + 1 high (`postcss`) + cadena `next`; **backend** = 3 high (`multer`/`express`/`qs` DoS). Confirma que C-2 **impacta producción**, no solo tooling.
-- `grep` de dependencias: **no existe `@nestjs/throttler` ni `helmet`** en `backend/package.json` (confirma C-1 y B-3).
-- `backend/prisma/seed.ts:45` — password del `vault_operator` **hardcodeado `Operador123!` sin override por env** (peor que la del admin, que sí lee `SEED_ADMIN_PASSWORD`). `.env.example:61` deja `SEED_ADMIN_PASSWORD=` vacío.
-- `backend/src/main.ts:26` — `enableCors({ origin: true, credentials: true })` confirmado.
-- `backend/src/modules/admin/admin.service.ts:39-55` — `getUser` incluye `kycProfile`, `billingProfile`, `addresses`; solo remueve `passwordHash`. Controller `admin.controller.ts:22` = `@Roles(vault_operator, super_admin)`. Confirma M-1.
-- `schema.prisma:338` — `sourceSellRequestItemId String?` **sin `@unique`**. Confirma A-3.
+**Extras corregidos de paso (deuda media resuelta, no exigida para aprobar):**
+- **SEC-M3** (refund sin guardia de estado) → `admin-orders.controller.ts:79-88`: exige `status === 'settled'` + idempotency-key obligatoria (derivada si falta). **CERRADO.**
+- **SEC-M5** (`pay-spei` sin idempotencia/carrera) → `buylist.service.ts:435-459`: cortocircuito idempotente si ya `pagada` + `updateMany` guardado por estado (patrón `count===1`). **CERRADO.**
 
-**Nota positiva de postura (devops):** ya existe un gate SAST (`.github/workflows/security-sast.yml`) que corre semgrep + gitleaks + `npm audit` + trivy y **FALLA en high/critical**, más DAST programado (`security-scheduled.yml`, plantilla hasta tener staging). Esto es maduro y significa que **C-2 ya bloquearía el pipeline de release** hoy. Buen cimiento; no sustituye el bump de dependencias.
+**Conclusión de la re-verificación:** **los 7 bloqueantes (C1, C2, A1, A2, A3, A4, A5) quedan CERRADOS.**
+No quedan hallazgos **Críticos ni Altos abiertos**. Los ítems de carrera (A2, A3) y fuerza bruta (C1)
+están correctos en código; su confirmación 100% requiere disparo dinámico contra staging.
 
 ---
 
-## 1. Hallazgos priorizados por severidad
+## 1. Deuda de seguridad que permanece (no bloqueante) — con disparador
 
-### CRÍTICA
+Aceptable **para desarrollo / beta cerrada**, NO para operar con dinero/público real sin cerrarse.
 
-#### SEC-C1 · Toma de cuenta admin: login sin rate-limit + credenciales sembradas conocidas
-- **Ubicación:** `auth.controller.ts:17-22` (`POST /api/v1/auth/login` `@Public()`, sin throttling); `seed.ts:45` (`vault_operator` = `Operador123!` sin env); `seed.ts:25` + `.env.example:61` (`SEED_ADMIN_PASSWORD` vacío → `ChangeMe123!`); `package.json` sin `@nestjs/throttler`.
-- **Evidencia:** login determinista con `operador@tcg.local` / `Operador123!` (credencial en el repo). Sin lockout ni backoff, fuerza bruta contra `super_admin` sin fricción.
-- **Impacto:** con `super_admin` se controla dinero saliente (reembolso/SPEI/recompra), diales (IVA/markup/topes) y toda la PII. Es el camino más corto "a la BD" completa.
-- **Rol dueño:** **backend** (operador con password por env obligatoria + `@nestjs/throttler` con lockout en `/auth/login` y `/auth/register`); **devops** (forzar `SEED_ADMIN_PASSWORD` no vacío, rotar la del operador, rate-limit/WAF en el borde).
-
-#### SEC-C2 · Dependencias vulnerables en runtime (frontend crítica + backend highs)
-- **Ubicación:** `frontend/package.json`, `backend/package.json`.
-- **Evidencia (`npm audit --omit=dev`, esta sesión):** frontend **crítica** `next-intl` (prototype pollution vía claves de catálogo de traducción + open redirect) + high `postcss` + cadena `next`; backend **3 high** `multer`/`express`/`qs` (DoS). Los críticos de tooling (`vitest`) son dev-only (menor riesgo operativo, sigue siendo supply-chain).
-- **Impacto:** DoS de frontend/backend en producción; superficie de prototype pollution en runtime.
-- **Rol dueño:** **devops** (bump priorizado `next`/`next-intl`/`postcss` y `@nestjs/platform-express`/`multer`; re-correr `npm audit`; mantener el gate de `security-sast.yml` como required check en release).
-
-### ALTA
-
-#### SEC-A1 · Buylist: la categoría (monto a pagar) la declara el usuario, no se deriva de la rareza
-- **Ubicación:** `buylist.service.ts:98` usa `it.category` del DTO en `quoteAcquisition`; `categoryForRarity()` (:53) existe pero **solo se usa en `publicQuote` (:31)**, no en `createRequest`.
-- **Evidencia [verificado en código]:** `POST /api/v1/buylist/requests` con `category:"ex_plus"` sobre una común de alta referencia → cotización = `round(ref × 0.40)` en vez de `MX$0.50`; infla `quotedTotalCents` y el pago que la plataforma se obliga.
-- **Impacto:** manipulación al alza del pago (dinero saliente). Mitigado **parcial** por cherry-pick del admin; si aprueba en bloque confiando en la cotización, es pérdida directa.
-- **Rol dueño:** **backend** (derivar `category` server-side desde la rareza real; ignorar el valor del cliente).
-
-#### SEC-A2 · Buylist: bypass de topes mensual/por-solicitud por race condition (TOCTOU)
-- **Ubicación:** `buylist.service.ts:122-136` — valida `capPerRequest` y `monthUsedCents` (`users.service.ts` aggregate) y **luego** crea `SellRequest` **sin transacción ni lock**.
-- **Evidencia [verificado en código; disparo pendiente de target]:** N solicitudes concurrentes cerca del tope leen el mismo `monthUsed`, todas pasan y se crean → el acumulado real supera `BUYLIST_CAP_PER_MONTH_CENTS`.
-- **Impacto:** evade límites AML/anti-lavado y de exposición de caja mensual y `capPerRequest`.
-- **Rol dueño:** **backend** (validación + creación en una transacción serializable, o contador mensual con `SELECT ... FOR UPDATE`/upsert atómico).
-
-#### SEC-A3 · convert-to-inventory: doble conversión por carrera (sin unique constraint)
-- **Ubicación:** `buylist.service.ts:329-369` verifica `item.inventoryItemId` null y **después** crea `InventoryItem`; `schema.prisma:338` `sourceSellRequestItemId` **no es `@unique`**.
-- **Evidencia [verificado en código; disparo pendiente de target]:** dos conversiones concurrentes crean dos `InventoryItem` con el mismo `acquisitionCostCents` (folios distintos).
-- **Impacto:** inventario fantasma duplicado y doble costo contabilizado; corrompe P&L y valor de inventario.
-- **Rol dueño:** **backend** (`@unique` en `sourceSellRequestItemId` + `updateMany` con guardia de estado dentro de la transacción, patrón `count===1` como en checkout — ver SEC-I1).
-
-#### SEC-A4 · [Reclasificado de M-1] `vault_operator` lee CLABE/RFC/INE de cualquier usuario
-- **Ubicación:** `admin.controller.ts:22` (`@Roles(vault_operator, super_admin)`) + `admin.service.ts:39-55` (`getUser` retorna `kycProfile` con `clabe`/`ineFrontKey`/`ineBackKey`, `billingProfile` con RFC, `addresses`, órdenes, disputas; solo quita `passwordHash`).
-- **Evidencia [verificado en código]:** token `vault_operator` → `GET /api/v1/admin/users/<id>` devuelve datos bancarios e identidad de toda la base.
-- **Justificación del ascenso a Alta:** PROJECT define al operador como **rol de menor confianza sin acceso a finanzas/config**; en un negocio de custodia con INE/CLABE esto es una fuga de PII bancaria/identidad explotable con el rol operador (que además tiene credencial conocida — SEC-C1). Segregación de funciones rota.
-- **Rol dueño:** **backend** (proyección reducida para `vault_operator`; KYC/CLABE/RFC/INE y financieros **solo `super_admin`**).
-
-#### SEC-A5 · [Reclasificado de M-2] Fotos de INE/KYC y disputa servidas por URL pública del bucket
-- **Ubicación:** `disputes.service.ts:14-17` `photoUrl()` = `${S3_PUBLIC_BASE_URL}/${key}`; keys de INE en `KycProfile.ineFrontKey/ineBackKey`; `docker-compose.yml:151` y `.env.example` documentan `S3_PUBLIC_BASE_URL` como base pública.
-- **Evidencia [pendiente de target]:** si el bucket tiene ACL de lectura pública, cualquiera con la key (aparece en respuestas admin y en la DB) descarga la INE. Keys UUID (no enumerables), pero el modelo "URL pública" es inadecuado para identidad oficial.
-- **Justificación del ascenso a Alta:** documentos de identidad oficial (INE) bajo custodia legal; el patrón de URL pública no es aceptable para PII regulada aunque las keys sean UUID.
-- **Rol dueño:** **devops** (bucket **privado**, sin ACL público-lectura para `kyc_ine`/`dispute_claim`); **backend** (servir descargas por **URL prefirmada de lectura de vida corta**, no por base pública). Disparador combinado con SEC-B4 (presign de subida sin restricción).
-
-### MEDIA (deuda con disparador — ver §2)
-
-- **SEC-M1 · CORS refleja cualquier origin con credenciales** — `main.ts:26` `origin:true, credentials:true`. Hoy limitado (tokens en `localStorage`, no cookies), pero mala práctica y se vuelve grave si se migra a cookies. **Rol:** backend (allow-list desde config).
-- **SEC-M2 · JWT en `localStorage`** — `frontend/src/lib/api-client.ts:18-29`. Cualquier XSS (o dep frontend comprometida, SEC-C2) exfiltra el token; con `super_admin`, control total. **Rol:** frontend (cookies `httpOnly`+`SameSite` o aislamiento + CSP estricta).
-- **SEC-M3 · `refund` no valida estado previo** — `admin-orders.controller.ts:72-81`: solo exige `stripePaymentIntentId`, no `status='settled'`; idempotency-key opcional. Contenido por `MoneyOutGuard` (solo `super_admin`) y por Stripe. **Rol:** backend (exigir `settled` + idempotencia obligatoria).
-- **SEC-M4 · Postgres/MinIO con puertos publicados y credenciales default** — `docker-compose.yml:38-39,79-81` publican `5432`/`9000`/`9001`; defaults `tcg_local_dev_password`/`minioadmin_local_dev`. Es la plantilla local; **prohibido** en prod. **Rol:** devops (no publicar puertos de datos, secretos únicos por entorno, negar arranque con defaults en prod).
-- **SEC-M5 · `pay-spei` sin idempotencia y con carrera de estado** — `admin-buylist.controller.ts:101-119` ignora `idempotency-key`; `buylist.service.ts:375-388` lee estado y actualiza a `pagada` sin lock. Doble asiento de pago posible. Requiere `super_admin`. **Rol:** backend (transacción con guardia `aprobada→pagada` atómica + idempotencia).
-
-### BAJA
-
-- **SEC-B1 · JWT sin `algorithms` fijados** — `auth.module.ts:7`, guard/service verifican sin `algorithms:['HS256']`. No explotable con secreto simétrico + `jsonwebtoken 9.0.2` (confusión de alg no aplica). Defensa en profundidad. **Rol:** backend.
-- **SEC-B2 · Validación de env solo en `production`** — `env.validation.ts:8` exige secretos solo si `NODE_ENV==='production'`; staging arranca sin secretos fuertes. **Rol:** backend/devops.
-- **SEC-B3 · Sin `helmet`/cabeceras de seguridad** — `main.ts` sin HSTS/CSP/X-Content-Type-Options/X-Frame-Options. **Rol:** backend (+ devops en reverse proxy).
-- **SEC-B4 · Presign de subida sin restringir content-type ni tamaño** — `uploads.service.ts:34-46` acepta cualquier `contentType`, deriva extensión del input, sin límite de tamaño. `contentType:"text/html"` → subir HTML; combinado con SEC-A5 (bucket público inline) = XSS almacenado. **Rol:** backend (allow-list `image/*`, `Content-Length` máximo, `Content-Disposition: attachment`).
-
-### Defensas verificadas (positivas — no requieren acción)
-- **SEC-I1 · Reserva de checkout atómica:** `orders.service.ts:119-150` `updateMany` guardado por estado + `reserved.count!==1` en `$transaction`; `Order.stripePaymentIntentId` `@unique`. **Sin doble-venta.**
-- **SEC-I2 · Webhook Stripe:** firma con `constructEvent` + idempotencia atómica por `ProcessedStripeEvent` (`@unique`, P2002 como guardia, borra la marca si el handler falla → Stripe reintenta). Replay/doble-proceso mitigados. *Observación devops:* que `STRIPE_WEBHOOK_SECRET` no arranque vacío en prod (falla cerrada, pero mejor validar).
-- **SEC-I3 · IDOR/authz por objeto + money-out:** todos los `getMine`/detail verifican `ownerUserId/userId` (vault, órdenes, buylist, disputas, direcciones); `MoneyOutGuard` exige `super_admin` y **audita** intentos bloqueados; `updateMe` con DTO whitelisted (sin escalada por mass-assignment). **Sin inyección SQL** (único `$queryRawUnsafe` es constante).
-
----
-
-## 2. Deuda de seguridad aceptada (no bloqueante) — con disparador
-
-Aceptable **para desarrollo/beta cerrada**, NO para operar con dinero/público real.
-
-| ID | Deuda | Impacto residual hoy | Disparador para abordarla |
-|---|---|---|---|
-| SEC-M1 | CORS `origin:true` | Bajo (tokens en localStorage, no cookies) | **Antes de exponer a público** o **antes de migrar a cookies de sesión** (lo que ocurra primero) |
-| SEC-M2 | JWT en localStorage | Depende de que no haya XSS | Junto con endurecer CSP; **antes de dinero real** |
-| SEC-M3 | `refund` sin guardia de estado | Bajo (MoneyOut super_admin + Stripe corta sobre-reembolso) | **Antes de operar reembolsos con dinero real** |
-| SEC-M4 | Compose con defaults/puertos | Nulo en local; alto si se usa tal cual en prod | **Antes del primer deploy** a cualquier entorno accesible |
-| SEC-M5 | `pay-spei` sin idempotencia | Bajo (SPEI manual, super_admin) | **Antes de operar pagos SPEI con dinero real** |
-| SEC-B1..B4 | Hardening (alg JWT, env, helmet, presign) | Bajo | B3/B4 **antes de exponer uploads/panel a público**; B1/B2 en el próximo sprint de hardening |
+| ID | Deuda | Ubicación | Impacto residual hoy | Disparador |
+|---|---|---|---|---|
+| **SEC-M1** | CORS refleja cualquier origin con credenciales | `main.ts:26` `origin:true, credentials:true` | Bajo (tokens en `localStorage`, no cookies) | **Antes de exponer a público** o **antes de migrar a cookies de sesión** |
+| **SEC-M2** | JWT en `localStorage` | `frontend/src/lib/api-client.ts` | Depende de que no haya XSS | Junto con CSP estricta; **antes de dinero real** |
+| **SEC-M4** | Compose con credenciales default | `docker-compose.yml` defaults `tcg_local_dev_password`/`minioadmin_local_dev` | **Mitigado**: puertos de datos ya atados a `127.0.0.1` (`docker-compose.yml:38`, `DEVOPS_NOTES.md:543`) | Secretos únicos por entorno + negar arranque con defaults **antes del primer deploy accesible** |
+| **SEC-B1** | JWT sin `algorithms:['HS256']` fijados | `auth.module.ts` / guard | Bajo (secreto simétrico + `jsonwebtoken 9.0.2`: no explotable) | Próximo sprint de hardening |
+| **SEC-B2** | Validación de env solo en `production` | `env.validation.ts:8` | Bajo (staging puede arrancar sin secretos fuertes) | Sprint de hardening / antes de staging permanente |
+| **SEC-B3** | Sin `helmet`/cabeceras de seguridad | `main.ts` (sin HSTS/CSP/X-Frame-Options) | Bajo | **Antes de exponer panel/uploads a público** (o resolver en reverse proxy) |
+| **SEC-B4** | Presign de subida sin allow-list de content-type/tamaño | `uploads.service.ts:34-47` (acepta cualquier `contentType`, sin límite) | Bajo tras SEC-A5 (bucket privado, `Content-Disposition` no inline en prefijos sensibles) | **Antes de exponer uploads a público** |
+| **Deps framework** | 4 moderate backend | `@nestjs/core` (injection), `@nestjs/platform-express`, `file-type` x2 (DoS parser/zip-bomb) vía `@nestjs/common` | Bajo/Moderado (requiere upgrade mayor de NestJS a 11.1.29, breaking) | Planear bump de NestJS en sprint de mantenimiento; el gate `security-sast.yml` (falla en high/critical) sigue cubriendo el piso |
 
 > Registrar el pendiente de código en `docs/TECH_DEBT.md` (a petición del techlead) por el rol dueño.
 
----
-
-## 3. Banderas para el humano
-
-1. **Pentest de tercero + programa de bug bounty ANTES de operar con dinero real.** El análisis fue estático y sin target vivo; los vectores dinámicos (fuerza bruta de login, CORS, DoS de dependencias, race conditions de topes/conversión/SPEI) están **[pendiente de target]** y deben verificarse contra staging. En un negocio que mueve dinero + custodia + PII, la revisión externa es requisito, no opcional.
-2. **Activar el DAST real:** `security-scheduled.yml` es plantilla hasta que exista `STAGING_BASE_URL`. Levantar staging autorizado y disparar ZAP/nuclei + reproducir los PoC concurrentes.
-3. **Legal/PII (México):** custodia implica figura de **depositario** y contrato de custodia (ya en riesgos de PROJECT). Además, INE/CLABE/RFC caen bajo **LFPDPPP**: definir **cifrado en reposo de CLABE**, **enmascaramiento** en UI admin, política de **retención/borrado** de INE, y aviso de privacidad. Hoy CLABE se guarda en claro (`KycProfile.clabe`) y la INE se sirve por URL pública (SEC-A5).
-4. **Segregación de funciones:** confirmar con el negocio que `vault_operator` NO debe ver datos bancarios/identidad (base de SEC-A4). El diseño de PROJECT lo dice; el código no lo respeta.
-5. **Secret management en prod:** mover secretos a un secret manager (no `.env` en el host); rotar la credencial del operador sembrada en el repo.
+**Positivas ya verificadas (se mantienen, sin acción):** reserva de checkout atómica (`orders.service.ts`),
+webhook Stripe con firma + idempotencia atómica (`payments.service.ts`), IDOR por objeto cerrado y
+`MoneyOutGuard` (`super_admin` + auditoría) en todo dinero saliente. Ver PENTEST_NOTES I-1/I-2/I-3.
 
 ---
 
-## 4. Plan de remediación por rol (para enrutar los fixes)
+## 2. Banderas para el humano
 
-**backend** (dueño del código de app):
-- SEC-C1: password del operador por env obligatoria; `@nestjs/throttler` + lockout en `/auth/login` y `/auth/register`.
-- SEC-A1: derivar `category` server-side desde la rareza en `createRequest`.
-- SEC-A2: cap check + creación en transacción atómica/serializable.
-- SEC-A3: `@unique` en `sourceSellRequestItemId` + `updateMany` guardado en la transacción.
-- SEC-A4: proyección reducida para `vault_operator`; KYC/finanzas solo `super_admin`.
-- SEC-A5 (parte app): servir INE/disputa por presign de lectura corto, no por base pública.
-- Deuda: SEC-M1, SEC-M3, SEC-M5, SEC-B1..B4.
-
-**frontend:**
-- SEC-M2: sacar el token de `localStorage` (cookie `httpOnly`+`SameSite` o aislamiento) + CSP estricta.
-
-**devops:**
-- SEC-C1: forzar `SEED_ADMIN_PASSWORD`, rotar credencial operador, rate-limit/WAF en el borde.
-- SEC-C2: bump `next`/`next-intl`/`postcss` y `@nestjs/platform-express`/`multer`; mantener gate `security-sast.yml` como required check.
-- SEC-A5 (infra): bucket privado sin ACL público-lectura para `kyc_ine`/`dispute_claim`.
-- SEC-M4: no publicar puertos de datos; secretos únicos por entorno; negar arranque con defaults en prod.
-- SEC-I2: validar `STRIPE_WEBHOOK_SECRET` no vacío en prod.
-- Deuda: SEC-B2/B3 en el borde.
+1. **Pentest de tercero + programa de bug bounty ANTES de operar con dinero real.** Esta re-verificación
+   sigue siendo **estática**. Los vectores dinámicos (fuerza bruta de login, carreras de tope mensual y
+   convert-to-inventory, CORS) están **remediados en código pero sin confirmación en vivo**: deben
+   dispararse contra staging autorizado antes de mover dinero real. En un negocio con dinero + custodia +
+   PII, la revisión externa es requisito, no opcional.
+2. **Activar el DAST real contra staging:** `security-scheduled.yml` es plantilla hasta que exista
+   `STAGING_BASE_URL`. Levantar staging y disparar ZAP/nuclei + reproducir los PoC concurrentes de A2/A3 y
+   el brute-force de C1 (verificar 429 del throttler; **nota:** el storage del throttler es in-memory por
+   instancia — en multi-instancia devops debe cablear Redis + `trust proxy`, ya anotado en el código).
+3. **Legal/PII (México):** custodia implica figura de **depositario** y contrato de custodia. INE/CLABE/RFC
+   caen bajo **LFPDPPP**: aunque la INE ya se sirve por presigned GET y la CLABE se **enmascara** en la
+   ficha del operador, la CLABE **sigue almacenada en claro** en `KycProfile.clabe`. Definir **cifrado en
+   reposo de CLABE**, política de **retención/borrado** de INE y aviso de privacidad antes de operar.
+4. **Segregación de funciones:** confirmada en código (SEC-A4). Validar con el negocio que la política
+   "vault_operator NO ve datos bancarios/identidad" es la deseada (el código ya la aplica).
+5. **Secret management en prod:** mover secretos a un secret manager (no `.env` en host); confirmar que
+   `SEED_ADMIN_PASSWORD`/`SEED_OPERATOR_PASSWORD` fuertes se inyectan en cada deploy (el seed ya **falla**
+   sin ellos en no-local, buen fail-safe).
 
 ---
 
-## 5. VEREDICTO
+## 3. VEREDICTO
 
-### RECHAZADO
+### APROBADO
 
-Hay **hallazgos críticos y altos abiertos** (SEC-C1, SEC-C2, SEC-A1, SEC-A2, SEC-A3, SEC-A4, SEC-A5).
-Regla: se rechaza con cualquier crítico/alto abierto. Además, el negocio (dinero + custodia + PII INE/CLABE) sube la vara.
+Los **7 bloqueantes** de la ronda 1 (SEC-C1, C2, A1, A2, A3, A4, A5) quedan **CERRADOS**, verificados en
+código en esta sesión. **No hay hallazgos Críticos ni Altos abiertos.** Además se cerraron de paso dos
+deudas Medias (SEC-M3, SEC-M5).
 
-**Mínimo necesario para APROBAR** (cerrar todo lo Crítico y Alto):
-1. **SEC-C1** — password del operador por env + rate-limit/lockout en login (backend) + rotación/forzado de secretos (devops).
-2. **SEC-C2** — bump de dependencias runtime (frontend crítica + backend highs) y `npm audit` limpio de high/critical (devops).
-3. **SEC-A1** — categoría de buylist derivada server-side (backend).
-4. **SEC-A2** — validación de topes atómica (backend).
-5. **SEC-A3** — `@unique` + guardia transaccional en convert-to-inventory (backend).
-6. **SEC-A4** — proyección reducida de PII para `vault_operator` (backend).
-7. **SEC-A5** — bucket privado + presign de lectura para INE/disputa (devops + backend).
+`npm audit --omit=dev`: **frontend 0 vulnerabilidades; backend 0 high/critical** (4 moderate de framework
+como deuda aceptada). El gate `security-sast.yml` sigue fallando en high/critical como red de seguridad.
 
-Las Medias/Bajas quedan como **deuda aceptada con disparador** (§2), condicionada a que **ninguna llegue a producción con dinero/público real sin cerrarse** y a que el **pentest de tercero** (§3) se ejecute antes de operar con dinero real.
+**Condiciones de la aprobación (no bloqueantes, pero exigibles antes de dinero/público real):**
+1. Ejecutar el **DAST contra staging** para confirmar en vivo C1 (throttling/lockout), A2 y A3 (carreras).
+2. Cerrar la deuda §1 según sus disparadores (CORS, localStorage/CSP, helmet, presign content-type,
+   defaults de compose, bump de NestJS) **antes** de exponer a público o mover dinero real.
+3. **Pentest de tercero + bug bounty** y **validaciones legales de custodia/PII (cifrado de CLABE en
+   reposo, retención de INE)** antes de operar con dinero real (§2).
 
-**Re-evaluación:** al cerrar los 7 puntos, el rol dueño lo reporta; seguridad re-verifica (incluyendo disparo dinámico contra staging) y actualiza este veredicto.
+**Estado:** apto para avanzar a staging y pruebas dinámicas. La aprobación para **producción con dinero
+real** queda condicionada a las 3 condiciones anteriores.
