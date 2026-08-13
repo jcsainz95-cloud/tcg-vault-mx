@@ -25,10 +25,11 @@ npm run start:dev                    # API en http://localhost:3001/api/v1
 ## 2. Cómo testear
 
 ```bash
-npm test          # unit + smoke de DI (23 tests). NO requiere Postgres/Redis/MinIO.
-npm run lint      # eslint (0 errores)
-npm run typecheck # tsc --noEmit (0 errores)
-npm run build     # nest build → dist/
+npm test               # unit + smoke de DI (42 tests). NO requiere Postgres/Redis/MinIO.
+npm run test:integration  # E2E contra infra REAL (Postgres/Redis/MinIO/Stripe). Ver §8.
+npm run lint           # eslint (0 errores)
+npm run typecheck      # tsc --noEmit (0 errores)
+npm run build          # nest build → dist/
 ```
 
 - Los tests unitarios usan **Prisma mockeado** (`@nestjs/testing` / jest), así que **corren sin
@@ -44,8 +45,9 @@ npm run build     # nest build → dist/
   - `test/money-out.guard.spec.ts` — **`MoneyOutGuard`**: solo `super_admin`; operador/cliente
     reciben `MONEY_OUT_FORBIDDEN` y el intento queda **auditado**.
   - `test/app.module.spec.ts` — smoke del **grafo de DI** completo (detecta wiring roto/ciclos).
-- **Tests de integración/e2e** (contrato punta a punta, seguridad, webhooks reales) son de **QA**.
-  Para correrlos con infra real: `docker compose up -d`, `prisma migrate deploy`, `npm run seed`.
+- **Suite de integración/E2E** (contrato punta a punta, seguridad, **webhooks reales**) ahora
+  vive en `test/integration/*.e2e-spec.ts` y la ejecuta **QA/devops** con `npm run test:integration`
+  (infra real). Detalle completo, cobertura y env en **§8**.
 
 ## 3. Estado por módulo (completo vs stub/TODO)
 
@@ -156,4 +158,75 @@ npm run build     # nest build → dist/
   manual). El flujo funciona; los precios automáticos de gradeadas/sellado requieren confirmar el
   endpoint/clave del proveedor (fuera de mi alcance sin credenciales).
 - ⚠️ **Scheduling BullMQ** de los 4 jobs (deuda no bloqueante; lógica lista y disparable).
+
+## 8. Suite de integración / E2E (infra real) — para QA/devops
+
+Suite que verifica la plataforma **contra infraestructura real** (Postgres/Redis/MinIO del
+`docker-compose` + firma de webhook Stripe real, offline). Es la parte "teoría→realidad":
+**no** usa Prisma mockeado; levanta el `AppModule` completo y lo golpea por **HTTP real**.
+
+### Script para devops (CI)
+```bash
+npm run test:integration        # (alias: npm run test:e2e)
+#   = prisma migrate deploy  &&  npm run seed:synthetic  &&  jest (config e2e)
+```
+- Corre **migraciones + seed sintético ANTES** de los tests (encadenado en el script).
+- Config aislada: `test/jest-integration.config.js` (testRegex `test/integration/*.e2e-spec.ts`,
+  `--runInBand` porque comparten estado de DB). **No** lo recoge `npm test` (unit sigue verde
+  sin infra); el unit `jest.config.js` ignora `/test/integration/`.
+
+### Seed sintético (lo invoca `scripts/seed-synthetic.sh`)
+```bash
+npm run seed:synthetic          # = ts-node prisma/seed-e2e.ts  (datos FICTICIOS deterministas)
+```
+- `prisma/seed-e2e.ts` exporta `seedE2E(prisma)` (reutilizable) + runner CLI. Idempotente:
+  resetea el estado transaccional E2E en cada corrida. Constantes en `prisma/e2e-fixtures.ts`
+  (usuarios por rol, cartas, folios, referencias, diales deterministas). **Nada de datos reales.**
+- Usuarios sembrados: `customer@e2e.local` / `Customer123!`, `customer2@e2e.local`,
+  `operator@e2e.local` / `Operator123!` (vault_operator), `admin@e2e.local` / `Admin123!` (super_admin).
+- `scripts/seed-synthetic.sh` ya prefiere `npm run seed:synthetic` (coincide con su convención).
+
+### Variables de entorno que necesita
+- **Obligatoria:** `DATABASE_URL` (Postgres real; sin ella la suite falla explícito).
+- **Recomendadas (infra real):** `REDIS_URL`, `S3_ENDPOINT`/`S3_REGION`/`S3_BUCKET`/
+  `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` (MinIO; el bucket `tcg-photos` debe existir).
+- **Stripe:** `STRIPE_WEBHOOK_SECRET` (se usa para **firmar y verificar** el webhook; si no se
+  fija, la suite usa `whsec_e2e_test_secret` de forma consistente). No se llama a la API de
+  Stripe por red: la creación de PaymentIntent/refund se stubbea offline; **la verificación de
+  firma del webhook es REAL** (SDK). `STRIPE_SECRET_KEY` puede ser dummy.
+- **`E2E_STRICT_INFRA=true`** (recomendado en el job E2E con toda la infra): hace que los smokes
+  de **Redis** y **MinIO** fallen si la infra no responde. Sin él, esos dos smokes se **saltan
+  con aviso** si no hay Redis/MinIO (Postgres siempre es obligatorio).
+
+Local, con Docker:
+```bash
+cd .. && docker compose up -d && cd backend
+npm run test:integration
+```
+
+### Qué cubre (flujos críticos de negocio)
+| Spec | Cubre |
+|---|---|
+| `auth-authz.e2e-spec.ts` | registro/login/refresh; rol customer bloqueado del back-office; operador ve M3 pero no M7; **MoneyOutGuard** (operador→`MONEY_OUT_FORBIDDEN` **auditado**, super_admin pasa). |
+| `catalog-checkout-webhook.e2e-spec.ts` | catálogo `referenceValue` vs `salePrice` (markup) y override; **precio pendiente → no comprable** (`sellable=false`, `422 PRICE_PENDING`); breakdown **IVA 16% + fee gross-up**; **reserva atómica anti doble-venta**; **webhook firmado** `payment_intent.succeeded` → `reserved→settled` (in_custody); **idempotencia** por `event.id` (un solo `settle`); **firma inválida → 400**; `charge.dispute.created` → **reversión a inventario de plataforma** + movimiento `chargeback_return`. |
+| `vault-shipments.e2e-spec.ts` | portafolio valuado a **referencia** (sin wallet); retiro **solo `settled`** (`pending`→`ITEM_NOT_SETTLED`); **tarifa fija** 17500 + IVA + fee; **`ADDRESS_NOT_MX`**; cobro Stripe **antes** (nace en `solicitado`). |
+| `buylist.e2e-spec.ts` | cotizador público (común 50 / reverse 150 / EX+ 40% / **precio pendiente**); tope por solicitud (`BUYLIST_LIMIT_EXCEEDED`), **INE** sobre umbral (`INE_REQUIRED`), **CLABE a nombre propio** (`CLABE_NOT_OWN_NAME`); pipeline `recibida→verificación`, **cherry-pick** + **convert-to-inventory**; **pago SPEI** (operador 403 money-out, super_admin OK). |
+| `infra-smoke.e2e-spec.ts` | **Postgres** (query + secuencia de folios, obligatorio); **Redis** (PING real, skip/aviso si ausente); **MinIO/S3** (presign + **PUT real**, skip/aviso si ausente). |
+
+### Notas de implementación (para QA/devops)
+- **Sin dependencias nuevas:** el cliente HTTP de la suite usa el módulo `http` nativo (no se
+  añadió supertest); las firmas de webhook se generan con el SDK de Stripe (ya presente).
+- **Stripe sin `stripe listen`:** no hace falta el CLI de Stripe. Los eventos se **fabrican y
+  firman en proceso** con `generateTestHeaderString` y se envían al endpoint real, que verifica
+  la firma con `STRIPE_WEBHOOK_SECRET` e idempotencia por `event.id`. (Si en el futuro se quiere
+  probar contra Stripe real de punta a punta, ahí sí `stripe listen --forward-to`; no es
+  necesario para esta suite.)
+- **CI actual (devops):** el job `backend` ya levanta Postgres+Redis. Para correr la suite
+  completa hace falta **añadir un servicio MinIO** (o `E2E_STRICT_INFRA` sin fijar para que el
+  smoke de MinIO se salte) y un step `npm run test:integration`. Postgres+Redis ya alcanzan para
+  todo salvo el PUT real a MinIO.
+- **Ejecutable aquí vs pendiente de infra:** en esta sesión **no hay daemon Docker**, así que la
+  suite queda **lista y verificada a nivel de compilación** (typecheck/lint/build verdes, arranca
+  el `AppModule` y falla limpio en la conexión a Postgres). Se ejecuta en verde en CI/local con la
+  infra levantada. Los tests **unitarios** siguen intactos (`npm test` = 42 verdes, sin infra).
 ```
