@@ -36,8 +36,11 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 
 ### A. Storefront / catálogo (comprador)
 - [ ] Catálogo navegable de cartas con búsqueda y filtros (set, rareza, condición, tipo).
-- [ ] Ficha de carta con **precio de referencia** visible, convertido a MXN, refresco diario. Fuente
-      según tipo de producto (ver "Fuentes de precio" en Restricciones técnicas):
+- [ ] Ficha de carta que distingue **dos valores**: (a) el **valor de referencia/mercado** (la referencia
+      del día, es lo que se muestra como "valor de mercado" y se usa para valuar portafolio) y (b) el
+      **precio de venta** = **referencia + markup configurable** (dial en M10). El valor de referencia se
+      muestra convertido a MXN, refresco diario. Fuente según tipo de producto (ver "Fuentes de precio" en
+      Restricciones técnicas):
       - **raw / singles**: TCGPlayer "Market Price" vía **pokemontcg.io**.
       - **gradeadas (PSA/CGC) y sellado**: **PokemonPriceTracker** o **PokeTrace** (free tier),
         con **override manual del admin** siempre disponible como respaldo.
@@ -50,12 +53,14 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Registro/login de usuario.
 
 ### B. Compra y checkout (Stripe)
-- [ ] Carrito y checkout con **Stripe**.
+- [ ] Carrito y checkout con **Stripe**. El **precio de venta** que se cobra es **referencia + markup**
+      (el markup es un dial configurable en M10); el "valor de mercado" mostrado sigue siendo la referencia.
 - [ ] Precios en catálogo/ficha se muestran **sin IVA**.
 - [ ] **Costo de procesamiento trasladado al comprador**: línea visible y desglosada en el checkout.
 - [ ] **IVA 16% desglosado como línea aparte** en el checkout; el total cobrado lo incluye.
-- [ ] Cobrar IVA implica **facturación CFDI**: registrar los datos necesarios para emitir factura
-      (ver bandera fiscal en Riesgos) y guardar el IVA cobrado para M7 Finanzas.
+- [ ] **Facturación (CFDI) manual por correo en el MVP** (sin timbrado con PAC, eso es fase 2): en el
+      checkout y/o FAQ/términos se muestra un **mensaje** indicando que **para solicitar factura el cliente
+      debe enviar un correo con sus datos fiscales**. El IVA cobrado se guarda para M7 Finanzas.
 - [ ] Al pagar, la carta comprada entra a la **bóveda del usuario** con titularidad `pending`.
 - [ ] Cuando el pago se liquida, la titularidad pasa a `settled`.
 - [ ] **Sin wallet de saldo**: el dinero se liquida por transacción; la plataforma no guarda saldo del usuario.
@@ -103,7 +108,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas y sellado), **override
       manual** de precio siempre disponible, **cache diario**, **tipo de cambio USD→MXN con colchón**
       configurable, tabla **rareza → categoría del buylist**. El proveedor de precios es **intercambiable
-      (`PricingProvider`)** para poder subir a un plan de pago sin tocar el resto del sistema.
+      (`PricingProvider`)** para poder subir a un plan de pago sin tocar el resto del sistema. Distingue
+      **valor de referencia/mercado** (para mostrar y valuar portafolio) del **precio de venta**
+      (= referencia + **markup configurable**, ver M10).
 - [ ] **M3 — Ventas / órdenes**: estados `pending / settled / fallida / reembolsada / contracargo`,
       **desglose con línea de Stripe**, **reembolso**.
 - [ ] **M4 — Retiros / envíos**: cola `solicitado → picking → guía → enviado → entregado`,
@@ -117,10 +124,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M8 — Disputas**: **comparador de fotos** (ingreso vs reclamo), **recompra** como remedio.
 - [ ] **M9 — Reportes mínimos**: métricas de lanzamiento + **export**.
 - [ ] **M10 — Config y bitácora**: **diales editables sin deploy** + **auditoría global** (quién / qué / cuándo).
-      Diales con **valores por defecto** (todos configurables): tarifa de envío **MX$175**, % de aportación
-      en especie **70%**, IVA **16%**, tope de buylist **MX$3,000/solicitud** y **MX$10,000/mes**, umbral de
-      **INE = el tope**, **tope de reposición por carta** (definido por el dueño), tipo de cambio USD→MXN con
-      colchón, selección de **`PricingProvider`** por tipo de producto.
+      Diales con **valores por defecto** (todos configurables): **markup de precio de venta** (% sobre la
+      referencia), tarifa de envío **MX$175**, % de aportación en especie **70%**, IVA **16%**, tope de
+      buylist **MX$3,000/solicitud** y **MX$10,000/mes**, umbral de **INE = el tope**, **tope de reposición
+      por carta** (definido por el dueño), tipo de cambio USD→MXN con colchón, selección de
+      **`PricingProvider`** por tipo de producto.
 - [ ] **Dashboard** con ~8 tarjetas: ganancia del periodo, ventas, cola de trabajo, valor de inventario,
       valor en custodia, buylist del periodo, salud de datos, progreso de lanzamiento.
 - [ ] **Roles del back-office**: súper-admin (todo) y operador de bóveda (M1, M4, M5 hasta verificación;
@@ -153,6 +161,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Pagos y logística automatizados** (guías automáticas, pagos SPEI automáticos): en MVP son manuales.
 - **Grading propio o integración directa con PSA/CGC**.
 - **App móvil nativa** (el panel es web responsive; la captura de fotos es vía navegador móvil).
+- **Timbrado de CFDI con PAC / facturación automática**: en el MVP la factura es **manual por correo**
+  (el cliente envía sus datos fiscales); el timbrado automatizado con PAC es fase 2.
 - **Cobro de almacenamiento en bóveda** (derecho genérico declarado en términos, pero no se cobra en MVP).
 - **Envío/venta internacional**: el MVP es **solo nacional (México)**; internacional es fase 2.
 - **PriceCharting**: **no se usa en el MVP** (las fuentes free + override manual cubren todo). Queda como
@@ -164,7 +174,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > Registradas como datos/preferencias del humano; el stack y la arquitectura los decide el arquitecto.
 - **Pagos**: **Stripe**; **sin balance/saldo** de dinero en la plataforma (liquidación por transacción).
 - **Impuestos**: precios mostrados **sin IVA**; **IVA 16%** se desglosa como **línea aparte en checkout** y
-  se incluye en el total. Implica **facturación CFDI** (registrar datos y guardar IVA cobrado).
+  se incluye en el total. **Facturación CFDI manual por correo** en el MVP (sin PAC): el cliente solicita
+  factura enviando sus datos fiscales; el IVA cobrado se guarda para M7.
+- **Precio de venta vs valor de mercado**: el **valor de referencia/mercado** (mostrado y usado para valuar
+  portafolio) es la referencia del día; el **precio de venta** que se cobra es **referencia + markup
+  configurable** (dial en M10).
 - **Fuentes de precio (MVP = 100% free tier)**, tras un **`PricingProvider` intercambiable**:
   | Tipo de producto | Fuente primaria | Respaldo |
   |---|---|---|
@@ -196,6 +210,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
    ocurre al menos una vez al día y solo cubre las cartas en bóveda.
 3. Una carta sin precio en la web de referencia se muestra como **"precio pendiente"** y NO se puede
    comprar hasta que el dueño le fija precio a mano.
+3b. La ficha/catálogo distingue el **valor de referencia/mercado** del **precio de venta**; el precio de
+   venta cobrado equivale a **referencia + markup** con el markup tomado del dial de M10, mientras el valor
+   mostrado como "de mercado" y el usado para valuar portafolio siguen siendo la referencia.
 
 **Compra y bóveda**
 4. Un comprador puede pagar con Stripe; el checkout muestra una **línea explícita de costo de
@@ -266,8 +283,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 **Transversal — valuación**
 29. En cualquier módulo (buylist, inventario, portafolio), una carta sin precio en la web nunca se
     descarta: se marca "precio pendiente" y se **escala al dueño** para fijarlo a mano.
-30. El checkout genera/registra los datos necesarios para **facturación CFDI** del IVA cobrado, y ese IVA
-    queda disponible en M7 para conciliación.
+30. El checkout (y/o FAQ/términos) muestra el mensaje **"para factura, enviar correo con datos fiscales"**,
+    el **IVA 16% sigue desglosado** en el checkout, y el IVA cobrado queda disponible en M7 para
+    conciliación (sin timbrado automático con PAC en el MVP).
 31. La aplicación **rechaza direcciones de envío/retiro fuera de México** (solo nacional en el MVP).
 
 **Idioma / i18n**
@@ -290,8 +308,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   (comprobación, retenciones, límites). Validar con contador; los topes por solicitud/mes y el requisito
   de INE son mitigaciones iniciales, no una postura fiscal completa.
 - **Fiscal — IVA/CFDI**: cobrar IVA 16% obliga a **emitir CFDI** y a manejar régimen fiscal, RFC del
-  cliente y timbrado (PAC). Validar con contador el flujo de facturación y el momento de emisión; el MVP
-  debe al menos **registrar el IVA cobrado y los datos de facturación**.
+  cliente y timbrado (PAC). En el MVP la factura es **manual por correo** (el cliente envía sus datos
+  fiscales) y solo se **registra el IVA cobrado**; el **timbrado automatizado con PAC es fase 2**. Validar
+  con contador el flujo de facturación, los plazos de emisión y el cumplimiento de esta modalidad manual.
 - **ToS de las APIs de precio**: revisar los **términos de uso de pokemontcg.io / TCGPlayer**,
   **PokemonPriceTracker** y **PokeTrace** para confirmar que está permitido mostrar precios de referencia y
   valuar portafolios comercialmente, bajo qué atribución y **respetando los límites de rate del free tier**
@@ -312,7 +331,7 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 > Las 9 preguntas del borrador previo quedaron resueltas por el humano y ya están integradas arriba.
 > Se conservan aquí como registro de decisión.
 1. **Impuestos/IVA** → precios **sin IVA**; **IVA 16%** como línea aparte en checkout, incluido en el total;
-   implica **CFDI** (bandera fiscal + requisito de checkout y M7).
+   **factura CFDI manual por correo** en el MVP (timbrado con PAC = fase 2), registrando IVA en M7.
 2. **Alcance geográfico** → **solo nacional (todo México)** en MVP; internacional es fase 2.
 3. **Almacenamiento en bóveda** → **sin límite explícito** en MVP; solo se declara en términos el derecho
    genérico a cobrar custodia en fase 2.
@@ -323,6 +342,12 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 6. **Costo de aportación en especie** → default **70%** (configurable).
 7. **Topes de buylist** → **MX$3,000/solicitud**, **MX$10,000/mes**, **INE sobre el tope** (configurables).
 8. **Tope de reposición por carta** → **configurable por el dueño** en M10.
+
+**Decisiones post-arquitectura:**
+9. **Precio de venta** → **referencia + markup configurable** (dial en M10); el "valor de mercado" mostrado
+   y la valuación de portafolio siguen usando la **referencia** pura.
+10. **Facturación CFDI** → **manual por correo** en el MVP (sin timbrado con PAC); IVA sigue desglosado en
+   checkout y registrado en M7; timbrado automático = fase 2.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
