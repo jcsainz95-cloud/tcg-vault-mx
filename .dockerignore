@@ -1,0 +1,17 @@
+# .dockerignore — propiedad devops. Reduce el contexto de build y evita filtrar
+# secretos/artefactos a las imágenes.
+**/node_modules
+**/.next
+**/dist
+**/build
+**/coverage
+**/.git
+**/.env
+**/.env.*
+!**/.env.example
+**/npm-debug.log*
+**/.DS_Store
+docs
+.github
+scripts
+*.md

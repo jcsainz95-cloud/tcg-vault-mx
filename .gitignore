@@ -1,0 +1,42 @@
+# .gitignore — propiedad devops (higiene de infraestructura y secretos).
+
+# --- Secretos: NUNCA comitear .env con valores reales ---
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+!.env.example
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Builds / artefactos ---
+dist/
+build/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# --- Prisma ---
+# El cliente generado no se comitea (se regenera en cada entorno).
+**/node_modules/.prisma/
+
+# --- Sistema / editores ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# --- Docker / datos locales ---
+# Los volúmenes de docker-compose son named volumes (no en el árbol),
+# pero por si alguien monta datos localmente:
+data/
+tmp/

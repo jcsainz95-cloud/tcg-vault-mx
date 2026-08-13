@@ -1,0 +1,55 @@
+# =============================================================================
+# Dockerfile.backend — NestJS + Prisma (Node 20 LTS)  ·  Propiedad: devops
+# Marketplace TCG con Bóveda (Pokémon, México)
+# =============================================================================
+# Multi-stage. Contexto de build = RAÍZ del repo (ver docker-compose.yml), y el
+# código vive en `backend/`. Los Dockerfiles se mantienen en la raíz para
+# respetar la propiedad de archivos de CLAUDE.md (devops NO escribe en backend/).
+#
+# ESTADO ACTUAL: `backend/` todavía no existe (proyecto greenfield). Este
+# Dockerfile está listo para cuando el rol backend cree la app NestJS con la
+# estructura estándar (package.json, prisma/schema.prisma, src/, `nest build`
+# → dist/main.js). Mientras no exista, este build fallará; es esperado. Ver
+# docs/DEVOPS_NOTES.md.
+#
+# Se asume:
+#   - Scripts npm: "build" (nest build) y "start:prod" (node dist/main.js).
+#   - Prisma schema en backend/prisma/schema.prisma (genera cliente en build).
+# Si el backend elige otras rutas/scripts, se ajusta aquí (archivo de devops).
+# =============================================================================
+
+# ---- Base ----
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat openssl
+WORKDIR /app
+ENV NODE_ENV=production
+
+# ---- Dependencias (con dev deps para poder compilar) ----
+FROM base AS deps
+COPY backend/package.json backend/package-lock.json* ./
+RUN npm ci
+
+# ---- Build ----
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
+COPY backend/ ./
+# Genera el cliente de Prisma si hay schema (no falla si aún no existe).
+RUN if [ -f prisma/schema.prisma ]; then npx prisma generate; fi
+RUN npm run build
+# Poda dev-dependencies para la imagen final.
+RUN npm prune --omit=dev
+
+# ---- Runtime (imagen final, mínima) ----
+FROM base AS runtime
+ENV NODE_ENV=production
+# Usuario sin privilegios.
+RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
+COPY --from=build --chown=nestjs:nodejs /app/node_modules ./node_modules
+COPY --from=build --chown=nestjs:nodejs /app/dist ./dist
+COPY --from=build --chown=nestjs:nodejs /app/package.json ./package.json
+# Prisma engines + schema para migraciones en runtime (si existen).
+COPY --from=build --chown=nestjs:nodejs /app/prisma ./prisma
+USER nestjs
+EXPOSE 3001
+# Ejecuta migraciones pendientes y arranca. Ajustar si backend usa otro flujo.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

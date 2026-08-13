@@ -1,0 +1,56 @@
+# =============================================================================
+# Dockerfile.frontend — Next.js 14 App Router (Node 20 LTS)  ·  devops
+# Marketplace TCG con Bóveda (Pokémon, México)
+# =============================================================================
+# Multi-stage. Contexto de build = RAÍZ del repo (ver docker-compose.yml); el
+# código vive en `frontend/`. Se mantiene en la raíz para respetar la propiedad
+# de archivos de CLAUDE.md (devops NO escribe en frontend/).
+#
+# ESTADO ACTUAL: `frontend/` todavía no existe (greenfield). Listo para cuando
+# el rol frontend cree la app Next.js. Mientras no exista, este build fallará;
+# es esperado. Ver docs/DEVOPS_NOTES.md.
+#
+# Se asume el output "standalone" de Next.js para una imagen final mínima:
+#   next.config.js -> { output: 'standalone' }
+# Si el frontend no usa standalone, se ajusta la etapa runtime aquí (devops).
+#
+# Las NEXT_PUBLIC_* se inyectan en build-time como ARGs (se hornean en el bundle
+# del navegador). NO poner secretos aquí: solo claves públicas.
+# =============================================================================
+
+# ---- Base ----
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# ---- Dependencias ----
+FROM base AS deps
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci
+
+# ---- Build ----
+FROM base AS build
+ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_DEFAULT_LOCALE
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_DEFAULT_LOCALE=$NEXT_PUBLIC_DEFAULT_LOCALE
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Runtime (standalone, imagen final mínima) ----
+FROM base AS runtime
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+# Output standalone de Next.js: server + solo las deps necesarias.
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=build --chown=nextjs:nodejs /app/public ./public
+USER nextjs
+EXPOSE 3000
+CMD ["node", "server.js"]

@@ -1,0 +1,192 @@
+# =============================================================================
+# docker-compose.yml — Entorno de desarrollo local
+# Marketplace TCG con Bóveda (Pokémon, México)  ·  Propiedad: devops
+# =============================================================================
+# Levanta la INFRAESTRUCTURA que el proyecto necesita en local:
+#   - PostgreSQL 16   (base de datos relacional)
+#   - Redis 7         (cache, colas BullMQ, rate-limit del free tier)
+#   - MinIO           (object storage S3-compatible para fotos)
+#   - createbuckets   (init container: crea el bucket de MinIO y sale)
+#
+# Los servicios de aplicación (backend NestJS / frontend Next.js) están
+# DEFINIDOS pero bajo el perfil "apps" y quedan APAGADOS por defecto, porque
+# su código aún no existe. Ver "PERFIL apps" abajo.
+#
+# Uso rápido:
+#   docker compose up -d              # solo infraestructura (postgres/redis/minio)
+#   docker compose --profile apps up  # + backend y frontend (cuando exista el código)
+#   docker compose down               # apaga (conserva volúmenes/datos)
+#   docker compose down -v            # apaga y BORRA los datos (reset total)
+#
+# Todas las credenciales salen de `.env` (copia de `.env.example`). Con los
+# valores por defecto de `.env.example` esto arranca sin tocar nada.
+# =============================================================================
+
+name: tcg-marketplace
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — base de datos principal
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tcg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tcg_local_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-tcg_marketplace}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tcg} -d ${POSTGRES_DB:-tcg_marketplace}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — cache, colas BullMQ (price-sync, fx-refresh, sweeps) y rate-limit
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # MinIO — object storage S3-compatible (fotos de bóveda/verificación/disputa)
+  #   API:     http://localhost:9000
+  #   Consola: http://localhost:9001  (login con MINIO_ROOT_USER/PASSWORD)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_local_dev}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # createbuckets — init container: crea el bucket y sale (no queda corriendo).
+  # Deja el bucket con lectura pública anónima para servir fotos vía URL en
+  # local (en prod se usa CDN/política del proveedor R2/S3).
+  # ---------------------------------------------------------------------------
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin_local_dev} &&
+      mc mb --ignore-existing local/${S3_BUCKET:-tcg-photos} &&
+      mc anonymous set download local/${S3_BUCKET:-tcg-photos} &&
+      echo 'Bucket ${S3_BUCKET:-tcg-photos} listo.' &&
+      exit 0
+      "
+    restart: "no"
+
+  # ===========================================================================
+  # PERFIL apps — Backend y Frontend (APAGADOS por defecto)
+  # ---------------------------------------------------------------------------
+  # Estos servicios NO arrancan con `docker compose up` normal: requieren
+  # `docker compose --profile apps up` Y que exista el código en backend/ y
+  # frontend/ (hoy esas carpetas aún no existen; las crean los roles backend y
+  # frontend). Hasta entonces, en desarrollo se levantan a mano fuera de Docker:
+  #   cd backend  && npm install && npm run start:dev
+  #   cd frontend && npm install && npm run dev
+  # apuntando a la infraestructura de arriba vía `.env`.
+  #
+  # Los Dockerfiles viven en la raíz (Dockerfile.backend / Dockerfile.frontend)
+  # para respetar la propiedad de archivos de CLAUDE.md (devops no escribe
+  # dentro de backend/ ni frontend/).
+  # ===========================================================================
+
+  backend:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      # Dentro de la red de compose los hosts son los nombres de servicio:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tcg}:${POSTGRES_PASSWORD:-tcg_local_dev_password}@postgres:5432/${POSTGRES_DB:-tcg_marketplace}?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-tcg-photos}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin_local_dev}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000/tcg-photos}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      POKEMONTCG_IO_API_KEY: ${POKEMONTCG_IO_API_KEY}
+      POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY}
+      POKETRACE_API_KEY: ${POKETRACE_API_KEY}
+      FX_SOURCE: ${FX_SOURCE:-manual}
+      FX_API_KEY: ${FX_API_KEY:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
+    ports:
+      - "3001:3001"
+
+  frontend:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: runtime
+      args:
+        # Variables NEXT_PUBLIC_* se hornean en build-time (se exponen al browser).
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3001/api/v1}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_DEFAULT_LOCALE: ${NEXT_PUBLIC_DEFAULT_LOCALE:-es}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
