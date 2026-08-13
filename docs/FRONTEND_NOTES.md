@@ -4,6 +4,55 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Rebrand "TCG Vault MX" + política de ventas finales (2026-08-13)
+
+Dos cambios de negocio pedidos por el humano. Solo tocan `frontend/` (+ esta nota). Sin cambios de contrato.
+
+### 1. Rebrand a "TCG Vault MX"
+
+- `common.appName` → **"TCG Vault MX"** en `messages/es.json` (era el placeholder "Bóveda TCG") y
+  `messages/en.json` (era "TCG Vault"). Ambos idiomas comparten ahora el mismo nombre de marca.
+- El `title`/metadata de `[locale]/layout.tsx` ya se compone con `t('appName')`, así que se
+  actualiza solo (verificado en `next build`).
+- **`StorefrontHeader.tsx`** tenía el texto **hardcodeado** `"TCG Vault"`; se cambió a
+  `t('appName')` (namespace `common`) para que el rebrand sea de una sola fuente.
+- Email/dominio placeholder `boveda-tcg.mx` → **`tcgvault.mx`**: `checkout.cfdiNotice` ahora usa
+  `facturacion@tcgvault.mx` (ES y EN). El `tagline` se mantiene sin cambios.
+- **Tests E2E de marca:** no existía ningún E2E que asertara el literal "Bóveda TCG" (grep vacío en
+  `frontend/e2e/`), por lo que no hubo aserciones de marca que ajustar. El resto del suite no
+  hardcodea el nombre de app (usa claves i18n vía `e2e/utils/i18n.ts`).
+
+### 2. Política de reembolsos visible — VENTAS FINALES
+
+Decisión del humano: **todas las ventas son finales, sin reembolso** una vez comprada la carta.
+Única excepción: **carta dañada o equivocada** → disputa de condición (7 días, con fotos); si
+procede, se compensa y el usuario **conserva la carta** (sin devolución). Todo bilingüe vía
+next-intl (nada hardcodeado).
+
+- **Aviso en checkout**: `CheckoutView.tsx` muestra un `Banner variant="warning"` con
+  `checkout.finalSaleNotice` ("Todas las ventas son finales. Sin reembolsos salvo carta dañada o
+  equivocada.") y una acción/enlace `checkout.viewTerms` → `/terminos`. Colocado junto al banner
+  CFDI en el resumen del pago.
+- **Página de términos/política** nueva: `src/app/[locale]/(storefront)/terminos/page.tsx`
+  (ruta `/es/terminos` y `/en/terminos`, dentro del layout storefront). Server component con
+  `generateMetadata` propio. Namespace i18n `legal.*` con: intro, **reembolsos/ventas finales**
+  (`refundTitle`/`refundBody`) y **disputa de condición** (`disputeTitle`/`disputeBody`/
+  `disputeOutcome`: 7 días, fotos, compensa y conservas la carta). Usa tokens del DESIGN_SYSTEM
+  (Banner warning + card con borde).
+- **Enlaces a términos**: desde el **checkout** (banner) y desde el **footer** del storefront
+  (`(storefront)/layout.tsx`, `nav.terms` "Términos y política"/"Terms & policy").
+- Claves i18n nuevas (paridad ES↔EN, cubierta por `i18n-parity.test.ts`): `nav.terms`,
+  `checkout.finalSaleNotice`, `checkout.viewTerms`, y el namespace `legal.*` completo.
+
+### E2E añadidos/ajustados (en `e2e/checkout.spec.ts`)
+
+- El aviso de ventas finales aparece en **checkout ES** (`finalSaleNotice` + enlace `viewTerms`) y
+  en **checkout EN** (`finalSaleNotice`).
+- El enlace de términos navega a `/es/terminos` y muestra la política (refund + disputa).
+- La página de términos existe y muestra la política también en **inglés** (`/en/terminos`).
+
+Suite E2E total: **30/30** en verde (antes 28). Unit **10/10**, `lint`/`typecheck`/`build` en verde.
+
 ## Seguridad — SEC-C2: bump de dependencias vulnerables en runtime (2026-08-13)
 
 Remediación del hallazgo **SEC-C2** (`docs/SECURITY_NOTES.md`): dependencias vulnerables en
@@ -58,7 +107,7 @@ de build), no error; la compilación termina en `✓ Compiled successfully`.
 ### Verde confirmado (post-bump)
 
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` (10/10 unit) ✓ ·
-`npm run build` ✓ (SSG) · `npm run test:e2e` (**28/28** Playwright, ES+EN) ✓.
+`npm run build` ✓ (SSG) · `npm run test:e2e` (**30/30** Playwright, ES+EN) ✓.
 
 ---
 
@@ -86,7 +135,7 @@ npm run lint       # eslint (next/core-web-vitals)
 npm run typecheck  # tsc --noEmit
 npm run test       # vitest unit (10 tests)
 npm run build      # next build (standalone)
-npm run test:e2e   # Playwright E2E (28 tests) — ver sección "Tests E2E"
+npm run test:e2e   # Playwright E2E (30 tests) — ver sección "Tests E2E"
 ```
 
 Variables (raíz `.env.example`, `NEXT_PUBLIC_*`):
@@ -183,7 +232,7 @@ objetivos táctiles ≥44px, y estados carga/vacío/error donde aplica.
 Comando: `npm run test` (vitest). Los unit viven en `src/**/*.test.{ts,tsx}` y están
 **separados** de los E2E por script y por config (vitest `include: src/**` no toca `e2e/`).
 
-## Tests E2E (Playwright, 28, todos verdes) — "teoría → realidad"
+## Tests E2E (Playwright, 30, todos verdes) — "teoría → realidad"
 
 Verifican los **flujos de usuario contra la app corriendo** (no componentes aislados). Para
 QA/devops: mismo espíritu que el humano pidió (que "funcione de verdad", no solo que compile).
@@ -216,7 +265,8 @@ npm run test:e2e:report     # abre el reporte HTML del último run
 - `catalog.spec.ts` — **catálogo + filtros** (filtra por rareza), **ficha** (valor de mercado vs
   precio de venta, "sin IVA"), carta **"precio pendiente"** no comprable (AC 1, 2, 3, 3b).
 - `checkout.spec.ts` — **AmountBreakdown** (subtotal + procesamiento + **IVA 16%** + total),
-  mensaje **CFDI por correo**, aviso de titularidad pendiente, pago (simulado) → éxito (AC 4, 30).
+  mensaje **CFDI por correo**, aviso de titularidad pendiente, pago (simulado) → éxito (AC 4, 30),
+  **aviso de ventas finales** (ES y EN) + enlace y página `/terminos` con la política (ES y EN).
 - `vault.spec.ts` — **Mi bóveda/portafolio**: titularidad `pending/settled`, valor total, retiro
   solo habilitado para `settled` (AC 5, 6, 8, 10).
 - `shipments.spec.ts` — **retiro/envío**: desglose tarifa fija + IVA, rechazo de dirección

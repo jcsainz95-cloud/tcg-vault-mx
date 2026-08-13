@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn';
 
 export function StorefrontHeader() {
   const t = useTranslations('nav');
+  const tc = useTranslations('common');
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -27,7 +28,7 @@ export function StorefrontHeader() {
           <span className="flex h-8 w-8 items-center justify-center rounded-md bg-accent text-accent-fg">
             <Zap size={18} aria-hidden />
           </span>
-          <span className="hidden sm:inline">TCG Vault</span>
+          <span className="hidden sm:inline">{tc('appName')}</span>
         </Link>
 
         <nav className="ml-4 hidden items-center gap-1 md:flex">

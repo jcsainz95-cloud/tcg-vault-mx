@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "TCG Vault",
+    "appName": "TCG Vault MX",
     "tagline": "Pokémon card marketplace with custody",
     "loading": "Loading…",
     "retry": "Retry",
@@ -33,7 +33,8 @@
     "register": "Sign up",
     "logout": "Log out",
     "admin": "Admin panel",
-    "menu": "Menu"
+    "menu": "Menu",
+    "terms": "Terms & policy"
   },
   "home": {
     "heroTitle": "Buy Pokémon cards at real prices and keep them in the vault",
@@ -100,7 +101,9 @@
     "pay": "Pay {amount}",
     "paying": "Paying…",
     "empty": "Your cart is empty.",
-    "cfdiNotice": "To request an invoice (CFDI), email your tax data to facturacion@boveda-tcg.mx after payment.",
+    "cfdiNotice": "To request an invoice (CFDI), email your tax data to facturacion@tcgvault.mx after payment.",
+    "finalSaleNotice": "All sales are final. No refunds except for a damaged or wrong card.",
+    "viewTerms": "View terms",
     "afterPayment": "On payment, your cards enter your vault with pending ownership until the payment settles.",
     "stripeMock": "Stripe integration pending backend: this button simulates the payment flow.",
     "paidTitle": "Payment processed (simulated)",
@@ -190,6 +193,17 @@
     "requestInvoice": "Request invoice",
     "invoiceRequested": "Invoice requested",
     "cfdiStatusLabel": "Invoice"
+  },
+  "legal": {
+    "title": "Terms & policy",
+    "intro": "These terms apply to every purchase and to card custody at TCG Vault MX.",
+    "refundTitle": "Refunds and final sales",
+    "refundBody": "All sales are final. Once you buy a card, the sale is not eligible for a refund or cancellation.",
+    "disputeTitle": "Exception: damaged or wrong card",
+    "disputeBody": "The only exception is receiving a damaged or wrong card. In that case you may open a condition dispute within 7 days of shipment delivery, attaching photos that evidence the issue.",
+    "disputeOutcome": "If the dispute is upheld, we compensate you for the damage or error and you keep the card: there is no product return.",
+    "questionsTitle": "Questions",
+    "questionsBody": "For any clarification about these terms, email us at soporte@tcgvault.mx."
   },
   "auth": {
     "loginTitle": "Log in",

@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "Bóveda TCG",
+    "appName": "TCG Vault MX",
     "tagline": "Marketplace de cartas Pokémon con custodia",
     "loading": "Cargando…",
     "retry": "Reintentar",
@@ -33,7 +33,8 @@
     "register": "Registrarse",
     "logout": "Cerrar sesión",
     "admin": "Panel admin",
-    "menu": "Menú"
+    "menu": "Menú",
+    "terms": "Términos y política"
   },
   "home": {
     "heroTitle": "Compra cartas Pokémon con precio real y guárdalas en la bóveda",
@@ -100,7 +101,9 @@
     "pay": "Pagar {amount}",
     "paying": "Pagando…",
     "empty": "Tu carrito está vacío.",
-    "cfdiNotice": "Para solicitar factura (CFDI), envía un correo con tus datos fiscales a facturacion@boveda-tcg.mx tras el pago.",
+    "cfdiNotice": "Para solicitar factura (CFDI), envía un correo con tus datos fiscales a facturacion@tcgvault.mx tras el pago.",
+    "finalSaleNotice": "Todas las ventas son finales. Sin reembolsos salvo carta dañada o equivocada.",
+    "viewTerms": "Ver términos",
     "afterPayment": "Al pagar, tus cartas entran a tu bóveda con titularidad pendiente hasta que el pago se liquide.",
     "stripeMock": "Integración de Stripe pendiente de backend: este botón simula el flujo de pago.",
     "paidTitle": "Pago procesado (simulado)",
@@ -190,6 +193,17 @@
     "requestInvoice": "Solicitar factura",
     "invoiceRequested": "Factura solicitada",
     "cfdiStatusLabel": "Factura"
+  },
+  "legal": {
+    "title": "Términos y política",
+    "intro": "Estos términos aplican a todas las compras y a la custodia de cartas en TCG Vault MX.",
+    "refundTitle": "Reembolsos y ventas finales",
+    "refundBody": "Todas las ventas son finales. Una vez que compras una carta, la venta no admite reembolso ni cancelación.",
+    "disputeTitle": "Excepción: carta dañada o equivocada",
+    "disputeBody": "La única excepción es recibir una carta dañada o equivocada. En ese caso puedes abrir una disputa de condición dentro de los 7 días posteriores a la entrega del envío, adjuntando fotos que evidencien el problema.",
+    "disputeOutcome": "Si la disputa procede, te compensamos por el daño o el error y conservas la carta: no hay devolución del producto.",
+    "questionsTitle": "Dudas",
+    "questionsBody": "Para cualquier aclaración sobre estos términos, escríbenos a soporte@tcgvault.mx."
   },
   "auth": {
     "loginTitle": "Iniciar sesión",

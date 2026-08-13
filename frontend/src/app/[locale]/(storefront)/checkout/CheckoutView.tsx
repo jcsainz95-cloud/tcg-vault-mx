@@ -118,6 +118,19 @@ export function CheckoutView() {
             <aside className="flex h-fit flex-col gap-4 rounded-lg border border-border bg-surface p-5">
               <h2 className="text-h3 font-semibold">{t('summary')}</h2>
               <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
+              <Banner
+                variant="warning"
+                action={
+                  <Link
+                    href="/terminos"
+                    className="shrink-0 whitespace-nowrap text-sm font-medium text-warning underline underline-offset-2"
+                  >
+                    {t('viewTerms')}
+                  </Link>
+                }
+              >
+                {t('finalSaleNotice')}
+              </Banner>
               <Banner variant="info">{t('cfdiNotice')}</Banner>
               <Banner variant="trust">{t('afterPayment')}</Banner>
               <Button variant="accent" loading={paying} onClick={pay} className="w-full">

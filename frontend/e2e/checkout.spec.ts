@@ -26,6 +26,12 @@ test.describe('checkout · desglose y CFDI', () => {
     await expect(page.getByText(t('es', 'checkout.cfdiNotice'))).toBeVisible();
     // Titularidad pendiente hasta liquidar.
     await expect(page.getByText(t('es', 'checkout.afterPayment'))).toBeVisible();
+
+    // Política de ventas finales visible + enlace a términos (decisión del humano).
+    await expect(page.getByText(t('es', 'checkout.finalSaleNotice'))).toBeVisible();
+    await expect(
+      page.getByRole('main').getByRole('link', { name: t('es', 'checkout.viewTerms') }),
+    ).toBeVisible();
   });
 
   test('el pago (simulado) confirma y ofrece ir a la bóveda', async ({ page }) => {
@@ -47,5 +53,26 @@ test.describe('checkout · desglose y CFDI', () => {
     const breakdown = page.getByTestId('amount-breakdown');
     await expect(breakdown.getByText(t('en', 'checkout.iva', { rate: 16 }))).toBeVisible();
     await expect(page.getByText(t('en', 'checkout.cfdiNotice'))).toBeVisible();
+    // Política de ventas finales visible en inglés.
+    await expect(page.getByText(t('en', 'checkout.finalSaleNotice'))).toBeVisible();
+  });
+
+  test('el enlace de términos abre la política de reembolsos (ES)', async ({ page }) => {
+    await page.goto('/es/catalog');
+    await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
+    await page.goto('/es/checkout');
+
+    await page.getByRole('main').getByRole('link', { name: t('es', 'checkout.viewTerms') }).click();
+    await expect(page).toHaveURL(/\/es\/terminos$/);
+    await expect(page.getByRole('heading', { name: t('es', 'legal.title'), level: 1 })).toBeVisible();
+    await expect(page.getByText(t('es', 'legal.refundBody'))).toBeVisible();
+    await expect(page.getByText(t('es', 'legal.disputeOutcome'))).toBeVisible();
+  });
+
+  test('la política de términos también existe en inglés', async ({ page }) => {
+    await page.goto('/en/terminos');
+    await expect(page.getByRole('heading', { name: t('en', 'legal.title'), level: 1 })).toBeVisible();
+    await expect(page.getByText(t('en', 'legal.refundBody'))).toBeVisible();
+    await expect(page.getByText(t('en', 'legal.disputeOutcome'))).toBeVisible();
   });
 });

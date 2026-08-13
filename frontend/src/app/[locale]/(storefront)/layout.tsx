@@ -1,5 +1,6 @@
 import { useTranslations } from 'next-intl';
 import { StorefrontHeader } from '@/components/layout/StorefrontHeader';
+import { Link } from '@/i18n/navigation';
 
 export default function StorefrontLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -32,9 +33,15 @@ function SkipLink() {
 
 function Footer() {
   const t = useTranslations('common');
+  const tn = useTranslations('nav');
   return (
-    <p>
-      {t('appName')} · {t('tagline')} · MXN
-    </p>
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <p>
+        {t('appName')} · {t('tagline')} · MXN
+      </p>
+      <Link href="/terminos" className="font-medium text-muted underline underline-offset-2 hover:text-text">
+        {tn('terms')}
+      </Link>
+    </div>
   );
 }
