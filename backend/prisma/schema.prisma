@@ -443,6 +443,12 @@ model Order {
   billingSnapshot       Json?
   cfdiStatus            CfdiStatus  @default(no_aplica)
   invoiceRequested      Boolean     @default(false)
+  // Fix 4: contracargo con carta ya ENVIADA/ENTREGADA (no se pudo revertir al inventario);
+  // requiere gestión manual (pelear el contracargo con la guía de entrega).
+  chargebackNeedsManual Boolean     @default(false)
+  // Fix 5: resultado del cierre de la disputa (charge.dispute.closed / funds_reinstated):
+  // "won" | "lost". Informativo/auditoría (OrderStatus no cambia: won→settled, lost→chargeback).
+  disputeOutcome        String?
   createdAt             DateTime    @default(now())
   settledAt             DateTime?
   refundedAt            DateTime?

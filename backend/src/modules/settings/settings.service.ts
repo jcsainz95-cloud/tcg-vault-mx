@@ -38,6 +38,7 @@ export class SettingsService {
     return {
       stripePct: await this.getNumber(SettingKey.STRIPE_FEE_PCT),
       stripeFixedCents: await this.getNumber(SettingKey.STRIPE_FEE_FIXED_CENTS),
+      stripeFeeIvaPct: await this.getNumber(SettingKey.STRIPE_FEE_IVA_PCT),
     };
   }
 

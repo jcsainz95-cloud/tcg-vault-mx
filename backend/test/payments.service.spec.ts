@@ -23,10 +23,13 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   const makeTx = () => ({
     order: { update: jest.fn().mockResolvedValue({}) },
     inventoryItem: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'item1', status: 'in_custody' }),
+      findUnique: jest.fn().mockResolvedValue({ id: 'item1', status: 'in_custody', ownerType: 'customer' }),
       update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     inventoryMovement: { create: jest.fn().mockResolvedValue({}) },
+    // Fix 4: por defecto la carta NO tiene envío enviado/entregado (sigue en bóveda).
+    shipmentItem: { findFirst: jest.fn().mockResolvedValue(null) },
   });
 
   beforeEach(() => {
@@ -141,16 +144,17 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('charge.dispute.created → Order chargeback + item revierte a plataforma', async () => {
+  it('Fix 4: contracargo con carta EN BÓVEDA → chargeback + revierte a plataforma (no manual)', async () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'o1',
       status: 'settled',
       items: [{ inventoryItemId: 'item1' }],
     });
+    // No hay envío enviado/entregado → sigue en bóveda (shipmentItem.findFirst = null por defecto).
     await payments.onChargeDispute({ payment_intent: 'pi_1' } as any);
     const tx = prisma._tx;
     expect(tx.order.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: 'chargeback' } }),
+      expect.objectContaining({ data: { status: 'chargeback', chargebackNeedsManual: false } }),
     );
     expect(tx.inventoryItem.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -164,6 +168,100 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     );
     expect(tx.inventoryMovement.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ reason: 'chargeback_return' }) }),
+    );
+  });
+
+  it('Fix 4: contracargo con carta ENVIADA/ENTREGADA → NO re-agrega + flag manual', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o1',
+      status: 'settled',
+      items: [{ inventoryItemId: 'item1' }],
+    });
+    // La carta ya salió: existe un ShipmentItem con envío entregado.
+    prisma._tx.shipmentItem.findFirst.mockResolvedValue({ id: 'si1' });
+    await payments.onChargeDispute({ payment_intent: 'pi_1' } as any);
+    const tx = prisma._tx;
+    // NO se re-agrega al inventario (no la tenemos).
+    expect(tx.inventoryItem.update).not.toHaveBeenCalled();
+    expect(tx.inventoryMovement.create).not.toHaveBeenCalled();
+    // Orden en chargeback + marcada para gestión manual.
+    expect(tx.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'chargeback', chargebackNeedsManual: true } }),
+    );
+  });
+
+  it('Fix 5: charge.dispute.closed won → Order settled (item se queda en inventario)', async () => {
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'chargeback', settledAt: new Date() });
+    await payments.onChargeDisputeClosed({ payment_intent: 'pi_1', status: 'won' } as any);
+    expect(prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'o1' },
+        data: expect.objectContaining({ status: 'settled', disputeOutcome: 'won', chargebackNeedsManual: false }),
+      }),
+    );
+  });
+
+  it('Fix 5: charge.dispute.funds_reinstated → tratado como won (settled)', async () => {
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'chargeback', settledAt: null });
+    // funds_reinstated fuerza 'won' aunque el status del objeto no sea 'won'.
+    await payments.onChargeDisputeClosed({ payment_intent: 'pi_1', status: 'under_review' } as any, 'won');
+    expect(prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'settled', disputeOutcome: 'won' }) }),
+    );
+  });
+
+  it('Fix 5: charge.dispute.closed lost → Order chargeback terminal', async () => {
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'chargeback' });
+    await payments.onChargeDisputeClosed({ payment_intent: 'pi_1', status: 'lost' } as any);
+    expect(prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'chargeback', disputeOutcome: 'lost' }),
+      }),
+    );
+  });
+
+  it('M2: reembolso PARCIAL no cambia el estado de la orden', async () => {
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'settled' });
+    await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 40000 } as any);
+    expect(prisma.order.update).not.toHaveBeenCalled();
+  });
+
+  it('M2/A1: reembolso TOTAL → refunded, SIN re-agregar item al inventario', async () => {
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'settled' });
+    await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 100000 } as any);
+    expect(prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'refunded' }) }),
+    );
+    // A1: VENTAS FINALES → el item NO se revierte al inventario en el refund.
+    expect(prisma._tx.inventoryItem.update).not.toHaveBeenCalled();
+    expect(prisma._tx.inventoryMovement.create).not.toHaveBeenCalled();
+  });
+
+  it('B5: payment_intent.canceled → libera la reserva (reserved→listed) + Order failed', async () => {
+    prisma.order.findUnique.mockResolvedValue({
+      id: 'o1',
+      status: 'pending',
+      items: [{ inventoryItemId: 'item1' }],
+    });
+    await payments.onPaymentCanceled('pi_1');
+    const tx = prisma._tx;
+    expect(tx.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'o1' }, data: { status: 'failed' } }),
+    );
+    expect(tx.inventoryItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item1', status: 'reserved' },
+        data: expect.objectContaining({ status: 'listed', ownershipStatus: null }),
+      }),
+    );
+  });
+
+  it('B5: payment_intent.canceled de un envío solicitado → lo cancela (libera items)', async () => {
+    prisma.order.findUnique.mockResolvedValue(null);
+    prisma.shipmentRequest.findUnique.mockResolvedValue({ id: 's1', status: 'solicitado' });
+    await payments.onPaymentCanceled('pi_ship');
+    expect(prisma.shipmentRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 's1' }, data: { status: 'cancelado' } }),
     );
   });
 

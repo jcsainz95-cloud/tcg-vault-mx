@@ -112,11 +112,27 @@ export class ShipmentsService {
       },
     });
 
-    const pi = await this.stripe.createPaymentIntent({
-      amountCents: breakdown.totalCents,
-      metadata: { shipmentId: shipment.id, userId, kind: 'shipment' },
-      idempotencyKey,
-    });
+    // M3: idempotency-key derivada en servidor (`pi-shipment-<id>`); header del cliente = override.
+    const idem = idempotencyKey ?? `pi-shipment-${shipment.id}`;
+
+    // A2 (cierra BE-7): PaymentIntent transaccional con la "reserva" (la ShipmentRequest,
+    // que bloquea los items vía ITEM_IN_ANOTHER_SHIPMENT). Si Stripe falla tras crearla,
+    // compensamos borrando la solicitud (cascada a sus items) para no dejar los items
+    // atrapados en un envío nunca cobrado, y devolvemos un error de reintento.
+    let pi: { id: string; clientSecret: string };
+    try {
+      pi = await this.stripe.createPaymentIntent({
+        amountCents: breakdown.totalCents,
+        metadata: { shipmentId: shipment.id, userId, kind: 'shipment' },
+        idempotencyKey: idem,
+      });
+    } catch (e) {
+      await this.prisma.shipmentRequest
+        .delete({ where: { id: shipment.id } })
+        .catch(() => undefined);
+      throw this.toRetryError(e);
+    }
+
     await this.prisma.shipmentRequest.update({
       where: { id: shipment.id },
       data: { stripePaymentIntentId: pi.id },
@@ -128,6 +144,15 @@ export class ShipmentsService {
       breakdown,
       stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
     };
+  }
+
+  /** A2: fallo del proveedor de pago → error de reintento (503); errores de negocio se propagan. */
+  private toRetryError(e: unknown): unknown {
+    if (e instanceof BusinessException) return e;
+    return BusinessException.retriable(
+      'PAYMENT_PROVIDER_UNAVAILABLE',
+      'Payment provider unavailable; the shipment request was rolled back. Please retry.',
+    );
   }
 
   async listMine(userId: string) {

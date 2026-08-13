@@ -35,4 +35,9 @@ export class BusinessException extends HttpException {
   static badRequest(code: ErrorCodeType, message?: string, details?: Record<string, unknown>) {
     return new BusinessException(code, HttpStatus.BAD_REQUEST, message, details);
   }
+
+  /** 503 — error transitorio; el cliente puede reintentar (p. ej. fallo del proveedor de pago). */
+  static retriable(code: ErrorCodeType, message?: string, details?: Record<string, unknown>) {
+    return new BusinessException(code, HttpStatus.SERVICE_UNAVAILABLE, message, details);
+  }
 }

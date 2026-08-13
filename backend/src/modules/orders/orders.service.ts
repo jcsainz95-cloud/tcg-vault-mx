@@ -149,11 +149,29 @@ export class OrdersService {
       return created;
     });
 
-    const pi = await this.stripe.createPaymentIntent({
-      amountCents: breakdown.totalCents,
-      metadata: { orderId: order.id, userId, kind: 'order' },
-      idempotencyKey,
-    });
+    // M3: la idempotency-key se deriva en el SERVIDOR (`pi-order-<id>`); el header del
+    // cliente es solo un override. Así, reintentos del mismo checkout no crean PIs dobles.
+    const idem = idempotencyKey ?? `pi-order-${order.id}`;
+
+    // A2 (cierra BE-7): el PaymentIntent es transaccional con la reserva. Si Stripe falla
+    // TRAS reservar, compensamos —liberamos la reserva (items → vendibles) y marcamos la
+    // orden `failed`— y devolvemos un error de reintento en vez de dejar la pieza única
+    // atrapada en `reserved` con una orden `pending` sin PaymentIntent.
+    let pi: { id: string; clientSecret: string };
+    try {
+      pi = await this.stripe.createPaymentIntent({
+        amountCents: breakdown.totalCents,
+        metadata: { orderId: order.id, userId, kind: 'order' },
+        idempotencyKey: idem,
+      });
+    } catch (e) {
+      await this.releaseReservation(
+        order.id,
+        orderItemsData.map((oi) => oi.inventoryItemId),
+      );
+      throw this.toRetryError(e);
+    }
+
     await this.prisma.order.update({
       where: { id: order.id },
       data: { stripePaymentIntentId: pi.id },
@@ -164,6 +182,41 @@ export class OrdersService {
       breakdown,
       stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
     };
+  }
+
+  /**
+   * A2: compensación de la reserva ante fallo del PaymentIntent. Devuelve cada pieza a
+   * estado vendible (`listed`, `ownerType=platform`) y marca la orden `failed`. La guardia
+   * `status: 'reserved'` evita liberar items que otro flujo ya movió.
+   */
+  private async releaseReservation(orderId: string, itemIds: string[]): Promise<void> {
+    await this.prisma
+      .$transaction(async (tx) => {
+        await tx.inventoryItem.updateMany({
+          where: { id: { in: itemIds }, status: 'reserved' },
+          data: {
+            status: 'listed',
+            ownerType: 'platform',
+            ownerUserId: null,
+            ownershipStatus: null,
+          },
+        });
+        await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * A2: convierte un fallo del proveedor de pago en un error de reintento (503). Los
+   * errores de negocio ya legibles (p. ej. `AMOUNT_TOO_LOW`, `CARD_DECLINED`) se propagan
+   * tal cual para que el cliente no reintente ciegamente.
+   */
+  private toRetryError(e: unknown): unknown {
+    if (e instanceof BusinessException) return e;
+    return BusinessException.retriable(
+      'PAYMENT_PROVIDER_UNAVAILABLE',
+      'Payment provider unavailable; the reservation was released. Please retry.',
+    );
   }
 
   async listOrders(userId: string, page: number, pageSize: number) {

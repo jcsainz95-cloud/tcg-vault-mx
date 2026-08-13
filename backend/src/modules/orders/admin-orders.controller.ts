@@ -61,6 +61,13 @@ export class AdminOrdersController {
     return this.orders.getOrder('', id, true);
   }
 
+  /**
+   * A1 — Reembolso admin. POLÍTICA DEL HUMANO: VENTAS FINALES, sin reembolso voluntario.
+   * Este endpoint es EXCEPCIONAL (super_admin, money-out ya autorizado y auditado) y NO
+   * auto-revierte el item al inventario: `onChargeRefunded` marca la orden `refunded` pero
+   * NO re-agrega la carta. Úsese solo para casos excepcionales (obligación legal, error de
+   * cobro), no como remedio de disputa (esa es la recompra de M8).
+   */
   @Post(':id/refund')
   @MoneyOut()
   async refund(

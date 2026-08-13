@@ -10,6 +10,13 @@ export interface StripeFeeConfig {
   stripePct: number;
   /** Tarifa fija de Stripe en centavos (ej. 300 = MX$3.00). */
   stripeFixedCents: number;
+  /**
+   * C1: IVA (fracción) que Stripe MX cobra SOBRE su comisión (ej. 0.16 = 16%).
+   * En México Stripe factura su comisión con IVA, así que la deducción real es
+   * `(1 + stripeFeeIvaPct) × (pct × total + fija)`. El gross-up debe cubrirlo para
+   * que la plataforma netee íntegro `base`. Dial `stripe_fee_iva_pct` (default 0.16).
+   */
+  stripeFeeIvaPct: number;
 }
 
 /**
@@ -74,8 +81,8 @@ export interface BreakdownDTO {
  *   subtotal = Σ salePrice
  *   iva      = round(subtotal × ivaPct/100)                (IVA grava el subtotal)
  *   base     = subtotal + iva                              (lo que la plataforma recibe íntegro)
- *   total    = ceil((base + fija) / (1 − pct))             (gross-up de comisión Stripe)
- *   fee      = total − base                                (línea visible, SIN IVA adicional)
+ *   total    = ceil((base + (1+ivaFee)·fija) / (1 − (1+ivaFee)·pct))   (gross-up con IVA de Stripe)
+ *   fee      = total − base                                (línea visible; incluye el IVA de la comisión Stripe)
  */
 export function computeCartBreakdown(
   subtotalCents: number,
@@ -121,14 +128,24 @@ export function computeShipmentBreakdown(
 }
 
 /**
- * Gross-up del total para que, tras la comisión Stripe (pct + fija), la
- * plataforma reciba íntegro `baseCents`. total = ceil((base + fija) / (1 − pct)).
+ * Gross-up del total para que, tras la comisión Stripe (pct + fija) MÁS el IVA que
+ * Stripe MX cobra sobre esa comisión, la plataforma reciba íntegro `baseCents`.
+ *
+ * C1: la deducción real de Stripe es `(1 + ivaFee) × (pct × total + fija)`. Resolviendo
+ * `total − (1+ivaFee)(pct·total + fija) = base`:
+ *   total = ceil((base + (1+ivaFee)·fija) / (1 − (1+ivaFee)·pct)).
  */
 export function grossUpTotal(baseCents: number, fee: StripeFeeConfig): number {
-  if (fee.stripePct < 0 || fee.stripePct >= 1) {
-    throw new Error('stripePct must be in [0, 1)');
+  const ivaMul = 1 + fee.stripeFeeIvaPct;
+  if (fee.stripeFeeIvaPct < 0 || !Number.isFinite(fee.stripeFeeIvaPct)) {
+    throw new Error('stripeFeeIvaPct must be a finite number >= 0');
   }
-  return Math.ceil((baseCents + fee.stripeFixedCents) / (1 - fee.stripePct));
+  const effectivePct = fee.stripePct * ivaMul;
+  if (effectivePct < 0 || effectivePct >= 1) {
+    throw new Error('effective stripe pct (stripePct × (1 + stripeFeeIvaPct)) must be in [0, 1)');
+  }
+  const effectiveFixed = fee.stripeFixedCents * ivaMul;
+  return Math.ceil((baseCents + effectiveFixed) / (1 - effectivePct));
 }
 
 /** Precio MXN desde USD con FX + colchón. ARCHITECTURE §3.2 FxRate. */

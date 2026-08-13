@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { MovementReason, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { StripeService } from '../payments/stripe.service';
@@ -122,8 +122,20 @@ export class DisputesService {
   }
 
   /**
-   * Resuelve la disputa. `repurchase` = money-out (super_admin): recompra al precio
-   * pagado, item revierte a inventario. `reject` → rechazada. API_CONTRACT §M8.
+   * Resuelve la disputa. `reject` → rechazada.
+   *
+   * `repurchase` = money-out (solo `super_admin`, autorizado y AUDITADO en el controller).
+   *
+   * POLÍTICA DEL HUMANO (VENTAS FINALES): la recompra es una COMPENSACIÓN al precio pagado;
+   * el **cliente CONSERVA la carta** y la carta **NO regresa al inventario**. Por eso NO se
+   * revierte el `InventoryItem` a plataforma (a diferencia del contracargo, donde sí la
+   * recuperamos si sigue en bóveda). El importe de la recompra queda registrado en la
+   * resolución para conciliación (M7). El desembolso (SPEI/refund) es money-out del
+   * super_admin, ya autorizado.
+   *
+   * NOTA DE DISCREPANCIA CON EL CONTRATO (§M8 dice "item revierte a inventario"): la política
+   * del humano manda sobre el contrato (CLAUDE.md › regla de conflicto). Se solicita al
+   * arquitecto corregir §M8 (ver docs/BACKEND_NOTES.md). No se edita el contrato aquí.
    */
   async resolve(id: string, resolution: 'repurchase' | 'reject', note: string, actorUserId: string) {
     const dispute = await this.prisma.dispute.findUnique({ where: { id } });
@@ -134,38 +146,20 @@ export class DisputesService {
         data: { status: 'rechazada', resolution: note, resolvedAt: new Date(), resolvedBy: actorUserId },
       });
     }
-    // repurchase: precio pagado = unitPrice del OrderItem del item.
+    // repurchase: precio pagado = unitPrice del OrderItem del item. El cliente conserva la
+    // carta; NO se toca el InventoryItem ni se crea InventoryMovement de reingreso.
     const orderItem = await this.prisma.orderItem.findFirst({
       where: { inventoryItemId: dispute.inventoryItemId },
       orderBy: { id: 'desc' },
     });
-    return this.prisma.$transaction(async (tx) => {
-      // Revierte item a inventario de plataforma.
-      const item = await tx.inventoryItem.findUnique({ where: { id: dispute.inventoryItemId } });
-      if (item) {
-        await tx.inventoryItem.update({
-          where: { id: dispute.inventoryItemId },
-          data: { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed' },
-        });
-        await tx.inventoryMovement.create({
-          data: {
-            itemId: dispute.inventoryItemId,
-            toStatus: 'listed',
-            reason: MovementReason.chargeback_return,
-            actorUserId,
-            note: `dispute ${id} repurchase`,
-          },
-        });
-      }
-      return tx.dispute.update({
-        where: { id },
-        data: {
-          status: 'resuelta_recompra',
-          resolution: `${note} (repurchase ${orderItem?.unitPriceCents ?? 0} cents)`,
-          resolvedAt: new Date(),
-          resolvedBy: actorUserId,
-        },
-      });
+    return this.prisma.dispute.update({
+      where: { id },
+      data: {
+        status: 'resuelta_recompra',
+        resolution: `${note} (repurchase ${orderItem?.unitPriceCents ?? 0} cents; customer keeps card, not re-added to inventory)`,
+        resolvedAt: new Date(),
+        resolvedBy: actorUserId,
+      },
     });
   }
 }

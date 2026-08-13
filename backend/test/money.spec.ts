@@ -8,54 +8,88 @@ import {
   usdToMxnCents,
 } from '../src/common/money';
 
-describe('money — checkout formulas (ARCHITECTURE §5.1)', () => {
-  const fee = { stripePct: 0.036, stripeFixedCents: 300 };
+describe('money — checkout formulas (ARCHITECTURE §5.1, C1: IVA sobre comisión Stripe)', () => {
+  // C1: la comisión de Stripe MX lleva IVA 16% encima (stripeFeeIvaPct = 0.16).
+  const fee = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 
-  describe('grossUpTotal', () => {
-    it('recovers base integrally after Stripe commission', () => {
+  /**
+   * Deducción REAL de Stripe MX = (1 + ivaFee) × (pct × total + fija). El gross-up debe
+   * dejar que la plataforma netee exactamente `base` (dentro de <1 centavo por el ceil).
+   */
+  function stripeDeduction(total: number) {
+    return (1 + fee.stripeFeeIvaPct) * (fee.stripePct * total + fee.stripeFixedCents);
+  }
+
+  describe('grossUpTotal (C1: incluye IVA de la comisión)', () => {
+    it('nets exactly base after the real Stripe deduction WITH IVA', () => {
       const base = 100000; // MX$1000
       const total = grossUpTotal(base, fee);
-      // total = ceil((100000 + 300) / (1 - 0.036)) = ceil(100300 / 0.964) = ceil(104045.6) = 104046
-      expect(total).toBe(104046);
-      // Plataforma recibe: total - (total*pct + fija) >= base
-      const received = total - Math.round(total * fee.stripePct) - fee.stripeFixedCents;
-      expect(received).toBeGreaterThanOrEqual(base - 1);
+      // total = ceil((100000 + 1.16*300) / (1 - 1.16*0.036)) = ceil(100348/0.95824) = 104722
+      expect(total).toBe(104722);
+      // Netea exactamente base: net ∈ [base, base+1) en aritmética continua.
+      const net = total - stripeDeduction(total);
+      expect(net).toBeGreaterThanOrEqual(base);
+      expect(net).toBeLessThan(base + 1);
     });
 
-    it('throws for pct out of range', () => {
-      expect(() => grossUpTotal(1000, { stripePct: 1, stripeFixedCents: 0 })).toThrow();
+    it('the added IVA on the fee raises the total vs. the no-IVA formula', () => {
+      const base = 100000;
+      const withIva = grossUpTotal(base, fee);
+      const withoutIva = grossUpTotal(base, { ...fee, stripeFeeIvaPct: 0 });
+      expect(withIva).toBeGreaterThan(withoutIva); // 104722 > 104046
+      expect(withoutIva).toBe(104046);
+    });
+
+    it('throws when the effective pct (pct × (1+iva)) reaches 1', () => {
+      expect(() =>
+        grossUpTotal(1000, { stripePct: 0.9, stripeFixedCents: 0, stripeFeeIvaPct: 0.2 }),
+      ).toThrow(); // 0.9 * 1.2 = 1.08 >= 1
+    });
+
+    it('throws for negative stripeFeeIvaPct', () => {
+      expect(() =>
+        grossUpTotal(1000, { stripePct: 0.036, stripeFixedCents: 0, stripeFeeIvaPct: -0.1 }),
+      ).toThrow();
     });
   });
 
   describe('computeCartBreakdown', () => {
-    it('applies 16% IVA on subtotal and gross-up fee without extra IVA', () => {
+    it('applies 16% IVA on subtotal and gross-up fee INCLUDING Stripe fee IVA', () => {
       const b = computeCartBreakdown(100000, 16, fee);
       expect(b.subtotalCents).toBe(100000);
       expect(b.ivaCents).toBe(16000); // 16% de 100000
       expect(b.ivaRatePct).toBe(16);
-      // base = 116000; total = ceil((116000+300)/0.964) = ceil(120643.15) = 120644
-      expect(b.totalCents).toBe(120644);
-      expect(b.processingFeeCents).toBe(b.totalCents - 116000);
+      // base = 116000; total = ceil((116000 + 1.16*300)/0.95824) = ceil(121418.9) = 121419
+      expect(b.totalCents).toBe(121419);
+      expect(b.processingFeeCents).toBe(b.totalCents - 116000); // 5419
       // total = subtotal + iva + fee
       expect(b.totalCents).toBe(b.subtotalCents + b.ivaCents + b.processingFeeCents);
       expect(b.currency).toBe('MXN');
+      // Netea exactamente base = subtotal + iva.
+      const net = b.totalCents - stripeDeduction(b.totalCents);
+      expect(net).toBeGreaterThanOrEqual(116000);
+      expect(net).toBeLessThan(116000 + 1);
     });
 
-    it('fee line is not taxed with IVA (base = subtotal + iva only)', () => {
+    it('the product IVA (16% on subtotal) is NOT applied to the fee line itself', () => {
       const b = computeCartBreakdown(50000, 16, fee);
+      // El IVA del DESGLOSE grava el subtotal, no el fee. El fee cubre comisión+IVA de Stripe.
       const base = b.subtotalCents + b.ivaCents;
       expect(b.processingFeeCents).toBe(b.totalCents - base);
     });
   });
 
   describe('computeShipmentBreakdown', () => {
-    it('taxes shipping fee with IVA, subtotal = shipping fee', () => {
+    it('taxes shipping fee with IVA, subtotal = shipping fee, fee includes Stripe IVA', () => {
       const b = computeShipmentBreakdown(17500, 16, fee);
       expect(b.subtotalCents).toBe(17500); // en retiros subtotal = tarifa de envío
       expect(b.ivaCents).toBe(2800); // 16% de 17500
-      // base = 20300; total = ceil((20300+300)/0.964) = ceil(21369.3) = 21370
-      expect(b.totalCents).toBe(21370);
+      // base = 20300; total = ceil((20300 + 1.16*300)/0.95824) = ceil(21547.9) = 21548
+      expect(b.totalCents).toBe(21548);
       expect(b.totalCents).toBe(b.subtotalCents + b.ivaCents + b.processingFeeCents);
+      const net = b.totalCents - stripeDeduction(b.totalCents);
+      expect(net).toBeGreaterThanOrEqual(20300);
+      expect(net).toBeLessThan(20300 + 1);
     });
   });
 });

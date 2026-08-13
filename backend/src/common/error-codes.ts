@@ -26,6 +26,11 @@ export const ErrorCode = {
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',
   BILLING_PROFILE_REQUIRED: 'BILLING_PROFILE_REQUIRED',
 
+  // Payments / Stripe
+  AMOUNT_TOO_LOW: 'AMOUNT_TOO_LOW', // B2: por debajo del mínimo de Stripe MX
+  CARD_DECLINED: 'CARD_DECLINED', // B1: StripeCardError mapeado a error de negocio legible
+  PAYMENT_PROVIDER_UNAVAILABLE: 'PAYMENT_PROVIDER_UNAVAILABLE', // A2: fallo del PI → reintento
+
   // Shipments
   ADDRESS_NOT_MX: 'ADDRESS_NOT_MX',
   ITEM_NOT_SETTLED: 'ITEM_NOT_SETTLED',

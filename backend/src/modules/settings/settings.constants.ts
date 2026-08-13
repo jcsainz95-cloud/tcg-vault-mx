@@ -9,6 +9,10 @@ export const SettingKey = {
   SALES_MARKUP_PCT: 'sales_markup_pct',
   STRIPE_FEE_PCT: 'stripe_fee_pct',
   STRIPE_FEE_FIXED_CENTS: 'stripe_fee_fixed_cents',
+  // C1: IVA (fracción) que Stripe MX cobra SOBRE su comisión. El gross-up lo incluye
+  // para que la plataforma netee íntegro subtotal+IVA. Dial interno: NO se expone en el
+  // DTO de M10 hasta que el arquitecto lo formalice en el contrato (ver BACKEND_NOTES).
+  STRIPE_FEE_IVA_PCT: 'stripe_fee_iva_pct',
   BUYLIST_CAP_PER_REQUEST_CENTS: 'buylist_cap_per_request_cents',
   BUYLIST_CAP_PER_MONTH_CENTS: 'buylist_cap_per_month_cents',
   INE_THRESHOLD_CENTS: 'ine_threshold_cents',
@@ -35,6 +39,7 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SALES_MARKUP_PCT]: 15, // markup de venta configurable
   [SettingKey.STRIPE_FEE_PCT]: 0.036, // 3.6% tarifa MX Stripe (fracción)
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: 300, // MX$3.00 fija
+  [SettingKey.STRIPE_FEE_IVA_PCT]: 0.16, // C1: IVA 16% sobre la comisión de Stripe MX (fracción)
   [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: 300000, // MX$3,000
   [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: 1000000, // MX$10,000
   [SettingKey.INE_THRESHOLD_CENTS]: 300000, // = tope por solicitud
@@ -82,6 +87,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // stripe_fee_pct es una FRACCIÓN en [0,1); si fuera >= 1 el gross-up dividiría por <= 0.
   [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
+  // IVA de la comisión Stripe: fracción en [0,1) (0.16 = 16%).
+  [SettingKey.STRIPE_FEE_IVA_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),
   [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.INE_THRESHOLD_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),

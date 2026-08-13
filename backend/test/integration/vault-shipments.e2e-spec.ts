@@ -9,7 +9,7 @@ import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { computeShipmentBreakdown } from '../../src/common/money';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300 };
+const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
 const SHIPPING = 17500;
 
