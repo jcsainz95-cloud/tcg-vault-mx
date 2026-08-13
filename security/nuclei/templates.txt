@@ -1,0 +1,33 @@
+# =============================================================================
+# templates.txt — Selección de templates de nuclei para el stack  ·  devops
+# =============================================================================
+# Lista de TAGS/rutas de templates de nuclei relevantes para un stack
+# NestJS (API) + Next.js (front) + Postgres/Redis/MinIO + Stripe.
+# Se consume desde security/scripts/dast-nuclei.sh (uno por línea, sin comentario).
+#
+# Objetivo: exposiciones y misconfigs de alto valor, sin ruido. La metodología
+# ofensiva vive en docs/PENTEST_NOTES.md; esto es la CONFIG del escáner.
+# =============================================================================
+
+# --- Exposiciones y archivos sensibles ---
+exposures/configs
+exposures/backups
+exposures/tokens
+exposures/files
+
+# --- Misconfiguraciones ---
+http/misconfiguration
+http/exposed-panels
+
+# --- Headers de seguridad y TLS ---
+ssl
+http/misconfiguration/http-missing-security-headers
+
+# --- CVEs y default-logins de servicios del stack ---
+http/cves
+http/default-logins
+http/technologies
+
+# --- Específicos de tecnologías presentes ---
+# next.js, node, express/nest, minio/s3, redis, postgres, stripe webhooks
+# (nuclei filtra por -tags; ver dast-nuclei.sh)

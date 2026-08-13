@@ -35,6 +35,16 @@ Thumbs.db
 .vscode/
 *.swp
 
+# --- Seguridad: reportes de escáneres (SAST/DAST) no se comitean ---
+security/reports/
+*.sarif
+zap-*.html
+zap-*.json
+zap-*.md
+report_html.html
+report_md.md
+nuclei.jsonl
+
 # --- Docker / datos locales ---
 # Los volúmenes de docker-compose son named volumes (no en el árbol),
 # pero por si alguien monta datos localmente:

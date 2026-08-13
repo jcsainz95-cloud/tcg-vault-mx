@@ -1,0 +1,39 @@
+# =============================================================================
+# trivy.yaml — Configuración de Trivy  ·  Propiedad: devops
+# =============================================================================
+# Escaneo de vulnerabilidades de dependencias (filesystem) e imágenes Docker.
+# Usado por security/scripts/trivy-fs.sh y trivy-image.sh y por CI.
+#
+# Política de gate: FALLA en HIGH y CRITICAL (severity abajo + exit-code 1 en
+# el wrapper/CI). Los vuln sin fix disponible se pueden tolerar con
+# --ignore-unfixed en el wrapper si se decide (hoy NO: se reportan todos).
+# =============================================================================
+
+severity:
+  - HIGH
+  - CRITICAL
+
+# Solo reportar vulnerabilidades (los secretos los cubre gitleaks; se puede
+# añadir "secret" y "misconfig" si se quiere ampliar el alcance).
+scanners:
+  - vuln
+
+# Formato por defecto (el wrapper puede sobreescribir a sarif/json en CI).
+format: table
+
+# No fallar por errores de descarga de la DB en entornos sin red: el wrapper
+# controla el exit-code real del gate.
+exit-code: 0
+
+vulnerability:
+  # Solo vulnerabilidades ya divulgadas y con estado relevante.
+  type:
+    - os
+    - library
+
+# Rutas ignoradas en el escaneo de filesystem (artefactos que no van a prod).
+skip-dirs:
+  - "**/node_modules/.cache"
+  - "**/.next/cache"
+  - "**/coverage"
+  - "**/dist/tmp"

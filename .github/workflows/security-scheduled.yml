@@ -1,0 +1,83 @@
+# =============================================================================
+# security-scheduled.yml — DAST programado (cron) contra staging  ·  devops
+# Marketplace TCG con Bóveda (Pokémon, México)
+# =============================================================================
+# Corre el DAST COMPLETO (ZAP full scan + nuclei) contra STAGING de forma
+# periódica (semanal) y a demanda. Reporta a seguridad; NO bloquea deploys
+# (eso lo hace deploy.yml). Sube los reportes como artefactos.
+#
+# ESTADO: PLANTILLA — se activa cuando exista STAGING_BASE_URL (staging en vivo).
+#   Sin el secret, el job hace un no-op con aviso claro.
+#
+#   NUNCA apunta a producción. El DAST contra prod es una prueba puntual
+#   AUTORIZADA (runbook en docs/DEVOPS_NOTES.md), no un cron.
+# =============================================================================
+
+name: Security Scheduled DAST
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"    # lunes 06:00 UTC (semanal)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scheduled-dast:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_URL: ${{ secrets.STAGING_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight — requiere staging en vivo
+        id: pf
+        run: |
+          if [ -z "${{ secrets.STAGING_BASE_URL }}" ]; then
+            echo "::notice::STAGING_BASE_URL no definido. DAST programado en modo plantilla (no-op)."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Guard anti-producción
+        if: steps.pf.outputs.run == 'true'
+        run: |
+          case "$TARGET_URL" in
+            *staging*) : ;;
+            *) echo "::error::El cron solo debe apuntar a staging. TARGET_URL no contiene 'staging'."; exit 1 ;;
+          esac
+      - name: ZAP full scan (activo) contra staging
+        if: steps.pf.outputs.run == 'true'
+        uses: zaproxy/action-full-scan@v0.12.0
+        with:
+          target: ${{ env.TARGET_URL }}
+          rules_file_name: security/zap/baseline.conf
+          cmd_options: "-I"
+          fail_action: false     # el cron reporta; no bloquea
+      - name: nuclei contra staging
+        if: steps.pf.outputs.run == 'true'
+        run: |
+          mkdir -p security/reports
+          docker run --rm -v "${{ github.workspace }}/security:/sec" \
+            projectdiscovery/nuclei:latest \
+            -u "$TARGET_URL" \
+            -tags "$(grep -vE '^\s*#|^\s*$' security/nuclei/templates.txt | paste -sd, -)" \
+            -severity low,medium,high,critical \
+            -rate-limit 50 \
+            -jsonl -o /sec/reports/nuclei.jsonl || true
+      - name: Subir reportes DAST
+        if: steps.pf.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dast-scheduled-reports
+          path: |
+            security/reports/
+            report_html.html
+            report_md.md
+          if-no-files-found: ignore
+      - name: Alarma si hay críticos
+        if: steps.pf.outputs.run == 'true'
+        run: |
+          if [ -f security/reports/nuclei.jsonl ] && grep -Eq '"severity":"(high|critical)"' security/reports/nuclei.jsonl; then
+            echo "::warning::DAST programado encontró hallazgos high/critical en staging. Escalar a seguridad (docs/SECURITY_NOTES.md)."
+          fi

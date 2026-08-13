@@ -1,0 +1,220 @@
+# =============================================================================
+# e2e.yml — Suites E2E en vivo con el stack completo  ·  Propiedad: devops
+# Marketplace TCG con Bóveda (Pokémon, México)
+# =============================================================================
+# Boota el stack (Postgres 16 / Redis 7 / MinIO) y corre las suites E2E:
+#   - backend:  npm run test:integration   (integración con DB/Redis reales)
+#   - frontend: npm run test:e2e           (E2E contra el stack levantado)
+#
+# GATE: bloquea si cualquiera de las dos suites falla.
+#
+# ESTADO: ACTIVO en cuanto backend/frontend expongan esos scripts npm. Si el
+# script no existe, el job FALLA con un mensaje claro (es un gate real: la
+# suite E2E es requisito del harness de "seguridad y E2E en vivo").
+#
+#   Nombres de script asumidos (los exponen los roles backend/frontend):
+#     backend/package.json  -> "test:integration"
+#     frontend/package.json -> "test:e2e"   (p. ej. Playwright)
+# =============================================================================
+
+name: E2E
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Detecta apps y presencia de los scripts E2E.
+  # ---------------------------------------------------------------------------
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      backend_e2e: ${{ steps.check.outputs.backend_e2e }}
+      frontend_e2e: ${{ steps.check.outputs.frontend_e2e }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          be=false; fe=false
+          if [ -f backend/package.json ]; then
+            if node -e "process.exit(require('./backend/package.json').scripts?.['test:integration']?0:1)"; then
+              be=true
+            else
+              echo "::warning title=backend::backend/package.json no expone 'test:integration'; el job E2E de backend fallará (gate real)."
+              be=missing
+            fi
+          fi
+          if [ -f frontend/package.json ]; then
+            if node -e "process.exit(require('./frontend/package.json').scripts?.['test:e2e']?0:1)"; then
+              fe=true
+            else
+              echo "::warning title=frontend::frontend/package.json no expone 'test:e2e'; el job E2E de frontend fallará (gate real)."
+              fe=missing
+            fi
+          fi
+          echo "backend_e2e=$be"  >> "$GITHUB_OUTPUT"
+          echo "frontend_e2e=$fe" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Backend E2E / integración: DB + Redis + MinIO reales como services.
+  # ---------------------------------------------------------------------------
+  backend-e2e:
+    needs: detect
+    if: needs.detect.outputs.backend_e2e != 'false'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tcg
+          POSTGRES_PASSWORD: tcg_e2e
+          POSTGRES_DB: tcg_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tcg -d tcg_e2e"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin_e2e
+          MINIO_DEFAULT_BUCKETS: tcg-photos:download
+        ports: ["9000:9000", "9001:9001"]
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://tcg:tcg_e2e@localhost:5432/tcg_e2e?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: e2e_access_secret_dummy
+      JWT_REFRESH_SECRET: e2e_refresh_secret_dummy
+      # Stripe en modo TEST para E2E (claves de prueba, nunca live).
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}
+      STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET || 'whsec_e2e_dummy' }}
+      S3_ENDPOINT: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: tcg-photos
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin_e2e
+      S3_PUBLIC_BASE_URL: http://localhost:9000/tcg-photos
+      S3_FORCE_PATH_STYLE: "true"
+      DEFAULT_LOCALE: es
+      NODE_ENV: test
+      SEED_MODE: synthetic
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard — el script test:integration debe existir
+        run: |
+          if [ "${{ needs.detect.outputs.backend_e2e }}" = "missing" ]; then
+            echo "::error::backend no expone 'npm run test:integration'. El rol backend debe añadirlo."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Prisma generate + migrate
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+      - name: Seed sintético (si existe)
+        run: npm run seed:synthetic --if-present
+      - name: Test de integración (E2E backend)
+        run: npm run test:integration
+
+  # ---------------------------------------------------------------------------
+  # Frontend E2E: levanta el STACK COMPLETO con docker compose (perfil apps),
+  # lo siembra con datos sintéticos y corre las pruebas E2E contra él.
+  # ---------------------------------------------------------------------------
+  frontend-e2e:
+    needs: detect
+    if: needs.detect.outputs.frontend_e2e != 'false'
+    runs-on: ubuntu-latest
+    env:
+      # E2E apunta al frontend del stack de staging levantado por compose.
+      E2E_BASE_URL: http://localhost:3010
+      STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Guard — el script test:e2e debe existir
+        run: |
+          if [ "${{ needs.detect.outputs.frontend_e2e }}" = "missing" ]; then
+            echo "::error::frontend no expone 'npm run test:e2e'. El rol frontend debe añadirlo."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Levantar stack completo (Postgres/Redis/MinIO + backend + frontend)
+        run: |
+          docker compose -f docker-compose.staging.yml --profile apps up -d --build
+      - name: Esperar a que el backend responda
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3011/api/v1/health >/dev/null 2>&1; then
+              echo "Backend arriba."; break
+            fi
+            echo "Esperando backend... ($i)"; sleep 5
+          done
+      - name: Seed sintético en staging
+        run: |
+          docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic --if-present \
+            || ./scripts/seed-synthetic.sh
+      - name: Install deps frontend
+        working-directory: frontend
+        run: npm ci
+      - name: Instalar navegadores Playwright (si aplica)
+        working-directory: frontend
+        run: npx playwright install --with-deps || echo "Playwright no presente; el runner de test:e2e maneja su propio driver."
+      - name: E2E frontend
+        working-directory: frontend
+        run: npm run test:e2e
+      - name: Logs del stack si algo falló
+        if: failure()
+        run: docker compose -f docker-compose.staging.yml logs --tail=200
+      - name: Apagar stack
+        if: always()
+        run: docker compose -f docker-compose.staging.yml --profile apps down -v
+
+  # ---------------------------------------------------------------------------
+  # Gate final E2E.
+  # ---------------------------------------------------------------------------
+  e2e-ok:
+    needs: [detect, backend-e2e, frontend-e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resumen
+        run: |
+          echo "backend-e2e:  ${{ needs.backend-e2e.result }}"
+          echo "frontend-e2e: ${{ needs.frontend-e2e.result }}"
+          if [ "${{ needs.backend-e2e.result }}" = "failure" ] || [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then
+            echo "::error::Una suite E2E falló."
+            exit 1
+          fi
+          echo "E2E OK."

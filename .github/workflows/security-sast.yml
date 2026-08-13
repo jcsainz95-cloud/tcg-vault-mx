@@ -1,0 +1,180 @@
+# =============================================================================
+# security-sast.yml — SAST gate en cada PR/push  ·  Propiedad: devops
+# Marketplace TCG con Bóveda (Pokémon, México)
+# =============================================================================
+# Corre en CADA push y pull_request:
+#   - semgrep   (reglas OWASP/NestJS/React + reglas locales security/semgrep.yml)
+#   - gitleaks  (secretos, con security/gitleaks.toml)
+#   - npm audit (backend + frontend)
+#   - trivy fs  (deps) + trivy image (imágenes Docker construidas)
+#
+# GATE: FALLA en high/critical. Úsalo como required status check en la rama de
+# release junto con `ci-ok` (de ci.yml).
+#
+# ESTADO: ACTIVO ya (no requiere secrets ni plataforma). Todo corre con las
+# actions/imágenes oficiales sobre el código del repo.
+# =============================================================================
+
+name: Security SAST
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: sast-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write   # para subir SARIF a la pestaña Security (opcional)
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Semgrep — SAST. ACTIVO.
+  # ---------------------------------------------------------------------------
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: returntocorp/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep (registry + reglas locales)
+        run: |
+          semgrep \
+            --config=security/semgrep.yml \
+            --config=p/default \
+            --config=p/typescript \
+            --config=p/javascript \
+            --config=p/nodejs \
+            --config=p/react \
+            --config=p/owasp-top-ten \
+            --config=p/secrets \
+            --config=p/jwt \
+            --error --metrics=off --disable-version-check \
+            --exclude=node_modules --exclude=.next --exclude=dist --exclude=coverage \
+            --sarif --output=semgrep.sarif \
+            backend/ frontend/ || SEMGREP_EXIT=$?
+          # Emite SARIF aunque falle; el exit lo controla el paso siguiente.
+          exit ${SEMGREP_EXIT:-0}
+      - name: Subir SARIF de Semgrep
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # gitleaks — secretos. ACTIVO.
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo para escanear commits
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: ${{ github.workspace }}/security/gitleaks.toml
+          # GITLEAKS_LICENSE solo hace falta para org accounts; en repos personales no.
+
+  # ---------------------------------------------------------------------------
+  # npm audit — backend + frontend. ACTIVO (se salta la app que no exista).
+  # ---------------------------------------------------------------------------
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: npm audit (gate high/critical)
+        run: ./security/scripts/audit-npm.sh
+        env:
+          AUDIT_LEVEL: high
+
+  # ---------------------------------------------------------------------------
+  # Trivy filesystem — CVEs de dependencias. ACTIVO.
+  # ---------------------------------------------------------------------------
+  trivy-fs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy fs (HIGH/CRITICAL => fallo)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: false
+          format: table
+
+  # ---------------------------------------------------------------------------
+  # Trivy image — CVEs de las imágenes Docker. ACTIVO si existen los Dockerfiles.
+  # Construye backend/frontend y escanea. Se salta si falta la app.
+  # ---------------------------------------------------------------------------
+  trivy-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + scan imagen backend
+        if: hashFiles('backend/package.json') != ''
+        run: |
+          docker build -f Dockerfile.backend -t tcg-backend:scan --target runtime .
+      - name: Trivy image backend
+        if: hashFiles('backend/package.json') != ''
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: image
+          image-ref: tcg-backend:scan
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: false
+          format: table
+      - name: Build + scan imagen frontend
+        if: hashFiles('frontend/package.json') != ''
+        run: |
+          docker build -f Dockerfile.frontend -t tcg-frontend:scan --target runtime \
+            --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api/v1 \
+            --build-arg NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_scan \
+            --build-arg NEXT_PUBLIC_DEFAULT_LOCALE=es \
+            --build-arg NEXT_PUBLIC_USE_MOCKS=false .
+      - name: Trivy image frontend
+        if: hashFiles('frontend/package.json') != ''
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: image
+          image-ref: tcg-frontend:scan
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: false
+          format: table
+
+  # ---------------------------------------------------------------------------
+  # Gate final SAST.
+  # ---------------------------------------------------------------------------
+  sast-ok:
+    needs: [semgrep, gitleaks, npm-audit, trivy-fs, trivy-image]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resumen
+        run: |
+          echo "semgrep:     ${{ needs.semgrep.result }}"
+          echo "gitleaks:    ${{ needs.gitleaks.result }}"
+          echo "npm-audit:   ${{ needs.npm-audit.result }}"
+          echo "trivy-fs:    ${{ needs.trivy-fs.result }}"
+          echo "trivy-image: ${{ needs.trivy-image.result }}"
+          for r in "${{ needs.semgrep.result }}" "${{ needs.gitleaks.result }}" \
+                   "${{ needs.npm-audit.result }}" "${{ needs.trivy-fs.result }}" \
+                   "${{ needs.trivy-image.result }}"; do
+            if [ "$r" = "failure" ]; then
+              echo "::error::Un job SAST falló (high/critical). Revisa los logs."
+              exit 1
+            fi
+          done
+          echo "SAST OK."

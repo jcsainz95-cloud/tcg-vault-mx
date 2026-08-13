@@ -168,27 +168,37 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 
 > El deploy real requiere credenciales prod y plataforma provisionada. Sigue el **runbook §11**.
 
-### Topología objetivo (MVP)
+### Topología objetivo (MVP) — CONFIRMADA
 
-| Componente | Plataforma propuesta | Notas |
+> **Estado: CONFIRMADA** (acordada con el humano/arquitecto). Frontend→**Vercel**;
+> backend + **PostgreSQL 16** + **Redis 7**→**Railway**; fotos→**Cloudflare R2**.
+> Antes decía "propuesta"; ya no. Cualquier alta de un servicio de infra NO previsto
+> sigue requiriendo propuesta al arquitecto (límite de rol devops).
+
+| Componente | Plataforma CONFIRMADA | Notas |
 |---|---|---|
-| Frontend (Next.js) | **Vercel** | SSR/ISR nativo, dominios + HTTPS automáticos. Alt: Railway (usa `Dockerfile.frontend`). |
-| Backend (NestJS API) | **Railway** (o Fly.io / VPS con Docker) | Usa `Dockerfile.backend`; corre `prisma migrate deploy` al arrancar. |
-| Worker BullMQ (jobs) | **Mismo servicio o worker aparte en Railway** | Scheduling de jobs = **deuda BE-5** (lógica lista, falta cablear repeatable jobs a `REDIS_URL`). |
-| PostgreSQL 16 | **Railway Postgres** / Neon / RDS | Backups automáticos + point-in-time. |
-| Redis 7 | **Railway Redis** / Upstash | Persistencia AOF para colas. |
-| Object storage | **Cloudflare R2** (o AWS S3) | Bucket privado + CDN; presigned PUT desde el navegador. CORS al dominio del front. |
+| Frontend (Next.js) | **Vercel** | SSR/ISR nativo, dominios + HTTPS automáticos. |
+| Backend (NestJS API) | **Railway** | Usa `Dockerfile.backend`; corre `prisma migrate deploy` al arrancar. |
+| Worker BullMQ (jobs) | **Railway** (mismo servicio o worker aparte) | Scheduling de jobs = **deuda BE-5** (lógica lista, falta cablear repeatable jobs a `REDIS_URL`). |
+| PostgreSQL 16 | **Railway Postgres** | Backups automáticos + point-in-time. |
+| Redis 7 | **Railway Redis** | Persistencia AOF para colas. |
+| Object storage | **Cloudflare R2** | Bucket privado + CDN; presigned PUT desde el navegador. CORS al dominio del front. |
 | Stripe | Cuenta prod (claves `live`) | Webhook prod → `https://api.tudominio.com/api/v1/webhooks/stripe`. |
 
-> Cualquier cambio de esta topología o alta de un servicio nuevo se **propone primero al arquitecto**
-> (límite de rol devops). La topología aquí es **propuesta**, no confirmada por el arquitecto.
+> Además de prod, hay un **entorno de STAGING** permanente (mismas plataformas, proyecto/
+> environment separado) que se despliega en cada release y sirve de blanco para E2E en vivo y
+> DAST. Ver §13 (staging) y §14 (runbook de seguridad).
 
-### CD (pendiente de confirmar plataforma)
+### CD (plantilla ya presente; se activa con secrets)
 
-Cuando el humano confirme plataforma y cargue los secrets, se añade `.github/workflows/deploy.yml`
-disparado en push a la rama de release, **`needs: [ci-ok]`**, usando los tokens de Vercel/Railway como
-GitHub Secrets. No se añade un workflow ahora para no dejar un pipeline que apunte a plataformas/secrets
-inexistentes (fallaría en cada push). Queda como paso del runbook §11.
+`.github/workflows/deploy.yml` **ya existe como plantilla**: deploy a **staging**, **DAST** contra la
+URL de staging y **promoción a producción bloqueada si hay hallazgos críticos**. Hoy está en **modo
+plantilla** (los pasos reales de Vercel/Railway están comentados y un job `preflight` verifica que
+existan los `secrets`; sin ellos el workflow no despliega y avisa). No se dispara solo en push todavía
+(solo `workflow_dispatch`) para no fallar en cada commit apuntando a plataformas inexistentes. Para
+activarlo: cargar los secrets (`RAILWAY_TOKEN`, `VERCEL_TOKEN`, `STAGING_BASE_URL`, `PROD_BASE_URL`,
+`STRIPE_TEST_*`), descomentar el trigger `push` a la rama de release y los pasos de deploy, y proteger
+el Environment `production` con *required reviewers*. Detalle en §14 (runbook de seguridad) y §11 (go-live).
 
 ---
 
@@ -233,8 +243,15 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `.gitignore` | Higiene de secretos y artefactos. |
 | `.env.example` | Todas las variables documentadas (sin valores reales). |
 | `.github/workflows/ci.yml` | CI: lint + typecheck + test + build (backend/frontend) + gate `ci-ok`. |
+| `.github/workflows/security-sast.yml` | SAST en cada PR/push: semgrep + gitleaks + npm audit + trivy (gate high/critical). |
+| `.github/workflows/e2e.yml` | E2E en vivo: boota el stack y corre `test:integration` (backend) + `test:e2e` (frontend). |
+| `.github/workflows/deploy.yml` | Plantilla CD: deploy staging → DAST → promoción a prod bloqueada por críticos. |
+| `.github/workflows/security-scheduled.yml` | Cron semanal: DAST completo (ZAP full + nuclei) contra staging. |
+| `docker-compose.staging.yml` | Entorno staging aislado (datos sintéticos) espejo del stack. |
+| `security/` | Config/infra de seguridad: semgrep, gitleaks, trivy, ZAP, nuclei + wrappers (ver `security/README.md`). |
 | `scripts/dev-up.sh` / `dev-down.sh` | Levantar/apagar entorno local. |
 | `scripts/db-migrate.sh` / `seed.sh` | Migraciones y seed (delegan en los scripts npm de backend). |
+| `scripts/seed-synthetic.sh` | Seed sintético de staging (delega en backend; nunca datos reales). |
 
 > Los Dockerfiles viven en la **raíz** (no dentro de `backend/`/`frontend/`) para respetar la propiedad
 > de archivos de `CLAUDE.md`: devops no escribe en esas carpetas.
@@ -349,5 +366,104 @@ Validaciones estáticas corridas (reales):
 - **Conclusión honesta**: el proyecto está **"listo para desplegar en cuanto haya credenciales"**. No hay
   bloqueo técnico de infraestructura del lado de devops; el bloqueo es de **credenciales/entorno del
   humano** (checklist §11.A–C) más el endurecimiento de código en §11.E que corresponde al rol backend.
-</content>
-</invoke>
+
+---
+
+## 13. Entorno de STAGING (datos sintéticos)
+
+Staging es un **espejo aislado** del stack para correr E2E en vivo y DAST **sin tocar prod ni datos
+reales de clientes**. Está definido en `docker-compose.staging.yml` (mismas plataformas en el staging
+real: Vercel + Railway + R2, en un environment/proyecto separado).
+
+**Aislamiento** respecto al `docker-compose.yml` local:
+
+- Project name `tcg-staging` (red y contenedores separados) y volúmenes propios (`*_staging`).
+- Base de datos **separada** (`tcg_staging`) y bucket/Redis propios.
+- Puertos desplazados para convivir con el stack local: Postgres `5433`, Redis `6380`, MinIO `9010/9011`,
+  backend `3011`, frontend `3010` (configurables con `STAGING_*_PORT` en `.env`).
+- Backend en `NODE_ENV=production` (validaciones estrictas) pero con **Stripe en modo TEST** siempre.
+
+**Datos sintéticos** — `scripts/seed-synthetic.sh`:
+
+- Delega en el seed sintético del backend (`npm run seed:synthetic`, o `SEED_MODE=synthetic`).
+  Genera usuarios/cartas/órdenes/buylist **ficticios y deterministas** para E2E repetibles.
+- Tiene una **salvaguarda**: aborta si `DATABASE_URL` no parece staging/local, para **nunca** correr
+  contra producción. Regla de oro: **en staging jamás van datos reales de clientes**.
+
+```bash
+# Levantar staging con apps + sembrar datos sintéticos (local, requiere Docker):
+docker compose -f docker-compose.staging.yml --profile apps up -d --build
+./scripts/seed-synthetic.sh
+# Frontend de staging: http://localhost:3010   ·   API: http://localhost:3011/api/v1
+docker compose -f docker-compose.staging.yml down -v   # apaga y borra datos de staging
+```
+
+> **Pendiente de backend/frontend para el harness E2E** (nombres de script asumidos por el CI):
+> backend debe exponer `npm run test:integration` y `npm run seed:synthetic`; frontend debe exponer
+> `npm run test:e2e` (contra `E2E_BASE_URL`). Sin esos scripts, `e2e.yml` **falla a propósito** con un
+> mensaje claro (es un gate real, no un skip silencioso).
+
+---
+
+## 14. Runbook de seguridad (SAST / DAST / E2E) y prueba puntual contra prod
+
+Modelo acordado con el humano: **staging siempre + prod puntual autorizado**, **automatización completa**.
+El tooling (config/infra) vive en `security/` (propiedad devops). La **metodología de ataque** vive en
+`docs/PENTEST_NOTES.md` (rol **pentester**) y el **veredicto** en `docs/SECURITY_NOTES.md` (rol
+**seguridad**). Devops solo provee el andamiaje y los gates.
+
+### 14.1 Qué corre y dónde
+
+| Workflow | Disparo | Qué hace | Bloquea |
+|---|---|---|---|
+| `security-sast.yml` | cada PR/push | semgrep + gitleaks + npm audit + trivy (fs+image) | sí, en high/critical. **ACTIVO ya.** |
+| `e2e.yml` | cada PR/push | boota Postgres/Redis/MinIO + `test:integration` (backend) y `test:e2e` (frontend) | sí, si falla una suite. **Activo cuando existan los scripts.** |
+| `deploy.yml` | push a release (hoy manual) | deploy staging → DAST (ZAP baseline + nuclei) → promoción a prod | promoción a prod **bloqueada** si hay críticos. **Plantilla (pendiente secrets).** |
+| `security-scheduled.yml` | cron semanal (lun 06:00 UTC) | ZAP full + nuclei contra staging | reporta/alarma; no bloquea. **Plantilla (pendiente `STAGING_BASE_URL`).** |
+
+Todos los escáneres están parametrizados por `TARGET_URL` y tienen **guardia anti-producción**
+(`ALLOW_PROD_DAST=1` requerido, ver §14.3). Ejecutables local con los scripts de `security/scripts/`
+(ver `security/README.md`).
+
+### 14.2 Cómo se levanta staging con datos sintéticos (ver §13)
+
+`docker compose -f docker-compose.staging.yml --profile apps up -d --build` + `./scripts/seed-synthetic.sh`.
+En el staging desplegado (Railway/Vercel), el seed sintético lo corre el pipeline tras el deploy.
+
+### 14.3 Procedimiento de prueba puntual AUTORIZADA contra producción
+
+El DAST/pentest contra prod es **excepcional** y **nunca** automático (no hay cron contra prod). Requisitos
+que devops exige antes de levantar la guardia `ALLOW_PROD_DAST=1`:
+
+1. **Autorización por escrito** del dueño del negocio (súper-admin): alcance, fecha y firma. Se adjunta o
+   referencia en `docs/SECURITY_NOTES.md`. Sin ella, no se corre.
+2. **Ventana acordada** (fecha/hora, duración) fuera de horas pico; avisar a operación.
+3. **Alcance/scope explícito**: dominios/rutas incluidos y **excluidos** (p. ej. no tocar el webhook de
+   Stripe live ni endpoints de dinero saliente con payloads destructivos). Nada fuera del scope.
+4. **Rate-limit** conservador (`NUCLEI_RATE_LIMIT`, `FFUF_RATE`, `-m` de ZAP) para no degradar el servicio.
+5. **Aviso al proveedor si aplica**: Vercel/Railway/Cloudflare pueden requerir notificación previa de
+   pruebas de seguridad; revisar sus políticas antes de escanear infra gestionada.
+6. **Datos**: preferir cuentas de prueba; **no** exfiltrar ni alterar datos reales de clientes. Las
+   herramientas intrusivas (`sqlmap`, `ffuf`, ZAP full) van con `--risk`/`--level` bajos salvo acuerdo.
+7. **Rollback / plan de aborto**: si el escaneo degrada el servicio, detener (`Ctrl-C`/cancelar job) y, si
+   hubo cambios, restaurar desde snapshot (ver §7). Tomar snapshot de la DB **antes** de la ventana.
+8. **Registro**: guardar reportes (`security/reports/`, git-ignorados) y resumir hallazgos en
+   `docs/SECURITY_NOTES.md`; los críticos vuelven al rol dueño del código (backend/frontend) vía el flujo
+   normal (nunca los corrige devops).
+
+Solo dentro de esa ventana y cumplidos 1–7 se corre, p. ej.:
+
+```bash
+ALLOW_PROD_DAST=1 TARGET_URL=https://app.tudominio.com ./security/scripts/dast-zap-baseline.sh
+```
+
+Fuera de la ventana: `ALLOW_PROD_DAST=0` (o sin definir). Los scripts abortan solos si detectan que
+`TARGET_URL` parece prod sin la bandera.
+
+### 14.4 Qué falta para activar los gates de deploy/DAST
+
+- `security-sast.yml` y (con los scripts de backend/frontend) `e2e.yml`: **ya activos**, sin secrets.
+- `deploy.yml` / `security-scheduled.yml`: cargar `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `STAGING_BASE_URL`,
+  `PROD_BASE_URL`, `STRIPE_TEST_*` como GitHub Secrets; descomentar los pasos de deploy y el trigger
+  `push` a la rama de release; proteger el Environment `production` con *required reviewers*.
+

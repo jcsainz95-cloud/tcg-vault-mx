@@ -1,0 +1,116 @@
+# =============================================================================
+# semgrep.yml — Configuración SAST para el marketplace TCG  ·  Propiedad: devops
+# =============================================================================
+# Ruleset para JS/TS + NestJS (backend) + Next.js/React (frontend).
+# Combina rulesets curados de la registry con reglas locales del proyecto.
+#
+# Local:  ./security/scripts/sast-semgrep.sh
+# CI:     .github/workflows/security-sast.yml  (job "semgrep")
+#
+# Nota: los rulesets `p/...` se descargan de la registry de Semgrep (requiere
+# red). El bloque `rules:` de abajo son reglas LOCALES que corren siempre,
+# incluso offline, y codifican invariantes de seguridad de ESTE proyecto
+# (ver ARCHITECTURE §7 money-out, §4.3 webhooks, §5 presigned URLs).
+# =============================================================================
+
+# Rulesets curados que se aplican vía --config en el wrapper/CI:
+#   p/default            base de seguridad multi-lenguaje
+#   p/typescript         reglas específicas de TS
+#   p/javascript         reglas específicas de JS
+#   p/nodejs             Node.js (inyección, path traversal, etc.)
+#   p/nestjs             NestJS (guards, DI, validación)
+#   p/react              React / Next.js (XSS, dangerouslySetInnerHTML)
+#   p/owasp-top-ten      cobertura OWASP Top 10
+#   p/secrets            secretos embebidos (complementa gitleaks)
+#   p/jwt                malas prácticas con JWT
+#   p/sql-injection      inyección SQL
+# (El wrapper añade estos con --config=p/... ; este archivo aporta las locales.)
+
+rules:
+  # ---------------------------------------------------------------------------
+  # Money-out: pagos SPEI y reembolsos SOLO super_admin (ARCHITECTURE §7).
+  # Señala controladores de dinero saliente sin guard de rol/acción.
+  # ---------------------------------------------------------------------------
+  - id: money-out-requires-guard
+    languages: [typescript]
+    severity: WARNING
+    message: >
+      Endpoint de dinero saliente (refund / pay_spei / repurchase) debe estar
+      protegido por un guard de rol (super_admin) y auditarse. Verifica que el
+      handler tenga @UseGuards(...) con el MoneyOutGuard/RolesGuard.
+    patterns:
+      - pattern-either:
+          - pattern-regex: "(refund|reembolso|paySpei|pay_spei|repurchase|recompra)"
+      - pattern-inside: |
+          @$METHOD(...)
+          $FN(...) { ... }
+    paths:
+      include:
+        - "backend/src/**/*.controller.ts"
+
+  # ---------------------------------------------------------------------------
+  # Webhook de Stripe: la firma debe verificarse con el raw body.
+  # ---------------------------------------------------------------------------
+  - id: stripe-webhook-verify-signature
+    languages: [typescript]
+    severity: ERROR
+    message: >
+      El webhook de Stripe debe verificar la firma con constructEvent y el RAW
+      body (STRIPE_WEBHOOK_SECRET). No proceses el evento sin verificar la firma.
+    patterns:
+      - pattern-either:
+          - pattern: $STRIPE.webhooks.constructEvent(...)
+          - pattern-not-inside: |
+              try { ... $STRIPE.webhooks.constructEvent(...); ... }
+    paths:
+      include:
+        - "backend/src/**/*webhook*.ts"
+        - "backend/src/**/payments/**/*.ts"
+
+  # ---------------------------------------------------------------------------
+  # React: dangerouslySetInnerHTML => posible XSS. Revisar sanitización.
+  # ---------------------------------------------------------------------------
+  - id: react-dangerously-set-innerhtml
+    languages: [tsx, typescript]
+    severity: WARNING
+    message: >
+      dangerouslySetInnerHTML puede introducir XSS. Evítalo o sanitiza el HTML
+      con una librería confiable antes de inyectarlo.
+    pattern: <$EL dangerouslySetInnerHTML={...} />
+    paths:
+      include:
+        - "frontend/src/**/*.tsx"
+
+  # ---------------------------------------------------------------------------
+  # No loguear secretos ni PII. Señala logs que interpolan variables sensibles.
+  # ---------------------------------------------------------------------------
+  - id: no-secret-in-logs
+    languages: [typescript]
+    severity: WARNING
+    message: >
+      No registres secretos/PII en logs (ARCHITECTURE §8). Evita loguear
+      password, token, secret, clabe, ine, stripe keys.
+    patterns:
+      - pattern-either:
+          - pattern: console.log(..., $X, ...)
+          - pattern: $LOGGER.log(..., $X, ...)
+          - pattern: $LOGGER.debug(..., $X, ...)
+      - metavariable-regex:
+          metavariable: $X
+          regex: "(?i).*(password|passwordHash|secret|token|clabe|ine|stripe.*key|webhook.*secret).*"
+
+  # ---------------------------------------------------------------------------
+  # Prisma: evitar $queryRawUnsafe con interpolación (inyección SQL).
+  # ---------------------------------------------------------------------------
+  - id: prisma-raw-unsafe
+    languages: [typescript]
+    severity: ERROR
+    message: >
+      $queryRawUnsafe / $executeRawUnsafe con string interpolado es inyección
+      SQL. Usa $queryRaw etiquetado (tagged template) o parámetros.
+    pattern-either:
+      - pattern: $DB.$queryRawUnsafe(`...${$X}...`)
+      - pattern: $DB.$executeRawUnsafe(`...${$X}...`)
+    paths:
+      include:
+        - "backend/src/**/*.ts"

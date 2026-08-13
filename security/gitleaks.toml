@@ -1,0 +1,81 @@
+# =============================================================================
+# gitleaks.toml — Detección de secretos  ·  Propiedad: devops
+# =============================================================================
+# Extiende el ruleset base de gitleaks y añade reglas/allowlist propias del
+# proyecto (claves de Stripe, tokens de APIs de precio, Banxico SIE, JWT).
+#
+# Local:  ./security/scripts/sast-gitleaks.sh
+# CI:     .github/workflows/security-sast.yml  (job "gitleaks")
+#
+# Objetivo: que NUNCA se comitee un secreto real. Los placeholders de
+# .env.example (CHANGE_ME, *_dummy, sk_test_) están en la allowlist.
+# =============================================================================
+
+title = "TCG Marketplace gitleaks config"
+
+# Hereda todas las reglas por defecto de gitleaks (AWS, GCP, GitHub, etc.).
+[extend]
+useDefault = true
+
+# --- Reglas específicas del proyecto -----------------------------------------
+
+[[rules]]
+id = "stripe-live-secret-key"
+description = "Stripe live secret key"
+regex = '''sk_live_[0-9a-zA-Z]{24,}'''
+keywords = ["sk_live_"]
+
+[[rules]]
+id = "stripe-live-restricted-key"
+description = "Stripe live restricted key"
+regex = '''rk_live_[0-9a-zA-Z]{24,}'''
+keywords = ["rk_live_"]
+
+[[rules]]
+id = "stripe-webhook-secret"
+description = "Stripe webhook signing secret"
+regex = '''whsec_[0-9a-zA-Z]{24,}'''
+keywords = ["whsec_"]
+
+[[rules]]
+id = "jwt-hex-secret"
+description = "Posible JWT secret hex de 48+ bytes asignado en código"
+regex = '''(?i)(jwt_access_secret|jwt_refresh_secret)\s*[:=]\s*['"][0-9a-f]{64,}['"]'''
+keywords = ["jwt_access_secret", "jwt_refresh_secret"]
+
+[[rules]]
+id = "banxico-sie-token"
+description = "Token de la API SIE de Banxico (64 hex)"
+regex = '''(?i)banxico_sie_token\s*[:=]\s*['"][0-9a-f]{64}['"]'''
+keywords = ["banxico_sie_token"]
+
+[[rules]]
+id = "generic-api-key-assignment"
+description = "Asignación de API key genérica en código"
+regex = '''(?i)(pokemontcg_io_api_key|pokemonpricetracker_api_key|poketrace_api_key)\s*[:=]\s*['"][0-9a-zA-Z_\-]{16,}['"]'''
+keywords = ["api_key"]
+
+# --- Allowlist: placeholders y valores de prueba NO son hallazgos ------------
+[allowlist]
+description = "Placeholders de .env.example, dummies de CI y claves de TEST"
+regexes = [
+  '''CHANGE_ME''',
+  '''_dummy''',
+  '''_change_me''',
+  '''sk_test_[0-9a-zA-Z_]*''',
+  '''pk_test_[0-9a-zA-Z_]*''',
+  '''whsec_(ci|staging|test)_''',
+  '''minioadmin''',
+  '''tcg_local_dev_password''',
+  '''tcg_staging_password''',
+  '''ChangeMe123!''',
+  '''StagingAdmin123!''',
+  '''Operador123!''',
+]
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)docs/.*\.md$''',
+  '''security/.*\.(md|toml|yml|yaml)$''',
+  '''docker-compose.*\.yml$''',
+  '''\.github/workflows/.*\.yml$''',
+]

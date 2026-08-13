@@ -1,0 +1,170 @@
+# =============================================================================
+# deploy.yml — PLANTILLA de despliegue con gate DAST  ·  Propiedad: devops
+# Marketplace TCG con Bóveda (Pokémon, México)
+# =============================================================================
+# Flujo (en push a la rama de release):
+#   1) espera a que CI + E2E estén verdes (needs lógico: ver nota abajo)
+#   2) deploy a STAGING (Vercel front + Railway backend/DB/Redis + R2)
+#   3) DAST contra la URL de STAGING (ZAP baseline + nuclei)
+#   4) SOLO si el DAST no tiene hallazgos críticos -> promoción a PRODUCCIÓN
+#      (aprobación manual vía GitHub Environment "production")
+#
+# -----------------------------------------------------------------------------
+# ESTADO: PLANTILLA — NO ACTIVA hasta que existan los `secrets` y la plataforma.
+#   Los pasos de deploy real están COMENTADOS y marcados [PENDIENTE CREDENCIALES].
+#   Mientras falten los secrets, el workflow:
+#     - NO se dispara solo en push (arrancable solo a mano vía workflow_dispatch),
+#     - y verifica que los secrets existan; si no, se detiene con un aviso claro.
+#   Qué falta para activarlo: docs/DEVOPS_NOTES.md › Runbook de seguridad / go-live.
+# =============================================================================
+
+name: Deploy (staging -> prod)
+
+on:
+  # Activación real (descomentar cuando existan secrets y plataforma):
+  # push:
+  #   branches: ["claude/tcg-cards-marketplace-oijthj"]   # rama de release
+  workflow_dispatch:
+    inputs:
+      promote_to_prod:
+        description: "Promover a producción si el DAST pasa"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Preflight: confirma que los secrets/plataforma existen. Sin ellos, se corta.
+  # (Sustituye el check por `needs: [ci-ok, e2e-ok]` cuando se unifique el gate,
+  #  o mantén CI/E2E/SAST como required status checks de la rama de release.)
+  # ---------------------------------------------------------------------------
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        run: |
+          READY=true
+          # [PENDIENTE CREDENCIALES] estos secrets deben existir para desplegar:
+          [ -z "${{ secrets.RAILWAY_TOKEN }}" ]        && { echo "::warning::falta RAILWAY_TOKEN"; READY=false; }
+          [ -z "${{ secrets.VERCEL_TOKEN }}" ]         && { echo "::warning::falta VERCEL_TOKEN"; READY=false; }
+          [ -z "${{ secrets.STAGING_BASE_URL }}" ]     && { echo "::warning::falta STAGING_BASE_URL"; READY=false; }
+          if [ "$READY" = "false" ]; then
+            echo "::notice::Deploy en modo PLANTILLA: faltan secrets/plataforma. No se ejecuta el deploy real."
+          fi
+          echo "ready=$READY" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Deploy a STAGING. [PENDIENTE CREDENCIALES]
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ secrets.STAGING_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      # --- Backend + DB + Redis en Railway --------------------------------
+      # - name: Deploy backend a Railway
+      #   run: |
+      #     npm i -g @railway/cli
+      #     railway up --service backend --environment staging
+      #   env:
+      #     RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      # --- Frontend en Vercel ---------------------------------------------
+      # - name: Deploy frontend a Vercel (staging)
+      #   run: |
+      #     npm i -g vercel
+      #     vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
+      #     vercel build --token=$VERCEL_TOKEN
+      #     vercel deploy --prebuilt --token=$VERCEL_TOKEN
+      #   env:
+      #     VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # --- Migraciones (snapshot ANTES en prod; en staging directo) --------
+      # - name: prisma migrate deploy (staging)
+      #   run: docker compose -f docker-compose.staging.yml exec -T backend npx prisma migrate deploy
+      - name: Placeholder (sin credenciales)
+        run: |
+          echo "Deploy a staging pendiente de credenciales (ver runbook DEVOPS_NOTES)."
+
+  # ---------------------------------------------------------------------------
+  # DAST contra STAGING: ZAP baseline + nuclei. GATE de promoción a prod.
+  # [PENDIENTE CREDENCIALES] — necesita STAGING_BASE_URL en vivo.
+  # ---------------------------------------------------------------------------
+  dast-staging:
+    needs: [preflight, deploy-staging]
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      critical: ${{ steps.gate.outputs.critical }}
+    env:
+      TARGET_URL: ${{ secrets.STAGING_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: ZAP baseline contra staging
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: ${{ env.TARGET_URL }}
+          rules_file_name: security/zap/baseline.conf
+          # -I: no falla por WARN; los FAIL de baseline.conf marcan el gate.
+          cmd_options: "-I"
+          fail_action: true
+      - name: nuclei contra staging
+        run: |
+          docker run --rm -v "${{ github.workspace }}/security:/sec" \
+            projectdiscovery/nuclei:latest \
+            -u "$TARGET_URL" \
+            -tags "$(grep -vE '^\s*#|^\s*$' security/nuclei/templates.txt | paste -sd, -)" \
+            -severity high,critical \
+            -rate-limit 50 \
+            -jsonl -o /sec/reports/nuclei.jsonl || true
+      - id: gate
+        name: Evaluar hallazgos críticos
+        run: |
+          CRIT=false
+          if [ -f security/reports/nuclei.jsonl ] && grep -Eq '"severity":"(high|critical)"' security/reports/nuclei.jsonl; then
+            CRIT=true
+          fi
+          echo "critical=$CRIT" >> "$GITHUB_OUTPUT"
+          if [ "$CRIT" = "true" ]; then
+            echo "::error::DAST encontró hallazgos críticos. Se BLOQUEA la promoción a producción."
+            exit 1
+          fi
+          echo "DAST sin hallazgos críticos: apto para promover."
+
+  # ---------------------------------------------------------------------------
+  # Promoción a PRODUCCIÓN. Solo si el DAST pasó. Requiere aprobación manual
+  # del Environment "production" (protección de GitHub). [PENDIENTE CREDENCIALES]
+  # ---------------------------------------------------------------------------
+  promote-production:
+    needs: [preflight, dast-staging]
+    if: >-
+      needs.preflight.outputs.ready == 'true' &&
+      needs.dast-staging.outputs.critical == 'false' &&
+      inputs.promote_to_prod == true
+    runs-on: ubuntu-latest
+    environment:
+      name: production        # protégelo con "required reviewers" en GitHub
+      url: ${{ secrets.PROD_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      # - name: Snapshot de DB antes de migrar (rollback)
+      #   run: echo "Tomar snapshot/point-in-time de la DB de prod ANTES del deploy."
+      # - name: Deploy backend a Railway (prod)
+      #   run: railway up --service backend --environment production
+      #   env: { RAILWAY_TOKEN: "${{ secrets.RAILWAY_TOKEN }}" }
+      # - name: Deploy frontend a Vercel (prod)
+      #   run: vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
+      #   env: { VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN }}" }
+      - name: Placeholder (sin credenciales)
+        run: |
+          echo "Promocion a produccion pendiente de credenciales (ver runbook DEVOPS_NOTES)."

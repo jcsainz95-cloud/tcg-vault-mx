@@ -1,0 +1,189 @@
+# =============================================================================
+# docker-compose.staging.yml — Entorno de STAGING aislado (datos sintéticos)
+# Marketplace TCG con Bóveda (Pokémon, México)  ·  Propiedad: devops
+# =============================================================================
+# Espejo del stack de producción (Postgres 16 / Redis 7 / MinIO / backend /
+# frontend) apuntando a una BASE SEPARADA y sembrado con DATOS SINTÉTICOS.
+# Sirve para E2E en vivo y para el DAST (OWASP ZAP / nuclei) sin tocar prod ni
+# datos reales de clientes.
+#
+#   REGLA DE ORO: en staging NUNCA van datos reales de clientes. La base se
+#   puebla con ./scripts/seed-synthetic.sh (seed sintético del backend).
+#
+# Aislamiento respecto al docker-compose.yml local:
+#   - project name distinto (tcg-staging) -> red y contenedores separados.
+#   - volúmenes propios (*_staging) -> datos separados, no comparte con dev.
+#   - puertos desplazados (+1 / decena) -> puede convivir con el stack local.
+#   - base de datos propia: tcg_staging.
+#
+# Uso:
+#   docker compose -f docker-compose.staging.yml up -d           # infra
+#   docker compose -f docker-compose.staging.yml --profile apps up -d --build   # + apps
+#   ./scripts/seed-synthetic.sh                                   # datos sintéticos
+#   docker compose -f docker-compose.staging.yml down            # apaga (conserva datos)
+#   docker compose -f docker-compose.staging.yml down -v         # apaga y BORRA datos
+#
+# Variables: usa el mismo .env (copia de .env.example). Las claves sensibles de
+# staging (Stripe TEST, tokens) las provee el secret manager de la plataforma
+# en el staging real; en local caen a los defaults de .env.
+# =============================================================================
+
+name: tcg-staging
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — base de STAGING (separada de dev y de prod)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${STAGING_POSTGRES_USER:-tcg_staging}
+      POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD:-tcg_staging_password}
+      POSTGRES_DB: ${STAGING_POSTGRES_DB:-tcg_staging}
+    ports:
+      - "${STAGING_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_staging:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${STAGING_POSTGRES_USER:-tcg_staging} -d ${STAGING_POSTGRES_DB:-tcg_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — colas BullMQ y rate-limit (instancia de staging)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${STAGING_REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_staging:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # MinIO — object storage S3-compatible (bucket de staging)
+  #   API:     http://localhost:9010
+  #   Consola: http://localhost:9011
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STAGING_MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging}
+    ports:
+      - "${STAGING_MINIO_API_PORT:-9010}:9000"
+      - "${STAGING_MINIO_CONSOLE_PORT:-9011}:9001"
+    volumes:
+      - minio_staging:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # createbuckets — init container: crea el bucket de staging y sale.
+  # ---------------------------------------------------------------------------
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set staging http://minio:9000 ${STAGING_MINIO_ROOT_USER:-minioadmin} ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging} &&
+      mc mb --ignore-existing staging/${S3_BUCKET:-tcg-photos} &&
+      mc anonymous set download staging/${S3_BUCKET:-tcg-photos} &&
+      echo 'Bucket de staging ${S3_BUCKET:-tcg-photos} listo.' &&
+      exit 0
+      "
+    restart: "no"
+
+  # ===========================================================================
+  # PERFIL apps — Backend y Frontend de staging (bajo perfil "apps")
+  # ===========================================================================
+  backend:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      # Staging NO es production: usa validaciones estrictas pero datos de prueba.
+      NODE_ENV: ${STAGING_NODE_ENV:-production}
+      DATABASE_URL: postgresql://${STAGING_POSTGRES_USER:-tcg_staging}:${STAGING_POSTGRES_PASSWORD:-tcg_staging_password}@postgres:5432/${STAGING_POSTGRES_DB:-tcg_staging}?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-tcg-photos}
+      S3_ACCESS_KEY_ID: ${STAGING_MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging}
+      S3_PUBLIC_BASE_URL: ${STAGING_S3_PUBLIC_BASE_URL:-http://localhost:9010/tcg-photos}
+      S3_FORCE_PATH_STYLE: "true"
+      # Secretos de staging: en local caen a dummies; en el staging real los
+      # inyecta el secret manager de la plataforma. NUNCA reales de prod.
+      JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:-staging_access_secret_change_me}
+      JWT_REFRESH_SECRET: ${STAGING_JWT_REFRESH_SECRET:-staging_refresh_secret_change_me}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
+      # Stripe en modo TEST siempre en staging (nunca claves live).
+      STRIPE_SECRET_KEY: ${STRIPE_TEST_SECRET_KEY:-sk_test_staging_dummy}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_TEST_PUBLISHABLE_KEY:-pk_test_staging_dummy}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_TEST_WEBHOOK_SECRET:-whsec_staging_dummy}
+      POKEMONTCG_IO_API_KEY: ${POKEMONTCG_IO_API_KEY:-}
+      POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY:-}
+      POKETRACE_API_KEY: ${POKETRACE_API_KEY:-}
+      FX_SOURCE: ${FX_SOURCE:-manual}
+      FX_API_KEY: ${FX_API_KEY:-}
+      BANXICO_SIE_TOKEN: ${BANXICO_SIE_TOKEN:-}
+      SEED_ADMIN_EMAIL: ${STAGING_SEED_ADMIN_EMAIL:-admin@staging.local}
+      SEED_ADMIN_PASSWORD: ${STAGING_SEED_ADMIN_PASSWORD:-StagingAdmin123!}
+      APP_BASE_URL: ${STAGING_APP_BASE_URL:-http://localhost:3010}
+      DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
+    ports:
+      - "${STAGING_BACKEND_PORT:-3011}:3001"
+
+  frontend:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: runtime
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${STAGING_NEXT_PUBLIC_API_BASE_URL:-http://localhost:3011/api/v1}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${STRIPE_TEST_PUBLISHABLE_KEY:-pk_test_staging_dummy}
+        NEXT_PUBLIC_DEFAULT_LOCALE: ${NEXT_PUBLIC_DEFAULT_LOCALE:-es}
+        NEXT_PUBLIC_USE_MOCKS: "false"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: ${STAGING_NODE_ENV:-production}
+    ports:
+      - "${STAGING_FRONTEND_PORT:-3010}:3000"
+
+volumes:
+  postgres_staging:
+  redis_staging:
+  minio_staging:
