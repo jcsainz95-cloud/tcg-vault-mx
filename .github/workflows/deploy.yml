@@ -1,33 +1,45 @@
 # =============================================================================
-# deploy.yml — PLANTILLA de despliegue con gate DAST  ·  Propiedad: devops
-# Marketplace TCG con Bóveda (Pokémon, México)
+# deploy.yml — Despliegue CD  ·  Propiedad: devops
+# TCG Vault MX — Marketplace TCG con Bóveda (Pokémon, México)
 # =============================================================================
-# Flujo (en push a la rama de release):
-#   1) espera a que CI + E2E estén verdes (needs lógico: ver nota abajo)
-#   2) deploy a STAGING (Vercel front + Railway backend/DB/Redis + R2)
-#   3) DAST contra la URL de STAGING (ZAP baseline + nuclei)
-#   4) SOLO si el DAST no tiene hallazgos críticos -> promoción a PRODUCCIÓN
-#      (aprobación manual vía GitHub Environment "production")
+# Topología CONFIRMADA:
+#   - Frontend Next.js  -> Vercel   (secrets VERCEL_*)
+#   - Backend NestJS    -> Railway  (Dockerfile.backend; migrate deploy al arrancar)
+#   - PostgreSQL 16 + Redis 7 -> add-ons de Railway (inyectan DATABASE_URL/REDIS_URL)
+#   - Fotos             -> Cloudflare R2 (bucket privado; presigned PUT/GET)
 #
-# -----------------------------------------------------------------------------
-# ESTADO: PLANTILLA — NO ACTIVA hasta que existan los `secrets` y la plataforma.
-#   Los pasos de deploy real están COMENTADOS y marcados [PENDIENTE CREDENCIALES].
-#   Mientras falten los secrets, el workflow:
-#     - NO se dispara solo en push (arrancable solo a mano vía workflow_dispatch),
-#     - y verifica que los secrets existan; si no, se detiene con un aviso claro.
-#   Qué falta para activarlo: docs/DEVOPS_NOTES.md › Runbook de seguridad / go-live.
+# Flujo:
+#   0) GATE: solo corre si CI terminó VERDE (workflow_run) o disparo manual.
+#   1) preflight: verifica que TODOS los secrets de deploy existan. Si falta
+#      alguno, el pipeline FALLA con la lista exacta (no despliega a medias).
+#   2) Deploy a STAGING: backend->Railway(staging) + frontend->Vercel(preview).
+#      El backend corre `prisma migrate deploy` al arrancar (Dockerfile CMD).
+#   3) DAST contra STAGING (ZAP baseline + nuclei). Gate de promoción.
+#   4) SOLO si el DAST no tiene críticos -> promoción a PRODUCCIÓN, protegida
+#      por el GitHub Environment "production" (required reviewers).
+#
+# Rama de release: `main` (recomendada). Para que el trigger workflow_run
+# funcione, este archivo debe estar en la rama por defecto del repo. Ajusta
+# `branches:` abajo si usas otra rama de release.
+#
+# Migración + seed: `migrate deploy` es automático en cada arranque del backend
+# (idempotente). El `seed` inicial (diales M10 + super_admin + operador) se corre
+# UNA sola vez a mano tras el primer deploy (ver DEVOPS_NOTES §11.D).
 # =============================================================================
 
 name: Deploy (staging -> prod)
 
 on:
-  # Activación real (descomentar cuando existan secrets y plataforma):
-  # push:
-  #   branches: ["claude/tcg-cards-marketplace-oijthj"]   # rama de release
+  # Gate real: se dispara cuando el workflow "CI" termina en la rama de release.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  # Disparo manual (primer deploy, re-deploy puntual, o promoción a prod).
   workflow_dispatch:
     inputs:
       promote_to_prod:
-        description: "Promover a producción si el DAST pasa"
+        description: "Promover a producción si el DAST de staging pasa"
         type: boolean
         default: false
 
@@ -38,71 +50,124 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Nombre EXACTO del servicio backend en Railway (créalo con este nombre).
+  RAILWAY_BACKEND_SERVICE: backend
+
 jobs:
   # ---------------------------------------------------------------------------
-  # Preflight: confirma que los secrets/plataforma existen. Sin ellos, se corta.
-  # (Sustituye el check por `needs: [ci-ok, e2e-ok]` cuando se unifique el gate,
-  #  o mantén CI/E2E/SAST como required status checks de la rama de release.)
+  # GATE: CI verde. Con workflow_run, exige conclusion == success. En disparo
+  # manual (workflow_dispatch) se asume que el operador ya verificó CI/E2E.
+  # (Refuerza además con branch protection: ci-ok, sast-ok y e2e como
+  #  required status checks de la rama de release — ver DEVOPS_NOTES §5/§14.)
   # ---------------------------------------------------------------------------
-  preflight:
+  ci-ok:
     runs-on: ubuntu-latest
-    outputs:
-      ready: ${{ steps.check.outputs.ready }}
     steps:
-      - id: check
+      - name: Verificar que CI terminó verde
         run: |
-          READY=true
-          # [PENDIENTE CREDENCIALES] estos secrets deben existir para desplegar:
-          [ -z "${{ secrets.RAILWAY_TOKEN }}" ]        && { echo "::warning::falta RAILWAY_TOKEN"; READY=false; }
-          [ -z "${{ secrets.VERCEL_TOKEN }}" ]         && { echo "::warning::falta VERCEL_TOKEN"; READY=false; }
-          [ -z "${{ secrets.STAGING_BASE_URL }}" ]     && { echo "::warning::falta STAGING_BASE_URL"; READY=false; }
-          if [ "$READY" = "false" ]; then
-            echo "::notice::Deploy en modo PLANTILLA: faltan secrets/plataforma. No se ejecuta el deploy real."
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+            echo "CI (workflow_run) conclusion=$CONCLUSION"
+            if [ "$CONCLUSION" != "success" ]; then
+              echo "::error::CI no terminó en 'success' (fue '$CONCLUSION'). Se ABORTA el deploy."
+              exit 1
+            fi
+          else
+            echo "Disparo manual (workflow_dispatch): se asume CI/E2E verdes ya verificados."
           fi
-          echo "ready=$READY" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # Deploy a STAGING. [PENDIENTE CREDENCIALES]
+  # preflight: confirma que existen TODOS los secrets de deploy. Si falta alguno,
+  # FALLA con la lista exacta (no continúa, no despliega a medias).
   # ---------------------------------------------------------------------------
-  deploy-staging:
-    needs: preflight
-    if: needs.preflight.outputs.ready == 'true'
+  preflight:
+    needs: [ci-ok]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar secrets de deploy (GitHub Secrets)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+          PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
+        run: |
+          MISSING=""
+          for VAR in RAILWAY_TOKEN VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID STAGING_BASE_URL PROD_BASE_URL; do
+            if [ -z "${!VAR}" ]; then MISSING="$MISSING $VAR"; fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::Faltan GitHub Secrets de deploy:$MISSING"
+            echo "::error::Cárgalos en Settings > Secrets and variables > Actions (ver DEVOPS_NOTES §11.C). El deploy NO continúa."
+            exit 1
+          fi
+          echo "Todos los secrets de deploy presentes. Continúa el pipeline."
+
+  # ---------------------------------------------------------------------------
+  # STAGING — Backend a Railway (environment staging).
+  # `railway up` sube el repo y construye con Dockerfile.backend (ver railway.json).
+  # Al arrancar, el contenedor corre `prisma migrate deploy` (Dockerfile CMD).
+  # ---------------------------------------------------------------------------
+  deploy-staging-backend:
+    needs: [preflight]
     runs-on: ubuntu-latest
     environment:
       name: staging
       url: ${{ secrets.STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
-      # --- Backend + DB + Redis en Railway --------------------------------
-      # - name: Deploy backend a Railway
-      #   run: |
-      #     npm i -g @railway/cli
-      #     railway up --service backend --environment staging
-      #   env:
-      #     RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      # --- Frontend en Vercel ---------------------------------------------
-      # - name: Deploy frontend a Vercel (staging)
-      #   run: |
-      #     npm i -g vercel
-      #     vercel pull --yes --environment=preview --token=$VERCEL_TOKEN
-      #     vercel build --token=$VERCEL_TOKEN
-      #     vercel deploy --prebuilt --token=$VERCEL_TOKEN
-      #   env:
-      #     VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      # --- Migraciones (snapshot ANTES en prod; en staging directo) --------
-      # - name: prisma migrate deploy (staging)
-      #   run: docker compose -f docker-compose.staging.yml exec -T backend npx prisma migrate deploy
-      - name: Placeholder (sin credenciales)
+      - name: Instalar Railway CLI
+        run: npm i -g @railway/cli@latest
+      - name: Deploy backend a Railway (staging)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          echo "Deploy a staging pendiente de credenciales (ver runbook DEVOPS_NOTES)."
+          : "${RAILWAY_TOKEN:?falta RAILWAY_TOKEN}"
+          echo "Desplegando servicio '$RAILWAY_BACKEND_SERVICE' a Railway (staging)..."
+          railway up --service "$RAILWAY_BACKEND_SERVICE" --environment staging --ci
+      # Nota: el SEED inicial (diales M10 + super_admin + operador) NO se corre
+      # aquí; es una acción de UNA sola vez tras el primer deploy:
+      #   railway run --service backend --environment staging npm run seed
+      # (ver DEVOPS_NOTES §11.D). En staging, el harness usa datos SINTÉTICOS.
+
+  # ---------------------------------------------------------------------------
+  # STAGING — Frontend a Vercel (preview = staging).
+  # Las NEXT_PUBLIC_* viven en el proyecto de Vercel (env "Preview"); `vercel pull`
+  # las trae y `vercel build` las hornea. Debe incluir NEXT_PUBLIC_USE_MOCKS=false.
+  # ---------------------------------------------------------------------------
+  deploy-staging-frontend:
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar Vercel CLI
+        run: npm i -g vercel@latest
+      - name: Deploy frontend a Vercel (preview/staging)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          : "${VERCEL_TOKEN:?falta VERCEL_TOKEN}"
+          vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
+          vercel build --token="$VERCEL_TOKEN"
+          DEPLOY_URL=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
+          echo "Frontend staging desplegado: $DEPLOY_URL"
+          echo "STAGING_DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+      # El dominio estable de staging (alias) lo apunta Vercel al proyecto; el
+      # DAST usa STAGING_BASE_URL (dominio estable), no la URL efímera del deploy.
 
   # ---------------------------------------------------------------------------
   # DAST contra STAGING: ZAP baseline + nuclei. GATE de promoción a prod.
-  # [PENDIENTE CREDENCIALES] — necesita STAGING_BASE_URL en vivo.
+  # Necesita STAGING_BASE_URL en vivo (el frontend/back de staging ya desplegados).
   # ---------------------------------------------------------------------------
   dast-staging:
-    needs: [preflight, deploy-staging]
-    if: needs.preflight.outputs.ready == 'true'
+    needs: [deploy-staging-backend, deploy-staging-frontend]
     runs-on: ubuntu-latest
     outputs:
       critical: ${{ steps.gate.outputs.critical }}
@@ -110,6 +175,10 @@ jobs:
       TARGET_URL: ${{ secrets.STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
+      - name: Guardia anti-producción
+        run: |
+          : "${TARGET_URL:?falta STAGING_BASE_URL}"
+          echo "DAST target (staging): $TARGET_URL"
       - name: ZAP baseline contra staging
         uses: zaproxy/action-baseline@v0.12.0
         with:
@@ -120,6 +189,7 @@ jobs:
           fail_action: true
       - name: nuclei contra staging
         run: |
+          mkdir -p security/reports
           docker run --rm -v "${{ github.workspace }}/security:/sec" \
             projectdiscovery/nuclei:latest \
             -u "$TARGET_URL" \
@@ -136,35 +206,67 @@ jobs:
           fi
           echo "critical=$CRIT" >> "$GITHUB_OUTPUT"
           if [ "$CRIT" = "true" ]; then
-            echo "::error::DAST encontró hallazgos críticos. Se BLOQUEA la promoción a producción."
+            echo "::error::DAST encontró hallazgos críticos/altos. Se BLOQUEA la promoción a producción."
             exit 1
           fi
-          echo "DAST sin hallazgos críticos: apto para promover."
+          echo "DAST sin hallazgos críticos/altos: apto para promover."
 
   # ---------------------------------------------------------------------------
-  # Promoción a PRODUCCIÓN. Solo si el DAST pasó. Requiere aprobación manual
-  # del Environment "production" (protección de GitHub). [PENDIENTE CREDENCIALES]
+  # PRODUCCIÓN — Backend a Railway (environment production).
+  # Requiere aprobación manual del Environment "production" (required reviewers).
+  # Solo corre si el DAST de staging pasó Y (en disparo manual) promote_to_prod.
   # ---------------------------------------------------------------------------
-  promote-production:
-    needs: [preflight, dast-staging]
+  promote-production-backend:
+    needs: [dast-staging]
     if: >-
-      needs.preflight.outputs.ready == 'true' &&
       needs.dast-staging.outputs.critical == 'false' &&
-      inputs.promote_to_prod == true
+      (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest
     environment:
-      name: production        # protégelo con "required reviewers" en GitHub
+      name: production          # protégelo con "required reviewers" en GitHub
       url: ${{ secrets.PROD_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
-      # - name: Snapshot de DB antes de migrar (rollback)
-      #   run: echo "Tomar snapshot/point-in-time de la DB de prod ANTES del deploy."
-      # - name: Deploy backend a Railway (prod)
-      #   run: railway up --service backend --environment production
-      #   env: { RAILWAY_TOKEN: "${{ secrets.RAILWAY_TOKEN }}" }
-      # - name: Deploy frontend a Vercel (prod)
-      #   run: vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
-      #   env: { VERCEL_TOKEN: "${{ secrets.VERCEL_TOKEN }}" }
-      - name: Placeholder (sin credenciales)
+      - name: Recordatorio de snapshot de DB (rollback)
         run: |
-          echo "Promocion a produccion pendiente de credenciales (ver runbook DEVOPS_NOTES)."
+          echo "::notice::Antes de promover: toma snapshot / point-in-time de la DB de PROD."
+          echo "::notice::Railway Postgres: Backups > Create backup (o point-in-time). Ver DEVOPS_NOTES §7."
+      - name: Instalar Railway CLI
+        run: npm i -g @railway/cli@latest
+      - name: Deploy backend a Railway (production)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          : "${RAILWAY_TOKEN:?falta RAILWAY_TOKEN}"
+          echo "Desplegando servicio '$RAILWAY_BACKEND_SERVICE' a Railway (production)..."
+          railway up --service "$RAILWAY_BACKEND_SERVICE" --environment production --ci
+          # `prisma migrate deploy` corre en el arranque del contenedor (Dockerfile CMD).
+
+  # ---------------------------------------------------------------------------
+  # PRODUCCIÓN — Frontend a Vercel (--prod).
+  # ---------------------------------------------------------------------------
+  promote-production-frontend:
+    needs: [dast-staging, promote-production-backend]
+    if: >-
+      needs.dast-staging.outputs.critical == 'false' &&
+      (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ secrets.PROD_BASE_URL }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar Vercel CLI
+        run: npm i -g vercel@latest
+      - name: Deploy frontend a Vercel (production)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          : "${VERCEL_TOKEN:?falta VERCEL_TOKEN}"
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          DEPLOY_URL=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          echo "Frontend producción desplegado: $DEPLOY_URL"

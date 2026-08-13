@@ -27,7 +27,10 @@ ENV NODE_ENV=production
 # ---- Dependencias (con dev deps para poder compilar) ----
 FROM base AS deps
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci
+# `base` fija NODE_ENV=production, lo que haría a `npm ci` OMITIR devDependencies.
+# `nest` (build), `prisma` (migrate), `ts-node`/`typescript` (seed) son devDeps en
+# backend/package.json -> forzamos --include=dev para poder compilar y migrar/seed.
+RUN npm ci --include=dev
 
 # ---- Build ----
 FROM base AS build
@@ -36,8 +39,12 @@ COPY backend/ ./
 # Genera el cliente de Prisma si hay schema (no falla si aún no existe).
 RUN if [ -f prisma/schema.prisma ]; then npx prisma generate; fi
 RUN npm run build
-# Poda dev-dependencies para la imagen final.
-RUN npm prune --omit=dev
+# NOTA (devops): NO se hace `npm prune --omit=dev`. El arranque corre
+# `prisma migrate deploy` y el seed inicial usa `ts-node prisma/seed.ts`;
+# `prisma`, `ts-node` y `typescript` son devDependencies en backend/package.json
+# (propiedad del rol backend, no se toca). Podarlas rompería la migración en
+# runtime (Railway) y el seed de una sola vez. Se conserva node_modules completo
+# a cambio de una imagen mayor — trade-off aceptado para el MVP (ver DEVOPS_NOTES §6).
 
 # ---- Runtime (imagen final, mínima) ----
 FROM base AS runtime

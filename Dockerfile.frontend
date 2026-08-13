@@ -42,6 +42,10 @@ ENV NEXT_PUBLIC_USE_MOCKS=$NEXT_PUBLIC_USE_MOCKS
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ ./
+# `public/` es OPCIONAL en Next.js; hoy frontend/ no lo tiene. Garantizamos que
+# exista para que el COPY del runtime no rompa el build (Vercel no usa este
+# Dockerfile; es para el stack local/staging de docker-compose).
+RUN mkdir -p public
 RUN npm run build
 
 # ---- Runtime (standalone, imagen final mínima) ----

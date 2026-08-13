@@ -19,11 +19,17 @@
   FE-1…FE-6). Ninguna bloquea el cierre; cada una tiene dueño y disparador.
 - **Infraestructura validada (estático, sin daemon Docker en esta sesión)**:
   - `docker compose config` → OK (interpolación y perfiles válidos).
-  - `bash -n` de los 5 scripts → OK.
-  - `ci.yml` y `docker-compose.yml` parsean como YAML válido.
+  - `bash -n` de los 6 scripts → OK.
+  - Los 5 workflows (incl. `deploy.yml`) y `docker-compose.yml` parsean como YAML válido; `railway.json`
+    parsea como JSON válido.
   - `.env.example` cubre **todas** las env que el código lee (ver §4 y verificación en §10).
-- **Deploy real**: **NO ejecutado**. Requiere credenciales prod y una plataforma provisionada
-  (ver runbook §11). Esto es lo único que falta del DoD y es esperado en esta sesión.
+- **CD ejecutable:** `deploy.yml` ya tiene los pasos **reales** de Vercel + Railway (no plantilla). Se
+  añadió `railway.json` (build backend con `Dockerfile.backend`). Se corrigieron dos bugs latentes de
+  build en `Dockerfile.backend` (`npm ci --include=dev` + no podar devDeps, necesarios para
+  `nest build` / `prisma migrate deploy` / seed) y uno en `Dockerfile.frontend` (`mkdir -p public`). Ver §6.
+- **Deploy real**: **NO ejecutado**. Requiere credenciales prod y las plataformas provisionadas
+  (ver runbook §11). Sin los GitHub Secrets de deploy, `deploy.yml` **falla en `preflight`** con la lista
+  exacta (no despliega a medias). Esto es lo único que falta del DoD y es esperado en esta sesión.
 
 ## 1. Stack (resumen, ver ARCHITECTURE §1)
 
@@ -200,16 +206,70 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 > environment separado) que se despliega en cada release y sirve de blanco para E2E en vivo y
 > DAST. Ver §13 (staging) y §14 (runbook de seguridad).
 
-### CD (plantilla ya presente; se activa con secrets)
+### CD — `.github/workflows/deploy.yml` (EJECUTABLE, concreto Vercel + Railway)
 
-`.github/workflows/deploy.yml` **ya existe como plantilla**: deploy a **staging**, **DAST** contra la
-URL de staging y **promoción a producción bloqueada si hay hallazgos críticos**. Hoy está en **modo
-plantilla** (los pasos reales de Vercel/Railway están comentados y un job `preflight` verifica que
-existan los `secrets`; sin ellos el workflow no despliega y avisa). No se dispara solo en push todavía
-(solo `workflow_dispatch`) para no fallar en cada commit apuntando a plataformas inexistentes. Para
-activarlo: cargar los secrets (`RAILWAY_TOKEN`, `VERCEL_TOKEN`, `STAGING_BASE_URL`, `PROD_BASE_URL`,
-`STRIPE_TEST_*`), descomentar el trigger `push` a la rama de release y los pasos de deploy, y proteger
-el Environment `production` con *required reviewers*. Detalle en §14 (runbook de seguridad) y §11 (go-live).
+`.github/workflows/deploy.yml` ya **no** es plantilla: tiene los pasos **reales** de Vercel y Railway.
+Cadena de jobs:
+
+1. `ci-ok` — gate. Se dispara vía **`workflow_run`** cuando el workflow **CI** termina en la rama de
+   release (`main`); exige `conclusion == success`. También admite `workflow_dispatch` (disparo manual
+   para el primer deploy / promoción puntual).
+2. `preflight` — verifica que existan **todos** los GitHub Secrets de deploy. Si falta alguno, **falla
+   con la lista exacta** (`::error::Faltan GitHub Secrets de deploy: ...`) y **no despliega a medias**.
+3. `deploy-staging-backend` — `railway up --service backend --environment staging`. El contenedor corre
+   `prisma migrate deploy` al arrancar (CMD de `Dockerfile.backend`, ver §6.1).
+4. `deploy-staging-frontend` — `vercel pull/build/deploy` (env **preview** = staging).
+5. `dast-staging` — ZAP baseline + nuclei contra `STAGING_BASE_URL`. **Gate**: si hay críticos/altos,
+   `exit 1` y **no** promueve.
+6. `promote-production-backend` / `promote-production-frontend` — solo si el DAST pasó; protegidos por el
+   GitHub **Environment `production`** (required reviewers). Backend a Railway (prod), frontend a Vercel
+   `--prod`. Recordatorio de **snapshot de DB** antes de promover.
+
+**Rama de release:** `main` (recomendada). Para que `workflow_run` dispare el deploy, `deploy.yml` (y
+`ci.yml`) deben estar en la **rama por defecto** del repo. Si mantienes la rama de trabajo
+`claude/tcg-cards-marketplace-oijthj` como release, cambia `branches: [main]` del trigger `workflow_run`
+por esa rama y define esa rama como default. Refuerza además con **branch protection**: `ci-ok`,
+`sast-ok` y las suites E2E como *required status checks*.
+
+**Qué falta para que despliegue de verdad:** solo cargar los **secrets** (§11.C) y provisionar las
+plataformas (§11). Sin los secrets, `preflight` **falla** (comportamiento deseado, no un skip silencioso).
+
+#### 6.1 Config de plataforma (archivos de deploy, propiedad devops)
+
+- **`railway.json`** (raíz): `builder: DOCKERFILE`, `dockerfilePath: Dockerfile.backend`, `numReplicas: 1`,
+  restart `ON_FAILURE`. **No** fija `startCommand` (se usa el `CMD` del Dockerfile como única fuente:
+  `npx prisma migrate deploy && node dist/main.js`). **No** fija `healthcheckPath` porque el backend **aún
+  no expone `/api/v1/health`** (ver §6.2). El **worker BullMQ** corre en el **mismo servicio** que la API
+  en el MVP (deuda BE-5: falta cablear los repeatable jobs a `REDIS_URL`); si crece la carga, se separa a
+  un servicio `worker` con el mismo Dockerfile y otro `startCommand` — decisión futura.
+- **Vercel — sin `vercel.json`:** el proyecto de Vercel se configura con **Root Directory = `frontend`**
+  (dashboard, [HUMANO]) y **framework Next.js autodetectado**. No se crea `vercel.json` porque, con Root
+  Directory en `frontend/`, Vercel solo leería `frontend/vercel.json`, y esa carpeta es **propiedad del rol
+  frontend** (devops no escribe ahí, CLAUDE.md). La config (build/env) vive en el proyecto de Vercel y el
+  workflow la trae con `vercel pull`. Las `NEXT_PUBLIC_*` (incluida `NEXT_PUBLIC_USE_MOCKS=false`) se
+  definen en Vercel > Environment Variables (Preview=staging, Production=prod).
+
+#### 6.2 Ajustes hechos a los Dockerfiles para estas plataformas
+
+- **`Dockerfile.backend`:**
+  - `deps` ahora hace **`npm ci --include=dev`**: el stage `base` fija `NODE_ENV=production`, lo que haría
+    a `npm ci` **omitir devDependencies**; sin ellas `nest build` (y `prisma`/`ts-node`) fallarían. Con
+    `--include=dev` el build compila y quedan disponibles las herramientas de migración/seed.
+  - **Se quitó `npm prune --omit=dev`**: el arranque corre `prisma migrate deploy` y el seed usa
+    `ts-node prisma/seed.ts`; `prisma`, `ts-node` y `typescript` son **devDependencies** (propiedad de
+    backend, no se tocan). Podarlas rompería migración y seed en runtime. Trade-off: imagen mayor, aceptado
+    para el MVP.
+  - El backend lee `process.env.PORT` (Railway lo inyecta); `EXPOSE 3001` es informativo (Railway usa `PORT`).
+- **`Dockerfile.frontend`:** se añadió `RUN mkdir -p public` (hoy `frontend/` no tiene `public/`, opcional
+  en Next.js) para que el `COPY /app/public` del runtime no rompa el build de docker-compose local/staging.
+  **Vercel NO usa este Dockerfile** (construye Next nativo); es solo para el stack local/staging.
+
+#### 6.3 Recomendación al rol backend (no bloqueante)
+
+- **Health endpoint:** el backend **no** expone `GET /api/v1/health`. Sin él, Railway no puede hacer
+  healthcheck HTTP (queda con el chequeo de arranque/puerto). Recomendado que **backend** añada un
+  `GET /api/v1/health` público y ligero; entonces devops fija `healthcheckPath: /api/v1/health` en
+  `railway.json`. Es cambio en `backend/` → **rol backend**, no devops.
 
 ---
 
@@ -256,7 +316,8 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `.github/workflows/ci.yml` | CI: lint + typecheck + test + build (backend/frontend) + gate `ci-ok`. |
 | `.github/workflows/security-sast.yml` | SAST en cada PR/push: semgrep + gitleaks + npm audit + trivy (gate high/critical). |
 | `.github/workflows/e2e.yml` | E2E en vivo: boota el stack y corre `test:integration` (backend) + `test:e2e` (frontend). |
-| `.github/workflows/deploy.yml` | Plantilla CD: deploy staging → DAST → promoción a prod bloqueada por críticos. |
+| `.github/workflows/deploy.yml` | CD **ejecutable**: CI-gate → deploy staging (Railway+Vercel) → DAST → promoción a prod bloqueada por críticos y por Environment `production`. |
+| `railway.json` | Config de build/deploy del backend en Railway (Dockerfile.backend, 1 réplica, restart ON_FAILURE). |
 | `.github/workflows/security-scheduled.yml` | Cron semanal: DAST completo (ZAP full + nuclei) contra staging. |
 | `docker-compose.staging.yml` | Entorno staging aislado (datos sintéticos) espejo del stack. |
 | `security/` | Config/infra de seguridad: semgrep, gitleaks, trivy, ZAP, nuclei + wrappers (ver `security/README.md`). |
@@ -299,55 +360,142 @@ Validaciones estáticas corridas (reales):
 
 ---
 
-## 11. Runbook de go-live (checklist accionable para el humano)
+## 11. Runbook de go-live (paso a paso, Vercel + Railway + Cloudflare R2)
 
-> Ejecutar en orden. Marca cada casilla. Lo que NO puede hacer devops sin ti está indicado como
-> **[HUMANO]**. Tras completar credenciales, el deploy es mecánico siguiendo §6.
+> Ejecutar **en orden**. `[HUMANO]` = lo hace la persona (crear cuentas, cargar secrets, DNS);
+> `[AUTO]` = lo hace el pipeline `deploy.yml`; `[DEVOPS]` = comando puntual de operación. Tras
+> completar A–E, el deploy es **mecánico**: push a `main` → CI verde → `deploy.yml` despliega staging,
+> corre DAST, y (con aprobación del Environment `production`) promueve a prod.
 
-**A. Cuentas y credenciales** — [HUMANO]
-- [ ] Cuenta de la plataforma de hosting (propuesta: **Vercel** front + **Railway** backend/DB/Redis) y
-      confirmar la topología con el **arquitecto** (o pedir alternativa).
-- [ ] **Stripe live**: `STRIPE_SECRET_KEY` (sk_live_…), `STRIPE_PUBLISHABLE_KEY` (pk_live_…) y, tras
-      crear el endpoint de webhook prod, `STRIPE_WEBHOOK_SECRET` (whsec_…). Confirmar la **tarifa MX real
-      de Stripe** para cargar los diales `stripe_fee_pct`/`stripe_fee_fixed_cents` (M10) del gross-up.
-- [ ] **APIs de precio**: `POKEMONTCG_IO_API_KEY` (raw/singles, fetch real). `POKEMONPRICETRACKER_API_KEY`
-      y `POKETRACE_API_KEY` (gradeadas/sellado): opcionales para el go-live porque hoy son **stub**
-      (BE-6); mientras tanto esas cartas se prician con **override manual** del admin.
-- [ ] **`BANXICO_SIE_TOKEN`** (portal SIE de Banxico, gratis) para el FX automático USD→MXN. Sin token,
-      el FX usa override manual (dial M10). `FX_SOURCE=banxico`.
-- [ ] **JWT secrets** nuevos y únicos de prod: `openssl rand -hex 48` para `JWT_ACCESS_SECRET` y otro
-      distinto para `JWT_REFRESH_SECRET`.
-- [ ] **Object storage R2/S3 (SEC-A5)**: crear bucket **PRIVADO** — sin lectura pública anónima,
-      **Block Public Access** activado (S3) / sin política pública (R2). Obtener `S3_ENDPOINT`,
-      `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. `S3_FORCE_PATH_STYLE=false`
-      en R2/S3 (true solo MinIO). Los prefijos `kyc_ine/` y `dispute_claim/` (INE/PII) se sirven
-      **solo por presigned GET** (lo implementa backend); no deben quedar detrás de una base pública.
-      `S3_PUBLIC_BASE_URL` (CDN) expone **únicamente** el prefijo público `inventory_photo/`.
-      **CORS del bucket:** allow-list **solo** el dominio del frontend (`APP_BASE_URL`), métodos
-      **PUT** (subida presignada) y **GET** (descarga presignada); nunca `AllowedOrigins: ["*"]`.
-- [ ] **SEED_ADMIN_* / SEED_OPERATOR_*** fuertes (super_admin + vault_operator) — SEC-C1,
-      `openssl rand -base64 24` por cada una. Rótalas tras el primer login.
+### 11.A — Crear proyectos en las plataformas — [HUMANO]
 
-**B. Dominios y red** — [HUMANO]
-- [ ] Dominio del negocio; DNS: `app.tudominio.com` → frontend, `api.tudominio.com` → backend.
-      HTTPS/TLS automático en Vercel/Railway.
-- [ ] `APP_BASE_URL=https://app.tudominio.com` y `NEXT_PUBLIC_API_BASE_URL=https://api.tudominio.com/api/v1`.
+**Vercel (frontend):**
+- [ ] Crear proyecto en Vercel conectando el repo de GitHub.
+- [ ] **Settings > General > Root Directory = `frontend`** (crítico: la app Next vive en `frontend/`).
+      Framework: **Next.js** (autodetectado). Node.js Version: **20.x**.
+- [ ] `vercel link` en local (o desde el dashboard) para obtener **`VERCEL_ORG_ID`** y
+      **`VERCEL_PROJECT_ID`** (quedan en `frontend/.vercel/project.json`; ese archivo NO se comitea).
+- [ ] Crear un **`VERCEL_TOKEN`** en Account Settings > Tokens.
 
-**C. Cargar variables** — [HUMANO, con guía devops]
-- [ ] Cargar todas las keys de §4 en el **secret manager** de la plataforma (nunca en el repo).
-      `NEXT_PUBLIC_*` se hornean en build del frontend (incluye `NEXT_PUBLIC_USE_MOCKS=false`).
+**Railway (backend + datos):**
+- [ ] Crear un **proyecto** en Railway conectando el repo.
+- [ ] Añadir el servicio **`backend`** (nombre EXACTO — lo usa `deploy.yml`). Railway detecta
+      `railway.json` → build con **`Dockerfile.backend`**.
+- [ ] Añadir el **add-on PostgreSQL 16** (New > Database > PostgreSQL) y el **add-on Redis 7**
+      (New > Database > Redis). Railway expone `DATABASE_URL` y `REDIS_URL`.
+- [ ] En el servicio `backend` > Variables, **referenciar** esas conexiones:
+      `DATABASE_URL=${{ Postgres.DATABASE_URL }}` y `REDIS_URL=${{ Redis.REDIS_URL }}`
+      (referencias de Railway; no copies el valor a mano).
+- [ ] Crear un **`RAILWAY_TOKEN`** de **proyecto** (Project Settings > Tokens) para el CI.
+- [ ] Crear un **environment `staging`** además de `production` en el proyecto Railway (Settings >
+      Environments) — `deploy.yml` usa `--environment staging` y `--environment production`.
 
-**D. Provisionar y desplegar** — devops ejecuta una vez que A–C estén listos
-- [ ] Provisionar Postgres 16, Redis 7 y bucket.
-- [ ] Deploy backend (`Dockerfile.backend`): al arrancar corre `prisma migrate deploy` (crea tablas +
-      `inventory_folio_seq`). Tomar **snapshot** de la DB antes de cualquier migración futura.
-- [ ] `./scripts/seed.sh` **una vez**: diales M10 + super_admin + ubicaciones base. Ajustar los diales
-      (markup de venta, tarifa Stripe MX, tope de reposición por carta) desde M10.
-- [ ] Deploy frontend (Vercel o `Dockerfile.frontend`) con `NEXT_PUBLIC_USE_MOCKS=false`.
-- [ ] Crear el **webhook de Stripe prod** → `https://api.tudominio.com/api/v1/webhooks/stripe`; copiar el
-      `whsec_…` a `STRIPE_WEBHOOK_SECRET` y redeploy backend.
+### 11.B — Cloudflare R2 (fotos) — [HUMANO]
 
-**E. Endurecimiento previo a público** (cambios de código → **rol backend**, no devops)
+- [ ] Crear un **bucket R2 PRIVADO** (sin acceso público). Los prefijos `kyc_ine/` y `dispute_claim/`
+      (INE/PII, SEC-A5) se sirven **solo por presigned GET** desde el backend; el bucket **no** es público.
+- [ ] Crear un **API Token de R2** (Account > R2 > Manage API Tokens) con permiso Object Read & Write
+      sobre el bucket. Anota: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, y el **endpoint S3**
+      `https://<accountid>.r2.cloudflarestorage.com` (`S3_ENDPOINT`), `S3_REGION=auto`,
+      `S3_BUCKET=<tu-bucket>`, `S3_FORCE_PATH_STYLE=false`.
+- [ ] **CORS del bucket** (R2 > Settings > CORS Policy): allow-list **solo** el dominio del front,
+      métodos **PUT** y **GET** (para presigned upload/download). Nunca `"*"`:
+      ```json
+      [{ "AllowedOrigins": ["https://app.tudominio.com"],
+         "AllowedMethods": ["PUT", "GET"],
+         "AllowedHeaders": ["content-type"],
+         "MaxAgeSeconds": 3000 }]
+      ```
+- [ ] **Lifecycle rule** de retención sobre el prefijo `kyc_ine/` = `INE_RETENTION_DAYS` (180). Es una
+      **capa extra**; el borrado principal lo hace el backend (ver §15.6).
+- [ ] **CDN público del catálogo:** exponer **únicamente** el prefijo `inventory_photo/` (bucket público
+      de R2 o dominio custom con regla que sirva solo ese prefijo) → `S3_PUBLIC_BASE_URL`. Las fotos
+      sensibles NUNCA salen por esta base.
+
+### 11.C — Dominios / DNS — [HUMANO]
+
+- [ ] `app.tudominio.com` → **Vercel** (añadir dominio en el proyecto Vercel; sigue el CNAME/registro que
+      indica). TLS automático.
+- [ ] `api.tudominio.com` → **Railway** (servicio backend > Settings > Networking > Custom Domain; añade
+      el CNAME que indica). TLS automático.
+- [ ] Fijar en consecuencia: `APP_BASE_URL=https://app.tudominio.com` (Railway) y
+      `NEXT_PUBLIC_API_BASE_URL=https://api.tudominio.com/api/v1` (Vercel).
+
+### 11.D — Cargar secrets (lista EXACTA, por plataforma) — [HUMANO]
+
+> Genera los secretos con: JWT `openssl rand -hex 48` (dos distintos); PII `openssl rand -base64 32`
+> (dos distintos entre sí); SEED `openssl rand -base64 24`.
+
+**[GH] GitHub Secrets** (Settings > Secrets and variables > Actions) — solo para el pipeline:
+- [ ] `RAILWAY_TOKEN` (token de proyecto Railway)
+- [ ] `VERCEL_TOKEN`
+- [ ] `VERCEL_ORG_ID`
+- [ ] `VERCEL_PROJECT_ID`
+- [ ] `STAGING_BASE_URL` (p. ej. `https://staging.tudominio.com` — objetivo del DAST)
+- [ ] `PROD_BASE_URL` (p. ej. `https://app.tudominio.com`)
+- [ ] *(opcional)* `STRIPE_TEST_*` si corres E2E/DAST con Stripe test en CI.
+
+> Si falta cualquiera de los 6 primeros, el job **`preflight` de `deploy.yml` FALLA** con la lista exacta
+> y **no despliega**. Es el comportamiento deseado (no un skip silencioso).
+
+**[RW] Railway → servicio `backend` → Variables** (runtime del backend):
+- [ ] `NODE_ENV=production`, `APP_BASE_URL`, `DEFAULT_LOCALE=es`
+- [ ] `DATABASE_URL=${{ Postgres.DATABASE_URL }}`, `REDIS_URL=${{ Redis.REDIS_URL }}` (referencias Railway)
+- [ ] `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` (distintos), `JWT_ACCESS_TTL=15m`, `JWT_REFRESH_TTL=30d`
+- [ ] `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` (distintos entre sí; **obligatorios** en no-local o el backend aborta)
+- [ ] `STRIPE_SECRET_KEY` (**sk_live_…**), `STRIPE_PUBLISHABLE_KEY` (**pk_live_…**), `STRIPE_WEBHOOK_SECRET`
+      (**whsec_…**, se rellena en 11.G tras crear el webhook)
+- [ ] `POKEMONTCG_IO_API_KEY`; `POKEMONPRICETRACKER_API_KEY` / `POKETRACE_API_KEY` (opcionales — hoy stub
+      BE-6, se cubre con override manual del admin)
+- [ ] `S3_ENDPOINT`, `S3_REGION=auto`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+      `S3_PUBLIC_BASE_URL`, `S3_FORCE_PATH_STYLE=false`, `INE_RETENTION_DAYS=180`
+- [ ] `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` (SIE de Banxico, gratis; sin él, FX cae a override manual)
+- [ ] `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_EMAIL`, `SEED_OPERATOR_PASSWORD` (fuertes)
+- [ ] *(los diales `stripe_fee_*`, markup, envío MX$175, topes, etc. NO son env — viven en M10/ConfigSetting)*
+
+> Repite el bloque [RW] en el **environment `staging`** de Railway, pero con **Stripe en modo TEST**
+> (`sk_test_`/`pk_test_`) y secretos propios de staging (nunca los de prod).
+
+**[VC] Vercel → proyecto frontend → Environment Variables** (Production y Preview=staging), solo públicas:
+- [ ] `NEXT_PUBLIC_API_BASE_URL` (= `https://api.tudominio.com/api/v1` en prod)
+- [ ] `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (**pk_live_…** en prod; pk_test_ en Preview)
+- [ ] `NEXT_PUBLIC_DEFAULT_LOCALE=es`
+- [ ] `NEXT_PUBLIC_USE_MOCKS=false`  ← **imprescindible** para pegarle al backend real.
+
+### 11.E — Proteger el Environment `production` — [HUMANO]
+
+- [ ] GitHub > Settings > Environments > **`production`** > **Required reviewers** (tú). Así la promoción a
+      prod de `deploy.yml` espera tu aprobación manual aunque el DAST pase.
+- [ ] Branch protection de `main`: required status checks `ci-ok`, `sast-ok` y las suites E2E.
+
+### 11.F — Primer deploy y migraciones + seed
+
+- [ ] **[AUTO/DEVOPS]** Disparar el primer deploy: push a `main` (dispara CI → `deploy.yml`) **o** manual
+      con `workflow_dispatch`. El backend, al arrancar en Railway, corre **`prisma migrate deploy`**
+      (crea tablas + `inventory_folio_seq`). Es idempotente en cada arranque.
+- [ ] **[DEVOPS] Seed inicial — UNA sola vez** por entorno (diales M10 + super_admin + vault_operator +
+      ubicaciones base). Desde el proyecto Railway:
+      ```bash
+      railway run --service backend --environment production npm run seed
+      ```
+      (equivale a `ts-node prisma/seed.ts`; la imagen conserva `ts-node` — ver §6.2). **No** re-seedear en
+      cada deploy. Tras el seed, **rota** las credenciales sembradas al primer login (SEC-C1).
+- [ ] **[HUMANO]** Ajustar los diales en M10 (markup de venta, tarifa Stripe MX del gross-up, tope de
+      reposición por carta) desde el back-office.
+- [ ] **Regla de oro:** toma **snapshot** de la DB de prod (Railway > Postgres > Backups) **antes** de cada
+      `migrate deploy` futuro que traiga un cambio de esquema.
+
+### 11.G — Webhook de Stripe en producción — [HUMANO]
+
+- [ ] Stripe Dashboard (live) > Developers > Webhooks > **Add endpoint**:
+      `https://api.tudominio.com/api/v1/webhooks/stripe`.
+- [ ] Habilitar eventos: `payment_intent.succeeded`, `payment_intent.payment_failed`,
+      `payment_intent.canceled`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`,
+      `charge.dispute.funds_reinstated`.
+- [ ] Copiar el **`whsec_…`** a `STRIPE_WEBHOOK_SECRET` en Railway (11.D [RW]) y **redeploy** del backend.
+      (El backend preserva el raw body en esa ruta — ver §3; no pongas un proxy que lo altere.)
+
+### 11.H — Endurecimiento previo a público (cambios de código → **rol backend**, no devops)
 - [ ] **BE-8**: restringir CORS a `APP_BASE_URL` (hoy `origin: true`).
 - [ ] **BE-5**: cablear el scheduling BullMQ de los 4 jobs (price-sync, fx-refresh, buylist-sweep,
       dispute-deadline) a `REDIS_URL`, para que las tareas diarias y los plazos 7d/30d corran solos.
@@ -355,8 +503,9 @@ Validaciones estáticas corridas (reales):
       y `dispute-deadline` no tienen endpoint aún.
 - [ ] **BE-7**: compensar reserva si Stripe falla tras commitear (evitar items `reserved` huérfanos).
 
-**F. Verificación post-deploy** — devops
-- [ ] Healthcheck de la API responde.
+### 11.I — Verificación post-deploy — [DEVOPS]
+- [ ] Healthcheck de la API responde (hoy no hay `/api/v1/health`; usa una ruta pública ligera o pídele a
+      backend que lo añada — ver §6.3). En Railway, el servicio debe quedar en estado *Active/healthy*.
 - [ ] Un flujo de compra en modo test (Stripe test keys en staging) → carta entra a bóveda
       `pending → settled` vía webhook `payment_intent.succeeded`.
 - [ ] Subida de una foto de prueba vía presigned PUT al bucket.
@@ -365,13 +514,26 @@ Validaciones estáticas corridas (reales):
       - Caso enviada/entregada: el item ya salió → **no** re-agrega al inventario y marca `chargebackNeedsManual`
         para revisión manual.
 
-**G. Banderas legales/fiscales** — [HUMANO] (no bloquean infra; sí operar con público real)
+### 11.J — Banderas legales/fiscales — [HUMANO] (no bloquean infra; sí operar con público real)
 - [ ] Legal de custodia/depositario y contrato de custodia. Fiscal buylist/SPEI. CFDI manual por correo
       (timbrado PAC = fase 2). ToS de las APIs de precio. Ver `PROJECT.md` › Riesgos.
 
-**H. Metas de lanzamiento** — [HUMANO]
+### 11.K — Metas de lanzamiento — [HUMANO]
 - [ ] Fijar N/X/Y/Z (usuarios, ventas settled, buylist pagadas, retiros sin disputa) al abrir la beta
       cerrada. No bloquean el deploy técnico.
+
+### 11.L — Rollback (por plataforma + datos)
+
+| Escenario | Acción |
+|---|---|
+| **Frontend roto (Vercel)** | Vercel > Deployments > deploy anterior bueno > **Promote to Production** (o **Rollback**). Instantáneo. |
+| **Backend roto (Railway)** | Railway > servicio `backend` > Deployments > deploy previo > **Redeploy/Rollback**. |
+| **Vía Git** | `git revert <sha>` del merge malo + push a `main` → CI + `deploy.yml` redespliegan la versión sana. |
+| **Migración de DB mala** | **Restaurar** desde el backup/point-in-time de Railway Postgres (por eso el snapshot **antes** de migrar, 11.F). Prisma no auto-revierte: preparar migración correctiva o `prisma migrate resolve`. |
+| **Dial M10 equivocado** | Corregir el dial en el back-office (sin redeploy); queda en `AuditLog`. |
+| **Secreto filtrado** | Rotar en el proveedor + actualizar en Railway/Vercel/GitHub + redeploy (ver §15.2). |
+
+> Orden de oro: **datos primero** (snapshot antes de migrar), luego código. Detalle general en §7.
 
 ---
 
@@ -437,7 +599,7 @@ El tooling (config/infra) vive en `security/` (propiedad devops). La **metodolog
 |---|---|---|---|
 | `security-sast.yml` | cada PR/push | semgrep + gitleaks + npm audit + trivy (fs+image) | sí, en high/critical. **ACTIVO ya.** |
 | `e2e.yml` | cada PR/push | boota Postgres/Redis/MinIO + `test:integration` (backend) y `test:e2e` (frontend) | sí, si falla una suite. **Activo cuando existan los scripts.** |
-| `deploy.yml` | push a release (hoy manual) | deploy staging → DAST (ZAP baseline + nuclei) → promoción a prod | promoción a prod **bloqueada** si hay críticos. **Plantilla (pendiente secrets).** |
+| `deploy.yml` | `workflow_run` de CI en `main` (o `workflow_dispatch`) | deploy staging (Railway+Vercel) → DAST (ZAP baseline + nuclei) → promoción a prod | promoción a prod **bloqueada** si hay críticos + Environment `production`. **Ejecutable (pendiente solo cargar secrets).** |
 | `security-scheduled.yml` | cron semanal (lun 06:00 UTC) | ZAP full + nuclei contra staging | reporta/alarma; no bloquea. **Plantilla (pendiente `STAGING_BASE_URL`).** |
 
 Todos los escáneres están parametrizados por `TARGET_URL` y tienen **guardia anti-producción**
@@ -482,9 +644,11 @@ Fuera de la ventana: `ALLOW_PROD_DAST=0` (o sin definir). Los scripts abortan so
 ### 14.4 Qué falta para activar los gates de deploy/DAST
 
 - `security-sast.yml` y (con los scripts de backend/frontend) `e2e.yml`: **ya activos**, sin secrets.
-- `deploy.yml` / `security-scheduled.yml`: cargar `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `STAGING_BASE_URL`,
-  `PROD_BASE_URL`, `STRIPE_TEST_*` como GitHub Secrets; descomentar los pasos de deploy y el trigger
-  `push` a la rama de release; proteger el Environment `production` con *required reviewers*.
+- `deploy.yml`: **ya ejecutable**. Solo falta cargar los GitHub Secrets (`RAILWAY_TOKEN`, `VERCEL_TOKEN`,
+  `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `STAGING_BASE_URL`, `PROD_BASE_URL`) y proteger el Environment
+  `production` con *required reviewers* (ver §11.D–E). El trigger `workflow_run` sobre CI en `main` ya
+  está cableado; sin secrets, `preflight` falla con mensaje claro.
+- `security-scheduled.yml`: cargar `STAGING_BASE_URL` para el DAST full semanal.
 
 ---
 
