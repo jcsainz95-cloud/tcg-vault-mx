@@ -186,6 +186,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - `id`, `userId`, `status` (`pending | settled | failed | refunded | chargeback`).
 - Desglose (todo en centavos MXN): `subtotalCents` (suma de líneas sin IVA), `processingFeeCents` (**fee de Stripe trasladado al comprador**, línea visible), `ivaCents` (**16% desglosado**), `totalCents` (= subtotal + fee + IVA).
 - `ivaRatePct` (snapshot del dial, default 16), `stripePaymentIntentId?`, `stripeChargeId?`, `billingSnapshot` (JSONB, datos CFDI al momento), `cfdiStatus` (`registrado | no_aplica` en MVP — sin PAC; `emitido` reservado para fase 2), `invoiceRequested` (bool, default false — el cliente pide factura por correo), `createdAt`, `settledAt?`, `refundedAt?`.
+- **Banderas operativas de disputa/contracargo** (escalares, NO cambian el enum `OrderStatus`): `chargebackNeedsManual` (bool, default false — el contracargo llegó cuando la carta **ya se había enviado/entregado**; requiere pelear la disputa con la guía, sin re-agregar inventario) y `disputeOutcome?` (`won | lost | null` — resultado del cierre de la disputa Stripe: `won→settled`, `lost→chargeback`). Se **exponen solo** en el detalle admin de orden del contrato (`GET /admin/orders/:id`), no en `OrderSummaryDTO` ni en el detalle del cliente.
 - Índices: `(userId)`, `(status)`, `stripePaymentIntentId` único.
 
 #### OrderItem
@@ -213,11 +214,12 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 #### Dispute (M8 — condición raw)
 - `id`, `userId`, `inventoryItemId` (o vía `orderItemId`), `type` (`condition_raw`), `status` (`abierta | en_revision | resuelta_recompra | rechazada`).
 - Evidencia: `ingressPhotoKeys` (referencia a fotos de ingreso del item), `claimPhotoKeys` (JSONB del cliente), `description`.
-- Remedio: `resolution?`, `repurchaseOrderId?` (recompra al precio pagado), `deadlineAt` (**7 días desde entrega**), `createdAt`, `resolvedAt?`, `resolvedBy?`.
+- Remedio: `resolution?`, `repurchaseOrderId?` (**recompra al precio pagado**), `deadlineAt` (**7 días desde entrega**), `createdAt`, `resolvedAt?`, `resolvedBy?`.
+- **Política VENTAS FINALES:** la recompra es una **compensación**; el **cliente conserva la carta** y la carta **NO** regresa al inventario (sin `InventoryMovement`, sin re-listar). Solo se registra el pago de recompra (money-out, súper-admin, auditado).
 
 #### ConfigSetting (M10 — diales editables sin deploy)
-- `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `sales_markup_pct`, `stripe_fee_pct`, `stripe_fee_fixed_cents`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `fx_manual_override_rate`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
-- Defaults iniciales: envío 17500, aportación 70, IVA 16, **markup de venta configurable (`sales_markup_pct`)**, **tarifa Stripe MX (`stripe_fee_pct`, `stripe_fee_fixed_cents`) para el gross-up**, tope solicitud 300000, tope mes 1000000, INE = tope solicitud, colchón FX configurable + override manual, providers según tabla de PROJECT.
+- `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `sales_markup_pct`, `stripe_fee_pct`, `stripe_fee_fixed_cents`, `stripe_fee_iva_pct`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `fx_manual_override_rate`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
+- Defaults iniciales: envío 17500, aportación 70, IVA 16, **markup de venta configurable (`sales_markup_pct`)**, **tarifa Stripe MX para el gross-up: `stripe_fee_pct`, `stripe_fee_fixed_cents` y `stripe_fee_iva_pct` (IVA sobre la comisión de Stripe, fracción `[0,1)`, default 0.16)**, tope solicitud 300000, tope mes 1000000, INE = tope solicitud, colchón FX configurable + override manual, providers según tabla de PROJECT.
 
 #### AuditLog (M10 — bitácora global)
 - `id`, `actorUserId`, `actorRole`, `action` (string, ej. `order.refund`, `sellrequest.pay_spei`, `settings.update`, `inventory.mark_damaged`), `entityType`, `entityId`, `before?` (JSONB), `after?` (JSONB), `ip?`, `createdAt`.
@@ -233,11 +235,24 @@ Compra Stripe (PaymentIntent creado)
 webhook payment_intent.succeeded
   → ownershipStatus=settled                         (Order.status=settled, settledAt)
 
-webhook charge.dispute.created (contracargo)
-  → item revierte a inventario de plataforma:
-    ownerType=platform, ownerUserId=null, ownershipStatus=null,
-    status=listed (o in_stock)                       (Order.status=chargeback)
-    movimiento reason=chargeback_return
+webhook charge.dispute.created (contracargo, CONSCIENTE DEL ESTADO FÍSICO)
+  → Order.status=chargeback en ambos casos, y:
+    (a) carta AÚN en bóveda (sin ShipmentItem enviado/entregado):
+        revierte a inventario de plataforma:
+        ownerType=platform, ownerUserId=null, ownershipStatus=null,
+        status=listed (o in_stock), movimiento reason=chargeback_return
+    (b) carta YA enviada/entregada:
+        NO se re-agrega al inventario; Order.chargebackNeedsManual=true
+        (pelear la disputa con la evidencia de la guía); sin movimiento
+
+webhook charge.dispute.closed / charge.dispute.funds_reinstated (cierre)
+  → ganamos: Order.status=settled, disputeOutcome=won
+    (la carta revertida en (a) se QUEDA en inventario de plataforma)
+  → perdemos: Order.status=chargeback (terminal), disputeOutcome=lost
+
+webhook payment_intent.canceled
+  → libera la reserva de compra (Order=failed, item reserved→listed)
+    o cancela un envío en 'solicitado' (ShipmentRequest=cancelado, libera items)
 
 Retiro
   → solo items con ownershipStatus=settled pueden entrar a ShipmentItem.
@@ -355,11 +370,13 @@ La categoría (`comun|reverse_holo|ex_plus`) se deriva de la rareza vía la **ta
 
 ### 4.3 Integración Stripe (payments)
 - Checkout crea `PaymentIntent` (o Checkout Session) con líneas: subtotal, **fee de procesamiento trasladado**, **IVA 16%**. El total cobrado incluye ambas.
-- Webhooks (endpoint único, firma verificada con `STRIPE_WEBHOOK_SECRET`):
-  - `payment_intent.succeeded` → `Order.status=settled`, `ownershipStatus=settled`.
-  - `charge.refunded` → `Order.status=refunded` (reembolso lo dispara súper-admin desde M3).
-  - `charge.dispute.created` → `Order.status=chargeback` + reversión del item al inventario.
-- Idempotencia por `event.id` (tabla/So set en Redis) para no reprocesar.
+- Webhooks (endpoint único, firma verificada con `STRIPE_WEBHOOK_SECRET`). Detalle de estados en §3.3 y en `API_CONTRACT.md §9`:
+  - `payment_intent.succeeded` → `Order.status=settled`, `ownershipStatus=settled` (o liquida el envío).
+  - `payment_intent.payment_failed` / `payment_intent.canceled` → libera la reserva de compra o cancela el envío en `solicitado`.
+  - `charge.refunded` → **total** ⇒ `Order.status=refunded`; **parcial** ⇒ no cambia el estado (conciliación M7). En ningún caso re-agrega el item (VENTAS FINALES).
+  - `charge.dispute.created` → `Order.status=chargeback`, **consciente del estado físico**: revierte el item **solo si sigue en bóveda**; si ya se envió/entregó marca `chargebackNeedsManual` sin re-agregar.
+  - `charge.dispute.closed` / `charge.dispute.funds_reinstated` → cierre: ganamos ⇒ `settled` (`disputeOutcome=won`), perdemos ⇒ `chargeback` (`disputeOutcome=lost`).
+- Idempotencia por `event.id` (tabla `ProcessedStripeEvent`) para no reprocesar; el evento se marca procesado **solo tras éxito** del handler (si falla, se re-lanza y Stripe reintenta).
 - El **fee trasladado** se calcula con gross-up para que la plataforma reciba neto ≈ subtotal+IVA (fórmula exacta: ver Preguntas para el humano).
 
 ### 4.4 Back-office M1–M10
@@ -386,17 +403,17 @@ salePriceCents(item) = item.listPriceCents  // = round(referenciaMxn × (1 + sal
 subtotalCents        = Σ salePriceCents(item)
 ivaCents             = round(subtotalCents × ivaPct/100)                 // ivaPct default 16
 baseCents            = subtotalCents + ivaCents                          // lo que la plataforma debe recibir íntegro
-// Gross-up de la comisión Stripe MX (pct + fija), configurable:
-totalCents           = ceil( (baseCents + stripeFixedCents) / (1 − stripePct) )
-processingFeeCents   = totalCents − baseCents                            // línea visible, SIN IVA adicional
+// Gross-up de la comisión Stripe MX (pct + fija), INCLUYENDO el IVA que Stripe cobra SOBRE su comisión:
+totalCents           = ceil( (baseCents + (1 + stripeFeeIvaPct)·stripeFixedCents) / (1 − (1 + stripeFeeIvaPct)·stripePct) )
+processingFeeCents   = totalCents − baseCents                            // línea visible, SIN IVA de PRODUCTO adicional
 ```
-Retiro/envío (mismo gross-up, IVA sobre el envío):
+Retiro/envío (mismo gross-up, IVA de producto sobre el envío):
 ```
 baseCents          = shippingFeeCents + round(shippingFeeCents × ivaPct/100)
-totalCents         = ceil( (baseCents + stripeFixedCents) / (1 − stripePct) )
+totalCents         = ceil( (baseCents + (1 + stripeFeeIvaPct)·stripeFixedCents) / (1 − (1 + stripeFeeIvaPct)·stripePct) )
 processingFeeCents = totalCents − baseCents
 ```
-`stripePct` y `stripeFixedCents` son diales de M10 (tarifa MX vigente de Stripe). El `processingFeeCents` es lo que la plataforma cede a Stripe, trasladado al comprador; tras la comisión, la plataforma recibe `baseCents` íntegro. El fee **no** vuelve a gravarse con IVA.
+`stripePct`, `stripeFixedCents` y `stripeFeeIvaPct` son diales de M10 (tarifa MX vigente de Stripe; `stripe_fee_iva_pct` default **0.16**). La comisión efectiva de Stripe es `(1+stripeFeeIvaPct)·(pct·total + fija)` porque Stripe MX **grava su propia comisión con IVA**; el gross-up despeja `total` para que, tras esa comisión con IVA, la plataforma reciba `baseCents` íntegro. El `processingFeeCents` es lo que la plataforma cede a Stripe (comisión + su IVA), trasladado al comprador. **Aclaración:** "el fee no lleva IVA" se refiere al **IVA de PRODUCTO** — el fee no agrega una línea de IVA de venta; el IVA de la *comisión de Stripe* sí está contemplado dentro del gross-up (cierre del hallazgo C1 de la revisión de Stripe).
 - **Seguridad/roles:** 3 roles. Autorización por **acción**, no solo por ruta (§7). Guard `MoneyOutGuard` exige `super_admin` para pagos SPEI y reembolsos; todo intento (permitido o bloqueado) se audita.
 - **Fotos:** subida directa a object storage con **presigned URLs**; la DB guarda solo keys. Captura móvil vía navegador (`capture`). Las fotos de ingreso raw son evidencia canónica de disputas.
 - **Sync de precios/FX (jobs BullMQ):**
@@ -472,7 +489,7 @@ Ninguna. Proyecto greenfield: aún no existe código en `backend/` ni `frontend/
 Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran como decisiones firmes en este documento y en el contrato. Se conservan aquí como registro.
 
 1. **Precio de venta = referencia del día + MARKUP configurable (dial M10).** El **valor de mercado** que se muestra es la **referencia** (`priceMxnCents` de `PriceReference`). El **precio de venta** es `round(referenciaMxn × (1 + salesMarkupPct/100))`. `salesMarkupPct` es un dial de M10 (`sales_markup_pct`). Se persiste como `InventoryItem.listPriceCents` al listar (o se calcula al vuelo si null) y se congela en `OrderItem.unitPriceCents` al checkout. En los DTOs se distingue `referenceValue` (valor de mercado) de `salePrice` (precio de venta). El override manual de precio puede fijar directamente el `listPriceCents` sin aplicar markup.
-2. **Fee de procesamiento Stripe = GROSS-UP.** El fee trasladado se calcula para que, tras la comisión de Stripe (tarifa MX), la plataforma reciba **íntegro** `subtotal + IVA`. Fórmula (ver §5.1): `total = (base + fija) / (1 − pct)`, `fee = total − base`, donde `base = subtotal + IVA`. Se persiste en `Order.processingFeeCents` y es una línea visible del `BreakdownDTO`. El fee **no** lleva IVA adicional.
+2. **Fee de procesamiento Stripe = GROSS-UP.** El fee trasladado se calcula para que, tras la comisión de Stripe (tarifa MX **más el IVA que Stripe cobra sobre su comisión**), la plataforma reciba **íntegro** `subtotal + IVA`. Fórmula vigente (ver §5.1, refinada por el hallazgo C1): `total = (base + (1+stripeFeeIvaPct)·fija) / (1 − (1+stripeFeeIvaPct)·pct)`, `fee = total − base`, donde `base = subtotal + IVA`. Se persiste en `Order.processingFeeCents` y es una línea visible del `BreakdownDTO`. El fee **no** lleva IVA de **producto** adicional.
 3. **IVA 16% sobre `subtotal + envío`.** El IVA grava el subtotal de cartas **y** la tarifa de envío (servicio gravado). El **fee de procesamiento va tal cual (sin IVA)**. Default a validar con contador. En compras de carrito el `ivaCents = round((subtotal) × ivaPct/100)`; en retiros `ivaCents = round(shippingFee × ivaPct/100)`.
 4. **CFDI sin PAC en el MVP.** No se integra PAC ni se timbra en el MVP. El flujo de factura es **manual por correo**: la UI muestra la instrucción de que, para pedir factura, el cliente envíe un correo con sus datos fiscales. El sistema guarda el **IVA cobrado por orden** (M7) y un flag `invoiceRequested` (opcional) por orden. **Timbrado real = fase 2.** `CfdiStatus` se reduce a `registrado | no_aplica` en MVP (`emitido` queda reservado para fase 2).
 5. **FX USD→MXN automático (Banxico) + colchón + override manual.** Job diario `fx-refresh` obtiene el tipo de cambio de una fuente tipo **Banxico** (SIE), aplica el **colchón** (`fx_buffer_pct`, dial M10) y escribe `FxRate` (`source=banxico`). Si el fetch falla o el admin fija un override, se usa `FxRate` con `source=manual` (dial M10) como fallback; el override tiene prioridad sobre el valor automático del mismo día.
