@@ -360,7 +360,10 @@ Validaciones estáticas corridas (reales):
 - [ ] Un flujo de compra en modo test (Stripe test keys en staging) → carta entra a bóveda
       `pending → settled` vía webhook `payment_intent.succeeded`.
 - [ ] Subida de una foto de prueba vía presigned PUT al bucket.
-- [ ] Un `charge.dispute.created` de Stripe CLI revierte el item a inventario de plataforma.
+- [ ] Un `charge.dispute.created` de Stripe CLI es **consciente del estado físico** de la carta:
+      - Caso en-bóveda: el item sigue en custodia → revierte a inventario de plataforma (`platform/listed`).
+      - Caso enviada/entregada: el item ya salió → **no** re-agrega al inventario y marca `chargebackNeedsManual`
+        para revisión manual.
 
 **G. Banderas legales/fiscales** — [HUMANO] (no bloquean infra; sí operar con público real)
 - [ ] Legal de custodia/depositario y contrato de custodia. Fiscal buylist/SPEI. CFDI manual por correo
