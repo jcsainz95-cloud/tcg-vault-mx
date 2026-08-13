@@ -8,7 +8,9 @@
     "start": "next start -p 3000",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@stripe/stripe-js": "^4.8.0",
@@ -22,6 +24,7 @@
     "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.0.1",

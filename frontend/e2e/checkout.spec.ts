@@ -1,0 +1,51 @@
+import { test, expect } from '@playwright/test';
+import { t } from './utils/i18n';
+
+/**
+ * Flujo: agregar al carrito → checkout con AmountBreakdown (subtotal + fee + IVA
+ * 16%) y mensaje CFDI por correo. PROJECT §B / AC 4, 30; contrato §4.
+ * En modo mocks el pago se simula (no hay Stripe real); contra backend real el
+ * botón dispara POST /checkout/session. Ver FRONTEND_NOTES.
+ */
+test.describe('checkout · desglose y CFDI', () => {
+  test('muestra subtotal + procesamiento + IVA 16% + total y aviso CFDI', async ({ page }) => {
+    await page.goto('/es/catalog');
+    // Agrega la primera carta vendible (Charizard) al carrito.
+    await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
+
+    await page.goto('/es/checkout');
+
+    const breakdown = page.getByTestId('amount-breakdown');
+    await expect(breakdown).toBeVisible();
+    await expect(breakdown.getByText(t('es', 'checkout.subtotal'))).toBeVisible();
+    await expect(breakdown.getByText(t('es', 'checkout.iva', { rate: 16 }))).toBeVisible();
+    await expect(breakdown.getByText(t('es', 'checkout.processingFee'))).toBeVisible();
+    await expect(breakdown.getByText(t('es', 'checkout.total'))).toBeVisible();
+
+    // Mensaje CFDI: solicitar factura por correo con datos fiscales.
+    await expect(page.getByText(t('es', 'checkout.cfdiNotice'))).toBeVisible();
+    // Titularidad pendiente hasta liquidar.
+    await expect(page.getByText(t('es', 'checkout.afterPayment'))).toBeVisible();
+  });
+
+  test('el pago (simulado) confirma y ofrece ir a la bóveda', async ({ page }) => {
+    await page.goto('/es/catalog');
+    await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
+    await page.goto('/es/checkout');
+
+    await page.getByRole('button', { name: /Pagar/ }).click();
+    await expect(page.getByText(t('es', 'checkout.paidTitle'))).toBeVisible();
+    // El CTA de éxito vive en el contenido principal (no en la nav del header).
+    await expect(page.getByRole('main').getByRole('link', { name: t('es', 'nav.vault') })).toBeVisible();
+  });
+
+  test('desglose de checkout en inglés', async ({ page }) => {
+    await page.goto('/en/catalog');
+    await page.getByRole('button', { name: t('en', 'catalog.addToCart') }).first().click();
+    await page.goto('/en/checkout');
+
+    const breakdown = page.getByTestId('amount-breakdown');
+    await expect(breakdown.getByText(t('en', 'checkout.iva', { rate: 16 }))).toBeVisible();
+    await expect(page.getByText(t('en', 'checkout.cfdiNotice'))).toBeVisible();
+  });
+});

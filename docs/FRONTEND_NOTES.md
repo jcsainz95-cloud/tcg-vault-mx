@@ -12,7 +12,9 @@
 - **next-intl v3** para i18n ES/EN (default ES), ruteo `[locale]` con `localePrefix: 'always'`.
 - **TanStack Query v5** para data fetching (estados carga/error/vacío consistentes).
 - **lucide-react** para iconografía; **clsx + tailwind-merge** (`cn`).
-- **Vitest + Testing Library** para tests.
+- **Vitest + Testing Library** para tests unitarios.
+- **Playwright** (`@playwright/test`) para E2E de flujos contra la app corriendo. Usa el
+  **Chromium ya instalado** del entorno (`/opt/pw-browsers/chromium`), sin descargas.
 - Output `standalone` (compatible con `Dockerfile.frontend` de devops).
 
 ## Cómo correr
@@ -23,8 +25,9 @@ npm install
 npm run dev        # http://localhost:3000 (redirige a /es)
 npm run lint       # eslint (next/core-web-vitals)
 npm run typecheck  # tsc --noEmit
-npm run test       # vitest (10 tests)
+npm run test       # vitest unit (10 tests)
 npm run build      # next build (standalone)
+npm run test:e2e   # Playwright E2E (28 tests) — ver sección "Tests E2E"
 ```
 
 Variables (raíz `.env.example`, `NEXT_PUBLIC_*`):
@@ -111,12 +114,74 @@ ThemeToggle, SafeShippingGuide, DataTable (responsive → cards en móvil), Empt
 QueryState`. Todos consumen solo tokens semánticos (sin hex crudo), tienen foco visible 3px,
 objetivos táctiles ≥44px, y estados carga/vacío/error donde aplica.
 
-## Tests (10, todos verdes)
+## Tests unitarios (vitest, 10, todos verdes)
 
 - `AmountBreakdown.test.tsx`: render de las 4 líneas + total formateado; variante envío; ES y EN.
 - `StatusBadge.test.tsx`: enum→texto en ES y EN (cambio de idioma), badge de precio pendiente.
 - `format.test.ts`: centavos→MXN, nunca centavos crudos, fecha localizada distinta por locale.
 - `i18n-parity.test.ts`: paridad de claves ES↔EN + cobertura enum→clave i18n.
+
+Comando: `npm run test` (vitest). Los unit viven en `src/**/*.test.{ts,tsx}` y están
+**separados** de los E2E por script y por config (vitest `include: src/**` no toca `e2e/`).
+
+## Tests E2E (Playwright, 28, todos verdes) — "teoría → realidad"
+
+Verifican los **flujos de usuario contra la app corriendo** (no componentes aislados). Para
+QA/devops: mismo espíritu que el humano pidió (que "funcione de verdad", no solo que compile).
+
+### Cómo correr
+
+```bash
+cd frontend
+npm run test:e2e            # script que invoca devops desde CI
+npm run test:e2e:report     # abre el reporte HTML del último run
+```
+
+- **Navegador**: Chromium **ya instalado** en el entorno (`/opt/pw-browsers/chromium`).
+  `playwright.config.ts` lo apunta con `launchOptions.executablePath` y respeta
+  `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`. **No** se corre `playwright install` (sin descargas).
+  Sobreescribible con `PLAYWRIGHT_CHROMIUM_PATH`.
+- **App bajo prueba**: parametrizada por **`E2E_BASE_URL`** (la app corriendo que levanta devops).
+  - Si `E2E_BASE_URL` **está definida** → Playwright **no** levanta server, apunta ahí.
+  - Si **no** está definida → Playwright levanta `npm run dev` con **`NEXT_PUBLIC_USE_MOCKS=true`**
+    (webServer del config) y prueba en `http://localhost:3000`. Así QA corre los E2E **sin backend**.
+- Los asserts usan las **claves i18n reales** de `messages/{es,en}.json` (helper `e2e/utils/i18n.ts`),
+  no textos hardcodeados; se prueban **ES y EN** donde aplica. Los datos de catálogo (nombres de
+  cartas/sets) se asertan como literales en inglés (por diseño no se traducen).
+
+### Qué cubren (por spec, en `frontend/e2e/`)
+
+- `i18n-locale.spec.ts` — **toggle ES/EN** (AC 32): la UI cambia de idioma, `<html lang>` y el
+  prefijo de ruta `/es|/en` se actualizan.
+- `auth.spec.ts` — **login/registro** (ES y EN) + toggle de idioma en el shell de auth.
+- `catalog.spec.ts` — **catálogo + filtros** (filtra por rareza), **ficha** (valor de mercado vs
+  precio de venta, "sin IVA"), carta **"precio pendiente"** no comprable (AC 1, 2, 3, 3b).
+- `checkout.spec.ts` — **AmountBreakdown** (subtotal + procesamiento + **IVA 16%** + total),
+  mensaje **CFDI por correo**, aviso de titularidad pendiente, pago (simulado) → éxito (AC 4, 30).
+- `vault.spec.ts` — **Mi bóveda/portafolio**: titularidad `pending/settled`, valor total, retiro
+  solo habilitado para `settled` (AC 5, 6, 8, 10).
+- `shipments.spec.ts` — **retiro/envío**: desglose tarifa fija + IVA, rechazo de dirección
+  no-MX (`ADDRESS_NOT_MX`), cartas no elegibles (AC 9, 10, 31).
+- `buylist.spec.ts` — **cotizador**: EX+ = 40% de la referencia, banner **PAY_AFTER_RECEIPT**,
+  **guía de envío seguro** (sleeve/top loader), cola de **precio pendiente** (AC 12, 13, 33, 34).
+- `admin.spec.ts` — **panel admin**: dashboard **8 tarjetas**, **enmascarado financiero** para
+  `vault_operator`, **M1** (PhotoUploader anverso/reverso), **M5** (cherry-pick + nota dinero
+  saliente), **M8** (comparador de fotos) (AC 24, 25, 27).
+
+### Qué corre aquí (mocks, sin backend) vs qué necesita backend real
+
+- **Todo el suite corre HOY con `NEXT_PUBLIC_USE_MOCKS=true`** (Chromium local, sin stack). Es el
+  modo pensado para que QA lo ejecute sin backend. Los asserts de datos específicos (cartas
+  Charizard/Pikachu, totales MXN, portafolio) dependen de los **fixtures** del contrato.
+- Contra un **`E2E_BASE_URL` con backend real** los mismos flujos de UI se validan igual, pero:
+  - los **datos** deben estar **seeded** de forma equivalente para que los asserts de valores
+    concretos coincidan (o se ajustan a datos del backend);
+  - las acciones que hoy están **simuladas** en el front pasan a ser **reales**: `POST /auth/*`
+    (sesión), **Stripe** en checkout/envío (`/checkout/session`, `/shipments`), **presign+PUT** de
+    fotos (`/uploads/presign`) y las **mutaciones de admin** (M1 alta, M3 refund, M5 decisión/convert/
+    pay-spei, M8 resolve). Ver "TODO para integración real" abajo.
+- **No** hay E2E que dependan de un backend corriendo para poder ejecutarse: el suite es
+  **self-contained** en modo mocks. Marcamos arriba qué se vuelve "real" al integrar.
 
 ## Supuestos tomados
 

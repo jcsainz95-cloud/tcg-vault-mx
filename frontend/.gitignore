@@ -6,3 +6,7 @@ next-env.d.ts
 .env*.local
 *.tsbuildinfo
 coverage
+/playwright-report
+/test-results
+/blob-report
+/e2e/.auth
