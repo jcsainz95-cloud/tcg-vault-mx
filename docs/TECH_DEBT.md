@@ -98,4 +98,78 @@
 
 ## Frontend (dueño: frontend)
 
-> _(Reservado para que el rol frontend agregue su sección. Backend no escribe aquí.)_
+> Deuda aceptada, no bloqueante para el MVP. El cliente compila y pasa lint/typecheck/test/build; todas
+> las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la
+> fase de integración con el backend real y post-MVP. Detalle operativo en `docs/FRONTEND_NOTES.md`.
+
+### FE-1 · Mocks activos por default + `computeBreakdown` duplica la fórmula de dinero
+- **Dónde:** `frontend/src/lib/config.ts` (`useMocks` default `true`), `frontend/src/lib/api.ts`
+  (`computeBreakdown`, réplica local de ARCHITECTURE §5.1) y `frontend/src/lib/mock/fixtures.ts`.
+- **Estado actual:** con `NEXT_PUBLIC_USE_MOCKS` distinto de `"false"` el cliente sirve fixtures locales.
+  El desglose de dinero de esos fixtures se calcula con `computeBreakdown` (subtotal + IVA 16% + fee
+  gross-up), que **duplica** la fórmula del backend solo para tener números coherentes en los mocks.
+- **Impacto:** riesgo de **divergencia** si el backend cambia IVA/markup/tarifa Stripe o la fórmula de
+  gross-up: los mocks mostrarían cifras que ya no coinciden. En producción no aplica (la UI solo pinta el
+  `BreakdownDTO` que llega del backend), pero mantener la fórmula duplicada puede confundir.
+- **Disparador:** al integrar con backend real (`NEXT_PUBLIC_USE_MOCKS=false`). Acción: **eliminar**
+  `computeBreakdown` del camino real y consumir el `BreakdownDTO` del backend (incluido `ivaRatePct`) como
+  **única fuente**; dejar la fórmula solo en fixtures o retirarla del bundle de producción.
+
+### FE-2 · Integraciones reales pendientes (auth, Stripe, presign de fotos, mutaciones admin)
+- **Dónde:** `frontend/src/components/domain/AuthForm.tsx` (token local simulado en `localStorage`),
+  `frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx` y `.../shipments/ShipmentsView.tsx`
+  (pago simulado, sin Stripe Elements), `frontend/src/components/ui/PhotoUploader.tsx` (subida simulada,
+  sin presign PUT), y las vistas admin M1/M3/M5/M8 (acciones sin `mutation` cableada a `/admin/*`).
+- **Estado actual:** el cliente API tipado (`frontend/src/lib/api.ts`) ya llama a las rutas reales del
+  contrato cuando `useMocks=false`; faltan las piezas que dependen de credenciales/SDK externos y las
+  mutaciones de escritura del panel.
+- **Impacto:** hasta cablearlas, no hay auth real, no se cobra por Stripe, no se suben fotos a S3/MinIO y
+  las decisiones de admin no persisten. No afecta la navegación ni la lectura del MVP con mocks.
+- **Disparador:** fase de integración con backend. Acción: montar `@stripe/stripe-js` + Elements con el
+  `clientSecret` de `POST /checkout/session` y `POST /shipments`; auth con `POST /auth/login|register|refresh`,
+  `GET /users/me` y `PATCH /users/me { locale }`; `POST /uploads/presign` + `PUT` directo en `PhotoUploader`;
+  y `useMutation` para M1 alta, M3 refund, M5 decisiones/convert/pay-spei, M8 resolve.
+
+### FE-3 · UI de módulos admin M2/M6/M7/M9/M10 en placeholder
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/{m2,m6,m7,m9,m10}/page.tsx` +
+  `frontend/src/components/domain/ModuleTodo.tsx`.
+- **Estado actual:** M1, M3, M4, M5 y M8 (más dashboard) tienen UI funcional; M2 (precios/FX/override),
+  M6 (usuarios/KYC 360°), M7 (finanzas/P&L/export CSV), M9 (reportes) y M10 (config/diales/bitácora)
+  muestran un placeholder `ModuleTodo`. Los tipos y rutas del contrato ya están mapeados.
+- **Impacto:** faltan superficies del back-office; no bloquea las verticales priorizadas del MVP.
+- **Disparador:** post-MVP / fase 2, o cuando el negocio necesite operar esos módulos desde la UI. Acción:
+  construir las vistas consumiendo `/admin/pricing/*`, `/admin/fx`, `/admin/users/*`, `/admin/finance/*`,
+  `/admin/reports/*`, `/admin/settings` y `/admin/audit-log`, reutilizando `DataTable`, `StatCard`,
+  `Modal` y el enmascarado por rol ya existentes.
+
+### FE-4 · Sesión/enmascarado por rol simulados en cliente
+- **Dónde:** `frontend/src/lib/role.tsx` (contexto que alterna `super_admin`/`vault_operator` vía
+  `localStorage`) y `frontend/src/lib/api-client.ts` (token en `localStorage`).
+- **Estado actual:** el rol de back-office se elige con un switch en el topbar para **demostrar** el
+  enmascarado financiero y el bloqueo de dinero saliente; el backend deriva el rol del JWT. No hay guardas
+  de ruta reales ni expiración/refresh de token en el cliente.
+- **Impacto:** el enmascarado del cliente es **presentacional**; la autorización real la impone el backend
+  (contrato §7). Sin auth real, cualquiera puede cambiar el switch de rol. No es una brecha de producción
+  porque el servidor manda, pero la UX de sesión está incompleta.
+- **Disparador:** junto con FE-2 (auth real). Acción: derivar el rol de `GET /users/me`, proteger las rutas
+  `(admin)/*` según rol, y manejar refresh/expiración y `403 MONEY_OUT_FORBIDDEN` desde el backend.
+
+### FE-5 · Fuente Inter no self-hosted (fallback de sistema)
+- **Dónde:** `frontend/src/app/globals.css` (`--font-inter: 'Inter'` con fallback `system-ui`) y
+  `frontend/tailwind.config.ts` (`fontFamily.sans`).
+- **Estado actual:** para evitar dependencia de red en el build (descarga de Google Fonts), no se usa
+  `next/font`; los tokens tipográficos del DESIGN_SYSTEM ya están listos, pero si el sistema no tiene Inter
+  se cae a la fuente del sistema.
+- **Impacto:** cosmético/consistencia de marca entre entornos; sin efecto en accesibilidad ni layout
+  (los tamaños/pesos y `tabular-nums` se respetan igual).
+- **Disparador:** al pulir el look final o cuando devops confirme acceso a fuentes en build. Acción:
+  self-host de Inter (variable) vía `next/font/local` o `next/font/google` con subconjunto `latin`+`latin-ext`.
+
+### FE-6 · Persistencia de `locale` con sesión pendiente
+- **Dónde:** `frontend/src/components/ui/LocaleToggle.tsx`.
+- **Estado actual:** el toggle ES/EN cambia el idioma por ruta (`[locale]`), pero no persiste la preferencia
+  en `User.locale` (`PATCH /users/me`) porque aún no hay auth real; sin sesión, depende del prefijo de ruta.
+- **Impacto:** bajo. El idioma funciona y es consistente por navegación; solo falta recordar la preferencia
+  del usuario logueado entre dispositivos.
+- **Disparador:** junto con FE-2 (auth real). Acción: al cambiar locale con sesión activa, llamar
+  `PATCH /users/me { locale }` además de actualizar la ruta.
