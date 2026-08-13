@@ -67,13 +67,21 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Al pagar, la carta comprada entra a la **bóveda del usuario** con titularidad `pending`.
 - [ ] Cuando el pago se liquida, la titularidad pasa a `settled`.
 - [ ] **Sin wallet de saldo**: el dinero se liquida por transacción; la plataforma no guarda saldo del usuario.
-- [ ] **Ventas finales — sin reembolso voluntario**: una vez comprada una carta **no hay reembolso**, ni
-      estando en bóveda ni ya enviada. El **checkout muestra un aviso explícito** de "ventas finales, sin
-      reembolso salvo carta dañada o equivocada", con enlace a la **página de términos/políticas**.
-- [ ] **Única excepción — disputa de condición**: si la carta **llega/está dañada o equivocada**, aplica la
-      **disputa de condición** (ventana de **7 días**, con las **fotos de ingreso** a bóveda como evidencia
-      canónica). Si procede, el **súper-admin compensa recomprando al precio pagado** y el **cliente conserva
-      la carta** (NO se exige devolución; el envío de regreso no es requisito para compensar).
+- [ ] **Ventas finales — sin reembolso voluntario**: una vez comprada una carta **no hay reembolso** a
+      solicitud del cliente, ni estando en bóveda ni ya enviada. Esta política aplica a **todos los tipos de
+      producto sin excepción** (raw, sellado y gradeadas). El **checkout muestra un aviso explícito** de
+      "ventas finales, sin reembolso salvo carta dañada/equivocada o error de la plataforma", con enlace a la
+      **página de términos/políticas**.
+- [ ] **Excepción 1 — disputa de condición**: si la carta **llega/está dañada o equivocada**, aplica la
+      **disputa de condición** (ventana de **7 días contados desde la entrega del envío** —cuando paquetería
+      marca "entregado"—, con las **fotos de ingreso** a bóveda como evidencia canónica). Si procede, el
+      **súper-admin compensa recomprando al precio pagado** y el **cliente conserva la carta** (NO se exige
+      devolución; el envío de regreso no es requisito para compensar).
+- [ ] **Excepción 2 — error de la plataforma (siempre se reembolsa)**: un **error nuestro** —por ejemplo, un
+      **cobro duplicado** o **inventario fantasma** (compra de una carta de la que nunca tuvimos existencia
+      real en bóveda)— **siempre se reembolsa**. NO es "arrepentimiento del comprador": es la **corrección de
+      un error propio** y no está sujeto a la ventana de 7 días ni a la evidencia de fotos de la disputa de
+      condición. El **súper-admin ejecuta el reembolso** para restituir el cobro indebido.
 - [ ] **Contracargo bancario ≠ reembolso**: se aclara al cliente (en términos/FAQ) que un **contracargo** es
       un proceso que puede iniciar **con su banco de forma independiente**, distinto de la política de
       reembolsos de la plataforma.
@@ -135,7 +143,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **valor de inventario a referencia vs costo**, **valor en custodia de clientes**, **IVA cobrado
       registrado** (para conciliación/CFDI), **export CSV**.
 - [ ] **M8 — Disputas**: **comparador de fotos** (ingreso vs reclamo), **recompra al precio pagado** como
-      remedio (carta dañada/equivocada, ventana 7 días, **sin exigir devolución**; solo súper-admin).
+      remedio (carta dañada/equivocada, ventana de **7 días desde la entrega del envío**, **sin exigir
+      devolución**; solo súper-admin). El **reembolso por error de la plataforma** (cobro duplicado /
+      inventario fantasma) se ejecuta en **M3** (no requiere disputa ni ventana).
 - [ ] **M9 — Reportes mínimos**: métricas de lanzamiento + **export**.
 - [ ] **M10 — Config y bitácora**: **diales editables sin deploy** + **auditoría global** (quién / qué / cuándo).
       Diales con **valores por defecto** (todos configurables): **markup de precio de venta** (% sobre la
@@ -164,13 +174,19 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       incidente**, con **tope por carta configurable por el dueño** (M10). Seguro formal = bandera legal, no
       bloquea MVP técnico.
 - [ ] **Ventas finales (sin reembolso voluntario)**: toda compra es **final**; no hay reembolso a solicitud
-      del cliente, ni con la carta en bóveda ni ya enviada. La **única excepción** es la disputa de condición
-      (carta dañada/equivocada) descrita abajo. Esta política se comunica en el **checkout** y en la
-      **página de términos/políticas**.
-- [ ] **Disputas de condición (carta dañada o equivocada)**: única vía de compensación. Las **fotos de
-      ingreso a bóveda son la evidencia canónica**; decide el admin/súper-admin dentro de una **ventana de 7
-      días**; si procede, remedio = **recompra al precio pagado**, y el **cliente conserva la carta** (NO se
-      exige devolución; el envío de regreso no es requisito para compensar).
+      del cliente, ni con la carta en bóveda ni ya enviada. Aplica a **todos los tipos de producto sin
+      excepción** (raw, sellado y gradeadas). Las **dos únicas excepciones** son la disputa de condición
+      (carta dañada/equivocada) y el error de la plataforma (cobro duplicado / inventario fantasma), descritas
+      abajo. Esta política se comunica en el **checkout** y en la **página de términos/políticas**.
+- [ ] **Disputas de condición (carta dañada o equivocada)**: vía de compensación por error de condición. Las
+      **fotos de ingreso a bóveda son la evidencia canónica**; decide el admin/súper-admin dentro de una
+      **ventana de 7 días contados desde la entrega del envío** (cuando paquetería marca "entregado"); si
+      procede, remedio = **recompra al precio pagado**, y el **cliente conserva la carta** (NO se exige
+      devolución; el envío de regreso no es requisito para compensar).
+- [ ] **Error de la plataforma (siempre se reembolsa)**: un error propio —**cobro duplicado** o **inventario
+      fantasma** (venta de una carta sin existencia real en bóveda)— **siempre se reembolsa**. No es
+      arrepentimiento del comprador sino corrección de un error nuestro; **no aplica la ventana de 7 días ni la
+      evidencia de fotos**. Lo ejecuta el **súper-admin** (reembolso en M3).
 - [ ] **Contracargo bancario (independiente)**: el cliente puede iniciar un **contracargo con su banco** por
       su cuenta; es un proceso ajeno a la política de reembolsos de la plataforma y se maneja según la regla
       de contracargo (revierte la carta al inventario y refleja el estado de la orden).
@@ -219,11 +235,14 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   los **datos del catálogo** permanecen en inglés.
 - **Panel de administración responsive** con **captura de fotos desde móvil**.
 - **Política de reembolsos — VENTAS FINALES**: no hay reembolso voluntario tras la compra (en bóveda o
-  enviada). **Única excepción**: **disputa de condición** por carta **dañada/equivocada** (ventana 7 días,
-  fotos de ingreso como evidencia) → el súper-admin **recompra al precio pagado** y el **cliente conserva la
-  carta** (sin devolución). Un **contracargo bancario** es un proceso independiente que el cliente inicia con
-  su banco. El **checkout debe mostrar el aviso** y debe existir una **página de términos/políticas** con el
-  texto completo.
+  enviada); aplica a **todos los tipos de producto sin excepción** (raw, sellado y gradeadas). **Dos
+  excepciones**: (1) **disputa de condición** por carta **dañada/equivocada** (ventana de **7 días contados
+  desde la entrega del envío** —paquetería marca "entregado"—, fotos de ingreso como evidencia) → el
+  súper-admin **recompra al precio pagado** y el **cliente conserva la carta** (sin devolución); (2) **error
+  de la plataforma** (**cobro duplicado** o **inventario fantasma**) → **siempre se reembolsa**, sin ventana
+  de 7 días ni fotos, porque es corrección de un error propio y no arrepentimiento del comprador. Un
+  **contracargo bancario** es un proceso independiente que el cliente inicia con su banco. El **checkout debe
+  mostrar el aviso** y debe existir una **página de términos/políticas** con el texto completo.
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos).
 - **Branch de trabajo**: `claude/tcg-cards-marketplace-oijthj`.
 - Stack, base de datos y despliegue: **a decisión del arquitecto** (nada predefinido por el humano).
@@ -252,11 +271,16 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 6. Un usuario NO tiene saldo/wallet en ninguna vista; todo se maneja por transacción.
 7. Un contracargo mueve la carta afectada de la bóveda del usuario de vuelta al inventario de la
    plataforma y la orden queda en estado `contracargo`.
-7b. El **checkout muestra el aviso de "ventas finales, sin reembolso salvo carta dañada/equivocada"**
-   (con enlace a los términos), y **existe una página de términos/políticas** que describe la política
-   completa: ventas finales, la excepción de disputa de condición (ventana 7 días, recompra al precio
-   pagado con el cliente conservando la carta) y la aclaración de que el contracargo bancario es un proceso
-   independiente ante el banco del cliente.
+7b. El **checkout muestra el aviso de "ventas finales, sin reembolso salvo carta dañada/equivocada o error
+   de la plataforma"** (con enlace a los términos), y **existe una página de términos/políticas** que
+   describe la política completa: ventas finales aplicables a todos los tipos de producto (raw, sellado y
+   gradeadas), la excepción de disputa de condición (ventana de 7 días contados desde la entrega del envío,
+   recompra al precio pagado con el cliente conservando la carta), la excepción de error de la plataforma
+   (cobro duplicado / inventario fantasma se reembolsan siempre) y la aclaración de que el contracargo
+   bancario es un proceso independiente ante el banco del cliente.
+7c. Un **cobro duplicado** o una **compra sin inventario real** (inventario fantasma) **se reembolsa**: el
+   súper-admin puede ejecutar el reembolso en M3 sin depender de la ventana de 7 días ni de las fotos de
+   ingreso, y la orden queda en estado `reembolsada`.
 
 **Portafolio**
 8. "Mi bóveda" lista las cartas del usuario y muestra un **valor total de portafolio** en MXN,
@@ -297,10 +321,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 21. En M7 el P&L calcula **ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia**, muestra
     **valor de inventario (a referencia y a costo)**, **valor en custodia de clientes** y el **IVA cobrado**
     (para conciliación/CFDI), con **export CSV**.
-22. En M8, ante una disputa de condición (carta dañada/equivocada, dentro de la ventana de 7 días), el
-    admin ve un **comparador de fotos (ingreso vs reclamo)** y puede ejecutar la **recompra al precio
-    pagado** como remedio; la ejecución **no exige devolución de la carta** (el cliente la conserva) y solo
-    la realiza el súper-admin.
+22. En M8, ante una disputa de condición (carta dañada/equivocada, dentro de la ventana de **7 días contados
+    desde la entrega del envío** —cuando paquetería marca "entregado"—), el admin ve un **comparador de fotos
+    (ingreso vs reclamo)** y puede ejecutar la **recompra al precio pagado** como remedio; la ejecución **no
+    exige devolución de la carta** (el cliente la conserva) y solo la realiza el súper-admin.
 23. En M10 existe una **bitácora de auditoría global** (quién/qué/cuándo) y los **diales/config se editan
     sin necesidad de redeploy**.
 24. El **dashboard** muestra las ~8 tarjetas definidas (ganancia del periodo, ventas, cola de trabajo,
@@ -385,10 +409,13 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 10. **Facturación CFDI** → **manual por correo** en el MVP (sin timbrado con PAC); IVA sigue desglosado en
    checkout y registrado en M7; timbrado automático = fase 2.
 11. **Nombre comercial / marca** → **TCG Vault MX** (nombre usado en UI, comunicación y términos).
-12. **Política de reembolsos** → **VENTAS FINALES**: sin reembolso voluntario tras la compra; única
-   excepción = disputa de condición por carta dañada/equivocada (ventana 7 días, fotos de ingreso) con
-   **recompra al precio pagado y el cliente conserva la carta** (sin devolución). El contracargo bancario es
-   un proceso independiente ante el banco del cliente. El checkout muestra el aviso y hay página de términos.
+12. **Política de reembolsos** → **VENTAS FINALES** para **todos los tipos de producto** (raw, sellado,
+   gradeadas): sin reembolso voluntario tras la compra. **Dos excepciones**: (a) disputa de condición por
+   carta dañada/equivocada (ventana de **7 días contados desde la entrega del envío**, fotos de ingreso) con
+   **recompra al precio pagado y el cliente conserva la carta** (sin devolución); (b) **error de la
+   plataforma** (cobro duplicado / inventario fantasma) → **siempre se reembolsa**, sin ventana ni fotos. El
+   contracargo bancario es un proceso independiente ante el banco del cliente. El checkout muestra el aviso y
+   hay página de términos.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
