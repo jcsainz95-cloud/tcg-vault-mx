@@ -238,8 +238,10 @@ plataformas (§11). Sin los secrets, `preflight` **falla** (comportamiento desea
 
 - **`railway.json`** (raíz): `builder: DOCKERFILE`, `dockerfilePath: Dockerfile.backend`, `numReplicas: 1`,
   restart `ON_FAILURE`. **No** fija `startCommand` (se usa el `CMD` del Dockerfile como única fuente:
-  `npx prisma migrate deploy && node dist/main.js`). **No** fija `healthcheckPath` porque el backend **aún
-  no expone `/api/v1/health`** (ver §6.2). El **worker BullMQ** corre en el **mismo servicio** que la API
+  `npx prisma migrate deploy && node dist/main.js`). Fija `healthcheckPath: /api/v1/health` y
+  `healthcheckTimeout: 300` (holgado, por el arranque de Prisma/`migrate deploy` antes de que la API
+  escuche): el backend **ya expone** `GET /api/v1/health` público (200 ok / 503 degraded, con `SELECT 1`
+  a Postgres) — ver §6.3. El **worker BullMQ** corre en el **mismo servicio** que la API
   en el MVP (deuda BE-5: falta cablear los repeatable jobs a `REDIS_URL`); si crece la carga, se separa a
   un servicio `worker` con el mismo Dockerfile y otro `startCommand` — decisión futura.
 - **Vercel — sin `vercel.json`:** el proyecto de Vercel se configura con **Root Directory = `frontend`**
@@ -264,12 +266,12 @@ plataformas (§11). Sin los secrets, `preflight` **falla** (comportamiento desea
   en Next.js) para que el `COPY /app/public` del runtime no rompa el build de docker-compose local/staging.
   **Vercel NO usa este Dockerfile** (construye Next nativo); es solo para el stack local/staging.
 
-#### 6.3 Recomendación al rol backend (no bloqueante)
+#### 6.3 Health endpoint (resuelto)
 
-- **Health endpoint:** el backend **no** expone `GET /api/v1/health`. Sin él, Railway no puede hacer
-  healthcheck HTTP (queda con el chequeo de arranque/puerto). Recomendado que **backend** añada un
-  `GET /api/v1/health` público y ligero; entonces devops fija `healthcheckPath: /api/v1/health` en
-  `railway.json`. Es cambio en `backend/` → **rol backend**, no devops.
+- **Health endpoint:** el backend **ya expone** `GET /api/v1/health` público y ligero (200 ok / 503
+  degraded, con `SELECT 1` a Postgres). Cableado en `railway.json` vía `healthcheckPath: /api/v1/health`
+  con `healthcheckTimeout: 300` para no marcar el deploy como fallido durante `prisma migrate deploy` en
+  el arranque. Railway ahora hace healthcheck HTTP real (no solo chequeo de arranque/puerto).
 
 ---
 
@@ -295,8 +297,9 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
   saliente, config, intentos bloqueados de operador). No sustituye al logging técnico.
 - **Alertas básicas**: alerting de la plataforma sobre fallos de deploy y 5xx; alarma sobre fallos del
   job diario `price-sync`/`fx-refresh` y sobre acercarse al rate-limit del free tier (100/día, 250/día).
-- **Healthchecks**: en prod, probe a `GET /api/v1/health` (si backend lo expone) o a un endpoint público
-  ligero. La infra local ya define healthchecks de Postgres/Redis/MinIO.
+- **Healthchecks**: en prod, Railway hace probe a `GET /api/v1/health` (`healthcheckPath` en `railway.json`,
+  `healthcheckTimeout: 300`); el endpoint devuelve 200 ok / 503 degraded con `SELECT 1` a Postgres. La infra
+  local ya define healthchecks de Postgres/Redis/MinIO.
 - **CORS de producción**: hoy el backend usa `origin: true` (deuda **BE-8**). **Antes del primer deploy
   público**, backend debe restringir `origin` a `APP_BASE_URL`/dominio del front (leído de env). Es
   cambio en `backend/` → corresponde al **rol backend**, no a devops.
@@ -504,8 +507,9 @@ Validaciones estáticas corridas (reales):
 - [ ] **BE-7**: compensar reserva si Stripe falla tras commitear (evitar items `reserved` huérfanos).
 
 ### 11.I — Verificación post-deploy — [DEVOPS]
-- [ ] Healthcheck de la API responde (hoy no hay `/api/v1/health`; usa una ruta pública ligera o pídele a
-      backend que lo añada — ver §6.3). En Railway, el servicio debe quedar en estado *Active/healthy*.
+- [ ] Healthcheck de la API responde: `GET /api/v1/health` devuelve 200 (o 503 si degraded). Cableado en
+      `railway.json` (`healthcheckPath` + `healthcheckTimeout: 300`) — ver §6.3. En Railway, el servicio
+      debe quedar en estado *Active/healthy*.
 - [ ] Un flujo de compra en modo test (Stripe test keys en staging) → carta entra a bóveda
       `pending → settled` vía webhook `payment_intent.succeeded`.
 - [ ] Subida de una foto de prueba vía presigned PUT al bucket.
