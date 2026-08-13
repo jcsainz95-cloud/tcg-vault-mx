@@ -40,6 +40,8 @@ PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual
 KycStatus           = none | pending | verified | rejected
 AcquisitionType     = aportacion_en_especie | buylist | compra
 CfdiStatus          = registrado | no_aplica          // MVP sin PAC; "emitido" reservado para fase 2
+PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual   // fuentes de precio de carta
+FxSource            = banxico | manual                // fuente del tipo de cambio (separado de PriceSource)
 ```
 
 ### DTOs base (compartidos)
@@ -151,12 +153,13 @@ Err: `422 PRICE_PENDING` (algún item sin precio), `409 ITEM_UNAVAILABLE` (ya ve
 ### POST /api/v1/checkout/session — `customer`
 Reserva los items (`status=reserved`), crea la `Order` en `pending` y el `PaymentIntent` de Stripe.
 Req: `{ inventoryItemIds: string[], billingProfileId?: string }` + header `Idempotency-Key`.
+El `billingProfileId` es **opcional**: en el MVP la factura es por correo (CFDI sin PAC), por lo que **no se exige billing profile para comprar**.
 Res `201`:
 ```json
 { "orderId": "…", "breakdown": { "…": "BreakdownDTO" },
   "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" } }
 ```
-Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `400 BILLING_PROFILE_REQUIRED`.
+Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`. (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
 
 ### GET /api/v1/orders — `customer`
@@ -260,7 +263,12 @@ Eventos manejados:
 - `payment_intent.payment_failed` → Order `pending→failed`; libera reserva de items (`reserved→listed`).
 - `charge.refunded` → Order `→refunded` (originado por reembolso de súper-admin en M3).
 - `charge.dispute.created` → Order `→chargeback`; item revierte a inventario de plataforma (`ownerType=platform`, `ownershipStatus=null`, `status=listed`), movimiento `chargeback_return`.
-Res `200` `{ received: true }` siempre que la firma sea válida (los errores de negocio se registran, no se devuelven a Stripe).
+
+**Semántica de respuesta (idempotente):**
+- Firma inválida (`Stripe-Signature` no verifica) → **`400`** (no se procesa).
+- Evento **ya procesado** (idempotencia por `event.id`) o **tipo no manejado** → **`200`** `{ received: true }` (no-op).
+- Evento válido y nuevo, procesado con éxito → **`200`** `{ received: true }`.
+- **Fallo del handler** al procesar un evento válido → **`5xx`** para que **Stripe reintente** (evita que la orden quede en `pending` permanente). El reintento es seguro por la idempotencia.
 
 ---
 
@@ -287,7 +295,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `POST /api/v1/admin/pricing/override` — override manual (respaldo siempre disponible).
   Req: `{ cardId, productType, gradeKey, priceMxnCents }` → crea `PriceReference` `source=manual`, resuelve `PendingPriceEntry`.
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
-- FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: "banxico"|"manual", effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate, bufferPct }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
+- FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate, bufferPct }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
 - Tabla rareza→categoría: `GET /api/v1/admin/pricing/rarity-map`, `PUT /api/v1/admin/pricing/rarity-map` — Req `{ entries: [{ rarity, category }] }`.
 
 ### M3 — Ventas / órdenes (`vault_operator` lectura; `super_admin` reembolso)

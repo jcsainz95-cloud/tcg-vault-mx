@@ -178,7 +178,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - Regla transversal: una carta sin precio **nunca se descarta**; entra aquí y se escala al súper-admin.
 
 #### FxRate (M2/M10 — USD→MXN con colchón)
-- `id`, `base` (`USD`), `quote` (`MXN`), `rate` (decimal), `bufferPct` (dial M10), `effectiveDate` (date), `source` (`banxico | manual`), `createdAt`.
+- `id`, `base` (`USD`), `quote` (`MXN`), `rate` (decimal), `bufferPct` (dial M10), `effectiveDate` (date), `source` (**enum `FxSource = banxico | manual`**, dedicado y **separado de `PriceSource`**), `createdAt`.
 - Automático: job diario `fx-refresh` obtiene el `rate` de **Banxico (SIE)**, aplica el colchón y escribe `source=banxico`. **Override manual** (dial M10) escribe `source=manual` y **tiene prioridad** sobre el automático del mismo día; también es el fallback si el fetch falla.
 - El precio MXN mostrado = `priceUsd × rate × (1 + bufferPct/100)`.
 
