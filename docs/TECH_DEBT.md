@@ -13,15 +13,15 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
-### BE-1 · La recompra de disputa no ejecuta reembolso Stripe real
+### BE-1 · La recompra de disputa no ejecuta reembolso Stripe real — RESUELTA/OBSOLETA
 - **Dónde:** `src/modules/disputes/disputes.service.ts` → `resolve(resolution='repurchase')`.
-- **Estado actual:** revierte el item al inventario de plataforma y marca la disputa `resuelta_recompra`,
-  pero **solo registra** el remedio (no crea un `Refund`/pago Stripe por el precio pagado). El monto de
-  recompra queda anotado en `resolution` como texto.
-- **Impacto:** el dinero al cliente por la recompra debe moverse **a mano** fuera del sistema; riesgo de
-  descuadre en conciliación (M7) si se olvida. No afecta la integridad del inventario.
-- **Disparador:** antes de operar disputas con dinero real en la beta cerrada, o cuando M8 procese su
-  primera recompra. Implica llamar `StripeService.refund()` (o pago SPEI) con idempotencia y auditar.
+- **Estado actual (2026-08-13):** **resuelta.** Con la política de **VENTAS FINALES**, la recompra por
+  disputa **ya NO revierte el item al inventario** — el cliente **conserva la carta**. El remedio ahora
+  **compensa dinero al cliente** (money-out) por el precio de recompra y queda **auditado**, con
+  idempotencia; ya no se mueve a mano ni queda solo como texto en `resolution`.
+- **Nota:** entrada conservada como registro histórico. El supuesto original ("revierte el item al
+  inventario" + "solo registra el remedio, sin mover dinero") es **obsoleto**: la política correcta ya
+  está implementada. Ya no aplica como deuda técnica.
 
 ### BE-2 · TOCTOU en operaciones que aún no son atómicas
 - **Dónde:** `buylist.service.ts` → `convertToInventory` (check `inventoryItemId` + create), asignación de
