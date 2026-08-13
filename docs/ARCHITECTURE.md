@@ -246,6 +246,70 @@ Retiro
 
 Separación física: los items en `ownerType=customer` viven en `VaultLocation.zone=customer_custody`; el stock de la plataforma en `zone=platform_stock`. El movimiento entre zonas queda en `InventoryMovement`.
 
+### 3.4 Protección de PII (cifrado en reposo, blind index, enmascarado, retención)
+
+La PII sensible del proyecto es **CLABE, RFC e imágenes de INE**. Se protege en cuatro capas independientes y acumulativas. Ninguna capa reemplaza a otra: el cifrado protege el dato en la BD, el blind index permite buscar sin descifrar, el enmascarado protege el dato en las respuestas, y la retención limita cuánto tiempo existe la copia más sensible. Las llaves y diales (`PII_ENCRYPTION_KEY`, `PII_HMAC_KEY`, `INE_RETENTION_DAYS`) se declaran en **§8** (ver allí; no se repiten valores aquí).
+
+Columnas afectadas (nombres `*Enc` / `*Hmac`, coherentes con lo implementado por backend):
+
+| Entidad | Campo lógico | Columna cifrada | Columna blind index |
+|---|---|---|---|
+| `KycProfile` | CLABE | `clabeEnc` | `clabeHmac` |
+| `KycProfile` | RFC | `rfcEnc` | — |
+| `SellRequest` | CLABE snapshot | `clabeSnapshotEnc` | — |
+| `BillingProfile` | RFC | `rfcEnc` | — |
+
+Estas columnas sustituyen a los campos en claro `clabe` / `rfc` / `clabeSnapshot` que aparecen descritos en §3.2 (§3.4 es la descripción normativa de su almacenamiento real: en la BD nunca hay CLABE/RFC en claro).
+
+#### a) Cifrado en reposo — AES-256-GCM
+
+- Algoritmo **AES-256-GCM** (cifrado autenticado: confidencialidad + integridad vía tag).
+- **Formato de columna:** `v1:iv:tag:ciphertext`, donde `iv`, `tag` y `ciphertext` van en **base64** y `v1` es el prefijo de versión de esquema (permite rotar algoritmo/llave sin ambigüedad y migrar filas viejas). El **IV es aleatorio por operación de cifrado** (12 bytes recomendados para GCM); nunca se reutiliza.
+- **Llave:** `PII_ENCRYPTION_KEY` (32 bytes en base64). En local puede venir de `.env`; en **prod proviene de KMS / secret manager** (nunca en repo ni en imagen). El prefijo `v1` habilita rotación de llave por versión.
+- **Dónde:** cifrar/descifrar ocurre **en la capa de servicio** (p. ej. un `PiiCryptoService` inyectable usado por `users`/`buylist`), no en el controlador ni en el cliente Prisma directo. Prisma persiste el string `v1:...` tal cual; la BD no conoce la llave.
+- Firmas de referencia (pseudocódigo, no implementación):
+  ```ts
+  interface PiiCryptoService {
+    encrypt(plaintext: string): string;            // -> "v1:iv:tag:ciphertext" (base64)
+    decrypt(payload: string): string;              // valida tag GCM; lanza si fue manipulado
+  }
+  ```
+
+#### b) Blind index — HMAC-SHA256 (`KycProfile.clabeHmac`)
+
+- Problema que resuelve: la regla **"CLABE a nombre propio"** (`CLABE_NOT_OWN_NAME`) y la detección de la misma CLABE reusada requieren **igualar CLABEs sin descifrarlas**. El GCM con IV aleatorio es **no determinista** (dos cifrados de la misma CLABE dan distinto ciphertext), así que no sirve para buscar/igualar.
+- Solución: `clabeHmac` = **HMAC-SHA256(clabe_normalizada, PII_HMAC_KEY)**, determinista, guardado junto al `clabeEnc`. El match se hace comparando HMACs.
+- **Llave separada** `PII_HMAC_KEY` (distinta de `PII_ENCRYPTION_KEY`): así, comprometer una no habilita descifrar ni recomputar el índice de la otra; además el HMAC con llave evita ataques de diccionario sobre el espacio pequeño de CLABEs (10^18 pero enumerable).
+- **Comparación en tiempo constante** (`crypto.timingSafeEqual`) para no filtrar coincidencias por temporización.
+- Normalización previa (quitar espacios, validar 18 dígitos) antes del HMAC, para que la comparación sea estable.
+- Firma de referencia:
+  ```ts
+  clabeBlindIndex(clabe: string): string;          // HMAC-SHA256 hex/base64, determinista
+  ```
+
+#### c) Enmascarado por defecto en todas las respuestas
+
+- **Por defecto, toda respuesta enmascara PII**, en cliente y back-office, **incluido `super_admin`**. Coherente con el contrato (§preámbulo y endpoints `me/kyc`, `me/billing-profile`, `admin/buylist/:id`, `admin/users/:id`).
+- Formato: **CLABE → `****1234`** (solo últimos 4 dígitos, campo `clabeMasked`); **RFC → parcial** (ej. `XAX**********`, campo `rfcMasked`). El servicio expone helpers `maskClabe()` / `maskRfc()` y los DTO **nunca** contienen el campo en claro ni el blob `*Enc`/`*Hmac`.
+- **Única excepción:** `GET /admin/buylist/:id/reveal-clabe` — devuelve la **CLABE de 18 dígitos en claro**. Requisitos acumulativos:
+  - rol **`super_admin`**,
+  - **`MoneyOutGuard`** (misma puerta que pagos SPEI / reembolsos / recompra),
+  - **auditado** en `AuditLog` (`action: buylist.reveal_clabe`, quién/cuándo/qué `SellRequest`),
+  - **fallback:** si `SellRequest.clabeSnapshotEnc` falta, descifra la CLABE desde `KycProfile.clabeEnc` del usuario dueño.
+- Este endpoint es el **único** punto de todo el sistema que devuelve CLABE en claro; su propósito es que el súper-admin la copie a su banca al ejecutar el SPEI manual.
+
+#### d) Retención de imágenes de INE
+
+- Las imágenes de INE (`KycProfile.ineFrontKey`, `ineBackKey`) son la PII de mayor sensibilidad y **no se necesitan indefinidamente** tras verificar KYC. Se purgan por **retención con dial**.
+- **Dial** `INE_RETENTION_DAYS` (declarado en §8): antigüedad máxima de las imágenes de INE en el bucket.
+- **Primera capa — job invocable** (BullMQ, en la familia de `jobs/`): recorre los `KycProfile` cuyas imágenes superan `INE_RETENTION_DAYS` desde su carga/verificación, **borra los objetos** (`ineFrontKey`/`ineBackKey`) del object storage, **limpia las columnas de key** (a `null`) y **audita** la purga (`action: kyc.ine_purged`, `AuditLog`). Es **invocable** (bajo demanda por súper-admin además de programado), idempotente y seguro de re-ejecutar.
+- **Segunda capa — lifecycle del bucket:** regla de expiración en el object storage sobre el prefijo de INE, como red de seguridad si el job no corriera (defensa en profundidad; devops la configura).
+- **Qué se conserva:** los **metadatos de KYC** (`kycStatus`, `verifiedBy`, `verifiedAt`, límites) permanecen — no se borra el perfil ni el historial de verificación; **solo se purgan las imágenes**. Tras la purga, el contrato sigue exponiendo `ineOnFile: boolean` (que pasará a `false`).
+
+Notas de coherencia:
+- El contrato (`API_CONTRACT.md`) **nunca** expone `*Enc`/`*Hmac` ni CLABE/RFC en claro fuera de `reveal-clabe`; §3.4 es el respaldo de esa promesa.
+- La proyección reducida de `vault_operator` (sin CLABE/RFC/INE) opera **antes** del enmascarado: a ese rol no le llega ni el campo enmascarado sensible cuando el contrato así lo indica.
+
 ---
 
 ## 4. Módulos y límites
