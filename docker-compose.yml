@@ -160,8 +160,14 @@ services:
       POKEMONTCG_IO_API_KEY: ${POKEMONTCG_IO_API_KEY}
       POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY}
       POKETRACE_API_KEY: ${POKETRACE_API_KEY}
-      FX_SOURCE: ${FX_SOURCE:-manual}
+      FX_SOURCE: ${FX_SOURCE:-banxico}
       FX_API_KEY: ${FX_API_KEY:-}
+      # Token de la API SIE de Banxico (FX USD->MXN automático). Si va vacío, el
+      # backend cae a override manual / último FxRate (no se rompe).
+      BANXICO_SIE_TOKEN: ${BANXICO_SIE_TOKEN:-}
+      # Usuario super_admin sembrado por seed.sh (opcionales, tienen default en el seed).
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
     ports:
@@ -178,6 +184,9 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3001/api/v1}
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
         NEXT_PUBLIC_DEFAULT_LOCALE: ${NEXT_PUBLIC_DEFAULT_LOCALE:-es}
+        # false = el cliente llama al backend real (no fixtures). Debe hornearse
+        # en build-time; por eso va como build arg, no como env de runtime.
+        NEXT_PUBLIC_USE_MOCKS: ${NEXT_PUBLIC_USE_MOCKS:-false}
     restart: unless-stopped
     depends_on:
       - backend
