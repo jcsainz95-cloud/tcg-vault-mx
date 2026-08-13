@@ -1,5 +1,10 @@
 import { CardDetailView } from './CardDetailView';
 
-export default function CardDetailPage({ params }: { params: { cardId: string } }) {
-  return <CardDetailView cardId={params.cardId} />;
+export default async function CardDetailPage({
+  params,
+}: {
+  params: Promise<{ cardId: string }>;
+}) {
+  const { cardId } = await params;
+  return <CardDetailView cardId={cardId} />;
 }

@@ -1,5 +1,10 @@
 import { OrderDetailView } from './OrderDetailView';
 
-export default function OrderDetailPage({ params }: { params: { orderId: string } }) {
-  return <OrderDetailView orderId={params.orderId} />;
+export default async function OrderDetailPage({
+  params,
+}: {
+  params: Promise<{ orderId: string }>;
+}) {
+  const { orderId } = await params;
+  return <OrderDetailView orderId={orderId} />;
 }

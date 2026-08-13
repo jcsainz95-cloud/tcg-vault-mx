@@ -4,12 +4,71 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Seguridad — SEC-C2: bump de dependencias vulnerables en runtime (2026-08-13)
+
+Remediación del hallazgo **SEC-C2** (`docs/SECURITY_NOTES.md`): dependencias vulnerables en
+runtime del frontend. Objetivo: dejar `npm audit --omit=dev` **sin high/critical**.
+
+### Versiones antes → después
+
+| Paquete | Antes | Después | Motivo |
+|---|---|---|---|
+| `next` | `14.2.15` | `15.5.23` | Crítica/high: cadena de advisories (SSRF middleware/rewrites, cache poisoning, DoS de RSC/Image Optimizer, XSS con CSP nonces). El 14.2.x —incluso el último 14.2.35— NO limpia el audit: varios advisories solo se parchearon en la línea 15.x. `15.5.23` (tag `backport`, el más parcheado de 15) sí lo limpia y **mantiene React 18** (peer `^18.2.0`), evitando migrar a React 19. |
+| `next-intl` | `^3.21.1` (v3) | `^4.13.6` (v4) | Prototype pollution (`experimental.messages.precompile` vía claves de catálogo) + open redirect. Corregidos en v4. |
+| `postcss` (dev + empaquetado por next) | `8.4.x` / `8.4.31` | `8.5.26` | High: XSS `</style>`, path traversal/lectura arbitraria de `.map` vía `sourceMappingURL`. Se subió el dev-dep **y** se forzó vía `overrides` para deduplicar todas las copias (incluida la que next empaqueta). |
+| `sharp` (dep de optimización de imágenes de next) | `0.34.5` | `0.35.3` (via `overrides`) | High: CVEs heredados de libvips (CVE-2026-33327/33328/35590/35591). next declara `^0.34.3`; el `override` lo fuerza a la línea parcheada `>=0.35.0`. |
+| `eslint-config-next` | `14.2.15` | `15.5.23` (dev) | Alinear el config de lint con la major de next. |
+
+`overrides` añadidos en `package.json`: `postcss ^8.5.26`, `sharp ^0.35.3`.
+
+### Breaking changes resueltos
+
+- **Next 15 — `params`/`searchParams` async:** el App Router ahora entrega `params` como
+  `Promise`. Migrados a `async` + `await params`:
+  - `src/app/[locale]/layout.tsx` (layout **y** `generateMetadata`).
+  - `src/app/[locale]/(storefront)/catalog/[cardId]/page.tsx`.
+  - `src/app/[locale]/(storefront)/orders/[orderId]/page.tsx`.
+  (`npm run typecheck` no lo detecta porque las páginas auto-tipan sus props; **`next build`**
+  sí aplica el constraint `PageProps` con `params: Promise<…>`, que es donde saltó.)
+- **next-intl v3 → v4:** el código de i18n ya usaba la API moderna compatible con v4
+  (`defineRouting`, `createNavigation`, `getRequestConfig({ requestLocale })`,
+  `createMiddleware(routing)`, `NextIntlClientProvider` sin prop `locale` en el layout),
+  así que **no requirió cambios de i18n**. Verificado que sigue funcionando: rutas `/es|/en`,
+  catálogos de mensajes, y el `LocaleToggle` (E2E `i18n-locale.spec.ts` + `auth.spec.ts` en verde).
+
+### Estado del audit tras el bump
+
+- **`npm audit --omit=dev` (runtime): `found 0 vulnerabilities`.** SEC-C2 (parte frontend) cerrado.
+- **`npm audit` (incluye dev): 5 restantes (1 critical, 1 high, 3 moderate) — TODAS dev-only y
+  no explotables en producción.** Son la cadena del **test runner**:
+  `vitest → @vitest/mocker/vite-node → vite → esbuild` (advisory `GHSA-67mh-4wv8-2f99`: el
+  dev-server de esbuild acepta requests de cualquier web). **No se empaqueta en el bundle de
+  producción** (`output: standalone` no incluye devDependencies) y solo aplica al servidor de
+  desarrollo local. Subir a `vitest@4` es un major con cambios de config; se deja como deuda
+  menor de tooling. El propio `SECURITY_NOTES.md §0` ya clasificó los críticos de `vitest` como
+  dev-only. El gate `security-sast.yml` corre `npm audit` con `--omit=dev` (runtime), por lo que
+  estos dev-only no lo bloquean.
+
+### Advertencia benigna en build
+
+`next build` emite un warning de webpack cache sobre `next-intl/dist/esm/production/extractor/
+format/index.js` (`import(t)` dinámico del extractor de mensajes de v4). Es informativo (cache
+de build), no error; la compilación termina en `✓ Compiled successfully`.
+
+### Verde confirmado (post-bump)
+
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` (10/10 unit) ✓ ·
+`npm run build` ✓ (SSG) · `npm run test:e2e` (**28/28** Playwright, ES+EN) ✓.
+
+---
+
 ## Stack implementado
 
-- **Next.js 14.2 (App Router)** + React 18 + TypeScript.
+- **Next.js 15.5 (App Router)** + React 18 + TypeScript.
 - **Tailwind CSS** con tokens del DESIGN_SYSTEM §11 (CSS variables claro/oscuro en
   `src/app/globals.css`, mapeo en `tailwind.config.ts`). `darkMode: 'class'`.
-- **next-intl v3** para i18n ES/EN (default ES), ruteo `[locale]` con `localePrefix: 'always'`.
+- **next-intl v4** para i18n ES/EN (default ES), ruteo `[locale]` con `localePrefix: 'always'`.
+  (Subido de v3 → v4 por SEC-C2; ver sección "Seguridad — SEC-C2" arriba.)
 - **TanStack Query v5** para data fetching (estados carga/error/vacío consistentes).
 - **lucide-react** para iconografía; **clsx + tailwind-merge** (`cn`).
 - **Vitest + Testing Library** para tests unitarios.
