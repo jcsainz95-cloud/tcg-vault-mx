@@ -4,16 +4,32 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v1.1** (MVP + alcance 2026-08-14). Fecha: 2026-08-14. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: **v1.2.1** (MVP — simplificación aprobada 2026-08-14). Fecha: 2026-08-14. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > Origen: **creado desde cero** (no hubo entrega previa de Claude Design). Si más adelante el humano
 > comparte un prototipo de Claude Design, este documento se re-codifica a partir de esos tokens.
 >
-> **Novedades v1.1 (superficies nuevas de PROJECT/CONTRATO v1.1):** condición raw **solo NM** con
-> nombre legible + tooltip (§7.2b), sección **"Compra"** (renombra "Catálogo") con su vitrina y
-> `ListingCard` (§7.1), **filtros de Compra** con facetas de rareza/set-con-año/tipo/precio (§7.16),
-> **tarjeta de SELLADO** (§7.1b), **gráfica de tendencia del portafolio** estilo acciones (§7.17), y
-> **botón "Continuar con Google"** (§6.7). El sistema base (índigo/ámbar sobre slate, Inter, AA,
-> i18n ES/EN) **no cambia**; estas secciones se apoyan en los mismos tokens.
+> **Novedades v1.2 / v1.2.1 (simplificación — PROJECT.md › "Simplificación v1.2" y "Corrección v1.2.1",
+> CONTRATO/ARCH v1.2.1):**
+> - **Sin fotos de producto — imagen de catálogo remota:** el producto **no lleva fotos propias** en ningún
+>   lado (Compra, ficha, bóveda, back-office). La imagen mostrada es SIEMPRE la **imagen de catálogo de
+>   pokemontcg.io** (`CardDTO.imageSmallUrl`/`imageLargeUrl`). Se **elimina** del sistema la captura/subida
+>   de fotos de producto (anverso/reverso) y cualquier CDN/prefijo `inventory_photo` (§5, §7.1, §7.10, §14).
+> - **Badge de calidad reubicado / con scrim (fix de empalme):** el badge de condición/grado ya **no se
+>   monta suelto sobre el arte** (se leía mal por contraste). Regla definitiva en §7.2b: por defecto la
+>   calidad va en una **fila de info bajo la imagen**; el chip que permanece en el arte (grado) usa **scrim
+>   sólido de alto contraste** con AA garantizado sobre arte claro y oscuro.
+> - **Gradeadas = grado + certificado:** el chip de gradeada muestra **empresa + grado + nº de certificado**
+>   (`PSA 10 · #12345678`), verificable en la graduadora (§7.2b, §7.2c).
+> - **Disputa por correo:** se **elimina el componente `PhotoCompare`/comparador de fotos** (§7.11); el flujo
+>   de disputa muestra el **correo de soporte** (`soporte@tcgvault.mx`, placeholder) como canal de evidencia,
+>   no un uploader (§7.11, §12).
+> - **INE conserva su uploader:** el **único** uploader que queda es el del **INE del buylist** (KYC); el
+>   `PhotoUploader` se acota a ese propósito (§7.10).
+>
+> **Base v1.1 vigente (sin cambios):** condición raw **solo NM** con nombre legible + tooltip (§7.2b),
+> sección **"Compra"** con `ListingCard` y **filtros** (§7.1, §7.16), **tarjeta de SELLADO** (§7.1b),
+> **gráfica de tendencia del portafolio** (§7.17), **botón "Continuar con Google"** (§6.7). El sistema base
+> (índigo/ámbar sobre slate, Inter, AA, i18n ES/EN) **no cambia**.
 
 ---
 
@@ -40,8 +56,10 @@ sostiene esa dualidad con cinco principios:
 
 1. **Confianza visible (trust by default).** La app guarda bienes de valor de terceros. Todo estado que
    afecte propiedad o dinero se muestra con un badge claro y, cuando aplica, con **fecha** y **fuente**:
-   titularidad `pending/settled`, precio de referencia con `capturedDate`, fotos verificadas
-   anverso/reverso, "pago tras recepción". Nunca se oculta un estado ni se disfraza una carga.
+   titularidad `pending/settled`, precio de referencia con `capturedDate`, condición/grado (raw NM o
+   **empresa+grado+certificado** en gradeadas), "pago tras recepción". Nunca se oculta un estado ni se
+   disfraza una carga. **No hay fotos propias del producto** (v1.2): la confianza se apoya en la imagen de
+   catálogo de pokemontcg.io + el estándar NM + el `certNumber` verificable en la graduadora.
 2. **Claridad sobre decoración.** Jerarquía tipográfica fuerte, mucho aire, datos legibles. El dinero
    siempre desglosado (subtotal + procesamiento + IVA). Ninguna cifra financiera aparece sin etiqueta.
 3. **Coleccionismo serio, no infantil.** Se evoca el mundo TCG/Pokémon con **acento eléctrico** y con la
@@ -49,8 +67,9 @@ sostiene esa dualidad con cinco principios:
    (neutros fríos, tipografía profesional). Nada de degradados arcoíris, tipografías redondeadas de
    juguete ni emojis en la UI.
 4. **Operable con una mano y con guantes.** El back-office se usa junto a las cajas físicas, en móvil y
-   tablet, a veces con prisa. Objetivos táctiles grandes, acciones primarias siempre visibles, captura de
-   foto a un toque.
+   tablet, a veces con prisa. Objetivos táctiles grandes, acciones primarias siempre visibles, alta de
+   item **sin cámara** (se identifica por catálogo y, en gradeadas, por `certNumber`; sin fotos de producto,
+   v1.2). La única captura que queda es la imagen del **INE** en el flujo de KYC del buylist.
 5. **Bilingüe sin costuras.** ES por defecto, EN a un clic. El layout nunca se rompe por longitud de
    texto (ES suele ser ~15-30% más largo que EN). Ver §9.
 
@@ -275,9 +294,12 @@ xl  ≥ 1280px   (desktop)
 - Set de iconos **lucide-react** (línea, 1.5–2px, redondeado sutil), coherente con la sobriedad.
   Tamaños: 16 (inline), 20 (botones/inputs), 24 (nav). Los iconos son decorativos salvo que reemplacen
   texto: en ese caso llevan `aria-label`.
-- **Foto de carta** como elemento gráfico principal en storefront y bóveda: relación de aspecto de carta
-  **5:7** (`aspect-[5/7]`), esquinas `radius-md`, borde `1px` `--color-border`, fondo `surface-2` como
-  placeholder mientras carga (skeleton).
+- **Imagen de carta** como elemento gráfico principal en storefront y bóveda: es SIEMPRE la **imagen de
+  catálogo remota de pokemontcg.io** (`CardDTO.imageSmallUrl`/`imageLargeUrl`); **no hay fotos propias del
+  producto** (v1.2). Relación de aspecto de carta **5:7** (`aspect-[5/7]`), esquinas `radius-md`, borde
+  `1px` `--color-border`, fondo `surface-2` como placeholder mientras carga (skeleton). Como es una URL
+  remota, tratar `loading=lazy`, `alt` con el nombre EN de la carta y **fallback** si la imagen remota no
+  carga (placeholder con nombre/set, nunca un roto). No se sube ni almacena ninguna imagen de producto.
 - Guiño de marca (rayo/holo) permitido solo en: logotipo, hero, y como textura MUY sutil de fondo en
   banners de confianza. Nunca compite con la carta.
 
@@ -349,8 +371,9 @@ Estados:
 
 ### 6.6 Tabs, Breadcrumbs, Pagination
 - **Tabs:** subrayado inferior de 2px `--color-primary` en el activo; texto `muted` en inactivos.
-  Teclado: flechas + `aria-selected`. Usados en ficha de carta (Descripción/Condición/Fotos) y M6 ficha
-  360°.
+  Teclado: flechas + `aria-selected`. Usados en ficha de carta (Descripción/Condición) y M6 ficha
+  360°. **La ficha ya no tiene pestaña "Fotos"** (v1.2): la imagen es la de catálogo de pokemontcg.io y no
+  hay fotos propias del producto.
 - **Breadcrumbs:** solo storefront (Catálogo › Set › Carta) para SEO/orientación; separador `/`, último
   no enlazado (`aria-current=page`).
 - **Pagination:** patrón `{ page, pageSize, total }` del contrato; botones prev/next 44px + selector de
@@ -389,13 +412,21 @@ Alternativa a email/contraseña en las pantallas de **login** y **registro** (`P
 
 ### 7.1 Card de carta (`CardTile` / `ListingCard`) — pieza central
 Consume `ListingDTO` (`{ card, productType, rawCondition?, sealedSubtype?, gradingCompany?, gradeValue?,
-referenceValue, salePriceCents?, sellable }`). Anatomía (vertical):
-1. **Imagen** de la carta `aspect-[5/7]`, con skeleton al cargar. Overlay superior-izquierda: badge de
-   **condición/grado/tipo** (§7.2b, deriva de `productType`); superior-derecha: badge de **estado de
-   titularidad** (solo en contexto bóveda).
+certNumber?, referenceValue, salePriceCents?, sellable }`). La **imagen es siempre la de catálogo de
+pokemontcg.io** (`card.imageSmallUrl`/`imageLargeUrl`); **no hay fotos propias del producto** (v1.2).
+Anatomía (vertical):
+1. **Imagen** de catálogo `aspect-[5/7]`, con skeleton al cargar. **Sobre el arte SOLO va lo imprescindible
+   con scrim de alto contraste** (regla anti-empalme, §7.2b): en contexto **bóveda**, el badge de
+   **titularidad** en la esquina superior-derecha (chip con scrim). El badge de **calidad**
+   (condición/grado/tipo) **NO se monta suelto sobre el arte**: por defecto vive en la **fila de info bajo
+   la imagen** (paso 3b); el único que puede quedarse en el arte es el **chip de grado** de gradeada, y solo
+   con scrim (§7.2b).
 2. **Nombre** (EN, `text-sm/base` semibold, 1–2 líneas con `line-clamp`; envuelto en `lang="en"`).
 3. **Set + número** (`text-xs muted`, EN). En Compra se sugiere sufijar el año del set entre paréntesis
    cuando ayuda ("Surging Sparks · 2024") reutilizando el `year` de facetas.
+3b. **Fila de calidad (bajo la imagen, fuera del arte):** `ConditionBadge` (§7.2b) — raw `Casi nueva (NM)`,
+   gradeada `PSA 10 · #12345678`, o `Sellado + subtipo`. Es la **ubicación por defecto** de la calidad, para
+   que nunca se pierda sobre arte claro/oscuro.
 4. **Price tag** (§7.3): en **Compra** siempre precio MXN grande (`salePriceCents`) + "sin IVA" + fecha
    de referencia. En **bóveda** muestra el valor de referencia; solo ahí puede aparecer "Precio
    pendiente".
@@ -405,9 +436,10 @@ referenceValue, salePriceCents?, sellable }`). Anatomía (vertical):
 > **Regla dura de Compra (jerarquía + confianza):** la vitrina de Compra lista **solo inventario
 > publicado con precio** (`sellable=true`, `salePriceCents != null`); el `ListingCard` en Compra
 > **NUNCA** renderiza el estado "precio pendiente" ni `$0`/`—`. La cifra siempre está presente. El
-> orden de lectura del card prioriza: imagen → nombre → **precio** → CTA; el badge de tipo/condición es
-> secundario (esquina). El "valor de mercado/referencia" es informativo y va en `text-xs muted` bajo el
-> precio de venta (ver §7.3), sin competir con la cifra de venta.
+> orden de lectura del card prioriza: imagen → nombre → **calidad (fila bajo la imagen)** → **precio** →
+> CTA; el badge de calidad es secundario y va **fuera del arte** (§7.2b), no montado sobre la imagen. El
+> "valor de mercado/referencia" es informativo y va en `text-xs muted` bajo el precio de venta (ver §7.3),
+> sin competir con la cifra de venta.
 
 Badge de **titularidad**: `pending` (warning) / `settled` (success), con icono candado abierto/cerrado.
 
@@ -422,13 +454,14 @@ Estados del card:
 El sellado (booster box, ETB, bundle, tin, blister) es una línea de venta distinta y su tarjeta se
 lee diferente:
 - **Sin** badge de condición ni de rareza (el sellado no lleva `rawCondition`/grade/rareza).
-- Badge único **"Sellado / Sealed"** (tono `info`, icono `package`/caja de lucide) en la esquina
-  superior-izquierda, y **subtipo** derivado de `sealedSubtype` como segundo pill neutro cuando existe:
-  "Booster Box", "ETB", "Bundle", "Tin", "Blister" (etiquetas localizadas por `status.sealedSubtype.*`;
-  el dato del subtipo es un enum del contrato, no se traduce el producto en sí).
-- **Imagen**: si la foto del producto sellado no es 5:7 (las cajas son más cuadradas), el mismo contenedor
-  `aspect-[5/7]` la centra con `object-contain` sobre fondo `surface-2` (no recortar la caja). El badge
-  "Sellado" desambigua que no es un single.
+- Badge único **"Sellado / Sealed"** (tono `info`, icono `package`/caja de lucide) en la **fila de calidad
+  bajo la imagen** (paso 3b de §7.1, no montado sobre el arte), y **subtipo** derivado de `sealedSubtype`
+  como segundo pill neutro cuando existe: "Booster Box", "ETB", "Bundle", "Tin", "Blister" (etiquetas
+  localizadas por `status.sealedSubtype.*`; el dato del subtipo es un enum del contrato, no se traduce el
+  producto en sí).
+- **Imagen**: es la **imagen de catálogo remota** de pokemontcg.io (v1.2, sin fotos propias). Si no es 5:7
+  (las cajas son más cuadradas), el mismo contenedor `aspect-[5/7]` la centra con `object-contain` sobre
+  fondo `surface-2` (no recortar la caja). El badge "Sellado" desambigua que no es un single.
 - **Precio**: siempre visible (`salePriceCents`, precio manual del admin en MXN) + "sin IVA"; como en todo
   Compra, el sellado sin precio no se publica, así que la tarjeta nunca aparece sin cifra.
 - Nombre/set en EN igual que el resto; no se muestra número de carta cuando no aplica.
@@ -439,15 +472,58 @@ lee diferente:
 - Tamaño `text-xs`, `px-2 py-0.5`, `radius-full`, peso 500. Siempre con **texto**; icono opcional 12–14px.
 - Mapeo de color por estado en §2.4. Componente recibe `{status, domain}` y resuelve token + clave i18n.
 
-### 7.2b Badge de condición / grado / tipo (`ConditionBadge`) — v1.1 (raw solo NM)
-Deriva de `productType` y ocupa la esquina superior-izquierda del `ListingCard` y de la ficha. En v1.1
-el raw se opera **únicamente en Near Mint**; **ya no existen** LP/MP/HP/DMG.
+### 7.2b Badge de condición / grado / tipo (`ConditionBadge`) — v1.2 (fila de info; anti-empalme)
+Deriva de `productType`. En v1.1 el raw se opera **únicamente en Near Mint** (ya no existen LP/MP/HP/DMG).
+**Cambio v1.2 (fix de empalme reportado por el humano):** el badge de calidad **ya no se monta suelto sobre
+el arte** (encima del arte perdía contraste y no se leía). Ver la **regla exacta de ubicación** más abajo.
 
 | `productType` | Contenido del badge | Tono | Icono |
 |---|---|---|---|
 | `raw` (`rawCondition=NM`) | **"Casi nueva (NM)"** · EN **"Near Mint (NM)"** | **success suave** (`success-bg` + `success`), estilo *soft* | escudo/check-circle |
-| `graded` | `PSA 10` / `CGC 9.5` (de `gradingCompany`+`gradeValue`) | `accent` | escudo (autenticidad) |
+| `graded` | **`PSA 10 · #12345678`** (`gradingCompany` + `gradeValue` + `certNumber`) | `accent` | escudo (autenticidad) |
 | `sealed` | "Sellado / Sealed" + subtipo (§7.1b) | `info` | package/caja |
+
+**REGLA EXACTA DE UBICACIÓN DEL BADGE DE CALIDAD (para frontend, sin ambigüedad):**
+1. **Ubicación por defecto = FUERA del arte, en la fila de info bajo la imagen** (paso 3b de §7.1 y bloque
+   de la ficha). Es un `Badge` *soft* estándar (§7.2) sobre `surface`; ahí el contraste es el del sistema
+   (AA garantizado por §10) y no depende del arte. **Esta es la ubicación obligatoria del raw NM y del
+   sellado.**
+2. **Excepción permitida sobre el arte = SOLO el chip de grado de gradeada, y SOLO con scrim sólido.** Si se
+   quiere reforzar la autenticidad mostrando el grado también encima de la imagen, se usa un **chip con
+   fondo sólido (scrim/backdrop) de alto contraste**, nunca texto/pill translúcido directo sobre el arte.
+   Especificación del scrim:
+   - **Posición:** esquina **superior-izquierda** del arte, con margen `8px` (`top-2 left-2`). (La
+     superior-derecha queda para la titularidad en bóveda.)
+   - **Fondo:** **sólido opaco `slate-900` (`#0F172A`) con `92%` de opacidad** (`bg-slate-900/90`+), **no**
+     un tinte translúcido claro. Texto **`#FFFFFF`**. Este par blanco/`slate-900` da ~16:1 (AA/AAA)
+     **independiente del arte** (claro u oscuro), porque el scrim opaco tapa el arte debajo. Radio
+     `radius-sm`, `px-2 py-0.5`, sombra `--shadow-xs` para despegarlo del arte.
+   - **Tamaño:** `text-xs` peso 600, altura ~20–22px; icono opcional 12–14px `aria-hidden`.
+   - **Contenido:** `PSA 10 · #12345678` (empresa + grado + `#`+`certNumber`). En card estrecho puede
+     colapsar a `PSA 10` en el arte y dejar el `certNumber` completo en la fila de info; el `aria-label`
+     siempre lleva empresa+grado+cert.
+   - **Prohibido:** montar el raw NM o el sellado sobre el arte; usar fondos translúcidos, degradados o
+     texto sin scrim sobre la imagen; depender del color del arte para el contraste.
+3. **Consistencia:** el badge de **titularidad** sobre el arte (bóveda, superior-derecha) sigue la misma
+   regla de **scrim sólido** (chip opaco `slate-900/90` + texto blanco, o el token semántico sólido
+   `success`/`warning` a plena opacidad con su `-fg`), nunca pill translúcido.
+
+### 7.2c Chip de gradeada — empresa + grado + certificado (`GradedCertChip`) — v1.2
+La condición de una gradeada **no depende de foto**: el slab es la garantía. El chip muestra los **tres
+datos verificables**: **empresa + grado + número de certificado**.
+- **Formato canónico:** **`PSA 10 · #12345678`** (o `CGC 9.5 · #01234567`). Empresa+grado en peso 600; el
+  `· #<certNumber>` en el mismo chip, `tabular-nums`, para que el número se lea/copie. `certNumber` viene de
+  `ListingDTO.certNumber` (string; el contrato lo marca requerido para publicar una gradeada).
+- **Dónde:** en la **fila de info** del card (default) y de forma destacada en la **ficha** (junto al
+  nombre); opcionalmente el chip de grado (sin el cert) puede ir sobre el arte con scrim (§7.2b regla 2).
+- **Ficha — cert verificable:** en la ficha, el `certNumber` se presenta con la etiqueta "Certificado /
+  Certificate" y, si el humano confirma URL de verificación de la graduadora, como **enlace** ("Verificar
+  en PSA/CGC", `target=_blank`, `rel=noopener`); mientras no haya URL confirmada, es **texto copiable** con
+  botón "Copiar" (no inventar la URL). Solicitud registrada al arquitecto/PO en el resumen.
+- **Accesibilidad:** `aria-label="Gradeada PSA, grado 10, certificado 12345678"`; el `·` es decorativo. No
+  depender del color (`accent`): el texto ya porta empresa+grado+cert.
+- **Tono:** `accent` (autenticidad/valor). Sobre el arte usa el scrim de §7.2b (no el ámbar directo, que no
+  garantiza AA sobre arte claro).
 
 **NM — nombre legible + tooltip accesible (regla nueva):**
 - El badge muestra el **nombre legible** completo, **no** el código pelón "NM". Formato: `Casi nueva (NM)`
@@ -555,24 +631,42 @@ un módulo— todo el card es clickable (foco visible).
   - Orden (para el comprador): `pending → settled` (con posible rama `refunded/chargeback`).
 - Accesible: `<ol>` con `aria-current="step"` en el actual; el color no es el único indicador (icono+label).
 
-### 7.10 Uploader de fotos (`PhotoUploader`) — captura móvil, pieza crítica del back-office
-- Objetivo: M1 alta con fotos anverso/reverso, verificación de buylist, evidencia de disputa, INE (KYC).
+### 7.10 Uploader de foto del INE (`IneUploader`) — ÚNICO uploader del sistema (v1.2)
+> **Alcance v1.2:** este es el **único** uploader que queda en toda la app. Sirve **solo** para la **imagen
+> del INE** en el flujo de **KYC del buylist** (`POST /uploads/presign` con `purpose="kyc_ine"`). **Se
+> eliminan** las fotos de producto/inventario (M1 se da de alta **sin cámara**, imagen de catálogo remota) y
+> la evidencia de disputa (va **por correo a soporte**, §7.11). No existe otro flujo de subida.
+- Objetivo: capturar **INE anverso/reverso** del vendedor cuando la buylist supera el tope (KYC/AML). El INE
+  se sube a **bucket privado cifrado con retención** (`INE_RETENTION_DAYS`); nunca es público.
 - Disparo de cámara: `<input type="file" accept="image/*" capture="environment">`; botón grande
   "Tomar foto / Take photo" (icono cámara) + alternativa "Subir archivo".
-- **Slots definidos** cuando el flujo lo exige: dos slots etiquetados **Anverso/Front** y **Reverso/Back**
-  (M1, buylist raw), cada uno con su preview `aspect-[5/7]`. Extra photos como grid añadible.
+- **Dos slots** etiquetados **Anverso/Front** y **Reverso/Back** del INE, cada uno con su preview.
 - Flujo por foto: seleccionar → preview inmediato → **subir con barra de progreso** (presign PUT del
   contrato, §8 uploads) → estado "Subida ✓" con miniatura, o error con reintento. `aria-busy` durante
   subida. Permitir re-tomar/eliminar antes de confirmar.
 - Estados: vacío (dropzone punteada + icono cámara), subiendo (progreso %), éxito (miniatura + check),
   error (borde `danger` + "Reintentar"), disabled (sin permiso/rol).
-- Guía visual mínima: texto de ayuda "Buena luz, carta centrada, sin reflejos" para calidad de evidencia.
-- Táctil: botones ≥ 48px; en tablet junto a cajas, los dos slots deben verse sin scroll.
+- **Aviso de privacidad (obligatorio):** junto al uploader, nota `text-xs muted` "Tu INE se guarda cifrado y
+  se elimina tras el periodo de retención; se usa solo para verificar el pago." (dato sensible; §8.2).
+- Guía visual mínima: texto de ayuda "Buena luz, documento centrado, datos legibles".
+- Táctil: botones ≥ 48px; los dos slots deben verse sin scroll en móvil.
 
-### 7.11 Uploader/visor comparador de fotos (`PhotoCompare`) — disputas M8
-- Dos columnas lado a lado en desktop (Ingreso / Reclamo), apiladas en móvil, con zoom (lightbox) y
-  sincronización opcional. Etiquetas claras "Foto de ingreso (evidencia canónica)" vs "Foto del cliente".
-- Es solo visualización para el admin; la resolución (recompra/rechazo) usa botones de §7.6.
+### 7.11 Disputa por correo (`DisputeEvidenceContact`) — reemplaza al comparador de fotos (v1.2)
+> **Eliminado:** el componente **`PhotoCompare`/comparador de fotos** de disputas (ingreso vs. reclamo)
+> **ya no existe** — el producto no tiene fotos propias de ingreso y el cliente no sube foto de reclamo.
+- **Flujo de disputa del cliente (`POST /disputes`):** el cliente elige el ítem entregado y escribe una
+  **descripción** (`Textarea`, §6.2). **No hay uploader.** En su lugar, un **panel de contacto de evidencia**
+  (variante `Banner info`, §7.5) explica: *"Envía tus fotos y evidencia por correo a **soporte@tcgvault.mx**
+  citando tu número de orden/disputa."* con el correo como **enlace `mailto:`** y botón **"Copiar correo"**.
+  El correo `soporte@tcgvault.mx` viene de `evidenceContact` en la respuesta del contrato (**placeholder por
+  confirmar por el humano**; no hardcodear si el contrato lo entrega). Se muestra también en términos/FAQ.
+- Tras crear la disputa se muestra el `PipelineStepper` de disputa y el `deadlineAt` (ventana de 7 días
+  desde la entrega); mensaje claro "Tu evidencia por correo debe llegar antes de {fecha}".
+- **Back-office M8 (admin):** el detalle de disputa **no tiene comparador de fotos**. Muestra: descripción
+  del cliente, `evidenceContact` (el correo, para el admin cotejar el hilo), y —para **gradeadas**— el
+  **chip empresa+grado+`certNumber`** (§7.2c, verificable en la graduadora) como base de resolución; para
+  **raw NM**, el **estándar/política de condición propio**. La imagen del ítem es la de catálogo. La
+  resolución (recompra al precio pagado / rechazo) usa botones de §7.6 (recompra = money-out, súper-admin).
 
 ### 7.12 Desglose de importe (`AmountBreakdown`) — checkout y órdenes
 Lista de líneas alineadas (label izquierda, monto derecha `tabular-nums`):
@@ -927,8 +1021,10 @@ fontFamily: { sans: ['var(--font-inter)', 'system-ui', 'sans-serif'] },
 
 ### 11.3 Estructura de componentes sugerida (no normativa)
 Componentes base en `frontend/src/components/ui/` (Button, Input, Select, Badge, Banner, Modal, Table,
-Tabs, LocaleToggle, StatCard, PipelineStepper, PhotoUploader, PriceTag, CardTile, AmountBreakdown,
-SafeShippingGuide). Cada uno consume solo tokens semánticos (nunca hex crudos) y expone sus estados.
+Tabs, LocaleToggle, StatCard, PipelineStepper, **IneUploader** (único uploader, solo INE §7.10),
+GradedCertChip (§7.2c), PriceTag, CardTile, AmountBreakdown, SafeShippingGuide). **No** hay `PhotoCompare`
+ni uploaders de producto (v1.2). Cada uno consume solo tokens semánticos (nunca hex crudos) y expone sus
+estados.
 Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/devops).
 
 ### 11.4 Reglas de oro para no romper el sistema
@@ -947,22 +1043,22 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 |---|---|---|
 | Login / Registro | `POST /auth/login`,`/register`,`/google` | Inputs, Button primary, **GoogleSignInButton** (§6.7), divisor "o/or" |
 | **Compra** (ex-Catálogo) | `GET /catalog/cards`, `/facets`, `/sets` | ListingCard (+ variante Sellado §7.1b), **ShopFilters** (§7.16), ConditionBadge NM, PriceTag, Pagination |
-| Ficha de carta | `GET /catalog/cards/:id` | Imagen grande, Tabs, ConditionBadge (NM + tooltip §7.2b), PriceTag, CTA |
+| Ficha de carta | `GET /catalog/cards/:id` | Imagen de catálogo (remota), Tabs (sin "Fotos"), ConditionBadge (NM §7.2b) / **GradedCertChip `PSA 10 · #…`** (§7.2c), PriceTag, CTA |
 | Checkout | `POST /checkout/quote`,`/session` | AmountBreakdown (subtotal+fee+IVA), Stripe, Banner CFDI |
 | Mi bóveda / portafolio | `GET /vault/holdings`, `/vault/portfolio/history` | CardTile compacto, badge titularidad, **PortfolioTrendChart** (§7.17), StatCard "valor portafolio" (+sparkline opcional), PriceTag pending |
 | Retiro / envío | `POST /shipments/quote`,`/shipments` | Selección items settled, AmountBreakdown (envío+IVA), Address MX, PipelineStepper |
 | Buylist cotizador | `POST /buylist/quote` | BuylistQuoter, Banner PAY_AFTER_RECEIPT, SafeShippingGuide, PriceTag |
-| Buylist solicitud | `POST /buylist/requests` | KYC/CLABE/INE inputs, PhotoUploader (INE), topes (Banner límite) |
-| Disputa | `POST /disputes` | PhotoUploader (reclamo), PipelineStepper |
+| Buylist solicitud | `POST /buylist/requests` | KYC/CLABE inputs, **IneUploader** (único uploader, §7.10), topes (Banner límite) |
+| Disputa | `POST /disputes` | Textarea descripción, **DisputeEvidenceContact** (correo `soporte@tcgvault.mx`, §7.11), PipelineStepper — **sin uploader** |
 | Admin dashboard | `GET /admin/dashboard` | 8× StatCard (enmascarado por rol), cola de trabajo accionable |
-| M1 Inventario | `/admin/inventory/*` | PhotoUploader anverso/reverso, folio, ubicación CAJA/FILA/SLOT, DataTable |
+| M1 Inventario | `/admin/inventory/*` | Alta **sin foto** (imagen de catálogo remota); para gradeada captura **`certNumber`**; folio, ubicación CAJA/FILA/SLOT, DataTable |
 | M2 Precios/Catálogo | `/admin/pricing/*`, `/fx`, `/admin/catalog/sync`,`/backfill`,`/remote-sets` | Tabla precio pendiente, override manual, FX/colchón, rareza→categoría, sync/backfill de sets (super_admin) |
 | M3 Órdenes | `/admin/orders/*` | DataTable, AmountBreakdown, refund destructivo (super_admin) |
 | M4 Retiros | `/admin/shipments/*` | Cola, picking-list por ubicación, captura de guía, PipelineStepper |
 | M5 Buylist | `/admin/buylist/*` | Pipeline, cherry-pick por item, convertir a inventario, pago SPEI (super_admin) |
 | M6 Usuarios/KYC | `/admin/users/*` | Ficha 360° (Tabs), KYC, bloquear (destructivo) |
 | M7 Finanzas | `/admin/finance/*` | StatCards financieros, tablas, export CSV (solo super_admin) |
-| M8 Disputas | `/admin/disputes/*` | PhotoCompare (ingreso vs reclamo), resolver recompra/rechazo |
+| M8 Disputas | `/admin/disputes/*` | Descripción + `evidenceContact` (evidencia por correo), GradedCertChip para resolución, resolver recompra/rechazo — **sin comparador de fotos** |
 | M10 Config/bitácora | `/admin/settings`, `/audit-log` | Formularios de diales (Switch/Input), DataTable de auditoría |
 
 ---
@@ -1004,6 +1100,17 @@ No bloquean el diseño; se registran para coherencia:
    si en el futuro se quisiera un agrupamiento canónico compartido, sería un dial de M10, no del contrato.
    (b) El **label y la descripción de NM** son i18n del front (confirmado por el contrato v1.1). (c) Para el
    sparkline del StatCard se reutiliza `portfolio/history` con rango corto; no hace falta endpoint nuevo.
+9. **v1.2 — cobertura de shapes (sin cambios de contrato solicitados).** El diseño v1.2 se apoya en datos ya
+   presentes: `ListingDTO.certNumber?` y el detalle de disputa con `evidenceContact` (`GET /admin/disputes/:id`)
+   y `certNumber` para gradeadas. **No se requiere ampliar el contrato.** Dos solicitudes de confirmación al
+   **product-owner/arquitecto** (no bloquean el diseño):
+   - **(a) URL de verificación de certificado (PSA/CGC).** El §7.2c propone que el `certNumber` de la ficha
+     sea un **enlace** a la página de verificación de la graduadora. Falta que el humano confirme la URL/patrón
+     (p. ej. `psacard.com/cert/<n>`). **Mientras no se confirme, se muestra como texto copiable, no un enlace
+     inventado.** No es campo de contrato (el front arma la URL con el `certNumber` existente).
+   - **(b) Correo de soporte definitivo.** El flujo de disputa muestra **`soporte@tcgvault.mx`** como canal de
+     evidencia; PROJECT.md y el contrato lo marcan **placeholder por confirmar por el humano**. El front debe
+     tomar el valor de `evidenceContact` del contrato (no hardcodear) para que cambiarlo no toque UI.
 
 ---
 
@@ -1014,10 +1121,10 @@ No bloquean el diseño; se registran para coherencia:
   índigo** (confianza/banca), **acento ámbar/dorado** (rayo Pokémon + valor), semánticos accesibles.
 - **Confianza como sistema:** titularidad `pending`(ámbar)/`settled`(verde), precio con fecha y fuente,
   "precio pendiente" explícito, banner persistente "pago tras recepción", guía de envío seguro con
-  sleeve/top loader, fotos verificadas anverso/reverso. Estado = color + texto + icono.
+  sleeve/top loader, gradeada = **empresa+grado+`certNumber`** verificable. Estado = color + texto + icono.
 - **Tipografía:** Inter (variable), `tabular-nums` para dinero/folios/KPIs; escala 12→40px; pesos 400–700.
 - **Layout:** Tailwind breakpoints; catálogo grid 2→5; dashboard 8 KPIs en 4×2; back-office con sidebar
-  M1–M10 (drawer en móvil) y **captura de foto a un toque** en tablet junto a cajas.
+  M1–M10 (drawer en móvil); alta de inventario **sin cámara** (imagen de catálogo remota).
 - **Bilingüe:** ES default + toggle EN (segmented control), enums y errorCodes traducidos por clave, datos
   de catálogo en inglés sin traducir, contenedores dimensionados para el texto ES (más largo).
 - **Accesibilidad:** foco visible 3px siempre, objetivos táctiles ≥ 44px, contraste AA verificado en claro
@@ -1037,4 +1144,17 @@ No bloquean el diseño; se registran para coherencia:
     textual accesible; costo base y sparkline opcionales.
   - **Google (§6.7):** botón `secondary` full-width con logo G oficial, divisor "o/or", estados
     loading/error; consistente con marca (color externo solo en el logo).
+- **v1.2 / v1.2.1 (simplificación):**
+  - **Sin fotos de producto:** imagen SIEMPRE de catálogo de pokemontcg.io (remota); se eliminan
+    captura/subida de fotos de producto y el CDN/prefijo `inventory_photo` (§5, §7.1, §7.10).
+  - **Badge de calidad reubicado (fix de empalme):** la calidad va en la **fila de info bajo la imagen**
+    por defecto; el único chip permitido sobre el arte es el **grado de gradeada con scrim sólido
+    `slate-900/90` + texto blanco** (~16:1, AA/AAA sobre arte claro y oscuro), esquina superior-izquierda,
+    `text-xs` 600, `radius-sm`, `px-2 py-0.5` (§7.2b). Nada translúcido sobre el arte.
+  - **Gradeada = grado + certificado:** `GradedCertChip` **`PSA 10 · #12345678`** (empresa+grado+`certNumber`),
+    verificable en la graduadora (§7.2c).
+  - **Disputa por correo:** eliminado `PhotoCompare`; el flujo muestra el correo de soporte
+    **`soporte@tcgvault.mx`** (placeholder) como canal de evidencia, sin uploader (§7.11).
+  - **Único uploader = INE:** `IneUploader` para el INE del buylist (KYC/AML), bucket privado cifrado con
+    retención; es la única subida de archivos del sistema (§7.10).
 ```
