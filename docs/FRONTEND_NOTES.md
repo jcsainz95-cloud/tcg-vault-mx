@@ -66,6 +66,12 @@ rama real (`apiRequest`) y rama mock (fixtures) para funcionar en Vercel sin bac
   En modo real (client id + sin mocks) carga **Google Identity Services**, y al recibir el `credential` llama
   `POST /auth/google`; en modo mock simula el canje sin backend. Estados loading ("Conectando…", `aria-busy`)
   y error inline (`error.GOOGLE_TOKEN_INVALID`/`GOOGLE_EMAIL_UNVERIFIED`). Guarda tokens igual que el login normal.
+- **D6 (fix v1.1, 2026-08-14):** en modo real, al descartar/omitir el prompt de GIS el `callback` del
+  credential nunca corre, así que el botón se quedaba en spinner. Ahora `prompt()` recibe un
+  **moment listener**: si `isDismissedMoment()`/`isSkippedMoment()`/`isNotDisplayed()` → `loading=false`.
+  Además hay un **timeout de respaldo** (`PROMPT_TIMEOUT_MS`, 60s) que sale del spinner si GIS no notifica
+  ni invoca el callback; se limpia en el callback/listener y al desmontar. En modo mock no aplica (login
+  simulado). Cubierto en `GoogleSignInButton.test.tsx` (descarte del prompt y `isNotDisplayed`).
 - `AuthForm` reescrito: **email/contraseña es la acción primaria** (ahora vía `login()`/`register()` reales con
   rama mock), divisor **"o/or"**, y el botón Google debajo. Login y registro.
 

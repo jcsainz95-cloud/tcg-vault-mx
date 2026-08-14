@@ -228,3 +228,30 @@
   del usuario logueado entre dispositivos.
 - **Disparador:** junto con FE-2 (auth real). Acción: al cambiar locale con sesión activa, llamar
   `PATCH /users/me { locale }` además de actualizar la ruta.
+
+### Deuda del pase v1.1 (hallazgos techlead sobre alcance v1.1)
+
+> De este pase v1.1: **D6 quedó RESUELTA** (el botón de Google ya no se atasca en "connecting" al
+> descartar el prompt de GIS: se maneja `PromptMomentNotification` + timeout de respaldo, con test).
+> **D7** se registra aquí como deuda aceptada no bloqueante (sin cambiar el comportamiento del mock).
+
+### D7 · La lógica de negocio del mock re-implementa reglas del backend y puede derivar
+- **Dónde:** `frontend/src/lib/api.ts` → `computeBreakdown` (desglose de dinero de checkout/envíos) y
+  `getBuylistQuote` (cotizador de buylist), ambos solo en la rama `config.useMocks`.
+- **Estado actual:** duplicación de **reglas de negocio** del backend, con dos derivas concretas:
+  - `computeBreakdown` calcula el gross-up del fee Stripe **omitiendo `(1 + stripeFeeIvaPct)`**: hace
+    `total = ceil((base + fixed) / (1 − stripePct))` sin cubrir el IVA que Stripe MX cobra sobre su
+    comisión (dial `stripe_fee_iva_pct`, default 0.16; ver ARCHITECTURE §5.1 y contrato §4). El
+    `processingFeeCents` del mock queda **por debajo** del que devolverá el backend.
+  - `getBuylistQuote` **reimplementa** `categoryForRarity`/`quoteAcquisition` con una **regex propia**
+    (`/holo|rare|ex|illustration|full|art|radiant|ultra/`) en lugar de la tabla `pricing/rarity-map`
+    (dial M2/M10) y de la regla EX+ = `round(referencia × 0.40)` que vive en el backend/contrato §6.
+- **Impacto:** bajo pero real: es duplicación que **envejece** — si el backend cambia la fórmula de
+  gross-up, el IVA/markup o el mapeo rareza→categoría, los fixtures mostrarían cifras/categorías que ya
+  no coinciden. **Aceptable** porque está **aislado tras `config.useMocks`** (solo demo sin backend); en
+  producción (`useMocks=false`) la UI pinta el `BreakdownDTO`/quote que llega del backend, única fuente.
+  (Es la misma familia que FE-1, aquí acotada a las dos derivas puntuales señaladas por techlead.)
+- **Disparador:** si el mock **crece** o empieza a usarse como referencia numérica. Acción: mover los
+  fixtures a consumir los **mismos helpers puros del contrato** (gross-up con `(1+stripeFeeIvaPct)` y
+  `categoryForRarity`/`quoteAcquisition` compartidos), o retirar la lógica del bundle real. **No** se
+  cambia el comportamiento del mock ahora (evita romper fixtures/E2E que asumen los números actuales).

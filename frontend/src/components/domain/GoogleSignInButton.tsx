@@ -21,14 +21,24 @@ function GoogleG({ size = 18 }: { size?: number }) {
 }
 
 type GoogleCredentialResponse = { credential?: string };
+// Subconjunto de PromptMomentNotification de GIS que nos interesa para no quedar atascados.
+type PromptMomentNotification = {
+  isDisplayMoment: () => boolean;
+  isNotDisplayed: () => boolean;
+  isSkippedMoment: () => boolean;
+  isDismissedMoment: () => boolean;
+};
 type GoogleIdApi = {
   accounts: {
     id: {
       initialize: (opts: { client_id: string; callback: (r: GoogleCredentialResponse) => void }) => void;
-      prompt: () => void;
+      prompt: (momentListener?: (notification: PromptMomentNotification) => void) => void;
     };
   };
 };
+
+/** Respaldo: si GIS no invoca ni el callback ni el moment listener, no dejar el botón en spinner. */
+const PROMPT_TIMEOUT_MS = 60_000;
 declare global {
   interface Window {
     google?: GoogleIdApi;
@@ -52,8 +62,16 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const scriptLoaded = useRef(false);
+  const promptTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const realMode = !config.useMocks && !!config.googleClientId;
+
+  function clearPromptTimeout() {
+    if (promptTimeout.current) {
+      clearTimeout(promptTimeout.current);
+      promptTimeout.current = null;
+    }
+  }
 
   async function exchange(idToken: string) {
     try {
@@ -67,6 +85,9 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
     }
   }
 
+  // Limpia el timeout de respaldo si el componente se desmonta con un prompt abierto.
+  useEffect(() => () => clearPromptTimeout(), []);
+
   // Carga perezosa de Google Identity Services solo en modo real.
   useEffect(() => {
     if (!realMode || scriptLoaded.current) return;
@@ -78,6 +99,7 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
       window.google?.accounts.id.initialize({
         client_id: config.googleClientId,
         callback: (r) => {
+          clearPromptTimeout();
           if (r.credential) void exchange(r.credential);
           else {
             setErrorCode('GOOGLE_TOKEN_INVALID');
@@ -95,8 +117,26 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
     setErrorCode(null);
     setLoading(true);
     if (realMode && window.google) {
-      // GIS invoca el callback con el credential (ID token).
-      window.google.accounts.id.prompt();
+      clearPromptTimeout();
+      // Respaldo: si GIS nunca invoca el callback ni notifica el momento (edge de red/UI),
+      // salimos del spinner tras un tope para no quedar en "connecting" indefinido.
+      promptTimeout.current = setTimeout(() => {
+        promptTimeout.current = null;
+        setLoading(false);
+      }, PROMPT_TIMEOUT_MS);
+      // GIS invoca el callback con el credential (ID token). Si el usuario descarta/omite
+      // el prompt (o no se puede mostrar), el callback NUNCA corre: el moment listener lo
+      // detecta (isDismissedMoment/isSkippedMoment/isNotDisplayed) y devuelve loading=false.
+      window.google.accounts.id.prompt((notification) => {
+        if (
+          notification.isDismissedMoment() ||
+          notification.isSkippedMoment() ||
+          notification.isNotDisplayed()
+        ) {
+          clearPromptTimeout();
+          setLoading(false);
+        }
+      });
       return;
     }
     // MOCK: simula el canje del idToken (sin backend, funciona en Vercel).
