@@ -4,9 +4,16 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: v1 (MVP). Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: **v1.1** (MVP + alcance 2026-08-14). Fecha: 2026-08-14. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > Origen: **creado desde cero** (no hubo entrega previa de Claude Design). Si más adelante el humano
 > comparte un prototipo de Claude Design, este documento se re-codifica a partir de esos tokens.
+>
+> **Novedades v1.1 (superficies nuevas de PROJECT/CONTRATO v1.1):** condición raw **solo NM** con
+> nombre legible + tooltip (§7.2b), sección **"Compra"** (renombra "Catálogo") con su vitrina y
+> `ListingCard` (§7.1), **filtros de Compra** con facetas de rareza/set-con-año/tipo/precio (§7.16),
+> **tarjeta de SELLADO** (§7.1b), **gráfica de tendencia del portafolio** estilo acciones (§7.17), y
+> **botón "Continuar con Google"** (§6.7). El sistema base (índigo/ámbar sobre slate, Inter, AA,
+> i18n ES/EN) **no cambia**; estas secciones se apoyan en los mismos tokens.
 
 ---
 
@@ -349,32 +356,82 @@ Estados:
 - **Pagination:** patrón `{ page, pageSize, total }` del contrato; botones prev/next 44px + selector de
   página. En móvil, "Cargar más" o paginación compacta.
 
+### 6.7 Botón social "Continuar con Google" (`GoogleSignInButton`) — v1.1
+Alternativa a email/contraseña en las pantallas de **login** y **registro** (`POST /auth/google`).
+- **Ubicación y jerarquía:** debajo del formulario de email, separado por un divisor **"o / or"**
+  (línea + label centrado, `text-xs muted`). El email/contraseña sigue siendo la acción primaria
+  (botón `primary`); Google es una alternativa con igual peso visual pero estilo neutro (no compite
+  como CTA de marca ni usa el ámbar).
+- **Estilo:** botón de ancho completo (`w-full`), alto `lg` (48px) para objetivo táctil cómodo, radio
+  `md`, **fondo `--color-surface`** con **borde `--color-border-strong`** y **texto `--color-text`**
+  (variante `secondary` del §6.1). Contenido centrado: **logo "G" multicolor oficial de Google** (SVG,
+  ~18–20px, se muestra igual en claro y oscuro, no se recolorea) + gap 8px + label **"Continuar con
+  Google" / "Continue with Google"**. Respeta las guías de marca de Google (no alterar el logo ni usar el
+  índigo de fondo).
+- **Consistencia de marca:** es el único botón que introduce color externo (el logo G); por eso se
+  mantiene sobre superficie neutra para no chocar con la paleta índigo/ámbar. En modo oscuro, fondo
+  `surface`, borde `border-strong`, texto claro; el logo G conserva sus colores (contraste suficiente
+  sobre `surface`).
+- **Estados obligatorios:** hover (fondo `surface-2`), focus-visible (anillo `--shadow-focus`), active
+  (`scale-[.98]`), disabled (opacidad 45%), **loading** (spinner reemplaza al logo, label "Conectando…",
+  `aria-busy=true`, bloquea doble envío mientras se verifica el ID token server-side). Errores
+  (`GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_UNVERIFIED`) se muestran como banner/inline `danger` con copy
+  traducido (`error.GOOGLE_TOKEN_INVALID`, `error.GOOGLE_EMAIL_UNVERIFIED`), nunca solo toast.
+- **Accesibilidad:** es un `<button>` real con label textual (no solo el icono); `aria-label` redundante
+  no necesario. El logo G va `aria-hidden`. Orden de tabulación: campos → botón primario → divisor →
+  botón Google. Anuncio de estado con `aria-live` durante "Conectando…".
+- **Nota post-login:** cuando `authProvider=google` y aún no hay contraseña, la pantalla de cuenta
+  **oculta "cambiar contraseña"** y ofrece "Crear contraseña" (coherente con el contrato v1.1).
+
 ---
 
 ## 7. Componentes — dominio
 
 ### 7.1 Card de carta (`CardTile` / `ListingCard`) — pieza central
-Anatomía (vertical):
+Consume `ListingDTO` (`{ card, productType, rawCondition?, sealedSubtype?, gradingCompany?, gradeValue?,
+referenceValue, salePriceCents?, sellable }`). Anatomía (vertical):
 1. **Imagen** de la carta `aspect-[5/7]`, con skeleton al cargar. Overlay superior-izquierda: badge de
-   **condición/grado**; superior-derecha: badge de **estado de titularidad** (solo en contexto bóveda).
-2. **Nombre** (EN, `text-sm/base` semibold, 1–2 líneas con `line-clamp`).
-3. **Set + número** (`text-xs muted`, EN).
-4. **Price tag** (§7.3): precio MXN grande + "sin IVA" + fecha; o "Precio pendiente".
-5. Acción contextual: en storefront botón `accent`/`primary` "Agregar"/"Comprar" (deshabilitado si
-   `sellable=false`); en bóveda, botón `secondary` "Retirar" (deshabilitado si `pending`).
+   **condición/grado/tipo** (§7.2b, deriva de `productType`); superior-derecha: badge de **estado de
+   titularidad** (solo en contexto bóveda).
+2. **Nombre** (EN, `text-sm/base` semibold, 1–2 líneas con `line-clamp`; envuelto en `lang="en"`).
+3. **Set + número** (`text-xs muted`, EN). En Compra se sugiere sufijar el año del set entre paréntesis
+   cuando ayuda ("Surging Sparks · 2024") reutilizando el `year` de facetas.
+4. **Price tag** (§7.3): en **Compra** siempre precio MXN grande (`salePriceCents`) + "sin IVA" + fecha
+   de referencia. En **bóveda** muestra el valor de referencia; solo ahí puede aparecer "Precio
+   pendiente".
+5. Acción contextual: en Compra botón `accent`/`primary` "Agregar"/"Comprar"; en bóveda, botón
+   `secondary` "Retirar" (deshabilitado si `pending`).
 
-Badge de **condición/grado** (deriva de `productType`):
-- raw → `NM/LP/MP/HP/DMG` (pill neutra con borde; DMG y HP tono `warning`).
-- graded → `PSA 10` / `CGC 9.5` (pill `accent` con icono escudo — refuerza autenticidad).
-- sealed → `Sellado / Sealed` (pill `info`).
+> **Regla dura de Compra (jerarquía + confianza):** la vitrina de Compra lista **solo inventario
+> publicado con precio** (`sellable=true`, `salePriceCents != null`); el `ListingCard` en Compra
+> **NUNCA** renderiza el estado "precio pendiente" ni `$0`/`—`. La cifra siempre está presente. El
+> orden de lectura del card prioriza: imagen → nombre → **precio** → CTA; el badge de tipo/condición es
+> secundario (esquina). El "valor de mercado/referencia" es informativo y va en `text-xs muted` bajo el
+> precio de venta (ver §7.3), sin competir con la cifra de venta.
+
 Badge de **titularidad**: `pending` (warning) / `settled` (success), con icono candado abierto/cerrado.
 
 Estados del card:
 - normal / hover (eleva a `shadow-md`, imagen `scale-[1.02]` sutil) / focus-visible (anillo en todo el
-  card, es un enlace) / **no vendible** (badge "Precio pendiente", CTA disabled, sin sombra hover) /
-  skeleton (imagen + 3 barras) .
+  card, es un enlace) / skeleton (imagen + 3 barras). El estado "no vendible / precio pendiente" **solo
+  existe en contexto bóveda**, nunca en Compra.
 - Variante **compacta horizontal** para listas de bóveda, checkout, picking y colas admin: miniatura
   56×78, nombre + folio + estado en fila.
+
+### 7.1b Variante SELLADO del `ListingCard` (`productType=sealed`)
+El sellado (booster box, ETB, bundle, tin, blister) es una línea de venta distinta y su tarjeta se
+lee diferente:
+- **Sin** badge de condición ni de rareza (el sellado no lleva `rawCondition`/grade/rareza).
+- Badge único **"Sellado / Sealed"** (tono `info`, icono `package`/caja de lucide) en la esquina
+  superior-izquierda, y **subtipo** derivado de `sealedSubtype` como segundo pill neutro cuando existe:
+  "Booster Box", "ETB", "Bundle", "Tin", "Blister" (etiquetas localizadas por `status.sealedSubtype.*`;
+  el dato del subtipo es un enum del contrato, no se traduce el producto en sí).
+- **Imagen**: si la foto del producto sellado no es 5:7 (las cajas son más cuadradas), el mismo contenedor
+  `aspect-[5/7]` la centra con `object-contain` sobre fondo `surface-2` (no recortar la caja). El badge
+  "Sellado" desambigua que no es un single.
+- **Precio**: siempre visible (`salePriceCents`, precio manual del admin en MXN) + "sin IVA"; como en todo
+  Compra, el sellado sin precio no se publica, así que la tarjeta nunca aparece sin cifra.
+- Nombre/set en EN igual que el resto; no se muestra número de carta cuando no aplica.
 
 ### 7.2 Badge / Pill (`Badge`)
 - Formas: **soft** (fondo `-bg` + texto `-color`, default) y **outline** (borde + texto, para estados
@@ -382,12 +439,48 @@ Estados del card:
 - Tamaño `text-xs`, `px-2 py-0.5`, `radius-full`, peso 500. Siempre con **texto**; icono opcional 12–14px.
 - Mapeo de color por estado en §2.4. Componente recibe `{status, domain}` y resuelve token + clave i18n.
 
-### 7.3 Price tag (`PriceTag`) — incluye "precio pendiente"
-- **Priced:** `MX$ 1,250.00` en `text-lg semibold tabular-nums`; debajo `text-xs muted` "sin IVA · 13 ago 2026"
-  (fecha = `capturedDate` localizada). Opcional icono info con tooltip "Precio de referencia de mercado,
-  actualizado a diario".
-- **Pending:** en lugar de cifra, pill `warning outline` "Precio pendiente / Price pending" + `text-xs muted`
-  "Lo fijaremos pronto". CTA de compra deshabilitado. En portafolio, se excluye del total y se marca.
+### 7.2b Badge de condición / grado / tipo (`ConditionBadge`) — v1.1 (raw solo NM)
+Deriva de `productType` y ocupa la esquina superior-izquierda del `ListingCard` y de la ficha. En v1.1
+el raw se opera **únicamente en Near Mint**; **ya no existen** LP/MP/HP/DMG.
+
+| `productType` | Contenido del badge | Tono | Icono |
+|---|---|---|---|
+| `raw` (`rawCondition=NM`) | **"Casi nueva (NM)"** · EN **"Near Mint (NM)"** | **success suave** (`success-bg` + `success`), estilo *soft* | escudo/check-circle |
+| `graded` | `PSA 10` / `CGC 9.5` (de `gradingCompany`+`gradeValue`) | `accent` | escudo (autenticidad) |
+| `sealed` | "Sellado / Sealed" + subtipo (§7.1b) | `info` | package/caja |
+
+**NM — nombre legible + tooltip accesible (regla nueva):**
+- El badge muestra el **nombre legible** completo, **no** el código pelón "NM". Formato: `Casi nueva (NM)`
+  en ES y `Near Mint (NM)` en EN. En contenedores muy estrechos (card compacto de bóveda) puede colapsar a
+  la pill "NM" **pero** conservando el nombre completo en `aria-label` y `title`.
+- La **descripción del estándar propio** vive en un **tooltip/`title`**: *"Como nueva; a lo mucho
+  imperfecciones mínimas. Bordes limpios y superficie sin rayones notorios."* (EN espeja el texto). El
+  tooltip aparece en hover y en focus del badge (el badge es focuseable, `tabindex="0"`).
+- **Accesibilidad:** el badge lleva `aria-label` con nombre + descripción (ej.
+  `aria-label="Condición: Casi nueva (Near Mint). Como nueva; a lo mucho imperfecciones mínimas…"`), de
+  modo que el lector de pantalla lo anuncie sin depender del `title` hover. No usar solo color: el texto
+  legible ya porta el significado. El icono es decorativo (`aria-hidden`).
+- **Tono elegido para NM:** verde suave (success-bg) — NM es el **único** grado y es un estándar de
+  confianza/"garantía de condición"; el verde suave lo alinea con la semántica de "verificado" sin gritar
+  como un badge sólido. No usar el ámbar de `pending` (NM no es un estado pendiente). Cumple AA (§10:
+  `success #047857` sobre `success-bg #ECFDF5` ≈ 6.3:1).
+- Las claves i18n del nombre y la descripción viven en `catalog.condition.nm.{label,desc}` (propiedad de
+  frontend); la API **no** envía el label legible, solo el enum `NM` (ver contrato v1.1).
+
+### 7.3 Price tag (`PriceTag`) — precio de venta vs. referencia; "precio pendiente"
+- **En Compra (precio de venta):** la cifra principal es `salePriceCents` → `MX$ 1,250.00` en
+  `text-lg semibold tabular-nums`; debajo `text-xs muted` "sin IVA · 13 ago 2026". Opcionalmente, en
+  segunda línea `text-xs muted`, el **valor de mercado/referencia** (`referenceValue.referenceMxnCents`)
+  con etiqueta "Valor de mercado" + icono info y tooltip "Precio de referencia de mercado, actualizado a
+  diario" (fecha = `capturedDate` localizada). El valor de mercado nunca compite tipográficamente con el
+  precio de venta.
+- **En bóveda (valor):** la cifra es el valor de referencia (`referenceValue`), pues el portafolio se valúa
+  a referencia, no a precio de venta.
+- **Pending (SOLO bóveda / back-office, NUNCA Compra):** en lugar de cifra, pill `warning outline`
+  "Precio pendiente / Price pending" + `text-xs muted` "Lo fijaremos pronto". En portafolio se excluye del
+  total y se marca (`pendingPriceCount`). **En Compra este estado no puede ocurrir** (el contrato excluye
+  del listado los items sin precio); si por una carrera un item deja de ser vendible, el checkout lo
+  bloquea (`422 PRICE_PENDING`), no el card.
 - Nunca mostrar `$0` ni "—" para precio pendiente: siempre el estado explícito (regla de confianza).
 
 ### 7.4 Iconos de estado semántico
@@ -447,6 +540,9 @@ un módulo— todo el card es clickable (foco visible).
   (si no hay metas, muestra los conteos y "Meta pendiente").
 - Estados: loading (skeleton de cifra), error (mini-banner "No se pudo cargar", reintentar), vacío/cero
   (cifra `0` legítima, no error).
+- **Sparkline opcional (v1.1):** el StatCard de "valor de portafolio" (bóveda) puede embeber un
+  mini-sparkline con el color de tendencia y el delta como subtítulo (signo+flecha), reutilizando
+  `GET /vault/portfolio/history` (§7.17). Su alternativa textual es el propio delta del card.
 
 ### 7.9 Stepper de pipeline (`PipelineStepper`) — buylist, envío, orden
 - Horizontal en desktop, vertical en móvil. Cada paso: círculo con icono/estado + label + timestamp.
@@ -502,8 +598,11 @@ Los importes vienen en centavos del contrato; el formato es §9.3.
 - Es público (sin sesión). Al "Crear solicitud" pide login/registro y luego KYC/CLABE/INE según topes.
 
 ### 7.15 Navegación
-- **Storefront header:** logo, buscador, nav (Catálogo, Buylist, Mi bóveda, Mis órdenes), `LocaleToggle`,
+- **Storefront header:** logo, buscador, nav (**Compra**, Buylist, Mi bóveda, Mis órdenes), `LocaleToggle`,
   cuenta/carrito. Sticky. En móvil: logo + buscador + menú hamburguesa + carrito; nav en drawer.
+  > **v1.1 — rótulo "Compra":** el ítem antes llamado "Catálogo" se rotula **"Compra / Shop"** en toda la
+  > UI (clave `nav.shop`). La **ruta técnica se mantiene** (`/catalog/cards` en el contrato); el cambio es
+  > solo de etiqueta visible. Los breadcrumbs (§6.6) usan "Compra › Set › Carta".
 - **Admin shell:** sidebar izquierdo (desde `lg`) con módulos **M1–M10** agrupados
   (Operación: M1, M4, M5, M8 · Catálogo/Precios: M2 · Ventas/Finanzas: M3, M7, M9 · Admin: M6, M10),
   dashboard arriba. Topbar con contexto (rol actual, buscador global de folio/usuario, `LocaleToggle`,
@@ -511,6 +610,127 @@ Los importes vienen en centavos del contrato; el formato es §9.3.
   Cámara/alta rápida). Item activo resaltado con barra `--color-primary` + fondo `surface-2`.
 - Los módulos no permitidos para el rol (operador: M2/M3-refund/M7/M10…) **no se muestran** o aparecen con
   candado y tooltip; el intento bloqueado del contrato (`403 MONEY_OUT_FORBIDDEN`) se refleja con banner.
+
+### 7.16 Filtros de Compra (`ShopFilters`) — v1.1
+Barra/panel de filtros de la vitrina de Compra. Se alimenta de `GET /catalog/facets` (rareza, sets con
+año, tipos, subtipos de sellado, rango de precio) y aplica sobre `GET /catalog/cards`
+(`?setId&rarity&productType&condition&minPriceCents&maxPriceCents&sealedSubtype&sort`).
+- **Layout:** en `lg+` panel lateral izquierdo (sticky, ~240–280px) junto al grid; en `< lg` botón
+  "Filtros" que abre un **bottom sheet** (§7.6) con las mismas facetas y un conteo de resultados en el
+  botón de aplicar. Los filtros activos se muestran como **chips removibles** (§7.7) sobre el grid, más un
+  "Limpiar filtros".
+- **Sincronización con URL:** cada faceta se refleja en query params para compartir/volver; el estado
+  vacío de resultados usa el patrón "Ninguna carta coincide + Limpiar filtros" (§8.1).
+
+**a) Rareza — taxonomía abierta con muchas categorías modernas (patrón anti-saturación).**
+La lista de rareza es **abierta** (espeja pokemontcg.io tal cual; incluye Illustration Rare, Special
+Illustration Rare, Art Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare, Radiant, EX/GX/V/
+VMAX/VSTAR, Secret/Rainbow, etc.) y puede tener decenas de valores. Para que sea **escaneable** sin
+saturar:
+- **No** volcar 40 chips sueltos. Usar un **Combobox multi-select con búsqueda** (§6.3): campo "Buscar
+  rareza…" + lista virtualizada con checkboxes; el trigger muestra el conteo ("Rareza · 3").
+- **Agrupar** las rarezas en familias legibles con encabezados dentro del desplegable (grupos sugeridos,
+  solo presentación — el valor enviado a la API es la rareza cruda): *Comunes/estándar* (Common, Uncommon,
+  Rare, Reverse Holo, Holo Rare), *Ultra/EX+* (EX, GX, V, VMAX, VSTAR, Ultra Rare), *Ilustración/Arte*
+  (Illustration Rare, Special Illustration Rare, Art Rare, Full/Alternate Art, Trainer Gallery, Character
+  Rare), *Especiales* (Radiant, Shiny, Secret/Rainbow, Gold). La tabla de agrupación es de **presentación
+  del front** (un mapa rareza→grupo en i18n/config del front, con fallback "Otras" para valores no
+  mapeados), nunca cierra la taxonomía ni depende del backend.
+- Mostrar las **rarezas más frecuentes primero** (las facetas ya vienen filtradas a inventario publicado,
+  así que solo aparecen rarezas que existen a la venta) y una sección colapsable "Ver todas". Chips de
+  selección activa aparecen arriba (removibles).
+- Accesibilidad: `role="listbox"`/`option` con teclado, cada opción con checkbox etiquetado; el grupo con
+  `aria-label`. El buscador filtra por texto en cualquier idioma de la etiqueta visible (el valor cruo EN
+  se conserva para la query).
+
+**b) Set con año (`SetFilter`).** Combobox con búsqueda sobre `facets.sets`; cada opción se muestra como
+**"Surging Sparks (2024)"** (nombre EN del set + año entre paréntesis, derivado de `releaseDate`). Orden
+**por año descendente** (los sets más nuevos arriba), tal como los entrega el contrato. Muchos sets →
+buscador obligatorio; opción de agrupar por año como encabezados dentro del desplegable. El año es un
+realce sutil (`text-xs muted`), el nombre es el texto principal.
+
+**c) Tipo de producto (`ProductTypeFilter`).** Segmented control o chips de selección múltiple:
+**Todo · Raw (NM) · Graded · Sellado**. Al elegir "Raw", la condición está implícita en **NM** (único
+valor; se muestra como sublabel "Casi nueva (NM)", no como un segundo filtro con varias opciones). Al
+elegir "Sellado", aparece un sub-filtro opcional de **subtipo** (box/ETB/bundle/tin/blister) alimentado
+por `facets.sealedSubtypes`; graded y sellado **no** ofrecen filtro de rareza/condición.
+
+**d) Precio (`PriceRangeFilter`).** Rango `minPriceCents`–`maxPriceCents` con dos inputs `MX$` (prefijo,
+`inputmode="decimal"`, `tabular-nums`) y/o slider dual; los límites por defecto vienen de `facets.price`
+(`minCents`/`maxCents`). Validación: min ≤ max; se envía en centavos.
+
+**e) Orden (`sort`).** Select con `price_asc | price_desc | newest` (etiquetas "Precio: menor a mayor",
+"Precio: mayor a menor", "Novedades"). Separado de las facetas, alineado a la derecha sobre el grid.
+
+### 7.17 Gráfica de tendencia del portafolio (`PortfolioTrendChart`) — v1.1, estilo acciones
+Vive en "Mi bóveda". Consume `GET /vault/portfolio/history?range=…` → `{ range, points: PortfolioPointDTO[],
+change: { absMxnCents, pct, direction } }`. Es la superficie más "financiera" de la app; prioriza legibilidad
+del dato y accesibilidad sobre el adorno.
+
+**Anatomía (arriba → abajo):**
+1. **Encabezado de valor:** valor actual grande (`text-h1 tabular-nums`, último `valueMxnCents`) +
+   **delta** del rango en `text-sm`: signo + flecha + monto + porcentaje, p. ej. **"▲ +MX$ 31,200 (+6.09 %)"**.
+   El delta usa color de tendencia (ver abajo) **y** signo/flecha (nunca solo color). `direction=flat` →
+   sin flecha, tono neutro, "Sin cambios".
+2. **Toggle de rangos** (`RangeToggle`): segmented control / fila de chips **5d · 15d · 1m · 3m · 6m · 1a ·
+   YTD · Máx** (mapea a `5d|15d|1m|3m|6m|1y|ytd|all`). El activo con fondo `--color-primary` + `primary-fg`;
+   los inactivos `ghost`. Scrollable horizontal en móvil (8 rangos no caben); cada chip ≥ 44px táctil, con
+   `aria-pressed`. Default **1m**.
+3. **Área/línea del gráfico:** línea de 2px con relleno de área tenue (gradiente a transparente) del color de
+   tendencia del rango. Sin cuadrícula pesada: gridlines horizontales sutiles (`--color-border`), sin bordes
+   de eje gruesos. Tooltip/crosshair al hover/touch mostrando fecha localizada + valor (`tabular-nums`), y en
+   teclado el punto activo se puede recorrer con flechas (`aria-live` anuncia fecha+valor).
+4. **Ejes:** eje X con ~4–6 etiquetas de fecha (`text-xs muted`, formato §9.3, densidad según rango: días
+   para 5d/15d, meses para 1a/Máx); eje Y con 3–4 marcas de valor abreviado (`MX$ 5.4k` etc.,
+   `text-xs muted`, `tabular-nums`). Sin saturar de ticks.
+5. **(Opcional) Línea de costo base:** si los puntos traen `costBasisMxnCents`, dibujar una **línea punteada
+   neutra** (`--color-text-muted`, `stroke-dasharray`) como referencia; leyenda "Valor" vs "Costo base". No
+   usar verde/rojo para el costo base (se reservan para tendencia). Es opcional y desactivable.
+
+**Colores de tendencia (verde sube / rojo baja) con AA en claro y oscuro:**
+- **Sube (`direction=up`):** usar el token **success** (claro `#047857`, oscuro `#34D399`) para línea, área
+  y delta. Cumple AA sobre `bg`/`surface` (§10).
+- **Baja (`direction=down`):** usar el token **danger** (claro `#DC2626`, oscuro `#F87171`). AA verificado
+  en §10.
+- **Plano (`flat`):** `--color-text-muted`.
+- **No depender solo del color (crítico para daltonismo):** el delta **siempre** incluye **signo (+/−) y
+  flecha (▲/▼)**; el encabezado nombra la dirección en texto ("subió"/"bajó"/"sin cambios" en el resumen
+  accesible). La línea puede además variar el estilo si se desea (sólida up / con marcadores down), pero el
+  signo+flecha es el portador primario.
+
+**Tipografía de ejes y cifras:** Inter con `tabular-nums` en todas las cifras (encabezado, ejes, tooltip);
+etiquetas de eje `text-xs muted`; encabezado de valor `text-h1`; delta `text-sm` peso 500.
+
+**Estados obligatorios:**
+- **Cargando:** skeleton con la forma del chart (rectángulo `aspect` + línea ondulada gris) + toggle de
+  rangos ya interactivo; el encabezado muestra skeleton de cifra. No spinner a pantalla completa.
+- **Vacío ("recopilando datos"):** cuando `points: []` (usuario sin snapshots todavía). Ilustración sobria +
+  título **"Estamos recopilando datos / We're collecting data"** + 1 frase "Tu tendencia aparecerá cuando
+  tengamos al menos un par de días de historia." No mostrar un chart en cero ni una línea plana falsa; no es
+  un error. El encabezado muestra el valor actual del portafolio (de `holdings.portfolio`) si existe, con
+  delta "Sin cambios".
+- **Tendencia negativa:** es un estado **legítimo, no un error** — se pinta en rojo con ▼ y signo −, sin
+  banners de alarma. El área en rojo tenue; nada de iconografía de "peligro" (esto es información, no un
+  fallo).
+- **Rango sin suficientes puntos:** si un rango corto (5d) tiene 0–1 puntos, mostrar el/los puntos como
+  marcador(es) y una nota `text-xs muted` "Pocos datos en este rango" en vez de una línea engañosa.
+- **`estimated`:** los puntos de backfill indicativo (`estimated: true`) se dibujan con la línea
+  **punteada** y una nota de leyenda "Estimado" para no dar apariencia de dato medido real.
+- **Error de carga:** mini-banner `danger` "No se pudo cargar la tendencia" + "Reintentar" (§8.1), sin
+  romper el resto de "Mi bóveda".
+
+**Alternativa textual accesible (obligatoria):** el chart NO puede ser el único portador del dato. Junto
+al `<svg>` (marcado `role="img"` con `aria-label` resumen) va un **resumen textual** para lectores de
+pantalla (visible o `sr-only` según diseño): p. ej. *"Portafolio en el último mes: inicio MX$ 5,120.00
+el 15 jul, cierre MX$ 5,432.00 el 14 ago. Subió MX$ 312.00 (+6.09 %)."* Se construye con el primer y
+último `point` y el objeto `change`. Cambiar de rango actualiza este resumen con `aria-live="polite"`.
+Opcional: un enlace "Ver como tabla" que despliega los puntos en una `DataTable` (fecha/valor) totalmente
+navegable por teclado.
+
+**Opcional — mini-sparkline en el `StatCard` de "valor de portafolio":** el `StatCard` de valor del
+portafolio (§7.8) puede incluir un **sparkline** de ~30–60px de alto (rango corto, p. ej. 1m) con el color
+de tendencia y el delta como subtítulo (mismo patrón signo+flecha). Es decorativo-informativo; su
+alternativa textual es el propio delta del StatCard. Reutiliza `history` para no pedir datos extra.
 
 ---
 
@@ -560,6 +780,14 @@ Los importes vienen en centavos del contrato; el formato es §9.3.
   `vault.*`, `buylist.*`, `shipments.*`, `admin.<module>.*`, `status.<domain>.<enum>`, `error.<CODE>`.
 - **Enums → texto:** el frontend traduce cada enum vía `status.<domain>.<value>` (ej.
   `status.ownership.settled` → "Liquidada"/"Settled"). Nunca se pinta el enum crudo.
+- **Claves nuevas v1.1 (propiedad de frontend; la API no envía estos textos):**
+  `catalog.condition.nm.label` ("Casi nueva (NM)" / "Near Mint (NM)"),
+  `catalog.condition.nm.desc` (descripción del estándar NM en ES/EN),
+  `status.sealedSubtype.{box,etb,bundle,tin,blister}`, `nav.shop` ("Compra"/"Shop"),
+  `shop.filters.rarity.groups.*` (mapa de presentación rareza→grupo, con fallback "Otras"/"Other"),
+  `portfolio.trend.*` (rangos, resumen accesible, "recopilando datos", "estimado", "costo base"),
+  `auth.google.cta` ("Continuar con Google"/"Continue with Google"), `auth.divider.or` ("o"/"or"),
+  `error.GOOGLE_TOKEN_INVALID`, `error.GOOGLE_EMAIL_UNVERIFIED`.
 - **errorCode → texto:** cada `error.<CODE>` (ej. `error.PRICE_PENDING`, `error.ITEM_NOT_SETTLED`,
   `error.ADDRESS_NOT_MX`, `error.BUYLIST_LIMIT_EXCEEDED`, `error.INE_REQUIRED`, `error.CLABE_NOT_OWN_NAME`,
   `error.MONEY_OUT_FORBIDDEN`) tiene copy claro y accionable en ambos idiomas.
@@ -617,11 +845,25 @@ texto grande/UI ≥ 3:1.
 | Danger `#F87171` sobre `#0F172A` | ~6.2:1 | AA |
 | Anillo foco `#A5B4FC` sobre `#020617` | ~7.8:1 | AA/AAA |
 
+**Colores de tendencia del `PortfolioTrendChart` (§7.17)** — usan tokens ya verificados:
+| Par | Ratio aprox. | Cumple |
+|---|---|---|
+| Sube claro `#047857` (success) sobre `#FFFFFF` | ~6.3:1 | AA (línea/texto delta) |
+| Baja claro `#DC2626` (danger) sobre `#FFFFFF` | ~4.9:1 | AA (línea/texto delta) |
+| Sube oscuro `#34D399` sobre `#0F172A` | ~8.5:1 | AA/AAA |
+| Baja oscuro `#F87171` sobre `#0F172A` | ~6.2:1 | AA/AAA |
+- La línea del chart es UI (≥ 3:1) y además el delta se lee como **texto** (≥ 4.5:1), por eso se usan las
+  variantes de token de texto, no los tintes `-500` puros. El color **nunca** es el único indicador:
+  siempre acompaña signo (+/−) y flecha (▲/▼). Costo base usa `text-muted` punteado (no verde/rojo).
+
 Reglas derivadas:
 - **Accent (ámbar) con texto blanco** solo en tamaño grande/bold; para texto normal sobre ámbar, usar
   texto `slate-900`. Por eso los botones `accent` de CTA llevan label ≥ 16px semibold.
 - El texto `subtle`/placeholder no se usa para información esencial (solo pistas), pues está en el borde
   de AA para texto pequeño.
+- **NM badge:** `success #047857` sobre `success-bg #ECFDF5` ≈ 6.3:1 (AA); en oscuro `#34D399` sobre
+  `#052E22` cumple AA. El logo "G" de Google sobre `surface` conserva sus colores oficiales (contraste
+  suficiente; no se recolorea).
 - Verificar cualquier token nuevo antes de introducirlo; no bajar de AA.
 
 ---
@@ -703,17 +945,18 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 
 | Flujo (PROJECT) | Endpoints (CONTRATO) | Componentes clave |
 |---|---|---|
-| Catálogo | `GET /catalog/cards`, `/sets` | CardTile, filtros Select/Combobox, PriceTag, Pagination |
-| Ficha de carta | `GET /catalog/cards/:id` | Imagen grande, Tabs, badges condición/grado, PriceTag, CTA |
+| Login / Registro | `POST /auth/login`,`/register`,`/google` | Inputs, Button primary, **GoogleSignInButton** (§6.7), divisor "o/or" |
+| **Compra** (ex-Catálogo) | `GET /catalog/cards`, `/facets`, `/sets` | ListingCard (+ variante Sellado §7.1b), **ShopFilters** (§7.16), ConditionBadge NM, PriceTag, Pagination |
+| Ficha de carta | `GET /catalog/cards/:id` | Imagen grande, Tabs, ConditionBadge (NM + tooltip §7.2b), PriceTag, CTA |
 | Checkout | `POST /checkout/quote`,`/session` | AmountBreakdown (subtotal+fee+IVA), Stripe, Banner CFDI |
-| Mi bóveda / portafolio | `GET /vault/holdings` | CardTile compacto, badge titularidad, StatCard "valor portafolio", PriceTag pending |
+| Mi bóveda / portafolio | `GET /vault/holdings`, `/vault/portfolio/history` | CardTile compacto, badge titularidad, **PortfolioTrendChart** (§7.17), StatCard "valor portafolio" (+sparkline opcional), PriceTag pending |
 | Retiro / envío | `POST /shipments/quote`,`/shipments` | Selección items settled, AmountBreakdown (envío+IVA), Address MX, PipelineStepper |
 | Buylist cotizador | `POST /buylist/quote` | BuylistQuoter, Banner PAY_AFTER_RECEIPT, SafeShippingGuide, PriceTag |
 | Buylist solicitud | `POST /buylist/requests` | KYC/CLABE/INE inputs, PhotoUploader (INE), topes (Banner límite) |
 | Disputa | `POST /disputes` | PhotoUploader (reclamo), PipelineStepper |
 | Admin dashboard | `GET /admin/dashboard` | 8× StatCard (enmascarado por rol), cola de trabajo accionable |
 | M1 Inventario | `/admin/inventory/*` | PhotoUploader anverso/reverso, folio, ubicación CAJA/FILA/SLOT, DataTable |
-| M2 Precios | `/admin/pricing/*`, `/fx` | Tabla precio pendiente, override manual, FX/colchón, rareza→categoría |
+| M2 Precios/Catálogo | `/admin/pricing/*`, `/fx`, `/admin/catalog/sync`,`/backfill`,`/remote-sets` | Tabla precio pendiente, override manual, FX/colchón, rareza→categoría, sync/backfill de sets (super_admin) |
 | M3 Órdenes | `/admin/orders/*` | DataTable, AmountBreakdown, refund destructivo (super_admin) |
 | M4 Retiros | `/admin/shipments/*` | Cola, picking-list por ubicación, captura de guía, PipelineStepper |
 | M5 Buylist | `/admin/buylist/*` | Pipeline, cherry-pick por item, convertir a inventario, pago SPEI (super_admin) |
@@ -752,6 +995,15 @@ No bloquean el diseño; se registran para coherencia:
    (`convertida_inventario`, `resuelta_recompra`). Se usarán labels cortos localizados en badges de tabla
    (no el enum). No requiere cambio de contrato; solo confirmar que el diccionario de copy es propiedad de
    frontend/ux-ui (lo es).
+8. **v1.1 — cobertura de shapes (sin cambios de contrato solicitados).** Las superficies nuevas ya tienen
+   los datos que necesitan: `ListingDTO` (`salePriceCents`, `sealedSubtype?`, `rawCondition="NM"`),
+   `GET /catalog/facets` (`rarities` abiertas, `sets` con `year`, `sealedSubtypes`, `price`),
+   `GET /vault/portfolio/history` (`points` con `costBasisMxnCents?`/`estimated?` y `change` con
+   `direction`), `POST /auth/google`. **No se requiere ampliar el contrato.** Anotaciones menores no
+   bloqueantes: (a) el **mapa rareza→grupo** de presentación de los filtros vive en el front (no en la API);
+   si en el futuro se quisiera un agrupamiento canónico compartido, sería un dial de M10, no del contrato.
+   (b) El **label y la descripción de NM** son i18n del front (confirmado por el contrato v1.1). (c) Para el
+   sparkline del StatCard se reutiliza `portfolio/history` con rango corto; no hace falta endpoint nuevo.
 
 ---
 
@@ -772,4 +1024,17 @@ No bloquean el diseño; se registran para coherencia:
   y oscuro, `aria-live` para procesos asíncronos, `prefers-reduced-motion`.
 - **Tokens listos para implementar:** CSS variables (claro/oscuro) + mapeo Tailwind en §11; el frontend
   puede empezar a construir componentes base y las pantallas del §12 de inmediato.
+- **v1.1 (superficies nuevas):**
+  - **Condición NM legible:** badge verde suave "Casi nueva (NM)" / "Near Mint (NM)" con descripción del
+    estándar en tooltip/`title` + `aria-label`; sin LP/MP/HP/DMG (§7.2b).
+  - **Compra:** rótulo "Compra" (ruta `/catalog/cards` intacta); `ListingCard` con precio de venta como
+    dato dominante; **nunca "precio pendiente" en Compra** (§7.1/§7.3).
+  - **Sellado:** tarjeta sin condición/rareza, badge "Sellado" + subtipo, precio siempre (§7.1b).
+  - **Filtros de Compra (§7.16):** rareza en Combobox multi-select agrupable/buscable (taxonomía abierta),
+    set con año "(2024)" orden año desc, tipo (raw NM/graded/sellado + subtipo), precio; anti-saturación.
+  - **Gráfica de portafolio (§7.17):** estilo acciones, verde↑/rojo↓ con signo+flecha (no solo color),
+    toggle 5d/15d/1m/3m/6m/1a/YTD/Máx, estados cargando/vacío("recopilando datos")/negativo, resumen
+    textual accesible; costo base y sparkline opcionales.
+  - **Google (§6.7):** botón `secondary` full-width con logo G oficial, divisor "o/or", estados
+    loading/error; consistente con marca (color externo solo en el logo).
 ```
