@@ -10,6 +10,13 @@
 > nomenclatura/política, sección "Compra" con inventario propio, rarezas modernas y filtro de set con año,
 > venta de sellado con precio manual, gráfica de tendencia del portafolio, login con Google, sync de
 > catálogo 2024+ con backfill).
+> **Simplificación v1.2 (2026-08-14, aprobada por el humano)**: el producto **no lleva fotos propias** en
+> ningún lado — se usa la **imagen de catálogo remota de pokemontcg.io**; se elimina la captura de "fotos
+> verificadas de anverso/reverso" como mecanismo de condición/disputa. **Gradeadas**: el slab es la
+> garantía (empresa + grado + `certNumber`, verificable en la graduadora). **Disputas de condición**: la
+> evidencia se envía **por correo a soporte** (no hay subida de foto en la app). **KYC buylist**: el INE se
+> **verifica en vivo y NO se almacena** su imagen; la **CLABE sigue cifrada en BD**. **Object storage (R2):
+> FUERA del alcance del MVP** (sin bucket, sin subidas de archivos). Ver decisiones 20–25.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -25,7 +32,9 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - **Cero envíos innecesarios**: las cartas compradas viven en la bóveda; el usuario acumula y pide
   el retiro cuando le conviene, pagando un solo envío.
 - **Confianza**: cada carta se autentica una vez al ingresar a la bóveda; se garantiza autenticidad
-  y condición (incluidas raw con estándar propio y fotos verificadas).
+  y condición. **Gradeadas (PSA/CGC)**: el **slab** es la garantía (empresa + grado + número de certificado
+  verificable en la graduadora). **Raw**: **estándar de condición propio en Near Mint (NM)**. No se usan
+  fotos propias: la ficha muestra la **imagen de catálogo de pokemontcg.io**.
 - **Portafolio visible**: el usuario ve el valor de su colección en custodia, valuado a mercado.
 
 ## Usuarios y roles de la app
@@ -64,9 +73,11 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
         manual del admin** siempre disponible como respaldo.
       - **sellado**: **precio manual del admin en MXN** (pokemontcg.io no cubre sellado; sin fuente
         automática en el MVP; fuente de mercado tipo **PriceCharting = fase 2**).
-- [ ] Tipos de producto vendibles: **gradeadas (PSA/CGC)**, **producto sellado** (sets cerrados:
-      booster box, ETB, bundle, tin, blister…) y **raw en Near Mint (NM)** (estándar de condición propio +
-      fotos verificadas anverso/reverso).
+- [ ] Tipos de producto vendibles: **gradeadas (PSA/CGC)** (el **slab** es la garantía: se muestra
+      **empresa + grado + número de certificado**, verificable en la web de la graduadora; se captura
+      `certNumber`), **producto sellado** (sets cerrados: booster box, ETB, bundle, tin, blister…) y
+      **raw en Near Mint (NM)** (**estándar de condición propio**, sin foto). **La ficha usa la imagen de
+      catálogo de pokemontcg.io**; el producto no lleva fotos propias.
 - [ ] **Venta de producto sellado**: se vende en Compra con **precio manual del admin en MXN**, **sin
       condición ni rareza**; como en Compra solo se lista lo que tiene precio, el admin **fija el precio
       antes de publicar** el sellado.
@@ -96,13 +107,15 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       **página de términos/políticas**.
 - [ ] **Excepción 1 — disputa de condición**: si la carta **llega/está dañada o equivocada**, aplica la
       **disputa de condición** (ventana de **7 días contados desde la entrega del envío** —cuando paquetería
-      marca "entregado"—, con las **fotos de ingreso** a bóveda como evidencia canónica). Si procede, el
+      marca "entregado"—). **La evidencia se envía por correo a soporte** (no hay subida de foto en la app).
+      La resolución usa: para **gradeadas**, el **grado y número de certificado** del slab (verificable en la
+      graduadora); para **raw NM**, el **estándar/política de condición propio**. Si procede, el
       **súper-admin compensa recomprando al precio pagado** y el **cliente conserva la carta** (NO se exige
       devolución; el envío de regreso no es requisito para compensar).
 - [ ] **Excepción 2 — error de la plataforma (siempre se reembolsa)**: un **error nuestro** —por ejemplo, un
       **cobro duplicado** o **inventario fantasma** (compra de una carta de la que nunca tuvimos existencia
       real en bóveda)— **siempre se reembolsa**. NO es "arrepentimiento del comprador": es la **corrección de
-      un error propio** y no está sujeto a la ventana de 7 días ni a la evidencia de fotos de la disputa de
+      un error propio** y no está sujeto a la ventana de 7 días ni a la evidencia de la disputa de
       condición. El **súper-admin ejecuta el reembolso** para restituir el cobro indebido.
 - [ ] **Contracargo bancario ≠ reembolso**: se aclara al cliente (en términos/FAQ) que un **contracargo** es
       un proceso que puede iniciar **con su banco de forma independiente**, distinto de la política de
@@ -149,13 +162,16 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       para minimizar daños en tránsito y disputas; incluye la **política NM-only** (solo compramos Near Mint).
 - [ ] **Límites anti-fraude/KYC** (defaults configurables en M10): tope por solicitud **MX$3,000** y por
       mes **MX$10,000**; pago solo por SPEI a una cuenta **a nombre del propio usuario**; **INE** requerido
-      cuando se supera el tope.
+      cuando se supera el tope. El **INE se verifica en vivo y NO se almacena su imagen** (no hay subida de
+      INE en la app; solo se guarda el resultado de la verificación); la **CLABE se guarda cifrada en BD**.
+      (Ver bandera AML en "Riesgos y banderas para el humano".)
 
 ### F. Back-office / herramienta de administración (M1–M10) — parte central del MVP
 Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una **cola con estados**.
-- [ ] **M1 — Inventario y bóveda**: alta de items con **fotos verificadas** (anverso/reverso),
-      ubicación jerárquica tipo **CAJA/FILA/SLOT**, **folio legible por item** (ej. `INV-000123`),
-      estados, **mover con historial**, marcar **pérdida/daño**.
+- [ ] **M1 — Inventario y bóveda**: alta de items **sin foto propia** (se usa la **imagen de catálogo de
+      pokemontcg.io**; para **gradeadas** se captura **empresa + grado + `certNumber`**), ubicación
+      jerárquica tipo **CAJA/FILA/SLOT**, **folio legible por item** (ej. `INV-000123`), estados,
+      **mover con historial**, marcar **pérdida/daño**.
 - [ ] **M2 — Catálogo y precios**: **sync de precios** de las cartas en bóveda desde las fuentes según tipo
       (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; **sellado con precio
       manual del admin en MXN**, sin fuente automática en el MVP), **override manual** de precio siempre
@@ -174,14 +190,17 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **lista de picking por ubicación**, **captura de guía**, solo sobre cartas `settled`.
 - [ ] **M5 — Buylist**: pipeline `cotizada → recibida → verificación → aprobada → pagada`,
       **decisión carta por carta**, **cola de precio pendiente**, **conversión a inventario en un clic**.
-- [ ] **M6 — Usuarios / KYC ligero**: **ficha 360°** del usuario, **CLABE**, **INE**, límites, **bloquear**.
+- [ ] **M6 — Usuarios / KYC ligero**: **ficha 360°** del usuario, **CLABE** (guardada **cifrada en BD**),
+      **INE verificado en vivo** (NO se almacena la imagen; solo el resultado de la verificación), límites,
+      **bloquear**.
 - [ ] **M7 — Finanzas**: **P&L** (ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia),
       **valor de inventario a referencia vs costo**, **valor en custodia de clientes**, **IVA cobrado
       registrado** (para conciliación/CFDI), **export CSV**.
-- [ ] **M8 — Disputas**: **comparador de fotos** (ingreso vs reclamo), **recompra al precio pagado** como
-      remedio (carta dañada/equivocada, ventana de **7 días desde la entrega del envío**, **sin exigir
-      devolución**; solo súper-admin). El **reembolso por error de la plataforma** (cobro duplicado /
-      inventario fantasma) se ejecuta en **M3** (no requiere disputa ni ventana).
+- [ ] **M8 — Disputas**: registro de disputa con **evidencia recibida por correo a soporte** (no hay
+      subida de foto en la app); resolución por **grado/cert** (gradeadas) o **estándar NM** (raw), y
+      **recompra al precio pagado** como remedio (carta dañada/equivocada, ventana de **7 días desde la
+      entrega del envío**, **sin exigir devolución**; solo súper-admin). El **reembolso por error de la
+      plataforma** (cobro duplicado / inventario fantasma) se ejecuta en **M3** (no requiere disputa ni ventana).
 - [ ] **M9 — Reportes mínimos**: métricas de lanzamiento + **export**.
 - [ ] **M10 — Config y bitácora**: **diales editables sin deploy** + **auditoría global** (quién / qué / cuándo).
       Diales con **valores por defecto** (todos configurables): **markup de precio de venta** (% sobre la
@@ -194,7 +213,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **Roles del back-office**: súper-admin (todo) y operador de bóveda (M1, M4, M5 hasta verificación;
       sin dinero/config/finanzas). **Regla de oro**: el dinero que sale solo lo toca el súper-admin;
       todo queda en bitácora.
-- [ ] **Panel responsive** con **captura de fotos desde móvil** (para el flujo de bóveda/verificación).
+- [ ] **Panel responsive** operable desde móvil para el flujo de bóveda/verificación (**sin captura de
+      fotos**: el producto no lleva fotos propias; se identifica por catálogo/`certNumber`).
 
 ### G. Inventario inicial (operación de arranque)
 - [ ] Alta del **inventario propio**: colección del humano + adquisiciones con presupuesto.
@@ -208,6 +228,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **NM = "Casi nueva (Near Mint)"**, descripción: *"Como nueva; a lo mucho imperfecciones mínimas.
       Bordes limpios y superficie sin rayones notorios."* (la versión en inglés espeja el texto). Este es el
       **estándar de condición propio** de la plataforma (antes solo se mencionaba NM sin definirlo).
+- [ ] **Sin fotos propias — imagen de catálogo remota**: el producto **no lleva fotos propias** en ningún
+      módulo (Compra, ficha, bóveda, back-office). La imagen que se muestra es la **imagen de catálogo de
+      pokemontcg.io** (remota). No hay subida de archivos ni almacenamiento de imágenes en el MVP.
+- [ ] **Gradeadas (PSA/CGC) — el slab es la garantía**: para gradeadas la condición no depende de foto; se
+      muestra **empresa (PSA/CGC) + grado + número de certificado**, **verificable en la web de la
+      graduadora**. Se captura `certNumber` en el alta de inventario.
 - [ ] **Política de compra NM-only**: "Solo compramos cartas en **Near Mint (NM)**; si al recibir/verificar
       no está en NM, no se compra." Visible en el **cotizador de buylist**, la **guía de envío** y los
       **términos**. No-NM al recibir → **rechazo (no pago)** → devolución según plazos (7 días, **a costo del
@@ -224,15 +250,17 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       excepción** (raw, sellado y gradeadas). Las **dos únicas excepciones** son la disputa de condición
       (carta dañada/equivocada) y el error de la plataforma (cobro duplicado / inventario fantasma), descritas
       abajo. Esta política se comunica en el **checkout** y en la **página de términos/políticas**.
-- [ ] **Disputas de condición (carta dañada o equivocada)**: vía de compensación por error de condición. Las
-      **fotos de ingreso a bóveda son la evidencia canónica**; decide el admin/súper-admin dentro de una
+- [ ] **Disputas de condición (carta dañada o equivocada)**: vía de compensación por error de condición.
+      **La evidencia se envía por correo a soporte** (no hay subida de foto en la app). La resolución usa,
+      para **gradeadas**, el **grado y número de certificado** del slab (verificable en la graduadora), y
+      para **raw NM**, el **estándar/política de condición propio**. Decide el admin/súper-admin dentro de una
       **ventana de 7 días contados desde la entrega del envío** (cuando paquetería marca "entregado"); si
       procede, remedio = **recompra al precio pagado**, y el **cliente conserva la carta** (NO se exige
       devolución; el envío de regreso no es requisito para compensar).
 - [ ] **Error de la plataforma (siempre se reembolsa)**: un error propio —**cobro duplicado** o **inventario
       fantasma** (venta de una carta sin existencia real en bóveda)— **siempre se reembolsa**. No es
       arrepentimiento del comprador sino corrección de un error nuestro; **no aplica la ventana de 7 días ni la
-      evidencia de fotos**. Lo ejecuta el **súper-admin** (reembolso en M3).
+      evidencia de la disputa de condición**. Lo ejecuta el **súper-admin** (reembolso en M3).
 - [ ] **Contracargo bancario (independiente)**: el cliente puede iniciar un **contracargo con su banco** por
       su cuenta; es un proceso ajeno a la política de reembolsos de la plataforma y se maneja según la regla
       de contracargo (revierte la carta al inventario y refleja el estado de la orden).
@@ -247,7 +275,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Wallet de saldo** para usuarios (el dinero se liquida por transacción).
 - **Pagos y logística automatizados** (guías automáticas, pagos SPEI automáticos): en MVP son manuales.
 - **Grading propio o integración directa con PSA/CGC**.
-- **App móvil nativa** (el panel es web responsive; la captura de fotos es vía navegador móvil).
+- **App móvil nativa** (el panel es web responsive; no hay captura de fotos porque el producto no lleva
+  fotos propias).
+- **Object storage / bucket de archivos (p. ej. R2) y subida de archivos**: **fuera del MVP**. No hay
+  fotos de producto (se usa la imagen de catálogo remota de pokemontcg.io), no hay subida de INE (se
+  verifica en vivo, no se almacena) ni de evidencia de disputa (llega por correo a soporte). La **CLABE**
+  no requiere object storage por ser un **número cifrado en BD**, no un archivo.
 - **Timbrado de CFDI con PAC / facturación automática**: en el MVP la factura es **manual por correo**
   (el cliente envía sus datos fiscales); el timbrado automatizado con PAC es fase 2.
 - **Cobro de almacenamiento en bóveda** (derecho genérico declarado en términos, pero no se cobra en MVP).
@@ -282,17 +315,34 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Datos del catálogo en inglés**: esto aplica **solo a los datos de las cartas** (nombres y sets vienen en
   inglés desde pokemontcg.io y **no se traducen**). No contradice el punto anterior: la **UI sí es bilingüe**,
   los **datos del catálogo** permanecen en inglés.
-- **Panel de administración responsive** con **captura de fotos desde móvil**.
+- **Panel de administración responsive**, operable desde móvil, **sin captura de fotos** (el producto no
+  lleva fotos propias).
+- **Sin fotos propias / imagen de catálogo remota**: no se guardan imágenes de producto; la ficha usa la
+  **imagen de catálogo de pokemontcg.io** (URL remota). **Sin object storage / bucket (p. ej. R2) en el
+  MVP**: no hay subida de archivos de ningún tipo. La **CLABE** del buylist **no depende de object storage**
+  por ser un **número cifrado en BD**, no un archivo.
+- **Gradeadas (PSA/CGC)**: se persiste **empresa + grado + `certNumber`**; el slab (verificable en la
+  graduadora) es la garantía de condición, sin foto propia.
+- **KYC del buylist — INE no almacenado**: el **INE se verifica en vivo** y **NO se almacena su imagen**
+  (solo el resultado/estatus de verificación). La **CLABE sigue guardándose cifrada en la base de datos**
+  (sin cambio). Ver bandera AML en "Riesgos y banderas para el humano".
 - **Política de reembolsos — VENTAS FINALES**: no hay reembolso voluntario tras la compra (en bóveda o
   enviada); aplica a **todos los tipos de producto sin excepción** (raw, sellado y gradeadas). **Dos
   excepciones**: (1) **disputa de condición** por carta **dañada/equivocada** (ventana de **7 días contados
-  desde la entrega del envío** —paquetería marca "entregado"—, fotos de ingreso como evidencia) → el
-  súper-admin **recompra al precio pagado** y el **cliente conserva la carta** (sin devolución); (2) **error
+  desde la entrega del envío** —paquetería marca "entregado"—, **evidencia por correo a soporte**; resolución
+  por **grado/cert** en gradeadas o **estándar NM** en raw) → el súper-admin **recompra al precio pagado** y
+  el **cliente conserva la carta** (sin devolución); (2) **error
   de la plataforma** (**cobro duplicado** o **inventario fantasma**) → **siempre se reembolsa**, sin ventana
-  de 7 días ni fotos, porque es corrección de un error propio y no arrepentimiento del comprador. Un
+  de 7 días ni evidencia de disputa, porque es corrección de un error propio y no arrepentimiento del
+  comprador. Un
   **contracargo bancario** es un proceso independiente que el cliente inicia con su banco. El **checkout debe
   mostrar el aviso** y debe existir una **página de términos/políticas** con el texto completo.
-- **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos).
+- **Correo de evidencia / soporte de disputas**: la evidencia de una disputa de condición se envía por
+  **correo a un buzón de soporte** (no hay subida de foto en la app). Correo de contacto:
+  **soporte@tcgvault.mx** *(SUPUESTO: dirección por confirmar por el humano)*. Debe aparecer en términos/FAQ
+  y en el flujo de disputa.
+- **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
+  se guarda **cifrada en BD**; el **INE se verifica en vivo y NO se almacena** su imagen.
 - **Condición del raw — solo Near Mint (NM)**: el raw se opera **únicamente en NM** en todo el marketplace
   (se eliminan LP/MP/HP/DMG). NM se presenta como **"Casi nueva (Near Mint)"** con descripción del estándar
   propio; gradeadas y sellado no cambian.
@@ -322,6 +372,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
    override manual como respaldo); el **sellado** lleva **precio manual del admin en MXN** (sin fuente
    automática en el MVP)—, con fecha del último refresco; el refresco (cache diario) ocurre al menos una vez
    al día y solo cubre las cartas en bóveda.
+2b. La ficha de Compra muestra la **imagen de catálogo de pokemontcg.io** (remota) y **no muestra fotos
+   propias** de la carta; no existe subida de imágenes de producto en ningún flujo del MVP.
+2c. Una carta **gradeada (PSA/CGC)** muestra **empresa + grado + número de certificado** (verificable en la
+   web de la graduadora); el alta de inventario **captura y persiste `certNumber`** y la condición de la
+   gradeada no depende de foto.
 3. Una carta sin precio en la web de referencia queda en estado **"precio pendiente"** en
    adquisición/buylist/back-office y **NO se publica en Compra** (el comprador no la ve) hasta que el dueño
    le fija precio a mano; entonces puede publicarse a la venta.
@@ -357,8 +412,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
    (cobro duplicado / inventario fantasma se reembolsan siempre) y la aclaración de que el contracargo
    bancario es un proceso independiente ante el banco del cliente.
 7c. Un **cobro duplicado** o una **compra sin inventario real** (inventario fantasma) **se reembolsa**: el
-   súper-admin puede ejecutar el reembolso en M3 sin depender de la ventana de 7 días ni de las fotos de
-   ingreso, y la orden queda en estado `reembolsada`.
+   súper-admin puede ejecutar el reembolso en M3 sin depender de la ventana de 7 días ni de la evidencia de
+   disputa, y la orden queda en estado `reembolsada`.
 
 **Portafolio**
 8. "Mi bóveda" lista las cartas del usuario y muestra un **valor total de portafolio** en MXN,
@@ -383,7 +438,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     automáticamente hasta que el dueño fija su precio.
 14. El sistema bloquea solicitudes que excedan el **tope por solicitud** (default MX$3,000) o el **tope
     mensual** (default MX$10,000) del usuario, exige **INE** cuando se supera el tope configurado, y solo
-    permite registrar pago SPEI a una CLABE a nombre del propio usuario.
+    permite registrar pago SPEI a una CLABE a nombre del propio usuario. El **INE se verifica en vivo y NO se
+    almacena su imagen** (no hay subida de INE en la app; solo se guarda el resultado/estatus de
+    verificación); la **CLABE se guarda cifrada en BD**.
 15. En el pipeline de buylist el dueño puede **aceptar carta por carta** (cherry-pick), ajustar o
     rechazar, y una carta aprobada se **convierte a inventario en un clic**.
 16. Una solicitud de buylist sin respuesta del usuario a un ajuste (o una **carta rechazada por no ser NM**)
@@ -392,8 +449,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     al inventario vendible**.
 
 **Back-office (M1–M10) y roles**
-17. En M1, cada item físico tiene **folio legible** (ej. `INV-000123`), **fotos anverso/reverso**,
-    **ubicación CAJA/FILA/SLOT** y un **historial de movimientos**; se puede marcar pérdida/daño.
+17. En M1, cada item físico tiene **folio legible** (ej. `INV-000123`), **ubicación CAJA/FILA/SLOT** y un
+    **historial de movimientos**; se puede marcar pérdida/daño. El alta es **sin foto propia** (usa la
+    imagen de catálogo de pokemontcg.io) y, para **gradeadas**, captura **empresa + grado + `certNumber`**.
 18. En M2 se puede sincronizar precios de las cartas en bóveda desde la fuente que corresponde a cada tipo
     (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; el **sellado** se pricia
     con **precio manual del admin en MXN**), hacer **override manual** siempre, y configurar el **tipo de
@@ -406,9 +464,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     **valor de inventario (a referencia y a costo)**, **valor en custodia de clientes** y el **IVA cobrado**
     (para conciliación/CFDI), con **export CSV**.
 22. En M8, ante una disputa de condición (carta dañada/equivocada, dentro de la ventana de **7 días contados
-    desde la entrega del envío** —cuando paquetería marca "entregado"—), el admin ve un **comparador de fotos
-    (ingreso vs reclamo)** y puede ejecutar la **recompra al precio pagado** como remedio; la ejecución **no
-    exige devolución de la carta** (el cliente la conserva) y solo la realiza el súper-admin.
+    desde la entrega del envío** —cuando paquetería marca "entregado"—), la **evidencia se recibe por correo
+    a soporte** (no hay subida de foto en la app); la resolución se apoya en el **grado/número de certificado**
+    (gradeadas) o el **estándar NM** (raw). El admin puede ejecutar la **recompra al precio pagado** como
+    remedio; la ejecución **no exige devolución de la carta** (el cliente la conserva) y solo la realiza el
+    súper-admin.
 23. En M10 existe una **bitácora de auditoría global** (quién/qué/cuándo) y los **diales/config se editan
     sin necesidad de redeploy**.
 24. El **dashboard** muestra las ~8 tarjetas definidas (ganancia del periodo, ventas, cola de trabajo,
@@ -417,8 +477,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     finanzas (M7), configuración (M10) ni ejecutar pagos/reembolsos; el intento queda registrado y bloqueado.
 26. **Ninguna** acción de dinero saliente (pago SPEI de buylist, reembolso) puede ejecutarla otro rol que
     no sea el **súper-admin**.
-27. El panel de administración es **responsive** y permite **capturar fotos desde un dispositivo móvil**
-    en el flujo de ingreso/verificación de bóveda.
+27. El panel de administración es **responsive** y operable desde un dispositivo móvil en el flujo de
+    ingreso/verificación de bóveda; **no hay captura ni subida de fotos** (el producto no lleva fotos propias:
+    se identifica por catálogo y, en gradeadas, por `certNumber`).
 
 **Inventario inicial**
 28. El alta de una carta propia calcula su costo como **precio de referencia del día × % configurable**
@@ -461,6 +522,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Fiscal — buylist**: comprar cartas a particulares y pagar por SPEI tiene implicaciones fiscales
   (comprobación, retenciones, límites). Validar con contador; los topes por solicitud/mes y el requisito
   de INE son mitigaciones iniciales, no una postura fiscal completa.
+- **AML / KYC — INE no almacenado (v1.2)**: por la simplificación v1.2, el **INE se verifica en vivo y NO se
+  almacena su imagen** (solo el resultado/estatus de verificación). Esto reduce el **soporte documental /
+  control AML** frente a un requerimiento de autoridad o auditoría. **Validar con contador/abogado** si esta
+  modalidad es **aceptable** para el buylist (SPEI a particulares) o si se requiere conservar más evidencia
+  de identidad. La **CLABE se sigue guardando cifrada en BD** (sin cambio).
 - **Fiscal — IVA/CFDI**: cobrar IVA 16% obliga a **emitir CFDI** y a manejar régimen fiscal, RFC del
   cliente y timbrado (PAC). En el MVP la factura es **manual por correo** (el cliente envía sus datos
   fiscales) y solo se **registra el IVA cobrado**; el **timbrado automatizado con PAC es fase 2**. Validar
@@ -505,11 +571,11 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 11. **Nombre comercial / marca** → **TCG Vault MX** (nombre usado en UI, comunicación y términos).
 12. **Política de reembolsos** → **VENTAS FINALES** para **todos los tipos de producto** (raw, sellado,
    gradeadas): sin reembolso voluntario tras la compra. **Dos excepciones**: (a) disputa de condición por
-   carta dañada/equivocada (ventana de **7 días contados desde la entrega del envío**, fotos de ingreso) con
-   **recompra al precio pagado y el cliente conserva la carta** (sin devolución); (b) **error de la
-   plataforma** (cobro duplicado / inventario fantasma) → **siempre se reembolsa**, sin ventana ni fotos. El
-   contracargo bancario es un proceso independiente ante el banco del cliente. El checkout muestra el aviso y
-   hay página de términos.
+   carta dañada/equivocada (ventana de **7 días contados desde la entrega del envío**, **evidencia por correo
+   a soporte** —ver decisión 22) con **recompra al precio pagado y el cliente conserva la carta** (sin
+   devolución); (b) **error de la plataforma** (cobro duplicado / inventario fantasma) → **siempre se
+   reembolsa**, sin ventana ni evidencia de disputa. El contracargo bancario es un proceso independiente ante
+   el banco del cliente. El checkout muestra el aviso y hay página de términos.
 
 **Decisiones de alcance del 2026-08-14 (7 cambios aprobados por el humano):**
 13. **Condición del raw = solo NM** en todo el marketplace (se eliminan LP/MP/HP/DMG); nomenclatura "Casi
@@ -526,6 +592,26 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 18. **Login con Google** como alternativa a email/contraseña.
 19. **Sync de catálogo** desde la fuente de referencia: por defecto sets **2024+**, con **backfill** por
    lotes automatizados + importación puntual.
+
+**Simplificación v1.2 (2026-08-14, 6 cambios aprobados por el humano):**
+20. **Sin fotos propias en ningún lado** → el producto no lleva fotos propias; se usa la **imagen de catálogo
+   de pokemontcg.io** (remota). Se **elimina** la captura de "fotos verificadas de anverso/reverso al ingreso"
+   como mecanismo canónico de condición/disputa.
+21. **Gradeadas (PSA/CGC)** → el **slab es la garantía**; se muestra **empresa + grado + número de
+   certificado** (verificable en la web de la graduadora) y se captura **`certNumber`**.
+22. **Disputas de condición** → la **evidencia se envía por correo a soporte** (no hay subida de foto en la
+   app). Resolución: **gradeadas** por grado/cert; **raw NM** por el estándar/política. La política de
+   **ventas finales** (recompra/compensación, el cliente conserva la carta, no revierte inventario) **no
+   cambia** (ver decisión 12). El correo de evidencia se documenta como dato de contacto.
+23. **KYC del buylist** → el **INE se verifica en vivo y NO se almacena** su imagen; solo se guarda el
+   resultado/estatus de verificación. La **CLABE sigue guardándose cifrada en BD** (sin cambio). **Bandera
+   para contador/abogado**: al no almacenar el INE hay **menos control AML/soporte documental**; validar
+   aceptabilidad.
+24. **Object storage / R2 fuera del MVP** → sin bucket y sin subidas de archivos (ni fotos de producto, ni
+   INE, ni evidencia de disputa). La **CLABE nunca dependió de R2** por ser un **número cifrado en BD**, no
+   un archivo.
+25. **Raw** → sigue operándose **solo en NM** (estándar de condición propio, ahora explícitamente **sin
+   foto**).
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
