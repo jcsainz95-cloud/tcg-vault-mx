@@ -400,11 +400,12 @@ super_admin, enmascarado por rol, y retención de INE). Los E2E de infra siguen 
   (reglas antifraude) para reducir contracargos. Coordinar con seguridad/devops.
 
 ### 11.4 Solicitudes de cambio de contrato al **arquitecto** (no edité `API_CONTRACT.md`)
-6. **§M8 disputes — contradicción con la política del humano.** El contrato dice que en `repurchase`
-   "**item revierte a inventario**". La política del humano (VENTAS FINALES) manda: en la recompra el
-   **cliente conserva la carta** y la carta **NO** regresa al inventario. Implementé la política (PROJECT.md/
-   humano manda sobre el contrato). **Solicito corregir §M8** para quitar "item revierte a inventario" en
-   `repurchase`. **Bloqueante de coherencia** (contrato vs. política).
+6. **§M8 disputes — RESUELTO (ya alineado, sin acción pendiente).** El contrato §M8
+   (`API_CONTRACT.md:485`) **ya** recoge la política VENTAS FINALES: en `repurchase` el
+   **cliente conserva la carta** y la carta **NO** regresa al inventario (no re-agrega item, no crea
+   `InventoryMovement`). La implementación (`disputes.service.ts › resolve`) coincide exactamente.
+   Ya **no** hay discrepancia ni solicitud de cambio abierta; el docstring de `resolve()` se actualizó
+   para reflejar el alineamiento (cierre de hallazgo techlead v1.2). **No bloqueante.**
 7. **§9 webhooks — ampliar/precisar la semántica de disputas y refunds.** Hoy §9 dice que
    `charge.dispute.created` **siempre** revierte el item. La implementación ahora es **consciente del estado
    físico** (en bóveda → revierte; enviada/entregada → NO re-agrega + flag manual) y agrega
@@ -736,3 +737,20 @@ inválido → 422).
   por lo que implementé el `certNumber` como **requisito duro en el alta** de gradeadas (no como "creable pero
   no vendible"). Coincide con el test "gradeada sin certNumber no se publica". **Sin discrepancias abiertas**
   con el contrato en este pase.
+
+### 16.8 Cierre hallazgo techlead v1.2 — invariante `certNumber` también en UPDATE
+- **Gap:** la invariante "gradeada publicada exige `certNumber`" solo se aplicaba en `createItem`
+  (`validateProductShape`); `updateItem` hacía `update({ data: dto })` sin revalidar, así que un PATCH
+  podía **publicar** (`status:'listed'`) o **mantener publicada** una gradeada sin cert, o **quitar** el cert
+  de una gradeada ya listada. La habría dejado aparecer en Compra sin nº de certificado verificable.
+- **Fix (`inventory.service.ts › updateItem`):** se valida el **estado RESULTANTE** del PATCH — si
+  `productType === 'graded'` **y** el `status` resultante es `listed`, el `certNumber` resultante (el del dto
+  si viene, si no el persistido) debe ser no vacío; en caso contrario **`422 VALIDATION_ERROR`**. `updateItem`
+  no puede cambiar `productType` (el DTO no lo expone), por eso se toma el del item actual.
+- **Tests** (`test/inventory.graded-cert.spec.ts`, nuevo bloque `updateItem`): publicar gradeada sin cert →
+  422; quitar cert de gradeada publicada → 422; publicar con cert (previo o aportado en el mismo dto) → OK;
+  PATCH a gradeada `in_stock` sin cert → OK (la invariante solo aplica al publicar); PATCH a raw publicada
+  sin cert → OK. Suite total **169 verdes** (antes 163).
+- **Docstrings corregidos (sin cambio de comportamiento):** `disputes.service.ts › resolve()` (ya no
+  afirma discrepancia con §M8; el contrato está alineado) y `uploads.service.ts › presignGet()` (acotado a
+  `kyc_ine`; se retiró la referencia muerta a "fotos de disputa", eliminadas en v1.2).

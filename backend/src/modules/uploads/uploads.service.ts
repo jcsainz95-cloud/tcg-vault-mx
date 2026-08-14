@@ -64,8 +64,9 @@ export class UploadsService {
 
   /**
    * SEC-A5: URL prefirmada de LECTURA (GET) de vida corta. Reemplaza el modelo de "URL
-   * pública del bucket" para servir documentos sensibles (INE/KYC, fotos de disputa).
-   * El bucket debe ser PRIVADO (sin ACL público-lectura) — lo garantiza devops en infra.
+   * pública del bucket" para servir el único documento sensible que se sube en v1.2: el
+   * INE/KYC del buylist (`kyc_ine`). El bucket debe ser PRIVADO (sin ACL público-lectura)
+   * — lo garantiza devops en infra.
    * @param expiresIn segundos de validez (por defecto 300s = 5 min).
    */
   async presignGet(key: string, expiresIn = 300): Promise<string> {

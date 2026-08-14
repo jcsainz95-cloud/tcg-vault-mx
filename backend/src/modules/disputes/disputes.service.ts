@@ -134,9 +134,9 @@ export class DisputesService {
    * resolución para conciliación (M7). El desembolso (SPEI/refund) es money-out del
    * super_admin, ya autorizado.
    *
-   * NOTA DE DISCREPANCIA CON EL CONTRATO (§M8 dice "item revierte a inventario"): la política
-   * del humano manda sobre el contrato (CLAUDE.md › regla de conflicto). Se solicita al
-   * arquitecto corregir §M8 (ver docs/BACKEND_NOTES.md). No se edita el contrato aquí.
+   * ALINEADO CON EL CONTRATO: API_CONTRACT §M8 ya recoge esta política (VENTAS FINALES: "el
+   * cliente conserva la carta y NO regresa al inventario"). No hay discrepancia pendiente ni
+   * corrección de contrato solicitada; este comportamiento implementa el contrato tal cual.
    */
   async resolve(id: string, resolution: 'repurchase' | 'reject', note: string, actorUserId: string) {
     const dispute = await this.prisma.dispute.findUnique({ where: { id } });

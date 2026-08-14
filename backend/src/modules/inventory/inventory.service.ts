@@ -186,7 +186,26 @@ export class InventoryService {
   }
 
   async updateItem(id: string, dto: UpdateItemDto) {
-    await this.getItem(id);
+    const current = await this.getItem(id);
+    // v1.2 (M-12): la invariante "gradeada publicada exige certNumber" también rige en el
+    // UPDATE, no solo en el alta. `createItem` valida vía validateProductShape; aquí revalidamos
+    // el estado RESULTANTE del PATCH: si la carta resultante es graded y queda `listed`, el
+    // certNumber resultante (nuevo si viene en el dto, si no el ya persistido) debe ser no vacío.
+    // Sin esto un PATCH podría publicar/mantener publicada una gradeada sin cert → aparecería en
+    // Compra sin nº de certificado verificable (API_CONTRACT §M1).
+    const resultingStatus = dto.status ?? current.status;
+    const resultingCertNumber =
+      dto.certNumber !== undefined ? dto.certNumber : current.certNumber;
+    if (
+      current.productType === 'graded' &&
+      resultingStatus === 'listed' &&
+      (!resultingCertNumber || resultingCertNumber.trim() === '')
+    ) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'graded items require certNumber to be published',
+      );
+    }
     return this.prisma.inventoryItem.update({ where: { id }, data: dto });
   }
 

@@ -2,7 +2,7 @@ import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
-import { CreateItemDto } from '../src/modules/inventory/dto/inventory.dto';
+import { CreateItemDto, UpdateItemDto } from '../src/modules/inventory/dto/inventory.dto';
 
 /**
  * v1.2 (M-12) — Gradeadas por certificado (API_CONTRACT §M1, ARCHITECTURE §3.2):
@@ -79,5 +79,93 @@ describe('InventoryService.createItem — gradeada (certNumber)', () => {
     expect(data).not.toHaveProperty('frontPhotoKey');
     expect(data).not.toHaveProperty('backPhotoKey');
     expect(data).not.toHaveProperty('extraPhotoKeys');
+  });
+});
+
+/**
+ * v1.2 (M-12) — la invariante "gradeada publicada exige certNumber" también rige en el UPDATE.
+ * El PATCH no puede publicar (status:listed) ni mantener publicada una gradeada sin certNumber,
+ * ni quitar el cert de una gradeada listada. Estado RESULTANTE del PATCH → 422 VALIDATION_ERROR.
+ */
+function buildUpdatePrisma(item: any) {
+  const prisma: any = {
+    inventoryItem: {
+      findUnique: jest.fn().mockResolvedValue(item),
+      update: jest.fn(async ({ data }: any) => ({ ...item, ...data })),
+    },
+  };
+  return prisma;
+}
+
+describe('InventoryService.updateItem — gradeada (certNumber)', () => {
+  const gradedInStock = {
+    id: 'inv-10',
+    productType: 'graded',
+    status: 'in_stock',
+    certNumber: null,
+    locationId: 'loc-1',
+  };
+
+  it('PATCH que publica una gradeada SIN certNumber → 422 VALIDATION_ERROR', async () => {
+    const prisma = buildUpdatePrisma(gradedInStock);
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    await expect(
+      svc.updateItem('inv-10', { status: 'listed' } as UpdateItemDto),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+  });
+
+  it('PATCH que QUITA el certNumber de una gradeada publicada → 422 VALIDATION_ERROR', async () => {
+    const prisma = buildUpdatePrisma({
+      ...gradedInStock,
+      status: 'listed',
+      certNumber: 'PSA-12345678',
+    });
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    await expect(
+      svc.updateItem('inv-10', { certNumber: '   ' } as UpdateItemDto),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+  });
+
+  it('PATCH que publica una gradeada CON certNumber → OK', async () => {
+    const prisma = buildUpdatePrisma({ ...gradedInStock, certNumber: 'PSA-12345678' });
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    const res: any = await svc.updateItem('inv-10', { status: 'listed' } as UpdateItemDto);
+    expect(res.status).toBe('listed');
+    expect(prisma.inventoryItem.update).toHaveBeenCalled();
+  });
+
+  it('PATCH que publica una gradeada aportando el certNumber en el mismo dto → OK', async () => {
+    const prisma = buildUpdatePrisma(gradedInStock);
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    const res: any = await svc.updateItem('inv-10', {
+      status: 'listed',
+      certNumber: 'PSA-99999999',
+    } as UpdateItemDto);
+    expect(res.status).toBe('listed');
+    expect(prisma.inventoryItem.update).toHaveBeenCalled();
+  });
+
+  it('PATCH a una gradeada NO publicada (in_stock) sin cert → OK (la invariante solo aplica al publicar)', async () => {
+    const prisma = buildUpdatePrisma(gradedInStock);
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    const res: any = await svc.updateItem('inv-10', { gradeValue: '9' } as UpdateItemDto);
+    expect(res.gradeValue).toBe('9');
+    expect(prisma.inventoryItem.update).toHaveBeenCalled();
+  });
+
+  it('PATCH a una raw publicada sin cert → OK (la invariante solo aplica a gradeadas)', async () => {
+    const prisma = buildUpdatePrisma({
+      id: 'inv-20',
+      productType: 'raw',
+      status: 'in_stock',
+      certNumber: null,
+      locationId: 'loc-1',
+    });
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    const res: any = await svc.updateItem('inv-20', { status: 'listed' } as UpdateItemDto);
+    expect(res.status).toBe('listed');
+    expect(prisma.inventoryItem.update).toHaveBeenCalled();
   });
 });
