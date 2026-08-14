@@ -95,13 +95,12 @@ services:
 
   # ---------------------------------------------------------------------------
   # createbuckets — init container: crea el bucket y sale (no queda corriendo).
-  # SEC-A5: bucket PRIVADO por defecto. Los prefijos sensibles (kyc_ine/,
-  # dispute_claim/) contienen INE/PII y NUNCA son de lectura pública: se sirven
-  # por presigned GET (backend). Solo inventory_photo/ (fotos de catálogo) queda
-  # con lectura anónima para servir el catálogo en local vía URL. 'set none'
-  # primero garantiza que un bucket preexistente (de una corrida vieja con
-  # lectura pública total) quede reprivatizado. En prod (R2/S3) el bucket va
-  # 100% privado + CDN que exponga únicamente el prefijo público.
+  # SEC-A5 + v1.2.1: bucket 100% PRIVADO. Su único contenido es el prefijo
+  # kyc_ine/ (INE del buylist, INE/PII) que NUNCA es de lectura pública: se sirve
+  # por presigned GET (backend). Ya NO hay inventory_photo/ (catálogo público, sin
+  # CDN) ni dispute_claim/ (la evidencia de disputa va por correo). 'set none'
+  # garantiza que un bucket preexistente (de una corrida vieja con lectura pública)
+  # quede reprivatizado. En prod (R2/S3) el bucket va 100% privado, solo kyc_ine/.
   # ---------------------------------------------------------------------------
   createbuckets:
     image: minio/mc:latest
@@ -113,9 +112,8 @@ services:
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin_local_dev} &&
       mc mb --ignore-existing local/${S3_BUCKET:-tcg-photos} &&
       mc anonymous set none local/${S3_BUCKET:-tcg-photos} &&
-      mc anonymous set download local/${S3_BUCKET:-tcg-photos}/inventory_photo &&
       mc ilm rule add --expire-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || mc ilm add --expiry-days ${INE_RETENTION_DAYS:-180} --prefix 'kyc_ine/' local/${S3_BUCKET:-tcg-photos} || echo 'aviso: no se pudo fijar lifecycle kyc_ine/ (mc sin soporte ilm); backend sigue borrando por retencion.' &&
-      echo 'Bucket ${S3_BUCKET:-tcg-photos} listo: privado; kyc_ine/ y dispute_claim/ NO publicos; inventory_photo/ publico; lifecycle kyc_ine/ expira a ${INE_RETENTION_DAYS:-180} dias.' &&
+      echo 'Bucket ${S3_BUCKET:-tcg-photos} listo: 100% privado; solo kyc_ine/ (presigned GET); lifecycle kyc_ine/ expira a ${INE_RETENTION_DAYS:-180} dias.' &&
       exit 0
       "
     restart: "no"
@@ -160,7 +158,7 @@ services:
       S3_BUCKET: ${S3_BUCKET:-tcg-photos}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minioadmin}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin_local_dev}
-      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000/tcg-photos}
+      # v1.2.1: sin S3_PUBLIC_BASE_URL — el bucket es 100% privado (solo kyc_ine/, presigned GET).
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       # Retención de INE del KYC (kyc_ine/). El backend borra; el bucket expira
       # como capa extra (ver createbuckets). Mantener igual al dial M10 si aplica.
@@ -177,6 +175,11 @@ services:
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      # Login con Google (v1.2): mismo OAuth Client ID que el front (NEXT_PUBLIC_GOOGLE_CLIENT_ID).
+      # Si va vacío, el backend rechaza el login con Google (email/password sigue OK).
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      # Disputas (v1.2): correo de contacto de evidencia; default backend soporte@tcgvault.mx.
+      DISPUTE_EVIDENCE_CONTACT: ${DISPUTE_EVIDENCE_CONTACT:-}
       POKEMONTCG_IO_API_KEY: ${POKEMONTCG_IO_API_KEY}
       POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY}
       POKETRACE_API_KEY: ${POKETRACE_API_KEY}
@@ -210,6 +213,8 @@ services:
         # false = el cliente llama al backend real (no fixtures). Debe hornearse
         # en build-time; por eso va como build arg, no como env de runtime.
         NEXT_PUBLIC_USE_MOCKS: ${NEXT_PUBLIC_USE_MOCKS:-false}
+        # Login con Google (v1.2): mismo OAuth Client ID que el backend (GOOGLE_CLIENT_ID).
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     depends_on:
       - backend

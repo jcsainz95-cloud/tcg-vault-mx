@@ -39,7 +39,7 @@
 | Frontend | Next.js 14 App Router (Node 20 LTS) | 3000 |
 | Base de datos | PostgreSQL 16 | 5432 |
 | Cache/colas/rate-limit | Redis 7 + BullMQ | 6379 |
-| Object storage (fotos) | MinIO local / R2·S3 prod | 9000 (API), 9001 (consola) |
+| Object storage (SOLO INE `kyc_ine`) | MinIO local / R2·S3 prod | 9000 (API), 9001 (consola) |
 | Pagos | Stripe (webhooks a `/api/v1/webhooks/stripe`) | — |
 
 ---
@@ -84,9 +84,10 @@ Servicios y accesos tras `dev-up`:
 - Redis: `localhost:6379`.
 - MinIO API: `http://localhost:9000` · Consola: `http://localhost:9001`
   (login con `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`). El bucket `tcg-photos`
-  se crea solo (init container `createbuckets`). **SEC-A5: es PRIVADO** — los
-  prefijos `kyc_ine/` y `dispute_claim/` NO tienen lectura anónima; solo
-  `inventory_photo/` (catálogo público) queda con lectura anónima en local. Ver §15.
+  se crea solo (init container `createbuckets`). **SEC-A5: es PRIVADO** — su
+  único contenido en v1.2 es el prefijo `kyc_ine/` (INE del buylist), que **no**
+  tiene lectura anónima; se sirve por presigned GET del backend. Ya **no** hay
+  prefijos `inventory_photo/` (catálogo público) ni `dispute_claim/`. Ver §15.
 - **SEC-M4:** los puertos de datos (Postgres 5432, Redis 6379, MinIO 9000/9001) se
   publican **solo en `127.0.0.1`**, nunca en `0.0.0.0`/LAN. El backend del perfil
   `apps` los alcanza por la red de compose (hosts `postgres`/`redis`/`minio`), no
@@ -142,7 +143,9 @@ antes de usar esas funciones:
 | `POKEMONTCG_IO_API_KEY` | Precios raw/singles (fetch real) | dev.pokemontcg.io (free) |
 | `POKEMONPRICETRACKER_API_KEY` | Precios gradeadas/sellado | PokemonPriceTracker (free tier) — **provider stub, ver BE-6** |
 | `POKETRACE_API_KEY` | Respaldo gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
-| `S3_*` (endpoint/bucket/keys/public-url/force-path-style) | Fotos. Local=MinIO (ya puesto); prod=R2/S3 | Cloudflare R2 o AWS S3 |
+| `S3_*` (endpoint/bucket/keys/force-path-style) | **Object storage SOLO para la INE del buylist (`kyc_ine/`)**, cifrada + presigned PUT/GET. Local=MinIO (ya puesto); prod=R2/S3. v1.2.1: sin `S3_PUBLIC_BASE_URL` (no hay prefijo público) ni fotos de inventario/disputa. | Cloudflare R2 o AWS S3 |
+| `GOOGLE_CLIENT_ID` (backend `[RW]`) + `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (Vercel `[VC]`) | Login con Google (v1.2). **Mismo** OAuth 2.0 Client ID en ambas: backend valida `aud` del ID token; frontend lo usa en el botón. Sin `GOOGLE_CLIENT_ID` el backend rechaza el login con Google (email/password sigue OK). | Google Cloud Console > Credentials > OAuth client ID (Web) |
+| `DISPUTE_EVIDENCE_CONTACT` (backend `[RW]`) | Correo que el backend devuelve como `evidenceContact` para que el cliente envíe evidencia de disputa **por email** (v1.2: ya no se sube al bucket). Placeholder, override sin redeploy; default `soporte@tcgvault.mx`. | Correo de soporte del negocio |
 | `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` | Endurecimiento PII: cifrado AES-256 en reposo de CLABE/RFC + HMAC del blind index de CLABE (match sin descifrar). **Distintas entre sí**. Vacías OK en local (greenfield); **OBLIGATORIAS en no-local** (backend aborta si faltan). | Generar: `openssl rand -base64 32` (una por cada una); en prod, **KMS/secret manager** |
 | `INE_RETENTION_DAYS` | Días de retención de la INE del KYC (`kyc_ine/`). El backend borra; el bucket expira como capa extra. Igual al dial M10 (fuente de verdad). | Valor **legal/fiscal** — **fijado en 180 días** por decisión de negocio, alineado con el dial M10 del backend |
 | `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` | Tipo de cambio USD→MXN automático (Banxico SIE) + colchón + override manual (M10). El backend lee `BANXICO_SIE_TOKEN` y, si falta, cae a `FX_API_KEY`, y si tampoco, a override manual / último FxRate. | Token SIE de Banxico (gratis en el portal SIE) |
@@ -188,7 +191,7 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 ### Topología objetivo (MVP) — CONFIRMADA
 
 > **Estado: CONFIRMADA** (acordada con el humano/arquitecto). Frontend→**Vercel**;
-> backend + **PostgreSQL 16** + **Redis 7**→**Railway**; fotos→**Cloudflare R2**.
+> backend + **PostgreSQL 16** + **Redis 7**→**Railway**; INE del buylist (`kyc_ine/`)→**Cloudflare R2**.
 > Antes decía "propuesta"; ya no. Cualquier alta de un servicio de infra NO previsto
 > sigue requiriendo propuesta al arquitecto (límite de rol devops).
 
@@ -199,7 +202,7 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 | Worker BullMQ (jobs) | **Railway** (mismo servicio o worker aparte) | Scheduling de jobs = **deuda BE-5** (lógica lista, falta cablear repeatable jobs a `REDIS_URL`). |
 | PostgreSQL 16 | **Railway Postgres** | Backups automáticos + point-in-time. |
 | Redis 7 | **Railway Redis** | Persistencia AOF para colas. |
-| Object storage | **Cloudflare R2** | Bucket privado + CDN; presigned PUT desde el navegador. CORS al dominio del front. |
+| Object storage | **Cloudflare R2** | Bucket **privado**, **solo** prefijo `kyc_ine/` (INE del buylist); presigned PUT/GET. Sin CDN público (v1.2.1). CORS al dominio del front. |
 | Stripe | Cuenta prod (claves `live`) | Webhook prod → `https://api.tudominio.com/api/v1/webhooks/stripe`. |
 
 > Además de prod, hay un **entorno de STAGING** permanente (mismas plataformas, proyecto/
@@ -393,27 +396,31 @@ Validaciones estáticas corridas (reales):
 - [ ] Crear un **environment `staging`** además de `production` en el proyecto Railway (Settings >
       Environments) — `deploy.yml` usa `--environment staging` y `--environment production`.
 
-### 11.B — Cloudflare R2 (fotos) — [HUMANO]
+### 11.B — Cloudflare R2 (SOLO INE del buylist, `kyc_ine/`) — [HUMANO]
 
-- [ ] Crear un **bucket R2 PRIVADO** (sin acceso público). Los prefijos `kyc_ine/` y `dispute_claim/`
-      (INE/PII, SEC-A5) se sirven **solo por presigned GET** desde el backend; el bucket **no** es público.
+> **v1.2.1:** el bucket R2 **se mantiene** pero su **único uso** es custodiar la INE del KYC del
+> buylist (prefijo `kyc_ine/`), cifrada y con retención. **Ya no** se configuran prefijos
+> `inventory_photo/` (no hay catálogo público) ni `dispute_claim/` (la evidencia de disputa va por
+> correo, ver `DISPUTE_EVIDENCE_CONTACT`). No hace falta CDN público ni `S3_PUBLIC_BASE_URL`.
+
+- [ ] Crear un **bucket R2 PRIVADO** (sin acceso público). El prefijo `kyc_ine/` (INE/PII, SEC-A5)
+      se sirve **solo por presigned GET** desde el backend; el bucket **no** es público.
 - [ ] Crear un **API Token de R2** (Account > R2 > Manage API Tokens) con permiso Object Read & Write
       sobre el bucket. Anota: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, y el **endpoint S3**
       `https://<accountid>.r2.cloudflarestorage.com` (`S3_ENDPOINT`), `S3_REGION=auto`,
-      `S3_BUCKET=<tu-bucket>`, `S3_FORCE_PATH_STYLE=false`.
-- [ ] **CORS del bucket** (R2 > Settings > CORS Policy): allow-list **solo** el dominio del front,
-      métodos **PUT** y **GET** (para presigned upload/download). Nunca `"*"`:
+      `S3_BUCKET=<tu-bucket>`, `S3_FORCE_PATH_STYLE=false`. **No** hay `S3_PUBLIC_BASE_URL` en v1.2.1.
+- [ ] **CORS del bucket** (R2 > Settings > CORS Policy) — **se conserva** para `kyc_ine/`: allow-list
+      **solo** el dominio del front, métodos **PUT** y **GET** (presigned upload/download). Nunca `"*"`:
       ```json
       [{ "AllowedOrigins": ["https://app.tudominio.com"],
          "AllowedMethods": ["PUT", "GET"],
          "AllowedHeaders": ["content-type"],
          "MaxAgeSeconds": 3000 }]
       ```
-- [ ] **Lifecycle rule** de retención sobre el prefijo `kyc_ine/` = `INE_RETENTION_DAYS` (180). Es una
-      **capa extra**; el borrado principal lo hace el backend (ver §15.6).
-- [ ] **CDN público del catálogo:** exponer **únicamente** el prefijo `inventory_photo/` (bucket público
-      de R2 o dominio custom con regla que sirva solo ese prefijo) → `S3_PUBLIC_BASE_URL`. Las fotos
-      sensibles NUNCA salen por esta base.
+- [ ] **Lifecycle rule** de retención — **se conserva** — sobre el prefijo `kyc_ine/` =
+      `INE_RETENTION_DAYS` (180). Es una **capa extra**; el borrado principal lo hace el backend (§15.6).
+- [ ] **NO configurar** prefijos `inventory_photo/` ni `dispute_claim/`, ni CDN/bucket público de
+      catálogo (eliminados en v1.2.1). El bucket queda íntegramente privado con solo `kyc_ine/`.
 
 ### 11.C — Dominios / DNS — [HUMANO]
 
@@ -448,10 +455,13 @@ Validaciones estáticas corridas (reales):
 - [ ] `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` (distintos entre sí; **obligatorios** en no-local o el backend aborta)
 - [ ] `STRIPE_SECRET_KEY` (**sk_live_…**), `STRIPE_PUBLISHABLE_KEY` (**pk_live_…**), `STRIPE_WEBHOOK_SECRET`
       (**whsec_…**, se rellena en 11.G tras crear el webhook)
+- [ ] `GOOGLE_CLIENT_ID` (login con Google; **mismo** OAuth Client ID que `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
+      del front — [VC]. Sin él, el backend rechaza el login con Google)
+- [ ] `DISPUTE_EVIDENCE_CONTACT` (correo de contacto de evidencia de disputa; default `soporte@tcgvault.mx`)
 - [ ] `POKEMONTCG_IO_API_KEY`; `POKEMONPRICETRACKER_API_KEY` / `POKETRACE_API_KEY` (opcionales — hoy stub
       BE-6, se cubre con override manual del admin)
 - [ ] `S3_ENDPOINT`, `S3_REGION=auto`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
-      `S3_PUBLIC_BASE_URL`, `S3_FORCE_PATH_STYLE=false`, `INE_RETENTION_DAYS=180`
+      `S3_FORCE_PATH_STYLE=false`, `INE_RETENTION_DAYS=180`  (bucket **solo** `kyc_ine/`; sin `S3_PUBLIC_BASE_URL`)
 - [ ] `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` (SIE de Banxico, gratis; sin él, FX cae a override manual)
 - [ ] `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_EMAIL`, `SEED_OPERATOR_PASSWORD` (fuertes)
 - [ ] *(los diales `stripe_fee_*`, markup, envío MX$175, topes, etc. NO son env — viven en M10/ConfigSetting)*
@@ -464,6 +474,7 @@ Validaciones estáticas corridas (reales):
 - [ ] `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (**pk_live_…** en prod; pk_test_ en Preview)
 - [ ] `NEXT_PUBLIC_DEFAULT_LOCALE=es`
 - [ ] `NEXT_PUBLIC_USE_MOCKS=false`  ← **imprescindible** para pegarle al backend real.
+- [ ] `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (login con Google; **idéntico** al `GOOGLE_CLIENT_ID` del backend [RW]).
 
 ### 11.E — Proteger el Environment `production` — [HUMANO]
 
@@ -512,7 +523,7 @@ Validaciones estáticas corridas (reales):
       debe quedar en estado *Active/healthy*.
 - [ ] Un flujo de compra en modo test (Stripe test keys en staging) → carta entra a bóveda
       `pending → settled` vía webhook `payment_intent.succeeded`.
-- [ ] Subida de una foto de prueba vía presigned PUT al bucket.
+- [ ] Subida de una **INE** de prueba (`kyc_ine/`) vía presigned PUT al bucket, y su lectura por presigned GET.
 - [ ] Un `charge.dispute.created` de Stripe CLI es **consciente del estado físico** de la carta:
       - Caso en-bóveda: el item sigue en custodia → revierte a inventario de plataforma (`platform/listed`).
       - Caso enviada/entregada: el item ya salió → **no** re-agrega al inventario y marca `chargebackNeedsManual`
@@ -664,9 +675,10 @@ Cambios de infraestructura hechos por devops para los hallazgos que le tocan. Lo
 ### 15.1 SEC-A5 — Object storage privado (INE/KYC/PII)
 
 - **Prod (R2/S3):** bucket **privado**, sin lectura pública anónima (Block Public Access / sin política
-  pública). Los prefijos sensibles `kyc_ine/` y `dispute_claim/` se sirven **solo por presigned GET de
-  vida corta** (implementación = **rol backend**, aún abierto: `disputes.service.ts`/`catalog.service.ts`
-  usan `S3_PUBLIC_BASE_URL`). `S3_PUBLIC_BASE_URL`/CDN expone **únicamente** `inventory_photo/`.
+  pública). En v1.2 su único contenido es el prefijo `kyc_ine/`, servido **solo por presigned GET de
+  vida corta** por el backend. Ya **no** existe `S3_PUBLIC_BASE_URL` ni prefijo público
+  `inventory_photo/`, ni evidencia de disputa en bucket (`dispute_claim/` eliminado; la evidencia va por
+  correo `DISPUTE_EVIDENCE_CONTACT`).
 - **CORS del bucket:** allow-list solo `APP_BASE_URL` (dominio del front), métodos **PUT** y **GET**.
   Nunca `AllowedOrigins: ["*"]`. Ejemplo de política R2/S3:
 
@@ -677,10 +689,11 @@ Cambios de infraestructura hechos por devops para los hallazgos que le tocan. Lo
      "MaxAgeSeconds": 3000 }]
   ```
 
-- **Local/staging (MinIO):** `createbuckets` deja el bucket **privado** (`mc anonymous set none`) y solo
-  publica el prefijo de catálogo (`mc anonymous set download .../inventory_photo`). Una corrida vieja con
-  lectura pública total queda reprivatizada al re-levantar. Efecto: en local, las fotos de KYC/disputa ya
-  **no** cargan por URL pública — es lo correcto; cargarán cuando backend sirva por presigned GET.
+- **Local/staging (MinIO):** `createbuckets` deja el bucket **100% privado** (`mc anonymous set none`).
+  v1.2.1: **ya no** se publica el prefijo de catálogo (`inventory_photo`) — no hay `mc anonymous set
+  download`. Una corrida vieja con lectura pública queda reprivatizada al re-levantar. Efecto: en local,
+  la INE (`kyc_ine/`) nunca carga por URL pública — es lo correcto; carga cuando backend sirva por
+  presigned GET.
 
 ### 15.2 SEC-C1 — Secretos y credenciales sembradas
 
@@ -736,11 +749,11 @@ Cambios de infraestructura hechos por devops para los hallazgos que le tocan. Lo
 
 Estos siguen abiertos con su rol dueño (devops no toca código de app):
 - **backend:** SEC-C1 (throttler + operador por env), SEC-A1/A2/A3 (buylist/conversión atómicas),
-  SEC-A4 (proyección PII para `vault_operator`), **SEC-A5 parte app** (servir INE/disputa por presigned
-  GET, no por `S3_PUBLIC_BASE_URL`), SEC-C2 (bump de deps), y deuda SEC-M1/M3/M5/B1..B4.
+  SEC-A4 (proyección PII para `vault_operator`), **SEC-A5 parte app** (servir la INE `kyc_ine/` por
+  presigned GET; v1.2.1 ya no usa `S3_PUBLIC_BASE_URL`), SEC-C2 (bump de deps), y deuda SEC-M1/M3/M5/B1..B4.
 - **frontend:** SEC-M2 (token fuera de `localStorage`) + SEC-C2 (bump `next`/`next-intl`/`postcss`).
 
-> Mientras SEC-A5 (parte backend) no esté, las fotos de KYC/disputa **no se sirven** en local (el bucket
+> Mientras SEC-A5 (parte backend) no esté, la INE (`kyc_ine/`) **no se sirve** en local (el bucket
 > ya es privado); esto es intencional y correcto. El deploy a prod no debe activar lectura pública del
 > bucket para "arreglar" la visualización: la solución es el presigned GET del backend.
 
