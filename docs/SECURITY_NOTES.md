@@ -1,147 +1,147 @@
-# SECURITY_NOTES.md — Ingeniería de seguridad (blue team)
+# SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
 
-> **Rol:** consolidación defensiva + veredicto. Insumo principal: `docs/PENTEST_NOTES.md` (red team).
-> **Método:** validación estática cruzando cada hallazgo contra el código (`backend/`, `frontend/`),
-> config devops (`docker-compose.yml`, `.env.example`, `.github/workflows/`, `security/`) y `npm audit`.
-> **Regla:** solo se escribe este archivo; no se corrige código. Cada hallazgo indica el **rol dueño**.
-> **La vara sube por el negocio:** custodia de bienes de valor + dinero saliente + PII sensible
-> (INE / CLABE / RFC).
-> Fecha ronda 1 (RECHAZO): 2026-08-13. Fecha ronda 2 (RE-VERIFICACIÓN bloqueantes): 2026-08-13.
-> Fecha ronda 3 (RE-VERIFICACIÓN endurecimiento PII): 2026-08-13.
+> **Rol:** seguridad (blue team). Reviso la defensa, **valido/consolido** los hallazgos del
+> `pentester` (`docs/PENTEST_NOTES.md`) contra el código y emito el **VEREDICTO**. No corrijo
+> código: cada hallazgo se enruta al **rol dueño**.
+> **Alcance:** v1.1 (login Google, sync de catálogo, Compra/facetas, portfolio history/snapshot,
+> convert-to-inventory, sellado con precio manual) + re-chequeo de guardarraíles de v1.0.
+> **Modo:** revisión estática de código + `npm audit`. Sin stack vivo → los vectores que exigen
+> instancia se marcan **[PoC pendiente de target]**; los verificados por lectura, **[Verificado en código]**.
+> **Fecha:** 2026-08-14 (rev v1.1). Blanco autorizado: staging/local.
 
 ---
 
-## 0. RE-VERIFICACIÓN tras la ronda de fixes (ronda 2)
+## 0. Resumen ejecutivo
 
-En la ronda 1 **RECHACÉ** con 7 bloqueantes (2 Críticos, 5 Altos: SEC-C1, C2, A1, A2, A3, A4, A5).
-Los roles aplicaron fixes (commits `e504466` backend, `cb1eb2b` frontend, `9a47f16` devops).
-Re-verifiqué cada uno **en el código, no por confianza**. Resultado:
+Confirmo la lectura del pentester: **las superficies nuevas de v1.1 llegaron endurecidas** y
+**no hay hallazgos Críticos ni Altos abiertos**. Validé en código los 6 hallazgos del red team
+(M-1, M-2, B-1..B-4) y los 8 positivos (I-1..I-8); **ninguno cambia de banda de severidad**. Los
+guardarraíles de dinero/PII **no presentan regresión**: reserva atómica de checkout, firma +
+idempotencia atómica del webhook Stripe, `MoneyOutGuard` (solo `super_admin`), y PII cifrada/
+enmascarada con `reveal-clabe` como único punto de CLABE en claro (money-out + auditado).
 
-| ID | Estado | Evidencia verificada |
+Lo abierto es **Media/Baja**, de infraestructura y defensa en profundidad. **VEREDICTO: APROBADO
+para staging**, condicionado a cerrar **M-2 (CORS)** y **B-3 (presign allow-list)** antes de la
+promoción a producción con dinero/PII reales (ver §4 y §5).
+
+| Severidad | # | IDs |
 |---|---|---|
-| **SEC-C1** | **CERRADO** | `@nestjs/throttler` en deps; `ThrottlerModule` global 300/min + `ThrottlerGuard` como primer `APP_GUARD` (`app.module.ts:34,56`); `@Throttle` login/register 5/min y refresh 20/min (`auth.controller.ts:12,22,31`); seed sin passwords hardcodeadas, exige `SEED_ADMIN_PASSWORD`/`SEED_OPERATOR_PASSWORD` y **falla** en no-local (`seed.ts:24-38,53,70`). Fuerza bruta: remediado en código; **re-test en vivo pendiente de staging**. |
-| **SEC-C2** | **CERRADO** | `npm audit --omit=dev`: **frontend = 0 vulnerabilidades**; **backend = 0 high/critical, 4 moderate** (todas de framework: `@nestjs/core`, `@nestjs/platform-express`, `file-type` x2 vía `@nestjs/common`). Los críticos/high runtime que motivaron el rechazo ya no aparecen. Las 4 moderate quedan como **deuda de framework** (ver §2). |
-| **SEC-A1** | **CERRADO** | `buylist.service.ts:99` deriva `category = await this.categoryForRarity(card.rarity)` dentro de `createRequest`; el `it.category` del DTO ya **no** alimenta `quoteAcquisition` (:104). Un DTO malicioso `ex_plus` sobre una común no infla el pago. |
-| **SEC-A2** | **CERRADO (código)** | `buylist.service.ts:171-195` — lectura de `monthUsed` (`monthUsedCentsTx`, :211-224) y creación del `SellRequest` en un `$transaction` con `isolationLevel: Serializable`. Dos solicitudes concurrentes cerca del tope entran en conflicto de serialización. Carrera: **re-test en vivo pendiente de staging** (DAST). |
-| **SEC-A3** | **CERRADO** | `schema.prisma:341` `sourceSellRequestItemId String? @unique`; migración `20260813120000_unique_source_sell_request_item/migration.sql:9` crea el índice único; `buylist.service.ts:381-423` crea el `InventoryItem` en `$transaction` y captura **P2002** resolviendo como "ya convertido". Garantiza UN solo InventoryItem. Carrera: **re-test en vivo pendiente de staging**. |
-| **SEC-A4** | **CERRADO** | `admin.service.ts:54-95` `getUser(id, role)` — para no-`super_admin` (operador) devuelve CLABE **enmascarada** (`maskClabe`), `ineOnFile:boolean` en vez de las keys de INE, RFC omitido y `billingProfile:null`. El controller pasa el rol real (`admin.controller.ts:45-47`). Segregación de funciones restaurada. Se mantiene íntegro tras el endurecimiento de PII (ronda 3). |
-| **SEC-A5** | **CERRADO** | App: `disputes.service.ts:21-23` sirve INE/disputa por `uploads.presignGet` (GET prefirmado 300s, `uploads.service.ts:55-59`), no por `S3_PUBLIC_BASE_URL`. Infra: `docker-compose.yml:115-117` `createbuckets` deja el bucket privado (`mc anonymous set none`) y publica **solo** `inventory_photo/`; documentado en `DEVOPS_NOTES.md:493-508`. |
-
-**Extras corregidos de paso (deuda media resuelta, no exigida para aprobar):**
-- **SEC-M3** (refund sin guardia de estado) → `admin-orders.controller.ts:79-88`: exige `status === 'settled'` + idempotency-key obligatoria. **CERRADO.**
-- **SEC-M5** (`pay-spei` sin idempotencia/carrera) → `buylist.service.ts:435-459`: cortocircuito idempotente + `updateMany` guardado por estado (`count===1`). **CERRADO.**
-
-**Conclusión ronda 2:** los 7 bloqueantes (C1, C2, A1, A2, A3, A4, A5) quedan **CERRADOS**.
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 2 | S-M1 (=M-1), S-M2 (=M-2) |
+| Baja | 4 | S-B1..S-B4 (=B-1..B-4) |
+| Info/positivo (verificado) | 8 | I-1..I-8 |
 
 ---
 
-## 0.b RE-VERIFICACIÓN del endurecimiento de PII (ronda 3 — esta sesión)
+## 1. Hallazgos priorizados
 
-En la ronda 2 dejé como **bandera para el humano abierta** (§2.3 anterior): **CLABE almacenada en claro**
-en `KycProfile.clabe` y **retención/borrado de INE sin implementar**. Backend implementó el cifrado en
-reposo + blind index + reveal auditado + job de retención (commits **`fbb66e1`** backend, **`2c6aa8d`**
-contrato, **`c137c83`** devops). Re-verifiqué **en el código y con las specs**, no por confianza:
+### MEDIA
 
-| Control | Estado | Evidencia verificada |
+#### S-M1 — Dependencias vulnerables en runtime backend (cadena `google-auth-library`→gaxios→uuid + `@nestjs/*`→file-type)
+- **Confirmado.** `npm audit --omit=dev` (corrido en esta sesión, 2026-08-14) reporta **6 moderate, 0 high, 0 critical** en backend:
+  - `uuid <11.1.1` (moderate, *missing buffer bounds check*) arrastrado por `gaxios 6.4.0–6.7.1`, que entra como dependencia directa de **`google-auth-library`** (nueva en v1.1, superficie del login Google).
+  - `@nestjs/common` → depende de versión vulnerable de **`file-type`** (moderate, DoS por parser).
+  - Fix disponible vía `npm audit fix` (no `--force`).
+- **Frontend:** el `critical` (`vitest`) y `high` (`vite`) son **solo devDependencies** (tooling de test/build, no van al bundle de producción de Next.js). Riesgo acotado a la máquina de CI/dev, no al sitio en prod. **Falso positivo como riesgo de producción** — correcto marcarlo aparte.
+- **Evidencia:** salida `npm audit --omit=dev` en `backend/`; `gaxios`/`uuid`/`@nestjs/common`+`file-type` listados.
+- **Severidad final:** Media (runtime moderate, sin high/critical desplegado).
+- **Rol dueño:** **devops** (bump puntual + gate `npm audit` en el SAST del pipeline; priorizar runtime backend sobre tooling frontend).
+
+#### S-M2 — CORS refleja cualquier origin con credenciales (regresión no cerrada de v1.0)
+- **Confirmado [Verificado en código].** `backend/src/main.ts:26` → `app.enableCors({ origin: true, credentials: true })`. Refleja el `Origin` del atacante y habilita `Access-Control-Allow-Credentials: true`. No hay allow-list de dominios de storefront/admin.
+- **Análisis de explotabilidad:** hoy los tokens viven en `localStorage` y viajan como `Authorization: Bearer` (no cookies), por lo que un `fetch(..., {credentials:'include'})` cross-origin **no** arrastra el token de la víctima → la exfiltración directa está limitada. Por eso **Media, no Alta**. Pero la política es insegura para una API de dinero/PII y **se vuelve Alta** en cuanto exista un flujo con cookie (el contrato §0 menciona un posible refresh por cookie httpOnly).
+- **Severidad final:** Media. **Disparador de escalada a Alta:** cualquier auth/refresh basado en cookie.
+- **Rol dueño:** **backend** (allow-list de orígenes desde config: dominios de staging y prod; sin `origin:true` en prod).
+
+### BAJA
+
+#### S-B1 — Login Google ensancha la superficie de auth de cuentas privilegiadas
+- **Confirmado [Verificado en código].** `backend/src/modules/auth/auth.service.ts:116-173` (`google()`). El account-linking (`:128-149`) enlaza el ID token de Google a **cualquier** cuenta local con el mismo email verificado **sin excluir `super_admin`/`vault_operator`**. El `role` se conserva de la BD (correcto: nunca del token, `:159` `Role.customer` solo en altas nuevas).
+- **No es escalada** — el `role` es server-side y el linking exige `email_verified=true`. El riesgo real: si una cuenta de back-office usa email @gmail, su seguridad pasa a depender **también** de la seguridad de esa cuenta Google (phishing OAuth, 2FA), no solo del argon2.
+- **Severidad final:** Baja (condicionada a que un back-office use email Google).
+- **Rol dueño:** **backend** (decisión de negocio: restringir linking/login Google a `role=customer`, o exigir MFA en back-office). **Deuda aceptable con disparador** — ver §5.
+
+#### S-B2 — Columnas de dinero en `Int` de 32 bits (overflow > ~MX$21.47M)
+- **Confirmado [Verificado en código].** `backend/prisma/schema.prisma`: montos `*Cents` son `Int` (máx 2,147,483,647 c ≈ **MX$21,474,836.47**). Relevantes: `PortfolioSnapshot.totalValueMxnCents:641` y `costBasisMxnCents:642`, `InventoryItem.listPriceCents:363`, agregados de orden (`subtotalCents:458`, `totalCents:461`) y `SellRequest.*Cents`.
+- **Riesgo:** un portafolio agregado, P&L o custody-value que supere ~MX$21.47M desborda el `Int` de Postgres → error de escritura o valor inconsistente. `listPriceCents` del sellado usa `@Min(0)` **sin `@Max`**: un `super_admin` (input confiable) podría fijar un precio > 2^31 y romper integridad. No explotable por atacante externo, pero rompe features de dinero con datos legítimos grandes.
+- **Severidad final:** Baja (integridad, no explotable externamente).
+- **Rol dueño:** **arquitecto** (decisión de tipo `BigInt` para agregados de dinero — cambio de schema/contrato) + **backend** (implementación + cota `@Max` en `listPriceCents`). **Deuda aceptable con disparador** — ver §5.
+
+#### S-B3 — Presign de subida sin allow-list de content-type ni límite de tamaño
+- **Confirmado [Verificado en código].** `backend/src/modules/uploads/uploads.controller.ts:10` → `contentType` es `@IsString()` sin `@IsIn` de imágenes; `uploads.service.ts:41` deriva la extensión del `contentType` del cliente (`contentType.split('/')[1] ?? 'bin'`) sin allow-list `image/*` ni `Content-Length` máximo.
+- **Mitigación parcial verificada:** `uploads.service.ts:60-64` (`presignGet`, SEC-A5) sirve documentos sensibles vía GET prefirmado de vida corta y el diseño exige **bucket privado** (devops). Eso **corta el vector de XSS almacenado servido públicamente** siempre que devops mantenga el bucket sin lectura pública. Sin ese cierre de infra, un `POST /uploads/presign {contentType:"text/html"}` permitiría subir HTML arbitrario al bucket.
+- **Severidad final:** Baja (mitigada por bucket privado; queda el abuso de almacenamiento y el riesgo si el bucket se expone).
+- **Rol dueño:** **backend** (allow-list `image/*`, tamaño máximo, `Content-Disposition: attachment`) + **devops** (confirmar bucket privado / lifecycle).
+
+#### S-B4 — Endurecimientos de auth/transport (defensa en profundidad)
+- **Confirmado [Verificado en código]:**
+  - `jwt-auth.guard.ts:34-36` y `auth.service.ts:44-54,177` — `verifyAsync`/`signAsync` **sin fijar `algorithms:['HS256']`**. Con `jsonwebtoken` y secreto simétrico, `alg:none` y la confusión RS↔HS **no son explotables** (la lib deriva el algoritmo por tipo de clave); queda como defensa en profundidad.
+  - `config/env.validation.ts:16` — valida `JWT_*`/`DATABASE_URL`/Stripe **solo si `NODE_ENV==='production'`**; en staging arranca sin exigir secretos fuertes. **Sin chequeo de entropía mínima** del secreto JWT (un secreto débil permitiría forjar tokens `super_admin`).
+  - `main.ts` — **sin `helmet()`** ni cabeceras de seguridad (HSTS, X-Content-Type-Options, X-Frame-Options). Confirmado: `helmet` no está en código ni en `package.json`.
+- **Severidad final:** Baja aislada; en conjunto reducen margen ante mala configuración.
+- **Rol dueño:** **backend** (fijar `algorithms`, validar/entropía del secreto también en staging, `helmet`) + **devops** (cabeceras en el borde/proxy, longitud mínima de secretos, secret manager en prod).
+
+---
+
+## 2. Guardarraíles previos — SIN regresión (verificado en código)
+
+| Guardarraíl | Evidencia | Estado |
 |---|---|---|
-| **Cifrado AES-256-GCM en reposo** | **RESUELTO** | `common/crypto/pii-crypto.service.ts:101-126`: `encrypt/decrypt` AES-256-GCM, formato serializado `v1:iv:tag:ciphertext` (base64 por campo), **IV aleatorio de 12 bytes por operación** (`randomBytes`, :102) y **authTag de 16 bytes** verificado en `decrypt` (rechaza texto manipulado/mal formado, :117-124). Columnas cifradas: `schema.prisma:213` `rfcEnc`, :214 `clabeEnc`, :514 `SellRequest.clabeSnapshotEnc`, :236 `BillingProfile.rfcEnc`. Ya **no** existe columna `clabe`/`rfc` en claro. |
-| **Blind index HMAC (match sin descifrar)** | **RESUELTO** | `pii-crypto.service.ts:139-146`: `blindIndex`/`clabeBlindIndex` = HMAC-SHA256 con clave dedicada `PII_HMAC_KEY` sobre el valor **normalizado a solo dígitos**. Comparación en **tiempo constante** `blindIndexEquals` (:149-155, `timingSafeEqual` con guardia de longitud). Uso real: `buylist.service.ts:80-81` compara `kyc.clabeHmac` contra el HMAC entrante sin descifrar; persiste `clabeHmac` (:161,168); `schema.prisma:217,228` columna `clabeHmac` + `@@index([clabeHmac])`. |
-| **Reveal on-demand (CLABE en claro solo al pagar)** | **RESUELTO** | `admin-buylist.controller.ts:46-58` `GET :id/reveal-clabe` con `@Roles(super_admin)` + `@MoneyOut()` + **AuditLog** `action:'buylist.reveal_clabe'` (actor, rol, entidad, id). Servicio `buylist.service.ts:330-342` descifra el snapshot (o `kyc.clabeEnc` de respaldo) y es el **único** punto que devuelve CLABE en claro. Enmascarada en el resto: `buylist.adminGet:320-321` (elimina `clabeSnapshotEnc`, devuelve `clabeMasked`), `admin.service.getUser:69,80-81,89` (CLABE/RFC enmascarados incluso para super_admin). **SEC-A4 intacto**: operador sin RFC/INE (`admin.service.ts:95+`). |
-| **Retención de INE (borrado por antigüedad)** | **RESUELTO** | `jobs/ine-retention.service.ts:31-79`: `run()` purga `ineFrontKey`/`ineBackKey` (objeto del bucket + limpia keys) solo si el usuario **no** tiene solicitudes abiertas (:42-48) y su última solicitud cerrada superó `INE_RETENTION_DAYS` (:32-58). Dial `settings.constants.ts:25,101` (validador `int >= 0`). 2ª capa (devops): lifecycle del bucket sobre `kyc_ine/` (`docker-compose.yml:117-118`, `DEVOPS_NOTES.md:619-642`). **Nota:** el scheduling repetible (BullMQ) queda como deuda BE-5 documentada; `run()` es invocable a mano/CLI/endpoint. |
-| **Llaves desde env, obligatorias en no-local** | **RESUELTO** | `pii-crypto.service.ts:48-98`: `PII_ENCRYPTION_KEY` (32 bytes base64, valida longitud exacta) y `PII_HMAC_KEY` (>= 32 bytes). En NODE_ENV no-local **FALLA claro** si faltan/mal formadas (:65-70, :88-93); en local deriva clave dev determinista **con warning** (:71-74, :94-97). KMS en prod = bandera de humano (§2). |
-
-**Specs ejecutadas esta sesión** (`cd backend && npx jest pii-crypto buylist.clabe-pii ine-retention`):
-**3 suites, 20 tests, todos PASS** (`test/pii-crypto.spec.ts`, `test/buylist.clabe-pii.spec.ts`,
-`test/ine-retention.spec.ts`). El warning de clave dev local aparece como se espera en el arranque de test.
-
-**Conclusión ronda 3:** la bandera de **CLABE en claro / INE sin retención pasa de ABIERTA → RESUELTA.**
-No abre ningún hallazgo Crítico/Alto nuevo. La **retención de INE quedó fijada en 180 días**, alineada
-entre backend (dial M10, fuente de verdad) y devops (env/lifecycle); ver §2.4 (bandera **RESUELTA**).
+| **Reserva atómica anti doble-venta** | `orders.service.ts:119-150` — `updateMany` guardado por estado vendible + `count!==1 → ITEM_UNAVAILABLE` dentro de `$transaction`. Idempotency-key de PI derivada en servidor (`:152-154`). | OK |
+| **Webhook Stripe: firma** | `stripe.service.ts:118-121` — `webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET)`; raw body preservado en `main.ts:14-18`. | OK |
+| **Webhook Stripe: idempotencia** | `payments.service.ts:38-89` — `create` de `ProcessedStripeEvent` como guardia atómica (P2002 → no-op); si el handler falla, **borra la marca y re-lanza** (Stripe reintenta; nunca marca procesado sin éxito). | OK |
+| **Money-out solo super_admin** | `money-out.guard.ts:32-46` — rol != `super_admin` → `403 MONEY_OUT_FORBIDDEN` y **audita** el intento bloqueado (`money_out.blocked`). Aplicado a reveal-clabe/pay-spei/refund/recompra. | OK |
+| **PII cifrada/enmascarada** | `schema.prisma` `*Enc`/`*Hmac`; enmascarado por defecto incluso para `super_admin`; `reveal-clabe` = único CLABE en claro (money-out + auditado); `vault_operator` con proyección reducida. | OK (según ARQ §3.4 + I-8 del pentest) |
+| **Login Google server-side** | `google-token-verifier` + `auth.service.ts:116-173` — verifica firma/aud/iss/exp + `email_verified`; `role` siempre server-side. | OK |
+| **Sync catálogo anti-inyección/SSRF** | `catalog-sync.service.ts:10,53` `SET_ID_PATTERN`; `pokemontcg-io.client.ts:47` host fijo `https://api.pokemontcg.io/v2`; `:72` `encodeURIComponent`. | OK |
+| **Portfolio history/snapshot sin IDOR** | `userId` desde JWT (`@CurrentUser`), nunca de parámetro; disparo de snapshot `@Roles(super_admin)`. | OK (I-5) |
+| **convert-to-inventory guard + anti-carrera** | `ITEM_NOT_APPROVED` + índice único `sourceSellRequestItemId` (P2002). | OK (I-6) |
+| **Tope mensual buylist atómico** | `$transaction` `Serializable`; categoría derivada server-side (`categoryForRarity`). | OK (I-7) |
 
 ---
 
-## 1. Deuda de seguridad que permanece (no bloqueante) — con disparador
+## 3. Deuda de seguridad aceptada (no bloqueante, con disparador)
 
-Aceptable **para desarrollo / beta cerrada**, NO para operar con dinero/público real sin cerrarse.
-
-| ID | Deuda | Ubicación | Impacto residual hoy | Disparador |
-|---|---|---|---|---|
-| **SEC-M1** | CORS refleja cualquier origin con credenciales | `main.ts:26` `origin:true, credentials:true` | Bajo (tokens en `localStorage`, no cookies) | **Antes de exponer a público** o **antes de migrar a cookies de sesión** |
-| **SEC-M2** | JWT en `localStorage` | `frontend/src/lib/api-client.ts` | Depende de que no haya XSS | Junto con CSP estricta; **antes de dinero real** |
-| **SEC-M4** | Compose con credenciales default | `docker-compose.yml` defaults `tcg_local_dev_password`/`minioadmin_local_dev` | **Mitigado**: puertos de datos ya atados a `127.0.0.1` (`docker-compose.yml:38`, `DEVOPS_NOTES.md:543`) | Secretos únicos por entorno + negar arranque con defaults **antes del primer deploy accesible** |
-| **SEC-B1** | JWT sin `algorithms:['HS256']` fijados | `auth.module.ts` / guard | Bajo (secreto simétrico + `jsonwebtoken 9.0.2`: no explotable) | Próximo sprint de hardening |
-| **SEC-B2** | Validación de env solo en `production` | `env.validation.ts:8` | Bajo (staging puede arrancar sin secretos fuertes) | Sprint de hardening / antes de staging permanente |
-| **SEC-B3** | Sin `helmet`/cabeceras de seguridad | `main.ts` (sin HSTS/CSP/X-Frame-Options) | Bajo | **Antes de exponer panel/uploads a público** (o resolver en reverse proxy) |
-| **SEC-B4** | Presign de subida sin allow-list de content-type/tamaño | `uploads.service.ts:34-47` (acepta cualquier `contentType`, sin límite) | Bajo tras SEC-A5 (bucket privado, `Content-Disposition` no inline en prefijos sensibles) | **Antes de exponer uploads a público** |
-| **SEC-B5** | Scheduling repetible del job de retención de INE pendiente (BullMQ) | `jobs/ine-retention.service.ts` (deuda BE-5) | Bajo (`run()` es invocable manual/CLI; lifecycle del bucket cubre como 2ª capa) | Antes de operar con volumen real de KYC; cablear cron/BullMQ + monitor de la corrida |
-| **Deps framework** | 4 moderate backend | `@nestjs/core` (injection), `@nestjs/platform-express`, `file-type` x2 (DoS parser/zip-bomb) vía `@nestjs/common` | Bajo/Moderado (requiere upgrade mayor de NestJS a 11.1.29, breaking) | Planear bump de NestJS en sprint de mantenimiento; el gate `security-sast.yml` sigue cubriendo el piso |
-
-> Registrar el pendiente de código en `docs/TECH_DEBT.md` (a petición del techlead) por el rol dueño.
-
-**Positivas ya verificadas (se mantienen, sin acción):** reserva de checkout atómica (`orders.service.ts`),
-webhook Stripe con firma + idempotencia atómica (`payments.service.ts`), IDOR por objeto cerrado y
-`MoneyOutGuard` (`super_admin` + auditoría) en todo dinero saliente, **PII (CLABE/RFC) cifrada en reposo +
-blind index + reveal auditado + retención de INE** (ronda 3, §0.b). Ver PENTEST_NOTES I-1/I-2/I-3.
+| ID | Deuda | Impacto | Disparador para abordarla |
+|---|---|---|---|
+| S-B1 | Linking Google a cuentas back-office | Traslada seguridad de cuentas privilegiadas a Google | **Antes de alta de cualquier back-office con email @gmail**, o al habilitar más operadores. Alternativa: restringir login Google a `customer` ya. |
+| S-B2 | Dinero en `Int` 32-bit | Overflow de integridad en agregados > ~MX$21.47M | **Antes de que portafolios/P&L/custody agregados puedan acercarse a MX$21M**, o antes de operar con dinero real a escala. Migrar a `BigInt` vía arquitecto. |
+| S-B3 (parte infra) | Bucket público serviría contenido subido | XSS almacenado si el bucket es de lectura pública | Se acepta **solo** si devops confirma bucket privado + presign de lectura. Si no, sube a Media. |
+| S-B4 | `algorithms` no fijado, validación env solo prod, sin helmet | Defensa en profundidad reducida | **Antes de exponer staging a Internet** (validar secretos + helmet); fijar `algorithms` en el próximo toque de auth. |
 
 ---
 
-## 2. Banderas para el humano
+## 4. Mínimo para aprobar producción (dinero/PII reales)
 
-1. **Pentest de tercero + programa de bug bounty ANTES de operar con dinero real.** Esta re-verificación
-   sigue siendo **estática**. Los vectores dinámicos (fuerza bruta de login, carreras de tope mensual y
-   convert-to-inventory, CORS) están **remediados en código pero sin confirmación en vivo**: deben
-   dispararse contra staging autorizado antes de mover dinero real. En un negocio con dinero + custodia +
-   PII, la revisión externa es requisito, no opcional.
-2. **Activar el DAST real contra staging:** `security-scheduled.yml` es plantilla hasta que exista
-   `STAGING_BASE_URL`. Levantar staging y disparar ZAP/nuclei + reproducir los PoC concurrentes de A2/A3 y
-   el brute-force de C1 (verificar 429 del throttler; **nota:** el storage del throttler es in-memory por
-   instancia — en multi-instancia devops debe cablear Redis + `trust proxy`, ya anotado en el código).
-3. **KMS en producción para las llaves de PII.** El cifrado AES-256-GCM y el HMAC ya toman `PII_ENCRYPTION_KEY`
-   / `PII_HMAC_KEY` desde env y **fallan claro** si faltan en no-local (`pii-crypto.service.ts:65-93`). En
-   prod estas llaves deben vivir en un **KMS/secret manager** (no `.env` en host), con **rotación** y política
-   de re-cifrado (el formato versionado `v1:` ya deja lugar para migrar a `v2`). Confirmar con devops el
-   provisioning en el secret manager de prod.
-4. **`INE_RETENTION_DAYS` — RESUELTA (retención fijada en 180 días, alineada backend+devops).** El humano
-   **decidió la retención de INE en 180 días** y devops alineó env/lifecycle a ese valor. La **fuente de
-   verdad** es el **dial M10 del backend** (`settings.constants.ts:47`), que ya sembraba 180. Ambos lados
-   coinciden ahora: backend (dial en BD) y devops (`.env.example`, `docker-compose.yml`,
-   `docker-compose.staging.yml`, `DEVOPS_NOTES.md`), con el lifecycle del bucket (2ª capa) usando el
-   **mismo número**. Queda como buena práctica registrar la justificación legal/fiscal de los 180 días
-   (LFPDPPP: minimización + retención justificada) en el aviso de privacidad (§2.5). **Ya no hay
-   inconsistencia; no es bandera pendiente.**
-5. **Legal/PII (México):** custodia implica figura de **depositario** y contrato de custodia. INE/CLABE/RFC
-   caen bajo **LFPDPPP**: el cifrado en reposo + enmascarado + reveal auditado + retención ya están
-   implementados (§0.b); falta el **aviso de privacidad** y la validación jurídica de la política de
-   retención antes de operar.
-6. **Segregación de funciones:** confirmada en código (SEC-A4, se mantiene tras el endurecimiento de PII).
-   Validar con el negocio que la política "vault_operator NO ve datos bancarios/identidad" es la deseada.
-7. **Secret management en prod:** mover secretos a un secret manager (no `.env` en host); confirmar que
-   `SEED_ADMIN_PASSWORD`/`SEED_OPERATOR_PASSWORD` fuertes se inyectan en cada deploy (el seed ya **falla**
-   sin ellos en no-local, buen fail-safe).
+No hay Críticos/Altos → **no bloquea staging**. Para la **promoción a producción** exijo cerrar:
+1. **S-M2 (CORS)** — allow-list de orígenes; sin `origin:true`. **[backend]** — obligatorio si se añade cualquier cookie de auth.
+2. **S-B3 (presign)** — allow-list `image/*` + tamaño máx **[backend]** y confirmación de **bucket privado** **[devops]**.
+3. **S-M1 (deps)** — `npm audit fix` del runtime backend + gate `npm audit` en CI **[devops]**.
+4. **S-B4 (transport)** — `helmet` + validación de secretos/entropía también en staging **[backend/devops]**.
+
+S-B1 y S-B2 quedan como **deuda aceptada con disparador** (§3); no bloquean, pero deben resolverse antes de operar con público real a escala.
 
 ---
 
-## 3. VEREDICTO
+## 5. Banderas para el humano (antes de operar con dinero real)
 
-### APROBADO
+- **Pentest de tercero + programa de bug bounty** antes del go-live con dinero real: esta revisión es **estática y de caja blanca interna**; los vectores marcados **[PoC pendiente de target]** (CORS cross-origin, DoS por dependencias, abuso de presign, concurrencia de checkout/buylist) requieren validación **dinámica** contra staging (ZAP/nuclei + scripts de concurrencia).
+- **KMS / secret manager en producción**: `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY`, `JWT_*`, `STRIPE_*` deben provenir de un secret manager (no `.env` ni imagen). Confirmar rotación y que ningún secreto aparezca en logs/errores.
+- **Validaciones legales de custodia/PII** (ya en PROJECT §Riesgos): figura de depositario, contrato de custodia, seguro del inventario, y cumplimiento del manejo de INE/CLABE/RFC (retención `INE_RETENTION_DAYS`, minimización). Requisito legal, no técnico, pero **previo a operar con bienes/dinero de terceros**.
+- **Cierre de M-2/M-6 de v1.0 (infra, devops)**: fotos por URL pública y puertos de datos expuestos en compose — pendientes de confirmar en la revisión de infra con target vivo (el pentester no pudo re-instrumentarlos sin stack).
 
-Los **7 bloqueantes** de la ronda 1 (SEC-C1, C2, A1, A2, A3, A4, A5) quedan **CERRADOS**. La única
-**bandera de humano abierta** que quedaba con carga de seguridad — **CLABE en claro / INE sin retención** —
-pasa a **RESUELTA** en esta ronda 3, verificada en código y con **20 tests de PII en verde**
-(`pii-crypto`, `buylist.clabe-pii`, `ine-retention`). **No hay hallazgos Críticos ni Altos abiertos.**
+---
 
-`npm audit --omit=dev`: **frontend 0 vulnerabilidades; backend 0 high/critical** (4 moderate de framework
-como deuda aceptada). El gate `security-sast.yml` sigue fallando en high/critical como red de seguridad.
+## 6. VEREDICTO
 
-**Condiciones de la aprobación (no bloqueantes, pero exigibles antes de dinero/público real):**
-1. Ejecutar el **DAST contra staging** para confirmar en vivo C1 (throttling/lockout), A2 y A3 (carreras).
-2. Cerrar la deuda §1 según sus disparadores (CORS, localStorage/CSP, helmet, presign content-type,
-   defaults de compose, scheduling BullMQ de retención, bump de NestJS) **antes** de exponer a público o
-   mover dinero real.
-3. **Pentest de tercero + bug bounty** (§2.1), **KMS + rotación de llaves de PII en prod** (§2.3) y
-   **DAST en staging** (§2.2) antes de operar con dinero real. (`INE_RETENTION_DAYS` ya quedó **RESUELTA**:
-   180 días, alineada backend+devops — §2.4.)
+**APROBADO para staging.** **0 Críticos / 0 Altos abiertos**; los hallazgos abiertos son 2 Medias y
+4 Bajas, ninguno bloqueante por la regla de la DoD (RECHAZO solo con crítico/alto abierto).
 
-**Estado:** apto para avanzar a staging y pruebas dinámicas. La PII sensible (CLABE/RFC/INE) queda
-**cifrada en reposo, enmascarada por defecto, revelada solo por super_admin auditado, y con retención de
-INE**. La aprobación para **producción con dinero real** queda condicionada a las 3 condiciones anteriores.
+**Condicionado para producción:** cerrar **S-M2 (CORS)**, **S-B3 (presign + bucket privado)**,
+**S-M1 (deps runtime)** y **S-B4 (helmet/secretos)** antes de la promoción a prod con dinero/PII
+reales, y disparar **pentest de tercero + bug bounty + KMS** (§5). S-B1 y S-B2 quedan como deuda
+aceptada con disparador (§3).
+
+Enrutamiento: **backend** → S-M2, S-B3(app), S-B4(app), (opc.) S-B1; **arquitecto** → S-B2 (tipo
+`BigInt`); **devops** → S-M1, S-B3(infra), S-B4(borde/secretos), cierre M-2/M-6 de infra v1.0.
