@@ -76,4 +76,55 @@ describe('SettingsService.update — validación de diales (fix #2)', () => {
       code: 'VALIDATION_ERROR',
     });
   });
+
+  // v1.1: catalogSyncFromDate ahora es un dial de primera clase del DTO M10 (API_CONTRACT §M10).
+  it('accepts a valid catalogSyncFromDate (yyyy/MM/dd) and upserts it', async () => {
+    const applied = await service.update({ catalogSyncFromDate: '2025/03/01' });
+    expect(applied).toEqual({ catalogSyncFromDate: '2025/03/01' });
+    expect(prisma.configSetting.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: 'catalog_sync_from_date' },
+      }),
+    );
+  });
+
+  it('rejects catalogSyncFromDate with an invalid format (422)', async () => {
+    await expect(service.update({ catalogSyncFromDate: '2025-03-01' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    await expect(service.update({ catalogSyncFromDate: 'not-a-date' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    await expect(service.update({ catalogSyncFromDate: 20250301 })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(prisma.configSetting.upsert).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * v1.1: catalogSyncFromDate se expone en GET /admin/settings (getAllDto), como pide el contrato §M10.
+ */
+describe('SettingsService.getAllDto — expone catalogSyncFromDate', () => {
+  it('returns catalogSyncFromDate with its default when no DB row exists', async () => {
+    const prisma = { configSetting: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const service = new SettingsService(prisma as unknown as PrismaService);
+    const dto = await service.getAllDto();
+    expect(dto).toHaveProperty('catalogSyncFromDate', '2024/01/01');
+  });
+
+  it('returns the persisted catalogSyncFromDate when a DB row exists', async () => {
+    const prisma = {
+      configSetting: {
+        findUnique: jest.fn().mockImplementation(({ where }: { where: { key: string } }) =>
+          where.key === 'catalog_sync_from_date'
+            ? Promise.resolve({ key: where.key, valueJson: '2025/06/15' })
+            : Promise.resolve(null),
+        ),
+      },
+    };
+    const service = new SettingsService(prisma as unknown as PrismaService);
+    const dto = await service.getAllDto();
+    expect(dto.catalogSyncFromDate).toBe('2025/06/15');
+  });
 });

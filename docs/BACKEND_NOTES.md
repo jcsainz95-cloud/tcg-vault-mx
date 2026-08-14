@@ -581,12 +581,39 @@ de DI (`app.module.spec`) sigue verde con el `HealthModule` cableado.
     de sellado, pero ARCHITECTURE §3.6 la contempla. Generalicé `Dispute` a raw **y** sellado
     (`type=condition_sealed`, evidencia = foto de la caja); graded sigue con `NOT_RAW`. **Sugiero al arquitecto
     precisar §7** (renombrar el error o documentar el caso sellado). **No bloquea.**
-13. **`catalog_sync_from_date` (dial M10).** Nuevo dial interno (default `"2024/01/01"`); **NO** expuesto en el
-    DTO de `GET/PUT /admin/settings` (mismo patrón que `stripe_fee_iva_pct`/`ine_retention_days`). Sugiero
-    formalizarlo si se quiere editar por API. **No bloquea.**
+13. ~~**`catalog_sync_from_date` (dial M10).** Nuevo dial interno (default `"2024/01/01"`); **NO** expuesto en el
+    DTO de `GET/PUT /admin/settings`.~~ **RESUELTO (2026-08-14, ver §14):** el arquitecto lo formalizó en
+    `API_CONTRACT §M10` como `catalogSyncFromDate` y ya está expuesto/editable por API.
 
 **Verde (v1.1):** `npm run lint && npm run typecheck && npm test && npm run build` OK; `npm test` = **129
 verdes** (+30: verificación de ID token Google [aud/firma inválida→401, email no verificado→403, linking sin
 duplicar, alta role=customer, login solo-Google→401], sync idempotente + validación `setId` + default por
 fecha, semántica de Compra [excluye sin precio] + facetas + `year`, sellado con/sin precio + validación,
 snapshot idempotente + `change`, AcquisitionPricer rareza moderna → ex_plus, gating del scheduler por `REDIS_URL`).
+
+## 14. `catalogSyncFromDate` expuesto en el DTO de M10 (2026-08-14)
+
+> Ajuste menor de contrato ya formalizado por el arquitecto (`API_CONTRACT §M10`): el dial
+> `catalog_sync_from_date` pasa a ser una `ConfigSetting` de primera clase, legible y editable por API como
+> `catalogSyncFromDate` (string `yyyy/MM/dd`, default `"2024/01/01"`). Cierra la solicitud #13 de §13.11.
+
+- **Sin lógica duplicada.** El dial `catalog_sync_from_date` (key, default y validador `yyyy/MM/dd`) ya existía
+  en `settings.constants.ts` desde v1.1 (M-9). El único cambio necesario fue **añadir la entrada
+  `catalogSyncFromDate → CATALOG_SYNC_FROM_DATE` a `SETTING_DTO_MAP`**, que gobierna a la vez:
+  - `GET /admin/settings` (`getAllDto` itera el mapa) → ahora incluye `catalogSyncFromDate`.
+  - `PUT /admin/settings` (`update` valida contra el mapa) → ahora lo acepta y lo valida con el validador
+    existente (`^\d{4}\/\d{2}\/\d{2}$` → formato inválido = `422 VALIDATION_ERROR`). Las keys desconocidas
+    se siguen rechazando con 422 (allow-list "todo o nada" intacta, §6).
+  El `CatalogSyncService` sigue leyendo el mismo dial vía `SettingsService.getString(CATALOG_SYNC_FROM_DATE)`
+  (una sola fuente de verdad; no se tocó su lógica).
+- **Tests** (`test/settings.validation.spec.ts`): lectura del dial en `getAllDto` (default y valor persistido),
+  actualización válida (`2025/03/01` → upsert de `catalog_sync_from_date`) y formato inválido → 422
+  (`2025-03-01`, `not-a-date`, numérico).
+- **Nota (fuera de este encargo):** el contrato §M10 también lista `stripeFeeIvaPct` en el DTO de
+  `GET /admin/settings`, pero ese dial **sigue sin estar** en `SETTING_DTO_MAP` (dial interno, ver §11.2). Es
+  una discrepancia contrato↔código independiente; **no** la toqué en este encargo (alcance = solo
+  `catalogSyncFromDate`). **Se señala al arquitecto/orquestador** para decidir si se expone también.
+
+**Verde (este encargo):** `npm run lint && npm run typecheck && npm run build` OK; `npm test` = **133 verdes**
+(antes 129; +4: getAllDto expone `catalogSyncFromDate` con default y valor persistido, PUT válido, PUT formato
+inválido → 422).

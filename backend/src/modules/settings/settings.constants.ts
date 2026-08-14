@@ -28,7 +28,8 @@ export const SettingKey = {
   // formalice en el contrato (ver docs/BACKEND_NOTES.md).
   INE_RETENTION_DAYS: 'ine_retention_days',
   // v1.1 (M-9): frontera por defecto del sync de catálogo (POST /admin/catalog/sync sin setId).
-  // Formato pokemontcg.io `yyyy/MM/dd`. Dial interno (no en el DTO de M10).
+  // Formato pokemontcg.io `yyyy/MM/dd`. ConfigSetting de primera clase: expuesto en el DTO de
+  // M10 (`catalogSyncFromDate`), legible y editable por GET/PUT /admin/settings.
   CATALOG_SYNC_FROM_DATE: 'catalog_sync_from_date',
 } as const;
 
@@ -132,4 +133,7 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   pricingProviderRaw: SettingKey.PRICING_PROVIDER_RAW,
   pricingProviderGraded: SettingKey.PRICING_PROVIDER_GRADED,
   pricingProviderSealed: SettingKey.PRICING_PROVIDER_SEALED,
+  // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
+  // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
+  catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,
 };
