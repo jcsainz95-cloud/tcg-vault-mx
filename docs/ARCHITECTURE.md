@@ -2,7 +2,24 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.1 (MVP). Fecha: 2026-08-14. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.2.1 (MVP). Fecha: 2026-08-14. Branch: `claude/tcg-cards-marketplace-oijthj`.
+>
+> **Changelog v1.2 / v1.2.1 (2026-08-14)** — simplificación aprobada (`PROJECT.md` › "Simplificación v1.2" y
+> "Corrección v1.2.1"):
+> - **Sin fotos de producto/inventario:** el producto no lleva fotos propias; la imagen es la **de catálogo
+>   remota** de pokemontcg.io. Se **relajan** los campos de foto de `InventoryItem`
+>   (`frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys` → opcionales/eliminados) y se **elimina** la foto como
+>   evidencia canónica de disputa. **Migración** M-13.
+> - **Gradeadas por certificado:** `InventoryItem` captura **`certNumber`** (String, nº de certificado
+>   PSA/CGC), **requerido para publicar** una gradeada; el slab (verificable en la graduadora) es la garantía.
+>   Sin validación automática contra la graduadora. **Migración** M-12.
+> - **Uploads/presign acotado a `kyc_ine`:** único propósito válido; `inventory_photo`/`dispute_claim`
+>   eliminados. El módulo `uploads` sirve solo el INE.
+> - **Disputa por correo:** la evidencia de disputa de condición se envía **por correo a soporte** (dato de
+>   contacto); ya no hay upload de evidencia ni comparador de fotos. Se conserva `Dispute.type`
+>   (`condition_raw | condition_sealed`) y VENTAS FINALES.
+> - **INE (KYC) intacto:** almacenamiento del INE en R2 (cifrado + retención `INE_RETENTION_DAYS`), `S3_*`,
+>   PII/cifrado/`reveal-clabe` **sin cambios** (v1.2.1 revierte solo la parte del INE respecto a la v1.2).
 >
 > **Changelog v1.1 (2026-08-14)** — incorpora las 8 decisiones del `PROJECT.md` › "Actualización 2026-08-14":
 > raw solo NM (con **migración**), sección "Compra" = inventario publicado con precio + facetas dinámicas,
@@ -12,7 +29,7 @@
 
 ## 0. Alcance técnico (MVP vs Fase 2)
 
-**Dentro del MVP:** storefront + ficha con precio de referencia, checkout Stripe (IVA 16% desglosado + fee de procesamiento trasladado), bóveda/portafolio con titularidad `pending→settled`, retiros/envíos nacionales manuales, buylist con cotizador público + pipeline manual, back-office M1–M10, i18n ES/EN, disputas de condición raw.
+**Dentro del MVP:** storefront + ficha con **imagen de catálogo remota** (sin fotos propias) y precio de referencia, checkout Stripe (IVA 16% desglosado + fee de procesamiento trasladado), bóveda/portafolio con titularidad `pending→settled`, retiros/envíos nacionales manuales, buylist con cotizador público + pipeline manual + **INE cifrado en R2 con retención** (`kyc_ine`, único uso de object storage), back-office M1–M10, i18n ES/EN, disputas de condición (raw/sellado) con **evidencia por correo a soporte**. Gradeadas identificadas por **empresa + grado + `certNumber`**.
 
 **Fuera del MVP (diseñar para no cerrarles la puerta):** C2C/consignación, wallet de saldo, order-book, guías/SPEI automáticos, grading propio, app nativa, cobro de custodia, internacional, PriceCharting, plan de pago de pricing.
 
@@ -33,8 +50,8 @@ Puntos donde el diseño deja la puerta abierta a fase 2:
 | Base de datos | **PostgreSQL 16** | Modelo fuertemente relacional (items, órdenes, precios, auditoría), constraints e índices, `JSONB` para snapshots (CFDI, direcciones) y `AuditLog`. Recomendado en PROJECT. |
 | Cache / colas / rate-limit | **Redis + BullMQ** | Jobs diarios (sync de precios, FX), barridos de plazos de buylist/disputas, y **rate-limiting** para respetar el free tier de las APIs (100/día, 250/día). |
 | Auth | **JWT** (access corto + refresh), hashing **argon2** | Sin dependencia de proveedor externo para el MVP; roles y KYC viven en `User`. Guards por rol y por acción. |
-| Almacenamiento de fotos | **Object storage S3-compatible** (Cloudflare R2 o AWS S3 en prod; **MinIO** en local) vía **URLs prefirmadas** | Las fotos de bóveda/verificación/disputa se suben directo desde el navegador móvil con presigned PUT; la DB guarda solo la key/URL. |
-| Frontend | **Next.js 14 (App Router) + React + TypeScript** | Storefront con SEO (server components para catálogo/ficha), y mismo framework para el panel admin responsive. Captura de fotos con `<input type="file" accept="image/*" capture>`. |
+| Object storage (SOLO INE de KYC) | **Object storage S3-compatible** (Cloudflare R2 o AWS S3 en prod; **MinIO** en local) vía **URLs prefirmadas**, **bucket privado + cifrado + retención** | **v1.2:** único uso = **imagen del INE del buylist** (`kyc_ine`). No hay fotos de producto/inventario (imagen de catálogo remota) ni de disputa (evidencia por correo). Presign PUT para subir, presign GET de vida corta para leer en back-office; retención por `INE_RETENTION_DAYS` (§3.4). |
+| Frontend | **Next.js 14 (App Router) + React + TypeScript** | Storefront con SEO (server components para catálogo/ficha), y mismo framework para el panel admin responsive. **Sin captura de fotos de producto** (v1.2); la única subida es la imagen del INE en el flujo de KYC del buylist. |
 | Data fetching (front) | **TanStack Query** | Cache cliente, estados de carga/error consistentes con el contrato. |
 | Estilos | **Tailwind CSS** + componentes del **DESIGN_SYSTEM** (propiedad de ux-ui) | La estructura visual/tokens los define ux-ui; el arquitecto no fija el sistema de diseño. |
 | i18n | **next-intl** (frontend) | Toda la UI ES/EN, default ES. El backend NO traduce (ver §6). |
@@ -69,11 +86,11 @@ backend/
       vault/           # portafolio del cliente (holdings + valor)  -> C
       shipments/       # retiros/envíos nacionales, picking, guía manual -> M4
       buylist/         # AcquisitionPricer, cotizador público, SellRequest pipeline -> M5/E
-      disputes/        # disputas de condición raw, comparador de fotos, recompra -> M8
+      disputes/        # disputas de condición (raw/sellado), evidencia por correo a soporte, recompra -> M8
       admin/           # dashboard (8 tarjetas), finanzas/P&L (M7), reportes (M9)
       settings/        # diales M10 (persistidos en DB, editables sin deploy)
       audit/           # AuditLog global (M10)
-      uploads/         # presign de object storage para fotos
+      uploads/         # presign de object storage SOLO para el INE del buylist (kyc_ine); bucket privado
     jobs/              # BullMQ: price-sync diario, fx-refresh, buylist-sweep (7d/30d), dispute-deadline
     prisma/            # schema.prisma + migraciones
   test/
@@ -86,7 +103,7 @@ frontend/
     app/
       [locale]/                 # es | en (default es)
         (storefront)/           # catálogo, ficha, carrito, checkout, mi-bóveda, retiros, buylist
-        (admin)/                # back-office M1–M10 + dashboard (responsive, captura de foto móvil)
+        (admin)/                # back-office M1–M10 + dashboard (responsive; sin captura de fotos de producto, v1.2)
         (auth)/                 # login/registro
     components/                 # implementa el DESIGN_SYSTEM (ux-ui define tokens/componentes)
     lib/                        # api client, stripe.js, query client
@@ -166,10 +183,10 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - `id`, `folio` (**legible, único, `INV-000123`**, ver §5), `cardId` (FK), `productType` (`graded | sealed | raw`).
 - Condición/grado (según tipo):
   - raw → `rawCondition` (**enum `RawCondition = NM` — ÚNICO valor; MIGRACIÓN v1.1**, estándar propio, ver §3.5). Se **eliminan** `LP | MP | HP | DMG` del enum. Greenfield: no hay filas que hacer backfill; la migración solo redefine el enum/constraint.
-  - graded → `gradingCompany` (`PSA | CGC`), `gradeValue` (ej. `10`, `9.5`). **No cambia.**
-  - sealed → **sin condición ni rareza ni grade** (ver §3.6). **Precio manual MXN obligatorio para publicar.**
+  - graded → `gradingCompany` (`PSA | CGC`), `gradeValue` (ej. `10`, `9.5`), **`certNumber` (`String` — nº de certificado PSA/CGC; MIGRACIÓN v1.2 M-12). REQUERIDO para publicar una gradeada.** El slab (empresa+grado+cert, verificable en la web de la graduadora) es la garantía de condición; **sin validación automática** contra la graduadora (fuera de alcance). `certNumber` es null para raw/sealed.
+  - sealed → **sin condición ni rareza ni grade ni cert** (ver §3.6). **Precio manual MXN obligatorio para publicar.**
   - `sealedSubtype?` (enum opcional `box | etb | bundle | tin | blister`, solo para `productType=sealed`; nullable en el resto).
-- Fotos: `frontPhotoKey`, `backPhotoKey`, `extraPhotoKeys` (JSONB). Para raw, las fotos de **ingreso** son la evidencia canónica de disputas (§ disputas).
+- **Imagen (v1.2): sin fotos propias.** El item **no** almacena fotos propias; la imagen mostrada (ficha/Compra/bóveda/back-office) es la **imagen de catálogo remota** de la `Card` (`imageSmallUrl`/`imageLargeUrl` de pokemontcg.io). Los campos `frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys` quedan **eliminados/opcionales sin uso** (MIGRACIÓN v1.2 M-13); ya **no** son evidencia de disputa (la evidencia va por correo a soporte, ver §3.6 y §Dispute).
 - Ubicación: `locationId` (FK VaultLocation).
 - Propiedad y titularidad:
   - `ownerType` (`platform | customer`), `ownerUserId?` (cuando `customer`).
@@ -224,11 +241,12 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - Regla: **pago SPEI tras recepción y verificación**, decidido carta por carta (cherry-pick).
 
 #### SellRequestItem
-- `id`, `sellRequestId`, `cardId`, `productType`, `rawCondition?`, `category` (`comun | reverse_holo | ex_plus`), `quotedPriceCents?` (null si precio pendiente), `approvedPriceCents?`, `itemStatus` (`cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario`), `inventoryItemId?` (al convertir), `photoKeys?` (JSONB).
+- `id`, `sellRequestId`, `cardId`, `productType`, `rawCondition?`, `category` (`comun | reverse_holo | ex_plus`), `quotedPriceCents?` (null si precio pendiente), `approvedPriceCents?`, `itemStatus` (`cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario`), `inventoryItemId?` (al convertir).
+- **v1.2: sin `photoKeys`** — el buylist no sube fotos de la carta (no hay upload salvo `kyc_ine`); la verificación NM se hace contra la carta física recibida y la imagen de catálogo. El campo `photoKeys` queda eliminado/sin uso (M-13).
 
-#### Dispute (M8 — condición raw)
-- `id`, `userId`, `inventoryItemId` (o vía `orderItemId`), `type` (`condition_raw`), `status` (`abierta | en_revision | resuelta_recompra | rechazada`).
-- Evidencia: `ingressPhotoKeys` (referencia a fotos de ingreso del item), `claimPhotoKeys` (JSONB del cliente), `description`.
+#### Dispute (M8 — condición raw/sellado)
+- `id`, `userId`, `inventoryItemId` (o vía `orderItemId`), `type` (`condition_raw | condition_sealed`), `status` (`abierta | en_revision | resuelta_recompra | rechazada`).
+- **Evidencia por correo (v1.2):** la evidencia se envía **por correo al buzón de soporte** (dato de contacto, no se sube a la app). El `Dispute` **ya no** guarda `ingressPhotoKeys`/`claimPhotoKeys` (eliminados, M-13); guarda solo `description`. Resolución: **gradeadas** por grado + `certNumber` (verificable en la graduadora); **raw NM** por el estándar/política de condición propio.
 - Remedio: `resolution?`, `repurchaseOrderId?` (**recompra al precio pagado**), `deadlineAt` (**7 días desde entrega**), `createdAt`, `resolvedAt?`, `resolvedBy?`.
 - **Política VENTAS FINALES:** la recompra es una **compensación**; el **cliente conserva la carta** y la carta **NO** regresa al inventario (sin `InventoryMovement`, sin re-listar). Solo se registra el pago de recompra (money-out, súper-admin, auditado).
 
@@ -362,7 +380,7 @@ Notas de coherencia:
 - **Sin `rawCondition`, sin `gradingCompany`/`gradeValue`, sin rareza** (no aplica taxonomía de carta individual). Puede referenciar un `Card`/`CardSet` para nombre/imagen del producto, pero no lleva condición ni rareza.
 - **Precio SIEMPRE manual del admin en MXN**: no hay fuente automática en el MVP (pokemontcg.io no cubre sellado; PriceCharting = fase 2). El `listPriceCents` se fija a mano (override manual) y es **obligatorio para publicar**: sin precio, el sellado queda como "precio pendiente" y **no aparece en Compra** (regla general — el comprador nunca ve precio pendiente).
 - `sealedSubtype?` (`box | etb | bundle | tin | blister`) opcional; alimenta el filtro de tipo de producto en Compra (subfaceta informativa).
-- **Disputa de sellado:** la evidencia canónica es la **foto de la caja sellada** al ingreso (equivalente a las fotos anverso/reverso del raw). No hay "condición NM" que comparar; la disputa aplica a caja dañada/equivocada. (Nota: el flujo de disputa reutiliza `Dispute`; el tipo se generaliza más allá de `condition_raw`, ver §11.)
+- **Disputa de sellado (v1.2):** aplica a caja **dañada/equivocada** (no hay "condición NM" que comparar). **La evidencia se envía por correo a soporte** (no hay foto de ingreso ni comparador; ver §Dispute). El flujo reutiliza `Dispute` con `type=condition_sealed`.
 
 ---
 
@@ -497,7 +515,7 @@ processingFeeCents = totalCents − baseCents
 ```
 `stripePct`, `stripeFixedCents` y `stripeFeeIvaPct` son diales de M10 (tarifa MX vigente de Stripe; `stripe_fee_iva_pct` default **0.16**). La comisión efectiva de Stripe es `(1+stripeFeeIvaPct)·(pct·total + fija)` porque Stripe MX **grava su propia comisión con IVA**; el gross-up despeja `total` para que, tras esa comisión con IVA, la plataforma reciba `baseCents` íntegro. El `processingFeeCents` es lo que la plataforma cede a Stripe (comisión + su IVA), trasladado al comprador. **Aclaración:** "el fee no lleva IVA" se refiere al **IVA de PRODUCTO** — el fee no agrega una línea de IVA de venta; el IVA de la *comisión de Stripe* sí está contemplado dentro del gross-up (cierre del hallazgo C1 de la revisión de Stripe).
 - **Seguridad/roles:** 3 roles. Autorización por **acción**, no solo por ruta (§7). Guard `MoneyOutGuard` exige `super_admin` para pagos SPEI y reembolsos; todo intento (permitido o bloqueado) se audita.
-- **Fotos:** subida directa a object storage con **presigned URLs**; la DB guarda solo keys. Captura móvil vía navegador (`capture`). Las fotos de ingreso raw son evidencia canónica de disputas.
+- **Imágenes (v1.2):** el producto **no lleva fotos propias**; se muestra la **imagen de catálogo remota** de pokemontcg.io (`Card.imageSmallUrl`/`imageLargeUrl`). La **única** subida del sistema es la **imagen del INE** del buylist (`kyc_ine`), a object storage **privado** con presigned PUT/GET y **retención** (§3.4). No hay fotos de producto/inventario ni de evidencia de disputa (la evidencia de disputa llega por correo a soporte).
 - **Sync de precios/FX (jobs BullMQ):**
   - `price-sync` diario: recorre solo cartas **en bóveda**, respeta rate-limit del free tier, escribe `PriceReference` del día, genera `PendingPriceEntry` para faltantes.
   - `fx-refresh` diario: obtiene USD→MXN de **Banxico (SIE)**, aplica el colchón (`fx_buffer_pct`) y escribe `FxRate` (`source=banxico`); si falla o hay override manual (M10), usa `source=manual` como fallback/prioridad.
@@ -550,7 +568,8 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`
 - `POKEMONTCG_IO_API_KEY`, `POKEMONPRICETRACKER_API_KEY`, `POKETRACE_API_KEY`
-- Object storage: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`
+- Object storage (**SOLO INE de KYC**, v1.2): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`. **El set `S3_*` se conserva**, ahora justificado únicamente por `kyc_ine` (bucket **privado** + cifrado + retención `INE_RETENTION_DAYS`). No se usa para fotos de producto/inventario ni de disputa. (`S3_PUBLIC_BASE_URL` no aplica al INE, que es privado; se lee vía presign GET.)
+- **PII / INE (KYC):** `PII_ENCRYPTION_KEY` (32 bytes base64, AES-256-GCM), `PII_HMAC_KEY` (blind index de CLABE, llave **separada**), `INE_RETENTION_DAYS` (antigüedad máxima de las imágenes de INE en el bucket, default **180**; ver §3.4). En prod las llaves provienen de KMS/secret manager, nunca del repo. Estas variables **se conservan intactas** (v1.2.1: INE almacenado con cifrado + retención).
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
 - **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
 - `APP_BASE_URL`, `DEFAULT_LOCALE=es`
@@ -581,9 +600,23 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 
 ---
 
-## 11. Migraciones requeridas (v1.1 — 2026-08-14)
+## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 — 2026-08-14)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.2 / v1.2.1 (nuevas)
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-12 | `InventoryItem.certNumber` | **Nuevo** `String?` (nº de certificado PSA/CGC) | Add column | Solo para `productType=graded`; **requerido a nivel de aplicación para publicar** una gradeada (validación de servicio, no NOT NULL en BD porque raw/sealed lo dejan null). Sin validación automática contra la graduadora. |
+| M-13 | `InventoryItem.frontPhotoKey` / `backPhotoKey` / `extraPhotoKeys`; `SellRequestItem.photoKeys`; `Dispute.ingressPhotoKeys` / `claimPhotoKeys` | **Eliminar** (producto sin fotos propias; disputa por correo) | Drop column | Greenfield: sin datos que migrar. La imagen del producto pasa a ser siempre la de catálogo remota. Si backend prefiere conservarlas nullable-sin-uso en v1, se documenta como deuda menor en `TECH_DEBT.md`; la decisión de arquitectura es **eliminarlas**. |
+| M-10 (rev) | `Dispute.type` | Se **conserva** `condition_raw | condition_sealed` (v1.1 M-10). Sin cambio adicional en v1.2. | — | La distinción raw/sellado sigue; lo que cambia es que la evidencia va **por correo**, no por foto. |
+
+> **INE (KYC) — SIN migración (v1.2.1):** `KycProfile.ineFrontKey`/`ineBackKey`, cifrado PII (`*Enc`/`*Hmac`),
+> retención `INE_RETENTION_DAYS` y `reveal-clabe` **permanecen intactos** (§3.4). La v1.2.1 no toca el esquema
+> de INE/CLABE respecto a v1.1.
+
+### v1.1 (previas)
 
 | # | Modelo / campo | Cambio | Tipo migración | Nota |
 |---|---|---|---|---|

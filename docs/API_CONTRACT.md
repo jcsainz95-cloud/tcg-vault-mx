@@ -2,7 +2,25 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.1).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
+>
+> **Changelog v1.2 / v1.2.1 (2026-08-14):** simplificación aprobada por el humano (PROJECT.md › "Simplificación
+> v1.2" y "Corrección v1.2.1").
+> - **Sin fotos de producto/inventario:** el producto **no lleva fotos propias**; la imagen mostrada es la
+>   **imagen de catálogo remota** de pokemontcg.io (`CardDTO.imageSmallUrl` / `imageLargeUrl`). Se **eliminan**
+>   `frontPhotoUrl`/`backPhotoUrl` de `ListingDTO` y se **relajan** los campos de foto del alta de inventario
+>   (`frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys` pasan a opcionales/eliminados). **Migración** (ver
+>   ARCHITECTURE §11 M-13).
+> - **Gradeadas por certificado:** `InventoryItem`/alta captura **`certNumber`** (string, nº de certificado
+>   PSA/CGC), **requerido para publicar una gradeada**; el listing expone `gradingCompany + gradeValue +
+>   certNumber`. Sin validación automática contra la graduadora (fuera de alcance). **Migración** (M-12).
+> - **Uploads acotados a `kyc_ine`:** `POST /uploads/presign` **solo** admite `purpose="kyc_ine"`; se
+>   **deprecan/eliminan** `inventory_photo` y `dispute_claim`.
+> - **Disputa por correo:** `POST /disputes` **ya no** acepta evidencia por archivo; la evidencia se envía **por
+>   correo a soporte** (dato de contacto, no endpoint). Se conserva `type` (`condition_raw | condition_sealed`)
+>   y la política de VENTAS FINALES (§7/§M8). Ya no hay comparador de fotos de ingreso.
+> - **INE (KYC) intacto:** el almacenamiento de INE en R2 (cifrado + retención `INE_RETENTION_DAYS`) y el set
+>   `S3_*` **se conservan** (ahora justificados solo por `kyc_ine`). PII/cifrado/`reveal-clabe` sin cambios.
 >
 > **Changelog v1.1 (2026-08-14):** `RawCondition` reducido a `NM` (migración); `GET /catalog/cards`
 > devuelve solo inventario **publicado con precio** (nunca "precio pendiente" al comprador) + nuevo
@@ -64,10 +82,14 @@ CardDTO      = { id, externalId, name, number, rarity, supertype, subtypes: stri
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
 // sealedSubtype solo aplica a productType=sealed (opcional). El sellado NO lleva rawCondition/grade/rareza.
+// IMAGEN (v1.2): el producto NO lleva fotos propias. La imagen mostrada en ficha/Compra/bóveda/back-office
+// es SIEMPRE la imagen de catálogo remota de pokemontcg.io (CardDTO.imageSmallUrl / imageLargeUrl).
+// No existen frontPhotoUrl/backPhotoUrl en ListingDTO ni en ningún DTO de producto.
+// GRADEADAS (v1.2): graded expone gradingCompany + gradeValue + certNumber (nº de certificado PSA/CGC,
+// verificable en la web de la graduadora). certNumber es null para raw/sealed.
 ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sealedSubtype?,
-                 gradingCompany?, gradeValue?,
-                 referenceValue: PriceInfo, salePriceCents?: number, sellable: boolean,
-                 frontPhotoUrl?, backPhotoUrl? }
+                 gradingCompany?, gradeValue?, certNumber?,
+                 referenceValue: PriceInfo, salePriceCents?: number, sellable: boolean }
 // Punto de la serie de tendencia del portafolio (gráfica estilo acciones). estimated? = punto de backfill indicativo.
 PortfolioPointDTO = { date: string, valueMxnCents: number, costBasisMxnCents?: number, estimated?: boolean }
 // Desglose del checkout. base = subtotal + iva se recibe íntegro; el fee es gross-up de la comisión Stripe.
@@ -190,7 +212,7 @@ Res `200`:
 El valor del portafolio se calcula contra el **valor de referencia** (no el precio de venta). Las cartas `referenceValue.status="pending"` se **excluyen** del total y se reportan en `pendingPriceCount` (no rompen el cálculo).
 
 ### GET /api/v1/vault/holdings/:inventoryItemId — `customer`
-Res `200`: holding detallado (incluye fotos de ingreso, movimientos visibles al dueño). Err `403` si no es del usuario.
+Res `200`: holding detallado (imagen de catálogo de pokemontcg.io, movimientos visibles al dueño; para gradeadas incluye `gradingCompany + gradeValue + certNumber`). **No hay fotos propias del item** (v1.2). Err `403` si no es del usuario.
 
 ### GET /api/v1/vault/portfolio/history — `customer`  (v1.1 — gráfica de tendencia)
 Serie temporal del valor del portafolio (estilo acciones) para "Mi bóveda". Alimentada por el snapshot diario `PortfolioSnapshot` (job `portfolio-snapshot`, ver ARCHITECTURE §3 y §5).
@@ -308,30 +330,47 @@ Responde a un ajuste del admin (aceptar/rechazar el ajuste). Req: `{ decision: "
 
 ## 7. Disputas de condición (raw y sellado)
 
-Disputa de **condición** sobre un item **entregado** (ventana de 7 días desde la entrega). Cubre tanto **raw** como **sellado**; el tipo se generaliza más allá de `condition_raw` (ver ARCHITECTURE §3.6 y §11 M-10). El **graded no** tiene disputa de condición.
+Disputa de **condición** sobre un item **entregado** (ventana de 7 días desde la entrega). Cubre tanto **raw** como **sellado**; el tipo se conserva (`condition_raw | condition_sealed`, ver ARCHITECTURE §3.6 y §11 M-10). El **graded no** tiene disputa de condición.
+
+> **Evidencia por correo (v1.2):** la disputa **ya no acepta evidencia por archivo** en la app (se elimina el
+> propósito de upload `dispute_claim`). El cliente **envía la evidencia por correo al buzón de soporte**
+> (**soporte@tcgvault.mx** — *SUPUESTO por confirmar por el humano*, ver PROJECT.md). Este correo es un **dato
+> de contacto** que el front muestra en el flujo de disputa y en términos/FAQ; **no** es un endpoint. Ya **no
+> existe comparador de fotos de ingreso** en el back-office.
 
 ### POST /api/v1/disputes — `customer`
 El `type` de la disputa se **deriva server-side** del `productType` del `inventoryItemId` (el cliente **no** lo envía):
-- `productType=raw` → `type="condition_raw"`. Evidencia: fotos del cliente contra las **fotos de ingreso anverso/reverso** del item (comparación de condición NM).
-- `productType=sealed` → `type="condition_sealed"`. Evidencia: foto(s) del cliente contra la **foto de la caja sellada** capturada al ingreso (no hay anverso/reverso ni "condición NM"; aplica a caja **dañada/equivocada**). Ver ARCHITECTURE §3.6.
+- `productType=raw` → `type="condition_raw"`. Resolución por el **estándar/política de condición NM** propio (no por foto).
+- `productType=sealed` → `type="condition_sealed"`. Aplica a caja **dañada/equivocada** (sin "condición NM"). Ver ARCHITECTURE §3.6.
 - `productType=graded` → **no aplica**: `422 NOT_RAW`.
-Req: `{ inventoryItemId: string, description: string, claimPhotoUploadKeys: string[] }`
-Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt }`
+Req: `{ inventoryItemId: string, description: string }`  (**sin** `claimPhotoUploadKeys`; la evidencia va por correo a soporte).
+Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: "soporte@tcgvault.mx" }`
 Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW` (item graded; el `code` se conserva por compatibilidad aunque hoy signifique "ni raw ni sellado"), `403`.
 
-**Resolución (back-office §M8):** idéntica política para raw y sellado — **VENTAS FINALES**. El súper-admin resuelve `reject` (`→rechazada`) o `repurchase` (`→resuelta_recompra`, money-out): **recompra al precio pagado**; el **cliente conserva el ítem** y el ítem **NO** regresa al inventario (sin `InventoryMovement`, sin revertir titularidad/stock). El comparador de fotos de §M8 muestra `ingressPhotoUrls` (anverso/reverso del raw **o** caja sellada) vs `claimPhotoUrls`.
+**Resolución (back-office §M8):** idéntica política para raw y sellado — **VENTAS FINALES**. El súper-admin resuelve `reject` (`→rechazada`) o `repurchase` (`→resuelta_recompra`, money-out): **recompra al precio pagado**; el **cliente conserva el ítem** y el ítem **NO** regresa al inventario (sin `InventoryMovement`, sin revertir titularidad/stock). La resolución se apoya en: **gradeadas** → grado + `certNumber` del slab (verificable en la graduadora); **raw NM** → estándar/política de condición propio; la evidencia del cliente llegó **por correo a soporte** (fuera del sistema).
 
 ### GET /api/v1/disputes — `customer` → lista propia.
 ### GET /api/v1/disputes/:id — `customer` → estado + resolución.
 
 ---
 
-## 8. Uploads (fotos)
+## 8. Uploads (SOLO INE de KYC)
 
-### POST /api/v1/uploads/presign — `customer+` (según contexto)
-Req: `{ purpose: "kyc_ine" | "dispute_claim" | "inventory_photo", contentType: string }`
+> **Acotado a `kyc_ine` (v1.2).** El **único** propósito de upload válido es la **imagen del INE del buylist**
+> (`kyc_ine`). Los propósitos `inventory_photo` y `dispute_claim` quedan **eliminados/deprecados**: el producto
+> no lleva fotos propias (imagen de catálogo remota) y la evidencia de disputa se envía **por correo a soporte**
+> (§7). El bucket del INE sigue **privado, cifrado y con retención** (`INE_RETENTION_DAYS`, ver ARCHITECTURE
+> §3.4 y §8); el set `S3_*` de env se conserva, ahora justificado solo por `kyc_ine`.
+
+### POST /api/v1/uploads/presign — `customer`  (solo `kyc_ine`)
+Genera un presign para subir la imagen del INE. El objeto vive en **bucket privado** (no público); su lectura
+por back-office es vía presign **GET** de vida corta (no URL pública). Retención según `INE_RETENTION_DAYS`.
+Req: `{ purpose: "kyc_ine", contentType: string }`
 Res `200`: `{ uploadKey, uploadUrl, method: "PUT", headers: {}, expiresAt }`
-El cliente hace `PUT` directo al object storage; luego envía `uploadKey` al endpoint correspondiente. Captura móvil vía navegador.
+El cliente hace `PUT` directo al object storage privado; luego envía la `uploadKey` al endpoint de KYC
+(`PUT /users/me/kyc` como `ineFrontUploadKey`/`ineBackUploadKey`). Captura móvil vía navegador.
+Err: `422 VALIDATION_ERROR` si `purpose != "kyc_ine"` (los propósitos `inventory_photo`/`dispute_claim` ya no
+son válidos).
 
 ---
 
@@ -368,14 +407,15 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
 ### M1 — Inventario y bóveda (`vault_operator+`)
 - `POST /api/v1/admin/inventory/items` — alta de item.
-  Req: `{ cardId, productType, rawCondition?, sealedSubtype?, gradingCompany?, gradeValue?, locationId, frontPhotoKey, backPhotoKey, extraPhotoKeys?, acquisitionType, acquisitionPct?, listPriceCents?, sourceSellRequestItemId? }`
-  - `productType=raw` → `rawCondition` solo `NM` (v1.1). `productType=sealed` → `sealedSubtype?` (opcional), **sin** `rawCondition`/grade/rareza; `listPriceCents` (precio manual MXN) es **obligatorio para publicar** el sellado. `productType=graded` → `gradingCompany`+`gradeValue`.
+  Req: `{ cardId, productType, rawCondition?, sealedSubtype?, gradingCompany?, gradeValue?, certNumber?, locationId, acquisitionType, acquisitionPct?, listPriceCents?, sourceSellRequestItemId? }`
+  - **Sin fotos propias (v1.2):** el alta **ya no recibe** `frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys`; la imagen del item es la **imagen de catálogo remota** de la `Card` (pokemontcg.io). No se sube ninguna foto de producto/inventario.
+  - `productType=raw` → `rawCondition` solo `NM` (v1.1). `productType=sealed` → `sealedSubtype?` (opcional), **sin** `rawCondition`/grade/rareza/cert; `listPriceCents` (precio manual MXN) es **obligatorio para publicar** el sellado. `productType=graded` → `gradingCompany` + `gradeValue` + **`certNumber` (nº de certificado PSA/CGC, string) — REQUERIDO para publicar una gradeada** (v1.2). Sin validación automática contra la graduadora (fuera de alcance); es un dato capturado a mano.
   Para `aportacion_en_especie`: el costo se calcula = **referencia del día × pct** (default 70, editable). El item nace `ownerType=platform`.
   Res `201`: `{ id, folio: "INV-000123", status: "in_stock", acquisitionCostCents }`
-  Err `422 PRICE_PENDING` (si aportación en especie y no hay referencia → cola de precio pendiente), `422 VALIDATION_ERROR` (p. ej. `sealed` con `rawCondition`, o `raw` con `rawCondition != NM`).
+  Err `422 PRICE_PENDING` (si aportación en especie y no hay referencia → cola de precio pendiente), `422 VALIDATION_ERROR` (p. ej. `sealed` con `rawCondition`, `raw` con `rawCondition != NM`, o **`graded` sin `certNumber`**).
 - `GET /api/v1/admin/inventory/items` — query `?status=&cardId=&ownerType=&locationId=&zone=&q=&page=`
 - `GET /api/v1/admin/inventory/items/:id` — detalle + historial de movimientos.
-- `PATCH /api/v1/admin/inventory/items/:id` — editar (fotos, grado, listPrice manual, etc.).
+- `PATCH /api/v1/admin/inventory/items/:id` — editar (grado, `certNumber`, `sealedSubtype`, `listPriceCents` manual, ubicación, etc.). **No** hay campos de foto de producto (v1.2).
 - `POST /api/v1/admin/inventory/items/:id/move` — Req `{ toLocationId, note? }` → registra `InventoryMovement`.
 - `POST /api/v1/admin/inventory/items/:id/mark` — Req `{ mark: "lost" | "damaged", note }` → `status` y movimiento; disponible para reposición (M7/tope M10).
 - Ubicaciones: `GET /api/v1/admin/locations`, `POST /api/v1/admin/locations` (`{ zone, box, row, slot }`).
@@ -441,7 +481,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 
 ### M8 — Disputas (`vault_operator+`; recompra `super_admin`)
 - `GET /api/v1/admin/disputes` — cola `?status=&page=`
-- `GET /api/v1/admin/disputes/:id` — **comparador de fotos**: `{ ingressPhotoUrls, claimPhotoUrls, item, order }`.
+- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: "soporte@tcgvault.mx" }`. **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
 
 ### M9 — Reportes (`super_admin`)
@@ -496,9 +536,15 @@ AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entit
 **Coherencia v1.1 (2026-08-14):**
 - **Raw solo NM:** `RawCondition=NM` (único valor); el filtro `condition` para raw solo admite `NM`. Labels legibles ("Casi nueva (Near Mint)" / "Near Mint") viven en i18n del **front**, no en la API. Migración: ARCHITECTURE §11 (M-1).
 - **Compra = inventario publicado con precio:** `GET /catalog/cards` **excluye** pendientes/sin precio (el comprador nunca ve "precio pendiente"). Facetas dinámicas en `GET /catalog/facets`: `rarities` distinct de `Card.rarity` espejando pokemontcg.io (lista abierta), `sets` con `year` derivado, filtros por set/rareza/tipo/precio. La **ruta se mantiene** `/catalog/cards` (rótulo "Compra" en el front).
-- **Sellado como línea de venta:** `productType=sealed`, `sealedSubtype?`, **precio manual MXN obligatorio para publicar**, sin condición/grade/rareza. Disputa de sellado = foto de la caja sellada al ingreso.
+- **Sellado como línea de venta:** `productType=sealed`, `sealedSubtype?`, **precio manual MXN obligatorio para publicar**, sin condición/grade/rareza. Disputa de sellado = caja dañada/equivocada (evidencia por correo a soporte; ver Coherencia v1.2).
 - **Login Google:** `POST /auth/google` (mismo shape que `/login`); verificación server-side del ID token; `role` server-side (nunca del token); account-linking por email verificado; **no exime KYC**. Campos nuevos en `User` (migración M-3..M-7). Env `GOOGLE_CLIENT_ID` / `NEXT_PUBLIC_GOOGLE_CLIENT_ID`.
 - **Gráfica de portafolio:** `GET /vault/portfolio/history?range=...` sobre `PortfolioSnapshot` (modelo nuevo, migración M-8), escrito por job diario (BE-5). Backfill indicativo opcional marcado `estimated`.
 - **Sync de catálogo M2:** `GET /admin/catalog/remote-sets`, `POST /admin/catalog/sync`, `POST /admin/catalog/backfill` (`super_admin`, auditado). Guardarraíl `setId` `^[a-z0-9]+(-[a-z0-9]+)*$`, host fijo (anti-SSRF), `Card.rarity` String libre.
 - **AcquisitionPricer:** rarezas modernas → `ex_plus` (40% de referencia) si hay market price; solo lo sin dato de mercado escala a `precio_pendiente` (lado adquisición/admin). Condición siempre NM.
-```
+
+**Coherencia v1.2 / v1.2.1 (2026-08-14):**
+- **Sin fotos de producto/inventario:** la imagen mostrada es la **de catálogo** de pokemontcg.io (`CardDTO.imageSmallUrl`/`imageLargeUrl`). `ListingDTO` **ya no** tiene `frontPhotoUrl`/`backPhotoUrl`; el alta de inventario **ya no** recibe `frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys`. Migración ARCHITECTURE §11 (M-13).
+- **Gradeadas por certificado:** `InventoryItem`/alta captura **`certNumber`** (string), **requerido para publicar** una gradeada; `ListingDTO` y detalles exponen `gradingCompany + gradeValue + certNumber`. Sin validación automática contra la graduadora. Migración M-12.
+- **Uploads solo `kyc_ine`:** `POST /uploads/presign` rechaza cualquier `purpose` distinto de `kyc_ine` (`422 VALIDATION_ERROR`); `inventory_photo`/`dispute_claim` eliminados. Bucket INE **privado + cifrado + retención** (`INE_RETENTION_DAYS`), set `S3_*` conservado.
+- **Disputa por correo:** `POST /disputes` sin `claimPhotoUploadKeys`; evidencia por correo a soporte (`evidenceContact`), sin comparador de fotos en §M8. Se conserva `type` (`condition_raw | condition_sealed`) y VENTAS FINALES; resolución por grado/`certNumber` (gradeadas) o estándar NM (raw).
+- **INE (KYC) intacto:** almacenamiento del INE en R2 cifrado con retención, `reveal-clabe`, CLABE/RFC cifrados y enmascarados — **sin cambios** respecto a v1.1.
