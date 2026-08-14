@@ -35,12 +35,25 @@ enum ProductType {
   raw
 }
 
+// v1.1 (M-1): reducido a un ÚNICO valor NM (se eliminan LP|MP|HP|DMG). El raw se
+// opera únicamente en Near Mint en todo el marketplace (ARCHITECTURE §3.5, §11).
 enum RawCondition {
   NM
-  LP
-  MP
-  HP
-  DMG
+}
+
+// v1.1 (M-2): subtipo opcional del producto sellado (solo productType=sealed).
+enum SealedSubtype {
+  box
+  etb
+  bundle
+  tin
+  blister
+}
+
+// v1.1 (M-4): proveedor de autenticación del usuario (email/contraseña o Google).
+enum AuthProvider {
+  local
+  google
 }
 
 enum GradingCompany {
@@ -182,12 +195,18 @@ enum PendingPriceStatus {
 model User {
   id           String     @id @default(uuid())
   email        String     @unique
-  passwordHash String
+  // v1.1 (M-3): nullable — null para cuentas creadas SOLO con Google (sin contraseña).
+  passwordHash String?
   role         Role       @default(customer)
   name         String
   phone        String?
   locale       Locale     @default(es)
   status       UserStatus @default(active)
+  // v1.1 (M-4..M-7): campos de auth Google. `role` SIEMPRE server-side (nunca del token).
+  authProvider AuthProvider @default(local)
+  googleId     String?      @unique
+  emailVerified Boolean      @default(false)
+  avatarUrl    String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -199,6 +218,7 @@ model User {
   sellRequests    SellRequest[]
   disputes        Dispute[]
   ownedItems      InventoryItem[] @relation("OwnerUser")
+  portfolioSnapshots PortfolioSnapshot[]
 
   @@index([role])
   @@index([status])
@@ -326,6 +346,8 @@ model InventoryItem {
   card           Card            @relation(fields: [cardId], references: [id])
   productType    ProductType
   rawCondition   RawCondition?
+  // v1.1 (M-2): subtipo del sellado (solo productType=sealed; nullable en el resto).
+  sealedSubtype  SealedSubtype?
   gradingCompany GradingCompany?
   gradeValue     String?
   frontPhotoKey  String?
@@ -604,6 +626,25 @@ model AuditLog {
   @@index([action])
   @@index([entityType])
   @@index([createdAt])
+}
+
+// ============================= PORTFOLIO SNAPSHOTS =============================
+
+// v1.1 (M-8): serie temporal por usuario que alimenta la gráfica de tendencia del
+// portafolio ("Mi bóveda", estilo acciones). Escrita por el job diario
+// `portfolio-snapshot` (idempotente por día vía @@unique). ARCHITECTURE §3 / §5.
+model PortfolioSnapshot {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asOfDate           DateTime @db.Date
+  totalValueMxnCents Int
+  costBasisMxnCents  Int?
+  pendingPriceCount  Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  @@unique([userId, asOfDate])
+  @@index([userId, asOfDate])
 }
 
 // ============================= STRIPE IDEMPOTENCY =============================

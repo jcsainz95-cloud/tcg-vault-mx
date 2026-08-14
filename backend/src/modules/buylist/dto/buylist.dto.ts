@@ -15,13 +15,13 @@ import { BuylistCategory, ProductType, RawCondition } from '@prisma/client';
 export class PublicQuoteDto {
   @IsString() cardId!: string;
   @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
-  @IsOptional() @IsIn(['NM', 'LP', 'MP', 'HP', 'DMG']) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
 }
 
 export class RequestItemDto {
   @IsString() cardId!: string;
   @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
-  @IsOptional() @IsIn(['NM', 'LP', 'MP', 'HP', 'DMG']) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
   @IsIn(['comun', 'reverse_holo', 'ex_plus']) category!: BuylistCategory;
 }
 

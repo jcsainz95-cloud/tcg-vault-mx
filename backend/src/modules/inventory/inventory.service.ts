@@ -31,6 +31,9 @@ export class InventoryService {
     const card = await this.prisma.card.findUnique({ where: { id: dto.cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
 
+    // v1.1: validación por tipo de producto (excluye sellado de la lógica NM/rareza/grade).
+    this.validateProductShape(dto);
+
     const gradeKey = this.pricing.gradeKeyFor(dto);
     let acquisitionCostCents = dto.acquisitionCostCents ?? null;
     let acquisitionPct = dto.acquisitionPct ?? null;
@@ -49,15 +52,25 @@ export class InventoryService {
       acquisitionCostCents = computeAportacionCostCents(ref.referenceMxnCents, pct);
     }
 
+    // v1.1: sellado = precio SIEMPRE manual (MXN). Obligatorio para PUBLICAR: sin
+    // listPriceCents el sellado queda "precio pendiente" (no aparece en Compra). Se escala
+    // a la cola de precio pendiente para que el dueño lo fije (regla transversal).
+    if (dto.productType === 'sealed' && dto.listPriceCents == null) {
+      await this.pricing.escalatePending(dto.cardId, dto.productType, gradeKey, 'inventory');
+    }
+
     const folio = await this.prisma.nextFolio();
     const item = await this.prisma.inventoryItem.create({
       data: {
         folio,
         cardId: dto.cardId,
         productType: dto.productType,
-        rawCondition: dto.rawCondition,
-        gradingCompany: dto.gradingCompany,
-        gradeValue: dto.gradeValue,
+        // raw solo NM (default NM); sellado/graded no llevan rawCondition.
+        rawCondition: dto.productType === 'raw' ? (dto.rawCondition ?? 'NM') : null,
+        sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
+        gradingCompany: dto.productType === 'graded' ? dto.gradingCompany : null,
+        gradeValue: dto.productType === 'graded' ? dto.gradeValue : null,
+        listPriceCents: dto.listPriceCents ?? null,
         locationId: dto.locationId,
         frontPhotoKey: dto.frontPhotoKey,
         backPhotoKey: dto.backPhotoKey,
@@ -81,6 +94,46 @@ export class InventoryService {
       },
     });
     return { id: item.id, folio: item.folio, status: item.status, acquisitionCostCents };
+  }
+
+  /**
+   * v1.1 — coherencia por tipo de producto. El sellado NO lleva condición/grade/rareza;
+   * el raw solo NM; el graded exige compañía+grado. Rechaza combinaciones inválidas con
+   * 422 VALIDATION_ERROR (API_CONTRACT §M1).
+   */
+  private validateProductShape(dto: CreateItemDto) {
+    if (dto.productType === 'sealed') {
+      if (dto.rawCondition || dto.gradingCompany || dto.gradeValue) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'sealed items carry no rawCondition/grade',
+        );
+      }
+    } else if (dto.productType === 'raw') {
+      if (dto.rawCondition && dto.rawCondition !== 'NM') {
+        throw BusinessException.validation('VALIDATION_ERROR', 'raw condition must be NM');
+      }
+      if (dto.sealedSubtype || dto.gradingCompany || dto.gradeValue) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'raw items carry no sealedSubtype/grade',
+        );
+      }
+    } else {
+      // graded
+      if (!dto.gradingCompany || !dto.gradeValue) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'graded items require gradingCompany and gradeValue',
+        );
+      }
+      if (dto.rawCondition || dto.sealedSubtype) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'graded items carry no rawCondition/sealedSubtype',
+        );
+      }
+    }
   }
 
   async listItems(q: {

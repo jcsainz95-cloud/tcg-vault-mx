@@ -52,6 +52,89 @@ export class VaultService {
     };
   }
 
+  /**
+   * Base de costo agregada del usuario (suma de acquisitionCostCents de sus holdings).
+   * Opcional/nullable: si ningún item tiene costo registrado → null.
+   */
+  async costBasisCents(userId: string): Promise<number | null> {
+    const agg = await this.prisma.inventoryItem.aggregate({
+      where: { ownerType: 'customer', ownerUserId: userId },
+      _sum: { acquisitionCostCents: true },
+    });
+    return agg._sum.acquisitionCostCents ?? null;
+  }
+
+  /**
+   * v1.1 — Gráfica de tendencia del portafolio (API_CONTRACT §3, GET /vault/portfolio/history).
+   * Lee la serie diaria `PortfolioSnapshot` para el rango pedido y calcula la variación
+   * (primer vs último punto). estilo acciones. Rangos: 5d|15d|1m|3m|6m|1y|ytd|all (default 1m).
+   */
+  async portfolioHistory(userId: string, range: string) {
+    const normalizedRange = this.normalizeRange(range);
+    const from = this.rangeStart(normalizedRange);
+    const snapshots = await this.prisma.portfolioSnapshot.findMany({
+      where: { userId, ...(from ? { asOfDate: { gte: from } } : {}) },
+      orderBy: { asOfDate: 'asc' },
+    });
+
+    const points = snapshots.map((s) => ({
+      date: s.asOfDate.toISOString().slice(0, 10),
+      valueMxnCents: s.totalValueMxnCents,
+      ...(s.costBasisMxnCents != null ? { costBasisMxnCents: s.costBasisMxnCents } : {}),
+    }));
+
+    if (points.length === 0) {
+      return {
+        range: normalizedRange,
+        points,
+        change: { absMxnCents: 0, pct: null as number | null, direction: 'flat' as const },
+      };
+    }
+
+    const first = points[0].valueMxnCents;
+    const last = points[points.length - 1].valueMxnCents;
+    const absMxnCents = last - first;
+    const pct = first === 0 ? null : Math.round((absMxnCents / first) * 10000) / 100;
+    const direction = absMxnCents > 0 ? 'up' : absMxnCents < 0 ? 'down' : 'flat';
+    return { range: normalizedRange, points, change: { absMxnCents, pct, direction } };
+  }
+
+  private normalizeRange(range: string): string {
+    const allowed = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
+    return allowed.includes(range) ? range : '1m';
+  }
+
+  /** Fecha de inicio (00:00 UTC) del rango, o null para `all`. */
+  private rangeStart(range: string): Date | null {
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    switch (range) {
+      case '5d':
+        d.setUTCDate(d.getUTCDate() - 5);
+        return d;
+      case '15d':
+        d.setUTCDate(d.getUTCDate() - 15);
+        return d;
+      case '1m':
+        d.setUTCMonth(d.getUTCMonth() - 1);
+        return d;
+      case '3m':
+        d.setUTCMonth(d.getUTCMonth() - 3);
+        return d;
+      case '6m':
+        d.setUTCMonth(d.getUTCMonth() - 6);
+        return d;
+      case '1y':
+        d.setUTCFullYear(d.getUTCFullYear() - 1);
+        return d;
+      case 'ytd':
+        return new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+      case 'all':
+      default:
+        return null;
+    }
+  }
+
   async holdingDetail(userId: string, inventoryItemId: string) {
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },

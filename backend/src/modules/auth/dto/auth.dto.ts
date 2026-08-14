@@ -33,3 +33,9 @@ export class RefreshDto {
   @IsString()
   refreshToken!: string;
 }
+
+export class GoogleLoginDto {
+  @IsString()
+  @MinLength(1)
+  idToken!: string;
+}

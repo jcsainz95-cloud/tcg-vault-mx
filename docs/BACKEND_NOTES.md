@@ -460,3 +460,133 @@ en orden y envío, y recompra de disputa sin revertir la carta). Migración nuev
 **Verde (este encargo):** `lint` + `typecheck` + `build` OK; `npm test` = **99 verdes** (antes 95; +4 del
 health: 200/ok sin Redis, 200/ok con Redis PING, 503 por DB caída, 503 por PING de Redis fallido). El smoke
 de DI (`app.module.spec`) sigue verde con el `HealthModule` cableado.
+
+## 13. Alcance v1.1 (2026-08-14) — raw NM, Compra con precio, sync catálogo, Google, portafolio, sellado
+
+> Implementa el contrato/arquitectura **v1.1**. Greenfield (sin backfill de datos). Todo con
+> `lint/typecheck/test/build` en verde: `npm test` = **129 verdes** (antes 99; +30 de v1.1).
+
+### 13.1 Migración Prisma
+- **Nueva migración `prisma/migrations/20260814100000_v11_scope/`** (ARCHITECTURE §11, M-1..M-11):
+  - **M-1** `RawCondition` → **solo `NM`** (se recrea el enum y se recastean `InventoryItem.rawCondition`
+    y `SellRequestItem.rawCondition`; greenfield, sin filas ≠ NM que migrar).
+  - **M-2** `SealedSubtype` (`box|etb|bundle|tin|blister`) + `InventoryItem.sealedSubtype` (nullable).
+  - **M-3..M-7** `User`: `passwordHash` **nullable**, `authProvider` (`local|google`, default `local`),
+    `googleId String? @unique`, `emailVerified Boolean @default(false)`, `avatarUrl String?`.
+  - **M-8** modelo nuevo **`PortfolioSnapshot`** (`userId`, `asOfDate @db.Date`, `totalValueMxnCents`,
+    `costBasisMxnCents?`, `pendingPriceCount`, `@@unique([userId,asOfDate])`, `@@index([userId,asOfDate])`).
+  - **M-9** seed del dial **`catalog_sync_from_date` = `"2024/01/01"`** (idempotente, `ON CONFLICT DO NOTHING`;
+    también se siembra por `npm run seed` vía `SETTING_DEFAULTS`).
+  - **M-10** `Dispute.type` ya es `String` libre → admite `condition_sealed` sin cambio de esquema.
+  - **M-11** `Card.rarity` permanece **String libre** (taxonomía abierta; captura rarezas modernas).
+
+### 13.2 Login con Google (`POST /auth/google`)
+- `GoogleTokenVerifier` (`google-auth-library`) valida el ID token **server-side**: firma JWKS,
+  `aud=GOOGLE_CLIENT_ID`, `iss` de Google, `exp`, y `email_verified`. Es una clase inyectable delgada
+  (mockeable en tests). Sin `GOOGLE_CLIENT_ID` rechaza (nunca acepta a ciegas).
+- `AuthService.google(idToken)`: verifica → exige `email_verified` (si no, **`403 GOOGLE_EMAIL_UNVERIFIED`**,
+  no crea ni enlaza) → busca por `googleId` → **account-linking por email verificado** a cuenta local
+  (audita `auth.google_link`) → si no existe, **crea** (`authProvider=google`, `emailVerified=true`,
+  `passwordHash=null`, **`role=customer` SIEMPRE server-side**, nunca del token). Mismo shape que `/login`.
+  Errores: `401 GOOGLE_TOKEN_INVALID`, `403 GOOGLE_EMAIL_UNVERIFIED`, `403 USER_BLOCKED`.
+- **`/auth/login` rechaza cuentas sin `passwordHash`** (solo-Google) con `401 INVALID_CREDENTIALS`
+  (no revela que es cuenta Google).
+- **`/users/me`** ahora expone `authProvider`, `emailVerified`, `avatarUrl?`.
+- Endpoint con `@Throttle` estrecho (5/min por IP, igual que `/login`).
+
+### 13.3 Sync de catálogo M2 (super_admin, auditado)
+- `PokemonTcgIoClient` (`modules/catalog/pokemontcg-io.client.ts`): **host FIJO** `https://api.pokemontcg.io/v2`
+  (anti-SSRF), header `X-Api-Key` desde `POKEMONTCG_IO_API_KEY`. `getSets()`, `getCardsBySet(setId,page)`.
+- `CatalogSyncService`: `remoteSets()` (`imported`/`cardCount` locales), `sync({setId?,fromReleaseDate?})`
+  (default `fromReleaseDate` = dial `catalog_sync_from_date`), `backfill({batchSize=10,untilYear?})` →
+  `{imported, newBoundary, remaining}`. **Upsert idempotente por `externalId`** (set y cartas).
+  **Guardarraíl `setId` `^[a-z0-9]+(-[a-z0-9]+)*$`** (anti-inyección de `q=set.id:`), `fromReleaseDate`
+  validado `yyyy/MM/dd`. `Card.rarity` se persiste tal cual (rarezas modernas).
+- `AdminCatalogController` (`/admin/catalog/*`, `super_admin`): `remote-sets`, `sync` (202), `backfill` (200).
+  Cada operación queda en `AuditLog` (`catalog.remote_sets|catalog.sync|catalog.backfill`).
+- **Ejecución síncrona (MVP)** como `price-sync`; en prod la cola BullMQ da el rate-limit del free tier.
+
+### 13.4 "Compra" = inventario publicado con precio (semántica v1.1)
+- `GET /catalog/cards` ahora devuelve **solo `status=listed` + plataforma + precio de venta RESOLUBLE**
+  (`listPriceCents` fijado/override **o** referencia con la que calcular precio×markup) y `sellable=true`.
+  **Excluye "precio pendiente"** (el comprador nunca lo ve). Gate coarse en DB
+  (`listPriceCents>0` **OR** `card.priceReferences.some`) + confirmación exacta de `sellable` al construir
+  el DTO; **paginación en memoria** sobre el conjunto comprable (aceptable por inventario propio acotado;
+  ver TECH_DEBT abajo).
+- `GET /catalog/facets` (**nuevo**): `rarities` (distinct de `Card.rarity`, espejo pokemontcg.io), `sets`
+  (`{id,name,releaseDate,year}` con `year` derivado, orden año desc), `productTypes`, `sealedSubtypes`,
+  `price{minCents,maxCents}` — todo sobre el inventario **publicado y comprable**.
+- `GET /catalog/sets` añade `year` (derivado de `releaseDate`), orden año desc; solo sets con inventario publicado.
+- `GET /catalog/cards/:cardId` y `GET /catalog/listings/:id` respetan el mismo gate; **`listings/:id` → 404**
+  para item no publicado / sin precio (antes de v1.1 devolvía 200 con `sellable=false`). Filtro nuevo por `sealedSubtype`.
+- **Actualicé el E2E** `catalog-checkout-webhook.e2e-spec.ts` (assert de `listedPending`: ahora **404** en
+  `GET /catalog/listings/:id`, coherente con el contrato v1.1). El resto del E2E no cambia (listedCharizard
+  sigue apareciendo por su referencia).
+
+### 13.5 Sellado como línea de venta
+- `POST /admin/inventory/items` soporta `productType=sealed` + `sealedSubtype`; **sin condición/grade/rareza**
+  (validación `validateProductShape`: sellado con `rawCondition`/grade → `422 VALIDATION_ERROR`; raw solo `NM`;
+  graded exige compañía+grado). El **precio manual MXN (`listPriceCents`) es obligatorio para publicar**: sin
+  él, el sellado se crea pero se escala a **precio pendiente** (no aparece en Compra). `ListingDTO` lleva `sealedSubtype`.
+- Disputas: `Dispute` generalizada a **sellado** (`type=condition_sealed`, evidencia = foto de la caja al
+  ingreso); graded sigue devolviendo `NOT_RAW`.
+
+### 13.6 Gráfica de portafolio + scheduler (BE-5)
+- `PortfolioSnapshotJobService` (`src/jobs/portfolio-snapshot.service.ts`, alojado en `VaultModule` para
+  evitar ciclos): reutiliza `VaultService.holdings()` (valor a **referencia**, excluye pendientes) + base de
+  costo agregada; **upsert idempotente por día** (`@@unique[userId,asOfDate]`).
+- `GET /vault/portfolio/history?range=5d|15d|1m|3m|6m|1y|ytd|all` (default `1m`, `customer`) →
+  `{range, points[], change{absMxnCents,pct,direction}}`. Sin snapshots → `points:[]`, `change` flat/`pct:null`.
+  Backfill indicativo (`estimated`) **no** implementado (opcional en el contrato; queda como mejora futura).
+- **Scheduler BullMQ (BE-5)** `src/jobs/scheduler.service.ts`: programa **`fx-refresh`, `price-sync` y
+  `portfolio-snapshot`** diarios (repeatable jobs, UTC escalonado) con `REDIS_URL`. **Se activa solo si hay
+  `REDIS_URL`**; sin él queda deshabilitado sin abrir conexiones (arranque local/tests/CI sin infra intactos).
+  Disparo manual admin: `POST /admin/pricing/sync`, `POST /admin/fx/refresh`, **nuevo** `POST /admin/jobs/portfolio-snapshot`.
+
+### 13.7 AcquisitionPricer — rarezas modernas
+- `BuylistService.categoryForRarity`: **default `ex_plus`** para rarezas NO listadas como común/reverse
+  (Illustration/Special Illustration Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare, Radiant,
+  etc.). `comun`/`reverse_holo` solo si la tabla `rarity-map` lo dice explícitamente. La cotización sigue:
+  ex_plus **con** market price → 40% de la referencia; **sin** dato → `precio_pendiente` (lado adquisición,
+  nunca al comprador). Condición siempre NM.
+
+### 13.8 Variables de entorno NUEVAS para **devops** (no edité `.env.example`)
+- **`GOOGLE_CLIENT_ID`** (backend) — audiencia esperada del ID token de Google (validación `aud`). Sin ella,
+  `POST /auth/google` responde `401 GOOGLE_TOKEN_INVALID` (login Google inhabilitado, el resto no se rompe).
+  Correlato frontend: **`NEXT_PUBLIC_GOOGLE_CLIENT_ID`** (Google Identity Services; propiedad de frontend/devops).
+  **Solicitud a devops:** añadir ambas a `.env.example` (sin `client_secret`: flujo de ID token, no code-exchange).
+- **`REDIS_URL`** ya está en la arquitectura; ahora el **scheduler BE-5** lo consume para los jobs diarios.
+  Sin `REDIS_URL` el scheduler queda deshabilitado (jobs disparables a mano). Con multi-instancia, correr el
+  worker en **un solo** proceso/instancia (o aceptar que BullMQ deduplica por `jobId` repetible).
+- `POKEMONTCG_IO_API_KEY` (ya listado en ARCHITECTURE §8) — lo consume el `PokemonTcgIoClient` del sync M2.
+
+### 13.9 Dependencias runtime nuevas
+- **`google-auth-library@^9`** (verificación del ID token), **`bullmq@^5`** + **`ioredis@^5`** (scheduler BE-5).
+- `npm audit --omit=dev` tras el alta: **0 high / 0 critical**; **6 moderate** (los 4 previos de framework/
+  file-type + 2 nuevos transitivos `gaxios`→`uuid` de google-auth-library, no explotables aquí). Se mantiene
+  la política (sin high/critical en runtime).
+
+### 13.10 Deuda técnica / notas (a petición del techlead)
+- **Paginación en memoria de Compra:** `GET /catalog/cards`/`facets`/`sets` computan `sellable` por item
+  (una lectura de referencia por item) y paginan en memoria sobre el conjunto comprable. Correcto y acotado
+  para el inventario **propio** del MVP; a escala convendría **persistir `salePriceCents`/flag `published`**
+  al listar + índice y paginar en DB. **No bloqueante.**
+- **Sync de catálogo síncrono (MVP):** `sync`/`backfill` importan en proceso (como `price-sync`). Para
+  colecciones grandes conviene moverlo a la cola BullMQ con rate-limit del free tier. **No bloqueante.**
+
+### 13.11 Solicitudes de cambio de contrato al **arquitecto** (no edité `API_CONTRACT.md`)
+11. **`GET /users/me` — campos v1.1.** Ya devuelvo `authProvider`/`emailVerified`/`avatarUrl` (contrato §Auth).
+    Sin cambio pendiente; solo lo registro.
+12. **Disputa de sellado.** El contrato §7 mantiene `422 NOT_RAW` y no describe un path explícito de disputa
+    de sellado, pero ARCHITECTURE §3.6 la contempla. Generalicé `Dispute` a raw **y** sellado
+    (`type=condition_sealed`, evidencia = foto de la caja); graded sigue con `NOT_RAW`. **Sugiero al arquitecto
+    precisar §7** (renombrar el error o documentar el caso sellado). **No bloquea.**
+13. **`catalog_sync_from_date` (dial M10).** Nuevo dial interno (default `"2024/01/01"`); **NO** expuesto en el
+    DTO de `GET/PUT /admin/settings` (mismo patrón que `stripe_fee_iva_pct`/`ine_retention_days`). Sugiero
+    formalizarlo si se quiere editar por API. **No bloquea.**
+
+**Verde (v1.1):** `npm run lint && npm run typecheck && npm test && npm run build` OK; `npm test` = **129
+verdes** (+30: verificación de ID token Google [aud/firma inválida→401, email no verificado→403, linking sin
+duplicar, alta role=customer, login solo-Google→401], sync idempotente + validación `setId` + default por
+fecha, semántica de Compra [excluye sin precio] + facetas + `year`, sellado con/sin precio + validación,
+snapshot idempotente + `change`, AcquisitionPricer rareza moderna → ex_plus, gating del scheduler por `REDIS_URL`).

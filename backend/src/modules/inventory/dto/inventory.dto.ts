@@ -5,12 +5,21 @@ import {
   IsString,
   Min,
 } from 'class-validator';
-import { AcquisitionType, GradingCompany, ProductType, RawCondition } from '@prisma/client';
+import {
+  AcquisitionType,
+  GradingCompany,
+  ProductType,
+  RawCondition,
+  SealedSubtype,
+} from '@prisma/client';
 
 export class CreateItemDto {
   @IsString() cardId!: string;
   @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
-  @IsOptional() @IsIn(['NM', 'LP', 'MP', 'HP', 'DMG']) rawCondition?: RawCondition;
+  // v1.1: raw solo NM (se eliminan LP/MP/HP/DMG).
+  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
+  // v1.1: subtipo del sellado (solo productType=sealed).
+  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
   @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
   @IsOptional() @IsString() gradeValue?: string;
   @IsOptional() @IsString() locationId?: string;
@@ -20,6 +29,8 @@ export class CreateItemDto {
   @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
   @IsOptional() @IsInt() @Min(0) acquisitionCostCents?: number;
+  // v1.1: precio manual MXN. Obligatorio para PUBLICAR el sellado (sin él no aparece en Compra).
+  @IsOptional() @IsInt() @Min(0) listPriceCents?: number;
   @IsOptional() @IsString() sourceSellRequestItemId?: string;
 }
 

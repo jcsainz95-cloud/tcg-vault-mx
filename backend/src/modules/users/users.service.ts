@@ -41,6 +41,10 @@ export class UsersService {
       locale: user.locale,
       kycStatus: user.kycProfile?.kycStatus ?? 'none',
       status: user.status,
+      // v1.1: el front oculta "cambiar contraseña" cuando authProvider=google sin passwordHash.
+      authProvider: user.authProvider,
+      emailVerified: user.emailVerified,
+      avatarUrl: user.avatarUrl ?? undefined,
     };
   }
 

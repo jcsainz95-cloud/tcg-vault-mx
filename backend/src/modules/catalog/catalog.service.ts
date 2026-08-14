@@ -20,6 +20,15 @@ export function toCardDTO(card: Card & { set?: CardSet | null }) {
   };
 }
 
+/** Deriva el año del set desde `releaseDate` (`yyyy/MM/dd` de pokemontcg.io). v1.1. */
+export function yearFromReleaseDate(releaseDate?: string | null): number | null {
+  if (!releaseDate) return null;
+  const m = /^(\d{4})/.exec(releaseDate);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+type ItemWithCard = InventoryItem & { card: Card & { set?: CardSet | null } };
+
 @Injectable()
 export class CatalogService {
   constructor(
@@ -28,11 +37,50 @@ export class CatalogService {
   ) {}
 
   /**
-   * Construye un ListingDTO (API_CONTRACT §DTOs base). Distingue referenceValue
-   * (valor de mercado) de salePriceCents (precio de venta = ref×(1+markup) u override).
-   * sellable=false si precio pendiente.
+   * v1.1 — "Compra" = inventario PUBLICADO con precio de venta fijado (ARCHITECTURE §4.9):
+   * `status=listed`, plataforma, y con un precio de venta RESOLVIBLE (listPriceCents fijado
+   * u override, o referencia con la que calcular precio×markup). El comprador NUNCA ve
+   * "precio pendiente".
+   *
+   * Gate coarse en DB (para acotar): el item tiene listPriceCents fijado O su carta tiene
+   * alguna PriceReference. El precio EXACTO y la comprabilidad (`sellable`) se confirman al
+   * construir el ListingDTO; los items sin precio resoluble se descartan.
    */
-  async toListingDTO(item: InventoryItem & { card: Card & { set?: CardSet | null } }) {
+  private publishedWhere(extra: Prisma.InventoryItemWhereInput = {}): Prisma.InventoryItemWhereInput {
+    return {
+      ownerType: 'platform',
+      status: 'listed',
+      OR: [
+        { listPriceCents: { not: null, gt: 0 } },
+        { card: { priceReferences: { some: {} } } },
+      ],
+      ...extra,
+    };
+  }
+
+  /** Trae items publicados que efectivamente son comprables (precio resoluble). */
+  private async fetchSellable(
+    where: Prisma.InventoryItemWhereInput,
+  ): Promise<{ item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[]> {
+    const items = await this.prisma.inventoryItem.findMany({
+      where,
+      include: { card: { include: { set: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    const out: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[] = [];
+    for (const item of items) {
+      const dto = await this.toListingDTO(item);
+      if (dto.sellable && dto.salePriceCents != null) out.push({ item, dto });
+    }
+    return out;
+  }
+
+  /**
+   * Construye un ListingDTO (API_CONTRACT §DTOs base). Distingue referenceValue
+   * (valor de mercado) de salePriceCents (precio de venta). El sellado lleva sealedSubtype
+   * y NO lleva rawCondition/grade/rareza.
+   */
+  async toListingDTO(item: ItemWithCard) {
     const gradeKey = this.pricing.gradeKeyFor(item);
     const referenceValue = await this.pricing.getReference(item.cardId, item.productType, gradeKey);
 
@@ -43,16 +91,15 @@ export class CatalogService {
       salePriceCents = await this.pricing.computeSalePrice(referenceValue.referenceMxnCents);
     }
 
-    const sellable =
-      salePriceCents != null &&
-      salePriceCents > 0 &&
-      (item.status === 'listed' || item.status === 'in_stock');
+    // v1.1: comprable solo si está PUBLICADO (listed) y con precio de venta fijado (>0).
+    const sellable = salePriceCents != null && salePriceCents > 0 && item.status === 'listed';
 
     return {
       inventoryItemId: item.id,
       card: toCardDTO(item.card),
       productType: item.productType,
       rawCondition: item.rawCondition ?? undefined,
+      sealedSubtype: item.sealedSubtype ?? undefined,
       gradingCompany: item.gradingCompany ?? undefined,
       gradeValue: item.gradeValue ?? undefined,
       referenceValue,
@@ -75,43 +122,76 @@ export class CatalogService {
     rarity?: string;
     productType?: string;
     condition?: string;
+    sealedSubtype?: string;
     minPriceCents?: number;
     maxPriceCents?: number;
     page: number;
     pageSize: number;
     sort?: string;
   }) {
-    // Storefront: solo items de la plataforma disponibles (listed/in_stock).
-    const where: Prisma.InventoryItemWhereInput = {
-      ownerType: 'platform',
-      status: { in: ['listed', 'in_stock'] },
-    };
-    if (q.productType) where.productType = q.productType as never;
-    if (q.condition) where.rawCondition = q.condition as never;
-    if (q.setId) where.card = { setId: q.setId };
-    if (q.rarity) where.card = { ...(where.card as object), rarity: q.rarity };
-    if (q.q) {
-      where.card = { ...(where.card as object), name: { contains: q.q, mode: 'insensitive' } };
-    }
-    if (q.minPriceCents != null || q.maxPriceCents != null) {
-      where.listPriceCents = {
-        ...(q.minPriceCents != null ? { gte: q.minPriceCents } : {}),
-        ...(q.maxPriceCents != null ? { lte: q.maxPriceCents } : {}),
-      };
-    }
+    const extra: Prisma.InventoryItemWhereInput = {};
+    if (q.productType) extra.productType = q.productType as never;
+    if (q.condition) extra.rawCondition = q.condition as never;
+    if (q.sealedSubtype) extra.sealedSubtype = q.sealedSubtype as never;
+    const cardWhere: Prisma.CardWhereInput = {};
+    if (q.setId) cardWhere.setId = q.setId;
+    if (q.rarity) cardWhere.rarity = q.rarity;
+    if (q.q) cardWhere.name = { contains: q.q, mode: 'insensitive' };
+    if (Object.keys(cardWhere).length) extra.card = cardWhere;
 
-    const [items, total] = await Promise.all([
-      this.prisma.inventoryItem.findMany({
-        where,
-        include: { card: { include: { set: true } } },
-        skip: (q.page - 1) * q.pageSize,
-        take: q.pageSize,
-        orderBy: q.sort === 'price_asc' ? { listPriceCents: 'asc' } : { createdAt: 'desc' },
-      }),
-      this.prisma.inventoryItem.count({ where }),
-    ]);
-    const data = await Promise.all(items.map((i) => this.toListingDTO(i)));
+    let rows = await this.fetchSellable(this.publishedWhere(extra));
+
+    // Rango de precio sobre el PRECIO DE VENTA (que puede derivar de la referencia).
+    if (q.minPriceCents != null) rows = rows.filter((r) => (r.dto.salePriceCents ?? 0) >= q.minPriceCents!);
+    if (q.maxPriceCents != null) rows = rows.filter((r) => (r.dto.salePriceCents ?? 0) <= q.maxPriceCents!);
+
+    if (q.sort === 'price_asc') {
+      rows.sort((a, b) => (a.dto.salePriceCents ?? 0) - (b.dto.salePriceCents ?? 0));
+    } else if (q.sort === 'price_desc') {
+      rows.sort((a, b) => (b.dto.salePriceCents ?? 0) - (a.dto.salePriceCents ?? 0));
+    }
+    // 'newest' (default) ya viene por createdAt desc del fetch.
+
+    const total = rows.length;
+    const start = (q.page - 1) * q.pageSize;
+    const data = rows.slice(start, start + q.pageSize).map((r) => r.dto);
     return { data, page: q.page, pageSize: q.pageSize, total };
+  }
+
+  /**
+   * v1.1 — Facetas dinámicas de "Compra" calculadas SOBRE el inventario publicado y
+   * comprable (no el catálogo completo). API_CONTRACT §catalog/facets.
+   */
+  async facets() {
+    const rows = await this.fetchSellable(this.publishedWhere());
+
+    const rarities = [...new Set(rows.map((r) => r.item.card.rarity).filter((x): x is string => Boolean(x)))];
+    const productTypes = [...new Set(rows.map((r) => r.item.productType))];
+    const sealedSubtypes = [
+      ...new Set(rows.map((r) => r.item.sealedSubtype).filter((x): x is NonNullable<typeof x> => Boolean(x))),
+    ];
+
+    const setMap = new Map<string, { id: string; name: string; releaseDate: string | null; year: number | null }>();
+    for (const { item } of rows) {
+      const s = item.card.set;
+      if (s && !setMap.has(s.id)) {
+        setMap.set(s.id, { id: s.id, name: s.name, releaseDate: s.releaseDate ?? null, year: yearFromReleaseDate(s.releaseDate) });
+      }
+    }
+    const sets = [...setMap.values()].sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+
+    const prices = rows.map((r) => r.dto.salePriceCents ?? 0);
+    return {
+      rarities,
+      sets,
+      productTypes,
+      sealedSubtypes,
+      price: {
+        minCents: prices.length ? Math.min(...prices) : 0,
+        maxCents: prices.length ? Math.max(...prices) : 0,
+        currency: 'MXN' as const,
+      },
+    };
   }
 
   async getCard(cardId: string) {
@@ -120,28 +200,37 @@ export class CatalogService {
       include: { set: true },
     });
     if (!card) throw BusinessException.notFound();
-    const items = await this.prisma.inventoryItem.findMany({
-      where: { cardId, ownerType: 'platform', status: { in: ['listed', 'in_stock'] } },
-      include: { card: { include: { set: true } } },
-    });
-    const listings = await Promise.all(items.map((i) => this.toListingDTO(i)));
-    return { card: toCardDTO(card), listings };
+    const rows = await this.fetchSellable(this.publishedWhere({ cardId }));
+    return { card: toCardDTO(card), listings: rows.map((r) => r.dto) };
   }
 
   async getListing(inventoryItemId: string) {
-    const item = await this.prisma.inventoryItem.findUnique({
-      where: { id: inventoryItemId },
-      include: { card: { include: { set: true } } },
-    });
-    if (!item) throw BusinessException.notFound();
-    return this.toListingDTO(item);
+    // v1.1: un item no publicado / sin precio resoluble NO es visible en Compra → 404.
+    const rows = await this.fetchSellable(this.publishedWhere({ id: inventoryItemId }));
+    if (rows.length === 0) throw BusinessException.notFound();
+    return rows[0].dto;
   }
 
+  /** Sets con inventario publicado y comprable, con `year` derivado, ordenados por año desc. v1.1. */
   async listSets() {
-    const data = await this.prisma.cardSet.findMany({
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true, series: true, releaseDate: true },
-    });
+    const rows = await this.fetchSellable(this.publishedWhere());
+    const setMap = new Map<
+      string,
+      { id: string; name: string; series: string | null; releaseDate: string | null; year: number | null }
+    >();
+    for (const { item } of rows) {
+      const s = item.card.set;
+      if (s && !setMap.has(s.id)) {
+        setMap.set(s.id, {
+          id: s.id,
+          name: s.name,
+          series: s.series ?? null,
+          releaseDate: s.releaseDate ?? null,
+          year: yearFromReleaseDate(s.releaseDate),
+        });
+      }
+    }
+    const data = [...setMap.values()].sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
     return { data };
   }
 }

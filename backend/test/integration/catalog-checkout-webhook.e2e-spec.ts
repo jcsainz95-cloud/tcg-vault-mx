@@ -59,11 +59,12 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       expect(res.body.sellable).toBe(true);
     });
 
-    it('una carta en "precio pendiente" NO es comprable (sellable=false)', async () => {
+    it('una carta en "precio pendiente" NO es visible en Compra (v1.1: 404, el comprador nunca la ve)', async () => {
+      // v1.1 (API_CONTRACT §catalog/listings): un item sin precio resoluble no aparece en
+      // Compra → 404 (antes de v1.1 devolvía 200 con sellable=false). El estado "precio
+      // pendiente" vive solo en adquisición/back-office; el comprador nunca lo ve.
       const res = await h.api('GET', `/catalog/listings/${itemId.listedPending}`);
-      expect(res.status).toBe(200);
-      expect(res.body.referenceValue.status).toBe('pending');
-      expect(res.body.sellable).toBe(false);
+      expect(res.status).toBe(404);
     });
   });
 

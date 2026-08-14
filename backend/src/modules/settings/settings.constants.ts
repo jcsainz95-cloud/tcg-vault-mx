@@ -27,6 +27,9 @@ export const SettingKey = {
   // Dial interno (LFPDPPP): NO se expone en el DTO de M10 hasta que el arquitecto lo
   // formalice en el contrato (ver docs/BACKEND_NOTES.md).
   INE_RETENTION_DAYS: 'ine_retention_days',
+  // v1.1 (M-9): frontera por defecto del sync de catálogo (POST /admin/catalog/sync sin setId).
+  // Formato pokemontcg.io `yyyy/MM/dd`. Dial interno (no en el DTO de M10).
+  CATALOG_SYNC_FROM_DATE: 'catalog_sync_from_date',
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -50,6 +53,7 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.PRICING_PROVIDER_GRADED]: 'pokemonpricetracker',
   [SettingKey.PRICING_PROVIDER_SEALED]: 'pokemonpricetracker',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
+  [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
   [SettingKey.RARITY_MAP]: {
     Common: 'comun',
     Uncommon: 'comun',
@@ -106,6 +110,9 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.RARITY_MAP]: (v) =>
     v !== null && typeof v === 'object' && !Array.isArray(v) ? null : 'must be an object map',
   [SettingKey.INE_RETENTION_DAYS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (days)'),
+  // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
+  [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>
+    typeof v === 'string' && /^\d{4}\/\d{2}\/\d{2}$/.test(v) ? null : 'must be a date string yyyy/MM/dd',
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */

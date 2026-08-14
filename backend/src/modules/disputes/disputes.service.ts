@@ -29,9 +29,13 @@ export class DisputesService {
   async create(userId: string, inventoryItemId: string, description: string, claimKeys: string[]) {
     const item = await this.prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } });
     if (!item || item.ownerUserId !== userId) throw BusinessException.forbidden('FORBIDDEN');
-    if (item.productType !== 'raw') {
-      throw BusinessException.validation('NOT_RAW', 'Disputes apply only to raw items');
+    // v1.1: la disputa de condición aplica a raw (carta dañada/equivocada) y a SELLADO
+    // (caja dañada/equivocada; evidencia = foto de la caja al ingreso, ARCHITECTURE §3.6).
+    // El graded no aplica (no hay condición NM que comparar) → NOT_RAW.
+    if (item.productType === 'graded') {
+      throw BusinessException.validation('NOT_RAW', 'Disputes apply only to raw/sealed items');
     }
+    const disputeType = item.productType === 'sealed' ? 'condition_sealed' : 'condition_raw';
     // Ventana de 7 días desde entrega (busca el envío entregado del item).
     const shipmentItem = await this.prisma.shipmentItem.findFirst({
       where: { inventoryItemId, shipmentRequest: { status: 'entregado' } },
@@ -55,7 +59,7 @@ export class DisputesService {
       data: {
         userId,
         inventoryItemId,
-        type: 'condition_raw',
+        type: disputeType,
         status: 'abierta',
         ingressPhotoKeys,
         claimPhotoKeys: claimKeys,

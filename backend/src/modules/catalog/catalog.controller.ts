@@ -14,6 +14,7 @@ export class CatalogController {
     @Query('rarity') rarity?: string,
     @Query('productType') productType?: string,
     @Query('condition') condition?: string,
+    @Query('sealedSubtype') sealedSubtype?: string,
     @Query('minPriceCents') minPriceCents?: string,
     @Query('maxPriceCents') maxPriceCents?: string,
     @Query('page') page = '1',
@@ -26,12 +27,20 @@ export class CatalogController {
       rarity,
       productType,
       condition,
+      sealedSubtype,
       minPriceCents: minPriceCents ? parseInt(minPriceCents, 10) : undefined,
       maxPriceCents: maxPriceCents ? parseInt(maxPriceCents, 10) : undefined,
       page: Math.max(1, parseInt(page, 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
       sort,
     });
+  }
+
+  // v1.1 — facetas dinámicas de "Compra" (rarezas/sets/tipos/subtipos/rango de precio).
+  @Public()
+  @Get('facets')
+  facets() {
+    return this.catalog.facets();
   }
 
   @Public()

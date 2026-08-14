@@ -52,13 +52,23 @@ export class BuylistService {
     };
   }
 
-  /** Deriva categoría desde la tabla rareza→categoría (dial M2/M10). */
+  /**
+   * Deriva categoría desde la tabla rareza→categoría (dial M2/M10).
+   *
+   * v1.1 (rarezas modernas, ARCHITECTURE §4.2): cualquier rareza POR ENCIMA de común/
+   * reverse-holo cae en `ex_plus` (= 40% de la referencia). El **default para rarezas NO
+   * listadas** explícitamente como común/reverse es **`ex_plus`** ("EX o superior"), de modo
+   * que Illustration Rare, Special Illustration Rare, Full Art, Alternate Art, Trainer
+   * Gallery, Character Rare, Radiant, etc. quedan como ex_plus sin necesidad de listarlas.
+   * Solo se cotiza `comun`/`reverse_holo` cuando la tabla lo dice explícitamente.
+   */
   async categoryForRarity(rarity: string | null): Promise<BuylistCategory> {
     const map = (await this.settings.getRaw(SettingKey.RARITY_MAP)) as Record<string, string>;
     const cat = rarity ? map[rarity] : undefined;
+    if (cat === 'comun') return 'comun';
     if (cat === 'reverse_holo') return 'reverse_holo';
-    if (cat === 'ex_plus') return 'ex_plus';
-    return 'comun';
+    // ex_plus explícito o cualquier rareza moderna no listada → ex_plus (default).
+    return 'ex_plus';
   }
 
   /**

@@ -2,7 +2,7 @@ import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
-import { LoginDto, RefreshDto, RegisterDto } from './dto/auth.dto';
+import { GoogleLoginDto, LoginDto, RefreshDto, RegisterDto } from './dto/auth.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -25,6 +25,16 @@ export class AuthController {
   @HttpCode(200)
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
+  }
+
+  // v1.1: login/registro con Google (ID token verificado server-side). Mismo shape que /login.
+  // Límite estrecho por IP (igual que /login) para frenar abuso.
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Public()
+  @Post('google')
+  @HttpCode(200)
+  google(@Body() dto: GoogleLoginDto) {
+    return this.auth.google(dto.idToken);
   }
 
   // SEC-C1: refresh también público; límite algo más holgado para clientes legítimos.
