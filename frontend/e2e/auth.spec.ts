@@ -30,6 +30,17 @@ test.describe('auth · login y registro (ES/EN)', () => {
     await expect(page.getByLabel(t('es', 'auth.phone'))).toBeVisible();
   });
 
+  test('login con Google (mock) deja sesión y redirige al home', async ({ page }) => {
+    await page.goto('/es/login');
+    // Email/contraseña sigue siendo la acción primaria; Google es alternativa (§6.7).
+    const googleBtn = page.getByRole('button', { name: t('es', 'auth.google.cta') });
+    await expect(googleBtn).toBeVisible();
+    await googleBtn.click();
+    // MOCK: simula el canje del idToken y redirige al home del locale.
+    await expect(page).toHaveURL(/\/es(\/|$)/);
+    await expect(page.getByRole('heading', { name: t('es', 'home.heroTitle') })).toBeVisible();
+  });
+
   test('toggle de idioma disponible en el shell de auth', async ({ page }) => {
     await page.goto('/es/login');
     const toggle = page.getByRole('group', { name: 'Idioma / Language' });

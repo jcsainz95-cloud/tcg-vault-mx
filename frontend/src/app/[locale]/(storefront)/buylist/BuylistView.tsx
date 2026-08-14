@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Info, ShieldQuestion } from 'lucide-react';
 import { getBuylistQuote, getSellRequests } from '@/lib/api';
-import type { ProductType, RawCondition } from '@/types/contract';
+import type { ProductType } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { mockCards } from '@/lib/mock/fixtures';
@@ -21,7 +21,6 @@ import { QueryState } from '@/components/ui/QueryState';
 import { useBuylistSteps } from '@/lib/pipelines';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
-const CONDITIONS: RawCondition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 
 export function BuylistView() {
   const t = useTranslations('buylist');
@@ -31,12 +30,12 @@ export function BuylistView() {
 
   const [cardId, setCardId] = useState(mockCards[0].id);
   const [productType, setProductType] = useState<ProductType>('raw');
-  const [condition, setCondition] = useState<RawCondition>('NM');
   const [guideOpen, setGuideOpen] = useState(false);
 
   const quote = useMutation({
+    // Condición de compra SIEMPRE NM (v1.1): raw se envía con rawCondition='NM', sin selector.
     mutationFn: () =>
-      getBuylistQuote({ cardId, productType, rawCondition: productType === 'raw' ? condition : undefined }),
+      getBuylistQuote({ cardId, productType, rawCondition: productType === 'raw' ? 'NM' : undefined }),
   });
 
   const requests = useQuery({ queryKey: ['sell-requests'], queryFn: getSellRequests });
@@ -51,6 +50,11 @@ export function BuylistView() {
       {/* Banner persistente PAY_AFTER_RECEIPT (PROJECT AC 33, DESIGN §7.5) */}
       <Banner variant="trust" title={t('quoterTitle')}>
         {t('payAfterReceipt')}
+      </Banner>
+
+      {/* Política NM-only prominente (PROJECT §E/H, AC 3d) */}
+      <Banner variant="warning" title={t('nmOnlyTitle')}>
+        {t('nmOnlyBody')}
       </Banner>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -69,12 +73,10 @@ export function BuylistView() {
             onChange={(e) => setProductType(e.target.value as ProductType)}
           />
           {productType === 'raw' && (
-            <Select
-              label={t('selectCondition')}
-              options={CONDITIONS.map((c) => ({ value: c, label: c }))}
-              value={condition}
-              onChange={(e) => setCondition(e.target.value as RawCondition)}
-            />
+            // Sin selector de condición: NM fijo (único grado que compramos).
+            <p className="rounded-md bg-success-bg px-3 py-2 text-sm text-success">
+              {t('conditionFixedNm')}
+            </p>
           )}
           <Button onClick={() => quote.mutate()} loading={quote.isPending}>
             {quote.isPending ? t('quoting') : t('getQuote')}

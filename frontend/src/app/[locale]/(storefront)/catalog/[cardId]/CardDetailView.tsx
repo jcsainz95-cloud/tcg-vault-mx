@@ -112,6 +112,7 @@ function Detail({
               <ConditionBadge
                 productType={primary.productType}
                 rawCondition={primary.rawCondition}
+                sealedSubtype={primary.sealedSubtype}
                 gradingCompany={primary.gradingCompany}
                 gradeValue={primary.gradeValue}
               />
@@ -133,6 +134,7 @@ function Detail({
                   <ConditionBadge
                     productType={l.productType}
                     rawCondition={l.rawCondition}
+                    sealedSubtype={l.sealedSubtype}
                     gradingCompany={l.gradingCompany}
                     gradeValue={l.gradeValue}
                   />
@@ -177,7 +179,19 @@ function Detail({
               {card.supertype} — {card.subtypes.join(', ')} · {card.setName}
             </p>
           )}
-          {tab === 'condition' && <p>{t('condition')}: {primary?.rawCondition ?? primary?.gradeValue ?? '—'}</p>}
+          {tab === 'condition' &&
+            (primary?.productType === 'raw' ? (
+              <div className="flex flex-col gap-1">
+                <p className="font-medium">
+                  {t('condition')}: {tcat('condition.nm.label')}
+                </p>
+                <p className="text-muted">{tcat('condition.nm.desc')}</p>
+              </div>
+            ) : (
+              <p>
+                {t('condition')}: {primary?.gradeValue ?? primary?.sealedSubtype ?? '—'}
+              </p>
+            ))}
           {tab === 'photos' && (
             <div className="grid grid-cols-2 gap-4 sm:max-w-md">
               <div>

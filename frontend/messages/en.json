@@ -24,7 +24,8 @@
     "total": "Total"
   },
   "nav": {
-    "catalog": "Catalog",
+    "catalog": "Shop",
+    "shop": "Shop",
     "buylist": "Sell (Buylist)",
     "vault": "My vault",
     "orders": "My orders",
@@ -39,14 +40,15 @@
   "home": {
     "heroTitle": "Buy Pokémon cards at real prices and keep them in the vault",
     "heroSubtitle": "Authenticated, condition guaranteed. Grow your collection and request shipping whenever you want.",
-    "ctaCatalog": "Browse catalog",
+    "ctaCatalog": "Go to Shop",
     "ctaBuylist": "Sell my cards",
     "trustAuth": "Every card is authenticated on intake",
     "trustCustody": "Insured custody, no unnecessary shipping",
     "trustPrice": "Transparent market value in MXN"
   },
   "catalog": {
-    "title": "Catalog",
+    "title": "Shop",
+    "subtitle": "Our published inventory for sale. We only list what has a price.",
     "resultsCount": "{count, plural, =0 {No cards} one {# card} other {# cards}}",
     "filterSet": "Set",
     "filterRarity": "Rarity",
@@ -59,10 +61,60 @@
     "buyNow": "Buy",
     "marketValue": "Market value",
     "salePrice": "Sale price",
-    "notForSale": "Unavailable"
+    "notForSale": "Unavailable",
+    "condition": {
+      "nm": {
+        "label": "Near Mint (NM)",
+        "desc": "Like new; at most minimal imperfections. Clean edges and a surface free of notable scratches."
+      }
+    }
+  },
+  "shop": {
+    "filtersTitle": "Filters",
+    "openFilters": "Filters",
+    "applyFilters": "See {count, plural, =0 {results} one {# result} other {# results}}",
+    "sortLabel": "Sort",
+    "sort": {
+      "newest": "Newest",
+      "price_asc": "Price: low to high",
+      "price_desc": "Price: high to low"
+    },
+    "rarity": {
+      "label": "Rarity",
+      "search": "Search rarity…",
+      "count": "Rarity · {count}",
+      "seeAll": "See all",
+      "noMatches": "No matches",
+      "groups": {
+        "standard": "Common / standard",
+        "ultra": "Ultra / EX+",
+        "illustration": "Illustration / Art",
+        "special": "Special",
+        "other": "Other"
+      }
+    },
+    "set": {
+      "label": "Set",
+      "search": "Search set…",
+      "any": "All sets"
+    },
+    "type": {
+      "label": "Product type",
+      "all": "All",
+      "raw": "Raw (NM)",
+      "graded": "Graded",
+      "sealed": "Sealed",
+      "rawSublabel": "Near Mint (NM)",
+      "subtypeLabel": "Sealed subtype"
+    },
+    "price": {
+      "label": "Price",
+      "min": "Min",
+      "max": "Max"
+    }
   },
   "card": {
-    "backToCatalog": "Catalog",
+    "backToCatalog": "Shop",
     "condition": "Condition",
     "grade": "Grade",
     "type": "Type",
@@ -115,14 +167,47 @@
     "portfolioHint": "Valued at market reference (MXN, daily refresh).",
     "pendingPrice": "{count, plural, =0 {no cards} one {# card} other {# cards}} with pending price (excluded from total)",
     "emptyTitle": "You have no cards in your vault yet",
-    "emptyBody": "Browse the catalog and start your collection.",
-    "emptyCta": "Browse catalog",
+    "emptyBody": "Browse the Shop and start your collection.",
+    "emptyCta": "Go to Shop",
     "trustBanner": "Your cards are authenticated and insured in custody. They ship only when you ask.",
     "withdraw": "Withdraw",
     "withdrawSelected": "Withdraw selected",
     "onlySettled": "Only settled cards can be withdrawn.",
     "folio": "Folio",
     "selectToWithdraw": "Select for withdrawal"
+  },
+  "portfolio": {
+    "trend": {
+      "title": "Portfolio trend",
+      "valueLabel": "Current value",
+      "noChange": "No change",
+      "up": "went up",
+      "down": "went down",
+      "flat": "no change",
+      "ranges": {
+        "5d": "5d",
+        "15d": "15d",
+        "1m": "1m",
+        "3m": "3m",
+        "6m": "6m",
+        "1y": "1y",
+        "ytd": "YTD",
+        "all": "Max"
+      },
+      "rangesAria": "Time range",
+      "collectingTitle": "We're collecting data",
+      "collectingBody": "Your trend will appear once we have at least a couple of days of history.",
+      "fewPoints": "Few data points in this range",
+      "estimated": "Estimated",
+      "costBasis": "Cost basis",
+      "value": "Value",
+      "errorTitle": "Couldn't load the trend",
+      "summary": "Portfolio over the range: start {start} on {startDate}, close {end} on {endDate}. It {dir} {abs}{pct}.",
+      "summaryNoData": "There's no portfolio history yet to show a trend.",
+      "viewTable": "View as table",
+      "tableDate": "Date",
+      "tableValue": "Value"
+    }
   },
   "shipments": {
     "title": "Withdrawal / shipping",
@@ -166,7 +251,10 @@
     "noRequests": "You have no sell requests yet.",
     "kycNotice": "To create the request you'll need to log in and register your CLABE (in your name). If you exceed the cap we'll ask for your INE.",
     "limitPerRequest": "Cap per request",
-    "limitPerMonth": "Monthly cap"
+    "limitPerMonth": "Monthly cap",
+    "conditionFixedNm": "Condition: Near Mint (NM) fixed",
+    "nmOnlyTitle": "We only buy Near Mint (NM)",
+    "nmOnlyBody": "If on receipt and verification the card isn't NM, we don't buy it: it's returned (at your cost, 7 days) or considered abandoned after 30 days."
   },
   "safeShipping": {
     "title": "Safe shipping guide",
@@ -221,7 +309,12 @@
     "toRegister": "No account? Sign up",
     "toLogin": "Already have an account? Log in",
     "loading": "Processing…",
-    "mockNotice": "Authentication pending backend: submit simulates the flow and stores a local session."
+    "mockNotice": "Authentication pending backend: submit simulates the flow and stores a local session.",
+    "dividerOr": "or",
+    "google": {
+      "cta": "Continue with Google",
+      "connecting": "Connecting…"
+    }
   },
   "admin": {
     "shellTitle": "Back-office",
@@ -288,6 +381,9 @@
       "status": "Status",
       "listPrice": "Sale price",
       "reference": "Reference",
+      "sealedSubtype": "Sealed subtype",
+      "conditionNm": "Condition: Near Mint (NM) fixed",
+      "listPriceRequired": "Sale price (MXN) — required to publish sealed",
       "costHint": "In-kind cost = daily reference × {pct}%",
       "table": {
         "folio": "Folio",
@@ -382,6 +478,13 @@
       "convertida_inventario": "In inventory"
     },
     "price": { "pending": "Price pending", "priced": "Priced" },
+    "sealedSubtype": {
+      "box": "Booster Box",
+      "etb": "ETB",
+      "bundle": "Bundle",
+      "tin": "Tin",
+      "blister": "Blister"
+    },
     "dispute": {
       "abierta": "Open",
       "en_revision": "In review",
@@ -430,6 +533,8 @@
     "USER_BLOCKED": "Your account is blocked.",
     "BILLING_PROFILE_REQUIRED": "You need a billing profile.",
     "DISPUTE_WINDOW_CLOSED": "The dispute window has closed.",
-    "NOT_RAW": "Only raw cards can be disputed."
+    "NOT_RAW": "Only raw cards can be disputed.",
+    "GOOGLE_TOKEN_INVALID": "We couldn't validate your Google sign-in. Please try again.",
+    "GOOGLE_EMAIL_UNVERIFIED": "Your Google email isn't verified; use another method or verify your email."
   }
 }

@@ -1,0 +1,72 @@
+import { describe, it, expect } from 'vitest';
+import {
+  getCatalog,
+  getCatalogFacets,
+  getPortfolioHistory,
+  getBuylistQuote,
+  loginWithGoogle,
+} from './api';
+import { getToken, setToken } from './api-client';
+
+// Estas pruebas ejercitan la RAMA MOCK del cliente (config.useMocks = true por defecto
+// en test, ya que NEXT_PUBLIC_USE_MOCKS !== 'false'). Verifican que las llamadas nuevas
+// de v1.1 devuelven shapes del contrato sin backend (para Vercel).
+
+describe('api (rama mock, v1.1)', () => {
+  it('getCatalog filtra por rareza cruda (multi) sobre inventario publicado', async () => {
+    const res = await getCatalog({ rarity: ['Illustration Rare'] });
+    expect(res.data.length).toBeGreaterThan(0);
+    expect(res.data.every((l) => l.card.rarity === 'Illustration Rare')).toBe(true);
+  });
+
+  it('getCatalog nunca devuelve items "precio pendiente" (Compra = solo con precio)', async () => {
+    const res = await getCatalog({});
+    expect(res.data.length).toBeGreaterThan(0);
+    expect(res.data.every((l) => l.sellable && l.salePriceCents != null)).toBe(true);
+  });
+
+  it('getCatalog filtra por rango de precio (centavos)', async () => {
+    const res = await getCatalog({ maxPriceCents: 50000 });
+    expect(res.data.every((l) => (l.salePriceCents ?? 0) <= 50000)).toBe(true);
+  });
+
+  it('getCatalogFacets devuelve rarezas, sets con año (desc) y rango de precio', async () => {
+    const f = await getCatalogFacets();
+    expect(f.rarities.length).toBeGreaterThan(0);
+    expect(f.sets.length).toBeGreaterThan(0);
+    // sets ordenados por año descendente
+    const years = f.sets.map((s) => s.year ?? 0);
+    expect([...years].sort((a, b) => b - a)).toEqual(years);
+    expect(f.price.currency).toBe('MXN');
+  });
+
+  it('getPortfolioHistory devuelve serie ordenada + change con dirección', async () => {
+    const h = await getPortfolioHistory('1m');
+    expect(h.range).toBe('1m');
+    expect(h.points.length).toBeGreaterThan(1);
+    expect(['up', 'down', 'flat']).toContain(h.change.direction);
+    // fechas ascendentes
+    const dates = h.points.map((p) => p.date);
+    expect([...dates].sort()).toEqual(dates);
+  });
+
+  it('buylist: rareza moderna con market price se cotiza como ex_plus (40%)', async () => {
+    const q = await getBuylistQuote({ cardId: 'c-milotic-fa', productType: 'raw', rawCondition: 'NM' });
+    expect(q.category).toBe('ex_plus');
+    expect(q.quote.status).toBe('cotizada');
+    expect(q.quote.quotedPriceCents).toBe(Math.round(210000 * 0.4));
+  });
+
+  it('buylist: carta sin market price (Zapdos) escala a precio pendiente (adquisición)', async () => {
+    const q = await getBuylistQuote({ cardId: 'c-zapdos', productType: 'raw', rawCondition: 'NM' });
+    expect(q.quote.status).toBe('precio_pendiente');
+    expect(q.quote.quotedPriceCents).toBeNull();
+  });
+
+  it('loginWithGoogle (mock) deja sesión y marca authProvider=google', async () => {
+    setToken(null);
+    const res = await loginWithGoogle('mock-id-token');
+    expect(res.user.authProvider).toBe('google');
+    expect(getToken()).toBe('mock.session.token');
+  });
+});

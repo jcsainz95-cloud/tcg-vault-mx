@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Plus } from 'lucide-react';
 import { getAdminInventory, getLocations } from '@/lib/api';
 import { mockCards } from '@/lib/mock/fixtures';
-import type { ProductType, RawCondition, AcquisitionType, InventoryItemDTO } from '@/types/contract';
+import type { ProductType, SealedSubtype, AcquisitionType, InventoryItemDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Select } from '@/components/ui/Select';
@@ -21,16 +21,19 @@ import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState } from '@/components/ui/QueryState';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
-const CONDITIONS: RawCondition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
+const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'buylist', 'compra'];
 
 export function M1View() {
   const t = useTranslations('admin.m1');
   const tt = useTranslations('admin.m1.table');
+  const tSub = useTranslations('status.sealedSubtype');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const [open, setOpen] = useState(false);
   const [productType, setProductType] = useState<ProductType>('raw');
+  const [sealedSubtype, setSealedSubtype] = useState<SealedSubtype>('box');
+  const [listPrice, setListPrice] = useState('');
   const [acq, setAcq] = useState<AcquisitionType>('aportacion_en_especie');
   const [pct, setPct] = useState('70');
 
@@ -107,7 +110,28 @@ export function M1View() {
             onChange={(e) => setProductType(e.target.value as ProductType)}
           />
           {productType === 'raw' && (
-            <Select label={t('condition')} options={CONDITIONS.map((c) => ({ value: c, label: c }))} />
+            // Raw solo NM (v1.1): sin selector de grados; condición fija.
+            <p className="rounded-md bg-success-bg px-3 py-2 text-sm text-success">{t('conditionNm')}</p>
+          )}
+          {productType === 'sealed' && (
+            // Sellado: subtipo + precio manual MXN obligatorio para publicar (§3.6).
+            <>
+              <Select
+                label={t('sealedSubtype')}
+                options={SEALED_SUBTYPES.map((s) => ({ value: s, label: tSub(s) }))}
+                value={sealedSubtype}
+                onChange={(e) => setSealedSubtype(e.target.value as SealedSubtype)}
+              />
+              <Input
+                label={t('listPriceRequired')}
+                type="text"
+                inputMode="decimal"
+                prefix="MX$"
+                required
+                value={listPrice}
+                onChange={(e) => setListPrice(e.target.value)}
+              />
+            </>
           )}
           <Select
             label={t('location')}

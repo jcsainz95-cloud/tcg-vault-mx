@@ -8,7 +8,12 @@
 export type Role = 'customer' | 'vault_operator' | 'super_admin';
 export type Locale = 'es' | 'en';
 export type ProductType = 'graded' | 'sealed' | 'raw';
-export type RawCondition = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
+// v1.1: RawCondition reducido a NM (único valor; se eliminan LP|MP|HP|DMG).
+export type RawCondition = 'NM';
+// v1.1: subtipo opcional del sellado.
+export type SealedSubtype = 'box' | 'etb' | 'bundle' | 'tin' | 'blister';
+// v1.1: proveedor de autenticación del User.
+export type AuthProvider = 'local' | 'google';
 export type GradingCompany = 'PSA' | 'CGC';
 export type OwnerType = 'platform' | 'customer';
 export type OwnershipStatus = 'pending' | 'settled';
@@ -89,6 +94,7 @@ export interface ListingDTO {
   card: CardDTO;
   productType: ProductType;
   rawCondition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   referenceValue: PriceInfo;
@@ -96,6 +102,23 @@ export interface ListingDTO {
   sellable: boolean;
   frontPhotoUrl?: string;
   backPhotoUrl?: string;
+}
+
+// v1.1: punto de la serie de tendencia del portafolio (contrato §3, PortfolioPointDTO).
+export interface PortfolioPointDTO {
+  date: string;
+  valueMxnCents: number;
+  costBasisMxnCents?: number;
+  estimated?: boolean;
+}
+
+// v1.1: rango del historial de portafolio (contrato GET /vault/portfolio/history).
+export type PortfolioRange = '5d' | '15d' | '1m' | '3m' | '6m' | '1y' | 'ytd' | 'all';
+
+export interface PortfolioHistoryResponse {
+  range: PortfolioRange;
+  points: PortfolioPointDTO[];
+  change: { absMxnCents: number; pct: number | null; direction: 'up' | 'down' | 'flat' };
 }
 
 export interface BreakdownDTO {
@@ -117,6 +140,10 @@ export interface UserDTO {
   locale: Locale;
   kycStatus?: KycStatus;
   status?: 'active' | 'blocked';
+  // v1.1 (contrato GET /users/me): proveedor de auth, verificación de email y avatar.
+  authProvider?: AuthProvider;
+  emailVerified?: boolean;
+  avatarUrl?: string;
 }
 
 export interface AuthResponse {
@@ -160,6 +187,24 @@ export interface CardSetDTO {
   name: string;
   series?: string;
   releaseDate?: string;
+  // v1.1: año derivado de releaseDate (para el filtro "Nombre (2024)").
+  year?: number;
+}
+
+// v1.1: facetas dinámicas de "Compra" (contrato GET /catalog/facets).
+export interface FacetSetDTO {
+  id: string;
+  name: string;
+  releaseDate?: string;
+  year?: number;
+}
+
+export interface CatalogFacetsDTO {
+  rarities: string[];
+  sets: FacetSetDTO[];
+  productTypes: ProductType[];
+  sealedSubtypes: SealedSubtype[];
+  price: { minCents: number; maxCents: number; currency: 'MXN' };
 }
 
 export interface CardDetailResponse {
@@ -174,6 +219,7 @@ export interface HoldingDTO {
   card: CardDTO;
   productType: ProductType;
   rawCondition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   ownershipStatus: OwnershipStatus;
@@ -275,6 +321,7 @@ export interface SellItemDTO {
   card: CardDTO;
   productType: ProductType;
   rawCondition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
   category: BuylistCategory;
   quotedPriceCents?: number;
   approvedPriceCents?: number;
@@ -314,6 +361,7 @@ export interface InventoryItemDTO {
   card: CardDTO;
   productType: ProductType;
   rawCondition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   status: InventoryStatus;

@@ -15,7 +15,7 @@ export function StorefrontHeader() {
   const [open, setOpen] = useState(false);
 
   const links = [
-    { href: '/catalog', label: t('catalog') },
+    { href: '/catalog', label: t('shop') },
     { href: '/buylist', label: t('buylist') },
     { href: '/vault', label: t('vault') },
     { href: '/orders', label: t('orders') },

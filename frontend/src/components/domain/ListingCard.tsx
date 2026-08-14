@@ -13,10 +13,11 @@ export interface ListingCardProps {
   onAdd?: (listing: ListingDTO) => void;
 }
 
-/** CardTile de storefront (DESIGN_SYSTEM §7.1). */
+/** CardTile de storefront (DESIGN_SYSTEM §7.1 / §7.1b sellado). */
 export function ListingCard({ listing, onAdd }: ListingCardProps) {
   const t = useTranslations('catalog');
   const { card } = listing;
+  const isSealed = listing.productType === 'sealed';
 
   return (
     <div className="group flex flex-col gap-3 rounded-lg border border-border bg-surface p-3 shadow-sm transition-shadow hover:shadow-md">
@@ -28,10 +29,12 @@ export function ListingCard({ listing, onAdd }: ListingCardProps) {
           <ConditionBadge
             productType={listing.productType}
             rawCondition={listing.rawCondition}
+            sealedSubtype={listing.sealedSubtype}
             gradingCompany={listing.gradingCompany}
             gradeValue={listing.gradeValue}
           />
         </div>
+        {/* sellado: object-contain sobre surface-2 (las cajas no son 5:7) — ya lo hace CardImage */}
         <CardImage src={listing.frontPhotoUrl ?? card.imageSmallUrl} alt={card.name} />
       </Link>
 
@@ -40,7 +43,7 @@ export function ListingCard({ listing, onAdd }: ListingCardProps) {
           {card.name}
         </p>
         <p className="text-xs text-muted" lang="en">
-          {card.setName} · #{card.number}
+          {isSealed ? card.setName : `${card.setName} · #${card.number}`}
         </p>
       </div>
 

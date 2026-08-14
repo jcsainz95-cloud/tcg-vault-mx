@@ -1,11 +1,12 @@
 import { config } from './config';
-import { apiRequest, ApiClientError } from './api-client';
+import { apiRequest, ApiClientError, setToken } from './api-client';
 import * as fx from './mock/fixtures';
 import type {
   Paginated,
   ListingDTO,
   CardDetailResponse,
   CardSetDTO,
+  CatalogFacetsDTO,
   HoldingsResponse,
   OrderSummaryDTO,
   OrderDetailDTO,
@@ -22,39 +23,82 @@ import type {
   DisputeDTO,
   ProductType,
   RawCondition,
+  SealedSubtype,
   BuylistCategory,
   BreakdownDTO,
+  PortfolioRange,
+  PortfolioHistoryResponse,
+  AuthResponse,
+  Locale,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
-// ---------- Catálogo ----------
+// ---------- Catálogo / "Compra" (contrato §2) ----------
+export type CatalogSort = 'price_asc' | 'price_desc' | 'newest';
+
 export interface CatalogFilters {
   q?: string;
   setId?: string;
-  rarity?: string;
+  /** una o varias rarezas crudas (valor tal cual pokemontcg.io); se manda como CSV a la API */
+  rarity?: string[];
   productType?: ProductType;
   condition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
+  minPriceCents?: number;
+  maxPriceCents?: number;
+  sort?: CatalogSort;
   page?: number;
   pageSize?: number;
 }
 
 export async function getCatalog(filters: CatalogFilters = {}): Promise<Paginated<ListingDTO>> {
   if (!config.useMocks) {
-    return apiRequest<Paginated<ListingDTO>>('/catalog/cards', { query: filters as Record<string, string> });
+    const query: Record<string, string | number | undefined> = {
+      q: filters.q,
+      setId: filters.setId,
+      // La API recibe la rareza CRUDA; multi-select se envía como CSV.
+      rarity: filters.rarity && filters.rarity.length ? filters.rarity.join(',') : undefined,
+      productType: filters.productType,
+      condition: filters.condition,
+      sealedSubtype: filters.sealedSubtype,
+      minPriceCents: filters.minPriceCents,
+      maxPriceCents: filters.maxPriceCents,
+      sort: filters.sort,
+      page: filters.page,
+      pageSize: filters.pageSize,
+    };
+    return apiRequest<Paginated<ListingDTO>>('/catalog/cards', { query });
   }
+  // Compra sólo lista inventario publicado con precio: los fixtures ya lo garantizan.
   let data = [...fx.mockListings];
   if (filters.q) {
     const q = filters.q.toLowerCase();
     data = data.filter((l) => l.card.name.toLowerCase().includes(q));
   }
   if (filters.setId) data = data.filter((l) => l.card.setId === filters.setId);
-  if (filters.rarity) data = data.filter((l) => l.card.rarity === filters.rarity);
+  if (filters.rarity && filters.rarity.length) {
+    const set = new Set(filters.rarity);
+    data = data.filter((l) => set.has(l.card.rarity));
+  }
   if (filters.productType) data = data.filter((l) => l.productType === filters.productType);
   if (filters.condition) data = data.filter((l) => l.rawCondition === filters.condition);
+  if (filters.sealedSubtype) data = data.filter((l) => l.sealedSubtype === filters.sealedSubtype);
+  if (filters.minPriceCents != null)
+    data = data.filter((l) => (l.salePriceCents ?? 0) >= filters.minPriceCents!);
+  if (filters.maxPriceCents != null)
+    data = data.filter((l) => (l.salePriceCents ?? 0) <= filters.maxPriceCents!);
+  if (filters.sort === 'price_asc') data.sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
+  if (filters.sort === 'price_desc') data.sort((a, b) => (b.salePriceCents ?? 0) - (a.salePriceCents ?? 0));
   return delay({ data, page: 1, pageSize: 20, total: data.length });
+}
+
+/** Facetas dinámicas de Compra (contrato GET /catalog/facets, v1.1). */
+export async function getCatalogFacets(): Promise<CatalogFacetsDTO> {
+  if (!config.useMocks) return apiRequest<CatalogFacetsDTO>('/catalog/facets');
+  return delay(fx.mockFacets);
 }
 
 export async function getSets(): Promise<CardSetDTO[]> {
@@ -84,6 +128,16 @@ export async function getCardDetail(cardId: string): Promise<CardDetailResponse>
 export async function getHoldings(): Promise<HoldingsResponse> {
   if (!config.useMocks) return apiRequest<HoldingsResponse>('/vault/holdings');
   return delay({ data: fx.mockHoldings, portfolio: fx.mockPortfolio });
+}
+
+/** Serie de tendencia del portafolio (contrato GET /vault/portfolio/history, v1.1). */
+export async function getPortfolioHistory(
+  range: PortfolioRange = '1m',
+): Promise<PortfolioHistoryResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PortfolioHistoryResponse>('/vault/portfolio/history', { query: { range } });
+  }
+  return delay(fx.generatePortfolioHistory(range));
 }
 
 // ---------- Checkout / órdenes ----------
@@ -173,14 +227,14 @@ export async function getBuylistQuote(input: {
   }
   const card = fx.mockCards.find((c) => c.id === input.cardId);
   // MOCK: derivación rareza→categoría (backend usa la tabla del dial M2/M10).
-  const category: BuylistCategory =
-    card && /holo|rare|ex/i.test(card.rarity)
+  const rarity = (card?.rarity ?? '').toLowerCase();
+  const category: BuylistCategory = rarity.includes('reverse')
+    ? 'reverse_holo'
+    : /holo|rare|ex|illustration|full|art|radiant|ultra/.test(rarity)
       ? 'ex_plus'
-      : card?.rarity.toLowerCase().includes('reverse')
-        ? 'reverse_holo'
-        : 'comun';
-  const listing = fx.mockListings.find((l) => l.card.id === input.cardId);
-  const refCents = listing?.referenceValue.referenceMxnCents;
+      : 'comun';
+  // Referencia de mercado por carta (Zapdos = null → precio pendiente de adquisición).
+  const refCents = fx.mockReferenceByCardId[input.cardId] ?? undefined;
   if (category === 'comun') {
     return delay({ category, quote: { status: 'cotizada', quotedPriceCents: 50, currency: 'MXN' }, referencePrice: { status: 'priced', priceMxnCents: refCents }, paymentNotice: 'PAY_AFTER_RECEIPT' });
   }
@@ -199,6 +253,77 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
     return res.data;
   }
   return delay(fx.mockSellRequests);
+}
+
+// ---------- Auth (contrato §1) ----------
+function persistSession(res: AuthResponse): AuthResponse {
+  setToken(res.accessToken);
+  return res;
+}
+
+// MOCK: usuario de ejemplo cuando no hay backend (respeta el shape de AuthResponse).
+function mockAuthResponse(over: Partial<AuthResponse['user']> = {}): AuthResponse {
+  return {
+    user: {
+      id: 'u-mock',
+      email: 'cliente@example.com',
+      name: 'Cliente Demo',
+      role: 'customer',
+      locale: 'es',
+      status: 'active',
+      authProvider: 'local',
+      emailVerified: true,
+      ...over,
+    },
+    accessToken: 'mock.session.token',
+    refreshToken: 'mock.refresh.token',
+  };
+}
+
+export async function login(input: { email: string; password: string }): Promise<AuthResponse> {
+  if (!config.useMocks) {
+    return persistSession(await apiRequest<AuthResponse>('/auth/login', { method: 'POST', body: input }));
+  }
+  return delay(persistSession(mockAuthResponse({ email: input.email })), 400);
+}
+
+export async function register(input: {
+  email: string;
+  password: string;
+  name: string;
+  phone?: string;
+  locale?: Locale;
+}): Promise<AuthResponse> {
+  if (!config.useMocks) {
+    return persistSession(await apiRequest<AuthResponse>('/auth/register', { method: 'POST', body: input }));
+  }
+  return delay(persistSession(mockAuthResponse({ email: input.email, name: input.name })), 400);
+}
+
+/**
+ * Login/registro con Google (contrato POST /auth/google, v1.1). El front obtiene
+ * el `idToken` de Google Identity Services y lo canjea por los JWT propios;
+ * la sesión resultante es idéntica a la de email/contraseña.
+ */
+export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
+  if (!config.useMocks) {
+    return persistSession(
+      await apiRequest<AuthResponse>('/auth/google', { method: 'POST', body: { idToken } }),
+    );
+  }
+  // MOCK: simula el canje del idToken sin backend (no verifica firma; sólo demo).
+  return delay(
+    persistSession(
+      mockAuthResponse({
+        email: 'google.user@gmail.com',
+        name: 'Google User',
+        authProvider: 'google',
+        emailVerified: true,
+        avatarUrl: undefined,
+      }),
+    ),
+    500,
+  );
 }
 
 // ---------- Admin ----------

@@ -1,18 +1,37 @@
 'use client';
 
-import { ShieldCheck } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { ShieldCheck, Package } from 'lucide-react';
 import { Badge } from './Badge';
-import type { ProductType, RawCondition, GradingCompany } from '@/types/contract';
+import type { ProductType, RawCondition, GradingCompany, SealedSubtype } from '@/types/contract';
 
 export interface ConditionBadgeProps {
   productType: ProductType;
   rawCondition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
+  /** en contenedores muy estrechos colapsa el texto a la pill "NM" (aria-label completo) */
+  compact?: boolean;
 }
 
-/** Badge de condición/grado derivado de productType (DESIGN_SYSTEM §7.1). */
-export function ConditionBadge({ productType, rawCondition, gradingCompany, gradeValue }: ConditionBadgeProps) {
+/**
+ * Badge de condición/grado/tipo (DESIGN_SYSTEM §7.2b, v1.1).
+ * - raw: SOLO NM → "Casi nueva (NM)" / "Near Mint (NM)", tono success suave,
+ *   descripción del estándar en tooltip (`title`) + `aria-label`, badge focuseable.
+ * - graded: PSA 10 / CGC 9.5 (accent).
+ * - sealed: "Sellado / Sealed" (info) + subtipo (badge secundario).
+ */
+export function ConditionBadge({
+  productType,
+  rawCondition,
+  sealedSubtype,
+  gradingCompany,
+  gradeValue,
+  compact,
+}: ConditionBadgeProps) {
+  const t = useTranslations();
+
   if (productType === 'graded') {
     return (
       <Badge tone="accent" shape="soft" icon={<ShieldCheck size={13} aria-hidden />}>
@@ -20,17 +39,36 @@ export function ConditionBadge({ productType, rawCondition, gradingCompany, grad
       </Badge>
     );
   }
+
   if (productType === 'sealed') {
     return (
-      <Badge tone="info" shape="soft">
-        Sealed
-      </Badge>
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <Badge tone="info" shape="soft" icon={<Package size={13} aria-hidden />}>
+          {t('card.productType.sealed')}
+        </Badge>
+        {sealedSubtype && (
+          <Badge tone="neutral" shape="soft">
+            {t(`status.sealedSubtype.${sealedSubtype}`)}
+          </Badge>
+        )}
+      </span>
     );
   }
-  const tone = rawCondition === 'DMG' || rawCondition === 'HP' ? 'warning' : 'neutral';
+
+  // raw → único valor NM (v1.1). Nombre legible + descripción del estándar.
+  const label = t('catalog.condition.nm.label');
+  const desc = t('catalog.condition.nm.desc');
+  const ariaLabel = `${t('card.condition')}: ${label}. ${desc}`;
   return (
-    <Badge tone={tone} shape="outline">
-      {rawCondition}
+    <Badge
+      tone="success"
+      shape="soft"
+      icon={<ShieldCheck size={13} aria-hidden />}
+      tabIndex={0}
+      title={`${label} — ${desc}`}
+      aria-label={ariaLabel}
+    >
+      {compact ? 'NM' : label}
     </Badge>
   );
 }

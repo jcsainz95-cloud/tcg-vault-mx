@@ -16,6 +16,7 @@ import { Banner } from '@/components/ui/Banner';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { Button } from '@/components/ui/Button';
+import { PortfolioTrendChart, PortfolioSparkline } from '@/components/domain/PortfolioTrendChart';
 
 export function VaultView() {
   const t = useTranslations('vault');
@@ -62,7 +63,9 @@ export function VaultView() {
                   label={t('portfolioValue')}
                   value={formatMoneyCents(query.data.portfolio.totalValueMxnCents, locale)}
                   sub={
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-2">
+                      {/* Sparkline opcional del valor total (§7.8/§7.17) */}
+                      <PortfolioSparkline />
                       <span>{t('portfolioHint')}</span>
                       {query.data.portfolio.pendingPriceCount > 0 && (
                         <span className="text-warning">
@@ -77,6 +80,11 @@ export function VaultView() {
                   <Banner variant="trust">{t('trustBanner')}</Banner>
                 </div>
               </div>
+
+              {/* Gráfica de tendencia estilo acciones (§7.17) */}
+              <PortfolioTrendChart
+                currentValueFallbackCents={query.data.portfolio.totalValueMxnCents}
+              />
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {query.data.data.map((h) => {
@@ -98,8 +106,10 @@ export function VaultView() {
                           <ConditionBadge
                             productType={h.productType}
                             rawCondition={h.rawCondition}
+                            sealedSubtype={h.sealedSubtype}
                             gradingCompany={h.gradingCompany}
                             gradeValue={h.gradeValue}
+                            compact
                           />
                           <StatusBadge domain="ownership" value={h.ownershipStatus} />
                         </div>

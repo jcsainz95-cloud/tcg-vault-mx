@@ -24,7 +24,8 @@
     "total": "Total"
   },
   "nav": {
-    "catalog": "Catálogo",
+    "catalog": "Compra",
+    "shop": "Compra",
     "buylist": "Vender (Buylist)",
     "vault": "Mi bóveda",
     "orders": "Mis órdenes",
@@ -39,14 +40,15 @@
   "home": {
     "heroTitle": "Compra cartas Pokémon con precio real y guárdalas en la bóveda",
     "heroSubtitle": "Autenticadas, con condición garantizada. Acumula tu colección y pide el envío cuando quieras.",
-    "ctaCatalog": "Explorar catálogo",
+    "ctaCatalog": "Ir a Compra",
     "ctaBuylist": "Vender mis cartas",
     "trustAuth": "Cada carta se autentica al ingresar",
     "trustCustody": "Custodia asegurada, sin envíos innecesarios",
     "trustPrice": "Valor de mercado transparente en MXN"
   },
   "catalog": {
-    "title": "Catálogo",
+    "title": "Compra",
+    "subtitle": "Nuestro inventario publicado a la venta. Solo listamos lo que tiene precio.",
     "resultsCount": "{count, plural, =0 {Ninguna carta} one {# carta} other {# cartas}}",
     "filterSet": "Set",
     "filterRarity": "Rareza",
@@ -59,10 +61,60 @@
     "buyNow": "Comprar",
     "marketValue": "Valor de mercado",
     "salePrice": "Precio de venta",
-    "notForSale": "No disponible"
+    "notForSale": "No disponible",
+    "condition": {
+      "nm": {
+        "label": "Casi nueva (NM)",
+        "desc": "Como nueva; a lo mucho imperfecciones mínimas. Bordes limpios y superficie sin rayones notorios."
+      }
+    }
+  },
+  "shop": {
+    "filtersTitle": "Filtros",
+    "openFilters": "Filtros",
+    "applyFilters": "Ver {count, plural, =0 {resultados} one {# resultado} other {# resultados}}",
+    "sortLabel": "Ordenar",
+    "sort": {
+      "newest": "Novedades",
+      "price_asc": "Precio: menor a mayor",
+      "price_desc": "Precio: mayor a menor"
+    },
+    "rarity": {
+      "label": "Rareza",
+      "search": "Buscar rareza…",
+      "count": "Rareza · {count}",
+      "seeAll": "Ver todas",
+      "noMatches": "Sin coincidencias",
+      "groups": {
+        "standard": "Comunes / estándar",
+        "ultra": "Ultra / EX+",
+        "illustration": "Ilustración / Arte",
+        "special": "Especiales",
+        "other": "Otras"
+      }
+    },
+    "set": {
+      "label": "Set",
+      "search": "Buscar set…",
+      "any": "Todos los sets"
+    },
+    "type": {
+      "label": "Tipo de producto",
+      "all": "Todo",
+      "raw": "Raw (NM)",
+      "graded": "Graded",
+      "sealed": "Sellado",
+      "rawSublabel": "Casi nueva (NM)",
+      "subtypeLabel": "Subtipo de sellado"
+    },
+    "price": {
+      "label": "Precio",
+      "min": "Mínimo",
+      "max": "Máximo"
+    }
   },
   "card": {
-    "backToCatalog": "Catálogo",
+    "backToCatalog": "Compra",
     "condition": "Condición",
     "grade": "Grado",
     "type": "Tipo",
@@ -115,14 +167,47 @@
     "portfolioHint": "Valuado al valor de referencia de mercado (MXN, refresco diario).",
     "pendingPrice": "{count, plural, =0 {sin cartas} one {# carta} other {# cartas}} con precio pendiente (excluidas del total)",
     "emptyTitle": "Aún no tienes cartas en tu bóveda",
-    "emptyBody": "Explora el catálogo y empieza tu colección.",
-    "emptyCta": "Explorar catálogo",
+    "emptyBody": "Explora la sección de Compra y empieza tu colección.",
+    "emptyCta": "Ir a Compra",
     "trustBanner": "Tus cartas están autenticadas y aseguradas en custodia. Solo se envían cuando tú lo pides.",
     "withdraw": "Retirar",
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo se pueden retirar cartas liquidadas (settled).",
     "folio": "Folio",
     "selectToWithdraw": "Seleccionar para retiro"
+  },
+  "portfolio": {
+    "trend": {
+      "title": "Tendencia del portafolio",
+      "valueLabel": "Valor actual",
+      "noChange": "Sin cambios",
+      "up": "subió",
+      "down": "bajó",
+      "flat": "sin cambios",
+      "ranges": {
+        "5d": "5d",
+        "15d": "15d",
+        "1m": "1m",
+        "3m": "3m",
+        "6m": "6m",
+        "1y": "1a",
+        "ytd": "YTD",
+        "all": "Máx"
+      },
+      "rangesAria": "Rango de tiempo",
+      "collectingTitle": "Estamos recopilando datos",
+      "collectingBody": "Tu tendencia aparecerá cuando tengamos al menos un par de días de historia.",
+      "fewPoints": "Pocos datos en este rango",
+      "estimated": "Estimado",
+      "costBasis": "Costo base",
+      "value": "Valor",
+      "errorTitle": "No se pudo cargar la tendencia",
+      "summary": "Portafolio en el rango: inicio {start} el {startDate}, cierre {end} el {endDate}. {dir} {abs}{pct}.",
+      "summaryNoData": "Aún no hay historial de portafolio para mostrar una tendencia.",
+      "viewTable": "Ver como tabla",
+      "tableDate": "Fecha",
+      "tableValue": "Valor"
+    }
   },
   "shipments": {
     "title": "Retiro / envío",
@@ -166,7 +251,10 @@
     "noRequests": "Aún no tienes solicitudes de venta.",
     "kycNotice": "Para crear la solicitud necesitarás iniciar sesión y registrar tu CLABE (a tu nombre). Si superas el tope se pedirá tu INE.",
     "limitPerRequest": "Tope por solicitud",
-    "limitPerMonth": "Tope mensual"
+    "limitPerMonth": "Tope mensual",
+    "conditionFixedNm": "Condición: Near Mint (NM) fija",
+    "nmOnlyTitle": "Solo compramos en Near Mint (NM)",
+    "nmOnlyBody": "Si al recibir y verificar la carta no está en NM, no se compra: se devuelve (a tu costo, 7 días) o se considera abandonada a los 30 días."
   },
   "safeShipping": {
     "title": "Guía de envío seguro",
@@ -221,7 +309,12 @@
     "toRegister": "¿No tienes cuenta? Regístrate",
     "toLogin": "¿Ya tienes cuenta? Inicia sesión",
     "loading": "Procesando…",
-    "mockNotice": "Autenticación pendiente de backend: el envío simula el flujo y guarda una sesión local."
+    "mockNotice": "Autenticación pendiente de backend: el envío simula el flujo y guarda una sesión local.",
+    "dividerOr": "o",
+    "google": {
+      "cta": "Continuar con Google",
+      "connecting": "Conectando…"
+    }
   },
   "admin": {
     "shellTitle": "Back-office",
@@ -288,6 +381,9 @@
       "status": "Estado",
       "listPrice": "Precio venta",
       "reference": "Referencia",
+      "sealedSubtype": "Subtipo de sellado",
+      "conditionNm": "Condición: Near Mint (NM) fija",
+      "listPriceRequired": "Precio de venta (MXN) — obligatorio para publicar sellado",
       "costHint": "Costo aportación = referencia del día × {pct}%",
       "table": {
         "folio": "Folio",
@@ -382,6 +478,13 @@
       "convertida_inventario": "En inventario"
     },
     "price": { "pending": "Precio pendiente", "priced": "Con precio" },
+    "sealedSubtype": {
+      "box": "Booster Box",
+      "etb": "ETB",
+      "bundle": "Bundle",
+      "tin": "Tin",
+      "blister": "Blister"
+    },
     "dispute": {
       "abierta": "Abierta",
       "en_revision": "En revisión",
@@ -430,6 +533,8 @@
     "USER_BLOCKED": "Tu cuenta está bloqueada.",
     "BILLING_PROFILE_REQUIRED": "Necesitas un perfil de facturación.",
     "DISPUTE_WINDOW_CLOSED": "La ventana para disputas ya cerró.",
-    "NOT_RAW": "Solo se disputan cartas raw."
+    "NOT_RAW": "Solo se disputan cartas raw.",
+    "GOOGLE_TOKEN_INVALID": "No pudimos validar tu sesión de Google. Intenta de nuevo.",
+    "GOOGLE_EMAIL_UNVERIFIED": "Tu correo de Google no está verificado; usa otro método o verifica tu correo."
   }
 }
