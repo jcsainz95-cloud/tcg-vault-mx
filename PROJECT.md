@@ -14,9 +14,17 @@
 > ningún lado — se usa la **imagen de catálogo remota de pokemontcg.io**; se elimina la captura de "fotos
 > verificadas de anverso/reverso" como mecanismo de condición/disputa. **Gradeadas**: el slab es la
 > garantía (empresa + grado + `certNumber`, verificable en la graduadora). **Disputas de condición**: la
-> evidencia se envía **por correo a soporte** (no hay subida de foto en la app). **KYC buylist**: el INE se
-> **verifica en vivo y NO se almacena** su imagen; la **CLABE sigue cifrada en BD**. **Object storage (R2):
-> FUERA del alcance del MVP** (sin bucket, sin subidas de archivos). Ver decisiones 20–25.
+> evidencia se envía **por correo a soporte** (no hay subida de foto en la app). **KYC buylist**: el INE **SÍ
+> se almacena** como **imagen cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default **180**), pedido en
+> el paso de pago del buylist sobre el tope y verificado contra el nombre de la CLABE; la **CLABE sigue cifrada
+> en BD**. **Object storage (R2): DENTRO del alcance del MVP, pero acotado SOLO al INE del buylist** (`kyc_ine`);
+> no hay fotos de producto/inventario ni de disputa. Ver decisiones 20–25.
+> **Corrección v1.2.1 (2026-08-14, aprobada por el humano)**: se **revierte SOLO la parte del INE** de la
+> v1.2 — el **INE del buylist vuelve a almacenarse** (imagen cifrada en **R2** con retención
+> `INE_RETENTION_DAYS`, default 180, como en v1.1) para soporte AML del pago SPEI a particulares, y el
+> **object storage / R2 vuelve al alcance del MVP acotado SOLO al INE** (`kyc_ine`). **Todo lo demás de la
+> v1.2 permanece intacto** (producto sin fotos, gradeadas = empresa+grado+`certNumber`, raw NM sin foto,
+> disputa por correo a soporte, CLABE cifrada en BD).
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -162,9 +170,10 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       para minimizar daños en tránsito y disputas; incluye la **política NM-only** (solo compramos Near Mint).
 - [ ] **Límites anti-fraude/KYC** (defaults configurables en M10): tope por solicitud **MX$3,000** y por
       mes **MX$10,000**; pago solo por SPEI a una cuenta **a nombre del propio usuario**; **INE** requerido
-      cuando se supera el tope. El **INE se verifica en vivo y NO se almacena su imagen** (no hay subida de
-      INE en la app; solo se guarda el resultado de la verificación); la **CLABE se guarda cifrada en BD**.
-      (Ver bandera AML en "Riesgos y banderas para el humano".)
+      cuando se supera el tope. El **INE se pide en el paso de pago del buylist** (sobre el tope), se
+      **verifica contra el nombre de la CLABE** y su **imagen se almacena cifrada en R2 con retención**
+      (`INE_RETENTION_DAYS`, default **180**); la **CLABE se guarda cifrada en BD**.
+      (Ver soporte AML en "Riesgos y banderas para el humano".)
 
 ### F. Back-office / herramienta de administración (M1–M10) — parte central del MVP
 Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una **cola con estados**.
@@ -191,8 +200,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M5 — Buylist**: pipeline `cotizada → recibida → verificación → aprobada → pagada`,
       **decisión carta por carta**, **cola de precio pendiente**, **conversión a inventario en un clic**.
 - [ ] **M6 — Usuarios / KYC ligero**: **ficha 360°** del usuario, **CLABE** (guardada **cifrada en BD**),
-      **INE verificado en vivo** (NO se almacena la imagen; solo el resultado de la verificación), límites,
-      **bloquear**.
+      **INE** (imagen **almacenada cifrada en R2 con retención** `INE_RETENTION_DAYS`, default 180; verificado
+      contra el nombre de la CLABE), límites, **bloquear**.
 - [ ] **M7 — Finanzas**: **P&L** (ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia),
       **valor de inventario a referencia vs costo**, **valor en custodia de clientes**, **IVA cobrado
       registrado** (para conciliación/CFDI), **export CSV**.
@@ -205,9 +214,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M10 — Config y bitácora**: **diales editables sin deploy** + **auditoría global** (quién / qué / cuándo).
       Diales con **valores por defecto** (todos configurables): **markup de precio de venta** (% sobre la
       referencia), tarifa de envío **MX$175**, % de aportación en especie **70%**, IVA **16%**, tope de
-      buylist **MX$3,000/solicitud** y **MX$10,000/mes**, umbral de **INE = el tope**, **tope de reposición
-      por carta** (definido por el dueño), tipo de cambio USD→MXN con colchón, selección de
-      **`PricingProvider`** por tipo de producto.
+      buylist **MX$3,000/solicitud** y **MX$10,000/mes**, umbral de **INE = el tope**, **retención del INE**
+      `INE_RETENTION_DAYS` (default **180**), **tope de reposición por carta** (definido por el dueño), tipo
+      de cambio USD→MXN con colchón, selección de **`PricingProvider`** por tipo de producto.
 - [ ] **Dashboard** con ~8 tarjetas: ganancia del periodo, ventas, cola de trabajo, valor de inventario,
       valor en custodia, buylist del periodo, salud de datos, progreso de lanzamiento.
 - [ ] **Roles del back-office**: súper-admin (todo) y operador de bóveda (M1, M4, M5 hasta verificación;
@@ -277,10 +286,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Grading propio o integración directa con PSA/CGC**.
 - **App móvil nativa** (el panel es web responsive; no hay captura de fotos porque el producto no lleva
   fotos propias).
-- **Object storage / bucket de archivos (p. ej. R2) y subida de archivos**: **fuera del MVP**. No hay
-  fotos de producto (se usa la imagen de catálogo remota de pokemontcg.io), no hay subida de INE (se
-  verifica en vivo, no se almacena) ni de evidencia de disputa (llega por correo a soporte). La **CLABE**
-  no requiere object storage por ser un **número cifrado en BD**, no un archivo.
+- **Object storage / bucket de archivos (p. ej. R2) — uso para fotos de producto y de disputa**: **fuera del
+  MVP**. No hay fotos de producto/inventario (se usa la imagen de catálogo remota de pokemontcg.io) ni subida
+  de evidencia de disputa (llega por correo a soporte). El object storage **sí está dentro del MVP pero
+  acotado SOLO al INE del buylist** (`kyc_ine`, imagen cifrada con retención; ver Restricciones técnicas). La
+  **CLABE** no usa object storage por ser un **número cifrado en BD**, no un archivo.
 - **Timbrado de CFDI con PAC / facturación automática**: en el MVP la factura es **manual por correo**
   (el cliente envía sus datos fiscales); el timbrado automatizado con PAC es fase 2.
 - **Cobro de almacenamiento en bóveda** (derecho genérico declarado en términos, pero no se cobra en MVP).
@@ -318,14 +328,16 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Panel de administración responsive**, operable desde móvil, **sin captura de fotos** (el producto no
   lleva fotos propias).
 - **Sin fotos propias / imagen de catálogo remota**: no se guardan imágenes de producto; la ficha usa la
-  **imagen de catálogo de pokemontcg.io** (URL remota). **Sin object storage / bucket (p. ej. R2) en el
-  MVP**: no hay subida de archivos de ningún tipo. La **CLABE** del buylist **no depende de object storage**
-  por ser un **número cifrado en BD**, no un archivo.
+  **imagen de catálogo de pokemontcg.io** (URL remota). No hay subida de archivos de producto ni de evidencia
+  de disputa. **Object storage / bucket (p. ej. R2): DENTRO del MVP pero acotado SOLO al INE del buylist**
+  (`kyc_ine`, imagen cifrada con retención; ver punto de KYC). La **CLABE** del buylist **no depende de object
+  storage** por ser un **número cifrado en BD**, no un archivo.
 - **Gradeadas (PSA/CGC)**: se persiste **empresa + grado + `certNumber`**; el slab (verificable en la
   graduadora) es la garantía de condición, sin foto propia.
-- **KYC del buylist — INE no almacenado**: el **INE se verifica en vivo** y **NO se almacena su imagen**
-  (solo el resultado/estatus de verificación). La **CLABE sigue guardándose cifrada en la base de datos**
-  (sin cambio). Ver bandera AML en "Riesgos y banderas para el humano".
+- **KYC del buylist — INE almacenado (soporte AML)**: el **INE se pide en el paso de pago del buylist** (sobre
+  el tope) y su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default **180**),
+  **verificada contra el nombre de la CLABE**. La **CLABE sigue guardándose cifrada en la base de datos** (sin
+  cambio). Ver bandera AML en "Riesgos y banderas para el humano".
 - **Política de reembolsos — VENTAS FINALES**: no hay reembolso voluntario tras la compra (en bóveda o
   enviada); aplica a **todos los tipos de producto sin excepción** (raw, sellado y gradeadas). **Dos
   excepciones**: (1) **disputa de condición** por carta **dañada/equivocada** (ventana de **7 días contados
@@ -342,7 +354,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   **soporte@tcgvault.mx** *(SUPUESTO: dirección por confirmar por el humano)*. Debe aparecer en términos/FAQ
   y en el flujo de disputa.
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
-  se guarda **cifrada en BD**; el **INE se verifica en vivo y NO se almacena** su imagen.
+  se guarda **cifrada en BD**; el **INE se almacena cifrado en R2 con retención** (`INE_RETENTION_DAYS`,
+  default 180) y se **verifica contra el nombre de la CLABE**.
 - **Condición del raw — solo Near Mint (NM)**: el raw se opera **únicamente en NM** en todo el marketplace
   (se eliminan LP/MP/HP/DMG). NM se presenta como **"Casi nueva (Near Mint)"** con descripción del estándar
   propio; gradeadas y sellado no cambian.
@@ -438,9 +451,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     automáticamente hasta que el dueño fija su precio.
 14. El sistema bloquea solicitudes que excedan el **tope por solicitud** (default MX$3,000) o el **tope
     mensual** (default MX$10,000) del usuario, exige **INE** cuando se supera el tope configurado, y solo
-    permite registrar pago SPEI a una CLABE a nombre del propio usuario. El **INE se verifica en vivo y NO se
-    almacena su imagen** (no hay subida de INE en la app; solo se guarda el resultado/estatus de
-    verificación); la **CLABE se guarda cifrada en BD**.
+    permite registrar pago SPEI a una CLABE a nombre del propio usuario. El **INE se pide en el paso de pago
+    del buylist** (sobre el tope), su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`,
+    default 180) y se **verifica contra el nombre de la CLABE**; la **CLABE se guarda cifrada en BD**.
 15. En el pipeline de buylist el dueño puede **aceptar carta por carta** (cherry-pick), ajustar o
     rechazar, y una carta aprobada se **convierte a inventario en un clic**.
 16. Una solicitud de buylist sin respuesta del usuario a un ajuste (o una **carta rechazada por no ser NM**)
@@ -522,11 +535,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **Fiscal — buylist**: comprar cartas a particulares y pagar por SPEI tiene implicaciones fiscales
   (comprobación, retenciones, límites). Validar con contador; los topes por solicitud/mes y el requisito
   de INE son mitigaciones iniciales, no una postura fiscal completa.
-- **AML / KYC — INE no almacenado (v1.2)**: por la simplificación v1.2, el **INE se verifica en vivo y NO se
-  almacena su imagen** (solo el resultado/estatus de verificación). Esto reduce el **soporte documental /
-  control AML** frente a un requerimiento de autoridad o auditoría. **Validar con contador/abogado** si esta
-  modalidad es **aceptable** para el buylist (SPEI a particulares) o si se requiere conservar más evidencia
-  de identidad. La **CLABE se sigue guardando cifrada en BD** (sin cambio).
+- **AML / KYC — INE almacenado (soporte AML)**: el **INE se almacena como imagen cifrada en R2 con retención**
+  (`INE_RETENTION_DAYS`, default 180), pedido en el paso de pago del buylist sobre el tope y verificado contra
+  el nombre de la CLABE. Esto da **soporte documental / control AML** para el pago SPEI a particulares.
+  **Validar con contador/abogado** el **periodo de retención** adecuado, la **base legal de tratamiento** del
+  documento de identidad y las **obligaciones de protección de datos personales** (guarda, acceso y borrado al
+  vencer la retención). La **CLABE se sigue guardando cifrada en BD** (sin cambio).
 - **Fiscal — IVA/CFDI**: cobrar IVA 16% obliga a **emitir CFDI** y a manejar régimen fiscal, RFC del
   cliente y timbrado (PAC). En el MVP la factura es **manual por correo** (el cliente envía sus datos
   fiscales) y solo se **registra el IVA cobrado**; el **timbrado automatizado con PAC es fase 2**. Validar
@@ -603,13 +617,15 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    app). Resolución: **gradeadas** por grado/cert; **raw NM** por el estándar/política. La política de
    **ventas finales** (recompra/compensación, el cliente conserva la carta, no revierte inventario) **no
    cambia** (ver decisión 12). El correo de evidencia se documenta como dato de contacto.
-23. **KYC del buylist** → el **INE se verifica en vivo y NO se almacena** su imagen; solo se guarda el
-   resultado/estatus de verificación. La **CLABE sigue guardándose cifrada en BD** (sin cambio). **Bandera
-   para contador/abogado**: al no almacenar el INE hay **menos control AML/soporte documental**; validar
-   aceptabilidad.
-24. **Object storage / R2 fuera del MVP** → sin bucket y sin subidas de archivos (ni fotos de producto, ni
-   INE, ni evidencia de disputa). La **CLABE nunca dependió de R2** por ser un **número cifrado en BD**, no
-   un archivo.
+23. **KYC del buylist** → el **INE SÍ se almacena** como **imagen cifrada en R2 con retención**
+   (`INE_RETENTION_DAYS`, default 180), pedido en el paso de pago sobre el tope y **verificado contra el nombre
+   de la CLABE** (soporte AML). La **CLABE sigue guardándose cifrada en BD** (sin cambio). **Bandera para
+   contador/abogado**: validar el **periodo de retención** y las obligaciones de protección de datos.
+   *(Revierte la decisión v1.2 de "INE no almacenado", restaurando el comportamiento de v1.1.)*
+24. **Object storage / R2 DENTRO del MVP pero acotado SOLO al INE del buylist** (`kyc_ine`) → hay bucket
+   únicamente para la imagen del INE (cifrada, con retención); **NO** hay fotos de producto/inventario ni de
+   evidencia de disputa. La **CLABE no usa R2** por ser un **número cifrado en BD**, no un archivo.
+   *(Revierte la decisión v1.2 de "R2 fuera del MVP" solo para el INE.)*
 25. **Raw** → sigue operándose **solo en NM** (estándar de condición propio, ahora explícitamente **sin
    foto**).
 
