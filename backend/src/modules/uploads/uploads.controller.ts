@@ -1,12 +1,14 @@
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
-import { IsIn, IsString } from 'class-validator';
+import { IsString } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UploadsService } from './uploads.service';
 
 class PresignDto {
-  @IsIn(['kyc_ine', 'dispute_claim', 'inventory_photo'])
-  purpose!: 'kyc_ine' | 'dispute_claim' | 'inventory_photo';
+  // v1.2: único propósito válido es `kyc_ine`. Se recibe como string libre y el servicio
+  // rechaza cualquier otro valor (incl. `inventory_photo`/`dispute_claim`) con 422 VALIDATION_ERROR
+  // (regla de negocio del contrato §8), no con el 400 del ValidationPipe.
+  @IsString() purpose!: string;
   @IsString() contentType!: string;
 }
 

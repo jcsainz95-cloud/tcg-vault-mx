@@ -669,3 +669,70 @@ inválido → 422).
 
 **Verde (este pase):** `npm run lint && npm run typecheck && npm run build` OK; `npm test` = **155 verdes,
 30 suites** (antes 133; +5 tests nuevos de los fixes, ajustado 1 mock existente).
+
+---
+
+## 16. Simplificación v1.2 / v1.2.1 (2026-08-14) — sin fotos de producto, gradeadas por certificado, uploads solo INE, disputa por correo
+
+> Implementa el contrato/arquitectura **v1.2 / v1.2.1** (changelog + migraciones **M-12/M-13**). Greenfield
+> (sin backfill de datos). Verde: `npm run lint && npm run typecheck && npm test && npm run build` OK;
+> `npm test` = **163 verdes, 32 suites** (antes 155; +2 suites nuevas: `uploads.presign`, `inventory.graded-cert`).
+> **INE/CLABE intactos** (v1.2.1 revierte solo la parte del INE): cifrado PII, retención y `reveal-clabe` sin cambios.
+
+### 16.1 Migración Prisma (`20260814200000_v12_simplification`)
+- **M-12 — `InventoryItem.certNumber`** (`String?`, add column): nº de certificado PSA/CGC. Solo para
+  `productType=graded` (null en raw/sealed). **Requerido a nivel de aplicación** para publicar una gradeada
+  (validación de servicio, no `NOT NULL` en BD). Sin validación automática contra la graduadora.
+- **M-13 — drop de campos de foto** (greenfield, sin datos que migrar):
+  - `InventoryItem.frontPhotoKey` / `backPhotoKey` / `extraPhotoKeys`
+  - `SellRequestItem.photoKeys`
+  - `Dispute.ingressPhotoKeys` / `claimPhotoKeys`
+- **NO tocado:** `KycProfile.ineFrontKey`/`ineBackKey`, columnas `*Enc`/`*Hmac`, retención `INE_RETENTION_DAYS`,
+  `reveal-clabe`. La migración de v1.2 no toca el esquema de INE/CLABE.
+- `schema.prisma` deja **comentarios `// v1.2 (M-13)`** donde estaban los campos, para trazabilidad.
+
+### 16.2 Alta de inventario (`POST /admin/inventory/items`)
+- `CreateItemDto` / `UpdateItemDto`: **eliminados** `frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys`;
+  **añadido** `certNumber?`. La imagen del item es siempre la de **catálogo remota** de la `Card`.
+- **Gradeada exige `certNumber` para publicar:** `validateProductShape` (graded) ahora rechaza con
+  **`422 VALIDATION_ERROR`** si falta `certNumber` (o viene vacío). raw/sealed lo dejan `null`.
+- `ListingDTO` (catalog): **sin** `frontPhotoUrl`/`backPhotoUrl` (se eliminó el helper `photoUrl`); ahora
+  expone `certNumber` para gradeadas. La imagen = `CardDTO.imageSmallUrl`/`imageLargeUrl`.
+- El detalle de bóveda (`GET /vault/holdings/:id`) expone `certNumber` para gradeadas; sin claves de foto.
+
+### 16.3 Uploads/presign acotado a `kyc_ine` (`POST /uploads/presign`)
+- `UploadsService.presign` acepta **solo** `purpose="kyc_ine"`; cualquier otro (incl. `inventory_photo`,
+  `dispute_claim`) → **`422 VALIDATION_ERROR`** (regla de negocio, no el 400 del `ValidationPipe`: el DTO
+  recibe `purpose` como `String` libre y el servicio valida).
+- **Pipeline INE intacto:** presign PUT (bucket **privado** + cifrado), presign GET de vida corta
+  (`presignGet`, usado por back-office M6), retención (`ine-retention` job), `S3_*`, `PII_*` sin cambios.
+
+### 16.4 Disputa por correo (`POST /disputes`, `GET /admin/disputes/:id`)
+- `CreateDisputeDto`: **eliminado** `claimPhotoUploadKeys`. La respuesta 201 ahora incluye
+  **`evidenceContact`** (correo de soporte), además de `type` (`condition_raw|condition_sealed`) y `deadlineAt`.
+- Valor de `evidenceContact` en **`src/modules/disputes/disputes.constants.ts`**:
+  `DISPUTE_EVIDENCE_CONTACT = 'soporte@tcgvault.mx'` (placeholder; overridable por env
+  `DISPUTE_EVIDENCE_CONTACT`). **SUPUESTO por confirmar por el humano** (ver PROJECT.md).
+- `DisputesService` ya **no** depende de `UploadsService` (quitado del constructor y del `DisputesModule`).
+  `adminGet` **sin comparador de fotos**: expone `type`, `deadlineAt`, `evidenceContact` y el item (para
+  gradeadas: `gradingCompany + gradeValue + certNumber`). Se conserva **VENTAS FINALES** y la resolución
+  por grado/`certNumber` (gradeadas) o estándar NM (raw) — sin cambios de negocio.
+
+### 16.5 Tests (ajustados + nuevos)
+- **Nuevos:** `test/inventory.graded-cert.spec.ts` (gradeada sin `certNumber` → 422; con `certNumber`
+  persiste y no guarda claves de foto), `test/uploads.presign.spec.ts` (`kyc_ine` acepta; `inventory_photo`/
+  `dispute_claim`/otros → 422).
+- **Ajustados:** `test/disputes.create-type.spec.ts` (respuesta incluye `evidenceContact`; no persiste claves
+  de foto), `test/disputes.presign.spec.ts` (reescrito: adminGet sin fotos, expone `evidenceContact`),
+  `test/disputes.repurchase.spec.ts` (constructor sin `UploadsService`), `test/catalog.spec.ts` (mock de item
+  sin claves de foto, con `certNumber`), `test/integration/infra-smoke.e2e-spec.ts` (presign usa `kyc_ine`).
+
+### 16.6 Env para **devops** (no edité `.env.example`)
+- **`DISPUTE_EVIDENCE_CONTACT`** (opcional): correo de soporte para evidencia de disputa. Default
+  `soporte@tcgvault.mx`. Añadir a `.env.example` cuando el humano confirme la dirección real.
+
+### 16.7 Nota de coherencia con el contrato
+- El contrato (§M1) lista `graded sin certNumber` explícitamente como **`422 VALIDATION_ERROR`** en el alta,
+  por lo que implementé el `certNumber` como **requisito duro en el alta** de gradeadas (no como "creable pero
+  no vendible"). Coincide con el test "gradeada sin certNumber no se publica". **Sin discrepancias abiertas**
+  con el contrato en este pase.

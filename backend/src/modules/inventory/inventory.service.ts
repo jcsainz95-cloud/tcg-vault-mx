@@ -70,11 +70,10 @@ export class InventoryService {
         sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
         gradingCompany: dto.productType === 'graded' ? dto.gradingCompany : null,
         gradeValue: dto.productType === 'graded' ? dto.gradeValue : null,
+        // v1.2 (M-12): certNumber solo para graded; null en raw/sealed.
+        certNumber: dto.productType === 'graded' ? dto.certNumber : null,
         listPriceCents: dto.listPriceCents ?? null,
         locationId: dto.locationId,
-        frontPhotoKey: dto.frontPhotoKey,
-        backPhotoKey: dto.backPhotoKey,
-        extraPhotoKeys: dto.extraPhotoKeys ?? undefined,
         ownerType: 'platform',
         status: 'in_stock',
         acquisitionType: dto.acquisitionType,
@@ -125,6 +124,13 @@ export class InventoryService {
         throw BusinessException.validation(
           'VALIDATION_ERROR',
           'graded items require gradingCompany and gradeValue',
+        );
+      }
+      // v1.2 (M-12): certNumber (nº de certificado PSA/CGC) requerido para publicar una gradeada.
+      if (!dto.certNumber || dto.certNumber.trim() === '') {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'graded items require certNumber to be published',
         );
       }
       if (dto.rawCondition || dto.sealedSubtype) {

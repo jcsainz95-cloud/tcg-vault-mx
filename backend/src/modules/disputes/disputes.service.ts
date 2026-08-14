@@ -3,35 +3,26 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { StripeService } from '../payments/stripe.service';
-import { UploadsService } from '../uploads/uploads.service';
+import { DISPUTE_EVIDENCE_CONTACT } from './disputes.constants';
 
 @Injectable()
 export class DisputesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
-    private readonly uploads: UploadsService,
   ) {}
 
   /**
-   * SEC-A5: las fotos de disputa e INGRESO (evidencia canónica) pueden contener PII /
-   * identificar al cliente; NO se sirven por URL pública del bucket. Se genera una URL
-   * prefirmada de LECTURA de vida corta (bucket privado, garantizado por devops).
+   * Crea disputa de condición (raw o sellado). Ventana = 7 días desde entrega. API_CONTRACT §7.
+   * v1.2: la evidencia se envía POR CORREO a soporte (evidenceContact); no hay subida de fotos.
+   * El graded no aplica (el slab es la garantía) → NOT_RAW.
    */
-  private photoUrl(key: string): Promise<string> {
-    return this.uploads.presignGet(key);
-  }
-
-  /**
-   * Crea disputa de condición raw. Ventana = 7 días desde entrega. API_CONTRACT §7.
-   * Solo raw. Las fotos de ingreso son evidencia canónica.
-   */
-  async create(userId: string, inventoryItemId: string, description: string, claimKeys: string[]) {
+  async create(userId: string, inventoryItemId: string, description: string) {
     const item = await this.prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } });
     if (!item || item.ownerUserId !== userId) throw BusinessException.forbidden('FORBIDDEN');
-    // v1.1: la disputa de condición aplica a raw (carta dañada/equivocada) y a SELLADO
-    // (caja dañada/equivocada; evidencia = foto de la caja al ingreso, ARCHITECTURE §3.6).
-    // El graded no aplica (no hay condición NM que comparar) → NOT_RAW.
+    // v1.2: la disputa de condición aplica a raw (carta dañada/equivocada) y a SELLADO
+    // (caja dañada/equivocada). La evidencia va por correo a soporte (ARCHITECTURE §3.6).
+    // El graded no aplica (el slab es la garantía) → NOT_RAW.
     if (item.productType === 'graded') {
       throw BusinessException.validation('NOT_RAW', 'Disputes apply only to raw/sealed items');
     }
@@ -54,26 +45,25 @@ export class DisputesService {
       ? new Date(deliveredAt.getTime() + 7 * 24 * 3600 * 1000)
       : new Date(now.getTime() + 7 * 24 * 3600 * 1000);
 
-    const ingressPhotoKeys = [item.frontPhotoKey, item.backPhotoKey].filter(Boolean) as string[];
     const dispute = await this.prisma.dispute.create({
       data: {
         userId,
         inventoryItemId,
         type: disputeType,
         status: 'abierta',
-        ingressPhotoKeys,
-        claimPhotoKeys: claimKeys,
         description,
         deadlineAt,
       },
     });
     // API_CONTRACT §7: la respuesta 201 incluye `type` (condition_raw|condition_sealed),
-    // derivado server-side del productType del item.
+    // derivado server-side del productType del item, y `evidenceContact` (correo de soporte
+    // donde el cliente envía la evidencia; v1.2, ya no hay subida de foto).
     return {
       disputeId: dispute.id,
       status: dispute.status,
       type: dispute.type,
       deadlineAt: dispute.deadlineAt,
+      evidenceContact: DISPUTE_EVIDENCE_CONTACT,
     };
   }
 
@@ -108,25 +98,25 @@ export class DisputesService {
     return { data, page, pageSize, total };
   }
 
-  /** Comparador de fotos: ingreso vs reclamo. API_CONTRACT §M8. */
+  /**
+   * Detalle admin de disputa. API_CONTRACT §M8.
+   * v1.2: SIN comparador de fotos — la evidencia llega por correo a soporte (evidenceContact).
+   * Para gradeadas el detalle expone gradingCompany + gradeValue + certNumber (verificable en
+   * la graduadora); la imagen del item es la de catálogo remota.
+   */
   async adminGet(id: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id },
       include: { inventoryItem: { include: { card: true } } },
     });
     if (!dispute) throw BusinessException.notFound();
-    const ingressPhotoUrls = await Promise.all(
-      ((dispute.ingressPhotoKeys as string[] | null) ?? []).map((k) => this.photoUrl(k)),
-    );
-    const claimPhotoUrls = await Promise.all(
-      ((dispute.claimPhotoKeys as string[] | null) ?? []).map((k) => this.photoUrl(k)),
-    );
     return {
       id: dispute.id,
       status: dispute.status,
       description: dispute.description,
-      ingressPhotoUrls,
-      claimPhotoUrls,
+      type: dispute.type,
+      deadlineAt: dispute.deadlineAt,
+      evidenceContact: DISPUTE_EVIDENCE_CONTACT,
       item: dispute.inventoryItem,
       order: null,
     };

@@ -22,10 +22,10 @@ export class CreateItemDto {
   @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
   @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
   @IsOptional() @IsString() gradeValue?: string;
+  // v1.2 (M-12): nº de certificado PSA/CGC. Requerido para publicar una gradeada.
+  @IsOptional() @IsString() certNumber?: string;
   @IsOptional() @IsString() locationId?: string;
-  @IsOptional() @IsString() frontPhotoKey?: string;
-  @IsOptional() @IsString() backPhotoKey?: string;
-  @IsOptional() extraPhotoKeys?: string[];
+  // v1.2 (M-13): sin fotos de producto (frontPhotoKey/backPhotoKey/extraPhotoKeys eliminados).
   @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
   @IsOptional() @IsInt() @Min(0) acquisitionCostCents?: number;
@@ -35,9 +35,9 @@ export class CreateItemDto {
 }
 
 export class UpdateItemDto {
-  @IsOptional() @IsString() frontPhotoKey?: string;
-  @IsOptional() @IsString() backPhotoKey?: string;
-  @IsOptional() extraPhotoKeys?: string[];
+  // v1.2 (M-13): sin fotos de producto. v1.2 (M-12): certNumber editable.
+  @IsOptional() @IsString() certNumber?: string;
+  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
   @IsOptional() @IsString() gradeValue?: string;
   @IsOptional() @IsInt() @Min(0) listPriceCents?: number;
   @IsOptional() @IsIn(['in_stock', 'listed']) status?: 'in_stock' | 'listed';

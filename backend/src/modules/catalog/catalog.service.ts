@@ -109,18 +109,13 @@ export class CatalogService {
       sealedSubtype: item.sealedSubtype ?? undefined,
       gradingCompany: item.gradingCompany ?? undefined,
       gradeValue: item.gradeValue ?? undefined,
+      // v1.2 (M-12): nº de certificado PSA/CGC (verificable en la graduadora); null en raw/sealed.
+      certNumber: item.certNumber ?? undefined,
       referenceValue,
       salePriceCents,
       sellable,
-      frontPhotoUrl: this.photoUrl(item.frontPhotoKey),
-      backPhotoUrl: this.photoUrl(item.backPhotoKey),
+      // v1.2 (M-13): sin fotos propias — la imagen es la de catálogo remota (CardDTO.imageSmallUrl/Large).
     };
-  }
-
-  private photoUrl(key?: string | null): string | undefined {
-    if (!key) return undefined;
-    const base = process.env.S3_PUBLIC_BASE_URL ?? '';
-    return `${base}/${key}`;
   }
 
   /**

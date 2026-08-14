@@ -101,9 +101,10 @@ describe('E2E — Infraestructura real (Postgres / Redis / MinIO)', () => {
 
   it('MinIO/S3: presign + PUT real de un objeto (o se salta si no está disponible)', async () => {
     const token = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+    // v1.2: el único propósito de upload válido es `kyc_ine` (INE del buylist).
     const presign = await h.api('POST', '/uploads/presign', {
       token,
-      json: { purpose: 'inventory_photo', contentType: 'image/png' },
+      json: { purpose: 'kyc_ine', contentType: 'image/png' },
     });
     expect(presign.status).toBe(200);
     expect(typeof presign.body.uploadUrl).toBe('string');

@@ -1,7 +1,6 @@
 import { DisputesService } from '../src/modules/disputes/disputes.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
-import { UploadsService } from '../src/modules/uploads/uploads.service';
 
 /**
  * Fix 3 (POLÍTICA DEL HUMANO — VENTAS FINALES): la recompra (repurchase) es una COMPENSACIÓN
@@ -23,11 +22,7 @@ describe('DisputesService.resolve — repurchase NO revierte la carta al inventa
       inventoryMovement: { create: jest.fn() },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
-    service = new DisputesService(
-      prisma as PrismaService,
-      {} as StripeService,
-      {} as UploadsService,
-    );
+    service = new DisputesService(prisma as PrismaService, {} as StripeService);
   });
 
   it('marks resuelta_recompra WITHOUT reverting the item or creating a movement', async () => {

@@ -8,8 +8,11 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'crypto';
+import { BusinessException } from '../../common/business.exception';
 
-type UploadPurpose = 'kyc_ine' | 'dispute_claim' | 'inventory_photo';
+// v1.2: object storage acotado SOLO al INE del buylist. `inventory_photo`/`dispute_claim`
+// quedan eliminados (producto sin fotos propias; evidencia de disputa por correo a soporte).
+type UploadPurpose = 'kyc_ine';
 
 /**
  * UploadsService — Presign de object storage (S3/MinIO). API_CONTRACT §8.
@@ -36,10 +39,18 @@ export class UploadsService {
     return this.client;
   }
 
-  async presign(purpose: UploadPurpose, contentType: string) {
+  async presign(purpose: string, contentType: string) {
+    // v1.2: SOLO se admite `kyc_ine`. Cualquier otro propósito → 422 VALIDATION_ERROR.
+    if (purpose !== 'kyc_ine') {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'Only purpose="kyc_ine" is supported for uploads',
+      );
+    }
+    const validPurpose: UploadPurpose = purpose;
     const bucket = this.config.get<string>('S3_BUCKET') ?? 'tcg-photos';
     const ext = contentType.split('/')[1] ?? 'bin';
-    const uploadKey = `${purpose}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
+    const uploadKey = `${validPurpose}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
     const command = new PutObjectCommand({ Bucket: bucket, Key: uploadKey, ContentType: contentType });
     const uploadUrl = await getSignedUrl(this.s3, command, { expiresIn: 900 });
     return {

@@ -350,9 +350,11 @@ model InventoryItem {
   sealedSubtype  SealedSubtype?
   gradingCompany GradingCompany?
   gradeValue     String?
-  frontPhotoKey  String?
-  backPhotoKey   String?
-  extraPhotoKeys Json?
+  // v1.2 (M-12): nº de certificado PSA/CGC (solo productType=graded; null para raw/sealed).
+  // Requerido a nivel de APLICACIÓN para publicar una gradeada; no NOT NULL en BD.
+  // v1.2 (M-13): eliminados frontPhotoKey/backPhotoKey/extraPhotoKeys (producto sin fotos propias;
+  // la imagen es la de catálogo remota de pokemontcg.io).
+  certNumber     String?
   locationId     String?
   location       VaultLocation?  @relation(fields: [locationId], references: [id])
   ownerType      OwnerType       @default(platform)
@@ -571,7 +573,7 @@ model SellRequestItem {
   approvedPriceCents Int?
   itemStatus      SellItemStatus  @default(cotizada)
   inventoryItemId String?
-  photoKeys       Json?
+  // v1.2 (M-13): eliminado photoKeys (buylist sin fotos de carta; verificación NM contra la física).
 
   @@index([sellRequestId])
 }
@@ -587,8 +589,7 @@ model Dispute {
   orderItemId      String?
   type             String        @default("condition_raw")
   status           DisputeStatus @default(abierta)
-  ingressPhotoKeys Json?
-  claimPhotoKeys   Json?
+  // v1.2 (M-13): eliminados ingressPhotoKeys/claimPhotoKeys (evidencia por correo a soporte).
   description      String
   resolution       String?
   repurchaseOrderId String?

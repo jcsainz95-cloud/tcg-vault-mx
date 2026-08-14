@@ -155,11 +155,12 @@ export class VaultService {
       rawCondition: item.rawCondition ?? undefined,
       gradingCompany: item.gradingCompany ?? undefined,
       gradeValue: item.gradeValue ?? undefined,
+      // v1.2 (M-12): nº de certificado PSA/CGC para gradeadas; v1.2 (M-13): sin fotos propias
+      // (la imagen es la de catálogo remota de pokemontcg.io, en CardDTO).
+      certNumber: item.certNumber ?? undefined,
       ownershipStatus: item.ownershipStatus,
       status: item.status,
       referenceValue,
-      frontPhotoKey: item.frontPhotoKey,
-      backPhotoKey: item.backPhotoKey,
       movements: item.movements,
     };
   }

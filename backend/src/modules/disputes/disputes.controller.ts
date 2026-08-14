@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
-import { ArrayNotEmpty, IsArray, IsIn, IsString } from 'class-validator';
+import { IsIn, IsString } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -10,7 +10,7 @@ import { BusinessException } from '../../common/business.exception';
 class CreateDisputeDto {
   @IsString() inventoryItemId!: string;
   @IsString() description!: string;
-  @IsArray() @ArrayNotEmpty() @IsString({ each: true }) claimPhotoUploadKeys!: string[];
+  // v1.2: SIN claimPhotoUploadKeys — la evidencia se envía por correo a soporte (evidenceContact).
 }
 
 class ResolveDisputeDto {
@@ -26,7 +26,7 @@ export class DisputesController {
   @Post()
   @HttpCode(201)
   create(@CurrentUser('id') userId: string, @Body() dto: CreateDisputeDto) {
-    return this.disputes.create(userId, dto.inventoryItemId, dto.description, dto.claimPhotoUploadKeys);
+    return this.disputes.create(userId, dto.inventoryItemId, dto.description);
   }
 
   @Get()
