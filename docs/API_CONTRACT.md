@@ -2,7 +2,13 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-13.
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.1).
+>
+> **Changelog v1.1 (2026-08-14):** `RawCondition` reducido a `NM` (migración); `GET /catalog/cards`
+> devuelve solo inventario **publicado con precio** (nunca "precio pendiente" al comprador) + nuevo
+> `GET /catalog/facets` (facetas dinámicas) y `GET /catalog/sets` con `year`; sellado como línea de venta
+> (`sealedSubtype`, precio manual MXN); `POST /auth/google`; `GET /vault/portfolio/history`; endpoints admin
+> de **sync de catálogo** (M2); AcquisitionPricer con rarezas modernas. Ver ARCHITECTURE §11 (migraciones).
 
 ## 0. Convenciones generales
 
@@ -25,7 +31,9 @@
 Role                = customer | vault_operator | super_admin
 Locale              = es | en
 ProductType         = graded | sealed | raw
-RawCondition        = NM | LP | MP | HP | DMG
+RawCondition        = NM                                 // v1.1: ÚNICO valor (se eliminan LP|MP|HP|DMG). Migración.
+SealedSubtype       = box | etb | bundle | tin | blister // v1.1: subtipo opcional del sellado
+AuthProvider        = local | google                     // v1.1: proveedor de autenticación del User
 GradingCompany      = PSA | CGC
 OwnerType           = platform | customer
 OwnershipStatus     = pending | settled
@@ -53,9 +61,15 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 CardDTO      = { id, externalId, name, number, rarity, supertype, subtypes: string[],
                  setId, setName, imageSmallUrl, imageLargeUrl }
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
-ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, gradingCompany?, gradeValue?,
+// rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
+// ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
+// sealedSubtype solo aplica a productType=sealed (opcional). El sellado NO lleva rawCondition/grade/rareza.
+ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sealedSubtype?,
+                 gradingCompany?, gradeValue?,
                  referenceValue: PriceInfo, salePriceCents?: number, sellable: boolean,
                  frontPhotoUrl?, backPhotoUrl? }
+// Punto de la serie de tendencia del portafolio (gráfica estilo acciones). estimated? = punto de backfill indicativo.
+PortfolioPointDTO = { date: string, valueMxnCents: number, costBasisMxnCents?: number, estimated?: boolean }
 // Desglose del checkout. base = subtotal + iva se recibe íntegro; el fee es gross-up de la comisión Stripe.
 // "SIN IVA" = el fee NO agrega una línea de IVA de PRODUCTO (no se vuelve a gravar la venta). Internamente
 // el gross-up SÍ cubre el IVA que Stripe MX cobra sobre SU comisión (dial stripe_fee_iva_pct, ver ARCHITECTURE §5.1).
@@ -74,6 +88,18 @@ Err: `409 EMAIL_TAKEN`, `400 VALIDATION_ERROR`.
 
 ### POST /api/v1/auth/login — `public`
 Req: `{ email, password }` → Res `200`: `{ user, accessToken, refreshToken }`. Err: `401 INVALID_CREDENTIALS`, `403 USER_BLOCKED`.
+Nota: una cuenta creada solo con Google tiene `passwordHash=null`; este endpoint la rechaza con `401 INVALID_CREDENTIALS` (no revela que es cuenta Google) hasta que el usuario fije contraseña.
+
+### POST /api/v1/auth/google — `public`  (v1.1)
+Login/registro con **ID token de Google** (Google Identity Services en el front con `NEXT_PUBLIC_GOOGLE_CLIENT_ID`). El backend **verifica el ID token server-side** (firma JWKS, `aud=GOOGLE_CLIENT_ID`, `iss` de Google, `exp`, `email_verified=true`) antes de emitir sus JWT. El `role` se asigna **server-side** (siempre `customer` para altas nuevas); **nunca** se lee del token.
+Req: `{ idToken: string }`
+Res `200`: `{ user, accessToken, refreshToken }` — **mismo shape que `/auth/login`**.
+Comportamiento: busca por `googleId`; si no, enlaza por **email verificado** a una cuenta `local` existente (account-linking); si no existe, crea `User` (`authProvider=google`, `emailVerified=true`, `passwordHash=null`, `role=customer`).
+Err:
+- `401 GOOGLE_TOKEN_INVALID` (firma/`aud`/`iss`/`exp` inválidos)
+- `403 GOOGLE_EMAIL_UNVERIFIED` (`email_verified != true` en el token → no se crea ni enlaza)
+- `403 USER_BLOCKED` (cuenta existente bloqueada)
+Nota: el login Google **no exime KYC** — la buylist sigue exigiendo CLABE/INE a nombre del usuario (§6/M6).
 
 ### POST /api/v1/auth/refresh — `public` (con refresh token)
 Req: `{ refreshToken }` → Res `200`: `{ accessToken, refreshToken }`. Err: `401`.
@@ -82,7 +108,8 @@ Req: `{ refreshToken }` → Res `200`: `{ accessToken, refreshToken }`. Err: `40
 Res `204`.
 
 ### GET /api/v1/users/me — `customer+`
-Res `200`: `{ id, email, name, phone, role, locale, kycStatus, status }`.
+Res `200`: `{ id, email, name, phone, role, locale, kycStatus, status, authProvider, emailVerified, avatarUrl? }`.
+(`authProvider`/`emailVerified`/`avatarUrl` añadidos en v1.1; el front puede ocultar "cambiar contraseña" cuando `authProvider=google` y aún no hay contraseña.)
 
 ### PATCH /api/v1/users/me — `customer+`
 Req: `{ name?, phone?, locale? }` → Res `200`: user.
@@ -105,21 +132,43 @@ Req: `{ name?, phone?, locale? }` → Res `200`: user.
 
 ## 2. Catálogo y precios
 
-### GET /api/v1/catalog/cards — `public`
-Storefront: lista **listings vendibles** (items en bóveda de la plataforma). Solo cartas con precio o marcadas claramente; las "precio pendiente" pueden mostrarse pero **no comprables**.
-Query: `?q=&setId=&rarity=&productType=&condition=&minPriceCents=&maxPriceCents=&page=&pageSize=&sort=`
-Res `200`: `{ data: ListingDTO[], page, pageSize, total }`.
+### GET /api/v1/catalog/cards — `public`  (sección "Compra")
+Storefront **"Compra"**: lista **SOLO inventario publicado CON precio de venta fijado** (`status=listed`, `sellable=true`, `salePriceCents != null`). **Excluye** items `pending`/sin precio/"precio pendiente" — el comprador **nunca** ve "precio pendiente".
+> **Cambio semántico v1.1:** en v1 podían mostrarse pendientes no comprables; en **v1.1 NO se listan**. La ruta **se mantiene** `/catalog/cards` (el rótulo de UI "Compra" lo controla el front); no se renombra para no romper el contrato (decisión en ARCHITECTURE §4.9).
+Query: `?q=&setId=&rarity=&productType=&condition=&minPriceCents=&maxPriceCents=&sealedSubtype=&page=&pageSize=&sort=`
+- `rarity`: valor **tal cual pokemontcg.io** (taxonomía abierta; usar los valores de `GET /catalog/facets`).
+- `productType`: `raw | graded | sealed`. `condition`: para raw solo `NM`.
+- `sort`: `price_asc | price_desc | newest` (opcional).
+Res `200`: `{ data: ListingDTO[], page, pageSize, total }`. Todos los `ListingDTO` devueltos tienen `sellable=true` y `salePriceCents != null`.
+
+### GET /api/v1/catalog/facets — `public`  (v1.1 — facetas dinámicas de "Compra")
+Facetas calculadas **sobre el inventario publicado** (no sobre el catálogo completo), para poblar los filtros de Compra.
+Res `200`:
+```json
+{
+  "rarities": ["Illustration Rare", "Special Illustration Rare", "Common", "..."],
+  "sets": [{ "id": "sv08", "name": "Surging Sparks", "releaseDate": "2024/11/08", "year": 2024 }],
+  "productTypes": ["raw", "graded", "sealed"],
+  "sealedSubtypes": ["box", "etb"],
+  "price": { "minCents": 5000, "maxCents": 4500000, "currency": "MXN" }
+}
+```
+- `rarities`: `distinct` de `Card.rarity` sobre inventario publicado, **espejando pokemontcg.io tal cual** (lista **NO** cerrada).
+- `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**.
+- `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
 
 ### GET /api/v1/catalog/cards/:cardId — `public`
-Res `200`: `{ card: CardDTO, listings: ListingDTO[] }` (varias instancias físicas de la misma carta con distinta condición/grado/precio).
+Res `200`: `{ card: CardDTO, listings: ListingDTO[] }` (instancias físicas publicadas de la misma carta; solo `sellable=true` con precio).
 
 ### GET /api/v1/catalog/listings/:inventoryItemId — `public`
-Res `200`: `ListingDTO`. Err `404`.
+Res `200`: `ListingDTO`. Err `404` (incluye el caso de un item no publicado / sin precio: no es visible en Compra).
 
 ### GET /api/v1/catalog/sets — `public`
-Res `200`: `{ data: [{ id, name, series, releaseDate }] }` (datos en inglés).
+Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de `releaseDate`, v1.1). Devuelve los sets con inventario publicado, ordenados por año desc.
 
-**Nota de precio pendiente:** un `ListingDTO` con `referenceValue.status="pending"` (y sin `salePriceCents` por override) tiene `sellable=false`. Intentar comprarlo devuelve `422 PRICE_PENDING`. El `salePriceCents` visible al cliente es el precio de venta (referencia × (1+markup) u override); `referenceValue` es el valor de mercado informativo.
+**Nota de precio pendiente (v1.1):** un item en "precio pendiente" (`referenceValue.status="pending"` y sin `salePriceCents` por override) **NO aparece en Compra** (`GET /catalog/cards` lo excluye) — el comprador nunca lo ve. El estado "precio pendiente" vive solo en adquisición/buylist/back-office (M2/M5). Si por carrera un item deja de ser vendible entre listar y comprar, el checkout lo bloquea con `422 PRICE_PENDING` / `409 ITEM_UNAVAILABLE`. El `salePriceCents` visible al cliente es el precio de venta (referencia × (1+markup) u override); `referenceValue` es el valor de mercado informativo.
+
+**Sellado (v1.1):** los listings `productType=sealed` llevan `sealedSubtype?` y **precio manual del admin en MXN** (sin `rawCondition`/grade/rareza). Como Compra solo lista lo que tiene precio, el admin **fija el precio antes de publicar**; sin precio, el sellado no aparece.
 
 ---
 
@@ -142,6 +191,25 @@ El valor del portafolio se calcula contra el **valor de referencia** (no el prec
 
 ### GET /api/v1/vault/holdings/:inventoryItemId — `customer`
 Res `200`: holding detallado (incluye fotos de ingreso, movimientos visibles al dueño). Err `403` si no es del usuario.
+
+### GET /api/v1/vault/portfolio/history — `customer`  (v1.1 — gráfica de tendencia)
+Serie temporal del valor del portafolio (estilo acciones) para "Mi bóveda". Alimentada por el snapshot diario `PortfolioSnapshot` (job `portfolio-snapshot`, ver ARCHITECTURE §3 y §5).
+Query: `?range=5d|15d|1m|3m|6m|1y|ytd|all`  (default `1m`)
+Res `200`:
+```json
+{
+  "range": "1m",
+  "points": [
+    { "date": "2026-07-15", "valueMxnCents": 512000, "costBasisMxnCents": 400000 },
+    { "date": "2026-08-14", "valueMxnCents": 543200, "costBasisMxnCents": 400000 }
+  ],
+  "change": { "absMxnCents": 31200, "pct": 6.09, "direction": "up" }
+}
+```
+- `points`: un punto por día con snapshot en el rango (ordenados asc por fecha). `costBasisMxnCents` es opcional (puede faltar si no hay base de costo). Los puntos de **backfill indicativo** (si se sembró histórico) traen `estimated: true` (ver `PortfolioPointDTO`).
+- `change`: variación entre el primer y último punto del rango; `direction` ∈ `up | down | flat`. `pct` con 2 decimales; si el valor inicial es 0, `pct=null`.
+- Si el usuario no tiene snapshots todavía, `points: []` y `change` con `direction: "flat"`, `absMxnCents: 0`, `pct: null`.
+Err `401`.
 
 ---
 
@@ -217,7 +285,9 @@ Res `200`:
   "referencePrice": { "status": "priced", "priceMxnCents": 12500 },
   "paymentNotice": "PAY_AFTER_RECEIPT" }
 ```
-Si es EX+ y no hay precio de referencia: `{ "quote": { "status": "precio_pendiente", "quotedPriceCents": null } }` (no se cotiza automáticamente; entra a cola al crear solicitud). Reglas: común `50`, reverse holo `150`, EX+ `= round(referencia × 0.40)`.
+Reglas: común `50`, reverse holo `150`, **EX o superior** `= round(referencia × 0.40)`. La condición de compra es **siempre NM** (§ARCHITECTURE 3.5); `rawCondition` en el request solo puede ser `NM`.
+**Rarezas modernas (v1.1):** cualquier rareza **por encima de común/reverse-holo** cae en `ex_plus` (Illustration Rare, Special Illustration Rare, Art Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare, Radiant, EX/GX/V/VMAX/VSTAR, Secret/Rainbow, etc.). La derivación rareza→categoría usa la tabla `pricing/rarity-map`; **default `ex_plus`** para rarezas no listadas como común/reverse.
+**Cuándo queda pendiente:** una `ex_plus` **se cotiza sola si HAY market price**; solo escala a `precio_pendiente` la que **realmente no tiene dato de mercado** (`{ "quote": { "status": "precio_pendiente", "quotedPriceCents": null } }`, entra a cola al crear la solicitud). Las tarifas planas (común/reverse) nunca dependen del market price y nunca quedan pendientes. El "precio pendiente" es de adquisición/back-office; **nunca** se muestra al comprador.
 
 ### POST /api/v1/buylist/requests — `customer`
 Crea la solicitud; valida topes/KYC.
@@ -290,10 +360,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
 ### M1 — Inventario y bóveda (`vault_operator+`)
 - `POST /api/v1/admin/inventory/items` — alta de item.
-  Req: `{ cardId, productType, rawCondition?, gradingCompany?, gradeValue?, locationId, frontPhotoKey, backPhotoKey, extraPhotoKeys?, acquisitionType, acquisitionPct?, sourceSellRequestItemId? }`
+  Req: `{ cardId, productType, rawCondition?, sealedSubtype?, gradingCompany?, gradeValue?, locationId, frontPhotoKey, backPhotoKey, extraPhotoKeys?, acquisitionType, acquisitionPct?, listPriceCents?, sourceSellRequestItemId? }`
+  - `productType=raw` → `rawCondition` solo `NM` (v1.1). `productType=sealed` → `sealedSubtype?` (opcional), **sin** `rawCondition`/grade/rareza; `listPriceCents` (precio manual MXN) es **obligatorio para publicar** el sellado. `productType=graded` → `gradingCompany`+`gradeValue`.
   Para `aportacion_en_especie`: el costo se calcula = **referencia del día × pct** (default 70, editable). El item nace `ownerType=platform`.
   Res `201`: `{ id, folio: "INV-000123", status: "in_stock", acquisitionCostCents }`
-  Err `422 PRICE_PENDING` (si aportación en especie y no hay referencia → cola de precio pendiente).
+  Err `422 PRICE_PENDING` (si aportación en especie y no hay referencia → cola de precio pendiente), `422 VALIDATION_ERROR` (p. ej. `sealed` con `rawCondition`, o `raw` con `rawCondition != NM`).
 - `GET /api/v1/admin/inventory/items` — query `?status=&cardId=&ownerType=&locationId=&zone=&q=&page=`
 - `GET /api/v1/admin/inventory/items/:id` — detalle + historial de movimientos.
 - `PATCH /api/v1/admin/inventory/items/:id` — editar (fotos, grado, listPrice manual, etc.).
@@ -309,6 +380,20 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
 - FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate, bufferPct }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
 - Tabla rareza→categoría: `GET /api/v1/admin/pricing/rarity-map`, `PUT /api/v1/admin/pricing/rarity-map` — Req `{ entries: [{ rarity, category }] }`.
+
+#### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
+Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
+- `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
+  Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number }] }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
+- `POST /api/v1/admin/catalog/sync` — importa/actualiza cartas.
+  Req: `{ setId?: string, fromReleaseDate?: string }`.
+  - `setId` (opcional) → importa ese set puntual. **Debe cumplir `^[a-z0-9]+(-[a-z0-9]+)*$`** (anti-inyección en `q=set.id:`); si no, `422 VALIDATION_ERROR`.
+  - sin `setId` → importa sets con `releaseDate >= fromReleaseDate`. **Default `fromReleaseDate` = dial `catalog_sync_from_date` (`"2024/01/01"`)**. Formato `yyyy/MM/dd`.
+  Res `202`: `{ jobId, setsQueued: number, mode: "single" | "from_date" }`.
+- `POST /api/v1/admin/catalog/backfill` — importa el **siguiente lote de sets más antiguos aún no importados** (colecciones previas a la frontera). Repetible.
+  Req: `{ batchSize?: number = 10, untilYear?: number }`.
+  Res `200`: `{ imported: [{ id, name, releaseDate, cardCount }], newBoundary: string, remaining: number }`. `newBoundary` = `releaseDate` del set más antiguo ya importado tras el lote; `remaining` = sets aún sin importar. Se repite hasta `remaining=0` (o hasta `untilYear`).
+Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
 
 ### M3 — Ventas / órdenes (`vault_operator` lectura; `super_admin` reembolso)
 - `GET /api/v1/admin/orders` — query `?status=&userId=&from=&to=&page=`
@@ -399,4 +484,13 @@ AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entit
 - Contracargo (webhook `charge.dispute.created`) es **consciente del estado físico**: revierte el item a inventario de plataforma **solo si sigue en bóveda**; si ya se envió/entregó **no** re-agrega y marca `chargebackNeedsManual` (ver §9). Cierre de disputa: ganamos→`settled` (`disputeOutcome=won`), perdemos→`chargeback` (`disputeOutcome=lost`).
 - **VENTAS FINALES** (política del humano, ver `PROJECT.md`): no hay reembolso voluntario. Excepciones: (a) **error de la plataforma** (cobro doble/inventario fantasma) → **siempre** se reembolsa (§M3); (b) **disputa de condición** raw dañada/equivocada → el súper-admin compensa con **recompra al precio pagado**, el cliente **conserva la carta** y **no** vuelve al inventario (§M8). En ningún caso de reembolso/recompra el item se re-agrega al inventario.
 - Los montos exactos de los diales (envío 17500, IVA 16, markup de venta, tarifa Stripe, tope 300000/1000000, aportación 70%) provienen de `ConfigSetting` (M10), no hardcode; los valores aquí son defaults.
+
+**Coherencia v1.1 (2026-08-14):**
+- **Raw solo NM:** `RawCondition=NM` (único valor); el filtro `condition` para raw solo admite `NM`. Labels legibles ("Casi nueva (Near Mint)" / "Near Mint") viven en i18n del **front**, no en la API. Migración: ARCHITECTURE §11 (M-1).
+- **Compra = inventario publicado con precio:** `GET /catalog/cards` **excluye** pendientes/sin precio (el comprador nunca ve "precio pendiente"). Facetas dinámicas en `GET /catalog/facets`: `rarities` distinct de `Card.rarity` espejando pokemontcg.io (lista abierta), `sets` con `year` derivado, filtros por set/rareza/tipo/precio. La **ruta se mantiene** `/catalog/cards` (rótulo "Compra" en el front).
+- **Sellado como línea de venta:** `productType=sealed`, `sealedSubtype?`, **precio manual MXN obligatorio para publicar**, sin condición/grade/rareza. Disputa de sellado = foto de la caja sellada al ingreso.
+- **Login Google:** `POST /auth/google` (mismo shape que `/login`); verificación server-side del ID token; `role` server-side (nunca del token); account-linking por email verificado; **no exime KYC**. Campos nuevos en `User` (migración M-3..M-7). Env `GOOGLE_CLIENT_ID` / `NEXT_PUBLIC_GOOGLE_CLIENT_ID`.
+- **Gráfica de portafolio:** `GET /vault/portfolio/history?range=...` sobre `PortfolioSnapshot` (modelo nuevo, migración M-8), escrito por job diario (BE-5). Backfill indicativo opcional marcado `estimated`.
+- **Sync de catálogo M2:** `GET /admin/catalog/remote-sets`, `POST /admin/catalog/sync`, `POST /admin/catalog/backfill` (`super_admin`, auditado). Guardarraíl `setId` `^[a-z0-9]+(-[a-z0-9]+)*$`, host fijo (anti-SSRF), `Card.rarity` String libre.
+- **AcquisitionPricer:** rarezas modernas → `ex_plus` (40% de referencia) si hay market price; solo lo sin dato de mercado escala a `precio_pendiente` (lado adquisición/admin). Condición siempre NM.
 ```

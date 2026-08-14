@@ -2,7 +2,13 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1 (MVP). Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.1 (MVP). Fecha: 2026-08-14. Branch: `claude/tcg-cards-marketplace-oijthj`.
+>
+> **Changelog v1.1 (2026-08-14)** — incorpora las 8 decisiones del `PROJECT.md` › "Actualización 2026-08-14":
+> raw solo NM (con **migración**), sección "Compra" = inventario publicado con precio + facetas dinámicas,
+> sync de catálogo M2 (pokemontcg.io) con backfill, sellado como línea de venta con precio manual MXN,
+> gráfica de tendencia del portafolio (`PortfolioSnapshot`, **migración**), login con Google (campos en
+> `User`, **migración**) y AcquisitionPricer con rarezas modernas. Ver §11 "Migraciones requeridas (v1.1)".
 
 ## 0. Alcance técnico (MVP vs Fase 2)
 
@@ -116,15 +122,23 @@ InventoryItem *───1 VaultLocation
 InventoryItem 1───* InventoryMovement
 InventoryItem ownerType: platform | customer  (ownerUserId cuando customer)
 
+User 1───* PortfolioSnapshot        (serie diaria de valor de portafolio; gráfica de tendencia)
+
 ConfigSetting (diales M10, key/value)     AuditLog (global)     FxRate (diario)
 PendingPriceEntry (cola de precio pendiente)
 ```
 
 ### 3.2 Entidades
 
-#### User (+ rol)
-- `id` (uuid), `email` (único), `passwordHash`, `role` (`customer | vault_operator | super_admin`), `name`, `phone`, `locale` (`es|en`, default `es`), `status` (`active | blocked`), `createdAt`, `updatedAt`.
+#### User (+ rol)  — **MIGRACIÓN v1.1 (campos de auth Google)**
+- `id` (uuid), `email` (único), `passwordHash` (**nullable** — null para cuentas creadas solo con Google), `role` (`customer | vault_operator | super_admin`), `name`, `phone?`, `locale` (`es|en`, default `es`), `status` (`active | blocked`), `createdAt`, `updatedAt`.
+- **Auth provider (nuevo):** `authProvider` (enum `local | google`, default `local`), `googleId` (`String? @unique` — `sub` del ID token de Google), `emailVerified` (`Boolean @default(false)`), `avatarUrl` (`String?`).
 - El comprador es siempre `customer`. `vault_operator` y `super_admin` son cuentas de back-office.
+- **Reglas de auth Google (ver §4.7):**
+  - `passwordHash` es null hasta que el usuario fije contraseña; `POST /auth/login` (email/contraseña) **rechaza** cuentas sin `passwordHash` con `401 INVALID_CREDENTIALS` (no revela que es cuenta Google).
+  - **Account-linking por email verificado:** si un `POST /auth/google` trae un email que ya existe como cuenta `local`, se enlaza (`googleId` se setea, `authProvider` permanece o pasa a coexistir) **solo si el token trae `email_verified=true`**. Si el email no está verificado en el token → `403 GOOGLE_EMAIL_UNVERIFIED`, no se enlaza.
+  - **El `role` se asigna SIEMPRE server-side** (default `customer`); NUNCA se lee del ID token. Ningún claim del token puede elevar privilegios.
+  - Login Google **no exime KYC**: la buylist sigue exigiendo CLABE/INE a nombre del usuario (M6) independientemente del provider.
 
 #### KycProfile (M6)
 - `id`, `userId` (único), `legalName`, `rfc?`, `clabe?` (18 dígitos, a nombre del propio usuario), `ineFrontKey?`, `ineBackKey?`, `kycStatus` (`none | pending | verified | rejected`), `capPerRequestCentsOverride?`, `capPerMonthCentsOverride?` (si null, usa diales de M10), `verifiedBy?`, `verifiedAt?`.
@@ -151,9 +165,10 @@ PendingPriceEntry (cola de precio pendiente)
 Núcleo del sistema. Una fila = una carta/producto físico.
 - `id`, `folio` (**legible, único, `INV-000123`**, ver §5), `cardId` (FK), `productType` (`graded | sealed | raw`).
 - Condición/grado (según tipo):
-  - raw → `rawCondition` (`NM | LP | MP | HP | DMG`, estándar propio).
-  - graded → `gradingCompany` (`PSA | CGC`), `gradeValue` (ej. `10`, `9.5`).
-  - sealed → sin condición/grado.
+  - raw → `rawCondition` (**enum `RawCondition = NM` — ÚNICO valor; MIGRACIÓN v1.1**, estándar propio, ver §3.5). Se **eliminan** `LP | MP | HP | DMG` del enum. Greenfield: no hay filas que hacer backfill; la migración solo redefine el enum/constraint.
+  - graded → `gradingCompany` (`PSA | CGC`), `gradeValue` (ej. `10`, `9.5`). **No cambia.**
+  - sealed → **sin condición ni rareza ni grade** (ver §3.6). **Precio manual MXN obligatorio para publicar.**
+  - `sealedSubtype?` (enum opcional `box | etb | bundle | tin | blister`, solo para `productType=sealed`; nullable en el resto).
 - Fotos: `frontPhotoKey`, `backPhotoKey`, `extraPhotoKeys` (JSONB). Para raw, las fotos de **ingreso** son la evidencia canónica de disputas (§ disputas).
 - Ubicación: `locationId` (FK VaultLocation).
 - Propiedad y titularidad:
@@ -218,12 +233,20 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - **Política VENTAS FINALES:** la recompra es una **compensación**; el **cliente conserva la carta** y la carta **NO** regresa al inventario (sin `InventoryMovement`, sin re-listar). Solo se registra el pago de recompra (money-out, súper-admin, auditado).
 
 #### ConfigSetting (M10 — diales editables sin deploy)
-- `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `sales_markup_pct`, `stripe_fee_pct`, `stripe_fee_fixed_cents`, `stripe_fee_iva_pct`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `fx_manual_override_rate`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
+- `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `sales_markup_pct`, `stripe_fee_pct`, `stripe_fee_fixed_cents`, `stripe_fee_iva_pct`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `fx_manual_override_rate`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`, **`catalog_sync_from_date`** (default `"2024/01/01"`, frontera por defecto del sync de catálogo)), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
 - Defaults iniciales: envío 17500, aportación 70, IVA 16, **markup de venta configurable (`sales_markup_pct`)**, **tarifa Stripe MX para el gross-up: `stripe_fee_pct`, `stripe_fee_fixed_cents` y `stripe_fee_iva_pct` (IVA sobre la comisión de Stripe, fracción `[0,1)`, default 0.16)**, tope solicitud 300000, tope mes 1000000, INE = tope solicitud, colchón FX configurable + override manual, providers según tabla de PROJECT.
 
 #### AuditLog (M10 — bitácora global)
-- `id`, `actorUserId`, `actorRole`, `action` (string, ej. `order.refund`, `sellrequest.pay_spei`, `settings.update`, `inventory.mark_damaged`), `entityType`, `entityId`, `before?` (JSONB), `after?` (JSONB), `ip?`, `createdAt`.
-- **Toda acción de back-office se registra**, en especial los intentos bloqueados de dinero saliente por operador (queda registrado y bloqueado).
+- `id`, `actorUserId`, `actorRole`, `action` (string, ej. `order.refund`, `sellrequest.pay_spei`, `settings.update`, `inventory.mark_damaged`, `catalog.sync`, `catalog.backfill`, `auth.google_link`), `entityType`, `entityId`, `before?` (JSONB), `after?` (JSONB), `ip?`, `createdAt`.
+- **Toda acción de back-office se registra**, en especial los intentos bloqueados de dinero saliente por operador (queda registrado y bloqueado) y las **operaciones de sync de catálogo** (`catalog.remote_sets`, `catalog.sync`, `catalog.backfill`; ver §4.8, auditadas).
+
+#### PortfolioSnapshot (gráfica de tendencia del portafolio) — **MIGRACIÓN v1.1 (modelo nuevo)**
+Serie temporal por usuario que alimenta la gráfica estilo acciones de "Mi bóveda" (rangos 5d/15d/1m/3m/6m/1a/YTD/Máx).
+- `id`, `userId` (FK User), `asOfDate` (`@db.Date` — un punto por día natural), `totalValueMxnCents` (valor del portafolio a **referencia** ese día, misma lógica que `VaultService.holdings()`), `costBasisMxnCents?` (base de costo agregada del usuario, opcional/nullable), `pendingPriceCount` (cartas sin precio ese día, excluidas del total), `createdAt`.
+- **Unicidad:** `@@unique([userId, asOfDate])` (idempotente: re-correr el job del día hace upsert, no duplica).
+- **Índice:** `@@index([userId, asOfDate])` para consultas por rango.
+- **Escritura:** job diario `portfolio-snapshot` (BullMQ, ver §5 y BE-5) tras el `price-sync`; reutiliza `VaultService.holdings()` para no divergir del valor mostrado en vivo. Solo snapshotea usuarios con holdings.
+- **Backfill indicativo (opcional, marcado estimado):** si se desea sembrar histórico previo a la puesta en marcha del job, se puede generar una serie **estimada** aplicando los `PriceReference` disponibles por fecha a los holdings actuales del usuario. Estos puntos se marcan `estimated=true` en la respuesta (`PortfolioPointDTO.estimated?`) y **no** se persisten como verdad si contradicen un snapshot real; es indicativo, no autoritativo. Es una tarea opcional de BE, no bloquea el MVP.
 
 ### 3.3 Ciclo de titularidad `pending → settled` (regla transversal)
 
@@ -325,6 +348,22 @@ Notas de coherencia:
 - El contrato (`API_CONTRACT.md`) **nunca** expone `*Enc`/`*Hmac` ni CLABE/RFC en claro fuera de `reveal-clabe`; §3.4 es el respaldo de esa promesa.
 - La proyección reducida de `vault_operator` (sin CLABE/RFC/INE) opera **antes** del enmascarado: a ese rol no le llega ni el campo enmascarado sensible cuando el contrato así lo indica.
 
+### 3.5 Estándar de condición del raw = solo Near Mint (NM)
+
+- El raw se opera **únicamente en NM** en TODO el marketplace (Compra, inventario, filtros, buylist). El enum `RawCondition` queda reducido a `NM` (ver §3.2 InventoryItem y §11 Migraciones).
+- **Nomenclatura legible (i18n del front, NO en la API):** el código `NM` es el único valor que viaja por el contrato. Los **labels/descripciones legibles viven en `frontend/src/i18n/messages/{es,en}.json`** (propiedad de frontend/ux-ui), no en el backend. Texto canónico de referencia que el front debe reflejar:
+  - **ES:** `NM` = **"Casi nueva (Near Mint)"** — *"Como nueva; a lo mucho imperfecciones mínimas. Bordes limpios y superficie sin rayones notorios."*
+  - **EN:** `NM` = **"Near Mint"** (espeja el texto ES).
+- **Política de compra NM-only (buylist):** "Solo compramos cartas en Near Mint (NM); si al recibir/verificar no está en NM, no se compra." Copy visible en cotizador, guía de envío y términos (front). Carta recibida no-NM → `rechazada` (no se paga) → devolución 7 días a costo del usuario, abandono a 30 días; **una carta abandonada no-NM NO entra al inventario vendible** (se segrega/descarta). No existe grado distinto de NM que registrar; el "no-NM" es un resultado de verificación que **rechaza** el item, no un valor de `rawCondition`.
+
+### 3.6 Sellado como línea de venta (productType=sealed)
+
+- El sellado es una **línea de venta de primera clase** en Compra, distinta de raw/graded.
+- **Sin `rawCondition`, sin `gradingCompany`/`gradeValue`, sin rareza** (no aplica taxonomía de carta individual). Puede referenciar un `Card`/`CardSet` para nombre/imagen del producto, pero no lleva condición ni rareza.
+- **Precio SIEMPRE manual del admin en MXN**: no hay fuente automática en el MVP (pokemontcg.io no cubre sellado; PriceCharting = fase 2). El `listPriceCents` se fija a mano (override manual) y es **obligatorio para publicar**: sin precio, el sellado queda como "precio pendiente" y **no aparece en Compra** (regla general — el comprador nunca ve precio pendiente).
+- `sealedSubtype?` (`box | etb | bundle | tin | blister`) opcional; alimenta el filtro de tipo de producto en Compra (subfaceta informativa).
+- **Disputa de sellado:** la evidencia canónica es la **foto de la caja sellada** al ingreso (equivalente a las fotos anverso/reverso del raw). No hay "condición NM" que comparar; la disputa aplica a caja dañada/equivocada. (Nota: el flujo de disputa reutiliza `Dispute`; el tipo se generaliza más allá de `condition_raw`, ver §11.)
+
 ---
 
 ## 4. Módulos y límites
@@ -366,7 +405,11 @@ function quoteAcquisition(category: BuylistCategory, referenceMxnCents: number|n
   }
 }
 ```
-La categoría (`comun|reverse_holo|ex_plus`) se deriva de la rareza vía la **tabla rareza→categoría** (dial M2/M10). EX+ sin precio de referencia → cola de precio pendiente.
+La categoría (`comun|reverse_holo|ex_plus`) se deriva de la rareza vía la **tabla rareza→categoría** (dial M2/M10). La **condición de compra es siempre NM** (§3.5); no hay grados que discriminen la tarifa.
+
+**Rarezas modernas → categoría `ex_plus` (aclaración v1.1):** cualquier rareza **por encima de común/reverse-holo** cae en `ex_plus` = **40% del precio de referencia**. Esto incluye explícitamente las rarezas modernas de pokemontcg.io: Rare Holo EX, Rare Holo GX/V/VMAX/VSTAR, Illustration Rare, Special Illustration Rare, Art Rare, Ultra Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare, Radiant Rare, Amazing Rare, Rare Rainbow, Rare Secret, etc. La **tabla rareza→categoría** (dial M10, `pricing/rarity-map`) mapea cada valor de rareza observado a `comun | reverse_holo | ex_plus`; el **default para cualquier rareza no listada explícitamente como común/reverse es `ex_plus`** (regla "EX o superior").
+
+**Regla clave (cierre de ambigüedad):** una carta `ex_plus` **se cotiza sola (no queda pendiente) siempre que HAYA market price** (`referenceMxnCents != null`). Solo escala a **"precio pendiente"** (lado adquisición/admin, `SellItemStatus=precio_pendiente`) la que **realmente no tiene dato de mercado**. Las tarifas planas (`comun`=50, `reverse_holo`=150) nunca dependen del market price y por tanto **nunca** quedan pendientes. El "precio pendiente" es un estado de adquisición/back-office; **nunca** se muestra al comprador (regla de Compra, §4.9).
 
 ### 4.3 Integración Stripe (payments)
 - Checkout crea `PaymentIntent` (o Checkout Session) con líneas: subtotal, **fee de procesamiento trasladado**, **IVA 16%**. El total cobrado incluye ambas.
@@ -388,6 +431,45 @@ Ver §6. El backend expone **enums y `errorCode`s**, no textos traducidos.
 ### 4.6 Generación de folios y ubicaciones
 - Folio: secuencia Postgres `inventory_folio_seq` → formato `INV-` + zero-pad 6 (`INV-000123`). Se asigna al crear el `InventoryItem` en transacción para evitar colisiones.
 - Ubicación: `VaultLocation` con `(zone, box, row, slot)` único; `label` derivado para picking legible.
+
+### 4.7 Login con Google (OAuth / ID token)
+- Endpoint `POST /api/v1/auth/google` recibe `{ idToken }` (Google Identity Services, flujo del front con `NEXT_PUBLIC_GOOGLE_CLIENT_ID`).
+- **Verificación server-side obligatoria** del ID token antes de emitir JWT propios (usar `google-auth-library` o verificación JWKS equivalente). Se validan:
+  - **firma** contra las llaves públicas de Google (JWKS),
+  - `aud` == `GOOGLE_CLIENT_ID` (env backend),
+  - `iss` ∈ `{ accounts.google.com, https://accounts.google.com }`,
+  - `exp` no expirado,
+  - `email_verified == true` (si no, `403 GOOGLE_EMAIL_UNVERIFIED`).
+- Del token verificado se toman `sub` (→ `googleId`), `email`, `name`, `picture` (→ `avatarUrl`). **Nunca** se toma `role` ni ningún privilegio del token.
+- Flujo: buscar por `googleId`; si no, por `email` verificado (account-linking, §3.2); si no existe, **crear** `User` (`authProvider=google`, `role=customer`, `emailVerified=true`, `passwordHash=null`).
+- Respuesta: **mismo shape que `/auth/login`** → `{ user, accessToken, refreshToken }`. A partir de ahí la sesión es idéntica a la de email/contraseña (mismos JWT, mismos guards).
+- El linking se audita (`AuditLog action=auth.google_link`). Env: `GOOGLE_CLIENT_ID` (backend), `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (front) — ver §8.
+
+### 4.8 Sync de catálogo desde pokemontcg.io (M2) — `super_admin`, auditado
+Ingesta de **datos de catálogo** (Card/CardSet, en inglés, no se traduce). Alimenta las facetas de Compra (§4.9). Endpoints en `API_CONTRACT.md §M2`. Servicio `CatalogSyncService` en `modules/catalog`.
+- **`GET /admin/catalog/remote-sets`**: consulta `/v2/sets` de pokemontcg.io; devuelve `[{ id, name, series, releaseDate, printedTotal, imported, cardCount }]` ordenado por `releaseDate` desc. `imported` = si ya existe el `CardSet` local (join por `externalId`); `cardCount` = cartas locales del set.
+- **`POST /admin/catalog/sync`** body `{ setId?, fromReleaseDate? }`: importa/actualiza cartas.
+  - `setId` presente → importa ese set puntual (query `q=set.id:<setId>`).
+  - sin `setId` → importa todos los sets con `releaseDate >= fromReleaseDate`; **default `fromReleaseDate` = dial `catalog_sync_from_date` = `2024/01/01`** (formato pokemontcg.io `yyyy/MM/dd`).
+- **`POST /admin/catalog/backfill`** body `{ batchSize?=10, untilYear? }`: importa el **siguiente lote de sets más antiguos aún no importados** (colecciones anteriores a la frontera actual), en orden `releaseDate` **asc** desde los más antiguos disponibles hacia la frontera, tomando `batchSize` sets. Se detiene si alcanza `untilYear`. Respuesta `{ imported: [{ id, name, releaseDate, cardCount }], newBoundary, remaining }` (`newBoundary` = releaseDate del set más antiguo ya importado tras el lote; `remaining` = sets aún sin importar). **Repetible** hasta `remaining=0`.
+- **Guardarraíles de seguridad (anti-inyección / anti-SSRF):**
+  - Validar `setId` contra `^[a-z0-9]+(-[a-z0-9]+)*$` **antes** de interpolarlo en `q=set.id:<setId>` (previene inyección en el query param de la API remota). Rechazo `422 VALIDATION_ERROR` si no cumple.
+  - **Host fijo** (base URL de pokemontcg.io hardcodeada/env, sin parte controlable por el usuario) → sin SSRF; el cliente HTTP no acepta URLs arbitrarias.
+  - `fromReleaseDate` validado como fecha `yyyy/MM/dd`.
+  - Autenticación con `POKEMONTCG_IO_API_KEY`; rate-limit vía la misma cola BullMQ.
+- **Rarezas:** `Card.rarity` permanece **`String` libre** (captura cualquier rareza tal cual la entrega pokemontcg.io — taxonomía **abierta**, NO enum cerrado). Esto garantiza capturar rarezas modernas presentes y futuras sin migración.
+- **Año del set:** se persiste `CardSet.releaseDate`; el **año** para los filtros de Compra se **deriva** de `releaseDate` (no se guarda columna redundante; ver `year` en §4.9).
+- Todas las operaciones de sync son de `super_admin` y quedan en `AuditLog`.
+
+### 4.9 Sección "Compra" (storefront) = inventario publicado con precio + facetas dinámicas
+**Decisión de ruta:** se **mantiene la ruta `GET /api/v1/catalog/cards`** (no se renombra a `/shop` ni `/compra`) para no romper el contrato ya acordado; **cambia el semántico** y se documenta que "catalog" en el path es un tecnicismo interno — la superficie de producto se llama **"Compra"** (rótulo de UI, i18n del front). Renombrar la ruta añadiría churn de contrato sin beneficio funcional; el rótulo visible ya lo controla el front. *(Si en el futuro se decide alinear la ruta, sería un cambio de contrato vía arquitecto.)*
+- **Regla dura:** `GET /catalog/cards` devuelve **SOLO inventario publicado CON precio de venta fijado** (`status=listed`, `sellable=true`, `salePriceCents != null`). **Excluye** items `pending`/sin precio/"precio pendiente". El comprador **nunca** ve "precio pendiente". (Esto **ajusta** la nota v1 que permitía mostrar pendientes no comprables: en v1.1 **no se listan**.)
+- **Facetas dinámicas** (`GET /catalog/facets`, ver contrato) calculadas **sobre el inventario publicado** (no sobre el catálogo entero):
+  - **`rarities`**: `distinct` de `Card.rarity` sobre el inventario publicado, **espejando los valores de pokemontcg.io tal cual** (taxonomía abierta, lista NO cerrada; el front no asume un conjunto fijo).
+  - **`sets`**: `{ id, name, releaseDate, year }` (con `year` derivado de `CardSet.releaseDate`), solo los sets con inventario publicado, ordenados por **año desc**.
+  - **`productTypes`**: subconjunto de `raw | graded | sealed` presente en el inventario publicado.
+  - **rangos de precio** (min/max de `salePriceCents`) para el slider de precio.
+- **Filtros** del listado: `setId`, `rarity`, `productType` (raw NM | graded | sealed), rango de precio, y `condition` (para raw solo hay `NM`).
 
 ---
 
@@ -421,6 +503,7 @@ processingFeeCents = totalCents − baseCents
   - `fx-refresh` diario: obtiene USD→MXN de **Banxico (SIE)**, aplica el colchón (`fx_buffer_pct`) y escribe `FxRate` (`source=banxico`); si falla o hay override manual (M10), usa `source=manual` como fallback/prioridad.
   - `buylist-sweep`: 7 días sin respuesta a ajuste → `rechazada`; 30 días de abandono → `convertida a inventario`.
   - `dispute-deadline`: cierra ventana de recompra a 7 días desde entrega.
+  - `portfolio-snapshot` diario (tras `price-sync`): por cada usuario con holdings, calcula el valor del portafolio con `VaultService.holdings()` (a **referencia**, excluyendo pendientes) y **upsert** de `PortfolioSnapshot` del día (`@@unique[userId,asOfDate]`). Alimenta la gráfica de tendencia (§3 PortfolioSnapshot, `GET /vault/portfolio/history`). **Depende de cablear el scheduler (BE-5).**
 - **Validaciones duras:** dirección de envío/retiro **debe ser MX** (rechazo si no); retiro solo sobre `settled`; carta "precio pendiente" **no comprable**; topes de buylist (por solicitud/mes) e INE sobre tope.
 
 ---
@@ -469,6 +552,7 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - `POKEMONTCG_IO_API_KEY`, `POKEMONPRICETRACKER_API_KEY`, `POKETRACE_API_KEY`
 - Object storage: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
+- **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
 - `APP_BASE_URL`, `DEFAULT_LOCALE=es`
 
 Riesgos técnicos:
@@ -494,4 +578,25 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 4. **CFDI sin PAC en el MVP.** No se integra PAC ni se timbra en el MVP. El flujo de factura es **manual por correo**: la UI muestra la instrucción de que, para pedir factura, el cliente envíe un correo con sus datos fiscales. El sistema guarda el **IVA cobrado por orden** (M7) y un flag `invoiceRequested` (opcional) por orden. **Timbrado real = fase 2.** `CfdiStatus` se reduce a `registrado | no_aplica` en MVP (`emitido` queda reservado para fase 2).
 5. **FX USD→MXN automático (Banxico) + colchón + override manual.** Job diario `fx-refresh` obtiene el tipo de cambio de una fuente tipo **Banxico** (SIE), aplica el **colchón** (`fx_buffer_pct`, dial M10) y escribe `FxRate` (`source=banxico`). Si el fetch falla o el admin fija un override, se usa `FxRate` con `source=manual` (dial M10) como fallback; el override tiene prioridad sobre el valor automático del mismo día.
 6. **Cobro del envío por Stripe ANTES de generar la solicitud de retiro.** El retiro cobra la tarifa fija (+ IVA) vía `PaymentIntent` de Stripe; la `ShipmentRequest` se crea en `solicitado` con el `PaymentIntent` asociado y solo se procesa (picking) una vez liquidado (webhook `payment_intent.succeeded`). No hay wallet.
-```
+
+---
+
+## 11. Migraciones requeridas (v1.1 — 2026-08-14)
+
+Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-1 | `RawCondition` (enum) | `NM \| LP \| MP \| HP \| DMG` → **`NM`** (único valor) | Redefinir enum Postgres | Greenfield: sin filas que backfillear. Si en el futuro hubiera filas ≠ NM, requeriría estrategia de mapeo; hoy no aplica. |
+| M-2 | `InventoryItem.sealedSubtype` | **Nuevo** enum opcional `box\|etb\|bundle\|tin\|blister`, nullable | Add column | Solo para `productType=sealed`. |
+| M-3 | `User.passwordHash` | pasa a **nullable** | Alter column | Null para cuentas solo-Google. |
+| M-4 | `User.authProvider` | **Nuevo** enum `local\|google` default `local` | Add column + enum | |
+| M-5 | `User.googleId` | **Nuevo** `String? @unique` | Add column + unique index | |
+| M-6 | `User.emailVerified` | **Nuevo** `Boolean @default(false)` | Add column | |
+| M-7 | `User.avatarUrl` | **Nuevo** `String?` | Add column | |
+| M-8 | `PortfolioSnapshot` | **Modelo nuevo** (`userId, asOfDate @db.Date, totalValueMxnCents, costBasisMxnCents?, pendingPriceCount`, `@@unique([userId, asOfDate])`, `@@index([userId, asOfDate])`) | Create table | Escrito por job `portfolio-snapshot` (BE-5). |
+| M-9 | `ConfigSetting` seed | **Nuevo dial** `catalog_sync_from_date` = `"2024/01/01"` | Seed/insert | Default de `POST /admin/catalog/sync`. |
+| M-10 | `Dispute.type` | Generalizar más allá de `condition_raw` para admitir **disputa de sellado** (caja dañada/equivocada) | Alter enum (add value, p. ej. `condition_sealed`) | La evidencia canónica del sellado es la foto de la caja al ingreso. |
+| M-11 | `Card.rarity` | **Sin cambio** — permanece `String` libre (taxonomía abierta pokemontcg.io) | — | Se documenta explícitamente para que no se convierta en enum. |
+
+Ninguna otra tabla cambia. Los índices existentes se conservan.
