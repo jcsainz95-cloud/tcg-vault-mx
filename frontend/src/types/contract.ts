@@ -57,6 +57,8 @@ export type SellItemStatus =
   | 'convertida_inventario';
 export type BuylistCategory = 'comun' | 'reverse_holo' | 'ex_plus';
 export type DisputeStatus = 'abierta' | 'en_revision' | 'resuelta_recompra' | 'rechazada';
+// v1.2: tipo de disputa derivado server-side del productType (no lo envía el cliente).
+export type DisputeType = 'condition_raw' | 'condition_sealed';
 export type PriceSource = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual';
 export type KycStatus = 'none' | 'pending' | 'verified' | 'rejected';
 export type AcquisitionType = 'aportacion_en_especie' | 'buylist' | 'compra';
@@ -97,11 +99,11 @@ export interface ListingDTO {
   sealedSubtype?: SealedSubtype;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
+  // v1.2: nº de certificado PSA/CGC (verificable en la graduadora). null para raw/sealed.
+  certNumber?: string;
   referenceValue: PriceInfo;
   salePriceCents?: number;
   sellable: boolean;
-  frontPhotoUrl?: string;
-  backPhotoUrl?: string;
 }
 
 // v1.1: punto de la serie de tendencia del portafolio (contrato §3, PortfolioPointDTO).
@@ -222,11 +224,11 @@ export interface HoldingDTO {
   sealedSubtype?: SealedSubtype;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
+  // v1.2: nº de certificado PSA/CGC para gradeadas en bóveda.
+  certNumber?: string;
   ownershipStatus: OwnershipStatus;
   status: InventoryStatus;
   referenceValue: PriceInfo;
-  frontPhotoUrl?: string;
-  backPhotoUrl?: string;
 }
 
 export interface PortfolioSummary {
@@ -364,6 +366,8 @@ export interface InventoryItemDTO {
   sealedSubtype?: SealedSubtype;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
+  // v1.2: nº de certificado PSA/CGC (requerido para publicar una gradeada).
+  certNumber?: string;
   status: InventoryStatus;
   ownerType: OwnerType;
   location?: { id: string; label: string; zone: VaultZone };
@@ -371,8 +375,6 @@ export interface InventoryItemDTO {
   listPriceCents?: number;
   acquisitionType?: AcquisitionType;
   acquisitionCostCents?: number;
-  frontPhotoUrl?: string;
-  backPhotoUrl?: string;
 }
 
 export interface VaultLocationDTO {
@@ -404,12 +406,23 @@ export interface AdminOrderDTO extends OrderSummaryDTO {
 export interface DisputeDTO {
   id: string;
   status: DisputeStatus;
+  // v1.2: tipo derivado server-side (condition_raw | condition_sealed); graded no aplica.
+  type?: DisputeType;
   description?: string;
   createdAt: string;
   deadlineAt?: string;
-  ingressPhotoUrls?: string[];
-  claimPhotoUrls?: string[];
-  item?: { inventoryItemId: string; folio: string; card: CardDTO };
+  // v1.2: la evidencia se envía por correo a soporte; el correo viene del contrato (no hardcodear).
+  evidenceContact?: string;
+  item?: {
+    inventoryItemId: string;
+    folio: string;
+    card: CardDTO;
+    // Para gradeadas el detalle admin expone empresa + grado + certNumber (base de resolución).
+    productType?: ProductType;
+    gradingCompany?: GradingCompany;
+    gradeValue?: string;
+    certNumber?: string;
+  };
 }
 
 // ---- Errores (contrato §0) ----

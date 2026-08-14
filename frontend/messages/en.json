@@ -123,11 +123,13 @@
     "rarity": "Rarity",
     "tabDescription": "Description",
     "tabCondition": "Condition",
-    "tabPhotos": "Verified photos",
-    "frontPhoto": "Front",
-    "backPhoto": "Back",
     "instances": "Available copies",
     "referenceExplainer": "The market value is the daily reference used to value your portfolio. The sale price is what you pay (reference + markup).",
+    "certLabel": "Certificate",
+    "certCopy": "Copy",
+    "certCopied": "Copied",
+    "gradedCertAria": "Graded {company}, grade {grade}, certificate {cert}",
+    "gradedGuarantee": "Graded {company} {grade}. The slab is the condition guarantee, verifiable by its certificate number at the grader.",
     "productType": {
       "graded": "Graded",
       "sealed": "Sealed",
@@ -291,11 +293,19 @@
     "platformErrorTitle": "Exception: platform error",
     "platformErrorBody": "If the problem is an error on our side —for example, a duplicate charge or a purchase with no real inventory backing it— we always refund you, with no need to open a dispute.",
     "disputeTitle": "Exception: damaged or wrong card",
-    "disputeBody": "Another exception is receiving a damaged or wrong card. In that case you may open a condition dispute within 7 calendar days, counted from shipment delivery, attaching photos that evidence the issue.",
+    "disputeBody": "Another exception is receiving a damaged or wrong card. In that case you may open a condition dispute within 7 calendar days, counted from shipment delivery. Evidence is sent by email to our support inbox (no photo upload in the app).",
     "disputeWindowNote": "The 7-day window starts on the day the shipment is delivered, not on the purchase or payment date.",
     "disputeOutcome": "If the dispute is upheld, we compensate you for the damage or error and you keep the card: there is no product return.",
     "questionsTitle": "Questions",
     "questionsBody": "For any clarification about these terms, email us at soporte@tcgvault.mx."
+  },
+  "dispute": {
+    "evidenceTitle": "Send your evidence by email",
+    "evidenceBody": "Email your photos and evidence to our support inbox, citing your order or dispute number. No photo upload in the app.",
+    "copyEmail": "Copy email",
+    "copied": "Copied",
+    "mailSubject": "Condition dispute evidence {reference}",
+    "mailSubjectGeneric": "Condition dispute evidence"
   },
   "auth": {
     "loginTitle": "Log in",
@@ -374,8 +384,9 @@
       "location": "Location (Box/Row/Slot)",
       "acquisitionType": "Acquisition type",
       "acquisitionPct": "In-kind contribution %",
-      "photosFront": "Front photo",
-      "photosBack": "Back photo",
+      "noPhotoNotice": "No own photo: the pokemontcg.io catalog image is used. Graded items capture company + grade + certificate.",
+      "certNumberRequired": "Certificate number (PSA/CGC) — required to publish graded",
+      "certNumberError": "Enter the certificate number to publish a graded item.",
       "createItem": "Create item",
       "folio": "Folio",
       "status": "Status",
@@ -428,9 +439,6 @@
     },
     "m8": {
       "title": "M8 · Disputes",
-      "compareTitle": "Photo comparator",
-      "ingressPhotos": "Ingress photo (canonical evidence)",
-      "claimPhotos": "Customer photo",
       "resolveRepurchase": "Resolve with repurchase",
       "resolveReject": "Reject dispute"
     }

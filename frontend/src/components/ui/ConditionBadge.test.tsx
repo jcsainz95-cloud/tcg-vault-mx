@@ -43,4 +43,15 @@ describe('ConditionBadge (v1.1 — raw solo NM)', () => {
     renderWithIntl(<ConditionBadge productType="graded" gradingCompany="PSA" gradeValue="10" />, 'es');
     expect(screen.getByText(/PSA/)).toBeInTheDocument();
   });
+
+  it('para graded con certNumber muestra "PSA 10 · #cert" y aria-label con el certificado (v1.2)', () => {
+    const { container } = renderWithIntl(
+      <ConditionBadge productType="graded" gradingCompany="PSA" gradeValue="10" certNumber="12345678" />,
+      'es',
+    );
+    expect(screen.getByText(/PSA 10/)).toBeInTheDocument();
+    expect(screen.getByText(/#12345678/)).toBeInTheDocument();
+    const chip = container.querySelector('[aria-label*="12345678"]');
+    expect(chip).toBeTruthy();
+  });
 });

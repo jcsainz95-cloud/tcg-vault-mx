@@ -10,6 +10,7 @@ import { useCart } from '@/lib/cart';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
 import { ConditionBadge } from '@/components/ui/ConditionBadge';
+import { CertNumberField } from '@/components/ui/CertNumberField';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -20,7 +21,7 @@ export function CardDetailView({ cardId }: { cardId: string }) {
   const t = useTranslations('card');
   const tcat = useTranslations('catalog');
   const cart = useCart();
-  const [tab, setTab] = useState<'description' | 'condition' | 'photos'>('description');
+  const [tab, setTab] = useState<'description' | 'condition'>('description');
 
   const query = useQuery({ queryKey: ['card', cardId], queryFn: () => getCardDetail(cardId) });
 
@@ -67,17 +68,17 @@ function Detail({
 }: {
   card: import('@/types/contract').CardDTO;
   listings: ListingDTO[];
-  tab: 'description' | 'condition' | 'photos';
-  setTab: (v: 'description' | 'condition' | 'photos') => void;
+  tab: 'description' | 'condition';
+  setTab: (v: 'description' | 'condition') => void;
   onAdd: (l: ListingDTO) => void;
   t: ReturnType<typeof useTranslations>;
   tcat: ReturnType<typeof useTranslations>;
 }) {
   const primary = listings[0];
+  // La ficha ya no tiene pestaña "Fotos" (v1.2): imagen de catálogo remota, sin fotos propias.
   const tabs = [
     { key: 'description' as const, label: t('tabDescription') },
     { key: 'condition' as const, label: t('tabCondition') },
-    { key: 'photos' as const, label: t('tabPhotos') },
   ];
 
   return (
@@ -94,7 +95,8 @@ function Detail({
 
       <div className="grid gap-8 lg:grid-cols-2">
         <div className="mx-auto w-full max-w-sm">
-          <CardImage src={primary?.frontPhotoUrl ?? card.imageLargeUrl} alt={card.name} />
+          {/* imagen de catálogo remota de pokemontcg.io (v1.2, sin fotos propias) */}
+          <CardImage src={card.imageLargeUrl} alt={card.name} />
         </div>
 
         <div className="flex flex-col gap-4">
@@ -108,15 +110,22 @@ function Detail({
           </div>
 
           {primary && (
-            <div className="flex items-center gap-3">
-              <ConditionBadge
-                productType={primary.productType}
-                rawCondition={primary.rawCondition}
-                sealedSubtype={primary.sealedSubtype}
-                gradingCompany={primary.gradingCompany}
-                gradeValue={primary.gradeValue}
-              />
-              <PriceTag reference={primary.referenceValue} salePriceCents={primary.salePriceCents} />
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <ConditionBadge
+                  productType={primary.productType}
+                  rawCondition={primary.rawCondition}
+                  sealedSubtype={primary.sealedSubtype}
+                  gradingCompany={primary.gradingCompany}
+                  gradeValue={primary.gradeValue}
+                  certNumber={primary.certNumber}
+                />
+                <PriceTag reference={primary.referenceValue} salePriceCents={primary.salePriceCents} />
+              </div>
+              {/* Gradeada: certificado verificable (§7.2c) — texto copiable, sin inventar URL */}
+              {primary.productType === 'graded' && primary.certNumber && (
+                <CertNumberField certNumber={primary.certNumber} />
+              )}
             </div>
           )}
 
@@ -137,6 +146,7 @@ function Detail({
                     sealedSubtype={l.sealedSubtype}
                     gradingCompany={l.gradingCompany}
                     gradeValue={l.gradeValue}
+                    certNumber={l.certNumber}
                   />
                   <PriceTag reference={l.referenceValue} salePriceCents={l.salePriceCents} />
                 </div>
@@ -187,25 +197,22 @@ function Detail({
                 </p>
                 <p className="text-muted">{tcat('condition.nm.desc')}</p>
               </div>
+            ) : primary?.productType === 'graded' ? (
+              // Gradeada: el slab (empresa+grado+cert) es la garantía; sin foto (§7.2c).
+              <div className="flex flex-col gap-2">
+                <p className="font-medium">
+                  {t('gradedGuarantee', {
+                    company: primary.gradingCompany ?? '',
+                    grade: primary.gradeValue ?? '',
+                  })}
+                </p>
+                {primary.certNumber && <CertNumberField certNumber={primary.certNumber} />}
+              </div>
             ) : (
               <p>
-                {t('condition')}: {primary?.gradeValue ?? primary?.sealedSubtype ?? '—'}
+                {t('condition')}: {primary?.sealedSubtype ?? '—'}
               </p>
             ))}
-          {tab === 'photos' && (
-            <div className="grid grid-cols-2 gap-4 sm:max-w-md">
-              <div>
-                <p className="mb-1 text-xs text-muted">{t('frontPhoto')}</p>
-                <CardImage src={primary?.frontPhotoUrl ?? card.imageLargeUrl} alt={`${card.name} front`} />
-              </div>
-              {primary?.backPhotoUrl && (
-                <div>
-                  <p className="mb-1 text-xs text-muted">{t('backPhoto')}</p>
-                  <CardImage src={primary.backPhotoUrl} alt={`${card.name} back`} />
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -120,10 +120,11 @@ export const mockListings: ListingDTO[] = [
     productType: 'graded',
     gradingCompany: 'PSA',
     gradeValue: '9',
+    // v1.2: gradeada identificada por empresa + grado + certNumber (verificable en la graduadora).
+    certNumber: '82749163',
     referenceValue: { status: 'priced', referenceMxnCents: 4850000, source: 'pokemonpricetracker', capturedDate: '2026-08-13' },
     salePriceCents: 5335000,
     sellable: true,
-    frontPhotoUrl: `${IMG}/4_hires.png`,
   },
   {
     inventoryItemId: 'inv-1002',
@@ -133,8 +134,6 @@ export const mockListings: ListingDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 140800,
     sellable: true,
-    frontPhotoUrl: `${IMG}/2_hires.png`,
-    backPhotoUrl: `${IMG}/2.png`,
   },
   {
     inventoryItemId: 'inv-1003',
@@ -144,7 +143,6 @@ export const mockListings: ListingDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 9500, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 10450,
     sellable: true,
-    frontPhotoUrl: `${IMG}/58_hires.png`,
   },
   {
     inventoryItemId: 'inv-1004',
@@ -154,7 +152,6 @@ export const mockListings: ListingDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 22000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 24200,
     sellable: true,
-    frontPhotoUrl: `${IMG}/51_hires.png`,
   },
   {
     inventoryItemId: 'inv-1005',
@@ -164,7 +161,6 @@ export const mockListings: ListingDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 180000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 198000,
     sellable: true,
-    frontPhotoUrl: `${SV}/238_hires.png`,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -172,10 +168,10 @@ export const mockListings: ListingDTO[] = [
     productType: 'graded',
     gradingCompany: 'CGC',
     gradeValue: '9.5',
+    certNumber: '01245678',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, source: 'pokemonpricetracker', capturedDate: '2026-08-13' },
     salePriceCents: 1045000,
     sellable: true,
-    frontPhotoUrl: `${SV}/242_hires.png`,
   },
   {
     inventoryItemId: 'inv-1007',
@@ -185,7 +181,6 @@ export const mockListings: ListingDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 210000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 231000,
     sellable: true,
-    frontPhotoUrl: `${SV}/213_hires.png`,
   },
   // Sellado: precio manual del admin en MXN, sin rareza/condición.
   {
@@ -196,7 +191,6 @@ export const mockListings: ListingDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 320000, source: 'manual', capturedDate: '2026-08-13' },
     salePriceCents: 320000,
     sellable: true,
-    frontPhotoUrl: `${SV}/logo.png`,
   },
   {
     inventoryItemId: 'inv-1009',
@@ -206,7 +200,6 @@ export const mockListings: ListingDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 105000, source: 'manual', capturedDate: '2026-08-12' },
     salePriceCents: 105000,
     sellable: true,
-    frontPhotoUrl: `${SV}/symbol.png`,
   },
 ];
 
@@ -240,7 +233,6 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, capturedDate: '2026-08-13' },
-    frontPhotoUrl: `${IMG}/2_hires.png`,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -249,10 +241,10 @@ export const mockHoldings: HoldingDTO[] = [
     productType: 'graded',
     gradingCompany: 'CGC',
     gradeValue: '9.5',
+    certNumber: '01245678',
     ownershipStatus: 'pending',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, capturedDate: '2026-08-13' },
-    frontPhotoUrl: `${SV}/242_hires.png`,
   },
   {
     inventoryItemId: 'inv-1008',
@@ -263,7 +255,6 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
-    frontPhotoUrl: `${SV}/logo.png`,
   },
   {
     inventoryItemId: 'inv-1010',
@@ -275,7 +266,6 @@ export const mockHoldings: HoldingDTO[] = [
     status: 'in_custody',
     // Precio pendiente en portafolio: se excluye del total (no rompe el cálculo).
     referenceValue: { status: 'pending' },
-    frontPhotoUrl: `${IMG}/16_hires.png`,
   },
 ];
 
@@ -408,6 +398,7 @@ export const mockInventory: InventoryItemDTO[] = [
     productType: 'graded',
     gradingCompany: 'PSA',
     gradeValue: '9',
+    certNumber: '82749163',
     status: 'listed',
     ownerType: 'platform',
     location: { id: 'loc-1', label: 'C03-F02-S15', zone: 'platform_stock' },
@@ -415,7 +406,6 @@ export const mockInventory: InventoryItemDTO[] = [
     listPriceCents: 5335000,
     acquisitionType: 'aportacion_en_especie',
     acquisitionCostCents: 3395000,
-    frontPhotoUrl: `${IMG}/4_hires.png`,
   },
   {
     id: 'inv-1008',
@@ -429,7 +419,6 @@ export const mockInventory: InventoryItemDTO[] = [
     referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
     listPriceCents: 320000,
     acquisitionType: 'compra',
-    frontPhotoUrl: `${SV}/logo.png`,
   },
   {
     id: 'inv-1010',
@@ -443,7 +432,6 @@ export const mockInventory: InventoryItemDTO[] = [
     // Precio pendiente: no se publica en Compra (regla de confianza).
     referenceValue: { status: 'pending' },
     acquisitionType: 'compra',
-    frontPhotoUrl: `${IMG}/16_hires.png`,
   },
 ];
 
@@ -474,15 +462,40 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   { id: 'ord-9003', userId: 'u-779', status: 'chargeback', totalCents: 231000, createdAt: '2026-08-09T12:00:00Z' },
 ];
 
+// MOCK: evidenceContact viene de la API (contrato §7/§M8). El correo es el placeholder
+// del contrato (soporte@tcgvault.mx, por confirmar por el humano); NO se hardcodea en la UI.
+const EVIDENCE_CONTACT = 'soporte@tcgvault.mx';
+
 export const mockDisputes: DisputeDTO[] = [
   {
     id: 'dsp-5001',
     status: 'en_revision',
-    description: 'Corner wear not shown in ingress photos.',
+    type: 'condition_raw',
+    description: 'Corner wear on the card edge, reported after delivery.',
     createdAt: '2026-08-12T16:00:00Z',
     deadlineAt: '2026-08-19T16:00:00Z',
-    ingressPhotoUrls: [`${IMG}/2_hires.png`, `${IMG}/2.png`],
-    claimPhotoUrls: [`${IMG}/6_hires.png`],
-    item: { inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise') },
+    // v1.2: la evidencia se envía por correo a soporte (sin comparador de fotos).
+    evidenceContact: EVIDENCE_CONTACT,
+    item: {
+      inventoryItemId: 'inv-1002',
+      folio: 'INV-000102',
+      card: cardById('c-blastoise'),
+      productType: 'raw',
+    },
+  },
+  {
+    id: 'dsp-5002',
+    status: 'abierta',
+    type: 'condition_sealed',
+    description: 'Sealed box arrived crushed on one side.',
+    createdAt: '2026-08-13T10:00:00Z',
+    deadlineAt: '2026-08-20T10:00:00Z',
+    evidenceContact: EVIDENCE_CONTACT,
+    item: {
+      inventoryItemId: 'inv-1008',
+      folio: 'INV-000108',
+      card: cardById('c-sealed-sv08-box'),
+      productType: 'sealed',
+    },
   },
 ];

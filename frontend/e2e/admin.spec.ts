@@ -4,7 +4,8 @@ import { t } from './utils/i18n';
 /**
  * Flujo: panel admin responsive (PROJECT §F / AC 24, 25, 27; contrato §10).
  * Dashboard de 8 tarjetas + enmascarado financiero para vault_operator, M1
- * (PhotoUploader anverso/reverso), M5 (cherry-pick), M8 (comparador de fotos).
+ * (alta SIN foto propia + certNumber de gradeada, v1.2), M5 (cherry-pick), M8
+ * (disputa por correo a soporte, sin comparador de fotos, v1.2).
  */
 test.describe('admin · dashboard', () => {
   test('muestra las 8 tarjetas del dashboard', async ({ page }) => {
@@ -37,13 +38,19 @@ test.describe('admin · dashboard', () => {
 });
 
 test.describe('admin · M1 inventario', () => {
-  test('alta de item abre PhotoUploader anverso/reverso', async ({ page }) => {
+  test('alta de item es SIN foto propia (imagen de catálogo) y captura certNumber de gradeada', async ({
+    page,
+  }) => {
     await page.goto('/es/admin/m1');
     await expect(page.getByRole('heading', { name: t('es', 'admin.m1.title') })).toBeVisible();
 
     await page.getByRole('button', { name: t('es', 'admin.m1.newItem') }).click();
-    await expect(page.getByText(t('es', 'admin.m1.photosFront')).first()).toBeVisible();
-    await expect(page.getByText(t('es', 'admin.m1.photosBack')).first()).toBeVisible();
+    // v1.2: sin uploader de foto de producto; aviso de imagen de catálogo remota.
+    await expect(page.getByText(t('es', 'admin.m1.noPhotoNotice'))).toBeVisible();
+
+    // Al elegir gradeada aparece el campo de número de certificado (requerido).
+    await page.getByLabel(t('es', 'admin.m1.productType'), { exact: true }).selectOption('graded');
+    await expect(page.getByText(t('es', 'admin.m1.certNumberRequired')).first()).toBeVisible();
   });
 });
 
@@ -63,11 +70,13 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
 });
 
 test.describe('admin · M8 disputas', () => {
-  test('muestra comparador de fotos ingreso vs reclamo', async ({ page }) => {
+  test('disputa por correo a soporte, sin comparador de fotos (v1.2)', async ({ page }) => {
     await page.goto('/es/admin/m8');
     await expect(page.getByRole('heading', { name: t('es', 'admin.m8.title') })).toBeVisible();
-    await expect(page.getByText(t('es', 'admin.m8.compareTitle'))).toBeVisible();
-    await expect(page.getByText(t('es', 'admin.m8.ingressPhotos'))).toBeVisible();
-    await expect(page.getByText(t('es', 'admin.m8.claimPhotos'))).toBeVisible();
+    // Panel de contacto de evidencia (correo del contrato, no hardcodeado en la UI).
+    await expect(page.getByText(t('es', 'dispute.evidenceTitle')).first()).toBeVisible();
+    await expect(page.getByTestId('evidence-email').first()).toBeVisible();
+    // Ya no existe comparador de fotos de ingreso/reclamo.
+    await expect(page.getByText('Comparador de fotos')).toHaveCount(0);
   });
 });

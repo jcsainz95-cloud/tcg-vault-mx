@@ -4,6 +4,80 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Alcance v1.2.1 (2026-08-14) — sin fotos de producto / fix badge / gradeada por cert / disputa por correo
+
+Simplificación aprobada (PROJECT/CONTRATO/ARCH/DESIGN v1.2.1). Solo `frontend/` (+ esta nota). No se tocó
+el contrato. Todo mantiene el **toggle de mocks** (rama real `apiRequest` + rama mock en fixtures) e i18n
+ES/EN espejado. `lint`/`typecheck`/`test` (42) y Playwright (36) en verde; `build` OK.
+
+### 1. Sin fotos de producto — imagen de catálogo remota
+- **Tipos** (`src/types/contract.ts`): eliminados `frontPhotoUrl`/`backPhotoUrl` de `ListingDTO`,
+  `HoldingDTO` e `InventoryItemDTO`. La imagen mostrada es **siempre** `card.imageSmallUrl`/`imageLargeUrl`
+  (pokemontcg.io).
+- **UI**: `ListingCard`, `CardDetailView`, `VaultView`, M1 y M8 usan la imagen de catálogo remota. Se
+  **eliminó la pestaña "Fotos"** de la ficha (tabs = Descripción/Condición) y toda la UI de subida/visualización
+  de foto de producto en M1 (alta **sin cámara**; banner `admin.m1.noPhotoNotice`).
+- **Fixtures**: `mockListings`/`mockHoldings`/`mockInventory` sin URLs de foto propia.
+- Claves i18n retiradas (ambos locales): `card.tabPhotos`, `card.frontPhoto`, `card.backPhoto`,
+  `admin.m1.photosFront`, `admin.m1.photosBack`.
+
+### 2. Fix del empalme del badge (DESIGN_SYSTEM §7.2b) — regla exacta implementada
+- **Ubicación por defecto = FUERA del arte**, en la **fila de info bajo la imagen**. `ListingCard` ya **no**
+  monta el `ConditionBadge` con `absolute` sobre la imagen; lo renderiza en una fila propia debajo (raw NM y
+  sellado **siempre** ahí).
+- **Única excepción sobre el arte** = **chip de grado de gradeada con scrim sólido**: nuevo componente
+  `GradedCertChip` variante `scrim` en `top-2 left-2`, fondo `bg-slate-900/90`, texto blanco `text-xs`
+  peso 600, `rounded-[6px]` (radius-sm), `px-2 py-0.5`, sombra `shadow-xs`. Nunca se monta raw/sellado sobre
+  el arte ni se usan fondos translúcidos. En el card el chip colapsa a `PSA 10` (compact) y el `certNumber`
+  completo va en la fila de info + ficha.
+
+### 3. Gradeadas = grado + certificado
+- Nuevo **`GradedCertChip`** (`src/components/ui/GradedCertChip.tsx`): formato canónico **`PSA 10 · #12345678`**
+  (empresa+grado peso 600, ` · #<certNumber>` `tabular-nums`), `aria-label` con empresa+grado+cert. Variantes
+  `soft` (fila de info/ficha) y `scrim` (sobre arte).
+- `ConditionBadge` (graded) delega en `GradedCertChip`; nueva prop `certNumber` propagada desde `ListingDTO`/
+  `HoldingDTO` en `ListingCard`, `CardDetailView`, `VaultView`.
+- **Ficha** (§7.2c): nuevo `CertNumberField` (`src/components/ui/CertNumberField.tsx`) muestra el cert con
+  etiqueta "Certificado / Certificate" como **texto copiable + botón "Copiar"** (no se inventa URL de
+  verificación de la graduadora; ver solicitud al arquitecto abajo).
+- **Admin M1**: alta de gradeada captura **empresa + grado + `certNumber`**; `certNumber` es **requerido para
+  publicar** (el botón "Crear item" se deshabilita y el input muestra error si falta). Tipo `ListingDTO.certNumber?`,
+  `InventoryItemDTO.certNumber?`, `HoldingDTO.certNumber?`.
+
+### 4. Disputa por correo (reemplaza `PhotoCompare`)
+- Nuevo **`DisputeEvidenceContact`** (`src/components/domain/DisputeEvidenceContact.tsx`): muestra el correo
+  de soporte desde **`DisputeDTO.evidenceContact`** (de la API; **NO hardcodeado** en la UI) como enlace
+  `mailto:` (con asunto citando la referencia) + botón **"Copiar correo"**. Banner `info`.
+- **Admin M8** reescrito: **eliminado el comparador de fotos** (`PhotoColumn`/ingreso vs. reclamo). Muestra
+  imagen de catálogo del ítem, descripción, `DisputeEvidenceContact` y —para gradeadas— `GradedCertChip` +
+  `CertNumberField` como base de resolución. Tipos: `DisputeDTO` sin `ingressPhotoUrls`/`claimPhotoUrls`; con
+  `type` (`condition_raw|condition_sealed`), `evidenceContact?` e `item.{productType,gradingCompany,gradeValue,certNumber}`.
+- Fixtures `mockDisputes`: 2 disputas (raw + sealed) con `evidenceContact` (placeholder del contrato
+  `soporte@tcgvault.mx`); graded **no** genera disputa (coherente con `422 NOT_RAW`).
+- `legal.disputeBody` (ES/EN) actualizado: la evidencia va **por correo a soporte** (no se sube foto en la app).
+
+### 5. INE conserva su uploader
+- `PhotoUploader` (`src/components/ui/PhotoUploader.tsx`) — el **único uploader** del sistema (INE del buylist,
+  `purpose="kyc_ine"`) — **no se tocó**. Se retiró su uso en M1 (fotos de producto); queda listo para cablearse
+  al flujo de KYC del buylist.
+
+### Tests actualizados
+- `ConditionBadge.test.tsx`: caso graded con `certNumber` (`PSA 10 · #cert` + `aria-label`).
+- `e2e/admin.spec.ts`: M1 sin uploader (aviso de imagen de catálogo + `certNumber` requerido al elegir graded);
+  M8 con panel de evidencia por correo y **sin** comparador de fotos.
+
+### Nuevas claves i18n (ES/EN espejadas)
+- `card.certLabel/certCopy/certCopied/gradedCertAria/gradedGuarantee`.
+- `admin.m1.noPhotoNotice/certNumberRequired/certNumberError`.
+- Namespace `dispute.evidenceTitle/evidenceBody/copyEmail/copied/mailSubject/mailSubjectGeneric`.
+
+### Solicitud al arquitecto/PO (v1.2.1)
+- **URL de verificación de la graduadora**: `CertNumberField` deja el `certNumber` como **texto copiable**
+  (no enlace) porque no hay URL oficial confirmada. Si el humano confirma el patrón de verificación de PSA/CGC,
+  se puede promover a enlace ("Verificar en PSA/CGC", `target=_blank rel=noopener`). No bloquea; no cambia el contrato.
+- **`evidenceContact`**: la UI lo consume tal cual del contrato (`POST /disputes`, `GET /admin/disputes/:id`).
+  El correo `soporte@tcgvault.mx` sigue marcado como *placeholder por confirmar por el humano* en PROJECT/CONTRATO.
+
 ## Alcance v1.1 (2026-08-14) — Compra/filtros/NM/sellado/tendencia/Google
 
 Implementación de las 6 superficies nuevas del contrato+diseño v1.1. Solo `frontend/` (+ esta nota).

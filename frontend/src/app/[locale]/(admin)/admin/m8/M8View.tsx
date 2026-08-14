@@ -7,23 +7,12 @@ import { getAdminDisputes } from '@/lib/api';
 import { useRole } from '@/lib/role';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
-import { Banner } from '@/components/ui/Banner';
+import { CardImage } from '@/components/ui/CardImage';
+import { GradedCertChip } from '@/components/ui/GradedCertChip';
+import { CertNumberField } from '@/components/ui/CertNumberField';
 import { QueryState } from '@/components/ui/QueryState';
+import { DisputeEvidenceContact } from '@/components/domain/DisputeEvidenceContact';
 import type { DisputeDTO } from '@/types/contract';
-
-function PhotoColumn({ title, urls }: { title: string; urls?: string[] }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <p className="text-sm font-semibold">{title}</p>
-      <div className="grid grid-cols-2 gap-2">
-        {(urls ?? []).map((u, i) => (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img key={i} src={u} alt={title} className="aspect-[5/7] w-full rounded-md border border-border object-contain" />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function M8View() {
   const t = useTranslations('admin.m8');
@@ -68,12 +57,38 @@ export function M8View() {
 
           {active && (
             <div className="flex flex-col gap-5 rounded-lg border border-border bg-surface p-5">
-              <h2 className="text-h3 font-semibold">{t('compareTitle')}</h2>
-              <p className="text-sm text-muted">{active.description}</p>
-              <div className="grid gap-6 sm:grid-cols-2">
-                <PhotoColumn title={t('ingressPhotos')} urls={active.ingressPhotoUrls} />
-                <PhotoColumn title={t('claimPhotos')} urls={active.claimPhotoUrls} />
+              {/* v1.2: sin comparador de fotos; evidencia por correo a soporte (§7.11) */}
+              <div className="flex flex-wrap items-start gap-4">
+                {active.item && (
+                  <div className="w-24 shrink-0">
+                    {/* imagen de catálogo remota (v1.2) */}
+                    <CardImage src={active.item.card.imageSmallUrl} alt={active.item.card.name} />
+                  </div>
+                )}
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <p className="text-sm font-semibold" lang="en">
+                    {active.item?.card.name} · {active.item?.folio}
+                  </p>
+                  {/* Base de resolución de gradeada: empresa + grado + certificado */}
+                  {active.item?.productType === 'graded' && (
+                    <div className="flex flex-col gap-2">
+                      <GradedCertChip
+                        gradingCompany={active.item.gradingCompany}
+                        gradeValue={active.item.gradeValue}
+                        certNumber={active.item.certNumber}
+                      />
+                      {active.item.certNumber && (
+                        <CertNumberField certNumber={active.item.certNumber} />
+                      )}
+                    </div>
+                  )}
+                  <p className="text-sm text-muted">{active.description}</p>
+                </div>
               </div>
+
+              {/* La evidencia del cliente llega por correo; el admin coteja el hilo */}
+              <DisputeEvidenceContact email={active.evidenceContact} reference={active.id} />
+
               <div className="flex flex-wrap gap-3">
                 <Button
                   variant="accent"

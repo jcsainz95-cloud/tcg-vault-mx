@@ -6,15 +6,19 @@ import { useLocale, useTranslations } from 'next-intl';
 import { Plus } from 'lucide-react';
 import { getAdminInventory, getLocations } from '@/lib/api';
 import { mockCards } from '@/lib/mock/fixtures';
-import type { ProductType, SealedSubtype, AcquisitionType, InventoryItemDTO } from '@/types/contract';
+import type {
+  ProductType,
+  SealedSubtype,
+  GradingCompany,
+  AcquisitionType,
+  InventoryItemDTO,
+} from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
-import { formatMoneyCents } from '@/lib/format';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
-import { PhotoUploader } from '@/components/ui/PhotoUploader';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceTag } from '@/components/ui/PriceTag';
@@ -22,6 +26,7 @@ import { QueryState } from '@/components/ui/QueryState';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
+const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'buylist', 'compra'];
 
 export function M1View() {
@@ -33,9 +38,15 @@ export function M1View() {
   const [open, setOpen] = useState(false);
   const [productType, setProductType] = useState<ProductType>('raw');
   const [sealedSubtype, setSealedSubtype] = useState<SealedSubtype>('box');
+  const [gradingCompany, setGradingCompany] = useState<GradingCompany>('PSA');
+  const [gradeValue, setGradeValue] = useState('10');
+  const [certNumber, setCertNumber] = useState('');
   const [listPrice, setListPrice] = useState('');
   const [acq, setAcq] = useState<AcquisitionType>('aportacion_en_especie');
   const [pct, setPct] = useState('70');
+
+  // Gradeada: certNumber es obligatorio para publicar (contrato §M1, v1.2).
+  const gradedCertMissing = productType === 'graded' && certNumber.trim() === '';
 
   const inventory = useQuery({ queryKey: ['admin-inventory'], queryFn: getAdminInventory });
   const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations });
@@ -90,15 +101,15 @@ export function M1View() {
             <Button variant="secondary" onClick={() => setOpen(false)}>
               {tc('cancel')}
             </Button>
-            <Button onClick={() => setOpen(false)}>{t('createItem')}</Button>
+            <Button onClick={() => setOpen(false)} disabled={gradedCertMissing}>
+              {t('createItem')}
+            </Button>
           </>
         }
       >
         <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap gap-4">
-            <PhotoUploader label={t('photosFront')} hint="Buena luz, carta centrada" />
-            <PhotoUploader label={t('photosBack')} hint="Sin reflejos" />
-          </div>
+          {/* v1.2: alta SIN foto propia; la imagen es la de catálogo remota de pokemontcg.io */}
+          <Banner variant="info">{t('noPhotoNotice')}</Banner>
           <Select
             label={t('cardName')}
             options={mockCards.map((c) => ({ value: c.id, label: `${c.name} · ${c.setName}` }))}
@@ -112,6 +123,33 @@ export function M1View() {
           {productType === 'raw' && (
             // Raw solo NM (v1.1): sin selector de grados; condición fija.
             <p className="rounded-md bg-success-bg px-3 py-2 text-sm text-success">{t('conditionNm')}</p>
+          )}
+          {productType === 'graded' && (
+            // Gradeada (v1.2): empresa + grado + certNumber (requerido para publicar).
+            <>
+              <Select
+                label={t('gradingCompany')}
+                options={GRADING_COMPANIES.map((g) => ({ value: g, label: g }))}
+                value={gradingCompany}
+                onChange={(e) => setGradingCompany(e.target.value as GradingCompany)}
+              />
+              <Input
+                label={t('gradeValue')}
+                type="text"
+                inputMode="decimal"
+                value={gradeValue}
+                onChange={(e) => setGradeValue(e.target.value)}
+              />
+              <Input
+                label={t('certNumberRequired')}
+                type="text"
+                inputMode="numeric"
+                required
+                value={certNumber}
+                onChange={(e) => setCertNumber(e.target.value)}
+                error={gradedCertMissing ? t('certNumberError') : undefined}
+              />
+            </>
           )}
           {productType === 'sealed' && (
             // Sellado: subtipo + precio manual MXN obligatorio para publicar (§3.6).

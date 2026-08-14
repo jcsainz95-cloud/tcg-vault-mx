@@ -95,7 +95,8 @@ export function VaultView() {
                       className="flex gap-3 rounded-lg border border-border bg-surface p-3"
                     >
                       <div className="w-20 shrink-0">
-                        <CardImage src={h.frontPhotoUrl ?? h.card.imageSmallUrl} alt={h.card.name} />
+                        {/* imagen de catálogo remota (v1.2, sin fotos propias) */}
+                        <CardImage src={h.card.imageSmallUrl} alt={h.card.name} />
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                         <p className="truncate text-sm font-semibold" lang="en">
@@ -109,6 +110,7 @@ export function VaultView() {
                             sealedSubtype={h.sealedSubtype}
                             gradingCompany={h.gradingCompany}
                             gradeValue={h.gradeValue}
+                            certNumber={h.certNumber}
                             compact
                           />
                           <StatusBadge domain="ownership" value={h.ownershipStatus} />
