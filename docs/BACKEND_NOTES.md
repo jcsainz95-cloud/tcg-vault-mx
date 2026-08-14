@@ -617,3 +617,55 @@ snapshot idempotente + `change`, AcquisitionPricer rareza moderna → ex_plus, g
 **Verde (este encargo):** `npm run lint && npm run typecheck && npm run build` OK; `npm test` = **133 verdes**
 (antes 129; +4: getAllDto expone `catalogSyncFromDate` con default y valor persistido, PUT válido, PUT formato
 inválido → 422).
+
+## 15. Fixes de QA/techlead sobre alcance v1.1 (2026-08-14)
+
+> Correcciones de los hallazgos de QA y techlead. Solo se tocó `backend/` (+ estas notas y `TECH_DEBT.md`).
+> Ningún cambio de contrato: todos los fixes implementan lo que el contrato/PROJECT ya exigían.
+
+- **BLOQUEANTE (QA) — guard de `itemStatus` en `convertToInventory`.**
+  `src/modules/buylist/buylist.service.ts` → `convertToInventory` (~L419). Se añade una **guardia de
+  aprobación**: si `item.itemStatus !== 'aprobada'` → **`422 ITEM_NOT_APPROVED`** (nuevo errorCode en
+  `common/error-codes.ts`) y **no se crea InventoryItem**. Así una carta `rechazada` (resultado de
+  verificación NO-NM, PROJECT §H / criterios 3d/16) NUNCA se vuelve inventario vendible. La guardia va
+  **después** del pre-check de idempotencia (un item ya convertido, `inventoryItemId` set, sigue devolviendo
+  idempotente sin 422) y **antes** del create; se conservan la idempotencia y la guardia TOCTOU por índice
+  único (`sourceSellRequestItemId` + P2002). El controlador `admin-buylist.controller.ts:105` no cambia
+  (delega en el servicio; el 422 se propaga y se serializa por el filtro global).
+  Tests: `test/buylist.convert-guard.spec.ts` (rechazada/estados no aprobados → 422 sin create; aprobada →
+  crea y marca `convertida_inventario`; ya convertido → idempotente). Se actualizó el mock de
+  `test/buylist.security.spec.ts` (SEC-A3) para incluir `itemStatus: 'aprobada'`.
+
+- **IMPORTANTE (QA) — `POST /disputes` devuelve `type`.**
+  `src/modules/disputes/disputes.service.ts` → `create` ahora incluye `type`
+  (`condition_raw | condition_sealed`, derivado server-side del `productType`) en la respuesta 201, como
+  exige el contrato §7. Test: `test/disputes.create-type.spec.ts` (raw→condition_raw, sealed→condition_sealed,
+  graded→422 NOT_RAW).
+
+- **MENOR (QA) — saneo de filtros enum en `GET /catalog/cards`.**
+  `src/modules/catalog/catalog.service.ts` → `listCards`. Los filtros `productType`/`condition`/`sealedSubtype`
+  (endpoint público) se validan contra los enums de Prisma (`ProductType`/`RawCondition`/`SealedSubtype`) con
+  el helper `validateEnum`; un valor inválido (`?condition=LP`, `?productType=foo`) responde **`400
+  VALIDATION_ERROR`** y **nunca llega a Prisma** (antes producía `500 PrismaClientValidationError`). Test:
+  `test/catalog.enum-filters.spec.ts`.
+
+- **D5 (techlead / seguridad) — enumeración por temporización en login.**
+  `src/modules/auth/auth.service.ts` → `login`. Se ejecuta **siempre** `argon2.verify`: cuando no hay usuario
+  o `passwordHash` es null (cuenta solo-Google) se verifica contra un **hash dummy fijo precomputado**
+  (`DUMMY_PASSWORD_HASH`, argon2id) para igualar la latencia y cerrar el canal de temporización. Se mantiene
+  `401 INVALID_CREDENTIALS` en ambas ramas y el caso Google intacto (sigue sin poder loguearse por
+  contraseña). Test: `test/auth.login-timing.spec.ts` (ambas ramas → 401 y ejecutan `verify`; rama feliz
+  intacta).
+
+- **D4 (alinear con contrato §M10) — `stripeFeeIvaPct` en settings.**
+  `src/modules/settings/settings.constants.ts` → añadido `stripeFeeIvaPct → STRIPE_FEE_IVA_PCT` a
+  `SETTING_DTO_MAP` (el validador de rango `[0,1)` ya existía). Cierra la discrepancia señalada en §14. Ahora
+  `GET/PUT /admin/settings` leen/actualizan el dial. Test añadido en `test/settings.validation.spec.ts`
+  (getAllDto expone default 0.16; update válido persiste `stripe_fee_iva_pct`; `>= 1` → 422).
+
+- **Deuda registrada** (`docs/TECH_DEBT.md`): **D1** (sync de catálogo síncrono con `jobId` ficticio → mover
+  a cola BullMQ), **D2** (`pokemontcg-io.client.getSets()` sin paginación, trunca > 250 sets), **D3**
+  (N+1 de `getReference` en holdings/snapshot → batch). **D4 y D5 marcadas como RESUELTAS** en este pase.
+
+**Verde (este pase):** `npm run lint && npm run typecheck && npm run build` OK; `npm test` = **155 verdes,
+30 suites** (antes 133; +5 tests nuevos de los fixes, ajustado 1 mock existente).

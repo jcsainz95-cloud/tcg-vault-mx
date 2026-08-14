@@ -67,7 +67,14 @@ export class DisputesService {
         deadlineAt,
       },
     });
-    return { disputeId: dispute.id, status: dispute.status, deadlineAt: dispute.deadlineAt };
+    // API_CONTRACT §7: la respuesta 201 incluye `type` (condition_raw|condition_sealed),
+    // derivado server-side del productType del item.
+    return {
+      disputeId: dispute.id,
+      status: dispute.status,
+      type: dispute.type,
+      deadlineAt: dispute.deadlineAt,
+    };
   }
 
   async listMine(userId: string) {

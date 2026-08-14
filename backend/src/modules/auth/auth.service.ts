@@ -14,6 +14,17 @@ export interface TokenPair {
   refreshToken: string;
 }
 
+/**
+ * Hash argon2id FIJO precomputado usado como "verificación dummy" en el login cuando NO
+ * existe el usuario o su `passwordHash` es null (cuenta solo-Google). Verificar SIEMPRE
+ * contra un hash real iguala el tiempo de respuesta (argon2 es intencionadamente costoso),
+ * cerrando el canal de ENUMERACIÓN DE USUARIOS POR TEMPORIZACIÓN: un atacante no puede
+ * distinguir "email inexistente" de "email existente, contraseña incorrecta" por la latencia.
+ * No corresponde a ninguna contraseña real; su único propósito es consumir el mismo trabajo.
+ */
+const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=65536,t=3,p=4$IUuYDslaChUS0mrzV74+WQ$Q8BNcs3QrO7nyLYG3ZAMbE+f87icx9X+oRBRlyP0RrE';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -70,18 +81,23 @@ export class AuthService {
 
   async login(dto: LoginDto) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
-    if (!user) {
-      throw new BusinessException('INVALID_CREDENTIALS', 401, 'Invalid credentials');
+
+    // MITIGACIÓN DE ENUMERACIÓN POR TEMPORIZACIÓN (D5): se ejecuta SIEMPRE un
+    // `argon2.verify`, incluso cuando el usuario no existe o su `passwordHash` es null
+    // (cuenta solo-Google). En esos casos se verifica contra un hash dummy fijo para que
+    // el costo (y por tanto la latencia) sea equivalente al de una cuenta real con
+    // contraseña incorrecta. Así la respuesta 401 no revela por temporización si el email
+    // existe ni si la cuenta tiene contraseña (caso Google intacto: sigue sin poder
+    // loguearse por contraseña, pero sin canal de temporización).
+    const hashToVerify = user?.passwordHash ?? DUMMY_PASSWORD_HASH;
+    let passwordOk = false;
+    try {
+      passwordOk = await argon2.verify(hashToVerify, dto.password);
+    } catch {
+      passwordOk = false;
     }
-    // v1.1: una cuenta creada solo con Google tiene passwordHash=null; el login por
-    // email/contraseña la RECHAZA con 401 (no revela que es cuenta Google) hasta que
-    // el usuario fije contraseña. Se compara SIEMPRE contra un hash para no filtrar por
-    // temporización si existe o no la cuenta/contraseña.
-    if (!user.passwordHash) {
-      throw new BusinessException('INVALID_CREDENTIALS', 401, 'Invalid credentials');
-    }
-    const ok = await argon2.verify(user.passwordHash, dto.password);
-    if (!ok) {
+
+    if (!user || !user.passwordHash || !passwordOk) {
       throw new BusinessException('INVALID_CREDENTIALS', 401, 'Invalid credentials');
     }
     if (user.status === UserStatus.blocked) {

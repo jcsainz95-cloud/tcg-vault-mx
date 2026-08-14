@@ -9,9 +9,9 @@ export const SettingKey = {
   SALES_MARKUP_PCT: 'sales_markup_pct',
   STRIPE_FEE_PCT: 'stripe_fee_pct',
   STRIPE_FEE_FIXED_CENTS: 'stripe_fee_fixed_cents',
-  // C1: IVA (fracción) que Stripe MX cobra SOBRE su comisión. El gross-up lo incluye
-  // para que la plataforma netee íntegro subtotal+IVA. Dial interno: NO se expone en el
-  // DTO de M10 hasta que el arquitecto lo formalice en el contrato (ver BACKEND_NOTES).
+  // C1/D4: IVA (fracción) que Stripe MX cobra SOBRE su comisión. El gross-up lo incluye
+  // para que la plataforma netee íntegro subtotal+IVA. v1.1: el contrato §M10 lo lista en
+  // el DTO de settings, así que se expone en SETTING_DTO_MAP (`stripeFeeIvaPct`).
   STRIPE_FEE_IVA_PCT: 'stripe_fee_iva_pct',
   BUYLIST_CAP_PER_REQUEST_CENTS: 'buylist_cap_per_request_cents',
   BUYLIST_CAP_PER_MONTH_CENTS: 'buylist_cap_per_month_cents',
@@ -124,6 +124,9 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   salesMarkupPct: SettingKey.SALES_MARKUP_PCT,
   stripeFeePct: SettingKey.STRIPE_FEE_PCT,
   stripeFeeFixedCents: SettingKey.STRIPE_FEE_FIXED_CENTS,
+  // D4 (v1.1): el contrato §M10 ya lista `stripeFeeIvaPct` en el DTO de settings; se expone
+  // aquí como los demás diales (validador de rango: fracción [0,1)).
+  stripeFeeIvaPct: SettingKey.STRIPE_FEE_IVA_PCT,
   buylistCapPerRequestCents: SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS,
   buylistCapPerMonthCents: SettingKey.BUYLIST_CAP_PER_MONTH_CENTS,
   ineThresholdCents: SettingKey.INE_THRESHOLD_CENTS,

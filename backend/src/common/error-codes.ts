@@ -44,6 +44,9 @@ export const ErrorCode = {
   INE_REQUIRED: 'INE_REQUIRED',
   CLABE_NOT_OWN_NAME: 'CLABE_NOT_OWN_NAME',
   CLABE_INVALID: 'CLABE_INVALID',
+  // Una carta rechazada en verificación (resultado NO-NM, PROJECT §H) NUNCA puede
+  // convertirse en InventoryItem vendible: convert-to-inventory exige itemStatus='aprobada'.
+  ITEM_NOT_APPROVED: 'ITEM_NOT_APPROVED',
 
   // Disputes
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',

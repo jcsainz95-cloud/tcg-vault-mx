@@ -1,8 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { Card, CardSet, InventoryItem, Prisma } from '@prisma/client';
+import { Card, CardSet, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
+
+// Conjuntos de valores válidos de los enums de Prisma. Un filtro público con un valor
+// fuera de estos conjuntos produciría un PrismaClientValidationError (500); en cambio
+// se rechaza con 400 VALIDATION_ERROR (ver `validateEnum`).
+const PRODUCT_TYPES = new Set<string>(Object.values(ProductType));
+const RAW_CONDITIONS = new Set<string>(Object.values(RawCondition));
+const SEALED_SUBTYPES = new Set<string>(Object.values(SealedSubtype));
 
 export function toCardDTO(card: Card & { set?: CardSet | null }) {
   return {
@@ -116,6 +123,22 @@ export class CatalogService {
     return `${base}/${key}`;
   }
 
+  /**
+   * Valida un valor de filtro enum del endpoint público. Devuelve el valor si es válido;
+   * si no, lanza 400 VALIDATION_ERROR (nunca deja que un enum inválido llegue a Prisma y
+   * produzca un 500 PrismaClientValidationError).
+   */
+  private validateEnum(field: string, value: string, allowed: Set<string>): string {
+    if (!allowed.has(value)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', `Invalid ${field} filter`, {
+        field,
+        value,
+        allowed: [...allowed],
+      });
+    }
+    return value;
+  }
+
   async listCards(q: {
     q?: string;
     setId?: string;
@@ -129,10 +152,13 @@ export class CatalogService {
     pageSize: number;
     sort?: string;
   }) {
+    // Endpoint PÚBLICO: los filtros enum se validan contra la taxonomía real ANTES de
+    // llegar a Prisma. Un valor inválido (p. ej. ?condition=LP, ?productType=foo) hoy
+    // rompía con PrismaClientValidationError (500); ahora responde 400 VALIDATION_ERROR.
     const extra: Prisma.InventoryItemWhereInput = {};
-    if (q.productType) extra.productType = q.productType as never;
-    if (q.condition) extra.rawCondition = q.condition as never;
-    if (q.sealedSubtype) extra.sealedSubtype = q.sealedSubtype as never;
+    if (q.productType) extra.productType = this.validateEnum('productType', q.productType, PRODUCT_TYPES) as never;
+    if (q.condition) extra.rawCondition = this.validateEnum('condition', q.condition, RAW_CONDITIONS) as never;
+    if (q.sealedSubtype) extra.sealedSubtype = this.validateEnum('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPES) as never;
     const cardWhere: Prisma.CardWhereInput = {};
     if (q.setId) cardWhere.setId = q.setId;
     if (q.rarity) cardWhere.rarity = q.rarity;

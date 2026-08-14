@@ -410,9 +410,22 @@ export class BuylistService {
       include: { card: true },
     });
     if (!item) throw BusinessException.notFound();
-    // Guardia rápida (pre-check): si ya está convertido, es idempotente.
+    // Guardia rápida (pre-check): si ya está convertido, es idempotente. Se evalúa ANTES
+    // que la guardia de aprobación para que un item ya convertido (itemStatus=
+    // 'convertida_inventario') no dispare 422 en reintentos.
     if (item.inventoryItemId) {
       return { inventoryItemId: item.inventoryItemId, alreadyConverted: true };
+    }
+    // GUARDIA DE APROBACIÓN (PROJECT §H, criterios 3d/16): SOLO una carta cuyo resultado
+    // de verificación fue `aprobada` puede convertirse en InventoryItem vendible. Una carta
+    // `rechazada` (resultado de verificación NO-NM) NUNCA debe volverse vendible; tampoco
+    // una `cotizada`/`recibida`/`verificacion`/`ajustada` (aún sin decisión de aprobación).
+    if (item.itemStatus !== 'aprobada') {
+      throw BusinessException.validation(
+        'ITEM_NOT_APPROVED',
+        'Only an approved sell item can be converted to sellable inventory',
+        { itemStatus: item.itemStatus },
+      );
     }
     // SEC-A3: el pre-check por sí solo sufre TOCTOU (dos llamadas concurrentes ven
     // `inventoryItemId=null`). La guardia real es el índice único en

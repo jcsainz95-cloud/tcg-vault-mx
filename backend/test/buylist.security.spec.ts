@@ -159,6 +159,7 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
           approvedPriceCents: 5000,
           quotedPriceCents: 5000,
           inventoryItemId: null,
+          itemStatus: 'aprobada',
           card: {},
         }),
         update: jest.fn(),

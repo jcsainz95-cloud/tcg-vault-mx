@@ -128,3 +128,35 @@ describe('SettingsService.getAllDto — expone catalogSyncFromDate', () => {
     expect(dto.catalogSyncFromDate).toBe('2025/06/15');
   });
 });
+
+/**
+ * D4 (alinear con contrato §M10): `stripeFeeIvaPct` es un dial de primera clase del DTO de
+ * settings (GET/PUT /admin/settings). Se expone en getAllDto y se valida como fracción [0,1).
+ */
+describe('SettingsService — stripeFeeIvaPct (D4)', () => {
+  it('getAllDto expone stripeFeeIvaPct con su default 0.16 cuando no hay fila', async () => {
+    const prisma = { configSetting: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const service = new SettingsService(prisma as unknown as PrismaService);
+    const dto = await service.getAllDto();
+    expect(dto).toHaveProperty('stripeFeeIvaPct', 0.16);
+  });
+
+  it('update acepta un stripeFeeIvaPct válido (fracción) y lo persiste con su key de DB', async () => {
+    const prisma: any = { configSetting: { upsert: jest.fn().mockResolvedValue({}) } };
+    const service = new SettingsService(prisma as unknown as PrismaService);
+    const applied = await service.update({ stripeFeeIvaPct: 0.08 });
+    expect(applied).toEqual({ stripeFeeIvaPct: 0.08 });
+    expect(prisma.configSetting.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { key: 'stripe_fee_iva_pct' } }),
+    );
+  });
+
+  it('update rechaza stripeFeeIvaPct >= 1 (fuera de rango) con 422', async () => {
+    const prisma: any = { configSetting: { upsert: jest.fn().mockResolvedValue({}) } };
+    const service = new SettingsService(prisma as unknown as PrismaService);
+    await expect(service.update({ stripeFeeIvaPct: 1 })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(prisma.configSetting.upsert).not.toHaveBeenCalled();
+  });
+});

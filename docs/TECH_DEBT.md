@@ -94,6 +94,61 @@
 - **Disparador:** antes del primer despliegue público. Solución: restringir `origin` a `APP_BASE_URL`
   (y dominios del frontend) leídos de env; coordinar con devops.
 
+### Deuda del pase v1.1 (hallazgos QA/techlead sobre alcance v1.1)
+
+> Del lote de fixes v1.1: **D4 y D5 quedaron RESUELTAS** en este mismo pase (ver más abajo). **D1, D2 y
+> D3** se registran aquí como deuda aceptada no bloqueante.
+
+### D1 · Sync de catálogo M2 es síncrono con `jobId` ficticio (falta cola BullMQ)
+- **Dónde:** `src/modules/catalog/catalog-sync.service.ts` (`POST /admin/catalog/sync`,
+  `POST /admin/catalog/backfill`) y su controlador admin.
+- **Estado actual:** la ingesta desde pokemontcg.io se ejecuta **en el propio request** y devuelve un
+  `jobId` **fabricado** (no hay worker/cola real detrás). El contrato §M2 modela `sync` como `202 { jobId }`
+  (asíncrono), pero hoy la operación es efectivamente síncrona.
+- **Impacto:** medio. Un set grande o un backfill amplio puede exceder el timeout HTTP y no respeta el
+  rate-limit del free tier vía cola (ARCHITECTURE §4.8 pide BullMQ). El `jobId` no es consultable.
+- **Disparador:** antes de poblar el catálogo a escala (backfill de colecciones antiguas) o al cablear el
+  scheduler (BE-5). Solución: encolar la ingesta en BullMQ (misma cola con rate-limit), persistir el estado
+  del job y devolver un `jobId` real consultable.
+
+### D2 · `PokemonTcgIoClient.getSets()` sin paginación (trunca > 250 sets)
+- **Dónde:** `src/modules/catalog/pokemontcg-io.client.ts` → `getSets()` (usado por `remote-sets`,
+  `sync` sin `setId` y `backfill`).
+- **Estado actual:** hace una sola llamada a `/v2/sets` con el `pageSize` por defecto de la API (250). Al
+  superar los 250 sets existentes en pokemontcg.io, **la lista queda truncada** y los sets más allá de la
+  primera página no se ven/importan/backfillean.
+- **Impacto:** medio a futuro. Hoy pokemontcg.io ronda ese umbral; en cuanto lo cruce, `remote-sets` y el
+  cálculo de `remaining`/`newBoundary` del backfill se vuelven incompletos silenciosamente.
+- **Disparador:** cuando el total de sets remotos supere 250 (o al implementar D1). Solución: iterar
+  `page`/`pageSize` hasta agotar `totalCount`, acumulando todas las páginas.
+
+### D3 · N+1 de snapshot/holdings en `PricingService.getReference` (portafolio)
+- **Dónde:** `src/modules/vault/vault.service.ts` → `holdings()` y el job `portfolio-snapshot`, que llaman
+  `PricingService.getReference` por cada holding.
+- **Estado actual:** una consulta de `PriceReference` por item; con bóvedas grandes son decenas/cientos de
+  queries por request/snapshot. (Es la misma familia que BE-4, acotada aquí al camino de portafolio/gráfica
+  de tendencia v1.1.)
+- **Impacto:** rendimiento de "Mi bóveda" y del snapshot diario al crecer el inventario del usuario.
+  Correctness OK.
+- **Disparador:** cuando un usuario supere ~cientos de holdings o el snapshot diario se vuelva lento.
+  Solución: batch de referencias por `(cardId, productType, gradeKey, capturedDate)` con un `IN` y map en
+  memoria, reutilizado por `holdings()` y el job.
+
+### D4 · Exponer `stripeFeeIvaPct` en el DTO de settings — RESUELTA (pase v1.1)
+- **Dónde:** `src/modules/settings/settings.constants.ts` → `SETTING_DTO_MAP`.
+- **Estado:** **resuelta.** El contrato §M10 ya listaba `stripeFeeIvaPct` en el DTO de `GET/PUT
+  /admin/settings`, pero faltaba en `SETTING_DTO_MAP`. Se añadió con su validador de rango (fracción
+  `[0,1)`) y se cubrió con tests (`test/settings.validation.spec.ts`: lectura vía `getAllDto` +
+  actualización). Ya no es deuda.
+
+### D5 · Enumeración por temporización en login — RESUELTA (pase v1.1)
+- **Dónde:** `src/modules/auth/auth.service.ts` → `login`.
+- **Estado:** **resuelta.** Antes retornaba temprano (401) si el usuario no existía o si `passwordHash`
+  era null, dejando un canal de temporización (el comentario prometía una mitigación ausente). Ahora se
+  ejecuta **siempre** `argon2.verify` — contra un **hash dummy fijo precomputado** cuando no hay
+  usuario/`passwordHash` null — para igualar la latencia; se mantiene `401 INVALID_CREDENTIALS` y el caso
+  Google intacto. Cubierto con tests (`test/auth.login-timing.spec.ts`). Ya no es deuda.
+
 ---
 
 ## Frontend (dueño: frontend)
