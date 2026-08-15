@@ -256,7 +256,32 @@
     "limitPerMonth": "Monthly cap",
     "conditionFixedNm": "Condition: Near Mint (NM) fixed",
     "nmOnlyTitle": "We only buy Near Mint (NM)",
-    "nmOnlyBody": "If on receipt and verification the card isn't NM, we don't buy it: it's returned (at your cost, 7 days) or considered abandoned after 30 days."
+    "nmOnlyBody": "If on receipt and verification the card isn't NM, we don't buy it: it's returned (at your cost, 7 days) or considered abandoned after 30 days.",
+    "requestTitle": "Create sell request",
+    "clabeLabel": "CLABE (18 digits, in your name)",
+    "clabeHint": "The SPEI payment goes to this CLABE, which must be in your name.",
+    "clabeInvalid": "The CLABE must be 18 digits.",
+    "clabeNotOwnName": "The CLABE must be in the account holder's name.",
+    "ineSectionTitle": "ID (INE)",
+    "ineSectionNote": "If your request exceeds the cap, we need a photo of your INE (front and back) to verify the payment.",
+    "ineRequiredError": "This request exceeds the cap: upload your INE (front and back) to continue.",
+    "limitExceeded": "This request exceeds your allowed cap. Adjust the amount or try again next month.",
+    "submit": "Submit request",
+    "submitting": "Submitting…",
+    "requestError": "We couldn't create the request. Check the details and try again.",
+    "created": "Request created! We'll let you know when we receive your card."
+  },
+  "ine": {
+    "front": "INE (front)",
+    "back": "INE (back)",
+    "takePhoto": "Take photo",
+    "retake": "Retake",
+    "uploading": "Uploading…",
+    "uploaded": "Uploaded ✓",
+    "privacy": "Your INE is stored encrypted and deleted after the retention period; it's used only to verify the payment.",
+    "errNotImage": "Select an image (JPG or PNG).",
+    "errTooLarge": "The image exceeds the maximum size of {max}.",
+    "errUpload": "We couldn't upload the image. Try again."
   },
   "safeShipping": {
     "title": "Safe shipping guide",

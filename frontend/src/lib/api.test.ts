@@ -5,6 +5,7 @@ import {
   getPortfolioHistory,
   getBuylistQuote,
   loginWithGoogle,
+  presignUpload,
 } from './api';
 import { getToken, setToken } from './api-client';
 
@@ -61,6 +62,15 @@ describe('api (rama mock, v1.1)', () => {
     const q = await getBuylistQuote({ cardId: 'c-zapdos', productType: 'raw', rawCondition: 'NM' });
     expect(q.quote.status).toBe('precio_pendiente');
     expect(q.quote.quotedPriceCents).toBeNull();
+  });
+
+  it('presignUpload (mock) devuelve maxBytes como tope de tamaño del presign', async () => {
+    const p = await presignUpload({ purpose: 'kyc_ine', contentType: 'image/jpeg', contentLength: 1234 });
+    expect(p.uploadKey).toMatch(/^kyc_ine\//);
+    expect(p.method).toBe('PUT');
+    // El presign trae el límite de tamaño (fuente única de verdad en cliente).
+    expect(typeof p.maxBytes).toBe('number');
+    expect(p.maxBytes).toBeGreaterThan(0);
   });
 
   it('loginWithGoogle (mock) deja sesión y marca authProvider=google', async () => {

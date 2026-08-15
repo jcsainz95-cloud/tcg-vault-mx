@@ -256,7 +256,32 @@
     "limitPerMonth": "Tope mensual",
     "conditionFixedNm": "Condición: Near Mint (NM) fija",
     "nmOnlyTitle": "Solo compramos en Near Mint (NM)",
-    "nmOnlyBody": "Si al recibir y verificar la carta no está en NM, no se compra: se devuelve (a tu costo, 7 días) o se considera abandonada a los 30 días."
+    "nmOnlyBody": "Si al recibir y verificar la carta no está en NM, no se compra: se devuelve (a tu costo, 7 días) o se considera abandonada a los 30 días.",
+    "requestTitle": "Crear solicitud de venta",
+    "clabeLabel": "CLABE (18 dígitos, a tu nombre)",
+    "clabeHint": "El pago SPEI se realiza a esta CLABE, que debe estar a tu nombre.",
+    "clabeInvalid": "La CLABE debe tener 18 dígitos.",
+    "clabeNotOwnName": "La CLABE debe estar a nombre del titular de la cuenta.",
+    "ineSectionTitle": "Identificación (INE)",
+    "ineSectionNote": "Si tu solicitud supera el tope, necesitamos la foto de tu INE (anverso y reverso) para verificar el pago.",
+    "ineRequiredError": "Esta solicitud supera el tope: sube tu INE (anverso y reverso) para continuar.",
+    "limitExceeded": "Esta solicitud supera tu tope permitido. Ajusta el monto o inténtalo el próximo mes.",
+    "submit": "Enviar solicitud",
+    "submitting": "Enviando…",
+    "requestError": "No se pudo crear la solicitud. Revisa los datos e inténtalo de nuevo.",
+    "created": "¡Solicitud creada! Te avisaremos cuando recibamos tu carta."
+  },
+  "ine": {
+    "front": "INE (anverso)",
+    "back": "INE (reverso)",
+    "takePhoto": "Tomar foto",
+    "retake": "Retomar",
+    "uploading": "Subiendo…",
+    "uploaded": "Subida ✓",
+    "privacy": "Tu INE se guarda cifrado y se elimina tras el periodo de retención; se usa solo para verificar el pago.",
+    "errNotImage": "Selecciona una imagen (JPG o PNG).",
+    "errTooLarge": "La imagen supera el tamaño máximo de {max}.",
+    "errUpload": "No se pudo subir la imagen. Reintenta."
   },
   "safeShipping": {
     "title": "Guía de envío seguro",

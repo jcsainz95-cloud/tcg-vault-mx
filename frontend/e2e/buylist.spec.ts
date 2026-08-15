@@ -50,3 +50,34 @@ test.describe('buylist · cotizador público', () => {
     ).toBeVisible();
   });
 });
+
+test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () => {
+  test('el paso de solicitud pide CLABE + INE (anverso/reverso) con aviso de privacidad', async ({
+    page,
+  }) => {
+    await page.goto('/es/buylist');
+    // Charizard (EX+) tiene referencia → permite crear solicitud.
+    await page.getByRole('button', { name: t('es', 'buylist.getQuote') }).click();
+    await page.getByRole('button', { name: t('es', 'buylist.createRequest') }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByLabel(/CLABE/)).toBeVisible();
+    await expect(dialog.getByText(t('es', 'ine.front'))).toBeVisible(); // INE anverso
+    await expect(dialog.getByText(t('es', 'ine.back'))).toBeVisible(); // INE reverso
+    // El uploader solo acepta imágenes (backend endurece kyc_ine a image/*).
+    await expect(dialog.getByLabel(t('es', 'ine.front'))).toHaveAttribute('accept', 'image/*');
+    await expect(dialog.getByText(t('es', 'ine.privacy'))).toBeVisible();
+  });
+
+  test('crea la solicitud con CLABE válida y muestra confirmación', async ({ page }) => {
+    await page.goto('/es/buylist');
+    await page.getByRole('button', { name: t('es', 'buylist.getQuote') }).click();
+    await page.getByRole('button', { name: t('es', 'buylist.createRequest') }).click();
+
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel(/CLABE/).fill('002010077777777771');
+    await dialog.getByRole('button', { name: t('es', 'buylist.submit') }).click();
+
+    await expect(page.getByText(t('es', 'buylist.created'))).toBeVisible();
+  });
+});

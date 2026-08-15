@@ -68,8 +68,8 @@ npm run build          # nest build → dist/
 | **payments / webhooks** | ✅ Completo | Stripe real (lazy client). Webhook firmado + idempotente. succeeded/failed/refunded/dispute. |
 | **shipments** (M4) | ✅ Completo | Cobro Stripe **antes** de crear la solicitud; solo `settled`; picking-list por ubicación; captura de guía. |
 | **buylist** (M5/E) | ✅ Completo | Cotizador público, topes/INE/CLABE, cherry-pick, convert-to-inventory, pago SPEI (money-out). |
-| **disputes** (M8) | ✅ Completo | Ventana 7d desde entrega, comparador de fotos, recompra (money-out solo `super_admin`). |
-| **uploads** | ✅ Completo | Presigned PUT S3/MinIO (kyc_ine, dispute_claim, inventory_photo). |
+| **disputes** (M8) | ✅ Completo | Ventana 7d desde entrega, disputa por correo (evidencia adjunta), recompra (money-out solo `super_admin`). |
+| **uploads** | ✅ Completo | Presigned PUT S3/MinIO acotado a `kyc_ine` (v1.2: sin `dispute_claim`/`inventory_photo`). |
 | **admin** (M6/M7/M9 + dashboard) | ✅ Completo | P&L, inventory-value, custody-value, IVA, export CSV, launch-metrics, dashboard 8 tarjetas (dinero enmascarado a `vault_operator`). |
 | **settings/audit** (M10) | ✅ Completo | Diales en DB (editables sin redeploy), bitácora global. |
 | **jobs** (BullMQ) | ⚠️ **Lógica completa, scheduling pendiente** | `price-sync`, `fx-refresh`, `buylist-sweep`, `dispute-deadline` implementados como servicios ejecutables. La **programación repetible BullMQ/Redis** es un wrapper de despliegue aún **no cableado** (ver §5). `price-sync` y `fx-refresh` se pueden disparar por endpoint admin. |
@@ -754,3 +754,71 @@ inválido → 422).
 - **Docstrings corregidos (sin cambio de comportamiento):** `disputes.service.ts › resolve()` (ya no
   afirma discrepancia con §M8; el contrato está alineado) y `uploads.service.ts › presignGet()` (acotado a
   `kyc_ine`; se retiró la referencia muerta a "fotos de disputa", eliminadas en v1.2).
+
+## 17. Endurecimiento de producción (cierre de S-M2 / S-B3 / S-B4 / S-M1 · rol backend)
+
+> Cierre de la deuda enrutada a **backend** en `docs/SECURITY_NOTES.md §4` para promoción a producción.
+> Todo en `backend/`. `lint` + `typecheck` + `build` OK; `npm test` = **177 verdes** (antes 169; +8 de
+> uploads: allow-list de content-type + límite de tamaño). **No** toqué `docs/API_CONTRACT.md` (los cambios
+> son aditivos y compatibles con §8).
+
+### 17.1 S-M2 — CORS con allow-list (`main.ts`)
+- Se elimina `app.enableCors({ origin: true, ... })`. Ahora el origin se toma de **`APP_BASE_URL`**
+  (lista **separada por comas** si hay varios orígenes válidos, p. ej. `https://app.tcgvault.mx,https://tcgvault.mx`).
+  **`credentials: true` se mantiene.** Nunca se refleja un origin arbitrario.
+- **Fallback seguro** si `APP_BASE_URL` no está seteada: solo orígenes de **desarrollo local**
+  (`http://localhost:3000`, `http://localhost:5173`) — jamás un comodín. Se loguea la allow-list efectiva al
+  arrancar. **En staging/producción `APP_BASE_URL` DEBE fijarse** (si no, el frontend real no pasará CORS).
+
+### 17.2 S-B4 — helmet + `algorithms` JWT + validación de env
+- **helmet:** `app.use(helmet())` en `main.ts` (dependencia nueva `helmet`, añadida a `package.json`).
+  Aplica CSP por defecto, HSTS, `X-Content-Type-Options: nosniff`, frameguard, etc.
+- **`algorithms` JWT fijados a `HS256`** (evita algorithm-confusion), tanto al **firmar** como al **verificar**:
+  `auth.service.ts › issueTokens` (`algorithm: 'HS256'` en access y refresh), `auth.service.ts › refresh`
+  y `common/guards/jwt-auth.guard.ts` (`algorithms: ['HS256']` al verificar). El login con Google reusa
+  `issueTokens`, así que queda cubierto sin cambios adicionales.
+- **Validación de env corre SIEMPRE** (antes solo `NODE_ENV==='production'`). `config/env.validation.ts`:
+  ahora aborta el arranque si faltan `DATABASE_URL`/`JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`/
+  `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` en **cualquier entorno NO-local** (incluye **staging**, antes no
+  cubierto). Se mantiene el patrón local/no-local del repo (seed, pii-crypto): en `development`/`test`/`local`
+  (o sin `NODE_ENV`) NO aborta, para no romper dev/CI sin secretos reales. Se añade además un **chequeo de
+  entropía**: los secretos JWT deben tener **≥ 32 caracteres** en entornos no-locales (si no, aborta).
+  **Acción devops:** garantizar en staging/prod que `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` cumplen la
+  longitud mínima y provienen del secret manager.
+
+### 17.3 S-B3 — Presign KYC (`uploads.service.ts` / `uploads.controller.ts`)
+- **Allow-list de content-type:** el presign de `kyc_ine` solo admite `image/*`; cualquier otro
+  (`text/html`, `application/pdf`, `application/octet-stream`, …) → **`422 VALIDATION_ERROR`**.
+- **Límite de tamaño:** default **10 MiB**, configurable por env **`KYC_UPLOAD_MAX_BYTES`** (bytes). El DTO
+  acepta un **`contentLength` opcional** (aditivo al contrato §8, `Req` no lo exigía): si el cliente lo declara,
+  se valida contra el tope (`422 VALIDATION_ERROR` si excede o no es entero positivo) **y** se **fija en la
+  firma** (`ContentLength`), de modo que el PUT deba enviar exactamente ese tamaño (S3 rechaza si el cuerpo no
+  coincide). La respuesta ahora incluye `maxBytes` y, si se declaró tamaño, el header `Content-Length`.
+- **Defensa extra (mismo hallazgo):** `presignGet` sirve el INE con `ResponseContentDisposition: attachment`
+  (nunca render inline) → un objeto malicioso se descarga en vez de ejecutarse aunque se abra desde el dominio
+  de storage. El bucket privado sigue siendo responsabilidad de **devops** (S-B3 infra).
+- **Tests** (`test/uploads.presign.spec.ts`): rechazo de `text/html`/`application/pdf`/`octet-stream`;
+  aceptación de `image/jpeg`/`image/png`; rechazo por tamaño > tope (default y `KYC_UPLOAD_MAX_BYTES`
+  custom); rechazo de `contentLength` no positivo; reflejo de `Content-Length`/`maxBytes` en la respuesta.
+
+### 17.4 S-M1 — Dependencias (moderate) del runtime
+- `npm audit fix` **no forzado** no aplicaba nada (las correcciones vivían en transitivos anidados). Se
+  resolvieron con **`overrides` compatibles** (sin breaking change):
+  - **`uuid ^11.1.1`** (cierra GHSA-w5hq-g745-h8pq vía `gaxios`→`google-auth-library`; `uuid@11` soporta
+    CommonJS, API `v4()` estable).
+  - **`file-type ^21.3.4`** (cierra GHSA-5v7r-6r5c-r473 / GHSA-j47w-4g3g-c36v vía `@nestjs/common`, que ya
+    cargaba `file-type` **ESM por dynamic `import()`**; el bump mantiene el mismo mecanismo de carga).
+- **`npm audit --omit=dev` (runtime):** pasó de **6 moderate** a **2 moderate**. Los 2 restantes son
+  `@nestjs/core`/`@nestjs/platform-express` (GHSA-36xv-jgw5-4q75), cuyo **único fix es NestJS 11 (major,
+  breaking)** — **NO se fuerza** (fuera del alcance de este encargo). **Deuda restante enrutada a devops**
+  (gate `npm audit` en SAST + salto coordinado a NestJS 11 en un sprint de hardening). `file-type` no es
+  alcanzable por nuestro código (no parseamos archivos en el server; uploads van directo a S3 por presign),
+  pero el override deja el audit runtime limpio de ese hallazgo igualmente.
+
+### 17.5 Variables de entorno nuevas / relevantes para **devops**
+- **`APP_BASE_URL`** — **NUEVA, obligatoria en staging/prod.** Origen(es) permitido(s) por CORS, lista
+  separada por comas. Sin ella se cae a los orígenes de **localhost** (solo dev). Añadir a `.env.example`.
+- **`KYC_UPLOAD_MAX_BYTES`** — **NUEVA, opcional.** Tope de tamaño del upload de INE en bytes (default
+  `10485760` = 10 MiB). Añadir a `.env.example` con el default comentado.
+- Recordatorio S-B4/devops: `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` deben ser **≥ 32 chars** en
+  staging/prod (ahora el arranque lo exige) y venir del secret manager.

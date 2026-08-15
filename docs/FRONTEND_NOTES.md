@@ -4,6 +4,108 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Cierre residuo endurecimiento S-B3 (2026-08-15) — `contentLength` en presign + `maxBytes` del presign
+
+Cierre del residuo señalado por qa/techlead/seguridad en el endurecimiento de `kyc_ine`. Solo `frontend/`
+(+ esta nota). **No** se tocó el contrato (`contentLength` y `maxBytes` ya son opcionales/aditivos en §8).
+Gates en verde: `lint` OK, `typecheck` OK, `test` **52** (12 archivos), `build` OK.
+
+### Qué se hizo
+- **`presignUpload` (`src/lib/api.ts`)** ahora acepta y envía **`contentLength`** en el body del presign
+  (`{ purpose, contentType, contentLength }`). El backend, cuando llega, lo fija en la firma (`ContentLength`)
+  para que R2/S3 **rechace cuerpos de otro tamaño** end-to-end (cierra S-B3). La rama mock devuelve además
+  **`maxBytes`** (≈10 MB) para reflejar el tope del presign.
+- **`UploadPresignResponse` (`src/types/contract.ts`)** declara **`maxBytes?: number`** (tope de tamaño que
+  admite la firma). Es opcional por compat.
+- **`PhotoUploader` (`src/components/ui/PhotoUploader.tsx`)**:
+  - Pasa **`contentLength: file.size`** al presign.
+  - Valida tamaño en cliente contra **`presign.maxBytes` como fuente única de verdad**; `DEFAULT_MAX_UPLOAD_BYTES`
+    (constante local) queda **solo como fallback** si el presign no trae `maxBytes`. La validación de tamaño se
+    hace **tras** el presign (ya conocemos el tope real); la de **tipo** (`image/*`) sigue antes de pedir presign.
+  - **Nit de memoria:** el object URL del preview se **revoca** (`URL.revokeObjectURL`) al re-seleccionar y al
+    desmontar (ref `previewUrlRef` + cleanup en `useEffect`).
+- **Tests**: `PhotoUploader.test.tsx` cubre que **`contentLength=file.size`** viaja en el presign y que el
+  rechazo por tamaño usa **`presign.maxBytes`** (spy con `maxBytes` chico → no sube ni expone `uploadKey`).
+  `api.test.ts` fija que el presign mock devuelve `maxBytes`.
+
+## Cableado del INE en buylist/KYC (2026-08-15) — presign `kyc_ine` + creación de solicitud
+
+Se integró el uploader del INE (antes **huérfano**) en el flujo real de buylist/KYC. Solo `frontend/`
+(+ esta nota). **No** se tocó el contrato. Gates en verde: `lint` OK, `typecheck` OK, `test` **50** (12
+archivos), `build` OK. E2E (Playwright) de buylist ampliado (lo ejecuta QA).
+
+> Nota de entorno: `node_modules` estaba incompleto (faltaba `recharts`); se corrió `npm install` para dejar
+> los gates ejecutables. No se cambiaron versiones de `package.json`.
+
+### Qué se hizo
+- **`PhotoUploader` (`src/components/ui/PhotoUploader.tsx`)** dejó de ser un mock con `setTimeout`: ahora hace
+  el flujo real **presign → PUT al storage → `uploadKey`**:
+  1. **Validación de TIPO en cliente**: solo imágenes. El `<input>` es `accept="image/*"` y además se valida
+     `file.type.startsWith('image/')` (rechaza p. ej. PDF con error claro, sin subir).
+  2. **Validación de TAMAÑO en cliente**: `maxBytes` (default **10 MB**, `DEFAULT_MAX_UPLOAD_BYTES`); si excede,
+     error `ine.errTooLarge` con el límite. Además mapea **413** del storage a ese mismo error (rechazo del
+     backend por límite) y `VALIDATION_ERROR` a "no es imagen".
+  3. **presign** `POST /uploads/presign` con `{ purpose: "kyc_ine", contentType: file.type }` →
+     **PUT directo** a `uploadUrl` enviando el `Content-Type` de imagen y `headers` del presign (sin token de
+     sesión; URL firmada). Al terminar expone `onUploaded(uploadKey)`.
+  - Estados: vacío / subiendo (`aria-busy`, spinner + `sr-only`) / éxito (`Subida ✓`) / error (`role="alert"`,
+    borde `danger`, `aria-describedby`). Botón "Retomar" tras éxito; permite re-seleccionar el mismo archivo.
+    i18n vía namespace **`ine`** (labels, estados, errores). Objetivo táctil 48px.
+- **`BuylistKycForm` (`src/components/domain/BuylistKycForm.tsx`)** — nuevo paso de pago/KYC del buylist:
+  - **CLABE** (`Input`, `inputMode=numeric`, máx 18, filtra no-dígitos) con validación cliente `^\d{18}$`.
+  - **Dos slots de INE** (anverso/reverso) con `PhotoUploader purpose="kyc_ine"` + **aviso de privacidad**
+    obligatorio (`ine.privacy`, DESIGN §7.10).
+  - Envía `POST /buylist/requests` (`createSellRequest`) con `{ items:[{cardId, productType, rawCondition:'NM'
+    si raw, category}], clabe, ineUploadKeys? }` — las `ineUploadKeys` solo se adjuntan si **ambas** imágenes
+    subieron. Mapea errores de negocio del contrato: **`INE_REQUIRED`** (revela/pide el INE), **`CLABE_NOT_OWN_NAME`**,
+    **`CLABE_INVALID`**, **`BUYLIST_LIMIT_EXCEEDED`**, y genérico. loading/error/éxito manejados.
+- **`BuylistView`**: el botón "Crear solicitud" (antes inerte) abre un **`Modal`** con `BuylistKycForm`; al crear
+  se cierra, se invalida `['sell-requests']` (React Query) y se muestra banner de éxito (`buylist.created`).
+- **`api.ts`**: nuevas funciones con rama real + rama mock — `presignUpload`, `uploadToPresignedUrl`
+  (raw `fetch` con `Content-Type` imagen; 413→`FILE_TOO_LARGE`), `createSellRequest`, `getKyc`, `updateKyc`.
+- **Tipos** (`contract.ts`): `UploadPurpose`, `UploadPresignResponse` (`uploadKey/uploadUrl/method/headers/expiresAt`),
+  `IneUploadKeys`. `KycInfoDTO.clabe` → **`clabeMasked`** (alineado al contrato: la CLABE se devuelve enmascarada).
+- **Fixtures**: `mockKyc` (`KycInfoDTO`); presign mock devuelve `uploadUrl` `mock://…` para cortar red en tests/dev.
+
+### Consumo del presign (según contrato §8) — resumen
+`POST /uploads/presign {purpose:"kyc_ine", contentType, contentLength} → {uploadKey, uploadUrl, method:"PUT", headers, expiresAt, maxBytes}`;
+el cliente hace `PUT uploadUrl` con `Content-Type` de imagen y los `headers`; luego la `uploadKey` viaja como
+`ineUploadKeys.front/back` en `POST /buylist/requests` (o como `ineFrontUploadKey/ineBackUploadKey` en
+`PUT /users/me/kyc` vía `updateKyc`, disponible para el flujo de KYC de perfil).
+
+### Coordinación con backend (endurecimiento de `kyc_ine`)
+El uploader ya cumple lo pactado: **solo `image/*`** (accept + validación de `file.type`), envía el
+**`Content-Type` de imagen** y **`contentLength`** en el presign, valida **tamaño contra `presign.maxBytes`**
+(fuente única de verdad; fallback local ~10 MB) y además maneja el **rechazo del backend** (413 y
+`VALIDATION_ERROR`) con mensajes claros. Si el backend fija un límite distinto, lo devuelve en `presign.maxBytes`
+y el cliente lo respeta sin cambios (ver sección "Cierre residuo endurecimiento S-B3" arriba); no cambia el contrato.
+
+### Tests
+- **`PhotoUploader.test.tsx`** (nuevo): render + `accept="image/*"`; rechazo de **no-imagen** (PDF) sin subir;
+  rechazo por **tamaño** (con `maxBytes` chico); imagen válida → presign + `onUploaded(kyc_ine/…)` + estado éxito.
+- **`BuylistKycForm.test.tsx`** (nuevo): render de CLABE + dos INE + privacidad; validación CLABE 18 dígitos (no
+  llama al backend); creación OK (item raw con `rawCondition:'NM'` y categoría); mapeo de `422 INE_REQUIRED`.
+- **`e2e/buylist.spec.ts`**: dos casos nuevos — el paso de solicitud pide CLABE + INE (anverso/reverso, `accept=image/*`)
+  con aviso de privacidad; creación con CLABE válida muestra la confirmación.
+
+### Nuevas claves i18n (ES/EN espejadas; pasa `i18n-parity`)
+- Namespace **`ine`**: `front/back/takePhoto/retake/uploading/uploaded/privacy/errNotImage/errTooLarge/errUpload`.
+- **`buylist`**: `requestTitle, clabeLabel, clabeHint, clabeInvalid, clabeNotOwnName, ineSectionTitle,
+  ineSectionNote, ineRequiredError, limitExceeded, submit, submitting, requestError, created`.
+
+### Suposiciones sobre el contrato (a confirmar por el arquitecto)
+- **Determinación de "INE requerido"**: el front NO conoce el umbral (dial `ineThresholdCents`), así que ofrece
+  el INE como **opcional** y se apoya en el `422 INE_REQUIRED` del backend para exigirlo. Si el arquitecto
+  prefiere señalizarlo proactivamente, convendría exponer el umbral (p. ej. en `POST /buylist/quote` o en
+  `GET /users/me/kyc`, que ya trae `capPerRequestCents/capPerMonthCents/monthUsedCents`). No bloquea; no cambia
+  el contrato hoy.
+- **`Content-Type` del PUT**: se envía el MIME real de la imagen (`file.type`). Se asume que el presign del
+  backend firma para ese `Content-Type` (el request de presign ya envía `contentType`). Confirmar que el storage
+  no exige un header adicional fijo (los `headers` del presign se reenvían tal cual).
+- **Códigos de error del presign/PUT**: se asume `413` (tamaño) del storage y `422 VALIDATION_ERROR` (tipo) del
+  presign, además de los de negocio de `POST /buylist/requests` (`INE_REQUIRED`, `CLABE_NOT_OWN_NAME`,
+  `CLABE_INVALID`, `BUYLIST_LIMIT_EXCEEDED`) — todos ya contemplados en el contrato §6/§8.
+
 ## Alcance v1.2.1 (2026-08-14) — sin fotos de producto / fix badge / gradeada por cert / disputa por correo
 
 Simplificación aprobada (PROJECT/CONTRATO/ARCH/DESIGN v1.2.1). Solo `frontend/` (+ esta nota). No se tocó
@@ -355,8 +457,9 @@ Variables (raíz `.env.example`, `NEXT_PUBLIC_*`):
 **Storefront / comprador (completas contra el contrato, con mocks):**
 - **Catálogo** (`/catalog`): grid responsivo 2→5, filtros set/rareza/condición/tipo, búsqueda,
   paginación de shape del contrato, PriceTag (venta vs referencia), estados carga/vacío/error.
-- **Ficha de carta** (`/catalog/[cardId]`): imagen grande, tabs (descripción/condición/fotos),
-  badges condición/grado, distinción **valor de mercado** vs **precio de venta**, ejemplares.
+- **Ficha de carta** (`/catalog/[cardId]`): imagen grande de catálogo (pokemontcg.io), tabs
+  (descripción/condición; **sin pestaña "Fotos"** desde v1.2.1), badges condición/grado + certificado
+  (`GradedCertChip`/`CertNumberField`), distinción **valor de mercado** vs **precio de venta**, ejemplares.
 - **Checkout** (`/checkout`): `AmountBreakdown` (subtotal + fee gross-up **sin IVA** + IVA 16% +
   total), banner CFDI "enviar correo con datos fiscales", banner titularidad pendiente. Pago
   **simulado** (ver TODO Stripe).
@@ -375,14 +478,18 @@ Variables (raíz `.env.example`, `NEXT_PUBLIC_*`):
 - **Admin shell** (`/admin`): sidebar M1–M10 agrupado, topbar con switch de rol, LocaleToggle,
   ThemeToggle, drawer en móvil. Módulos no permitidos al operador aparecen con candado.
 - **Dashboard**: 8 StatCards; enmascarado financiero (candado "Solo súper-admin") para `vault_operator`.
-- **M1 Inventario**: alta con `PhotoUploader` anverso/reverso (captura móvil), ubicación, tipo de
-  adquisición, % aportación con hint de costo; tabla con folio/estado/referencia.
+- **M1 Inventario**: alta **sin cámara/uploader de producto** (v1.2.1: se usa la imagen de catálogo remota;
+  banner `admin.m1.noPhotoNotice`). Captura tipo/subtipo/condición, **empresa+grado+`certNumber`** (requerido
+  para publicar gradeada), ubicación, tipo de adquisición, % aportación con hint de costo; tabla con
+  folio/estado/referencia. (El único uploader del sistema es el del INE en el buylist/KYC.)
 - **M3 Órdenes**: tabla + **reembolso** destructivo (solo super_admin; operador ve banner
   `MONEY_OUT_FORBIDDEN`).
 - **M4 Retiros**: cola de envíos con PipelineStepper + **lista de picking ordenada por ubicación**.
 - **M5 Buylist**: PipelineStepper, **cherry-pick por item** (aprobar/ajustar/rechazar/convertir),
   **pago SPEI** solo super_admin.
-- **M8 Disputas**: **comparador de fotos** ingreso vs reclamo, resolver recompra (super_admin)/rechazo.
+- **M8 Disputas**: **disputa por correo** (v1.2.1: `DisputeEvidenceContact` con el `evidenceContact` del
+  contrato como `mailto:`; **sin comparador de fotos**), imagen de catálogo + descripción y —para gradeadas—
+  `GradedCertChip`/`CertNumberField` como base de resolución; resolver recompra (super_admin)/rechazo.
 
 **Pendientes (TODO, documentados en UI):** M2 (precios/FX/override), M6 (usuarios/KYC 360°),
 M7 (finanzas/P&L/export CSV), M9 (reportes), M10 (config/diales/bitácora). Rutas creadas con
@@ -448,8 +555,9 @@ npm run test:e2e:report     # abre el reporte HTML del último run
 - `buylist.spec.ts` — **cotizador**: EX+ = 40% de la referencia, banner **PAY_AFTER_RECEIPT**,
   **guía de envío seguro** (sleeve/top loader), cola de **precio pendiente** (AC 12, 13, 33, 34).
 - `admin.spec.ts` — **panel admin**: dashboard **8 tarjetas**, **enmascarado financiero** para
-  `vault_operator`, **M1** (PhotoUploader anverso/reverso), **M5** (cherry-pick + nota dinero
-  saliente), **M8** (comparador de fotos) (AC 24, 25, 27).
+  `vault_operator`, **M1** (alta sin uploader: aviso de imagen de catálogo + `certNumber` requerido en gradeada),
+  **M5** (cherry-pick + nota dinero saliente), **M8** (panel de evidencia por correo, **sin** comparador de
+  fotos) (AC 24, 25, 27).
 
 ### Qué corre aquí (mocks, sin backend) vs qué necesita backend real
 

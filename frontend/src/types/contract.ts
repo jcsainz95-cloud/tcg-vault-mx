@@ -169,11 +169,36 @@ export interface AddressDTO {
 
 export interface KycInfoDTO {
   kycStatus: KycStatus;
-  clabe?: string;
+  // Contrato GET /users/me/kyc devuelve la CLABE ENMASCARADA (`clabeMasked` = `****1234`),
+  // nunca en claro por este endpoint.
+  clabeMasked?: string;
   ineOnFile: boolean;
   capPerRequestCents: number;
   capPerMonthCents: number;
   monthUsedCents: number;
+}
+
+// ---- Uploads (contrato §8 — SOLO INE de KYC) ----
+// v1.2: el único propósito válido es `kyc_ine` (imagen del INE del buylist).
+export type UploadPurpose = 'kyc_ine';
+
+// Respuesta de POST /uploads/presign: el cliente hace `method` (PUT) directo al
+// object storage privado con `headers`, y luego asocia `uploadKey` a la KYC/solicitud.
+export interface UploadPresignResponse {
+  uploadKey: string;
+  uploadUrl: string;
+  method: 'PUT';
+  headers: Record<string, string>;
+  expiresAt: string;
+  // Tamaño máximo (bytes) que la firma admite; fuente única de verdad de tamaño en
+  // cliente (el backend fija el mismo límite en la firma). Opcional por compat.
+  maxBytes?: number;
+}
+
+// Referencias de subida del INE (keys de presign) para la solicitud de buylist / KYC.
+export interface IneUploadKeys {
+  front: string;
+  back: string;
 }
 
 // ---- Catálogo (contrato §2) ----

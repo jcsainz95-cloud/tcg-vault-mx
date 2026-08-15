@@ -27,6 +27,7 @@ import type {
   PortfolioHistoryResponse,
   PortfolioPointDTO,
   PortfolioRange,
+  KycInfoDTO,
 } from '@/types/contract';
 
 const IMG = 'https://images.pokemontcg.io/base1';
@@ -360,6 +361,16 @@ export const mockSellRequests: SellRequestDTO[] = [
     ],
   },
 ];
+
+/** KYC del comprador (contrato GET /users/me/kyc). CLABE enmascarada; INE aún no en archivo. */
+export const mockKyc: KycInfoDTO = {
+  kycStatus: 'none',
+  clabeMasked: undefined,
+  ineOnFile: false,
+  capPerRequestCents: 300000, // MOCK: dial M10 default (MX$3,000).
+  capPerMonthCents: 1000000, // MOCK: dial M10 default (MX$10,000).
+  monthUsedCents: 0,
+};
 
 export const mockShipments: ShipmentDTO[] = [
   {

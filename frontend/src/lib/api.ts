@@ -30,6 +30,10 @@ import type {
   PortfolioHistoryResponse,
   AuthResponse,
   Locale,
+  UploadPurpose,
+  UploadPresignResponse,
+  IneUploadKeys,
+  KycInfoDTO,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -253,6 +257,134 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
     return res.data;
   }
   return delay(fx.mockSellRequests);
+}
+
+export interface CreateSellRequestInput {
+  items: {
+    cardId: string;
+    productType: ProductType;
+    rawCondition?: RawCondition;
+    category: BuylistCategory;
+  }[];
+  clabe: string;
+  /** keys de presign del INE (contrato §6 POST /buylist/requests: ineUploadKeys?) */
+  ineUploadKeys?: IneUploadKeys;
+}
+
+/**
+ * Crea la solicitud de venta (contrato POST /buylist/requests). Valida topes/KYC
+ * en el backend; puede fallar con 422 INE_REQUIRED / CLABE_NOT_OWN_NAME /
+ * BUYLIST_LIMIT_EXCEEDED. Las `ineUploadKeys` provienen del presign `kyc_ine`.
+ */
+export async function createSellRequest(input: CreateSellRequestInput): Promise<SellRequestDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
+  }
+  // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO).
+  const items: SellRequestDTO['items'] = input.items.map((it, i) => {
+    const card = fx.mockCards.find((c) => c.id === it.cardId) ?? fx.mockCards[0];
+    const ref = fx.mockReferenceByCardId[it.cardId] ?? undefined;
+    const quoted =
+      it.category === 'comun' ? 50 : it.category === 'reverse_holo' ? 150 : ref != null ? Math.round(ref * 0.4) : undefined;
+    return {
+      id: `sri-new-${i}`,
+      card,
+      productType: it.productType,
+      rawCondition: it.rawCondition,
+      category: it.category,
+      quotedPriceCents: quoted,
+      itemStatus: quoted == null ? 'precio_pendiente' : 'cotizada',
+    };
+  });
+  const quotedTotalCents = items.reduce((s, it) => s + (it.quotedPriceCents ?? 0), 0);
+  return delay({
+    sellRequestId: `sr-${Math.floor(Math.random() * 9000 + 1000)}`,
+    status: 'cotizada',
+    quotedTotalCents,
+    ineRequired: !!input.ineUploadKeys,
+    items,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+// ---------- KYC (contrato §1) ----------
+export async function getKyc(): Promise<KycInfoDTO> {
+  if (!config.useMocks) return apiRequest<KycInfoDTO>('/users/me/kyc');
+  return delay(fx.mockKyc);
+}
+
+export interface UpdateKycInput {
+  clabe?: string;
+  ineFrontUploadKey?: string;
+  ineBackUploadKey?: string;
+}
+
+/** Registra CLABE / keys del INE en el KYC del usuario (contrato PUT /users/me/kyc). */
+export async function updateKyc(input: UpdateKycInput): Promise<KycInfoDTO> {
+  if (!config.useMocks) {
+    return apiRequest<KycInfoDTO>('/users/me/kyc', { method: 'PUT', body: input });
+  }
+  return delay({
+    ...fx.mockKyc,
+    clabeMasked: input.clabe ? `****${input.clabe.slice(-4)}` : fx.mockKyc.clabeMasked,
+    ineOnFile: !!(input.ineFrontUploadKey && input.ineBackUploadKey) || fx.mockKyc.ineOnFile,
+  });
+}
+
+// ---------- Uploads (contrato §8 — SOLO INE de KYC / kyc_ine) ----------
+/** Límite de tamaño (bytes) del presign de `kyc_ine` en la rama mock (≈10 MB). */
+const MOCK_PRESIGN_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Pide un presign para subir la imagen del INE (contrato POST /uploads/presign).
+ * El contrato SOLO admite `purpose="kyc_ine"`; cualquier otro devuelve 422.
+ * `contentType` debe ser el MIME real de la imagen (el backend endurece a `image/*`).
+ * `contentLength` (bytes del archivo) es opcional en el contrato: cuando llega, el
+ * backend lo fija en la firma (`ContentLength`) para que R2/S3 rechace cuerpos de
+ * otro tamaño (residuo de endurecimiento S-B3, end-to-end).
+ */
+export async function presignUpload(input: {
+  purpose: UploadPurpose;
+  contentType: string;
+  contentLength?: number;
+}): Promise<UploadPresignResponse> {
+  if (!config.useMocks) {
+    return apiRequest<UploadPresignResponse>('/uploads/presign', { method: 'POST', body: input });
+  }
+  // MOCK: uploadUrl `mock://` para que uploadToPresignedUrl haga corto-circuito sin red.
+  const rand = Math.random().toString(36).slice(2, 10);
+  return delay({
+    uploadKey: `kyc_ine/${rand}.img`,
+    uploadUrl: `mock://storage/kyc_ine/${rand}`,
+    method: 'PUT',
+    headers: {},
+    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    maxBytes: MOCK_PRESIGN_MAX_BYTES,
+  });
+}
+
+/**
+ * Sube el archivo directo al object storage privado con el presign (PUT). Envía el
+ * `Content-Type` de imagen correcto y NO adjunta el token de sesión (URL firmada).
+ * Mapea 413 a un error de tamaño para reflejar el límite del backend.
+ */
+export async function uploadToPresignedUrl(
+  presign: UploadPresignResponse,
+  file: File,
+): Promise<void> {
+  if (config.useMocks && presign.uploadUrl.startsWith('mock://')) {
+    await delay(undefined, 200);
+    return;
+  }
+  const res = await fetch(presign.uploadUrl, {
+    method: presign.method,
+    headers: { 'Content-Type': file.type, ...presign.headers },
+    body: file,
+  });
+  if (!res.ok) {
+    const code = res.status === 413 ? 'FILE_TOO_LARGE' : 'UPLOAD_FAILED';
+    throw new ApiClientError(res.status, { code, message: 'Upload to storage failed' });
+  }
 }
 
 // ---------- Auth (contrato §1) ----------

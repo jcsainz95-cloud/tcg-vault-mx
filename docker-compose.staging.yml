@@ -148,6 +148,7 @@ services:
       S3_SECRET_ACCESS_KEY: ${STAGING_MINIO_ROOT_PASSWORD:-minioadmin_staging}
       # v1.2.1: sin S3_PUBLIC_BASE_URL — bucket 100% privado (solo kyc_ine/, presigned GET).
       S3_FORCE_PATH_STYLE: "true"
+      KYC_UPLOAD_MAX_BYTES: ${KYC_UPLOAD_MAX_BYTES:-10485760}
       INE_RETENTION_DAYS: ${INE_RETENTION_DAYS:-180}
       # Endurecimiento PII. Staging corre en modo production (validaciones
       # estrictas): estas son OBLIGATORIAS. En local caen a dummies distintos

@@ -43,12 +43,15 @@ export class AuthService {
     const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: this.config.get<string>('JWT_ACCESS_SECRET'),
+      // S-B4: algoritmo fijo (evita algorithm-confusion). HMAC simétrico HS256.
+      algorithm: 'HS256',
       expiresIn: this.config.get<string>('JWT_ACCESS_TTL') ?? '15m',
     });
     const refreshToken = await this.jwt.signAsync(
       { ...payload, typ: 'refresh' },
       {
         secret: this.config.get<string>('JWT_REFRESH_SECRET'),
+        algorithm: 'HS256',
         expiresIn: this.config.get<string>('JWT_REFRESH_TTL') ?? '30d',
       },
     );
@@ -176,6 +179,8 @@ export class AuthService {
     try {
       const payload = await this.jwt.verifyAsync(refreshToken, {
         secret: this.config.get<string>('JWT_REFRESH_SECRET'),
+        // S-B4: solo se acepta HS256 al verificar (evita algorithm-confusion).
+        algorithms: ['HS256'],
       });
       const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
       if (!user || user.status === UserStatus.blocked) {

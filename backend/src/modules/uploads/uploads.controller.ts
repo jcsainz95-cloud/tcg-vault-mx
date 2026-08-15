@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Post } from '@nestjs/common';
-import { IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UploadsService } from './uploads.service';
@@ -10,6 +10,9 @@ class PresignDto {
   // (regla de negocio del contrato §8), no con el 400 del ValidationPipe.
   @IsString() purpose!: string;
   @IsString() contentType!: string;
+  // S-B3: tamaño declarado (bytes). Opcional (aditivo al contrato §8): si viene, el servicio lo
+  // valida contra el tope y lo FIJA en la firma para acotar el PUT.
+  @IsOptional() @IsInt() @Min(1) contentLength?: number;
 }
 
 @Controller('uploads')
@@ -20,6 +23,6 @@ export class UploadsController {
   @Post('presign')
   @HttpCode(200)
   presign(@Body() dto: PresignDto) {
-    return this.uploads.presign(dto.purpose, dto.contentType);
+    return this.uploads.presign(dto.purpose, dto.contentType, dto.contentLength);
   }
 }

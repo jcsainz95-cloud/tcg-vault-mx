@@ -33,6 +33,8 @@ export class JwtAuthGuard implements CanActivate {
     try {
       const payload = await this.jwt.verifyAsync(token, {
         secret: this.config.get<string>('JWT_ACCESS_SECRET'),
+        // S-B4: solo se acepta HS256 al verificar (evita algorithm-confusion).
+        algorithms: ['HS256'],
       });
       req.user = { id: payload.sub, email: payload.email, role: payload.role };
       return true;

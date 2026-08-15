@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Info, ShieldQuestion } from 'lucide-react';
 import { getBuylistQuote, getSellRequests } from '@/lib/api';
@@ -16,6 +16,7 @@ import { Modal } from '@/components/ui/Modal';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
+import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { useBuylistSteps } from '@/lib/pipelines';
@@ -27,10 +28,13 @@ export function BuylistView() {
   const tcat = useTranslations('buylist.categoryLabel');
   const locale = useLocale() as AppLocale;
   const buylistSteps = useBuylistSteps();
+  const queryClient = useQueryClient();
 
   const [cardId, setCardId] = useState(mockCards[0].id);
   const [productType, setProductType] = useState<ProductType>('raw');
   const [guideOpen, setGuideOpen] = useState(false);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const quote = useMutation({
     // Condición de compra SIEMPRE NM (v1.1): raw se envía con rawCondition='NM', sin selector.
@@ -117,7 +121,14 @@ export function BuylistView() {
                 </div>
               )}
               <Banner variant="info">{t('kycNotice')}</Banner>
-              <Button variant="accent" disabled={quote.data.quote.status === 'precio_pendiente'}>
+              <Button
+                variant="accent"
+                disabled={quote.data.quote.status === 'precio_pendiente'}
+                onClick={() => {
+                  setCreatedId(null);
+                  setRequestOpen(true);
+                }}
+              >
                 {t('createRequest')}
               </Button>
             </div>
@@ -129,6 +140,12 @@ export function BuylistView() {
           </Banner>
         </div>
       </div>
+
+      {createdId && (
+        <Banner variant="success" role="status">
+          {t('created')}
+        </Banner>
+      )}
 
       <section className="flex flex-col gap-4">
         <h2 className="text-h2 font-semibold">{t('myRequests')}</h2>
@@ -178,6 +195,21 @@ export function BuylistView() {
 
       <Modal open={guideOpen} onClose={() => setGuideOpen(false)} title={t('shippingGuideLink')}>
         <SafeShippingGuide onUnderstood={() => setGuideOpen(false)} />
+      </Modal>
+
+      <Modal open={requestOpen} onClose={() => setRequestOpen(false)} title={t('requestTitle')}>
+        {quote.data && quote.data.quote.status !== 'precio_pendiente' && (
+          <BuylistKycForm
+            cardId={cardId}
+            productType={productType}
+            category={quote.data.category}
+            onCreated={(sellRequestId) => {
+              setCreatedId(sellRequestId);
+              setRequestOpen(false);
+              void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
+            }}
+          />
+        )}
       </Modal>
     </div>
   );

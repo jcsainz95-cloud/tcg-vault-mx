@@ -3,200 +3,183 @@
 > **Rol:** seguridad (blue team). Reviso la defensa, **valido/consolido** los hallazgos del
 > `pentester` (`docs/PENTEST_NOTES.md`) contra el código y emito el **VEREDICTO**. No corrijo
 > código: cada hallazgo se enruta al **rol dueño**.
-> **Alcance de esta revisión:** **re-verificación de la simplificación v1.2 / v1.2.1** (backend +
-> frontend commiteados) sobre la base ya aprobada de v1.1. Foco: que la simplificación **no abrió
-> huecos** y que **redujo** la superficie de PII/uploads. Se re-chequean sin regresión los
-> guardarraíles previos y la deuda abierta (S-M1, S-M2, S-B1..S-B4).
-> **Modo:** revisión estática de código + `npm audit`. Sin stack vivo → vectores que exigen
-> instancia = **[PoC pendiente de target]**; verificados por lectura = **[Verificado en código]**.
-> **Fecha:** 2026-08-14 (rev **v1.2.1**). Blanco autorizado: staging/local.
+> **Alcance de esta revisión (rev v1.3):** **re-verificación del endurecimiento de producción**
+> que estaba enrutado como deuda (S-M1, S-M2, S-B3, S-B4). Backend implementó: CORS allow-list,
+> `helmet`, `algorithms` JWT fijados al firmar y verificar, validación de env **siempre**, y
+> allow-list de content-type + límite de tamaño en el presign `kyc_ine`. Verifico que **cierran**
+> los hallazgos y que **no introdujeron regresión** en los guardarraíles de dinero/PII.
+> **Modo:** revisión **estática** de código + `npm audit` + ejecución de `test/uploads.presign.spec.ts`.
+> Sin stack vivo (R2/Railway aún sin configurar) → vectores que exigen instancia = **[PoC pendiente
+> de target — DAST]**; verificados por lectura/tests = **[Verificado en código]**.
+> **Fecha:** 2026-08-15 (rev **v1.3**, endurecimiento de producción). Blanco autorizado: staging/local.
 
 ---
 
-## 0. Resumen ejecutivo
+## 0. Resumen ejecutivo (rev v1.3)
 
-La **simplificación v1.2/v1.2.1 no abrió huecos** y **redujo la superficie de PII y de uploads**:
-- El presign de object storage quedó **acotado a `kyc_ine`** (INE del buylist). Los propósitos
-  `inventory_photo` y `dispute_claim` **fueron eliminados** del código, no solo deprecados: el
-  servicio rechaza cualquier otro `purpose` con `422 VALIDATION_ERROR` y el tipo se estrechó a
-  `UploadPurpose = 'kyc_ine'`. **Ya no existe ninguna ruta que acepte otros `purpose`.**
-- Se **dropearon** las columnas de foto de producto y de evidencia de disputa (migración
-  `20260814200000_v12_simplification`, M-13). El drop **no rompió** `reveal-clabe`, ni el
-  cifrado/enmascarado de PII, ni la auditoría, ni la retención del INE.
-- La disputa de condición ya **no admite subida de archivos** (evidencia por correo a soporte):
-  menos superficie de upload y de almacenamiento de PII.
-- **INE/CLABE intactos** (sin regresión): `KycProfile.ineFrontKey/ineBackKey`, `clabeEnc`,
-  `clabeHmac`, `rfcEnc`; bucket privado, presign GET corto, retención `INE_RETENTION_DAYS`.
+El **endurecimiento de producción** que quedó enrutado como deuda en la rev v1.2.1 fue
+implementado por **backend** y **cierra** los hallazgos abiertos de transporte/auth/uploads.
+Todo verificado en código y con tests corriendo:
 
-**Efecto neto en severidad:** el vector de **XSS almacenado servido públicamente** que motivaba
-parte de **S-B3** desaparece — la única ruta pública que lo habilitaba (`inventory_photo`) ya no
-existe; el único upload que queda (`kyc_ine`) va a un **prefijo privado**. **S-B3 baja de alcance**
-(queda solo el residuo de allow-list de content-type/tamaño sobre el INE). **No hay hallazgos
-Críticos ni Altos abiertos.** Los guardarraíles de dinero/PII y la deuda previa (S-M1, S-M2,
-S-B1, S-B2, S-B4) **siguen sin cambio** — no se re-abren.
+- **S-M2 (CORS) — CERRADO.** `main.ts` ya **NO** usa `origin: true`. `resolveCorsOrigins()`
+  construye una **allow-list** desde `APP_BASE_URL` (lista separada por comas) con
+  `credentials: true`. **Fallback fail-closed**: si falta `APP_BASE_URL`, solo devuelve orígenes
+  de dev local (`http://localhost:3000`, `http://localhost:5173`) — **jamás un comodín**.
+- **S-B4 (helmet / algorithms / env) — CERRADO.** `helmet()` aplicado en `main.ts:29`.
+  JWT con `algorithm:'HS256'` al **firmar** (`auth.service.ts:47,54`) y `algorithms:['HS256']` al
+  **verificar** (`jwt-auth.guard.ts:37`, `auth.service.ts:183`) → algorithm-confusion cerrado en
+  defensa en profundidad. `env.validation.ts` valida **siempre** (no solo en prod) para todo
+  entorno no-local, con **chequeo de entropía** (≥32 chars) de los secretos JWT.
+- **S-B3 (presign) — CERRADO (con residuo Bajo aceptado).** `uploads.service.ts` fuerza
+  allow-list `image/*` (rechaza HTML/PDF/octet-stream con 422) **siempre**, y aplica límite de
+  tamaño (`KYC_UPLOAD_MAX_BYTES`, default 10 MiB) fijándolo en la firma (`ContentLength`) cuando el
+  cliente lo declara; `presignGet` sirve el INE con `Content-Disposition: attachment`. 12/12 tests
+  de `test/uploads.presign.spec.ts` **pasan**. Residuo Bajo: el tope de tamaño solo se **fija en la
+  firma si el cliente envía `contentLength`** (ver S-B3 abajo).
+- **S-M1 (deps runtime) — MITIGADO.** `npm audit --omit=dev` en `backend/` pasó de **6 moderate a
+  2 moderate** (0 high / 0 critical). Las cadenas `gaxios→uuid` (buffer bounds) y `file-type` (DoS
+  parser) **se resolvieron**. Las 2 restantes son el **mismo** aviso de `@nestjs/core`
+  (**CVE-2026-35515, SSE injection, moderate**) que **no es alcanzable** en este código (ver S-M1).
 
-**VEREDICTO: APROBADO para staging** (0 críticos / 0 altos). Condiciones para producción sin cambio
-respecto a la rev v1.1 (§4), con **S-B3 reducido**.
+**No hay hallazgos Críticos ni Altos abiertos.** Guardarraíles de dinero/PII **sin regresión**
+(verificados en §2). El resto de la deuda (S-B1, S-B2) sigue **aceptada con disparador** (§5).
 
-| Severidad | # | IDs |
+**VEREDICTO (revisión de código estático): APROBADO.** La **fase dinámica (DAST/pentester contra
+staging)** queda **pendiente y NO aprobada a ciegas** porque R2/Railway aún no están configurados
+(§6). No se promueve a producción sin ella.
+
+| Severidad | # | IDs / estado |
 |---|---|---|
 | Crítica | 0 | — |
 | Alta | 0 | — |
-| Media | 2 | S-M1 (=M-1), S-M2 (=M-2) |
-| Baja | 4 | S-B1, S-B2, **S-B3 (reducido)**, S-B4 |
-| Info/positivo (verificado) | 8 | I-1..I-8 |
+| Media | 1 | S-M1 (**mitigado 6→2 moderate**; residuo no-alcanzable, aceptado) |
+| Baja | 3 | S-B1 (aceptada), S-B2 (aceptada), S-B3 (**cerrado**, residuo Bajo aceptado) |
+| Cerrados esta rev | 3 | **S-M2 (CORS)**, **S-B4 (helmet/algorithms/env)**, **S-B3 (presign)** |
 
 ---
 
-## 1. Re-verificación de la simplificación v1.2 / v1.2.1 (esta revisión)
+## 1. Endurecimiento de producción — verificación por hallazgo (rev v1.3)
 
-### V-1 — Presign acotado a `kyc_ine` — **[Verificado en código] · sin regresión, superficie reducida**
-- `backend/src/modules/uploads/uploads.service.ts:15` → `type UploadPurpose = 'kyc_ine'`;
-  `:44-49` rechaza todo `purpose !== 'kyc_ine'` con `422 VALIDATION_ERROR` (regla de negocio, no el
-  400 del `ValidationPipe`). `uploads.controller.ts` expone un único `POST /uploads/presign`
-  protegido por `@Roles(customer, vault_operator, super_admin)`; no hay otra ruta de upload.
-- **Verificado que no queda ruta que acepte otros `purpose`:** `git grep` de `inventory_photo` /
-  `dispute_claim` en `backend/src` solo aparece en comentarios/tests que confirman su rechazo
-  (`test/uploads.presign.spec.ts` valida `422` para `inventory_photo`, `dispute_claim` y otros).
-- **INE sin regresión:** presign PUT vive 900 s; `presignGet` (SEC-A5) sirve el INE por GET
-  prefirmado de vida corta (300 s) desde bucket **privado**; retención vía
-  `jobs/ine-retention.service.ts` (`INE_RETENTION_DAYS`, default 180) que borra el objeto
-  (`uploads.deleteObject`) y limpia `ineFrontKey/ineBackKey`. CLABE cifrada + blind index.
-- **Resultado:** superficie de upload **reducida** (de 3 propósitos a 1) y el propósito restante
-  apunta a prefijo privado. Guardarraíl del INE **intacto**.
+### S-M2 — CORS restringido a allow-list — **CERRADO · [Verificado en código]**
+- `backend/src/main.ts:15-23` (`resolveCorsOrigins`) + `:47-50` — `app.enableCors({ origin:
+  corsOrigins, credentials: true })`. **Ya no existe `origin: true`.**
+- **Fallback evaluado (requisito del encargo):** sin `APP_BASE_URL`, devuelve **solo**
+  `['http://localhost:3000','http://localhost:5173']`. **No abre a `*`** ni refleja el `Origin` del
+  request → **fail-closed**. En staging/prod `APP_BASE_URL` debe fijarse; si se omitiera por error,
+  el efecto es que CORS **bloquea** al frontend legítimo (rompe, no expone). Comportamiento seguro.
+- **Nota de robustez (no bloqueante):** `env.validation.ts` **no** exige `APP_BASE_URL` en no-local;
+  una omisión en staging degrada silenciosamente a orígenes localhost. Recomendación menor para
+  **devops/backend**: añadir `APP_BASE_URL` a las env requeridas no-locales o loguear WARN explícito
+  (ya se loguea la allow-list resultante en `:50`). No es hueco de seguridad.
 
-### V-2 — Drop de columnas de foto (M-13) — **[Verificado en código] · sin ruptura**
-- Migración `backend/prisma/migrations/20260814200000_v12_simplification/migration.sql`: `DROP
-  COLUMN` de `InventoryItem.frontPhotoKey/backPhotoKey/extraPhotoKeys`, `SellRequestItem.photoKeys`,
-  `Dispute.ingressPhotoKeys/claimPhotoKeys`. Greenfield: sin datos que migrar.
-- **No rompió `reveal-clabe`:** `admin-buylist.controller.ts:46-59` conserva `@Roles(super_admin)` +
-  `@MoneyOut()` + `audit.log('buylist.reveal_clabe')`; `buylist.service.ts:340` sin cambio.
-- **No rompió cifrado/enmascarado PII ni auditoría:** `schema.prisma:227-249` (`KycProfile`)
-  mantiene `rfcEnc/clabeEnc/clabeHmac/ineFrontKey/ineBackKey` y el índice `clabeHmac`;
-  `admin.service.ts` mantiene proyección reducida (INE keys solo para servir por presigned GET,
-  RFC enmascarado). **INE/CLABE intactos.**
-- La misma migración añade `InventoryItem.certNumber` (M-12) — ver V-4.
+### S-B4 — helmet + algorithms JWT + validación de env — **CERRADO · [Verificado en código]**
+- **helmet:** `main.ts:29` `app.use(helmet())` (CSP default, HSTS, noSniff, frameguard, etc.).
+- **algorithms fijados (algorithm-confusion):**
+  - Firma: `auth.service.ts:47` (access) y `:54` (refresh) → `algorithm: 'HS256'`.
+  - Verificación: `jwt-auth.guard.ts:37` y `auth.service.ts:183` (refresh) → `algorithms: ['HS256']`.
+  - Efecto: `alg:none` y confusión RS↔HS quedan cerradas de forma explícita (antes dependía del
+    comportamiento de la lib; ahora es defensa en profundidad afirmativa).
+- **Validación de env SIEMPRE:** `env.validation.ts` cableada en `app.module.ts:31`
+  (`ConfigModule.forRoot({ validate: validateEnv })`). Corre en **todo** arranque; en cualquier
+  entorno **no-local** (incluye staging) exige `DATABASE_URL`, `JWT_ACCESS_SECRET`,
+  `JWT_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` y **rechaza secretos JWT
+  débiles** (<32 chars). En local no aborta (para no romper dev/CI sin secretos reales) — patrón
+  consistente con seed/pii-crypto. Correcto.
 
-### V-3 — Disputa por correo — **[Verificado en código] · menos superficie, sin fuga**
-- `disputes.controller.ts` sin `claimPhotoUploadKeys`; `disputes.service.ts:20-68` crea la disputa
-  **sin subida de archivos** y valida ownership (`item.ownerUserId !== userId → FORBIDDEN`).
-- `evidenceContact` = `DISPUTE_EVIDENCE_CONTACT` (`disputes.constants.ts`): correo de soporte
-  **estático/placeholder configurable por env** (`DISPUTE_EVIDENCE_CONTACT`, default
-  `soporte@tcgvault.mx`). **No filtra datos sensibles** (no depende de PII del usuario ni del
-  request). Detalle admin (`adminGet`) expone `gradingCompany/gradeValue/certNumber` (no PII).
-- **Resultado:** eliminado el upload de evidencia → menos superficie de almacenamiento de PII.
+### S-B3 — Presign `kyc_ine`: allow-list de content-type + tamaño — **CERRADO (residuo Bajo aceptado) · [Verificado en código + tests]**
+- **Allow-list de content-type — efectiva y SIEMPRE:** `uploads.service.ts:67-74` normaliza a
+  minúsculas y exige prefijo `image/`; rechaza `text/html`, `application/pdf`,
+  `application/octet-stream` con **422 VALIDATION_ERROR**. **No se puede subir contenido arbitrario
+  (HTML/binario) al bucket.** La extensión de la key se deriva del tipo ya validado (`:98`).
+- **Límite de tamaño — efectivo cuando el cliente declara `contentLength`:** `:79-95` valida
+  `0 < contentLength ≤ maxBytes` (default 10 MiB, dial `KYC_UPLOAD_MAX_BYTES`) y **fija
+  `ContentLength` en la firma** (`:104`) → S3/MinIO rechaza el PUT si el cuerpo no coincide
+  exactamente. El tope no depende solo de la buena fe del cliente **para ese caso**.
+- **Servir sin ejecución:** `presignGet` (`:126-135`) fuerza `ResponseContentDisposition:
+  'attachment'` → aunque un objeto fuera HTML, no se renderiza inline; y sale por GET prefirmado de
+  vida corta (300 s) desde bucket **privado**.
+- **Tests:** `test/uploads.presign.spec.ts` — **12/12 PASS** (ejecutado esta sesión): acepta
+  `kyc_ine`+`image/*`, rechaza `inventory_photo`/`dispute_claim`/otros, rechaza no-imagen, valida
+  tope por defecto y `KYC_UPLOAD_MAX_BYTES`, rechaza `contentLength` no positivo.
+- **Residuo Bajo (aceptado, §5):** el tope de tamaño **solo se fija en la firma si el cliente envía
+  `contentLength`** (campo opcional en el DTO). Si el cliente lo **omite**, la firma no lleva
+  `ContentLength` y podría subir un archivo grande (abuso de almacenamiento) — el **content-type
+  sigue restringido a `image/*`**, así que no hay subida de HTML/binario ni XSS. Impacto: abuso de
+  storage, no ejecución. Cierre sugerido junto con la config de bucket en prod: exigir
+  `contentLength` obligatorio o aplicar límite del lado de infra (policy de bucket). **Rol dueño:**
+  **backend** (hacer `contentLength` obligatorio) + **devops** (límite/bucket privado en R2).
 
-### V-4 — `certNumber` — **[Verificado en código] · dato no sensible, validación correcta**
-- `schema.prisma:357` `certNumber String?` (nullable; solo `graded`). `inventory.dto.ts:26,39`
-  `@IsOptional() @IsString()`; `inventory.service.ts:74` fuerza `null` para raw/sealed y `:130-133`
-  **exige `certNumber` no vacío para publicar una gradeada** (regla de app; sin validación
-  automática contra la graduadora — aceptable, es un identificador verificable externamente).
-- **No es PII** (número de certificado público verificable en PSA/CGC). Sin riesgo de exposición.
-
-### V-5 — Sin regresión en guardarraíles previos — **[Verificado en código]**
-Re-chequeados tras la simplificación; todos OK (detalle en §2):
-auth Google server-side, catálogo-sync anti-inyección/SSRF, reserva atómica de checkout, webhook
-Stripe (firma + idempotencia atómica), `MoneyOutGuard` (solo `super_admin` + auditoría). La
-simplificación **no tocó** estos módulos.
-
-### V-6 — Observación de limpieza (devops, no bloqueante)
-- `docker-compose.yml` / `docker-compose.staging.yml` aún publican el prefijo `inventory_photo/`
-  con lectura anónima (`mc anonymous set download .../inventory_photo`). Con `inventory_photo`
-  eliminado como propósito de upload, **ya no existe ruta de escritura a ese prefijo** → es
-  **config muerta**, no un hueco (no hay objetos que servir ahí). Recomendación de **limpieza**
-  para devops: retirar la publicación del prefijo `inventory_photo/` para no dejar un prefijo
-  público sin uso. **No bloqueante.** **Rol dueño:** devops.
+### S-M1 — Dependencias runtime backend — **MITIGADO (6→2 moderate) · residuo no-alcanzable, aceptado · [Verificado]**
+- `npm audit --omit=dev` esta sesión: **2 moderate, 0 high, 0 critical** (antes 6 moderate). Las
+  cadenas `gaxios→uuid` (buffer bounds, tocaba el login Google) y `file-type` (DoS parser) **ya no
+  aparecen** → resueltas.
+- **Las 2 restantes son el mismo aviso:** `@nestjs/core`/`@nestjs/platform-express` →
+  **GHSA-36xv-jgw5-4q75 / CVE-2026-35515** (SSE injection, **moderate**, CVSS 6.3). Precondición de
+  explotación: la app debe **usar SSE** y mapear datos influenciados por el usuario a los campos
+  `type`/`id` de un `MessageEvent`. **`git grep` de `@Sse|SseStream|MessageEvent|text/event-stream`
+  en `backend/src` → sin coincidencias.** El backend **no expone SSE** → el aviso **no es
+  alcanzable** en este código.
+- **Fix disponible solo con breaking change** (`@nestjs/core@11.2.1`, salto 10→11); instalado hoy:
+  **10.4.22**. Dado que **no es alcanzable**, se **acepta** como deuda no bloqueante con disparador:
+  bumpear a NestJS 11 (o al parche 11.1.18+) en la próxima ventana de mantenimiento, y **antes** de
+  introducir cualquier endpoint SSE.
+- **Severidad efectiva:** Baja (aviso Media no alcanzable). **Rol dueño:** **devops** (bump NestJS
+  11 + gate `npm audit` en CI/SAST). Frontend: `critical`/`high` **solo en devDependencies**
+  (`vitest`/`vite`), no van al bundle prod — sin cambio.
 
 ---
 
-## 2. Guardarraíles previos — SIN regresión (re-verificado en código, v1.2.1)
+## 2. Guardarraíles previos — SIN regresión (re-verificado en código, v1.3)
+
+El endurecimiento tocó `main.ts`, `auth.service.ts`, `jwt-auth.guard.ts`, `env.validation.ts` y
+`uploads/*`; **no** tocó pagos, órdenes, buylist ni PII. Re-chequeados:
 
 | Guardarraíl | Evidencia | Estado |
 |---|---|---|
-| **Reserva atómica anti doble-venta** | `orders.service.ts` — `updateMany` guardado por estado vendible + `count!==1 → ITEM_UNAVAILABLE` dentro de `$transaction`; idempotency-key de PI server-side. | OK |
-| **Webhook Stripe: firma** | `stripe.service.ts` — `webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET)`; raw body preservado en `main.ts:14-18`. | OK |
-| **Webhook Stripe: idempotencia** | `payments.service.ts:38-89` — `ProcessedStripeEvent` como guardia atómica (P2002 → no-op); si el handler falla, borra la marca y re-lanza (Stripe reintenta). | OK |
-| **Money-out solo super_admin** | `money-out.guard.ts` — rol != `super_admin` → `403 MONEY_OUT_FORBIDDEN` + audita el intento. Aplicado a reveal-clabe/pay-spei/refund/recompra. | OK |
-| **PII cifrada/enmascarada** | `schema.prisma` `*Enc`/`*Hmac`; enmascarado por defecto incl. `super_admin`; `reveal-clabe` = único CLABE en claro (money-out + auditado); `vault_operator` con proyección reducida. | OK |
-| **Retención INE** | `jobs/ine-retention.service.ts` — purga objeto (`deleteObject`) + limpia `ineFrontKey/ineBackKey` pasado `INE_RETENTION_DAYS`. | OK (intacto en v1.2.1) |
-| **Login Google server-side** | `google-token-verifier` + `auth.service.ts` — firma/aud/iss/exp + `email_verified`; `role` siempre server-side. | OK |
-| **Sync catálogo anti-inyección/SSRF** | `catalog-sync.service.ts` `SET_ID_PATTERN`; `pokemontcg-io.client.ts` host fijo + `encodeURIComponent`. | OK |
-| **Portfolio/holdings sin IDOR** | `userId` desde JWT (`@CurrentUser`), nunca de parámetro; snapshot `@Roles(super_admin)`. | OK |
-| **convert-to-inventory guard + anti-carrera** | `ITEM_NOT_APPROVED` + índice único `sourceSellRequestItemId` (P2002). | OK |
-| **Tope mensual buylist atómico** | `$transaction` `Serializable`; categoría derivada server-side. | OK |
+| **Reserva atómica anti doble-venta** | `orders.service.ts` — `updateMany` guardado por estado vendible + `count!==1 → ITEM_UNAVAILABLE` en `$transaction`. | OK |
+| **Webhook Stripe: firma** | `stripe.service.ts` — `constructEvent(payload, sig, STRIPE_WEBHOOK_SECRET)`; raw body preservado en `main.ts:35-39` (intacto tras añadir helmet). | OK |
+| **Webhook Stripe: idempotencia** | `payments.service.ts` — `ProcessedStripeEvent` guardia atómica (P2002 no-op); si el handler falla borra la marca y re-lanza. | OK |
+| **Money-out solo super_admin** | `money-out.guard.ts` — rol != `super_admin` → `403 MONEY_OUT_FORBIDDEN` + audita. reveal-clabe/pay-spei/refund/recompra. | OK |
+| **PII cifrada/enmascarada** | `schema.prisma` `*Enc`/`*Hmac`; enmascarado por defecto incl. `super_admin`; `reveal-clabe` único CLABE en claro (money-out + auditado); `vault_operator` proyección reducida. | OK |
+| **Retención INE** | `jobs/ine-retention.service.ts` — purga objeto + limpia `ineFrontKey/ineBackKey` pasado `INE_RETENTION_DAYS`. | OK |
+| **Login Google server-side** | `google-token-verifier` + `auth.service.ts` — firma/aud/iss/exp + `email_verified`; `role` siempre server-side. Firma JWT con `algorithm:'HS256'`. | OK |
+| **Enum. por temporización login** | `auth.service.ts:95-101` — `argon2.verify` siempre contra `DUMMY_PASSWORD_HASH`; throttle 5/min. | OK |
+| **Sync catálogo anti-inyección/SSRF** | `catalog-sync.service.ts` `SET_ID_PATTERN`; host fijo + `encodeURIComponent`. | OK |
+| **Portfolio/holdings sin IDOR** | `userId` desde JWT (`@CurrentUser`), nunca de parámetro. | OK |
+| **Presign solo kyc_ine** | `uploads.service.ts:57-62` — cualquier otro `purpose` → 422; controlador `@Roles(customer,vault_operator,super_admin)`. | OK |
 
 ---
 
-## 3. Hallazgos abiertos (heredados, SIN cambio salvo S-B3 reducido)
+## 3. Estado de todos los hallazgos (histórico consolidado)
 
-### MEDIA
-
-#### S-M1 — Dependencias vulnerables en runtime backend
-- **Confirmado (re-corrido 2026-08-14):** `npm audit --omit=dev` en `backend/` → **6 moderate, 0
-  high, 0 critical**. Cadena `google-auth-library`→`gaxios 6.4.0–6.7.1`→`uuid <11.1.1` (moderate,
-  buffer bounds) + `@nestjs/common`→`file-type` (moderate, DoS parser). Fix vía `npm audit fix`
-  (sin `--force`). Frontend: `critical`/`high` **solo devDependencies** (no van al bundle prod).
-- **Severidad:** Media. **Rol dueño:** **devops** (bump runtime + gate `npm audit` en SAST).
-- **Sin cambio en v1.2** (la simplificación no alteró dependencias con avisos).
-
-#### S-M2 — CORS refleja cualquier origin con credenciales
-- **Confirmado [Verificado en código]:** `backend/src/main.ts:26` → `app.enableCors({ origin: true,
-  credentials: true })`. Sin allow-list de dominios. Explotabilidad hoy limitada (tokens en
-  `localStorage`/`Authorization: Bearer`, no cookies). **Escala a Alta** si aparece cualquier
-  auth/refresh por cookie.
-- **Severidad:** Media. **Rol dueño:** **backend** (allow-list de orígenes desde config).
-- **Sin cambio en v1.2.**
-
-### BAJA
-
-#### S-B1 — Login Google ensancha la superficie de auth de cuentas privilegiadas
-- Sin cambio. Linking enlaza ID token de Google a cualquier cuenta local con el mismo email
-  verificado sin excluir `super_admin`/`vault_operator`; `role` server-side (no es escalada).
-- **Severidad:** Baja (deuda aceptada con disparador §5). **Rol dueño:** **backend**.
-
-#### S-B2 — Columnas de dinero en `Int` de 32 bits (overflow > ~MX$21.47M)
-- Sin cambio. Montos `*Cents` en `Int`; `listPriceCents` con `@Min(0)` sin `@Max`.
-- **Severidad:** Baja (integridad, no explotable externamente). **Rol dueño:** **arquitecto**
-  (tipo `BigInt`) + **backend** (cota `@Max`). Deuda aceptada §5.
-
-#### S-B3 — Presign sin allow-list de content-type/tamaño — **REDUCIDO en v1.2**
-- **Antes (v1.1):** el presign aceptaba `inventory_photo` (prefijo **público**) con `contentType`
-  libre → un `POST /uploads/presign {purpose:"inventory_photo",contentType:"text/html"}` permitía
-  subir HTML al bucket público → **XSS almacenado**.
-- **Ahora (v1.2.1):** `inventory_photo`/`dispute_claim` **eliminados**; el único upload es
-  `kyc_ine` a un **prefijo privado** (sin lectura anónima). **El vector de XSS almacenado servido
-  públicamente desaparece.** Queda un **residuo Bajo**: el presign PUT del INE aún **no fija
-  allow-list `image/*` ni `Content-Length` máximo** (`uploads.service.ts:52` deriva la extensión de
-  `contentType.split('/')[1]`), y `presignGet` no fuerza `Content-Disposition: attachment`. Impacto
-  residual: abuso de almacenamiento y un XSS solo servible desde el **dominio de storage privado**
-  (no el de la app), tras autenticación y solo sobre la propia key.
-- **Severidad:** Baja (reducida; ya no toca prefijo público). **Rol dueño:** **backend** (allow-list
-  `image/*` + tamaño máx + `Content-Disposition: attachment` en la ruta `kyc_ine`) + **devops**
-  (mantener bucket privado; retirar publicación del prefijo `inventory_photo/` sin uso — ver V-6).
-
-#### S-B4 — Endurecimientos de auth/transport (defensa en profundidad)
-- Sin cambio. `main.ts` **sin `helmet()`**; `verifyAsync/signAsync` sin fijar `algorithms:['HS256']`
-  (no explotable con secreto simétrico, defensa en profundidad); `env.validation.ts` valida
-  `JWT_*`/Stripe solo si `NODE_ENV==='production'`, sin chequeo de entropía del secreto.
-- **Severidad:** Baja. **Rol dueño:** **backend** (helmet, `algorithms`, validar secreto en staging)
-  + **devops** (cabeceras en el borde, longitud mínima de secretos, secret manager en prod).
+| ID | Tema | Rev anterior | **Estado v1.3** | Rol dueño |
+|---|---|---|---|---|
+| S-M1 | Deps runtime backend | Media abierta (6 moderate) | **Mitigado** (2 moderate; residuo SSE no-alcanzable, **aceptado**) | devops |
+| S-M2 | CORS `origin:true` + credentials | Media abierta | **CERRADO** (allow-list `APP_BASE_URL`, fallback fail-closed) | backend ✔ |
+| S-B1 | Linking Google a cuentas back-office | Baja aceptada | **Aceptada** (sin cambio; disparador §5) | backend |
+| S-B2 | Dinero en `Int` 32-bit | Baja aceptada | **Aceptada** (sin cambio; disparador §5) | arquitecto/backend |
+| S-B3 | Presign sin allow-list tipo/tamaño | Baja abierta (reducida) | **CERRADO** (allow-list `image/*` + tope; residuo Bajo aceptado) | backend ✔ |
+| S-B4 | helmet / algorithms / env prod-only | Baja abierta | **CERRADO** (helmet + HS256 fijo + env siempre + entropía) | backend ✔ |
 
 ---
 
 ## 4. Mínimo para aprobar producción (dinero/PII reales)
 
-No hay Críticos/Altos → **no bloquea staging**. Para la **promoción a producción** exijo cerrar:
-1. **S-M2 (CORS)** — allow-list de orígenes; sin `origin:true`. **[backend]** — obligatorio si se
-   añade cualquier cookie de auth.
-2. **S-B3 (residuo)** — allow-list `image/*` + tamaño máx + `Content-Disposition: attachment` en la
-   ruta `kyc_ine` **[backend]** + confirmación de **bucket INE privado** y retiro del prefijo
-   público muerto `inventory_photo/` **[devops]**.
-3. **S-M1 (deps)** — `npm audit fix` del runtime backend + gate `npm audit` en CI **[devops]**.
-4. **S-B4 (transport)** — `helmet` + validación de secretos/entropía también en staging
-   **[backend/devops]**.
+La parte **estática** de código ya **no bloquea** (0 críticos/altos; S-M2/S-B3/S-B4 cerrados). Para
+la **promoción a producción** faltan, ahora, elementos de **infra y fase dinámica**:
 
-S-B1 y S-B2 quedan como **deuda aceptada con disparador** (§5); no bloquean, pero deben resolverse
-antes de operar con público real a escala.
+1. **Fase dinámica (DAST) contra staging** — **PENDIENTE, obligatoria.** No ejecutable hoy (R2/
+   Railway sin configurar). Debe correr CORS cross-origin real, abuso de presign con bucket real,
+   concurrencia de checkout/buylist, y el escaneo ZAP/nuclei. **[devops habilita staging → pentester
+   ejecuta DAST].**
+2. **S-M1 (deps)** — bump NestJS a 11.1.18+/11.2.x + gate `npm audit` en CI **[devops]**. No
+   alcanzable hoy, pero cerrarlo antes de exponer o de añadir SSE.
+3. **S-B3 (residuo)** — `contentLength` obligatorio en el presign **[backend]** + **bucket INE
+   privado en R2** con límite de tamaño a nivel de policy **[devops]**.
+4. **Config env de staging/prod** — `APP_BASE_URL`, secretos fuertes (≥32) desde secret manager,
+   `S3_*` reales; confirmar que ningún secreto aparece en logs **[devops]**.
+
+S-B1 y S-B2 quedan como **deuda aceptada con disparador** (§5).
 
 ---
 
@@ -204,54 +187,64 @@ antes de operar con público real a escala.
 
 | ID | Deuda | Impacto | Disparador |
 |---|---|---|---|
+| S-M1 | `@nestjs/core` CVE-2026-35515 (SSE injection) sin parchar (fix = major 10→11) | Ninguno hoy (backend no usa SSE) | Antes de introducir cualquier endpoint SSE, o en la próxima ventana de mantenimiento de deps. |
 | S-B1 | Linking Google a cuentas back-office | Traslada seguridad de cuentas privilegiadas a Google | Antes de alta de cualquier back-office con email @gmail, o al habilitar más operadores. |
 | S-B2 | Dinero en `Int` 32-bit | Overflow de integridad en agregados > ~MX$21.47M | Antes de que portafolios/P&L/custody agregados se acerquen a MX$21M, o antes de operar a escala. |
-| S-B3 (residuo) | Presign `kyc_ine` sin allow-list de tipo/tamaño | Abuso de almacenamiento; XSS solo servible desde dominio de storage privado | Se acepta **solo** si devops confirma bucket INE privado. Cerrar junto con la promoción a prod. |
-| S-B4 | `algorithms` no fijado, validación env solo prod, sin helmet | Defensa en profundidad reducida | Antes de exponer staging a Internet (helmet + secretos); fijar `algorithms` en el próximo toque de auth. |
+| S-B3 (residuo) | Tope de tamaño del presign solo se fija si el cliente envía `contentLength` | Abuso de almacenamiento (no ejecución: content-type ya restringido a `image/*`) | Cerrar junto con bucket INE privado en R2: `contentLength` obligatorio + límite de policy. |
 
 ---
 
 ## 6. Banderas para el humano (antes de operar con dinero real)
 
-- **Pentest de tercero + programa de bug bounty** antes del go-live con dinero real: esta revisión
-  es **estática y de caja blanca interna**. Los vectores **[PoC pendiente de target]** (CORS
-  cross-origin, DoS por dependencias, abuso de presign, concurrencia de checkout/buylist) requieren
-  validación **dinámica** contra staging (ZAP/nuclei + scripts de concurrencia).
+- **DAST/pentest dinámico contra staging — PENDIENTE Y OBLIGATORIO.** Esta rev es **estática/caja
+  blanca**. Los vectores **[PoC pendiente de target — DAST]** (CORS cross-origin real, abuso de
+  presign contra bucket real, concurrencia de checkout/buylist, DoS por deps) **no** se pudieron
+  validar porque **R2/Railway aún no están configurados**. No se aprueba a ciegas: en cuanto haya
+  staging autorizado, **devops habilita el entorno y pentester ejecuta el DAST** (ZAP/nuclei +
+  scripts de concurrencia) antes de la promoción a producción.
+- **Pentest de tercero + programa de bug bounty** antes del go-live con dinero real.
 - **KMS / secret manager en producción**: `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY`, `JWT_*`, `STRIPE_*`
-  y las credenciales `S3_*` del bucket de INE deben provenir de un secret manager (no `.env` ni
-  imagen). Confirmar rotación y que ningún secreto aparezca en logs/errores.
+  y `S3_*` del bucket de INE desde un secret manager (no `.env` ni imagen); rotación; sin secretos
+  en logs/errores. `env.validation.ts` ya rechaza el arranque no-local sin secretos y secretos JWT
+  débiles, pero la **provisión** del secret manager es de devops.
 - **Validaciones legales de custodia/PII (INE/CLABE)**: figura de depositario, contrato de custodia,
-  seguro del inventario, y cumplimiento del manejo del **INE almacenado** (base legal de tratamiento,
-  periodo de retención `INE_RETENTION_DAYS`, acceso y borrado al vencer) y de la CLABE cifrada.
-  La v1.2.1 **restauró el almacenamiento del INE** (soporte AML del SPEI a particulares): confirmar
-  con contador/abogado la retención y las obligaciones de protección de datos personales.
+  seguro del inventario, base legal de tratamiento del **INE almacenado**, retención
+  `INE_RETENTION_DAYS`, acceso y borrado al vencer, y CLABE cifrada. Confirmar con contador/abogado.
 - **Correo de evidencia de disputa** (`DISPUTE_EVIDENCE_CONTACT`, default `soporte@tcgvault.mx`) es
-  **placeholder por confirmar por el humano**; debe apuntar a un buzón real monitoreado antes de
-  operar disputas.
-- **Cierre de infra (devops)**: bucket INE privado + lifecycle de retención, y retiro del prefijo
-  público `inventory_photo/` sin uso; puertos de datos del compose — pendientes de confirmar en la
-  revisión de infra con target vivo.
+  **placeholder por confirmar por el humano**; debe apuntar a un buzón real monitoreado.
+- **Cierre de infra (devops)**: bucket INE **privado** + lifecycle de retención + límite de tamaño;
+  retirar el prefijo público muerto `inventory_photo/` del compose (config muerta, no hueco);
+  `APP_BASE_URL` y secretos fuertes en staging/prod.
 
 ---
 
 ## 7. VEREDICTO
 
-**APROBADO para staging.** La simplificación **v1.2 / v1.2.1 no abrió huecos** y **redujo la
-superficie de PII y de uploads**: presign acotado a `kyc_ine`, columnas de foto de producto y de
-evidencia de disputa **eliminadas** (M-13), disputa sin subida de archivos, e **INE/CLABE intactos**
-(cifrado, enmascarado, retención y `reveal-clabe` money-out/auditado sin regresión). El vector de
-XSS almacenado público que motivaba parte de **S-B3 desaparece** (solo queda un residuo Bajo sobre
-la ruta privada del INE).
+**Revisión de código estático: APROBADO.**
 
-**0 Críticos / 0 Altos abiertos** → no procede RECHAZO (la regla de la DoD RECHAZA solo con
-crítico/alto abierto). Lo abierto son **2 Medias (S-M1, S-M2)** y **4 Bajas (S-B1, S-B2, S-B3
-reducido, S-B4)**, ninguna bloqueante para staging.
+El **endurecimiento de producción** implementado por backend **cierra** los hallazgos que estaban
+abiertos:
+- **S-M2 (CORS): CERRADO** — allow-list desde `APP_BASE_URL`, `credentials:true`, **sin `origin:true`**
+  y **fallback fail-closed** (nunca `*`).
+- **S-B4 (helmet/algorithms/env): CERRADO** — `helmet()`, `HS256` fijado al **firmar y verificar**,
+  validación de env **siempre** con chequeo de entropía de secretos JWT.
+- **S-B3 (presign kyc_ine): CERRADO** — allow-list `image/*` (siempre) + límite de tamaño +
+  `Content-Disposition: attachment`; **12/12 tests pasan**. Queda un **residuo Bajo aceptado** (tope
+  de tamaño solo se fija si el cliente declara `contentLength`; content-type ya bloquea no-imagen).
+- **S-M1 (deps): MITIGADO** — `npm audit --omit=dev` **6→2 moderate**; las 2 restantes son la SSE
+  injection de `@nestjs/core` **no alcanzable** (backend sin SSE), **aceptada** con disparador.
 
-**Condicionado para producción** (dinero/PII reales): cerrar **S-M2 (CORS)**, **S-B3 (residuo
-presign + bucket INE privado)**, **S-M1 (deps runtime)** y **S-B4 (helmet/secretos)** (§4), y
-disparar **pentest de tercero + bug bounty + KMS** (§6). S-B1 y S-B2 quedan como deuda aceptada con
-disparador (§5).
+**0 Críticos / 0 Altos abiertos** → no procede RECHAZO. Lo abierto es **1 Media mitigada/aceptada
+(S-M1)** y **deuda Baja aceptada (S-B1, S-B2, residuo S-B3)**, nada bloqueante para la parte
+estática ni para staging.
 
-Enrutamiento: **backend** → S-M2, S-B3(app), S-B4(app), (opc.) S-B1; **arquitecto** → S-B2 (tipo
-`BigInt`); **devops** → S-M1, S-B3(infra/bucket + retiro de prefijo público muerto), S-B4(borde/
-secretos).
+**PENDIENTE (no aprobado a ciegas): fase dinámica (DAST/pentester contra staging)** — bloqueada
+hoy porque **R2/Railway no están configurados**. Es **requisito previo a producción**: devops
+habilita staging y pentester ejecuta el DAST; recién entonces se re-emite veredicto para el
+gate de promoción a prod.
+
+**Enrutamiento restante:** **devops** → S-M1 (bump NestJS 11 + gate `npm audit`), habilitar staging
+para DAST, bucket INE privado + límite de tamaño, `APP_BASE_URL`/secret manager; **backend** →
+residuo S-B3 (`contentLength` obligatorio), (opc.) S-B1; **arquitecto/backend** → S-B2 (`BigInt`).
+Nada vuelve a backend como bloqueante: los tres hallazgos que le tocaban (S-M2, S-B3, S-B4) están
+**cerrados y verificados**.

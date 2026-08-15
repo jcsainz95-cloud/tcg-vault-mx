@@ -160,6 +160,8 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minioadmin_local_dev}
       # v1.2.1: sin S3_PUBLIC_BASE_URL — el bucket es 100% privado (solo kyc_ine/, presigned GET).
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      # Tope de bytes del upload de INE (kyc_ine). Opcional: sin valor, backend usa 10 MiB.
+      KYC_UPLOAD_MAX_BYTES: ${KYC_UPLOAD_MAX_BYTES:-10485760}
       # Retención de INE del KYC (kyc_ine/). El backend borra; el bucket expira
       # como capa extra (ver createbuckets). Mantener igual al dial M10 si aplica.
       INE_RETENTION_DAYS: ${INE_RETENTION_DAYS:-180}
