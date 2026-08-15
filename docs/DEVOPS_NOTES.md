@@ -265,6 +265,12 @@ plataformas (§11). Sin los secrets, `preflight` **falla** (comportamiento desea
     `ts-node prisma/seed.ts`; `prisma`, `ts-node` y `typescript` son **devDependencies** (propiedad de
     backend, no se tocan). Podarlas rompería migración y seed en runtime. Trade-off: imagen mayor, aceptado
     para el MVP.
+  - **La etapa `runtime` copia `src/` + `tsconfig.json`** (además de `dist/`, `node_modules`, `package.json`,
+    `prisma/`). El seed de una sola vez corre `ts-node prisma/seed.ts`, que importa de `../src/...` (p. ej.
+    `src/modules/settings/settings.constants`). Sin la fuente + la config TS, ts-node falla en Railway con
+    `TS2307: Cannot find module '../src/...'`. Se incluyen la fuente y `tsconfig.json` en la imagen final,
+    coherente con conservar las dev deps para el seed. **Deuda aceptada MVP** (imagen mayor + fuente en prod);
+    alternativa futura: compilar el seed a `dist/` y usar imagen prod-only sin dev deps ni `src/`.
   - El backend lee `process.env.PORT` (Railway lo inyecta); `EXPOSE 3001` es informativo (Railway usa `PORT`).
 - **`Dockerfile.frontend`:** se añadió `RUN mkdir -p public` (hoy `frontend/` no tiene `public/`, opcional
   en Next.js) para que el `COPY /app/public` del runtime no rompa el build de docker-compose local/staging.

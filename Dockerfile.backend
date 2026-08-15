@@ -56,6 +56,12 @@ COPY --from=build --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=build --chown=nestjs:nodejs /app/package.json ./package.json
 # Prisma engines + schema para migraciones en runtime (si existen).
 COPY --from=build --chown=nestjs:nodejs /app/prisma ./prisma
+# `src/` + `tsconfig.json`: el seed de una sola vez corre `ts-node prisma/seed.ts`,
+# que importa de `../src/...` (p. ej. src/modules/settings/settings.constants). Sin
+# la fuente + la config de TS, ts-node falla con TS2307 en Railway. Se incluyen aquí
+# junto a las dev deps ya conservadas (ver NOTA en etapa build y DEVOPS_NOTES §6).
+COPY --from=build --chown=nestjs:nodejs /app/src ./src
+COPY --from=build --chown=nestjs:nodejs /app/tsconfig.json ./tsconfig.json
 USER nestjs
 EXPOSE 3001
 # Ejecuta migraciones pendientes y arranca. Ajustar si backend usa otro flujo.
