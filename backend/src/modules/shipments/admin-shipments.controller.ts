@@ -64,14 +64,23 @@ export class AdminShipmentsController {
     @Body() dto: TrackingDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.shipments.setTracking(id, dto.carrier, dto.trackingNumber);
+    const res = await this.shipments.setTracking(
+      id,
+      dto.carrier,
+      dto.trackingNumber,
+      dto.shippingCostCents,
+    );
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: 'shipment.tracking',
       entityType: 'ShipmentRequest',
       entityId: id,
-      after: { carrier: dto.carrier, trackingNumber: dto.trackingNumber },
+      after: {
+        carrier: dto.carrier,
+        trackingNumber: dto.trackingNumber,
+        shippingCostCents: res.shippingCostCents,
+      },
     });
     return res;
   }

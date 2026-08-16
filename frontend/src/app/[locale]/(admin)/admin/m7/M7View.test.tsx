@@ -10,14 +10,16 @@ describe('M7View · Finanzas (P&L)', () => {
     renderWithProviders(<M7View />, 'es');
     expect(screen.getByRole('heading', { level: 1, name: /Finanzas/ })).toBeInTheDocument();
 
-    // Etiquetas de la fórmula ingresos + envío − costo − Stripe = ganancia.
+    // Etiquetas de la fórmula: ingresos + ingreso de envío − costo − Stripe − costo de envío = ganancia (v1.4-finance).
     expect(await screen.findByText('Ingresos (ventas)')).toBeInTheDocument();
+    expect(screen.getByText('Ingreso por envío (cobrado)')).toBeInTheDocument();
     expect(screen.getByText('Costo de lo vendido')).toBeInTheDocument();
     expect(screen.getByText('Comisiones Stripe')).toBeInTheDocument();
+    expect(screen.getByText('Costo de envío (paquetería)')).toBeInTheDocument();
     expect(screen.getByText('Ganancia del periodo')).toBeInTheDocument();
 
-    // Ganancia mock = 1250000 + 52500 − 640000 − 48300 = 614200 cts = MX$6,142.00.
-    expect(await screen.findByText('MX$6,142.00')).toBeInTheDocument();
+    // Ganancia mock = 1250000 + 52500 − 640000 − 48300 − 31800 = 582400 cts = MX$5,824.00.
+    expect(await screen.findByText('MX$5,824.00')).toBeInTheDocument();
   });
 
   it('muestra valor de inventario, custodia e IVA acumulado', async () => {

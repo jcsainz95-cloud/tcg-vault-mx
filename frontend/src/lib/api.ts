@@ -16,6 +16,7 @@ import type {
   SellRequestDTO,
   ShipmentDTO,
   ShipmentQuoteResponse,
+  ShipmentTrackingRequest,
   DashboardDTO,
   InventoryItemDTO,
   VaultLocationDTO,
@@ -242,6 +243,36 @@ export async function getShipments(): Promise<ShipmentDTO[]> {
     return res.data;
   }
   return delay(fx.mockShipments);
+}
+
+/**
+ * Captura de guía (M4, `vault_operator+`): asigna carrier + trackingNumber y avanza a `guia`
+ * (contrato §M4 · POST /admin/shipments/:id/tracking).
+ * `shippingCostCents` (v1.4-finance) es opcional (costo real en centavos MXN que la plataforma
+ * paga a la paquetería); se envía solo cuando el operador lo captura. Entero ≥ 0.
+ */
+export async function saveShipmentTracking(
+  shipmentId: string,
+  input: ShipmentTrackingRequest,
+): Promise<ShipmentDTO> {
+  if (!config.useMocks) {
+    return apiRequest<ShipmentDTO>(`/admin/shipments/${shipmentId}/tracking`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  // MOCK: pendiente de backend real — actualiza el envío en memoria y lo avanza a `guia`.
+  const idx = fx.mockShipments.findIndex((s) => s.id === shipmentId);
+  if (idx >= 0) {
+    fx.mockShipments[idx] = {
+      ...fx.mockShipments[idx],
+      carrier: input.carrier,
+      trackingNumber: input.trackingNumber,
+      status: 'guia',
+    };
+    return delay(fx.mockShipments[idx]);
+  }
+  throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
 }
 
 // ---------- Buylist ----------

@@ -478,7 +478,17 @@
     },
     "m4": {
       "title": "M4 · Retiros / envíos",
-      "pickingList": "Lista de picking (por ubicación)"
+      "pickingList": "Lista de picking (por ubicación)",
+      "tracking": {
+        "capture": "Capturar guía",
+        "title": "Captura de guía",
+        "carrierLabel": "Paquetería",
+        "numberLabel": "Número de guía",
+        "shippingCostLabel": "Costo de envío (paquetería)",
+        "shippingCostHint": "Costo real que la plataforma paga a la paquetería. Opcional.",
+        "shippingCostInvalid": "Debe ser un monto mayor o igual a 0.",
+        "save": "Guardar guía"
+      }
     },
     "m5": {
       "title": "M5 · Buylist",
@@ -717,11 +727,12 @@
       },
       "pnl": {
         "title": "Estado de resultados (P&L)",
-        "formula": "Ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia.",
+        "formula": "Ingresos + ingreso por envío − costo de lo vendido − comisiones Stripe − costo de envío = ganancia.",
         "income": "Ingresos (ventas)",
-        "shipping": "Envíos cobrados",
+        "shippingRevenue": "Ingreso por envío (cobrado)",
         "cogs": "Costo de lo vendido",
         "stripeFees": "Comisiones Stripe",
+        "shippingCost": "Costo de envío (paquetería)",
         "profit": "Ganancia del periodo"
       },
       "values": {

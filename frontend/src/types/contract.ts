@@ -339,6 +339,16 @@ export interface ShipmentDTO {
   items: { inventoryItemId: string; folio: string; card: CardDTO }[];
 }
 
+// Captura de guía en M4 (contrato §M4 · POST /admin/shipments/:id/tracking).
+// shippingCostCents (v1.4-finance): costo real en centavos MXN que la plataforma
+// paga a la paquetería por este envío. Opcional, entero ≥ 0. Interno (no se expone
+// al cliente); alimenta el P&L de M7. Distinto de shippingFeeCents (ingreso al cliente).
+export interface ShipmentTrackingRequest {
+  carrier: string;
+  trackingNumber: string;
+  shippingCostCents?: number;
+}
+
 // ---- Buylist (contrato §6) ----
 // v1.3.1: value = centavos MXN si mode=fixed; porcentaje [0,100] si mode=pct.
 export interface BuylistRule {
@@ -689,12 +699,14 @@ export interface AuditLogDTO {
 }
 
 // ---- M7: Finanzas (contrato §M7) ----
-// GET /admin/finance/pnl?from=&to= → ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia.
+// GET /admin/finance/pnl?from=&to= (contrato §M7, v1.4-finance):
+// profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents.
 export interface PnlDTO {
   incomeCents: number;
-  shippingCents: number;
+  shippingRevenueCents: number;
   cogsCents: number;
   stripeFeesCents: number;
+  shippingCostCents: number;
   profitCents: number;
 }
 

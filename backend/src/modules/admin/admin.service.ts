@@ -311,13 +311,26 @@ export class AdminService {
         ...(shipmentRange ? { pickingAt: shipmentRange } : {}),
       },
     });
-    let shippingCents = 0;
+    // v1.4-finance: el envío separa INGRESO (shippingFeeCents, lo que paga el cliente) de
+    // COSTO (shippingCostCents, lo que la plataforma paga al carrier). Ambos se acotan al
+    // mismo periodo/conjunto de envíos (por `pickingAt`) para que caigan en el mismo lapso.
+    let shippingRevenueCents = 0;
+    let shippingCostCents = 0;
     for (const s of shipments) {
-      shippingCents += s.shippingFeeCents;
+      shippingRevenueCents += s.shippingFeeCents;
+      shippingCostCents += s.shippingCostCents; // sin captura => 0 (default de columna)
       stripeFeesCents += s.processingFeeCents;
     }
-    const profitCents = incomeCents + shippingCents - cogsCents - stripeFeesCents;
-    return { incomeCents, shippingCents, cogsCents, stripeFeesCents, profitCents };
+    const profitCents =
+      incomeCents + shippingRevenueCents - cogsCents - stripeFeesCents - shippingCostCents;
+    return {
+      incomeCents,
+      shippingRevenueCents,
+      cogsCents,
+      stripeFeesCents,
+      shippingCostCents,
+      profitCents,
+    };
   }
 
   async inventoryValue() {
@@ -372,7 +385,7 @@ export class AdminService {
   async exportCsv(report: string, from?: string, to?: string): Promise<string> {
     if (report === 'pnl') {
       const p = await this.pnl(from, to);
-      return `report,incomeCents,shippingCents,cogsCents,stripeFeesCents,profitCents\npnl,${p.incomeCents},${p.shippingCents},${p.cogsCents},${p.stripeFeesCents},${p.profitCents}\n`;
+      return `report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents\npnl,${p.incomeCents},${p.shippingRevenueCents},${p.cogsCents},${p.stripeFeesCents},${p.shippingCostCents},${p.profitCents}\n`;
     }
     if (report === 'iva') {
       const iva = await this.ivaReport(from, to);

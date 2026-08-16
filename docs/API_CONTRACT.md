@@ -38,10 +38,12 @@
 > - **P&L (M7):** `GET /admin/finance/pnl` **renombra** `shippingCents`→`shippingRevenueCents` (ingreso) y
 >   **añade** `shippingCostCents` (costo). Nueva fórmula:
 >   `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`.
->   **Decisión de naming:** se renombra (no solo se añade) porque M7 aún **no tiene consumidores de frontend**
->   (`ModuleTodo` stub) y `shippingRevenueCents` elimina la ambigüedad de tener dos claves de envío. El costo se
->   acota al periodo por `pickingAt` (igual que el ingreso). El CSV export (`export.csv?report=pnl`) espeja el
->   nuevo shape. Ver §M7.
+>   **Decisión de naming:** se renombra (no solo se añade) porque `shippingRevenueCents` elimina la ambigüedad de
+>   tener dos claves de envío. Es un **breaking change**: M7 **sí** tiene un consumidor de frontend real y montado
+>   (`admin/m7/M7View.tsx`, que llama a `getPnl` y renderiza el desglose del P&L), así que se actualizaron
+>   **productor y consumidor en la misma entrega** (no hubo periodo de compatibilidad porque el front migró al
+>   shape de 6 claves al mismo tiempo). El costo se acota al periodo por `pickingAt` (igual que el ingreso). El
+>   CSV export (`export.csv?report=pnl`) espeja el nuevo shape. Ver §M7.
 >
 > **Changelog v1.3.1 (2026-08-16) — Precio de buylist por RAREZA OFICIAL (editable en M2):**
 > Reemplaza las **3 categorías hardcodeadas** (`comun|reverse_holo|ex_plus` + `rarity-map`) por una **tabla de
@@ -69,9 +71,11 @@
 >   seguro contra timeouts. Ver §M2.
 > - **Confirmación (SIN cambios de contrato):** M2 (pricing/catalog), M6 (users/KYC), M7 (finance/P&L),
 >   M9 (reports/export) y M10 (settings/audit-log) **ya están especificados aquí y ya existen implementados en
->   backend**. Lo pendiente para esos módulos es **consumo de frontend** (los `ModuleTodo` son stubs de UI),
->   no backend nuevo. La **edición de diales** de M10 es `PUT /admin/settings` (body parcial de keys); **no**
->   se añade `PATCH /admin/settings/:key`. Ver §M7, §M9, §M10 y "Desviaciones" en ARCHITECTURE §9.
+>   backend**, no backend nuevo. Sobre el **consumo de frontend**: **M7 YA tiene un consumidor real y montado**
+>   (`admin/m7/M7View.tsx`, renderizado por `admin/m7/page.tsx`, consume `getPnl`); el resto (M2/M6/M9/M10)
+>   sigue pendiente de consumir en UI (`ModuleTodo`). La **edición de diales** de M10 es `PUT /admin/settings`
+>   (body parcial de keys); **no** se añade `PATCH /admin/settings/:key`. Ver §M7, §M9, §M10 y "Desviaciones" en
+>   ARCHITECTURE §9.
 
 ## 0. Convenciones generales
 
@@ -659,10 +663,10 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Err: `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CANNOT_DELETE_SELF` (un súper-admin no se borra a sí mismo).
 
 ### M7 — Finanzas (`super_admin`)
-> **Estado v1.3: YA EXISTE en backend** (`AdminFinanceController` + `AdminService.pnl/inventoryValue/custodyValue/ivaReport/exportCsv`). No requiere backend nuevo; falta **consumo de frontend** (M7 es `ModuleTodo` en UI). El P&L de PROJECT §M7 (criterio 21) está cubierto por el DTO de `pnl` + `inventory-value` + `custody-value` + `iva`.
+> **Estado v1.3: YA EXISTE en backend** (`AdminFinanceController` + `AdminService.pnl/inventoryValue/custodyValue/ivaReport/exportCsv`). No requiere backend nuevo. **Consumo de frontend: YA EXISTE** — `admin/m7/M7View.tsx` (montado vía `admin/m7/page.tsx`) llama a los endpoints reales (`getPnl`, etc.) y renderiza el desglose del P&L; **no** es un `ModuleTodo` stub. El P&L de PROJECT §M7 (criterio 21) está cubierto por el DTO de `pnl` + `inventory-value` + `custody-value` + `iva`.
 - `GET /api/v1/admin/finance/pnl` — `?from=&to=` → `{ incomeCents, shippingRevenueCents, cogsCents, stripeFeesCents, shippingCostCents, profitCents }` (ingresos + **ingreso de envío** − costo de lo vendido − comisiones Stripe − **costo de envío** = ganancia).
   - **Fórmula (v1.4-finance):** `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`.
-  - **CAMBIO DE SHAPE (v1.4-finance):** la clave `shippingCents` se **renombra** a `shippingRevenueCents` (ingreso de envío) y se **añade** `shippingCostCents` (costo de envío). No hay periodo de compatibilidad porque M7 aún no tiene consumidores de frontend (`ModuleTodo` stub); el front nuevo consume el shape nuevo.
+  - **CAMBIO DE SHAPE (v1.4-finance):** la clave `shippingCents` se **renombra** a `shippingRevenueCents` (ingreso de envío) y se **añade** `shippingCostCents` (costo de envío). Es un **breaking change** con consumidor real: `admin/m7/M7View.tsx` consume este endpoint (`getPnl`) y renderiza el desglose, así que el rename rompió esa vista (línea de envío en `$NaN`) hasta que se alineó al shape de 6 claves. No hubo periodo de compatibilidad porque **productor (backend) y consumidor (frontend M7) se actualizaron en la misma entrega**, no porque falten consumidores. El shape de 6 claves de arriba es la fuente de verdad.
   - Nota de implementación (para el front): `incomeCents` = suma de `Order.subtotalCents` de órdenes `settled` en el rango (por `settledAt`); `shippingRevenueCents` = `ShipmentRequest.shippingFeeCents` (ingreso) de envíos liquidados en el rango (por `pickingAt`); `shippingCostCents` = `ShipmentRequest.shippingCostCents` (costo pagado al carrier) de **esos mismos** envíos (mismo filtro `pickingAt`, mismo conjunto `status ∈ {picking, guia, enviado, entregado}`, para que ingreso y costo del envío caigan en el **mismo** periodo); `stripeFeesCents` = `processingFeeCents` de órdenes **y** envíos; `cogsCents` = `acquisitionCostCents` de los items vendidos. Los envíos sin `shippingCostCents` capturado suman `0` (default de columna), no rompen el cálculo.
 - `GET /api/v1/admin/finance/inventory-value` → `{ atReferenceCents, atCostCents, pendingPriceCount }`.
 - `GET /api/v1/admin/finance/custody-value` → `{ totalCustodyValueCents }` (valor en custodia de clientes).

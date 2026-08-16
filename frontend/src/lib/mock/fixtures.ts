@@ -724,13 +724,14 @@ export const mockAuditLog: AuditLogDTO[] = [
 ];
 
 // ---- M7: Finanzas ----
-// P&L: incomeCents + shippingCents − cogsCents − stripeFeesCents = profitCents.
+// P&L (v1.4-finance): incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents = profitCents.
 export const mockPnl: PnlDTO = {
   incomeCents: 1_250_000,
-  shippingCents: 52_500,
+  shippingRevenueCents: 52_500,
   cogsCents: 640_000,
   stripeFeesCents: 48_300,
-  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300,
+  shippingCostCents: 31_800,
+  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800,
 };
 
 export const mockInventoryValue: InventoryValueDTO = {
@@ -773,5 +774,5 @@ export function mockCsv(report: 'pnl' | 'iva' | 'inventory'): string {
   if (report === 'inventory') {
     return `metric,valueCents\natReferenceCents,${mockInventoryValue.atReferenceCents}\natCostCents,${mockInventoryValue.atCostCents}\npendingPriceCount,${mockInventoryValue.pendingPriceCount}\n`;
   }
-  return `metric,valueCents\nincomeCents,${mockPnl.incomeCents}\nshippingCents,${mockPnl.shippingCents}\ncogsCents,${mockPnl.cogsCents}\nstripeFeesCents,${mockPnl.stripeFeesCents}\nprofitCents,${mockPnl.profitCents}\n`;
+  return `metric,valueCents\nincomeCents,${mockPnl.incomeCents}\nshippingRevenueCents,${mockPnl.shippingRevenueCents}\ncogsCents,${mockPnl.cogsCents}\nstripeFeesCents,${mockPnl.stripeFeesCents}\nshippingCostCents,${mockPnl.shippingCostCents}\nprofitCents,${mockPnl.profitCents}\n`;
 }

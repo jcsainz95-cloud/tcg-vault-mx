@@ -522,6 +522,7 @@ model ShipmentRequest {
   addressSnapshot       Json
   status                ShipmentStatus @default(solicitado)
   shippingFeeCents      Int
+  shippingCostCents     Int            @default(0)
   ivaCents              Int            @default(0)
   processingFeeCents    Int            @default(0)
   totalCents            Int            @default(0)

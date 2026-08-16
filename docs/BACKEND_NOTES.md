@@ -1136,3 +1136,107 @@ Ronda que implementa: (1) precio de buylist por **rareza oficial** (§E.1, crite
 - **Ninguna.** La respuesta de `/health` conserva su shape (`{ status, uptime, timestamp, db, redis }`,
   `redis ∈ up|down|skipped`). Sigue en pie del §12 la solicitud (no bloqueante) al **arquitecto** de
   **formalizar `GET /api/v1/health`** en `API_CONTRACT.md`.
+
+## 22. v1.4-finance — Costo real de paquetería en el P&L (M-16, 2026-08-16)
+
+Implementa el requisito #3 de `PROJECT.md` (criterio 21): el P&L trataba el envío **solo como
+ingreso** (`shippingFeeCents`) y nunca restaba el **costo real** pagado a la paquetería,
+sobreestimando la ganancia. Cambio **aditivo**, siguiendo `API_CONTRACT §M4/§M7` y `ARCHITECTURE §11 M-16`.
+
+### 22.1 Qué cambió (solo `backend/`)
+
+- **Modelo / migración M-16** (`prisma/schema.prisma` + `prisma/migrations/20260816140000_m16_shipping_cost/`):
+  `ShipmentRequest` gana `shippingCostCents Int @default(0)` = costo real MXN (centavos) que la
+  plataforma paga al carrier. **No** toca `shippingFeeCents` (sigue siendo el **ingreso** cobrado al
+  cliente). `@default(0)` cubre filas históricas/sin captura. Migración = un `ADD COLUMN ... DEFAULT 0`
+  (patrón aditivo, sin backfill; greenfield).
+- **Captura en M4** (`modules/shipments/dto/shipments.dto.ts`, `admin-shipments.controller.ts`,
+  `shipments.service.ts`): `TrackingDto` gana `shippingCostCents?` con `@IsOptional @IsInt @Min(0)`
+  (negativo/no-entero ⇒ `422 VALIDATION_ERROR`). `setTracking()` lo persiste **solo si viene** (si se
+  omite no se modifica; queda el default/valor previo ⇒ **editable** re-invocando). El endpoint es
+  admin-only por la ruta; el costo **no** se expone al cliente. Se añade al `AuditLog`
+  (`action: shipment.tracking`, `after.shippingCostCents` = valor persistido).
+- **P&L M7** (`modules/admin/admin.service.ts` `pnl()`): la clave `shippingCents` se **renombra** a
+  `shippingRevenueCents` (sigue sumando `shippingFeeCents`) y se **añade** `shippingCostCents` = suma
+  de `s.shippingCostCents` sobre **los mismos** envíos ya filtrados por `pickingAt`
+  (`status ∈ {picking, guia, enviado, entregado}`), para que ingreso y costo del envío caigan en el
+  mismo periodo. Nueva fórmula:
+  `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`.
+  Response: `{ incomeCents, shippingRevenueCents, cogsCents, stripeFeesCents, shippingCostCents, profitCents }`.
+- **CSV export** (`exportCsv`, `report=pnl`): cabecera y fila espejan el shape nuevo:
+  `report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents`.
+- **Consumidores internos:** el dashboard/summary usa `pnl().profitCents` (sin cambio de nombre), así
+  que no requirió ajuste. Búsqueda global: no quedan referencias a la vieja clave `shippingCents`.
+
+### 22.2 Tests (unitarios, propios)
+
+- `test/admin.pnl-shipping.spec.ts`: `pnl()` devuelve el shape de 6 claves, **resta** `shippingCostCents`,
+  separa ingreso (`shippingRevenueCents`) vs costo, envíos sin costo suman 0, y el CSV espeja el header nuevo.
+- `test/shipments.tracking-cost.spec.ts`: `setTracking()` persiste `shippingCostCents` cuando se envía,
+  **no** lo toca cuando se omite, es editable al re-invocar; `TrackingDto` acepta ausente/entero≥0 y
+  **rechaza** negativos y no-enteros.
+
+### 22.3 Gates (desde `backend/`)
+
+- `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ **234 tests / 43 suites** (antes 224/41;
+  +10 tests, +2 suites) · `npm run build` ✅.
+
+### 22.4 Verificación manual (P&L con las 6 claves)
+
+```bash
+# como super_admin (token con rol super_admin):
+curl -s "http://localhost:3001/api/v1/admin/finance/pnl?from=2026-01-01&to=2026-12-31" \
+  -H "Authorization: Bearer <accessToken super_admin>" | jq
+# => { "incomeCents":…, "shippingRevenueCents":…, "cogsCents":…,
+#      "stripeFeesCents":…, "shippingCostCents":…, "profitCents":… }
+
+# Captura de costo al asignar guía (avanza a `guia`, persiste el costo):
+curl -s -X POST "http://localhost:3001/api/v1/admin/shipments/<shipmentId>/tracking" \
+  -H "Authorization: Bearer <accessToken vault_operator+>" -H "Content-Type: application/json" \
+  -d '{"carrier":"DHL","trackingNumber":"TRACK123","shippingCostCents":9000}'
+# negativo => 422 VALIDATION_ERROR
+
+# CSV con el header nuevo:
+curl -s "http://localhost:3001/api/v1/admin/finance/export.csv?report=pnl" \
+  -H "Authorization: Bearer <accessToken super_admin>"
+# report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents
+```
+
+### 22.5 Discrepancias con el contrato
+
+- **Ninguna.** Implementado al pie de `API_CONTRACT §M4/§M7` y `ARCHITECTURE §11 M-16`. No se tocó
+  `frontend/`, `docs/API_CONTRACT.md` ni `docs/ARCHITECTURE.md`.
+
+### 22.6 Correcciones de seguridad (blue team, `docs/SECURITY_NOTES.md` §C)
+
+- **SEC-C1 (Media) — Fuga de `shippingCostCents` al cliente (CORREGIDO).** `listMine`/`getMine`
+  (endpoints de CLIENTE `GET /shipments` y `GET /shipments/:id`) devolvían la fila **cruda** de
+  Prisma; tras M-16 eso incluía `shippingCostCents` (costo interno del carrier / dato de margen que
+  `API_CONTRACT §M4` marca "no se expone al cliente"). Se añadió el proyector privado
+  `toClientShipment()` en `shipments.service.ts` que mapea a una **allowlist explícita** de los campos
+  que el contrato declara para el comprador (`API_CONTRACT §5`): `id, status, addressSnapshot,`
+  `shippingFeeCents, ivaCents, processingFeeCents, totalCents, carrier, trackingNumber, requestedAt,`
+  `pickingAt, shippedAt, deliveredAt, items`. Se eligió **allowlist** (no `omit`/denylist) a propósito:
+  si el modelo gana un campo interno futuro, no se filtra por accidente.
+  - **`processingFeeCents`: SE INCLUYE** en la salida de cliente. Es un cargo que el comprador **paga**
+    y ya lo ve en el `BreakdownDTO` de `quote`/`create` (`API_CONTRACT §5` y `BreakdownDTO`), así que no
+    es dato interno de margen — a diferencia de `shippingCostCents`. (Nota del blue team: antes también
+    se "fugaba" `processingFeeCents`; queda **dentro** por diseño del contrato, no por descuido.)
+  - Como efecto de la allowlist, tampoco sale `stripePaymentIntentId` (el cliente ya recibe su
+    `clientSecret` en `create`; el PI id no es campo de cliente). Defensa en profundidad.
+  - **ADMIN sin cambios:** `adminGet`/`adminList` siguen devolviendo la fila cruda **con** el costo
+    (los admins sí pueden verlo). La proyección solo acota los endpoints de cliente.
+- **SEC-C2 (Baja) — `@Min(0)` sin `@Max` + overflow Int32 (CORREGIDO).** `TrackingDto.shippingCostCents`
+  gana `@Max(SHIPPING_COST_MAX_CENTS)`. **Tope elegido: `100_000_00` cents = MX$100,000** (constante
+  nueva exportada en `dto/shipments.dto.ts`). Holgado para el costo real de UN envío de paquetería y muy
+  por debajo del `Int` de Postgres (2^31−1). No se reutilizó `BUYLIST_CAP_*`/`REPO_CAP_*` porque son
+  topes de **negocio** (compra/reposición), semánticamente distintos del costo de paquetería; una
+  constante dedicada evita acoplar límites no relacionados. `422 VALIDATION_ERROR` si excede el tope.
+- **Tests (propios, `test/shipments.tracking-cost.spec.ts`):**
+  - SEC-C1: `getMine`/`listMine` **omiten** `shippingCostCents` (y `stripePaymentIntentId`) y conservan
+    los campos de cliente (incl. `processingFeeCents`); `getMine` sigue aplicando ownership (404 a otro
+    usuario).
+  - SEC-C2: `TrackingDto` acepta el valor en el borde (`= SHIPPING_COST_MAX_CENTS`) y **rechaza** por
+    encima del tope.
+- **Gates (desde `backend/`):** `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅
+  **239 tests / 43 suites** · `npm run build` ✅.

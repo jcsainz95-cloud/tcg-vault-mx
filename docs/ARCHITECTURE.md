@@ -16,10 +16,13 @@
 > - **P&L (M7):** la fórmula separa **ingreso** vs **costo** de envío:
 >   `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`.
 >   La clave `shippingCents` (ingreso) se **renombra** a `shippingRevenueCents` y se **añade** `shippingCostCents`
->   (decisión de naming: M7 aún no tiene consumidores de frontend —`ModuleTodo` stub—, así que renombrar es
->   seguro y elimina la ambigüedad de dos claves de envío; ver §12 y `API_CONTRACT §M7`). El costo se acota al
->   periodo por **`pickingAt`** (mismo criterio que el ingreso), para que costo e ingreso del mismo envío caigan
->   en el mismo periodo. El CSV export espeja el nuevo shape.
+>   (decisión de naming: `shippingRevenueCents` elimina la ambigüedad de dos claves de envío; ver §12 y
+>   `API_CONTRACT §M7`). Es un **breaking change**: M7 **sí** tiene consumidor de frontend real y montado
+>   (`admin/m7/M7View.tsx`, que llama a `getPnl` y renderiza el desglose del P&L), por lo que el rename se aplicó
+>   actualizando **productor y consumidor en la misma entrega** (sin periodo de compatibilidad porque el front
+>   migró al shape de 6 claves al mismo tiempo). El costo se acota al periodo por **`pickingAt`** (mismo criterio
+>   que el ingreso), para que costo e ingreso del mismo envío caigan en el mismo periodo. El CSV export espeja el
+>   nuevo shape.
 >
 > **Changelog v1.3.1 (2026-08-16)** — **Precio de buylist por RAREZA OFICIAL** (PROJECT.md §E.1, criterios
 > 12/12b/12c/18). Reemplaza el esquema de **3 categorías hardcodeadas** (`RARITY_MAP` + `BuylistCategory`
@@ -49,9 +52,10 @@
 > - **§9 Desviaciones:** DEV-1 (el `POST /admin/catalog/sync` from-date importa **síncrono** en el request →
 >   riesgo de timeout para catálogo completo; enrutado a backend) y DEV-2 (jobId cosmético).
 > - **§10 Preguntas abiertas v1.3:** pricing on-demand del cotizador y rate-limit de la búsqueda pública.
-> - **Confirmado (sin cambio de contrato):** M2/M6/M7/M9/M10 ya están implementados en backend; lo pendiente es
->   consumo de frontend (los `ModuleTodo` son stubs de UI). La edición de diales M10 es `PUT /admin/settings`
->   (body parcial), no per-key.
+> - **Confirmado (sin cambio de contrato):** M2/M6/M7/M9/M10 ya están implementados en backend. Sobre el consumo
+>   de frontend: **M7 YA se consume en UI** (`admin/m7/M7View.tsx`, montado, llama a `getPnl` y renderiza el
+>   P&L); M2/M6/M9/M10 siguen pendientes de consumir (`ModuleTodo` stubs de UI). La edición de diales M10 es
+>   `PUT /admin/settings` (body parcial), no per-key.
 >
 > **Changelog v1.2 / v1.2.1 (2026-08-14)** — simplificación aprobada (`PROJECT.md` › "Simplificación v1.2" y
 > "Corrección v1.2.1"):
@@ -787,7 +791,8 @@ Riesgos técnicos:
 
 > El arquitecto **no corrige código** (CLAUDE.md): documenta la desviación y la enruta al **rol dueño**
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
-> UI en `ModuleTodo` pendiente de consumir, backend en su mayoría implementado).
+> backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
+> módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
 - **DEV-1 (backend) — `POST /admin/catalog/sync` importa de forma SÍNCRONA en el request.** El contrato
   declara `202 { jobId, setsQueued, mode }` (semántica async/encolada), pero `CatalogSyncService.sync()`

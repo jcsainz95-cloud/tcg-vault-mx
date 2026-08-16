@@ -101,9 +101,10 @@ export function M7View() {
             <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-5">
               <div className="flex flex-col divide-y divide-border">
                 <PnlLine sign="+" label={t('pnl.income')} value={formatMoneyCents(pnl.data.incomeCents, locale)} />
-                <PnlLine sign="+" label={t('pnl.shipping')} value={formatMoneyCents(pnl.data.shippingCents, locale)} />
+                <PnlLine sign="+" label={t('pnl.shippingRevenue')} value={formatMoneyCents(pnl.data.shippingRevenueCents, locale)} />
                 <PnlLine sign="−" label={t('pnl.cogs')} value={formatMoneyCents(pnl.data.cogsCents, locale)} />
                 <PnlLine sign="−" label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.stripeFeesCents, locale)} />
+                <PnlLine sign="−" label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.shippingCostCents, locale)} />
               </div>
               <div className="mt-1 flex items-center justify-between border-t-2 border-border-strong pt-3">
                 <span className="flex items-center gap-2 font-semibold">

@@ -460,3 +460,163 @@ aceptados, §5).
 - **PENDIENTE, no aprobado a ciegas:** la **fase dinámica (DAST/pentester contra staging)** sigue
   bloqueada por infra (R2/Railway sin configurar). Requisito previo a producción (§6): abuso de
   reset/delete concurrente, revocación de sesión en caliente, y ZAP/nuclei.
+
+---
+
+# C. Revisión v1.4-finance — Costo real de paquetería en el P&L (M-16)
+
+> **Fecha:** 2026-08-16. **Modo:** revisión estática de código + lectura de migración M-16
+> (working tree, SIN commitear). **Alcance:** `shipments.dto.ts`, `shipments.service.ts`,
+> `admin-shipments.controller.ts`, `admin.service.ts` (`pnl()`/`exportCsv()`), `schema.prisma` +
+> migración `20260816140000_m16_shipping_cost`, y el frontend M4 (`M4View.tsx`, `api.ts`,
+> `contract.ts`). Blanco autorizado: código y staging/local.
+
+## C.0 Resumen — 0 Críticos / 0 Altos; 1 Media (fuga de margen), 2 Bajas aceptadas
+
+| Severidad | # | ID |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 1 | **SEC-C1** (fuga de `shippingCostCents` a endpoints de cliente) |
+| Baja | 2 | SEC-C2 (sin `@Max` / overflow Int32), SEC-C3 (SoD: `vault_operator` escribe insumo del P&L) |
+
+## C.1 Autorización — CORRECTA (verificado en código)
+- `POST /admin/shipments/:id/tracking` → `AdminShipmentsController` con
+  `@Roles(vault_operator, super_admin)` a nivel de clase (`admin-shipments.controller.ts:13`).
+  Un `customer` NO alcanza la captura de `shippingCostCents`. Consistente con el modelo M4.
+- `GET /admin/finance/pnl` → `@Roles(super_admin)` a nivel de clase
+  (`admin/*.controller.ts:136-137`). El P&L es **solo super_admin**. `GET /admin/reports`
+  (exportCsv) también `@Roles(super_admin)` (`:176-177`). Correcto.
+- El campo NO es "dinero saliente": es un registro contable de costo ya pagado al carrier
+  fuera de banda, no un movimiento de fondos. Que NO pase por `MoneyOutGuard` es correcto.
+
+## C.2 Integridad financiera — CORRECTA en el eje de entrada
+- `shippingCostCents` SOLO se escribe vía el endpoint admin (`setTracking`,
+  `shipments.service.ts:262-274`). Un cliente NO puede inyectarlo: el `ValidationPipe` global
+  (`main.ts:43`, `whitelist:true`) descarta campos no declarados en los DTO de cliente
+  (`CreateShipmentDto`/`ShipmentQuoteDto` no incluyen el campo). No hay vía de manipulación del
+  P&L por el cliente.
+- Validación `@IsOptional @IsInt @Min(0)` (`shipments.dto.ts:24`): bloquea negativos (no se puede
+  inflar `profitCents` con un costo negativo) y no-enteros. `pnl()` **resta**
+  `shippingCostCents` (`admin.service.ts:325`); un negativo habría inflado la ganancia — el `@Min(0)`
+  lo cierra. Correcto.
+- Idempotencia/editabilidad: si se re-captura tracking omitiendo el costo, `setTracking` NO toca la
+  columna (spread condicional `:273`) y la auditoría registra `res.shippingCostCents` (valor
+  **persistido real**, no el DTO) → el log refleja el estado verdadero. Correcto.
+
+## C.3 Auditoría — CORRECTA
+- `admin-shipments.controller.ts:73-84` registra `actorUserId`, `actorRole`, `action`
+  (`shipment.tracking`), `entityId` y `after.shippingCostCents` = valor persistido. Quién + qué +
+  (timestamp del AuditLog) quedan trazados. Bien.
+
+## C.4 Mass assignment / migración — SIN vector
+- `whitelist:true` en el pipe global neutraliza mass-assignment de entrada.
+- Migración M-16: `ADD COLUMN "shippingCostCents" INTEGER NOT NULL DEFAULT 0` — aditiva,
+  `@default(0)` cubre filas históricas sin backfill; no abre vector.
+
+## SEC-C1 (Media) — Fuga de `shippingCostCents` (dato de margen) a endpoints de CLIENTE
+- **Vector:** Exposición de dato interno de negocio (margen) a usuario autenticado no-admin.
+- **Ubicación:** `shipments.service.ts:158-165` (`listMine` → `GET /shipments`) y `:167-174`
+  (`getMine` → `GET /shipments/:id`) devuelven la **fila Prisma cruda** de `ShipmentRequest`, que
+  tras M-16 incluye `shippingCostCents`. **No hay `ClassSerializerInterceptor` ni `@Exclude` en el
+  código** (grep = 0) ni `select`/proyección → la respuesta JSON al cliente **incluye el costo real
+  que la plataforma paga al carrier**. El cliente ya ve `shippingFeeCents` (lo que paga), de modo que
+  puede **derivar el margen de envío de la plataforma** para sus propios envíos.
+- **Contradice el contrato:** el propio DTO/migración/`contract.ts` declaran el campo "**Interno
+  (no se expone al cliente)**" (`shipments.dto.ts:22`, `contract.ts` `ShipmentTrackingRequest`). El
+  frontend no lo pinta, pero la API sí lo entrega (visible en Network/llamada directa).
+- **Alcance/impacto:** limitado a los **propios** envíos del cliente (`getMine`/`listMine` filtran por
+  `userId`; sin harvest masivo, sin PII, sin escalada, sin fraude de fondos). Solo aparece en envíos
+  con costo ya capturado (default 0). Nota: `processingFeeCents` (fee Stripe) **ya se fuga por el
+  mismo mecanismo** — M-16 suma a esa superficie un campo declarado explícitamente interno.
+- **Severidad:** **Media** (info disclosure de dato de margen; no bloqueante por política, pero
+  incumple una garantía explícita del contrato → debe cerrarse antes de operar con clientes reales).
+- **Rol dueño:** **backend** — proyectar la salida de `listMine`/`getMine` con `select` explícito que
+  excluya `shippingCostCents` (idealmente también `processingFeeCents`) o introducir un
+  `ClassSerializerInterceptor` + DTO de respuesta con `@Exclude`. (No lo corrige seguridad.)
+
+## SEC-C2 (Baja, aceptada con disparador) — `@Min(0)` sin `@Max` + `Int32` de 32 bits
+- **Ubicación:** `shipments.dto.ts:24` (`@Min(0)` sin `@Max`) + `schema.prisma:525`
+  (`shippingCostCents Int`). Un `vault_operator` puede capturar un valor absurdo por error;
+  valores hasta ~MX$21.47M/envío distorsionan el P&L en silencio, y > 2^31 desbordan el `Int` de
+  Postgres (error de escritura). Insumo de **rol confiable** + **auditado** → riesgo Bajo.
+- **Rol dueño:** **backend** (cota superior razonable por envío). Se enlaza con el hallazgo del
+  pentester **B-2** (evaluar `BigInt` para agregados de dinero) — mismo dueño/decisión.
+
+## SEC-C3 (Baja, aceptada) — Segregación de funciones: `vault_operator` escribe insumo del P&L
+- `vault_operator` puede fijar `shippingCostCents`, que alimenta el P&L (solo-lectura de
+  `super_admin`). Puede reducir la ganancia reportada inflando el costo. Mitigado: cada captura es
+  **auditada** (quién/cuándo/valor) y el P&L lo revisa `super_admin`. Consistente con el modelo M4
+  (el operador ya es dueño de envíos/guías). Residuo Bajo aceptado; decisión de producto si se desea
+  SoD más estricta. **Rol dueño:** backend/producto (opcional).
+
+## C.5 VEREDICTO v1.4-finance: **APROBADO**
+- **0 Críticos / 0 Altos abiertos** → aprobable por política (`CLAUDE.md` §7). Autorización,
+  integridad de entrada, auditoría y anti-mass-assignment del cambio son **correctas**.
+- **Condición de cierre (no bloqueante por severidad, pero exigible antes de GA con clientes
+  reales):** cerrar **SEC-C1** (dejar `shippingCostCents` fuera de las respuestas de cliente) para
+  honrar la garantía del contrato "no se expone al cliente". Ruteado a **backend**.
+- **Deuda aceptada:** SEC-C2 (cota `@Max`/`BigInt`, junto a B-2) y SEC-C3 (SoD) con disparador.
+- **Bandera para el humano:** verificar que ningún tablero/exportación de cliente ni logs de acceso
+  reflejen el margen expuesto por SEC-C1 mientras no se proyecte la salida.
+
+---
+
+## C.6 RE-VERIFICACIÓN (2026-08-16) — SEC-C1 y SEC-C2 tras corrección de backend (working tree, sin commitear)
+
+> **Modo:** revisión estática + ejecución de `test/shipments.tracking-cost.spec.ts` (**12/12 PASS**).
+> **Alcance:** `shipments.service.ts` (`toClientShipment`/`listMine`/`getMine`/`adminList`/`adminGet`),
+> `dto/shipments.dto.ts` (`@Max`), cruce con `API_CONTRACT §5` y `§M4`.
+
+### SEC-C1 — Fuga de `shippingCostCents` a endpoints de CLIENTE — **CERRADO** ✔ · [Verificado en código + tests]
+- **Proyector allowlist:** `shipments.service.ts:166-185` `toClientShipment()` construye el objeto de
+  salida con una **allowlist explícita** de 14 campos declarados para el comprador (id, status,
+  addressSnapshot, shippingFeeCents, ivaCents, processingFeeCents, totalCents, carrier, trackingNumber,
+  requestedAt, pickingAt, shippedAt, deliveredAt, items). **No es denylist/omit**: un campo interno
+  futuro del modelo NO se filtra por accidente. Robusto.
+- **`shippingCostCents` fuera:** NO está en la allowlist → la salida de cliente ya **no** incluye el
+  costo interno del carrier. Test `getMine`/`listMine` afirman `not.toHaveProperty('shippingCostCents')`.
+- **`stripePaymentIntentId` también fuera:** confirmado — la allowlist lo excluye (antes se fugaba por la
+  fila cruda); test afirma `not.toHaveProperty('stripePaymentIntentId')`. Reduce superficie adicional. Bien.
+- **`processingFeeCents` DENTRO — decisión correcta por contrato §5:** `API_CONTRACT.md:153-154,311,340`
+  define `BreakdownDTO = { subtotalCents, ivaCents, ivaRatePct, processingFeeCents, totalCents, currency }`
+  y el comprador **ya lo ve** en el breakdown de `quote`/`create` (es un **cargo que el comprador paga**
+  vía gross-up, no margen interno). Mantenerlo en la proyección de envío es **consistente**, no una fuga.
+  Confirmado correcto.
+- **Aplicado a ambos endpoints de cliente:** `listMine` (`GET /shipments`, `:193` → `rows.map(toClientShipment)`)
+  y `getMine` (`GET /shipments/:id`, `:202`). Cubierto.
+- **ADMIN sin romper:** `adminList` (`:207-221`) y `adminGet` (`:223-230`) devuelven la **fila cruda**
+  (con `shippingCostCents`); `AdminShipmentsController` es `@Roles(vault_operator, super_admin)`. La
+  funcionalidad admin (P&L/costos) se conserva. El `POST /:id/tracking` sigue auditando `res.shippingCostCents`.
+- **Sin vector nuevo:** `getMine` mantiene el chequeo de ownership **antes** de proyectar
+  (`:201` `if (!shipment || shipment.userId !== userId) throw notFound()`); el proyector no altera authz.
+  Test "getMine still enforces ownership (404 for another user)" lo cubre. `listMine` filtra por `userId`.
+  Ningún otro endpoint de cliente reintroduce el campo.
+
+### SEC-C2 — Tope `@Max` / overflow Int32 — **CERRADO** ✔ · [Verificado en código + tests]
+- **Cota aplicada:** `dto/shipments.dto.ts:7,30` — `SHIPPING_COST_MAX_CENTS = 100_000_00` (MX$100,000 en
+  cents) con `@IsOptional() @IsInt() @Min(0) @Max(SHIPPING_COST_MAX_CENTS)`. El tope (10,000,000) está
+  **muy por debajo** del máximo de Int32/Postgres (2,147,483,647) → sin overflow y sin distorsión silenciosa
+  del P&L por captura absurda. Holgado para el costo real de un envío.
+- **Test de frontera:** cubre boundary (acepta `SHIPPING_COST_MAX_CENTS`, rechaza `+1`), además de
+  negativos y no-enteros. `test/shipments.tracking-cost.spec.ts` — **12/12 PASS** (ejecutado esta sesión).
+- **Enrutamiento previo (S-B2/B-2 `BigInt`):** sigue como **deuda aceptada** para agregados de dinero a
+  escala (§5). El `@Max` cierra el vector por-envío de SEC-C2; no sustituye la decisión de `BigInt` para
+  agregados, que es de arquitecto/backend.
+
+### Estado y veredicto de la re-verificación
+| ID | Sev. original | Estado v1.4-finance | Estado tras corrección |
+|---|---|---|---|
+| SEC-C1 | Media (info disclosure de margen) | Abierto (condición de cierre pre-GA) | **CERRADO** ✔ (allowlist `toClientShipment`) |
+| SEC-C2 | Baja (aceptada c/disparador) | Aceptada | **CERRADO** ✔ (`@Max` + tests) |
+
+**VEREDICTO v1.4-finance (re-emitido): APROBADO — se mantiene.**
+- **0 Críticos / 0 Altos.** SEC-C1 (única Media del bloque) y SEC-C2 quedan **cerrados y verificados en
+  código + tests**; la corrección **no introdujo vector nuevo** (ownership intacto, admin no roto, allowlist
+  robusta ante campos futuros, `stripePaymentIntentId` también protegido).
+- **Nada vuelve a backend como bloqueante** por este bloque. Queda solo **SEC-C3** (SoD: `vault_operator`
+  captura el costo) como **deuda Baja aceptada** con disparador (auditado + P&L revisado por super_admin) —
+  decisión de producto, no bloqueante.
+- **Sin cambio** en las banderas globales: la **fase dinámica (DAST contra staging)** sigue pendiente y es
+  requisito previo a producción (§6); pentest de tercero + validación legal de custodia/PII antes del
+  go-live con dinero real.

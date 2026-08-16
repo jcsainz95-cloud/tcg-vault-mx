@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, ShipmentStatus } from '@prisma/client';
+import { Prisma, ShipmentRequest, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
@@ -155,13 +155,42 @@ export class ShipmentsService {
     );
   }
 
+  /**
+   * SEC-C1: proyección de CLIENTE. Allowlist explícita de los campos que el contrato
+   * declara para el comprador (API_CONTRACT §5). Excluye `shippingCostCents` (costo
+   * interno del carrier / dato de margen, marcado "no se expone al cliente" en §M4) y
+   * cualquier campo no declarado. Es allowlist (no denylist/omit) a propósito: si el
+   * modelo gana un campo interno futuro, NO se filtra por accidente. Los endpoints
+   * ADMIN (`adminGet`/`adminList`) siguen devolviendo la fila cruda con el costo.
+   */
+  private toClientShipment<
+    T extends ShipmentRequest & { items?: unknown },
+  >(s: T) {
+    return {
+      id: s.id,
+      status: s.status,
+      addressSnapshot: s.addressSnapshot,
+      shippingFeeCents: s.shippingFeeCents,
+      ivaCents: s.ivaCents,
+      processingFeeCents: s.processingFeeCents,
+      totalCents: s.totalCents,
+      carrier: s.carrier,
+      trackingNumber: s.trackingNumber,
+      requestedAt: s.requestedAt,
+      pickingAt: s.pickingAt,
+      shippedAt: s.shippedAt,
+      deliveredAt: s.deliveredAt,
+      items: s.items,
+    };
+  }
+
   async listMine(userId: string) {
-    const data = await this.prisma.shipmentRequest.findMany({
+    const rows = await this.prisma.shipmentRequest.findMany({
       where: { userId },
       orderBy: { requestedAt: 'desc' },
       include: { items: true },
     });
-    return { data };
+    return { data: rows.map((r) => this.toClientShipment(r)) };
   }
 
   async getMine(userId: string, id: string) {
@@ -170,7 +199,7 @@ export class ShipmentsService {
       include: { items: { include: { inventoryItem: { include: { card: true } } } } },
     });
     if (!shipment || shipment.userId !== userId) throw BusinessException.notFound();
-    return shipment;
+    return this.toClientShipment(shipment);
   }
 
   // ---------------- Admin M4 ----------------
@@ -255,12 +284,23 @@ export class ShipmentsService {
     return this.prisma.shipmentRequest.update({ where: { id }, data });
   }
 
-  async setTracking(id: string, carrier: string, trackingNumber: string) {
+  async setTracking(
+    id: string,
+    carrier: string,
+    trackingNumber: string,
+    shippingCostCents?: number,
+  ) {
     const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!shipment) throw BusinessException.notFound();
     return this.prisma.shipmentRequest.update({
       where: { id },
-      data: { carrier, trackingNumber, status: 'guia' },
+      data: {
+        carrier,
+        trackingNumber,
+        status: 'guia',
+        // v1.4-finance: opcional y editable; si se omite, no se modifica (default de columna 0).
+        ...(shippingCostCents !== undefined ? { shippingCostCents } : {}),
+      },
     });
   }
 }

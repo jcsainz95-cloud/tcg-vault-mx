@@ -478,7 +478,17 @@
     },
     "m4": {
       "title": "M4 · Withdrawals / shipping",
-      "pickingList": "Picking list (by location)"
+      "pickingList": "Picking list (by location)",
+      "tracking": {
+        "capture": "Capture tracking",
+        "title": "Tracking capture",
+        "carrierLabel": "Carrier",
+        "numberLabel": "Tracking number",
+        "shippingCostLabel": "Shipping cost (carrier)",
+        "shippingCostHint": "Actual cost the platform pays the carrier. Optional.",
+        "shippingCostInvalid": "Must be an amount of zero or greater.",
+        "save": "Save tracking"
+      }
     },
     "m5": {
       "title": "M5 · Buylist",
@@ -717,11 +727,12 @@
       },
       "pnl": {
         "title": "Profit & loss (P&L)",
-        "formula": "Income + shipping − cost of goods sold − Stripe fees = profit.",
+        "formula": "Income + shipping revenue − cost of goods sold − Stripe fees − shipping cost = profit.",
         "income": "Income (sales)",
-        "shipping": "Shipping collected",
+        "shippingRevenue": "Shipping revenue (collected)",
         "cogs": "Cost of goods sold",
         "stripeFees": "Stripe fees",
+        "shippingCost": "Shipping cost (carrier)",
         "profit": "Profit for the period"
       },
       "values": {

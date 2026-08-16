@@ -4,6 +4,73 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## v1.4-finance FIX — alinear el P&L de M7 al shape de 6 claves (2026-08-16)
+
+Corrección de RECHAZO de qa/techlead: la ronda previa renombró el P&L solo en la captura (M4) pero
+dejó ROTO el consumidor real, **`M7View`** (está montado en `m7/page.tsx` y consume el endpoint real
+`GET /admin/finance/pnl`; NO es un stub — la nota previa que decía "ModuleTodo/stub" era incorrecta).
+Contrato §M7 ya define el shape nuevo y el backend ya lo devuelve; esto solo espeja el front (sin tocar
+el contrato).
+
+Shape del contrato §M7 (6 claves):
+`{ incomeCents, shippingRevenueCents, cogsCents, stripeFeesCents, shippingCostCents, profitCents }`
+con `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`.
+
+Cambios (solo `frontend/`):
+- **`types/contract.ts` · `PnlDTO`**: `shippingCents`→`shippingRevenueCents` y **añade**
+  `shippingCostCents: number`. Idéntico al contrato de 6 claves.
+- **`m7/M7View.tsx`**: el desglose del P&L ahora pinta 5 líneas + total:
+  - `+ Ingresos (ventas)` = `incomeCents`
+  - `+ Ingreso por envío (cobrado)` = `shippingRevenueCents` (antes `shipping`/`shippingCents`)
+  - `− Costo de lo vendido` = `cogsCents`
+  - `− Comisiones Stripe` = `stripeFeesCents`
+  - `− Costo de envío (paquetería)` = `shippingCostCents` (**NUEVA** línea, resta, mismo `PnlLine`/patrón)
+  - `= Ganancia del periodo` = `profitCents` (el desglose cuadra con `profitCents`).
+- **i18n `admin.m7.pnl`** (es/en, paridad): la llave `shipping` se renombró a `shippingRevenue`
+  ("Ingreso por envío (cobrado)" / "Shipping revenue (collected)") y se añadió `shippingCost`
+  ("Costo de envío (paquetería)" / "Shipping cost (carrier)"). También se ajustó `formula`.
+- **`lib/mock/fixtures.ts`**: `mockPnl` y `mockCsv` al shape de 6 claves. `shippingCostCents = 31_800`
+  ejemplo; profit mock = 1_250_000 + 52_500 − 640_000 − 48_300 − 31_800 = **582_400** cts (MX$5,824.00).
+- **Tests**: `M7View.test.tsx` actualizado (nuevo profit + assert de las líneas de envío ingreso/costo);
+  nuevo `m4/pesosToCents.test.ts` (vacío/0/decimal/miles/negativo/no-numérico). `pesosToCents` se
+  **exportó** desde `M4View.tsx` para poder testearlo.
+
+### M4 `openTracking` (5a) — NO precargable hoy: requiere campo nuevo en el DTO admin
+Se intentó precargar el costo ya capturado al reabrir el modal de captura de guía. **`ShipmentDTO`
+(`types/contract.ts`) NO expone `shippingCostCents`**, y el contrato de `GET /admin/shipments` /
+`GET /admin/shipments/:id` (§M4, líneas 586-587) tampoco lo define en el response. Por la regla de no
+inventar campos, `openTracking` se dejó como está (el input arranca en `''` al reabrir).
+**Solicitud al arquitecto/backend:** exponer `shippingCostCents` (costo interno, entero ≥ 0) en el
+`ShipmentDTO` **del listado/detalle admin** (`GET /admin/shipments` y `/:id`) — NO en el `GET
+/shipments/:id` del comprador (§M4 línea 588 lo marca como interno, no expuesto al cliente). Con ese
+campo, `openTracking` precargaría `s.shippingCostCents` para que el operador vea el valor vigente al editar.
+
+Gates: lint ✓ · typecheck ✓ · test (123, incl. paridad i18n) ✓ · build ✓.
+
+## v1.4-finance — costo real de paquetería en la captura de guía de M4 (2026-08-16)
+
+Contrato: `POST /admin/shipments/:id/tracking` gana `shippingCostCents?` (opcional, entero ≥ 0,
+centavos MXN = costo real que la plataforma paga a la paquetería). Ver API_CONTRACT §M4.
+
+Cambios (solo `frontend/`):
+- **`M4View.tsx`**: se añadió el **formulario de captura de guía** (antes M4 era solo lectura). Cada
+  envío no `cancelado` muestra un botón "Capturar guía" que abre un `Modal` con tres campos: paquetería
+  (`carrier`), número de guía (`trackingNumber`) y **"Costo de envío (paquetería)"** (`shippingCostCents`).
+  El costo se captura **en pesos** (prefix `MX$`, `inputMode="decimal"`) y se convierte a centavos con
+  `pesosToCents` (`Math.round(n*100)`), igual patrón que M2. Es **opcional**: vacío → no se envía la clave.
+  Validación **≥ 0** (bloquea el submit y marca el input con error si es negativo o no numérico). Muestra
+  el equivalente formateado en centavos y un `Banner` de error en fallo de la mutación.
+- **`lib/api.ts`**: nueva `saveShipmentTracking(shipmentId, ShipmentTrackingRequest)` → `POST
+  /admin/shipments/:id/tracking`. `shippingCostCents` solo se incluye en el body cuando el operador lo
+  captura. Mock actualiza el envío en memoria y lo avanza a `guia`.
+- **`types/contract.ts`**: nuevo `ShipmentTrackingRequest = { carrier, trackingNumber, shippingCostCents? }`.
+- **i18n**: `admin.m4.tracking.*` (capture/title/carrierLabel/numberLabel/shippingCostLabel/
+  shippingCostHint/shippingCostInvalid/save) en `es.json` y `en.json` con paridad.
+- **M7 P&L**: NO se tocó (sigue `ModuleTodo`/stub sin consumidores; el nuevo shape de P&L
+  —`shippingRevenueCents`/`shippingCostCents`— se consumirá cuando se construya M7).
+
+Gates: lint ✓ · typecheck ✓ · test (116, incl. paridad i18n) ✓ · build ✓.
+
 ## Mejoras UX — presets de rango en M7/M9 + orden de la bóveda (2026-08-16)
 
 Tres mejoras chicas e independientes. Solo `frontend/` (+ esta nota). **No** se tocó el contrato ni el
