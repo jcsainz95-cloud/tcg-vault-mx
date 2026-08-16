@@ -1555,3 +1555,66 @@ guardarraíles estáticos verificados.
 como **PENDIENTE Y OBLIGATORIA** antes de producción (heredada, §6). Para este bloque en concreto, cuando
 haya staging, conviene validar: throttle/scraping de la gráfica pública (SEC-F1) y el rate-limit del
 `set-price-sync` contra pokemontcg.io en multi-instancia. Nada de eso bloquea el merge a `main`.
+
+---
+
+## SC.9 VEREDICTO — SAST-1 (endurecimiento cripto GCM en PII) · commit `8f21f50`
+
+> **Rev:** v1.10-sast-gcm. **Fecha:** 2026-08-16. **Rama:** `claude/git-repo-review-c67xyk`.
+> **Alcance:** verificación del fix del hallazgo REAL que destapó el gate SAST (semgrep
+> `javascript.node-crypto.security.gcm-no-tag-length`) en `backend/src/common/crypto/pii-crypto.service.ts`.
+> **Insumo:** `PENTEST_NOTES.md` §PII + `TECH_DEBT.md` SAST-1. **Modo:** revisión estática + reproducción
+> del vector con `node:crypto` + ejecución de `test/pii-crypto.spec.ts` (10/10 verde). Endurecimiento puro
+> de defensa en profundidad sobre PII (CLABE/RFC/INE); **sin dinero saliente** en el cambio.
+
+**VEREDICTO seguridad: APROBADO.** 0 Críticos / 0 Altos / 0 Medios abiertos. Puede ir a `main`.
+
+Verificación punto por punto (lo pedido):
+
+1. **Cierra el vector real — SÍ.** Reproduje en `node:crypto` que el path viejo
+   (`createDecipheriv('aes-256-gcm', key, iv)` **sin** `authTagLength`) **acepta y descifra** un authTag
+   truncado a 12 bytes (OpenSSL permite tags GCM más cortos → autenticidad debilitada, riesgo de forja
+   sobre el ciphertext `v1:iv:tag:ct` almacenado en BD). El código nuevo (`decrypt`, `:129-131`) valida
+   `tag.length !== 16` **antes** de `setAuthTag` y lanza, de modo que un tag ≠ 16B **jamás** llega al
+   verificador. Para el caso legítimo la verificación GCM **queda intacta**: el tag de 16B se pasa a
+   `setAuthTag` y `decipher.final()` sigue lanzando ante ciphertext/tag manipulados (test "detecta
+   manipulación del authTag" sigue verde). Vector **cerrado**.
+
+2. **Retrocompatibilidad — SÍ, sin ruptura de datos.** Reproduje: dato cifrado por el path **viejo**
+   (sin `authTagLength`) produce un tag de **16 bytes** vía `getAuthTag()`, y descifra **idéntico** con el
+   path **nuevo** (`authTagLength: 16`). Motivo: `getAuthTag()` de AES-256-GCM **siempre** devolvió 16B,
+   así que todo registro existente ya cumple `tag.length === 16` y pasa el guard. El formato serializado
+   (`v1:iv:tag:ct`, base64 por campo), el `VERSION`, el IV de 12B y las claves **no cambian**. Cero
+   migración de datos requerida.
+
+3. **Sin oráculo / side-channel — OK (residuo Bajo, no explotable).** El mensaje `'Malformed PII
+   ciphertext'` es **idéntico** para tag-mal-formado (longitud ≠ 16) y para payload-mal-formado
+   (`parts.length !== 4` / versión), así que no distingue el motivo al atacante. Timing: el guard de
+   longitud lanza **antes** de trabajo cripto, luego un tag de longitud incorrecta responde algo más
+   rápido que un tag de 16B-pero-incorrecto — pero esa diferencia **solo revela la longitud del tag que
+   el propio atacante envió** (dato que ya controla); **no filtra** nada del secreto ni del tag correcto.
+   La comparación real del tag GCM la hace OpenSSL en tiempo constante. Side-channel **no explotable**;
+   dictamen **Bajo, aceptado sin acción**.
+
+4. **Sin regresión — confirmado.** El formato serializado y las claves no cambian. El **blind index**
+   (`blindIndex`/`clabeBlindIndex`, HMAC-SHA256) y `blindIndexEquals` (`timingSafeEqual`) **no se tocan**
+   (diff limitado a `encrypt`/`decrypt` + constante `TAG_BYTES`). Tests de blind index (determinismo,
+   normalización, comparación en tiempo constante, dependencia de clave) **verdes**. Guardarraíles de
+   dinero/PII previos (enmascaramiento por defecto, `reveal-clabe` money-out+auditado, INE huérfano)
+   **sin cambio** — el commit no toca controllers ni superficie de red.
+
+5. **¿Suficiente? — SÍ.** El fix resuelve la causa raíz de la regla semgrep (fija `authTagLength: 16` en
+   ambos `createCipheriv`/`createDecipheriv`) y **añade** el guard de longitud como cinturón-y-tirantes.
+   No queda nada abierto del hallazgo. Nota menor (defensa en profundidad, **no bloqueante, sin owner de
+   acción**): la robustez sigue dependiendo de que el authTag no se corrompa en BD; la integridad GCM ya
+   lo cubre y el guard de longitud lo refuerza — no se requiere endurecimiento adicional.
+
+**Estado del hallazgo:** **SAST-1 — CERRADO/RESUELTO.** Se retira de deuda abierta; queda como registro
+histórico en `TECH_DEBT.md`. Reproducción y tests: `backend/test/pii-crypto.spec.ts` (10/10),
+verificación del vector legacy vs. nuevo con `node:crypto` en esta sesión.
+
+**¿Puede ir a `main`?** **SÍ.** No hay Críticos/Altos abiertos (`CLAUDE.md` §7). Cambio retrocompatible,
+sin dinero saliente ni PII nueva expuesta, solo endurecimiento interno. La **fase dinámica (DAST contra
+staging)** heredada sigue **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea
+este merge. El veredicto **QA** sobre este commit (toca PII/cripto) sigue su curso en paralelo; este
+dictamen cubre **solo** la dimensión de seguridad.
