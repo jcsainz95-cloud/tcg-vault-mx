@@ -308,3 +308,37 @@ function ChartBody({ loading, error, onRetry, pointsLength, data, hasEstimated, 
     </div>
   );
 }
+
+/**
+ * Vistazo del portafolio para la home (5a): cifra, delta y polilínea, sin fila de
+ * rangos ni tabla. Vive aquí para no duplicar la lectura de tokens de color ni el
+ * criterio del delta, que es donde está el riesgo de que las dos vistas se
+ * desalineen.
+ */
+export function PortfolioGlance({ fallbackCents }: { fallbackCents?: number }) {
+  const locale = useLocale() as AppLocale;
+  const colors = useTrendColors();
+  const query = useQuery({
+    queryKey: ['portfolio-history', '1m'],
+    queryFn: () => getPortfolioHistory('1m'),
+  });
+  const data = query.data;
+  const points = data?.points ?? [];
+  const trendColor = colors[data?.change.direction ?? 'flat'];
+  const currentValueCents =
+    points.length > 0 ? points[points.length - 1].valueMxnCents : fallbackCents ?? 0;
+
+  return (
+    <div className="flex items-end justify-between gap-6">
+      <div className="min-w-0">
+        <div className="tabular text-[32px] font-medium leading-none tracking-[-0.02em] text-text lg:text-[41px]">
+          {formatMoneyCents(currentValueCents, locale)}
+        </div>
+        <Delta data={data} color={trendColor} />
+      </div>
+      <div className="hidden sm:block">
+        <Sparkline points={points} color={trendColor} summary="" dashed={false} />
+      </div>
+    </div>
+  );
+}

@@ -51,7 +51,15 @@
     "ctaBuylist": "Sell my cards",
     "trustAuth": "Every card is authenticated on intake",
     "trustCustody": "Insured custody, no unnecessary shipping",
-    "trustPrice": "Transparent market value in MXN"
+    "trustPrice": "Transparent market value in MXN",
+    "yourVault": "Your vault",
+    "vaultLabel": "Vault",
+    "buylistLabel": "Buylist",
+    "featuredTitle": "Featured from the catalog",
+    "viewAllCatalog": "View the full catalog",
+    "sellTitle": "Sell my cards",
+    "sellBody": "We quote your list at the day's market value. You ship, we authenticate and pay.",
+    "sellCta": "Start a quote"
   },
   "catalog": {
     "title": "Shop",

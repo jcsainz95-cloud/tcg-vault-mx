@@ -51,7 +51,15 @@
     "ctaBuylist": "Vender mis cartas",
     "trustAuth": "Cada carta se autentica al ingresar",
     "trustCustody": "Bóveda asegurada, sin envíos innecesarios",
-    "trustPrice": "Valor de mercado transparente en MXN"
+    "trustPrice": "Valor de mercado transparente en MXN",
+    "yourVault": "Tu bóveda",
+    "vaultLabel": "Bóveda",
+    "buylistLabel": "Buylist",
+    "featuredTitle": "Piezas destacadas del catálogo",
+    "viewAllCatalog": "Ver todo el catálogo",
+    "sellTitle": "Vender mis cartas",
+    "sellBody": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y pagamos.",
+    "sellCta": "Empezar cotización"
   },
   "catalog": {
     "title": "Compra",
