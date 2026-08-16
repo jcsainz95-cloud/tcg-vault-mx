@@ -7,6 +7,7 @@ import { config } from '@/lib/config';
 import { loginWithGoogle } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { Banner } from '@/components/ui/Banner';
+import type { Role } from '@/types/contract';
 
 /** Logo "G" multicolor oficial de Google (SVG, no se recolorea). */
 function GoogleG({ size = 18 }: { size?: number }) {
@@ -46,7 +47,8 @@ declare global {
 }
 
 export interface GoogleSignInButtonProps {
-  onSuccess: () => void;
+  /** Se invoca tras un login exitoso con el `role` del usuario (para redirigir). */
+  onSuccess: (role?: Role) => void;
 }
 
 /**
@@ -75,8 +77,8 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
 
   async function exchange(idToken: string) {
     try {
-      await loginWithGoogle(idToken);
-      onSuccess();
+      const res = await loginWithGoogle(idToken);
+      onSuccess(res.user.role);
     } catch (e) {
       const code = e instanceof ApiClientError ? e.code : 'GOOGLE_TOKEN_INVALID';
       setErrorCode(code);

@@ -354,6 +354,7 @@
     "toLogin": "¿Ya tienes cuenta? Inicia sesión",
     "loading": "Procesando…",
     "mockNotice": "Autenticación pendiente de backend: el envío simula el flujo y guarda una sesión local.",
+    "inactivityLogout": "Tu sesión se cerró por inactividad.",
     "dividerOr": "o",
     "google": {
       "cta": "Continuar con Google",
@@ -362,6 +363,7 @@
   },
   "admin": {
     "shellTitle": "Back-office",
+    "authLoading": "Verificando sesión…",
     "roleLabel": "Rol",
     "searchGlobal": "Buscar folio o usuario…",
     "groups": {

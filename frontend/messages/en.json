@@ -354,6 +354,7 @@
     "toLogin": "Already have an account? Log in",
     "loading": "Processing…",
     "mockNotice": "Authentication pending backend: submit simulates the flow and stores a local session.",
+    "inactivityLogout": "Your session was closed due to inactivity.",
     "dividerOr": "or",
     "google": {
       "cta": "Continue with Google",
@@ -362,6 +363,7 @@
   },
   "admin": {
     "shellTitle": "Back-office",
+    "authLoading": "Checking session…",
     "roleLabel": "Role",
     "searchGlobal": "Search folio or user…",
     "groups": {

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { InactivityProvider } from '@/lib/inactivity';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [client] = useState(
@@ -12,5 +13,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
       }),
   );
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      {/* Timer de inactividad global (app-wide): cubre storefront + admin. */}
+      <InactivityProvider>{children}</InactivityProvider>
+    </QueryClientProvider>
+  );
 }

@@ -4,6 +4,66 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Auth del back-office + auto-logout por inactividad + redirección por rol (2026-08-16)
+
+Tres cambios de sesión/auth reportados por el humano probando en producción (backend real, mocks off).
+Solo `frontend/` (+ esta nota). **No** se tocó el contrato. Gates en verde: `lint` OK, `typecheck` OK,
+`test` **94** (22 archivos, +12 nuevos), `build` OK. i18n parity ES/EN intacta.
+
+### 1. El back-office EXIGE sesión (antes: super_admin falso + 401)
+- **`AdminShell.tsx`** (grupo `(admin)`) ahora consume `useSession()`. En **modo real** (`!config.useMocks`)
+  `requireAuth = true`: mientras `!ready` o `!isAuthenticated` **no** renderiza el back-office — muestra un
+  estado de carga (`admin.authLoading`, spinner). Cuando `ready && !isAuthenticated` redirige a
+  `/login` con `router.replace({ pathname:'/login', query:{ next: pathname } })` (router de next-intl,
+  preserva locale; `next` para volver tras login). En **modo mock/demo** `requireAuth=false`: se deja pasar
+  (comportamiento de demostración sin backend).
+- **`role.tsx` (`RoleProvider`)** dejó de hardcodear `'super_admin'`. Ahora:
+  - Modo real: `role = useSession().user.role` (el backend deriva el rol del JWT y es la autoridad);
+    `setRole` es **no-op** y expone `canSwitchRole=false`.
+  - Modo mock/demo: sigue el dial local (localStorage `tcg.role`, default `super_admin`) para demostrar el
+    enmascarado financiero; `canSwitchRole=true`.
+- **`AdminTopbar.tsx`**: el selector "Ver como" (mock role switcher) se renderiza **solo si `canSwitchRole`**
+  (modo mock). En modo real muestra el rol autenticado como texto (no editable). El backend sigue siendo la
+  autoridad; esto es defensa de UI.
+
+### 2. Auto-logout por 5 min de inactividad (app-wide, todos los roles)
+- **`lib/inactivity.tsx` (nuevo)** — `InactivityProvider` montado dentro de `Providers` (raíz), cubre
+  storefront + admin. Constante `INACTIVITY_LOGOUT_MS = 5*60*1000`. Solo actúa con sesión activa
+  (`useSession().isAuthenticated`). Reinicia el timer con `mousemove/mousedown/keydown/scroll/touchstart`
+  (listeners `passive`) y al volver la pestaña visible (`visibilitychange`). Al expirar: `logout()` (de
+  `api.ts`, limpia token+user server/local) + `router.replace('/login?reason=inactivity')`. Como `logout()`
+  emite el evento de sesión (`tcg.session.changed` + `storage`), **otras pestañas** también quedan
+  deslogueadas (sync entre pestañas).
+- **`login/page.tsx`** lee `searchParams` (server) y pasa `notice='inactivity'` + `next` a `AuthForm`.
+- **`AuthForm.tsx`** muestra `Banner variant="warning"` con `auth.inactivityLogout` cuando
+  `notice==='inactivity'` (sin `useSearchParams`, para no forzar Suspense en build).
+
+### 3. Redirección post-login según rol (antes: todos iban a `/`)
+- **`AuthForm.tsx`**: tras login/registro exitoso redirige con `destForRole(res.user.role)`:
+  `super_admin`/`vault_operator` → **`/admin`**, resto → **`/`**. Si hay `?next` **interno** (empieza con
+  `/`) se honra por encima del rol (evita open redirect validando el prefijo).
+- **`GoogleSignInButton.tsx`**: `onSuccess` ahora recibe el `role` (`onSuccess(res.user.role)`); `AuthForm`
+  lo enruta igual. Registro enruta por rol (normalmente `customer` → `/`).
+
+### Archivos tocados
+- `src/components/layout/AdminShell.tsx` (gate de sesión + loading), `src/components/layout/AdminTopbar.tsx`
+  (switcher solo en mock), `src/lib/role.tsx` (rol desde sesión / dial en mock + `canSwitchRole`),
+  `src/lib/inactivity.tsx` (nuevo), `src/components/Providers.tsx` (monta `InactivityProvider`),
+  `src/components/domain/AuthForm.tsx` (redirect por rol + aviso inactividad + `next`),
+  `src/components/domain/GoogleSignInButton.tsx` (`onSuccess(role)`),
+  `src/app/[locale]/(auth)/login/page.tsx` (searchParams → notice/next),
+  `messages/{es,en}.json` (`auth.inactivityLogout`, `admin.authLoading`).
+- Tests nuevos: `AdminShell.test.tsx` (sin sesión → loading + `replace` a `/login?next=/admin`; con sesión
+  renderiza y el rol viene de la sesión — super_admin/vault_operator; switcher off en real),
+  `lib/inactivity.test.tsx` (fake timers: dispara `logout`+redirect tras el umbral; la actividad reinicia el
+  timer; sin sesión nunca dispara), `AuthForm.test.tsx` ampliado (redirect super_admin/operator→`/admin`,
+  customer→`/`, `next` interno gana; aviso de inactividad).
+
+### Solicitudes al arquitecto
+- Ninguna. El rol de sesión ya viene en `AuthResponse.user.role` y `GET /users/me`; `POST /auth/logout` ya
+  existe (§1). El gate y el timer son puramente de cliente (defensa de UI); el backend sigue siendo la
+  autoridad de autorización (rechaza 401 sin sesión).
+
 ## Fix bloqueante techlead — sincronización del form de KYC en M6 (2026-08-16)
 
 Rechazo de techlead: el subformulario de KYC de la ficha 360° (`M6View.tsx`) no sincronizaba su
