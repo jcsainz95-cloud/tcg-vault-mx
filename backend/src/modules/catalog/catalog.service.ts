@@ -232,6 +232,66 @@ export class CatalogService {
     return rows[0].dto;
   }
 
+  /**
+   * v1.3 — Búsqueda pública sobre TODA la tabla `Card` para el picker del cotizador
+   * (API_CONTRACT §6 `GET /buylist/cards`). A diferencia de `listCards` ("Compra"), NO
+   * filtra por inventario ni por precio: **cualquier** carta importada es cotizable, aunque
+   * NO la tengamos en bóveda. Se reutiliza `CardDTO` (sin `sellable`/`salePriceCents`).
+   */
+  async searchAllCards(params: {
+    setId?: string;
+    q?: string;
+    rarity?: string;
+    page: number;
+    pageSize: number;
+  }) {
+    const where: Prisma.CardWhereInput = {};
+    if (params.setId) where.setId = params.setId;
+    if (params.rarity) where.rarity = params.rarity;
+    if (params.q) {
+      // Coincide con nombre (contains, case-insensitive) y/o número de carta.
+      where.OR = [
+        { name: { contains: params.q, mode: 'insensitive' } },
+        { number: { contains: params.q, mode: 'insensitive' } },
+      ];
+    }
+    const skip = (params.page - 1) * params.pageSize;
+    const [rows, total] = await Promise.all([
+      this.prisma.card.findMany({
+        where,
+        include: { set: true },
+        orderBy: [{ name: 'asc' }, { number: 'asc' }],
+        skip,
+        take: params.pageSize,
+      }),
+      this.prisma.card.count({ where }),
+    ]);
+    return { data: rows.map((c) => toCardDTO(c)), page: params.page, pageSize: params.pageSize, total };
+  }
+
+  /**
+   * v1.3 — Sets que tienen cartas importadas (API_CONTRACT §6 `GET /buylist/sets`), para
+   * poblar el dropdown del cotizador. A diferencia de `listSets` (solo sets con inventario
+   * publicado), aquí aparecen TODOS los sets del catálogo con al menos una carta. `year`
+   * derivado de `releaseDate`; ordenados por año desc.
+   */
+  async listSetsWithImportedCards() {
+    const sets = await this.prisma.cardSet.findMany({
+      where: { cards: { some: {} } },
+      select: { id: true, name: true, series: true, releaseDate: true },
+    });
+    const data = sets
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        series: s.series ?? null,
+        releaseDate: s.releaseDate ?? null,
+        year: yearFromReleaseDate(s.releaseDate),
+      }))
+      .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+    return { data };
+  }
+
   /** Sets con inventario publicado y comprable, con `year` derivado, ordenados por año desc. v1.1. */
   async listSets() {
     const rows = await this.fetchSellable(this.publishedWhere());

@@ -1,5 +1,5 @@
 import { config } from './config';
-import { apiRequest, ApiClientError, setToken } from './api-client';
+import { apiRequest, ApiClientError, setToken, getToken } from './api-client';
 import { setStoredUser } from './session';
 import * as fx from './mock/fixtures';
 import type {
@@ -35,6 +35,26 @@ import type {
   UploadPresignResponse,
   IneUploadKeys,
   KycInfoDTO,
+  FxDTO,
+  PendingPriceEntryDTO,
+  RarityMapEntryDTO,
+  RemoteSetDTO,
+  PriceHistoryEntryDTO,
+  PricingSyncResponse,
+  CatalogSyncResponse,
+  CatalogBackfillResponse,
+  CatalogSyncAllResponse,
+  AdminUserSummaryDTO,
+  AdminUserDetailDTO,
+  SettingsDTO,
+  AuditLogDTO,
+  KycStatus,
+  CardDTO,
+  PnlDTO,
+  InventoryValueDTO,
+  CustodyValueDTO,
+  IvaReportDTO,
+  LaunchMetricsDTO,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -222,6 +242,63 @@ export async function getShipments(): Promise<ShipmentDTO[]> {
 }
 
 // ---------- Buylist ----------
+// ---------- Cotizador · búsqueda sobre TODO el catálogo (contrato §6, v1.3) ----------
+/**
+ * Sets con cartas importadas para el dropdown del cotizador (contrato GET /buylist/sets).
+ * A diferencia de GET /catalog/sets (solo sets con inventario publicado), aquí aparecen
+ * TODOS los sets del catálogo.
+ */
+export async function listBuylistSets(): Promise<CardSetDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ data: CardSetDTO[] }>('/buylist/sets');
+    return res.data;
+  }
+  return delay(fx.mockSets);
+}
+
+export interface BuylistCardsFilters {
+  setId?: string;
+  q?: string;
+  rarity?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Búsqueda paginada sobre TODA la tabla Card para el picker del cotizador
+ * (contrato GET /buylist/cards). NO filtra por inventario ni por precio: una carta
+ * fuera de bóveda también se puede vender (condición de compra siempre NM).
+ */
+export async function searchBuylistCards(
+  filters: BuylistCardsFilters = {},
+): Promise<Paginated<CardDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<CardDTO>>('/buylist/cards', {
+      query: {
+        setId: filters.setId,
+        q: filters.q,
+        rarity: filters.rarity,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  }
+  // MOCK: busca sobre todo el catálogo (mockCards), no solo la vitrina de Compra.
+  let data = [...fx.mockCards];
+  if (filters.setId) data = data.filter((c) => c.setId === filters.setId);
+  if (filters.q) {
+    const q = filters.q.toLowerCase();
+    data = data.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.number ?? '').toLowerCase().includes(q),
+    );
+  }
+  if (filters.rarity) data = data.filter((c) => c.rarity === filters.rarity);
+  const pageSize = filters.pageSize ?? 20;
+  const page = filters.page ?? 1;
+  const start = (page - 1) * pageSize;
+  return delay({ data: data.slice(start, start + pageSize), page, pageSize, total: data.length });
+}
+
 export async function getBuylistQuote(input: {
   cardId: string;
   productType: ProductType;
@@ -526,4 +603,368 @@ export async function getAdminDispute(id: string): Promise<DisputeDTO> {
   if (!config.useMocks) return apiRequest<DisputeDTO>(`/admin/disputes/${id}`);
   const found = fx.mockDisputes.find((d) => d.id === id) ?? fx.mockDisputes[0];
   return delay(found);
+}
+
+// ---------- Admin M2 · Catálogo y precios (contrato §M2) ----------
+/** Dispara/encola el sync diario de precios de bóveda (contrato POST /admin/pricing/sync). */
+export async function syncPricing(input: {
+  scope?: 'all_vault' | 'cardIds';
+  cardIds?: string[];
+} = {}): Promise<PricingSyncResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PricingSyncResponse>('/admin/pricing/sync', { method: 'POST', body: input });
+  }
+  return delay({ jobId: `job-${Math.floor(Math.random() * 9000 + 1000)}`, queued: fx.mockListings.length });
+}
+
+/** Cola de precio pendiente (contrato GET /admin/pricing/pending). */
+export async function getPendingPrices(): Promise<PendingPriceEntryDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ data: PendingPriceEntryDTO[] }>('/admin/pricing/pending');
+    return res.data;
+  }
+  return delay(fx.mockPendingPrices);
+}
+
+export interface PricingOverrideInput {
+  cardId: string;
+  productType: ProductType;
+  gradeKey: string;
+  priceMxnCents: number;
+}
+
+/** Override manual de precio; resuelve el PendingPriceEntry (contrato POST /admin/pricing/override). */
+export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: true }> {
+  if (!config.useMocks) {
+    await apiRequest<unknown>('/admin/pricing/override', { method: 'POST', body: input });
+    return { ok: true };
+  }
+  // MOCK: resuelve la entrada pendiente asociada a esa carta/gradeKey.
+  const entry = fx.mockPendingPrices.find(
+    (p) => p.cardId === input.cardId && p.gradeKey === input.gradeKey,
+  );
+  if (entry) fx.resolveMockPending(entry.id);
+  return delay({ ok: true });
+}
+
+/** Historial de precios por fecha/fuente (contrato GET /admin/pricing/card/:cardId). */
+export async function getPriceHistory(cardId: string): Promise<PriceHistoryEntryDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ data: PriceHistoryEntryDTO[] }>(`/admin/pricing/card/${cardId}`);
+    return res.data;
+  }
+  return delay(fx.mockPriceHistory(cardId));
+}
+
+/** Tipo de cambio USD→MXN con colchón (contrato GET /admin/fx). */
+export async function getFx(): Promise<FxDTO> {
+  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx');
+  return delay(fx.mockFx);
+}
+
+/** Fija override manual de FX (contrato PUT /admin/fx). */
+export async function updateFx(input: { rate: number; bufferPct: number }): Promise<FxDTO> {
+  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx', { method: 'PUT', body: input });
+  const next: FxDTO = { rate: input.rate, bufferPct: input.bufferPct, source: 'manual', effectiveDate: new Date().toISOString().slice(0, 10) };
+  fx.setMockFx(next);
+  return delay(next);
+}
+
+/** Fuerza el fetch de FX a Banxico (contrato POST /admin/fx/refresh). */
+export async function refreshFx(): Promise<FxDTO> {
+  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx/refresh', { method: 'POST' });
+  const next: FxDTO = { ...fx.mockFx, source: 'banxico', effectiveDate: new Date().toISOString().slice(0, 10) };
+  fx.setMockFx(next);
+  return delay(next);
+}
+
+/** Tabla rareza→categoría del buylist (contrato GET /admin/pricing/rarity-map). */
+export async function getRarityMap(): Promise<RarityMapEntryDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ entries: RarityMapEntryDTO[] }>('/admin/pricing/rarity-map');
+    return res.entries;
+  }
+  return delay(fx.mockRarityMap);
+}
+
+/** Guarda la tabla rareza→categoría (contrato PUT /admin/pricing/rarity-map). */
+export async function updateRarityMap(entries: RarityMapEntryDTO[]): Promise<RarityMapEntryDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ entries: RarityMapEntryDTO[] }>('/admin/pricing/rarity-map', {
+      method: 'PUT',
+      body: { entries },
+    });
+    return res.entries;
+  }
+  fx.setMockRarityMap(entries);
+  return delay(entries);
+}
+
+/** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */
+export async function getRemoteSets(): Promise<RemoteSetDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ data: RemoteSetDTO[] }>('/admin/catalog/remote-sets');
+    return res.data;
+  }
+  return delay(fx.mockRemoteSets);
+}
+
+/** Importa/actualiza cartas de catálogo (contrato POST /admin/catalog/sync). */
+export async function syncCatalog(input: {
+  setId?: string;
+  fromReleaseDate?: string;
+} = {}): Promise<CatalogSyncResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CatalogSyncResponse>('/admin/catalog/sync', { method: 'POST', body: input });
+  }
+  return delay({
+    jobId: `job-${Math.floor(Math.random() * 9000 + 1000)}`,
+    setsQueued: input.setId ? 1 : fx.mockRemoteSets.filter((s) => !s.imported).length,
+    mode: input.setId ? 'single' : 'from_date',
+  });
+}
+
+/** Importa el siguiente lote de sets más antiguos aún no importados (contrato POST /admin/catalog/backfill). */
+export async function backfillCatalog(input: {
+  batchSize?: number;
+  untilYear?: number;
+} = {}): Promise<CatalogBackfillResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CatalogBackfillResponse>('/admin/catalog/backfill', { method: 'POST', body: input });
+  }
+  const pending = fx.mockRemoteSets.filter((s) => !s.imported);
+  const batch = pending.slice(0, input.batchSize ?? 10);
+  return delay({
+    imported: batch.map((s) => ({ id: s.id, name: s.name, releaseDate: s.releaseDate, cardCount: s.printedTotal ?? 0 })),
+    newBoundary: batch[batch.length - 1]?.releaseDate ?? '',
+    remaining: Math.max(0, pending.length - batch.length),
+  });
+}
+
+/**
+ * Importa TODO el catálogo (contrato POST /admin/catalog/sync-all, v1.3). Puede no
+ * existir aún en backend; el front lo usa condicionalmente y trata 404/405 como
+ * "no disponible" (fallback al sync por set / backfill).
+ */
+export async function syncAllCatalog(): Promise<CatalogSyncAllResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CatalogSyncAllResponse>('/admin/catalog/sync-all', { method: 'POST', body: {} });
+  }
+  const pending = fx.mockRemoteSets.filter((s) => !s.imported).length;
+  return delay({ jobId: `job-${Math.floor(Math.random() * 9000 + 1000)}`, setsQueued: pending, remaining: 0 });
+}
+
+// ---------- Admin M6 · Usuarios / KYC (contrato §M6) ----------
+export interface AdminUsersFilters {
+  q?: string;
+  status?: 'active' | 'blocked';
+  page?: number;
+  pageSize?: number;
+}
+
+/** Listado paginado de usuarios con filtros q + status (contrato GET /admin/users). */
+export async function getAdminUsers(filters: AdminUsersFilters = {}): Promise<Paginated<AdminUserSummaryDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<AdminUserSummaryDTO>>('/admin/users', {
+      query: {
+        q: filters.q,
+        status: filters.status,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  }
+  let data = [...fx.mockAdminUsers];
+  if (filters.q) {
+    const q = filters.q.toLowerCase();
+    data = data.filter((u) => u.email.toLowerCase().includes(q) || u.name.toLowerCase().includes(q));
+  }
+  if (filters.status) data = data.filter((u) => u.status === filters.status);
+  const pageSize = filters.pageSize ?? 20;
+  const page = filters.page ?? 1;
+  const start = (page - 1) * pageSize;
+  return delay({ data: data.slice(start, start + pageSize), page, pageSize, total: data.length });
+}
+
+/** Ficha 360° del usuario (contrato GET /admin/users/:id). CLABE/RFC enmascarados. */
+export async function getAdminUser(id: string): Promise<AdminUserDetailDTO> {
+  if (!config.useMocks) return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}`);
+  return delay(fx.mockAdminUserDetail(id));
+}
+
+export interface UpdateUserKycInput {
+  kycStatus: KycStatus;
+  capPerRequestCents?: number;
+  capPerMonthCents?: number;
+}
+
+/** Actualiza el KYC del usuario (contrato PATCH /admin/users/:id/kyc, super_admin). */
+export async function updateUserKyc(id: string, input: UpdateUserKycInput): Promise<AdminUserDetailDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}/kyc`, { method: 'PATCH', body: input });
+  }
+  const detail = fx.mockAdminUserDetail(id);
+  return delay({
+    ...detail,
+    kycProfile: detail.kycProfile
+      ? {
+          ...detail.kycProfile,
+          kycStatus: input.kycStatus,
+          capPerRequestCents: input.capPerRequestCents ?? detail.kycProfile.capPerRequestCents,
+          capPerMonthCents: input.capPerMonthCents ?? detail.kycProfile.capPerMonthCents,
+        }
+      : detail.kycProfile,
+  });
+}
+
+/** Bloquea/activa la cuenta (contrato PATCH /admin/users/:id/status, super_admin). */
+export async function updateUserStatus(
+  id: string,
+  status: 'active' | 'blocked',
+): Promise<AdminUserDetailDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}/status`, { method: 'PATCH', body: { status } });
+  }
+  return delay({ ...fx.mockAdminUserDetail(id), status });
+}
+
+// ---------- Admin M10 · Config (diales) y bitácora (contrato §M10) ----------
+/** Todos los diales (contrato GET /admin/settings). */
+export async function getSettings(): Promise<SettingsDTO> {
+  if (!config.useMocks) return apiRequest<SettingsDTO>('/admin/settings');
+  return delay(fx.mockSettings);
+}
+
+/**
+ * Edición de diales (contrato PUT /admin/settings). El body es PARCIAL (solo las
+ * keys a cambiar); NO existe PATCH /admin/settings/:key.
+ */
+export async function updateSettings(patch: Partial<SettingsDTO>): Promise<SettingsDTO> {
+  if (!config.useMocks) return apiRequest<SettingsDTO>('/admin/settings', { method: 'PUT', body: patch });
+  fx.setMockSettings(patch);
+  return delay(fx.mockSettings);
+}
+
+export interface AuditLogFilters {
+  actorUserId?: string;
+  action?: string;
+  entityType?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** Bitácora global paginada (contrato GET /admin/audit-log). */
+export async function getAuditLog(filters: AuditLogFilters = {}): Promise<Paginated<AuditLogDTO>> {
+  if (!config.useMocks) {
+    // El contrato devuelve { data }; se normaliza a Paginated para la UI.
+    const res = await apiRequest<{ data: AuditLogDTO[]; page?: number; pageSize?: number; total?: number }>(
+      '/admin/audit-log',
+      {
+        query: {
+          actorUserId: filters.actorUserId,
+          action: filters.action,
+          entityType: filters.entityType,
+          from: filters.from,
+          to: filters.to,
+          page: filters.page,
+          pageSize: filters.pageSize,
+        },
+      },
+    );
+    return {
+      data: res.data,
+      page: res.page ?? filters.page ?? 1,
+      pageSize: res.pageSize ?? filters.pageSize ?? 20,
+      total: res.total ?? res.data.length,
+    };
+  }
+  let data = [...fx.mockAuditLog];
+  if (filters.action) data = data.filter((a) => a.action.includes(filters.action!));
+  if (filters.actorUserId) data = data.filter((a) => a.actorUserId === filters.actorUserId);
+  if (filters.entityType) data = data.filter((a) => a.entityType === filters.entityType);
+  const pageSize = filters.pageSize ?? 20;
+  const page = filters.page ?? 1;
+  const start = (page - 1) * pageSize;
+  return delay({ data: data.slice(start, start + pageSize), page, pageSize, total: data.length });
+}
+
+// ---------- Admin M7 · Finanzas (contrato §M7) ----------
+export interface FinanceRange {
+  from?: string;
+  to?: string;
+}
+
+/** P&L por rango (contrato GET /admin/finance/pnl). */
+export async function getPnl(range: FinanceRange = {}): Promise<PnlDTO> {
+  if (!config.useMocks) {
+    return apiRequest<PnlDTO>('/admin/finance/pnl', { query: { from: range.from, to: range.to } });
+  }
+  return delay(fx.mockPnl);
+}
+
+/** Valor de inventario a referencia y a costo (contrato GET /admin/finance/inventory-value). */
+export async function getInventoryValue(): Promise<InventoryValueDTO> {
+  if (!config.useMocks) return apiRequest<InventoryValueDTO>('/admin/finance/inventory-value');
+  return delay(fx.mockInventoryValue);
+}
+
+/** Valor en custodia de clientes (contrato GET /admin/finance/custody-value). */
+export async function getCustodyValue(): Promise<CustodyValueDTO> {
+  if (!config.useMocks) return apiRequest<CustodyValueDTO>('/admin/finance/custody-value');
+  return delay(fx.mockCustodyValue);
+}
+
+/** IVA cobrado por rango, para conciliación/CFDI (contrato GET /admin/finance/iva). */
+export async function getIvaReport(range: FinanceRange = {}): Promise<IvaReportDTO> {
+  if (!config.useMocks) {
+    return apiRequest<IvaReportDTO>('/admin/finance/iva', { query: { from: range.from, to: range.to } });
+  }
+  return delay(fx.mockIvaReport);
+}
+
+export type FinanceCsvReport = 'pnl' | 'iva' | 'inventory';
+
+/**
+ * Descarga el CSV de finanzas/reportes (contrato GET /admin/finance/export.csv y
+ * GET /admin/reports/export.csv — comparten el mismo `exportCsv`). Devuelve el TEXTO
+ * del CSV; el componente lo materializa como archivo (ver lib/download). El fetch real
+ * lleva Bearer y lee texto (no JSON), por eso no usa `apiRequest`.
+ */
+export async function exportFinanceCsv(input: {
+  report: FinanceCsvReport;
+  from?: string;
+  to?: string;
+  /** origen del endpoint: M7 (finance, default) o M9 (reports). Mismo CSV. */
+  source?: 'finance' | 'reports';
+}): Promise<string> {
+  const path =
+    input.source === 'reports' ? '/admin/reports/export.csv' : '/admin/finance/export.csv';
+  if (!config.useMocks) {
+    const url = new URL(config.apiBaseUrl + path);
+    if (input.report) url.searchParams.set('report', input.report);
+    if (input.from) url.searchParams.set('from', input.from);
+    if (input.to) url.searchParams.set('to', input.to);
+    const token = getToken();
+    const res = await fetch(url.toString(), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      throw new ApiClientError(res.status, { code: 'INTERNAL', message: 'CSV export failed' });
+    }
+    return res.text();
+  }
+  return delay(fx.mockCsv(input.report));
+}
+
+// ---------- Admin M9 · Reportes (contrato §M9) ----------
+/** Métricas de lanzamiento vs metas N/X/Y/Z (contrato GET /admin/reports/launch-metrics). */
+export async function getLaunchMetrics(range: FinanceRange = {}): Promise<LaunchMetricsDTO> {
+  if (!config.useMocks) {
+    return apiRequest<LaunchMetricsDTO>('/admin/reports/launch-metrics', {
+      query: { from: range.from, to: range.to },
+    });
+  }
+  return delay(fx.mockLaunchMetrics);
 }

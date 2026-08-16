@@ -28,6 +28,20 @@ import type {
   PortfolioPointDTO,
   PortfolioRange,
   KycInfoDTO,
+  FxDTO,
+  PendingPriceEntryDTO,
+  RarityMapEntryDTO,
+  RemoteSetDTO,
+  PriceHistoryEntryDTO,
+  AdminUserSummaryDTO,
+  AdminUserDetailDTO,
+  SettingsDTO,
+  AuditLogDTO,
+  PnlDTO,
+  InventoryValueDTO,
+  CustodyValueDTO,
+  IvaReportDTO,
+  LaunchMetricsDTO,
 } from '@/types/contract';
 
 const IMG = 'https://images.pokemontcg.io/base1';
@@ -510,3 +524,208 @@ export const mockDisputes: DisputeDTO[] = [
     },
   },
 ];
+
+// ---- M2: Catálogo y precios ----
+/** Tipo de cambio USD→MXN con colchón (contrato GET /admin/fx). */
+export let mockFx: FxDTO = {
+  rate: 18.42,
+  bufferPct: 3,
+  source: 'banxico',
+  effectiveDate: '2026-08-14',
+};
+export function setMockFx(next: FxDTO) {
+  mockFx = next;
+}
+
+/** Cola de precio pendiente (contrato GET /admin/pricing/pending). */
+export let mockPendingPrices: PendingPriceEntryDTO[] = [
+  {
+    id: 'ppe-1',
+    cardId: 'c-zapdos',
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    context: 'inventory',
+    status: 'open',
+    createdAt: '2026-08-13T06:00:00Z',
+    cardName: 'Zapdos',
+  },
+  {
+    id: 'ppe-2',
+    cardId: 'c-machamp',
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    context: 'buylist',
+    status: 'open',
+    createdAt: '2026-08-13T09:15:00Z',
+    cardName: 'Machamp',
+  },
+];
+export function resolveMockPending(id: string) {
+  mockPendingPrices = mockPendingPrices.filter((p) => p.id !== id);
+}
+
+/** Tabla rareza→categoría del buylist (contrato GET/PUT /admin/pricing/rarity-map). */
+export let mockRarityMap: RarityMapEntryDTO[] = [
+  { rarity: 'Common', category: 'comun' },
+  { rarity: 'Uncommon', category: 'comun' },
+  { rarity: 'Reverse Holo', category: 'reverse_holo' },
+  { rarity: 'Rare Holo', category: 'ex_plus' },
+  { rarity: 'Ultra Rare', category: 'ex_plus' },
+  { rarity: 'Illustration Rare', category: 'ex_plus' },
+  { rarity: 'Special Illustration Rare', category: 'ex_plus' },
+];
+export function setMockRarityMap(entries: RarityMapEntryDTO[]) {
+  mockRarityMap = entries;
+}
+
+/** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */
+export const mockRemoteSets: RemoteSetDTO[] = [
+  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', printedTotal: 191, imported: true, cardCount: 191 },
+  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', printedTotal: 167, imported: true, cardCount: 167 },
+  { id: 'sv05', name: 'Temporal Forces', series: 'Scarlet & Violet', releaseDate: '2024/03/22', printedTotal: 162, imported: false, cardCount: 0 },
+  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', printedTotal: 198, imported: false, cardCount: 0 },
+  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', printedTotal: 102, imported: true, cardCount: 102 },
+];
+
+/** Historial de precios por fecha/fuente (contrato GET /admin/pricing/card/:id). SUPUESTO de shape. */
+export function mockPriceHistory(cardId: string): PriceHistoryEntryDTO[] {
+  const ref = mockReferenceByCardId[cardId] ?? 100000;
+  return [
+    { capturedDate: '2026-08-13', source: 'pokemontcg_io', gradeKey: 'raw:NM', productType: 'raw', priceMxnCents: ref, isManualOverride: false },
+    { capturedDate: '2026-08-12', source: 'pokemontcg_io', gradeKey: 'raw:NM', productType: 'raw', priceMxnCents: Math.round(ref * 0.98), isManualOverride: false },
+    { capturedDate: '2026-08-11', source: 'manual', gradeKey: 'raw:NM', productType: 'raw', priceMxnCents: Math.round(ref * 0.95), isManualOverride: true },
+  ];
+}
+
+// ---- M6: Usuarios / KYC ----
+export const mockAdminUsers: AdminUserSummaryDTO[] = [
+  { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', createdAt: '2026-08-01T10:00:00Z' },
+  { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', createdAt: '2026-08-05T14:30:00Z' },
+  { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', createdAt: '2026-08-08T09:12:00Z' },
+  { id: 'u-op1', email: 'operador@tcgvault.mx', name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
+];
+
+export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
+  const base = mockAdminUsers.find((u) => u.id === id) ?? mockAdminUsers[0];
+  return {
+    ...base,
+    locale: 'es',
+    authProvider: id === 'u-778' ? 'google' : 'local',
+    kycProfile: {
+      kycStatus: base.status === 'blocked' ? 'rejected' : id === 'u-777' ? 'verified' : 'none',
+      clabeMasked: id === 'u-777' ? '****1234' : undefined,
+      rfcMasked: id === 'u-777' ? 'XAX**********' : undefined,
+      ineOnFile: id === 'u-777',
+      capPerRequestCents: 300000,
+      capPerMonthCents: 1000000,
+      monthUsedCents: id === 'u-777' ? 120000 : 0,
+    },
+    billingProfile:
+      id === 'u-777'
+        ? { rfcMasked: 'XAX**********', razonSocial: 'Ana López', regimenFiscal: '626', usoCfdi: 'G03', postalCode: '06700', email: 'ana@example.com' }
+        : null,
+    addresses:
+      id === 'u-777'
+        ? [{ id: 'addr-1', line1: 'Av. Reforma 100', city: 'CDMX', state: 'CDMX', postalCode: '06600', country: 'MX', phone: '5555555555', isDefault: true }]
+        : [],
+    orders: base.id === 'u-777' ? mockOrders : [],
+    sellRequests:
+      base.id === 'u-777'
+        ? [{ id: 'sr-3001', status: 'verificacion', quotedTotalCents: 50200, createdAt: '2026-08-12T14:00:00Z' }]
+        : [],
+    disputes:
+      base.id === 'u-777'
+        ? [{ id: 'dsp-5001', status: 'en_revision', type: 'condition_raw', createdAt: '2026-08-12T16:00:00Z' }]
+        : [],
+    ownedItems:
+      base.id === 'u-777'
+        ? [{ inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise'), ownershipStatus: 'settled' }]
+        : [],
+  };
+}
+
+// ---- M10: Config y bitácora ----
+export let mockSettings: SettingsDTO = {
+  shippingFeeCents: 17500,
+  aportacionPct: 70,
+  ivaPct: 16,
+  salesMarkupPct: 10,
+  stripeFeePct: 3.6,
+  stripeFeeFixedCents: 300,
+  stripeFeeIvaPct: 0.16,
+  buylistCapPerRequestCents: 300000,
+  buylistCapPerMonthCents: 1000000,
+  ineThresholdCents: 300000,
+  repoCapPerCardCents: 5000000,
+  fxBufferPct: 3,
+  fxManualOverrideRate: undefined,
+  pricingProviderRaw: 'pokemontcg_io',
+  pricingProviderGraded: 'pokemonpricetracker',
+  pricingProviderSealed: 'manual',
+  catalogSyncFromDate: '2024/01/01',
+};
+export function setMockSettings(patch: Partial<SettingsDTO>) {
+  mockSettings = { ...mockSettings, ...patch };
+}
+
+export const mockAuditLog: AuditLogDTO[] = [
+  { id: 'al-1', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'settings.update', entityType: 'ConfigSetting', entityId: 'shipping_fee_cents', createdAt: '2026-08-14T12:00:00Z' },
+  { id: 'al-2', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'order.refund', entityType: 'Order', entityId: 'ord-9003', createdAt: '2026-08-13T18:30:00Z' },
+  { id: 'al-3', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'buylist.pay_spei', entityType: 'SellRequest', entityId: 'sr-2990', createdAt: '2026-08-13T11:10:00Z' },
+  { id: 'al-4', actorUserId: 'u-op1', actorRole: 'vault_operator', action: 'inventory.mark_damaged', entityType: 'InventoryItem', entityId: 'inv-1050', createdAt: '2026-08-12T15:45:00Z' },
+  { id: 'al-5', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'catalog.sync', entityType: 'CardSet', entityId: 'sv05', createdAt: '2026-08-12T09:00:00Z' },
+  { id: 'al-6', actorUserId: 'u-admin', actorRole: 'super_admin', action: 'buylist.reveal_clabe', entityType: 'SellRequest', entityId: 'sr-2990', createdAt: '2026-08-11T16:20:00Z' },
+];
+
+// ---- M7: Finanzas ----
+// P&L: incomeCents + shippingCents − cogsCents − stripeFeesCents = profitCents.
+export const mockPnl: PnlDTO = {
+  incomeCents: 1_250_000,
+  shippingCents: 52_500,
+  cogsCents: 640_000,
+  stripeFeesCents: 48_300,
+  profitCents: 1_250_000 + 52_500 - 640_000 - 48_300,
+};
+
+export const mockInventoryValue: InventoryValueDTO = {
+  atReferenceCents: 8_430_000,
+  atCostCents: 5_901_000,
+  pendingPriceCount: 3,
+};
+
+export const mockCustodyValue: CustodyValueDTO = {
+  totalCustodyValueCents: 4_120_000,
+};
+
+export const mockIvaReport: IvaReportDTO = {
+  ivaCollectedCents: 200_000,
+  byOrder: [
+    { orderId: 'ord-9001', ivaCents: 84_800, settledAt: '2026-08-13T18:30:00Z' },
+    { orderId: 'ord-9002', ivaCents: 22_528, settledAt: '2026-08-12T10:05:00Z' },
+    { orderId: 'ord-9003', ivaCents: 92_672, settledAt: '2026-08-10T14:40:00Z' },
+  ],
+};
+
+// ---- M9: Reportes ----
+// goals = null hasta que el humano fije las metas N/X/Y/Z (contrato §M9).
+export const mockLaunchMetrics: LaunchMetricsDTO = {
+  users: 42,
+  salesSettled: 17,
+  buylistPaid: 9,
+  withdrawalsNoDispute: 6,
+  goals: { N: 100, X: 50, Y: 25, Z: 20 },
+};
+
+/** MOCK: genera un CSV determinista por tipo de reporte (comparte export de M7/M9). */
+export function mockCsv(report: 'pnl' | 'iva' | 'inventory'): string {
+  if (report === 'iva') {
+    const rows = mockIvaReport.byOrder
+      .map((o) => `${o.orderId},${o.ivaCents},${o.settledAt ?? ''}`)
+      .join('\n');
+    return `orderId,ivaCents,settledAt\n${rows}\n`;
+  }
+  if (report === 'inventory') {
+    return `metric,valueCents\natReferenceCents,${mockInventoryValue.atReferenceCents}\natCostCents,${mockInventoryValue.atCostCents}\npendingPriceCount,${mockInventoryValue.pendingPriceCount}\n`;
+  }
+  return `metric,valueCents\nincomeCents,${mockPnl.incomeCents}\nshippingCents,${mockPnl.shippingCents}\ncogsCents,${mockPnl.cogsCents}\nstripeFeesCents,${mockPnl.stripeFeesCents}\nprofitCents,${mockPnl.profitCents}\n`;
+}

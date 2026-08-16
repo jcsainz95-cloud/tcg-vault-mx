@@ -3,13 +3,13 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Info, ShieldQuestion } from 'lucide-react';
-import { getBuylistQuote, getSellRequests } from '@/lib/api';
-import type { ProductType } from '@/types/contract';
+import { Info, ShieldQuestion, Search, Check } from 'lucide-react';
+import { getBuylistQuote, getSellRequests, listBuylistSets, searchBuylistCards } from '@/lib/api';
+import type { ProductType, CardDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
-import { mockCards } from '@/lib/mock/fixtures';
 import { Select } from '@/components/ui/Select';
+import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Modal } from '@/components/ui/Modal';
@@ -30,17 +30,45 @@ export function BuylistView() {
   const buylistSteps = useBuylistSteps();
   const queryClient = useQueryClient();
 
-  const [cardId, setCardId] = useState(mockCards[0].id);
+  // --- Búsqueda real sobre TODO el catálogo (contrato §6, v1.3) ---
+  const [setId, setSetId] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCard, setSelectedCard] = useState<CardDTO | null>(null);
+
   const [productType, setProductType] = useState<ProductType>('raw');
   const [guideOpen, setGuideOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
+  const sets = useQuery({ queryKey: ['buylist-sets'], queryFn: listBuylistSets });
+
+  // Solo se busca cuando hay set o texto (evita traer todo el catálogo sin filtro).
+  const hasSearch = setId !== '' || searchQuery.trim() !== '';
+  const cardsResult = useQuery({
+    queryKey: ['buylist-cards', setId, searchQuery],
+    queryFn: () => searchBuylistCards({ setId: setId || undefined, q: searchQuery || undefined }),
+    enabled: hasSearch,
+  });
+
+  function runSearch() {
+    setSearchQuery(searchInput.trim());
+  }
+
   const quote = useMutation({
     // Condición de compra SIEMPRE NM (v1.1): raw se envía con rawCondition='NM', sin selector.
     mutationFn: () =>
-      getBuylistQuote({ cardId, productType, rawCondition: productType === 'raw' ? 'NM' : undefined }),
+      getBuylistQuote({
+        cardId: selectedCard!.id,
+        productType,
+        rawCondition: productType === 'raw' ? 'NM' : undefined,
+      }),
   });
+
+  function pickCard(card: CardDTO) {
+    setSelectedCard(card);
+    quote.reset();
+  }
 
   const requests = useQuery({ queryKey: ['sell-requests'], queryFn: getSellRequests });
 
@@ -64,12 +92,87 @@ export function BuylistView() {
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
           <h2 className="text-h3 font-semibold">{t('quoterTitle')}</h2>
+
+          {/* Paso 1: filtrar por set y/o buscar sobre TODO el catálogo */}
           <Select
-            label={t('selectCard')}
-            options={mockCards.map((c) => ({ value: c.id, label: `${c.name} · ${c.setName}` }))}
-            value={cardId}
-            onChange={(e) => setCardId(e.target.value)}
+            label={t('filterBySet')}
+            placeholder={t('allSets')}
+            options={(sets.data ?? []).map((s) => ({
+              value: s.id,
+              label: s.year ? `${s.name} (${s.year})` : s.name,
+            }))}
+            value={setId}
+            onChange={(e) => {
+              setSetId(e.target.value);
+              // Filtrar por set dispara la búsqueda aunque no haya texto.
+            }}
           />
+          <div className="flex items-end gap-2">
+            <Input
+              label={t('searchCards')}
+              className="flex-1"
+              placeholder={t('searchPlaceholder')}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') runSearch();
+              }}
+            />
+            <Button variant="secondary" onClick={runSearch} aria-label={t('searchAction')}>
+              <Search size={18} /> {t('searchAction')}
+            </Button>
+          </div>
+
+          {/* Resultados de la búsqueda: elegir una carta */}
+          {hasSearch && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">{t('searchResults')}</p>
+              <QueryState
+                isLoading={cardsResult.isLoading}
+                isError={cardsResult.isError}
+                error={cardsResult.error}
+                onRetry={() => cardsResult.refetch()}
+              >
+                {cardsResult.data &&
+                  (cardsResult.data.data.length === 0 ? (
+                    <EmptyState title={t('noResults')} />
+                  ) : (
+                    <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto" role="listbox" aria-label={t('searchResults')}>
+                      {cardsResult.data.data.map((card) => {
+                        const active = selectedCard?.id === card.id;
+                        return (
+                          <li key={card.id}>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={active}
+                              onClick={() => pickCard(card)}
+                              className={`flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                                active ? 'border-primary bg-primary/5' : 'border-border hover:bg-surface-2'
+                              }`}
+                            >
+                              <span lang="en" className="font-medium">{card.name}</span>
+                              <span className="flex items-center gap-2 text-xs text-muted">
+                                <span lang="en">{card.setName}</span>
+                                {card.number && <span className="tabular">#{card.number}</span>}
+                                {active && <Check size={16} className="text-primary" aria-hidden />}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ))}
+              </QueryState>
+            </div>
+          )}
+
+          {/* Paso 2: elegir tipo y cotizar la carta seleccionada */}
+          {selectedCard && (
+            <p className="rounded-md bg-primary/5 px-3 py-2 text-sm">
+              {t('selectedCard')}: <span lang="en" className="font-semibold">{selectedCard.name}</span>
+            </p>
+          )}
           <Select
             label={t('selectType')}
             options={PRODUCT_TYPES.map((p) => ({ value: p, label: p }))}
@@ -82,9 +185,10 @@ export function BuylistView() {
               {t('conditionFixedNm')}
             </p>
           )}
-          <Button onClick={() => quote.mutate()} loading={quote.isPending}>
+          <Button onClick={() => quote.mutate()} loading={quote.isPending} disabled={!selectedCard}>
             {quote.isPending ? t('quoting') : t('getQuote')}
           </Button>
+          {!selectedCard && <p className="text-xs text-muted">{t('chooseCardFirst')}</p>}
           <button
             type="button"
             onClick={() => setGuideOpen(true)}
@@ -198,9 +302,9 @@ export function BuylistView() {
       </Modal>
 
       <Modal open={requestOpen} onClose={() => setRequestOpen(false)} title={t('requestTitle')}>
-        {quote.data && quote.data.quote.status !== 'precio_pendiente' && (
+        {quote.data && quote.data.quote.status !== 'precio_pendiente' && selectedCard && (
           <BuylistKycForm
-            cardId={cardId}
+            cardId={selectedCard.id}
             productType={productType}
             category={quote.data.category}
             onCreated={(sellRequestId) => {

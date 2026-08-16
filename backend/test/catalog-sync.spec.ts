@@ -128,3 +128,115 @@ describe('CatalogSyncService.sync — desde fecha (default dial 2024/01/01)', ()
     await expect(svc.sync(undefined, '2024-01-01')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 });
+
+/**
+ * v1.3 — sync-all (Opción 1 del cotizador, API_CONTRACT §M2): importa TODO el catálogo de
+ * forma NO bloqueante (fire-and-forget), resumible (salta sets ya importados) e idempotente
+ * (upsert por externalId). Single-flight para no duplicar carga contra pokemontcg.io.
+ */
+describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloqueante)', () => {
+  function prismaWithLocal(localSets: { externalId: string; count: number }[]) {
+    return {
+      cardSet: {
+        upsert: jest.fn(async () => ({ id: 'local', externalId: 'x' })),
+        findMany: jest.fn(async () => localSets.map((s) => ({ externalId: s.externalId, _count: { cards: s.count } }))),
+      },
+      card: { upsert: jest.fn(async () => ({})) },
+    } as any;
+  }
+
+  const remoteSets = [
+    { id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' },
+    { id: 'base1', name: 'Base', releaseDate: '1999/01/09' },
+  ];
+
+  it('encola solo los sets pendientes (resumible) y NO bloquea el request', async () => {
+    // sv8 ya está importado con cartas → pendiente solo base1.
+    const prisma = prismaWithLocal([{ externalId: 'sv8', count: 5 }]);
+    const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+
+    // El barrido de fondo se difiere (promesa pendiente): demuestra que syncAll NO lo espera.
+    let resolveRun!: () => void;
+    const runSpy = jest
+      .spyOn(svc as any, 'runSyncAll')
+      .mockReturnValue(new Promise<void>((r) => { resolveRun = r; }));
+
+    const res = await svc.syncAll();
+
+    // Retorna 202-shape de inmediato aunque el barrido siga en curso.
+    expect(res).toMatchObject({ setsQueued: 1, remaining: 0 });
+    expect(res.jobId).toMatch(/^catalog-sync-all-/);
+    // Solo el set pendiente (base1) se encoló para el barrido.
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect((runSpy.mock.calls[0][0] as any[]).map((s: any) => s.id)).toEqual(['base1']);
+
+    resolveRun();
+  });
+
+  it('single-flight: una segunda llamada mientras hay barrido en curso no lanza otro', async () => {
+    const prisma = prismaWithLocal([]); // nada importado → ambos remotos pendientes
+    const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+
+    let resolveRun!: () => void;
+    jest.spyOn(svc as any, 'runSyncAll').mockReturnValue(new Promise<void>((r) => { resolveRun = r; }));
+
+    const first = await svc.syncAll();
+    const second = await svc.syncAll();
+
+    expect(first.setsQueued).toBe(2);
+    // El segundo disparo no encola nada (ya hay barrido activo) y reporta lo que falta.
+    expect(second.setsQueued).toBe(0);
+    expect(second.remaining).toBe(2);
+
+    resolveRun();
+  });
+
+  it('runSyncAll importa cada set con upsert idempotente por externalId (no duplica)', async () => {
+    const prisma = prismaWithLocal([]);
+    const client = {
+      getSets: jest.fn(),
+      getCardsBySet: jest.fn(async () => ({
+        data: [remoteCard('sv8-1')],
+        page: 1,
+        pageSize: 250,
+        count: 1,
+        totalCount: 1,
+      })),
+    } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+
+    await svc.runSyncAll([{ id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' }]);
+
+    expect(prisma.cardSet.upsert.mock.calls[0][0].where).toEqual({ externalId: 'sv8' });
+    expect(prisma.card.upsert.mock.calls[0][0].where).toEqual({ externalId: 'sv8-1' });
+
+    // Re-correr → sigue siendo upsert por la misma key (idempotente, sin duplicar filas).
+    await svc.runSyncAll([{ id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' }]);
+    expect(prisma.card.upsert).toHaveBeenCalledTimes(2);
+    const wheres = prisma.card.upsert.mock.calls.map((c: any) => c[0].where.externalId);
+    expect(wheres).toEqual(['sv8-1', 'sv8-1']);
+  });
+
+  it('un set que falla no aborta el barrido de los demás', async () => {
+    const prisma = prismaWithLocal([]);
+    const svc = new CatalogSyncService(
+      prisma as PrismaService,
+      { getSets: jest.fn() } as unknown as PokemonTcgIoClient,
+      settings(),
+    );
+    const importSpy = jest
+      .spyOn(svc as any, 'importSet')
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ imported: true, cardCount: 1 });
+
+    await expect(
+      svc.runSyncAll([
+        { id: 'bad', name: 'Bad', releaseDate: '2020/01/01' },
+        { id: 'ok', name: 'Ok', releaseDate: '2021/01/01' },
+      ]),
+    ).resolves.toBeUndefined();
+    expect(importSpy).toHaveBeenCalledTimes(2); // siguió con el segundo pese al fallo del primero
+  });
+});

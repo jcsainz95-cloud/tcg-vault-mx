@@ -2,7 +2,19 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.2.1 (MVP). Fecha: 2026-08-14. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.3 (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+>
+> **Changelog v1.3 (2026-08-16)** — Cotizador **Opción 1** (buylist sobre todo el catálogo) y confirmación del
+> estado del back-office:
+> - **Nuevo §4.10:** cotizador que cotiza **cualquier** carta de la tabla `Card` — endpoints nuevos de backend
+>   `GET /buylist/cards` + `GET /buylist/sets` (búsqueda pública sobre todo el catálogo) y
+>   `POST /admin/catalog/sync-all` (importar todo el catálogo, truly-async). Ver `API_CONTRACT.md §6 y §M2`.
+> - **§9 Desviaciones:** DEV-1 (el `POST /admin/catalog/sync` from-date importa **síncrono** en el request →
+>   riesgo de timeout para catálogo completo; enrutado a backend) y DEV-2 (jobId cosmético).
+> - **§10 Preguntas abiertas v1.3:** pricing on-demand del cotizador y rate-limit de la búsqueda pública.
+> - **Confirmado (sin cambio de contrato):** M2/M6/M7/M9/M10 ya están implementados en backend; lo pendiente es
+>   consumo de frontend (los `ModuleTodo` son stubs de UI). La edición de diales M10 es `PUT /admin/settings`
+>   (body parcial), no per-key.
 >
 > **Changelog v1.2 / v1.2.1 (2026-08-14)** — simplificación aprobada (`PROJECT.md` › "Simplificación v1.2" y
 > "Corrección v1.2.1"):
@@ -489,6 +501,34 @@ Ingesta de **datos de catálogo** (Card/CardSet, en inglés, no se traduce). Ali
   - **rangos de precio** (min/max de `salePriceCents`) para el slider de precio.
 - **Filtros** del listado: `setId`, `rarity`, `productType` (raw NM | graded | sealed), rango de precio, y `condition` (para raw solo hay `NM`).
 
+### 4.10 Cotizador buylist sobre TODO el catálogo (Opción 1) — v1.3
+
+Decisión del humano (**Opción 1**): el cotizador público debe poder cotizar **cualquier** carta de la tabla
+`Card` (todo el catálogo importado), no solo lo comprable en "Compra" (bóveda). Esto se resuelve en **dos
+piezas**, ambas **backend nuevo** (ver `API_CONTRACT.md §6` y §M2):
+
+1. **Búsqueda pública sobre toda la tabla `Card`** — `GET /buylist/cards` (+ `GET /buylist/sets` para el
+   dropdown de set). Se ubican bajo `/buylist/*` **a propósito**, separadas de `/catalog/*` (que está acotado
+   a inventario publicado con precio, §4.9). El servicio consulta `Card`/`CardSet` directamente (filtros
+   `setId`, `q` sobre nombre/número, `rarity` libre), paginado, **sin** tocar `InventoryItem` ni precio. El
+   resultado (`CardDTO`) da el `cardId` que consume `POST /buylist/quote`. Servicio sugerido: método nuevo en
+   `CatalogService` (p. ej. `searchCatalog(...)`/`listCatalogSets()`) o un `BuylistCatalogService` en
+   `modules/buylist`; el arquitecto no fija la ubicación exacta, sí la interfaz del contrato.
+2. **Sync de TODO el catálogo** — `POST /admin/catalog/sync-all` (super_admin, auditado, **truly-async**).
+   Para que el cotizador tenga cartas que buscar hay que poblar todo el catálogo (no solo 2024+). El
+   `CatalogSyncService` actual **ya** puede importar todo (`sync` con `fromReleaseDate` antiguo, o `backfill`
+   repetido hasta `remaining=0`); `sync-all` es un wrapper explícito que **encola** todos los sets remotos en
+   la cola BullMQ y retorna de inmediato, evitando el timeout del `sync` from-date síncrono (ver DEV-1, §9).
+
+**Pricing del cotizador para cartas fuera de bóveda:** el `PricingService` solo pricea cartas **en bóveda**
+(§4.1). Una carta `ex_plus` recién buscada en el catálogo (que no tenemos) **no** tendrá `PriceReference`, por
+lo que su cotización sale `precio_pendiente` y escala a la cola del dueño al crear la solicitud (PROJECT
+criterio 13, `AcquisitionPricer` §4.2). Las tarifas planas (`comun`=50, `reverse_holo`=150) **no** dependen
+de referencia y se cotizan siempre. Esto es **coherente** con las reglas ya cerradas; si el humano quiere que
+el cotizador **pricee on-demand** una `ex_plus` del catálogo completo (fetch puntual al `PricingProvider` en
+el momento de cotizar, respetando rate-limit), es una **decisión de alcance** — ver **Pregunta abierta v1.3-1**
+(§10). No se asume: el MVP mantiene el comportamiento `precio_pendiente`.
+
 ---
 
 ## 5. Decisiones transversales
@@ -584,11 +624,47 @@ Riesgos técnicos:
 ---
 
 ## 9. Desviaciones detectadas
-Ninguna. Proyecto greenfield: aún no existe código en `backend/` ni `frontend/`. Esta sección se actualizará si el código futuro contradice esta arquitectura.
+
+> El arquitecto **no corrige código** (CLAUDE.md): documenta la desviación y la enruta al **rol dueño**
+> (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
+> UI en `ModuleTodo` pendiente de consumir, backend en su mayoría implementado).
+
+- **DEV-1 (backend) — `POST /admin/catalog/sync` importa de forma SÍNCRONA en el request.** El contrato
+  declara `202 { jobId, setsQueued, mode }` (semántica async/encolada), pero `CatalogSyncService.sync()`
+  recorre e importa **todos** los sets `>= fromReleaseDate` **dentro del handler HTTP** (await inline por set y
+  por página de cartas). Para un sync acotado a 2024+ es tolerable, pero para un **sync de todo el catálogo**
+  (Opción 1, cientos de sets / decenas de miles de cartas) **provoca timeout** del request y no respeta la
+  cola/rate-limit prometidos. **Acción (backend):** implementar el nuevo `POST /admin/catalog/sync-all`
+  encolando en BullMQ (truly-async) y, deseablemente, alinear `sync` from-date al mismo patrón encolado. El
+  `backfill` repetible **sí** es seguro (importa por lotes) y es el camino recomendado mientras `sync-all` no
+  encole de verdad. Registrar en `docs/TECH_DEBT.md` si se difiere.
+- **DEV-2 (informativo, no bloqueante) — `jobId` cosmético en sync/backfill.** Los métodos devuelven
+  `jobId: \`catalog-sync-${Date.now()}\`` sin un job real detrás (la importación ya ocurrió síncrona). Es
+  coherente con DEV-1: al encolar de verdad, el `jobId` debe ser el de la cola. Sin impacto de contrato para
+  el front (trata el `jobId` como opaco).
+
+Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
+este documento y con `API_CONTRACT.md`.
 
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.3 — Cotizador Opción 1)
+> No bloquean el arranque del trabajo (backend puede implementar `GET /buylist/cards`, `GET /buylist/sets` y
+> `POST /admin/catalog/sync-all` ya). El arquitecto **no asume** reglas de negocio (CLAUDE.md).
+- **v1.3-1 — ¿pricing on-demand del cotizador para `ex_plus` fuera de bóveda?** Hoy una carta `ex_plus` del
+  catálogo completo sin `PriceReference` sale `precio_pendiente` (coherente con PROJECT criterio 13). ¿El
+  humano quiere que el cotizador dispare un **fetch puntual** al `PricingProvider` en el momento de cotizar
+  (mejor UX, pero consume cuota del free tier fuera de la bóveda y puede tentar abuso del endpoint público)?
+  **Default propuesto (MVP):** **no** priciar on-demand; mantener `precio_pendiente` + escalado al dueño.
+  Requiere confirmación para cerrarse.
+- **v1.3-2 — Búsqueda pública sobre todo el catálogo: ¿rate-limit / anti-scraping?** `GET /buylist/cards` es
+  público y consulta la tabla `Card` completa. Recomendación técnica (no de negocio): aplicar rate-limit por
+  IP y `pageSize` acotado (≤100). Confirmar si se quiere además exigir sesión (`customer`) para reducir
+  scraping del catálogo. **Default propuesto:** público con rate-limit; sin sesión obligatoria.
+
+### Decisiones ya resueltas
 Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran como decisiones firmes en este documento y en el contrato. Se conservan aquí como registro.
 
 1. **Precio de venta = referencia del día + MARKUP configurable (dial M10).** El **valor de mercado** que se muestra es la **referencia** (`priceMxnCents` de `PriceReference`). El **precio de venta** es `round(referenciaMxn × (1 + salesMarkupPct/100))`. `salesMarkupPct` es un dial de M10 (`sales_markup_pct`). Se persiste como `InventoryItem.listPriceCents` al listar (o se calcula al vuelo si null) y se congela en `OrderItem.unitPriceCents` al checkout. En los DTOs se distingue `referenceValue` (valor de mercado) de `salePrice` (precio de venta). El override manual de precio puede fijar directamente el `listPriceCents` sin aplicar markup.

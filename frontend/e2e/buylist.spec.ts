@@ -12,9 +12,12 @@ test.describe('buylist · cotizador público', () => {
     await expect(page.getByText(t('es', 'buylist.payAfterReceipt')).first()).toBeVisible();
   });
 
-  test('cotiza EX+ como 40% de la referencia', async ({ page }) => {
+  test('busca una carta y cotiza EX+ como 40% de la referencia', async ({ page }) => {
     await page.goto('/es/buylist');
-    // Charizard (Rare Holo → categoría EX o superior) es la carta por defecto.
+    // Nuevo flujo (Opción 1): buscar sobre todo el catálogo → elegir carta → cotizar.
+    await page.getByLabel(t('es', 'buylist.searchCards')).fill('Charizard');
+    await page.getByRole('button', { name: t('es', 'buylist.searchAction') }).click();
+    await page.getByRole('option', { name: /Charizard/ }).click();
     await page.getByRole('button', { name: t('es', 'buylist.getQuote') }).click();
 
     await expect(page.getByRole('heading', { name: t('es', 'buylist.quoteResult') })).toBeVisible();
@@ -28,7 +31,9 @@ test.describe('buylist · cotizador público', () => {
   }) => {
     await page.goto('/es/buylist');
     // Zapdos tiene referencia pendiente en los fixtures.
-    await page.getByLabel(t('es', 'buylist.selectCard')).selectOption('c-zapdos');
+    await page.getByLabel(t('es', 'buylist.searchCards')).fill('Zapdos');
+    await page.getByRole('button', { name: t('es', 'buylist.searchAction') }).click();
+    await page.getByRole('option', { name: /Zapdos/ }).click();
     await page.getByRole('button', { name: t('es', 'buylist.getQuote') }).click();
 
     await expect(page.getByText(t('es', 'buylist.pricePendingNotice'))).toBeVisible();
@@ -57,6 +62,9 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
   }) => {
     await page.goto('/es/buylist');
     // Charizard (EX+) tiene referencia → permite crear solicitud.
+    await page.getByLabel(t('es', 'buylist.searchCards')).fill('Charizard');
+    await page.getByRole('button', { name: t('es', 'buylist.searchAction') }).click();
+    await page.getByRole('option', { name: /Charizard/ }).click();
     await page.getByRole('button', { name: t('es', 'buylist.getQuote') }).click();
     await page.getByRole('button', { name: t('es', 'buylist.createRequest') }).click();
 
@@ -71,6 +79,9 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
 
   test('crea la solicitud con CLABE válida y muestra confirmación', async ({ page }) => {
     await page.goto('/es/buylist');
+    await page.getByLabel(t('es', 'buylist.searchCards')).fill('Charizard');
+    await page.getByRole('button', { name: t('es', 'buylist.searchAction') }).click();
+    await page.getByRole('option', { name: /Charizard/ }).click();
     await page.getByRole('button', { name: t('es', 'buylist.getQuote') }).click();
     await page.getByRole('button', { name: t('es', 'buylist.createRequest') }).click();
 

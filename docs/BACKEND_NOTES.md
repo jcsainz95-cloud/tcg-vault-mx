@@ -822,3 +822,138 @@ inválido → 422).
   `10485760` = 10 MiB). Añadir a `.env.example` con el default comentado.
 - Recordatorio S-B4/devops: `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` deben ser **≥ 32 chars** en
   staging/prod (ahora el arranque lo exige) y venir del secret manager.
+
+---
+
+## 18. Cotizador Opción 1 (v1.3, 2026-08-16) — buylist sobre TODO el catálogo + sync-all
+
+Alcance del contrato v1.3 (`API_CONTRACT.md §6` y `§M2`): 3 endpoints nuevos de backend para que el
+cotizador pueda elegir **cualquier** carta del catálogo (no solo el inventario comprable de "Compra").
+**No hubo migración Prisma** (se reutilizan `Card`/`CardSet` existentes y `CardDTO`).
+
+### 18.1 Endpoints implementados
+
+- **`GET /api/v1/buylist/cards`** (público) — búsqueda paginada sobre **toda** la tabla `Card`.
+  - Controller nuevo `BuylistCatalogController` (`modules/buylist/buylist-catalog.controller.ts`), delega en
+    `CatalogService.searchAllCards()`. `BuylistModule` ahora importa `CatalogModule` (que ya exporta
+    `CatalogService`); **sin ciclo** (CatalogModule no importa BuylistModule).
+  - Query: `setId`, `q` (nombre `contains` case-insensitive **OR** número `contains`), `rarity` (String
+    libre tal cual pokemontcg.io), `page`, `pageSize` (tope de servidor **≤100**, igual que el resto de
+    endpoints públicos paginados). Respuesta `{ data: CardDTO[], page, pageSize, total }` (reutiliza
+    `CardDTO`; **no** lleva `sellable`/`salePriceCents` — no es Compra). `total` vía `card.count`.
+  - **Consulta `Card`, NO `InventoryItem`** → devuelve cartas que **no** tenemos en bóveda (justo lo que
+    pide la Opción 1). No toca pricing.
+  - **Rate-limit anti-scraping SIN sesión:** `@Throttle({ ttl: 60_000, limit: 60 })` por IP (más estricto
+    que el global de 300/min), para no facilitar el volcado del catálogo desde un endpoint público.
+- **`GET /api/v1/buylist/sets`** (público) — sets con **cartas importadas** (dropdown del cotizador).
+  - `CatalogService.listSetsWithImportedCards()`: `cardSet.findMany({ where: { cards: { some: {} } } })`,
+    `year` derivado de `releaseDate` (`yearFromReleaseDate`), ordenado por año **desc**. Respuesta
+    `{ data: [{ id, name, series, releaseDate, year }] }`. Distinto de `GET /catalog/sets` (que solo trae
+    sets con inventario **publicado**). Mismo throttle 60/min.
+- **`POST /api/v1/admin/catalog/sync-all`** (super_admin, auditado) — importa TODO el catálogo. Ver 18.2.
+
+### 18.2 `sync-all` — cómo se resolvió el NO-bloqueo (DEV-1) y sus límites
+
+`CatalogSyncService.syncAll()` + `runSyncAll()` (`modules/catalog/catalog-sync.service.ts`), endpoint en
+`AdminCatalogController` (`@HttpCode(202)`, audita `action: catalog.sync_all`).
+
+- **Enfoque elegido: background in-process (NO se cableó BullMQ para catálogo).** Motivo: el
+  `SchedulerService` BullMQ existente (BE-5) solo se activa con `REDIS_URL` y solo cablea los jobs diarios
+  (`fx-refresh`/`price-sync`/`portfolio-snapshot`) en la cola `tcg-daily`; no hay worker de catálogo. Cablear
+  una cola/worker dedicado de catálogo (con su rate-limiter y persistencia de progreso) excede este encargo,
+  así que `sync-all` corre el barrido **en memoria del proceso** de forma **fire-and-forget**:
+  1. `getSets()` (una llamada rápida a `/sets`) para calcular los sets **pendientes** (remotos que **no**
+     tienen ya un `CardSet` local con ≥1 carta → **resumible**).
+  2. Marca `syncAllRunning=true` y lanza `runSyncAll(pending)` **sin `await`** → el request retorna `202
+     { jobId, setsQueued, remaining }` de inmediato (no espera la importación completa; resuelve el timeout de
+     DEV-1 que sí tenía el `sync` from-date síncrono).
+  3. `runSyncAll` importa **secuencialmente** cada set (respeta el rate-limit del free tier); un set que
+     falla **no** aborta el barrido de los demás. Al terminar libera `syncAllRunning`.
+- **Idempotente:** cada set/carta se persiste con `upsert` por `externalId` (no duplica al re-correr).
+- **Resumible:** re-llamar `sync-all` reanuda solo los sets aún **no** importados. `setsQueued` = sets
+  encolados en esa llamada; `remaining` = 0 cuando encolamos todos los pendientes.
+- **Single-flight:** si ya hay un barrido en curso, una segunda llamada **no** lanza otro (evita duplicar
+  carga y quemar rate-limit); devuelve `setsQueued: 0` y `remaining` = pendientes actuales.
+- **Límites conocidos (deuda, enrutar a devops/techlead):**
+  - El progreso vive **en memoria**: si el proceso se **reinicia** a mitad del barrido, los sets no
+    importados quedan pendientes y se reanudan re-llamando `sync-all` (idempotente), pero **no** hay reintento
+    automático ni backoff persistido. El `jobId` es **cosmético** (no consultable; alineado con DEV-2).
+    Cuando devops cablee una cola BullMQ de catálogo, `syncAll()` debería encolar en ella en vez del
+    fire-and-forget in-process. **No bloquea el MVP** (el `sync`/`backfill` existentes ya cubren la carga
+    completa; `sync-all` la hace explícita y segura contra timeouts del request).
+  - En despliegue **multi-instancia**, el `syncAllRunning` es por-instancia (dos réplicas podrían barrer en
+    paralelo). Con la cola BullMQ (job único) esto se resuelve; hasta entonces, dispararlo desde una sola
+    instancia/manualmente.
+
+### 18.3 Gates (desde `backend/`)
+
+- `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ **192 tests / 34 suites** (incluye **8 nuevos**:
+  4 en `test/buylist-catalog.spec.ts`, 4 en `test/catalog-sync.spec.ts` describe `syncAll`) · `npm run build` ✅.
+- Cobertura nueva: búsqueda por `set`/`q` en `/buylist/cards` sobre `Card` (prueba explícita de que **no**
+  toca `InventoryItem` → incluye cartas sin inventario), paginación/`total`, `q` OR nombre/número;
+  `/buylist/sets` (where `cards.some`, year desc); `sync-all` (encola solo pendientes = resumible, no
+  bloquea, single-flight, upsert idempotente, y un set fallido no aborta el barrido).
+
+### 18.4 Discrepancias con el contrato / decisiones para el **arquitecto**
+
+- **Ninguna que exija cambio de contrato.** Los 3 endpoints se implementaron con los shapes exactos de
+  `API_CONTRACT.md §6/§M2`.
+- **Nota (no bloqueante):** el contrato menciona para `/buylist/cards` `Err 400 VALIDATION_ERROR
+  (paginación inválida)`. Igual que el endpoint hermano `GET /catalog/cards`, aquí `page`/`pageSize`
+  inválidos se **coercionan** a defaults (`page≥1`, `1≤pageSize≤100`) en vez de devolver 400 — se mantuvo la
+  convención ya establecida en el codebase para uniformidad entre ambos buscadores públicos. Si el arquitecto
+  prefiere 400 estricto, es un ajuste menor de validación en ambos controllers (avisar).
+- **Pregunta abierta 1 de ARCHITECTURE §10 (pricing on-demand del cotizador):** `/buylist/cards` **no**
+  pricea; el pricing de una `ex_plus` se resuelve en `POST /buylist/quote` (ya existente) contra el
+  `PriceReference` en bóveda. Una carta fuera de bóveda sin market price sale `precio_pendiente` y escala a la
+  cola del dueño al crear la solicitud (§13/criterio 13), tal como especifica el contrato. Sin cambio de
+  backend requerido aquí; queda como decisión de producto si se quiere pricing on-demand (fuera de alcance).
+
+## 19. Alineación de shapes al contrato tras rechazo de QA (2026-08-16)
+
+QA rechazó por 4 mismatches donde el **backend omitía/violaba los nombres de campo del
+contrato**. Correcciones (solo nombres del DTO de salida; **no** se tocaron columnas de BD,
+enmascarado, ni lógica). Archivos: `modules/admin/admin.service.ts`,
+`modules/pricing/pricing.controller.ts`.
+
+- **M6 ficha 360° (`AdminService.getUser`)** — `API_CONTRACT §M6`. En **ambas** proyecciones
+  (super_admin y vault_operator) el KYC ahora expone `clabeMasked` (antes `clabe`),
+  `rfcMasked` (antes `rfc`, solo super_admin) y los topes como `capPerRequestCents` /
+  `capPerMonthCents` (antes `capPerRequestCentsOverride` / `capPerMonthCentsOverride`; las
+  **columnas** de BD siguen llamándose `*Override`, solo cambió el nombre en la respuesta).
+  El `billingProfile` expone `rfcMasked` (antes `rfc`). El enmascarado y la segregación por
+  rol (SEC-A4) no cambian: CLABE en claro sigue **solo** por `reveal-clabe`.
+- **M2 rarity-map (`PricingController`)** — `API_CONTRACT §M2`. `GET/PUT
+  /admin/pricing/rarity-map` ahora devuelven el envelope `{ entries: [{ rarity, category },
+  ...] }` (antes el `GET` devolvía un `Record<string,string>` plano y el `PUT` devolvía el
+  mapa). La **persistencia interna** sigue siendo un mapa (`ConfigSetting.valueJson`); se
+  proyecta a `entries` al leer y al responder el `PUT`. El body del `PUT` ya aceptaba
+  `{entries:[...]}` (sin cambio).
+- **M7 IVA (`AdminService.ivaReport`)** — `API_CONTRACT §M7`. Cada item de `byOrder` expone
+  `orderId` (antes `id`); conserva `ivaCents`, `settledAt`, `status`. `exportCsv` (report=iva)
+  se ajustó para leer `orderId`.
+- **M9 launch-metrics (`AdminService.launchMetrics`)** — `API_CONTRACT §M9`. `goals` es
+  **`null`** (el objeto completo) cuando no hay metas fijadas, en vez de `{N:null,X:null,
+  Y:null,Z:null}`. La lógica colapsa a `null` si ninguna meta está definida; cuando el humano
+  fije al menos una, devolverá el objeto `{N,X,Y,Z}`. (Aún no existe fuente de metas: hoy
+  siempre `null`, que es lo correcto por contrato.)
+
+### 19.1 Tests que fijan estos shapes (para que un mismatch futuro lo atrape un test)
+
+- `test/admin.pii.spec.ts` (actualizado): asserts sobre `clabeMasked` / `rfcMasked` /
+  `capPerRequestCents` / `capPerMonthCents` y que los nombres viejos (`clabe`/`rfc`/`*Override`)
+  ya **no** existen; billing con `rfcMasked`.
+- `test/admin.contract-shapes.spec.ts` (nuevo): `ivaReport` → cada item con `orderId` (sin
+  `id`); `launchMetrics` → `goals` null sin metas.
+- `test/pricing.rarity-map.spec.ts` (nuevo): `GET`/`PUT` devuelven `{entries:[...]}`; GET con
+  config ausente → `{entries: []}`; `PUT` persiste el mapa interno y responde el envelope.
+
+### 19.2 Gates (desde `backend/`)
+
+- `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ **197 tests / 36 suites**
+  (antes 192/34; +5 tests, +2 suites) · `npm run build` ✅.
+
+### 19.3 Discrepancias con el contrato
+
+- **Ninguna.** Los 4 shapes se alinearon exactamente a `API_CONTRACT §M2/§M6/§M7/§M9`. No se
+  editó el contrato ni la estructura de carpetas.

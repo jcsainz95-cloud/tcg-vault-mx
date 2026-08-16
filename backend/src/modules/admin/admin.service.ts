@@ -74,11 +74,20 @@ export class AdminService {
         ...safe,
         kycProfile: safe.kycProfile
           ? (() => {
-              const { clabeEnc: _c, rfcEnc: _r, clabeHmac: _h, ...rest } = safe.kycProfile;
+              const {
+                clabeEnc: _c,
+                rfcEnc: _r,
+                clabeHmac: _h,
+                capPerRequestCentsOverride,
+                capPerMonthCentsOverride,
+                ...rest
+              } = safe.kycProfile;
               return {
                 ...rest,
-                clabe: clabeMasked,
-                rfc: maskRfc(this.pii.decryptOptional(_r)),
+                clabeMasked,
+                rfcMasked: maskRfc(this.pii.decryptOptional(_r)),
+                capPerRequestCents: capPerRequestCentsOverride,
+                capPerMonthCents: capPerMonthCentsOverride,
                 ineOnFile: Boolean(safe.kycProfile.ineFrontKey && safe.kycProfile.ineBackKey),
               };
             })()
@@ -86,7 +95,7 @@ export class AdminService {
         billingProfile: safe.billingProfile
           ? (() => {
               const { rfcEnc: _r, ...rest } = safe.billingProfile;
-              return { ...rest, rfc: maskRfc(this.pii.decryptOptional(_r)) };
+              return { ...rest, rfcMasked: maskRfc(this.pii.decryptOptional(_r)) };
             })()
           : null,
       };
@@ -102,10 +111,10 @@ export class AdminService {
             userId: safe.kycProfile.userId,
             legalName: safe.kycProfile.legalName,
             kycStatus: safe.kycProfile.kycStatus,
-            clabe: clabeMasked,
+            clabeMasked,
             ineOnFile: Boolean(safe.kycProfile.ineFrontKey && safe.kycProfile.ineBackKey),
-            capPerRequestCentsOverride: safe.kycProfile.capPerRequestCentsOverride,
-            capPerMonthCentsOverride: safe.kycProfile.capPerMonthCentsOverride,
+            capPerRequestCents: safe.kycProfile.capPerRequestCentsOverride,
+            capPerMonthCents: safe.kycProfile.capPerMonthCentsOverride,
             verifiedAt: safe.kycProfile.verifiedAt,
           }
         : null,
@@ -227,7 +236,8 @@ export class AdminService {
     const ivaCollectedCents = orders
       .filter((o) => o.status === 'settled')
       .reduce((s, o) => s + o.ivaCents, 0);
-    return { ivaCollectedCents, byOrder: orders };
+    const byOrder = orders.map(({ id, ...rest }) => ({ orderId: id, ...rest }));
+    return { ivaCollectedCents, byOrder };
   }
 
   async exportCsv(report: string, from?: string, to?: string): Promise<string> {
@@ -237,7 +247,7 @@ export class AdminService {
     }
     if (report === 'iva') {
       const iva = await this.ivaReport(from, to);
-      const rows = iva.byOrder.map((o) => `${o.id},${o.ivaCents},${o.status}`).join('\n');
+      const rows = iva.byOrder.map((o) => `${o.orderId},${o.ivaCents},${o.status}`).join('\n');
       return `orderId,ivaCents,status\n${rows}\n`;
     }
     // inventory
@@ -262,12 +272,21 @@ export class AdminService {
         where: { status: 'entregado', ...(r ? { deliveredAt: r } : {}) },
       }),
     ]);
+    // Metas N/X/Y/Z: solo se fijan cuando el humano las define. Mientras no haya
+    // ninguna meta, `goals` es `null` (el objeto completo), no un objeto de nulos.
+    const goalsRaw: { N: number | null; X: number | null; Y: number | null; Z: number | null } = {
+      N: null,
+      X: null,
+      Y: null,
+      Z: null,
+    };
+    const hasAnyGoal = Object.values(goalsRaw).some((v) => v !== null);
     return {
       users,
       salesSettled,
       buylistPaid,
       withdrawalsNoDispute,
-      goals: { N: null, X: null, Y: null, Z: null },
+      goals: hasAnyGoal ? goalsRaw : null,
     };
   }
 

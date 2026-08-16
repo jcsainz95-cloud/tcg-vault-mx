@@ -450,6 +450,235 @@ export interface DisputeDTO {
   };
 }
 
+// ---- M2: Catálogo y precios (contrato §M2) ----
+// v1.1: fuente del tipo de cambio, separada de PriceSource.
+export type FxSource = 'banxico' | 'manual';
+
+// GET/PUT /admin/fx (+ POST /admin/fx/refresh): tipo de cambio USD→MXN con colchón.
+export interface FxDTO {
+  rate: number;
+  bufferPct: number;
+  source: FxSource;
+  effectiveDate: string;
+}
+
+// GET /admin/pricing/pending: cola de precio pendiente (contrato §11 PendingPriceEntry).
+export interface PendingPriceEntryDTO {
+  id: string;
+  cardId: string;
+  productType: ProductType;
+  gradeKey: string;
+  context: 'catalog' | 'portfolio' | 'buylist' | 'inventory';
+  status: 'open' | 'resolved';
+  createdAt: string;
+  // Conveniencia del front: nombre de carta para render. El backend puede omitirlo.
+  cardName?: string;
+}
+
+// GET/PUT /admin/pricing/rarity-map: tabla rareza→categoría de buylist.
+export interface RarityMapEntryDTO {
+  rarity: string;
+  category: BuylistCategory;
+}
+
+// GET /admin/pricing/card/:cardId — historial de precios por fecha/fuente.
+// SUPUESTO de shape: el contrato describe "historial de precios por fecha/fuente"
+// sin fijar campos exactos; estos son los mínimos para render (ver FRONTEND_NOTES).
+export interface PriceHistoryEntryDTO {
+  capturedDate: string;
+  source: PriceSource;
+  gradeKey: string;
+  productType: ProductType;
+  priceMxnCents: number;
+  isManualOverride: boolean;
+}
+
+// POST /admin/pricing/sync → dispara/encola el sync diario de bóveda.
+export interface PricingSyncResponse {
+  jobId: string;
+  queued: number;
+}
+
+// GET /admin/catalog/remote-sets: sets remotos de pokemontcg.io con estado local.
+export interface RemoteSetDTO {
+  id: string;
+  name: string;
+  series?: string;
+  releaseDate?: string;
+  printedTotal?: number;
+  imported: boolean;
+  cardCount: number;
+}
+
+// POST /admin/catalog/sync
+export interface CatalogSyncResponse {
+  jobId: string;
+  setsQueued: number;
+  mode: 'single' | 'from_date';
+}
+
+// POST /admin/catalog/backfill
+export interface CatalogBackfillResponse {
+  imported: { id: string; name: string; releaseDate?: string; cardCount: number }[];
+  newBoundary: string;
+  remaining: number;
+}
+
+// POST /admin/catalog/sync-all (v1.3 — puede no existir aún en backend; se usa condicional).
+export interface CatalogSyncAllResponse {
+  jobId: string;
+  setsQueued: number;
+  remaining: number;
+}
+
+// ---- M6: Usuarios / KYC (contrato §M6) ----
+export interface AdminUserSummaryDTO {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  status: 'active' | 'blocked';
+  createdAt: string;
+}
+
+// KYC en la ficha 360°: CLABE/RFC ENMASCARADOS incluso para super_admin (contrato §M6/§3.4).
+export interface AdminKycProfileDTO {
+  kycStatus: KycStatus;
+  clabeMasked?: string;
+  rfcMasked?: string;
+  ineOnFile: boolean;
+  capPerRequestCents?: number;
+  capPerMonthCents?: number;
+  monthUsedCents?: number;
+}
+
+export interface AdminBillingProfileDTO {
+  rfcMasked?: string;
+  razonSocial?: string;
+  regimenFiscal?: string;
+  usoCfdi?: string;
+  postalCode?: string;
+  email?: string;
+}
+
+export interface AdminUserSellRequestRef {
+  id: string;
+  status: SellRequestStatus;
+  quotedTotalCents: number;
+  createdAt: string;
+}
+
+export interface AdminUserDisputeRef {
+  id: string;
+  status: DisputeStatus;
+  type?: DisputeType;
+  createdAt: string;
+}
+
+export interface AdminUserOwnedItemRef {
+  inventoryItemId: string;
+  folio: string;
+  card: CardDTO;
+  ownershipStatus: OwnershipStatus;
+}
+
+// GET /admin/users/:id — ficha 360°. billingProfile = null para vault_operator
+// (proyección reducida SEC-A4: sin RFC/INE/billing).
+export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
+  locale?: Locale;
+  authProvider?: AuthProvider;
+  kycProfile?: AdminKycProfileDTO | null;
+  billingProfile?: AdminBillingProfileDTO | null;
+  addresses?: AddressDTO[];
+  orders?: OrderSummaryDTO[];
+  sellRequests?: AdminUserSellRequestRef[];
+  disputes?: AdminUserDisputeRef[];
+  ownedItems?: AdminUserOwnedItemRef[];
+}
+
+// ---- M10: Config (diales) y bitácora (contrato §M10) ----
+export interface SettingsDTO {
+  shippingFeeCents: number;
+  aportacionPct: number;
+  ivaPct: number;
+  salesMarkupPct: number;
+  stripeFeePct: number;
+  stripeFeeFixedCents: number;
+  stripeFeeIvaPct: number;
+  buylistCapPerRequestCents: number;
+  buylistCapPerMonthCents: number;
+  ineThresholdCents: number;
+  repoCapPerCardCents: number;
+  fxBufferPct: number;
+  fxManualOverrideRate?: number;
+  pricingProviderRaw: string;
+  pricingProviderGraded: string;
+  pricingProviderSealed: string;
+  catalogSyncFromDate: string;
+}
+
+export interface AuditLogDTO {
+  id: string;
+  actorUserId: string;
+  actorRole: Role;
+  action: string;
+  entityType: string;
+  entityId: string;
+  createdAt: string;
+}
+
+// ---- M7: Finanzas (contrato §M7) ----
+// GET /admin/finance/pnl?from=&to= → ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia.
+export interface PnlDTO {
+  incomeCents: number;
+  shippingCents: number;
+  cogsCents: number;
+  stripeFeesCents: number;
+  profitCents: number;
+}
+
+// GET /admin/finance/inventory-value → valor de inventario (a referencia y a costo) + pendientes.
+export interface InventoryValueDTO {
+  atReferenceCents: number;
+  atCostCents: number;
+  pendingPriceCount: number;
+}
+
+// GET /admin/finance/custody-value → valor en custodia de clientes.
+export interface CustodyValueDTO {
+  totalCustodyValueCents: number;
+}
+
+// GET /admin/finance/iva?from=&to= → IVA cobrado (para conciliación/CFDI).
+// SUPUESTO de shape: el contrato define `byOrder: [...]` sin fijar los campos; se asume
+// esta forma mínima para render (ver FRONTEND_NOTES / solicitud al arquitecto).
+export interface IvaByOrderEntryDTO {
+  orderId: string;
+  ivaCents: number;
+  settledAt?: string;
+}
+export interface IvaReportDTO {
+  ivaCollectedCents: number;
+  byOrder: IvaByOrderEntryDTO[];
+}
+
+// ---- M9: Reportes (contrato §M9) ----
+// GET /admin/reports/launch-metrics?from=&to= → métricas vs metas N/X/Y/Z.
+// `goals` es null hasta que el humano fije las metas (contrato §M9).
+export interface LaunchGoalsDTO {
+  N: number | null;
+  X: number | null;
+  Y: number | null;
+  Z: number | null;
+}
+export interface LaunchMetricsDTO {
+  users: number;
+  salesSettled: number;
+  buylistPaid: number;
+  withdrawalsNoDispute: number;
+  goals: LaunchGoalsDTO | null;
+}
+
 // ---- Errores (contrato §0) ----
 export interface ApiError {
   code: string;

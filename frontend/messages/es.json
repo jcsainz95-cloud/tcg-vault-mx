@@ -269,7 +269,16 @@
     "submit": "Enviar solicitud",
     "submitting": "Enviando…",
     "requestError": "No se pudo crear la solicitud. Revisa los datos e inténtalo de nuevo.",
-    "created": "¡Solicitud creada! Te avisaremos cuando recibamos tu carta."
+    "created": "¡Solicitud creada! Te avisaremos cuando recibamos tu carta.",
+    "filterBySet": "Filtrar por set",
+    "allSets": "Todos los sets",
+    "searchCards": "Buscar carta",
+    "searchPlaceholder": "Nombre o número (ej. Charizard, 4)",
+    "searchAction": "Buscar",
+    "searchResults": "Resultados",
+    "noResults": "No encontramos cartas con ese filtro. Prueba otro set o término.",
+    "selectedCard": "Carta seleccionada",
+    "chooseCardFirst": "Elige una carta de los resultados para cotizar."
   },
   "ine": {
     "front": "INE (anverso)",
@@ -377,6 +386,8 @@
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
     "moneyOutNote": "Solo súper-admin · queda en bitácora",
+    "superAdminGateTitle": "Acceso restringido",
+    "superAdminGateBody": "Este módulo es solo para súper-admin. Cambia de rol o pide acceso.",
     "dashboard": {
       "profit": "Ganancia del periodo",
       "sales": "Ventas del periodo",
@@ -466,6 +477,228 @@
       "title": "M8 · Disputas",
       "resolveRepurchase": "Resolver con recompra",
       "resolveReject": "Rechazar disputa"
+    },
+    "m2": {
+      "title": "M2 · Catálogo y precios",
+      "sync": {
+        "title": "Sync de precios (bóveda)",
+        "subtitle": "Refresca el precio de referencia de las cartas en bóveda desde la fuente según tipo. Cache diario.",
+        "launch": "Lanzar sync de precios",
+        "queued": "Sync encolado: {count} cartas (job {jobId})."
+      },
+      "pending": {
+        "title": "Cola de precio pendiente",
+        "subtitle": "Cartas sin precio de referencia, escaladas para fijar precio a mano. El comprador nunca ve este estado.",
+        "empty": "Sin precios pendientes.",
+        "card": "Carta",
+        "type": "Tipo",
+        "gradeKey": "Clave de grado",
+        "context": "Origen",
+        "setPrice": "Fijar precio",
+        "overrideTitle": "Override manual de precio",
+        "saveOverride": "Guardar precio",
+        "priceLabel": "Precio de referencia (MXN)"
+      },
+      "fx": {
+        "title": "Tipo de cambio USD→MXN",
+        "rate": "Tasa",
+        "buffer": "Colchón",
+        "source": "Fuente",
+        "sourceLabel": { "banxico": "Banxico (automático)", "manual": "Manual (override)" },
+        "effectiveDate": "Vigencia",
+        "newRate": "Nueva tasa",
+        "newBuffer": "Nuevo colchón %",
+        "saveOverride": "Fijar override",
+        "refreshBanxico": "Refrescar Banxico",
+        "hint": "El precio MXN = precio USD × tasa × (1 + colchón/100). El override manual tiene prioridad sobre el automático del día."
+      },
+      "rarityMap": {
+        "title": "Rareza → categoría de buylist",
+        "subtitle": "Deriva la categoría de cotización desde la rareza de pokemontcg.io. Default ex_plus para rarezas no listadas.",
+        "category": "Categoría"
+      },
+      "catalog": {
+        "title": "Sync de catálogo (pokemontcg.io)",
+        "subtitle": "Importa sets y cartas del catálogo de referencia. Por defecto sets 2024+; backfill de colecciones anteriores por lotes.",
+        "set": "Set",
+        "releaseDate": "Lanzamiento",
+        "imported": "Importado",
+        "yes": "Sí",
+        "no": "No",
+        "cardCount": "Cartas",
+        "import": "Importar",
+        "resync": "Re-sincronizar",
+        "backfill": "Backfill (siguiente lote)",
+        "syncAll": "Sync de todo el catálogo",
+        "backfillDone": "Backfill: {count} sets importados, {remaining} restantes.",
+        "syncAllDone": "Sync total encolado: {count} sets.",
+        "syncAllUnavailable": "El sync total no está disponible en el backend; usa el sync por set o el backfill."
+      }
+    },
+    "m6": {
+      "title": "M6 · Usuarios / KYC",
+      "subtitle": "Consulta usuarios, su ficha 360° y gestiona KYC y bloqueo.",
+      "searchLabel": "Buscar (correo o nombre)",
+      "view": "Ver ficha",
+      "active": "Activa",
+      "blocked": "Bloqueada",
+      "table": {
+        "name": "Nombre",
+        "email": "Correo",
+        "role": "Rol",
+        "status": "Estado",
+        "created": "Alta"
+      },
+      "pageInfo": "Página {page} de {totalPages} · {total} usuarios",
+      "prev": "Anterior",
+      "next": "Siguiente",
+      "emptyTitle": "Sin usuarios",
+      "emptyBody": "Ajusta la búsqueda o el filtro de estado.",
+      "detailTitle": "Ficha 360° del usuario",
+      "kycTitle": "KYC",
+      "clabe": "CLABE",
+      "rfc": "RFC",
+      "ineOnFile": "INE en archivo",
+      "yes": "Sí",
+      "no": "No",
+      "capRequest": "Tope por solicitud",
+      "capMonth": "Tope mensual",
+      "maskedNote": "CLABE y RFC se muestran enmascarados; la CLABE en claro solo por el flujo de pago SPEI.",
+      "kycStatusLabel": "Estado KYC",
+      "kycStatusOption": {
+        "none": "Sin KYC",
+        "pending": "Pendiente",
+        "verified": "Verificado",
+        "rejected": "Rechazado"
+      },
+      "saveKyc": "Guardar KYC",
+      "kycSaved": "KYC actualizado.",
+      "noKyc": "Este usuario no tiene perfil KYC.",
+      "orders": "Órdenes",
+      "sellRequests": "Solicitudes de venta",
+      "disputes": "Disputas",
+      "vaultItems": "En bóveda",
+      "addresses": "Direcciones",
+      "block": "Bloquear",
+      "unblock": "Reactivar",
+      "blockQuestion": "¿Bloquear a este usuario? No podrá iniciar sesión.",
+      "unblockQuestion": "¿Reactivar la cuenta de este usuario?"
+    },
+    "m10": {
+      "title": "M10 · Config y bitácora",
+      "dials": {
+        "title": "Diales de configuración",
+        "subtitle": "Se editan sin redeploy. Solo se guardan las claves modificadas.",
+        "save": "Guardar {count} cambio(s)",
+        "saved": "Configuración guardada.",
+        "labels": {
+          "shippingFeeCents": "Tarifa de envío",
+          "salesMarkupPct": "Markup de venta",
+          "aportacionPct": "% aportación en especie",
+          "ivaPct": "IVA",
+          "buylistCapPerRequestCents": "Tope buylist por solicitud",
+          "buylistCapPerMonthCents": "Tope buylist mensual",
+          "ineThresholdCents": "Umbral de INE",
+          "repoCapPerCardCents": "Tope de reposición por carta",
+          "fxBufferPct": "Colchón FX",
+          "stripeFeePct": "Comisión Stripe",
+          "stripeFeeFixedCents": "Comisión Stripe fija",
+          "stripeFeeIvaPct": "IVA sobre comisión Stripe",
+          "pricingProviderRaw": "Proveedor de precio (raw)",
+          "pricingProviderGraded": "Proveedor de precio (graded)",
+          "pricingProviderSealed": "Proveedor de precio (sellado)",
+          "catalogSyncFromDate": "Frontera de sync de catálogo"
+        },
+        "units": {
+          "cents": "en pesos MXN",
+          "pct": "porcentaje (%)",
+          "fraction": "fracción [0,1)",
+          "int": "número entero",
+          "text": "texto"
+        }
+      },
+      "audit": {
+        "title": "Bitácora de auditoría",
+        "subtitle": "Quién hizo qué y cuándo. Toda acción de back-office queda registrada.",
+        "date": "Fecha",
+        "actor": "Actor",
+        "action": "Acción",
+        "entity": "Entidad",
+        "filterAction": "Filtrar por acción",
+        "pageInfo": "Página {page} de {totalPages} · {total} registros",
+        "prev": "Anterior",
+        "next": "Siguiente"
+      }
+    },
+    "m7": {
+      "title": "M7 · Finanzas",
+      "range": {
+        "title": "Rango de fechas",
+        "subtitle": "Aplica al P&L y al IVA cobrado. Sin rango se usa todo el histórico.",
+        "from": "Desde",
+        "to": "Hasta",
+        "clear": "Limpiar rango"
+      },
+      "pnl": {
+        "title": "Estado de resultados (P&L)",
+        "formula": "Ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia.",
+        "income": "Ingresos (ventas)",
+        "shipping": "Envíos cobrados",
+        "cogs": "Costo de lo vendido",
+        "stripeFees": "Comisiones Stripe",
+        "profit": "Ganancia del periodo"
+      },
+      "values": {
+        "title": "Valor de inventario y custodia",
+        "inventoryAtReference": "Inventario (a referencia)",
+        "inventoryAtCost": "A costo",
+        "pendingPrice": "{count} sin precio",
+        "custody": "Valor en custodia de clientes",
+        "custodyNote": "Cartas de clientes en la bóveda, a valor de mercado."
+      },
+      "iva": {
+        "title": "IVA cobrado",
+        "subtitle": "Registrado para conciliación/CFDI (sin timbrado con PAC en el MVP).",
+        "collected": "IVA acumulado",
+        "note": "Total de IVA en el rango seleccionado.",
+        "order": "Orden",
+        "amount": "IVA",
+        "date": "Liquidada",
+        "empty": "No hay IVA registrado en este rango."
+      },
+      "export": {
+        "pnl": "Exportar P&L (CSV)",
+        "iva": "Exportar IVA (CSV)",
+        "inventory": "Exportar inventario (CSV)"
+      }
+    },
+    "m9": {
+      "title": "M9 · Reportes",
+      "range": {
+        "title": "Rango de fechas",
+        "subtitle": "Cada métrica respeta el rango por su fecha de realización.",
+        "from": "Desde",
+        "to": "Hasta",
+        "clear": "Limpiar rango"
+      },
+      "metrics": {
+        "title": "Métricas de lanzamiento",
+        "subtitle": "Avance de la beta cerrada frente a las metas N/X/Y/Z.",
+        "users": "Usuarios activos",
+        "salesSettled": "Ventas liquidadas",
+        "buylistPaid": "Buylist pagadas",
+        "withdrawalsNoDispute": "Retiros sin disputa"
+      },
+      "goalPending": "Meta sin fijar",
+      "goalProgress": "{current} de {target} · {pct}%",
+      "goalsUnset": "Las metas de lanzamiento (N/X/Y/Z) aún no se fijan; se muestran solo los conteos.",
+      "export": {
+        "title": "Exportar",
+        "subtitle": "Descarga los reportes en CSV para análisis externo.",
+        "pnl": "Exportar P&L (CSV)",
+        "iva": "Exportar IVA (CSV)",
+        "inventory": "Exportar inventario (CSV)"
+      }
     }
   },
   "locale": {

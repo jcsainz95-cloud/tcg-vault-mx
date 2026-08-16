@@ -58,8 +58,16 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     const { service } = buildService();
     const res: any = await service.getUser('u1', Role.vault_operator);
 
-    expect(res.kycProfile.clabe).toBe('**************4567');
-    expect(res.kycProfile.clabe).not.toContain('012345678901');
+    expect(res.kycProfile.clabeMasked).toBe('**************4567');
+    expect(res.kycProfile.clabeMasked).not.toContain('012345678901');
+    // Nombres de campo del contrato §M6: enmascarados como *Masked; el campo plano
+    // `clabe` no existe.
+    expect(res.kycProfile.clabe).toBeUndefined();
+    // Topes con el nombre del contrato (no *Override).
+    expect(res.kycProfile).toHaveProperty('capPerRequestCents');
+    expect(res.kycProfile).toHaveProperty('capPerMonthCents');
+    expect(res.kycProfile.capPerRequestCentsOverride).toBeUndefined();
+    expect(res.kycProfile.capPerMonthCentsOverride).toBeUndefined();
     // Nunca la CLABE cifrada ni el blind index.
     expect(res.kycProfile.clabeEnc).toBeUndefined();
     expect(res.kycProfile.clabeHmac).toBeUndefined();
@@ -68,6 +76,7 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     expect(res.kycProfile.ineBackKey).toBeUndefined();
     expect(res.kycProfile.ineOnFile).toBe(true);
     // RFC (KYC y billing) oculto.
+    expect(res.kycProfile.rfcMasked).toBeUndefined();
     expect(res.kycProfile.rfc).toBeUndefined();
     expect(res.billingProfile).toBeNull();
     expect(res.passwordHash).toBeUndefined();
@@ -78,18 +87,22 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     const { service } = buildService();
     const res: any = await service.getUser('u1', Role.super_admin);
 
-    // CLABE/RFC enmascarados: el reveal en claro solo por el endpoint dedicado.
-    expect(res.kycProfile.clabe).toBe('**************4567');
-    expect(res.kycProfile.rfc).toBe(maskRfc(RFC));
-    expect(res.kycProfile.rfc).not.toBe(RFC);
+    // CLABE/RFC enmascarados (nombres del contrato §M6): reveal en claro solo por endpoint dedicado.
+    expect(res.kycProfile.clabeMasked).toBe('**************4567');
+    expect(res.kycProfile.rfcMasked).toBe(maskRfc(RFC));
+    expect(res.kycProfile.rfcMasked).not.toBe(RFC);
+    // Los nombres planos `clabe`/`rfc` no existen en el DTO.
+    expect(res.kycProfile.clabe).toBeUndefined();
+    expect(res.kycProfile.rfc).toBeUndefined();
     // El texto cifrado y el blind index no se filtran.
     expect(res.kycProfile.clabeEnc).toBeUndefined();
     expect(res.kycProfile.rfcEnc).toBeUndefined();
     expect(res.kycProfile.clabeHmac).toBeUndefined();
     // INE keys visibles al super_admin (para servir la imagen por presigned GET).
     expect(res.kycProfile.ineFrontKey).toBe('kyc_ine/2026/front.jpg');
-    // Billing con RFC enmascarado, sin rfcEnc crudo.
-    expect(res.billingProfile.rfc).toBe(maskRfc(RFC));
+    // Billing con RFC enmascarado (rfcMasked), sin rfcEnc crudo ni `rfc` plano.
+    expect(res.billingProfile.rfcMasked).toBe(maskRfc(RFC));
+    expect(res.billingProfile.rfc).toBeUndefined();
     expect(res.billingProfile.rfcEnc).toBeUndefined();
     expect(res.passwordHash).toBeUndefined();
     // En ninguna proyección aparece la CLABE en claro.

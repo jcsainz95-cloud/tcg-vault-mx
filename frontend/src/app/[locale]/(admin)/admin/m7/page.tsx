@@ -1,5 +1,10 @@
-import { ModuleTodo } from '@/components/domain/ModuleTodo';
+import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
+import { M7View } from './M7View';
 
 export default function M7Page() {
-  return <ModuleTodo moduleKey="m7" />;
+  return (
+    <SuperAdminOnly>
+      <M7View />
+    </SuperAdminOnly>
+  );
 }

@@ -54,6 +54,24 @@ export class AdminCatalogController {
     return res;
   }
 
+  /**
+   * v1.3 — importa TODO el catálogo (Opción 1 del cotizador). Truly-async: encola en segundo
+   * plano y responde 202 de inmediato (no importa en el request; ver DEV-1). Auditado.
+   */
+  @Post('sync-all')
+  @HttpCode(202)
+  async syncAll(@CurrentUser() user: { id: string; role: Role }) {
+    const res = await this.sync.syncAll();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'catalog.sync_all',
+      entityType: 'CardSet',
+      after: { jobId: res.jobId, setsQueued: res.setsQueued, remaining: res.remaining },
+    });
+    return res;
+  }
+
   @Post('backfill')
   @HttpCode(200)
   async backfill(@Body() dto: BackfillDto, @CurrentUser() user: { id: string; role: Role }) {

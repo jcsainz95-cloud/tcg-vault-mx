@@ -4,6 +4,163 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Fix bloqueante techlead — sincronización del form de KYC en M6 (2026-08-16)
+
+Rechazo de techlead: el subformulario de KYC de la ficha 360° (`M6View.tsx`) no sincronizaba su
+estado con el usuario cargado. `kycStatus` se inicializaba en `'none'` y nunca se sincronizaba al
+llegar `detail.data`; `capRequest`/`capMonth` (`useState('')`) no se reiniciaban al cambiar de
+usuario. Como la mutación `updateUserKyc` **siempre** envía `kycStatus`, abrir un usuario `verified`
+para ajustar un tope y guardar degradaba silenciosamente el KYC a `'none'` (corrupción de datos que
+gobierna topes/INE de dinero saliente); además un borrador tecleado para el usuario A sobrevivía al
+abrir el usuario B.
+
+**Fix (patrón "cae al servidor mientras no esté dirty", como M10):**
+- Se reemplazaron los tres `useState` sueltos por un único **borrador** `kycDraft` que guarda solo
+  las keys que el admin tocó explícitamente.
+- Valores efectivos computados: `kycStatus = kycDraft.kycStatus ?? currentKyc?.kycStatus ?? 'none'`
+  (cae al valor del servidor); `capRequest`/`capMonth` caen a `''` (vacío = no enviar, se mantiene
+  el placeholder con el valor del servidor). Así "Guardar KYC" **nunca** envía un `kycStatus`
+  distinto al cargado salvo que el admin lo cambie a propósito.
+- `useEffect(() => setKycDraft({}), [selectedId])`: el borrador **no cruza** entre usuarios; se
+  reinicia al cambiar de usuario seleccionado. `d`/`currentKyc` se derivan justo tras el query de
+  detalle (se eliminó la computación duplicada de más abajo que llevaba el comentario "Sincroniza…"
+  que no sincronizaba).
+- Los shapes de la ficha 360° (`clabeMasked`/`rfcMasked`/`capPerRequestCents`) se dejaron intactos
+  (correctos según contrato; backend se alinea en paralelo).
+
+**Tests añadidos** (`M6View.test.tsx`): (1) al cambiar de usuario seleccionado el form refleja los
+valores del nuevo usuario y no arrastra el borrador del anterior (Ana `verified` → Bruno `none`,
+tope tecleado se limpia); (2) guardar tras ajustar solo un tope envía `kycStatus:'verified'` (el del
+servidor), nunca `'none'` — se verifica el payload de `updateUserKyc` con `vi.spyOn`.
+
+Gates en verde: lint, typecheck, test (82/82), build. Archivos: `frontend/.../m6/M6View.tsx`,
+`frontend/.../m6/M6View.test.tsx`.
+
+## Back-office M7/M9 + Cotizador Opción 1 (2026-08-16) — consumo de módulos ya-existentes + buscador real
+
+Se reemplazaron los `ModuleTodo` de **M7 (Finanzas)** y **M9 (Reportes)** por vistas reales que consumen
+endpoints **ya implementados** en backend (CONTRATO v1.3 §M7/§M9: "ya existen; falta consumo de frontend"), y
+se reescribió el **cotizador de buylist** para buscar sobre TODO el catálogo (Opción 1, contrato §6 v1.3) en
+vez de usar `mockCards` (esa era la causa de "no sale nada al cotizar" contra el backend real). Solo `frontend/`
+(+ esta nota). **No** se tocó el contrato. Mismo patrón que M2/M6/M10 (TanStack Query + `QueryState`,
+`SuperAdminOnly` para la guarda de rol, `StatCard`/`DataTable`/`Banner`/`Input`/`Button`). Gates en verde:
+`lint` OK, `typecheck` OK, `test` **80** (20 archivos, +11 nuevos, i18n-parity verde), `build` OK
+(m7/m9 prerenderizados es/en).
+
+### Archivos creados/tocados
+- **Tipos** `src/types/contract.ts`: +`PnlDTO`, `InventoryValueDTO`, `CustodyValueDTO`, `IvaByOrderEntryDTO` +
+  `IvaReportDTO` (M7); `LaunchGoalsDTO` + `LaunchMetricsDTO` (M9).
+- **API** `src/lib/api.ts`: +`getPnl`, `getInventoryValue`, `getCustodyValue`, `getIvaReport`,
+  `exportFinanceCsv` (M7), `getLaunchMetrics` (M9), `listBuylistSets` + `searchBuylistCards` (cotizador). Cada
+  una con rama real (`apiRequest`) y rama mock. `exportFinanceCsv` hace `fetch` con Bearer y lee **texto**
+  (no JSON, por eso no usa `apiRequest`); comparte el `exportCsv` de M7/M9 vía `source: 'finance' | 'reports'`.
+- **Util** `src/lib/download.ts` (nuevo): `downloadTextFile(filename, text, mime)` — materializa el CSV como
+  descarga en el navegador (aislado para poder mockearlo en tests sin tocar el DOM).
+- **Fixtures** `src/lib/mock/fixtures.ts`: +`mockPnl` (con la fórmula coherente), `mockInventoryValue`,
+  `mockCustodyValue`, `mockIvaReport`, `mockLaunchMetrics` (con `goals` fijadas de ejemplo), `mockCsv(report)`.
+- **M7** (`/admin/m7`, super_admin): `m7/M7View.tsx` + `m7/page.tsx` (envuelto en `SuperAdminOnly`) +
+  `m7/M7View.test.tsx`. Selector de rango de fechas (aplica a P&L e IVA), **tarjeta de P&L con el desglose de la
+  fórmula** (ingresos + envío − COGS − comisiones Stripe = ganancia, ganancia en verde/rojo según signo), valor
+  de inventario (a referencia + a costo + pendientes), valor en custodia, IVA acumulado + desglose por orden
+  (`DataTable`), y **botones de export CSV** (pnl/iva/inventory).
+- **M9** (`/admin/m9`, super_admin): `m9/M9View.tsx` + `m9/page.tsx` + `m9/M9View.test.tsx`. Selector de rango,
+  **métricas de lanzamiento** (users/salesSettled/buylistPaid/withdrawalsNoDispute como `StatCard`) con progreso
+  vs metas N/X/Y/Z (si `goals` es null muestra solo conteos + banner), y export CSV.
+- **Cotizador** `(storefront)/buylist/BuylistView.tsx`: eliminado el `import { mockCards }`; ahora **filtra por
+  set** (`listBuylistSets`) y **busca por texto** (`searchBuylistCards` sobre TODA la tabla `Card`, no solo
+  bóveda) → lista de resultados seleccionables (`role="listbox"/"option"`) → al elegir carta se cotiza con el
+  `getBuylistQuote({ cardId })` existente. Botón "Cotizar" deshabilitado hasta elegir carta. En modo mock cae a
+  `fx.mockCards` (fixtures); en real usa los endpoints nuevos. Nuevo test `BuylistView.test.tsx` (4 casos) y
+  `e2e/buylist.spec.ts` actualizado al nuevo flujo (buscar → elegir → cotizar).
+
+### Endpoints consumidos
+- M7: `GET /admin/finance/pnl?from=&to=`, `GET /admin/finance/inventory-value`,
+  `GET /admin/finance/custody-value`, `GET /admin/finance/iva?from=&to=`,
+  `GET /admin/finance/export.csv?report=&from=&to=`.
+- M9: `GET /admin/reports/launch-metrics?from=&to=`, `GET /admin/reports/export.csv?report=&from=&to=`.
+- Cotizador: `GET /buylist/sets`, `GET /buylist/cards?setId=&q=&page=` (+ el ya existente `POST /buylist/quote`).
+
+### Supuestos sobre el contrato (para el arquitecto)
+1. **`GET /admin/finance/iva` › `byOrder`** — el contrato lo describe como `byOrder: [...]` sin fijar campos.
+   Asumí `IvaByOrderEntryDTO = { orderId, ivaCents, settledAt? }`. **Solicitud**: confirmar/ajustar el shape.
+2. **`GET /admin/reports/launch-metrics` › `goals`** — el contrato dice `goals: { N, X, Y, Z }` con "`goals` en
+   `null` hasta que el humano fije las metas". Se tipó `goals: LaunchGoalsDTO | null` (goals completo nulo O
+   cada valor nulo, ambos soportados en UI). Confirmar cuál es la forma real.
+3. **`export.csv` (M7/M9)** — se asume auth por Bearer y respuesta **`text/csv`** descargable; el front hace
+   `fetch` directo (no `apiRequest`, que espera JSON) y descarga el blob. `report` default `pnl`. Confirmar el
+   `Content-Type` y si requiere algún header extra.
+4. **`GET /buylist/cards`** — se reutiliza `CardDTO` y `Paginated` tal cual el contrato (`{ data, page,
+   pageSize, total }`, sin `sellable`/precio). El filtro `rarity` está cableado en `searchBuylistCards` pero la
+   UI del cotizador hoy solo expone set + texto (rareza es opcional en el contrato); ampliable sin cambio de API.
+
+Con **mocks** (`NEXT_PUBLIC_USE_MOCKS != false`) todo corre contra fixtures que respetan estos shapes; con
+`useMocks=false` se ejecutan las ramas `apiRequest`/`fetch` contra el backend real.
+
+## Back-office M2 / M6 / M10 (2026-08-16) — consumo de UI de módulos ya-existentes en backend
+
+Se reemplazaron los `ModuleTodo` de **M2 (Catálogo y precios)**, **M6 (Usuarios/KYC)** y **M10 (Config y
+bitácora)** por vistas reales que consumen los endpoints **ya implementados** en backend (ARCHITECTURE/
+CONTRACT v1.3: M2/M6/M10 "ya existen; falta consumo de frontend"). Solo `frontend/` (+ esta nota). **No** se
+tocó el contrato. Se siguió el patrón de M1/M3/M4/M5/M8 (TanStack Query + `QueryState` loading/error, mismos
+componentes UI, `StatusBadge`/`Badge`, `DataTable`, `Modal`, `Banner`). Gates en verde: `lint` OK, `typecheck`
+OK, `test` **71** (17 archivos, +11 nuevos, i18n-parity verde), `build` OK (m2/m6/m10 prerenderizados).
+
+### Archivos por módulo
+- **Comunes**: `src/types/contract.ts` (+DTOs: `FxDTO`, `PendingPriceEntryDTO`, `RarityMapEntryDTO`,
+  `RemoteSetDTO`, `PriceHistoryEntryDTO`, `PricingSyncResponse`, `CatalogSync*Response`, `AdminUserSummaryDTO`,
+  `AdminUserDetailDTO`, `AdminKycProfileDTO`, `AdminBillingProfileDTO`, `SettingsDTO`, `AuditLogDTO`,
+  `FxSource`). `src/lib/api.ts` (+funciones de los 3 módulos, cada una con rama real `apiRequest` y rama mock).
+  `src/lib/mock/fixtures.ts` (+fixtures marcados MOCK). `src/components/domain/SuperAdminOnly.tsx` (nuevo:
+  guarda de UI para M2/M6/M10; el backend ya rechaza por rol, esto es defensa de navegación directa por URL con
+  el patrón `useRole`). `messages/{es,en}.json` (+claves `admin.m2/m6/m10.*` y `admin.superAdminGate*`).
+- **M2** (`/admin/m2`): `m2/M2View.tsx` + `m2/page.tsx` (envuelto en `SuperAdminOnly`) + `m2/M2View.test.tsx`.
+  Secciones: (1) **sync de precios de bóveda** (`POST /admin/pricing/sync`), (2) **cola de precio pendiente**
+  (`GET /admin/pricing/pending`) con **override manual** en modal (`POST /admin/pricing/override`),
+  (3) **FX** (`GET/PUT /admin/fx` + `POST /admin/fx/refresh`) con display de tasa/colchón/fuente/vigencia y
+  edición de override + refresh Banxico, (4) **rareza→categoría** editable (`GET/PUT /admin/pricing/rarity-map`),
+  (5) **sync de catálogo** (`GET /admin/catalog/remote-sets` con imported/cardCount, `POST /admin/catalog/sync`
+  por set, `POST /admin/catalog/backfill`, y `POST /admin/catalog/sync-all` **condicional**: su fallo muestra
+  aviso "no disponible" sin romper — cumple la nota del contrato v1.3). `GET /admin/pricing/card/:id`
+  (historial) queda cableado en `api.ts` (`getPriceHistory`) pero **aún no montado** en UI (deuda menor).
+- **M6** (`/admin/m6`, super_admin): `m6/M6View.tsx` + `m6/page.tsx` + `m6/M6View.test.tsx`. Tabla de usuarios
+  con **búsqueda `q` + filtro `status` + paginación** (`GET /admin/users`) y **ficha 360°** en modal
+  (`GET /admin/users/:id`): identidad, KYC con **CLABE/RFC enmascarados** (nunca en claro), conteos 360°
+  (órdenes/buylist/disputas/bóveda), direcciones, **editar KYC** (`PATCH /admin/users/:id/kyc`) y
+  **bloquear/reactivar** con confirmación (`PATCH /admin/users/:id/status`).
+- **M10** (`/admin/m10`, super_admin): `m10/M10View.tsx` + `m10/page.tsx` + `m10/M10View.test.tsx`. **Editor de
+  diales** (`GET /admin/settings`) que guarda **body PARCIAL** con solo las keys tocadas
+  (`PUT /admin/settings`, NO per-key) — dials money en pesos↔centavos; y **bitácora** paginada con filtro por
+  acción (`GET /admin/audit-log`).
+
+### Endpoints consumidos
+- M2: `POST /admin/pricing/sync`, `GET /admin/pricing/pending`, `POST /admin/pricing/override`,
+  `GET /admin/pricing/card/:id` (cableado, sin UI aún), `GET/PUT /admin/fx`, `POST /admin/fx/refresh`,
+  `GET/PUT /admin/pricing/rarity-map`, `GET /admin/catalog/remote-sets`, `POST /admin/catalog/sync`,
+  `POST /admin/catalog/backfill`, `POST /admin/catalog/sync-all` (condicional).
+- M6: `GET /admin/users`, `GET /admin/users/:id`, `PATCH /admin/users/:id/kyc`, `PATCH /admin/users/:id/status`.
+- M10: `GET/PUT /admin/settings`, `GET /admin/audit-log`.
+
+### Supuestos sobre el contrato (para el arquitecto)
+1. **`GET /admin/pricing/card/:id`** — el contrato dice "historial de precios por fecha/fuente" sin fijar el
+   shape. Asumí `PriceHistoryEntryDTO` = `{ capturedDate, source, gradeKey, productType, priceMxnCents,
+   isManualOverride }`. **Solicitud**: confirmar/ajustar el shape del historial. Aún no se monta en UI.
+2. **`GET /admin/pricing/rarity-map`** — asumí respuesta `{ entries: [{ rarity, category }] }` (espejo del PUT).
+   Confirmar el envelope exacto (`entries` vs `data`).
+3. **`GET /admin/audit-log`** — el contrato muestra respuesta `{ data: AuditLogDTO[] }`; se normaliza a
+   `Paginated` en el front (page/pageSize/total con fallback). Si el backend ya devuelve `total`, se usa; si no,
+   la paginación del front se apoya solo en `data.length`. **Solicitud**: confirmar si expone `total` para
+   paginación fiel.
+4. **`GET /admin/users/:id`** — la ficha 360° (kycProfile/billingProfile/addresses/orders/sellRequests/disputes/
+   ownedItems) se tipó según la nota del contrato §M6; nombres de sub-campos asumidos (p.ej. `clabeMasked`,
+   `rfcMasked`, `ineOnFile`). Ajustar si difieren.
+5. **`POST /admin/catalog/sync-all`** — usado condicionalmente; si el backend responde 404/405 el error se
+   muestra como "no disponible" y el operador usa sync por set / backfill (sin romper).
+
+Con **mocks** (`NEXT_PUBLIC_USE_MOCKS != false`) todo funciona contra fixtures que respetan estos shapes; al
+apuntar al backend real (`useMocks=false`) se ejecutan las ramas `apiRequest`.
+
+---
+
 ## Fixes UI/sesión en vivo (2026-08-16) — header de sesión, nav "Sell" y banner de login
 
 Tres arreglos reportados por el humano probando la app en producción (backend real, mocks off). Solo

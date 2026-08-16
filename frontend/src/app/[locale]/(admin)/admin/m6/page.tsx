@@ -1,5 +1,10 @@
-import { ModuleTodo } from '@/components/domain/ModuleTodo';
+import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
+import { M6View } from './M6View';
 
 export default function M6Page() {
-  return <ModuleTodo moduleKey="m6" />;
+  return (
+    <SuperAdminOnly>
+      <M6View />
+    </SuperAdminOnly>
+  );
 }

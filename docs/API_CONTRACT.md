@@ -27,6 +27,21 @@
 > `GET /catalog/facets` (facetas dinámicas) y `GET /catalog/sets` con `year`; sellado como línea de venta
 > (`sealedSubtype`, precio manual MXN); `POST /auth/google`; `GET /vault/portfolio/history`; endpoints admin
 > de **sync de catálogo** (M2); AcquisitionPricer con rarezas modernas. Ver ARCHITECTURE §11 (migraciones).
+>
+> **Changelog v1.3 (2026-08-16) — Cotizador Opción 1 + confirmación de módulos de back-office:**
+> - **Cotizador sobre TODO el catálogo (NUEVO, backend):** `GET /buylist/cards` (búsqueda pública sobre la
+>   tabla `Card` completa, no solo el inventario de "Compra") y `GET /buylist/sets` (sets con cartas
+>   importadas). Resuelven que el cotizador pueda elegir **cualquier** carta, no solo lo comprable en bóveda.
+>   Ver §6.
+> - **Sync de TODO el catálogo (NUEVO, backend):** `POST /admin/catalog/sync-all` (encola en background la
+>   importación de **todos** los sets remotos, truly-async). El `sync`/`backfill` existentes ya permiten
+>   cubrir todo el catálogo (backfill repetible hasta `remaining=0`), pero `sync-all` lo hace explícito y
+>   seguro contra timeouts. Ver §M2.
+> - **Confirmación (SIN cambios de contrato):** M2 (pricing/catalog), M6 (users/KYC), M7 (finance/P&L),
+>   M9 (reports/export) y M10 (settings/audit-log) **ya están especificados aquí y ya existen implementados en
+>   backend**. Lo pendiente para esos módulos es **consumo de frontend** (los `ModuleTodo` son stubs de UI),
+>   no backend nuevo. La **edición de diales** de M10 es `PUT /admin/settings` (body parcial de keys); **no**
+>   se añade `PATCH /admin/settings/:key`. Ver §M7, §M9, §M10 y "Desviaciones" en ARCHITECTURE §9.
 
 ## 0. Convenciones generales
 
@@ -298,6 +313,39 @@ Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), `422 ADDRESS_NOT_MX
 
 ## 6. Buylist (cotizador público + solicitudes)
 
+### Cotizador — búsqueda de cartas sobre TODO el catálogo (v1.3 — NUEVO, backend)
+
+El cotizador debe permitir elegir **cualquier** carta de la tabla `Card` (todo el catálogo importado), **no**
+solo el inventario comprable de "Compra". Por eso estas rutas son **distintas** de `/catalog/*` (que está
+acotado a inventario publicado con precio, ARCHITECTURE §4.9). El resultado alimenta a `POST /buylist/quote`
+(que recibe `cardId`).
+
+#### GET /api/v1/buylist/cards — `public`  (v1.3)
+Búsqueda paginada sobre **toda** la tabla `Card` para el picker del cotizador. **No** filtra por inventario ni
+por precio (una carta que no tenemos en bóveda también se puede vender). La **condición de compra es siempre
+NM** (no hay filtro de condición).
+Query: `?setId=&q=&rarity=&page=&pageSize=`
+- `setId` (recomendado): acota a un set concreto (`Card.setId`).
+- `q` (texto): coincide con **nombre** (`contains`, case-insensitive) y/o **número** de carta.
+- `rarity` (opcional): valor **tal cual pokemontcg.io** (taxonomía abierta; usar `GET /buylist/sets` +
+  facetas del front). Lista NO cerrada.
+- Paginación estándar `{ page, pageSize }`; `pageSize` con tope de servidor (≤100).
+Res `200`: `{ data: CardDTO[], page, pageSize, total }`
+- Se reutiliza **`CardDTO`** (ya trae `id, name, number, rarity, setId, setName, imageSmallUrl,
+  imageLargeUrl` — cumple id/nombre/set/rareza/imagen/número). **No** hay `sellable`/`salePriceCents` (no es
+  Compra); no hay precio en este DTO.
+Err: `400 VALIDATION_ERROR` (paginación inválida).
+Nota: para **cotizar** una carta encontrada, el front llama `POST /buylist/quote` con su `cardId`. Si la carta
+es `ex_plus` y **no tiene precio de referencia** (típico en cartas fuera de bóveda), la cotización sale
+`precio_pendiente` y escala a la cola del dueño al crear la solicitud (§13, criterio 13). Ver **Pregunta
+abierta 1** (pricing on-demand del cotizador) en ARCHITECTURE §10.
+
+#### GET /api/v1/buylist/sets — `public`  (v1.3)
+Sets que tienen **cartas importadas** (para poblar el dropdown de set del cotizador). A diferencia de
+`GET /catalog/sets` (solo sets con inventario publicado), aquí aparecen **todos** los sets del catálogo.
+Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de
+`releaseDate`; ordenados por año **desc**).
+
 ### POST /api/v1/buylist/quote — `public`
 Cotizador público (stateless). Muestra el mensaje de "pago tras recepción y verificación" (copy en frontend).
 Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition }`
@@ -421,13 +469,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - Ubicaciones: `GET /api/v1/admin/locations`, `POST /api/v1/admin/locations` (`{ zone, box, row, slot }`).
 
 ### M2 — Catálogo y precios (`super_admin`)
+> **Estado v1.3: YA EXISTE en backend** (`PricingController`, `FxController`, `AdminCatalogController`). No requiere backend nuevo para el flujo M2 existente (sync de precios de bóveda, override, FX, rareza→categoría, sync de catálogo por fecha/backfill); falta **consumo de frontend** (M2 es `ModuleTodo` en UI). Lo **único NUEVO** de backend en M2 es `POST /admin/catalog/sync-all` (abajo), para la Opción 1 del cotizador.
 - `POST /api/v1/admin/pricing/sync` — dispara/encola el sync diario (solo bóveda). Req `{ scope?: "all_vault" | "cardIds" , cardIds?: [] }` → `{ jobId, queued: number }`.
 - `GET /api/v1/admin/pricing/pending` — cola de precio pendiente. `{ data: PendingPriceEntry[] }`.
 - `POST /api/v1/admin/pricing/override` — override manual (respaldo siempre disponible).
   Req: `{ cardId, productType, gradeKey, priceMxnCents }` → crea `PriceReference` `source=manual`, resuelve `PendingPriceEntry`.
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
 - FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate, bufferPct }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
-- Tabla rareza→categoría: `GET /api/v1/admin/pricing/rarity-map`, `PUT /api/v1/admin/pricing/rarity-map` — Req `{ entries: [{ rarity, category }] }`.
+- Tabla rareza→categoría: `GET /api/v1/admin/pricing/rarity-map`, `PUT /api/v1/admin/pricing/rarity-map` — Req `{ entries: [{ rarity, category }] }`. **Res `200` del `GET` usa el mismo envelope que el body del `PUT`:** `{ entries: [{ rarity: string, category: string }, ...] }` (**no** un `Record<string,string>` plano). El backend debe alinear la respuesta del `GET` a este envelope.
 
 #### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
 Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
@@ -441,6 +490,10 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
 - `POST /api/v1/admin/catalog/backfill` — importa el **siguiente lote de sets más antiguos aún no importados** (colecciones previas a la frontera). Repetible.
   Req: `{ batchSize?: number = 10, untilYear?: number }`.
   Res `200`: `{ imported: [{ id, name, releaseDate, cardCount }], newBoundary: string, remaining: number }`. `newBoundary` = `releaseDate` del set más antiguo ya importado tras el lote; `remaining` = sets aún sin importar. Se repite hasta `remaining=0` (o hasta `untilYear`).
+- `POST /api/v1/admin/catalog/sync-all` — **(v1.3, NUEVO)** importa **TODO el catálogo** (todos los sets remotos, sin frontera de fecha) — soporte de la **Opción 1** del cotizador (poder cotizar cualquier carta). **Truly-async**: encola los sets en la cola BullMQ y **retorna de inmediato** (no importa en el request, a diferencia del `sync` from-date actual — ver Desviación DEV-1 en ARCHITECTURE §9).
+  Req: `{ }` (sin body; ignora `catalog_sync_from_date`).
+  Res `202`: `{ jobId: string, setsQueued: number, remaining: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar). Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`).
+  > **Alternativa sin endpoint nuevo:** el mismo resultado se logra con `POST /admin/catalog/sync` pasando un `fromReleaseDate` muy antiguo (p. ej. `"1998/01/01"`) **más** `POST /admin/catalog/backfill` repetido hasta `remaining=0`. `sync-all` existe para hacerlo explícito y **seguro contra timeouts** en catálogos grandes. Backend decide si `sync-all` es un wrapper que encola lo mismo que `backfill` en lote completo.
 Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
 
 ### M3 — Ventas / órdenes (`vault_operator` lectura; `super_admin` reembolso)
@@ -467,16 +520,18 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. Err `403 MONEY_OUT_FORBIDDEN`. Precondición: `aprobada` + verificada (pago **tras** recepción/verificación).
 
 ### M6 — Usuarios / KYC (`super_admin`; `vault_operator` lectura limitada)
+> **Estado v1.3: YA EXISTE en backend** (`AdminUsersController` + `AdminService.listUsers/getUser/updateUserKyc/updateUserStatus`). No requiere backend nuevo; falta **consumo de frontend** (M6 es `ModuleTodo` en UI). Shapes confirmados contra el código: el **listado** es paginado `{ data, page, pageSize, total }` con `data: { id, email, name, role, status, createdAt }[]` y filtros `q` (email/name) + `status`; la **ficha 360°** (`GET /admin/users/:id`) incluye `kycProfile` (CLABE/RFC **enmascarados** incluso para `super_admin`; `ineOnFile: boolean`), `billingProfile` (RFC enmascarado; `null` para `vault_operator`), `addresses`, `orders` (últimas 20), `sellRequests` (20), `disputes` (20) y `ownedItems` (bóveda). El `vault_operator` recibe **proyección reducida** (sin RFC/INE/billing).
 - `GET /api/v1/admin/users` — `?q=&status=&page=`
 - `GET /api/v1/admin/users/:id` — **ficha 360°** (compras, bóveda, buylist, disputas, KYC). La CLABE y el RFC se devuelven **enmascarados también para `super_admin`** (`clabeMasked` = `****1234`, `rfcMasked` = parcial); la CLABE en claro solo por `reveal-clabe`. Para `vault_operator` se mantiene la proyección reducida de SEC-A4 (sin CLABE/RFC/INE keys ni billing profile; `ineOnFile` booleano).
 - `PATCH /api/v1/admin/users/:id/kyc` — **`super_admin`** — Req `{ kycStatus, capPerRequestCents?, capPerMonthCents? }`.
 - `PATCH /api/v1/admin/users/:id/status` — **`super_admin`** — Req `{ status: "active" | "blocked" }`.
 
 ### M7 — Finanzas (`super_admin`)
-- `GET /api/v1/admin/finance/pnl` — `?from=&to=` → `{ incomeCents, shippingCents, cogsCents, stripeFeesCents, profitCents }` (ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia).
+> **Estado v1.3: YA EXISTE en backend** (`AdminFinanceController` + `AdminService.pnl/inventoryValue/custodyValue/ivaReport/exportCsv`). No requiere backend nuevo; falta **consumo de frontend** (M7 es `ModuleTodo` en UI). El P&L de PROJECT §M7 (criterio 21) está cubierto por el DTO de `pnl` + `inventory-value` + `custody-value` + `iva`.
+- `GET /api/v1/admin/finance/pnl` — `?from=&to=` → `{ incomeCents, shippingCents, cogsCents, stripeFeesCents, profitCents }` (ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia). Nota de implementación (para el front): `incomeCents` = suma de `Order.subtotalCents` de órdenes `settled` en el rango (por `settledAt`); `shippingCents` = `ShipmentRequest.shippingFeeCents` de envíos liquidados en el rango (por `pickingAt`); `stripeFeesCents` = `processingFeeCents` de órdenes **y** envíos; `cogsCents` = `acquisitionCostCents` de los items vendidos.
 - `GET /api/v1/admin/finance/inventory-value` → `{ atReferenceCents, atCostCents, pendingPriceCount }`.
 - `GET /api/v1/admin/finance/custody-value` → `{ totalCustodyValueCents }` (valor en custodia de clientes).
-- `GET /api/v1/admin/finance/iva` — `?from=&to=` → `{ ivaCollectedCents, byOrder: [...] }` (para conciliación/CFDI).
+- `GET /api/v1/admin/finance/iva` — `?from=&to=` → `{ ivaCollectedCents, byOrder: [{ orderId: string, ivaCents: number, settledAt: string, status: string }, ...] }` (para conciliación/CFDI). El identificador de orden en cada item se llama **`orderId`** (no `id`).
 - `GET /api/v1/admin/finance/export.csv` — `?report=pnl|iva|inventory&from=&to=` → CSV.
 
 ### M8 — Disputas (`vault_operator+`; recompra `super_admin`)
@@ -485,10 +540,12 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
 
 ### M9 — Reportes (`super_admin`)
-- `GET /api/v1/admin/reports/launch-metrics` — `?from=&to=` → métricas de lanzamiento (usuarios activos, ventas settled, buylist pagadas, retiros sin disputa) vs metas N/X/Y/Z (cuando el humano las fije).
-- `GET /api/v1/admin/reports/export.csv` — `?report=&from=&to=`.
+> **Estado v1.3: YA EXISTE en backend** (`AdminReportsController` + `AdminService.launchMetrics/exportCsv`). No requiere backend nuevo; falta **consumo de frontend** (M9 es `ModuleTodo` en UI).
+- `GET /api/v1/admin/reports/launch-metrics` — `?from=&to=` → métricas de lanzamiento vs metas N/X/Y/Z. Shape real: `{ users, salesSettled, buylistPaid, withdrawalsNoDispute, goals: { N, X, Y, Z } | null }`. Cuando **no hay metas fijadas**, `goals` debe ser **`null`** (el objeto completo), **no** un objeto con campos nulos como `{ N: null, X: null, Y: null, Z: null }`. Solo cuando el humano fija las metas, `goals` pasa a ser el objeto `{ N, X, Y, Z }`. Cada métrica respeta el rango por su fecha de realización (alta de usuario / `settledAt` / `paidAt` / `deliveredAt`).
+- `GET /api/v1/admin/reports/export.csv` — `?report=pnl|iva|inventory&from=&to=` → CSV (comparte el `exportCsv` de M7; `report` default `pnl`).
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
+> **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
 - `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, stripeFeeIvaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, catalogSyncFromDate }`. `stripeFeeIvaPct` (fracción `[0,1)`, default **0.16**) = IVA que Stripe MX cobra **sobre su comisión**; entra en el gross-up del fee (ver ARCHITECTURE §5.1). `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`).
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.

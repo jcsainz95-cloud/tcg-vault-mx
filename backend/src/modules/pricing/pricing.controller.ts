@@ -82,9 +82,17 @@ export class PricingController {
     return this.pricing.priceHistory(cardId);
   }
 
+  /**
+   * API_CONTRACT §M2: el GET usa el MISMO envelope que el body del PUT,
+   * `{ entries: [{ rarity, category }, ...] }` — NO un `Record<string,string>` plano.
+   * Internamente la config se persiste como mapa; aquí se proyecta a `entries`.
+   */
   @Get('rarity-map')
   async getRarityMap() {
-    return this.settings.getRaw(SettingKey.RARITY_MAP);
+    const raw = (await this.settings.getRaw(SettingKey.RARITY_MAP)) as Record<string, string> | null;
+    const map = raw ?? {};
+    const entries = Object.entries(map).map(([rarity, category]) => ({ rarity, category }));
+    return { entries };
   }
 
   @Put('rarity-map')
@@ -97,7 +105,8 @@ export class PricingController {
       update: { valueJson: map, updatedBy: userId },
     });
     await this.audit.log({ actorUserId: userId, action: 'pricing.rarity_map.update' });
-    return map;
+    const entries = Object.entries(map).map(([rarity, category]) => ({ rarity, category }));
+    return { entries };
   }
 }
 

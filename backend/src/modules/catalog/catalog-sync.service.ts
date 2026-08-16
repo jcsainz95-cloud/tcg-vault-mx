@@ -111,6 +111,70 @@ export class CatalogSyncService {
     return { imported, newBoundary, remaining };
   }
 
+  /**
+   * Single-flight: evita lanzar dos barridos de `sync-all` en paralelo (duplicaría la carga
+   * contra pokemontcg.io y el consumo de rate-limit). Vive en memoria del proceso.
+   */
+  private syncAllRunning = false;
+
+  /**
+   * POST /admin/catalog/sync-all (v1.3, NUEVO) — importa TODO el catálogo (todos los sets
+   * remotos, sin frontera de fecha) para la Opción 1 del cotizador. API_CONTRACT §M2.
+   *
+   * **NO bloqueante (resuelve DEV-1):** calcula los sets pendientes con UNA llamada rápida a
+   * `/sets`, lanza el barrido en **segundo plano** (fire-and-forget) y retorna `202` de
+   * inmediato — a diferencia del `sync` from-date, que importa síncrono en el request y da
+   * timeout con catálogos grandes.
+   *
+   * **Resumible + idempotente:** los sets ya importados (con cartas) se saltan; los que se
+   * (re)importan usan upsert por `externalId` (no duplican). Re-llamar `sync-all` reanuda los
+   * pendientes que quedaran de un barrido interrumpido.
+   *
+   * **Límite conocido (sin BullMQ cableado para catálogo, ver BACKEND_NOTES / DEV-1):** el
+   * barrido corre en memoria del proceso; si el proceso se reinicia a mitad, los sets no
+   * importados quedan pendientes y se reanudan re-llamando `sync-all`. No hay progreso
+   * persistido ni reintentos con backoff de cola (eso llega al cablear BullMQ).
+   */
+  async syncAll(): Promise<{ jobId: string; setsQueued: number; remaining: number }> {
+    const remote = await this.client.getSets();
+    const local = await this.prisma.cardSet.findMany({
+      select: { externalId: true, _count: { select: { cards: true } } },
+    });
+    // "Importado" = set local con al menos una carta (evita reprocesar sets ya poblados).
+    const importedWithCards = new Set(
+      local.filter((s) => s._count.cards > 0).map((s) => s.externalId),
+    );
+    const pending = remote.filter((s) => !importedWithCards.has(s.id));
+    const jobId = `catalog-sync-all-${Date.now()}`;
+
+    if (this.syncAllRunning) {
+      // Ya hay un barrido en curso → no lanzamos otro; reportamos lo que falta.
+      return { jobId, setsQueued: 0, remaining: pending.length };
+    }
+
+    this.syncAllRunning = true;
+    const batch = [...pending];
+    // Fire-and-forget: el request NO espera a que se importen todos los sets.
+    void this.runSyncAll(batch).finally(() => {
+      this.syncAllRunning = false;
+    });
+    // `setsQueued` = sets encolados en esta llamada; `remaining` = sets aún sin importar que
+    // NO se encolaron (0: encolamos todos los pendientes).
+    return { jobId, setsQueued: batch.length, remaining: 0 };
+  }
+
+  /** Barrido en segundo plano de `sync-all`: importa cada set secuencialmente (rate-limit). */
+  async runSyncAll(sets: RemoteCardSet[]): Promise<void> {
+    for (const s of sets) {
+      try {
+        await this.importSet(s);
+      } catch (e) {
+        this.logger.warn(`sync-all: set ${s.id} falló: ${(e as Error).message}`);
+      }
+    }
+    this.logger.log(`sync-all: barrido de ${sets.length} sets completado.`);
+  }
+
   // ---------------- helpers ----------------
 
   /** Importa un set del que ya tenemos metadata remota (from_date/backfill). */

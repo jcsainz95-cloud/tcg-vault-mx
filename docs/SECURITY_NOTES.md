@@ -248,3 +248,98 @@ para DAST, bucket INE privado + límite de tamaño, `APP_BASE_URL`/secret manage
 residuo S-B3 (`contentLength` obligatorio), (opc.) S-B1; **arquitecto/backend** → S-B2 (`BigInt`).
 Nada vuelve a backend como bloqueante: los tres hallazgos que le tocaban (S-M2, S-B3, S-B4) están
 **cerrados y verificados**.
+
+---
+
+# ANEXO rev v1.4 (2026-08-16) — Bloque nuevo: cotizador público + sync-all + admin M2/M6/M7/M9/M10
+
+> **Alcance:** 3 endpoints backend nuevos (`GET /buylist/cards`, `GET /buylist/sets`,
+> `POST /admin/catalog/sync-all`) + vistas admin de frontend (M2/M6/M7/M9/M10 y cotizador).
+> **Modo:** revisión **estática** de código + `npm audit --omit=dev` + lectura de tests
+> (`test/buylist-catalog.spec.ts`). Sin stack vivo → DAST sigue **pendiente** (§6).
+
+## A.0 Resumen del bloque
+
+El bloque nuevo llegó **endurecido**. Los tres endpoints backend tienen authz/throttle/auditoría
+correctos y **no filtran datos sensibles**; las vistas admin son **defensa en profundidad** sobre un
+backend que sigue siendo la autoridad. **0 Críticos / 0 Altos.** No hay hallazgos nuevos que
+bloqueen. `npm audit` **sin cambios** (2 moderate, mismo aviso SSE no alcanzable).
+
+## A.1 `GET /buylist/cards` y `GET /buylist/sets` (públicos) — **OK · [Verificado en código + tests]**
+- **Anti-scraping:** `buylist-catalog.controller.ts:21,41` — `@Throttle({ ttl:60s, limit:60 })`,
+  más estricto que el global de 300/min. `@Public()` (sin sesión, por diseño del cotizador).
+- **Sin fuga de datos sensibles:** `searchAllCards`/`listSetsWithImportedCards`
+  (`catalog.service.ts:241-293`) proyectan **solo catálogo público** vía `toCardDTO` (id,
+  externalId, name, number, rarity, supertype, subtypes, setId/Name, imágenes) y set
+  (id/name/series/releaseDate/year). **No** tocan `InventoryItem`, precios internos, costo, ni PII
+  (test `buylist-catalog.spec.ts` afirma `inventoryItem.findMany` **no** se llama y que el DTO
+  **no** trae `sellable`/`salePriceCents`). CardDTO ya era superficie pública en "Compra".
+- **Validación de query / DoS:** `pageSize` acotado a `Math.min(100, …)` y `page` a `Math.max(1,…)`
+  con `parseInt` tolerante (`controller.ts:34-36`). `setId`/`rarity`/`q` entran como filtros
+  **parametrizados** de Prisma (`where.setId`, `where.rarity`, `contains … mode:'insensitive'`) →
+  **sin SQLi**. Residuo trivial: `q` sin longitud máxima (ILIKE `%q%`); impacto nulo dado el tope de
+  página + throttle. No es hallazgo.
+
+## A.2 `POST /admin/catalog/sync-all` — **OK · [Verificado en código]**
+- **Authz:** `AdminCatalogController` es `@Roles(Role.super_admin)` a nivel de clase; sin `@Public`,
+  así que `JwtAuthGuard`→`RolesGuard` (globales, `app.module.ts:60-62`) exigen sesión y rol
+  super_admin (rol tomado del JWT, nunca del cuerpo). `RolesGuard` niega con 403 FORBIDDEN.
+- **Auditoría:** `admin-catalog.controller.ts:64-72` registra `catalog.sync_all` con `actorUserId`,
+  `actorRole` y `{jobId,setsQueued,remaining}`.
+- **Anti-abuso (single-flight):** `catalog-sync.service.ts:118,150-160` — flag `syncAllRunning`
+  evita barridos paralelos; retorna 202 de inmediato (fire-and-forget). Upsert idempotente por
+  `externalId` → re-llamar reanuda sin duplicar.
+- **Sin SSRF/inyección:** el barrido itera sets **remotos** (`s.id` de pokemontcg.io, no del
+  usuario); `getCardsBySet` usa `encodeURIComponent(\`set.id:${setId}\`)` + **host fijo**
+  `https://api.pokemontcg.io/v2` (`pokemontcg-io.client.ts:47,72`). `sync-all` no acepta ningún
+  parámetro del cliente. `sync`/`backfill` conservan `SET_ID_PATTERN`/`DATE_PATTERN`.
+- **Nota multi-instancia (no bloqueante):** `syncAllRunning` y el throttler son **in-memory por
+  proceso**. En despliegue multi-instancia, el single-flight y el rate-limit solo protegen por
+  instancia (dos réplicas podrían disparar un barrido cada una). Los upserts idempotentes evitan
+  corrupción; solo se duplica carga hacia pokemontcg.io. **Rol dueño: devops** (store compartido
+  Redis para throttler + coordinación de jobs al escalar; ya anotado en `app.module.ts:34-35`).
+
+## A.3 M6 Usuarios (frontend) — enmascarado PII + guardas — **OK · [Verificado en código]**
+- **PII enmascarada:** `M6View.tsx:231-233` renderiza **solo** `currentKyc.clabeMasked` /
+  `rfcMasked` (y `ineOnFile` booleano). El tipo `contract.ts:544-556` **no** define CLABE/RFC en
+  claro → el frontend no tiene forma de exponer PII completa; el backend enmascara por defecto incl.
+  super_admin (verificado §2, sin regresión). No hay INE keys ni datos KYC crudos en el DTO.
+- **Guarda de rol:** `m6/page.tsx` envuelve `M6View` en `SuperAdminOnly`. La vista (y sus `useQuery`)
+  **solo monta** si `isSuperAdmin` → no hay fetch prematuro de la ficha 360°.
+- **Observación (no seguridad, para frontend/product):** el contrato permite a `vault_operator` ver
+  M6 con **proyección reducida** (backend `AdminUsersController` = `@Roles(vault_operator,
+  super_admin)`), pero la UI lo **bloquea por completo** con `SuperAdminOnly`. Es **más estricto**
+  que el backend (safe: nunca expone de más), pero divergencia funcional respecto al contrato §M6.
+  No es hueco de seguridad; se anota para que frontend/product decidan si operador debe ver la
+  proyección reducida en UI.
+
+## A.4 M7 Finanzas / M9 Reportes / M10 Config (frontend) — solo super_admin — **OK**
+- `m7|m9|m10/page.tsx` envuelven la vista en `SuperAdminOnly`; la vista (con sus `useQuery`) solo
+  monta para super_admin → sin fetch de finanzas/config para roles no autorizados. Backend autoridad:
+  `AdminFinanceController`/`AdminReportsController` = `@Roles(super_admin)`
+  (`admin.controller.ts:97,137`). `SuperAdminOnly` es **defensa de UI** (comentario propio lo
+  reconoce), no sustituye al backend.
+- **Export CSV (M7/M9):** `admin.service.exportCsv` (`admin.service.ts:233-246`) emite **solo
+  valores numéricos (cents), IDs (CUID) y enums de estado** — **sin campos de texto libre
+  controlados por el usuario** (no nombres de carta/usuario) → **sin vector de CSV formula
+  injection**. Endpoints super_admin. `Content-Disposition: attachment`. OK.
+
+## A.5 `npm audit --omit=dev` (backend) — **SIN CAMBIO**
+- Esta sesión (2026-08-16): **2 moderate, 0 high, 0 critical** — el mismo aviso `@nestjs/core` /
+  `@nestjs/platform-express` (GHSA-36xv-jgw5-4q75 / CVE-2026-35515, SSE injection). `git grep`
+  de `@Sse|SseStream|MessageEvent|text/event-stream` en `backend/src` → **0 coincidencias**: el
+  backend **no expone SSE**, aviso **no alcanzable**. Estado idéntico a v1.3 (S-M1, aceptado con
+  disparador). El bloque nuevo **no** agregó dependencias con avisos.
+
+## A.6 VEREDICTO del bloque nuevo
+
+**Revisión de código estático (bloque cotizador + sync-all + admin M2/M6/M7/M9/M10): APROBADO.**
+- 0 Críticos / 0 Altos. Endpoints públicos con throttle propio y **sin fuga** de inventario/precio/
+  PII; `sync-all` super_admin + auditado + single-flight + sin SSRF; vistas admin gatadas
+  (defensa en profundidad) con backend como autoridad; PII sigue enmascarada; `npm audit` sin cambio.
+- **No hay hallazgos nuevos bloqueantes.** Deuda previa **sin cambio** (S-M1 aceptada; S-B1/S-B2 y
+  residuo S-B3 aceptados con disparador, §5). Nota multi-instancia (A.2) → **devops** al escalar.
+- **PENDIENTE, no aprobado a ciegas:** la **fase dinámica (DAST/pentester contra staging)** sigue
+  bloqueada por infra (R2/Railway sin configurar). Requisito previo a producción (§6). En cuanto haya
+  staging, ejecutar CORS cross-origin real, abuso de throttle del cotizador (scraping),
+  concurrencia de `sync-all` multi-instancia y ZAP/nuclei.
