@@ -39,32 +39,56 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: returntocorp/semgrep:latest
+    env:
+      # Lista de configs compartida por el informe completo y el gate, para que
+      # NO haya drift entre ambos. (No se llama SEMGREP_RULES a propósito: ese
+      # nombre lo interpreta semgrep como config implícita.)
+      SG_CONFIGS: >-
+        --config=security/semgrep.yml
+        --config=p/default
+        --config=p/typescript
+        --config=p/javascript
+        --config=p/nodejs
+        --config=p/react
+        --config=p/owasp-top-ten
+        --config=p/secrets
+        --config=p/jwt
     steps:
       - uses: actions/checkout@v4
-      - name: Semgrep (registry + reglas locales)
+      # -----------------------------------------------------------------------
+      # (1) Informe COMPLETO (todas las severidades) -> SARIF a la pestaña
+      #     Security. NO bloquea: es VISIBILIDAD. El gate real es el paso (2).
+      #     Las WARNING (heurísticas medias locales: recordatorios money-out,
+      #     no-secret-in-logs) se ven aquí sin romper el pipeline.
+      # -----------------------------------------------------------------------
+      - name: Semgrep — informe completo (SARIF, no bloquea)
         run: |
-          semgrep \
-            --config=security/semgrep.yml \
-            --config=p/default \
-            --config=p/typescript \
-            --config=p/javascript \
-            --config=p/nodejs \
-            --config=p/react \
-            --config=p/owasp-top-ten \
-            --config=p/secrets \
-            --config=p/jwt \
-            --error --metrics=off --disable-version-check \
+          semgrep $SG_CONFIGS \
+            --metrics=off --disable-version-check \
             --exclude=node_modules --exclude=.next --exclude=dist --exclude=coverage \
             --sarif --output=semgrep.sarif \
-            backend/ frontend/ || SEMGREP_EXIT=$?
-          # Emite SARIF aunque falle; el exit lo controla el paso siguiente.
-          exit ${SEMGREP_EXIT:-0}
+            backend/ frontend/ || true
       - name: Subir SARIF de Semgrep
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
         continue-on-error: true
+      # -----------------------------------------------------------------------
+      # (2) GATE real: bloquea SOLO en severidad ERROR (= high/critical), como
+      #     dice la cabecera del workflow ("FALLA en high/critical"). Antes se
+      #     usaba `--error` a secas, que rompía ante CUALQUIER hallazgo (incl.
+      #     WARNING medias) — miscalibrado. `--severity=ERROR` alinea el gate con
+      #     su intención documentada. Los ERROR reales (SQLi, webhook sin firma,
+      #     reglas ERROR de OWASP/registry) SIGUEN bloqueando.
+      # -----------------------------------------------------------------------
+      - name: Semgrep GATE — bloquea en high/critical (severidad ERROR)
+        run: |
+          semgrep $SG_CONFIGS \
+            --severity=ERROR \
+            --error --metrics=off --disable-version-check \
+            --exclude=node_modules --exclude=.next --exclude=dist --exclude=coverage \
+            backend/ frontend/
 
   # ---------------------------------------------------------------------------
   # gitleaks — secretos. ACTIVO.
@@ -120,7 +144,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy fs (HIGH/CRITICAL => fallo)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: fs
           scan-ref: .
@@ -143,7 +167,7 @@ jobs:
           docker build -f Dockerfile.backend -t tcg-backend:scan --target runtime .
       - name: Trivy image backend
         if: hashFiles('backend/package.json') != ''
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: image
           image-ref: tcg-backend:scan
@@ -161,7 +185,7 @@ jobs:
             --build-arg NEXT_PUBLIC_USE_MOCKS=false .
       - name: Trivy image frontend
         if: hashFiles('frontend/package.json') != ''
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: image
           image-ref: tcg-frontend:scan

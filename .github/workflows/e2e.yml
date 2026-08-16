@@ -99,9 +99,13 @@ jobs:
           MINIO_ROOT_PASSWORD: minioadmin_e2e
           MINIO_DEFAULT_BUCKETS: tcg-photos:download
         ports: ["9000:9000", "9001:9001"]
-        options: >-
-          --health-cmd "curl -sf http://localhost:9000/minio/health/live || exit 1"
-          --health-interval 10s --health-timeout 5s --health-retries 5
+        # SIN --health-cmd a propósito: la imagen bitnami/minio (minideb) NO trae
+        # `curl`, así que un healthcheck `curl .../minio/health/live` DENTRO del
+        # contenedor nunca pasa -> el service queda unhealthy y GitHub ABORTA el
+        # job antes de correr un solo test (causa de fallo del harness backend-e2e).
+        # La readiness de MinIO se comprueba desde el RUNNER (que sí tiene curl)
+        # en el paso "Esperar a que MinIO responda" de abajo. Postgres/Redis sí
+        # traen sus binarios (pg_isready/redis-cli) y conservan su healthcheck.
     env:
       DATABASE_URL: postgresql://tcg:tcg_e2e@localhost:5432/tcg_e2e?schema=public
       REDIS_URL: redis://localhost:6379
@@ -136,6 +140,17 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install
         run: npm ci
+      - name: Esperar a que MinIO responda (readiness desde el runner)
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; then
+              echo "MinIO arriba (bucket por defecto tcg-photos creado en el arranque)."
+              exit 0
+            fi
+            echo "Esperando MinIO... ($i)"; sleep 2
+          done
+          echo "::error::MinIO no respondió en http://localhost:9000 tras ~60s."
+          exit 1
       - name: Prisma generate + migrate
         run: |
           npx prisma generate

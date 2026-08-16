@@ -29,12 +29,22 @@
 
 name: Deploy (staging -> prod)
 
+# -----------------------------------------------------------------------------
+# CD por GitHub Actions DESACTIVADO por defecto (solo `workflow_dispatch`).
+# Los deploys reales van por integraciones NATIVAS Vercel/Railway (push-to-deploy
+# de cada plataforma), así que este workflow es REDUNDANTE para el flujo normal.
+# Antes se disparaba con `workflow_run` de CI en `main` y FALLABA en `preflight`
+# por falta de los 6 GitHub Secrets de deploy en CADA push (rojo espurio). Ahora:
+#   - NO corre automáticamente (se quitó el trigger `workflow_run`).
+#   - Solo se dispara a mano (`workflow_dispatch`); y aun así el job `secrets-gate`
+#     lo SALTA limpiamente si faltan los secrets (no falla — deja un ::notice::).
+# REACTIVAR el CD por Actions: (1) carga los 6 GitHub Secrets (RAILWAY_TOKEN,
+# VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID, STAGING_BASE_URL, PROD_BASE_URL —
+# ver DEVOPS_NOTES §11.D); (2) opcional: para CD en cada release, descomenta el
+# bloque `workflow_run` de abajo. Con los secrets presentes, `secrets-gate` deja
+# pasar el pipeline y `preflight` valida como antes.
+# -----------------------------------------------------------------------------
 on:
-  # Gate real: se dispara cuando el workflow "CI" termina en la rama de release.
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
   # Disparo manual (primer deploy, re-deploy puntual, o promoción a prod).
   workflow_dispatch:
     inputs:
@@ -42,6 +52,11 @@ on:
         description: "Promover a producción si el DAST de staging pasa"
         type: boolean
         default: false
+  # CD automático por release (OPCIONAL): descomenta y carga los 6 secrets.
+  # workflow_run:
+  #   workflows: ["CI"]
+  #   types: [completed]
+  #   branches: [main]
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -56,12 +71,48 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # GATE 0: existencia de los secrets de deploy. Si faltan, el pipeline se SALTA
+  # limpiamente (los jobs dependientes quedan skipped = neutral, NO failure) en
+  # vez de romper en `preflight`. Así este CD redundante no ensucia el pipeline
+  # cuando no hay credenciales. `preflight` (abajo) sigue existiendo como doble
+  # verificación para el caso en que SÍ estén cargados.
+  # ---------------------------------------------------------------------------
+  secrets-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+          PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
+        run: |
+          MISSING=""
+          for VAR in RAILWAY_TOKEN VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID STAGING_BASE_URL PROD_BASE_URL; do
+            if [ -z "${!VAR}" ]; then MISSING="$MISSING $VAR"; fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=CD por Actions desactivado::Faltan GitHub Secrets de deploy:$MISSING. Los deploys reales van por integraciones nativas Vercel/Railway; este CD por Actions queda SALTADO (no es un fallo). Para activarlo, carga los 6 secrets (DEVOPS_NOTES §11.D) y vuelve a disparar."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Secrets de deploy presentes: el CD por Actions continúa."
+          fi
+
+  # ---------------------------------------------------------------------------
   # GATE: CI verde. Con workflow_run, exige conclusion == success. En disparo
   # manual (workflow_dispatch) se asume que el operador ya verificó CI/E2E.
   # (Refuerza además con branch protection: ci-ok, sast-ok y e2e como
   #  required status checks de la rama de release — ver DEVOPS_NOTES §5/§14.)
+  # Solo corre si `secrets-gate` marcó ready == 'true'.
   # ---------------------------------------------------------------------------
   ci-ok:
+    needs: [secrets-gate]
+    if: needs.secrets-gate.outputs.ready == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Verificar que CI terminó verde

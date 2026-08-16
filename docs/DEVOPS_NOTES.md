@@ -632,7 +632,7 @@ El tooling (config/infra) vive en `security/` (propiedad devops). La **metodolog
 |---|---|---|---|
 | `security-sast.yml` | cada PR/push | semgrep + gitleaks + npm audit + trivy (fs+image) | sí, en high/critical. **ACTIVO ya.** |
 | `e2e.yml` | cada PR/push | boota Postgres/Redis/MinIO + `test:integration` (backend) y `test:e2e` (frontend) | sí, si falla una suite. **Activo cuando existan los scripts.** |
-| `deploy.yml` | `workflow_run` de CI en `main` (o `workflow_dispatch`) | deploy staging (Railway+Vercel) → DAST (ZAP baseline + nuclei) → promoción a prod | promoción a prod **bloqueada** si hay críticos + Environment `production`. **Ejecutable (pendiente solo cargar secrets).** |
+| `deploy.yml` | **solo `workflow_dispatch`** (manual). El `workflow_run` de CI quedó **comentado**; ver §16.4 | `secrets-gate` → deploy staging (Railway+Vercel) → DAST (ZAP baseline + nuclei) → promoción a prod | promoción a prod **bloqueada** si hay críticos + Environment `production`. **CD redundante** (los deploys van por integraciones nativas); si faltan secrets, se **salta limpio** (no falla). Reactivación en §16.4. |
 | `security-scheduled.yml` | cron semanal (lun 06:00 UTC) | ZAP full + nuclei contra staging | reporta/alarma; no bloquea. **Plantilla (pendiente `STAGING_BASE_URL`).** |
 
 Todos los escáneres están parametrizados por `TARGET_URL` y tienen **guardia anti-producción**
@@ -677,10 +677,12 @@ Fuera de la ventana: `ALLOW_PROD_DAST=0` (o sin definir). Los scripts abortan so
 ### 14.4 Qué falta para activar los gates de deploy/DAST
 
 - `security-sast.yml` y (con los scripts de backend/frontend) `e2e.yml`: **ya activos**, sin secrets.
-- `deploy.yml`: **ya ejecutable**. Solo falta cargar los GitHub Secrets (`RAILWAY_TOKEN`, `VERCEL_TOKEN`,
-  `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `STAGING_BASE_URL`, `PROD_BASE_URL`) y proteger el Environment
-  `production` con *required reviewers* (ver §11.D–E). El trigger `workflow_run` sobre CI en `main` ya
-  está cableado; sin secrets, `preflight` falla con mensaje claro.
+- `deploy.yml`: **CD redundante** (los deploys reales van por integraciones nativas Vercel/Railway).
+  Desde 2026-08-16 corre **solo a mano** (`workflow_dispatch`) y el job `secrets-gate` lo **salta
+  limpiamente** si faltan los GitHub Secrets, en vez de romper en `preflight` (ver **§16.4**). Para
+  reactivarlo como CD por Actions: cargar los 6 secrets (`RAILWAY_TOKEN`, `VERCEL_TOKEN`,
+  `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `STAGING_BASE_URL`, `PROD_BASE_URL`), proteger el Environment
+  `production` con *required reviewers* (§11.D–E) y, opcional, descomentar el `workflow_run` del `on:`.
 - `security-scheduled.yml`: cargar `STAGING_BASE_URL` para el DAST full semanal.
 
 ---
@@ -844,4 +846,141 @@ el prefijo `kyc_ine/` alineada con `INE_RETENTION_DAYS`:
   **fijado en 180 días** por decisión de negocio (legal/fiscal), **alineado con el dial M10 del backend**
   (fuente de verdad del borrado; ver PROJECT.md › Riesgos). El lifecycle del bucket es un **respaldo**, no
   sustituye ni al borrado del backend ni al requisito legal de conservación mínima.
+
+---
+
+## 16. Saneamiento de los workflows de CI/gates (2026-08-16)
+
+> Contexto: los workflows de Actions (CI, Security SAST, E2E, deploy) llevaban en **rojo**
+> toda la historia del repo. Los deploys reales van por integraciones **nativas** Vercel/Railway,
+> pero los gates del DoD (SAST/E2E/CD) no estaban protegiendo nada. Se saneó el **rojo espurio**
+> dejando los gates **funcionando de verdad** (no anulados). Nada de esto toca `backend/` ni
+> `frontend/`; los hallazgos de código se enrutan al rol dueño (abajo).
+>
+> **Limitación del entorno de esta sesión:** el sandbox **bloquea el pull de imágenes Docker**
+> (403 de política de egress en el CDN de Docker Hub) y la **registry de semgrep** (`semgrep.dev`,
+> 403). Por eso NO se pudo reproducir localmente ni los jobs dockerizados de E2E ni las reglas
+> `p/*` de semgrep. Sí se reprodujo semgrep con las **reglas locales** vía `pip install semgrep`
+> en un venv. Lo no reproducible queda marcado como **verificar en runner CI**.
+
+### 16.1 SAST · Trivy — versión de acción inexistente (ARREGLADO)
+
+- **Causa:** `security-sast.yml` fijaba `aquasecurity/trivy-action@0.24.0` en 3 sitios (`trivy-fs`,
+  `trivy-image` ×2). Ese **tag no existe**: los tags de la acción llevan prefijo **`v`**
+  (`v0.24.0`, …). El runner fallaba con `Unable to resolve action ... unable to find version 0.24.0`.
+- **Fix:** pin a **`aquasecurity/trivy-action@v0.33.1`** en las 3 referencias. Elegido por ser un
+  release **estable con parche** cuyo esquema de inputs (`scan-type`, `scan-ref`, `image-ref`,
+  `severity`, `exit-code`, `ignore-unfixed`, `format`) se **verificó compatible** (existe en
+  `git ls-remote --tags`; inputs confirmados en su `action.yaml`). El gate sigue **fallando en
+  HIGH/CRITICAL** (`exit-code: "1"`), sin cambios de rigor.
+
+### 16.2 SAST · Semgrep — config inválida + FP + gate mal calibrado (ARREGLADO)
+
+Tres problemas, todos en archivos **propiedad devops** (`security/semgrep.yml`, `security-sast.yml`):
+
+1. **Config inválida (rompía TODO el job, no eran "hallazgos"):** `security/semgrep.yml` tenía
+   **dos errores de schema** que hacían abortar semgrep (`RuleParseError`, exit 7/8) antes de
+   escanear nada — de ahí el rojo permanente:
+   - Regla `stripe-webhook-verify-signature`: colgaba un `pattern-not-inside` de un
+     `pattern-either` (este solo admite patrones **positivos**). Corregido a un `patterns:` (AND).
+   - Regla `react-dangerously-set-innerhtml`: `languages: [tsx, typescript]` — **`tsx` no es un id
+     de lenguaje válido** en semgrep actual (el parser `typescript` ya cubre `.tsx`/JSX). Corregido
+     a `languages: [typescript]`.
+   Tras el fix, la config **parsea limpia** (5 reglas, 0 errores de config; verificado local).
+2. **Falso positivo ERROR (high) — el único hallazgo de severidad alta de las reglas locales):**
+   la regla `stripe-webhook-verify-signature` marcaba `backend/src/modules/payments/stripe.service.ts:121`
+   —que es **precisamente** la función que verifica la firma (`this.stripe.webhooks.constructEvent(...)`)—.
+   La heurística vieja ("constructEvent fuera de try/catch") confundía **manejo de error** con
+   **control de seguridad**: la firma **sí** se verifica ahí. **Fix (devops, en la propia regla):**
+   ahora exige que `constructEvent` se llame con sus **3 argumentos** (payload crudo, firma y
+   secret) y **excluye** esa forma correcta con un `pattern-not`; solo dispara ante un uso inseguro
+   (p. ej. 2 args, sin secret). Verificado con muestras ok/bad: 0 FP sobre el código real.
+3. **Gate mal calibrado:** el job usaba `--error` **a secas**, que rompe ante **cualquier** hallazgo
+   (incluidas 26 WARNING de heurísticas medias locales: recordatorios `money-out-requires-guard`,
+   `no-secret-in-logs`), **contradiciendo** la propia cabecera del workflow ("GATE: FALLA en
+   high/critical"). **Fix:** el job ahora corre en **dos pasos** (patrón del job `npm-audit`):
+   - (1) **informe completo** (todas las severidades) → **SARIF** a la pestaña Security, **no bloquea**;
+   - (2) **GATE** con `--severity=ERROR --error` → **bloquea solo en high/critical**.
+   Las WARNING quedan como **visibilidad** (SARIF), no rompen el pipeline.
+- **Estado tras el fix (reglas locales):** 0 hallazgos **ERROR**, 26 **WARNING** (visibilidad).
+  Ningún high/critical real de las reglas locales.
+- **Pendiente / verificar en runner CI:** las reglas `p/*` de la registry no se pudieron correr
+  localmente (egress bloquea `semgrep.dev`). Si en CI alguna regla `p/*` de **severidad ERROR**
+  dispara sobre código real, el gate lo **bloqueará correctamente** (no es espurio) y el hallazgo se
+  **enruta al rol dueño** (backend/frontend) con archivo:línea — devops no corrige código de app.
+- **Las 26 WARNING** (visibilidad) son heurísticas ruidosas de reglas locales (p. ej. `money-out`
+  marca controladores admin aunque tengan guard, `no-secret-in-logs` marca logs con variables cuyo
+  nombre "suena" a secreto). Si el rol **seguridad** quiere convertir alguna en gate real, se afina la
+  regla; hoy son informativas por diseño.
+
+### 16.3 E2E — harness (config arreglada; app pendiente de dueño)
+
+`e2e.yml` corre `backend-e2e` (Postgres/Redis/MinIO como *services* + `npm run test:integration`) y
+`frontend-e2e` (levanta `docker-compose.staging.yml --profile apps` + Playwright).
+
+- **Arreglado (config/infra, propiedad devops):** el *service* `minio` (imagen `bitnami/minio`, minideb
+  **sin `curl`**) tenía un `--health-cmd "curl .../minio/health/live"` que **nunca pasa dentro del
+  contenedor** → el service queda *unhealthy* y **GitHub aborta el job** antes de correr un test. Se
+  **quitó ese healthcheck** y la readiness de MinIO se comprueba **desde el runner** (que sí tiene
+  `curl`) en un paso nuevo "Esperar a que MinIO responda". Postgres/Redis conservan su healthcheck
+  (sus imágenes traen `pg_isready`/`redis-cli`).
+- **Revisado y OK (no era bug):** `backend-e2e` corre `migrate deploy` + `seed:synthetic` de forma
+  **redundante** (una vez en pasos explícitos y otra dentro de `test:integration`), pero el seed
+  (`backend/prisma/seed-e2e.ts`) es **idempotente** (`upsert`) y `migrate deploy` también → no rompe;
+  solo cuesta unos segundos. Se deja así para no tocar la lógica del script del rol backend.
+- **NO reproducible localmente:** el sandbox **no puede pull-ear imágenes** (egress 403), así que no se
+  pudo levantar Postgres/Redis/MinIO ni construir el stack de staging. La corrección del healthcheck es
+  de **alta confianza** (patrón conocido de fallo de `bitnami/minio` como *service* con healthcheck de
+  `curl`), pero el **verde final del harness debe confirmarse en el runner CI**.
+- **Pendiente de rol dueño (si el harness sigue rojo tras el fix de infra) — no lo toca devops:**
+  - **backend:** si la suite `backend/test/integration/*.e2e-spec.ts` falla por lógica de app, es del
+    rol **backend** (coordina con el arreglo en curso del aislamiento `REDIS_URL` del job **CI·backend**
+    en `ci.yml`, que lleva otro agente).
+  - **frontend:** `frontend-e2e` depende de que el backend de staging **arranque en `NODE_ENV=production`**
+    (valida PII/JWT estrictos; los dummies del compose deben satisfacer la validación) y de que el runner
+    de Playwright lea `E2E_BASE_URL` (config de `frontend/`, propiedad del rol frontend). Ambos son de
+    **frontend/backend**, no de devops.
+- **Peso de `frontend-e2e`:** construye **dos imágenes** + stack completo en **cada push/PR** — es el job
+  más pesado y el más propenso a rojo/flaky en el runner estándar. **Recomendación devops** (no aplicada
+  para no alterar la semántica de *required check* del gate): moverlo a un runner mayor o ejecutarlo en su
+  propio momento (p. ej. solo en PR a `main` + `workflow_dispatch`) en vez de en cada push a cada rama.
+  **No** se añadió `paths-ignore` porque, siendo E2E un *required status check*, un PR de solo-docs
+  quedaría **bloqueado** (un required check que nunca corre queda *pending*). Queda como decisión de
+  equipo documentada.
+
+### 16.4 deploy.yml — CD redundante que fallaba por secrets (GUARDADO, sin secrets)
+
+- **Causa:** `deploy.yml` se disparaba con `workflow_run` de **CI** en `main` y su job `preflight`
+  **fallaba a propósito** en cada push porque no existen los 6 GitHub Secrets de deploy
+  (`RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `STAGING_BASE_URL`,
+  `PROD_BASE_URL`). Como los deploys reales van por **integraciones nativas** Vercel/Railway, este CD
+  por Actions es **redundante** y solo ensuciaba el pipeline.
+- **Fix (sin secrets, sin hardcodear nada):**
+  1. **Se quitó el trigger `workflow_run`** → el workflow **ya no corre automáticamente** (deja de
+     ensuciar cada push). Queda solo `workflow_dispatch` (manual). El bloque `workflow_run` se dejó
+     **comentado** en el `on:` para poder reactivarlo.
+  2. **Nuevo job `secrets-gate`** que detecta si los 6 secrets están presentes y expone `ready`.
+     `ci-ok` (y toda la cadena de deploy) tiene `if: needs.secrets-gate.outputs.ready == 'true'`.
+     Si faltan, los jobs de deploy quedan **skipped (neutral, NO failure)** con un `::notice::` claro,
+     en vez de romper en `preflight`. `preflight` se conserva como doble verificación para cuando SÍ
+     estén cargados.
+- **Cómo REACTIVAR el CD por GitHub Actions** (si algún día se quiere en vez de las integraciones
+  nativas): (a) cargar los **6 GitHub Secrets** (ver §11.D `[GH]`); con eso `secrets-gate` deja pasar
+  el pipeline y `preflight` valida como antes. (b) *Opcional*, para CD en cada release, **descomentar**
+  el bloque `workflow_run` del `on:` de `deploy.yml`. (c) proteger el Environment `production` con
+  *required reviewers* (§11.E).
+
+### 16.5 Resumen de archivos tocados en este saneamiento (todos rutas devops)
+
+| Archivo | Cambio |
+|---|---|
+| `.github/workflows/security-sast.yml` | Trivy `@0.24.0`→`@v0.33.1` (×3); job `semgrep` a 2 pasos (informe SARIF no-bloqueante + gate `--severity=ERROR`). |
+| `security/semgrep.yml` | Fix 2 errores de schema (`pattern-either`/`pattern-not-inside`, lenguaje `tsx`) + refino de `stripe-webhook-verify-signature` para eliminar el FP. |
+| `.github/workflows/e2e.yml` | `minio` *service*: quitado healthcheck `curl` interno; añadido paso de readiness desde el runner. |
+| `.github/workflows/deploy.yml` | Trigger a solo `workflow_dispatch` (`workflow_run` comentado); nuevo job `secrets-gate` que salta el CD si faltan secrets. |
+| `docs/DEVOPS_NOTES.md` | Esta §16. |
+
+> **Nota de propiedad:** no se modificó `ci.yml` (el arreglo del aislamiento `REDIS_URL` del job
+> CI·backend lo lleva el rol **backend** en paralelo), ni `backend/`, ni `frontend/`, ni
+> `docs/BACKEND_NOTES.md`, ni `docs/TECH_DEBT.md`.
 

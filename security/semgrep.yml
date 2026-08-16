@@ -55,13 +55,23 @@ rules:
     languages: [typescript]
     severity: ERROR
     message: >
-      El webhook de Stripe debe verificar la firma con constructEvent y el RAW
-      body (STRIPE_WEBHOOK_SECRET). No proceses el evento sin verificar la firma.
+      El webhook de Stripe debe verificar la firma con constructEvent pasando el
+      RAW body, la firma y el STRIPE_WEBHOOK_SECRET. No proceses el evento sin
+      verificar la firma (constructEvent con sus 3 argumentos).
+    # INVARIANTE correcto: constructEvent DEBE llamarse con los 3 argumentos
+    # (payload crudo, firma y secret). El match positivo captura cualquier
+    # constructEvent; el `pattern-not` EXCLUYE la forma correcta de 3 args, de
+    # modo que solo dispara ante un uso inseguro (p. ej. 2 args, sin secret).
+    #
+    # FIX de falso positivo (devops): la versión previa marcaba constructEvent
+    # "fuera de try/catch", lo que disparaba sobre la propia función de
+    # verificación correcta (payments/stripe.service.ts) — el try/catch es
+    # manejo de error, no un control de seguridad. La firma YA se verifica ahí.
+    # NOTA schema: `pattern-not-inside`/`pattern-not` NO cuelgan de un
+    # `pattern-either` (solo admite patrones positivos); van bajo `patterns:`.
     patterns:
-      - pattern-either:
-          - pattern: $STRIPE.webhooks.constructEvent(...)
-          - pattern-not-inside: |
-              try { ... $STRIPE.webhooks.constructEvent(...); ... }
+      - pattern: $STRIPE.webhooks.constructEvent(...)
+      - pattern-not: $STRIPE.webhooks.constructEvent($PAYLOAD, $SIG, $SECRET)
     paths:
       include:
         - "backend/src/**/*webhook*.ts"
@@ -70,8 +80,10 @@ rules:
   # ---------------------------------------------------------------------------
   # React: dangerouslySetInnerHTML => posible XSS. Revisar sanitización.
   # ---------------------------------------------------------------------------
+  # NOTA schema: `tsx` NO es un id de lenguaje válido en semgrep actual; el
+  # parser `typescript` ya cubre archivos .tsx/JSX. Usar `typescript`.
   - id: react-dangerously-set-innerhtml
-    languages: [tsx, typescript]
+    languages: [typescript]
     severity: WARNING
     message: >
       dangerouslySetInnerHTML puede introducir XSS. Evítalo o sanitiza el HTML
