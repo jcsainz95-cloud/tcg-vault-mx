@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M7View } from './M7View';
+import { presetRange } from '@/lib/dateRange';
 import * as download from '@/lib/download';
 
 describe('M7View · Finanzas (P&L)', () => {
@@ -26,6 +27,25 @@ describe('M7View · Finanzas (P&L)', () => {
     expect(await screen.findByText('IVA acumulado')).toBeInTheDocument();
     // Desglose de IVA por orden (DataTable pinta vista desktop + móvil).
     expect((await screen.findAllByText('ord-9001')).length).toBeGreaterThan(0);
+  });
+
+  it('los botones de preset setean el rango from/to del selector', async () => {
+    renderWithProviders(<M7View />, 'es');
+
+    const fromInput = await screen.findByLabelText('Desde') as HTMLInputElement;
+    const toInput = screen.getByLabelText('Hasta') as HTMLInputElement;
+    expect(fromInput.value).toBe('');
+    expect(toInput.value).toBe('');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Este año' }));
+    const year = presetRange('year');
+    expect(fromInput.value).toBe(year.from);
+    expect(toInput.value).toBe(year.to);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Último mes' }));
+    const month = presetRange('month');
+    expect(fromInput.value).toBe(month.from);
+    expect(toInput.value).toBe(month.to);
   });
 
   it('exporta el CSV de P&L descargando un archivo', async () => {

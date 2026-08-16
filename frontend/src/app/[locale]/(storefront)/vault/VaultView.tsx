@@ -1,10 +1,12 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Wallet, Lock } from 'lucide-react';
 import { getHoldings } from '@/lib/api';
 import type { AppLocale } from '@/i18n/routing';
+import type { HoldingDTO } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
@@ -16,13 +18,51 @@ import { Banner } from '@/components/ui/Banner';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
 import { PortfolioTrendChart, PortfolioSparkline } from '@/components/domain/PortfolioTrendChart';
+
+type SortKey = 'default' | 'set' | 'value_desc' | 'value_asc';
+
+/**
+ * Ordena los holdings en cliente. `set` usa `card.setName` (localeCompare, desempate
+ * por nombre de carta). `value_*` usa el valor de referencia por carta
+ * (`referenceValue.referenceMxnCents`); las cartas con precio pendiente (sin valor)
+ * quedan SIEMPRE al final en ambos sentidos.
+ */
+function sortHoldings(rows: HoldingDTO[], key: SortKey, locale: string): HoldingDTO[] {
+  if (key === 'default') return rows;
+  const copy = [...rows];
+  if (key === 'set') {
+    copy.sort(
+      (a, b) =>
+        a.card.setName.localeCompare(b.card.setName, locale) ||
+        a.card.name.localeCompare(b.card.name, locale),
+    );
+    return copy;
+  }
+  const val = (h: HoldingDTO) => h.referenceValue.referenceMxnCents ?? null;
+  copy.sort((a, b) => {
+    const av = val(a);
+    const bv = val(b);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1; // pendientes al final
+    if (bv == null) return -1;
+    return key === 'value_desc' ? bv - av : av - bv;
+  });
+  return copy;
+}
 
 export function VaultView() {
   const t = useTranslations('vault');
   const tn = useTranslations('nav');
   const locale = useLocale() as AppLocale;
   const query = useQuery({ queryKey: ['holdings'], queryFn: getHoldings });
+  const [sort, setSort] = useState<SortKey>('default');
+
+  const sortedHoldings = useMemo(
+    () => (query.data ? sortHoldings(query.data.data, sort, locale) : []),
+    [query.data, sort, locale],
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -86,8 +126,24 @@ export function VaultView() {
                 currentValueFallbackCents={query.data.portfolio.totalValueMxnCents}
               />
 
+              {/* Control de orden de la lista (cliente) */}
+              <div className="flex flex-wrap items-end justify-end gap-3">
+                <Select
+                  label={t('sort.label')}
+                  className="w-56"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as SortKey)}
+                  options={[
+                    { value: 'default', label: t('sort.default') },
+                    { value: 'set', label: t('sort.set') },
+                    { value: 'value_desc', label: t('sort.valueDesc') },
+                    { value: 'value_asc', label: t('sort.valueAsc') },
+                  ]}
+                />
+              </div>
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {query.data.data.map((h) => {
+                {sortedHoldings.map((h) => {
                   const settled = h.ownershipStatus === 'settled';
                   return (
                     <div

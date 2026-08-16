@@ -21,7 +21,14 @@
     "skipToContent": "Skip to content",
     "theme": "Theme",
     "value": "Value",
-    "total": "Total"
+    "total": "Total",
+    "datePresets": {
+      "label": "Quick range",
+      "week": "This week",
+      "month": "Last month",
+      "quarter": "This quarter",
+      "year": "This year"
+    }
   },
   "nav": {
     "catalog": "Shop",
@@ -176,7 +183,14 @@
     "withdrawSelected": "Withdraw selected",
     "onlySettled": "Only settled cards can be withdrawn.",
     "folio": "Folio",
-    "selectToWithdraw": "Select for withdrawal"
+    "selectToWithdraw": "Select for withdrawal",
+    "sort": {
+      "label": "Sort by",
+      "default": "Default",
+      "set": "Set (A–Z)",
+      "valueDesc": "Value (high to low)",
+      "valueAsc": "Value (low to high)"
+    }
   },
   "portfolio": {
     "trend": {

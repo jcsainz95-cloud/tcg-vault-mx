@@ -21,7 +21,14 @@
     "skipToContent": "Saltar al contenido",
     "theme": "Tema",
     "value": "Valor",
-    "total": "Total"
+    "total": "Total",
+    "datePresets": {
+      "label": "Rango rápido",
+      "week": "Esta semana",
+      "month": "Último mes",
+      "quarter": "Este trimestre",
+      "year": "Este año"
+    }
   },
   "nav": {
     "catalog": "Compra",
@@ -176,7 +183,14 @@
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo se pueden retirar cartas liquidadas (settled).",
     "folio": "Folio",
-    "selectToWithdraw": "Seleccionar para retiro"
+    "selectToWithdraw": "Seleccionar para retiro",
+    "sort": {
+      "label": "Ordenar por",
+      "default": "Predeterminado",
+      "set": "Set (A–Z)",
+      "valueDesc": "Valor (mayor a menor)",
+      "valueAsc": "Valor (menor a mayor)"
+    }
   },
   "portfolio": {
     "trend": {

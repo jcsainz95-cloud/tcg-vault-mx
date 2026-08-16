@@ -32,6 +32,20 @@
 > referencia)**, **editable desde el back-office (M2)**. Ver §E.1 (nueva), M2, criterios 12/12b/12c/18 y la
 > sección **"Preguntas abiertas — precio de buylist por rareza (v1.3)"** al final. **Este bloque tiene
 > preguntas abiertas pendientes**; el resto del documento sigue cerrado.
+> **Requisito v1.4 (2026-08-16, decisiones del humano YA tomadas):** las cartas se distinguen ahora por
+> **acabado/versión** (normal, reverse holo, holofoil, 1st edition…) en **toda la cadena** (Compra, cotizador
+> de buylist, inventario/bóveda, valuación de portafolio y precio de buylist). Hoy el modelo NO distingue
+> acabados (1 fila `Card`, un solo `rarity`, sin `finish`) y los precios por acabado de `tcgplayer.prices`
+> **se descartan al importar**. Se decide: (1) modelar el acabado en **todo** el alcance (cotizador,
+> inventario/bóveda, portafolio y Compra); (2) el acabado **mapea a una regla existente** de la tabla por
+> rareza de M2 (reverse holo → regla "Reverse Holo"; holo → "Holo"/base; normal → regla de la rareza base) y,
+> para reglas de **porcentaje**, usa el **precio de mercado de ESE acabado**; (3) el monto se **deriva siempre
+> server-side** (SEC-A1); (4) filas históricas sin acabado → default **normal**. Además: **alta de inventario
+> por set** en M1 usando el **catálogo real** (no cartas mock) y **origen del inventario** por item
+> (`owner_contribution` vs `client_purchase`) capturado al dar de alta, que afecta finanzas/portafolio
+> (costo/P&L). Ver §I (nueva), §A, §C, §E, §E.1, M1, M2, §G, criterios 37–44 y las **preguntas abiertas v1.4**
+> al final. **Este bloque tiene preguntas abiertas pendientes**; los defaults preservan el comportamiento
+> actual y no bloquean el arranque si el humano los autoriza.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -72,7 +86,9 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Sección **Compra** navegable con búsqueda y filtros sobre el inventario propio en venta:
       **set con año de lanzamiento** (ej. "Surging Sparks (2024)"), **rareza** (incluidas rarezas modernas:
       Art/Illustration Rare, Special Illustration Rare, Full Art, Alternate Art, Trainer Gallery, Character
-      Rare, Radiant, etc.), **tipo de producto** (raw, gradeadas, sellado) y **condición**.
+      Rare, Radiant, etc.), **tipo de producto** (raw, gradeadas, sellado), **condición** y **acabado/versión**
+      (Normal, Reverse Holo, Holofoil, 1st Edition; ver §I). La ficha de un raw muestra **su acabado** y valúa
+      con el **precio de mercado de ese acabado**.
 - [ ] **Regla de Compra — solo se lista lo que tiene precio**: en Compra SOLO aparece inventario con
       **precio de venta fijado**; **NUNCA se muestra "precio pendiente" al comprador**. El estado "precio
       pendiente" vive únicamente en adquisición/buylist/back-office, no en Compra.
@@ -138,8 +154,11 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] **Contracargo**: revierte la carta al inventario de la plataforma y refleja el estado de la orden.
 
 ### C. Bóveda y portafolio (comprador)
-- [ ] Vista de "Mi bóveda": todas las cartas en custodia del usuario, con su estado de titularidad.
-- [ ] **Valor del portafolio** calculado contra el precio de referencia (TCGPlayer, MXN, refresco diario).
+- [ ] Vista de "Mi bóveda": todas las cartas en custodia del usuario, con su estado de titularidad, **su
+      acabado/versión** (Normal, Reverse Holo, Holofoil, 1st Edition; ver §I) y la **imagen de catálogo de
+      pokemontcg.io**; con **ordenamiento por set y por valor**.
+- [ ] **Valor del portafolio** calculado contra el precio de referencia del **acabado específico** de cada
+      item (TCGPlayer, MXN, refresco diario).
 - [ ] **Gráfica de tendencia del valor del portafolio** en "Mi bóveda", **estilo acciones**, con rangos
       **5d / 15d / 1m / 3m / 6m / 1a / YTD / Máx**, que muestra si el portafolio **crece o decrece** en el
       tiempo. (Requisito de producto; el **snapshot diario** que la alimenta lo implementa backend.)
@@ -155,8 +174,11 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Ejecución de guía **manual** en el MVP (el admin/operador captura el número de guía).
 
 ### E. Buylist — compra de raw a usuarios (cotizador público + solicitud)
-- [ ] **Cotizador público**: el usuario elige carta (la **condición es fija en Near Mint (NM)**, único
-      grado que compramos) y ve una cotización automática calculada con la **tabla de precio por rareza**
+- [ ] **Cotizador público**: el usuario elige carta y, entre los **acabados disponibles de esa carta**
+      (derivados de `tcgplayer.prices`; ver §I), **captura cuál vende** (Normal, Reverse Holo, Holofoil, 1st
+      Edition); la **condición es fija en Near Mint (NM)**, único grado que compramos. Ve una cotización
+      automática **por acabado**: el acabado selecciona la **regla de rareza** aplicable y el **precio de
+      mercado de ese acabado** (mapeo en §I). Se calcula con la **tabla de precio por rareza**
       configurable desde el back-office (ver **§E.1** y **M2**). El monto por rareza usa **rarezas oficiales de
       Pokémon** (las de pokemontcg.io) y cada rareza aplica una regla **fijo (MX$)** o **porcentaje (% de la
       referencia)**. **Valores por defecto** (editables por el dueño; preservan el comportamiento actual):
@@ -223,6 +245,13 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       (defaults de arriba) para **no romper cotizaciones en curso**. Se mantiene la **derivación server-side**
       del monto: el precio a pagar se calcula en el backend a partir de la **rareza real de la carta**, nunca
       del DTO del cliente (no se debilita la protección anti-manipulación existente).
+- [ ] **Interacción con el acabado (v1.4, ver §I)**: la cotización se calcula **por acabado**. El acabado
+      elegido determina **cuál regla de esta tabla aplica** (reverse holo → "Reverse Holo"; holo → "Holo"/base;
+      normal → rareza base) y, para reglas de **porcentaje**, **cuál precio de referencia se usa** (el del
+      acabado específico, `tcgplayer.prices[acabado].market`). El backend valida que el acabado sea uno de los
+      **realmente disponibles** de la carta y **deriva el monto server-side** (SEC-A1). Una carta con regla de
+      **porcentaje** cuyo **acabado no tiene precio de referencia** cae en **"precio pendiente"** (igual que hoy;
+      las de regla **fijo** siempre cotizan).
 
 ### F. Back-office / herramienta de administración (M1–M10) — parte central del MVP
 Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una **cola con estados**.
@@ -230,6 +259,17 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       pokemontcg.io**; para **gradeadas** se captura **empresa + grado + `certNumber`**), ubicación
       jerárquica tipo **CAJA/FILA/SLOT**, **folio legible por item** (ej. `INV-000123`), estados,
       **mover con historial**, marcar **pérdida/daño**.
+  - [ ] **Alta por set contra el catálogo REAL (v1.4)**: el flujo de alta es **elegir set** (dropdown de sets,
+        con año) → **buscar la carta real del catálogo sincronizado** dentro del set → **elegir carta** →
+        **elegir acabado** entre los disponibles de esa carta (ver §I). **Debe usar el catálogo real
+        sincronizado, NO las cartas mock** que se usan hoy (que muestran muy pocas). El item queda ligado a la
+        carta de catálogo y a un **acabado** concreto.
+  - [ ] **Origen del inventario (v1.4)**: cada `InventoryItem` registra un **origen** capturado al dar de alta:
+        **`owner_contribution`** (aportación en especie del dueño, costo = referencia × % configurable, default
+        70%; ver §G) o **`client_purchase`** (comprada a un cliente vía buylist, costo = lo pagado en el
+        buylist). El origen determina el **costo** del item y por tanto afecta **finanzas/P&L** (M7) y la base
+        de costo del portafolio de inventario. La conversión de buylist a inventario (M5) marca el origen como
+        `client_purchase` automáticamente.
 - [ ] **M2 — Catálogo y precios**: **sync de precios** de las cartas en bóveda desde las fuentes según tipo
       (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; **sellado con precio
       manual del admin en MXN**, sin fuente automática en el MVP), **override manual** de precio siempre
@@ -239,7 +279,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       por defecto importa **sets de 2024 en adelante** y permite **backfill** de colecciones anteriores por
       **lotes automatizados** + **importación puntual** de sets; captura las **rarezas modernas** (Art/
       Illustration Rare, Special Illustration Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare,
-      Radiant, etc.) y el **año de lanzamiento del set** para alimentar los filtros de Compra. El proveedor de
+      Radiant, etc.), los **acabados disponibles por carta y su precio de mercado por acabado** (llaves de
+      `tcgplayer.prices`: `normal`, `holofoil`, `reverseHolofoil`, `1stEdition*`; **hoy se descartan** y ahora
+      **deben conservarse**, ver §I) y el **año de lanzamiento del set** para alimentar los filtros de Compra. El proveedor de
       precios es **intercambiable (`PricingProvider`)** para poder subir a un plan de pago sin tocar el resto
       del sistema. Distingue **valor de referencia/mercado** (para mostrar y valuar portafolio) del **precio
       de venta** (= referencia + **markup configurable**, ver M10).
@@ -278,7 +320,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 ### G. Inventario inicial (operación de arranque)
 - [ ] Alta del **inventario propio**: colección del humano + adquisiciones con presupuesto.
 - [ ] **Costo por carta propia** = precio de referencia del día × **% configurable** (default **70%**),
-      **editable**, registrado como **"aportación en especie"**.
+      **editable**, registrado como **"aportación en especie"** (origen **`owner_contribution`**, ver M1/§I).
+      Para inventario proveniente de buylist el origen es **`client_purchase`** y el costo es **lo pagado al
+      cliente** (no el 70%).
 
 ### H. Reglas de negocio transversales (aplican a varios módulos)
 - [ ] **Estándar de condición del raw = solo Near Mint (NM)**: en TODO el marketplace (Compra, tienda,
@@ -327,6 +371,40 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       estar en NM**: **7 días** para gestionar la devolución (**a costo del usuario**); **abandono a 30
       días**. Una carta **NM** abandonada **pasa a inventario**; una carta **no-NM** abandonada **NO entra al
       inventario vendible** (se segrega/descarta, nunca se pone a la venta).
+
+### I. Acabado / versión de carta (transversal — NUEVO v1.4)
+> Una misma carta del catálogo puede existir en **varios acabados** (versiones de impresión). Hoy el modelo
+> guarda **una sola fila `Card` con un solo `rarity`** y **descarta** los precios por acabado de
+> `tcgplayer.prices` al importar. Se introduce el concepto de **acabado (finish)** como atributo transversal
+> del inventario/venta/valuación, SIN diseñar aquí el schema (eso es del arquitecto).
+- [ ] **Acabados soportados = los que expone `tcgplayer.prices` de pokemontcg.io**: las llaves reales son
+      `normal`, `holofoil`, `reverseHolofoil`, `1stEditionNormal`, `1stEditionHolofoil` (y ocasionalmente
+      `unlimitedHolofoil`). Se agrupan en acabados de negocio legibles: **Normal**, **Reverse Holo**,
+      **Holofoil (Holo)** y **1st Edition** (Normal/Holo). Los acabados **disponibles por carta** se derivan de
+      las llaves presentes en `tcgplayer.prices` de esa carta (no toda carta tiene todos los acabados).
+      *(SUPUESTO: se soportan exactamente esas llaves; `1st Edition` se trata como acabado propio. Ver
+      preguntas abiertas v1.4.)*
+- [ ] **Precio de mercado por acabado**: cada acabado tiene su **propio precio de referencia** (el
+      `tcgplayer.prices[acabado].market` que hoy se descarta). La valuación (portafolio, venta, buylist) usa el
+      precio del **acabado específico** del item, no un precio único por carta.
+- [ ] **Mapeo acabado → regla de buylist (decidido, reusa la tabla por rareza de M2, §E.1)**: el acabado
+      selecciona **qué regla aplica** y **qué precio de mercado** se usa:
+      - **Reverse Holo** → regla **"Reverse Holo"** de la tabla.
+      - **Holofoil (Holo)** → regla **"Holo"** (o la de la **rareza base** si esa rareza ya es holo).
+      - **Normal** → regla de la **rareza base** de la carta.
+      - Para reglas de **porcentaje**, el % se aplica sobre el **precio de mercado de ESE acabado**.
+      - *(SUPUESTO: `1st Edition` (Normal/Holo) mapea a la misma regla que su acabado equivalente (Normal/Holo)
+        usando el precio de mercado de la llave `1stEdition*`. Falta confirmar si el humano quiere una regla
+        propia para 1st Edition. Ver preguntas abiertas v1.4.)*
+- [ ] **Derivación server-side (SEC-A1)**: el acabado que el cliente envía en el cotizador se usa solo para
+      **elegir de entre los acabados realmente disponibles** de esa carta; el **monto a pagar y el precio de
+      mercado se derivan SIEMPRE en el backend** a partir del acabado validado y de la regla de rareza, **nunca**
+      del monto/precio que venga en el DTO del cliente (no se debilita la protección anti-manipulación).
+- [ ] **Filas históricas / default**: todo `Card`/`InventoryItem` sin acabado explícito se trata como
+      **`normal`** (backfill de datos existentes a `normal`).
+- [ ] **Presencia transversal del acabado**: el acabado se muestra y opera en **Compra** (filtro y ficha),
+      **cotizador de buylist** (el vendedor captura cuál vende), **inventario/bóveda** (se captura al alta y se
+      muestra), **valuación de portafolio** (usa el precio del acabado) y **back-office** (M1/M2/M5).
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
@@ -586,6 +664,33 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     **importación puntual** de sets específicos; los sets importados traen **rareza (incl. modernas)** y
     **año de lanzamiento** para los filtros de Compra.
 
+**Acabado / versión de carta (v1.4)**
+37. El **sync de catálogo conserva los acabados por carta y su precio de mercado por acabado** desde
+    `tcgplayer.prices` (`normal`, `holofoil`, `reverseHolofoil`, `1stEdition*`); estos precios **ya no se
+    descartan**. Los **acabados disponibles de una carta** se derivan de las llaves presentes en esa carta.
+38. En el **cotizador de buylist**, al elegir una carta el vendedor **ve los acabados disponibles** de esa
+    carta y **captura cuál vende**; la cotización se calcula **por acabado**: el acabado determina la **regla
+    de rareza** (reverse holo → "Reverse Holo"; holo → "Holo"/base; normal → rareza base) y, para reglas de
+    **porcentaje**, se aplica sobre el **precio de mercado de ese acabado**. El **monto se deriva server-side**
+    (SEC-A1) y el backend valida que el acabado sea uno de los disponibles de la carta.
+39. En **M1**, el alta de inventario se hace **contra el catálogo real sincronizado** (elegir set → buscar
+    carta real → elegir carta → **elegir acabado**), **no** contra cartas mock; el item queda ligado a la carta
+    de catálogo y a un **acabado** concreto.
+40. Cada `InventoryItem` registra un **origen** capturado al alta: **`owner_contribution`** (costo = referencia
+    × %, default 70%) o **`client_purchase`** (costo = lo pagado en buylist). La **conversión de buylist a
+    inventario** marca el origen como `client_purchase` con el costo pagado, y el origen se refleja en el
+    **costo/P&L de M7**.
+41. La **ficha de Compra y "Mi bóveda"** muestran el **acabado/versión** del item y valúan con el **precio de
+    mercado del acabado específico** (no un precio único por carta); "Mi bóveda" permite **ordenar por set y por
+    valor**. El **filtro de Compra** incluye **acabado** (Normal, Reverse Holo, Holofoil, 1st Edition).
+42. Toda carta/ítem **sin acabado explícito** (filas históricas) se trata como **`normal`** (default), sin
+    romper valuación ni listados.
+43. Una carta de buylist con regla de **porcentaje** cuyo **acabado seleccionado no tiene precio de referencia**
+    entra a la **cola de "precio pendiente"** (igual que hoy); las de regla **fijo** siempre cotizan.
+44. El **precio y el monto por acabado nunca se toman del DTO del cliente**: se **derivan siempre server-side**
+    a partir del acabado validado, la rareza real y la regla configurada (no se debilita la protección
+    anti-manipulación existente, SEC-A1).
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Legal — custodia/depositario**: la bóveda implica guardar bienes de terceros. Validar con abogado la
@@ -688,6 +793,18 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 25. **Raw** → sigue operándose **solo en NM** (estándar de condición propio, ahora explícitamente **sin
    foto**).
 
+**Decisiones v1.4 (2026-08-16, tomadas por el humano):**
+26. **Acabado/versión de carta en toda la cadena** → las cartas se distinguen por acabado (Normal, Reverse
+   Holo, Holofoil, 1st Edition…) en Compra, cotizador, inventario/bóveda, valuación de portafolio y precio de
+   buylist. Los precios por acabado de `tcgplayer.prices` (hoy descartados) se conservan. Ver §I.
+27. **Precio por acabado = reusar la tabla por rareza de M2** → el acabado mapea a una regla existente
+   (reverse holo → "Reverse Holo"; holo → "Holo"/base; normal → rareza base) y, para reglas de %, usa el precio
+   de mercado de **ese acabado**. Monto derivado **server-side** (SEC-A1). Filas históricas → default `normal`.
+28. **Alta de inventario por set contra el catálogo real (M1)** → set → carta real del catálogo → acabado;
+   se abandona el uso de cartas mock.
+29. **Origen del inventario por item** → `owner_contribution` (aportación 70%) vs `client_purchase` (comprada
+   a cliente en buylist); capturado al alta, afecta costo/P&L (M7).
+
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
   ventas `settled`, buylist aprobadas/pagadas, retiros sin disputa, ventana 30–60 días). No bloquean el
@@ -716,3 +833,24 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    en **M10 (Config)** junto a los demás diales?
 6. **Monedas/límites de valores**: ¿algún **rango válido** por regla (ej. % entre 0–100, fijo ≥ $0) o **tope
    máximo** de pago por rareza que quieras imponer como salvaguarda?
+
+## Preguntas abiertas — acabado / versión de carta (v1.4)
+> Requisito §I redactado con las decisiones ya tomadas por el humano; quedan estos huecos menores. Los
+> supuestos preservan el comportamiento actual y permiten arrancar si el humano los autoriza.
+1. **Acabados soportados**: ¿confirmas que basta con soportar exactamente las llaves de `tcgplayer.prices`
+   (`normal`, `holofoil`, `reverseHolofoil`, `1stEditionNormal`, `1stEditionHolofoil`, y `unlimitedHolofoil`
+   si aparece), agrupadas como **Normal / Reverse Holo / Holofoil / 1st Edition**? ¿O quieres un catálogo de
+   acabados distinto (p. ej. tratar `unlimitedHolofoil` como "Holofoil" sin distinguirlo)?
+2. **Regla de buylist para 1st Edition**: no hay una regla "1st Edition" en la tabla por rareza. ¿La mapeamos
+   a la misma regla que su acabado equivalente (1st Ed. Normal → Normal/base; 1st Ed. Holo → Holo) usando el
+   precio de mercado de la llave `1stEdition*` **(SUPUESTO actual)**, o quieres una **regla propia** para 1st
+   Edition (fijo/% distinto)?
+3. **Regla "Holo" vs rareza base ya holo**: cuando la **rareza base ya es holo** (p. ej. "Rare Holo") y el
+   acabado es Holofoil, ¿aplica la **regla de la rareza base** (recomendado, evita doble mapeo) o **siempre**
+   la regla genérica "Holo"?
+4. **Múltiples acabados del mismo item en Compra/bóveda**: ¿un `InventoryItem` es **siempre un acabado
+   concreto** (recomendado; cada físico es una versión), y en Compra se listan como **entradas separadas por
+   acabado**? Se asume que sí.
+5. **Reverse Holo en cartas sin esa versión**: si el vendedor intenta cotizar un acabado que **esa carta no
+   ofrece** (no está en `tcgplayer.prices`), ¿lo **bloqueamos** (solo se pueden elegir acabados disponibles,
+   recomendado) o lo dejamos en "precio pendiente"?

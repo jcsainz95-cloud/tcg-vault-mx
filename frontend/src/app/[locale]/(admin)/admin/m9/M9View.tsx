@@ -14,6 +14,7 @@ import type { LaunchMetricsDTO } from '@/types/contract';
 import { downloadTextFile } from '@/lib/download';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { DateRangePresets } from '@/components/domain/DateRangePresets';
 import { Banner } from '@/components/ui/Banner';
 import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
@@ -63,6 +64,7 @@ export function M9View() {
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('range.title')}</h2>
         <p className="text-sm text-muted">{t('range.subtitle')}</p>
+        <DateRangePresets onSelect={({ from: f, to: tv }) => { setFrom(f); setTo(tv); }} />
         <div className="flex flex-wrap items-end gap-3">
           <Input label={t('range.from')} type="date" className="w-44" value={from} onChange={(e) => setFrom(e.target.value)} />
           <Input label={t('range.to')} type="date" className="w-44" value={to} onChange={(e) => setTo(e.target.value)} />

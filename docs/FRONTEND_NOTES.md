@@ -4,6 +4,52 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Mejoras UX — presets de rango en M7/M9 + orden de la bóveda (2026-08-16)
+
+Tres mejoras chicas e independientes. Solo `frontend/` (+ esta nota). **No** se tocó el contrato ni el
+backend. Todo en cliente sobre datos que ya trae la API. i18n ES/EN espejado (pasa `i18n-parity`). Gates
+desde `frontend/`: `lint` OK · `typecheck` OK · `test` **116/116** (24 archivos, +3 nuevos) · `build` OK.
+
+### 1. Presets de rango en M7 (Finanzas) y M9 (Reportes)
+- Nuevo helper puro `src/lib/dateRange.ts` → `presetRange(preset, now?)` devuelve `{ from, to }` como
+  `YYYY-MM-DD` (hora **local**, sin corrimiento por TZ). Presets: `week` = lunes de la semana actual (ISO) →
+  hoy; `month` = mismo día del mes anterior → hoy (ventana rodante ~1 mes); `quarter` = primer día del
+  trimestre actual → hoy; `year` = 1-ene del año actual → hoy. `to` siempre = hoy.
+- Nuevo componente `src/components/domain/DateRangePresets.tsx` (4 botones `ghost`, `role="group"`) que al
+  hacer click llama `onSelect({from,to})`. Reutilizado por M7 y M9.
+- **M7** (`m7/M7View.tsx`): se montó `DateRangePresets` en la sección de rango, **sobre** el selector manual
+  (que se conserva). Al elegir preset se setean `from`/`to`, y las queries que ya dependen del `range`
+  (`GET /admin/finance/pnl`, `GET /admin/finance/iva`) refetchean por su `queryKey`.
+- **M9** (`m9/M9View.tsx`): **sí aplica** — M9 ya tenía rango `from`/`to` para `GET
+  /admin/reports/launch-metrics` y el export CSV. Se añadieron los mismos presets, misma mecánica.
+
+### 2. Bóveda — orden por set y por valor (`(storefront)/vault/VaultView.tsx`)
+- Control `Select` "Ordenar por" con: **Predeterminado** (orden del backend), **Set (A–Z)** (`card.setName`,
+  desempate por `card.name`), **Valor (mayor a menor)** y **Valor (menor a mayor)**.
+- El valor por carta **sí está** en `HoldingDTO`: `referenceValue.referenceMxnCents` (el valor de referencia
+  de mercado del holding, contrato §3). Se ordena en cliente sobre `query.data.data` con `useMemo`. Las
+  cartas con **precio pendiente** (`referenceValue.status="pending"`, sin `referenceMxnCents`) quedan
+  **siempre al final** en ambos sentidos (asc y desc), no rompen el orden.
+
+### Archivos tocados
+- Nuevos: `src/lib/dateRange.ts`, `src/lib/dateRange.test.ts`,
+  `src/components/domain/DateRangePresets.tsx`,
+  `src/app/[locale]/(storefront)/vault/VaultView.test.tsx`.
+- Editados: `m7/M7View.tsx`, `m9/M9View.tsx`, `vault/VaultView.tsx`, `m7/M7View.test.tsx` (+test de presets),
+  `messages/{es,en}.json`.
+- i18n nuevas (ES/EN): `common.datePresets.{label,week,month,quarter,year}`,
+  `vault.sort.{label,default,set,valueDesc,valueAsc}`.
+
+### Tests añadidos
+- `dateRange.test.ts` (5): los 4 presets con fecha fija (jueves 2026-08-13) + semana ISO desde domingo.
+- `M7View.test.tsx`: click en "Este año"/"Último mes" setea `from`/`to` (comparado contra `presetRange`).
+- `VaultView.test.tsx` (4): orden por defecto, valor desc/asc (pendiente al final) y por set (desempate por
+  nombre de carta), verificando el orden de los nombres en el DOM.
+
+### Solicitudes al arquitecto
+- Ninguna. Todo se resolvió con campos ya presentes en el contrato (`HoldingDTO.referenceValue`,
+  `CardDTO.setName`, `from`/`to` de M7/M9). No hubo que inventar endpoints ni campos.
+
 ## v1.3.1 — precio de buylist por rareza + cotizador nuevo shape + M6 reset/eliminar (2026-08-16)
 
 Consumo de los bloques del contrato **v1.3.1 §E.1 (precios por rareza)** y **§M6 (reset/eliminar
