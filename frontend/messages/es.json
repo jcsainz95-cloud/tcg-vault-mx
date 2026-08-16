@@ -59,7 +59,13 @@
     "viewAllCatalog": "Ver todo el catálogo",
     "sellTitle": "Vender mis cartas",
     "sellBody": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y pagamos.",
-    "sellCta": "Empezar cotización"
+    "sellCta": "Empezar cotización",
+    "featuredSet": {
+      "label": "Valor de mercado · Set destacado",
+      "collectingTitle": "Recopilando historial",
+      "collectingBody": "La tendencia de este set aparecerá cuando tengamos un par de días de historia.",
+      "marketRefNote": "Referencia de mercado de las cartas con precio de este set."
+    }
   },
   "catalog": {
     "title": "Compra",

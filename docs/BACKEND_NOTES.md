@@ -1801,3 +1801,103 @@ gating. Verificado en **ambos** entornos: `REDIS_URL=redis://localhost:6379 npm 
 **56 suites / 350 tests verdes** en los dos; `lint`, `typecheck`, `build` verdes. No aparecieron otras fugas
 env-sensibles (las suites PII construyen su propio `ConfigService` con claves y ya pasaban en CI). Ver CI-1 en
 `docs/TECH_DEBT.md`.
+
+## 29. v1.9-set-chart (2026-08-16) — Gráfica PÚBLICA del valor de un set (hero de la home)
+
+Gráfica estilo acciones del **valor de mercado agregado de un set destacado**, PÚBLICA (visitantes
+anónimos), datos REALES con captura diaria. Reusa el patrón de `PortfolioSnapshot`/portfolio-history
+pero **por set** y **sin PII**. Contrato: API_CONTRACT changelog v1.9-set-chart; ARCHITECTURE §3.2 /
+§4.12 / §11 (M-20). **SEC-A1 intacto**: `totalValueMxnCents` se deriva SIEMPRE server-side de
+`PriceReference` real; nunca del cliente. **Todo aditivo, una sola migración M-20 (sin backfill).**
+
+### 29.1 Migración M-20 + modelo `SetValueSnapshot`
+- Migración: `backend/prisma/migrations/20260816180000_m20_set_value_snapshot/` (crea tabla + FK
+  `onDelete: Cascade` a `CardSet` + índice único + índice de rango). Aditiva, **sin backfill**: la
+  serie arranca vacía y crece desde el primer día que corran los jobs.
+- Modelo (`schema.prisma`): `SetValueSnapshot { id, setId (FK→CardSet, Cascade), asOfDate @db.Date,
+  totalValueMxnCents Int, pricedCardCount Int, totalCardCount Int, createdAt, updatedAt,
+  @@unique([setId, asOfDate]), @@index([setId, asOfDate]) }`. Relación inversa nueva en `CardSet`:
+  `snapshots SetValueSnapshot[]` (solo relación Prisma, no añade columna a `CardSet`).
+- Idempotente por día vía el `@@unique`: re-correr el job del día hace **upsert**, no duplica.
+
+### 29.2 `SetValueService` (vive en `backend/src/modules/catalog/set-value.service.ts`)
+Elegí `modules/catalog/` (es lectura de catálogo público, y ahí ya viven el `PokemonTcgIoClient` y el
+sync). Firmas:
+- `resolveFeaturedSet(): Promise<CardSet | null>` — cascada §4.12b: env `HOME_FEATURED_SET_ID` (id
+  nativo pokemontcg.io → `CardSet` local por `externalId`) → set con mayor `totalValueMxnCents` en su
+  último `SetValueSnapshot` → `CardSet` más reciente por `releaseDate` (desc; String `yyyy/MM/dd` →
+  orden lexicográfico) → `createdAt` desc → `null`. La usan **tanto** el endpoint público **como** el
+  job `set-price-sync` (env y gráfica no divergen).
+- `computeSetValue(setId: string, asOf?: Date): Promise<{ totalValueMxnCents, pricedCardCount,
+  totalCardCount }>` — SUM §4.12a con acabado/tipo/grado FIJOS (`finish='normal'`, `productType='raw'`,
+  `gradeKey='raw:NM'`, campo `priceMxnCents`). Cartas sin precio se **excluyen** del total pero se
+  cuentan en `totalCardCount`. **NO genera `PendingPriceEntry`** (agregación de mercado, no de bóveda).
+- `valueHistory(setId, range): Promise<{ range, points: SetValuePointDTO[], change }>` — lee
+  `SetValueSnapshot` del rango, arma `points` (asc por fecha, cada punto lleva `pricedCardCount`) +
+  `change {absMxnCents, pct, direction}` (misma lógica que portfolio-history: `pct=null` si el valor
+  inicial es 0; rango inválido cae a `1m`).
+- Wrappers para los endpoints: `featuredSetHistory(range)` (resuelve el set; `set:null,points:[]` si no
+  hay ningún `CardSet`) y `setHistoryById(id, range)` (404 `NOT_FOUND` si el id local no existe; `set`
+  siempre resuelto, `points:[]` si aún no hay snapshots). `snapshotFeaturedSet()` para el job diario.
+
+### 29.3 Cómo se evita el N+1 en `computeSetValue`
+**2 queries fijas**, independientes del nº de cartas del set: (1) `card.findMany({ where:{setId},
+select:{id} })`; (2) `priceReference.findMany({ where:{ cardId:{in:[...]}, productType:'raw',
+gradeKey:'raw:NM', finish:'normal', capturedDate:{lte:asOf}? }, orderBy:{capturedDate:'desc'} })`. El
+"vigente más reciente por carta" se resuelve **en memoria**: como viene ordenado `capturedDate desc`, la
+**primera** fila vista por `cardId` es la más reciente (dedupe con un `Set`). Cero llamadas por-carta.
+
+### 29.4 Jobs nuevos + crons cableados
+- `SetPriceSyncJobService` (`backend/src/jobs/set-price-sync.service.ts`) — precia TODAS las cartas del
+  set destacado: `Card WHERE setId=<featured>` **SIN** el filtro `InventoryItem` (cierra **DEV-3**).
+  Reusa `PricingService.syncCardPrice(card,'raw','raw:NM','normal','catalog',undefined,false)` — host
+  FIJO anti-SSRF, cache diario. El **7º parámetro nuevo `escalate=false`** evita encolar
+  `PendingPriceEntry` por cada carta sin precio (§4.12a: no inundar la cola con todo el catálogo). Los
+  demás llamadores de `syncCardPrice` quedan con el default `escalate=true` (comportamiento intacto).
+- `SetValueSnapshotJobService` (`backend/src/jobs/set-value-snapshot.service.ts`) — delega en
+  `SetValueService.snapshotFeaturedSet()`: `computeSetValue(featured, today)` + **upsert** idempotente
+  por `(setId, asOfDate)`.
+- Ambos servicios se **proveen y exportan desde `CatalogModule`** (dependen de `SetValueService`/
+  `PricingService`; se evita el ciclo con `JobsModule`, mismo patrón que `portfolio-snapshot` en
+  `VaultModule`). `JobsModule` ahora importa `CatalogModule`.
+- Scheduler (`scheduler.service.ts`, gated por `REDIS_URL`, single-flight por `jobId`): **`set-price-sync
+  '30 6 * * *'`** y **`set-value-snapshot '15 7 * * *'`**. Orden duro **FX (`0 6`) → set-price-sync
+  (`30 6`) → portfolio (`0 7`) → set-value-snapshot (`15 7`)**.
+
+### 29.5 Endpoints públicos (`@Public()`) — `catalog.controller.ts`
+- `GET /api/v1/catalog/featured-set/value-history?range=` → `SetValueHistoryResponse`. Set destacado
+  resuelto server-side (el front NO hardcodea id). Sin `CardSet` → `set:null, points:[], change flat`.
+- `GET /api/v1/catalog/sets/:id/value-history?range=` → igual, por id **local** del `CardSet`; `404` si
+  no existe; sin snapshots → `points:[]` con `set` resuelto.
+- `range` default `1m`; conjunto `5d|15d|1m|3m|6m|1y|ytd|all` (inválido cae a `1m`).
+
+### 29.6 Disparos manuales admin (super_admin, auditados) — `admin-jobs.controller.ts`
+`POST /api/v1/admin/jobs/set-price-sync` y `POST /api/v1/admin/jobs/set-value-snapshot`, para **sembrar
+el primer punto sin esperar al cron**. Auditados como `jobs.set_price_sync.run` /
+`jobs.set_value_snapshot.run` (`entityType='Job'`), taxonomía uniforme con los demás disparos.
+
+### 29.7 Semilla histórica — qué hice (honesto, sin fabricar)
+**NO se hizo backfill.** pokemontcg.io solo entrega el precio de **HOY** (TCGPlayer `market`), sin
+historial; y las cartas del set fuera de bóveda no tienen `PriceReference` de fechas previas. No existe
+una fuente pública **legítima y fiable** de histórico real de precios integrable en el MVP sin costo. Por
+tanto la serie **arranca hoy** (primer `set-value-snapshot`, sembrable a mano por el disparo admin) y
+**crece a diario**. Se respeta "NUNCA fabriques puntos ni simules mercado": un día sin snapshot no tiene
+punto; el campo `estimated?` del DTO queda reservado y sin uso.
+
+### 29.8 Env para **devops** (NO edité `.env.example` — lo lleva devops)
+- `HOME_FEATURED_SET_ID` (opcional): id **nativo pokemontcg.io** del set destacado (ej. `sv8`). Si no se
+  setea o no resuelve a un `CardSet` local, aplica el **fallback determinista** (§29.2) — el feature no
+  se bloquea sin la env. Recomendado: un set Scarlet & Violet reciente y líquido. Reutiliza el
+  `POKEMONTCG_IO_API_KEY` existente para el rate-limit del free tier.
+
+### 29.9 Tests + gates (desde `backend/`)
+- `test/set-value.spec.ts` (**NUEVO**): `computeSetValue` (excluye sin-precio, cuenta priced/total,
+  dedupe del más reciente por carta, **2 queries = sin N+1**, cota `capturedDate<=asOf`, set vacío);
+  `resolveFeaturedSet` (los 4 escalones de la cascada + env que no resuelve); `valueHistory` (vacío→flat,
+  ascendente→up con pct, valor inicial 0→pct null, rango inválido→1m); endpoints `featuredSetHistory`/
+  `setHistoryById` (con/sin snapshots, `set:null`, `404`); jobs `set-value-snapshot` (upsert idempotente)
+  y `set-price-sync` (recorre por `setId` **sin InventoryItem** + `escalate=false`).
+- Actualizados: `test/scheduler.spec.ts` (ahora **9 crons**, verifica `30 6`/`15 7` y el ruteo del
+  worker) y `test/admin-jobs.controller.spec.ts` (2 disparos nuevos auditados).
+- Resultado: **`lint`, `typecheck`, `build` verdes**; **57 suites / 371 tests verdes** (`npx jest`).
+  Antes del cambio: 56 suites / ~350 tests. `prisma validate` OK (con `DATABASE_URL` dummy).

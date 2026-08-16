@@ -36,6 +36,8 @@ import type {
   BreakdownDTO,
   PortfolioRange,
   PortfolioHistoryResponse,
+  SetValueRange,
+  SetValueHistoryResponse,
   AuthResponse,
   VerifyEmailResponse,
   ResendVerificationResponse,
@@ -182,6 +184,23 @@ export async function getPortfolioHistory(
     return apiRequest<PortfolioHistoryResponse>('/vault/portfolio/history', { query: { range } });
   }
   return delay(fx.generatePortfolioHistory(range));
+}
+
+/**
+ * Serie PÚBLICA del valor de mercado del "set destacado" para el hero de la home
+ * (contrato GET /catalog/featured-set/value-history, v1.9-set-chart). El set destacado
+ * lo resuelve el backend (env HOME_FEATURED_SET_ID + fallback); el front NO envía ni
+ * hardcodea id. `set` puede ser null (no hay CardSet para graficar → el hero degrada).
+ */
+export async function getFeaturedSetValueHistory(
+  range: SetValueRange = '1m',
+): Promise<SetValueHistoryResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SetValueHistoryResponse>('/catalog/featured-set/value-history', {
+      query: { range },
+    });
+  }
+  return delay(fx.generateFeaturedSetValueHistory(range));
 }
 
 // ---------- Checkout / órdenes ----------

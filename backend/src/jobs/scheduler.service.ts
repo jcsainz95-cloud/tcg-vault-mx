@@ -9,6 +9,8 @@ import { IneRetentionJobService } from './ine-retention.service';
 import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
+import { SetPriceSyncJobService } from './set-price-sync.service';
+import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 
 const QUEUE_NAME = 'tcg-daily';
 
@@ -40,6 +42,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly buylistSweep: BuylistSweepJobService,
     private readonly disputeDeadline: DisputeDeadlineJobService,
     private readonly authTokenSweep: AuthTokenSweepJobService,
+    private readonly setPriceSync: SetPriceSyncJobService,
+    private readonly setValueSnapshot: SetValueSnapshotJobService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -59,7 +63,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // barridos de PII/plazos/housekeeping en su propia franja para no solaparse.
     await this.queue.add('fx-refresh', {}, this.repeat('fx-refresh', '0 6 * * *'));
     await this.queue.add('price-sync', {}, this.repeat('price-sync', '15 6 * * *'));
+    // v1.9-set-chart: orden duro FX → set-price-sync → set-value-snapshot (§4.12c).
+    await this.queue.add('set-price-sync', {}, this.repeat('set-price-sync', '30 6 * * *'));
     await this.queue.add('portfolio-snapshot', {}, this.repeat('portfolio-snapshot', '0 7 * * *'));
+    await this.queue.add('set-value-snapshot', {}, this.repeat('set-value-snapshot', '15 7 * * *'));
     await this.queue.add('ine-retention', {}, this.repeat('ine-retention', '30 7 * * *'));
     await this.queue.add('dispute-deadline', {}, this.repeat('dispute-deadline', '45 7 * * *'));
     await this.queue.add('buylist-sweep', {}, this.repeat('buylist-sweep', '0 8 * * *'));
@@ -73,8 +80,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
             return this.fxRefresh.run();
           case 'price-sync':
             return this.priceSync.run();
+          case 'set-price-sync':
+            return this.setPriceSync.run();
           case 'portfolio-snapshot':
             return this.portfolioSnapshot.run();
+          case 'set-value-snapshot':
+            return this.setValueSnapshot.run();
           case 'ine-retention':
             return this.ineRetention.run();
           case 'buylist-sweep':
@@ -94,8 +105,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Job ${job?.name} falló: ${err.message}`),
     );
     this.logger.log(
-      'Scheduler activo (BullMQ): fx-refresh, price-sync, portfolio-snapshot, ine-retention, ' +
-        'buylist-sweep, dispute-deadline, auth-token-sweep diarios.',
+      'Scheduler activo (BullMQ): fx-refresh, price-sync, set-price-sync, portfolio-snapshot, ' +
+        'set-value-snapshot, ine-retention, buylist-sweep, dispute-deadline, auth-token-sweep diarios.',
     );
   }
 

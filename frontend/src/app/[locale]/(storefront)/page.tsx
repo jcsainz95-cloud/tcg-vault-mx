@@ -10,7 +10,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
-import { PortfolioGlance } from '@/components/domain/PortfolioTrendChart';
+import { PortfolioGlance, FeaturedSetGlance } from '@/components/domain/PortfolioTrendChart';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
 
@@ -149,14 +149,22 @@ export default function HomePage() {
             </>
           ) : (
             <div className="gutter flex flex-1 flex-col py-9">
-              {[t('trustAuth'), t('trustCustody'), t('trustPrice')].map((line, i) => (
-                <p
-                  key={i}
-                  className="border-b border-border py-4 text-[15px] leading-relaxed text-text first:pt-0 last:border-b-0"
-                >
-                  {line}
-                </p>
-              ))}
+              {/* §7.18: la gráfica de mercado del set destacado ENCABEZA el panel (el gancho
+                  para el visitante anónimo); degrada a null si no hay set / historial / error,
+                  y entonces el panel cae a su forma previa (líneas de confianza + "Entrar"). */}
+              <FeaturedSetGlance />
+              {/* Las 3 líneas de confianza se podan a 2 (custodia + precio real; la de
+                  autenticación se omite por espacio para no empujar el CTA fuera de vista). */}
+              <div className="mt-9 flex flex-col">
+                {[t('trustCustody'), t('trustPrice')].map((line, i) => (
+                  <p
+                    key={i}
+                    className="border-b border-border py-4 text-[15px] leading-relaxed text-text first:pt-0 last:border-b-0"
+                  >
+                    {line}
+                  </p>
+                ))}
+              </div>
               {/* mt-auto ancla la invitación al pie de la columna: sin sesión el panel
                   se queda corto frente al hero y colgaba en el aire. */}
               <Link

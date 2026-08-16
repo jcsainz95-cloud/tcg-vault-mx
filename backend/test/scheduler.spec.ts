@@ -6,6 +6,8 @@ import { IneRetentionJobService } from '../src/jobs/ine-retention.service';
 import { BuylistSweepJobService } from '../src/jobs/buylist-sweep.service';
 import { DisputeDeadlineJobService } from '../src/jobs/dispute-deadline.service';
 import { AuthTokenSweepJobService } from '../src/jobs/auth-token-sweep.service';
+import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
+import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 
 // BullMQ + ioredis mockeados: capturamos qué jobs se programan sin infra real (Redis).
 const addMock = jest.fn().mockResolvedValue(undefined);
@@ -37,9 +39,15 @@ const ine = { run: jest.fn().mockResolvedValue({ purged: 0, scanned: 0 }) } as u
 const sweep = { run: jest.fn().mockResolvedValue({ rejected: 0, abandoned: 0 }) } as unknown as BuylistSweepJobService;
 const dispute = { run: jest.fn().mockResolvedValue({ expired: 0 }) } as unknown as DisputeDeadlineJobService;
 const tokens = { run: jest.fn().mockResolvedValue({ deleted: 0 }) } as unknown as AuthTokenSweepJobService;
+const setPrice = {
+  run: jest.fn().mockResolvedValue({ setId: 's1', priced: 10, total: 10 }),
+} as unknown as SetPriceSyncJobService;
+const setSnap = {
+  run: jest.fn().mockResolvedValue({ setId: 's1', totalValueMxnCents: 0, pricedCardCount: 0, totalCardCount: 0 }),
+} as unknown as SetValueSnapshotJobService;
 
 function build(config: ConfigService) {
-  return new SchedulerService(config, jobs, fx, snap, ine, sweep, dispute, tokens);
+  return new SchedulerService(config, jobs, fx, snap, ine, sweep, dispute, tokens, setPrice, setSnap);
 }
 
 /**
@@ -69,7 +77,7 @@ describe('SchedulerService — gating por REDIS_URL', () => {
   });
 });
 
-describe('SchedulerService — con REDIS_URL programa los 7 jobs diarios', () => {
+describe('SchedulerService — con REDIS_URL programa los 9 jobs diarios', () => {
   beforeEach(() => {
     addMock.mockClear();
     workerProcessor = undefined;
@@ -85,7 +93,10 @@ describe('SchedulerService — con REDIS_URL programa los 7 jobs diarios', () =>
     expect(byName).toEqual({
       'fx-refresh': '0 6 * * *',
       'price-sync': '15 6 * * *',
+      // v1.9-set-chart: orden duro FX → set-price-sync (30 6) → set-value-snapshot (15 7).
+      'set-price-sync': '30 6 * * *',
       'portfolio-snapshot': '0 7 * * *',
+      'set-value-snapshot': '15 7 * * *',
       'ine-retention': '30 7 * * *',
       'dispute-deadline': '45 7 * * *',
       'buylist-sweep': '0 8 * * *',
@@ -98,10 +109,14 @@ describe('SchedulerService — con REDIS_URL programa los 7 jobs diarios', () =>
     await workerProcessor!({ name: 'buylist-sweep' });
     await workerProcessor!({ name: 'dispute-deadline' });
     await workerProcessor!({ name: 'auth-token-sweep' });
+    await workerProcessor!({ name: 'set-price-sync' });
+    await workerProcessor!({ name: 'set-value-snapshot' });
     expect(ine.run).toHaveBeenCalled();
     expect(sweep.run).toHaveBeenCalled();
     expect(dispute.run).toHaveBeenCalled();
     expect(tokens.run).toHaveBeenCalled();
+    expect(setPrice.run).toHaveBeenCalled();
+    expect(setSnap.run).toHaveBeenCalled();
 
     await svc.onModuleDestroy();
   });

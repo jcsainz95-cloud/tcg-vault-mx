@@ -138,6 +138,39 @@ export interface PortfolioHistoryResponse {
   change: { absMxnCents: number; pct: number | null; direction: 'up' | 'down' | 'flat' };
 }
 
+// v1.9-set-chart: gráfica PÚBLICA del valor de mercado agregado de un SET (hero de la home).
+// Punto de la serie diaria (misma línea que PortfolioPointDTO). valueMxnCents = SUM de la
+// PriceReference (acabado normal/raw) de las cartas PRICEADAS del set ese día; pricedCardCount =
+// cuántas cartas entraron al total (las sin precio se excluyen, no se inventan). estimated?
+// reservado (la serie no tiene backfill en el MVP).
+export interface SetValuePointDTO {
+  date: string;
+  valueMxnCents: number;
+  pricedCardCount: number;
+  estimated?: boolean;
+}
+
+// v1.9-set-chart: cabecera del set graficado. id = id LOCAL del CardSet (no el externalId).
+// Datos de catálogo públicos de pokemontcg.io (en inglés, no se traduce); series/releaseDate opcionales.
+export interface SetRefDTO {
+  id: string;
+  name: string;
+  series?: string;
+  releaseDate?: string;
+}
+
+// v1.9-set-chart: rango de la serie (mismo conjunto que PortfolioRange).
+export type SetValueRange = '5d' | '15d' | '1m' | '3m' | '6m' | '1y' | 'ytd' | 'all';
+
+// v1.9-set-chart: respuesta de GET /catalog/featured-set/value-history (y el genérico por-id).
+// `set` es null si no hay ningún CardSet para graficar (el hero degrada sin error).
+export interface SetValueHistoryResponse {
+  set: SetRefDTO | null;
+  range: SetValueRange;
+  points: SetValuePointDTO[];
+  change: { absMxnCents: number; pct: number | null; direction: 'up' | 'down' | 'flat' };
+}
+
 export interface BreakdownDTO {
   subtotalCents: number;
   ivaCents: number;

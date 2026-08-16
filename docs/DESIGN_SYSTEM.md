@@ -880,6 +880,95 @@ portafolio (§7.8) puede incluir un **sparkline** de ~30–60px de alto (rango c
 de tendencia y el delta como subtítulo (mismo patrón signo+flecha). Es decorativo-informativo; su
 alternativa textual es el propio delta del StatCard. Reutiliza `history` para no pedir datos extra.
 
+### 7.18 Gráfica pública de valor de set — hero de la home (`FeaturedSetGlance`) — v1.9-set-chart
+Panel derecho del hero (`(storefront)/page.tsx`, columna **"TU BÓVEDA"**), **rama del visitante ANÓNIMO**.
+Hoy sin sesión ese panel solo muestra 3 líneas de confianza + "Entrar", así que el cliente a atraer **no ve
+ninguna gráfica**. Esta sección define el gancho: una **gráfica de MERCADO del "set destacado"** (valor real
+del set en el tiempo), como espejo público del `PortfolioGlance` que ve el usuario con sesión. Consume
+`GET /api/v1/catalog/featured-set/value-history?range=1m` → `SetValueHistoryResponse` (§API_CONTRACT
+v1.9-set-chart). **Es la misma familia visual que §7.17 — NO se inventa un lenguaje nuevo:** reutiliza la
+cifra grande tabular, el `Delta` (signo+flecha+color de tendencia) y el `Sparkline` desnudo del componente
+`PortfolioTrendChart.tsx` (los sub-componentes `Delta`/`Sparkline` ya existen y son reutilizables).
+
+**Regla de conmutación del panel (qué ve cada quién):**
+- **Con sesión:** se mantiene **exactamente** el `PortfolioGlance` personal + "valor por set" como está hoy
+  (§7.17). Esta sección **no toca** la rama autenticada.
+- **Sin sesión (anónimo):** la **gráfica de mercado del set destacado ENCABEZA el panel** (es el gancho, va
+  arriba, en el mismo hueco donde el usuario con sesión ve su cifra) y **debajo se conservan 1–2 líneas de
+  confianza** + el enlace "Entrar". Decisión de gancho: el dato de mercado real **atrae** (muestra que los
+  precios son vivos y verificables); las 3 líneas de confianza se **podan a 2** (custodia + precio real; la de
+  autenticación puede omitirse por espacio) para no empujar el CTA fuera de la vista. El enlace "Entrar"
+  permanece anclado al pie (`mt-auto`), sin cambios.
+
+**Anatomía (arriba → abajo), reusando §7.17:**
+1. **Cabecera del panel:** se conserva la fila existente `eyebrow` **"TU BÓVEDA / YOUR VAULT"** a la izquierda
+   y **"MXN · sin IVA"** a la derecha (coherente con toda la home; el valor es referencia de mercado sin IVA).
+2. **Sub-encabezado del set:** el **nombre del set** (`set.name`, de catálogo, en inglés, `lang="en"`, NO se
+   traduce) como rótulo `font-serif`/`text-text`, con una **etiqueta `eyebrow`** debajo/al lado tipo **"Valor de
+   mercado · Set destacado" / "Market value · Featured set"**. Deja claro que es **referencia de mercado**, no
+   un precio de venta ni una promesa de "valor del set completo" (el total suma solo cartas priceadas —
+   `pricedCardCount`; ver microcopy de nota).
+3. **Cifra grande del valor actual:** último `points[].valueMxnCents`, con el **mismo estilo que §7.17 /
+   `PortfolioGlance`**: `tabular` `text-[32px]…lg:text-[41px]` `font-medium` `tracking-[-0.02em] text-text`.
+   Con `points: []` (serie recién sembrada) la cifra puede faltar → ver "Estado honesto".
+4. **Delta de tendencia:** reutiliza el componente `Delta` con `change` del DTO — signo **+/−**, flecha
+   **▲/▼**, monto y `(±% )`, p. ej. **"▲ +MX$ 34,700 (+2.70 %)"**; color sube = success verde `#4E7A49`
+   (token vivo `#4a7345`), baja = danger bermellón `#B44B3A`, plano = `#6E695E` con "Sin cambios". **Nunca solo
+   color:** signo+flecha son el portador primario (daltonismo), idéntico a §7.17.
+5. **Sparkline desnudo:** la **polilínea** de `points` con el color de tendencia, reutilizando el `Sparkline`
+   de §7.17 (1.5px, sin ejes, sin retícula, sin relleno, sin dot). Minimalismo 5a intacto (radios 0, sombras 0).
+   Sin fila de rangos ni tabla (es un "glance", como `PortfolioGlance`); el rango es fijo **1m** (default del
+   endpoint). Opcional: 1–2 líneas de confianza **debajo** de este bloque.
+
+**Estado honesto — NO dibujar curva falsa (obligatorio):**
+- **< 2 puntos** (`points.length < 2`; incluye el caso `points: []` de serie recién sembrada, y el caso de un
+  único snapshot): el `Sparkline` **no se dibuja** (ya devuelve `null` con `< 2` puntos, mismo criterio que
+  §7.17 — no fabricar una línea plana ni un cero engañoso). Se muestra la **cifra de hoy** si hay al menos 1
+  punto (o se degrada al sub-encabezado si `points: []`), y un **microcopy** neutro `text-xs muted` bajo el
+  delta. No es un error, no lleva banner `danger` ni iconografía de alarma.
+- **Microcopy del estado "recopilando historial" (ES / EN):**
+  - Título/línea corta: **"Recopilando historial"** / **"Collecting history"**.
+  - Frase de apoyo (opcional, `text-sm muted`): **"La tendencia de este set aparecerá cuando tengamos un par
+    de días de historia."** / **"This set's trend will appear once we have a couple of days of history."**
+  - Con exactamente 1 punto (hay cifra de hoy pero no curva): se muestra la cifra + **"Recopilando historial"**
+    (misma línea), reservando la curva para cuando haya ≥ 2 puntos.
+- **`set: null`** (no hay ningún `CardSet` para graficar): el hero **degrada sin error** — se omite todo el
+  bloque de gráfica y el panel anónimo cae a su forma previa (líneas de confianza + "Entrar"). Nunca mostrar
+  un placeholder roto ni un cero.
+- **Tendencia negativa:** estado **legítimo** (no error) — bermellón + ▼ + signo −, sin banners de alarma
+  (idéntico a §7.17).
+- **Cargando:** skeleton de la cifra + skeleton de la polilínea (~90px, como §7.17), sin spinner.
+- **Error de carga:** el bloque de gráfica degrada silenciosamente a las líneas de confianza (el hero **no**
+  puede quedar roto por un fallo de un endpoint público secundario); opcionalmente un mini "Reintentar"
+  discreto. Prioridad: que el hero siempre renderice su promesa.
+
+**Accesibilidad (no negociable):**
+- **Foco visible intacto:** el enlace "Entrar" y cualquier control conservan el anillo `--shadow-focus` /
+  `:focus-visible` bermellón (§8.2). Esta sección **no** introduce controles nuevos que puedan atrapar foco ni
+  altera el orden de tabulación del panel.
+- **La polilínea es decorativa:** el `Sparkline` va **`aria-hidden`** (se invoca con `summary=""`, igual que en
+  `PortfolioGlance`, para no emitir un `role="img"` con `aria-label` vacío). **El `Delta` narra el cambio** en
+  texto (signo+flecha+monto+%), que es el portador accesible del dato — el lector de pantalla anuncia la
+  variación aunque no "vea" la curva. La **cifra** y el **nombre del set** son texto real, no imagen.
+- **Contraste AA:** cifra/nombre en `text-text` sobre papel, delta en tokens success/danger/muted **ya
+  verificados AA sobre papel en §10**; el microcopy en `text-muted` (`#6E695E`) cumple AA para texto. No se
+  usa color como único canal (delta con signo+flecha; el nombre del set y "Valor de mercado" son texto).
+- **Idioma:** el nombre del set va `lang="en"` (dato de catálogo no traducido); toda la UI alrededor
+  (etiquetas, microcopy) es bilingüe ES/EN vía i18n, default español (coherente con la plataforma).
+
+**Fuente de datos = REAL, nada fabricado:** la serie proviene del snapshot diario `SetValueSnapshot`
+(precios de **pokemontcg.io**, jobs `set-price-sync` + `set-value-snapshot`), **crece a diario** y suma solo
+cartas **priceadas** del set (`pricedCardCount`; las sin precio se excluyen, no se inventan). El set destacado
+se resuelve **server-side** (`HOME_FEATURED_SET_ID` + fallback en cascada); el front **no** hardcodea id.
+Coherente con SEC-A1: el valor se deriva en backend, el cliente solo lo pinta. Por eso el "estado honesto"
+de arriba es una regla dura: si aún no hay ≥ 2 días de historia real, se dice "Recopilando historial" en vez
+de simular una curva.
+
+**Nota de referencia de mercado (microcopy opcional, `text-xs muted`):** para no prometer "valor del set
+completo", se admite una nota tipo **"Referencia de mercado de las cartas con precio de este set."** /
+**"Market reference for the priced cards in this set."** (refleja que `valueMxnCents` = suma de las priceadas,
+no del set entero).
+
 ---
 
 ## 8. Patrones UX transversales
@@ -1114,6 +1203,7 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 
 | Flujo (PROJECT) | Endpoints (CONTRATO) | Componentes clave |
 |---|---|---|
+| Home / hero (panel derecho) | con sesión `GET /vault/portfolio/history`; anónimo `GET /catalog/featured-set/value-history` | Con sesión **PortfolioGlance** + valor por set (§7.17); anónimo **FeaturedSetGlance** (gráfica pública del set destacado, §7.18) + 1–2 líneas de confianza + "Entrar" |
 | Login / Registro | `POST /auth/login`,`/register`,`/google` | Inputs, Button primary, **GoogleSignInButton** (§6.7), divisor "o/or" |
 | **Compra** (ex-Catálogo) | `GET /catalog/cards`, `/facets`, `/sets` | ListingCard (+ variante Sellado §7.1b), **ShopFilters** (§7.16), ConditionBadge NM, PriceTag, Pagination |
 | Ficha de carta | `GET /catalog/cards/:id` | Imagen de catálogo (remota), Tabs (sin "Fotos"), ConditionBadge (NM §7.2b) / **GradedCertChip `PSA 10 · #…`** (§7.2c), PriceTag, CTA |

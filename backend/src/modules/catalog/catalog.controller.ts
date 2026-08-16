@@ -1,10 +1,14 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { CatalogService } from './catalog.service';
+import { SetValueService } from './set-value.service';
 
 @Controller('catalog')
 export class CatalogController {
-  constructor(private readonly catalog: CatalogService) {}
+  constructor(
+    private readonly catalog: CatalogService,
+    private readonly setValue: SetValueService,
+  ) {}
 
   @Public()
   @Get('cards')
@@ -61,5 +65,21 @@ export class CatalogController {
   @Get('sets')
   listSets() {
     return this.catalog.listSets();
+  }
+
+  // v1.9-set-chart — gráfica PÚBLICA del valor del SET DESTACADO (hero de la home). El set se
+  // resuelve server-side (env HOME_FEATURED_SET_ID + fallback, ARCHITECTURE §4.12b); el front NO
+  // hardcodea id. Sin PII: solo valor agregado de mercado. Query ?range= (default 1m).
+  @Public()
+  @Get('featured-set/value-history')
+  featuredSetValueHistory(@Query('range') range = '1m') {
+    return this.setValue.featuredSetHistory(range);
+  }
+
+  // v1.9-set-chart — misma serie para un set específico por su id LOCAL (CardSet.id). 404 si no existe.
+  @Public()
+  @Get('sets/:id/value-history')
+  setValueHistory(@Param('id') id: string, @Query('range') range = '1m') {
+    return this.setValue.setHistoryById(id, range);
   }
 }

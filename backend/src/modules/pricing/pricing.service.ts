@@ -96,6 +96,11 @@ export class PricingService {
     finish: Finish = 'normal',
     context: 'catalog' | 'portfolio' | 'buylist' | 'inventory' = 'inventory',
     refId?: string,
+    // v1.9-set-chart: el `set-price-sync` precia TODO el set destacado (agregación de
+    // mercado/marketing, no bóveda). Con `escalate=false` una carta sin precio NO se encola en
+    // PendingPriceEntry (ARCHITECTURE §4.12a: no inundar la cola con todo el catálogo del set).
+    // Los flujos de bóveda/buylist siguen con el default `true` (nunca se descarta una carta).
+    escalate = true,
   ): Promise<PriceInfo> {
     // Cache diario: ¿ya hay fila de hoy para ESTE acabado?
     const existing = await this.prisma.priceReference.findUnique({
@@ -124,7 +129,10 @@ export class PricingService {
     if (!quote || (quote.priceUsdCents == null && quote.priceMxnCents == null)) {
       // v1.8-ronda-c FIX: propaga `finish` a la cola de pendientes. Antes se encolaba sin acabado,
       // colapsando `normal`/`holofoil` de la misma carta en UNA entrada al escalar.
-      await this.escalatePending(card.id, productType, gradeKey, context, refId, finish);
+      // v1.9-set-chart: `escalate=false` (set-price-sync) NO encola pendientes (§4.12a).
+      if (escalate) {
+        await this.escalatePending(card.id, productType, gradeKey, context, refId, finish);
+      }
       return { status: 'pending' };
     }
 

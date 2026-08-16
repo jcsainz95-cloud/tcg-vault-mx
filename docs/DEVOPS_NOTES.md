@@ -984,3 +984,114 @@ Tres problemas, todos en archivos **propiedad devops** (`security/semgrep.yml`, 
 > CI·backend lo lleva el rol **backend** en paralelo), ni `backend/`, ni `frontend/`, ni
 > `docs/BACKEND_NOTES.md`, ni `docs/TECH_DEBT.md`.
 
+---
+
+## 17. Runbook — encender la gráfica pública del "set destacado" (v1.9-set-chart)
+
+> Contexto: hay una **gráfica pública** en la home con el valor de mercado agregado de un **set
+> destacado**, alimentada por dos jobs diarios que **backend** implementa y cablea en
+> `scheduler.service.ts` (devops NO toca `backend/`). Ver `docs/ARCHITECTURE.md` §4.12 / §5 / §8 / §9 y
+> `docs/API_CONTRACT.md` v1.9-set-chart. Devops solo aporta la env `HOME_FEATURED_SET_ID` (`.env.example`)
+> y este runbook operativo. Todo el flujo usa **datos reales** de pokemontcg.io — la serie **no** se
+> fabrica: crece **1 punto/día** a partir del primer snapshot.
+
+### 17.1 Mecanismo del "set destacado" (env + fallbacks) — cómo lo resuelve el backend
+
+El backend (`SetValueService.resolveFeaturedSet()`) elige el set a graficar en **cascada determinista**:
+
+1. **`HOME_FEATURED_SET_ID`** (env; **id NATIVO de pokemontcg.io**, p. ej. `sv8pt5`): si está seteado y
+   existe un `CardSet` local con ese `externalId`, **ese** es el set destacado.
+2. **Fallback 1 — mayor valor:** si el env no está o no resuelve, se elige el set con mayor
+   `totalValueMxnCents` en su último `SetValueSnapshot`.
+3. **Fallback 2 — más reciente:** si aún no hay ningún snapshot (arranque en frío), se elige el `CardSet`
+   con `releaseDate` más reciente.
+4. **Sin sets:** el endpoint responde `set: null, points: []` y el hero **degrada con elegancia** (sin error).
+
+**Anti-SSRF:** el `set-price-sync` usa el cliente de pokemontcg.io con **host FIJO** y valida el `setId`
+contra `^[a-z0-9]+(-[a-z0-9]+)*$`. Por eso `HOME_FEATURED_SET_ID` es **solo el id** (nunca una URL): un id
+con caracteres fuera de ese patrón se rechaza y no puede redirigir el fetch a otro host.
+
+### 17.2 Set destacado por defecto (valor de ejemplo en `.env.example`)
+
+`HOME_FEATURED_SET_ID=sv8pt5` → **"Prismatic Evolutions"** (serie Scarlet & Violet, `releaseDate`
+2025-01-17). Elegido por ser un set SV reciente, muy líquido y de **alto valor/interés** (Eevee/eeveelutions),
+ideal para un hero. Alternativa igualmente válida: `sv8` = **"Surging Sparks"** (2024-11-08). Ambos son
+**ids nativos de pokemontcg.io**; el operador puede fijar cualquier otro id nativo que quiera destacar.
+
+> **Verificación del id contra pokemontcg.io:** en **esta sesión** la verificación en vivo **no** fue
+> posible — el proxy de egress de la sesión **deniega** `api.pokemontcg.io` (CONNECT → **403** de política);
+> no se puede rutear alrededor. El id `sv8pt5` (y `sv8`) se toma del **esquema de ids público y estable** de
+> pokemontcg.io (series SV: `sv1`…`sv8`, con sets especiales `sv3pt5`=151, `sv4pt5`=Paldean Fates,
+> `sv6pt5`=Shrouded Fables, `sv8pt5`=Prismatic Evolutions). **Confirmación operativa [HUMANO/DEVOPS]:** al
+> ejecutar el Paso 1 con la `POKEMONTCG_IO_API_KEY` real, `GET /admin/catalog/remote-sets` lista los sets
+> remotos con su `id`/`name`/`releaseDate`; verifica ahí que `sv8pt5` aparece antes de fijarlo (o elige otro
+> id de esa lista). Si el id no existiera, `POST /admin/catalog/sync {setId}` no importaría cartas y la
+> gráfica caería a los fallbacks §17.1.
+
+### 17.3 Encendido en producción — pasos (en orden)
+
+> Precondición: backend desplegado con los 2 jobs implementados y cableados en `scheduler.service.ts`
+> (BE, no devops), `REDIS_URL` presente en Railway (para que corran los crons), y — **recomendado** —
+> `POKEMONTCG_IO_API_KEY` cargada en Railway (ver §17.4). Los endpoints admin son **`super_admin`**.
+
+**Paso 1 — [DEVOPS/HUMANO] Sincronizar el set elegido al catálogo local.**
+Importa todas las cartas del set (id **nativo** pokemontcg.io) para que el job pueda preciarlas:
+```
+POST /api/v1/admin/catalog/sync
+{ "setId": "sv8pt5" }        # super_admin; 202 { jobId, setsQueued, mode:"single" }
+```
+Espera a que la cola termine (el set entra como `imported` en `GET /admin/catalog/remote-sets`).
+
+**Paso 2 — [HUMANO] Fijar `HOME_FEATURED_SET_ID` en Railway (servicio `backend`) = el MISMO id nativo.**
+Railway > servicio `backend` > Variables: `HOME_FEATURED_SET_ID=sv8pt5`. Debe ser **idéntico** al `setId`
+del Paso 1, para que el endpoint público y el `set-price-sync` grafiquen/precien el **mismo** set. Redeploy
+del backend para que tome la variable.
+
+**Paso 3 — [DEVOPS] Sembrar el primer punto de la serie (una vez).** Dispara los 2 jobs a mano, **en orden**
+(precio del set → snapshot del día):
+```
+POST /api/v1/admin/jobs/set-price-sync       # super_admin — precia TODAS las cartas del set destacado
+POST /api/v1/admin/jobs/set-value-snapshot   # super_admin — agrega y hace upsert del SetValueSnapshot de hoy
+```
+> Endpoints de disparo manual provistos por **backend** (mismo patrón que `POST /admin/pricing/sync`). El
+> **orden es una restricción dura**: `set-value-snapshot` agrega lo que `set-price-sync` acaba de preciar.
+> Ambos son **idempotentes** por día (`@@unique[setId, asOfDate]`): re-ejecutarlos no duplica.
+
+**Paso 4 — [DEVOPS] Verificar la gráfica.** El endpoint público debe resolver el set y ≥1 punto:
+```
+GET /api/v1/catalog/featured-set/value-history        # public — sin auth
+# Esperado: { set: { … "Prismatic Evolutions" … }, points: [ { asOfDate, totalValueMxnCents, … } ], … }
+```
+Si `set` resuelve pero `points: []`, revisa que el Paso 3 corrió en orden y que el set tiene cartas priceadas
+(Paso 1 completó). Si `set: null`, `HOME_FEATURED_SET_ID` no resolvió a un `CardSet` local → repite Paso 1/2.
+
+### 17.4 Operación continua (a partir del Paso 4)
+
+- **Los 2 crons diarios ya corren solos** con `REDIS_URL` presente (los cablea backend en
+  `scheduler.service.ts`): `set-price-sync` tras `fx-refresh` (cron sugerido `30 6`) y `set-value-snapshot`
+  tras `set-price-sync` (sugerido `15 7`). Orden duro: **FX → precio del set → snapshot del set**. No hay que
+  volver a disparar nada a mano; el Paso 3 es solo la **siembra** del primer día.
+- **La serie crece 1 punto/día** con **datos reales**. Si un día un job no corrió, ese día **no** tiene punto
+  (la API no inventa el punto; ver ARCHITECTURE §4.12d "Sin datos fabricados").
+- **`POKEMONTCG_IO_API_KEY` (RECOMENDADO en Railway):** `set-price-sync` precia el **set completo**
+  (~150-250 cartas) desde pokemontcg.io en cada corrida. **Con** API key el free tier autenticado absorbe el
+  set holgadamente; **sin** ella el límite sin autenticar es más estricto y el preciado puede
+  estrangularse/tardar. Cárgala en el servicio `backend` (ya listada en el bloque `[RW]` de `.env.example` y
+  en el runbook §11.D). El **host** pokemontcg.io es fijo (anti-SSRF, §17.1).
+- **Cambiar de set destacado más adelante:** repetir Paso 1 (sync del nuevo id) → actualizar
+  `HOME_FEATURED_SET_ID` en Railway (Paso 2, redeploy) → sembrar con Paso 3. El set anterior conserva sus
+  snapshots (el modelo soporta N sets); solo deja de ser el que resuelve el endpoint del hero.
+
+### 17.5 Rollback / recuperación de la gráfica
+
+| Escenario | Acción |
+|---|---|
+| **Set destacado mal elegido / id equivocado** | Corregir `HOME_FEATURED_SET_ID` en Railway al id correcto (previo `POST /admin/catalog/sync {setId}` de ese set) + redeploy. No requiere tocar código ni la BD. Mientras se corrige, el endpoint cae a los **fallbacks** (§17.1) y el hero sigue mostrando algo. |
+| **La gráfica sale vacía (`points: []`)** | Re-disparar el Paso 3 **en orden** (`set-price-sync` → `set-value-snapshot`). Verificar que el set tiene cartas priceadas (Paso 1 completó) y `POKEMONTCG_IO_API_KEY` cargada. |
+| **`set: null` en el endpoint** | El env no resolvió a un `CardSet` local: re-sincronizar el set (Paso 1) y confirmar que `HOME_FEATURED_SET_ID` = id nativo importado. |
+| **Snapshot de un día con valor anómalo** | No se borra desde infra (es dato de negocio, propiedad backend). El upsert idempotente lo corrige si se re-corre `set-value-snapshot` el mismo día; un día ya cerrado se corrige por el rol backend, no por devops. |
+
+> Estos jobs **no** mueven dinero ni tocan PII: la gráfica es 100% valor de mercado agregado del set
+> (derivado server-side de `PriceReference`; SEC-A1 intacto). Un fallo de la gráfica **no** bloquea checkout,
+> bóveda ni buylist — degrada aislado.
+

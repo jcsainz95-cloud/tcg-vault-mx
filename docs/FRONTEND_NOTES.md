@@ -4,6 +4,73 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## v1.9-set-chart · Gráfica pública del valor del set destacado en el hero (2026-08-16)
+
+Contrato: **API_CONTRACT v1.9-set-chart** (`GET /catalog/featured-set/value-history?range=`, DTOs
+`SetValueHistoryResponse` / `SetValuePointDTO` / `SetRefDTO` / `SetValueRange`). Diseño: **DESIGN_SYSTEM
+§7.18** (`FeaturedSetGlance`) reusando §7.17. Solo `frontend/` + esta nota. **No** se tocó backend, contrato,
+`DESIGN_SYSTEM.md`, `.env.example` ni `TECH_DEBT.md`. Gates verdes: `lint` ✓ · `typecheck` ✓ · `vitest`
+**163/163** (30 archivos) · `next build` ✓. Playwright **no** ejecutado aquí (requiere el stack corriendo;
+lo corre QA) — el e2e de home solo verifica nav + toggle de idioma, no la rama anónima, así que no se rompe.
+
+### Qué se implementó
+- **Tipos (`types/contract.ts`):** `SetValuePointDTO`, `SetRefDTO`, `SetValueRange`, `SetValueHistoryResponse`
+  — espejo literal del contrato (`set: SetRefDTO | null`, `points`, `change`).
+- **API helper (`lib/api.ts`):** `getFeaturedSetValueHistory(range = '1m')` → `GET
+  /catalog/featured-set/value-history?range=` cuando `!useMocks`; en mock delega a
+  `fx.generateFeaturedSetValueHistory`. El front **no** envía ni hardcodea id de set (lo resuelve el backend).
+- **Componente `FeaturedSetGlance` (en `PortfolioTrendChart.tsx`, junto a `PortfolioGlance`):** vive en el
+  mismo archivo para **reusar** los subcomponentes privados `Delta` y `Sparkline` sin exportarlos. Query
+  `['featured-set-history','1m']` (rango fijo 1m, es un "glance"). Renderiza sub-encabezado (nombre del set
+  `lang="en"`, no traducido, + etiqueta `eyebrow` "Valor de mercado · Set destacado"), cifra grande tabular
+  (mismo estilo `text-[32px]…lg:text-[41px]` que `PortfolioGlance`), `Delta` (signo+flecha+color, portador
+  accesible del cambio) y `Sparkline` desnudo con `summary=""` → `aria-hidden` (la curva es decorativa).
+- **Home `page.tsx` (rama ANÓNIMA):** `FeaturedSetGlance` **encabeza** el panel derecho; debajo se conservan
+  **2** líneas de confianza (custodia + precio real; la de autenticación se poda por espacio, §7.18) y el
+  enlace de acceso (`nav.login`) sigue anclado al pie con `mt-auto`. La rama **con sesión** (`PortfolioGlance`
+  + valor por set) **no** cambia.
+
+### Cómo se renderiza la gráfica y el estado vacío (regla dura "nada fabricado")
+- **≥ 2 puntos:** cifra de hoy + `Delta` + `Sparkline` (polilínea 1.5px, sin ejes/retícula/relleno/dot).
+- **1 punto:** cifra de hoy + microcopy `text-muted` **"Recopilando historial"** en la misma línea; **sin**
+  curva (el `Sparkline` ya devuelve `null` con `< 2` puntos) y sin delta engañoso.
+- **`points: []`** (serie recién sembrada): se degrada al sub-encabezado (nombre + etiqueta) + "Recopilando
+  historial" + frase de apoyo; **sin** cifra, sin curva.
+- **`set === null` / error / (loading fallido):** el componente **renderiza `null`** → el panel anónimo cae a
+  su forma previa (2 líneas de confianza + acceso). El hero nunca queda roto por este endpoint secundario.
+- **Cargando:** skeleton de cifra + skeleton de polilínea (~90px), sin spinner.
+- Tendencia negativa = estado legítimo (bermellón + ▼ + signo −), sin banner de alarma. Anillo `shadow-focus`
+  intacto; el componente **no** añade controles que atrapen foco ni altera el orden de tabulación.
+
+### Mock añadido (`lib/mock/fixtures.ts`)
+- **`generateFeaturedSetValueHistory(range)`:** serie determinista de "Surging Sparks" (id local `sv08`),
+  valor agregado alto (~MX$1.32M = suma de ~184 cartas priceadas) con tendencia mensual **sobria** (~+2.7%) y
+  ruido acotado (~0.4% via seno) — **sin** rally fabricado. `pricedCardCount` plausible (182–184).
+- **`mockFeaturedSetHistoryEmpty`** (`set` presente, `points: []`) y **`mockFeaturedSetHistoryNull`**
+  (`set: null`) para ejercer los estados honestos en tests sin backend.
+
+### i18n nuevas (ES/EN, bajo `home.featuredSet`) — paridad verificada por `i18n-parity.test.ts`
+- `label`: **"Valor de mercado · Set destacado"** / **"Market value · Featured set"**.
+- `collectingTitle`: **"Recopilando historial"** / **"Collecting history"**.
+- `collectingBody`: **"La tendencia de este set aparecerá cuando tengamos un par de días de historia."** /
+  **"This set's trend will appear once we have a couple of days of history."**
+- `marketRefNote` (nota anti-promesa): **"Referencia de mercado de las cartas con precio de este set."** /
+  **"Market reference for the priced cards in this set."**
+- El `Delta`/`Sparkline` reusan las claves existentes de `portfolio.trend` (noChange/up/down/flat).
+
+### Tests
+- **`PortfolioTrendChart.test.tsx`** (`FeaturedSetGlance §7.18`): pide `1m`; serie ≥2 puntos (nombre `lang=en`
+  + etiqueta + cifra + `▲` + `2.70`, sin microcopy); 1 punto (cifra + "Recopilando historial", sin `svg`);
+  `points: []` (sub-encabezado + "Recopilando historial", sin `svg`); `set: null` (render vacío).
+- **`(storefront)/page.test.tsx`** (nuevo): con sesión anónima el panel muestra la gráfica del set destacado
+  (etiqueta + nombre `lang=en`), conserva **2** líneas de confianza (no la de autenticación) y el enlace de
+  acceso al pie.
+
+### Solicitudes al arquitecto
+- Ninguna. El contrato v1.9-set-chart cubre todo lo necesario (endpoint público + DTOs). El endpoint genérico
+  por-id `GET /catalog/sets/:id/value-history` existe en el contrato pero **no** se consume aún (el hero usa
+  el resuelto server-side); queda disponible para una futura gráfica de "otro set".
+
 ## Ronda C · BE-10 — Bóveda de la ficha 360° con acabado + valor (2026-08-16)
 
 Contrato: **API_CONTRACT v1.8-ronda-c** (§M6 nota BE-10, §11 `AdminUserOwnedItemRef`). La proyección de la

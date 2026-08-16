@@ -28,6 +28,9 @@ import type {
   PortfolioHistoryResponse,
   PortfolioPointDTO,
   PortfolioRange,
+  SetValueHistoryResponse,
+  SetValuePointDTO,
+  SetValueRange,
   KycInfoDTO,
   FxDTO,
   PendingPriceEntryDTO,
@@ -375,6 +378,85 @@ export function generatePortfolioHistory(range: PortfolioRange): PortfolioHistor
   const direction = absMxnCents > 0 ? 'up' : absMxnCents < 0 ? 'down' : 'flat';
   return { range, points, change: { absMxnCents, pct, direction } };
 }
+
+/**
+ * MOCK v1.9-set-chart: serie PÚBLICA del valor de mercado del "set destacado" para el hero
+ * (contrato GET /catalog/featured-set/value-history). El set destacado lo resuelve el backend;
+ * aquí devolvemos Surging Sparks como espejo del catálogo. Datos SOBRIOS: valor agregado alto
+ * (suma de ~184 cartas priceadas) con una tendencia mensual leve (~+2.7%), NO un rally fabricado.
+ * Termina en un valor "de hoy" determinista y crea el histórico con ruido reproducible.
+ */
+const FEATURED_SET_REF = {
+  id: 'sv08',
+  name: 'Surging Sparks',
+  series: 'Scarlet & Violet',
+  releaseDate: '2024/11/08',
+} as const;
+
+const SET_RANGE_DAYS: Record<SetValueRange, number> = {
+  '5d': 5,
+  '15d': 15,
+  '1m': 30,
+  '3m': 90,
+  '6m': 180,
+  '1y': 365,
+  ytd: 226,
+  all: 300, // el set salió nov-2024; la serie real solo crece desde que se sembró el snapshot
+};
+
+export function generateFeaturedSetValueHistory(range: SetValueRange): SetValueHistoryResponse {
+  const days = SET_RANGE_DAYS[range];
+  const end = 131920000; // MX$1,319,200 — suma de las cartas priceadas del set (referencia)
+  const start = Math.round(end * 0.973); // ~+2.7% en el rango de 1m (movimiento sobrio)
+  const today = new Date('2026-08-14T00:00:00Z');
+  const points: SetValuePointDTO[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() - i);
+    const progress = days > 1 ? (days - 1 - i) / (days - 1) : 1;
+    // Ruido determinista via seno; amplitud contenida (~0.4% del valor) para no simular volatilidad.
+    const noise = Math.sin((i + range.length) * 1.1) * end * 0.004;
+    const value = Math.round(start + (end - start) * progress + noise);
+    points.push({
+      date: d.toISOString().slice(0, 10),
+      valueMxnCents: Math.max(0, value),
+      pricedCardCount: 182 + (i % 3 === 0 ? 2 : i % 2 === 0 ? 1 : 0),
+    });
+  }
+  if (points.length > 0) {
+    points[points.length - 1].valueMxnCents = end;
+    points[points.length - 1].pricedCardCount = 184;
+  }
+  const first = points[0];
+  const last = points[points.length - 1];
+  const absMxnCents = last ? last.valueMxnCents - first.valueMxnCents : 0;
+  const pct =
+    !first || first.valueMxnCents === 0 ? null : Math.round((absMxnCents / first.valueMxnCents) * 10000) / 100;
+  const direction = absMxnCents > 0 ? 'up' : absMxnCents < 0 ? 'down' : 'flat';
+  return { set: { ...FEATURED_SET_REF }, range, points, change: { absMxnCents, pct, direction } };
+}
+
+/**
+ * MOCK v1.9-set-chart: serie recién sembrada — hay set pero aún NO hay historial (points: []).
+ * El "estado honesto" del hero (§7.18) debe decir "Recopilando historial" en vez de fabricar curva.
+ */
+export const mockFeaturedSetHistoryEmpty: SetValueHistoryResponse = {
+  set: { ...FEATURED_SET_REF },
+  range: '1m',
+  points: [],
+  change: { absMxnCents: 0, pct: null, direction: 'flat' },
+};
+
+/**
+ * MOCK v1.9-set-chart: no hay ningún CardSet para graficar (set: null). El hero degrada sin
+ * error: se omite el bloque de gráfica y el panel anónimo cae a su forma previa.
+ */
+export const mockFeaturedSetHistoryNull: SetValueHistoryResponse = {
+  set: null,
+  range: '1m',
+  points: [],
+  change: { absMxnCents: 0, pct: null, direction: 'flat' },
+};
 
 export const mockOrders: OrderSummaryDTO[] = [
   { id: 'ord-9001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },

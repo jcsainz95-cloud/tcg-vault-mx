@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Line, LineChart, ResponsiveContainer } from 'recharts';
-import { getPortfolioHistory } from '@/lib/api';
+import { getPortfolioHistory, getFeaturedSetValueHistory } from '@/lib/api';
 import type { PortfolioRange } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
@@ -348,6 +348,94 @@ export function PortfolioGlance({ fallbackCents }: { fallbackCents?: number }) {
       <div className="hidden sm:block">
         <Sparkline points={points} color={trendColor} summary="" dashed={false} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Gráfica PÚBLICA del valor de mercado del "set destacado" para el hero de la home,
+ * rama del visitante ANÓNIMO (DESIGN_SYSTEM §7.18, v1.9-set-chart). Espejo público del
+ * `PortfolioGlance`: reutiliza la MISMA familia visual (cifra grande tabular, `Delta` con
+ * signo+flecha+color, `Sparkline` desnudo aria-hidden) — no se inventa un lenguaje nuevo.
+ *
+ * Estado honesto (obligatorio): con < 2 puntos NO se dibuja curva (no fabricar una línea
+ * plana ni un cero engañoso); se muestra la cifra de hoy si hay ≥ 1 punto + microcopy
+ * "Recopilando historial". Si `set === null` (o error/loading fallido) degrada a `null`
+ * para que el panel anónimo caiga a su forma previa (líneas de confianza + "Entrar").
+ */
+export function FeaturedSetGlance() {
+  const t = useTranslations('home.featuredSet');
+  const locale = useLocale() as AppLocale;
+  const colors = useTrendColors();
+  const query = useQuery({
+    queryKey: ['featured-set-history', '1m'],
+    queryFn: () => getFeaturedSetValueHistory('1m'),
+  });
+
+  // Cargando: skeleton de cifra + polilínea (~90px), sin spinner (§7.18).
+  if (query.isLoading) {
+    return (
+      <div className="flex items-end justify-between gap-6">
+        <div className="min-w-0 flex-1">
+          <Skeleton className="h-9 w-40" />
+          <Skeleton className="mt-3 h-3 w-28" />
+        </div>
+        <Skeleton className="hidden h-[90px] w-[200px] sm:block" />
+      </div>
+    );
+  }
+
+  const data = query.data;
+  // Error o set === null → el hero no puede quedar roto por un endpoint público secundario:
+  // degrada silenciosamente y el panel cae a su forma previa (líneas de confianza + "Entrar").
+  if (query.isError || !data || data.set === null) return null;
+
+  const { set } = data;
+  const points = data.points;
+  const trendColor = colors[data.change.direction];
+  const hasCurve = points.length >= 2;
+  const hasFigure = points.length >= 1;
+  const currentValueCents = hasFigure ? points[points.length - 1].valueMxnCents : 0;
+
+  return (
+    <div>
+      {/* Sub-encabezado del set: nombre en inglés (catálogo, no se traduce) + etiqueta de mercado. */}
+      <div>
+        <p className="font-serif text-lg leading-snug text-text" lang="en">
+          {set.name}
+        </p>
+        <span className="eyebrow mt-1 block">{t('label')}</span>
+      </div>
+
+      <div className="mt-5 flex items-end justify-between gap-6">
+        <div className="min-w-0">
+          {hasFigure && (
+            <div className="tabular text-[32px] font-medium leading-none tracking-[-0.02em] text-text lg:text-[41px]">
+              {formatMoneyCents(currentValueCents, locale)}
+            </div>
+          )}
+          {hasCurve ? (
+            <Delta data={data} color={trendColor} />
+          ) : (
+            // < 2 puntos: sin curva, sin delta engañoso. Microcopy neutro (no es un error).
+            <p className={cn('font-mono text-[11px] text-muted', hasFigure && 'mt-2.5')}>
+              {t('collectingTitle')}
+            </p>
+          )}
+        </div>
+        {hasCurve && (
+          <div className="hidden sm:block">
+            {/* summary="" → aria-hidden: el Delta narra el cambio (portador accesible). */}
+            <Sparkline points={points} color={trendColor} summary="" dashed={false} />
+          </div>
+        )}
+      </div>
+
+      {/* Frase de apoyo del estado "recopilando historial" (solo con < 2 puntos). */}
+      {!hasCurve && <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted">{t('collectingBody')}</p>}
+
+      {/* Nota anti-promesa: el total suma solo las cartas priceadas del set, no el set completo. */}
+      <p className="mt-4 font-mono text-[11px] leading-snug text-muted">{t('marketRefNote')}</p>
     </div>
   );
 }

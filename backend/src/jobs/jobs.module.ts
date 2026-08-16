@@ -8,6 +8,7 @@ import { AdminJobsController } from './admin-jobs.controller';
 import { PricingModule } from '../modules/pricing/pricing.module';
 import { UploadsModule } from '../modules/uploads/uploads.module';
 import { VaultModule } from '../modules/vault/vault.module';
+import { CatalogModule } from '../modules/catalog/catalog.module';
 
 /**
  * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention,
@@ -18,7 +19,7 @@ import { VaultModule } from '../modules/vault/vault.module';
  * solo se activa si hay REDIS_URL (ver scheduler.service).
  */
 @Module({
-  imports: [PricingModule, UploadsModule, VaultModule],
+  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,

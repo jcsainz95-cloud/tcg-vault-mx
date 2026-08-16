@@ -334,6 +334,8 @@ model CardSet {
   createdAt    DateTime @default(now())
 
   cards Card[]
+  // v1.9-set-chart (M-20): serie diaria del valor de mercado agregado del set (gráfica pública del hero).
+  snapshots SetValueSnapshot[]
 }
 
 model Card {
@@ -721,6 +723,32 @@ model PortfolioSnapshot {
 
   @@unique([userId, asOfDate])
   @@index([userId, asOfDate])
+}
+
+// ============================= SET VALUE SNAPSHOTS (v1.9-set-chart) =============================
+
+// v1.9-set-chart (M-20): serie temporal POR SET que alimenta la gráfica PÚBLICA del hero de la
+// home (visitantes anónimos, estilo acciones). Análogo de PortfolioSnapshot pero agregando por
+// `setId` en vez de por `userId`. Como pokemontcg.io solo da precio de HOY (sin historial), la
+// serie se siembra con el valor de hoy y crece con captura diaria (no se fabrican puntos).
+// Escrita por los jobs `set-price-sync` + `set-value-snapshot` (idempotente por día vía @@unique).
+// SEC-A1: totalValueMxnCents se deriva SIEMPRE de PriceReference real. ARCHITECTURE §3.2 / §4.12.
+model SetValueSnapshot {
+  id                 String   @id @default(uuid())
+  setId              String
+  set                CardSet  @relation(fields: [setId], references: [id], onDelete: Cascade)
+  asOfDate           DateTime @db.Date
+  // Valor agregado MXN (centavos) de las cartas PRICEADAS del set ese día (regla §4.12a).
+  totalValueMxnCents Int
+  // Cuántas cartas del set tenían precio ese día (las que entran al total).
+  pricedCardCount    Int
+  // Cuántas cartas tiene el set en total (Card con ese setId). Invariante pricedCardCount <= totalCardCount.
+  totalCardCount     Int
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([setId, asOfDate])
+  @@index([setId, asOfDate])
 }
 
 // ============================= AUTH TOKENS (v1.5) =============================

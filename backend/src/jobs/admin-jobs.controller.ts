@@ -8,6 +8,8 @@ import { IneRetentionJobService } from './ine-retention.service';
 import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
+import { SetPriceSyncJobService } from './set-price-sync.service';
+import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 
 /**
  * Disparo MANUAL de jobs (super_admin, auditado). Complementa al scheduler BullMQ (BE-5 /
@@ -25,6 +27,8 @@ export class AdminJobsController {
     private readonly buylistSweep: BuylistSweepJobService,
     private readonly disputeDeadline: DisputeDeadlineJobService,
     private readonly authTokenSweep: AuthTokenSweepJobService,
+    private readonly setPriceSync: SetPriceSyncJobService,
+    private readonly setValueSnapshot: SetValueSnapshotJobService,
     private readonly audit: AuditService,
   ) {}
 
@@ -100,6 +104,38 @@ export class AdminJobsController {
       action: 'jobs.auth_token_sweep.run',
       entityType: 'Job',
       entityId: 'auth-token-sweep',
+      after: result,
+    });
+    return result;
+  }
+
+  // v1.9-set-chart — siembra manual del primer punto sin esperar al cron: precia el set destacado…
+  @Post('set-price-sync')
+  @HttpCode(200)
+  async runSetPriceSync(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.setPriceSync.run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.set_price_sync.run',
+      entityType: 'Job',
+      entityId: 'set-price-sync',
+      after: result,
+    });
+    return result;
+  }
+
+  // …y luego captura el snapshot del día (upsert idempotente).
+  @Post('set-value-snapshot')
+  @HttpCode(200)
+  async runSetValueSnapshot(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.setValueSnapshot.run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.set_value_snapshot.run',
+      entityType: 'Job',
+      entityId: 'set-value-snapshot',
       after: result,
     });
     return result;

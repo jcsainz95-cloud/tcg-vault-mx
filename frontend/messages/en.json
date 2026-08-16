@@ -59,7 +59,13 @@
     "viewAllCatalog": "View the full catalog",
     "sellTitle": "Sell my cards",
     "sellBody": "We quote your list at the day's market value. You ship, we authenticate and pay.",
-    "sellCta": "Start a quote"
+    "sellCta": "Start a quote",
+    "featuredSet": {
+      "label": "Market value · Featured set",
+      "collectingTitle": "Collecting history",
+      "collectingBody": "This set's trend will appear once we have a couple of days of history.",
+      "marketRefNote": "Market reference for the priced cards in this set."
+    }
   },
   "catalog": {
     "title": "Shop",

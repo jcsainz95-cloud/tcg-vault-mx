@@ -4,6 +4,8 @@ import { IneRetentionJobService } from '../src/jobs/ine-retention.service';
 import { BuylistSweepJobService } from '../src/jobs/buylist-sweep.service';
 import { DisputeDeadlineJobService } from '../src/jobs/dispute-deadline.service';
 import { AuthTokenSweepJobService } from '../src/jobs/auth-token-sweep.service';
+import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
+import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { Role } from '@prisma/client';
 
@@ -18,9 +20,15 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   const sweep = { run: jest.fn().mockResolvedValue({ rejected: 1, abandoned: 4 }) } as unknown as BuylistSweepJobService;
   const dispute = { run: jest.fn().mockResolvedValue({ expired: 7 }) } as unknown as DisputeDeadlineJobService;
   const tokens = { run: jest.fn().mockResolvedValue({ deleted: 9 }) } as unknown as AuthTokenSweepJobService;
+  const setPrice = {
+    run: jest.fn().mockResolvedValue({ setId: 's1', priced: 8, total: 10 }),
+  } as unknown as SetPriceSyncJobService;
+  const setSnap = {
+    run: jest.fn().mockResolvedValue({ setId: 's1', totalValueMxnCents: 12345, pricedCardCount: 8, totalCardCount: 10 }),
+  } as unknown as SetValueSnapshotJobService;
   const audit = { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
-  const ctrl = new AdminJobsController(snapshot, ine, sweep, dispute, tokens, audit);
+  const ctrl = new AdminJobsController(snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, audit);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -70,6 +78,33 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
         action: 'jobs.portfolio_snapshot.run',
         entityType: 'Job',
         entityId: 'portfolio-snapshot',
+      }),
+    );
+  });
+
+  // v1.9-set-chart: disparos manuales para sembrar el primer punto sin esperar al cron.
+  it('POST /admin/jobs/set-price-sync corre run() y audita jobs.set_price_sync.run', async () => {
+    const res = await ctrl.runSetPriceSync(user);
+    expect(setPrice.run).toHaveBeenCalled();
+    expect(res).toEqual({ setId: 's1', priced: 8, total: 10 });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.set_price_sync.run',
+        entityType: 'Job',
+        entityId: 'set-price-sync',
+      }),
+    );
+  });
+
+  it('POST /admin/jobs/set-value-snapshot corre run() y audita jobs.set_value_snapshot.run', async () => {
+    const res = await ctrl.runSetValueSnapshot(user);
+    expect(setSnap.run).toHaveBeenCalled();
+    expect(res).toEqual({ setId: 's1', totalValueMxnCents: 12345, pricedCardCount: 8, totalCardCount: 10 });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.set_value_snapshot.run',
+        entityType: 'Job',
+        entityId: 'set-value-snapshot',
       }),
     );
   });
