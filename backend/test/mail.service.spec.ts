@@ -10,7 +10,7 @@ import {
  * `User.locale`, fija el destinatario y pasa el link al puerto sin enviar realmente.
  */
 describe('MailService (Noop adapter)', () => {
-  const LINK = 'https://app.tcgvault.mx/es/verify-email?token=ABC';
+  const LINK = 'https://app.tcgvaultmx.com/es/verify-email?token=ABC';
 
   it('sendEmailVerification (es): asunto en español, to=email y link en html+text', async () => {
     const noop = new NoopMailAdapter();
@@ -40,7 +40,7 @@ describe('MailService (Noop adapter)', () => {
     const noop = new NoopMailAdapter();
     const spy = jest.spyOn(noop, 'send');
     const svc = new MailService(noop);
-    const resetLink = 'https://app.tcgvault.mx/es/reset-password?token=XYZ';
+    const resetLink = 'https://app.tcgvaultmx.com/es/reset-password?token=XYZ';
 
     await svc.sendPasswordReset({ email: 'c@x.com', name: 'Cy', locale: 'es' }, resetLink);
     const msg = spy.mock.calls[0][0];
@@ -73,7 +73,7 @@ describe('mail.templates — escape de HTML (S15-B1)', () => {
   for (const [label, fn] of templates) {
     for (const locale of ['es', 'en']) {
       it(`${label} (${locale}): escapa < > " ' & del name en el HTML`, () => {
-        const { html } = fn('https://app.tcgvault.mx/x?token=T', XSS, locale);
+        const { html } = fn('https://app.tcgvaultmx.com/x?token=T', XSS, locale);
         // El HTML NO debe contener el payload crudo (no hay <script> vivo ni comillas sin escapar).
         expect(html).not.toContain('<script>');
         expect(html).not.toContain('</script>');
@@ -86,7 +86,7 @@ describe('mail.templates — escape de HTML (S15-B1)', () => {
   }
 
   it("escapa el apóstrofo (') y el ampersand (&) del name", () => {
-    const { html } = passwordResetTemplate('https://app.tcgvault.mx/x?token=T', `O'Brien & Co <b>`, 'es');
+    const { html } = passwordResetTemplate('https://app.tcgvaultmx.com/x?token=T', `O'Brien & Co <b>`, 'es');
     expect(html).toContain('O&#39;Brien &amp; Co &lt;b&gt;');
     expect(html).not.toContain('<b>');
   });

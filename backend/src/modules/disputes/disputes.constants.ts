@@ -7,4 +7,4 @@
  * Overridable por env `DISPUTE_EVIDENCE_CONTACT` sin redeploy de código.
  */
 export const DISPUTE_EVIDENCE_CONTACT =
-  process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvault.mx';
+  process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvaultmx.com';

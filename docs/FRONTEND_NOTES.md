@@ -736,7 +736,7 @@ ES/EN espejado. `lint`/`typecheck`/`test` (42) y Playwright (36) en verde; `buil
   `CertNumberField` como base de resolución. Tipos: `DisputeDTO` sin `ingressPhotoUrls`/`claimPhotoUrls`; con
   `type` (`condition_raw|condition_sealed`), `evidenceContact?` e `item.{productType,gradingCompany,gradeValue,certNumber}`.
 - Fixtures `mockDisputes`: 2 disputas (raw + sealed) con `evidenceContact` (placeholder del contrato
-  `soporte@tcgvault.mx`); graded **no** genera disputa (coherente con `422 NOT_RAW`).
+  `soporte@tcgvaultmx.com`); graded **no** genera disputa (coherente con `422 NOT_RAW`).
 - `legal.disputeBody` (ES/EN) actualizado: la evidencia va **por correo a soporte** (no se sube foto en la app).
 
 ### 5. INE conserva su uploader
@@ -759,7 +759,7 @@ ES/EN espejado. `lint`/`typecheck`/`test` (42) y Playwright (36) en verde; `buil
   (no enlace) porque no hay URL oficial confirmada. Si el humano confirma el patrón de verificación de PSA/CGC,
   se puede promover a enlace ("Verificar en PSA/CGC", `target=_blank rel=noopener`). No bloquea; no cambia el contrato.
 - **`evidenceContact`**: la UI lo consume tal cual del contrato (`POST /disputes`, `GET /admin/disputes/:id`).
-  El correo `soporte@tcgvault.mx` sigue marcado como *placeholder por confirmar por el humano* en PROJECT/CONTRATO.
+  El correo `soporte@tcgvaultmx.com` sigue marcado como *placeholder por confirmar por el humano* en PROJECT/CONTRATO.
 
 ## Alcance v1.1 (2026-08-14) — Compra/filtros/NM/sellado/tendencia/Google
 
@@ -862,8 +862,8 @@ Dos cambios de negocio pedidos por el humano. Solo tocan `frontend/` (+ esta not
   actualiza solo (verificado en `next build`).
 - **`StorefrontHeader.tsx`** tenía el texto **hardcodeado** `"TCG Vault"`; se cambió a
   `t('appName')` (namespace `common`) para que el rebrand sea de una sola fuente.
-- Email/dominio placeholder `boveda-tcg.mx` → **`tcgvault.mx`**: `checkout.cfdiNotice` ahora usa
-  `facturacion@tcgvault.mx` (ES y EN). El `tagline` se mantiene sin cambios.
+- Email/dominio placeholder `boveda-tcg.mx` → **`tcgvaultmx.com`**: `checkout.cfdiNotice` ahora usa
+  `facturacion@tcgvaultmx.com` (ES y EN). El `tagline` se mantiene sin cambios.
 - **Tests E2E de marca:** no existía ningún E2E que asertara el literal "Bóveda TCG" (grep vacío en
   `frontend/e2e/`), por lo que no hubo aserciones de marca que ajustar. El resto del suite no
   hardcodea el nombre de app (usa claves i18n vía `e2e/utils/i18n.ts`).

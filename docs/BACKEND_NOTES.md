@@ -728,7 +728,7 @@ inválido → 422).
 - `CreateDisputeDto`: **eliminado** `claimPhotoUploadKeys`. La respuesta 201 ahora incluye
   **`evidenceContact`** (correo de soporte), además de `type` (`condition_raw|condition_sealed`) y `deadlineAt`.
 - Valor de `evidenceContact` en **`src/modules/disputes/disputes.constants.ts`**:
-  `DISPUTE_EVIDENCE_CONTACT = 'soporte@tcgvault.mx'` (placeholder; overridable por env
+  `DISPUTE_EVIDENCE_CONTACT = 'soporte@tcgvaultmx.com'` (placeholder; overridable por env
   `DISPUTE_EVIDENCE_CONTACT`). **SUPUESTO por confirmar por el humano** (ver PROJECT.md).
 - `DisputesService` ya **no** depende de `UploadsService` (quitado del constructor y del `DisputesModule`).
   `adminGet` **sin comparador de fotos**: expone `type`, `deadlineAt`, `evidenceContact` y el item (para
@@ -746,7 +746,7 @@ inválido → 422).
 
 ### 16.6 Env para **devops** (no edité `.env.example`)
 - **`DISPUTE_EVIDENCE_CONTACT`** (opcional): correo de soporte para evidencia de disputa. Default
-  `soporte@tcgvault.mx`. Añadir a `.env.example` cuando el humano confirme la dirección real.
+  `soporte@tcgvaultmx.com`. Añadir a `.env.example` cuando el humano confirme la dirección real.
 
 ### 16.7 Nota de coherencia con el contrato
 - El contrato (§M1) lista `graded sin certNumber` explícitamente como **`422 VALIDATION_ERROR`** en el alta,
@@ -780,7 +780,7 @@ inválido → 422).
 
 ### 17.1 S-M2 — CORS con allow-list (`main.ts`)
 - Se elimina `app.enableCors({ origin: true, ... })`. Ahora el origin se toma de **`APP_BASE_URL`**
-  (lista **separada por comas** si hay varios orígenes válidos, p. ej. `https://app.tcgvault.mx,https://tcgvault.mx`).
+  (lista **separada por comas** si hay varios orígenes válidos, p. ej. `https://app.tcgvaultmx.com,https://tcgvaultmx.com`).
   **`credentials: true` se mantiene.** Nunca se refleja un origin arbitrario.
 - **Fallback seguro** si `APP_BASE_URL` no está seteada: solo orígenes de **desarrollo local**
   (`http://localhost:3000`, `http://localhost:5173`) — jamás un comodín. Se loguea la allow-list efectiva al
@@ -1316,7 +1316,7 @@ Implementa el changelog v1.5 del contrato (§1 Auth) y ARCHITECTURE §3.2/§4.11
 - **Ninguna.** El contrato/ARCHITECTURE describen el `ResendMailAdapter` como "POST https://api.resend.com/emails";
   se implementó con la librería `resend` (equivalente, añadida a `package.json`). Sin cambios a `API_CONTRACT.md`
   ni `ARCHITECTURE.md`. **Nota abierta del arquitecto (v1.5-2, no bloqueante):** `MAIL_FROM`=`tcgvaultmx.com` vs
-  soporte `tcgvault.mx` — dominio canónico a fijar por el humano (no afecta esta implementación).
+  soporte `tcgvaultmx.com` — dominio canónico a fijar por el humano (no afecta esta implementación).
 
 ### Gates (desde `backend/`)
 `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ (47 suites / 264 tests) · `npm run build` ✅

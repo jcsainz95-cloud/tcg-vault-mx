@@ -506,7 +506,7 @@ Disputa de **condición** sobre un item **entregado** (ventana de 7 días desde 
 
 > **Evidencia por correo (v1.2):** la disputa **ya no acepta evidencia por archivo** en la app (se elimina el
 > propósito de upload `dispute_claim`). El cliente **envía la evidencia por correo al buzón de soporte**
-> (**soporte@tcgvault.mx** — *SUPUESTO por confirmar por el humano*, ver PROJECT.md). Este correo es un **dato
+> (**soporte@tcgvaultmx.com** — *CONFIRMADO por el humano* 2026-08-16; dominio unificado `tcgvaultmx.com`). Este correo es un **dato
 > de contacto** que el front muestra en el flujo de disputa y en términos/FAQ; **no** es un endpoint. Ya **no
 > existe comparador de fotos de ingreso** en el back-office.
 
@@ -516,7 +516,7 @@ El `type` de la disputa se **deriva server-side** del `productType` del `invento
 - `productType=sealed` → `type="condition_sealed"`. Aplica a caja **dañada/equivocada** (sin "condición NM"). Ver ARCHITECTURE §3.6.
 - `productType=graded` → **no aplica**: `422 NOT_RAW`.
 Req: `{ inventoryItemId: string, description: string }`  (**sin** `claimPhotoUploadKeys`; la evidencia va por correo a soporte).
-Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: "soporte@tcgvault.mx" }`
+Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`
 Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW` (item graded; el `code` se conserva por compatibilidad aunque hoy signifique "ni raw ni sellado"), `403`.
 
 **Resolución (back-office §M8):** idéntica política para raw y sellado — **VENTAS FINALES**. El súper-admin resuelve `reject` (`→rechazada`) o `repurchase` (`→resuelta_recompra`, money-out): **recompra al precio pagado**; el **cliente conserva el ítem** y el ítem **NO** regresa al inventario (sin `InventoryMovement`, sin revertir titularidad/stock). La resolución se apoya en: **gradeadas** → grado + `certNumber` del slab (verificable en la graduadora); **raw NM** → estándar/política de condición propio; la evidencia del cliente llegó **por correo a soporte** (fuera del sistema).
@@ -746,7 +746,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 
 ### M8 — Disputas (`vault_operator+`; recompra `super_admin`)
 - `GET /api/v1/admin/disputes` — cola `?status=&page=`
-- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: "soporte@tcgvault.mx" }`. **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
+- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`. **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
 
 ### M9 — Reportes (`super_admin`)

@@ -490,8 +490,8 @@ export const mockAdminOrders: AdminOrderDTO[] = [
 ];
 
 // MOCK: evidenceContact viene de la API (contrato §7/§M8). El correo es el placeholder
-// del contrato (soporte@tcgvault.mx, por confirmar por el humano); NO se hardcodea en la UI.
-const EVIDENCE_CONTACT = 'soporte@tcgvault.mx';
+// del contrato (soporte@tcgvaultmx.com, por confirmar por el humano); NO se hardcodea en la UI.
+const EVIDENCE_CONTACT = 'soporte@tcgvaultmx.com';
 
 export const mockDisputes: DisputeDTO[] = [
   {
@@ -648,7 +648,7 @@ export const mockAdminUsers: AdminUserSummaryDTO[] = [
   { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', createdAt: '2026-08-01T10:00:00Z' },
   { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', createdAt: '2026-08-05T14:30:00Z' },
   { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', createdAt: '2026-08-08T09:12:00Z' },
-  { id: 'u-op1', email: 'operador@tcgvault.mx', name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
+  { id: 'u-op1', email: 'operador@tcgvaultmx.com', name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
 ];
 
 export function mockAdminUserDetail(id: string): AdminUserDetailDTO {

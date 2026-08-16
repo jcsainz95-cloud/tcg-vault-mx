@@ -162,7 +162,7 @@
     "pay": "Pay {amount}",
     "paying": "Paying…",
     "empty": "Your cart is empty.",
-    "cfdiNotice": "To request an invoice (CFDI), email your tax data to facturacion@tcgvault.mx after payment.",
+    "cfdiNotice": "To request an invoice (CFDI), email your tax data to facturacion@tcgvaultmx.com after payment.",
     "finalSaleNotice": "All sales are final. No refunds except for a damaged or wrong card.",
     "viewTerms": "View terms",
     "afterPayment": "On payment, your cards enter your vault with pending ownership until the payment settles.",
@@ -349,7 +349,7 @@
     "disputeWindowNote": "The 7-day window starts on the day the shipment is delivered, not on the purchase or payment date.",
     "disputeOutcome": "If the dispute is upheld, we compensate you for the damage or error and you keep the card: there is no product return.",
     "questionsTitle": "Questions",
-    "questionsBody": "For any clarification about these terms, email us at soporte@tcgvault.mx."
+    "questionsBody": "For any clarification about these terms, email us at soporte@tcgvaultmx.com."
   },
   "dispute": {
     "evidenceTitle": "Send your evidence by email",

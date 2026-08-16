@@ -924,9 +924,9 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
     los usuarios locales nunca podrían verificar → quedarían bloqueados. Por eso en no-local (incl. **staging**,
     que debe probar el flujo real E2E) la key es dura. *(Decisión a confirmar por el humano: exigir key también en
     staging; ver §10.)*
-  - **Dominio remitente:** `tcgvaultmx.com` requiere SPF/DKIM/DMARC verificados en Resend (nota devops). **Ojo:**
-    el correo de soporte de disputas en el contrato es `soporte@tcgvault.mx` (dominio **distinto**); ver §10 —
-    inconsistencia de dominio a resolver por el humano.
+  - **Dominio remitente:** `tcgvaultmx.com` requiere SPF/DKIM/DMARC verificados en Resend (nota devops). El correo
+    de soporte de disputas es `soporte@tcgvaultmx.com` — **mismo dominio canónico** que el remitente; ver §10 v1.5-2
+    (**CERRADA** 2026-08-16: dominio unificado, ya no hay inconsistencia).
 - `APP_BASE_URL`, `DEFAULT_LOCALE=es` (`APP_BASE_URL` = base del frontend; también se usa para construir los
   links de verificación/reset del correo, §4.11).
 
@@ -986,9 +986,10 @@ este documento y con `API_CONTRACT.md`.
 > endpoints y el `EmailVerifiedGuard` con los defaults propuestos. El arquitecto **no asume** reglas de negocio.
 - **v1.5-1 — ¿Exigir `RESEND_API_KEY` en staging (además de prod)?** Default propuesto: **sí** (staging es
   no-local → key dura, para probar el flujo real E2E; degradación Noop solo en LOCAL_ENVS). Confirmar.
-- **v1.5-2 — Dominio remitente vs soporte.** `MAIL_FROM` = `no-reply@**tcgvaultmx.com**` pero el correo de
-  soporte de disputas es `soporte@**tcgvault.mx**` (dominio distinto, ya marcado SUPUESTO en PROJECT). Hay que
-  **fijar el dominio canónico** y verificar SPF/DKIM/DMARC en Resend para ese dominio. Confirmar cuál es el bueno.
+- **v1.5-2 — Dominio remitente vs soporte. (CERRADA 2026-08-16)** El humano confirmó el dominio canónico único
+  `tcgvaultmx.com`: `MAIL_FROM` = `no-reply@**tcgvaultmx.com**` y soporte de disputas = `soporte@**tcgvaultmx.com**`
+  (**mismo dominio**, ya no hay inconsistencia). Pendiente operativo (no de arquitectura): verificar SPF/DKIM/DMARC
+  en Resend para `tcgvaultmx.com` (nota devops).
 - **v1.5-3 — ¿El reset exitoso marca `emailVerified=true`?** Default propuesto: **sí** (clic en el link de reset
   prueba control del inbox). Si el humano prefiere separar ambos conceptos, se deja `emailVerified` intacto en el
   reset. Confirmar.

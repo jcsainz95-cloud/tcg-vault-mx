@@ -162,7 +162,7 @@
     "pay": "Pagar {amount}",
     "paying": "Pagando…",
     "empty": "Tu carrito está vacío.",
-    "cfdiNotice": "Para solicitar factura (CFDI), envía un correo con tus datos fiscales a facturacion@tcgvault.mx tras el pago.",
+    "cfdiNotice": "Para solicitar factura (CFDI), envía un correo con tus datos fiscales a facturacion@tcgvaultmx.com tras el pago.",
     "finalSaleNotice": "Todas las ventas son finales. Sin reembolsos salvo carta dañada o equivocada.",
     "viewTerms": "Ver términos",
     "afterPayment": "Al pagar, tus cartas entran a tu bóveda con titularidad pendiente hasta que el pago se liquide.",
@@ -349,7 +349,7 @@
     "disputeWindowNote": "El plazo de 7 días empieza a correr el día en que se entrega el envío, no en la fecha de compra ni de pago.",
     "disputeOutcome": "Si la disputa procede, te compensamos por el daño o el error y conservas la carta: no hay devolución del producto.",
     "questionsTitle": "Dudas",
-    "questionsBody": "Para cualquier aclaración sobre estos términos, escríbenos a soporte@tcgvault.mx."
+    "questionsBody": "Para cualquier aclaración sobre estos términos, escríbenos a soporte@tcgvaultmx.com."
   },
   "dispute": {
     "evidenceTitle": "Envía tu evidencia por correo",
