@@ -135,13 +135,21 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
 
   // 6. Referencias de precio del día (valor de mercado). `nopref` queda SIN referencia.
   const day = todayUtc();
-  const priceRef = async (cardExt: string, productType: 'raw' | 'graded' | 'sealed', gradeKey: string, priceMxnCents: number) => {
+  const priceRef = async (
+    cardExt: string,
+    productType: 'raw' | 'graded' | 'sealed',
+    gradeKey: string,
+    priceMxnCents: number,
+    finish: 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil' = 'normal',
+  ) => {
     await prisma.priceReference.upsert({
       where: {
-        cardId_productType_gradeKey_capturedDate: {
+        // v1.6-finish (M-18): la clave única incluye `finish`.
+        cardId_productType_gradeKey_finish_capturedDate: {
           cardId: cardIds[cardExt],
           productType,
           gradeKey,
+          finish,
           capturedDate: day,
         },
       },
@@ -149,6 +157,7 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
         cardId: cardIds[cardExt],
         productType,
         gradeKey,
+        finish,
         source: 'manual',
         priceMxnCents,
         capturedDate: day,

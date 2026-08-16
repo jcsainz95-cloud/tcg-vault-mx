@@ -11,9 +11,11 @@ import type {
   SealedSubtype,
   GradingCompany,
   AcquisitionType,
+  Finish,
   InventoryItemDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
+import { FinishBadge } from '@/components/domain/FinishBadge';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -28,15 +30,21 @@ const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
 const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'buylist', 'compra'];
+// v1.6-finish: orden de despliegue del acabado; la etiqueta legible viene de i18n `finish`.
+const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 
 export function M1View() {
   const t = useTranslations('admin.m1');
   const tt = useTranslations('admin.m1.table');
   const tSub = useTranslations('status.sealedSubtype');
+  const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const [open, setOpen] = useState(false);
+  const [cardId, setCardId] = useState<string>(mockCards[0]?.id ?? '');
   const [productType, setProductType] = useState<ProductType>('raw');
+  // v1.6-finish: acabado de la copia física; se valida contra card.availableFinishes al alta.
+  const [finish, setFinish] = useState<Finish>('normal');
   const [sealedSubtype, setSealedSubtype] = useState<SealedSubtype>('box');
   const [gradingCompany, setGradingCompany] = useState<GradingCompany>('PSA');
   const [gradeValue, setGradeValue] = useState('10');
@@ -48,6 +56,13 @@ export function M1View() {
   // Gradeada: certNumber es obligatorio para publicar (contrato §M1, v1.2).
   const gradedCertMissing = productType === 'graded' && certNumber.trim() === '';
 
+  // v1.6-finish: acabados disponibles de la carta elegida (solo raw/singles; graded/sealed = normal).
+  const selectedCard = mockCards.find((c) => c.id === cardId);
+  const availableFinishes: Finish[] = selectedCard
+    ? FINISH_ORDER.filter((f) => selectedCard.availableFinishes.includes(f))
+    : ['normal'];
+  const showFinishSelect = productType === 'raw' && availableFinishes.length > 1;
+
   const inventory = useQuery({ queryKey: ['admin-inventory'], queryFn: getAdminInventory });
   const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations });
 
@@ -55,6 +70,11 @@ export function M1View() {
     { key: 'folio', header: tt('folio'), render: (i) => <span className="tabular">{i.folio}</span> },
     { key: 'card', header: tt('card'), render: (i) => <span lang="en">{i.card.name}</span> },
     { key: 'type', header: tt('type'), render: (i) => i.productType },
+    {
+      key: 'finish',
+      header: tt('finish'),
+      render: (i) => (i.finish ? <FinishBadge finish={i.finish} productType={i.productType} /> : '—'),
+    },
     { key: 'location', header: tt('location'), render: (i) => <span className="tabular">{i.location?.label ?? '—'}</span> },
     { key: 'status', header: tt('status'), render: (i) => <StatusBadge domain="inventory" value={i.status} /> },
     {
@@ -113,6 +133,13 @@ export function M1View() {
           <Select
             label={t('cardName')}
             options={mockCards.map((c) => ({ value: c.id, label: `${c.name} · ${c.setName}` }))}
+            value={cardId}
+            onChange={(e) => {
+              setCardId(e.target.value);
+              // Reinicia el acabado al primero disponible de la nueva carta (normal va primero).
+              const card = mockCards.find((c) => c.id === e.target.value);
+              setFinish(FINISH_ORDER.find((f) => card?.availableFinishes.includes(f)) ?? 'normal');
+            }}
           />
           <Select
             label={t('productType')}
@@ -123,6 +150,22 @@ export function M1View() {
           {productType === 'raw' && (
             // Raw solo NM (v1.1): sin selector de grados; condición fija.
             <p className="rounded-md bg-success-bg px-3 py-2 text-sm text-success">{t('conditionNm')}</p>
+          )}
+          {/* v1.6-finish: acabado de la copia física, poblado de card.availableFinishes.
+              graded/sellado son siempre normal → se muestra la nota fija en su lugar. */}
+          {showFinishSelect ? (
+            <Select
+              label={t('finish')}
+              options={availableFinishes.map((f) => ({ value: f, label: tFinish(f) }))}
+              value={finish}
+              onChange={(e) => setFinish(e.target.value as Finish)}
+            />
+          ) : (
+            productType !== 'raw' && (
+              <p className="rounded-md bg-surface-2/60 px-3 py-2 text-sm text-muted">
+                {t('finishFixedNormal')}
+              </p>
+            )
           )}
           {productType === 'graded' && (
             // Gradeada (v1.2): empresa + grado + certNumber (requerido para publicar).

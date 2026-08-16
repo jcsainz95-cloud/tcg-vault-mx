@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
-import { Prisma, ProductType, Role } from '@prisma/client';
-import { IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
+import { Finish, Prisma, ProductType, Role } from '@prisma/client';
+import { IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
@@ -22,6 +22,9 @@ class OverrideDto {
   @IsString() productType!: ProductType;
   @IsString() gradeKey!: string;
   @IsInt() @Min(0) priceMxnCents!: number;
+  // v1.6-finish: override por acabado (default normal). Cada acabado tiene su PriceReference.
+  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  finish?: Finish;
 }
 
 class FxDto {
@@ -78,6 +81,7 @@ export class PricingController {
       dto.productType,
       dto.gradeKey,
       dto.priceMxnCents,
+      dto.finish ?? 'normal',
     );
     await this.audit.log({
       actorUserId: userId,

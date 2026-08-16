@@ -114,6 +114,10 @@
       "rawSublabel": "Casi nueva (NM)",
       "subtypeLabel": "Subtipo de sellado"
     },
+    "finish": {
+      "label": "Acabado",
+      "all": "Todos los acabados"
+    },
     "price": {
       "label": "Precio",
       "min": "Mínimo",
@@ -248,6 +252,7 @@
     "selectCard": "Carta",
     "selectType": "Tipo de producto",
     "selectCondition": "Condición",
+    "selectFinish": "Acabado / versión",
     "getQuote": "Cotizar",
     "quoting": "Cotizando…",
     "quoteResult": "Cotización",
@@ -280,7 +285,7 @@
     "ineSectionNote": "Si tu solicitud supera el tope, necesitamos la foto de tu INE (anverso y reverso) para verificar el pago.",
     "ineRequiredError": "Esta solicitud supera el tope: sube tu INE (anverso y reverso) para continuar.",
     "limitExceeded": "Esta solicitud supera tu tope permitido. Ajusta el monto o inténtalo el próximo mes.",
-    "submit": "Enviar solicitud",
+    "submit": "Confirmar y enviar",
     "submitting": "Enviando…",
     "requestError": "No se pudo crear la solicitud. Revisa los datos e inténtalo de nuevo.",
     "created": "¡Solicitud creada! Te avisaremos cuando recibamos tu carta.",
@@ -312,6 +317,13 @@
     "linePending": "Precio pendiente",
     "estimateNote": "El total es un ESTIMADO. El monto final lo confirma la plataforma cuando recibimos y verificamos tus cartas.",
     "sendRequestCta": "Enviar solicitud ({count})"
+  },
+  "finish": {
+    "label": "Acabado",
+    "normal": "Normal",
+    "reverse_holo": "Reverse Holo",
+    "holofoil": "Holofoil",
+    "first_edition_holofoil": "1st Edition"
   },
   "ine": {
     "front": "INE (anverso)",
@@ -505,6 +517,8 @@
       "cardName": "Carta",
       "productType": "Tipo de producto",
       "condition": "Condición (raw)",
+      "finish": "Acabado / versión",
+      "finishFixedNormal": "Acabado: Normal (graded/sellado no llevan acabado).",
       "gradingCompany": "Gradeadora",
       "gradeValue": "Grado",
       "location": "Ubicación (Caja/Fila/Slot)",
@@ -526,6 +540,7 @@
         "folio": "Folio",
         "card": "Carta",
         "type": "Tipo",
+        "finish": "Acabado",
         "location": "Ubicación",
         "status": "Estado",
         "reference": "Referencia"
@@ -954,6 +969,7 @@
     "INE_REQUIRED": "Necesitas subir tu INE para continuar.",
     "CLABE_NOT_OWN_NAME": "La CLABE debe estar a tu nombre.",
     "CLABE_INVALID": "La CLABE no es válida.",
+    "FINISH_NOT_AVAILABLE": "Ese acabado no está disponible para esta carta.",
     "MONEY_OUT_FORBIDDEN": "Solo el súper-admin puede ejecutar movimientos de dinero saliente.",
     "EMAIL_TAKEN": "Ese correo ya está registrado.",
     "INVALID_CREDENTIALS": "Correo o contraseña incorrectos.",

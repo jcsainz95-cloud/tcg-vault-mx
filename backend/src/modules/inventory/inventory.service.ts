@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InventoryStatus, MovementReason, Prisma } from '@prisma/client';
+import { Finish, InventoryStatus, MovementReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -34,13 +34,18 @@ export class InventoryService {
     // v1.1: validación por tipo de producto (excluye sellado de la lógica NM/rareza/grade).
     this.validateProductShape(dto);
 
+    // v1.6-finish: el acabado aplica a raw/singles; graded/sealed = normal siempre (ARCHITECTURE §3.7).
+    // Para raw se valida contra card.availableFinishes (SEC-A1); fuera de la lista → 422.
+    const finish = this.resolveFinish(dto, card.availableFinishes as Finish[]);
+
     const gradeKey = this.pricing.gradeKeyFor(dto);
     let acquisitionCostCents = dto.acquisitionCostCents ?? null;
     let acquisitionPct = dto.acquisitionPct ?? null;
 
     if (dto.acquisitionType === 'aportacion_en_especie') {
       const pct = dto.acquisitionPct ?? (await this.settings.getNumber(SettingKey.APORTACION_PCT));
-      const ref = await this.pricing.getReference(dto.cardId, dto.productType, gradeKey);
+      // v1.6-finish: costo contra la referencia del ACABADO alta.
+      const ref = await this.pricing.getReference(dto.cardId, dto.productType, gradeKey, finish);
       if (ref.status !== 'priced' || ref.referenceMxnCents == null) {
         await this.pricing.escalatePending(dto.cardId, dto.productType, gradeKey, 'inventory');
         throw BusinessException.validation(
@@ -67,6 +72,7 @@ export class InventoryService {
         productType: dto.productType,
         // raw solo NM (default NM); sellado/graded no llevan rawCondition.
         rawCondition: dto.productType === 'raw' ? (dto.rawCondition ?? 'NM') : null,
+        finish,
         sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
         gradingCompany: dto.productType === 'graded' ? dto.gradingCompany : null,
         gradeValue: dto.productType === 'graded' ? dto.gradeValue : null,
@@ -93,6 +99,26 @@ export class InventoryService {
       },
     });
     return { id: item.id, folio: item.folio, status: item.status, acquisitionCostCents };
+  }
+
+  /**
+   * v1.6-finish — resuelve/valida el acabado del alta (ARCHITECTURE §3.7):
+   *  - graded/sealed → `normal` siempre (el acabado solo aplica a raw/singles).
+   *  - raw → el finish del DTO (default normal), validado contra card.availableFinishes (SEC-A1);
+   *    fuera de la lista → 422 FINISH_NOT_AVAILABLE.
+   */
+  private resolveFinish(dto: CreateItemDto, availableFinishes: Finish[]): Finish {
+    if (dto.productType !== 'raw') return 'normal';
+    const f = dto.finish ?? 'normal';
+    const available = availableFinishes ?? ['normal'];
+    if (!available.includes(f)) {
+      throw BusinessException.validation(
+        'FINISH_NOT_AVAILABLE',
+        `Finish '${f}' is not available for this card`,
+        { finish: f, availableFinishes: available },
+      );
+    }
+    return f;
   }
 
   /**

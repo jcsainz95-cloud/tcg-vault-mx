@@ -1345,3 +1345,106 @@ Implementa el changelog v1.5 del contrato (§1 Auth) y ARCHITECTURE §3.2/§4.11
   el caso feliz ahora mockea `findUnique` → `active`).
 - **Gates:** `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ (**47 suites / 271 tests**) ·
   `npm run build` ✅.
+
+## v1.6-finish — Acabado / versión de carta (finish) en TODA la cadena (M-18, 2026-08-16)
+
+> Implementa `API_CONTRACT` changelog v1.6-finish y `ARCHITECTURE` §3.7/§4.1/§4.2.1/§4.8/§4.9/§11 M-18
+> **al pie de la letra**. El contrato manda. Enum `Finish = normal | reverse_holo | holofoil |
+> first_edition_holofoil`. Cambio **aditivo con default seguro** (`normal` / `[normal]`).
+
+### Migración M-18 (aditiva)
+- Archivo: **`backend/prisma/migrations/20260816160000_m18_finish/migration.sql`** (correlativo tras
+  M-17 `…150000`). Schema: `backend/prisma/schema.prisma`.
+- Crea `CREATE TYPE "Finish"`; añade **`Card.availableFinishes Finish[] @default([normal])`**,
+  **`PriceReference.finish Finish @default(normal)`**, **`InventoryItem.finish Finish @default(normal)`**,
+  **`SellRequestItem.finish Finish @default(normal)`**. Filas históricas quedan operables sin re-sync.
+- **Clave de `PriceReference`:** el `@@unique` pasó de `[cardId, productType, gradeKey, capturedDate]`
+  a **`[cardId, productType, gradeKey, finish, capturedDate]`** (índice
+  `PriceReference_cardId_productType_gradeKey_finish_capturedDa_key`). Así `normal` y `reverse_holo` de
+  la misma carta tienen **referencia de precio distinta** (una fila por día **por acabado**). `gradeKey`
+  **no** cambia de semántica (sigue siendo condición/grado); `finish` es una **columna ortogonal**.
+- **`PendingPriceEntry` NO gana columna `finish`** (fuera del alcance explícito de M-18; el contrato solo
+  lista los 4 modelos de arriba). Consecuencia menor: distintos acabados de la misma carta comparten la
+  misma entrada de "precio pendiente" (keyed por `gradeKey`). Registrado como nota, no bloqueante.
+
+### Import de acabados (`catalog/`)
+- `pokemontcg-io.client.ts`: `RemoteCard.tcgplayer` ahora tipa **`prices?: Record<string,{market?}>`**
+  (antes solo `{url}` y se descartaba). Sin cambio de host/anti-SSRF.
+- `pricing.types.ts`: mapeo canónico **`TCG_KEY_TO_FINISH`** (`normal→normal`,
+  `reverseHolofoil→reverse_holo`, `holofoil→holofoil`, `1stEditionHolofoil→first_edition_holofoil`;
+  `1stEditionNormal`/`unlimitedHolofoil` **se ignoran**) e inverso **`FINISH_TO_TCG_KEY`**. Helper
+  **`deriveAvailableFinishes(prices)`** (ausente/vacío/sin llaves mapeadas → `[normal]`).
+- `catalog-sync.service.ts` `upsertCards`: deriva `availableFinishes` de las llaves presentes y lo
+  persiste en create/update del `Card`.
+
+### Pricing por acabado (`pricing/`)
+- `PricingProviderInput` gana `finish`. `PokemonTcgIoProvider.fetchPrice` lee **`prices[FINISH_TO_TCG_KEY[finish]].market`**
+  (deja de tomar "el primer market disponible"). Providers graded/sealed ignoran `finish`.
+- `PricingService`: **`getReference(cardId, productType, gradeKey, finish='normal')`** y
+  **`syncCardPrice(card, productType, gradeKey, finish='normal', context, refId?)`** ganan `finish`
+  (posición explícita antes de `context`, como el contrato). El lookup/upsert usa la clave compuesta con
+  `finish`. `manualOverride(...)` y `POST /admin/pricing/override` ganan `finish?` (default normal).
+  `buildGradeKey` **NO cambia**. `finish` default `normal` conserva a graded/sealed y a todos los
+  callers no-raw sin fricción.
+- Job `price-sync.service.ts`: pricea `item.finish` de cada copia física.
+
+### Resolver finish→regla determinista (`common/money.ts`, §4.2.1)
+- **`isHoloRarity(rarity)`** = `rarity` contiene `"holo"` (case-insensitive).
+- **`ruleKeyCandidates(rarity, finish)`**: `reverse_holo→["Reverse Holo"]`; `holofoil`/
+  `first_edition_holofoil`→ `isHoloRarity ? [rarity,"Holo"] : ["Holo"]`; `normal→[rarity]`.
+- **`quoteAcquisitionForFinish(rarity, finish, referenceMxnCentsForFinish, rules, fallbackPct)`**: gana el
+  **primer candidato con regla explícita**; si ninguno → `BUYLIST_PRICE_FALLBACK_PCT`. `pct` sobre el
+  **market DEL acabado** cotizado; `fixed` siempre cotiza. `first_edition_holofoil` usa la regla de
+  holofoil con el market de la llave `1stEditionHolofoil` (vía `getReference(..., finish)`).
+- Resultado con el seed vigente: una **común en reverse_holo** cotiza con **"Reverse Holo" ($1.50)**, no
+  con "Common"; una **común en holofoil** salta a `"Holo"` (no sembrada) → **40% del market holofoil**.
+
+### Buylist quote/request + M1 inventario + convert
+- DTOs (`buylist/dto/buylist.dto.ts`, `inventory/dto/inventory.dto.ts`): `PublicQuoteDto`,
+  `RequestItemDto` y `CreateItemDto` ganan **`finish?`** (default normal, `@IsIn` de los 4 valores).
+- `BuylistService`: helper **`assertFinishAvailable(card, finish)`** valida server-side contra
+  `card.availableFinishes` → **`422 FINISH_NOT_AVAILABLE`** (nuevo `ErrorCode`). `publicQuote` responde
+  `finish` + `appliedRule` resuelto por acabado; `createRequest` valida, cotiza por acabado y
+  **snapshotea `SellRequestItem.finish`**; `itemDTO` (SellItemDTO) expone `finish`. **SEC-A1 intacto:** el
+  monto se deriva de `(Card.rarity, finish)` validado, **nunca** del cliente.
+- `InventoryService.createItem`: **`resolveFinish(dto, card.availableFinishes)`** — raw valida contra la
+  lista blanca (422 si no); **graded/sealed = `normal` siempre**. Propaga a `InventoryItem.finish` y usa
+  el finish para la referencia de la aportación en especie.
+- `convertToInventory` (M5): propaga `SellRequestItem.finish` → `InventoryItem.finish`.
+- Valuación de portafolio/inventario/custodia/orden (`vault.service`, `admin.service`, `orders.service`)
+  usa `item.finish` en `getReference`.
+
+### Catálogo "Compra" (`catalog/`)
+- `toCardDTO` expone **`availableFinishes`**. `ListingDTO`/`HoldingDTO`/`SellItemDTO` exponen **`finish`**.
+- `GET /catalog/cards` gana filtro **`finish`** (sobre `InventoryItem.finish`; inválido → 400).
+  `GET /catalog/facets` gana **`finishes`** (distinct sobre el inventario publicado). `toListingDTO`,
+  `vault.holdings`/`holdingDetail` valúan contra la `PriceReference` del acabado del item.
+
+### Endpoints/DTOs con finish (resumen)
+`POST /buylist/quote` (+`finish?` req, +`finish`/`appliedRule` res) · `POST /buylist/requests`
+(`items[].finish?`) · `POST /admin/inventory/items` (+`finish?`) · `POST /admin/pricing/override`
+(+`finish?`) · `GET /catalog/cards?finish=` · `GET /catalog/facets` (+`finishes`) · `CardDTO`
+(+`availableFinishes`) · `ListingDTO`/`HoldingDTO`/`SellItemDTO` (+`finish`). Nuevo error
+**`422 FINISH_NOT_AVAILABLE`**.
+
+### ⚠️ RE-SYNC del catálogo requerido tras desplegar (devops/QA)
+Las cartas ya importadas quedan con `availableFinishes=[normal]` y sus `PriceReference` en `finish=normal`
+hasta que se **RE-SINCRONICE** el catálogo (`POST /admin/catalog/sync` / `sync-all`) y el **price-sync**
+repueble las referencias por acabado. El default seguro mantiene todo operable mientras tanto; el re-sync
+es idempotente. **No lo ejecuté** (requiere entorno con la API key y la BD desplegada).
+
+### Tests añadidos
+- `test/buylist.finish.spec.ts` (15): resolver puro (`isHoloRarity`/`ruleKeyCandidates`/
+  `quoteAcquisitionForFinish`), cotización común reverse_holo → "Reverse Holo", `pct` con la referencia
+  del acabado, `precio_pendiente` por acabado sin ref, **`FINISH_NOT_AVAILABLE`** en quote y request,
+  snapshot del finish y **convert propaga finish**.
+- `test/catalog-sync.finish.spec.ts` (5): `deriveAvailableFinishes` (mapeo/descarte/default) y
+  `upsertCards` persiste `availableFinishes` derivado de `tcgplayer.prices`.
+
+### Gates
+`npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ (**49 suites / 291 tests**) ·
+`npm run build` ✅.
+
+### Discrepancias con el contrato
+Ninguna que bloquee. El contrato fue implementable al pie de la letra. Única nota de diseño propio (dentro
+del alcance): `PendingPriceEntry` no lleva `finish` porque M-18 no lo lista entre los modelos a migrar.

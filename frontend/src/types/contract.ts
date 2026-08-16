@@ -10,6 +10,9 @@ export type Locale = 'es' | 'en';
 export type ProductType = 'graded' | 'sealed' | 'raw';
 // v1.1: RawCondition reducido a NM (único valor; se eliminan LP|MP|HP|DMG).
 export type RawCondition = 'NM';
+// v1.6-finish: acabado/versión de carta (derivado de las llaves de tcgplayer.prices,
+// ARCHITECTURE §3.7). graded/sealed = normal. Es la lista blanca de Card.availableFinishes.
+export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
 // v1.1: subtipo opcional del sellado.
 export type SealedSubtype = 'box' | 'etb' | 'bundle' | 'tin' | 'blister';
 // v1.1: proveedor de autenticación del User.
@@ -94,6 +97,10 @@ export interface CardDTO {
   setName: string;
   imageSmallUrl: string;
   imageLargeUrl: string;
+  // v1.6-finish: acabados en que existe la carta (derivados de tcgplayer.prices al importar).
+  // Sigue siendo 1 CardDTO por carta; availableFinishes es un array en el MISMO objeto.
+  // Filas históricas / sin re-sync → ["normal"]. Lista blanca contra la que el backend valida `finish`.
+  availableFinishes: Finish[];
 }
 
 export interface ListingDTO {
@@ -102,6 +109,9 @@ export interface ListingDTO {
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
+  // v1.6-finish: acabado de ESTA copia física. referenceValue/salePriceCents se calculan
+  // contra la PriceReference de ESE acabado. graded/sealed → "normal".
+  finish: Finish;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   // v1.2: nº de certificado PSA/CGC (verificable en la graduadora). null para raw/sealed.
@@ -259,6 +269,8 @@ export interface CatalogFacetsDTO {
   sets: FacetSetDTO[];
   productTypes: ProductType[];
   sealedSubtypes: SealedSubtype[];
+  // v1.6-finish: distinct de InventoryItem.finish sobre el inventario publicado (para el filtro de acabado).
+  finishes: Finish[];
   price: { minCents: number; maxCents: number; currency: 'MXN' };
 }
 
@@ -275,6 +287,8 @@ export interface HoldingDTO {
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
+  // v1.6-finish: acabado del holding; el referenceValue es el de ESE acabado. graded/sealed → "normal".
+  finish: Finish;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   // v1.2: nº de certificado PSA/CGC para gradeadas en bóveda.
@@ -384,8 +398,12 @@ export interface BuylistRuleApplied {
 }
 
 // v1.3.1: POST /buylist/quote — expone `rarity` + `appliedRule` en vez de `category`.
+// v1.6-finish: la respuesta ecoa el `finish` resuelto (validado ∈ availableFinishes) y la
+// `appliedRule` la selecciona el acabado (reverse holo → "Reverse Holo"; holo/1st ed → base/"Holo";
+// normal → rareza base).
 export interface BuylistQuoteResponse {
   rarity: string;
+  finish: Finish;
   appliedRule: BuylistRuleApplied;
   quote: {
     status: 'cotizada' | 'precio_pendiente';
@@ -403,6 +421,9 @@ export interface SellItemDTO {
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
+  // v1.6-finish: snapshot del acabado aplicado en la cotización/solicitud. Determina la
+  // regla y la referencia usadas; se propaga al InventoryItem al convertir (M5).
+  finish: Finish;
   rarity?: string;
   appliedRule?: BuylistRuleApplied;
   quotedPriceCents?: number;
@@ -444,6 +465,8 @@ export interface InventoryItemDTO {
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
+  // v1.6-finish: acabado de la copia física (M1). graded/sealed → "normal".
+  finish?: Finish;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   // v1.2: nº de certificado PSA/CGC (requerido para publicar una gradeada).

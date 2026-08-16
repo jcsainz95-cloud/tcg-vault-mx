@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Search, Check } from 'lucide-react';
-import type { CatalogFacetsDTO, ProductType, SealedSubtype } from '@/types/contract';
+import type { CatalogFacetsDTO, ProductType, SealedSubtype, Finish } from '@/types/contract';
 import type { CatalogFilters } from '@/lib/api';
 import { groupRarities, type RarityGroup } from '@/lib/rarity-groups';
 import { Input } from '@/components/ui/Input';
@@ -72,6 +72,8 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
           />
         )}
       </fieldset>
+
+      <FinishFilter facets={facets} filters={filters} onChange={onChange} />
 
       <PriceFilter facets={facets} filters={filters} onChange={onChange} />
     </div>
@@ -298,6 +300,38 @@ function SetFilter({ facets, filters, onChange }: ShopFiltersProps) {
         })}
       </div>
     </div>
+  );
+}
+
+// ---- Acabado: chips de acabado (v1.6-finish), alimentado por facets.finishes ----
+const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
+
+function FinishFilter({ facets, filters, onChange }: ShopFiltersProps) {
+  const t = useTranslations('shop.finish');
+  const tFinish = useTranslations('finish');
+  // Ordena los acabados presentes en el inventario publicado según FINISH_ORDER.
+  const finishes = FINISH_ORDER.filter((f) => (facets?.finishes ?? []).includes(f));
+  if (finishes.length === 0) return null;
+
+  return (
+    <fieldset className="flex flex-col gap-2">
+      <legend className="text-sm font-medium text-text">{t('label')}</legend>
+      <div className="flex flex-wrap gap-2">
+        <TypeChip
+          active={!filters.finish}
+          label={t('all')}
+          onClick={() => onChange({ ...filters, finish: undefined })}
+        />
+        {finishes.map((f) => (
+          <TypeChip
+            key={f}
+            active={filters.finish === f}
+            label={tFinish(f)}
+            onClick={() => onChange({ ...filters, finish: filters.finish === f ? undefined : f })}
+          />
+        ))}
+      </div>
+    </fieldset>
   );
 }
 

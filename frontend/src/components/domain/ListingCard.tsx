@@ -5,6 +5,7 @@ import { Link } from '@/i18n/navigation';
 import type { ListingDTO } from '@/types/contract';
 import { CardImage } from '@/components/ui/CardImage';
 import { ConditionBadge } from '@/components/ui/ConditionBadge';
+import { FinishBadge } from '@/components/domain/FinishBadge';
 import { GradedCertChip } from '@/components/ui/GradedCertChip';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { Button } from '@/components/ui/Button';
@@ -67,6 +68,8 @@ export function ListingCard({ listing, onAdd }: ListingCardProps) {
           gradeValue={listing.gradeValue}
           certNumber={listing.certNumber}
         />
+        {/* v1.6-finish: acabado de esta copia (Reverse Holo / Holofoil / 1st Ed / Normal en raw). */}
+        <FinishBadge finish={listing.finish} productType={listing.productType} />
       </div>
 
       <PriceTag reference={listing.referenceValue} salePriceCents={listing.salePriceCents} mode="sale" />

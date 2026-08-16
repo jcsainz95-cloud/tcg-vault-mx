@@ -114,6 +114,10 @@
       "rawSublabel": "Near Mint (NM)",
       "subtypeLabel": "Sealed subtype"
     },
+    "finish": {
+      "label": "Finish",
+      "all": "All finishes"
+    },
     "price": {
       "label": "Price",
       "min": "Min",
@@ -248,6 +252,7 @@
     "selectCard": "Card",
     "selectType": "Product type",
     "selectCondition": "Condition",
+    "selectFinish": "Finish / version",
     "getQuote": "Get quote",
     "quoting": "Quoting…",
     "quoteResult": "Quote",
@@ -280,7 +285,7 @@
     "ineSectionNote": "If your request exceeds the cap, we need a photo of your INE (front and back) to verify the payment.",
     "ineRequiredError": "This request exceeds the cap: upload your INE (front and back) to continue.",
     "limitExceeded": "This request exceeds your allowed cap. Adjust the amount or try again next month.",
-    "submit": "Submit request",
+    "submit": "Confirm and send",
     "submitting": "Submitting…",
     "requestError": "We couldn't create the request. Check the details and try again.",
     "created": "Request created! We'll let you know when we receive your card.",
@@ -312,6 +317,13 @@
     "linePending": "Price pending",
     "estimateNote": "The total is an ESTIMATE. The final amount is confirmed by the platform when we receive and verify your cards.",
     "sendRequestCta": "Submit request ({count})"
+  },
+  "finish": {
+    "label": "Finish",
+    "normal": "Normal",
+    "reverse_holo": "Reverse Holo",
+    "holofoil": "Holofoil",
+    "first_edition_holofoil": "1st Edition"
   },
   "ine": {
     "front": "INE (front)",
@@ -505,6 +517,8 @@
       "cardName": "Card",
       "productType": "Product type",
       "condition": "Condition (raw)",
+      "finish": "Finish / version",
+      "finishFixedNormal": "Finish: Normal (graded/sealed have no finish).",
       "gradingCompany": "Grading company",
       "gradeValue": "Grade",
       "location": "Location (Box/Row/Slot)",
@@ -526,6 +540,7 @@
         "folio": "Folio",
         "card": "Card",
         "type": "Type",
+        "finish": "Finish",
         "location": "Location",
         "status": "Status",
         "reference": "Reference"
@@ -954,6 +969,7 @@
     "INE_REQUIRED": "You need to upload your INE to continue.",
     "CLABE_NOT_OWN_NAME": "The CLABE must be in your name.",
     "CLABE_INVALID": "The CLABE is not valid.",
+    "FINISH_NOT_AVAILABLE": "That finish isn't available for this card.",
     "MONEY_OUT_FORBIDDEN": "Only the super-admin can execute money-out actions.",
     "EMAIL_TAKEN": "That email is already registered.",
     "INVALID_CREDENTIALS": "Wrong email or password.",

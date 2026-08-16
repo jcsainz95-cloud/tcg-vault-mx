@@ -108,7 +108,8 @@ describe('BuylistView · carrito de venta', () => {
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }));
+    // a11y (hallazgo QA): el submit del modal KYC tiene una etiqueta DISTINTA del CTA del carrito.
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     const payload = spy.mock.calls[0][0];
@@ -130,7 +131,7 @@ describe('BuylistView · carrito de venta', () => {
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     const ids = spy.mock.calls[0][0].items.map((i) => i.cardId);
@@ -156,5 +157,77 @@ describe('BuylistView · carrito de venta', () => {
     expect(
       screen.getByText('Tu carrito está vacío. Cotiza una carta y agrégala para venderla.'),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * v1.6-finish: selector de acabado en el cotizador (poblado de card.availableFinishes) y
+ * dedup del carrito por (cardId + productType + finish).
+ */
+describe('BuylistView · acabado (finish)', () => {
+  async function pick(name: string) {
+    fireEvent.change(screen.getByLabelText('Buscar carta'), { target: { value: name } });
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
+    const options = await screen.findAllByRole('option', { name: new RegExp(name) });
+    fireEvent.click(options[0]);
+  }
+
+  it('el selector de acabado manda el finish elegido a getBuylistQuote', async () => {
+    const spy = vi.spyOn(api, 'getBuylistQuote');
+    renderWithProviders(<BuylistView />, 'es');
+    await pick('Charizard');
+    // Charizard tiene >1 acabado → el selector es visible.
+    fireEvent.change(screen.getByLabelText('Acabado / versión'), {
+      target: { value: 'reverse_holo' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cotizar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls.at(-1)![0].finish).toBe('reverse_holo');
+  });
+
+  it('dedup: agregar la MISMA (carta, tipo, acabado) incrementa la cantidad, no duplica la línea', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    await quoteAndAdd('Charizard'); // finish normal por defecto
+    // Segundo add del mismo acabado: reutiliza la cotización visible.
+    fireEvent.click(screen.getByRole('button', { name: /Agregar al carrito/ }));
+
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
+    // Una sola línea en el carrito (un único botón "Quitar").
+    expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(1);
+  });
+
+  it('dedup: la MISMA carta en DISTINTO acabado es una línea separada', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    await quoteAndAdd('Charizard'); // normal
+    // Cambia el acabado a Reverse Holo, re-cotiza y agrega → línea distinta.
+    fireEvent.change(screen.getByLabelText('Acabado / versión'), {
+      target: { value: 'reverse_holo' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cotizar' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Agregar al carrito/ }));
+
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(2);
+  });
+
+  it('el finish elegido viaja en los items de la solicitud creada', async () => {
+    const spy = vi.spyOn(api, 'createSellRequest');
+    renderWithProviders(<BuylistView />, 'es');
+    await pick('Charizard');
+    fireEvent.change(screen.getByLabelText('Acabado / versión'), {
+      target: { value: 'holofoil' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cotizar' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Agregar al carrito/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    fireEvent.change(await screen.findByLabelText(/CLABE/), {
+      target: { value: '002010077777777771' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].items.every((i) => i.finish === 'holofoil')).toBe(true);
   });
 });

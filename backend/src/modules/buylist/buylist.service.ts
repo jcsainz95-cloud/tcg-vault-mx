@@ -1,5 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { BuylistRuleMode, MovementReason, Prisma, ProductType, RawCondition } from '@prisma/client';
+import {
+  BuylistRuleMode,
+  Card,
+  Finish,
+  MovementReason,
+  Prisma,
+  ProductType,
+  RawCondition,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -8,12 +16,14 @@ import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
-import { BuylistRule, quoteAcquisition } from '../../common/money';
+import { BuylistRule, quoteAcquisitionForFinish } from '../../common/money';
 
 interface QuoteItemInput {
   cardId: string;
   productType: ProductType;
   rawCondition?: RawCondition;
+  // v1.6-finish: acabado del item (default normal), validado contra card.availableFinishes.
+  finish?: Finish;
   // v1.3.1: el cliente ya NO envía `category`. La regla se deriva server-side de Card.rarity.
 }
 
@@ -27,19 +37,45 @@ export class BuylistService {
     private readonly pii: PiiCryptoService,
   ) {}
 
-  /** Cotizador público (stateless). API_CONTRACT §6 (v1.3.1: por RAREZA). */
-  async publicQuote(cardId: string, productType: ProductType, rawCondition?: RawCondition) {
+  /**
+   * v1.6-finish: valida que el `finish` pedido esté entre los acabados disponibles de la carta
+   * (SEC-A1). Fuera de la lista → 422 FINISH_NOT_AVAILABLE. Default `normal` si se omite.
+   */
+  private assertFinishAvailable(card: Card, finish?: Finish): Finish {
+    const f = finish ?? 'normal';
+    const available = (card.availableFinishes ?? ['normal']) as Finish[];
+    if (!available.includes(f)) {
+      throw BusinessException.validation(
+        'FINISH_NOT_AVAILABLE',
+        `Finish '${f}' is not available for this card`,
+        { finish: f, availableFinishes: available },
+      );
+    }
+    return f;
+  }
+
+  /** Cotizador público (stateless). API_CONTRACT §6 (v1.6-finish: por RAREZA + ACABADO). */
+  async publicQuote(
+    cardId: string,
+    productType: ProductType,
+    rawCondition?: RawCondition,
+    finish?: Finish,
+  ) {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
+    // SEC-A1: el acabado se valida contra los acabados REALES de la carta antes de cotizar.
+    const f = this.assertFinishAvailable(card, finish);
     const { rules, fallbackPct } = await this.buylistRules();
     const gradeKey = this.pricing.gradeKeyFor({ productType, rawCondition });
-    const ref = await this.pricing.getReference(cardId, productType, gradeKey);
+    // v1.6-finish: la referencia del `pct` es la del ACABADO cotizado.
+    const ref = await this.pricing.getReference(cardId, productType, gradeKey, f);
     const referenceMxnCents =
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-    // SEC-A1: la rareza que determina el monto es la REAL de la carta (Card.rarity), no del cliente.
-    const quote = quoteAcquisition(card.rarity, referenceMxnCents, rules, fallbackPct);
+    // SEC-A1: rareza + acabado derivados server-side (Card.rarity, finish validado), no del cliente.
+    const quote = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct);
     return {
       rarity: card.rarity ?? null,
+      finish: f,
       appliedRule: {
         mode: quote.appliedRule.mode,
         value: quote.appliedRule.value,
@@ -104,6 +140,7 @@ export class BuylistService {
       cardId: string;
       productType: ProductType;
       rawCondition?: RawCondition;
+      finish: Finish;
       rarity: string | null;
       ruleMode: BuylistRuleMode;
       ruleValue: number;
@@ -115,11 +152,14 @@ export class BuylistService {
     for (const it of items) {
       const card = await this.prisma.card.findUnique({ where: { id: it.cardId } });
       if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
+      // SEC-A1: valida el acabado contra los acabados REALES de la carta (422 si no).
+      const f = this.assertFinishAvailable(card, it.finish);
       const gradeKey = this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition });
-      const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey);
+      // v1.6-finish: referencia del ACABADO cotizado.
+      const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey, f);
       const referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-      const q = quoteAcquisition(card.rarity, referenceMxnCents, rules, fallbackPct);
+      const q = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct);
       if (q.status === 'precio_pendiente') {
         await this.pricing.escalatePending(it.cardId, it.productType, gradeKey, 'buylist');
       }
@@ -128,6 +168,7 @@ export class BuylistService {
         cardId: it.cardId,
         productType: it.productType,
         rawCondition: it.rawCondition,
+        finish: f,
         rarity: card.rarity ?? null,
         ruleMode: q.appliedRule.mode,
         ruleValue: q.appliedRule.value,
@@ -253,6 +294,7 @@ export class BuylistService {
     cardId: string;
     productType: ProductType;
     rawCondition: RawCondition | null;
+    finish?: Finish | null;
     rarity?: string | null;
     ruleMode?: BuylistRuleMode | null;
     ruleValue?: number | null;
@@ -269,6 +311,8 @@ export class BuylistService {
       card: i.card,
       productType: i.productType,
       rawCondition: i.rawCondition ?? undefined,
+      // v1.6-finish: acabado snapshoteado en la cotización/solicitud.
+      finish: i.finish ?? 'normal',
       rarity: i.rarity ?? undefined,
       appliedRule:
         i.ruleMode != null && i.ruleValue != null
@@ -478,6 +522,8 @@ export class BuylistService {
             cardId: item.cardId,
             productType: item.productType,
             rawCondition: item.rawCondition,
+            // v1.6-finish: el acabado snapshoteado se PROPAGA a la copia física (ARCHITECTURE §3.7).
+            finish: item.finish,
             ownerType: 'platform',
             status: 'in_stock',
             acquisitionType: 'buylist',

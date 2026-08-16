@@ -51,6 +51,17 @@ enum RawCondition {
   NM
 }
 
+// v1.6-finish (M-18): acabado/versión de carta. Valores canónicos derivados de las
+// llaves de `tcgplayer.prices` (mapeo en ARCHITECTURE §3.7):
+//   normal→normal, reverseHolofoil→reverse_holo, holofoil→holofoil,
+//   1stEditionHolofoil→first_edition_holofoil. graded/sealed = normal siempre.
+enum Finish {
+  normal
+  reverse_holo
+  holofoil
+  first_edition_holofoil
+}
+
 // v1.1 (M-2): subtipo opcional del producto sellado (solo productType=sealed).
 enum SealedSubtype {
   box
@@ -338,6 +349,11 @@ model Card {
   imageSmallUrl String?
   imageLargeUrl String?
   tcgplayerId   String?
+  // v1.6-finish (M-18): acabados en que existe esta carta, derivados de las llaves de
+  // `tcgplayer.prices` al importar (ARCHITECTURE §3.7). SIGUE siendo 1 fila por externalId
+  // (el @unique NO cambia; esto es un array en la MISMA fila). Filas históricas → [normal]
+  // hasta el re-sync. Lista blanca contra la que el backend valida cualquier `finish` (SEC-A1).
+  availableFinishes Finish[] @default([normal])
   createdAt     DateTime @default(now())
 
   inventoryItems   InventoryItem[]
@@ -390,6 +406,10 @@ model InventoryItem {
   ownerUser      User?           @relation("OwnerUser", fields: [ownerUserId], references: [id])
   ownershipStatus OwnershipStatus?
   status         InventoryStatus @default(in_stock)
+  // v1.6-finish (M-18): acabado de ESTA copia física. Se captura al alta (M1) y debe
+  // pertenecer a card.availableFinishes. Afecta la valuación (PriceReference de ESE acabado)
+  // y el catálogo "Compra" (filtro/listado por acabado). graded/sealed → normal. ARCHITECTURE §3.7.
+  finish         Finish          @default(normal)
   listPriceCents Int?
   acquisitionType AcquisitionType
   acquisitionCostCents Int?
@@ -436,6 +456,11 @@ model PriceReference {
   card            Card        @relation(fields: [cardId], references: [id])
   productType     ProductType
   gradeKey        String
+  // v1.6-finish (M-18): acabado ORTOGONAL a gradeKey (que sigue describiendo condición/grado).
+  // Añadido a la clave única: `normal` y `reverse_holo` de la misma carta tienen referencia de
+  // precio DISTINTA (una fila por día por acabado). El provider guarda el precio POR acabado
+  // (`tcgplayer.prices[finish].market`), no "el primer market disponible". ARCHITECTURE §3.2/§4.1.
+  finish          Finish      @default(normal)
   source          PriceSource
   priceUsdCents   Int?
   fxRate          Decimal?    @db.Decimal(12, 6)
@@ -445,7 +470,7 @@ model PriceReference {
   isManualOverride Boolean    @default(false)
   createdAt       DateTime    @default(now())
 
-  @@unique([cardId, productType, gradeKey, capturedDate])
+  @@unique([cardId, productType, gradeKey, finish, capturedDate])
   @@index([cardId])
 }
 
@@ -597,6 +622,10 @@ model SellRequestItem {
   card            Card            @relation(fields: [cardId], references: [id])
   productType     ProductType
   rawCondition    RawCondition?
+  // v1.6-finish (M-18): snapshot del acabado aplicado en la cotización/solicitud (validado
+  // contra card.availableFinishes al crear). Determina la regla y la referencia usadas
+  // (ARCHITECTURE §4.2.1). Al convertir a inventario (M5), se PROPAGA a InventoryItem.finish.
+  finish          Finish          @default(normal)
   // v1.3.1 (M-14): la cotización ya NO usa `category` (BuylistCategory). Se snapshotea la
   // REGLA POR RAREZA aplicada (auditoría). `category` queda NULLABLE/legacy (retención de
   // filas históricas); nada nuevo lo escribe. Ver ARCHITECTURE §3.2/§4.2.

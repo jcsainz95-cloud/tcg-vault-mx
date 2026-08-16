@@ -24,7 +24,7 @@ describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', (
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
     fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '123' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     expect(screen.getByText('La CLABE debe tener 18 dígitos.')).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
@@ -43,7 +43,7 @@ describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', (
     fireEvent.change(screen.getByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
     // El payload lleva los 3 items (sin precio/categoría; solo cardId/productType/rawCondition).
@@ -61,7 +61,7 @@ describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', (
     fireEvent.change(screen.getByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() =>
       expect(screen.getAllByText(/sube tu INE/).length).toBeGreaterThan(0),

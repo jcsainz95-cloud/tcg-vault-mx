@@ -344,7 +344,8 @@ export class AdminService {
     for (const item of items) {
       atCostCents += item.acquisitionCostCents ?? 0;
       const gradeKey = this.pricing.gradeKeyFor(item);
-      const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey);
+      // v1.6-finish: valúa contra la referencia del ACABADO del item.
+      const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
       if (ref.status === 'priced' && ref.referenceMxnCents != null) {
         atReferenceCents += ref.referenceMxnCents;
       } else {
@@ -361,7 +362,8 @@ export class AdminService {
     let totalCustodyValueCents = 0;
     for (const item of items) {
       const gradeKey = this.pricing.gradeKeyFor(item);
-      const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey);
+      // v1.6-finish: valúa contra la referencia del ACABADO del item.
+      const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
       if (ref.status === 'priced' && ref.referenceMxnCents != null) {
         totalCustodyValueCents += ref.referenceMxnCents;
       }

@@ -28,7 +28,9 @@ export interface RemoteCard {
   supertype?: string;
   subtypes?: string[];
   images?: { small?: string; large?: string };
-  tcgplayer?: { url?: string };
+  // v1.6-finish: se DEJA de descartar `prices` — las llaves presentes derivan availableFinishes
+  // (mapeo ARCHITECTURE §3.7) y el precio por acabado (`prices[llave].market`). Ver upsertCards.
+  tcgplayer?: { url?: string; prices?: Record<string, { market?: number }> };
   set: RemoteCardSet;
 }
 

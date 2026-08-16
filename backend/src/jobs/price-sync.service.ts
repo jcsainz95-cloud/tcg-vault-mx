@@ -43,7 +43,15 @@ export class PriceSyncJobService {
     for (const item of items) {
       const gradeKey = this.pricing.gradeKeyFor(item);
       try {
-        await this.pricing.syncCardPrice(item.card, item.productType, gradeKey, 'inventory', item.id);
+        // v1.6-finish: pricea el acabado de ESTA copia física (item.finish).
+        await this.pricing.syncCardPrice(
+          item.card,
+          item.productType,
+          gradeKey,
+          item.finish,
+          'inventory',
+          item.id,
+        );
         count += 1;
       } catch (e) {
         this.logger.warn(`price-sync failed for ${item.folio}: ${(e as Error).message}`);

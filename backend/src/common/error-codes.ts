@@ -31,6 +31,9 @@ export const ErrorCode = {
 
   // Catalog / pricing
   PRICE_PENDING: 'PRICE_PENDING',
+  // v1.6-finish: el `finish` enviado no está en Card.availableFinishes (SEC-A1). 422.
+  // Afecta POST /buylist/quote, POST /buylist/requests, POST /admin/inventory/items.
+  FINISH_NOT_AVAILABLE: 'FINISH_NOT_AVAILABLE',
 
   // Checkout / orders
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',

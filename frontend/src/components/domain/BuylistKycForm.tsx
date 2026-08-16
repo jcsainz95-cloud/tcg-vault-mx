@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { ProductType, RawCondition } from '@/types/contract';
+import type { ProductType, RawCondition, Finish } from '@/types/contract';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -15,13 +15,15 @@ import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
 /**
  * Ítem del payload de `POST /buylist/requests` (contrato §6). El modelo es
  * 1 item por carta física: una cantidad N ya viene EXPANDIDA a N entradas por
- * el carrito (BuylistView). El DTO solo lleva cardId/productType/rawCondition;
+ * el carrito (BuylistView). El DTO lleva cardId/productType/rawCondition/finish;
  * NO se envían precios ni categorías (SEC-A1: el backend re-deriva el monto).
+ * v1.6-finish: `finish` es el acabado snapshoteado de la cotización (default normal).
  */
 export interface BuylistRequestItem {
   cardId: string;
   productType: ProductType;
   rawCondition?: RawCondition;
+  finish?: Finish;
 }
 
 export interface BuylistKycFormProps {

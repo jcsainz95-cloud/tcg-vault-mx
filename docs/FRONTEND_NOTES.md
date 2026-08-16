@@ -4,6 +4,65 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Acabado / versión de carta (finish) en toda la cadena — v1.6-finish (2026-08-16)
+
+Consumo del contrato **v1.6-finish** (enum `Finish = normal | reverse_holo | holofoil |
+first_edition_holofoil`). El monto siempre lo deriva el backend server-side de `(rarity, finish)`
+validado contra `Card.availableFinishes` (SEC-A1); el front solo **elige** el acabado y lo manda.
+
+### Archivos tocados (todos dentro de `frontend/`)
+- `src/types/contract.ts` — enum `Finish`; `CardDTO.availableFinishes: Finish[]`; `finish: Finish` en
+  `ListingDTO`/`HoldingDTO`/`SellItemDTO`; `finish` (req+res) en `BuylistQuoteResponse`; `finishes:
+  Finish[]` en `CatalogFacetsDTO`; `finish?` en `InventoryItemDTO` (M1).
+- `src/lib/api.ts` — `CatalogFilters.finish` (query `finish` en `GET /catalog/cards`);
+  `getBuylistQuote` recibe `finish?`; `CreateSellRequestInput.items[].finish?`. La rama MOCK replica
+  el resolver **por acabado** (reverse_holo → "Reverse Holo"; holofoil/1st ed → rareza base si es holo,
+  si no "Holo"; normal → rareza base) y una referencia por carta compartida entre acabados.
+- `src/lib/mock/fixtures.ts` — `availableFinishes` por carta (`CARD_FINISHES`), `finish` en listings/
+  holdings/inventory/sell-items, `finishes` en facetas, helpers `resolveBuylistRuleForFinish` /
+  `mockReferenceForFinish`.
+- `src/components/domain/FinishBadge.tsx` — **nuevo**: badge del acabado (i18n `finish`); se oculta para
+  graded/sealed (siempre `normal`).
+- `src/app/[locale]/(storefront)/buylist/BuylistView.tsx` — **selector de acabado** en el cotizador
+  (§ abajo) + dedup de carrito por `(cardId, productType, finish)`.
+- `src/components/domain/BuylistKycForm.tsx` — `BuylistRequestItem` gana `finish?`.
+- `src/components/domain/ShopFilters.tsx` + `CatalogView.tsx` — filtro/faceta de acabado (chips) y chip
+  removible activo.
+- `src/components/domain/ListingCard.tsx`, `.../vault/VaultView.tsx`, `.../catalog/[cardId]/CardDetailView.tsx`
+  — muestran el acabado de cada listing/holding/ejemplar.
+- `src/app/[locale]/(admin)/admin/m1/M1View.tsx` — selector de acabado en el alta + columna de acabado.
+- `messages/es.json` / `messages/en.json` — namespace `finish` (label + 4 acabados), `buylist.selectFinish`,
+  `shop.finish.*`, `admin.m1.finish*` + columna, error `FINISH_NOT_AVAILABLE` (paridad ES/EN).
+
+### Selector de acabado (cotizador)
+Tras elegir una carta, un `<Select>` se puebla de `card.availableFinishes` (ordenado por
+`FINISH_ORDER`, con etiquetas i18n Normal / Reverse Holo / Holofoil / 1st Edition). El valor viaja en
+`getBuylistQuote({…, finish})` y se snapshotea en la línea del carrito y en los `items` de
+`createSellRequest`. **Se muestra solo cuando** `productType==='raw'` **y** hay `>1` acabado
+disponible; si la carta es `["normal"]` (o graded/sealed), queda fijo en `normal` y el selector se
+oculta. La cotización muestra la **regla aplicada por acabado** (`appliedRule` que ecoa el quote) y un
+`FinishBadge` con el acabado resuelto. El acabado **autoritativo** usado en el carrito es el que
+**ecoa la respuesta del quote** (`quote.data.finish`), no el estado local.
+
+### Dedup del carrito (hallazgo MENOR de QA #a)
+La **identidad de línea** ahora es `(cardId + productType + finish)`. `addToCart` busca una línea
+existente con esa clave: si existe, **incrementa la cantidad**; si no, crea una línea nueva. Así, la
+misma carta en el mismo acabado suma cantidad (sin duplicar), y la misma carta en **acabado distinto**
+es una **línea separada**. Cubierto por tests de dedup en `BuylistView.test.tsx`.
+
+### a11y de botones (hallazgo MENOR de QA #b)
+Las dos etiquetas "Enviar solicitud" se distinguen: el **CTA del carrito** es "Enviar solicitud
+({count})" (abre el modal de KYC) y el **submit del modal KYC** pasó a "Confirmar y enviar"
+(`buylist.submit`). Etiquetas visibles y accesibles distintas, sin ambigüedad para lector de pantalla.
+
+### Solicitudes al arquitecto
+- Ninguna. El contrato v1.6-finish cubre todo lo consumido. El mock del front asume que **una carta
+  comparte la misma referencia de mercado entre acabados** (simplificación de demo); el backend real
+  guarda una `PriceReference` **por acabado** — la UI no depende de esa distinción numérica.
+
+### Gates (todos verdes)
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` (153) ✓ · `npm run build` ✓ (incluye paridad i18n ES/EN).
+
 ## Cotizador de buylist como CARRITO (varias cartas en una solicitud) — 2026-08-16
 
 Feature **solo frontend** (sin cambio de contrato). El cotizador dejó de ser un flujo de

@@ -25,7 +25,8 @@ export class OrdersService {
   ): Promise<number> {
     if (item.listPriceCents != null && item.listPriceCents > 0) return item.listPriceCents;
     const gradeKey = this.pricing.gradeKeyFor(item);
-    const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey);
+    // v1.6-finish: precio de venta contra la referencia del ACABADO del item.
+    const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
     if (ref.status !== 'priced' || ref.referenceMxnCents == null) {
       throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
     }

@@ -5,9 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Info, ShieldQuestion, Search, Check, ShoppingCart, Plus, Minus, Trash2 } from 'lucide-react';
 import { getBuylistQuote, getSellRequests, listBuylistSets, searchBuylistCards } from '@/lib/api';
-import type { ProductType, CardDTO, RawCondition, BuylistQuoteResponse } from '@/types/contract';
+import type { ProductType, CardDTO, RawCondition, Finish, BuylistQuoteResponse } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
+import { FinishBadge } from '@/components/domain/FinishBadge';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -22,18 +23,25 @@ import { QueryState } from '@/components/ui/QueryState';
 import { useBuylistSteps } from '@/lib/pipelines';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
+// v1.6-finish: acabados en el orden de despliegue del selector; la etiqueta legible viene de i18n `finish`.
+const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 
 /**
  * Una línea del carrito de venta. Snapshotea el ESTIMADO de la cotización
  * (`quote`) que se le muestra al usuario; el monto autoritativo lo re-deriva el
  * backend al crear la solicitud (SEC-A1). `quantity` se expande a N entradas de
  * `items` al enviar (el modelo es 1 item por carta física).
+ *
+ * v1.6-finish: la IDENTIDAD de línea es (cardId + productType + finish): la MISMA
+ * carta en distinto acabado es una línea distinta; la MISMA (carta, tipo, acabado)
+ * incrementa la cantidad en vez de duplicar (dedup — hallazgo menor de QA).
  */
 interface CartLine {
   id: string;
   card: CardDTO;
   productType: ProductType;
   rawCondition?: RawCondition;
+  finish: Finish;
   quote: BuylistQuoteResponse;
   quantity: number;
 }
@@ -42,6 +50,7 @@ let lineSeq = 0;
 
 export function BuylistView() {
   const t = useTranslations('buylist');
+  const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const buylistSteps = useBuylistSteps();
   const queryClient = useQueryClient();
@@ -53,6 +62,8 @@ export function BuylistView() {
   const [selectedCard, setSelectedCard] = useState<CardDTO | null>(null);
 
   const [productType, setProductType] = useState<ProductType>('raw');
+  // v1.6-finish: acabado elegido para cotizar (default normal). Se puebla de card.availableFinishes.
+  const [finish, setFinish] = useState<Finish>('normal');
   const [guideOpen, setGuideOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -77,32 +88,57 @@ export function BuylistView() {
 
   const rawCondition: RawCondition | undefined = productType === 'raw' ? 'NM' : undefined;
 
+  // El acabado solo aplica a raw/singles; graded/sealed cotizan siempre en `normal` (contrato §I).
+  const availableFinishes: Finish[] = selectedCard
+    ? FINISH_ORDER.filter((f) => selectedCard.availableFinishes.includes(f))
+    : ['normal'];
+  const effectiveFinish: Finish = productType === 'raw' ? finish : 'normal';
+  // Se muestra el selector solo cuando hay >1 acabado disponible (si es ["normal"], queda fijo/oculto).
+  const showFinishSelect = productType === 'raw' && availableFinishes.length > 1;
+
   const quote = useMutation({
     // Condición de compra SIEMPRE NM (v1.1): raw se envía con rawCondition='NM', sin selector.
+    // v1.6-finish: el acabado elegido viaja en `finish`; el backend valida ∈ availableFinishes.
     mutationFn: () =>
-      getBuylistQuote({ cardId: selectedCard!.id, productType, rawCondition }),
+      getBuylistQuote({ cardId: selectedCard!.id, productType, rawCondition, finish: effectiveFinish }),
   });
 
   function pickCard(card: CardDTO) {
     setSelectedCard(card);
+    // Arranca en el primer acabado disponible (normal va primero por convención del catálogo).
+    const first = FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal';
+    setFinish(first);
     setJustAdded(false);
     quote.reset();
   }
 
   function addToCart() {
     if (!selectedCard || !quote.data) return;
-    lineSeq += 1;
-    setCart((prev) => [
-      ...prev,
-      {
-        id: `line-${lineSeq}`,
-        card: selectedCard,
-        productType,
-        rawCondition,
-        quote: quote.data,
-        quantity: 1,
-      },
-    ]);
+    // Identidad de línea = (cardId + productType + finish). El acabado autoritativo es el que
+    // ecoa el quote (validado server-side). Dedup: si ya existe la MISMA línea, +1 cantidad.
+    const lineFinish = quote.data.finish;
+    const cardId = selectedCard.id;
+    setCart((prev) => {
+      const idx = prev.findIndex(
+        (l) => l.card.id === cardId && l.productType === productType && l.finish === lineFinish,
+      );
+      if (idx >= 0) {
+        return prev.map((l, i) => (i === idx ? { ...l, quantity: l.quantity + 1 } : l));
+      }
+      lineSeq += 1;
+      return [
+        ...prev,
+        {
+          id: `line-${lineSeq}`,
+          card: selectedCard,
+          productType,
+          rawCondition,
+          finish: lineFinish,
+          quote: quote.data!,
+          quantity: 1,
+        },
+      ];
+    });
     setJustAdded(true);
   }
 
@@ -137,6 +173,8 @@ export function BuylistView() {
           cardId: l.card.id,
           productType: l.productType,
           rawCondition: l.rawCondition,
+          // v1.6-finish: cada item lleva su acabado; el backend snapshotea SellRequestItem.finish.
+          finish: l.finish,
         })),
       ),
     [cart],
@@ -261,6 +299,20 @@ export function BuylistView() {
               {t('conditionFixedNm')}
             </p>
           )}
+          {/* v1.6-finish: selector de acabado poblado de card.availableFinishes. Solo cuando
+              la carta tiene >1 acabado; si es ["normal"] queda fijo en Normal (oculto). */}
+          {selectedCard && showFinishSelect && (
+            <Select
+              label={t('selectFinish')}
+              options={availableFinishes.map((f) => ({ value: f, label: tFinish(f) }))}
+              value={finish}
+              onChange={(e) => {
+                setFinish(e.target.value as Finish);
+                setJustAdded(false);
+                quote.reset();
+              }}
+            />
+          )}
           <Button onClick={() => quote.mutate()} loading={quote.isPending} disabled={!selectedCard}>
             {quote.isPending ? t('quoting') : t('getQuote')}
           </Button>
@@ -282,7 +334,12 @@ export function BuylistView() {
                 <span className="text-muted">{t('rarityLabel')}</span>
                 <span className="font-medium" lang="en">{quote.data.rarity}</span>
               </div>
-              {/* Regla aplicada al usuario (ej. "40% de referencia" o "$1.50 fijo"). */}
+              {/* v1.6-finish: acabado cotizado; la regla y la referencia se resuelven por acabado. */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted">{tFinish('label')}</span>
+                <FinishBadge finish={quote.data.finish} />
+              </div>
+              {/* Regla aplicada al usuario, resuelta por el acabado (ej. "40% de referencia" o "$1.50 fijo"). */}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted">{t('appliedRuleLabel')}</span>
                 <span className="font-medium">
@@ -358,6 +415,10 @@ export function BuylistView() {
                         {' · '}
                         {l.productType === 'raw' ? `${l.productType} · NM` : l.productType}
                       </p>
+                      {/* v1.6-finish: acabado de esta línea (parte de su identidad para el dedup). */}
+                      <div className="mt-1">
+                        <FinishBadge finish={l.finish} productType={l.productType} compact />
+                      </div>
                       <p className="mt-0.5 text-xs">
                         <span className="text-muted">{t('cartItemEstimate')}: </span>
                         {pending ? (

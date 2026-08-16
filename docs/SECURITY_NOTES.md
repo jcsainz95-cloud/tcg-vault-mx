@@ -974,3 +974,101 @@ S15-B1 (escape HTML de `name` en plantilla — recomendado cerrar; no bloqueante
 - **Mínimo para mantener la aprobación:** no debilitar los guardarraíles verificados (reserva atómica,
   idempotencia/firma del webhook, money-out solo super_admin, gating `EmailVerifiedGuard` server-side,
   consumo atómico de tokens, PII cifrada/enmascarada, derivación server-side de montos SEC-A1).
+
+---
+
+## E. Revisión AppSec — feature de acabado / *finish* v1.6-finish (M-18) — SIN COMMITEAR
+
+> **Rol:** seguridad (blue team). **Alcance:** feature de acabado/finish en el working tree (aún sin
+> commitear; `git status` = M-18 + ~40 archivos). **Foco:** integridad financiera **SEC-A1** — que el
+> acabado no abra un vector para pagar de más/menos en cotización, compra, buylist o valuación.
+> **Modo:** revisión **estática de código** (sin stack vivo; Docker/Postgres ausentes, igual que el
+> pentester). Verificados por lectura = **[Verificado en código]**; dinámicos = **[pendiente DAST]**.
+> **Fecha:** 2026-08-16 (rev **v1.6-finish**). Blanco autorizado: código + staging/local.
+> **Nota:** el pase v1.5 del pentester **no** cubre esta feature (su foco fue correo M-17); esta sección
+> es la consolidación blue-team de la superficie nueva de finish. No duplica los hallazgos B-1…B-5/M-1.
+
+### E.0 Resumen ejecutivo
+
+**SEC-A1 se mantiene INTACTO con el acabado.** El monto de cotización/compra/valuación se deriva
+**siempre server-side** de `(Card.rarity, finish)` — la rareza de la BD (`Card.rarity` vía `findUnique`) y
+el `finish` **validado** contra `Card.availableFinishes` — nunca de un precio/categoría/monto del cliente.
+El enum `Finish` (Prisma + `@IsIn` en los DTOs) acota los valores a los **4 canónicos**; la `availableFinishes`
+por carta es la **lista blanca**; un acabado fuera de ella se **bloquea 422 FINISH_NOT_AVAILABLE** en los
+**tres** puntos de entrada (quote, request, alta de inventario). **Sin nueva superficie de inyección/SSRF** en
+el import (host fijo, `setId` regex, `encodeURIComponent`, derivación de acabados solo desde llaves conocidas).
+
+**No hay hallazgos Críticos ni Altos en esta feature.** Lo abierto es **defensa en profundidad / consistencia**
+(2 Bajas, ligadas a la ya conocida S-B5/B-4). El resto son defensas verificadas (positivas).
+
+| Severidad (feature finish) | # |
+|---|---|
+| Crítica | 0 |
+| Alta | 0 |
+| Media | 0 |
+| Baja | 2 (S16-B1, S16-B2) |
+| Info/positivo | 5 (S16-I1…I5) |
+
+### E.1 Defensas verificadas (positivo) — SEC-A1 con acabado
+
+**S16-I1. Derivación server-side del monto por (rareza, acabado) — [Verificado en código].**
+- Cotizador: `buylist.service.ts:58-95` (`publicQuote`) → `quoteAcquisitionForFinish(card.rarity, f, ref, rules, fallbackPct)` (`money.ts:155-167`). La `rarity` sale de `card` (`findUnique`, :64); el `finish` se valida (:67); la referencia del `pct` es la del **acabado** (`getReference(cardId, productType, gradeKey, f)`, :71). El DTO **nunca** aporta precio/monto/regla.
+- Solicitud: `buylist.service.ts:152-179` — misma derivación por item; `quotedTotalCents` se **acumula server-side** (:166), imposible de inflar desde el DTO. La regla aplicada se **snapshotea** (rarity/ruleMode/ruleValue/ruleSource/finish, :167-178) para auditoría.
+- Resolver determinista: `ruleKeyCandidates` (`money.ts:114-126`) mapea `finish→ruleKey` sin entrada del cliente; `reverse_holo→["Reverse Holo"]`, `holofoil/1st→isHoloRarity?[rarity,"Holo"]:["Holo"]`, `normal→[rarity]`.
+
+**S16-I2. `FINISH_NOT_AVAILABLE` validado server-side en las 3 rutas, no evadible por API directa — [Verificado en código].**
+- Quote: `assertFinishAvailable(card, finish)` (`buylist.service.ts:44-55`, llamado en :67).
+- Request: mismo guard por item (`buylist.service.ts:156`).
+- Alta de inventario M1: `resolveFinish(dto, card.availableFinishes)` (`inventory.service.ts:110-122`, llamado en :39).
+- La validación vive en el **servicio** (no en el front) → una llamada directa a la API no la evade. Un acabado inexistente/arbitrario cae en **422**, **no** en el fallback (el fallback solo aplica a un acabado *válido y disponible* sin regla explícita, resolviéndose a `BUYLIST_PRICE_FALLBACK_PCT`). Bloquea los tres vectores del brief: (a) forzar fallback/regla arbitraria, (b) reclamar un acabado con market más alto, (c) evadir por API directa.
+
+**S16-I3. Enum acotado a los 4 valores canónicos — [Verificado en código].**
+- Prisma `enum Finish { normal reverse_holo holofoil first_edition_holofoil }` (`schema.prisma:58-63`); columnas `Card.availableFinishes Finish[] @default([normal])` (:356), `InventoryItem.finish` (:412), `PriceReference.finish` (:463), `SellRequestItem.finish` (:628).
+- DTOs: `@IsIn(FINISHES)` en `PublicQuoteDto`/`RequestItemDto` (`buylist.dto.ts:15,23,31`), `CreateItemDto.finish` (`inventory.dto.ts:24`), `OverrideDto.finish` (`pricing.controller.ts`). `ValidationPipe({whitelist:true})` (`main.ts:43`) descarta cualquier campo extra (p. ej. un `price`/`category`/`amountCents` malicioso) → **sin mass-assignment**.
+- **Default seguro para filas históricas:** sin re-sync, `availableFinishes = [normal]` (default de schema + guard `?? ['normal']` en `assertFinishAvailable`/`resolveFinish`/`toCardDTO`) → hasta el re-sync **solo `normal` es cotizable/dable de alta**; el resto → 422. No hay degradación insegura.
+
+**S16-I4. Snapshot y propagación de acabado consistentes; no mutable entre cotización y aprobación — [Verificado en código].**
+- `SellRequestItem.finish` se fija en `createRequest` (validado, :156-172) y se **propaga** intacto a `InventoryItem.finish` al convertir (`convertToInventory`, `buylist.service.ts:525`), bajo la misma guardia de aprobación (`itemStatus==='aprobada'`, :505) e índice único `sourceSellRequestItemId` (anti doble-conversión, :514-560).
+- `itemDecision` (:461-486) **no** toca `finish` → el acabado no se puede cambiar tras cotizar para alterar el precio. Checkout (`orders.service.salePriceOf`) usa `item.finish` de la **BD** + `inventoryItemIds` del DTO: el comprador **no** puede manipular el acabado para pagar menos.
+- Valuación (portafolio/custody/inventario/P&L) usa `item.finish` de la BD en todos los consumidores: `vault.service.ts:157,161`, `admin.service.ts:347,366`, `orders.service.ts:28`, `price-sync.service.ts:50`.
+
+**S16-I5. Import/sync sin inyección/SSRF nueva — [Verificado en código].**
+- `deriveAvailableFinishes` (`pricing.types.ts:31-41`) solo mapea las **4 llaves conocidas** de `tcgplayer.prices` (`TCG_KEY_TO_FINISH`) e **ignora** las demás; ausente/vacío → `[normal]`. El provider lee `prices[FINISH_TO_TCG_KEY[finish]].market` (llave del acabado pedido), con guarda `typeof market==='number' && >0` (`pokemontcg-io.provider.ts:45-49`).
+- Host **fijo** `https://api.pokemontcg.io/v2` (no configurable, anti-SSRF), `setId` validado con `SET_ID_PATTERN` antes de interpolar y `encodeURIComponent(`set.id:${setId}`)` (`pokemontcg-io.client.ts:48-49,97-101`; `catalog-sync.service.ts:11,82`). Dato externo de pokemontcg.io tratado como no confiable: `rarity` es String libre parametrizado por Prisma (sin `$queryRaw`), carta inválida se **omite** sin abortar el barrido (:281-319).
+
+### E.2 Hallazgos (Bajas — defensa en profundidad / consistencia)
+
+**S16-B1. La ruta de buylist (quote/request) no fuerza `finish=normal` para `graded`/`sealed` (inconsistencia con el alta y el contrato).**
+- **Vector:** consistencia de regla de negocio en flujo de dinero (no explotable a pago).
+- **Ubicación:** `buylist.service.ts:67,156` — `assertFinishAvailable` valida el `finish` contra `availableFinishes` **sin importar** `productType`. En cambio el alta de inventario **sí** fuerza `normal` para no-raw (`inventory.service.ts:111`, `resolveFinish`), y el contrato dice "graded/sealed → finish=normal" (API_CONTRACT §DTOs, ARCHITECTURE §3.7).
+- **Análisis:** un `POST /buylist/quote|requests` con `productType=graded|sealed` y `finish=reverse_holo|holofoil` (si la carta lo tiene en `availableFinishes`) seleccionaría la regla de ese acabado (p. ej. "Reverse Holo" fijo). **No rompe SEC-A1** (sigue derivado server-side) ni produce sobrepago real: el buylist es **NM-only** y el desembolso (`pay-spei`) ocurre **solo tras recepción física + verificación** por `super_admin` (money-out, auditado), que confirma el acabado físico. Peor caso: un **estimado** espurio que el operador rechaza en verificación.
+- **PoC [Verificado en código; sin impacto de pago]:** cotizar graded/sealed con finish no-normal disponible → estimado por regla del acabado; no hay ruta automática a SPEI sin verificación física.
+- **Impacto:** Bajo (consistencia; el pago está físicamente verificado y server-derivado).
+- **Rol dueño:** **backend** (forzar `finish='normal'` para `productType!=='raw'` en `publicQuote`/`createRequest`, espejando `resolveFinish`).
+
+**S16-B2. El precio aprobado no se re-deriva contra el acabado físicamente verificado (extiende B-4/S-B5).**
+- **Vector:** segregación de funciones / integridad del monto a pagar en buylist (defensa en profundidad).
+- **Ubicación:** `buylist.service.ts:470-472` — `itemDecision('approve')` fija `approvedPriceCents = approvedPriceCents ?? item.quotedPriceCents ?? 0`. El `quotedPriceCents` se computó del acabado **declarado por el vendedor** en la cotización; al aprobar **no** se re-deriva `quoteAcquisitionForFinish` contra el acabado **físicamente verificado**, ni hay cota (esto es exactamente el eje de **B-4 / S-B5**, ahora con la dimensión de acabado).
+- **Análisis / mitigación existente:** cherry-pick manual carta por carta, NM-only, `pay-spei` **solo `super_admin`** (`@MoneyOut`, auditado). El operador debe cotejar acabado físico vs declarado antes de aprobar; hoy es control **manual**, no de código.
+- **Impacto:** Bajo (SoD + auditoría + verificación física mitigan; requiere descuido/colusión). Consolida con **S-B5**: la cota/re-check de `approvedPriceCents` debería **re-derivar por el acabado verificado**.
+- **Rol dueño:** **backend** (al aprobar/pagar: re-derivar el monto por el acabado verificado y/o acotar `approvedPriceCents ≤ quotedPriceCents×factor`, y re-chequear el tope AML — unifíquese con S-B5).
+
+### E.3 Deuda de seguridad aceptada (feature finish) — no bloqueante
+
+| ID | Deuda | Impacto | Disparador | Rol dueño |
+|---|---|---|---|---|
+| S16-B1 | Buylist no fuerza `normal` en graded/sealed | Consistencia; sin sobrepago (verificación física) | Antes de GA del buylist; alinear con `resolveFinish` | backend |
+| S16-B2 | Aprobado no re-derivado por acabado verificado | SoD/DiD; mitigado por money-out + verificación manual | Cerrar junto con S-B5 (cota + re-check AML al aprobar/pagar) | backend |
+
+### E.4 Banderas para el humano (específicas de la feature)
+- **Re-sync obligatorio del catálogo tras desplegar M-18** (API_CONTRACT changelog v1.6-finish): hasta poblarse `availableFinishes` + precios por acabado, las cartas históricas quedan en `[normal]` (comportamiento seguro, pero cotización limitada a normal). Confirmar que el re-sync corre en la ventana de deploy.
+- Reafirmo las banderas D.6 vigentes (pentest de tercero + bug bounty antes de dinero real; validaciones legales de custodia/PII INE/CLABE). La feature de finish **no** altera la superficie de PII/money-out.
+
+### E.5 VEREDICTO — feature de acabado / finish v1.6-finish
+
+**VEREDICTO seguridad (revisión estática): APROBADO.**
+
+- **0 Críticas / 0 Altas** en la feature de finish. **SEC-A1 intacto**: monto siempre derivado server-side de `(Card.rarity, finish)` validado contra `Card.availableFinishes`; DTOs solo aceptan `finish` (enum de 4 valores), sin precios; `ValidationPipe(whitelist)` descarta extras; enum Prisma + lista blanca acotan los valores; `FINISH_NOT_AVAILABLE` server-side en quote/request/alta, no evadible por API directa; snapshot de acabado consistente y propagado sin mutación entre cotización y aprobación; import sin inyección/SSRF nueva.
+- **Lo abierto son 2 Bajas** (S16-B1 consistencia; S16-B2 = eje de B-4/S-B5 con dimensión de acabado), **aceptadas con disparador y rol dueño** (backend). El criterio de RECHAZO de `CLAUDE.md` §7 (críticos/altos abiertos) **no se cumple** → **no procede RECHAZO**.
+- **Mínimo para mantener la aprobación:** no debilitar los guardarraíles verificados en S16-I1…I5 (derivación server-side por rareza+acabado, validación `availableFinishes`, snapshot/propagación de `finish`, host fijo + `setId` regex del import). Al cerrar **S-B5** (cota/re-check de `approvedPriceCents`), **incluir la re-derivación por el acabado físicamente verificado** (S16-B2).
+- **Condición previa a producción (no bloquea el DoD estático):** ejecutar la **fase dinámica (DAST) contra staging** para los vectores de concurrencia/pago ya listados en §D.4 (doble-conversión, reserva atómica, tope mensual) — ahora también **carrera de conversión con `finish`** — más el **re-sync M-18** confirmado en el deploy.

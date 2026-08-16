@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Card, PriceReference, ProductType } from '@prisma/client';
+import { Card, Finish, PriceReference, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -60,14 +60,19 @@ export class PricingService {
     return this.providers.find((p) => p.source === wanted && p.supports(productType));
   }
 
-  /** Lee la referencia vigente (del día) para una carta/tipo/grado. */
+  /**
+   * Lee la referencia vigente (del día) para una carta/tipo/grado/ACABADO.
+   * v1.6-finish: `finish` es una columna ortogonal a `gradeKey` (default `normal` para
+   * graded/sealed y compatibilidad). Cada acabado tiene su propia PriceReference.
+   */
   async getReference(
     cardId: string,
     productType: ProductType,
     gradeKey: string,
+    finish: Finish = 'normal',
   ): Promise<PriceInfo> {
     const ref = await this.prisma.priceReference.findFirst({
-      where: { cardId, productType, gradeKey },
+      where: { cardId, productType, gradeKey, finish },
       orderBy: { capturedDate: 'desc' },
     });
     if (!ref) return { status: 'pending' };
@@ -87,16 +92,18 @@ export class PricingService {
     card: Card,
     productType: ProductType,
     gradeKey: string,
+    finish: Finish = 'normal',
     context: 'catalog' | 'portfolio' | 'buylist' | 'inventory' = 'inventory',
     refId?: string,
   ): Promise<PriceInfo> {
-    // Cache diario: ¿ya hay fila de hoy?
+    // Cache diario: ¿ya hay fila de hoy para ESTE acabado?
     const existing = await this.prisma.priceReference.findUnique({
       where: {
-        cardId_productType_gradeKey_capturedDate: {
+        cardId_productType_gradeKey_finish_capturedDate: {
           cardId: card.id,
           productType,
           gradeKey,
+          finish,
           capturedDate: today(),
         },
       },
@@ -111,7 +118,7 @@ export class PricingService {
     }
 
     const provider = await this.providerFor(productType);
-    const quote = provider ? await provider.fetchPrice({ card, productType, gradeKey }) : null;
+    const quote = provider ? await provider.fetchPrice({ card, productType, gradeKey, finish }) : null;
 
     if (!quote || (quote.priceUsdCents == null && quote.priceMxnCents == null)) {
       await this.escalatePending(card.id, productType, gradeKey, context, refId);
@@ -137,6 +144,7 @@ export class PricingService {
         cardId: card.id,
         productType,
         gradeKey,
+        finish,
         source: quote.source,
         priceUsdCents,
         fxRate,
@@ -177,13 +185,15 @@ export class PricingService {
     productType: ProductType,
     gradeKey: string,
     priceMxnCents: number,
+    finish: Finish = 'normal',
   ): Promise<PriceReference> {
     const ref = await this.prisma.priceReference.upsert({
       where: {
-        cardId_productType_gradeKey_capturedDate: {
+        cardId_productType_gradeKey_finish_capturedDate: {
           cardId,
           productType,
           gradeKey,
+          finish,
           capturedDate: today(),
         },
       },
@@ -191,6 +201,7 @@ export class PricingService {
         cardId,
         productType,
         gradeKey,
+        finish,
         source: 'manual',
         priceMxnCents,
         capturedDate: today(),

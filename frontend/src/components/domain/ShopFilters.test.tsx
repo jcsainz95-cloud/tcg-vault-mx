@@ -13,6 +13,7 @@ const facets: CatalogFacetsDTO = {
   ],
   productTypes: ['raw', 'graded', 'sealed'],
   sealedSubtypes: ['box', 'etb'],
+  finishes: ['normal', 'reverse_holo', 'holofoil'],
   price: { minCents: 1000, maxCents: 500000, currency: 'MXN' },
 };
 
@@ -65,5 +66,12 @@ describe('ShopFilters (§7.16)', () => {
     const { onChange } = setup();
     fireEvent.change(screen.getByLabelText('Mínimo'), { target: { value: '100' } });
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ minPriceCents: 10000 }));
+  });
+
+  it('acabado (v1.6-finish): chips alimentados por facets.finishes; al elegir manda el finish', () => {
+    const { onChange } = setup();
+    // El chip usa la etiqueta localizada del acabado (Reverse Holo).
+    fireEvent.click(screen.getByRole('button', { name: 'Reverse Holo' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ finish: 'reverse_holo' }));
   });
 });

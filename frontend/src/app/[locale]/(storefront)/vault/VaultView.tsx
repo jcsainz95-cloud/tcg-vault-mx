@@ -11,6 +11,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
 import { ConditionBadge } from '@/components/ui/ConditionBadge';
+import { FinishBadge } from '@/components/domain/FinishBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { StatCard } from '@/components/ui/StatCard';
@@ -169,6 +170,8 @@ export function VaultView() {
                             certNumber={h.certNumber}
                             compact
                           />
+                          {/* v1.6-finish: acabado del holding; el portafolio valúa contra ese acabado. */}
+                          <FinishBadge finish={h.finish} productType={h.productType} compact />
                           <StatusBadge domain="ownership" value={h.ownershipStatus} />
                         </div>
                         <PriceTag reference={h.referenceValue} mode="reference" />

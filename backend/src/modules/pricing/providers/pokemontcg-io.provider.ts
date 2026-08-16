@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProductType } from '@prisma/client';
-import { PriceQuote, PricingProvider, PricingProviderInput } from '../pricing.types';
+import {
+  FINISH_TO_TCG_KEY,
+  PriceQuote,
+  PricingProvider,
+  PricingProviderInput,
+} from '../pricing.types';
 
 /**
  * PokemonTcgIoProvider — raw/singles. TCGPlayer "Market Price" vía pokemontcg.io.
@@ -34,11 +39,13 @@ export class PokemonTcgIoProvider implements PricingProvider {
       };
       const prices = body.data?.tcgplayer?.prices;
       if (!prices) return null;
-      // Toma el primer "market" disponible (normal/holofoil/reverse...).
-      for (const variant of Object.values(prices)) {
-        if (typeof variant.market === 'number' && variant.market > 0) {
-          return { priceUsdCents: Math.round(variant.market * 100), source: this.source };
-        }
+      // v1.6-finish: lee el "market" del ACABADO pedido (no el primero disponible). Mapea
+      // finish → llave de tcgplayer.prices (ARCHITECTURE §4.1). Si esa llave no existe → null
+      // → "precio pendiente" para ese acabado.
+      const key = FINISH_TO_TCG_KEY[input.finish];
+      const variant = prices[key];
+      if (variant && typeof variant.market === 'number' && variant.market > 0) {
+        return { priceUsdCents: Math.round(variant.market * 100), source: this.source };
       }
       return null;
     } catch (e) {

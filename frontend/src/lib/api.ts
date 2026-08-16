@@ -26,6 +26,7 @@ import type {
   ProductType,
   RawCondition,
   SealedSubtype,
+  Finish,
   BuylistRule,
   BuylistRulesDTO,
   BuylistRaritiesResponse,
@@ -79,6 +80,8 @@ export interface CatalogFilters {
   rarity?: string[];
   productType?: ProductType;
   condition?: RawCondition;
+  /** v1.6-finish: filtra por InventoryItem.finish (normal | reverse_holo | holofoil | first_edition_holofoil). */
+  finish?: Finish;
   sealedSubtype?: SealedSubtype;
   minPriceCents?: number;
   maxPriceCents?: number;
@@ -96,6 +99,7 @@ export async function getCatalog(filters: CatalogFilters = {}): Promise<Paginate
       rarity: filters.rarity && filters.rarity.length ? filters.rarity.join(',') : undefined,
       productType: filters.productType,
       condition: filters.condition,
+      finish: filters.finish,
       sealedSubtype: filters.sealedSubtype,
       minPriceCents: filters.minPriceCents,
       maxPriceCents: filters.maxPriceCents,
@@ -118,6 +122,7 @@ export async function getCatalog(filters: CatalogFilters = {}): Promise<Paginate
   }
   if (filters.productType) data = data.filter((l) => l.productType === filters.productType);
   if (filters.condition) data = data.filter((l) => l.rawCondition === filters.condition);
+  if (filters.finish) data = data.filter((l) => l.finish === filters.finish);
   if (filters.sealedSubtype) data = data.filter((l) => l.sealedSubtype === filters.sealedSubtype);
   if (filters.minPriceCents != null)
     data = data.filter((l) => (l.salePriceCents ?? 0) >= filters.minPriceCents!);
@@ -341,32 +346,38 @@ export async function getBuylistQuote(input: {
   cardId: string;
   productType: ProductType;
   rawCondition?: RawCondition;
+  /** v1.6-finish: acabado a cotizar; default `normal`. Debe pertenecer a card.availableFinishes. */
+  finish?: Finish;
 }): Promise<BuylistQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<BuylistQuoteResponse>('/buylist/quote', { method: 'POST', body: input });
   }
-  // MOCK v1.3.1: el monto se resuelve por REGLA de la rareza oficial (fixed MX$ / pct
-  // % de la referencia + fallback). El backend deriva la rareza server-side de Card.rarity.
+  // MOCK v1.3.1/v1.6-finish: el monto se resuelve por REGLA (fixed MX$ / pct % de la referencia
+  // + fallback), donde el ACABADO selecciona la regla y la referencia. El backend deriva la
+  // rareza + acabado server-side (SEC-A1); aquí lo replicamos para la demo.
   const card = fx.mockCards.find((c) => c.id === input.cardId);
   const rarity = card?.rarity ?? '';
-  const { rule, source } = fx.resolveBuylistRule(rarity);
+  const finish: Finish = input.finish ?? 'normal';
+  const { rule, source } = fx.resolveBuylistRuleForFinish(rarity, finish);
   const appliedRule = { mode: rule.mode, value: rule.value, source };
-  // Referencia de mercado por carta (Zapdos = null → precio pendiente de adquisición).
-  const refCents = fx.mockReferenceByCardId[input.cardId] ?? undefined;
+  // Referencia de mercado por carta+acabado (Zapdos = null → precio pendiente de adquisición).
+  const refCents = fx.mockReferenceForFinish(input.cardId, finish);
   if (rule.mode === 'fixed') {
     // Fijo: NO depende de la referencia → siempre cotiza.
     return delay({
       rarity,
+      finish,
       appliedRule,
       quote: { status: 'cotizada', quotedPriceCents: rule.value, currency: 'MXN' },
       referencePrice: refCents != null ? { status: 'priced', priceMxnCents: refCents } : { status: 'pending' },
       paymentNotice: 'PAY_AFTER_RECEIPT',
     });
   }
-  // Porcentaje: si falta referencia → precio pendiente.
+  // Porcentaje: si falta referencia del acabado → precio pendiente.
   if (refCents == null) {
     return delay({
       rarity,
+      finish,
       appliedRule,
       quote: { status: 'precio_pendiente', quotedPriceCents: null, currency: 'MXN' },
       referencePrice: { status: 'pending' },
@@ -375,6 +386,7 @@ export async function getBuylistQuote(input: {
   }
   return delay({
     rarity,
+    finish,
     appliedRule,
     quote: { status: 'cotizada', quotedPriceCents: Math.round((refCents * rule.value) / 100), currency: 'MXN' },
     referencePrice: { status: 'priced', priceMxnCents: refCents },
@@ -393,10 +405,13 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
 export interface CreateSellRequestInput {
   // v1.3.1: los items YA NO envían `category`; el backend deriva la regla server-side
   // de Card.rarity (SEC-A1). Un `category` del cliente se ignoraría.
+  // v1.6-finish: cada item lleva `finish?` (default normal, validado ∈ card.availableFinishes);
+  // se snapshotea en SellRequestItem.finish y se propaga al InventoryItem al convertir (M5).
   items: {
     cardId: string;
     productType: ProductType;
     rawCondition?: RawCondition;
+    finish?: Finish;
   }[];
   clabe: string;
   /** keys de presign del INE (contrato §6 POST /buylist/requests: ineUploadKeys?) */
@@ -416,8 +431,9 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
   // resuelve por la REGLA de la rareza (v1.3.1), igual que el cotizador.
   const items: SellRequestDTO['items'] = input.items.map((it, i) => {
     const card = fx.mockCards.find((c) => c.id === it.cardId) ?? fx.mockCards[0];
-    const ref = fx.mockReferenceByCardId[it.cardId] ?? undefined;
-    const { rule, source } = fx.resolveBuylistRule(card.rarity);
+    const finish: Finish = it.finish ?? 'normal';
+    const ref = fx.mockReferenceForFinish(it.cardId, finish);
+    const { rule, source } = fx.resolveBuylistRuleForFinish(card.rarity, finish);
     const quoted =
       rule.mode === 'fixed' ? rule.value : ref != null ? Math.round((ref * rule.value) / 100) : undefined;
     return {
@@ -425,6 +441,7 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
       card,
       productType: it.productType,
       rawCondition: it.rawCondition,
+      finish,
       rarity: card.rarity,
       appliedRule: { mode: rule.mode, value: rule.value, source },
       quotedPriceCents: quoted,

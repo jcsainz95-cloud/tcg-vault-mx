@@ -215,6 +215,10 @@ function buildChips(filters: CatalogFilters): Chip[] {
   if (filters.sealedSubtype) {
     chips.push({ key: 'subtype', label: filters.sealedSubtype, remove: (f) => ({ ...f, sealedSubtype: undefined }) });
   }
+  if (filters.finish) {
+    // v1.6-finish: chip del acabado activo (etiqueta cruda; la localizada vive en el panel de filtros).
+    chips.push({ key: 'finish', label: filters.finish, remove: (f) => ({ ...f, finish: undefined }) });
+  }
   if (filters.minPriceCents != null) {
     chips.push({ key: 'min', label: `≥ MX$${Math.round(filters.minPriceCents / 100)}`, remove: (f) => ({ ...f, minPriceCents: undefined }) });
   }

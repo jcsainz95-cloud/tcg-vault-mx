@@ -7,6 +7,7 @@ import {
 } from 'class-validator';
 import {
   AcquisitionType,
+  Finish,
   GradingCompany,
   ProductType,
   RawCondition,
@@ -18,6 +19,10 @@ export class CreateItemDto {
   @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
   // v1.1: raw solo NM (se eliminan LP/MP/HP/DMG).
   @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
+  // v1.6-finish: acabado de la copia física (default normal). Validado contra
+  // card.availableFinishes (SEC-A1); graded/sealed se fuerzan a normal en el servicio.
+  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  finish?: Finish;
   // v1.1: subtipo del sellado (solo productType=sealed).
   @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
   @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;

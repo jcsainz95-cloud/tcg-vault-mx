@@ -41,6 +41,20 @@ describe('api (rama mock, v1.1)', () => {
     expect(f.price.currency).toBe('MXN');
   });
 
+  it('getCatalogFacets expone las facetas de acabado (v1.6-finish)', async () => {
+    const f = await getCatalogFacets();
+    expect(f.finishes.length).toBeGreaterThan(0);
+    // Todos los acabados de la faceta pertenecen al enum Finish.
+    const valid = new Set(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil']);
+    expect(f.finishes.every((x) => valid.has(x))).toBe(true);
+  });
+
+  it('getCatalog filtra por acabado (v1.6-finish): solo listings de ese finish', async () => {
+    const res = await getCatalog({ finish: 'reverse_holo' });
+    expect(res.data.length).toBeGreaterThan(0);
+    expect(res.data.every((l) => l.finish === 'reverse_holo')).toBe(true);
+  });
+
   it('getPortfolioHistory devuelve serie ordenada + change con dirección', async () => {
     const h = await getPortfolioHistory('1m');
     expect(h.range).toBe('1m');
@@ -70,6 +84,25 @@ describe('api (rama mock, v1.1)', () => {
     const q = await getBuylistQuote({ cardId: 'c-zapdos', productType: 'raw', rawCondition: 'NM' });
     expect(q.quote.status).toBe('precio_pendiente');
     expect(q.quote.quotedPriceCents).toBeNull();
+  });
+
+  it('buylist (v1.6-finish): el acabado selecciona la regla — Common + reverse_holo = "Reverse Holo" fijo $1.50', async () => {
+    const q = await getBuylistQuote({
+      cardId: 'c-pikachu',
+      productType: 'raw',
+      rawCondition: 'NM',
+      finish: 'reverse_holo',
+    });
+    // El backend deriva la regla del acabado (no de la rareza base): Reverse Holo fijo 150.
+    expect(q.finish).toBe('reverse_holo');
+    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 150, source: 'rule' });
+    expect(q.quote.quotedPriceCents).toBe(150);
+  });
+
+  it('buylist (v1.6-finish): sin finish la respuesta ecoa el default normal', async () => {
+    const q = await getBuylistQuote({ cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' });
+    expect(q.finish).toBe('normal');
+    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
   });
 
   it('presignUpload (mock) devuelve maxBytes como tope de tamaño del presign', async () => {

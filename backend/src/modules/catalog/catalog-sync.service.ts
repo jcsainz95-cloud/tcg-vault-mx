@@ -5,6 +5,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.client';
 import { yearFromReleaseDate } from './catalog.service';
+import { deriveAvailableFinishes } from '../pricing/pricing.types';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -286,6 +287,9 @@ export class CatalogSyncService {
         );
         continue;
       }
+      // v1.6-finish: deriva los acabados de las llaves presentes en tcgplayer.prices (mapeo
+      // ARCHITECTURE §3.7). Ausente/vacío o sin llaves mapeadas → [normal] (default seguro).
+      const availableFinishes = deriveAvailableFinishes(c.tcgplayer?.prices);
       const data = {
         setId: localSetId,
         name: c.name,
@@ -295,6 +299,7 @@ export class CatalogSyncService {
         subtypes: c.subtypes ?? undefined,
         imageSmallUrl: c.images?.small ?? null,
         imageLargeUrl: c.images?.large ?? null,
+        availableFinishes,
       };
       try {
         await this.prisma.card.upsert({

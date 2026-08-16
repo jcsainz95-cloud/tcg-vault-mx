@@ -88,6 +88,84 @@ export function quoteAcquisition(
   };
 }
 
+/**
+ * v1.6-finish — resolver finish→regla determinista (ARCHITECTURE §4.2.1).
+ * El acabado seleccionado determina (a) qué regla de BUYLIST_PRICE_RULES aplica y (b) qué
+ * referencia de mercado usa el `pct` (la del ACABADO cotizado). NO se mete en gradeKey: es
+ * ortogonal. El monto se deriva SIEMPRE server-side de (Card.rarity, finish) validado (SEC-A1).
+ */
+export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
+
+/**
+ * Una rareza "ya es holo" si su string (pokemontcg.io) contiene "holo" (case-insensitive):
+ * "Rare Holo", "Rare Holo EX/GX/V/VMAX/VSTAR"… (NO "Ultra Rare"/"Illustration Rare").
+ */
+export function isHoloRarity(rarity: string | null): boolean {
+  return rarity != null && rarity.toLowerCase().includes('holo');
+}
+
+/**
+ * Candidatos de ruleKey EN ORDEN DE PRIORIDAD (gana el primero con regla explícita en
+ * BUYLIST_PRICE_RULES; si ninguno → BUYLIST_PRICE_FALLBACK_PCT). ARCHITECTURE §4.2.1:
+ *  - reverse_holo            → ["Reverse Holo"]
+ *  - holofoil / 1st ed holo  → isHoloRarity(rarity) ? [rarity, "Holo"] : ["Holo"]
+ *  - normal                  → [rarity] (regla de la rareza base)
+ */
+export function ruleKeyCandidates(rarity: string | null, finish: Finish): string[] {
+  switch (finish) {
+    case 'reverse_holo':
+      return ['Reverse Holo'];
+    case 'holofoil':
+    case 'first_edition_holofoil':
+      return isHoloRarity(rarity) ? [rarity as string, 'Holo'] : ['Holo'];
+    case 'normal':
+      return rarity != null ? [rarity] : [];
+    default:
+      return [];
+  }
+}
+
+/** Aplica una regla ya resuelta (misma lógica que quoteAcquisition §4.2). */
+function applyRule(
+  rule: BuylistRule,
+  ruleSource: 'rule' | 'fallback',
+  referenceMxnCents: number | null,
+): AcquisitionQuote {
+  if (rule.mode === 'fixed') {
+    return { quotedPriceCents: rule.value, status: 'cotizada', appliedRule: rule, ruleSource };
+  }
+  if (referenceMxnCents == null) {
+    return { quotedPriceCents: null, status: 'precio_pendiente', appliedRule: rule, ruleSource };
+  }
+  return {
+    quotedPriceCents: Math.round((referenceMxnCents * rule.value) / 100),
+    status: 'cotizada',
+    appliedRule: rule,
+    ruleSource,
+  };
+}
+
+/**
+ * AcquisitionPricer POR ACABADO (v1.6-finish, función pura). ARCHITECTURE §4.2.1.
+ * `referenceMxnCentsForFinish` = PriceReference.priceMxnCents del ACABADO cotizado
+ * (`getReference(..., finish)`). Para `first_edition_holofoil`, esa referencia es la de la
+ * llave `1stEditionHolofoil`. SEC-A1: rarity/finish derivados server-side y finish validado
+ * contra card.availableFinishes por el caller ANTES de cotizar.
+ */
+export function quoteAcquisitionForFinish(
+  rarity: string | null,
+  finish: Finish,
+  referenceMxnCentsForFinish: number | null,
+  rules: Record<string, BuylistRule>,
+  fallbackPct: number,
+): AcquisitionQuote {
+  const candidates = ruleKeyCandidates(rarity, finish);
+  const hitKey = candidates.find((k) => rules[k] != null);
+  const rule: BuylistRule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };
+  const ruleSource: 'rule' | 'fallback' = hitKey ? 'rule' : 'fallback';
+  return applyRule(rule, ruleSource, referenceMxnCentsForFinish);
+}
+
 export interface BreakdownDTO {
   subtotalCents: number;
   ivaCents: number;

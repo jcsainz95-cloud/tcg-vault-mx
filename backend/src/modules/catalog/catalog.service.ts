@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Card, CardSet, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype } from '@prisma/client';
+import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
@@ -10,6 +10,7 @@ import { BusinessException } from '../../common/business.exception';
 const PRODUCT_TYPES = new Set<string>(Object.values(ProductType));
 const RAW_CONDITIONS = new Set<string>(Object.values(RawCondition));
 const SEALED_SUBTYPES = new Set<string>(Object.values(SealedSubtype));
+const FINISHES = new Set<string>(Object.values(Finish));
 
 export function toCardDTO(card: Card & { set?: CardSet | null }) {
   return {
@@ -24,6 +25,8 @@ export function toCardDTO(card: Card & { set?: CardSet | null }) {
     setName: card.set?.name ?? null,
     imageSmallUrl: card.imageSmallUrl,
     imageLargeUrl: card.imageLargeUrl,
+    // v1.6-finish: acabados en que existe la carta (lista blanca de validación). [normal] por default.
+    availableFinishes: (card.availableFinishes ?? ['normal']) as Finish[],
   };
 }
 
@@ -89,7 +92,13 @@ export class CatalogService {
    */
   async toListingDTO(item: ItemWithCard) {
     const gradeKey = this.pricing.gradeKeyFor(item);
-    const referenceValue = await this.pricing.getReference(item.cardId, item.productType, gradeKey);
+    // v1.6-finish: valúa contra la PriceReference del ACABADO de ESTA copia física.
+    const referenceValue = await this.pricing.getReference(
+      item.cardId,
+      item.productType,
+      gradeKey,
+      item.finish,
+    );
 
     let salePriceCents: number | undefined;
     if (item.listPriceCents != null) {
@@ -107,6 +116,8 @@ export class CatalogService {
       productType: item.productType,
       rawCondition: item.rawCondition ?? undefined,
       sealedSubtype: item.sealedSubtype ?? undefined,
+      // v1.6-finish: acabado de esta copia (graded/sealed → normal). ListingDTO.finish.
+      finish: item.finish,
       gradingCompany: item.gradingCompany ?? undefined,
       gradeValue: item.gradeValue ?? undefined,
       // v1.2 (M-12): nº de certificado PSA/CGC (verificable en la graduadora); null en raw/sealed.
@@ -140,6 +151,7 @@ export class CatalogService {
     rarity?: string;
     productType?: string;
     condition?: string;
+    finish?: string;
     sealedSubtype?: string;
     minPriceCents?: number;
     maxPriceCents?: number;
@@ -153,6 +165,8 @@ export class CatalogService {
     const extra: Prisma.InventoryItemWhereInput = {};
     if (q.productType) extra.productType = this.validateEnum('productType', q.productType, PRODUCT_TYPES) as never;
     if (q.condition) extra.rawCondition = this.validateEnum('condition', q.condition, RAW_CONDITIONS) as never;
+    // v1.6-finish: filtro por acabado sobre InventoryItem.finish. Valor inválido → 400.
+    if (q.finish) extra.finish = this.validateEnum('finish', q.finish, FINISHES) as never;
     if (q.sealedSubtype) extra.sealedSubtype = this.validateEnum('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPES) as never;
     const cardWhere: Prisma.CardWhereInput = {};
     if (q.setId) cardWhere.setId = q.setId;
@@ -188,6 +202,8 @@ export class CatalogService {
 
     const rarities = [...new Set(rows.map((r) => r.item.card.rarity).filter((x): x is string => Boolean(x)))];
     const productTypes = [...new Set(rows.map((r) => r.item.productType))];
+    // v1.6-finish: distinct de InventoryItem.finish sobre el inventario publicado (filtro de acabado).
+    const finishes = [...new Set(rows.map((r) => r.item.finish))];
     const sealedSubtypes = [
       ...new Set(rows.map((r) => r.item.sealedSubtype).filter((x): x is NonNullable<typeof x> => Boolean(x))),
     ];
@@ -207,6 +223,7 @@ export class CatalogService {
       sets,
       productTypes,
       sealedSubtypes,
+      finishes,
       price: {
         minCents: prices.length ? Math.min(...prices) : 0,
         maxCents: prices.length ? Math.max(...prices) : 0,

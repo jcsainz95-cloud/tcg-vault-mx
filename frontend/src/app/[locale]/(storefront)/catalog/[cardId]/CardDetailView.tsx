@@ -10,6 +10,7 @@ import { useCart } from '@/lib/cart';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
 import { ConditionBadge } from '@/components/ui/ConditionBadge';
+import { FinishBadge } from '@/components/domain/FinishBadge';
 import { CertNumberField } from '@/components/ui/CertNumberField';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { Button } from '@/components/ui/Button';
@@ -148,6 +149,8 @@ function Detail({
                     gradeValue={l.gradeValue}
                     certNumber={l.certNumber}
                   />
+                  {/* v1.6-finish: cada ejemplar puede diferir en acabado (listings separados). */}
+                  <FinishBadge finish={l.finish} productType={l.productType} />
                   <PriceTag reference={l.referenceValue} salePriceCents={l.salePriceCents} />
                 </div>
                 <Button

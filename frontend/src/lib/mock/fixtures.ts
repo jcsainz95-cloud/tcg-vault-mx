@@ -11,6 +11,7 @@
 import type {
   CardDTO,
   CardSetDTO,
+  Finish,
   ListingDTO,
   HoldingDTO,
   OrderSummaryDTO,
@@ -87,10 +88,29 @@ function card(
     setName,
     imageSmallUrl: `${img}/${number}.png`,
     imageLargeUrl: `${img}/${number}_hires.png`,
+    // v1.6-finish: se sobre-escribe por CARD_FINISHES abajo; default seguro ["normal"].
+    availableFinishes: ['normal'],
   };
 }
 
-export const mockCards: CardDTO[] = [
+/**
+ * v1.6-finish: acabados disponibles por carta (derivados de tcgplayer.prices al importar).
+ * `normal` va primero para que el cotizador arranque en Normal por defecto. Las cartas
+ * no listadas quedan en ["normal"] (sellado, o filas históricas sin re-sync).
+ */
+const CARD_FINISHES: Record<string, Finish[]> = {
+  'c-charizard': ['normal', 'reverse_holo', 'holofoil'],
+  'c-blastoise': ['normal', 'holofoil'],
+  'c-pikachu': ['normal', 'reverse_holo'],
+  'c-zapdos': ['normal', 'holofoil'],
+  'c-eevee': ['normal', 'reverse_holo'],
+  'c-machamp': ['normal', 'reverse_holo'],
+  'c-pikachu-ir': ['holofoil'],
+  'c-latias-sir': ['holofoil'],
+  'c-milotic-fa': ['holofoil'],
+};
+
+export const mockCards: CardDTO[] = ([
   // Base Set clásicas (raw/graded).
   card('c-charizard', 'Charizard', '4', 'Rare Holo', 'base1', 'Base Set', 'Pokémon', ['Stage 2']),
   card('c-blastoise', 'Blastoise', '2', 'Rare Holo', 'base1', 'Base Set', 'Pokémon', ['Stage 2']),
@@ -105,7 +125,7 @@ export const mockCards: CardDTO[] = [
   // Productos sellados (sin rareza ni condición; nombre = producto).
   card('c-sealed-sv08-box', 'Surging Sparks Booster Box', '', '', 'sv08', 'Surging Sparks', 'Sealed', [], SV),
   card('c-sealed-sv06-etb', 'Twilight Masquerade ETB', '', '', 'sv06', 'Twilight Masquerade', 'Sealed', [], SV),
-];
+] as CardDTO[]).map((c) => ({ ...c, availableFinishes: CARD_FINISHES[c.id] ?? ['normal'] }));
 
 const cardById = (id: string) => mockCards.find((c) => c.id === id)!;
 
@@ -135,6 +155,7 @@ export const mockListings: ListingDTO[] = [
     inventoryItemId: 'inv-1001',
     card: cardById('c-charizard'),
     productType: 'graded',
+    finish: 'normal',
     gradingCompany: 'PSA',
     gradeValue: '9',
     // v1.2: gradeada identificada por empresa + grado + certNumber (verificable en la graduadora).
@@ -148,6 +169,7 @@ export const mockListings: ListingDTO[] = [
     card: cardById('c-blastoise'),
     productType: 'raw',
     rawCondition: 'NM',
+    finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 140800,
     sellable: true,
@@ -157,6 +179,8 @@ export const mockListings: ListingDTO[] = [
     card: cardById('c-pikachu'),
     productType: 'raw',
     rawCondition: 'NM',
+    // v1.6-finish: la misma carta en distinto acabado = listing separado (aquí Reverse Holo).
+    finish: 'reverse_holo',
     referenceValue: { status: 'priced', referenceMxnCents: 9500, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 10450,
     sellable: true,
@@ -166,6 +190,7 @@ export const mockListings: ListingDTO[] = [
     card: cardById('c-eevee'),
     productType: 'raw',
     rawCondition: 'NM',
+    finish: 'reverse_holo',
     referenceValue: { status: 'priced', referenceMxnCents: 22000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 24200,
     sellable: true,
@@ -175,6 +200,7 @@ export const mockListings: ListingDTO[] = [
     card: cardById('c-pikachu-ir'),
     productType: 'raw',
     rawCondition: 'NM',
+    finish: 'holofoil',
     referenceValue: { status: 'priced', referenceMxnCents: 180000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 198000,
     sellable: true,
@@ -183,6 +209,7 @@ export const mockListings: ListingDTO[] = [
     inventoryItemId: 'inv-1006',
     card: cardById('c-latias-sir'),
     productType: 'graded',
+    finish: 'normal',
     gradingCompany: 'CGC',
     gradeValue: '9.5',
     certNumber: '01245678',
@@ -195,16 +222,18 @@ export const mockListings: ListingDTO[] = [
     card: cardById('c-milotic-fa'),
     productType: 'raw',
     rawCondition: 'NM',
+    finish: 'holofoil',
     referenceValue: { status: 'priced', referenceMxnCents: 210000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
     salePriceCents: 231000,
     sellable: true,
   },
-  // Sellado: precio manual del admin en MXN, sin rareza/condición.
+  // Sellado: precio manual del admin en MXN, sin rareza/condición (finish siempre normal).
   {
     inventoryItemId: 'inv-1008',
     card: cardById('c-sealed-sv08-box'),
     productType: 'sealed',
     sealedSubtype: 'box',
+    finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 320000, source: 'manual', capturedDate: '2026-08-13' },
     salePriceCents: 320000,
     sellable: true,
@@ -214,6 +243,7 @@ export const mockListings: ListingDTO[] = [
     card: cardById('c-sealed-sv06-etb'),
     productType: 'sealed',
     sealedSubtype: 'etb',
+    finish: 'normal',
     referenceValue: { status: 'priced', referenceMxnCents: 105000, source: 'manual', capturedDate: '2026-08-12' },
     salePriceCents: 105000,
     sellable: true,
@@ -233,6 +263,8 @@ export const mockFacets: CatalogFacetsDTO = {
   sealedSubtypes: Array.from(
     new Set(mockListings.map((l) => l.sealedSubtype).filter((s): s is NonNullable<typeof s> => !!s)),
   ),
+  // v1.6-finish: distinct de InventoryItem.finish sobre lo publicado (para el filtro de acabado).
+  finishes: Array.from(new Set(mockListings.map((l) => l.finish))),
   price: {
     minCents: Math.min(...mockListings.map((l) => l.salePriceCents ?? 0)),
     maxCents: Math.max(...mockListings.map((l) => l.salePriceCents ?? 0)),
@@ -247,6 +279,7 @@ export const mockHoldings: HoldingDTO[] = [
     card: cardById('c-blastoise'),
     productType: 'raw',
     rawCondition: 'NM',
+    finish: 'reverse_holo',
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, capturedDate: '2026-08-13' },
@@ -256,6 +289,7 @@ export const mockHoldings: HoldingDTO[] = [
     folio: 'INV-000106',
     card: cardById('c-latias-sir'),
     productType: 'graded',
+    finish: 'normal',
     gradingCompany: 'CGC',
     gradeValue: '9.5',
     certNumber: '01245678',
@@ -269,6 +303,7 @@ export const mockHoldings: HoldingDTO[] = [
     card: cardById('c-sealed-sv08-box'),
     productType: 'sealed',
     sealedSubtype: 'box',
+    finish: 'normal',
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
@@ -279,6 +314,7 @@ export const mockHoldings: HoldingDTO[] = [
     card: cardById('c-zapdos'),
     productType: 'raw',
     rawCondition: 'NM',
+    finish: 'holofoil',
     ownershipStatus: 'settled',
     status: 'in_custody',
     // Precio pendiente en portafolio: se excluye del total (no rompe el cálculo).
@@ -371,9 +407,9 @@ export const mockSellRequests: SellRequestDTO[] = [
     ineRequired: false,
     createdAt: '2026-08-12T14:00:00Z',
     items: [
-      { id: 'sri-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', rarity: 'Rare Holo', appliedRule: { mode: 'pct', value: 40, source: 'fallback' }, quotedPriceCents: 50000, itemStatus: 'verificacion' },
-      { id: 'sri-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', rarity: 'Common', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 50, itemStatus: 'recibida' },
-      { id: 'sri-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', rarity: 'Reverse Holo', appliedRule: { mode: 'fixed', value: 150, source: 'rule' }, quotedPriceCents: 150, itemStatus: 'recibida' },
+      { id: 'sri-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', appliedRule: { mode: 'pct', value: 40, source: 'fallback' }, quotedPriceCents: 50000, itemStatus: 'verificacion' },
+      { id: 'sri-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 50, itemStatus: 'recibida' },
+      { id: 'sri-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', appliedRule: { mode: 'fixed', value: 150, source: 'rule' }, quotedPriceCents: 150, itemStatus: 'recibida' },
     ],
   },
 ];
@@ -423,6 +459,7 @@ export const mockInventory: InventoryItemDTO[] = [
     folio: 'INV-000101',
     card: cardById('c-charizard'),
     productType: 'graded',
+    finish: 'normal',
     gradingCompany: 'PSA',
     gradeValue: '9',
     certNumber: '82749163',
@@ -440,6 +477,7 @@ export const mockInventory: InventoryItemDTO[] = [
     card: cardById('c-sealed-sv08-box'),
     productType: 'sealed',
     sealedSubtype: 'box',
+    finish: 'normal',
     status: 'listed',
     ownerType: 'platform',
     location: { id: 'loc-2', label: 'C03-F02-S16', zone: 'platform_stock' },
@@ -453,6 +491,7 @@ export const mockInventory: InventoryItemDTO[] = [
     card: cardById('c-zapdos'),
     productType: 'raw',
     rawCondition: 'NM',
+    finish: 'holofoil',
     status: 'in_stock',
     ownerType: 'platform',
     location: { id: 'loc-2', label: 'C03-F02-S16', zone: 'platform_stock' },
@@ -478,7 +517,7 @@ export const mockAdminBuylist: AdminBuylistDTO[] = [
     quotedTotalCents: 1200,
     createdAt: '2026-08-13T08:00:00Z',
     items: [
-      { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', rarity: 'Uncommon', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 1200, itemStatus: 'recibida' },
+      { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 1200, itemStatus: 'recibida' },
     ],
   },
 ];
@@ -601,6 +640,34 @@ export function resolveBuylistRule(rarity: string): { rule: BuylistRule; source:
   const explicit = mockBuylistRules[rarity];
   if (explicit) return { rule: explicit, source: 'rule' };
   return { rule: { mode: 'pct', value: mockBuylistFallbackPct }, source: 'fallback' };
+}
+
+/**
+ * v1.6-finish: el ACABADO selecciona qué regla de rareza aplica (ARCHITECTURE §4.2.1):
+ * - reverse_holo → regla "Reverse Holo".
+ * - holofoil / first_edition_holofoil → rareza base si ya es holo (rarity contiene "holo"), si no "Holo".
+ * - normal → rareza base.
+ * El backend deriva esto server-side de (Card.rarity, finish) validado contra availableFinishes (SEC-A1).
+ */
+export function resolveBuylistRuleForFinish(
+  rarity: string,
+  finish: Finish,
+): { rule: BuylistRule; source: 'rule' | 'fallback' } {
+  let ruleKey = rarity;
+  if (finish === 'reverse_holo') ruleKey = 'Reverse Holo';
+  else if (finish === 'holofoil' || finish === 'first_edition_holofoil') {
+    ruleKey = /holo/i.test(rarity) ? rarity : 'Holo';
+  }
+  return resolveBuylistRule(ruleKey);
+}
+
+/**
+ * v1.6-finish: referencia de mercado por carta+acabado. En el MVP mock usamos la misma
+ * referencia base por carta para todos los acabados (el backend guarda una PriceReference
+ * por acabado). `null` (Zapdos) sigue sin referencia → precio pendiente.
+ */
+export function mockReferenceForFinish(cardId: string, _finish: Finish): number | undefined {
+  return mockReferenceByCardId[cardId] ?? undefined;
 }
 
 /**

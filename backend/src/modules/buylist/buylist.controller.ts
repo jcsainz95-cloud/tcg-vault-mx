@@ -15,7 +15,7 @@ export class BuylistController {
   @Post('quote')
   @HttpCode(200)
   quote(@Body() dto: PublicQuoteDto) {
-    return this.buylist.publicQuote(dto.cardId, dto.productType, dto.rawCondition);
+    return this.buylist.publicQuote(dto.cardId, dto.productType, dto.rawCondition, dto.finish);
   }
 
   // v1.5: vender (crear SellRequest) es acción sensible → requiere emailVerified. El cotizador

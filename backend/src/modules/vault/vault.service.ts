@@ -27,7 +27,13 @@ export class VaultService {
     const data = [];
     for (const item of items) {
       const gradeKey = this.pricing.gradeKeyFor(item);
-      const referenceValue = await this.pricing.getReference(item.cardId, item.productType, gradeKey);
+      // v1.6-finish: valúa contra la referencia del ACABADO del holding (no un precio único por carta).
+      const referenceValue = await this.pricing.getReference(
+        item.cardId,
+        item.productType,
+        gradeKey,
+        item.finish,
+      );
       if (referenceValue.status === 'priced' && referenceValue.referenceMxnCents != null) {
         totalValueMxnCents += referenceValue.referenceMxnCents;
       } else {
@@ -39,6 +45,8 @@ export class VaultService {
         card: toCardDTO(item.card),
         productType: item.productType,
         rawCondition: item.rawCondition ?? undefined,
+        // v1.6-finish: acabado del holding (HoldingDTO.finish).
+        finish: item.finish,
         gradingCompany: item.gradingCompany ?? undefined,
         gradeValue: item.gradeValue ?? undefined,
         ownershipStatus: item.ownershipStatus,
@@ -146,13 +154,20 @@ export class VaultService {
     if (!item) throw BusinessException.notFound();
     if (item.ownerUserId !== userId) throw BusinessException.forbidden('FORBIDDEN');
     const gradeKey = this.pricing.gradeKeyFor(item);
-    const referenceValue = await this.pricing.getReference(item.cardId, item.productType, gradeKey);
+    // v1.6-finish: valúa contra la referencia del ACABADO del holding.
+    const referenceValue = await this.pricing.getReference(
+      item.cardId,
+      item.productType,
+      gradeKey,
+      item.finish,
+    );
     return {
       inventoryItemId: item.id,
       folio: item.folio,
       card: toCardDTO(item.card),
       productType: item.productType,
       rawCondition: item.rawCondition ?? undefined,
+      finish: item.finish,
       gradingCompany: item.gradingCompany ?? undefined,
       gradeValue: item.gradeValue ?? undefined,
       // v1.2 (M-12): nº de certificado PSA/CGC para gradeadas; v1.2 (M-13): sin fotos propias
