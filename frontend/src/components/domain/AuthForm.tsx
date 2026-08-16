@@ -133,6 +133,15 @@ export function AuthForm({
         {loading ? t('loading') : mode === 'login' ? t('loginCta') : t('registerCta')}
       </Button>
 
+      {mode === 'login' && (
+        <Link
+          href="/forgot-password"
+          className="text-center text-sm text-primary hover:underline"
+        >
+          {t('forgotPassword')}
+        </Link>
+      )}
+
       {/* Divisor "o / or" — Google es alternativa neutra, no compite como CTA */}
       <div className="flex items-center gap-3" aria-hidden>
         <span className="h-px flex-1 bg-border" />

@@ -59,6 +59,8 @@ async function main() {
       name: 'Super Admin',
       role: 'super_admin',
       locale: 'es',
+      // v1.5-6: el staff nace verificado (no pasa por el flujo público de verificación).
+      emailVerified: true,
     },
     update: {},
   });
@@ -76,6 +78,8 @@ async function main() {
       name: 'Operador Bóveda',
       role: 'vault_operator',
       locale: 'es',
+      // v1.5-6: el staff nace verificado.
+      emailVerified: true,
     },
     update: {},
   });

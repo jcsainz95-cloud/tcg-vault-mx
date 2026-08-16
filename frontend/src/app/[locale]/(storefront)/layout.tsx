@@ -1,5 +1,6 @@
 import { useTranslations } from 'next-intl';
 import { StorefrontHeader } from '@/components/layout/StorefrontHeader';
+import { VerifyEmailBanner } from '@/components/domain/VerifyEmailBanner';
 import { Link } from '@/i18n/navigation';
 
 export default function StorefrontLayout({ children }: { children: React.ReactNode }) {
@@ -7,6 +8,9 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
     <div className="flex min-h-dvh flex-col">
       <SkipLink />
       <StorefrontHeader />
+      {/* Banner persistente "verifica tu correo" (emailVerified=false). No bloquea la
+          navegación; el bloqueo real de acciones sensibles lo hace el backend. */}
+      <VerifyEmailBanner />
       <main id="main" className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
         {children}
       </main>

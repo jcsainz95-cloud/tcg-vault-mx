@@ -620,3 +620,151 @@ aceptados, §5).
 - **Sin cambio** en las banderas globales: la **fase dinámica (DAST contra staging)** sigue pendiente y es
   requisito previo a producción (§6); pentest de tercero + validación legal de custodia/PII antes del
   go-live con dinero real.
+
+---
+
+## rev v1.5-auth-email (2026-08-16) — Verificación de correo + recuperación self-service
+
+> **Rol:** seguridad (blue team). **Alcance de esta revisión:** feature de correo v1.5 en el **working
+> tree, SIN COMMITEAR** — verificación de email + recuperación de contraseña por token (Resend). Archivos:
+> `auth-token.service.ts`, `auth.service.ts`, `auth.controller.ts`, `dto/auth.dto.ts`, `modules/mail/*`,
+> `guards/email-verified.guard.ts`, `guards/jwt-auth.guard.ts`, `schema.prisma` (AuthToken), migración M-17,
+> `config/env.validation.ts` y pantallas de auth del frontend.
+> **Modo:** revisión **estática** de código (sin stack vivo). Vectores que exigen instancia = **[PoC
+> pendiente de target — DAST]**; verificados por lectura = **[Verificado en código]**.
+> **Nota:** `docs/PENTEST_NOTES.md` es del pase v1.1 y **no cubre** la feature v1.5 (posterior). Esta sección
+> es revisión blue-team propia de la superficie nueva; no duplica hallazgos del pentester.
+
+### 0. Resumen ejecutivo
+
+La feature v1.5 **llega bien construida** y con los controles correctos en su núcleo. Confirmados **[Verificado
+en código]**:
+- **Tokens:** el claro es **32 bytes CSPRNG** (`crypto.randomBytes(32).toString('base64url')`, **no**
+  `Math.random`); en BD vive **solo el SHA-256** (`hashAuthToken`), nunca el claro; el token viaja **solo por
+  correo** (no en respuestas API ni en logs de app). Consumo **atómico de un solo uso**: `consume()` hace
+  `updateMany({ where: { tokenHash, type, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } })`
+  y exige `count>0` **antes** de resolver el `userId` → cierra la carrera de doble-uso (dos requests con el
+  mismo token: solo una obtiene `count=1`). **TTL correctos y server-side:** verif 24h / reset 1h
+  (`AUTH_TOKEN_TTL_MS`), validados por `expiresAt > now` en el propio `updateMany`. **Rotación:** al emitir
+  (`issue()`) se invalidan los previos no usados del mismo tipo (`updateMany usedAt=now`) → solo el último
+  link vale.
+- **Gating server-side REAL y no evadible:** `EmailVerifiedGuard` es `APP_GUARD` global, corre **después** de
+  `JwtAuthGuard` (que puebla `req.user.emailVerified` **leyéndolo fresco de BD** en cada request) y **antes**
+  de `MoneyOutGuard` (orden declarado en `app.module.ts:63-67`). `@RequireEmailVerified()` está aplicado en
+  los **exactos 3 endpoints** del contrato: `POST checkout/session` (`orders.controller.ts:22`),
+  `POST shipments` (`shipments.controller.ts:21`) y `POST buylist/requests` (`buylist.controller.ts:24`). Los
+  `*/quote` read-only **no** se bloquean (correcto). Un `customer` sin verificar **no** puede crear
+  orden/envío/sell-request por llamada directa a la API → `403 EMAIL_NOT_VERIFIED`. **No hay bypass por UI.**
+- **Anti-enumeración:** `forgot-password` responde **SIEMPRE 200** (`{ ok: true }` incondicional en
+  `auth.service.ts:217`); `verify-email/resend` es **autenticado y sin body** (usa `req.user`, cero
+  enumeración). Login mantiene la mitigación de timing con `DUMMY_PASSWORD_HASH`. El frontend
+  (`ForgotPasswordView.tsx`) muestra **mensaje genérico** siempre y solo distingue `429`.
+- **Reset de contraseña:** **misma política** que registro (`ResetPasswordDto.password @MinLength(8)`);
+  `tokenVersion: { increment: 1 }` → **revoca sesiones vivas** (verificado en `jwt-auth.guard.ts:61` y
+  `refresh` :361: rechazan `tv` previo); `emailVerified=true` tras reset (el clic prueba control del inbox,
+  decisión de producto documentada). **No** devuelve tokens: el usuario re-inicia sesión. Consumo atómico.
+- **Adaptador Resend:** API key **desde env** (`RESEND_API_KEY`, `mail.module.ts:24`), **no hardcodeada** y
+  **no logueada** (solo se loguea `error.name/message`). El **link se ancla a `APP_BASE_URL`**
+  (`buildFrontendLink`, server-side config) — **no** al `Host`/header de la request → **sin host-header
+  injection** en el link. El token se `encodeURIComponent`. `env.validation` exige `RESEND_API_KEY` en
+  no-local (Noop solo en dev/CI).
+- **Rate-limiting:** `forgot-password` 3/h/IP (`@Throttle` ctrl) **+ tope 3/h/email** en servicio
+  (`countIssuedLastHour`, cuenta por `createdAt` — no evadible por rotación de token); `resend` 3/h/usuario
+  (servicio) + 10/h/IP backstop; `verify-email`/`reset-password` 10/min/IP (token de 256 bits → no
+  fuerza-brutable). Defensa suficiente contra spam de correos y abuso.
+
+**Hallazgos nuevos:** **0 Críticos / 0 Altos.** Un solo defecto de código real (inyección en plantilla HTML,
+**Baja**) y tres endurecimientos de defensa-en-profundidad (**Baja**). Nada bloqueante para la feature v1.5.
+
+| Severidad | # (v1.5) | IDs |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 0 | — |
+| Baja | 4 | S15-B1 … S15-B4 |
+| Info/positivo | — | ver §0 |
+
+### 1. Hallazgos priorizados
+
+#### S15-B1 (Baja) — Inyección HTML en el cuerpo del correo: `name` del usuario sin escapar · [Verificado en código]
+- **Ubicación:** `backend/src/modules/mail/mail.templates.ts:41,43,51,53,65,67,75,77` — el `name` del usuario
+  se interpola **sin escapar** en el HTML (`<p>Hola ${name}:</p>` / `Hi ${name},`) y en el `text`. El `name`
+  viene de `RegisterDto.name` (`@IsString() @MinLength(1)`, **sin sanitización**).
+- **Evidencia/PoC:** registrar con `name = '<img src=x onerror=alert(1)>'` (o markup arbitrario) inyecta ese
+  HTML en el cuerpo del correo de verificación/reset. **Impacto acotado:** el correo se envía **solo a la
+  propia dirección del usuario** (`user.email`), por lo que es esencialmente self-injection, y los clientes de
+  correo modernos neutralizan `<script>`/`onerror`. No obstante es un defecto de inyección real (el brief lo
+  pide explícito) y habilita HTML/estilos/enlaces arbitrarios en un correo con la marca **TCG Vault MX**
+  (potencial abuso de reputación / plantilla de phishing con dominio propio si el `name` se reusara en correos
+  a terceros a futuro). El `link` **sí** es seguro (server-built + `encodeURIComponent`).
+- **Rol dueño:** **backend** (escapar HTML de `name` —y de cualquier dato de usuario— antes de interpolarlo en
+  la plantilla; p. ej. un `escapeHtml()` en `mail.templates.ts`, o validar `name` con allow-list en el DTO).
+
+#### S15-B2 (Baja) — Enumeración por temporización en `forgot-password` · [Verificado en código]
+- **Ubicación:** `backend/src/modules/auth/auth.service.ts:195-218`.
+- **Evidencia:** con email **inexistente** el método retorna casi inmediato; con email **existente y activo**
+  ejecuta escrituras en BD (`issue`) y **`await` del envío por Resend** (llamada de red) antes de responder.
+  Aunque la respuesta HTTP es idéntica (200), la **latencia** difiere de forma medible → canal de
+  enumeración. **Mitigantes:** rate-limit 3/h/IP (solo ~3 muestras/hora por IP) y que el registro **ya**
+  filtra existencia vía `409 EMAIL_TAKEN` (canal preexistente, aceptado). Riesgo residual bajo.
+- **Rol dueño:** **backend** (opcional, defensa-en-profundidad: mover el envío a un flujo asíncrono/desacoplado
+  del request, o normalizar el tiempo de respuesta, para que exista/no-exista tarden igual).
+
+#### S15-B3 (Baja) — Token en la URL: posible fuga por Referer/historial · [Verificado en código]
+- **Ubicación:** links `${APP_BASE_URL}/<locale>/verify-email|reset-password?token=<claro>`
+  (`auth.service.ts:71`); pantallas `VerifyEmailView.tsx` / `ResetPasswordView.tsx` reciben el token del query.
+- **Evidencia:** el token en claro viaja en el query string (inevitable: el link debe ser clicable desde el
+  correo), pero puede quedar en historial del navegador, logs de servidor/proxy y en cabeceras `Referer` hacia
+  recursos de terceros que cargue la página. **Mitigantes fuertes:** un solo uso + TTL corto (reset 1h) +
+  rotación reducen la ventana. Práctica estándar de la industria; residual bajo.
+- **Rol dueño:** **frontend** (defensa-en-profundidad: `history.replaceState` para retirar `?token=` de la URL
+  tras consumirlo, y/o `Referrer-Policy: no-referrer` en estas rutas).
+
+#### S15-B4 (Baja) — `reset-password` no revalida el estado de la cuenta al consumir · [Verificado en código]
+- **Ubicación:** `backend/src/modules/auth/auth.service.ts:225-251` (`resetPassword`).
+- **Evidencia:** `forgot-password` solo emite token a cuentas `active` (:198), pero `resetPassword` **no**
+  recomprueba `status` al consumir. Un token emitido mientras la cuenta estaba `active` y usado **después** de
+  pasar a `blocked`/`deleted` re-fijaría `passwordHash` y `emailVerified=true`. **No es escalable a acceso:**
+  `login`/`refresh`/`jwt-auth.guard` siguen rechazando `blocked`/`deleted` por estado, así que **no** se
+  reactiva la cuenta ni se obtiene sesión. Impacto: escritura de estado inútil sobre una cuenta inhabilitada.
+  Residual muy bajo.
+- **Rol dueño:** **backend** (recomprobar `status === active` dentro de `resetPassword` antes de aplicar el
+  cambio; simetría con `forgotPassword`).
+
+### 2. Deuda de seguridad aceptada (no bloqueante, con disparador)
+- **S15-B2/B3/B4** se aceptan como **deuda Baja** con los disparadores indicados (defensa-en-profundidad).
+  **Disparador de revisión:** antes del go-live con dinero real y/o en el pase **DAST** contra staging (medir
+  timing de `forgot-password`, revisar fuga de token por Referer en el borde).
+- **S15-B1** (inyección HTML en plantilla) **se recomienda cerrar antes de GA**: es un fix de una línea
+  (escape) y elimina una clase de inyección; se enruta a **backend** pero no bloquea el veredicto por su
+  impacto acotado (self-targeting).
+- **`register` sigue revelando existencia vía `409 EMAIL_TAKEN`** — canal de enumeración clásico ya aceptado
+  en pases previos (Info). Sin cambio.
+- **Pendientes de infra ajenos a v1.5** (siguen abiertos, de pases previos): **PENTEST M-1** dependencias
+  vulnerables (Media, **devops** — incluye la cadena de red de Resend/gaxios a revisar en el próximo
+  `npm audit`) y la deuda **BigInt** de agregados de dinero (arquitecto/backend). No pertenecen a esta feature.
+
+### 3. Banderas para el humano
+- **Pentest de tercero + bug bounty antes de operar con dinero real**: se mantiene la bandera global. La
+  recuperación de contraseña y el gating de dinero son superficie crítica; conviene validación externa antes
+  del go-live transaccional.
+- **Fase dinámica (DAST contra staging) pendiente**: confirmar timing de anti-enumeración, rate-limits reales
+  (por IP tras el proxy/borde — verificar que el `trust proxy`/IP real llega bien al `ThrottlerGuard`) y la no
+  fuga de tokens por logs de borde. Requisito previo a prod.
+- **Entregabilidad/seguridad de correo (SPF/DKIM/DMARC de `tcgvaultmx.com`)**: es **devops**; si el correo de
+  verificación no llega, los usuarios quedan sin poder desbloquear compra/venta/retiro (impacto de negocio, no
+  de confidencialidad). Confirmar dominio verificado en Resend.
+- **Validaciones legales de custodia/PII (INE/CLABE)**: sin cambios; siguen vigentes de pases previos.
+
+### 4. VEREDICTO — feature v1.5-auth-email: **APROBADO**
+- **0 Críticos / 0 Altos / 0 Medios** en la superficie nueva v1.5. Los controles de núcleo (tokens
+  hash-only/CSPRNG/atómicos/rotados, gating server-side no evadible, anti-enumeración, rate-limiting, revocación
+  de sesiones por `tokenVersion`, key/link sin fuga ni host-injection) están **correctamente implementados y
+  verificados en código**.
+- **Condición de aprobación cumplida:** el criterio de RECHAZO es "hay hallazgos críticos o altos abiertos" —
+  **no los hay**. Las 4 Bajas (S15-B1..B4) se aceptan como deuda con disparador y se enrutan a su rol dueño
+  (**backend** S15-B1/B2/B4, **frontend** S15-B3); **ninguna** bloquea.
+- **Recomendación no bloqueante:** cerrar **S15-B1** (escape HTML del `name`) en esta misma entrega por ser
+  trivial. El resto puede abordarse en el endurecimiento previo a GA / pase DAST.
+- **Mínimo para mantener la aprobación:** que no se introduzcan cambios que debiliten el consumo atómico del
+  token, el gating server-side o el anti-enumeración de `forgot-password`.

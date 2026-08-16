@@ -49,9 +49,10 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     // Revocación por versión + estado de cuenta (reset/soft-delete/bloqueo).
+    // v1.5: se añade `emailVerified` al select para poblar `req.user` (lo usa EmailVerifiedGuard).
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { status: true, tokenVersion: true },
+      select: { status: true, tokenVersion: true, emailVerified: true },
     });
     if (
       !user ||
@@ -62,7 +63,12 @@ export class JwtAuthGuard implements CanActivate {
       throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or revoked token');
     }
 
-    req.user = { id: payload.sub, email: payload.email, role: payload.role };
+    req.user = {
+      id: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      emailVerified: user.emailVerified,
+    };
     return true;
   }
 }

@@ -24,6 +24,7 @@ import { HealthModule } from './modules/health/health.module';
 import { JobsModule } from './jobs/jobs.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { EmailVerifiedGuard } from './common/guards/email-verified.guard';
 import { MoneyOutGuard } from './common/guards/money-out.guard';
 
 @Module({
@@ -55,11 +56,14 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     JobsModule,
   ],
   providers: [
-    // Orden: rate-limit → autenticación → rol → dinero saliente. (APP_GUARD respeta el orden.)
-    // El throttling corre antes que la autenticación para frenar fuerza bruta en /auth/login.
+    // Orden: rate-limit → autenticación → rol → correo verificado → dinero saliente.
+    // (APP_GUARD respeta el orden.) El throttling corre antes que la autenticación para frenar
+    // fuerza bruta en /auth/login. EmailVerifiedGuard (v1.5) corre tras JwtAuthGuard/RolesGuard,
+    // usando `req.user.emailVerified` para gatear las acciones sensibles marcadas.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: EmailVerifiedGuard },
     { provide: APP_GUARD, useClass: MoneyOutGuard },
   ],
 })

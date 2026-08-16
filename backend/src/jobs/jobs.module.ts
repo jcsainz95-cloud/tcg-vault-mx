@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { IneRetentionJobService } from './ine-retention.service';
+import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { SchedulerService } from './scheduler.service';
 import { AdminJobsController } from './admin-jobs.controller';
 import { PricingModule } from '../modules/pricing/pricing.module';
@@ -20,6 +21,7 @@ import { VaultModule } from '../modules/vault/vault.module';
     BuylistSweepJobService,
     DisputeDeadlineJobService,
     IneRetentionJobService,
+    AuthTokenSweepJobService,
     SchedulerService,
   ],
   controllers: [AdminJobsController],
@@ -27,6 +29,7 @@ import { VaultModule } from '../modules/vault/vault.module';
     BuylistSweepJobService,
     DisputeDeadlineJobService,
     IneRetentionJobService,
+    AuthTokenSweepJobService,
     PricingModule,
   ],
 })

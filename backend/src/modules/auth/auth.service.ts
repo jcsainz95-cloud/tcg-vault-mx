@@ -1,13 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { AuthProvider, Prisma, Role, User, UserStatus } from '@prisma/client';
+import { AuthProvider, AuthTokenType, Prisma, Role, User, UserStatus } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { AuditService } from '../audit/audit.service';
+import { MailService } from '../mail/mail.service';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
 import { GoogleTokenVerifier } from './google-token-verifier';
+import { AuthTokenService } from './auth-token.service';
+
+/** Máx. de correos por hora y por usuario (reenvío de verificación / olvido de contraseña). */
+const MAX_EMAILS_PER_HOUR = 3;
 
 export interface TokenPair {
   accessToken: string;
@@ -27,16 +32,43 @@ const DUMMY_PASSWORD_HASH =
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly googleVerifier: GoogleTokenVerifier,
     private readonly audit: AuditService,
+    private readonly tokens: AuthTokenService,
+    private readonly mail: MailService,
   ) {}
 
   private publicUser(u: User) {
-    return { id: u.id, email: u.email, name: u.name, role: u.role, locale: u.locale };
+    // v1.5: el `user` de register|login|google incluye `emailVerified` (para el banner del front).
+    return {
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      locale: u.locale,
+      emailVerified: u.emailVerified,
+    };
+  }
+
+  /**
+   * Construye el link del correo apuntando al FRONTEND: `${origin}/<locale>/<path>?token=<claro>`.
+   * `origin` = primer origen de APP_BASE_URL (lista separada por comas) o localhost en dev.
+   */
+  private buildFrontendLink(
+    user: Pick<User, 'locale'>,
+    path: 'verify-email' | 'reset-password',
+    clearToken: string,
+  ): string {
+    const raw = this.config.get<string>('APP_BASE_URL') ?? '';
+    const origin = raw.split(',')[0].trim() || 'http://localhost:3000';
+    const locale = user.locale ?? this.config.get<string>('DEFAULT_LOCALE') ?? 'es';
+    return `${origin}/${locale}/${path}?token=${encodeURIComponent(clearToken)}`;
   }
 
   async issueTokens(user: Pick<User, 'id' | 'email' | 'role' | 'tokenVersion'>): Promise<TokenPair> {
@@ -81,8 +113,149 @@ export class AuthService {
       }
       throw e;
     }
+    // v1.5: emite el token de verificación (24h) y envía el correo. El fallo de envío NO aborta
+    // el registro (se registra; el usuario puede pedir reenvío). Nace con emailVerified=false.
+    await this.sendVerificationEmail(user);
     const tokens = await this.issueTokens(user);
     return { user: this.publicUser(user), ...tokens };
+  }
+
+  /** Emite el token de verificación y envía el correo (best-effort). */
+  private async sendVerificationEmail(user: User, requestIp?: string | null): Promise<void> {
+    const clear = await this.tokens.issue(user.id, AuthTokenType.email_verification, requestIp);
+    const link = this.buildFrontendLink(user, 'verify-email', clear);
+    try {
+      await this.mail.sendEmailVerification(user, link);
+      await this.audit.log({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'auth.email_verification_sent',
+        entityType: 'User',
+        entityId: user.id,
+      });
+    } catch (e) {
+      // No filtra el token al log; solo el fallo del proveedor.
+      this.logger.error(`No se pudo enviar el correo de verificación a ${user.id}: ${String(e)}`);
+    }
+  }
+
+  /**
+   * POST /auth/verify-email/resend (customer+, autenticado). Reenvía la verificación al email de
+   * la sesión (sin body → cero enumeración). No-op si ya está verificado. Rate-limit 3/h/usuario.
+   */
+  async resendVerification(userId: string, requestIp?: string | null): Promise<{ ok: true }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw BusinessException.notFound();
+    if (user.emailVerified) return { ok: true }; // ya verificado → no reenvía
+    const recent = await this.tokens.countIssuedLastHour(userId, AuthTokenType.email_verification);
+    if (recent >= MAX_EMAILS_PER_HOUR) {
+      throw new BusinessException('RATE_LIMITED', 429, 'Too many verification emails; try later');
+    }
+    await this.sendVerificationEmail(user, requestIp);
+    return { ok: true };
+  }
+
+  /**
+   * POST /auth/verify-email (public). Consume el token; marca emailVerified=true y el token usado.
+   * NO altera tokenVersion (verificar no revoca sesiones). Idempotente: si el usuario del token ya
+   * está verificado, responde ok aunque el token esté usado (tolera doble clic).
+   */
+  async verifyEmail(token: string): Promise<{ verified: true }> {
+    const userId = await this.tokens.consume(token, AuthTokenType.email_verification);
+    if (userId) {
+      await this.prisma.user.update({ where: { id: userId }, data: { emailVerified: true } });
+      await this.audit.log({
+        actorUserId: userId,
+        action: 'auth.email_verified',
+        entityType: 'User',
+        entityId: userId,
+      });
+      return { verified: true };
+    }
+    // Idempotencia: token ya usado/expirado pero el usuario ya quedó verificado → ok.
+    const ownerId = await this.tokens.ownerOf(token);
+    if (ownerId) {
+      const owner = await this.prisma.user.findUnique({
+        where: { id: ownerId },
+        select: { emailVerified: true },
+      });
+      if (owner?.emailVerified) return { verified: true };
+    }
+    throw BusinessException.validation(
+      'EMAIL_VERIFY_TOKEN_INVALID',
+      'Verification token is invalid, expired or already used',
+    );
+  }
+
+  /**
+   * POST /auth/forgot-password (public). SIEMPRE responde 200 (anti-enumeración). Si el email
+   * existe (cuenta no bloqueada/eliminada), emite token de reset (1h), rota previos y envía el
+   * correo. Tope por email 3/h en servicio (best-effort; no revela existencia). Rate-limit IP en ctrl.
+   */
+  async forgotPassword(email: string, requestIp?: string | null): Promise<{ ok: true }> {
+    const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    // Solo procesa cuentas activas (una cuenta blocked/deleted no debe re-habilitarse por reset).
+    if (user && user.status === UserStatus.active) {
+      const recent = await this.tokens.countIssuedLastHour(user.id, AuthTokenType.password_reset);
+      if (recent < MAX_EMAILS_PER_HOUR) {
+        const clear = await this.tokens.issue(user.id, AuthTokenType.password_reset, requestIp);
+        const link = this.buildFrontendLink(user, 'reset-password', clear);
+        try {
+          await this.mail.sendPasswordReset(user, link);
+          await this.audit.log({
+            actorUserId: user.id,
+            action: 'auth.password_reset_requested',
+            entityType: 'User',
+            entityId: user.id,
+          });
+        } catch (e) {
+          this.logger.error(`No se pudo enviar el correo de reset a ${user.id}: ${String(e)}`);
+        }
+      }
+    }
+    // Respuesta genérica SIEMPRE (exista o no el email).
+    return { ok: true };
+  }
+
+  /**
+   * POST /auth/reset-password (public). Consume el token de reset; fija passwordHash (argon2id),
+   * incrementa tokenVersion (revoca sesiones), setea emailVerified=true (v1.5-3), limpia
+   * mustChangePassword. No devuelve tokens: el usuario re-inicia sesión. 422 si el token es inválido.
+   */
+  async resetPassword(token: string, password: string): Promise<{ ok: true }> {
+    const userId = await this.tokens.consume(token, AuthTokenType.password_reset);
+    if (!userId) {
+      throw BusinessException.validation(
+        'RESET_TOKEN_INVALID',
+        'Reset token is invalid, expired or already used',
+      );
+    }
+    // S15-B4 (defensa en profundidad): revalida el estado de la cuenta antes de fijar la
+    // contraseña. `forgotPassword` ya solo emite reset a cuentas `active`, y login/guard rechazan
+    // las no-activas, pero un token de reset emitido ANTES de bloquear una cuenta no debe permitir
+    // fijar contraseña en una cuenta ya bloqueada/eliminada. Mismo trato (y code) que login.
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.status !== UserStatus.active) {
+      throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
+    }
+    const passwordHash = await argon2.hash(password);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        // Revoca sesiones vivas (patrón existente) e implica control del inbox → verificado.
+        tokenVersion: { increment: 1 },
+        emailVerified: true,
+        mustChangePassword: false,
+      },
+    });
+    await this.audit.log({
+      actorUserId: userId,
+      action: 'auth.password_reset_completed',
+      entityType: 'User',
+      entityId: userId,
+    });
+    return { ok: true };
   }
 
   async login(dto: LoginDto) {

@@ -149,6 +149,74 @@
   usuario/`passwordHash` null — para igualar la latencia; se mantiene `401 INVALID_CREDENTIALS` y el caso
   Google intacto. Cubierto con tests (`test/auth.login-timing.spec.ts`). Ya no es deuda.
 
+### Deuda del pase correo v1.5 (hallazgos seguridad — Baja, aceptada)
+
+> Del pase de **feature de correo v1.5** (verificación + reset por email). Los hallazgos **S15-B1**
+> (escape de HTML en plantillas) y **S15-B4** (revalidar `status` en reset) se **cerraron** en este
+> mismo pase y **no** figuran como deuda. Lo de abajo es la deuda **Baja aceptada** que seguridad
+> autorizó a diferir. IDs prefijados `v15-` para no colisionar con la D1–D3 del pase v1.1 (arriba).
+
+### v15-D1 · `auth-token-sweep` sin disparador automático (no cableado al scheduler)
+- **Dónde:** `src/jobs/auth-token-sweep.service.ts` (lógica lista); `src/jobs/scheduler.service.ts:47-51`
+  solo registra `fx-refresh`/`price-sync`/`portfolio-snapshot` — **no** incluye `auth-token-sweep`
+  (ni `buylist-sweep`, `dispute-deadline`, `ine-retention`, misma familia que BE-5/BE-3).
+- **Estado actual:** la tabla `AuthToken` **no se poda**: los tokens de verificación/reset caducados o
+  usados se acumulan sin borrarse. **Mitigado** porque `AuthTokenService.consume` (`auth-token.service.ts:53`)
+  ya rechaza expirados/usados (`usedAt: null, expiresAt: { gt: now }`), así que un token viejo nunca
+  vuelve a ser válido; es solo crecimiento de tabla, no un agujero de autenticación.
+- **Impacto:** bajo. Crecimiento monótono de `AuthToken` con el tiempo (housekeeping), sin efecto en
+  correctness ni seguridad.
+- **Disparador:** al cablear el scheduler de jobs de barrido (junto con BE-5/BE-3). Solución: registrar
+  `auth-token-sweep` como job repetible BullMQ (`repeat`) en `scheduler.service.ts`, con su `case` en el worker.
+
+### v15-D2 · `AuthTokenService.consume`/`ownerOf`: claim-luego-lectura no transaccional
+- **Dónde:** `src/modules/auth/auth-token.service.ts:53-65` (`consume`) y `:68-75` (`ownerOf`).
+- **Estado actual:** `consume` hace `updateMany` (claim atómico de `usedAt`) y **después** un `findUnique`
+  para leer el `userId`; los dos pasos no van en una transacción. Si un **sweep** (v15-D1) borrara la fila
+  justo entre ambos pasos, el `findUnique` devolvería `null` y el flujo daría un **422 espurio** (token
+  "inválido") pese al claim exitoso. Ventana **teórica**: hoy no hay sweep corriendo (v15-D1) y las filas
+  no se borran, así que no se materializa.
+- **Impacto:** bajo. A lo sumo un 422 espurio ocasional que el usuario resuelve reintentando; nunca fija
+  contraseña ni verifica de más (el claim ya ocurrió; el peor caso es no-progreso, no un bypass).
+- **Disparador:** al activar el sweep (v15-D1) o si aparece el 422 espurio en producción. Solución: envolver
+  claim+lectura en `$transaction`, o **retornar el `userId` en el mismo `updateMany`** (p. ej. `UPDATE ...
+  RETURNING userId` vía `$queryRaw`) para eliminar la segunda lectura.
+
+### v15-D3 · Rate-limit de correos por conteo en BD (`countIssuedLastHour`) es TOCTOU
+- **Dónde:** `src/modules/auth/auth-token.service.ts:78-82` (`countIssuedLastHour`), usado por
+  `resendVerification` y `forgotPassword` (tope 3/h/usuario).
+- **Estado actual:** el tope se evalúa leyendo un `count` y luego emitiendo; una **ráfaga concurrente**
+  podría leer el mismo valor y superar el límite de 3 (p. ej. emitir 4-5). **Acotado** por el `@Throttle`
+  por IP del controller (`auth.controller.ts`: 3/h en forgot, 10/h en resend) que limita la tasa de entrada.
+- **Impacto:** bajo. En el peor caso, unos pocos correos extra por hora a la **propia** dirección del
+  usuario; no es amplificación hacia terceros (el correo va al dueño de la cuenta).
+- **Disparador:** fase 2 / storage compartido del throttler. Solución: mover el conteo a **Redis** con
+  `INCR`+`EXPIRE` atómico (o `updateMany` con guardia), en línea con la migración del throttler a Redis (§5 NOTES).
+
+### v15-S15-B2 · Enumeración por timing en forgot-password (await del envío solo si el email existe)
+- **Dónde:** `src/modules/auth/auth.service.ts` → `forgotPassword` (el `await mail.sendPasswordReset`
+  ocurre **solo** dentro de la rama `user && status===active`).
+- **Estado actual:** la respuesta es genérica `200 { ok:true }` siempre (no revela existencia por el
+  cuerpo), pero el **tiempo de respuesta** difiere: cuando el email existe se hace trabajo extra
+  (emitir token + enviar correo) que un atacante podría medir para inferir cuentas registradas.
+  **Mitigado** por el rate-limit (3/h + `@Throttle` IP) que hace inviable un barrido masivo por timing.
+- **Impacto:** bajo. Canal lateral de enumeración de baja señal, muy ruidoso por el jitter del envío SMTP.
+- **Disparador:** si se endurece el modelo anti-enumeración. Solución: enviar el correo **fuera del ciclo
+  de respuesta** (encolar y responder de inmediato) o **igualar el trabajo** en ambas ramas (trabajo dummy
+  equivalente cuando el email no existe), como ya se hizo con el hash dummy del login (D5).
+
+### v15-S15-B3 · Token de reset/verificación viaja en la URL (Referer/historial del navegador)
+- **Dónde:** `src/modules/auth/auth.service.ts` → `buildFrontendLink` (`?token=<claro>` en el link del correo).
+- **Estado actual:** el token va como query param del enlace, por lo que puede quedar en el **historial**
+  del navegador y filtrarse por cabecera `Referer` a recursos de terceros cargados en la página de destino.
+  **Mitigado** por **single-use** (`consume` marca `usedAt`) + **TTL corto** (24h verificación / 1h reset):
+  un token filtrado ya usado o caducado no sirve.
+- **Impacto:** bajo. Requiere que un tercero capture el Referer/historial antes de que el token se use o
+  expire; el diseño single-use lo neutraliza en la práctica.
+- **Disparador:** si se refuerza el manejo del token en el frontend. Solución: que la página de destino
+  intercambie el token por POST y lo **retire de la URL** (`history.replaceState`) al montar, y/o
+  `Referrer-Policy: no-referrer` en esas rutas (coordinar con frontend/devops).
+
 ---
 
 ## Frontend (dueño: frontend)

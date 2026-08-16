@@ -60,8 +60,11 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
         name: u.name,
         role: u.role,
         locale: 'es',
+        // v1.5: fixtures deterministas verificados (staff v1.5-6; y el customer E2E para que el
+        // EmailVerifiedGuard no bloquee los flujos de comprar/retirar/vender de la suite).
+        emailVerified: true,
       },
-      update: { status: 'active', role: u.role },
+      update: { status: 'active', role: u.role, emailVerified: true },
     });
     userIds[u.email] = created.id;
   }

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { OrdersService } from './orders.service';
 import { QuoteDto, SessionDto } from './dto/orders.dto';
@@ -16,6 +17,9 @@ export class OrdersController {
     return this.orders.quote(userId, dto.inventoryItemIds);
   }
 
+  // v1.5: comprar es acción sensible → requiere emailVerified (403 EMAIL_NOT_VERIFIED si no).
+  // El `checkout/quote` (read-only, arriba) NO se bloquea, para mostrar precios con el banner.
+  @RequireEmailVerified()
   @Post('checkout/session')
   @HttpCode(201)
   session(

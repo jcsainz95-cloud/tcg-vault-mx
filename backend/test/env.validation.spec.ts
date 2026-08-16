@@ -17,6 +17,7 @@ function fullEnv(overrides: Record<string, unknown> = {}): Record<string, unknow
     STRIPE_SECRET_KEY: 'sk_live_x',
     STRIPE_WEBHOOK_SECRET: 'whsec_x',
     APP_BASE_URL: 'https://app.tcgvault.mx',
+    RESEND_API_KEY: 're_live_x',
     ...overrides,
   };
 }
@@ -46,6 +47,12 @@ describe('validateEnv — fail-fast por entorno', () => {
       expect(() => validateEnv(env)).toThrow(/DATABASE_URL/);
       expect(() => validateEnv(env)).toThrow(/STRIPE_WEBHOOK_SECRET/);
     });
+
+    it('FALLA si falta RESEND_API_KEY (v1.5: gatea la verificación de correo)', () => {
+      const env = fullEnv();
+      delete env.RESEND_API_KEY;
+      expect(() => validateEnv(env)).toThrow(/RESEND_API_KEY/);
+    });
   });
 
   describe('entorno local (development/test/local/sin NODE_ENV)', () => {
@@ -59,6 +66,11 @@ describe('validateEnv — fail-fast por entorno', () => {
 
     it('NO exige APP_BASE_URL sin NODE_ENV', () => {
       expect(() => validateEnv({})).not.toThrow();
+    });
+
+    it('NO exige RESEND_API_KEY en local (degrada a NoopMailAdapter)', () => {
+      expect(() => validateEnv({ NODE_ENV: 'development' })).not.toThrow();
+      expect(() => validateEnv({ NODE_ENV: 'test' })).not.toThrow();
     });
   });
 });

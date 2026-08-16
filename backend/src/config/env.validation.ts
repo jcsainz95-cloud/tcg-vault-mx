@@ -25,6 +25,10 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
   // allow-list de CORS en `main.ts` cae al fallback solo-localhost, un prod arranca "en verde"
   // pero bloquea al frontend real por CORS (síntoma difícil de diagnosticar). El fallback a
   // localhost queda SOLO como conveniencia de dev/test.
+  // `RESEND_API_KEY` (v1.5): la verificación de correo GATEA dinero (comprar/vender/retirar).
+  // Si el correo degradara en no-local, los usuarios nunca podrían verificar → quedarían
+  // bloqueados. Por eso es requerida en NO-local (staging+prod); en LOCAL_ENVS puede faltar y
+  // el módulo `mail` degrada a NoopMailAdapter. `MAIL_FROM` es opcional (default en código).
   const required = [
     'DATABASE_URL',
     'JWT_ACCESS_SECRET',
@@ -32,6 +36,7 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
     'APP_BASE_URL',
+    'RESEND_API_KEY',
   ];
 
   if (!isLocal) {

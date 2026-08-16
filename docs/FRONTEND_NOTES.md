@@ -4,6 +4,82 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## v1.5-auth-email — Verificación de correo + recuperación self-service (2026-08-16)
+
+Implementación del changelog `v1.5-auth-email` del contrato (§1). Verificar el correo **NO** bloquea
+login/navegación; **sí** bloquea acciones sensibles (el backend responde `403 EMAIL_NOT_VERIFIED` al
+comprar/vender/retirar). Recuperación por email self-service **además** del reset por admin (M6). El
+reenvío de verificación es **autenticado**. Solo se tocó `frontend/`.
+
+### Endpoints consumidos (shapes exactos del contrato §1)
+- `POST /auth/verify-email` `{token}` → `{verified:true}` (422 `EMAIL_VERIFY_TOKEN_INVALID`) — `verifyEmail(token)`.
+- `POST /auth/verify-email/resend` (autenticado, `{}`) → `{ok:true}` (429 `RATE_LIMITED`) — `resendVerificationEmail()`.
+- `POST /auth/forgot-password` `{email}` → **siempre** `{ok:true}` — `forgotPassword(email)`.
+- `POST /auth/reset-password` `{token, password}` → `{ok:true}` (422 `RESET_TOKEN_INVALID`, 400 `VALIDATION_ERROR`) — `resetPassword({token,password})`.
+- `user` de login/register y `GET /users/me` ahora incluye `emailVerified` (ya estaba tipado opcional en `UserDTO`).
+
+### Tipos (`types/contract.ts`)
+Añadidos `VerifyEmailResponse`, `ResendVerificationResponse`, `ForgotPasswordResponse`,
+`ResetPasswordSelfResponse` (este último NO se llama `ResetPasswordResponse` para no chocar con el ya
+existente del reset por admin de M6). `UserDTO.emailVerified` ya existía.
+
+### Pantallas y componentes (rutas nuevas, grupo `(auth)` → URL `/[locale]/…`)
+- **`/[locale]/verify-email`** (`(auth)/verify-email/`): la `page` (server) lee `?token=` y lo pasa a
+  `VerifyEmailView` (client). Al montar, si hay token, llama `verifyEmail`. Estados: *verificando* →
+  *éxito* (banner success "Correo verificado" + link a la tienda) / *inválido* (banner danger, 422). En
+  el estado inválido, si hay sesión ofrece **Reenviar** (autenticado); sin sesión invita a iniciar
+  sesión. Un `useRef` evita la doble verificación de StrictMode. En éxito, `verifyEmail` hace
+  `patchStoredUser({emailVerified:true})` para quitar el banner sin re-consultar `/users/me`.
+- **`/[locale]/reset-password`** (`(auth)/reset-password/`): `page` lee `?token=`, `ResetPasswordView`
+  es el formulario (nueva contraseña + confirmación). **Política de fuerza igual al registro**: MinLength
+  8 (contrato) validado en cliente + confirmación que debe coincidir. Éxito → mensaje + link a login (el
+  backend revoca sesiones; el usuario re-inicia sesión, por eso el endpoint no devuelve tokens). `422
+  RESET_TOKEN_INVALID` → estado "enlace inválido/expirado" con CTA a **forgot-password**.
+- **`/[locale]/forgot-password`** (`(auth)/forgot-password/`): input de email → `forgotPassword` →
+  **siempre** el mismo mensaje genérico ("si el correo existe, te enviamos instrucciones"), respetando
+  anti-enumeración. Único caso distinto: `429 RATE_LIMITED` (aviso de reintento); cualquier otro error se
+  trata también como "enviado" para no filtrar señal. Enlazada desde el login ("¿Olvidaste tu
+  contraseña?", solo en modo login de `AuthForm`).
+- **Banner "verifica tu correo"** (`components/domain/VerifyEmailBanner.tsx`): montado en el shell de la
+  tienda (`(storefront)/layout.tsx`) bajo el header. Persistente (no dismissible) mientras el usuario
+  logueado tenga `emailVerified===false`; usa `useSession` (con `ready` para evitar mismatch de
+  hidratación). Variante `warning` (no bloquea navegación). CTA "Reenviar correo de verificación" →
+  `resendVerificationEmail`, con feedback ("correo enviado" / rate-limit / error).
+- **Aviso de 403** (`components/domain/EmailNotVerifiedNotice.tsx`): banner `danger` reutilizable con CTA
+  de reenvío para el caso `403 EMAIL_NOT_VERIFIED`.
+- **Hook compartido** (`hooks/useResendVerification.ts`): centraliza el reenvío + estados
+  (`idle|sending|sent|rateLimited|error`) que usan el banner y el aviso de 403.
+
+### Manejo de `403 EMAIL_NOT_VERIFIED`
+Centralizado en el componente `EmailNotVerifiedNotice` (mensaje claro + CTA de reenvío) en vez de un
+error genérico. Cableado en el **paso real de venta** (`BuylistKycForm` → `POST /buylist/requests`): el
+`catch` detecta `code === 'EMAIL_NOT_VERIFIED'` y muestra el aviso. La compra (`/checkout/session`) y el
+retiro (`/shipments`) siguen **mockeados / pendientes de integración Stripe** (no hay `createCheckoutSession`
+/ `createShipment` real todavía); cuando se cablee Stripe, el mismo `EmailNotVerifiedNotice` se reutiliza
+en esos `catch` (mismo patrón). El `errorCode` también está traducido (`error.EMAIL_NOT_VERIFIED`) para
+cualquier ruta que caiga al `QueryState`/`useErrorMessage` genérico.
+
+### i18n (paridad ES/EN)
+Secciones nuevas `verifyEmail`, `forgotPassword`, `resetPassword` + `auth.forgotPassword` +
+`error.EMAIL_NOT_VERIFIED` / `error.EMAIL_VERIFY_TOKEN_INVALID` / `error.RESET_TOKEN_INVALID` en
+`messages/es.json` y `en.json`. El test de paridad (`lib/i18n-parity.test.ts`) pasa.
+
+### Mocks (modo `NEXT_PUBLIC_USE_MOCKS`)
+`verifyEmail`/`resetPassword` simulan el `422` cuando el token está vacío o contiene
+`invalid|expired|bad`; en otro caso, éxito. `resendVerificationEmail`/`forgotPassword` devuelven `{ok:true}`.
+Marcados `// MOCK: pendiente de backend real`.
+
+### Gates (todos verdes)
+`npm run lint` (0 warnings), `npm run typecheck` (ok), `npm run test` (29 archivos, 138 tests, incl.
+paridad i18n), `npm run build` (ok; rutas `verify-email`/`reset-password`/`forgot-password` generadas
+para es/en). Tests nuevos: `VerifyEmailView.test`, `ResetPasswordView.test`, `ForgotPasswordView.test`
+(cubre anti-enumeración), `VerifyEmailBanner.test`.
+
+### Solicitudes al arquitecto
+Ninguna: los cuatro endpoints y sus shapes están cerrados en el contrato §1. Nota de seguimiento (no
+bloqueante): cuando se integre Stripe para `/checkout/session` y `/shipments`, cablear el mismo
+`EmailNotVerifiedNotice` en sus `catch` (hoy esas dos acciones están mockeadas).
+
 ## v1.4-finance FIX — alinear el P&L de M7 al shape de 6 claves (2026-08-16)
 
 Corrección de RECHAZO de qa/techlead: la ronda previa renombró el P&L solo en la captura (M4) pero

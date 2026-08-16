@@ -200,6 +200,14 @@ enum PendingPriceStatus {
   resolved
 }
 
+// v1.5 (M-17): tipo de token de un solo uso para los flujos self-service por correo.
+// email_verification (24h) / password_reset (1h). El token en claro (32 bytes aleatorios)
+// viaja SOLO por correo; en BD vive su SHA-256 (AuthToken.tokenHash). ARCHITECTURE §3.2/§4.11.
+enum AuthTokenType {
+  email_verification
+  password_reset
+}
+
 // ============================= USER / KYC / BILLING =============================
 
 model User {
@@ -237,6 +245,8 @@ model User {
   disputes        Dispute[]
   ownedItems      InventoryItem[] @relation("OwnerUser")
   portfolioSnapshots PortfolioSnapshot[]
+  // v1.5 (M-17): tokens de verificación de correo / reset de contraseña (un solo uso, hash en BD).
+  authTokens      AuthToken[]
 
   @@index([role])
   @@index([status])
@@ -672,6 +682,30 @@ model PortfolioSnapshot {
 
   @@unique([userId, asOfDate])
   @@index([userId, asOfDate])
+}
+
+// ============================= AUTH TOKENS (v1.5) =============================
+
+// v1.5 (M-17): token de UN SOLO USO para verificación de correo y reset de contraseña
+// self-service. NUNCA guarda el token en claro: el claro (32 bytes aleatorios, ~256 bits)
+// viaja solo por correo; en BD vive su SHA-256 (`tokenHash`). Expira 24h (verificación) /
+// 1h (reset). Al emitir uno nuevo del mismo tipo para el usuario se invalidan los previos
+// no usados (rotación). Barrido housekeeping: job `auth-token-sweep`. ARCHITECTURE §3.2/§4.11.
+model AuthToken {
+  id        String        @id @default(uuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      AuthTokenType
+  // SHA-256 (hex) del token en claro. @unique = lookup por hash del token presentado.
+  tokenHash String        @unique
+  expiresAt DateTime
+  // Se setea al consumir (un solo uso). null = vigente.
+  usedAt    DateTime?
+  requestIp String?
+  createdAt DateTime      @default(now())
+
+  @@index([userId, type])
+  @@index([expiresAt])
 }
 
 // ============================= STRIPE IDEMPOTENCY =============================

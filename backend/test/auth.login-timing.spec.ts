@@ -25,6 +25,17 @@ const jwt = { signAsync: jest.fn(async () => 'token') } as unknown as JwtService
 const config = new ConfigService({ JWT_ACCESS_SECRET: 'a', JWT_REFRESH_SECRET: 'r' });
 const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
 const verifier = { verify: jest.fn() } as unknown as GoogleTokenVerifier;
+// v1.5: AuthService gana dos deps (tokens/mail). El login no las usa; stubs para el ctor.
+const tokens = {
+  issue: jest.fn(async () => 'tok'),
+  consume: jest.fn(async () => null),
+  ownerOf: jest.fn(async () => null),
+  countIssuedLastHour: jest.fn(async () => 0),
+} as unknown as import('../src/modules/auth/auth-token.service').AuthTokenService;
+const mail = {
+  sendEmailVerification: jest.fn(async () => undefined),
+  sendPasswordReset: jest.fn(async () => undefined),
+} as unknown as import('../src/modules/mail/mail.service').MailService;
 
 describe('AuthService.login — mitigación de temporización (D5)', () => {
   const verifyMock = argon2.verify as unknown as jest.Mock;
@@ -35,7 +46,7 @@ describe('AuthService.login — mitigación de temporización (D5)', () => {
 
   it('usuario inexistente → 401 y AUN ASÍ ejecuta argon2.verify (contra hash dummy)', async () => {
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(null) } };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail);
     await expect(svc.login({ email: 'nobody@x.com', password: 'secret' })).rejects.toMatchObject({
       code: 'INVALID_CREDENTIALS',
     });
@@ -54,7 +65,7 @@ describe('AuthService.login — mitigación de temporización (D5)', () => {
         }),
       },
     };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail);
     await expect(svc.login({ email: 'g@x.com', password: 'whatever' })).rejects.toMatchObject({
       code: 'INVALID_CREDENTIALS',
     });
@@ -63,7 +74,7 @@ describe('AuthService.login — mitigación de temporización (D5)', () => {
 
   it('el hash dummy no coincide con ninguna contraseña (verify=false) → 401', async () => {
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(null) } };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail);
     const ok = await argon2.verify(
       '$argon2id$v=19$m=65536,t=3,p=4$IUuYDslaChUS0mrzV74+WQ$Q8BNcs3QrO7nyLYG3ZAMbE+f87icx9X+oRBRlyP0RrE',
       'anything',
@@ -89,7 +100,7 @@ describe('AuthService.login — mitigación de temporización (D5)', () => {
         }),
       },
     };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifier, audit, tokens, mail);
     const res = await svc.login({ email: 'real@x.com', password: 'correct-horse' });
     expect(res.accessToken).toBeDefined();
     expect(res.user.id).toBe('u2');

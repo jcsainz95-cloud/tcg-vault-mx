@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
 import { CreateRequestDto, PublicQuoteDto, RespondDto } from './dto/buylist.dto';
@@ -17,7 +18,10 @@ export class BuylistController {
     return this.buylist.publicQuote(dto.cardId, dto.productType, dto.rawCondition);
   }
 
+  // v1.5: vender (crear SellRequest) es acción sensible → requiere emailVerified. El cotizador
+  // público `POST /buylist/quote` (arriba) queda abierto (es anónimo, no se bloquea).
   @Roles(Role.customer, Role.vault_operator, Role.super_admin)
+  @RequireEmailVerified()
   @Post('requests')
   @HttpCode(201)
   create(@CurrentUser('id') userId: string, @Body() dto: CreateRequestDto) {

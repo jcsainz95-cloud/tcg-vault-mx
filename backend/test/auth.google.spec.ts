@@ -20,6 +20,17 @@ const jwt = {
 } as unknown as JwtService;
 const config = new ConfigService({ JWT_ACCESS_SECRET: 'a', JWT_REFRESH_SECRET: 'r' });
 const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
+// v1.5: AuthService gana dos deps (tokens/mail). Google/login no las usan; stubs para el ctor.
+const tokens = {
+  issue: jest.fn(async () => 'tok'),
+  consume: jest.fn(async () => null),
+  ownerOf: jest.fn(async () => null),
+  countIssuedLastHour: jest.fn(async () => 0),
+} as unknown as import('../src/modules/auth/auth-token.service').AuthTokenService;
+const mail = {
+  sendEmailVerification: jest.fn(async () => undefined),
+  sendPasswordReset: jest.fn(async () => undefined),
+} as unknown as import('../src/modules/mail/mail.service').MailService;
 
 function verifierReturning(identity: GoogleIdentity): GoogleTokenVerifier {
   return { verify: jest.fn(async () => identity) } as unknown as GoogleTokenVerifier;
@@ -41,6 +52,8 @@ describe('AuthService.google — verificación del ID token', () => {
       config,
       verifierRejecting(new BusinessException('GOOGLE_TOKEN_INVALID', 401, 'bad aud')),
       audit,
+      tokens,
+      mail,
     );
     await expect(svc.google('bad-token')).rejects.toMatchObject({ code: 'GOOGLE_TOKEN_INVALID' });
     expect(prisma.user.create).not.toHaveBeenCalled();
@@ -56,6 +69,8 @@ describe('AuthService.google — verificación del ID token', () => {
       config,
       verifierReturning({ sub: 'g1', email: 'a@x.com', emailVerified: false }),
       audit,
+      tokens,
+      mail,
     );
     await expect(svc.google('t')).rejects.toMatchObject({ code: 'GOOGLE_EMAIL_UNVERIFIED' });
     expect(prisma.user.create).not.toHaveBeenCalled();
@@ -80,6 +95,8 @@ describe('AuthService.google — verificación del ID token', () => {
       config,
       verifierReturning({ sub: 'g1', email: 'a@x.com', emailVerified: true, picture: 'p' }),
       audit,
+      tokens,
+      mail,
     );
     const res = await svc.google('t');
     expect(res.user.id).toBe('u1');
@@ -103,6 +120,8 @@ describe('AuthService.google — verificación del ID token', () => {
       config,
       verifierReturning({ sub: 'g2', email: 'New@X.com', emailVerified: true, name: 'New' }),
       audit,
+      tokens,
+      mail,
     );
     const res = await svc.google('t');
     const created = prisma.user.create.mock.calls[0][0].data;
@@ -130,6 +149,8 @@ describe('AuthService.google — verificación del ID token', () => {
       config,
       verifierReturning({ sub: 'g3', email: 'b@x.com', emailVerified: true }),
       audit,
+      tokens,
+      mail,
     );
     await expect(svc.google('t')).rejects.toMatchObject({ code: 'USER_BLOCKED' });
   });
@@ -148,7 +169,7 @@ describe('AuthService.login — cuentas solo-Google (sin passwordHash)', () => {
         }),
       },
     };
-    const svc = new AuthService(prisma as PrismaService, jwt, config, verifierReturning({} as any), audit);
+    const svc = new AuthService(prisma as PrismaService, jwt, config, verifierReturning({} as any), audit, tokens, mail);
     await expect(svc.login({ email: 'g@x.com', password: 'whatever' })).rejects.toMatchObject({
       code: 'INVALID_CREDENTIALS',
     });

@@ -379,7 +379,60 @@
       "connecting": "Conectando…"
     },
     "mustChangePassword": "Iniciaste sesión con una contraseña temporal. Debes cambiarla para proteger tu cuenta.",
-    "mustChangeContinue": "Continuar"
+    "mustChangeContinue": "Continuar",
+    "forgotPassword": "¿Olvidaste tu contraseña?"
+  },
+  "verifyEmail": {
+    "title": "Verificar correo",
+    "verifying": "Verificando tu correo…",
+    "noToken": "Falta el enlace de verificación. Abre el enlace que te enviamos por correo.",
+    "successTitle": "Correo verificado",
+    "successBody": "Tu correo quedó verificado. Ya puedes comprar, vender y retirar.",
+    "goToStore": "Ir a la tienda",
+    "invalidTitle": "No pudimos verificar tu correo",
+    "invalidBody": "El enlace es inválido o expiró. Solicita uno nuevo para verificar tu correo.",
+    "genericError": "Ocurrió un error al verificar tu correo. Intenta de nuevo.",
+    "loginToResend": "Inicia sesión para reenviarte el correo de verificación.",
+    "goToLogin": "Iniciar sesión",
+    "resendCta": "Reenviar correo de verificación",
+    "sending": "Enviando…",
+    "sent": "Te enviamos un nuevo correo de verificación.",
+    "rateLimited": "Enviaste demasiadas solicitudes. Espera un momento e intenta de nuevo.",
+    "resendError": "No pudimos reenviar el correo. Intenta de nuevo.",
+    "bannerTitle": "Verifica tu correo",
+    "bannerBody": "Verifica tu correo para poder comprar, vender y retirar. Puedes seguir navegando mientras tanto.",
+    "blockedTitle": "Verifica tu correo para completar esta acción",
+    "blockedBody": "Esta acción requiere un correo verificado. Reenvíate el correo de verificación y confírmalo para continuar."
+  },
+  "forgotPassword": {
+    "title": "Recuperar contraseña",
+    "subtitle": "Escribe tu correo y te enviaremos instrucciones para restablecer tu contraseña.",
+    "email": "Correo",
+    "submit": "Enviar instrucciones",
+    "submitting": "Enviando…",
+    "sentTitle": "Revisa tu correo",
+    "sentBody": "Si el correo existe, te enviamos instrucciones para restablecer tu contraseña.",
+    "rateLimited": "Enviaste demasiadas solicitudes. Espera un momento e intenta de nuevo.",
+    "backToLogin": "Volver a iniciar sesión"
+  },
+  "resetPassword": {
+    "title": "Nueva contraseña",
+    "subtitle": "Elige una contraseña nueva para tu cuenta.",
+    "newPassword": "Nueva contraseña",
+    "confirmPassword": "Confirmar contraseña",
+    "policyHint": "Mínimo 8 caracteres.",
+    "weak": "La contraseña debe tener al menos 8 caracteres.",
+    "mismatch": "Las contraseñas no coinciden.",
+    "submit": "Cambiar contraseña",
+    "submitting": "Guardando…",
+    "successTitle": "Contraseña actualizada",
+    "successBody": "Tu contraseña se actualizó. Inicia sesión con tu nueva contraseña.",
+    "goToLogin": "Iniciar sesión",
+    "invalidTitle": "Enlace inválido o expirado",
+    "invalidBody": "Este enlace de restablecimiento es inválido o expiró. Solicita uno nuevo.",
+    "requestAnother": "Solicitar otro enlace",
+    "genericError": "No pudimos actualizar tu contraseña. Intenta de nuevo.",
+    "backToLogin": "Volver a iniciar sesión"
   },
   "admin": {
     "shellTitle": "Back-office",
@@ -894,6 +947,9 @@
     "DISPUTE_WINDOW_CLOSED": "La ventana para disputas ya cerró.",
     "NOT_RAW": "Solo se disputan cartas raw.",
     "GOOGLE_TOKEN_INVALID": "No pudimos validar tu sesión de Google. Intenta de nuevo.",
-    "GOOGLE_EMAIL_UNVERIFIED": "Tu correo de Google no está verificado; usa otro método o verifica tu correo."
+    "GOOGLE_EMAIL_UNVERIFIED": "Tu correo de Google no está verificado; usa otro método o verifica tu correo.",
+    "EMAIL_NOT_VERIFIED": "Verifica tu correo para completar esta acción.",
+    "EMAIL_VERIFY_TOKEN_INVALID": "El enlace de verificación es inválido o expiró.",
+    "RESET_TOKEN_INVALID": "El enlace de restablecimiento es inválido o expiró."
   }
 }

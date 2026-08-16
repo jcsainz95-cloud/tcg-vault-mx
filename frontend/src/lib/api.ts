@@ -1,6 +1,6 @@
 import { config } from './config';
 import { apiRequest, ApiClientError, setToken, getToken } from './api-client';
-import { setStoredUser } from './session';
+import { setStoredUser, patchStoredUser } from './session';
 import * as fx from './mock/fixtures';
 import type {
   Paginated,
@@ -33,6 +33,10 @@ import type {
   PortfolioRange,
   PortfolioHistoryResponse,
   AuthResponse,
+  VerifyEmailResponse,
+  ResendVerificationResponse,
+  ForgotPasswordResponse,
+  ResetPasswordSelfResponse,
   Locale,
   UploadPurpose,
   UploadPresignResponse,
@@ -604,6 +608,93 @@ export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
     ),
     500,
   );
+}
+
+// ---------- Verificación de correo + recuperación self-service (contrato §1, v1.5) ----------
+/**
+ * Consume el token del link de verificación (contrato POST /auth/verify-email, `public`).
+ * Se abre desde el correo, quizá sin sesión. Éxito → { verified: true } y, si hay sesión
+ * local del mismo usuario, marca `emailVerified=true` para quitar el banner sin re-consultar
+ * `GET /users/me`. Error → 422 EMAIL_VERIFY_TOKEN_INVALID (inválido/expirado/ya usado).
+ */
+export async function verifyEmail(token: string): Promise<VerifyEmailResponse> {
+  if (!config.useMocks) {
+    const res = await apiRequest<VerifyEmailResponse>('/auth/verify-email', {
+      method: 'POST',
+      body: { token },
+    });
+    patchStoredUser({ emailVerified: true });
+    return res;
+  }
+  // MOCK: pendiente de backend real. Un token vacío o con "invalid"/"expired" simula el
+  // 422 del contrato; cualquier otro token verifica y actualiza la sesión local si existe.
+  await delay(undefined, 300);
+  if (!token || /invalid|expired|bad/i.test(token)) {
+    throw new ApiClientError(422, {
+      code: 'EMAIL_VERIFY_TOKEN_INVALID',
+      message: 'Verification token invalid or expired',
+    });
+  }
+  patchStoredUser({ emailVerified: true });
+  return { verified: true };
+}
+
+/**
+ * Reenvía el correo de verificación al email de la SESIÓN (contrato
+ * POST /auth/verify-email/resend, `customer+`, sin body → cero enumeración).
+ * Si el usuario ya está verificado responde no-op { ok: true }. 429 si excede el
+ * rate-limit (3/hora por usuario).
+ */
+export async function resendVerificationEmail(): Promise<ResendVerificationResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ResendVerificationResponse>('/auth/verify-email/resend', {
+      method: 'POST',
+      body: {},
+    });
+  }
+  return delay({ ok: true }, 400);
+}
+
+/**
+ * Solicita el link de restablecimiento (contrato POST /auth/forgot-password, `public`).
+ * SIEMPRE responde { ok: true } exista o no el email (anti-enumeración): el front muestra
+ * el mismo mensaje genérico sin revelar existencia. 429 si excede el rate-limit.
+ */
+export async function forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ForgotPasswordResponse>('/auth/forgot-password', {
+      method: 'POST',
+      body: { email },
+    });
+  }
+  return delay({ ok: true }, 400);
+}
+
+/**
+ * Consume el token de reset y fija la nueva contraseña (contrato POST /auth/reset-password,
+ * `public`). NO devuelve tokens: el backend revoca sesiones (incrementa tokenVersion) y el
+ * usuario re-inicia sesión. Error → 422 RESET_TOKEN_INVALID (inválido/expirado/usado) o
+ * 400 VALIDATION_ERROR (contraseña débil; MinLength 8, misma política que register).
+ */
+export async function resetPassword(input: {
+  token: string;
+  password: string;
+}): Promise<ResetPasswordSelfResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ResetPasswordSelfResponse>('/auth/reset-password', {
+      method: 'POST',
+      body: input,
+    });
+  }
+  // MOCK: token vacío o con "invalid"/"expired" → 422 del contrato; si no, éxito.
+  await delay(undefined, 400);
+  if (!input.token || /invalid|expired|bad/i.test(input.token)) {
+    throw new ApiClientError(422, {
+      code: 'RESET_TOKEN_INVALID',
+      message: 'Reset token invalid or expired',
+    });
+  }
+  return { ok: true };
 }
 
 // ---------- Admin ----------

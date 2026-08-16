@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { PhotoUploader } from '@/components/ui/PhotoUploader';
+import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
 
 export interface BuylistKycFormProps {
   cardId: string;
@@ -37,6 +38,8 @@ export function BuylistKycForm({ cardId, productType, onCreated }: BuylistKycFor
   const [ineBackKey, setIneBackKey] = useState<string | null>(null);
   const [ineRequired, setIneRequired] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // v1.5: el backend bloquea vender con emailVerified=false (403 EMAIL_NOT_VERIFIED).
+  const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const ineComplete = !!ineFrontKey && !!ineBackKey;
@@ -44,6 +47,7 @@ export function BuylistKycForm({ cardId, productType, onCreated }: BuylistKycFor
   async function submit() {
     setFormError(null);
     setClabeError(null);
+    setEmailNotVerified(false);
 
     if (!CLABE_RE.test(clabe)) {
       setClabeError(t('clabeInvalid'));
@@ -66,7 +70,11 @@ export function BuylistKycForm({ cardId, productType, onCreated }: BuylistKycFor
       onCreated(res.sellRequestId);
     } catch (e) {
       const code = e instanceof ApiClientError ? e.code : undefined;
-      if (code === 'INE_REQUIRED') {
+      if (code === 'EMAIL_NOT_VERIFIED') {
+        // v1.5: vender es acción sensible; se muestra el aviso claro con CTA de reenvío
+        // en vez de un error genérico (contrato §0/§6).
+        setEmailNotVerified(true);
+      } else if (code === 'INE_REQUIRED') {
         setIneRequired(true);
         setFormError(t('ineRequiredError'));
       } else if (code === 'CLABE_NOT_OWN_NAME') {
@@ -121,6 +129,7 @@ export function BuylistKycForm({ cardId, productType, onCreated }: BuylistKycFor
         <p className="text-xs text-muted">{tine('privacy')}</p>
       </section>
 
+      {emailNotVerified && <EmailNotVerifiedNotice />}
       {formError && <Banner variant="danger" role="alert">{formError}</Banner>}
 
       <Button onClick={submit} loading={submitting} disabled={submitting}>

@@ -379,7 +379,60 @@
       "connecting": "Connecting…"
     },
     "mustChangePassword": "You signed in with a temporary password. You must change it to protect your account.",
-    "mustChangeContinue": "Continue"
+    "mustChangeContinue": "Continue",
+    "forgotPassword": "Forgot your password?"
+  },
+  "verifyEmail": {
+    "title": "Verify email",
+    "verifying": "Verifying your email…",
+    "noToken": "The verification link is missing. Open the link we emailed you.",
+    "successTitle": "Email verified",
+    "successBody": "Your email is verified. You can now buy, sell, and withdraw.",
+    "goToStore": "Go to the store",
+    "invalidTitle": "We couldn't verify your email",
+    "invalidBody": "The link is invalid or expired. Request a new one to verify your email.",
+    "genericError": "Something went wrong verifying your email. Please try again.",
+    "loginToResend": "Log in to resend the verification email.",
+    "goToLogin": "Log in",
+    "resendCta": "Resend verification email",
+    "sending": "Sending…",
+    "sent": "We sent you a new verification email.",
+    "rateLimited": "Too many requests. Please wait a moment and try again.",
+    "resendError": "We couldn't resend the email. Please try again.",
+    "bannerTitle": "Verify your email",
+    "bannerBody": "Verify your email to buy, sell, and withdraw. You can keep browsing in the meantime.",
+    "blockedTitle": "Verify your email to complete this action",
+    "blockedBody": "This action requires a verified email. Resend the verification email and confirm it to continue."
+  },
+  "forgotPassword": {
+    "title": "Reset password",
+    "subtitle": "Enter your email and we'll send you instructions to reset your password.",
+    "email": "Email",
+    "submit": "Send instructions",
+    "submitting": "Sending…",
+    "sentTitle": "Check your email",
+    "sentBody": "If the email exists, we sent you instructions to reset your password.",
+    "rateLimited": "Too many requests. Please wait a moment and try again.",
+    "backToLogin": "Back to log in"
+  },
+  "resetPassword": {
+    "title": "New password",
+    "subtitle": "Choose a new password for your account.",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
+    "policyHint": "At least 8 characters.",
+    "weak": "Password must be at least 8 characters.",
+    "mismatch": "Passwords don't match.",
+    "submit": "Change password",
+    "submitting": "Saving…",
+    "successTitle": "Password updated",
+    "successBody": "Your password was updated. Log in with your new password.",
+    "goToLogin": "Log in",
+    "invalidTitle": "Invalid or expired link",
+    "invalidBody": "This reset link is invalid or expired. Request a new one.",
+    "requestAnother": "Request another link",
+    "genericError": "We couldn't update your password. Please try again.",
+    "backToLogin": "Back to log in"
   },
   "admin": {
     "shellTitle": "Back-office",
@@ -894,6 +947,9 @@
     "DISPUTE_WINDOW_CLOSED": "The dispute window has closed.",
     "NOT_RAW": "Only raw cards can be disputed.",
     "GOOGLE_TOKEN_INVALID": "We couldn't validate your Google sign-in. Please try again.",
-    "GOOGLE_EMAIL_UNVERIFIED": "Your Google email isn't verified; use another method or verify your email."
+    "GOOGLE_EMAIL_UNVERIFIED": "Your Google email isn't verified; use another method or verify your email.",
+    "EMAIL_NOT_VERIFIED": "Verify your email to complete this action.",
+    "EMAIL_VERIFY_TOKEN_INVALID": "The verification link is invalid or expired.",
+    "RESET_TOKEN_INVALID": "The reset link is invalid or expired."
   }
 }

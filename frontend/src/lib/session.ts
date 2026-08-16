@@ -30,6 +30,17 @@ export function setStoredUser(user: UserDTO | null) {
   window.dispatchEvent(new Event(EVENT));
 }
 
+/**
+ * Aplica un parche parcial al usuario en sesión (si hay uno) y notifica.
+ * Se usa, p. ej., para marcar `emailVerified=true` tras verificar el correo
+ * sin re-consultar `GET /users/me`. No-op si no hay sesión local.
+ */
+export function patchStoredUser(patch: Partial<UserDTO>) {
+  const current = getStoredUser();
+  if (!current) return;
+  setStoredUser({ ...current, ...patch });
+}
+
 export interface SessionState {
   user: UserDTO | null;
   isAuthenticated: boolean;

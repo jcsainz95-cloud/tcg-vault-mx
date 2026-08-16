@@ -4,6 +4,8 @@ export interface AuthUser {
   id: string;
   email: string;
   role: string;
+  // v1.5: poblado por JwtAuthGuard desde BD; lo consume EmailVerifiedGuard (gating sensible).
+  emailVerified?: boolean;
 }
 
 /** Inyecta el usuario autenticado (poblado por JwtAuthGuard). */

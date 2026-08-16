@@ -21,6 +21,10 @@ export const ErrorCode = {
   // v1.1: login con Google (verificación server-side del ID token).
   GOOGLE_TOKEN_INVALID: 'GOOGLE_TOKEN_INVALID',
   GOOGLE_EMAIL_UNVERIFIED: 'GOOGLE_EMAIL_UNVERIFIED',
+  // v1.5: verificación de correo + recuperación self-service (Resend).
+  EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED', // acción sensible con emailVerified=false (guard)
+  EMAIL_VERIFY_TOKEN_INVALID: 'EMAIL_VERIFY_TOKEN_INVALID', // token de verificación inválido/expirado/usado
+  RESET_TOKEN_INVALID: 'RESET_TOKEN_INVALID', // token de reset inválido/expirado/usado
 
   // Money-out / roles
   MONEY_OUT_FORBIDDEN: 'MONEY_OUT_FORBIDDEN',

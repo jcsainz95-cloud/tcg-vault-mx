@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, HttpCode, Param, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ShipmentsService } from './shipments.service';
 import { CreateShipmentDto, ShipmentQuoteDto } from './dto/shipments.dto';
@@ -16,6 +17,8 @@ export class ShipmentsController {
     return this.shipments.quote(userId, dto.inventoryItemIds, dto.addressId);
   }
 
+  // v1.5: retirar/enviar es acción sensible → requiere emailVerified (el `quote` no se bloquea).
+  @RequireEmailVerified()
   @Post()
   @HttpCode(201)
   create(

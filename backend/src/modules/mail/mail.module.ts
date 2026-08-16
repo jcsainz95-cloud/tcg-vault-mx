@@ -1,0 +1,41 @@
+import { Global, Logger, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { MAIL_PORT, MailPort } from './mail.port';
+import { MailService } from './mail.service';
+import { ResendMailAdapter } from './resend-mail.adapter';
+import { NoopMailAdapter } from './noop-mail.adapter';
+
+const DEFAULT_MAIL_FROM = 'no-reply@tcgvaultmx.com';
+
+/**
+ * MailModule — provee `MAIL_PORT` (adaptador) + `MailService`. ARCHITECTURE §4.11.
+ * Factory de selección: si hay RESEND_API_KEY → ResendMailAdapter (no-local/prod); si no →
+ * NoopMailAdapter (LOCAL_ENVS sin key: loguea el correo/link, no envía). En no-local la key es
+ * requerida por env.validation, así que ahí SIEMPRE es el adaptador real (nunca Noop silencioso).
+ */
+@Global()
+@Module({
+  providers: [
+    {
+      provide: MAIL_PORT,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService): MailPort => {
+        const logger = new Logger('MailModule');
+        const apiKey = config.get<string>('RESEND_API_KEY');
+        const from = config.get<string>('MAIL_FROM') ?? DEFAULT_MAIL_FROM;
+        if (apiKey) {
+          logger.log(`Correo: ResendMailAdapter (from=${from}).`);
+          return new ResendMailAdapter(apiKey, from);
+        }
+        logger.warn(
+          'Correo: RESEND_API_KEY ausente → NoopMailAdapter (no envía; loguea link). ' +
+            'Solo válido en entornos locales (dev/CI/tests).',
+        );
+        return new NoopMailAdapter();
+      },
+    },
+    MailService,
+  ],
+  exports: [MAIL_PORT, MailService],
+})
+export class MailModule {}

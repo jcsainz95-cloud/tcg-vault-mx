@@ -162,6 +162,26 @@ export interface AuthResponse {
   refreshToken: string;
 }
 
+// ---- Verificación de correo + recuperación self-service (contrato §1, v1.5) ----
+// POST /auth/verify-email {token} → { verified: true } (422 EMAIL_VERIFY_TOKEN_INVALID).
+export interface VerifyEmailResponse {
+  verified: true;
+}
+// POST /auth/verify-email/resend (autenticado, {}) → { ok: true } (429 RATE_LIMITED).
+export interface ResendVerificationResponse {
+  ok: true;
+}
+// POST /auth/forgot-password {email} → SIEMPRE { ok: true } (anti-enumeración).
+export interface ForgotPasswordResponse {
+  ok: true;
+}
+// POST /auth/reset-password {token, password} → { ok: true }
+// (422 RESET_TOKEN_INVALID, 400 VALIDATION_ERROR). NO devuelve tokens: el usuario
+// re-inicia sesión con la nueva contraseña.
+export interface ResetPasswordSelfResponse {
+  ok: true;
+}
+
 export interface AddressDTO {
   id: string;
   line1: string;

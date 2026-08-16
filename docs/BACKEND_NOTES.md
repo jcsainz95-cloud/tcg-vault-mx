@@ -1239,4 +1239,109 @@ curl -s "http://localhost:3001/api/v1/admin/finance/export.csv?report=pnl" \
   - SEC-C2: `TrackingDto` acepta el valor en el borde (`= SHIPPING_COST_MAX_CENTS`) y **rechaza** por
     encima del tope.
 - **Gates (desde `backend/`):** `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅
+
+---
+
+## v1.5-auth-email — Verificación de correo + recuperación self-service (Resend)
+
+Implementa el changelog v1.5 del contrato (§1 Auth) y ARCHITECTURE §3.2/§4.11/§10. La verificación
+**NO bloquea el login** — bloquea **acciones sensibles** (comprar/retirar/vender) server-side.
+
+### Modelo de datos (M-17)
+- Migración: **`prisma/migrations/20260816150000_m17_auth_tokens/migration.sql`** (patrón aditivo/greenfield).
+- Enum `AuthTokenType = email_verification | password_reset`; modelo **`AuthToken`** (`id`, `userId` FK
+  `User` `onDelete: Cascade`, `type`, `tokenHash` `String @unique` = **SHA-256** del token en claro,
+  `expiresAt`, `usedAt?`, `requestIp?`, `createdAt`) con `@@unique([tokenHash])`, `@@index([userId, type])`,
+  `@@index([expiresAt])`. `User` gana `authTokens AuthToken[]`.
+- **El token en claro NUNCA se persiste.** Es 32 bytes aleatorios (`crypto.randomBytes` → base64url, ~256
+  bits); en BD vive su **SHA-256** (basta; no argon2 — no hay fuerza bruta con esa entropía). Emisión/consumo
+  en `AuthTokenService` (`src/modules/auth/auth-token.service.ts`): `issue()` rota (invalida) los previos no
+  usados del mismo tipo → solo el último link vale; `consume()` claima atómico (`updateMany` con `usedAt:null`
+  + `expiresAt > now`) → **un solo uso**. TTL: verificación **24h**, reset **1h**.
+
+### Módulo `mail` (`src/modules/mail/`)
+- Puerto `MailPort` (token DI **`MAIL_PORT`**) + `ResendMailAdapter` (usa la lib **`resend`**, POST a Resend
+  con `RESEND_API_KEY`, remitente `MAIL_FROM` default `no-reply@tcgvaultmx.com`) + `NoopMailAdapter`
+  (local/CI/tests: loguea destinatario + link, **no envía**). `MailService` arma plantillas **bilingües ES/EN**
+  por `User.locale` (`sendEmailVerification` / `sendPasswordReset`).
+- **Selección del adaptador (`MailModule`, factory):** si hay `RESEND_API_KEY` → Resend; si no y es LOCAL_ENVS
+  → Noop. En **no-local** la key es requerida por `env.validation` (nunca cae a Noop silencioso en prod).
+- **Links al FRONTEND:** `AuthService.buildFrontendLink()` construye `${origin}/<locale>/verify-email?token=…`
+  y `.../reset-password?token=…`, usando el **primer origin** de `APP_BASE_URL` (lista separada por comas) y
+  `User.locale` (default `es`). El nombre del query param es contrato: `token`.
+
+### Endpoints (auth.controller / auth.service)
+- `POST /auth/verify-email/resend` — **customer+ (autenticado)**, body `{}`, usa `req.user` (cero
+  enumeración) → `200 {ok:true}`. No-op si ya verificado. Rate-limit **3/h/usuario** (tope por servicio contando
+  `AuthToken` emitidos la última hora) + backstop IP; `429 RATE_LIMITED` si excede.
+- `POST /auth/verify-email` — **public** `{token}` → `200 {verified:true}`; `422 EMAIL_VERIFY_TOKEN_INVALID`
+  si inválido/expirado/usado. **Idempotente:** si el usuario del token ya está verificado, responde `200`
+  aunque el token esté usado (doble clic). **No** toca `tokenVersion`. Rate-limit 10/min/IP.
+- `POST /auth/forgot-password` — **public** `{email}` → **SIEMPRE `200 {ok:true}`** (anti-enumeración). Si el
+  email existe y la cuenta está **activa**, emite `password_reset` (1h), rota previos y envía correo (tope
+  3/h/email en servicio; blocked/deleted no se procesan pero igual responde 200). Rate-limit **3/h/IP**.
+- `POST /auth/reset-password` — **public** `{token, password}` → `200 {ok:true}`. Consume el token, setea
+  `passwordHash` (**argon2id**), `tokenVersion++` (revoca sesiones, patrón existente), **`emailVerified=true`**
+  (v1.5-3), limpia `mustChangePassword`, marca token usado. `422 RESET_TOKEN_INVALID`; `400 VALIDATION_ERROR`
+  (password `MinLength 8`, misma política que register). **No** devuelve tokens (el usuario re-inicia sesión).
+- `POST /auth/register` — ahora emite `email_verification` (24h) y envía el correo (best-effort; el fallo del
+  envío **no** aborta el registro). El `user` de **register|login|google** incluye `emailVerified` (`publicUser`).
+
+### Gating server-side (EmailVerifiedGuard)
+- Guard `src/common/guards/email-verified.guard.ts` + decorador `@RequireEmailVerified()`
+  (`src/common/decorators/require-email-verified.decorator.ts`). Registrado como `APP_GUARD` **tras**
+  `JwtAuthGuard`/`RolesGuard` y **antes** de `MoneyOutGuard`. `403 EMAIL_NOT_VERIFIED` si `emailVerified=false`.
+- **`JwtAuthGuard`** añade `emailVerified` al `select` y lo puebla en `req.user` (interfaz `AuthUser`).
+- Aplicado **SOLO** a: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`. Los `*/quote`
+  y el cotizador público **no** se bloquean. Google entra con `emailVerified=true`; staff sembrado verificado.
+
+### env / seed / jobs
+- `env.validation.ts`: `RESEND_API_KEY` añadida a `required` (obligatoria en **no-local**; en LOCAL_ENVS
+  degrada a Noop). `MAIL_FROM` opcional (default en código, no bloquea el arranque).
+- **Seed (v1.5-6):** `admin`/`operator` (`prisma/seed.ts`) y todos los fixtures de `prisma/seed-e2e.ts`
+  nacen `emailVerified=true` (el customer E2E también, para que el guard no bloquee los flujos de la suite).
+- **Job `auth-token-sweep`** (`src/jobs/auth-token-sweep.service.ts`): borra `AuthToken` expirados/usados.
+  Standalone `run()` (patrón buylist-sweep/ine-retention), registrado/exportado en `JobsModule`. Scheduling
+  repetible BullMQ = deuda BE-5 (disparable a mano); no crítico (el consumo ya rechaza expirados/usados).
+
+### Tests (propios)
+- `test/auth.token.spec.ts` — emisión/consumo: hash SHA-256 (no claro), rotación, un solo uso, expiración por tipo.
+- `test/auth.email-flows.spec.ts` — forgot anti-enumeración (200 sin email/sin enviar), reset (`tokenVersion++`
+  + `emailVerified=true` + argon2 + token usado), verify (idempotencia doble clic / 422), resend (no-op/429).
+- `test/email-verified.guard.spec.ts` — gating 403 sin verificar / pasa verificado / no restringe sin decorador.
+- `test/mail.service.spec.ts` — MailService con `NoopMailAdapter` mockeado (asunto bilingüe, `to`, link en html/text).
+- `test/env.validation.spec.ts` — actualizado: `RESEND_API_KEY` requerida en no-local, no en local.
+
+### Discrepancias con el contrato
+- **Ninguna.** El contrato/ARCHITECTURE describen el `ResendMailAdapter` como "POST https://api.resend.com/emails";
+  se implementó con la librería `resend` (equivalente, añadida a `package.json`). Sin cambios a `API_CONTRACT.md`
+  ni `ARCHITECTURE.md`. **Nota abierta del arquitecto (v1.5-2, no bloqueante):** `MAIL_FROM`=`tcgvaultmx.com` vs
+  soporte `tcgvault.mx` — dominio canónico a fijar por el humano (no afecta esta implementación).
+
+### Gates (desde `backend/`)
+`npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ (47 suites / 264 tests) · `npm run build` ✅
   **239 tests / 43 suites** · `npm run build` ✅.
+
+### Cierre de hallazgos Baja de seguridad v1.5 (2026-08-16)
+
+> Tras los 3 veredictos APROBADO (QA/techlead/seguridad), se cierran los 2 hallazgos **Baja** que
+> seguridad pidió cerrar en esta entrega. El resto de la deuda Baja aceptada queda en `docs/TECH_DEBT.md`
+> (sección "Deuda del pase correo v1.5": `v15-D1..D3`, `v15-S15-B2`, `v15-S15-B3`).
+
+- **S15-B1 — escape de HTML en plantillas de correo** (`src/modules/mail/mail.templates.ts`). Nueva
+  función `escapeHtml()` (escapa `& < > " '`) aplicada a **`name`** (dato controlado por el usuario) y al
+  **`link`** en el **cuerpo HTML** de las **4** plantillas (verificación y reset, ES y EN). El `&` va
+  primero para no re-escapar entidades. El **texto plano** y el layout/asuntos no cambian. Cierra el
+  defecto de inyección (impacto acotado: el correo va solo al propio usuario, pero era interpolación cruda).
+- **S15-B4 — revalidar `status` en `resetPassword`** (`src/modules/auth/auth.service.ts`). Defensa en
+  profundidad: tras `consume` del token y **antes** de fijar la contraseña, se relee el usuario y se exige
+  `status === active`; si no (blocked/deleted/futuro suspended → `user.status !== active`) se rechaza con
+  **`403 USER_BLOCKED`** (mismo trato que login) y **no** se actualiza nada. Evita que un token de reset
+  emitido antes de bloquear la cuenta permita fijar contraseña en una cuenta ya bloqueada. `UserStatus` hoy
+  es `{active, blocked, deleted}`; la guardia `!== active` cubre cualquier estado no-activo futuro.
+- **Tests añadidos:** `test/mail.service.spec.ts` (bloque "escape de HTML (S15-B1)": un `name` con
+  `<script>`/`"`/`'`/`&` se escapa en el HTML de las 4 plantillas; el payload crudo no aparece).
+  `test/auth.email-flows.spec.ts` (reset con cuenta `blocked` y `deleted` → `USER_BLOCKED`, sin `update`;
+  el caso feliz ahora mockea `findUnique` → `active`).
+- **Gates:** `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ (**47 suites / 271 tests**) ·
+  `npm run build` ✅.
