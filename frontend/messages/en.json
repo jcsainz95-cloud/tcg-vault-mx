@@ -772,6 +772,8 @@
       "sellRequests": "Sell requests",
       "disputes": "Disputes",
       "vaultItems": "In vault",
+      "vaultTotal": "Total value (priced)",
+      "vaultPending": "{count, plural, one {# card} other {# cards}} with price pending (excluded from total)",
       "addresses": "Addresses",
       "block": "Block",
       "unblock": "Reactivate",

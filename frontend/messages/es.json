@@ -772,6 +772,8 @@
       "sellRequests": "Solicitudes de venta",
       "disputes": "Disputas",
       "vaultItems": "En bóveda",
+      "vaultTotal": "Valor total (con precio)",
+      "vaultPending": "{count, plural, one {# carta} other {# cartas}} con precio pendiente (excluidas del total)",
       "addresses": "Direcciones",
       "block": "Bloquear",
       "unblock": "Reactivar",

@@ -48,6 +48,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { FinishBadge } from '@/components/domain/FinishBadge';
 
 const KYC_STATUSES: KycStatus[] = ['none', 'pending', 'verified', 'rejected'];
 const CREATE_ROLES: Role[] = ['customer', 'vault_operator', 'super_admin'];
@@ -744,7 +745,7 @@ function UserHistoryTabs({
             ]}
           />
         )}
-        {tab === 'vault' && <VaultTab items={ownedItems} t={t} />}
+        {tab === 'vault' && <VaultTab items={ownedItems} locale={locale} />}
         {tab === 'activity' && <ActivityTab userId={userId} locale={locale} />}
       </div>
     </div>
@@ -807,23 +808,68 @@ function PaginatedHistory<T>({
 }
 
 /**
- * Pestaña Bóveda: usa el resumen `ownedItems` de la ficha 360° (carta + folio + titularidad).
- * NOTA (solicitud al arquitecto): la proyección `AdminUserOwnedItemRef` del contrato NO
- * incluye `finish` ni `referenceValue`, así que no se pueden mostrar acabado ni valor sin
- * enriquecer el contrato. Se muestra solo lo que el backend envía (§M6 · respeto de proyección).
+ * Pestaña Bóveda (v1.8-ronda-c · BE-10): usa el resumen `ownedItems` de la ficha 360°, ahora
+ * enriquecido con `productType`, `finish` y `referenceValue` (PriceInfo por-acabado, mismo shape
+ * que la bóveda del cliente). Por item se muestra acabado (FinishBadge, mismo mapeo que Compra/
+ * bóveda) y valor de referencia; los `pending` se pintan con el estado honesto "PRECIO PENDIENTE"
+ * (StatusBadge domain=price, warning outline), NUNCA $0 ni un valor falso. El total del pie suma
+ * SOLO los `priced`; los `pending` se excluyen y se indican aparte (paridad con VaultView §7.3).
  */
-function VaultTab({ items, t }: { items: AdminUserOwnedItemRef[]; t: (key: string) => string }) {
+function VaultTab({ items, locale }: { items: AdminUserOwnedItemRef[]; locale: AppLocale }) {
+  const t = useTranslations('admin.m6');
+  const tcat = useTranslations('catalog');
   if (items.length === 0) return <p className="py-6 text-center text-sm text-muted">{t('historyEmpty')}</p>;
+
+  // Total: suma de los `priced`; los `pending` (sin precio del día) se excluyen del total
+  // y se cuentan aparte, igual que el portafolio del cliente (`pendingPriceCount`).
+  const pricedTotalCents = items.reduce(
+    (sum, i) => sum + (i.referenceValue.status === 'priced' ? i.referenceValue.referenceMxnCents ?? 0 : 0),
+    0,
+  );
+  const pendingCount = items.filter((i) => i.referenceValue.status === 'pending').length;
+
   return (
-    <DataTable
-      columns={[
-        { key: 'folio', header: t('table.folio'), render: (i: AdminUserOwnedItemRef) => <span className="tabular font-medium">{i.folio}</span> },
-        { key: 'card', header: t('table.card'), render: (i: AdminUserOwnedItemRef) => i.card.name },
-        { key: 'ownership', header: t('table.ownership'), render: (i: AdminUserOwnedItemRef) => <StatusBadge domain="ownership" value={i.ownershipStatus} /> },
-      ]}
-      rows={items}
-      rowKey={(i) => i.inventoryItemId}
-    />
+    <div className="flex flex-col gap-3">
+      <DataTable
+        columns={[
+          { key: 'folio', header: t('table.folio'), render: (i: AdminUserOwnedItemRef) => <span className="tabular font-medium">{i.folio}</span> },
+          {
+            key: 'card',
+            header: t('table.card'),
+            render: (i: AdminUserOwnedItemRef) => (
+              <div className="flex flex-col items-start gap-1">
+                <span lang="en">{i.card.name}</span>
+                <FinishBadge finish={i.finish} productType={i.productType} />
+              </div>
+            ),
+          },
+          { key: 'ownership', header: t('table.ownership'), render: (i: AdminUserOwnedItemRef) => <StatusBadge domain="ownership" value={i.ownershipStatus} /> },
+          {
+            key: 'value',
+            header: tcat('marketValue'),
+            align: 'right',
+            render: (i: AdminUserOwnedItemRef) =>
+              i.referenceValue.status === 'priced' && i.referenceValue.referenceMxnCents != null ? (
+                <span className="tabular font-medium">{formatMoneyCents(i.referenceValue.referenceMxnCents, locale)}</span>
+              ) : (
+                <StatusBadge domain="price" value="pending" />
+              ),
+          },
+        ]}
+        rows={items}
+        rowKey={(i) => i.inventoryItemId}
+      />
+      {/* Valor total de la bóveda del usuario: suma de los `priced`; los `pending` se excluyen y se indican aparte. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-border pt-3">
+        <div className="flex flex-col gap-1">
+          <span className="eyebrow">{t('vaultTotal')}</span>
+          {pendingCount > 0 && (
+            <span className="font-mono text-[11px] text-accent">{t('vaultPending', { count: pendingCount })}</span>
+          )}
+        </div>
+        <span className="tabular text-lg font-medium text-text">{formatMoneyCents(pricedTotalCents, locale)}</span>
+      </div>
+    </div>
   );
 }
 

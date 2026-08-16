@@ -4,6 +4,46 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Ronda C · BE-10 — Bóveda de la ficha 360° con acabado + valor (2026-08-16)
+
+Contrato: **API_CONTRACT v1.8-ronda-c** (§M6 nota BE-10, §11 `AdminUserOwnedItemRef`). La proyección de la
+pestaña **Bóveda** de la ficha 360° (`GET /admin/users/:id`) ahora trae, por item en custodia,
+`productType`, `finish: Finish` y `referenceValue: PriceInfo` (mismo `PriceInfo` por-acabado que
+`HoldingDTO`). Solo `frontend/` + esta nota. **No** se tocó backend, contrato ni `TECH_DEBT.md`. Gates
+verdes: `lint` ✓ · `typecheck` ✓ · `vitest` **157/157** (29 archivos) · `next build` ✓ · Playwright **40/40**.
+
+### Qué se implementó
+- **Tipo (`types/contract.ts`):** `AdminUserOwnedItemRef` gana `productType: ProductType`, `finish: Finish`
+  y `referenceValue: PriceInfo` (antes solo `inventoryItemId/folio/card/ownershipStatus`). Se retiró la nota
+  de "solicitud al arquitecto" que pedía justo estos campos: el contrato Ronda C ya los entrega.
+- **`VaultTab` (M6View.tsx):** pasó de tabla folio+carta+titularidad a folio · carta **+ acabado** ·
+  titularidad · **valor**. El acabado se pinta con **`FinishBadge`** (mismo mapeo `finish.*` que Compra y la
+  bóveda del cliente; no se inventó label nuevo — para graded/sealed `normal` se oculta, es ruido). El valor
+  usa el mismo tratamiento honesto que `VaultView`: `priced` → `formatMoneyCents(referenceMxnCents)`;
+  `pending` → **`StatusBadge domain="price" value="pending"`** ("PRECIO PENDIENTE", warning outline), **nunca
+  `$0` ni `—`**.
+- **Total de la bóveda (sí encajó limpio):** pie de tabla con **valor total** = suma de los `referenceValue`
+  **priced**; los `pending` se **excluyen** del total y se indican aparte con un contador (paridad con el
+  `pendingPriceCount` del portafolio del cliente, DESIGN_SYSTEM §7.3). Layout minimalista: eyebrow + cifra
+  `tabular` a la derecha, separado por regla superior (sin radios/sombras nuevas; sin tocar `shadow-focus`).
+- **Mock (`lib/mock/fixtures.ts`):** `mockAdminUserDetail('u-777').ownedItems` ahora trae dos items —
+  Blastoise holofoil **priced** (`128000` cents) y Pikachu reverse_holo **pending** — para ejercer ambos
+  renders en preview/tests sin backend real.
+- **Test (`M6View.test.tsx`):** nuevo caso que abre la pestaña Bóveda y verifica acabado legible (Holofoil /
+  Reverse Holo), valor priced formateado, estado pendiente honesto ("Precio pendiente"), total sin pendientes
+  y el contador de pendientes.
+
+### i18n nuevas (ES/EN, bajo `admin.m6`) — paridad verificada por `i18n-parity.test.ts`
+- `vaultTotal`: **"Valor total (con precio)"** / **"Total value (priced)"**.
+- `vaultPending` (ICU plural): **"{count} carta(s) con precio pendiente (excluidas del total)"** /
+  **"{count} card(s) with price pending (excluded from total)"**.
+- El acabado reusa `finish.*` (ya existían); el estado pendiente reusa `status.price.pending` ("Precio
+  pendiente" / "Price pending") y `catalog.marketValue` ("Valor de mercado" / "Market value"). Sin strings
+  nuevas para esos dos.
+
+### Solicitudes al arquitecto
+- Ninguna. BE-10 cubrió exactamente lo que faltaba (`finish` + `referenceValue` en la proyección de bóveda).
+
 ## Destacadas por precio (home) + cierre en lote de deuda 5a (2026-08-16)
 
 Dos cosas, solo `frontend/` (+ esta nota + entradas 5a de `TECH_DEBT.md`). **No** se tocó backend, el

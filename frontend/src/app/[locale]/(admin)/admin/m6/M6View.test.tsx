@@ -189,6 +189,30 @@ describe('M6View · Usuarios / KYC', () => {
     );
   });
 
+  // ---- BE-10 · Pestaña Bóveda enriquecida (finish + referenceValue, priced vs pending) ----
+  it('la pestaña Bóveda muestra acabado + valor (priced), estado pendiente honesto y el total sin pendientes', async () => {
+    renderWithProviders(<M6View />, 'es');
+    const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
+    // Ana (u-777): el fixture trae un item con precio (Blastoise holofoil) y otro pendiente (Pikachu reverse holo).
+    fireEvent.click(viewButtons[0]);
+    await screen.findByRole('dialog', { name: /Ficha 360/ });
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Bóveda' }));
+
+    // Acabado legible (reusa el mapeo `finish`): Holofoil del priced, Reverse Holo del pendiente.
+    // (DataTable pinta tabla desktop + card mobile, de ahí findAll.)
+    expect((await screen.findAllByText('Holofoil')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Reverse Holo').length).toBeGreaterThan(0);
+
+    // Valor priced formateado (Blastoise = 128000 centavos → $1,280.00); pendiente honesto, NO $0.
+    expect(screen.getAllByText(/\$\s?1,280\.00/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Precio pendiente').length).toBeGreaterThan(0);
+
+    // Total de la bóveda = solo el priced ($1,280.00); el pendiente se excluye y se indica aparte.
+    expect(screen.getByText('Valor total (con precio)')).toBeInTheDocument();
+    expect(screen.getByText(/1 carta con precio pendiente/)).toBeInTheDocument();
+  });
+
   it('la pestaña Actividad muestra el ip cuando el backend lo envía (proyección super_admin)', async () => {
     renderWithProviders(<M6View />, 'es');
     const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });

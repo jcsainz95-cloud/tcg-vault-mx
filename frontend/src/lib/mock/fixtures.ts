@@ -751,9 +751,31 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
       base.id === 'u-777'
         ? [{ id: 'dsp-5001', status: 'en_revision', type: 'condition_raw', createdAt: '2026-08-12T16:00:00Z' }]
         : [],
+    // v1.8-ronda-c (BE-10): la proyección de bóveda trae productType + finish + referenceValue
+    // (por-acabado). Se incluyen un item con precio (priced) y otro sin precio del día (pending)
+    // para ejercer ambos renders en preview/tests.
     ownedItems:
       base.id === 'u-777'
-        ? [{ inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise'), ownershipStatus: 'settled' }]
+        ? [
+            {
+              inventoryItemId: 'inv-1002',
+              folio: 'INV-000102',
+              card: cardById('c-blastoise'),
+              productType: 'raw',
+              finish: 'holofoil',
+              ownershipStatus: 'settled',
+              referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+            },
+            {
+              inventoryItemId: 'inv-1003',
+              folio: 'INV-000103',
+              card: cardById('c-pikachu'),
+              productType: 'raw',
+              finish: 'reverse_holo',
+              ownershipStatus: 'pending',
+              referenceValue: { status: 'pending' },
+            },
+          ]
         : [],
   };
 }

@@ -689,11 +689,19 @@ export interface AdminUserDisputeRef {
   createdAt: string;
 }
 
+// v1.8-ronda-c (BE-10): la proyección de la pestaña "Bóveda" de la ficha 360° se enriquece
+// con `productType`, `finish` y `referenceValue` (mismo PriceInfo que HoldingDTO §3, valuación
+// por-acabado `getReference`). Proyección — NO migra. Ver API_CONTRACT §M6 nota BE-10 y §11.
 export interface AdminUserOwnedItemRef {
   inventoryItemId: string;
   folio: string;
   card: CardDTO;
+  productType: ProductType;
+  // v1.6-finish: acabado de la copia física; el referenceValue es el de ESE acabado. graded/sealed → "normal".
+  finish: Finish;
   ownershipStatus: OwnershipStatus;
+  // v1.8-ronda-c: valor de referencia (mercado) del acabado; status="pending" si sin precio del día.
+  referenceValue: PriceInfo;
 }
 
 // GET /admin/users/:id — ficha 360°. billingProfile = null para vault_operator
