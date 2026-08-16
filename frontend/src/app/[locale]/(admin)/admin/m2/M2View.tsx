@@ -33,8 +33,9 @@ import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { QueryState } from '@/components/ui/QueryState';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ApiClientError } from '@/lib/api-client';
 
 const CATEGORIES: BuylistCategory[] = ['comun', 'reverse_holo', 'ex_plus'];
 
@@ -44,12 +45,22 @@ function pesosToCents(value: string): number {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
+/**
+ * El endpoint `sync-all` puede no existir aún en el backend (contrato v1.3, condicional).
+ * Un 404/405 se trata como "no disponible" (warning); cualquier otro error real (rate limit,
+ * timeout, 5xx) se muestra como error con su código/mensaje.
+ */
+function isEndpointMissing(error: unknown): boolean {
+  return error instanceof ApiClientError && (error.status === 404 || error.status === 405);
+}
+
 export function M2View() {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
   const tcat = useTranslations('buylist.categoryLabel');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
+  const getError = useErrorMessage();
 
   // --- Sección 1: sync de precios de bóveda ---
   const syncMutation = useMutation({
@@ -184,7 +195,9 @@ export function M2View() {
             {t('sync.queued', { count: syncMutation.data.queued, jobId: syncMutation.data.jobId })}
           </Banner>
         )}
-        {syncMutation.isError && <Banner variant="danger" role="alert">{tc('errorGeneric')}</Banner>}
+        {syncMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncMutation.error)}</Banner>
+        )}
       </section>
 
       {/* Sección 2: cola de precio pendiente + override */}
@@ -266,6 +279,15 @@ export function M2View() {
                 </Button>
               </div>
               <p className="text-xs text-muted">{t('fx.hint')}</p>
+              {(fxUpdateMutation.isSuccess || fxRefreshMutation.isSuccess) && (
+                <Banner variant="success" role="status">{t('fx.saved')}</Banner>
+              )}
+              {fxUpdateMutation.isError && (
+                <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(fxUpdateMutation.error)}</Banner>
+              )}
+              {fxRefreshMutation.isError && (
+                <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(fxRefreshMutation.error)}</Banner>
+              )}
             </div>
           )}
         </QueryState>
@@ -317,6 +339,12 @@ export function M2View() {
                   </Button>
                 )}
               </div>
+              {rarityMutation.isSuccess && (
+                <Banner variant="success" role="status">{t('rarityMap.saved')}</Banner>
+              )}
+              {rarityMutation.isError && (
+                <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(rarityMutation.error)}</Banner>
+              )}
             </div>
           )}
         </QueryState>
@@ -326,6 +354,7 @@ export function M2View() {
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('catalog.title')}</h2>
         <p className="text-sm text-muted">{t('catalog.subtitle')}</p>
+        <p className="text-xs text-muted">{t('catalog.syncHint')}</p>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" loading={backfillMutation.isPending} onClick={() => backfillMutation.mutate()}>
             <DownloadCloud size={18} /> {t('catalog.backfill')}
@@ -334,6 +363,21 @@ export function M2View() {
             <Layers size={18} /> {t('catalog.syncAll')}
           </Button>
         </div>
+        {/* Feedback del sync por set (Importar / Re-sincronizar) */}
+        {catalogSyncMutation.isPending && (
+          <Banner variant="info" role="status">{t('catalog.syncRunning')}</Banner>
+        )}
+        {catalogSyncMutation.isSuccess && (
+          <Banner variant="success" role="status">
+            {t('catalog.syncDone', {
+              count: catalogSyncMutation.data.setsQueued,
+              jobId: catalogSyncMutation.data.jobId,
+            })}
+          </Banner>
+        )}
+        {catalogSyncMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(catalogSyncMutation.error)}</Banner>
+        )}
         {backfillMutation.isSuccess && (
           <Banner variant="success" role="status">
             {t('catalog.backfillDone', {
@@ -342,14 +386,20 @@ export function M2View() {
             })}
           </Banner>
         )}
+        {backfillMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(backfillMutation.error)}</Banner>
+        )}
         {syncAllMutation.isSuccess && (
           <Banner variant="success" role="status">
             {t('catalog.syncAllDone', { count: syncAllMutation.data.setsQueued })}
           </Banner>
         )}
-        {syncAllMutation.isError && (
-          <Banner variant="warning" role="status">{t('catalog.syncAllUnavailable')}</Banner>
-        )}
+        {syncAllMutation.isError &&
+          (isEndpointMissing(syncAllMutation.error) ? (
+            <Banner variant="warning" role="status">{t('catalog.syncAllUnavailable')}</Banner>
+          ) : (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllMutation.error)}</Banner>
+          ))}
         <QueryState
           isLoading={remoteSets.isLoading}
           isError={remoteSets.isError}
@@ -404,6 +454,9 @@ export function M2View() {
             <p className="text-xs text-muted">
               = {formatMoneyCents(pesosToCents(overridePriceValue), locale)}
             </p>
+          )}
+          {overrideMutation.isError && (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(overrideMutation.error)}</Banner>
           )}
         </div>
       </Modal>

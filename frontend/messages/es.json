@@ -512,12 +512,14 @@
         "newBuffer": "Nuevo colchón %",
         "saveOverride": "Fijar override",
         "refreshBanxico": "Refrescar Banxico",
-        "hint": "El precio MXN = precio USD × tasa × (1 + colchón/100). El override manual tiene prioridad sobre el automático del día."
+        "hint": "El precio MXN = precio USD × tasa × (1 + colchón/100). El override manual tiene prioridad sobre el automático del día.",
+        "saved": "Tipo de cambio actualizado."
       },
       "rarityMap": {
         "title": "Rareza → categoría de buylist",
         "subtitle": "Deriva la categoría de cotización desde la rareza de pokemontcg.io. Default ex_plus para rarezas no listadas.",
-        "category": "Categoría"
+        "category": "Categoría",
+        "saved": "Mapa de rareza guardado."
       },
       "catalog": {
         "title": "Sync de catálogo (pokemontcg.io)",
@@ -532,6 +534,9 @@
         "resync": "Re-sincronizar",
         "backfill": "Backfill (siguiente lote)",
         "syncAll": "Sync de todo el catálogo",
+        "syncHint": "Importar, re-sincronizar y backfill se ejecutan de forma síncrona: pueden tardar y el resultado aparece al terminar. No cierres esta pantalla.",
+        "syncRunning": "Sincronizando con pokemontcg.io… esto puede tardar unos segundos.",
+        "syncDone": "Sync encolado: {count} set(s) (job {jobId}).",
         "backfillDone": "Backfill: {count} sets importados, {remaining} restantes.",
         "syncAllDone": "Sync total encolado: {count} sets.",
         "syncAllUnavailable": "El sync total no está disponible en el backend; usa el sync por set o el backfill."

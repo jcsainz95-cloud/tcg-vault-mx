@@ -4,6 +4,57 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Fix bug reportado — feedback visible en el sync de catálogo de M2 (2026-08-16)
+
+Bug del humano: en `/admin/m2` (Sección 5, "Sync de catálogo") los botones **Backfill**,
+**Import/Re-sincronizar** (por set) y **Sync de todo el catálogo** "no hacían nada" al hacer clic.
+Causa raíz: las mutaciones solo tenían `onSuccess` (invalidaban `remote-sets`); **sin manejo de
+error ni feedback**. Cuando el backend fallaba (rate limit de pokemontcg.io sin API key, timeout del
+sync síncrono, 5xx) el botón salía de `loading` y no aparecía nada → parecía inerte. Solo `frontend/`
+(+ esta nota). **No** se tocó el contrato ni el backend; es puro feedback de UI con el patrón de
+Banners/`errorCodes` ya usado.
+
+### Qué se hizo (`m2/M2View.tsx`)
+- **Helper de error:** se importa `useErrorMessage` de `QueryState` (`getError`) — mapea el `code` del
+  `ApiClientError` a copy localizado (`error.<CODE>`, fallback `common.errorGeneric`), mismo patrón que
+  el resto de la app.
+- **Sync por set (Importar/Re-sincronizar), `catalogSyncMutation`:** antes SIN feedback. Ahora:
+  Banner `info` mientras `isPending` (aviso "sincronizando… puede tardar"), Banner `success` con el
+  resultado del backend (`syncDone`: "Sync encolado: N set(s) (job …)"), y Banner `danger` (`role=alert`,
+  con título + `getError`) al fallar. Esta era la causa principal del "no hace nada".
+- **Backfill, `backfillMutation`:** tenía success, **le faltaba el error** → se añadió Banner `danger`
+  con `getError`.
+- **Sync total, `syncAllMutation`:** mantiene success. El error ahora **distingue**: un **404/405**
+  (endpoint aún no existe en backend, contrato v1.3 condicional) conserva el aviso `warning` "no
+  disponible"; **cualquier otro error real** (rate limit, timeout, 5xx) muestra Banner `danger` con el
+  código/mensaje (antes CUALQUIER fallo se tragaba como "no disponible", ocultando errores reales).
+  Helper local `isEndpointMissing()` (status 404/405 del `ApiClientError`).
+- **Hint de sincronía:** texto bajo el subtítulo (`catalog.syncHint`) avisando que import/resync/backfill
+  corren **síncronos**, pueden tardar y el resultado aparece al terminar.
+- **Alineación del resto de mutaciones de M2** (tenían feedback parcial o nulo):
+  - **Sync de precios** (`syncMutation`): ya tenía banners; su error genérico (`errorGeneric`) se cambió
+    a `getError(error)` para mostrar el código real.
+  - **FX** (`fxUpdateMutation`/`fxRefreshMutation`): sin feedback → Banner `success` (`fx.saved`) y
+    `danger` (`getError`) por cada uno.
+  - **Rareza→categoría** (`rarityMutation`): sin feedback → `success` (`rarityMap.saved`) y `danger`.
+  - **Override manual** (`overrideMutation`, en el modal): sin feedback de error → Banner `danger` dentro
+    del modal (el éxito cierra el modal, que ya es la señal). El `loading` del botón se mantiene.
+- **`remote-sets`** (lista de sets) ya se renderiza dentro de `QueryState` (loading/error + Retry) — se
+  verificó; el usuario ve el error de la query y puede reintentar.
+
+### i18n (ES/EN espejado, pasa `i18n-parity`)
+- `admin.m2.catalog`: `syncHint`, `syncRunning`, `syncDone`.
+- `admin.m2.fx.saved`, `admin.m2.rarityMap.saved`.
+
+### Tests (`m2/M2View.test.tsx`, +5; suite total **98** verde)
+Con `vi.spyOn(api, …).mockRejectedValueOnce(new ApiClientError(...))`:
+- sync por set → **429 RATE_LIMITED** muestra Banner de error con el copy del contrato + `role=alert`.
+- backfill → **500 INTERNAL** muestra Banner de error.
+- sync total → **500** muestra Banner `danger` y **no** el aviso "no disponible".
+- sync total → **404** conserva el aviso `warning` "no disponible".
+
+Gates (desde `frontend/`): `lint` OK · `typecheck` OK · `test` **98/98** (22 archivos) · `build` OK.
+
 ## Auth del back-office + auto-logout por inactividad + redirección por rol (2026-08-16)
 
 Tres cambios de sesión/auth reportados por el humano probando en producción (backend real, mocks off).
