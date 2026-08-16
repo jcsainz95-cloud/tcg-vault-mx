@@ -1081,3 +1081,58 @@ Ronda que implementa: (1) precio de buylist por **rareza oficial** (§E.1, crite
   estructura de carpetas. Nota para el arquitecto (no bloqueante): `remote-sets` añade campos
   **opcionales** `degraded`/`source` no listados en el contrato (no rompen el shape `{data}`); si se
   prefieren fuera del contrato, se pueden ocultar.
+
+## 21. Health `/api/v1/health` ahora refleja Redis de verdad (2026-08-16)
+
+> Corrección al §12: el health reportaba `redis:skipped` **siempre** porque nadie registraba el token
+> `HEALTH_REDIS_CLIENT`, aun cuando en producción `REDIS_URL` sí existe y el `SchedulerService`
+> (BullMQ) abre su conexión. Era engañoso. Ahora `/health` dice la verdad. **Sin cambios de shape**
+> en la respuesta ni en el contrato.
+
+### 21.1 Qué cambió (solo `backend/`)
+
+- **Nuevo provider** `src/modules/health/health-redis.provider.ts`:
+  - Clase `HealthRedisClientProvider` (implementa `HealthRedisClient` + `OnModuleDestroy`) que envuelve un
+    cliente **IORedis liviano y dedicado** solo para el `PING` del health. Opciones: `maxRetriesPerRequest:
+    null` (no cuelga el check si Redis cae → falla a `down`) y `lazyConnect: true` (no abre el socket hasta
+    el primer chequeo). Registra un handler de `'error'` no-op para que un Redis caído **no tumbe el
+    proceso** (el estado real lo decide el resultado del `ping()`). `onModuleDestroy` hace `quit()` (con
+    fallback a `disconnect()`) para **no fugar sockets**.
+  - `healthRedisProvider`: factory sobre el token `HEALTH_REDIS_CLIENT` que **inyecta `ConfigService`**:
+    - **con `REDIS_URL`** → devuelve el cliente real ⇒ health reporta `up`/`down`.
+    - **sin `REDIS_URL`** (local/tests/CI sin infra) → devuelve `null` ⇒ health sigue reportando `skipped`
+      (comportamiento previo preservado; el token es `@Optional()` en `HealthService`).
+- **`health.module.ts`** registra `healthRedisProvider` en `providers`. `ConfigService` ya estaba
+  disponible por el `ConfigModule` **global** del `AppModule` (no hizo falta importarlo).
+- **Conexión independiente a propósito**: NO comparto la conexión BullMQ del worker (SchedulerService).
+  Una conexión de health separada y mínima es más simple y evita acoplar la sonda a los workers. El costo
+  (un socket extra, lazy) es despreciable.
+- **No toqué** `HealthResult` ni `checkRedis()` en `health.service.ts` (ya manejaban `up`/`down`/`skipped`
+  bien); solo faltaba satisfacer el token con un cliente real cuando hay `REDIS_URL`.
+
+### 21.2 Tests
+
+- Nuevo `test/health-redis.provider.spec.ts` (ioredis mockeado, sin sockets reales): token+inject
+  correctos; sin `REDIS_URL` → `null` y no se construye cliente; con `REDIS_URL` → cliente con las opciones
+  esperadas + `ping()`; `onModuleDestroy` cierra con `quit()` y hace fallback a `disconnect()` si falla.
+- Los tests de `health.controller.spec.ts` (§12) siguen válidos sin cambios: instancian `HealthService`
+  directo (skipped = sin cliente; up/down = cliente mock), que es exactamente el nuevo comportamiento
+  condicionado por `REDIS_URL`.
+
+### 21.3 Gates (desde `backend/`)
+
+- `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ **224 tests / 41 suites** (antes 217/39; +7
+  tests, +2 suites — incluye el nuevo spec del provider) · `npm run build` ✅.
+
+### 21.4 Verificación manual
+
+- **Con Redis arriba:** `REDIS_URL=redis://localhost:6379 npm run start` → `curl -s localhost:3000/api/v1/health`
+  ⇒ `... "redis":"up"`. Si Redis está definido pero **caído** ⇒ `"redis":"down"` y **503**.
+- **Sin Redis (local/CI):** arrancar **sin** `REDIS_URL` → `curl -s localhost:3000/api/v1/health` ⇒
+  `... "redis":"skipped"` y **200** (no degrada).
+
+### 21.5 Discrepancias con el contrato
+
+- **Ninguna.** La respuesta de `/health` conserva su shape (`{ status, uptime, timestamp, db, redis }`,
+  `redis ∈ up|down|skipped`). Sigue en pie del §12 la solicitud (no bloqueante) al **arquitecto** de
+  **formalizar `GET /api/v1/health`** en `API_CONTRACT.md`.
