@@ -30,6 +30,39 @@ al wrapper de ambos (el `<input>`/`<select>` interno mantiene `outline-none`, as
 un campo enfocado muestra borde tinta + anillo bermellón 2px, alineado con §6.2/§8.2. Sin tocar
 DESIGN_SYSTEM (es de ux-ui); solo se **implementó** lo que ya especificaba.
 
+### Cierre de accesibilidad pre-merge 5a — 2 ajustes qa/techlead (2026-08-16)
+Antes del merge del rediseño 5a se cerraron los **dos hallazgos de accesibilidad** que qa y techlead
+dejaron como no-negociables (foco visible SIEMPRE + contraste AA, DESIGN_SYSTEM §8.2). Solo se tocó
+`frontend/` (+ `docs/`). Las decisiones ratificadas por el humano se respetan sin cambios (StatusBadge
+sin iconos, NM abreviado, sin tema oscuro, home diferida).
+
+- **FIX 1 — foco visible en el `<select>` "Ver como" del back-office** (`components/layout/AdminTopbar.tsx`).
+  El select del switch de rol tenía `outline-none` **sin sustituto**: `outline-none` (capa utilities) mata
+  el `:focus-visible` global (capa base), así que el foco de teclado era **invisible**. Fix: se añadió
+  `focus-visible:shadow-focus` **al propio control** (mismo token bermellón 2px que Input/Select). Se puso
+  en el control y no en el `<label>` wrapper porque el label envuelve además el texto "Ver como" y el
+  triángulo ▾ — un `focus-within` ahí anillaría de más; en el control el anillo cae solo sobre el select,
+  sin doble anillo (el `outline-none` sigue matando el outline global).
+
+- **FIX 2 — contraste AA de `--color-success` + consistencia de anillo en inputs crudos**
+  (`app/globals.css`, `components/domain/ShopFilters.tsx`, `app/[locale]/(storefront)/catalog/CatalogView.tsx`).
+  - `--color-success` pasó de `#4E7A49` (**4.43:1** sobre el papel `#F4F1EA`, por debajo de AA 4.5:1) a
+    **`#4A7345`** = **4.86:1** (AA ✓). Se oscureció lo mínimo para cruzar el umbral sin alterar la
+    identidad (verde de tinta, no relleno). Ratio verificado con la fórmula WCAG 2.x sobre el papel real.
+  - Inputs crudos que usaban `outline-none` + solo `focus:border-text` (un indicador de un solo borde,
+    débil): buscador de bloque de `ShopFilters` (`RuleSearch`), wrapper de precio min/max de `ShopFilters`
+    (`PriceFilter`), y el buscador de catálogo de `CatalogView`. Se unificaron al **anillo bermellón**
+    consistente con Input/Select: `focus-within:shadow-focus` en el `<span>` wrapper del precio, y
+    `focus-visible:shadow-focus` en los `<input>` crudos de búsqueda (que no tienen wrapper propio),
+    manteniendo `focus:border-text`. Sin doble anillo (los inputs conservan `outline-none`).
+
+**Deuda no bloqueante registrada** (techlead) en `TECH_DEBT.md` sección Frontend, IDs `5a-D1/D3/D4/D5/D6`:
+`ConditionBadge` huérfano + condición triplicada; grosor de anillo 3px vs token 2px; `certNumber` ausente
+en el `aria-label` de `ListingSpec` graded compacto; vars `--radius-*`/`--shadow-*` muertas en globals.css;
+y `PortfolioTrendChart` con hex de paleta hardcodeados. **No** se corrigen en este pase (solo registro).
+
+**Gates:** `lint`, `typecheck`, `vitest`, `next build` y `npx playwright test` (40 E2E) — verdes tras los fixes.
+
 ### Verificaciones (todas OK, sin cambios extra)
 - **Fuentes:** `app/[locale]/layout.tsx` carga Zen Old Mincho / Archivo / JetBrains Mono por `next/font/google`
   (self-host, `display:'swap'`, sin FOUT roto), exponiendo `--font-serif`/`--font-sans`/`--font-mono` que

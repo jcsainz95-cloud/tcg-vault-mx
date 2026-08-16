@@ -64,7 +64,7 @@ export function CatalogView() {
       placeholder={t('searchPlaceholder')}
       value={filters.q ?? ''}
       onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value || undefined }))}
-      className="w-full border-b border-border-strong bg-transparent pb-2.5 text-[13px] text-text outline-none placeholder:text-muted focus:border-text"
+      className="w-full border-b border-border-strong bg-transparent pb-2.5 text-[13px] text-text outline-none placeholder:text-muted focus:border-text focus-visible:shadow-focus"
     />
   );
 

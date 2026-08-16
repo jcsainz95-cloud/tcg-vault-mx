@@ -111,7 +111,7 @@ function RuleSearch({
       placeholder={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="mt-3 w-full border-b border-border-strong bg-transparent pb-2.5 text-[13px] text-text outline-none placeholder:text-muted focus:border-text"
+      className="mt-3 w-full border-b border-border-strong bg-transparent pb-2.5 text-[13px] text-text outline-none placeholder:text-muted focus:border-text focus-visible:shadow-focus"
     />
   );
 }
@@ -378,7 +378,7 @@ function PriceFilter({ facets, filters, onChange }: ShopFiltersProps) {
         ).map(([kind, value, placeholder]) => (
           <label key={kind} className="flex flex-col">
             <span className="font-mono text-[11px] leading-none text-muted">{t(kind)}</span>
-            <span className="mt-2 flex items-baseline gap-1 border-b border-border-strong pb-2 focus-within:border-text">
+            <span className="mt-2 flex items-baseline gap-1 border-b border-border-strong pb-2 focus-within:border-text focus-within:shadow-focus">
               <span className="shrink-0 text-sm text-text">MX$</span>
               <input
                 type="text"

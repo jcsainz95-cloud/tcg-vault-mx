@@ -35,7 +35,10 @@ export function AdminTopbar({ onMenu }: { onMenu?: () => void }) {
               value={role}
               onChange={(e) => setRole(e.target.value as Role)}
               aria-label={t('roleLabel')}
-              className="appearance-none bg-transparent font-mono text-xs text-text outline-none"
+              // Anillo bermellón (--shadow-focus) en el propio control: outline-none
+              // mata el outline global, así que el foco de teclado viaja en la sombra
+              // (DESIGN_SYSTEM §8.2, foco SIEMPRE visible), sin doble anillo.
+              className="appearance-none bg-transparent font-mono text-xs text-text outline-none focus-visible:shadow-focus"
             >
               <option value="super_admin">super_admin</option>
               <option value="vault_operator">vault_operator</option>

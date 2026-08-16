@@ -40,7 +40,8 @@
    * coloreado sobre papel, así que los *-bg quedan transparentes a propósito
    * (cualquier Badge "soft" heredado pierde la caja y conserva el color).
    */
-  --color-success: #4e7a49;
+  /* #4A7345 ≈ 4.86:1 sobre el papel #F4F1EA (AA ≥4.5:1). Antes #4E7A49 = 4.43:1. */
+  --color-success: #4a7345;
   --color-success-bg: transparent;
   --color-warning: #b44b3a;
   --color-warning-bg: transparent;
