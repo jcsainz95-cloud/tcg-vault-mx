@@ -2,17 +2,25 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Menu, X, Zap } from 'lucide-react';
-import { Link, usePathname } from '@/i18n/navigation';
+import { LogOut, Menu, User, X, Zap } from 'lucide-react';
+import { Link, usePathname, useRouter } from '@/i18n/navigation';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { useSession } from '@/lib/session';
+import { logout as apiLogout } from '@/lib/api';
 import { cn } from '@/lib/cn';
 
 export function StorefrontHeader() {
   const t = useTranslations('nav');
   const tc = useTranslations('common');
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Sesión de cliente (reactiva). `ready` evita mismatch de hidratación: mientras
+  // sea false pintamos el estado deslogueado, idéntico al render de servidor.
+  const { user, isAuthenticated, ready } = useSession();
+  const authed = ready && isAuthenticated;
+  const displayName = user?.name || user?.email || '';
 
   const links = [
     { href: '/catalog', label: t('shop') },
@@ -20,6 +28,12 @@ export function StorefrontHeader() {
     { href: '/vault', label: t('vault') },
     { href: '/orders', label: t('orders') },
   ];
+
+  async function onLogout() {
+    setOpen(false);
+    await apiLogout();
+    router.push('/');
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur">
@@ -51,12 +65,32 @@ export function StorefrontHeader() {
             <LocaleToggle />
           </div>
           <ThemeToggle />
-          <Link
-            href="/login"
-            className="hidden rounded-md border border-border-strong px-3 py-2 text-sm font-medium hover:bg-surface-2 sm:inline-flex"
-          >
-            {t('login')}
-          </Link>
+          {authed ? (
+            <div className="hidden items-center gap-2 sm:flex">
+              <span
+                className="inline-flex max-w-[12rem] items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-text"
+                title={displayName}
+              >
+                <User size={16} aria-hidden className="text-muted" />
+                <span className="truncate">{displayName}</span>
+              </span>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-3 py-2 text-sm font-medium hover:bg-surface-2"
+              >
+                <LogOut size={16} aria-hidden />
+                {t('logout')}
+              </button>
+            </div>
+          ) : (
+            <Link
+              href="/login"
+              className="hidden rounded-md border border-border-strong px-3 py-2 text-sm font-medium hover:bg-surface-2 sm:inline-flex"
+            >
+              {t('login')}
+            </Link>
+          )}
           <button
             type="button"
             className="inline-flex h-10 w-10 items-center justify-center rounded-md text-muted hover:bg-surface-2 md:hidden"
@@ -82,13 +116,30 @@ export function StorefrontHeader() {
                 {l.label}
               </Link>
             ))}
-            <Link
-              href="/login"
-              onClick={() => setOpen(false)}
-              className="rounded-md px-3 py-3 text-base font-medium text-text hover:bg-surface-2"
-            >
-              {t('login')}
-            </Link>
+            {authed ? (
+              <>
+                <span className="flex items-center gap-2 px-3 py-3 text-base font-medium text-muted">
+                  <User size={18} aria-hidden />
+                  <span className="truncate">{displayName}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="flex items-center gap-2 rounded-md px-3 py-3 text-left text-base font-medium text-text hover:bg-surface-2"
+                >
+                  <LogOut size={18} aria-hidden />
+                  {t('logout')}
+                </button>
+              </>
+            ) : (
+              <Link
+                href="/login"
+                onClick={() => setOpen(false)}
+                className="rounded-md px-3 py-3 text-base font-medium text-text hover:bg-surface-2"
+              >
+                {t('login')}
+              </Link>
+            )}
             <div className="px-3 py-2">
               <LocaleToggle />
             </div>

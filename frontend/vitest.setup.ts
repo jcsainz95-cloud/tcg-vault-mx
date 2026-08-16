@@ -9,3 +9,17 @@ class ResizeObserverMock {
 if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 }
+
+// Polyfill de matchMedia para jsdom (lo usa ThemeToggle para leer prefers-color-scheme).
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}

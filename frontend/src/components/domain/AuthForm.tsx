@@ -6,6 +6,7 @@ import { useRouter } from '@/i18n/navigation';
 import { Link } from '@/i18n/navigation';
 import { login, register } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { config } from '@/lib/config';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -47,7 +48,9 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <h1 className="text-h2 font-bold">{mode === 'login' ? t('loginTitle') : t('registerTitle')}</h1>
-      <Banner variant="info">{t('mockNotice')}</Banner>
+      {/* El aviso de "sesión simulada" solo aplica en modo mock; en producción
+          el formulario pega al backend real, así que no debe mostrarse. */}
+      {config.useMocks && <Banner variant="info">{t('mockNotice')}</Banner>}
       {errorCode && (
         <Banner variant="danger" role="alert">
           {tErr.has(errorCode) ? tErr(errorCode) : tErr('INTERNAL')}

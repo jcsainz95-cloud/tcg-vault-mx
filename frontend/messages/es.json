@@ -1,7 +1,7 @@
 {
   "common": {
     "appName": "TCG Vault MX",
-    "tagline": "Marketplace de cartas Pokémon con custodia",
+    "tagline": "Marketplace de cartas Pokémon con bóveda",
     "loading": "Cargando…",
     "retry": "Reintentar",
     "cancel": "Cancelar",
@@ -26,7 +26,7 @@
   "nav": {
     "catalog": "Compra",
     "shop": "Compra",
-    "buylist": "Vender (Buylist)",
+    "buylist": "Vender",
     "vault": "Mi bóveda",
     "orders": "Mis órdenes",
     "account": "Cuenta",
@@ -43,7 +43,7 @@
     "ctaCatalog": "Ir a Compra",
     "ctaBuylist": "Vender mis cartas",
     "trustAuth": "Cada carta se autentica al ingresar",
-    "trustCustody": "Custodia asegurada, sin envíos innecesarios",
+    "trustCustody": "Bóveda asegurada, sin envíos innecesarios",
     "trustPrice": "Valor de mercado transparente en MXN"
   },
   "catalog": {
@@ -171,7 +171,7 @@
     "emptyTitle": "Aún no tienes cartas en tu bóveda",
     "emptyBody": "Explora la sección de Compra y empieza tu colección.",
     "emptyCta": "Ir a Compra",
-    "trustBanner": "Tus cartas están autenticadas y aseguradas en custodia. Solo se envían cuando tú lo pides.",
+    "trustBanner": "Tus cartas están autenticadas y aseguradas en bóveda. Solo se envían cuando tú lo pides.",
     "withdraw": "Retirar",
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo se pueden retirar cartas liquidadas (settled).",
@@ -228,7 +228,7 @@
     "pipelineTitle": "Estado del envío"
   },
   "buylist": {
-    "title": "Vende tus cartas (Buylist)",
+    "title": "Vende tus cartas",
     "subtitle": "Cotiza al instante, envíanos la carta y te pagamos por SPEI tras verificarla.",
     "quoterTitle": "Cotizador",
     "selectCard": "Carta",
@@ -256,7 +256,7 @@
     "limitPerMonth": "Tope mensual",
     "conditionFixedNm": "Condición: Near Mint (NM) fija",
     "nmOnlyTitle": "Solo compramos en Near Mint (NM)",
-    "nmOnlyBody": "Si al recibir y verificar la carta no está en NM, no se compra: se devuelve (a tu costo, 7 días) o se considera abandonada a los 30 días.",
+    "nmOnlyBody": "Si al recibir y verificar la carta no está en NM, no se compra: se devuelve si deseas (a tu costo, 7 días) o se considera abandonada a los 30 días.",
     "requestTitle": "Crear solicitud de venta",
     "clabeLabel": "CLABE (18 dígitos, a tu nombre)",
     "clabeHint": "El pago SPEI se realiza a esta CLABE, que debe estar a tu nombre.",
@@ -311,7 +311,7 @@
   },
   "legal": {
     "title": "Términos y política",
-    "intro": "Estos términos aplican a todas las compras y a la custodia de cartas en TCG Vault MX.",
+    "intro": "Estos términos aplican a todas las compras y a la bóveda de cartas en TCG Vault MX.",
     "scopeNote": "La política aplica a todo tipo de producto: cartas raw, selladas y gradeadas.",
     "refundTitle": "Reembolsos y ventas finales",
     "refundBody": "Todas las ventas son finales. Una vez que compras una carta, la venta no admite reembolso ni cancelación.",
@@ -382,7 +382,7 @@
       "sales": "Ventas del periodo",
       "workQueue": "Cola de trabajo",
       "inventoryValue": "Valor de inventario",
-      "custodyValue": "Valor en custodia",
+      "custodyValue": "Valor en bóveda",
       "buylist": "Buylist del periodo",
       "dataHealth": "Salud de datos",
       "launch": "Progreso de lanzamiento",
@@ -534,7 +534,7 @@
       "in_stock": "En stock",
       "listed": "Listada",
       "reserved": "Reservada",
-      "in_custody": "En custodia",
+      "in_custody": "En bóveda",
       "picking": "En picking",
       "shipped": "Enviada",
       "delivered": "Entregada",

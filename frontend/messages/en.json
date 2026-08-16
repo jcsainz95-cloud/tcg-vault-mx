@@ -26,7 +26,7 @@
   "nav": {
     "catalog": "Shop",
     "shop": "Shop",
-    "buylist": "Sell (Buylist)",
+    "buylist": "Sell",
     "vault": "My vault",
     "orders": "My orders",
     "account": "Account",
@@ -228,7 +228,7 @@
     "pipelineTitle": "Shipment status"
   },
   "buylist": {
-    "title": "Sell your cards (Buylist)",
+    "title": "Sell your cards",
     "subtitle": "Get an instant quote, send us the card, and we pay you by SPEI after verifying it.",
     "quoterTitle": "Quoter",
     "selectCard": "Card",
@@ -256,7 +256,7 @@
     "limitPerMonth": "Monthly cap",
     "conditionFixedNm": "Condition: Near Mint (NM) fixed",
     "nmOnlyTitle": "We only buy Near Mint (NM)",
-    "nmOnlyBody": "If on receipt and verification the card isn't NM, we don't buy it: it's returned (at your cost, 7 days) or considered abandoned after 30 days.",
+    "nmOnlyBody": "If on receipt and verification the card isn't NM, we don't buy it: it's returned if you wish (at your cost, 7 days) or considered abandoned after 30 days.",
     "requestTitle": "Create sell request",
     "clabeLabel": "CLABE (18 digits, in your name)",
     "clabeHint": "The SPEI payment goes to this CLABE, which must be in your name.",

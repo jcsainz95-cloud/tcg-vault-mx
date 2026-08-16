@@ -1,5 +1,6 @@
 import { config } from './config';
 import { apiRequest, ApiClientError, setToken } from './api-client';
+import { setStoredUser } from './session';
 import * as fx from './mock/fixtures';
 import type {
   Paginated,
@@ -390,7 +391,24 @@ export async function uploadToPresignedUrl(
 // ---------- Auth (contrato §1) ----------
 function persistSession(res: AuthResponse): AuthResponse {
   setToken(res.accessToken);
+  // Además del token, guardamos el usuario para que el header (y demás UI) pueda
+  // reflejar la sesión de forma reactiva sin re-consultar al backend.
+  setStoredUser(res.user);
   return res;
+}
+
+/**
+ * Cierra la sesión (contrato POST /auth/logout → 204): invalida el refresh token
+ * server-side y limpia la sesión local (token + user). Aunque el backend falle,
+ * el cliente queda deslogueado. En modo mock solo limpia el estado local.
+ */
+export async function logout(): Promise<void> {
+  try {
+    if (!config.useMocks) await apiRequest<void>('/auth/logout', { method: 'POST' });
+  } finally {
+    setToken(null);
+    setStoredUser(null);
+  }
 }
 
 // MOCK: usuario de ejemplo cuando no hay backend (respeta el shape de AuthResponse).

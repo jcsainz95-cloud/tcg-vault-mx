@@ -4,6 +4,46 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Fixes UI/sesión en vivo (2026-08-16) — header de sesión, nav "Sell" y banner de login
+
+Tres arreglos reportados por el humano probando la app en producción (backend real, mocks off). Solo
+`frontend/` (+ esta nota). **No** se tocó el contrato. Gates en verde: `lint` OK, `typecheck` OK,
+`test` **60** (14 archivos, +6 nuevos), `build` OK.
+
+### 1. Estado de sesión de cliente + header reactivo
+- **`src/lib/session.ts` (nuevo)**: hook `useSession()` + helpers `getStoredUser`/`setStoredUser`.
+  Mismo idiom que `useCart` (localStorage `tcg.user` + evento `tcg.session.changed` + `storage` para
+  sincronía entre pestañas). Expone `{ user, isAuthenticated, ready }`. `ready` es `false` en SSR y en
+  el primer render de cliente (patrón "mounted") para **evitar mismatch de hidratación** de Next: el
+  header pinta el estado deslogueado hasta que el efecto de montaje lee localStorage.
+- **`src/lib/api.ts`**: `persistSession` ahora persiste **también el `user`** de `AuthResponse`
+  (`setStoredUser`) además del token — aplica a `login`, `register` y `loginWithGoogle`. Se añadió
+  **`logout()`** (contrato `POST /auth/logout` → 204): invalida server-side y limpia token+user; en
+  modo mock solo limpia local; aunque el backend falle, el cliente queda deslogueado (`finally`).
+- **`src/components/layout/StorefrontHeader.tsx`**: si hay sesión muestra **perfil** (nombre, o email
+  como fallback) + botón **"Cerrar sesión"**; si no, el enlace **"Iniciar sesión"** como antes. Se
+  actualiza **reactivamente** vía `useSession` (login/logout sin recargar). Implementado en barra
+  desktop y menú móvil. El logout llama `logout()` y hace `router.push('/')`.
+
+### 2. Nav "Buylist" → "Sell/Vender" (solo etiqueta; ruta `/buylist` intacta)
+- `messages/en.json` `nav.buylist` = **"Sell"**; `messages/es.json` = **"Vender"**.
+- Alineado el título cara al cliente `buylist.title`: "Sell your cards" / "Vende tus cartas" (se quitó
+  el paréntesis "(Buylist)"). "Buylist" queda solo como término interno/back-office (`admin.modules.m5`
+  se mantiene "M5 · Buylist"). Parity ES/EN intacta (test `i18n-parity` verde).
+
+### 3. Banner engañoso de login solo en modo mock
+- `src/components/domain/AuthForm.tsx`: el `<Banner variant="info">{t('mockNotice')}</Banner>` ahora se
+  condiciona a **`config.useMocks`** — en producción (backend real) no aparece.
+
+### Tests añadidos
+- `src/components/layout/StorefrontHeader.test.tsx`: header muestra perfil+logout con sesión y
+  "Iniciar sesión" sin ella; fallback a email; logout reactivo (vuelve a deslogueado + `router.push`);
+  label del nav = "Sell"/"Vender" apuntando a `/buylist`. Se mockea `@/i18n/navigation`.
+- `src/components/domain/AuthForm.test.tsx`: banner visible con `useMocks=true` y ausente con `false`.
+- `vitest.setup.ts`: polyfill de `window.matchMedia` (lo usa `ThemeToggle` dentro del header).
+
+---
+
 ## Cierre residuo endurecimiento S-B3 (2026-08-15) — `contentLength` en presign + `maxBytes` del presign
 
 Cierre del residuo señalado por qa/techlead/seguridad en el endurecimiento de `kyc_ine`. Solo `frontend/`
