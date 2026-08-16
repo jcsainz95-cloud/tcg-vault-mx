@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M2View } from './M2View';
 import * as api from '@/lib/api';
@@ -49,7 +49,8 @@ describe('M2View · Catálogo y precios', () => {
       new ApiClientError(429, { code: 'RATE_LIMITED', message: 'rate limited' }),
     );
     renderWithProviders(<M2View />, 'es');
-    const [importBtn] = await screen.findAllByRole('button', { name: /Importar|Re-sincronizar/ });
+    // Nombre EXACTO para no capturar "Re-sincronizar todo (forzar)" (sync-all force).
+    const [importBtn] = await screen.findAllByRole('button', { name: /^(Importar|Re-sincronizar)$/ });
     fireEvent.click(importBtn);
 
     // El usuario ve claramente que falló y por qué (código del contrato).
@@ -87,6 +88,36 @@ describe('M2View · Catálogo y precios', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Sync de todo el catálogo/ }));
 
     expect(await screen.findByText(/no está disponible en el backend/)).toBeInTheDocument();
+  });
+
+  it('el botón "Re-sincronizar todo (forzar)" pide confirmación y llama al endpoint con force=true', async () => {
+    const spy = vi
+      .spyOn(api, 'syncAllCatalog')
+      .mockResolvedValue({ jobId: 'job-1', setsQueued: 42, remaining: 0 });
+    renderWithProviders(<M2View />, 'es');
+
+    // Picar el botón NO llama de inmediato: abre el modal de confirmación.
+    fireEvent.click(await screen.findByRole('button', { name: /Re-sincronizar todo \(forzar\)/ }));
+    expect(
+      await screen.findByRole('dialog', { name: /Re-sincronizar todo el catálogo \(forzar\)/ }),
+    ).toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+
+    // Confirmar dispara la mutación con force=true.
+    fireEvent.click(screen.getByRole('button', { name: /Sí, re-sincronizar todo/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ force: true }));
+    expect(await screen.findByText(/Re-sync forzado encolado: 42 sets/)).toBeInTheDocument();
+  });
+
+  it('cancelar la confirmación del re-sync forzado no llama al endpoint', async () => {
+    const spy = vi.spyOn(api, 'syncAllCatalog');
+    renderWithProviders(<M2View />, 'es');
+
+    fireEvent.click(await screen.findByRole('button', { name: /Re-sincronizar todo \(forzar\)/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Re-sincronizar todo el catálogo \(forzar\)/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Cancelar/ }));
+
+    expect(spy).not.toHaveBeenCalled();
   });
 
   // ---- Editor de precio de buylist por rareza (v1.3.1) ----

@@ -105,17 +105,24 @@ export class CatalogSyncService {
     return { jobId: `catalog-sync-${Date.now()}`, setsQueued, mode: 'from_date' as const };
   }
 
-  /** POST /admin/catalog/backfill — importa el siguiente lote de sets más antiguos no importados. */
-  async backfill(batchSize = 10, untilYear?: number) {
+  /**
+   * POST /admin/catalog/backfill — importa el siguiente lote de sets más antiguos no importados.
+   *
+   * `force:true` (v1.6-finish) NO filtra los sets ya importados: los reprocesa (re-upsert por
+   * `externalId`) para refrescar `availableFinishes`/precios. `force:false` (default) mantiene el
+   * comportamiento de hoy (solo sets no importados).
+   */
+  async backfill(batchSize = 10, untilYear?: number, force = false) {
     const size = batchSize > 0 ? batchSize : 10;
     const remote = await this.client.getSets();
     const localSets = await this.prisma.cardSet.findMany({ select: { externalId: true } });
     const importedIds = new Set(localSets.map((s) => s.externalId));
 
-    // Candidatos = sets remotos NO importados, opcionalmente acotados por untilYear
-    // (no más antiguos que ese año), ordenados de más ANTIGUO a más nuevo.
+    // Candidatos = sets remotos (con force NO se filtran los importados; sin force, solo los NO
+    // importados), opcionalmente acotados por untilYear (no más antiguos que ese año), ordenados
+    // de más ANTIGUO a más nuevo.
     const candidates = remote
-      .filter((s) => !importedIds.has(s.id))
+      .filter((s) => (force ? true : !importedIds.has(s.id)))
       .filter((s) => (untilYear == null ? true : (yearFromReleaseDate(s.releaseDate) ?? 0) >= untilYear))
       .sort((a, b) => (a.releaseDate ?? '').localeCompare(b.releaseDate ?? ''));
 
@@ -159,12 +166,21 @@ export class CatalogSyncService {
    * (re)importan usan upsert por `externalId` (no duplican). Re-llamar `sync-all` reanuda los
    * pendientes que quedaran de un barrido interrumpido.
    *
+   * **Modo `force` (v1.6-finish, bug availableFinishes):** con `force:true` NO se saltan los
+   * sets ya poblados: se reprocesan TODOS los sets remotos y se re-upsertan sus cartas vía
+   * `upsertCards` (idempotente por `externalId`). Esto **refresca `Card.availableFinishes`**
+   * (que en sets viejos se quedó en `['normal']`) y dispara el poblado de precios por acabado.
+   * Con `force:false` (default) el comportamiento es el de siempre: salta importados.
+   *
    * **Límite conocido (sin BullMQ cableado para catálogo, ver BACKEND_NOTES / DEV-1):** el
    * barrido corre en memoria del proceso; si el proceso se reinicia a mitad, los sets no
    * importados quedan pendientes y se reanudan re-llamando `sync-all`. No hay progreso
    * persistido ni reintentos con backoff de cola (eso llega al cablear BullMQ).
    */
-  async syncAll(): Promise<{ jobId: string; setsQueued: number; remaining: number }> {
+  async syncAll(
+    options: { force?: boolean } = {},
+  ): Promise<{ jobId: string; setsQueued: number; remaining: number }> {
+    const force = options.force ?? false;
     const remote = await this.client.getSets();
     const local = await this.prisma.cardSet.findMany({
       select: { externalId: true, _count: { select: { cards: true } } },
@@ -173,7 +189,9 @@ export class CatalogSyncService {
     const importedWithCards = new Set(
       local.filter((s) => s._count.cards > 0).map((s) => s.externalId),
     );
-    const pending = remote.filter((s) => !importedWithCards.has(s.id));
+    // force=true → reprocesa TODOS los sets remotos (no filtra los ya poblados) para refrescar
+    // availableFinishes/precios; force=false (default) → solo los pendientes (comportamiento hoy).
+    const pending = force ? [...remote] : remote.filter((s) => !importedWithCards.has(s.id));
     const jobId = `catalog-sync-all-${Date.now()}`;
 
     if (this.syncAllRunning) {

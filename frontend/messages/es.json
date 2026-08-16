@@ -655,7 +655,13 @@
         "syncDone": "Sync encolado: {count} set(s) (job {jobId}).",
         "backfillDone": "Backfill: {count} sets importados, {remaining} restantes.",
         "syncAllDone": "Sync total encolado: {count} sets.",
-        "syncAllUnavailable": "El sync total no está disponible en el backend; usa el sync por set o el backfill."
+        "syncAllUnavailable": "El sync total no está disponible en el backend; usa el sync por set o el backfill.",
+        "syncAllForce": "Re-sincronizar todo (forzar)",
+        "syncAllForceRunning": "Re-sincronizando TODO el catálogo (forzado)… esto puede tardar bastante.",
+        "syncAllForceDone": "Re-sync forzado encolado: {count} sets (incluidos los ya importados).",
+        "syncAllForceConfirmTitle": "Re-sincronizar todo el catálogo (forzar)",
+        "syncAllForceConfirmBody": "Esto reprocesa TODO el catálogo, incluidos los sets ya importados, para repoblar acabados y precios. Es una operación pesada que puede tardar bastante. ¿Continuar?",
+        "syncAllForceConfirmCta": "Sí, re-sincronizar todo"
       },
       "buylistRules": {
         "title": "Precio de buylist por rareza",

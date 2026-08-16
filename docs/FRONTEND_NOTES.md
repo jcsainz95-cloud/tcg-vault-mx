@@ -4,6 +4,74 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## C1 idioma por defecto ES + B2 re-sync forzado en M2 (2026-08-16)
+
+Dos cambios independientes, solo `frontend/` (+ esta nota). **No** se tocó el contrato ni backend.
+Gates verdes: `lint` ✓ · `typecheck` ✓ · `test` **159** (incl. paridad i18n + tests nuevos) · `build` ✓.
+
+### C1 — Español como idioma por defecto SIEMPRE (aunque el navegador esté en inglés)
+
+Diagnóstico: `defaultLocale` **ya** era `'es'` en `src/i18n/routing.ts`, pero next-intl v4 trae
+`localeDetection: true` por defecto, así que el middleware detectaba el idioma por el header
+`accept-language` **y** por la cookie `NEXT_LOCALE`. Un navegador en `en-US` que abría `/` era
+redirigido a `/en`. Ese era el comportamiento no deseado.
+
+Fix (un solo archivo de routing):
+- **`src/i18n/routing.ts`** — se añadió **`localeDetection: false`** a `defineRouting`. Según los tipos de
+  next-intl v4 (`RoutingConfig.localeDetection`), esto hace que el middleware **deje de usar** el header
+  `accept-language` **y** la cookie para detectar el idioma. Con `localePrefix: 'always'` + `defaultLocale:
+  'es'`, la ruta raíz `/` y cualquier ruta sin prefijo resuelven a **`/es`** de forma determinista,
+  independientemente del idioma del navegador.
+- **`src/middleware.ts`** — **sin cambios**: ya delega en `routing` vía `createMiddleware(routing)`, por lo
+  que hereda `localeDetection: false`. No hizo falta pasar opciones extra al middleware.
+- **`src/i18n/request.ts`** — **sin cambios**: ya cae a `routing.defaultLocale` ('es') cuando el locale
+  entrante es inválido/ausente.
+- **`src/lib/config.ts`** — **ya** alineado: `defaultLocale: process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? 'es'`.
+  **Valor esperado del env:** `NEXT_PUBLIC_DEFAULT_LOCALE=es` (y su par server-side `DEFAULT_LOCALE=es`).
+  Verificado que `.env.example`, `docker-compose*.yml`, `Dockerfile.frontend` y los workflows de CI ya lo
+  fijan en `es` (esos archivos son de devops; aquí solo se documenta el valor esperado). **En Vercel/deploy
+  la variable `NEXT_PUBLIC_DEFAULT_LOCALE` debe valer `es`.**
+- **Selector de idioma (`src/components/ui/LocaleToggle.tsx`)** — **sin cambios**: ya es un segmented control
+  ES|EN que refleja el locale activo (`useLocale`, `aria-pressed`) y alterna con
+  `router.replace(pathname, { locale })`. Con `localePrefix:'always'`, picar EN navega a `/en` y picar ES
+  vuelve a `/es`, preservando la ruta. El estado activo (ES por defecto) se ve reflejado al arrancar.
+
+Cómo se verificó:
+- **Test nuevo `src/i18n/routing.test.ts`** (4 casos): `defaultLocale==='es'`, `locales==['es','en']`,
+  `localePrefix` modo `'always'`, y **`routing.localeDetection===false`** (documenta que la raíz resuelve a
+  `/es` aunque el navegador esté en inglés).
+- **`build`** prerenderiza cada ruta en `/es` y `/en`; el `Middleware` (45.9 kB) compila con el routing nuevo.
+- Comportamiento efectivo: con detección desactivada, la única forma de llegar a EN es el **switch explícito**
+  del usuario (o entrar directo a una URL `/en/...`), que es justo lo pedido.
+
+### B2 — Botón "Re-sincronizar todo (forzar)" en el admin M2
+
+Contrato §M2 (v1.6-finish): `POST /admin/catalog/sync-all` gana **`force?: boolean = false`**. `force=true`
+**no filtra** los sets ya importados y reprocesa TODO el catálogo para repoblar `availableFinishes`/precios
+por acabado tras M-18. Aditivo y retrocompatible.
+
+- **`src/lib/api.ts` · `syncAllCatalog`** — extendida con `input: { force?: boolean } = {}`. En rama real, el
+  body solo incluye `{ force: true }` cuando se pide forzar (omitirlo preserva el body vacío previo →
+  retrocompatible). La rama mock, con `force=true`, encola **todos** los sets (no solo los no importados).
+- **`src/app/[locale]/(admin)/admin/m2/M2View.tsx`** — nuevo botón **"Re-sincronizar todo (forzar)"** junto a
+  los de sync existentes, con `RefreshCw`. Reusa el patrón de mutación/feedback ya presente: mutación
+  dedicada `syncAllForceMutation`, banners `info` (corriendo) / `success` (encolado con `setsQueued`) /
+  `danger` (error real con `getError`) / `warning` (404-405 = endpoint aún no en backend, vía
+  `isEndpointMissing`). Por ser **operación pesada**, el botón **no dispara directo**: abre un **modal de
+  confirmación** (reusa `<Modal>`) con Cancelar / "Sí, re-sincronizar todo"; solo al confirmar llama
+  `syncAllForceMutation.mutate()`. Se mantiene el botón "Sync de todo el catálogo" normal (sin force) intacto.
+- **i18n (`messages/{es,en}.json`, namespace `admin.m2.catalog`)** — llaves nuevas con **paridad ES/EN**:
+  `syncAllForce`, `syncAllForceRunning`, `syncAllForceDone`, `syncAllForceConfirmTitle`,
+  `syncAllForceConfirmBody`, `syncAllForceConfirmCta`. Pasa `i18n-parity`.
+- **Tests (`M2View.test.tsx`, +2):** (1) picar el botón abre el modal y **no** llama al endpoint; al confirmar
+  se llama `syncAllCatalog({ force: true })` y aparece el banner de éxito; (2) cancelar no llama al endpoint.
+  Se ajustó un test previo del sync por set para usar nombre **exacto** `/^(Importar|Re-sincronizar)$/` (el
+  nuevo botón "Re-sincronizar todo (forzar)" ya no lo captura por accidente).
+
+### Solicitudes al arquitecto
+Ninguna. El contrato v1.6-finish ya define `force` en `POST /admin/catalog/sync-all` (§M2); solo se consumió.
+
+
 ## Acabado / versión de carta (finish) en toda la cadena — v1.6-finish (2026-08-16)
 
 Consumo del contrato **v1.6-finish** (enum `Finish = normal | reverse_holo | holofoil |

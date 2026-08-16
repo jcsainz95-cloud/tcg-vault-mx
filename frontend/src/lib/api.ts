@@ -916,13 +916,27 @@ export async function backfillCatalog(input: {
  * Importa TODO el catálogo (contrato POST /admin/catalog/sync-all, v1.3). Puede no
  * existir aún en backend; el front lo usa condicionalmente y trata 404/405 como
  * "no disponible" (fallback al sync por set / backfill).
+ *
+ * `force` (v1.6-finish, contrato §M2): default `false` mantiene el comportamiento
+ * actual (salta sets ya importados). `force=true` reprocesa TODO el catálogo
+ * (incluidos los sets ya importados) para repoblar `availableFinishes`/precios por
+ * acabado tras la migración M-18. Aditivo y retrocompatible: sin el flag el body
+ * va vacío como antes.
  */
-export async function syncAllCatalog(): Promise<CatalogSyncAllResponse> {
+export async function syncAllCatalog(
+  input: { force?: boolean } = {},
+): Promise<CatalogSyncAllResponse> {
   if (!config.useMocks) {
-    return apiRequest<CatalogSyncAllResponse>('/admin/catalog/sync-all', { method: 'POST', body: {} });
+    // Solo se incluye `force` en el body cuando es true (retrocompatible: omitirlo
+    // preserva el contrato/semántica previos, contrato §M2 v1.6-finish).
+    const body = input.force ? { force: true } : {};
+    return apiRequest<CatalogSyncAllResponse>('/admin/catalog/sync-all', { method: 'POST', body });
   }
-  const pending = fx.mockRemoteSets.filter((s) => !s.imported).length;
-  return delay({ jobId: `job-${Math.floor(Math.random() * 9000 + 1000)}`, setsQueued: pending, remaining: 0 });
+  // force=true no filtra los sets ya importados: encola TODOS para repoblar.
+  const sets = input.force
+    ? fx.mockRemoteSets.length
+    : fx.mockRemoteSets.filter((s) => !s.imported).length;
+  return delay({ jobId: `job-${Math.floor(Math.random() * 9000 + 1000)}`, setsQueued: sets, remaining: 0 });
 }
 
 // ---------- Admin M6 · Usuarios / KYC (contrato §M6) ----------

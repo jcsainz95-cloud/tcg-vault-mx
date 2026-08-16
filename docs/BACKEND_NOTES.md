@@ -1448,3 +1448,50 @@ es idempotente. **No lo ejecuté** (requiere entorno con la API key y la BD desp
 ### Discrepancias con el contrato
 Ninguna que bloquee. El contrato fue implementable al pie de la letra. Única nota de diseño propio (dentro
 del alcance): `PendingPriceEntry` no lleva `finish` porque M-18 no lo lista entre los modelos a migrar.
+
+## 23. Modo `force` en sync-all/backfill (v1.6-finish · 2026-08-16) — fix re-sync que no repueblaba `availableFinishes`
+
+### Bug
+El re-sync NO repueblaba `Card.availableFinishes` (los sets viejos quedaban en `['normal']`) porque
+`syncAll` **saltaba** los sets ya importados: filtraba `importedWithCards` (`_count.cards > 0`) y solo
+procesaba los `pending`. El UPDATE del upsert (`upsertCards`) SÍ incluye `availableFinishes`, pero nunca
+se ejecutaba sobre sets ya poblados. `backfill` tenía el mismo filtro (`!importedIds.has(s.id)`).
+
+### Fix (solo `backend/`)
+- **`catalog-sync.service.ts` → `syncAll(options: { force?: boolean } = {})`:** con `force:true` NO filtra
+  los sets ya poblados — reprocesa **TODOS** los sets remotos y re-upserta sus cartas vía `upsertCards`
+  (idempotente por `externalId`), refrescando `availableFinishes` y disparando el poblado de precios por
+  acabado. `force:false` (default) mantiene el comportamiento de hoy (salta importados). Firma
+  retro-compatible: `syncAll()` sin args sigue funcionando.
+- **`backfill(batchSize, untilYear, force = false)`:** mismo patrón — con `force:true` los candidatos no
+  se filtran por importados; default intacto.
+- **Idempotencia/robustez reusadas:** el barrido forzado sigue el mismo camino fire-and-forget
+  (single-flight `syncAllRunning`, `runSyncAll` secuencial respetando rate-limit, aislamiento por-carta de
+  `upsertCards` v1.3.1). El request responde `202` de inmediato; el reproceso pesado corre en background.
+
+### Endpoint (nombre exacto + cómo se pasa `force`)
+- **`POST /admin/catalog/sync-all`** (guard `@Roles(Role.super_admin)` intacto). Acepta `force` por
+  **body `{"force": true}`** o **query `?force=true`** (también `?force=1`). Default `false`. La respuesta
+  `202` no cambia de shape; `force` se registra en `AuditLog.after`.
+- **`POST /admin/catalog/backfill`** acepta `force` igual (body/query), default `false`.
+- Precedencia: si viene en el body, gana el body; si no, se lee la query (`parseForce`).
+
+### Cómo usar (operación, tras desplegar — resuelve el ⚠️ RE-SYNC de la sección "finish")
+`POST /api/v1/admin/catalog/sync-all?force=true` (super_admin) reprocesa todo el catálogo y repuebla
+`availableFinishes`/precios por acabado en los sets ya importados. **No lo ejecuté** (requiere entorno con
+API key + BD desplegada); es idempotente.
+
+### Archivos tocados
+- `backend/src/modules/catalog/catalog-sync.service.ts` — `force` en `syncAll` y `backfill`.
+- `backend/src/modules/catalog/admin-catalog.controller.ts` — `SyncAllDto`, `force` en `sync-all`/`backfill`
+  (body+query), `parseForce`, auditoría incluye `force`.
+- `backend/test/catalog-sync.spec.ts` — tests `force:false` (salta importados) vs `force:true` (reprocesa).
+
+### Tests + gates
+- Nuevos: `force:false` (default) NO encola sets ya importados; `force:true` encola **todos** los remotos
+  aunque estén poblados (verifica el arg pasado a `runSyncAll`).
+- `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ (**49 suites / 293 tests**) · `npm run build` ✅.
+
+### Discrepancias con el contrato
+Ninguna. No toqué `API_CONTRACT.md` ni `ARCHITECTURE.md` (el arquitecto documenta el nuevo param en
+paralelo). El endpoint y verbo existentes no cambian; `force` es un parámetro opcional aditivo.

@@ -655,7 +655,13 @@
         "syncDone": "Sync queued: {count} set(s) (job {jobId}).",
         "backfillDone": "Backfill: {count} sets imported, {remaining} remaining.",
         "syncAllDone": "Full sync queued: {count} sets.",
-        "syncAllUnavailable": "Full sync isn't available on the backend; use per-set sync or backfill."
+        "syncAllUnavailable": "Full sync isn't available on the backend; use per-set sync or backfill.",
+        "syncAllForce": "Re-sync everything (force)",
+        "syncAllForceRunning": "Re-syncing the ENTIRE catalog (forced)… this may take a while.",
+        "syncAllForceDone": "Forced re-sync queued: {count} sets (including already imported ones).",
+        "syncAllForceConfirmTitle": "Re-sync the entire catalog (force)",
+        "syncAllForceConfirmBody": "This reprocesses the ENTIRE catalog, including already imported sets, to repopulate finishes and prices. It's a heavy operation that may take a while. Continue?",
+        "syncAllForceConfirmCta": "Yes, re-sync everything"
       },
       "buylistRules": {
         "title": "Buylist price by rarity",

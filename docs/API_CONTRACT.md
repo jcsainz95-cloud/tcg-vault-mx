@@ -23,6 +23,10 @@
 > - **Error nuevo:** `422 FINISH_NOT_AVAILABLE` (acabado fuera de `Card.availableFinishes`).
 > - **Migración M-18** (ARCHITECTURE §11), aditiva con default seguro. **Requiere RE-SYNC del catálogo** tras
 >   desplegar para poblar `availableFinishes` + precios por acabado.
+> - **Sync-all `force` (admin):** `POST /admin/catalog/sync-all` gana **`force?: boolean = false`** (opcional,
+>   admin-only). `force=true` **no filtra** los sets ya importados y reprocesa **TODO** el catálogo para repoblar
+>   `availableFinishes`/precios por acabado tras la migración M-18; `false` (default) mantiene el comportamiento
+>   actual (salta sets ya importados). **Aditivo y retrocompatible** — no rompe consumidores. Ver §M2.
 > - **NO cambia:** SEC-A1 (monto server-side), 1 fila por `Card` (`externalId @unique`), semántica de `gradeKey`
 >   para graded/sealed, tabla `BUYLIST_PRICE_RULES` (se reutiliza).
 >
@@ -693,9 +697,13 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
 - `POST /api/v1/admin/catalog/backfill` — importa el **siguiente lote de sets más antiguos aún no importados** (colecciones previas a la frontera). Repetible.
   Req: `{ batchSize?: number = 10, untilYear?: number }`.
   Res `200`: `{ imported: [{ id, name, releaseDate, cardCount }], newBoundary: string, remaining: number }`. `newBoundary` = `releaseDate` del set más antiguo ya importado tras el lote; `remaining` = sets aún sin importar. Se repite hasta `remaining=0` (o hasta `untilYear`).
-- `POST /api/v1/admin/catalog/sync-all` — **(v1.3, NUEVO)** importa **TODO el catálogo** (todos los sets remotos, sin frontera de fecha) — soporte de la **Opción 1** del cotizador (poder cotizar cualquier carta). **Truly-async**: encola los sets en la cola BullMQ y **retorna de inmediato** (no importa en el request, a diferencia del `sync` from-date actual — ver Desviación DEV-1 en ARCHITECTURE §9).
-  Req: `{ }` (sin body; ignora `catalog_sync_from_date`).
-  Res `202`: `{ jobId: string, setsQueued: number, remaining: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar). Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`).
+- `POST /api/v1/admin/catalog/sync-all` — **(v1.3, NUEVO)** importa **TODO el catálogo** (todos los sets remotos, sin frontera de fecha) — soporte de la **Opción 1** del cotizador (poder cotizar cualquier carta). **Truly-async**: encola los sets en la cola BullMQ y **retorna de inmediato** (no importa en el request, a diferencia del `sync` from-date actual — ver Desviación DEV-1 en ARCHITECTURE §9). **Admin-only** (`super_admin`).
+  Req: `{ force?: boolean = false }` (sin otros campos; ignora `catalog_sync_from_date`).
+    - **`force` (v1.6-finish, opcional, default `false`, admin-only):** controla si se reprocesan los sets **ya importados**.
+      - `false` (default): **comportamiento actual** — se **saltan** los sets ya importados; solo se encolan los sets remotos aún no presentes.
+      - `true`: **no filtra** por sets ya importados — se encolan **TODOS** los sets (incluidos los ya importados) para **repoblar** `Card.availableFinishes` y los precios por acabado tras la **migración M-18** (v1.6-finish). Usar tras el deploy que requiere RE-SYNC (ver Changelog v1.6-finish, criterio 24).
+    - **Retrocompatible:** omitir `force` (o enviar `false`) preserva el contrato y la semántica previos; ningún consumidor existente se rompe. El campo es aditivo y opcional.
+  Res `202`: `{ jobId: string, setsQueued: number, remaining: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar; con `force=true`, `remaining` puede ser `0` aunque se hayan encolado todos los sets). Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`, con `force` registrado en el detalle).
   > **Alternativa sin endpoint nuevo:** el mismo resultado se logra con `POST /admin/catalog/sync` pasando un `fromReleaseDate` muy antiguo (p. ej. `"1998/01/01"`) **más** `POST /admin/catalog/backfill` repetido hasta `remaining=0`. `sync-all` existe para hacerlo explícito y **seguro contra timeouts** en catálogos grandes. Backend decide si `sync-all` es un wrapper que encola lo mismo que `backfill` en lote completo.
 Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
 

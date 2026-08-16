@@ -174,6 +174,40 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
     resolveRun();
   });
 
+  it('force:false (default) salta un set ya importado (comportamiento de hoy)', async () => {
+    // Ambos remotos poblados localmente → sin force no queda nada por encolar.
+    const prisma = prismaWithLocal([
+      { externalId: 'sv8', count: 5 },
+      { externalId: 'base1', count: 3 },
+    ]);
+    const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+
+    const runSpy = jest.spyOn(svc as any, 'runSyncAll').mockResolvedValue(undefined);
+
+    const res = await svc.syncAll(); // default: force omitido
+    expect(res.setsQueued).toBe(0);
+    // No se encoló ningún set (todos ya importados) → runSyncAll con lista vacía.
+    expect((runSpy.mock.calls[0][0] as any[]).map((s: any) => s.id)).toEqual([]);
+  });
+
+  it('force:true NO filtra los sets ya importados: los reprocesa (re-upsert availableFinishes)', async () => {
+    // Ambos remotos ya poblados: force debe encolarlos igual para refrescar acabados/precios.
+    const prisma = prismaWithLocal([
+      { externalId: 'sv8', count: 5 },
+      { externalId: 'base1', count: 3 },
+    ]);
+    const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+
+    const runSpy = jest.spyOn(svc as any, 'runSyncAll').mockResolvedValue(undefined);
+
+    const res = await svc.syncAll({ force: true });
+    // Reprocesa TODOS los sets remotos pese a estar importados.
+    expect(res.setsQueued).toBe(2);
+    expect((runSpy.mock.calls[0][0] as any[]).map((s: any) => s.id)).toEqual(['sv8', 'base1']);
+  });
+
   it('single-flight: una segunda llamada mientras hay barrido en curso no lanza otro', async () => {
     const prisma = prismaWithLocal([]); // nada importado → ambos remotos pendientes
     const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;

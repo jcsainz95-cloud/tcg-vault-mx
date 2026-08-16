@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
+import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -14,6 +14,17 @@ class SyncDto {
 class BackfillDto {
   @IsOptional() @IsInt() @Min(1) batchSize?: number;
   @IsOptional() @IsInt() untilYear?: number;
+  @IsOptional() @IsBoolean() force?: boolean;
+}
+
+class SyncAllDto {
+  @IsOptional() @IsBoolean() force?: boolean;
+}
+
+/** Normaliza `force` desde body ({force:true}) o query (?force=true) → boolean. */
+function parseForce(bodyForce: boolean | undefined, queryForce: string | undefined): boolean {
+  if (bodyForce != null) return bodyForce;
+  return queryForce === 'true' || queryForce === '1';
 }
 
 /**
@@ -57,31 +68,50 @@ export class AdminCatalogController {
   /**
    * v1.3 — importa TODO el catálogo (Opción 1 del cotizador). Truly-async: encola en segundo
    * plano y responde 202 de inmediato (no importa en el request; ver DEV-1). Auditado.
+   *
+   * v1.6-finish — `force` (opcional, default false; body `{force:true}` o query `?force=true`)
+   * reprocesa TODOS los sets remotos (incluidos los ya poblados) para refrescar
+   * `availableFinishes`/precios por acabado. La firma sigue siendo compatible (force opcional).
    */
   @Post('sync-all')
   @HttpCode(202)
-  async syncAll(@CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.sync.syncAll();
+  async syncAll(
+    @Body() dto: SyncAllDto,
+    @Query('force') queryForce: string | undefined,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const force = parseForce(dto.force, queryForce);
+    const res = await this.sync.syncAll({ force });
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: 'catalog.sync_all',
       entityType: 'CardSet',
-      after: { jobId: res.jobId, setsQueued: res.setsQueued, remaining: res.remaining },
+      after: { jobId: res.jobId, setsQueued: res.setsQueued, remaining: res.remaining, force },
     });
     return res;
   }
 
   @Post('backfill')
   @HttpCode(200)
-  async backfill(@Body() dto: BackfillDto, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.sync.backfill(dto.batchSize ?? 10, dto.untilYear);
+  async backfill(
+    @Body() dto: BackfillDto,
+    @Query('force') queryForce: string | undefined,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const force = parseForce(dto.force, queryForce);
+    const res = await this.sync.backfill(dto.batchSize ?? 10, dto.untilYear, force);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: 'catalog.backfill',
       entityType: 'CardSet',
-      after: { imported: res.imported.length, newBoundary: res.newBoundary, remaining: res.remaining },
+      after: {
+        imported: res.imported.length,
+        newBoundary: res.newBoundary,
+        remaining: res.remaining,
+        force,
+      },
     });
     return res;
   }

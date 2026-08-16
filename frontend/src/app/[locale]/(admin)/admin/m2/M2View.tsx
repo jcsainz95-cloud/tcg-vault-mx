@@ -168,7 +168,15 @@ export function M2View() {
   // v1.3: sync-all puede no existir en backend; se usa condicionalmente y su fallo
   // no rompe la vista (se muestra aviso). Ver contrato §M2.
   const syncAllMutation = useMutation({
-    mutationFn: syncAllCatalog,
+    mutationFn: () => syncAllCatalog(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['remote-sets'] }),
+  });
+  // v1.6-finish: re-sync FORZADO (contrato §M2, `force=true`): reprocesa TODO el
+  // catálogo (incluidos sets ya importados) para repoblar availableFinishes/precios
+  // por acabado tras M-18. Es operación pesada → confirmación previa (modal).
+  const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
+  const syncAllForceMutation = useMutation({
+    mutationFn: () => syncAllCatalog({ force: true }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['remote-sets'] }),
   });
 
@@ -442,6 +450,13 @@ export function M2View() {
           <Button variant="secondary" loading={syncAllMutation.isPending} onClick={() => syncAllMutation.mutate()}>
             <Layers size={18} /> {t('catalog.syncAll')}
           </Button>
+          <Button
+            variant="secondary"
+            loading={syncAllForceMutation.isPending}
+            onClick={() => setForceConfirmOpen(true)}
+          >
+            <RefreshCw size={18} /> {t('catalog.syncAllForce')}
+          </Button>
         </div>
         {/* Feedback del sync por set (Importar / Re-sincronizar) */}
         {catalogSyncMutation.isPending && (
@@ -479,6 +494,20 @@ export function M2View() {
             <Banner variant="warning" role="status">{t('catalog.syncAllUnavailable')}</Banner>
           ) : (
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllMutation.error)}</Banner>
+          ))}
+        {syncAllForceMutation.isPending && (
+          <Banner variant="info" role="status">{t('catalog.syncAllForceRunning')}</Banner>
+        )}
+        {syncAllForceMutation.isSuccess && (
+          <Banner variant="success" role="status">
+            {t('catalog.syncAllForceDone', { count: syncAllForceMutation.data.setsQueued })}
+          </Banner>
+        )}
+        {syncAllForceMutation.isError &&
+          (isEndpointMissing(syncAllForceMutation.error) ? (
+            <Banner variant="warning" role="status">{t('catalog.syncAllUnavailable')}</Banner>
+          ) : (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllForceMutation.error)}</Banner>
           ))}
         <QueryState
           isLoading={remoteSets.isLoading}
@@ -539,6 +568,31 @@ export function M2View() {
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(overrideMutation.error)}</Banner>
           )}
         </div>
+      </Modal>
+
+      {/* Confirmación del re-sync forzado (operación pesada, contrato §M2 force=true) */}
+      <Modal
+        open={forceConfirmOpen}
+        onClose={() => setForceConfirmOpen(false)}
+        title={t('catalog.syncAllForceConfirmTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setForceConfirmOpen(false)}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              loading={syncAllForceMutation.isPending}
+              onClick={() => {
+                setForceConfirmOpen(false);
+                syncAllForceMutation.mutate();
+              }}
+            >
+              {t('catalog.syncAllForceConfirmCta')}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">{t('catalog.syncAllForceConfirmBody')}</p>
       </Modal>
     </div>
   );
