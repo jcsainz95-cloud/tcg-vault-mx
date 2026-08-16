@@ -1255,3 +1255,155 @@ datos, dinero ni el contrato de API. Objetivo: confirmar que no hay superficie d
 - **SEC-D3 (Info, no seguridad):** `SellRequest.approvedTotalCents` se LEE en P&L/dashboard pero NUNCA se escribe → la tarjeta "buylist del periodo" suma 0/null. Bug de reporte financiero [backend]: poblar `approvedTotalCents` al aprobar/pagar o derivarlo de `SellRequestItem.approvedPriceCents`.
 
 **Pendiente heredado (no bloquea DoD estático):** fase DAST contra staging (concurrencia real de sweeps/decision/pay-spei; scheduler multi-instancia con Redis compartido). Confirmar con legal el plazo/anclaje de retención de INE (LFPDPPP).
+
+---
+
+## rev v1.8-ronda-c — Enriquecimiento M-19 + cierre de vectores de dinero/PII iniciados en Ronda B (2026-08-16)
+
+> **Alcance:** contrato `v1.8-ronda-c` (commit `857f10b`, aditivo) + backend/frontend **sin commitear
+> en el working tree**. Focos del encargo: SEC-A1 (`approvedTotalCents` RB-6 + `referenceValue`),
+> dinero saliente (cap `approvedPriceCents` + override RB-3), retención INE (`closedAt` → SEC-D2),
+> `POST /admin/pricing/override` con `finish`, auditoría RB-1/RB-2, superficie del contrato
+> (`finish`/`referenceValue`/`productType`/`closedAt`).
+> **Modo:** revisión **estática** de código + migración M-19 + ejecución de la batería Ronda C
+> (`buylist.ronda-c`, `buylist.approved-price-cap`, `ine-retention`, `pricing.finish-pending`,
+> `buylist-sweep.closedat`, `admin-jobs.controller`) → **28/28 PASS**. Sin stack vivo → DAST sigue
+> pendiente (§6). El insumo del pentester (`PENTEST_NOTES.md`, pase v1.5) no cubre M-19; este anexo
+> lo complementa con verificación directa del delta.
+
+### RC.0 Resumen — 0 Críticos / 0 Altos / 0 Medios; 1 Baja informativa; cierra SEC-D2 y SEC-D3
+
+| Severidad | # | ID |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 0 | — |
+| Baja | 1 | **SEC-E1** (edge case pre-existente de selección de `lastClosed`; no introducido por Ronda C) |
+| Cerrados esta rev | 2 | **SEC-D2** (retención anclada a `closedAt`), **SEC-D3** (`approvedTotalCents` server-side) |
+
+### RC.1 SEC-A1 — montos server-side (RB-6 + `referenceValue`) — **OK · [Verificado en código + tests]**
+- **`approvedTotalCents` (RB-6): derivado, nunca del cliente.** Solo lo escribe
+  `BuylistService.recomputeApprovedTotal` (`buylist.service.ts:564-579`) como **SUMA** de
+  `SellRequestItem.approvedPriceCents` (`aggregate _sum`), invocado tras **cada** `itemDecision`
+  (`:557`). Si ningún ítem tiene monto aprobado → `null` (distingue "sin aprobar" de "aprobado en
+  cero"). `grep approvedTotalCents backend/src` → escritura **únicamente** ahí; el resto son lecturas
+  (P&L `admin.service.ts:679,703`, DTO de respuesta `buylist.service.ts:410`). **Ningún DTO de
+  cliente lo acepta**; `ValidationPipe({whitelist:true})` descartaría un intento de inyectarlo.
+- **`referenceValue` en `AdminUserOwnedItemRef` (BE-10): de `PriceReference`, no de input.**
+  `admin.service.ts:306-326` hace **lectura batch** `prisma.priceReference.findMany({ where:{cardId:{in:…}} })`
+  y mapea por clave `(cardId|productType|gradeKey|finish)` a un `PriceInfo` (`priced`/`pending`).
+  El valor es la referencia de mercado del **acabado específico** del ítem; no proviene del cuerpo de
+  la petición ni es PII. La proyección es del propio usuario objetivo de la ficha 360°.
+
+### RC.2 Dinero saliente — cap `approvedPriceCents` + override AML (RB-3) — **OK · [Verificado]**
+- **Cap vigente (Ronda B, sin regresión):** DTO `@Max(MAX_APPROVED_PRICE_CENTS)` (`buylist.dto.ts:63`)
+  + server-side `assertApprovedPriceWithinCap = min(quotedPriceCents×2, amlCap)` en approve/adjust
+  (`buylist.service.ts:537-546`). Excedente → `422 APPROVED_PRICE_CAP_EXCEEDED`.
+- **RB-3 (override honrado): AMPLÍA solo dentro de límites que fija el super_admin.** `itemDecision`
+  resuelve `amlCap = kyc.capPerRequestCentsOverride ?? dial global` (`:527-532`), misma fuente que
+  `createRequest` (`:184-187`). **El override lo setea SOLO el super_admin** vía
+  `PATCH /admin/users/:id/kyc` (`admin.controller.ts:122-123`, `@Roles(super_admin)` a nivel de método,
+  auditado `user.kyc.update`). Un `vault_operator` **no puede** modificarlo (ve M6 en proyección
+  reducida, sin escritura de KYC) → **no puede elevar su propio techo de aprobación ni evadir el tope
+  AML**; queda acotado a lo que el super_admin autorizó, y sigue sujeto a la cota relativa
+  `quoted×2`. El **desembolso** SPEI (`pay-spei`) permanece `@MoneyOut` super_admin + auditado.
+- **Residuo (no nuevo):** el override no tiene `@Max` (`admin.controller.ts:13`, solo `@Min(0)`) → un
+  super_admin podría fijar un tope por-solicitud arbitrariamente alto; para ítems en `precio_pendiente`
+  (sin `quotedPriceCents`) el cap efectivo colapsa a ese override. Actor confiable + auditado +
+  desembolso super_admin ⇒ **Bajo**, ya cubierto por la deuda **S-B2/B-4** (Int32/cotas de dinero).
+  Sin cambio de severidad.
+
+### RC.3 Retención INE (LFPDPPP) — `closedAt` → **cierra SEC-D2 · [Verificado en código + tests]**
+- **El predicado de seguridad NO cambia** (`ine-retention.service.ts:44-79`): `openCount>0 → continue`
+  (INE aún necesaria); exige `lastClosed`; `closureDate(lastClosed) > cutoff → continue`. Solo entonces
+  purga objeto R2 + nulifica `ineFrontKey/ineBackKey`.
+- **El cambio ANCLA el corte al cierre REAL, no lo adelanta.** `closureDate` (`:87-100`) devuelve
+  `req.closedAt` si existe; `closedAt` se sella **solo** en transiciones **terminales** server-side
+  (`pagada`/`rechazada`/`abandonada`: `buylist.service.ts:367,681`, `buylist-sweep.service.ts:32,46`).
+  Para `rechazada`/`abandonada`, el fallback anterior (`max(paidAt,approvedAt,verifiedAt,receivedAt,
+  createdAt)`) subestimaba el cierre (caía en `createdAt`) → purgaba **antes**; `closedAt` es la fecha
+  real de rechazo/abandono, **posterior** → el cambio **retrasa** el borrado hacia el cierre efectivo
+  (más conservador, mejor cumplimiento). **No adelanta el borrado en ningún caso.**
+- **Fallback legacy seguro:** filas previas a M-19 (`closedAt=null`) caen al cálculo por timestamps de
+  estado — comportamiento idéntico al anterior, sin borrar de más. Migración M-19 = columna nullable,
+  sin backfill. Test `ine-retention.spec.ts` cubre ambos caminos (28/28 PASS).
+- **SEC-D2 (que yo había levantado en rev v1.6): CERRADO.**
+
+### RC.4 `POST /admin/pricing/override` con `finish` — **OK · [Verificado en código]**
+- **Sigue super_admin-only y auditado:** `PricingController` `@Roles(super_admin)` a nivel de clase
+  (`pricing.controller.ts:54`); audita `pricing.override` / `entityType:PriceReference`, ahora con
+  `finish` en `after` (`:86-92`).
+- **`finish` validado contra enum cerrado:** DTO `@IsIn(['normal','reverse_holo','holofoil',
+  'first_edition_holofoil'])` + tipo `Finish` (`:26-27`). **No** acepta acabado arbitrario (evita crear
+  filas `PriceReference`/pendientes con un `finish` fuera de dominio). Default `normal` si se omite.
+- **Resolver un pendiente por acabado NO abre bypass — lo CIERRA.** `manualOverride`
+  (`pricing.service.ts:216-221`) ahora incluye `finish` en el `updateMany.where` que marca
+  `resolved`. Antes el `where` omitía `finish`: un override de `normal` cerraba **también** el
+  pendiente de `holofoil` de la misma carta → un acabado podía quedar "resuelto" con la referencia de
+  **otro** acabado. El fix segrega la cola por acabado (`escalatePending` propaga `finish` a la clave
+  de dedupe y a la fila creada, `:164-189`; `buylist.service.ts:164` y `pricing.service.ts:124`). Es un
+  **endurecimiento** de la integridad de precios, no un vector nuevo. Test `pricing.finish-pending.spec.ts`
+  PASS.
+
+### RC.5 Auditoría (RB-1/RB-2) — **OK · [Verificado en código]**
+- **Taxonomía uniforme:** `jobs.portfolio_snapshot` → `jobs.portfolio_snapshot.run`
+  (`admin-jobs.controller.ts:38`), alineado con el resto de jobs `jobs.<name>.run`.
+- **`entityType`/`entityId` en TODA la auditoría de jobs** (`Job`/`<nombre-job>`, `:39-40,55-56,70-71,
+  85-86,100-101`) → paridad con los disparos M2. Los `/admin/jobs/*` siguen super_admin-only (guards
+  globales) + auditados.
+- **Decisiones de dinero auditadas:** `itemDecision` audita `after.approvedPriceCents`
+  (`admin-buylist.controller.ts:102`); `pricing.override` incluye `finish`; `pay-spei`/`refund`/
+  `reveal-clabe` siguen `@MoneyOut` + auditados (sin regresión, §2).
+
+### RC.6 Superficie del contrato — sin fuga de PII ni datos ajenos — **OK · [Verificado]**
+- **`closedAt` es interno:** no aparece en ningún DTO de cliente ni en `contract.ts`; solo se escribe
+  server-side y lo lee `ine-retention`. Confirmado por grep (`schema.prisma:619` + escrituras server).
+- **`AdminUserOwnedItemRef` (finish/referenceValue/productType):** vive en la ficha 360° admin
+  (`AdminUsersController` `@Roles(vault_operator,super_admin)`); expone la referencia de mercado del
+  acabado del ítem **del propio usuario objetivo**, no de terceros, y **no** añade CLABE/RFC/INE. La
+  proyección PII reducida para `vault_operator` sigue intacta (§2, sin regresión). `finish`/`productType`
+  ya eran superficie pública ("Compra"). Sin exposición nueva de PII.
+- **`PendingPriceEntry.finish`:** cola interna de back-office (super_admin M2), no cliente.
+
+### SEC-E1 (Baja, informativa) — selección de `lastClosed` por `createdAt`, no por cierre más reciente
+- **Ubicación:** `ine-retention.service.ts:56-58` — `findFirst({ …status∈CLOSED, orderBy:{createdAt:'desc'} })`.
+- **Observación:** ancla la retención a la solicitud cerrada **creada** más recientemente; si un usuario
+  tuvo una solicitud creada antes pero cerrada después (p. ej. una `pagada` de verificación larga junto a
+  una `rechazada` rápida posterior por `createdAt`), el ancla podría caer en un `closedAt` anterior al de
+  la solicitud realmente cerrada al último → purga algo **antes** del cierre efectivo de esa otra.
+- **No es introducido por Ronda C:** la selección `orderBy createdAt desc` es **pre-existente**; Ronda C
+  solo mejoró `closureDate`. Sentido de riesgo = minimización de datos anticipada (a favor de privacidad),
+  no exposición; impacto AML = perder evidencia unos días antes en un caso multi-solicitud poco común.
+- **Severidad:** **Baja / informativa**. **Rol dueño:** **backend** — anclar a
+  `max(closedAt)` sobre las solicitudes cerradas (u `orderBy closedAt desc`) en vez de `createdAt`.
+  No bloqueante; se registra junto a la bandera legal de retención (§6).
+
+### RC.7 VEREDICTO — rev v1.8-ronda-c
+
+**VEREDICTO seguridad (revisión estática + tests): APROBADO.**
+
+- **0 Críticos / 0 Altos / 0 Medios.** SEC-A1 intacto y **reforzado**: `approvedTotalCents` (RB-6) y
+  `referenceValue` (BE-10) se derivan/leen server-side, nunca del cliente. El cap de dinero saliente
+  sigue vigente y RB-3 honra el override **solo** dentro de límites que fija el super_admin (un
+  `vault_operator` no evade el tope AML). La retención de INE **no borra antes de tiempo** — `closedAt`
+  ancla al cierre real y **retrasa** (no adelanta) el borrado; el fallback legacy preserva el
+  comportamiento previo. `POST /admin/pricing/override` sigue super_admin-only + auditado, `finish` con
+  enum cerrado, y la cola por-acabado **cierra** un vector de precio cruzado (endurecimiento). Auditoría
+  RB-1/RB-2 uniforme. Contrato aditivo sin fuga de PII ni datos ajenos; `closedAt` interno confirmado.
+  Migración M-19 aditiva/nullable, sin backfill. **28/28 tests Ronda C PASS.**
+- **Cierra dos hallazgos que blue team había abierto en rev v1.6:** **SEC-D2** (retención imprecisa) y
+  **SEC-D3** (`approvedTotalCents` nunca escrito).
+- **Deuda/banderas sin cambio:** S-M1 (SSE no alcanzable), S-B1 (linking Google back-office), S-B2/B-4
+  (Int32/cotas de dinero, incl. override sin `@Max`), residuo S-B3 (`contentLength`), SEC-D1 (INE
+  huérfano si falla R2), bandera legal de PII en snapshots económicos y de retención LFPDPPP. Nuevo:
+  **SEC-E1** (Baja informativa, backend), no bloqueante.
+
+**¿Puede ir a main?** **SÍ.** No hay hallazgos **Críticos ni Altos** abiertos en Ronda C → no procede
+RECHAZO (`CLAUDE.md` §7). Basta la revisión de código para el merge a `main`.
+
+**Condición para operar con DINERO REAL (no para el merge):** la **fase dinámica (DAST/pentester contra
+staging)** sigue **PENDIENTE Y OBLIGATORIA** antes de producción con dinero/PII reales (heredada, §6; hoy
+bloqueada por infra: R2/Railway sin configurar, sin stack local levantable). Debe cubrir concurrencia real
+de `itemDecision`/`recomputeApprovedTotal`/`pay-spei`, el job de retención bajo carga, y ZAP/nuclei. En
+este entorno no hay staging atacable; queda en backlog del humano pre-dinero-real. La revisión estática de
+Ronda C **no** la sustituye pero **no** la bloquea para el merge.
