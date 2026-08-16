@@ -418,14 +418,21 @@ Validaciones estáticas corridas (reales):
       sobre el bucket. Anota: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, y el **endpoint S3**
       `https://<accountid>.r2.cloudflarestorage.com` (`S3_ENDPOINT`), `S3_REGION=auto`,
       `S3_BUCKET=<tu-bucket>`, `S3_FORCE_PATH_STYLE=false`. **No** hay `S3_PUBLIC_BASE_URL` en v1.2.1.
-- [ ] **CORS del bucket** (R2 > Settings > CORS Policy) — **se conserva** para `kyc_ine/`: allow-list
-      **solo** el dominio del front, métodos **PUT** y **GET** (presigned upload/download). Nunca `"*"`:
+- [ ] **[HUMANO — PENDIENTE con dominio real] CORS del bucket** (R2 > bucket > Settings > CORS Policy)
+      — **se conserva** para `kyc_ine/`: allow-list **solo** los orígenes reales del front, métodos
+      **PUT** y **GET** (presigned upload/download del INE desde el navegador). Nunca `"*"`. Pega este
+      JSON **tal cual** en Cloudflare:
       ```json
-      [{ "AllowedOrigins": ["https://app.tudominio.com"],
-         "AllowedMethods": ["PUT", "GET"],
+      [{ "AllowedOrigins": ["https://www.tcgvaultmx.com","https://tcgvaultmx.com"],
+         "AllowedMethods": ["PUT","GET"],
          "AllowedHeaders": ["content-type"],
-         "MaxAgeSeconds": 3000 }]
+         "MaxAgeSeconds": 3600 }]
       ```
+      > **Troubleshooting — la subida del INE falla con "no se pueden cargar":** verificar
+      > (a) que el **CORS del bucket** tenga el **origen real** del front (los dos de arriba; el PUT
+      > presignado va del navegador directo a R2, así que el origen debe estar allow-listeado), y
+      > (b) que el **backend** construya el `S3Client` con `requestChecksumCalculation: WHEN_REQUIRED`
+      > (fix de backend en paralelo — no lo toca devops; si falta, R2 rechaza el PUT presignado).
 - [ ] **Lifecycle rule** de retención — **se conserva** — sobre el prefijo `kyc_ine/` =
       `INE_RETENTION_DAYS` (180). Es una **capa extra**; el borrado principal lo hace el backend (§15.6).
 - [ ] **NO configurar** prefijos `inventory_photo/` ni `dispute_claim/`, ni CDN/bucket público de
@@ -690,14 +697,14 @@ Cambios de infraestructura hechos por devops para los hallazgos que le tocan. Lo
   vida corta** por el backend. Ya **no** existe `S3_PUBLIC_BASE_URL` ni prefijo público
   `inventory_photo/`, ni evidencia de disputa en bucket (`dispute_claim/` eliminado; la evidencia va por
   correo `DISPUTE_EVIDENCE_CONTACT`).
-- **CORS del bucket:** allow-list solo `APP_BASE_URL` (dominio del front), métodos **PUT** y **GET**.
-  Nunca `AllowedOrigins: ["*"]`. Ejemplo de política R2/S3:
+- **CORS del bucket:** allow-list solo los orígenes reales del front (`APP_BASE_URL`), métodos
+  **PUT** y **GET**. Nunca `AllowedOrigins: ["*"]`. Política R2/S3 lista para pegar en Cloudflare:
 
   ```json
-  [{ "AllowedOrigins": ["https://app.tudominio.com"],
-     "AllowedMethods": ["PUT", "GET"],
+  [{ "AllowedOrigins": ["https://www.tcgvaultmx.com","https://tcgvaultmx.com"],
+     "AllowedMethods": ["PUT","GET"],
      "AllowedHeaders": ["content-type"],
-     "MaxAgeSeconds": 3000 }]
+     "MaxAgeSeconds": 3600 }]
   ```
 
 - **Local/staging (MinIO):** `createbuckets` deja el bucket **100% privado** (`mc anonymous set none`).

@@ -40,6 +40,14 @@ export class UploadsService {
           accessKeyId: this.config.get<string>('S3_ACCESS_KEY_ID') ?? 'minioadmin',
           secretAccessKey: this.config.get<string>('S3_SECRET_ACCESS_KEY') ?? 'minioadmin',
         },
+        // BUG A1 (INE): el AWS SDK v3 por defecto (`requestChecksumCalculation: 'WHEN_SUPPORTED'`)
+        // inyecta headers `x-amz-sdk-checksum-algorithm` / `x-amz-checksum-crc32` en los SignedHeaders
+        // de la URL prefirmada. El navegador hace PUT directo a R2 enviando SOLO `Content-Type`
+        // (y `Content-Length`), NO esos headers → la firma no coincide → 403 SignatureDoesNotMatch.
+        // Con `WHEN_REQUIRED` el SDK NO agrega checksum al presign salvo que la operación lo exija,
+        // así el PUT del navegador vuelve a validar la firma. No cambia el contrato (§8).
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+        responseChecksumValidation: 'WHEN_REQUIRED',
       });
     }
     return this.client;

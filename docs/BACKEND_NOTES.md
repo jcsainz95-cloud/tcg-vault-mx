@@ -1495,3 +1495,47 @@ API key + BD desplegada); es idempotente.
 ### Discrepancias con el contrato
 Ninguna. No toqué `API_CONTRACT.md` ni `ARCHITECTURE.md` (el arquitecto documenta el nuevo param en
 paralelo). El endpoint y verbo existentes no cambian; `force` es un parámetro opcional aditivo.
+
+## 25. BUG A1 (INE) — presigned PUT a R2 daba 403 SignatureDoesNotMatch (2026-08-16)
+
+> Síntoma: el navegador subía la foto del INE directo a Cloudflare **R2** con la URL prefirmada (PUT) que
+> emite `POST /uploads/presign`, y R2 respondía **403 `SignatureDoesNotMatch`**. El presign en sí y la
+> validación de content-type/tamaño funcionaban; fallaba solo el PUT real del navegador.
+
+### Causa raíz
+El **AWS SDK v3** (`@aws-sdk/client-s3 ^3.1109`) trae por defecto
+`requestChecksumCalculation: 'WHEN_SUPPORTED'`. Con ese default, al firmar la URL (`getSignedUrl` sobre un
+`PutObjectCommand`) el SDK **incluye los headers `x-amz-sdk-checksum-algorithm` y `x-amz-checksum-crc32`
+dentro de los `SignedHeaders`** de la firma. Pero el navegador, al hacer el PUT directo a R2, **solo envía
+`Content-Type`** (y `Content-Length` si se fijó) — NO manda esos headers de checksum. Como los headers
+firmados no coinciden con los enviados, la firma no valida → **403 SignatureDoesNotMatch**. Es un choque
+conocido del SDK v3 con presigned URLs consumidas fuera del propio SDK (navegador / S3-compatibles como R2).
+
+### Fix (solo `backend/`, sin cambio de contrato)
+- **`src/modules/uploads/uploads.service.ts`** (getter `s3`, construcción del `S3Client`): se añaden dos
+  opciones al cliente:
+  - `requestChecksumCalculation: 'WHEN_REQUIRED'`
+  - `responseChecksumValidation: 'WHEN_REQUIRED'`
+  Con `WHEN_REQUIRED` el SDK **no** agrega los headers de checksum al presign salvo que la operación los
+  exija (PutObject no los exige), de modo que el PUT del navegador (que solo manda `Content-Type`) vuelve
+  a validar la firma. **No** se tocó la lógica de presign, el allow-list `image/*`, el `ContentLength`, ni
+  `presignGet`/`deleteObject`. `POST /uploads/presign` conserva su shape (`API_CONTRACT §8`).
+
+### Tests
+- `test/uploads.presign.spec.ts` (ampliado): nuevo `describe` que **mockea `@aws-sdk/client-s3`** para
+  capturar la config con la que se construye el `S3Client` y verifica que se pasa
+  `requestChecksumCalculation: 'WHEN_REQUIRED'` (y `responseChecksumValidation: 'WHEN_REQUIRED'`), además de
+  que el cliente se construye **una sola vez** (getter lazy). Los tests previos (solo `kyc_ine`, allow-list
+  de content-type, tope de tamaño) siguen intactos.
+
+### Gates (desde `backend/`)
+- `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ · `npm run build` ✅.
+
+### Nota para QA/devops
+El E2E de infra (`test/integration/infra-smoke.e2e-spec.ts`) ya hacía un **PUT real** contra MinIO; contra
+**MinIO** el bug no se dispara igual que en R2, pero el fix es correcto para ambos (MinIO tampoco reenvía
+los headers de checksum firmados desde un cliente HTTP plano). Para reproducir el 403 original hay que
+apuntar el PUT a un endpoint **R2** con el SDK sin el flag. Sin cambios de env ni de infra.
+
+### Discrepancias con el contrato
+Ninguna. Solo configuración del cliente S3; `API_CONTRACT.md` no cambia.

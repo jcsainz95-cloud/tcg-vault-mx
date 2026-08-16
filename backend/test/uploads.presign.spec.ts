@@ -11,6 +11,21 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: jest.fn(async () => 'https://s3.internal/kyc_ine/2026-08-14/obj.png?X-Amz-Signature=abc'),
 }));
 
+// BUG A1 (INE): capturamos la config con la que se construye el S3Client para verificar que se
+// pasa `requestChecksumCalculation: 'WHEN_REQUIRED'` (y su par de response). Con el default del
+// SDK v3 (`WHEN_SUPPORTED`) el presign firma headers de checksum que el navegador NO envía en el
+// PUT directo a R2 → 403 SignatureDoesNotMatch. Stubs de los Command para no romper el import.
+const s3ClientCtorArgs: Array<Record<string, unknown>> = [];
+jest.mock('@aws-sdk/client-s3', () => ({
+  S3Client: jest.fn().mockImplementation((cfg: Record<string, unknown>) => {
+    s3ClientCtorArgs.push(cfg);
+    return { send: jest.fn() };
+  }),
+  PutObjectCommand: jest.fn().mockImplementation((input) => ({ input })),
+  GetObjectCommand: jest.fn().mockImplementation((input) => ({ input })),
+  DeleteObjectCommand: jest.fn().mockImplementation((input) => ({ input })),
+}));
+
 function buildConfig(overrides: Record<string, string> = {}): ConfigService {
   const values: Record<string, string> = {
     S3_REGION: 'us-east-1',
@@ -115,5 +130,36 @@ describe('UploadsService.presign — límite de tamaño (S-B3)', () => {
     await expect(svc.presign('kyc_ine', 'image/png', 0)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
+  });
+});
+
+describe('UploadsService — construcción del S3Client (BUG A1: presigned PUT a R2)', () => {
+  beforeEach(() => {
+    s3ClientCtorArgs.length = 0;
+  });
+
+  it('construye el S3Client con requestChecksumCalculation=WHEN_REQUIRED (no firma checksum en el presign)', async () => {
+    const svc = new UploadsService(buildConfig());
+    // fuerza la construcción lazy del cliente (getter `s3`) vía un presign real
+    await svc.presign('kyc_ine', 'image/png');
+    expect(s3ClientCtorArgs).toHaveLength(1);
+    expect(s3ClientCtorArgs[0]).toMatchObject({
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+    });
+  });
+
+  it('también fija responseChecksumValidation=WHEN_REQUIRED', async () => {
+    const svc = new UploadsService(buildConfig());
+    await svc.presign('kyc_ine', 'image/png');
+    expect(s3ClientCtorArgs[0]).toMatchObject({
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    });
+  });
+
+  it('reutiliza un único S3Client entre presigns (no reconstruye por llamada)', async () => {
+    const svc = new UploadsService(buildConfig());
+    await svc.presign('kyc_ine', 'image/png');
+    await svc.presign('kyc_ine', 'image/jpeg');
+    expect(s3ClientCtorArgs).toHaveLength(1);
   });
 });
