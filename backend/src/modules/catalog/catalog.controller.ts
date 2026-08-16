@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { CatalogService } from './catalog.service';
 import { SetValueService } from './set-value.service';
@@ -70,14 +71,19 @@ export class CatalogController {
   // v1.9-set-chart — gráfica PÚBLICA del valor del SET DESTACADO (hero de la home). El set se
   // resuelve server-side (env HOME_FEATURED_SET_ID + fallback, ARCHITECTURE §4.12b); el front NO
   // hardcodea id. Sin PII: solo valor agregado de mercado. Query ?range= (default 1m).
+  // SEC-F1: rate-limit propio (60/min por IP) anti-scraping, en PARIDAD con los otros públicos
+  // (BuylistCatalogController). El endpoint es público (sin sesión) pero acotado por IP.
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('featured-set/value-history')
   featuredSetValueHistory(@Query('range') range = '1m') {
     return this.setValue.featuredSetHistory(range);
   }
 
   // v1.9-set-chart — misma serie para un set específico por su id LOCAL (CardSet.id). 404 si no existe.
+  // SEC-F1: mismo rate-limit propio (60/min por IP) que el endpoint del set destacado.
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('sets/:id/value-history')
   setValueHistory(@Param('id') id: string, @Query('range') range = '1m') {
     return this.setValue.setHistoryById(id, range);

@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { SetValueService } from '../src/modules/catalog/set-value.service';
+import { SetValueService, SET_VALUE_RULE } from '../src/modules/catalog/set-value.service';
 import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -43,9 +43,14 @@ describe('SetValueService.computeSetValue — SEC-A1, batch sin N+1', () => {
     // Sin N+1: exactamente 2 queries (cartas del set + sus referencias en lote).
     expect(prisma.card.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.priceReference.findMany).toHaveBeenCalledTimes(1);
-    // Filtro fijo de la regla de valor: raw / raw:NM / normal.
+    // Filtro fijo de la regla de valor compartida (TD-1): raw / raw:NM / normal.
     const where = prisma.priceReference.findMany.mock.calls[0][0].where;
-    expect(where).toMatchObject({ productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' });
+    expect(SET_VALUE_RULE).toEqual({ productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' });
+    expect(where).toMatchObject({
+      productType: SET_VALUE_RULE.productType,
+      gradeKey: SET_VALUE_RULE.gradeKey,
+      finish: SET_VALUE_RULE.finish,
+    });
     expect(where.cardId).toEqual({ in: ['c1', 'c2', 'c3'] });
   });
 
@@ -295,13 +300,13 @@ describe('SetPriceSyncJobService — precia el set SIN filtrar bóveda (DEV-3)',
 
     // Recorre por setId, NO por InventoryItem (cierra DEV-3).
     expect(prisma.card.findMany).toHaveBeenCalledWith({ where: { setId: 'setX' } });
-    // Reusa syncCardPrice con acabado/tipo/grado fijos y escalate=false (no inunda pendientes).
+    // Reusa syncCardPrice con la MISMA regla compartida (TD-1) que la lectura y escalate=false.
     expect(pricing.syncCardPrice).toHaveBeenCalledTimes(2);
     expect(pricing.syncCardPrice).toHaveBeenCalledWith(
       cards[0],
-      'raw',
-      'raw:NM',
-      'normal',
+      SET_VALUE_RULE.productType,
+      SET_VALUE_RULE.gradeKey,
+      SET_VALUE_RULE.finish,
       'catalog',
       undefined,
       false,

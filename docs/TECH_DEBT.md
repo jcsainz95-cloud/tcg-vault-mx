@@ -485,3 +485,45 @@
   y el camino admin usa `EMAIL_REGEX` (más laxo, en `common/validation/credentials.ts`). Owner: **backend**.
   Prioridad: **baja**. Nota: unificar `RegisterDto` al helper **cambia el set de emails aceptados** (validación
   de auth) → si se hace, va **con re-verificación**.
+
+### v1.9-set-chart — cierre post-veredicto (2026-08-16, no bloqueante)
+
+> Feature ya aprobada por **qa + techlead + seguridad**. En este cierre se aplicaron **DOS fixes baratos**
+> recomendados por los revisores (**SEC-F1** y **TD-2**, marcados RESUELTOS abajo) y se registran las deudas
+> **no bloqueantes** restantes. Todas Owner **backend**, prioridad **baja/informativa**. Gates verdes tras el
+> cierre: lint/typecheck/build OK, **57 suites / 371 tests**. Detalle en `docs/BACKEND_NOTES.md §29`.
+
+- **SEC-F1 (seguridad) — RESUELTO (2026-08-16).** Los 2 endpoints públicos de la gráfica
+  (`GET /catalog/featured-set/value-history` y `GET /catalog/sets/:id/value-history`) NO tenían `@Throttle`
+  propio: colgaban solo del límite global (300/min). Se les añadió `@Throttle({ default: { ttl: 60_000,
+  limit: 60 } })` (**60/min por IP**) en `catalog.controller.ts`, en **PARIDAD** con los otros públicos
+  anti-scraping (`BuylistCatalogController`, mismo patrón/import). Sin config nueva.
+- **TD-2 (techlead) — RESUELTO (2026-08-16).** `SetValueSnapshot` (M-20) tenía `@@unique([setId, asOfDate])`
+  **y** `@@index([setId, asOfDate])` (mismas columnas, mismo orden) → el `@@index` era **redundante** (el
+  índice del `@@unique` ya sirve las consultas por rango, con menor coste de escritura). Se eliminó del
+  `schema.prisma` **y** del `migration.sql` de M-20 (edición **en sitio**: la migración M-20 NO se ha aplicado
+  en ningún entorno — egress bloquea prod, tests con mocks — así que no requiere migración nueva). Verificado
+  con `prisma validate` (schema válido); schema y migración quedan coherentes (índice quitado en ambos).
+- **TD-1 / RB-8-family — regla de valuación del set (extracción PARCIAL aplicada).** La regla
+  raw/`raw:NM`/`normal` + "referencia vigente = más reciente por capturedDate" estaba duplicada entre
+  `set-value.service.ts:computeSetValue` (lectura/agregación) y `set-price-sync.service.ts` (escritura), y es
+  además la MISMA semántica de `PricingService.getReference`. Deliberada (evita N+1) pero con riesgo de
+  divergencia. **En este cierre** se extrajo la constante `SET_VALUE_RULE` (las 3 llaves de tipo/grado/acabado)
+  a `set-value.service.ts`, reusada por `computeSetValue` **y** el job `set-price-sync` (escritura y lectura ya
+  no divergen en los literales). **Queda como deuda** unificar la *lógica* de "más reciente por capturedDate"
+  con `getReference` vía un `getReferencesBatch` compartido (misma dirección que **RB-8/BE-4/D3**, diferido por
+  escala). Owner: **backend**. Prioridad: **baja**.
+- **TD-3 — cargas en memoria en `resolveFeaturedSet` (fallback-2) y `computeSetValue`.** Ambas leen tablas
+  completas a memoria (`SetValueSnapshot` para elegir el set más valioso; `Card` + sus `PriceReference` del set
+  para agregar) y resuelven el "más reciente por X" en JS. Crecen con el histórico. **Inocuo hoy**: el request
+  público (`featuredSetHistory`/`setHistoryById`) **NO** invoca `computeSetValue` — solo lee `SetValueSnapshot`
+  ya materializado; `computeSetValue` corre en el job diario. Dirección: `DISTINCT ON`/`groupBy` al escalar.
+  Owner: **backend**. Prioridad: **baja**.
+- **SEC-F2 — `:id` de `GET /catalog/sets/:id/value-history` sin validación de formato.** No hay `ParseUUIDPipe`
+  ni chequeo de forma; **sin impacto**: Prisma parametriza la query (sin inyección) y un id inexistente/mal
+  formado cae en `findUnique` → **404 NOT_FOUND**. Dirección: validar formato si se quiere devolver 400 antes de
+  tocar BD. Owner: **backend**. Prioridad: **baja**.
+- **QA-min (informativo) — fallback-3 de `resolveFeaturedSet` ordena `releaseDate` como String.** El orden
+  lexicográfico es **correcto** para el formato `yyyy/MM/dd` de pokemontcg.io (mismo orden que cronológico).
+  Solo habría que endurecerlo (parseo a fecha) si entraran `releaseDate` con **otros formatos**. Owner:
+  **backend**. **Informativo** (sin acción hoy).

@@ -18,11 +18,10 @@ CREATE TABLE "SetValueSnapshot" (
     CONSTRAINT "SetValueSnapshot_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex (idempotente por día: re-correr el job hace upsert, no duplica)
+-- CreateIndex (idempotente por día: re-correr el job hace upsert, no duplica). Este índice único
+-- sobre (setId, asOfDate) sirve TAMBIÉN las consultas por rango de la gráfica (mismo prefijo/orden),
+-- por lo que no se crea un @@index adicional (TD-2: sería redundante).
 CREATE UNIQUE INDEX "SetValueSnapshot_setId_asOfDate_key" ON "SetValueSnapshot"("setId", "asOfDate");
-
--- CreateIndex (consultas por rango de la gráfica)
-CREATE INDEX "SetValueSnapshot_setId_asOfDate_idx" ON "SetValueSnapshot"("setId", "asOfDate");
 
 -- AddForeignKey (onDelete: Cascade — al borrar el set se borra su serie)
 ALTER TABLE "SetValueSnapshot" ADD CONSTRAINT "SetValueSnapshot_setId_fkey" FOREIGN KEY ("setId") REFERENCES "CardSet"("id") ON DELETE CASCADE ON UPDATE CASCADE;

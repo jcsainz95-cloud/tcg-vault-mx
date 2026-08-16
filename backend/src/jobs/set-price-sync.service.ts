@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../modules/pricing/pricing.service';
-import { SetValueService } from '../modules/catalog/set-value.service';
+import { SetValueService, SET_VALUE_RULE } from '../modules/catalog/set-value.service';
 
 /**
  * SetPriceSyncJobService — Job diario `set-price-sync` (v1.9-set-chart, ARCHITECTURE §4.12c / §5).
@@ -38,13 +38,14 @@ export class SetPriceSyncJobService {
     let priced = 0;
     for (const card of cards) {
       try {
-        // Acabado/tipo/grado FIJOS de la regla de valor (§4.12a). escalate=false: no inunda la
-        // cola de precio pendiente con todo el catálogo del set.
+        // Acabado/tipo/grado FIJOS de la regla de valor (§4.12a), desde la constante compartida
+        // SET_VALUE_RULE (TD-1: misma fuente que la lectura en computeSetValue → no divergen).
+        // escalate=false: no inunda la cola de precio pendiente con todo el catálogo del set.
         const info = await this.pricing.syncCardPrice(
           card,
-          'raw',
-          'raw:NM',
-          'normal',
+          SET_VALUE_RULE.productType,
+          SET_VALUE_RULE.gradeKey,
+          SET_VALUE_RULE.finish,
           'catalog',
           undefined,
           false,

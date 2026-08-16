@@ -1901,3 +1901,28 @@ punto; el campo `estimated?` del DTO queda reservado y sin uso.
   worker) y `test/admin-jobs.controller.spec.ts` (2 disparos nuevos auditados).
 - Resultado: **`lint`, `typecheck`, `build` verdes**; **57 suites / 371 tests verdes** (`npx jest`).
   Antes del cambio: 56 suites / ~350 tests. `prisma validate` OK (con `DATABASE_URL` dummy).
+
+### 29.10 Cierre post-veredicto (2026-08-16) — 2 fixes baratos + deuda registrada
+Feature ya aprobada por **qa + techlead + seguridad**. En el cierre se aplicaron los DOS fixes baratos que
+los revisores recomendaron y se registró la deuda no bloqueante (`docs/TECH_DEBT.md` → sección v1.9-set-chart).
+
+- **SEC-F1 (seguridad) — throttle propio en los 2 endpoints públicos de la gráfica.**
+  `catalog.controller.ts`: `GET /catalog/featured-set/value-history` y `GET /catalog/sets/:id/value-history`
+  ahora llevan `@Throttle({ default: { ttl: 60_000, limit: 60 } })` (**60/min por IP**), en PARIDAD con
+  `BuylistCatalogController` (mismo import/patrón). Antes colgaban solo del global (300/min). Sin config nueva.
+- **TD-2 (techlead) — índice redundante eliminado en M-20.** `SetValueSnapshot` tenía
+  `@@unique([setId, asOfDate])` **y** `@@index([setId, asOfDate])` (mismas columnas/orden). El `@@index` era
+  redundante (el índice del `@@unique` ya sirve el rango de la gráfica). Se quitó del `schema.prisma` **y** del
+  `prisma/migrations/20260816180000_m20_set_value_snapshot/migration.sql` (edición **en sitio**: M-20 no se ha
+  aplicado en ningún entorno). `prisma validate` OK; schema y migración coherentes (índice fuera en ambos).
+- **TD-1 (parcial) — `SET_VALUE_RULE` compartido.** Se extrajo la constante `SET_VALUE_RULE`
+  (`{ productType:'raw', gradeKey:'raw:NM', finish:'normal' }`) a `set-value.service.ts`, reusada por
+  `computeSetValue` (lectura/agregación) **y** el job `set-price-sync` (escritura de la PriceReference del día).
+  Antes los 3 literales estaban duplicados en ambos archivos → riesgo de que escritura y lectura divergieran.
+  **Queda como deuda** unificar la *lógica* "más reciente por capturedDate" con `PricingService.getReference`
+  vía un batch compartido (dirección RB-8/BE-4/D3, diferido por escala). Tests de `set-value.spec.ts` ahora
+  referencian `SET_VALUE_RULE` (single source verificado en `computeSetValue` y `set-price-sync`).
+- Deudas restantes registradas: **TD-3** (cargas en memoria en fallback-2/`computeSetValue`; el request
+  público NO invoca `computeSetValue`), **SEC-F2** (`:id` sin validación de formato; sin impacto, Prisma
+  parametriza + 404) y **QA-min** (fallback-3 ordena `releaseDate` como String, correcto para `yyyy/MM/dd`).
+- Gates del cierre: **`lint`, `typecheck`, `build` verdes**; **57 suites / 371 tests verdes**.

@@ -747,8 +747,10 @@ model SetValueSnapshot {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
+  // TD-2 (techlead): el @@unique([setId, asOfDate]) ya crea un índice B-tree sobre esas mismas
+  // columnas en el mismo orden, que sirve las consultas por rango de la gráfica. Un @@index aparte
+  // sería redundante (índice duplicado, doble coste de escritura). No se añade.
   @@unique([setId, asOfDate])
-  @@index([setId, asOfDate])
 }
 
 // ============================= AUTH TOKENS (v1.5) =============================

@@ -4,6 +4,20 @@ import { CardSet } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 
+/**
+ * TD-1 (v1.9-set-chart): REGLA DE VALUACIÓN del set público, fuente única compartida. Fija el
+ * tipo/grado/acabado que define "el valor de mercado de una carta del set" (ARCHITECTURE §4.12a):
+ * raw, gradeKey `raw:NM`, acabado `normal`. La usan `computeSetValue` (lectura/agregación) y el job
+ * `set-price-sync` (escritura de la PriceReference del día), para que ESCRITURA y LECTURA no diverjan.
+ * La regla "referencia vigente = más reciente por capturedDate" es la MISMA de
+ * `PricingService.getReference`; ver el cruce en BACKEND_NOTES §29 (unificar el batch = RB-8/BE-4).
+ */
+export const SET_VALUE_RULE = {
+  productType: 'raw',
+  gradeKey: 'raw:NM',
+  finish: 'normal',
+} as const;
+
 /** Rangos de la gráfica (mismo conjunto que la de portafolio). API_CONTRACT §DTOs base (SetValueRange). */
 export type SetValueRange = '5d' | '15d' | '1m' | '3m' | '6m' | '1y' | 'ytd' | 'all';
 const RANGES: SetValueRange[] = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
@@ -145,9 +159,10 @@ export class SetValueService {
     const refs = await this.prisma.priceReference.findMany({
       where: {
         cardId: { in: cardIds },
-        productType: 'raw',
-        gradeKey: 'raw:NM',
-        finish: 'normal',
+        // TD-1: tipo/grado/acabado desde la regla compartida (misma que usa set-price-sync al escribir).
+        productType: SET_VALUE_RULE.productType,
+        gradeKey: SET_VALUE_RULE.gradeKey,
+        finish: SET_VALUE_RULE.finish,
         ...(asOf ? { capturedDate: { lte: asOf } } : {}),
       },
       orderBy: { capturedDate: 'desc' },
