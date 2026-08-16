@@ -61,7 +61,8 @@ export class PricingService {
   }
 
   /**
-   * Lee la referencia vigente (del día) para una carta/tipo/grado/ACABADO.
+   * Lee la referencia vigente más reciente (sin filtro de fecha, `capturedDate desc`) para una
+   * carta/tipo/grado/ACABADO, en paridad con la valuación del cliente (HoldingDTO).
    * v1.6-finish: `finish` es una columna ortogonal a `gradeKey` (default `normal` para
    * graded/sealed y compatibilidad). Cada acabado tiene su propia PriceReference.
    */

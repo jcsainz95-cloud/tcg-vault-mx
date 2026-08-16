@@ -285,15 +285,18 @@
   `GET /users/me` y `PATCH /users/me { locale }`; `POST /uploads/presign` + `PUT` directo en `PhotoUploader`;
   y `useMutation` para M1 alta, M3 refund, M5 decisiones/convert/pay-spei, M8 resolve.
 
-### FE-3 · UI de módulos admin M2/M6/M7/M9/M10 en placeholder
-- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/{m2,m6,m7,m9,m10}/page.tsx` +
+### FE-3 · UI de módulos admin M2/M7/M9/M10 en placeholder
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/{m2,m7,m9,m10}/page.tsx` +
   `frontend/src/components/domain/ModuleTodo.tsx`.
-- **Estado actual:** M1, M3, M4, M5 y M8 (más dashboard) tienen UI funcional; M2 (precios/FX/override),
-  M6 (usuarios/KYC 360°), M7 (finanzas/P&L/export CSV), M9 (reportes) y M10 (config/diales/bitácora)
-  muestran un placeholder `ModuleTodo`. Los tipos y rutas del contrato ya están mapeados.
+- **Estado actual:** M1, M3, M4, M5, M6 y M8 (más dashboard) tienen UI funcional; M2 (precios/FX/override),
+  M7 (finanzas/P&L/export CSV), M9 (reportes) y M10 (config/diales/bitácora) muestran un placeholder
+  `ModuleTodo`. Los tipos y rutas del contrato ya están mapeados.
+  - **ACTUALIZACIÓN 2026-08-16 (housekeeping ronda-c):** **M6 salió de esta lista** — ya **no** es placeholder.
+    `m6/page.tsx` monta el `M6View` completo (ficha 360°, KYC, alta/reset/borrado, historial por pestañas,
+    VaultTab enriquecido). Corrección factual: la entrada listaba M6 por inercia tras v1.7/ronda-c.
 - **Impacto:** faltan superficies del back-office; no bloquea las verticales priorizadas del MVP.
 - **Disparador:** post-MVP / fase 2, o cuando el negocio necesite operar esos módulos desde la UI. Acción:
-  construir las vistas consumiendo `/admin/pricing/*`, `/admin/fx`, `/admin/users/*`, `/admin/finance/*`,
+  construir las vistas consumiendo `/admin/pricing/*`, `/admin/fx`, `/admin/finance/*`,
   `/admin/reports/*`, `/admin/settings` y `/admin/audit-log`, reutilizando `DataTable`, `StatCard`,
   `Modal` y el enmascarado por rol ya existentes.
 
@@ -433,3 +436,37 @@
   transiciones terminales (`pagada`/`rechazada`/`abandonada`); `ine-retention` lo usa como fuente del cierre con
   fallback al cálculo por timestamps para filas legacy. Cubierto en `test/buylist.ronda-c.spec.ts`,
   `test/buylist-sweep.closedat.spec.ts`, `test/ine-retention.spec.ts`.
+- **SEC-D3 (backend, pentest) — CERRADA (v1.8-ronda-c):** hallazgo Info del pentest, **par de RB-6**
+  (`docs/SECURITY_NOTES.md` RC.0 / BACKEND_NOTES §27.5): `SellRequest.approvedTotalCents` se LEÍA en
+  P&L/dashboard pero nunca se escribía → la tarjeta "buylist del periodo" sumaba 0/null. Resuelto por el
+  mismo fix de RB-6 (`recomputeApprovedTotal` server-side). Blue team lo dio por cerrado.
+
+### Ronda C — deuda surgida en verdictos (2026-08-16, no bloqueante)
+
+> Hallazgos NUEVOS de los verdictos de Ronda C (qa/techlead/seguridad), todos **no bloqueantes**. RB-7 es
+> **PENDIENTE-DECISIÓN** (cambio de máquina de estados: no se implementa sin negocio + arquitecto). El resto
+> son fixes pequeños diferidos a un próximo round; los que tocan PII/retención requieren re-verificación
+> qa+seguridad al abordarse.
+
+- **RB-7 (techlead #1) — PENDIENTE-DECISIÓN — `closedAt` no se sella cuando TODOS los items se rechazan
+  vía `itemDecision('reject')`.** El `SellRequest` queda en estado no-terminal (`verificacion`), `closedAt`
+  sigue `null` e `ine-retention` **nunca purga** esa INE (sobre-retención — dirección conservadora, no fuga,
+  pero contradice el diseño SEC-D2 de minimización de PII). Owner: **backend**, pero es un **cambio de
+  comportamiento / máquina de estados** → requiere PRIMERO **decisión de negocio del humano + arquitecto**:
+  ¿una solicitud con todos los items rechazados debe transicionar sola a `rechazada`? **NO implementar** hasta
+  esa decisión. Prioridad: **media** (cumplimiento PII/LFPDPPP).
+- **SEC-E1 (seguridad, pre-existente) — `ine-retention` elige `lastClosed` por `orderBy createdAt desc`
+  en vez de `max(closedAt)`.** En escenarios multi-solicitud podría anclar la retención a un cierre anterior
+  y purgar unos días antes de lo debido. Recomendación: anclar a **`max(closedAt)`**. Owner: **backend**.
+  Prioridad: **baja** (edge, pre-existente — no introducido por Ronda C). Candidato a próximo round: fix
+  pequeño y localizado, pero **requiere re-verificación qa+seguridad** por tocar el camino de PII.
+- **RB-8 (techlead #2) — regla de valuación "referencia vigente = más reciente por acabado" duplicada.**
+  Vive por partida doble en `PricingService.getReference` y en el batch inline de `admin.service.ts` →
+  `ownedItemRefs`. Dirección: extraer `PricingService.getReferencesBatch(items)` y compartirlo con
+  `holdings`, `ownedItemRefs`, `inventoryValue`, `custodyValue` (de paso cierra el N+1 de la familia
+  BE-4/D3). Owner: **backend**. Prioridad: **baja** (diferido por escala; misma familia BE-4/D3).
+- **BE-9b (techlead #3) — dedup de validación incompleto para email.** `MIN_PASSWORD_LENGTH` sí es fuente
+  única (cerrado en BE-9), pero el **formato de email diverge**: `RegisterDto` usa `@IsEmail` (class-validator)
+  y el camino admin usa `EMAIL_REGEX` (más laxo, en `common/validation/credentials.ts`). Owner: **backend**.
+  Prioridad: **baja**. Nota: unificar `RegisterDto` al helper **cambia el set de emails aceptados** (validación
+  de auth) → si se hace, va **con re-verificación**.

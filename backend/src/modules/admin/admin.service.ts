@@ -280,8 +280,9 @@ export class AdminService {
   /**
    * BE-10 (v1.8-ronda-c): conforma la bóveda resumen de la ficha 360° admin al contrato
    * `AdminUserOwnedItemRef`, enriqueciendo cada item con `productType`, `finish` y `referenceValue`
-   * (misma valuación por-acabado que el HoldingDTO del cliente). Los items sin precio del día quedan
-   * con `referenceValue.status="pending"` (no se excluyen: es una vista 360°, no un total de portafolio).
+   * (misma valuación por-acabado que el HoldingDTO del cliente). Los items sin referencia vigente
+   * más reciente (sin filtro de fecha, en paridad con la valuación del cliente) quedan con
+   * `referenceValue.status="pending"` (no se excluyen: es una vista 360°, no un total de portafolio).
    *
    * Rendimiento: evita el N+1 de `getReference` por item (BE-4/D3) con UNA lectura batch de
    * PriceReference por `cardId IN (...)`; se elige la referencia vigente por `(cardId, productType,
