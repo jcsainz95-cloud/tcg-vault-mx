@@ -1952,3 +1952,49 @@ Hallazgo REAL del gate SAST (semgrep `javascript.node-crypto.security.gcm-no-tag
 - **Gates:** `lint`, `typecheck`, `build` verdes; **57 suites / 372 tests verdes** (`npm test`). Antes: 371.
 - **Estado:** pendiente de **veredicto de seguridad + qa** por tocar PII/cripto. Cerrado en `TECH_DEBT.md`
   → SAST-1.
+
+## 30. Gate SAST (trivy-image) — bump supply-chain node-tar / tmp (2026-08-16)
+
+> `trivy-image` (SAST de imagen del backend, ya funcionando) reportó CVEs HIGH/CRITICAL reales en
+> dependencias transitivas de la imagen. Se remedian con `overrides` en `backend/package.json`. Cerrado en
+> `TECH_DEBT.md` → **SAST-2**. Solo cambios de dependencias; código de la app intacto.
+
+### 30.1 Origen de los hallazgos (árbol `npm ls`)
+- **`tmp`** (CVE-2026-44705, path traversal por prefix/postfix; fixed **>= 0.2.6**): **devDependency**
+  transitiva del CLI de Nest. Árbol:
+  `@nestjs/cli@10.4.9 → inquirer@8.2.6 → external-editor@3.1.0 → tmp@0.0.33`. Estaba en `0.0.33`
+  (vulnerable). Marcado `"dev": true` en el lockfile.
+- **`tar` (node-tar)** (CVE-2026-26960 / -29786 / -31802 / -59874, hardlink path traversal + DoS; fixed
+  **>= 7.5.18**): **NO está presente** en el árbol de dependencias del backend. `npm ls tar` → `(empty)`,
+  no existe ningún `node_modules/**/tar` ni en el lockfile ni instalado. Prisma 5.x (`@prisma/fetch-engine`)
+  **descarga sus binarios de engine directamente** (gzip), no vía node-tar; ningún otro paquete del árbol lo
+  requiere. El override queda igualmente aplicado como **pin defensivo**: si una futura resolución transitiva
+  reintrodujera `tar`, quedará forzado a `>= 7.5.18`. (Si trivy vuelve a marcar `tar`, probablemente escaneó
+  una imagen construida con un lockfile anterior; la imagen se construye con `npm ci` desde este lockfile, que
+  ya **no** contiene `tar`.)
+
+### 30.2 Overrides aplicados y resolución (`npm ls`)
+En `backend/package.json` → `overrides` (se suman a los ya existentes de SEC-C2):
+```json
+"tar": ">=7.5.18",
+"tmp": ">=0.2.6"
+```
+Tras `npm install` + `npm ci --include=dev` (lockfile regenerado, 788 paquetes auditados):
+- `tmp` → **0.2.7** `overridden` (satisface el `^0.0.33` de `external-editor`; el override cascadea sin romper
+  el peer). Efecto colateral limpio: se elimina la sub-dep transitiva `os-tmpdir@1.0.2` (tmp 0.2.x ya no la usa).
+  `npm ls tmp`: `... external-editor@3.1.0 → tmp@0.2.7 overridden`.
+- `tar` → `(empty)` (no presente; el override no fuerza una instalación, solo pinnea si aparece).
+
+### 30.3 ¿devDependency en la imagen de runtime? (nota para devops)
+- **`tmp` es devDependency** (vía `@nestjs/cli`). **Igual viaja en la imagen** porque `Dockerfile.backend`
+  hace `npm ci --include=dev` **y NO poda** (`no npm prune --omit=dev`) — decisión de devops documentada en el
+  propio Dockerfile (etapa build) y `DEVOPS_NOTES §6`: se conservan `prisma`/`ts-node`/`typescript` para
+  `prisma migrate deploy` + seed en runtime, arrastrando todo el árbol dev (incl. `@nestjs/cli` → `tmp`). Por
+  eso el override es la remediación correcta (parchea aunque sea devDep). **Sugerencia opcional a devops**
+  (no requerida para cerrar el gate): un `prune`/multi-stage que excluya `@nestjs/cli` del runtime reduciría
+  superficie, pero el override ya deja `tmp` en versión parcheada de todas formas.
+
+### 30.4 Gates (verde)
+- `prisma generate` OK · `lint` OK · `typecheck` OK · `build` (`nest build`) OK.
+- `npm test` = **57 suites / 372 tests verdes** (sin cambio de conteo; solo bump de deps, sin tocar código).
+- `npm ci --include=dev` limpio desde el lockfile regenerado; `tmp` resuelve a **0.2.7** en instalación limpia.

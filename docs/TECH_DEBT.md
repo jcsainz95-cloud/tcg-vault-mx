@@ -544,3 +544,18 @@
   igual. Tests en `test/pii-crypto.spec.ts`: round-trip OK + rechazo de tag truncado (12B), vacío y
   sobredimensionado (20B). Gates verdes: lint/typecheck/build OK, **57 suites / 372 tests**. Detalle en
   `docs/BACKEND_NOTES.md`. Owner: **backend**. Queda pendiente el **veredicto de seguridad + qa** (toca PII/cripto).
+
+- **SAST-2 (backend) — RESUELTA (2026-08-16) — supply-chain HIGH/CRITICAL en node-tar / tmp (gate
+  `trivy-image`).** El SAST de imagen del backend reportó CVEs reales en deps transitivas:
+  - **`tmp`** (CVE-2026-44705, path traversal por prefix/postfix; fixed **>= 0.2.6**): devDependency
+    transitiva `@nestjs/cli@10.4.9 → inquirer@8.2.6 → external-editor@3.1.0 → tmp@0.0.33`. Viajaba a la
+    imagen porque `Dockerfile.backend` hace `npm ci --include=dev` sin poda (devops, DEVOPS_NOTES §6).
+  - **`tar` (node-tar)** (CVE-2026-26960/-29786/-31802/-59874, hardlink path traversal + DoS; fixed
+    **>= 7.5.18**): **no presente** en el árbol del backend (`npm ls tar` → vacío; ningún `node_modules/**/tar`;
+    Prisma descarga sus engines sin node-tar). Sin fix necesario en el árbol actual.
+  - **Fix:** `overrides` en `backend/package.json`: `"tar": ">=7.5.18"` (pin defensivo por si reaparece) y
+    `"tmp": ">=0.2.6"`. Lockfile regenerado (`npm install` + `npm ci --include=dev`): **`tmp` → 0.2.7
+    `overridden`** (cascadea sin romper el peer `^0.0.33`; elimina la sub-dep `os-tmpdir`); `tar` sigue ausente.
+  - **Gates:** lint/typecheck/build OK; `npm test` **57 suites / 372 tests** (sin cambio de conteo; solo deps).
+    Detalle en `docs/BACKEND_NOTES.md §30`. Owner: **backend**. El **verde final del gate lo confirma el runner
+    de CI** (trivy-image necesita docker build + DB de trivy; egress bloqueado en local).
