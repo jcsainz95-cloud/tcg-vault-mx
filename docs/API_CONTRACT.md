@@ -4,6 +4,28 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.6-finish (2026-08-16) — Acabado / versión de carta (finish) en toda la cadena (PROJECT.md §I / v1.4, criterios 37–44):**
+> Las cartas se distinguen por **acabado**: `Finish = normal | reverse_holo | holofoil | first_edition_holofoil`
+> (derivados de las llaves de `tcgplayer.prices`; mapeo en ARCHITECTURE §3.7). El monto se **deriva server-side**
+> de `(Card.rarity, finish)` **validado contra `Card.availableFinishes`** (SEC-A1 intacto); un acabado no
+> disponible se **bloquea** (`422 FINISH_NOT_AVAILABLE`). **1 fila por `Card`** (no cambia): los acabados viven en
+> `Card.availableFinishes` (array).
+> - **Enum nuevo:** `Finish` (§Enums).
+> - **DTOs:** `CardDTO` gana **`availableFinishes: Finish[]`**; `ListingDTO`, `HoldingDTO` y `SellItemDTO` ganan
+>   **`finish: Finish`**. `referenceValue`/`salePriceCents` se calculan contra la referencia **de ese acabado**.
+> - **Cotizador:** `POST /buylist/quote` (req gana `finish?`, res gana `finish` + `appliedRule` resuelto por
+>   acabado) y `POST /buylist/requests` (`items[]` gana `finish?`). Default `normal` si se omite. La regla la
+>   selecciona el acabado (reverse holo → `"Reverse Holo"`; holofoil / 1st ed → rareza base si ya es holo, si no
+>   `"Holo"`; normal → rareza base) y el `pct` usa el market del acabado. Ver ARCHITECTURE §4.2.1.
+> - **Compra (§2):** `GET /catalog/cards` gana filtro **`finish`**; `GET /catalog/facets` gana **`finishes`**.
+> - **M1 (§10):** `POST /admin/inventory/items` gana **`finish?`** (default `normal`; validado contra
+>   `availableFinishes`).
+> - **Error nuevo:** `422 FINISH_NOT_AVAILABLE` (acabado fuera de `Card.availableFinishes`).
+> - **Migración M-18** (ARCHITECTURE §11), aditiva con default seguro. **Requiere RE-SYNC del catálogo** tras
+>   desplegar para poblar `availableFinishes` + precios por acabado.
+> - **NO cambia:** SEC-A1 (monto server-side), 1 fila por `Card` (`externalId @unique`), semántica de `gradeKey`
+>   para graded/sealed, tabla `BUYLIST_PRICE_RULES` (se reutiliza).
+>
 > **Changelog v1.5-auth-email (2026-08-16) — Verificación de correo + recuperación de contraseña self-service (Resend):**
 > Decisiones de producto cerradas por el humano. **La verificación NO bloquea el login** — bloquea **acciones
 > sensibles** (server-side, no solo UI). Recuperación con **ambos** flujos (self-service por email + reset por
@@ -108,6 +130,7 @@
 { "error": { "code": "PRICE_PENDING", "message": "human-readable EN fallback", "details": {} } }
 ```
 - **Códigos comunes:** `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `422` (regla de negocio), `429 RATE_LIMITED`, `500 INTERNAL`.
+- **`422 FINISH_NOT_AVAILABLE` (v1.6-finish):** el `finish` enviado (cotizador, alta de inventario, solicitud) **no** está en `Card.availableFinishes`. Guardarraíl SEC-A1: el cliente no puede cotizar/vender un acabado inexistente para pagar de más. Afecta `POST /buylist/quote`, `POST /buylist/requests`, `POST /admin/inventory/items`.
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **Idempotencia:** endpoints de pago aceptan header `Idempotency-Key`.
 - **PII sensible (CLABE / RFC / INE):** por **defecto se devuelven ENMASCARADOS** en **todas** las respuestas (cliente y back-office, incluido `super_admin`). Formato: CLABE → `****1234` (últimos 4 dígitos), RFC → parcial (ej. `XAX**********`). La **CLABE en claro (18 dígitos) SOLO** se obtiene por el endpoint dedicado `GET /admin/buylist/:id/reveal-clabe` (`super_admin`, money-out, **auditado**). Estos campos viven **cifrados en reposo** (ver ARCHITECTURE §3.4); el contrato nunca expone RFC/CLABE/INE en claro fuera del reveal.
@@ -118,6 +141,7 @@ Role                = customer | vault_operator | super_admin
 Locale              = es | en
 ProductType         = graded | sealed | raw
 RawCondition        = NM                                 // v1.1: ÚNICO valor (se eliminan LP|MP|HP|DMG). Migración.
+Finish              = normal | reverse_holo | holofoil | first_edition_holofoil // v1.6-finish: acabado/versión de carta (mapeo de tcgplayer.prices, ARCHITECTURE §3.7). graded/sealed = normal.
 SealedSubtype       = box | etb | bundle | tin | blister // v1.1: subtipo opcional del sellado
 AuthProvider        = local | google                     // v1.1: proveedor de autenticación del User
 AuthTokenType       = email_verification | password_reset // v1.5: token de un solo uso (hash en BD); verificación 24h, reset 1h
@@ -147,8 +171,11 @@ FxSource            = banxico | manual                // fuente del tipo de camb
 Money        = { amountCents: number, currency: "MXN" }
 // PriceInfo describe el VALOR DE REFERENCIA (valor de mercado), no el precio de venta.
 PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, source?: PriceSource, capturedDate?: string }
+// v1.6-finish: availableFinishes = acabados en que existe la carta (derivados de tcgplayer.prices al importar).
+// SIGUE siendo 1 CardDTO por carta (externalId único); availableFinishes es un array en el MISMO objeto.
+// Filas históricas / sin re-sync → ["normal"]. Es la lista blanca contra la que el backend valida `finish`.
 CardDTO      = { id, externalId, name, number, rarity, supertype, subtypes: string[],
-                 setId, setName, imageSmallUrl, imageLargeUrl }
+                 setId, setName, imageSmallUrl, imageLargeUrl, availableFinishes: Finish[] }
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
@@ -158,7 +185,10 @@ CardDTO      = { id, externalId, name, number, rarity, supertype, subtypes: stri
 // No existen frontPhotoUrl/backPhotoUrl en ListingDTO ni en ningún DTO de producto.
 // GRADEADAS (v1.2): graded expone gradingCompany + gradeValue + certNumber (nº de certificado PSA/CGC,
 // verificable en la web de la graduadora). certNumber es null para raw/sealed.
-ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sealedSubtype?,
+// v1.6-finish: `finish` = acabado de ESTA copia física. referenceValue/salePriceCents se calculan contra la
+// PriceReference de ESE acabado (no un precio único por carta). Dos copias de la misma carta con acabado
+// distinto son ListingDTO SEPARADOS. graded/sealed → finish = "normal".
+ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sealedSubtype?, finish: Finish,
                  gradingCompany?, gradeValue?, certNumber?,
                  referenceValue: PriceInfo, salePriceCents?: number, sellable: boolean }
 // Punto de la serie de tendencia del portafolio (gráfica estilo acciones). estimated? = punto de backfill indicativo.
@@ -280,9 +310,10 @@ Req: `{ name?, phone?, locale? }` → Res `200`: user.
 ### GET /api/v1/catalog/cards — `public`  (sección "Compra")
 Storefront **"Compra"**: lista **SOLO inventario publicado CON precio de venta fijado** (`status=listed`, `sellable=true`, `salePriceCents != null`). **Excluye** items `pending`/sin precio/"precio pendiente" — el comprador **nunca** ve "precio pendiente".
 > **Cambio semántico v1.1:** en v1 podían mostrarse pendientes no comprables; en **v1.1 NO se listan**. La ruta **se mantiene** `/catalog/cards` (el rótulo de UI "Compra" lo controla el front); no se renombra para no romper el contrato (decisión en ARCHITECTURE §4.9).
-Query: `?q=&setId=&rarity=&productType=&condition=&minPriceCents=&maxPriceCents=&sealedSubtype=&page=&pageSize=&sort=`
+Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPriceCents=&sealedSubtype=&page=&pageSize=&sort=`
 - `rarity`: valor **tal cual pokemontcg.io** (taxonomía abierta; usar los valores de `GET /catalog/facets`).
 - `productType`: `raw | graded | sealed`. `condition`: para raw solo `NM`.
+- `finish` (v1.6-finish, opcional): `normal | reverse_holo | holofoil | first_edition_holofoil`; filtra por `InventoryItem.finish`. Valor inválido → `400 VALIDATION_ERROR`.
 - `sort`: `price_asc | price_desc | newest` (opcional).
 Res `200`: `{ data: ListingDTO[], page, pageSize, total }`. Todos los `ListingDTO` devueltos tienen `sellable=true` y `salePriceCents != null`.
 
@@ -295,12 +326,14 @@ Res `200`:
   "sets": [{ "id": "sv08", "name": "Surging Sparks", "releaseDate": "2024/11/08", "year": 2024 }],
   "productTypes": ["raw", "graded", "sealed"],
   "sealedSubtypes": ["box", "etb"],
+  "finishes": ["normal", "reverse_holo", "holofoil"],
   "price": { "minCents": 5000, "maxCents": 4500000, "currency": "MXN" }
 }
 ```
 - `rarities`: `distinct` de `Card.rarity` sobre inventario publicado, **espejando pokemontcg.io tal cual** (lista **NO** cerrada).
 - `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**.
 - `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
+- `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
 
 ### GET /api/v1/catalog/cards/:cardId — `public`
 Res `200`: `{ card: CardDTO, listings: ListingDTO[] }` (instancias físicas publicadas de la misma carta; solo `sellable=true` con precio).
@@ -325,7 +358,7 @@ Res `200`:
 {
   "data": [{
     "inventoryItemId": "…", "folio": "INV-000123", "card": { "…": "CardDTO" },
-    "productType": "raw", "rawCondition": "NM",
+    "productType": "raw", "rawCondition": "NM", "finish": "reverse_holo",
     "ownershipStatus": "settled", "status": "in_custody",
     "referenceValue": { "status": "priced", "referenceMxnCents": 12500, "capturedDate": "2026-08-13" }
   }],
@@ -333,6 +366,7 @@ Res `200`:
 }
 ```
 El valor del portafolio se calcula contra el **valor de referencia** (no el precio de venta). Las cartas `referenceValue.status="pending"` se **excluyen** del total y se reportan en `pendingPriceCount` (no rompen el cálculo).
+- **`finish` (v1.6-finish):** cada holding trae su **acabado** (Normal/Reverse Holo/Holofoil/1st Ed. Holo). El `referenceValue` es el de **ese acabado** (`PriceReference` con `finish`); la valuación del portafolio usa el precio del acabado específico, no un precio único por carta. "Mi bóveda" muestra el acabado y permite ordenar por set y por valor.
 
 ### GET /api/v1/vault/holdings/:inventoryItemId — `customer`
 Res `200`: holding detallado (imagen de catálogo de pokemontcg.io, movimientos visibles al dueño; para gradeadas incluye `gradingCompany + gradeValue + certNumber`). **No hay fotos propias del item** (v1.2). Err `403` si no es del usuario.
@@ -442,8 +476,9 @@ Query: `?setId=&q=&rarity=&page=&pageSize=`
 - Paginación estándar `{ page, pageSize }`; `pageSize` con tope de servidor (≤100).
 Res `200`: `{ data: CardDTO[], page, pageSize, total }`
 - Se reutiliza **`CardDTO`** (ya trae `id, name, number, rarity, setId, setName, imageSmallUrl,
-  imageLargeUrl` — cumple id/nombre/set/rareza/imagen/número). **No** hay `sellable`/`salePriceCents` (no es
-  Compra); no hay precio en este DTO.
+  imageLargeUrl` + **`availableFinishes: Finish[]`** — cumple id/nombre/set/rareza/imagen/número/acabados).
+  **No** hay `sellable`/`salePriceCents` (no es Compra); no hay precio en este DTO. El front puebla el **selector
+  de acabado** del cotizador con `availableFinishes` (v1.6-finish).
 Err: `400 VALIDATION_ERROR` (paginación inválida).
 Nota: para **cotizar** una carta encontrada, el front llama `POST /buylist/quote` con su `cardId`. Si la carta
 es `ex_plus` y **no tiene precio de referencia** (típico en cartas fuera de bóveda), la cotización sale
@@ -456,38 +491,53 @@ Sets que tienen **cartas importadas** (para poblar el dropdown de set del cotiza
 Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de
 `releaseDate`; ordenados por año **desc**).
 
-### POST /api/v1/buylist/quote — `public`  (v1.3.1: por RAREZA)
+### POST /api/v1/buylist/quote — `public`  (v1.3.1: por RAREZA · v1.6-finish: por ACABADO)
 Cotizador público (stateless). Muestra el mensaje de "pago tras recepción y verificación" (copy en frontend).
-Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition }`
+Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish }`
+- **`finish` (v1.6-finish, opcional, default `normal`):** debe pertenecer a `Card.availableFinishes`; si no →
+  `422 FINISH_NOT_AVAILABLE`. El front lo puebla del `CardDTO.availableFinishes` de la carta elegida.
 Res `200`:
 ```json
-{ "rarity": "Illustration Rare",
-  "appliedRule": { "mode": "pct", "value": 40, "source": "fallback" },
-  "quote": { "status": "cotizada", "quotedPriceCents": 5000, "currency": "MXN" },
+{ "rarity": "Common", "finish": "reverse_holo",
+  "appliedRule": { "mode": "fixed", "value": 150, "source": "rule" },
+  "quote": { "status": "cotizada", "quotedPriceCents": 150, "currency": "MXN" },
   "referencePrice": { "status": "priced", "priceMxnCents": 12500 },
   "paymentNotice": "PAY_AFTER_RECEIPT" }
 ```
-**Resolución del monto (server-side, ARCHITECTURE §4.2):** el backend toma la **rareza oficial real** de la carta
-(`Card.rarity` por `cardId`, **nunca del cliente** — SEC-A1), busca su regla en `BUYLIST_PRICE_RULES`:
-- `mode="fixed"` → `quotedPriceCents = value` (centavos). **No** depende de la referencia → siempre `cotizada`.
-- `mode="pct"`  → `quotedPriceCents = round(referencia × value/100)`. Si **falta referencia** →
-  `{ "quote": { "status": "precio_pendiente", "quotedPriceCents": null } }` (escala a cola al crear la solicitud).
-- **rareza sin regla** (nueva/no configurada) → aplica `BUYLIST_PRICE_FALLBACK_PCT` (default 40) como `pct`;
-  `appliedRule.source="fallback"`. No bloquea la cotización (solo cae en `precio_pendiente` si además falta referencia).
+**Resolución del monto (server-side, ARCHITECTURE §4.2 / §4.2.1):** el backend toma la **rareza oficial real** de la
+carta (`Card.rarity`) **y el acabado validado** (`finish` ∈ `availableFinishes`), **nunca del cliente** (SEC-A1).
+El **acabado selecciona la regla** (cadena de candidatos de `ruleKey`, primero con regla explícita gana):
+- **`reverse_holo`** → `"Reverse Holo"`.
+- **`holofoil` / `first_edition_holofoil`** → rareza base **si ya es holo** (rarity contiene "holo"), si no `"Holo"`.
+- **`normal`** → la **rareza base** (`Card.rarity`).
 
-La condición de compra es **siempre NM** (§ARCHITECTURE 3.5); `rawCondition` en el request solo puede ser `NM`.
-El seed reproduce el comportamiento anterior: Common/Uncommon `fixed 50`, Reverse Holo `fixed 150`, resto `40%`
-de la referencia (criterio 12). El "precio pendiente" es de adquisición/back-office; **nunca** se muestra al comprador.
+Con la regla resuelta se aplica `BUYLIST_PRICE_RULES`:
+- `mode="fixed"` → `quotedPriceCents = value` (centavos). **No** depende de la referencia → siempre `cotizada`.
+- `mode="pct"`  → `quotedPriceCents = round(referenciaDelAcabado × value/100)`, donde `referenciaDelAcabado` es la
+  `PriceReference` **de ESE acabado** (`tcgplayer.prices[finish].market`). Si **falta** →
+  `{ "quote": { "status": "precio_pendiente", "quotedPriceCents": null } }` (escala a cola al crear la solicitud).
+- **regla no configurada** (ninguno de los candidatos existe) → `BUYLIST_PRICE_FALLBACK_PCT` (default 40) como
+  `pct`; `appliedRule.source="fallback"`. No bloquea la cotización (solo `precio_pendiente` si además falta la
+  referencia del acabado).
+
+La condición de compra es **siempre NM** (§ARCHITECTURE 3.5); `rawCondition` solo puede ser `NM`. El seed reproduce
+el comportamiento anterior y el mapeo por acabado (ej.: **Common Reverse Holo = fixed $1.50**; Common Normal = fixed
+$0.50; resto = 40% del market del acabado). El "precio pendiente" es de adquisición/back-office; **nunca** se muestra
+al comprador. Ver la tabla de ejemplos en ARCHITECTURE §4.2.1.
 
 ### POST /api/v1/buylist/requests — `customer`
 Crea la solicitud; valida topes/KYC.
-Req: `{ items: [{ cardId, productType, rawCondition? }], clabe: string, ineUploadKeys?: { front, back } }`
+Req: `{ items: [{ cardId, productType, rawCondition?, finish? }], clabe: string, ineUploadKeys?: { front, back } }`
 > **v1.3.1:** `items` **ya no** incluye `category` (SEC-A1: el backend deriva la regla server-side de
 > `Card.rarity`; un `category` del cliente se ignora si se envía). Cada item cotizado snapshotea la regla
 > aplicada (rarity/ruleMode/ruleValue/ruleSource) y se refleja en `SellItemDTO`.
+> **v1.6-finish:** cada item lleva `finish?` (default `normal`, validado ∈ `card.availableFinishes`); se
+> **snapshotea** en `SellRequestItem.finish` y se propaga al `InventoryItem` al convertir (M5). El monto se deriva
+> por `(rarity, finish)` server-side.
 Res `201`: `{ sellRequestId, status: "cotizada", quotedTotalCents, ineRequired: boolean, items: SellItemDTO[] }`
 Err:
 - **`403 EMAIL_NOT_VERIFIED`** (v1.5 — vender es acción sensible; el cotizador público `POST /buylist/quote` **no** se bloquea)
+- **`422 FINISH_NOT_AVAILABLE`** (v1.6 — algún `finish` no está en `Card.availableFinishes` de su carta)
 - `422 BUYLIST_LIMIT_EXCEEDED` (details: `{ scope: "per_request" | "per_month", capCents, wouldBeCents }`)
 - `422 INE_REQUIRED` (supera el tope configurado y no hay INE)
 - `422 CLABE_NOT_OWN_NAME` (declaración/validación de CLABE a nombre propio)
@@ -579,8 +629,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
 ### M1 — Inventario y bóveda (`vault_operator+`)
 - `POST /api/v1/admin/inventory/items` — alta de item.
-  Req: `{ cardId, productType, rawCondition?, sealedSubtype?, gradingCompany?, gradeValue?, certNumber?, locationId, acquisitionType, acquisitionPct?, listPriceCents?, sourceSellRequestItemId? }`
+  Req: `{ cardId, productType, rawCondition?, finish?, sealedSubtype?, gradingCompany?, gradeValue?, certNumber?, locationId, acquisitionType, acquisitionPct?, listPriceCents?, sourceSellRequestItemId? }`
   - **Sin fotos propias (v1.2):** el alta **ya no recibe** `frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys`; la imagen del item es la **imagen de catálogo remota** de la `Card` (pokemontcg.io). No se sube ninguna foto de producto/inventario.
+  - **`finish` (v1.6-finish, opcional, default `normal`):** acabado de la copia física; se **valida contra `Card.availableFinishes`** (→ `422 FINISH_NOT_AVAILABLE` si no pertenece). Determina la referencia con que se valúa el item (Compra/portafolio). Para `graded`/`sealed` es `normal` (el acabado no aplica). En la **conversión desde buylist** (`convert-to-inventory`, M5) el `finish` se **hereda** del `SellRequestItem.finish` (no se recaptura).
   - `productType=raw` → `rawCondition` solo `NM` (v1.1). `productType=sealed` → `sealedSubtype?` (opcional), **sin** `rawCondition`/grade/rareza/cert; `listPriceCents` (precio manual MXN) es **obligatorio para publicar** el sellado. `productType=graded` → `gradingCompany` + `gradeValue` + **`certNumber` (nº de certificado PSA/CGC, string) — REQUERIDO para publicar una gradeada** (v1.2). Sin validación automática contra la graduadora (fuera de alcance); es un dato capturado a mano.
   Para `aportacion_en_especie`: el costo se calcula = **referencia del día × pct** (default 70, editable). El item nace `ownerType=platform`.
   Res `201`: `{ id, folio: "INV-000123", status: "in_stock", acquisitionCostCents }`
@@ -670,7 +721,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/buylist/:id/receive` — marca recepción física → `recibida`.
 - `POST /api/v1/admin/buylist/:id/verify` — inicia/registra verificación → `verificacion`.
 - `PATCH /api/v1/admin/buylist/items/:itemId/decision` — **cherry-pick** — Req `{ decision: "approve" | "adjust" | "reject", approvedPriceCents? }` → actualiza `SellItemStatus`. `adjust` fija `adjustmentSentAt` (dispara plazo de 7 días).
-- `POST /api/v1/admin/buylist/items/:itemId/convert-to-inventory` — **un clic** → crea `InventoryItem` (`acquisitionType=buylist`), item `→convertida_inventario`.
+- `POST /api/v1/admin/buylist/items/:itemId/convert-to-inventory` — **un clic** → crea `InventoryItem` (`acquisitionType=buylist`, **`finish` heredado del `SellRequestItem.finish`**, v1.6-finish), item `→convertida_inventario`.
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. Err `403 MONEY_OUT_FORBIDDEN`. Precondición: `aprobada` + verificada (pago **tras** recepción/verificación).
 
 ### M6 — Usuarios / KYC (`super_admin`; `vault_operator` lectura limitada)
@@ -781,7 +832,9 @@ Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/e
 OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, settledAt? }
 // v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity` + `appliedRule`. `category` deprecado (puede
 // venir null en filas legacy; no lo consuma el front nuevo).
-SellItemDTO      = { id, card: CardDTO, productType, rawCondition?,
+// v1.6-finish: `finish` = acabado snapshot de la cotización/solicitud (default "normal"). Determina la regla
+// (appliedRule) y la referencia usadas; se propaga a InventoryItem.finish al convertir.
+SellItemDTO      = { id, card: CardDTO, productType, rawCondition?, finish: Finish,
                      rarity?: string, appliedRule?: BuylistRuleApplied,
                      quotedPriceCents?, approvedPriceCents?, itemStatus: SellItemStatus, inventoryItemId? }
 PendingPriceEntry= { id, cardId, productType, gradeKey, context, status: "open"|"resolved", createdAt }
@@ -799,6 +852,7 @@ AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entit
 - Carta "precio pendiente" → `sellable=false`, compra bloqueada con `PRICE_PENDING`; escalada al dueño vía `PendingPriceEntry`.
 - Retiro solo sobre `settled` (`ITEM_NOT_SETTLED`); direcciones solo MX (`ADDRESS_NOT_MX`).
 - Buylist: cotización por **regla por rareza oficial** (v1.3.1 — `fixed` MX$ / `pct` % de la referencia + fallback %; reemplaza común/reverse/EX+), topes y INE (`BUYLIST_LIMIT_EXCEEDED`, `INE_REQUIRED`), pago SPEI **solo súper-admin** tras recepción/verificación. La regla se **deriva server-side** de `Card.rarity` (SEC-A1); editor en M2 (`buylist-rules`/`rarities`).
+- **Acabado / versión de carta (v1.6-finish):** `Finish = normal | reverse_holo | holofoil | first_edition_holofoil`, modelado en **toda la cadena** (Compra, cotizador, inventario/bóveda, portafolio). `CardDTO.availableFinishes` (derivado de `tcgplayer.prices`), `finish` en `ListingDTO`/`HoldingDTO`/`SellItemDTO` y en req de quote/requests/alta M1. El monto se **deriva server-side** de `(Card.rarity, finish)` **validado contra `availableFinishes`** (SEC-A1); acabado no disponible → `422 FINISH_NOT_AVAILABLE`. La cotización es por acabado: el acabado selecciona la regla (reverse holo → `"Reverse Holo"`; holofoil / 1st ed → rareza base si ya es holo, si no `"Holo"`; normal → rareza base) y, para `pct`, usa el market de **ese** acabado. `PriceReference` lleva `finish` en su clave; el provider guarda precio por acabado. **1 fila por `Card`** (no cambia). Migración **M-18** (aditiva, default seguro `normal`/`[normal]`) → **RE-SYNC** del catálogo tras desplegar. Ver ARCHITECTURE §3.7 y §4.2.1.
 - Contracargo (webhook `charge.dispute.created`) es **consciente del estado físico**: revierte el item a inventario de plataforma **solo si sigue en bóveda**; si ya se envió/entregó **no** re-agrega y marca `chargebackNeedsManual` (ver §9). Cierre de disputa: ganamos→`settled` (`disputeOutcome=won`), perdemos→`chargeback` (`disputeOutcome=lost`).
 - **VENTAS FINALES** (política del humano, ver `PROJECT.md`): no hay reembolso voluntario. Excepciones: (a) **error de la plataforma** (cobro doble/inventario fantasma) → **siempre** se reembolsa (§M3); (b) **disputa de condición** raw dañada/equivocada → el súper-admin compensa con **recompra al precio pagado**, el cliente **conserva la carta** y **no** vuelve al inventario (§M8). En ningún caso de reembolso/recompra el item se re-agrega al inventario.
 - Los montos exactos de los diales (envío 17500, IVA 16, markup de venta, tarifa Stripe, tope 300000/1000000, aportación 70%) provienen de `ConfigSetting` (M10), no hardcode; los valores aquí son defaults.

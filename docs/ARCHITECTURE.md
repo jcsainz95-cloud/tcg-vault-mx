@@ -2,7 +2,44 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.3 (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.6-finish (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+>
+> **Changelog v1.6-finish (2026-08-16)** — **Acabado / versión de carta (finish) en TODA la cadena**
+> (PROJECT.md §I / v1.4, criterios 37–44). Hoy el modelo NO distingue acabados: **1 fila `Card` con un solo
+> `rarity`**, sin `finish`, y los precios por acabado de `tcgplayer.prices` (`normal`/`reverseHolofoil`/
+> `holofoil`/`1stEditionHolofoil`) **se descartan** al importar. Se modela el **acabado (finish)** como
+> dimensión de primera clase en catálogo, precio, cotización, inventario/bóveda y valuación de portafolio:
+> - **Enum nuevo `Finish = normal | reverse_holo | holofoil | first_edition_holofoil`** (valores canónicos;
+>   derivados de las llaves de `tcgplayer.prices`, ver mapeo en §3.7).
+> - **Modelo (MIGRACIÓN M-18, aditiva, default seguro):**
+>   - `Card.availableFinishes Finish[] @default([normal])` — acabados en que existe esa carta, derivados de las
+>     llaves de `tcgplayer.prices` al importar. **Sigue siendo 1 fila por `externalId`** (el `@unique` NO se
+>     toca; `availableFinishes` es un array en la MISMA fila). Filas históricas → `[normal]` hasta el re-sync.
+>   - `PriceReference.finish Finish @default(normal)` **añadido a la clave** (`@@unique` gana `finish`), para que
+>     `normal` y `reverse_holo` tengan **referencia de precio distinta**. El provider guarda el precio **POR
+>     acabado** (ya no "el primer market disponible").
+>   - `InventoryItem.finish Finish @default(normal)` — qué acabado es la copia física; afecta valuación de
+>     portafolio y catálogo "Compra".
+>   - `SellRequestItem.finish Finish @default(normal)` — snapshot del acabado aplicado en la cotización/solicitud.
+> - **§4.2 (AcquisitionPricer) extendido:** la cotización es **por acabado**. El finish resuelve (a) **qué regla**
+>   de `BUYLIST_PRICE_RULES` aplica (reverse holo → `"Reverse Holo"`; holofoil / 1st ed holo → regla de la
+>   **rareza base si ya es holo**, si no `"Holo"`; normal → **rareza base**) y (b) **qué referencia** usa el `pct`
+>   (el market del acabado). Ver el resolver determinista en §4.2.
+> - **§4.1 (PricingProvider):** `fetchPrice`/`getReference`/`syncCardPrice` ganan `finish`; el provider mapea
+>   `finish → llave de tcgplayer.prices` y lee **ese** `market` (deja de tomar el primero disponible).
+> - **SEC-A1 INTACTO:** el monto se **deriva server-side** de `(Card.rarity, finish)` **validado contra
+>   `Card.availableFinishes`** — nunca de un precio/categoría/monto del cliente. Un acabado **no disponible** para
+>   la carta se **bloquea** (`422 FINISH_NOT_AVAILABLE`): el cliente no puede cotizar/vender un acabado inexistente
+>   para pagar de más.
+> - **Contrato:** `CardDTO` (+`availableFinishes`), `ListingDTO`/`HoldingDTO`/`SellItemDTO` (+`finish`),
+>   `POST /buylist/quote` y `POST /buylist/requests` (+`finish`), facetas de Compra (+`finishes`) y filtro
+>   `finish`. Ver `API_CONTRACT.md` (Changelog v1.6-finish).
+> - **Nota de despliegue:** **requiere RE-SYNC del catálogo** tras migrar para poblar `availableFinishes` y las
+>   `PriceReference` por acabado (los datos ya importados no traen finish hasta el re-sync; el default seguro
+>   `normal`/`[normal]` mantiene todo operable mientras tanto). El re-sync es idempotente (v1.3.1).
+> - **Fuera de alcance de este cambio (bundle v1.4 aparte):** el **origen del inventario**
+>   (`owner_contribution` vs `client_purchase`) y el **alta de inventario por set** son otro ítem de PROJECT
+>   §I/M1; NO se modelan en este contrato de finish (se enrutan por separado al arquitecto).
 >
 > **Changelog v1.5-auth-email (2026-08-16)** — **Verificación de correo + recuperación de contraseña
 > self-service por email** (proveedor **Resend**). Decisiones de producto ya cerradas por el humano:
@@ -263,6 +300,7 @@ PendingPriceEntry (cola de precio pendiente)
 
 #### Card (catálogo, datos en inglés, no se traduce)
 - `id`, `externalId` (pokemontcg.io id), `setId` (FK CardSet), `name` (EN), `number`, `rarity`, `supertype`, `subtypes` (JSONB), `imageSmallUrl`, `imageLargeUrl`, `tcgplayerId?`, `createdAt`.
+- **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta, **derivados de las llaves de `tcgplayer.prices`** al importar (ver mapeo §3.7). **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2).
 - Índices: `(setId)`, `(name)`, `(rarity)`, `externalId` único.
 
 #### VaultLocation (M1 — ubicación jerárquica CAJA/FILA/SLOT)
@@ -285,16 +323,19 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - Estado operativo: `status` (`in_stock | listed | reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`).
 - Precio de venta: `listPriceCents?` (MXN sin IVA; **= `round(referenciaMxn × (1 + salesMarkupPct/100))`** con `salesMarkupPct` dial M10, o override manual directo; si null y sin `PriceReference` → **"precio pendiente"**, no vendible). El **valor de referencia** (valor de mercado mostrado) es el de `PriceReference`, distinto del precio de venta.
 - Costo y adquisición: `acquisitionType` (`aportacion_en_especie | buylist | compra`), `acquisitionCostCents`, `acquisitionPct?` (ej. 70 para aportación en especie), `sourceSellRequestItemId?`.
+- **`finish Finish @default(normal)` (v1.6-finish, MIGRACIÓN M-18):** qué **acabado** es la copia física (Normal / Reverse Holo / Holofoil / 1st Edition Holo). Se captura al alta (M1) y debe pertenecer a `card.availableFinishes`. **Afecta la valuación** (se valúa contra la `PriceReference` de ESE acabado, §4.1) y el **catálogo "Compra"** (se lista/filtra por acabado, §4.9). Filas históricas → `normal`. Para `graded`/`sealed` el finish es siempre `normal` (el acabado solo aplica a raw/singles; ver §3.7).
 - `createdAt`, `updatedAt`.
 - Índices: `folio` único, `(cardId)`, `(status)`, `(ownerUserId)`, `(locationId)`.
 
 #### InventoryMovement (M1 — historial)
 - `id`, `itemId`, `fromLocationId?`, `toLocationId?`, `fromStatus?`, `toStatus?`, `reason` (`alta | move | sale | settle | chargeback_return | withdrawal | lost | damaged | buylist_convert`), `actorUserId`, `note?`, `createdAt`.
 
-#### PriceReference (M2 — precio por carta/tipo/fecha/fuente/FX)
-- `id`, `cardId`, `productType`, `gradeKey` (string normalizada: `raw:NM`, `graded:PSA:10`, `sealed`), `source` (`pokemontcg_io | pokemonpricetracker | poketrace | manual`), `priceUsdCents?`, `fxRate?` (decimal), `fxBufferPct?`, `priceMxnCents`, `capturedDate` (date), `isManualOverride` (bool), `createdAt`.
-- Unicidad: `(cardId, productType, gradeKey, capturedDate)`. **Cache diario** = una fila por día por combinación.
-- **Precio pendiente** = no hay fila vigente con `priceMxnCents` y no hay override → genera `PendingPriceEntry`.
+#### PriceReference (M2 — precio por carta/tipo/**acabado**/fecha/fuente/FX)
+- `id`, `cardId`, `productType`, `gradeKey` (string normalizada: `raw:NM`, `graded:PSA:10`, `sealed`), **`finish Finish @default(normal)` (v1.6-finish, MIGRACIÓN M-18)**, `source` (`pokemontcg_io | pokemonpricetracker | poketrace | manual`), `priceUsdCents?`, `fxRate?` (decimal), `fxBufferPct?`, `priceMxnCents`, `capturedDate` (date), `isManualOverride` (bool), `createdAt`.
+- **Unicidad (v1.6-finish):** `@@unique([cardId, productType, gradeKey, finish, capturedDate])` — **`finish` se añade a la clave**. Así `normal` y `reverse_holo` de la misma carta tienen **referencia de precio distinta** (una fila por día **por acabado**). El provider guarda el precio **POR acabado** (`tcgplayer.prices[finish].market`), no "el primer market disponible".
+- **`gradeKey` NO cambia de semántica:** sigue describiendo condición/grado (`raw:NM`, `graded:PSA:10`, `sealed`); el `finish` es **ortogonal** y vive en su propia columna (más limpio y consulteable que codificarlo en el string). `buildGradeKey` se mantiene igual; el `finish` viaja como **parámetro explícito** por `getReference(cardId, productType, gradeKey, finish)` / `syncCardPrice(...)` (§4.1). Para `graded`/`sealed`, `finish=normal` siempre (sin cambio de comportamiento; el default lo cubre).
+- **Cache diario** = una fila por día por `(carta, tipo, gradeKey, acabado)`.
+- **Precio pendiente** = no hay fila vigente con `priceMxnCents` para ESE acabado y no hay override → genera `PendingPriceEntry`.
 
 #### PendingPriceEntry (cola de precio pendiente — escalado al dueño)
 - `id`, `cardId`, `productType`, `gradeKey`, `context` (`catalog | portfolio | buylist | inventory`), `refId?` (item/sellRequestItem que lo originó), `status` (`open | resolved`), `resolvedPriceRefId?`, `createdAt`, `resolvedAt?`.
@@ -334,6 +375,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 
 #### SellRequestItem
 - `id`, `sellRequestId`, `cardId`, `productType`, `rawCondition?`, `quotedPriceCents?` (null si precio pendiente), `approvedPriceCents?`, `itemStatus` (`cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario`), `inventoryItemId?` (al convertir).
+- **`finish Finish @default(normal)` (v1.6-finish, MIGRACIÓN M-18):** **snapshot del acabado** aplicado en la cotización/solicitud (validado contra `card.availableFinishes` al crear). Determina la regla y la referencia usadas (§4.2). Al **convertir a inventario** (M5), el `finish` se **propaga** al `InventoryItem.finish`.
 - **Regla de precio aplicada (v1.3.1 — snapshot para auditoría, reemplaza `category`):**
   - `rarity?` (String — snapshot de `Card.rarity` al cotizar; taxonomía abierta pokemontcg.io).
   - `ruleMode?` (**enum `BuylistRuleMode = fixed | pct`** — modo de la regla aplicada).
@@ -511,6 +553,39 @@ Notas de coherencia:
 
 ---
 
+### 3.7 Acabado / versión de carta (`Finish`) — v1.6-finish
+
+Una misma `Card` puede existir en varios **acabados** (versiones de impresión). El acabado es una **dimensión de
+primera clase** del precio, la cotización, el inventario y la valuación. **NO** rompe "1 fila por `Card`": los
+acabados disponibles viven en `Card.availableFinishes` (array en la misma fila), y cada `InventoryItem`/
+`SellRequestItem`/`PriceReference` referencia **un** acabado concreto.
+
+**Enum canónico:** `Finish = normal | reverse_holo | holofoil | first_edition_holofoil`.
+
+**Mapeo `tcgplayer.prices` (llave remota) → `Finish` (decisión del humano, PROJECT §I):**
+
+| Llave `tcgplayer.prices` | `Finish` | Nota |
+|---|---|---|
+| `normal` | `normal` | |
+| `reverseHolofoil` | `reverse_holo` | |
+| `holofoil` | `holofoil` | |
+| `1stEditionHolofoil` | `first_edition_holofoil` | |
+| `1stEditionNormal` | *(no mapeada en el MVP)* | Se ignora al derivar `availableFinishes`. Ver pregunta abierta v1.4-1. |
+| `unlimitedHolofoil` / `unlimited` | *(no mapeada en el MVP)* | Idem. |
+
+- **Derivación de `availableFinishes`:** al importar (`upsertCards`, §4.8), se recorren las **llaves presentes**
+  de `card.tcgplayer.prices`, se mapean con la tabla anterior (descartando las no mapeadas) y el conjunto único
+  resultante se guarda en `Card.availableFinishes`. Si `tcgplayer.prices` está ausente/vacío → `[normal]`
+  (default seguro). El `client` de pokemontcg.io **deja de descartar** `tcgplayer.prices` (§4.8).
+- **Alcance por tipo de producto:** el acabado aplica a **raw/singles**. Para `graded`/`sealed` el `finish` es
+  siempre `normal` (el slab/sellado no distingue acabado a efectos de precio); el default lo cubre y no cambia el
+  comportamiento actual.
+- **Validación (SEC-A1):** cualquier `finish` recibido del cliente (cotizador, alta de inventario) se **valida
+  contra `card.availableFinishes`**; si no pertenece → `422 FINISH_NOT_AVAILABLE`. El monto/precio **nunca** se
+  toma del cliente: se deriva server-side de `(Card.rarity, finish)` (§4.2).
+- **Filas históricas / default:** `Card.availableFinishes=[normal]`, `InventoryItem.finish=normal`,
+  `SellRequestItem.finish=normal`, `PriceReference.finish=normal`. El **re-sync** repuebla los reales.
+
 ## 4. Módulos y límites
 
 ### 4.1 PricingProvider (intercambiable)
@@ -519,8 +594,8 @@ Interfaz (pseudocódigo, en `modules/pricing`):
 interface PricingProvider {
   readonly source: PriceSource;               // pokemontcg_io | pokemonpricetracker | poketrace | manual
   supports(productType: ProductType): boolean;
-  // Devuelve precio USD (o MXN si la fuente ya da MXN) o null si la fuente no tiene precio.
-  fetchPrice(input: { card: Card; productType: ProductType; gradeKey: string }): Promise<PriceQuote | null>;
+  // v1.6-finish: `finish` añadido al input. Devuelve precio USD (o MXN) del acabado pedido, o null.
+  fetchPrice(input: { card: Card; productType: ProductType; gradeKey: string; finish: Finish }): Promise<PriceQuote | null>;
 }
 ```
 Implementaciones MVP:
@@ -528,11 +603,17 @@ Implementaciones MVP:
 - `PokemonPriceTrackerProvider` / `PokeTraceProvider` → graded y sealed (free tier).
 - `ManualOverrideProvider` → override del admin (siempre disponible como respaldo).
 
+**v1.6-finish — precio POR acabado:** `PokemonTcgIoProvider.fetchPrice` mapea `finish → llave de
+`tcgplayer.prices` (inverso de la tabla §3.7: `normal→normal`, `reverse_holo→reverseHolofoil`,
+`holofoil→holofoil`, `first_edition_holofoil→1stEditionHolofoil`) y lee **ese** `prices[llave].market`
+(antes tomaba el **primer** market disponible, mezclando acabados). Si esa llave no existe → `null` →
+"precio pendiente" para ese acabado. Los providers de `graded`/`sealed` ignoran `finish` (siempre `normal`).
+
 `PricingService` orquesta:
 1. Elige provider según `productType` leyendo el dial de M10 (`pricing_provider_*`).
-2. **Solo pricea cartas en bóveda** (no el catálogo completo) y con **cache diario** (revisa `PriceReference` del día antes de llamar la API).
+2. **Solo pricea cartas en bóveda** (no el catálogo completo) y con **cache diario** (revisa `PriceReference` del día **para ese acabado** antes de llamar la API). **`getReference(cardId, productType, gradeKey, finish)`** y **`syncCardPrice(card, productType, gradeKey, finish, context, refId?)`** ganan `finish`; el upsert/lookup usa la clave compuesta con `finish` (§3.2 PriceReference). `buildGradeKey` NO cambia (el finish es parámetro aparte).
 3. Aplica **FX + colchón** (`FxService`) para obtener `priceMxnCents`.
-4. Si el provider devuelve `null` y no hay override → crea `PendingPriceEntry` y expone el estado **"precio pendiente"** (no vendible; escalado al dueño).
+4. Si el provider devuelve `null` y no hay override → crea `PendingPriceEntry` (con `finish` en el contexto) y expone el estado **"precio pendiente"** (no vendible; escalado al dueño).
 5. Respeta rate-limit del free tier vía cola BullMQ.
 
 ### 4.2 AcquisitionPricer (buylist) — tabla de precio por RAREZA OFICIAL (v1.3.1)
@@ -616,6 +697,82 @@ reversible desde el editor.
 **Alcance = solo buylist (pregunta abierta 4 resuelta):** esta tabla afecta **únicamente** la cotización de
 compra al usuario (buylist). El **costo de aportación en especie** del inventario propio sigue usando su dial
 propio (`aportacion_pct`, default 70%); no se toca.
+
+#### 4.2.1 Cotización POR ACABADO (v1.6-finish)
+
+La cotización es **por acabado**. El `finish` seleccionado (validado contra `card.availableFinishes`, SEC-A1)
+determina **dos cosas de forma determinista y server-side**: (a) **qué regla** de `BUYLIST_PRICE_RULES` aplica y
+(b) **qué referencia de mercado** usa el `pct` (la `PriceReference` de ESE acabado, §4.1). El mapeo (decisión del
+humano, PROJECT §I) se implementa como una **cadena de candidatos de `ruleKey`** — gana el **primero con regla
+explícita**; si ninguno existe → `BUYLIST_PRICE_FALLBACK_PCT`:
+
+```ts
+type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
+
+// Una rareza "ya es holo" si su string (pokemontcg.io) contiene "holo" (case-insensitive):
+// "Rare Holo", "Rare Holo EX/GX/V/VMAX/VSTAR"… (NO "Ultra Rare"/"Illustration Rare", que caen al fallback igual).
+function isHoloRarity(rarity: string | null): boolean {
+  return rarity != null && rarity.toLowerCase().includes('holo');
+}
+
+// Candidatos de ruleKey EN ORDEN DE PRIORIDAD (primero con regla explícita en BUYLIST_PRICE_RULES gana).
+function ruleKeyCandidates(rarity: string | null, finish: Finish): string[] {
+  switch (finish) {
+    case 'reverse_holo':            return ['Reverse Holo'];                                  // siempre la regla "Reverse Holo"
+    case 'holofoil':
+    case 'first_edition_holofoil':  return isHoloRarity(rarity) ? [rarity!, 'Holo'] : ['Holo']; // rareza base si ya es holo, si no "Holo"
+    case 'normal':                  return rarity != null ? [rarity] : [];                     // regla de la rareza base
+    default:                        return [];
+  }
+}
+
+// referenceMxnCentsForFinish = PriceReference.priceMxnCents del ACABADO cotizado (getReference(..., finish)).
+function quoteAcquisitionForFinish(
+  rarity: string | null, finish: Finish,
+  referenceMxnCentsForFinish: number | null,
+  rules: Record<string, BuylistRule>, fallbackPct: number,
+) {
+  const candidates = ruleKeyCandidates(rarity, finish);
+  const hitKey = candidates.find((k) => rules[k] != null);
+  const rule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };
+  const ruleSource: 'rule' | 'fallback' = hitKey ? 'rule' : 'fallback';
+  // De aquí en adelante idéntico a quoteAcquisition (§4.2): fixed → value (siempre 'cotizada');
+  // pct → round(referenceMxnCentsForFinish × value/100), o 'precio_pendiente' si la referencia del acabado falta.
+  return applyRule(rule, ruleSource, referenceMxnCentsForFinish);
+}
+```
+
+**Por qué la guarda `isHoloRarity` en Holofoil:** sin ella, un **Common en Holofoil** resolvería a la regla
+`"Common"` (fixed $0.50 bulk) por ser el primer candidato — **incorrecto**: una copia holofoil vale un % de su
+market. Con la guarda, para rarezas NO-holo (Common/Uncommon/Rare no-holo) el Holofoil salta directo a `"Holo"`
+(no sembrada por defecto → **fallback 40%** del market **holofoil**), y solo una rareza **ya holo** con regla
+explícita usa su propia regla. Para rarezas holo sin regla explícita, ambos candidatos caen al fallback 40% (mismo
+resultado), así que la guarda solo actúa como desempate seguro.
+
+**Resultado con el seed vigente (defaults):**
+
+| `Card.rarity` | `finish` | ruleKey resuelto | Regla | Monto |
+|---|---|---|---|---|
+| Common | `normal` | `Common` | fixed 50 | **$0.50** |
+| Common | `reverse_holo` | `Reverse Holo` | fixed 150 | **$1.50** |
+| Common | `holofoil` | `Holo` (no sembrada) → fallback | pct 40 | **40% del market holofoil** |
+| Illustration Rare | `normal` | `Illustration Rare` (no sembrada) → fallback | pct 40 | **40% del market normal** |
+| Rare Holo | `holofoil` | `Rare Holo`→`Holo` (ninguna sembrada) → fallback | pct 40 | **40% del market holofoil** |
+| cualquiera | `first_edition_holofoil` | igual que `holofoil` | — | **% del market `1stEditionHolofoil`** |
+
+**Claves sintéticas vs rareza real:** `"Reverse Holo"` y `"Holo"` son **ruleKeys sintéticos** del acabado (no son
+`Card.rarity`); conviven en `BUYLIST_PRICE_RULES` con las rarezas reales. `"Reverse Holo"` viene **sembrado**
+(fixed $1.50); `"Holo"` **no** (→ fallback 40%), pero el dueño puede añadirlo en M2 sin deploy. Esto **cierra la
+brecha** del v1.3.1, donde `"Reverse Holo"` solo aplicaba si `Card.rarity` era literalmente esa cadena (raro); ahora
+aplica cuando el **acabado** es reverse holo, que es el caso típico ("esta común la traigo en reverse").
+
+**"Precio pendiente" por acabado (criterio 43):** una carta con regla efectiva `pct` cuyo **acabado no tiene
+referencia** (`getReference(..., finish)` = null) cae en `precio_pendiente` (escala al dueño), igual que hoy; las
+reglas `fixed` siempre cotizan. `SellRequestItem` snapshotea `finish` + la regla aplicada.
+
+**1st Edition (decisión):** `first_edition_holofoil` mapea a la **misma regla** que `holofoil` (acabado
+equivalente), usando el **market de la llave `1stEditionHolofoil`**. Sin regla propia "1st Edition" en el MVP
+(pregunta abierta v1.4-2, default asumido); si el dueño la quisiera, se añade un ruleKey dedicado en M2.
 
 ### 4.3 Integración Stripe (payments)
 - Checkout crea `PaymentIntent` (o Checkout Session) con líneas: subtotal, **fee de procesamiento trasladado**, **IVA 16%**. El total cobrado incluye ambas.
@@ -704,6 +861,7 @@ Ingesta de **datos de catálogo** (Card/CardSet, en inglés, no se traduce). Ali
   - `fromReleaseDate` validado como fecha `yyyy/MM/dd`.
   - Autenticación con `POKEMONTCG_IO_API_KEY`; rate-limit vía la misma cola BullMQ.
 - **Rarezas:** `Card.rarity` permanece **`String` libre** (captura cualquier rareza tal cual la entrega pokemontcg.io — taxonomía **abierta**, NO enum cerrado). Esto garantiza capturar rarezas modernas presentes y futuras sin migración.
+- **Acabados (v1.6-finish):** el `client` de pokemontcg.io **deja de descartar** `tcgplayer.prices` — su tipo gana `prices?: Record<string, { market?: number }>`. En `upsertCards`, se derivan las **llaves presentes** de `card.tcgplayer.prices`, se **mapean a `Finish`** (tabla §3.7, descartando las no mapeadas) y el conjunto único se persiste en **`Card.availableFinishes`**. Ausente/vacío → `[normal]`. El **sync de precios** (M2) crea `PriceReference` **por cada acabado** disponible (`prices[llave].market`), no solo el primero (§4.1). **Este cambio requiere RE-SYNC** para poblar acabados/precios de las cartas ya importadas (§11 M-18).
 - **Año del set:** se persiste `CardSet.releaseDate`; el **año** para los filtros de Compra se **deriva** de `releaseDate` (no se guarda columna redundante; ver `year` en §4.9).
 - Todas las operaciones de sync son de `super_admin` y quedan en `AuditLog`.
 
@@ -714,8 +872,10 @@ Ingesta de **datos de catálogo** (Card/CardSet, en inglés, no se traduce). Ali
   - **`rarities`**: `distinct` de `Card.rarity` sobre el inventario publicado, **espejando los valores de pokemontcg.io tal cual** (taxonomía abierta, lista NO cerrada; el front no asume un conjunto fijo).
   - **`sets`**: `{ id, name, releaseDate, year }` (con `year` derivado de `CardSet.releaseDate`), solo los sets con inventario publicado, ordenados por **año desc**.
   - **`productTypes`**: subconjunto de `raw | graded | sealed` presente en el inventario publicado.
+  - **`finishes` (v1.6-finish)**: `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
   - **rangos de precio** (min/max de `salePriceCents`) para el slider de precio.
-- **Filtros** del listado: `setId`, `rarity`, `productType` (raw NM | graded | sealed), rango de precio, y `condition` (para raw solo hay `NM`).
+- **Filtros** del listado: `setId`, `rarity`, `productType` (raw NM | graded | sealed), **`finish` (v1.6-finish)**, rango de precio, y `condition` (para raw solo hay `NM`).
+- **Valuación por acabado (v1.6-finish):** `referenceValue`/`salePriceCents` de cada `ListingDTO` se calculan contra la `PriceReference` del **`InventoryItem.finish`** (no un precio único por carta). Dos copias de la misma carta con acabado distinto se listan como **entradas separadas** con su propio precio.
 
 ### 4.10 Cotizador buylist sobre TODO el catálogo (Opción 1) — v1.3
 
@@ -1017,6 +1177,25 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.6-finish (nueva — acabado / versión de carta)
+
+**Aditiva.** Toda columna nueva trae **default seguro** (`normal` / `[normal]`), así que las filas ya
+existentes quedan operables sin backfill manual. **Requiere RE-SYNC del catálogo tras desplegar** para poblar
+`availableFinishes` y las `PriceReference` por acabado reales (los datos ya importados no traen finish hasta el
+re-sync; hasta entonces todo se comporta como `normal`). El re-sync es idempotente (v1.3.1).
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-18 | Enum **`Finish = normal \| reverse_holo \| holofoil \| first_edition_holofoil`** | **Add enum** | Valores canónicos (§3.7). Cerrado a estos 4 por decisión del humano (mapeo de llaves de `tcgplayer.prices`); `1stEditionNormal`/`unlimited*` no se mapean en el MVP (pregunta abierta v1.4-1). |
+| M-18 | `Card.availableFinishes` | **Nuevo** `Finish[] @default([normal])` | Add column (default) | Acabados en que existe la carta, derivados de `tcgplayer.prices` al importar. **NO** toca el `@unique` de `externalId` (sigue 1 fila por carta). Filas históricas → `[normal]`; re-sync repuebla. |
+| M-18 | `PriceReference.finish` + `@@unique` | **Nuevo** `Finish @default(normal)`; unicidad pasa de `(cardId, productType, gradeKey, capturedDate)` a **`(cardId, productType, gradeKey, finish, capturedDate)`** | Add column (default) + alter unique | `finish` entra a la clave para que cada acabado tenga referencia propia. Filas existentes → `finish=normal` (siguen únicas bajo la nueva clave). `gradeKey` sin cambio de semántica. |
+| M-18 | `InventoryItem.finish` | **Nuevo** `Finish @default(normal)` | Add column (default) | Acabado de la copia física; afecta valuación y "Compra". Se captura en M1; `graded`/`sealed` = `normal`. |
+| M-18 | `SellRequestItem.finish` | **Nuevo** `Finish @default(normal)` | Add column (default) | Snapshot del acabado cotizado/solicitado; se propaga a `InventoryItem.finish` al convertir. |
+
+> **Diales/config:** M-18 **no** requiere columnas de `ConfigSetting`. Reutiliza `BUYLIST_PRICE_RULES` /
+> `BUYLIST_PRICE_FALLBACK_PCT` (v1.3.1); las claves sintéticas `"Reverse Holo"` (ya sembrada) y `"Holo"`
+> (opcional, la añade el dueño en M2) son entradas de esa misma tabla. Ver §4.2.1.
 
 ### v1.5-auth-email (nueva — verificación de correo + recuperación self-service)
 
