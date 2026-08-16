@@ -30,7 +30,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       </label>
       <div
         className={cn(
-          'mt-3 flex items-baseline gap-2 border-b pb-3',
+          // El campo no tiene caja, pero el ANILLO de foco (bermellón, --shadow-focus)
+          // es la excepción de accesibilidad que sobrevive a "sombras 0"
+          // (DESIGN_SYSTEM §6.2 focus = borde --color-primary + --shadow-focus; §8.2).
+          // El <input> interno lleva outline-none, así que el anillo va en el wrapper.
+          'mt-3 flex items-baseline gap-2 border-b pb-3 focus-within:shadow-focus',
           error ? 'border-accent' : 'border-border-strong focus-within:border-text',
         )}
       >

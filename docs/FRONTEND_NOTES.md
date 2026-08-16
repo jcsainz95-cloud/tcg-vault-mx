@@ -4,6 +4,54 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Adopción del rediseño 5a "sin look de IA" + fix del anillo de foco (2026-08-16)
+
+Rama `claude/rediseno-5a-pantallas`. Una sesión hermana implementó el rediseño 5a (paleta papel/tinta
+`#f4f1ea`/`#1a1a18` + bermellón `#b44b3a`, fuentes self-hosted por `next/font`, radios y sombras a 0,
+tema oscuro eliminado, carrito en header, `domain/ListingSpec.tsx`, primitivas refinadas). Como rol dueño
+de `frontend/` se **adoptó** (revisión + verificación, sin rehacer el diseño). Se respetan las decisiones
+ratificadas por el humano: StatusBadge sin iconos en críticos y NM abreviado (mono) en la retícula
+—accesibles vía `aria-label`/`title`—, tema oscuro eliminado, y `Home.dc.html` diferida (no implementada).
+
+### MUST-FIX 1 — anillo de foco de accesibilidad (RESTAURADO en Input/Select)
+El grueso de la infraestructura de foco **sobrevivió** a "sombras 0" y se confirmó intacta:
+- `globals.css` conserva `--color-focus-ring: #b44b3a` y el `:focus-visible` global
+  (`outline: 2px solid var(--color-focus-ring); outline-offset: 2px`). Botones y links (sin `outline-none`)
+  reciben ese anillo bermellón. `PhotoUploader` trae su propio sustituto `focus-visible:shadow-[0_0_0_3px…]`.
+- `tailwind.config.ts` conserva `boxShadow.focus = '0 0 0 2px var(--color-focus-ring)'` (clase `shadow-focus`).
+
+**Hallazgo real y corregido:** `components/ui/Input.tsx` y `Select.tsx` ponían `outline-none` en el control
+interno (capa `utilities`), que **gana** sobre el `:focus-visible` global (capa `base`), y el wrapper solo
+cambiaba el borde inferior (`border-strong` 32% → `border-text` 100%). Ese indicador de un solo borde es
+débil y —clave— DESIGN_SYSTEM §6.2 exige que el foco de un campo sea **`borde --color-primary` + `--shadow-focus`**
+(el anillo), reforzado por §8.2 ("foco visible SIEMPRE; el anillo sobrevive a sombras 0"). El rediseño había
+soltado el anillo en campos/selects. Fix (solo estas dos primitivas): se añadió `focus-within:shadow-focus`
+al wrapper de ambos (el `<input>`/`<select>` interno mantiene `outline-none`, así no hay doble anillo). Ahora
+un campo enfocado muestra borde tinta + anillo bermellón 2px, alineado con §6.2/§8.2. Sin tocar
+DESIGN_SYSTEM (es de ux-ui); solo se **implementó** lo que ya especificaba.
+
+### Verificaciones (todas OK, sin cambios extra)
+- **Fuentes:** `app/[locale]/layout.tsx` carga Zen Old Mincho / Archivo / JetBrains Mono por `next/font/google`
+  (self-host, `display:'swap'`, sin FOUT roto), exponiendo `--font-serif`/`--font-sans`/`--font-mono` que
+  consumen `globals.css` y el `fontFamily` de tailwind. El viejo `--font-inter: 'Inter'` (que nunca se cargaba)
+  ya no existe. `body` usa `font-sans`; H1–H4 y `.vertical-label` usan `--font-serif`; cifras/eyebrow, `--font-mono`.
+- **Header carrito:** `StorefrontHeader` usa `useCart()` (`lib/cart.ts`), que arranca en `useState([])` y lee
+  `localStorage` en `useEffect` → servidor y primer render de cliente pintan `count=0` idéntico (sin mismatch de
+  hidratación); la sesión usa el patrón `ready` de `useSession`. Contador visible en desktop y en el menú móvil.
+- **i18n paridad:** las 5 claves nuevas existen en ES y EN — `nav.cart` (Carrito/Cart),
+  `checkout.removeItem` (Quitar/Remove), `vault.cardColumn` (Carta/Card), `vault.statusColumn` (Estado/Status),
+  `admin.superAdminTag` (Súper/Super). El test `i18n-parity` pasa.
+
+### Gates (desde `frontend/`, tras el fix)
+`npm run lint` ✓ (0 warnings) · `npm run typecheck` ✓ · `npm run test` (vitest) **163/163** (30 archivos) ·
+`npm run build` ✓ (rutas es/en prerenderizadas, `next/font` descarga las 3 familias vía el proxy) ·
+Playwright `npx playwright test` **40/40** verdes (Chromium `/opt/pw-browsers/chromium`, server dev en modo
+mocks). El fix del anillo es CSS aditivo (una clase `focus-within:shadow-focus` en dos wrappers): no altera
+roles/textos/selectores, por eso los 40 E2E siguen verdes.
+
+### Solicitudes al arquitecto
+Ninguna. La adopción no consumió endpoints nuevos ni tocó el contrato; el único cambio es de accesibilidad/UI.
+
 ## A3 subida robusta de INE + D1 alta M1 por set + G1 bóveda por set (2026-08-16)
 
 Tres cambios independientes, solo `frontend/` (+ esta nota). **No** se tocó el contrato ni backend.

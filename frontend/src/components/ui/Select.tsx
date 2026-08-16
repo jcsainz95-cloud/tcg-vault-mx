@@ -29,7 +29,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       <label htmlFor={selectId} className="eyebrow">
         {label}
       </label>
-      <div className="relative mt-3 border-b border-border-strong pb-3 focus-within:border-text">
+      {/* Anillo de foco (bermellón, --shadow-focus) en el wrapper: el <select> lleva
+          outline-none. Excepción de accesibilidad que sobrevive a "sombras 0"
+          (DESIGN_SYSTEM §6.3 → §6.2 focus = borde --color-primary + --shadow-focus; §8.2). */}
+      <div className="relative mt-3 border-b border-border-strong pb-3 focus-within:border-text focus-within:shadow-focus">
         <select
           ref={ref}
           id={selectId}
