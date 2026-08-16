@@ -5,16 +5,28 @@ import { useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { ProductType } from '@/types/contract';
+import type { ProductType, RawCondition } from '@/types/contract';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { PhotoUploader } from '@/components/ui/PhotoUploader';
 import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
 
-export interface BuylistKycFormProps {
+/**
+ * Ítem del payload de `POST /buylist/requests` (contrato §6). El modelo es
+ * 1 item por carta física: una cantidad N ya viene EXPANDIDA a N entradas por
+ * el carrito (BuylistView). El DTO solo lleva cardId/productType/rawCondition;
+ * NO se envían precios ni categorías (SEC-A1: el backend re-deriva el monto).
+ */
+export interface BuylistRequestItem {
   cardId: string;
   productType: ProductType;
+  rawCondition?: RawCondition;
+}
+
+export interface BuylistKycFormProps {
+  /** items del carrito ya expandidos por cantidad (≥1). */
+  items: BuylistRequestItem[];
   /** se invoca con el id de la solicitud creada (para refrescar la lista / cerrar). */
   onCreated: (sellRequestId: string) => void;
 }
@@ -28,7 +40,7 @@ const CLABE_RE = /^\d{18}$/;
  * Maneja loading/error/éxito y los errores de negocio (INE_REQUIRED, CLABE_NOT_OWN_NAME,
  * BUYLIST_LIMIT_EXCEEDED).
  */
-export function BuylistKycForm({ cardId, productType, onCreated }: BuylistKycFormProps) {
+export function BuylistKycForm({ items, onCreated }: BuylistKycFormProps) {
   const t = useTranslations('buylist');
   const tine = useTranslations('ine');
 
@@ -57,13 +69,10 @@ export function BuylistKycForm({ cardId, productType, onCreated }: BuylistKycFor
     setSubmitting(true);
     try {
       const res = await createSellRequest({
-        items: [
-          {
-            cardId,
-            productType,
-            rawCondition: productType === 'raw' ? 'NM' : undefined,
-          },
-        ],
+        // Todos los items del carrito, ya expandidos por cantidad. El DTO solo
+        // lleva cardId/productType/rawCondition; el backend re-deriva el monto
+        // y decide el requisito de INE/tope por el TOTAL (SEC-A1, server-side).
+        items,
         clabe,
         ineUploadKeys: ineComplete ? { front: ineFrontKey!, back: ineBackKey! } : undefined,
       });

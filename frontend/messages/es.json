@@ -296,7 +296,22 @@
     "rarityLabel": "Rareza",
     "appliedRuleLabel": "Regla aplicada",
     "ruleFixed": "{amount} fijo",
-    "rulePct": "{pct}% de referencia"
+    "rulePct": "{pct}% de referencia",
+    "addToCart": "Agregar al carrito",
+    "addedToCart": "Agregada al carrito",
+    "cartTitle": "Carrito de venta",
+    "cartCount": "{count} carta(s)",
+    "cartEmpty": "Tu carrito está vacío. Cotiza una carta y agrégala para venderla.",
+    "cartItemEstimate": "Estimado c/u",
+    "quantity": "Cantidad",
+    "increaseQty": "Aumentar cantidad",
+    "decreaseQty": "Disminuir cantidad",
+    "removeLine": "Quitar",
+    "totalEstimated": "Total estimado",
+    "clearCart": "Vaciar carrito",
+    "linePending": "Precio pendiente",
+    "estimateNote": "El total es un ESTIMADO. El monto final lo confirma la plataforma cuando recibimos y verificamos tus cartas.",
+    "sendRequestCta": "Enviar solicitud ({count})"
   },
   "ine": {
     "front": "INE (anverso)",

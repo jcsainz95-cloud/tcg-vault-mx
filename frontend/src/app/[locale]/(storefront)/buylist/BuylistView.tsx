@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Info, ShieldQuestion, Search, Check } from 'lucide-react';
+import { Info, ShieldQuestion, Search, Check, ShoppingCart, Plus, Minus, Trash2 } from 'lucide-react';
 import { getBuylistQuote, getSellRequests, listBuylistSets, searchBuylistCards } from '@/lib/api';
-import type { ProductType, CardDTO } from '@/types/contract';
+import type { ProductType, CardDTO, RawCondition, BuylistQuoteResponse } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Select } from '@/components/ui/Select';
@@ -16,12 +16,29 @@ import { Modal } from '@/components/ui/Modal';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
-import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
+import { BuylistKycForm, type BuylistRequestItem } from '@/components/domain/BuylistKycForm';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { useBuylistSteps } from '@/lib/pipelines';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
+
+/**
+ * Una línea del carrito de venta. Snapshotea el ESTIMADO de la cotización
+ * (`quote`) que se le muestra al usuario; el monto autoritativo lo re-deriva el
+ * backend al crear la solicitud (SEC-A1). `quantity` se expande a N entradas de
+ * `items` al enviar (el modelo es 1 item por carta física).
+ */
+interface CartLine {
+  id: string;
+  card: CardDTO;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  quote: BuylistQuoteResponse;
+  quantity: number;
+}
+
+let lineSeq = 0;
 
 export function BuylistView() {
   const t = useTranslations('buylist');
@@ -40,6 +57,10 @@ export function BuylistView() {
   const [requestOpen, setRequestOpen] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
+  // --- Carrito de venta: varias cartas en UNA sola solicitud ---
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [justAdded, setJustAdded] = useState(false);
+
   const sets = useQuery({ queryKey: ['buylist-sets'], queryFn: listBuylistSets });
 
   // Solo se busca cuando hay set o texto (evita traer todo el catálogo sin filtro).
@@ -54,20 +75,72 @@ export function BuylistView() {
     setSearchQuery(searchInput.trim());
   }
 
+  const rawCondition: RawCondition | undefined = productType === 'raw' ? 'NM' : undefined;
+
   const quote = useMutation({
     // Condición de compra SIEMPRE NM (v1.1): raw se envía con rawCondition='NM', sin selector.
     mutationFn: () =>
-      getBuylistQuote({
-        cardId: selectedCard!.id,
-        productType,
-        rawCondition: productType === 'raw' ? 'NM' : undefined,
-      }),
+      getBuylistQuote({ cardId: selectedCard!.id, productType, rawCondition }),
   });
 
   function pickCard(card: CardDTO) {
     setSelectedCard(card);
+    setJustAdded(false);
     quote.reset();
   }
+
+  function addToCart() {
+    if (!selectedCard || !quote.data) return;
+    lineSeq += 1;
+    setCart((prev) => [
+      ...prev,
+      {
+        id: `line-${lineSeq}`,
+        card: selectedCard,
+        productType,
+        rawCondition,
+        quote: quote.data,
+        quantity: 1,
+      },
+    ]);
+    setJustAdded(true);
+  }
+
+  function setQuantity(lineId: string, quantity: number) {
+    setCart((prev) =>
+      prev.map((l) => (l.id === lineId ? { ...l, quantity: Math.max(1, quantity) } : l)),
+    );
+  }
+
+  function removeLine(lineId: string) {
+    setCart((prev) => prev.filter((l) => l.id !== lineId));
+  }
+
+  // Total ESTIMADO: suma quotedPriceCents × cantidad. Las líneas en precio
+  // pendiente no aportan (el backend fija su monto al recibir).
+  const totalEstimatedCents = useMemo(
+    () =>
+      cart.reduce(
+        (sum, l) => sum + (l.quote.quote.quotedPriceCents ?? 0) * l.quantity,
+        0,
+      ),
+    [cart],
+  );
+
+  const cartCount = cart.reduce((n, l) => n + l.quantity, 0);
+
+  // Expansión cantidad → items: N entradas por línea (1 item por carta física).
+  const requestItems: BuylistRequestItem[] = useMemo(
+    () =>
+      cart.flatMap((l) =>
+        Array.from({ length: l.quantity }, () => ({
+          cardId: l.card.id,
+          productType: l.productType,
+          rawCondition: l.rawCondition,
+        })),
+      ),
+    [cart],
+  );
 
   const requests = useQuery({ queryKey: ['sell-requests'], queryFn: getSellRequests });
 
@@ -176,7 +249,11 @@ export function BuylistView() {
             label={t('selectType')}
             options={PRODUCT_TYPES.map((p) => ({ value: p, label: p }))}
             value={productType}
-            onChange={(e) => setProductType(e.target.value as ProductType)}
+            onChange={(e) => {
+              setProductType(e.target.value as ProductType);
+              setJustAdded(false);
+              quote.reset();
+            }}
           />
           {productType === 'raw' && (
             // Sin selector de condición: NM fijo (único grado que compramos).
@@ -232,17 +309,15 @@ export function BuylistView() {
                   </span>
                 </div>
               )}
-              <Banner variant="info">{t('kycNotice')}</Banner>
-              <Button
-                variant="accent"
-                disabled={quote.data.quote.status === 'precio_pendiente'}
-                onClick={() => {
-                  setCreatedId(null);
-                  setRequestOpen(true);
-                }}
-              >
-                {t('createRequest')}
+              {/* Agregar la carta cotizada al carrito con su estimado (snapshot). */}
+              <Button variant="accent" onClick={addToCart}>
+                <ShoppingCart size={18} /> {t('addToCart')}
               </Button>
+              {justAdded && (
+                <p className="flex items-center gap-1.5 text-sm text-success" role="status">
+                  <Check size={16} aria-hidden /> {t('addedToCart')}
+                </p>
+              )}
             </div>
           )}
           <Banner variant="info" title="">
@@ -252,6 +327,119 @@ export function BuylistView() {
           </Banner>
         </div>
       </div>
+
+      {/* Panel de carrito: varias cartas en UNA sola solicitud de venta */}
+      <section className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+        <div className="flex items-center gap-2">
+          <ShoppingCart size={20} className="text-primary" aria-hidden />
+          <h2 className="text-h2 font-semibold">{t('cartTitle')}</h2>
+          {cartCount > 0 && (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary tabular">
+              {t('cartCount', { count: cartCount })}
+            </span>
+          )}
+        </div>
+
+        {cart.length === 0 ? (
+          <EmptyState title={t('cartEmpty')} />
+        ) : (
+          <>
+            <ul className="flex flex-col divide-y divide-border">
+              {cart.map((l) => {
+                const pending = l.quote.quote.status === 'precio_pendiente';
+                const unitCents = l.quote.quote.quotedPriceCents ?? 0;
+                return (
+                  <li key={l.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p lang="en" className="truncate font-medium">{l.card.name}</p>
+                      <p className="text-xs text-muted">
+                        <span lang="en">{l.card.setName}</span>
+                        {l.card.rarity && <> · <span lang="en">{l.card.rarity}</span></>}
+                        {' · '}
+                        {l.productType === 'raw' ? `${l.productType} · NM` : l.productType}
+                      </p>
+                      <p className="mt-0.5 text-xs">
+                        <span className="text-muted">{t('cartItemEstimate')}: </span>
+                        {pending ? (
+                          <span className="font-medium text-warning">{t('linePending')}</span>
+                        ) : (
+                          <span className="tabular font-medium text-success">
+                            {formatMoneyCents(unitCents, locale)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1" role="group" aria-label={t('quantity')}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={t('decreaseQty')}
+                        disabled={l.quantity <= 1}
+                        onClick={() => setQuantity(l.id, l.quantity - 1)}
+                      >
+                        <Minus size={16} />
+                      </Button>
+                      <span className="tabular w-8 text-center text-sm font-medium" aria-live="polite">
+                        {l.quantity}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={t('increaseQty')}
+                        onClick={() => setQuantity(l.id, l.quantity + 1)}
+                      >
+                        <Plus size={16} />
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <span className="tabular w-24 text-right text-sm font-semibold">
+                        {pending ? '—' : formatMoneyCents(unitCents * l.quantity, locale)}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={t('removeLine')}
+                        onClick={() => removeLine(l.id)}
+                      >
+                        <Trash2 size={16} className="text-danger" />
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <div className="flex items-center justify-between border-t border-border pt-3">
+              <span className="font-semibold">{t('totalEstimated')}</span>
+              <span className="tabular text-h3 font-bold text-success">
+                {formatMoneyCents(totalEstimatedCents, locale)}
+              </span>
+            </div>
+
+            {/* SEC-A1: el total es un ESTIMADO; el backend confirma el monto al recibir. */}
+            <Banner variant="info">{t('estimateNote')}</Banner>
+            <Banner variant="info">{t('kycNotice')}</Banner>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="accent"
+                disabled={cart.length === 0}
+                onClick={() => {
+                  setCreatedId(null);
+                  setRequestOpen(true);
+                }}
+              >
+                {t('sendRequestCta', { count: cartCount })}
+              </Button>
+              <Button variant="ghost" onClick={() => setCart([])}>
+                <Trash2 size={16} /> {t('clearCart')}
+              </Button>
+            </div>
+          </>
+        )}
+      </section>
 
       {createdId && (
         <Banner variant="success" role="status">
@@ -310,13 +498,14 @@ export function BuylistView() {
       </Modal>
 
       <Modal open={requestOpen} onClose={() => setRequestOpen(false)} title={t('requestTitle')}>
-        {quote.data && quote.data.quote.status !== 'precio_pendiente' && selectedCard && (
+        {requestItems.length > 0 && (
           <BuylistKycForm
-            cardId={selectedCard.id}
-            productType={productType}
+            items={requestItems}
             onCreated={(sellRequestId) => {
               setCreatedId(sellRequestId);
               setRequestOpen(false);
+              setCart([]);
+              setJustAdded(false);
               void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
             }}
           />

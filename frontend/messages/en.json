@@ -296,7 +296,22 @@
     "rarityLabel": "Rarity",
     "appliedRuleLabel": "Applied rule",
     "ruleFixed": "{amount} fixed",
-    "rulePct": "{pct}% of reference"
+    "rulePct": "{pct}% of reference",
+    "addToCart": "Add to cart",
+    "addedToCart": "Added to cart",
+    "cartTitle": "Sell cart",
+    "cartCount": "{count} card(s)",
+    "cartEmpty": "Your cart is empty. Get a quote for a card and add it to sell it.",
+    "cartItemEstimate": "Est. each",
+    "quantity": "Quantity",
+    "increaseQty": "Increase quantity",
+    "decreaseQty": "Decrease quantity",
+    "removeLine": "Remove",
+    "totalEstimated": "Estimated total",
+    "clearCart": "Clear cart",
+    "linePending": "Price pending",
+    "estimateNote": "The total is an ESTIMATE. The final amount is confirmed by the platform when we receive and verify your cards.",
+    "sendRequestCta": "Submit request ({count})"
   },
   "ine": {
     "front": "INE (front)",

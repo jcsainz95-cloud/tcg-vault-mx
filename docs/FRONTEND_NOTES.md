@@ -4,6 +4,66 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Cotizador de buylist como CARRITO (varias cartas en una solicitud) — 2026-08-16
+
+Feature **solo frontend** (sin cambio de contrato). El cotizador dejó de ser un flujo de
+una-carta-a-la-vez y ahora es un **carrito**: se cotizan varias cartas y se envían en **una sola**
+`POST /buylist/requests` (que ya recibía `items: RequestItemDto[]`). No se inventó ningún endpoint
+batch: `POST /buylist/quote` sigue siendo **por carta** y sus resultados son **estimados** que se
+snapshotean en cada línea; el monto autoritativo lo re-deriva el backend server-side (SEC-A1).
+
+### Archivos tocados (todos dentro de `frontend/`)
+- `src/app/[locale]/(storefront)/buylist/BuylistView.tsx` — reescrito: estado de carrito + panel de
+  carrito + total estimado + envío único.
+- `src/components/domain/BuylistKycForm.tsx` — props cambiadas de `{cardId, productType}` a
+  `{items: BuylistRequestItem[]}`; el form ahora envía **todos** los items del carrito (ya
+  expandidos). Nuevo tipo exportado `BuylistRequestItem = {cardId, productType, rawCondition?}`.
+- `messages/es.json` / `messages/en.json` — llaves nuevas del carrito (paridad ES/EN).
+- Tests: `BuylistView.test.tsx` (agrega casos de carrito), `BuylistKycForm.test.tsx` (props `items`),
+  `e2e/buylist.spec.ts` (flujo cotizar → agregar al carrito → enviar).
+
+### Flujo del carrito (pasos + UI)
+1. **Buscar** por set y/o texto sobre TODO el catálogo (`GET /buylist/cards`, `GET /buylist/sets`).
+2. **Elegir carta** de los resultados (`role=option`).
+3. **Elegir tipo** (`raw|graded|sealed`; raw fija `NM`, sin selector) y **Cotizar**
+   (`POST /buylist/quote`, por carta).
+4. **Agregar al carrito** (botón `accent`): añade una **línea** con el snapshot del estimado
+   (`BuylistQuoteResponse`) y `quantity=1`. Se puede agregar la misma carta varias veces (líneas
+   independientes) y/o subir la **cantidad** por línea.
+5. **Panel de carrito** (sección full-width bajo el cotizador): lista de líneas (nombre/set/rareza/
+   tipo + estimado c/u + control −/N/+ de cantidad + quitar), **Total estimado** (suma
+   `quotedPriceCents × cantidad`; las líneas `precio_pendiente` muestran "Precio pendiente" y aportan
+   0), **nota de estimado** (SEC-A1) y **nota de KYC**. Carrito vacío → `EmptyState`, sin botón de
+   enviar.
+6. **Enviar solicitud ({count})** (habilitado con ≥1 línea) abre **una sola vez** el `BuylistKycForm`
+   (CLABE + INE por presign `kyc_ine`) y llama `createSellRequest` con todos los items. Al crear:
+   limpia el carrito, invalida `['sell-requests']` y muestra el banner de éxito. El requisito de
+   INE/tope lo decide el **backend por el TOTAL** (no se reimplementa en el front).
+
+### Expansión cantidad → items
+Al enviar, `cart.flatMap(line => Array(line.quantity).fill({cardId, productType, rawCondition}))`
+produce el array `items`: una línea con `quantity=3` genera **3 entradas** idénticas (el modelo es
+1 item por carta física). El payload solo lleva `cardId/productType/rawCondition`; **no** se envían
+precios ni categorías (el `ValidationPipe` descarta lo demás; SEC-A1).
+
+### SEC-A1 / claridad
+- El total del carrito se rotula explícitamente como **ESTIMADO** (`buylist.estimateNote`): "el monto
+  final lo confirma la plataforma al recibir y verificar".
+- No se envía monto/categoría/rareza en el payload; el backend re-deriva la regla de `Card.rarity`.
+
+### Historial de "mis solicitudes"
+Intacto: sigue consumiendo `GET /buylist/requests` y renderizando `PipelineStepper` + items con sus
+`StatusBadge`. Solo se invalida su query tras crear una solicitud.
+
+### Gates (frontend/)
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (144/144, incluye paridad i18n y los
+casos nuevos de carrito: agregar, quitar, cantidad, total, envío con múltiples items) ·
+`npm run build` ✓.
+
+### Solicitudes al arquitecto
+Ninguna. El contrato ya soportaba múltiples ítems en `POST /buylist/requests`; no hizo falta ningún
+campo/endpoint nuevo.
+
 ## v1.5-auth-email — Verificación de correo + recuperación self-service (2026-08-16)
 
 Implementación del changelog `v1.5-auth-email` del contrato (§1). Verificar el correo **NO** bloquea
