@@ -4,6 +4,61 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Destacadas por precio (home) + cierre en lote de deuda 5a (2026-08-16)
+
+Dos cosas, solo `frontend/` (+ esta nota + entradas 5a de `TECH_DEBT.md`). **No** se tocó backend, el
+contrato ni las decisiones ratificadas del rediseño (minimalista, sin tema oscuro). Gates verdes al
+final: `lint` ✓ · `typecheck` ✓ · `vitest` **156/156** (29 archivos) · `next build` ✓ · Playwright **40/40**.
+
+### 1. DESTACADAS = las MÁS CARAS del inventario real (`(storefront)/page.tsx`)
+La home pedía `getCatalog({})` y tomaba `.filter(sellable).slice(0,4)` **sin ordenar por precio**, así que
+las "destacadas" eran las 4 primeras del orden por defecto del backend, no las de mayor valor.
+- Ahora pide **`getCatalog({ sort: 'price_desc', pageSize: FEATURED })`** (`FEATURED=4`). El backend ordena
+  por `salePriceCents` sobre el **set completo ANTES de paginar** y solo devuelve sellables con precio
+  (excluye precio-pendiente), así que las 4 que llegan son las de mayor `salePriceCents`. `CatalogSort` y el
+  filtro `sort`/`pageSize` ya existían en `lib/api.ts` (no se tocó el contrato).
+- `queryKey` cambiado a **`['catalog', { home: true, sort: 'price_desc' }]`** para no colisionar con la caché
+  del catálogo general (`CatalogView` usa su propia key con filtros).
+- Se **conserva** `.filter(sellable).slice(0, FEATURED)` como red de seguridad. Con inventario vacío no pinta
+  nada (correcto); al poblarse, las 4 serán las de mayor precio.
+
+### 2. Deuda del rediseño 5a — cerrada/degradada en lote (IDs `5a-D1/D3/D4/D5/D6` + menores de la home)
+- **5a-D3 (CERRADA):** anillo de foco unificado al token **`shadow-focus` (2px)**. Se quitaron los
+  `shadow-[0_0_0_3px_var(--color-focus-ring)]` (3px inline) de `DisputeEvidenceContact.tsx` (link mailto +
+  botón Copiar) y `PhotoUploader.tsx` (botón de captura). `Button.tsx` ya no tenía inline 3px (usa el
+  `:focus-visible` global). Ya **no** hay ningún anillo de 3px en el código (grep `shadow-[0_0_0_3px` → 0);
+  todo el foco es el `outline` global o `shadow-focus` 2px, consistente con Input/Select. Sin doble anillo
+  (los controles mantienen `outline-none`).
+- **5a-D4 (CERRADA):** `ListingSpec.tsx` variante `compact` graded ahora compone el **`aria-label` con
+  empresa + grado + cert SIEMPRE** (§7.2b), aunque el texto **visible** siga abreviado (sin cert en la
+  retícula). Se construye `gradedAriaLabel` cuando el cert se omite del visible; el `aria-label` final es el
+  del tooltip NM (raw) o `gradedAriaLabel` (graded compacto).
+- **5a-D5 (CERRADA):** se quitaron las vars muertas **`--radius-sm/md/lg/xl`** de `globals.css` (Tailwind
+  hardcodea `borderRadius: 0px`; nadie consume `var(--radius-*)`). No existían vars `--shadow-*` en
+  `globals.css` (el único boxShadow con var es `boxShadow.focus` en tailwind.config, que SÍ se usa). **No** se
+  tocó `--color-focus-ring` ni `boxShadow.focus`.
+- **5a-D6 (CERRADA):** en `PortfolioTrendChart.tsx`, el fallback `LIGHT.up` pasó de `#4E7A49` a **`#4a7345`**
+  para alinearse al token vivo `--color-success` (ya ajustado al fix de contraste AA). Elimina el drift en el
+  primer paint antes de que `useTrendColors` lea el token real.
+- **5a-D1 (CERRADA — opción b, ELIMINADO):** `ConditionBadge` estaba **huérfano** (solo lo importaba su
+  test). Se **eliminó** el componente **y su test**. Razón: el rediseño 5a sustituyó la fila de pastillas
+  (condición + acabado + cert) por el renglón mono `ListingSpec`, y la **ficha de detalle** (`CardDetailView`)
+  pinta la condición como **`Fact` de texto plano** coherente con la dirección minimalista ratificada, con
+  `CertNumberField` para el cert gradeado. Adoptar `ConditionBadge` (un `Badge`/pastilla de color +
+  `GradedCertChip`) dentro de esos Facts de texto plano sería **forzado** y reintroduciría pastillas que el
+  rediseño quitó a propósito. `GradedCertChip` **sobrevive** intacto: lo usa el back-office M8 (`M8View`) de
+  forma independiente. El E2E `catalog.spec.ts:56` ("la ficha de detalle pinta la condición con su etiqueta
+  legible") sigue verde, confirmando que la lógica inline de la ficha cubre el caso.
+- **Menores de la home (qa):**
+  - Las queries de la home ya **no degradan en silencio** a grid vacío si fallan. `catalog` (destacadas) y
+    `holdings` (valor por set) muestran un bloque **error + botón Reintentar** (`common.errorTitle` +
+    `common.retry`, `Button` secundario que llama `refetch()`), con el estilo `rule-note` minimalista.
+  - `PortfolioGlance` → el `Sparkline` con `summary=""` ahora es **`aria-hidden`** en vez de `role="img"` con
+    `aria-label` vacío. `Sparkline` decide: con `summary` no vacío mantiene `role="img"`+`aria-label` (vista
+    completa, con tabla accesible); con `summary` vacío (el vistazo de la home, donde el `Delta` ya narra el
+    cambio) es decorativo. Sin lectores anunciando "imagen" sin contenido.
+
+
 ## Adopción del rediseño 5a "sin look de IA" + fix del anillo de foco (2026-08-16)
 
 Rama `claude/rediseno-5a-pantallas`. Una sesión hermana implementó el rediseño 5a (paleta papel/tinta

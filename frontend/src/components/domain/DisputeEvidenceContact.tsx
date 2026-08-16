@@ -46,7 +46,7 @@ export function DisputeEvidenceContact({ email, reference }: DisputeEvidenceCont
         <div className="flex flex-wrap items-center gap-2">
           <a
             href={mailto}
-            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-fg hover:bg-primary-hover focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-focus-ring)]"
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-fg hover:bg-primary-hover focus-visible:outline-none focus-visible:shadow-focus"
           >
             <Mail size={16} aria-hidden />
             <span className="tabular-nums" data-testid="evidence-email">
@@ -56,7 +56,7 @@ export function DisputeEvidenceContact({ email, reference }: DisputeEvidenceCont
           <button
             type="button"
             onClick={copy}
-            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md border border-border-strong px-3 text-sm font-medium hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-focus-ring)]"
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-md border border-border-strong px-3 text-sm font-medium hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus"
             aria-label={t('copyEmail')}
           >
             {copied ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}

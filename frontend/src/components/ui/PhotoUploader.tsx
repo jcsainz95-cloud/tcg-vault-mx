@@ -227,7 +227,7 @@ export function PhotoUploader({
         onClick={() => inputRef.current?.click()}
         disabled={disabled || state === 'uploading' || state === 'processing'}
         aria-describedby={error ? errId : undefined}
-        className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-md border border-border-strong bg-surface px-4 text-sm font-medium hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-focus-ring)] disabled:opacity-45 disabled:cursor-not-allowed"
+        className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-md border border-border-strong bg-surface px-4 text-sm font-medium hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-focus disabled:opacity-45 disabled:cursor-not-allowed"
       >
         {state === 'done' ? (
           <>

@@ -59,12 +59,6 @@
   --color-on-ink-rule: rgba(244, 241, 234, 0.14);
 
   --color-focus-ring: #b44b3a;
-
-  /* Sin esquinas redondeadas en ninguna parte del sistema. */
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
 }
 
 @layer base {

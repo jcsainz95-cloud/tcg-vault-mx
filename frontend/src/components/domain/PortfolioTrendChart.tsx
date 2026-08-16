@@ -15,7 +15,9 @@ import { cn } from '@/lib/cn';
 const RANGES: PortfolioRange[] = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
 
 type TrendColors = { up: string; down: string; flat: string; muted: string };
-const LIGHT: TrendColors = { up: '#4E7A49', down: '#B44B3A', flat: '#6E695E', muted: '#6E695E' };
+// Fallbacks alineados a los tokens vivos de globals.css para no driftear en el
+// primer paint (up = --color-success #4a7345, ya ajustado al fix de contraste AA).
+const LIGHT: TrendColors = { up: '#4a7345', down: '#B44B3A', flat: '#6E695E', muted: '#6E695E' };
 
 /** Lee los tokens de color resueltos tras montar en cliente. */
 function useTrendColors(): TrendColors {
@@ -136,13 +138,20 @@ function Sparkline({
 }: {
   points: { valueMxnCents: number }[];
   color: string;
+  /** resumen accesible; si es vacío, la polilínea es decorativa (aria-hidden) */
   summary: string;
   dashed: boolean;
 }) {
   if (points.length < 2) return null;
   const chartData = points.map((p) => ({ v: p.valueMxnCents }));
+  // Sin resumen (p. ej. el vistazo de la home, donde el Delta ya narra el cambio)
+  // la gráfica es puramente decorativa: aria-hidden evita un role=img con
+  // aria-label vacío (lector de pantalla anunciando "imagen" sin contenido).
+  const a11y = summary
+    ? ({ role: 'img', 'aria-label': summary } as const)
+    : ({ 'aria-hidden': true } as const);
   return (
-    <div role="img" aria-label={summary} className="h-[90px] w-full shrink-0 sm:w-[280px]">
+    <div {...a11y} className="h-[90px] w-full shrink-0 sm:w-[280px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 4, right: 0, left: 0, bottom: 4 }}>
           <Line

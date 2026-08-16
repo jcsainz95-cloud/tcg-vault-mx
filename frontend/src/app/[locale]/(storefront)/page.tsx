@@ -12,6 +12,7 @@ import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
 import { PortfolioGlance } from '@/components/domain/PortfolioTrendChart';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Button } from '@/components/ui/Button';
 
 const FEATURED = 4;
 
@@ -38,7 +39,14 @@ export default function HomePage() {
   const authed = ready && isAuthenticated;
 
   const holdings = useQuery({ queryKey: ['holdings'], queryFn: getHoldings, enabled: authed });
-  const catalog = useQuery({ queryKey: ['catalog', { home: true }], queryFn: () => getCatalog({}) });
+  // Destacadas = las MÁS CARAS del inventario real. El backend ordena por
+  // salePriceCents sobre el set completo ANTES de paginar y solo devuelve
+  // sellables con precio (excluye precio-pendiente), así que pedimos las 4 de
+  // mayor precio. queryKey propio para no colisionar con la caché del catálogo.
+  const catalog = useQuery({
+    queryKey: ['catalog', { home: true, sort: 'price_desc' }],
+    queryFn: () => getCatalog({ sort: 'price_desc', pageSize: FEATURED }),
+  });
 
   // Valor por set del portafolio: misma derivación que en Mi bóveda (suma de
   // referenceMxnCents por set; las pendientes sin valor no aportan).
@@ -105,6 +113,19 @@ export default function HomePage() {
                 <div className="eyebrow">{tv('valueBySet')}</div>
                 <div className="mt-5 flex flex-col gap-5">
                   {holdings.isLoading && <Skeleton className="h-16 w-full" />}
+                  {holdings.isError && (
+                    <div className="rule-note py-1">
+                      <p className="text-sm font-medium text-accent">{tc('errorTitle')}</p>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => holdings.refetch()}
+                      >
+                        {tc('retry')}
+                      </Button>
+                    </div>
+                  )}
                   {setValues.map((s) => (
                     <div key={s.setId}>
                       <div className="flex justify-between text-[13px] text-text">
@@ -161,6 +182,21 @@ export default function HomePage() {
           {t('viewAllCatalog')}
         </Link>
       </div>
+      {catalog.isError ? (
+        <div className="gutter pb-16 lg:pb-20">
+          <div className="rule-note py-1">
+            <p className="text-sm font-medium text-accent">{tc('errorTitle')}</p>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-3"
+              onClick={() => catalog.refetch()}
+            >
+              {tc('retry')}
+            </Button>
+          </div>
+        </div>
+      ) : (
       <div className="gutter grid grid-cols-2 gap-6 pb-16 lg:grid-cols-4 lg:gap-10 lg:pb-20">
         {catalog.isLoading &&
           Array.from({ length: FEATURED }).map((_, i) => (
@@ -186,6 +222,7 @@ export default function HomePage() {
           </Link>
         ))}
       </div>
+      )}
 
       {/* Banda de tinta: el buylist cierra la home con el único botón bermellón. */}
       <div className="grid bg-ink lg:grid-cols-[56px_1fr_auto] lg:items-center">

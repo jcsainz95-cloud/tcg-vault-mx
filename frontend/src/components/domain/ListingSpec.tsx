@@ -21,11 +21,11 @@ export interface ListingSpecProps {
  * Ficha técnica de una copia como un solo renglón mono: `RAW · NM · HOLOFOIL`,
  * `GRADED · PSA 9 · CERT 84213307`, `SELLADO · ETB`.
  *
- * Dirección 5a: sustituye a la fila de pastillas (ConditionBadge + FinishBadge +
- * GradedCertChip) del catálogo y de la bóveda. Un solo renglón se lee más rápido
- * y no compite con el arte, que es lo que debe mandar en la retícula.
- * ConditionBadge sigue existiendo para donde el dato necesita su propio hueco
- * (ficha de detalle), no para las retículas.
+ * Dirección 5a: sustituye a la fila de pastillas (condición + acabado + cert) del
+ * catálogo y de la bóveda. Un solo renglón se lee más rápido y no compite con el
+ * arte, que es lo que debe mandar en la retícula. En la ficha de detalle la
+ * condición se pinta como Fact de texto plano (no pastilla); el cert gradeado
+ * usa CertNumberField. GradedCertChip sobrevive solo en el back-office (M8).
  */
 export function ListingSpec({
   productType,
@@ -51,10 +51,18 @@ export function ListingSpec({
       ? `${t('catalog.condition.nm.label')} — ${t('catalog.condition.nm.desc')}`
       : undefined;
 
+  // aria-label enriquecido para graded compacto: el texto VISIBLE puede abreviar
+  // (sin cert en la retícula), pero §7.2b exige que el aria-label SIEMPRE lleve el
+  // certificado (empresa + grado + cert). Se compone aparte cuando se omite del visible.
+  let gradedAriaLabel: string | undefined;
   if (productType === 'graded') {
     const grade = `${gradingCompany ?? ''} ${gradeValue ?? ''}`.trim();
     if (grade) parts.push(grade);
-    if (certNumber && !compact) parts.push(`${t('card.certLabel')} ${certNumber}`);
+    if (certNumber) {
+      const certPart = `${t('card.certLabel')} ${certNumber}`;
+      if (!compact) parts.push(certPart);
+      else gradedAriaLabel = [...parts, certPart].join(' · ');
+    }
   } else if (productType === 'sealed') {
     if (sealedSubtype) parts.push(t(`status.sealedSubtype.${sealedSubtype}`));
   } else {
@@ -64,10 +72,11 @@ export function ListingSpec({
   }
 
   const line = parts.join(' · ');
+  const ariaLabel = nmTooltip ? `${line}. ${nmTooltip}` : gradedAriaLabel;
   return (
     <p
       title={nmTooltip}
-      aria-label={nmTooltip ? `${line}. ${nmTooltip}` : undefined}
+      aria-label={ariaLabel}
       className={cn(
         'font-mono text-[11px] uppercase leading-none tracking-[0.08em] text-text',
         className,
