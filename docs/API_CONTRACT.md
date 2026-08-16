@@ -4,6 +4,24 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.5-auth-email (2026-08-16) — Verificación de correo + recuperación de contraseña self-service (Resend):**
+> Decisiones de producto cerradas por el humano. **La verificación NO bloquea el login** — bloquea **acciones
+> sensibles** (server-side, no solo UI). Recuperación con **ambos** flujos (self-service por email + reset por
+> admin existente).
+> - **Endpoints nuevos (auth, §1):** `POST /auth/verify-email/resend` (`customer+`), `POST /auth/verify-email`
+>   (`public`), `POST /auth/forgot-password` (`public`, **siempre 200** anti-enumeración), `POST /auth/reset-password`
+>   (`public`). El registro email/password **emite** el token de verificación y envía el correo.
+> - **Objeto `user` de `/auth/register|login|google` ahora incluye `emailVerified`** (ya estaba en `/users/me`).
+>   El front usa ese flag para el banner "verifica tu correo"; el bloqueo real lo hace el backend.
+> - **Gating server-side (nuevo `403 EMAIL_NOT_VERIFIED`):** con `emailVerified=false` se rechazan
+>   `POST /checkout/session` (§4), `POST /shipments` (§5) y `POST /buylist/requests` (§6). Los `*/quote` y el
+>   cotizador público **no** se bloquean. Google entra con `emailVerified=true` (no afectado).
+> - **Modelo de tokens (`AuthToken`, MIGRACIÓN M-17):** un solo uso, `type` (`email_verification | password_reset`),
+>   **hash** en BD (nunca el claro), expira 24h / 1h. Ver ARCHITECTURE §3.2, §4.11 y §11.
+> - **Reset (self-service o admin) incrementa `User.tokenVersion`** → revoca sesiones (patrón existente).
+> - **Env nuevas:** `RESEND_API_KEY` (secreto, requerida en no-local), `MAIL_FROM` (default `no-reply@tcgvaultmx.com`).
+>   Los links de los correos apuntan al **frontend** (`${APP_BASE_URL}/<locale>/verify-email|reset-password?token=…`).
+>
 > **Changelog v1.2 / v1.2.1 (2026-08-14):** simplificación aprobada por el humano (PROJECT.md › "Simplificación
 > v1.2" y "Corrección v1.2.1").
 > - **Sin fotos de producto/inventario:** el producto **no lleva fotos propias**; la imagen mostrada es la
@@ -90,6 +108,7 @@
 { "error": { "code": "PRICE_PENDING", "message": "human-readable EN fallback", "details": {} } }
 ```
 - **Códigos comunes:** `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `422` (regla de negocio), `429 RATE_LIMITED`, `500 INTERNAL`.
+- **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **Idempotencia:** endpoints de pago aceptan header `Idempotency-Key`.
 - **PII sensible (CLABE / RFC / INE):** por **defecto se devuelven ENMASCARADOS** en **todas** las respuestas (cliente y back-office, incluido `super_admin`). Formato: CLABE → `****1234` (últimos 4 dígitos), RFC → parcial (ej. `XAX**********`). La **CLABE en claro (18 dígitos) SOLO** se obtiene por el endpoint dedicado `GET /admin/buylist/:id/reveal-clabe` (`super_admin`, money-out, **auditado**). Estos campos viven **cifrados en reposo** (ver ARCHITECTURE §3.4); el contrato nunca expone RFC/CLABE/INE en claro fuera del reveal.
 
@@ -101,6 +120,7 @@ ProductType         = graded | sealed | raw
 RawCondition        = NM                                 // v1.1: ÚNICO valor (se eliminan LP|MP|HP|DMG). Migración.
 SealedSubtype       = box | etb | bundle | tin | blister // v1.1: subtipo opcional del sellado
 AuthProvider        = local | google                     // v1.1: proveedor de autenticación del User
+AuthTokenType       = email_verification | password_reset // v1.5: token de un solo uso (hash en BD); verificación 24h, reset 1h
 GradingCompany      = PSA | CGC
 OwnerType           = platform | customer
 OwnershipStatus     = pending | settled
@@ -160,12 +180,20 @@ BreakdownDTO = { subtotalCents, ivaCents, ivaRatePct, processingFeeCents, totalC
 
 ### POST /api/v1/auth/register — `public`
 Req: `{ email, password, name, phone, locale? }`
-Res `201`: `{ user: { id, email, name, role, locale }, accessToken, refreshToken }`
+Res `201`: `{ user: { id, email, name, role, locale, emailVerified }, accessToken, refreshToken }`
 Err: `409 EMAIL_TAKEN`, `400 VALIDATION_ERROR`.
+> **v1.5:** al registrar (email/password) el usuario nace con `emailVerified=false`; el backend **emite un token
+> de verificación (`AuthToken`, 24h)** y **envía el correo** (Resend). El registro **no** falla si el envío del
+> correo falla (se registra el error; el usuario puede pedir reenvío). El `user` de la respuesta incluye ahora
+> `emailVerified` (siempre `false` recién registrado). El usuario **puede iniciar sesión y navegar** sin verificar,
+> pero las acciones sensibles quedan bloqueadas hasta verificar (ver `403 EMAIL_NOT_VERIFIED`).
 
 ### POST /api/v1/auth/login — `public`
 Req: `{ email, password }` → Res `200`: `{ user, accessToken, refreshToken }`. Err: `401 INVALID_CREDENTIALS`, `403 USER_BLOCKED`.
 Nota: una cuenta creada solo con Google tiene `passwordHash=null`; este endpoint la rechaza con `401 INVALID_CREDENTIALS` (no revela que es cuenta Google) hasta que el usuario fije contraseña.
+> **v1.5:** el login **NO** exige `emailVerified` (un usuario sin verificar sí puede entrar y navegar). El objeto
+> `user` incluye `emailVerified` para que el front decida el banner. `403 USER_BLOCKED` sigue aplicando a
+> cuentas `blocked`/`deleted`; `emailVerified=false` **no** es motivo de rechazo de login.
 
 ### POST /api/v1/auth/google — `public`  (v1.1)
 Login/registro con **ID token de Google** (Google Identity Services en el front con `NEXT_PUBLIC_GOOGLE_CLIENT_ID`). El backend **verifica el ID token server-side** (firma JWKS, `aud=GOOGLE_CLIENT_ID`, `iss` de Google, `exp`, `email_verified=true`) antes de emitir sus JWT. El `role` se asigna **server-side** (siempre `customer` para altas nuevas); **nunca** se lee del token.
@@ -183,6 +211,46 @@ Req: `{ refreshToken }` → Res `200`: `{ accessToken, refreshToken }`. Err: `40
 
 ### POST /api/v1/auth/logout — `customer+`
 Res `204`.
+
+### Verificación de correo (v1.5)
+Bloquea **acciones sensibles**, no el login. El correo lo envía Resend; el link apunta al frontend
+(`${APP_BASE_URL}/<locale>/verify-email?token=<claro>`). Token de un solo uso, 24h (`AuthToken`, ARCHITECTURE §4.11).
+
+#### POST /api/v1/auth/verify-email/resend — `customer+`
+Reenvía el correo de verificación al **email de la sesión** (usa `req.user`; **sin body** → cero enumeración).
+Rota los tokens de verificación previos y emite uno nuevo (24h). Rate-limit **3/hora por usuario** (+ IP).
+Req: `{}` → Res `200`: `{ ok: true }`.
+- Si el usuario **ya está verificado** → `200 { ok: true }` no-op (no reenvía).
+- Rate-limit excedido → `429 RATE_LIMITED`.
+
+#### POST /api/v1/auth/verify-email — `public`
+Consume el token del link (se abre desde el correo, quizá sin sesión). Marca `User.emailVerified=true` y el token
+como usado. **No** altera `tokenVersion` (verificar no revoca sesiones). Rate-limit **10/min por IP**.
+Req: `{ token: string }` → Res `200`: `{ verified: true }`.
+Err: `422 EMAIL_VERIFY_TOKEN_INVALID` (inválido / expirado / ya usado — no se distingue el motivo).
+- Idempotencia: si el `User` del token ya está verificado, responde `200 { verified: true }` aunque el token ya
+  esté usado (tolera doble clic).
+
+### Recuperación de contraseña — self-service (v1.5)
+Complementa el reset por admin de M6 (`POST /admin/users/:id/reset-password`, §M6), que **se conserva**. Ambos
+flujos **incrementan `User.tokenVersion`** (revocan sesiones). Token de un solo uso, 1h.
+
+#### POST /api/v1/auth/forgot-password — `public`
+Solicita el link de restablecimiento. **SIEMPRE responde `200`** exista o no el email (**anti-enumeración**).
+Si el email existe, emite `AuthToken(password_reset, 1h)`, rota tokens de reset previos y envía el correo
+(`${APP_BASE_URL}/<locale>/reset-password?token=<claro>`). Rate-limit **3/hora por IP** (+ tope por email en servicio).
+Req: `{ email: string }` → Res `200`: `{ ok: true }` (genérico; nunca revela existencia).
+- Cuenta solo-Google (sin `passwordHash`): el flujo **fija** una contraseña (habilita login local, igual que el
+  reset admin). No cambia la respuesta genérica.
+- Rate-limit excedido → `429 RATE_LIMITED`.
+
+#### POST /api/v1/auth/reset-password — `public`
+Consume el token de reset y fija la nueva contraseña. Setea `passwordHash` (argon2), **incrementa
+`User.tokenVersion`** (revoca sesiones vivas), marca el token como usado, limpia `mustChangePassword` si estaba, y
+setea `emailVerified=true` *(el clic prueba control del inbox; decisión a confirmar, ARCHITECTURE §10 v1.5-3)*.
+**No** devuelve tokens: el usuario **re-inicia sesión** con la nueva contraseña. Rate-limit **10/min por IP**.
+Req: `{ token: string, password: string }` (password `MinLength 8`, misma política que register) → Res `200`: `{ ok: true }`.
+Err: `422 RESET_TOKEN_INVALID` (inválido / expirado / ya usado), `400 VALIDATION_ERROR` (contraseña débil).
 
 ### GET /api/v1/users/me — `customer+`
 Res `200`: `{ id, email, name, phone, role, locale, kycStatus, status, authProvider, emailVerified, avatarUrl? }`.
@@ -307,7 +375,9 @@ Res `201`:
 { "orderId": "…", "breakdown": { "…": "BreakdownDTO" },
   "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" } }
 ```
-Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`. (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
+Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, **`403 EMAIL_NOT_VERIFIED`** (v1.5 — `emailVerified=false`; comprar es acción sensible). (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
+> **v1.5:** `POST /checkout/session` está bloqueado por `EmailVerifiedGuard` (crear orden = acción sensible). El
+> `POST /checkout/quote` (read-only) **no** se bloquea, para que la UI muestre precios con el banner "verifica tu correo".
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA **de producto**). El gross-up sí cubre el IVA que Stripe MX cobra sobre su comisión (dial `stripe_fee_iva_pct`, default 0.16). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
 
 ### GET /api/v1/orders — `customer`
@@ -344,7 +414,7 @@ Res `200`: `{ breakdown: { subtotalCents: 17500, ivaCents, ivaRatePct, processin
 Cobra la tarifa (envío + IVA + fee gross-up) por **Stripe ANTES** de crear la solicitud; solo items `settled`. La `ShipmentRequest` nace en `solicitado` con el `PaymentIntent` asociado y **solo avanza a `picking` una vez liquidado** (webhook `payment_intent.succeeded`). No hay wallet.
 Req: `{ inventoryItemIds: string[], addressId: string }` + `Idempotency-Key`
 Res `201`: `{ shipmentId, status: "solicitado", breakdown: { "…": "BreakdownDTO" }, stripe: { paymentIntentId, clientSecret } }`
-Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), `422 ADDRESS_NOT_MX`, `409 ITEM_IN_ANOTHER_SHIPMENT`.
+Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), `422 ADDRESS_NOT_MX`, `409 ITEM_IN_ANOTHER_SHIPMENT`, **`403 EMAIL_NOT_VERIFIED`** (v1.5 — retiro/envío es acción sensible; el `POST /shipments/quote` read-only **no** se bloquea).
 
 ### GET /api/v1/shipments — `customer` → lista propia.
 ### GET /api/v1/shipments/:id — `customer` → detalle con `status`, `trackingNumber?`, `carrier?`, items.
@@ -417,6 +487,7 @@ Req: `{ items: [{ cardId, productType, rawCondition? }], clabe: string, ineUploa
 > aplicada (rarity/ruleMode/ruleValue/ruleSource) y se refleja en `SellItemDTO`.
 Res `201`: `{ sellRequestId, status: "cotizada", quotedTotalCents, ineRequired: boolean, items: SellItemDTO[] }`
 Err:
+- **`403 EMAIL_NOT_VERIFIED`** (v1.5 — vender es acción sensible; el cotizador público `POST /buylist/quote` **no** se bloquea)
 - `422 BUYLIST_LIMIT_EXCEEDED` (details: `{ scope: "per_request" | "per_month", capCents, wouldBeCents }`)
 - `422 INE_REQUIRED` (supera el tope configurado y no hay INE)
 - `422 CLABE_NOT_OWN_NAME` (declaración/validación de CLABE a nombre propio)
@@ -741,6 +812,12 @@ AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entit
 - **Gráfica de portafolio:** `GET /vault/portfolio/history?range=...` sobre `PortfolioSnapshot` (modelo nuevo, migración M-8), escrito por job diario (BE-5). Backfill indicativo opcional marcado `estimated`.
 - **Sync de catálogo M2:** `GET /admin/catalog/remote-sets`, `POST /admin/catalog/sync`, `POST /admin/catalog/backfill` (`super_admin`, auditado). Guardarraíl `setId` `^[a-z0-9]+(-[a-z0-9]+)*$`, host fijo (anti-SSRF), `Card.rarity` String libre.
 - **AcquisitionPricer:** rarezas modernas → `ex_plus` (40% de referencia) si hay market price; solo lo sin dato de mercado escala a `precio_pendiente` (lado adquisición/admin). Condición siempre NM.
+- **Verificación de correo + recuperación (v1.5-auth-email):** verificar **no** bloquea login; bloquea acciones
+  sensibles (`POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`) con `403 EMAIL_NOT_VERIFIED`
+  (`EmailVerifiedGuard`). Nuevos `POST /auth/verify-email/resend|verify-email|forgot-password|reset-password`;
+  `forgot-password` siempre `200` (anti-enumeración); reset self-service **y** admin incrementan `tokenVersion`.
+  Tokens `AuthToken` (hash en BD, un solo uso; 24h/1h) — migración **M-17**. Correo vía Resend (env `RESEND_API_KEY`,
+  `MAIL_FROM`); links al frontend con `?token=`. `emailVerified` ahora en el `user` de `register|login|google`.
 
 **Coherencia v1.2 / v1.2.1 (2026-08-14):**
 - **Sin fotos de producto/inventario:** la imagen mostrada es la **de catálogo** de pokemontcg.io (`CardDTO.imageSmallUrl`/`imageLargeUrl`). `ListingDTO` **ya no** tiene `frontPhotoUrl`/`backPhotoUrl`; el alta de inventario **ya no** recibe `frontPhotoKey`/`backPhotoKey`/`extraPhotoKeys`. Migración ARCHITECTURE §11 (M-13).

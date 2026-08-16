@@ -4,6 +4,32 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 > Estado: v1.3 (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
 >
+> **Changelog v1.5-auth-email (2026-08-16)** — **Verificación de correo + recuperación de contraseña
+> self-service por email** (proveedor **Resend**). Decisiones de producto ya cerradas por el humano:
+> - **La verificación NO bloquea el login** — bloquea **acciones sensibles**. Un usuario con `emailVerified=false`
+>   **puede iniciar sesión y navegar**, pero un guard server-side (**autoridad**, no solo UI) rechaza
+>   **comprar** (`POST /checkout/session`), **retirar/enviar** (`POST /shipments`) y **vender**
+>   (`POST /buylist/requests`) con **`403 EMAIL_NOT_VERIFIED`**. Cuentas Google entran con `emailVerified=true`
+>   (no afectadas). Nuevo `EmailVerifiedGuard` + decorador `@RequireEmailVerified()` (§4.11, §7).
+> - **Recuperación: AMBOS flujos.** (a) **Self-service** nuevo: `POST /auth/forgot-password` (siempre `200`,
+>   anti-enumeración) → email con link → `POST /auth/reset-password`. (b) Se **conserva** el reset por admin
+>   existente (`POST /admin/users/:id/reset-password`, §4.7bis). Ambos **incrementan `User.tokenVersion`**
+>   (revocan sesiones, patrón existente).
+> - **Modelo de tokens (nuevo `AuthToken`, MIGRACIÓN M-17):** tabla de tokens de **un solo uso**, `type`
+>   (`email_verification | password_reset`), `userId`, **hash** del token (SHA-256; **nunca** el token en claro
+>   en BD — el claro viaja solo por correo), `expiresAt`, `usedAt`. Expiraciones: verificación **24h**, reset
+>   **1h**. Ver §3.2 (AuthToken) y §4.11.
+> - **Abstracción de correo (nuevo módulo `mail`):** puerto `MailPort` (token DI `MAIL_PORT`) + adaptador
+>   `ResendMailAdapter` (prod) y `NoopMailAdapter` (local/CI/tests sin key: loguea el email y el link).
+>   `MailService` construye las plantillas (verificación / recuperación), bilingües por `User.locale`.
+> - **Endpoints nuevos (auth):** `POST /auth/verify-email/resend`, `POST /auth/verify-email`,
+>   `POST /auth/forgot-password`, `POST /auth/reset-password`. El registro email/password **emite** el token de
+>   verificación y envía el correo. El objeto `user` de `/auth/register|login|google` ahora incluye
+>   `emailVerified` (ya expuesto en `/users/me`). Ver `API_CONTRACT §1`.
+> - **Env nuevas:** `RESEND_API_KEY` (secreto, **requerida en no-local** — staging+prod), `MAIL_FROM`
+>   (default `no-reply@tcgvaultmx.com`). En LOCAL_ENVS sin key → `NoopMailAdapter` (degrada con aviso). Ver §8.
+> - **Migración M-17** (§11). Jobs: `auth-token-sweep` (limpia tokens expirados).
+>
 > **Changelog v1.4-finance (2026-08-16)** — **Costo real de paquetería en el P&L** (PROJECT.md requisito #3,
 > §M7 / criterio 21). Hoy el P&L trata el envío **solo como ingreso** (`shippingFeeCents` = lo que el cliente
 > nos paga) y **nunca** resta el **costo real que la plataforma paga a la paquetería**, sobreestimando la
@@ -144,7 +170,8 @@ backend/
       settings/        # diales M10 (persistidos en DB, editables sin deploy)
       audit/           # AuditLog global (M10)
       uploads/         # presign de object storage SOLO para el INE del buylist (kyc_ine); bucket privado
-    jobs/              # BullMQ: price-sync diario, fx-refresh, buylist-sweep (7d/30d), dispute-deadline
+      mail/            # puerto MailPort + adaptadores (ResendMailAdapter / NoopMailAdapter) + MailService (plantillas) -> §4.11
+    jobs/              # BullMQ: price-sync diario, fx-refresh, buylist-sweep (7d/30d), dispute-deadline, auth-token-sweep (tokens expirados)
     prisma/            # schema.prisma + migraciones
   test/
 ```
@@ -193,6 +220,7 @@ InventoryItem 1───* InventoryMovement
 InventoryItem ownerType: platform | customer  (ownerUserId cuando customer)
 
 User 1───* PortfolioSnapshot        (serie diaria de valor de portafolio; gráfica de tendencia)
+User 1───* AuthToken               (verificación de correo / reset de contraseña; un solo uso, hash en BD)
 
 ConfigSetting (diales M10, key/value)     AuditLog (global)     FxRate (diario)
 PendingPriceEntry (cola de precio pendiente)
@@ -209,6 +237,10 @@ PendingPriceEntry (cola de precio pendiente)
   `UserStatus` marca cuenta soft-deleted/anonimizada; `POST /auth/login` y `/auth/google` la rechazan con
   `403 USER_BLOCKED` (no revela el motivo).
 - **Auth provider (nuevo):** `authProvider` (enum `local | google`, default `local`), `googleId` (`String? @unique` — `sub` del ID token de Google), `emailVerified` (`Boolean @default(false)`), `avatarUrl` (`String?`).
+- **Verificación de correo como AUTORIDAD (v1.5-auth-email):** `emailVerified` **NO** bloquea el login pero
+  **sí** las acciones sensibles (compra/retiro/venta) vía `EmailVerifiedGuard` (§4.11, §7). Se puebla en
+  `req.user` desde el `JwtAuthGuard` (que ya consulta la BD por `status`/`tokenVersion`; añade `emailVerified` al
+  `select`). Google → `emailVerified=true` (no afectado). Relación nueva `User 1───* AuthToken`.
 - El comprador es siempre `customer`. `vault_operator` y `super_admin` son cuentas de back-office.
 - **Reglas de auth Google (ver §4.7):**
   - `passwordHash` es null hasta que el usuario fije contraseña; `POST /auth/login` (email/contraseña) **rechaza** cuentas sin `passwordHash` con `401 INVALID_CREDENTIALS` (no revela que es cuenta Google).
@@ -339,6 +371,27 @@ Serie temporal por usuario que alimenta la gráfica estilo acciones de "Mi bóve
 - **Índice:** `@@index([userId, asOfDate])` para consultas por rango.
 - **Escritura:** job diario `portfolio-snapshot` (BullMQ, ver §5 y BE-5) tras el `price-sync`; reutiliza `VaultService.holdings()` para no divergir del valor mostrado en vivo. Solo snapshotea usuarios con holdings.
 - **Backfill indicativo (opcional, marcado estimado):** si se desea sembrar histórico previo a la puesta en marcha del job, se puede generar una serie **estimada** aplicando los `PriceReference` disponibles por fecha a los holdings actuales del usuario. Estos puntos se marcan `estimated=true` en la respuesta (`PortfolioPointDTO.estimated?`) y **no** se persisten como verdad si contradicen un snapshot real; es indicativo, no autoritativo. Es una tarea opcional de BE, no bloquea el MVP.
+
+#### AuthToken (verificación de correo / reset de contraseña) — **MIGRACIÓN M-17 (modelo nuevo, v1.5-auth-email)**
+Token de **un solo uso** para los flujos self-service por correo. **Nunca** guarda el token en claro: el claro
+(alta entropía) viaja solo por email; en BD vive su **hash**.
+- `id` (uuid), `userId` (FK User, `onDelete: Cascade`), `type` (enum `AuthTokenType = email_verification | password_reset`),
+  `tokenHash` (`String @unique` — **SHA-256** del token en claro), `expiresAt` (`DateTime`), `usedAt` (`DateTime?` —
+  se setea al consumir; `null` = vigente), `requestIp` (`String?`, auditoría), `createdAt`.
+- **Índices:** `@@unique([tokenHash])` (lookup por hash del token presentado), `@@index([userId, type])`
+  (invalidar/consultar los del usuario), `@@index([expiresAt])` (barrido `auth-token-sweep`).
+- **Hashing:** el token en claro es **32 bytes aleatorios** (`crypto.randomBytes`, base64url ≈ 256 bits de
+  entropía) → basta **SHA-256** (rápido): NO se usa argon2 porque no hay riesgo de fuerza bruta con esa entropía
+  (a diferencia de una contraseña). *(Endurecimiento opcional: HMAC-SHA256 con una llave de servidor dedicada,
+  patrón `clabeHmac`; se documenta como opción, no requerido para el MVP.)*
+- **Expiraciones (dial/const):** `email_verification` **24h**, `password_reset` **1h**. Configurables como
+  constantes de servicio (o dial futuro); no son `ConfigSetting` en el MVP.
+- **Un solo uso + rotación:** consumir setea `usedAt`. Al **emitir** un token nuevo de un `type` para un usuario,
+  se **invalidan** (marcan `usedAt`/borran) los tokens vigentes previos de ese `type` → solo el último link vale.
+- **Validación al consumir (atómica):** `tokenHash` existe **y** `usedAt IS NULL` **y** `expiresAt > now()`;
+  cualquier fallo → `422 *_TOKEN_INVALID` (no se distingue inexistente/expirado/usado, para no filtrar señal).
+- **Escritura/lectura:** `AuthService` (verificación/forgot/reset). Barrido housekeeping: job `auth-token-sweep`
+  (borra `expiresAt < now()`), no crítico.
 
 ### 3.3 Ciclo de titularidad `pending → settled` (regla transversal)
 
@@ -692,6 +745,91 @@ el cotizador **pricee on-demand** una `ex_plus` del catálogo completo (fetch pu
 el momento de cotizar, respetando rate-limit), es una **decisión de alcance** — ver **Pregunta abierta v1.3-1**
 (§10). No se asume: el MVP mantiene el comportamiento `precio_pendiente`.
 
+### 4.11 Verificación de correo + recuperación de contraseña self-service (v1.5-auth-email)
+
+Decisiones de producto **cerradas por el humano**: la verificación **bloquea acciones sensibles, no el login**;
+recuperación con **ambos** flujos (self-service por email **+** reset por admin existente). Proveedor de envío:
+**Resend** (`no-reply@tcgvaultmx.com`).
+
+#### a) Abstracción de correo — módulo `mail`
+Desacopla el dominio de Resend (mockeable en tests, intercambiable de proveedor):
+```ts
+// Puerto (token DI: MAIL_PORT). Bajo nivel: enviar un correo ya renderizado.
+interface MailPort {
+  send(msg: { to: string; subject: string; html: string; text: string }): Promise<{ id?: string }>;
+}
+// Adaptadores:
+//  - ResendMailAdapter   -> POST https://api.resend.com/emails con RESEND_API_KEY, from = MAIL_FROM.
+//  - NoopMailAdapter     -> NO envía; loguea `to/subject` y (en no-prod) el LINK con el token en claro,
+//                           para dev/CI/tests sin key. Se selecciona cuando falta RESEND_API_KEY en LOCAL_ENVS.
+// Servicio de dominio (plantillas + i18n por User.locale):
+class MailService {
+  sendEmailVerification(user: User, link: string): Promise<void>;  // asunto+cuerpo con link
+  sendPasswordReset(user: User, link: string): Promise<void>;
+}
+```
+- **Selección del adaptador (provider factory en `MailModule`):** si hay `RESEND_API_KEY` → `ResendMailAdapter`;
+  si no y el entorno es LOCAL_ENVS → `NoopMailAdapter` (degradación con aviso en log). En **no-local** la key es
+  **requerida** (§8), así que ahí siempre es el adaptador real (nunca se cae silenciosamente a Noop en prod).
+- **Plantillas** (bilingües ES/EN por `User.locale`, mismas convenciones i18n del §6 — el texto vive en el
+  backend porque el correo se envía server-side, a diferencia de la UI):
+  - **Verificación:** asunto "Verifica tu correo / Verify your email"; cuerpo con botón/enlace a
+    `${APP_BASE_URL}/<locale>/verify-email?token=<claro>`; caduca en 24h.
+  - **Recuperación:** asunto "Restablece tu contraseña / Reset your password"; cuerpo con enlace a
+    `${APP_BASE_URL}/<locale>/reset-password?token=<claro>`; caduca en 1h; nota "si no lo solicitaste, ignóralo".
+- **El link apunta al FRONTEND.** El backend construye la URL con `APP_BASE_URL` (ya existe en env, es la base del
+  front usada por CORS) + prefijo de `locale`. El **nombre del query param es contrato: `token`**; la **ruta**
+  exacta la posee el frontend (grupo `(auth)/`), pero se fija aquí el patrón `/<locale>/verify-email` y
+  `/<locale>/reset-password` para alinear productor/consumidor. El front lee `token` y llama al endpoint POST.
+
+#### b) Emisión y consumo de tokens (ver modelo `AuthToken`, §3.2)
+- **Registro email/password** (`POST /auth/register`): tras crear el `User` (`emailVerified=false`), emite un
+  `AuthToken(type=email_verification, 24h)` y envía el correo. La respuesta **no cambia de forma** salvo que el
+  objeto `user` ahora incluye `emailVerified` (siempre `false` recién registrado). El fallo de envío de correo
+  **no** debe abortar el registro (se registra el error; el usuario puede pedir reenvío).
+- **Reenvío** (`POST /auth/verify-email/resend`): **autenticado** (`customer+`), usa el email de `req.user`
+  (sin body) → **sin riesgo de enumeración** (hay que estar logueado, y el login está permitido sin verificar).
+  Si ya está verificado → `200` no-op. Rota tokens previos. Rate-limit estricto (§d).
+- **Verificar** (`POST /auth/verify-email`): **público** (el link se abre desde el correo, quizá sin sesión).
+  Consume el token atómicamente → `User.emailVerified=true`, `usedAt=now()`. **No** toca `tokenVersion` (verificar
+  no revoca sesiones). Idempotencia sugerida: si el `User` del token ya está verificado, responder `200` aunque el
+  token ya esté usado (evita error por doble clic).
+- **Olvidé contraseña** (`POST /auth/forgot-password`): **público**, `{ email }`. **SIEMPRE responde `200`**
+  (anti-enumeración): si el email existe, emite `AuthToken(type=password_reset, 1h)` y envía el correo; si no
+  existe, no hace nada pero responde igual. Rota tokens de reset previos. Para cuentas solo-Google (sin
+  `passwordHash`) el reset **fija** una contraseña (habilita login local, igual que el reset admin, §4.7bis).
+- **Restablecer** (`POST /auth/reset-password`): **público**, `{ token, password }`. Consume el token
+  (`password_reset`, vigente, no usado); setea `passwordHash` (argon2, misma rutina que register), **incrementa
+  `User.tokenVersion`** (revoca sesiones vivas — patrón existente), marca `usedAt`, limpia `mustChangePassword` si
+  estaba. **Efecto:** clic exitoso en el link prueba control del inbox → también setea `emailVerified=true`
+  *(decisión a confirmar, §10)*. No devuelve tokens: el usuario **re-inicia sesión** con la nueva contraseña.
+
+#### c) Gating de acciones sensibles — `EmailVerifiedGuard` (AUTORIDAD server-side)
+Nuevo guard + decorador `@RequireEmailVerified()` (en `common/`), análogo a `@MoneyOut()`/`@Roles()`. Corre
+**después** de `JwtAuthGuard` (que puebla `req.user.emailVerified` desde BD). Si `emailVerified=false` → lanza
+**`403 EMAIL_NOT_VERIFIED`** (el front muestra banner "verifica tu correo"). Google → `true`, no afectado.
+- **Operaciones bloqueadas (mutaciones sensibles):**
+  - **Comprar:** `POST /api/v1/checkout/session` (crear orden + PaymentIntent). *(El `POST /checkout/quote`
+    read-only queda **abierto** para que la UI muestre precios con el banner.)*
+  - **Retirar/enviar (money-out del usuario):** `POST /api/v1/shipments`. *(El `POST /shipments/quote` queda
+    abierto.)*
+  - **Vender (buylist):** `POST /api/v1/buylist/requests` (crear `SellRequest`). *(El `POST /buylist/quote`
+    público queda abierto — es el cotizador anónimo.)*
+- **No afecta** al money-out de back-office (`@MoneyOut()`, super_admin): esos son staff. Las cuentas de staff
+  (`vault_operator`/`super_admin`) deben sembrarse `emailVerified=true` para no auto-bloquearse *(nota a devops)*.
+- **Cómo lo sabe el front:** `GET /users/me` ya expone `emailVerified`; además el objeto `user` de
+  `/auth/register|login|google` lo incluye ahora. El front decide banner/CTA a partir de ese flag; el bloqueo
+  real lo hace **siempre** el guard (la UI es solo cosmética).
+
+#### d) Anti-abuso / anti-enumeración
+- **Rate-limit por endpoint** (`@Throttle`, patrón `AuthController` existente): `forgot-password` **3/hora/IP**
+  (+ tope por email en servicio, p. ej. ≤ 3 tokens/hora/email); `verify-email/resend` **3/hora/usuario** (+ IP);
+  `verify-email` y `reset-password` (consumo) **10/min/IP** (defensa aunque el token sea de alta entropía).
+- **Respuestas genéricas:** `forgot-password` siempre `200`; el consumo de token no distingue
+  inexistente/expirado/usado (un único `*_TOKEN_INVALID`).
+- **Auditoría** (`AuditLog`, sin volcar el token): `auth.email_verification_sent`, `auth.email_verified`,
+  `auth.password_reset_requested`, `auth.password_reset_completed`.
+
 ---
 
 ## 5. Decisiones transversales
@@ -746,6 +884,7 @@ processingFeeCents = totalCents − baseCents
 | Acción | customer | vault_operator | super_admin |
 |---|---|---|---|
 | Storefront/compra/bóveda/retiro/buylist (como cliente) | ✅ | — | — |
+| **Acciones sensibles con `emailVerified=false`** (comprar / retirar / vender) | ❌ **403 `EMAIL_NOT_VERIFIED`** (`EmailVerifiedGuard`, §4.11) | n/a | n/a |
 | M1 Inventario (alta, mover, fotos, pérdida/daño) | — | ✅ | ✅ |
 | M2 Precios (sync, override, FX, tabla rareza) | — | — | ✅ |
 | M3 Órdenes ver | — | ✅ (solo lectura) | ✅ |
@@ -776,7 +915,20 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - **PII / INE (KYC):** `PII_ENCRYPTION_KEY` (32 bytes base64, AES-256-GCM), `PII_HMAC_KEY` (blind index de CLABE, llave **separada**), `INE_RETENTION_DAYS` (antigüedad máxima de las imágenes de INE en el bucket, default **180**; ver §3.4). En prod las llaves provienen de KMS/secret manager, nunca del repo. Estas variables **se conservan intactas** (v1.2.1: INE almacenado con cifrado + retención).
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
 - **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
-- `APP_BASE_URL`, `DEFAULT_LOCALE=es`
+- **Correo (v1.5-auth-email, Resend):** `RESEND_API_KEY` (secreto) y `MAIL_FROM` (default `no-reply@tcgvaultmx.com`).
+  - **Política (sigue el patrón `env.validation.ts` local/no-local):** `RESEND_API_KEY` se añade a la lista
+    `required` → **obligatoria en NO-local (staging + prod)**; en LOCAL_ENVS (`development`/`test`/`local` o sin
+    `NODE_ENV`) puede faltar y el sistema **degrada** a `NoopMailAdapter` (loguea el correo/link, no envía) para
+    no romper dev/CI/tests sin key. `MAIL_FROM` es opcional con default en código (no bloquea el arranque).
+  - **Justificación:** la verificación **gatea dinero** (comprar/vender/retirar); si el correo degradara en prod,
+    los usuarios locales nunca podrían verificar → quedarían bloqueados. Por eso en no-local (incl. **staging**,
+    que debe probar el flujo real E2E) la key es dura. *(Decisión a confirmar por el humano: exigir key también en
+    staging; ver §10.)*
+  - **Dominio remitente:** `tcgvaultmx.com` requiere SPF/DKIM/DMARC verificados en Resend (nota devops). **Ojo:**
+    el correo de soporte de disputas en el contrato es `soporte@tcgvault.mx` (dominio **distinto**); ver §10 —
+    inconsistencia de dominio a resolver por el humano.
+- `APP_BASE_URL`, `DEFAULT_LOCALE=es` (`APP_BASE_URL` = base del frontend; también se usa para construir los
+  links de verificación/reset del correo, §4.11).
 
 Riesgos técnicos:
 - **Rate-limit free tier** (100/día, 250/día): mitigado priciando solo bóveda + cache diario + cola; si crece la bóveda, puede requerir plan de pago (dial permite el cambio).
@@ -829,6 +981,26 @@ este documento y con `API_CONTRACT.md`.
   IP y `pageSize` acotado (≤100). Confirmar si se quiere además exigir sesión (`customer`) para reducir
   scraping del catálogo. **Default propuesto:** público con rate-limit; sin sesión obligatoria.
 
+### Preguntas abiertas (v1.5-auth-email — verificación de correo + recuperación)
+> No bloquean el arranque: backend puede implementar el módulo `mail`, el modelo `AuthToken` (M-17), los
+> endpoints y el `EmailVerifiedGuard` con los defaults propuestos. El arquitecto **no asume** reglas de negocio.
+- **v1.5-1 — ¿Exigir `RESEND_API_KEY` en staging (además de prod)?** Default propuesto: **sí** (staging es
+  no-local → key dura, para probar el flujo real E2E; degradación Noop solo en LOCAL_ENVS). Confirmar.
+- **v1.5-2 — Dominio remitente vs soporte.** `MAIL_FROM` = `no-reply@**tcgvaultmx.com**` pero el correo de
+  soporte de disputas es `soporte@**tcgvault.mx**` (dominio distinto, ya marcado SUPUESTO en PROJECT). Hay que
+  **fijar el dominio canónico** y verificar SPF/DKIM/DMARC en Resend para ese dominio. Confirmar cuál es el bueno.
+- **v1.5-3 — ¿El reset exitoso marca `emailVerified=true`?** Default propuesto: **sí** (clic en el link de reset
+  prueba control del inbox). Si el humano prefiere separar ambos conceptos, se deja `emailVerified` intacto en el
+  reset. Confirmar.
+- **v1.5-4 — Reenvío de verificación: ¿autenticado (recomendado) o público por email?** Default propuesto:
+  **autenticado** (`customer+`, usa `req.user`) → cero enumeración. Alternativa (público `{ email }` + siempre
+  `200`) añade superficie de abuso; no se adopta salvo que el humano lo pida.
+- **v1.5-5 — ¿Gating adicional?** Hoy se bloquean solo las **mutaciones** de comprar/retirar/vender. ¿El humano
+  quiere bloquear también algo más (p. ej. guardar CLABE/INE en KYC, o `request-invoice`)? Default: **no** — solo
+  las tres acciones listadas; el resto queda navegable con banner. Confirmar si se amplía.
+- **v1.5-6 — Cuentas de staff.** `vault_operator`/`super_admin` deben sembrarse `emailVerified=true` (no reciben
+  correo de verificación al no registrarse por el flujo público). Nota para devops/seed; confirmar que el seed lo hace.
+
 ### Decisiones ya resueltas
 Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran como decisiones firmes en este documento y en el contrato. Se conservan aquí como registro.
 
@@ -844,6 +1016,12 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.5-auth-email (nueva — verificación de correo + recuperación self-service)
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-17 | **`AuthToken`** (modelo nuevo) + enum **`AuthTokenType = email_verification | password_reset`** | **Create table** + **add enum** | Create table / add enum | `AuthToken`: `id` (uuid), `userId` (FK `User`, `onDelete: Cascade`), `type` (`AuthTokenType`), `tokenHash` (`String @unique`, SHA-256 del token en claro — **nunca** el claro), `expiresAt` (`DateTime`), `usedAt` (`DateTime?`), `requestIp` (`String?`), `createdAt`. Índices `@@unique([tokenHash])`, `@@index([userId, type])`, `@@index([expiresAt])`. Un solo uso; expira 24h (verificación) / 1h (reset). Ver §3.2, §4.11. `User` gana la relación `authTokens AuthToken[]`. Greenfield: sin backfill. **No** cambia `User.emailVerified` (ya existe, M-6) ni `tokenVersion` (ya existe, M-15). |
 
 ### v1.4-finance (nueva — costo real de paquetería en el P&L)
 
