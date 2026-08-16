@@ -768,3 +768,209 @@ en código]**:
   trivial. El resto puede abordarse en el endurecimiento previo a GA / pase DAST.
 - **Mínimo para mantener la aprobación:** que no se introduzcan cambios que debiliten el consumo atómico del
   token, el gating server-side o el anti-enumeración de `forgot-password`.
+
+---
+
+# rev v1.6-pentest-consolidacion (2026-08-16) — Consolidación del pase gray-box del pentester (PENTEST_NOTES v1.5)
+
+> **Rol:** seguridad (blue team). **Insumo:** `docs/PENTEST_NOTES.md` **pase v1.5** (red team, gray-box
+> estático; 0 Críticas / 0 Altas / 1 Media / 5 Bajas / 6 Info). **Trabajo de esta rev:** validar cada
+> hallazgo del pentester contra el código, **reconciliar** con mis IDs previos (no duplicar), confirmar que
+> no hay críticos/altos abiertos y emitir **VEREDICTO**.
+> **Modo:** revisión **estática** de código + `npm audit --omit=dev` + `git grep` (ejecutados esta sesión).
+> Sin stack vivo (Docker/Postgres/Redis no levantables; egress al dominio real denegado por política) →
+> vectores dinámicos = **[pendiente de DAST contra staging]**, NO son fallos. Blanco autorizado: código +
+> staging/local.
+
+## D.0 Resumen — concuerdo con el pentester: 0 Críticas / 0 Altas abiertas
+
+Validé los 6 hallazgos del pentester en el código. **Todos confirmados en su ubicación** (ninguno es falso
+positivo), y **todas** las severidades del pentester son correctas. **Cuatro de los seis ya estaban en mi
+registro** con otro ID → los reconcilio, no los duplico. Uno es **nuevo** para mi registro (B-4). Además,
+detecto que un hallazgo mío previo (**S15-B4**) fue **corregido** por backend desde la última rev.
+
+| Pentest | Sev. | Mi ID (reconciliado) | Validación en código | Estado | Rol dueño |
+|---|---|---|---|---|---|
+| **M-1** | Media | **= S-M1** | `npm audit --omit=dev` = 2 moderate (mismo aviso `@nestjs/core` GHSA-36xv-jgw5-4q75); `git grep @Sse\|MessageEvent\|text/event-stream` en `src` = **0** | **Aceptada** (no alcanzable: sin SSE) | devops |
+| **B-1** | Baja | **= S15-B2** | `auth.service.ts:198-204`: `await mail.sendPasswordReset` **solo** si existe+`active` | **Aceptada** | backend |
+| **B-2** | Baja | **= S-B1** | `auth.service.ts:309-331`: linking por email verificado a cualquier cuenta local; `role` **nunca** del token (`:340` fija `customer` solo en altas) | **Aceptada** | backend |
+| **B-3** | Baja | **= S-B2 / SEC-C2** | `schema.prisma:393` `listPriceCents Int?` sin cota; múltiples `*Cents Int` | **Aceptada** | arquitecto (+backend) |
+| **B-4** | Baja | **NUEVO = S-B5** | `buylist.dto.ts:42` `@Min(0)` **sin `@Max`**; `buylist.service.ts:428` sin cota vs `quotedPriceCents`/AML | **Aceptada** | backend |
+| **B-5** | Baja | **= S15-B3** | `auth.service.ts:71` `buildFrontendLink` arma `?token=<claro>` | **Aceptada** | frontend |
+
+## D.1 Validación por hallazgo (confirmo/ajusto severidad)
+
+### M-1 (Media) — `@nestjs/core` moderate — **CONFIRMADO · severidad efectiva Baja (no alcanzable) · Aceptada**
+- **Reconcilia con mi S-M1** (rev v1.3, §5). `npm audit --omit=dev` esta sesión: **2 moderate, 0 high, 0
+  critical** — ambos son el mismo aviso `@nestjs/core`/`@nestjs/platform-express` (GHSA-36xv-jgw5-4q75 /
+  CVE-2026-35515, **SSE injection**). Fix = `@nestjs/core@11.2.1`, **breaking** (hoy `^10.4`).
+- **¿Explotable en nuestra superficie o teórico?** **Teórico/no alcanzable.** La precondición es exponer
+  **SSE** y mapear entrada de usuario a `type`/`id` de un `MessageEvent`. `git grep -E
+  "@Sse|SseStream|MessageEvent|text/event-stream"` en `backend/src` → **0 coincidencias**. El backend **no
+  expone SSE** → el aviso no es alcanzable en este código.
+- **Decisión (según el encargo):** **se acepta con disparador**, no se agenda bump ciego. Coincido con el
+  pentester: el salto mayor 10→11 tiene riesgo de regresión que no se justifica por un aviso inalcanzable.
+  **Disparador:** bump a NestJS 11.1.18+/11.2.x **antes** de introducir cualquier endpoint SSE, o en la
+  próxima ventana de mantenimiento de deps con regresión de la suite. **Rol dueño: devops** (bump + gate
+  `npm audit` en CI/SAST, ya previsto).
+
+### B-1 (Baja) — Oráculo de timing en `forgot-password` — **CONFIRMADO · = S15-B2 · Aceptada**
+- **Reconcilia con mi S15-B2** (rev v1.5-auth-email, §1). **No lo duplico.** Confirmado en
+  `auth.service.ts:195-218`: ruta **asimétrica** — email inexistente → un solo `findUnique` y `return`;
+  email existente+`active` → `countIssuedLastHour` + `tokens.issue` + **`await mail.sendPasswordReset`
+  (round-trip a Resend)** + `audit.log`. La respuesta es **siempre 200** (`:217`, correcto), pero la
+  **latencia** delata existencia.
+- **Severidad correcta (Baja).** **Impacto reducido:** `register` ya enumera por `409 EMAIL_TAKEN`
+  (`:111-113`) — canal directo preexistente y aceptado; el timing solo confirma lo que register ya expone.
+- **Rol dueño: backend** (envío fire-and-forget/cola para igualar latencia, o retardo constante).
+- **Nota DAST:** medir la asimetría de latencia real requiere target vivo → §D.4.
+
+### B-2 (Baja) — Google-linking alcanza cuentas privilegiadas — **CONFIRMADO · = S-B1 · Aceptada**
+- **Reconcilia con mi S-B1** (§3/§5). **No lo duplico.** Confirmado en `auth.service.ts:308-331`: el linking
+  enlaza el `googleId` a **cualquier** cuenta local con el mismo email **verificado**, **sin excluir
+  back-office** (`super_admin`/`vault_operator`).
+- **Evaluación del riesgo real (según el encargo):**
+  - **¿El role se re-deriva server-side?** **Sí.** El `role` **nunca** se lee del token de Google; se
+    conserva el de BD y `:340` fija `customer` **solo** en altas nuevas. **No hay escalada de privilegios**
+    por el token: un atacante no puede convertirse en admin vía Google.
+  - **¿Un atacante con el Google del email de un admin podría tomar la cuenta?** **Solo si** (a) existe una
+    cuenta back-office cuyo email es una cuenta Google **y** (b) el atacante controla esa cuenta Google (con
+    `email_verified=true`). En ese caso obtendría tokens con el rol de BD de esa cuenta **sin** conocer su
+    contraseña argon2. Es decir: **traslada** la seguridad de la cuenta privilegiada a la seguridad de su
+    cuenta Google (phishing OAuth / falta de MFA). El linking exige `email_verified=true` y corta en
+    `blocked`/`deleted` (`:312-314`), lo que acota el vector.
+- **Severidad correcta (Baja)**, condicionada a que un back-office use email @gmail. **Rol dueño: backend**
+  (restringir login/linking Google a `role=customer`, o exigir MFA en back-office; documentar si se permite).
+
+### B-3 (Baja) — Dinero en `Int` 32-bit — **CONFIRMADO · = S-B2 / SEC-C2 · Aceptada para MVP**
+- **Reconcilia con mi S-B2** (§5) y **SEC-C2** (bloque C, ya cerrado el vector *por-envío* con `@Max`, no la
+  decisión de agregados). **No lo duplico.** Confirmado: `schema.prisma:393` `listPriceCents Int?` **sin
+  `@Max` en el DTO**; múltiples `*Cents Int` en órdenes/inventario/agregados (máx 2^31-1 ≈ **MX$21.47M**).
+- **¿Aceptable para MVP con topes actuales o se agenda?** **Aceptable para MVP.** Los flujos de entrada de
+  usuario están acotados muy por debajo del límite: buylist **MX$3,000/solicitud** y **MX$10,000/mes** (topes
+  AML de M10), envío capado a **MX$100,000** (SEC-C2 `@Max`). El riesgo es en **agregados** de P&L /
+  portafolio / custody que sumen > ~MX$21.47M — no explotable por atacante externo, pero rompería features de
+  dinero con datos legítimos grandes. **No bloquea el MVP;** se **agenda** la migración a `BigInt`.
+- **Rol dueño: arquitecto** (decisión `BigInt` para agregados = cambio de schema/contrato) **+ backend**
+  (cota `@Max` razonable en `listPriceCents`, análoga al `@Max` ya aplicado en `shippingCostCents`).
+- **Disparador:** antes de que cualquier agregado (portafolio/P&L/custody) se acerque a MX$21M, o antes de
+  operar a escala.
+
+### B-4 (Baja) — `approvedPriceCents` sin cota, fijable por `vault_operator` — **CONFIRMADO · NUEVO = S-B5 · Aceptada**
+- **Nuevo en mi registro** (asigno **S-B5**). Confirmado en dos puntos:
+  - `buylist/dto/buylist.dto.ts:42` — `@IsOptional() @IsInt() @Min(0) approvedPriceCents?` **sin `@Max`** y
+    **sin** validación contra `quotedPriceCents` ni contra el tope AML.
+  - `buylist.service.ts:417-441` (`itemDecision`) — `data.approvedPriceCents = approvedPriceCents ??
+    item.quotedPriceCents ?? 0`, sin cota. El endpoint `PATCH /admin/buylist/items/:itemId/decision`
+    (`admin-buylist.controller.ts:87-103`) hereda `@Roles(vault_operator, super_admin)` de la clase (`:15`)
+    y **no** es `@MoneyOut` → un **`vault_operator`** puede aprobar un monto arbitrario.
+- **Mitigaciones existentes (verificadas):**
+  - El **desembolso** `POST /admin/buylist/:id/pay-spei` **es `@MoneyOut()`** (`:122-123`) → **solo
+    `super_admin`** vía `MoneyOutGuard`. El operador **no saca dinero**.
+  - La decisión **queda auditada**: `admin-buylist.controller.ts:94-101` registra `buylist.item.<decision>`
+    con `actorUserId`/`actorRole` y `after.approvedPriceCents`.
+- **Análisis:** No es fraude de fondos por sí solo (segregación de funciones: el `super_admin` es quien paga),
+  pero el monto que el super_admin termina pagando lo pudo **inflar** el operador, y no hay tope automático
+  que lo frene si el pago se ejecuta sin re-verificar. Requiere **colusión o descuido** del super_admin.
+  Es una brecha de **defensa en profundidad** en un flujo de dinero. **Severidad correcta: Baja.**
+- **Rol dueño: backend** (cota superior en `approvedPriceCents`, p. ej. `≤ quotedPriceCents × factor`, o
+  re-chequear el tope AML al aprobar/pagar; SoD reforzada).
+
+### B-5 (Baja) — Token en query-string — **CONFIRMADO · = S15-B3 · Aceptada**
+- **Reconcilia con mi S15-B3** (rev v1.5, §1). **No lo duplico.** Confirmado en `auth.service.ts:63-72`
+  (`buildFrontendLink`): arma `${origin}/${locale}/(verify-email|reset-password)?token=<claro>`. El token en
+  claro viaja como **query param** (inevitable para ser clicable desde el correo).
+- **Severidad correcta (Baja).** **Mitigantes fuertes verificados:** un-solo-uso atómico (`consume()`
+  `updateMany` con guardia `usedAt:null`), TTL corto (reset 1h), rotación de previos → un token filtrado por
+  Referer/historial **ya no sirve** tras consumirse. Práctica estándar; riesgo residual bajo.
+- **Rol dueño: frontend** (`history.replaceState` para retirar `?token=` tras consumir + `Referrer-Policy:
+  no-referrer` en las rutas de auth). El backend ya acepta el token por body/POST; el link es lo que expone.
+- **Nota DAST:** confirmar fuga real por `Referer` requiere frontend en vivo → §D.4.
+
+## D.2 Cierre detectado desde mi última rev — S15-B4 (reset-password revalida estado) — **CERRADO** ✔
+- En la rev v1.5 dejé **S15-B4** abierto (Baja): `resetPassword` no recomprobaba `status` al consumir el
+  token. **Backend lo corrigió:** `auth.service.ts:237-240` ahora hace `findUnique` y **rechaza con
+  `USER_BLOCKED`** si `!user || status !== active` **antes** de fijar `passwordHash`. Simetría con
+  `forgotPassword` (que solo emite a `active`) y con `login`. **Verificado en código.** El pentester no lo
+  reporta (correcto: ya no es hallazgo). Lo registro como cierre.
+
+## D.3 Contraste con las defensas positivas del pentester (I-1…I-6) — concuerdo
+Revisé de forma independiente los positivos que el pentester marca [Verificado en código] y **concuerdo** con
+todos, consistente con mi §2 y anexos previos: tokens de correo CSPRNG/SHA-256/un-solo-uso atómico/rotados
+(I-1, mi rev v1.5 §0); `EmailVerifiedGuard` server-side no evadible en los 3 endpoints de dinero (I-2, mi rev
+v1.5 §0); montos derivados server-side en checkout y buylist —SEC-A1— con reserva atómica anti doble-venta
+(I-3, mi §2 y B.4); webhook Stripe firma + idempotencia atómica + "procesado solo tras éxito" (I-4, mi §2);
+money-out solo super_admin + IDOR/BOLA scoped por JWT + PII cifrada/enmascarada (I-5, mi §2); sin inyección
+SQL / mass-assignment / secretos hardcodeados (I-6, mi §2 y A.4). **Sin regresión.**
+
+## D.4 Pendiente de DAST en vivo (NO es fallo — agendar contra staging autorizado)
+Coincido con la lista del pentester (PENTEST_NOTES §"Pendiente de DAST"). No ejecutable hoy (sin Docker/
+Postgres/Redis; egress al dominio real denegado). Cuando exista **staging autorizado**, devops habilita y
+pentester ejecuta (ZAP baseline/full + nuclei + scripts propios):
+1. **Concurrencia real:** doble-checkout de pieza única (reserva atómica), doble `convert-to-inventory`
+   (índice único P2002), bypass del tope mensual de buylist (`$transaction` Serializable). Guardias en código;
+   falta probar la carrera real.
+2. **Webhook Stripe con firmas reales:** replay del mismo `event.id`, firma inválida, eventos forjados de
+   refund/dispute; confirmar idempotencia y "procesado solo tras éxito".
+3. **Rate-limit efectivo** en `/auth/login`, `/auth/forgot-password`, `/auth/reset-password` y cotizador;
+   validar el `ThrottlerGuard` in-memory y su **debilidad en multi-instancia sin Redis** (store compartido).
+4. **B-1 timing:** medir la asimetría de latencia de `forgot-password` entre emails existentes/inexistentes.
+5. **B-5 Referer:** cargar `verify-email`/`reset-password` y observar fuga del token por `Referer`/historial.
+6. **CORS** cross-origin real contra la allow-list; **abuso de presign** (subir objeto que exceda el tope /
+   content-type no imagen y confirmar rechazo de S3/MinIO).
+
+## D.5 Deuda de seguridad aceptada (no bloqueante) — consolidada tras este pase
+
+| ID (seguridad) | = Pentest | Deuda | Impacto | Disparador | Rol dueño |
+|---|---|---|---|---|---|
+| S-M1 | M-1 | `@nestjs/core` SSE injection sin parchar (fix = major 10→11) | Ninguno hoy (sin SSE) | Antes de cualquier endpoint SSE, o próxima ventana de deps | devops |
+| S-B1 | B-2 | Google-linking alcanza back-office | Traslada seguridad de cuentas privilegiadas a Google | Antes de alta de back-office con email @gmail; o exigir MFA back-office | backend |
+| S-B2 | B-3 | Dinero en `Int` 32-bit (agregados) | Overflow de integridad > ~MX$21.47M | Antes de que agregados se acerquen a MX$21M / operar a escala | arquitecto (+backend) |
+| S-B5 | B-4 | `approvedPriceCents` sin `@Max`/cota AML, fijable por operador | Monto inflado que el super_admin podría pagar sin re-check (SoD/DiD) | Cerrar antes de GA con buylist a volumen; cota + re-check AML al pagar | backend |
+| S15-B2 | B-1 | Timing en `forgot-password` | Enumeración por canal lateral (ya expuesta por `409` de register) | Endurecimiento previo a GA / pase DAST | backend |
+| S15-B3 | B-5 | Token en query-string | Fuga potencial por Referer/historial (mitigada por single-use+TTL) | Endurecimiento previo a GA / pase DAST | frontend |
+| SEC-C3 | — | SoD: `vault_operator` escribe insumo del P&L (`shippingCostCents`) | Costo inflado reduce ganancia reportada (auditado) | Decisión de producto | backend/producto |
+
+Cerrados/mitigados vigentes (no reabren): S-M2 (CORS), S-B4 (helmet/HS256/env), S-B3 (presign, residuo Bajo
+aceptado), SEC-C1 (fuga de margen), SEC-C2 (`@Max` shipping), **S15-B4 (reset revalida estado)** ✔,
+S15-B1 (escape HTML de `name` en plantilla — recomendado cerrar; no bloqueante).
+
+## D.6 Banderas para el humano (antes de operar con dinero real)
+- **Fase dinámica (DAST/pentester contra staging) — PENDIENTE Y OBLIGATORIA, no aprobada a ciegas.** Todo
+  este pase (pentester + esta consolidación) es **caja gris estática**; los vectores §D.4 exigen staging
+  (R2/Railway aún sin configurar). Requisito previo a la promoción a producción.
+- **Pentest de tercero + programa de bug bounty** antes del go-live con dinero real (superficie de pagos,
+  money-out y recuperación de contraseña).
+- **KMS/secret manager en producción** para `JWT_*`, `STRIPE_*`, `PII_*` y `S3_*`; rotación; sin secretos en
+  logs/errores. `env.validation.ts` ya rechaza arranque no-local sin secretos y con secretos JWT débiles; la
+  **provisión** del secret manager es de devops.
+- **Validaciones legales de custodia/PII (INE/CLABE):** figura de depositario, contrato de custodia, base
+  legal del INE almacenado, retención `INE_RETENTION_DAYS`, derecho de supresión frente a PII en snapshots
+  económicos retenidos (`Order.billingSnapshot`/`SellRequest.clabeSnapshotEnc`). Confirmar con abogado/contador.
+- **MFA para back-office** si alguna cuenta privilegiada usa email Google (cierra el riesgo real de B-2/S-B1).
+
+## D.7 VEREDICTO — consolidación del pase pentest v1.5
+
+**VEREDICTO seguridad (revisión estática de código): APROBADO.**
+
+- **Concuerdo con el conteo del pentester: 0 Críticas / 0 Altas abiertas.** Validé los 6 hallazgos en el
+  código: **todos reales** (ningún falso positivo), **todas las severidades correctas**. El criterio de
+  RECHAZO (`CLAUDE.md` §7: hay críticos/altos abiertos) **no se cumple** → **no procede RECHAZO**.
+- **Lo abierto es 1 Media no alcanzable (M-1/S-M1, sin SSE) + 5 Bajas**, todas **aceptadas con disparador y
+  rol dueño** (§D.5). Cuatro ya estaban en mi registro (reconciliadas, no duplicadas); una es nueva (B-4 →
+  **S-B5**). Además **S15-B4 quedó CERRADO** por backend desde la última rev.
+- **Ruteo por rol dueño:**
+  - **devops** → M-1 (bump NestJS 11 + gate `npm audit`), habilitar staging para DAST, bucket INE privado +
+    límite de policy, store Redis para throttler multi-instancia, `APP_BASE_URL`/secret manager.
+  - **backend** → B-1/S15-B2 (timing forgot-password), B-2/S-B1 (política linking Google/MFA back-office),
+    B-4/S-B5 (cota `approvedPriceCents` + re-check AML), B-3 parcial (`@Max` en `listPriceCents`),
+    S15-B1 (escape HTML del `name`, recomendado).
+  - **arquitecto** → B-3/S-B2 (decisión `BigInt` para agregados de dinero — cambio de schema/contrato).
+  - **frontend** → B-5/S15-B3 (limpiar token de la URL + `Referrer-Policy` en páginas de auth).
+- **DoD de seguridad:** **APROBABLE** en la parte estática (sin críticos/altos; bajas/media aceptadas y
+  registradas). **Condición previa a producción (no bloquea el DoD estático, sí la promoción a prod):**
+  ejecutar la **fase dinámica (DAST) contra staging** (§D.4) — hoy imposible por falta de infra, **no** por
+  un hallazgo. En cuanto haya staging autorizado se re-emite veredicto para el gate de promoción a prod.
+- **Mínimo para mantener la aprobación:** no debilitar los guardarraíles verificados (reserva atómica,
+  idempotencia/firma del webhook, money-out solo super_admin, gating `EmailVerifiedGuard` server-side,
+  consumo atómico de tokens, PII cifrada/enmascarada, derivación server-side de montos SEC-A1).
