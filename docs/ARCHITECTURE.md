@@ -2,7 +2,34 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.7-admin-users (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.8-ronda-c (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+>
+> **Changelog v1.8-ronda-c (2026-08-16)** — **Tres deudas de Ronda C que requieren cambio de contrato**
+> (BE-10, PendingPriceEntry+finish, SEC-D2). **Todo aditivo**, una sola migración nueva **M-19** (dos columnas +
+> una proyección que NO migra). Ninguna toca dinero (SEC-A1 intacto).
+> - **BE-10 — enriquecer `AdminUserOwnedItemRef` con `finish` + `referenceValue` (proyección, NO migra):** la
+>   pestaña "Bóveda" de la ficha 360° (`GET /admin/users/:id`, M6) devolvía por ítem solo
+>   `{ inventoryItemId, folio, card, ownershipStatus }` (sin acabado ni valor). Se añaden **`finish: Finish`** y
+>   **`referenceValue: PriceInfo`** (mismo shape que `HoldingDTO` de la bóveda del cliente §3, para **reusar** la
+>   valuación por-acabado existente `getReference(cardId, productType, gradeKey, finish)`). **Decisión: enriquecer
+>   el ref** (no añadir `GET /admin/users/:id/holdings` paginado) — la bóveda por usuario es acotada y `getUser`
+>   ya trae `ownedItems`; enriquecerlo reusa `PricingService.getReference` sin endpoint nuevo. El endpoint
+>   paginado queda documentado como **evolución futura** si una bóveda por usuario creciera demasiado. Ver §4.7ter.
+> - **PendingPriceEntry + `finish` (MIGRACIÓN M-19):** la cola de precio pendiente se llevaba por
+>   `(cardId, productType, gradeKey)` **sin `finish`** → distintos acabados de una carta colapsaban en **UNA**
+>   entrada y resolver el override de `normal` cerraba el pendiente aunque `holofoil` siguiera sin precio.
+>   `PendingPriceEntry` gana **`finish Finish @default(normal)`**; `escalatePending`/`manualOverride` incorporan
+>   `finish` a la llave de deduplicación/resolución (`getReference` ya era por-acabado, no se rompe). Ver §3.2,
+>   §4.2. **Nota de dimensionamiento:** resultó **algo mayor de lo previsto** — `PendingPriceEntry` **SÍ es un
+>   modelo Prisma real** (el picker previo no lo halló, pero existe: `schema.prisma` `model PendingPriceEntry`),
+>   así que requiere columna en M-19 **y** corrige un bug de corrección real (`manualOverride` resolvía TODOS los
+>   acabados; `syncCardPrice` no pasaba `finish` a `escalatePending`). Sigue contenido: 1 columna + 2 llaves de
+>   query + 1 param propagado + DTO.
+> - **SEC-D2 — `SellRequest.closedAt` (MIGRACIÓN M-19):** la retención de INE aproximaba la fecha de cierre por
+>   `max(paidAt,approvedAt,verifiedAt,receivedAt,createdAt)` (para `rechazada`/`abandonada` caía en `createdAt`).
+>   Se añade **`closedAt DateTime?`**, seteado a `now()` cuando la solicitud llega a estado **terminal**
+>   (`pagada`/`rechazada`/`abandonada`). El job `ine-retention` usa `closedAt` para anclar la ventana al cierre
+>   real (con **fallback** a la aproximación previa para filas legacy sin `closedAt`). Ver §3.2, §3.4(d).
 >
 > **Changelog v1.7-admin-users (2026-08-16)** — **Alta de usuarios por rol desde admin (E1) + historial 360° por
 > usuario (F1)** (M6, back-office). Ambas **aditivas** y **sin migración** (reusan `User`, `AuditLog` y los listados
@@ -355,7 +382,8 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - **Precio pendiente** = no hay fila vigente con `priceMxnCents` para ESE acabado y no hay override → genera `PendingPriceEntry`.
 
 #### PendingPriceEntry (cola de precio pendiente — escalado al dueño)
-- `id`, `cardId`, `productType`, `gradeKey`, `context` (`catalog | portfolio | buylist | inventory`), `refId?` (item/sellRequestItem que lo originó), `status` (`open | resolved`), `resolvedPriceRefId?`, `createdAt`, `resolvedAt?`.
+- `id`, `cardId`, `productType`, `gradeKey`, **`finish Finish @default(normal)` (v1.8-ronda-c, MIGRACIÓN M-19)**, `context` (`catalog | portfolio | buylist | inventory`), `refId?` (item/sellRequestItem que lo originó), `status` (`open | resolved`), `resolvedPriceRefId?`, `createdAt`, `resolvedAt?`.
+- **`finish` en la llave de la cola (v1.8-ronda-c):** la cola se dedupe/resuelve por `(cardId, productType, gradeKey, finish, status='open')`. Antes era **sin `finish`**, así que los acabados de una carta colapsaban en **UNA** entrada y resolver el override de `normal` cerraba la de `holofoil`. Ahora cada acabado tiene su **propia** entrada pendiente, alineado con `PriceReference` (que ya lleva `finish` en su clave) y con `getReference(...finish)` (§4.1, sin cambio). No hay índice único de BD sobre la cola (la deduplicación es por `findFirst` en `escalatePending`); M-19 solo **añade la columna** `finish`. Ver §4.2 (resolución de override por acabado).
 - Regla transversal: una carta sin precio **nunca se descarta**; entra aquí y se escala al súper-admin.
 
 #### FxRate (M2/M10 — USD→MXN con colchón)
@@ -388,6 +416,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - Totales: `quotedTotalCents`, `approvedTotalCents?`.
 - KYC/pago: `clabeSnapshot`, `ineRequired` (bool), `ineProvided` (bool), `speiReference?`, `paidBy?` (**solo súper-admin**), `paidAt?`.
 - Plazos: `createdAt`, `receivedAt?`, `verifiedAt?`, `approvedAt?`, `adjustmentSentAt?` (para plazo 7d de rechazo), `deadlineAt?` (30d → inventario).
+- **`closedAt DateTime?` (v1.8-ronda-c / SEC-D2, MIGRACIÓN M-19):** timestamp del **cierre real** de la solicitud. Se **setea a `now()` exactamente cuando la solicitud entra a un estado TERMINAL** (`pagada`, `rechazada` o `abandonada`) — es decir, en la misma transacción que fija ese `status`: `pay-spei` (`→pagada`), el rechazo/`decision reject` que deja la solicitud sin items vivos (`→rechazada`) y el barrido de plazos `buylist-sweep` (`→abandonada`, 30d). **Inmutable** una vez seteado (no se reabre). Ancla la ventana de retención de INE al cierre real en vez de la aproximación `max(paidAt,approvedAt,verifiedAt,receivedAt,createdAt)` (que para `rechazada`/`abandonada` caía en `createdAt`). Filas legacy cerradas antes de M-19 → `closedAt=null` y el job cae al cálculo aproximado (§3.4 d). Campo **interno de cumplimiento**; no se expone en DTOs de cliente.
 - Regla: **pago SPEI tras recepción y verificación**, decidido carta por carta (cherry-pick).
 
 #### SellRequestItem
@@ -546,6 +575,7 @@ Estas columnas sustituyen a los campos en claro `clabe` / `rfc` / `clabeSnapshot
 - Las imágenes de INE (`KycProfile.ineFrontKey`, `ineBackKey`) son la PII de mayor sensibilidad y **no se necesitan indefinidamente** tras verificar KYC. Se purgan por **retención con dial**.
 - **Dial** `INE_RETENTION_DAYS` (declarado en §8): antigüedad máxima de las imágenes de INE en el bucket.
 - **Primera capa — job invocable** (BullMQ, en la familia de `jobs/`): recorre los `KycProfile` cuyas imágenes superan `INE_RETENTION_DAYS` desde su carga/verificación, **borra los objetos** (`ineFrontKey`/`ineBackKey`) del object storage, **limpia las columnas de key** (a `null`) y **audita** la purga (`action: kyc.ine_purged`, `AuditLog`). Es **invocable** (bajo demanda por súper-admin además de programado), idempotente y seguro de re-ejecutar.
+- **Anclaje al cierre real (v1.8-ronda-c / SEC-D2):** la ventana de retención se cuenta desde el **cierre de la última `SellRequest`** del usuario (una vez sin solicitudes abiertas). El job usa **`SellRequest.closedAt`** (seteado al llegar a `pagada`/`rechazada`/`abandonada`, §3.2) como fecha de cierre — más preciso que la aproximación previa `max(paidAt,approvedAt,verifiedAt,receivedAt,createdAt)`, que para `rechazada`/`abandonada` caía en `createdAt` y **acortaba** la ventana. **Fallback:** si `closedAt` es `null` (filas cerradas antes de M-19), el job cae a la aproximación anterior — sin backfill obligatorio. La lógica: `closureDate = req.closedAt ?? max(paidAt, approvedAt, verifiedAt, receivedAt, createdAt)`.
 - **Segunda capa — lifecycle del bucket:** regla de expiración en el object storage sobre el prefijo de INE, como red de seguridad si el job no corriera (defensa en profundidad; devops la configura).
 - **Qué se conserva:** los **metadatos de KYC** (`kycStatus`, `verifiedBy`, `verifiedAt`, límites) permanecen — no se borra el perfil ni el historial de verificación; **solo se purgan las imágenes**. Tras la purga, el contrato sigue exponiendo `ineOnFile: boolean` (que pasará a `false`).
 
@@ -631,8 +661,12 @@ Implementaciones MVP:
 1. Elige provider según `productType` leyendo el dial de M10 (`pricing_provider_*`).
 2. **Solo pricea cartas en bóveda** (no el catálogo completo) y con **cache diario** (revisa `PriceReference` del día **para ese acabado** antes de llamar la API). **`getReference(cardId, productType, gradeKey, finish)`** y **`syncCardPrice(card, productType, gradeKey, finish, context, refId?)`** ganan `finish`; el upsert/lookup usa la clave compuesta con `finish` (§3.2 PriceReference). `buildGradeKey` NO cambia (el finish es parámetro aparte).
 3. Aplica **FX + colchón** (`FxService`) para obtener `priceMxnCents`.
-4. Si el provider devuelve `null` y no hay override → crea `PendingPriceEntry` (con `finish` en el contexto) y expone el estado **"precio pendiente"** (no vendible; escalado al dueño).
+4. Si el provider devuelve `null` y no hay override → crea `PendingPriceEntry` **por acabado** y expone el estado **"precio pendiente"** (no vendible; escalado al dueño).
 5. Respeta rate-limit del free tier vía cola BullMQ.
+
+**v1.8-ronda-c — cola de precio pendiente POR ACABADO:** `PendingPriceEntry` gana `finish` (§3.2, M-19) y las dos rutinas de la cola lo incorporan a la llave:
+- **`escalatePending(cardId, productType, gradeKey, finish, context, refId?)`** dedupe por `(cardId, productType, gradeKey, finish, status='open')`. **Corrección de implementación (BE):** hoy `syncCardPrice` invoca `escalatePending` **sin** pasar `finish` (bug: colapsa acabados) — con M-19 debe **propagar** el `finish` del `syncCardPrice`.
+- **`manualOverride(cardId, productType, gradeKey, priceMxnCents, finish='normal')`** ya crea la `PriceReference` del acabado correcto (clave con `finish`), pero su `updateMany` que **resuelve** pendientes filtraba `{cardId, productType, gradeKey, status:'open'}` **sin `finish`** → cerraba TODOS los acabados. Con M-19 el `updateMany` **añade `finish`**, resolviendo **solo** el pendiente de ese acabado (el de `holofoil` sigue abierto hasta que se le fije precio). `getReference(...finish)` no cambia (ya era por-acabado); no se rompe SEC-A1 (los montos siguen derivándose server-side de `(Card.rarity, finish)`).
 
 ### 4.2 AcquisitionPricer (buylist) — tabla de precio por RAREZA OFICIAL (v1.3.1)
 
@@ -893,6 +927,20 @@ auto-registra; staff por seed). Implementación (`AdminService.createUser`, patr
 Enfoque **REUSO**: no se engorda `AdminService.getUser` (que sigue devolviendo las últimas 20 de
 orders/sellRequests/disputes + bóveda como resumen). El historial **completo** se sirve por listados ya paginados
 y una nueva traza de auditoría.
+
+**c) Bóveda del usuario — `ownedItems` enriquecido (v1.8-ronda-c / BE-10).** La proyección `AdminUserOwnedItemRef`
+que devuelve `getUser().ownedItems` gana **`finish: Finish`** y **`referenceValue: PriceInfo`** (mismo shape que el
+`HoldingDTO` del cliente, §3). El backend puebla `referenceValue` **reusando** `PricingService.getReference(item.cardId,
+item.productType, buildGradeKey(item), item.finish)` — la **misma valuación por-acabado** que ya alimenta la bóveda del
+cliente; no se recalcula nada nuevo. Los items sin precio del día se devuelven con `referenceValue.status="pending"`
+(no se excluyen: esta es una vista 360° de back-office, no un total de portafolio). **Decisión (enriquecer el ref, NO
+endpoint nuevo):** se enriquece `ownedItems` en lugar de añadir `GET /admin/users/:id/holdings` paginado porque (1) la
+bóveda por usuario es **acotada** (las cartas en custodia de UN usuario), (2) `getUser` **ya** incluye `ownedItems`, así
+que solo se añaden dos campos por item reusando `getReference`, y (3) evita un endpoint y un consumidor de frontend
+nuevos. **Coste:** N llamadas a `getReference` (una por item de la bóveda del usuario); para bóvedas grandes conviene
+un `Promise.all` / lectura batch de `PriceReference` del día. **Evolución futura (no ahora):** si una bóveda por usuario
+creciera lo suficiente para volver pesado el `getUser`, se migraría a `GET /admin/users/:id/holdings` paginado que
+reuse `VaultService.holdings()`; queda documentado como puerta abierta, sin implementarse en Ronda C.
 
 **a) `?userId=` en los listados admin.** `GET /admin/buylist`, `GET /admin/shipments` y `GET /admin/disputes`
 ganan una query **opcional** `userId` (simetría con `GET /admin/orders`, que ya lo tiene desde M3). Cada uno filtra
@@ -1240,6 +1288,19 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.8-ronda-c (nueva — BE-10 + PendingPriceEntry.finish + SEC-D2)
+
+**Aditiva, una sola migración `M-19`.** Dos columnas nuevas con default/nullable seguro; **BE-10 NO migra** (es
+una proyección de respuesta, no una tabla). Sin backfill obligatorio (los defaults/fallbacks cubren filas legacy).
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-19 | `PendingPriceEntry.finish` | **Nuevo** `Finish @default(normal)` | Add column (default) | La cola de precio pendiente se dedupe/resuelve por acabado. Antes `(cardId, productType, gradeKey)` colapsaba acabados en una entrada; resolver `normal` cerraba `holofoil`. No hay índice único de BD en la cola (dedupe por `findFirst`), así que **solo** se añade la columna; `escalatePending`/`manualOverride` incorporan `finish` a sus `where`. Reusa el enum `Finish` de M-18. Filas legacy → `normal`. Ver §3.2, §4.2. |
+| M-19 | `SellRequest.closedAt` | **Nuevo** `DateTime?` (nullable) | Add column (nullable) | SEC-D2: fecha de cierre real, seteada al entrar a estado terminal (`pagada`/`rechazada`/`abandonada`). El job `ine-retention` la usa para anclar la ventana de retención de INE (fallback a `max(...)` para filas legacy con `closedAt=null`). Campo interno de cumplimiento; no se expone en DTOs de cliente. Ver §3.2, §3.4(d). |
+| M-19 | `AdminUserOwnedItemRef` (BE-10) | **NO migra** — proyección de `GET /admin/users/:id` | — | Se enriquece la **respuesta** (`+finish`, `+referenceValue: PriceInfo`) reusando `getReference` por-acabado. Sin cambio de esquema. Ver §4.7ter(c) y `API_CONTRACT §M6/§11`. |
+
+> **Enum:** M-19 **reutiliza** `Finish` (creado en M-18); no crea enums ni tablas nuevas. **Config/diales:** ninguno.
 
 ### v1.6-finish (nueva — acabado / versión de carta)
 

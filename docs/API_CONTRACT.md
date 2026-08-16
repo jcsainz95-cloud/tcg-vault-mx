@@ -4,6 +4,24 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.8-ronda-c (2026-08-16) — Tres deudas de Ronda C (BE-10, PendingPriceEntry+finish, SEC-D2):**
+> Tres cambios **aditivos**, una sola migración **M-19** (dos columnas; BE-10 no migra). SEC-A1 intacto (montos
+> server-side). Ver ARCHITECTURE Changelog v1.8-ronda-c.
+> - **BE-10 — `AdminUserOwnedItemRef` gana `finish` + `referenceValue`:** la pestaña "Bóveda" de la ficha 360°
+>   (`GET /admin/users/:id`, §M6) devolvía por ítem solo `{ inventoryItemId, folio, card, ownershipStatus }`. Ahora
+>   incluye **`finish: Finish`** y **`referenceValue: PriceInfo`** (mismo `PriceInfo` que `HoldingDTO` §3, reusando
+>   la valuación por-acabado `getReference`). **Decisión: enriquecer el ref** (no `GET /admin/users/:id/holdings`
+>   paginado) porque la bóveda por usuario es acotada y `getUser` ya trae `ownedItems`. Ver §M6 y §11. **Proyección,
+>   NO migra.**
+> - **PendingPriceEntry + `finish`:** el DTO `PendingPriceEntry` (§11) y la cola de precio pendiente ganan
+>   **`finish: Finish`**. Antes la cola se llevaba por `(cardId, productType, gradeKey)` sin `finish` → acabados
+>   distintos colapsaban en UNA entrada y el override de `normal` cerraba el pendiente de `holofoil`. `POST
+>   /admin/pricing/override` (§M2) gana **`finish?`** (default `normal`) para resolver el pendiente del acabado
+>   correcto. `getReference` ya era por-acabado (no cambia). **Migración M-19** (columna en `PendingPriceEntry`).
+> - **SEC-D2 — `SellRequest.closedAt`:** columna interna nueva `closedAt: DateTime?` (M-19), seteada al llegar a
+>   estado terminal (`pagada`/`rechazada`/`abandonada`); el job `ine-retention` la usa para anclar la ventana de
+>   retención de INE al cierre real. **Campo interno de cumplimiento — NO se expone en DTOs de cliente.**
+>
 > **Changelog v1.7-admin-users (2026-08-16) — Alta de usuarios por rol desde admin (E1) + historial 360° por usuario (F1):**
 > Dos adiciones **aditivas** de back-office (M6), sin romper consumidores existentes. NO requieren migración
 > (reusan modelos existentes: `User`, `AuditLog`, y los listados admin ya paginados).
@@ -676,8 +694,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 > **Estado v1.3: YA EXISTE en backend** (`PricingController`, `FxController`, `AdminCatalogController`). No requiere backend nuevo para el flujo M2 existente (sync de precios de bóveda, override, FX, rareza→categoría, sync de catálogo por fecha/backfill); falta **consumo de frontend** (M2 es `ModuleTodo` en UI). Lo **único NUEVO** de backend en M2 es `POST /admin/catalog/sync-all` (abajo), para la Opción 1 del cotizador.
 - `POST /api/v1/admin/pricing/sync` — dispara/encola el sync diario (solo bóveda). Req `{ scope?: "all_vault" | "cardIds" , cardIds?: [] }` → `{ jobId, queued: number }`.
 - `GET /api/v1/admin/pricing/pending` — cola de precio pendiente. `{ data: PendingPriceEntry[] }`.
+  - **v1.8-ronda-c:** cada `PendingPriceEntry` trae **`finish`** — dos acabados de la misma carta sin precio son **entradas separadas** (antes colapsaban en una).
 - `POST /api/v1/admin/pricing/override` — override manual (respaldo siempre disponible).
-  Req: `{ cardId, productType, gradeKey, priceMxnCents }` → crea `PriceReference` `source=manual`, resuelve `PendingPriceEntry`.
+  Req: `{ cardId, productType, gradeKey, priceMxnCents, finish? }` → crea `PriceReference` `source=manual` **para ese acabado**, resuelve **solo** el `PendingPriceEntry` de ese `(cardId, productType, gradeKey, finish)`.
+  - **`finish?` (v1.8-ronda-c, opcional, default `normal`):** `normal | reverse_holo | holofoil | first_edition_holofoil`. Fija/actualiza la `PriceReference` del acabado indicado y resuelve el pendiente de **ese** acabado; el pendiente de otros acabados de la misma carta **permanece abierto**. Omitirlo mantiene el comportamiento previo (`normal`). No debilita SEC-A1 (es un precio de referencia del admin, no un monto de cliente).
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
 - FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate, bufferPct }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
 #### Precio de buylist por RAREZA (v1.3.1 — NUEVO backend; editor M2)
@@ -764,6 +784,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `GET /api/v1/admin/users` — `?q=&status=&page=`
 - `GET /api/v1/admin/users/:id` — **ficha 360°** (compras, bóveda, buylist, disputas, KYC). La CLABE y el RFC se devuelven **enmascarados también para `super_admin`** (`clabeMasked` = `****1234`, `rfcMasked` = parcial); la CLABE en claro solo por `reveal-clabe`. Para `vault_operator` se mantiene la proyección reducida de SEC-A4 (sin CLABE/RFC/INE keys ni billing profile; `ineOnFile` booleano).
   > **F1 (v1.7):** la ficha `getUser` **no se engorda**. El historial completo se arma por **reuso** de los listados admin ya paginados con `?userId=` (envíos §M4, buylist §M5, disputas §M8, órdenes §M3 — todos con `?userId=`) + el nuevo `GET /admin/users/:id/audit` (abajo). `getUser` sigue trayendo solo las últimas 20 de orders/sellRequests/disputes + bóveda como resumen.
+  > **BE-10 (v1.8-ronda-c):** la bóveda resumen (`ownedItems: AdminUserOwnedItemRef[]`) gana **`finish: Finish`** y **`referenceValue: PriceInfo`** por ítem, para que la pestaña "Bóveda" muestre acabado y valor (antes solo carta + folio + titularidad). El backend puebla `referenceValue` **reusando la misma valuación por-acabado** del `HoldingDTO` del cliente (`getReference(cardId, productType, gradeKey, finish)`, §3); los items sin precio del día llevan `referenceValue.status="pending"` (no se excluyen — es vista 360°, no un total de portafolio). Es un **enriquecimiento de proyección** (sin migración); ver `AdminUserOwnedItemRef` en §11.
 - `PATCH /api/v1/admin/users/:id/kyc` — **`super_admin`** — Req `{ kycStatus, capPerRequestCents?, capPerMonthCents? }`.
 - `PATCH /api/v1/admin/users/:id/status` — **`super_admin`** — Req `{ status: "active" | "blocked" }`.
 
@@ -933,7 +954,14 @@ OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, set
 SellItemDTO      = { id, card: CardDTO, productType, rawCondition?, finish: Finish,
                      rarity?: string, appliedRule?: BuylistRuleApplied,
                      quotedPriceCents?, approvedPriceCents?, itemStatus: SellItemStatus, inventoryItemId? }
-PendingPriceEntry= { id, cardId, productType, gradeKey, context, status: "open"|"resolved", createdAt }
+// v1.8-ronda-c: `finish` añadido a la clave de la cola. `normal` y `holofoil` de la misma carta sin precio son
+// entradas SEPARADAS; resolver el override de un acabado NO cierra las de los demás. Modelo Prisma real (M-19).
+PendingPriceEntry= { id, cardId, productType, gradeKey, finish: Finish, context, status: "open"|"resolved", createdAt }
+// v1.8-ronda-c (BE-10): resumen de un item en la bóveda del usuario para la ficha 360° admin (GET /admin/users/:id).
+// `referenceValue` reusa el MISMO PriceInfo por-acabado que HoldingDTO (§3); items sin precio → status="pending".
+// Es una PROYECCIÓN (no tabla): no migra. Antes traía solo { inventoryItemId, folio, card, ownershipStatus }.
+AdminUserOwnedItemRef = { inventoryItemId, folio, card: CardDTO, productType: ProductType, finish: Finish,
+                         ownershipStatus: OwnershipStatus, referenceValue: PriceInfo }
 AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entityId, createdAt }
 // v1.7-admin-users: entrada de auditoría por usuario (GET /admin/users/:id/audit). Superset de AuditLogDTO:
 // `ip?` SOLO se puebla para super_admin (vault_operator lo recibe omitido). NUNCA incluye before/after.
@@ -952,7 +980,8 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
 - **CFDI sin PAC en MVP**: factura por correo (`POST /orders/:id/request-invoice`); IVA cobrado registrado en M7. Timbrado real = fase 2.
 - **FX automático (Banxico) + colchón + override manual** (M10); job diario `fx-refresh`.
 - **Envío se cobra por Stripe ANTES** de crear la solicitud; avanza a picking solo tras `payment_intent.succeeded`.
-- Carta "precio pendiente" → `sellable=false`, compra bloqueada con `PRICE_PENDING`; escalada al dueño vía `PendingPriceEntry`.
+- Carta "precio pendiente" → `sellable=false`, compra bloqueada con `PRICE_PENDING`; escalada al dueño vía `PendingPriceEntry`. **v1.8-ronda-c:** la cola es **por acabado** (`PendingPriceEntry.finish`); el override (`POST /admin/pricing/override` con `finish?`) resuelve solo el pendiente de ese acabado.
+- **Ronda C (v1.8):** (a) **BE-10** — `AdminUserOwnedItemRef` (bóveda de la ficha 360° admin) trae `finish` + `referenceValue: PriceInfo`, reusando la valuación por-acabado del `HoldingDTO`; enriquecer el ref (no endpoint nuevo). (b) **SEC-D2** — `SellRequest.closedAt` (interno, no en DTOs de cliente) ancla la retención de INE al cierre real (`pagada`/`rechazada`/`abandonada`). Migración **M-19** (dos columnas; BE-10 no migra). SEC-A1 intacto.
 - Retiro solo sobre `settled` (`ITEM_NOT_SETTLED`); direcciones solo MX (`ADDRESS_NOT_MX`).
 - Buylist: cotización por **regla por rareza oficial** (v1.3.1 — `fixed` MX$ / `pct` % de la referencia + fallback %; reemplaza común/reverse/EX+), topes y INE (`BUYLIST_LIMIT_EXCEEDED`, `INE_REQUIRED`), pago SPEI **solo súper-admin** tras recepción/verificación. La regla se **deriva server-side** de `Card.rarity` (SEC-A1); editor en M2 (`buylist-rules`/`rarities`).
 - **Alta de usuarios por rol + historial 360° (v1.7-admin-users):** `POST /admin/users` (super_admin-only, auditado `user.create`, NO money-out) crea cuentas de cualquier rol sin KYC/CLABE/INE; `emailVerified=true` para staff y para el customer creado por admin; `mustChangePassword=true` solo si la contraseña es autogenerada (devuelta una vez en `tempPassword`, nunca en `AuditLog`). Crear `super_admin` = escalada de privilegios, controlada por super_admin-only + auditoría. El historial 360° se arma por **reuso**: `?userId=` en `GET /admin/{orders,buylist,shipments,disputes}` (paginados, misma proyección PII por rol) + `GET /admin/users/:id/audit` (AuditLog por `scope=target|actor|both`, expone action/actorRole/entityType/entityId/createdAt + `ip` solo super_admin, **nunca** before/after; `vault_operator` reducido sin `ip`). Sin migración (reusa `User`/`AuditLog`). Ver ARCHITECTURE §4.7bis.
