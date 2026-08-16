@@ -4,6 +4,23 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 > Estado: v1.3 (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
 >
+> **Changelog v1.4-finance (2026-08-16)** — **Costo real de paquetería en el P&L** (PROJECT.md requisito #3,
+> §M7 / criterio 21). Hoy el P&L trata el envío **solo como ingreso** (`shippingFeeCents` = lo que el cliente
+> nos paga) y **nunca** resta el **costo real que la plataforma paga a la paquetería**, sobreestimando la
+> ganancia. Se corrige:
+> - **Modelo:** `ShipmentRequest` gana **`shippingCostCents` `Int @default(0)`** = costo real MXN (centavos)
+>   que la plataforma paga al carrier por ese envío. Aditivo, default 0 para filas históricas/no capturadas.
+>   **Migración M-16** (§11). NO se toca `shippingFeeCents` (sigue siendo el **ingreso** cobrado al cliente).
+> - **Captura (M4):** el operador captura `shippingCostCents` (opcional, editable) al **asignar carrier/guía**
+>   en `POST /admin/shipments/:id/tracking` (el DTO gana el campo; entero ≥ 0). Ver `API_CONTRACT §M4`.
+> - **P&L (M7):** la fórmula separa **ingreso** vs **costo** de envío:
+>   `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`.
+>   La clave `shippingCents` (ingreso) se **renombra** a `shippingRevenueCents` y se **añade** `shippingCostCents`
+>   (decisión de naming: M7 aún no tiene consumidores de frontend —`ModuleTodo` stub—, así que renombrar es
+>   seguro y elimina la ambigüedad de dos claves de envío; ver §12 y `API_CONTRACT §M7`). El costo se acota al
+>   periodo por **`pickingAt`** (mismo criterio que el ingreso), para que costo e ingreso del mismo envío caigan
+>   en el mismo periodo. El CSV export espeja el nuevo shape.
+>
 > **Changelog v1.3.1 (2026-08-16)** — **Precio de buylist por RAREZA OFICIAL** (PROJECT.md §E.1, criterios
 > 12/12b/12c/18). Reemplaza el esquema de **3 categorías hardcodeadas** (`RARITY_MAP` + `BuylistCategory`
 > `comun|reverse_holo|ex_plus`) por una **tabla de regla por rareza**, editable en **M2** sin redeploy:
@@ -264,7 +281,8 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 
 #### ShipmentRequest (M4 — retiro/envío nacional)
 - `id`, `userId`, `addressSnapshot` (JSONB, MX), `status` (`solicitado | picking | guia | enviado | entregado | cancelado`).
-- Cobro: `shippingFeeCents` (dial M10, default 17500), `stripePaymentIntentId?` (el envío se cobra al comprador **antes** de generar la solicitud).
+- **Ingreso** por envío: `shippingFeeCents` (dial M10, default 17500) = **lo que el cliente nos paga** por el envío (línea de cobro Stripe). `stripePaymentIntentId?` (el envío se cobra al comprador **antes** de generar la solicitud).
+- **Costo** de envío (v1.4-finance, **MIGRACIÓN M-16**): `shippingCostCents` (`Int @default(0)`) = **lo que la plataforma paga a la paquetería** por ese envío (MXN centavos). **Distinto de `shippingFeeCents`** (ingreso ≠ costo). Se **captura en M4 al asignar carrier/guía** (`POST /admin/shipments/:id/tracking`), es **opcional** (default 0 mientras no se conoce) y **editable** después re-invocando el mismo endpoint; validación de aplicación **entero ≥ 0**. Alimenta el P&L de M7 (se resta), acotado por `pickingAt` (§ P&L M7). Filas históricas/sin captura ⇒ 0 (no rompen el P&L).
 - Logística manual: `carrier?`, `trackingNumber?`, `requestedAt`, `pickingAt?`, `shippedAt?`, `deliveredAt?`.
 - Restricción: solo se incluyen items `settled` (ver validación en §3.3).
 
@@ -676,6 +694,7 @@ el momento de cotizar, respetando rate-limit), es una **decisión de alcance** �
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
 - **Montos:** enteros en centavos MXN; IVA siempre desglosado y persistido en `Order.ivaCents` para M7/CFDI.
+- **P&L (M7) — ingreso y costo de envío son cosas distintas (v1.4-finance):** el envío aporta al P&L por **dos** lados: un **ingreso** (`ShipmentRequest.shippingFeeCents`, lo que el cliente paga) y un **costo** (`ShipmentRequest.shippingCostCents`, lo que la plataforma paga a la paquetería, M-16). El P&L los suma/resta por separado: `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`. Ambos importes de un mismo envío se acotan al periodo por **`pickingAt`** (envíos liquidados: `status ∈ {picking, guia, enviado, entregado}`), garantizando que ingreso y costo del envío caigan en el mismo periodo. Antes de v1.4-finance el P&L solo contaba el ingreso, sobreestimando la ganancia. Response/CSV en `API_CONTRACT §M7` (`shippingCents`→`shippingRevenueCents` + nuevo `shippingCostCents`).
 
 ### 5.1 Cálculo del checkout (precio de venta, IVA y fee gross-up)
 Orden de compra de cartas:
@@ -820,6 +839,12 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.4-finance (nueva — costo real de paquetería en el P&L)
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-16 | `ShipmentRequest.shippingCostCents` | **Nuevo** `Int @default(0)` (costo real MXN que la plataforma paga al carrier) | Add column (con default 0) | Aditivo; **NO** toca `shippingFeeCents` (ingreso). Se captura en M4 al asignar carrier/guía (`POST /admin/shipments/:id/tracking`), opcional y editable, validación de app **entero ≥ 0**. El `@default(0)` cubre filas históricas/sin captura para no romper el P&L (§M7). Greenfield: sin backfill. |
 
 ### v1.3.1 (nuevas — precio de buylist por rareza)
 
