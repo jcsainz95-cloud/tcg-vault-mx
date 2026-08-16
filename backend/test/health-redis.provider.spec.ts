@@ -34,7 +34,20 @@ describe('healthRedisProvider (token HEALTH_REDIS_CLIENT)', () => {
     useFactory: (config: ConfigService) => unknown;
   };
 
-  beforeEach(() => jest.clearAllMocks());
+  // Aislamiento de entorno: ConfigService.get('REDIS_URL') cae a process.env,
+  // que en CI SÍ define REDIS_URL. Lo removemos para no filtrar esa variable a
+  // los casos que afirman comportamiento "sin REDIS_URL"; los casos "con REDIS_URL"
+  // construyen su propio ConfigService({ REDIS_URL }) y no dependen de process.env.
+  let prevRedisUrl: string | undefined;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prevRedisUrl = process.env.REDIS_URL;
+    delete process.env.REDIS_URL;
+  });
+  afterEach(() => {
+    if (prevRedisUrl !== undefined) process.env.REDIS_URL = prevRedisUrl;
+    else delete process.env.REDIS_URL;
+  });
 
   it('expone el token HEALTH_REDIS_CLIENT e inyecta ConfigService', () => {
     expect(factory.provide).toBe(HEALTH_REDIS_CLIENT);

@@ -48,6 +48,18 @@ function build(config: ConfigService) {
  * programa los 7 jobs diarios (3 de pricing + 4 de barrido) y los enruta en el worker.
  */
 describe('SchedulerService — gating por REDIS_URL', () => {
+  // ConfigService.get('REDIS_URL') cae a process.env, que en CI SÍ define REDIS_URL.
+  // Lo removemos para que el caso "sin REDIS_URL" observe realmente su ausencia.
+  let prevRedisUrl: string | undefined;
+  beforeEach(() => {
+    prevRedisUrl = process.env.REDIS_URL;
+    delete process.env.REDIS_URL;
+  });
+  afterEach(() => {
+    if (prevRedisUrl !== undefined) process.env.REDIS_URL = prevRedisUrl;
+    else delete process.env.REDIS_URL;
+  });
+
   it('sin REDIS_URL: onModuleInit es no-op y onModuleDestroy no falla', async () => {
     const config = new ConfigService({}); // sin REDIS_URL
     const svc = build(config);

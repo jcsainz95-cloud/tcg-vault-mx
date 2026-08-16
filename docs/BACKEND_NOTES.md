@@ -1783,3 +1783,21 @@ SEC-D1 (lifecycle R2 = devops/humano).
 ### 27.8 Discrepancias con el contrato
 Ninguna. No se tocó `API_CONTRACT.md` ni `ARCHITECTURE.md`. La implementación conforma v1.8-ronda-c
 (§M2 override+cola por acabado, §M6 BE-10, §11 DTOs, §12). Todo se deriva server-side (SEC-A1).
+
+## 28. Fix CI-1 — aislamiento de tests env-sensibles a REDIS_URL (2026-08-16)
+Solo cambio de **tests** (sin código de producción). El job `backend` del workflow **CI** levanta un
+contenedor Redis y **exporta `REDIS_URL`**; dos suites afirmaban comportamiento "sin Redis" pero leían la
+variable vía `ConfigService.get('REDIS_URL')`, que **cae a `process.env`**. Resultado en CI: **2 tests
+fallaban / 348 pasaban** (verde en local/qa porque ahí no hay `REDIS_URL`).
+
+- `test/health-redis.provider.spec.ts` — «sin REDIS_URL: resuelve a null y no crea cliente».
+- `test/scheduler.spec.ts` — «sin REDIS_URL: onModuleInit es no-op» (el gating BE-5/v15-D1).
+
+Fix: en el bloque `describe` que ejerce el caso "sin REDIS_URL" se guarda/borra `process.env.REDIS_URL` en
+`beforeEach` y se restaura en `afterEach` (sin filtrar entre tests). Los casos "con REDIS_URL" ya construían
+su propio `new ConfigService({ REDIS_URL: ... })` y no dependían de `process.env`, así que no cambian.
+Producción intacta (`health-redis.provider.ts`, `scheduler.service.ts` sin tocar): el bug era del test, no del
+gating. Verificado en **ambos** entornos: `REDIS_URL=redis://localhost:6379 npm test` y `npm test` →
+**56 suites / 350 tests verdes** en los dos; `lint`, `typecheck`, `build` verdes. No aparecieron otras fugas
+env-sensibles (las suites PII construyen su propio `ConfigService` con claves y ya pasaban en CI). Ver CI-1 en
+`docs/TECH_DEBT.md`.
