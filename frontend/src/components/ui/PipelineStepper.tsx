@@ -1,6 +1,5 @@
 'use client';
 
-import { Check, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 export interface Step {
@@ -16,45 +15,49 @@ export interface PipelineStepperProps {
   errored?: boolean;
 }
 
-/** PipelineStepper (DESIGN_SYSTEM §7.9): <ol> con aria-current en el actual. */
+/**
+ * PipelineStepper (DESIGN_SYSTEM §7.9): <ol> con aria-current en el actual.
+ *
+ * Dirección 5a: deja de ser una fila de píldoras con círculos y se vuelve una
+ * línea de tiempo tipográfica — folio mono 01…05 y una regla superior que se
+ * pinta hasta donde llegó el envío (tinta en lo recorrido, bermellón en el paso
+ * actual). El estado sigue teniendo texto propio, no solo color.
+ */
 export function PipelineStepper({ steps, current, errored }: PipelineStepperProps) {
   const currentIdx = steps.findIndex((s) => s.key === current);
 
   return (
-    <ol className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-0">
+    <ol className="flex flex-col border-t border-border sm:flex-row sm:border-t-0">
       {steps.map((step, i) => {
         const done = i < currentIdx;
         const isCurrent = i === currentIdx;
-        const state = errored && isCurrent ? 'error' : done ? 'done' : isCurrent ? 'current' : 'pending';
+        const reached = done || isCurrent;
         return (
           <li
             key={step.key}
-            className="flex items-center gap-3 sm:flex-1 sm:flex-col sm:gap-2 sm:text-center"
             aria-current={isCurrent ? 'step' : undefined}
+            className={cn(
+              'flex items-baseline gap-3 border-b border-border py-4',
+              'sm:-mt-px sm:flex-1 sm:flex-col sm:items-stretch sm:gap-2 sm:border-b-0 sm:border-t sm:border-border sm:pb-4',
+              // La regla superior es el progreso: se engrosa donde ya se pasó.
+              reached && 'sm:border-t-2',
+              isCurrent && !errored && 'sm:border-t-accent',
+              isCurrent && errored && 'sm:border-t-accent',
+              done && 'sm:border-t-text',
+            )}
           >
-            <div className="flex items-center sm:w-full">
-              <span
-                className={cn(
-                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold',
-                  state === 'done' && 'border-success bg-success text-white',
-                  state === 'current' && 'border-primary text-primary shadow-focus',
-                  state === 'error' && 'border-danger bg-danger text-white',
-                  state === 'pending' && 'border-border-strong text-subtle',
-                )}
-              >
-                {state === 'done' ? <Check size={16} /> : state === 'error' ? <X size={16} /> : i + 1}
-              </span>
-              {i < steps.length - 1 && (
-                <span
-                  className={cn('mx-1 hidden h-0.5 flex-1 sm:block', done ? 'bg-success' : 'bg-border')}
-                  aria-hidden
-                />
-              )}
-            </div>
             <span
               className={cn(
-                'text-sm',
-                isCurrent ? 'font-semibold text-text' : 'text-muted',
+                'font-mono text-[10px] leading-none',
+                isCurrent ? 'text-accent' : 'text-muted',
+              )}
+            >
+              {String(i + 1).padStart(2, '0')}
+            </span>
+            <span
+              className={cn(
+                'text-sm leading-none',
+                isCurrent ? 'font-medium text-text' : reached ? 'text-text' : 'text-muted',
               )}
             >
               {step.label}

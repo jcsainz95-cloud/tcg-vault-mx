@@ -2,60 +2,69 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Dirección 5a — papel, tinta y bermellón.
+ * Tres familias con trabajos distintos: mincho para títulos (aire y voz editorial),
+ * Archivo para la UI, mono para toda cifra, folio y etiqueta. Las variables
+ * --font-serif/--font-sans/--font-mono las define next/font en [locale]/layout.tsx
+ * (self-hospedadas); aquí solo se consumen.
+ *
+ * Tema único claro: el papel ES la marca. No hay paleta .dark ni ThemeToggle.
+ */
 :root {
-  /* Inter con fallback de sistema. Self-host vía next/font = mejora futura (ver FRONTEND_NOTES). */
-  --font-inter: 'Inter';
-  --color-bg: #f8fafc;
-  --color-surface: #ffffff;
-  --color-surface-2: #f1f5f9;
-  --color-border: #e2e8f0;
-  --color-border-strong: #cbd5e1;
-  --color-text: #0f172a;
-  --color-text-muted: #475569;
-  --color-text-subtle: #64748b;
-  --color-primary: #4f46e5;
-  --color-primary-hover: #4338ca;
-  --color-primary-fg: #ffffff;
-  --color-accent: #d97706;
-  --color-accent-fg: #ffffff;
-  --color-success: #047857;
-  --color-success-bg: #ecfdf5;
-  --color-warning: #b45309;
-  --color-warning-bg: #fffbeb;
-  --color-danger: #dc2626;
-  --color-danger-bg: #fef2f2;
-  --color-info: #0284c7;
-  --color-info-bg: #f0f9ff;
-  --color-focus-ring: #6366f1;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-}
+  /* Papel y pozos */
+  --color-bg: #f4f1ea;
+  --color-surface: #f4f1ea;
+  --color-surface-2: #efebe2;
 
-.dark {
-  --color-bg: #020617;
-  --color-surface: #0f172a;
-  --color-surface-2: #1e293b;
-  --color-border: #334155;
-  --color-border-strong: #475569;
-  --color-text: #f1f5f9;
-  --color-text-muted: #94a3b8;
-  --color-text-subtle: #64748b;
-  --color-primary: #818cf8;
-  --color-primary-hover: #a5b4fc;
-  --color-primary-fg: #0f172a;
-  --color-accent: #fbbf24;
-  --color-accent-fg: #0f172a;
-  --color-success: #34d399;
-  --color-success-bg: #052e22;
-  --color-warning: #fbbf24;
-  --color-warning-bg: #3a2a05;
-  --color-danger: #f87171;
-  --color-danger-bg: #3a0a0a;
-  --color-info: #38bdf8;
-  --color-info-bg: #082234;
-  --color-focus-ring: #a5b4fc;
+  /* Reglas: el único separador del sistema. Nada de cajas ni sombras. */
+  --color-border: rgba(26, 26, 24, 0.16);
+  --color-border-strong: rgba(26, 26, 24, 0.32);
+
+  /* Tinta. --color-text-muted a #6E695E ≈ 4.55:1 sobre el papel (AA). */
+  --color-text: #1a1a18;
+  --color-text-muted: #6e695e;
+  --color-text-subtle: #6e695e;
+
+  /* La acción primaria es tinta, no color. */
+  --color-primary: #1a1a18;
+  --color-primary-hover: #000000;
+  --color-primary-fg: #f4f1ea;
+
+  /* Bermellón: sello de marca. Una sola tinta, usada con avaricia. */
+  --color-accent: #b44b3a;
+  --color-accent-fg: #f4f1ea;
+
+  /*
+   * Estados. El diseño no usa rellenos de color: un estado es texto mono
+   * coloreado sobre papel, así que los *-bg quedan transparentes a propósito
+   * (cualquier Badge "soft" heredado pierde la caja y conserva el color).
+   */
+  /* #4A7345 ≈ 4.86:1 sobre el papel #F4F1EA (AA ≥4.5:1). Antes #4E7A49 = 4.43:1. */
+  --color-success: #4a7345;
+  --color-success-bg: transparent;
+  --color-warning: #b44b3a;
+  --color-warning-bg: transparent;
+  --color-danger: #b44b3a;
+  --color-danger-bg: transparent;
+  --color-info: #6e695e;
+  --color-info-bg: transparent;
+  --color-neutral-warm: #9a6c57;
+
+  /* Paneles de tinta: hero de auth y sidebar del back-office. */
+  --color-ink: #1a1a18;
+  --color-on-ink: #f4f1ea;
+  --color-on-ink-muted: #8a857a;
+  --color-on-ink-nav: #a39d91;
+  --color-on-ink-rule: rgba(244, 241, 234, 0.14);
+
+  --color-focus-ring: #b44b3a;
+
+  /* Sin esquinas redondeadas en ninguna parte del sistema. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
 }
 
 @layer base {
@@ -68,25 +77,78 @@
   body {
     background-color: var(--color-bg);
     color: var(--color-text);
-    font-feature-settings: 'cv11', 'ss01';
   }
   h1,
   h2,
   h3,
   h4 {
     color: var(--color-text);
+    font-family: var(--font-serif), Georgia, 'Times New Roman', serif;
+    font-weight: 400;
   }
-  /* Global visible focus (DESIGN_SYSTEM §8.2) */
+  /* Toda cifra alinea en columna: el sitio se lee como una tabla de precios. */
+  .tabular,
+  [class*='tabular'],
+  input[type='number'] {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Foco visible en bermellón (DESIGN_SYSTEM §8.2), sin radio. */
   :focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px var(--color-focus-ring);
-    border-radius: var(--radius-sm);
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+    box-shadow: none;
   }
 }
 
 @layer utilities {
   .tabular {
     font-variant-numeric: tabular-nums;
+  }
+  /* Etiqueta de sección: mono, versalitas, muy espaciada. */
+  .eyebrow {
+    font-family: var(--font-mono), ui-monospace, Menlo, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+  /* Nota al margen: sustituye a los banners de color. */
+  .rule-note {
+    padding-left: 16px;
+    border-left: 2px solid var(--color-accent);
+  }
+  .rule-note-quiet {
+    padding-left: 16px;
+    border-left: 1px solid var(--color-border-strong);
+  }
+  /*
+   * Margen lateral del contenido (44px en escritorio, como las pantallas).
+   * Las reglas van de borde a borde y el contenido respira dentro: por eso el
+   * margen lo pone cada sección y no el <main>.
+   */
+  .gutter {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  @media (min-width: 640px) {
+    .gutter {
+      padding-left: 24px;
+      padding-right: 24px;
+    }
+  }
+  @media (min-width: 1024px) {
+    .gutter {
+      padding-left: 44px;
+      padding-right: 44px;
+    }
+  }
+  /* Etiqueta vertical al margen (BÓVEDA, BUYLIST). */
+  .vertical-label {
+    writing-mode: vertical-rl;
+    font-family: var(--font-serif), Georgia, serif;
+    letter-spacing: 0.5em;
   }
 }
 

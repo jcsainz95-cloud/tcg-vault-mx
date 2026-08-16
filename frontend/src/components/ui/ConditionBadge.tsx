@@ -1,7 +1,6 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { ShieldCheck, Package } from 'lucide-react';
 import { Badge } from './Badge';
 import { GradedCertChip } from './GradedCertChip';
 import type { ProductType, RawCondition, GradingCompany, SealedSubtype } from '@/types/contract';
@@ -51,7 +50,7 @@ export function ConditionBadge({
   if (productType === 'sealed') {
     return (
       <span className="inline-flex flex-wrap items-center gap-1">
-        <Badge tone="info" shape="soft" icon={<Package size={13} aria-hidden />}>
+        <Badge tone="info" shape="soft">
           {t('card.productType.sealed')}
         </Badge>
         {sealedSubtype && (
@@ -71,7 +70,6 @@ export function ConditionBadge({
     <Badge
       tone="success"
       shape="soft"
-      icon={<ShieldCheck size={13} aria-hidden />}
       tabIndex={0}
       title={`${label} — ${desc}`}
       aria-label={ariaLabel}

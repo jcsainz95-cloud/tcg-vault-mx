@@ -1198,3 +1198,42 @@ Info/observación aceptados con disparador.
   en `createUser`; `after` de auditoría sin password; `select` de `listForUser` sin `before/after` y `ip`
   condicional; whitelist del DTO). **Antes de GA con dinero real**, ejecutar la fase **DAST** de V17.8 contra
   staging autorizado.
+
+---
+
+## V18 — Revisión LIGERA rediseño 5a (rama `claude/rediseno-5a-pantallas`, 2026-08-16)
+
+**Alcance:** solo-frontend, 51 archivos (49 en `frontend/` + 2 docs), delta `main...HEAD`
+(+2696 / -2191). Cambios de **capa de presentación**: tokens de color/tipografía, `tailwind.config.ts`,
+`globals.css`, componentes `ui/` y `domain/`, shells/headers. **No** añade endpoints, **no** toca auth,
+datos, dinero ni el contrato de API. Objetivo: confirmar que no hay superficie de seguridad nueva.
+
+### V18.1 Verificaciones (todas [Verificado en código])
+1. **XSS / inyección de markup:** `grep` sobre `frontend/src/` → **0** ocurrencias de
+   `dangerouslySetInnerHTML`, `eval(`, `new Function`, `innerHTML`, `<script>`. El delta no introduce
+   ninguna. Todo texto dinámico se renderiza como hijo JSX (auto-escapado por React).
+2. **Fuentes / recursos remotos y CSP:** las tipografías migran a **`next/font/google`** (`Archivo`,
+   `JetBrains_Mono`, `Zen_Old_Mincho`) en `frontend/src/app/[locale]/layout.tsx`. `next/font` **auto-hospeda**
+   los archivos en build-time y los sirve desde el propio origen (variables `--font-serif/-sans/-mono`); **no**
+   hay fetch en runtime a `fonts.googleapis.com`/`gstatic`/CDN externo → **no evade la CSP**. `grep` de
+   `fonts.googleapis|gstatic|cdn.|http://` en `frontend/src/` → **0** matches.
+3. **Exposición de datos nuevos en cliente:** sin cambios en `lib/` (`git diff --name-only` no lista
+   `frontend/src/lib/*` → `useCart` **intacto**). `AuthForm.tsx` y `GoogleSignInButton.tsx` son cambios
+   **visuales**: sin nuevos `token/secret/client_id/fetch/window/localStorage/process.env`. No se filtran
+   tokens/PII/secretos que antes no estuvieran.
+4. **Carrito en header (`StorefrontHeader`) / `ListingSpec`:** el header solo importa el `useCart` existente
+   y pinta el `count` (número). `ListingSpec` construye `line = parts.join(' · ')` desde **claves i18n** +
+   datos de carta (`grade`, `certNumber`, `rawCondition`) y los usa como texto JSX y en `title`/`aria-label`;
+   React escapa tanto hijos como valores de atributo → **sin inyección vía nombre/condición de carta**.
+5. **`localStorage`:** las únicas apariciones en el delta son (a) la **eliminación** de `ThemeToggle`
+   (tema único claro) y (b) el patrón ya existente de `useCart` (líneas de carrito locales, sin credenciales).
+   No hay almacenamiento nuevo de datos sensibles.
+
+### V18.2 VEREDICTO — rediseño 5a
+**Rev rediseño 5a — sin superficie de seguridad nueva. APROBADO para el registro.**
+- **0 Críticas / 0 Altas / 0 Medias / 0 Bajas** en el delta 5a. Es capa de presentación pura: sin endpoints,
+  sin auth/datos/dinero/contrato, sin recursos remotos no confiables, sin nuevas rutas de XSS.
+- El criterio de RECHAZO de `CLAUDE.md` §7 (críticos/altos abiertos) **no se cumple** → **no procede RECHAZO**.
+- **Mínimo para mantener la aprobación:** conservar `next/font` self-hosted (no reintroducir `<link>` a CDN de
+  fuentes que requiera relajar la CSP) y no pasar datos de carta por `dangerouslySetInnerHTML`. El veredicto
+  de seguridad global del proyecto sigue gobernado por las secciones previas (auth/dinero/PII), inalteradas por 5a.

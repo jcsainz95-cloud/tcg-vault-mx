@@ -84,75 +84,85 @@ export function AuthForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <h1 className="text-h2 font-bold">{mode === 'login' ? t('loginTitle') : t('registerTitle')}</h1>
+    /*
+     * 6g — El formulario ya no es una tarjeta flotante: vive sobre el papel de la
+     * media pantalla derecha (ver (auth)/layout.tsx). Los campos son reglas, el
+     * título va en mincho y Google queda bajo el divisor como alternativa neutra.
+     */
+    <form onSubmit={onSubmit} className="flex flex-col">
+      <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[38px]">
+        {mode === 'login' ? t('loginTitle') : t('registerTitle')}
+      </h1>
       {/* El aviso de "sesión simulada" solo aplica en modo mock; en producción
           el formulario pega al backend real, así que no debe mostrarse. */}
-      {config.useMocks && <Banner variant="info">{t('mockNotice')}</Banner>}
-      {notice === 'inactivity' && (
-        <Banner variant="warning" role="status">
-          {t('inactivityLogout')}
-        </Banner>
-      )}
-      {mustChangeRole && (
-        <Banner variant="warning" role="alert">
-          <span className="flex flex-col gap-2">
-            {t('mustChangePassword')}
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="self-start"
-              onClick={() => redirectByRole(mustChangeRole)}
-            >
-              {t('mustChangeContinue')}
-            </Button>
-          </span>
-        </Banner>
-      )}
-      {errorCode && (
-        <Banner variant="danger" role="alert">
-          {tErr.has(errorCode) ? tErr(errorCode) : tErr('INTERNAL')}
-        </Banner>
-      )}
-      {mode === 'register' && (
-        <>
-          <Input label={t('name')} name="name" autoComplete="name" required />
-          <Input label={t('phone')} name="phone" type="tel" inputMode="tel" autoComplete="tel" />
-        </>
-      )}
-      <Input label={t('email')} name="email" type="email" autoComplete="email" required />
-      <Input
-        label={t('password')}
-        name="password"
-        type="password"
-        autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-        required
-      />
-      <Button type="submit" loading={loading} className="w-full">
+      <div className="empty:hidden [&>*]:mt-7">
+        {config.useMocks && <Banner variant="info">{t('mockNotice')}</Banner>}
+        {notice === 'inactivity' && (
+          <Banner variant="warning" role="status">
+            {t('inactivityLogout')}
+          </Banner>
+        )}
+        {mustChangeRole && (
+          <Banner variant="warning" role="alert">
+            <span className="flex flex-col items-start gap-3">
+              {t('mustChangePassword')}
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => redirectByRole(mustChangeRole)}
+              >
+                {t('mustChangeContinue')}
+              </Button>
+            </span>
+          </Banner>
+        )}
+        {errorCode && (
+          <Banner variant="danger" role="alert">
+            {tErr.has(errorCode) ? tErr(errorCode) : tErr('INTERNAL')}
+          </Banner>
+        )}
+      </div>
+      <div className="[&>*]:mt-8">
+        {mode === 'register' && (
+          <>
+            <Input label={t('name')} name="name" autoComplete="name" required />
+            <Input label={t('phone')} name="phone" type="tel" inputMode="tel" autoComplete="tel" />
+          </>
+        )}
+        <Input label={t('email')} name="email" type="email" autoComplete="email" required />
+        <Input
+          label={t('password')}
+          name="password"
+          type="password"
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          required
+        />
+      </div>
+
+      <Button type="submit" loading={loading} className="mt-10 w-full">
         {loading ? t('loading') : mode === 'login' ? t('loginCta') : t('registerCta')}
       </Button>
 
       {mode === 'login' && (
-        <Link
-          href="/forgot-password"
-          className="text-center text-sm text-primary hover:underline"
-        >
+        <Link href="/forgot-password" className="mt-5 text-center text-sm text-accent hover:text-text">
           {t('forgotPassword')}
         </Link>
       )}
 
       {/* Divisor "o / or" — Google es alternativa neutra, no compite como CTA */}
-      <div className="flex items-center gap-3" aria-hidden>
-        <span className="h-px flex-1 bg-border" />
-        <span className="text-xs text-muted">{t('dividerOr')}</span>
-        <span className="h-px flex-1 bg-border" />
+      <div className="mt-9 flex items-center gap-4" aria-hidden>
+        <span className="h-px flex-1 bg-border-strong" />
+        <span className="font-mono text-[11px] text-muted">{t('dividerOr')}</span>
+        <span className="h-px flex-1 bg-border-strong" />
       </div>
-      <GoogleSignInButton onSuccess={(role) => redirectByRole(role)} />
+      <div className="mt-6">
+        <GoogleSignInButton onSuccess={(role) => redirectByRole(role)} />
+      </div>
 
       <Link
         href={mode === 'login' ? '/register' : '/login'}
-        className="text-center text-sm text-primary hover:underline"
+        className="mt-9 text-center text-sm text-muted hover:text-text"
       >
         {mode === 'login' ? t('toRegister') : t('toLogin')}
       </Link>

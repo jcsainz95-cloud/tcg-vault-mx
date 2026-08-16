@@ -1,7 +1,6 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { Sparkles } from 'lucide-react';
 import type { Finish, ProductType } from '@/types/contract';
 import { Badge } from '@/components/ui/Badge';
 
@@ -16,16 +15,13 @@ export interface FinishBadgeProps {
  * 1st Edition). El acabado solo aplica a raw/singles; para graded/sealed es siempre `normal`
  * y se oculta (no aporta señal). Dos copias con acabado distinto son listings separados.
  */
-export function FinishBadge({ finish, productType, compact }: FinishBadgeProps) {
+export function FinishBadge({ finish, productType }: FinishBadgeProps) {
   const t = useTranslations('finish');
   // graded/sealed → normal siempre: no lo mostramos (ruido). raw sí muestra su acabado.
   const meaningful = productType == null ? true : productType === 'raw' || finish !== 'normal';
   if (!meaningful) return null;
   return (
-    <Badge
-      tone={finish === 'normal' ? 'neutral' : 'accent'}
-      icon={finish === 'normal' ? undefined : <Sparkles size={compact ? 11 : 12} aria-hidden />}
-    >
+    <Badge tone={finish === 'normal' ? 'neutral' : 'primary'}>
       <span className="sr-only">{t('label')}: </span>
       {t(finish)}
     </Badge>

@@ -358,3 +358,65 @@
   fixtures a consumir los **mismos helpers puros del contrato** (gross-up con `(1+stripeFeeIvaPct)` y
   `categoryForRarity`/`quoteAcquisition` compartidos), o retirar la lógica del bundle real. **No** se
   cambia el comportamiento del mock ahora (evita romper fixtures/E2E que asumen los números actuales).
+
+### Deuda del pase rediseño 5a (hallazgos qa/techlead — no bloqueante, aceptada)
+
+> Del pase de **rediseño 5a**. Los **dos MUST-FIX de accesibilidad** (foco visible en el `<select>` de
+> switch de rol del AdminTopbar; contraste AA del token `--color-success` + consistencia del anillo de
+> foco en los inputs crudos de `ShopFilters`/`CatalogView`) **ya se corrigieron** en este mismo pase y
+> **no** figuran como deuda (ver `FRONTEND_NOTES.md`). Lo de abajo es lo que el techlead marcó **no
+> bloqueante** y autorizó a diferir. IDs prefijados `5a-` para no colisionar con FE-1..6/D7.
+
+### 5a-D1 · `ConditionBadge` huérfano + lógica de condición triplicada
+- **Dónde:** `frontend/src/components/domain/ListingSpec.tsx`, `frontend/src/components/domain/ConditionBadge.tsx`
+  y `frontend/src/app/[locale]/(storefront)/catalog/CardDetailView.tsx` (mapeo de condición inline).
+- **Estado actual:** la lógica que traduce/abrevia la condición (NM, etc.) y la deriva a etiqueta está
+  **triplicada**: `ListingSpec` la resuelve por su cuenta, `ConditionBadge` la reimplementa y además está
+  **huérfano** (no lo consume la ficha), y `CardDetailView` la vuelve a hacer **inline**. Tres fuentes de
+  verdad para la misma regla de presentación.
+- **Impacto:** bajo. Mantenibilidad/consistencia: un cambio en la taxonomía o en la abreviatura de condición
+  obliga a tocar tres sitios y arriesga divergencia (que la ficha muestre algo distinto a la retícula).
+- **Disparador:** al tocar la lógica de condición o al retomar la ficha 360°. Solución: **consolidar** en un
+  helper puro único (o adoptar `ConditionBadge` en la ficha y hacer que `ListingSpec`/`CardDetailView` lo
+  reutilicen), eliminando el componente huérfano si no se adopta.
+
+### 5a-D3 · Grosor de anillo de foco inconsistente (3px hardcodeado vs token 2px)
+- **Dónde:** `frontend/src/components/ui/Button.tsx`, `frontend/src/components/domain/DisputeEvidenceContact.tsx`
+  y `frontend/src/components/ui/PhotoUploader.tsx` usan `shadow-[0_0_0_3px_...]` (3px), frente al token
+  `shadow-focus` (`0 0 0 2px var(--color-focus-ring)`) que usan Input/Select y ahora los inputs crudos.
+- **Estado actual:** dos grosores de anillo bermellón conviven (3px inline vs 2px token). Todos son visibles
+  y cumplen foco/contraste; solo difieren en px. No es un bug de accesibilidad, es inconsistencia visual.
+- **Impacto:** bajo. Cosmético/consistencia del sistema de foco; sin efecto en AA ni en operabilidad por teclado.
+- **Disparador:** al pulir el sistema de foco o al centralizar tokens. Solución: **unificar** los tres a
+  `shadow-focus` (2px) y retirar los `shadow-[0_0_0_3px_...]` inline.
+
+### 5a-D4 · `ListingSpec` compacto (graded) omite `certNumber` en el `aria-label`
+- **Dónde:** `frontend/src/components/domain/ListingSpec.tsx` (variante `compact` para producto `graded`).
+- **Estado actual:** la variante compacta de graded compone un `aria-label` sin incluir el `certNumber`,
+  que la variante completa sí anuncia. El lector de pantalla oye grado/grader pero no el número de
+  certificación en la retícula compacta.
+- **Impacto:** bajo. Accesibilidad menor: falta un dato de identificación en el `aria-label` compacto; el
+  número sigue disponible en la ficha completa. No rompe navegación ni operabilidad.
+- **Disparador:** al retocar `ListingSpec` o en el próximo repaso de accesibilidad. Solución: componer el
+  `aria-label` de la variante graded compacta incluyendo también el `certNumber`.
+
+### 5a-D5 · Vars `--radius-*` / `--shadow-*` muertas en `globals.css` (Tailwind hardcodea 0)
+- **Dónde:** `frontend/src/app/globals.css` (`--radius-sm/md/lg/xl: 0px`, y equivalentes de sombra) vs.
+  `frontend/tailwind.config.ts` (radios y `boxShadow` hardcodeados a `none`/0, salvo `focus`).
+- **Estado actual:** las variables de radio/sombra en `:root` **no las consume nadie**: Tailwind ya fija 0
+  directamente en la config, así que son tokens muertos. Coexisten dos fuentes (var CSS sin usar + valor
+  hardcodeado) para el mismo "cero".
+- **Impacto:** bajo. Ruido/mantenibilidad: da la falsa impresión de que ajustando la var se cambia el radio,
+  cuando el valor real vive en la config de Tailwind.
+- **Disparador:** al limpiar tokens o si alguien quiere reintroducir radios. Solución: **alinear** (que
+  Tailwind lea `var(--radius-*)`/`var(--shadow-*)`) **o quitar** las variables muertas de `globals.css`.
+
+### 5a-D6 · (nota) `PortfolioTrendChart` hardcodea hex de la paleta como fallback de recharts
+- **Dónde:** `frontend/src/components/domain/PortfolioTrendChart.tsx`.
+- **Estado actual:** para pasar colores a recharts (que no lee variables CSS directamente en todos los
+  props) se **hardcodean hex** de la paleta 5a como fallback en vez de leer los tokens `--color-*`.
+- **Impacto:** bajo. Riesgo de **drift**: si la paleta cambia en `globals.css`, la gráfica seguiría pintando
+  los hex viejos hasta que alguien recuerde actualizarlos a mano.
+- **Disparador:** si la paleta cambia o al endurecer el tema. Solución: leer los tokens vía
+  `getComputedStyle(document.documentElement)` (o un puente de CSS vars a JS) y pasarlos a recharts, en
+  lugar de hex literales.

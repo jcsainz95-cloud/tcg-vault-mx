@@ -12,6 +12,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import type { OrderSummaryDTO } from '@/types/contract';
 
+/**
+ * 6f — La tabla pierde el fondo y se apoya solo en reglas y en la numeración
+ * monoespaciada; el folio de la orden es el único elemento en bermellón, porque
+ * es lo único accionable del renglón.
+ */
 export function OrdersView() {
   const t = useTranslations('orders');
   const locale = useLocale() as AppLocale;
@@ -22,7 +27,7 @@ export function OrdersView() {
       key: 'id',
       header: t('orderNumber', { id: '' }).trim(),
       render: (o) => (
-        <Link href={`/orders/${o.id}`} className="font-medium text-primary hover:underline tabular">
+        <Link href={`/orders/${o.id}`} className="tabular font-mono text-accent hover:text-text">
           {o.id}
         </Link>
       ),
@@ -38,8 +43,10 @@ export function OrdersView() {
   ];
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-h1 font-bold">{t('title')}</h1>
+    <div className="gutter pb-14">
+      <h1 className="pb-6 pt-10 font-serif text-[30px] leading-[1.1] text-text lg:pt-[46px] lg:text-[40px]">
+        {t('title')}
+      </h1>
       <QueryState
         isLoading={query.isLoading}
         isError={query.isError}

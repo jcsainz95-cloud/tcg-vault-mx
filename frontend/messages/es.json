@@ -19,7 +19,6 @@
     "errorTitle": "Algo salió mal",
     "errorGeneric": "No se pudo cargar la información.",
     "skipToContent": "Saltar al contenido",
-    "theme": "Tema",
     "value": "Valor",
     "total": "Total",
     "datePresets": {
@@ -41,6 +40,7 @@
     "register": "Registrarse",
     "logout": "Cerrar sesión",
     "admin": "Panel admin",
+    "cart": "Carrito",
     "menu": "Menú",
     "terms": "Términos y política"
   },
@@ -51,7 +51,15 @@
     "ctaBuylist": "Vender mis cartas",
     "trustAuth": "Cada carta se autentica al ingresar",
     "trustCustody": "Bóveda asegurada, sin envíos innecesarios",
-    "trustPrice": "Valor de mercado transparente en MXN"
+    "trustPrice": "Valor de mercado transparente en MXN",
+    "yourVault": "Tu bóveda",
+    "vaultLabel": "Bóveda",
+    "buylistLabel": "Buylist",
+    "featuredTitle": "Piezas destacadas del catálogo",
+    "viewAllCatalog": "Ver todo el catálogo",
+    "sellTitle": "Vender mis cartas",
+    "sellBody": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y pagamos.",
+    "sellCta": "Empezar cotización"
   },
   "catalog": {
     "title": "Compra",
@@ -155,6 +163,7 @@
   "checkout": {
     "title": "Pago",
     "summary": "Resumen",
+    "removeItem": "Quitar",
     "subtotal": "Subtotal",
     "subtotalHint": "Precio de venta de las cartas, sin IVA.",
     "processingFee": "Costo de procesamiento",
@@ -186,6 +195,8 @@
     "withdraw": "Retirar",
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo se pueden retirar cartas liquidadas (settled).",
+    "cardColumn": "Carta",
+    "statusColumn": "Estado",
     "folio": "Folio",
     "selectToWithdraw": "Seleccionar para retiro",
     "setFilter": {
@@ -495,6 +506,7 @@
     },
     "roleSwitch": "Ver como",
     "masked": "Solo súper-admin",
+    "superAdminTag": "Súper",
     "moneyOutNote": "Solo súper-admin · queda en bitácora",
     "superAdminGateTitle": "Acceso restringido",
     "superAdminGateBody": "Este módulo es solo para súper-admin. Cambia de rol o pide acceso.",

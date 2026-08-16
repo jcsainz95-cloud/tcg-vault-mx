@@ -29,7 +29,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(2,6,23,.5)] p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(26,26,24,.55)] p-0 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
@@ -39,15 +39,15 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-t-xl bg-surface p-5 shadow-lg outline-none sm:rounded-xl"
+        className="w-full max-w-md border-t border-border bg-bg p-5 outline-none sm:border"
       >
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-h3 font-semibold">{title}</h2>
+          <h2 className="font-serif text-xl text-text">{title}</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded-md p-1 text-muted hover:bg-surface-2"
+            className="p-1 text-muted hover:text-text"
           >
             <X size={20} />
           </button>

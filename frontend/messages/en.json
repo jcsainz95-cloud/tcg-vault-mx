@@ -19,7 +19,6 @@
     "errorTitle": "Something went wrong",
     "errorGeneric": "We couldn't load the data.",
     "skipToContent": "Skip to content",
-    "theme": "Theme",
     "value": "Value",
     "total": "Total",
     "datePresets": {
@@ -41,6 +40,7 @@
     "register": "Sign up",
     "logout": "Log out",
     "admin": "Admin panel",
+    "cart": "Cart",
     "menu": "Menu",
     "terms": "Terms & policy"
   },
@@ -51,7 +51,15 @@
     "ctaBuylist": "Sell my cards",
     "trustAuth": "Every card is authenticated on intake",
     "trustCustody": "Insured custody, no unnecessary shipping",
-    "trustPrice": "Transparent market value in MXN"
+    "trustPrice": "Transparent market value in MXN",
+    "yourVault": "Your vault",
+    "vaultLabel": "Vault",
+    "buylistLabel": "Buylist",
+    "featuredTitle": "Featured from the catalog",
+    "viewAllCatalog": "View the full catalog",
+    "sellTitle": "Sell my cards",
+    "sellBody": "We quote your list at the day's market value. You ship, we authenticate and pay.",
+    "sellCta": "Start a quote"
   },
   "catalog": {
     "title": "Shop",
@@ -155,6 +163,7 @@
   "checkout": {
     "title": "Checkout",
     "summary": "Summary",
+    "removeItem": "Remove",
     "subtotal": "Subtotal",
     "subtotalHint": "Card sale price, before VAT.",
     "processingFee": "Processing fee",
@@ -186,6 +195,8 @@
     "withdraw": "Withdraw",
     "withdrawSelected": "Withdraw selected",
     "onlySettled": "Only settled cards can be withdrawn.",
+    "cardColumn": "Card",
+    "statusColumn": "Status",
     "folio": "Folio",
     "selectToWithdraw": "Select for withdrawal",
     "setFilter": {
@@ -495,6 +506,7 @@
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
+    "superAdminTag": "Super",
     "moneyOutNote": "Super-admin only · logged in audit trail",
     "superAdminGateTitle": "Restricted access",
     "superAdminGateBody": "This module is super-admin only. Switch role or request access.",

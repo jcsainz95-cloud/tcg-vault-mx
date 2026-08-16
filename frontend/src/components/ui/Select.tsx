@@ -1,7 +1,6 @@
 'use client';
 
 import { forwardRef, useId } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 export interface SelectOption {
@@ -15,6 +14,10 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
   placeholder?: string;
 }
 
+/*
+ * Dirección 5a: mismo tratamiento que Input — regla en vez de caja, etiqueta mono.
+ * El indicador es el triángulo ▾ del diseño, no el chevron de lucide.
+ */
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
   { label, options, placeholder, className, id, ...props },
   ref,
@@ -22,17 +25,19 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const autoId = useId();
   const selectId = id ?? autoId;
   return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={selectId} className="text-sm font-medium text-text">
+    <div className="flex flex-col">
+      <label htmlFor={selectId} className="eyebrow">
         {label}
       </label>
-      <div className="relative">
+      {/* Anillo de foco (bermellón, --shadow-focus) en el wrapper: el <select> lleva
+          outline-none. Excepción de accesibilidad que sobrevive a "sombras 0"
+          (DESIGN_SYSTEM §6.3 → §6.2 focus = borde --color-primary + --shadow-focus; §8.2). */}
+      <div className="relative mt-3 border-b border-border-strong pb-3 focus-within:border-text focus-within:shadow-focus">
         <select
           ref={ref}
           id={selectId}
           className={cn(
-            'h-11 w-full appearance-none rounded-md border border-border-strong bg-surface px-3 pr-9 text-base text-text',
-            'focus-visible:border-primary',
+            'w-full appearance-none bg-transparent pr-6 text-base text-text outline-none',
             className,
           )}
           {...props}
@@ -44,11 +49,12 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
             </option>
           ))}
         </select>
-        <ChevronDown
-          size={18}
-          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted"
+        <span
+          className="pointer-events-none absolute right-0 top-0 text-muted"
           aria-hidden
-        />
+        >
+          ▾
+        </span>
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
 'use client';
 
 import { useLocale, useTranslations } from 'next-intl';
-import { HelpCircle } from 'lucide-react';
 import type { BreakdownDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -16,46 +15,46 @@ function Line({
   label,
   amount,
   hint,
-  bold,
   locale,
 }: {
   label: string;
   amount: number;
   hint?: string;
-  bold?: boolean;
   locale: AppLocale;
 }) {
   return (
-    <div
-      className={
-        bold
-          ? 'flex items-center justify-between border-t border-border pt-3 text-lg font-bold text-text'
-          : 'flex items-center justify-between text-sm text-text'
-      }
-    >
-      <span className="flex items-center gap-1">
-        {label}
-        {hint && (
-          <span title={hint} className="text-muted" aria-label={hint}>
-            <HelpCircle size={14} />
-          </span>
-        )}
-      </span>
+    <div className="flex items-center justify-between py-3 text-sm text-text">
+      {hint ? (
+        // Sin icono de ayuda: la explicación cuelga del propio concepto, marcada
+        // con subrayado punteado (el diseño no admite iconos decorativos).
+        <span
+          title={hint}
+          aria-label={`${label}. ${hint}`}
+          className="cursor-help underline decoration-dotted underline-offset-4"
+        >
+          {label}
+        </span>
+      ) : (
+        <span>{label}</span>
+      )}
       <span className="tabular">{formatMoneyCents(amount, locale)}</span>
     </div>
   );
 }
 
 /**
- * AmountBreakdown (DESIGN_SYSTEM §7.12): subtotal + fee de procesamiento
- * (gross-up, sin IVA) + IVA desglosado + total. El total nunca sin su desglose.
+ * AmountBreakdown (DESIGN_SYSTEM §7.12): subtotal + IVA desglosado + fee de
+ * procesamiento + total, en el orden del contrato. El total nunca sin su desglose.
+ *
+ * Dirección 5a: los renglones se separan con aire, no con reglas, y solo el total
+ * lleva regla encima; la cifra final es la pieza tipográfica más grande del bloque.
  */
 export function AmountBreakdown({ breakdown, variant = 'purchase' }: AmountBreakdownProps) {
   const t = useTranslations('checkout');
   const locale = useLocale() as AppLocale;
 
   return (
-    <div className="flex flex-col gap-3" data-testid="amount-breakdown">
+    <div data-testid="amount-breakdown">
       <Line
         label={variant === 'shipment' ? t('shipping') : t('subtotal')}
         amount={breakdown.subtotalCents}
@@ -74,7 +73,12 @@ export function AmountBreakdown({ breakdown, variant = 'purchase' }: AmountBreak
         hint={t('processingFeeHint')}
         locale={locale}
       />
-      <Line label={t('total')} amount={breakdown.totalCents} bold locale={locale} />
+      <div className="mt-2 flex items-baseline justify-between border-t border-border-strong pt-5">
+        <span className="text-[15px] font-medium text-text">{t('total')}</span>
+        <span className="tabular text-[28px] font-medium leading-none text-text">
+          {formatMoneyCents(breakdown.totalCents, locale)}
+        </span>
+      </div>
     </div>
   );
 }

@@ -4,9 +4,7 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import type { ListingDTO } from '@/types/contract';
 import { CardImage } from '@/components/ui/CardImage';
-import { ConditionBadge } from '@/components/ui/ConditionBadge';
-import { FinishBadge } from '@/components/domain/FinishBadge';
-import { GradedCertChip } from '@/components/ui/GradedCertChip';
+import { ListingSpec } from '@/components/domain/ListingSpec';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { Button } from '@/components/ui/Button';
 
@@ -15,74 +13,65 @@ export interface ListingCardProps {
   onAdd?: (listing: ListingDTO) => void;
 }
 
-/** CardTile de storefront (DESIGN_SYSTEM §7.1 / §7.1b sellado). */
+/**
+ * Pieza del catálogo (DESIGN_SYSTEM §7.1 / §7.1b sellado).
+ *
+ * Dirección 5a: la tarjeta pierde la caja. Queda arte sobre su pozo de papel,
+ * el nombre en mincho, la ficha técnica en un renglón mono y el precio como la
+ * cifra más pesada del bloque. Nada se monta sobre el arte (§7.2b): la calidad
+ * vive en el renglón de ListingSpec, bajo la imagen.
+ */
 export function ListingCard({ listing, onAdd }: ListingCardProps) {
   const t = useTranslations('catalog');
   const { card } = listing;
   const isSealed = listing.productType === 'sealed';
-  const isGraded = listing.productType === 'graded';
 
   return (
-    <div className="group flex flex-col gap-3 rounded-lg border border-border bg-surface p-3 shadow-sm transition-shadow hover:shadow-md">
-      <Link
-        href={`/catalog/${card.id}`}
-        className="relative block rounded-md focus-visible:outline-none"
-      >
-        {/*
-          Regla anti-empalme (§7.2b): la calidad va FUERA del arte (fila de info).
-          La ÚNICA excepción sobre el arte es el chip de grado de gradeada, con scrim
-          sólido, en la esquina superior-izquierda (top-2 left-2). Raw NM y sellado
-          NUNCA se montan sobre el arte.
-        */}
-        {isGraded && (
-          <div className="absolute left-2 top-2 z-10">
-            <GradedCertChip
-              gradingCompany={listing.gradingCompany}
-              gradeValue={listing.gradeValue}
-              certNumber={listing.certNumber}
-              variant="scrim"
-              compact
-            />
-          </div>
-        )}
+    <div className="flex flex-col">
+      <Link href={`/catalog/${card.id}`} className="block">
         {/* imagen de catálogo remota (v1.2, sin fotos propias); sellado usa object-contain */}
         <CardImage src={card.imageSmallUrl} alt={card.name} />
       </Link>
 
-      <div className="flex flex-col gap-0.5">
-        <p className="line-clamp-2 text-sm font-semibold text-text" lang="en">
-          {card.name}
-        </p>
-        <p className="text-xs text-muted" lang="en">
-          {isSealed ? card.setName : `${card.setName} · #${card.number}`}
-        </p>
-      </div>
+      <p className="mt-3.5 font-serif text-base font-medium leading-tight text-text" lang="en">
+        <Link href={`/catalog/${card.id}`}>{card.name}</Link>
+      </p>
+      <p className="mt-1.5 font-mono text-[11px] leading-snug text-muted" lang="en">
+        {isSealed ? card.setName : `${card.setName} · #${card.number}`}
+      </p>
 
-      {/* Fila de calidad (bajo la imagen, fuera del arte) — ubicación por defecto §7.2b */}
-      <div className="flex flex-wrap gap-1.5">
-        <ConditionBadge
-          productType={listing.productType}
-          rawCondition={listing.rawCondition}
-          sealedSubtype={listing.sealedSubtype}
-          gradingCompany={listing.gradingCompany}
-          gradeValue={listing.gradeValue}
-          certNumber={listing.certNumber}
+      <ListingSpec
+        productType={listing.productType}
+        rawCondition={listing.rawCondition}
+        sealedSubtype={listing.sealedSubtype}
+        finish={listing.finish}
+        gradingCompany={listing.gradingCompany}
+        gradeValue={listing.gradeValue}
+        certNumber={listing.certNumber}
+        compact
+        className="mt-2.5"
+      />
+
+      <div className="mt-3">
+        <PriceTag
+          reference={listing.referenceValue}
+          salePriceCents={listing.salePriceCents}
+          mode="sale"
         />
-        {/* v1.6-finish: acabado de esta copia (Reverse Holo / Holofoil / 1st Ed / Normal en raw). */}
-        <FinishBadge finish={listing.finish} productType={listing.productType} />
       </div>
 
-      <PriceTag reference={listing.referenceValue} salePriceCents={listing.salePriceCents} mode="sale" />
-
-      <Button
-        variant="accent"
-        size="sm"
-        className="mt-auto w-full"
-        disabled={!listing.sellable}
-        onClick={() => onAdd?.(listing)}
-      >
-        {listing.sellable ? t('addToCart') : t('notForSale')}
-      </Button>
+      {/* mt-auto alinea el botón abajo cuando las fichas de la fila tienen alturas distintas */}
+      <div className="mt-auto pt-3.5">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="w-full"
+          disabled={!listing.sellable}
+          onClick={() => onAdd?.(listing)}
+        >
+          {listing.sellable ? t('addToCart') : t('notForSale')}
+        </Button>
+      </div>
     </div>
   );
 }

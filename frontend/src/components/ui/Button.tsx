@@ -13,31 +13,39 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   loading?: boolean;
 }
 
+/*
+ * Dirección 5a: el botón es un rectángulo de tinta o una regla, nunca una pastilla
+ * con sombra. La etiqueta va en versalitas muy espaciadas; el bermellón se reserva
+ * para el compromiso final (pagar, enviar solicitud).
+ */
 const variants: Record<Variant, string> = {
-  primary: 'bg-primary text-primary-fg hover:bg-primary-hover shadow-sm',
-  secondary: 'bg-surface text-text border border-border-strong hover:bg-surface-2',
-  ghost: 'bg-transparent text-text hover:bg-surface-2',
-  destructive: 'bg-danger text-white hover:brightness-95 shadow-sm',
-  accent: 'bg-accent text-accent-fg hover:brightness-95 shadow-sm font-semibold',
-  link: 'bg-transparent text-primary underline-offset-4 hover:underline p-0 h-auto',
+  primary: 'bg-primary text-primary-fg hover:bg-primary-hover',
+  secondary: 'border border-text text-text hover:bg-text hover:text-primary-fg',
+  ghost: 'text-text hover:text-accent',
+  destructive: 'bg-accent text-accent-fg hover:brightness-95',
+  accent: 'bg-accent text-accent-fg hover:brightness-95',
+  link: 'text-accent border-b border-accent px-0 pb-1 hover:text-text hover:border-text',
 };
 
 const sizes: Record<Size, string> = {
-  sm: 'h-8 px-3 text-sm min-h-[44px] sm:min-h-0',
-  md: 'h-10 px-4 text-base min-h-[44px]',
-  lg: 'h-12 px-5 text-base min-h-[48px]',
+  sm: 'min-h-[44px] px-4 text-[10px] tracking-label sm:min-h-0 sm:py-3',
+  md: 'min-h-[44px] px-5 py-4 text-[11px] tracking-label',
+  lg: 'min-h-[48px] px-8 py-5 text-xs tracking-[0.16em]',
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'primary', size = 'md', loading, className, children, disabled, ...props },
   ref,
 ) {
+  const isLink = variant === 'link';
   return (
     <button
       ref={ref}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-[transform,background-color,filter] active:scale-[.98] disabled:opacity-45 disabled:cursor-not-allowed disabled:active:scale-100',
-        variant !== 'link' && sizes[size],
+        'inline-flex items-center justify-center gap-2 font-medium transition-colors',
+        // Deshabilitado: el botón no desaparece, se queda como una regla apagada.
+        'disabled:cursor-not-allowed disabled:border disabled:border-border-strong disabled:bg-transparent disabled:text-muted',
+        isLink ? 'text-sm' : cn('uppercase leading-none', sizes[size]),
         variants[variant],
         className,
       )}
@@ -45,7 +53,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       {...props}
     >
-      {loading && <Loader2 size={18} className="animate-spin" aria-hidden />}
+      {loading && <Loader2 size={16} className="animate-spin" aria-hidden />}
       {children}
     </button>
   );
