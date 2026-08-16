@@ -138,14 +138,40 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Trivy filesystem — CVEs de dependencias. ACTIVO.
+  #
+  # FIX rate-limit: `aquasecurity/trivy-action` delega la instalación del binario
+  # en `setup-trivy`, cuyo `contrib/install.sh` (godownloader) resuelve el tag con
+  # una llamada SIN autenticar a `https://github.com/.../releases/<tag>` — ese script
+  # NO lee ningún token, así que en las IPs compartidas de los runners se topa con el
+  # rate-limit del endpoint web de GitHub y el paso muere ("found version" -> exit 1).
+  # Pasar un token a la acción solo autentica el checkout del repo de trivy, no la
+  # descarga del binario. Solución robusta: instalar Trivy desde el repo apt OFICIAL
+  # de Aqua (GitHub Pages / CDN, sin rate-limit de API) y `skip-setup-trivy: true`.
+  # Además damos al binario TRIVY_GITHUB_TOKEN para que el pull de la DB (GHCR/GitHub)
+  # tampoco se limite. El gate NO se relaja: sigue fallando en HIGH/CRITICAL reales.
   # ---------------------------------------------------------------------------
   trivy-fs:
     runs-on: ubuntu-latest
+    env:
+      TRIVY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+          trivy --version
       - name: Trivy fs (HIGH/CRITICAL => fallo)
         uses: aquasecurity/trivy-action@v0.33.1
         with:
+          skip-setup-trivy: "true"   # usa el binario instalado por apt (arriba)
           scan-type: fs
           scan-ref: .
           severity: HIGH,CRITICAL
@@ -159,8 +185,24 @@ jobs:
   # ---------------------------------------------------------------------------
   trivy-image:
     runs-on: ubuntu-latest
+    env:
+      # Ver nota de rate-limit en trivy-fs: instalamos Trivy por apt y
+      # skip-setup-trivy en cada paso; el token es para el pull de la DB.
+      TRIVY_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+            | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+          trivy --version
       - name: Build + scan imagen backend
         if: hashFiles('backend/package.json') != ''
         run: |
@@ -169,6 +211,7 @@ jobs:
         if: hashFiles('backend/package.json') != ''
         uses: aquasecurity/trivy-action@v0.33.1
         with:
+          skip-setup-trivy: "true"
           scan-type: image
           image-ref: tcg-backend:scan
           severity: HIGH,CRITICAL
@@ -187,6 +230,7 @@ jobs:
         if: hashFiles('frontend/package.json') != ''
         uses: aquasecurity/trivy-action@v0.33.1
         with:
+          skip-setup-trivy: "true"
           scan-type: image
           image-ref: tcg-frontend:scan
           severity: HIGH,CRITICAL

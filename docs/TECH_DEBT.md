@@ -527,3 +527,20 @@
   lexicográfico es **correcto** para el formato `yyyy/MM/dd` de pokemontcg.io (mismo orden que cronológico).
   Solo habría que endurecerlo (parseo a fecha) si entraran `releaseDate` con **otros formatos**. Owner:
   **backend**. **Informativo** (sin acción hoy).
+
+### Gate SAST — endurecimiento cripto GCM en PII (2026-08-16, no bloqueante)
+
+- **SAST-1 (backend) — RESUELTA (2026-08-16) — `createDecipheriv` GCM sin `authTagLength` (tag truncado
+  aceptado).** Regla semgrep `javascript.node-crypto.security.gcm-no-tag-length` (registry `p/*`) marcó
+  `src/common/crypto/pii-crypto.service.ts` → `decrypt()`: `createDecipheriv('aes-256-gcm', key, iv)` seguido
+  de `setAuthTag(tag)` **sin** fijar `authTagLength`. Node acepta authTags GCM más cortos de 16 bytes, así que
+  un atacante capaz de manipular el ciphertext almacenado (`v1:iv:tag:ct` en BD) podría presentar un **tag
+  truncado** y debilitar la autenticidad GCM (riesgo de forja). Defensa en profundidad sobre PII (CLABE/RFC/INE).
+  **Fix (endurecimiento interno, retrocompatible — NO cambia el formato serializado ni las claves):**
+  (1) `decrypt()` valida `tag.length === 16` **antes** de `setAuthTag` y, si no, lanza el mensaje genérico
+  `'Malformed PII ciphertext'` (mismo que un payload mal formado → **sin oráculo** que distinga el motivo);
+  (2) ambos `createCipheriv`/`createDecipheriv` fijan explícitamente `{ authTagLength: 16 }`. Los authTags que
+  produce `encrypt()` (`cipher.getAuthTag()`) siempre son de 16 bytes, así que los datos ya cifrados descifran
+  igual. Tests en `test/pii-crypto.spec.ts`: round-trip OK + rechazo de tag truncado (12B), vacío y
+  sobredimensionado (20B). Gates verdes: lint/typecheck/build OK, **57 suites / 372 tests**. Detalle en
+  `docs/BACKEND_NOTES.md`. Owner: **backend**. Queda pendiente el **veredicto de seguridad + qa** (toca PII/cripto).

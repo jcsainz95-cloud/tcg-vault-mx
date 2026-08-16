@@ -1926,3 +1926,29 @@ los revisores recomendaron y se registró la deuda no bloqueante (`docs/TECH_DEB
   público NO invoca `computeSetValue`), **SEC-F2** (`:id` sin validación de formato; sin impacto, Prisma
   parametriza + 404) y **QA-min** (fallback-3 ordena `releaseDate` como String, correcto para `yyyy/MM/dd`).
 - Gates del cierre: **`lint`, `typecheck`, `build` verdes**; **57 suites / 371 tests verdes**.
+
+### 30. Endurecimiento cripto GCM en PII (2026-08-16) — gate SAST
+Hallazgo REAL del gate SAST (semgrep `javascript.node-crypto.security.gcm-no-tag-length`, registry `p/*`) en
+`src/common/crypto/pii-crypto.service.ts` → `decrypt()`. Es defensa en profundidad sobre PII (CLABE/RFC/INE).
+
+- **Problema:** `createDecipheriv('aes-256-gcm', key, iv)` + `setAuthTag(tag)` **sin** `authTagLength`.
+  Node acepta authTags GCM **más cortos** de 16 bytes; un atacante con capacidad de manipular el ciphertext
+  almacenado (`v1:iv:tag:ct` en BD) podría presentar un **tag truncado** y debilitar la autenticidad GCM
+  (riesgo de forja).
+- **Fix (endurecimiento interno, retrocompatible):**
+  - `decrypt()`: valida `tag.length === 16` **ANTES** de `setAuthTag`; si no, lanza el mensaje **genérico**
+    `Malformed PII ciphertext` (idéntico al de payload mal formado → **sin oráculo** que distinga el motivo).
+    Luego `createDecipheriv('aes-256-gcm', encKey, iv, { authTagLength: 16 })`.
+  - `encrypt()`: `createCipheriv('aes-256-gcm', encKey, iv, { authTagLength: 16 })` explícito por
+    simetría/robustez (`getAuthTag()` ya devolvía 16 bytes).
+  - Nueva constante `TAG_BYTES = 16`.
+- **Por qué es retrocompatible:** NO cambia el formato serializado `v1:iv:tag:ct` ni las claves. Todo authTag
+  que produjo `encrypt()` (`cipher.getAuthTag()`) es de 16 bytes, así que los datos ya cifrados en BD descifran
+  igual. Es puramente un endurecimiento de la ruta de verificación.
+- **Tests** (`test/pii-crypto.spec.ts`): (a) round-trip `decrypt(encrypt(x)) === x` sigue OK; (b) test nuevo
+  «rechaza un authTag GCM truncado (longitud != 16)»: verifica que el tag legítimo mide 16 bytes, y que un tag
+  de **12 bytes** (truncado), **vacío** y **20 bytes** (sobredimensionado) son RECHAZADOS con el mensaje
+  genérico; (c) el test de manipulación de ciphertext/formato sigue lanzando.
+- **Gates:** `lint`, `typecheck`, `build` verdes; **57 suites / 372 tests verdes** (`npm test`). Antes: 371.
+- **Estado:** pendiente de **veredicto de seguridad + qa** por tocar PII/cripto. Cerrado en `TECH_DEBT.md`
+  → SAST-1.

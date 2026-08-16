@@ -93,19 +93,28 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 10s --health-timeout 5s --health-retries 5
       minio:
-        image: bitnami/minio:latest
+        # FIX (pull failure): antes `bitnami/minio:latest`. Bitnami vació su
+        # namespace en Docker Hub (migración a "Bitnami Secure Images", ago-2025):
+        # `bitnami/minio` ya NO tiene tags -> el pull en "Initialize containers"
+        # fallaba y ABORTABA backend-e2e antes de correr un test. Se apunta al
+        # namespace `bitnamilegacy/minio:latest`, que conserva la MISMA imagen
+        # (auto-arranca el server y crea buckets con MINIO_DEFAULT_BUCKETS), a
+        # donde Bitnami movió las imágenes. Alternativa (minio/minio oficial) no
+        # sirve como service de Actions: exige un `command` (server /data) que los
+        # service containers de GitHub no permiten pasar.
+        image: bitnamilegacy/minio:latest
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin_e2e
           MINIO_DEFAULT_BUCKETS: tcg-photos:download
         ports: ["9000:9000", "9001:9001"]
-        # SIN --health-cmd a propósito: la imagen bitnami/minio (minideb) NO trae
-        # `curl`, así que un healthcheck `curl .../minio/health/live` DENTRO del
-        # contenedor nunca pasa -> el service queda unhealthy y GitHub ABORTA el
-        # job antes de correr un solo test (causa de fallo del harness backend-e2e).
-        # La readiness de MinIO se comprueba desde el RUNNER (que sí tiene curl)
-        # en el paso "Esperar a que MinIO responda" de abajo. Postgres/Redis sí
-        # traen sus binarios (pg_isready/redis-cli) y conservan su healthcheck.
+        # SIN --health-cmd a propósito: la imagen (minideb) NO trae `curl`, así que
+        # un healthcheck `curl .../minio/health/live` DENTRO del contenedor nunca
+        # pasa -> el service queda unhealthy y GitHub ABORTA el job antes de correr
+        # un solo test. La readiness de MinIO se comprueba desde el RUNNER (que sí
+        # tiene curl) en el paso "Esperar a que MinIO responda" de abajo.
+        # Postgres/Redis sí traen sus binarios (pg_isready/redis-cli) y conservan
+        # su healthcheck.
     env:
       DATABASE_URL: postgresql://tcg:tcg_e2e@localhost:5432/tcg_e2e?schema=public
       REDIS_URL: redis://localhost:6379
@@ -190,16 +199,28 @@ jobs:
           docker compose -f docker-compose.staging.yml --profile apps up -d --build
       - name: Esperar a que el backend responda
         run: |
+          # FIX harness: antes este bucle NUNCA fallaba en timeout (solo `break`),
+          # así que un backend que no arrancaba pasaba desapercibido y el error
+          # afloraba, opaco, en el seed. Ahora falla DURO en timeout y vuelca los
+          # logs del backend para diagnóstico/enrutamiento correcto.
           for i in $(seq 1 60); do
             if curl -sf http://localhost:3011/api/v1/health >/dev/null 2>&1; then
-              echo "Backend arriba."; break
+              echo "Backend arriba."; exit 0
             fi
             echo "Esperando backend... ($i)"; sleep 5
           done
+          echo "::error::El backend de staging no respondió en http://localhost:3011/api/v1/health tras ~5min. Revisa los logs del contenedor backend (migrate deploy / arranque). Si es un fallo de arranque del backend, corresponde al rol backend."
+          docker compose -f docker-compose.staging.yml logs --tail=200 backend || true
+          exit 1
       - name: Seed sintético en staging
         run: |
-          docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic --if-present \
-            || ./scripts/seed-synthetic.sh
+          # El seed corre DENTRO del contenedor backend (tiene ts-node + prisma +
+          # DATABASE_URL de staging). Se quitó el fallback `|| ./scripts/seed-synthetic.sh`
+          # que corría en el RUNNER: en este job el backend NO tiene `npm ci` ni
+          # DATABASE_URL en el runner, así que ese fallback siempre fracasaba y
+          # ENMASCARABA el error real del contenedor. Si el seed del backend falla,
+          # el error del contenedor sale tal cual (y "Logs del stack" lo vuelca).
+          docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic --if-present
       - name: Install deps frontend
         working-directory: frontend
         run: npm ci

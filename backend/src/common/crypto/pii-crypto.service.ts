@@ -34,6 +34,7 @@ export class PiiCryptoService {
   private readonly hmacKey: Buffer;
   private static readonly VERSION = 'v1';
   private static readonly IV_BYTES = 12;
+  private static readonly TAG_BYTES = 16;
 
   constructor(config: ConfigService) {
     this.encKey = this.resolveEncKey(config);
@@ -100,7 +101,9 @@ export class PiiCryptoService {
   /** Cifra un valor en claro. Devuelve `v1:iv:tag:ciphertext` (base64 por campo). */
   encrypt(plaintext: string): string {
     const iv = randomBytes(PiiCryptoService.IV_BYTES);
-    const cipher = createCipheriv('aes-256-gcm', this.encKey, iv);
+    const cipher = createCipheriv('aes-256-gcm', this.encKey, iv, {
+      authTagLength: PiiCryptoService.TAG_BYTES,
+    });
     const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();
     return [
@@ -120,7 +123,15 @@ export class PiiCryptoService {
     const iv = Buffer.from(parts[1], 'base64');
     const tag = Buffer.from(parts[2], 'base64');
     const ct = Buffer.from(parts[3], 'base64');
-    const decipher = createDecipheriv('aes-256-gcm', this.encKey, iv);
+    // Endurecimiento GCM: exigimos exactamente 16 bytes de authTag ANTES de
+    // setAuthTag. Un tag más corto debilitaría la autenticación (riesgo de forja).
+    // Mismo mensaje genérico que el resto para no ofrecer un oráculo al atacante.
+    if (tag.length !== PiiCryptoService.TAG_BYTES) {
+      throw new Error('Malformed PII ciphertext');
+    }
+    const decipher = createDecipheriv('aes-256-gcm', this.encKey, iv, {
+      authTagLength: PiiCryptoService.TAG_BYTES,
+    });
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
   }

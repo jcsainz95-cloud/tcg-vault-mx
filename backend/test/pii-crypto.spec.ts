@@ -45,6 +45,35 @@ describe('PiiCryptoService', () => {
     expect(() => svc.decrypt('v2:a:b:c')).toThrow();
   });
 
+  it('rechaza un authTag GCM truncado (longitud != 16) sin distinguir el motivo', () => {
+    const svc = withKeys();
+    const enc = svc.encrypt(CLABE);
+    const parts = enc.split(':');
+    // authTag legítimo es de 16 bytes; lo truncamos a 12.
+    const fullTag = Buffer.from(parts[2], 'base64');
+    expect(fullTag).toHaveLength(16);
+    const truncated = [
+      parts[0],
+      parts[1],
+      fullTag.subarray(0, 12).toString('base64'), // 12 bytes → debe rechazarse
+      parts[3],
+    ].join(':');
+    // No descifra: se rechaza antes de setAuthTag, con el mensaje genérico
+    // (mismo que un payload mal formado, para no ofrecer un oráculo).
+    expect(() => svc.decrypt(truncated)).toThrow('Malformed PII ciphertext');
+
+    // Un tag vacío o sobredimensionado tampoco pasa.
+    const emptyTag = [parts[0], parts[1], '', parts[3]].join(':');
+    expect(() => svc.decrypt(emptyTag)).toThrow('Malformed PII ciphertext');
+    const longTag = [
+      parts[0],
+      parts[1],
+      Buffer.concat([fullTag, Buffer.alloc(4)]).toString('base64'), // 20 bytes
+      parts[3],
+    ].join(':');
+    expect(() => svc.decrypt(longTag)).toThrow('Malformed PII ciphertext');
+  });
+
   it('decryptOptional tolera null/undefined', () => {
     const svc = withKeys();
     expect(svc.decryptOptional(null)).toBeUndefined();

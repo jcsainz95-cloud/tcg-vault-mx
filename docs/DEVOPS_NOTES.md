@@ -970,19 +970,84 @@ Tres problemas, todos en archivos **propiedad devops** (`security/semgrep.yml`, 
   el bloque `workflow_run` del `on:` de `deploy.yml`. (c) proteger el Environment `production` con
   *required reviewers* (§11.E).
 
+### 16.6 Segunda ronda — rojo que persistió tras §16 (2026-08-16, commit base 83907bc → fc4ea4c)
+
+> Tras §16 quedaron **tres** jobs rojos por config/tooling (no por hallazgos reales). Diagnóstico y
+> fix con `actionlint` (validación de sintaxis de Actions) + inspección del `action.yml`/`install.sh`
+> de las acciones + la API de Docker Hub. El sandbox **bloquea el pull de imágenes Docker**,
+> `api.pokemontcg.io` y el **blob de logs de Actions** (`*.blob.core.windows.net`, 403 de política de
+> egress), así que el *cuerpo* del log del step no se pudo descargar; se trabajó con el **desglose de
+> steps** de la API de jobs (qué step exacto falló) + lectura de config.
+
+**(A) SAST · Trivy — el binario no se instalaba (rate-limit del instalador) — ARREGLADO.**
+- **Causa exacta:** `aquasecurity/trivy-action@v0.33.1` delega la instalación en `setup-trivy`
+  (`aquasecurity/setup-trivy@e6c2c5e`, ≈v0.2.4), que ejecuta `contrib/install.sh` (godownloader). Ese
+  script resuelve el tag con una llamada **sin autenticar** a
+  `https://github.com/aquasecurity/trivy/releases/v0.65.0` (`Accept: application/json`) y **no lee ningún
+  token** (verificado leyendo `install.sh`: su `github_release()`/`tag_to_version()` no añaden cabecera de
+  auth). En las IPs compartidas de los runners se topa con el **rate-limit del endpoint web de GitHub** →
+  "found version" y luego `exit 1`. El input `token-setup-trivy` (que por defecto ya es `github.token`)
+  solo autentica el **checkout del repo** de trivy, **no** la descarga del binario, así que pasar un token
+  a la acción **no** lo arregla.
+- **Fix (robusto, gate intacto):** se instala Trivy desde el **repo apt OFICIAL de Aqua**
+  (`aquasecurity.github.io/trivy-repo`, servido por GitHub Pages/CDN, **sin rate-limit de API**) en un paso
+  previo de `trivy-fs` y `trivy-image`, y se pasa **`skip-setup-trivy: "true"`** a cada uso de la acción
+  (verificado en su `action.yaml`: el input existe y su paso "Install Trivy" queda condicionado a
+  `skip-setup-trivy == 'false'`). Además se define a nivel de job `TRIVY_GITHUB_TOKEN`/`GITHUB_TOKEN =
+  ${{ secrets.GITHUB_TOKEN }}` para que el **pull de la DB** de trivy (GHCR/GitHub) tampoco se limite. El
+  gate **no se relaja**: sigue `severity: HIGH,CRITICAL` + `exit-code: "1"`.
+
+**(B) deploy.yml — `startup_failure` (0 jobs, workflow inválido) — ARREGLADO.**
+- **Causa exacta (de `actionlint`):** tres jobs usaban `environment.url: ${{ secrets.STAGING_BASE_URL }}`
+  / `${{ secrets.PROD_BASE_URL }}` (líneas 169, 278, 307). **`environment.url` NO admite el contexto
+  `secrets`** (solo `env`/`github`/`inputs`/`needs`/`vars`/…). GitHub **rechaza el workflow al arrancar**
+  → run en `failure` con **0 jobs** (`startup_failure`). `actionlint` lo señala con
+  *"context 'secrets' is not allowed here"*.
+- **Fix:** se **quitó el `url:`** de esos tres `environment:` (es un enlace cosmético del deploy; el
+  objetivo real de `STAGING_BASE_URL` es el job `dast-staging`). El `name:` del environment —que es lo que
+  da la protección de *required reviewers* de `production`— se conserva. `actionlint` ahora pasa **limpio**
+  (exit 0) en los 5 workflows.
+
+**(C) E2E — `backend-e2e` (config, ARREGLADO) y `frontend-e2e` (seed, ENRUTADO).**
+- **`backend-e2e` — ARREGLADO (config/infra):** el step **"Initialize containers"** fallaba porque el
+  *service* `minio` usaba **`bitnami/minio:latest`**, y Bitnami **vació su namespace en Docker Hub**
+  (migración a "Bitnami Secure Images", ago-2025): `hub.docker.com/v2/repositories/bitnami/minio` devuelve
+  **0 tags** hoy → el pull falla y GitHub aborta el job antes de correr un test. **Fix:** apuntar a
+  **`bitnamilegacy/minio:latest`** (misma imagen exacta, a donde Bitnami la movió; conserva
+  `MINIO_DEFAULT_BUCKETS` y el auto-arranque). No se usa `minio/minio` oficial porque como *service* de
+  Actions exige un `command` (`server /data`) que los service containers no permiten pasar.
+- **`frontend-e2e` — ENRUTADO (probable fallo de arranque/seed del backend, no config):** el desglose de
+  steps muestra que el stack **levantó** (`docker compose up -d --build` OK) y el fallo es el step
+  **"Seed sintético en staging"** (`docker compose exec -T backend npm run seed:synthetic`). El *cuerpo*
+  del log está egress-bloqueado (blob de Actions, 403), así que **no** tengo el mensaje exacto del seed.
+  Dos mejoras de **harness** (sí de devops, en `e2e.yml`) para que el error real **aflore y se enrute**
+  bien, en vez de quedar enmascarado:
+  1. El paso **"Esperar a que el backend responda"** ya **no** solo hace `break`: ahora **falla duro**
+     en timeout (~5 min) con `::error::` y vuelca `docker compose logs backend`. Antes, un backend que no
+     arrancaba pasaba como "success" y el error afloraba, opaco, en el seed.
+  2. En el seed se **quitó el fallback `|| ./scripts/seed-synthetic.sh`**: ese script corría en el
+     **runner** (donde el backend **no** tiene `npm ci` ni `DATABASE_URL`), así que **siempre** fracasaba
+     y **enmascaraba** el error real del contenedor. Ahora el seed corre solo **dentro del contenedor** y
+     su error sale tal cual (y el paso "Logs del stack si algo falló" lo vuelca).
+  - **A quién le toca:** si tras el fix de infra `frontend-e2e` sigue rojo, el fallo real es **de app**:
+    o el **backend** no arranca en `NODE_ENV=production`/su `seed:synthetic` erra (rol **backend**), o los
+    tests Playwright fallan por lógica de UI (rol **frontend**). **Devops no corrige código de app.** El
+    log del contenedor (visible en CI en el paso "Logs del stack…") tiene el mensaje exacto para el dueño.
+
 ### 16.5 Resumen de archivos tocados en este saneamiento (todos rutas devops)
 
 | Archivo | Cambio |
 |---|---|
-| `.github/workflows/security-sast.yml` | Trivy `@0.24.0`→`@v0.33.1` (×3); job `semgrep` a 2 pasos (informe SARIF no-bloqueante + gate `--severity=ERROR`). |
-| `security/semgrep.yml` | Fix 2 errores de schema (`pattern-either`/`pattern-not-inside`, lenguaje `tsx`) + refino de `stripe-webhook-verify-signature` para eliminar el FP. |
-| `.github/workflows/e2e.yml` | `minio` *service*: quitado healthcheck `curl` interno; añadido paso de readiness desde el runner. |
-| `.github/workflows/deploy.yml` | Trigger a solo `workflow_dispatch` (`workflow_run` comentado); nuevo job `secrets-gate` que salta el CD si faltan secrets. |
-| `docs/DEVOPS_NOTES.md` | Esta §16. |
+| `.github/workflows/security-sast.yml` | **§16.1** Trivy `@0.24.0`→`@v0.33.1` (×3); job `semgrep` a 2 pasos. **§16.6(A)** instalar Trivy por apt oficial + `skip-setup-trivy: "true"` (×3) + `TRIVY_GITHUB_TOKEN`/`GITHUB_TOKEN` a nivel de job en `trivy-fs`/`trivy-image` (fix rate-limit del instalador). |
+| `security/semgrep.yml` | **§16.2** Fix 2 errores de schema + refino de `stripe-webhook-verify-signature` (elimina FP). |
+| `.github/workflows/e2e.yml` | **§16.3** `minio` *service*: quitado healthcheck `curl` interno + readiness desde el runner. **§16.6(C)** imagen `bitnami/minio`→`bitnamilegacy/minio` (namespace vaciado); "esperar backend" ahora falla duro en timeout + logs; seed sin fallback-en-runner (corre in-container). |
+| `.github/workflows/deploy.yml` | **§16.4** trigger solo `workflow_dispatch` + `secrets-gate`. **§16.6(B)** quitado `environment.url: ${{ secrets.* }}` (×3) que causaba `startup_failure`. |
+| `docs/DEVOPS_NOTES.md` | Esta §16 (incl. §16.6). |
 
-> **Nota de propiedad:** no se modificó `ci.yml` (el arreglo del aislamiento `REDIS_URL` del job
-> CI·backend lo lleva el rol **backend** en paralelo), ni `backend/`, ni `frontend/`, ni
-> `docs/BACKEND_NOTES.md`, ni `docs/TECH_DEBT.md`.
+> **Nota de propiedad:** no se modificó `ci.yml`, ni `backend/`, ni `frontend/`, ni
+> `docs/BACKEND_NOTES.md`, ni `docs/TECH_DEBT.md`. Validación con **actionlint v1.7.12**: los 5
+> workflows pasan **exit 0**. Lo no reproducible en el sandbox (pull de imágenes, DAST, log-blob de
+> Actions) queda marcado **verificar en runner CI**.
 
 ---
 

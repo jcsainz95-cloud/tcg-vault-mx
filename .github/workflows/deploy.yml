@@ -165,8 +165,11 @@ jobs:
     needs: [preflight]
     runs-on: ubuntu-latest
     environment:
+      # NOTA: `environment.url` NO admite el contexto `secrets` (solo env/github/
+      # inputs/needs/vars…). Ponerlo ahí hace que GitHub rechace el workflow al
+      # arrancar (startup_failure: 0 jobs). El link de despliegue es cosmético;
+      # se omite. El objetivo de STAGING_BASE_URL es el DAST (job dast-staging).
       name: staging
-      url: ${{ secrets.STAGING_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - name: Instalar Railway CLI
@@ -274,8 +277,9 @@ jobs:
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest
     environment:
-      name: production          # protégelo con "required reviewers" en GitHub
-      url: ${{ secrets.PROD_BASE_URL }}
+      # protégelo con "required reviewers" en GitHub. Sin `url:` a propósito:
+      # `environment.url` no admite el contexto `secrets` (causaba startup_failure).
+      name: production
     steps:
       - uses: actions/checkout@v4
       - name: Recordatorio de snapshot de DB (rollback)
@@ -303,8 +307,8 @@ jobs:
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest
     environment:
+      # Sin `url:` a propósito: `environment.url` no admite `secrets` (startup_failure).
       name: production
-      url: ${{ secrets.PROD_BASE_URL }}
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
