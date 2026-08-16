@@ -57,6 +57,9 @@ export const ErrorCode = {
   // Una carta rechazada en verificación (resultado NO-NM, PROJECT §H) NUNCA puede
   // convertirse en InventoryItem vendible: convert-to-inventory exige itemStatus='aprobada'.
   ITEM_NOT_APPROVED: 'ITEM_NOT_APPROVED',
+  // B-4 / S-B5: la decisión carta-por-carta aprobó un `approvedPriceCents` por encima de la
+  // cota (≤ quoted × factor y ≤ tope AML por solicitud). Defensa de dinero saliente. 422.
+  APPROVED_PRICE_CAP_EXCEEDED: 'APPROVED_PRICE_CAP_EXCEEDED',
 
   // Disputes
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',

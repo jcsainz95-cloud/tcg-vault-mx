@@ -6,6 +6,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -13,6 +14,17 @@ import { Type } from 'class-transformer';
 import { Finish, ProductType, RawCondition } from '@prisma/client';
 
 const FINISHES = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'] as const;
+
+/**
+ * B-4 / S-B5 (pentest): cota dura de sanidad sobre `approvedPriceCents` en la decisión
+ * carta-por-carta. Es la **primera línea** (rechazo 400 en el ValidationPipe) contra un
+ * monto absurdo tipo el PoC `99999999` (MX$999,999). Fijada a **MX$10,000 = 1,000,000c**,
+ * que coincide con el tope AML mensual por defecto (`buylist_cap_per_month_cents`): ningún
+ * ítem individual puede aprobar más que el tope mensual completo. La cota fina y relativa
+ * (≤ `quotedPriceCents` × factor, y ≤ tope por solicitud) se valida server-side en
+ * `buylist.service.ts` (`itemDecision`).
+ */
+export const MAX_APPROVED_PRICE_CENTS = 1_000_000;
 
 export class PublicQuoteDto {
   @IsString() cardId!: string;
@@ -46,7 +58,9 @@ export class RespondDto {
 
 export class ItemDecisionDto {
   @IsIn(['approve', 'adjust', 'reject']) decision!: 'approve' | 'adjust' | 'reject';
-  @IsOptional() @IsInt() @Min(0) approvedPriceCents?: number;
+  // B-4: cota dura de sanidad (MX$10,000). La cota fina (≤ quoted × factor y ≤ tope por
+  // solicitud) la impone `BuylistService.itemDecision` server-side.
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_APPROVED_PRICE_CENTS) approvedPriceCents?: number;
 }
 
 export class PaySpeiDto {

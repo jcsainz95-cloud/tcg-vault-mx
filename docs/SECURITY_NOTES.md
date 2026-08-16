@@ -1237,3 +1237,21 @@ datos, dinero ni el contrato de API. Objetivo: confirmar que no hay superficie d
 - **Mínimo para mantener la aprobación:** conservar `next/font` self-hosted (no reintroducir `<link>` a CDN de
   fuentes que requiera relajar la CSP) y no pasar datos de carta por `dangerouslySetInnerHTML`. El veredicto
   de seguridad global del proyecto sigue gobernado por las secciones previas (auth/dinero/PII), inalteradas por 5a.
+
+---
+
+## rev v1.6 — Ronda B deuda backend (2026-08-16): scheduler + jobs manuales + tope `approvedPriceCents`
+
+**VEREDICTO: APROBADO** (revisión estática) — 0 Críticos / 0 Altos / 0 Medios.
+
+- **B-4 / S-B5 (tope `approvedPriceCents`) → CERRADO.** Doble capa: DTO `@Max(MAX_APPROVED_PRICE_CENTS=1_000_000)` (rechaza el PoC `99999999` con 400) + server-side `assertApprovedPriceWithinCap = min(quotedPriceCents×2, buylist_cap_per_request_cents)` en `itemDecision` (approve/adjust) → `422 APPROVED_PRICE_CAP_EXCEEDED`. Desembolso SPEI sigue `@MoneyOut` super_admin + auditado, usa el monto capado como base de costo. Un `vault_operator` ya no aprueba montos arbitrarios.
+- **ine-retention (borrado de PII):** predicado seguro — no purga con solicitudes abiertas (`openCount>0 → skip`); solo tras `INE_RETENTION_DAYS` desde el cierre; borra objeto R2 + nulifica keys BD; corre diario + disparo manual super_admin.
+- **`/admin/jobs/*`:** super_admin-only (guards globales) + auditados; el operador no dispara borrado de PII ni sweeps; sin dinero saliente.
+- **Sweeps:** solo mutan estados no-monetarios; no liberan dinero ni saltan el gating de aprobación a inventario (una `abandonada` deja ítems en `cotizada`, y `convertToInventory` exige `aprobada`).
+
+**Hallazgos no bloqueantes:**
+- **SEC-D1 (Baja, con disparador):** INE huérfano en el bucket si `deleteObject` de R2 falla (las keys se nulifican igual). Cerrar con lifecycle/retención a nivel de bucket R2 [devops]; opcional reordenar para purgar R2 antes de nulificar [backend]. Mismo patrón que B.2.
+- **SEC-D2 (Baja):** `closureDate` aproxima el cierre por `max(paidAt,approvedAt,verifiedAt,receivedAt,createdAt)`; para `rechazada`/`abandonada` cae en `createdAt` → puede purgar algo antes que "N días desde el cierre real". Minimización de datos (a favor), no incidente. Precisión: añadir `closedAt` explícito [backend/arquitecto].
+- **SEC-D3 (Info, no seguridad):** `SellRequest.approvedTotalCents` se LEE en P&L/dashboard pero NUNCA se escribe → la tarjeta "buylist del periodo" suma 0/null. Bug de reporte financiero [backend]: poblar `approvedTotalCents` al aprobar/pagar o derivarlo de `SellRequestItem.approvedPriceCents`.
+
+**Pendiente heredado (no bloquea DoD estático):** fase DAST contra staging (concurrencia real de sweeps/decision/pay-spei; scheduler multi-instancia con Redis compartido). Confirmar con legal el plazo/anclaje de retención de INE (LFPDPPP).

@@ -555,10 +555,11 @@ de DI (`app.module.spec`) sigue verde con el `HealthModule` cableado.
 - `GET /vault/portfolio/history?range=5d|15d|1m|3m|6m|1y|ytd|all` (default `1m`, `customer`) →
   `{range, points[], change{absMxnCents,pct,direction}}`. Sin snapshots → `points:[]`, `change` flat/`pct:null`.
   Backfill indicativo (`estimated`) **no** implementado (opcional en el contrato; queda como mejora futura).
-- **Scheduler BullMQ (BE-5)** `src/jobs/scheduler.service.ts`: programa **`fx-refresh`, `price-sync` y
-  `portfolio-snapshot`** diarios (repeatable jobs, UTC escalonado) con `REDIS_URL`. **Se activa solo si hay
-  `REDIS_URL`**; sin él queda deshabilitado sin abrir conexiones (arranque local/tests/CI sin infra intactos).
-  Disparo manual admin: `POST /admin/pricing/sync`, `POST /admin/fx/refresh`, **nuevo** `POST /admin/jobs/portfolio-snapshot`.
+- **Scheduler BullMQ (BE-5 / v15-D1)** `src/jobs/scheduler.service.ts`: programa **los 7 jobs diarios**
+  (repeatable jobs, UTC escalonado) con `REDIS_URL` — ver §18 para el detalle actualizado. **Se activa solo
+  si hay `REDIS_URL`**; sin él queda deshabilitado sin abrir conexiones (arranque local/tests/CI sin infra
+  intactos). Disparo manual admin: `POST /admin/pricing/sync`, `POST /admin/fx/refresh`,
+  `POST /admin/jobs/{portfolio-snapshot,ine-retention,buylist-sweep,dispute-deadline,auth-token-sweep}`.
 
 ### 13.7 AcquisitionPricer — rarezas modernas
 - `BuylistService.categoryForRarity`: **default `ex_plus`** para rarezas NO listadas como común/reverse
@@ -1615,3 +1616,83 @@ paginados). Contrato: `API_CONTRACT.md` §M6 (E1/F1) + §M4/§M5/§M8 (`?userId=
 ### Discrepancias con el contrato
 Ninguna. `API_CONTRACT.md` / `ARCHITECTURE.md` no se tocan. La única decisión de implementación digna de
 nota es el **422 en el servicio** (arriba), que **cumple** el contrato §M6 (400 sería la desviación).
+
+---
+
+## 18. Pase P0 jobs de barrido + cap de dinero saliente (BE-5 / v15-D1 / B-4 / BE-8)
+
+> Cierra la deuda P0 de backend que toca **PII/dinero/ciclo de datos**: cablea los 4 jobs de barrido al
+> scheduler, los hace disparables a mano, tapa el hueco de dinero saliente del buylist (B-4) y cierra BE-8.
+
+### 18.1 Scheduler — los 7 jobs diarios cableados (BE-5 + v15-D1)
+`src/jobs/scheduler.service.ts` ahora programa **7** jobs repetibles BullMQ (antes solo 3). Todos siguen el
+**mismo patrón** (`queue.add(name, {}, this.repeat(name, cron))` + `case name: return this.<svc>.run()` en el
+worker). El helper `repeat()` mantiene el **single-flight** (`jobId: <name>-daily`) + `removeOnComplete: true`
++ `removeOnFail: 100`, así que multi-instancia deduplica por `jobId`. Cron en **UTC**, escalonados para no
+solaparse:
+
+| Job | Cron (UTC) | Servicio (`run()`) | Qué hace |
+|---|---|---|---|
+| `fx-refresh` | `0 6 * * *` | `FxRefreshJobService` | tipo de cambio USD→MXN |
+| `price-sync` | `15 6 * * *` | `PriceSyncJobService` | refresco de precios en bóveda |
+| `portfolio-snapshot` | `0 7 * * *` | `PortfolioSnapshotJobService` | snapshot diario del portafolio |
+| `ine-retention` | `30 7 * * *` | `IneRetentionJobService` | **purga PII INE** por `INE_RETENTION_DAYS` (LFPDPPP) |
+| `dispute-deadline` | `45 7 * * *` | `DisputeDeadlineJobService` | disputa `abierta` vencida → `en_revision` |
+| `buylist-sweep` | `0 8 * * *` | `BuylistSweepJobService` | 7d→`rechazada` / 30d→`abandonada` |
+| `auth-token-sweep` | `15 8 * * *` | `AuthTokenSweepJobService` | limpia `AuthToken` expirados/usados |
+
+- **Sin cambio de comportamiento en `buylist-sweep`**: se cablea el `run()` **actual** (7d/30d). La conversión
+  a inventario de la carta abandonada (BE-3) **se difiere** (sigue como deuda, no se tocó).
+- Se **inyectan** los 4 servicios nuevos en el constructor del scheduler (ya eran providers de `JobsModule`).
+- Log de arranque actualizado: enumera los 7 jobs.
+
+### 18.2 Endpoints manuales de disparo (super_admin, auditados)
+`AdminJobsController` (`src/jobs/admin-jobs.controller.ts`) suma 4 endpoints al ya existente
+`POST /admin/jobs/portfolio-snapshot`, mismo patrón (super_admin, `@HttpCode(200)`, auditado, devuelve el
+resumen del `run()`):
+
+| Endpoint | `action` auditado | Devuelve |
+|---|---|---|
+| `POST /admin/jobs/ine-retention` | `jobs.ine_retention.run` | `{ purged, scanned }` |
+| `POST /admin/jobs/buylist-sweep` | `jobs.buylist_sweep.run` | `{ rejected, abandoned }` |
+| `POST /admin/jobs/dispute-deadline` | `jobs.dispute_deadline.run` | `{ expired }` |
+| `POST /admin/jobs/auth-token-sweep` | `jobs.auth_token_sweep.run` | `{ deleted }` |
+
+> **Nota de contrato:** estos `/admin/jobs/*` son **operativos de ops** (disparo de jobs internos), no
+> cambian ningún contrato de negocio ni shape de datos del cliente. Igual que el `POST /admin/jobs/portfolio-snapshot`
+> ya existente, **no** se documentan en `API_CONTRACT.md` (superficie operativa admin). No requieren
+> decisión del arquitecto.
+
+### 18.3 Cap de `approvedPriceCents` — dinero saliente del buylist (B-4 / S-B5)
+Defensa en profundidad, **dos capas**, sobre `ItemDecisionDto.approvedPriceCents` (la decisión carta-por-carta
+que fija el monto SPEI a pagar al vendedor):
+1. **DTO (`buylist.dto.ts`)**: `@Max(MAX_APPROVED_PRICE_CENTS)` con `MAX_APPROVED_PRICE_CENTS = 1_000_000`
+   (**MX$10,000**, = tope AML mensual por defecto). Cota **dura de sanidad**: rechaza en el `ValidationPipe`
+   (**400**) el PoC `99999999`. Un ítem individual nunca puede aprobar más que el tope mensual completo.
+2. **Server-side (`buylist.service.ts` → `itemDecision` / `assertApprovedPriceWithinCap`)**: cota **fina**
+   (SEC-A1, el dinero se valida en el servidor, no se confía al DTO). El monto efectivo debe ser
+   **≤ min(`quotedPriceCents` × 2, tope por solicitud `buylist_cap_per_request_cents`)**. El **factor 2×**
+   permite ajustes al alza acotados tras verificar la carta; el tope AML por solicitud (300,000c default) es la
+   cota absoluta. Sin `quotedPriceCents` (carta que estaba en `precio_pendiente`) aplica **solo** la cota AML.
+   Excede → **`APPROVED_PRICE_CAP_EXCEEDED`** (422, nuevo `ErrorCode`).
+- **No rompe el flujo normal**: aprobar el precio cotizado tal cual (o un ajuste ≤ 2×) siempre pasa. **No toca
+  SEC-A1** (la derivación server-side de la cotización) ni la guardia de aprobación de convert-to-inventory.
+
+### 18.4 BE-8 (CORS `origin:true`) — ya estaba RESUELTA
+`src/main.ts` **ya** usa `resolveCorsOrigins()` (allow-list desde `APP_BASE_URL`, fallback a `localhost` de
+dev, **nunca** `origin:true`). No requirió cambio; se marca BE-8 como **RESUELTA/obsoleta** en `TECH_DEBT.md`.
+
+### 18.5 Tests (unitarios, sin infra) + gates
+- `test/scheduler.spec.ts` (reescrito): con **bullmq/ioredis mockeados**, verifica que **con `REDIS_URL`** se
+  programan los **7** jobs con su cron exacto y que el worker enruta cada barrido a su `run()`; **sin
+  `REDIS_URL`** sigue siendo no-op sin abrir conexiones.
+- `test/admin-jobs.controller.spec.ts` (nuevo): los 5 endpoints corren `run()`, devuelven el resumen y auditan
+  con su `action`.
+- `test/buylist.approved-price-cap.spec.ts` (nuevo): rechaza por encima del tope (PoC y por AML), acepta ajuste
+  normal (≤ 2×) y el flujo de aprobar el cotizado.
+- **Gates verdes:** `lint`, `typecheck`, `test` (**53 suites / 336 tests**), `build`.
+
+### 18.6 Discrepancias con el contrato
+Ninguna. No se tocó `API_CONTRACT.md` ni `ARCHITECTURE.md`. Los `/admin/jobs/*` son superficie operativa admin
+(ver §18.2). El `APPROVED_PRICE_CAP_EXCEEDED` es un `errorCode` de negocio nuevo (422) coherente con el patrón
+de errores existente; no altera ningún shape de respuesta del contrato.

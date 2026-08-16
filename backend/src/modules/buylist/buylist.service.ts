@@ -464,6 +464,42 @@ export class BuylistService {
     });
   }
 
+  /**
+   * B-4 / S-B5: factor de ajuste al alza permitido sobre el precio cotizado. El admin puede
+   * subir el monto aprobado hasta 2× lo cotizado (margen razonable para reevaluar al alza tras
+   * verificar la carta) — nunca un monto arbitrario. Por encima de ese factor o del tope AML por
+   * solicitud, se rechaza (422). NO afecta el flujo normal (aprobar el cotizado siempre pasa).
+   */
+  private static readonly APPROVED_PRICE_UPLIFT_FACTOR = 2;
+
+  /**
+   * B-4 / S-B5: valida server-side que el monto de dinero saliente por SPEI que un
+   * `vault_operator`/admin aprueba no exceda una cota razonable. Defensa en profundidad además
+   * del `@Max` del DTO (SEC-A1: el dinero se deriva/valida en el servidor, nunca se confía al DTO).
+   *  - Cota relativa: ≤ `quotedPriceCents` × FACTOR (permite ajustes al alza acotados).
+   *  - Cota absoluta AML: ≤ tope por solicitud (`buylist_cap_per_request_cents`); un ítem no puede
+   *    aprobar más que el tope completo de una solicitud.
+   * Sin `quotedPriceCents` (p. ej. carta que estaba en `precio_pendiente`), solo aplica la cota AML.
+   */
+  private async assertApprovedPriceWithinCap(
+    effectiveCents: number,
+    quotedPriceCents: number | null,
+  ): Promise<void> {
+    const amlCap = await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS);
+    const relativeCap =
+      quotedPriceCents != null && quotedPriceCents > 0
+        ? quotedPriceCents * BuylistService.APPROVED_PRICE_UPLIFT_FACTOR
+        : amlCap;
+    const cap = Math.min(relativeCap, amlCap);
+    if (effectiveCents > cap) {
+      throw BusinessException.validation(
+        'APPROVED_PRICE_CAP_EXCEEDED',
+        'Approved price exceeds the allowed cap for this item',
+        { approvedPriceCents: effectiveCents, quotedPriceCents, cap },
+      );
+    }
+  }
+
   /** Cherry-pick: decisión carta por carta. API_CONTRACT §M5. */
   async itemDecision(
     itemId: string,
@@ -476,10 +512,16 @@ export class BuylistService {
     const data: Prisma.SellRequestItemUpdateInput = {};
     if (decision === 'approve') {
       itemStatus = 'aprobada';
-      data.approvedPriceCents = approvedPriceCents ?? item.quotedPriceCents ?? 0;
+      const effective = approvedPriceCents ?? item.quotedPriceCents ?? 0;
+      // B-4: cota server-side de dinero saliente (además del @Max del DTO).
+      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents);
+      data.approvedPriceCents = effective;
     } else if (decision === 'adjust') {
       itemStatus = 'ajustada';
-      data.approvedPriceCents = approvedPriceCents ?? 0;
+      const effective = approvedPriceCents ?? 0;
+      // B-4: cota server-side de dinero saliente (además del @Max del DTO).
+      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents);
+      data.approvedPriceCents = effective;
       // Dispara el plazo de 7 días en la solicitud.
       await this.prisma.sellRequest.update({
         where: { id: item.sellRequestId },

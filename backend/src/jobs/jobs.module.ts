@@ -10,10 +10,12 @@ import { UploadsModule } from '../modules/uploads/uploads.module';
 import { VaultModule } from '../modules/vault/vault.module';
 
 /**
- * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention) y el
- * SCHEDULER BullMQ (BE-5) que programa los diarios (price-sync, fx-refresh,
- * portfolio-snapshot). Importa PricingModule (price-sync/fx-refresh) y VaultModule
- * (portfolio-snapshot). El scheduler solo se activa si hay REDIS_URL (ver scheduler.service).
+ * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention,
+ * auth-token-sweep) + los diarios de pricing/valuación (price-sync, fx-refresh,
+ * portfolio-snapshot) y el SCHEDULER BullMQ (BE-5 / v15-D1) que programa **los 7** en cron.
+ * Todos son disparables a mano por AdminJobsController (`POST /admin/jobs/*`). Importa
+ * PricingModule (price-sync/fx-refresh) y VaultModule (portfolio-snapshot). El scheduler
+ * solo se activa si hay REDIS_URL (ver scheduler.service).
  */
 @Module({
   imports: [PricingModule, UploadsModule, VaultModule],

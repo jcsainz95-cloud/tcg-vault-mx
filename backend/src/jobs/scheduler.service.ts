@@ -5,17 +5,24 @@ import IORedis, { Redis } from 'ioredis';
 import { PriceSyncJobService } from './price-sync.service';
 import { FxRefreshJobService } from './fx-refresh.service';
 import { PortfolioSnapshotJobService } from '../jobs/portfolio-snapshot.service';
+import { IneRetentionJobService } from './ine-retention.service';
+import { BuylistSweepJobService } from './buylist-sweep.service';
+import { DisputeDeadlineJobService } from './dispute-deadline.service';
+import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 
 const QUEUE_NAME = 'tcg-daily';
 
 /**
- * SchedulerService (BE-5) — Cablea los jobs diarios repetibles con **BullMQ + REDIS_URL**:
- * `price-sync`, `fx-refresh` y `portfolio-snapshot` (este último tras el price-sync).
+ * SchedulerService (BE-5 / v15-D1) — Cablea TODOS los jobs diarios repetibles con
+ * **BullMQ + REDIS_URL**:
+ *   - `fx-refresh`, `price-sync`, `portfolio-snapshot` (pricing/valuación; escalonados).
+ *   - `ine-retention` (purga PII INE, LFPDPPP), `buylist-sweep` (plazos 7d/30d),
+ *     `dispute-deadline` (ventana de recompra) y `auth-token-sweep` (housekeeping AuthToken).
  *
  * Activación condicionada a `REDIS_URL`: sin Redis el scheduler queda **deshabilitado**
  * (log de aviso) y NO abre conexiones — así el arranque local/tests/CI sin infra no se rompe.
  * Los mismos jobs siguen siendo **disparables manualmente** por endpoints admin
- * (`POST /admin/pricing/sync`, `POST /admin/fx/refresh`, `POST /admin/jobs/portfolio-snapshot`).
+ * (`POST /admin/pricing/sync`, `POST /admin/fx/refresh`, `POST /admin/jobs/*`).
  */
 @Injectable()
 export class SchedulerService implements OnModuleInit, OnModuleDestroy {
@@ -29,6 +36,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly priceSync: PriceSyncJobService,
     private readonly fxRefresh: FxRefreshJobService,
     private readonly portfolioSnapshot: PortfolioSnapshotJobService,
+    private readonly ineRetention: IneRetentionJobService,
+    private readonly buylistSweep: BuylistSweepJobService,
+    private readonly disputeDeadline: DisputeDeadlineJobService,
+    private readonly authTokenSweep: AuthTokenSweepJobService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -44,10 +55,15 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.connection = new IORedis(url, { maxRetriesPerRequest: null });
     this.queue = new Queue(QUEUE_NAME, { connection: this.connection });
 
-    // Jobs repetibles diarios (UTC). Escalonados: FX y precios antes del snapshot.
+    // Jobs repetibles diarios (UTC). Escalonados: FX y precios antes del snapshot; los
+    // barridos de PII/plazos/housekeeping en su propia franja para no solaparse.
     await this.queue.add('fx-refresh', {}, this.repeat('fx-refresh', '0 6 * * *'));
     await this.queue.add('price-sync', {}, this.repeat('price-sync', '15 6 * * *'));
     await this.queue.add('portfolio-snapshot', {}, this.repeat('portfolio-snapshot', '0 7 * * *'));
+    await this.queue.add('ine-retention', {}, this.repeat('ine-retention', '30 7 * * *'));
+    await this.queue.add('dispute-deadline', {}, this.repeat('dispute-deadline', '45 7 * * *'));
+    await this.queue.add('buylist-sweep', {}, this.repeat('buylist-sweep', '0 8 * * *'));
+    await this.queue.add('auth-token-sweep', {}, this.repeat('auth-token-sweep', '15 8 * * *'));
 
     this.worker = new Worker(
       QUEUE_NAME,
@@ -59,6 +75,14 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
             return this.priceSync.run();
           case 'portfolio-snapshot':
             return this.portfolioSnapshot.run();
+          case 'ine-retention':
+            return this.ineRetention.run();
+          case 'buylist-sweep':
+            return this.buylistSweep.run();
+          case 'dispute-deadline':
+            return this.disputeDeadline.run();
+          case 'auth-token-sweep':
+            return this.authTokenSweep.run();
           default:
             this.logger.warn(`Job desconocido en la cola: ${job.name}`);
             return null;
@@ -69,7 +93,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.worker.on('failed', (job, err) =>
       this.logger.error(`Job ${job?.name} falló: ${err.message}`),
     );
-    this.logger.log('Scheduler activo (BullMQ): fx-refresh, price-sync, portfolio-snapshot diarios.');
+    this.logger.log(
+      'Scheduler activo (BullMQ): fx-refresh, price-sync, portfolio-snapshot, ine-retention, ' +
+        'buylist-sweep, dispute-deadline, auth-token-sweep diarios.',
+    );
   }
 
   private repeat(jobId: string, pattern: string) {

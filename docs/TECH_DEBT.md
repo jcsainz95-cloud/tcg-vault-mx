@@ -55,16 +55,16 @@
   endpoints moleste. Solución: batch/`IN` de referencias por `(cardId, productType, gradeKey, capturedDate)`
   y map en memoria, o una vista materializada de "última referencia por combinación".
 
-### BE-5 · Scheduling BullMQ de los 4 jobs pendiente (lógica lista)
-- **Dónde:** `src/jobs/*` (`price-sync`, `fx-refresh`, `buylist-sweep`, `dispute-deadline`).
-- **Estado actual:** la **lógica** de los jobs está implementada y es invocable; falta el wrapper de
-  `@nestjs/bullmq` con **repeatable jobs** (Redis) para correrlos en cron. `price-sync` y `fx-refresh` se
-  pueden disparar por endpoint admin; `buylist-sweep` y `dispute-deadline` no tienen endpoint aún.
-- **Impacto:** sin scheduler, las tareas diarias (sync de precios, FX, plazos 7d/30d, ventana de disputa)
-  **no corren solas**; hay que dispararlas manualmente. Bloquea la operación "desatendida" pero no la
-  correctness puntual.
-- **Disparador:** antes de la beta cerrada (los plazos de buylist y el refresco diario deben ser
-  automáticos). Solución: registrar los 4 servicios como workers BullMQ con `repeat` y conexión a `REDIS_URL`.
+### BE-5 · Scheduling BullMQ de los jobs — RESUELTA (pase P0 jobs de barrido)
+- **Dónde:** `src/jobs/scheduler.service.ts` + `src/jobs/admin-jobs.controller.ts`.
+- **Estado:** **resuelta.** El scheduler ahora programa **los 7 jobs diarios** repetibles BullMQ
+  (`fx-refresh`, `price-sync`, `portfolio-snapshot`, `ine-retention`, `buylist-sweep`, `dispute-deadline`,
+  `auth-token-sweep`) con `repeat`+`jobId` single-flight y conexión a `REDIS_URL` (sin Redis queda
+  deshabilitado, jobs disparables a mano). Los 4 barridos también son **disparables manualmente** por
+  `POST /admin/jobs/*` (super_admin, auditado). Cubierto con tests (`test/scheduler.spec.ts` mockea
+  bullmq/ioredis; `test/admin-jobs.controller.spec.ts`). Detalle: `docs/BACKEND_NOTES.md §18.1/§18.2`.
+- **Nota:** BE-3 (conversión a inventario del abandono a 30 días en `buylist-sweep`) **sigue diferida** como
+  deuda propia; este pase cableó el `run()` **actual** (7d/30d) sin cambiar su comportamiento.
 
 ### BE-6 · Providers de precio graded/sealed son stubs
 - **Dónde:** `src/modules/pricing/providers/graded-sealed.providers.ts`.
@@ -87,12 +87,13 @@
   que revierta la reserva (items→`listed`, Order→`failed`) si falla la creación del PI, y/o un job de
   expiración de reservas `pending` sin PI tras N minutos.
 
-### BE-8 · CORS `origin: true` en `main.ts`
-- **Dónde:** `src/main.ts` → `app.enableCors({ origin: true, credentials: true })`.
-- **Estado actual:** refleja cualquier origen (cómodo en dev). En producción es demasiado permisivo.
-- **Impacto:** seguridad (CSRF/abuso de credenciales) si se despliega tal cual con `credentials: true`.
-- **Disparador:** antes del primer despliegue público. Solución: restringir `origin` a `APP_BASE_URL`
-  (y dominios del frontend) leídos de env; coordinar con devops.
+### BE-8 · CORS `origin: true` en `main.ts` — RESUELTA/OBSOLETA
+- **Dónde:** `src/main.ts` → `enableCors`.
+- **Estado:** **resuelta.** Ya **no** usa `origin: true`. `resolveCorsOrigins()` construye una **allow-list**
+  desde `APP_BASE_URL` (lista separada por comas) con `credentials: true`; fallback seguro a orígenes de dev
+  local (`http://localhost:3000`, `:5173`) — **nunca** un comodín ni reflejo de origen arbitrario. En
+  staging/prod `APP_BASE_URL` DEBE fijarse (coordinado con devops). Entrada conservada como registro
+  histórico; ya no aplica como deuda.
 
 ### Deuda del pase v1.1 (hallazgos QA/techlead sobre alcance v1.1)
 
@@ -156,18 +157,14 @@
 > mismo pase y **no** figuran como deuda. Lo de abajo es la deuda **Baja aceptada** que seguridad
 > autorizó a diferir. IDs prefijados `v15-` para no colisionar con la D1–D3 del pase v1.1 (arriba).
 
-### v15-D1 · `auth-token-sweep` sin disparador automático (no cableado al scheduler)
-- **Dónde:** `src/jobs/auth-token-sweep.service.ts` (lógica lista); `src/jobs/scheduler.service.ts:47-51`
-  solo registra `fx-refresh`/`price-sync`/`portfolio-snapshot` — **no** incluye `auth-token-sweep`
-  (ni `buylist-sweep`, `dispute-deadline`, `ine-retention`, misma familia que BE-5/BE-3).
-- **Estado actual:** la tabla `AuthToken` **no se poda**: los tokens de verificación/reset caducados o
-  usados se acumulan sin borrarse. **Mitigado** porque `AuthTokenService.consume` (`auth-token.service.ts:53`)
-  ya rechaza expirados/usados (`usedAt: null, expiresAt: { gt: now }`), así que un token viejo nunca
-  vuelve a ser válido; es solo crecimiento de tabla, no un agujero de autenticación.
-- **Impacto:** bajo. Crecimiento monótono de `AuthToken` con el tiempo (housekeeping), sin efecto en
-  correctness ni seguridad.
-- **Disparador:** al cablear el scheduler de jobs de barrido (junto con BE-5/BE-3). Solución: registrar
-  `auth-token-sweep` como job repetible BullMQ (`repeat`) en `scheduler.service.ts`, con su `case` en el worker.
+### v15-D1 · `auth-token-sweep` sin disparador automático — RESUELTA (pase P0 jobs de barrido)
+- **Dónde:** `src/jobs/auth-token-sweep.service.ts` + `src/jobs/scheduler.service.ts`.
+- **Estado:** **resuelta.** `auth-token-sweep` (junto con `buylist-sweep`, `dispute-deadline`,
+  `ine-retention`) ya está cableado como job repetible BullMQ en el scheduler (`repeat` + `case` en el worker,
+  cron diario `15 8 * * *`) y también es disparable a mano por `POST /admin/jobs/auth-token-sweep`
+  (super_admin, auditado). La tabla `AuthToken` ya se poda sola cuando hay `REDIS_URL`. Ver BE-5 arriba y
+  `docs/BACKEND_NOTES.md §18`. Nota v15-D2 (claim-luego-lectura no transaccional en `consume`) sigue como
+  deuda propia: al activarse el sweep conviene envolver claim+lectura en tx (ver v15-D2).
 
 ### v15-D2 · `AuthTokenService.consume`/`ownerOf`: claim-luego-lectura no transaccional
 - **Dónde:** `src/modules/auth/auth-token.service.ts:53-65` (`consume`) y `:68-75` (`ownerOf`).
@@ -251,6 +248,16 @@
   cuenta — regla de oro). Opciones a evaluar: (a) enriquecer `AdminUserOwnedItemRef` con `finish` +
   `referenceValue`; o (b) añadir un endpoint dedicado `GET /admin/users/:id/holdings` que reuse la
   valuación de `vault.service.holdings`. Una vez el arquitecto actualice el contrato, backend implementa.
+
+### B-4 / S-B5 · `approvedPriceCents` sin tope (dinero saliente arbitrario) — RESUELTA (pase P0 jobs de barrido)
+- **Dónde:** `src/modules/buylist/dto/buylist.dto.ts` (`ItemDecisionDto`) + `buylist.service.ts` (`itemDecision`).
+- **Estado:** **resuelta.** Hallazgo B-4 del pentest: `approvedPriceCents` tenía `@IsInt @Min(0)` **sin cota
+  superior** → un `vault_operator` podía aprobar un monto SPEI arbitrario (PoC `99999999`). Defensa en dos
+  capas: (1) DTO `@Max(1_000_000)` (MX$10,000, cota dura de sanidad → 400); (2) server-side
+  `assertApprovedPriceWithinCap`: monto efectivo ≤ **min(`quotedPriceCents` × 2, tope por solicitud
+  `buylist_cap_per_request_cents`)**; excede → `APPROVED_PRICE_CAP_EXCEEDED` (422). No rompe SEC-A1 ni el
+  flujo de aprobación normal (aprobar el cotizado o ajuste ≤ 2× pasa). Cubierto con
+  `test/buylist.approved-price-cap.spec.ts`. Ver `docs/BACKEND_NOTES.md §18.3`.
 
 ---
 
@@ -363,60 +370,62 @@
 
 > Del pase de **rediseño 5a**. Los **dos MUST-FIX de accesibilidad** (foco visible en el `<select>` de
 > switch de rol del AdminTopbar; contraste AA del token `--color-success` + consistencia del anillo de
-> foco en los inputs crudos de `ShopFilters`/`CatalogView`) **ya se corrigieron** en este mismo pase y
-> **no** figuran como deuda (ver `FRONTEND_NOTES.md`). Lo de abajo es lo que el techlead marcó **no
-> bloqueante** y autorizó a diferir. IDs prefijados `5a-` para no colisionar con FE-1..6/D7.
+> foco en los inputs crudos de `ShopFilters`/`CatalogView`) **ya se corrigieron** en su pase y **no**
+> figuran como deuda (ver `FRONTEND_NOTES.md`). IDs prefijados `5a-` para no colisionar con FE-1..6/D7.
+>
+> **ACTUALIZACIÓN 2026-08-16 (pase "destacadas por precio + cierre 5a en lote"):** las **cinco** entradas
+> `5a-D1/D3/D4/D5/D6` quedaron **CERRADAS** (ver detalle en cada una y en `FRONTEND_NOTES.md`). Ya **no**
+> hay deuda 5a abierta. Se conservan como registro histórico.
 
-### 5a-D1 · `ConditionBadge` huérfano + lógica de condición triplicada
-- **Dónde:** `frontend/src/components/domain/ListingSpec.tsx`, `frontend/src/components/domain/ConditionBadge.tsx`
-  y `frontend/src/app/[locale]/(storefront)/catalog/CardDetailView.tsx` (mapeo de condición inline).
-- **Estado actual:** la lógica que traduce/abrevia la condición (NM, etc.) y la deriva a etiqueta está
-  **triplicada**: `ListingSpec` la resuelve por su cuenta, `ConditionBadge` la reimplementa y además está
-  **huérfano** (no lo consume la ficha), y `CardDetailView` la vuelve a hacer **inline**. Tres fuentes de
-  verdad para la misma regla de presentación.
-- **Impacto:** bajo. Mantenibilidad/consistencia: un cambio en la taxonomía o en la abreviatura de condición
-  obliga a tocar tres sitios y arriesga divergencia (que la ficha muestre algo distinto a la retícula).
-- **Disparador:** al tocar la lógica de condición o al retomar la ficha 360°. Solución: **consolidar** en un
-  helper puro único (o adoptar `ConditionBadge` en la ficha y hacer que `ListingSpec`/`CardDetailView` lo
-  reutilicen), eliminando el componente huérfano si no se adopta.
+### 5a-D1 · `ConditionBadge` huérfano + lógica de condición triplicada — CERRADA (eliminado)
+- **Dónde:** `frontend/src/components/ui/ConditionBadge.tsx` (+ su test) — **eliminados**.
+- **Estado (2026-08-16):** **CERRADA por opción (b): eliminación.** `ConditionBadge` estaba huérfano (solo
+  lo importaba su propio test). Se decidió **eliminarlo** en vez de adoptarlo porque el rediseño 5a sustituyó
+  la fila de pastillas (condición + acabado + cert) por el renglón mono `ListingSpec`, y la ficha de detalle
+  (`CardDetailView`) pinta la condición como `Fact` de **texto plano** coherente con la dirección minimalista
+  ratificada (con `CertNumberField` para el cert gradeado). Adoptar `ConditionBadge` (Badge/pastilla de color)
+  en esos Facts de texto plano sería forzado y reintroduciría pastillas que el rediseño quitó a propósito. Ya
+  no hay triplicación: quedan dos presentaciones intencionalmente distintas (renglón mono `ListingSpec` en
+  retículas; texto plano en la ficha). `GradedCertChip` sobrevive intacto (lo usa el back-office M8). Cubierto
+  por el E2E `catalog.spec.ts:56` (la ficha pinta la condición legible). Entrada conservada como histórico.
 
-### 5a-D3 · Grosor de anillo de foco inconsistente (3px hardcodeado vs token 2px)
-- **Dónde:** `frontend/src/components/ui/Button.tsx`, `frontend/src/components/domain/DisputeEvidenceContact.tsx`
-  y `frontend/src/components/ui/PhotoUploader.tsx` usan `shadow-[0_0_0_3px_...]` (3px), frente al token
-  `shadow-focus` (`0 0 0 2px var(--color-focus-ring)`) que usan Input/Select y ahora los inputs crudos.
-- **Estado actual:** dos grosores de anillo bermellón conviven (3px inline vs 2px token). Todos son visibles
-  y cumplen foco/contraste; solo difieren en px. No es un bug de accesibilidad, es inconsistencia visual.
-- **Impacto:** bajo. Cosmético/consistencia del sistema de foco; sin efecto en AA ni en operabilidad por teclado.
-- **Disparador:** al pulir el sistema de foco o al centralizar tokens. Solución: **unificar** los tres a
-  `shadow-focus` (2px) y retirar los `shadow-[0_0_0_3px_...]` inline.
+### 5a-D3 · Grosor de anillo de foco inconsistente (3px hardcodeado vs token 2px) — CERRADA
+- **Dónde:** `DisputeEvidenceContact.tsx` y `PhotoUploader.tsx` (los que quedaban con 3px inline).
+- **Estado (2026-08-16):** **CERRADA.** Se unificaron a **`shadow-focus` (2px)** los `shadow-[0_0_0_3px_...]`
+  de `DisputeEvidenceContact` (link mailto + botón Copiar) y `PhotoUploader` (botón de captura). `Button.tsx`
+  ya no tenía inline (usa el `:focus-visible` global). Verificado: grep `shadow-[0_0_0_3px` → **0 matches**.
+  Todo el foco es el `outline` global o `shadow-focus` 2px, consistente con Input/Select. Sin doble anillo.
 
-### 5a-D4 · `ListingSpec` compacto (graded) omite `certNumber` en el `aria-label`
+### 5a-D4 · `ListingSpec` compacto (graded) omite `certNumber` en el `aria-label` — CERRADA
 - **Dónde:** `frontend/src/components/domain/ListingSpec.tsx` (variante `compact` para producto `graded`).
-- **Estado actual:** la variante compacta de graded compone un `aria-label` sin incluir el `certNumber`,
-  que la variante completa sí anuncia. El lector de pantalla oye grado/grader pero no el número de
-  certificación en la retícula compacta.
-- **Impacto:** bajo. Accesibilidad menor: falta un dato de identificación en el `aria-label` compacto; el
-  número sigue disponible en la ficha completa. No rompe navegación ni operabilidad.
-- **Disparador:** al retocar `ListingSpec` o en el próximo repaso de accesibilidad. Solución: componer el
-  `aria-label` de la variante graded compacta incluyendo también el `certNumber`.
+- **Estado (2026-08-16):** **CERRADA.** La variante compacta de graded ahora compone el `aria-label` con
+  **empresa + grado + cert SIEMPRE** (§7.2b), aunque el texto **visible** siga abreviado (sin cert en la
+  retícula). Se construye `gradedAriaLabel` cuando el cert se omite del visible; el `aria-label` final es el
+  tooltip NM (raw) o `gradedAriaLabel` (graded compacto). Solo se enriqueció el aria-label; el visible no cambió.
 
-### 5a-D5 · Vars `--radius-*` / `--shadow-*` muertas en `globals.css` (Tailwind hardcodea 0)
-- **Dónde:** `frontend/src/app/globals.css` (`--radius-sm/md/lg/xl: 0px`, y equivalentes de sombra) vs.
-  `frontend/tailwind.config.ts` (radios y `boxShadow` hardcodeados a `none`/0, salvo `focus`).
-- **Estado actual:** las variables de radio/sombra en `:root` **no las consume nadie**: Tailwind ya fija 0
-  directamente en la config, así que son tokens muertos. Coexisten dos fuentes (var CSS sin usar + valor
-  hardcodeado) para el mismo "cero".
-- **Impacto:** bajo. Ruido/mantenibilidad: da la falsa impresión de que ajustando la var se cambia el radio,
-  cuando el valor real vive en la config de Tailwind.
-- **Disparador:** al limpiar tokens o si alguien quiere reintroducir radios. Solución: **alinear** (que
-  Tailwind lea `var(--radius-*)`/`var(--shadow-*)`) **o quitar** las variables muertas de `globals.css`.
+### 5a-D5 · Vars `--radius-*` / `--shadow-*` muertas en `globals.css` (Tailwind hardcodea 0) — CERRADA
+- **Dónde:** `frontend/src/app/globals.css`.
+- **Estado (2026-08-16):** **CERRADA.** Se **quitaron** las vars muertas `--radius-sm/md/lg/xl` (Tailwind
+  hardcodea `borderRadius: 0px`; nadie consume `var(--radius-*)` — verificado por grep). **No** existían vars
+  `--shadow-*` en `globals.css` (el único boxShadow con var es `boxShadow.focus` en tailwind.config, que SÍ se
+  usa). **No** se tocó `--color-focus-ring` ni `boxShadow.focus`.
 
-### 5a-D6 · (nota) `PortfolioTrendChart` hardcodea hex de la paleta como fallback de recharts
+### 5a-D6 · (nota) `PortfolioTrendChart` hardcodea hex de la paleta como fallback de recharts — DEGRADADA
 - **Dónde:** `frontend/src/components/domain/PortfolioTrendChart.tsx`.
-- **Estado actual:** para pasar colores a recharts (que no lee variables CSS directamente en todos los
-  props) se **hardcodean hex** de la paleta 5a como fallback en vez de leer los tokens `--color-*`.
-- **Impacto:** bajo. Riesgo de **drift**: si la paleta cambia en `globals.css`, la gráfica seguiría pintando
-  los hex viejos hasta que alguien recuerde actualizarlos a mano.
-- **Disparador:** si la paleta cambia o al endurecer el tema. Solución: leer los tokens vía
-  `getComputedStyle(document.documentElement)` (o un puente de CSS vars a JS) y pasarlos a recharts, en
-  lugar de hex literales.
+- **Estado (2026-08-16):** **DEGRADADA a resuelta en la práctica.** El fallback que estaba **desalineado**
+  (`LIGHT.up = #4E7A49`, viejo verde pre-AA) se corrigió a **`#4a7345`** = el token vivo `--color-success`
+  (ya ajustado al fix de contraste AA). Ya no hay drift en el primer paint: los hex de fallback coinciden con
+  los tokens actuales de `globals.css`, y `useTrendColors` sigue leyendo los tokens reales tras montar. La
+  mejora estructural (leer TODOS los colores vía `getComputedStyle` en vez de literales) queda como
+  refinamiento opcional sin impacto observable; ya **no** hay divergencia numérica que registrar.
+
+### Ronda B — deuda surgida en verdictos (2026-08-16, no bloqueante)
+
+- **RB-1 (backend):** taxonomía de `action` de auditoría inconsistente — los `/admin/jobs/*` nuevos usan sufijo `.run` (`jobs.ine_retention.run`…) vs el `portfolio-snapshot` previo sin `.run`. Alinear a un solo criterio.
+- **RB-2 (backend):** `entityType`/`entityId` omitidos en la auditoría de jobs (los disparos M2 sí los setean). Criterio consciente; documentar o unificar.
+- **RB-3 (backend):** `assertApprovedPriceWithinCap` usa siempre `BUYLIST_CAP_PER_REQUEST_CENTS` global e ignora el `kyc.capPerRequestCentsOverride` por-usuario que `createRequest` sí honra → un usuario con override más alto podría ver rechazada una aprobación legítima. Unificar la fuente del cap.
+- **RB-4 (backend):** factor de uplift `2×` (`APPROVED_PRICE_UPLIFT_FACTOR`) es constante de código; si el negocio quiere ajustarlo sin redeploy, subir a dial `ConfigSetting`/M10.
+- **RB-5 (backend):** JSDoc desactualizado en `buylist-sweep.service.ts:7` (dice "30d → convertida_inventario", el código setea `abandonada`) e `ine-retention.service.ts:14-16` (dice "scheduling BullMQ es deuda BE-5", ya cableado).
+- **RB-6 (backend):** `SellRequest.approvedTotalCents` nunca se escribe pero se lee en el P&L (SEC-D3) → tarjeta "buylist del periodo" en 0. Poblarlo o derivar el agregado.
+- **SEC-D1 (devops):** lifecycle/retención a nivel de bucket R2 para cubrir INE huérfano si falla la purga por API.
+- **SEC-D2 (backend/arquitecto):** `closedAt` explícito en SellRequest para precisión de la ventana de retención de INE.
