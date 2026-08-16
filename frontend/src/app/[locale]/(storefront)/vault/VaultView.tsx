@@ -59,10 +59,52 @@ export function VaultView() {
   const locale = useLocale() as AppLocale;
   const query = useQuery({ queryKey: ['holdings'], queryFn: getHoldings });
   const [sort, setSort] = useState<SortKey>('default');
+  // Filtro por set (client-side). 'all' = todos los sets presentes en los holdings.
+  const [setFilter, setSetFilter] = useState<string>('all');
 
   const sortedHoldings = useMemo(
     () => (query.data ? sortHoldings(query.data.data, sort, locale) : []),
     [query.data, sort, locale],
+  );
+
+  // Sets presentes en los holdings del usuario (distinct por setId → poblar el filtro).
+  // HoldingDTO.card expone setId + setName, así que se agrupa por setId sin ambigüedad.
+  const presentSets = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const h of query.data?.data ?? []) {
+      if (!map.has(h.card.setId)) map.set(h.card.setId, h.card.setName);
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, locale));
+  }, [query.data, locale]);
+
+  // Holdings tras aplicar el filtro por set (respeta el orden ya calculado).
+  const filteredHoldings = useMemo(
+    () => (setFilter === 'all' ? sortedHoldings : sortedHoldings.filter((h) => h.card.setId === setFilter)),
+    [sortedHoldings, setFilter],
+  );
+
+  // Agrupación por set: cada grupo lleva su valor (suma de referenceMxnCents; los
+  // pendientes sin valor no aportan). Preserva el orden de aparición en filteredHoldings.
+  const groups = useMemo(() => {
+    const byId = new Map<string, { setId: string; setName: string; items: HoldingDTO[]; valueCents: number }>();
+    for (const h of filteredHoldings) {
+      let g = byId.get(h.card.setId);
+      if (!g) {
+        g = { setId: h.card.setId, setName: h.card.setName, items: [], valueCents: 0 };
+        byId.set(h.card.setId, g);
+      }
+      g.items.push(h);
+      g.valueCents += h.referenceValue.referenceMxnCents ?? 0;
+    }
+    return [...byId.values()];
+  }, [filteredHoldings]);
+
+  // Total del subconjunto filtrado (suma de todos los grupos visibles).
+  const filteredTotalCents = useMemo(
+    () => groups.reduce((sum, g) => sum + g.valueCents, 0),
+    [groups],
   );
 
   return (
@@ -127,8 +169,27 @@ export function VaultView() {
                 currentValueFallbackCents={query.data.portfolio.totalValueMxnCents}
               />
 
-              {/* Control de orden de la lista (cliente) */}
-              <div className="flex flex-wrap items-end justify-end gap-3">
+              {/* Controles cliente: filtro por set + orden de la lista */}
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="flex items-end gap-2">
+                  <Select
+                    label={t('setFilter.label')}
+                    className="w-56"
+                    value={setFilter}
+                    onChange={(e) => setSetFilter(e.target.value)}
+                    options={[
+                      { value: 'all', label: t('setFilter.all') },
+                      ...presentSets.map((s) => ({ value: s.id, label: s.name })),
+                    ]}
+                  />
+                  {/* Valor total del subconjunto filtrado (suma de valores por set). */}
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted">{t('filteredTotal')}</span>
+                    <span className="tabular text-sm font-semibold">
+                      {formatMoneyCents(filteredTotalCents, locale)}
+                    </span>
+                  </div>
+                </div>
                 <Select
                   label={t('sort.label')}
                   className="w-56"
@@ -143,8 +204,30 @@ export function VaultView() {
                 />
               </div>
 
+              {/* Valor por set: desglose (suma de referenceMxnCents por set) del subconjunto filtrado. */}
+              {groups.length > 0 && (
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-2/40 p-4">
+                  <h2 className="text-sm font-semibold text-muted">{t('valueBySet')}</h2>
+                  <ul className="flex flex-col divide-y divide-border">
+                    {groups.map((g) => (
+                      <li key={g.setId} className="flex items-baseline justify-between gap-3 py-1.5">
+                        <span className="min-w-0 truncate text-sm">
+                          <span className="font-medium">{g.setName}</span>
+                          <span className="ml-1.5 text-xs text-muted">
+                            {t('setCount', { count: g.items.length })}
+                          </span>
+                        </span>
+                        <span className="tabular text-sm font-semibold">
+                          {formatMoneyCents(g.valueCents, locale)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {sortedHoldings.map((h) => {
+                {filteredHoldings.map((h) => {
                   const settled = h.ownershipStatus === 'settled';
                   return (
                     <div

@@ -27,6 +27,9 @@ import type {
   RawCondition,
   SealedSubtype,
   Finish,
+  GradingCompany,
+  AcquisitionType,
+  InventoryStatus,
   BuylistRule,
   BuylistRulesDTO,
   BuylistRaritiesResponse,
@@ -726,6 +729,54 @@ export async function getAdminInventory(): Promise<InventoryItemDTO[]> {
     return res.data;
   }
   return delay(fx.mockInventory);
+}
+
+export interface CreateInventoryItemInput {
+  /** id del CardDTO del catálogo real elegido en el picker (contrato §M1). */
+  cardId: string;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  /** v1.6-finish: acabado de la copia física; validado server-side ∈ Card.availableFinishes. */
+  finish?: Finish;
+  sealedSubtype?: SealedSubtype;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  certNumber?: string;
+  locationId?: string;
+  acquisitionType: AcquisitionType;
+  acquisitionPct?: number;
+  listPriceCents?: number;
+}
+
+export interface CreateInventoryItemResponse {
+  id: string;
+  folio: string;
+  status: InventoryStatus;
+  acquisitionCostCents: number;
+}
+
+/**
+ * Alta de item de inventario (contrato POST /admin/inventory/items, §M1). El `cardId`
+ * proviene del CardDTO del catálogo real (buylist/cards), NO de fixtures. El backend
+ * deriva costo/referencia y valida `finish` ∈ Card.availableFinishes (422 FINISH_NOT_AVAILABLE).
+ */
+export async function createInventoryItem(
+  input: CreateInventoryItemInput,
+): Promise<CreateInventoryItemResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CreateInventoryItemResponse>('/admin/inventory/items', {
+      method: 'POST',
+      body: input,
+    });
+  }
+  // MOCK: pendiente de backend real — devuelve el shape 201 del contrato con folio simulado.
+  const seq = String(fx.mockInventory.length + 1).padStart(6, '0');
+  return delay({
+    id: `inv-new-${seq}`,
+    folio: `INV-${seq}`,
+    status: 'in_stock',
+    acquisitionCostCents: 0,
+  });
 }
 
 export async function getLocations(): Promise<VaultLocationDTO[]> {

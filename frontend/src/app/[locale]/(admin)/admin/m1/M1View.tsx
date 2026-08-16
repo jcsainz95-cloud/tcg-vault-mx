@@ -1,11 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Plus } from 'lucide-react';
-import { getAdminInventory, getLocations } from '@/lib/api';
-import { mockCards } from '@/lib/mock/fixtures';
+import { Plus, Search, Check } from 'lucide-react';
+import {
+  getAdminInventory,
+  getLocations,
+  listBuylistSets,
+  searchBuylistCards,
+  createInventoryItem,
+} from '@/lib/api';
 import type {
   ProductType,
   SealedSubtype,
@@ -13,6 +18,7 @@ import type {
   AcquisitionType,
   Finish,
   InventoryItemDTO,
+  CardDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { FinishBadge } from '@/components/domain/FinishBadge';
@@ -40,8 +46,13 @@ export function M1View() {
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [cardId, setCardId] = useState<string>(mockCards[0]?.id ?? '');
+  // Picker sobre el catálogo REAL (patrón del cotizador): set + búsqueda + carta elegida.
+  const [setId, setSetId] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCard, setSelectedCard] = useState<CardDTO | null>(null);
   const [productType, setProductType] = useState<ProductType>('raw');
   // v1.6-finish: acabado de la copia física; se valida contra card.availableFinishes al alta.
   const [finish, setFinish] = useState<Finish>('normal');
@@ -56,8 +67,7 @@ export function M1View() {
   // Gradeada: certNumber es obligatorio para publicar (contrato §M1, v1.2).
   const gradedCertMissing = productType === 'graded' && certNumber.trim() === '';
 
-  // v1.6-finish: acabados disponibles de la carta elegida (solo raw/singles; graded/sealed = normal).
-  const selectedCard = mockCards.find((c) => c.id === cardId);
+  // v1.6-finish: acabados disponibles de la carta REAL elegida (solo raw/singles; graded/sealed = normal).
   const availableFinishes: Finish[] = selectedCard
     ? FINISH_ORDER.filter((f) => selectedCard.availableFinishes.includes(f))
     : ['normal'];
@@ -65,6 +75,55 @@ export function M1View() {
 
   const inventory = useQuery({ queryKey: ['admin-inventory'], queryFn: getAdminInventory });
   const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations });
+
+  // --- Picker de catálogo real (contrato §6 GET /buylist/sets + /buylist/cards, @Public) ---
+  const sets = useQuery({ queryKey: ['buylist-sets'], queryFn: listBuylistSets });
+  // Solo se busca cuando hay set o texto (evita traer todo el catálogo sin filtro).
+  const hasSearch = setId !== '' || searchQuery.trim() !== '';
+  const cardsResult = useQuery({
+    queryKey: ['m1-cards', setId, searchQuery],
+    queryFn: () => searchBuylistCards({ setId: setId || undefined, q: searchQuery || undefined }),
+    enabled: hasSearch,
+  });
+
+  function runSearch() {
+    setSearchQuery(searchInput.trim());
+  }
+
+  function pickCard(card: CardDTO) {
+    setSelectedCard(card);
+    // Reinicia el acabado al primero disponible de la carta elegida (normal va primero).
+    setFinish(FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal');
+  }
+
+  const [locationId, setLocationId] = useState<string>('');
+
+  // Alta contra el catálogo real: cardId = selectedCard.id (contrato POST /admin/inventory/items).
+  const create = useMutation({
+    mutationFn: () =>
+      createInventoryItem({
+        cardId: selectedCard!.id,
+        productType,
+        rawCondition: productType === 'raw' ? 'NM' : undefined,
+        finish: productType === 'raw' ? finish : undefined,
+        sealedSubtype: productType === 'sealed' ? sealedSubtype : undefined,
+        gradingCompany: productType === 'graded' ? gradingCompany : undefined,
+        gradeValue: productType === 'graded' ? gradeValue : undefined,
+        certNumber: productType === 'graded' ? certNumber.trim() : undefined,
+        locationId: locationId || undefined,
+        acquisitionType: acq,
+        acquisitionPct: acq === 'aportacion_en_especie' ? Number(pct) : undefined,
+        listPriceCents:
+          productType === 'sealed' && listPrice
+            ? Math.round(Number(listPrice) * 100)
+            : undefined,
+      }),
+    onSuccess: () => {
+      setOpen(false);
+      setSelectedCard(null);
+      void queryClient.invalidateQueries({ queryKey: ['admin-inventory'] });
+    },
+  });
 
   const columns: Column<InventoryItemDTO>[] = [
     { key: 'folio', header: tt('folio'), render: (i) => <span className="tabular">{i.folio}</span> },
@@ -121,7 +180,11 @@ export function M1View() {
             <Button variant="secondary" onClick={() => setOpen(false)}>
               {tc('cancel')}
             </Button>
-            <Button onClick={() => setOpen(false)} disabled={gradedCertMissing}>
+            <Button
+              onClick={() => create.mutate()}
+              disabled={!selectedCard || gradedCertMissing || create.isPending}
+              loading={create.isPending}
+            >
               {t('createItem')}
             </Button>
           </>
@@ -130,17 +193,91 @@ export function M1View() {
         <div className="flex flex-col gap-4">
           {/* v1.2: alta SIN foto propia; la imagen es la de catálogo remota de pokemontcg.io */}
           <Banner variant="info">{t('noPhotoNotice')}</Banner>
+
+          {/* Picker de catálogo REAL (contrato §6): filtra por set + busca sobre TODO el catálogo. */}
           <Select
-            label={t('cardName')}
-            options={mockCards.map((c) => ({ value: c.id, label: `${c.name} · ${c.setName}` }))}
-            value={cardId}
-            onChange={(e) => {
-              setCardId(e.target.value);
-              // Reinicia el acabado al primero disponible de la nueva carta (normal va primero).
-              const card = mockCards.find((c) => c.id === e.target.value);
-              setFinish(FINISH_ORDER.find((f) => card?.availableFinishes.includes(f)) ?? 'normal');
-            }}
+            label={t('filterBySet')}
+            placeholder={t('allSets')}
+            options={(sets.data ?? []).map((s) => ({
+              value: s.id,
+              label: s.year ? `${s.name} (${s.year})` : s.name,
+            }))}
+            value={setId}
+            onChange={(e) => setSetId(e.target.value)}
           />
+          <div className="flex items-end gap-2">
+            <Input
+              label={t('searchCards')}
+              className="flex-1"
+              placeholder={t('searchPlaceholder')}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  runSearch();
+                }
+              }}
+            />
+            <Button variant="secondary" onClick={runSearch} aria-label={t('searchAction')}>
+              <Search size={18} /> {t('searchAction')}
+            </Button>
+          </div>
+
+          {hasSearch && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">{t('searchResults')}</p>
+              <QueryState
+                isLoading={cardsResult.isLoading}
+                isError={cardsResult.isError}
+                error={cardsResult.error}
+                onRetry={() => cardsResult.refetch()}
+              >
+                {cardsResult.data &&
+                  (cardsResult.data.data.length === 0 ? (
+                    <p className="text-sm text-muted">{t('noResults')}</p>
+                  ) : (
+                    <ul
+                      className="flex max-h-60 flex-col gap-1 overflow-y-auto"
+                      role="listbox"
+                      aria-label={t('searchResults')}
+                    >
+                      {cardsResult.data.data.map((card) => {
+                        const active = selectedCard?.id === card.id;
+                        return (
+                          <li key={card.id}>
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={active}
+                              onClick={() => pickCard(card)}
+                              className={`flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                                active ? 'border-primary bg-primary/5' : 'border-border hover:bg-surface-2'
+                              }`}
+                            >
+                              <span lang="en" className="font-medium">{card.name}</span>
+                              <span className="flex items-center gap-2 text-xs text-muted">
+                                <span lang="en">{card.setName}</span>
+                                {card.number && <span className="tabular">#{card.number}</span>}
+                                {active && <Check size={16} className="text-primary" aria-hidden />}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ))}
+              </QueryState>
+            </div>
+          )}
+
+          {selectedCard ? (
+            <p className="rounded-md bg-primary/5 px-3 py-2 text-sm">
+              {t('selectedCard')}: <span lang="en" className="font-semibold">{selectedCard.name}</span>
+            </p>
+          ) : (
+            <p className="text-xs text-muted">{t('chooseCardFirst')}</p>
+          )}
           <Select
             label={t('productType')}
             options={PRODUCT_TYPES.map((p) => ({ value: p, label: p }))}
@@ -217,6 +354,8 @@ export function M1View() {
           <Select
             label={t('location')}
             options={(locations.data ?? []).map((l) => ({ value: l.id, label: l.label }))}
+            value={locationId}
+            onChange={(e) => setLocationId(e.target.value)}
           />
           <Select
             label={t('acquisitionType')}
@@ -236,6 +375,7 @@ export function M1View() {
               <Banner variant="info">{t('costHint', { pct })}</Banner>
             </>
           )}
+          {create.isError && <Banner variant="danger">{t('createError')}</Banner>}
         </div>
       </Modal>
     </div>

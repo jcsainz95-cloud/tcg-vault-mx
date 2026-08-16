@@ -4,6 +4,67 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## A3 subida robusta de INE + D1 alta M1 por set + G1 bóveda por set (2026-08-16)
+
+Tres cambios independientes, solo `frontend/` (+ esta nota). **No** se tocó el contrato ni backend.
+Gates verdes: `lint` ✓ · `typecheck` ✓ · `test` **159** (incl. paridad i18n) · `build` ✓.
+
+### A3 — Compresión/normalización de la foto de INE antes de subir (`components/ui/PhotoUploader.tsx`)
+
+Problema: se subía la foto **cruda** del teléfono (a veces >10 MB → el backend la rechazaba con 422 y el
+front lo rotulaba MAL como "no es imagen"); iOS envía **HEIC**, que el presign `image/jpeg` no espera.
+
+Fix (solo cliente, sin tocar el flujo backend):
+- **Compresión vía canvas** (`compressImage(file)`): carga la imagen (`img.decode()`), escala al **lado
+  máximo ~2000px** manteniendo aspecto, y re-exporta con `canvas.toBlob(_, 'image/jpeg', 0.85)`. Esto baja el
+  peso y **normaliza HEIC→JPEG**. Se envuelve el Blob en `new File([blob], 'ine.jpg', { type: 'image/jpeg' })`.
+  Si el navegador no puede decodificar (p. ej. HEIC en un navegador sin soporte) o `toBlob` da `null`, hace
+  **fallback al archivo original** para no bloquear (el backend valida al final).
+- **`contentType`/`contentLength` recalculados del BLOB comprimido** (`upload.type` = `image/jpeg`,
+  `upload.size`) y pasados a `presignUpload` → **coinciden con lo que se firma** (residuo S-B3). El PUT sube el
+  mismo Blob (`uploadToPresignedUrl(presign, upload)`; usa `upload.type` como `Content-Type`).
+- **Chequeo de tamaño movido ANTES de `presignUpload`**, sobre el Blob ya comprimido, contra `maxBytes`
+  (prop/`DEFAULT_MAX_UPLOAD_BYTES`); el `presign.maxBytes` sigue como fuente de verdad afinada después.
+- **Mapeo de error corregido:** `FILE_TOO_LARGE` (413) → `ine.errTooLarge` ("demasiado grande");
+  `VALIDATION_ERROR` (no-imagen) → `ine.errNotImage`; resto → `ine.errUpload`. Ya no se rotula tamaño como
+  "no es imagen" (además, al enviar siempre `image/jpeg`, el 422 de content-type deja de aparecer).
+- **Estado `processing`** nuevo (spinner + label mientras comprime). i18n nueva: **`ine.processing`** (ES/EN).
+
+### D1 — Alta de inventario M1 sobre el catálogo REAL (`app/[locale]/(admin)/admin/m1/M1View.tsx`)
+
+Antes el dropdown "Carta" salía de `mockCards` (import estático, pocas cartas, sin filtro por set). Se
+reemplazó por el patrón del cotizador (`BuylistView`):
+- Se **eliminó** el import/uso de `mockCards` en el picker. Estado nuevo `setId`/`searchInput`/`searchQuery`/
+  `selectedCard: CardDTO | null`. `<Select>` de set (`listBuylistSets`) + `<Input>` de búsqueda + lista de
+  resultados `role="listbox"` (`searchBuylistCards`, `useQuery` gated por `hasSearch`), con `QueryState`
+  (loading/error/empty). Ambos endpoints son `@Public()` y usables desde admin (contrato §6).
+- `selectedCard`/`availableFinishes` se derivan del **`CardDTO` real** elegido (no de fixtures). El resto del
+  formulario (acabado v1.6, tipo, graded/sealed, ubicación, tipo de adquisición, %) **no cambió**.
+- **Botón "Crear" cableado** a `createInventoryItem` (nueva en `lib/api.ts`, con rama real
+  `POST /admin/inventory/items` y rama **mock** marcada), pasando `cardId: selectedCard.id` + los campos del
+  form. `useMutation` con `loading`, deshabilitado si `!selectedCard`/cert faltante, invalida
+  `['admin-inventory']` al éxito y muestra `admin.m1.createError` en fallo.
+- i18n nueva en `admin.m1` (ES/EN): `filterBySet`, `allSets`, `searchCards`, `searchPlaceholder`,
+  `searchAction`, `searchResults`, `noResults`, `selectedCard`, `chooseCardFirst`, `createError`.
+
+### G1 — Bóveda del cliente por set + valor por set (`app/[locale]/(storefront)/vault/VaultView.tsx`)
+
+`HoldingDTO.card` expone **`setId` y `setName`**, así que se agrupa por **`setId`** sin ambigüedad (no hizo
+falta agrupar por `setName` ni inventar campos). Todo client-side; el portafolio ya trae `referenceValue`.
+- **Filtro por set** (`<Select>` poblado con los sets **distinct presentes en los holdings**, opción "Todos")
+  que filtra la lista. Estado `setFilter`.
+- **Valor por set**: panel de desglose que suma `referenceValue.referenceMxnCents` por set (los pendientes sin
+  valor no aportan), con `formatMoneyCents`. **Total del subconjunto filtrado** mostrado junto al filtro.
+- **Decisión de presentación:** se optó por **filtro + desglose de valor por set** manteniendo la **lista plana
+  que respeta el orden del control "Ordenar por"** (el contrato/tarea permite "filtro **y/o** agrupada"). Se
+  evitó forzar el agrupamiento visual del grid porque re-ordenaría las cartas por set y rompería la semántica
+  del sort por valor (y los tests `VaultView.test.tsx` que verifican ese orden). Así se cumplen los tres datos
+  pedidos (filtro por set, valor por set, total filtrado) sin colisionar con el ordenamiento existente.
+- i18n nueva en `vault` (ES/EN): `setFilter.label`, `setFilter.all`, `valueBySet`, `filteredTotal`, `setCount`.
+
+Sin solicitudes al arquitecto: los tres cambios caben en el contrato v1.6 actual (uploads `kyc_ine`,
+`/buylist/sets` + `/buylist/cards`, `POST /admin/inventory/items`, `/vault/holdings`).
+
 ## C1 idioma por defecto ES + B2 re-sync forzado en M2 (2026-08-16)
 
 Dos cambios independientes, solo `frontend/` (+ esta nota). **No** se tocó el contrato ni backend.

@@ -28,7 +28,54 @@ export interface PhotoUploaderProps {
   disabled?: boolean;
 }
 
-type UploadState = 'empty' | 'uploading' | 'done' | 'error';
+type UploadState = 'empty' | 'processing' | 'uploading' | 'done' | 'error';
+
+/** Lado máximo (px) tras redimensionar en cliente antes de subir. */
+const MAX_IMAGE_SIDE = 2000;
+/** Calidad JPEG del re-encode (0..1). Normaliza HEIC→JPEG y baja el peso de la foto cruda del teléfono. */
+const JPEG_QUALITY = 0.85;
+
+/**
+ * Comprime/redimensiona la imagen en el cliente vía canvas ANTES de subirla:
+ * - lado máximo ~2000px (mantiene aspecto),
+ * - re-encode a JPEG calidad ~0.85 (esto también normaliza HEIC→JPEG del iPhone).
+ * Devuelve un `File` `image/jpeg` nuevo (tamaño/tipo recalculados a partir del BLOB
+ * comprimido, para que coincidan con lo que se firma en el presign).
+ * Si el navegador no puede decodificar/exportar (p. ej. un HEIC que Safari no abre),
+ * hace fallback al archivo original para no bloquear el flujo (el backend valida al final).
+ */
+async function compressImage(file: File): Promise<File> {
+  try {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+      await img.decode();
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      if (!w || !h) return file;
+      const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return file;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY),
+      );
+      if (!blob) return file;
+      // contentType/contentLength se derivan de este BLOB comprimido (image/jpeg).
+      return new File([blob], 'ine.jpg', { type: 'image/jpeg' });
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    // HEIC no decodificable u otro fallo: subimos el original (el backend decide).
+    return file;
+  }
+}
 
 /**
  * IneUploader (DESIGN_SYSTEM §7.10) — ÚNICO uploader del sistema (v1.2). Captura la
@@ -81,28 +128,43 @@ export function PhotoUploader({
 
     setError(null);
     setPreviewUrl(URL.createObjectURL(file));
-    setState('uploading');
+    setState('processing');
     try {
-      // presign → PUT directo al object storage privado con el Content-Type de imagen.
-      // `contentLength` deja que el backend fije el tamaño exacto en la firma (S-B3).
+      // 1) Comprime/redimensiona en cliente (canvas): lado máx ~2000px + JPEG 0.85.
+      //    Normaliza HEIC→JPEG y evita subir la foto CRUDA del teléfono (a veces >10MB).
+      const upload = await compressImage(file);
+
+      // 2) Chequeo de tamaño ANTES del presign, sobre el BLOB YA comprimido. Tras la
+      //    compresión rara vez se excede; si aún así pasa, se rotula "demasiado grande"
+      //    (no "no es imagen"). El presign afina el tope como fuente de verdad después.
+      if (upload.size > maxBytes) {
+        setState('error');
+        setError(t('errTooLarge', { max: mbLabel(maxBytes) }));
+        return;
+      }
+
+      setState('uploading');
+      // 3) presign con contentType/contentLength recalculados del BLOB comprimido
+      //    (ahora image/jpeg) → coinciden con lo que se firma (S-B3).
       const presign = await presignUpload({
         purpose,
-        contentType: file.type,
-        contentLength: file.size,
+        contentType: upload.type,
+        contentLength: upload.size,
       });
       // Fuente única de verdad del límite = el presign; la constante local es fallback.
       const effectiveMax = presign.maxBytes ?? maxBytes;
-      if (file.size > effectiveMax) {
+      if (upload.size > effectiveMax) {
         setState('error');
         setError(t('errTooLarge', { max: mbLabel(effectiveMax) }));
         return;
       }
-      await uploadToPresignedUrl(presign, file);
+      await uploadToPresignedUrl(presign, upload);
       setState('done');
       onUploaded?.(presign.uploadKey);
     } catch (e) {
       setState('error');
       const code = e instanceof ApiClientError ? e.code : undefined;
+      // 413 / tamaño → "demasiado grande"; VALIDATION_ERROR (no imagen) → "no es imagen".
       setError(
         code === 'FILE_TOO_LARGE'
           ? t('errTooLarge', { max: mbLabel(maxBytes) })
@@ -121,7 +183,7 @@ export function PhotoUploader({
           'relative flex aspect-[5/7] w-full max-w-[180px] flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-3 text-center',
           state === 'error' ? 'border-danger' : 'border-border-strong',
         )}
-        aria-busy={state === 'uploading'}
+        aria-busy={state === 'uploading' || state === 'processing'}
       >
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -129,10 +191,10 @@ export function PhotoUploader({
         ) : (
           <Camera size={28} className="text-muted" aria-hidden />
         )}
-        {state === 'uploading' && (
+        {(state === 'uploading' || state === 'processing') && (
           <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-white">
             <Loader2 size={22} className="animate-spin" aria-hidden />
-            <span className="sr-only">{t('uploading')}</span>
+            <span className="sr-only">{state === 'processing' ? t('processing') : t('uploading')}</span>
           </span>
         )}
         {state === 'done' && (
@@ -152,7 +214,7 @@ export function PhotoUploader({
         accept="image/*"
         capture="environment"
         className="sr-only"
-        disabled={disabled || state === 'uploading'}
+        disabled={disabled || state === 'uploading' || state === 'processing'}
         aria-label={label}
         onChange={(e) => {
           void handleFile(e.target.files?.[0]);
@@ -163,7 +225,7 @@ export function PhotoUploader({
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        disabled={disabled || state === 'uploading'}
+        disabled={disabled || state === 'uploading' || state === 'processing'}
         aria-describedby={error ? errId : undefined}
         className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-md border border-border-strong bg-surface px-4 text-sm font-medium hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-focus-ring)] disabled:opacity-45 disabled:cursor-not-allowed"
       >
@@ -173,7 +235,8 @@ export function PhotoUploader({
           </>
         ) : (
           <>
-            <Camera size={18} aria-hidden /> {state === 'uploading' ? t('uploading') : t('takePhoto')}
+            <Camera size={18} aria-hidden />{' '}
+            {state === 'processing' ? t('processing') : state === 'uploading' ? t('uploading') : t('takePhoto')}
           </>
         )}
       </button>
