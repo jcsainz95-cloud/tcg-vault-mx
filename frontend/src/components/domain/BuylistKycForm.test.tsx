@@ -12,7 +12,7 @@ beforeEach(() => {
 describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', () => {
   it('renderiza CLABE, los dos slots de INE (anverso/reverso) y el aviso de privacidad', () => {
     renderWithProviders(
-      <BuylistKycForm cardId="c-charizard" productType="raw" category="ex_plus" onCreated={() => {}} />,
+      <BuylistKycForm cardId="c-charizard" productType="raw" onCreated={() => {}} />,
       'es',
     );
     expect(screen.getByLabelText(/CLABE/)).toBeInTheDocument();
@@ -24,7 +24,7 @@ describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', (
   it('valida la CLABE en cliente (18 dígitos) y no llama al backend si es inválida', () => {
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(
-      <BuylistKycForm cardId="c-charizard" productType="raw" category="ex_plus" onCreated={() => {}} />,
+      <BuylistKycForm cardId="c-charizard" productType="raw" onCreated={() => {}} />,
       'es',
     );
     fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '123' } });
@@ -38,7 +38,7 @@ describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', (
     const onCreated = vi.fn();
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(
-      <BuylistKycForm cardId="c-charizard" productType="raw" category="ex_plus" onCreated={onCreated} />,
+      <BuylistKycForm cardId="c-charizard" productType="raw" onCreated={onCreated} />,
       'es',
     );
     fireEvent.change(screen.getByLabelText(/CLABE/), {
@@ -51,7 +51,7 @@ describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', (
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
         clabe: '002010077777777771',
-        items: [expect.objectContaining({ cardId: 'c-charizard', rawCondition: 'NM', category: 'ex_plus' })],
+        items: [expect.objectContaining({ cardId: 'c-charizard', rawCondition: 'NM' })],
       }),
     );
   });
@@ -62,7 +62,7 @@ describe('BuylistKycForm — cableado KYC/INE del buylist (contrato §6/§8)', (
       new ApiClientError(422, { code: 'INE_REQUIRED', message: 'INE required' }),
     );
     renderWithProviders(
-      <BuylistKycForm cardId="c-charizard" productType="raw" category="ex_plus" onCreated={() => {}} />,
+      <BuylistKycForm cardId="c-charizard" productType="raw" onCreated={() => {}} />,
       'es',
     );
     fireEvent.change(screen.getByLabelText(/CLABE/), {

@@ -22,6 +22,12 @@ export const SettingKey = {
   PRICING_PROVIDER_RAW: 'pricing_provider_raw',
   PRICING_PROVIDER_GRADED: 'pricing_provider_graded',
   PRICING_PROVIDER_SEALED: 'pricing_provider_sealed',
+  // v1.3.1 (§E.1): tabla de precio de buylist por RAREZA OFICIAL. Reemplaza `rarity_map` en la
+  // ruta de cotización. Editables en M2 (GET/PUT /admin/pricing/buylist-rules), no en M10.
+  BUYLIST_PRICE_RULES: 'buylist_price_rules',
+  BUYLIST_PRICE_FALLBACK_PCT: 'buylist_price_fallback_pct',
+  // DEPRECADO v1.3.1: `rarity_map` (RARITY_MAP) ya NO lo lee la cotización (reemplazado por
+  // BUYLIST_PRICE_RULES). Se conserva como no-op/legacy hasta su retiro; no se siembra en nuevos.
   RARITY_MAP: 'rarity_map',
   // Retención de INE (días desde el cierre/pago de la solicitud) antes de purgar imágenes.
   // Dial interno (LFPDPPP): NO se expone en el DTO de M10 hasta que el arquitecto lo
@@ -55,6 +61,14 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.PRICING_PROVIDER_SEALED]: 'pokemonpricetracker',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
+  // v1.3.1 (§E.1): seed que PRESERVA el negocio vigente (Common/Uncommon $0.50 fijo, Reverse
+  // Holo $1.50 fijo, todo lo demás → fallback 40% de la referencia). value = centavos si fixed.
+  [SettingKey.BUYLIST_PRICE_RULES]: {
+    Common: { mode: 'fixed', value: 50 },
+    Uncommon: { mode: 'fixed', value: 50 },
+    'Reverse Holo': { mode: 'fixed', value: 150 },
+  },
+  [SettingKey.BUYLIST_PRICE_FALLBACK_PCT]: 40,
   [SettingKey.RARITY_MAP]: {
     Common: 'comun',
     Uncommon: 'comun',
@@ -77,6 +91,36 @@ function isInt(v: unknown): v is number {
 }
 function isNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * v1.3.1 (§E.1): valida UNA regla de precio de buylist `{ mode, value }`.
+ * fixed → value entero ≥ 0 (centavos MXN). pct → value número en [0, 100].
+ */
+export function isValidBuylistRule(v: unknown): boolean {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+  const r = v as { mode?: unknown; value?: unknown };
+  if (r.mode === 'fixed') return isInt(r.value) && r.value >= 0;
+  if (r.mode === 'pct') return isNum(r.value) && r.value >= 0 && r.value <= 100;
+  return false;
+}
+
+/** Valida el mapa completo `buylist_price_rules` (objeto, cada entrada una regla válida). */
+export function validateBuylistRules(v: unknown): string | null {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+    return 'must be an object map { [rarity]: { mode, value } }';
+  }
+  for (const [rarity, rule] of Object.entries(v as Record<string, unknown>)) {
+    if (!isValidBuylistRule(rule)) {
+      return `invalid rule for rarity "${rarity}": fixed→integer>=0 (cents), pct→number in [0,100]`;
+    }
+  }
+  return null;
+}
+
+/** Valida el fallback `buylist_price_fallback_pct` (número en [0, 100]). */
+export function validateFallbackPct(v: unknown): string | null {
+  return isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]';
 }
 
 /**
@@ -110,6 +154,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
   [SettingKey.RARITY_MAP]: (v) =>
     v !== null && typeof v === 'object' && !Array.isArray(v) ? null : 'must be an object map',
+  [SettingKey.BUYLIST_PRICE_RULES]: validateBuylistRules,
+  [SettingKey.BUYLIST_PRICE_FALLBACK_PCT]: validateFallbackPct,
   [SettingKey.INE_RETENTION_DAYS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (days)'),
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
   [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>

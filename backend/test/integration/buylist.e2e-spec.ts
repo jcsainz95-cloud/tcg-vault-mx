@@ -1,9 +1,14 @@
 /**
  * buylist.e2e-spec.ts — Integración/E2E contra Postgres real.
- * Cubre: cotizador público (común/reverse/EX+/precio pendiente), topes por
+ * Cubre: cotizador público por RAREZA (v1.3.1: fixed/pct/fallback/precio pendiente), topes por
  * solicitud, INE sobre el tope, CLABE a nombre propio, pipeline cherry-pick +
  * conversión a inventario, y pago SPEI (money-out solo super_admin).
  * API_CONTRACT §6, §M5; ARCHITECTURE §4.2; PROJECT criterios 12–16, 26.
+ *
+ * v1.3.1: el cotizador devuelve `rarity` + `appliedRule` (en vez de `category`). Con el seed por
+ * defecto: Common/Uncommon = fixed 50c, Reverse Holo = fixed 150c, cualquier otra rareza (Rare
+ * Holo, Rare Secret, etc.) cae al fallback 40% de la referencia. `POST /buylist/requests` ya no
+ * recibe `category` (el backend deriva la regla server-side de Card.rarity).
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
@@ -37,33 +42,35 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
     await h?.close();
   });
 
-  describe('cotizador público', () => {
-    it('común = 50, reverse holo = 150, EX+ = 40% de la referencia', async () => {
+  describe('cotizador público (por rareza)', () => {
+    it('Common = fixed 50, Reverse Holo = fixed 150, rareza sin regla = 40% (fallback)', async () => {
       const comun = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.common, productType: 'raw', rawCondition: 'NM' },
       });
-      expect(comun.body.category).toBe('comun');
+      expect(comun.body.rarity).toBe('Common');
+      expect(comun.body.appliedRule).toMatchObject({ mode: 'fixed', value: 50, source: 'rule' });
       expect(comun.body.quote.quotedPriceCents).toBe(50);
 
       const reverse = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.reverse, productType: 'raw', rawCondition: 'NM' },
       });
-      expect(reverse.body.category).toBe('reverse_holo');
+      expect(reverse.body.appliedRule).toMatchObject({ mode: 'fixed', value: 150, source: 'rule' });
       expect(reverse.body.quote.quotedPriceCents).toBe(150);
 
-      const exPlus = await h.api('POST', '/buylist/quote', {
+      const fallback = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' },
       });
-      expect(exPlus.body.category).toBe('ex_plus');
-      expect(exPlus.body.quote.quotedPriceCents).toBe(Math.round(E2E_CARDS.charizard.refNmCents * 0.4));
-      expect(exPlus.body.paymentNotice).toBe('PAY_AFTER_RECEIPT');
+      // Rare Holo no tiene regla explícita → fallback 40% de la referencia.
+      expect(fallback.body.appliedRule).toMatchObject({ mode: 'pct', value: 40, source: 'fallback' });
+      expect(fallback.body.quote.quotedPriceCents).toBe(Math.round(E2E_CARDS.charizard.refNmCents * 0.4));
+      expect(fallback.body.paymentNotice).toBe('PAY_AFTER_RECEIPT');
     });
 
-    it('EX+ sin referencia entra a "precio pendiente" (no cotiza automático)', async () => {
+    it('rareza con regla pct pero SIN referencia entra a "precio pendiente" (no cotiza automático)', async () => {
       const res = await h.api('POST', '/buylist/quote', {
         json: { cardId: cardId.nopref, productType: 'raw', rawCondition: 'NM' },
       });
-      expect(res.body.category).toBe('ex_plus');
+      expect(res.body.appliedRule.mode).toBe('pct'); // fallback pct
       expect(res.body.quote.status).toBe('precio_pendiente');
       expect(res.body.quote.quotedPriceCents).toBeNull();
     });
@@ -74,7 +81,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       const res = await h.api('POST', '/buylist/requests', {
         token: customerToken,
         json: {
-          items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM', category: 'ex_plus' }],
+          items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_A,
         },
       });
@@ -88,7 +95,6 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
         cardId: cardId.charizard,
         productType: 'raw' as const,
         rawCondition: 'NM' as const,
-        category: 'ex_plus' as const,
       }));
       const res = await h.api('POST', '/buylist/requests', {
         token: customerToken,
@@ -104,7 +110,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       const res = await h.api('POST', '/buylist/requests', {
         token: customerToken,
         json: {
-          items: [{ cardId: cardId.highvalue, productType: 'raw', rawCondition: 'NM', category: 'ex_plus' }],
+          items: [{ cardId: cardId.highvalue, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_A,
         },
       });
@@ -117,7 +123,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       const first = await h.api('POST', '/buylist/requests', {
         token: customer2Token,
         json: {
-          items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM', category: 'ex_plus' }],
+          items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_A,
         },
       });
@@ -126,7 +132,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       const second = await h.api('POST', '/buylist/requests', {
         token: customer2Token,
         json: {
-          items: [{ cardId: cardId.reverse, productType: 'raw', rawCondition: 'NM', category: 'reverse_holo' }],
+          items: [{ cardId: cardId.reverse, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_B,
         },
       });
@@ -143,7 +149,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       const res = await h.api('POST', '/buylist/requests', {
         token: customerToken,
         json: {
-          items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM', category: 'ex_plus' }],
+          items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_A,
         },
       });

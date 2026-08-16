@@ -11,8 +11,8 @@ import {
   getFx,
   updateFx,
   refreshFx,
-  getRarityMap,
-  updateRarityMap,
+  getBuylistRarities,
+  updateBuylistRules,
   getRemoteSets,
   syncCatalog,
   backfillCatalog,
@@ -20,9 +20,9 @@ import {
 } from '@/lib/api';
 import type {
   PendingPriceEntryDTO,
-  RarityMapEntryDTO,
   RemoteSetDTO,
-  BuylistCategory,
+  BuylistRule,
+  BuylistRuleMode,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
@@ -37,7 +37,7 @@ import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ApiClientError } from '@/lib/api-client';
 
-const CATEGORIES: BuylistCategory[] = ['comun', 'reverse_holo', 'ex_plus'];
+const RULE_MODES: BuylistRuleMode[] = ['fixed', 'pct'];
 
 /** Convierte pesos (texto) a centavos enteros. */
 function pesosToCents(value: string): number {
@@ -57,7 +57,6 @@ function isEndpointMissing(error: unknown): boolean {
 export function M2View() {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
-  const tcat = useTranslations('buylist.categoryLabel');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const getError = useErrorMessage();
@@ -117,17 +116,44 @@ export function M2View() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-fx'] }),
   });
 
-  // --- Sección 4: rareza → categoría ---
-  const rarityMap = useQuery({ queryKey: ['rarity-map'], queryFn: getRarityMap });
-  const [draftMap, setDraftMap] = useState<RarityMapEntryDTO[] | null>(null);
-  const effectiveMap = draftMap ?? rarityMap.data ?? [];
-  const rarityMutation = useMutation({
-    mutationFn: (entries: RarityMapEntryDTO[]) => updateRarityMap(entries),
+  // --- Sección 4: precio de buylist por RAREZA (v1.3.1) ---
+  const rarities = useQuery({ queryKey: ['buylist-rarities'], queryFn: getBuylistRarities });
+  // Borrador de reglas explícitas editadas por el admin (por rareza) + fallback editado.
+  const [ruleDraft, setRuleDraft] = useState<Record<string, BuylistRule>>({});
+  const [fallbackDraft, setFallbackDraft] = useState<string | null>(null);
+  const rulesMutation = useMutation({
+    mutationFn: (payload: { rules: Record<string, BuylistRule>; fallbackPct: number }) =>
+      updateBuylistRules(payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['rarity-map'] });
-      setDraftMap(null);
+      qc.invalidateQueries({ queryKey: ['buylist-rarities'] });
+      setRuleDraft({});
+      setFallbackDraft(null);
     },
   });
+
+  const serverFallback = rarities.data?.fallbackPct ?? 40;
+  const effectiveFallback = fallbackDraft ?? String(serverFallback);
+  // Regla efectiva mostrada por fila: borrador > regla explícita del servidor > fallback.
+  function effectiveRule(rarity: string, serverRule: BuylistRule, source: 'rule' | 'fallback'): BuylistRule {
+    if (ruleDraft[rarity]) return ruleDraft[rarity];
+    if (source === 'rule') return serverRule;
+    return { mode: 'pct', value: Number(effectiveFallback) || 0 };
+  }
+  const rulesDirty =
+    Object.keys(ruleDraft).length > 0 ||
+    (fallbackDraft != null && fallbackDraft !== String(serverFallback));
+
+  function saveRules() {
+    if (!rarities.data) return;
+    // Preserva las reglas explícitas del servidor y aplica el borrador encima. Las
+    // rarezas dejadas en fallback (no editadas) NO se incluyen → siguen en fallback.
+    const serverRules: Record<string, BuylistRule> = {};
+    for (const row of rarities.data.rarities) if (row.source === 'rule') serverRules[row.rarity] = row.rule;
+    rulesMutation.mutate({
+      rules: { ...serverRules, ...ruleDraft },
+      fallbackPct: Number(effectiveFallback) || 0,
+    });
+  }
 
   // --- Sección 5: sync de catálogo ---
   const remoteSets = useQuery({ queryKey: ['remote-sets'], queryFn: getRemoteSets });
@@ -293,57 +319,111 @@ export function M2View() {
         </QueryState>
       </section>
 
-      {/* Sección 4: rareza → categoría */}
+      {/* Sección 4: precio de buylist por RAREZA (v1.3.1) */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('rarityMap.title')}</h2>
-        <p className="text-sm text-muted">{t('rarityMap.subtitle')}</p>
+        <h2 className="text-h2 font-semibold">{t('buylistRules.title')}</h2>
+        <p className="text-sm text-muted">{t('buylistRules.subtitle')}</p>
         <QueryState
-          isLoading={rarityMap.isLoading}
-          isError={rarityMap.isError}
-          error={rarityMap.error}
-          onRetry={() => rarityMap.refetch()}
+          isLoading={rarities.isLoading}
+          isError={rarities.isError}
+          error={rarities.error}
+          onRetry={() => rarities.refetch()}
         >
-          {rarityMap.data && (
-            <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+          {rarities.data && (
+            <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+              {/* Fallback % para rarezas sin regla explícita */}
+              <div className="flex flex-wrap items-end gap-3 border-b border-border pb-4">
+                <Input
+                  label={t('buylistRules.fallbackLabel')}
+                  type="text"
+                  inputMode="decimal"
+                  suffix="%"
+                  className="w-32"
+                  value={effectiveFallback}
+                  onChange={(e) => setFallbackDraft(e.target.value.replace(/[^0-9.]/g, ''))}
+                />
+                <p className="text-xs text-muted">{t('buylistRules.fallbackHint')}</p>
+              </div>
+
               <ul className="flex flex-col divide-y divide-border">
-                {effectiveMap.map((entry, idx) => (
-                  <li key={entry.rarity} className="flex flex-wrap items-center justify-between gap-3 py-2">
-                    <span className="text-sm font-medium" lang="en">{entry.rarity}</span>
-                    <Select
-                      label={t('rarityMap.category')}
-                      className="w-48"
-                      options={CATEGORIES.map((c) => ({ value: c, label: tcat(c) }))}
-                      value={entry.category}
-                      onChange={(e) => {
-                        const next = effectiveMap.map((row, i) =>
-                          i === idx ? { ...row, category: e.target.value as BuylistCategory } : row,
-                        );
-                        setDraftMap(next);
-                      }}
-                    />
-                  </li>
-                ))}
+                <li className="hidden gap-3 py-2 text-xs uppercase tracking-wide text-muted md:grid md:grid-cols-[1fr_auto_auto_auto_auto]">
+                  <span>{t('buylistRules.rarity')}</span>
+                  <span className="text-right">{t('buylistRules.cardCount')}</span>
+                  <span>{t('buylistRules.mode')}</span>
+                  <span>{t('buylistRules.value')}</span>
+                  <span>{t('buylistRules.source')}</span>
+                </li>
+                {rarities.data.rarities.map((row) => {
+                  const rule = effectiveRule(row.rarity, row.rule, row.source);
+                  const edited = !!ruleDraft[row.rarity];
+                  const effectiveSource: 'rule' | 'fallback' = edited ? 'rule' : row.source;
+                  return (
+                    <li
+                      key={row.rarity}
+                      className="grid grid-cols-2 items-end gap-3 py-3 md:grid-cols-[1fr_auto_auto_auto_auto]"
+                    >
+                      <span className="text-sm font-medium" lang="en">{row.rarity}</span>
+                      <span className="tabular text-right text-sm text-muted">{row.cardCount}</span>
+                      <Select
+                        label={t('buylistRules.mode')}
+                        aria-label={t('buylistRules.modeFor', { rarity: row.rarity })}
+                        className="w-32"
+                        options={RULE_MODES.map((m) => ({ value: m, label: t(`buylistRules.modeLabel.${m}`) }))}
+                        value={rule.mode}
+                        onChange={(e) => {
+                          const mode = e.target.value as BuylistRuleMode;
+                          setRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode, value: rule.value } }));
+                        }}
+                      />
+                      <Input
+                        label={rule.mode === 'fixed' ? t('buylistRules.valueMxn') : t('buylistRules.valuePct')}
+                        aria-label={t('buylistRules.valueFor', { rarity: row.rarity })}
+                        type="text"
+                        inputMode="decimal"
+                        prefix={rule.mode === 'fixed' ? 'MX$' : undefined}
+                        suffix={rule.mode === 'pct' ? '%' : undefined}
+                        className="w-32"
+                        value={rule.mode === 'fixed' ? String(rule.value / 100) : String(rule.value)}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/[^0-9.]/g, '');
+                          const value = rule.mode === 'fixed' ? pesosToCents(raw) : Number(raw) || 0;
+                          setRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode: rule.mode, value } }));
+                        }}
+                      />
+                      <Badge tone={effectiveSource === 'rule' ? 'info' : 'neutral'} shape="outline">
+                        {t(`buylistRules.sourceLabel.${effectiveSource}`)}
+                      </Badge>
+                    </li>
+                  );
+                })}
               </ul>
+
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
-                  disabled={!draftMap}
-                  loading={rarityMutation.isPending}
-                  onClick={() => draftMap && rarityMutation.mutate(draftMap)}
+                  disabled={!rulesDirty}
+                  loading={rulesMutation.isPending}
+                  onClick={saveRules}
                 >
                   {tc('save')}
                 </Button>
-                {draftMap && (
-                  <Button variant="ghost" onClick={() => setDraftMap(null)}>
+                {rulesDirty && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setRuleDraft({});
+                      setFallbackDraft(null);
+                    }}
+                  >
                     {tc('cancel')}
                   </Button>
                 )}
               </div>
-              {rarityMutation.isSuccess && (
-                <Banner variant="success" role="status">{t('rarityMap.saved')}</Banner>
+              {rulesMutation.isSuccess && (
+                <Banner variant="success" role="status">{t('buylistRules.saved')}</Banner>
               )}
-              {rarityMutation.isError && (
-                <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(rarityMutation.error)}</Banner>
+              {rulesMutation.isError && (
+                <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(rulesMutation.error)}</Banner>
               )}
             </div>
           )}

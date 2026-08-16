@@ -39,8 +39,11 @@ export class AuthService {
     return { id: u.id, email: u.email, name: u.name, role: u.role, locale: u.locale };
   }
 
-  async issueTokens(user: Pick<User, 'id' | 'email' | 'role'>): Promise<TokenPair> {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+  async issueTokens(user: Pick<User, 'id' | 'email' | 'role' | 'tokenVersion'>): Promise<TokenPair> {
+    // v1.3.1: el JWT lleva `tv` (tokenVersion). El guard/refresh lo comparan contra el valor
+    // vigente en BD y rechazan los tokens con versión previa → revocación de sesiones tras
+    // reset de contraseña / soft-delete (que incrementan User.tokenVersion).
+    const payload = { sub: user.id, email: user.email, role: user.role, tv: user.tokenVersion };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: this.config.get<string>('JWT_ACCESS_SECRET'),
       // S-B4: algoritmo fijo (evita algorithm-confusion). HMAC simétrico HS256.
@@ -103,7 +106,9 @@ export class AuthService {
     if (!user || !user.passwordHash || !passwordOk) {
       throw new BusinessException('INVALID_CREDENTIALS', 401, 'Invalid credentials');
     }
-    if (user.status === UserStatus.blocked) {
+    // v1.3.1: `deleted` (soft-delete/anonimizado) también es no-autenticable; mismo code que
+    // `blocked` para no revelar el motivo.
+    if (user.status === UserStatus.blocked || user.status === UserStatus.deleted) {
       throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
     }
     const tokens = await this.issueTokens(user);
@@ -131,7 +136,7 @@ export class AuthService {
     if (!user) {
       const byEmail = await this.prisma.user.findUnique({ where: { email } });
       if (byEmail) {
-        if (byEmail.status === UserStatus.blocked) {
+        if (byEmail.status === UserStatus.blocked || byEmail.status === UserStatus.deleted) {
           throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
         }
         user = await this.prisma.user.update({
@@ -168,7 +173,7 @@ export class AuthService {
       });
     }
 
-    if (user.status === UserStatus.blocked) {
+    if (user.status === UserStatus.blocked || user.status === UserStatus.deleted) {
       throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
     }
     const tokens = await this.issueTokens(user);
@@ -183,7 +188,13 @@ export class AuthService {
         algorithms: ['HS256'],
       });
       const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-      if (!user || user.status === UserStatus.blocked) {
+      if (
+        !user ||
+        user.status === UserStatus.blocked ||
+        user.status === UserStatus.deleted ||
+        // v1.3.1: revocación por versión — un refresh con `tv` previo (reset/soft-delete) ya no vale.
+        (payload.tv ?? 0) !== user.tokenVersion
+      ) {
         throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
       }
       return this.issueTokens(user);

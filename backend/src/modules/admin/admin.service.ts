@@ -1,7 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { randomBytes, randomUUID } from 'crypto';
+import * as argon2 from 'argon2';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
@@ -13,10 +16,13 @@ function range(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly pii: PiiCryptoService,
+    private readonly uploads: UploadsService,
   ) {}
 
   // ---------------- M6 Users ----------------
@@ -152,6 +158,129 @@ export class AdminService {
 
   async updateUserStatus(id: string, status: 'active' | 'blocked') {
     return this.prisma.user.update({ where: { id }, data: { status } });
+  }
+
+  /**
+   * Reset de contraseña por admin (M6, super_admin) — SIN correo transaccional. ARCHITECTURE §4.7bis.
+   * Genera una contraseña temporal de alta entropía, la hashea con argon2 (como /auth/register) y la
+   * persiste. Revoca sesiones vivas (tokenVersion++) y fuerza cambio en el próximo login.
+   *
+   * SEGURIDAD: la contraseña temporal se devuelve UNA vez y NUNCA se persiste en claro ni se
+   * loguea/audita (el AuditLog solo guarda action + actor + target).
+   */
+  async resetPassword(id: string): Promise<{ userId: string; tempPassword: string; mustChangePassword: boolean }> {
+    const user = await this.prisma.user.findUnique({ where: { id }, select: { id: true, status: true } });
+    if (!user) throw BusinessException.notFound();
+    if (user.status === 'deleted') {
+      throw BusinessException.validation('USER_DELETED', 'Cannot reset a deleted account');
+    }
+    // Alta entropía: 18 bytes → 24 chars base64url. No corresponde a ningún patrón adivinable.
+    const tempPassword = randomBytes(18).toString('base64url');
+    const passwordHash = await argon2.hash(tempPassword);
+    await this.prisma.user.update({
+      where: { id },
+      data: {
+        passwordHash,
+        mustChangePassword: true,
+        // Revoca refresh/access vigentes (el guard y /auth/refresh rechazan la versión previa).
+        tokenVersion: { increment: 1 },
+      },
+    });
+    return { userId: id, tempPassword, mustChangePassword: true };
+  }
+
+  /** Purga las imágenes de INE del object storage y limpia las keys (reusa la rutina de retención). */
+  private async purgeIne(kyc: { id: string; ineFrontKey: string | null; ineBackKey: string | null } | null) {
+    if (!kyc) return;
+    for (const key of [kyc.ineFrontKey, kyc.ineBackKey]) {
+      if (key) {
+        try {
+          await this.uploads.deleteObject(key);
+        } catch (e) {
+          this.logger.error(`user.delete: fallo al purgar INE ${key}: ${String(e)}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Borrado híbrido hard/soft (M6, super_admin). ARCHITECTURE §4.7bis, API_CONTRACT §M6.
+   * "Tiene transacciones" = ≥1 fila en Order/SellRequest/ShipmentRequest/Dispute/InventoryItem(owner).
+   *  - falso → HARD delete (cascada + purga INE).
+   *  - verdadero → SOFT delete (status=deleted, anonimiza PII, conserva filas económicas, revoca login).
+   * 409 CANNOT_DELETE_SELF si el actor es el propio usuario. Idempotente sobre cuentas ya soft-deleted.
+   */
+  async deleteUser(id: string, actorUserId: string): Promise<{ userId: string; mode: 'hard' | 'soft' }> {
+    if (id === actorUserId) {
+      throw new BusinessException('CANNOT_DELETE_SELF', 409, 'A super_admin cannot delete itself');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: { kycProfile: true },
+    });
+    if (!user) throw BusinessException.notFound();
+
+    // Idempotente: re-DELETE sobre una cuenta ya soft-deleted es no-op.
+    if (user.status === 'deleted') {
+      return { userId: id, mode: 'soft' };
+    }
+
+    const [orders, sellRequests, shipments, disputes, ownedItems] = await Promise.all([
+      this.prisma.order.count({ where: { userId: id } }),
+      this.prisma.sellRequest.count({ where: { userId: id } }),
+      this.prisma.shipmentRequest.count({ where: { userId: id } }),
+      this.prisma.dispute.count({ where: { userId: id } }),
+      this.prisma.inventoryItem.count({ where: { ownerUserId: id } }),
+    ]);
+    const hasTransactions = orders + sellRequests + shipments + disputes + ownedItems > 0;
+
+    // La imagen de INE se purga en AMBOS modos (dato de máxima sensibilidad).
+    await this.purgeIne(user.kycProfile);
+
+    if (!hasTransactions) {
+      // HARD delete: cascada borra KycProfile/BillingProfile/Address/PortfolioSnapshot.
+      await this.prisma.user.delete({ where: { id } });
+      return { userId: id, mode: 'hard' };
+    }
+
+    // SOFT delete: conserva filas económicas; anonimiza PII y revoca login.
+    await this.prisma.$transaction(async (tx) => {
+      if (user.kycProfile) {
+        await tx.kycProfile.update({
+          where: { userId: id },
+          data: {
+            clabeEnc: null,
+            clabeHmac: null,
+            rfcEnc: null,
+            legalName: null,
+            ineFrontKey: null,
+            ineBackKey: null,
+          },
+        });
+      }
+      // BillingProfile y Address contienen PII no económica → se eliminan (los snapshots
+      // económicos viven en Order.billingSnapshot / SellRequest.clabeSnapshotEnc, no aquí).
+      await tx.billingProfile.deleteMany({ where: { userId: id } });
+      await tx.address.deleteMany({ where: { userId: id } });
+      await tx.portfolioSnapshot.deleteMany({ where: { userId: id } });
+      await tx.user.update({
+        where: { id },
+        data: {
+          status: 'deleted',
+          deletedAt: new Date(),
+          anonymizedAt: new Date(),
+          email: `deleted+${randomUUID()}@anon.invalid`,
+          name: 'Usuario eliminado',
+          phone: null,
+          avatarUrl: null,
+          googleId: null,
+          passwordHash: null,
+          mustChangePassword: false,
+          tokenVersion: { increment: 1 },
+        },
+      });
+    });
+    return { userId: id, mode: 'soft' };
   }
 
   // ---------------- M7 Finance ----------------

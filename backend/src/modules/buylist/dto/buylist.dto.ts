@@ -10,7 +10,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { BuylistCategory, ProductType, RawCondition } from '@prisma/client';
+import { ProductType, RawCondition } from '@prisma/client';
 
 export class PublicQuoteDto {
   @IsString() cardId!: string;
@@ -22,7 +22,8 @@ export class RequestItemDto {
   @IsString() cardId!: string;
   @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
   @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
-  @IsIn(['comun', 'reverse_holo', 'ex_plus']) category!: BuylistCategory;
+  // v1.3.1: `category` REMOVIDO. El backend deriva la regla server-side de Card.rarity (SEC-A1);
+  // un `category` que envíe el cliente lo descarta el ValidationPipe (whitelist).
 }
 
 export class CreateRequestDto {

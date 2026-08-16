@@ -38,6 +38,9 @@ export function AuthForm({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  // v1.3.1: si el login indica mustChangePassword (temp password puesta por el admin),
+  // se avisa al usuario antes de continuar a su destino.
+  const [mustChangeRole, setMustChangeRole] = useState<Role | null>(null);
 
   // Solo se honra un `next` interno (empieza con "/") para evitar open redirect.
   const safeNext = next && next.startsWith('/') ? next : undefined;
@@ -58,6 +61,12 @@ export function AuthForm({
       // Redirige según el rol devuelto en AuthResponse.user.role (admin → /admin).
       if (mode === 'login') {
         const res = await login({ email, password });
+        // Contraseña temporal del admin: avisa que debe cambiarla antes de continuar.
+        if (res.user.mustChangePassword) {
+          setMustChangeRole(res.user.role ?? 'customer');
+          setLoading(false);
+          return;
+        }
         redirectByRole(res.user.role);
       } else {
         const res = await register({
@@ -83,6 +92,22 @@ export function AuthForm({
       {notice === 'inactivity' && (
         <Banner variant="warning" role="status">
           {t('inactivityLogout')}
+        </Banner>
+      )}
+      {mustChangeRole && (
+        <Banner variant="warning" role="alert">
+          <span className="flex flex-col gap-2">
+            {t('mustChangePassword')}
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="self-start"
+              onClick={() => redirectByRole(mustChangeRole)}
+            >
+              {t('mustChangeContinue')}
+            </Button>
+          </span>
         </Banner>
       )}
       {errorCode && (

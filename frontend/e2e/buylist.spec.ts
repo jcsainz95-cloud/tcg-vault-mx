@@ -12,7 +12,7 @@ test.describe('buylist · cotizador público', () => {
     await expect(page.getByText(t('es', 'buylist.payAfterReceipt')).first()).toBeVisible();
   });
 
-  test('busca una carta y cotiza EX+ como 40% de la referencia', async ({ page }) => {
+  test('busca una carta y cotiza mostrando rareza + regla aplicada (40% de la referencia)', async ({ page }) => {
     await page.goto('/es/buylist');
     // Nuevo flujo (Opción 1): buscar sobre todo el catálogo → elegir carta → cotizar.
     await page.getByLabel(t('es', 'buylist.searchCards')).fill('Charizard');
@@ -21,7 +21,9 @@ test.describe('buylist · cotizador público', () => {
     await page.getByRole('button', { name: t('es', 'buylist.getQuote') }).click();
 
     await expect(page.getByRole('heading', { name: t('es', 'buylist.quoteResult') })).toBeVisible();
-    await expect(page.getByText(t('es', 'buylist.categoryLabel.ex_plus'))).toBeVisible();
+    // v1.3.1: se muestra la rareza oficial y la regla aplicada legible (40% de referencia).
+    await expect(page.getByText(t('es', 'buylist.appliedRuleLabel'), { exact: true })).toBeVisible();
+    await expect(page.getByText('40% de referencia')).toBeVisible();
     await expect(page.getByText(t('es', 'buylist.quotedPrice'), { exact: true })).toBeVisible();
     await expect(page.getByText(/MX\$/).first()).toBeVisible();
   });

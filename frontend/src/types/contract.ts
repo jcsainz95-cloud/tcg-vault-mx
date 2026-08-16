@@ -55,7 +55,12 @@ export type SellItemStatus =
   | 'rechazada'
   | 'pagada'
   | 'convertida_inventario';
+// DEPRECADO v1.3.1: reemplazado por la tabla de regla por rareza (BuylistRuleMode).
+// Se conserva por retención legacy; nada nuevo lo consume.
 export type BuylistCategory = 'comun' | 'reverse_holo' | 'ex_plus';
+// v1.3.1: naturaleza de la regla de precio de buylist por rareza.
+// fixed = monto fijo MX$ (centavos); pct = porcentaje [0,100] de la referencia.
+export type BuylistRuleMode = 'fixed' | 'pct';
 export type DisputeStatus = 'abierta' | 'en_revision' | 'resuelta_recompra' | 'rechazada';
 // v1.2: tipo de disputa derivado server-side del productType (no lo envía el cliente).
 export type DisputeType = 'condition_raw' | 'condition_sealed';
@@ -146,6 +151,9 @@ export interface UserDTO {
   authProvider?: AuthProvider;
   emailVerified?: boolean;
   avatarUrl?: string;
+  // v1.3.1: lo activa el reset de contraseña por admin (M6). Si viene true tras el
+  // login, el front dirige al usuario a cambiar su contraseña (o muestra aviso).
+  mustChangePassword?: boolean;
 }
 
 export interface AuthResponse {
@@ -332,8 +340,23 @@ export interface ShipmentDTO {
 }
 
 // ---- Buylist (contrato §6) ----
+// v1.3.1: value = centavos MXN si mode=fixed; porcentaje [0,100] si mode=pct.
+export interface BuylistRule {
+  mode: BuylistRuleMode;
+  value: number;
+}
+// v1.3.1: regla resuelta para la carta al cotizar. source="rule" (fila explícita de
+// BUYLIST_PRICE_RULES) o "fallback" (BUYLIST_PRICE_FALLBACK_PCT).
+export interface BuylistRuleApplied {
+  mode: BuylistRuleMode;
+  value: number;
+  source: 'rule' | 'fallback';
+}
+
+// v1.3.1: POST /buylist/quote — expone `rarity` + `appliedRule` en vez de `category`.
 export interface BuylistQuoteResponse {
-  category: BuylistCategory;
+  rarity: string;
+  appliedRule: BuylistRuleApplied;
   quote: {
     status: 'cotizada' | 'precio_pendiente';
     quotedPriceCents: number | null;
@@ -343,13 +366,15 @@ export interface BuylistQuoteResponse {
   paymentNotice: 'PAY_AFTER_RECEIPT';
 }
 
+// v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity` + `appliedRule`.
 export interface SellItemDTO {
   id: string;
   card: CardDTO;
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
-  category: BuylistCategory;
+  rarity?: string;
+  appliedRule?: BuylistRuleApplied;
   quotedPriceCents?: number;
   approvedPriceCents?: number;
   itemStatus: SellItemStatus;
@@ -476,9 +501,29 @@ export interface PendingPriceEntryDTO {
 }
 
 // GET/PUT /admin/pricing/rarity-map: tabla rareza→categoría de buylist.
+// DEPRECADO v1.3.1: la cotización ya no la usa; reemplazada por buylist-rules.
 export interface RarityMapEntryDTO {
   rarity: string;
   category: BuylistCategory;
+}
+
+// ---- M2: precio de buylist por RAREZA (contrato §M2, v1.3.1) ----
+// GET /admin/pricing/buylist-rules → tabla cruda + fallback.
+export interface BuylistRulesDTO {
+  rules: Record<string, BuylistRule>;
+  fallbackPct: number;
+}
+// GET /admin/pricing/rarities → rarezas distintas del catálogo unidas a las reglas
+// (para poblar el editor). Las rarezas sin regla explícita muestran source="fallback".
+export interface BuylistRarityRowDTO {
+  rarity: string;
+  cardCount: number;
+  rule: BuylistRule;
+  source: 'rule' | 'fallback';
+}
+export interface BuylistRaritiesResponse {
+  fallbackPct: number;
+  rarities: BuylistRarityRowDTO[];
 }
 
 // GET /admin/pricing/card/:cardId — historial de precios por fecha/fuente.
@@ -532,13 +577,29 @@ export interface CatalogSyncAllResponse {
 }
 
 // ---- M6: Usuarios / KYC (contrato §M6) ----
+// v1.3.1: `deleted` = cuenta soft-deleted/anonimizada (no puede iniciar sesión).
+export type AdminUserStatus = 'active' | 'blocked' | 'deleted';
+
 export interface AdminUserSummaryDTO {
   id: string;
   email: string;
   name: string;
   role: Role;
-  status: 'active' | 'blocked';
+  status: AdminUserStatus;
   createdAt: string;
+}
+
+// POST /admin/users/:id/reset-password → contraseña temporal UNA sola vez (v1.3.1).
+export interface ResetPasswordResponse {
+  userId: string;
+  tempPassword: string;
+  mustChangePassword: boolean;
+}
+
+// DELETE /admin/users/:id → hard (borrado total) | soft (anonimizado, conserva historial).
+export interface DeleteUserResponse {
+  userId: string;
+  mode: 'hard' | 'soft';
 }
 
 // KYC en la ficha 360°: CLABE/RFC ENMASCARADOS incluso para super_admin (contrato §M6/§3.4).

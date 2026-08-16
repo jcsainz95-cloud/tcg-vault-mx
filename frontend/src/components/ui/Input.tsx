@@ -9,10 +9,11 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   hint?: string;
   error?: string;
   prefix?: string;
+  suffix?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, hint, error, prefix, className, id, ...props },
+  { label, hint, error, prefix, suffix, className, id, ...props },
   ref,
 ) {
   const autoId = useId();
@@ -33,6 +34,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           className={cn(
             'h-11 w-full rounded-md border bg-surface px-3 text-base text-text placeholder:text-subtle',
             prefix && 'pl-12',
+            suffix && 'pr-9',
             error ? 'border-danger' : 'border-border-strong',
             'focus-visible:border-primary',
             className,
@@ -41,6 +43,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           aria-describedby={describedBy}
           {...props}
         />
+        {suffix && (
+          <span className="pointer-events-none absolute right-3 text-muted tabular">{suffix}</span>
+        )}
       </div>
       {error ? (
         <p id={`${inputId}-err`} className="flex items-center gap-1 text-sm text-danger">

@@ -14,7 +14,7 @@ describe('BuylistView · cotizador con búsqueda real', () => {
     expect(screen.getByText('Elige una carta de los resultados para cotizar.')).toBeInTheDocument();
   });
 
-  it('busca por texto, elige carta y cotiza (EX+ = 40% de la referencia)', async () => {
+  it('busca por texto, elige carta y cotiza mostrando rareza + regla aplicada (fallback 40%)', async () => {
     renderWithProviders(<BuylistView />, 'es');
 
     fireEvent.change(screen.getByLabelText('Buscar carta'), { target: { value: 'Charizard' } });
@@ -27,7 +27,9 @@ describe('BuylistView · cotizador con búsqueda real', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cotizar' }));
 
     expect(await screen.findByRole('heading', { name: 'Cotización' })).toBeInTheDocument();
-    expect(screen.getByText('EX o superior')).toBeInTheDocument();
+    // Rareza oficial (Rare Holo) + regla aplicada legible (40% de referencia).
+    expect(screen.getByText('Rare Holo')).toBeInTheDocument();
+    expect(screen.getByText('40% de referencia')).toBeInTheDocument();
   });
 
   it('filtra por set y muestra las cartas de ese set', async () => {

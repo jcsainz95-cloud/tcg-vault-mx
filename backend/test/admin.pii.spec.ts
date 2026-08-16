@@ -50,7 +50,7 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     };
     return {
       prisma,
-      service: new AdminService(prisma as PrismaService, {} as PricingService, pii),
+      service: new AdminService(prisma as PrismaService, {} as PricingService, pii, {} as any),
     };
   }
 

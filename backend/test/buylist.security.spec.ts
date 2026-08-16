@@ -11,7 +11,7 @@ const pii = new PiiCryptoService(new ConfigService({}));
 
 /**
  * Pruebas de seguridad de buylist:
- *  - SEC-A1: la categoría (monto a pagar) se deriva server-side de la rareza real.
+ *  - SEC-A1: la regla (monto a pagar) se deriva server-side de la RAREZA real (Card.rarity).
  *  - SEC-A2: el tope mensual se valida atómicamente (read+create en transacción).
  *  - SEC-A3: convert-to-inventory no duplica por carrera (unique + P2002 = ya convertido).
  *  - SEC-M5: pay-spei idempotente + guardia de estado atómica.
@@ -33,20 +33,29 @@ function buildPricing(referenceMxnCents: number | null): PricingService {
 
 function buildSettings(capPerMonth: number): SettingsService {
   return {
-    getRaw: jest.fn().mockResolvedValue({ Common: 'comun', 'Rare Holo': 'ex_plus' }),
+    getRaw: jest.fn(async (key: string) => {
+      if (key === 'buylist_price_rules') {
+        return {
+          Common: { mode: 'fixed', value: 50 },
+          'Reverse Holo': { mode: 'fixed', value: 150 },
+        };
+      }
+      return {};
+    }),
     getNumber: jest.fn(async (key: string) => {
       if (key === 'buylist_cap_per_month_cents') return capPerMonth;
       if (key === 'buylist_cap_per_request_cents') return 100_000_000;
       if (key === 'ine_threshold_cents') return 100_000_000;
+      if (key === 'buylist_price_fallback_pct') return 40;
       return 0;
     }),
   } as unknown as SettingsService;
 }
 
-describe('BuylistService.createRequest — SEC-A1 categoría derivada del servidor', () => {
-  it('ignora la category maliciosa del DTO y la deriva de la rareza real (no infla el pago)', async () => {
+describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', () => {
+  it('ignora cualquier category del DTO y deriva la regla de la rareza real (no infla el pago)', async () => {
     const prisma: any = {
-      // Carta COMÚN con referencia ALTA. Un DTO malicioso pide `ex_plus` (40% de la ref).
+      // Carta COMÚN con referencia ALTA. Un DTO malicioso intentaría cotizarla como % de la ref.
       card: { findUnique: jest.fn().mockResolvedValue({ id: 'card-common', rarity: 'Common' }) },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
@@ -61,7 +70,10 @@ describe('BuylistService.createRequest — SEC-A1 categoría derivada del servid
             card: { id: it.cardId, name: 'Pidgey', number: '16' },
             productType: it.productType,
             rawCondition: it.rawCondition ?? null,
-            category: it.category,
+            rarity: it.rarity,
+            ruleMode: it.ruleMode,
+            ruleValue: it.ruleValue,
+            ruleSource: it.ruleSource,
             quotedPriceCents: it.quotedPriceCents,
             approvedPriceCents: null,
             itemStatus: it.itemStatus,
@@ -73,7 +85,7 @@ describe('BuylistService.createRequest — SEC-A1 categoría derivada del servid
     };
     const svc = new BuylistService(
       prisma as PrismaService,
-      buildPricing(1_000_000), // referencia alta: ex_plus daría 400,000c
+      buildPricing(1_000_000), // referencia alta: un % daría 400,000c
       buildSettings(100_000_000),
       {} as UsersService,
       pii,
@@ -81,13 +93,15 @@ describe('BuylistService.createRequest — SEC-A1 categoría derivada del servid
 
     const res = await svc.createRequest(
       'user-1',
-      [{ cardId: 'card-common', productType: 'raw' as any, rawCondition: 'NM' as any, category: 'ex_plus' as any }],
+      // El cliente ya NO envía category; aunque colara un campo extra, el backend lo ignora.
+      [{ cardId: 'card-common', productType: 'raw' as any, rawCondition: 'NM' as any }],
       VALID_CLABE,
     );
 
-    // Se cotiza como COMÚN (MX$0.50 = 50c), NO como ex_plus (400,000c).
+    // Se cotiza como COMÚN (regla fixed MX$0.50 = 50c), NO como % de la referencia (400,000c).
     expect(res.quotedTotalCents).toBe(50);
-    expect(res.items[0].category).toBe('comun');
+    expect(res.items[0].appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
+    expect(res.items[0].rarity).toBe('Common');
     expect(res.items[0].quotedPriceCents).toBe(50);
   });
 });
@@ -108,7 +122,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
       }),
     };
     const svc = new BuylistService(prisma as PrismaService, buildPricing(null), buildSettings(100_000_000), {} as UsersService, pii);
-    await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any, category: 'comun' as any }], VALID_CLABE);
+    await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], VALID_CLABE);
 
     expect(txOpts?.isolationLevel).toBe(Prisma.TransactionIsolationLevel.Serializable);
     // El aggregate del acumulado se ejecuta con el cliente transaccional (dentro de $transaction).
@@ -135,7 +149,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
       return new BuylistService(prisma as PrismaService, buildPricing(null), buildSettings(80), {} as UsersService, pii);
     }
 
-    const item = [{ cardId: 'c', productType: 'raw' as any, category: 'comun' as any }];
+    const item = [{ cardId: 'c', productType: 'raw' as any }];
     // Serializable ⇒ efectivamente secuencial: la primera pasa, la segunda ve el acumulado.
     await build().createRequest('u', item, VALID_CLABE);
     await expect(build().createRequest('u', item, VALID_CLABE)).rejects.toMatchObject({

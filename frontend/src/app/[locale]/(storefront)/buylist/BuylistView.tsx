@@ -25,7 +25,6 @@ const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 
 export function BuylistView() {
   const t = useTranslations('buylist');
-  const tcat = useTranslations('buylist.categoryLabel');
   const locale = useLocale() as AppLocale;
   const buylistSteps = useBuylistSteps();
   const queryClient = useQueryClient();
@@ -203,8 +202,17 @@ export function BuylistView() {
             <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-5">
               <h3 className="text-h3 font-semibold">{t('quoteResult')}</h3>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted">{t('category')}</span>
-                <span className="font-medium">{tcat(quote.data.category)}</span>
+                <span className="text-muted">{t('rarityLabel')}</span>
+                <span className="font-medium" lang="en">{quote.data.rarity}</span>
+              </div>
+              {/* Regla aplicada al usuario (ej. "40% de referencia" o "$1.50 fijo"). */}
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted">{t('appliedRuleLabel')}</span>
+                <span className="font-medium">
+                  {quote.data.appliedRule.mode === 'fixed'
+                    ? t('ruleFixed', { amount: formatMoneyCents(quote.data.appliedRule.value, locale) })
+                    : t('rulePct', { pct: quote.data.appliedRule.value })}
+                </span>
               </div>
               {quote.data.quote.status === 'precio_pendiente' ? (
                 <Banner variant="warning">{t('pricePendingNotice')}</Banner>
@@ -306,7 +314,6 @@ export function BuylistView() {
           <BuylistKycForm
             cardId={selectedCard.id}
             productType={productType}
-            category={quote.data.category}
             onCreated={(sellRequestId) => {
               setCreatedId(sellRequestId);
               setRequestOpen(false);

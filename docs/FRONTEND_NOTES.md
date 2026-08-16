@@ -4,6 +4,90 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## v1.3.1 — precio de buylist por rareza + cotizador nuevo shape + M6 reset/eliminar (2026-08-16)
+
+Consumo de los bloques del contrato **v1.3.1 §E.1 (precios por rareza)** y **§M6 (reset/eliminar
+usuario)**. Solo `frontend/` (+ esta nota). **No** se tocó el contrato. Toggle de mocks intacto (rama real
+`apiRequest` + rama mock) e i18n ES/EN espejado. Gates desde `frontend/`: `lint` OK · `typecheck` OK ·
+`test` **106/106** (22 archivos, +9 nuevos) · `build` OK.
+
+### 1. Editor de precio de buylist por RAREZA en M2 (`/admin/m2`, super_admin)
+- **Reemplaza** la sección "rareza→categoría" (deprecada por el contrato) por un editor **una fila por
+  rareza** que consume `GET /admin/pricing/rarities` (rarezas distintas del catálogo unidas a las reglas,
+  con `cardCount` + `source` rule/fallback) y guarda con `PUT /admin/pricing/buylist-rules`.
+- Cada fila: **selector de modo `fixed|pct`** + **campo de valor** (si `fixed` → MX$ en pesos↔centavos con
+  prefijo `MX$`; si `pct` → % con sufijo `%`) + badge de origen (Regla/Fallback). Encima, un **campo de
+  fallback %** para rarezas sin regla explícita.
+- **Guardado sin redeploy**: el `PUT` envía `{ rules, fallbackPct }` preservando las reglas explícitas del
+  servidor y aplicando el borrador encima; una rareza dejada en fallback (no editada) **no** se incluye
+  (sigue en fallback); editar una fila de fallback la **promueve** a regla explícita. Loading/error/success
+  con `Banner` (patrón M2).
+- Se retiró de la UI el uso de `getRarityMap/updateRarityMap` (siguen en `api.ts`/fixtures como legacy
+  deprecado); el editor nuevo NO los consume.
+
+### 2. Cotizador y detalle de buylist — nuevo shape `rarity` + `appliedRule`
+- `BuylistQuoteResponse` y `SellItemDTO` (`types/contract.ts`) ahora exponen **`rarity`** + **`appliedRule`
+  = { mode, value, source }** en vez de `category`. `POST /buylist/requests` ya **no** envía `category`
+  (`CreateSellRequestInput.items` sin `category`; el backend deriva la regla server-side de `Card.rarity`).
+- `BuylistView` muestra al usuario la **rareza oficial** y la **regla aplicada legible**: `"$1.50 fijo"`
+  (`ruleFixed`) o `"40% de referencia"` (`rulePct`). `BuylistKycForm` dejó de recibir/enviar `category`.
+- Mock del cotizador (`api.ts`) reescrito para resolver por **regla de rareza** vía
+  `fx.resolveBuylistRule()`: `fixed` cotiza sin referencia; `pct` cotiza `% de la referencia` o cae a
+  `precio_pendiente` si falta; rareza sin regla → **fallback 40%**. El seed preserva el negocio vigente
+  (Common/Uncommon $0.50 fijo, Reverse Holo $1.50 fijo, resto 40%).
+
+### 3. M6 — reset de contraseña y eliminar usuario (super_admin)
+- **Reset:** botón en la ficha 360° → `POST /admin/users/:id/reset-password` → modal que muestra la
+  **temp password EN CLARO UNA sola vez** (bloque `code` + botón **Copiar**), con aviso de "una sola vez",
+  nota para compartirla por canal seguro y nota de `mustChangePassword`. Al cerrar el modal **no** se
+  re-muestra (estado local `resetResult` se limpia; también se limpia al cambiar de usuario).
+- **Eliminar:** botón `destructive` con **modal de confirmación clara** → `DELETE /admin/users/:id` →
+  muestra el **resultado `mode`**: `hard` = "borrado total" / `soft` = "anonimizado, conserva historial".
+  Maneja **`409 CANNOT_DELETE_SELF`** (banner de error específico) y **deshabilita** el botón cuando
+  `useSession().user.id === selectedId` (no borrarse a uno mismo). Nuevo valor de estado `deleted` en el
+  badge de usuario (`UserStatusBadge`); las acciones de cuenta se ocultan para cuentas ya `deleted`.
+- **`mustChangePassword`:** `UserDTO.mustChangePassword?`. Tras un login que lo indique, `AuthForm` muestra
+  un **aviso** (`Banner` warning) con botón "Continuar" que enruta al destino por rol (no hay página
+  dedicada de cambio de contraseña en el MVP; ver solicitud al arquitecto).
+
+### Archivos
+- **Tipos** `src/types/contract.ts`: +`BuylistRuleMode`, `BuylistRule`, `BuylistRuleApplied`,
+  `BuylistRulesDTO`, `BuylistRarityRowDTO`, `BuylistRaritiesResponse`, `AdminUserStatus`,
+  `ResetPasswordResponse`, `DeleteUserResponse`; `BuylistQuoteResponse`/`SellItemDTO` re-shaped;
+  `UserDTO.mustChangePassword?`; `AdminUserSummaryDTO.status` incluye `deleted`.
+- **API** `src/lib/api.ts`: +`getBuylistRarities`, `getBuylistRules`, `updateBuylistRules`,
+  `resetUserPassword`, `deleteUser`; `getBuylistQuote`/`createSellRequest` re-shaped (sin `category`).
+- **Fixtures** `src/lib/mock/fixtures.ts`: +`mockBuylistRules`, `mockBuylistFallbackPct`,
+  `setMockBuylistRules`, `resolveBuylistRule`, `mockBuylistRarities`; `mockSellRequests` re-shaped.
+- **UI** `m2/M2View.tsx` (editor por rareza), `buylist/BuylistView.tsx`, `BuylistKycForm.tsx`,
+  `m6/M6View.tsx` (reset/eliminar), `AuthForm.tsx` (mustChangePassword), `components/ui/Input.tsx`
+  (soporte `suffix`).
+- **i18n** `messages/{es,en}.json`: +`buylist.{rarityLabel,appliedRuleLabel,ruleFixed,rulePct}`,
+  `admin.m2.buylistRules.*`, `admin.m6.{deleted,accountTitle,reset*,tempPassword,copy,copied,delete*}`,
+  `auth.{mustChangePassword,mustChangeContinue}`.
+- **Tests** (+9): `M2View.test.tsx` (editor rareza: render, fixed→centavos+guardar, fallback, promoción de
+  modo), `M6View.test.tsx` (reset una-sola-vez, delete confirm+mode hard, 409 self), `api.test.ts`
+  (fixed/pct/fallback), `BuylistView.test.tsx`/`BuylistKycForm.test.tsx` re-shaped, `e2e/buylist.spec.ts`
+  actualizado a `appliedRule`.
+
+### Endpoints consumidos
+- M2: `GET /admin/pricing/rarities`, `GET/PUT /admin/pricing/buylist-rules` (rama real + mock).
+- Buylist: `POST /buylist/quote` (nuevo shape), `POST /buylist/requests` (sin `category`).
+- M6: `POST /admin/users/:id/reset-password`, `DELETE /admin/users/:id`.
+
+### Supuestos / solicitudes al arquitecto
+1. **`mustChangePassword`** — el contrato lo declara opcional (flag del backend) y no fija una página de
+   cambio de contraseña. La UI muestra un **aviso** tras el login y enruta por rol. **Solicitud**: si se
+   desea forzar el cambio, definir endpoint/página de cambio de contraseña (`POST /users/me/password`?);
+   hoy no existe y no bloquea.
+2. **`GET /admin/pricing/rarities`** — se consume `{ fallbackPct, rarities:[{ rarity, cardCount, rule,
+   source }] }` tal cual el contrato §M2. El `PUT /buylist-rules` recibe la tabla completa `{ rules,
+   fallbackPct }`; el front preserva las reglas explícitas y sólo promueve a explícitas las filas editadas.
+3. **`DELETE /admin/users/:id`** — se asume 200 `{ userId, mode }` y `409 CANNOT_DELETE_SELF`; el front
+   también deshabilita el botón para la cuenta propia (`useSession`). Sin cuerpo en el request.
+4. El editor de rareza **reemplaza** la UI de `rarity-map` (deprecado v1.3.1). Las funciones/fixtures
+   `getRarityMap/updateRarityMap/mockRarityMap` quedan como legacy sin uso en UI.
+
 ## Fix bug reportado — feedback visible en el sync de catálogo de M2 (2026-08-16)
 
 Bug del humano: en `/admin/m2` (Sección 5, "Sync de catálogo") los botones **Backfill**,

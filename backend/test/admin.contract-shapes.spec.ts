@@ -21,6 +21,7 @@ describe('AdminService — shapes del contrato (M7 IVA / M9 launch-metrics)', ()
       prisma as unknown as PrismaService,
       {} as PricingService,
       new PiiCryptoService(new ConfigService({})),
+      {} as any,
     );
   }
 

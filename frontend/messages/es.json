@@ -278,7 +278,11 @@
     "searchResults": "Resultados",
     "noResults": "No encontramos cartas con ese filtro. Prueba otro set o término.",
     "selectedCard": "Carta seleccionada",
-    "chooseCardFirst": "Elige una carta de los resultados para cotizar."
+    "chooseCardFirst": "Elige una carta de los resultados para cotizar.",
+    "rarityLabel": "Rareza",
+    "appliedRuleLabel": "Regla aplicada",
+    "ruleFixed": "{amount} fijo",
+    "rulePct": "{pct}% de referencia"
   },
   "ine": {
     "front": "INE (anverso)",
@@ -359,7 +363,9 @@
     "google": {
       "cta": "Continuar con Google",
       "connecting": "Conectando…"
-    }
+    },
+    "mustChangePassword": "Iniciaste sesión con una contraseña temporal. Debes cambiarla para proteger tu cuenta.",
+    "mustChangeContinue": "Continuar"
   },
   "admin": {
     "shellTitle": "Back-office",
@@ -506,7 +512,10 @@
         "rate": "Tasa",
         "buffer": "Colchón",
         "source": "Fuente",
-        "sourceLabel": { "banxico": "Banxico (automático)", "manual": "Manual (override)" },
+        "sourceLabel": {
+          "banxico": "Banxico (automático)",
+          "manual": "Manual (override)"
+        },
         "effectiveDate": "Vigencia",
         "newRate": "Nueva tasa",
         "newBuffer": "Nuevo colchón %",
@@ -540,6 +549,30 @@
         "backfillDone": "Backfill: {count} sets importados, {remaining} restantes.",
         "syncAllDone": "Sync total encolado: {count} sets.",
         "syncAllUnavailable": "El sync total no está disponible en el backend; usa el sync por set o el backfill."
+      },
+      "buylistRules": {
+        "title": "Precio de buylist por rareza",
+        "subtitle": "Define una regla por rareza oficial: monto fijo (MX$) o porcentaje (% de la referencia). Las rarezas sin regla usan el fallback. Surte efecto sin redeploy y queda auditado.",
+        "fallbackLabel": "Fallback (%)",
+        "fallbackHint": "Se aplica a las rarezas sin regla explícita (nuevas o no configuradas).",
+        "rarity": "Rareza",
+        "cardCount": "Cartas",
+        "mode": "Modo",
+        "value": "Valor",
+        "source": "Origen",
+        "valueMxn": "Monto (MX$)",
+        "valuePct": "Porcentaje",
+        "modeFor": "Modo para {rarity}",
+        "valueFor": "Valor para {rarity}",
+        "modeLabel": {
+          "fixed": "Fijo (MX$)",
+          "pct": "Porcentaje (%)"
+        },
+        "sourceLabel": {
+          "rule": "Regla",
+          "fallback": "Fallback"
+        },
+        "saved": "Reglas de buylist guardadas."
       }
     },
     "m6": {
@@ -589,7 +622,29 @@
       "block": "Bloquear",
       "unblock": "Reactivar",
       "blockQuestion": "¿Bloquear a este usuario? No podrá iniciar sesión.",
-      "unblockQuestion": "¿Reactivar la cuenta de este usuario?"
+      "unblockQuestion": "¿Reactivar la cuenta de este usuario?",
+      "deleted": "Eliminado",
+      "accountTitle": "Gestión de cuenta",
+      "resetHint": "Restablece la contraseña y genera una temporal para compartir al usuario; invalida sus sesiones activas.",
+      "resetPassword": "Restablecer contraseña",
+      "resetError": "No se pudo restablecer la contraseña.",
+      "resetTitle": "Contraseña temporal",
+      "resetOnce": "Esta contraseña se muestra UNA sola vez. Cópiala ahora; no podrás volver a verla.",
+      "tempPassword": "Contraseña temporal",
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "resetShareNote": "Compártela con el usuario por un canal seguro. Deberá iniciar sesión con ella y cambiarla.",
+      "resetMustChangeNote": "El usuario deberá cambiar la contraseña en su próximo inicio de sesión.",
+      "deleteHint": "Elimina la cuenta. Si tiene historial económico se anonimiza (conserva historial); si no, se borra por completo.",
+      "deleteUser": "Eliminar usuario",
+      "deleteSelfHint": "No puedes eliminar tu propia cuenta.",
+      "deleteConfirm": "Eliminar",
+      "deleteQuestion": "¿Seguro que deseas eliminar esta cuenta? Esta acción no se puede deshacer.",
+      "deleteModeNote": "Si el usuario tiene compras, buylist, envíos o disputas, la cuenta se anonimiza y conserva el historial; de lo contrario se borra por completo.",
+      "deleteError": "No se pudo eliminar el usuario.",
+      "deleteSelfError": "No puedes eliminar tu propia cuenta.",
+      "deleteResultHard": "Cuenta eliminada por completo (borrado total).",
+      "deleteResultSoft": "Cuenta anonimizada; se conserva el historial para conciliación."
     },
     "m10": {
       "title": "M10 · Config y bitácora",
@@ -714,7 +769,10 @@
     "en": "EN"
   },
   "status": {
-    "ownership": { "pending": "Pendiente", "settled": "Liquidada" },
+    "ownership": {
+      "pending": "Pendiente",
+      "settled": "Liquidada"
+    },
     "order": {
       "pending": "En proceso",
       "settled": "Liquidada",
@@ -750,7 +808,10 @@
       "pagada": "Pagada",
       "convertida_inventario": "En inventario"
     },
-    "price": { "pending": "Precio pendiente", "priced": "Con precio" },
+    "price": {
+      "pending": "Precio pendiente",
+      "priced": "Con precio"
+    },
     "sealedSubtype": {
       "box": "Booster Box",
       "etb": "ETB",

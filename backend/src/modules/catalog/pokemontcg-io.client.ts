@@ -45,6 +45,9 @@ export class PokemonTcgIoClient {
   private readonly logger = new Logger(PokemonTcgIoClient.name);
   /** Host FIJO — no configurable por el usuario (anti-SSRF). */
   private readonly baseUrl = 'https://api.pokemontcg.io/v2';
+  /** Reintentos ante 429/5xx transitorios (free tier rate-limitea a media importación). */
+  private readonly maxRetries = 4;
+  private readonly baseBackoffMs = 500;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -53,8 +56,30 @@ export class PokemonTcgIoClient {
     return apiKey ? { 'X-Api-Key': apiKey } : {};
   }
 
-  private async getJson<T>(path: string): Promise<T> {
+  /** Espera cancelable (aislada para poder mockear timers en test). */
+  protected async sleep(ms: number): Promise<void> {
+    await new Promise((r) => setTimeout(r, ms));
+  }
+
+  /**
+   * GET con reintentos/backoff ante 429 (rate limit) y 5xx transitorios. Respeta `Retry-After`
+   * si viene; si no, backoff exponencial. Así un 429 a media importación NO aborta el sync del
+   * set: el barrido de cartas continúa tras esperar.
+   */
+  private async getJson<T>(path: string, attempt = 0): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() });
+    if ((res.status === 429 || res.status >= 500) && attempt < this.maxRetries) {
+      const retryAfterHeader = Number(res.headers.get('retry-after'));
+      const waitMs =
+        Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+          ? retryAfterHeader * 1000
+          : this.baseBackoffMs * 2 ** attempt;
+      this.logger.warn(
+        `pokemontcg.io ${path} -> HTTP ${res.status}; retry ${attempt + 1}/${this.maxRetries} en ${waitMs}ms`,
+      );
+      await this.sleep(waitMs);
+      return this.getJson<T>(path, attempt + 1);
+    }
     if (!res.ok) {
       throw new Error(`pokemontcg.io ${path} -> HTTP ${res.status}`);
     }

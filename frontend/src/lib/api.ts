@@ -25,7 +25,9 @@ import type {
   ProductType,
   RawCondition,
   SealedSubtype,
-  BuylistCategory,
+  BuylistRule,
+  BuylistRulesDTO,
+  BuylistRaritiesResponse,
   BreakdownDTO,
   PortfolioRange,
   PortfolioHistoryResponse,
@@ -37,7 +39,6 @@ import type {
   KycInfoDTO,
   FxDTO,
   PendingPriceEntryDTO,
-  RarityMapEntryDTO,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
   PricingSyncResponse,
@@ -46,6 +47,8 @@ import type {
   CatalogSyncAllResponse,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
+  ResetPasswordResponse,
+  DeleteUserResponse,
   SettingsDTO,
   AuditLogDTO,
   KycStatus,
@@ -307,26 +310,41 @@ export async function getBuylistQuote(input: {
   if (!config.useMocks) {
     return apiRequest<BuylistQuoteResponse>('/buylist/quote', { method: 'POST', body: input });
   }
+  // MOCK v1.3.1: el monto se resuelve por REGLA de la rareza oficial (fixed MX$ / pct
+  // % de la referencia + fallback). El backend deriva la rareza server-side de Card.rarity.
   const card = fx.mockCards.find((c) => c.id === input.cardId);
-  // MOCK: derivación rareza→categoría (backend usa la tabla del dial M2/M10).
-  const rarity = (card?.rarity ?? '').toLowerCase();
-  const category: BuylistCategory = rarity.includes('reverse')
-    ? 'reverse_holo'
-    : /holo|rare|ex|illustration|full|art|radiant|ultra/.test(rarity)
-      ? 'ex_plus'
-      : 'comun';
+  const rarity = card?.rarity ?? '';
+  const { rule, source } = fx.resolveBuylistRule(rarity);
+  const appliedRule = { mode: rule.mode, value: rule.value, source };
   // Referencia de mercado por carta (Zapdos = null → precio pendiente de adquisición).
   const refCents = fx.mockReferenceByCardId[input.cardId] ?? undefined;
-  if (category === 'comun') {
-    return delay({ category, quote: { status: 'cotizada', quotedPriceCents: 50, currency: 'MXN' }, referencePrice: { status: 'priced', priceMxnCents: refCents }, paymentNotice: 'PAY_AFTER_RECEIPT' });
+  if (rule.mode === 'fixed') {
+    // Fijo: NO depende de la referencia → siempre cotiza.
+    return delay({
+      rarity,
+      appliedRule,
+      quote: { status: 'cotizada', quotedPriceCents: rule.value, currency: 'MXN' },
+      referencePrice: refCents != null ? { status: 'priced', priceMxnCents: refCents } : { status: 'pending' },
+      paymentNotice: 'PAY_AFTER_RECEIPT',
+    });
   }
-  if (category === 'reverse_holo') {
-    return delay({ category, quote: { status: 'cotizada', quotedPriceCents: 150, currency: 'MXN' }, referencePrice: { status: 'priced', priceMxnCents: refCents }, paymentNotice: 'PAY_AFTER_RECEIPT' });
-  }
+  // Porcentaje: si falta referencia → precio pendiente.
   if (refCents == null) {
-    return delay({ category, quote: { status: 'precio_pendiente', quotedPriceCents: null, currency: 'MXN' }, referencePrice: { status: 'pending' }, paymentNotice: 'PAY_AFTER_RECEIPT' });
+    return delay({
+      rarity,
+      appliedRule,
+      quote: { status: 'precio_pendiente', quotedPriceCents: null, currency: 'MXN' },
+      referencePrice: { status: 'pending' },
+      paymentNotice: 'PAY_AFTER_RECEIPT',
+    });
   }
-  return delay({ category, quote: { status: 'cotizada', quotedPriceCents: Math.round(refCents * 0.4), currency: 'MXN' }, referencePrice: { status: 'priced', priceMxnCents: refCents }, paymentNotice: 'PAY_AFTER_RECEIPT' });
+  return delay({
+    rarity,
+    appliedRule,
+    quote: { status: 'cotizada', quotedPriceCents: Math.round((refCents * rule.value) / 100), currency: 'MXN' },
+    referencePrice: { status: 'priced', priceMxnCents: refCents },
+    paymentNotice: 'PAY_AFTER_RECEIPT',
+  });
 }
 
 export async function getSellRequests(): Promise<SellRequestDTO[]> {
@@ -338,11 +356,12 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
 }
 
 export interface CreateSellRequestInput {
+  // v1.3.1: los items YA NO envían `category`; el backend deriva la regla server-side
+  // de Card.rarity (SEC-A1). Un `category` del cliente se ignoraría.
   items: {
     cardId: string;
     productType: ProductType;
     rawCondition?: RawCondition;
-    category: BuylistCategory;
   }[];
   clabe: string;
   /** keys de presign del INE (contrato §6 POST /buylist/requests: ineUploadKeys?) */
@@ -358,18 +377,21 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
   if (!config.useMocks) {
     return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
   }
-  // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO).
+  // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO). El monto se
+  // resuelve por la REGLA de la rareza (v1.3.1), igual que el cotizador.
   const items: SellRequestDTO['items'] = input.items.map((it, i) => {
     const card = fx.mockCards.find((c) => c.id === it.cardId) ?? fx.mockCards[0];
     const ref = fx.mockReferenceByCardId[it.cardId] ?? undefined;
+    const { rule, source } = fx.resolveBuylistRule(card.rarity);
     const quoted =
-      it.category === 'comun' ? 50 : it.category === 'reverse_holo' ? 150 : ref != null ? Math.round(ref * 0.4) : undefined;
+      rule.mode === 'fixed' ? rule.value : ref != null ? Math.round((ref * rule.value) / 100) : undefined;
     return {
       id: `sri-new-${i}`,
       card,
       productType: it.productType,
       rawCondition: it.rawCondition,
-      category: it.category,
+      rarity: card.rarity,
+      appliedRule: { mode: rule.mode, value: rule.value, source },
       quotedPriceCents: quoted,
       itemStatus: quoted == null ? 'precio_pendiente' : 'cotizada',
     };
@@ -678,26 +700,36 @@ export async function refreshFx(): Promise<FxDTO> {
   return delay(next);
 }
 
-/** Tabla rareza→categoría del buylist (contrato GET /admin/pricing/rarity-map). */
-export async function getRarityMap(): Promise<RarityMapEntryDTO[]> {
-  if (!config.useMocks) {
-    const res = await apiRequest<{ entries: RarityMapEntryDTO[] }>('/admin/pricing/rarity-map');
-    return res.entries;
-  }
-  return delay(fx.mockRarityMap);
+/**
+ * Rarezas distintas del catálogo sincronizado UNIDAS a las reglas de buylist, para
+ * poblar el editor de precio por rareza (contrato GET /admin/pricing/rarities, v1.3.1).
+ * Las rarezas sin regla explícita muestran el fallback (source="fallback").
+ */
+export async function getBuylistRarities(): Promise<BuylistRaritiesResponse> {
+  if (!config.useMocks) return apiRequest<BuylistRaritiesResponse>('/admin/pricing/rarities');
+  return delay(fx.mockBuylistRarities());
 }
 
-/** Guarda la tabla rareza→categoría (contrato PUT /admin/pricing/rarity-map). */
-export async function updateRarityMap(entries: RarityMapEntryDTO[]): Promise<RarityMapEntryDTO[]> {
+/** Tabla cruda de reglas + fallback (contrato GET /admin/pricing/buylist-rules, v1.3.1). */
+export async function getBuylistRules(): Promise<BuylistRulesDTO> {
+  if (!config.useMocks) return apiRequest<BuylistRulesDTO>('/admin/pricing/buylist-rules');
+  return delay({ rules: fx.mockBuylistRules, fallbackPct: fx.mockBuylistFallbackPct });
+}
+
+/**
+ * Reemplaza la tabla de reglas y/o el fallback (contrato PUT /admin/pricing/buylist-rules).
+ * Validación server-side: mode ∈ {fixed,pct}; fixed → value entero ≥ 0 (centavos);
+ * pct/fallback → número en [0,100]. Auditado (M10). Surte efecto sin redeploy.
+ */
+export async function updateBuylistRules(input: {
+  rules: Record<string, BuylistRule>;
+  fallbackPct?: number;
+}): Promise<BuylistRulesDTO> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ entries: RarityMapEntryDTO[] }>('/admin/pricing/rarity-map', {
-      method: 'PUT',
-      body: { entries },
-    });
-    return res.entries;
+    return apiRequest<BuylistRulesDTO>('/admin/pricing/buylist-rules', { method: 'PUT', body: input });
   }
-  fx.setMockRarityMap(entries);
-  return delay(entries);
+  fx.setMockBuylistRules(input.rules, input.fallbackPct);
+  return delay({ rules: fx.mockBuylistRules, fallbackPct: fx.mockBuylistFallbackPct });
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */
@@ -826,6 +858,39 @@ export async function updateUserStatus(
     return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}/status`, { method: 'PATCH', body: { status } });
   }
   return delay({ ...fx.mockAdminUserDetail(id), status });
+}
+
+/**
+ * Restablece la contraseña del usuario (contrato POST /admin/users/:id/reset-password,
+ * super_admin, auditado). Devuelve la contraseña temporal EN CLARO una única vez; el
+ * front la muestra al admin para compartirla y NO la re-consulta.
+ */
+export async function resetUserPassword(id: string): Promise<ResetPasswordResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ResetPasswordResponse>(`/admin/users/${id}/reset-password`, { method: 'POST', body: {} });
+  }
+  // MOCK: contraseña temporal aleatoria de alta entropía (simulada).
+  const tempPassword = `Tmp-${Math.random().toString(36).slice(2, 8)}-${Math.random().toString(36).slice(2, 6)}`;
+  return delay({ userId: id, tempPassword, mustChangePassword: true });
+}
+
+/**
+ * Elimina el usuario (contrato DELETE /admin/users/:id, super_admin, auditado). El backend
+ * decide `hard` (borrado total, sin historial económico) o `soft` (anonimizado, conserva
+ * historial). El front muestra el `mode` resultante. 409 CANNOT_DELETE_SELF si es uno mismo.
+ */
+export async function deleteUser(id: string): Promise<DeleteUserResponse> {
+  if (!config.useMocks) {
+    return apiRequest<DeleteUserResponse>(`/admin/users/${id}`, { method: 'DELETE' });
+  }
+  // MOCK: un usuario con historial económico (órdenes/buylist) cae en soft; el resto hard.
+  const detail = fx.mockAdminUserDetail(id);
+  const hasHistory =
+    (detail.orders?.length ?? 0) > 0 ||
+    (detail.sellRequests?.length ?? 0) > 0 ||
+    (detail.disputes?.length ?? 0) > 0 ||
+    (detail.ownedItems?.length ?? 0) > 0;
+  return delay({ userId: id, mode: hasHistory ? 'soft' : 'hard' });
 }
 
 // ---------- Admin M10 · Config (diales) y bitácora (contrato §M10) ----------

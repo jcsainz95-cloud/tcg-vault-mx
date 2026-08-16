@@ -51,11 +51,19 @@ describe('api (rama mock, v1.1)', () => {
     expect([...dates].sort()).toEqual(dates);
   });
 
-  it('buylist: rareza moderna con market price se cotiza como ex_plus (40%)', async () => {
+  it('buylist: rareza sin regla explícita (Ultra Rare) usa el fallback pct (40% de la referencia)', async () => {
     const q = await getBuylistQuote({ cardId: 'c-milotic-fa', productType: 'raw', rawCondition: 'NM' });
-    expect(q.category).toBe('ex_plus');
+    expect(q.rarity).toBe('Ultra Rare');
+    expect(q.appliedRule).toEqual({ mode: 'pct', value: 40, source: 'fallback' });
     expect(q.quote.status).toBe('cotizada');
     expect(q.quote.quotedPriceCents).toBe(Math.round(210000 * 0.4));
+  });
+
+  it('buylist: rareza con regla fija (Common) cotiza el monto fijo sin depender de la referencia', async () => {
+    const q = await getBuylistQuote({ cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' });
+    expect(q.rarity).toBe('Common');
+    expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
+    expect(q.quote.quotedPriceCents).toBe(50);
   });
 
   it('buylist: carta sin market price (Zapdos) escala a precio pendiente (adquisición)', async () => {

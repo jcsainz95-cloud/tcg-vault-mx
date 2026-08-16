@@ -15,6 +15,9 @@ export const ErrorCode = {
   EMAIL_TAKEN: 'EMAIL_TAKEN',
   INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   USER_BLOCKED: 'USER_BLOCKED',
+  // v1.3.1: gestión de usuarios por admin (M6).
+  USER_DELETED: 'USER_DELETED',
+  CANNOT_DELETE_SELF: 'CANNOT_DELETE_SELF',
   // v1.1: login con Google (verificación server-side del ID token).
   GOOGLE_TOKEN_INVALID: 'GOOGLE_TOKEN_INVALID',
   GOOGLE_EMAIL_UNVERIFIED: 'GOOGLE_EMAIL_UNVERIFIED',

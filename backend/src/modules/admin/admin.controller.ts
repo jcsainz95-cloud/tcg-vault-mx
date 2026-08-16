@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Param, Patch, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
 import { Role } from '@prisma/client';
@@ -87,6 +87,46 @@ export class AdminUsersController {
       entityType: 'User',
       entityId: id,
       after: { status: dto.status },
+    });
+    return res;
+  }
+
+  /**
+   * Reset de contraseña por admin (M6, super_admin) — SIN correo. API_CONTRACT §M6.
+   * La contraseña temporal se devuelve UNA vez y NUNCA se registra en el AuditLog (solo el
+   * hecho: quién reseteó a quién y cuándo). No es dinero saliente.
+   */
+  @Post(':id/reset-password')
+  @HttpCode(200)
+  @Roles(Role.super_admin)
+  async resetPassword(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    const res = await this.admin.resetPassword(id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'user.reset_password',
+      entityType: 'User',
+      entityId: id,
+      // SEGURIDAD: NUNCA se guarda la contraseña temporal en el before/after.
+    });
+    return res;
+  }
+
+  /**
+   * Borrado híbrido hard/soft (M6, super_admin). API_CONTRACT §M6. Auditado con `mode`
+   * (sin volcar PII). 409 CANNOT_DELETE_SELF.
+   */
+  @Delete(':id')
+  @Roles(Role.super_admin)
+  async deleteUser(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    const res = await this.admin.deleteUser(id, user.id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'user.delete',
+      entityType: 'User',
+      entityId: id,
+      after: { mode: res.mode },
     });
     return res;
   }

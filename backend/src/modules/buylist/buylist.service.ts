@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { BuylistCategory, MovementReason, Prisma, ProductType, RawCondition } from '@prisma/client';
+import { BuylistRuleMode, MovementReason, Prisma, ProductType, RawCondition } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -8,13 +8,13 @@ import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
-import { quoteAcquisition } from '../../common/money';
+import { BuylistRule, quoteAcquisition } from '../../common/money';
 
 interface QuoteItemInput {
   cardId: string;
   productType: ProductType;
   rawCondition?: RawCondition;
-  category: BuylistCategory;
+  // v1.3.1: el cliente ya NO envía `category`. La regla se deriva server-side de Card.rarity.
 }
 
 @Injectable()
@@ -27,18 +27,24 @@ export class BuylistService {
     private readonly pii: PiiCryptoService,
   ) {}
 
-  /** Cotizador público (stateless). API_CONTRACT §6. */
+  /** Cotizador público (stateless). API_CONTRACT §6 (v1.3.1: por RAREZA). */
   async publicQuote(cardId: string, productType: ProductType, rawCondition?: RawCondition) {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
-    const category = await this.categoryForRarity(card.rarity);
+    const { rules, fallbackPct } = await this.buylistRules();
     const gradeKey = this.pricing.gradeKeyFor({ productType, rawCondition });
     const ref = await this.pricing.getReference(cardId, productType, gradeKey);
     const referenceMxnCents =
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-    const quote = quoteAcquisition(category, referenceMxnCents);
+    // SEC-A1: la rareza que determina el monto es la REAL de la carta (Card.rarity), no del cliente.
+    const quote = quoteAcquisition(card.rarity, referenceMxnCents, rules, fallbackPct);
     return {
-      category,
+      rarity: card.rarity ?? null,
+      appliedRule: {
+        mode: quote.appliedRule.mode,
+        value: quote.appliedRule.value,
+        source: quote.ruleSource,
+      },
       quote: {
         status: quote.status,
         quotedPriceCents: quote.quotedPriceCents,
@@ -53,22 +59,16 @@ export class BuylistService {
   }
 
   /**
-   * Deriva categoría desde la tabla rareza→categoría (dial M2/M10).
-   *
-   * v1.1 (rarezas modernas, ARCHITECTURE §4.2): cualquier rareza POR ENCIMA de común/
-   * reverse-holo cae en `ex_plus` (= 40% de la referencia). El **default para rarezas NO
-   * listadas** explícitamente como común/reverse es **`ex_plus`** ("EX o superior"), de modo
-   * que Illustration Rare, Special Illustration Rare, Full Art, Alternate Art, Trainer
-   * Gallery, Character Rare, Radiant, etc. quedan como ex_plus sin necesidad de listarlas.
-   * Solo se cotiza `comun`/`reverse_holo` cuando la tabla lo dice explícitamente.
+   * Lee la tabla de precio de buylist por rareza (dial M2) + el fallback %.
+   * BUYLIST_PRICE_RULES = `{ [rarity]: { mode, value } }`; BUYLIST_PRICE_FALLBACK_PCT = número.
+   * v1.3.1 reemplaza el antiguo `rarity_map` (deprecado, ya no se lee en la ruta de cotización).
    */
-  async categoryForRarity(rarity: string | null): Promise<BuylistCategory> {
-    const map = (await this.settings.getRaw(SettingKey.RARITY_MAP)) as Record<string, string>;
-    const cat = rarity ? map[rarity] : undefined;
-    if (cat === 'comun') return 'comun';
-    if (cat === 'reverse_holo') return 'reverse_holo';
-    // ex_plus explícito o cualquier rareza moderna no listada → ex_plus (default).
-    return 'ex_plus';
+  async buylistRules(): Promise<{ rules: Record<string, BuylistRule>; fallbackPct: number }> {
+    const raw = (await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES)) as
+      | Record<string, BuylistRule>
+      | null;
+    const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
+    return { rules: raw ?? {}, fallbackPct };
   }
 
   /**
@@ -95,15 +95,19 @@ export class BuylistService {
       );
     }
 
-    // Cotiza cada item. SEC-A1: la `category` (que determina el monto a pagar) NO se
-    // toma del DTO del cliente; se DERIVA server-side de la rareza real de la carta vía
-    // la tabla rareza→categoría (dial M2/M10). Así un DTO malicioso (p. ej. `ex_plus`
-    // sobre una común de alta referencia) no puede inflar `quotedTotalCents`.
+    // Cotiza cada item. SEC-A1: la regla (que determina el monto a pagar) NO se toma del DTO
+    // del cliente; se DERIVA server-side de la RAREZA REAL de la carta (Card.rarity) vía la
+    // tabla BUYLIST_PRICE_RULES (dial M2). Así un DTO malicioso no puede inflar `quotedTotalCents`.
+    // Se snapshotea la regla aplicada (rarity/ruleMode/ruleValue/ruleSource) para auditoría.
+    const { rules, fallbackPct } = await this.buylistRules();
     const itemsData: {
       cardId: string;
       productType: ProductType;
       rawCondition?: RawCondition;
-      category: BuylistCategory;
+      rarity: string | null;
+      ruleMode: BuylistRuleMode;
+      ruleValue: number;
+      ruleSource: string;
       quotedPriceCents: number | null;
       itemStatus: 'cotizada' | 'precio_pendiente';
     }[] = [];
@@ -111,12 +115,11 @@ export class BuylistService {
     for (const it of items) {
       const card = await this.prisma.card.findUnique({ where: { id: it.cardId } });
       if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
-      const category = await this.categoryForRarity(card.rarity);
       const gradeKey = this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition });
       const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey);
       const referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-      const q = quoteAcquisition(category, referenceMxnCents);
+      const q = quoteAcquisition(card.rarity, referenceMxnCents, rules, fallbackPct);
       if (q.status === 'precio_pendiente') {
         await this.pricing.escalatePending(it.cardId, it.productType, gradeKey, 'buylist');
       }
@@ -125,7 +128,10 @@ export class BuylistService {
         cardId: it.cardId,
         productType: it.productType,
         rawCondition: it.rawCondition,
-        category,
+        rarity: card.rarity ?? null,
+        ruleMode: q.appliedRule.mode,
+        ruleValue: q.appliedRule.value,
+        ruleSource: q.ruleSource,
         quotedPriceCents: q.quotedPriceCents,
         itemStatus: q.status,
       });
@@ -247,19 +253,27 @@ export class BuylistService {
     cardId: string;
     productType: ProductType;
     rawCondition: RawCondition | null;
-    category: BuylistCategory;
+    rarity?: string | null;
+    ruleMode?: BuylistRuleMode | null;
+    ruleValue?: number | null;
+    ruleSource?: string | null;
     quotedPriceCents: number | null;
     approvedPriceCents: number | null;
     itemStatus: string;
     inventoryItemId: string | null;
   }) {
+    // v1.3.1: `category` reemplazado por `rarity` + `appliedRule` (SellItemDTO). API_CONTRACT §11.
     return {
       id: i.id,
       cardId: i.cardId,
       card: i.card,
       productType: i.productType,
       rawCondition: i.rawCondition ?? undefined,
-      category: i.category,
+      rarity: i.rarity ?? undefined,
+      appliedRule:
+        i.ruleMode != null && i.ruleValue != null
+          ? { mode: i.ruleMode, value: i.ruleValue, source: (i.ruleSource ?? 'rule') as 'rule' | 'fallback' }
+          : undefined,
       quotedPriceCents: i.quotedPriceCents ?? undefined,
       approvedPriceCents: i.approvedPriceCents ?? undefined,
       itemStatus: i.itemStatus,
@@ -268,10 +282,23 @@ export class BuylistService {
   }
 
   async listMine(userId: string) {
-    const data = await this.prisma.sellRequest.findMany({
+    // QA-BUG: sin `include` las filas Prisma crudas no traían `items`/`card` y el
+    // frontend (BuylistView) crasheaba al iterar `r.items`. Se devuelve el shape
+    // `SellRequestDTO` del contrato (sellRequestId + items[] con card), coherente con
+    // el que ya emite `createRequest`.
+    const rows = await this.prisma.sellRequest.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      include: { items: { include: { card: true } } },
     });
+    const data = rows.map((r) => ({
+      sellRequestId: r.id,
+      status: r.status,
+      quotedTotalCents: r.quotedTotalCents,
+      ineRequired: r.ineRequired,
+      createdAt: r.createdAt,
+      items: r.items.map((i) => this.itemDTO(i)),
+    }));
     return { data };
   }
 
@@ -307,16 +334,27 @@ export class BuylistService {
   async adminList(status: string | undefined, page: number, pageSize: number) {
     const where: Prisma.SellRequestWhereInput = {};
     if (status) where.status = status as never;
-    const [data, total] = await Promise.all([
+    // QA-BUG: `include: { items: true }` no traía `card`, y M5View crasheaba al leer
+    // `it.card.name`. AdminBuylistDTO.items exige `card: CardDTO`; se incluye y mapea.
+    const [rows, total] = await Promise.all([
       this.prisma.sellRequest.findMany({
         where,
         orderBy: { createdAt: 'asc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { items: true },
+        include: { items: { include: { card: true } } },
       }),
       this.prisma.sellRequest.count({ where }),
     ]);
+    const data = rows.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      status: r.status,
+      quotedTotalCents: r.quotedTotalCents,
+      approvedTotalCents: r.approvedTotalCents ?? undefined,
+      createdAt: r.createdAt,
+      items: r.items.map((i) => this.itemDTO(i)),
+    }));
     return { data, page, pageSize, total };
   }
 

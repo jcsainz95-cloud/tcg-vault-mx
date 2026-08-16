@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { BuylistCategory, ProductType } from '@/types/contract';
+import type { ProductType } from '@/types/contract';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
@@ -14,7 +14,6 @@ import { PhotoUploader } from '@/components/ui/PhotoUploader';
 export interface BuylistKycFormProps {
   cardId: string;
   productType: ProductType;
-  category: BuylistCategory;
   /** se invoca con el id de la solicitud creada (para refrescar la lista / cerrar). */
   onCreated: (sellRequestId: string) => void;
 }
@@ -28,7 +27,7 @@ const CLABE_RE = /^\d{18}$/;
  * Maneja loading/error/éxito y los errores de negocio (INE_REQUIRED, CLABE_NOT_OWN_NAME,
  * BUYLIST_LIMIT_EXCEEDED).
  */
-export function BuylistKycForm({ cardId, productType, category, onCreated }: BuylistKycFormProps) {
+export function BuylistKycForm({ cardId, productType, onCreated }: BuylistKycFormProps) {
   const t = useTranslations('buylist');
   const tine = useTranslations('ine');
 
@@ -59,7 +58,6 @@ export function BuylistKycForm({ cardId, productType, category, onCreated }: Buy
             cardId,
             productType,
             rawCondition: productType === 'raw' ? 'NM' : undefined,
-            category,
           },
         ],
         clabe,

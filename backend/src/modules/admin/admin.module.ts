@@ -7,9 +7,11 @@ import {
   AdminUsersController,
 } from './admin.controller';
 import { PricingModule } from '../pricing/pricing.module';
+import { UploadsModule } from '../uploads/uploads.module';
 
 @Module({
-  imports: [PricingModule],
+  // UploadsModule provee UploadsService para purgar la imagen de INE al borrar un usuario (M6).
+  imports: [PricingModule, UploadsModule],
   providers: [AdminService],
   controllers: [
     AdminUsersController,

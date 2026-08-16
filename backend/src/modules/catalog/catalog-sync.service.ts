@@ -26,12 +26,40 @@ export class CatalogSyncService {
     private readonly settings: SettingsService,
   ) {}
 
-  /** GET /admin/catalog/remote-sets — lista remota + estado local (imported/cardCount). */
+  /**
+   * GET /admin/catalog/remote-sets — lista remota + estado local (imported/cardCount).
+   *
+   * ROBUSTEZ (bug prod): si pokemontcg.io falla o rate-limitea, NO tiramos 500 crudo. Se
+   * **degrada con gracia** usando la lista LOCAL de sets (`CardSet` en BD) como fallback, para
+   * que M2 siga operable durante un rate-limit/sync. El shape del contrato se mantiene
+   * (`{ data: [...] }`); se añaden banderas opcionales `degraded`/`source` (no rompen el shape).
+   */
   async remoteSets() {
-    const remote = await this.client.getSets();
+    const counts = await this.localCardCountsByExternalSetId();
+    let remote: RemoteCardSet[];
+    try {
+      remote = await this.client.getSets();
+    } catch (e) {
+      this.logger.warn(
+        `remote-sets: pokemontcg.io no disponible (${(e as Error).message}); fallback a sets locales.`,
+      );
+      const localSets = await this.prisma.cardSet.findMany();
+      const data = localSets
+        .map((s) => ({
+          id: s.externalId,
+          name: s.name,
+          series: s.series ?? null,
+          releaseDate: s.releaseDate ?? null,
+          printedTotal: s.printedTotal ?? null,
+          imported: true, // si está local, ya fue importado
+          cardCount: counts.get(s.externalId) ?? 0,
+        }))
+        .sort((a, b) => (b.releaseDate ?? '').localeCompare(a.releaseDate ?? ''));
+      return { data, degraded: true, source: 'local' as const };
+    }
+
     const localSets = await this.prisma.cardSet.findMany({ select: { externalId: true } });
     const localExternalIds = new Set(localSets.map((s) => s.externalId));
-    const counts = await this.localCardCountsByExternalSetId();
 
     const data = remote
       .map((s) => ({
@@ -44,7 +72,7 @@ export class CatalogSyncService {
         cardCount: counts.get(s.id) ?? 0,
       }))
       .sort((a, b) => (b.releaseDate ?? '').localeCompare(a.releaseDate ?? ''));
-    return { data };
+    return { data, degraded: false, source: 'remote' as const };
   }
 
   /** POST /admin/catalog/sync — importa/actualiza cartas (set puntual o desde fecha). */
@@ -240,35 +268,47 @@ export class CatalogSyncService {
     });
   }
 
-  /** Upsert idempotente de cartas por externalId. `rarity` = String libre (rarezas modernas). */
+  /**
+   * Upsert idempotente de cartas por externalId. `rarity` = String libre (rarezas modernas).
+   *
+   * ROBUSTEZ (bug prod: "el sync importaba solo 1 carta por set"): cada carta se aísla en su
+   * propio try/catch. Si UNA carta truena (dato inválido del API, colisión inesperada, etc.) se
+   * REGISTRA y se CONTINÚA con las demás — nunca aborta la importación del set entero. Los campos
+   * requeridos ausentes se manejan con gracia (`number` → ''), y una carta sin `id`/`name` (no
+   * persistible) se omite con log en vez de reventar el barrido.
+   */
   private async upsertCards(cards: RemoteCard[], localSetId: string): Promise<number> {
     let count = 0;
     for (const c of cards) {
-      await this.prisma.card.upsert({
-        where: { externalId: c.id },
-        create: {
-          externalId: c.id,
-          setId: localSetId,
-          name: c.name,
-          number: c.number,
-          rarity: c.rarity ?? null,
-          supertype: c.supertype ?? null,
-          subtypes: c.subtypes ?? undefined,
-          imageSmallUrl: c.images?.small ?? null,
-          imageLargeUrl: c.images?.large ?? null,
-        },
-        update: {
-          setId: localSetId,
-          name: c.name,
-          number: c.number,
-          rarity: c.rarity ?? null,
-          supertype: c.supertype ?? null,
-          subtypes: c.subtypes ?? undefined,
-          imageSmallUrl: c.images?.small ?? null,
-          imageLargeUrl: c.images?.large ?? null,
-        },
-      });
-      count += 1;
+      if (!c?.id || !c?.name) {
+        this.logger.warn(
+          `sync: carta inválida omitida (id=${c?.id ?? '?'}, name=${c?.name ?? '?'}) — no aborta el set.`,
+        );
+        continue;
+      }
+      const data = {
+        setId: localSetId,
+        name: c.name,
+        number: c.number ?? '',
+        rarity: c.rarity ?? null,
+        supertype: c.supertype ?? null,
+        subtypes: c.subtypes ?? undefined,
+        imageSmallUrl: c.images?.small ?? null,
+        imageLargeUrl: c.images?.large ?? null,
+      };
+      try {
+        await this.prisma.card.upsert({
+          where: { externalId: c.id },
+          create: { externalId: c.id, ...data },
+          update: data,
+        });
+        count += 1;
+      } catch (e) {
+        // Una carta mala NO tira el set: se omite y se sigue (importación parcial > 1 carta).
+        this.logger.warn(
+          `sync: carta ${c.id} falló y se omite (no aborta el set): ${(e as Error).message}`,
+        );
+      }
     }
     return count;
   }

@@ -28,8 +28,10 @@ function pricingPending(): PricingService {
 
 function settings(): SettingsService {
   return {
-    getRaw: jest.fn().mockResolvedValue({ Common: 'comun' }),
-    getNumber: jest.fn().mockResolvedValue(100_000_000),
+    getRaw: jest.fn(async (key: string) =>
+      key === 'buylist_price_rules' ? { Common: { mode: 'fixed', value: 50 } } : {},
+    ),
+    getNumber: jest.fn(async (key: string) => (key === 'buylist_price_fallback_pct' ? 40 : 100_000_000)),
   } as unknown as SettingsService;
 }
 
@@ -58,7 +60,7 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
   it('CLABE propia (mismo HMAC almacenado) → OK y snapshot CIFRADO', async () => {
     const { prisma } = buildPrisma(pii.clabeBlindIndex(CLABE_A));
     const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
-    const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any, category: 'comun' as any }], CLABE_A);
+    const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A);
     expect(res.status).toBe('cotizada');
     // Snapshot persistido cifrado, no en claro.
     const snap = prisma.sellRequest.create.mock.calls[0][0].data.clabeSnapshotEnc;
@@ -74,14 +76,14 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
     const { prisma } = buildPrisma(pii.clabeBlindIndex(CLABE_A));
     const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
     await expect(
-      svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any, category: 'comun' as any }], CLABE_B),
+      svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_B),
     ).rejects.toMatchObject({ code: 'CLABE_NOT_OWN_NAME' });
   });
 
   it('sin KYC previa: primera CLABE se acepta y fija el blind index', async () => {
     const { prisma } = buildPrisma(null);
     const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
-    const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any, category: 'comun' as any }], CLABE_A);
+    const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A);
     expect(res.status).toBe('cotizada');
   });
 });

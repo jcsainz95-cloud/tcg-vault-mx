@@ -96,6 +96,22 @@ npm run build          # nest build → dist/
    (excepción, p. ej. DB transitoria) → se **propaga 5xx** para que **Stripe reintegre/reintente** y el
    evento **no** quede marcado como procesado. Es un refinamiento del texto del contrato (no un cambio de
    esquema/DTO); lo señalo por si el arquitecto quiere precisar la redacción de §9. **No bloquea.**
+5. **Shape de las LISTAS de buylist (fix de QA — crash de vistas).** QA reportó 2 bugs preexistentes: las
+   respuestas de **lista** no incluían las relaciones que el contrato/frontend esperan y crasheaban las
+   vistas.
+   - `GET /buylist/requests` (`listMine`, comprador) devolvía filas Prisma crudas **sin `items`** y con
+     `id` en vez de `sellRequestId`. `BuylistView` itera `r.items.map(...)` → `TypeError`. **Fix:** ahora
+     incluye `items: { include: { card: true } }` y mapea al shape **`SellRequestDTO`**
+     (`sellRequestId` + `items: SellItemDTO[]` vía `itemDTO`, con `rarity`/`appliedRule`/`card`).
+   - `GET /admin/buylist` (`adminList`, M5) incluía `items` **sin `card`**. `M5View` lee `it.card.name` →
+     `TypeError`. **Fix:** `items: { include: { card: true } }` y mapeo a **`AdminBuylistDTO`**
+     (`id`/`userId`/`quotedTotalCents`/`approvedTotalCents?`/`items[].card`).
+   - Regresión fijada por `test/buylist.list-shapes.spec.ts` (asserta el `include` y el shape de ambas
+     listas: un `include` faltante lo atrapa el test, no el runtime).
+   - **Filtro `deleted` en `GET /admin/users`:** el enum `UserStatus` ya incluye `deleted`; el filtro
+     `?status=` de la lista lo acepta trivialmente (el service pasa el string a `where.status`), sin
+     cambios de código. El `PATCH .../status` sigue restringido a `active|blocked` (el contrato fija
+     `deleted` solo por `DELETE /admin/users/:id`).
 
 ## 5. Variables de entorno faltantes / notas para **devops** (no edité `.env.example`)
 
@@ -957,3 +973,111 @@ enmascarado, ni lógica). Archivos: `modules/admin/admin.service.ts`,
 
 - **Ninguna.** Los 4 shapes se alinearon exactamente a `API_CONTRACT §M2/§M6/§M7/§M9`. No se
   editó el contrato ni la estructura de carpetas.
+
+---
+
+## 20. v1.3.1 — Precio de buylist por rareza + gestión de usuarios M6 + robustez del sync
+
+Ronda que implementa: (1) precio de buylist por **rareza oficial** (§E.1, criterios 12/12b/12c/18),
+(2) gestión de usuarios M6 (reset de contraseña + borrado híbrido), y (3) robustez del sync de catálogo
+(`remote-sets` degradado + import por carta aislado). Fuente: `API_CONTRACT §6/§M2/§M6` v1.3.1,
+`ARCHITECTURE §3.2/§4.2/§4.7bis/§4.8`.
+
+### 20.1 Precio de buylist por rareza (§E.1)
+
+- **Diales nuevos** (`settings.constants.ts`): `buylist_price_rules` (mapa
+  `{ [rarity]: { mode:'fixed'|'pct', value } }`) y `buylist_price_fallback_pct` (default **40**).
+  Validadores: `fixed`→entero ≥0 (centavos); `pct`→número en `[0,100]`; fallback en `[0,100]`. Se
+  exportan `validateBuylistRules` / `validateFallbackPct` (reusados por el editor M2). **NO** están en
+  `SETTING_DTO_MAP`: no se editan por `GET/PUT /admin/settings`, sino por los endpoints dedicados M2.
+- **Seed** (en `SETTING_DEFAULTS`, se siembra por `seed.ts`): `Common`/`Uncommon` = fixed 50c,
+  `Reverse Holo` = fixed 150c, fallback 40%. Preserva el negocio vigente (todo lo demás → 40% de la
+  referencia = antiguo `ex_plus`). `rarity_map` (`RARITY_MAP`) queda **DEPRECADO** en la ruta de
+  cotización (ya no se lee para el monto); sus endpoints `GET/PUT /admin/pricing/rarity-map` se conservan
+  como legacy/no-op (tests intactos).
+- **`quoteAcquisition` (money.ts) reescrito**: firma nueva
+  `quoteAcquisition(rarity, referenceMxnCents, rules, fallbackPct)` → `{ quotedPriceCents, status,
+  appliedRule, ruleSource }`. `fixed`→monto fijo (siempre cotiza); `pct`→`round(ref×value/100)`, sin ref
+  →`precio_pendiente`; rareza sin regla→fallback pct (`ruleSource='fallback'`). **SEC-A1 intacto**: la
+  rareza sale de `Card.rarity` (server-side), nunca del DTO.
+- **`BuylistService`**: `publicQuote` y el DTO de item exponen `rarity` + `appliedRule`
+  (`{mode,value,source}`) en vez de `category`. `createRequest` ya no recibe `category`
+  (`RequestItemDto` sin el campo; el ValidationPipe `whitelist` descarta cualquier `category` que envíe
+  el cliente) y snapshotea la regla aplicada por item. `categoryForRarity` eliminado; nuevo helper
+  `buylistRules()`.
+- **Endpoints M2 nuevos** (`PricingController`, super_admin, auditado
+  `pricing.buylist_rules.update`): `GET/PUT /admin/pricing/buylist-rules` (tabla + fallback, validación
+  estricta → `422 VALIDATION_ERROR`) y `GET /admin/pricing/rarities` (`distinct Card.rarity` vía
+  `groupBy` unido a las reglas; `source: rule|fallback`; ordenado por `cardCount` desc).
+- **Modelo/Migración M-14** (`20260816120000_m14_buylist_rules_by_rarity`): enum `BuylistRuleMode`
+  (`fixed|pct`); `SellRequestItem` gana `rarity`/`ruleMode`/`ruleValue`/`ruleSource`; `category` pasa a
+  **nullable** (retención legacy, nada nuevo lo escribe). No se borran datos.
+
+### 20.2 Gestión de usuarios M6 (super_admin, auditado)
+
+- **`POST /admin/users/:id/reset-password`** (`AdminService.resetPassword`): genera temp de alta
+  entropía (`randomBytes(18).base64url`), la hashea con **argon2** (como `/auth/register`), responde
+  `{ userId, tempPassword, mustChangePassword:true }` **una sola vez**. Revoca sesiones vía
+  `tokenVersion++` y setea `mustChangePassword`. La contraseña **nunca** se loguea ni entra al
+  `AuditLog` (solo `action=user.reset_password` + actor + target). `422 USER_DELETED` sobre cuenta ya
+  soft-deleted.
+- **`DELETE /admin/users/:id`** (`AdminService.deleteUser`): predicado "tiene transacciones" = ≥1 fila en
+  `Order`/`SellRequest`/`ShipmentRequest`/`Dispute`/`InventoryItem(ownerUserId)`. Falso → **hard delete**
+  (cascada + purga INE en R2). Verdadero → **soft delete** (`status=deleted`, `deletedAt`/`anonymizedAt`,
+  email→`deleted+<uuid>@anon.invalid`, `name`/`phone`/`avatarUrl`/`googleId`/`passwordHash` limpiados,
+  `tokenVersion++`; PII de `KycProfile` nulada + INE purgado; `BillingProfile`/`Address`/
+  `PortfolioSnapshot` borrados; filas económicas conservadas). Respuesta `{ userId, mode }`. Idempotente
+  sobre soft-deleted. `409 CANNOT_DELETE_SELF`. `AdminModule` importa `UploadsModule` para la purga de INE.
+- **`tokenVersion` cableado en el JWT**: `AuthService.issueTokens` incluye `tv` en el payload
+  (access+refresh). El **`JwtAuthGuard`** ahora consulta la BD por request y rechaza si la cuenta está
+  `blocked`/`deleted` o si `tv` no coincide con `User.tokenVersion` (revocación inmediata de sesiones).
+  `refresh()` valida lo mismo. `login`/`google` rechazan `deleted` con `403 USER_BLOCKED` (no revela
+  motivo). **Trade-off**: el guard hace un `SELECT` por request autenticada (correctitud de revocación
+  sobre latencia); cacheable a futuro si hace falta. Migración **M-15**
+  (`20260816130000_m15_user_management`): `UserStatus += deleted`; `User += deletedAt, anonymizedAt,
+  mustChangePassword, tokenVersion`.
+
+### 20.3 Robustez del sync de catálogo (bugs de producción)
+
+- **`GET /admin/catalog/remote-sets` ya no tira 500** cuando pokemontcg.io falla/rate-limitea: degrada
+  con gracia usando la lista **local** (`CardSet` en BD) como fallback. Shape del contrato intacto
+  (`{ data:[...] }`) + banderas opcionales `degraded`/`source` (`remote|local`).
+- **Import por carta aislado** (fix "el sync importaba solo 1 carta por set"): `upsertCards` envuelve
+  cada `card.upsert` en try/catch — una carta con dato inválido se **omite con log** y **no aborta** el
+  set; `number` faltante → `''`; carta sin `id`/`name` se salta. `importSet` devuelve el `cardCount`
+  **real** importado. La paginación (`importRemainingPages`) recorre todas las páginas por
+  `totalCount/pageSize` (verificado con test).
+- **Retry/backoff en el cliente** (`PokemonTcgIoClient.getJson`): reintenta ante `429` y `5xx`
+  transitorios (hasta 4 veces), respetando `Retry-After` si viene, o backoff exponencial. Un 429 a media
+  importación ya no aborta el barrido del set.
+
+### 20.4 Tests (unitarios, propios)
+
+- `test/money.spec.ts` (actualizado): `quoteAcquisition` por regla — fixed/pct/fallback/pending + redondeo.
+- `test/buylist.modern-rarity.spec.ts` (reescrito): `publicQuote` con fallback %, pending, regla fixed y
+  pct granular por rareza.
+- `test/buylist.security.spec.ts` / `test/buylist.clabe-pii.spec.ts` (actualizados): SEC-A1 ahora sobre
+  rareza real + `appliedRule`; ítems sin `category`.
+- `test/pricing.buylist-rules.spec.ts` (nuevo): GET/PUT `buylist-rules` (+validación 422 de
+  mode/rango/fallback) y `rarities` (join catálogo↔reglas, orden, `source`, omite null).
+- `test/admin.user-management.spec.ts` (nuevo): reset-password (hashea, revoca, no expone claro,
+  USER_DELETED), delete híbrido (hard sin transacciones + purga INE, soft con transacciones + anonimiza,
+  409 self, idempotente).
+- `test/catalog.remote-sets-fallback.spec.ts` (nuevo): fallback local en fallo remoto; 2ª carta que
+  truena no deja el set en 1; paginación multi-página.
+- Integración: `test/integration/buylist.e2e-spec.ts` actualizado al nuevo contrato (rarity/appliedRule,
+  sin `category`) para QA.
+
+### 20.5 Gates (desde `backend/`)
+
+- `npm run lint` ✅ · `npm run typecheck` ✅ · `npm test` ✅ **217 tests / 39 suites**
+  (antes 197/36; +20 tests, +3 suites) · `npm run build` ✅.
+- Migraciones aplicadas a un Postgres 16 limpio (`prisma migrate deploy` OK) y **sin drift**
+  (`prisma migrate diff` = "No difference detected"); `seed.ts` siembra los 2 diales nuevos.
+
+### 20.6 Discrepancias con el contrato
+
+- **Ninguna.** Todo se alineó a `API_CONTRACT §6/§M2/§M6` v1.3.1. No se editó el contrato ni la
+  estructura de carpetas. Nota para el arquitecto (no bloqueante): `remote-sets` añade campos
+  **opcionales** `degraded`/`source` no listados en el contrato (no rompen el shape `{data}`); si se
+  prefieren fuera del contrato, se pueden ocultar.

@@ -343,3 +343,120 @@ bloqueen. `npm audit` **sin cambios** (2 moderate, mismo aviso SSE no alcanzable
   bloqueada por infra (R2/Railway sin configurar). Requisito previo a producción (§6). En cuanto haya
   staging, ejecutar CORS cross-origin real, abuso de throttle del cotizador (scraping),
   concurrencia de `sync-all` multi-instancia y ZAP/nuclei.
+
+---
+
+# ANEXO rev v1.5 (2026-08-16) — Bloque v1.3.1: reset-password admin, borrado híbrido, revocación de sesiones, precio por rareza, M2 buylist-rules/rarities
+
+> **Alcance:** superficies nuevas del bloque v1.3.1: `POST /admin/users/:id/reset-password`,
+> `DELETE /admin/users/:id` (hard/soft), revocación por `tokenVersion` en `JwtAuthGuard` + auth,
+> precio de buylist por **rareza** (`common/money.ts` `quoteAcquisition` + `buylist.service.ts`),
+> y los endpoints M2 `PUT/GET /admin/pricing/buylist-rules` y `GET /admin/pricing/rarities`.
+> **Modo:** revisión **estática** de código + `npm audit --omit=dev`. Sin stack vivo → DAST sigue
+> **pendiente** (§6). Blanco autorizado: staging/local.
+
+## B.0 Resumen del bloque
+Bloque **endurecido**. Los cinco focos del encargo se verificaron **OK en código**; **0 Críticos /
+0 Altos**. `npm audit --omit=dev` **sin cambio** (2 moderate, mismo aviso SSE `@nestjs/core` **no
+alcanzable** — 0 coincidencias de `@Sse|MessageEvent|text/event-stream` en `backend/src`). No hay
+hallazgos nuevos bloqueantes. Deuda previa sin cambio (S-M1 aceptada; S-B1/S-B2/residuo S-B3
+aceptados, §5).
+
+## B.1 Reset de contraseña admin — **OK · [Verificado en código]**
+- **AuthZ:** `admin.controller.ts:99-113` `@Roles(super_admin)` a nivel de método (además del
+  `@Roles(vault_operator, super_admin)` de clase → el método restringe a super_admin). `RolesGuard`
+  global es la autoridad.
+- **Temp password nunca persistida en claro ni logueada:** `admin.service.ts:171-190` genera
+  `randomBytes(18).toString('base64url')` (144 bits de entropía), la **hashea con argon2** y persiste
+  **solo el hash**. `git grep tempPassword` → únicamente generación/hash/retorno; **no** aparece en
+  logger, AuditLog ni respuesta persistida. La **única exposición** es el cuerpo de la respuesta HTTP
+  (una vez). El AuditLog (`controller.ts:104-111`) registra `user.reset_password` con actor+target,
+  **sin** before/after → la contraseña **no** entra a la bitácora.
+- **Revocación de sesiones:** `tokenVersion: { increment: 1 }` (`:186`) invalida access/refresh
+  previos (ver B.3). `mustChangePassword: true` fuerza cambio en el próximo login.
+- **Cuenta borrada:** rechaza reset sobre `status==='deleted'` con `USER_DELETED` (`:174-176`).
+
+## B.2 Borrado híbrido hard/soft — **OK · [Verificado en código]** (1 residuo Bajo + 1 bandera legal)
+- **CANNOT_DELETE_SELF:** `admin.service.ts:214-216` → `409` si `id===actorUserId`. **Antes** de
+  cualquier lectura/escritura. Idempotente sobre cuentas ya `deleted` (`:224-226`).
+- **Purga de INE en R2 en AMBOS modos:** `purgeIne` (`:238`) corre antes de decidir hard/soft →
+  el dato de máxima sensibilidad se elimina siempre.
+- **Hard (sin transacción):** solo cuando NO hay filas económicas (`orders+sellRequests+shipments+
+  disputes+ownedItems === 0`, `:228-235`) → `user.delete` con cascada (KYC/Billing/Address/Snapshot).
+- **Soft (transacción):** anonimización **efectiva** de PII directa — `kycProfile` pone a `null`
+  `clabeEnc/clabeHmac/rfcEnc/legalName/ineFrontKey/ineBackKey` (`:249-259`); `billingProfile`,
+  `address` y `portfolioSnapshot` se **eliminan** (`:263-265`); `user` reescribe
+  `email=deleted+<uuid>@anon.invalid`, `name='Usuario eliminado'`, `phone/avatarUrl/googleId/
+  passwordHash=null` y `tokenVersion++` (`:266-281`). No quedan restos de PII **directa** en las
+  tablas de perfil. Auditado con `{mode}` únicamente (`controller.ts:123-130`), sin volcar PII.
+- **Bandera legal (no bloqueante, para el humano):** por diseño (PROJECT "conserva filas económicas
+  por integridad legal") las filas retenidas conservan **snapshots** que pueden contener PII:
+  `Order.billingSnapshot` (JSON del perfil fiscal — `rfcEnc` cifrado, pero nombre/razón social y
+  domicilio fiscal pueden ir en claro dentro del JSON) y `SellRequest.clabeSnapshotEnc` (CLABE
+  **cifrada**). El `userId` se conserva (seudonimización). **No es defecto de código** — es la
+  retención económica documentada — pero el **derecho de supresión (LFPDPPP)** no alcanza a esos
+  snapshots. Debe confirmarse con abogado/contador la base legal y el plazo de retención (se suma a
+  la bandera de PII de §6). **Rol dueño (si se decide minimizar):** backend/arquitecto.
+- **Residuo Bajo (aceptado):** en **hard delete**, `purgeIne` traga el error de R2 (lo loguea,
+  `:199-201`) y continúa con `user.delete`; si el borrado del objeto R2 falla, la fila y las
+  `ineFrontKey/ineBackKey` se pierden por cascada → **objeto INE huérfano** en el bucket con las
+  keys perdidas (el job de retención ya no lo alcanza). Impacto: dato cifrado huérfano, no expuesto
+  (bucket privado). **Disparador:** cerrar con lifecycle/retención a nivel de bucket en R2
+  **[devops]**; opcional, reordenar para exigir purga R2 antes del delete **[backend]**.
+
+## B.3 Revocación de sesiones (`tokenVersion`) — **OK · [Verificado en código]**
+- **Guard:** `jwt-auth.guard.ts:52-63` — tras verificar la firma (HS256 fijo, `:45`), consulta
+  `User.status` + `tokenVersion` y rechaza con `401` si `!user || status∈{blocked,deleted} ||
+  payload.tv !== user.tokenVersion`. Un reset/soft-delete (que hacen `tokenVersion++`) invalida
+  **todos** los access tokens vivos de inmediato.
+- **Refresh:** `auth.service.ts:190-199` aplica la **misma** guardia (status + `tv`) → un refresh
+  con versión previa ya no renueva.
+- **Login / Google:** `login` (`:111-113`) y `google` (`:139-141`, `:176-178`) rechazan
+  `blocked`/`deleted` con `USER_BLOCKED` (mismo code, sin revelar motivo). El account-linking de
+  Google también corta en cuentas `blocked/deleted` antes de enlazar. Los tokens nuevos embeben el
+  `tv` vigente (`issueTokens`, `:46`).
+- **Nota (no seguridad):** el guard añade **un `findUnique` por request autenticado**. Correcto para
+  revocación inmediata; a escala, considerar cache corto. No es hueco.
+
+## B.4 Precio de buylist por rareza (SEC-A1) — **OK · [Verificado en código]**
+- **Derivación server-side:** `money.ts:66-89` `quoteAcquisition(rarity, ref, rules, fallbackPct)`
+  resuelve la regla por **exact match sobre `Card.rarity`**; `buylist.service.ts:116,122,131` toma
+  `card.rarity` de la carta real (`prisma.card.findUnique`), **no** del DTO. El cliente ya **no**
+  envía `category` (`:17` comentario + DTO). Un DTO malicioso **no puede inflar** `quotedTotalCents`.
+- **fixed** no depende de referencia (siempre cotiza); **pct** sin referencia → `precio_pendiente`
+  + escala al dueño (`:123-124`) — no se descarta ni se paga de más. Regla aplicada snapshotea
+  `rarity/ruleMode/ruleValue/ruleSource` para auditoría.
+
+## B.5 Endpoints M2 buylist-rules / rarities — **OK · [Verificado en código]**
+- **AuthZ:** `PricingController` (`pricing.controller.ts:50-51`) `@Roles(super_admin)` a nivel de
+  clase → `buylist-rules` (GET/PUT), `rarities`, `rarity-map` heredan super_admin.
+- **Validadores:** `PUT buylist-rules` (`:144-176`) llama `validateBuylistRules` +
+  `validateFallbackPct` (`settings.constants.ts:100-124`): `fixed → entero ≥ 0` (centavos),
+  `pct → número en [0,100]`, `fallbackPct → [0,100]`; error → `422 VALIDATION_ERROR`. No se pueden
+  meter reglas absurdas (negativos, pct>100, mode inválido).
+- **Auditoría:** registra `pricing.buylist_rules.update` con **before/after** (`:168-174`). Surte
+  efecto sin redeploy (persistido en `ConfigSetting`). `rarities` (`:183-203`) solo lee catálogo
+  (`groupBy rarity`) + reglas; sin fuga de datos sensibles.
+
+## B.6 `npm audit --omit=dev` (backend) — **SIN CAMBIO**
+- Esta sesión (2026-08-16): **2 moderate, 0 high, 0 critical** — mismo aviso `@nestjs/core` /
+  `@nestjs/platform-express` (GHSA-36xv-jgw5-4q75 / CVE-2026-35515, SSE injection). `git grep` de
+  `@Sse|SseStream|MessageEvent|text/event-stream` en `backend/src` → **0 coincidencias** → **no
+  alcanzable**. Idéntico a v1.3/v1.4 (S-M1, aceptado con disparador; fix = major NestJS 10→11).
+
+## B.7 VEREDICTO del bloque v1.3.1
+
+**VEREDICTO seguridad (revisión estática): APROBADO.**
+- **0 Críticos / 0 Altos.** Reset-password (super_admin, argon2, temp password nunca
+  logueada/persistida en claro/auditada, `tokenVersion++`), borrado híbrido (CANNOT_DELETE_SELF,
+  INE purgado en ambos modos, anonimización efectiva de PII directa, auditado), revocación por
+  `tokenVersion` (guard + login/google/refresh rechazan viejos/`deleted`/`blocked`), precio por
+  rareza server-side (SEC-A1 intacto) y endpoints M2 (super_admin + auditados + validadores
+  pct[0,100]/fixed≥0) están **correctos**.
+- **Deuda/banderas no bloqueantes:** bandera legal sobre PII en snapshots económicos retenidos
+  (`Order.billingSnapshot` / `SellRequest.clabeSnapshotEnc`) frente al derecho de supresión — a
+  validar con abogado; residuo Bajo del INE huérfano en hard delete si falla la purga R2 (cerrar con
+  lifecycle de bucket, devops). S-M1/S-B1/S-B2/residuo S-B3 sin cambio (§5).
+- **PENDIENTE, no aprobado a ciegas:** la **fase dinámica (DAST/pentester contra staging)** sigue
+  bloqueada por infra (R2/Railway sin configurar). Requisito previo a producción (§6): abuso de
+  reset/delete concurrente, revocación de sesión en caliente, y ZAP/nuclei.

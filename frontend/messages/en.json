@@ -278,7 +278,11 @@
     "searchResults": "Results",
     "noResults": "No cards match that filter. Try another set or term.",
     "selectedCard": "Selected card",
-    "chooseCardFirst": "Pick a card from the results to get a quote."
+    "chooseCardFirst": "Pick a card from the results to get a quote.",
+    "rarityLabel": "Rarity",
+    "appliedRuleLabel": "Applied rule",
+    "ruleFixed": "{amount} fixed",
+    "rulePct": "{pct}% of reference"
   },
   "ine": {
     "front": "INE (front)",
@@ -359,7 +363,9 @@
     "google": {
       "cta": "Continue with Google",
       "connecting": "Connecting…"
-    }
+    },
+    "mustChangePassword": "You signed in with a temporary password. You must change it to protect your account.",
+    "mustChangeContinue": "Continue"
   },
   "admin": {
     "shellTitle": "Back-office",
@@ -506,7 +512,10 @@
         "rate": "Rate",
         "buffer": "Buffer",
         "source": "Source",
-        "sourceLabel": { "banxico": "Banxico (automatic)", "manual": "Manual (override)" },
+        "sourceLabel": {
+          "banxico": "Banxico (automatic)",
+          "manual": "Manual (override)"
+        },
         "effectiveDate": "Effective",
         "newRate": "New rate",
         "newBuffer": "New buffer %",
@@ -540,6 +549,30 @@
         "backfillDone": "Backfill: {count} sets imported, {remaining} remaining.",
         "syncAllDone": "Full sync queued: {count} sets.",
         "syncAllUnavailable": "Full sync isn't available on the backend; use per-set sync or backfill."
+      },
+      "buylistRules": {
+        "title": "Buylist price by rarity",
+        "subtitle": "Define a rule per official rarity: fixed amount (MX$) or percentage (% of reference). Rarities without a rule use the fallback. Takes effect without redeploy and is audited.",
+        "fallbackLabel": "Fallback (%)",
+        "fallbackHint": "Applies to rarities without an explicit rule (new or unconfigured).",
+        "rarity": "Rarity",
+        "cardCount": "Cards",
+        "mode": "Mode",
+        "value": "Value",
+        "source": "Source",
+        "valueMxn": "Amount (MX$)",
+        "valuePct": "Percentage",
+        "modeFor": "Mode for {rarity}",
+        "valueFor": "Value for {rarity}",
+        "modeLabel": {
+          "fixed": "Fixed (MX$)",
+          "pct": "Percentage (%)"
+        },
+        "sourceLabel": {
+          "rule": "Rule",
+          "fallback": "Fallback"
+        },
+        "saved": "Buylist rules saved."
       }
     },
     "m6": {
@@ -589,7 +622,29 @@
       "block": "Block",
       "unblock": "Reactivate",
       "blockQuestion": "Block this user? They won't be able to log in.",
-      "unblockQuestion": "Reactivate this user's account?"
+      "unblockQuestion": "Reactivate this user's account?",
+      "deleted": "Deleted",
+      "accountTitle": "Account management",
+      "resetHint": "Reset the password and generate a temporary one to share with the user; revokes their active sessions.",
+      "resetPassword": "Reset password",
+      "resetError": "Could not reset the password.",
+      "resetTitle": "Temporary password",
+      "resetOnce": "This password is shown ONCE. Copy it now; you will not be able to see it again.",
+      "tempPassword": "Temporary password",
+      "copy": "Copy",
+      "copied": "Copied",
+      "resetShareNote": "Share it with the user through a secure channel. They must sign in with it and change it.",
+      "resetMustChangeNote": "The user must change the password on their next sign-in.",
+      "deleteHint": "Delete the account. If it has financial history it is anonymized (history kept); otherwise it is fully deleted.",
+      "deleteUser": "Delete user",
+      "deleteSelfHint": "You cannot delete your own account.",
+      "deleteConfirm": "Delete",
+      "deleteQuestion": "Are you sure you want to delete this account? This action cannot be undone.",
+      "deleteModeNote": "If the user has orders, buylist, shipments or disputes, the account is anonymized and history is kept; otherwise it is fully deleted.",
+      "deleteError": "Could not delete the user.",
+      "deleteSelfError": "You cannot delete your own account.",
+      "deleteResultHard": "Account fully deleted (hard delete).",
+      "deleteResultSoft": "Account anonymized; history kept for reconciliation."
     },
     "m10": {
       "title": "M10 · Config & audit log",
@@ -714,7 +769,10 @@
     "en": "EN"
   },
   "status": {
-    "ownership": { "pending": "Pending", "settled": "Settled" },
+    "ownership": {
+      "pending": "Pending",
+      "settled": "Settled"
+    },
     "order": {
       "pending": "Processing",
       "settled": "Settled",
@@ -750,7 +808,10 @@
       "pagada": "Paid",
       "convertida_inventario": "In inventory"
     },
-    "price": { "pending": "Price pending", "priced": "Priced" },
+    "price": {
+      "pending": "Price pending",
+      "priced": "Priced"
+    },
     "sealedSubtype": {
       "box": "Booster Box",
       "etb": "ETB",

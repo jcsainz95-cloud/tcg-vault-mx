@@ -31,6 +31,8 @@ import type {
   FxDTO,
   PendingPriceEntryDTO,
   RarityMapEntryDTO,
+  BuylistRule,
+  BuylistRaritiesResponse,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
   AdminUserSummaryDTO,
@@ -369,9 +371,9 @@ export const mockSellRequests: SellRequestDTO[] = [
     ineRequired: false,
     createdAt: '2026-08-12T14:00:00Z',
     items: [
-      { id: 'sri-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', category: 'ex_plus', quotedPriceCents: 50000, itemStatus: 'verificacion' },
-      { id: 'sri-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', category: 'comun', quotedPriceCents: 50, itemStatus: 'recibida' },
-      { id: 'sri-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', category: 'reverse_holo', quotedPriceCents: 150, itemStatus: 'recibida' },
+      { id: 'sri-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', rarity: 'Rare Holo', appliedRule: { mode: 'pct', value: 40, source: 'fallback' }, quotedPriceCents: 50000, itemStatus: 'verificacion' },
+      { id: 'sri-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', rarity: 'Common', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 50, itemStatus: 'recibida' },
+      { id: 'sri-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', rarity: 'Reverse Holo', appliedRule: { mode: 'fixed', value: 150, source: 'rule' }, quotedPriceCents: 150, itemStatus: 'recibida' },
     ],
   },
 ];
@@ -476,7 +478,7 @@ export const mockAdminBuylist: AdminBuylistDTO[] = [
     quotedTotalCents: 1200,
     createdAt: '2026-08-13T08:00:00Z',
     items: [
-      { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', category: 'ex_plus', quotedPriceCents: 1200, itemStatus: 'recibida' },
+      { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', rarity: 'Uncommon', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 1200, itemStatus: 'recibida' },
     ],
   },
 ];
@@ -564,7 +566,7 @@ export function resolveMockPending(id: string) {
   mockPendingPrices = mockPendingPrices.filter((p) => p.id !== id);
 }
 
-/** Tabla rareza→categoría del buylist (contrato GET/PUT /admin/pricing/rarity-map). */
+/** Tabla rareza→categoría del buylist (DEPRECADO v1.3.1; legacy). */
 export let mockRarityMap: RarityMapEntryDTO[] = [
   { rarity: 'Common', category: 'comun' },
   { rarity: 'Uncommon', category: 'comun' },
@@ -576,6 +578,50 @@ export let mockRarityMap: RarityMapEntryDTO[] = [
 ];
 export function setMockRarityMap(entries: RarityMapEntryDTO[]) {
   mockRarityMap = entries;
+}
+
+/**
+ * Precio de buylist por RAREZA (v1.3.1). Seed que preserva el comportamiento vigente:
+ * Common/Uncommon fijo $0.50, Reverse Holo fijo $1.50, resto = fallback 40% de la
+ * referencia. `value` = centavos si mode=fixed; porcentaje [0,100] si mode=pct.
+ */
+export let mockBuylistRules: Record<string, BuylistRule> = {
+  Common: { mode: 'fixed', value: 50 },
+  Uncommon: { mode: 'fixed', value: 50 },
+  'Reverse Holo': { mode: 'fixed', value: 150 },
+};
+export let mockBuylistFallbackPct = 40;
+export function setMockBuylistRules(rules: Record<string, BuylistRule>, fallbackPct?: number) {
+  mockBuylistRules = rules;
+  if (fallbackPct != null) mockBuylistFallbackPct = fallbackPct;
+}
+
+/** Resuelve la regla de una rareza: fila explícita o fallback (pct por defecto). */
+export function resolveBuylistRule(rarity: string): { rule: BuylistRule; source: 'rule' | 'fallback' } {
+  const explicit = mockBuylistRules[rarity];
+  if (explicit) return { rule: explicit, source: 'rule' };
+  return { rule: { mode: 'pct', value: mockBuylistFallbackPct }, source: 'fallback' };
+}
+
+/**
+ * Rarezas distintas del catálogo (mockCards) UNIDAS a las reglas, ordenadas por
+ * cardCount desc (contrato GET /admin/pricing/rarities).
+ */
+export function mockBuylistRarities(): BuylistRaritiesResponse {
+  const counts = new Map<string, number>();
+  for (const c of mockCards) {
+    if (!c.rarity) continue; // el sellado no lleva rareza
+    counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
+  }
+  // Incluir también rarezas con regla explícita aunque no estén en el catálogo mock.
+  for (const r of Object.keys(mockBuylistRules)) if (!counts.has(r)) counts.set(r, 0);
+  const rarities = [...counts.entries()]
+    .map(([rarity, cardCount]) => {
+      const { rule, source } = resolveBuylistRule(rarity);
+      return { rarity, cardCount, rule, source };
+    })
+    .sort((a, b) => b.cardCount - a.cardCount);
+  return { fallbackPct: mockBuylistFallbackPct, rarities };
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */

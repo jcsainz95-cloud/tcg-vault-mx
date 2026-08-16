@@ -34,37 +34,58 @@ export function computeAportacionCostCents(referenceMxnCents: number, aportacion
   return Math.round(referenceMxnCents * (aportacionPct / 100));
 }
 
-/** Cotización del buylist. AcquisitionPricer. ARCHITECTURE §4.2. */
-export type BuylistCategory = 'comun' | 'reverse_holo' | 'ex_plus';
+/**
+ * AcquisitionPricer (buylist) — tabla de precio por RAREZA OFICIAL. ARCHITECTURE §4.2 (v1.3.1).
+ * Reemplaza el esquema de 3 categorías (BuylistCategory). El monto se resuelve con la regla
+ * por rareza real de la carta (`Card.rarity`), editable en M2.
+ */
+export type BuylistRuleMode = 'fixed' | 'pct';
+/** value = centavos MXN si mode='fixed'; porcentaje [0,100] de la referencia si mode='pct'. */
+export interface BuylistRule {
+  mode: BuylistRuleMode;
+  value: number;
+}
 
 export interface AcquisitionQuote {
   quotedPriceCents: number | null;
   status: 'cotizada' | 'precio_pendiente';
+  /** Regla efectivamente aplicada (explícita o fallback). */
+  appliedRule: BuylistRule;
+  /** "rule" = fila explícita en BUYLIST_PRICE_RULES; "fallback" = BUYLIST_PRICE_FALLBACK_PCT. */
+  ruleSource: 'rule' | 'fallback';
 }
 
 /**
- * AcquisitionPricer (función pura). ARCHITECTURE §4.2.
- * común = MX$0.50 (50c), reverse_holo = MX$1.50 (150c), ex_plus = round(referencia × 0.40).
- * EX+ sin referencia → precio_pendiente (nunca se descarta; escala al dueño).
+ * AcquisitionPricer (función pura, v1.3.1). ARCHITECTURE §4.2.
+ * - Busca la regla por la RAREZA OFICIAL real (exact match sobre `Card.rarity`). Sin regla → fallback %.
+ * - fixed → monto fijo en centavos; NO depende de la referencia → siempre 'cotizada'.
+ * - pct   → round(referencia × value/100). Si falta referencia → 'precio_pendiente' (escala al dueño).
+ *
+ * SEC-A1: la `rarity` se deriva server-side de la carta real, nunca del DTO del cliente.
  */
 export function quoteAcquisition(
-  category: BuylistCategory,
+  rarity: string | null,
   referenceMxnCents: number | null,
+  rules: Record<string, BuylistRule>,
+  fallbackPct: number,
 ): AcquisitionQuote {
-  switch (category) {
-    case 'comun':
-      return { quotedPriceCents: 50, status: 'cotizada' };
-    case 'reverse_holo':
-      return { quotedPriceCents: 150, status: 'cotizada' };
-    case 'ex_plus':
-      return referenceMxnCents == null
-        ? { quotedPriceCents: null, status: 'precio_pendiente' }
-        : { quotedPriceCents: Math.round(referenceMxnCents * 0.4), status: 'cotizada' };
-    default: {
-      const _exhaustive: never = category;
-      throw new Error(`Unknown buylist category: ${_exhaustive as string}`);
-    }
+  const explicit = rarity != null ? rules[rarity] : undefined;
+  const rule: BuylistRule = explicit ?? { mode: 'pct', value: fallbackPct };
+  const ruleSource: 'rule' | 'fallback' = explicit ? 'rule' : 'fallback';
+
+  if (rule.mode === 'fixed') {
+    return { quotedPriceCents: rule.value, status: 'cotizada', appliedRule: rule, ruleSource };
   }
+  // pct
+  if (referenceMxnCents == null) {
+    return { quotedPriceCents: null, status: 'precio_pendiente', appliedRule: rule, ruleSource };
+  }
+  return {
+    quotedPriceCents: Math.round((referenceMxnCents * rule.value) / 100),
+    status: 'cotizada',
+    appliedRule: rule,
+    ruleSource,
+  };
 }
 
 export interface BreakdownDTO {

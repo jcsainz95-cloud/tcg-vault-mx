@@ -27,6 +27,16 @@ enum Locale {
 enum UserStatus {
   active
   blocked
+  // v1.3.1 (M-15): cuenta soft-deleted/anonimizada. Login (local y Google) la rechaza con
+  // 403 USER_BLOCKED. Solo se alcanza vía DELETE /admin/users/:id (soft); PATCH .../status no.
+  deleted
+}
+
+// v1.3.1 (M-14): naturaleza de la regla de precio de buylist por rareza.
+// fixed = monto MX$ en centavos; pct = % de la referencia de mercado. Reemplaza BuylistCategory.
+enum BuylistRuleMode {
+  fixed
+  pct
 }
 
 enum ProductType {
@@ -207,6 +217,14 @@ model User {
   googleId     String?      @unique
   emailVerified Boolean      @default(false)
   avatarUrl    String?
+  // v1.3.1 (M-15): gestión de cuenta por admin (M6).
+  // `mustChangePassword` lo activa el reset admin (opcional de consumir por el front).
+  // `tokenVersion` se INCREMENTA en reset/soft-delete: el JWT lo lleva y el guard rechaza
+  // los tokens (access/refresh) con versión previa → revoca sesiones vivas.
+  deletedAt          DateTime?
+  anonymizedAt       DateTime?
+  mustChangePassword Boolean   @default(false)
+  tokenVersion       Int       @default(0)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -568,7 +586,14 @@ model SellRequestItem {
   card            Card            @relation(fields: [cardId], references: [id])
   productType     ProductType
   rawCondition    RawCondition?
-  category        BuylistCategory
+  // v1.3.1 (M-14): la cotización ya NO usa `category` (BuylistCategory). Se snapshotea la
+  // REGLA POR RAREZA aplicada (auditoría). `category` queda NULLABLE/legacy (retención de
+  // filas históricas); nada nuevo lo escribe. Ver ARCHITECTURE §3.2/§4.2.
+  category        BuylistCategory?
+  rarity          String?
+  ruleMode        BuylistRuleMode?
+  ruleValue       Int?
+  ruleSource      String?         // "rule" (fila explícita) | "fallback" (BUYLIST_PRICE_FALLBACK_PCT)
   quotedPriceCents Int?
   approvedPriceCents Int?
   itemStatus      SellItemStatus  @default(cotizada)

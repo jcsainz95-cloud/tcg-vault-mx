@@ -3,16 +3,20 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, KeyRound, Trash2, Copy, Check } from 'lucide-react';
 import {
   getAdminUsers,
   getAdminUser,
   updateUserKyc,
   updateUserStatus,
+  resetUserPassword,
+  deleteUser,
   type AdminUsersFilters,
 } from '@/lib/api';
-import type { AdminUserSummaryDTO, KycStatus } from '@/types/contract';
+import type { AdminUserSummaryDTO, KycStatus, ResetPasswordResponse, DeleteUserResponse } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
+import { ApiClientError } from '@/lib/api-client';
+import { useSession } from '@/lib/session';
 import { formatMoneyCents, formatDate } from '@/lib/format';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -101,6 +105,54 @@ export function M6View() {
     },
   });
 
+  // --- Reset de contraseña (super_admin): la temp password se muestra UNA sola vez ---
+  const session = useSession();
+  const isSelf = !!session.user && session.user.id === selectedId;
+  const [resetResult, setResetResult] = useState<ResetPasswordResponse | null>(null);
+  const [copied, setCopied] = useState(false);
+  const resetMutation = useMutation({
+    mutationFn: () => resetUserPassword(selectedId!),
+    onSuccess: (res) => {
+      setCopied(false);
+      setResetResult(res);
+    },
+  });
+
+  async function copyTempPassword() {
+    if (!resetResult) return;
+    try {
+      await navigator.clipboard.writeText(resetResult.tempPassword);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  // --- Eliminar usuario (super_admin): híbrido hard/soft; 409 CANNOT_DELETE_SELF ---
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<DeleteUserResponse | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteUser(selectedId!),
+    onSuccess: (res) => {
+      setDeleteResult(res);
+      qc.invalidateQueries({ queryKey: ['admin-user', selectedId] });
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+    },
+    onError: (err) => {
+      const code = err instanceof ApiClientError ? err.code : undefined;
+      setDeleteError(code === 'CANNOT_DELETE_SELF' ? t('deleteSelfError') : t('deleteError'));
+    },
+  });
+
+  // El borrador de reset/borrado no cruza entre usuarios.
+  useEffect(() => {
+    setResetResult(null);
+    setDeleteResult(null);
+    setDeleteError(null);
+    setDeleteOpen(false);
+  }, [selectedId]);
+
   const columns: Column<AdminUserSummaryDTO>[] = [
     { key: 'name', header: t('table.name'), render: (u) => <span className="font-medium">{u.name}</span> },
     { key: 'email', header: t('table.email'), render: (u) => <span className="tabular text-muted">{u.email}</span> },
@@ -108,12 +160,7 @@ export function M6View() {
     {
       key: 'status',
       header: t('table.status'),
-      render: (u) =>
-        u.status === 'blocked' ? (
-          <Badge tone="danger" shape="soft">{t('blocked')}</Badge>
-        ) : (
-          <Badge tone="success" shape="soft">{t('active')}</Badge>
-        ),
+      render: (u) => <UserStatusBadge status={u.status} t={t} />,
     },
     { key: 'createdAt', header: t('table.created'), render: (u) => formatDate(u.createdAt, locale) },
     {
@@ -220,11 +267,7 @@ export function M6View() {
               <div className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-h3 font-semibold">{d.name}</span>
-                  {d.status === 'blocked' ? (
-                    <Badge tone="danger">{t('blocked')}</Badge>
-                  ) : (
-                    <Badge tone="success">{t('active')}</Badge>
-                  )}
+                  <UserStatusBadge status={d.status} t={t} />
                   <Badge tone="neutral">{d.role}</Badge>
                   {d.authProvider && <Badge tone="info">{d.authProvider}</Badge>}
                 </div>
@@ -297,21 +340,120 @@ export function M6View() {
               )}
 
               {/* Bloquear / activar */}
-              <div className="flex items-center justify-between border-t border-border pt-3">
-                <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
-                {d.status === 'blocked' ? (
-                  <Button variant="secondary" onClick={() => setBlockTarget('active')}>
-                    {t('unblock')}
-                  </Button>
-                ) : (
-                  <Button variant="destructive" onClick={() => setBlockTarget('blocked')}>
-                    {t('block')}
-                  </Button>
-                )}
-              </div>
+              {d.status !== 'deleted' && (
+                <div className="flex items-center justify-between border-t border-border pt-3">
+                  <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
+                  {d.status === 'blocked' ? (
+                    <Button variant="secondary" onClick={() => setBlockTarget('active')}>
+                      {t('unblock')}
+                    </Button>
+                  ) : (
+                    <Button variant="destructive" onClick={() => setBlockTarget('blocked')}>
+                      {t('block')}
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {/* Gestión de cuenta (super_admin): reset de contraseña + eliminar */}
+              {d.status !== 'deleted' && (
+                <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+                  <span className="text-sm font-semibold">{t('accountTitle')}</span>
+                  {/* Reset de contraseña */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="max-w-md text-xs text-muted">{t('resetHint')}</p>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={resetMutation.isPending}
+                      onClick={() => resetMutation.mutate()}
+                    >
+                      <KeyRound size={16} /> {t('resetPassword')}
+                    </Button>
+                  </div>
+                  {resetMutation.isError && (
+                    <Banner variant="danger" role="alert">{t('resetError')}</Banner>
+                  )}
+                  {/* Eliminar usuario */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                    <p className="max-w-md text-xs text-muted">{t('deleteHint')}</p>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={isSelf}
+                      onClick={() => { setDeleteError(null); setDeleteResult(null); setDeleteOpen(true); }}
+                    >
+                      <Trash2 size={16} /> {t('deleteUser')}
+                    </Button>
+                  </div>
+                  {isSelf && <p className="text-xs text-muted">{t('deleteSelfHint')}</p>}
+                </div>
+              )}
             </div>
           )}
         </QueryState>
+      </Modal>
+
+      {/* Modal de contraseña temporal — se muestra UNA sola vez */}
+      <Modal
+        open={!!resetResult}
+        onClose={() => setResetResult(null)}
+        title={t('resetTitle')}
+        footer={
+          <Button onClick={() => setResetResult(null)}>{tc('close')}</Button>
+        }
+      >
+        {resetResult && (
+          <div className="flex flex-col gap-4">
+            <Banner variant="warning">{t('resetOnce')}</Banner>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs uppercase tracking-wide text-muted">{t('tempPassword')}</span>
+              <div className="flex items-center gap-2">
+                <code className="tabular flex-1 rounded-md border border-border bg-surface-2 px-3 py-2 text-base font-semibold">
+                  {resetResult.tempPassword}
+                </code>
+                <Button size="sm" variant="secondary" onClick={copyTempPassword} aria-label={t('copy')}>
+                  {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? t('copied') : t('copy')}
+                </Button>
+              </div>
+            </div>
+            <p className="text-sm text-muted">{t('resetShareNote')}</p>
+            {resetResult.mustChangePassword && (
+              <p className="text-sm text-muted">{t('resetMustChangeNote')}</p>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal de eliminación — confirmación y resultado (hard/soft) */}
+      <Modal
+        open={deleteOpen}
+        onClose={() => { setDeleteOpen(false); if (deleteResult) setSelectedId(null); }}
+        title={t('deleteUser')}
+        footer={
+          deleteResult ? (
+            <Button onClick={() => { setDeleteOpen(false); setSelectedId(null); }}>{tc('close')}</Button>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setDeleteOpen(false)}>{tc('cancel')}</Button>
+              <Button variant="destructive" loading={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
+                {t('deleteConfirm')}
+              </Button>
+            </>
+          )
+        }
+      >
+        {deleteResult ? (
+          <Banner variant="success" role="status">
+            {deleteResult.mode === 'hard' ? t('deleteResultHard') : t('deleteResultSoft')}
+          </Banner>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <p>{t('deleteQuestion')}</p>
+            <p className="text-sm text-muted">{t('deleteModeNote')}</p>
+            {deleteError && <Banner variant="danger" role="alert">{deleteError}</Banner>}
+          </div>
+        )}
       </Modal>
 
       {/* Confirmación de bloqueo/activación */}
@@ -338,6 +480,18 @@ export function M6View() {
       </Modal>
     </div>
   );
+}
+
+function UserStatusBadge({
+  status,
+  t,
+}: {
+  status: 'active' | 'blocked' | 'deleted';
+  t: (key: string) => string;
+}) {
+  if (status === 'deleted') return <Badge tone="neutral" shape="soft">{t('deleted')}</Badge>;
+  if (status === 'blocked') return <Badge tone="danger" shape="soft">{t('blocked')}</Badge>;
+  return <Badge tone="success" shape="soft">{t('active')}</Badge>;
 }
 
 function SummaryCount({ label, value }: { label: string; value: number }) {

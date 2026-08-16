@@ -3,9 +3,10 @@
 > **Nombre comercial / marca:** **TCG Vault MX**. Es el nombre que se usa en la interfaz, la
 > comunicación y los términos. "Marketplace TCG con Bóveda" es solo el título descriptivo del proyecto.
 >
-> Estado: borrador para aprobación del humano. Todas las decisiones de alcance y de negocio están
-> cerradas; no quedan preguntas abiertas bloqueantes. Lo único no fijado son las **metas de
-> lanzamiento N/X/Y/Z**, que el humano define al momento de lanzar (no bloquean el desarrollo).
+> Estado: borrador para aprobación del humano. Las decisiones previas siguen cerradas, PERO el **requisito
+> v1.3 (precio de buylist por rareza)** introduce **preguntas abiertas pendientes de respuesta** (ver la
+> sección al final). Lo único no fijado del alcance previo son las **metas de lanzamiento N/X/Y/Z**, que el
+> humano define al momento de lanzar (no bloquean el desarrollo).
 > **Actualización 2026-08-14**: incorporadas 8 decisiones de alcance aprobadas (raw solo NM +
 > nomenclatura/política, sección "Compra" con inventario propio, rarezas modernas y filtro de set con año,
 > venta de sellado con precio manual, gráfica de tendencia del portafolio, login con Google, sync de
@@ -25,6 +26,12 @@
 > **object storage / R2 vuelve al alcance del MVP acotado SOLO al INE** (`kyc_ine`). **Todo lo demás de la
 > v1.2 permanece intacto** (producto sin fotos, gradeadas = empresa+grado+`certNumber`, raw NM sin foto,
 > disputa por correo a soporte, CLABE cifrada en BD).
+> **Requisito v1.3 (2026-08-16, EN REVISIÓN por el humano — reabre preguntas):** el pago del buylist deja de
+> calcularse por **3 categorías hardcodeadas** (común/reverse/EX+) y pasa a una **tabla de precio por rareza
+> oficial de Pokémon**, donde **cada rareza** tiene una regla **fijo (MX$)** o **porcentaje (% de la
+> referencia)**, **editable desde el back-office (M2)**. Ver §E.1 (nueva), M2, criterios 12/12b/12c/18 y la
+> sección **"Preguntas abiertas — precio de buylist por rareza (v1.3)"** al final. **Este bloque tiene
+> preguntas abiertas pendientes**; el resto del documento sigue cerrado.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -149,10 +156,14 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 
 ### E. Buylist — compra de raw a usuarios (cotizador público + solicitud)
 - [ ] **Cotizador público**: el usuario elige carta (la **condición es fija en Near Mint (NM)**, único
-      grado que compramos) y ve una cotización automática:
-      - comunes: **MX$0.50**
-      - reverse holo: **MX$1.50**
-      - EX o superior: **40% del precio de referencia**
+      grado que compramos) y ve una cotización automática calculada con la **tabla de precio por rareza**
+      configurable desde el back-office (ver **§E.1** y **M2**). El monto por rareza usa **rarezas oficiales de
+      Pokémon** (las de pokemontcg.io) y cada rareza aplica una regla **fijo (MX$)** o **porcentaje (% de la
+      referencia)**. **Valores por defecto** (editables por el dueño; preservan el comportamiento actual):
+      - **Common**: **MX$0.50** (regla **fijo**)
+      - **Reverse Holo**: **MX$1.50** (regla **fijo**)
+      - **EX o superior** (Rare Holo EX/GX/V/VMAX/VSTAR, Ultra Rare, Illustration Rare, Special Illustration
+        Rare, Hyper Rare, Secret Rare, etc.): **40% del precio de referencia** (regla **porcentaje**)
 - [ ] **Política de compra NM-only (enfatizada)**: "Solo compramos cartas en **Near Mint (NM)**; si al
       recibir/verificar no está en NM, no se compra." Visible en el **cotizador**, la **guía de envío** y los
       **términos**. Carta recibida no-NM → **rechazo (no se paga)** → devolución según plazos (§H: 7 días,
@@ -175,6 +186,44 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       (`INE_RETENTION_DAYS`, default **180**); la **CLABE se guarda cifrada en BD**.
       (Ver soporte AML en "Riesgos y banderas para el humano".)
 
+### E.1 Precio de buylist por rareza (configurable desde admin) — NUEVO (v1.3)
+> Reemplaza el esquema de **3 categorías internas hardcodeadas** (común / reverse holo / EX+) por una
+> **tabla de precio por rareza** editable desde el back-office. Objetivo del humano: (1) usar las **rarezas
+> oficiales de Pokémon** (las que trae pokemontcg.io) en vez de 3 categorías internas, y (2) que el **monto a
+> pagar por cada rareza sea un campo configurable desde el admin**, sin tocar código.
+- [ ] **Regla por rareza (fijo o porcentaje)**: para **cada rareza** la tabla define una regla con **dos
+      naturalezas posibles**, ambas editables desde admin:
+      - **FIJO (MX$)**: monto fijo en pesos (caso bulk). **No requiere** precio de referencia → siempre cotiza.
+      - **PORCENTAJE (% de la referencia de mercado)**: se paga un % del **precio de referencia** del día. Si
+        la carta **no tiene referencia** → queda **"precio pendiente"** y se escala al dueño (comportamiento
+        actual; nunca se descarta).
+      - Motivación: un **monto fijo no tiene sentido para rarezas de alto valor** (una carta cara vale un % de
+        mercado, no un fijo); por eso las rarezas altas usan **porcentaje**.
+- [ ] **Defaults por rareza (preservan el comportamiento actual; el dueño puede ajustar cada uno)**:
+      - **Bulk = FIJO**: Common **MX$0.50**, Reverse Holo **MX$1.50**.
+      - **Holo / EX+ y superiores = PORCENTAJE**: Rare Holo, Rare Holo EX/GX/V/VMAX/VSTAR, Ultra Rare,
+        Illustration Rare, Special Illustration Rare, Hyper Rare, Secret Rare, etc. → **40% de la referencia**.
+      - *(SUPUESTO: el seed de defaults reproduce EXACTAMENTE el resultado de hoy — Common $0.50 fijo, Reverse
+        Holo $1.50 fijo, cualquier otra rareza = 40% de la referencia. La clasificación fijo/% de rarezas
+        intermedias como **Uncommon** y **Rare** (no-holo) queda pendiente de confirmación del humano; ver
+        preguntas abiertas.)*
+- [ ] **Fuente de rarezas = catálogo sincronizado + fallback** (recomendado): la lista de rarezas a
+      configurar se **deriva de las rarezas distintas presentes en el catálogo ya sincronizado** (`Card.rarity`),
+      para que el dueño solo configure **las que realmente existen**. Para una **rareza nueva o no listada**
+      (aparece tras un sync) se aplica una **regla de fallback configurable** (default **% de la referencia**,
+      mismo valor que EX+) para **no bloquear** la cotización de cartas sin regla explícita.
+      *(SUPUESTO: el fallback es "% default" y NO deja la carta en "precio pendiente" por sí solo; solo cae en
+      "precio pendiente" si además falta la referencia. Alternativa a decidir por el humano: que una rareza sin
+      regla quede en "precio pendiente" hasta que el dueño la configure. Ver preguntas abiertas.)*
+- [ ] **Dónde se edita = M2 (Catálogo y precios)** (recomendado, por ser pricing; no M10): editor con una fila
+      por rareza — **rareza → regla (fijo/%) + valor** — editable **sin deploy** y **auditado** (bitácora M10).
+      Reemplaza la **tabla rareza→categoría del buylist** actual.
+- [ ] **Compatibilidad / migración**: la nueva tabla **reemplaza** el mapeo de 3 categorías (`RARITY_MAP` +
+      categorías común/reverse/EX+), pero el **seed inicial reproduce el comportamiento de negocio vigente**
+      (defaults de arriba) para **no romper cotizaciones en curso**. Se mantiene la **derivación server-side**
+      del monto: el precio a pagar se calcula en el backend a partir de la **rareza real de la carta**, nunca
+      del DTO del cliente (no se debilita la protección anti-manipulación existente).
+
 ### F. Back-office / herramienta de administración (M1–M10) — parte central del MVP
 Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una **cola con estados**.
 - [ ] **M1 — Inventario y bóveda**: alta de items **sin foto propia** (se usa la **imagen de catálogo de
@@ -184,8 +233,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M2 — Catálogo y precios**: **sync de precios** de las cartas en bóveda desde las fuentes según tipo
       (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; **sellado con precio
       manual del admin en MXN**, sin fuente automática en el MVP), **override manual** de precio siempre
-      disponible, **cache diario**, **tipo de cambio USD→MXN con colchón** configurable, tabla
-      **rareza → categoría del buylist**. **Sync de catálogo** desde la fuente de referencia (pokemontcg.io):
+      disponible, **cache diario**, **tipo de cambio USD→MXN con colchón** configurable, y **editor de precio
+      de buylist por rareza** (una fila por rareza oficial: **regla fijo/% + valor**, ver §E.1; reemplaza la
+      antigua tabla rareza→categoría). **Sync de catálogo** desde la fuente de referencia (pokemontcg.io):
       por defecto importa **sets de 2024 en adelante** y permite **backfill** de colecciones anteriores por
       **lotes automatizados** + **importación puntual** de sets; captura las **rarezas modernas** (Art/
       Illustration Rare, Special Illustration Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare,
@@ -445,10 +495,19 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     `solicitado → picking → guía → enviado → entregado`.
 
 **Buylist**
-12. El cotizador público devuelve la cotización correcta por regla: común = MX$0.50, reverse holo =
-    MX$1.50, EX o superior = 40% del precio de referencia.
-13. Una carta de buylist sin precio de referencia entra a la **cola de precio pendiente** y no se cotiza
-    automáticamente hasta que el dueño fija su precio.
+12. El cotizador público devuelve la cotización según la **tabla de precio por rareza** (§E.1): aplica la
+    **regla configurada por rareza** —**fijo (MX$)** o **porcentaje (% de la referencia)**— y con el **seed
+    por defecto** reproduce el comportamiento actual: **Common = MX$0.50 (fijo)**, **Reverse Holo = MX$1.50
+    (fijo)**, **EX o superior = 40% de la referencia (porcentaje)**.
+12b. El **súper-admin edita en M2** la regla y el valor de **cada rareza** (fijo/% + monto) y el cambio
+    **surte efecto sin redeploy** y queda **auditado** en la bitácora (M10); una rareza con regla **fijo** cotiza
+    **sin** necesidad de referencia, y una con regla **porcentaje** cotiza como % de la referencia del día.
+12c. La lista de rarezas configurables se **deriva del catálogo sincronizado** (rarezas distintas en `Card`);
+    una **rareza no listada** aplica la **regla de fallback configurable** (default % de la referencia) y **no
+    bloquea** la cotización *(sujeto a confirmación del humano — ver preguntas abiertas)*.
+13. Una carta de buylist con regla de **porcentaje** pero **sin precio de referencia** entra a la **cola de
+    precio pendiente** y no se cotiza automáticamente hasta que el dueño fija su precio (las de regla **fijo**
+    siempre cotizan).
 14. El sistema bloquea solicitudes que excedan el **tope por solicitud** (default MX$3,000) o el **tope
     mensual** (default MX$10,000) del usuario, exige **INE** cuando se supera el tope configurado, y solo
     permite registrar pago SPEI a una CLABE a nombre del propio usuario. El **INE se pide en el paso de pago
@@ -468,8 +527,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 18. En M2 se puede sincronizar precios de las cartas en bóveda desde la fuente que corresponde a cada tipo
     (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; el **sellado** se pricia
     con **precio manual del admin en MXN**), hacer **override manual** siempre, y configurar el **tipo de
-    cambio USD→MXN con colchón**, la **tabla rareza→categoría de buylist** y el **`PricingProvider`** por
-    tipo de producto.
+    cambio USD→MXN con colchón**, el **editor de precio de buylist por rareza** (regla fijo/% + valor, ver
+    §E.1) y el **`PricingProvider`** por tipo de producto.
 19. En M3 una orden refleja los estados `pending/settled/fallida/reembolsada/contracargo` con desglose
     que incluye la **línea de Stripe**, y el súper-admin puede emitir un **reembolso**.
 20. En M4 existe una **lista de picking ordenada por ubicación**.
@@ -633,3 +692,27 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
   ventas `settled`, buylist aprobadas/pagadas, retiros sin disputa, ventana 30–60 días). No bloquean el
   desarrollo del MVP.
+
+## Preguntas abiertas — precio de buylist por rareza (v1.3)
+> Este requisito (§E.1) está redactado con supuestos razonables para no bloquear. El humano debe confirmar o
+> corregir los siguientes puntos antes de pasar al arquitecto. Los defaults propuestos preservan el
+> comportamiento actual, así que el desarrollo puede arrancar con ellos si el humano lo autoriza.
+1. **Defaults exactos por rareza — rarezas intermedias**: ¿confirmas que el seed inicial reproduce lo de hoy
+   (Common $0.50 fijo, Reverse Holo $1.50 fijo, todo lo demás 40% de referencia)? En particular: **Uncommon**
+   y **Rare (no-holo)** — ¿los quieres como **fijo tipo bulk** (¿qué monto, p. ej. $0.50?) o como **% de la
+   referencia** (¿qué %)?
+2. **Fallback de rareza no listada**: cuando aparezca una **rareza nueva** tras un sync y el dueño aún no le
+   fijó regla, ¿prefieres (a) aplicar **% default** (ej. 40%) para no bloquear la cotización —recomendado—, o
+   (b) dejar la carta en **"precio pendiente"** hasta que el dueño la configure? (Con (a), la carta solo cae en
+   "precio pendiente" si además falta la referencia.)
+3. **¿Un % global de referencia editable, o % por rareza?** El default propone **40% para todas las rarezas
+   de porcentaje**, pero como cada fila es editable podrías fijar **% distinto por rareza** (ej. Illustration
+   Rare 45%, Secret Rare 35%). ¿Quieres esa granularidad desde el MVP o basta un % común para todas las de
+   porcentaje?
+4. **Alcance de la tabla — ¿solo buylist?** Este precio por rareza es para la **compra al usuario (buylist)**.
+   ¿Se queda acotado a buylist (recomendado) o esperas que afecte también otros cálculos (p. ej. costo de
+   aportación en especie del inventario propio, hoy 70% de referencia)?
+5. **Ubicación del editor**: propongo **M2 (Catálogo y precios)** por ser pricing. ¿De acuerdo, o lo prefieres
+   en **M10 (Config)** junto a los demás diales?
+6. **Monedas/límites de valores**: ¿algún **rango válido** por regla (ej. % entre 0–100, fijo ≥ $0) o **tope
+   máximo** de pago por rareza que quieras imponer como salvaguarda?

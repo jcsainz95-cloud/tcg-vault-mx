@@ -4,6 +4,26 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 > Estado: v1.3 (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
 >
+> **Changelog v1.3.1 (2026-08-16)** — **Precio de buylist por RAREZA OFICIAL** (PROJECT.md §E.1, criterios
+> 12/12b/12c/18). Reemplaza el esquema de **3 categorías hardcodeadas** (`RARITY_MAP` + `BuylistCategory`
+> `comun|reverse_holo|ex_plus`) por una **tabla de regla por rareza**, editable en **M2** sin redeploy:
+> - **Nuevos `SettingKey`:** `BUYLIST_PRICE_RULES` (`buylist_price_rules`, mapa `{ [rarity]: { mode:
+>   'fixed'|'pct', value } }`) y `BUYLIST_PRICE_FALLBACK_PCT` (`buylist_price_fallback_pct`, default **40**).
+>   `RARITY_MAP` (`rarity_map`) queda **DEPRECADO** (ya no lo lee la cotización). Ver §3.2 (ConfigSetting) y §4.2.
+> - **§4.2 reescrito:** `AcquisitionPricer` resuelve el monto por **regla de rareza** (fixed → monto fijo;
+>   pct → % de la referencia; sin regla → `BUYLIST_PRICE_FALLBACK_PCT`). Se mantiene la derivación
+>   **server-side** desde `Card.rarity` real (guardarraíl SEC-A1 intacto).
+> - **Modelo:** `SellRequestItem` deja de depender de `category` (BuylistCategory) y snapshotea la **regla
+>   aplicada** (`rarity`, `ruleMode`, `ruleValue`, `ruleSource`). Enum nuevo `BuylistRuleMode = fixed | pct`.
+>   **Migración M-14** (backend). `BuylistCategory` y `category` quedan deprecados (retención legacy).
+> - **Endpoints M2 nuevos (backend):** `GET/PUT /admin/pricing/buylist-rules` y `GET /admin/pricing/rarities`
+>   (rarezas distintas del catálogo unidas a las reglas). `GET/PUT /admin/pricing/rarity-map` **deprecados**.
+> - **Contrato buylist:** `POST /buylist/quote` y `SellItemDTO` exponen `rarity` + `appliedRule` en vez de
+>   `category`; `POST /buylist/requests` ya **no** recibe `category` del cliente. Ver `API_CONTRACT.md §6, §M2`.
+> - **Seed (preserva negocio):** Common **$0.50** fixed, Uncommon **$0.50** fixed, Reverse Holo **$1.50** fixed,
+>   fallback **40%**; todo lo demás cae al fallback (40% de la referencia). Alcance: **solo buylist** (la
+>   aportación en especie sigue en 70%, dial aparte).
+>
 > **Changelog v1.3 (2026-08-16)** — Cotizador **Opción 1** (buylist sobre todo el catálogo) y confirmación del
 > estado del back-office:
 > - **Nuevo §4.10:** cotizador que cotiza **cualquier** carta de la tabla `Card` — endpoints nuevos de backend
@@ -159,8 +179,14 @@ PendingPriceEntry (cola de precio pendiente)
 
 ### 3.2 Entidades
 
-#### User (+ rol)  — **MIGRACIÓN v1.1 (campos de auth Google)**
-- `id` (uuid), `email` (único), `passwordHash` (**nullable** — null para cuentas creadas solo con Google), `role` (`customer | vault_operator | super_admin`), `name`, `phone?`, `locale` (`es|en`, default `es`), `status` (`active | blocked`), `createdAt`, `updatedAt`.
+#### User (+ rol)  — **MIGRACIÓN v1.1 (campos de auth Google)**, **v1.3.1 (M6: soft-delete + reset admin)**
+- `id` (uuid), `email` (único), `passwordHash` (**nullable** — null para cuentas creadas solo con Google), `role` (`customer | vault_operator | super_admin`), `name`, `phone?`, `locale` (`es|en`, default `es`), `status` (`active | blocked | deleted`), `createdAt`, `updatedAt`.
+- **Gestión de cuenta (v1.3.1, MIGRACIÓN M-15):** `deletedAt` (`DateTime?`), `anonymizedAt` (`DateTime?`),
+  `mustChangePassword` (`Boolean @default(false)` — lo activa el reset admin; opcional de consumir por el front),
+  y `tokenVersion` (`Int @default(0)` — se **incrementa** en reset/soft-delete para **revocar refresh tokens**
+  vigentes; el JWT lleva el `tokenVersion` y el guard rechaza los que no coinciden). El valor `deleted` de
+  `UserStatus` marca cuenta soft-deleted/anonimizada; `POST /auth/login` y `/auth/google` la rechazan con
+  `403 USER_BLOCKED` (no revela el motivo).
 - **Auth provider (nuevo):** `authProvider` (enum `local | google`, default `local`), `googleId` (`String? @unique` — `sub` del ID token de Google), `emailVerified` (`Boolean @default(false)`), `avatarUrl` (`String?`).
 - El comprador es siempre `customer`. `vault_operator` y `super_admin` son cuentas de back-office.
 - **Reglas de auth Google (ver §4.7):**
@@ -253,7 +279,15 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - Regla: **pago SPEI tras recepción y verificación**, decidido carta por carta (cherry-pick).
 
 #### SellRequestItem
-- `id`, `sellRequestId`, `cardId`, `productType`, `rawCondition?`, `category` (`comun | reverse_holo | ex_plus`), `quotedPriceCents?` (null si precio pendiente), `approvedPriceCents?`, `itemStatus` (`cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario`), `inventoryItemId?` (al convertir).
+- `id`, `sellRequestId`, `cardId`, `productType`, `rawCondition?`, `quotedPriceCents?` (null si precio pendiente), `approvedPriceCents?`, `itemStatus` (`cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario`), `inventoryItemId?` (al convertir).
+- **Regla de precio aplicada (v1.3.1 — snapshot para auditoría, reemplaza `category`):**
+  - `rarity?` (String — snapshot de `Card.rarity` al cotizar; taxonomía abierta pokemontcg.io).
+  - `ruleMode?` (**enum `BuylistRuleMode = fixed | pct`** — modo de la regla aplicada).
+  - `ruleValue?` (Int — centavos si `fixed`, porcentaje si `pct`).
+  - `ruleSource?` (`rule | fallback` — si vino de una fila explícita de `BUYLIST_PRICE_RULES` o del fallback).
+- **`category` (DEPRECADO, MIGRACIÓN M-14):** la columna `category` (BuylistCategory) queda **nullable/legacy**;
+  la cotización v1.3.1 ya **no** la lee ni la escribe (se conserva solo por retención de filas históricas). El
+  enum `BuylistCategory` permanece en el schema por compatibilidad, marcado deprecado; nada nuevo lo usa.
 - **v1.2: sin `photoKeys`** — el buylist no sube fotos de la carta (no hay upload salvo `kyc_ine`); la verificación NM se hace contra la carta física recibida y la imagen de catálogo. El campo `photoKeys` queda eliminado/sin uso (M-13).
 
 #### Dispute (M8 — condición raw/sellado)
@@ -263,11 +297,17 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - **Política VENTAS FINALES:** la recompra es una **compensación**; el **cliente conserva la carta** y la carta **NO** regresa al inventario (sin `InventoryMovement`, sin re-listar). Solo se registra el pago de recompra (money-out, súper-admin, auditado).
 
 #### ConfigSetting (M10 — diales editables sin deploy)
-- `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `sales_markup_pct`, `stripe_fee_pct`, `stripe_fee_fixed_cents`, `stripe_fee_iva_pct`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `fx_manual_override_rate`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`, **`catalog_sync_from_date`** (default `"2024/01/01"`, frontera por defecto del sync de catálogo)), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
+- `key` (PK, ej. `shipping_fee_cents`, `aportacion_pct`, `iva_pct`, `sales_markup_pct`, `stripe_fee_pct`, `stripe_fee_fixed_cents`, `stripe_fee_iva_pct`, `buylist_cap_per_request_cents`, `buylist_cap_per_month_cents`, `ine_threshold_cents`, `repo_cap_per_card_cents`, `fx_buffer_pct`, `fx_manual_override_rate`, `pricing_provider_raw`, `pricing_provider_graded`, `pricing_provider_sealed`, **`catalog_sync_from_date`** (default `"2024/01/01"`, frontera por defecto del sync de catálogo), **`buylist_price_rules`** y **`buylist_price_fallback_pct`** (v1.3.1, tabla de precio de buylist por rareza)), `valueJson` (JSONB, tipado por key), `updatedBy`, `updatedAt`.
 - Defaults iniciales: envío 17500, aportación 70, IVA 16, **markup de venta configurable (`sales_markup_pct`)**, **tarifa Stripe MX para el gross-up: `stripe_fee_pct`, `stripe_fee_fixed_cents` y `stripe_fee_iva_pct` (IVA sobre la comisión de Stripe, fracción `[0,1)`, default 0.16)**, tope solicitud 300000, tope mes 1000000, INE = tope solicitud, colchón FX configurable + override manual, providers según tabla de PROJECT.
+- **Buylist por rareza (v1.3.1):**
+  - `buylist_price_rules` (JSONB) = `{ [rarity]: { mode: 'fixed'|'pct', value } }`. Seed: `{ "Common": {fixed,50}, "Uncommon": {fixed,50}, "Reverse Holo": {fixed,150} }`. **Validador:** objeto (no array); cada entrada `{ mode, value }` con `mode ∈ {fixed,pct}`; si `fixed` → `value` **entero ≥ 0** (centavos); si `pct` → `value` **número en `[0,100]`**. Rechaza modos/valores fuera de rango (`422 VALIDATION_ERROR`).
+  - `buylist_price_fallback_pct` (número) = **40** por defecto. **Validador:** número en `[0,100]`.
+  - **NO** se exponen en el DTO de settings de M10 (`GET/PUT /admin/settings`); se editan por endpoints dedicados de M2 (`GET/PUT /admin/pricing/buylist-rules`, ver `API_CONTRACT §M2`). Toda edición se **audita** (`AuditLog action=pricing.buylist_rules.update`).
+- **`rarity_map` (DEPRECADO v1.3.1):** el dial `rarity_map` (`RARITY_MAP`) y sus endpoints `GET/PUT /admin/pricing/rarity-map` quedan **deprecados**; la cotización ya no los lee. Se conservan como no-op/legacy hasta su retiro; no se siembran en despliegues nuevos.
 
 #### AuditLog (M10 — bitácora global)
-- `id`, `actorUserId`, `actorRole`, `action` (string, ej. `order.refund`, `sellrequest.pay_spei`, `settings.update`, `inventory.mark_damaged`, `catalog.sync`, `catalog.backfill`, `auth.google_link`), `entityType`, `entityId`, `before?` (JSONB), `after?` (JSONB), `ip?`, `createdAt`.
+- `id`, `actorUserId`, `actorRole`, `action` (string, ej. `order.refund`, `sellrequest.pay_spei`, `settings.update`, `inventory.mark_damaged`, `catalog.sync`, `catalog.backfill`, `auth.google_link`, `pricing.buylist_rules.update`, `user.reset_password`, `user.delete`), `entityType`, `entityId`, `before?` (JSONB), `after?` (JSONB), `ip?`, `createdAt`.
+- **PII/secretos NUNCA en `before`/`after`:** acciones sobre credenciales/PII (`user.reset_password`, `user.delete`) registran solo IDs/flags/`mode`, **nunca** la contraseña temporal ni la PII anonimizada.
 - **Toda acción de back-office se registra**, en especial los intentos bloqueados de dinero saliente por operador (queda registrado y bloqueado) y las **operaciones de sync de catálogo** (`catalog.remote_sets`, `catalog.sync`, `catalog.backfill`; ver §4.8, auditadas).
 
 #### PortfolioSnapshot (gráfica de tendencia del portafolio) — **MIGRACIÓN v1.1 (modelo nuevo)**
@@ -420,26 +460,87 @@ Implementaciones MVP:
 4. Si el provider devuelve `null` y no hay override → crea `PendingPriceEntry` y expone el estado **"precio pendiente"** (no vendible; escalado al dueño).
 5. Respeta rate-limit del free tier vía cola BullMQ.
 
-### 4.2 AcquisitionPricer (buylist)
-Función pura (pseudocódigo):
+### 4.2 AcquisitionPricer (buylist) — tabla de precio por RAREZA OFICIAL (v1.3.1)
+
+> **Reemplaza** el esquema de 3 categorías (`RARITY_MAP` + `BuylistCategory`). El monto a pagar por el buylist
+> se resuelve con una **regla por rareza oficial de Pokémon** (la de `Card.rarity`, tal cual pokemontcg.io),
+> editable desde **M2** sin redeploy. PROJECT.md §E.1, criterios 12/12b/12c/18.
+
+**Modelo de config (diales M2, persistidos en `ConfigSetting`):**
+- `BUYLIST_PRICE_RULES` (`buylist_price_rules`): mapa **`{ [rarity: string]: BuylistRule }`** donde
+  `BuylistRule = { mode: 'fixed' | 'pct', value: number }`.
+  - `mode='fixed'` → `value` = **monto MX$ en centavos** (entero ≥ 0). **No requiere** referencia de mercado → siempre cotiza.
+  - `mode='pct'`  → `value` = **porcentaje** (número en `[0, 100]`) del **precio de referencia** del día.
+- `BUYLIST_PRICE_FALLBACK_PCT` (`buylist_price_fallback_pct`): **porcentaje** (default **40**) que se aplica a
+  cualquier rareza **sin regla explícita** (rareza nueva tras un sync, o no configurada). Es un `pct` implícito.
+
+**Función pura (pseudocódigo — reemplaza a `quoteAcquisition(category, ref)`):**
 ```ts
-function quoteAcquisition(category: BuylistCategory, referenceMxnCents: number|null): {
-  quotedPriceCents: number|null; status: 'cotizada'|'precio_pendiente';
-} {
-  switch (category) {
-    case 'comun':        return { quotedPriceCents: 50,  status: 'cotizada' };     // MX$0.50
-    case 'reverse_holo': return { quotedPriceCents: 150, status: 'cotizada' };     // MX$1.50
-    case 'ex_plus':      return referenceMxnCents == null
-                           ? { quotedPriceCents: null, status: 'precio_pendiente' }
-                           : { quotedPriceCents: Math.round(referenceMxnCents * 0.40), status: 'cotizada' };
+type BuylistRuleMode = 'fixed' | 'pct';
+interface BuylistRule { mode: BuylistRuleMode; value: number; }   // value = cents si fixed, % si pct
+
+function quoteAcquisition(
+  rarity: string | null,
+  referenceMxnCents: number | null,
+  rules: Record<string, BuylistRule>,       // BUYLIST_PRICE_RULES
+  fallbackPct: number,                       // BUYLIST_PRICE_FALLBACK_PCT (default 40)
+): { quotedPriceCents: number|null; status: 'cotizada'|'precio_pendiente';
+     appliedRule: BuylistRule; ruleSource: 'rule'|'fallback'; } {
+  // 1) Busca regla por la RAREZA OFICIAL real (exact match sobre Card.rarity).
+  const explicit = rarity != null ? rules[rarity] : undefined;
+  const rule: BuylistRule = explicit ?? { mode: 'pct', value: fallbackPct };  // sin regla → fallback %
+  const ruleSource = explicit ? 'rule' : 'fallback';
+
+  // 2) FIXED: monto fijo en centavos; nunca depende de la referencia → siempre 'cotizada'.
+  if (rule.mode === 'fixed') {
+    return { quotedPriceCents: rule.value, status: 'cotizada', appliedRule: rule, ruleSource };
   }
+  // 3) PCT: % de la referencia; si falta referencia → 'precio_pendiente' (escala al dueño, nunca se descarta).
+  if (referenceMxnCents == null) {
+    return { quotedPriceCents: null, status: 'precio_pendiente', appliedRule: rule, ruleSource };
+  }
+  return { quotedPriceCents: Math.round(referenceMxnCents * rule.value / 100),
+           status: 'cotizada', appliedRule: rule, ruleSource };
 }
 ```
-La categoría (`comun|reverse_holo|ex_plus`) se deriva de la rareza vía la **tabla rareza→categoría** (dial M2/M10). La **condición de compra es siempre NM** (§3.5); no hay grados que discriminen la tarifa.
 
-**Rarezas modernas → categoría `ex_plus` (aclaración v1.1):** cualquier rareza **por encima de común/reverse-holo** cae en `ex_plus` = **40% del precio de referencia**. Esto incluye explícitamente las rarezas modernas de pokemontcg.io: Rare Holo EX, Rare Holo GX/V/VMAX/VSTAR, Illustration Rare, Special Illustration Rare, Art Rare, Ultra Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare, Radiant Rare, Amazing Rare, Rare Rainbow, Rare Secret, etc. La **tabla rareza→categoría** (dial M10, `pricing/rarity-map`) mapea cada valor de rareza observado a `comun | reverse_holo | ex_plus`; el **default para cualquier rareza no listada explícitamente como común/reverse es `ex_plus`** (regla "EX o superior").
+**SEC-A1 (guardarraíl intacto):** la `rarity` que determina el monto se **deriva server-side de la carta real**
+(`Card.rarity` por `cardId`), **nunca** del DTO del cliente. Un DTO malicioso no puede elegir regla ni inflar el
+monto; el cliente ya **no envía** `category` (removida del contrato). La **condición de compra es siempre NM**
+(§3.5); no hay grados que discriminen la tarifa.
 
-**Regla clave (cierre de ambigüedad):** una carta `ex_plus` **se cotiza sola (no queda pendiente) siempre que HAYA market price** (`referenceMxnCents != null`). Solo escala a **"precio pendiente"** (lado adquisición/admin, `SellItemStatus=precio_pendiente`) la que **realmente no tiene dato de mercado**. Las tarifas planas (`comun`=50, `reverse_holo`=150) nunca dependen del market price y por tanto **nunca** quedan pendientes. El "precio pendiente" es un estado de adquisición/back-office; **nunca** se muestra al comprador (regla de Compra, §4.9).
+**Fallback = % default (decisión del humano, PROJECT §E.1 / pregunta abierta 2 resuelta):** una rareza sin regla
+**no** deja la carta en "precio pendiente" por sí sola; se cotiza con `BUYLIST_PRICE_FALLBACK_PCT`. Solo cae en
+**"precio pendiente"** si la regla efectiva es `pct` **y** falta la referencia de mercado (`referenceMxnCents ==
+null`). Las reglas `fixed` **nunca** quedan pendientes (no dependen de la referencia). El "precio pendiente" es un
+estado de adquisición/back-office (`SellItemStatus=precio_pendiente`, escala al dueño vía `PendingPriceEntry`) y
+**nunca** se muestra al comprador (regla de Compra, §4.9).
+
+**Seed inicial (preserva el negocio vigente; editable por el dueño en M2):**
+```jsonc
+// BUYLIST_PRICE_RULES
+{
+  "Common":       { "mode": "fixed", "value": 50  },   // MX$0.50
+  "Uncommon":     { "mode": "fixed", "value": 50  },   // MX$0.50
+  "Reverse Holo": { "mode": "fixed", "value": 150 }    // MX$1.50
+}
+// BUYLIST_PRICE_FALLBACK_PCT = 40
+```
+Todo lo demás (Rare Holo, EX/GX/V/VMAX/VSTAR, Ultra Rare, Illustration Rare, Special Illustration Rare, Full Art,
+Alternate Art, Trainer Gallery, Character Rare, Radiant, Hyper/Secret/Rainbow, etc.) **cae al fallback = 40% de la
+referencia**, reproduciendo el resultado del antiguo `ex_plus`. **Granularidad por rareza (pregunta abierta 3
+resuelta):** cada fila tiene su propio `value`, así que el dueño puede fijar un % distinto por rareza (ej.
+Illustration Rare 45%, Secret Rare 35%) sin tocar código; el default es 40% para todas las de porcentaje.
+
+**NOTA para PO/humano (rareza `Rare` no-holo):** el `RARITY_MAP` legacy mapeaba `Rare` (no-holo) → `comun`
+($0.50 fijo). El seed v1.3.1, siguiendo la instrucción "todo lo demás = 40%", **no** siembra `Rare` como fixed,
+así que por defecto `Rare` cae al fallback 40%. Si el negocio quiere conservar $0.50 fijo para `Rare`, el dueño
+añade una fila `"Rare": { mode: "fixed", value: 50 }` en M2 (cambio de dato, sin deploy). Cambio deliberado y
+reversible desde el editor.
+
+**Alcance = solo buylist (pregunta abierta 4 resuelta):** esta tabla afecta **únicamente** la cotización de
+compra al usuario (buylist). El **costo de aportación en especie** del inventario propio sigue usando su dial
+propio (`aportacion_pct`, default 70%); no se toca.
 
 ### 4.3 Integración Stripe (payments)
 - Checkout crea `PaymentIntent` (o Checkout Session) con líneas: subtotal, **fee de procesamiento trasladado**, **IVA 16%**. El total cobrado incluye ambas.
@@ -474,6 +575,46 @@ Ver §6. El backend expone **enums y `errorCode`s**, no textos traducidos.
 - Flujo: buscar por `googleId`; si no, por `email` verificado (account-linking, §3.2); si no existe, **crear** `User` (`authProvider=google`, `role=customer`, `emailVerified=true`, `passwordHash=null`).
 - Respuesta: **mismo shape que `/auth/login`** → `{ user, accessToken, refreshToken }`. A partir de ahí la sesión es idéntica a la de email/contraseña (mismos JWT, mismos guards).
 - El linking se audita (`AuditLog action=auth.google_link`). Env: `GOOGLE_CLIENT_ID` (backend), `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (front) — ver §8.
+
+### 4.7bis Gestión de usuarios por admin (M6, `super_admin`) — reset de contraseña sin correo + borrado híbrido (v1.3.1)
+
+Dos capacidades de M6, ambas **solo `super_admin`** y **auditadas** (M10); ninguna es dinero saliente (no
+requieren `MoneyOutGuard`), pero **sí** tocan credenciales/PII, así que su registro en `AuditLog` guarda **solo
+IDs/flags, nunca el secreto ni la PII**.
+
+**a) Reset de contraseña iniciado por admin (SIN email transaccional).** `POST /admin/users/:id/reset-password`.
+El MVP no manda correos, así que el admin **genera** una contraseña temporal y **se la entrega al usuario por su
+propio canal**. Implementación:
+- Genera un secreto de **alta entropía** (p. ej. ≥ 16 chars aleatorios de un alfabeto seguro / `crypto`), lo
+  **hashea con argon2** (misma rutina que `/auth/register`) y lo guarda en `passwordHash`.
+- **Devuelve `tempPassword` en claro UNA sola vez** en la respuesta; **nunca** se persiste en claro, no se
+  re-consulta, no se loguea, no entra al `AuditLog` (solo `action=user.reset_password`, actor y target).
+- **Revoca sesiones vivas** incrementando `User.tokenVersion` (los refresh/access con versión previa dejan de ser
+  válidos). Setea `mustChangePassword=true` (opcional de consumir por el front: tras el primer login, forzar
+  "cambiar contraseña"). Si el repo aún **no** versiona tokens, backend implementa `tokenVersion` en este cambio
+  (parte de M-15) o lo registra como deuda menor en `TECH_DEBT.md`.
+- Habilita login local incluso en cuentas solo-Google (`passwordHash` pasa de null a hash).
+
+**b) Borrado de usuario híbrido hard/soft.** `DELETE /admin/users/:id`. Decide el modo según **si el usuario tiene
+historial económico**:
+- **Predicado "tiene transacciones"** = existe ≥ 1 fila en `Order` **o** `SellRequest` **o** `ShipmentRequest`
+  **o** `Dispute` **o** `InventoryItem(ownerUserId=:id)`. Las relaciones no económicas
+  (`Address`/`BillingProfile`/`KycProfile`/`PortfolioSnapshot`) no cuentan (se borran/anonimizan en ambos modos).
+- **HARD** (predicado falso): `DELETE` real del `User`; los dependientes con `onDelete: Cascade`
+  (`KycProfile`/`BillingProfile`/`Address`/`PortfolioSnapshot`) caen por cascada. Se purga la **imagen de INE**
+  del object storage (reusa la rutina de purga §3.4d) antes/junto al borrado.
+- **SOFT** (predicado verdadero): conserva las filas económicas por integridad contable/legal y auditoría; marca
+  `status=deleted`, `deletedAt`, `anonymizedAt`, revoca tokens (`tokenVersion++`), `passwordHash=null`. **Anonimiza
+  PII**: `email`→placeholder único (`deleted+<uuid>@anon.invalid`), `name`→`"Usuario eliminado"`,
+  `phone`/`avatarUrl`/`googleId`→null; en `KycProfile`/`BillingProfile` borra `clabeEnc`/`clabeHmac`/`rfcEnc`/
+  `legalName` y purga INE; conserva solo metadatos no-PII. Los snapshots económicos históricos
+  (`billingSnapshot`, `clabeSnapshotEnc`) no se reescriben salvo mandato legal (bandera para seguridad/legal).
+- **Idempotente** (re-`DELETE` sobre soft-deleted = no-op `mode:"soft"`); `409 CANNOT_DELETE_SELF` si el actor es
+  el propio usuario. Auditado (`action=user.delete`, con `mode`).
+
+**Enum:** `UserStatus` gana el valor **`deleted`** (M-15). `PATCH /admin/users/:id/status` sigue aceptando solo
+`active|blocked`; a `deleted` se llega **únicamente** por el `DELETE` (soft). El guard de auth y ambos endpoints de
+login tratan `deleted` como no-autenticable (`403 USER_BLOCKED`).
 
 ### 4.8 Sync de catálogo desde pokemontcg.io (M2) — `super_admin`, auditado
 Ingesta de **datos de catálogo** (Card/CardSet, en inglés, no se traduce). Alimenta las facetas de Compra (§4.9). Endpoints en `API_CONTRACT.md §M2`. Servicio `CatalogSyncService` en `modules/catalog`.
@@ -676,9 +817,16 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 
 ---
 
-## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 — 2026-08-14)
+## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.3.1 (nuevas — precio de buylist por rareza)
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-14 | `SellRequestItem`: `rarity` `String?`, `ruleMode` `BuylistRuleMode?`, `ruleValue` `Int?`, `ruleSource` `String?`; enum nuevo **`BuylistRuleMode = fixed | pct`** | **Añadir** columnas + enum; **deprecar** `SellRequestItem.category` (pasa a **nullable**, ya no se escribe) | Add column / add enum / alter column nullable | Snapshot de la regla aplicada por rareza (§3.2, §4.2). `BuylistCategory` se conserva en el schema por retención legacy pero queda deprecado; nada nuevo lo usa. Greenfield: sin backfill. Los diales `buylist_price_rules` / `buylist_price_fallback_pct` son `ConfigSetting` (no requieren columna dedicada). |
+| M-15 | `User`: `deletedAt` `DateTime?`, `anonymizedAt` `DateTime?`, `mustChangePassword` `Boolean @default(false)`, `tokenVersion` `Int @default(0)`; enum **`UserStatus`** gana valor **`deleted`** | **Añadir** columnas + valor de enum | Add column / alter enum | Gestión de usuarios M6 (§4.7bis): reset de contraseña por admin (revoca tokens vía `tokenVersion`, opcional `mustChangePassword`) y borrado híbrido hard/soft (soft ⇒ `status=deleted` + anonimización PII). El JWT debe incluir `tokenVersion` y el guard rechazar versiones desactualizadas. Greenfield: sin backfill. |
 
 ### v1.2 / v1.2.1 (nuevas)
 

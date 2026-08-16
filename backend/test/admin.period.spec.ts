@@ -38,6 +38,7 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
       prisma as unknown as PrismaService,
       {} as PricingService,
       new PiiCryptoService(new ConfigService({})),
+      {} as any,
     );
   });
 

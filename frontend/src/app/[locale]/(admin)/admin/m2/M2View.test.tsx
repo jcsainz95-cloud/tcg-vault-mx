@@ -88,4 +88,61 @@ describe('M2View · Catálogo y precios', () => {
 
     expect(await screen.findByText(/no está disponible en el backend/)).toBeInTheDocument();
   });
+
+  // ---- Editor de precio de buylist por rareza (v1.3.1) ----
+  it('renderiza el editor de reglas por rareza con el fallback y las rarezas del catálogo', async () => {
+    renderWithProviders(<M2View />, 'es');
+    expect(await screen.findByRole('heading', { name: /Precio de buylist por rareza/ })).toBeInTheDocument();
+    // Fallback editable y una rareza fija del seed (Common).
+    expect(await screen.findByLabelText('Fallback (%)')).toBeInTheDocument();
+    expect((await screen.findAllByText('Common')).length).toBeGreaterThan(0);
+  });
+
+  it('editar el valor de una regla fija (Common) y guardar envía updateBuylistRules en centavos', async () => {
+    const spy = vi
+      .spyOn(api, 'updateBuylistRules')
+      .mockResolvedValue({ rules: {}, fallbackPct: 40 });
+    renderWithProviders(<M2View />, 'es');
+    const valueInput = await screen.findByLabelText('Valor para Common');
+    // 1 peso → 100 centavos.
+    fireEvent.change(valueInput, { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fallbackPct: 40,
+        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 100 } }),
+      }),
+    );
+    expect(await screen.findByText('Reglas de buylist guardadas.')).toBeInTheDocument();
+  });
+
+  it('editar el fallback % y guardar envía el nuevo fallbackPct', async () => {
+    const spy = vi
+      .spyOn(api, 'updateBuylistRules')
+      .mockResolvedValue({ rules: {}, fallbackPct: 55 });
+    renderWithProviders(<M2View />, 'es');
+    const fallback = await screen.findByLabelText('Fallback (%)');
+    fireEvent.change(fallback, { target: { value: '55' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 55 }));
+  });
+
+  it('cambiar el modo de una rareza en fallback a fijo la promueve a regla explícita', async () => {
+    const spy = vi
+      .spyOn(api, 'updateBuylistRules')
+      .mockResolvedValue({ rules: {}, fallbackPct: 40 });
+    renderWithProviders(<M2View />, 'es');
+    // Rare Holo no tiene regla explícita (fallback pct); cambiar su modo a fijo.
+    const modeSelect = await screen.findByLabelText('Modo para Rare Holo');
+    fireEvent.change(modeSelect, { target: { value: 'fixed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const arg = spy.mock.calls[0][0] as { rules: Record<string, { mode: string }> };
+    expect(arg.rules['Rare Holo'].mode).toBe('fixed');
+  });
 });
