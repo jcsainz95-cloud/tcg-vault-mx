@@ -38,6 +38,7 @@ import type {
   PriceHistoryEntryDTO,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
+  UserAuditEntryDTO,
   SettingsDTO,
   AuditLogDTO,
   PnlDTO,
@@ -755,6 +756,28 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
         ? [{ inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise'), ownershipStatus: 'settled' }]
         : [],
   };
+}
+
+// ---- M6 · Historial 360° por usuario (v1.7-admin-users) ----
+// MOCK: pendiente de backend real. Los listados admin se filtran por userId (simetría
+// con GET /admin/orders?userId=). Shipments/Disputes de fixtures no llevan userId en su
+// DTO (proyección del contrato), así que el mock los asocia por convención a u-777.
+export function mockUserShipments(userId: string): ShipmentDTO[] {
+  return userId === 'u-777' ? mockShipments : [];
+}
+export function mockUserDisputes(userId: string): DisputeDTO[] {
+  return userId === 'u-777' ? mockDisputes : [];
+}
+
+// MOCK: traza de AuditLog de/sobre el usuario (GET /admin/users/:id/audit). El `ip` se
+// puebla como lo haría la proyección de super_admin; el DTO NUNCA lleva before/after.
+export function mockUserAudit(userId: string): UserAuditEntryDTO[] {
+  return [
+    { id: `ua-${userId}-1`, actorUserId: 'u-admin', actorRole: 'super_admin', action: 'user.create', entityType: 'User', entityId: userId, createdAt: '2026-08-01T10:00:00Z', ip: '187.190.10.4' },
+    { id: `ua-${userId}-2`, actorUserId: 'u-admin', actorRole: 'super_admin', action: 'user.kyc.update', entityType: 'User', entityId: userId, createdAt: '2026-08-10T12:00:00Z', ip: '187.190.10.4' },
+    { id: `ua-${userId}-3`, actorUserId: 'u-op1', actorRole: 'vault_operator', action: 'user.status.update', entityType: 'User', entityId: userId, createdAt: '2026-08-11T09:30:00Z', ip: '201.150.22.9' },
+    { id: `ua-${userId}-4`, actorUserId: userId, actorRole: 'customer', action: 'auth.email_verification_sent', entityType: 'User', entityId: userId, createdAt: '2026-08-11T09:00:00Z' },
+  ];
 }
 
 // ---- M10: Config y bitácora ----

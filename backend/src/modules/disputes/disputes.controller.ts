@@ -54,6 +54,7 @@ export class AdminDisputesController {
   @Get()
   list(
     @Query('status') status?: string,
+    @Query('userId') userId?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
@@ -61,6 +62,7 @@ export class AdminDisputesController {
       status,
       Math.max(1, parseInt(page, 10) || 1),
       Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+      userId,
     );
   }
 

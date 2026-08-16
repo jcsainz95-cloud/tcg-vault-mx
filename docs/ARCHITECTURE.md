@@ -2,7 +2,24 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.6-finish (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.7-admin-users (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+>
+> **Changelog v1.7-admin-users (2026-08-16)** — **Alta de usuarios por rol desde admin (E1) + historial 360° por
+> usuario (F1)** (M6, back-office). Ambas **aditivas** y **sin migración** (reusan `User`, `AuditLog` y los listados
+> admin ya paginados). Ver detalle en §4.7bis (c) / §4.7ter y `API_CONTRACT.md` (Changelog v1.7-admin-users, §M6).
+> - **E1 — `POST /admin/users`** (`super_admin` only, auditado `user.create`, **NO** `MoneyOutGuard`): crea cuentas
+>   de cualquier rol (`customer|vault_operator|super_admin`) sin KYC/CLABE/INE. `email` se lowercasea (patrón
+>   register); `name` required; `password?` (si se omite, autogen temporal de alta entropía reusando la rutina del
+>   reset M-15, devuelta **una vez** en `tempPassword`, argon2, `mustChangePassword=true`; si se provee,
+>   `mustChangePassword=false`). `emailVerified=true` para **todo** rol creado por admin (staff como el seed; customer
+>   porque el admin da fe) — **no** se envía correo. `P2002 → 409 EMAIL_TAKEN`. **Escalada de privilegios** (crear
+>   super_admin) controlada por super_admin-only + auditoría; la contraseña **nunca** entra al `AuditLog`.
+> - **F1 — Historial 360° por REUSO (no engorda `getUser`):**
+>   - `?userId=` opcional añadido a `GET /admin/{buylist,shipments,disputes}` (simetría con `GET /admin/orders`),
+>     filtrando por la FK `userId`; mismo guard y misma proyección PII por rol.
+>   - `GET /admin/users/:id/audit` (paginado): `AuditLog` por `scope=target|actor|both` (default `target` =
+>     `entityType='User' AND entityId=:id`). Expone `action/actorRole/actorUserId/entityType/entityId/createdAt` +
+>     `ip` **solo** super_admin; **nunca** `before`/`after`. `vault_operator` → proyección reducida sin `ip`.
 >
 > **Changelog v1.6-finish (2026-08-16)** — **Acabado / versión de carta (finish) en TODA la cadena**
 > (PROJECT.md §I / v1.4, criterios 37–44). Hoy el modelo NO distingue acabados: **1 fila `Card` con un solo
@@ -402,8 +419,9 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - **`rarity_map` (DEPRECADO v1.3.1):** el dial `rarity_map` (`RARITY_MAP`) y sus endpoints `GET/PUT /admin/pricing/rarity-map` quedan **deprecados**; la cotización ya no los lee. Se conservan como no-op/legacy hasta su retiro; no se siembran en despliegues nuevos.
 
 #### AuditLog (M10 — bitácora global)
-- `id`, `actorUserId`, `actorRole`, `action` (string, ej. `order.refund`, `sellrequest.pay_spei`, `settings.update`, `inventory.mark_damaged`, `catalog.sync`, `catalog.backfill`, `auth.google_link`, `pricing.buylist_rules.update`, `user.reset_password`, `user.delete`), `entityType`, `entityId`, `before?` (JSONB), `after?` (JSONB), `ip?`, `createdAt`.
-- **PII/secretos NUNCA en `before`/`after`:** acciones sobre credenciales/PII (`user.reset_password`, `user.delete`) registran solo IDs/flags/`mode`, **nunca** la contraseña temporal ni la PII anonimizada.
+- `id`, `actorUserId`, `actorRole`, `action` (string, ej. `order.refund`, `sellrequest.pay_spei`, `settings.update`, `inventory.mark_damaged`, `catalog.sync`, `catalog.backfill`, `auth.google_link`, `pricing.buylist_rules.update`, `user.create`, `user.reset_password`, `user.delete`), `entityType`, `entityId`, `before?` (JSONB), `after?` (JSONB), `ip?`, `createdAt`.
+- **PII/secretos NUNCA en `before`/`after`:** acciones sobre credenciales/PII (`user.create`, `user.reset_password`, `user.delete`) registran solo IDs/flags/`mode`/`role`, **nunca** la contraseña temporal ni la PII anonimizada.
+- **Consulta por usuario (v1.7-admin-users):** `GET /admin/users/:id/audit` lee esta tabla por `entityType='User' AND entityId=:id` (`scope=target`) y/o `actorUserId=:id` (`scope=actor`); su proyección **omite `before`/`after`** y solo incluye `ip` para `super_admin` (§4.7ter).
 - **Toda acción de back-office se registra**, en especial los intentos bloqueados de dinero saliente por operador (queda registrado y bloqueado) y las **operaciones de sync de catálogo** (`catalog.remote_sets`, `catalog.sync`, `catalog.backfill`; ver §4.8, auditadas).
 
 #### PortfolioSnapshot (gráfica de tendencia del portafolio) — **MIGRACIÓN v1.1 (modelo nuevo)**
@@ -847,6 +865,51 @@ historial económico**:
 **Enum:** `UserStatus` gana el valor **`deleted`** (M-15). `PATCH /admin/users/:id/status` sigue aceptando solo
 `active|blocked`; a `deleted` se llega **únicamente** por el `DELETE` (soft). El guard de auth y ambos endpoints de
 login tratan `deleted` como no-autenticable (`403 USER_BLOCKED`).
+
+**c) Alta de usuario por rol (v1.7-admin-users).** `POST /admin/users` — **solo `super_admin`**, **auditado**
+(`action=user.create`), **NO money-out**. Cubre el hueco de que hoy no hay alta en back-office (customer se
+auto-registra; staff por seed). Implementación (`AdminService.createUser`, patrón de `AdminUsersController`):
+- **Validación DTO:** `email` (IsEmail, se **lowercasea** antes de crear/validar unicidad, como `auth.service.ts`
+  register), `name` (**required**, `User.name` NOT NULL), `role` (`@IsIn(customer|vault_operator|super_admin)`),
+  `password?` (`MinLength 8` si viene), `phone?`, `locale?` (`es|en`, default `es`). **Sin** KYC/CLABE/INE (datos
+  self-service; no se crea `KycProfile`/`BillingProfile`).
+- **Contraseña:** si el DTO trae `password`, se **hashea con argon2** (misma rutina que register) y
+  `mustChangePassword=false`. Si **no** trae `password`, se **autogenera** una temporal de **alta entropía** reusando
+  la rutina del reset M-15 (`randomBytes(18).toString('base64url')`), se hashea con argon2, `mustChangePassword=true`,
+  y el claro se devuelve **una única vez** en `tempPassword` (**nunca** persistido en claro, **nunca** en `AuditLog`).
+- **`emailVerified`:** nace **`true`** para **cualquier** rol creado por admin (staff como el seed; el customer creado
+  por admin porque el admin da fe de la identidad). **No** se emite `AuthToken` de verificación ni se envía correo
+  (paridad con el reset admin, que tampoco manda correo). `authProvider='local'`.
+- **Colisión de email:** `P2002` (unique de `email`) → **`409 EMAIL_TAKEN`** (mismo mapeo que register).
+- **Respuesta:** shape público (`publicUser` extendido con `status`/`authProvider`/`createdAt`) + `tempPassword?` +
+  `mustChangePassword`. Sin `passwordHash`.
+- **Escalada de privilegios:** crear un `super_admin` eleva privilegios; el **control autoritativo** es
+  super_admin-only (el guard rechaza `vault_operator` con `403 FORBIDDEN`) **+ auditoría** (`user.create` con actor,
+  `entityId`=nuevo usuario, y `role` creado en `after`; **sin** volcar la contraseña, coherente con §3.2 "PII/secretos
+  nunca en before/after"). Se permite en el MVP porque ese doble control es suficiente (no se restringe el enum).
+
+### 4.7ter Historial 360° por usuario (M6, v1.7-admin-users) — reuso de listados + auditoría
+
+Enfoque **REUSO**: no se engorda `AdminService.getUser` (que sigue devolviendo las últimas 20 de
+orders/sellRequests/disputes + bóveda como resumen). El historial **completo** se sirve por listados ya paginados
+y una nueva traza de auditoría.
+
+**a) `?userId=` en los listados admin.** `GET /admin/buylist`, `GET /admin/shipments` y `GET /admin/disputes`
+ganan una query **opcional** `userId` (simetría con `GET /admin/orders`, que ya lo tiene desde M3). Cada uno filtra
+por su FK directa (`SellRequest.userId` / `ShipmentRequest.userId` / `Dispute.userId`) añadiendo `where.userId` en
+`adminList`. **No cambia** el guard (`vault_operator+`) ni la proyección PII por rol (p. ej. la CLABE del buylist
+sigue enmascarada en el list; en claro solo por `reveal-clabe`). Paginado estándar `{ data, page, pageSize, total }`.
+
+**b) `GET /admin/users/:id/audit` (nuevo).** Traza de `AuditLog` de/ sobre el usuario, paginada. Reusa el patrón de
+consulta del M10 audit-log (`settings.controller`), acotado:
+- **`scope`** (default `target`): `target` → `where { entityType:'User', entityId:id }` (acciones **sobre** el
+  usuario); `actor` → `where { actorUserId:id }` (acciones **del** usuario); `both` → `where { OR: [...] }`.
+- **Proyección expuesta:** `id, actorUserId, actorRole, action, entityType, entityId, createdAt` y **`ip` solo para
+  `super_admin`** (el `select` añade `ip` condicionalmente por rol). **`before`/`after` NUNCA** se seleccionan (evita
+  filtrar PII/estado, incluso de las acciones que sí los pueblan).
+- **Roles:** clase `AdminUsersController` es `vault_operator+`, así que ambos acceden; **`vault_operator` recibe la
+  proyección reducida sin `ip`** (dato investigativo reservado al súper-admin). `404 NOT_FOUND` si el usuario no
+  existe. Sin migración (solo lectura de `AuditLog`).
 
 ### 4.8 Sync de catálogo desde pokemontcg.io (M2) — `super_admin`, auditado
 Ingesta de **datos de catálogo** (Card/CardSet, en inglés, no se traduce). Alimenta las facetas de Compra (§4.9). Endpoints en `API_CONTRACT.md §M2`. Servicio `CatalogSyncService` en `modules/catalog`.

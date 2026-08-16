@@ -5,6 +5,12 @@ import { M6View } from './M6View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 
+// El alta de usuario y varias acciones exigen super_admin (patrón useRole). Sin RoleProvider
+// el contexto por defecto es isSuperAdmin=false; lo fijamos a true para ejercer el flujo.
+vi.mock('@/lib/role', () => ({
+  useRole: () => ({ role: 'super_admin', setRole: () => {}, isSuperAdmin: true, canSwitchRole: false }),
+}));
+
 beforeEach(() => {
   vi.restoreAllMocks();
 });
@@ -130,6 +136,70 @@ describe('M6View · Usuarios / KYC', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Eliminar' }));
 
     expect(await screen.findByText('No puedes eliminar tu propia cuenta.')).toBeInTheDocument();
+  });
+
+  // ---- E3 · Crear usuario (POST /admin/users, super_admin) ----
+  it('el super_admin ve "Crear usuario" y al autogenerar muestra la temporal UNA sola vez', async () => {
+    renderWithProviders(<M6View />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Crear usuario' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Crear usuario' });
+    fireEvent.change(within(dialog).getByLabelText('Correo'), { target: { value: 'nuevo@example.com' } });
+    fireEvent.change(within(dialog).getByLabelText('Nombre'), { target: { value: 'Nuevo Usuario' } });
+    // Contraseña vacía → el backend la autogenera y la devuelve una vez.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Crear' }));
+
+    expect(await screen.findByText(/Cuenta creada para nuevo@example.com/)).toBeInTheDocument();
+    // Reusa el panel de temp-password de M-15 (aviso "UNA sola vez").
+    expect(screen.getByText(/UNA sola vez/)).toBeInTheDocument();
+  });
+
+  it('maneja 409 EMAIL_TAKEN con un mensaje claro', async () => {
+    vi.spyOn(api, 'createAdminUser').mockRejectedValue(
+      new ApiClientError(409, { code: 'EMAIL_TAKEN', message: 'email taken' }),
+    );
+    renderWithProviders(<M6View />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Crear usuario' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Crear usuario' });
+    fireEvent.change(within(dialog).getByLabelText('Correo'), { target: { value: 'ana@example.com' } });
+    fireEvent.change(within(dialog).getByLabelText('Nombre'), { target: { value: 'Ana' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Crear' }));
+
+    expect(await screen.findByText('Ya existe una cuenta con ese correo.')).toBeInTheDocument();
+  });
+
+  // ---- F3 · Pestañas de historial 360° filtradas por userId (lazy-load) ----
+  it('las pestañas cargan filtradas por userId: Compras al abrir y Envíos al hacer clic', async () => {
+    const ordersSpy = vi.spyOn(api, 'getAdminUserOrders');
+    const shipmentsSpy = vi.spyOn(api, 'getAdminUserShipments');
+    renderWithProviders(<M6View />, 'es');
+    const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
+
+    // Ana (u-777): la pestaña Compras es la activa por defecto → llama al endpoint por userId.
+    fireEvent.click(viewButtons[0]);
+    await screen.findByRole('dialog', { name: /Ficha 360/ });
+    await waitFor(() =>
+      expect(ordersSpy).toHaveBeenCalledWith('u-777', expect.objectContaining({ page: 1 })),
+    );
+
+    // Envíos es el endpoint NUEVO (GET /admin/shipments?userId=): se carga al abrir la pestaña.
+    fireEvent.click(screen.getByRole('tab', { name: 'Envíos' }));
+    await waitFor(() =>
+      expect(shipmentsSpy).toHaveBeenCalledWith('u-777', expect.objectContaining({ page: 1 })),
+    );
+  });
+
+  it('la pestaña Actividad muestra el ip cuando el backend lo envía (proyección super_admin)', async () => {
+    renderWithProviders(<M6View />, 'es');
+    const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
+    fireEvent.click(viewButtons[0]);
+    await screen.findByRole('dialog', { name: /Ficha 360/ });
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Actividad' }));
+    // El fixture puebla ip (proyección super_admin) → la columna IP aparece.
+    // (DataTable pinta tabla desktop + card mobile, de ahí findAll.)
+    expect((await screen.findAllByText('187.190.10.4')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('user.create').length).toBeGreaterThan(0);
   });
 });
 

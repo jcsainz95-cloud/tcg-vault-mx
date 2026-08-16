@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Search, ChevronLeft, ChevronRight, KeyRound, Trash2, Copy, Check } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, KeyRound, Trash2, Copy, Check, UserPlus } from 'lucide-react';
 import {
   getAdminUsers,
   getAdminUser,
@@ -11,12 +11,32 @@ import {
   updateUserStatus,
   resetUserPassword,
   deleteUser,
+  createAdminUser,
+  getAdminUserOrders,
+  getAdminUserBuylist,
+  getAdminUserShipments,
+  getAdminUserDisputes,
+  getAdminUserAudit,
   type AdminUsersFilters,
+  type CreateAdminUserInput,
+  type UserHistoryParams,
 } from '@/lib/api';
-import type { AdminUserSummaryDTO, KycStatus, ResetPasswordResponse, DeleteUserResponse } from '@/types/contract';
+import type {
+  AdminUserSummaryDTO,
+  AdminUserOwnedItemRef,
+  AdminCreatedUserDTO,
+  UserAuditEntryDTO,
+  KycStatus,
+  Role,
+  Paginated,
+  ResetPasswordResponse,
+  DeleteUserResponse,
+} from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { ApiClientError } from '@/lib/api-client';
+import { cn } from '@/lib/cn';
 import { useSession } from '@/lib/session';
+import { useRole } from '@/lib/role';
 import { formatMoneyCents, formatDate } from '@/lib/format';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -30,7 +50,9 @@ import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 
 const KYC_STATUSES: KycStatus[] = ['none', 'pending', 'verified', 'rejected'];
+const CREATE_ROLES: Role[] = ['customer', 'vault_operator', 'super_admin'];
 const PAGE_SIZE = 20;
+const HISTORY_PAGE_SIZE = 10;
 
 export function M6View() {
   const t = useTranslations('admin.m6');
@@ -38,6 +60,7 @@ export function M6View() {
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
+  const { isSuperAdmin } = useRole();
 
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<'' | 'active' | 'blocked'>('');
@@ -109,23 +132,45 @@ export function M6View() {
   const session = useSession();
   const isSelf = !!session.user && session.user.id === selectedId;
   const [resetResult, setResetResult] = useState<ResetPasswordResponse | null>(null);
-  const [copied, setCopied] = useState(false);
   const resetMutation = useMutation({
     mutationFn: () => resetUserPassword(selectedId!),
+    onSuccess: (res) => setResetResult(res),
+  });
+
+  // --- Crear usuario (super_admin): alta por rol; la temp password (si se autogenera) se
+  // muestra UNA sola vez con el MISMO patrón/panel que el reset M-15. ---
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<CreateAdminUserInput>({ email: '', name: '', role: 'customer' });
+  const [createResult, setCreateResult] = useState<AdminCreatedUserDTO | null>(null);
+  const createMutation = useMutation({
+    mutationFn: () =>
+      createAdminUser({
+        email: createForm.email.trim(),
+        name: createForm.name.trim(),
+        role: createForm.role,
+        // Vacío ⇒ el backend autogenera la temporal y la devuelve una vez.
+        password: createForm.password?.trim() ? createForm.password.trim() : undefined,
+      }),
     onSuccess: (res) => {
-      setCopied(false);
-      setResetResult(res);
+      setCreateOpen(false);
+      setCreateResult(res);
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
     },
   });
 
-  async function copyTempPassword() {
-    if (!resetResult) return;
-    try {
-      await navigator.clipboard.writeText(resetResult.tempPassword);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
+  function openCreate() {
+    setCreateForm({ email: '', name: '', role: 'customer', password: '' });
+    createMutation.reset();
+    setCreateOpen(true);
+  }
+
+  // Traduce el errorCode del contrato a copy claro (409 EMAIL_TAKEN / 422 VALIDATION_ERROR / 403).
+  function createErrorMessage(err: unknown): string {
+    const code = err instanceof ApiClientError ? err.code : undefined;
+    if (code === 'EMAIL_TAKEN') return t('create.errorEmailTaken');
+    if (code === 'VALIDATION_ERROR') return t('create.errorValidation');
+    if (code === 'FORBIDDEN') return t('create.errorForbidden');
+    return t('create.errorGeneric');
   }
 
   // --- Eliminar usuario (super_admin): híbrido hard/soft; 409 CANNOT_DELETE_SELF ---
@@ -211,6 +256,12 @@ export function M6View() {
         <Button variant="ghost" onClick={() => users.refetch()}>
           <Search size={18} /> {tc('search')}
         </Button>
+        {/* Alta de usuario: solo super_admin (patrón useRole; el backend es la autoridad). */}
+        {isSuperAdmin && (
+          <Button variant="primary" className="ml-auto" onClick={openCreate}>
+            <UserPlus size={18} /> {t('create.button')}
+          </Button>
+        )}
       </div>
 
       {/* Tabla de usuarios */}
@@ -319,13 +370,8 @@ export function M6View() {
                 )}
               </div>
 
-              {/* Resumen 360° */}
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <SummaryCount label={t('orders')} value={d.orders?.length ?? 0} />
-                <SummaryCount label={t('sellRequests')} value={d.sellRequests?.length ?? 0} />
-                <SummaryCount label={t('disputes')} value={d.disputes?.length ?? 0} />
-                <SummaryCount label={t('vaultItems')} value={d.ownedItems?.length ?? 0} />
-              </div>
+              {/* Historial 360° por pestañas (lazy-load por endpoint filtrado por userId) */}
+              <UserHistoryTabs userId={d.id} ownedItems={d.ownedItems ?? []} locale={locale} />
 
               {/* Direcciones */}
               {d.addresses && d.addresses.length > 0 && (
@@ -404,22 +450,91 @@ export function M6View() {
         }
       >
         {resetResult && (
+          <TempPasswordPanel
+            tempPassword={resetResult.tempPassword}
+            mustChangePassword={resetResult.mustChangePassword}
+          />
+        )}
+      </Modal>
+
+      {/* Crear usuario (super_admin) — formulario de alta por rol */}
+      <Modal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title={t('create.title')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              loading={createMutation.isPending}
+              disabled={!createForm.email.trim() || !createForm.name.trim()}
+              onClick={() => createMutation.mutate()}
+            >
+              {t('create.submit')}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Input
+            label={t('create.email')}
+            type="email"
+            autoComplete="off"
+            value={createForm.email}
+            onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
+          />
+          <Input
+            label={t('create.name')}
+            value={createForm.name}
+            onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+          />
+          <Select
+            label={t('create.role')}
+            options={CREATE_ROLES.map((r) => ({ value: r, label: t(`create.roleOption.${r}`) }))}
+            value={createForm.role}
+            onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value as Role }))}
+          />
+          <Input
+            label={t('create.password')}
+            type="text"
+            autoComplete="off"
+            hint={t('create.passwordHint')}
+            value={createForm.password ?? ''}
+            onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
+          />
+          {createForm.role === 'super_admin' && (
+            <Banner variant="warning" role="status">{t('create.superAdminWarning')}</Banner>
+          )}
+          {createMutation.isError && (
+            <Banner variant="danger" role="alert">{createErrorMessage(createMutation.error)}</Banner>
+          )}
+        </div>
+      </Modal>
+
+      {/* Resultado del alta — éxito + temp password (si se autogeneró) UNA sola vez */}
+      <Modal
+        open={!!createResult}
+        onClose={() => setCreateResult(null)}
+        title={t('create.successTitle')}
+        footer={<Button onClick={() => setCreateResult(null)}>{tc('close')}</Button>}
+      >
+        {createResult && (
           <div className="flex flex-col gap-4">
-            <Banner variant="warning">{t('resetOnce')}</Banner>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs uppercase tracking-wide text-muted">{t('tempPassword')}</span>
-              <div className="flex items-center gap-2">
-                <code className="tabular flex-1 rounded-md border border-border bg-surface-2 px-3 py-2 text-base font-semibold">
-                  {resetResult.tempPassword}
-                </code>
-                <Button size="sm" variant="secondary" onClick={copyTempPassword} aria-label={t('copy')}>
-                  {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? t('copied') : t('copy')}
-                </Button>
-              </div>
-            </div>
-            <p className="text-sm text-muted">{t('resetShareNote')}</p>
-            {resetResult.mustChangePassword && (
-              <p className="text-sm text-muted">{t('resetMustChangeNote')}</p>
+            <Banner variant="success" role="status">
+              {t('create.successBody', {
+                email: createResult.user.email,
+                role: t(`create.roleOption.${createResult.user.role}`),
+              })}
+            </Banner>
+            {createResult.tempPassword ? (
+              <TempPasswordPanel
+                tempPassword={createResult.tempPassword}
+                mustChangePassword={createResult.mustChangePassword}
+              />
+            ) : (
+              <p className="text-sm text-muted">{t('create.providedPasswordNote')}</p>
             )}
           </div>
         )}
@@ -494,11 +609,276 @@ function UserStatusBadge({
   return <Badge tone="success" shape="soft">{t('active')}</Badge>;
 }
 
-function SummaryCount({ label, value }: { label: string; value: number }) {
+/**
+ * Panel de contraseña temporal reutilizable (patrón M-15): la temporal se muestra UNA sola
+ * vez con aviso, botón de copiar y nota de cambio obligatorio. Lo comparten el reset de
+ * contraseña y el resultado del alta de usuario (cuando la password se autogenera).
+ */
+function TempPasswordPanel({
+  tempPassword,
+  mustChangePassword,
+}: {
+  tempPassword: string;
+  mustChangePassword: boolean;
+}) {
+  const t = useTranslations('admin.m6');
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(tempPassword);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
   return (
-    <div className="rounded-lg border border-border bg-surface-2 p-3">
-      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
-      <p className="tabular text-h3 font-semibold">{value}</p>
+    <div className="flex flex-col gap-4">
+      <Banner variant="warning">{t('resetOnce')}</Banner>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs uppercase tracking-wide text-muted">{t('tempPassword')}</span>
+        <div className="flex items-center gap-2">
+          <code className="tabular flex-1 rounded-md border border-border bg-surface-2 px-3 py-2 text-base font-semibold">
+            {tempPassword}
+          </code>
+          <Button size="sm" variant="secondary" onClick={copy} aria-label={t('copy')}>
+            {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? t('copied') : t('copy')}
+          </Button>
+        </div>
+      </div>
+      <p className="text-sm text-muted">{t('resetShareNote')}</p>
+      {mustChangePassword && <p className="text-sm text-muted">{t('resetMustChangeNote')}</p>}
     </div>
+  );
+}
+
+// ---- Historial 360° por pestañas (v1.7-admin-users) ----
+type HistoryTab = 'purchases' | 'sales' | 'shipments' | 'disputes' | 'vault' | 'activity';
+const HISTORY_TABS: HistoryTab[] = ['purchases', 'sales', 'shipments', 'disputes', 'vault', 'activity'];
+
+/**
+ * Pestañas de historial: cada pestaña de endpoint se carga LAZY (solo se monta la activa,
+ * así la query se dispara al abrir la pestaña) y filtra por `userId`. La pestaña Bóveda usa
+ * el resumen `ownedItems` que ya trae la ficha 360° (no hay endpoint admin de holdings por
+ * usuario en el contrato).
+ */
+function UserHistoryTabs({
+  userId,
+  ownedItems,
+  locale,
+}: {
+  userId: string;
+  ownedItems: AdminUserOwnedItemRef[];
+  locale: AppLocale;
+}) {
+  const t = useTranslations('admin.m6');
+  const [tab, setTab] = useState<HistoryTab>('purchases');
+  return (
+    <div className="flex flex-col gap-3">
+      <div role="tablist" className="flex flex-wrap gap-1 border-b border-border">
+        {HISTORY_TABS.map((k) => (
+          <button
+            key={k}
+            role="tab"
+            type="button"
+            aria-selected={tab === k}
+            onClick={() => setTab(k)}
+            className={cn(
+              '-mb-px rounded-t-md px-3 py-2 text-sm font-medium',
+              tab === k ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+            )}
+          >
+            {t(`tabs.${k}`)}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel">
+        {tab === 'purchases' && (
+          <PaginatedHistory
+            queryKey={['admin-user-orders', userId]}
+            queryFn={(p) => getAdminUserOrders(userId, p)}
+            rowKey={(o) => o.id}
+            columns={[
+              { key: 'id', header: t('table.folio'), render: (o) => <span className="tabular font-medium">{o.id}</span> },
+              { key: 'status', header: t('table.status'), render: (o) => <StatusBadge domain="order" value={o.status} /> },
+              { key: 'total', header: t('table.total'), align: 'right', render: (o) => formatMoneyCents(o.totalCents, locale) },
+              { key: 'createdAt', header: t('table.date'), render: (o) => formatDate(o.createdAt, locale) },
+            ]}
+          />
+        )}
+        {tab === 'sales' && (
+          <PaginatedHistory
+            queryKey={['admin-user-buylist', userId]}
+            queryFn={(p) => getAdminUserBuylist(userId, p)}
+            rowKey={(b) => b.id}
+            columns={[
+              { key: 'id', header: t('table.folio'), render: (b) => <span className="tabular font-medium">{b.id}</span> },
+              { key: 'status', header: t('table.status'), render: (b) => <StatusBadge domain="sellRequest" value={b.status} /> },
+              { key: 'total', header: t('table.quoted'), align: 'right', render: (b) => formatMoneyCents(b.quotedTotalCents, locale) },
+              { key: 'createdAt', header: t('table.date'), render: (b) => formatDate(b.createdAt, locale) },
+            ]}
+          />
+        )}
+        {tab === 'shipments' && (
+          <PaginatedHistory
+            queryKey={['admin-user-shipments', userId]}
+            queryFn={(p) => getAdminUserShipments(userId, p)}
+            rowKey={(s) => s.id}
+            columns={[
+              { key: 'id', header: t('table.folio'), render: (s) => <span className="tabular font-medium">{s.id}</span> },
+              { key: 'status', header: t('table.status'), render: (s) => <StatusBadge domain="shipment" value={s.status} /> },
+              { key: 'tracking', header: t('table.tracking'), render: (s) => <span className="tabular text-muted">{s.carrier ? `${s.carrier} · ${s.trackingNumber ?? '—'}` : '—'}</span> },
+              { key: 'createdAt', header: t('table.date'), render: (s) => formatDate(s.createdAt, locale) },
+            ]}
+          />
+        )}
+        {tab === 'disputes' && (
+          <PaginatedHistory
+            queryKey={['admin-user-disputes', userId]}
+            queryFn={(p) => getAdminUserDisputes(userId, p)}
+            rowKey={(d) => d.id}
+            columns={[
+              { key: 'id', header: t('table.folio'), render: (d) => <span className="tabular font-medium">{d.id}</span> },
+              { key: 'status', header: t('table.status'), render: (d) => <StatusBadge domain="dispute" value={d.status} /> },
+              { key: 'type', header: t('table.type'), render: (d) => (d.type ? t(`disputeType.${d.type}`) : '—') },
+              { key: 'createdAt', header: t('table.date'), render: (d) => formatDate(d.createdAt, locale) },
+            ]}
+          />
+        )}
+        {tab === 'vault' && <VaultTab items={ownedItems} t={t} />}
+        {tab === 'activity' && <ActivityTab userId={userId} locale={locale} />}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Tabla de historial paginada y lazy: dispara la query al montarse (al abrir la pestaña),
+ * filtrando por `userId`. Reusa DataTable + QueryState del proyecto.
+ */
+function PaginatedHistory<T>({
+  queryKey,
+  queryFn,
+  columns,
+  rowKey,
+}: {
+  queryKey: unknown[];
+  queryFn: (params: UserHistoryParams) => Promise<Paginated<T>>;
+  columns: Column<T>[];
+  rowKey: (row: T) => string;
+}) {
+  const t = useTranslations('admin.m6');
+  const [page, setPage] = useState(1);
+  const query = useQuery({
+    queryKey: [...queryKey, page],
+    queryFn: () => queryFn({ page, pageSize: HISTORY_PAGE_SIZE }),
+  });
+  const totalPages = query.data ? Math.max(1, Math.ceil(query.data.total / HISTORY_PAGE_SIZE)) : 1;
+  return (
+    <QueryState
+      isLoading={query.isLoading}
+      isError={query.isError}
+      error={query.error}
+      onRetry={() => query.refetch()}
+    >
+      {query.data && query.data.data.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <DataTable columns={columns} rows={query.data.data} rowKey={rowKey} />
+          {query.data.total > HISTORY_PAGE_SIZE && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted">
+                {t('pageInfo', { page: query.data.page, totalPages, total: query.data.total })}
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                  <ChevronLeft size={16} /> {t('prev')}
+                </Button>
+                <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                  {t('next')} <ChevronRight size={16} />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="py-6 text-center text-sm text-muted">{t('historyEmpty')}</p>
+      )}
+    </QueryState>
+  );
+}
+
+/**
+ * Pestaña Bóveda: usa el resumen `ownedItems` de la ficha 360° (carta + folio + titularidad).
+ * NOTA (solicitud al arquitecto): la proyección `AdminUserOwnedItemRef` del contrato NO
+ * incluye `finish` ni `referenceValue`, así que no se pueden mostrar acabado ni valor sin
+ * enriquecer el contrato. Se muestra solo lo que el backend envía (§M6 · respeto de proyección).
+ */
+function VaultTab({ items, t }: { items: AdminUserOwnedItemRef[]; t: (key: string) => string }) {
+  if (items.length === 0) return <p className="py-6 text-center text-sm text-muted">{t('historyEmpty')}</p>;
+  return (
+    <DataTable
+      columns={[
+        { key: 'folio', header: t('table.folio'), render: (i: AdminUserOwnedItemRef) => <span className="tabular font-medium">{i.folio}</span> },
+        { key: 'card', header: t('table.card'), render: (i: AdminUserOwnedItemRef) => i.card.name },
+        { key: 'ownership', header: t('table.ownership'), render: (i: AdminUserOwnedItemRef) => <StatusBadge domain="ownership" value={i.ownershipStatus} /> },
+      ]}
+      rows={items}
+      rowKey={(i) => i.inventoryItemId}
+    />
+  );
+}
+
+/**
+ * Pestaña Actividad (GET /admin/users/:id/audit?scope=target): action / actorRole / fecha.
+ * El `ip` SOLO se muestra si el backend lo envía (proyección super_admin); para vault_operator
+ * no viene y la columna se omite (respeto estricto de la proyección por rol, §M6).
+ */
+function ActivityTab({ userId, locale }: { userId: string; locale: AppLocale }) {
+  const t = useTranslations('admin.m6');
+  const [page, setPage] = useState(1);
+  const query = useQuery({
+    queryKey: ['admin-user-audit', userId, page],
+    queryFn: () => getAdminUserAudit(userId, { scope: 'target', page, pageSize: HISTORY_PAGE_SIZE }),
+  });
+  const rows = query.data?.data ?? [];
+  const showIp = rows.some((r) => r.ip != null);
+  const totalPages = query.data ? Math.max(1, Math.ceil(query.data.total / HISTORY_PAGE_SIZE)) : 1;
+  const columns: Column<UserAuditEntryDTO>[] = [
+    { key: 'action', header: t('table.action'), render: (r) => <span className="tabular">{r.action}</span> },
+    { key: 'actorRole', header: t('table.actorRole'), render: (r) => <Badge tone="neutral">{r.actorRole}</Badge> },
+    { key: 'createdAt', header: t('table.date'), render: (r) => formatDate(r.createdAt, locale) },
+    ...(showIp
+      ? [{ key: 'ip', header: t('table.ip'), render: (r: UserAuditEntryDTO) => <span className="tabular text-muted">{r.ip ?? '—'}</span> }]
+      : []),
+  ];
+  return (
+    <QueryState
+      isLoading={query.isLoading}
+      isError={query.isError}
+      error={query.error}
+      onRetry={() => query.refetch()}
+    >
+      {rows.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} />
+          {(query.data?.total ?? 0) > HISTORY_PAGE_SIZE && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted">
+                {t('pageInfo', { page: query.data!.page, totalPages, total: query.data!.total })}
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                  <ChevronLeft size={16} /> {t('prev')}
+                </Button>
+                <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                  {t('next')} <ChevronRight size={16} />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="py-6 text-center text-sm text-muted">{t('historyEmpty')}</p>
+      )}
+    </QueryState>
   );
 }

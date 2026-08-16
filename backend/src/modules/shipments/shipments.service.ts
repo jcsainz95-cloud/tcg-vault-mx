@@ -204,9 +204,16 @@ export class ShipmentsService {
 
   // ---------------- Admin M4 ----------------
 
-  async adminList(status: string | undefined, page: number, pageSize: number) {
+  async adminList(
+    status: string | undefined,
+    page: number,
+    pageSize: number,
+    userId?: string,
+  ) {
     const where: Prisma.ShipmentRequestWhereInput = {};
     if (status) where.status = status as never;
+    // v1.7-admin-users: filtro opcional por ShipmentRequest.userId (simetría con /admin/orders).
+    if (userId) where.userId = userId;
     const [data, total] = await Promise.all([
       this.prisma.shipmentRequest.findMany({
         where,

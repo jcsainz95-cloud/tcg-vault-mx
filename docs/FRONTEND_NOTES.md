@@ -1413,8 +1413,69 @@ npm run test:e2e:report     # abre el reporte HTML del último run
   valores vienen del contrato (incluido `ivaRatePct`).
 - Fuente única de monto = centavos del contrato; formateo en la capa de presentación.
 
+## M6 · Alta de usuarios (E3) + Historial 360° por pestañas (F3) — v1.7-admin-users
+
+Contrato consumido: `docs/API_CONTRACT.md` §M6 (changelog v1.7-admin-users). Todo en
+`frontend/src/app/[locale]/(admin)/admin/m6/M6View.tsx`, `frontend/src/lib/api.ts`,
+`frontend/src/types/contract.ts`, `frontend/src/lib/mock/fixtures.ts` y `frontend/messages/{es,en}.json`.
+
+### E3 — Crear usuario (`POST /admin/users`, super_admin)
+- Botón **"Crear usuario"** en la barra de filtros, **visible solo para super_admin** vía
+  `useRole().isSuperAdmin` (mismo patrón que M3/M5/M8). El backend sigue siendo la autoridad.
+- **Modal-formulario**: email, nombre, `<Select>` de rol (`customer|vault_operator|super_admin`) y
+  contraseña **opcional**. Contraseña vacía ⇒ el backend autogenera la temporal (patrón reset M-15).
+  Aviso de escalada de privilegios al elegir `super_admin`.
+- La **temp password** (cuando se autogenera) se muestra **UNA sola vez** reusando el **mismo panel**
+  que el reset M-15: extraje el componente `TempPasswordPanel` (aviso "una sola vez" + copiar + nota
+  de cambio obligatorio) y lo comparten el modal de reset y el resultado del alta.
+- Al crear OK: se **invalida** `['admin-users']` (refresca la lista) y se muestra un modal de éxito
+  (con la temp password si vino, o nota de que puede entrar con la password provista).
+- Errores mapeados a copy claro: **409 EMAIL_TAKEN**, **422 VALIDATION_ERROR**, **403 FORBIDDEN**.
+- API: `createAdminUser(input)` en `lib/api.ts` (rama mock marcada; simula 409 si el email ya existe y
+  autogenera la temporal solo si no se envía password). Tipo `AdminCreatedUserDTO` en `types/contract.ts`.
+
+### F3 — Ficha 360°: conteos → pestañas con detalle (servicio al cliente)
+- El grid de `SummaryCount` (solo números) se reemplazó por **pestañas** con tablas **paginadas** y
+  **lazy-load** (solo se monta la pestaña activa ⇒ la query se dispara al abrir la pestaña). Reusa
+  `DataTable`, `QueryState`, `StatusBadge` y el patrón de paginación del proyecto.
+- Pestañas y endpoints (todos filtrados por `userId`):
+  - **Compras** → `GET /admin/orders?userId=` (`getAdminUserOrders`)
+  - **Ventas** → `GET /admin/buylist?userId=` (`getAdminUserBuylist`)
+  - **Envíos** → `GET /admin/shipments?userId=` (`getAdminUserShipments`, endpoint **NUEVO**)
+  - **Disputas** → `GET /admin/disputes?userId=` (`getAdminUserDisputes`)
+  - **Bóveda** → usa el resumen `ownedItems` que ya trae `GET /admin/users/:id` (no hay endpoint admin
+    de holdings por usuario en el contrato). Ver solicitud al arquitecto abajo.
+  - **Actividad** → `GET /admin/users/:id/audit?scope=target` (`getAdminUserAudit`, endpoint **NUEVO**):
+    muestra `action` / `actorRole` / `fecha`; la columna **`ip` solo se pinta si el backend la envía**
+    (proyección super_admin). Para `vault_operator` no viene y la columna se **omite** (respeto estricto
+    de la proyección por rol; **nunca** se muestran `before`/`after`). Tipo `UserAuditEntryDTO` añadido.
+- Se **mantienen intactos** el reset-password y el delete de M-15 (solo se extrajo el panel de temp
+  password para reuso; la lógica y las llaves i18n no cambian).
+
+### i18n
+- Paridad ES/EN de todas las llaves nuevas bajo `admin.m6` (`create.*`, `tabs.*`, `disputeType.*`,
+  `historyEmpty`, y ampliación de `table.*`). El test `src/lib/i18n-parity.test.ts` sigue verde.
+
+### Tests añadidos (`M6View.test.tsx`)
+- Crear usuario: super_admin ve el botón, autogenera y ve la temporal **una sola vez**; y **409
+  EMAIL_TAKEN** con mensaje claro.
+- Pestañas: **Compras** llama a `getAdminUserOrders` con el `userId` al abrir la ficha; **Envíos**
+  (endpoint nuevo) llama a `getAdminUserShipments` con el `userId` al abrir la pestaña; **Actividad**
+  pinta el `ip` cuando el backend lo envía. (Se mockea `useRole` a super_admin para el flujo de alta.)
+
+### Gates (frontend/)
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (163 tests, incl. paridad i18n) ·
+`npm run build` ✓.
+
 ## Fricciones / solicitudes al arquitecto (no bloquean; NO edité el contrato)
 
+0. **Bóveda en la ficha 360° (M6/F3) — falta `finish` + valor en la proyección**: la pestaña Bóveda
+   debería mostrar "carta + acabado + valor", pero `AdminUserOwnedItemRef` (proyección de
+   `GET /admin/users/:id.ownedItems`) solo trae `{ inventoryItemId, folio, card, ownershipStatus }`.
+   Respetando "no mostrar campos que el backend no envía", hoy la pestaña muestra folio + carta +
+   titularidad. **Solicito** enriquecer `ownedItems` con `finish` + `referenceValue` (o un
+   `GET /admin/users/:id/holdings` paginado con el shape de `HoldingDTO`) para poder mostrar acabado y
+   valor sin romper la proyección PII por rol.
 1. **`NEXT_PUBLIC_USE_MOCKS`**: var nueva del frontend para alternar mocks/real. Solicito a devops
    añadirla al `.env.example`. No afecta al contrato.
 2. **`capturedDate` en todos los `ListingDTO`**: el diseño muestra la fecha del precio en catálogo y

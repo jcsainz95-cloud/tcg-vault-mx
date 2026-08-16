@@ -44,7 +44,32 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
           orders: [],
           sellRequests: [],
           disputes: [],
-          ownedItems: [],
+          ownedItems: [
+            {
+              // Fila cruda de InventoryItem tal cual la trae Prisma (con la relación `card` + `set`).
+              id: 'inv1',
+              folio: 'F-000123',
+              status: 'stored',
+              ownershipStatus: 'owned',
+              cardId: 'c1',
+              productType: 'raw',
+              finish: 'normal',
+              card: {
+                id: 'c1',
+                externalId: 'base1-4',
+                name: 'Charizard',
+                number: '4',
+                rarity: 'Rare Holo',
+                supertype: 'Pokémon',
+                subtypes: ['Stage 2'],
+                setId: 's1',
+                imageSmallUrl: 'https://img/small.png',
+                imageLargeUrl: 'https://img/large.png',
+                availableFinishes: ['normal', 'holofoil'],
+                set: { id: 's1', name: 'Base' },
+              },
+            },
+          ],
         }),
       },
     };
@@ -109,4 +134,31 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     expect(JSON.stringify(res)).not.toContain(CLABE);
     expect(JSON.stringify(res)).not.toContain(RFC);
   });
+
+  // Regresión v1.7-admin-users: `ownedItems` DEBE conformar el contrato §M6
+  // `AdminUserOwnedItemRef = { inventoryItemId, folio, card: CardDTO, ownershipStatus }`.
+  // Antes proyectaba `id`/`status` crudos y sin `card` → la pestaña Bóveda (M6View)
+  // crasheaba contra el backend real (`i.card.name` undefined, `rowKey` undefined).
+  it.each([Role.super_admin, Role.vault_operator])(
+    'ownedItems conforma AdminUserOwnedItemRef (inventoryItemId + card, no id crudo) — %s',
+    async (role) => {
+      const { service } = buildService();
+      const res: any = await service.getUser('u1', role);
+
+      expect(Array.isArray(res.ownedItems)).toBe(true);
+      const item = res.ownedItems[0];
+      // Clave del contrato: inventoryItemId (derivado del InventoryItem.id), no `id` crudo.
+      expect(item.inventoryItemId).toBe('inv1');
+      expect(item.id).toBeUndefined();
+      // `status` crudo del InventoryItem no forma parte del ref del contrato.
+      expect(item.status).toBeUndefined();
+      // La carta viene mapeada como CardDTO (mismo shape que catalog/buylist/vault).
+      expect(item.card).toBeDefined();
+      expect(item.card.id).toBe('c1');
+      expect(item.card.name).toBe('Charizard');
+      expect(item.card.availableFinishes).toEqual(['normal', 'holofoil']);
+      expect(item.folio).toBe('F-000123');
+      expect(item.ownershipStatus).toBe('owned');
+    },
+  );
 });

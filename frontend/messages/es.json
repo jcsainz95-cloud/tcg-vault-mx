@@ -718,7 +718,18 @@
         "email": "Correo",
         "role": "Rol",
         "status": "Estado",
-        "created": "Alta"
+        "created": "Alta",
+        "folio": "Folio",
+        "date": "Fecha",
+        "total": "Total",
+        "quoted": "Cotizado",
+        "tracking": "Guía",
+        "type": "Tipo",
+        "card": "Carta",
+        "ownership": "Titularidad",
+        "action": "Acción",
+        "actorRole": "Rol actor",
+        "ip": "IP"
       },
       "pageInfo": "Página {page} de {totalPages} · {total} usuarios",
       "prev": "Anterior",
@@ -775,7 +786,43 @@
       "deleteError": "No se pudo eliminar el usuario.",
       "deleteSelfError": "No puedes eliminar tu propia cuenta.",
       "deleteResultHard": "Cuenta eliminada por completo (borrado total).",
-      "deleteResultSoft": "Cuenta anonimizada; se conserva el historial para conciliación."
+      "deleteResultSoft": "Cuenta anonimizada; se conserva el historial para conciliación.",
+      "create": {
+        "button": "Crear usuario",
+        "title": "Crear usuario",
+        "email": "Correo",
+        "name": "Nombre",
+        "role": "Rol",
+        "roleOption": {
+          "customer": "Cliente",
+          "vault_operator": "Operador de bóveda",
+          "super_admin": "Súper-admin"
+        },
+        "password": "Contraseña",
+        "passwordHint": "Déjala vacía para autogenerar una temporal segura (se mostrará una sola vez).",
+        "submit": "Crear",
+        "superAdminWarning": "Crear un súper-admin otorga control total (escalada de privilegios). Esta acción queda auditada.",
+        "errorEmailTaken": "Ya existe una cuenta con ese correo.",
+        "errorValidation": "Revisa los datos: correo válido, rol permitido y contraseña de al menos 8 caracteres.",
+        "errorForbidden": "No tienes permisos para crear usuarios.",
+        "errorGeneric": "No se pudo crear el usuario.",
+        "successTitle": "Usuario creado",
+        "successBody": "Cuenta creada para {email} con rol {role}.",
+        "providedPasswordNote": "El usuario puede iniciar sesión con la contraseña que definiste."
+      },
+      "tabs": {
+        "purchases": "Compras",
+        "sales": "Ventas",
+        "shipments": "Envíos",
+        "disputes": "Disputas",
+        "vault": "Bóveda",
+        "activity": "Actividad"
+      },
+      "historyEmpty": "Sin registros.",
+      "disputeType": {
+        "condition_raw": "Condición (raw)",
+        "condition_sealed": "Condición (sellado)"
+      }
     },
     "m10": {
       "title": "M10 · Config y bitácora",

@@ -1539,3 +1539,79 @@ apuntar el PUT a un endpoint **R2** con el SDK sin el flag. Sin cambios de env n
 
 ### Discrepancias con el contrato
 Ninguna. Solo configuración del cliente S3; `API_CONTRACT.md` no cambia.
+
+## 26. v1.7-admin-users (2026-08-16) — Alta de usuarios por rol (E2) + historial 360° por usuario (F2)
+
+Dos features aditivas de M6, **sin migración** (reusan `User`, `AuditLog` y los listados admin ya
+paginados). Contrato: `API_CONTRACT.md` §M6 (E1/F1) + §M4/§M5/§M8 (`?userId=`) + §11 DTOs
+(`AdminCreatedUserDTO`, `UserAuditEntryDTO`). Arquitectura: §4.7bis (c) / §4.7ter.
+
+### E2 — `POST /api/v1/admin/users` (super_admin-only, auditado `user.create`, NO money-out)
+- **Controller** `AdminUsersController.createUser` (`backend/src/modules/admin/admin.controller.ts`),
+  `@Post()` + `@Roles(Role.super_admin)` (override del guard de clase `vault_operator+`), `@HttpCode(201)`.
+- **Service** `AdminService.createUser` (`backend/src/modules/admin/admin.service.ts`).
+- **Autogen de password:** si el req **omite** `password`, se autogenera una temporal de alta entropía
+  **reusando el mismo generador del reset M-15** (`randomBytes(18).toString('base64url')`, ~24 chars) y
+  se devuelve **UNA sola vez** en `tempPassword`. Se hashea con `argon2.hash` (patrón `auth.service.ts`),
+  y `mustChangePassword=true`. Si el admin **provee** `password` (≥8), `mustChangePassword=false` y **no**
+  hay `tempPassword`. En ambos casos `emailVerified=true` (staff como el seed; el customer porque el admin
+  da fe — **no** se envía correo) y `authProvider='local'`. Sin KYC/CLABE/INE.
+- **`email` se lowercasea** antes de persistir/validar unicidad (paridad con `/auth/register:102`).
+- **Errores:** `409 EMAIL_TAKEN` (Prisma `P2002`); `422 VALIDATION_ERROR` (email/rol/locale inválidos,
+  password débil); `403 FORBIDDEN` (guard de rol para no-super_admin).
+- **Respuesta** (`AdminCreatedUserDTO`): `{ user: { id, email, name, role, locale, status, emailVerified,
+  authProvider, createdAt }, tempPassword?, mustChangePassword }`. El `user` es **shape público** (sin
+  `passwordHash`).
+- **Seguridad / AuditLog:** el `after` de `user.create` guarda solo `{ role, emailVerified, authProvider,
+  mustChangePassword }` — la contraseña (temp o provista) **NUNCA** entra al `AuditLog` ni a logs (mismo
+  criterio que `user.reset_password`). Test defensivo verifica que el valor de la temp no aparece serializado.
+
+> **Nota de validación (422 vs 400) — patrón del repo, no discrepancia de contrato.** El contrato §M6
+> exige `422 VALIDATION_ERROR` para email/rol/password inválidos. El `ValidationPipe` global de NestJS
+> devuelve **400** para fallos de `class-validator` y corre **antes** que cualquier pipe de ruta/param, así
+> que `@IsEmail`/`@IsIn`/`@MinLength` en el DTO producirían 400, contradiciendo el contrato. Igual que
+> `uploads`/`settings` (ver §16 y el comentario en `uploads.controller.ts`), el DTO declara solo la
+> **estructura** (`@IsString`/`@IsOptional`, para sobrevivir al `whitelist`) y la validación **semántica**
+> (formato de email, rol ∈ {customer|vault_operator|super_admin}, locale ∈ {es|en}, longitud de password)
+> vive en `AdminService.createUser` lanzando `BusinessException.validation('VALIDATION_ERROR')` → **422**.
+> Esto además hace la validación **unit-testeable** a nivel de servicio (como el resto de M6).
+
+### F2 — Historial por usuario (reuso; no engorda `getUser`)
+- **`?userId=` opcional** añadido a `GET /admin/buylist` (`SellRequest.userId`), `GET /admin/shipments`
+  (`ShipmentRequest.userId`), `GET /admin/disputes` (`Dispute.userId`) — **patrón EXACTO** de
+  `GET /admin/orders` (`@Query('userId')` → `where.userId`). Solo se añade el filtro; el **shape de
+  respuesta, el guard (`vault_operator+`), la proyección PII por rol y la paginación no cambian**.
+  Servicios: `buylist.service.ts:adminList`, `shipments.service.ts:adminList`, `disputes.service.ts:adminList`
+  (4º parámetro `userId?`). Controllers añaden `@Query('userId')`.
+- **`GET /api/v1/admin/users/:id/audit`** (`AdminUsersController.userAudit`, paginado). Roles: `super_admin`
+  (proyección completa **con `ip`**) y `vault_operator` (**reducida, sin `ip`**) — cubierto por el guard de
+  clase. Query `?scope=target|actor|both&page=&pageSize=`:
+  - `target` (default): `entityType='User' AND entityId=:id` (acciones **sobre** el usuario).
+  - `actor`: `actorUserId=:id` (acciones **del** usuario). `both`: OR de ambas.
+  - Un `scope` desconocido se normaliza a `target` en el controller.
+- **Método de LECTURA en `AuditService`** (`backend/src/modules/audit/audit.service.ts`, antes solo `log()`):
+  `AuditService.listForUser({ userId, scope, role, page, pageSize })`. **404 `NOT_FOUND`** si el usuario no
+  existe (consulta `user.findUnique` antes de tocar `AuditLog`).
+- **`ip` condicional por rol:** se **reusa el `select` del audit-log de M10** (id/actorUserId/actorRole/
+  action/entityType/entityId/createdAt) y se añade `...(isSuperAdmin ? { ip: true } : {})`. Para
+  `vault_operator` la columna `ip` **ni siquiera se selecciona** en la query (no se lee de BD y no puede
+  filtrarse). **`before`/`after` NUNCA** se seleccionan (posible PII/estado sensible), alineado con la regla
+  de ARCHITECTURE §3.2. DTO expuesto: `UserAuditEntryDTO = { id, actorUserId, actorRole, action, entityType,
+  entityId, createdAt, ip? }`.
+
+### Tests (unitarios, sin Postgres/Redis)
+- `backend/test/admin.user-create.spec.ts` (E2): crea customer/operator/super_admin OK; email lowercaseado;
+  `emailVerified=true`/`authProvider='local'`; autogen → `tempPassword` una vez + `mustChangePassword=true`;
+  password provista → `mustChangePassword=false` sin `tempPassword`; 422 para rol/email/locale/name/password
+  débil; 409 `EMAIL_TAKEN` (P2002); auditoría no filtra la contraseña.
+- `backend/test/admin.user-audit.spec.ts` (F2): scope target/actor/both arman el `where` correcto;
+  super_admin selecciona `ip`, vault_operator no; nunca `before`/`after`; 404 usuario inexistente;
+  paginación skip/take/total; normalización de scope inválido; metadata `@Roles` (super_admin en `createUser`,
+  vault_operator+ a nivel de clase para el audit read); `?userId=` filtra en buylist/shipments/disputes.
+
+### Gates
+`npm run lint`, `npm run typecheck`, `npm test` (51 suites / 323 tests) y `npm run build` — **verdes**.
+
+### Discrepancias con el contrato
+Ninguna. `API_CONTRACT.md` / `ARCHITECTURE.md` no se tocan. La única decisión de implementación digna de
+nota es el **422 en el servicio** (arriba), que **cumple** el contrato §M6 (400 sería la desviación).

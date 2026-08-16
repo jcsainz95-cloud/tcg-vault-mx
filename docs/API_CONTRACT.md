@@ -4,6 +4,31 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.7-admin-users (2026-08-16) — Alta de usuarios por rol desde admin (E1) + historial 360° por usuario (F1):**
+> Dos adiciones **aditivas** de back-office (M6), sin romper consumidores existentes. NO requieren migración
+> (reusan modelos existentes: `User`, `AuditLog`, y los listados admin ya paginados).
+> - **E1 — `POST /api/v1/admin/users` (NUEVO, `super_admin` only, auditado `user.create`, NO money-out):** alta de
+>   cuentas de cualquier rol desde back-office (hoy solo hay auto-registro de `customer` y staff por seed). Req:
+>   `email` (IsEmail, se lowercasea), `name` (required), `role` (`@IsIn(customer|vault_operator|super_admin)`),
+>   `password?` (si se omite, el backend **autogenera** una temporal de alta entropía y la devuelve **una sola vez**,
+>   patrón reset M-15), `phone?`, `locale?`. **Sin KYC/CLABE/INE** (perfiles self-service). Res `201`: el usuario
+>   creado (shape público, sin `passwordHash`) + `tempPassword?` (solo si se autogeneró) + `mustChangePassword`.
+>   Errores: `409 EMAIL_TAKEN` (P2002), `422 VALIDATION_ERROR` (rol/email inválidos, password débil), `403 FORBIDDEN`.
+>   **Decisiones (defaults):** `emailVerified=true` para staff (operator/admin, como el seed) y también para el
+>   `customer` creado por admin (el admin da fe; no se envía correo); `authProvider='local'`; `mustChangePassword=true`
+>   **solo** cuando la contraseña es autogenerada (`false` si el admin la provee explícita). **Seguridad:** crear
+>   `super_admin` es **escalada de privilegios** → el control es super_admin-only + auditoría (la contraseña **nunca**
+>   se registra en `AuditLog`). Ver §M6 y ARCHITECTURE §4.7bis.
+> - **F1 — Historial 360° por usuario (REUSO, no engorda `getUser`):**
+>   - **`?userId=` (query opcional) añadido** a `GET /admin/buylist`, `GET /admin/shipments` y `GET /admin/disputes`
+>     — **simetría** con `GET /admin/orders` que ya lo tenía. Paginados, mismo guard (`vault_operator+`) y misma
+>     proyección PII por rol (el filtro no cambia el shape). Ver §M4/§M5/§M8.
+>   - **`GET /api/v1/admin/users/:id/audit` (NUEVO, paginado):** entradas de `AuditLog` de/ sobre el usuario. Query
+>     `?scope=target|actor|both` (default `target` = `entityType='User' AND entityId=:id`; `actor` = `actorUserId=:id`;
+>     `both` = OR). **Expone** `id, actorUserId, actorRole, action, entityType, entityId, createdAt` (+ `ip` **solo**
+>     para `super_admin`); **NUNCA** `before`/`after` (posible PII/estado sensible). Roles: `super_admin` (proyección
+>     completa con `ip`) y `vault_operator` (**reducido, sin `ip`**). Ver §M6.
+>
 > **Changelog v1.6-finish (2026-08-16) — Acabado / versión de carta (finish) en toda la cadena (PROJECT.md §I / v1.4, criterios 37–44):**
 > Las cartas se distinguen por **acabado**: `Finish = normal | reverse_holo | holofoil | first_edition_holofoil`
 > (derivados de las llaves de `tcgplayer.prices`; mapeo en ARCHITECTURE §3.7). El monto se **deriva server-side**
@@ -713,7 +738,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/orders/:id/refund` — **`super_admin`** — Req `{ reason }` + `Idempotency-Key` → reembolso Stripe, Order `→refunded`. Err `403 MONEY_OUT_FORBIDDEN` para operador. **Reembolso EXCEPCIONAL** (política VENTAS FINALES): no hay reembolso voluntario. La excepción legítima es un **error de la plataforma** (p. ej. cobro doble, inventario fantasma), que **siempre** se reembolsa. **NO** re-agrega el item al inventario. (La política de negocio completa vive en `PROJECT.md`.)
 
 ### M4 — Retiros / envíos (`vault_operator+`)
-- `GET /api/v1/admin/shipments` — cola. `?status=&page=`
+- `GET /api/v1/admin/shipments` — cola. `?status=&userId=&page=`
+  - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `ShipmentRequest.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
 - `GET /api/v1/admin/shipments/:id`
 - `GET /api/v1/admin/shipments/picking-list` — **lista de picking ordenada por ubicación** (`?date=` opcional) → items con `folio` + `location.label`.
 - `PATCH /api/v1/admin/shipments/:id/status` — Req `{ to: ShipmentStatus }` (transiciones `solicitado→picking→guia→enviado→entregado`).
@@ -722,7 +748,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   - Nota: `shippingCostCents` es un dato **interno de costo**; **no** se expone al cliente (`GET /shipments/:id` del comprador NO lo incluye).
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
-- `GET /api/v1/admin/buylist` — cola `?status=&page=`
+- `GET /api/v1/admin/buylist` — cola `?status=&userId=&page=`
+  - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `SellRequest.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección PII por rol (la CLABE sigue enmascarada; en claro solo por `reveal-clabe`).
 - `GET /api/v1/admin/buylist/:id` — detalle con items y estados. La CLABE del vendedor se expone **enmascarada** como `clabeMasked` (`****1234`); **nunca** el snapshot cifrado ni la CLABE en claro. Para pagar, el súper-admin usa `reveal-clabe` (ver abajo).
 - `GET /api/v1/admin/buylist/:id/reveal-clabe` — **`super_admin`** — **money-out, auditado**. Descifra y devuelve la **CLABE completa (18 dígitos)** para que el súper-admin la **copie a su banca al ejecutar el SPEI**. Es el **ÚNICO** punto del contrato que devuelve la CLABE en claro; cada llamada queda registrada en `AuditLog` (`action: buylist.reveal_clabe`, quién/cuándo/qué solicitud). Si el `clabeSnapshot` de la solicitud falta, **cae a la CLABE de KYC** del usuario.
   Res `200`: `{ sellRequestId, clabe }` (`clabe` = 18 dígitos en claro). Err `403 MONEY_OUT_FORBIDDEN` (operador/cliente), `404 NOT_FOUND`, `422 CLABE_UNAVAILABLE` (sin snapshot ni CLABE de KYC).
@@ -736,8 +763,68 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > **Estado v1.3: YA EXISTE en backend** (`AdminUsersController` + `AdminService.listUsers/getUser/updateUserKyc/updateUserStatus`). No requiere backend nuevo; falta **consumo de frontend** (M6 es `ModuleTodo` en UI). Shapes confirmados contra el código: el **listado** es paginado `{ data, page, pageSize, total }` con `data: { id, email, name, role, status, createdAt }[]` y filtros `q` (email/name) + `status`; la **ficha 360°** (`GET /admin/users/:id`) incluye `kycProfile` (CLABE/RFC **enmascarados** incluso para `super_admin`; `ineOnFile: boolean`), `billingProfile` (RFC enmascarado; `null` para `vault_operator`), `addresses`, `orders` (últimas 20), `sellRequests` (20), `disputes` (20) y `ownedItems` (bóveda). El `vault_operator` recibe **proyección reducida** (sin RFC/INE/billing).
 - `GET /api/v1/admin/users` — `?q=&status=&page=`
 - `GET /api/v1/admin/users/:id` — **ficha 360°** (compras, bóveda, buylist, disputas, KYC). La CLABE y el RFC se devuelven **enmascarados también para `super_admin`** (`clabeMasked` = `****1234`, `rfcMasked` = parcial); la CLABE en claro solo por `reveal-clabe`. Para `vault_operator` se mantiene la proyección reducida de SEC-A4 (sin CLABE/RFC/INE keys ni billing profile; `ineOnFile` booleano).
+  > **F1 (v1.7):** la ficha `getUser` **no se engorda**. El historial completo se arma por **reuso** de los listados admin ya paginados con `?userId=` (envíos §M4, buylist §M5, disputas §M8, órdenes §M3 — todos con `?userId=`) + el nuevo `GET /admin/users/:id/audit` (abajo). `getUser` sigue trayendo solo las últimas 20 de orders/sellRequests/disputes + bóveda como resumen.
 - `PATCH /api/v1/admin/users/:id/kyc` — **`super_admin`** — Req `{ kycStatus, capPerRequestCents?, capPerMonthCents? }`.
 - `PATCH /api/v1/admin/users/:id/status` — **`super_admin`** — Req `{ status: "active" | "blocked" }`.
+
+#### Alta de usuario por rol desde admin (v1.7-admin-users — NUEVO backend)
+> Hoy no existe alta de usuarios en back-office: los clientes se **auto-registran** como `customer` y el staff
+> (`vault_operator`/`super_admin`) se crea por **seed**. Este endpoint permite al súper-admin crear cuentas de
+> **cualquier rol** desde M6. **No** captura KYC/CLABE/INE (esos son datos self-service del propio usuario).
+- `POST /api/v1/admin/users` — **`super_admin`**, **auditado** (`action: user.create`). **NO es dinero saliente** (sin `MoneyOutGuard`).
+  Req:
+  ```json
+  { "email": "string (IsEmail; se lowercasea)", "name": "string (required)",
+    "role": "customer | vault_operator | super_admin",
+    "password": "string? (>= 8; si se omite, el backend autogenera una temporal de alta entropía)",
+    "phone": "string?", "locale": "es | en? (default es)" }
+  ```
+  - `email`: se **lowercasea** antes de persistir/validar unicidad (mismo trato que `/auth/register`).
+  - `name`: **requerido** (columna `User.name` es NOT NULL).
+  - `role`: `@IsIn(customer | vault_operator | super_admin)`. Crear `vault_operator`/`super_admin` es alta de staff.
+  - `password?`: si se **provee**, aplica la política de `/auth/register` (`MinLength 8`); si se **omite**, el backend
+    **autogenera** una contraseña temporal de **alta entropía** (patrón `randomBytes(18).base64url` del reset M-15) y
+    la devuelve **una sola vez** en `tempPassword`. El admin la comparte por su propio canal (paridad con
+    `POST /admin/users/:id/reset-password`; **no** se envía correo).
+  Res `201`:
+  ```json
+  { "user": { "id": "…", "email": "…", "name": "…", "role": "vault_operator",
+              "locale": "es", "status": "active", "emailVerified": true,
+              "authProvider": "local", "createdAt": "…" },
+    "tempPassword": "string?",  // SOLO si se autogeneró (no viene si el admin envió password)
+    "mustChangePassword": true } // true SOLO cuando la contraseña fue autogenerada
+  ```
+  - `user`: **shape público** (sin `passwordHash`), superset del `publicUser` de auth.
+  - **Decisiones (defaults):**
+    - **`emailVerified`**: staff (`vault_operator`/`super_admin`) nace **`true`** (como el seed); el `customer`
+      creado por admin **también** nace **`true`** (el admin da fe de la identidad; **no** se dispara correo de
+      verificación). `authProvider='local'`.
+    - **`mustChangePassword`**: **`true`** cuando la contraseña es **autogenerada** (fuerza el cambio en el próximo
+      login, patrón M-15). **`false`** cuando el admin **provee** una password explícita.
+  - Errores: `409 EMAIL_TAKEN` (unicidad de email, P2002), `422 VALIDATION_ERROR` (rol/email inválidos o password
+    débil), `403 FORBIDDEN` (rol distinto de `super_admin`).
+  - **Seguridad:** solo `super_admin` puede crear cuentas — crear un `super_admin` es **escalada de privilegios**, y
+    el control es precisamente **super_admin-only + auditoría** (`user.create` con `actorUserId`/`entityId`/`role`
+    en `after`; la **contraseña temporal NUNCA** se registra en `AuditLog` ni en logs, como en `user.reset_password`).
+
+#### Actividad / auditoría por usuario (v1.7-admin-users — NUEVO backend)
+> Complementa la ficha 360° para servicio al cliente: la traza de acciones **sobre** el usuario (y opcionalmente
+> **del** usuario) desde `AuditLog`, paginada, sin filtrar PII sensible.
+- `GET /api/v1/admin/users/:id/audit` — **`super_admin`** (completo) **y `vault_operator`** (proyección reducida). Paginado.
+  Query: `?scope=target|actor|both&page=&pageSize=`
+  - `scope` (default **`target`**):
+    - `target`: `entityType='User' AND entityId=:id` — acciones **sobre** el usuario (`user.create`, `user.kyc.update`,
+      `user.status.update`, `user.reset_password`, `user.delete`, `auth.email_verification_sent`, `auth.google_link`, …).
+    - `actor`: `actorUserId=:id` — acciones **realizadas por** el usuario.
+    - `both`: OR de ambas.
+  Res `200`: `{ data: UserAuditEntryDTO[], page, pageSize, total }` (`orderBy createdAt desc`).
+  - **Proyección expuesta** (`UserAuditEntryDTO`): `id, actorUserId, actorRole, action, entityType, entityId, createdAt`,
+    y **`ip` SOLO para `super_admin`**.
+  - **NUNCA se exponen `before`/`after`** (pueden contener PII/estado sensible; misma regla que ARCHITECTURE §3.2 —
+    "PII/secretos nunca en before/after", y el DTO no los devuelve para evitar filtrado incluso de los que sí traen datos).
+  - **Roles / proyección:** `super_admin` → proyección completa (incluye `ip`). `vault_operator` → **reducida** (mismos
+    campos **sin `ip`**; el `ip` es dato investigativo/seguridad reservado al súper-admin).
+  - Err: `403 FORBIDDEN` (rol < `vault_operator`), `404 NOT_FOUND` (usuario inexistente).
 
 #### Reset de contraseña por admin — SIN correo (v1.3.1 — NUEVO backend)
 > La plataforma **no tiene email transaccional** en el MVP. El súper-admin restablece la contraseña desde M6 y
@@ -804,7 +891,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `GET /api/v1/admin/finance/export.csv` — `?report=pnl|iva|inventory&from=&to=` → CSV. **El CSV de `pnl` espeja el shape del response (v1.4-finance):** cabecera `report,incomeCents,shippingRevenueCents,cogsCents,stripeFeesCents,shippingCostCents,profitCents` (la columna `shippingCents` se renombra a `shippingRevenueCents` y se añade `shippingCostCents`).
 
 ### M8 — Disputas (`vault_operator+`; recompra `super_admin`)
-- `GET /api/v1/admin/disputes` — cola `?status=&page=`
+- `GET /api/v1/admin/disputes` — cola `?status=&userId=&page=`
+  - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `Dispute.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
 - `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`. **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
 
@@ -847,6 +935,13 @@ SellItemDTO      = { id, card: CardDTO, productType, rawCondition?, finish: Fini
                      quotedPriceCents?, approvedPriceCents?, itemStatus: SellItemStatus, inventoryItemId? }
 PendingPriceEntry= { id, cardId, productType, gradeKey, context, status: "open"|"resolved", createdAt }
 AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entityId, createdAt }
+// v1.7-admin-users: entrada de auditoría por usuario (GET /admin/users/:id/audit). Superset de AuditLogDTO:
+// `ip?` SOLO se puebla para super_admin (vault_operator lo recibe omitido). NUNCA incluye before/after.
+UserAuditEntryDTO= { id, actorUserId, actorRole: Role, action, entityType, entityId, createdAt, ip?: string }
+// v1.7-admin-users: respuesta de POST /admin/users. `user` = shape público (sin passwordHash).
+AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, status: UserStatus,
+                               emailVerified: boolean, authProvider: AuthProvider, createdAt: string },
+                        tempPassword?: string, mustChangePassword: boolean }
 ```
 
 ---
@@ -860,6 +955,7 @@ AuditLogDTO      = { id, actorUserId, actorRole: Role, action, entityType, entit
 - Carta "precio pendiente" → `sellable=false`, compra bloqueada con `PRICE_PENDING`; escalada al dueño vía `PendingPriceEntry`.
 - Retiro solo sobre `settled` (`ITEM_NOT_SETTLED`); direcciones solo MX (`ADDRESS_NOT_MX`).
 - Buylist: cotización por **regla por rareza oficial** (v1.3.1 — `fixed` MX$ / `pct` % de la referencia + fallback %; reemplaza común/reverse/EX+), topes y INE (`BUYLIST_LIMIT_EXCEEDED`, `INE_REQUIRED`), pago SPEI **solo súper-admin** tras recepción/verificación. La regla se **deriva server-side** de `Card.rarity` (SEC-A1); editor en M2 (`buylist-rules`/`rarities`).
+- **Alta de usuarios por rol + historial 360° (v1.7-admin-users):** `POST /admin/users` (super_admin-only, auditado `user.create`, NO money-out) crea cuentas de cualquier rol sin KYC/CLABE/INE; `emailVerified=true` para staff y para el customer creado por admin; `mustChangePassword=true` solo si la contraseña es autogenerada (devuelta una vez en `tempPassword`, nunca en `AuditLog`). Crear `super_admin` = escalada de privilegios, controlada por super_admin-only + auditoría. El historial 360° se arma por **reuso**: `?userId=` en `GET /admin/{orders,buylist,shipments,disputes}` (paginados, misma proyección PII por rol) + `GET /admin/users/:id/audit` (AuditLog por `scope=target|actor|both`, expone action/actorRole/entityType/entityId/createdAt + `ip` solo super_admin, **nunca** before/after; `vault_operator` reducido sin `ip`). Sin migración (reusa `User`/`AuditLog`). Ver ARCHITECTURE §4.7bis.
 - **Acabado / versión de carta (v1.6-finish):** `Finish = normal | reverse_holo | holofoil | first_edition_holofoil`, modelado en **toda la cadena** (Compra, cotizador, inventario/bóveda, portafolio). `CardDTO.availableFinishes` (derivado de `tcgplayer.prices`), `finish` en `ListingDTO`/`HoldingDTO`/`SellItemDTO` y en req de quote/requests/alta M1. El monto se **deriva server-side** de `(Card.rarity, finish)` **validado contra `availableFinishes`** (SEC-A1); acabado no disponible → `422 FINISH_NOT_AVAILABLE`. La cotización es por acabado: el acabado selecciona la regla (reverse holo → `"Reverse Holo"`; holofoil / 1st ed → rareza base si ya es holo, si no `"Holo"`; normal → rareza base) y, para `pct`, usa el market de **ese** acabado. `PriceReference` lleva `finish` en su clave; el provider guarda precio por acabado. **1 fila por `Card`** (no cambia). Migración **M-18** (aditiva, default seguro `normal`/`[normal]`) → **RE-SYNC** del catálogo tras desplegar. Ver ARCHITECTURE §3.7 y §4.2.1.
 - Contracargo (webhook `charge.dispute.created`) es **consciente del estado físico**: revierte el item a inventario de plataforma **solo si sigue en bóveda**; si ya se envió/entregó **no** re-agrega y marca `chargebackNeedsManual` (ver §9). Cierre de disputa: ganamos→`settled` (`disputeOutcome=won`), perdemos→`chargeback` (`disputeOutcome=lost`).
 - **VENTAS FINALES** (política del humano, ver `PROJECT.md`): no hay reembolso voluntario. Excepciones: (a) **error de la plataforma** (cobro doble/inventario fantasma) → **siempre** se reembolsa (§M3); (b) **disputa de condición** raw dañada/equivocada → el súper-admin compensa con **recompra al precio pagado**, el cliente **conserva la carta** y **no** vuelve al inventario (§M8). En ningún caso de reembolso/recompra el item se re-agrega al inventario.

@@ -83,9 +83,16 @@ export class DisputesService {
 
   // ---------------- Admin M8 ----------------
 
-  async adminList(status: string | undefined, page: number, pageSize: number) {
+  async adminList(
+    status: string | undefined,
+    page: number,
+    pageSize: number,
+    userId?: string,
+  ) {
     const where: Prisma.DisputeWhereInput = {};
     if (status) where.status = status as never;
+    // v1.7-admin-users: filtro opcional por Dispute.userId (simetría con /admin/orders).
+    if (userId) where.userId = userId;
     const [data, total] = await Promise.all([
       this.prisma.dispute.findMany({
         where,

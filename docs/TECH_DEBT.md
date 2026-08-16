@@ -217,6 +217,41 @@
   intercambie el token por POST y lo **retire de la URL** (`history.replaceState`) al montar, y/o
   `Referrer-Policy: no-referrer` en esas rutas (coordinar con frontend/devops).
 
+### Deuda del pase v1.7-admin-users (hallazgos techlead — no bloqueante, aceptada)
+
+> Del pase de **alta de usuario por rol desde admin (M6)**. El bloqueante (proyección `ownedItems`
+> de `getUser` que no conformaba el contrato `AdminUserOwnedItemRef` y crasheaba la pestaña Bóveda)
+> **ya se corrigió** en este mismo pase (`admin.service.ts` → `getUser` mapea `{ inventoryItemId,
+> folio, card: CardDTO, ownershipStatus }` con `toCardDTO`, cubierto en `test/admin.pii.spec.ts`) y
+> **no** figura como deuda. Lo de abajo es la deuda no bloqueante que el techlead autorizó a diferir.
+
+### BE-9 · `createUser` reimplementa a mano la validación de email/password de `/auth/register`
+- **Dónde:** `src/modules/admin/admin.service.ts` → `createUser` (validación de formato de email y de
+  fortaleza de password inline) vs. `src/modules/auth/auth.service.ts` → `register` (validación original).
+- **Estado actual:** las mismas reglas (formato de email, longitud/fortaleza mínima de password) están
+  **duplicadas** en dos sitios con lógica escrita a mano; no comparten un validador común. Funcionan hoy,
+  pero pueden **divergir** si una de las dos se endurece sin tocar la otra.
+- **Impacto:** bajo. Mantenibilidad/consistencia: riesgo de que el alta admin acepte credenciales que el
+  auto-registro rechazaría (o viceversa) tras un cambio futuro.
+- **Disparador:** al tocar cualquiera de las dos validaciones, o antes de añadir un tercer punto de alta.
+  Solución: **centralizar** las reglas en un helper compartido (p. ej. `common/validation/credentials`
+  o un DTO/validator reusable) e invocarlo desde `register` y `createUser`.
+
+### BE-10 · `AdminUserOwnedItemRef` sin `finish` ni `referenceValue` — petición al arquitecto (PENDIENTE)
+- **Dónde:** contrato `docs/API_CONTRACT.md §M6` (`AdminUserOwnedItemRef`) y su consumo en la pestaña
+  Bóveda del frontend (`M6View.tsx` → `VaultTab`); backend `admin.service.ts` → `getUser().ownedItems`.
+- **Estado actual:** la proyección conforma el contrato vigente `{ inventoryItemId, folio, card,
+  ownershipStatus }`, así que la pestaña Bóveda de M6 muestra **solo carta + folio + titularidad**. NO
+  puede mostrar el **acabado** (`finish`) ni el **valor de referencia** (`referenceValue`) porque el
+  contrato no los incluye en este ref (a diferencia del `HoldingDTO` de la bóveda del usuario en §M1,
+  que sí trae `finish` + `referenceValue`).
+- **Impacto:** bajo. Funcional: la ficha 360° admin da menos contexto de valuación del que ya existe en
+  el `HoldingDTO`. No hay bug; es una limitación de alcance del contrato.
+- **Disparador / acción requerida:** **decisión del arquitecto** (el backend NO cambia el contrato por su
+  cuenta — regla de oro). Opciones a evaluar: (a) enriquecer `AdminUserOwnedItemRef` con `finish` +
+  `referenceValue`; o (b) añadir un endpoint dedicado `GET /admin/users/:id/holdings` que reuse la
+  valuación de `vault.service.holdings`. Una vez el arquitecto actualice el contrato, backend implementa.
+
 ---
 
 ## Frontend (dueño: frontend)

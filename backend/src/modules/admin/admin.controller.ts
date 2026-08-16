@@ -1,11 +1,12 @@
 import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
-import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
 import { AuditService } from '../audit/audit.service';
+import { UserAuditScope } from '../audit/audit.service';
 
 class UpdateKycDto {
   @IsIn(['none', 'pending', 'verified', 'rejected']) kycStatus!: string;
@@ -15,6 +16,21 @@ class UpdateKycDto {
 
 class UpdateStatusDto {
   @IsIn(['active', 'blocked']) status!: 'active' | 'blocked';
+}
+
+/**
+ * Alta de usuario por admin (E1, v1.7-admin-users). API_CONTRACT §M6.
+ * Solo se declara la ESTRUCTURA (@IsString) para sobrevivir al whitelist del ValidationPipe;
+ * la validación SEMÁNTICA (email/rol/locale/longitud de password) vive en `AdminService.createUser`
+ * y lanza `422 VALIDATION_ERROR` (el contrato exige 422; el pipe global solo da 400 estructural).
+ */
+class CreateAdminUserDto {
+  @IsString() email!: string;
+  @IsString() name!: string;
+  @IsString() role!: string;
+  @IsOptional() @IsString() password?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() locale?: string;
 }
 
 /** M6 Usuarios: lista/ficha para vault_operator (limitado) + super_admin. */
@@ -41,10 +57,66 @@ export class AdminUsersController {
     );
   }
 
+  /**
+   * Alta de usuario por rol (E1, v1.7-admin-users). super_admin-only, auditado `user.create`,
+   * NO money-out. API_CONTRACT §M6. La contraseña (autogen o provista) NUNCA entra al AuditLog.
+   */
+  @Post()
+  @HttpCode(201)
+  @Roles(Role.super_admin)
+  async createUser(
+    @Body() dto: CreateAdminUserDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.admin.createUser(dto);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'user.create',
+      entityType: 'User',
+      entityId: res.user.id,
+      // SEGURIDAD: NUNCA la contraseña (temp o provista). Solo metadatos no sensibles.
+      after: {
+        role: res.user.role,
+        emailVerified: res.user.emailVerified,
+        authProvider: res.user.authProvider,
+        mustChangePassword: res.mustChangePassword,
+      },
+    });
+    return res;
+  }
+
   @Get(':id')
   get(@Param('id') id: string, @CurrentUser('role') role: Role) {
     // SEC-A4: la proyección de PII depende del rol (operador recibe ficha reducida).
     return this.admin.getUser(id, role);
+  }
+
+  /**
+   * Actividad / auditoría por usuario (F1, v1.7-admin-users). API_CONTRACT §M6.
+   * Roles: super_admin (completo, con `ip`) y vault_operator (reducido, sin `ip`) — cubierto por
+   * el guard de clase. `scope` default `target`. NUNCA expone before/after. 404 si no existe.
+   */
+  @Get(':id/audit')
+  userAudit(
+    @Param('id') id: string,
+    @CurrentUser('role') role: Role,
+    @Query('scope') scope = 'target',
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    const normalizedScope: UserAuditScope = (['target', 'actor', 'both'] as const).includes(
+      scope as UserAuditScope,
+    )
+      ? (scope as UserAuditScope)
+      : 'target';
+    return this.audit.listForUser({
+      userId: id,
+      scope: normalizedScope,
+      role,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+    });
   }
 
   @Patch(':id/kyc')

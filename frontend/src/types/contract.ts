@@ -710,6 +710,39 @@ export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
   ownedItems?: AdminUserOwnedItemRef[];
 }
 
+// POST /admin/users → alta de usuario por rol desde admin (v1.7-admin-users, super_admin).
+// `user` = shape público (sin passwordHash). `tempPassword` SOLO si el backend la autogeneró
+// (password omitida); `mustChangePassword=true` SOLO cuando fue autogenerada (patrón reset M-15).
+export interface AdminCreatedUserDTO {
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    role: Role;
+    locale: Locale;
+    status: AdminUserStatus;
+    emailVerified: boolean;
+    authProvider: AuthProvider;
+    createdAt: string;
+  };
+  tempPassword?: string;
+  mustChangePassword: boolean;
+}
+
+// GET /admin/users/:id/audit → traza de AuditLog de/sobre el usuario (v1.7-admin-users).
+// Superset de AuditLogDTO: `ip?` SOLO se puebla para super_admin (vault_operator lo recibe
+// omitido). NUNCA incluye before/after (posible PII/estado sensible; §M6/ARCHITECTURE §3.2).
+export interface UserAuditEntryDTO {
+  id: string;
+  actorUserId: string;
+  actorRole: Role;
+  action: string;
+  entityType: string;
+  entityId: string;
+  createdAt: string;
+  ip?: string;
+}
+
 // ---- M10: Config (diales) y bitácora (contrato §M10) ----
 export interface SettingsDTO {
   shippingFeeCents: number;

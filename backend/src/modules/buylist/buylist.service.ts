@@ -375,9 +375,16 @@ export class BuylistService {
 
   // ---------------- Admin M5 ----------------
 
-  async adminList(status: string | undefined, page: number, pageSize: number) {
+  async adminList(
+    status: string | undefined,
+    page: number,
+    pageSize: number,
+    userId?: string,
+  ) {
     const where: Prisma.SellRequestWhereInput = {};
     if (status) where.status = status as never;
+    // v1.7-admin-users: filtro opcional por SellRequest.userId (simetría con /admin/orders).
+    if (userId) where.userId = userId;
     // QA-BUG: `include: { items: true }` no traía `card`, y M5View crasheaba al leer
     // `it.card.name`. AdminBuylistDTO.items exige `card: CardDTO`; se incluye y mapea.
     const [rows, total] = await Promise.all([

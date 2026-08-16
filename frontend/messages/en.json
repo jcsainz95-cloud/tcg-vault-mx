@@ -718,7 +718,18 @@
         "email": "Email",
         "role": "Role",
         "status": "Status",
-        "created": "Joined"
+        "created": "Joined",
+        "folio": "Folio",
+        "date": "Date",
+        "total": "Total",
+        "quoted": "Quoted",
+        "tracking": "Tracking",
+        "type": "Type",
+        "card": "Card",
+        "ownership": "Ownership",
+        "action": "Action",
+        "actorRole": "Actor role",
+        "ip": "IP"
       },
       "pageInfo": "Page {page} of {totalPages} · {total} users",
       "prev": "Previous",
@@ -775,7 +786,43 @@
       "deleteError": "Could not delete the user.",
       "deleteSelfError": "You cannot delete your own account.",
       "deleteResultHard": "Account fully deleted (hard delete).",
-      "deleteResultSoft": "Account anonymized; history kept for reconciliation."
+      "deleteResultSoft": "Account anonymized; history kept for reconciliation.",
+      "create": {
+        "button": "Create user",
+        "title": "Create user",
+        "email": "Email",
+        "name": "Name",
+        "role": "Role",
+        "roleOption": {
+          "customer": "Customer",
+          "vault_operator": "Vault operator",
+          "super_admin": "Super admin"
+        },
+        "password": "Password",
+        "passwordHint": "Leave empty to auto-generate a secure temporary one (shown only once).",
+        "submit": "Create",
+        "superAdminWarning": "Creating a super admin grants full control (privilege escalation). This action is audited.",
+        "errorEmailTaken": "An account with that email already exists.",
+        "errorValidation": "Check the data: valid email, allowed role, and a password of at least 8 characters.",
+        "errorForbidden": "You do not have permission to create users.",
+        "errorGeneric": "Could not create the user.",
+        "successTitle": "User created",
+        "successBody": "Account created for {email} with role {role}.",
+        "providedPasswordNote": "The user can sign in with the password you set."
+      },
+      "tabs": {
+        "purchases": "Purchases",
+        "sales": "Sales",
+        "shipments": "Shipments",
+        "disputes": "Disputes",
+        "vault": "Vault",
+        "activity": "Activity"
+      },
+      "historyEmpty": "No records.",
+      "disputeType": {
+        "condition_raw": "Condition (raw)",
+        "condition_sealed": "Condition (sealed)"
+      }
     },
     "m10": {
       "title": "M10 · Config & audit log",
