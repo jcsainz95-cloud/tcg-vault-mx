@@ -2,7 +2,35 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.8-ronda-c (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.9-set-chart (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+>
+> **Changelog v1.9-set-chart (2026-08-16)** — **Gráfica PÚBLICA del valor de un set en el tiempo (hero de la
+> home, datos REALES, captura diaria)**. Objetivo de producto: un visitante **anónimo** (sin sesión) ve en el
+> hero una gráfica estilo acciones del **valor de mercado agregado de un set destacado**, para atraer tráfico.
+> Hoy la home solo muestra el vistazo del portafolio PERSONAL (`PortfolioGlance`), visible **solo con sesión**;
+> un anónimo no ve ninguna gráfica. **Todo aditivo**, una sola migración nueva **M-20** (modelo nuevo, sin
+> backfill). **SEC-A1 intacto** (el valor se deriva SIEMPRE server-side de `PriceReference` real, nunca del
+> cliente). El endpoint es PÚBLICO pero **no expone PII** — solo valor agregado de mercado.
+> - **Realidad de datos:** pokemontcg.io (`tcgplayer.prices.<acabado>.market`, USD → MXN vía Banxico) solo da
+>   el precio **de HOY**, sin historial. Por eso la serie del set **se siembra con el valor de hoy y crece con
+>   captura diaria** (mismo patrón que `PortfolioSnapshot`) — **no** hay histórico que bajar ni se fabrican
+>   puntos: si un día no hubo snapshot, el punto **no** existe.
+> - **Modelo nuevo `SetValueSnapshot` (MIGRACIÓN M-20, aditiva, sin backfill):** serie diaria por set, análoga
+>   a `PortfolioSnapshot` pero agregando por `setId` en vez de por `userId`. Escrita por un job diario. Ver §3.2.
+> - **Regla de valor (server-side, SEC-A1):** `totalValueMxnCents` del set en una fecha = SUM sobre las cartas
+>   del set de la `PriceReference` vigente más reciente por carta, tomando acabado **`normal`**, `productType`
+>   **`raw`** (`gradeKey='raw:NM'`), campo `priceMxnCents`. Las cartas **sin** precio ese día se **excluyen** del
+>   total pero se cuentan en `pricedCardCount` (vs `totalCardCount`). Es "valor de las cartas priceadas del
+>   set", NO promesa de valor de set completo. Ver §4.12.
+> - **Endpoints PÚBLICOS nuevos (`@Public()`):** `GET /catalog/featured-set/value-history` (el "set destacado"
+>   de la home, para que el front NO hardcodee un id) y el genérico `GET /catalog/sets/:id/value-history`. DTO
+>   nuevo `SetValuePointDTO` (misma línea que `PortfolioPointDTO`). Ver `API_CONTRACT.md §2`.
+> - **Set destacado:** configurable por env **`HOME_FEATURED_SET_ID`** (id nativo pokemontcg.io de un set SV
+>   reciente), con fallback determinista. Mecanismo en §4.12.
+> - **Jobs nuevos (BullMQ diarios):** (a) `set-price-sync` — precia TODAS las cartas del set destacado desde
+>   pokemontcg.io (brecha NUEVA: el `price-sync` actual solo precia bóveda; ver §4.12 y DEV-3 en §9); (b)
+>   `set-value-snapshot` — agrega y hace upsert de `SetValueSnapshot` del día. Crons alineados con los
+>   existentes (`fx-refresh 0 6`, `price-sync 15 6`, `portfolio-snapshot 0 7`). Ver §5.
 >
 > **Changelog v1.8-ronda-c (2026-08-16)** — **Tres deudas de Ronda C que requieren cambio de contrato**
 > (BE-10, PendingPriceEntry+finish, SEC-D2). **Todo aditivo**, una sola migración nueva **M-19** (dos columnas +
@@ -460,6 +488,29 @@ Serie temporal por usuario que alimenta la gráfica estilo acciones de "Mi bóve
 - **Índice:** `@@index([userId, asOfDate])` para consultas por rango.
 - **Escritura:** job diario `portfolio-snapshot` (BullMQ, ver §5 y BE-5) tras el `price-sync`; reutiliza `VaultService.holdings()` para no divergir del valor mostrado en vivo. Solo snapshotea usuarios con holdings.
 - **Backfill indicativo (opcional, marcado estimado):** si se desea sembrar histórico previo a la puesta en marcha del job, se puede generar una serie **estimada** aplicando los `PriceReference` disponibles por fecha a los holdings actuales del usuario. Estos puntos se marcan `estimated=true` en la respuesta (`PortfolioPointDTO.estimated?`) y **no** se persisten como verdad si contradicen un snapshot real; es indicativo, no autoritativo. Es una tarea opcional de BE, no bloquea el MVP.
+
+#### SetValueSnapshot (gráfica PÚBLICA del valor de un set) — **MIGRACIÓN M-20 (modelo nuevo, v1.9-set-chart)**
+Serie temporal **por set** que alimenta la gráfica PÚBLICA del hero de la home (visitantes anónimos, estilo
+acciones, mismos rangos 5d/15d/1m/3m/6m/1a/YTD/Máx). Es el **análogo de `PortfolioSnapshot` pero agregando por
+`setId`** en vez de por `userId`. Como pokemontcg.io solo da precio de HOY (sin historial), la serie **se
+siembra con el valor de hoy y crece con captura diaria** (no hay histórico que bajar; no se fabrican puntos).
+Forma EXACTA del modelo (backend lo traduce a Prisma en `schema.prisma`):
+- `id` (uuid), `setId` (FK a `CardSet`, `onDelete: Cascade`), `asOfDate` (`@db.Date` — un punto por día natural).
+- `totalValueMxnCents` (`Int`) — valor agregado MXN (centavos) del set ese día (regla de valor en §4.12).
+- `pricedCardCount` (`Int`) — cuántas cartas del set **tenían precio** ese día (las que entran al total).
+- `totalCardCount` (`Int`) — cuántas cartas tiene el set en total (`Card` con ese `setId`). Invariante
+  `pricedCardCount <= totalCardCount`. La razón `pricedCardCount/totalCardCount` es la **cobertura** de datos y
+  se expone en el punto para que el front pueda advertir "valor parcial del set".
+- `createdAt`, `updatedAt` (`@updatedAt`).
+- **Unicidad:** `@@unique([setId, asOfDate])` (idempotente: re-correr el job del día hace **upsert**, no duplica).
+- **Índice:** `@@index([setId, asOfDate])` para consultas por rango.
+- **Relación nueva en `CardSet`:** `snapshots SetValueSnapshot[]` (lado inverso de la FK).
+- **Escritura:** job diario `set-value-snapshot` (BullMQ, §5) tras `set-price-sync`. Ver la regla de valor y el
+  manejo de cartas sin precio en §4.12. **SEC-A1:** `totalValueMxnCents` se deriva SIEMPRE de `PriceReference`
+  real; nunca de input del cliente.
+- **Sin backfill:** M-20 solo crea la tabla; la serie arranca vacía y se puebla desde el primer día que corra el
+  job (mismo criterio "no se inventan datos" que `PortfolioSnapshot`). Un backfill estimado NO aplica aquí
+  porque no existen `PriceReference` de fechas previas para las cartas del set fuera de bóveda.
 
 #### AuthToken (verificación de correo / reset de contraseña) — **MIGRACIÓN M-17 (modelo nuevo, v1.5-auth-email)**
 Token de **un solo uso** para los flujos self-service por correo. **Nunca** guarda el token en claro: el claro
@@ -1101,6 +1152,87 @@ Nuevo guard + decorador `@RequireEmailVerified()` (en `common/`), análogo a `@M
 - **Auditoría** (`AuditLog`, sin volcar el token): `auth.email_verification_sent`, `auth.email_verified`,
   `auth.password_reset_requested`, `auth.password_reset_completed`.
 
+### 4.12 Gráfica PÚBLICA del valor de un set (hero de la home) — v1.9-set-chart
+
+Superficie de producto: un visitante **anónimo** ve en el hero de la home una gráfica estilo acciones del
+**valor de mercado agregado de un set destacado**, con datos REALES y captura diaria. Reusa el patrón de la
+gráfica de portafolio (`PortfolioSnapshot` + `/vault/portfolio/history`), pero **por set** y **público**.
+Servicio sugerido: `SetValueService` en `modules/catalog` (lee `SetValueSnapshot`; el fetch externo lo hace el
+job vía el `PricingProvider` existente).
+
+**(a) Regla de valor (server-side, SEC-A1 — la fuente de verdad del monto).**
+`SetValueSnapshot.totalValueMxnCents` de un set en una fecha `d` se calcula así, **100% server-side desde
+`PriceReference` real** (nunca de input del cliente):
+```
+para cada Card c con c.setId = set:
+    ref = PriceReference vigente más reciente de (c.id, productType='raw', gradeKey='raw:NM', finish='normal')
+          con capturedDate <= d           // "vigente" = el precio más fresco a esa fecha
+    si ref existe            → suma ref.priceMxnCents  y  pricedCardCount += 1
+    si ref no existe (o null)→ la carta se EXCLUYE del total (no se inventa precio)
+totalValueMxnCents = SUM(ref.priceMxnCents de las cartas con precio)
+pricedCardCount    = # cartas del set con ref
+totalCardCount     = # cartas del set (Card con ese setId, priceadas o no)
+```
+- **Acabado/productType fijos y explícitos:** se toma **`finish='normal'`**, **`productType='raw'`**,
+  **`gradeKey='raw:NM'`**, campo **`priceMxnCents`**. Se elige `normal` (no reverse/holo) porque es el acabado
+  presente en (casi) toda carta y da la línea base más comparable del set; el resto de acabados de una misma
+  carta **no** se suman (se contaría de más). El origen es TCGPlayer `market` vía pokemontcg.io convertido a MXN
+  por el FX de Banxico del día (misma cadena que ya usa `PricingService`).
+- **Cartas sin precio ese día:** se **excluyen** del total (no se fabrica un valor), pero se **cuentan** en la
+  brecha `pricedCardCount` vs `totalCardCount`. Así el valor es honesto ("valor de las **cartas priceadas** del
+  set", NO promesa de set completo) y el front puede mostrar la cobertura. Esto es coherente con la regla
+  transversal de PROJECT (una carta sin precio nunca se descarta ni se inventa; aquí simplemente no aporta al
+  agregado del día).
+- **No genera `PendingPriceEntry`:** esta agregación es **de mercado/marketing**, no de bóveda ni de una carta
+  que debamos vender; una carta del set sin precio no se escala al dueño por este flujo (se seguirá escalando por
+  los flujos existentes de bóveda/buylist si aplica). Evita inundar la cola con todo el catálogo del set.
+
+**(b) Selección del "set destacado".** Mecanismo determinista con override por env y fallback en cascada:
+1. **`HOME_FEATURED_SET_ID`** (env; id **nativo de pokemontcg.io** de un set SV reciente, ej. formato `sv8`). Si
+   está seteado y existe un `CardSet` local con ese `externalId` → **ese** es el set destacado. **El id concreto
+   lo fija devops/backend en el entorno**; el arquitecto define solo el mecanismo. Default recomendado: un set
+   Scarlet & Violet reciente y líquido.
+2. **Fallback 1 — mayor valor:** si el env no está o no resuelve a un set local, se elige el set con mayor
+   `totalValueMxnCents` en su **último `SetValueSnapshot`** (el set "más valioso" con datos ya capturados).
+3. **Fallback 2 — más reciente:** si aún no hay ningún snapshot (arranque en frío, primer día), se elige el
+   `CardSet` con `releaseDate` más reciente (desc), para tener siempre un set que mostrar.
+4. Si no hay ningún `CardSet` en absoluto → el endpoint responde `set: null, points: []` (ver contrato); el hero
+   degrada con elegancia, sin error.
+La resolución del set destacado la centraliza `SetValueService.resolveFeaturedSet()` y la usan **tanto** el
+endpoint público **como** el job `set-price-sync` (para preciar el mismo set que se grafica). El `set-price-sync`
+debe preciar el set destacado resuelto por *este* mecanismo, de modo que env y gráfica no diverjan.
+
+**(c) Jobs (BullMQ diarios; los implementa backend — aquí solo se describen).**
+- **`set-price-sync`** — precia **TODAS** las cartas del set destacado desde pokemontcg.io (acabado `normal`,
+  `raw`), escribiendo `PriceReference` del día por carta (reusa `PricingService.syncCardPrice` / el
+  `PokemonTcgIoProvider`). **Brecha NUEVA a cubrir:** el `price-sync` actual solo recorre cartas **en bóveda**
+  (`InventoryItem`); este job **no** filtra por inventario — recorre `Card WHERE setId = <featured>` sin tocar
+  `InventoryItem`, acotado a ese `setId` (un set ~150–250 cartas, cabe en el rate-limit del free tier con la cola
+  existente). Se documenta como **DEV-3** en §9. Respeta el mismo cache diario (no re-llama si ya hay
+  `PriceReference` del día para esa carta/acabado).
+- **`set-value-snapshot`** — tras `set-price-sync`, agrega según la regla (a) y hace **upsert** de
+  `SetValueSnapshot` del día (`@@unique[setId, asOfDate]`). Idempotente. Solo escribe el set destacado en el MVP
+  (el modelo soporta N sets; se puede extender sin cambio de schema).
+- **Crons (alineados con los existentes `fx-refresh 0 6`, `price-sync 15 6`, `portfolio-snapshot 0 7`):**
+  `set-price-sync` **después** de `fx-refresh` (necesita el FX del día) — sugerido **`30 6`**; `set-value-snapshot`
+  **después** de `set-price-sync` — sugerido **`15 7`**. Los horarios finos los ajusta devops/backend; el orden
+  (FX → precio del set → snapshot del set) es la restricción dura.
+
+**(d) Seguridad/coherencia.**
+- **Endpoint PÚBLICO sin PII:** solo expone valor agregado de mercado del set (nombre, serie, fecha de
+  lanzamiento del set — datos de catálogo públicos de pokemontcg.io — y la serie de valores). **No** expone
+  usuarios, bóveda, inventario, costos ni nada sensible. `@Public()` como el resto de `/catalog/*`.
+- **Fetch externo a host FIJO:** el `set-price-sync` usa el mismo cliente de pokemontcg.io con **host fijo** y
+  guardarraíl de `setId` (`^[a-z0-9]+(-[a-z0-9]+)*$`) ya existente (§4.8) → sin SSRF ni inyección en el query.
+- **SEC-A1 intacto:** el valor es siempre derivado de `PriceReference`; el `range` del query solo filtra fechas,
+  nunca influye en el monto.
+- **Sin datos fabricados:** si un día no corrió el job, ese día **no** tiene punto (el front interpola
+  visualmente si quiere, pero la API no inventa el punto). Si el set no tiene ninguna carta priceada aún,
+  `points: []` y `change` en `flat`.
+- **Rate-limit del endpoint público:** al ser anónimo y en el hero (alto tráfico), se cachea la respuesta
+  (lectura de `SetValueSnapshot`, que cambia 1x/día) — se sugiere `Cache-Control` corto + rate-limit por IP
+  (devops/backend afinan). No hay riesgo de dinero ni de PII, pero conviene proteger de scraping abusivo.
+
 ---
 
 ## 5. Decisiones transversales
@@ -1135,6 +1267,8 @@ processingFeeCents = totalCents − baseCents
   - `buylist-sweep`: 7 días sin respuesta a ajuste → `rechazada`; 30 días de abandono → `convertida a inventario`.
   - `dispute-deadline`: cierra ventana de recompra a 7 días desde entrega.
   - `portfolio-snapshot` diario (tras `price-sync`): por cada usuario con holdings, calcula el valor del portafolio con `VaultService.holdings()` (a **referencia**, excluyendo pendientes) y **upsert** de `PortfolioSnapshot` del día (`@@unique[userId,asOfDate]`). Alimenta la gráfica de tendencia (§3 PortfolioSnapshot, `GET /vault/portfolio/history`). **Depende de cablear el scheduler (BE-5).**
+  - `set-price-sync` diario (v1.9-set-chart, tras `fx-refresh`; cron sugerido `30 6`): precia **TODAS** las cartas del **set destacado** (§4.12b) desde pokemontcg.io (acabado `normal`, `raw`), escribiendo `PriceReference` del día por carta. **No filtra por bóveda** (brecha nueva DEV-3, §9): recorre `Card WHERE setId=<featured>` sin tocar `InventoryItem`. Respeta cache diario y rate-limit del free tier.
+  - `set-value-snapshot` diario (v1.9-set-chart, tras `set-price-sync`; cron sugerido `15 7`): agrega el valor del set destacado según la regla §4.12a y hace **upsert** de `SetValueSnapshot` del día (`@@unique[setId,asOfDate]`). Alimenta la gráfica pública del hero (§3 SetValueSnapshot, `GET /catalog/featured-set/value-history`). Orden duro: FX → precio del set → snapshot del set.
 - **Validaciones duras:** dirección de envío/retiro **debe ser MX** (rechazo si no); retiro solo sobre `settled`; carta "precio pendiente" **no comprable**; topes de buylist (por solicitud/mes) e INE sobre tope.
 
 ---
@@ -1185,6 +1319,7 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - Object storage (**SOLO INE de KYC**, v1.2): `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_BASE_URL`. **El set `S3_*` se conserva**, ahora justificado únicamente por `kyc_ine` (bucket **privado** + cifrado + retención `INE_RETENTION_DAYS`). No se usa para fotos de producto/inventario ni de disputa. (`S3_PUBLIC_BASE_URL` no aplica al INE, que es privado; se lee vía presign GET.)
 - **PII / INE (KYC):** `PII_ENCRYPTION_KEY` (32 bytes base64, AES-256-GCM), `PII_HMAC_KEY` (blind index de CLABE, llave **separada**), `INE_RETENTION_DAYS` (antigüedad máxima de las imágenes de INE en el bucket, default **180**; ver §3.4). En prod las llaves provienen de KMS/secret manager, nunca del repo. Estas variables **se conservan intactas** (v1.2.1: INE almacenado con cifrado + retención).
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
+- **Set destacado del hero (v1.9-set-chart):** `HOME_FEATURED_SET_ID` (**opcional**; id **nativo de pokemontcg.io** del `CardSet` a graficar en la home, ej. `sv8`). Si no se define o no resuelve a un `CardSet` local, aplica el fallback en cascada de §4.12b (mayor valor en el último snapshot → set más reciente por `releaseDate`). **El valor concreto lo fija devops/backend** por entorno; el arquitecto define solo el mecanismo. No es secreto. Reusa `POKEMONTCG_IO_API_KEY` para el `set-price-sync`.
 - **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
 - **Correo (v1.5-auth-email, Resend):** `RESEND_API_KEY` (secreto) y `MAIL_FROM` (default `no-reply@tcgvaultmx.com`).
   - **Política (sigue el patrón `env.validation.ts` local/no-local):** `RESEND_API_KEY` se añade a la lista
@@ -1230,6 +1365,15 @@ Riesgos técnicos:
   `jobId: \`catalog-sync-${Date.now()}\`` sin un job real detrás (la importación ya ocurrió síncrona). Es
   coherente con DEV-1: al encolar de verdad, el `jobId` debe ser el de la cola. Sin impacto de contrato para
   el front (trata el `jobId` como opaco).
+- **DEV-3 (backend, v1.9-set-chart) — el `price-sync` actual solo precia BÓVEDA; falta preciar el set destacado
+  completo.** La gráfica pública del set (§4.12) requiere `PriceReference` de **todas** las cartas del set
+  destacado, pero el `price-sync` existente recorre únicamente cartas con `InventoryItem` en bóveda (para que el
+  free tier alcance). **Brecha nueva:** se necesita el job `set-price-sync` que recorra `Card WHERE
+  setId=<featured>` **sin** filtro de `InventoryItem`, acotado a ese único set (~150–250 cartas, tolerable con la
+  cola/rate-limit existentes). **Acción (backend):** implementar `set-price-sync` + `set-value-snapshot` (§4.12c)
+  reusando `PricingService`/`PokemonTcgIoProvider` y el cache diario. No cambia el `price-sync` de bóveda (queda
+  intacto); es un job **adicional** acotado. Registrar en `docs/TECH_DEBT.md` si se difiere el cableado del
+  scheduler (mismo estado que BE-5 para `portfolio-snapshot`).
 
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
@@ -1288,6 +1432,19 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.9-set-chart (nueva — gráfica pública del valor de un set)
+
+**Aditiva, una sola migración `M-20`.** Un modelo nuevo (`SetValueSnapshot`) + una relación inversa en `CardSet`.
+**Sin backfill:** la tabla arranca vacía y se puebla desde el primer día que corran los jobs (§4.12c). No toca
+dinero (SEC-A1 intacto: el valor se deriva de `PriceReference`). No crea enums ni diales.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-20 | `SetValueSnapshot` | **Modelo nuevo** (`id`, `setId` FK→`CardSet` `onDelete:Cascade`, `asOfDate @db.Date`, `totalValueMxnCents Int`, `pricedCardCount Int`, `totalCardCount Int`, `createdAt`, `updatedAt`, `@@unique([setId, asOfDate])`, `@@index([setId, asOfDate])`) | Create table | Serie diaria del valor de mercado agregado por set (gráfica pública del hero). Escrito por jobs `set-price-sync` + `set-value-snapshot`. Idempotente por día (upsert). Ver §3.2, §4.12. |
+| M-20 | `CardSet.snapshots` | **Nuevo** lado inverso `SetValueSnapshot[]` | Relación (sin columna en `CardSet`) | Solo relación Prisma; no añade columna física a `CardSet`. |
+
+> **Enum:** ninguno nuevo (no usa `Finish`; toma siempre `normal` como filtro en la query de valor). **Config/diales:** ninguno en DB; el set destacado se controla por **env `HOME_FEATURED_SET_ID`** (§4.12b, §8), no por `ConfigSetting`.
 
 ### v1.8-ronda-c (nueva — BE-10 + PendingPriceEntry.finish + SEC-D2)
 

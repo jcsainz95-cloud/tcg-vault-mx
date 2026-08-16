@@ -4,6 +4,27 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.9-set-chart (2026-08-16) — Gráfica PÚBLICA del valor de un set en el tiempo (hero de la home):**
+> Dos endpoints **PÚBLICOS** nuevos (`@Public()`) para el hero de la home, que sirven la serie diaria del **valor
+> de mercado agregado de un set destacado** — para atraer visitantes anónimos (hoy la home solo muestra el
+> vistazo del portafolio PERSONAL, visible solo con sesión). Datos REALES con captura diaria (pokemontcg.io solo
+> da precio de HOY → la serie se siembra hoy y crece a diario, patrón `PortfolioSnapshot`). **Aditivo**,
+> migración **M-20** (modelo `SetValueSnapshot`, sin backfill). **SEC-A1 intacto** (el valor se deriva server-side
+> de `PriceReference` real). **Sin PII** (solo valor agregado de mercado).
+> - **`GET /api/v1/catalog/featured-set/value-history` (NUEVO, `public`):** el "set destacado" de la home,
+>   resuelto server-side (env `HOME_FEATURED_SET_ID` + fallback, ARCHITECTURE §4.12b) para que el front **no**
+>   hardcodee un id. Query `?range=5d|15d|1m|3m|6m|1y|ytd|all` (default `1m`). Res: `{ set, range, points, change }`.
+> - **`GET /api/v1/catalog/sets/:id/value-history` (NUEVO, `public`):** genérico por-id, misma forma, por si se
+>   quiere graficar otro set. `:id` es el **id local** del `CardSet` (no el `externalId`).
+> - **DTO nuevo `SetValuePointDTO = { date, valueMxnCents, pricedCardCount, estimated? }`** (misma línea que
+>   `PortfolioPointDTO`). `change` = `{ absMxnCents, pct, direction }` (idéntico al de portafolio). El objeto
+>   `set` = `{ id, name, series, releaseDate }`.
+> - **Regla de valor:** `valueMxnCents` = SUM de la `PriceReference` vigente por carta del set (acabado `normal`,
+>   `raw`, `gradeKey='raw:NM'`); cartas sin precio se **excluyen** del total pero se cuentan en `pricedCardCount`
+>   (vs total del set). Es "valor de las cartas priceadas del set", NO promesa de set completo. Ver ARCHITECTURE §4.12.
+> - **No fabrica datos:** un día sin snapshot **no** tiene punto; si el set no tiene ninguna carta priceada,
+>   `points: []` y `change` en `flat`; si no hay `CardSet`, `set: null`.
+>
 > **Changelog v1.8-ronda-c (2026-08-16) — Tres deudas de Ronda C (BE-10, PendingPriceEntry+finish, SEC-D2):**
 > Tres cambios **aditivos**, una sola migración **M-19** (dos columnas; BE-10 no migra). SEC-A1 intacto (montos
 > server-side). Ver ARCHITECTURE Changelog v1.8-ronda-c.
@@ -240,6 +261,20 @@ ListingDTO   = { inventoryItemId, card: CardDTO, productType, rawCondition?, sea
                  referenceValue: PriceInfo, salePriceCents?: number, sellable: boolean }
 // Punto de la serie de tendencia del portafolio (gráfica estilo acciones). estimated? = punto de backfill indicativo.
 PortfolioPointDTO = { date: string, valueMxnCents: number, costBasisMxnCents?: number, estimated?: boolean }
+// v1.9-set-chart: punto de la serie PÚBLICA del valor de mercado agregado de un SET (hero de la home).
+// Misma línea que PortfolioPointDTO. valueMxnCents = SUM de PriceReference (acabado normal/raw) de las cartas
+// PRICEADAS del set ese día; pricedCardCount = cuántas cartas entraron al total (las sin precio se excluyen,
+// no se inventan). estimated? reservado (no se usa en el MVP: la serie no tiene backfill).
+SetValuePointDTO = { date: string, valueMxnCents: number, pricedCardCount: number, estimated?: boolean }
+// v1.9-set-chart: cabecera del set graficado. id = id LOCAL del CardSet (no el externalId). Datos de catálogo
+// públicos de pokemontcg.io (en inglés, no se traduce). series/releaseDate opcionales (pueden faltar en catálogo).
+SetRefDTO = { id: string, name: string, series?: string, releaseDate?: string }
+// v1.9-set-chart: rango de la serie (mismo conjunto que la gráfica de portafolio, GET /vault/portfolio/history).
+SetValueRange = "5d" | "15d" | "1m" | "3m" | "6m" | "1y" | "ytd" | "all"
+// v1.9-set-chart: respuesta de las rutas *-value-history. `set` es null si no hay ningún CardSet para graficar.
+SetValueHistoryResponse = { set: SetRefDTO | null, range: SetValueRange,
+                            points: SetValuePointDTO[],
+                            change: { absMxnCents: number, pct: number | null, direction: "up" | "down" | "flat" } }
 // v1.3.1: regla de precio de buylist para una rareza. value = centavos MXN si mode=fixed; porcentaje [0,100] si mode=pct.
 BuylistRule       = { mode: BuylistRuleMode, value: number }
 // appliedRule = la regla que se resolvió para la carta; ruleSource="rule" (fila explícita) o "fallback" (BUYLIST_PRICE_FALLBACK_PCT).
@@ -390,6 +425,45 @@ Res `200`: `ListingDTO`. Err `404` (incluye el caso de un item no publicado / si
 
 ### GET /api/v1/catalog/sets — `public`
 Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de `releaseDate`, v1.1). Devuelve los sets con inventario publicado, ordenados por año desc.
+
+### GET /api/v1/catalog/featured-set/value-history — `public`  (v1.9-set-chart — gráfica del hero)
+Serie temporal del **valor de mercado agregado del set destacado** (estilo acciones), para el hero de la home
+dirigido a **visitantes anónimos**. El set destacado se resuelve **server-side** (env `HOME_FEATURED_SET_ID` +
+fallback en cascada, ARCHITECTURE §4.12b) — el front **no** envía ni hardcodea id. Alimentada por el snapshot
+diario `SetValueSnapshot` (jobs `set-price-sync` + `set-value-snapshot`, ARCHITECTURE §4.12c / §5).
+Query: `?range=5d|15d|1m|3m|6m|1y|ytd|all` (default `1m`)
+Res `200` (`SetValueHistoryResponse`):
+```json
+{
+  "set": { "id": "…", "name": "Surging Sparks", "series": "Scarlet & Violet", "releaseDate": "2024/11/08" },
+  "range": "1m",
+  "points": [
+    { "date": "2026-07-16", "valueMxnCents": 128450000, "pricedCardCount": 182 },
+    { "date": "2026-08-15", "valueMxnCents": 131920000, "pricedCardCount": 184 }
+  ],
+  "change": { "absMxnCents": 3470000, "pct": 2.70, "direction": "up" }
+}
+```
+- **`set`**: cabecera del set graficado (`SetRefDTO`; `id` = id **local** del `CardSet`). `null` si no hay ningún
+  `CardSet` en el catálogo (el hero degrada sin error).
+- **`points`**: un punto por día con snapshot en el rango (asc por fecha). `valueMxnCents` = SUM de la
+  `PriceReference` vigente por carta del set (acabado `normal`, `raw`, `gradeKey='raw:NM'`); `pricedCardCount` =
+  cuántas cartas del set tenían precio ese día. Las cartas sin precio **se excluyen** del total (no se inventan).
+  Es "valor de las cartas **priceadas** del set", NO promesa de valor de set completo.
+- **`change`**: variación entre el primer y último punto del rango; `direction ∈ up|down|flat`; `pct` con 2
+  decimales, `null` si el valor inicial es 0.
+- Si el set aún no tiene snapshots (recién sembrado / sin cartas priceadas), `points: []` y
+  `change: { absMxnCents: 0, pct: null, direction: "flat" }`.
+- **Público sin PII:** solo datos de catálogo (nombre/serie/fecha del set, en inglés) y valor agregado de mercado.
+  No expone usuarios, bóveda, inventario ni costos.
+Sin auth. (Rate-limit por IP + cache corto recomendado por ser hero de alto tráfico — ARCHITECTURE §4.12d.)
+
+### GET /api/v1/catalog/sets/:id/value-history — `public`  (v1.9-set-chart)
+Igual que el anterior pero para un **set específico** por su **id local** (`:id` = `CardSet.id`, no `externalId`).
+Query y forma de respuesta **idénticas** (`SetValueHistoryResponse`), con `set` siempre no-null cuando el id
+existe. Útil si en el futuro se grafica otro set fuera del destacado. Err `404 NOT_FOUND` si el `:id` no
+existe. **Nota:** en el MVP solo el set destacado tiene jobs de captura corriendo; para otros sets la serie puede
+venir vacía (`points: []`) hasta que se les active la captura diaria.
 
 **Nota de precio pendiente (v1.1):** un item en "precio pendiente" (`referenceValue.status="pending"` y sin `salePriceCents` por override) **NO aparece en Compra** (`GET /catalog/cards` lo excluye) — el comprador nunca lo ve. El estado "precio pendiente" vive solo en adquisición/buylist/back-office (M2/M5). Si por carrera un item deja de ser vendible entre listar y comprar, el checkout lo bloquea con `422 PRICE_PENDING` / `409 ITEM_UNAVAILABLE`. El `salePriceCents` visible al cliente es el precio de venta (referencia × (1+markup) u override); `referenceValue` es el valor de mercado informativo.
 
