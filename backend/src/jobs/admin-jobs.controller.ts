@@ -35,7 +35,11 @@ export class AdminJobsController {
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
-      action: 'jobs.portfolio_snapshot',
+      // RB-1: taxonomía uniforme `jobs.<name>.run` (antes este job era el único sin sufijo `.run`).
+      action: 'jobs.portfolio_snapshot.run',
+      // RB-2: entityType/entityId presentes en TODA la auditoría de jobs (paridad con los disparos M2).
+      entityType: 'Job',
+      entityId: 'portfolio-snapshot',
       after: { snapshotted },
     });
     return { snapshotted };
@@ -49,6 +53,8 @@ export class AdminJobsController {
       actorUserId: user.id,
       actorRole: user.role,
       action: 'jobs.ine_retention.run',
+      entityType: 'Job',
+      entityId: 'ine-retention',
       after: result,
     });
     return result;
@@ -62,6 +68,8 @@ export class AdminJobsController {
       actorUserId: user.id,
       actorRole: user.role,
       action: 'jobs.buylist_sweep.run',
+      entityType: 'Job',
+      entityId: 'buylist-sweep',
       after: result,
     });
     return result;
@@ -75,6 +83,8 @@ export class AdminJobsController {
       actorUserId: user.id,
       actorRole: user.role,
       action: 'jobs.dispute_deadline.run',
+      entityType: 'Job',
+      entityId: 'dispute-deadline',
       after: result,
     });
     return result;
@@ -88,6 +98,8 @@ export class AdminJobsController {
       actorUserId: user.id,
       actorRole: user.role,
       action: 'jobs.auth_token_sweep.run',
+      entityType: 'Job',
+      entityId: 'auth-token-sweep',
       after: result,
     });
     return result;

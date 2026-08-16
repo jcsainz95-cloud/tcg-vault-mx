@@ -23,12 +23,20 @@ function buildSettings(capPerRequest = 300_000): SettingsService {
 }
 
 function buildService(item: any, settings = buildSettings()) {
+  // v1.8-ronda-c: itemDecision ahora incluye sellRequest.userId (RB-3 cap por-KYC) y recalcula
+  // approvedTotalCents (RB-6). El mock provee el include, kycProfile (sin override) y el aggregate.
+  const withRel = { ...item, sellRequest: { userId: item.userId ?? 'u1' } };
   const prisma: any = {
     sellRequestItem: {
-      findUnique: jest.fn().mockResolvedValue(item),
+      findUnique: jest.fn().mockResolvedValue(withRel),
       update: jest.fn(async ({ data }: any) => ({ id: item.id, ...data })),
+      aggregate: jest.fn().mockResolvedValue({
+        _sum: { approvedPriceCents: 0 },
+        _count: { approvedPriceCents: 0 },
+      }),
     },
     sellRequest: { update: jest.fn() },
+    kycProfile: { findUnique: jest.fn().mockResolvedValue(item.kyc ?? null) },
   };
   const svc = new BuylistService(
     prisma as PrismaService,

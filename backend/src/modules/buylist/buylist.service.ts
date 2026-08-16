@@ -161,7 +161,8 @@ export class BuylistService {
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
       const q = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct);
       if (q.status === 'precio_pendiente') {
-        await this.pricing.escalatePending(it.cardId, it.productType, gradeKey, 'buylist');
+        // v1.8-ronda-c: escala el pendiente del ACABADO cotizado (cola por acabado, M-19).
+        await this.pricing.escalatePending(it.cardId, it.productType, gradeKey, 'buylist', undefined, f);
       }
       quotedTotalCents += q.quotedPriceCents ?? 0;
       itemsData.push({
@@ -360,7 +361,11 @@ export class BuylistService {
     const req = await this.prisma.sellRequest.findUnique({ where: { id } });
     if (!req || req.userId !== userId) throw BusinessException.notFound();
     if (decision === 'decline') {
-      return this.prisma.sellRequest.update({ where: { id }, data: { status: 'rechazada' } });
+      // SEC-D2: transición a estado TERMINAL → sella closedAt (ancla la retención de INE al cierre real).
+      return this.prisma.sellRequest.update({
+        where: { id },
+        data: { status: 'rechazada', closedAt: new Date() },
+      });
     }
     // accept: mueve items 'ajustada' a 'aprobada' y limpia el plazo de 7d.
     await this.prisma.sellRequestItem.updateMany({
@@ -480,12 +485,16 @@ export class BuylistService {
    *  - Cota absoluta AML: ≤ tope por solicitud (`buylist_cap_per_request_cents`); un ítem no puede
    *    aprobar más que el tope completo de una solicitud.
    * Sin `quotedPriceCents` (p. ej. carta que estaba en `precio_pendiente`), solo aplica la cota AML.
+   *
+   * RB-3 (v1.8-ronda-c): el cap AML se recibe YA resuelto por el llamador honrando el
+   * `kyc.capPerRequestCentsOverride` del usuario (misma fuente que `createRequest`), no el dial
+   * global a secas. Así un usuario con override más alto no ve rechazada una aprobación legítima.
    */
   private async assertApprovedPriceWithinCap(
     effectiveCents: number,
     quotedPriceCents: number | null,
+    amlCap: number,
   ): Promise<void> {
-    const amlCap = await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS);
     const relativeCap =
       quotedPriceCents != null && quotedPriceCents > 0
         ? quotedPriceCents * BuylistService.APPROVED_PRICE_UPLIFT_FACTOR
@@ -506,21 +515,34 @@ export class BuylistService {
     decision: 'approve' | 'adjust' | 'reject',
     approvedPriceCents?: number,
   ) {
-    const item = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
+    const item = await this.prisma.sellRequestItem.findUnique({
+      where: { id: itemId },
+      include: { sellRequest: { select: { userId: true } } },
+    });
     if (!item) throw BusinessException.notFound();
+    // RB-3: cap AML efectivo = override por-KYC del usuario si existe, si no el dial global.
+    // Misma fuente que honra `createRequest` (evita rechazar una aprobación legítima de un
+    // usuario con tope elevado).
+    const kyc = await this.prisma.kycProfile.findUnique({
+      where: { userId: item.sellRequest.userId },
+      select: { capPerRequestCentsOverride: true },
+    });
+    const amlCap =
+      kyc?.capPerRequestCentsOverride ??
+      (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS));
     let itemStatus: 'aprobada' | 'ajustada' | 'rechazada';
     const data: Prisma.SellRequestItemUpdateInput = {};
     if (decision === 'approve') {
       itemStatus = 'aprobada';
       const effective = approvedPriceCents ?? item.quotedPriceCents ?? 0;
       // B-4: cota server-side de dinero saliente (además del @Max del DTO).
-      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents);
+      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents, amlCap);
       data.approvedPriceCents = effective;
     } else if (decision === 'adjust') {
       itemStatus = 'ajustada';
       const effective = approvedPriceCents ?? 0;
       // B-4: cota server-side de dinero saliente (además del @Max del DTO).
-      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents);
+      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents, amlCap);
       data.approvedPriceCents = effective;
       // Dispara el plazo de 7 días en la solicitud.
       await this.prisma.sellRequest.update({
@@ -531,7 +553,30 @@ export class BuylistService {
       itemStatus = 'rechazada';
     }
     data.itemStatus = itemStatus;
-    return this.prisma.sellRequestItem.update({ where: { id: itemId }, data });
+    const updated = await this.prisma.sellRequestItem.update({ where: { id: itemId }, data });
+    // RB-6 / SEC-D3: deriva y persiste `approvedTotalCents` server-side desde los montos aprobados
+    // por ítem, en el punto donde esos montos cambian. Lo lee el P&L / la tarjeta "buylist del periodo".
+    await this.recomputeApprovedTotal(item.sellRequestId);
+    return updated;
+  }
+
+  /**
+   * RB-6 / SEC-D3: recalcula `SellRequest.approvedTotalCents` como la SUMA de `approvedPriceCents`
+   * de sus ítems (derivación server-side, SEC-A1 — nunca de input del cliente). Se invoca cada vez
+   * que una decisión de ítem fija/ajusta el monto aprobado. Si ningún ítem tiene monto aprobado,
+   * queda `null` (no `0`) para distinguir "sin aprobar aún" de "aprobado en cero".
+   */
+  private async recomputeApprovedTotal(sellRequestId: string): Promise<void> {
+    const agg = await this.prisma.sellRequestItem.aggregate({
+      where: { sellRequestId, approvedPriceCents: { not: null } },
+      _sum: { approvedPriceCents: true },
+      _count: { approvedPriceCents: true },
+    });
+    const approvedTotalCents = agg._count.approvedPriceCents > 0 ? (agg._sum.approvedPriceCents ?? 0) : null;
+    await this.prisma.sellRequest.update({
+      where: { id: sellRequestId },
+      data: { approvedTotalCents },
+    });
   }
 
   /** Conversión a inventario en un clic. API_CONTRACT §M5. */
@@ -632,7 +677,8 @@ export class BuylistService {
     // llamadas concurrentes → solo una hace la transición a `pagada`.
     const res = await this.prisma.sellRequest.updateMany({
       where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
-      data: { status: 'pagada', speiReference, paidBy, paidAt: new Date() },
+      // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
+      data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
     });
     if (res.count !== 1) {
       const current = await this.prisma.sellRequest.findUnique({ where: { id } });

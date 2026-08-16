@@ -101,4 +101,32 @@ describe('IneRetentionJobService.run', () => {
     // Solo borra la key existente (front); la back es null.
     expect(deleted).toEqual(['f']);
   });
+
+  // SEC-D2 (v1.8-ronda-c): `closedAt` es la fuente prioritaria del cierre.
+  it('closedAt manda: cierre reciente NO purga aunque paidAt/createdAt sean viejos', async () => {
+    const { svc, deleted } = build({
+      profiles: [{ id: 'k1', userId: 'u1', ineFrontKey: 'f', ineBackKey: 'b' }],
+      openCountByUser: { u1: 0 },
+      // paidAt viejo pero closedAt reciente (p. ej. reabierta y cerrada de nuevo) → dentro del periodo.
+      lastClosedByUser: {
+        u1: { status: 'pagada', closedAt: daysAgo(10), paidAt: daysAgo(300), createdAt: daysAgo(320) },
+      },
+    });
+    const res = await svc.run(NOW);
+    expect(res.purged).toBe(0);
+    expect(deleted).toHaveLength(0);
+  });
+
+  it('closedAt manda: cierre viejo SÍ purga aunque createdAt sea reciente', async () => {
+    const { svc, deleted } = build({
+      profiles: [{ id: 'k1', userId: 'u1', ineFrontKey: 'f', ineBackKey: 'b' }],
+      openCountByUser: { u1: 0 },
+      lastClosedByUser: {
+        u1: { status: 'pagada', closedAt: daysAgo(200), paidAt: daysAgo(200), createdAt: daysAgo(5) },
+      },
+    });
+    const res = await svc.run(NOW);
+    expect(res.purged).toBe(1);
+    expect(deleted).toEqual(['f', 'b']);
+  });
 });

@@ -12,8 +12,13 @@ import { UploadsService } from '../modules/uploads/uploads.service';
  *   1) NO tiene solicitudes de buylist abiertas (la INE ya no se necesita para operar), y
  *   2) su última solicitud cerrada/pagada superó el periodo `INE_RETENTION_DAYS` (dial).
  *
- * La función queda LISTA y disparable (invocable) aquí; el scheduling repetible BullMQ
- * es deuda BE-5 (ver docs/BACKEND_NOTES.md). Se puede llamar `run()` a mano/CLI/endpoint.
+ * La función es disparable (invocable) aquí y el scheduling repetible BullMQ ya está cableado
+ * en el scheduler (RB-5: BE-5 resuelta); también se puede llamar `run()` a mano/CLI/endpoint.
+ *
+ * v1.8-ronda-c / SEC-D2: la fecha de cierre se toma de `SellRequest.closedAt` (cierre REAL sellado
+ * en la transición terminal) con FALLBACK al cálculo por timestamps de estado para filas legacy
+ * (`closedAt` null). El predicado de seguridad (openCount>0 → continue; requiere lastClosed y
+ * closureDate ≤ cutoff) NO cambia.
  */
 @Injectable()
 export class IneRetentionJobService {
@@ -78,14 +83,20 @@ export class IneRetentionJobService {
     return { purged, scanned: profiles.length };
   }
 
-  /** Mejor aproximación a la fecha de cierre disponible en el schema (última actividad). */
+  /**
+   * Fecha de cierre de la solicitud. SEC-D2: usa `closedAt` (cierre REAL sellado en la transición
+   * terminal) cuando existe; si es null (filas legacy previas a M-19), cae al cálculo anterior por
+   * timestamps de estado (última actividad conocida). Ambos caminos devuelven una fecha determinista.
+   */
   private closureDate(req: {
+    closedAt: Date | null;
     paidAt: Date | null;
     approvedAt: Date | null;
     verifiedAt: Date | null;
     receivedAt: Date | null;
     createdAt: Date;
   }): Date {
+    if (req.closedAt) return req.closedAt;
     const candidates = [req.paidAt, req.approvedAt, req.verifiedAt, req.receivedAt, req.createdAt]
       .filter((d): d is Date => d != null)
       .map((d) => d.getTime());

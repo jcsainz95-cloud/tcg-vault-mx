@@ -222,32 +222,22 @@
 > folio, card: CardDTO, ownershipStatus }` con `toCardDTO`, cubierto en `test/admin.pii.spec.ts`) y
 > **no** figura como deuda. Lo de abajo es la deuda no bloqueante que el techlead autorizó a diferir.
 
-### BE-9 · `createUser` reimplementa a mano la validación de email/password de `/auth/register`
-- **Dónde:** `src/modules/admin/admin.service.ts` → `createUser` (validación de formato de email y de
-  fortaleza de password inline) vs. `src/modules/auth/auth.service.ts` → `register` (validación original).
-- **Estado actual:** las mismas reglas (formato de email, longitud/fortaleza mínima de password) están
-  **duplicadas** en dos sitios con lógica escrita a mano; no comparten un validador común. Funcionan hoy,
-  pero pueden **divergir** si una de las dos se endurece sin tocar la otra.
-- **Impacto:** bajo. Mantenibilidad/consistencia: riesgo de que el alta admin acepte credenciales que el
-  auto-registro rechazaría (o viceversa) tras un cambio futuro.
-- **Disparador:** al tocar cualquiera de las dos validaciones, o antes de añadir un tercer punto de alta.
-  Solución: **centralizar** las reglas en un helper compartido (p. ej. `common/validation/credentials`
-  o un DTO/validator reusable) e invocarlo desde `register` y `createUser`.
+### BE-9 · `createUser` reimplementa a mano la validación de email/password — CERRADA (v1.8-ronda-c)
+- **Dónde:** `src/modules/admin/admin.service.ts` → `createUser` vs. `src/modules/auth` (`RegisterDto` /
+  `ResetPasswordDto`).
+- **Estado (2026-08-16):** **cerrada.** Se centralizaron las reglas en `src/common/validation/credentials.ts`
+  (`MIN_PASSWORD_LENGTH`, `EMAIL_REGEX`, `normalizeEmail`, `isValidEmailFormat`, `isStrongPassword`).
+  `createUser` consume el helper; las DTOs de `auth` usan la constante compartida `MIN_PASSWORD_LENGTH` en
+  sus `@MinLength`. Fuente única → sin riesgo de divergencia. Entrada conservada como registro histórico.
 
-### BE-10 · `AdminUserOwnedItemRef` sin `finish` ni `referenceValue` — petición al arquitecto (PENDIENTE)
-- **Dónde:** contrato `docs/API_CONTRACT.md §M6` (`AdminUserOwnedItemRef`) y su consumo en la pestaña
-  Bóveda del frontend (`M6View.tsx` → `VaultTab`); backend `admin.service.ts` → `getUser().ownedItems`.
-- **Estado actual:** la proyección conforma el contrato vigente `{ inventoryItemId, folio, card,
-  ownershipStatus }`, así que la pestaña Bóveda de M6 muestra **solo carta + folio + titularidad**. NO
-  puede mostrar el **acabado** (`finish`) ni el **valor de referencia** (`referenceValue`) porque el
-  contrato no los incluye en este ref (a diferencia del `HoldingDTO` de la bóveda del usuario en §M1,
-  que sí trae `finish` + `referenceValue`).
-- **Impacto:** bajo. Funcional: la ficha 360° admin da menos contexto de valuación del que ya existe en
-  el `HoldingDTO`. No hay bug; es una limitación de alcance del contrato.
-- **Disparador / acción requerida:** **decisión del arquitecto** (el backend NO cambia el contrato por su
-  cuenta — regla de oro). Opciones a evaluar: (a) enriquecer `AdminUserOwnedItemRef` con `finish` +
-  `referenceValue`; o (b) añadir un endpoint dedicado `GET /admin/users/:id/holdings` que reuse la
-  valuación de `vault.service.holdings`. Una vez el arquitecto actualice el contrato, backend implementa.
+### BE-10 · `AdminUserOwnedItemRef` sin `finish` ni `referenceValue` — CERRADA (v1.8-ronda-c)
+- **Dónde:** contrato `docs/API_CONTRACT.md §M6` (`AdminUserOwnedItemRef`); backend `admin.service.ts` →
+  `getUser().ownedItems` / `ownedItemRefs`.
+- **Estado (2026-08-16):** **cerrada.** El arquitecto eligió la opción (a) — enriquecer el ref — en el
+  contrato v1.8-ronda-c. El backend implementó: cada `AdminUserOwnedItemRef` trae `finish` + `productType`
+  + `referenceValue: PriceInfo`, reusando la valuación por-acabado del `HoldingDTO`. Anti N+1 con lectura
+  batch de `PriceReference` por `cardId IN (...)`. Items sin precio → `referenceValue.status="pending"`
+  (no se excluyen: vista 360°). Cubierto en `test/admin.pii.spec.ts`. Entrada conservada como histórico.
 
 ### B-4 / S-B5 · `approvedPriceCents` sin tope (dinero saliente arbitrario) — RESUELTA (pase P0 jobs de barrido)
 - **Dónde:** `src/modules/buylist/dto/buylist.dto.ts` (`ItemDecisionDto`) + `buylist.service.ts` (`itemDecision`).
@@ -421,11 +411,25 @@
 
 ### Ronda B — deuda surgida en verdictos (2026-08-16, no bloqueante)
 
-- **RB-1 (backend):** taxonomía de `action` de auditoría inconsistente — los `/admin/jobs/*` nuevos usan sufijo `.run` (`jobs.ine_retention.run`…) vs el `portfolio-snapshot` previo sin `.run`. Alinear a un solo criterio.
-- **RB-2 (backend):** `entityType`/`entityId` omitidos en la auditoría de jobs (los disparos M2 sí los setean). Criterio consciente; documentar o unificar.
-- **RB-3 (backend):** `assertApprovedPriceWithinCap` usa siempre `BUYLIST_CAP_PER_REQUEST_CENTS` global e ignora el `kyc.capPerRequestCentsOverride` por-usuario que `createRequest` sí honra → un usuario con override más alto podría ver rechazada una aprobación legítima. Unificar la fuente del cap.
-- **RB-4 (backend):** factor de uplift `2×` (`APPROVED_PRICE_UPLIFT_FACTOR`) es constante de código; si el negocio quiere ajustarlo sin redeploy, subir a dial `ConfigSetting`/M10.
-- **RB-5 (backend):** JSDoc desactualizado en `buylist-sweep.service.ts:7` (dice "30d → convertida_inventario", el código setea `abandonada`) e `ine-retention.service.ts:14-16` (dice "scheduling BullMQ es deuda BE-5", ya cableado).
-- **RB-6 (backend):** `SellRequest.approvedTotalCents` nunca se escribe pero se lee en el P&L (SEC-D3) → tarjeta "buylist del periodo" en 0. Poblarlo o derivar el agregado.
-- **SEC-D1 (devops):** lifecycle/retención a nivel de bucket R2 para cubrir INE huérfano si falla la purga por API.
-- **SEC-D2 (backend/arquitecto):** `closedAt` explícito en SellRequest para precisión de la ventana de retención de INE.
+- **RB-1 (backend) — CERRADA (v1.8-ronda-c):** taxonomía de auditoría de jobs unificada a `jobs.<name>.run`
+  (`portfolio_snapshot` era el único sin `.run`; ahora `jobs.portfolio_snapshot.run`). `admin-jobs.controller.ts`.
+- **RB-2 (backend) — CERRADA (v1.8-ronda-c):** `entityType: 'Job'` + `entityId: '<job>'` presentes en TODA la
+  auditoría de `/admin/jobs/*` (paridad con los disparos M2). `admin-jobs.controller.ts`.
+- **RB-3 (backend) — CERRADA (v1.8-ronda-c):** `assertApprovedPriceWithinCap` recibe el cap AML ya resuelto por
+  `itemDecision`, que honra `kyc.capPerRequestCentsOverride` con fallback al dial global (misma fuente que
+  `createRequest`). Cubierto en `test/buylist.ronda-c.spec.ts`.
+- **RB-4 (backend) — DIFERIDA:** factor de uplift `2×` (`APPROVED_PRICE_UPLIFT_FACTOR`) sigue como constante de
+  código; subir a dial `ConfigSetting`/M10 cuando el negocio quiera ajustarlo sin redeploy. No bloqueante.
+- **RB-5 (backend) — CERRADA (v1.8-ronda-c):** JSDoc corregido en `buylist-sweep.service.ts` (era "30d →
+  convertida_inventario"; el código setea `abandonada`) e `ine-retention.service.ts` (era "scheduling BullMQ es
+  deuda BE-5"; ya cableado).
+- **RB-6 (backend) — CERRADA (v1.8-ronda-c):** `SellRequest.approvedTotalCents` se escribe server-side (helper
+  `recomputeApprovedTotal` = suma de `approvedPriceCents` por ítem, invocado en `itemDecision`; `null` si no hay
+  aprobados). El P&L / tarjeta "buylist del periodo" (`admin.dashboard`) ya lo lee. Cubierto en
+  `test/buylist.ronda-c.spec.ts`.
+- **SEC-D1 (devops) — DIFERIDA:** lifecycle/retención a nivel de bucket R2 para cubrir INE huérfano si falla la
+  purga por API. Fuera del alcance de backend (devops/humano).
+- **SEC-D2 (backend/arquitecto) — CERRADA (v1.8-ronda-c):** `SellRequest.closedAt` (M-19) sellado en las
+  transiciones terminales (`pagada`/`rechazada`/`abandonada`); `ine-retention` lo usa como fuente del cierre con
+  fallback al cálculo por timestamps para filas legacy. Cubierto en `test/buylist.ronda-c.spec.ts`,
+  `test/buylist-sweep.closedat.spec.ts`, `test/ine-retention.spec.ts`.

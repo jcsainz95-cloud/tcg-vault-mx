@@ -480,6 +480,11 @@ model PendingPriceEntry {
   card              Card                @relation(fields: [cardId], references: [id])
   productType       ProductType
   gradeKey          String
+  // v1.8-ronda-c (M-19): acabado ORTOGONAL a gradeKey (igual que en PriceReference). La cola de
+  // precio pendiente es POR acabado: `normal` y `holofoil` de la misma carta sin precio son
+  // entradas SEPARADAS. Antes se colapsaban en una y el override de un acabado cerraba el pendiente
+  // de los demás. Default seguro `normal` para filas legacy (sin backfill). ARCHITECTURE §3.2/§4.1.
+  finish            Finish              @default(normal)
   context           PendingPriceContext
   refId             String?
   status            PendingPriceStatus  @default(open)
@@ -607,6 +612,11 @@ model SellRequest {
   approvedAt        DateTime?
   adjustmentSentAt  DateTime?
   deadlineAt        DateTime?
+  // v1.8-ronda-c / SEC-D2 (M-19): fecha del cierre REAL de la solicitud, seteada al entrar a un
+  // estado terminal (`pagada`/`rechazada`/`abandonada`). Ancla la ventana de retención de INE al
+  // cierre efectivo (ine-retention.service), en vez de aproximarla por timestamps de estado. Campo
+  // INTERNO de cumplimiento: NO se expone en DTOs de cliente. Nullable (filas legacy usan fallback).
+  closedAt          DateTime?
 
   items SellRequestItem[]
 

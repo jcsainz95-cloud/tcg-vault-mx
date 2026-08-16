@@ -88,7 +88,7 @@ export class PricingController {
       action: 'pricing.override',
       entityType: 'PriceReference',
       entityId: ref.id,
-      after: { priceMxnCents: dto.priceMxnCents },
+      after: { priceMxnCents: dto.priceMxnCents, finish: dto.finish ?? 'normal' },
     });
     return ref;
   }

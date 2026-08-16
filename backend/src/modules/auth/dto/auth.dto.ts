@@ -1,11 +1,13 @@
 import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+// BE-9: la longitud mínima de contraseña vive en un solo sitio (compartida con admin.createUser).
+import { MIN_PASSWORD_LENGTH } from '../../../common/validation/credentials';
 
 export class RegisterDto {
   @IsEmail()
   email!: string;
 
   @IsString()
-  @MinLength(8)
+  @MinLength(MIN_PASSWORD_LENGTH)
   password!: string;
 
   @IsString()
@@ -58,8 +60,8 @@ export class ResetPasswordDto {
   @MinLength(1)
   token!: string;
 
-  // Misma política de contraseña que el registro (MinLength 8 → 400 VALIDATION_ERROR si débil).
+  // Misma política de contraseña que el registro (BE-9: constante compartida).
   @IsString()
-  @MinLength(8)
+  @MinLength(MIN_PASSWORD_LENGTH)
   password!: string;
 }

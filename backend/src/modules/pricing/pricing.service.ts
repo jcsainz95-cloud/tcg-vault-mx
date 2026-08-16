@@ -121,7 +121,9 @@ export class PricingService {
     const quote = provider ? await provider.fetchPrice({ card, productType, gradeKey, finish }) : null;
 
     if (!quote || (quote.priceUsdCents == null && quote.priceMxnCents == null)) {
-      await this.escalatePending(card.id, productType, gradeKey, context, refId);
+      // v1.8-ronda-c FIX: propaga `finish` a la cola de pendientes. Antes se encolaba sin acabado,
+      // colapsando `normal`/`holofoil` de la misma carta en UNA entrada al escalar.
+      await this.escalatePending(card.id, productType, gradeKey, context, refId, finish);
       return { status: 'pending' };
     }
 
@@ -162,20 +164,25 @@ export class PricingService {
     };
   }
 
-  /** Cola de precio pendiente (transversal: nunca se descarta la carta). */
+  /**
+   * Cola de precio pendiente (transversal: nunca se descarta la carta).
+   * v1.8-ronda-c (M-19): la cola es POR ACABADO. `finish` entra a la clave de dedupe y a la fila
+   * creada, para que `normal` y `holofoil` de la misma carta sean entradas SEPARADAS.
+   */
   async escalatePending(
     cardId: string,
     productType: ProductType,
     gradeKey: string,
     context: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
     refId?: string,
+    finish: Finish = 'normal',
   ): Promise<void> {
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, status: 'open' },
     });
     if (open) return;
     await this.prisma.pendingPriceEntry.create({
-      data: { cardId, productType, gradeKey, context, refId, status: 'open' },
+      data: { cardId, productType, gradeKey, finish, context, refId, status: 'open' },
     });
   }
 
@@ -209,8 +216,10 @@ export class PricingService {
       },
       update: { source: 'manual', priceMxnCents, isManualOverride: true },
     });
+    // v1.8-ronda-c FIX: resuelve SOLO el pendiente de ESTE acabado. Antes el where omitía
+    // `finish`, así que un override de `normal` cerraba también el pendiente de `holofoil`.
     await this.prisma.pendingPriceEntry.updateMany({
-      where: { cardId, productType, gradeKey, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, status: 'open' },
       data: { status: 'resolved', resolvedPriceRefId: ref.id, resolvedAt: new Date() },
     });
     return ref;

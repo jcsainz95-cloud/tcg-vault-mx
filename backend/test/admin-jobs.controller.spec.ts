@@ -64,8 +64,13 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
     const res = await ctrl.runPortfolioSnapshot(user);
     expect(snapshot.run).toHaveBeenCalled();
     expect(res).toEqual({ snapshotted: 3 });
+    // RB-1: taxonomía uniforme `.run`; RB-2: entityType/entityId presentes.
     expect(audit.log).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'jobs.portfolio_snapshot' }),
+      expect.objectContaining({
+        action: 'jobs.portfolio_snapshot.run',
+        entityType: 'Job',
+        entityId: 'portfolio-snapshot',
+      }),
     );
   });
 });

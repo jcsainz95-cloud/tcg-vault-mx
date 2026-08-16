@@ -1696,3 +1696,90 @@ dev, **nunca** `origin:true`). No requirió cambio; se marca BE-8 como **RESUELT
 Ninguna. No se tocó `API_CONTRACT.md` ni `ARCHITECTURE.md`. Los `/admin/jobs/*` son superficie operativa admin
 (ver §18.2). El `APPROVED_PRICE_CAP_EXCEEDED` es un `errorCode` de negocio nuevo (422) coherente con el patrón
 de errores existente; no altera ningún shape de respuesta del contrato.
+
+## 27. Ronda C (v1.8-ronda-c · 2026-08-16) — contrato M-19 + barrido de deuda backend
+
+Pase que implementa las tres deudas de Ronda C del contrato (BE-10, `PendingPriceEntry.finish`, SEC-D2)
+más un barrido de deuda de backend (RB-6, RB-3, RB-1/2/5, BE-9). **SEC-A1 intacto**: todos los montos
+(incluido `approvedTotalCents`) se derivan server-side, nunca del cliente.
+
+### 27.1 Migración M-19
+`prisma/migrations/20260816170000_m19_pending_finish_sellrequest_closedat/migration.sql`. Dos columnas
+aditivas con default seguro; **sin enums nuevos, sin backfill** (defaults/fallbacks cubren filas legacy):
+- `PendingPriceEntry.finish  Finish  NOT NULL DEFAULT 'normal'` — la cola de precio pendiente pasa a ser
+  **por acabado**. Modelo Prisma real (no solo DTO): `schema.prisma` gana la columna + comentario.
+- `SellRequest.closedAt  TIMESTAMP(3)` (nullable) — fecha del cierre real (terminal). Campo interno de
+  cumplimiento; **no** se expone en DTOs de cliente.
+
+### 27.2 PricingService — 2 bugs funcionales + override por acabado
+- **`manualOverride` (fix):** el `updateMany` que resuelve pendientes ahora filtra por `finish` en el
+  `where` → resuelve **solo** el pendiente de ese acabado (antes cerraba `normal`+`holofoil`+… de la
+  misma carta con un solo override).
+- **`syncCardPrice` (fix):** propaga `finish` a `escalatePending` (antes encolaba sin acabado, colapsando
+  acabados distintos en UNA entrada). `escalatePending` gana un parámetro `finish` (default `normal`) que
+  entra a la clave de dedupe (`findFirst`) y a la fila creada.
+- **`buylist.service.createRequest`:** la llamada a `escalatePending` propaga el `finish` cotizado.
+- **`POST /admin/pricing/override`:** ya recibía `finish?` (default `normal`) en el `OverrideDto` y lo
+  pasaba a `manualOverride`; se añadió `finish` al `after` de la auditoría. Fija la `PriceReference` de ese
+  acabado y (con el fix) resuelve solo su pendiente.
+
+### 27.3 BE-10 — `AdminUserOwnedItemRef` con `finish` + `productType` + `referenceValue`
+`admin.service.getUser().ownedItems` ahora conforma el contrato §M6 enriquecido. Se extrajo un helper
+privado `ownedItemRefs(items)` que reusa `PricingService.getReference`-equivalente por acabado. **Anti
+N+1 (batch):** una sola lectura `priceReference.findMany({ where: { cardId: { in: [...] } } })` ordenada
+`capturedDate desc, createdAt desc`; se arma un `Map` `(cardId|productType|gradeKey|finish) → ref más
+reciente` y se resuelve cada item en memoria (misma semántica que `getReference`). Items sin precio del día
+→ `referenceValue.status="pending"` (**no se excluyen**: es vista 360°, no un total de portafolio).
+
+### 27.4 SEC-D2 — `closedAt` en transiciones terminales + retención de INE
+`closedAt = now` se sella en **un solo punto por transición** terminal:
+- `buylist.service.respond(decline)` → `rechazada`.
+- `buylist.service.paySpei` → `pagada` (en el `updateMany` atómico terminal).
+- `buylist-sweep.run`: `rechazada` (7d) y `abandonada` (30d).
+
+`ine-retention.service.closureDate` usa `SellRequest.closedAt` como **fuente prioritaria** con **fallback**
+al cálculo por timestamps de estado cuando `closedAt` es null (filas legacy). El **predicado de seguridad
+NO cambia** (openCount>0 → continue; requiere `lastClosed` y `closureDate ≤ cutoff`).
+
+### 27.5 Deudas de backend cerradas
+- **RB-6 / SEC-D3:** `SellRequest.approvedTotalCents` ahora **se escribe** server-side. Nuevo helper
+  `recomputeApprovedTotal(sellRequestId)` = suma de `approvedPriceCents` de los ítems (via `aggregate`),
+  invocado tras cada `itemDecision`. Sin ítems aprobados → `null` (distingue "sin aprobar" de "cero"). El
+  P&L / tarjeta "buylist del periodo" (`admin.dashboard`, `_sum.approvedTotalCents` para `pagada`) ya lo
+  lee → deja de dar 0.
+- **RB-3:** `assertApprovedPriceWithinCap` recibe el cap AML **ya resuelto** por `itemDecision`, que ahora
+  honra `kyc.capPerRequestCentsOverride` del usuario (misma fuente que `createRequest`) con fallback al
+  dial global. Un usuario con override alto ya no ve rechazada una aprobación legítima.
+- **RB-1:** taxonomía de auditoría de jobs uniforme `jobs.<name>.run` (`portfolio_snapshot` era el único
+  sin sufijo `.run`).
+- **RB-2:** `entityType: 'Job'` + `entityId: '<job>'` presentes en TODA la auditoría de `/admin/jobs/*`.
+- **RB-5:** JSDoc corregido en `buylist-sweep.service.ts` (decía "30d → convertida_inventario"; el código
+  setea `abandonada`) e `ine-retention.service.ts` (decía "scheduling BullMQ es deuda BE-5"; ya cableado).
+- **BE-9:** validación de credenciales centralizada en `common/validation/credentials.ts`
+  (`MIN_PASSWORD_LENGTH`, `EMAIL_REGEX`, `normalizeEmail`, `isValidEmailFormat`, `isStrongPassword`),
+  consumida por `admin.createUser` y por las DTOs de `auth` (`RegisterDto`/`ResetPasswordDto` usan la
+  constante compartida). Fin de la lógica duplicada.
+
+### 27.6 Deudas DIFERIDAS (no tocadas, siguen en TECH_DEBT)
+BE-2 (TOCTOU), BE-3 (30d→inventario), BE-4/D3 (N+1 valuaciones a escala), BE-6 (providers graded/sealed),
+BE-7 (orden huérfana), D1/D2 (BullMQ catálogo/paginación), RB-4 (2× dial), enumeración/timing (aceptadas),
+SEC-D1 (lifecycle R2 = devops/humano).
+
+### 27.7 Tests (nuevos/actualizados) + gates
+- `test/pricing.finish-pending.spec.ts` (nuevo): (a) `manualOverride` filtra por `finish` en el updateMany;
+  `escalatePending` encola con `finish` en clave+fila; defaults `normal`.
+- `test/buylist.ronda-c.spec.ts` (nuevo): (d) `approvedTotalCents` derivado y persistido (+ `null` sin
+  aprobados); (e) cap honra el override KYC (aprueba con override, rechaza sin él); (c) `closedAt` en
+  `respond(decline)` y `paySpei`.
+- `test/buylist-sweep.closedat.spec.ts` (nuevo): `closedAt` en `rechazada`/`abandonada` del sweep.
+- `test/ine-retention.spec.ts` (ampliado): `closedAt` es la fuente prioritaria del cierre (2 casos).
+- `test/admin.pii.spec.ts` (ampliado): `ownedItems` trae `finish`+`productType`+`referenceValue` (pending
+  sin precio; priced con `PriceReference` del acabado; **una** query batch).
+- `test/buylist.approved-price-cap.spec.ts` (actualizado): mock del nuevo shape de `itemDecision`
+  (include `sellRequest.userId`, `kycProfile`, `aggregate`).
+- `test/admin-jobs.controller.spec.ts` (actualizado): nueva taxonomía `.run` + entityType/entityId.
+- **Gates verdes (desde `backend/`):** `lint`, `typecheck`, `test` (**56 suites / 350 tests**), `build`.
+
+### 27.8 Discrepancias con el contrato
+Ninguna. No se tocó `API_CONTRACT.md` ni `ARCHITECTURE.md`. La implementación conforma v1.8-ronda-c
+(§M2 override+cola por acabado, §M6 BE-10, §11 DTOs, §12). Todo se deriva server-side (SEC-A1).

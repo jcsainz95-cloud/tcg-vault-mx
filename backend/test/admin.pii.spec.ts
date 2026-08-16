@@ -16,8 +16,10 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
   const CLABE = '012345678901234567';
   const RFC = 'XAXX010101000';
 
-  function buildService() {
+  function buildService(priceRefs: any[] = []) {
     const prisma: any = {
+      // v1.8-ronda-c (BE-10): ownedItems se enriquece con referenceValue vía lectura batch.
+      priceReference: { findMany: jest.fn().mockResolvedValue(priceRefs) },
       user: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'u1',
@@ -73,9 +75,11 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
         }),
       },
     };
+    // v1.8-ronda-c (BE-10): ownedItemRefs usa pricing.gradeKeyFor; se stubbea a una clave fija.
+    const pricing = { gradeKeyFor: jest.fn().mockReturnValue('raw:NM') } as unknown as PricingService;
     return {
       prisma,
-      service: new AdminService(prisma as PrismaService, {} as PricingService, pii, {} as any),
+      service: new AdminService(prisma as PrismaService, pricing, pii, {} as any),
     };
   }
 
@@ -159,6 +163,37 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
       expect(item.card.availableFinishes).toEqual(['normal', 'holofoil']);
       expect(item.folio).toBe('F-000123');
       expect(item.ownershipStatus).toBe('owned');
+      // v1.8-ronda-c (BE-10): el ref gana finish + productType + referenceValue.
+      expect(item.finish).toBe('normal');
+      expect(item.productType).toBe('raw');
+      // Sin PriceReference del día → status pending (NO se excluye: es vista 360°).
+      expect(item.referenceValue).toEqual({ status: 'pending' });
     },
   );
+
+  // BE-10: item CON PriceReference del acabado → referenceValue priced (misma valuación que HoldingDTO).
+  it('ownedItems: referenceValue priced cuando hay PriceReference del acabado (batch)', async () => {
+    const { service, prisma } = buildService([
+      {
+        cardId: 'c1',
+        productType: 'raw',
+        gradeKey: 'raw:NM',
+        finish: 'normal',
+        priceMxnCents: 12500,
+        source: 'pokemontcg_io',
+        capturedDate: new Date('2026-08-13T00:00:00Z'),
+        createdAt: new Date('2026-08-13T01:00:00Z'),
+      },
+    ]);
+    const res: any = await service.getUser('u1', Role.super_admin);
+    const item = res.ownedItems[0];
+    expect(item.referenceValue).toEqual({
+      status: 'priced',
+      referenceMxnCents: 12500,
+      source: 'pokemontcg_io',
+      capturedDate: '2026-08-13',
+    });
+    // Lectura batch: UNA query de PriceReference por cardId IN (...), no N+1.
+    expect(prisma.priceReference.findMany).toHaveBeenCalledTimes(1);
+  });
 });

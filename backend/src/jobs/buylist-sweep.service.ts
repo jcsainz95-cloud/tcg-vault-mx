@@ -4,7 +4,10 @@ import { PrismaService } from '../prisma/prisma.service';
 /**
  * BuylistSweepJobService — Plazos de buylist (PROJECT criterio 16, ARCHITECTURE §5):
  *  - 7 días sin respuesta a un ajuste → SellRequest `rechazada`.
- *  - 30 días de abandono → pasa a inventario (`convertida_inventario`).
+ *  - 30 días de abandono (solicitud aún `cotizada`, sin recepción) → SellRequest `abandonada`.
+ *    (RB-5: la conversión automática a inventario del abandono NO se hace aquí — es deuda BE-3;
+ *    hoy el admin la convierte con un clic. El JSDoc previo decía `convertida_inventario`, incorrecto.)
+ *  Ambas transiciones son TERMINALES → sellan `closedAt` (SEC-D2, ancla la retención de INE).
  */
 @Injectable()
 export class BuylistSweepJobService {
@@ -26,7 +29,7 @@ export class BuylistSweepJobService {
     for (const req of toReject) {
       await this.prisma.sellRequest.update({
         where: { id: req.id },
-        data: { status: 'rechazada' },
+        data: { status: 'rechazada', closedAt: now },
       });
     }
 
@@ -40,7 +43,7 @@ export class BuylistSweepJobService {
     for (const req of toAbandon) {
       await this.prisma.sellRequest.update({
         where: { id: req.id },
-        data: { status: 'abandonada' },
+        data: { status: 'abandonada', closedAt: now },
       });
     }
 
