@@ -1407,3 +1407,151 @@ bloqueada por infra: R2/Railway sin configurar, sin stack local levantable). Deb
 de `itemDecision`/`recomputeApprovedTotal`/`pay-spei`, el job de retención bajo carga, y ZAP/nuclei. En
 este entorno no hay staging atacable; queda en backlog del humano pre-dinero-real. La revisión estática de
 Ronda C **no** la sustituye pero **no** la bloquea para el merge.
+
+---
+
+# ANEXO rev v1.9-set-chart (2026-08-16) — Gráfica pública de valor de set (M-20, commit f3926ed)
+
+> **Rol:** seguridad (blue team). Reviso la superficie nueva de `v1.9-set-chart` (ya commiteada,
+> `f3926ed`): endpoint **público** nuevo, **fetch externo** a pokemontcg.io, **jobs desatendidos** y
+> **agregación de precios**. Consolido con el pentester (`PENTEST_NOTES.md` v1.5: 0 crít/0 alto; el
+> bloque nuevo no altera su conteo) y emito veredicto. **Modo:** revisión **estática** de código
+> (`set-value.service.ts`, `catalog.controller.ts`, `set-price-sync.service.ts`,
+> `set-value-snapshot.service.ts`, `admin-jobs.controller.ts`, `scheduler.service.ts`,
+> `pricing.service.ts`, `pokemontcg-io.provider.ts`, `schema.prisma`, migración M-20). Egress a
+> pokemontcg.io **bloqueado** en esta sesión → sin DAST en vivo. Blanco autorizado: staging/local.
+
+## SC.0 Resumen — 0 Críticos / 0 Altos / 0 Medios
+
+El bloque llegó **endurecido y aditivo**. No hay dinero saliente ni PII nuevos. Los dos endpoints
+públicos exponen **solo valor agregado de mercado** de un set (dato de catálogo ya público), sin tocar
+inventario, costo, holdings ni PII. El fetch externo usa **host FIJO** no influenciable por el cliente.
+La agregación (SEC-A1) se deriva **siempre** de `PriceReference` real; nada viene del cuerpo del cliente.
+Los jobs son idempotentes, gated por `REDIS_URL`, sin efecto sobre dinero/PII/bóveda. Los disparos admin
+son **super_admin + auditados**. **Un (1) hallazgo Bajo nuevo** (throttle) + **una (1) nota informativa**,
+ninguno bloqueante.
+
+| Severidad | # | ID |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 0 | — |
+| Baja | 1 | **SEC-F1** (endpoints públicos de la gráfica sin `@Throttle` propio) |
+| Info | 1 | SEC-F2 (`:id` sin validación de formato — sin impacto real) |
+
+## SC.1 Endpoint público — **OK · [Verificado en código]**
+- `GET /catalog/featured-set/value-history` y `GET /catalog/sets/:id/value-history` son `@Public()`
+  (`catalog.controller.ts:73-84`). **Sin PII ni datos internos:** la respuesta es
+  `SetValueHistoryResponse` = `SetRefDTO` (id LOCAL del CardSet, name, series, releaseDate — todo ya
+  público vía `GET /catalog/sets`) + `points[]` (`date`, `valueMxnCents`, `pricedCardCount`) + `change`
+  (`set-value.service.ts:12-39,187-207`). **No** toca `InventoryItem`, costo, `listPriceCents`, holdings,
+  usuarios ni PII. Es **valor agregado de mercado del set** (SUM de referencias públicas TCGPlayer), no el
+  valor de nuestro inventario ni del portafolio de ningún usuario.
+- **`:id` (endpoint por set):** `setHistoryById` hace `prisma.cardSet.findUnique({ where:{ id } })`
+  (`:232-236`) → **parametrizado por Prisma (sin SQLi)**; no existente → `BusinessException.notFound()`
+  = **404 correcto**. El `id` **no** arma ninguna URL externa ni query cruda. Ver SEC-F2 por la ausencia
+  de validación de formato (sin impacto).
+- **Enumeración:** un `:id` válido solo confirma la existencia de un `CardSet`, que **ya es enumerable**
+  por el público vía `GET /catalog/sets`. No revela inventario, tenencia ni precio interno → **sin
+  superficie nueva de valor para un atacante**.
+
+## SC.2 Fetch externo (SSRF) — **OK · [Verificado en código]**
+- `set-price-sync` precia el set **carta por carta** vía `PricingService.syncCardPrice` →
+  `PokemonTcgIoProvider.fetchPrice`, que arma la URL con **host FIJO**
+  `https://api.pokemontcg.io/v2/cards/${externalId}` (`pokemontcg-io.provider.ts`). El host **no** es
+  configurable por request; `externalId` proviene del **registro `Card` de la BD**, no de input del
+  cliente. **Ningún input de cliente** llega a la URL: los endpoints públicos solo LEEN la BD
+  (`SetValueSnapshot`/`PriceReference`), no disparan fetch.
+- `HOME_FEATURED_SET_ID` es un **id de catálogo** (externalId pokemontcg.io) que se resuelve a un
+  `CardSet` local por `findUnique({ where:{ externalId } })` (`set-value.service.ts:82-88`); **no** es una
+  URL ni se concatena a una. Si no resuelve → warn + fallback determinista (no rompe, no sale a red
+  arbitraria).
+- Consistente con el guardarraíl ya verificado del sync de catálogo (`SET_ID_PATTERN` + host fijo +
+  `encodeURIComponent`, §2 tabla). **Sin SSRF nuevo.**
+
+## SC.3 SEC-A1 (integridad de precios) — **OK · [Verificado en código]**
+- `computeSetValue(setId, asOf)` (`set-value.service.ts:134-169`) suma **`PriceReference.priceMxnCents`
+  real** filtrado por `productType='raw'`, `gradeKey='raw:NM'`, `finish='normal'` y toma la vigente más
+  reciente por carta. **No acepta montos del cliente** (sus únicos parámetros son `setId` interno y una
+  fecha). Cartas sin precio se **excluyen** del total (no se inventa) y solo se **cuentan** en
+  `totalCardCount` → **sin fabricación de datos**.
+- **Sin backfill inventado:** migración M-20 es `CREATE TABLE` puro, **sin** seed/backfill; la serie
+  arranca hoy y crece con el snapshot diario (`set-value-snapshot.service.ts`). Confirmado en el SQL.
+- El snapshot público (`SetValueSnapshot.totalValueMxnCents`) lo escribe **solo** el job server-side
+  (`snapshotFeaturedSet`, `:240-263`); no hay endpoint que permita al cliente fijar/inflar el valor.
+
+## SC.4 `escalate=false` — **OK · [Verificado en código]**
+- El flag es un parámetro de `syncCardPrice` (`pricing.service.ts:103,133-135`) cuyo **único efecto** es
+  **no** crear `PendingPriceEntry` cuando una carta del set no tiene precio. **No** toca money-out,
+  reserva de venta, tope AML, buylist ni SEC-A1. Los flujos de bóveda/buylist conservan el default
+  `escalate=true` (nunca se descarta una carta). Correcto: es anti-inundación de la cola de pendientes
+  al preciar un set completo de marketing, no un bypass de control de dinero.
+
+## SC.5 Jobs desatendidos — **OK · [Verificado en código]**
+- **Idempotencia:** `set-price-sync` usa el cache diario de `syncCardPrice` (findUnique por clave
+  compuesta con `capturedDate=today` → no re-escribe) ; `set-value-snapshot` hace **UPSERT** por
+  `@@unique([setId, asOfDate])` (`set-value.service.ts:253-257`). Re-correr un día no duplica ni corrompe
+  otras series (el where siempre acota `setId`+`asOfDate`).
+- **Gated `REDIS_URL`:** el scheduler no programa nada sin Redis (`scheduler.service.ts:49-57`); orden duro
+  FX → `set-price-sync` (30 6) → `portfolio-snapshot` → `set-value-snapshot` (15 7). Sin efectos sobre
+  dinero/PII/bóveda: solo leen `Card`/`PriceReference` y escriben `PriceReference`/`SetValueSnapshot`.
+- **Nota multi-instancia (heredada, no bloqueante):** sin single-flight distribuido, dos réplicas podrían
+  preciar el set en paralelo; los upserts idempotentes evitan corrupción, solo se duplica carga hacia
+  pokemontcg.io. Ya anotado para **devops** (Redis compartido) en A.2/§6.
+
+## SC.6 Disparos admin — **OK · [Verificado en código]**
+- `POST /admin/jobs/set-price-sync` y `/set-value-snapshot` viven en `AdminJobsController`
+  `@Roles(Role.super_admin)` a nivel de clase (`admin-jobs.controller.ts:21-23`), sin `@Public`, bajo los
+  guards globales `JwtAuthGuard`→`RolesGuard` (`app.module.ts:64-65`) → sesión + rol tomado del JWT (nunca
+  del cuerpo); un no-super_admin → 403. **Auditados:** ambos registran `jobs.set_price_sync.run` /
+  `jobs.set_value_snapshot.run` con `actorUserId`, `actorRole`, `entityType/entityId` y `after`
+  (`:112-142`). Correcto.
+
+## SC.7 Superficie / fuga de existencia-valor — dictamen **Bajo/aceptable**
+- El público expone el **valor de mercado agregado de un set Pokémon** (dato derivable de fuentes
+  públicas de precios: es información de mercado, no propia). No revela cuántas cartas del set tenemos, ni
+  su valor en nuestro inventario, ni holdings de usuarios. **Riesgo de inteligencia competitiva: bajo y
+  aceptable** — es, por diseño, un "gancho de mercado" público (hero de la home). Se dictamina **aceptado**.
+
+## SEC-F1 (Baja) — Endpoints públicos de la gráfica sin `@Throttle` propio
+- **Vector:** anti-scraping / abuso de lectura no autenticada.
+- **Ubicación:** `catalog.controller.ts:73-84` — `featured-set/value-history` y `sets/:id/value-history`
+  son `@Public()` y **solo** cubiertos por el `ThrottlerGuard` global (300/min), a diferencia del
+  cotizador (`buylist-catalog.controller.ts`) que fija `@Throttle({ttl:60,limit:60})`. El resto de
+  `CatalogController` (cards/facets/sets) tampoco lo tiene, así que es consistente con lo ya aprobado.
+- **Impacto:** bajo — el dato es agregado, público y de bajo costo (2 queries, sin N+1, sin fetch externo
+  en la ruta de lectura). El riesgo es scraping/DoS ligero, mitigado parcialmente por el throttle global.
+- **Rol dueño:** **backend** (añadir `@Throttle` por-endpoint acorde al resto de superficie pública, si se
+  quiere paridad con el cotizador). **No bloqueante.**
+
+## SEC-F2 (Info) — `:id` sin validación de formato en `sets/:id/value-history`
+- `@Param('id')` entra sin `@IsCuid`/regex; se usa **solo** como `where:{ id }` en `findUnique` de Prisma
+  (parametrizado). Un id no-CUID simplemente da 404. **Sin SQLi, sin enumeración nueva** (sets ya
+  públicos). Se anota como defensa en profundidad menor; **no es hallazgo** ni requiere acción.
+
+## SC.8 VEREDICTO — rev v1.9-set-chart
+
+**VEREDICTO seguridad (revisión estática): APROBADO.**
+
+- **0 Críticos / 0 Altos / 0 Medios.** Endpoint público sin PII ni datos internos (solo valor agregado de
+  mercado + ref de set ya público), 404 correcto y `:id` parametrizado; fetch externo con **host FIJO** no
+  influenciable por el cliente (sin SSRF nuevo); **SEC-A1 intacto** (valor siempre derivado server-side de
+  `PriceReference` real, sin backfill fabricado); `escalate=false` sin bypass de dinero/pendientes; jobs
+  idempotentes, gated `REDIS_URL`, sin efecto sobre dinero/PII/bóveda; disparos admin **super_admin +
+  auditados**; migración M-20 aditiva sin backfill.
+- **Deuda nueva no bloqueante:** **SEC-F1** (Baja, backend: `@Throttle` propio en la gráfica pública) +
+  **SEC-F2** (Info, sin acción). Deuda/banderas previas **sin cambio** (S-M1 SSE no alcanzable; S-B1
+  linking Google; S-B2/B-4 Int32/cotas de dinero; residuo S-B3; SEC-D1 INE huérfano; bandera legal PII en
+  snapshots económicos; nota multi-instancia de jobs → devops).
+
+**¿Puede ir a main?** **SÍ.** No hay hallazgos **Críticos ni Altos** abiertos en v1.9-set-chart → no
+procede RECHAZO (`CLAUDE.md` §7). La revisión **estática basta para el merge a `main`**: el cambio es
+aditivo, sin dinero saliente ni PII nuevos, sin superficie que exija DAST en vivo específico (no hay fetch
+disparado por el cliente ni entrada que arme la URL externa). El egress bloqueado a pokemontcg.io en esta
+sesión **no** impide dictaminar, porque el fetch es server-side con host fijo y ya está cubierto por los
+guardarraíles estáticos verificados.
+
+**Condición para DINERO REAL (no para el merge):** se mantiene la **fase dinámica (DAST contra staging)**
+como **PENDIENTE Y OBLIGATORIA** antes de producción (heredada, §6). Para este bloque en concreto, cuando
+haya staging, conviene validar: throttle/scraping de la gráfica pública (SEC-F1) y el rate-limit del
+`set-price-sync` contra pokemontcg.io en multi-instancia. Nada de eso bloquea el merge a `main`.
