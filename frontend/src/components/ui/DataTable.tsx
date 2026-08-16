@@ -18,7 +18,10 @@ export interface DataTableProps<T> {
 
 /**
  * DataTable / cola de trabajo (DESIGN_SYSTEM §7.7).
- * Responsive: en < md cada fila colapsa a card (label: valor).
+ * Responsive: en < md cada fila colapsa a un bloque (label: valor).
+ *
+ * Dirección 5a: la tabla pierde el fondo y el hover coloreado; se apoya solo en
+ * reglas y en la numeración monoespaciada de las cabeceras.
  */
 export function DataTable<T>({ columns, rows, rowKey }: DataTableProps<T>) {
   return (
@@ -26,14 +29,11 @@ export function DataTable<T>({ columns, rows, rowKey }: DataTableProps<T>) {
       {/* Tabla (md+) */}
       <table className="hidden w-full border-collapse md:table">
         <thead>
-          <tr className="border-b border-border">
+          <tr className="border-y border-border">
             {columns.map((c) => (
               <th
                 key={c.key}
-                className={cn(
-                  'px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted',
-                  c.align === 'right' || c.numeric ? 'text-right' : 'text-left',
-                )}
+                className={cn('eyebrow py-3.5 font-medium', c.align === 'right' || c.numeric ? 'text-right' : 'text-left')}
               >
                 {c.header}
               </th>
@@ -42,13 +42,13 @@ export function DataTable<T>({ columns, rows, rowKey }: DataTableProps<T>) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={rowKey(row)} className="border-b border-border hover:bg-surface-2">
+            <tr key={rowKey(row)} className="border-b border-border">
               {columns.map((c) => (
                 <td
                   key={c.key}
                   className={cn(
-                    'px-3 py-3 text-sm text-text',
-                    (c.align === 'right' || c.numeric) && 'text-right tabular',
+                    'py-4 pr-5 text-sm text-text last:pr-0',
+                    (c.align === 'right' || c.numeric) && 'text-right tabular font-medium',
                   )}
                 >
                   {c.render(row)}
@@ -59,16 +59,16 @@ export function DataTable<T>({ columns, rows, rowKey }: DataTableProps<T>) {
         </tbody>
       </table>
 
-      {/* Cards (< md) */}
-      <div className="flex flex-col gap-3 md:hidden">
+      {/* Bloques (< md) */}
+      <div className="md:hidden">
         {rows.map((row) => (
-          <div key={rowKey(row)} className="rounded-lg border border-border bg-surface p-3">
+          <div key={rowKey(row)} className="border-b border-border py-4 first:border-t">
             {columns.map((c) => (
-              <div key={c.key} className="flex items-center justify-between gap-3 py-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-muted">
-                  {c.header}
+              <div key={c.key} className="flex items-center justify-between gap-3 py-1.5">
+                <span className="eyebrow">{c.header}</span>
+                <span className={cn('text-sm text-text', c.numeric && 'tabular font-medium')}>
+                  {c.render(row)}
                 </span>
-                <span className={cn('text-sm text-text', c.numeric && 'tabular')}>{c.render(row)}</span>
               </div>
             ))}
           </div>

@@ -153,7 +153,8 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
         disabled={loading}
         aria-busy={loading || undefined}
         className={
-          'inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-surface px-4 text-base font-medium text-text transition-colors hover:bg-surface-2 focus-visible:shadow-[0_0_0_3px_var(--color-focus-ring)] active:scale-[.98] disabled:opacity-45 disabled:cursor-not-allowed'
+          // Alternativa neutra: solo regla, sin relleno ni versalitas — no compite con el CTA de tinta.
+          'inline-flex min-h-[48px] w-full items-center justify-center gap-2.5 border border-border-strong px-4 text-[13px] font-medium text-text transition-colors hover:border-text disabled:cursor-not-allowed disabled:text-muted'
         }
       >
         {loading ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <GoogleG />}

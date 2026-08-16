@@ -30,14 +30,14 @@ export function CertNumberField({ certNumber }: CertNumberFieldProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="text-muted">{t('certLabel')}:</span>
-      <span className="tabular-nums font-medium text-text" data-testid="cert-number">
+      <span className="eyebrow">{t('certLabel')}</span>
+      <span className="tabular font-mono text-text" data-testid="cert-number">
         #{certNumber}
       </span>
       <button
         type="button"
         onClick={copy}
-        className="inline-flex min-h-[32px] items-center gap-1 rounded-md border border-border-strong px-2 text-xs font-medium hover:bg-surface-2 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-focus-ring)]"
+        className="inline-flex min-h-[32px] items-center gap-1 border border-border-strong px-2.5 text-xs font-medium text-text hover:border-text"
         aria-label={t('certCopy')}
       >
         {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}

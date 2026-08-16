@@ -24,13 +24,14 @@ export function VerifyEmailBanner() {
   if (!ready || !user || user.emailVerified !== false) return null;
 
   return (
-    <div className="border-b border-warning/30 bg-warning-bg">
-      <div className="mx-auto max-w-7xl px-4 py-2 sm:px-6 lg:px-8">
+    // Dirección 5a: franja de papel con regla; el aviso lo marca la nota, no un fondo de color.
+    <div className="border-b border-border">
+      <div className="mx-auto max-w-7xl px-5 py-3 sm:px-6 lg:px-11">
         <Banner
           variant="warning"
           role="status"
           title={t('bannerTitle')}
-          className="border-none bg-transparent p-0"
+          className="p-0"
           action={
             status === 'sent' ? (
               <span className="shrink-0 whitespace-nowrap text-sm font-medium text-success">

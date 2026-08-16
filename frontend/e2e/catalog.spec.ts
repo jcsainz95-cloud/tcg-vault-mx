@@ -45,11 +45,19 @@ test.describe('Compra · listado y filtros', () => {
 
   test('condición NM legible con tooltip del estándar', async ({ page }) => {
     await page.goto('/es/catalog');
-    // Filtra a Raw (NM) para ver el badge legible.
+    // Filtra a Raw (NM) para ver la ficha técnica de la copia.
     await page.getByRole('button', { name: t('es', 'shop.type.raw'), exact: true }).click();
-    await expect(page.getByText(t('es', 'catalog.condition.nm.label')).first()).toBeVisible();
-    // El estándar vive en el title/tooltip (+ aria-label).
+    // En la retícula la condición se abrevia a NM (renglón `RAW · NM · ACABADO`)
+    // y el estándar vive en el title/tooltip (+ aria-label).
+    await expect(page.getByText(/Raw · NM/).first()).toBeVisible();
     await expect(page.locator('[title*="Como nueva"]').first()).toBeVisible();
+  });
+
+  test('la ficha de detalle pinta la condición con su etiqueta legible', async ({ page }) => {
+    // La etiqueta completa ("Casi nueva (NM)") es la que ocupa la celda de
+    // Condición en la ficha, donde sí hay hueco para leerla entera.
+    await page.goto('/es/catalog/c-pikachu');
+    await expect(page.getByText(t('es', 'catalog.condition.nm.label')).first()).toBeVisible();
   });
 });
 

@@ -19,7 +19,6 @@
     "errorTitle": "Something went wrong",
     "errorGeneric": "We couldn't load the data.",
     "skipToContent": "Skip to content",
-    "theme": "Theme",
     "value": "Value",
     "total": "Total",
     "datePresets": {
@@ -41,6 +40,7 @@
     "register": "Sign up",
     "logout": "Log out",
     "admin": "Admin panel",
+    "cart": "Cart",
     "menu": "Menu",
     "terms": "Terms & policy"
   },
@@ -155,6 +155,7 @@
   "checkout": {
     "title": "Checkout",
     "summary": "Summary",
+    "removeItem": "Remove",
     "subtotal": "Subtotal",
     "subtotalHint": "Card sale price, before VAT.",
     "processingFee": "Processing fee",
@@ -186,6 +187,8 @@
     "withdraw": "Withdraw",
     "withdrawSelected": "Withdraw selected",
     "onlySettled": "Only settled cards can be withdrawn.",
+    "cardColumn": "Card",
+    "statusColumn": "Status",
     "folio": "Folio",
     "selectToWithdraw": "Select for withdrawal",
     "setFilter": {
@@ -495,6 +498,7 @@
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
+    "superAdminTag": "Super",
     "moneyOutNote": "Super-admin only · logged in audit trail",
     "superAdminGateTitle": "Restricted access",
     "superAdminGateBody": "This module is super-admin only. Switch role or request access.",

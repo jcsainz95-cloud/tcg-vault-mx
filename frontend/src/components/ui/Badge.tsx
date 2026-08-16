@@ -9,24 +9,30 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   icon?: React.ReactNode;
 }
 
-const softTone: Record<BadgeTone, string> = {
-  success: 'bg-success-bg text-success',
-  warning: 'bg-warning-bg text-warning',
-  danger: 'bg-danger-bg text-danger',
-  info: 'bg-info-bg text-info',
-  accent: 'bg-accent/15 text-accent',
-  primary: 'bg-primary/15 text-primary',
-  neutral: 'bg-surface-2 text-muted',
+/*
+ * Dirección 5a: un estado es texto mono en versalitas del color de su tono
+ * (LIQUIDADA en verde, PENDIENTE en bermellón). `soft` pierde la pastilla por
+ * completo; `outline` conserva una regla de 1px para lo que debe frenar la
+ * lectura, como PRECIO PENDIENTE.
+ */
+const toneColor: Record<BadgeTone, string> = {
+  success: 'text-success',
+  warning: 'text-accent',
+  danger: 'text-accent',
+  info: 'text-muted',
+  accent: 'text-accent',
+  primary: 'text-text',
+  neutral: 'text-muted',
 };
 
-const outlineTone: Record<BadgeTone, string> = {
-  success: 'border border-success text-success',
-  warning: 'border border-warning text-warning',
-  danger: 'border border-danger text-danger',
-  info: 'border border-info text-info',
-  accent: 'border border-accent text-accent',
-  primary: 'border border-primary text-primary',
-  neutral: 'border border-border-strong text-muted',
+const outlineBorder: Record<BadgeTone, string> = {
+  success: 'border-success',
+  warning: 'border-accent',
+  danger: 'border-accent',
+  info: 'border-border-strong',
+  accent: 'border-accent',
+  primary: 'border-text',
+  neutral: 'border-border-strong',
 };
 
 export function Badge({ tone = 'neutral', shape = 'soft', className, children, icon, ...rest }: BadgeProps) {
@@ -34,10 +40,10 @@ export function Badge({ tone = 'neutral', shape = 'soft', className, children, i
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-        shape === 'soft' ? softTone[tone] : outlineTone[tone],
-        focusable &&
-          'cursor-help focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_var(--color-focus-ring)]',
+        'inline-flex items-center gap-1.5 font-mono text-[11px] font-normal uppercase leading-none tracking-[0.06em]',
+        toneColor[tone],
+        shape === 'outline' && cn('border px-2 py-1.5', outlineBorder[tone]),
+        focusable && 'cursor-help',
         className,
       )}
       {...rest}

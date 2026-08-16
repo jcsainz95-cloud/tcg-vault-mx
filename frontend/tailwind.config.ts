@@ -1,7 +1,6 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
-  darkMode: 'class',
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
     extend: {
@@ -27,28 +26,52 @@ const config: Config = {
         warning: { DEFAULT: 'var(--color-warning)', bg: 'var(--color-warning-bg)' },
         danger: { DEFAULT: 'var(--color-danger)', bg: 'var(--color-danger-bg)' },
         info: { DEFAULT: 'var(--color-info)', bg: 'var(--color-info-bg)' },
+        'neutral-warm': 'var(--color-neutral-warm)',
+        // Paneles de tinta (hero de auth, sidebar del back-office).
+        ink: 'var(--color-ink)',
+        'on-ink': 'var(--color-on-ink)',
+        'on-ink-muted': 'var(--color-on-ink-muted)',
+        'on-ink-nav': 'var(--color-on-ink-nav)',
+        'on-ink-rule': 'var(--color-on-ink-rule)',
       },
+      // Sin esquinas redondeadas: el sistema se apoya en reglas, no en cajas.
       borderRadius: {
-        sm: 'var(--radius-sm)',
-        md: 'var(--radius-md)',
-        lg: 'var(--radius-lg)',
-        xl: 'var(--radius-xl)',
+        none: '0px',
+        sm: '0px',
+        md: '0px',
+        lg: '0px',
+        xl: '0px',
+        '2xl': '0px',
+        '3xl': '0px',
+        full: '0px',
+        DEFAULT: '0px',
       },
       fontFamily: {
-        sans: ['var(--font-inter)', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        // Títulos: mincho. Da el aire y la voz editorial de la dirección 5a.
+        serif: ['var(--font-serif)', 'Georgia', 'Times New Roman', 'serif'],
+        sans: ['var(--font-sans)', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        // Mono: toda cifra, folio, estado y etiqueta.
+        mono: ['var(--font-mono)', 'ui-monospace', 'Menlo', 'monospace'],
       },
+      // Sin sombras: la profundidad la da el aire, no el relieve.
       boxShadow: {
-        xs: '0 1px 2px rgba(15,23,42,.06)',
-        sm: '0 1px 3px rgba(15,23,42,.10), 0 1px 2px rgba(15,23,42,.06)',
-        md: '0 4px 12px rgba(15,23,42,.10)',
-        lg: '0 12px 28px rgba(15,23,42,.14)',
-        focus: '0 0 0 3px var(--color-focus-ring)',
+        xs: 'none',
+        sm: 'none',
+        md: 'none',
+        lg: 'none',
+        none: 'none',
+        focus: '0 0 0 2px var(--color-focus-ring)',
+      },
+      letterSpacing: {
+        label: '0.14em',
+        eyebrow: '0.18em',
+        wordmark: '0.2em',
       },
       fontSize: {
-        display: ['2.5rem', { lineHeight: '1.1', fontWeight: '700' }],
-        h1: ['2rem', { lineHeight: '1.2', fontWeight: '700' }],
-        h2: ['1.5rem', { lineHeight: '1.25', fontWeight: '600' }],
-        h3: ['1.25rem', { lineHeight: '1.3', fontWeight: '600' }],
+        display: ['2.5rem', { lineHeight: '1.1', fontWeight: '400' }],
+        h1: ['2rem', { lineHeight: '1.1', fontWeight: '400' }],
+        h2: ['1.5rem', { lineHeight: '1.2', fontWeight: '400' }],
+        h3: ['1.25rem', { lineHeight: '1.25', fontWeight: '400' }],
       },
     },
   },

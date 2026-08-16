@@ -14,22 +14,28 @@ export interface StatCardProps {
   className?: string;
 }
 
-/** StatCard del dashboard (DESIGN_SYSTEM §7.8), con enmascarado financiero. */
+/**
+ * Métrica del dashboard (DESIGN_SYSTEM §7.8), con enmascarado financiero.
+ *
+ * Dirección 5a: deja de ser una tarjeta y pasa a ser una celda de una retícula
+ * reglada — más datos por pantalla y ninguna caja redondeada. La regla la pone el
+ * contenedor (`divide-*` / `border-*`), no la celda, para que no se dupliquen.
+ */
 export function StatCard({ label, value, sub, icon, masked, maskedLabel, className }: StatCardProps) {
   return (
-    <div className={cn('flex flex-col gap-2 rounded-lg border border-border bg-surface p-4 shadow-sm', className)}>
-      <div className="flex items-start justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted">{label}</span>
+    <div className={cn('flex flex-col px-6 py-7 sm:px-10', className)}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="eyebrow">{label}</span>
         {icon && <span className="text-muted">{icon}</span>}
       </div>
       {masked ? (
-        <span className="flex items-center gap-2 text-sm text-subtle">
-          <Lock size={16} /> {maskedLabel}
+        <span className="mt-4 flex items-center gap-2 font-mono text-sm text-muted">
+          <Lock size={15} aria-hidden /> {maskedLabel}
         </span>
       ) : (
         <>
-          <span className="tabular text-h1 font-bold text-text">{value}</span>
-          {sub && <div className="text-xs text-muted">{sub}</div>}
+          <span className="tabular mt-4 text-[26px] font-medium leading-none text-text">{value}</span>
+          {sub && <div className="mt-2 font-mono text-xs leading-relaxed text-muted">{sub}</div>}
         </>
       )}
     </div>

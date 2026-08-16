@@ -6,14 +6,19 @@ import { useTranslations } from 'next-intl';
 import { getHoldings, getShipmentQuote, getShipments } from '@/lib/api';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
-import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { QueryState } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useShipmentSteps } from '@/lib/pipelines';
+import { cn } from '@/lib/cn';
 
+/**
+ * 6h — Selección de cartas liquidadas con casilla y folio; las no elegibles se
+ * apartan tras una regla bermellón en vez de encerrarlas en una caja de color, y
+ * el stepper del envío es una línea de tiempo tipográfica (ver PipelineStepper).
+ */
 export function ShipmentsView() {
   const t = useTranslations('shipments');
   const te = useTranslations('error');
@@ -46,15 +51,15 @@ export function ShipmentsView() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <h1 className="text-h1 font-bold">{t('title')}</h1>
-        <p className="mt-1 text-muted">{t('subtitle')}</p>
+    <div>
+      <div className="gutter pb-6 pt-10 lg:pt-[46px]">
+        <h1 className="font-serif text-[28px] leading-[1.12] text-text lg:text-[40px]">{t('title')}</h1>
+        <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-muted">{t('subtitle')}</p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr,380px]">
-        <div className="flex flex-col gap-4">
-          <Banner variant="info">{t('onlySettledNotice')}</Banner>
+      <div className="grid border-t border-border lg:grid-cols-[1fr_400px]">
+        <div className="gutter border-b border-border pb-12 pt-6 lg:border-b-0 lg:border-r">
+          <p className="rule-note mb-5 text-[13px] leading-[1.7] text-muted">{t('onlySettledNotice')}</p>
 
           <QueryState
             isLoading={holdingsQuery.isLoading}
@@ -62,34 +67,42 @@ export function ShipmentsView() {
             error={holdingsQuery.error}
             onRetry={() => holdingsQuery.refetch()}
           >
-            <div className="flex flex-col gap-2">
-              {settledItems.map((h) => (
-                <label
-                  key={h.inventoryItemId}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface p-3"
-                >
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 accent-[color:var(--color-primary)]"
-                    checked={selected.includes(h.inventoryItemId)}
-                    onChange={() => toggle(h.inventoryItemId)}
-                    aria-label={`${t('selectAddress')} ${h.folio}`}
-                  />
-                  <span className="tabular text-xs text-muted">{h.folio}</span>
-                  <span className="flex-1 text-sm font-medium" lang="en">
-                    {h.card.name}
-                  </span>
-                  <StatusBadge domain="ownership" value={h.ownershipStatus} />
-                </label>
-              ))}
+            <div>
+              {settledItems.map((h) => {
+                const checked = selected.includes(h.inventoryItemId);
+                return (
+                  <label
+                    key={h.inventoryItemId}
+                    className="flex cursor-pointer items-center gap-4 border-t border-border py-4 last:border-b"
+                  >
+                    {/* Casilla del índice: cuadrado de 16px que se rellena de tinta.
+                        Es el <input> real (appearance-none), no un span decorativo:
+                        así sigue siendo clicable y navegable con teclado. */}
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(h.inventoryItemId)}
+                      aria-label={`${t('selectAddress')} ${h.folio}`}
+                      className="h-4 w-4 shrink-0 cursor-pointer appearance-none border border-border-strong checked:border-text checked:bg-text"
+                    />
+                    <span className="tabular font-mono text-xs text-muted">{h.folio}</span>
+                    <span className="flex-1 text-[15px] text-text" lang="en">
+                      {h.card.name}
+                    </span>
+                    <StatusBadge domain="ownership" value={h.ownershipStatus} />
+                  </label>
+                );
+              })}
 
               {pendingItems.length > 0 && (
-                <div className="rounded-lg border border-dashed border-warning/50 bg-warning-bg p-3">
-                  <p className="mb-2 text-xs font-semibold text-warning">{t('ineligibleTitle')}</p>
+                <div className="rule-note mt-8">
+                  <p className="font-mono text-[11px] font-medium uppercase tracking-label text-accent">
+                    {t('ineligibleTitle')}
+                  </p>
                   {pendingItems.map((h) => (
-                    <div key={h.inventoryItemId} className="flex items-center gap-2 py-1 opacity-70">
-                      <span className="tabular text-xs text-muted">{h.folio}</span>
-                      <span className="flex-1 text-sm" lang="en">
+                    <div key={h.inventoryItemId} className="mt-3 flex items-center gap-4 text-sm text-muted">
+                      <span className="tabular font-mono text-xs">{h.folio}</span>
+                      <span className="flex-1" lang="en">
                         {h.card.name}
                       </span>
                       <StatusBadge domain="ownership" value={h.ownershipStatus} />
@@ -101,7 +114,7 @@ export function ShipmentsView() {
           </QueryState>
         </div>
 
-        <aside className="flex h-fit flex-col gap-4 rounded-lg border border-border bg-surface p-5">
+        <aside className="gutter h-fit pb-12 pt-6 lg:px-10">
           <Select
             label={t('selectAddress')}
             options={[
@@ -112,60 +125,72 @@ export function ShipmentsView() {
             onChange={(e) => setCountry(e.target.value)}
           />
           {!isMx && (
-            <Banner variant="danger" role="alert">
+            <p className="rule-note mt-5 text-[13px] leading-[1.7] text-accent" role="alert">
               {te('ADDRESS_NOT_MX')}
-            </Banner>
+            </p>
           )}
-          <Banner variant="info">{t('flatFeeNotice')}</Banner>
+          <p className="mt-5 text-xs leading-[1.65] text-muted">
+            {t('flatFeeNotice')} {t('onlyMx')}
+          </p>
 
           {isMx && selected.length > 0 && (
-            <QueryState
-              isLoading={quoteQuery.isLoading}
-              isError={quoteQuery.isError}
-              error={quoteQuery.error}
-              onRetry={() => quoteQuery.refetch()}
-            >
-              {quoteQuery.data && (
-                <AmountBreakdown breakdown={quoteQuery.data.breakdown} variant="shipment" />
-              )}
-            </QueryState>
+            <div className="mt-6 border-t border-border pt-4">
+              <QueryState
+                isLoading={quoteQuery.isLoading}
+                isError={quoteQuery.isError}
+                error={quoteQuery.error}
+                onRetry={() => quoteQuery.refetch()}
+              >
+                {quoteQuery.data && (
+                  <AmountBreakdown breakdown={quoteQuery.data.breakdown} variant="shipment" />
+                )}
+              </QueryState>
+            </div>
           )}
 
-          <Button variant="accent" disabled={!isMx || selected.length === 0} className="w-full">
+          <Button
+            variant="accent"
+            disabled={!isMx || selected.length === 0}
+            className="mt-6 w-full"
+          >
             {t('requestWithdrawal')}
           </Button>
         </aside>
       </div>
 
-      <section className="flex flex-col gap-4">
-        <h2 className="text-h2 font-semibold">{t('myShipments')}</h2>
-        <QueryState
-          isLoading={shipmentsQuery.isLoading}
-          isError={shipmentsQuery.isError}
-          error={shipmentsQuery.error}
-          onRetry={() => shipmentsQuery.refetch()}
-        >
-          {(shipmentsQuery.data?.length ?? 0) === 0 ? (
-            <EmptyState title={t('noShipments')} />
-          ) : (
-            shipmentsQuery.data!.map((s) => (
-              <div key={s.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="tabular text-sm font-medium">{s.id}</span>
-                    <StatusBadge domain="shipment" value={s.status} />
-                  </div>
-                  {s.trackingNumber && (
-                    <span className="text-xs text-muted">
-                      {s.carrier} · {t('tracking')} {s.trackingNumber}
+      <section className="gutter border-t border-border pb-14 pt-10">
+        <h2 className="font-serif text-[20px] leading-tight text-text lg:text-[28px]">{t('myShipments')}</h2>
+        <div className="mt-5">
+          <QueryState
+            isLoading={shipmentsQuery.isLoading}
+            isError={shipmentsQuery.isError}
+            error={shipmentsQuery.error}
+            onRetry={() => shipmentsQuery.refetch()}
+          >
+            {(shipmentsQuery.data?.length ?? 0) === 0 ? (
+              <EmptyState title={t('noShipments')} />
+            ) : (
+              shipmentsQuery.data!.map((s) => (
+                <div key={s.id} className="border-t border-border pt-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="flex items-center gap-3">
+                      <span className="tabular font-mono text-[13px] text-text">{s.id}</span>
+                      <StatusBadge domain="shipment" value={s.status} />
                     </span>
-                  )}
+                    {s.trackingNumber && (
+                      <span className="font-mono text-[11px] text-muted">
+                        {s.carrier} · {t('tracking')} {s.trackingNumber}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-5">
+                    <PipelineStepper steps={shipmentSteps} current={s.status} />
+                  </div>
                 </div>
-                <PipelineStepper steps={shipmentSteps} current={s.status} />
-              </div>
-            ))
-          )}
-        </QueryState>
+              ))
+            )}
+          </QueryState>
+        </div>
       </section>
     </div>
   );

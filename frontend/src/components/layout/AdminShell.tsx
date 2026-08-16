@@ -36,8 +36,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   if (requireAuth && (!ready || !isAuthenticated)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-bg" aria-busy="true">
-        <span className="inline-flex items-center gap-2 text-muted">
-          <Loader2 size={18} className="animate-spin" aria-hidden />
+        <span className="inline-flex items-center gap-2 font-mono text-sm text-muted">
+          <Loader2 size={16} className="animate-spin" aria-hidden />
           {t('authLoading')}
         </span>
       </div>
@@ -47,26 +47,21 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <RoleProvider>
       <div className="flex min-h-dvh bg-bg">
-        {/* Sidebar fijo desde lg */}
-        <aside className="hidden w-64 shrink-0 border-r border-border bg-surface lg:block">
-          <div className="flex h-16 items-center px-4 font-bold">Back-office</div>
+        {/* Sidebar fijo desde lg. Dirección 5a: panel de tinta, sin iconos. */}
+        <aside className="hidden w-64 shrink-0 bg-ink lg:block">
+          <SidebarBrand />
           <AdminSidebar />
         </aside>
 
         {/* Drawer móvil */}
         {drawer && (
           <div className="fixed inset-0 z-40 lg:hidden" onClick={() => setDrawer(false)}>
-            <div className="absolute inset-0 bg-[rgba(2,6,23,.5)]" />
+            <div className="absolute inset-0 bg-[rgba(26,26,24,.55)]" />
             <aside
-              className="absolute left-0 top-0 h-full w-64 overflow-y-auto bg-surface"
+              className="absolute left-0 top-0 h-full w-64 overflow-y-auto bg-ink"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex h-16 items-center justify-between px-4 font-bold">
-                Back-office
-                <button onClick={() => setDrawer(false)} aria-label="Close" className="p-1">
-                  <X size={20} />
-                </button>
-              </div>
+              <SidebarBrand onClose={() => setDrawer(false)} />
               <AdminSidebar onNavigate={() => setDrawer(false)} />
             </aside>
           </div>
@@ -74,9 +69,26 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <AdminTopbar onMenu={() => setDrawer(true)} />
-          <main className="flex-1 p-4 sm:p-6">{children}</main>
+          <main className="flex-1 px-5 py-8 lg:px-10">{children}</main>
         </div>
       </div>
     </RoleProvider>
+  );
+}
+
+function SidebarBrand({ onClose }: { onClose?: () => void }) {
+  const t = useTranslations('admin');
+  return (
+    <div className="flex h-16 items-center gap-2.5 border-b border-on-ink-rule px-[22px]">
+      <span aria-hidden className="block h-[18px] w-[18px] shrink-0 bg-accent" />
+      <span className="text-[13px] font-medium uppercase tracking-label text-on-ink">
+        {t('shellTitle')}
+      </span>
+      {onClose && (
+        <button onClick={onClose} aria-label="Close" className="ml-auto p-1 text-on-ink-nav">
+          <X size={18} />
+        </button>
+      )}
+    </div>
   );
 }
