@@ -70,6 +70,23 @@ export class PriceIngestService {
   }
 
   /**
+   * ¿Hubo ingesta de MERCADO reciente? (catch-up al boot, auditoría 2026-08-17).
+   * "Reciente" = existe ≥1 `PriceReference` NO-manual con `capturedDate` de hoy o ayer (UTC).
+   * Los overrides manuales del admin NO cuentan: un admin poniendo un precio a mano no
+   * significa que el ingest masivo haya corrido.
+   */
+  async hasRecentIngest(): Promise<boolean> {
+    const since = new Date();
+    since.setUTCHours(0, 0, 0, 0);
+    since.setUTCDate(since.getUTCDate() - 1);
+    const row = await this.prisma.priceReference.findFirst({
+      where: { capturedDate: { gte: since }, isManualOverride: false },
+      select: { id: true },
+    });
+    return row !== null;
+  }
+
+  /**
    * Ingesta de UN set por su id interno (child job `price-ingest-set`). Idempotente.
    * `fx` = snapshot cargado una vez por corrida.
    */

@@ -2958,3 +2958,118 @@ El `InventoryItem.status` **NO se espeja por etapa**: permanece `in_custody` dur
 - `npm test` (unit) → **76 suites / 535 tests verdes** (antes 75/530; +1 suite / +5 tests netos de este pase).
 - `npm run test:integration` → requiere Postgres/Redis/MinIO; **no se ejecutó** en el entorno del agente (sin
   Docker/DB). Los specs unitarios nuevos corren sin infra (Prisma mockeado).
+
+## 43. Auditoría de precios (2026-08-17) — por qué el catálogo vive en «Precio pendiente» en producción
+
+Síntomas en prod (Railway, 1 réplica, worker BullMQ in-process): casi todas las cartas del cotizador/catálogo
+sin precio; el set destacado «Pitch Black» suma ~MX$10 en total.
+
+### 43.1 Causas raíz confirmadas (con evidencia de código)
+
+**CR-1 (principal) — La conexión Redis del scheduler no era viable en Railway y fallaba EN SILENCIO.**
+`SchedulerService.onModuleInit` creaba `new IORedis(url, { maxRetriesPerRequest: null })` **sin `family`**.
+El private networking de Railway (`redis.railway.internal`) resuelve **solo IPv6 (AAAA)**; ioredis usa
+`family: 4` (IPv4) **por default** → el lookup falla (ENOTFOUND/ETIMEDOUT) y el cliente **reintenta para
+siempre**. Consecuencias encadenadas, todas invisibles:
+- La conexión **no tenía listener `on('error')`** ni `on('ready')`: cero rastro en logs de que Redis nunca conectó.
+- Los `await this.queue.add(...)` de los crons quedaban esperando en la **offline queue** de ioredis →
+  `onModuleInit` **nunca resolvía** → Nest no llegaba a `app.listen()` → el healthcheck del deploy
+  (`railway.json: /api/v1/health`, timeout 300s) moría. Con Railway conservando el deployment anterior
+  sirviendo, el humano ve una app «funcionando» donde los crons jamás corren.
+- Con los crons muertos, **NADA** escribe `PriceReference` de mercado: ni `price-ingest` (00:00/12:00 UTC),
+  ni `set-price-sync` (06:30 UTC, el que precia el set destacado completo). Evidencia del MX$10: si el
+  scheduler corriera, `set-price-sync` habría preciado las ~150-250 cartas de «Pitch Black»;
+  `SetValueService.computeSetValue` **excluye del total las cartas sin precio** (diseño correcto, no inventa
+  precios) → un total ridículo = solo 1-3 cartas con referencia (p. ej. overrides manuales del admin), o sea:
+  la ingesta masiva **nunca corrió**.
+- El fallo del worker sí tenía `on('failed')`, pero jamás llegaba un job al worker: el fallo era **antes** (conexión).
+
+**CR-2 (agravante) — Sin catch-up: un cron perdido = catálogo sin precios hasta el siguiente cron.**
+Aunque se arregle la conexión, un deploy a las 13:00 UTC no precia nada hasta las 00:00 UTC. No existía
+ningún mecanismo de «si no hay ingesta reciente, ingesta ahora».
+
+### 43.2 Hipótesis auditadas y DESCARTADAS
+- **Switch del worker incompleto** — descartada: `scheduler.service.ts` enruta `price-ingest`,
+  `price-ingest-1`, `price-ingest-2` (→ `run()`) y `price-ingest-set` (→ `runChild()`); el `default` loggea warn.
+- **`onModuleInit` lanza y Nest se traga el error** — descartada como estaba escrito: no lanzaba; se **colgaba**
+  (peor: ni stack trace). Ahora ni lanza ni cuelga (ver fix).
+- **Dial `price_provider` sin sembrar** — descartada: `SettingsService.get` cae a `SETTING_DEFAULTS`
+  (`settings.constants.ts: PRICE_PROVIDER → 'pokemontcg_io'`) si no hay fila, y `providerFor()` además tiene
+  fallback explícito al provider legacy ante valor desconocido. Nunca queda sin provider.
+- **FX ausente rompe el ingest** — descartada: `FxService.getCurrent()` tiene fallback duro `rate=18`.
+- **Cobertura de pokemontcg.io** — *contribuyente menor, no causa raíz*: el provider bulk solo emite filas con
+  `tcgplayer.prices[llave].market > 0` y llave mapeada; cartas/sets sin precios de TCGPlayer quedarán
+  «pendiente» aunque el ingest corra (correcto, money-safe). No explica un catálogo *entero* vacío.
+- **Rate limit** — *riesgo operativo, no causa raíz*: full ingest ≈ nº sets × 1-2 páginas (250/pág) ≈ cientos de
+  requests, 2×/día. Con `POKEMONTCG_IO_API_KEY` (~20k/día) sobra; sin key el free tier (~30/min) provoca 429s;
+  el cliente reintenta 4 veces respetando `Retry-After` y el provider devuelve lo acumulado con `logger.warn`
+  (parcial, visible en logs, no borra precios). Verificar la key en Railway (ver 43.5).
+
+### 43.3 Fix aplicado (archivos)
+- **`backend/src/jobs/redis-connection.util.ts` (nuevo):** `resolveRedisFamily()` / `bullRedisOptions()` —
+  `family: 0` (lookup dual-stack) por default; precedencia: env `REDIS_FAMILY` (0|4|6) > `?family=` en la
+  REDIS_URL (se respeta, no se pisa) > default 0. Funciona igual en local/CI (IPv4) y Railway (IPv6-only).
+- **`backend/src/jobs/scheduler.service.ts`:**
+  - Conexión con `bullRedisOptions` + listeners `error` (con throttle 60s para no spamear; mensaje explícito
+    «los crons NO corren hasta reconectar») y `ready`.
+  - **Boot no bloqueante:** el wiring BullMQ corre en background (`setupDone`); un Redis caído ya no cuelga
+    `app.listen()` ni mata el healthcheck. Cuando Redis conecta, los adds pendientes fluyen y el scheduler
+    se activa solo. Un fallo del wiring se loggea como **error con stack** y la app sigue (jobs quedan en
+    modo disparo manual).
+  - Cola con `on('error')`; worker con `on('failed')` (ahora con id + nº de intento + stack), `on('error')`
+    y `on('completed')` (heartbeat observable de que los crons corren).
+  - **Catch-up al boot:** al terminar el wiring llama `priceIngest.catchUpIfStale()` (no fatal).
+  - `onModuleDestroy` tolerante: closes en try/catch; `quit()` solo con conexión `ready`, si no `disconnect()`
+    duro (antes un shutdown con Redis roto se colgaba).
+- **`backend/src/jobs/price-ingest.service.ts`:** `catchUpIfStale()` — con cola y **sin** `PriceReference`
+  no-manual de hoy/ayer, encola un `price-ingest` inmediato con `jobId=price-ingest-catchup-<día>` (dedup:
+  reinicios múltiples el mismo día no duplican; el upsert de PriceReference ya es idempotente). Sin cola: no-op
+  (no lanza el ingest secuencial pesado al boot en local/CI).
+- **`backend/src/modules/pricing/price-ingest.service.ts`:** `hasRecentIngest()` (señal del catch-up;
+  excluye `isManualOverride=true` — un precio manual del admin no cuenta como ingesta).
+- **`backend/src/modules/health/health-redis.provider.ts`:** mismo `family` que el scheduler → en Railway
+  `/api/v1/health` ahora reporta el estado REAL de Redis (antes daría `down` con Redis sano, o directamente
+  no se podía consultar porque el boot se colgaba).
+- Visibilidad del ingest: ya existía y es útil — resumen por set en `PriceIngestService.ingestForSet`
+  (`price-ingest-set(<set>, <provider>): N cartas, N refs, N sin resolver, N omitidas`) + total del fan-out.
+  Ahora además cada job loggea `completado`/`falló` desde el worker.
+
+### 43.4 Tests y gates
+- `test/scheduler.spec.ts` (+7 casos): family default/override/URL-passthrough, listeners de
+  conexión/cola/worker, catch-up disparado, wiring fallido no revienta el boot, destroy con conexión no lista.
+- `test/price-ingest.job.spec.ts` (+3): `catchUpIfStale` no-queue / recent / stale (jobId dedup por día).
+- `test/price-ingest.service.spec.ts` (+2): `hasRecentIngest` (ventana ayer 00:00 UTC, excluye manuales).
+- `test/health-redis.provider.spec.ts` (+2 y ctor actualizado con `family: 0`).
+- Gates: `npm run lint` **0 errores** · `npm run typecheck` **0 errores** · `npm test` **76 suites / 553 tests
+  verdes** (este pase añade **+14 tests** netos).
+
+### 43.5 Runbook de verificación en producción (post-deploy)
+1. **Logs de arranque (Railway):** deben aparecer, en orden:
+   `Scheduler: conexión Redis lista (BullMQ operativo).` → `Scheduler activo (BullMQ): …` → y una de:
+   `price-ingest catch-up: SIN ingesta de precios reciente → encolado price-ingest inmediato (jobId=…)` (primera
+   vez) o `price-ingest catch-up: hay ingesta reciente…`. Si en cambio se ve
+   `Scheduler: error de conexión Redis…` repetido cada ~60s → la URL/red sigue mal (ver ACCIÓN DEVOPS).
+2. **Health:** `GET /api/v1/health` → Redis `up` (ya con `family` correcto es señal fiable).
+3. **Progreso del ingest:** logs `price-ingest: encolados N sets (fan-out BullMQ).` y luego una línea
+   `price-ingest-set(<setId>, pokemontcg_io): X cartas, Y refs, …` por set + `Job price-ingest-set (id=…) completado.`
+4. **Disparo manual (si se quiere forzar sin esperar):** `POST /api/v1/admin/jobs/price-ingest` (super_admin,
+   202). Con body `{"setId": "<externalId, p.ej. el de Pitch Black>"}` ingesta SOLO ese set inline (verificación
+   rápida). Sin body: fan-out completo.
+5. **Datos:** el cotizador/catálogo deja de mostrar «Precio pendiente» para cartas con precio TCGPlayer, y el
+   total de «Pitch Black» sube a un valor plausible tras el snapshot (`set-value-snapshot` 07:15 UTC, o
+   `POST /api/v1/admin/jobs/set-value-snapshot` manual tras `set-price-sync`/ingest).
+6. Cartas que SIGAN en «pendiente» tras un ingest verde = sin `tcgplayer.prices.market>0` en la fuente
+   (cobertura, esperado); se resuelven con override manual del admin o cambiando el dial `priceProvider`.
+
+### 43.6 ACCIÓN DEVOPS REQUERIDA (no implementado por backend; zonas de devops)
+1. **Verificar en Railway que `REDIS_URL` está en el SERVICIO del backend** (variable del service, no solo del
+   entorno/proyecto) y apunta al Redis correcto. El síntoma histórico es 100% consistente con scheduler sin
+   conexión Redis viable.
+2. **`.env.example`:** documentar la nueva env OPCIONAL `REDIS_FAMILY` (`0` dual-stack default en código; `4`/`6`
+   para forzar). No requiere valor en Railway: el default 0 ya cubre `redis.railway.internal` (IPv6-only).
+   Alternativa equivalente: `REDIS_URL=...?family=0`.
+3. **Verificar `POKEMONTCG_IO_API_KEY` en Railway** (recomendada en prod; sin ella el free tier ~30 req/min
+   ralentiza el ingest y multiplica 429s). Opcional: pedir al arquitecto si debe ser env requerida no-local
+   (`env.validation.ts` es zona compartida `src/config/` — backend no la tocó).
+4. **Post-deploy:** correr el runbook 43.5; si el catch-up no aparece en logs, capturar el log de arranque
+   completo para backend.

@@ -14,21 +14,39 @@ import { PriceIngestJobService } from '../src/jobs/price-ingest.service';
 // BullMQ + ioredis mockeados: capturamos qué jobs se programan sin infra real (Redis).
 const addMock = jest.fn().mockResolvedValue(undefined);
 const queueCloseMock = jest.fn().mockResolvedValue(undefined);
+const queueOnMock = jest.fn();
 const workerOnMock = jest.fn();
 const workerCloseMock = jest.fn().mockResolvedValue(undefined);
 let workerProcessor: ((job: { name: string }) => unknown) | undefined;
 
 jest.mock('bullmq', () => ({
-  Queue: jest.fn().mockImplementation(() => ({ add: addMock, close: queueCloseMock })),
+  Queue: jest
+    .fn()
+    .mockImplementation(() => ({ add: addMock, close: queueCloseMock, on: queueOnMock })),
   Worker: jest.fn().mockImplementation((_name: string, processor: any) => {
     workerProcessor = processor;
     return { on: workerOnMock, close: workerCloseMock };
   }),
 }));
 
+// Auditoría 2026-08-17: la conexión ahora registra listeners ('error'/'ready') y el destroy
+// consulta `status` (quit solo con conexión lista; si no, disconnect duro).
+const redisOnMock = jest.fn();
+const redisQuitMock = jest.fn().mockResolvedValue(undefined);
+const redisDisconnectMock = jest.fn();
+const redisCtorMock = jest.fn();
+
 jest.mock('ioredis', () => ({
   __esModule: true,
-  default: jest.fn().mockImplementation(() => ({ quit: jest.fn().mockResolvedValue(undefined) })),
+  default: jest.fn().mockImplementation((...args: unknown[]) => {
+    redisCtorMock(...args);
+    return {
+      on: redisOnMock,
+      quit: redisQuitMock,
+      disconnect: redisDisconnectMock,
+      status: 'ready',
+    };
+  }),
 }));
 
 // Import DESPUÉS de los mocks para que el servicio use las clases mockeadas.
@@ -55,6 +73,7 @@ const priceIngest = {
   setQueue: jest.fn(),
   run: jest.fn().mockResolvedValue({ job: 'price-ingest', enqueued: true }),
   runChild: jest.fn().mockResolvedValue(undefined),
+  catchUpIfStale: jest.fn().mockResolvedValue({ enqueued: false, reason: 'recent' }),
 } as unknown as PriceIngestJobService;
 
 function build(config: ConfigService) {
@@ -92,7 +111,7 @@ describe('SchedulerService — gating por REDIS_URL', () => {
 
 describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest 2×/día + metadata', () => {
   beforeEach(() => {
-    addMock.mockClear();
+    jest.clearAllMocks();
     workerProcessor = undefined;
   });
 
@@ -100,6 +119,7 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
     const config = new ConfigService({ REDIS_URL: 'redis://localhost:6379' });
     const svc = build(config);
     await svc.onModuleInit();
+    await svc.setupDone; // el wiring BullMQ corre en background (no bloquea el boot)
 
     const scheduled = addMock.mock.calls.map((c) => ({ name: c[0], pattern: c[2]?.repeat?.pattern }));
     const byName = Object.fromEntries(scheduled.map((s) => [s.name, s.pattern]));
@@ -164,6 +184,7 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
     });
     const svc = build(config);
     await svc.onModuleInit();
+    await svc.setupDone;
 
     const byName = Object.fromEntries(addMock.mock.calls.map((c) => [c[0], c[2]?.repeat?.pattern]));
     expect(byName['price-ingest-1']).toBe('0 3 * * *');
@@ -171,5 +192,109 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
     expect(byName['catalog-metadata-sync']).toBe('0 2 * * 0');
 
     await svc.onModuleDestroy();
+  });
+});
+
+/**
+ * Auditoría de precios (2026-08-17) — robustez de la conexión y visibilidad de fallos:
+ *  - `family: 0` por default (Railway private networking = IPv6-only; el default IPv4 de
+ *    ioredis dejaba la conexión reintentando PARA SIEMPRE en silencio y los crons no corrían).
+ *  - Overrides: env `REDIS_FAMILY` gana; `?family=` en la URL se respeta (no se pisa).
+ *  - Listeners: conexión ('error'/'ready'), cola ('error') y worker ('failed'/'error'/'completed').
+ *  - Catch-up al boot: sin ingesta reciente → se encola un price-ingest inmediato (dedup por día).
+ */
+describe('SchedulerService — conexión Redis robusta (Railway IPv6) + visibilidad + catch-up', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    workerProcessor = undefined;
+  });
+
+  it('crea IORedis con family:0 (dual-stack) y maxRetriesPerRequest:null por default', async () => {
+    const svc = build(new ConfigService({ REDIS_URL: 'redis://redis.railway.internal:6379' }));
+    await svc.onModuleInit();
+    await svc.setupDone;
+
+    expect(redisCtorMock).toHaveBeenCalledWith('redis://redis.railway.internal:6379', {
+      maxRetriesPerRequest: null,
+      family: 0,
+    });
+    await svc.onModuleDestroy();
+  });
+
+  it('REDIS_FAMILY=6 (env) hace override del default', async () => {
+    const svc = build(
+      new ConfigService({ REDIS_URL: 'redis://redis.railway.internal:6379', REDIS_FAMILY: '6' }),
+    );
+    await svc.onModuleInit();
+    await svc.setupDone;
+
+    expect(redisCtorMock).toHaveBeenCalledWith(
+      'redis://redis.railway.internal:6379',
+      expect.objectContaining({ family: 6 }),
+    );
+    await svc.onModuleDestroy();
+  });
+
+  it('si la URL trae ?family=, NO se pisa con la opción explícita (la URL manda)', async () => {
+    const svc = build(
+      new ConfigService({ REDIS_URL: 'redis://redis.railway.internal:6379?family=0' }),
+    );
+    await svc.onModuleInit();
+    await svc.setupDone;
+
+    const opts = redisCtorMock.mock.calls[0][1];
+    expect(opts).toEqual({ maxRetriesPerRequest: null }); // sin `family` explícito
+    await svc.onModuleDestroy();
+  });
+
+  it('registra listeners de error/ready en la conexión, error en la cola y failed/error/completed en el worker', async () => {
+    const svc = build(new ConfigService({ REDIS_URL: 'redis://localhost:6379' }));
+    await svc.onModuleInit();
+    await svc.setupDone;
+
+    const connEvents = redisOnMock.mock.calls.map((c) => c[0]);
+    expect(connEvents).toEqual(expect.arrayContaining(['error', 'ready']));
+    expect(queueOnMock).toHaveBeenCalledWith('error', expect.any(Function));
+    const workerEvents = workerOnMock.mock.calls.map((c) => c[0]);
+    expect(workerEvents).toEqual(expect.arrayContaining(['failed', 'error', 'completed']));
+    await svc.onModuleDestroy();
+  });
+
+  it('al terminar el wiring dispara el catch-up de price-ingest (precios se pueblan solos tras deploy)', async () => {
+    const svc = build(new ConfigService({ REDIS_URL: 'redis://localhost:6379' }));
+    await svc.onModuleInit();
+    await svc.setupDone;
+
+    expect(priceIngest.catchUpIfStale).toHaveBeenCalledTimes(1);
+    await svc.onModuleDestroy();
+  });
+
+  it('un fallo del wiring NO revienta el boot: setupDone resuelve y el error queda loggeado', async () => {
+    (priceIngest.catchUpIfStale as jest.Mock).mockRejectedValueOnce(new Error('db down'));
+    const svc = build(new ConfigService({ REDIS_URL: 'redis://localhost:6379' }));
+    await expect(svc.onModuleInit()).resolves.toBeUndefined();
+    await expect(svc.setupDone).resolves.toBeUndefined(); // catch interno, nunca unhandled
+    await svc.onModuleDestroy();
+  });
+
+  it('onModuleDestroy con conexión NO lista: disconnect() duro (quit() colgaría offline)', async () => {
+    // La conexión mockeada reporta status 'connecting' para este caso.
+    const ioredis = jest.requireMock('ioredis').default as jest.Mock;
+    ioredis.mockImplementationOnce((...args: unknown[]) => {
+      redisCtorMock(...args);
+      return {
+        on: redisOnMock,
+        quit: redisQuitMock,
+        disconnect: redisDisconnectMock,
+        status: 'connecting',
+      };
+    });
+    const svc = build(new ConfigService({ REDIS_URL: 'redis://localhost:6379' }));
+    await svc.onModuleInit();
+    await svc.setupDone;
+
+    await svc.onModuleDestroy();
+    expect(redisQuitMock).not.toHaveBeenCalled();
+    expect(redisDisconnectMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -66,15 +66,36 @@ describe('healthRedisProvider (token HEALTH_REDIS_CLIENT)', () => {
     const client = factory.useFactory(config) as HealthRedisClientProvider;
 
     expect(client).toBeInstanceOf(HealthRedisClientProvider);
+    // Auditoría 2026-08-17: family:0 (dual-stack) por default — Railway private networking
+    // (`redis.railway.internal`) es IPv6-only y el default IPv4 de ioredis hacía fallar el ping.
     expect(ctor).toHaveBeenCalledWith('redis://localhost:6379', {
       maxRetriesPerRequest: null,
       lazyConnect: true,
+      family: 0,
     });
     // Registra un handler de 'error' para no tumbar el proceso si Redis cae.
     expect(on).toHaveBeenCalledWith('error', expect.any(Function));
 
     await expect(client.ping()).resolves.toBe('PONG');
     expect(ping).toHaveBeenCalledTimes(1);
+  });
+
+  it('REDIS_FAMILY (env) hace override del family default', () => {
+    const config = new ConfigService({ REDIS_URL: 'redis://localhost:6379', REDIS_FAMILY: '4' });
+    factory.useFactory(config);
+    expect(ctor).toHaveBeenCalledWith(
+      'redis://localhost:6379',
+      expect.objectContaining({ family: 4 }),
+    );
+  });
+
+  it('si la URL ya trae ?family=, no se pisa con una opción explícita', () => {
+    const config = new ConfigService({ REDIS_URL: 'redis://localhost:6379?family=6' });
+    factory.useFactory(config);
+    expect(ctor).toHaveBeenCalledWith('redis://localhost:6379?family=6', {
+      maxRetriesPerRequest: null,
+      lazyConnect: true,
+    });
   });
 
   it('onModuleDestroy cierra la conexión con quit()', async () => {
