@@ -56,6 +56,22 @@ FROM base AS runtime
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
+# SEGURIDAD (2026-08-17): npm FUERA del runtime.
+# El npm que trae `node:20-alpine` empaqueta sus propias deps en
+# /usr/local/lib/node_modules/npm/node_modules/ (tar, brace-expansion,
+# cross-spawn, minimatch, sigstore...) y Trivy las reporta como HIGH/CRITICAL en
+# la sección node-pkg. No son deps de la app ni se pueden bumpear desde
+# frontend/package.json: vienen con la imagen base. El runtime standalone arranca
+# con `node server.js` y nunca usa npm/npx, así que se eliminan (arreglo real, no
+# un ignore). Las etapas `deps` y `build` conservan npm para `npm ci`/`npm run build`.
+# El `if` es un GUARD: si una imagen base futura mueve esas rutas, el build FALLA
+# aquí con mensaje claro en vez de publicar una imagen que sigue trayendo npm.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+ && if command -v npm >/dev/null 2>&1 || [ -d /usr/local/lib/node_modules/npm ]; then \
+      echo "ERROR: npm sigue presente en la etapa runtime; revisar rutas de la imagen base."; \
+      exit 1; \
+    fi \
+ && node -e "console.log('runtime sin npm; node ' + process.version)"
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 # Output standalone de Next.js: server + solo las deps necesarias.
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./

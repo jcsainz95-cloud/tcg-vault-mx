@@ -22,12 +22,12 @@
 #       * a mano (workflow_dispatch),
 #       * como paso previo a promover a prod desde deploy.yml (workflow_call).
 #
-# NAVEGADOR: usa el Chromium PREINSTALADO del runner-harness en /opt/pw-browsers
-#   (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1). NO se ejecuta `playwright install`.
-#   REQUISITO DE RUNNER: este job necesita una imagen de runner con los navegadores
-#   de Playwright preinstalados en /opt/pw-browsers (el harness del proyecto). En un
-#   runner stock de GitHub sin ese preinstalado, el paso "Guard navegador" FALLA con
-#   un mensaje claro (no descarga a escondidas). Overridable con PLAYWRIGHT_CHROMIUM_PATH.
+# NAVEGADOR (fix 2026-08-17): el job corre en `ubuntu-latest`, un runner ESTÁNDAR
+#   de GitHub. No existe ningún /opt/pw-browsers ahí (esa ruta solo la tiene el
+#   runner-harness local), así que la política anterior de "Chromium preinstalado,
+#   sin playwright install" hacía fallar el job siempre. Ahora se instala el
+#   navegador en el propio job con `npx playwright install --with-deps chromium`,
+#   justo después del `npm ci` del frontend (el CLI vive en frontend/node_modules).
 #
 # NO reescribe la suite: los .spec los escriben frontend/backend (CLAUDE.md). Este
 # workflow solo los EJECUTA en modo real. La selección del smoke es parametrizable
@@ -73,10 +73,6 @@ jobs:
       # Puertos del stack de staging (ver docker-compose.staging.yml).
       FRONTEND_URL: http://localhost:3010
       BACKEND_HEALTH: http://localhost:3011/api/v1/health
-      # Playwright: navegador preinstalado, sin descargas.
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
-      PLAYWRIGHT_CHROMIUM_PATH: /opt/pw-browsers/chromium
       # Smoke por defecto (workflow_call/dispatch lo pueden sobreescribir).
       SMOKE_SPECS: ${{ inputs.smoke_specs || 'checkout.spec.ts shipments.spec.ts buylist.spec.ts' }}
       # Stripe SIEMPRE en modo TEST en staging/E2E (nunca claves live).
@@ -85,16 +81,6 @@ jobs:
       STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET || 'whsec_e2e_dummy' }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Guard navegador — Chromium preinstalado (sin playwright install)
-        run: |
-          if [ ! -e "$PLAYWRIGHT_CHROMIUM_PATH" ]; then
-            echo "::error title=Runner sin navegadores Playwright::No existe $PLAYWRIGHT_CHROMIUM_PATH."
-            echo "::error::Este job REAL requiere un runner-harness con los navegadores de Playwright preinstalados en /opt/pw-browsers."
-            echo "::error::NO se ejecuta 'playwright install' a propósito (política del harness). Usa el runner del proyecto o define PLAYWRIGHT_CHROMIUM_PATH."
-            exit 1
-          fi
-          echo "Chromium preinstalado OK: $PLAYWRIGHT_CHROMIUM_PATH"
 
       - name: Guard scripts E2E — frontend debe exponer test:e2e
         run: |
@@ -136,8 +122,24 @@ jobs:
       #    Corre DENTRO del contenedor backend (tiene ts-node + prisma + DATABASE_URL
       #    de staging). Sin fallback en el runner (enmascararía el error real).
       # -----------------------------------------------------------------------
+      # OJO (2026-08-17): el contenedor backend YA NO TIENE npm — Dockerfile.backend
+      # borra npm/npx de la etapa `runtime` (los CVE HIGH/CRITICAL de node-pkg que
+      # bloqueaban trivy-image venían del npm de la imagen base). Así que no se puede
+      # usar `npm run seed:synthetic --if-present`. Se lee el script de package.json
+      # (misma fuente de verdad, sin hardcodear la ruta del seed, que es del rol
+      # backend) y se ejecuta con node_modules/.bin en el PATH. Semántica idéntica,
+      # incluido el "si no existe, se salta".
       - name: Seed sintético (datos deterministas para los flujos)
-        run: docker compose -f "$COMPOSE" exec -T backend npm run seed:synthetic --if-present
+        run: |
+          SEED_CMD="$(docker compose -f "$COMPOSE" exec -T backend \
+            node -e "process.stdout.write((require('./package.json').scripts||{})['seed:synthetic']||'')")"
+          if [ -z "$SEED_CMD" ]; then
+            echo "::warning::backend no expone 'seed:synthetic'; se salta el seed (equivalente a --if-present)."
+            exit 0
+          fi
+          echo "Seed sintético: $SEED_CMD"
+          docker compose -f "$COMPOSE" exec -T backend \
+            sh -c "export PATH=/app/node_modules/.bin:\$PATH; $SEED_CMD"
 
       - name: Esperar readiness del frontend real
         run: |
@@ -158,6 +160,26 @@ jobs:
       - name: Install deps frontend
         working-directory: frontend
         run: npm ci
+
+      # Chromium para el runner estándar de GitHub. Va DESPUÉS del `npm ci`: el CLI
+      # `playwright` vive en frontend/node_modules. `--with-deps` instala las libs
+      # de sistema que Chromium necesita.
+      #
+      # PLAYWRIGHT_CHROMIUM_PATH es OBLIGATORIO aquí: frontend/playwright.config.ts
+      # (rol frontend) fija `executablePath = PLAYWRIGHT_CHROMIUM_PATH ??
+      # '/opt/pw-browsers/chromium'`, ruta del runner-harness que no existe en
+      # ubuntu-latest. Se resuelve con la API oficial de Playwright.
+      - name: Instalar Chromium de Playwright
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          CHROMIUM_BIN="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
+          if [ ! -x "$CHROMIUM_BIN" ]; then
+            echo "::error title=Chromium no quedó instalado::No existe/ejecutable: $CHROMIUM_BIN"
+            exit 1
+          fi
+          echo "PLAYWRIGHT_CHROMIUM_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
+          echo "Chromium instalado: $CHROMIUM_BIN"
 
       - name: Playwright smoke — flujos críticos (REAL)
         working-directory: frontend

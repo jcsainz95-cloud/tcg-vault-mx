@@ -49,6 +49,25 @@ RUN npm run build
 # ---- Runtime (imagen final, mínima) ----
 FROM base AS runtime
 ENV NODE_ENV=production
+# SEGURIDAD (2026-08-17): npm FUERA del runtime.
+# `node:20-alpine` trae npm empaquetado con SUS PROPIAS dependencias en
+# /usr/local/lib/node_modules/npm/node_modules/ (tar, brace-expansion,
+# cross-spawn, minimatch, picomatch, sigstore...). Trivy las reporta en la
+# sección Node.js (node-pkg) como HIGH/CRITICAL y NO se pueden arreglar desde
+# backend/package.json (no las declaramos: llegan con la imagen base; por eso el
+# `overrides.tar` del backend era inefectivo). El runtime NO necesita npm —arranca
+# con `node`—, así que se elimina: la superficie vulnerable desaparece de verdad
+# (no se ignora) y la imagen adelgaza. Las etapas `deps` y `build` SÍ conservan npm.
+# `npm`/`npx` en /usr/local/bin son symlinks a esa carpeta; se borran los tres.
+# El `if` es un GUARD: si una futura imagen base cambia esas rutas, el build FALLA
+# aquí con un mensaje claro en vez de publicar una imagen que aún trae npm (y que
+# volvería a poner rojo el gate trivy-image sin que nadie sepa por qué).
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+ && if command -v npm >/dev/null 2>&1 || [ -d /usr/local/lib/node_modules/npm ]; then \
+      echo "ERROR: npm sigue presente en la etapa runtime; revisar rutas de la imagen base."; \
+      exit 1; \
+    fi \
+ && node -e "console.log('runtime sin npm; node ' + process.version)"
 # Usuario sin privilegios.
 RUN addgroup -g 1001 -S nodejs && adduser -S nestjs -u 1001
 COPY --from=build --chown=nestjs:nodejs /app/node_modules ./node_modules
@@ -62,7 +81,17 @@ COPY --from=build --chown=nestjs:nodejs /app/prisma ./prisma
 # junto a las dev deps ya conservadas (ver NOTA en etapa build y DEVOPS_NOTES §6).
 COPY --from=build --chown=nestjs:nodejs /app/src ./src
 COPY --from=build --chown=nestjs:nodejs /app/tsconfig.json ./tsconfig.json
+# GUARD del CMD: sin npx, el arranque depende de esta ruta exacta del CLI de Prisma.
+# Si un bump de `prisma` la moviera, mejor fallar el BUILD aquí que crash-loopear en
+# Railway al arrancar. (En prisma 5.x: bin.prisma = "build/index.js".)
+RUN test -f node_modules/prisma/build/index.js \
+ || (echo "ERROR: no existe node_modules/prisma/build/index.js; ajustar el CMD al bin real de prisma."; exit 1)
 USER nestjs
 EXPOSE 3001
 # Ejecuta migraciones pendientes y arranca. Ajustar si backend usa otro flujo.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# NO se usa `npx`: npm/npx se eliminaron de esta etapa (ver RUN rm -rf arriba).
+# Se invoca el CLI de Prisma por su entrypoint real —`prisma` declara
+# bin.prisma = "build/index.js" en su package.json (verificado en prisma 5.x)— y
+# `prisma` viaja en el node_modules completo que esta imagen conserva a propósito
+# (ver NOTA de la etapa build). Equivale exactamente a `npx prisma migrate deploy`.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]

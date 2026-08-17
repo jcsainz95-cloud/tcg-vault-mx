@@ -7,8 +7,9 @@
 #               service containers; suite propiedad del rol backend)
 #   - frontend: npm run test:e2e (Playwright) en MODO MOCK — el webServer del
 #               playwright.config levanta Next con NEXT_PUBLIC_USE_MOCKS=true.
-#               NO levanta el stack docker (rápido). Chromium PREINSTALADO
-#               (/opt/pw-browsers), sin `playwright install`.
+#               NO levanta el stack docker (rápido). El Chromium se instala en el
+#               job con `npx playwright install --with-deps chromium` (runner
+#               estándar `ubuntu-latest`).
 #
 # SEPARACIÓN mock vs real (arreglo Paso 5):
 #   - ESTE workflow = MOCK, rápido, feedback de PR. "Verde" aquí NO garantiza
@@ -180,8 +181,14 @@ jobs:
   # ---------------------------------------------------------------------------
   # Frontend E2E — MODO MOCK (rápido, feedback de PR).
   # El webServer del playwright.config levanta Next con NEXT_PUBLIC_USE_MOCKS=true
-  # (fixtures); NO se levanta el stack docker. Chromium PREINSTALADO en
-  # /opt/pw-browsers (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1); NO `playwright install`.
+  # (fixtures); NO se levanta el stack docker.
+  #
+  # NAVEGADOR (fix 2026-08-17): este job corre en `ubuntu-latest` (runner estándar
+  # de GitHub), donde NO existe ningún Chromium preinstalado. La configuración
+  # anterior apuntaba a /opt/pw-browsers (ruta que solo existe en el runner-harness
+  # local) y el "Guard navegador" reventaba el job en cada PR. Ahora se usa el
+  # approach estándar de Playwright en Actions: `npx playwright install --with-deps
+  # chromium` DESPUÉS del `npm ci` del frontend (el CLI vive en node_modules).
   #
   # OJO: "verde" aquí valida la UI contra FIXTURES, no contra endpoints reales.
   # La verificación de que los endpoints reales funcionan es el GATE de
@@ -192,10 +199,6 @@ jobs:
     if: needs.detect.outputs.frontend_e2e != 'false'
     runs-on: ubuntu-latest
     env:
-      # Chromium preinstalado del runner-harness; sin descargas.
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
-      PLAYWRIGHT_CHROMIUM_PATH: /opt/pw-browsers/chromium
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
       # NO se fija E2E_BASE_URL a propósito: así el playwright.config levanta su
       # propio webServer Next en modo mocks (NEXT_PUBLIC_USE_MOCKS=true).
@@ -207,14 +210,6 @@ jobs:
             echo "::error::frontend no expone 'npm run test:e2e'. El rol frontend debe añadirlo."
             exit 1
           fi
-      - name: Guard navegador — Chromium preinstalado (sin playwright install)
-        run: |
-          if [ ! -e "$PLAYWRIGHT_CHROMIUM_PATH" ]; then
-            echo "::error title=Runner sin navegadores Playwright::No existe $PLAYWRIGHT_CHROMIUM_PATH."
-            echo "::error::Este job usa el Chromium preinstalado del runner-harness (/opt/pw-browsers) y NO ejecuta 'playwright install'. Usa el runner del proyecto o define PLAYWRIGHT_CHROMIUM_PATH."
-            exit 1
-          fi
-          echo "Chromium preinstalado OK: $PLAYWRIGHT_CHROMIUM_PATH"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -223,6 +218,27 @@ jobs:
       - name: Install deps frontend
         working-directory: frontend
         run: npm ci
+      # Después del `npm ci` a propósito: el CLI `playwright` vive en
+      # frontend/node_modules, antes de instalarlo `npx` no lo encuentra.
+      # `--with-deps` añade las libs de sistema que Chromium necesita en el runner.
+      #
+      # El export de PLAYWRIGHT_CHROMIUM_PATH NO es decorativo: frontend/playwright.
+      # config.ts (rol frontend) fija `launchOptions.executablePath =
+      # process.env.PLAYWRIGHT_CHROMIUM_PATH ?? '/opt/pw-browsers/chromium'`. Sin
+      # ese export, Playwright intentaría lanzar la ruta del runner-harness (que no
+      # existe aquí) e ignoraría el navegador recién instalado. Se resuelve la ruta
+      # real con la API oficial (`chromium.executablePath()`), no a mano.
+      - name: Instalar Chromium de Playwright
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          CHROMIUM_BIN="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
+          if [ ! -x "$CHROMIUM_BIN" ]; then
+            echo "::error title=Chromium no quedó instalado::No existe/ejecutable: $CHROMIUM_BIN"
+            exit 1
+          fi
+          echo "PLAYWRIGHT_CHROMIUM_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
+          echo "Chromium instalado: $CHROMIUM_BIN"
       - name: E2E frontend (MOCK — el config levanta Next con mocks=true)
         working-directory: frontend
         run: npm run test:e2e

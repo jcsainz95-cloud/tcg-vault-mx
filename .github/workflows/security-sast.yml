@@ -95,6 +95,13 @@ jobs:
   # ---------------------------------------------------------------------------
   gitleaks:
     runs-on: ubuntu-latest
+    # Permisos ACOTADOS a este job (sobreescriben los del workflow, no lo amplían):
+    # gitleaks-action necesita leer el repo y los metadatos del PR que escanea.
+    # NO se le da `security-events: write` (no sube SARIF a code scanning: lo deja
+    # como artifact) ni `pull-requests: write` (ver GITLEAKS_ENABLE_COMMENTS abajo).
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,8 +109,21 @@ jobs:
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
+          # OBLIGATORIO: sin esto la acción aborta con
+          #   "GITHUB_TOKEN is now required to scan pull requests"
+          # (fue el fallo del release PR #3). Va por ENV, no por `with:` — así lo
+          # documenta el README de gitleaks-action v2.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: ${{ github.workspace }}/security/gitleaks.toml
+          # Comentarios en el PR DESACTIVADOS a propósito: publicarlos requiere
+          # `pull-requests: write` y no queremos ese scope en un job de secretos.
+          # El gate no se relaja: si hay leaks el job FALLA y el detalle está en el
+          # log y en el artifact SARIF.
+          GITLEAKS_ENABLE_COMMENTS: "false"
           # GITLEAKS_LICENSE solo hace falta para org accounts; en repos personales no.
+          # DEUDA (no bloqueante): gitleaks-action@v2 corre sobre Node 20, que GitHub
+          # retira de los runners el 2026-09-16. Antes de esa fecha hay que subir a
+          # @v3 (mismos inputs/env; requiere runner >= 2.327.1). Ver DEVOPS_NOTES §22.
 
   # ---------------------------------------------------------------------------
   # npm audit — backend + frontend. ACTIVO (se salta la app que no exista).
@@ -178,9 +198,10 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
-          # Excepciones JUSTIFICADAS (solo node-tar interno de npm en la imagen
-          # base; ver security/.trivyignore). El gate SIGUE fallando en cualquier
-          # otro HIGH/CRITICAL real de deps de la app.
+          # security/.trivyignore está VACÍO de excepciones desde 2026-08-17 (los
+          # ignores de node-tar se retiraron: el npm que los traía ya no existe en
+          # la etapa runtime de las imágenes). Se sigue pasando el archivo para que
+          # cualquier excepción futura quede en un único sitio auditable.
           trivyignores: security/.trivyignore
 
   # ---------------------------------------------------------------------------
@@ -222,8 +243,11 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
-          # node-tar de npm en la base node:20 es build-time only y no es dep de
-          # la app (ver security/.trivyignore). Todo lo demás sigue bloqueando.
+          # Sin excepciones activas: los CVE de node-pkg que reportaba este scan
+          # venían del npm empaquetado en `node:20-alpine`
+          # (/usr/local/lib/node_modules/npm/node_modules/...), NO de deps de la
+          # app. Dockerfile.backend elimina npm/npx de la etapa `runtime`, así que
+          # esa superficie desapareció en vez de ignorarse. Todo bloquea.
           trivyignores: security/.trivyignore
       - name: Build + scan imagen frontend
         if: hashFiles('frontend/package.json') != ''
@@ -244,8 +268,9 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
-          # Mismo criterio que el backend: solo el node-tar interno de npm en la
-          # base (ver security/.trivyignore). El resto sigue bloqueando.
+          # Mismo criterio que el backend: sin excepciones activas. La etapa
+          # `runtime` de Dockerfile.frontend también borra npm/npx de la imagen
+          # base (el runtime standalone de Next arranca con `node server.js`).
           trivyignores: security/.trivyignore
 
   # ---------------------------------------------------------------------------
