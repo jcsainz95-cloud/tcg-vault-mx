@@ -2,7 +2,44 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.12-catalog-pricing (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.13-sales-pricing (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+>
+> **Changelog v1.13-sales-pricing (2026-08-17) — FASE 2 del epic de precios: precio de VENTA por RAREZA, editable
+> en admin (análogo al de COMPRA/buylist).** Decisión del humano (fija): el precio de VENTA se asigna **por rareza**,
+> dinámico/bulk, con variables editables en admin como el de compra. Ejemplo del humano: **Common $5, Uncommon $10,
+> holo/reverse $10 FIJOS; rarezas más altas = % ARRIBA de mercado.** Hoy la venta usa un **markup GLOBAL único**
+> (`SALES_MARKUP_PCT`, default 15) aplicado en `pricing.service.computeSalePrice` y consumido por
+> `catalog.service.toListingDTO` (listado) y `orders.service.salePriceOf` (checkout). Fase 2 lo reemplaza por una
+> **tabla de regla por rareza** simétrica a la de buylist (v1.3.1). **Aditivo, SIN migración de esquema** (solo dos
+> `ConfigSetting` nuevos + una función pura + swap de 2 call-sites + endpoints M2 + editor front). Nuevo **§4.14**.
+> Toca dinero → triple veredicto.
+> - **2.1 — Dos `SettingKey` nuevos (backend, §4.14a):** `SALES_PRICE_RULES` (`sales_price_rules`, mapa
+>   `{ [rarity|ruleKey]: { mode:'fixed'|'pct', value } }`) y `SALES_PRICE_FALLBACK_PCT` (`sales_price_fallback_pct`).
+>   **Seed** (reproduce el ejemplo del humano): `Common fixed 500¢`, `Uncommon fixed 1000¢`, `Holo fixed 1000¢`,
+>   `Reverse Holo fixed 1000¢`; **fallback = 15** (% ARRIBA de mercado). Validadores nuevos `validateSalesRules` /
+>   `validateSalesFallbackPct`: `fixed`→entero ≥ 0 (centavos); `pct`→número en **`[0, SALES_PCT_MAX]`** (propuesta
+>   `SALES_PCT_MAX = 1000`, ver §4.14a y decisión abierta v1.13-2). **`SALES_MARKUP_PCT` queda DEPRECADO** (ya no lo
+>   lee la ruta de venta; se conserva el dial como palanca de rollback, ver §4.14d y decisión abierta v1.13-3).
+> - **2.2 — Función pura `computeSalePriceForRarity` (backend, `money.ts`, §4.14b):** misma mecánica que
+>   `quoteAcquisitionForFinish` (reusa `ruleKeyCandidates`, **con el gate premium de Fase 0 intacto**): `fixed` →
+>   centavos directos (piso, no depende de mercado → siempre precia); `pct` → **markup ARRIBA de mercado**
+>   `round(referencia × (1 + value/100))`. **Semántica DISTINTA a la de compra:** en buylist `pct` = *% de la
+>   referencia* (`ref × value/100`); en venta `pct` = *% ARRIBA de mercado* (`ref × (1 + value/100)`). Si `pct` y
+>   falta referencia → `pending` (no vendible, "precio pendiente"), igual que hoy; las reglas `fixed` **siempre**
+>   precian (mejora: una común/bulk sin market ahora tiene piso de venta).
+> - **2.3 — Endpoints M2 nuevos (backend, §4.14c):** `GET/PUT /admin/pricing/sales-rules` y
+>   `GET /admin/pricing/sales-rarities`, **clones exactos** del patrón buylist (`buylist-rules`/`rarities`),
+>   auditados. Tipos front `SalesRule`, `SalesRuleApplied`, `SalesRulesDTO`, `SalesRaritiesResponse`.
+> - **2.4 — Aplicación (backend, §4.14d):** `catalog.service.toListingDTO` (:107) y `orders.service.salePriceOf`
+>   (:33) dejan de llamar `computeSalePrice(ref)` (markup global) y pasan a `computeSalePriceForRarity(card.rarity,
+>   item.finish, ref, rules, fallbackPct)`. **SEC-A1:** rareza server-side de `Card.rarity` y finish de
+>   `InventoryItem.finish` (BD), nunca del DTO del cliente. `listPriceCents` (override manual) **sigue ganando**; el
+>   precio se congela en `OrderItem.unitPriceCents` al checkout (snapshot ⇒ **sin migración**).
+> - **2.5 — Editor M2 (frontend, §4.14e):** nueva sección "Reglas de precio de VENTA por rareza" en **`M2View`**
+>   (clon de la sección de reglas de buylist), NO en `BuylistView`. Consume `getSalesRarities`/`getSalesRules`/
+>   `updateSalesRules` (nuevas en `api.ts`) + copys nuevos en `messages/*`.
+> - **Contrato:** `API_CONTRACT.md` (Changelog v1.13-sales-pricing): §M2 gana `sales-rules`/`sales-rarities`; DTOs
+>   `SalesRule*`. Sin migración.
 >
 > **Changelog v1.12-catalog-pricing (2026-08-17) — FASE 1 del epic de precios: preciar TODO el catálogo +
 > refresco 2×/día + import de sets nuevos.** Decisión del humano (fija): (1) preciar SIEMPRE todo el catálogo
@@ -1480,6 +1517,183 @@ desde M-18). Los cuatro sub-ítems son independientes y paralelizables, salvo qu
 
 ---
 
+### 4.14 Fase 2 del epic de precios — precio de VENTA por RAREZA, editable en admin (v1.13-sales-pricing)
+
+> **Reemplaza** el **markup GLOBAL único** de venta (`SALES_MARKUP_PCT`, default 15) por una **tabla de regla por
+> rareza** editable en **M2** sin redeploy, **simétrica** a la de buylist (§4.2 / §4.2.1). Decisión del humano (fija):
+> el precio de venta se asigna **por rareza**, con reglas **`fixed` (piso en MX$)** o **`pct` (% ARRIBA de mercado)**.
+> Ejemplo del humano: **Common $5, Uncommon $10, holo/reverse $10 fijos; rarezas más altas = % arriba de mercado.**
+> **Aditivo, SIN migración de esquema** (el precio de venta ya se congela en `OrderItem.unitPriceCents` al checkout).
+> Toca dinero → triple veredicto.
+
+#### (a) 2.1 — Modelo de config (diales M2, `ConfigSetting`)
+
+Dos `SettingKey` nuevos (`backend/src/modules/settings/settings.constants.ts`), **espejo** de
+`BUYLIST_PRICE_RULES`/`BUYLIST_PRICE_FALLBACK_PCT`:
+
+- `SALES_PRICE_RULES` (`sales_price_rules`): mapa **`{ [rarity|ruleKey: string]: SalesRule }`** con
+  `SalesRule = { mode: 'fixed' | 'pct', value: number }` (misma **forma** que `BuylistRule`, semántica de `pct`
+  **distinta**, ver (b)).
+  - `mode='fixed'` → `value` = **piso de venta MX$ en centavos** (entero ≥ 0). **No depende del mercado** → siempre precia.
+  - `mode='pct'` → `value` = **porcentaje de markup ARRIBA de mercado** (número en `[0, SALES_PCT_MAX]`).
+- `SALES_PRICE_FALLBACK_PCT` (`sales_price_fallback_pct`): **markup %** (default **15**) que se aplica a cualquier
+  rareza **sin regla explícita**. Es un `pct` implícito.
+
+**Seed inicial (reproduce el ejemplo del humano; editable en M2):**
+```jsonc
+// SALES_PRICE_RULES  (value = centavos si fixed)
+{
+  "Common":       { "mode": "fixed", "value": 500  },   // MX$5
+  "Uncommon":     { "mode": "fixed", "value": 1000 },   // MX$10
+  "Holo":         { "mode": "fixed", "value": 1000 },   // MX$10  (clave sintética del finish holofoil, §4.2.1)
+  "Reverse Holo": { "mode": "fixed", "value": 1000 }    // MX$10  (clave del finish reverse_holo)
+}
+// SALES_PRICE_FALLBACK_PCT = 15
+```
+Todo lo demás (Rare Holo, EX/GX/V/VMAX/VSTAR, Ultra/Illustration/Special Illustration/Double Rare, Full/Alt Art,
+Secret/Rainbow/Hyper, Trainer Gallery, Character, Radiant…) **cae al fallback = market × (1 + 15/100)**.
+
+**Justificación del default 15%:** iguala **exactamente** el `SALES_MARKUP_PCT` vigente (default 15), así que la
+migración **preserva el precio de venta actual** para toda rareza que caiga al fallback (venta = market × 1.15,
+idéntico a hoy). Solo cambia deliberadamente el **piso de bulk** (Common/Uncommon/Holo/Reverse pasan a piso fijo
+$5/$10/$10/$10, que hoy no existe). El % exacto de venta para raras queda como **decisión abierta v1.13-1** (el 15%
+es "preservar negocio"; el humano puede subirlo por rareza sin tocar código).
+
+**Validadores nuevos** (`settings.constants.ts`, junto a `validateBuylistRules`):
+```ts
+const SALES_PCT_MAX = 1000;  // propuesta: 0..1000% de markup (hasta 11× market). Ver decisión abierta v1.13-2.
+function isValidSalesRule(v): boolean {   // fixed → entero ≥ 0 (cents); pct → número en [0, SALES_PCT_MAX]
+  if (v?.mode === 'fixed') return isInt(v.value) && v.value >= 0;
+  if (v?.mode === 'pct')   return isNum(v.value) && v.value >= 0 && v.value <= SALES_PCT_MAX;
+  return false;
+}
+function validateSalesRules(v): string | null;      // objeto-mapa, cada entrada isValidSalesRule
+function validateSalesFallbackPct(v): string | null;// número en [0, SALES_PCT_MAX]
+```
+**Rango del validador (por qué difiere de buylist):** el `pct` de buylist topa en **`[0,100]`** porque comprar a
+>100% de mercado no tiene sentido. En venta `pct` es *markup ARRIBA de mercado*, que **sí** puede superar 100% (una
+chase se puede listar a 2×–3× market). Se propone tope **`SALES_PCT_MAX = 1000`** (evita typos catastróficos —p. ej.
+`100000`— sin limitar el markup real). Es más restrictivo que el `SALES_MARKUP_PCT` legacy (que era `>= 0` sin tope);
+si el humano quiere paridad exacta con lo legacy, dejar sin tope superior. Ver **decisión abierta v1.13-2**.
+
+Registro en `SETTING_VALIDATORS` y `SETTING_DEFAULTS`. **NO** se exponen en `SETTING_DTO_MAP` (se editan por los
+endpoints M2 dedicados, como las reglas de buylist, no por `PUT /admin/settings`).
+
+#### (b) 2.2 — Función pura `computeSalePriceForRarity` (`backend/src/common/money.ts`)
+
+Análoga a `quoteAcquisitionForFinish` (§4.2.1), **reusa `ruleKeyCandidates(rarity, finish)`** — por tanto hereda el
+**gate premium de Fase 0** (una rareza chase en `holofoil`/`1st-ed holo` **nunca** cae al piso fijo `"Holo"` de bulk:
+resuelve por su propia regla o el fallback pct = markup sobre market). Pseudocódigo:
+
+```ts
+export type SalesRuleMode = 'fixed' | 'pct';           // = BuylistRuleMode (misma forma)
+export interface SalesRule { mode: SalesRuleMode; value: number; }  // value = cents si fixed, % markup si pct
+export interface SalePriceResult {
+  salePriceCents: number | null;
+  status: 'priced' | 'pending';
+  appliedRule: SalesRule;
+  ruleSource: 'rule' | 'fallback';
+}
+
+export function computeSalePriceForRarity(
+  rarity: string | null,
+  finish: Finish,
+  referenceMxnCents: number | null,        // PriceReference.priceMxnCents del ACABADO cotizado (getReference(...,finish))
+  rules: Record<string, SalesRule>,        // SALES_PRICE_RULES
+  fallbackPct: number,                     // SALES_PRICE_FALLBACK_PCT (default 15)
+): SalePriceResult {
+  const candidates = ruleKeyCandidates(rarity, finish);          // REUSA §4.2.1 (gate premium)
+  const hitKey = candidates.find((k) => rules[k] != null);
+  const rule: SalesRule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };
+  const ruleSource = hitKey ? 'rule' : 'fallback';
+
+  if (rule.mode === 'fixed') {
+    // PISO fijo en centavos; NO depende de la referencia → siempre 'priced'.
+    return { salePriceCents: rule.value, status: 'priced', appliedRule: rule, ruleSource };
+  }
+  // pct = MARKUP ARRIBA DE MERCADO: sale = round(market × (1 + value/100)).  ← DISTINTO de buylist.
+  if (referenceMxnCents == null) {
+    return { salePriceCents: null, status: 'pending', appliedRule: rule, ruleSource };
+  }
+  return { salePriceCents: Math.round(referenceMxnCents * (1 + rule.value / 100)),
+           status: 'priced', appliedRule: rule, ruleSource };
+}
+```
+
+**Contraste de semántica de `pct` (crítico, no confundir):**
+| Contexto | `pct` significa | Fórmula |
+|---|---|---|
+| Buylist / compra (§4.2) | **% de** la referencia (lo que pagamos) | `round(ref × value/100)` |
+| Venta (§4.14, esta sección) | **% ARRIBA de** mercado (markup de venta) | `round(ref × (1 + value/100))` |
+
+Un mismo `value=40` da **40% del market** comprando y **140% del market** vendiendo. La forma del dato (`{mode,value}`)
+es idéntica; **la matemática del `pct` es la única diferencia** entre `applyRule` (buylist) y este resolver.
+
+#### (c) 2.3 — Endpoints M2 (backend) — clones del patrón buylist
+
+En `pricing.controller.ts`, **clonar 1:1** los tres endpoints de buylist (§4.2, `pricing.controller.ts:128-207`):
+- `GET /admin/pricing/sales-rules` → `{ rules: Record<string, SalesRule>, fallbackPct }` (lee crudo).
+- `PUT /admin/pricing/sales-rules` → reemplaza tabla y/o fallback; valida con `validateSalesRules`/
+  `validateSalesFallbackPct` → `422 VALIDATION_ERROR`; **auditado** (`action=pricing.sales_rules.update`, before/after);
+  surte efecto sin redeploy.
+- `GET /admin/pricing/sales-rarities` → `{ fallbackPct, rarities: [{ rarity, cardCount, rule, source }] }`
+  (rarezas distintas del catálogo `groupBy Card.rarity` unidas a las reglas; las sin regla muestran el fallback).
+  Ordenado por `cardCount` desc.
+
+`super_admin` (mismo guard que `buylist-rules`; es pricing/dinero). Ver shapes en `API_CONTRACT.md §M2`.
+
+#### (d) 2.4 — Aplicación: reemplazar el markup global
+
+Nuevo método en `PricingService` (`pricing.service.ts`), reemplaza/complementa `computeSalePrice(ref)` (`:330-334`):
+```ts
+async computeSalePriceForItem(item: { rarity, finish } , referenceMxnCents): Promise<SalePriceResult> {
+  const rules = await this.settings.getRaw(SALES_PRICE_RULES) ?? {};
+  const fallbackPct = await this.settings.getNumber(SALES_PRICE_FALLBACK_PCT);
+  return computeSalePriceForRarity(item.rarity, item.finish, referenceMxnCents, rules, fallbackPct);
+}
+```
+Se cambian **exactamente 2 call-sites** (los únicos que llaman `computeSalePrice` en producción):
+- `catalog.service.toListingDTO` (`:103-108`): si no hay `listPriceCents` manual, calcular `salePriceCents` con el
+  resolver por rareza (rareza `item.card.rarity`, acabado `item.finish`). Con reglas `fixed` una carta bulk sin
+  market ahora **sí** obtiene `salePriceCents` (piso) ⇒ puede ser `sellable` (mejora deliberada). Con `pct` sin market
+  → `pending`, no vendible (igual que hoy).
+- `orders.service.salePriceOf` (`:23-34`): idem; si `pct` y no hay referencia → `PRICE_PENDING` (se conserva); si
+  `fixed`, devuelve el piso aunque no haya market.
+
+**SEC-A1 (guardarraíl intacto):** la `rarity` sale de `Card.rarity` (BD) y el `finish` de `InventoryItem.finish` (BD),
+**nunca** del DTO del cliente (el DTO de checkout solo envía IDs de item; ver `docs/SECURITY_NOTES.md` SEC-D2 y
+`docs/PENTEST_NOTES.md`). El **override manual** `InventoryItem.listPriceCents` **sigue teniendo prioridad**
+(precio directo sin regla). El precio se **congela** en `OrderItem.unitPriceCents` al checkout → **no hace falta
+snapshot de regla nuevo ni migración** (a diferencia de buylist, cuyo payout diferido sí exige snapshot en
+`SellRequestItem`).
+
+**`SALES_MARKUP_PCT` (legacy):** **DEPRECADO** en la ruta de venta (ya no lo lee `computeSalePrice`). Se **conserva**
+el dial (`settings.constants.ts`, `SETTING_DTO_MAP.salesMarkupPct`, M10 UI) como **palanca de rollback** durante un
+release; su retiro definitivo (y el de la pura `computeSalePriceCents`) es follow-up. **Decisión abierta v1.13-3:**
+retirar ya vs. conservar. Backend debe verificar que **no queden otros callers** de `computeSalePrice` (hoy solo
+los 2 de arriba).
+
+#### (e) 2.5 — Editor M2 (frontend) — clon de la sección de reglas de buylist
+
+Nueva sección "**Reglas de precio de VENTA por rareza**" dentro de **`frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx`**
+(el mismo archivo que ya aloja el editor de reglas de buylist), **no** en `BuylistView`. Fila por rareza
+(`rarity → mode (fixed/pct) + value`) + campo de fallback, idéntico UX al editor de buylist. Requiere:
+- `frontend/src/lib/api.ts`: `getSalesRarities()`, `getSalesRules()`, `updateSalesRules(input)` (clones de
+  `getBuylistRarities`/`getBuylistRules`/`updateBuylistRules`, `api.ts:1382-1406`).
+- `frontend/src/types/contract.ts`: `SalesRule`, `SalesRuleMode`, `SalesRuleApplied`, `SalesRulesDTO`,
+  `SalesRaritiesResponse` (espejo de los `Buylist*`).
+- `frontend/messages/{es,en}.json`: copys de la sección (etiquetas fixed/pct, ayuda "% ARRIBA de mercado").
+- **Copy de UX (importante):** el editor debe dejar claro que en venta `pct` = **markup arriba de mercado** (no "% de
+  la referencia" como en buylist), para no confundir al dueño. Redacción final → ux-ui/DESIGN_SYSTEM si aplica.
+
+> **Coordinación con Fable (frontend):** Fable trabaja en `BuylistView`, `messages` y `api.ts` en paralelo. El editor
+> de venta vive en **`M2View`** (archivo distinto de `BuylistView`) pero **también toca `api.ts` y `messages`**
+> (adiciones, no ediciones de líneas existentes). El orquestador debe **secuenciar** el trabajo de esos dos archivos
+> compartidos entre Fable y el frontend de Fase 2 para evitar conflictos de merge; no son colisiones de diseño, solo
+> de archivo. `M2View`, `contract.ts` y los docs no chocan.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -1643,6 +1857,28 @@ este documento y con `API_CONTRACT.md`.
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
 
+### Preguntas abiertas (v1.13-sales-pricing — Fase 2 del epic de precios)
+> No bloquean el arranque: backend puede implementar 2.1–2.4 y frontend 2.5 con los defaults propuestos (que
+> **preservan el precio de venta actual** para las rarezas de fallback). El arquitecto **no asume** reglas de negocio
+> (CLAUDE.md). **Requieren confirmación del humano:**
+- **v1.13-1 — % exacto de venta para raras (fallback y por rareza).** Default propuesto: **`SALES_PRICE_FALLBACK_PCT =
+  15`** (= `SALES_MARKUP_PCT` legacy ⇒ venta = market × 1.15, preserva el negocio actual). El humano puede querer un %
+  distinto (más agresivo para chase) y/o **valores por rareza** (ej. Illustration Rare 25%, Secret Rare 40%). ¿Confirma
+  15% de fallback? ¿Quiere sembrar %s por rareza desde el arranque, o los ajusta luego en M2 sin deploy?
+- **v1.13-2 — Rango del validador de `pct` de venta.** El `pct` de venta es **markup arriba de mercado** (puede >100%,
+  a diferencia de buylist que topa en 100%). Default propuesto: **`SALES_PCT_MAX = 1000`** (0..1000% = hasta 11×
+  market; ancla un tope anti-typo). Alternativas: **sin tope superior** (paridad con el `SALES_MARKUP_PCT` legacy que
+  era `>= 0`) o un tope más bajo (p. ej. 300%). Confirmar el tope.
+- **v1.13-3 — ¿Retirar `SALES_MARKUP_PCT` ya, o conservarlo deprecado?** Default propuesto: **conservar el dial
+  deprecado** un release (palanca de rollback; la ruta de venta ya no lo lee) y retirarlo (junto con la pura
+  `computeSalePriceCents` y el campo M10 `salesMarkupPct`) en un follow-up. Alternativa: **retirarlo en esta entrega**
+  (quitar del `SETTING_DTO_MAP`/M10View). Confirmar. *(Si se retira, el frontend de M10 pierde el campo — coordinar.)*
+- **v1.13-4 — Piso `fixed` sin market habilita venta de bulk.** Con reglas `fixed`, una carta bulk **sin** referencia
+  de mercado ahora obtiene `salePriceCents` (piso $5/$10) y puede volverse `sellable`. Es coherente con el ejemplo del
+  humano (pisos de bulk), pero **cambia** qué inventario es publicable respecto a hoy (hoy sin market = no vendible).
+  Default propuesto: **permitirlo** (es el objetivo del piso). Confirmar que el dueño lo quiere así (o si prefiere que
+  el piso solo aplique cuando el item está `listed` explícitamente por el admin).
+
 ### Preguntas abiertas (v1.12-catalog-pricing — Fase 1 del epic de precios)
 > No bloquean el arranque: backend puede implementar 1.1/1.2 y el job 1.3 con los defaults propuestos; frontend
 > puede hacer 1.4 ya. El arquitecto **no asume** reglas de negocio (CLAUDE.md). **Requieren confirmación del humano:**
@@ -1703,7 +1939,7 @@ este documento y con `API_CONTRACT.md`.
 ### Decisiones ya resueltas
 Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran como decisiones firmes en este documento y en el contrato. Se conservan aquí como registro.
 
-1. **Precio de venta = referencia del día + MARKUP configurable (dial M10).** El **valor de mercado** que se muestra es la **referencia** (`priceMxnCents` de `PriceReference`). El **precio de venta** es `round(referenciaMxn × (1 + salesMarkupPct/100))`. `salesMarkupPct` es un dial de M10 (`sales_markup_pct`). Se persiste como `InventoryItem.listPriceCents` al listar (o se calcula al vuelo si null) y se congela en `OrderItem.unitPriceCents` al checkout. En los DTOs se distingue `referenceValue` (valor de mercado) de `salePrice` (precio de venta). El override manual de precio puede fijar directamente el `listPriceCents` sin aplicar markup.
+1. **Precio de venta = referencia del día + MARKUP configurable (dial M10).** El **valor de mercado** que se muestra es la **referencia** (`priceMxnCents` de `PriceReference`). El **precio de venta** es `round(referenciaMxn × (1 + salesMarkupPct/100))`. `salesMarkupPct` es un dial de M10 (`sales_markup_pct`). Se persiste como `InventoryItem.listPriceCents` al listar (o se calcula al vuelo si null) y se congela en `OrderItem.unitPriceCents` al checkout. En los DTOs se distingue `referenceValue` (valor de mercado) de `salePrice` (precio de venta). El override manual de precio puede fijar directamente el `listPriceCents` sin aplicar markup. **Actualización v1.13-sales-pricing (Fase 2, §4.14):** el **markup GLOBAL único** (`salesMarkupPct`) se **reemplaza** por una **tabla de regla por rareza** (`SALES_PRICE_RULES` + `SALES_PRICE_FALLBACK_PCT`): venta = piso `fixed` (MX$) o `market × (1 + pct/100)` (pct = markup ARRIBA de mercado). El markup global queda **deprecado** (palanca de rollback). El resto de esta decisión (referencia vs venta, congelar en `OrderItem.unitPriceCents`, override manual) **no cambia**.
 2. **Fee de procesamiento Stripe = GROSS-UP.** El fee trasladado se calcula para que, tras la comisión de Stripe (tarifa MX **más el IVA que Stripe cobra sobre su comisión**), la plataforma reciba **íntegro** `subtotal + IVA`. Fórmula vigente (ver §5.1, refinada por el hallazgo C1): `total = (base + (1+stripeFeeIvaPct)·fija) / (1 − (1+stripeFeeIvaPct)·pct)`, `fee = total − base`, donde `base = subtotal + IVA`. Se persiste en `Order.processingFeeCents` y es una línea visible del `BreakdownDTO`. El fee **no** lleva IVA de **producto** adicional.
 3. **IVA 16% sobre `subtotal + envío`.** El IVA grava el subtotal de cartas **y** la tarifa de envío (servicio gravado). El **fee de procesamiento va tal cual (sin IVA)**. Default a validar con contador. En compras de carrito el `ivaCents = round((subtotal) × ivaPct/100)`; en retiros `ivaCents = round(shippingFee × ivaPct/100)`.
 4. **CFDI sin PAC en el MVP.** No se integra PAC ni se timbra en el MVP. El flujo de factura es **manual por correo**: la UI muestra la instrucción de que, para pedir factura, el cliente envíe un correo con sus datos fiscales. El sistema guarda el **IVA cobrado por orden** (M7) y un flag `invoiceRequested` (opcional) por orden. **Timbrado real = fase 2.** `CfdiStatus` se reduce a `registrado | no_aplica` en MVP (`emitido` queda reservado para fase 2).
@@ -1715,6 +1951,14 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.13-sales-pricing (nueva — Fase 2 del epic de precios) — **SIN migración de esquema**
+
+**No hay migración.** Fase 2 (§4.14) es 100% aditiva: dos `ConfigSetting` nuevos (`sales_price_rules`,
+`sales_price_fallback_pct`, sembrados por el seed de settings), una función pura en `money.ts`, endpoints M2 y editor
+front. El precio de venta ya se **congela** en `OrderItem.unitPriceCents` al checkout, así que **no** se requiere
+columna de snapshot (a diferencia de buylist M-14). `SALES_MARKUP_PCT` queda deprecado sin borrar (decisión abierta
+v1.13-3). Backend siembra los dos nuevos settings vía el seed/migración de datos de `ConfigSetting` (no de esquema).
 
 ### v1.12-catalog-pricing (nueva — Fase 1 del epic de precios) — **SIN migración de esquema**
 

@@ -4,6 +4,29 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.13-sales-pricing (2026-08-17) — FASE 2 del epic de precios: precio de VENTA por RAREZA, editable en
+> M2 (análogo al de COMPRA/buylist).** Reemplaza el **markup GLOBAL único** de venta (`salesMarkupPct`, dial M10) por
+> una **tabla de regla por rareza** (`fixed` MX$ / `pct` % **ARRIBA de mercado**) + fallback %, editable sin redeploy.
+> **Aditivo, SIN migración** (el precio de venta ya se congela en `OrderItem.unitPriceCents`). SEC-A1 intacto (la
+> rareza/acabado se derivan server-side de `Card.rarity`/`InventoryItem.finish`, nunca del cliente). Toca dinero →
+> triple veredicto. Ver ARCHITECTURE §4.14.
+> - **M2 (NUEVO, backend):** `GET/PUT /api/v1/admin/pricing/sales-rules` (lee/edita la tabla + fallback) y
+>   `GET /api/v1/admin/pricing/sales-rarities` (rarezas distintas del catálogo unidas a las reglas de venta).
+>   **Clones exactos** de `buylist-rules`/`rarities`. Auditados. Ver §M2.
+> - **DTOs nuevos:** `SalesRule = { mode: SalesRuleMode, value }` (misma forma que `BuylistRule`; `SalesRuleMode =
+>   fixed | pct`), `SalesRuleApplied`, `SalesRulesDTO`, `SalesRarityRowDTO`, `SalesRaritiesResponse`. Ver §DTOs base.
+> - **Semántica de `pct` (¡distinta a buylist!):** en venta `pct` = **markup ARRIBA de mercado** → `salePriceCents =
+>   round(referencia × (1 + value/100))`. En buylist `pct` = **% de** la referencia (`ref × value/100`). Misma forma
+>   de dato, matemática distinta. El editor front debe rotular "% arriba de mercado".
+> - **Validación:** `fixed`→`value` entero ≥ 0 (centavos); `pct`→`value` número en **`[0, 1000]`** (propuesta; el `pct`
+>   de venta puede >100% a diferencia del de buylist que topa en 100%); `fallbackPct` en el mismo rango. Ver
+>   ARCHITECTURE decisión abierta v1.13-2.
+> - **Comportamiento:** el precio de venta de `ListingDTO.salePriceCents` y del checkout deja de usar el markup global
+>   y se resuelve por la regla de la rareza+acabado del item (reusa el **gate premium** de Fase 0). Una carta bulk sin
+>   market con regla `fixed` ahora obtiene precio de venta (piso) y puede ser `sellable`. **Mismos shapes** de
+>   `ListingDTO`/checkout (solo cambia cómo se calcula el número). `salesMarkupPct` (M10) queda **DEPRECADO** (palanca
+>   de rollback; decisión abierta v1.13-3).
+>
 > **Changelog v1.12.1 (2026-08-17) — Reconciliación de contrato: `POST /admin/jobs/catalog-price-sync` (Fase 1, tarea 1.3).**
 > QA detectó (commit `a6a79df`) que el changelog v1.12 decía "**Sin endpoint nuevo**" para 1.3, pero el backend **sí**
 > añadió (opción **autorizada** por ARCHITECTURE **§4.13c**) el disparador manual **`POST /admin/jobs/catalog-price-sync`**
@@ -283,6 +306,7 @@ ShipmentStatus      = solicitado | picking | guia | enviado | entregado | cancel
 SellRequestStatus   = cotizada | recibida | verificacion | aprobada | pagada | rechazada | abandonada
 SellItemStatus      = cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario
 BuylistRuleMode     = fixed | pct                       // v1.3.1: naturaleza de la regla de precio por rareza (fixed = MX$ centavos; pct = % de la referencia)
+SalesRuleMode       = fixed | pct                       // v1.13-sales-pricing: regla de precio de VENTA por rareza (fixed = piso MX$ centavos; pct = % ARRIBA de mercado). Misma FORMA que BuylistRuleMode, semántica de pct DISTINTA.
 BuylistCategory     = comun | reverse_holo | ex_plus    // DEPRECADO v1.3.1: reemplazado por la tabla de regla por rareza (BuylistRuleMode). Retención legacy; nada nuevo lo usa.
 DisputeStatus       = abierta | en_revision | resuelta_recompra | rechazada
 PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual
@@ -339,6 +363,11 @@ SetValueHistoryResponse = { set: SetRefDTO | null, range: SetValueRange,
 BuylistRule       = { mode: BuylistRuleMode, value: number }
 // appliedRule = la regla que se resolvió para la carta; ruleSource="rule" (fila explícita) o "fallback" (BUYLIST_PRICE_FALLBACK_PCT).
 BuylistRuleApplied = { mode: BuylistRuleMode, value: number, source: "rule" | "fallback" }
+// v1.13-sales-pricing: regla de precio de VENTA por rareza. Misma FORMA que BuylistRule; value = centavos MXN
+// (piso) si mode=fixed; % de MARKUP ARRIBA de mercado si mode=pct → salePrice = round(ref × (1 + value/100)).
+// (¡OJO! en buylist pct = % de la referencia; en venta pct = % arriba de mercado. No confundir.)
+SalesRule         = { mode: SalesRuleMode, value: number }
+SalesRuleApplied  = { mode: SalesRuleMode, value: number, source: "rule" | "fallback" }
 // Desglose del checkout. base = subtotal + iva se recibe íntegro; el fee es gross-up de la comisión Stripe.
 // "SIN IVA" = el fee NO agrega una línea de IVA de PRODUCTO (no se vuelve a gravar la venta). Internamente
 // el gross-up SÍ cubre el IVA que Stripe MX cobra sobre SU comisión (dial stripe_fee_iva_pct, ver ARCHITECTURE §5.1).
@@ -883,6 +912,42 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - **DEPRECADOS (v1.3.1):** `GET/PUT /api/v1/admin/pricing/rarity-map` — la cotización ya **no** los usa; se
   conservan como no-op/legacy hasta su retiro. El editor nuevo consume `rarities` + `buylist-rules`.
 
+#### Precio de VENTA por RAREZA (v1.13-sales-pricing — NUEVO backend; editor M2)
+> **Análogo al de buylist** (arriba), pero para el **precio de VENTA** (lo que se cobra en Compra/checkout).
+> Reemplaza el markup GLOBAL único (`salesMarkupPct`, §M10, ahora **DEPRECADO**). Una fila por rareza con regla
+> **`fixed` (piso MX$ centavos)** o **`pct` (% ARRIBA de mercado)** + un **fallback %** para rarezas sin regla.
+> **Semántica de `pct`:** `salePriceCents = round(referencia × (1 + value/100))` (markup sobre mercado — NO "% de la
+> referencia" como en buylist). Toda edición se **audita** (M10). Ver ARCHITECTURE §4.14.
+
+- `GET /api/v1/admin/pricing/sales-rarities` — **(NUEVO)** lista las **rarezas distintas del catálogo sincronizado**
+  (`distinct Card.rarity`) **unidas** a las reglas de venta configuradas, para poblar el editor. Devuelve tanto
+  rarezas con regla explícita como rarezas del catálogo aún sin regla (que muestran el fallback).
+  Res `200`:
+  ```json
+  { "fallbackPct": 15,
+    "rarities": [
+      { "rarity": "Common",            "cardCount": 1234, "rule": { "mode": "fixed", "value": 500  }, "source": "rule" },
+      { "rarity": "Uncommon",          "cardCount": 980,  "rule": { "mode": "fixed", "value": 1000 }, "source": "rule" },
+      { "rarity": "Illustration Rare", "cardCount": 87,   "rule": { "mode": "pct",   "value": 15   }, "source": "fallback" }
+    ] }
+  ```
+  - `cardCount` = nº de cartas del catálogo con esa rareza. `source="rule"` si hay fila explícita en
+    `SALES_PRICE_RULES`; `source="fallback"` si la rareza existe en el catálogo pero aún no tiene regla (muestra
+    `{ mode:"pct", value: fallbackPct }`). Ordenado por `cardCount` desc.
+- `GET /api/v1/admin/pricing/sales-rules` — **(NUEVO)** lee la tabla cruda + fallback.
+  Res `200`: `{ rules: { [rarity: string]: SalesRule }, fallbackPct: number }`
+  (ej. `{ "rules": { "Common": { "mode":"fixed","value":500 }, "Reverse Holo": { "mode":"fixed","value":1000 } }, "fallbackPct": 15 }`).
+  - **Claves sintéticas de acabado:** además de rarezas, la tabla admite las claves `"Reverse Holo"` y `"Holo"`
+    (que el resolver por acabado, ARCHITECTURE §4.2.1/§4.14b, usa para los finish `reverse_holo`/`holofoil` de bulk).
+- `PUT /api/v1/admin/pricing/sales-rules` — **(NUEVO)** reemplaza la tabla y/o el fallback.
+  Req: `{ rules: { [rarity: string]: SalesRule }, fallbackPct?: number }`
+  - **Validación:** `mode ∈ {fixed, pct}`; si `fixed` → `value` **entero ≥ 0** (centavos); si `pct` → `value`
+    **número en `[0, 1000]`** (markup arriba de mercado, puede >100% a diferencia del pct de buylist; tope propuesto
+    `SALES_PCT_MAX=1000`, ver ARCHITECTURE decisión abierta v1.13-2); `fallbackPct` en el mismo rango. `rules` debe
+    ser objeto (no array).
+  - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.sales_rules.update`, con
+    `before`/`after`). **Surte efecto sin redeploy.** Err `422 VALIDATION_ERROR` (modo/valor/rango inválidos).
+
 #### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
 Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
 - `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
@@ -1097,7 +1162,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, stripeFeeIvaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, catalogSyncFromDate }`. `stripeFeeIvaPct` (fracción `[0,1)`, default **0.16**) = IVA que Stripe MX cobra **sobre su comisión**; entra en el gross-up del fee (ver ARCHITECTURE §5.1). `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`).
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, stripeFeeIvaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, catalogSyncFromDate }`. `stripeFeeIvaPct` (fracción `[0,1)`, default **0.16**) = IVA que Stripe MX cobra **sobre su comisión**; entra en el gross-up del fee (ver ARCHITECTURE §5.1). `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2.
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
 
@@ -1178,7 +1243,7 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
 ---
 
 ## 12. Notas de coherencia con PROJECT.md
-- Precios de catálogo/ficha **sin IVA**. Se distingue **valor de referencia** (mercado, `referenceValue`) del **precio de venta** (`salePriceCents` = referencia × (1+`salesMarkupPct`) u override). IVA 16% y fee de procesamiento se agregan **en checkout** (`BreakdownDTO`).
+- Precios de catálogo/ficha **sin IVA**. Se distingue **valor de referencia** (mercado, `referenceValue`) del **precio de venta** (`salePriceCents`). **v1.13-sales-pricing:** el `salePriceCents` se resuelve por la **regla de venta de la rareza+acabado** del item (`SALES_PRICE_RULES`: `fixed` piso MX$, o `pct` = referencia × (1 + value/100) = markup arriba de mercado) u **override manual** (`listPriceCents`); reemplaza el markup global `salesMarkupPct` (deprecado). IVA 16% y fee de procesamiento se agregan **en checkout** (`BreakdownDTO`).
 - **Fee de procesamiento = gross-up** de la comisión Stripe (para recibir íntegro subtotal+IVA); **sin IVA de producto sobre el fee** (el fee no vuelve a gravar la venta). Internamente el gross-up **sí** cubre el IVA que Stripe MX cobra sobre su comisión (dial `stripe_fee_iva_pct`, default 0.16). IVA de producto grava subtotal (compra) y tarifa de envío (retiro).
 - **CFDI sin PAC en MVP**: factura por correo (`POST /orders/:id/request-invoice`); IVA cobrado registrado en M7. Timbrado real = fase 2.
 - **FX automático (Banxico) + colchón + override manual** (M10); job diario `fx-refresh`.
