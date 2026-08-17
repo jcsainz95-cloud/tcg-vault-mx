@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
+import { Link } from '@/i18n/navigation';
 import { formatMoneyCents } from '@/lib/format';
 import {
   createDispute,
@@ -33,6 +34,7 @@ import { AddressManager } from '@/components/domain/AddressManager';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
 import { DisputeEvidenceContact } from '@/components/domain/DisputeEvidenceContact';
+import { WithdrawalBadge } from '@/components/domain/WithdrawalBadge';
 import { useShipmentSteps } from '@/lib/pipelines';
 
 /** Ventana de 7 días (desde `entregado`) para abrir disputa (contrato §7). */
@@ -52,8 +54,16 @@ type DisputeTargetItem = ShipmentDTO['items'][number];
  * `StripePaymentModal`. La regla MX-only sale de `address.country` (el backend valida
  * `ADDRESS_NOT_MX`). Maneja `403 EMAIL_NOT_VERIFIED` y `422 ITEM_NOT_SETTLED`.
  */
+/** Resumen de una línea de la dirección del snapshot del retiro (ciudad, estado). */
+function addressSummary(snapshot: ShipmentDTO['addressSnapshot']): string {
+  if (!snapshot) return '';
+  const rec = snapshot as Record<string, unknown>;
+  return [rec.city, rec.state].filter((v): v is string => typeof v === 'string').join(', ');
+}
+
 export function ShipmentsView() {
   const t = useTranslations('shipments');
+  const ts = useTranslations('shipmentStage');
   const locale = useLocale() as AppLocale;
   const getMessage = useErrorMessage();
   const shipmentSteps = useShipmentSteps();
@@ -130,12 +140,14 @@ export function ShipmentsView() {
     return true;
   }
 
+  // v1.17: `withdrawable` es la fuente ÚNICA de verdad (settled && sin envío activo). Un item settled
+  // pero ya EN RETIRO no es seleccionable (evita el 409 ITEM_IN_ANOTHER_SHIPMENT); cae en "no elegibles".
   const settledItems = useMemo(
-    () => (holdingsQuery.data?.data ?? []).filter((h) => h.ownershipStatus === 'settled'),
+    () => (holdingsQuery.data?.data ?? []).filter((h) => h.withdrawable),
     [holdingsQuery.data],
   );
   const pendingItems = useMemo(
-    () => (holdingsQuery.data?.data ?? []).filter((h) => h.ownershipStatus !== 'settled'),
+    () => (holdingsQuery.data?.data ?? []).filter((h) => !h.withdrawable),
     [holdingsQuery.data],
   );
 
@@ -239,7 +251,12 @@ export function ShipmentsView() {
                       <span className="flex-1" lang="en">
                         {h.card.name}
                       </span>
-                      <StatusBadge domain="ownership" value={h.ownershipStatus} />
+                      {/* v1.17: si está EN RETIRO, mostramos el badge + deep-link; si no, la titularidad. */}
+                      {h.shipmentState !== null ? (
+                        <WithdrawalBadge stage={h.shipmentState} activeShipmentId={h.activeShipmentId} />
+                      ) : (
+                        <StatusBadge domain="ownership" value={h.ownershipStatus} />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -315,9 +332,17 @@ export function ShipmentsView() {
               shipmentsQuery.data!.map((s) => (
                 <div key={s.id} className="border-t border-border pt-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <span className="flex items-center gap-3">
-                      <span className="tabular font-mono text-[13px] text-text">{s.id}</span>
+                    <span className="flex flex-wrap items-center gap-3">
+                      {/* Deep-link al detalle/rastreo del retiro (contrato §5 · GET /shipments/:id). */}
+                      <Link
+                        href={`/shipments/${s.id}`}
+                        className="tabular font-mono text-[13px] text-text underline decoration-dotted underline-offset-4 hover:text-accent focus-visible:shadow-focus"
+                      >
+                        {s.id}
+                      </Link>
                       <StatusBadge domain="shipment" value={s.status} />
+                      {/* Etapa legible (tabla cliente §5), segundo canal textual del estado. */}
+                      <span className="font-mono text-[11px] text-muted">{ts(s.status)}</span>
                     </span>
                     {s.trackingNumber && (
                       <span className="font-mono text-[11px] text-muted">
@@ -325,39 +350,61 @@ export function ShipmentsView() {
                       </span>
                     )}
                   </div>
+
+                  {/* Dirección + total del retiro (contrato §5: addressSnapshot / montos). */}
+                  {(addressSummary(s.addressSnapshot) || s.totalCents != null) && (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted">
+                      {addressSummary(s.addressSnapshot) && <span>{addressSummary(s.addressSnapshot)}</span>}
+                      {addressSummary(s.addressSnapshot) && s.totalCents != null && <span aria-hidden>·</span>}
+                      {s.totalCents != null && (
+                        <span className="tabular">
+                          {t('withdrawalTotal')}: {formatMoneyCents(s.totalCents, locale)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   <div className="mt-5">
                     <PipelineStepper steps={shipmentSteps} current={s.status} />
                   </div>
-                  {/* F6: en un envío ENTREGADO, cada ítem elegible ofrece "Abrir disputa". */}
-                  {s.status === 'entregado' && (s.items?.length ?? 0) > 0 && (
-                    <div className="mt-5">
+
+                  {/* Cartas incluidas en el retiro (folio, nombre, set): visibles en TODA etapa
+                      (rastreo, contrato §5). En un envío ENTREGADO, cada ítem elegible ofrece
+                      "Abrir disputa" inline (F6); un ítem con disputa activa muestra "Disputa abierta". */}
+                  {(s.items?.length ?? 0) > 0 && (
+                    <ul className="mt-5">
                       {s.items.map((it) => {
-                        const eligible = canOpenDispute(s, it);
+                        const isDelivered = s.status === 'entregado';
+                        const eligible = isDelivered && canOpenDispute(s, it);
                         const disputed = activeDisputeItemIds.has(it.inventoryItemId);
                         return (
-                          <div
+                          <li
                             key={it.inventoryItemId}
-                            className="flex items-center justify-between gap-3 border-t border-border py-3 text-sm first:border-t-0"
+                            className="flex items-center gap-3 border-t border-border py-3 text-[13px] first:border-t-0"
                           >
-                            <span className="flex items-center gap-3">
-                              <span className="tabular font-mono text-xs text-muted">{it.folio}</span>
-                              <span lang="en" className="text-text">
-                                {it.card.name}
-                              </span>
+                            <span className="tabular font-mono text-[11px] text-muted">{it.folio}</span>
+                            <span className="min-w-0 flex-1 truncate text-text" lang="en">
+                              {it.card.name}
+                            </span>
+                            <span
+                              className="hidden truncate font-mono text-[11px] text-muted sm:block"
+                              lang="en"
+                            >
+                              {it.card.setName}
                             </span>
                             {eligible ? (
                               <Button size="sm" variant="ghost" onClick={() => openDispute(it)}>
                                 {t('dispute.open')}
                               </Button>
-                            ) : disputed ? (
+                            ) : isDelivered && disputed ? (
                               <span className="font-mono text-[11px] text-muted">
                                 {t('dispute.alreadyOpen')}
                               </span>
                             ) : null}
-                          </div>
+                          </li>
                         );
                       })}
-                    </div>
+                    </ul>
                   )}
                 </div>
               ))

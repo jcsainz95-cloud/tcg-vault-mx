@@ -4,6 +4,72 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-H frontend · Retiro visible para el cliente (badge "EN RETIRO" + rastreo) (2026-08-17)
+
+Implementa el ciclo de RETIRO visible en la bóveda según **contrato v1.17-withdrawal-lifecycle** (§3
+HoldingDTO, §5 rastreo del cliente). Solo `frontend/` + este doc. **0 cambios de contrato/backend**; se
+consume el contrato como interfaz (nada depende de detalles internos del backend). Patrón real+mock
+(`config.useMocks`), tokens/`shadow-focus` respetados. Gates: **tsc 0**, **vitest 313** (42 files),
+**e2e mock 45 passed** (1 flake de `auth.spec` que pasa al re-correr; no relacionado).
+
+### 1) Tipos (contrato §3/§5) — `src/types/contract.ts`
+- `HoldingDTO` gana `shipmentState: ShipmentActiveStage | null`, `activeShipmentId: string | null`,
+  `withdrawable: boolean` (los tres **requeridos**, como el contrato). Nuevo alias
+  `ShipmentActiveStage = 'solicitado'|'picking'|'guia'|'enviado'`.
+- `ShipmentDTO` (== `ClientShipmentDTO` del contrato §5) se **enriquece** con `addressSnapshot`,
+  montos (`shippingFeeCents/ivaCents/processingFeeCents/totalCents`), timestamps por etapa
+  (`requestedAt/pickingAt/shippedAt`, `deliveredAt` ya existía) e `items[].finish`. Los campos nuevos
+  son **opcionales** para tolerar productores/mocks parciales (p. ej. la respuesta de captura de guía M4).
+
+### 2) "Mi Bóveda" (`vault/VaultView.tsx` + `components/domain/WithdrawalBadge.tsx`)
+- **Badge "EN RETIRO":** nuevo `WithdrawalBadge` (reusa el primitivo `Badge`, texto mono en versalitas,
+  `outline` acento) que se pinta cuando `shipmentState !== null`: chip `EN RETIRO` + el **label de etapa
+  del contrato §5** (namespace i18n `shipmentStage.*`, distinto de `status.shipment.*` operativo). Con
+  `activeShipmentId`, el badge es un **enlace** al detalle del retiro (`/shipments/:id`) = deep-link
+  bóveda→rastreo. Se apila bajo el badge de titularidad en la columna de estado.
+- **Gating de RETIRAR:** el botón/enlace usa **`withdrawable`** como fuente ÚNICA de verdad (antes se
+  derivaba de `ownershipStatus==='settled'`). Si `!withdrawable` → botón deshabilitado con hint accesible
+  (`title` + `aria-label`): "en retiro" si hay envío activo, "solo liquidadas" si aún es `pending`. Ya no
+  se descubre el `409/422` al intentar.
+
+### 3) Rastreo de retiros del cliente (contrato §5)
+- **`api.ts`:** `getShipments()` (ya existía, envelope `{ data }`) + nuevo **`getShipment(id)`**
+  (`GET /shipments/:id`) con rama real+mock.
+- **Lista ("Mis retiros"):** la sección de `ShipmentsView` se enriquece — cada retiro muestra la **etapa
+  legible** (`shipmentStage.*`), dirección (ciudad/estado del `addressSnapshot`), **total** del retiro,
+  guía/tracking y sus **cartas** (folio, nombre, set). El id del retiro es un **deep-link** al detalle.
+  La lista de cartas y las acciones de disputa (F6) se **unificaron** en un solo `<ul>` (antes duplicaban
+  el nombre de cada carta en dos bloques). La lista **seleccionable** del alta de retiro ahora filtra por
+  `withdrawable` (un item settled pero ya EN RETIRO cae en "no elegibles", con su badge + deep-link).
+- **Detalle (`shipments/[id]/ShipmentDetailView.tsx`, ruta nueva `shipments/[id]/page.tsx`):** destino del
+  deep-link. Muestra la etapa legible, la línea de tiempo (`useShipmentClientSteps` con la tabla §5),
+  dirección (snapshot, lectura defensiva), total desglosado (`AmountBreakdown` reconstruido desde los
+  montos del DTO; `ivaRatePct` no viaja en §5 → se deriva de iva/fee, default 16) y las cartas
+  (folio, nombre, set, número, acabado). Estados carga/error/no-encontrado explícitos (`QueryState`).
+- **Navegación:** "Mis retiros" añadido al `StorefrontHeader` (privado, junto a "Mis órdenes") → `/shipments`.
+
+### 4) i18n (ES/EN, paridad verde)
+- `nav.shipments`, `vault.inWithdrawal` / `inWithdrawalHint` / `trackWithdrawal`,
+  `shipments.{backToList,detailTitle,itemsInWithdrawal,shippingAddress,addressUnavailable,withdrawalTotal}`,
+  y el bloque top-level **`shipmentStage.*`** (tabla normativa etapa→texto cliente del contrato §5).
+
+### 5) Mocks (real+mock siguen funcionando)
+- `mockHoldings`: los 4 holdings ganan los campos v1.17; el **sellado (`inv-1008`) queda EN RETIRO**
+  (`shipmentState='enviado'`, `activeShipmentId='shp-7001'`, `withdrawable=false`); el resto retirables/
+  pending según su titularidad. `mockShipments` enriquecidos (address/montos/timestamps/finish); `shp-7001`
+  (`enviado`) contiene `inv-1008` para que el deep-link sea consistente.
+
+### 6) E2E (mock)
+- `e2e/vault.spec.ts`: +2 tests — badge "EN RETIRO" + etapa + RETIRAR deshabilitado; deep-link del badge al
+  detalle. `e2e/shipments.spec.ts`: +1 — la vista de rastreo lista un retiro con sus cartas y abre el
+  detalle (dirección + cartas). Todos mock-only (dependen del fixture de retiros); el patrón `@real`
+  existente se conserva.
+
+### Solicitudes al arquitecto
+- Ninguna. El contrato v1.17 (§3/§5) fue suficiente para implementar el flujo completo. Nota menor: el DTO
+  de rastreo §5 no incluye `ivaRatePct` en los montos; el front lo deriva de `iva/shippingFee` (default 16)
+  para el desglose. Si se prefiere exponerlo explícito, sería un aditivo sin migración (no bloquea).
+
 ## WS-E frontend · Pulido de veredicto (batchKey estable + UX bulk-publish + dedup) (2026-08-17)
 
 Cierra hallazgos NO bloqueantes del veredicto sobre WS-E (Master Set). Solo `frontend/` + este doc +

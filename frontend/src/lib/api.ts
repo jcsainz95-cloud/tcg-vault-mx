@@ -461,6 +461,19 @@ export async function getShipments(): Promise<ShipmentDTO[]> {
 }
 
 /**
+ * Detalle de un retiro propio (contrato §5 · GET /shipments/:id, `customer`, v1.17). Mismo
+ * `ClientShipmentDTO` que el listado, con `items` enriquecidos (folio/card/finish) y montos. Deep-link
+ * desde el badge "EN RETIRO" de la bóveda (`HoldingDTO.activeShipmentId`). Err `404` si no existe o no
+ * es del usuario.
+ */
+export async function getShipment(id: string): Promise<ShipmentDTO> {
+  if (!config.useMocks) return apiRequest<ShipmentDTO>(`/shipments/${id}`);
+  const found = fx.mockShipments.find((s) => s.id === id);
+  if (!found) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
+  return delay(found);
+}
+
+/**
  * Crea la solicitud de retiro (contrato POST /shipments, §5): cobra la tarifa (envío + IVA + fee)
  * por Stripe ANTES de crear la `ShipmentRequest`. Devuelve `{ shipmentId, status:'solicitado',
  * breakdown, stripe:{ paymentIntentId, clientSecret } }`; el `clientSecret` alimenta el

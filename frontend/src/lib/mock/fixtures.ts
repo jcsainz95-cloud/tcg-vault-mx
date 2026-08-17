@@ -307,6 +307,10 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, capturedDate: '2026-08-13' },
+    // Settled y sin envío → retirable.
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: true,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -320,6 +324,10 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'pending',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, capturedDate: '2026-08-13' },
+    // Pending → no retirable (aún no liquidada), sin envío activo.
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: false,
   },
   {
     inventoryItemId: 'inv-1008',
@@ -331,6 +339,11 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
+    // v1.17: EN RETIRO — envío activo `enviado` (shp-7001 lo contiene). NO retirable (ya en un envío).
+    // El badge "EN RETIRO" hace deep-link a /shipments/shp-7001.
+    shipmentState: 'enviado',
+    activeShipmentId: 'shp-7001',
+    withdrawable: false,
   },
   {
     inventoryItemId: 'inv-1010',
@@ -343,6 +356,10 @@ export const mockHoldings: HoldingDTO[] = [
     status: 'in_custody',
     // Precio pendiente en portafolio: se excluye del total (no rompe el cálculo).
     referenceValue: { status: 'pending' },
+    // Settled y sin envío → retirable (aunque su precio esté pendiente).
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: true,
   },
 ];
 
@@ -564,6 +581,22 @@ export const mockAddresses: AddressDTO[] = [
 /** ISO de hace `n` días (para anclar la ventana de disputa a una entrega reciente). */
 const daysAgoIso = (n: number): string => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
 
+/** Snapshot de dirección MX de ejemplo para los retiros (contrato §5 `addressSnapshot`). */
+const mockShipmentAddress = {
+  line1: 'Av. Reforma 222',
+  line2: 'Piso 3',
+  neighborhood: 'Juárez',
+  city: 'Ciudad de México',
+  state: 'CDMX',
+  postalCode: '06600',
+  country: 'MX',
+} as const;
+
+/**
+ * MOCK v1.17: retiros del PROPIO usuario (contrato §5 · GET /shipments listMine / GET /shipments/:id).
+ * Enriquecidos con `addressSnapshot`, montos por retiro y `finish` por ítem para la vista de rastreo.
+ * shp-7001 (`enviado`) es el envío ACTIVO del holding inv-1002 (deep-link desde el badge "EN RETIRO").
+ */
 export const mockShipments: ShipmentDTO[] = [
   {
     id: 'shp-7001',
@@ -571,8 +604,22 @@ export const mockShipments: ShipmentDTO[] = [
     carrier: 'Estafeta',
     trackingNumber: '1234567890',
     createdAt: '2026-08-11T10:00:00Z',
+    addressSnapshot: mockShipmentAddress,
+    shippingFeeCents: 17500,
+    ivaCents: 2800,
+    processingFeeCents: 1050,
+    totalCents: 21350,
+    requestedAt: '2026-08-11T10:00:00Z',
+    pickingAt: '2026-08-11T15:00:00Z',
+    shippedAt: '2026-08-12T09:00:00Z',
     items: [
-      { inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise'), productType: 'raw' },
+      {
+        inventoryItemId: 'inv-1008',
+        folio: 'INV-000108',
+        card: cardById('c-sealed-sv08-box'),
+        productType: 'sealed',
+        finish: 'normal',
+      },
     ],
   },
   // WS-F F6: envío ENTREGADO reciente → habilita "Abrir disputa" en el ítem raw elegible; el ítem
@@ -584,10 +631,30 @@ export const mockShipments: ShipmentDTO[] = [
     carrier: 'Estafeta',
     trackingNumber: '9988776655',
     createdAt: '2026-08-09T10:00:00Z',
+    addressSnapshot: mockShipmentAddress,
+    shippingFeeCents: 17500,
+    ivaCents: 2800,
+    processingFeeCents: 1050,
+    totalCents: 21350,
+    requestedAt: '2026-08-09T10:00:00Z',
+    pickingAt: '2026-08-09T14:00:00Z',
+    shippedAt: '2026-08-10T09:00:00Z',
     deliveredAt: daysAgoIso(2),
     items: [
-      { inventoryItemId: 'inv-1003', folio: 'INV-000103', card: cardById('c-charizard'), productType: 'raw' },
-      { inventoryItemId: 'inv-1006', folio: 'INV-000106', card: cardById('c-latias-sir'), productType: 'graded' },
+      {
+        inventoryItemId: 'inv-1003',
+        folio: 'INV-000103',
+        card: cardById('c-charizard'),
+        productType: 'raw',
+        finish: 'holofoil',
+      },
+      {
+        inventoryItemId: 'inv-1006',
+        folio: 'INV-000106',
+        card: cardById('c-latias-sir'),
+        productType: 'graded',
+        finish: 'normal',
+      },
     ],
   },
 ];

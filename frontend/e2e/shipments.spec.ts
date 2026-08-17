@@ -64,4 +64,30 @@ test.describe('retiro · envío nacional', () => {
     await page.goto('/es/shipments');
     await expect(page.getByText(t('es', 'shipments.ineligibleTitle'))).toBeVisible();
   });
+
+  /**
+   * v1.17-withdrawal-lifecycle (contrato §5): la vista de RASTREO ("Mis retiros") lista los retiros del
+   * cliente con la etapa legible (tabla §5), sus cartas (folio/nombre/set) y permite abrir el detalle
+   * (deep-link GET /shipments/:id). Mock-only: depende del fixture de retiros del cliente.
+   */
+  test('rastreo: lista un retiro con sus cartas y abre el detalle', async ({ page }) => {
+    await page.goto('/es/shipments');
+
+    // Sección "Mis retiros".
+    await expect(page.getByRole('heading', { name: t('es', 'shipments.myShipments') })).toBeVisible();
+
+    // Etapa legible del contrato §5 (un retiro entregado y otro en camino).
+    await expect(page.getByText(t('es', 'shipmentStage.entregado')).first()).toBeVisible();
+    await expect(page.getByText(t('es', 'shipmentStage.enviado')).first()).toBeVisible();
+
+    // Las cartas del retiro se listan (nombre en inglés, dato de catálogo).
+    await expect(page.getByText('Charizard').first()).toBeVisible();
+
+    // Deep-link al detalle: el id del retiro es un enlace → abre el rastreo con las cartas.
+    await page.getByRole('link', { name: 'shp-7001' }).click();
+    await expect(page).toHaveURL(/\/es\/shipments\/shp-7001/);
+    await expect(page.getByText(t('es', 'shipments.itemsInWithdrawal'))).toBeVisible();
+    await expect(page.getByText(t('es', 'shipments.shippingAddress'))).toBeVisible();
+    await expect(page.getByText('Surging Sparks Booster Box').first()).toBeVisible();
+  });
 });

@@ -46,4 +46,36 @@ test.describe('bóveda · portafolio y titularidad', () => {
       page.getByRole('button', { name: t('es', 'vault.withdraw'), disabled: true }).first(),
     ).toBeVisible();
   });
+
+  /**
+   * v1.17-withdrawal-lifecycle (contrato §3): un holding con envío ACTIVO (`shipmentState != null`)
+   * se marca "EN RETIRO" con la etapa del contrato §5 y RETIRAR queda DESHABILITADO (`withdrawable=false`
+   * = fuente única de verdad). Mock-only: el fixture trae una pieza en retiro (`enviado`).
+   */
+  test('marca EN RETIRO y deshabilita RETIRAR en un holding con envío activo', async ({ page }) => {
+    await page.goto('/es/vault');
+    await expect(page.getByRole('heading', { name: t('es', 'vault.title') })).toBeVisible();
+
+    // Badge "EN RETIRO" + etapa legible del contrato §5 (enviado → "En camino").
+    await expect(page.getByText(t('es', 'vault.inWithdrawal'), { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(t('es', 'shipmentStage.enviado')).first()).toBeVisible();
+
+    // RETIRAR de esa pieza es un botón DESHABILITADO con hint "en retiro" (no un enlace).
+    const inWithdrawalBtn = page.getByRole('button', { name: t('es', 'vault.inWithdrawalHint') });
+    await expect(inWithdrawalBtn).toBeVisible();
+    await expect(inWithdrawalBtn).toBeDisabled();
+  });
+
+  /**
+   * Deep-link del badge "EN RETIRO" al rastreo del retiro (`HoldingDTO.activeShipmentId` →
+   * GET /shipments/:id). Mock-only. Al hacer clic, se abre el detalle con las cartas del retiro.
+   */
+  test('el badge EN RETIRO enlaza al detalle del retiro', async ({ page }) => {
+    await page.goto('/es/vault');
+    await page.getByRole('link', { name: new RegExp(t('es', 'vault.trackWithdrawal')) }).first().click();
+
+    await expect(page).toHaveURL(/\/es\/shipments\/shp-7001/);
+    await expect(page.getByText(t('es', 'shipments.itemsInWithdrawal'))).toBeVisible();
+    await expect(page.getByText('Surging Sparks Booster Box').first()).toBeVisible();
+  });
 });
