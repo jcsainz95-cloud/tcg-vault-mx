@@ -1618,3 +1618,127 @@ sin dinero saliente ni PII nueva expuesta, solo endurecimiento interno. La **fas
 staging)** heredada sigue **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea
 este merge. El veredicto **QA** sobre este commit (toca PII/cripto) sigue su curso en paralelo; este
 dictamen cubre **solo** la dimensión de seguridad.
+
+---
+
+# D. Revisión v1.11-ola1-wiring — Wiring del panel de admin (dinero + PII)
+
+> **Rev:** v1.11-ola1-wiring. **Fecha:** 2026-08-17. **Rama:** `claude/git-repo-review-c67xyk`.
+> **Alcance:** commits `751d637` (backend Tier 0: `escalatePending(finish)` + `pendingQueue`
+> con `include card+set`) y `e8591d3` (frontend: wire M5 buylist end-to-end, M3 refund, M8
+> disputas, M4 envíos admin, M1 picker; `api.ts` + `contract.ts` + i18n). Superficie sensible:
+> **dinero saliente** (pay-SPEI, refund, decisión de buylist con cap, recompra de disputa) y
+> **PII** (revelar CLABE en claro).
+> **Insumo:** `PENTEST_NOTES.md` v1.5 (I-3 SEC-A1, I-5 money-out/PII) + este código.
+> **Modo:** revisión **estática** de código (frontend `M5View.tsx`, `QueryState.tsx`, `api.ts`,
+> `api-client.ts`; backend `admin-buylist.controller.ts`, `buylist.service.ts`, `buylist.dto.ts`,
+> `pricing.service/controller.ts`, `all-exceptions.filter.ts`, `money-out.guard.ts`). Sin stack
+> vivo → DAST sigue **pendiente** (§6). Es **wiring de UI** sobre endpoints ya endurecidos; **no
+> hay nueva lógica de dinero**.
+
+## D.0 Resumen — 0 Críticos / 0 Altos / 0 Medios. APROBADO, puede ir a `main`
+
+| Severidad | # | ID |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 0 | — |
+| Baja | 0 nuevos (1 nota de higiene, no hallazgo) | — |
+
+Los seis focos del encargo se verificaron **OK en código**. El wiring respeta la regla de oro:
+**el backend es la autoridad**; el cliente solo dispara endpoints y no deriva ni impone montos ni
+autorización. La **revisión estática BASTA** para este bloque: no introduce lógica de dinero nueva
+ni superficie de red nueva (todos los endpoints ya existían y estaban endurecidos/auditados); solo
+cablea UI → API. Los vectores dinámicos (concurrencia real de pay-SPEI/refund, idempotencia con
+llamadas reales) ya estaban en la lista **[pendiente de DAST]** y no cambian con este commit.
+
+## D.1 SEC-A1 / dinero server-side — **OK · [Verificado en código]**
+- **Buylist decisión (`adjust`/`approve`):** el frontend manda `approvedPriceCents`
+  (`M5View.tsx:373-378`, `pesosToCents` → **centavos enteros** vía `Math.round(n*100)`, `:30-36`),
+  pero el **cap lo impone el backend**: `ItemDecisionDto` valida `@Min(0) @Max(1_000_000)`
+  (`buylist.dto.ts:63`, primera línea, rechazo 400 al PoC `99999999`) **y**
+  `BuylistService.assertApprovedPriceWithinCap` (`buylist.service.ts:493-510`) aplica la cota fina
+  server-side: `min(quotedPriceCents × 2, capAML)` — con `capAML` = `kyc.capPerRequestCentsOverride`
+  o dial global (`:530-532`) — y lanza **422 `APPROVED_PRICE_CAP_EXCEEDED`** (`:504-508`). El
+  cliente **no** puede saltarse el cap: aunque mande un monto arbitrario, el server lo rechaza. El
+  modal muestra ese error real **dentro** del modal (`M5View.tsx:115`, `setAdjustError`). Confirmado.
+- **pay-SPEI:** el body es **solo** `{ speiReference }` (`api.ts` `paySpeiBuylist`), sin monto — el
+  server paga `approvedTotalCents` derivado de la suma de `approvedPriceCents` aprobados
+  (`buylist.service.ts:564-575`). **Refund:** body **solo** `{ reason }`
+  (`api.ts` `refundOrder`), sin monto — el server reembolsa contra el cargo Stripe original.
+  **Recompra de disputa:** body `{ resolution, note }` (`resolveDispute`), sin monto. Ningún flujo
+  de dinero saliente acepta un importe arbitrario del cliente. Confirmado.
+
+## D.2 Revelar CLABE (PII) — **OK · [Verificado en código]**
+- **Bajo demanda + efímero:** `revealBuylistClabe` es una **mutation** (no query) precisamente para
+  que la CLABE en claro **NO** entre al cache de react-query (`M5View.tsx:146-154`, comentario
+  explícito). Se guarda **solo** en estado local de la vista `revealed` (`:60`), nunca en estado
+  global/localStorage/query-cache. Se descarta al **ocultar** (`setRevealed(null)`, `:315`) y —
+  higiene— **al registrar el pago SPEI** (`:166`). No hay `console.log`/logger de la CLABE en el
+  frontend. Confirmado.
+- **Endpoint super_admin + auditado server-side:** `GET /admin/buylist/:id/reveal-clabe` con
+  `@Roles(Role.super_admin) @MoneyOut()` (`admin-buylist.controller.ts:48-50`) y `audit.log`
+  `buylist.reveal_clabe` con actor/rol/entidad (`:52-60`). Es el ÚNICO endpoint que devuelve CLABE
+  en claro; el resto enmascara (verificado sin regresión en §2). El `disabled={!isSuperAdmin}` del
+  botón (`M5View.tsx:322`) es **cosmético**; la autoridad es el guard server-side. Confirmado.
+
+## D.3 Doble cobro / doble reembolso — **OK · [Verificado en código]**
+- **Idempotency-Key estable:** pay-SPEI envía `Idempotency-Key: pay-spei-${id}` (`api.ts`
+  `paySpeiBuylist`) y refund `Idempotency-Key: refund-${orderId}` (`api.ts` `refundOrder`). La clave
+  es **estable por solicitud/orden**: un reintento del mismo pago/refund reusa la misma clave → el
+  backend no duplica el asiento. Correcto (la eficacia real de la deduplicación bajo concurrencia se
+  valida en DAST, ya listado §6, sin cambio). Nota: la clave es determinística por recurso, que es
+  el diseño correcto para "un pago por solicitud" (no un UUID por click). Confirmado.
+
+## D.4 Autorización — **OK · [Verificado en código]**
+- Los guards son **server-side y globales**: `MoneyOutGuard` (`money-out.guard.ts:32-44`, rol ≠
+  `super_admin` → **403 `MONEY_OUT_FORBIDDEN`** auditado) sobre `reveal-clabe`/`pay-spei`/`refund`/
+  recompra; `@Roles` en controllers (`AdminBuylistController` = `vault_operator+`, con
+  `reveal-clabe`/`pay-spei` estrechados a `super_admin`). El wiring **no puede** saltarlos: el
+  cliente ocultar/deshabilitar botones (`isSuperAdmin`, `canPay`, `M5View.tsx:194-195,322,333`) es
+  **cosmético**, no un control de seguridad — una llamada directa a la API la corta el guard. El
+  código lo reconoce explícitamente (comentarios en M5View y en `SuperAdminOnly`, §A.4). **No se
+  asume seguridad en el cliente.** Confirmado.
+
+## D.5 Fuga en errores (`useErrorMessage`) — **OK · [Verificado en código]**
+- `useErrorMessage` (`QueryState.tsx:23-32`) traduce `errorCode` del contrato a copy i18n; si no hay
+  copy, cae al **`ApiClientError.message` real del backend** (para no ocultar topes AML al operador).
+  **Dictamen: seguro.** El filtro global (`all-exceptions.filter.ts`) **nunca** devuelve stack ni
+  detalle interno en `message`: (a) `BusinessException` → mensaje curado del dominio
+  (`:25-31`); (b) `HttpException` → mensaje de la lib / validación class-validator (`:34-47`);
+  (c) **cualquier excepción no controlada → `500` con `message: 'Internal server error'` genérico y
+  el stack se loguea SOLO server-side** (`:50-53`). Por tanto lo máximo que `useErrorMessage` puede
+  pintar es un mensaje de negocio controlado (p. ej. "Approved price exceeds the allowed cap"),
+  nunca stack/PII/IDs internos de infraestructura. Confirmado.
+  - **Nota (no hallazgo, defensa en profundidad):** el filtro copia `details` = objeto crudo de la
+    `HttpException` al cuerpo (`:45`); `useErrorMessage` **no** lo renderiza (solo `message`), así que
+    no hay fuga por la UI. Si en el futuro se pintara `details`, revisar que no arrastre datos. Sin
+    acción para este bloque.
+
+## D.6 Backend Tier 0 (`751d637`) — **OK · [Verificado en código]**
+- **`pendingQueue` con `include card+set`:** el endpoint `GET /admin/pricing/pending` es
+  `@Controller('admin/pricing') @Roles(Role.super_admin)` (`pricing.controller.ts:53-54,72-74`) —
+  **solo super_admin**. El `include` expone `card{id,name,number,setName}` + `cardName`
+  (`pricing.service.ts:pendingQueue`), que es **catálogo público** (ya es superficie pública en
+  "Compra"); **no** añade PII, precios internos, costo de adquisición ni datos de otros usuarios.
+  El `map` proyecta explícitamente solo esos 4 campos de card (no derrama la fila `Card` completa).
+  No expone nada que no deba en un endpoint admin. Confirmado.
+- **`escalatePending(...finish)`:** propagar el `finish` resuelto a la cola es una corrección de
+  **exactitud funcional** (M-19: cola por acabado), **sin efecto de seguridad** — no toca authz,
+  dinero saliente ni PII. Confirmado.
+
+## D.7 VEREDICTO — v1.11-ola1-wiring: **APROBADO**
+- **0 Críticos / 0 Altos / 0 Medios abiertos** → aprobable por política (`CLAUDE.md` §7). SEC-A1
+  intacto (montos derivados/validados server-side; cap 2×/AML impuesto por el backend, no por el
+  cliente); CLABE revelada bajo demanda, efímera, sin persistencia/log/cache y con endpoint
+  super_admin+money-out+auditado; idempotencia estable en pay-SPEI/refund; autorización 100%
+  server-side (UI cosmética); `useErrorMessage` no filtra detalle interno (500 genérico + stack solo
+  en log); `pendingQueue` (super_admin) solo expone catálogo público.
+- **¿Basta la revisión estática?** **SÍ** para este bloque: es wiring UI→API sin lógica de dinero
+  nueva ni endpoints nuevos; toda la superficie de red ya estaba endurecida y auditada. Los vectores
+  dinámicos (concurrencia/idempotencia con tráfico real) ya estaban en la lista **[pendiente de
+  DAST]** (§6) y **no** los altera este commit.
+- **Sin hallazgos que enrutar.** Deuda previa sin cambio (S-M1 aceptada; S-B1/S-B2/residuo S-B3 y
+  banderas legales de PII, §5-§6). La **fase dinámica (DAST contra staging)** heredada sigue
+  **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea este merge.
+- **¿Puede ir a `main`?** **SÍ.**
