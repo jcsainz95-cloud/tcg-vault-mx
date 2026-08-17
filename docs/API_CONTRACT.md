@@ -4,6 +4,20 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.11-premium-gate (2026-08-17) — Gate PREMIUM en el cotizador de buylist (fix de dinero, Fase 0):**
+> Documenta lo YA implementado por backend (`backend/src/common/money.ts`, commit `ebb4dee`) en **`POST
+> /buylist/quote`** (§6). **Sin cambio de shape de request/response**: mismo `appliedRule`/`ruleSource`/`quote`; lo
+> que cambia es **cómo el servidor resuelve la regla** para `holofoil`/`first_edition_holofoil`.
+> - **Regla nueva:** una **rareza PREMIUM** (chase / alto valor — `isPremiumRarity`) en `holofoil`/`1st-ed holo`
+>   resuelve a `[rarity]` **únicamente** (su regla explícita o el fallback pct = % de mercado); **nunca** a la clave
+>   sintética `"Holo"` ni a ningún bin **fijo** de bulk. Antes, esas chase (ex/Full Art/Illustration/Ultra/Double
+>   Rare, V/VMAX/VSTAR/GX… — que solo existen en holofoil pero cuyo string NO contiene "holo") caían a `['Holo']` y,
+>   con una regla `"Holo"` fija barata, cotizaban al bin de bulk (bug de dinero). No premium → semántica previa.
+> - **`isPremiumRarity` es parte del contrato de pricing:** lista canónica de patrones documentada en §6 y en
+>   ARCHITECTURE §4.2.1. SEC-A1 intacto (monto derivado server-side de `(Card.rarity, finish)` validado).
+> - **Common/Uncommon en holofoil (punto abierto resuelto):** se **mantiene** "% del market holofoil"; sin cambio de
+>   contrato ni de backend (ver ARCHITECTURE §4.2.1, Decisión 2026-08-17).
+>
 > **Changelog v1.10-sync-status (2026-08-17) — Progreso observable del barrido `sync-all` (M2, polling):**
 > **Bendición retroactiva** de un endpoint **YA implementado, probado y con triple veredicto APROBADO**
 > (qa+techlead+seguridad), que QA marcó como **brecha de contrato** por no estar en la fuente de verdad. Se
@@ -641,10 +655,24 @@ Res `200`:
 ```
 **Resolución del monto (server-side, ARCHITECTURE §4.2 / §4.2.1):** el backend toma la **rareza oficial real** de la
 carta (`Card.rarity`) **y el acabado validado** (`finish` ∈ `availableFinishes`), **nunca del cliente** (SEC-A1).
-El **acabado selecciona la regla** (cadena de candidatos de `ruleKey`, primero con regla explícita gana):
+El **acabado selecciona la regla** (cadena de candidatos de `ruleKey`, primero con regla explícita gana; la
+**rareza real va siempre primera**):
 - **`reverse_holo`** → `"Reverse Holo"`.
-- **`holofoil` / `first_edition_holofoil`** → rareza base **si ya es holo** (rarity contiene "holo"), si no `"Holo"`.
+- **`holofoil` / `first_edition_holofoil`**:
+  - **Rareza PREMIUM** (chase / alto valor — `isPremiumRarity`, ver abajo) → `[rarity]` **únicamente**: su regla
+    explícita o, si no existe, el **fallback pct** (% de mercado). **Nunca** `"Holo"` ni ningún bin **fijo** de bulk.
+  - **No premium** → rareza base **si ya es holo** (`rarity` contiene "holo") → `[rarity, "Holo"]`; si no →
+    `["Holo"]` (Common/Uncommon = % del market holofoil).
 - **`normal`** → la **rareza base** (`Card.rarity`).
+
+**`isPremiumRarity` (parte del contrato de pricing, Fase 0.1 / gate de dinero).** Una rareza es **premium** si, en
+minúsculas, casa alguno de estos patrones (substrings/tokens; cierra el bug por el que chase-only-holofoil como
+`ex`/Full Art/Illustration Rare cotizaban al bin fijo barato): `illustration`, `ultra rare`, `double rare`,
+`secret`, `rainbow`, `hyper`, `full art`, `alt(ernate) art`, `special`, `amazing`, `radiant`, `shiny`,
+`trainer gallery`, `character`, `gold`, `prism`, y los tokens sueltos `v | vmax | vstar | vunion | ex | gx`. **NO
+premium** (bulk legítimo): Common, Uncommon, Rare (no-holo), Rare Holo (plano), Reverse Holo. Definición canónica y
+tabla de patrones en **ARCHITECTURE §4.2.1**. **Garantía de dinero:** una rareza premium **jamás** resuelve a una
+regla **fija** de bulk (ni a `"Holo"`); cae a su propia regla o al fallback pct (% de mercado).
 
 Con la regla resuelta se aplica `BUYLIST_PRICE_RULES`:
 - `mode="fixed"` → `quotedPriceCents = value` (centavos). **No** depende de la referencia → siempre `cotizada`.
@@ -657,8 +685,9 @@ Con la regla resuelta se aplica `BUYLIST_PRICE_RULES`:
 
 La condición de compra es **siempre NM** (§ARCHITECTURE 3.5); `rawCondition` solo puede ser `NM`. El seed reproduce
 el comportamiento anterior y el mapeo por acabado (ej.: **Common Reverse Holo = fixed $1.50**; Common Normal = fixed
-$0.50; resto = 40% del market del acabado). El "precio pendiente" es de adquisición/back-office; **nunca** se muestra
-al comprador. Ver la tabla de ejemplos en ARCHITECTURE §4.2.1.
+$0.50; **Illustration Rare / ex en holofoil = 40% del market holofoil** — nunca el bin fijo de bulk, gate premium;
+resto = 40% del market del acabado). El "precio pendiente" es de adquisición/back-office; **nunca** se muestra al
+comprador. Ver la tabla de ejemplos en ARCHITECTURE §4.2.1.
 
 ### POST /api/v1/buylist/requests — `customer`
 Crea la solicitud; valida topes/KYC.

@@ -2,7 +2,28 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.9-set-chart (MVP, plataforma en producción). Fecha: 2026-08-16. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.11-premium-gate (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/tcg-cards-marketplace-oijthj`.
+>
+> **Changelog v1.11-premium-gate (2026-08-17) — Gate PREMIUM en el resolver de reglas rareza/acabado (fix de dinero,
+> Fase 0 del epic de precios).** Documenta lo YA implementado por backend (`backend/src/common/money.ts`, commit
+> `ebb4dee`). **Sin migración, sin cambio de esquema; solo semántica del resolver `ruleKeyCandidates` (§4.2.1).**
+> SEC-A1 intacto (el monto se sigue derivando server-side de `(Card.rarity, finish)` validado).
+> - **Bug de dinero cerrado:** las cartas chase modernas (ex, Full Art, Illustration/Ultra/Double Rare,
+>   V/VMAX/VSTAR/GX…) **solo existen en holofoil** pero su string de rareza **no** contiene "holo". Antes, en
+>   `holofoil`/`first_edition_holofoil` una rareza no-holo saltaba a `['Holo']`; con una regla `"Holo"` fija barata de
+>   bulk, esas chase de miles de pesos cotizaban al bin fijo (**"$1.50 cotizada"**). Bug estructural.
+> - **`isPremiumRarity(rarity)` (NUEVO, contrato de pricing):** clasificador case-insensitive por substrings/tokens
+>   (Illustration/Ultra/Double Rare, Secret/Rainbow/Hyper/Gold, Full/Alt Art, Amazing/Radiant/Shiny/Trainer Gallery/
+>   Character/Prism, y tokens sueltos `v/vmax/vstar/ex/gx`). Lista canónica de patrones en §4.2.1.
+> - **`ruleKeyCandidates` (holofoil / 1st-ed holo):** si la rareza es **PREMIUM** → candidatos `[rarity]` **únicamente**
+>   (su regla explícita o el fallback pct = % de mercado); **nunca** `"Holo"` ni bin fijo de bulk. Si **no** es premium
+>   → se conserva la semántica previa (`isHoloRarity ? [rarity,'Holo'] : ['Holo']`). La rareza real va **siempre**
+>   primera. `reverse_holo`/`normal` sin cambio.
+> - **Punto abierto RESUELTO (Common/Uncommon en holofoil):** se **mantiene** el diseño actual ("% del market
+>   holofoil" vía `['Holo']`), **sin cambio de código** — el caso es marginal (una común casi nunca tiene llave
+>   `holofoil`; `422 FINISH_NOT_AVAILABLE` lo bloquea) y, cuando ocurre, el % de market es la valuación correcta.
+>   **No implica tarea de backend.** Detalle y justificación en §4.2.1 ("Decisión 2026-08-17").
+> - **Contrato:** `API_CONTRACT.md §6` (`POST /buylist/quote`) actualizado con el gate premium.
 >
 > **Changelog v1.9-set-chart (2026-08-16)** — **Gráfica PÚBLICA del valor de un set en el tiempo (hero de la
 > home, datos REALES, captura diaria)**. Objetivo de producto: un visitante **anónimo** (sin sesión) ve en el
@@ -818,12 +839,30 @@ function isHoloRarity(rarity: string | null): boolean {
   return rarity != null && rarity.toLowerCase().includes('holo');
 }
 
+// Fase 0.1 (fix bug de dinero) — clasificador de rareza PREMIUM (chase / alto valor). Case-insensitive,
+// por substrings/tokens representativos (la taxonomía de pokemontcg.io es abierta). Ver definición
+// canónica y lista de patrones abajo ("Contrato de pricing: isPremiumRarity"). Una rareza premium NUNCA
+// puede resolver a un bin fijo barato de bulk (la clave sintética "Holo" ni ninguna regla `fixed` de bulk):
+// solo su PROPIA regla explícita o el fallback pct (% de mercado). Se prefiere sobre-incluir (una carta
+// barata clasificada premium solo pasa a "% de mercado", inocuo) que sub-incluir (una chase tratada como
+// bulk = pérdida de dinero).
+function isPremiumRarity(rarity: string | null): boolean {
+  if (rarity == null) return false;
+  const s = rarity.toLowerCase();
+  return PREMIUM_RARITY_PATTERNS.some((re) => re.test(s));  // patrones abajo
+}
+
 // Candidatos de ruleKey EN ORDEN DE PRIORIDAD (primero con regla explícita en BUYLIST_PRICE_RULES gana).
+// Fase 0.1: la RAREZA REAL va SIEMPRE primero; para holofoil/1st-ed una rareza PREMIUM NO incluye "Holo".
 function ruleKeyCandidates(rarity: string | null, finish: Finish): string[] {
   switch (finish) {
     case 'reverse_holo':            return ['Reverse Holo'];                                  // siempre la regla "Reverse Holo"
     case 'holofoil':
-    case 'first_edition_holofoil':  return isHoloRarity(rarity) ? [rarity!, 'Holo'] : ['Holo']; // rareza base si ya es holo, si no "Holo"
+    case 'first_edition_holofoil':
+      // GATE PREMIUM: una rareza chase (ex/full art/Illustration/Ultra/Double Rare, V/VMAX/VSTAR/GX…) NUNCA
+      // cae al bin fijo barato de bulk. Solo su propia regla explícita o el fallback pct (% de mercado).
+      if (isPremiumRarity(rarity)) return [rarity!];                                          // premium → SOLO su regla; NUNCA "Holo"
+      return isHoloRarity(rarity) ? [rarity!, 'Holo'] : ['Holo'];                             // no-premium: holo de bulk → rareza real, luego "Holo"; Common/Uncommon → "Holo"
     case 'normal':                  return rarity != null ? [rarity] : [];                     // regla de la rareza base
     default:                        return [];
   }
@@ -845,23 +884,89 @@ function quoteAcquisitionForFinish(
 }
 ```
 
-**Por qué la guarda `isHoloRarity` en Holofoil:** sin ella, un **Common en Holofoil** resolvería a la regla
-`"Common"` (fixed $0.50 bulk) por ser el primer candidato — **incorrecto**: una copia holofoil vale un % de su
-market. Con la guarda, para rarezas NO-holo (Common/Uncommon/Rare no-holo) el Holofoil salta directo a `"Holo"`
-(no sembrada por defecto → **fallback 40%** del market **holofoil**), y solo una rareza **ya holo** con regla
-explícita usa su propia regla. Para rarezas holo sin regla explícita, ambos candidatos caen al fallback 40% (mismo
-resultado), así que la guarda solo actúa como desempate seguro.
+**Contrato de pricing: `isPremiumRarity` (Fase 0.1, 2026-08-17) — parte de la fuente de verdad.** El gate premium
+es **parte del contrato de pricing** (no un detalle de implementación): define qué rarezas jamás pueden cotizar al
+bin fijo barato de bulk. Se evalúa case-insensitive sobre `Card.rarity` con esta **lista canónica de patrones**
+(substrings/tokens; `\b` = límite de token):
+
+| Patrón | Cubre |
+|---|---|
+| `illustration` | Illustration Rare, Special Illustration Rare |
+| `ultra\s*rare` | Ultra Rare (full art) |
+| `double\s*rare` | Double Rare (= ex, era Scarlet & Violet) |
+| `secret` | Rare Secret / Secret Rare |
+| `rainbow` | Rainbow Rare |
+| `hyper` | Hyper Rare |
+| `full\s*art` | Full Art |
+| `alt(ernate)?\s*art` | Alternate Art / Alt Art |
+| `special` | Special Illustration Rare, etc. |
+| `amazing` | Amazing Rare |
+| `radiant` | Radiant |
+| `shiny` | Rare Shiny / Shiny Ultra Rare |
+| `trainer\s*gallery` | Trainer Gallery |
+| `character` | Character Rare / Super Rare |
+| `gold` | Gold (secret) Rare |
+| `prism` | Prism Star |
+| `\b(v\|vmax\|vstar\|vunion\|v-union\|ex\|gx)\b` | V-series y EX/GX como tokens sueltos (p. ej. "Rare Holo VMAX") |
+
+**NO premium (bulk legítimo, excluidas a propósito):** Common, Uncommon, Rare (no-holo), Rare Holo (plano),
+Reverse Holo. Criterio de diseño: **sobre-incluir es inocuo** (una carta barata mal clasificada como premium solo
+pasa a "% de mercado"), **sub-incluir cuesta dinero** (una chase tratada como bulk cotiza al bin fijo barato). Si un
+sync trae una rareza chase nueva no cubierta, cae al **fallback pct** por ser rareza sin regla explícita — nunca al
+bin fijo.
+
+**Por qué el gate premium (fix del bug de dinero, Fase 0.1):** las cartas chase modernas (ex, Full Art, Illustration
+Rare, V/VMAX/VSTAR…) **solo existen en holofoil**, pero su string de rareza **no** contiene "holo". Antes, el
+candidato para holofoil de una rareza no-holo era `['Holo']`; con una regla `"Holo"` fija barata de bulk (la que el
+admin puede sembrar), esas chase de miles de pesos cotizaban al bin fijo (**"$1.50 cotizada"**) — bug estructural de
+dinero. El gate cierra esa vía: **una rareza premium en holofoil/1st-ed solo resuelve a su propia regla explícita o
+al fallback pct (% de mercado)**, jamás a `"Holo"` ni a ningún `fixed` de bulk. La rareza real va **siempre primero**
+en los candidatos.
+
+**Por qué la guarda `isHoloRarity` (no-premium) en Holofoil:** para rarezas **no-premium**, sin la guarda un
+**Common en Holofoil** resolvería a la regla `"Common"` (fixed $0.50 bulk) por ser el primer candidato —
+**incorrecto**: una copia holofoil vale un % de su market. Con la guarda, para rarezas NO-holo y NO-premium
+(Common/Uncommon/Rare no-holo) el Holofoil salta directo a `"Holo"` (no sembrada por defecto → **fallback 40%** del
+market **holofoil**), y solo una rareza **ya holo** (p. ej. "Rare Holo" plano) con regla explícita usa su propia
+regla. Para rarezas holo de bulk sin regla explícita, ambos candidatos caen al fallback 40% (mismo resultado).
 
 **Resultado con el seed vigente (defaults):**
 
-| `Card.rarity` | `finish` | ruleKey resuelto | Regla | Monto |
-|---|---|---|---|---|
-| Common | `normal` | `Common` | fixed 50 | **$0.50** |
-| Common | `reverse_holo` | `Reverse Holo` | fixed 150 | **$1.50** |
-| Common | `holofoil` | `Holo` (no sembrada) → fallback | pct 40 | **40% del market holofoil** |
-| Illustration Rare | `normal` | `Illustration Rare` (no sembrada) → fallback | pct 40 | **40% del market normal** |
-| Rare Holo | `holofoil` | `Rare Holo`→`Holo` (ninguna sembrada) → fallback | pct 40 | **40% del market holofoil** |
-| cualquiera | `first_edition_holofoil` | igual que `holofoil` | — | **% del market `1stEditionHolofoil`** |
+| `Card.rarity` | `finish` | ¿premium? | ruleKey resuelto | Regla | Monto |
+|---|---|---|---|---|---|
+| Common | `normal` | no | `Common` | fixed 50 | **$0.50** |
+| Common | `reverse_holo` | no | `Reverse Holo` | fixed 150 | **$1.50** |
+| Common | `holofoil` | no | `Holo` (no sembrada) → fallback | pct 40 | **40% del market holofoil** |
+| Illustration Rare | `normal` | sí | `Illustration Rare` (no sembrada) → fallback | pct 40 | **40% del market normal** |
+| Illustration Rare | `holofoil` | **sí** | `Illustration Rare` (no sembrada) → fallback — **nunca `"Holo"`** | pct 40 | **40% del market holofoil** |
+| Rare Holo ex | `holofoil` | **sí** | `Rare Holo ex` (no sembrada) → fallback — **nunca `"Holo"`** | pct 40 | **40% del market holofoil** |
+| Rare Holo | `holofoil` | no | `Rare Holo`→`Holo` (ninguna sembrada) → fallback | pct 40 | **40% del market holofoil** |
+| cualquiera | `first_edition_holofoil` | igual que `holofoil` | — | — | **% del market `1stEditionHolofoil`** |
+
+> **Blindaje del gate (antes vs. ahora):** si el admin sembrara `"Holo"` como `fixed` barato (bin de bulk), **antes**
+> una `Illustration Rare`/`ex` en holofoil habría cotizado a ese fijo (bug); **ahora** el gate premium la mantiene en
+> su propia regla o el fallback pct, así que **nunca** cae al bin de bulk aunque exista una regla `"Holo"` fija.
+
+**Decisión (2026-08-17): Common/Uncommon en `holofoil` = SE MANTIENE "% del market holofoil" (opción a, sin cambio
+de código).** Punto abierto que dejó backend en Fase 0: la regla verbal del humano fue *"solo Common/Uncommon son
+precio FIJO de bulk"*, pero el diseño ACTUAL (esta §4.2.1, con tests) cotiza **Common/Uncommon en holofoil** como
+**% del market holofoil** vía el candidato `['Holo']` (no como su `fixed` de bulk). Backend **preservó** el diseño
+actual para no romper el contrato por su cuenta y escaló la decisión al arquitecto. **Se resuelve mantener el diseño
+actual (a).** Justificación:
+> - **El caso es marginal por construcción.** `Card.availableFinishes` se **deriva de las llaves de
+>   `tcgplayer.prices`**; una Common/Uncommon casi nunca tiene la llave `holofoil` (imprimen en `normal` y
+>   `reverseHolofoil`). El guardarraíl **SEC-A1 / `422 FINISH_NOT_AVAILABLE`** bloquea cotizar `holofoil` para una
+>   carta que no lo tiene, así que en la práctica el par (Common, holofoil) casi no ocurre.
+> - **Cuando SÍ ocurre, "% del market holofoil" es la valuación correcta, no un bug.** Una copia genuinamente
+>   holofoil de una común tiene market propio (> $0.50) y vale un % de ese market; llevarla al `fixed` $0.50 de bulk
+>   la **sub-cotizaría**. La regla verbal "$0.50 fijo" se pensó para la común **de bulk** (normal/reverse), no para
+>   una impresión holofoil atípica. El precio se sigue derivando server-side del market real (SEC-A1 intacto).
+> - **La alternativa (b)** — mover Common/Uncommon holofoil a `fixed` de bulk — implicaría **tarea de backend**
+>   (nuevo candidato/lógica) y riesgo de sub-cotizar el caso raro, sin beneficio de negocio. **No se pide.**
+>
+> **Consecuencia:** no hay cambio de código ni de contrato por este punto; **Fase 0 queda cerrable** en lo que
+> respecta al arquitecto. Si el humano insistiera en `fixed` de bulk también para el holofoil de comunes, sería un
+> requisito nuevo de PROJECT.md que se enrutaría a backend vía el flujo normal (arquitecto → contrato → backend).
 
 **Claves sintéticas vs rareza real:** `"Reverse Holo"` y `"Holo"` son **ruleKeys sintéticos** del acabado (no son
 `Card.rarity`); conviven en `BUYLIST_PRICE_RULES` con las rarezas reales. `"Reverse Holo"` viene **sembrado**
