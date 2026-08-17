@@ -2917,3 +2917,68 @@ pide el runbook. Usa el Chromium preinstalado `/opt/pw-browsers`; NO `playwright
   buylist) el CTA "Confirmar y enviar" queda fuera del viewport. El spec lo sortea subiendo el
   viewport a 2000px, pero es una fricción real de usabilidad. Anotar en `TECH_DEBT.md` a petición
   de techlead.
+
+---
+
+## Rediseño del cotizador: grid protagonista (2026-08-17, stream «Catálogo y precios»)
+
+Rediseño integral de `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` en una sola
+pasada. Cambios de UX y sus decisiones:
+
+### Layout
+- **El grid de resultados manda:** ocupa el ancho/alto disponible con **scroll natural de página**
+  (se eliminó la caja `max-h-96 overflow-y-auto`). Retícula responsiva 2→3→4→5→6 columnas.
+- **Barra de filtros** encima del grid: set + buscador + **tipo de producto** (el select de tipo se
+  movió aquí desde el desaparecido "Paso 2" para no perder la capacidad de cotizar graded/sealed).
+- **Carrito de venta como columna lateral colapsable** (`lg:sticky`, 360px): toggle
+  "Ocultar/Mostrar carrito (N)" en la barra (`aria-expanded`). Colapsado, el grid usa todo el ancho.
+- La política **NM-only** y el copy de confianza (envío/pago SPEI/vigencia) viven en una sección
+  propia bajo el grid; **PAY_AFTER_RECEIPT** quedó en la cabecera, visible desde el load.
+
+### Cotización directa (sin panel «COTIZACIÓN»)
+- Se eliminó el panel de cotización, el botón "Agregar al carrito" intermedio y el **campo falso
+  «Condición: Near Mint (NM) fija»** (el aviso NM-only existente cubre esa información).
+- **Cada carta del grid lista sus acabados** (`availableFinishes`, orden `FINISH_ORDER`) como filas
+  agregables: una fila = un acabado con **su propio estimado server-side**; el clic **agrega directo
+  al carrito** (dedup por `cardId+productType+finish`, misma línea suma cantidad). En tipo
+  graded/sealed hay una sola fila por carta (cotizan en `normal`, contrato §I).
+- **Transparencia por línea:** cada línea del carrito tiene un **detalle expandible** (rareza,
+  acabado, valor de referencia, regla aplicada y la nota de «precio pendiente» cuando aplica) — la
+  misma información que daba el panel.
+
+### Límites del batch (decisión no obvia)
+- El grid cotiza **por acabado** en `POST /buylist/quote/batch` (cap **50 ítems/llamada**, throttle
+  **12/min**). Una página (pageSize 20) × hasta 4 acabados puede llegar a 80 ítems → el queryFn
+  **trocea en llamadas de ≤50** (`BUYLIST_QUOTE_BATCH_MAX` de `@/lib/api`): típico 1 llamada, peor
+  caso 2 por búsqueda; react-query cachea 5 min por (búsqueda × tipo). Se eligió cotizar TODOS los
+  acabados de la página (en vez de lazy al expandir) porque el peor caso cabe holgado en el throttle
+  y da estimados visibles sin interacción extra.
+- **El bulk ya no llama a la red:** «Agregar seleccionadas (N)» reusa las cotizaciones del batch del
+  grid (acabado por defecto por carta), tolerante por-ítem (`ok:false` → aviso parcial). El CTA se
+  deshabilita mientras el batch carga.
+- SEC-A1 intacto: los montos vienen SIEMPRE del server (batch); la UI no calcula ni manda precios.
+
+### «Mis solicitudes» sin sesión
+- El query `getSellRequests` se **gatea por sesión** (`useSellRequirements.ready && isAuthenticated`):
+  sin sesión no hay request y la sección muestra una **invitación neutra** a iniciar sesión
+  (`buylist.requestsLoginInvite`) — nunca un estado de error.
+
+### i18n (paridad ES/EN mantenida)
+- Nuevas claves `buylist.*`: `searchHint`, `gridQuotesFailed`, `addFinishAria`, `addedLine`,
+  `cartShow`, `cartHide`, `lineDetailShow`, `lineDetailHide`, `requestsLoginInvite`; rewording de
+  `gridEstimateLegend` y `cartEmpty`.
+- Claves retiradas (sin consumidores): `quoterTitle`, `selectCard`, `selectCondition`,
+  `selectFinish`, `quoting`, `quoteResult`, `category`, `categoryLabel`, `quotedPrice`,
+  `createRequest`, `conditionFixedNm`, `selectedCard`, `chooseCardFirst`, `addToCart`,
+  `addedToCart`.
+
+### Tests
+- `BuylistView.test.tsx` reescrito al nuevo flujo (42 tests): grid por acabado, add directo,
+  detalle expandible, colapso del carrito, bulk sin requests extra + parcial por-ítem, dedup por
+  acabado, «Mis solicitudes» sin sesión (endpoint NO consultado, sin `role=alert`), gating P-11 y
+  v1.15 CLABE/INE intactos.
+- `e2e/buylist.spec.ts` actualizado (11 tests, `--list` verificado): helpers `searchFor`/`addCard`
+  clican la fila de acabado por su `aria-label` (`buylist.addFinishAria`); el smoke `@real` agrega
+  la primera carta descubierta (Playwright auto-espera a que la fila se habilite con el estimado).
+- Flujos preservados: modal con `BuylistKycForm` (CLABE + INE, gating P-11), respuesta a ajuste F5.
+

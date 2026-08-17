@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   batchQuote,
-  getBuylistQuote,
+  BUYLIST_QUOTE_BATCH_MAX,
   getSellRequests,
   listBuylistSets,
   respondSellRequest,
@@ -42,19 +42,15 @@ import { cn } from '@/lib/cn';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 
+const QUOTE_STALE_MS = 5 * 60_000;
+
 /** Primer acabado disponible de la carta (normal va primero por convención del catálogo). */
 function firstAvailableFinish(card: CardDTO): Finish {
   return FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal';
 }
 
-/**
- * queryKey ÚNICO de cotización por (carta, tipo, acabado). Lo comparten la cotización
- * principal, el precio estimado del grid y el bulk: cotizar en un sitio cachea para
- * los demás (0 requests repetidos dentro del staleTime).
- */
-const quoteKeyFor = (cardId: string, productType: ProductType, finish: Finish) =>
-  ['buylist-quote', cardId, productType, finish] as const;
-const QUOTE_STALE_MS = 5 * 60_000;
+/** Llave del índice de cotizaciones del grid: una entrada por (carta, acabado). */
+const quoteMapKey = (cardId: string, finish: Finish) => `${cardId}:${finish}`;
 
 /**
  * Una línea del carrito de venta. Snapshotea el ESTIMADO de la cotización
@@ -80,7 +76,7 @@ let lineSeq = 0;
 
 /**
  * Merge con dedup por (cardId + productType + finish): la misma línea suma cantidad,
- * una combinación nueva agrega línea. Reusado por el add unitario y por el bulk.
+ * una combinación nueva agrega línea. Reusado por el add por-acabado y por el bulk.
  */
 function mergeCartLine(
   prev: CartLine[],
@@ -96,17 +92,9 @@ function mergeCartLine(
   return [...prev, { id: `line-${lineSeq}`, ...line, quantity: 1 }];
 }
 
-/** Ítem de cotización en lote para una carta del grid: raw NM, primer acabado disponible. */
-const gridQuoteItem = (card: CardDTO): BuylistQuoteItemDTO => ({
-  cardId: card.id,
-  productType: 'raw',
-  rawCondition: 'NM',
-  finish: firstAvailableFinish(card),
-});
-
 /**
  * Convierte un resultado batch `ok:true` en el `BuylistQuoteResponse` que consume el carrito.
- * (En el batch `rarity` es `string | null`; el carrito solo usa quote/finish, así que se normaliza.)
+ * (En el batch `rarity` es `string | null`; el carrito lo normaliza a string.)
  */
 function batchResultToQuote(r: Extract<BuylistBatchQuoteResultDTO, { ok: true }>): BuylistQuoteResponse {
   return {
@@ -120,12 +108,12 @@ function batchResultToQuote(r: Extract<BuylistBatchQuoteResultDTO, { ok: true }>
 }
 
 /**
- * Precio de compra ESTIMADO por resultado del grid: convierte la búsqueda en una "buylist
- * navegable". Fase 3b: el estimado ya NO se pide por-carta (fan-out FE-12); llega del RESULTADO
- * de UNA sola llamada `POST /buylist/quote/batch` hecha a nivel del grid. Presentacional y tolerante
- * a errores por-ítem: si ESE ítem salió `ok:false`, muestra su error sin afectar a las demás filas.
+ * Estimado de compra de UNA fila de acabado del grid (SEC-A1: el monto viene SIEMPRE del
+ * server vía `POST /buylist/quote/batch`; la UI no calcula nada). Tolerante a errores
+ * por-ítem: un acabado `ok:false` (NOT_FOUND / FINISH_NOT_AVAILABLE) muestra su error
+ * sin afectar a las demás filas.
  */
-function ResultQuote({
+function FinishEstimate({
   result,
   loading,
 }: {
@@ -148,9 +136,8 @@ function ResultQuote({
 }
 
 /**
- * Renglón de la cotización: concepto a la izquierda, dato a la derecha, regla debajo.
- * `lang` va en el propio contenedor del dato (los nombres y rarezas de catálogo son
- * EN) para no envolver el valor en un segundo elemento con idéntico texto.
+ * Renglón de detalle: concepto a la izquierda, dato a la derecha.
+ * `lang` va en el propio contenedor del dato (los nombres y rarezas de catálogo son EN).
  */
 function QuoteRow({
   label,
@@ -162,7 +149,7 @@ function QuoteRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-border py-3.5 text-[13px] text-muted">
+    <div className="flex items-center justify-between gap-4 border-b border-border py-2.5 text-[12px] text-muted last:border-b-0">
       <span>{label}</span>
       <span lang={lang} className="text-right text-text">
         {children}
@@ -172,44 +159,45 @@ function QuoteRow({
 }
 
 /**
- * 6d — El cotizador como formulario de una sola columna con la cotización a la
- * derecha, y el carrito de venta debajo. Las advertencias (solo NM, pago tras
- * verificar) llevan la regla bermellón en vez de un banner de color, y la sección
- * se marca con la etiqueta vertical BUYLIST al margen.
- *
- * Rediseño "menos clics" (2026-08-17):
- * - La cotización es AUTOMÁTICA al elegir carta/tipo/acabado (useQuery, sin botón "Cotizar").
- * - El grid de resultados muestra el precio de compra estimado por carta (ResultQuote).
- * - Multi-selección en resultados + "Agregar seleccionadas (N)" para bulk.
- * - Cantidad por línea con input numérico (además de −/+).
+ * Rediseño "grid protagonista" (2026-08-17):
+ * - El grid de resultados usa TODO el ancho/alto disponible (scroll natural de página,
+ *   sin scroll interno artificial); los filtros (set + búsqueda + tipo) viven en una
+ *   barra encima y el carrito de venta en una columna lateral colapsable.
+ * - Ya NO hay panel "COTIZACIÓN" ni selección intermedia: cada carta lista sus ACABADOS
+ *   (`availableFinishes`) con su estimado server-side, y el clic en un acabado la agrega
+ *   DIRECTO al carrito. La transparencia vive en el detalle expandible de cada línea
+ *   (valor de referencia / regla aplicada / acabado / pendiente).
+ * - El bulk (multi-selección) se conserva: agrega las seleccionadas (acabado por defecto)
+ *   reusando las cotizaciones ya cargadas del grid (cero requests extra).
+ * - "Mis solicitudes" nunca muestra error sin sesión: sin sesión la sección invita a
+ *   iniciar sesión en tono informativo (y no consulta el endpoint).
  */
 export function BuylistView() {
   const t = useTranslations('buylist');
+  const tCommon = useTranslations('common');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const buylistSteps = useBuylistSteps();
   const queryClient = useQueryClient();
 
-  // --- Búsqueda real sobre TODO el catálogo (contrato §6, v1.3) ---
+  // --- Barra de filtros: búsqueda real sobre TODO el catálogo (contrato §6, v1.3) ---
   const [setId, setSetId] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCard, setSelectedCard] = useState<CardDTO | null>(null);
-
   const [productType, setProductType] = useState<ProductType>('raw');
-  // v1.6-finish: acabado elegido para cotizar (default normal). Se puebla de card.availableFinishes.
-  const [finish, setFinish] = useState<Finish>('normal');
+
   const [guideOpen, setGuideOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
-  // --- Carrito de venta: varias cartas en UNA sola solicitud ---
+  // --- Carrito de venta: varias cartas en UNA sola solicitud; columna colapsable ---
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [justAdded, setJustAdded] = useState(false);
+  const [cartOpen, setCartOpen] = useState(true);
+  const [expandedLines, setExpandedLines] = useState<Record<string, boolean>>({});
+  const [lastAdded, setLastAdded] = useState<{ name: string; label: string } | null>(null);
 
   // --- Bulk: multi-selección en los resultados de búsqueda ---
   const [bulkSelected, setBulkSelected] = useState<Record<string, CardDTO>>({});
-  const [bulkAdding, setBulkAdding] = useState(false);
   const [bulkNotice, setBulkNotice] = useState<'added' | 'partial' | 'error' | null>(null);
   const [bulkAddedCount, setBulkAddedCount] = useState(0);
   const [bulkFailedCount, setBulkFailedCount] = useState(0);
@@ -224,68 +212,97 @@ export function BuylistView() {
     enabled: hasSearch,
   });
 
-  // Estimado de compra del grid en UNA sola llamada batch (mata el fan-out FE-12: antes cada carta
-  // del grid disparaba su propio POST /buylist/quote → ~pageSize requests). El backend responde con
-  // resultado/error POR-ÍTEM (HTTP 200), así que una carta inválida no tumba el resto del grid.
-  const gridBatchItems: BuylistQuoteItemDTO[] = useMemo(
-    () => (cardsResult.data?.data ?? []).map(gridQuoteItem),
-    [cardsResult.data],
-  );
+  /**
+   * Ítems del batch del grid: en raw, UNA entrada por (carta × acabado disponible) — así
+   * cada acabado del grid tiene su propio estimado; en graded/sealed una entrada por carta
+   * (cotizan siempre en `normal`, contrato §I).
+   */
+  const gridBatchItems: BuylistQuoteItemDTO[] = useMemo(() => {
+    const cards = cardsResult.data?.data ?? [];
+    if (productType !== 'raw') {
+      return cards.map((c) => ({ cardId: c.id, productType, finish: 'normal' as Finish }));
+    }
+    return cards.flatMap((c) =>
+      FINISH_ORDER.filter((f) => c.availableFinishes.includes(f)).map((f) => ({
+        cardId: c.id,
+        productType: 'raw' as ProductType,
+        rawCondition: 'NM' as RawCondition,
+        finish: f,
+      })),
+    );
+  }, [cardsResult.data, productType]);
+
+  /**
+   * Cotización del grid POR ACABADO en el mínimo de llamadas. Restricción no obvia:
+   * `POST /buylist/quote/batch` acepta máx 50 ítems y tiene throttle 12/min, y una página
+   * de 20 cartas × hasta 4 acabados puede llegar a 80 ítems → se TROCEA en llamadas de ≤50
+   * (típico: 1 llamada; peor caso de página: 2) y react-query cachea 5 min por
+   * (búsqueda × tipo), así que navegar de vuelta no re-consume el throttle.
+   */
   const gridQuotes = useQuery({
-    queryKey: ['buylist-quote-batch', gridBatchItems.map((i) => `${i.cardId}:${i.finish}`).join('|')],
-    queryFn: () => batchQuote(gridBatchItems),
+    queryKey: [
+      'buylist-quote-batch',
+      productType,
+      gridBatchItems.map((i) => `${i.cardId}:${i.finish}`).join('|'),
+    ],
+    queryFn: async () => {
+      const chunks: BuylistQuoteItemDTO[][] = [];
+      for (let i = 0; i < gridBatchItems.length; i += BUYLIST_QUOTE_BATCH_MAX) {
+        chunks.push(gridBatchItems.slice(i, i + BUYLIST_QUOTE_BATCH_MAX));
+      }
+      const responses = await Promise.all(chunks.map((items) => batchQuote(items)));
+      // `index` es 0-based DENTRO de cada chunk → se re-mapea al (cardId, finish) pedido.
+      const byKey: Record<string, BuylistBatchQuoteResultDTO> = {};
+      responses.forEach((res, ci) => {
+        for (const r of res.results) {
+          const requested = chunks[ci][r.index];
+          if (requested) byKey[quoteMapKey(requested.cardId, requested.finish ?? 'normal')] = r;
+        }
+      });
+      return byKey;
+    },
     enabled: gridBatchItems.length > 0,
     staleTime: QUOTE_STALE_MS,
   });
-  // index por cardId (cada carta aparece una vez en el grid) para pintar su estimado/su error.
-  const gridQuoteByCardId = useMemo(() => {
-    const map = new Map<string, BuylistBatchQuoteResultDTO>();
-    for (const r of gridQuotes.data?.results ?? []) map.set(r.cardId, r);
-    return map;
-  }, [gridQuotes.data]);
+
+  const quoteFor = (cardId: string, finish: Finish): BuylistBatchQuoteResultDTO | undefined =>
+    gridQuotes.data?.[quoteMapKey(cardId, finish)];
 
   function runSearch() {
     setSearchQuery(searchInput.trim());
   }
 
-  const rawCondition: RawCondition | undefined = productType === 'raw' ? 'NM' : undefined;
-
-  // El acabado solo aplica a raw/singles; graded/sealed cotizan siempre en `normal` (contrato §I).
-  const availableFinishes: Finish[] = selectedCard
-    ? FINISH_ORDER.filter((f) => selectedCard.availableFinishes.includes(f))
-    : ['normal'];
-  const effectiveFinish: Finish = productType === 'raw' ? finish : 'normal';
-  // Se muestra el selector solo cuando hay >1 acabado disponible (si es ["normal"], queda fijo/oculto).
-  const showFinishSelect = productType === 'raw' && availableFinishes.length > 1;
-
-  /**
-   * Cotización AUTOMÁTICA (menos clics): al elegir carta/tipo/acabado la key cambia y
-   * react-query cotiza sola — sin botón "Cotizar". useQuery (no mutation) porque el
-   * quote es read-only en el contrato (§6, v1.12) y así se cachea/comparte con el grid.
-   * v1.6-finish: el acabado viaja en `finish`; el backend valida ∈ availableFinishes.
-   */
-  const quoteQuery = useQuery({
-    queryKey: quoteKeyFor(selectedCard?.id ?? 'none', productType, effectiveFinish),
-    queryFn: () =>
-      getBuylistQuote({ cardId: selectedCard!.id, productType, rawCondition, finish: effectiveFinish }),
-    enabled: !!selectedCard,
-    staleTime: QUOTE_STALE_MS,
-  });
-
-  function pickCard(card: CardDTO) {
-    setSelectedCard(card);
-    // Arranca en el primer acabado disponible; la cotización dispara sola (auto-quote).
-    setFinish(firstAvailableFinish(card));
-    setJustAdded(false);
+  /** Acabados a listar por carta: en raw, todos los disponibles; en graded/sealed, normal. */
+  function tileFinishes(card: CardDTO): Finish[] {
+    if (productType !== 'raw') return ['normal'];
+    const rows = FINISH_ORDER.filter((f) => card.availableFinishes.includes(f));
+    return rows.length > 0 ? rows : ['normal'];
   }
 
-  function addToCart() {
-    if (!selectedCard || !quoteQuery.data) return;
-    const data = quoteQuery.data;
-    const card = selectedCard;
-    // El acabado autoritativo es el que ecoa el quote (validado server-side).
-    setCart((prev) => mergeCartLine(prev, { card, productType, rawCondition, finish: data.finish, quote: data }));
-    setJustAdded(true);
+  /** Etiqueta de la fila: el acabado en raw; el tipo de producto en graded/sealed. */
+  function rowLabel(finish: Finish): string {
+    return productType === 'raw' ? tFinish(finish) : t(`productType.${productType}`);
+  }
+
+  /**
+   * Clic en un acabado del grid → agrega DIRECTO al carrito con el estimado que ya
+   * cotizó el batch (una sola cotización; sin panel intermedio). El acabado autoritativo
+   * es el que ecoa el server en el resultado.
+   */
+  function addFromGrid(card: CardDTO, finish: Finish) {
+    const result = quoteFor(card.id, finish);
+    if (!result?.ok) return;
+    setCart((prev) =>
+      mergeCartLine(prev, {
+        card,
+        productType,
+        rawCondition: productType === 'raw' ? 'NM' : undefined,
+        finish: result.finish,
+        quote: batchResultToQuote(result),
+      }),
+    );
+    setLastAdded({ name: card.name, label: rowLabel(finish) });
+    setBulkNotice(null);
   }
 
   function toggleBulk(card: CardDTO) {
@@ -299,54 +316,40 @@ export function BuylistView() {
   }
 
   /**
-   * Bulk: agrega TODAS las seleccionadas de golpe (raw NM, acabado por defecto; el
-   * acabado/tipo se puede afinar por línea re-cotizando esa carta en el panel).
-   *
-   * Fase 3b: UNA sola llamada `POST /buylist/quote/batch` (antes: `Promise.all` de N
-   * `POST /buylist/quote`, all-or-nothing — una carta inválida tumbaba TODO el lote). Ahora es
-   * tolerante por-ítem: las que salen `ok:true` se agregan y las `ok:false` se cuentan aparte
-   * sin bloquear a las demás.
+   * Bulk: agrega TODAS las seleccionadas de golpe (acabado por defecto) REUSANDO las
+   * cotizaciones ya cargadas del grid — cero requests extra (el batch del grid ya cotizó
+   * cada acabado). Tolerante por-ítem: las `ok:false` se cuentan aparte sin bloquear.
    */
-  async function addSelectedToCart() {
+  function addSelectedToCart() {
     const cards = Object.values(bulkSelected);
-    if (cards.length === 0) return;
-    setBulkAdding(true);
-    setBulkNotice(null);
-    try {
-      const { results } = await batchQuote(cards.map(gridQuoteItem));
-      const cardById = new Map(cards.map((c) => [c.id, c]));
-      const okResults = results.filter(
-        (r): r is Extract<BuylistBatchQuoteResultDTO, { ok: true }> => r.ok,
-      );
-      setCart((prev) => {
-        let next = prev;
-        for (const r of okResults) {
-          const card = cardById.get(r.cardId);
-          if (!card) continue;
-          next = mergeCartLine(next, {
-            card,
-            productType: 'raw',
-            rawCondition: 'NM',
-            finish: r.finish,
-            quote: batchResultToQuote(r),
-          });
-        }
-        return next;
-      });
-      const added = okResults.filter((r) => cardById.has(r.cardId)).length;
-      const failed = results.length - added;
-      setBulkAddedCount(added);
-      setBulkFailedCount(failed);
-      // Tolerante por-ítem: éxito total → "added"; algunas fallaron pero otras entraron → "partial";
-      // ninguna entró → "error".
-      setBulkNotice(failed === 0 ? 'added' : added > 0 ? 'partial' : 'error');
-      setBulkSelected({});
-    } catch {
-      // Error a nivel request (p. ej. 400 VALIDATION_ERROR por vacío/sobre-cap, o red).
-      setBulkNotice('error');
-    } finally {
-      setBulkAdding(false);
+    const quotes = gridQuotes.data;
+    if (cards.length === 0 || !quotes) return;
+    const okEntries: { card: CardDTO; result: Extract<BuylistBatchQuoteResultDTO, { ok: true }> }[] = [];
+    let failed = 0;
+    for (const card of cards) {
+      const defaultFinish = productType === 'raw' ? firstAvailableFinish(card) : 'normal';
+      const r = quotes[quoteMapKey(card.id, defaultFinish)];
+      if (r?.ok) okEntries.push({ card, result: r });
+      else failed += 1;
     }
+    setCart((prev) =>
+      okEntries.reduce(
+        (acc, { card, result }) =>
+          mergeCartLine(acc, {
+            card,
+            productType,
+            rawCondition: productType === 'raw' ? 'NM' : undefined,
+            finish: result.finish,
+            quote: batchResultToQuote(result),
+          }),
+        prev,
+      ),
+    );
+    setBulkAddedCount(okEntries.length);
+    setBulkFailedCount(failed);
+    setBulkNotice(failed === 0 ? 'added' : okEntries.length > 0 ? 'partial' : 'error');
+    setBulkSelected({});
+    setLastAdded(null);
   }
 
   function setQuantity(lineId: string, quantity: number) {
@@ -356,6 +359,17 @@ export function BuylistView() {
 
   function removeLine(lineId: string) {
     setCart((prev) => prev.filter((l) => l.id !== lineId));
+  }
+
+  function toggleLineDetail(lineId: string) {
+    setExpandedLines((prev) => ({ ...prev, [lineId]: !prev[lineId] }));
+  }
+
+  /** Regla aplicada legible ("40% de referencia" / "MX$1.50 fijo"), resuelta server-side. */
+  function ruleText(rule: BuylistQuoteResponse['appliedRule']): string {
+    return rule.mode === 'fixed'
+      ? t('ruleFixed', { amount: formatMoneyCents(rule.value, locale) })
+      : t('rulePct', { pct: rule.value });
   }
 
   // Total ESTIMADO: suma quotedPriceCents × cantidad. Las líneas en precio
@@ -396,7 +410,14 @@ export function BuylistView() {
     [cart],
   );
 
-  const requests = useQuery({ queryKey: ['sell-requests'], queryFn: getSellRequests });
+  // "Mis solicitudes" SOLO se consulta con sesión: sin sesión no hay request (y por
+  // tanto nunca un estado de error) — la sección muestra una invitación neutra.
+  const requestsEnabled = sellReq.ready && sellReq.isAuthenticated;
+  const requests = useQuery({
+    queryKey: ['sell-requests'],
+    queryFn: getSellRequests,
+    enabled: requestsEnabled,
+  });
 
   // F5 · Responder un AJUSTE de venta (contrato §6 · POST /buylist/requests/:id/respond).
   // El cliente acepta/rechaza el precio ajustado por el admin; al éxito refresca la lista.
@@ -421,130 +442,107 @@ export function BuylistView() {
         <div className="gutter border-b border-border pb-7 pt-10 lg:pt-[46px]">
           <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
           <p className="mt-3 max-w-[560px] text-[15px] leading-[1.65] text-muted">{t('subtitle')}</p>
+          {/* PAY_AFTER_RECEIPT (PROJECT AC 33, DESIGN §7.5), visible desde el inicio. */}
+          <p className="rule-note mt-5 max-w-[640px] text-[13px] leading-[1.7] text-muted">
+            {t('payAfterReceipt')}
+          </p>
+          <button
+            type="button"
+            onClick={() => setGuideOpen(true)}
+            className="mt-5 border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
+          >
+            {t('shippingGuideLink')}
+          </button>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_380px]">
-          {/* Cotizador */}
-          <div className="gutter border-b border-border pb-11 pt-9 lg:border-b-0 lg:border-r">
-            <p className="eyebrow">{t('quoterTitle')}</p>
-
-            {/* Paso 1: filtrar por set y/o buscar sobre TODO el catálogo */}
-            <div className="mt-6 grid gap-7 sm:grid-cols-2">
-              <Select
-                label={t('filterBySet')}
-                placeholder={t('allSets')}
-                options={(sets.data ?? []).map((s) => ({
-                  value: s.id,
-                  label: s.year ? `${s.name} (${s.year})` : s.name,
-                }))}
-                value={setId}
-                onChange={(e) => {
-                  setSetId(e.target.value);
-                  // Filtrar por set dispara la búsqueda aunque no haya texto.
+        {/* Barra de filtros: set + búsqueda + tipo, con el toggle del carrito al extremo. */}
+        <div className="gutter flex flex-wrap items-end gap-x-8 gap-y-6 border-b border-border pb-7 pt-6">
+          <div className="w-full sm:w-64">
+            <Select
+              label={t('filterBySet')}
+              placeholder={t('allSets')}
+              options={(sets.data ?? []).map((s) => ({
+                value: s.id,
+                label: s.year ? `${s.name} (${s.year})` : s.name,
+              }))}
+              value={setId}
+              onChange={(e) => {
+                setSetId(e.target.value);
+                // Filtrar por set dispara la búsqueda aunque no haya texto.
+              }}
+            />
+          </div>
+          <div className="flex min-w-[240px] flex-1 items-end gap-4">
+            <div className="min-w-0 flex-1">
+              <Input
+                label={t('searchCards')}
+                placeholder={t('searchPlaceholder')}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') runSearch();
                 }}
               />
-              <div className="flex items-end gap-4">
-                <Input
-                  label={t('searchCards')}
-                  className="flex-1"
-                  placeholder={t('searchPlaceholder')}
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') runSearch();
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={runSearch}
-                  className="shrink-0 pb-3 text-xs font-medium text-accent hover:text-text"
-                >
-                  {t('searchAction')}
-                </button>
-              </div>
             </div>
+            <button
+              type="button"
+              onClick={runSearch}
+              className="shrink-0 pb-3 text-xs font-medium text-accent hover:text-text"
+            >
+              {t('searchAction')}
+            </button>
+          </div>
+          <div className="w-full sm:w-44">
+            <Select
+              label={t('selectType')}
+              options={PRODUCT_TYPES.map((p) => ({ value: p, label: t(`productType.${p}`) }))}
+              value={productType}
+              onChange={(e) => {
+                setProductType(e.target.value as ProductType);
+                setBulkNotice(null);
+                setLastAdded(null);
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            aria-expanded={cartOpen}
+            onClick={() => setCartOpen((v) => !v)}
+            className="ml-auto pb-3 font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
+          >
+            {cartOpen ? t('cartHide') : t('cartShow', { count: cartCount })}
+          </button>
+        </div>
 
-            {/* Resultados: el arte manda; el elegido se marca con el filete bermellón.
-                Cada carta muestra su precio de compra estimado (buylist navegable) y un
-                checkbox de multi-selección para agregar en lote. */}
-            {hasSearch && (
-              <div className="mt-9">
-                <p className="eyebrow">{t('searchResults')}</p>
-                <p className="mt-2 font-mono text-[11px] text-muted">{t('gridEstimateLegend')}</p>
-                <div className="mt-4">
-                  <QueryState
-                    isLoading={cardsResult.isLoading}
-                    isError={cardsResult.isError}
-                    error={cardsResult.error}
-                    onRetry={() => cardsResult.refetch()}
-                  >
-                    {cardsResult.data &&
-                      (cardsResult.data.data.length === 0 ? (
-                        <EmptyState title={t('noResults')} />
-                      ) : (
-                        <ul
-                          className="flex max-h-96 flex-wrap gap-5 overflow-y-auto"
-                          aria-label={t('searchResults')}
-                        >
-                          {cardsResult.data.data.map((card) => {
-                            const active = selectedCard?.id === card.id;
-                            return (
-                              <li key={card.id} className="relative w-24">
-                                {/* Multi-selección (bulk): checkbox FUERA del botón de detalle. */}
-                                <input
-                                  type="checkbox"
-                                  aria-label={t('bulkSelect', { name: card.name })}
-                                  checked={!!bulkSelected[card.id]}
-                                  onChange={() => toggleBulk(card)}
-                                  className="absolute left-1 top-1 z-10 h-4 w-4 accent-accent focus-visible:shadow-focus"
-                                />
-                                <button
-                                  type="button"
-                                  aria-pressed={active}
-                                  onClick={() => pickCard(card)}
-                                  className="block w-24 text-left"
-                                >
-                                  <CardImage
-                                    src={card.imageSmallUrl}
-                                    alt={card.name}
-                                    className={cn(
-                                      'p-1.5',
-                                      active && 'outline outline-1 outline-offset-4 outline-accent',
-                                    )}
-                                  />
-                                  <span
-                                    lang="en"
-                                    className={cn(
-                                      'mt-2.5 block truncate text-xs',
-                                      active ? 'text-text' : 'text-muted',
-                                    )}
-                                  >
-                                    {card.name}
-                                  </span>
-                                  <span lang="en" className="mt-1 block truncate font-mono text-[10px] text-muted">
-                                    {card.setName}
-                                    {card.number && ` · #${card.number}`}
-                                  </span>
-                                  {/* Estimado de compra por carta (raw NM, acabado default), del batch. */}
-                                  <span className="mt-1 block truncate font-mono text-[10px]">
-                                    <ResultQuote
-                                      result={gridQuoteByCardId.get(card.id)}
-                                      loading={gridQuotes.isLoading}
-                                    />
-                                  </span>
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      ))}
-                  </QueryState>
+        <div className={cn('grid', cartOpen && 'lg:grid-cols-[minmax(0,1fr)_360px]')}>
+          {/* El grid de resultados es el protagonista: todo el ancho/alto disponible,
+              scroll natural de página (sin caja con scroll interno). */}
+          <main className="gutter min-w-0 pb-12 pt-8">
+            {!hasSearch ? (
+              <EmptyState title={t('searchHint')} />
+            ) : (
+              <>
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <p className="eyebrow">{t('searchResults')}</p>
+                  <p className="font-mono text-[11px] text-muted">{t('gridEstimateLegend')}</p>
                 </div>
 
-                {/* Barra de bulk: agrega todas las seleccionadas en un clic. */}
+                {lastAdded && (
+                  <p role="status" className="mt-3 font-mono text-[11px] text-success">
+                    {t('addedLine', { name: lastAdded.name, finish: lastAdded.label })}
+                  </p>
+                )}
+
+                {/* Barra de bulk: agrega todas las seleccionadas en un clic (acabado por
+                    defecto), reusando las cotizaciones del grid. */}
                 {bulkCount > 0 && (
-                  <div className="mt-5 flex flex-wrap items-center gap-5">
-                    <Button size="sm" variant="secondary" loading={bulkAdding} onClick={addSelectedToCart}>
+                  <div className="mt-4 flex flex-wrap items-center gap-5">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={gridQuotes.isLoading}
+                      onClick={addSelectedToCart}
+                    >
                       {t('bulkAddCta', { count: bulkCount })}
                     </Button>
                     <button
@@ -562,7 +560,7 @@ export function BuylistView() {
                   </p>
                 )}
                 {bulkNotice === 'partial' && (
-                  /* Tolerante por-ítem: algunas entraron, otras no (batch, HTTP 200 con errores por-ítem). */
+                  /* Tolerante por-ítem: algunas entraron, otras no (errores por-ítem del batch). */
                   <p role="status" className="mt-3 font-mono text-[11px] text-accent">
                     {t('bulkAddedPartial', { added: bulkAddedCount, failed: bulkFailedCount })}
                   </p>
@@ -572,150 +570,101 @@ export function BuylistView() {
                     {t('bulkAddError')}
                   </p>
                 )}
-              </div>
-            )}
 
-            {/* Paso 2: tipo, condición y acabado de la carta seleccionada */}
-            <div className="mt-9 grid gap-7 sm:grid-cols-3">
-              <Select
-                label={t('selectType')}
-                options={PRODUCT_TYPES.map((p) => ({ value: p, label: t(`productType.${p}`) }))}
-                value={productType}
-                onChange={(e) => {
-                  setProductType(e.target.value as ProductType);
-                  setJustAdded(false);
-                }}
-              />
-              {productType === 'raw' && (
-                // Sin selector de condición: NM fijo (único grado que compramos).
-                <div>
-                  <p className="eyebrow">{t('selectCondition')}</p>
-                  <p className="mt-3 border-b border-border-strong pb-3 text-sm text-muted">
-                    {t('conditionFixedNm')}
+                {/* Falla del batch de estimados: aviso con reintento, sin tumbar el grid. */}
+                {gridQuotes.isError && (
+                  <p role="alert" className="mt-3 font-mono text-[11px] text-accent">
+                    {t('gridQuotesFailed')}{' '}
+                    <button
+                      type="button"
+                      onClick={() => gridQuotes.refetch()}
+                      className="underline hover:text-text"
+                    >
+                      {tCommon('retry')}
+                    </button>
                   </p>
-                </div>
-              )}
-              {/* v1.6-finish: selector de acabado poblado de card.availableFinishes. Solo cuando
-                  la carta tiene >1 acabado; si es ["normal"] queda fijo en Normal (oculto).
-                  Cambiarlo RE-COTIZA automáticamente (auto-quote). */}
-              {selectedCard && showFinishSelect && (
-                <Select
-                  label={t('selectFinish')}
-                  options={availableFinishes.map((f) => ({ value: f, label: tFinish(f) }))}
-                  value={finish}
-                  onChange={(e) => {
-                    setFinish(e.target.value as Finish);
-                    setJustAdded(false);
-                  }}
-                />
-              )}
-            </div>
-
-            <div className="mt-9 flex flex-wrap items-center gap-6">
-              <button
-                type="button"
-                onClick={() => setGuideOpen(true)}
-                className="border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
-              >
-                {t('shippingGuideLink')}
-              </button>
-            </div>
-            {!selectedCard && (
-              <p className="mt-4 font-mono text-[11px] text-muted">{t('chooseCardFirst')}</p>
-            )}
-
-            {/* Política NM-only (PROJECT §E/H, AC 3d) como nota al margen. */}
-            <p className="rule-note mt-10 max-w-[640px] text-[13px] leading-[1.7] text-muted">
-              <span className="font-medium text-text">{t('nmOnlyTitle')}.</span> {t('nmOnlyBody')}
-            </p>
-
-            {/* Copy de confianza (EDITABLE): quién paga el envío, tiempos de verificación/
-                pago SPEI y vigencia de la cotización (ver FRONTEND_NOTES). */}
-            <div className="mt-6 max-w-[640px] text-[13px] leading-[1.7] text-muted">
-              <p>{t('trustShipping')}</p>
-              <p className="mt-2">{t('trustPayment')}</p>
-              <p className="mt-2">{t('trustValidity')}</p>
-            </div>
-          </div>
-
-          {/* Cotización + carrito de venta */}
-          <aside className="gutter pb-11 pt-9">
-            {/* La cabecera aparece con la cotización: sin datos no hay ficha que titular.
-                La cotización es automática: elegir carta/acabado dispara el quote. */}
-            {selectedCard ? (
-              <QueryState
-                isLoading={quoteQuery.isLoading}
-                isError={quoteQuery.isError}
-                error={quoteQuery.error}
-                onRetry={() => quoteQuery.refetch()}
-                loading={
-                  <p role="status" className="text-[13px] leading-[1.7] text-muted">
-                    {t('quoting')}
-                  </p>
-                }
-              >
-                {quoteQuery.data && (
-                  <>
-                    <h2 className="eyebrow">{t('quoteResult')}</h2>
-                    <div className="mt-5 border-t border-border">
-                      <QuoteRow label={t('selectedCard')} lang="en">
-                        {selectedCard.name}
-                      </QuoteRow>
-                      <QuoteRow label={t('rarityLabel')} lang="en">
-                        {quoteQuery.data.rarity}
-                      </QuoteRow>
-                      {/* v1.6-finish: acabado cotizado; la regla y la referencia se resuelven por acabado. */}
-                      <QuoteRow label={tFinish('label')}>{tFinish(quoteQuery.data.finish)}</QuoteRow>
-                      {quoteQuery.data.referencePrice.status === 'priced' && (
-                        <QuoteRow label={t('referencePrice')}>
-                          <span className="tabular">
-                            {formatMoneyCents(quoteQuery.data.referencePrice.priceMxnCents ?? 0, locale)}
-                          </span>
-                        </QuoteRow>
-                      )}
-                      {/* Regla aplicada, resuelta por el acabado (ej. "40% de referencia" o "$1.50 fijo"). */}
-                      <QuoteRow label={t('appliedRuleLabel')}>
-                        {quoteQuery.data.appliedRule.mode === 'fixed'
-                          ? t('ruleFixed', {
-                              amount: formatMoneyCents(quoteQuery.data.appliedRule.value, locale),
-                            })
-                          : t('rulePct', { pct: quoteQuery.data.appliedRule.value })}
-                      </QuoteRow>
-                    </div>
-
-                    {quoteQuery.data.quote.status === 'precio_pendiente' ? (
-                      <p className="rule-note mt-6 text-[13px] leading-[1.7] text-muted">
-                        {t('pricePendingNotice')}
-                      </p>
-                    ) : (
-                      <div className="mt-6">
-                        <p className="eyebrow">{t('quotedPrice')}</p>
-                        <p className="tabular mt-2.5 text-[36px] font-medium leading-none text-text">
-                          {formatMoneyCents(quoteQuery.data.quote.quotedPriceCents ?? 0, locale)}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* PAY_AFTER_RECEIPT (PROJECT AC 33, DESIGN §7.5) */}
-                    <p className="mt-5 text-xs leading-[1.6] text-muted">{t('payAfterReceipt')}</p>
-
-                    <Button variant="secondary" className="mt-6 w-full" onClick={addToCart}>
-                      {t('addToCart')}
-                    </Button>
-                    {justAdded && (
-                      <p className="mt-3 font-mono text-[11px] text-success" role="status">
-                        {t('addedToCart')}
-                      </p>
-                    )}
-                  </>
                 )}
-              </QueryState>
-            ) : (
-              <p className="text-[13px] leading-[1.7] text-muted">{t('payAfterReceipt')}</p>
-            )}
 
-            {/* Carrito de venta: varias cartas en UNA sola solicitud. */}
-            <div className="mt-10 border-t border-border pt-6">
+                <div className="mt-6">
+                  <QueryState
+                    isLoading={cardsResult.isLoading}
+                    isError={cardsResult.isError}
+                    error={cardsResult.error}
+                    onRetry={() => cardsResult.refetch()}
+                  >
+                    {cardsResult.data &&
+                      (cardsResult.data.data.length === 0 ? (
+                        <EmptyState title={t('noResults')} />
+                      ) : (
+                        <ul
+                          aria-label={t('searchResults')}
+                          className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
+                        >
+                          {cardsResult.data.data.map((card) => (
+                            <li key={card.id} className="relative min-w-0">
+                              {/* Multi-selección (bulk): checkbox FUERA de las filas de acabado. */}
+                              <input
+                                type="checkbox"
+                                aria-label={t('bulkSelect', { name: card.name })}
+                                checked={!!bulkSelected[card.id]}
+                                onChange={() => toggleBulk(card)}
+                                className="absolute left-1.5 top-1.5 z-10 h-4 w-4 accent-accent focus-visible:shadow-focus"
+                              />
+                              <CardImage src={card.imageSmallUrl} alt={card.name} className="p-1.5" />
+                              <p lang="en" className="mt-2.5 truncate text-[13px] text-text">
+                                {card.name}
+                              </p>
+                              <p lang="en" className="mt-1 truncate font-mono text-[10px] text-muted">
+                                {card.setName}
+                                {card.number && ` · #${card.number}`}
+                              </p>
+                              {/* Una fila por acabado disponible: estimado propio y agregable
+                                  por separado (clic = directo al carrito). */}
+                              <ul className="mt-2.5">
+                                {tileFinishes(card).map((finish) => {
+                                  const result = quoteFor(card.id, finish);
+                                  return (
+                                    <li key={finish}>
+                                      <button
+                                        type="button"
+                                        disabled={!result?.ok}
+                                        onClick={() => addFromGrid(card, finish)}
+                                        aria-label={t('addFinishAria', {
+                                          name: card.name,
+                                          finish: rowLabel(finish),
+                                        })}
+                                        className="group flex w-full items-center justify-between gap-2 border-b border-border py-2 text-left disabled:cursor-not-allowed"
+                                      >
+                                        <span className="truncate font-mono text-[10px] uppercase tracking-[0.06em] text-muted group-hover:text-text">
+                                          {rowLabel(finish)}
+                                        </span>
+                                        <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
+                                          <FinishEstimate result={result} loading={gridQuotes.isLoading} />
+                                          <span
+                                            aria-hidden
+                                            className={cn('text-accent', !result?.ok && 'opacity-40')}
+                                          >
+                                            +
+                                          </span>
+                                        </span>
+                                      </button>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </li>
+                          ))}
+                        </ul>
+                      ))}
+                  </QueryState>
+                </div>
+              </>
+            )}
+          </main>
+
+          {/* Carrito de venta: columna lateral colapsable (el grid manda). */}
+          {cartOpen && (
+            <aside className="gutter min-w-0 self-start border-t border-border pb-11 pt-8 lg:sticky lg:top-0 lg:border-l lg:border-t-0">
               <div className="flex items-center justify-between">
                 <h2 className="eyebrow">{t('cartTitle')}</h2>
                 {cartCount > 0 && <span className="eyebrow">{t('cartCount', { count: cartCount })}</span>}
@@ -735,6 +684,7 @@ export function BuylistView() {
                     {cart.map((l) => {
                       const pending = l.quote.quote.status === 'precio_pendiente';
                       const unitCents = l.quote.quote.quotedPriceCents ?? 0;
+                      const detailOpen = !!expandedLines[l.id];
                       return (
                         <li key={l.id} className="border-b border-border py-3">
                           <div className="flex items-baseline justify-between gap-3">
@@ -792,6 +742,16 @@ export function BuylistView() {
                                 +
                               </button>
                             </div>
+                            {/* Detalle expandible: la transparencia de la cotización vive aquí
+                                (valor de referencia / regla aplicada / acabado / pendiente). */}
+                            <button
+                              type="button"
+                              aria-expanded={detailOpen}
+                              onClick={() => toggleLineDetail(l.id)}
+                              className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
+                            >
+                              {detailOpen ? t('lineDetailHide') : t('lineDetailShow')}
+                            </button>
                             <button
                               type="button"
                               onClick={() => removeLine(l.id)}
@@ -800,6 +760,30 @@ export function BuylistView() {
                               {t('removeLine')}
                             </button>
                           </div>
+                          {detailOpen && (
+                            <div className="mt-3 border-l border-border-strong pl-4">
+                              {l.quote.rarity && (
+                                <QuoteRow label={t('rarityLabel')} lang="en">
+                                  {l.quote.rarity}
+                                </QuoteRow>
+                              )}
+                              <QuoteRow label={tFinish('label')}>{tFinish(l.quote.finish)}</QuoteRow>
+                              {l.quote.referencePrice.status === 'priced' && (
+                                <QuoteRow label={t('referencePrice')}>
+                                  <span className="tabular">
+                                    {formatMoneyCents(l.quote.referencePrice.priceMxnCents ?? 0, locale)}
+                                  </span>
+                                </QuoteRow>
+                              )}
+                              {/* Regla aplicada, resuelta server-side por el acabado. */}
+                              <QuoteRow label={t('appliedRuleLabel')}>{ruleText(l.quote.appliedRule)}</QuoteRow>
+                              {pending && (
+                                <p className="rule-note mt-3 text-[12px] leading-[1.7] text-muted">
+                                  {t('pricePendingNotice')}
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </li>
                       );
                     })}
@@ -872,9 +856,22 @@ export function BuylistView() {
                   </Button>
                 </>
               )}
-            </div>
-          </aside>
+            </aside>
+          )}
         </div>
+
+        {/* Política NM-only (PROJECT §E/H, AC 3d) + copy de confianza (EDITABLE): quién paga
+            el envío, tiempos de verificación/pago SPEI y vigencia (ver FRONTEND_NOTES). */}
+        <section className="gutter border-t border-border pb-10 pt-8">
+          <p className="rule-note max-w-[640px] text-[13px] leading-[1.7] text-muted">
+            <span className="font-medium text-text">{t('nmOnlyTitle')}.</span> {t('nmOnlyBody')}
+          </p>
+          <div className="mt-6 max-w-[640px] text-[13px] leading-[1.7] text-muted">
+            <p>{t('trustShipping')}</p>
+            <p className="mt-2">{t('trustPayment')}</p>
+            <p className="mt-2">{t('trustValidity')}</p>
+          </div>
+        </section>
 
         {createdId && (
           <p className="gutter rule-note py-5 text-sm text-text" role="status">
@@ -882,143 +879,156 @@ export function BuylistView() {
           </p>
         )}
 
-        {/* Mis solicitudes */}
+        {/* Mis solicitudes: sin sesión NUNCA muestra error — invita a iniciar sesión
+            en tono informativo (y no consulta el endpoint). */}
         <section className="gutter border-t border-border pb-14 pt-10">
           <h2 className="font-serif text-[22px] leading-tight text-text lg:text-[28px]">{t('myRequests')}</h2>
           <div className="mt-6">
-            <QueryState
-              isLoading={requests.isLoading}
-              isError={requests.isError}
-              error={requests.error}
-              onRetry={() => requests.refetch()}
-            >
-              {(requests.data?.length ?? 0) === 0 ? (
-                <EmptyState title={t('noRequests')} />
-              ) : (
-                requests.data!.map((r) => {
-                  const hasPendingItems = r.items.some((it) => it.quotedPriceCents == null);
-                  // F5: `ajustada` es item-level (no request-level) → se detecta por ítem.
-                  const adjustedItems = r.items.filter((it) => it.itemStatus === 'ajustada');
-                  const hasAdjustedItems = adjustedItems.length > 0;
-                  const adjustedTotalCents = adjustedItems.reduce(
-                    (s, it) => s + (it.approvedPriceCents ?? 0),
-                    0,
-                  );
-                  const responding =
-                    respondMutation.isPending && respondMutation.variables?.id === r.sellRequestId;
-                  return (
-                    <div key={r.sellRequestId} className="border-t border-border py-6">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <span className="flex items-center gap-3">
-                          <span className="tabular font-mono text-[13px] text-text">{r.sellRequestId}</span>
-                          <StatusBadge domain="sellRequest" value={r.status} />
-                        </span>
-                        <span className="tabular text-sm font-medium text-text">
-                          {formatMoneyCents(r.quotedTotalCents, locale)}
-                        </span>
-                      </div>
-
-                      <div className="mt-5">
-                        <PipelineStepper
-                          steps={buylistSteps}
-                          current={r.status}
-                          errored={r.status === 'rechazada' || r.status === 'abandonada'}
-                        />
-                      </div>
-
-                      <div className="mt-5">
-                        {r.items.map((it) => (
-                          <div
-                            key={it.id}
-                            className="flex items-center justify-between gap-3 border-b border-border py-2.5 text-sm last:border-b-0"
-                          >
-                            <span lang="en" className="text-text">
-                              {it.card.name}
-                            </span>
-                            <span className="flex items-center gap-4">
-                              {/* Ajustada: el precio vigente es el ajustado (approvedPriceCents),
-                                  con el original tachado para que el cliente compare. */}
-                              {it.itemStatus === 'ajustada' && it.approvedPriceCents != null ? (
-                                <span className="flex items-center gap-2">
-                                  {it.quotedPriceCents != null && (
-                                    <span className="tabular text-[11px] text-muted line-through">
-                                      {formatMoneyCents(it.quotedPriceCents, locale)}
-                                    </span>
-                                  )}
-                                  <span className="tabular font-medium text-text">
-                                    {formatMoneyCents(it.approvedPriceCents, locale)}
-                                  </span>
-                                </span>
-                              ) : it.quotedPriceCents == null ? (
-                                /* Honesto: sin cotización NO se muestra MX$0.00. */
-                                <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
-                              ) : (
-                                <span className="tabular text-muted">
-                                  {formatMoneyCents(it.quotedPriceCents, locale)}
-                                </span>
-                              )}
-                              <StatusBadge domain="sellItem" value={it.itemStatus} />
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* F5: bloque de respuesta al AJUSTE — visible solo con ítems `ajustada`. */}
-                      {hasAdjustedItems && (
-                        <div className="mt-5 border border-accent/40 bg-accent/5 p-4">
-                          <p className="eyebrow text-accent">{t('adjust.title')}</p>
-                          <p className="mt-2 text-[13px] leading-[1.6] text-text">
-                            {t('adjust.body')}
-                          </p>
-                          <p className="mt-3 flex items-baseline justify-between gap-3 text-sm">
-                            <span className="text-muted">{t('adjust.newTotal')}</span>
-                            <span className="tabular font-medium text-text">
-                              {formatMoneyCents(adjustedTotalCents, locale)}
-                            </span>
-                          </p>
-                          {respondMutation.isError &&
-                            respondMutation.variables?.id === r.sellRequestId && (
-                              <p role="alert" className="mt-3 font-mono text-[11px] text-accent">
-                                {t('adjust.error')}
-                              </p>
-                            )}
-                          <div className="mt-4 flex gap-3">
-                            <Button
-                              size="sm"
-                              loading={responding && respondMutation.variables?.decision === 'accept'}
-                              disabled={responding}
-                              onClick={() =>
-                                respondMutation.mutate({ id: r.sellRequestId, decision: 'accept' })
-                              }
-                            >
-                              {t('adjust.accept')}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-accent"
-                              loading={responding && respondMutation.variables?.decision === 'decline'}
-                              disabled={responding}
-                              onClick={() =>
-                                respondMutation.mutate({ id: r.sellRequestId, decision: 'decline' })
-                              }
-                            >
-                              {t('adjust.decline')}
-                            </Button>
-                          </div>
+            {!sellReq.ready ? null : !sellReq.isAuthenticated ? (
+              <div className="max-w-[560px]">
+                <p className="text-[13px] leading-[1.7] text-muted">{t('requestsLoginInvite')}</p>
+                <Link
+                  href="/login"
+                  className="mt-4 inline-block border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
+                >
+                  {t('loginCta')}
+                </Link>
+              </div>
+            ) : (
+              <QueryState
+                isLoading={requests.isLoading}
+                isError={requests.isError}
+                error={requests.error}
+                onRetry={() => requests.refetch()}
+              >
+                {(requests.data?.length ?? 0) === 0 ? (
+                  <EmptyState title={t('noRequests')} />
+                ) : (
+                  requests.data!.map((r) => {
+                    const hasPendingItems = r.items.some((it) => it.quotedPriceCents == null);
+                    // F5: `ajustada` es item-level (no request-level) → se detecta por ítem.
+                    const adjustedItems = r.items.filter((it) => it.itemStatus === 'ajustada');
+                    const hasAdjustedItems = adjustedItems.length > 0;
+                    const adjustedTotalCents = adjustedItems.reduce(
+                      (s, it) => s + (it.approvedPriceCents ?? 0),
+                      0,
+                    );
+                    const responding =
+                      respondMutation.isPending && respondMutation.variables?.id === r.sellRequestId;
+                    return (
+                      <div key={r.sellRequestId} className="border-t border-border py-6">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <span className="flex items-center gap-3">
+                            <span className="tabular font-mono text-[13px] text-text">{r.sellRequestId}</span>
+                            <StatusBadge domain="sellRequest" value={r.status} />
+                          </span>
+                          <span className="tabular text-sm font-medium text-text">
+                            {formatMoneyCents(r.quotedTotalCents, locale)}
+                          </span>
                         </div>
-                      )}
 
-                      {hasPendingItems && (
-                        <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">
-                          {t('requestPendingNote')}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </QueryState>
+                        <div className="mt-5">
+                          <PipelineStepper
+                            steps={buylistSteps}
+                            current={r.status}
+                            errored={r.status === 'rechazada' || r.status === 'abandonada'}
+                          />
+                        </div>
+
+                        <div className="mt-5">
+                          {r.items.map((it) => (
+                            <div
+                              key={it.id}
+                              className="flex items-center justify-between gap-3 border-b border-border py-2.5 text-sm last:border-b-0"
+                            >
+                              <span lang="en" className="text-text">
+                                {it.card.name}
+                              </span>
+                              <span className="flex items-center gap-4">
+                                {/* Ajustada: el precio vigente es el ajustado (approvedPriceCents),
+                                    con el original tachado para que el cliente compare. */}
+                                {it.itemStatus === 'ajustada' && it.approvedPriceCents != null ? (
+                                  <span className="flex items-center gap-2">
+                                    {it.quotedPriceCents != null && (
+                                      <span className="tabular text-[11px] text-muted line-through">
+                                        {formatMoneyCents(it.quotedPriceCents, locale)}
+                                      </span>
+                                    )}
+                                    <span className="tabular font-medium text-text">
+                                      {formatMoneyCents(it.approvedPriceCents, locale)}
+                                    </span>
+                                  </span>
+                                ) : it.quotedPriceCents == null ? (
+                                  /* Honesto: sin cotización NO se muestra MX$0.00. */
+                                  <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
+                                ) : (
+                                  <span className="tabular text-muted">
+                                    {formatMoneyCents(it.quotedPriceCents, locale)}
+                                  </span>
+                                )}
+                                <StatusBadge domain="sellItem" value={it.itemStatus} />
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* F5: bloque de respuesta al AJUSTE — visible solo con ítems `ajustada`. */}
+                        {hasAdjustedItems && (
+                          <div className="mt-5 border border-accent/40 bg-accent/5 p-4">
+                            <p className="eyebrow text-accent">{t('adjust.title')}</p>
+                            <p className="mt-2 text-[13px] leading-[1.6] text-text">
+                              {t('adjust.body')}
+                            </p>
+                            <p className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                              <span className="text-muted">{t('adjust.newTotal')}</span>
+                              <span className="tabular font-medium text-text">
+                                {formatMoneyCents(adjustedTotalCents, locale)}
+                              </span>
+                            </p>
+                            {respondMutation.isError &&
+                              respondMutation.variables?.id === r.sellRequestId && (
+                                <p role="alert" className="mt-3 font-mono text-[11px] text-accent">
+                                  {t('adjust.error')}
+                                </p>
+                              )}
+                            <div className="mt-4 flex gap-3">
+                              <Button
+                                size="sm"
+                                loading={responding && respondMutation.variables?.decision === 'accept'}
+                                disabled={responding}
+                                onClick={() =>
+                                  respondMutation.mutate({ id: r.sellRequestId, decision: 'accept' })
+                                }
+                              >
+                                {t('adjust.accept')}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-accent"
+                                loading={responding && respondMutation.variables?.decision === 'decline'}
+                                disabled={responding}
+                                onClick={() =>
+                                  respondMutation.mutate({ id: r.sellRequestId, decision: 'decline' })
+                                }
+                              >
+                                {t('adjust.decline')}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
+                        {hasPendingItems && (
+                          <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">
+                            {t('requestPendingNote')}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </QueryState>
+            )}
           </div>
         </section>
       </div>
@@ -1091,7 +1101,7 @@ export function BuylistView() {
                 setCreatedId(sellRequestId);
                 setRequestOpen(false);
                 setCart([]);
-                setJustAdded(false);
+                setLastAdded(null);
                 void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
                 // La solicitud pudo registrar la CLABE en KYC → refresca el checklist.
                 void queryClient.invalidateQueries({ queryKey: ['kyc'] });
