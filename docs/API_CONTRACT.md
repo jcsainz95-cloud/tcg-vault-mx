@@ -4,9 +4,19 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.12.1 (2026-08-17) — Reconciliación de contrato: `POST /admin/jobs/catalog-price-sync` (Fase 1, tarea 1.3).**
+> QA detectó (commit `a6a79df`) que el changelog v1.12 decía "**Sin endpoint nuevo**" para 1.3, pero el backend **sí**
+> añadió (opción **autorizada** por ARCHITECTURE **§4.13c**) el disparador manual **`POST /admin/jobs/catalog-price-sync`**
+> (`super_admin`, auditado). Se corrige la nota de 1.3 abajo y se **documenta de una vez la familia interna de ops
+> `POST /admin/jobs/*`** (portfolio-snapshot, ine-retention, set-price-sync, catalog-price-sync, …), que existía en
+> código pero no en la fuente de verdad. **Sin cambio de comportamiento** (solo se documenta lo ya implementado); sin
+> migración. Ver §M10-ops.
+>
 > **Changelog v1.12-catalog-pricing (2026-08-17) — FASE 1 del epic de precios (preciar TODO el catálogo +
-> refresco 2×/día + import de sets nuevos).** **Sin endpoints nuevos y sin migración**; los cambios de contrato son
-> de **comportamiento**. Ver ARCHITECTURE §4.13. Toca dinero → triple veredicto.
+> refresco 2×/día + import de sets nuevos).** **Sin migración**; los cambios de contrato son mayormente de
+> **comportamiento**. La única superficie **nueva** es el disparador de ops **`POST /admin/jobs/catalog-price-sync`**
+> (tarea 1.3, **opcional**, autorizado por ARCHITECTURE **§4.13c**; ver §M10-ops); el resto reusa endpoints
+> existentes. Ver ARCHITECTURE §4.13. Toca dinero → triple veredicto.
 > - **`POST /buylist/quote` pasa a READ-ONLY (supersede BE-16):** el cotizador público **ya no escribe** en la cola
 >   de precio pendiente (se elimina el `escalatePending` que se había añadido en Fase 0.2). **Mismo shape de
 >   request/response**; lo que cambia es que un `quote` con `precio_pendiente` **ya no** genera un `PendingPriceEntry`
@@ -18,8 +28,11 @@
 >   Efecto observable en el contrato: `POST /buylist/quote` y `GET /catalog/*` devuelven precio para cartas fuera de
 >   bóveda. Cartas sin `market` no generan referencia ni pendiente (no se inunda la cola).
 > - **Refresco 2×/día + import de sets nuevos (job interno `catalog-price-sync`, 06:00 y 18:00 CDMX, configurable):**
->   refrescar precios ⇒ re-sync del catálogo (pokemontcg.io no tiene bulk de solo-precios); **disparo manual
->   equivalente** = `POST /admin/catalog/sync-all {force:true}` (ya existe). Sin endpoint nuevo.
+>   refrescar precios ⇒ re-sync del catálogo (pokemontcg.io no tiene bulk de solo-precios). El job automático corre
+>   por cron; el **disparo manual** de 1.3 se expone con **`POST /admin/jobs/catalog-price-sync`** (NUEVO,
+>   `super_admin`, **auditado**, opción **autorizada por ARCHITECTURE §4.13c**), que encola el **mismo re-sync
+>   completo** (`force:true`, **single-flight**). **Equivale** a `POST /admin/catalog/sync-all {force:true}` (que
+>   también existe). Ver §M10-ops. *(Corrección v1.12.1: la nota original decía "Sin endpoint nuevo".)*
 > - **1.4 "Importar sets nuevos" (M2, solo frontend):** reusa `POST /admin/catalog/sync-all {force:false}` +
 >   `GET /admin/catalog/sync-status` + `GET /admin/catalog/remote-sets`. **No requiere endpoint nuevo.**
 >
@@ -1087,6 +1100,36 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, stripeFeeIvaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, catalogSyncFromDate }`. `stripeFeeIvaPct` (fracción `[0,1)`, default **0.16**) = IVA que Stripe MX cobra **sobre su comisión**; entra en el gross-up del fee (ver ARCHITECTURE §5.1). `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`).
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
+
+#### <a id="M10-ops"></a>Ops — disparo manual de jobs internos (`admin/jobs/*`, `super_admin`, auditado)
+> **Superficie interna de operaciones** (no consumida por clientes): permite al súper-admin **disparar a mano** los
+> jobs que normalmente corren por **cron** (mantenimiento, cumplimiento, snapshots de valor, refresco de precios),
+> p. ej. para re-correr un job que falló o forzar un refresco fuera de ventana. **Todos** los endpoints de esta
+> familia comparten el mismo contrato:
+> - **Método/forma:** `POST /api/v1/admin/jobs/<job-name>` con body **vacío** `{}` (sin parámetros de cliente; el
+>   efecto del job está fijado server-side).
+> - **Rol:** `super_admin` (hereda `@Roles(Role.super_admin)` del controller). Err `403 FORBIDDEN` para otros.
+> - **Auditado:** cada disparo queda en `AuditLog` (`action: job.trigger`, con el `job` en `after` + `actorUserId`).
+> - **Single-flight:** si el job ya está corriendo, la llamada **no** encola un segundo pase; devuelve el estado del
+>   pase en curso (`enqueued: false`). Es **idempotente** ante doble clic.
+> - **Res `202`:** `{ job: string, enqueued: boolean, jobId?: string }` (`enqueued=false` si ya había uno en curso).
+>
+> **Jobs disparables** (nombre = el mismo del scheduler; ver ARCHITECTURE §5 y §4.13c):
+> - **`catalog-price-sync`** *(v1.12.1, tarea 1.3 — el que motivó esta reconciliación):* dispara el **re-sync
+>   completo del catálogo** (`force:true`) que **repuebla `PriceReference` por `(card, finish)`** reusando
+>   `tcgplayer.prices` (FX del día). Es el **disparo manual** del refresco 2×/día (06:00 y 18:00 CDMX). **Equivale**
+>   a `POST /admin/catalog/sync-all {force:true}` (§M2); ambos conviven (este es el disparador de ops "por job",
+>   `sync-all` es el de catálogo). **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto.
+> - **`portfolio-snapshot`** — recalcula/escribe el snapshot diario del valor de portafolio (`PortfolioSnapshot`,
+>   alimenta `GET /vault/portfolio/history`, §3).
+> - **`set-price-sync`** / **`set-value-snapshot`** — refresco de precios y snapshot diario del **valor agregado de
+>   set** (`SetValueSnapshot`, alimenta las rutas públicas `*-value-history`, §2 / ARCHITECTURE §4.12c).
+> - **`ine-retention`** — barrido de **cumplimiento**: purga/anonimiza imágenes de INE fuera de la ventana de
+>   retención (`INE_RETENTION_DAYS`), anclado a `SellRequest.closedAt` (SEC-D2, v1.8-ronda-c).
+> - **`fx-refresh`** — fuerza el fetch del tipo de cambio a Banxico (paralelo a `POST /admin/fx/refresh`, §M2).
+>
+> **Nota:** esta familia es superficie de **ops**, no de producto; el frontend no la consume (no hay `ModuleTodo`).
+> Se documenta aquí para que sea parte de la fuente de verdad y quede cubierta por el gate de seguridad (SAST/DAST).
 
 ### Dashboard (`vault_operator+`, con campos financieros solo para `super_admin`)
 - `GET /api/v1/admin/dashboard` → las **~8 tarjetas**:

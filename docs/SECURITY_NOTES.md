@@ -1973,3 +1973,125 @@ globales**; la UI es cosmética. **SEC-A1 intacto.** Sin regresión en dinero/PI
   (§5-§6) siguen abiertas para el humano. La **fase dinámica (DAST contra staging)** heredada sigue
   **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea esta Fase 0.
 - **¿Puede ir a `main`?** **SÍ.**
+
+---
+
+# G. Revisión Fase 1 — catálogo priceado + job 2×/día (commit `a6a79df`) · rama `claude/git-repo-review-c67xyk`
+
+> **Alcance:** Fase 1 del epic de precios (diseño v1.12-catalog-pricing). Focos de seguridad:
+> (1.1) priceado de **TODO el catálogo** durante `catalog-sync` (`PricingService.persistMarketReference`
+> + `catalog-sync.service.persistMarketReferences`); (1.2) **`publicQuote` de vuelta a READ-ONLY**
+> (cierra **BE-16**: el endpoint anónimo ya no escribe en la cola de trabajo); (1.3) **job
+> `catalog-price-sync` 2×/día** (BullMQ repeatable, `syncAll force:true`) + disparo manual
+> `POST /admin/jobs/catalog-price-sync`. Verifico authz/auditoría, integridad de dinero (FX/market/
+> override), manejo de la API key y anti-abuso.
+> **Modo:** revisión **estática** de código cruzada con `docs/PENTEST_NOTES.md`. Sin stack vivo
+> (R2/Railway sin configurar) → concurrencia sigue **[pendiente de DAST]** (§6).
+> **Fecha:** 2026-08-17. Blanco autorizado: staging/local.
+
+## G.0 Resumen — **0 Críticos / 0 Altos**; 2 Bajas abiertas (no bloqueantes, con disparador)
+
+| Severidad | # | ID / tema |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 0 | — |
+| Baja | 2 | **G-1** — TOCTOU en `persistMarketReference` (guard `isManualOverride` no atómico); **G-2** — `catalog-price-sync` sin `@Throttle` propio (single-flight mitiga) |
+
+## G.1 Cierres / positivos verificados — **[Verificado en código]**
+- **BE-16 CERRADO — `publicQuote` read-only.** `buylist.service.ts:58-102`: el cotizador público
+  **elimina** la escalada a `PendingPriceEntry` que la Fase 0 había agregado; si el acabado sigue
+  `precio_pendiente`, el quote lo **reporta sin escribir nada** (`:76-82`). Un endpoint público/
+  anónimo **ya no escribe** en la cola de trabajo del dueño → se cierra la superficie de abuso
+  (enumerar cartas inflaba la cola). La escalada queda **solo** en el flujo autenticado
+  `createRequest` (`:170-172`, `POST /buylist/requests`), sin cambio. **SEC-A1 intacto**: rareza +
+  acabado se derivan server-side de `Card.rarity`/acabados reales, no del DTO (`:66-75`).
+- **`POST /admin/jobs/catalog-price-sync` — authz + auditoría + single-flight.**
+  `admin-jobs.controller.ts:22-23` `@Roles(Role.super_admin)` a **nivel de clase** (sin `@Public`;
+  `JwtAuthGuard`→`RolesGuard` globales son la autoridad, rol del JWT nunca del body). El endpoint
+  (`:148-161`) audita `jobs.catalog_price_sync.run` con `actorUserId`/`actorRole`/`entityType:'Job'`/
+  `entityId`. **Anti-loop / single-flight:** `catalog-price-sync.service.ts:31` invoca
+  `syncAll({force:true})`, protegido por `catalog-sync.service.ts:234` (`if
+  (this.syncAllStatus.running)` → retorna sin solapar). Idempotente por `externalId` / clave día-
+  acabado.
+- **Integridad de dinero — sin vector de manipulación por el cliente.**
+  - `persistMarketReference` (`pricing.service.ts:210-256`) **respeta el override manual**: lee la
+    fila del día y si `existing?.isManualOverride` hace **skip** (`:228-230`) → el override del admin
+    (§4.1) nunca es pisado por el flujo automático (salvo la carrera de G-1, abajo).
+  - **FX legítimo:** el `market` (USD) proviene **solo** de `tcgplayer.prices` ya descargado de
+    pokemontcg.io (`catalog-sync.service.ts:416-428`), **sin input de usuario**; la conversión
+    USD→MXN usa el snapshot de `FxService` (Banxico) cargado **una vez por corrida** más el colchón,
+    o el override del admin — **nunca** un valor del request.
+  - **Descarta `market <= 0`:** `catalog-sync.service.ts:424-425` (`if (market == null || market <=
+    0) continue`) → una carta/acabado sin market **no** crea referencia ni escala pendiente (no
+    inunda la cola, no siembra precios en 0). Montos en **centavos enteros** (`Math.round(market*100)`,
+    `:426`).
+- **API key fuera de logs.** `pokemontcg-io.client.ts:56-58` toma `POKEMONTCG_IO_API_KEY` de
+  `ConfigService` y la envía **solo** en el header `X-Api-Key`; los `logger.warn` (`:79-80`) registran
+  únicamente path + status HTTP, **nunca** la clave. **Backoff 429 respetado:** `:73-80` reintenta
+  ante 429/5xx honrando `Retry-After` (o backoff exponencial) → no aborta el sync ni martillea la API.
+
+## G-1 (Baja, abierta con disparador) — TOCTOU en `persistMarketReference` (guard `isManualOverride` no atómico)
+- **Ubicación:** `pricing.service.ts:228-231` — `findUnique(where:key)` **y luego**
+  `upsert(...)`, con el guard `if (existing?.isManualOverride) return;` **entre** ambas operaciones
+  (patrón read-then-write, no atómico).
+- **Descripción:** si un **override manual** del admin sobre el mismo `(cardId,'raw','raw:NM',finish,
+  hoy)` ocurre concurrentemente con una corrida de `catalog-sync`, el sync pudo leer la fila
+  **antes** del override (`isManualOverride=false` o inexistente) y luego el `upsert` la reescribe con
+  `source:'pokemontcg_io'` + `isManualOverride:false` (`:247-254`), **pisando** el override del día.
+- **Impacto:** un precio de referencia manual del admin podría quedar sobrescrito por el market
+  automático **solo bajo carrera del mismo día**. Es **integridad de precio de referencia** (afecta
+  cotización), no un money-out sin control: el desembolso SPEI sigue tras `@MoneyOut` super_admin +
+  auditado, y la aprobación está topada por `assertApprovedPriceWithinCap` (B-4). Ventana estrecha
+  (override manual y corrida de sync en paralelo el mismo día). **Baja.**
+- **Rol dueño:** **backend** — cerrar con escritura atómica que preserve el override, p. ej.
+  `updateMany({ where:{ ...key, isManualOverride:false }, data:{...} })` (o upsert condicionado), de
+  modo que la fila con `isManualOverride=true` nunca sea alcanzada por el update. **Registrado como
+  BE-22.** **Disparador:** antes de operar con dinero real / concurrencia real (múltiples réplicas o
+  admin editando mientras corre el job 2×/día).
+
+## G-2 (Baja/Info, abierta con disparador) — `POST /admin/jobs/catalog-price-sync` sin `@Throttle` propio
+- **Ubicación:** `admin-jobs.controller.ts:148-161` (endpoint) — sin decorador `@Throttle` propio; se
+  apoya en el throttler global.
+- **Descripción:** cada disparo lanza un re-sync completo (`syncAll force:true`) que hace un `getSets`
+  contra pokemontcg.io y reprocesa todo el catálogo. Sin un `@Throttle` específico, un super_admin
+  podría dispararlo repetidamente. **Mitigado** por el **single-flight** (`syncAllStatus.running` →
+  las llamadas solapadas retornan sin trabajar) y por ser un endpoint **super_admin + auditado**, así
+  que el riesgo es de **carga hacia pokemontcg.io / consumo de rate-limit**, no de authz ni de dinero.
+- **Impacto:** Bajo/Info — presión sobre la API externa y el rate-limit; sin efecto de authz, PII ni
+  money-out. El backoff 429 del cliente amortigua.
+- **Rol dueño:** **devops/backend** — añadir `@Throttle` propio (o cooldown) al disparo manual y, al
+  escalar a multi-instancia, mover single-flight/throttler a store compartido (Redis) para coordinar
+  entre réplicas. **Registrado como BE-23.** **Disparador:** al exponer el panel admin a operación
+  real / despliegue multi-réplica.
+
+## G.3 Banderas para el humano (Fase 1)
+- **Pentest de tercero + programa de bug bounty ANTES de operar con dinero real** (heredado,
+  obligatorio). Sigue vigente para todo el epic de precios.
+- **DAST contra staging — PENDIENTE, obligatorio antes de prod.** Sumar a la cola de DAST los
+  vectores de esta fase: **concurrencia del single-flight / re-sync del catálogo** (dos réplicas
+  disparando `syncAll` en paralelo; carrera de G-1 override-vs-sync el mismo día) y el **webhook de
+  Stripe** (firma/idempotencia bajo carga). Ejecutar en cuanto haya staging autorizado (§6).
+- **Licencia / contrato de datos de la fuente de precios.** Validar la **base legal/comercial** de
+  usar `market` de **pokemontcg.io / TCGplayer** como **precio de referencia** para una operación de
+  **custodia comercial** (compra/venta con dinero real): términos de uso, atribución y si el uso
+  comercial de esos precios está permitido. Confirmar con legal antes del go-live.
+
+## G.4 VEREDICTO — Fase 1 (catálogo priceado + job 2×/día, `a6a79df`): **APROBADO** (2026-08-17)
+- **0 Críticos / 0 Altos abiertos** → aprobable por política (`CLAUDE.md` §7 y DoD).
+- **Positivos verificados:** `publicQuote` **read-only** (BE-16 CERRADO; escalada solo en
+  `createRequest` autenticado); `POST /admin/jobs/catalog-price-sync` **super_admin + auditado +
+  single-flight**; **integridad de dinero** (`persistMarketReference` respeta `isManualOverride`; FX
+  de Banxico/override, nunca del request; market solo de pokemontcg.io sin input de usuario; descarta
+  `market<=0`; centavos enteros); **API key** por header desde config, fuera de logs; **backoff 429**
+  respetado.
+- **Abiertos NO bloqueantes (con disparador):** **G-1 (Baja)** TOCTOU en `persistMarketReference`
+  (`pricing.service.ts:228-231`) → override manual concurrente del mismo día podría ser pisado;
+  mitigación `updateMany WHERE isManualOverride=false`; dueño **backend** (**BE-22**). **G-2
+  (Baja/Info)** `catalog-price-sync` sin `@Throttle` propio (single-flight mitiga); dueño
+  **devops/backend** (**BE-23**).
+- **Deuda previa sin cambio:** S-M1 aceptada; S-B1/S-B2/residuo S-B3 y las banderas legales de
+  custodia/PII (§5-§6) siguen abiertas para el humano. La **fase dinámica (DAST contra staging)**
+  heredada sigue **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea esta
+  Fase 1.
+- **¿Puede ir a `main`?** **SÍ.**
