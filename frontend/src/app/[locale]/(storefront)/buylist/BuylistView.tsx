@@ -16,6 +16,9 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
 import { BuylistKycForm, type BuylistRequestItem } from '@/components/domain/BuylistKycForm';
+import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
+import { useSellRequirements } from '@/hooks/useSellRequirements';
+import { Link } from '@/i18n/navigation';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { useBuylistSteps } from '@/lib/pipelines';
@@ -187,6 +190,11 @@ export function BuylistView() {
   );
 
   const cartCount = cart.reduce((n, l) => n + l.quantity, 0);
+
+  // Gating de cuenta ANTES de llenar todo (guards del contrato §6): sesión, correo
+  // verificado, CLABE registrada e INE esperado por topes. El bloqueo real es server-side;
+  // aquí solo se comunica temprano para que el 403 no sea la primera noticia.
+  const sellReq = useSellRequirements(totalEstimatedCents);
 
   // Expansión cantidad → items: N entradas por línea (1 item por carta física).
   const requestItems: BuylistRequestItem[] = useMemo(
@@ -451,6 +459,12 @@ export function BuylistView() {
                 {cartCount > 0 && <span className="eyebrow">{t('cartCount', { count: cartCount })}</span>}
               </div>
 
+              {/* Requisitos de cuenta SIEMPRE visibles (aun con carrito vacío): el usuario
+                  sabe QUÉ le falta antes de llenar todo (sesión / correo / CLABE / INE). */}
+              <div className="mt-5">
+                <SellRequirementsPanel req={sellReq} />
+              </div>
+
               {cart.length === 0 ? (
                 <p className="mt-5 text-[13px] leading-[1.7] text-muted">{t('cartEmpty')}</p>
               ) : (
@@ -526,19 +540,49 @@ export function BuylistView() {
 
                   {/* SEC-A1: el total es un ESTIMADO; el backend confirma el monto al recibir. */}
                   <p className="font-mono text-[11px] leading-[1.6] text-muted">{t('estimateNote')}</p>
-                  <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">{t('kycNotice')}</p>
 
-                  <Button
-                    variant="accent"
-                    className="mt-5 w-full"
-                    disabled={cart.length === 0}
-                    onClick={() => {
-                      setCreatedId(null);
-                      setRequestOpen(true);
-                    }}
-                  >
-                    {t('sendRequestCta', { count: cartCount })}
-                  </Button>
+                  {sellReq.ready && !sellReq.isAuthenticated ? (
+                    /* Sin sesión: el envío se sustituye por el CTA de entrar/crear cuenta
+                       (el guard devolvería 401/403; mejor decirlo aquí). */
+                    <div className="mt-5 flex flex-col gap-3">
+                      <Link
+                        href="/login"
+                        className="inline-flex min-h-[44px] w-full items-center justify-center bg-primary px-6 text-[11px] font-medium uppercase tracking-label text-primary-fg"
+                      >
+                        {t('loginCta')}
+                      </Link>
+                      <Link
+                        href="/register"
+                        className="inline-flex min-h-[44px] w-full items-center justify-center border border-border-strong px-6 text-[11px] font-medium uppercase tracking-label text-text hover:border-text"
+                      >
+                        {t('registerCta')}
+                      </Link>
+                    </div>
+                  ) : (
+                    <>
+                      <Button
+                        variant="accent"
+                        className="mt-5 w-full"
+                        disabled={cart.length === 0 || !sellReq.canSubmit}
+                        aria-describedby={sellReq.emailBlocked ? 'sell-blocked-reason' : undefined}
+                        onClick={() => {
+                          setCreatedId(null);
+                          setRequestOpen(true);
+                        }}
+                      >
+                        {t('sendRequestCta', { count: cartCount })}
+                      </Button>
+                      {sellReq.emailBlocked && (
+                        /* Explica POR QUÉ el botón está deshabilitado (el reenvío vive en el panel). */
+                        <p
+                          id="sell-blocked-reason"
+                          className="mt-3 font-mono text-[11px] leading-[1.6] text-accent"
+                        >
+                          {t('submitBlockedEmail')}
+                        </p>
+                      )}
+                    </>
+                  )}
                   <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => setCart([])}>
                     {t('clearCart')}
                   </Button>
@@ -621,6 +665,9 @@ export function BuylistView() {
         {requestItems.length > 0 && (
           <BuylistKycForm
             items={requestItems}
+            // Heads-up de topes/CLABE derivado de GET /users/me/kyc; el backend re-decide (SEC-A1).
+            ineExpected={sellReq.ineExpected}
+            clabeMasked={sellReq.clabeMasked}
             onCreated={(sellRequestId) => {
               setCreatedId(sellRequestId);
               setRequestOpen(false);

@@ -1,15 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { ProductType, RawCondition, Finish } from '@/types/contract';
+import type { AppLocale } from '@/i18n/routing';
+import { formatMoneyCents } from '@/lib/format';
+import { useSession } from '@/lib/session';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { PhotoUploader } from '@/components/ui/PhotoUploader';
+import { useErrorMessage } from '@/components/ui/QueryState';
 import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
 
 /**
@@ -31,6 +35,14 @@ export interface BuylistKycFormProps {
   items: BuylistRequestItem[];
   /** se invoca con el id de la solicitud creada (para refrescar la lista / cerrar). */
   onCreated: (sellRequestId: string) => void;
+  /**
+   * Heads-up de cliente (useSellRequirements): el estimado supera el tope y no hay INE
+   * en archivo → se muestra la petición de INE DE ENTRADA, no tras un 422 INE_REQUIRED.
+   * El backend sigue decidiendo el requisito real (SEC-A1).
+   */
+  ineExpected?: boolean;
+  /** CLABE ya registrada en KYC (enmascarada, `****1234`) para orientar la captura. */
+  clabeMasked?: string;
 }
 
 const CLABE_RE = /^\d{18}$/;
@@ -40,21 +52,30 @@ const CLABE_RE = /^\d{18}$/;
  * captura CLABE (a nombre propio) + imagen del INE (anverso/reverso) cuando aplica,
  * subiendo el INE por presign `kyc_ine` (§8) y asociando las keys a la solicitud.
  * Maneja loading/error/éxito y los errores de negocio (INE_REQUIRED, CLABE_NOT_OWN_NAME,
- * BUYLIST_LIMIT_EXCEEDED).
+ * BUYLIST_LIMIT_EXCEEDED). Gating proactivo: si la sesión trae `emailVerified=false`
+ * muestra el aviso con CTA de reenvío y deshabilita el envío ANTES del 403.
  */
-export function BuylistKycForm({ items, onCreated }: BuylistKycFormProps) {
+export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: BuylistKycFormProps) {
   const t = useTranslations('buylist');
   const tine = useTranslations('ine');
+  const locale = useLocale() as AppLocale;
+  const getErrorMessage = useErrorMessage();
+  const { user, ready } = useSession();
 
   const [clabe, setClabe] = useState('');
   const [clabeError, setClabeError] = useState<string | null>(null);
   const [ineFrontKey, setIneFrontKey] = useState<string | null>(null);
   const [ineBackKey, setIneBackKey] = useState<string | null>(null);
-  const [ineRequired, setIneRequired] = useState(false);
+  // Preset por el heads-up de topes (ineExpected); un 422 INE_REQUIRED también lo activa.
+  const [ineRequired, setIneRequired] = useState(ineExpected ?? false);
   const [formError, setFormError] = useState<string | null>(null);
   // v1.5: el backend bloquea vender con emailVerified=false (403 EMAIL_NOT_VERIFIED).
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Gating proactivo: espeja el guard server-side (solo bloquea con `false` explícito;
+  // sesiones viejas sin el campo dejan decidir al backend).
+  const emailBlocked = ready && !!user && user.emailVerified === false;
 
   const ineComplete = !!ineFrontKey && !!ineBackKey;
 
@@ -93,9 +114,18 @@ export function BuylistKycForm({ items, onCreated }: BuylistKycFormProps) {
       } else if (code === 'CLABE_INVALID') {
         setClabeError(t('clabeInvalid'));
       } else if (code === 'BUYLIST_LIMIT_EXCEEDED') {
-        setFormError(t('limitExceeded'));
+        // details: { scope, capCents, wouldBeCents } (contrato §6) → mensaje con el tope real.
+        const capCents =
+          e instanceof ApiClientError ? (e.details?.capCents as number | undefined) : undefined;
+        setFormError(
+          capCents != null
+            ? t('limitExceededCap', { cap: formatMoneyCents(capCents, locale) })
+            : t('limitExceeded'),
+        );
       } else {
-        setFormError(t('requestError'));
+        // Mapea el código REAL del contrato (p. ej. FINISH_NOT_AVAILABLE) al catálogo
+        // i18n `error.*`; solo cae al genérico si no hay ni código ni mensaje.
+        setFormError(getErrorMessage(e));
       }
     } finally {
       setSubmitting(false);
@@ -106,7 +136,7 @@ export function BuylistKycForm({ items, onCreated }: BuylistKycFormProps) {
     <div className="flex flex-col gap-5">
       <Input
         label={t('clabeLabel')}
-        hint={t('clabeHint')}
+        hint={clabeMasked ? t('clabeOnFileHint', { masked: clabeMasked }) : t('clabeHint')}
         error={clabeError ?? undefined}
         inputMode="numeric"
         maxLength={18}
@@ -140,12 +170,22 @@ export function BuylistKycForm({ items, onCreated }: BuylistKycFormProps) {
         <p className="text-xs text-muted">{tine('privacy')}</p>
       </section>
 
-      {emailNotVerified && <EmailNotVerifiedNotice />}
+      {(emailBlocked || emailNotVerified) && <EmailNotVerifiedNotice />}
       {formError && <Banner variant="danger" role="alert">{formError}</Banner>}
 
-      <Button onClick={submit} loading={submitting} disabled={submitting}>
+      <Button
+        onClick={submit}
+        loading={submitting}
+        disabled={submitting || emailBlocked}
+        aria-describedby={emailBlocked ? 'kyc-blocked-reason' : undefined}
+      >
         {submitting ? t('submitting') : t('submit')}
       </Button>
+      {emailBlocked && (
+        <p id="kyc-blocked-reason" className="font-mono text-[11px] leading-[1.6] text-accent">
+          {t('submitBlockedEmail')}
+        </p>
+      )}
     </div>
   );
 }

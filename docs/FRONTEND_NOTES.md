@@ -4,6 +4,67 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Gating temprano del flujo de VENDER (buylist) — fix UX del 403 críptico (2026-08-17)
+
+Branch `claude/git-repo-review-c67xyk`. Evidencia de prod: el usuario llenaba TODO el cotizador +
+modal "Crear solicitud de venta" y solo al enviar recibía un **403** (correo no verificado). Los
+guards del backend son correctos por AML (`JwtAuthGuard → RolesGuard → EmailVerifiedGuard` sobre
+`POST /buylist/requests`, contrato §6 → `403 EMAIL_NOT_VERIFIED`); el problema era que el frontend
+no comunicaba los requisitos hasta el final. **No se tocó backend ni se relajó nada**: el bloqueo
+autoritativo sigue siendo server-side (SEC-A1); el cliente solo comunica ANTES y mapea DESPUÉS.
+
+### Contrato confirmado (no se inventó nada)
+- `POST /buylist/requests` — errores: `403 EMAIL_NOT_VERIFIED`, `422 FINISH_NOT_AVAILABLE`,
+  `422 BUYLIST_LIMIT_EXCEEDED` (details `{ scope, capCents, wouldBeCents }`), `422 INE_REQUIRED`,
+  `422 CLABE_NOT_OWN_NAME` (contrato §6; códigos en `backend/src/common/error-codes.ts`).
+- `GET /users/me` → incluye `emailVerified` y `kycStatus`, **no** trae CLABE.
+- `GET /users/me/kyc` (rol `customer`) → `{ kycStatus, clabeMasked?, ineOnFile, capPerRequestCents,
+  capPerMonthCents, monthUsedCents }` → **sí** permite saber si hay CLABE registrada (`clabeMasked`)
+  y anticipar el requisito de INE por topes. **No hace falta pedir nada al arquitecto.**
+- `POST /auth/verify-email/resend` (autenticado, sin body, 3/h) para el CTA de reenvío.
+
+### Implementación
+- **`hooks/useSellRequirements.ts`** (nuevo): agrega sesión (`useSession`) + `GET /users/me/kyc`
+  (solo si `role === 'customer'`, para no provocar 403 en staff) y deriva: `isAuthenticated`,
+  `emailBlocked` (SOLO con `emailVerified === false` explícito, espejo de `VerifyEmailBanner`;
+  sesiones viejas sin el campo dejan decidir al backend), `clabeOnFile`/`clabeMasked`, `ineOnFile`,
+  `ineExpected` (estimado > tope por solicitud o remanente mensual, sin INE en archivo — heads-up,
+  el backend re-decide) y `canSubmit`.
+- **`components/domain/SellRequirementsPanel.tsx`** (nuevo): visible SIEMPRE en el aside del
+  carrito (aun vacío). Sin sesión → Banner "Inicia sesión o crea cuenta para vender" con links
+  login/registro; `emailVerified=false` → reusa `EmailNotVerifiedNotice` (CTA de reenvío);
+  sesión ok → checklist 5a en mono (`✓ / — / !`): correo verificado, CLABE registrada
+  (enmascarada) o pendiente, e INE esperado con el tope formateado.
+- **`BuylistView`**: sin sesión el CTA "Enviar solicitud (N)" se SUSTITUYE por links
+  login/registro; con correo sin verificar queda `disabled` + motivo visible enlazado por
+  `aria-describedby` (`submitBlockedEmail`). Se eliminó el párrafo genérico `kycNotice`
+  (reemplazado por el panel). El modal recibe `ineExpected` y `clabeMasked`.
+- **`BuylistKycForm`**: segundo cinturón dentro del modal — con `emailVerified === false` el
+  submit queda deshabilitado con el aviso de entrada (no espera al 403); `ineExpected` preactiva
+  la petición de INE (no espera al `422 INE_REQUIRED`); `clabeMasked` cambia el hint de la CLABE.
+  Mapeo de errores del submit: `BUYLIST_LIMIT_EXCEEDED` ahora usa `details.capCents` con monto
+  real (`limitExceededCap`); códigos no mapeados caen a `useErrorMessage` (catálogo `error.*`,
+  p. ej. `FINISH_NOT_AVAILABLE`) en vez del genérico `requestError`.
+
+### i18n (paridad ES/EN verificada por `i18n-parity.test.ts`)
+Claves nuevas en `buylist`: `requirementsTitle`, `loginToSellTitle`, `loginToSellBody`, `loginCta`,
+`registerCta`, `reqChecking`, `reqEmailVerified`, `reqClabeOnFile`, `reqClabeMissing`,
+`reqIneOnFile`, `reqIneExpected`, `submitBlockedEmail`, `clabeOnFileHint`, `limitExceededCap`.
+Eliminada: `kycNotice` (sustituida por el panel). Los avisos de verificación reusan `verifyEmail.*`.
+
+### Tests (BuylistView 21 · BuylistKycForm 10)
+Gating: sin sesión (CTA login/registro, sin botón de enviar), correo no verificado (botón
+deshabilitado + motivo + reenvío que llama al endpoint), sin CLABE (checklist pendiente + el modal
+no llama al backend con CLABE vacía), CLABE registrada (checklist cumplido enmascarado), estimado
+sobre tope (aviso de INE antes de enviar y modal con la petición preactivada), y flujo feliz con
+sesión verificada (los tests de carrito existentes ahora corren logueados). Mapeos: 403
+`EMAIL_NOT_VERIFIED` → aviso accionable; `BUYLIST_LIMIT_EXCEEDED` con `capCents`;
+`FINISH_NOT_AVAILABLE` → catálogo `error.*`.
+
+### Gates (frontend/)
+`npm run lint` ✓ · `tsc --noEmit` ✓ · `npx vitest run` ✓ (**35 archivos / 215 tests**, incl.
+paridad i18n) · `next build` ✓.
+
 ## Operabilidad del back-office: M1–M5, M8 cableados a endpoints reales (2026-08-17)
 
 Branch `claude/git-repo-review-c67xyk`. Varias pantallas admin eran cascarones con botones sin
