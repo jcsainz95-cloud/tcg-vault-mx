@@ -2047,3 +2047,49 @@ Resultado: `test:integration` corrido **dos veces seguidas** sobre la misma DB n
 - `npm test` = **57 suites / 372 tests verdes** (unit, sin infra; sin cambio de conteo).
 - **No** pude correr `test:integration` en local (egress bloquea el pull de imágenes Docker de Postgres/Redis/
   MinIO). El **verde de E2E lo confirma el runner de CI**.
+
+## 32. Tier 0 — Operación por acabado: escalado de pendientes con `finish` + cola con carta (2026-08-17)
+
+> Dos arreglos chicos que habilitan la operación por acabado (M-19/Ronda C) end-to-end en M1/M2.
+> Rama `claude/git-repo-review-c67xyk`. Sin migraciones (el modelo ya tenía `finish` desde M-19).
+
+### 32.1 Alta de inventario escala el pendiente CON el `finish` del alta (bug real)
+- **Bug:** en `inventory.service.ts#createItem` las DOS llamadas a `escalatePending(...)` (aportación en
+  especie sin referencia, y sellado sin precio manual) omitían el 6º argumento `finish` → por el default
+  de la firma el pendiente se encolaba como `normal` aunque el alta fuera `holofoil`. Consecuencia: el
+  override del admin "resolvía" el acabado equivocado y la valuación por versión (M2) quedaba rota.
+- **Fix:** ambas llamadas pasan ahora el `finish` ya resuelto por `resolveFinish` (que valida contra
+  `Card.availableFinishes`, SEC-A1). Para sealed `resolveFinish` devuelve `normal` siempre, así que ese
+  camino no cambia de comportamiento, solo queda explícito y en paridad de firma con `syncCardPrice`.
+  La firma de `PricingService.escalatePending(cardId, productType, gradeKey, context, refId?, finish)` ya
+  aceptaba `finish` (Ronda C) — no hubo que tocarla.
+
+### 32.2 `pendingQueue()` incluye la carta → `GET /admin/pricing/pending` con `cardName` + `finish`
+- **Bug:** el `findMany` de `pricing.service.ts#pendingQueue` no hacía `include: { card }` → el DTO
+  llegaba sin nombre de carta y el frontend M2 pintaba el UUID.
+- **Fix + shape final por entrada** (aditivo sobre `PendingPriceEntry` del contrato §11; el front consume
+  el `cardName` plano opcional que ya tenía tipado):
+  ```json
+  { "id": "...", "cardId": "...", "productType": "raw", "gradeKey": "raw:NM",
+    "finish": "holofoil", "context": "inventory", "refId": null, "status": "open",
+    "resolvedPriceRefId": null, "createdAt": "...", "resolvedAt": null,
+    "cardName": "Zapdos",
+    "card": { "id": "...", "name": "Zapdos", "number": "16", "setName": "Fossil" } }
+  ```
+  `finish` viene del modelo (M-19) y se propaga tal cual; `cardName` es conveniencia plana y `card`
+  trae name+number+setName (proyección, no la relación Prisma cruda).
+
+### 32.3 Override por acabado — confirmado, sin cambios
+`POST /admin/pricing/override` **ya** acepta `finish?` (Ronda C): `OverrideDto` lo valida con `@IsIn`,
+el controller pasa `dto.finish ?? 'normal'` y `manualOverride` upserta la `PriceReference` de ese acabado
+y resuelve **solo** el `PendingPriceEntry` de ese `(cardId, productType, gradeKey, finish)`. La respuesta
+es el `PriceReference` completo (incluye `finish`). Auditado con `finish` en `after`.
+
+### 32.4 Tests y gates (verde)
+- Nuevo `test/inventory.finish-pending.spec.ts`: aportación holofoil sin referencia → `PRICE_PENDING` y
+  encola con `finish='holofoil'` (y consulta la referencia de ESE acabado); con referencia → no escala,
+  persiste el finish y calcula costo 70%; finish fuera de `availableFinishes` → `FINISH_NOT_AVAILABLE`.
+- `test/pricing.finish-pending.spec.ts` ampliado: `pendingQueue` hace el `include` de card+set y cada
+  entrada expone `cardName`, `card{name,number,setName}` y `finish`.
+- `test/inventory.sealed.spec.ts` ajustado a la nueva llamada (`..., 'inventory', undefined, 'normal'`).
+- Gates: `lint` OK · `typecheck` OK · `build` OK · `npm test` = **58 suites / 377 tests verdes**.

@@ -20,6 +20,7 @@ function build() {
   const updateManyCalls: any[] = [];
   const createCalls: any[] = [];
   const findFirstCalls: any[] = [];
+  const findManyCalls: any[] = [];
   const prisma: any = {
     priceReference: {
       upsert: jest.fn(async () => ({ id: 'ref-1' })),
@@ -37,6 +38,30 @@ function build() {
         createCalls.push(args);
         return { id: 'pending-1' };
       }),
+      findMany: jest.fn(async (args: any) => {
+        findManyCalls.push(args);
+        return [
+          {
+            id: 'p1',
+            cardId: 'c1',
+            productType: 'raw',
+            gradeKey: 'raw:NM',
+            finish: 'holofoil',
+            context: 'inventory',
+            refId: null,
+            status: 'open',
+            resolvedPriceRefId: null,
+            createdAt: new Date('2026-08-17T00:00:00Z'),
+            resolvedAt: null,
+            card: {
+              id: 'c1',
+              name: 'Zapdos',
+              number: '16',
+              set: { id: 's1', name: 'Fossil' },
+            },
+          },
+        ];
+      }),
     },
   };
   const svc = new PricingService(
@@ -47,7 +72,7 @@ function build() {
     {} as PokemonPriceTrackerProvider,
     {} as PokeTraceProvider,
   );
-  return { svc, prisma, updateManyCalls, createCalls, findFirstCalls };
+  return { svc, prisma, updateManyCalls, createCalls, findFirstCalls, findManyCalls };
 }
 
 describe('PricingService.manualOverride — resuelve SOLO el pendiente de su acabado', () => {
@@ -83,5 +108,39 @@ describe('PricingService.escalatePending — cola POR acabado', () => {
     const { svc, createCalls } = build();
     await svc.escalatePending('c1', 'raw', 'raw:NM', 'catalog');
     expect(createCalls[0].data.finish).toBe('normal');
+  });
+});
+
+/**
+ * Tier 0 — `pendingQueue()` incluye la carta y expone `cardName` + `finish`.
+ * Bug real corregido: el findMany no hacía `include: { card }` → el DTO llegaba sin
+ * `cardName` y el frontend M2 pintaba el UUID de la carta en la cola.
+ */
+describe('PricingService.pendingQueue — trae la carta y propaga el finish', () => {
+  it('hace include de card (con set) en el findMany', async () => {
+    const { svc, findManyCalls } = build();
+    await svc.pendingQueue();
+    expect(findManyCalls).toHaveLength(1);
+    expect(findManyCalls[0].where).toMatchObject({ status: 'open' });
+    expect(findManyCalls[0].include).toEqual({ card: { include: { set: true } } });
+  });
+
+  it('cada entrada expone cardName, card{name,number,setName} y finish', async () => {
+    const { svc } = build();
+    const { data } = await svc.pendingQueue();
+    expect(data).toHaveLength(1);
+    expect(data[0]).toMatchObject({
+      id: 'p1',
+      cardId: 'c1',
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'holofoil',
+      context: 'inventory',
+      status: 'open',
+      cardName: 'Zapdos',
+      card: { id: 'c1', name: 'Zapdos', number: '16', setName: 'Fossil' },
+    });
+    // La relación cruda de Prisma no se filtra al DTO (el card anidado es la proyección plana).
+    expect((data[0] as any).card.set).toBeUndefined();
   });
 });

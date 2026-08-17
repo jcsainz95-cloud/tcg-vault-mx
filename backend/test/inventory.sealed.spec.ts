@@ -67,7 +67,15 @@ describe('InventoryService.createItem — sellado', () => {
     await svc.createItem({ ...base, sealedSubtype: 'box' } as CreateItemDto, 'admin');
     const data = prisma.__created[0];
     expect(data.listPriceCents).toBeNull();
-    expect(pricing.escalatePending).toHaveBeenCalledWith('c1', 'sealed', 'sealed', 'inventory');
+    // Tier 0: el alta pasa el `finish` resuelto (sealed → siempre `normal`) a la cola por acabado.
+    expect(pricing.escalatePending).toHaveBeenCalledWith(
+      'c1',
+      'sealed',
+      'sealed',
+      'inventory',
+      undefined,
+      'normal',
+    );
   });
 
   it('sellado con rawCondition → 422 VALIDATION_ERROR (sellado no lleva condición)', async () => {

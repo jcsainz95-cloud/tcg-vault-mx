@@ -234,11 +234,29 @@ export class PricingService {
     return ref;
   }
 
+  /**
+   * Cola de pendientes para M2 (`GET /admin/pricing/pending`).
+   * Tier 0 FIX: incluye la carta (con set) — antes el findMany no hacía `include` y el DTO
+   * llegaba sin `cardName`, así que el frontend pintaba el UUID. Shape por entrada: todos los
+   * campos del modelo `PendingPriceEntry` (incluido `finish`, M-19) + `cardName` (conveniencia
+   * plana que consume el front) + `card { id, name, number, setName }`.
+   */
   async pendingQueue() {
-    const data = await this.prisma.pendingPriceEntry.findMany({
+    const rows = await this.prisma.pendingPriceEntry.findMany({
       where: { status: 'open' },
       orderBy: { createdAt: 'asc' },
+      include: { card: { include: { set: true } } },
     });
+    const data = rows.map(({ card, ...entry }) => ({
+      ...entry,
+      cardName: card.name,
+      card: {
+        id: card.id,
+        name: card.name,
+        number: card.number,
+        setName: card.set.name,
+      },
+    }));
     return { data };
   }
 

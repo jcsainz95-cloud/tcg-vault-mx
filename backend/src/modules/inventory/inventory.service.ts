@@ -47,7 +47,16 @@ export class InventoryService {
       // v1.6-finish: costo contra la referencia del ACABADO alta.
       const ref = await this.pricing.getReference(dto.cardId, dto.productType, gradeKey, finish);
       if (ref.status !== 'priced' || ref.referenceMxnCents == null) {
-        await this.pricing.escalatePending(dto.cardId, dto.productType, gradeKey, 'inventory');
+        // Tier 0 FIX: propaga el `finish` resuelto a la cola. Antes se omitía y el pendiente
+        // quedaba en `normal` aunque el alta fuera holofoil (M-19: la cola es POR acabado).
+        await this.pricing.escalatePending(
+          dto.cardId,
+          dto.productType,
+          gradeKey,
+          'inventory',
+          undefined,
+          finish,
+        );
         throw BusinessException.validation(
           'PRICE_PENDING',
           'No reference price yet; escalated to pending queue',
@@ -61,7 +70,16 @@ export class InventoryService {
     // listPriceCents el sellado queda "precio pendiente" (no aparece en Compra). Se escala
     // a la cola de precio pendiente para que el dueño lo fije (regla transversal).
     if (dto.productType === 'sealed' && dto.listPriceCents == null) {
-      await this.pricing.escalatePending(dto.cardId, dto.productType, gradeKey, 'inventory');
+      // Tier 0 FIX: pasa el `finish` resuelto (para sealed siempre `normal`, resolveFinish lo
+      // garantiza) — misma firma que el escalado de aportación; la cola es por acabado (M-19).
+      await this.pricing.escalatePending(
+        dto.cardId,
+        dto.productType,
+        gradeKey,
+        'inventory',
+        undefined,
+        finish,
+      );
     }
 
     const folio = await this.prisma.nextFolio();
