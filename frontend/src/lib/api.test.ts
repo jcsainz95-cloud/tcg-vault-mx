@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   getCatalog,
   getCatalogFacets,
@@ -14,8 +14,15 @@ import {
   moveInventoryItem,
   markInventoryItem,
   createLocation,
+  createCheckoutSession,
+  createShipment,
+  listAddresses,
+  createAddress,
+  updateAddress,
+  deleteAddress,
 } from './api';
 import { getToken, setToken } from './api-client';
+import { config } from './config';
 
 // Estas pruebas ejercitan la RAMA MOCK del cliente (config.useMocks = true por defecto
 // en test, ya que NEXT_PUBLIC_USE_MOCKS !== 'false'). Verifican que las llamadas nuevas
@@ -237,5 +244,170 @@ describe('api (rama mock) · M1 gestión de inventario (Ola 2)', () => {
     expect(created.label).toBe('C77-F03-S09');
     const byLocation = await getAdminInventory({ locationId: created.id });
     expect(byLocation.total).toBe(0);
+  });
+});
+
+// ---- WS-F · flujos de dinero del cliente (rama MOCK) ----
+describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
+  it('createCheckoutSession devuelve orderId, breakdown y stripe.clientSecret (contrato §4)', async () => {
+    // inv-2001 es un listing publicado con precio (fixtures de Compra).
+    const listing = (await getCatalog({})).data[0];
+    const res = await createCheckoutSession([listing.inventoryItemId]);
+    expect(res.orderId).toMatch(/^ord-/);
+    expect(res.stripe.clientSecret).toBeTruthy();
+    expect(res.stripe.paymentIntentId).toBeTruthy();
+    // El total = subtotal + IVA + fee (BreakdownDTO); mayor que el subtotal de la carta.
+    expect(res.breakdown.totalCents).toBeGreaterThan(listing.salePriceCents ?? 0);
+  });
+
+  it('createShipment cobra el envío settled y devuelve clientSecret; MX-only y ITEM_NOT_SETTLED', async () => {
+    // inv-1002 (Blastoise) es settled; addr-1 es MX en fixtures.
+    const res = await createShipment(['inv-1002'], 'addr-1');
+    expect(res.shipmentId).toMatch(/^shp-/);
+    expect(res.status).toBe('solicitado');
+    expect(res.stripe.clientSecret).toBeTruthy();
+    expect(res.breakdown.subtotalCents).toBe(17500); // tarifa fija MX$175
+
+    // inv-1006 (Latias) es pending → 422 ITEM_NOT_SETTLED.
+    await expect(createShipment(['inv-1006'], 'addr-1')).rejects.toMatchObject({
+      code: 'ITEM_NOT_SETTLED',
+      status: 422,
+    });
+  });
+
+  it('CRUD de direcciones: list → create (MX) → set default → delete (contrato §1)', async () => {
+    const before = await listAddresses();
+    const created = await createAddress({
+      line1: 'Calle 5 de Mayo 10',
+      city: 'Puebla',
+      state: 'Puebla',
+      postalCode: '72000',
+      country: 'MX',
+      phone: '2221234567',
+      isDefault: true,
+    });
+    expect(created.id).toBeTruthy();
+    const after = await listAddresses();
+    expect(after.length).toBe(before.length + 1);
+    // isDefault=true deja como no-default a las demás.
+    expect(after.filter((a) => a.isDefault).length).toBe(1);
+
+    const updated = await updateAddress(created.id, { city: 'Cholula' });
+    expect(updated.city).toBe('Cholula');
+
+    await deleteAddress(created.id);
+    const final = await listAddresses();
+    expect(final.find((a) => a.id === created.id)).toBeUndefined();
+  });
+
+  it('createAddress rechaza país != MX (422 ADDRESS_NOT_MX)', async () => {
+    await expect(
+      createAddress({
+        line1: '5th Ave 1',
+        city: 'NYC',
+        state: 'NY',
+        postalCode: '10001',
+        country: 'US',
+        phone: '2120000000',
+      }),
+    ).rejects.toMatchObject({ code: 'ADDRESS_NOT_MX', status: 422 });
+  });
+});
+
+// ---- WS-F · rama REAL (fetch stubeado, config.useMocks=false) ----
+describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  const originalUseMocks = config.useMocks;
+
+  function makeRes(status: number, body: unknown) {
+    return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+  }
+
+  beforeEach(() => {
+    config.useMocks = false;
+    setToken('access-token'); // evita interceptor de refresh; añade Authorization
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    config.useMocks = originalUseMocks;
+    setToken(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('createCheckoutSession → POST /checkout/session con Idempotency-Key', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeRes(201, {
+        orderId: 'ord-1',
+        breakdown: { subtotalCents: 1000, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 90, totalCents: 1250, currency: 'MXN' },
+        stripe: { paymentIntentId: 'pi_1', clientSecret: 'pi_1_secret' },
+      }),
+    );
+    const res = await createCheckoutSession(['inv-1'], 'bp-1');
+    expect(res.stripe.clientSecret).toBe('pi_1_secret');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/checkout/session');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ inventoryItemIds: ['inv-1'], billingProfileId: 'bp-1' });
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBeTruthy();
+  });
+
+  it('createCheckoutSession propaga 403 EMAIL_NOT_VERIFIED (banner de verificación en la vista)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeRes(403, { error: { code: 'EMAIL_NOT_VERIFIED', message: 'verify email' } }),
+    );
+    await expect(createCheckoutSession(['inv-1'])).rejects.toMatchObject({
+      code: 'EMAIL_NOT_VERIFIED',
+      status: 403,
+    });
+  });
+
+  it('createShipment → POST /shipments con Idempotency-Key y propaga 403 EMAIL_NOT_VERIFIED', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeRes(201, {
+        shipmentId: 'shp-1',
+        status: 'solicitado',
+        breakdown: { subtotalCents: 17500, ivaCents: 2800, ivaRatePct: 16, processingFeeCents: 900, totalCents: 21200, currency: 'MXN' },
+        stripe: { paymentIntentId: 'pi_s', clientSecret: 'pi_s_secret' },
+      }),
+    );
+    const res = await createShipment(['inv-1002'], 'addr-1');
+    expect(res.stripe.clientSecret).toBe('pi_s_secret');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/shipments');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ inventoryItemIds: ['inv-1002'], addressId: 'addr-1' });
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBeTruthy();
+
+    fetchMock.mockResolvedValueOnce(
+      makeRes(403, { error: { code: 'EMAIL_NOT_VERIFIED', message: 'verify email' } }),
+    );
+    await expect(createShipment(['inv-1002'], 'addr-1')).rejects.toMatchObject({
+      code: 'EMAIL_NOT_VERIFIED',
+      status: 403,
+    });
+  });
+
+  it('direcciones REAL: list (unwrap data), create (POST), update (PATCH), delete (DELETE 204)', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { data: [{ id: 'a1', line1: 'x', city: 'c', state: 's', postalCode: '00000', country: 'MX', phone: '5550000000' }] }));
+    const list = await listAddresses();
+    expect(list).toHaveLength(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/users/me/addresses');
+
+    fetchMock.mockResolvedValueOnce(makeRes(201, { id: 'a2', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' }));
+    await createAddress({ line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111' });
+    expect(fetchMock.mock.calls[1][1].method).toBe('POST');
+
+    fetchMock.mockResolvedValueOnce(makeRes(200, { id: 'a2', line1: 'y', city: 'c', state: 's', postalCode: '11111', country: 'MX', phone: '5551111111', isDefault: true }));
+    const upd = await updateAddress('a2', { isDefault: true });
+    expect(upd.isDefault).toBe(true);
+    expect(fetchMock.mock.calls[2][1].method).toBe('PATCH');
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/users/me/addresses/a2');
+
+    fetchMock.mockResolvedValueOnce(makeRes(204, {}));
+    await deleteAddress('a2');
+    expect(fetchMock.mock.calls[3][1].method).toBe('DELETE');
   });
 });

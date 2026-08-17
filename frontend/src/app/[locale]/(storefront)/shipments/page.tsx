@@ -1,5 +1,11 @@
+import { Suspense } from 'react';
 import { ShipmentsView } from './ShipmentsView';
 
 export default function ShipmentsPage() {
-  return <ShipmentsView />;
+  // useSearchParams (preselección ?item=) requiere un boundary de Suspense en Next 15.
+  return (
+    <Suspense>
+      <ShipmentsView />
+    </Suspense>
+  );
 }

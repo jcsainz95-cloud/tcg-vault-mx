@@ -19,6 +19,9 @@ import type {
   OrderSummaryDTO,
   OrderDetailDTO,
   CheckoutQuoteResponse,
+  CheckoutSessionResponse,
+  AddressDTO,
+  ShipmentCreateResponse,
   BuylistQuoteResponse,
   BuylistQuoteItemDTO,
   BuylistBatchQuoteResultDTO,
@@ -292,6 +295,51 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
   });
 }
 
+/**
+ * Genera un Idempotency-Key para los endpoints de pago (contrato §0/§4/§5). Evita crear
+ * dos órdenes/envíos si el usuario re-envía por doble clic o reintento de red.
+ */
+function idempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Crea la sesión de checkout (contrato POST /checkout/session, §4): reserva los items, crea la
+ * `Order` en `pending` y el `PaymentIntent` de Stripe. Devuelve `{ orderId, breakdown, stripe:{
+ * paymentIntentId, clientSecret } }`. El `clientSecret` alimenta el `StripePaymentModal`; el pago
+ * se asienta por webhook (`payment_intent.succeeded`), no por la respuesta a `confirmPayment`.
+ *
+ * TOCA DINERO. Errores del contrato: `403 EMAIL_NOT_VERIFIED` (correo sin verificar — el front
+ * muestra el banner de verificación), `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`.
+ */
+export async function createCheckoutSession(
+  inventoryItemIds: string[],
+  billingProfileId?: string,
+): Promise<CheckoutSessionResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CheckoutSessionResponse>('/checkout/session', {
+      method: 'POST',
+      body: { inventoryItemIds, billingProfileId },
+      headers: { 'Idempotency-Key': idempotencyKey() },
+    });
+  }
+  // MOCK: reusa el desglose del quote y devuelve un clientSecret simulado (el StripePaymentModal
+  // en modo mock no llama a Stripe real). Replica el 422 PRICE_PENDING del contrato.
+  const items = inventoryItemIds
+    .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
+    .filter((l): l is ListingDTO => !!l);
+  const pending = items.find((l) => !l.sellable);
+  if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
+  const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const orderId = `ord-${Math.floor(Math.random() * 9000 + 1000)}`;
+  return delay({
+    orderId,
+    breakdown: computeBreakdown(subtotal),
+    stripe: { paymentIntentId: `pi_mock_${orderId}`, clientSecret: `pi_mock_${orderId}_secret_mock` },
+  });
+}
+
 export async function getOrders(): Promise<Paginated<OrderSummaryDTO>> {
   if (!config.useMocks) return apiRequest<Paginated<OrderSummaryDTO>>('/orders');
   return delay({ data: fx.mockOrders, page: 1, pageSize: 20, total: fx.mockOrders.length });
@@ -300,6 +348,74 @@ export async function getOrders(): Promise<Paginated<OrderSummaryDTO>> {
 export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
   if (!config.useMocks) return apiRequest<OrderDetailDTO>(`/orders/${orderId}`);
   return delay({ ...fx.mockOrderDetail, id: orderId });
+}
+
+// ---------- Direcciones (contrato §1 — envío, solo MX) ----------
+export interface AddressInput {
+  line1: string;
+  line2?: string;
+  neighborhood?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  phone: string;
+  isDefault?: boolean;
+}
+
+/** Libreta de direcciones del usuario (contrato GET /users/me/addresses → { data }). */
+export async function listAddresses(): Promise<AddressDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ data: AddressDTO[] }>('/users/me/addresses');
+    return res.data;
+  }
+  return delay([...fx.mockAddresses]);
+}
+
+/**
+ * Alta de dirección (contrato POST /users/me/addresses). El backend valida `country="MX"`
+ * (`422 ADDRESS_NOT_MX` en otro caso). Si `isDefault=true`, se marca como predeterminada
+ * (y las demás dejan de serlo). Reglas de longitud del contrato: `postalCode≥3`, `phone≥7`.
+ */
+export async function createAddress(input: AddressInput): Promise<AddressDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AddressDTO>('/users/me/addresses', { method: 'POST', body: input });
+  }
+  // MOCK: replica la validación MX-only del backend y el manejo de `isDefault`.
+  if (input.country !== 'MX') {
+    throw new ApiClientError(422, { code: 'ADDRESS_NOT_MX', message: 'Only MX addresses are allowed' });
+  }
+  const created: AddressDTO = { id: `addr-new-${fx.mockAddresses.length + 1}`, ...input };
+  if (created.isDefault) fx.mockAddresses.forEach((a) => (a.isDefault = false));
+  fx.mockAddresses.push(created);
+  return delay(created);
+}
+
+/** Edita una dirección (contrato PATCH /users/me/addresses/:id). Usado p. ej. para marcar default. */
+export async function updateAddress(id: string, input: Partial<AddressInput>): Promise<AddressDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AddressDTO>(`/users/me/addresses/${id}`, { method: 'PATCH', body: input });
+  }
+  const idx = fx.mockAddresses.findIndex((a) => a.id === id);
+  if (idx < 0) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Address not found' });
+  if (input.country && input.country !== 'MX') {
+    throw new ApiClientError(422, { code: 'ADDRESS_NOT_MX', message: 'Only MX addresses are allowed' });
+  }
+  if (input.isDefault) fx.mockAddresses.forEach((a) => (a.isDefault = false));
+  fx.mockAddresses[idx] = { ...fx.mockAddresses[idx], ...input };
+  return delay({ ...fx.mockAddresses[idx] });
+}
+
+/** Borra una dirección (contrato DELETE /users/me/addresses/:id). */
+export async function deleteAddress(id: string): Promise<void> {
+  if (!config.useMocks) {
+    await apiRequest<void>(`/users/me/addresses/${id}`, { method: 'DELETE' });
+    return;
+  }
+  const idx = fx.mockAddresses.findIndex((a) => a.id === id);
+  if (idx < 0) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Address not found' });
+  fx.mockAddresses.splice(idx, 1);
+  await delay(undefined);
 }
 
 // ---------- Retiros / envíos ----------
@@ -330,6 +446,58 @@ export async function getShipments(): Promise<ShipmentDTO[]> {
     return res.data;
   }
   return delay(fx.mockShipments);
+}
+
+/**
+ * Crea la solicitud de retiro (contrato POST /shipments, §5): cobra la tarifa (envío + IVA + fee)
+ * por Stripe ANTES de crear la `ShipmentRequest`. Devuelve `{ shipmentId, status:'solicitado',
+ * breakdown, stripe:{ paymentIntentId, clientSecret } }`; el `clientSecret` alimenta el
+ * `StripePaymentModal`. La solicitud solo avanza a `picking` cuando el webhook liquida el pago.
+ *
+ * TOCA DINERO. Errores del contrato: `403 EMAIL_NOT_VERIFIED`, `422 ITEM_NOT_SETTLED`,
+ * `422 ADDRESS_NOT_MX`, `409 ITEM_IN_ANOTHER_SHIPMENT`.
+ */
+export async function createShipment(
+  inventoryItemIds: string[],
+  addressId: string,
+): Promise<ShipmentCreateResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ShipmentCreateResponse>('/shipments', {
+      method: 'POST',
+      body: { inventoryItemIds, addressId },
+      headers: { 'Idempotency-Key': idempotencyKey() },
+    });
+  }
+  // MOCK: valida settled + MX (como el backend) y devuelve el shape 201 con clientSecret simulado.
+  const address = fx.mockAddresses.find((a) => a.id === addressId);
+  if (!address || address.country !== 'MX') {
+    throw new ApiClientError(422, { code: 'ADDRESS_NOT_MX', message: 'Only MX addresses are allowed' });
+  }
+  const holdings = inventoryItemIds
+    .map((id) => fx.mockHoldings.find((h) => h.inventoryItemId === id))
+    .filter(Boolean);
+  if (holdings.some((h) => h!.ownershipStatus !== 'settled')) {
+    throw new ApiClientError(422, { code: 'ITEM_NOT_SETTLED', message: 'Only settled items can be shipped' });
+  }
+  const SHIPPING = 17500; // MOCK: dial M10 default (MX$175).
+  const shipmentId = `shp-${Math.floor(Math.random() * 9000 + 1000)}`;
+  // Refleja el nuevo envío en "mis envíos" para que reaparezca tras confirmar el pago.
+  fx.mockShipments.unshift({
+    id: shipmentId,
+    status: 'solicitado',
+    createdAt: new Date().toISOString(),
+    items: holdings.map((h) => ({
+      inventoryItemId: h!.inventoryItemId,
+      folio: h!.folio,
+      card: h!.card,
+    })),
+  });
+  return delay({
+    shipmentId,
+    status: 'solicitado',
+    breakdown: computeBreakdown(SHIPPING, SHIPPING),
+    stripe: { paymentIntentId: `pi_mock_${shipmentId}`, clientSecret: `pi_mock_${shipmentId}_secret_mock` },
+  });
 }
 
 export interface AdminShipmentsFilters {

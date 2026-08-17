@@ -4,6 +4,86 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-F Pass 1 — Flujos de dinero del cliente contra el backend REAL (Stripe) (2026-08-17)
+
+Cablea los flujos de dinero del cliente que eran stubs de demo: **checkout de compra (F1)**,
+**gestor de direcciones (F2)** y **retiro/envío real (F3)**, todos con cobro **Stripe** vía un
+componente compartido. **TOCA DINERO** → triple veredicto. Solo `frontend/` + este doc; NO se tocó
+`backend/`, `api-client.ts`, `session.ts` ni el contrato. **0 cambios de contrato** (todos los DTOs
+—`CheckoutSessionResponse`, `ShipmentCreateResponse`, `AddressDTO`, `KycInfoDTO.clabeOnFile`— ya
+existían). Patrón real+mock respetado (cada método nuevo con rama `apiRequest` y rama mock gateadas
+por `config.useMocks`). SEC-A1 intacto (montos/breakdown server-side; el cliente no fija precios).
+Gates verdes: **lint** (0), **tsc** (0), **test 267** (37 files; +5 tests), **build** OK.
+
+### Componente compartido — `StripePaymentModal` (`components/domain/StripePaymentModal.tsx`)
+- Recibe `clientSecret`, monta `<Elements stripe={loadStripe(config.stripePublishableKey)}
+  options={{clientSecret}}>` + `<PaymentElement>` y al confirmar llama
+  `stripe.confirmPayment({ elements, confirmParams:{ return_url }, redirect:'if_required' })`.
+  Maneja loading/error/ready.
+- **Asentamiento por webhook:** tras un `confirmPayment` exitoso (`succeeded`/`processing`) el pago
+  **NO** se trata como final — el modal solo dispara `onConfirmed()`; el padre limpia estado y rutea
+  a "procesando". La titularidad pasa a `settled` cuando el backend recibe `payment_intent.succeeded`.
+- `loadStripe` es **singleton a nivel de módulo** (se llama una vez).
+- **Modo mock:** NO carga Stripe real; un botón simula el éxito para que la demo (sin llaves/backend)
+  complete el flujo. Gateado por `config.useMocks`.
+- Reusa `Modal`/`Button` del design system, tokens y `shadow-focus`.
+
+### F1 · Checkout real (`CheckoutView.tsx` + `api.ts`)
+- `api.ts` nuevo `createCheckoutSession(inventoryItemIds, billingProfileId?)` → `POST
+  /checkout/session` con header **`Idempotency-Key`**; respuesta `CheckoutSessionResponse`
+  (`{ orderId, breakdown, stripe:{ paymentIntentId, clientSecret } }`). Rama mock reusa
+  `computeBreakdown` + clientSecret simulado y replica `422 PRICE_PENDING`.
+- `pay()` dejó de ser `setTimeout`: crea la sesión → abre `StripePaymentModal` con el
+  `clientSecret` → al confirmar `cart.clear()` + pantalla "pago en proceso" con CTA a
+  `/orders` y `/vault`. `return_url` = `${origin}/${locale}/orders`.
+- **403 `EMAIL_NOT_VERIFIED`:** se detecta por `ApiClientError.code` y se muestra el
+  `EmailNotVerifiedNotice` (banner + reenvío) ya existente, no un error genérico.
+- El aviso "simulado" (`checkout.stripeMock`) ahora se **condiciona a `config.useMocks`**.
+
+### F2 · Gestor de direcciones (`components/domain/AddressManager.tsx` + `api.ts`)
+- `api.ts`: `listAddresses` (`GET`, unwrap `{data}`), `createAddress` (`POST`), `updateAddress`
+  (`PATCH`), `deleteAddress` (`DELETE` 204) sobre `/users/me/addresses`. Rama mock con libreta
+  mutable en memoria (`fixtures.mockAddresses`), maneja `isDefault` y replica `422 ADDRESS_NOT_MX`.
+- Componente reutilizable: **lista + alta (Modal con form) + marcar predeterminada + borrar**, con
+  modo `selectable` (radio) para elegir destino del retiro. Usa `useMutation`+`invalidateQueries`.
+  Auto-selecciona la dirección `isDefault` (o la primera). Validación de form: `line1/city/state`
+  requeridos, `postalCode≥3`, `phone≥7`. **País fijo MX** (envío solo nacional; evita el
+  `ADDRESS_NOT_MX` en el camino feliz — el guardarraíl server-side sigue vivo).
+
+### F3 · Retiro real (`ShipmentsView.tsx` + `api.ts`)
+- `api.ts` nuevo `createShipment(inventoryItemIds, addressId)` → `POST /shipments` con
+  **`Idempotency-Key`**; respuesta `ShipmentCreateResponse`. Rama mock valida settled+MX, agrega el
+  envío a "mis envíos" y devuelve clientSecret simulado; replica `422 ITEM_NOT_SETTLED`/`ADDRESS_NOT_MX`.
+- Se reemplazó el **selector de país + `addr-mock`** por el `AddressManager` (picker real). El
+  `address.id` seleccionado alimenta `getShipmentQuote` y `createShipment`; la regla **MX-only** sale
+  de `address.country`. El botón "Solicitar retiro" ya tiene `onClick`: crea la solicitud → abre
+  `StripePaymentModal` → al confirmar limpia selección y refresca `getShipments`/`getHoldings`.
+- Botón **habilitado solo con `isMx && selected.length>0 && addressId`**. Maneja **403
+  `EMAIL_NOT_VERIFIED`** (banner) y **422 `ITEM_NOT_SETTLED`** (mensaje traducido).
+- `useSearchParams` lee `?item=` para preselección; la página envuelve la vista en `<Suspense>`.
+
+### VaultView — "Retirar" por-fila con navegación
+- El botón "Retirar" por-fila (habilitado solo si `settled`) ahora es un `Link` a
+  `/shipments?item=<inventoryItemId>` (preselección); `pending` queda como botón deshabilitado.
+
+### Tipos / mocks / i18n
+- `contract.ts`: **sin cambios** (los DTOs ya existían). `api.ts` importa
+  `CheckoutSessionResponse`, `ShipmentCreateResponse`, `AddressDTO`.
+- `fixtures.ts`: `mockAddresses` (1 dirección MX default, mutable).
+- i18n (paridad ES/EN): namespaces nuevos **`payment`** y **`addresses`**; `checkout` gana
+  `preparing/payTitle/processingTitle/processingBody`; `shipments` gana `selectItem/payTitle`.
+
+### Tests
+- `api.test.ts`: +bloque mock (checkout/shipment/CRUD direcciones + `ADDRESS_NOT_MX`) y **+bloque
+  REAL** (fetch stubeado, `config.useMocks=false`): verifica método/endpoint/`Idempotency-Key` y
+  propagación de **403 `EMAIL_NOT_VERIFIED`** en checkout y shipment, y el `list/POST/PATCH/DELETE`
+  de direcciones.
+- `ShipmentsView.test.tsx` (nuevo): estado del botón (habilitado solo con dirección + ítem) y
+  manejo del 403 (muestra el banner de verificación, no un error genérico).
+
+### Sin solicitudes al arquitecto
+El backend está completo para estos flujos; no se necesitó ningún endpoint/campo nuevo.
+
 ## WS-C — Cotizador de buylist contra el backend REAL (Fase 3b, contrato v1.15) (2026-08-17)
 
 Enchufa el cotizador rediseñado de Fable al backend real: mata el fan-out FE-12 con `POST

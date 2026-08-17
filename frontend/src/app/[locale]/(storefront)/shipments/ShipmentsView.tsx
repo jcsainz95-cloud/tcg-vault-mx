@@ -2,32 +2,54 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useTranslations } from 'next-intl';
-import { getHoldings, getShipmentQuote, getShipments } from '@/lib/api';
+import { useSearchParams } from 'next/navigation';
+import { useLocale, useTranslations } from 'next-intl';
+import type { AppLocale } from '@/i18n/routing';
+import { formatMoneyCents } from '@/lib/format';
+import { createShipment, getHoldings, getShipmentQuote, getShipments, listAddresses } from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
+import type { ShipmentCreateResponse } from '@/types/contract';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { QueryState } from '@/components/ui/QueryState';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { AddressManager } from '@/components/domain/AddressManager';
+import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
+import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
 import { useShipmentSteps } from '@/lib/pipelines';
-import { cn } from '@/lib/cn';
 
 /**
  * 6h — Selección de cartas liquidadas con casilla y folio; las no elegibles se
  * apartan tras una regla bermellón en vez de encerrarlas en una caja de color, y
  * el stepper del envío es una línea de tiempo tipográfica (ver PipelineStepper).
+ *
+ * WS-F · F3 — Retiro REAL: el selector de país + `addr-mock` se reemplaza por un picker real de
+ * direcciones (`AddressManager`), la cotización y la creación usan el `address.id` seleccionado, y
+ * "Solicitar retiro" crea la `ShipmentRequest` (`POST /shipments`) → cobra por Stripe con el
+ * `StripePaymentModal`. La regla MX-only sale de `address.country` (el backend valida
+ * `ADDRESS_NOT_MX`). Maneja `403 EMAIL_NOT_VERIFIED` y `422 ITEM_NOT_SETTLED`.
  */
 export function ShipmentsView() {
   const t = useTranslations('shipments');
-  const te = useTranslations('error');
+  const locale = useLocale() as AppLocale;
+  const getMessage = useErrorMessage();
   const shipmentSteps = useShipmentSteps();
-  const [country, setCountry] = useState('MX');
-  const [selected, setSelected] = useState<string[]>([]);
+  const searchParams = useSearchParams();
+  // VaultView "Retirar" por-fila preselecciona el ítem vía ?item=<inventoryItemId>.
+  const preselected = searchParams.get('item');
+  const [selected, setSelected] = useState<string[]>(preselected ? [preselected] : []);
+  const [addressId, setAddressId] = useState<string | undefined>(undefined);
+
+  const [creating, setCreating] = useState(false);
+  const [shipment, setShipment] = useState<ShipmentCreateResponse | null>(null);
+  const [emailNotVerified, setEmailNotVerified] = useState(false);
+  const [reqError, setReqError] = useState<string | null>(null);
 
   const holdingsQuery = useQuery({ queryKey: ['holdings'], queryFn: getHoldings });
   const shipmentsQuery = useQuery({ queryKey: ['shipments'], queryFn: getShipments });
+  const addressesQuery = useQuery({ queryKey: ['addresses'], queryFn: listAddresses });
 
   const settledItems = useMemo(
     () => (holdingsQuery.data?.data ?? []).filter((h) => h.ownershipStatus === 'settled'),
@@ -38,17 +60,53 @@ export function ShipmentsView() {
     [holdingsQuery.data],
   );
 
-  const quoteQuery = useQuery({
-    queryKey: ['shipment-quote', selected],
-    queryFn: () => getShipmentQuote(selected, 'addr-mock'),
-    enabled: selected.length > 0 && country === 'MX',
-  });
+  // Dirección seleccionada (para la regla MX-only y para pasar su id a quote/create).
+  const selectedAddress = useMemo(
+    () => (addressesQuery.data ?? []).find((a) => a.id === addressId),
+    [addressesQuery.data, addressId],
+  );
+  const isMx = selectedAddress?.country === 'MX';
 
-  const isMx = country === 'MX';
+  const quoteQuery = useQuery({
+    queryKey: ['shipment-quote', selected, addressId],
+    queryFn: () => getShipmentQuote(selected, addressId!),
+    enabled: selected.length > 0 && !!addressId && isMx,
+  });
 
   function toggle(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   }
+
+  async function requestWithdrawal() {
+    if (!addressId) return;
+    setCreating(true);
+    setReqError(null);
+    setEmailNotVerified(false);
+    try {
+      const res = await createShipment(selected, addressId);
+      setShipment(res);
+    } catch (e) {
+      if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
+        setEmailNotVerified(true);
+      } else {
+        // Incluye 422 ITEM_NOT_SETTLED / ADDRESS_NOT_MX / 409 ITEM_IN_ANOTHER_SHIPMENT.
+        setReqError(getMessage(e));
+      }
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function onConfirmed() {
+    // El cobro quedó autorizado; la solicitud avanza a picking cuando el webhook liquida. Limpiamos
+    // la selección y refrescamos "mis envíos" para ver la nueva solicitud en `solicitado`.
+    setShipment(null);
+    setSelected([]);
+    shipmentsQuery.refetch();
+    holdingsQuery.refetch();
+  }
+
+  const canRequest = isMx && selected.length > 0 && !!addressId;
 
   return (
     <div>
@@ -75,14 +133,11 @@ export function ShipmentsView() {
                     key={h.inventoryItemId}
                     className="flex cursor-pointer items-center gap-4 border-t border-border py-4 last:border-b"
                   >
-                    {/* Casilla del índice: cuadrado de 16px que se rellena de tinta.
-                        Es el <input> real (appearance-none), no un span decorativo:
-                        así sigue siendo clicable y navegable con teclado. */}
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggle(h.inventoryItemId)}
-                      aria-label={`${t('selectAddress')} ${h.folio}`}
+                      aria-label={`${t('selectItem')} ${h.folio}`}
                       className="h-4 w-4 shrink-0 cursor-pointer appearance-none border border-border-strong checked:border-text checked:bg-text"
                     />
                     <span className="tabular font-mono text-xs text-muted">{h.folio}</span>
@@ -115,25 +170,20 @@ export function ShipmentsView() {
         </div>
 
         <aside className="gutter h-fit pb-12 pt-6 lg:px-10">
-          <Select
-            label={t('selectAddress')}
-            options={[
-              { value: 'MX', label: 'México (MX)' },
-              { value: 'US', label: 'United States (US)' },
-            ]}
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-          />
-          {!isMx && (
+          {/* Picker real de direcciones (contrato §1). Reemplaza el selector de país + addr-mock. */}
+          <AddressManager selectable selectedId={addressId} onSelect={setAddressId} />
+
+          {selectedAddress && !isMx && (
             <p className="rule-note mt-5 text-[13px] leading-[1.7] text-accent" role="alert">
-              {te('ADDRESS_NOT_MX')}
+              {getMessage(new ApiClientError(422, { code: 'ADDRESS_NOT_MX', message: '' }))}
             </p>
           )}
+
           <p className="mt-5 text-xs leading-[1.65] text-muted">
             {t('flatFeeNotice')} {t('onlyMx')}
           </p>
 
-          {isMx && selected.length > 0 && (
+          {canRequest && (
             <div className="mt-6 border-t border-border pt-4">
               <QueryState
                 isLoading={quoteQuery.isLoading}
@@ -148,9 +198,22 @@ export function ShipmentsView() {
             </div>
           )}
 
+          {emailNotVerified && (
+            <div className="mt-6">
+              <EmailNotVerifiedNotice />
+            </div>
+          )}
+          {reqError && (
+            <p role="alert" className="mt-6 font-mono text-xs text-accent">
+              {reqError}
+            </p>
+          )}
+
           <Button
             variant="accent"
-            disabled={!isMx || selected.length === 0}
+            loading={creating}
+            disabled={!canRequest}
+            onClick={requestWithdrawal}
             className="mt-6 w-full"
           >
             {t('requestWithdrawal')}
@@ -192,6 +255,16 @@ export function ShipmentsView() {
           </QueryState>
         </div>
       </section>
+
+      <StripePaymentModal
+        open={!!shipment}
+        onClose={() => setShipment(null)}
+        clientSecret={shipment?.stripe.clientSecret ?? null}
+        returnUrl={typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : ''}
+        title={t('payTitle')}
+        amountLabel={shipment ? formatMoneyCents(shipment.breakdown.totalCents, locale) : undefined}
+        onConfirmed={onConfirmed}
+      />
     </div>
   );
 }

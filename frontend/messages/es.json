@@ -187,7 +187,11 @@
     "afterPayment": "Al pagar, tus cartas entran a tu bóveda con titularidad pendiente hasta que el pago se liquide.",
     "stripeMock": "Integración de Stripe pendiente de backend: este botón simula el flujo de pago.",
     "paidTitle": "Pago procesado (simulado)",
-    "paidBody": "En producción se confirmará con Stripe y tus cartas aparecerán en la bóveda."
+    "paidBody": "En producción se confirmará con Stripe y tus cartas aparecerán en la bóveda.",
+    "preparing": "Preparando…",
+    "payTitle": "Completar pago",
+    "processingTitle": "Pago en proceso",
+    "processingBody": "Recibimos tu pago y lo estamos confirmando. Tus cartas aparecerán en tu bóveda con titularidad pendiente y pasarán a liquidadas en cuanto el pago se confirme."
   },
   "vault": {
     "title": "Mi bóveda",
@@ -267,7 +271,9 @@
     "carrier": "Paquetería",
     "noShipments": "Aún no tienes envíos.",
     "ineligibleTitle": "Cartas no elegibles",
-    "pipelineTitle": "Estado del envío"
+    "pipelineTitle": "Estado del envío",
+    "selectItem": "Seleccionar",
+    "payTitle": "Pagar envío"
   },
   "buylist": {
     "title": "Vende tus cartas",
@@ -1284,5 +1290,42 @@
     "APPROVED_PRICE_CAP_EXCEEDED": "El precio aprobado excede el tope permitido para este ítem (cotizado × 2 o tope AML).",
     "ITEM_NOT_APPROVED": "Solo un ítem aprobado puede convertirse a inventario.",
     "CLABE_UNAVAILABLE": "No hay CLABE disponible para esta solicitud (ni snapshot ni KYC)."
+  },
+  "payment": {
+    "title": "Pago",
+    "preparing": "Preparando el pago…",
+    "genericError": "No se pudo procesar el pago. Revisa tus datos e inténtalo de nuevo.",
+    "processing": "Procesando…",
+    "pay": "Pagar",
+    "payAmount": "Pagar {amount}",
+    "settleNotice": "Tu pago se confirma en unos segundos; tus cartas se liberan cuando el pago se liquida.",
+    "mockBody": "Modo demostración: Stripe no está conectado. Este botón simula un pago exitoso para completar el flujo.",
+    "mockPay": "Pagar (simulado)",
+    "mockPayAmount": "Pagar {amount} (simulado)"
+  },
+  "addresses": {
+    "title": "Direcciones de envío",
+    "add": "Agregar",
+    "emptyTitle": "Sin direcciones",
+    "emptyBody": "Agrega una dirección de envío en México para solicitar retiros.",
+    "default": "Predeterminada",
+    "setDefault": "Marcar predeterminada",
+    "delete": "Borrar",
+    "newTitle": "Nueva dirección",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "required": "Campo requerido",
+    "postalCodeInvalid": "Código postal inválido",
+    "phoneInvalid": "Teléfono inválido",
+    "line1": "Calle y número",
+    "line2": "Interior / referencia",
+    "neighborhood": "Colonia",
+    "city": "Ciudad",
+    "state": "Estado",
+    "postalCode": "Código postal",
+    "phone": "Teléfono",
+    "country": "País",
+    "countryMx": "México (MX)",
+    "makeDefault": "Usar como predeterminada"
   }
 }

@@ -278,15 +278,26 @@ export function VaultView() {
                           : '—'}
                       </span>
 
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={!settled}
-                        className="col-span-3 w-full lg:col-span-1"
-                        title={settled ? undefined : t('onlySettled')}
-                      >
-                        {t('withdraw')}
-                      </Button>
+                      {/* Retirar solo si settled → navega a /shipments con el ítem preseleccionado
+                          (?item=<inventoryItemId>). Pending: botón deshabilitado (no retirable). */}
+                      {settled ? (
+                        <Link
+                          href={`/shipments?item=${h.inventoryItemId}`}
+                          className="col-span-3 inline-flex min-h-[44px] w-full items-center justify-center border border-text px-4 text-[10px] font-medium uppercase leading-none tracking-label text-text hover:bg-text hover:text-primary-fg sm:min-h-0 sm:py-3 lg:col-span-1"
+                        >
+                          {t('withdraw')}
+                        </Link>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled
+                          className="col-span-3 w-full lg:col-span-1"
+                          title={t('onlySettled')}
+                        >
+                          {t('withdraw')}
+                        </Button>
+                      )}
                     </div>
                   );
                 })}

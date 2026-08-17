@@ -27,6 +27,7 @@ import type {
   PickingListEntryDTO,
   DisputeDTO,
   ShipmentDTO,
+  AddressDTO,
   CatalogFacetsDTO,
   PortfolioHistoryResponse,
   PortfolioPointDTO,
@@ -513,6 +514,26 @@ export const mockKyc: KycInfoDTO = {
   capPerMonthCents: 1000000, // MOCK: dial M10 default (MX$10,000).
   monthUsedCents: 0,
 };
+
+/**
+ * MOCK: libreta de direcciones del usuario (contrato §1 · GET /users/me/addresses).
+ * Mutable en memoria: las ramas mock de createAddress/updateAddress/deleteAddress la modifican
+ * para que el gestor de direcciones se comporte como con backend real durante la demo.
+ */
+export const mockAddresses: AddressDTO[] = [
+  {
+    id: 'addr-1',
+    line1: 'Av. Reforma 222',
+    line2: 'Piso 3',
+    neighborhood: 'Juárez',
+    city: 'Ciudad de México',
+    state: 'CDMX',
+    postalCode: '06600',
+    country: 'MX',
+    phone: '5555123456',
+    isDefault: true,
+  },
+];
 
 export const mockShipments: ShipmentDTO[] = [
   {

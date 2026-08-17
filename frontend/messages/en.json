@@ -187,7 +187,11 @@
     "afterPayment": "On payment, your cards enter your vault with pending ownership until the payment settles.",
     "stripeMock": "Stripe integration pending backend: this button simulates the payment flow.",
     "paidTitle": "Payment processed (simulated)",
-    "paidBody": "In production this is confirmed with Stripe and your cards appear in the vault."
+    "paidBody": "In production this is confirmed with Stripe and your cards appear in the vault.",
+    "preparing": "Preparing…",
+    "payTitle": "Complete payment",
+    "processingTitle": "Payment in progress",
+    "processingBody": "We received your payment and are confirming it. Your cards will appear in your vault as pending and become settled once the payment confirms."
   },
   "vault": {
     "title": "My vault",
@@ -267,7 +271,9 @@
     "carrier": "Carrier",
     "noShipments": "You have no shipments yet.",
     "ineligibleTitle": "Ineligible cards",
-    "pipelineTitle": "Shipment status"
+    "pipelineTitle": "Shipment status",
+    "selectItem": "Select",
+    "payTitle": "Pay shipping"
   },
   "buylist": {
     "title": "Sell your cards",
@@ -1284,5 +1290,42 @@
     "APPROVED_PRICE_CAP_EXCEEDED": "The approved price exceeds the allowed cap for this item (quoted × 2 or AML cap).",
     "ITEM_NOT_APPROVED": "Only an approved item can be converted to inventory.",
     "CLABE_UNAVAILABLE": "No CLABE available for this request (no snapshot and no KYC record)."
+  },
+  "payment": {
+    "title": "Payment",
+    "preparing": "Preparing payment…",
+    "genericError": "We couldn't process the payment. Check your details and try again.",
+    "processing": "Processing…",
+    "pay": "Pay",
+    "payAmount": "Pay {amount}",
+    "settleNotice": "Your payment confirms in a few seconds; your cards are released once it settles.",
+    "mockBody": "Demo mode: Stripe is not connected. This button simulates a successful payment to complete the flow.",
+    "mockPay": "Pay (simulated)",
+    "mockPayAmount": "Pay {amount} (simulated)"
+  },
+  "addresses": {
+    "title": "Shipping addresses",
+    "add": "Add",
+    "emptyTitle": "No addresses",
+    "emptyBody": "Add a shipping address in Mexico to request withdrawals.",
+    "default": "Default",
+    "setDefault": "Set as default",
+    "delete": "Delete",
+    "newTitle": "New address",
+    "cancel": "Cancel",
+    "save": "Save",
+    "required": "Required field",
+    "postalCodeInvalid": "Invalid postal code",
+    "phoneInvalid": "Invalid phone number",
+    "line1": "Street and number",
+    "line2": "Unit / reference",
+    "neighborhood": "Neighborhood",
+    "city": "City",
+    "state": "State",
+    "postalCode": "Postal code",
+    "phone": "Phone",
+    "country": "Country",
+    "countryMx": "Mexico (MX)",
+    "makeDefault": "Use as default"
   }
 }
