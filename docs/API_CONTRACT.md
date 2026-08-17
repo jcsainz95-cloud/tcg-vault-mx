@@ -4,6 +4,20 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.10-sync-status (2026-08-17) — Progreso observable del barrido `sync-all` (M2, polling):**
+> **Bendición retroactiva** de un endpoint **YA implementado, probado y con triple veredicto APROBADO**
+> (qa+techlead+seguridad), que QA marcó como **brecha de contrato** por no estar en la fuente de verdad. Se
+> documenta aquí **exactamente** el shape ya espejado en `frontend/src/types/contract.ts` como
+> `CatalogSyncStatusResponse`, para alinear productor (backend) y consumidor (frontend).
+> - **`GET /api/v1/admin/catalog/sync-status` (NUEVO, `super_admin`):** devuelve el **progreso** del barrido
+>   `sync-all` en curso (o del último). Convierte el `sync-all` de fire-and-forget "a ciegas" en un flujo
+>   **observable**: M2 pollea cada ~3s mientras `running` y sabe **cuándo** terminó (`finishedAt`). **Read-only,
+>   NO auditado** (es de polling), **NO llama a pokemontcg.io** (lee estado en memoria del proceso; **no**
+>   consume rate-limit). Ver §M2.
+> - **Límite conocido (DEV-1):** el estado vive **en memoria del proceso** (no persistido). Si el proceso se
+>   reinicia a mitad del barrido, el estado se **pierde** y hay que re-llamar `sync-all`. Ligado al cableado
+>   pendiente de BullMQ (Desviación **DEV-1**, ARCHITECTURE §9).
+>
 > **Changelog v1.9-set-chart (2026-08-16) — Gráfica PÚBLICA del valor de un set en el tiempo (hero de la home):**
 > Dos endpoints **PÚBLICOS** nuevos (`@Public()`) para el hero de la home, que sirven la serie diaria del **valor
 > de mercado agregado de un set destacado** — para atraer visitantes anónimos (hoy la home solo muestra el
@@ -824,6 +838,25 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
     - **Retrocompatible:** omitir `force` (o enviar `false`) preserva el contrato y la semántica previos; ningún consumidor existente se rompe. El campo es aditivo y opcional.
   Res `202`: `{ jobId: string, setsQueued: number, remaining: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar; con `force=true`, `remaining` puede ser `0` aunque se hayan encolado todos los sets). Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`, con `force` registrado en el detalle).
   > **Alternativa sin endpoint nuevo:** el mismo resultado se logra con `POST /admin/catalog/sync` pasando un `fromReleaseDate` muy antiguo (p. ej. `"1998/01/01"`) **más** `POST /admin/catalog/backfill` repetido hasta `remaining=0`. `sync-all` existe para hacerlo explícito y **seguro contra timeouts** en catálogos grandes. Backend decide si `sync-all` es un wrapper que encola lo mismo que `backfill` en lote completo.
+- `GET /api/v1/admin/catalog/sync-status` — **(v1.10-sync-status, NUEVO)** devuelve el **progreso** del barrido `sync-all` **en curso** (o del **último** ejecutado) → permite a M2 **pollear** (cada ~3s mientras `running`) y saber **cuándo** terminó (antes `sync-all` era fire-and-forget "a ciegas"). **Read-only**, **NO auditado** (es de polling), **NO llama a pokemontcg.io** (lee estado **en memoria del proceso**; **no** consume rate-limit ni la cola BullMQ). **Admin-only** (`super_admin`, hereda de `@Roles(Role.super_admin)` del controller). El shape corresponde **exactamente** a `CatalogSyncStatusResponse` (`frontend/src/types/contract.ts`).
+  Res `200` (`CatalogSyncStatusResponse`):
+  ```json
+  {
+    "running": true,
+    "jobId": "catalog-sync-all-1734400000000",
+    "total": 168,
+    "done": 42,
+    "startedAt": "2026-08-17T18:00:00.000Z",
+    "finishedAt": null
+  }
+  ```
+    - **`running: boolean`** — hay un barrido **activo**.
+    - **`jobId: string | null`** — id del barrido **actual/último** (formato `catalog-sync-all-<epoch>`); `null` si nunca se ha corrido un `sync-all` desde el arranque del proceso.
+    - **`total: number`** — sets **encolados** en el barrido actual/último.
+    - **`done: number`** — sets ya **procesados** (éxito **o** fallo). La barra de progreso es `done/total`.
+    - **`startedAt: string | null`** — ISO-8601; cuándo arrancó el barrido actual/último.
+    - **`finishedAt: string | null`** — ISO-8601; se **setea al terminar** (cuando `running` pasa a `false`). `null` mientras `running` o antes del primer barrido.
+  > **Límite conocido (DEV-1):** el estado vive **en memoria del proceso** (**no persistido**). Si el proceso se **reinicia** a mitad del barrido, el estado se **pierde** (vuelve a `running:false`, `jobId:null`) y hay que **re-llamar** `sync-all`. Ligado al cableado pendiente de BullMQ — ver Desviación **DEV-1** en ARCHITECTURE §9.
 Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
 
 ### M3 — Ventas / órdenes (`vault_operator` lectura; `super_admin` reembolso)
