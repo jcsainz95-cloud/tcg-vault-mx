@@ -1,11 +1,25 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, ShipmentRequest, ShipmentStatus } from '@prisma/client';
+import {
+  Card,
+  CardSet,
+  InventoryItem,
+  MovementReason,
+  Prisma,
+  ShipmentItem,
+  ShipmentRequest,
+  ShipmentStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { computeShipmentBreakdown } from '../../common/money';
+
+/** ShipmentItem con la carta (y su set) resueltos, para el ClientShipmentItemDTO (v1.17). */
+type EnrichedShipmentItem = ShipmentItem & {
+  inventoryItem: InventoryItem & { card: Card & { set: CardSet | null } };
+};
 
 @Injectable()
 export class ShipmentsService {
@@ -164,7 +178,7 @@ export class ShipmentsService {
    * ADMIN (`adminGet`/`adminList`) siguen devolviendo la fila cruda con el costo.
    */
   private toClientShipment<
-    T extends ShipmentRequest & { items?: unknown },
+    T extends ShipmentRequest & { items: EnrichedShipmentItem[] },
   >(s: T) {
     return {
       id: s.id,
@@ -176,11 +190,31 @@ export class ShipmentsService {
       totalCents: s.totalCents,
       carrier: s.carrier,
       trackingNumber: s.trackingNumber,
+      // Timestamps por etapa que existen en el modelo (no hay guiaAt; la etapa `guia`
+      // se refleja por status + carrier/trackingNumber). API_CONTRACT §5.
       requestedAt: s.requestedAt,
       pickingAt: s.pickingAt,
       shippedAt: s.shippedAt,
       deliveredAt: s.deliveredAt,
-      items: s.items,
+      // v1.17: items enriquecidos (folio + acabado + carta) para la vista de rastreo.
+      items: s.items.map((si) => this.toClientShipmentItem(si)),
+    };
+  }
+
+  /** v1.17 — ClientShipmentItemDTO (API_CONTRACT §5). Sin costos internos ni PII. */
+  private toClientShipmentItem(si: EnrichedShipmentItem) {
+    const card = si.inventoryItem.card;
+    return {
+      inventoryItemId: si.inventoryItemId,
+      folio: si.inventoryItem.folio,
+      finish: si.inventoryItem.finish,
+      card: {
+        id: card.id,
+        name: card.name,
+        setName: card.set?.name ?? null,
+        number: card.number,
+        imageSmallUrl: card.imageSmallUrl,
+      },
     };
   }
 
@@ -188,7 +222,9 @@ export class ShipmentsService {
     const rows = await this.prisma.shipmentRequest.findMany({
       where: { userId },
       orderBy: { requestedAt: 'desc' },
-      include: { items: true },
+      include: {
+        items: { include: { inventoryItem: { include: { card: { include: { set: true } } } } } },
+      },
     });
     return { data: rows.map((r) => this.toClientShipment(r)) };
   }
@@ -196,7 +232,9 @@ export class ShipmentsService {
   async getMine(userId: string, id: string) {
     const shipment = await this.prisma.shipmentRequest.findUnique({
       where: { id },
-      include: { items: { include: { inventoryItem: { include: { card: true } } } } },
+      include: {
+        items: { include: { inventoryItem: { include: { card: { include: { set: true } } } } } },
+      },
     });
     if (!shipment || shipment.userId !== userId) throw BusinessException.notFound();
     return this.toClientShipment(shipment);
@@ -274,6 +312,14 @@ export class ShipmentsService {
     cancelado: [],
   };
 
+  /**
+   * v1.17 — Máquina de estados M4. La ÚNICA escritura persistente del ciclo de retiro
+   * sobre el `InventoryItem` es la transición terminal al pasar a `entregado`: cada item
+   * de sus `ShipmentItem` pasa `in_custody → withdrawn` (+ InventoryMovement
+   * reason='withdrawal'), CONSERVANDO ownerType/ownerUserId/ownershipStatus (histórico
+   * intacto). Idempotente: un item ya `withdrawn` no duplica movimiento. Todo en UNA
+   * transacción con la actualización del envío. API_CONTRACT §M4, ARCHITECTURE §3.3/§9.
+   */
   async updateStatus(id: string, to: ShipmentStatus) {
     const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!shipment) throw BusinessException.notFound();
@@ -288,7 +334,39 @@ export class ShipmentsService {
     if (to === 'picking') data.pickingAt = new Date();
     if (to === 'enviado') data.shippedAt = new Date();
     if (to === 'entregado') data.deliveredAt = new Date();
-    return this.prisma.shipmentRequest.update({ where: { id }, data });
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.shipmentRequest.update({ where: { id }, data });
+      if (to === 'entregado') {
+        const shipmentItems = await tx.shipmentItem.findMany({
+          where: { shipmentRequestId: id },
+          select: { inventoryItemId: true },
+        });
+        for (const si of shipmentItems) {
+          const item = await tx.inventoryItem.findUnique({
+            where: { id: si.inventoryItemId },
+          });
+          if (!item) continue;
+          // Idempotencia: si ya está retirado, no dupliques el movimiento.
+          if (item.status === 'withdrawn') continue;
+          await tx.inventoryItem.update({
+            where: { id: si.inventoryItemId },
+            // Solo cambia `status`; conserva ownerType/ownerUserId/ownershipStatus.
+            data: { status: 'withdrawn' },
+          });
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: si.inventoryItemId,
+              fromStatus: item.status,
+              toStatus: 'withdrawn',
+              reason: MovementReason.withdrawal,
+              note: `shipment ${id} delivered`,
+            },
+          });
+        }
+      }
+      return updated;
+    });
   }
 
   async setTracking(

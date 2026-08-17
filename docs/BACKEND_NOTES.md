@@ -2808,3 +2808,72 @@ Pase pequeño de cierre de dos hallazgos ya señalados. No cambia el contrato; t
 ### 40.4 Gates
 - `npx tsc --noEmit` → 0 errores. `npx jest` → **73 suites / 516 tests verdes** (incluye los 2 tests nuevos/
   ajustados).
+
+---
+
+## 41. Ciclo de RETIRO visible para el cliente (WS-H / contrato v1.17-withdrawal-lifecycle)
+
+Implementa la **Opción 1** del contrato v1.17 (API_CONTRACT §3, §5, §M4, §9; ARCHITECTURE §3.3, §9 WD-1):
+la carta retirada permanece "EN RETIRO" en la bóveda con RETIRAR deshabilitado, el retiro es rastreable por
+etapa, y al llegar a `entregado` **sale de la bóveda**. **Aditivo, SIN migración** (reusa
+`InventoryStatus.withdrawn`, `MovementReason.withdrawal` y la máquina `ShipmentStatus` existentes).
+
+### 41.1 Fuente de verdad canónica (derivación, sin espejo)
+El estado/etapa del retiro se **deriva del join** `InventoryItem → ShipmentItem → ShipmentRequest.status`.
+El `InventoryItem.status` **NO se espeja por etapa**: permanece `in_custody` durante
+`solicitado→picking→guia→enviado`. La **única escritura persistente** del ciclo es la transición terminal en
+`entregado` (`in_custody → withdrawn`). Hay a lo más **un** envío activo por item (garantizado por
+`409 ITEM_IN_ANOTHER_SHIPMENT`).
+
+### 41.2 `GET /vault/holdings` — nuevos campos derivados (`vault.service.ts`)
+- **Query:** `ownerType='customer' AND ownerUserId=:me AND status != 'withdrawn'`. Los `withdrawn`
+  (entregados) NO se listan ni cuentan; los items con envío activo SÍ se listan y SÍ cuentan.
+- **Join eficiente (sin N+1):** UNA sola consulta batch a `shipmentItem.findMany` con
+  `inventoryItemId IN (ids)` y `shipmentRequest.status IN (solicitado,picking,guia,enviado)`; se construye un
+  `Map<inventoryItemId, {shipmentId, state}>`. Si no hay items, no se consulta el join.
+- **Campos por holding:** `shipmentState: ShipmentActiveStage|null` (etapa del envío activo),
+  `activeShipmentId: string|null` (deep-link a `GET /shipments/:id`), `withdrawable: boolean` =
+  `ownershipStatus==='settled' && shipmentState===null` (flag autoritativo anti doble-retiro).
+- Constante `ACTIVE_SHIPMENT_STAGES` en el módulo (subconjunto activo del enum `ShipmentStatus`).
+
+### 41.3 Portafolio / snapshot coherentes
+- `costBasisCents` y el job `portfolio-snapshot` (`jobs/portfolio-snapshot.service.ts`) aplican la **misma**
+  exclusión `status != 'withdrawn'`. Como el snapshot reusa `VaultService.holdings()`, el valor histórico y
+  el valor en vivo quedan alineados (los entregados dejan de contar en ambos).
+
+### 41.4 Rastreo del cliente — `GET /shipments` (listMine) y `GET /shipments/:id` (`shipments.service.ts`)
+- `toClientShipment` ahora enriquece `items[]` a `ClientShipmentItemDTO`:
+  `{ inventoryItemId, folio, finish, card:{ id, name, setName, number, imageSmallUrl } }` (helper
+  `toClientShipmentItem`, tipo `EnrichedShipmentItem`). `listMine`/`getMine` incluyen
+  `items.inventoryItem.card.set`. Envelope `{ data }` (sin paginar) para listMine.
+- Sigue siendo **allowlist** de campos de cliente (SEC-C1): NO expone `shippingCostCents` ni costos internos.
+  Timestamps por etapa expuestos: `requestedAt/pickingAt/shippedAt/deliveredAt` (no existe `guiaAt` en el
+  modelo; la etapa `guia` se refleja por `status` + `carrier/trackingNumber`). Scoping por `userId`/owner.
+
+### 41.5 Transición terminal — `updateStatus` (`PATCH /admin/shipments/:id/status`)
+- Al pasar a `entregado`, **dentro de `$transaction`**: por cada `InventoryItem` de los `ShipmentItem` del
+  envío, `status: in_custody → withdrawn` (solo cambia `status`; **conserva** `ownerType='customer'`,
+  `ownerUserId`, `ownershipStatus='settled'` — histórico intacto) + `InventoryMovement reason='withdrawal'`.
+- **Idempotente:** un item ya `withdrawn` no duplica movimiento. Como `entregado` es terminal en la máquina,
+  reintentar la transición da `409 CONFLICT` (doble candado). Las transiciones no terminales NO tocan el item.
+
+### 41.6 Webhook (sin cambio, confirmado)
+`payments.service.ts` sigue avanzando **solo** `ShipmentRequest solicitado→picking` en
+`payment_intent.succeeded`, **sin tocar el item**. No se modificó.
+
+### 41.7 Tests
+- **Unit** (`npm test`): `test/vault.holdings-withdrawal.spec.ts` (exclusión de withdrawn, `shipmentState`/
+  `activeShipmentId`/`withdrawable`, join batch de 1 consulta, pending no retirable, costBasis excluye
+  withdrawn) y `test/shipments.client-tracking.spec.ts` (ClientShipmentDTO enriquecido sin `shippingCostCents`,
+  scoping por usuario, transición terminal a `withdrawn` en transacción + idempotencia + no-op en etapas no
+  terminales).
+- **Integración/E2E** (`npm run test:integration`, corre QA con infra): nuevo describe en
+  `test/integration/vault-shipments.e2e-spec.ts` que recorre `solicitado→picking→guia→enviado→entregado`,
+  verifica EN RETIRO / no-retirable con envío activo, items enriquecidos, aislamiento entre usuarios, y la
+  salida de la bóveda + caída del valor del portafolio tras entregar.
+
+### 41.8 Gates
+- `npm run typecheck` → **0 errores**.
+- `npm test` (unit) → **75 suites / 530 tests verdes** (incluye los 2 specs nuevos de este WS).
+- `npm run test:integration` → requiere Postgres/Redis/MinIO; **no se ejecutó en el entorno de desarrollo del
+  agente** (sin Docker/DB). El spec añadido compila (incluido en `tsc`); QA lo ejecuta contra el stack.
