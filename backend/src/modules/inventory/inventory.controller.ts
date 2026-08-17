@@ -109,7 +109,9 @@ export class InventoryController {
 
   /**
    * POST /admin/inventory/adjustments — motivo OBLIGATORIO encontrada|perdida|danada|error_captura.
-   * Res 201 (encontrada, crea piezas) / 200 (resto). Registro triple: InventoryAdjustment (M-22) +
+   * Res 201 (encontrada, crea piezas) / 200 (resto Y el replay idempotente por `batchKey`, v1.18.1:
+   * un replay devuelve la respuesta original guardada con `idempotentReplay: true` y 200 aunque la
+   * primera vez fuera 201). Registro triple: InventoryAdjustment (M-22) +
    * InventoryMovement(reason=adjustment) [servicio, en tx] + AuditLog action=inventory.adjustment
    * con usuario y timestamp (aquí). NO es dinero saliente (sin MoneyOutGuard) y NO vende nada.
    */
@@ -125,17 +127,21 @@ export class InventoryController {
       actorRole: user.role,
       action: 'inventory.adjustment',
       entityType: 'InventoryAdjustment',
-      entityId: out.adjustmentId,
+      // v1.18.1: la respuesta es plural (una fila M-22 por pieza); la bitácora ancla en la primera
+      // y lista TODAS en `after.adjustmentIds`.
+      entityId: out.adjustmentIds[0],
       after: {
         reason: out.reason,
+        adjustmentIds: out.adjustmentIds,
         inventoryItemIds: out.inventoryItemIds,
         folios: out.folios,
         fromStatus: out.fromStatus,
         toStatus: out.toStatus,
+        idempotentReplay: out.idempotentReplay,
         note: dto.note,
       },
     });
-    res.status(dto.reason === 'encontrada' ? 201 : 200);
+    res.status(dto.reason === 'encontrada' && !out.idempotentReplay ? 201 : 200);
     return out;
   }
 

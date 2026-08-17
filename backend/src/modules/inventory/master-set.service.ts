@@ -380,7 +380,9 @@ export class MasterSetService {
       FROM "InventoryItem" ii
       JOIN "Card" c ON c.id = ii."cardId"
       WHERE ${this.scopeSql(scope)}
-        AND ii.status NOT IN ('withdrawn', 'shipped', 'delivered', 'lost', 'damaged')
+        -- [BE-40] Lista on-hand interpolada desde NOT_ON_HAND (fuente única de verdad, misma que
+        -- scopeWhere/admin-vaults); el ::text castea el enum para comparar con los parámetros.
+        AND ii.status::text NOT IN (${Prisma.join(NOT_ON_HAND)})
         AND c."setId" IN (${Prisma.join(setIds)})
       GROUP BY c."setId"
     `);

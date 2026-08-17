@@ -81,14 +81,22 @@ const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock',
  */
 const ADJUSTABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
 
-/** Respuesta del ajuste (API_CONTRACT §DTOs — InventoryAdjustmentResponse). */
+/**
+ * Respuesta del ajuste (API_CONTRACT §DTOs — InventoryAdjustmentResponse, v1.18.1):
+ *  - `adjustmentIds` (plural) SUSTITUYE al singular `adjustmentId`: con `encontrada` y qty>1 hay
+ *    UNA fila InventoryAdjustment por pieza (M-22) y se devuelven TODAS, alineadas 1:1 con
+ *    `inventoryItemIds`/`folios` (longitud 1 en los otros motivos).
+ *  - `idempotentReplay`: true SOLO cuando un `batchKey` ya procesado repite la respuesta guardada;
+ *    false en todo procesamiento nuevo (y siempre false sin batchKey / motivos ≠ encontrada).
+ */
 export interface InventoryAdjustmentResponse {
-  adjustmentId: string;
+  adjustmentIds: string[];
   reason: AdjustmentReason;
   inventoryItemIds: string[];
   folios: string[];
   fromStatus: InventoryStatus | null;
   toStatus: InventoryStatus;
+  idempotentReplay: boolean;
 }
 
 @Injectable()
@@ -475,13 +483,29 @@ export class InventoryService {
         }
 
         // status → listed. Re-publicar una `listed` = no-op idempotente. Persiste el override manual.
-        await this.prisma.inventoryItem.update({
-          where: { id: item.id },
+        // [BE-39] Guardia ATÓMICA de status (par del ajuste): el paso a `listed` es CONDICIONAL al
+        // allowlist en el MISMO UPDATE (updateMany + count). El check en memoria de arriba valida
+        // el snapshot leído; esta condición cierra el TOCTOU: si entre lectura y escritura la pieza
+        // salió de {in_stock, listed} (p. ej. un checkout la reservó), count=0 → ITEM_NOT_PUBLISHABLE
+        // por-línea y NO se re-abre a un segundo comprador (anti double-sell).
+        const claimed = await this.prisma.inventoryItem.updateMany({
+          where: {
+            id: item.id,
+            ownerType: 'platform',
+            status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
+          },
           data: {
             status: 'listed',
             ...(line.listPriceCents != null ? { listPriceCents: line.listPriceCents } : {}),
           },
         });
+        if (claimed.count !== 1) {
+          throw BusinessException.validation(
+            'ITEM_NOT_PUBLISHABLE',
+            'item can no longer be published (concurrent status transition)',
+            { status: item.status },
+          );
+        }
         published++;
         results.push({
           index,
@@ -717,11 +741,29 @@ export class InventoryService {
     dto: InventoryAdjustmentRequestDto,
     actorUserId: string,
   ): Promise<InventoryAdjustmentResponse> {
+    // v1.18.1 — `batchKey` SOLO es válido con `encontrada` (contrato §M1): los otros motivos
+    // operan un id concreto y su replay cae en 422 ITEM_NOT_ADJUSTABLE (idempotencia natural).
+    if (dto.batchKey != null && dto.reason !== 'encontrada') {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        "`batchKey` is only valid with reason 'encontrada'",
+      );
+    }
     if (dto.reason === 'encontrada') return this.adjustFound(dto, actorUserId);
     return this.adjustExisting(dto, actorUserId);
   }
 
-  /** `encontrada`: alta de pieza(s) nueva(s) con la MISMA resolución del alta normal/lote. */
+  /**
+   * `encontrada`: alta de pieza(s) nueva(s) con la MISMA resolución del alta normal/lote.
+   *
+   * v1.18.1 — idempotencia opcional por `batchKey` con el MISMO mecanismo `InventoryBatch` (M-21)
+   * que `batchCreate` (sin migración nueva; cierra BE-41, el doble submit del drawer ya no duplica):
+   *  - fast-path: batchKey ya persistido → respuesta ORIGINAL guardada + `idempotentReplay: true`
+   *    (el controller responde 200 en el replay aunque la primera vez fuera 201).
+   *  - claim `inventoryBatch.create({ id: batchKey })` PRIMERO dentro de la $transaction: la unique
+   *    constraint es la guardia de concurrencia (P2002 → replay del ganador, no duplica piezas) y
+   *    un crash a mitad hace rollback de claim + piezas (sin huérfanos).
+   */
   private async adjustFound(
     dto: InventoryAdjustmentRequestDto,
     actorUserId: string,
@@ -731,6 +773,12 @@ export class InventoryService {
         'VALIDATION_ERROR',
         "reason 'encontrada' requires `item`",
       );
+    }
+    if (dto.batchKey) {
+      const existing = await this.prisma.inventoryBatch.findUnique({
+        where: { id: dto.batchKey },
+      });
+      if (existing) return this.replayAdjustment(existing);
     }
     // Excepción documentada (API_CONTRACT §DTOs): acquisitionType default aportacion_en_especie.
     const line: BatchInventoryItemInput = {
@@ -742,7 +790,8 @@ export class InventoryService {
       throw BusinessException.validation('VALIDATION_ERROR', 'graded items cannot have qty > 1');
     }
     // Misma validación del alta (NOT_FOUND / VALIDATION_ERROR / FINISH_NOT_AVAILABLE /
-    // PRICE_PENDING con escalado del pendiente — paridad con el alta normal).
+    // PRICE_PENDING con escalado del pendiente — paridad con el alta normal). Si falla, NO se
+    // claimea el batchKey → un reintento con la misma key vuelve a intentar limpio.
     const r = await this.resolveCreation(line);
     if (r.sealedNeedsEscalate) {
       await this.pricing.escalatePending(
@@ -755,45 +804,90 @@ export class InventoryService {
       );
     }
     const folios = await this.prisma.nextFolios(qty);
-    const { inventoryItemIds, adjustmentId } = await this.prisma.$transaction(async (tx) => {
-      const ids: string[] = [];
-      let firstAdjustmentId: string | null = null;
-      for (const folio of folios) {
-        const item = await tx.inventoryItem.create({ data: this.buildItemData(line, r, folio) });
-        await tx.inventoryMovement.create({
-          data: {
-            itemId: item.id,
-            toLocationId: line.locationId,
-            toStatus: 'in_stock',
-            reason: MovementReason.adjustment,
-            actorUserId,
-            note: dto.note ?? 'encontrada',
-          },
+    try {
+      const response = await this.prisma.$transaction(async (tx) => {
+        // v1.18.1 — claim atómico del batchKey PRIMERO (guardia de concurrencia, patrón batchCreate).
+        if (dto.batchKey) {
+          await tx.inventoryBatch.create({
+            data: {
+              id: dto.batchKey,
+              actorUserId,
+              kind: 'adjust',
+              requested: qty,
+              createdItems: 0,
+              failedLines: 0,
+              resultJson: {} as unknown as Prisma.InputJsonValue,
+            },
+          });
+        }
+        const inventoryItemIds: string[] = [];
+        const adjustmentIds: string[] = [];
+        for (const folio of folios) {
+          const item = await tx.inventoryItem.create({ data: this.buildItemData(line, r, folio) });
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: item.id,
+              toLocationId: line.locationId,
+              toStatus: 'in_stock',
+              reason: MovementReason.adjustment,
+              actorUserId,
+              note: dto.note ?? 'encontrada',
+            },
+          });
+          // M-22: UNA fila InventoryAdjustment POR PIEZA creada (qty>1 → una por pieza).
+          const adj = await tx.inventoryAdjustment.create({
+            data: {
+              inventoryItemId: item.id,
+              reason: 'encontrada',
+              fromStatus: null,
+              toStatus: 'in_stock',
+              actorUserId,
+              note: dto.note ?? null,
+            },
+          });
+          adjustmentIds.push(adj.id);
+          inventoryItemIds.push(item.id);
+        }
+        const out: InventoryAdjustmentResponse = {
+          adjustmentIds,
+          reason: 'encontrada',
+          inventoryItemIds,
+          folios,
+          fromStatus: null,
+          toStatus: 'in_stock',
+          idempotentReplay: false,
+        };
+        // Finaliza el claim con la respuesta ORIGINAL (fuente del replay idempotente).
+        if (dto.batchKey) {
+          await tx.inventoryBatch.update({
+            where: { id: dto.batchKey },
+            data: {
+              createdItems: inventoryItemIds.length,
+              resultJson: out as unknown as Prisma.InputJsonValue,
+            },
+          });
+        }
+        return out;
+      });
+      return response;
+    } catch (e) {
+      // P2002 en el claim = otra corrida ganó la carrera por este batchKey → replay (no duplica).
+      if (dto.batchKey && (e as { code?: string })?.code === 'P2002') {
+        const claimed = await this.prisma.inventoryBatch.findUnique({
+          where: { id: dto.batchKey },
         });
-        // M-22: UNA fila InventoryAdjustment POR PIEZA creada (qty>1 → una por pieza).
-        const adj = await tx.inventoryAdjustment.create({
-          data: {
-            inventoryItemId: item.id,
-            reason: 'encontrada',
-            fromStatus: null,
-            toStatus: 'in_stock',
-            actorUserId,
-            note: dto.note ?? null,
-          },
-        });
-        firstAdjustmentId ??= adj.id;
-        ids.push(item.id);
+        if (claimed) return this.replayAdjustment(claimed);
+        // Carrera extrema (la ganadora aún no commitea su claim visible): pide reintento.
+        throw BusinessException.conflict('CONFLICT', 'adjustment is being processed; retry');
       }
-      return { inventoryItemIds: ids, adjustmentId: firstAdjustmentId as string };
-    });
-    return {
-      adjustmentId,
-      reason: 'encontrada',
-      inventoryItemIds,
-      folios,
-      fromStatus: null,
-      toStatus: 'in_stock',
-    };
+      throw e;
+    }
+  }
+
+  /** Reconstruye la respuesta idempotente del ajuste desde el InventoryBatch persistido. */
+  private replayAdjustment(existing: { resultJson: unknown }): InventoryAdjustmentResponse {
+    const stored = existing.resultJson as InventoryAdjustmentResponse;
+    return { ...stored, idempotentReplay: true };
   }
 
   /** `perdida | danada | error_captura`: transición de UNA pieza existente; `note` OBLIGATORIA. */
@@ -830,7 +924,26 @@ export class InventoryService {
     const toStatus: InventoryStatus =
       dto.reason === 'perdida' ? 'lost' : dto.reason === 'danada' ? 'damaged' : 'withdrawn';
     const adjustmentId = await this.prisma.$transaction(async (tx) => {
-      await tx.inventoryItem.update({ where: { id: item.id }, data: { status: toStatus } });
+      // [BE-39] Guardia ATÓMICA de status: la transición es CONDICIONAL al allowlist en el MISMO
+      // UPDATE (updateMany + count), no un update incondicional tras el check en memoria de arriba
+      // (que queda como pre-validación de mensajes amables). Cierra la ventana TOCTOU: si entre la
+      // lectura y esta escritura la pieza salió de {in_stock, listed} (p. ej. un checkout la puso
+      // `reserved`), count=0 → 422 y rollback (no se pisa la reserva con lost/damaged/withdrawn).
+      const claimed = await tx.inventoryItem.updateMany({
+        where: {
+          id: item.id,
+          ownerType: 'platform',
+          status: { in: [...ADJUSTABLE_ORIGIN_STATUSES] },
+        },
+        data: { status: toStatus },
+      });
+      if (claimed.count !== 1) {
+        throw BusinessException.validation(
+          'ITEM_NOT_ADJUSTABLE',
+          'item is no longer adjustable (concurrent status transition)',
+          { status: item.status },
+        );
+      }
       await tx.inventoryMovement.create({
         data: {
           itemId: item.id,
@@ -854,12 +967,13 @@ export class InventoryService {
       return adj.id;
     });
     return {
-      adjustmentId,
+      adjustmentIds: [adjustmentId],
       reason: dto.reason as AdjustmentReason,
       inventoryItemIds: [item.id],
       folios: [item.folio],
       fromStatus: item.status,
       toStatus,
+      idempotentReplay: false,
     };
   }
 

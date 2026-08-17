@@ -499,7 +499,7 @@ model InventoryAdjustment {
 model InventoryBatch {
   id           String   @id // = batchKey (idempotency key)
   actorUserId  String?
-  kind         String // 'create' | 'publish'
+  kind         String // 'create' | 'publish' | 'adjust' (v1.18.1: idempotencia del ajuste `encontrada`)
   requested    Int
   createdItems Int
   failedLines  Int

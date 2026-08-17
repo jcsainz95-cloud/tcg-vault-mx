@@ -162,16 +162,20 @@ export class AdjustmentFoundItemInput {
 }
 
 /**
- * POST /admin/inventory/adjustments (API_CONTRACT §M1 v1.18). Unión discriminada por `reason`:
- *  - `encontrada` → requiere `item` (crea pieza(s)); `note` opcional.
- *  - `perdida | danada | error_captura` → requieren `inventoryItemId` + `note` (obligatoria).
- * La coherencia cruzada (campo requerido según reason) la valida el servicio → 400 VALIDATION_ERROR.
+ * POST /admin/inventory/adjustments (API_CONTRACT §M1 v1.18/v1.18.1). Unión discriminada por `reason`:
+ *  - `encontrada` → requiere `item` (crea pieza(s)); `note` opcional; `batchKey?` opcional
+ *    (v1.18.1: idempotencia con la MISMA semántica que el alta por lote — replay devuelve la
+ *    respuesta original con `idempotentReplay: true`; cierra BE-41).
+ *  - `perdida | danada | error_captura` → requieren `inventoryItemId` + `note` (obligatoria);
+ *    NO aceptan `batchKey` (su replay cae en 422 ITEM_NOT_ADJUSTABLE — idempotencia natural).
+ * La coherencia cruzada (campo requerido/prohibido según reason) la valida el servicio → 400.
  */
 export class InventoryAdjustmentRequestDto {
   @IsIn(['encontrada', 'perdida', 'danada', 'error_captura'])
   reason!: 'encontrada' | 'perdida' | 'danada' | 'error_captura';
   @IsOptional() @IsString() inventoryItemId?: string;
   @IsOptional() @IsString() note?: string;
+  @IsOptional() @IsString() batchKey?: string;
   @IsOptional()
   @ValidateNested()
   @Type(() => AdjustmentFoundItemInput)

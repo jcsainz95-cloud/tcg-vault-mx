@@ -2874,10 +2874,10 @@ no cambian de forma; solo ganan campos). No toca dinero saliente.
   NO se añadió valor a `InventoryStatus` (decisión §4.18e).
 
 ### 41.4 Decisiones/notas para otros roles
-- **`adjustmentId` con qty>1 (`encontrada`):** M-22 exige UNA fila `InventoryAdjustment` por pieza
-  creada, pero `InventoryAdjustmentResponse.adjustmentId` es singular → se devuelve el id de la
-  **primera** fila (las demás se recuperan por `inventoryItemIds`). Ambigüedad menor de contrato;
-  anotada para el arquitecto (no bloquea: el front no navega por adjustmentId).
+- **`adjustmentId` con qty>1 (`encontrada`) — RESUELTA por v1.18.1 (ver §41.7):** el arquitecto
+  aclaró el contrato (v1.18.1-adjustments-clarify): `adjustmentIds: string[]` sustituye al singular
+  (todas las filas M-22, alineadas 1:1 con `inventoryItemIds`/`folios`) y `batchKey?` da idempotencia
+  a `encontrada`. Implementado en este stream; la nota original queda como histórico.
 - **`GET /admin/vaults` valúa TODAS las piezas de bóveda** (1 findMany + 1 lote de refs) para poder
   ordenar globalmente por `value_desc` antes de paginar — mismo patrón que el índice master-set (sort
   global en memoria). A escala de decenas de miles de piezas convendría materializar (par de la fase 2
@@ -2903,3 +2903,46 @@ no cambian de forma; solo ganan campos). No toca dinero saliente.
   `npm run build` OK · `npx jest` → **76 suites / 563 tests verdes** (antes 73/516: 3 suites nuevas +
   1 actualizada, +47 tests de este WS). La suite de integración (`test:integration`) requiere la infra
   levantada (la corre QA con el stack).
+
+### 41.7 Ronda final post-gates (v1.18.1-adjustments-clarify + pago BE-39/BE-40, 2026-08-17)
+- **v1.18.1 en `POST /admin/inventory/adjustments`** (contrato §M1 / ARCHITECTURE §4.18e):
+  - `InventoryAdjustmentResponse.adjustmentIds: string[]` **sustituye** al singular `adjustmentId`
+    (eliminado sin deprecated): con `encontrada` y qty>1 se devuelven TODAS las filas M-22, alineadas
+    1:1 con `inventoryItemIds`/`folios`; longitud 1 en los otros motivos. Se añade
+    `idempotentReplay: boolean`. El AuditLog ancla `entityId` en el **primer** adjustmentId y lista
+    todos en `after.adjustmentIds`.
+  - **`batchKey?` SOLO con `encontrada`** (otro motivo → `400 VALIDATION_ERROR`, validado en
+    `adjust()` antes del dispatch). Idempotencia con el MISMO mecanismo `InventoryBatch` (M-21) que
+    `batchCreate`, **sin migración nueva** (`kind: 'adjust'`; solo se actualizó el comentario del
+    campo en `schema.prisma`): fast-path replay si el batchKey ya está persistido; si no, **claim
+    atómico primero** dentro de la `$transaction` (P2002 → replay del ganador / `409 CONFLICT` en la
+    carrera extrema; crash → rollback de claim + piezas). El replay devuelve la **respuesta original
+    guardada** (`resultJson`) con `idempotentReplay: true` y **HTTP 200** aunque la primera vez fuera
+    201 (`res.status(... && !out.idempotentReplay ? 201 : 200)` en el controller). Si la validación
+    (`PRICE_PENDING`, etc.) falla ANTES del claim, el batchKey NO queda quemado: el reintento procesa
+    limpio. **Cierra BE-41** y la nota §41.4.
+- **BE-39 PAGADA (guardia atómica de status, autorizada por techlead sin re-review):** en
+  `adjustExisting` y en `bulkPublish` el paso de status dejó de ser un `update` incondicional tras el
+  check en memoria; ahora es `updateMany({ where: { id, ownerType:'platform', status: { in:
+  ADJUSTABLE_ORIGIN_STATUSES | PUBLISHABLE_ORIGIN_STATUSES } } })` + `count === 1`, y `count !== 1` →
+  `422 ITEM_NOT_ADJUSTABLE` (rollback de la tx del ajuste) / `ITEM_NOT_PUBLISHABLE` por-línea. Cierra
+  el TOCTOU: una pieza que un checkout reservó entre lectura y escritura ya no puede ser pisada ni
+  re-listada (anti double-sell). El pre-check en memoria queda como validación de mensajes amables.
+- **BE-40 PAGADA:** el raw SQL de `aggregateInventoryBySet` ya no reescribe la lista on-hand a mano:
+  interpola `ii.status::text NOT IN (${Prisma.join(NOT_ON_HAND)})` — una sola fuente de verdad con
+  `scopeWhere`/`admin-vaults`.
+- **Deuda anotada en `docs/TECH_DEBT.md`:** BE-39/BE-40 PAGADAS, BE-41 CERRADA; **BE-42** (DTO
+  `AdjustmentFoundItemInput` copia de `BatchInventoryItemInput` → derivar base común), **BE-43**
+  (`GET /admin/vaults` valúa todas las bóvedas por request + `getReferencesBatch` escala con el
+  histórico de `PriceReference` + `gradeKeyFor` calculado dos veces; disparador: antes de staging con
+  histórico real o miles de piezas), **BE-44** (índice master set `user_vault` agrega sobre el
+  catálogo completo → acotar a los sets del usuario) abiertas no bloqueantes. Además, por
+  trazabilidad, dos pendientes de **OTROS streams** detectados por QA (XS-1: `jwt-auth.guard.ts:37`
+  responde 422 en vez de 401 `UNAUTHENTICATED`; XS-2: 5 fallos deterministas de integración por
+  rate-limit login/B-C1 vs harness E2E → dial de throttle para entorno E2E). Este stream NO los tocó.
+- **Tests/gates de esta ronda:** `test/inventory.adjustments.spec.ts` (respuesta plural; batchKey:
+  replay idempotente + claim `kind:'adjust'` + carrera P2002 + batchKey con motivo ≠ encontrada →
+  400 + fallo pre-claim no quema la key; carrera de status → 422 sin escritura) y
+  `test/inventory.batch.spec.ts` (bulk-publish con guardia atómica + test de carrera count=0).
+  `npm run typecheck` 0 errores · `npm run lint` 0 warnings · `npm run build` OK · `npx jest` →
+  **76 suites / 572 tests verdes** (+9 sobre §41.6).
