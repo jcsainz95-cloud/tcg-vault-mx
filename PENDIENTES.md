@@ -12,14 +12,14 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 - **Qué implica:** añadir un botón "Cerrar sesión" en el header del admin (limpia el token/sesión y
   redirige a login). Frontend (layout/topbar de admin). Tamaño: pequeño.
 
-### ~~P-2 · Barra de avance al sincronizar catálogo~~ ✅ HECHO (rama `claude/git-repo-review-c67xyk`)
+### ~~P-2 · Barra de avance al sincronizar catálogo~~ ✅ HECHO Y EN `main`
 - **Observado:** al sincronizar no se sabía cuánto faltaba ni cuándo terminaba ("a ciegas") y el
   banner "encolado" se leía como "listo".
 - **Resuelto:** `GET /admin/catalog/sync-status` expone `{running, total, done, startedAt, finishedAt}`
-  (estado en memoria; no audita ni pega a pokemontcg.io). M2 lo pollea cada 3 s mientras corre, pinta
-  una barra honesta `done/total` + "corre en segundo plano", y al terminar muestra "completada".
-  La columna Cartas ahora muestra `cardCount / printedTotal` por set. **Pendiente:** promover a `main`
-  con veredictos (operador/no-dinero; riesgo bajo).
+  (estado en memoria; no audita ni pega a pokemontcg.io; documentado en contrato §M2 v1.10). M2 lo
+  pollea cada 3 s mientras corre, pinta una barra honesta `done/total` + "corre en segundo plano", y al
+  terminar muestra "completada". La columna Cartas ahora muestra `cardCount / printedTotal` por set.
+  Triple veredicto APROBADO (qa+techlead+seguridad) y promovido a `main`. Deuda: BE-11/BE-12, FE-9/FE-10.
 
 ### P-3 · No aparecen todas las versiones/acabados de la misma carta al dar de alta
 - **Observado:** al **dar de alta** inventario, en el set **"Pitch Black"** salen **pocas opciones**,
@@ -49,12 +49,11 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 
 ## En curso / Hecho (referencia)
 - **Gráfica pública de valor de set** — hecha y desplegada; falta encenderla con datos (runbook `DEVOPS_NOTES §17`).
-- **Fix de seguridad (cifrado INE) + reparación de CI** — en la rama `claude/git-repo-review-c67xyk`,
-  pendiente de fusionar a `main` cuando se dé el OK. Deuda de CI (poda de imagen Docker, self-host de
-  fuente, E2E) aceptada y anotada.
-- **P-11 · Gating temprano del flujo de venta** — el cotizador comunica los requisitos (sesión, correo
-  verificado, CLABE/INE) ANTES de enviar, en vez de reventar con un 403 críptico al final. En la rama,
-  gates verdes (lint/tsc/vitest 217/build). Toca auth-gating + KYC (PII) → **falta veredicto** antes de `main`.
-- **Fix contrato `clabeMasked`** — `GET /users/me/kyc` devolvía la CLABE enmascarada bajo la clave `clabe`;
-  el contrato/front usan `clabeMasked`, así que el hint "CLABE ya registrada" nunca aparecía. Corregido en backend.
-- **P-2 · Status del barrido de catálogo** — ver arriba (✅ en la rama; falta promover con veredicto).
+- **Fix de seguridad (cifrado INE) + reparación de CI** — ✅ fusionado a `main`. Deuda de CI (poda de imagen
+  Docker, self-host de fuente, E2E) aceptada y anotada.
+- **P-11 · Gating temprano del flujo de venta** — ✅ triple veredicto APROBADO y en `main`. El cotizador
+  comunica los requisitos (sesión, correo verificado, CLABE/INE) ANTES de enviar, en vez de reventar con
+  un 403 críptico al final. Deuda menor anotada: FE-7, FE-8, FE-11.
+- **Fix contrato `clabeMasked`** — ✅ en `main`. `GET /users/me/kyc` devolvía la CLABE enmascarada bajo la
+  clave `clabe`; el contrato/front usan `clabeMasked`, así que el hint "CLABE ya registrada" nunca aparecía.
+- **P-2 · Status del barrido de catálogo** — ✅ en `main` (ver arriba).
