@@ -22,6 +22,8 @@ import type {
   VaultLocationDTO,
   AdminBuylistDTO,
   AdminOrderDTO,
+  AdminShipmentDTO,
+  PickingListEntryDTO,
   DisputeDTO,
   ShipmentDTO,
   CatalogFacetsDTO,
@@ -519,6 +521,46 @@ export const mockShipments: ShipmentDTO[] = [
 ];
 
 // ---- Admin ----
+/**
+ * MOCK: cola ADMIN de envíos de CLIENTES (contrato §M4 · GET /admin/shipments).
+ * Distinta de mockShipments (los envíos del PROPIO usuario en "mis envíos").
+ */
+export const mockAdminShipments: AdminShipmentDTO[] = [
+  {
+    id: 'shp-7001',
+    userId: 'u-777',
+    status: 'enviado',
+    carrier: 'Estafeta',
+    trackingNumber: '1234567890',
+    requestedAt: '2026-08-11T10:00:00Z',
+    items: [{ inventoryItemId: 'inv-1002' }],
+  },
+  {
+    id: 'shp-7002',
+    userId: 'u-778',
+    status: 'picking',
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-08-13T09:30:00Z',
+    items: [{ inventoryItemId: 'inv-1001' }, { inventoryItemId: 'inv-1008' }],
+  },
+  {
+    id: 'shp-7003',
+    userId: 'u-779',
+    status: 'solicitado',
+    carrier: null,
+    trackingNumber: null,
+    requestedAt: '2026-08-14T12:00:00Z',
+    items: [{ inventoryItemId: 'inv-1010' }],
+  },
+];
+
+/** MOCK: lista de picking por ubicación (contrato §M4 · GET /admin/shipments/picking-list). */
+export const mockPickingList: PickingListEntryDTO[] = [
+  { shipmentId: 'shp-7002', inventoryItemId: 'inv-1001', folio: 'INV-000101', location: 'C03-F02-S15' },
+  { shipmentId: 'shp-7002', inventoryItemId: 'inv-1008', folio: 'INV-000108', location: 'C03-F02-S16' },
+];
+
 export const mockDashboard: DashboardDTO = {
   profitPeriodCents: 1284000,
   salesPeriod: { count: 42, amountCents: 5620000 },
@@ -661,27 +703,32 @@ export function setMockFx(next: FxDTO) {
   mockFx = next;
 }
 
-/** Cola de precio pendiente (contrato GET /admin/pricing/pending). */
+/** Cola de precio pendiente (contrato GET /admin/pricing/pending). v1.8: POR ACABADO. */
 export let mockPendingPrices: PendingPriceEntryDTO[] = [
   {
     id: 'ppe-1',
     cardId: 'c-zapdos',
     productType: 'raw',
     gradeKey: 'raw:NM',
+    // El pendiente es del acabado holofoil (inv-1010): el override debe reenviar ESTE finish.
+    finish: 'holofoil',
     context: 'inventory',
     status: 'open',
     createdAt: '2026-08-13T06:00:00Z',
     cardName: 'Zapdos',
+    card: { id: 'c-zapdos', name: 'Zapdos', number: '16', setName: 'Base Set' },
   },
   {
     id: 'ppe-2',
     cardId: 'c-machamp',
     productType: 'raw',
     gradeKey: 'raw:NM',
+    finish: 'normal',
     context: 'buylist',
     status: 'open',
     createdAt: '2026-08-13T09:15:00Z',
     cardName: 'Machamp',
+    card: { id: 'c-machamp', name: 'Machamp', number: '8', setName: 'Base Set' },
   },
 ];
 export function resolveMockPending(id: string) {

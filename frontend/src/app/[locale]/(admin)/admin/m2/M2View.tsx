@@ -35,6 +35,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { FinishBadge } from '@/components/domain/FinishBadge';
 import { ApiClientError } from '@/lib/api-client';
 
 const RULE_MODES: BuylistRuleMode[] = ['fixed', 'pct'];
@@ -77,6 +78,9 @@ export function M2View() {
         cardId: entry.cardId,
         productType: entry.productType,
         gradeKey: entry.gradeKey,
+        // v1.8: la cola es POR ACABADO — sin `finish` el backend defaultea `normal` y el
+        // pendiente real (p. ej. holofoil) quedaría abierto.
+        finish: entry.finish,
         priceMxnCents: pesosToCents(overridePriceValue),
       }),
     onSuccess: () => {
@@ -87,9 +91,23 @@ export function M2View() {
   });
 
   const pendingColumns: Column<PendingPriceEntryDTO>[] = [
-    { key: 'card', header: t('pending.card'), render: (e) => <span lang="en">{e.cardName ?? e.cardId}</span> },
+    {
+      key: 'card',
+      header: t('pending.card'),
+      render: (e) => (
+        <span lang="en">
+          {e.cardName ?? e.card?.name ?? e.cardId}
+          {e.card?.number ? <span className="tabular text-muted"> #{e.card.number}</span> : null}
+        </span>
+      ),
+    },
     { key: 'type', header: t('pending.type'), render: (e) => e.productType },
     { key: 'gradeKey', header: t('pending.gradeKey'), render: (e) => <span className="tabular">{e.gradeKey}</span> },
+    {
+      key: 'finish',
+      header: t('pending.finish'),
+      render: (e) => <FinishBadge finish={e.finish} productType={e.productType} />,
+    },
     { key: 'context', header: t('pending.context'), render: (e) => <Badge tone="warning" shape="outline">{e.context}</Badge> },
     {
       key: 'actions',
@@ -545,10 +563,13 @@ export function M2View() {
       >
         <div className="flex flex-col gap-3">
           {overrideTarget && (
-            <p className="text-sm text-muted">
-              <span lang="en" className="font-medium text-text">{overrideTarget.cardName ?? overrideTarget.cardId}</span>
-              {' · '}
+            <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+              <span lang="en" className="font-medium text-text">
+                {overrideTarget.cardName ?? overrideTarget.card?.name ?? overrideTarget.cardId}
+              </span>
               <span className="tabular">{overrideTarget.gradeKey}</span>
+              {/* El override fija el precio de ESTE acabado (v1.8: cola por acabado). */}
+              <FinishBadge finish={overrideTarget.finish} productType={overrideTarget.productType} />
             </p>
           )}
           <Input

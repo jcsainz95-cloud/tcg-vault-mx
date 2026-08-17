@@ -43,6 +43,32 @@ describe('M2View · Catálogo y precios', () => {
     expect(await screen.findByRole('dialog', { name: /Override manual de precio/ })).toBeInTheDocument();
   });
 
+  it('la cola de pendientes muestra el ACABADO y el override lo reenvía (v1.8: cola por acabado)', async () => {
+    const spy = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    renderWithProviders(<M2View />, 'es');
+    // El pendiente de Zapdos es del acabado holofoil (fixture): visible en la tabla.
+    expect((await screen.findAllByText('Holofoil')).length).toBeGreaterThan(0);
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    fireEvent.change(within(dialog).getByLabelText('Precio de referencia (MXN)'), {
+      target: { value: '350' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar precio' }));
+
+    // Sin `finish` el backend defaultearía `normal` y el pendiente real seguiría abierto.
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith({
+        cardId: 'c-zapdos',
+        productType: 'raw',
+        gradeKey: 'raw:NM',
+        finish: 'holofoil',
+        priceMxnCents: 35000,
+      }),
+    );
+  });
+
   it('muestra un Banner de error cuando el sync por set (Importar/Re-sincronizar) falla', async () => {
     // Rate limit de pokemontcg.io sin API key: el sync síncrono revienta.
     vi.spyOn(api, 'syncCatalog').mockRejectedValueOnce(

@@ -22,6 +22,15 @@ import type {
   VaultLocationDTO,
   AdminBuylistDTO,
   AdminOrderDTO,
+  AdminShipmentDTO,
+  PickingListEntryDTO,
+  RefundOrderResponse,
+  RevealClabeResponse,
+  BuylistItemDecisionInput,
+  ConvertToInventoryResponse,
+  ResolveDisputeInput,
+  SellItemDTO,
+  SellItemStatus,
   DisputeDTO,
   ProductType,
   RawCondition,
@@ -279,6 +288,43 @@ export async function getShipments(): Promise<ShipmentDTO[]> {
   return delay(fx.mockShipments);
 }
 
+export interface AdminShipmentsFilters {
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * COLA ADMIN de envíos de CLIENTES (contrato §M4 · GET /admin/shipments, `vault_operator+`).
+ * Distinta de getShipments() (los envíos del PROPIO usuario). Paginada; filtro `?status=`.
+ */
+export async function getAdminShipments(
+  filters: AdminShipmentsFilters = {},
+): Promise<Paginated<AdminShipmentDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<AdminShipmentDTO>>('/admin/shipments', {
+      query: { status: filters.status, page: filters.page, pageSize: filters.pageSize },
+    });
+  }
+  let data = [...fx.mockAdminShipments];
+  if (filters.status) data = data.filter((s) => s.status === filters.status);
+  return delay({ data, page: filters.page ?? 1, pageSize: filters.pageSize ?? 20, total: data.length });
+}
+
+/**
+ * Lista de picking ordenada por ubicación (contrato §M4 · GET /admin/shipments/picking-list).
+ * Solo envíos en `picking`; `?date=` opcional (día de solicitud).
+ */
+export async function getAdminPickingList(date?: string): Promise<PickingListEntryDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ data: PickingListEntryDTO[] }>('/admin/shipments/picking-list', {
+      query: { date },
+    });
+    return res.data;
+  }
+  return delay([...fx.mockPickingList]);
+}
+
 /**
  * Captura de guía (M4, `vault_operator+`): asigna carrier + trackingNumber y avanza a `guia`
  * (contrato §M4 · POST /admin/shipments/:id/tracking).
@@ -296,6 +342,16 @@ export async function saveShipmentTracking(
     });
   }
   // MOCK: pendiente de backend real — actualiza el envío en memoria y lo avanza a `guia`.
+  // Refleja el cambio también en la cola ADMIN (mockAdminShipments) para la vista M4.
+  const adminIdx = fx.mockAdminShipments.findIndex((s) => s.id === shipmentId);
+  if (adminIdx >= 0) {
+    fx.mockAdminShipments[adminIdx] = {
+      ...fx.mockAdminShipments[adminIdx],
+      carrier: input.carrier,
+      trackingNumber: input.trackingNumber,
+      status: 'guia',
+    };
+  }
   const idx = fx.mockShipments.findIndex((s) => s.id === shipmentId);
   if (idx >= 0) {
     fx.mockShipments[idx] = {
@@ -305,6 +361,16 @@ export async function saveShipmentTracking(
       status: 'guia',
     };
     return delay(fx.mockShipments[idx]);
+  }
+  if (adminIdx >= 0) {
+    return delay({
+      id: shipmentId,
+      status: 'guia',
+      carrier: input.carrier,
+      trackingNumber: input.trackingNumber,
+      createdAt: fx.mockAdminShipments[adminIdx].requestedAt ?? new Date().toISOString(),
+      items: [],
+    });
   }
   throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
 }
@@ -817,12 +883,172 @@ export async function getAdminBuylist(): Promise<AdminBuylistDTO[]> {
   return delay(fx.mockAdminBuylist);
 }
 
+// ---- Admin M5 · acciones de buylist (contrato §M5) ----
+// MOCK: helpers en memoria para reflejar las transiciones en fixtures.
+function mockFindBuylistRequest(id: string): AdminBuylistDTO {
+  const req = fx.mockAdminBuylist.find((r) => r.id === id);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  return req;
+}
+function mockFindBuylistItem(itemId: string): { req: AdminBuylistDTO; item: SellItemDTO } {
+  for (const req of fx.mockAdminBuylist) {
+    const item = req.items.find((it) => it.id === itemId);
+    if (item) return { req, item };
+  }
+  throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request item not found' });
+}
+
+/** Marca recepción física de la solicitud → `recibida` (contrato POST /admin/buylist/:id/receive). */
+export async function receiveBuylistRequest(id: string): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/receive`, { method: 'POST', body: {} });
+  }
+  const req = mockFindBuylistRequest(id);
+  req.status = 'recibida';
+  for (const it of req.items) {
+    if (it.itemStatus === 'cotizada' || it.itemStatus === 'precio_pendiente') it.itemStatus = 'recibida';
+  }
+  return delay({ ...req });
+}
+
+/** Inicia/registra la verificación → `verificacion` (contrato POST /admin/buylist/:id/verify). */
+export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/verify`, { method: 'POST', body: {} });
+  }
+  const req = mockFindBuylistRequest(id);
+  req.status = 'verificacion';
+  for (const it of req.items) if (it.itemStatus === 'recibida') it.itemStatus = 'verificacion';
+  return delay({ ...req });
+}
+
+/**
+ * Cherry-pick por carta (contrato PATCH /admin/buylist/items/:itemId/decision).
+ * `adjust` exige `approvedPriceCents`; el backend valida el tope B-4/AML y puede responder
+ * 422 APPROVED_PRICE_CAP_EXCEEDED (se muestra el mensaje real al operador).
+ */
+export async function decideBuylistItem(
+  itemId: string,
+  input: BuylistItemDecisionInput,
+): Promise<SellItemDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SellItemDTO>(`/admin/buylist/items/${itemId}/decision`, {
+      method: 'PATCH',
+      body: input,
+    });
+  }
+  const { item } = mockFindBuylistItem(itemId);
+  const next: Record<BuylistItemDecisionInput['decision'], SellItemStatus> = {
+    approve: 'aprobada',
+    adjust: 'ajustada',
+    reject: 'rechazada',
+  };
+  item.itemStatus = next[input.decision];
+  if (input.decision !== 'reject') {
+    item.approvedPriceCents = input.approvedPriceCents ?? item.quotedPriceCents ?? 0;
+  }
+  return delay({ ...item });
+}
+
+/**
+ * Conversión a inventario en un clic (contrato POST /admin/buylist/items/:itemId/convert-to-inventory).
+ * Solo un item `aprobada` es convertible (422 ITEM_NOT_APPROVED); idempotente si ya se convirtió.
+ */
+export async function convertBuylistItemToInventory(
+  itemId: string,
+): Promise<ConvertToInventoryResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ConvertToInventoryResponse>(
+      `/admin/buylist/items/${itemId}/convert-to-inventory`,
+      { method: 'POST', body: {} },
+    );
+  }
+  const { item } = mockFindBuylistItem(itemId);
+  if (item.itemStatus === 'convertida_inventario') {
+    return delay({ inventoryItemId: item.inventoryItemId, alreadyConverted: true });
+  }
+  if (item.itemStatus !== 'aprobada') {
+    throw new ApiClientError(422, {
+      code: 'ITEM_NOT_APPROVED',
+      message: 'Only an approved sell item can be converted to sellable inventory',
+    });
+  }
+  const seq = String(fx.mockInventory.length + 20).padStart(6, '0');
+  item.itemStatus = 'convertida_inventario';
+  item.inventoryItemId = `inv-new-${seq}`;
+  return delay({ inventoryItemId: item.inventoryItemId, folio: `INV-${seq}` });
+}
+
+/**
+ * Reveal ON-DEMAND de la CLABE completa (contrato GET /admin/buylist/:id/reveal-clabe,
+ * `super_admin`, money-out, AUDITADO). La CLABE en claro NO debe persistirse en estado
+ * global ni cachearse (usar mutation, no query): se muestra solo al pedirla.
+ */
+export async function revealBuylistClabe(id: string): Promise<RevealClabeResponse> {
+  if (!config.useMocks) {
+    return apiRequest<RevealClabeResponse>(`/admin/buylist/${id}/reveal-clabe`);
+  }
+  mockFindBuylistRequest(id);
+  return delay({ sellRequestId: id, clabe: '002010077777777771' });
+}
+
+/**
+ * Registra el pago SPEI manual → `pagada` (contrato POST /admin/buylist/:id/pay-spei,
+ * `super_admin`, money-out, Idempotency-Key). Precondición backend: aprobada + verificada.
+ */
+export async function paySpeiBuylist(id: string, speiReference: string): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/pay-spei`, {
+      method: 'POST',
+      body: { speiReference },
+      // Clave estable por solicitud: un reintento del mismo pago no duplica el asiento.
+      headers: { 'Idempotency-Key': `pay-spei-${id}` },
+    });
+  }
+  const req = mockFindBuylistRequest(id);
+  if (req.status !== 'aprobada' && req.status !== 'verificacion') {
+    throw new ApiClientError(422, {
+      code: 'VALIDATION_ERROR',
+      message: 'Payment allowed only after receipt/verification and approval',
+    });
+  }
+  req.status = 'pagada';
+  for (const it of req.items) if (it.itemStatus === 'aprobada') it.itemStatus = 'pagada';
+  return delay({ ...req });
+}
+
 export async function getAdminOrders(): Promise<AdminOrderDTO[]> {
   if (!config.useMocks) {
     const res = await apiRequest<Paginated<AdminOrderDTO>>('/admin/orders');
     return res.data;
   }
   return delay(fx.mockAdminOrders);
+}
+
+/**
+ * Reembolso EXCEPCIONAL de una orden liquidada (contrato POST /admin/orders/:id/refund,
+ * `super_admin`, money-out, Idempotency-Key). Política VENTAS FINALES: solo por error de
+ * la plataforma; NO re-agrega el item al inventario. Err 403 MONEY_OUT_FORBIDDEN.
+ */
+export async function refundOrder(orderId: string, reason: string): Promise<RefundOrderResponse> {
+  if (!config.useMocks) {
+    return apiRequest<RefundOrderResponse>(`/admin/orders/${orderId}/refund`, {
+      method: 'POST',
+      body: { reason },
+      // Clave estable por orden: reintentos del mismo refund no duplican el movimiento.
+      headers: { 'Idempotency-Key': `refund-${orderId}` },
+    });
+  }
+  const order = fx.mockAdminOrders.find((o) => o.id === orderId);
+  if (!order) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Order not found' });
+  if (order.status !== 'settled') {
+    throw new ApiClientError(422, {
+      code: 'VALIDATION_ERROR',
+      message: 'Only a settled order can be refunded',
+    });
+  }
+  order.status = 'refunded';
+  return delay({ orderId, status: 'refunded', refundId: `re_mock_${orderId}` });
 }
 
 export async function getAdminDisputes(): Promise<DisputeDTO[]> {
@@ -837,6 +1063,24 @@ export async function getAdminDispute(id: string): Promise<DisputeDTO> {
   if (!config.useMocks) return apiRequest<DisputeDTO>(`/admin/disputes/${id}`);
   const found = fx.mockDisputes.find((d) => d.id === id) ?? fx.mockDisputes[0];
   return delay(found);
+}
+
+/**
+ * Resolución de disputa (contrato POST /admin/disputes/:id/resolve). `repurchase` es
+ * dinero saliente (recompra al precio pagado, `super_admin`; el cliente conserva la carta
+ * y NO se re-agrega al inventario); `reject` la rechaza. `note` es obligatoria (bitácora).
+ */
+export async function resolveDispute(id: string, input: ResolveDisputeInput): Promise<DisputeDTO> {
+  if (!config.useMocks) {
+    return apiRequest<DisputeDTO>(`/admin/disputes/${id}/resolve`, { method: 'POST', body: input });
+  }
+  const dispute = fx.mockDisputes.find((d) => d.id === id);
+  if (!dispute) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Dispute not found' });
+  if (dispute.status === 'resuelta_recompra' || dispute.status === 'rechazada') {
+    throw new ApiClientError(409, { code: 'CONFLICT', message: 'Dispute already resolved' });
+  }
+  dispute.status = input.resolution === 'repurchase' ? 'resuelta_recompra' : 'rechazada';
+  return delay({ ...dispute });
 }
 
 // ---------- Admin M2 · Catálogo y precios (contrato §M2) ----------
@@ -864,18 +1108,24 @@ export interface PricingOverrideInput {
   cardId: string;
   productType: ProductType;
   gradeKey: string;
+  /**
+   * v1.6-finish/v1.8: acabado a resolver (default backend `normal`). La cola de pendientes
+   * es POR ACABADO: omitirlo resolvería el pendiente de `normal` y dejaría abierto el real.
+   */
+  finish?: Finish;
   priceMxnCents: number;
 }
 
-/** Override manual de precio; resuelve el PendingPriceEntry (contrato POST /admin/pricing/override). */
+/** Override manual de precio; resuelve el PendingPriceEntry DE ESE ACABADO (contrato POST /admin/pricing/override). */
 export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: true }> {
   if (!config.useMocks) {
     await apiRequest<unknown>('/admin/pricing/override', { method: 'POST', body: input });
     return { ok: true };
   }
-  // MOCK: resuelve la entrada pendiente asociada a esa carta/gradeKey.
+  // MOCK: resuelve la entrada pendiente asociada a esa carta/gradeKey/acabado.
+  const finish = input.finish ?? 'normal';
   const entry = fx.mockPendingPrices.find(
-    (p) => p.cardId === input.cardId && p.gradeKey === input.gradeKey,
+    (p) => p.cardId === input.cardId && p.gradeKey === input.gradeKey && p.finish === finish,
   );
   if (entry) fx.resolveMockPending(entry.id);
   return delay({ ok: true });

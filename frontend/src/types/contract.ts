@@ -406,6 +406,35 @@ export interface ShipmentDTO {
   items: { inventoryItemId: string; folio: string; card: CardDTO }[];
 }
 
+/**
+ * Fila de la COLA ADMIN de envíos (contrato §M4 · GET /admin/shipments — envíos de CLIENTES).
+ * El backend devuelve la fila cruda de ShipmentRequest (incluye `requestedAt` en vez de
+ * `createdAt` y `userId`); los items del listado NO traen carta/folio (solo ids).
+ */
+export interface AdminShipmentDTO {
+  id: string;
+  userId?: string;
+  status: ShipmentStatus;
+  carrier?: string | null;
+  trackingNumber?: string | null;
+  requestedAt?: string;
+  createdAt?: string;
+  shippingFeeCents?: number;
+  totalCents?: number;
+  /** Costo real pagado a la paquetería (interno, v1.4-finance). */
+  shippingCostCents?: number;
+  items?: { id?: string; inventoryItemId: string; folio?: string; card?: CardDTO }[];
+}
+
+// Fila de la lista de picking (contrato §M4 · GET /admin/shipments/picking-list),
+// ordenada por ubicación; `location` = label plano ("C03-F02-S15" | "UNASSIGNED").
+export interface PickingListEntryDTO {
+  shipmentId: string;
+  inventoryItemId: string;
+  folio: string;
+  location: string;
+}
+
 // Captura de guía en M4 (contrato §M4 · POST /admin/shipments/:id/tracking).
 // shippingCostCents (v1.4-finance): costo real en centavos MXN que la plataforma
 // paga a la paquetería por este envío. Opcional, entero ≥ 0. Interno (no se expone
@@ -539,6 +568,41 @@ export interface AdminOrderDTO extends OrderSummaryDTO {
   cfdiStatus?: CfdiStatus;
 }
 
+// POST /admin/orders/:id/refund (contrato §M3, super_admin, money-out).
+export interface RefundOrderResponse {
+  orderId: string;
+  status: 'refunded';
+  refundId: string;
+}
+
+// ---- M5: acciones admin de buylist (contrato §M5) ----
+// GET /admin/buylist/:id/reveal-clabe (super_admin, money-out, auditado): ÚNICO punto
+// del contrato que devuelve la CLABE en claro. No debe persistirse en estado global.
+export interface RevealClabeResponse {
+  sellRequestId: string;
+  clabe: string;
+}
+
+// PATCH /admin/buylist/items/:itemId/decision — cherry-pick por carta.
+export interface BuylistItemDecisionInput {
+  decision: 'approve' | 'adjust' | 'reject';
+  approvedPriceCents?: number;
+}
+
+// POST /admin/buylist/items/:itemId/convert-to-inventory. `alreadyConverted` cuando el
+// item ya tenía InventoryItem (idempotencia backend); `folio` solo en la conversión nueva.
+export interface ConvertToInventoryResponse {
+  inventoryItemId?: string;
+  folio?: string;
+  alreadyConverted?: boolean;
+}
+
+// POST /admin/disputes/:id/resolve (contrato §M8). repurchase = super_admin (money-out).
+export interface ResolveDisputeInput {
+  resolution: 'repurchase' | 'reject';
+  note: string;
+}
+
 export interface DisputeDTO {
   id: string;
   status: DisputeStatus;
@@ -574,16 +638,22 @@ export interface FxDTO {
 }
 
 // GET /admin/pricing/pending: cola de precio pendiente (contrato §11 PendingPriceEntry).
+// v1.8-ronda-c (M-19): la cola es POR ACABADO — cada entrada lleva `finish` y el override
+// debe enviarlo para resolver SOLO el pendiente de ese acabado.
 export interface PendingPriceEntryDTO {
   id: string;
   cardId: string;
   productType: ProductType;
   gradeKey: string;
+  /** Acabado del pendiente (modelo M-19). El override debe reenviar este mismo finish. */
+  finish: Finish;
   context: 'catalog' | 'portfolio' | 'buylist' | 'inventory';
   status: 'open' | 'resolved';
   createdAt: string;
   // Conveniencia del front: nombre de carta para render. El backend puede omitirlo.
   cardName?: string;
+  /** Proyección de la carta (Tier 0 fix backend: card { id, name, number, setName }). */
+  card?: { id: string; name: string; number: string; setName: string };
 }
 
 // GET/PUT /admin/pricing/rarity-map: tabla rareza→categoría de buylist.

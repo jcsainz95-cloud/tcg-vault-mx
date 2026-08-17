@@ -580,7 +580,11 @@
         "location": "Ubicación",
         "status": "Estado",
         "reference": "Referencia"
-      }
+      },
+      "resultCount": "{shown} de {total} cartas",
+      "loadMore": "Cargar más",
+      "finishFixedSingle": "Acabado: {finish} (único disponible para esta carta).",
+      "createSuccess": "Item creado en bóveda · folio {folio}."
     },
     "m3": {
       "title": "M3 · Ventas / órdenes",
@@ -593,7 +597,10 @@
         "status": "Estado",
         "total": "Total",
         "date": "Fecha"
-      }
+      },
+      "refundDone": "Reembolso ejecutado para la orden {orderId}.",
+      "refundReasonLabel": "Motivo del reembolso",
+      "refundReasonHint": "Obligatorio; queda en bitácora. Solo errores de la plataforma (ventas finales)."
     },
     "m4": {
       "title": "M4 · Retiros / envíos",
@@ -606,7 +613,20 @@
         "shippingCostLabel": "Costo de envío (paquetería)",
         "shippingCostHint": "Costo real que la plataforma paga a la paquetería. Opcional.",
         "shippingCostInvalid": "Debe ser un monto mayor o igual a 0.",
-        "save": "Guardar guía"
+        "save": "Guardar guía",
+        "saved": "Guía guardada para {id}."
+      },
+      "queueTitle": "Cola de envíos de clientes",
+      "statusFilter": "Filtrar por estado",
+      "statusAll": "Todos los estados",
+      "queueEmpty": "Sin envíos con ese filtro.",
+      "itemCount": "{count, plural, one {# ítem} other {# ítems}}",
+      "pickingHint": "Envíos en preparación (picking), ordenados por ubicación en bóveda.",
+      "pickingEmpty": "Nada que preparar por ahora.",
+      "picking": {
+        "location": "Ubicación",
+        "folio": "Folio",
+        "shipment": "Envío"
       }
     },
     "m5": {
@@ -622,12 +642,42 @@
       "pendingQueue": "Cola de precio pendiente",
       "item": "Carta",
       "quoted": "Cotizado",
-      "decision": "Decisión"
+      "decision": "Decisión",
+      "approvedLabel": "Aprobado",
+      "convertNeedsApproval": "Solo un ítem aprobado se puede convertir a inventario.",
+      "revealClabe": "Revelar CLABE",
+      "hideClabe": "Ocultar CLABE",
+      "clabeLabel": "CLABE del vendedor",
+      "clabeNotice": "Visible solo bajo demanda; cada consulta queda auditada. Cópiala a tu banca y ocúltala.",
+      "adjustTitle": "Ajustar precio del ítem",
+      "adjustPriceLabel": "Precio aprobado (MXN)",
+      "adjustConfirm": "Enviar ajuste",
+      "adjustHint": "El ajuste dispara el plazo de 7 días para que el vendedor acepte o rechace.",
+      "paySpeiTitle": "Registrar pago SPEI",
+      "speiReferenceLabel": "Referencia SPEI",
+      "paySpeiConfirm": "Registrar pago",
+      "feedback": {
+        "received": "Solicitud marcada como recibida.",
+        "verified": "Verificación iniciada.",
+        "approved": "Ítem aprobado.",
+        "adjusted": "Ajuste enviado al vendedor.",
+        "rejected": "Ítem rechazado.",
+        "converted": "Convertido a inventario · folio {folio}.",
+        "alreadyConverted": "Este ítem ya estaba convertido a inventario.",
+        "paid": "Pago SPEI registrado; la solicitud quedó pagada."
+      }
     },
     "m8": {
       "title": "M8 · Disputas",
       "resolveRepurchase": "Resolver con recompra",
-      "resolveReject": "Rechazar disputa"
+      "resolveReject": "Rechazar disputa",
+      "resolveConfirm": "Confirmar resolución",
+      "repurchaseQuestion": "¿Confirmas la recompra al precio pagado? El cliente conserva la carta y el dinero sale de la plataforma.",
+      "rejectQuestion": "¿Confirmas el rechazo de esta disputa?",
+      "noteLabel": "Nota de resolución",
+      "noteHint": "Obligatoria; queda en bitácora.",
+      "resolvedRepurchase": "Disputa resuelta con recompra.",
+      "resolvedReject": "Disputa rechazada."
     },
     "m2": {
       "title": "M2 · Catálogo y precios",
@@ -648,7 +698,8 @@
         "setPrice": "Fijar precio",
         "overrideTitle": "Override manual de precio",
         "saveOverride": "Guardar precio",
-        "priceLabel": "Precio de referencia (MXN)"
+        "priceLabel": "Precio de referencia (MXN)",
+        "finish": "Acabado"
       },
       "fx": {
         "title": "Tipo de cambio USD→MXN",
@@ -1072,6 +1123,9 @@
     "GOOGLE_EMAIL_UNVERIFIED": "Tu correo de Google no está verificado; usa otro método o verifica tu correo.",
     "EMAIL_NOT_VERIFIED": "Verifica tu correo para completar esta acción.",
     "EMAIL_VERIFY_TOKEN_INVALID": "El enlace de verificación es inválido o expiró.",
-    "RESET_TOKEN_INVALID": "El enlace de restablecimiento es inválido o expiró."
+    "RESET_TOKEN_INVALID": "El enlace de restablecimiento es inválido o expiró.",
+    "APPROVED_PRICE_CAP_EXCEEDED": "El precio aprobado excede el tope permitido para este ítem (cotizado × 2 o tope AML).",
+    "ITEM_NOT_APPROVED": "Solo un ítem aprobado puede convertirse a inventario.",
+    "CLABE_UNAVAILABLE": "No hay CLABE disponible para esta solicitud (ni snapshot ni KYC)."
   }
 }

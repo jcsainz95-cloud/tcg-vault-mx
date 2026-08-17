@@ -580,7 +580,11 @@
         "location": "Location",
         "status": "Status",
         "reference": "Reference"
-      }
+      },
+      "resultCount": "{shown} of {total} cards",
+      "loadMore": "Load more",
+      "finishFixedSingle": "Finish: {finish} (the only one available for this card).",
+      "createSuccess": "Item created in the vault · folio {folio}."
     },
     "m3": {
       "title": "M3 · Sales / orders",
@@ -593,7 +597,10 @@
         "status": "Status",
         "total": "Total",
         "date": "Date"
-      }
+      },
+      "refundDone": "Refund executed for order {orderId}.",
+      "refundReasonLabel": "Refund reason",
+      "refundReasonHint": "Required; recorded in the audit log. Platform errors only (final sales)."
     },
     "m4": {
       "title": "M4 · Withdrawals / shipping",
@@ -606,7 +613,20 @@
         "shippingCostLabel": "Shipping cost (carrier)",
         "shippingCostHint": "Actual cost the platform pays the carrier. Optional.",
         "shippingCostInvalid": "Must be an amount of zero or greater.",
-        "save": "Save tracking"
+        "save": "Save tracking",
+        "saved": "Tracking saved for {id}."
+      },
+      "queueTitle": "Customer shipments queue",
+      "statusFilter": "Filter by status",
+      "statusAll": "All statuses",
+      "queueEmpty": "No shipments match that filter.",
+      "itemCount": "{count, plural, one {# item} other {# items}}",
+      "pickingHint": "Shipments in picking, sorted by vault location.",
+      "pickingEmpty": "Nothing to pick right now.",
+      "picking": {
+        "location": "Location",
+        "folio": "Folio",
+        "shipment": "Shipment"
       }
     },
     "m5": {
@@ -622,12 +642,42 @@
       "pendingQueue": "Pending-price queue",
       "item": "Card",
       "quoted": "Quoted",
-      "decision": "Decision"
+      "decision": "Decision",
+      "approvedLabel": "Approved",
+      "convertNeedsApproval": "Only an approved item can be converted to inventory.",
+      "revealClabe": "Reveal CLABE",
+      "hideClabe": "Hide CLABE",
+      "clabeLabel": "Seller CLABE",
+      "clabeNotice": "Shown on demand only; every reveal is audited. Copy it into your bank and hide it.",
+      "adjustTitle": "Adjust item price",
+      "adjustPriceLabel": "Approved price (MXN)",
+      "adjustConfirm": "Send adjustment",
+      "adjustHint": "The adjustment starts the 7-day window for the seller to accept or decline.",
+      "paySpeiTitle": "Record SPEI payment",
+      "speiReferenceLabel": "SPEI reference",
+      "paySpeiConfirm": "Record payment",
+      "feedback": {
+        "received": "Request marked as received.",
+        "verified": "Verification started.",
+        "approved": "Item approved.",
+        "adjusted": "Adjustment sent to the seller.",
+        "rejected": "Item rejected.",
+        "converted": "Converted to inventory · folio {folio}.",
+        "alreadyConverted": "This item was already converted to inventory.",
+        "paid": "SPEI payment recorded; the request is now paid."
+      }
     },
     "m8": {
       "title": "M8 · Disputes",
       "resolveRepurchase": "Resolve with repurchase",
-      "resolveReject": "Reject dispute"
+      "resolveReject": "Reject dispute",
+      "resolveConfirm": "Confirm resolution",
+      "repurchaseQuestion": "Confirm the repurchase at the price paid? The customer keeps the card and money leaves the platform.",
+      "rejectQuestion": "Confirm rejecting this dispute?",
+      "noteLabel": "Resolution note",
+      "noteHint": "Required; recorded in the audit log.",
+      "resolvedRepurchase": "Dispute resolved with repurchase.",
+      "resolvedReject": "Dispute rejected."
     },
     "m2": {
       "title": "M2 · Catalog & pricing",
@@ -648,7 +698,8 @@
         "setPrice": "Set price",
         "overrideTitle": "Manual price override",
         "saveOverride": "Save price",
-        "priceLabel": "Reference price (MXN)"
+        "priceLabel": "Reference price (MXN)",
+        "finish": "Finish"
       },
       "fx": {
         "title": "USD→MXN exchange rate",
@@ -1072,6 +1123,9 @@
     "GOOGLE_EMAIL_UNVERIFIED": "Your Google email isn't verified; use another method or verify your email.",
     "EMAIL_NOT_VERIFIED": "Verify your email to complete this action.",
     "EMAIL_VERIFY_TOKEN_INVALID": "The verification link is invalid or expired.",
-    "RESET_TOKEN_INVALID": "The reset link is invalid or expired."
+    "RESET_TOKEN_INVALID": "The reset link is invalid or expired.",
+    "APPROVED_PRICE_CAP_EXCEEDED": "The approved price exceeds the allowed cap for this item (quoted × 2 or AML cap).",
+    "ITEM_NOT_APPROVED": "Only an approved item can be converted to inventory.",
+    "CLABE_UNAVAILABLE": "No CLABE available for this request (no snapshot and no KYC record)."
   }
 }

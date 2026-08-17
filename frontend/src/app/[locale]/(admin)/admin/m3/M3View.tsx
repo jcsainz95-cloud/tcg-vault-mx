@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { getAdminOrders } from '@/lib/api';
+import { getAdminOrders, refundOrder } from '@/lib/api';
 import { useRole } from '@/lib/role';
 import type { AppLocale } from '@/i18n/routing';
 import type { AdminOrderDTO } from '@/types/contract';
@@ -11,9 +11,10 @@ import { formatMoneyCents, formatDate } from '@/lib/format';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
-import { QueryState } from '@/components/ui/QueryState';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 
 export function M3View() {
   const t = useTranslations('admin.m3');
@@ -23,9 +24,36 @@ export function M3View() {
   const te = useTranslations('error');
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
+  const qc = useQueryClient();
+  const getError = useErrorMessage();
   const [refundTarget, setRefundTarget] = useState<AdminOrderDTO | null>(null);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundDone, setRefundDone] = useState<string | null>(null);
 
   const query = useQuery({ queryKey: ['admin-orders'], queryFn: getAdminOrders });
+
+  // Reembolso EXCEPCIONAL (contrato §M3 · POST /admin/orders/:id/refund, super_admin,
+  // money-out): exige `reason` (queda en bitácora) y refresca la cola al confirmar.
+  const refundMutation = useMutation({
+    mutationFn: (vars: { orderId: string; reason: string }) =>
+      refundOrder(vars.orderId, vars.reason),
+    onSuccess: (d) => {
+      closeRefund();
+      setRefundDone(d.orderId);
+      void qc.invalidateQueries({ queryKey: ['admin-orders'] });
+    },
+  });
+
+  function openRefund(order: AdminOrderDTO) {
+    setRefundTarget(order);
+    setRefundReason('');
+    setRefundDone(null);
+    refundMutation.reset();
+  }
+  function closeRefund() {
+    setRefundTarget(null);
+    setRefundReason('');
+  }
 
   const columns: Column<AdminOrderDTO>[] = [
     { key: 'id', header: tt('order'), render: (o) => <span className="tabular font-medium">{o.id}</span> },
@@ -44,7 +72,7 @@ export function M3View() {
             size="sm"
             disabled={!isSuperAdmin}
             title={!isSuperAdmin ? tm('masked') : undefined}
-            onClick={() => setRefundTarget(o)}
+            onClick={() => openRefund(o)}
           >
             {t('refund')}
           </Button>
@@ -56,6 +84,11 @@ export function M3View() {
     <div className="flex flex-col gap-6">
       <h1 className="text-h1 font-bold">{t('title')}</h1>
       {!isSuperAdmin && <Banner variant="warning">{te('MONEY_OUT_FORBIDDEN')}</Banner>}
+      {refundDone && (
+        <Banner variant="success" role="status">
+          {t('refundDone', { orderId: refundDone })}
+        </Banner>
+      )}
 
       <QueryState
         isLoading={query.isLoading}
@@ -72,21 +105,43 @@ export function M3View() {
 
       <Modal
         open={!!refundTarget}
-        onClose={() => setRefundTarget(null)}
+        onClose={closeRefund}
         title={t('refund')}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setRefundTarget(null)}>
+            <Button variant="secondary" onClick={closeRefund}>
               {tc('cancel')}
             </Button>
-            <Button variant="destructive" onClick={() => setRefundTarget(null)}>
+            <Button
+              variant="destructive"
+              disabled={refundReason.trim() === ''}
+              loading={refundMutation.isPending}
+              onClick={() =>
+                refundTarget &&
+                refundMutation.mutate({ orderId: refundTarget.id, reason: refundReason.trim() })
+              }
+            >
               {refundTarget && t('refundConfirm', { amount: formatMoneyCents(refundTarget.totalCents, locale) })}
             </Button>
           </>
         }
       >
-        <p>{t('refundQuestion')}</p>
-        <p className="mt-2 text-xs text-muted">{tm('moneyOutNote')}</p>
+        <div className="flex flex-col gap-3">
+          <p>{t('refundQuestion')}</p>
+          <Input
+            label={t('refundReasonLabel')}
+            hint={t('refundReasonHint')}
+            type="text"
+            value={refundReason}
+            onChange={(e) => setRefundReason(e.target.value)}
+          />
+          <p className="text-xs text-muted">{tm('moneyOutNote')}</p>
+          {refundMutation.isError && (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+              {getError(refundMutation.error)}
+            </Banner>
+          )}
+        </div>
       </Modal>
     </div>
   );

@@ -4,6 +4,94 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Operabilidad del back-office: M1–M5, M8 cableados a endpoints reales (2026-08-17)
+
+Branch `claude/git-repo-review-c67xyk`. Varias pantallas admin eran cascarones con botones sin
+`onClick` aunque el backend YA exponía los endpoints. Esta ronda cablea la operación completa del
+negocio. Solo `frontend/` + esta nota; look 5a intacto (paper/ink/vermilion, radios/sombras 0,
+`shadow-focus`). Gates verdes: `lint` ✓ · `typecheck` ✓ · `vitest` **189/189** (35 archivos, incl.
+paridad i18n) · `next build` ✓.
+
+### Funciones nuevas en `lib/api.ts` (todas con rama mock que respeta el shape del contrato)
+- **M5:** `receiveBuylistRequest(id)` → `POST /admin/buylist/:id/receive`; `verifyBuylistRequest(id)`
+  → `POST .../verify`; `decideBuylistItem(itemId, { decision, approvedPriceCents? })` →
+  `PATCH /admin/buylist/items/:itemId/decision`; `convertBuylistItemToInventory(itemId)` →
+  `POST .../convert-to-inventory`; `revealBuylistClabe(id)` → `GET /admin/buylist/:id/reveal-clabe`;
+  `paySpeiBuylist(id, speiReference)` → `POST .../pay-spei` con `Idempotency-Key: pay-spei-<id>`
+  estable (reintento no duplica el asiento).
+- **M3:** `refundOrder(orderId, reason)` → `POST /admin/orders/:id/refund` con
+  `Idempotency-Key: refund-<orderId>`.
+- **M8:** `resolveDispute(id, { resolution, note })` → `POST /admin/disputes/:id/resolve`.
+- **M4:** `getAdminShipments({ status?, page?, pageSize? })` → `GET /admin/shipments` (cola de
+  CLIENTES; antes la vista usaba `getShipments()` = envíos del propio admin) y
+  `getAdminPickingList(date?)` → `GET /admin/shipments/picking-list`.
+- **M2:** `overridePrice` gana `finish?` (la cola de pendientes es POR ACABADO, M-19: sin `finish`
+  el backend defaultea `normal` y el pendiente real quedaba abierto).
+
+### Tipos (`types/contract.ts`, espejo del contrato)
+`PendingPriceEntryDTO` += `finish: Finish` + `card? { id, name, number, setName }`;
+`PricingOverrideInput` += `finish?`. Nuevos: `AdminShipmentDTO` (fila cruda de la cola admin, con
+`requestedAt`/`userId`; items sin carta/folio en el listado), `PickingListEntryDTO`,
+`RefundOrderResponse`, `RevealClabeResponse`, `BuylistItemDecisionInput`,
+`ConvertToInventoryResponse`, `ResolveDisputeInput`.
+
+### Por pantalla
+- **M5 (`M5View`)** — end-to-end: Recibir (visible en `cotizada`), Verificar (en `recibida`),
+  Aprobar/Ajustar/Rechazar por ítem (Ajustar abre modal con `approvedPriceCents`; el 422
+  `APPROVED_PRICE_CAP_EXCEEDED` u otro error se muestra DENTRO del modal con el mensaje real),
+  Convertir a inventario (deshabilitado salvo `aprobada`; confirma con el folio devuelto), Revelar
+  CLABE y Pagar SPEI (modal con referencia obligatoria). Cada acción: confirmación `Banner` success
+  anclada a SU solicitud, error real, `invalidateQueries(['admin-buylist'])`. La CLABE revelada vive
+  SOLO en estado local del componente vía **mutation** (nunca query-cache/estado global), se oculta
+  con un botón y se descarta al registrar el pago; cada reveal queda auditado server-side.
+  Los ítems muestran su **acabado** (`FinishBadge`) y el precio aprobado cuando existe.
+- **M3 (`M3View`)** — refund cableado: modal con **motivo obligatorio** (contrato `{ reason }`),
+  confirmación con monto, banner de éxito con el `orderId`, error real en el modal, refresh.
+- **M8 (`M8View`)** — Recomprar/Rechazar cableados con modal de confirmación + **nota obligatoria**
+  (contrato `{ resolution, note }`); selección por id (no por objeto) para que el estado se refresque
+  tras invalidar; los botones desaparecen en disputas ya resueltas.
+- **M4 (`M4View`)** — la cola ahora es `GET /admin/shipments` (clientes) con **filtro por estado**;
+  la "lista de picking" dejó de derivarse del inventario local y consume el endpoint real
+  `GET /admin/shipments/picking-list` (ubicación + folio + envío). Captura de guía igual, con banner
+  de éxito e invalidación de ambas queries.
+- **M1 (`M1View`)** — (a) **paginación real** del picker (`useInfiniteQuery` con `page/pageSize=20`
+  + "Cargar más" + contador "X de Y") — raíz del "solo veo ~20 cartas"; (b) resultados y carta
+  seleccionada con **miniatura + #número + rareza + badges de acabados**; (c) **P-4**: el alta usa el
+  `folio` devuelto en un `Banner` success y el error muestra el mensaje real
+  (`PRICE_PENDING`/`FINISH_NOT_AVAILABLE`…); (d) raw con un solo acabado lo muestra **fijo** en vez
+  de ocultarlo.
+- **M2 (`M2View`)** — el override envía `finish`; la cola de pendientes muestra **acabado**
+  (`FinishBadge`) y nombre de carta + `#número` (proyección `card` del backend); el modal de override
+  muestra el acabado que se va a resolver.
+
+### Decisión transversal: mensajes de error reales
+`useErrorMessage` (QueryState) ahora cae al **mensaje real del backend** (`ApiClientError.message`)
+cuando el `code` no tiene copy i18n, en vez del genérico. Códigos nuevos con copy ES/EN:
+`APPROVED_PRICE_CAP_EXCEEDED`, `ITEM_NOT_APPROVED`, `CLABE_UNAVAILABLE`.
+
+### i18n (paridad ES/EN verificada por `i18n-parity.test.ts`)
+Nuevas: `admin.m1.{resultCount,loadMore,finishFixedSingle,createSuccess}` ·
+`admin.m2.pending.finish` · `admin.m3.{refundDone,refundReasonLabel,refundReasonHint}` ·
+`admin.m4.{queueTitle,statusFilter,statusAll,queueEmpty,itemCount,pickingHint,pickingEmpty,picking.*,tracking.saved}` ·
+`admin.m5.{approvedLabel,convertNeedsApproval,revealClabe,hideClabe,clabeLabel,clabeNotice,adjustTitle,adjustPriceLabel,adjustConfirm,adjustHint,paySpeiTitle,speiReferenceLabel,paySpeiConfirm,feedback.*}` ·
+`admin.m8.{resolveConfirm,repurchaseQuestion,rejectQuestion,noteLabel,noteHint,resolvedRepurchase,resolvedReject}` ·
+`error.{APPROVED_PRICE_CAP_EXCEEDED,ITEM_NOT_APPROVED,CLABE_UNAVAILABLE}`.
+
+### Tests nuevos (26 en 5 archivos + 1 caso en M2)
+`M5View.test.tsx` (9: decisión approve/adjust/reject con tope AML, reveal/ocultar CLABE, pago SPEI con
+referencia + error real), `M3View.test.tsx` (3), `M8View.test.tsx` (4), `M4View.test.tsx` (4: cola
+admin —y que NO llama `getShipments`—, filtro `?status=`, picking real, captura de guía),
+`M1View.test.tsx` (5: metadatos del picker, paginación page=2, acabado único fijo, folio en éxito,
+error real), `M2View.test.tsx` (+1: override reenvía `finish`).
+
+### Notas para QA/arquitecto
+- El fixture mock separa `mockAdminShipments` (cola admin) de `mockShipments` (envíos propios).
+- `AdminShipmentDTO` refleja la fila cruda del backend (`requestedAt`, items sin carta/folio en el
+  LISTADO). Si M4 necesitara carta/folio por ítem en la cola, habría que enriquecer la proyección de
+  `GET /admin/shipments` (solicitud al arquitecto; NO bloquea).
+- `pay-spei`/`refund` envían `Idempotency-Key` estable por entidad como pide el contrato (el backend
+  hoy además tiene guardas de estado propias).
+
 ## v1.9-set-chart · Gráfica pública del valor del set destacado en el hero (2026-08-16)
 
 Contrato: **API_CONTRACT v1.9-set-chart** (`GET /catalog/featured-set/value-history?range=`, DTOs

@@ -1,26 +1,77 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { getAdminDisputes } from '@/lib/api';
+import { getAdminDisputes, resolveDispute } from '@/lib/api';
 import { useRole } from '@/lib/role';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
+import { Banner } from '@/components/ui/Banner';
 import { CardImage } from '@/components/ui/CardImage';
 import { GradedCertChip } from '@/components/ui/GradedCertChip';
 import { CertNumberField } from '@/components/ui/CertNumberField';
-import { QueryState } from '@/components/ui/QueryState';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { DisputeEvidenceContact } from '@/components/domain/DisputeEvidenceContact';
-import type { DisputeDTO } from '@/types/contract';
+import type { DisputeDTO, ResolveDisputeInput } from '@/types/contract';
+
+/** Estados terminales: la disputa ya no admite resolución. */
+const RESOLVED = new Set(['resuelta_recompra', 'rechazada']);
 
 export function M8View() {
   const t = useTranslations('admin.m8');
   const tm = useTranslations('admin');
+  const tc = useTranslations('common');
   const { isSuperAdmin } = useRole();
+  const qc = useQueryClient();
+  const getError = useErrorMessage();
   const query = useQuery({ queryKey: ['admin-disputes'], queryFn: getAdminDisputes });
-  const [selected, setSelected] = useState<DisputeDTO | null>(null);
-  const active = selected ?? query.data?.[0] ?? null;
+  // Selección por id (no por objeto): tras invalidar, `active` refleja el estado fresco.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const active: DisputeDTO | null =
+    query.data?.find((d) => d.id === selectedId) ?? query.data?.[0] ?? null;
+
+  // Confirmación previa (repurchase mueve dinero) + nota obligatoria para la bitácora.
+  const [confirmTarget, setConfirmTarget] = useState<
+    { disputeId: string; resolution: ResolveDisputeInput['resolution'] } | null
+  >(null);
+  const [note, setNote] = useState('');
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<
+    { disputeId: string; kind: 'success' | 'error'; message: string } | null
+  >(null);
+
+  // Resolución (contrato §M8 · POST /admin/disputes/:id/resolve).
+  const resolveMutation = useMutation({
+    mutationFn: (vars: { disputeId: string; input: ResolveDisputeInput }) =>
+      resolveDispute(vars.disputeId, vars.input),
+    onSuccess: (_d, vars) => {
+      closeConfirm();
+      setFeedback({
+        disputeId: vars.disputeId,
+        kind: 'success',
+        message:
+          vars.input.resolution === 'repurchase' ? t('resolvedRepurchase') : t('resolvedReject'),
+      });
+      void qc.invalidateQueries({ queryKey: ['admin-disputes'] });
+    },
+    // El error se muestra DENTRO del modal (mensaje real del backend / copy del código).
+    onError: (e) => setResolveError(getError(e)),
+  });
+
+  function openConfirm(disputeId: string, resolution: ResolveDisputeInput['resolution']) {
+    setConfirmTarget({ disputeId, resolution });
+    setNote('');
+    setResolveError(null);
+    setFeedback(null);
+  }
+  function closeConfirm() {
+    setConfirmTarget(null);
+    setNote('');
+    setResolveError(null);
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -37,7 +88,7 @@ export function M8View() {
             {(query.data ?? []).map((d) => (
               <button
                 key={d.id}
-                onClick={() => setSelected(d)}
+                onClick={() => setSelectedId(d.id)}
                 className={
                   active?.id === d.id
                     ? 'rounded-lg border border-primary bg-surface-2 p-3 text-left'
@@ -89,21 +140,87 @@ export function M8View() {
               {/* La evidencia del cliente llega por correo; el admin coteja el hilo */}
               <DisputeEvidenceContact email={active.evidenceContact} reference={active.id} />
 
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  variant="accent"
-                  disabled={!isSuperAdmin}
-                  title={!isSuperAdmin ? tm('masked') : undefined}
+              {feedback?.disputeId === active.id && (
+                <Banner
+                  variant={feedback.kind === 'success' ? 'success' : 'danger'}
+                  role={feedback.kind === 'success' ? 'status' : 'alert'}
+                  title={feedback.kind === 'error' ? tc('errorTitle') : undefined}
                 >
-                  {t('resolveRepurchase')}
-                </Button>
-                <Button variant="secondary">{t('resolveReject')}</Button>
-              </div>
+                  {feedback.message}
+                </Banner>
+              )}
+
+              {!RESOLVED.has(active.status) && (
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    variant="accent"
+                    disabled={!isSuperAdmin}
+                    title={!isSuperAdmin ? tm('masked') : undefined}
+                    onClick={() => openConfirm(active.id, 'repurchase')}
+                  >
+                    {t('resolveRepurchase')}
+                  </Button>
+                  <Button variant="secondary" onClick={() => openConfirm(active.id, 'reject')}>
+                    {t('resolveReject')}
+                  </Button>
+                </div>
+              )}
               <p className="text-xs text-muted">{tm('moneyOutNote')}</p>
             </div>
           )}
         </div>
       </QueryState>
+
+      {/* Confirmación con nota obligatoria (queda en bitácora / cierre de la disputa) */}
+      <Modal
+        open={!!confirmTarget}
+        onClose={closeConfirm}
+        title={confirmTarget?.resolution === 'repurchase' ? t('resolveRepurchase') : t('resolveReject')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeConfirm}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              variant={confirmTarget?.resolution === 'repurchase' ? 'accent' : 'destructive'}
+              disabled={note.trim() === ''}
+              loading={resolveMutation.isPending}
+              onClick={() =>
+                confirmTarget &&
+                resolveMutation.mutate({
+                  disputeId: confirmTarget.disputeId,
+                  input: { resolution: confirmTarget.resolution, note: note.trim() },
+                })
+              }
+            >
+              {t('resolveConfirm')}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm">
+            {confirmTarget?.resolution === 'repurchase'
+              ? t('repurchaseQuestion')
+              : t('rejectQuestion')}
+          </p>
+          <Input
+            label={t('noteLabel')}
+            hint={t('noteHint')}
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          {confirmTarget?.resolution === 'repurchase' && (
+            <p className="text-xs text-muted">{tm('moneyOutNote')}</p>
+          )}
+          {resolveError && (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+              {resolveError}
+            </Banner>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

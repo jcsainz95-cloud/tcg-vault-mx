@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Plus, Search, Check } from 'lucide-react';
 import {
@@ -30,7 +30,7 @@ import { Banner } from '@/components/ui/Banner';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceTag } from '@/components/ui/PriceTag';
-import { QueryState } from '@/components/ui/QueryState';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
@@ -80,11 +80,25 @@ export function M1View() {
   const sets = useQuery({ queryKey: ['buylist-sets'], queryFn: listBuylistSets });
   // Solo se busca cuando hay set o texto (evita traer todo el catálogo sin filtro).
   const hasSearch = setId !== '' || searchQuery.trim() !== '';
-  const cardsResult = useQuery({
+  // Paginado real (P-4a): el endpoint topa en 20 por página; sin `page` el operador solo
+  // veía las primeras ~20 cartas del set. "Cargar más" acumula páginas hasta `total`.
+  const PAGE_SIZE = 20;
+  const cardsResult = useInfiniteQuery({
     queryKey: ['m1-cards', setId, searchQuery],
-    queryFn: () => searchBuylistCards({ setId: setId || undefined, q: searchQuery || undefined }),
+    queryFn: ({ pageParam }) =>
+      searchBuylistCards({
+        setId: setId || undefined,
+        q: searchQuery || undefined,
+        page: pageParam,
+        pageSize: PAGE_SIZE,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.page * last.pageSize < last.total ? last.page + 1 : undefined),
     enabled: hasSearch,
   });
+  const cards: CardDTO[] = cardsResult.data?.pages.flatMap((p) => p.data) ?? [];
+  const cardsTotal = cardsResult.data?.pages[0]?.total ?? 0;
+  const getError = useErrorMessage();
 
   function runSearch() {
     setSearchQuery(searchInput.trim());
@@ -153,10 +167,23 @@ export function M1View() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-h1 font-bold">{t('title')}</h1>
-        <Button onClick={() => setOpen(true)}>
+        <Button
+          onClick={() => {
+            // Nueva alta: limpia el resultado anterior (banner de folio / error).
+            create.reset();
+            setOpen(true);
+          }}
+        >
           <Plus size={18} /> {t('newItem')}
         </Button>
       </div>
+
+      {/* P-4: confirmación de alta con el FOLIO devuelto por el backend (antes se ignoraba). */}
+      {create.isSuccess && create.data && (
+        <Banner variant="success" role="status">
+          {t('createSuccess', { folio: create.data.folio })}
+        </Banner>
+      )}
 
       <QueryState
         isLoading={inventory.isLoading}
@@ -234,47 +261,107 @@ export function M1View() {
                 onRetry={() => cardsResult.refetch()}
               >
                 {cardsResult.data &&
-                  (cardsResult.data.data.length === 0 ? (
+                  (cards.length === 0 ? (
                     <p className="text-sm text-muted">{t('noResults')}</p>
                   ) : (
-                    <ul
-                      className="flex max-h-60 flex-col gap-1 overflow-y-auto"
-                      role="listbox"
-                      aria-label={t('searchResults')}
-                    >
-                      {cardsResult.data.data.map((card) => {
-                        const active = selectedCard?.id === card.id;
-                        return (
-                          <li key={card.id}>
-                            <button
-                              type="button"
-                              role="option"
-                              aria-selected={active}
-                              onClick={() => pickCard(card)}
-                              className={`flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                                active ? 'border-primary bg-primary/5' : 'border-border hover:bg-surface-2'
-                              }`}
-                            >
-                              <span lang="en" className="font-medium">{card.name}</span>
-                              <span className="flex items-center gap-2 text-xs text-muted">
-                                <span lang="en">{card.setName}</span>
-                                {card.number && <span className="tabular">#{card.number}</span>}
-                                {active && <Check size={16} className="text-primary" aria-hidden />}
-                              </span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                    <>
+                      <ul
+                        className="flex max-h-72 flex-col gap-1 overflow-y-auto"
+                        role="listbox"
+                        aria-label={t('searchResults')}
+                      >
+                        {cards.map((card) => {
+                          const active = selectedCard?.id === card.id;
+                          return (
+                            <li key={card.id}>
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={active}
+                                onClick={() => pickCard(card)}
+                                className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                                  active ? 'border-primary bg-primary/5' : 'border-border hover:bg-surface-2'
+                                }`}
+                              >
+                                {/* Miniatura de catálogo remota (misma fuente que CardImage) */}
+                                {card.imageSmallUrl && (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={card.imageSmallUrl}
+                                    alt=""
+                                    aria-hidden
+                                    loading="lazy"
+                                    className="h-12 w-auto shrink-0 bg-surface-2 object-contain"
+                                  />
+                                )}
+                                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                  <span lang="en" className="font-medium">{card.name}</span>
+                                  <span className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                                    <span lang="en">{card.setName}</span>
+                                    {card.number && <span className="tabular">#{card.number}</span>}
+                                    {card.rarity && <span lang="en">{card.rarity}</span>}
+                                  </span>
+                                </span>
+                                <span className="flex shrink-0 items-center gap-1">
+                                  {card.availableFinishes.map((f) => (
+                                    <FinishBadge key={f} finish={f} />
+                                  ))}
+                                  {active && <Check size={16} className="text-primary" aria-hidden />}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-muted">
+                          {t('resultCount', { shown: cards.length, total: cardsTotal })}
+                        </p>
+                        {cardsResult.hasNextPage && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            loading={cardsResult.isFetchingNextPage}
+                            onClick={() => cardsResult.fetchNextPage()}
+                          >
+                            {t('loadMore')}
+                          </Button>
+                        )}
+                      </div>
+                    </>
                   ))}
               </QueryState>
             </div>
           )}
 
           {selectedCard ? (
-            <p className="rounded-md bg-primary/5 px-3 py-2 text-sm">
-              {t('selectedCard')}: <span lang="en" className="font-semibold">{selectedCard.name}</span>
-            </p>
+            <div className="flex items-center gap-3 rounded-md bg-primary/5 px-3 py-2 text-sm">
+              {selectedCard.imageSmallUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={selectedCard.imageSmallUrl}
+                  alt=""
+                  aria-hidden
+                  loading="lazy"
+                  className="h-14 w-auto shrink-0 bg-surface-2 object-contain"
+                />
+              )}
+              <div className="flex min-w-0 flex-col gap-1">
+                <p>
+                  {t('selectedCard')}: <span lang="en" className="font-semibold">{selectedCard.name}</span>
+                </p>
+                <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                  <span lang="en">{selectedCard.setName}</span>
+                  {selectedCard.number && <span className="tabular">#{selectedCard.number}</span>}
+                  {selectedCard.rarity && <span lang="en">{selectedCard.rarity}</span>}
+                </p>
+                <span className="flex flex-wrap items-center gap-1">
+                  {selectedCard.availableFinishes.map((f) => (
+                    <FinishBadge key={f} finish={f} />
+                  ))}
+                </span>
+              </div>
+            </div>
           ) : (
             <p className="text-xs text-muted">{t('chooseCardFirst')}</p>
           )}
@@ -297,10 +384,15 @@ export function M1View() {
               value={finish}
               onChange={(e) => setFinish(e.target.value as Finish)}
             />
+          ) : productType !== 'raw' ? (
+            <p className="rounded-md bg-surface-2/60 px-3 py-2 text-sm text-muted">
+              {t('finishFixedNormal')}
+            </p>
           ) : (
-            productType !== 'raw' && (
+            // Raw con UN solo acabado disponible: se muestra fijo, no se oculta en silencio.
+            selectedCard && (
               <p className="rounded-md bg-surface-2/60 px-3 py-2 text-sm text-muted">
-                {t('finishFixedNormal')}
+                {t('finishFixedSingle', { finish: tFinish(availableFinishes[0] ?? 'normal') })}
               </p>
             )
           )}
@@ -375,7 +467,13 @@ export function M1View() {
               <Banner variant="info">{t('costHint', { pct })}</Banner>
             </>
           )}
-          {create.isError && <Banner variant="danger">{t('createError')}</Banner>}
+          {create.isError && (
+            // P-4: mensaje REAL del backend (p. ej. 422 PRICE_PENDING / FINISH_NOT_AVAILABLE),
+            // no un genérico: el operador necesita saber POR QUÉ no se creó.
+            <Banner variant="danger" role="alert" title={t('createError')}>
+              {getError(create.error)}
+            </Banner>
+          )}
         </div>
       </Modal>
     </div>

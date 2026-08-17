@@ -3,19 +3,26 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { getShipments, getAdminInventory, saveShipmentTracking } from '@/lib/api';
+import { getAdminShipments, getAdminPickingList, saveShipmentTracking } from '@/lib/api';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { useShipmentSteps } from '@/lib/pipelines';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
-import type { InventoryItemDTO, ShipmentDTO, ShipmentTrackingRequest } from '@/types/contract';
+import type {
+  AdminShipmentDTO,
+  PickingListEntryDTO,
+  ShipmentStatus,
+  ShipmentTrackingRequest,
+} from '@/types/contract';
 
 /** Convierte pesos (texto) a centavos enteros. Vacío/invalid → null (no se envía). */
 export function pesosToCents(value: string): number | null {
@@ -26,28 +33,46 @@ export function pesosToCents(value: string): number | null {
   return Math.round(n * 100);
 }
 
+const STATUS_FILTERS: ShipmentStatus[] = [
+  'solicitado',
+  'picking',
+  'guia',
+  'enviado',
+  'entregado',
+  'cancelado',
+];
+
 export function M4View() {
   const t = useTranslations('admin.m4');
   const ts = useTranslations('shipments');
+  const tStatus = useTranslations('status.shipment');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const getError = useErrorMessage();
   const qc = useQueryClient();
   const steps = useShipmentSteps();
-  const shipments = useQuery({ queryKey: ['shipments'], queryFn: getShipments });
-  const inventory = useQuery({ queryKey: ['admin-inventory'], queryFn: getAdminInventory });
+
+  // Cola ADMIN de envíos de clientes (contrato §M4 · GET /admin/shipments?status=).
+  const [statusFilter, setStatusFilter] = useState('');
+  const shipments = useQuery({
+    queryKey: ['admin-shipments', statusFilter],
+    queryFn: () => getAdminShipments({ status: statusFilter || undefined }),
+  });
+  // Lista de picking real (contrato §M4 · GET /admin/shipments/picking-list).
+  const picking = useQuery({ queryKey: ['admin-picking-list'], queryFn: () => getAdminPickingList() });
 
   // --- Captura de guía (contrato §M4 · POST /admin/shipments/:id/tracking) ---
-  const [trackingTarget, setTrackingTarget] = useState<ShipmentDTO | null>(null);
+  const [trackingTarget, setTrackingTarget] = useState<AdminShipmentDTO | null>(null);
   const [carrierValue, setCarrierValue] = useState('');
   const [trackingNumberValue, setTrackingNumberValue] = useState('');
   const [shippingCostValue, setShippingCostValue] = useState('');
+  const [trackingSaved, setTrackingSaved] = useState<string | null>(null);
 
   const shippingCostCents = pesosToCents(shippingCostValue);
   const shippingCostInvalid = shippingCostValue.trim() !== '' && (shippingCostCents === null || shippingCostCents < 0);
 
   const trackingMutation = useMutation({
-    mutationFn: (target: ShipmentDTO) => {
+    mutationFn: (target: AdminShipmentDTO) => {
       const body: ShipmentTrackingRequest = {
         carrier: carrierValue.trim(),
         trackingNumber: trackingNumberValue.trim(),
@@ -56,17 +81,21 @@ export function M4View() {
       if (shippingCostCents !== null) body.shippingCostCents = shippingCostCents;
       return saveShipmentTracking(target.id, body);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['shipments'] });
+    onSuccess: (_d, target) => {
+      void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
+      void qc.invalidateQueries({ queryKey: ['admin-picking-list'] });
+      setTrackingSaved(target.id);
       closeTracking();
     },
   });
 
-  function openTracking(s: ShipmentDTO) {
+  function openTracking(s: AdminShipmentDTO) {
     setTrackingTarget(s);
     setCarrierValue(s.carrier ?? '');
     setTrackingNumberValue(s.trackingNumber ?? '');
     setShippingCostValue('');
+    setTrackingSaved(null);
+    trackingMutation.reset();
   }
   function closeTracking() {
     setTrackingTarget(null);
@@ -78,11 +107,10 @@ export function M4View() {
   const canSubmitTracking =
     carrierValue.trim() !== '' && trackingNumberValue.trim() !== '' && !shippingCostInvalid;
 
-  const pickingColumns: Column<InventoryItemDTO>[] = [
-    { key: 'location', header: 'Ubicación', render: (i) => <span className="tabular">{i.location?.label ?? '—'}</span> },
-    { key: 'folio', header: 'Folio', render: (i) => <span className="tabular">{i.folio}</span> },
-    { key: 'card', header: 'Carta', render: (i) => <span lang="en">{i.card.name}</span> },
-    { key: 'status', header: 'Estado', render: (i) => <StatusBadge domain="inventory" value={i.status} /> },
+  const pickingColumns: Column<PickingListEntryDTO>[] = [
+    { key: 'location', header: t('picking.location'), render: (r) => <span className="tabular">{r.location}</span> },
+    { key: 'folio', header: t('picking.folio'), render: (r) => <span className="tabular">{r.folio}</span> },
+    { key: 'shipment', header: t('picking.shipment'), render: (r) => <span className="tabular">{r.shipmentId}</span> },
   ];
 
   return (
@@ -90,58 +118,80 @@ export function M4View() {
       <h1 className="text-h1 font-bold">{t('title')}</h1>
 
       <section className="flex flex-col gap-4">
-        <h2 className="text-h2 font-semibold">{ts('myShipments')}</h2>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-h2 font-semibold">{t('queueTitle')}</h2>
+          <Select
+            label={t('statusFilter')}
+            className="w-48"
+            placeholder={t('statusAll')}
+            options={STATUS_FILTERS.map((s) => ({ value: s, label: tStatus(s) }))}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          />
+        </div>
+        {trackingSaved && (
+          <Banner variant="success" role="status">
+            {t('tracking.saved', { id: trackingSaved })}
+          </Banner>
+        )}
         <QueryState
           isLoading={shipments.isLoading}
           isError={shipments.isError}
           error={shipments.error}
           onRetry={() => shipments.refetch()}
         >
-          {(shipments.data ?? []).map((s: ShipmentDTO) => (
-            <div key={s.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="tabular text-sm font-medium">{s.id}</span>
-                  <StatusBadge domain="shipment" value={s.status} />
+          {shipments.data && shipments.data.data.length === 0 ? (
+            <EmptyState title={t('queueEmpty')} />
+          ) : (
+            (shipments.data?.data ?? []).map((s) => (
+              <div key={s.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="tabular text-sm font-medium">{s.id}</span>
+                    <StatusBadge domain="shipment" value={s.status} />
+                    {s.userId && <span className="tabular text-xs text-muted">{s.userId}</span>}
+                    {s.items && (
+                      <span className="text-xs text-muted">
+                        {t('itemCount', { count: s.items.length })}
+                      </span>
+                    )}
+                  </div>
+                  {s.status !== 'cancelado' && s.status !== 'entregado' && (
+                    <Button size="sm" variant="secondary" onClick={() => openTracking(s)}>
+                      {t('tracking.capture')}
+                    </Button>
+                  )}
                 </div>
-                {s.status !== 'cancelado' && (
-                  <Button size="sm" variant="secondary" onClick={() => openTracking(s)}>
-                    {t('tracking.capture')}
-                  </Button>
+                {(s.carrier || s.trackingNumber) && (
+                  <p className="text-sm text-muted">
+                    <span className="font-medium text-text">{ts('carrier')}:</span> {s.carrier ?? '—'}
+                    {' · '}
+                    <span className="font-medium text-text">{ts('tracking')}:</span>{' '}
+                    <span className="tabular">{s.trackingNumber ?? '—'}</span>
+                  </p>
                 )}
+                <PipelineStepper steps={steps} current={s.status} />
               </div>
-              {(s.carrier || s.trackingNumber) && (
-                <p className="text-sm text-muted">
-                  <span className="font-medium text-text">{ts('carrier')}:</span> {s.carrier ?? '—'}
-                  {' · '}
-                  <span className="font-medium text-text">{ts('tracking')}:</span>{' '}
-                  <span className="tabular">{s.trackingNumber ?? '—'}</span>
-                </p>
-              )}
-              <PipelineStepper steps={steps} current={s.status} />
-            </div>
-          ))}
+            ))
+          )}
         </QueryState>
       </section>
 
       <section className="flex flex-col gap-4">
         <h2 className="text-h2 font-semibold">{t('pickingList')}</h2>
+        <p className="text-sm text-muted">{t('pickingHint')}</p>
         <QueryState
-          isLoading={inventory.isLoading}
-          isError={inventory.isError}
-          error={inventory.error}
-          onRetry={() => inventory.refetch()}
+          isLoading={picking.isLoading}
+          isError={picking.isError}
+          error={picking.error}
+          onRetry={() => picking.refetch()}
         >
-          {inventory.data && (
+          {picking.data && picking.data.length > 0 ? (
             <div className="rounded-lg border border-border bg-surface p-2">
-              <DataTable
-                columns={pickingColumns}
-                rows={[...inventory.data].sort((a, b) =>
-                  (a.location?.label ?? '').localeCompare(b.location?.label ?? ''),
-                )}
-                rowKey={(i) => i.id}
-              />
+              <DataTable columns={pickingColumns} rows={picking.data} rowKey={(r) => `${r.shipmentId}-${r.inventoryItemId}`} />
             </div>
+          ) : (
+            <EmptyState tone="positive" title={t('pickingEmpty')} />
           )}
         </QueryState>
       </section>

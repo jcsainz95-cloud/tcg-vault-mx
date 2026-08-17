@@ -14,14 +14,20 @@ export interface QueryStateProps {
   children: React.ReactNode;
 }
 
-/** Traduce errorCode del contrato a copy localizado (DESIGN_SYSTEM §8.1). */
+/**
+ * Traduce errorCode del contrato a copy localizado (DESIGN_SYSTEM §8.1).
+ * Si el código no tiene copy en el catálogo i18n, cae al MENSAJE REAL del backend
+ * (ApiClientError.message) para no ocultar el motivo al operador (p. ej. topes AML);
+ * solo si tampoco hay mensaje se muestra el genérico.
+ */
 export function useErrorMessage() {
   const t = useTranslations();
   return (error: unknown): string => {
     const code = error instanceof ApiClientError ? error.code : 'INTERNAL';
     const key = `error.${code}`;
-    const translated = t.has(key) ? t(key) : t('common.errorGeneric');
-    return translated;
+    if (t.has(key)) return t(key);
+    if (error instanceof ApiClientError && error.message) return error.message;
+    return t('common.errorGeneric');
   };
 }
 
