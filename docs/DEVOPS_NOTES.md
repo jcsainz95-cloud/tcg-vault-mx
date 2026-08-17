@@ -5,6 +5,14 @@
 > Estado: **fase de cierre**. Código presente en `backend/` y `frontend/`; **QA aprobó** y
 > **techlead aprobó** (doble veredicto). Único ítem del DoD legítimamente **pendiente**: el
 > **deploy real**, bloqueado por falta de credenciales de producción (ver §11). Runbook listo.
+>
+> **Actualización 2026-08-17 (v1.14 — WS-A: ingest de precios con proveedor de paga):** cableada la
+> parte operativa del nuevo job **`price-ingest`** (ingest masivo por set vía **PokemonPriceTracker**,
+> proveedor de paga, pluggable por el dial `PRICE_PROVIDER`; ARCHITECTURE §4.15). Ver **§19** (qué hace,
+> horarios, orden `fx-refresh → price-ingest`, verificación de esquema/moneda en la 1ª corrida, disparo
+> manual y rollback por dial) y el bloque de precios/scheduling de `.env.example`. El **scheduler** y
+> `env.validation.ts` los cablea **backend** (solicitudes enrutadas en §19.10); devops no toca `backend/`.
+> `catalog-price-sync` (§18) queda **DEPRECADO en su rol de pricing** (lo asume `price-ingest`).
 
 ---
 
@@ -141,9 +149,10 @@ antes de usar esas funciones:
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Firmar JWT (auth). **Obligatorias en prod** (el backend aborta si faltan con `NODE_ENV=production`). | Generar: `openssl rand -hex 48` (distintas entre sí) |
 | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Pagos y webhooks | Dashboard de Stripe (test/live) |
 | `POKEMONTCG_IO_API_KEY` | Precios raw/singles (fetch real) **y re-sync completo del catálogo 2×/día** (cientos de req/corrida; **obligatorio en prod**, ver §18) | dev.pokemontcg.io (free; con key ~20k req/día) |
-| `CATALOG_PRICE_SYNC_CRON_1`, `CATALOG_PRICE_SYNC_CRON_2` (opcional) | Crons **en UTC** del re-sync completo del catálogo (v1.12). Defaults `0 0 * * *` (00:00 UTC = 18:00 CDMX) y `0 12 * * *` (12:00 UTC = 06:00 CDMX) → juntos disparan a las **06:00 y 18:00 CDMX**. Requieren `REDIS_URL`. Ver §18. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
-| `POKEMONPRICETRACKER_API_KEY` | Precios gradeadas/sellado | PokemonPriceTracker (free tier) — **provider stub, ver BE-6** |
-| `POKETRACE_API_KEY` | Respaldo gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
+| `CATALOG_PRICE_SYNC_CRON_1`, `CATALOG_PRICE_SYNC_CRON_2` (opcional) | Crons **en UTC** del re-sync del catálogo (v1.12). Defaults `0 0 * * *` (00:00 UTC = 18:00 CDMX) y `0 12 * * *` (12:00 UTC = 06:00 CDMX) → **06:00 y 18:00 CDMX**. **v1.14 (WS-A):** su rol de **pricing** lo asume `price-ingest`; conserva solo import de metadata/sets nuevos (force:false). Requieren `REDIS_URL`. Ver §18/§19. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
+| `PRICE_INGEST_CRON_1`, `PRICE_INGEST_CRON_2` (opcional) | Crons **en UTC** del **ingest masivo de precios** `price-ingest` (WS-A, §19). Defaults `0 0 * * *` (18:00 CDMX) y `0 12 * * *` (06:00 CDMX) → **06:00 y 18:00 CDMX**. Reemplaza el rol de pricing de `CATALOG_PRICE_SYNC_CRON_*`. Requieren `REDIS_URL`. **Nombres pendientes de wiring de backend** (§19.10). Ver §19. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
+| `POKEMONPRICETRACKER_API_KEY` | **Proveedor de PAGA del ingest masivo `price-ingest` (WS-A, §19)** — bulk `POST /cards/bulk-price`, auth Bearer. **Requisito operativo en prod** cuando `PRICE_PROVIDER=pokemonpricetracker` (con **cuota del plan de paga**). Rol residual: stub graded/sealed per-carta (BE-6). **Valor en Railway, NUNCA en el repo.** | PokemonPriceTracker (**plan de paga**; key **ya en Railway**) |
+| `POKETRACE_API_KEY` | Respaldo per-carta gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
 | `S3_*` (endpoint/bucket/keys/force-path-style) | **Object storage SOLO para la INE del buylist (`kyc_ine/`)**, cifrada + presigned PUT/GET. Local=MinIO (ya puesto); prod=R2/S3. v1.2.1: sin `S3_PUBLIC_BASE_URL` (no hay prefijo público) ni fotos de inventario/disputa. Nombres reales que consume el código: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`. | Cloudflare R2 o AWS S3 |
 | `KYC_UPLOAD_MAX_BYTES` (opcional) | Tope en bytes del upload presignado de la INE (`kyc_ine`); se fija en la firma (`ContentLength`). Sin valor → backend usa **10 MiB** (10485760). | Sin acción salvo querer otro tope |
 | `GOOGLE_CLIENT_ID` (backend `[RW]`) + `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (Vercel `[VC]`) | Login con Google (v1.2). **Mismo** OAuth 2.0 Client ID en ambas: backend valida `aud` del ID token; frontend lo usa en el botón. Sin `GOOGLE_CLIENT_ID` el backend rechaza el login con Google (email/password sigue OK). | Google Cloud Console > Credentials > OAuth client ID (Web) |
@@ -151,12 +160,14 @@ antes de usar esas funciones:
 | `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` | Endurecimiento PII: cifrado AES-256 en reposo de CLABE/RFC + HMAC del blind index de CLABE (match sin descifrar). **Distintas entre sí**. Vacías OK en local (greenfield); **OBLIGATORIAS en no-local** (backend aborta si faltan). | Generar: `openssl rand -base64 32` (una por cada una); en prod, **KMS/secret manager** |
 | `INE_RETENTION_DAYS` | Días de retención de la INE del KYC (`kyc_ine/`). El backend borra; el bucket expira como capa extra. Igual al dial M10 (fuente de verdad). | Valor **legal/fiscal** — **fijado en 180 días** por decisión de negocio, alineado con el dial M10 del backend |
 | `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` | Tipo de cambio USD→MXN automático (Banxico SIE) + colchón + override manual (M10). El backend lee `BANXICO_SIE_TOKEN` y, si falta, cae a `FX_API_KEY`, y si tampoco, a override manual / último FxRate. | Token SIE de Banxico (gratis en el portal SIE) |
-| `DATABASE_URL`, `REDIS_URL`, `POSTGRES_*`, `MINIO_ROOT_*` | Infra | Ya listos en `.env.example` (local); en prod = credenciales del proveedor |
+| `DATABASE_URL`, `REDIS_URL`, `POSTGRES_*`, `MINIO_ROOT_*` | Infra. **`REDIS_URL` = requisito de los jobs BullMQ** (sin él el scheduler no programa `price-ingest`/`fx-refresh`/barridos; §19.2). | Ya listos en `.env.example` (local); en prod Railway inyecta `DATABASE_URL`/`REDIS_URL` (add-ons) |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_EMAIL`, `SEED_OPERATOR_PASSWORD` | Credenciales de las cuentas sembradas (super_admin + vault_operator). **SEC-C1: sin default débil**, generar fuertes (`openssl rand -base64 24`) | Definir en prod ANTES del seed y rotar tras primer login |
 | `NEXT_PUBLIC_*` | Config del frontend expuesta al browser (incluye `NEXT_PUBLIC_USE_MOCKS=false`) | Solo claves **públicas** |
 
 > Los **diales de negocio** (tarifa MX$175, IVA 16%, topes MX$3,000/10,000, aportación 70%, markup de
-> venta, tarifa Stripe MX del gross-up, `PricingProvider` por tipo) **no son env**: viven en la tabla
+> venta, tarifa Stripe MX del gross-up, `PricingProvider` por tipo, **`PRICE_PROVIDER`/`price_provider`**
+> — proveedor del ingest masivo WS-A, `pokemonpricetracker | pokemontcg_io`, **se flipea por el panel M10,
+> no por env/Railway**; seed money-safe `pokemontcg_io`, ver §19) **no son env**: viven en la tabla
 > `ConfigSetting` (M10), editables sin redeploy. Los siembra `seed.sh`.
 
 ---
@@ -306,8 +317,10 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
   (los mismos códigos del contrato). Sin PII ni secretos en logs.
 - **Auditoría de negocio**: `AuditLog` (M10) cubre quién/qué/cuándo de acciones sensibles (dinero
   saliente, config, intentos bloqueados de operador). No sustituye al logging técnico.
-- **Alertas básicas**: alerting de la plataforma sobre fallos de deploy y 5xx; alarma sobre fallos del
-  job diario `price-sync`/`fx-refresh` y sobre acercarse al rate-limit del free tier (100/día, 250/día).
+- **Alertas básicas**: alerting de la plataforma sobre fallos de deploy y 5xx; alarma sobre fallos de los
+  jobs `price-ingest` (ingest masivo WS-A, §19), `price-sync`/`fx-refresh` y `catalog-price-sync`, sobre
+  `skipped` anómalo del ingest (posible cambio de esquema del proveedor) y sobre acercarse al rate-limit /
+  **cuota del proveedor** (free tier 100/250/día; **plan de paga de PokemonPriceTracker** en el ingest).
 - **Healthchecks**: en prod, Railway hace probe a `GET /api/v1/health` (`healthcheckPath` en `railway.json`,
   `healthcheckTimeout: 300`); el endpoint devuelve 200 ok / 503 degraded con `SELECT 1` a Postgres. La infra
   local ya define healthchecks de Postgres/Redis/MinIO.
@@ -475,8 +488,13 @@ Validaciones estáticas corridas (reales):
 - [ ] `GOOGLE_CLIENT_ID` (login con Google; **mismo** OAuth Client ID que `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
       del front — [VC]. Sin él, el backend rechaza el login con Google)
 - [ ] `DISPUTE_EVIDENCE_CONTACT` (correo de contacto de evidencia de disputa; default `soporte@tcgvaultmx.com`)
-- [ ] `POKEMONTCG_IO_API_KEY`; `POKEMONPRICETRACKER_API_KEY` / `POKETRACE_API_KEY` (opcionales — hoy stub
-      BE-6, se cubre con override manual del admin)
+- [ ] `POKEMONTCG_IO_API_KEY` (metadata del catálogo + ingest legacy/rollback `PRICE_PROVIDER=pokemontcg_io`);
+      `POKEMONPRICETRACKER_API_KEY` (**proveedor de PAGA del ingest masivo WS-A** — requisito operativo cuando el
+      dial `PRICE_PROVIDER=pokemonpricetracker`; **ya aprovisionada en Railway**, con cuota del plan de paga;
+      §19); `POKETRACE_API_KEY` (opcional, stub graded/sealed BE-6)
+- [ ] *(opcional)* `PRICE_INGEST_CRON_1`/`_2` (horario del ingest masivo, **UTC**; default `0 0 * * *` y
+      `0 12 * * *` = 18:00 y 06:00 CDMX; §19.3). El dial `PRICE_PROVIDER` **NO va aquí** — es un dial de M10
+      (ConfigSetting), se flipea por el panel, no por env (§19.5)
 - [ ] `S3_ENDPOINT`, `S3_REGION=auto`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
       `S3_FORCE_PATH_STYLE=false`, `INE_RETENTION_DAYS=180`  (bucket **solo** `kyc_ine/`; sin `S3_PUBLIC_BASE_URL`)
 - [ ] *(opcional)* `KYC_UPLOAD_MAX_BYTES` (tope en bytes del upload de INE; sin valor, el backend usa 10 MiB)
@@ -1233,6 +1251,13 @@ Si `set` resuelve pero `points: []`, revisa que el Paso 3 corrió en orden y que
 
 ## 18. Job `catalog-price-sync` — re-sync completo del catálogo 2×/día (v1.12-catalog-pricing)
 
+> **DEPRECADO EN SU ROL DE PRICING (v1.14 — WS-A).** El refresco de precios de todo el catálogo lo asume
+> ahora **`price-ingest`** (ingest masivo por set vía proveedor de paga, **§19**), mucho más barato y
+> robusto (bulk por set vs re-bajar todas las cartas). `catalog-price-sync`/`catalog-sync` se **conserva
+> solo** para **import de metadata / sets nuevos** (`force:false`). Lo de abajo describe el job **legacy**
+> (v1.12) mientras backend repunta el slot 2×/día del pricing al ingest (§19.10); el horario y el orden
+> FX→precios se trasladan a §19.
+>
 > Contexto: el precio de venta se deriva de `PriceReference` (por acabado), que se repuebla desde
 > pokemontcg.io. La operación de "refrescar precios de todo el catálogo" la implementa **backend** en
 > `backend/src/jobs/catalog-price-sync.service.ts` + su cableado en `scheduler.service.ts` (devops **no**
@@ -1352,4 +1377,201 @@ POST /api/v1/admin/jobs/catalog-price-sync      # super_admin; 200 { jobId, sets
 3. **Robustez del `?? default`:** hoy `CATALOG_PRICE_SYNC_CRON_1/_2=""` (vacío) NO cae al default y genera un
    patrón inválido. Sería más robusto tratar cadena vacía/espacios como "usar default" (o como "deshabilitado"
    explícito). Mitigación devops mientras tanto: documentado en `.env.example` y §18.2 (no usar vacío).
+
+---
+
+## 19. Job `price-ingest` — ingest MASIVO de precios vía proveedor de PAGA (WS-A, v1.14)
+
+> Contexto: WS-A reemplaza el barrido por-carta frágil (`catalog-price-sync` `force:true`, re-sync completo
+> **fire-and-forget en memoria** — §18) por un **ingest masivo por SET** que consume el **endpoint bulk** del
+> proveedor de paga **PokemonPriceTracker**. El job lo implementa **backend** (`PriceIngestService` + jobs
+> `price-ingest`/`price-ingest-set` + cableado en `scheduler.service.ts` + `env.validation.ts` + seed del
+> dial); **devops** aporta el scheduling (`.env.example`), su cableado en Railway y este runbook. Ver
+> `docs/ARCHITECTURE.md §4.15` y `docs/API_CONTRACT.md` (§M10-ops). **Toca dinero → triple veredicto.**
+> **Aditivo, SIN migración de esquema** (reusa `PriceReference`, `PriceSource.pokemonpricetracker`, `Card.availableFinishes`).
+
+### 19.1 Qué hace
+
+- **`price-ingest` (parent):** lista los `CardSet` **locales** y encola un child `price-ingest-set` **por set**
+  en la cola BullMQ. Devuelve de inmediato (encola, no procesa).
+- **`price-ingest-set` (child, `{ setId }`):** baja los precios de **un set** en **pocas requests** (bulk),
+  agrupa por carta y hace **upsert idempotente** de `PriceReference` por
+  `(cardId, 'raw', 'raw:NM', finish, capturedDate=hoy)`, convirtiendo **USD→MXN** con el FX del día (colchón
+  #13). Refresca `Card.availableFinishes` desde el proveedor. **Respeta `isManualOverride`** (si hay override
+  del admin, no lo pisa).
+- **Robusto / idempotente / reanudable** (el corazón de WS-A): un set que falla (429, payload roto) **no
+  tumba** el resto (es su propio job BullMQ con retry/backoff); la cola vive en **Redis** (persistida) → un
+  reinicio a media corrida retoma los child jobs pendientes; re-correr el mismo día **actualiza** el precio,
+  no duplica.
+- **Proveedor pluggable por el dial `PRICE_PROVIDER`:** `pokemonpricetracker` (PAGA, bulk, PRIMARIO) o
+  `pokemontcg_io` (legacy/rollback). El job es robusto con **ambos**; el de paga aporta variantes completas y
+  ~100× menos requests (bulk por set).
+- **Reemplaza** el rol de pricing de `catalog-price-sync` (§18). El catálogo (metadata / import de sets
+  nuevos) sigue en `catalog-sync {force:false}`, en cadencia propia y barata.
+
+### 19.2 Requisitos operativos (obligatorios en prod)
+
+- **`REDIS_URL`** — BullMQ. Ya inyectado por Railway (`${{ Redis.REDIS_URL }}`). Sin él, el scheduler **no
+  programa** el cron (queda deshabilitado con warning) y `price-ingest` solo es disparable a mano (corre
+  **secuencial AWAITED**, nunca fire-and-forget). La cola persistida en Redis es lo que hace el job
+  **reanudable**.
+- **`POKEMONPRICETRACKER_API_KEY`** — **ya aprovisionada en Railway** (NUNCA en el repo; el código solo lee
+  `process.env`). Pasa a ser **requisito operativo** cuando `PRICE_PROVIDER=pokemonpricetracker`: debe tener
+  **cuota del PLAN DE PAGA** (el ingest baja el catálogo por set, 1–2×/día). **Money-safe:** si la key
+  falta/está inválida con el proveedor de paga seleccionado, el ingest **NO borra** precios (los deja
+  **stale**, que es seguro) y **alerta**; **no** hay fallback silencioso a otra fuente. Si
+  `PRICE_PROVIDER=pokemontcg_io`, el requisito es `POKEMONTCG_IO_API_KEY`.
+- **Dial `PRICE_PROVIDER`** — ConfigSetting (M10), **no env**. Ver §19.5.
+
+### 19.3 Horarios y cómo cambiarlos (env, sin redeploy de código)
+
+Dos BullMQ repeatables, cron **en UTC** por env (documentados en `.env.example`):
+
+| Env | Default | UTC | CDMX | Corrida |
+|---|---|---|---|---|
+| `PRICE_INGEST_CRON_1` | `0 0 * * *` | 00:00 UTC | **18:00 CDMX** | tarde |
+| `PRICE_INGEST_CRON_2` | `0 12 * * *` | 12:00 UTC | **06:00 CDMX** | mañana |
+
+- **CDMX = UTC−6, fijo (sin horario de verano).** `06:00 CDMX = 12:00 UTC`, `18:00 CDMX = 00:00 UTC`. Juntos
+  disparan a las **06:00 y 18:00 CDMX** (el mismo slot 2×/día que ocupaba `catalog-price-sync`, ahora
+  repuntado al pricing por `price-ingest`).
+- **Cambiar horario en prod:** editar `PRICE_INGEST_CRON_1/_2` en **Railway → servicio `backend` →
+  Variables** + redeploy. Es config de env, no cambio de código. Siempre en **UTC**.
+- **NO** uses cadena **vacía** para apagar (el `?? default` solo cubre variable **ausente**; `""` genera un
+  cron inválido). Para apagar sin tocar código, ver §19.7 (cron-nunca).
+- **Nombres de env (wiring de backend):** §4.15g propone `PRICE_INGEST_CRON_1/_2`; si backend prefiere
+  **reusar** el slot `CATALOG_PRICE_SYNC_CRON_*` repuntándolo, se ajusta aquí. Solicitud enrutada a backend
+  (§19.10).
+
+### 19.4 Orden `fx-refresh → price-ingest` (requisito operativo)
+
+El ingest convierte USD→MXN con el **FX del día**; el FX debe estar fresco **antes** de cada corrida.
+
+- `fx-refresh` corre a **`0 6 * * *` = 06:00 UTC = 00:00 CDMX** (Banxico SIE + colchón; cron **hardcodeado**
+  en backend, no configurable por env).
+- Secuencia diaria (hora CDMX): `fx-refresh` **00:00** → `price-ingest` mañana **06:00** → `price-ingest`
+  tarde **18:00**. **Ambas** corridas del ingest caen **después** del `fx-refresh` del día. ✅
+- `FxService.getCurrent()` **degrada** al último `FxRate` conocido si el `fx-refresh` no corrió, así que el
+  orden es **suave** pero recomendado. Regla para quien edite los crons: mantener `price-ingest` **después**
+  de las 00:00 CDMX (después del `fx-refresh`). Cualquier hora diurna CDMX cumple.
+
+### 19.5 Dial `PRICE_PROVIDER` y verificación de esquema/moneda en la 1ª corrida (CRÍTICO, money-safe)
+
+El dial **`PRICE_PROVIDER`** (`price_provider`, ConfigSetting M10) selecciona el proveedor del ingest. Se
+**seedea `pokemontcg_io`** (rollout money-safe: sin cambio de fuente al desplegar; el job ya es robusto) y se
+**flipea a `pokemonpricetracker` DESDE EL PANEL M10** (sin redeploy) **solo tras verificar el esquema**.
+
+**Por qué se GATEA el flip (riesgo de dinero):** el esquema exacto del payload del proveedor (campo de
+acabado, de precio y **de moneda**) se confirma **en runtime** (desde dev el dominio está bloqueado por
+egress). El adapter mapea **defensivamente** y, si la moneda es ambigua, **asume USD** (el proveedor es de
+mercado US). **Si en realidad el `market` viniera en MXN y se tratara como USD, la conversión USD→MXN lo
+inflaría ~18×** (p. ej. 200 MXN → 200 × ~18 = ~3,600 MXN). Por eso **NO se flipea el dial a barrido completo
+sin confirmar la moneda**.
+
+**Runbook de verificación (en orden):**
+
+1. **Precondición:** `POKEMONPRICETRACKER_API_KEY` en Railway (ya está). Backend desplegado con WS-A
+   (`price-ingest` cableado + **el log de ejemplo** de la 1ª corrida, §19.10).
+2. **Flip acotado:** en el panel **M10** poner `PRICE_PROVIDER=pokemonpricetracker` (sin redeploy).
+3. **Corrida de UN set** (blast radius contenido):
+   `POST /api/v1/admin/jobs/price-ingest { "setId": "sv8" }` (un set conocido). Ingesta **solo ese set** vía
+   el proveedor de paga.
+4. **Revisar el log de ejemplo que deja backend** (payload crudo de una carta + `finish`/`currency`
+   detectados + `marketCents` + `priceMxnCents` calculado) **y** las filas `PriceReference` resultantes de ese
+   set. **Confirmar:**
+   - **Moneda (lo crítico):** el `market` viene en **USD** (lo esperado). Chequeo de cordura: una carta cuyo
+     valor real ronda ~$10 USD debe quedar en **~180–220 MXN**, **NO ~3,600 MXN**. Si sale **~18× inflado** →
+     el proveedor devuelve **MXN** y el adapter lo trató como USD → **NO flipear a producción**; enrutar a
+     backend (corregir el manejo de moneda, §19.10).
+   - **Acabados:** las variantes mapean (no todo colapsado a `normal`); `availableFinishes` refleja lo real.
+   - **Cobertura:** las cartas del set resolvieron (bajo `skipped`); `market` > 0.
+5. **Decisión:**
+   - **Esquema/moneda OK** → dejar el dial en `pokemonpricetracker`; correr el ingest **completo**
+     `POST /admin/jobs/price-ingest` (sin `setId`) o dejar que el cron lo haga. WS-A en vivo.
+   - **Esquema/moneda MAL** → **rollback por dial** (§19.7): flipear a `pokemontcg_io`, re-correr
+     `POST /admin/jobs/price-ingest { "setId": "sv8" }` (idempotente; sobre-escribe ese set con el proveedor
+     legacy) y enrutar el bug a backend. Solo **un set** se tocó con el proveedor de paga → daño acotado.
+
+> **Alternativa (v1.14-4, decisión abierta del arquitecto):** sembrar `pokemonpricetracker` desde el arranque
+> (la key ya está) asumiendo la verificación previa. **Recomendación devops:** el camino gateado de arriba
+> (seed `pokemontcg_io` → verificar 1 set → flip) es el **money-safe**; no flipear a barrido completo sin el
+> paso 4. **DUDA para el humano/arquitecto:** confirmar esta secuencia (seed legacy + flip tras verificar) vs.
+> el seed directo al proveedor de paga.
+
+### 19.6 Disparo manual
+
+```
+POST /api/v1/admin/jobs/price-ingest                       # super_admin; 202 { job:"price-ingest", enqueued, jobId? }
+POST /api/v1/admin/jobs/price-ingest { "setId": "sv8" }    # un solo set (verificación); 202 { ..., scope:"set", setId }
+```
+
+- Rol **`super_admin`**, **auditado** en `AuditLog`, **single-flight** (no encola un 2º barrido si hay uno en
+  curso). **Toca dinero** (mueve precios de referencia).
+- `setId?` **opcional** — pensado para la **verificación de esquema** de §19.5 (un set, sin barrer todo).
+  Omitirlo ingesta **todo** el catálogo. Equivale a la corrida programada 1–2×/día.
+- Sin `REDIS_URL`, corre **secuencial AWAITED** en el handler (dev/ops); con Redis, fan-out por set.
+
+### 19.7 Rollback
+
+| Escenario | Acción |
+|---|---|
+| **Proveedor de paga con esquema/moneda malo, o coste/cuota fuera de control** | **Flipear el dial `PRICE_PROVIDER` a `pokemontcg_io`** desde el panel **M10** — **sin redeploy**, efecto inmediato en la próxima corrida (y en cualquier disparo manual). Es la palanca de rollback money-safe. Los precios ya escritos por el de paga se **sobre-escriben** en la siguiente corrida legacy (upsert idempotente del día). |
+| **Key de paga inválida/vencida** | Money-safe por diseño: el ingest **no borra** precios (los deja stale) y alerta. Rotar la key en Railway o flipear el dial a `pokemontcg_io` mientras se resuelve. |
+| **Apagar el ingest sin tocar código** | Poner `PRICE_INGEST_CRON_1/_2` en un cron **válido que nunca dispare** (p. ej. `0 0 31 2 *` = 31 feb) en Railway + redeploy. **NO** cadena vacía (§19.3). El disparo manual sigue disponible. |
+| **Corrida problemática en curso** | Es idempotente y single-flight; se puede dejar terminar. Para que no vuelva a lanzarse, aplica el cron-nunca o flipea el dial. |
+| **Precios inflados ~18× ya publicados** (moneda mal interpretada) | Flip a `pokemontcg_io` + re-correr `price-ingest` (idempotente, corrige el día) + enrutar el fix de moneda a backend. Si tocó el precio de venta visible, considerar override manual del admin en las cartas críticas mientras se recorre. |
+
+> Orden de oro: el rollback del **proveedor** es un **flip de dial** (dato, sin deploy); el del **schedule**
+> es el cron-nunca (env, con redeploy). Ninguno toca código de app.
+
+### 19.8 Monitoreo
+
+- **Duración / avance:** el fan-out por set encola N child jobs; vigila la cola BullMQ y los logs
+  (`price-ingest`/`price-ingest-set`). Alarma si una corrida no termina antes de la siguiente.
+- **`skipped` alto:** el adapter cuenta entradas OMITIDAS (carta no resuelta, `market` ≤ 0, acabado
+  desconocido). Un `skipped` anómalo indica un **cambio de esquema** del proveedor → revisar (§19.5).
+- **Rate-limit / cuota del proveedor de paga:** alarma sobre 429/402 del proveedor. El bulk por set reduce
+  ~100× las requests vs per-carta, pero vigila el **coste/cuota del plan** (riesgo devops, v1.14-2).
+- **Precios stale:** si el ingest no escribió un set (key inválida, 429 persistente), los precios quedan del
+  día previo. Alarma sobre sets sin `PriceReference` fresca del día (salud de datos / `dataHealth`).
+- **Crecimiento de `PriceReference`:** cada corrida inserta filas por día×acabado. Como en §18.6, vigilar el
+  tamaño de la tabla; la poda/retención es deuda a coordinar con backend (dueño del esquema).
+
+### 19.9 Runbook — encender la gráfica del home tras un ingest (#10)
+
+La gráfica pública del "set destacado" (§17) se alimenta de `SetValueSnapshot`, que agrega el valor de
+mercado del set desde `PriceReference`. **Tras un `price-ingest` exitoso**, el set destacado queda
+**preciado** (el ingest precia **todo** el catálogo, incluido el set del hero — subsume a `set-price-sync`,
+§4.15g), así que el snapshot diario del set tiene datos frescos que agregar:
+
+1. Corre (o deja correr por cron) `price-ingest` con el proveedor ya verificado (§19.5). Al terminar, el set
+   del hero tiene `PriceReference` de hoy.
+2. El job **`set-value-snapshot`** (cron diario tras el pricing del set, §17.4) hace **upsert** del
+   `SetValueSnapshot` del día → **la serie crece 1 punto/día** con datos reales.
+3. **Siembra del 1er punto** (una vez), si aún no hay serie: `POST /admin/jobs/set-value-snapshot` tras el
+   ingest (ver §17.3 Paso 3–4). Verifica `GET /catalog/featured-set/value-history` (≥1 punto).
+
+> El ingest **no** fabrica puntos: la gráfica acumula **1 punto/día** a partir del primer snapshot posterior a
+> un ingest con precios frescos. Cross-ref §17 (mecanismo del set destacado, fallbacks y rollback de la gráfica).
+
+### 19.10 Solicitudes a BACKEND (cambios de código — NO los toca devops)
+
+Enrutadas al rol **backend** (dueño de `backend/src/**`); WS-A las especifica en `ARCHITECTURE §4.15`:
+
+1. **Scheduler:** cablear `price-ingest` 1–2×/día en `scheduler.service.ts`, leyendo `PRICE_INGEST_CRON_1/_2`
+   (UTC) — **o** reusar el slot `CATALOG_PRICE_SYNC_CRON_*` repuntándolo del pricing al ingest (definir cuál;
+   §4.15g). Aligerar `catalog-sync` a **metadata/`force:false`** (deja de escribir `PriceReference`).
+2. **`env.validation.ts`:** decidir la política de `POKEMONPRICETRACKER_API_KEY` en no-local — **required**
+   solo si `PRICE_PROVIDER=pokemonpricetracker`, **o** opcional con degradación a "no escribe / stale +
+   alerta". Money-safe: nunca fallback silencioso a otra fuente (§4.15h).
+3. **Seed del dial:** sembrar `PRICE_PROVIDER=pokemontcg_io` (money-safe) en `ConfigSetting`.
+4. **Log de ejemplo (1ª corrida):** que `price-ingest-set` **logee un ejemplo** del payload crudo del
+   proveedor + `finish`/`currency` detectados + `marketCents` + `priceMxnCents`, para la verificación
+   USD-vs-MXN de §19.5. **Sin este log, la verificación de moneda es a ciegas** — es un requisito para poder
+   flipear el dial con seguridad.
+5. **Adapter defensivo + endpoint manual** (`POST /admin/jobs/price-ingest` con `setId?`) — ya en el contrato
+   (§M10-ops).
+
+> Estas son **dependencias de código**; devops solo provee el scheduling (env), Railway y este runbook. Un
+> fallo de build/deploy por un bug de estos se **reporta a backend**, no se corrige aquí.
 
