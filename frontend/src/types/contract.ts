@@ -640,6 +640,151 @@ export interface AdminInventoryItemDetailDTO extends InventoryItemDTO {
   movements: InventoryMovementDTO[];
 }
 
+// ===== v1.16-master-set: Master Set + inventario a escala (§M1) =====
+// Índice de sets (GET /admin/inventory/master-sets). Agregación SOLO de inventario de PLATAFORMA.
+// `catalogCardCount` = nº de Card del catálogo con ese setId (puede EXCEDER printedTotal por
+// secret/hyper rares). `distinctCardsOwned` = cartas DISTINTAS del set con ≥1 pieza on-hand.
+// `completionPct` = distinctCardsOwned / catalogCardCount × 100 (null si catalogCardCount=0).
+// `totalPieces` = conteo de InventoryItem on-hand del set (on-hand = platform AND status NOT IN
+// (withdrawn, shipped, delivered, lost, damaged)).
+export interface MasterSetSummaryDTO {
+  setId: string;
+  name: string;
+  series?: string;
+  releaseDate?: string;
+  year?: number;
+  printedTotal?: number;
+  catalogCardCount: number;
+  distinctCardsOwned: number;
+  completionPct: number | null;
+  totalPieces: number;
+}
+
+// Ordenamiento del índice (contrato §M1). `release_desc` es el default.
+export type MasterSetSort = 'release_desc' | 'completion_asc' | 'pieces_desc';
+
+export interface MasterSetIndexResponse {
+  data: MasterSetSummaryDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+// Celda del binder (GET /admin/inventory/master-sets/:setId). Una por Card del catálogo del set.
+// `number` = Card.number crudo (String, p. ej. "4", "SV107", "TG12"). `numberSort` = CLAVE NUMÉRICA
+// derivada SERVER-SIDE para el orden natural estable — el front NO re-ordena por número, confía en el
+// orden natural del backend (numéricos por valor entero primero; promos/subsets con prefijo alfabético
+// al final). `countsByFinish` = piezas on-hand por acabado (solo acabados con ≥1 pieza); `totalCount` =
+// suma. `totalCount=0` = HUECO de inventario. `isSecretRare` = heurística SOLO de display (número
+// puramente numérico cuyo entero > printedTotal); los promos/subsets con prefijo NO son secret rare.
+export interface MasterSetCellCountDTO {
+  finish: Finish;
+  count: number;
+}
+
+export interface MasterSetCardCellDTO {
+  cardId: string;
+  number: string;
+  numberSort: number;
+  name: string;
+  rarity?: string;
+  imageSmallUrl?: string;
+  availableFinishes: Finish[];
+  countsByFinish: MasterSetCellCountDTO[];
+  totalCount: number;
+  isSecretRare: boolean;
+}
+
+export interface MasterSetBinderResponse {
+  set: SetRefDTO;
+  printedTotal: number | null;
+  catalogCardCount: number;
+  cells: MasterSetCardCellDTO[];
+}
+
+// ----- Alta por LOTE (POST /admin/inventory/items/batch) -----
+// Una línea = una intención de alta; `qty` (default 1) es un ATAJO que el backend expande a N
+// InventoryItem (N piezas físicas, N folios) para bulk raw/sellado. graded → qty forzado a 1.
+// Los demás campos = MISMOS que POST /admin/inventory/items.
+export interface BatchInventoryItemInput {
+  cardId: string;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  finish?: Finish;
+  sealedSubtype?: SealedSubtype;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  certNumber?: string;
+  locationId?: string;
+  acquisitionType: AcquisitionType;
+  acquisitionPct?: number;
+  listPriceCents?: number;
+  qty?: number;
+}
+
+// cap items = 200. También acepta header `Idempotency-Key` (equivalente a `batchKey`).
+export interface BatchCreateInventoryRequest {
+  batchKey: string;
+  items: BatchInventoryItemInput[];
+}
+
+// Resultado por línea: ok:true crea qty piezas (devuelve sus folios); ok:false trae el error de ESA
+// línea (NO tumba las demás → HTTP 200). `index` = posición 0-based en items[].
+export type BatchInventoryLineResult =
+  | {
+      index: number;
+      ok: true;
+      folios: string[];
+      inventoryItemIds: string[];
+      acquisitionCostCents?: number;
+    }
+  | { index: number; ok: false; error: { code: string; message: string } };
+
+// `idempotentReplay` = true si el batchKey ya se había procesado (se REPITE el resultado guardado).
+export interface BatchCreateInventoryResponse {
+  batchKey: string;
+  idempotentReplay: boolean;
+  summary: { requested: number; createdItems: number; failedLines: number };
+  results: BatchInventoryLineResult[];
+}
+
+// ----- Publicar por LOTE (POST /admin/inventory/items/bulk-publish) -----
+// `listPriceCents` omitido → precio DERIVADO server-side de las reglas de venta por rareza+acabado
+// (§4.14, SEC-A1); presente → override manual. Status de origen publicable = { in_stock, listed }:
+// in_stock → publica; listed → no-op idempotente; cualquier otro → 422 ITEM_NOT_PUBLISHABLE por-línea.
+// Una pieza cuyo precio no se resuelve (pct sin market) → PRICE_PENDING por-línea (no se publica).
+export interface BulkPublishLineInput {
+  inventoryItemId: string;
+  listPriceCents?: number;
+}
+
+// cap items = 200.
+export interface BulkPublishRequest {
+  batchKey?: string;
+  items: BulkPublishLineInput[];
+}
+
+export type BulkPublishLineResult =
+  | {
+      index: number;
+      inventoryItemId: string;
+      ok: true;
+      status: 'listed';
+      salePriceCents: number;
+      priceSource: 'manual' | 'derived';
+    }
+  | {
+      index: number;
+      inventoryItemId: string;
+      ok: false;
+      error: { code: string; message: string };
+    };
+
+export interface BulkPublishResponse {
+  summary: { requested: number; published: number; failedLines: number };
+  results: BulkPublishLineResult[];
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;

@@ -4,6 +4,67 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-E frontend — Master Set + captura/publicación por lote (2026-08-17, contrato §M1 v1.16.1)
+
+Vista **Master Set** en M1 (índice de sets → binder por número) + **carrito de captura por lote** (#12)
+y **publicación masiva** (bulk-publish), contra los 4 endpoints nuevos del §M1. Solo `frontend/` +
+esta nota. Patrón real+mock, `shadow-focus`, tokens. Gates verdes: **lint 0**, **tsc 0**,
+**test 312** (42 files; +8 nuevos en `MasterSet.test.tsx`), **build** OK.
+
+### Contrato consumido (§M1 v1.16-master-set / v1.16.1)
+
+- `GET /admin/inventory/master-sets` → `getMasterSets({q,page,pageSize,sort})` (`MasterSetIndexResponse`).
+- `GET /admin/inventory/master-sets/:setId` → `getMasterSetBinder(setId)` (`MasterSetBinderResponse`).
+- `POST /admin/inventory/items/batch` → `batchCreateItems(payload)` — manda `batchKey` en el body **y**
+  como header **`Idempotency-Key`** (equivalentes). Respuesta tolerante por-línea.
+- `POST /admin/inventory/items/bulk-publish` → `bulkPublishItems(payload)` — errores por-línea
+  (`ITEM_NOT_PUBLISHABLE`, `PRICE_PENDING`) que no tumban el resto.
+
+Tipos nuevos en `src/types/contract.ts` (v1.16.1): `MasterSetSummaryDTO`, `MasterSetSort`,
+`MasterSetIndexResponse`, `MasterSetCardCellDTO` (con `countsByFinish`/`totalCount`/`gaps` implícitos por
+`totalCount=0`/`isSecretRare`/`numberSort`), `MasterSetBinderResponse`, `BatchInventoryItemInput`,
+`BatchCreateInventoryRequest`, `BatchInventoryLineResult`, `BatchCreateInventoryResponse`,
+`BulkPublishLineInput/Request`, `BulkPublishLineResult`, `BulkPublishResponse`.
+
+### UI (MVP)
+
+- **Pestañas "Piezas" / "Master Set"** en `M1View.tsx` (§6.6, subrayado 2px en la activa). "Piezas" = la
+  tabla plana actual intacta; los botones "Alta de item" / "Ubicaciones" solo se muestran en esa pestaña.
+- **Índice** (`master-set/MasterSetIndex.tsx`): grid de sets con **completitud** (`distinctCardsOwned /
+  catalogCardCount` + barra `progressbar`) y **conteo de piezas**. Búsqueda (`q`), orden (`release_desc`
+  default / `completion_asc` / `pieces_desc`) y paginación reales. Click → binder.
+- **Binder** (`MasterSetBinder.tsx`): cuadrícula por número. **Confía en el orden natural del backend —
+  NO re-ordena números en cliente** (los filtros locales usan `Array.filter`, que preserva el orden).
+  Por celda: número, nombre, imagen (`loading=lazy` + `content-visibility:auto`), **chips de cantidad por
+  acabado (#11)** desde `countsByFinish`, **huecos** (`totalCount=0`, borde punteado + `HUECO`) y **badge
+  `isSecretRare`** (solo display, scrim de tinta §7.2b). Filtros locales: acabado, con/sin piezas, secret
+  rares.
+- **Drawer por celda** (`CellDrawer.tsx`): (a) alta rápida → añade una `CaptureLine` al carrito; (b)
+  **publicar piezas de esa carta** — lista las piezas (`GET /admin/inventory/items?cardId=`), selección
+  múltiple → `bulkPublishItems` en 1 request, con **render tolerante por-línea**.
+- **Carrito de captura** (`MasterSetPanel.tsx`): acumula líneas de varias celdas → `batchCreateItems` en 1
+  request; `batchKey` nuevo por submit (idempotencia server-side). Resultado tolerante por-línea
+  (`PerLineErrors.tsx`): las líneas ok muestran su folio, las inválidas su error (código traducido con
+  fallback al mensaje del backend). Tras el alta se invalidan `master-sets`/`master-set-binder`/
+  `cell-pieces` (los agregados cambian).
+
+### Decisiones / notas
+
+- **Sellado fuera del master-set:** el binder es una cuadrícula *por número*; los productos sellados (sin
+  número) se siguen gestionando en la pestaña "Piezas". El alta rápida del drawer ofrece **raw/graded**.
+- **Reuso:** el picker de catálogo del alta manual (pestaña Piezas) ya existía; el binder es un componente
+  nuevo (el grid del picker de cotización no encajaba 1:1 con la celda agregada, se priorizó claridad).
+- **Mock:** `mockMasterSetIndex/Binder/BatchCreate/BulkPublish` en `fixtures.ts` derivan TODO de
+  `mockCards`+`mockInventory` (consistente y determinista). Se añadieron 3 piezas de Charizard (base1) para
+  ejercitar chips multi-acabado (`normal:3`, `reverse_holo:1`) y una pieza `reserved`
+  (→ `ITEM_NOT_PUBLISHABLE`); Zapdos in_stock sin referencia ejercita `PRICE_PENDING`. Se añadió
+  `error.ITEM_NOT_PUBLISHABLE` a `messages/{es,en}.json`.
+
+### Sin solicitudes al arquitecto
+
+No hizo falta ningún endpoint/campo nuevo: el contrato §M1 v1.16.1 cubre índice, binder, batch y
+bulk-publish. **No se tocó** `docs/API_CONTRACT.md` ni `backend/`.
+
 ## WS-G Pass 2 (G3) — Reducir la sobrecomplicación del admin (2026-08-17)
 
 Cinco arreglos de UX del back-office señalados por la evaluación, **frontend-only** (0 cambios de

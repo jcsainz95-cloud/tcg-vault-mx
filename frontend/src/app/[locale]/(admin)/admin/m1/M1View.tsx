@@ -37,6 +37,9 @@ import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { ItemDetailModal } from './ItemDetailModal';
 import { LocationsModal } from './LocationsModal';
+import { MasterSetPanel } from './master-set/MasterSetPanel';
+
+type M1Tab = 'pieces' | 'masterSet';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
@@ -72,6 +75,8 @@ export function M1View() {
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
+  // Pestañas M1: "Piezas" = tabla plana actual; "Master Set" = binder/cuadrícula por set (WS-E).
+  const [tab, setTab] = useState<M1Tab>('pieces');
   const [open, setOpen] = useState(false);
   // Gestión Ola 2: detalle por pieza + gestor de ubicaciones.
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -228,22 +233,46 @@ export function M1View() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-h1 font-bold">{t('title')}</h1>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setLocationsOpen(true)}>
-            <MapPin size={18} /> {t('locations.button')}
-          </Button>
-          <Button
-            onClick={() => {
-              // Nueva alta: limpia el resultado anterior (banner de folio / error).
-              create.reset();
-              setOpen(true);
-            }}
-          >
-            <Plus size={18} /> {t('newItem')}
-          </Button>
-        </div>
+        {tab === 'pieces' && (
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setLocationsOpen(true)}>
+              <MapPin size={18} /> {t('locations.button')}
+            </Button>
+            <Button
+              onClick={() => {
+                // Nueva alta: limpia el resultado anterior (banner de folio / error).
+                create.reset();
+                setOpen(true);
+              }}
+            >
+              <Plus size={18} /> {t('newItem')}
+            </Button>
+          </div>
+        )}
       </div>
 
+      {/* Pestañas "Piezas" / "Master Set" (WS-E): subrayado inferior en la activa (§6.6). */}
+      <div className="flex gap-4 border-b border-border" role="tablist" aria-label={t('title')}>
+        {(['pieces', 'masterSet'] as M1Tab[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-1 pb-2 text-sm transition-colors ${
+              tab === key ? 'border-primary text-text' : 'border-transparent text-muted hover:text-text'
+            }`}
+          >
+            {t(key === 'pieces' ? 'tabPieces' : 'tabMasterSet')}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'masterSet' && <MasterSetPanel />}
+
+      {tab === 'pieces' && (
+      <>
       {/* P-4: confirmación de alta con el FOLIO devuelto por el backend (antes se ignoraba). */}
       {create.isSuccess && create.data && (
         <Banner variant="success" role="status">
@@ -616,6 +645,8 @@ export function M1View() {
           )}
         </div>
       </Modal>
+      </>
+      )}
     </div>
   );
 }

@@ -107,6 +107,13 @@ import type {
   CustodyValueDTO,
   IvaReportDTO,
   LaunchMetricsDTO,
+  MasterSetSort,
+  MasterSetIndexResponse,
+  MasterSetBinderResponse,
+  BatchCreateInventoryRequest,
+  BatchCreateInventoryResponse,
+  BulkPublishRequest,
+  BulkPublishResponse,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -1475,6 +1482,94 @@ export async function createInventoryItem(
     status: 'in_stock',
     acquisitionCostCents: 0,
   });
+}
+
+// ============================================================================
+// v1.16-master-set (§M1): Master Set + captura/publicación por LOTE.
+// ============================================================================
+
+export interface MasterSetIndexFilters {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: MasterSetSort;
+}
+
+/**
+ * Índice de sets con resumen agregado para inventariar (contrato §M1 ·
+ * GET /admin/inventory/master-sets, `vault_operator+`). SOLO inventario de plataforma.
+ */
+export async function getMasterSets(
+  filters: MasterSetIndexFilters = {},
+): Promise<MasterSetIndexResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetIndexResponse>('/admin/inventory/master-sets', {
+      query: {
+        q: filters.q,
+        page: filters.page,
+        pageSize: filters.pageSize,
+        sort: filters.sort,
+      },
+    });
+  }
+  return delay(fx.mockMasterSetIndex(filters));
+}
+
+/**
+ * Binder del set: una celda por carta del catálogo (contrato §M1 ·
+ * GET /admin/inventory/master-sets/:setId). `cells` viene en ORDEN NATURAL por número
+ * (numéricos por valor entero primero; promos/subsets al final): el front NO re-ordena.
+ */
+export async function getMasterSetBinder(setId: string): Promise<MasterSetBinderResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetBinderResponse>(`/admin/inventory/master-sets/${setId}`);
+  }
+  try {
+    return await delay(fx.mockMasterSetBinder(setId));
+  } catch (e) {
+    if (e instanceof fx.ApiFixtureNotFound) {
+      throw new ApiClientError(404, { code: 'NOT_FOUND', message: e.message });
+    }
+    throw e;
+  }
+}
+
+/**
+ * Alta por LOTE / carrito de captura (contrato §M1 · POST /admin/inventory/items/batch,
+ * `vault_operator+`). Manda `batchKey` en el body Y como header `Idempotency-Key`
+ * (equivalentes). Respuesta tolerante por-línea: una línea inválida trae su error y NO
+ * tumba las demás (HTTP 200). Un replay del mismo `batchKey` no duplica (idempotentReplay).
+ */
+export async function batchCreateItems(
+  payload: BatchCreateInventoryRequest,
+): Promise<BatchCreateInventoryResponse> {
+  if (!config.useMocks) {
+    return apiRequest<BatchCreateInventoryResponse>('/admin/inventory/items/batch', {
+      method: 'POST',
+      body: payload,
+      headers: { 'Idempotency-Key': payload.batchKey },
+    });
+  }
+  return delay(fx.mockBatchCreate(payload));
+}
+
+/**
+ * Publicar por LOTE (contrato §M1 · POST /admin/inventory/items/bulk-publish,
+ * `vault_operator+`). Varias piezas → `listed` en 1 request. Tolerante por-línea:
+ * `ITEM_NOT_PUBLISHABLE` (status de origen no publicable) y `PRICE_PENDING` (sin precio
+ * resoluble) son errores POR-LÍNEA que no tumban el resto. Publicar una pieza ya `listed`
+ * es no-op idempotente (ok:true). El precio se DERIVA server-side salvo override manual.
+ */
+export async function bulkPublishItems(
+  payload: BulkPublishRequest,
+): Promise<BulkPublishResponse> {
+  if (!config.useMocks) {
+    return apiRequest<BulkPublishResponse>('/admin/inventory/items/bulk-publish', {
+      method: 'POST',
+      body: payload,
+    });
+  }
+  return delay(fx.mockBulkPublish(payload));
 }
 
 export async function getLocations(): Promise<VaultLocationDTO[]> {

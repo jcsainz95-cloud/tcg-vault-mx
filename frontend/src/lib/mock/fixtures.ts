@@ -56,6 +56,19 @@ import type {
   CustodyValueDTO,
   IvaReportDTO,
   LaunchMetricsDTO,
+  MasterSetSummaryDTO,
+  MasterSetSort,
+  MasterSetIndexResponse,
+  MasterSetCardCellDTO,
+  MasterSetCellCountDTO,
+  MasterSetBinderResponse,
+  BatchCreateInventoryRequest,
+  BatchCreateInventoryResponse,
+  BatchInventoryLineResult,
+  BulkPublishRequest,
+  BulkPublishResponse,
+  BulkPublishLineResult,
+  InventoryStatus,
 } from '@/types/contract';
 
 const IMG = 'https://images.pokemontcg.io/base1';
@@ -683,6 +696,52 @@ export const mockInventory: InventoryItemDTO[] = [
     referenceValue: { status: 'pending' },
     acquisitionType: 'compra',
   },
+  // v1.16-master-set: piezas extra de Charizard (base1) para que el binder muestre
+  // conteos por acabado (normal:3 — gradeada inv-1001 listed + inv-2001 in_stock +
+  // inv-2003 reserved — y reverse_holo:1) y una pieza en status NO publicable
+  // (inv-2003 reserved → ITEM_NOT_PUBLISHABLE en bulk-publish).
+  {
+    id: 'inv-2001',
+    folio: 'INV-000201',
+    card: cardById('c-charizard'),
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish: 'normal',
+    status: 'in_stock',
+    ownerType: 'platform',
+    location: { id: 'loc-1', label: 'C03-F02-S15', zone: 'platform_stock' },
+    referenceValue: { status: 'priced', referenceMxnCents: 4850000, capturedDate: '2026-08-13' },
+    acquisitionType: 'aportacion_en_especie',
+    acquisitionCostCents: 3395000,
+  },
+  {
+    id: 'inv-2002',
+    folio: 'INV-000202',
+    card: cardById('c-charizard'),
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish: 'reverse_holo',
+    status: 'in_stock',
+    ownerType: 'platform',
+    location: { id: 'loc-1', label: 'C03-F02-S15', zone: 'platform_stock' },
+    referenceValue: { status: 'priced', referenceMxnCents: 4850000, capturedDate: '2026-08-13' },
+    acquisitionType: 'aportacion_en_especie',
+    acquisitionCostCents: 3395000,
+  },
+  {
+    id: 'inv-2003',
+    folio: 'INV-000203',
+    card: cardById('c-charizard'),
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish: 'normal',
+    status: 'reserved',
+    ownerType: 'platform',
+    location: { id: 'loc-1', label: 'C03-F02-S15', zone: 'platform_stock' },
+    referenceValue: { status: 'priced', referenceMxnCents: 4850000, capturedDate: '2026-08-13' },
+    acquisitionType: 'aportacion_en_especie',
+    acquisitionCostCents: 3395000,
+  },
 ];
 
 // Historial de movimientos por item (contrato §M1 · GET /admin/inventory/items/:id).
@@ -736,6 +795,310 @@ export function pushMockMovement(itemId: string, movement: Omit<InventoryMovemen
     id: `mov-${itemId}-${list.length + 1}-${Math.random().toString(36).slice(2, 6)}`,
     createdAt: new Date().toISOString(),
   });
+}
+
+// ===================================================================================
+// v1.16-master-set (§M1): Master Set + inventario a escala (índice, binder, lote).
+// MOCK: pendiente de que el backend esté enchufado; respeta los shapes del contrato
+// v1.16.1 y deriva TODO de mockCards + mockInventory para ser consistente y determinista.
+// ===================================================================================
+
+// printedTotal (nº impreso de cada set) para completitud + heurística isSecretRare.
+const SET_PRINTED_TOTAL: Record<string, number> = {
+  base1: 102,
+  swsh1: 202,
+  sv1: 198,
+  sv06: 167,
+  sv08: 191,
+};
+
+// Celdas promo/subset SINTÉTICAS por set (prefijo alfabético). Existen SOLO en la vista
+// master-set (no en mockCards) para ejercitar el orden natural "promos al final" y la regla
+// isSecretRare=false para subsets. Son huecos (0 piezas) salvo que el inventario diga lo contrario.
+const MASTER_SET_PROMO_CELLS: Record<string, { cardId: string; number: string; name: string; rarity: string }[]> = {
+  sv08: [{ cardId: 'c-sv08-tg12', number: 'TG12', name: 'Rayquaza (Trainer Gallery)', rarity: 'Trainer Gallery' }],
+};
+
+// on-hand = pieza de PLATAFORMA que sigue en bóveda (contrato §M1: status NOT IN
+// withdrawn/shipped/delivered/lost/damaged). reserved/in_custody/picking SÍ son on-hand.
+const OFF_HAND: InventoryStatus[] = ['withdrawn', 'shipped', 'delivered', 'lost', 'damaged'];
+function isOnHand(i: InventoryItemDTO): boolean {
+  return i.ownerType === 'platform' && !OFF_HAND.includes(i.status);
+}
+
+// Cartas NUMERADAS del catálogo de un set (el binder es una cuadrícula por número; el
+// sellado — number '' — se gestiona en la pestaña "Piezas", no en el master set).
+function numberedCardsOfSet(setId: string) {
+  return mockCards.filter((c) => c.setId === setId && c.number.trim() !== '');
+}
+
+// Clave de orden natural (contrato v1.16.1): números puramente numéricos por valor entero
+// primero; promos/subsets con prefijo alfabético (TG/GG/SV…) AL FINAL, por prefijo + sufijo.
+const PROMO_SENTINEL = 1_000_000;
+function isPureNumber(n: string): boolean {
+  return /^[0-9]+$/.test(n);
+}
+function numberSortKey(number: string): number {
+  if (isPureNumber(number)) return parseInt(number, 10);
+  // Promo: sentinela + sufijo numérico (agrupa por prefijo vía el comparador de abajo).
+  const suffix = number.replace(/\D/g, '');
+  return PROMO_SENTINEL + (suffix ? parseInt(suffix, 10) : 0);
+}
+function alphaPrefix(number: string): string {
+  return number.replace(/[0-9]/g, '');
+}
+// Comparador que reproduce el ORDER BY del backend (§M1): numéricas por entero; luego promos
+// agrupados por prefijo alfabético y su sufijo numérico. El front NO re-ordena por número:
+// el binder confía en este orden. Se aplica una sola vez al construir la respuesta mock.
+function compareNatural(a: string, b: string): number {
+  const an = isPureNumber(a);
+  const bn = isPureNumber(b);
+  if (an && bn) return parseInt(a, 10) - parseInt(b, 10);
+  if (an !== bn) return an ? -1 : 1; // numéricas antes que promos
+  const pa = alphaPrefix(a);
+  const pb = alphaPrefix(b);
+  if (pa !== pb) return pa < pb ? -1 : 1;
+  return numberSortKey(a) - numberSortKey(b);
+}
+
+// countsByFinish on-hand de una carta (solo acabados con ≥1 pieza), en orden de acabado.
+const FINISH_DISPLAY_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
+function countsByFinishFor(cardId: string): { counts: MasterSetCellCountDTO[]; total: number } {
+  const byFinish = new Map<Finish, number>();
+  for (const i of mockInventory) {
+    if (i.card.id !== cardId || !isOnHand(i)) continue;
+    const f = (i.finish ?? 'normal') as Finish;
+    byFinish.set(f, (byFinish.get(f) ?? 0) + 1);
+  }
+  const counts = FINISH_DISPLAY_ORDER.filter((f) => byFinish.has(f)).map((finish) => ({
+    finish,
+    count: byFinish.get(finish)!,
+  }));
+  const total = counts.reduce((s, c) => s + c.count, 0);
+  return { counts, total };
+}
+
+/** Índice de sets con resumen agregado (GET /admin/inventory/master-sets). */
+export function mockMasterSetIndex(params: {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: MasterSetSort;
+}): MasterSetIndexResponse {
+  const pageSize = params.pageSize ?? 20;
+  const page = params.page ?? 1;
+  const sort: MasterSetSort = params.sort ?? 'release_desc';
+
+  let summaries: MasterSetSummaryDTO[] = mockSets.map((s) => {
+    const promo = MASTER_SET_PROMO_CELLS[s.id] ?? [];
+    const catalogCardCount = numberedCardsOfSet(s.id).length + promo.length;
+    // Cartas distintas con ≥1 pieza on-hand + total de piezas on-hand del set.
+    const owned = new Set<string>();
+    let totalPieces = 0;
+    for (const i of mockInventory) {
+      if (i.card.setId !== s.id || !isOnHand(i) || i.card.number.trim() === '') continue;
+      owned.add(i.card.id);
+      totalPieces += 1;
+    }
+    const distinctCardsOwned = owned.size;
+    const completionPct =
+      catalogCardCount === 0 ? null : Math.round((distinctCardsOwned / catalogCardCount) * 1000) / 10;
+    return {
+      setId: s.id,
+      name: s.name,
+      series: s.series,
+      releaseDate: s.releaseDate,
+      year: s.year,
+      printedTotal: SET_PRINTED_TOTAL[s.id],
+      catalogCardCount,
+      distinctCardsOwned,
+      completionPct,
+      totalPieces,
+    };
+  });
+
+  if (params.q) {
+    const q = params.q.toLowerCase();
+    summaries = summaries.filter((s) => s.name.toLowerCase().includes(q));
+  }
+  summaries.sort((a, b) => {
+    if (sort === 'completion_asc') return (a.completionPct ?? 0) - (b.completionPct ?? 0);
+    if (sort === 'pieces_desc') return b.totalPieces - a.totalPieces;
+    // release_desc (default): más reciente primero.
+    return (b.releaseDate ?? '').localeCompare(a.releaseDate ?? '');
+  });
+
+  const total = summaries.length;
+  const start = (page - 1) * pageSize;
+  return { data: summaries.slice(start, start + pageSize), page, pageSize, total };
+}
+
+/** Binder del set (GET /admin/inventory/master-sets/:setId). Celdas en ORDEN NATURAL. */
+export function mockMasterSetBinder(setId: string): MasterSetBinderResponse {
+  const set = mockSets.find((s) => s.id === setId);
+  if (!set) {
+    throw new ApiFixtureNotFound(`CardSet ${setId} not found`);
+  }
+  const printedTotal = SET_PRINTED_TOTAL[setId] ?? null;
+
+  const catalogCells = numberedCardsOfSet(setId).map((c) => {
+    const { counts, total } = countsByFinishFor(c.id);
+    return {
+      cardId: c.id,
+      number: c.number,
+      name: c.name,
+      rarity: c.rarity || undefined,
+      imageSmallUrl: c.imageSmallUrl,
+      availableFinishes: c.availableFinishes,
+      countsByFinish: counts,
+      totalCount: total,
+    };
+  });
+  const promoCells = (MASTER_SET_PROMO_CELLS[setId] ?? []).map((p) => ({
+    cardId: p.cardId,
+    number: p.number,
+    name: p.name,
+    rarity: p.rarity || undefined,
+    imageSmallUrl: `${IMG}/${p.number}.png`,
+    availableFinishes: ['holofoil'] as Finish[],
+    countsByFinish: [] as MasterSetCellCountDTO[],
+    totalCount: 0,
+  }));
+
+  const cells: MasterSetCardCellDTO[] = [...catalogCells, ...promoCells]
+    .sort((a, b) => compareNatural(a.number, b.number))
+    .map((c) => ({
+      ...c,
+      numberSort: numberSortKey(c.number),
+      // isSecretRare (v1.16.1): SOLO números puramente numéricos cuyo entero > printedTotal.
+      isSecretRare:
+        printedTotal != null && isPureNumber(c.number) && parseInt(c.number, 10) > printedTotal,
+    }));
+
+  return {
+    set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate },
+    printedTotal,
+    catalogCardCount: cells.length,
+    cells,
+  };
+}
+
+// Error interno del mock con el shape del contrato (404 NOT_FOUND). Se traduce a
+// ApiClientError en api.ts (que sí importa ApiClientError; fixtures no debe importarlo).
+export class ApiFixtureNotFound extends Error {}
+
+// Idempotencia de lote: batchKey → resultado guardado (replay sin re-crear, contrato §M1).
+const mockBatchStore = new Map<string, BatchCreateInventoryResponse>();
+
+/** Alta por LOTE (POST /admin/inventory/items/batch) — tolerante por-línea. */
+export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateInventoryResponse {
+  const prior = mockBatchStore.get(req.batchKey);
+  if (prior) return { ...prior, idempotentReplay: true };
+
+  let createdItems = 0;
+  let failedLines = 0;
+  const results: BatchInventoryLineResult[] = req.items.map((line, index) => {
+    const card = mockCards.find((c) => c.id === line.cardId);
+    // Validaciones por-línea (reflejan el backend; una línea inválida NO tumba las demás).
+    if (!card) {
+      failedLines += 1;
+      return { index, ok: false, error: { code: 'NOT_FOUND', message: 'card not found' } };
+    }
+    if (line.productType === 'graded' && (line.qty ?? 1) > 1) {
+      failedLines += 1;
+      return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'graded qty must be 1' } };
+    }
+    if (line.productType === 'graded' && !line.certNumber?.trim()) {
+      failedLines += 1;
+      return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'graded requires certNumber' } };
+    }
+    if (line.productType === 'sealed' && line.rawCondition) {
+      failedLines += 1;
+      return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'sealed has no condition' } };
+    }
+    const finish = (line.finish ?? 'normal') as Finish;
+    if (line.productType === 'raw' && !card.availableFinishes.includes(finish)) {
+      failedLines += 1;
+      return { index, ok: false, error: { code: 'FINISH_NOT_AVAILABLE', message: 'finish not available' } };
+    }
+    // Aportación en especie sin referencia → precio pendiente (cola del dueño).
+    if (line.acquisitionType === 'aportacion_en_especie' && mockReferenceByCardId[line.cardId] == null) {
+      failedLines += 1;
+      return { index, ok: false, error: { code: 'PRICE_PENDING', message: 'no reference for aportacion' } };
+    }
+    const qty = line.productType === 'graded' ? 1 : line.qty ?? 1;
+    const base = mockInventory.length + createdItems + 1;
+    const folios: string[] = [];
+    const inventoryItemIds: string[] = [];
+    for (let k = 0; k < qty; k++) {
+      const seq = String(base + k).padStart(6, '0');
+      folios.push(`INV-${seq}`);
+      inventoryItemIds.push(`inv-batch-${seq}`);
+    }
+    createdItems += qty;
+    return { index, ok: true, folios, inventoryItemIds };
+  });
+
+  const res: BatchCreateInventoryResponse = {
+    batchKey: req.batchKey,
+    idempotentReplay: false,
+    summary: { requested: req.items.length, createdItems, failedLines },
+    results,
+  };
+  mockBatchStore.set(req.batchKey, res);
+  return res;
+}
+
+/** Publicar por LOTE (POST /admin/inventory/items/bulk-publish) — tolerante por-línea. */
+export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
+  let published = 0;
+  let failedLines = 0;
+  const results: BulkPublishLineResult[] = req.items.map((line, index) => {
+    const item = mockInventory.find((i) => i.id === line.inventoryItemId);
+    if (!item) {
+      failedLines += 1;
+      return { index, inventoryItemId: line.inventoryItemId, ok: false, error: { code: 'NOT_FOUND', message: 'item not found' } };
+    }
+    if (item.ownerType !== 'platform') {
+      failedLines += 1;
+      return { index, inventoryItemId: line.inventoryItemId, ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE', message: 'not platform inventory' } };
+    }
+    // Status publicable = { in_stock, listed }; cualquier otro → ITEM_NOT_PUBLISHABLE.
+    if (item.status !== 'in_stock' && item.status !== 'listed') {
+      failedLines += 1;
+      return { index, inventoryItemId: line.inventoryItemId, ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE', message: `status ${item.status} not publishable` } };
+    }
+    // Precio: override manual, o derivado (regla de venta + referencia del acabado).
+    let salePriceCents: number | undefined;
+    let priceSource: 'manual' | 'derived' = 'derived';
+    if (line.listPriceCents != null) {
+      salePriceCents = line.listPriceCents;
+      priceSource = 'manual';
+    } else if (item.productType === 'sealed') {
+      // Sellado sin precio manual y sin override → no se resuelve.
+      salePriceCents = item.listPriceCents;
+    } else {
+      const ref = mockReferenceForFinish(item.card.id, (item.finish ?? 'normal') as Finish);
+      const { rule } = resolveSalesRule(item.card.rarity || '');
+      if (rule.mode === 'fixed') {
+        salePriceCents = ref != null ? Math.max(ref, rule.value) : rule.value;
+      } else if (ref != null) {
+        salePriceCents = Math.round(ref * (1 + rule.value / 100));
+      }
+    }
+    if (salePriceCents == null) {
+      failedLines += 1;
+      return { index, inventoryItemId: line.inventoryItemId, ok: false, error: { code: 'PRICE_PENDING', message: 'price could not be resolved' } };
+    }
+    // in_stock → publica; listed → no-op idempotente (igual devuelve ok:true).
+    const wasListed = item.status === 'listed';
+    item.status = 'listed';
+    if (priceSource === 'manual') item.listPriceCents = salePriceCents;
+    if (!wasListed) published += 1;
+    return { index, inventoryItemId: line.inventoryItemId, ok: true, status: 'listed', salePriceCents, priceSource };
+  });
+
+  return { summary: { requested: req.items.length, published, failedLines }, results };
 }
 
 export const mockAdminBuylist: AdminBuylistDTO[] = [
