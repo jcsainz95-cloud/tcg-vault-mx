@@ -466,6 +466,66 @@
 - **Impacto:** bajo. A lo sumo carga extra sobre el proveedor si un super_admin abusa del endpoint en loop.
 - **Disparador:** si se abusa. Mitigación: `@Throttle` nominal en el endpoint de jobs.
 
+### Fase 2 del epic de precios — deuda del delta (commits fba6486 + fee3c19, 2026-08-17, no bloqueante)
+
+> De la **Fase 2** del epic de precios (precio de VENTA por RAREZA editable en admin:
+> `computeSalePriceForRarity`, endpoints `sales-rules`/`sales-rarities`, swap de call-sites de venta, piso
+> `fixed` que vuelve vendible el bulk). Triple veredicto **APROBADO** (qa + techlead APROBADO-con-deuda +
+> seguridad APROBADO). Todos los ítems de abajo son **no bloqueantes**, dueño **backend**. Registrados a
+> petición del techlead/seguridad sin tocar código de producción. Continúan la numeración `BE-*` (tras
+> BE-1..23). Detalle de implementación en `docs/BACKEND_NOTES.md §35` (contrato/arquitectura §4.14).
+
+### BE-24 · Trap de tipado estructural `BuylistRule` vs `SalesRule` (techlead)
+- **Dónde:** `backend/src/common/money.ts` (tipos `BuylistRule`/`SalesRule` + `quoteAcquisitionForFinish` /
+  `computeSalePriceForRarity`).
+- **Estado actual:** los dos tipos son **estructuralmente idénticos** (`{mode,value}`) y las dos funciones
+  tienen **firma posicional idéntica** → TypeScript **NO atrapa** si se pasa `BUYLIST_PRICE_RULES` a la
+  función de venta (o viceversa); se aplicaría matemática incorrecta **en silencio**. Hoy es seguro porque
+  cada servicio lee su propia key (`SALES_PRICE_RULES` vs `BUYLIST_PRICE_RULES`), pero el tipo **no es
+  guardarraíl**.
+- **Impacto:** bajo/latente. Correctness OK hoy; el riesgo aparece si un refactor cruza las reglas de
+  compra y venta sin que el compilador lo señale (venta a precio de compra o al revés).
+- **Disparador:** **al tocar el resolver de precios.** Mitigación: branding nominal
+  (`& {readonly __brand:'sales'}` / `'buylist'`) para que TS distinga los tipos, o un test que **fije la
+  fórmula de cada rama** (venta = markup sobre mercado; compra = % de la referencia).
+
+### BE-25 · N+1 de lecturas de settings en `fetchSellable` agravado por el gate relajado (techlead + qa)
+- **Dónde:** `src/modules/catalog/catalog.service.ts:69-82` (`fetchSellable`) + `toListingDTO` →
+  `computeSalePriceForItem`; lecturas en `src/modules/settings/settings.service.ts:22-26`
+  (`configSetting.findUnique` **sin memoización**).
+- **Estado actual:** al quitar el filtro de precio del gate coarse (para que el piso `fixed` vuelva vendible
+  el bulk), se itera **TODO** `platform+listed` y cada `toListingDTO`→`computeSalePriceForItem` hace **2
+  lecturas de settings sin cache** (`SALES_PRICE_RULES` + fallback). El número de queries crece con el
+  inventario listado (afecta `facets`/`listSets`/`search`). Es **perf, no correctness**.
+- **Impacto:** rendimiento del storefront (Compra/facets) al crecer el catálogo publicado.
+- **Disparador:** **al crecer el catálogo listado.** Mitigación: izar la lectura de `SALES_PRICE_RULES` +
+  fallback **una vez por request**, o memoizar `SettingsService` (misma familia que BE-4/D3, acotada a la
+  ruta de venta).
+
+### BE-26 · Orden a $0 por regla `fixed:0` (seguridad B-6, Baja, ruta de dinero)
+- **Dónde:** `src/modules/catalog/catalog.service.ts:118` (gate exige `salePriceCents>0`) vs.
+  `src/modules/orders/orders.service.ts:38-41` (`salePriceOf` solo rechaza `== null`).
+- **Estado actual:** el catálogo exige `salePriceCents>0` para exponer, pero `salePriceOf` **no** rechaza
+  `<=0` y `createSession` **no re-verifica** `sellable`/`price>0`. Si un `super_admin` fijara por error un
+  piso `fixed:0` (el validador permite `value>=0`), un checkout con un `inventoryItemId` **conocido** crearía
+  una orden a `unitPriceCents:0`. Requiere **misconfig de un actor confiable** + un cuid **no adivinable** → **Baja**.
+- **Impacto:** bajo. Ruta de dinero: una orden a precio cero saltándose el gate `>0` del catálogo; acotado a
+  actor confiable equivocado.
+- **Disparador:** **endurecer ANTES de operar con dinero real.** Mitigación: que `salePriceOf` rechace `<=0`
+  (alinear con el gate `>0` del catálogo) y/o que el validador de `fixed` exija `value>=1`.
+
+### BE-27 · `fixed` sin cota superior → overflow Int32 (seguridad B-7, Baja)
+- **Dónde:** `src/common/money.ts` → `isValidSalesRule` (valida `fixed` solo `>=0`, sin cota superior; `pct`
+  puede dar `market×11`).
+- **Estado actual:** ni `fixed` ni el resultado de `pct` tienen cota superior; ambos alimentan columnas
+  `*Cents` **Int 32-bit** → un `fixed` > 2.147e9 (o un market alto ×11) **desborda** la escritura en Postgres.
+  Misma familia que **B-3** (`PENTEST_NOTES`, ya aceptada), aquí **extendida a venta**. Input **confiable**,
+  no explotable por externo.
+- **Impacto:** bajo. A lo sumo un error de escritura por un dial mal configurado por actor confiable; no es
+  vector externo.
+- **Disparador:** al abordar B-3. Mitigación: **cota superior en `fixed`** dentro de la decisión BigInt de
+  B-3 (acotar también el `pct×market`).
+
 ---
 
 ## Frontend (dueño: frontend)
@@ -838,3 +898,51 @@
   venta objetivo; no hay error funcional ni fuga.
 - **Disparador:** si el staff empieza a vender de verdad. Acción: resolver el gating de KYC para roles staff
   (consulta condicional o endpoint que no devuelva 403 para staff, coordinando con backend/arquitecto).
+
+### Rediseño del cotizador — Fase 3a (commit 10d5205, 2026-08-17, no bloqueante)
+
+> Del **rediseño del cotizador (Fase 3a)**. Ítems pedidos por **techlead** y **qa** sobre el delta del
+> buylist. No bloqueantes, dueño **frontend**. Registrados a petición del techlead/qa sin tocar código de
+> producción. Continúan la numeración `FE-*` (tras FE-1..11).
+
+### FE-12 · Fan-out del auto-quote + bulk all-or-nothing (techlead + qa)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` — `ResultQuote` (~:95-114) y
+  `addSelectedToCart` (~:254-293).
+- **Estado actual:** `ResultQuote` monta un `useQuery` **por resultado visible** → una búsqueda dispara
+  ~`pageSize` (≤20) `POST /buylist/quote` en ráfaga (**mitigado** por queryKey compartido + `staleTime` 5min,
+  que deduplica y cachea). El bulk `addSelectedToCart` usa `Promise.all` **all-or-nothing**: si una carta
+  falla al cotizar, no se agrega **ninguna** al carrito de venta.
+- **Impacto:** medio-bajo. Riesgo de topar el **throttle público 300/min** con paginación intensa (muchas
+  búsquedas seguidas); y UX all-or-nothing en el bulk (un fallo aislado bloquea todo el lote). Correctness OK.
+- **Disparador:** cuando exista el endpoint **batch quote (Fase 3b)** — colapsa el fan-out a **1 request** y
+  permite resultado parcial; o si las búsquedas empiezan a devolver **listas grandes**. Acción: consumir el
+  batch quote (una llamada por página) y cambiar el bulk a **parcial-tolerante** (agregar lo que sí cotizó,
+  reportar lo que falló).
+
+### FE-13 · `BuylistView.tsx` creció (~960 líneas) — pide extracción de hooks/subcomponentes (techlead)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx`.
+- **Estado actual:** el archivo concentra carrito de venta, selección bulk, cotización por resultado, "Mis
+  solicitudes" y el panel de resultados en ~960 líneas. La lógica **ya está encapsulada** en funciones
+  pequeñas → la extracción sería **mecánica y de bajo riesgo**: hooks (`useCart`, `useBulkSelection`) y
+  subcomponentes (`ResultsGrid`, `QuoteResultPanel`, `SellCart`, `MyRequestsSection`).
+- **Impacto:** bajo. Mantenibilidad/legibilidad; no afecta comportamiento ni correctness.
+- **Disparador:** **próximo toque funcional del buylist** (p. ej. al cablear el batch quote de FE-12). Acción:
+  extraer los hooks y subcomponentes citados sin cambiar comportamiento.
+
+### Editor de venta en M2 — Fase 2 (commit fee3c19, 2026-08-17, no bloqueante)
+
+> Del pase **Fase 2** (editor de reglas de venta por rareza en M2). Ítem pedido por **techlead**, dueño
+> **frontend**. Registrado a petición del techlead sin tocar código de producción. Continúa la numeración
+> `FE-*` (tras FE-12/13).
+
+### FE-14 · Duplicación del editor buylist/venta en `M2View.tsx` (techlead)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` — secciones 4 (reglas de compra) y 5
+  (reglas de venta).
+- **Estado actual:** las dos secciones son **clones ~1:1** (estado `ruleDraft`/`salesRuleDraft`,
+  `effectiveRule`, `saveRules`, flags `*Dirty`, ~75 líneas JSX cada una). Diferencias mínimas: fallback
+  default (40 vs 15), copy `pctHint` de venta, y tope pct (100 vs 1000, hoy solo en el validador backend).
+- **Impacto:** bajo. **Aceptable con 2 instancias**; el costo aparece al abrir una 3ª variante o al editar
+  ambos a la vez (cambio en dos sitios, riesgo de divergencia).
+- **Disparador:** **al agregar otra tabla-por-rareza o al tocar ambos editores.** Acción: extraer un
+  componente parametrizado `RarityRulesEditor` (por query/mutation/namespace i18n/fallback). Pagar **antes**
+  de una 3ª variante.

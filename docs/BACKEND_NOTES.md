@@ -2314,3 +2314,30 @@ items del inventario publicado por consulta (antes acotados por el OR de precio)
 - **QA/seguridad:** toca dinero → triple veredicto. SEC-A1 intacto (rareza/acabado server-side de BD). El override
   manual `listPriceCents` sigue teniendo prioridad; el precio se congela en `OrderItem.unitPriceCents` al checkout.
 - **Sin cambio de contrato solicitado** — `API_CONTRACT.md §M2` ya documenta ambos endpoints y la semántica del pct.
+
+### 35.8 Triple veredicto Fase 2 + deuda registrada (2026-08-17)
+La Fase 2 (commits `fba6486` + `fee3c19`) recibió **triple veredicto APROBADO** (qa + techlead
+APROBADO-con-deuda + seguridad APROBADO). **Resumen de la venta por rareza implementada** (remite a
+**ARCHITECTURE §4.14** / API_CONTRACT §M2): función pura `computeSalePriceForRarity` en `money.ts` (§4.14b;
+`fixed` = piso aunque no haya market, `pct` = markup **arriba de mercado**), endpoints M2 `sales-rules` /
+`sales-rarities` (§4.14a/c), **swap de call-sites** de venta a `computeSalePriceForItem`
+(`catalog.toListingDTO` + `orders.salePriceOf`, retirando `computeSalePrice`/`sales_markup_pct` de la ruta),
+y **piso `fixed` que vuelve `sellable` el bulk** (relaja el gate coarse a `platform+listed`; ver §35.5).
+Detalle en §35.1–§35.7.
+
+**Deuda BACKEND no bloqueante registrada** en `docs/TECH_DEBT.md` (sección Backend, tras BE-23):
+- **BE-24** (techlead) — trap de tipado estructural `BuylistRule` vs `SalesRule` en `money.ts` (firmas
+  posicionales idénticas → TS no atrapa el cruce compra/venta). Mitigar con branding nominal o test de fórmula.
+- **BE-25** (techlead + qa) — N+1 de lecturas de settings en `fetchSellable` agravado por el gate relajado
+  (2 `findUnique` sin cache por `toListingDTO`). Izar/memoizar `SALES_PRICE_RULES` por request.
+- **BE-26** (seguridad B-6, Baja, ruta de dinero) — orden a $0 por regla `fixed:0`: `salePriceOf` solo
+  rechaza `== null`, no `<=0`; `createSession` no re-verifica precio. **Endurecer ANTES de dinero real.**
+- **BE-27** (seguridad B-7, Baja) — `fixed` sin cota superior → overflow Int32 (columnas `*Cents` 32-bit);
+  misma familia que B-3 de `PENTEST_NOTES`, extendida a venta. Acotar en la decisión BigInt de B-3.
+
+### 35.9 `SALES_MARKUP_PCT` / `salesMarkupPct` queda NO-OP tras Fase 2 (deprecado)
+El dial `SALES_MARKUP_PCT` (`sales_markup_pct`, campo `salesMarkupPct`) **ya no lo lee la ruta de venta** (la
+reemplaza la tabla `SALES_PRICE_RULES` + `SALES_PRICE_FALLBACK_PCT`). **Sigue editable en M10** pero es
+**no-op** funcional: cambiarlo **no afecta** ningún precio de venta y **confunde** al operador. Se conserva
+solo como **palanca de rollback** (decisión abierta **v1.13-3**, ver ARCHITECTURE §4.14d). **Retiro definitivo
+pendiente** — cuando se cierre v1.13-3, quitar el dial del seed/DTO y del código muerto.

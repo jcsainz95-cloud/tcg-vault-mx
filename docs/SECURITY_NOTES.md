@@ -2095,3 +2095,170 @@ globales**; la UI es cosmética. **SEC-A1 intacto.** Sin regresión en dinero/PI
   heredada sigue **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea esta
   Fase 1.
 - **¿Puede ir a `main`?** **SÍ.**
+
+---
+
+# H. Revisión Fase 3a — rediseño del cotizador buylist (commit `10d5205`) · frontend
+
+> **Alcance:** Fase 3a del rediseño del cotizador buylist (frontend). Focos de seguridad:
+> (H.1) el front solo **muestra** estimados/totales y **no** envía montos/rareza del cliente en
+> `createRequest` (SEC-A1 desde la superficie de UI); (H.2) el atajo CLABE "Usar mi ****1234"
+> (aislamiento del flag + descarte en `api.ts`); (H.3) gating P-11 intacto (la UI comunica, el
+> backend decide). Cruzado con `docs/PENTEST_NOTES.md`.
+> **Modo:** revisión **estática** de código (frontend). Sin stack vivo → concurrencia/DAST sigue
+> **[pendiente de DAST]** (§6).
+> **Fecha:** 2026-08-17. Blanco autorizado: staging/local.
+
+## H.0 Resumen — **0 Críticos / 0 Altos**; 1 Baja + 1 Info (no bloqueantes, con disparador)
+
+| Severidad | # | ID / tema |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 0 | — |
+| Baja | 1 | **H-1** — fan-out del auto-quote (~`pageSize` POST /buylist/quote por búsqueda) |
+| Info | 1 | **H-2** — todo depende del flag build-time `NEXT_PUBLIC_USE_MOCKS` |
+
+## H.1 Positivos verificados — **[Verificado en código]**
+- **SEC-A1 intacto en la superficie de UI.** El front **solo muestra** estimados/totales derivados;
+  `createRequest` **NO** envía montos ni rareza del cliente — el backend deriva todo server-side de
+  `Card.rarity`/acabados reales (consistente con §B.4/§F.3/§G.1). Un DTO manipulado desde el cliente
+  no puede inflar el total; el cotizador es informativo y el backend sigue siendo la autoridad de
+  precio.
+- **Atajo CLABE "Usar mi ****1234" — doblemente aislado.** `clabeShortcutAvailable = !!clabeMasked
+  && config.useMocks`: el atajo **solo** aparece en modo mocks. En modo real, el flag
+  `useClabeOnFile` se **descarta en `api.ts`** antes de salir a la red → contra el backend real se
+  **exige la CLABE de 18 dígitos**, sin bypass del flujo KYC/AML. No hay vía por la que el atajo de
+  UI evite la captura/verificación de CLABE real.
+- **Gating P-11 intacto.** La UI **comunica** el estado (habilitado/deshabilitado) pero **el backend
+  decide**; la vista no es la autoridad de autorización. Defensa en profundidad correcta (patrón
+  consistente con las vistas admin gatadas de §A.3/§A.4).
+
+## H-1 (Baja, abierta con disparador) — Fan-out del auto-quote por resultado
+- **Descripción:** el auto-quote dispara ~`pageSize` `POST /buylist/quote` por búsqueda (una por
+  resultado de la página). **Mitigado** por cache/dedupe + throttle (300/min): las llamadas repetidas
+  se sirven de cache y el throttler global acota el ritmo. El riesgo es de **carga/eficiencia** de
+  red, no de authz, PII ni money-out.
+- **Impacto:** Bajo — amplificación de peticiones al endpoint de quote; sin efecto de seguridad de
+  dinero/datos. El endpoint de quote es de solo-lectura (no escribe en la cola de trabajo tras el
+  cierre de BE-16, §G.1).
+- **Rol dueño:** **frontend/arquitecto** — se **cierra con el batch quote de Fase 3b** (una sola
+  llamada por página). **Disparador:** al implementar Fase 3b / antes de exponer el cotizador a
+  tráfico real.
+
+## H-2 (Info, abierta con disparador) — Todo depende del flag build-time `NEXT_PUBLIC_USE_MOCKS`
+- **Descripción:** el aislamiento del atajo CLABE y del modo mocks depende del flag **build-time**
+  `NEXT_PUBLIC_USE_MOCKS`. Si se compilara el bundle de producción con el flag mal puesto, la UI
+  entraría en modo mocks. **Mitigación de defensa en profundidad:** aunque el flag fallara, `api.ts`
+  descarta `useClabeOnFile` en el path real y el backend exige la CLABE de 18 dígitos → no hay bypass
+  KYC/AML por sí solo; el impacto sería de comportamiento de UI, no de money-out.
+- **Rol dueño:** **devops** — **verificar `NEXT_PUBLIC_USE_MOCKS=false` en el gate de build de prod**
+  (checar en el pipeline de CI/SAST antes de promover el bundle). **Disparador:** en cada build de
+  producción.
+
+## H.3 Carryover (heredado, fuera de alcance de esta fase)
+- **B-5 (token en query-string) sigue ABIERTO.** Dueño **frontend**. No es parte del rediseño del
+  cotizador de Fase 3a; se mantiene en seguimiento hasta que frontend lo cierre. No bloquea esta fase.
+
+## H.4 VEREDICTO — Fase 3a (rediseño del cotizador buylist, `10d5205`): **APROBADO** (2026-08-17)
+- **0 Críticos / 0 Altos abiertos** → aprobable por política (`CLAUDE.md` §7 y DoD).
+- **Positivos verificados:** **SEC-A1** en la UI (el front solo muestra estimados/totales;
+  `createRequest` no envía montos/rareza del cliente); **atajo CLABE doblemente aislado**
+  (`clabeShortcutAvailable = !!clabeMasked && config.useMocks`; `useClabeOnFile` descartado en
+  `api.ts` en modo real; backend exige CLABE de 18 dígitos, sin bypass KYC/AML); **gating P-11
+  intacto** (UI comunica, backend decide).
+- **Abiertos NO bloqueantes (con disparador):** **H-1 (Baja)** fan-out del auto-quote
+  (~`pageSize` POST /buylist/quote por búsqueda; mitigado por cache/dedupe + throttle 300/min), dueño
+  **frontend/arquitecto**, **se cierra con el batch quote de Fase 3b**; **H-2 (Info)** dependencia del
+  flag build-time `NEXT_PUBLIC_USE_MOCKS`, dueño **devops** (verificar `=false` en el gate de prod).
+- **Carryover:** **B-5** (token en query-string) sigue abierto, dueño **frontend**, fuera de alcance.
+- **Deuda previa sin cambio:** S-M1 aceptada; S-B1/S-B2/residuo S-B3 y banderas legales de
+  custodia/PII (§5-§6) siguen abiertas para el humano. La **fase dinámica (DAST contra staging)**
+  heredada sigue **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea Fase 3a.
+- **¿Puede ir a `main`?** **SÍ.**
+
+---
+
+# I. Revisión Fase 2 — precio de venta por rareza (commits `fba6486` + `fee3c19`) · backend + frontend
+
+> **Alcance:** Fase 2 del epic de precios — **precio de venta** derivado por **rareza** (`Card.rarity`)
+> + **acabado** (`InventoryItem.finish`) server-side, endpoints admin `sales-rules`/`sales-rarities`,
+> validador de reglas, `publishedWhere` relajado y reserva atómica anti doble-venta. Cruzado con
+> `docs/PENTEST_NOTES.md`.
+> **Modo:** revisión **estática** de código. Sin stack vivo → concurrencia de checkout sigue
+> **[pendiente de DAST]** (§6).
+> **Fecha:** 2026-08-17. Blanco autorizado: staging/local.
+
+## I.0 Resumen — **0 Críticos / 0 Altos**; 2 Bajas abiertas (no bloqueantes, con disparador)
+
+| Severidad | # | ID / tema |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 0 | — |
+| Baja | 2 | **I-1 / B-6** — orden a $0 por `fixed:0` (`salePriceOf` no rechaza `<=0`); **I-2 / B-7** — `fixed` sin cota superior → overflow Int32 |
+
+## I.1 Positivos verificados — **[Verificado en código]**
+- **SEC-A1 en el precio de venta.** El precio de venta se **deriva server-side** de `Card.rarity` +
+  `InventoryItem.finish`; el **comprador no influye** en el monto. El checkout solo transporta
+  `inventoryItemIds` → un DTO manipulado no puede fijar/rebajar el precio. Consistente con la
+  derivación server-side de las fases previas (SEC-A1).
+- **Endpoints `sales-rules` / `sales-rarities` — super_admin + auditados.** La escritura de reglas de
+  precio de venta está restringida a **super_admin** y **auditada** (mismo patrón que M2 buylist-rules
+  de §B.5). El comprador nunca alcanza estos endpoints.
+- **Validador robusto.** El validador **rechaza NaN / Infinity / negativos** → no se pueden sembrar
+  reglas absurdas que rompan el cálculo del precio de venta.
+- **`publishedWhere` relajado NO expone custodia de clientes.** El relajamiento mantiene
+  **`ownerType:'platform'` intacto** → solo se publica/vende inventario **de la plataforma**; el
+  inventario en **custodia de clientes** no se expone a la venta pública. Sin fuga de custodia.
+- **Reserva atómica anti doble-venta — intacta.** El guardarraíl de reserva atómica (`updateMany`
+  guardado por estado vendible + `count!==1 → ITEM_UNAVAILABLE` en `$transaction`, §2) **sigue
+  intacto** tras el cambio de precio por rareza. Sin regresión de doble-venta.
+
+## I-1 / B-6 (Baja, abierta con disparador) — Orden a $0 por regla `fixed:0`
+- **Descripción:** `salePriceOf` **no rechaza** precios `<= 0`. Una regla de venta con `fixed:0`
+  (sembrada por super_admin, por error) produciría un precio de venta de **$0** → orden a $0. El
+  insumo proviene de un **rol confiable** (super_admin) y **auditado**, y el validador ya bloquea
+  negativos, pero **no** el cero.
+- **Impacto:** Bajo — venta a $0 solo si un super_admin fija `fixed:0`; sin fuga de PII ni money-out
+  descontrolado, pero pérdida directa de inventario/valor si ocurre. Es endurecimiento de integridad
+  financiera.
+- **Rol dueño:** **backend** — recomendación: **`fixed >= 1`** en el validador **+ rechazar `<= 0`**
+  en `salePriceOf`. **Endurecer ANTES de operar con dinero real.** (Coincide con **B-6** del
+  pentest.)
+
+## I-2 / B-7 (Baja, abierta con disparador) — `fixed` sin cota superior → overflow Int32
+- **Descripción:** el campo `fixed` de las reglas de venta **no tiene cota superior**; un valor
+  suficientemente grande desborda el `Int` de 32 bits de Postgres al calcular/persistir el precio.
+  Extiende **B-3** del pentest (dinero en `Int` 32-bit / falta de `@Max`) al nuevo campo de reglas de
+  venta.
+- **Impacto:** Bajo — insumo de **rol confiable** (super_admin) + **auditado**; distorsión/overflow
+  del precio de venta, no un money-out saliente sin control.
+- **Rol dueño:** **backend** — cota superior razonable (`@Max`) en `fixed`; se enlaza con **B-3/S-B2**
+  (evaluar `BigInt` para agregados de dinero) — mismo dueño/decisión. **Endurecer antes de dinero
+  real.**
+
+## I.2 VEREDICTO — Fase 2 (precio de venta por rareza, `fba6486` + `fee3c19`): **APROBADO** (2026-08-17)
+- **0 Críticos / 0 Altos abiertos** → aprobable por política (`CLAUDE.md` §7 y DoD).
+- **Positivos verificados:** **SEC-A1** (precio de venta derivado server-side de `Card.rarity` +
+  `InventoryItem.finish`; el comprador no influye; checkout solo lleva `inventoryItemIds`); endpoints
+  `sales-rules`/`sales-rarities` **super_admin + auditados**; validador **rechaza NaN/Infinity/
+  negativos**; `publishedWhere` relajado **NO** expone custodia de clientes (`ownerType:'platform'`
+  intacto); **reserva atómica anti doble-venta intacta**.
+- **Abiertos NO bloqueantes (con disparador):** **I-1 / B-6 (Baja)** orden a $0 por `fixed:0`
+  (`salePriceOf` no rechaza `<=0`; recomendación `fixed>=1` + rechazar `<=0`), dueño **backend**,
+  **endurecer antes de dinero real**; **I-2 / B-7 (Baja)** `fixed` sin cota superior → overflow Int32
+  (extiende B-3), dueño **backend**.
+- **Deuda previa sin cambio:** S-M1 aceptada; S-B1/S-B2/residuo S-B3 y banderas legales de
+  custodia/PII (§5-§6) siguen abiertas para el humano. La **fase dinámica (DAST contra staging)**
+  heredada sigue **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea Fase 2.
+
+## I.3 Banderas para el humano (Fases 3a + 2)
+- **DAST / pentest de tercero PENDIENTE antes de dinero real** (heredado, obligatorio): en particular
+  **concurrencia de checkout** (reserva atómica bajo carga), **webhook de Stripe** (firma/idempotencia)
+  y **rate-limit del cotizador** (fan-out H-1 / abuso del auto-quote). Ejecutar en cuanto haya staging
+  autorizado (§6).
+- **Decidir B-6 / B-7 como endurecimiento previo a producción:** rechazar precio de venta `<= 0`
+  (`fixed >= 1`) y fijar cota superior a `fixed` (junto con la decisión `BigInt` de B-3/S-B2). Dueño
+  **backend**; endurecer antes de operar con dinero real.
+- **¿Puede ir a `main`?** **SÍ** (ambas fases: 3a y 2).
