@@ -598,6 +598,30 @@
   `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars` tras inspeccionar el log de la 1ª corrida (runbook en
   `BACKEND_NOTES §36`). Sin esa env, el flip del dial NO escribe precios (seguro).
 
+### BE-35 · `getReferencesBatch` arma una consulta cartesiana (inocua con cap 50) (Baja)
+- **Dónde:** `src/modules/pricing/pricing.service.ts` (`getReferencesBatch`), usada por `bulkPublish` y
+  `CatalogService.fetchSellable`.
+- **Estado actual:** el batch de referencias construye un `WHERE` con el producto de las dimensiones
+  `(cardId, productType, gradeKey, finish)` de los ítems del lote → en el peor caso la condición crece de
+  forma cuasi-cartesiana. **Inocuo hoy**: los lotes están capados (bulk-publish/batch ≤ 200 líneas; el
+  cotizador batch ≤ 50) y el índice de `PriceReference` sirve la búsqueda; el volumen real es pequeño.
+- **Impacto:** ninguno observable a la escala del MVP; potencial de consulta grande si se subieran mucho los
+  caps de lote sin revisar la forma del query.
+- **Disparador (aceptado):** si se aumenta el cap de lote (>200) o aparece latencia en `bulk-publish`/
+  `fetchSellable`, reescribir a un `IN` sobre claves compuestas o a tuplas `(cardId, finish)` acotadas.
+
+### BE-36 · `isSecretRare = numberSort > printedTotal` marca TODOS los promos TG/GG/SV (cosmético)
+- **Dónde:** `src/modules/inventory/master-set.service.ts` (`MasterSetCardCellDTO.isSecretRare`).
+- **Estado actual:** como los promos/subsets (`TG`/`GG`/`SV`) reciben `numberSort = 1_000_000 + parte`
+  (clave "al final", ver `BACKEND_NOTES §38.4`), su `numberSort` **siempre** supera `printedTotal` → el flag
+  `isSecretRare` sale `true` para **todas** esas cartas, no solo las secret rare reales. Es un **artefacto
+  cosmético del binder** (un badge en la cuadrícula), no afecta dinero, inventario ni valuación.
+- **Impacto:** puramente visual en el Master Set (badge de secret rare sobre-inclusivo en promos).
+- **Disparador (aceptado):** **coordinar la definición de "secret rare" con el arquitecto** (¿derivar de la
+  rareza real del catálogo? ¿solo numéricas con `number > printedTotal`?) antes de darle peso al badge en la
+  UI. Ligado a la reconciliación de la fórmula `numberSort` del contrato §M1 (ver nota al arquitecto en
+  `BACKEND_NOTES §38.4`/§39.1).
+
 ---
 
 ## Frontend (dueño: frontend)

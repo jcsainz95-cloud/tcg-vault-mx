@@ -39,6 +39,12 @@ export const ErrorCode = {
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',
   BILLING_PROFILE_REQUIRED: 'BILLING_PROFILE_REQUIRED',
 
+  // Inventory (M1) — WS-E hardening
+  // Una pieza cuyo status de ORIGEN no es seguro para listar (reserved/in_custody/picking/
+  // shipped/delivered/lost/damaged/withdrawn) NO puede re-publicarse a `listed`. Guardarraíl
+  // anti-double-sell del bulk-publish: solo se listan piezas en {in_stock, listed}. 422.
+  ITEM_NOT_PUBLISHABLE: 'ITEM_NOT_PUBLISHABLE',
+
   // Payments / Stripe
   AMOUNT_TOO_LOW: 'AMOUNT_TOO_LOW', // B2: por debajo del mínimo de Stripe MX
   CARD_DECLINED: 'CARD_DECLINED', // B1: StripeCardError mapeado a error de negocio legible

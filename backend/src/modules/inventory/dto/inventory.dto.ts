@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -18,6 +19,20 @@ import {
   RawCondition,
   SealedSubtype,
 } from '@prisma/client';
+
+/**
+ * SEC-N3 (BE-34/WS-E) — tope de `qty` del alta por lote. `nextFolios` expande a
+ * `generate_series(1, qty)`; sin tope, un `vault_operator` podría mandar un `qty` gigante y
+ * hacer DoS de BD. 500 piezas por línea es holgado para bulk raw/sellado real.
+ */
+export const MAX_BATCH_QTY = 500;
+
+/**
+ * SEC-N3 (B-3/WS-E) — tope sano de dinero manual (`listPriceCents`) en centavos MXN. El dinero
+ * vive en Int 32-bit (< 2^31 = 2_147_483_647); 100_000_000¢ = MX$1,000,000 por pieza deja mucho
+ * margen para el slab más caro y evita overflow/valores absurdos manipulados desde el DTO.
+ */
+export const MAX_LIST_PRICE_CENTS = 100_000_000;
 
 export class CreateItemDto {
   @IsString() cardId!: string;
@@ -40,7 +55,7 @@ export class CreateItemDto {
   @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
   @IsOptional() @IsInt() @Min(0) acquisitionCostCents?: number;
   // v1.1: precio manual MXN. Obligatorio para PUBLICAR el sellado (sin él no aparece en Compra).
-  @IsOptional() @IsInt() @Min(0) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsString() sourceSellRequestItemId?: string;
 }
 
@@ -49,7 +64,7 @@ export class UpdateItemDto {
   @IsOptional() @IsString() certNumber?: string;
   @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
   @IsOptional() @IsString() gradeValue?: string;
-  @IsOptional() @IsInt() @Min(0) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsIn(['in_stock', 'listed']) status?: 'in_stock' | 'listed';
 }
 
@@ -90,8 +105,8 @@ export class BatchInventoryItemInput {
   @IsOptional() @IsString() locationId?: string;
   @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
   @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
-  @IsOptional() @IsInt() @Min(0) listPriceCents?: number;
-  @IsOptional() @IsInt() @Min(1) qty?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
 }
 
 export class BatchCreateInventoryRequest {
@@ -108,7 +123,7 @@ export class BatchCreateInventoryRequest {
 
 export class BulkPublishLineInput {
   @IsString() inventoryItemId!: string;
-  @IsOptional() @IsInt() @Min(0) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
 }
 
 export class BulkPublishRequest {

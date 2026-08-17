@@ -2691,3 +2691,76 @@ NO bloqueante:** el texto de la fórmula `numberSort` del contrato (regexp) cont
 `API_CONTRACT.md`.
 
 **Gates:** `npx tsc --noEmit` exit 0; `npx jest` **72 suites / 503 tests** verdes.
+
+## 39. Endurecimiento WS-E — cierre de hallazgos de escritura por lote (2026-08-17)
+
+Los tres veredictos aprobaron WS-E con hallazgos a cerrar ANTES de promover (uno es bug de DINERO). Todo
+en `backend/` (+ estas notas + `TECH_DEBT`), **sin tocar el contrato**. Gates: `tsc --noEmit` exit 0;
+`jest` **72 suites / 514 tests** verdes.
+
+### 39.1 [MONEY · QA] Double-sell cerrado en `bulkPublish` (allowlist de status de ORIGEN)
+- **Bug:** la guarda por-línea solo validaba `ownerType !== 'platform'`; **no** miraba el `status` actual
+  antes de forzar `status → 'listed'`. Una pieza de plataforma en `reserved` (orden con PaymentIntent vivo),
+  `in_custody`/`picking`/`shipped`/`delivered`, `lost`/`damaged` (sin existencia física real) o `withdrawn`
+  podía re-publicarse a `listed`. Como el checkout reserva por `status IN ('listed','in_stock')`
+  (`orders.service.ts` reserva atómica), un **segundo** checkout la reservaría para OTRO comprador → **dos
+  clientes por una pieza física** / inventario fantasma.
+- **Fix:** allowlist de status de origen `PUBLISHABLE_ORIGIN_STATUSES = ['in_stock','listed']`
+  (`inventory.service.ts`). `in_stock` → publica; `listed` → **no-op idempotente** (`ok:true`); cualquier
+  otro → **error por-línea `ITEM_NOT_PUBLISHABLE`** (422, nuevo en `error-codes.ts`) que **no tumba** el
+  resto del lote. El `status` se lee del `InventoryItem` en BD (server-side), nunca del DTO. El enum real de
+  `InventoryStatus` **no tiene `sold`** (una venta liquidada pasa a `in_custody` con `ownerType='customer'`,
+  ya bloqueado por la guarda de owner); el conjunto seguro correcto para publicar es `{in_stock, listed}`.
+- **Nota para el arquitecto (NO bloqueante):** el contrato §M1 (WS-E, `bulk-publish`) debería **especificar
+  explícitamente el conjunto de status de ORIGEN permitido**; hoy solo describe el error `PRICE_PENDING`
+  por-línea y no menciona la guarda anti-double-sell. Se implementó el comportamiento seguro; no se editó
+  `API_CONTRACT.md`. Sugerencia: documentar `ITEM_NOT_PUBLISHABLE` y el allowlist `{in_stock, listed}`.
+
+### 39.2 [SEC-N2 / BE-34] Atomicidad + idempotencia de `batchCreate`
+- **Bug:** hacía `findUnique(batchKey)` → creaba ítems en loop → `InventoryBatch.create` al final. Dos
+  requests concurrentes con el mismo `batchKey` pasaban ambos el `findUnique` nulo y **duplicaban** piezas;
+  un crash a mitad dejaba ítems huérfanos sin `InventoryBatch` y el replay los **recreaba**.
+- **Fix:** el lote completo (claim del `InventoryBatch` + N `InventoryItem` + movimientos + resultado) corre
+  en **una `$transaction`**. El **claim `inventoryBatch.create({ id: batchKey })` va PRIMERO** dentro de la
+  tx; su **unique constraint** (`id = batchKey`) es la guardia:
+  - **Concurrencia:** dos requests → uno commitea; el otro choca con **P2002** en el claim → se detecta por
+    `(e as {code}).code === 'P2002'`, se re-lee el batch ganador y se devuelve como **replay**
+    (`idempotentReplay:true`) → **no duplica inventario**. (Carrera extrema sin resultado visible aún →
+    `409 CONFLICT` "retry".)
+  - **Crash-safety:** un crash a mitad hace **rollback** del claim y de los ítems (sin huérfanos); el replay
+    re-hace el lote limpio.
+  - El claim se crea con `resultJson` placeholder y se **finaliza** con `inventoryBatch.update` al final de
+    la tx (auditoría del lote intacta). Los ítems se crean con el **cliente `tx`**; las lecturas/escala de
+    pendientes de `resolveCreation` siguen en `this.prisma` (reads consistentes; la escala a
+    `PendingPriceEntry` es auxiliar/advisory).
+- El fast-path `findUnique` inicial sigue sirviendo el **replay secuencial** (las filas no committeadas de
+  una corrida en vuelo no son visibles bajo READ COMMITTED, así que nunca ve un claim a medias).
+
+### 39.3 [SEC-N1 · Media DoS] `qty` con `@Max`
+- `BatchInventoryItemInput.qty` tenía `@Min(1)` sin tope → un `vault_operator` podía mandar `qty` gigante y
+  `nextFolios` ejecuta `generate_series(1, qty)` → DoS de BD. Añadido `@Max(MAX_BATCH_QTY)` con
+  `MAX_BATCH_QTY = 500` (holgado para bulk raw/sellado real). Sobre el tope → `400 VALIDATION_ERROR`.
+
+### 39.4 [SEC-N3 · Baja] `listPriceCents` con `@Max`
+- `listPriceCents` era `@Min(0)` sin tope en `CreateItemDto`, `UpdateItemDto`, `BatchInventoryItemInput` y
+  `BulkPublishLineInput` (dinero en Int 32-bit, deuda B-3). Añadido `@Max(MAX_LIST_PRICE_CENTS)` con
+  `MAX_LIST_PRICE_CENTS = 100_000_000` (= MX$1,000,000/pieza, muy por debajo de 2^31; margen de sobra para el
+  slab más caro). Sobre el tope → `400 VALIDATION_ERROR`. Ambas constantes exportadas desde
+  `dto/inventory.dto.ts`.
+
+### 39.5 Tests (todos en `test/inventory.batch.spec.ts`)
+- **bulk-publish double-sell:** OMITE con `ITEM_NOT_PUBLISHABLE` piezas en `reserved`, `lost`, `damaged`,
+  `in_custody`, `shipped`, `withdrawn` (sin llamar `inventoryItem.update`); **no-op idempotente** en `listed`
+  (ok:true, no tumba el lote).
+- **batch atomicidad/idempotencia:** claim + items en **1 `$transaction`**; **concurrencia** (P2002 en el
+  claim) → replay sin crear piezas; replay secuencial sin re-crear.
+- **DTOs:** `qty > 500` → error de validación; `listPriceCents > MAX` → error (en `BatchInventoryItemInput` y
+  `BulkPublishLineInput`); límites exactos aceptados.
+
+### 39.6 Archivos tocados
+- `src/common/error-codes.ts` (nuevo `ITEM_NOT_PUBLISHABLE`).
+- `src/modules/inventory/inventory.service.ts` (allowlist de origen en `bulkPublish`; `batchCreate` con
+  claim-first en `$transaction` + `replayBatch`).
+- `src/modules/inventory/dto/inventory.dto.ts` (`@Max` en `qty`/`listPriceCents`; constantes
+  `MAX_BATCH_QTY`/`MAX_LIST_PRICE_CENTS`).
+- `test/inventory.batch.spec.ts` (mock con `$transaction`/`inventoryBatch.update`/P2002; tests nuevos).

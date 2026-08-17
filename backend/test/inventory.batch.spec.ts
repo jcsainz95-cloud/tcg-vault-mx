@@ -1,18 +1,26 @@
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import {
   BatchCreateInventoryRequest,
+  BatchInventoryItemInput,
+  BulkPublishLineInput,
   BulkPublishRequest,
+  MAX_BATCH_QTY,
+  MAX_LIST_PRICE_CENTS,
 } from '../src/modules/inventory/dto/inventory.dto';
 
 /**
- * WS-E (v1.16-master-set, §4.17b) — ESCRITURA POR LOTE:
+ * WS-E (v1.16-master-set, §4.17b) + endurecimiento WS-E — ESCRITURA POR LOTE:
  *  - alta por lote: errores por-línea (1 línea inválida NO tumba el resto, commit parcial → 200);
- *    `qty` expande a N piezas con folios consecutivos; idempotencia por batchKey (replay no duplica).
+ *    `qty` expande a N piezas con folios consecutivos; idempotencia/atomicidad por batchKey
+ *    (claim-first en $transaction → replay/concurrencia NO duplica; SEC-N2/BE-34).
  *  - bulk-publish: precio DERIVADO server-side; `pct` sin market → PRICE_PENDING (no publica);
- *    override manual gana; errores por-línea.
+ *    override manual gana; errores por-línea; guarda anti-double-sell por status de ORIGEN [MONEY].
+ *  - DTOs: `qty` con @Max(500) y `listPriceCents` con @Max (SEC-N1/N3).
  */
 
 function buildPricing(over: any = {}): PricingService {
@@ -30,9 +38,14 @@ const settings = {
   getNumber: jest.fn(async () => 70),
 } as unknown as SettingsService;
 
+/** Error que imita el P2002 (unique constraint) de Prisma para el claim del InventoryBatch. */
+function p2002(): Error & { code: string } {
+  return Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+}
+
 function buildPrisma(over: any = {}) {
   const createdItems: any[] = [];
-  const batches: any[] = [];
+  const batchStore = new Map<string, any>();
   let folioSeq = 100;
   const prisma: any = {
     card: {
@@ -58,14 +71,24 @@ function buildPrisma(over: any = {}) {
     },
     inventoryMovement: { create: jest.fn() },
     inventoryBatch: {
-      findUnique: jest.fn(async ({ where }: any) => batches.find((b) => b.id === where.id) ?? null),
+      findUnique: jest.fn(async ({ where }: any) => batchStore.get(where.id) ?? null),
+      // Simula la unique constraint: un segundo claim del mismo batchKey lanza P2002.
       create: jest.fn(async ({ data }: any) => {
-        batches.push(data);
+        if (batchStore.has(data.id)) throw p2002();
+        batchStore.set(data.id, { ...data });
         return data;
       }),
+      update: jest.fn(async ({ where, data }: any) => {
+        const row = { ...(batchStore.get(where.id) ?? {}), ...data };
+        batchStore.set(where.id, row);
+        return row;
+      }),
     },
+    // El claim + items + finalize corren en la MISMA tx; el mock ejecuta el callback con el
+    // propio prisma como cliente de transacción (los writes usan los mismos jest.fn).
+    $transaction: jest.fn(async (fn: any) => fn(prisma)),
     __createdItems: createdItems,
-    __batches: batches,
+    __batchStore: batchStore,
     ...over,
   };
   return prisma;
@@ -144,9 +167,52 @@ describe('InventoryService.batchCreate — alta por lote', () => {
     const replay = await svc.batchCreate(req, 'admin');
     expect(replay.idempotentReplay).toBe(true);
     expect(replay.summary).toEqual(first.summary);
-    // NO se crearon más piezas ni un segundo InventoryBatch.
+    expect(replay.results).toEqual(first.results);
+    // NO se crearon más piezas ni un segundo claim de InventoryBatch.
     expect(prisma.__createdItems).toHaveLength(2);
     expect(prisma.inventoryBatch.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('[SEC-N2/BE-34] atomicidad: claim + items corren en UNA $transaction', async () => {
+    const prisma = buildPrisma();
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    await svc.batchCreate(
+      { batchKey: 'tx1', items: [{ cardId: 'c1', productType: 'raw', acquisitionType: 'compra' }] },
+      'admin',
+    );
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('[SEC-N2/BE-34] concurrencia: P2002 en el claim → replay, NO duplica inventario', async () => {
+    // Otra corrida (la ganadora) ya dejó el batch persistido con su resultado; el fast-path
+    // findUnique NO lo ve (aún null la 1a vez), pero el claim create choca con P2002 y el
+    // catch-path lee el resultado ganador y lo replica sin crear items.
+    const winnerResult = {
+      summary: { requested: 1, createdItems: 1, failedLines: 0 },
+      results: [{ index: 0, ok: true, folios: ['INV-000999'], inventoryItemIds: ['inv-w'] }],
+    };
+    let findCalls = 0;
+    const prisma = buildPrisma({
+      inventoryBatch: {
+        // 1a llamada (fast-path) → null; llamadas posteriores (catch-path) → resultado ganador.
+        findUnique: jest.fn(async () =>
+          findCalls++ === 0 ? null : { id: 'race', resultJson: winnerResult },
+        ),
+        create: jest.fn(async () => {
+          throw p2002();
+        }),
+        update: jest.fn(),
+      },
+    });
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    const res = await svc.batchCreate(
+      { batchKey: 'race', items: [{ cardId: 'c1', productType: 'raw', acquisitionType: 'compra' }] },
+      'admin',
+    );
+    expect(res.idempotentReplay).toBe(true);
+    expect(res.summary).toEqual(winnerResult.summary);
+    // La corrida perdedora NO creó ninguna pieza física.
+    expect(prisma.__createdItems).toHaveLength(0);
   });
 });
 
@@ -160,19 +226,21 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     });
   }
 
+  const baseItem = (over: any = {}) => ({
+    id: 'i1',
+    cardId: 'c1',
+    productType: 'raw',
+    finish: 'normal',
+    certNumber: null,
+    ownerType: 'platform',
+    status: 'in_stock',
+    listPriceCents: null,
+    card: { rarity: 'Common' },
+    ...over,
+  });
+
   it('deriva el precio server-side (fixed → piso) y publica', async () => {
-    const items = [
-      {
-        id: 'i1',
-        cardId: 'c1',
-        productType: 'raw',
-        finish: 'normal',
-        certNumber: null,
-        ownerType: 'platform',
-        listPriceCents: null,
-        card: { rarity: 'Common' },
-      },
-    ];
+    const items = [baseItem()];
     const prisma = prismaWithItems(items);
     const pricing = buildPricing({
       loadSalesRules: jest.fn(async () => ({
@@ -197,18 +265,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
   });
 
   it('`pct` sin market → PRICE_PENDING: NO publica esa pieza (regla "solo lo que tiene precio")', async () => {
-    const items = [
-      {
-        id: 'i2',
-        cardId: 'c2',
-        productType: 'raw',
-        finish: 'normal',
-        certNumber: null,
-        ownerType: 'platform',
-        listPriceCents: null,
-        card: { rarity: 'Illustration Rare' }, // premium → fallback pct, sin market → pending
-      },
-    ];
+    const items = [baseItem({ id: 'i2', cardId: 'c2', card: { rarity: 'Illustration Rare' } })];
     const prisma = prismaWithItems(items);
     const pricing = buildPricing({
       loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
@@ -222,18 +279,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
   });
 
   it('override manual gana; errores por-línea (item no encontrado no tumba el resto)', async () => {
-    const items = [
-      {
-        id: 'i3',
-        cardId: 'c3',
-        productType: 'raw',
-        finish: 'normal',
-        certNumber: null,
-        ownerType: 'platform',
-        listPriceCents: null,
-        card: { rarity: 'Rare' },
-      },
-    ];
+    const items = [baseItem({ id: 'i3', cardId: 'c3', card: { rarity: 'Rare' } })];
     const prisma = prismaWithItems(items);
     const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
     const req: BulkPublishRequest = {
@@ -250,8 +296,8 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
 
   it('BE-25: iza SALES_PRICE_RULES una vez y resuelve referencias en 1 lote (sin N+1)', async () => {
     const items = [
-      { id: 'a', cardId: 'c1', productType: 'raw', finish: 'normal', certNumber: null, ownerType: 'platform', listPriceCents: null, card: { rarity: 'Common' } },
-      { id: 'b', cardId: 'c2', productType: 'raw', finish: 'normal', certNumber: null, ownerType: 'platform', listPriceCents: null, card: { rarity: 'Common' } },
+      baseItem({ id: 'a', cardId: 'c1' }),
+      baseItem({ id: 'b', cardId: 'c2' }),
     ];
     const prisma = prismaWithItems(items);
     const pricing = buildPricing({
@@ -263,5 +309,103 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     // 1 sola lectura de reglas + 1 solo lote de referencias para las 2 piezas.
     expect((pricing.loadSalesRules as jest.Mock).mock.calls).toHaveLength(1);
     expect((pricing.getReferencesBatch as jest.Mock).mock.calls).toHaveLength(1);
+  });
+
+  // ===== [MONEY · WS-E] Guarda anti-double-sell por status de ORIGEN =====
+
+  it('[MONEY] OMITE (ITEM_NOT_PUBLISHABLE) una pieza `reserved` — no la re-abre a un 2º checkout', async () => {
+    const items = [baseItem({ id: 'r1', status: 'reserved' })];
+    const prisma = prismaWithItems(items);
+    const pricing = buildPricing({
+      loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
+    });
+    const svc = new InventoryService(prisma as PrismaService, pricing, settings);
+    const res = await svc.bulkPublish({ items: [{ inventoryItemId: 'r1' }] }, 'admin');
+    expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE' } });
+    expect(res.summary.published).toBe(0);
+    // Jamás se fuerza status → listed sobre una pieza reservada.
+    expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+  });
+
+  it('[MONEY] OMITE piezas `lost` y `damaged` (sin existencia física real → inventario fantasma)', async () => {
+    for (const status of ['lost', 'damaged', 'in_custody', 'shipped', 'withdrawn'] as const) {
+      const items = [baseItem({ id: status, status })];
+      const prisma = prismaWithItems(items);
+      const pricing = buildPricing({
+        loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
+      });
+      const svc = new InventoryService(prisma as PrismaService, pricing, settings);
+      const res = await svc.bulkPublish({ items: [{ inventoryItemId: status }] }, 'admin');
+      expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE' } });
+      expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+    }
+  });
+
+  it('[MONEY] una pieza ya `listed` = no-op idempotente (ok:true), y no tumba el lote', async () => {
+    const items = [
+      baseItem({ id: 'listed1', status: 'listed', listPriceCents: 700 }),
+      baseItem({ id: 'stock1', status: 'in_stock' }),
+    ];
+    const prisma = prismaWithItems(items);
+    const pricing = buildPricing({
+      loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
+    });
+    const svc = new InventoryService(prisma as PrismaService, pricing, settings);
+    const res = await svc.bulkPublish(
+      { items: [{ inventoryItemId: 'listed1' }, { inventoryItemId: 'stock1' }] },
+      'admin',
+    );
+    expect(res.results[0]).toMatchObject({ ok: true, status: 'listed', priceSource: 'manual' });
+    expect(res.results[1]).toMatchObject({ ok: true, status: 'listed' });
+    expect(res.summary).toEqual({ requested: 2, published: 2, failedLines: 0 });
+  });
+});
+
+// ===== DTOs: topes de qty y listPriceCents (SEC-N1 / SEC-N3) =====
+
+describe('BatchInventoryItemInput — validación de qty y listPriceCents', () => {
+  const base = { cardId: 'c1', productType: 'raw', acquisitionType: 'compra' };
+
+  async function validateLine(over: any) {
+    return validate(plainToInstance(BatchInventoryItemInput, { ...base, ...over }));
+  }
+
+  it('acepta qty en el límite (500)', async () => {
+    expect(await validateLine({ qty: MAX_BATCH_QTY })).toHaveLength(0);
+  });
+
+  it('[SEC-N1] rechaza qty por encima del @Max (DoS de generate_series)', async () => {
+    const errors = await validateLine({ qty: MAX_BATCH_QTY + 1 });
+    expect(errors.some((e) => e.property === 'qty')).toBe(true);
+  });
+
+  it('rechaza qty < 1', async () => {
+    const errors = await validateLine({ qty: 0 });
+    expect(errors.some((e) => e.property === 'qty')).toBe(true);
+  });
+
+  it('acepta listPriceCents en el límite', async () => {
+    expect(await validateLine({ listPriceCents: MAX_LIST_PRICE_CENTS })).toHaveLength(0);
+  });
+
+  it('[SEC-N3] rechaza listPriceCents por encima del @Max (Int32/overflow)', async () => {
+    const errors = await validateLine({ listPriceCents: MAX_LIST_PRICE_CENTS + 1 });
+    expect(errors.some((e) => e.property === 'listPriceCents')).toBe(true);
+  });
+});
+
+describe('BulkPublishLineInput — validación de listPriceCents', () => {
+  it('acepta el límite y rechaza por encima', async () => {
+    const ok = await validate(
+      plainToInstance(BulkPublishLineInput, { inventoryItemId: 'i1', listPriceCents: MAX_LIST_PRICE_CENTS }),
+    );
+    expect(ok).toHaveLength(0);
+    const bad = await validate(
+      plainToInstance(BulkPublishLineInput, {
+        inventoryItemId: 'i1',
+        listPriceCents: MAX_LIST_PRICE_CENTS + 1,
+      }),
+    );
+    expect(bad.some((e) => e.property === 'listPriceCents')).toBe(true);
   });
 });

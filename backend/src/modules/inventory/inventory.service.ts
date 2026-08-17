@@ -46,6 +46,24 @@ export interface BulkPublishResponse {
   results: BulkPublishLineResult[];
 }
 
+/**
+ * [MONEY · WS-E] Allowlist de status de ORIGEN seguros para publicar a `listed`.
+ *
+ * SOLO se puede forzar `status → 'listed'` una pieza que HOY esté en un status seguro. El checkout
+ * reserva por `status IN ('listed','in_stock')` (orders.service.ts) → si dejáramos re-publicar una
+ * pieza `reserved` (orden con PaymentIntent vivo), `in_custody`/`picking`/`shipped`/`delivered` (ya
+ * de un cliente), `lost`/`damaged` (sin existencia física real) o `withdrawn`, un segundo checkout la
+ * reservaría para OTRO comprador → **double-sell / inventario fantasma** (dos clientes por una pieza).
+ *
+ * `in_stock` → se publica. `listed` → **no-op idempotente** (ya publicada). Cualquier otro status →
+ * `ITEM_NOT_PUBLISHABLE` por-línea (no tumba el resto del lote). El status es del `InventoryItem` en
+ * BD (server-side), nunca del DTO del cliente.
+ *
+ * NOTA (arquitecto): el contrato §M1 (WS-E, bulk-publish) debería especificar EXPLÍCITAMENTE el
+ * conjunto de status de origen permitido; hoy solo describe el error `PRICE_PENDING` por-línea.
+ */
+const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
+
 @Injectable()
 export class InventoryService {
   constructor(
@@ -194,96 +212,140 @@ export class InventoryService {
     req: BatchCreateInventoryRequest,
     actorUserId: string,
   ): Promise<BatchCreateInventoryResponse> {
-    // Idempotencia: si el batchKey ya se procesó, repetir el resultado guardado (no re-crea).
+    // Fast-path replay: si el batchKey YA está persistido (committed) con su resultado, repetirlo
+    // sin re-crear. Las filas no committeadas de una corrida concurrente en vuelo NO son visibles
+    // aquí (READ COMMITTED), así que este check nunca ve un claim a medias.
     const existing = await this.prisma.inventoryBatch.findUnique({ where: { id: req.batchKey } });
-    if (existing) {
-      const stored = existing.resultJson as unknown as {
-        summary: BatchCreateInventoryResponse['summary'];
-        results: BatchLineResult[];
-      };
-      return {
-        batchKey: req.batchKey,
-        idempotentReplay: true,
-        summary: stored.summary,
-        results: stored.results,
-      };
-    }
+    if (existing) return this.replayBatch(req.batchKey, existing);
 
-    const results: BatchLineResult[] = [];
-    let createdItems = 0;
-    for (let index = 0; index < req.items.length; index++) {
-      const line = req.items[index];
-      try {
-        // graded → cada slab es único (certNumber); qty>1 no tiene sentido → VALIDATION_ERROR.
-        const qty = line.qty ?? 1;
-        if (line.productType === 'graded' && qty > 1) {
-          throw BusinessException.validation('VALIDATION_ERROR', 'graded items cannot have qty > 1');
-        }
-        const r = await this.resolveCreation(line);
-        if (r.sealedNeedsEscalate) {
-          await this.pricing.escalatePending(
-            line.cardId,
-            line.productType,
-            r.gradeKey,
-            'inventory',
-            undefined,
-            r.finish,
-          );
-        }
-        const folios = await this.prisma.nextFolios(qty);
-        const inventoryItemIds: string[] = [];
-        for (const folio of folios) {
-          const item = await this.prisma.inventoryItem.create({
-            data: this.buildItemData(line, r, folio),
-          });
-          await this.prisma.inventoryMovement.create({
-            data: {
-              itemId: item.id,
-              toLocationId: line.locationId,
-              toStatus: 'in_stock',
-              reason: MovementReason.alta,
-              actorUserId,
-              note: line.acquisitionType,
-            },
-          });
-          inventoryItemIds.push(item.id);
-          createdItems++;
-        }
-        results.push({
-          index,
-          ok: true,
-          folios,
-          inventoryItemIds,
-          acquisitionCostCents: r.acquisitionCostCents ?? undefined,
+    // [SEC-N2 / BE-34] Atomicidad + idempotencia. TODO el lote (claim del InventoryBatch + N
+    // InventoryItem + movimientos + resultado) corre en UNA transacción:
+    //  (a) CONCURRENCIA: el claim `inventoryBatch.create({ id: batchKey })` va PRIMERO dentro de la
+    //      tx; su unique constraint (id = batchKey) es la guardia. Dos requests con el mismo batchKey
+    //      → uno commitea, el otro choca con P2002 → se trata como replay (NO duplica inventario).
+    //  (b) CRASH-SAFETY: un crash a mitad hace rollback del claim Y de los items → sin huérfanos; el
+    //      replay re-hace el lote limpio (antes: items creados sin batch → replay los duplicaba).
+    try {
+      const { summary, results } = await this.prisma.$transaction(async (tx) => {
+        // Claim atómico primero (guardia de concurrencia). resultJson placeholder; se finaliza abajo.
+        await tx.inventoryBatch.create({
+          data: {
+            id: req.batchKey,
+            actorUserId,
+            kind: 'create',
+            requested: req.items.length,
+            createdItems: 0,
+            failedLines: 0,
+            resultJson: {} as unknown as Prisma.InputJsonValue,
+          },
         });
-      } catch (e) {
-        const err = e as BusinessException;
-        results.push({
-          index,
-          ok: false,
-          error: { code: err.code ?? 'VALIDATION_ERROR', message: err.message ?? 'error' },
+
+        const results: BatchLineResult[] = [];
+        let createdItems = 0;
+        for (let index = 0; index < req.items.length; index++) {
+          const line = req.items[index];
+          try {
+            // graded → cada slab es único (certNumber); qty>1 no tiene sentido → VALIDATION_ERROR.
+            const qty = line.qty ?? 1;
+            if (line.productType === 'graded' && qty > 1) {
+              throw BusinessException.validation(
+                'VALIDATION_ERROR',
+                'graded items cannot have qty > 1',
+              );
+            }
+            const r = await this.resolveCreation(line);
+            if (r.sealedNeedsEscalate) {
+              await this.pricing.escalatePending(
+                line.cardId,
+                line.productType,
+                r.gradeKey,
+                'inventory',
+                undefined,
+                r.finish,
+              );
+            }
+            const folios = await this.prisma.nextFolios(qty);
+            const inventoryItemIds: string[] = [];
+            for (const folio of folios) {
+              const item = await tx.inventoryItem.create({
+                data: this.buildItemData(line, r, folio),
+              });
+              await tx.inventoryMovement.create({
+                data: {
+                  itemId: item.id,
+                  toLocationId: line.locationId,
+                  toStatus: 'in_stock',
+                  reason: MovementReason.alta,
+                  actorUserId,
+                  note: line.acquisitionType,
+                },
+              });
+              inventoryItemIds.push(item.id);
+              createdItems++;
+            }
+            results.push({
+              index,
+              ok: true,
+              folios,
+              inventoryItemIds,
+              acquisitionCostCents: r.acquisitionCostCents ?? undefined,
+            });
+          } catch (e) {
+            const err = e as BusinessException;
+            results.push({
+              index,
+              ok: false,
+              error: { code: err.code ?? 'VALIDATION_ERROR', message: err.message ?? 'error' },
+            });
+          }
+        }
+
+        const summary = {
+          requested: req.items.length,
+          createdItems,
+          failedLines: results.filter((r) => !r.ok).length,
+        };
+        // Finaliza el claim con el resultado real (idempotencia + auditoría del lote).
+        await tx.inventoryBatch.update({
+          where: { id: req.batchKey },
+          data: {
+            createdItems: summary.createdItems,
+            failedLines: summary.failedLines,
+            resultJson: { summary, results } as unknown as Prisma.InputJsonValue,
+          },
         });
+        return { summary, results };
+      });
+      return { batchKey: req.batchKey, idempotentReplay: false, summary, results };
+    } catch (e) {
+      // P2002 en el claim = otra corrida ganó la carrera por este batchKey → replay (no duplica).
+      if ((e as { code?: string })?.code === 'P2002') {
+        const claimed = await this.prisma.inventoryBatch.findUnique({
+          where: { id: req.batchKey },
+        });
+        if (claimed) return this.replayBatch(req.batchKey, claimed);
+        // Carrera extrema (la ganadora aún no commitea su claim visible): pide reintento.
+        throw BusinessException.conflict('CONFLICT', 'batch is being processed; retry');
       }
+      throw e;
     }
+  }
 
-    const summary = {
-      requested: req.items.length,
-      createdItems,
-      failedLines: results.filter((r) => !r.ok).length,
+  /** Reconstruye la respuesta idempotente desde el InventoryBatch persistido. */
+  private replayBatch(
+    batchKey: string,
+    existing: { resultJson: unknown },
+  ): BatchCreateInventoryResponse {
+    const stored = existing.resultJson as {
+      summary: BatchCreateInventoryResponse['summary'];
+      results: BatchLineResult[];
     };
-    // Persistir idempotencia + auditoría del lote (InventoryBatch ES el registro del lote).
-    await this.prisma.inventoryBatch.create({
-      data: {
-        id: req.batchKey,
-        actorUserId,
-        kind: 'create',
-        requested: summary.requested,
-        createdItems: summary.createdItems,
-        failedLines: summary.failedLines,
-        resultJson: { summary, results } as unknown as Prisma.InputJsonValue,
-      },
-    });
-    return { batchKey: req.batchKey, idempotentReplay: false, summary, results };
+    return {
+      batchKey,
+      idempotentReplay: true,
+      summary: stored.summary,
+      results: stored.results,
+    };
   }
 
   /**
@@ -335,6 +397,16 @@ export class InventoryService {
         if (!item) throw BusinessException.notFound('NOT_FOUND', 'Inventory item not found');
         if (item.ownerType !== 'platform') {
           throw BusinessException.validation('VALIDATION_ERROR', 'item is not platform inventory');
+        }
+        // [MONEY · WS-E] Guarda por status de ORIGEN (anti-double-sell). SOLO {in_stock, listed}
+        // son seguras: publicar una reserved/in_custody/lost/damaged/... a `listed` la re-abriría a
+        // un segundo checkout → dos clientes por una pieza. Ver PUBLISHABLE_ORIGIN_STATUSES.
+        if (!PUBLISHABLE_ORIGIN_STATUSES.includes(item.status)) {
+          throw BusinessException.validation(
+            'ITEM_NOT_PUBLISHABLE',
+            `item status '${item.status}' cannot be published`,
+            { status: item.status },
+          );
         }
         if (
           item.productType === 'graded' &&
