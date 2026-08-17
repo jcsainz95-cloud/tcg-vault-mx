@@ -105,10 +105,67 @@ export function isHoloRarity(rarity: string | null): boolean {
 }
 
 /**
+ * Fase 0.1 — Clasificador de rareza PREMIUM (chase / alto valor).
+ *
+ * Regla de negocio del humano: SOLO Common/Uncommon y el "holo/reverse común" son precio FIJO de
+ * bulk; todo lo más raro es un % arriba de MERCADO. Una rareza premium por tanto NUNCA debe poder
+ * caer al bin fijo barato de bulk (la clave sintética "Holo" ni ninguna regla `fixed` de bulk):
+ * debe resolver por su PROPIA regla explícita o, en su defecto, al fallback pct (% de mercado).
+ *
+ * Matching robusto por substrings/tokens representativos, case-insensitive (la taxonomía de
+ * pokemontcg.io es abierta). Cubre: Illustration Rare, Special Illustration Rare, Ultra Rare,
+ * Double Rare (= ex), Rare Secret/Rainbow/Hyper/Gold, Full Art, Alternate Art, Amazing Rare,
+ * Radiant, Shiny, Trainer Gallery, Character/Super Rare, Prism Star, y las Rare Holo
+ * V/VMAX/VSTAR/EX/GX. Se prefiere sobre-incluir (una carta barata clasificada premium solo pasa a
+ * "% de mercado", inocuo) que sub-incluir (una chase tratada como bulk = pérdida de dinero).
+ *
+ * NO premium (excluidas a propósito): Common, Uncommon, Rare (no-holo), Rare Holo (plano),
+ * Reverse Holo — el bulk legítimo.
+ */
+const PREMIUM_RARITY_PATTERNS: RegExp[] = [
+  /illustration/, // Illustration Rare, Special Illustration Rare
+  /ultra\s*rare/, // Ultra Rare (full art)
+  /double\s*rare/, // Double Rare (ex, era Scarlet & Violet)
+  /secret/, // Rare Secret, Secret Rare
+  /rainbow/, // Rainbow Rare
+  /hyper/, // Hyper Rare
+  /full\s*art/, // Full Art
+  /alt(ernate)?\s*art/, // Alternate Art / Alt Art
+  /special/, // Special Illustration Rare, etc.
+  /amazing/, // Amazing Rare
+  /radiant/, // Radiant
+  /shiny/, // Rare Shiny / Shiny Ultra Rare
+  /trainer\s*gallery/, // Trainer Gallery
+  /character/, // Character Rare / Super Rare
+  /gold/, // Gold (secret) Rare
+  /prism/, // Prism Star
+  /\b(v|vmax|vstar|vunion|v-union|ex|gx)\b/, // V-series y EX/GX como tokens sueltos (p. ej. "Rare Holo VMAX")
+];
+
+/**
+ * Fase 0.1 — true si la rareza es "chase"/alto valor y por tanto debe cotizar por su propia regla
+ * explícita o por el fallback pct (% de mercado), NUNCA por el bin fijo barato de bulk.
+ */
+export function isPremiumRarity(rarity: string | null): boolean {
+  if (rarity == null) return false;
+  const s = rarity.toLowerCase();
+  return PREMIUM_RARITY_PATTERNS.some((re) => re.test(s));
+}
+
+/**
  * Candidatos de ruleKey EN ORDEN DE PRIORIDAD (gana el primero con regla explícita en
- * BUYLIST_PRICE_RULES; si ninguno → BUYLIST_PRICE_FALLBACK_PCT). ARCHITECTURE §4.2.1:
+ * BUYLIST_PRICE_RULES; si ninguno → BUYLIST_PRICE_FALLBACK_PCT).
+ *
+ * Fase 0.1 (fix bug de dinero): la RAREZA REAL SIEMPRE va primero en los candidatos. Además, para
+ * finish holofoil/1st-ed una rareza PREMIUM (chase) NO puede incluir la clave sintética "Holo"
+ * (que el admin puede tener fija barata de bulk): solo su propia regla o el fallback pct. Antes,
+ * una holo premium sin "holo" en el string (Illustration/Ultra/Double Rare, etc.) resolvía a
+ * `['Holo']` y una chase de miles de pesos cotizaba al bin fijo barato — bug estructural.
+ *
  *  - reverse_holo            → ["Reverse Holo"]
- *  - holofoil / 1st ed holo  → isHoloRarity(rarity) ? [rarity, "Holo"] : ["Holo"]
+ *  - holofoil / 1st ed holo  → premium              ? [rarity]           (propia regla o fallback pct; NUNCA "Holo")
+ *                              : isHoloRarity(rarity)? [rarity, "Holo"]  (holo de bulk: rareza real primero, luego "Holo")
+ *                              :                        ["Holo"]          (Common/Uncommon: % del market holofoil, §4.2.1)
  *  - normal                  → [rarity] (regla de la rareza base)
  */
 export function ruleKeyCandidates(rarity: string | null, finish: Finish): string[] {
@@ -117,6 +174,17 @@ export function ruleKeyCandidates(rarity: string | null, finish: Finish): string
       return ['Reverse Holo'];
     case 'holofoil':
     case 'first_edition_holofoil':
+      // Fase 0.1 (fix bug de dinero): una rareza PREMIUM (chase) NUNCA incluye "Holo" ni ningún bin
+      // fijo de bulk. Solo su propia regla explícita o el fallback pct (% de mercado). La rareza real
+      // va SIEMPRE primero. Cierra la vía por la que Illustration/Ultra/Double Rare, etc. (holo sin
+      // "holo" en el string) cotizaban al bin fijo barato `['Holo']`.
+      if (isPremiumRarity(rarity)) {
+        return [rarity as string];
+      }
+      // NO premium: se preserva la semántica documentada en ARCHITECTURE §4.2.1 (guarda isHoloRarity):
+      //  - holo de bulk (p. ej. "Rare Holo") → [rarity, "Holo"] (rareza real primero, luego "Holo").
+      //  - Common/Uncommon (no-holo) → ["Holo"] → market holofoil (% ), NO su regla fija $0.50 de bulk
+      //    (una copia holofoil de una común vale un % de su market holofoil, no $0.50). Ver §4.2.1.
       return isHoloRarity(rarity) ? [rarity as string, 'Holo'] : ['Holo'];
     case 'normal':
       return rarity != null ? [rarity] : [];

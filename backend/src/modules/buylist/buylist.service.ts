@@ -73,6 +73,14 @@ export class BuylistService {
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
     // SEC-A1: rareza + acabado derivados server-side (Card.rarity, finish validado), no del cliente.
     const quote = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct);
+    // Fase 0.2: el copy del front promete que un pendiente "entrará a la cola de precio pendiente".
+    // Igual que `createRequest`, encolamos el pendiente del ACABADO cotizado para que la promesa sea
+    // real. `escalatePending` deduplica por (cardId, productType, gradeKey, finish, status='open'),
+    // así que llamar en cada quote es idempotente y NO duplica entradas. SEC-A1 intacto (rareza y
+    // montos siguen derivándose server-side; esto solo escala el trabajo de precio al dueño).
+    if (quote.status === 'precio_pendiente') {
+      await this.pricing.escalatePending(cardId, productType, gradeKey, 'buylist', undefined, f);
+    }
     return {
       rarity: card.rarity ?? null,
       finish: f,
@@ -202,7 +210,16 @@ export class BuylistService {
     const ineProvided = Boolean(
       (ineUploadKeys?.front && ineUploadKeys?.back) || (kyc?.ineFrontKey && kyc?.ineBackKey),
     );
-    const ineRequired = quotedTotalCents >= ineThreshold;
+    // Fase 0.3 (compliance) — cierre del bypass del umbral INE / topes AML vía "precio pendiente".
+    // Un ítem `precio_pendiente` suma 0 a `quotedTotalCents` (base del tope por solicitud, tope
+    // mensual y umbral INE). Sin este control, un cliente podía enviar una carta CARA sin referencia
+    // → suma $0 → no se le exigía INE ni topaba contra los caps AML.
+    // DECISIÓN CONSERVADORA (para validación de seguridad): si la solicitud contiene ≥1 línea
+    // `precio_pendiente`, se EXIGE INE. La incertidumbre del monto se trata como potencialmente por
+    // encima del umbral (el monto real se conocerá al resolver el pendiente, ya con la carta física
+    // y posiblemente por encima del tope). No debilita ningún control existente: solo endurece.
+    const hasPendingLine = itemsData.some((i) => i.itemStatus === 'precio_pendiente');
+    const ineRequired = quotedTotalCents >= ineThreshold || hasPendingLine;
     if (ineRequired && !ineProvided) {
       throw BusinessException.validation('INE_REQUIRED', 'INE required above threshold', {
         thresholdCents: ineThreshold,
