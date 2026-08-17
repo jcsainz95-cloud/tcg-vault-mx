@@ -4,6 +4,86 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-F Pass 2 — Cablear 3 flujos usuario↔admin rotos/sin UI (F4/F5/F6) (2026-08-17)
+
+Cablea tres flujos que existían en backend (+ tipos) pero no en UI o estaban rotos: **pipeline de
+envío admin (F4)**, **responder ajuste de venta (F5)** y **disputas del cliente (F6)**. **SOLO
+`frontend/`** + este doc; **0 cambios de contrato/backend** (todos los endpoints y guardas ya
+existían). TOCA DINERO/estado → triple veredicto. Patrón real+mock de `api.ts` respetado (cada método
+con rama `apiRequest` + rama mock gateadas por `config.useMocks`); `shadow-focus` y tokens intactos.
+Gates verdes: **lint** (0), **tsc** (0), **test 285** (37 files; +18 nuevos), **build** OK.
+
+### F4 · Pipeline de envío admin (`M4View.tsx` + `api.ts`)
+- `api.ts`: `updateAdminShipmentStatus(id, to)` → `PATCH /admin/shipments/:id/status` body `{ to }`.
+  Nuevo `SHIPMENT_TRANSITIONS` exportado = **espejo exacto** de `ShipmentsService.TRANSITIONS`
+  (backend); la rama mock valida la legalidad con esa tabla (transición ilegal → `409 CONFLICT`) y
+  espeja el estado en `mockAdminShipments` (+ `mockShipments` si el id coincide).
+- `M4View`: botones por-estado que ofrecen **solo transiciones legales** vía `MANUAL_TRANSITIONS`
+  (subconjunto): `guia→enviado`, `enviado→entregado` y `→cancelado` según etapa. Se **excluye**
+  `solicitado→picking` (WEBHOOK) y `picking→guia` (lo hace la captura de guía ya existente).
+  Transiciones hacia adelante = botón directo con banner de éxito; `cancelado` = **modal de
+  confirmación** (destructivo). Al éxito invalida `['admin-shipments']` + `['admin-picking-list']`
+  (mismo patrón que la mutación de guía). Error real vía `useErrorMessage`.
+
+### F5 · Responder ajuste de venta (`BuylistView.tsx` + `api.ts`)
+- `api.ts`: `respondSellRequest(id, decision)` → `POST /buylist/requests/:id/respond` body
+  `{ decision }`. El backend devuelve la fila `SellRequest` (sin items); el front solo usa el éxito e
+  invalida `['sell-requests']`. La rama mock espeja el efecto (`ajustada→aprobada` en accept, request
+  `→aprobada`; `→rechazada` en decline) sobre `mockSellRequests` para que el refetch lo refleje.
+- `BuylistView` (Mis solicitudes): `hasAdjustedItems = r.items.some(it => it.itemStatus === 'ajustada')`
+  (detección **item-level**, no request-level). Con true, bloque de ajuste con el **precio ajustado**
+  (`approvedPriceCents` por ítem, con el original tachado) + botones **Aceptar** / **Rechazar** →
+  `respondMutation` → invalida `['sell-requests']`. El precio por-ítem `ajustada` muestra
+  `approvedPriceCents` (vigente) en vez del `quotedPriceCents`.
+
+### F6 · Disputas del cliente (`ShipmentsView.tsx` + `api.ts` + `contract.ts`)
+- `contract.ts`: tipos **cliente** nuevos `CreateDisputeInput`, `CreateDisputeResponse`
+  (`{ disputeId, status, type, deadlineAt, evidenceContact }`) y `ClientDisputeDTO` (fila de
+  GET /disputes; `evidenceContact` opcional porque el listado crudo no lo trae, solo el 201). Distintos
+  del `DisputeDTO` admin ya existente. `ShipmentDTO` gana `deliveredAt?` y el item gana `productType?`
+  (ambos alimentan el UI-gate; el backend `toClientShipment` ya devuelve `deliveredAt`, `productType`
+  es best-effort del mock — ver "Notas para arquitecto").
+- `api.ts`: `createDispute({ inventoryItemId, description })` → `POST /disputes`; `getDisputes()` →
+  `GET /disputes` (unwrap `{data}`); `getDispute(id)` → `GET /disputes/:id`. La rama mock espeja las
+  guardas §7 (graded → `422 NOT_RAW`, fuera de 7d → `422 DISPUTE_WINDOW_CLOSED`), deriva el `type` del
+  productType, y hace `unshift` en `mockClientDisputes`.
+- `ShipmentsView`: en un envío **entregado**, cada ítem elegible ofrece **"Abrir disputa"**
+  (`canOpenDispute`): status `entregado` + ítem no gradeado (si se conoce productType) + dentro de la
+  ventana de 7 días (si hay `deliveredAt`) + sin disputa **activa** (cruce con `getDisputes`, estados
+  `abierta`/`en_revision` → muestra "Disputa abierta" en su lugar). **Modal de creación** con textarea
+  (min 10 chars) → `createDispute`; tras el 201 reutiliza **`DisputeEvidenceContact`** (M8) con el
+  `evidenceContact` + plazo. Sección **"Mis disputas"** (`getDisputes`) con estado + plazo. UI-gate =
+  best-effort para evitar 403/422 como primer feedback; el backend sigue siendo la autoridad.
+
+### Tipos / mocks / i18n
+- `fixtures.ts`: `mockShipments` gana un envío **entregado reciente** (`shp-7002`, `deliveredAt`
+  dinámico a 2d) con un ítem raw elegible + uno graded no elegible; `mockClientDisputes` (lista
+  cliente); `mockSellRequests` gana `sr-3002` con un ítem `ajustada` (+`approvedPriceCents`); export
+  `DISPUTE_EVIDENCE_CONTACT`.
+- i18n (paridad ES/EN): `shipments.dispute.*`, `buylist.adjust.*`, `admin.m4.statusActions.*`. Los
+  códigos `DISPUTE_WINDOW_CLOSED`/`NOT_RAW` ya estaban en el catálogo `error.*` (se reutilizan).
+
+### Tests (+18)
+- `api.test.ts` (+8): rama mock — F4 transición legal/ilegal (409), F5 accept mueve `ajustada→aprobada`,
+  F6 raw ok (type derivado) + graded `NOT_RAW`; rama REAL (fetch stubeado) — F4 `PATCH …/status {to}`,
+  F5 `POST …/respond {decision}`, F6 `POST /disputes {…}` + propaga `DISPUTE_WINDOW_CLOSED`, `GET
+  /disputes` (unwrap data).
+- `M4View.test.tsx` (+3): "Marcar entregado" → PATCH enviado→entregado + banner; "Cancelar" pide
+  confirmación → PATCH →cancelado; envío entregado (terminal) sin botones de transición.
+- `BuylistView.test.tsx` (+3): el bloque de ajuste aparece **solo** con ítems `ajustada`; no aparece
+  sin ellos; "Aceptar ajuste" llama `respondSellRequest(id,'accept')`.
+- `ShipmentsView.test.tsx` (+3): "Abrir disputa" solo en el ítem raw elegible (no graded); fuera de la
+  ventana de 7d no aparece; abrir modal → describir → enviar → `createDispute` + contacto de evidencia.
+
+### Solicitudes al arquitecto
+- **Ninguna bloqueante.** Todos los endpoints/guardas (F4/F5/F6) ya existen en el contrato §M4/§6/§7.
+- **Nota (no bloquea):** `GET /shipments` (listMine) devuelve `ShipmentItem` crudos **sin
+  `productType`** (ni `card`/`folio` garantizados) — solo `GET /shipments/:id` incluye `inventoryItem`.
+  El UI-gate de F6 excluye graded **solo cuando conoce el productType**; si el listado no lo trae, la
+  guarda server-side `NOT_RAW` es la autoridad (se mapea a mensaje amable). Si se quisiera un gate 100%
+  cliente, habría que enriquecer la proyección de `GET /shipments` con `productType`/`deliveredAt` por
+  ítem (solicitud al arquitecto; NO bloquea este WS).
+
 ## WS-F Pass 1 — Flujos de dinero del cliente contra el backend REAL (Stripe) (2026-08-17)
 
 Cablea los flujos de dinero del cliente que eran stubs de demo: **checkout de compra (F1)**,

@@ -273,7 +273,22 @@
     "ineligibleTitle": "Ineligible cards",
     "pipelineTitle": "Shipment status",
     "selectItem": "Select",
-    "payTitle": "Pay shipping"
+    "payTitle": "Pay shipping",
+    "dispute": {
+      "open": "Open dispute",
+      "alreadyOpen": "Dispute open",
+      "myDisputes": "My disputes",
+      "noDisputes": "You have no disputes.",
+      "deadline": "Deadline:",
+      "title": "Open a condition dispute",
+      "done": "Got it",
+      "cancel": "Cancel",
+      "submit": "Open dispute",
+      "descLabel": "Describe the issue",
+      "descPlaceholder": "E.g.: the card arrived with corner wear.",
+      "descHint": "At least 10 characters. Evidence (photos) is sent by email to support after opening the dispute.",
+      "errorTitle": "Could not open the dispute"
+    }
   },
   "buylist": {
     "title": "Sell your cards",
@@ -383,7 +398,15 @@
     "clabeSectionTitle": "Payout account (SPEI)",
     "clabeStoredSelected": "The payment will go to your CLABE on file ({masked}).",
     "clabeUseStored": "Use my CLABE {masked}",
-    "clabeUseAnother": "Use a different CLABE"
+    "clabeUseAnother": "Use a different CLABE",
+    "adjust": {
+      "title": "Proposed price adjustment",
+      "body": "After verification we adjusted the price of one or more cards. Review the new total and accept or decline the adjustment.",
+      "newTotal": "New total (adjusted)",
+      "accept": "Accept adjustment",
+      "decline": "Decline",
+      "error": "We could not record your response. Please try again."
+    }
   },
   "finish": {
     "label": "Finish",
@@ -745,6 +768,15 @@
         "location": "Location",
         "folio": "Folio",
         "shipment": "Shipment"
+      },
+      "statusActions": {
+        "enviado": "Mark shipped",
+        "entregado": "Mark delivered",
+        "cancelado": "Cancel",
+        "changed": "Status updated ({id}).",
+        "cancelTitle": "Cancel shipment",
+        "cancelConfirm": "Cancel shipment",
+        "cancelBody": "Cancel shipment {id}? This action cannot be undone."
       }
     },
     "m5": {

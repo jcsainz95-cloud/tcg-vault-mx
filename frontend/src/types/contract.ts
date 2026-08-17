@@ -413,7 +413,13 @@ export interface ShipmentDTO {
   trackingNumber?: string;
   carrier?: string;
   createdAt: string;
-  items: { inventoryItemId: string; folio: string; card: CardDTO }[];
+  // WS-F F6: fecha de entrega real (backend `toClientShipment.deliveredAt`). Ancla la ventana de
+  // 7 días para abrir una disputa de condición. Presente solo cuando el envío llegó a `entregado`.
+  deliveredAt?: string;
+  // WS-F F6: `productType` por ítem alimenta el UI-gate de disputa (graded NO aplica → 422 NOT_RAW).
+  // Opcional: el listado real de GET /shipments no lo incluye siempre; cuando falta, el backend es la
+  // autoridad (guarda server-side). folio/card también son best-effort (el listado crudo puede omitirlos).
+  items: { inventoryItemId: string; folio: string; card: CardDTO; productType?: ProductType }[];
 }
 
 /**
@@ -704,6 +710,39 @@ export interface DisputeDTO {
     gradeValue?: string;
     certNumber?: string;
   };
+}
+
+// ---- Disputas del CLIENTE (contrato §7) ----
+// WS-F F6. Forma CLIENTE (distinta del DisputeDTO admin): incluye `deadlineAt` (ventana de 7 días)
+// y `evidenceContact` (correo de soporte donde el cliente envía la evidencia, v1.2). El `type` lo
+// deriva server-side del productType del ítem (el cliente NO lo envía).
+export interface CreateDisputeInput {
+  inventoryItemId: string;
+  description: string;
+}
+
+// Respuesta 201 de POST /disputes. `evidenceContact` alimenta el componente DisputeEvidenceContact.
+export interface CreateDisputeResponse {
+  disputeId: string;
+  status: DisputeStatus;
+  type: DisputeType;
+  deadlineAt: string;
+  evidenceContact: string;
+}
+
+// Fila de GET /disputes / GET /disputes/:id (cliente). El listado crudo del backend NO trae
+// `evidenceContact` (solo la creación lo devuelve), por eso es opcional aquí.
+export interface ClientDisputeDTO {
+  id: string;
+  inventoryItemId: string;
+  type?: DisputeType;
+  status: DisputeStatus;
+  description?: string;
+  deadlineAt?: string;
+  evidenceContact?: string;
+  resolution?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
 }
 
 // ---- M2: Catálogo y precios (contrato §M2) ----

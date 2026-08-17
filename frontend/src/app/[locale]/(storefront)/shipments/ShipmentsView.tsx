@@ -1,24 +1,45 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
-import { createShipment, getHoldings, getShipmentQuote, getShipments, listAddresses } from '@/lib/api';
+import {
+  createDispute,
+  createShipment,
+  getDisputes,
+  getHoldings,
+  getShipmentQuote,
+  getShipments,
+  listAddresses,
+} from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { ShipmentCreateResponse } from '@/types/contract';
+import type {
+  CreateDisputeResponse,
+  ShipmentCreateResponse,
+  ShipmentDTO,
+} from '@/types/contract';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
+import { Modal } from '@/components/ui/Modal';
+import { Banner } from '@/components/ui/Banner';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { AddressManager } from '@/components/domain/AddressManager';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
+import { DisputeEvidenceContact } from '@/components/domain/DisputeEvidenceContact';
 import { useShipmentSteps } from '@/lib/pipelines';
+
+/** Ventana de 7 días (desde `entregado`) para abrir disputa (contrato §7). */
+const DISPUTE_WINDOW_MS = 7 * 24 * 3600 * 1000;
+
+/** Item de un envío entregado marcado para disputa (identidad + productType para el UI-gate). */
+type DisputeTargetItem = ShipmentDTO['items'][number];
 
 /**
  * 6h — Selección de cartas liquidadas con casilla y folio; las no elegibles se
@@ -47,9 +68,67 @@ export function ShipmentsView() {
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [reqError, setReqError] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const holdingsQuery = useQuery({ queryKey: ['holdings'], queryFn: getHoldings });
   const shipmentsQuery = useQuery({ queryKey: ['shipments'], queryFn: getShipments });
   const addressesQuery = useQuery({ queryKey: ['addresses'], queryFn: listAddresses });
+  // F6 · Disputas del cliente (contrato §7 · GET /disputes). Cruza contra los envíos entregados
+  // para (a) no ofrecer "Abrir disputa" en un ítem que ya tiene una abierta y (b) listar "Mis disputas".
+  const disputesQuery = useQuery({ queryKey: ['disputes'], queryFn: getDisputes });
+
+  // Ids con disputa ACTIVA (abierta/en_revision): oculta el botón para evitar duplicar.
+  const activeDisputeItemIds = useMemo(
+    () =>
+      new Set(
+        (disputesQuery.data ?? [])
+          .filter((d) => d.status === 'abierta' || d.status === 'en_revision')
+          .map((d) => d.inventoryItemId),
+      ),
+    [disputesQuery.data],
+  );
+
+  // --- Modal de creación de disputa (F6) ---
+  const [disputeItem, setDisputeItem] = useState<DisputeTargetItem | null>(null);
+  const [disputeDesc, setDisputeDesc] = useState('');
+  const [disputeCreated, setDisputeCreated] = useState<CreateDisputeResponse | null>(null);
+
+  const disputeMutation = useMutation({
+    mutationFn: (item: DisputeTargetItem) =>
+      createDispute({ inventoryItemId: item.inventoryItemId, description: disputeDesc.trim() }),
+    onSuccess: (res) => {
+      setDisputeCreated(res);
+      void queryClient.invalidateQueries({ queryKey: ['disputes'] });
+    },
+  });
+
+  function openDispute(item: DisputeTargetItem) {
+    setDisputeItem(item);
+    setDisputeDesc('');
+    setDisputeCreated(null);
+    disputeMutation.reset();
+  }
+  function closeDispute() {
+    setDisputeItem(null);
+    setDisputeDesc('');
+    setDisputeCreated(null);
+  }
+
+  /**
+   * UI-gate de elegibilidad para abrir disputa (contrato §7), para no chocar contra un 403/422 como
+   * primer feedback. El backend sigue siendo la autoridad. Gate: envío `entregado`, dentro de la
+   * ventana de 7 días (si hay `deliveredAt`), ítem NO gradeado (si se conoce el productType), y sin
+   * disputa activa. Cuando falta el dato (`deliveredAt`/`productType`), no bloqueamos por ese eje:
+   * la guarda server-side decide.
+   */
+  function canOpenDispute(shipment: ShipmentDTO, item: DisputeTargetItem): boolean {
+    if (shipment.status !== 'entregado') return false;
+    if (item.productType === 'graded') return false;
+    if (activeDisputeItemIds.has(item.inventoryItemId)) return false;
+    if (shipment.deliveredAt && Date.now() > new Date(shipment.deliveredAt).getTime() + DISPUTE_WINDOW_MS) {
+      return false;
+    }
+    return true;
+  }
 
   const settledItems = useMemo(
     () => (holdingsQuery.data?.data ?? []).filter((h) => h.ownershipStatus === 'settled'),
@@ -249,12 +328,147 @@ export function ShipmentsView() {
                   <div className="mt-5">
                     <PipelineStepper steps={shipmentSteps} current={s.status} />
                   </div>
+                  {/* F6: en un envío ENTREGADO, cada ítem elegible ofrece "Abrir disputa". */}
+                  {s.status === 'entregado' && (s.items?.length ?? 0) > 0 && (
+                    <div className="mt-5">
+                      {s.items.map((it) => {
+                        const eligible = canOpenDispute(s, it);
+                        const disputed = activeDisputeItemIds.has(it.inventoryItemId);
+                        return (
+                          <div
+                            key={it.inventoryItemId}
+                            className="flex items-center justify-between gap-3 border-t border-border py-3 text-sm first:border-t-0"
+                          >
+                            <span className="flex items-center gap-3">
+                              <span className="tabular font-mono text-xs text-muted">{it.folio}</span>
+                              <span lang="en" className="text-text">
+                                {it.card.name}
+                              </span>
+                            </span>
+                            {eligible ? (
+                              <Button size="sm" variant="ghost" onClick={() => openDispute(it)}>
+                                {t('dispute.open')}
+                              </Button>
+                            ) : disputed ? (
+                              <span className="font-mono text-[11px] text-muted">
+                                {t('dispute.alreadyOpen')}
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ))
             )}
           </QueryState>
         </div>
       </section>
+
+      {/* F6: Mis disputas */}
+      <section className="gutter border-t border-border pb-14 pt-10">
+        <h2 className="font-serif text-[20px] leading-tight text-text lg:text-[28px]">
+          {t('dispute.myDisputes')}
+        </h2>
+        <div className="mt-5">
+          <QueryState
+            isLoading={disputesQuery.isLoading}
+            isError={disputesQuery.isError}
+            error={disputesQuery.error}
+            onRetry={() => disputesQuery.refetch()}
+          >
+            {(disputesQuery.data?.length ?? 0) === 0 ? (
+              <EmptyState title={t('dispute.noDisputes')} />
+            ) : (
+              disputesQuery.data!.map((d) => (
+                <div
+                  key={d.id}
+                  className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-4"
+                >
+                  <span className="flex items-center gap-3">
+                    <span className="tabular font-mono text-[13px] text-text">{d.id}</span>
+                    <StatusBadge domain="dispute" value={d.status} />
+                  </span>
+                  {d.deadlineAt && (
+                    <span className="font-mono text-[11px] text-muted">
+                      {t('dispute.deadline')} {new Date(d.deadlineAt).toLocaleDateString(locale)}
+                    </span>
+                  )}
+                </div>
+              ))
+            )}
+          </QueryState>
+        </div>
+      </section>
+
+      {/* F6: modal de creación de disputa */}
+      <Modal
+        open={disputeItem !== null}
+        onClose={closeDispute}
+        title={t('dispute.title')}
+        footer={
+          disputeCreated ? (
+            <Button onClick={closeDispute}>{t('dispute.done')}</Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={closeDispute}>
+                {t('dispute.cancel')}
+              </Button>
+              <Button
+                loading={disputeMutation.isPending}
+                disabled={disputeDesc.trim().length < 10}
+                onClick={() => disputeItem && disputeMutation.mutate(disputeItem)}
+              >
+                {t('dispute.submit')}
+              </Button>
+            </>
+          )
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {disputeItem && (
+            <p className="text-sm text-muted">
+              <span className="tabular font-mono text-xs">{disputeItem.folio}</span>{' '}
+              <span lang="en" className="text-text">
+                {disputeItem.card.name}
+              </span>
+            </p>
+          )}
+          {disputeCreated ? (
+            // Tras el 201: contacto de soporte (evidenceContact) + plazo de la disputa.
+            <div className="flex flex-col gap-3">
+              <DisputeEvidenceContact
+                email={disputeCreated.evidenceContact}
+                reference={disputeCreated.disputeId}
+              />
+              <p className="text-xs text-muted">
+                {t('dispute.deadline')}{' '}
+                {new Date(disputeCreated.deadlineAt).toLocaleDateString(locale)}
+              </p>
+            </div>
+          ) : (
+            <>
+              <label className="flex flex-col">
+                <span className="eyebrow">{t('dispute.descLabel')}</span>
+                <textarea
+                  rows={4}
+                  value={disputeDesc}
+                  onChange={(e) => setDisputeDesc(e.target.value)}
+                  placeholder={t('dispute.descPlaceholder')}
+                  className="mt-3 w-full resize-none border-b border-border-strong bg-transparent pb-3 text-base text-text outline-none placeholder:text-muted focus:border-text focus:shadow-focus"
+                />
+              </label>
+              <p className="font-mono text-[11px] leading-[1.6] text-muted">{t('dispute.descHint')}</p>
+              {disputeMutation.isError && (
+                <Banner variant="danger" role="alert" title={t('dispute.errorTitle')}>
+                  {getMessage(disputeMutation.error)}
+                </Banner>
+              )}
+            </>
+          )}
+        </div>
+      </Modal>
 
       <StripePaymentModal
         open={!!shipment}

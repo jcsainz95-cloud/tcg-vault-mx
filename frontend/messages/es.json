@@ -273,7 +273,22 @@
     "ineligibleTitle": "Cartas no elegibles",
     "pipelineTitle": "Estado del envío",
     "selectItem": "Seleccionar",
-    "payTitle": "Pagar envío"
+    "payTitle": "Pagar envío",
+    "dispute": {
+      "open": "Abrir disputa",
+      "alreadyOpen": "Disputa abierta",
+      "myDisputes": "Mis disputas",
+      "noDisputes": "No tienes disputas.",
+      "deadline": "Plazo:",
+      "title": "Abrir disputa de condición",
+      "done": "Entendido",
+      "cancel": "Cancelar",
+      "submit": "Abrir disputa",
+      "descLabel": "Describe el problema",
+      "descPlaceholder": "Ej.: la carta llegó con desgaste en una esquina.",
+      "descHint": "Mínimo 10 caracteres. La evidencia (fotos) se envía por correo a soporte tras abrir la disputa.",
+      "errorTitle": "No se pudo abrir la disputa"
+    }
   },
   "buylist": {
     "title": "Vende tus cartas",
@@ -383,7 +398,15 @@
     "clabeSectionTitle": "Cuenta de pago (SPEI)",
     "clabeStoredSelected": "El pago irá a tu CLABE registrada ({masked}).",
     "clabeUseStored": "Usar mi CLABE {masked}",
-    "clabeUseAnother": "Usar otra CLABE"
+    "clabeUseAnother": "Usar otra CLABE",
+    "adjust": {
+      "title": "Ajuste de precio propuesto",
+      "body": "Tras la verificación ajustamos el precio de una o más cartas. Revisa el nuevo total y acepta o rechaza el ajuste.",
+      "newTotal": "Nuevo total (ajustado)",
+      "accept": "Aceptar ajuste",
+      "decline": "Rechazar",
+      "error": "No se pudo registrar tu respuesta. Intenta de nuevo."
+    }
   },
   "finish": {
     "label": "Acabado",
@@ -745,6 +768,15 @@
         "location": "Ubicación",
         "folio": "Folio",
         "shipment": "Envío"
+      },
+      "statusActions": {
+        "enviado": "Marcar enviado",
+        "entregado": "Marcar entregado",
+        "cancelado": "Cancelar",
+        "changed": "Estado actualizado ({id}).",
+        "cancelTitle": "Cancelar envío",
+        "cancelConfirm": "Cancelar envío",
+        "cancelBody": "¿Cancelar el envío {id}? Esta acción no se puede revertir."
       }
     },
     "m5": {

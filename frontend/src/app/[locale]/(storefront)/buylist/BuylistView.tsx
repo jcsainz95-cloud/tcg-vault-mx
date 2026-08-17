@@ -1,9 +1,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { batchQuote, getBuylistQuote, getSellRequests, listBuylistSets, searchBuylistCards } from '@/lib/api';
+import {
+  batchQuote,
+  getBuylistQuote,
+  getSellRequests,
+  listBuylistSets,
+  respondSellRequest,
+  searchBuylistCards,
+} from '@/lib/api';
 import type {
   ProductType,
   CardDTO,
@@ -391,6 +398,16 @@ export function BuylistView() {
   );
 
   const requests = useQuery({ queryKey: ['sell-requests'], queryFn: getSellRequests });
+
+  // F5 · Responder un AJUSTE de venta (contrato §6 · POST /buylist/requests/:id/respond).
+  // El cliente acepta/rechaza el precio ajustado por el admin; al éxito refresca la lista.
+  const respondMutation = useMutation({
+    mutationFn: ({ id, decision }: { id: string; decision: 'accept' | 'decline' }) =>
+      respondSellRequest(id, decision),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
+    },
+  });
 
   return (
     <div className="grid lg:grid-cols-[40px_1fr]">
@@ -881,6 +898,15 @@ export function BuylistView() {
               ) : (
                 requests.data!.map((r) => {
                   const hasPendingItems = r.items.some((it) => it.quotedPriceCents == null);
+                  // F5: `ajustada` es item-level (no request-level) → se detecta por ítem.
+                  const adjustedItems = r.items.filter((it) => it.itemStatus === 'ajustada');
+                  const hasAdjustedItems = adjustedItems.length > 0;
+                  const adjustedTotalCents = adjustedItems.reduce(
+                    (s, it) => s + (it.approvedPriceCents ?? 0),
+                    0,
+                  );
+                  const responding =
+                    respondMutation.isPending && respondMutation.variables?.id === r.sellRequestId;
                   return (
                     <div key={r.sellRequestId} className="border-t border-border py-6">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -911,8 +937,21 @@ export function BuylistView() {
                               {it.card.name}
                             </span>
                             <span className="flex items-center gap-4">
-                              {/* Honesto: sin cotización NO se muestra MX$0.00. */}
-                              {it.quotedPriceCents == null ? (
+                              {/* Ajustada: el precio vigente es el ajustado (approvedPriceCents),
+                                  con el original tachado para que el cliente compare. */}
+                              {it.itemStatus === 'ajustada' && it.approvedPriceCents != null ? (
+                                <span className="flex items-center gap-2">
+                                  {it.quotedPriceCents != null && (
+                                    <span className="tabular text-[11px] text-muted line-through">
+                                      {formatMoneyCents(it.quotedPriceCents, locale)}
+                                    </span>
+                                  )}
+                                  <span className="tabular font-medium text-text">
+                                    {formatMoneyCents(it.approvedPriceCents, locale)}
+                                  </span>
+                                </span>
+                              ) : it.quotedPriceCents == null ? (
+                                /* Honesto: sin cotización NO se muestra MX$0.00. */
                                 <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
                               ) : (
                                 <span className="tabular text-muted">
@@ -924,6 +963,53 @@ export function BuylistView() {
                           </div>
                         ))}
                       </div>
+
+                      {/* F5: bloque de respuesta al AJUSTE — visible solo con ítems `ajustada`. */}
+                      {hasAdjustedItems && (
+                        <div className="mt-5 border border-accent/40 bg-accent/5 p-4">
+                          <p className="eyebrow text-accent">{t('adjust.title')}</p>
+                          <p className="mt-2 text-[13px] leading-[1.6] text-text">
+                            {t('adjust.body')}
+                          </p>
+                          <p className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                            <span className="text-muted">{t('adjust.newTotal')}</span>
+                            <span className="tabular font-medium text-text">
+                              {formatMoneyCents(adjustedTotalCents, locale)}
+                            </span>
+                          </p>
+                          {respondMutation.isError &&
+                            respondMutation.variables?.id === r.sellRequestId && (
+                              <p role="alert" className="mt-3 font-mono text-[11px] text-accent">
+                                {t('adjust.error')}
+                              </p>
+                            )}
+                          <div className="mt-4 flex gap-3">
+                            <Button
+                              size="sm"
+                              loading={responding && respondMutation.variables?.decision === 'accept'}
+                              disabled={responding}
+                              onClick={() =>
+                                respondMutation.mutate({ id: r.sellRequestId, decision: 'accept' })
+                              }
+                            >
+                              {t('adjust.accept')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-accent"
+                              loading={responding && respondMutation.variables?.decision === 'decline'}
+                              disabled={responding}
+                              onClick={() =>
+                                respondMutation.mutate({ id: r.sellRequestId, decision: 'decline' })
+                              }
+                            >
+                              {t('adjust.decline')}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
                       {hasPendingItems && (
                         <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">
                           {t('requestPendingNote')}

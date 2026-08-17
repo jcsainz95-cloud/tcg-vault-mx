@@ -29,6 +29,7 @@ import type {
   SellRequestDTO,
   ShipmentDTO,
   ShipmentQuoteResponse,
+  ShipmentStatus,
   ShipmentTrackingRequest,
   DashboardDTO,
   InventoryItemDTO,
@@ -46,7 +47,11 @@ import type {
   ResolveDisputeInput,
   SellItemDTO,
   SellItemStatus,
+  SellRequestStatus,
   DisputeDTO,
+  CreateDisputeInput,
+  CreateDisputeResponse,
+  ClientDisputeDTO,
   ProductType,
   RawCondition,
   SealedSubtype,
@@ -587,6 +592,55 @@ export async function saveShipmentTracking(
   throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
 }
 
+/**
+ * Transiciones LEGALES de estado de envío — espejo EXACTO de `ShipmentsService.TRANSITIONS`
+ * (backend). Fuente única para (a) validar la legalidad en la rama mock y (b) que M4View
+ * ofrezca solo transiciones válidas. `solicitado→picking` es por WEBHOOK y `picking→guia` va por
+ * la captura de guía; la UI decide cuáles exponer como botón MANUAL (ver M4View).
+ */
+export const SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
+  solicitado: ['picking', 'cancelado'],
+  picking: ['guia', 'cancelado'],
+  guia: ['enviado', 'cancelado'],
+  enviado: ['entregado'],
+  entregado: [],
+  cancelado: [],
+};
+
+/**
+ * Cambio de estado MANUAL de un envío (contrato §M4 · PATCH /admin/shipments/:id/status,
+ * `vault_operator+`). Body `{ to }`. El backend solo acepta una transición LEGAL de la tabla
+ * TRANSITIONS (una ilegal → `409 CONFLICT`). Al éxito, M4 invalida `['admin-shipments']` y
+ * `['admin-picking-list']`.
+ */
+export async function updateAdminShipmentStatus(
+  id: string,
+  to: ShipmentStatus,
+): Promise<AdminShipmentDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminShipmentDTO>(`/admin/shipments/${id}/status`, {
+      method: 'PATCH',
+      body: { to },
+    });
+  }
+  // MOCK: espeja la tabla TRANSITIONS del backend (transición ilegal → 409 CONFLICT).
+  const idx = fx.mockAdminShipments.findIndex((s) => s.id === id);
+  if (idx < 0) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
+  const current = fx.mockAdminShipments[idx].status;
+  const allowed = SHIPMENT_TRANSITIONS[current] ?? [];
+  if (!allowed.includes(to)) {
+    throw new ApiClientError(409, {
+      code: 'CONFLICT',
+      message: `Invalid transition ${current} -> ${to}`,
+    });
+  }
+  fx.mockAdminShipments[idx] = { ...fx.mockAdminShipments[idx], status: to };
+  // Espeja el estado también en "mis envíos" (mockShipments) si el mismo id existe ahí.
+  const mine = fx.mockShipments.findIndex((s) => s.id === id);
+  if (mine >= 0) fx.mockShipments[mine] = { ...fx.mockShipments[mine], status: to };
+  return delay({ ...fx.mockAdminShipments[idx] });
+}
+
 // ---------- Buylist ----------
 // ---------- Cotizador · búsqueda sobre TODO el catálogo (contrato §6, v1.3) ----------
 /**
@@ -823,6 +877,115 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     items,
     createdAt: new Date().toISOString(),
   });
+}
+
+/**
+ * Responde a un AJUSTE de venta propuesto por el admin (contrato §6 · POST
+ * /buylist/requests/:id/respond, `customer`). Body `{ decision }`. `accept` mueve los ítems
+ * `ajustada → aprobada` (request → `aprobada`) y limpia el plazo de 7 días; `decline` → `rechazada`.
+ * Plazo: 7 días sin respuesta → `rechazada` (job del backend). El front invalida `['sell-requests']`.
+ * El backend devuelve la fila `SellRequest` actualizada (sin items); el front solo la usa para saber
+ * que tuvo éxito y re-consulta la lista.
+ */
+export async function respondSellRequest(
+  id: string,
+  decision: 'accept' | 'decline',
+): Promise<{ id: string; status: SellRequestStatus }> {
+  if (!config.useMocks) {
+    return apiRequest<{ id: string; status: SellRequestStatus }>(
+      `/buylist/requests/${id}/respond`,
+      { method: 'POST', body: { decision } },
+    );
+  }
+  // MOCK: espeja el efecto del backend sobre la solicitud en memoria (para que el refetch la refleje).
+  const req = fx.mockSellRequests.find((r) => r.sellRequestId === id);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  if (decision === 'decline') {
+    req.status = 'rechazada';
+    req.items = req.items.map((it) =>
+      it.itemStatus === 'ajustada' ? { ...it, itemStatus: 'rechazada' } : it,
+    );
+  } else {
+    req.items = req.items.map((it) =>
+      it.itemStatus === 'ajustada' ? { ...it, itemStatus: 'aprobada' } : it,
+    );
+    req.status = 'aprobada';
+  }
+  return delay({ id: req.sellRequestId, status: req.status });
+}
+
+// ---------- Disputas del cliente (contrato §7) ----------
+/**
+ * Abre una disputa de CONDICIÓN sobre un ítem entregado (contrato §7 · POST /disputes, `customer`).
+ * El `type` (condition_raw | condition_sealed) lo deriva el backend del `productType` del ítem (el
+ * cliente NO lo envía); graded → `422 NOT_RAW`. Ventana de 7 días desde la entrega → fuera de plazo
+ * `422 DISPUTE_WINDOW_CLOSED`; ítem ajeno → `403`. La evidencia va por CORREO a soporte
+ * (`evidenceContact`, v1.2 — no hay subida de archivos). Res 201 `CreateDisputeResponse`.
+ */
+export async function createDispute(input: CreateDisputeInput): Promise<CreateDisputeResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CreateDisputeResponse>('/disputes', { method: 'POST', body: input });
+  }
+  // MOCK: espeja las guardas del backend (§7). Localiza el ítem en los envíos del usuario para
+  // derivar productType/type y anclar la ventana a la entrega.
+  const shipItem = fx.mockShipments
+    .flatMap((s) => (s.items ?? []).map((it) => ({ item: it, shipment: s })))
+    .find((x) => x.item.inventoryItemId === input.inventoryItemId);
+  const productType = shipItem?.item.productType;
+  if (productType === 'graded') {
+    throw new ApiClientError(422, {
+      code: 'NOT_RAW',
+      message: 'Disputes apply only to raw/sealed items',
+    });
+  }
+  const deliveredAt = shipItem?.shipment.deliveredAt;
+  const now = Date.now();
+  const WINDOW_MS = 7 * 24 * 3600 * 1000;
+  if (deliveredAt && now > new Date(deliveredAt).getTime() + WINDOW_MS) {
+    throw new ApiClientError(422, {
+      code: 'DISPUTE_WINDOW_CLOSED',
+      message: 'Dispute window (7d) closed',
+    });
+  }
+  const type = productType === 'sealed' ? 'condition_sealed' : 'condition_raw';
+  const deadlineAt = new Date(
+    (deliveredAt ? new Date(deliveredAt).getTime() : now) + WINDOW_MS,
+  ).toISOString();
+  const dispute: ClientDisputeDTO = {
+    id: `dsp-new-${Math.floor(Math.random() * 9000 + 1000)}`,
+    inventoryItemId: input.inventoryItemId,
+    type,
+    status: 'abierta',
+    description: input.description,
+    deadlineAt,
+    createdAt: new Date().toISOString(),
+  };
+  // Refleja la nueva disputa en "Mis disputas" (para que el refetch la muestre).
+  fx.mockClientDisputes.unshift(dispute);
+  return delay({
+    disputeId: dispute.id,
+    status: 'abierta',
+    type,
+    deadlineAt,
+    evidenceContact: fx.DISPUTE_EVIDENCE_CONTACT,
+  });
+}
+
+/** Lista de disputas propias del cliente (contrato §7 · GET /disputes → { data }). */
+export async function getDisputes(): Promise<ClientDisputeDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ data: ClientDisputeDTO[] }>('/disputes');
+    return res.data;
+  }
+  return delay([...fx.mockClientDisputes]);
+}
+
+/** Detalle de una disputa propia (contrato §7 · GET /disputes/:id). */
+export async function getDispute(id: string): Promise<ClientDisputeDTO> {
+  if (!config.useMocks) return apiRequest<ClientDisputeDTO>(`/disputes/${id}`);
+  const found = fx.mockClientDisputes.find((d) => d.id === id);
+  if (!found) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Dispute not found' });
+  return delay(found);
 }
 
 // ---------- KYC (contrato §1) ----------

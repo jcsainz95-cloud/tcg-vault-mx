@@ -72,3 +72,62 @@ describe('M4View · Retiros / envíos (cola admin)', () => {
     expect(await screen.findByText('Guía guardada para shp-7002.')).toBeInTheDocument();
   });
 });
+
+describe('M4View · cambio de estado manual (F4)', () => {
+  it('shp-7001 (enviado) ofrece "Marcar entregado" → PATCH status enviado→entregado', async () => {
+    const spy = vi
+      .spyOn(api, 'updateAdminShipmentStatus')
+      .mockResolvedValue({ id: 'shp-7001', status: 'entregado' });
+    renderWithProviders(<M4View />, 'es');
+    await screen.findByText('shp-7001');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Marcar entregado' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('shp-7001', 'entregado'));
+    expect(await screen.findByText('Estado actualizado (shp-7001).')).toBeInTheDocument();
+  });
+
+  it('cancelar pide confirmación y hace PATCH status →cancelado', async () => {
+    const spy = vi
+      .spyOn(api, 'updateAdminShipmentStatus')
+      .mockResolvedValue({ id: 'shp-7003', status: 'cancelado' });
+    renderWithProviders(<M4View />, 'es');
+    await screen.findByText('shp-7003');
+
+    // Botones "Cancelar" (ghost) por-envío: shp-7002 (picking) y shp-7003 (solicitado).
+    const cancelButtons = screen.getAllByRole('button', { name: 'Cancelar' });
+    fireEvent.click(cancelButtons[cancelButtons.length - 1]); // shp-7003
+
+    const dialog = await screen.findByRole('dialog', { name: 'Cancelar envío' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar envío' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('shp-7003', 'cancelado'));
+  });
+
+  it('no ofrece transiciones manuales en un envío entregado (terminal)', async () => {
+    const spy = vi.spyOn(api, 'updateAdminShipmentStatus');
+    // Fuerza la cola a un único envío entregado (terminal).
+    vi.spyOn(api, 'getAdminShipments').mockResolvedValue({
+      data: [
+        {
+          id: 'shp-done',
+          userId: 'u-1',
+          status: 'entregado',
+          carrier: 'Estafeta',
+          trackingNumber: '111',
+          requestedAt: '2026-08-10T10:00:00Z',
+          items: [{ inventoryItemId: 'inv-1' }],
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    renderWithProviders(<M4View />, 'es');
+    await screen.findByText('shp-done');
+
+    expect(screen.queryByRole('button', { name: 'Marcar entregado' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancelar' })).not.toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+  });
+});

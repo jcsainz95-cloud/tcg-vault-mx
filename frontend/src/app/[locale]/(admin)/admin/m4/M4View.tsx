@@ -3,7 +3,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { getAdminShipments, getAdminPickingList, saveShipmentTracking } from '@/lib/api';
+import {
+  getAdminShipments,
+  getAdminPickingList,
+  saveShipmentTracking,
+  updateAdminShipmentStatus,
+} from '@/lib/api';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
@@ -41,6 +46,19 @@ const STATUS_FILTERS: ShipmentStatus[] = [
   'entregado',
   'cancelado',
 ];
+
+/**
+ * Transiciones MANUALES ofrecidas como botón por estado (subconjunto de la tabla legal del backend,
+ * `SHIPMENT_TRANSITIONS`). Se EXCLUYE `solicitado→picking` (lo dispara el WEBHOOK de pago) y
+ * `picking→guia` (lo hace la captura de guía). Quedan `guia→enviado`, `enviado→entregado` y
+ * `→cancelado` según la etapa. `entregado`/`cancelado` son terminales (sin acciones).
+ */
+const MANUAL_TRANSITIONS: Partial<Record<ShipmentStatus, ShipmentStatus[]>> = {
+  solicitado: ['cancelado'],
+  picking: ['cancelado'],
+  guia: ['enviado', 'cancelado'],
+  enviado: ['entregado'],
+};
 
 export function M4View() {
   const t = useTranslations('admin.m4');
@@ -89,6 +107,27 @@ export function M4View() {
     },
   });
 
+  // --- Cambio de estado manual (contrato §M4 · PATCH /admin/shipments/:id/status) ---
+  const [statusChanged, setStatusChanged] = useState<string | null>(null);
+  // `cancelado` es destructivo → confirma antes; las transiciones hacia adelante son directas.
+  const [cancelTarget, setCancelTarget] = useState<AdminShipmentDTO | null>(null);
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, to }: { id: string; to: ShipmentStatus }) =>
+      updateAdminShipmentStatus(id, to),
+    onSuccess: (_d, vars) => {
+      void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
+      void qc.invalidateQueries({ queryKey: ['admin-picking-list'] });
+      setStatusChanged(vars.id);
+      setCancelTarget(null);
+    },
+  });
+
+  function changeStatus(id: string, to: ShipmentStatus) {
+    setStatusChanged(null);
+    statusMutation.mutate({ id, to });
+  }
+
   function openTracking(s: AdminShipmentDTO) {
     setTrackingTarget(s);
     setCarrierValue(s.carrier ?? '');
@@ -134,6 +173,16 @@ export function M4View() {
             {t('tracking.saved', { id: trackingSaved })}
           </Banner>
         )}
+        {statusChanged && (
+          <Banner variant="success" role="status">
+            {t('statusActions.changed', { id: statusChanged })}
+          </Banner>
+        )}
+        {statusMutation.isError && !cancelTarget && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+            {getError(statusMutation.error)}
+          </Banner>
+        )}
         <QueryState
           isLoading={shipments.isLoading}
           isError={shipments.isError}
@@ -156,11 +205,39 @@ export function M4View() {
                       </span>
                     )}
                   </div>
-                  {s.status !== 'cancelado' && s.status !== 'entregado' && (
-                    <Button size="sm" variant="secondary" onClick={() => openTracking(s)}>
-                      {t('tracking.capture')}
-                    </Button>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {s.status !== 'cancelado' && s.status !== 'entregado' && (
+                      <Button size="sm" variant="secondary" onClick={() => openTracking(s)}>
+                        {t('tracking.capture')}
+                      </Button>
+                    )}
+                    {(MANUAL_TRANSITIONS[s.status] ?? []).map((to) =>
+                      to === 'cancelado' ? (
+                        <Button
+                          key={to}
+                          size="sm"
+                          variant="ghost"
+                          className="text-accent"
+                          onClick={() => setCancelTarget(s)}
+                        >
+                          {t('statusActions.cancelado')}
+                        </Button>
+                      ) : (
+                        <Button
+                          key={to}
+                          size="sm"
+                          loading={
+                            statusMutation.isPending &&
+                            statusMutation.variables?.id === s.id &&
+                            statusMutation.variables?.to === to
+                          }
+                          onClick={() => changeStatus(s.id, to)}
+                        >
+                          {t(`statusActions.${to}`)}
+                        </Button>
+                      ),
+                    )}
+                  </div>
                 </div>
                 {(s.carrier || s.trackingNumber) && (
                   <p className="text-sm text-muted">
@@ -251,6 +328,39 @@ export function M4View() {
           {trackingMutation.isError && (
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>
               {getError(trackingMutation.error)}
+            </Banner>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={cancelTarget !== null}
+        onClose={() => setCancelTarget(null)}
+        title={t('statusActions.cancelTitle')}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCancelTarget(null)}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              variant="accent"
+              loading={statusMutation.isPending}
+              onClick={() => cancelTarget && changeStatus(cancelTarget.id, 'cancelado')}
+            >
+              {t('statusActions.cancelConfirm')}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {cancelTarget && (
+            <p className="text-sm text-muted">
+              {t('statusActions.cancelBody', { id: cancelTarget.id })}
+            </p>
+          )}
+          {statusMutation.isError && cancelTarget && (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+              {getError(statusMutation.error)}
             </Banner>
           )}
         </div>

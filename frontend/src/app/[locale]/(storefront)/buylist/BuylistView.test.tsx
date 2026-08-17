@@ -483,6 +483,105 @@ describe('BuylistView · Mis solicitudes (pendiente honesto)', () => {
 });
 
 /**
+ * F5 · Responder ajuste de venta. El bloque de aceptar/rechazar aparece SOLO cuando hay ítems
+ * `ajustada` (item-level), y "Aceptar" llama a respondSellRequest(id,'accept').
+ */
+describe('BuylistView · responder ajuste (F5)', () => {
+  const adjustedCard: CardDTO = {
+    id: 'c-charizard',
+    externalId: 'base1-4',
+    name: 'Charizard',
+    number: '4',
+    rarity: 'Rare Holo',
+    supertype: 'Pokémon',
+    subtypes: [],
+    setId: 'base1',
+    setName: 'Base Set',
+    imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
+    imageLargeUrl: 'https://images.pokemontcg.io/base1/4_hires.png',
+    availableFinishes: ['holofoil'],
+  };
+
+  function withAdjustedRequest() {
+    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
+      {
+        sellRequestId: 'sr-adj-1',
+        status: 'verificacion',
+        quotedTotalCents: 60000,
+        ineRequired: false,
+        createdAt: '2026-08-15T10:00:00Z',
+        items: [
+          {
+            id: 'sri-adj-1',
+            card: adjustedCard,
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: 'holofoil',
+            rarity: 'Rare Holo',
+            quotedPriceCents: 60000,
+            approvedPriceCents: 45000,
+            itemStatus: 'ajustada',
+          },
+        ],
+      },
+    ]);
+  }
+
+  it('el bloque de ajuste aparece solo con ítems `ajustada` y muestra el precio ajustado', async () => {
+    asVerifiedCustomer();
+    withAdjustedRequest();
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(await screen.findByText('sr-adj-1')).toBeInTheDocument();
+    expect(screen.getByText('Ajuste de precio propuesto')).toBeInTheDocument();
+    // El precio ajustado (MX$450.00) se muestra; el original queda tachado.
+    expect(screen.getByText('Aceptar ajuste')).toBeInTheDocument();
+    expect(screen.getByText('Rechazar')).toBeInTheDocument();
+  });
+
+  it('el bloque NO aparece cuando ningún ítem está `ajustada`', async () => {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
+      {
+        sellRequestId: 'sr-plain-1',
+        status: 'verificacion',
+        quotedTotalCents: 50000,
+        ineRequired: false,
+        createdAt: '2026-08-15T10:00:00Z',
+        items: [
+          {
+            id: 'sri-1',
+            card: adjustedCard,
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: 'holofoil',
+            rarity: 'Rare Holo',
+            quotedPriceCents: 50000,
+            itemStatus: 'verificacion',
+          },
+        ],
+      },
+    ]);
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(await screen.findByText('sr-plain-1')).toBeInTheDocument();
+    expect(screen.queryByText('Ajuste de precio propuesto')).not.toBeInTheDocument();
+  });
+
+  it('"Aceptar ajuste" llama respondSellRequest(id, "accept")', async () => {
+    asVerifiedCustomer();
+    withAdjustedRequest();
+    const spy = vi
+      .spyOn(api, 'respondSellRequest')
+      .mockResolvedValue({ id: 'sr-adj-1', status: 'aprobada' });
+    renderWithProviders(<BuylistView />, 'es');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Aceptar ajuste' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-adj-1', 'accept'));
+  });
+});
+
+/**
  * Gating de requisitos de cuenta para VENDER (guards del contrato §6: JwtAuthGuard →
  * RolesGuard → EmailVerifiedGuard). El usuario debe saber QUÉ le falta ANTES de llenar
  * todo; el bloqueo autoritativo sigue siendo server-side. (P-11)

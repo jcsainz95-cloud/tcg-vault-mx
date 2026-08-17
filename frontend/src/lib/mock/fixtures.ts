@@ -26,6 +26,7 @@ import type {
   AdminShipmentDTO,
   PickingListEntryDTO,
   DisputeDTO,
+  ClientDisputeDTO,
   ShipmentDTO,
   AddressDTO,
   CatalogFacetsDTO,
@@ -501,6 +502,18 @@ export const mockSellRequests: SellRequestDTO[] = [
       { id: 'sri-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', appliedRule: { mode: 'fixed', value: 150, source: 'rule' }, quotedPriceCents: 150, itemStatus: 'recibida' },
     ],
   },
+  // WS-F F5: solicitud con un ítem AJUSTADO (approvedPriceCents < quotedPriceCents) para ejercer el
+  // bloque "Responder ajuste" (aceptar/rechazar). `ajustada` es item-level, no request-level.
+  {
+    sellRequestId: 'sr-3002',
+    status: 'verificacion',
+    quotedTotalCents: 60000,
+    ineRequired: false,
+    createdAt: '2026-08-13T14:00:00Z',
+    items: [
+      { id: 'sri-adj-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', appliedRule: { mode: 'pct', value: 40, source: 'fallback' }, quotedPriceCents: 60000, approvedPriceCents: 45000, itemStatus: 'ajustada' },
+    ],
+  },
 ];
 
 /** KYC del comprador (contrato GET /users/me/kyc). CLABE enmascarada; INE aún no en archivo. */
@@ -535,6 +548,9 @@ export const mockAddresses: AddressDTO[] = [
   },
 ];
 
+/** ISO de hace `n` días (para anclar la ventana de disputa a una entrega reciente). */
+const daysAgoIso = (n: number): string => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
+
 export const mockShipments: ShipmentDTO[] = [
   {
     id: 'shp-7001',
@@ -542,7 +558,24 @@ export const mockShipments: ShipmentDTO[] = [
     carrier: 'Estafeta',
     trackingNumber: '1234567890',
     createdAt: '2026-08-11T10:00:00Z',
-    items: [{ inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise') }],
+    items: [
+      { inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise'), productType: 'raw' },
+    ],
+  },
+  // WS-F F6: envío ENTREGADO reciente → habilita "Abrir disputa" en el ítem raw elegible; el ítem
+  // graded queda fuera (el backend responde 422 NOT_RAW). deliveredAt dinámico (2d) = dentro de la
+  // ventana de 7 días para que la demo/tests siempre muestren un ítem elegible.
+  {
+    id: 'shp-7002',
+    status: 'entregado',
+    carrier: 'Estafeta',
+    trackingNumber: '9988776655',
+    createdAt: '2026-08-09T10:00:00Z',
+    deliveredAt: daysAgoIso(2),
+    items: [
+      { inventoryItemId: 'inv-1003', folio: 'INV-000103', card: cardById('c-charizard'), productType: 'raw' },
+      { inventoryItemId: 'inv-1006', folio: 'INV-000106', card: cardById('c-latias-sir'), productType: 'graded' },
+    ],
   },
 ];
 
@@ -735,6 +768,21 @@ export const mockAdminOrders: AdminOrderDTO[] = [
 // MOCK: evidenceContact viene de la API (contrato §7/§M8). El correo es el placeholder
 // del contrato (soporte@tcgvaultmx.com, por confirmar por el humano); NO se hardcodea en la UI.
 const EVIDENCE_CONTACT = 'soporte@tcgvaultmx.com';
+/** Correo de soporte que devuelve el backend en el 201 de POST /disputes (contrato §7). */
+export const DISPUTE_EVIDENCE_CONTACT = EVIDENCE_CONTACT;
+
+// WS-F F6: disputas del CLIENTE (GET /disputes). Mutable: createDispute (rama mock) le hace unshift.
+export const mockClientDisputes: ClientDisputeDTO[] = [
+  {
+    id: 'dsp-5001',
+    inventoryItemId: 'inv-1002',
+    type: 'condition_raw',
+    status: 'en_revision',
+    description: 'Corner wear on the card edge, reported after delivery.',
+    deadlineAt: '2026-08-19T16:00:00Z',
+    createdAt: '2026-08-12T16:00:00Z',
+  },
+];
 
 export const mockDisputes: DisputeDTO[] = [
   {

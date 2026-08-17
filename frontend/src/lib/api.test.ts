@@ -20,6 +20,11 @@ import {
   createAddress,
   updateAddress,
   deleteAddress,
+  updateAdminShipmentStatus,
+  respondSellRequest,
+  createDispute,
+  getDisputes,
+  getSellRequests,
 } from './api';
 import { getToken, setToken } from './api-client';
 import { config } from './config';
@@ -314,6 +319,50 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
   });
 });
 
+describe('api (rama mock) · WS-F Pass 2 (F4/F5/F6)', () => {
+  it('F4 · updateAdminShipmentStatus permite la transición legal y devuelve el nuevo estado', async () => {
+    // shp-7001 está en `enviado`; enviado→entregado es legal (tabla TRANSITIONS).
+    const res = await updateAdminShipmentStatus('shp-7001', 'entregado');
+    expect(res.status).toBe('entregado');
+  });
+
+  it('F4 · updateAdminShipmentStatus rechaza una transición ilegal con 409 CONFLICT', async () => {
+    // shp-7002 está en `entregado` (terminal): cualquier transición es ilegal.
+    await expect(updateAdminShipmentStatus('shp-7002', 'picking')).rejects.toMatchObject({
+      code: 'CONFLICT',
+      status: 409,
+    });
+  });
+
+  it('F5 · respondSellRequest accept mueve los ítems `ajustada` → `aprobada`', async () => {
+    const res = await respondSellRequest('sr-3002', 'accept');
+    expect(res.status).toBe('aprobada');
+    const list = await getSellRequests();
+    const req = list.find((r) => r.sellRequestId === 'sr-3002')!;
+    expect(req.items.every((it) => it.itemStatus !== 'ajustada')).toBe(true);
+    expect(req.items.some((it) => it.itemStatus === 'aprobada')).toBe(true);
+  });
+
+  it('F6 · createDispute abre disputa sobre ítem raw entregado (type derivado server-side)', async () => {
+    // inv-1003 (Charizard raw) va en el envío entregado shp-7002 (dentro de ventana).
+    const res = await createDispute({ inventoryItemId: 'inv-1003', description: 'Corner wear on arrival' });
+    expect(res.disputeId).toMatch(/^dsp-/);
+    expect(res.status).toBe('abierta');
+    expect(res.type).toBe('condition_raw');
+    expect(res.evidenceContact).toContain('@');
+    // Aparece en "Mis disputas".
+    const disputes = await getDisputes();
+    expect(disputes.some((d) => d.inventoryItemId === 'inv-1003')).toBe(true);
+  });
+
+  it('F6 · createDispute rechaza un ítem GRADEADO con 422 NOT_RAW', async () => {
+    // inv-1006 (Latias graded) va en shp-7002 → no aplica disputa de condición.
+    await expect(
+      createDispute({ inventoryItemId: 'inv-1006', description: 'anything' }),
+    ).rejects.toMatchObject({ code: 'NOT_RAW', status: 422 });
+  });
+});
+
 // ---- WS-F · rama REAL (fetch stubeado, config.useMocks=false) ----
 describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -409,5 +458,65 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     fetchMock.mockResolvedValueOnce(makeRes(204, {}));
     await deleteAddress('a2');
     expect(fetchMock.mock.calls[3][1].method).toBe('DELETE');
+  });
+
+  it('F4 · updateAdminShipmentStatus → PATCH /admin/shipments/:id/status body { to }', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { id: 'shp-1', status: 'enviado' }));
+    const res = await updateAdminShipmentStatus('shp-1', 'enviado');
+    expect(res.status).toBe('enviado');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/admin/shipments/shp-1/status');
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual({ to: 'enviado' });
+  });
+
+  it('F5 · respondSellRequest → POST /buylist/requests/:id/respond body { decision }', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { id: 'sr-1', status: 'aprobada' }));
+    const res = await respondSellRequest('sr-1', 'accept');
+    expect(res.status).toBe('aprobada');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/buylist/requests/sr-1/respond');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ decision: 'accept' });
+  });
+
+  it('F6 · createDispute → POST /disputes { inventoryItemId, description }; propaga 422 DISPUTE_WINDOW_CLOSED', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeRes(201, {
+        disputeId: 'dsp-1',
+        status: 'abierta',
+        type: 'condition_raw',
+        deadlineAt: '2026-08-24T00:00:00Z',
+        evidenceContact: 'soporte@tcgvaultmx.com',
+      }),
+    );
+    const res = await createDispute({ inventoryItemId: 'inv-1', description: 'edge wear' });
+    expect(res.evidenceContact).toContain('@');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/disputes');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ inventoryItemId: 'inv-1', description: 'edge wear' });
+
+    fetchMock.mockResolvedValueOnce(
+      makeRes(422, { error: { code: 'DISPUTE_WINDOW_CLOSED', message: 'window closed' } }),
+    );
+    await expect(createDispute({ inventoryItemId: 'inv-1', description: 'late' })).rejects.toMatchObject({
+      code: 'DISPUTE_WINDOW_CLOSED',
+      status: 422,
+    });
+  });
+
+  it('F6 · getDisputes → GET /disputes (unwrap data)', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeRes(200, {
+        data: [
+          { id: 'dsp-1', inventoryItemId: 'inv-1', type: 'condition_raw', status: 'abierta', description: 'x', deadlineAt: '2026-08-24T00:00:00Z', createdAt: '2026-08-17T00:00:00Z' },
+        ],
+      }),
+    );
+    const list = await getDisputes();
+    expect(list).toHaveLength(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/disputes');
+    expect(fetchMock.mock.calls[0][1].method ?? 'GET').toBe('GET');
   });
 });
