@@ -2,7 +2,17 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.15-buylist-batch-clabe (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.17-withdrawal-lifecycle (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+>
+> **Changelog v1.17-withdrawal-lifecycle (2026-08-17) — Cierre del ciclo de RETIRO en la bóveda (Opción 1 del humano).**
+> Cierra el hueco WD-1 (§9): el `InventoryItem` nunca se movía durante el envío, así que la carta seguía en "Mi Bóveda"
+> como liquidada con RETIRAR activo de por vida y sin rastreo para el cliente. Se norma: (1) al pagar, la carta se queda
+> en la bóveda marcada **EN RETIRO** con RETIRAR deshabilitado; (2) retiro **rastreable** por etapa; (3) en `entregado`
+> la carta **sale** de la bóveda (`in_custody → withdrawn`). **Fuente de verdad canónica = join
+> `InventoryItem→ShipmentItem→ShipmentRequest`** (no espejo de estado en el item; única escritura persistente =
+> transición terminal a `withdrawn`). **Aditivo, SIN migración** (reusa `InventoryStatus.withdrawn` y la máquina
+> `ShipmentStatus`). SEC-A1 intacto. Ver **§3.3** (ciclo de vida del item en retiro), §3.2 (InventoryItem.status), §9
+> (WD-1) y API_CONTRACT v1.17 (§3 HoldingDTO, §5 rastreo del cliente, §9 webhooks, §M4).
 >
 > **Changelog v1.15-buylist-batch-clabe (2026-08-17) — WS-C: cotizador de buylist (Fable) contra el backend REAL
 > (Fase 3b).** El cotizador rediseñado del frontend usa hoy **mocks/atajos** que NO funcionan contra el backend real:
@@ -607,6 +617,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
   - `ownerType` (`platform | customer`), `ownerUserId?` (cuando `customer`).
   - `ownershipStatus?` (`pending | settled`, solo cuando `ownerType=customer`; ver §3.3).
 - Estado operativo: `status` (`in_stock | listed | reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`).
+  - **v1.17 — uso en el flujo de retiro:** durante un envío activo el item **permanece `in_custody`** (la etapa se deriva del join a `ShipmentRequest`, ver §3.3); al llegar el envío a **`entregado`** el item pasa a **`withdrawn`** (terminal: sale de la bóveda, no se lista ni cuenta en el portafolio). Los valores **`picking | shipped | delivered` quedan sin uso por diseño** en el ciclo de envío (no se espejan en el item; la fuente de verdad de la etapa es la `ShipmentRequest`). `withdrawn` es la **única** escritura del ciclo de retiro.
 - Precio de venta: `listPriceCents?` (MXN sin IVA; **= `round(referenciaMxn × (1 + salesMarkupPct/100))`** con `salesMarkupPct` dial M10, o override manual directo; si null y sin `PriceReference` → **"precio pendiente"**, no vendible). El **valor de referencia** (valor de mercado mostrado) es el de `PriceReference`, distinto del precio de venta.
 - Costo y adquisición: `acquisitionType` (`aportacion_en_especie | buylist | compra`), `acquisitionCostCents`, `acquisitionPct?` (ej. 70 para aportación en especie), `sourceSellRequestItemId?`.
 - **`finish Finish @default(normal)` (v1.6-finish, MIGRACIÓN M-18):** qué **acabado** es la copia física (Normal / Reverse Holo / Holofoil / 1st Edition Holo). Se captura al alta (M1) y debe pertenecer a `card.availableFinishes`. **Afecta la valuación** (se valúa contra la `PriceReference` de ESE acabado, §4.1) y el **catálogo "Compra"** (se lista/filtra por acabado, §4.9). Filas históricas → `normal`. Para `graded`/`sealed` el finish es siempre `normal` (el acabado solo aplica a raw/singles; ver §3.7).
@@ -780,6 +791,45 @@ Retiro
   → solo items con ownershipStatus=settled pueden entrar a ShipmentItem.
     Un item pending es rechazado por la validación de creación de ShipmentRequest.
 ```
+
+#### Ciclo de vida del item durante el RETIRO/envío (v1.17 — Opción 1)
+
+**Fuente de verdad canónica (UNA, declarada para evitar ambigüedad):** el **estado/etapa del retiro** de un
+item se **deriva del join** `InventoryItem → ShipmentItem → ShipmentRequest.status`. Hay a lo más **un envío
+activo por item** (lo garantiza `409 ITEM_IN_ANOTHER_SHIPMENT`: `shipmentItem.findFirst` sobre envíos
+`status NOT IN (cancelado, entregado)` al crear la solicitud). El `InventoryItem.status` **NO se espeja por
+etapa**: sigue `in_custody` durante `solicitado → picking → guia → enviado`. Los valores
+`InventoryStatus.picking | shipped | delivered` **quedan sin uso por diseño** (no se escriben en el flujo de
+envío). La **única** escritura persistente del ciclo es la **transición terminal** en `entregado`.
+
+```
+ShipmentRequest solicitado  (creado, PaymentIntent creado, pago pendiente)
+  → item SIN cambio (in_custody). shipmentItem existe ⇒ item bloqueado (ITEM_IN_ANOTHER_SHIPMENT).
+    HoldingDTO: shipmentState='solicitado', withdrawable=false, activeShipmentId set.
+
+webhook payment_intent.succeeded  (envío pagado)
+  → ShipmentRequest solicitado→picking (payments.service; SIN tocar el item).
+    HoldingDTO: shipmentState='picking'.
+
+PATCH /admin/shipments/:id/status  y  POST .../tracking   (máquina M4)
+  → picking → guia → enviado : item SIN cambio (in_custody). shipmentState se deriva del join.
+
+PATCH /admin/shipments/:id/status → entregado   (TRANSICIÓN TERMINAL)
+  → por cada ShipmentItem: InventoryItem in_custody → withdrawn
+    (+ InventoryMovement reason='withdrawal'). Conserva ownerType=customer,
+    ownerUserId, ownershipStatus=settled (histórico); solo cambia status.
+  → Efecto: el item SALE de la bóveda (GET /vault/holdings excluye status='withdrawn')
+    y deja de contar en el portafolio / snapshot diario.
+
+webhook payment_intent.canceled  (envío 'solicitado' nunca pagado)
+  → ShipmentRequest → cancelado ⇒ el item deja de tener envío activo (shipmentState=null,
+    withdrawable vuelve a true). El item nunca cambió de status.
+```
+
+Coherencia con el contracargo (§ webhook `charge.dispute.created`, abajo): ese handler ya usa el **mismo join**
+(`ShipmentItem` con envío `enviado`/`entregado`) para decidir si la carta "salió físicamente". Con v1.17, tras
+`entregado` el item además es `withdrawn`; el handler sigue siendo correcto (busca por `ShipmentItem`, no por
+`item.status`) y **no** re-agrega al inventario una carta ya entregada.
 
 Separación física: los items en `ownerType=customer` viven en `VaultLocation.zone=customer_custody`; el stock de la plataforma en `zone=platform_stock`. El movimiento entre zonas queda en `InventoryMovement`.
 
@@ -2352,6 +2402,20 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **WD-1 (backend, v1.17) — el `InventoryItem` NUNCA se movía en el ciclo de RETIRO (bóveda "fantasma").** Estado
+  detectado: al pagar un retiro, `payments.service` solo avanzaba `ShipmentRequest solicitado→picking` y el
+  `InventoryItem` quedaba `ownerType=customer, ownershipStatus=settled, status=in_custody` **para siempre** —incluso
+  tras `entregado`—; `vault.service.holdings` filtraba solo por `ownerType/ownerUserId` sin excluir ni marcar items en
+  retiro, así que la carta seguía en "Mi Bóveda" como LIQUIDADA con **RETIRAR activo** de por vida, y el cliente no
+  tenía rastreo por carta. El enum `InventoryStatus` ya incluía `picking|shipped|delivered|withdrawn` pero **ningún
+  código los escribía**. **Decisión de producto (humano) = Opción 1**, normada en API_CONTRACT v1.17 y §3.3 de este
+  doc. **Acción (backend):** (1) `vault.service.holdings` — excluir `status='withdrawn'` y **derivar** `shipmentState`
+  / `activeShipmentId` / `withdrawable` del join `ShipmentItem→ShipmentRequest` (sin espejar el estado en el item); (2)
+  `shipments.service.updateStatus` — al pasar a `entregado`, transicionar los `InventoryItem` `in_custody→withdrawn` +
+  `InventoryMovement reason='withdrawal'` (en transacción); (3) `shipments.service.listMine/getMine` — enriquecer
+  `items[]` con `folio` + `card` + `finish`; (4) `portfolio-snapshot` — aplicar la misma exclusión de `withdrawn`. **Sin
+  migración** (reusa enums existentes). SEC-A1 intacto (no toca montos). **Fuente de verdad = join** (no espejo en el
+  item), declarada en §3.3.
 - **DEV-1 (backend) — `POST /admin/catalog/sync` importa de forma SÍNCRONA en el request.** El contrato
   declara `202 { jobId, setsQueued, mode }` (semántica async/encolada), pero `CatalogSyncService.sync()`
   recorre e importa **todos** los sets `>= fromReleaseDate` **dentro del handler HTTP** (await inline por set y

@@ -2,7 +2,44 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.16.1-master-set-reconcile).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.17-withdrawal-lifecycle).
+>
+> **Changelog v1.17-withdrawal-lifecycle (2026-08-17) — Cierre del hueco del ciclo de RETIRO en la bóveda (Opción 1
+> del humano). PROJECT.md §D / criterios 9–11.** Hoy, cuando el cliente paga un retiro, el `InventoryItem` **nunca**
+> se toca en todo el ciclo del envío (`solicitado→picking→guia→enviado→entregado`): la carta se queda
+> `ownerType=customer, ownershipStatus=settled, status=in_custody` **para siempre**, sigue apareciendo en "Mi Bóveda"
+> como LIQUIDADA con **RETIRAR activo** aunque ya esté en un envío o incluso ya entregada, y el cliente **no ve** el
+> estado de su retiro por carta. Se norma la **Opción 1**: (1) al pagar, la carta **se queda en la bóveda marcada "EN
+> RETIRO"** con RETIRAR **deshabilitado**; (2) el retiro es **rastreable** por etapa (`picking → guia → enviado →
+> entregado`); (3) al llegar a **`entregado`, la carta SALE de la bóveda** (deja de listarse y de contar en el
+> portafolio). **Aditivo, SIN migración** (reusa el enum `InventoryStatus.withdrawn` ya existente y la máquina de
+> `ShipmentStatus`; no hay columnas nuevas). **No toca dinero** (SEC-A1 intacto). Ver ARCHITECTURE §3.3 (actualizado)
+> y §9 (WD-1).
+> - **Fuente de verdad canónica (declarada para evitar ambigüedad):** el **estado/etapa del retiro** se **deriva del
+>   join `InventoryItem → ShipmentItem → ShipmentRequest`** (hay a lo más **un** envío activo por item, garantizado por
+>   `409 ITEM_IN_ANOTHER_SHIPMENT`). El `InventoryItem.status` **NO se refleja por etapa** (sigue `in_custody` durante
+>   `solicitado→picking→guia→enviado`), salvo **UNA** transición terminal: al pasar el envío a **`entregado`** el item
+>   pasa **`in_custody → withdrawn`** (única escritura persistente; ver §M4). Los valores `picking | shipped | delivered`
+>   de `InventoryStatus` **quedan sin uso por diseño** (no se espejan en el item). Esto **conserva** el comentario
+>   vigente de `payments.service` ("el estado del InventoryItem no se mueve en el flujo de envío") para `solicitado→enviado`
+>   y solo lo **acota** en el paso `entregado`.
+> - **`GET /vault/holdings` — HoldingDTO gana `shipmentState`, `activeShipmentId`, `withdrawable` (§3):** `shipmentState:
+>   ShipmentActiveStage | null` (etapa del envío activo, derivada del join); `activeShipmentId: string | null`
+>   (deep-link a la vista de rastreo); `withdrawable: boolean` (flag **autoritativo** para deshabilitar RETIRAR = mismo
+>   criterio que el backend: `ownershipStatus='settled' && shipmentState=null`). **Regla de inclusión/exclusión:** los
+>   holdings **excluyen** `status='withdrawn'` (los `entregado` salen de la bóveda y **no** cuentan en el portafolio);
+>   los items con envío **activo** (`picking/guia/enviado`, y el transitorio `solicitado`) **SÍ se listan y SÍ cuentan**
+>   en el portafolio, marcados y **no** retirables. Ver §3.
+> - **`GET /shipments` (listMine) + `GET /shipments/:id` — spec COMPLETA de la vista de rastreo del cliente (§5):** se
+>   detalla el shape (antes el contrato solo decía "lista propia"). `items[]` gana `folio` + `card` (nombre/set/imagen)
+>   + `finish` para que el cliente vea **qué cartas** van en cada retiro y su **etapa/guía**. **No es endpoint nuevo**
+>   (el `GET /shipments` ya existe); se norma su forma y el **mapeo etapa→texto**. Sin PII, sin migración.
+> - **`payment_intent.succeeded` (§9) y máquina de estados (§M4):** se **reafirma** que el pago del envío avanza solo
+>   `ShipmentRequest: solicitado→picking` **sin** tocar el item, y se **norma la transición terminal** `entregado ⇒
+>   item.status=withdrawn` (+ `InventoryMovement reason='withdrawal'`) en el paso a `entregado` de la máquina M4.
+> - **Enum nuevo (alias de contrato):** `ShipmentActiveStage = solicitado | picking | guia | enviado` (subconjunto
+>   "activo" de `ShipmentStatus`; `entregado` nunca aparece en holdings porque el item ya es `withdrawn`, y `cancelado`
+>   libera el item ⇒ `shipmentState=null`). Ver §Enums.
 >
 > **Changelog v1.16.1-master-set-reconcile (2026-08-17) — Reconciliación de contrato §M1 (Master Set) con el
 > comportamiento YA implementado por backend y señalado por qa/seguridad. SOLO documentación: el backend está bien;
@@ -412,6 +449,7 @@ InventoryStatus     = in_stock | listed | reserved | in_custody | picking | ship
 VaultZone           = platform_stock | customer_custody
 OrderStatus         = pending | settled | failed | refunded | chargeback
 ShipmentStatus      = solicitado | picking | guia | enviado | entregado | cancelado
+ShipmentActiveStage = solicitado | picking | guia | enviado  // v1.17: subconjunto "activo" de ShipmentStatus expuesto en HoldingDTO.shipmentState. `entregado` NUNCA aparece (el item ya es InventoryStatus.withdrawn y sale de holdings); `cancelado` libera el item ⇒ shipmentState=null.
 SellRequestStatus   = cotizada | recibida | verificacion | aprobada | pagada | rechazada | abandonada
 SellItemStatus      = cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario
 BuylistRuleMode     = fixed | pct                       // v1.3.1: naturaleza de la regla de precio por rareza (fixed = MX$ centavos; pct = % de la referencia)
@@ -760,6 +798,7 @@ Res `200`:
     "inventoryItemId": "…", "folio": "INV-000123", "card": { "…": "CardDTO" },
     "productType": "raw", "rawCondition": "NM", "finish": "reverse_holo",
     "ownershipStatus": "settled", "status": "in_custody",
+    "shipmentState": "picking", "activeShipmentId": "shp_…", "withdrawable": false,
     "referenceValue": { "status": "priced", "referenceMxnCents": 12500, "capturedDate": "2026-08-13" }
   }],
   "portfolio": { "totalValueMxnCents": 543200, "pendingPriceCount": 2, "currency": "MXN" }
@@ -767,6 +806,10 @@ Res `200`:
 ```
 El valor del portafolio se calcula contra el **valor de referencia** (no el precio de venta). Las cartas `referenceValue.status="pending"` se **excluyen** del total y se reportan en `pendingPriceCount` (no rompen el cálculo).
 - **`finish` (v1.6-finish):** cada holding trae su **acabado** (Normal/Reverse Holo/Holofoil/1st Ed. Holo). El `referenceValue` es el de **ese acabado** (`PriceReference` con `finish`); la valuación del portafolio usa el precio del acabado específico, no un precio único por carta. "Mi bóveda" muestra el acabado y permite ordenar por set y por valor.
+- **`shipmentState: ShipmentActiveStage | null` (v1.17):** etapa del **envío activo** del item, si lo tiene, **derivada del join** `InventoryItem → ShipmentItem → ShipmentRequest` (fuente de verdad canónica; hay a lo más un envío activo por item, garantizado por `409 ITEM_IN_ANOTHER_SHIPMENT`). Valores: `solicitado` (retiro creado, **pago pendiente** — transitorio), `picking` (preparando), `guia` (con guía), `enviado` (en tránsito). `null` = sin envío activo. **`entregado` nunca aparece** aquí (ver exclusión abajo) y `cancelado` deja el item sin envío activo (`null`). El front muestra el **badge "EN RETIRO"** cuando `shipmentState !== null`.
+- **`activeShipmentId: string | null` (v1.17):** id de la `ShipmentRequest` activa (para **deep-link** desde el badge a la vista de rastreo `GET /shipments/:id`); `null` si `shipmentState=null`.
+- **`withdrawable: boolean` (v1.17):** flag **autoritativo** para que el front habilite/deshabilite el botón **RETIRAR**. `true` **solo si** `ownershipStatus='settled' && shipmentState=null` (mismo criterio que aplica el backend al crear un envío: un item `pending` da `422 ITEM_NOT_SETTLED` y uno ya en envío da `409 ITEM_IN_ANOTHER_SHIPMENT`). Expone la **regla anti doble-retiro** ANTES de intentar (hoy el cliente solo la descubre al recibir el `409`).
+- **Inclusión/exclusión y conteo del portafolio (v1.17):** `GET /vault/holdings` lista items del usuario `ownerType='customer' AND ownerUserId=:me AND status != 'withdrawn'`. (a) Items con **envío activo** (`solicitado/picking/guia/enviado`) **SÍ se listan** (marcados `shipmentState`, `withdrawable=false`) y **SÍ cuentan** en `portfolio.totalValueMxnCents` (siguen siendo del cliente hasta la entrega). (b) Items **`entregado`** → el item ya es `status='withdrawn'` (transición terminal de la máquina M4, ver §M4/§9) → **NO se listan** y **NO cuentan** en el portafolio (salieron de la bóveda). El **snapshot diario del portafolio** (`portfolio-snapshot`) usa la **misma** regla de inclusión (excluye `withdrawn`) para que la gráfica de tendencia sea consistente.
 
 ### GET /api/v1/vault/holdings/:inventoryItemId — `customer`
 Res `200`: holding detallado (imagen de catálogo de pokemontcg.io, movimientos visibles al dueño; para gradeadas incluye `gradingCompany + gradeValue + certNumber`). **No hay fotos propias del item** (v1.2). Err `403` si no es del usuario.
@@ -850,8 +893,42 @@ Req: `{ inventoryItemIds: string[], addressId: string }` + `Idempotency-Key`
 Res `201`: `{ shipmentId, status: "solicitado", breakdown: { "…": "BreakdownDTO" }, stripe: { paymentIntentId, clientSecret } }`
 Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), `422 ADDRESS_NOT_MX`, `409 ITEM_IN_ANOTHER_SHIPMENT`, **`403 EMAIL_NOT_VERIFIED`** (v1.5 — retiro/envío es acción sensible; el `POST /shipments/quote` read-only **no** se bloquea).
 
-### GET /api/v1/shipments — `customer` → lista propia.
-### GET /api/v1/shipments/:id — `customer` → detalle con `status`, `trackingNumber?`, `carrier?`, items.
+### GET /api/v1/shipments — `customer` (v1.17 — vista de RASTREO de retiros del cliente)
+Lista los retiros/envíos **del propio usuario**, ordenados por `requestedAt` desc. **No es endpoint nuevo** (ya existía como listMine); v1.17 norma su forma y **enriquece `items`** con carta/folio/acabado para que el cliente vea qué va en cada retiro. **No paginado** en el MVP (un cliente tiene pocos retiros; envelope `{ data }`, no `{ data, page, ... }`). No expone `shippingCostCents` (costo interno del carrier, §M4).
+Res `200`:
+```json
+{ "data": [ { "…": "ClientShipmentDTO" } ] }
+```
+```ts
+ClientShipmentDTO = {
+  id: string,
+  status: ShipmentStatus,               // solicitado | picking | guia | enviado | entregado | cancelado
+  addressSnapshot: object,              // dirección MX (snapshot)
+  shippingFeeCents: number, ivaCents: number, processingFeeCents: number, totalCents: number, // total del envío
+  carrier?: string, trackingNumber?: string,   // guía/tracking cuando existe (status >= guia)
+  requestedAt: string, pickingAt?: string, shippedAt?: string, deliveredAt?: string,
+  items: ClientShipmentItemDTO[]
+}
+ClientShipmentItemDTO = {
+  inventoryItemId: string,
+  folio: string,                        // INV-000123
+  finish: Finish,
+  card: { id: string, name: string, setName: string, number: string, imageSmallUrl: string }
+}
+```
+- **Mapeo etapa→texto (normativo; el LABEL traducido vive en i18n del FRONT, la API devuelve el enum):**
+  | `status` | Texto cliente (ES) | Texto cliente (EN) |
+  |---|---|---|
+  | `solicitado` | Retiro solicitado (pago pendiente) | Withdrawal requested (payment pending) |
+  | `picking` | Preparando tu envío | Preparing your shipment |
+  | `guia` | Guía generada | Label created |
+  | `enviado` | En camino | In transit |
+  | `entregado` | Entregado | Delivered |
+  | `cancelado` | Cancelado | Cancelled |
+- El progreso rastreable de PROJECT.md §D (`preparando → guía → enviado → entregado`) corresponde a `picking → guia → enviado → entregado`; `solicitado` es el estado transitorio previo al pago (avanza a `picking` con `payment_intent.succeeded`, §9) y `cancelado` es terminal (envío no cobrado que se liberó).
+
+### GET /api/v1/shipments/:id — `customer` (v1.17)
+Detalle de un retiro propio (mismo `ClientShipmentDTO`, con `items` enriquecidos). Err `404` si no existe o no es del usuario. Sigue sin exponer `shippingCostCents`.
 
 > **Enhancement OPCIONAL (v1.16.1 — NO exigido en el MVP, no obliga cambio de backend ahora):** el UI de disputas
 > (WS-F) querría hacer un **gate 100%-cliente** (mostrar/ocultar el botón "abrir disputa" sin ida y vuelta al server),
@@ -1090,6 +1167,7 @@ son válidos).
 Header: `Stripe-Signature` (validado con `STRIPE_WEBHOOK_SECRET`). Idempotente por `event.id`.
 Eventos manejados:
 - `payment_intent.succeeded` → Order `pending→settled`; items `ownershipStatus pending→settled`. (También liquida el pago de un envío: `ShipmentRequest solicitado→picking`.)
+  - **v1.17:** el pago del envío **NO** toca el `InventoryItem` (sigue `ownerType=customer, ownershipStatus=settled, status=in_custody`); la etapa "EN RETIRO" del holding se **deriva del join** al `ShipmentRequest` (fuente de verdad canónica, no un espejo en el item). La única transición del item en todo el ciclo del envío es la **terminal** `entregado ⇒ status=withdrawn`, que **no** ocurre aquí sino en la máquina de estados M4 (`PATCH /admin/shipments/:id/status → entregado`, ver §M4).
 - `payment_intent.payment_failed` → Order `pending→failed`; libera reserva de items (`reserved→listed`).
 - `payment_intent.canceled` → libera la reserva de compra (Order `→failed`, items `reserved→listed`) **o** cancela un envío aún en `solicitado` (`ShipmentRequest →cancelado`, libera sus items). Idempotente/no-op si ya está en estado terminal.
 - `charge.refunded` → **distingue parcial vs total** comparando `amount_refunded` con `amount`:
@@ -1330,6 +1408,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `GET /api/v1/admin/shipments/:id`
 - `GET /api/v1/admin/shipments/picking-list` — **lista de picking ordenada por ubicación** (`?date=` opcional) → items con `folio` + `location.label`.
 - `PATCH /api/v1/admin/shipments/:id/status` — Req `{ to: ShipmentStatus }` (transiciones `solicitado→picking→guia→enviado→entregado`).
+  - **v1.17 — efecto sobre el inventario al llegar a `entregado`:** al transicionar el envío a **`entregado`**, cada `InventoryItem` de sus `ShipmentItem` pasa **`in_custody → withdrawn`** (única escritura persistente del ciclo de envío; los pasos `solicitado→enviado` **no** tocan el item). Se registra un `InventoryMovement` `reason='withdrawal'`. Efecto observable: el item **sale de "Mi Bóveda"** (`GET /vault/holdings` excluye `withdrawn`) y **deja de contar** en el portafolio. El item conserva `ownerType=customer, ownerUserId, ownershipStatus=settled` (registro histórico de titularidad; solo cambia `status`). Es la contraparte de la señal de contracargo del §9 (que ya usaba el join `ShipmentItem`+envío `enviado/entregado` para saber si la carta salió físicamente).
 - `POST /api/v1/admin/shipments/:id/tracking` — Req `{ carrier, trackingNumber, shippingCostCents? }` → avanza a `guia`.
   - **`shippingCostCents?` (v1.4-finance, NUEVO):** costo real que **la plataforma paga a la paquetería** por este envío (MXN centavos). **Distinto** de `ShipmentRequest.shippingFeeCents` (ingreso cobrado al cliente). **Opcional** (si se omite, no se modifica; el valor persistido arranca en `0` por default de columna, M-16) y **editable** re-invocando este endpoint (idempotente sobre carrier/tracking; no regresa el estado si ya está en `guia`/posterior). **Validación:** entero **≥ 0** (`422 VALIDATION_ERROR` si negativo o no entero). Alimenta el P&L de M7 (se resta, acotado por `pickingAt`). Queda en `AuditLog` (`action: shipment.tracking`, con `carrier`/`trackingNumber`/`shippingCostCents` en `after`).
   - Nota: `shippingCostCents` es un dato **interno de costo**; **no** se expone al cliente (`GET /shipments/:id` del comprador NO lo incluye).
