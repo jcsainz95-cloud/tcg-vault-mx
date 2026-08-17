@@ -2,7 +2,39 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.11-premium-gate (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/tcg-cards-marketplace-oijthj`.
+> Estado: v1.12-catalog-pricing (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+>
+> **Changelog v1.12-catalog-pricing (2026-08-17) — FASE 1 del epic de precios: preciar TODO el catálogo +
+> refresco 2×/día + import de sets nuevos.** Decisión del humano (fija): (1) preciar SIEMPRE todo el catálogo
+> (aunque la carta no esté en bóveda/inventario), (2) auto-actualización **2×/día** (job programado), (3) función
+> para mapear/importar **sets nuevos**. **Aditivo, SIN migración de esquema** (reusa `PriceReference`, que ya lleva
+> `finish` en su clave desde M-18). Nuevo **§4.13**. Toca dinero → triple veredicto.
+> - **1.1 — Poblar `PriceReference` para todo el catálogo (backend, §4.13a).** El `catalog-sync` **ya descarga**
+>   `tcgplayer.prices` por carta para derivar `availableFinishes` (`catalog-sync.service.ts` `upsertCards`); ese
+>   MISMO dato ahora **puebla `PriceReference`** por `(card, finish)` **sin llamadas extra**. Por cada acabado con
+>   `prices[llave].market > 0` se hace **upsert idempotente** de una fila `(cardId, 'raw', 'raw:NM', finish,
+>   capturedDate=hoy)` con conversión USD→MXN (FX Banxico + colchón), `source=pokemontcg_io`. **Una fila por día por
+>   acabado.** **No** clobbea overrides manuales (`isManualOverride=true` → skip). Cartas **sin market → NO se crea
+>   referencia y NO se escala a `PendingPriceEntry`** (`escalate=false`, mismo criterio que `set-price-sync` §4.12a:
+>   no inundar la cola con decenas de miles de cartas). Cambia la doctrina "solo se precia la bóveda" → **"se precia
+>   todo el catálogo durante el sync"**; el `price-sync` de bóveda se conserva para frescura entre syncs.
+> - **1.2 — `publicQuote` vuelve a READ-ONLY; cierra/supersede BE-16 (backend, §4.13b).** Con el catálogo ya
+>   priceado (1.1), el cotizador público **lee** `getReference` y casi siempre encuentra precio. Se **elimina** la
+>   llamada a `escalatePending` desde `publicQuote` (endpoint público/anónimo que escribía) → **no** puebla la cola
+>   ni consume trabajo del dueño desde un endpoint anónimo. **No se pricea on-demand** desde el quote (superficie de
+>   abuso + redundante con el job). La escalada a `PendingPriceEntry` queda **solo** en el flujo autenticado
+>   `POST /buylist/requests` (`createRequest`, sin cambio). Cierra **BE-16** (y el punto abierto v1.3-1).
+> - **1.3 — Job programado 2×/día (backend + devops, §4.13c).** Nuevo job `catalog-price-sync` que **importa sets
+>   nuevos** y **refresca precios de todo el catálogo**. Como pokemontcg.io **no** tiene endpoint bulk de
+>   solo-precios (el `market` viaja embebido en la carta), **refrescar precios = re-sync del catálogo**: reusa
+>   `syncAll({force:true})` (reprocesa todos los sets remotos → repuebla cartas + `PriceReference` por acabado con el
+>   FX del día). Secuencial, respeta el backoff 429 del cliente; single-flight (`syncAllStatus.running`). Horarios
+>   **06:00 y 18:00 CDMX** (= 12:00 y 00:00 UTC), configurables; scheduling = **dueño devops**.
+> - **1.4 — "Importar sets nuevos" en M2 (frontend, §4.13d).** **NO requiere endpoint nuevo:** reusa
+>   `POST /admin/catalog/sync-all` (`force:false` → solo sets no importados) + `GET /admin/catalog/sync-status`
+>   (progreso) + `GET /admin/catalog/remote-sets` (refresca la lista). Cambio **solo de frontend**.
+> - **Contrato:** `API_CONTRACT.md` (Changelog v1.12-catalog-pricing): `POST /buylist/quote` pasa a **read-only**
+>   (mismo shape; ya no escribe); 1.4 sin endpoint nuevo. Sin migración.
 >
 > **Changelog v1.11-premium-gate (2026-08-17) — Gate PREMIUM en el resolver de reglas rareza/acabado (fix de dinero,
 > Fase 0 del epic de precios).** Documenta lo YA implementado por backend (`backend/src/common/money.ts`, commit
@@ -1338,6 +1370,114 @@ debe preciar el set destacado resuelto por *este* mecanismo, de modo que env y g
   (lectura de `SetValueSnapshot`, que cambia 1x/día) — se sugiere `Cache-Control` corto + rate-limit por IP
   (devops/backend afinan). No hay riesgo de dinero ni de PII, pero conviene proteger de scraping abusivo.
 
+### 4.13 Fase 1 del epic de precios — preciar TODO el catálogo + refresco 2×/día + sets nuevos (v1.12-catalog-pricing)
+
+Decisión del humano (fija): (1) **preciar SIEMPRE todo el catálogo** (aunque la carta no esté en bóveda/
+inventario), (2) **auto-actualización 2×/día** (job programado), (3) **importar/mapear sets nuevos**. Toca dinero
+→ triple veredicto. **Aditivo, sin migración de esquema** (reusa `PriceReference`, con `finish` ya en su clave
+desde M-18). Los cuatro sub-ítems son independientes y paralelizables, salvo que 1.2 y 1.3 se apoyan en 1.1.
+
+**(a) 1.1 — Poblar `PriceReference` durante el `catalog-sync` (reusando `tcgplayer.prices` ya descargado).**
+- **Insight base:** `CatalogSyncService.upsertCards` (`backend/src/modules/catalog/catalog-sync.service.ts`) **YA**
+  recibe `c.tcgplayer.prices` y deriva `availableFinishes` (`deriveAvailableFinishes`). **El precio de mercado por
+  acabado (`prices[llave].market`) está en el MISMO payload** → poblar `PriceReference` **NO cuesta llamadas extra**.
+- **Qué se escribe:** por cada `finish` derivado con `prices[FINISH_TO_TCG_KEY[finish]].market > 0`, un **upsert**
+  de `PriceReference` con:
+  - clave `(cardId, productType='raw', gradeKey='raw:NM', finish, capturedDate=hoy)` (la unicidad existente),
+  - `priceUsdCents = round(market×100)`, `priceMxnCents = usdToMxnCents(priceUsdCents, fx.rate, fx.bufferPct)`,
+    `source='pokemontcg_io'`, `isManualOverride=false`.
+  El **FX se lee UNA vez por corrida** (`FxService.getCurrent()`) y se reusa para todas las cartas (no por-carta).
+- **Idempotencia (una fila por día por acabado):** upsert sobre la clave única. Re-correr el mismo día **actualiza**
+  `priceMxnCents` (último market), no duplica; la segunda corrida del día (18:00) refina el precio de hoy.
+- **No pisar overrides del admin:** si la fila de hoy existe con `isManualOverride=true` → **skip** (el override
+  manual manda; §4.1). Solo se upsertea cuando no hay override del día.
+- **Cartas sin market → NO se crea referencia y NO se escala a `PendingPriceEntry`.** Se usa `escalate=false` (mismo
+  criterio que `set-price-sync`, §4.12a): escalar decenas de miles de cartas del catálogo a la cola del dueño sería
+  ruido inútil. Una carta sin market simplemente **no tiene referencia** hasta que (i) el admin la fija a mano, o
+  (ii) entra a un contexto real (bóveda/buylist) donde los flujos existentes SÍ escalan (`escalate=true`). Así se
+  respeta la regla transversal de PROJECT (nunca se descarta) **en los contextos donde importa**, sin inundar la cola
+  con el catálogo entero.
+- **productType/gradeKey = `raw`/`raw:NM`:** coincide EXACTAMENTE con lo que lee `publicQuote` (raw NM) y con
+  `SET_VALUE_RULE` (§4.12). Se prician **todos los acabados** (normal, reverse_holo, holofoil, 1st-ed holo), no solo
+  `normal` — esto habilita el cotizador por-acabado (§4.2.1) y la valuación de portafolio por-acabado (§4.1) sobre
+  TODO el catálogo. (Graded/sealed **no** se prician aquí: pokemontcg.io no da esos datos; siguen manual/su propio
+  provider.)
+- **Cambio de doctrina documentado:** las notas históricas "solo se pricea la bóveda" (§4.1, §5) se **matizan**: el
+  **catálogo completo** se precia **durante el `catalog-sync`** (reusando datos ya descargados); el `price-sync`
+  diario de **bóveda** se conserva para refrescar los items en custodia entre syncs de catálogo.
+- **Firma sugerida (backend decide ubicación exacta):** método nuevo en `PricingService`, p. ej.
+  `persistMarketReference(cardId, finish, marketUsdCents, fx): Promise<void>` (upsert idempotente + guarda override),
+  invocado desde `upsertCards` con el `fx` pre-cargado. `CatalogSyncService` gana la dependencia `PricingService`
+  (hoy inyecta solo `prisma`/`client`/`settings`).
+- **Efecto colateral positivo:** `computeSetValue`/`set-value-snapshot` (§4.12) ahora tienen `PriceReference`
+  `normal` de **cualquier** set (no solo el destacado). `set-price-sync` queda **en gran medida subsumido** por 1.1;
+  se conserva como está (inocuo, mantiene fresco el set del hero entre syncs). Ver DEV-3 (§9): 1.1 lo cubre.
+
+**(b) 1.2 — Cotización on-demand de raras: `publicQuote` READ-ONLY (supersede BE-16).**
+- **Problema (BE-16):** `publicQuote` (`buylist.service.ts` ~:81-83) llamaba `escalatePending` cuando el acabado
+  cotizaba `precio_pendiente` — un endpoint **público/anónimo que ESCRIBE** en la cola de trabajo del dueño; un
+  anónimo podía inflar la cola enumerando cartas.
+- **Diseño seguro (elegido):** con 1.1 el catálogo ya está priceado, así que el `getReference` del quote casi
+  siempre devuelve precio. Se **ELIMINA** la llamada a `escalatePending` de `publicQuote` → **vuelve a ser
+  read-only** (como fue antes de la deuda de Fase 0.2). Si el acabado sigue `precio_pendiente` (carta sin market), el
+  quote **lo reporta** sin escribir nada.
+- **NO se pricea on-demand desde el quote.** Se descarta el fetch puntual al `PricingProvider` en el quote público
+  porque: (i) es **anónimo** → superficie de abuso (enumerar cartas quema la cuota del free tier y puede spamear la
+  cola), (ii) **redundante** con el job 2×/día + el catalog-sync (el catálogo ya está priceado), (iii) el cache
+  diario ya existe. La frescura la da el **job** (1.3), no el request del visitante.
+- **La escalada queda SOLO en el flujo autenticado:** `POST /buylist/requests` (`createRequest`) **sigue** llamando
+  `escalatePending` (el vendedor se compromete a vender → es legítimo escalar al dueño). Sin cambio ahí.
+- **Cierra BE-16** (y resuelve el punto abierto v1.3-1: default = **no** on-demand, ahora confirmado por el diseño
+  de Fase 1). Es una edición mínima de backend (quitar ~3 líneas del quote).
+
+**(c) 1.3 — Job programado 2×/día: refresco de precios + import de sets nuevos.**
+- **Mecanismo de jobs actual:** BullMQ repeatable jobs cableados en `backend/src/jobs/scheduler.service.ts`
+  (activados si hay `REDIS_URL`; si no, deshabilitados y disparables a mano). Crons en **UTC**. NO hay una cola
+  BullMQ por-set para el catálogo (el `sync-all` corre secuencial en memoria del proceso — DEV-1).
+- **Job nuevo `catalog-price-sync`** (en `backend/src/jobs/`), que en una corrida hace:
+  1. **Refresco de precios de TODO el catálogo = re-sync completo.** pokemontcg.io **no** expone un endpoint bulk de
+     solo-precios: el `market` viaja **embebido** en cada carta. Por tanto refrescar precios ⇒ **re-fetch de las
+     cartas** (paginado por set). Se reusa `CatalogSyncService` con la semántica **`force:true`** (reprocesa TODOS
+     los sets remotos → `upsertCards` repuebla cartas + `availableFinishes` + `PriceReference` por acabado con el FX
+     del día, vía 1.1). **Importa sets nuevos de forma natural** (procesa todos los sets remotos, incluidos los que
+     aún no existían localmente) → 1.3 cubre el import de sets nuevos **sin paso aparte**.
+  - El job **espera a completar** (es un worker de fondo, sin timeout HTTP). Reusa `runSyncAll(allRemoteSets)`;
+    **single-flight** por `syncAllStatus.running` (no se solapan dos barridos). El progreso ya es observable por
+    `GET /admin/catalog/sync-status` (§M2).
+- **Escala / rate-limit / pacing:**
+  - Catálogo ≈ 160+ sets, ~15–25k cartas; paginado a 250/página ⇒ ~**algunos cientos** de requests a pokemontcg.io
+    por corrida (1 `/sets` + Σ páginas por set). Con `POKEMONTCG_IO_API_KEY` la cuota es holgada (~20k req/día);
+    **sin key** el free tier es mucho menor y **puede toparse** → **la API key es requisito operativo** (riesgo, ver
+    §8/§10). 2×/día ⇒ ~cientos × 2, dentro del presupuesto con key.
+  - El cliente (`PokemonTcgIoClient`) ya reintenta con **backoff exponencial** ante 429/5xx y respeta `Retry-After`.
+    El barrido es **secuencial** (una página a la vez) → no revienta el rate-limit. Se puede añadir un **pacing**
+    opcional (sleep corto entre requests) como dial devops.
+  - **Idempotencia:** cartas por `upsert(externalId)`; `PriceReference` por `upsert(clave día/acabado)`. Re-correr
+    (o el 2º pase del día) es seguro.
+  - **In-process vs cola:** para el MVP el barrido corre **secuencial in-process** dentro del worker BullMQ
+    (aceptable: background, idempotente, reanudable re-corriendo). Límite DEV-1: si el proceso reinicia a media
+    corrida, la siguiente corrida (o `sync-all` manual) reanuda. **Objetivo futuro (más robusto):** encolar **un job
+    BullMQ por set** (retry/persistencia de progreso por set). Backend decide; no bloquea Fase 1.
+- **Horarios (dueño devops):** **06:00 y 18:00 CDMX**. CDMX = America/Mexico_City = **UTC−6** (sin DST) ⇒ crons UTC
+  **`0 12 * * *`** y **`0 0 * * *`**. Configurables por env (p. ej. `CATALOG_PRICE_SYNC_CRON_AM/PM`). **Orden con
+  FX:** la conversión USD→MXN necesita un FX fresco; `FxService.getCurrent()` **degrada al último `FxRate`
+  disponible**, así que el orden es **suave**, pero se recomienda un `fx-refresh` poco antes de cada corrida (el
+  `fx-refresh 0 6 UTC` existente cubre la corrida de las 06:00 CDMX/12:00 UTC; devops añade uno antes de la de las
+  18:00 CDMX/00:00 UTC si quiere FX del mismo día).
+- **Disparo manual:** el mismo refresco es invocable hoy con `POST /admin/catalog/sync-all` `{force:true}`
+  (super_admin, auditado); no se requiere endpoint nuevo. (Opcional: un `POST /admin/jobs/catalog-price-sync` para
+  simetría con otros jobs; backend/devops deciden.)
+
+**(d) 1.4 — Botón "importar sets nuevos" en M2 (manual, además del job).**
+- **NO requiere endpoint nuevo.** El flujo se arma con endpoints existentes:
+  1. `POST /admin/catalog/sync-all` con **`force:false`** → importa **solo los sets NO importados** (sets nuevos que
+     fueron saliendo), truly-async (202).
+  2. `GET /admin/catalog/sync-status` → **polling** del progreso (`running/done/total/finishedAt`).
+  3. `GET /admin/catalog/remote-sets` → **refresca** la lista remota + estado `imported/cardCount` al terminar.
+- Es un cambio **solo de frontend** (M2). Como los sets nuevos entran por `upsertCards`, **también quedan priceados**
+  (1.1) en la misma pasada. (Opcional, mismo M2: un botón "Refrescar precios del catálogo" que llame `sync-all`
+  `{force:true}`, alias manual del job 1.3.)
+
 ---
 
 ## 5. Decisiones transversales
@@ -1367,13 +1507,14 @@ processingFeeCents = totalCents − baseCents
 - **Seguridad/roles:** 3 roles. Autorización por **acción**, no solo por ruta (§7). Guard `MoneyOutGuard` exige `super_admin` para pagos SPEI y reembolsos; todo intento (permitido o bloqueado) se audita.
 - **Imágenes (v1.2):** el producto **no lleva fotos propias**; se muestra la **imagen de catálogo remota** de pokemontcg.io (`Card.imageSmallUrl`/`imageLargeUrl`). La **única** subida del sistema es la **imagen del INE** del buylist (`kyc_ine`), a object storage **privado** con presigned PUT/GET y **retención** (§3.4). No hay fotos de producto/inventario ni de evidencia de disputa (la evidencia de disputa llega por correo a soporte).
 - **Sync de precios/FX (jobs BullMQ):**
-  - `price-sync` diario: recorre solo cartas **en bóveda**, respeta rate-limit del free tier, escribe `PriceReference` del día, genera `PendingPriceEntry` para faltantes.
+  - `price-sync` diario: recorre solo cartas **en bóveda**, respeta rate-limit del free tier, escribe `PriceReference` del día, genera `PendingPriceEntry` para faltantes. **v1.12-catalog-pricing:** el catálogo **completo** ya se precia aparte durante el `catalog-sync` (§4.13a, `escalate=false`); este job de bóveda se conserva para refrescar los items en custodia **entre** syncs de catálogo (y sí escala pendientes, porque son cartas que sí necesitamos preciar).
   - `fx-refresh` diario: obtiene USD→MXN de **Banxico (SIE)**, aplica el colchón (`fx_buffer_pct`) y escribe `FxRate` (`source=banxico`); si falla o hay override manual (M10), usa `source=manual` como fallback/prioridad.
   - `buylist-sweep`: 7 días sin respuesta a ajuste → `rechazada`; 30 días de abandono → `convertida a inventario`.
   - `dispute-deadline`: cierra ventana de recompra a 7 días desde entrega.
   - `portfolio-snapshot` diario (tras `price-sync`): por cada usuario con holdings, calcula el valor del portafolio con `VaultService.holdings()` (a **referencia**, excluyendo pendientes) y **upsert** de `PortfolioSnapshot` del día (`@@unique[userId,asOfDate]`). Alimenta la gráfica de tendencia (§3 PortfolioSnapshot, `GET /vault/portfolio/history`). **Depende de cablear el scheduler (BE-5).**
   - `set-price-sync` diario (v1.9-set-chart, tras `fx-refresh`; cron sugerido `30 6`): precia **TODAS** las cartas del **set destacado** (§4.12b) desde pokemontcg.io (acabado `normal`, `raw`), escribiendo `PriceReference` del día por carta. **No filtra por bóveda** (brecha nueva DEV-3, §9): recorre `Card WHERE setId=<featured>` sin tocar `InventoryItem`. Respeta cache diario y rate-limit del free tier.
   - `set-value-snapshot` diario (v1.9-set-chart, tras `set-price-sync`; cron sugerido `15 7`): agrega el valor del set destacado según la regla §4.12a y hace **upsert** de `SetValueSnapshot` del día (`@@unique[setId,asOfDate]`). Alimenta la gráfica pública del hero (§3 SetValueSnapshot, `GET /catalog/featured-set/value-history`). Orden duro: FX → precio del set → snapshot del set.
+  - `catalog-price-sync` **2×/día** (v1.12-catalog-pricing, §4.13c; crons sugeridos `0 12` y `0 0` UTC = **06:00 y 18:00 CDMX**, dueño devops): **importa sets nuevos** y **refresca precios de TODO el catálogo**. Como pokemontcg.io no tiene bulk de solo-precios, refrescar precios ⇒ **re-sync completo** (`syncAll({force:true})`): `upsertCards` repuebla cartas + `PriceReference` por acabado (1.1) con el FX del día. Secuencial (respeta backoff 429 del cliente), single-flight (`syncAllStatus.running`), idempotente (upsert). Requiere `POKEMONTCG_IO_API_KEY` para la cuota (§8). **Nuevo respecto al `price-sync` de bóveda:** este SÍ precia el catálogo completo (no filtra por `InventoryItem`).
 - **Validaciones duras:** dirección de envío/retiro **debe ser MX** (rechazo si no); retiro solo sobre `settled`; carta "precio pendiente" **no comprable**; topes de buylist (por solicitud/mes) e INE sobre tope.
 
 ---
@@ -1480,12 +1621,47 @@ Riesgos técnicos:
   intacto); es un job **adicional** acotado. Registrar en `docs/TECH_DEBT.md` si se difiere el cableado del
   scheduler (mismo estado que BE-5 para `portfolio-snapshot`).
 
+- **DEV-3 — SUBSUMIDO por Fase 1 (v1.12-catalog-pricing).** La brecha "el `price-sync` solo precia bóveda" queda
+  cubierta por 1.1 (§4.13a): el `catalog-sync` precia TODO el catálogo (acabado `normal` incluido) → `computeSetValue`
+  ya tiene datos de cualquier set, no solo del destacado. `set-price-sync` se conserva (inocuo) pero es en gran medida
+  redundante; su retiro es opcional (fase 2), no bloquea nada.
+- **BE-16 — RESUELTO por Fase 1 (v1.12-catalog-pricing, §4.13b).** El cotizador público `publicQuote` deja de
+  escribir en la cola (`escalatePending` eliminado del endpoint anónimo) y vuelve a ser read-only; el priming del
+  catálogo (1.1) hace que el read casi siempre encuentre precio. **Acción (backend):** quitar la llamada a
+  `escalatePending` de `buylist.service.ts` `publicQuote` (~:81-83); dejar la escalada solo en `createRequest`.
+- **DEV-4 (backend/devops, v1.12-catalog-pricing) — el barrido `catalog-price-sync` corre in-process (memoria).**
+  El refresco 2×/día reusa `runSyncAll` secuencial in-process (misma limitación DEV-1): si el proceso reinicia a
+  media corrida, la siguiente corrida (o `sync-all` manual) reanuda. Aceptable interino (idempotente/reanudable);
+  el objetivo robusto es encolar **un job BullMQ por set** (retry/persistencia de progreso). Registrar en
+  `docs/TECH_DEBT.md` si se difiere. **Nota de escala:** `PriceReference` crece ~1 fila/día por (carta, acabado) del
+  catálogo (~30–40k filas/día); considerar retención/particionado de la serie temporal en fase 2 (no bloquea el MVP).
+
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
 
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.12-catalog-pricing — Fase 1 del epic de precios)
+> No bloquean el arranque: backend puede implementar 1.1/1.2 y el job 1.3 con los defaults propuestos; frontend
+> puede hacer 1.4 ya. El arquitecto **no asume** reglas de negocio (CLAUDE.md). **Requieren confirmación del humano:**
+- **v1.12-1 — Horarios exactos del refresco 2×/día.** Default propuesto: **06:00 y 18:00 CDMX** (= crons UTC
+  `0 12 * * *` y `0 0 * * *`; CDMX = UTC−6 sin DST). ¿Confirmar esas horas, o prefiere otras (p. ej. madrugada para
+  menor carga)? Scheduling = dueño **devops**.
+- **v1.12-2 — ¿El refresco 2×/día re-fetchea TODO el catálogo, o algo incremental?** Default propuesto: **re-sync
+  completo** (`sync-all force:true`) — es simple, el precio viaja embebido en la carta y con API key la cuota alcanza
+  (~cientos de req × 2/día). Alternativa (más ligera, más compleja): refrescar solo sets recientes / escalonar sets
+  entre corridas / refrescar por prioridad (bóveda + sets destacados primero). Confirmar si basta el full o se quiere
+  incremental.
+- **v1.12-3 — On-demand en el cotizador público: ¿sí o no?** Default propuesto (y recomendado): **NO** — `publicQuote`
+  read-only, la frescura la da el job + catalog-sync (1.1/1.2). Esto **cierra BE-16** y el punto v1.3-1. Confirmar
+  (si el humano quiere on-demand para un set recién salido aún no sincronizado, se acotaría al flujo **autenticado**
+  `createRequest`, nunca al quote anónimo).
+- **v1.12-4 (operativo, devops) — API key / plan de pokemontcg.io.** El refresco 2×/día del catálogo completo
+  **requiere `POKEMONTCG_IO_API_KEY`** para la cuota (~20k req/día); sin key el free tier puede toparse. Confirmar que
+  la key está aprovisionada en staging/prod. El plan de pago **no** es necesario para Fase 1 (el `PricingProvider`
+  intercambiable permite subir después sin tocar el resto).
 
 ### Preguntas abiertas (v1.3 — Cotizador Opción 1)
 > No bloquean el arranque del trabajo (backend puede implementar `GET /buylist/cards`, `GET /buylist/sets` y
@@ -1495,7 +1671,9 @@ este documento y con `API_CONTRACT.md`.
   humano quiere que el cotizador dispare un **fetch puntual** al `PricingProvider` en el momento de cotizar
   (mejor UX, pero consume cuota del free tier fuera de la bóveda y puede tentar abuso del endpoint público)?
   **Default propuesto (MVP):** **no** priciar on-demand; mantener `precio_pendiente` + escalado al dueño.
-  Requiere confirmación para cerrarse.
+  **RESUELTO por Fase 1 (v1.12-catalog-pricing, §4.13a/b):** el catálogo completo se precia durante el `catalog-sync`
+  (1.1), así que el quote ya encuentra precio sin fetch on-demand; además `publicQuote` pasa a read-only (1.2). Se
+  confirma el default "no on-demand". Ver pregunta v1.12-3.
 - **v1.3-2 — Búsqueda pública sobre todo el catálogo: ¿rate-limit / anti-scraping?** `GET /buylist/cards` es
   público y consulta la tabla `Card` completa. Recomendación técnica (no de negocio): aplicar rate-limit por
   IP y `pageSize` acotado (≤100). Confirmar si se quiere además exigir sesión (`customer`) para reducir
@@ -1537,6 +1715,15 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.12-catalog-pricing (nueva — Fase 1 del epic de precios) — **SIN migración de esquema**
+
+**No hay migración.** Fase 1 (§4.13) es 100% aditiva sobre modelos existentes: reusa `PriceReference` (que ya lleva
+`finish` en su clave desde M-18) y `CardSet`/`Card`. Los cambios son de **lógica** (nueva escritura de
+`PriceReference` en `upsertCards`, quitar `escalatePending` de `publicQuote`) y de **jobs/scheduler** (nuevo
+`catalog-price-sync`, cableado por devops). No crea enums, tablas ni diales. **Nota de escala (no bloqueante):**
+`PriceReference` pasa a crecer ~1 fila/día por (carta, acabado) del catálogo (~30–40k filas/día); considerar
+retención/particionado de la serie en fase 2 (DEV-4, §9).
 
 ### v1.9-set-chart (nueva — gráfica pública del valor de un set)
 

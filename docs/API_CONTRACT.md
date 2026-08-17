@@ -4,6 +4,25 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
 >
+> **Changelog v1.12-catalog-pricing (2026-08-17) — FASE 1 del epic de precios (preciar TODO el catálogo +
+> refresco 2×/día + import de sets nuevos).** **Sin endpoints nuevos y sin migración**; los cambios de contrato son
+> de **comportamiento**. Ver ARCHITECTURE §4.13. Toca dinero → triple veredicto.
+> - **`POST /buylist/quote` pasa a READ-ONLY (supersede BE-16):** el cotizador público **ya no escribe** en la cola
+>   de precio pendiente (se elimina el `escalatePending` que se había añadido en Fase 0.2). **Mismo shape de
+>   request/response**; lo que cambia es que un `quote` con `precio_pendiente` **ya no** genera un `PendingPriceEntry`
+>   desde el endpoint anónimo. La escalada sigue **solo** en `POST /buylist/requests` (autenticado). Habilitado por
+>   el priming de todo el catálogo (abajo): el `referencePrice`/`quote` del cotizador ahora sale `priced` para casi
+>   cualquier carta del catálogo (no solo bóveda). SEC-A1 intacto (montos server-side).
+> - **Priming de `PriceReference` de TODO el catálogo (interno, sin endpoint):** el `catalog-sync` ahora **puebla
+>   `PriceReference`** por `(card, finish)` reusando `tcgplayer.prices` ya descargado (`raw`/`raw:NM`, FX del día).
+>   Efecto observable en el contrato: `POST /buylist/quote` y `GET /catalog/*` devuelven precio para cartas fuera de
+>   bóveda. Cartas sin `market` no generan referencia ni pendiente (no se inunda la cola).
+> - **Refresco 2×/día + import de sets nuevos (job interno `catalog-price-sync`, 06:00 y 18:00 CDMX, configurable):**
+>   refrescar precios ⇒ re-sync del catálogo (pokemontcg.io no tiene bulk de solo-precios); **disparo manual
+>   equivalente** = `POST /admin/catalog/sync-all {force:true}` (ya existe). Sin endpoint nuevo.
+> - **1.4 "Importar sets nuevos" (M2, solo frontend):** reusa `POST /admin/catalog/sync-all {force:false}` +
+>   `GET /admin/catalog/sync-status` + `GET /admin/catalog/remote-sets`. **No requiere endpoint nuevo.**
+>
 > **Changelog v1.11-premium-gate (2026-08-17) — Gate PREMIUM en el cotizador de buylist (fix de dinero, Fase 0):**
 > Documenta lo YA implementado por backend (`backend/src/common/money.ts`, commit `ebb4dee`) en **`POST
 > /buylist/quote`** (§6). **Sin cambio de shape de request/response**: mismo `appliedRule`/`ruleSource`/`quote`; lo
@@ -640,8 +659,12 @@ Sets que tienen **cartas importadas** (para poblar el dropdown de set del cotiza
 Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de
 `releaseDate`; ordenados por año **desc**).
 
-### POST /api/v1/buylist/quote — `public`  (v1.3.1: por RAREZA · v1.6-finish: por ACABADO)
+### POST /api/v1/buylist/quote — `public`  (v1.3.1: por RAREZA · v1.6-finish: por ACABADO · v1.12: READ-ONLY)
 Cotizador público (stateless). Muestra el mensaje de "pago tras recepción y verificación" (copy en frontend).
+> **v1.12-catalog-pricing:** el quote es **read-only** — **no** escribe en la cola de precio pendiente aunque el
+> resultado sea `precio_pendiente` (se retiró el `escalatePending` de Fase 0.2; cierra BE-16). Con el catálogo ya
+> priceado (§4.13a), el `referencePrice` casi siempre sale `priced`. La escalada a `PendingPriceEntry` ocurre solo en
+> `POST /buylist/requests` (autenticado). Mismo shape que antes.
 Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish }`
 - **`finish` (v1.6-finish, opcional, default `normal`):** debe pertenecer a `Card.availableFinishes`; si no →
   `422 FINISH_NOT_AVAILABLE`. El front lo puebla del `CardDTO.availableFinishes` de la carta elegida.
@@ -867,6 +890,7 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
     - **Retrocompatible:** omitir `force` (o enviar `false`) preserva el contrato y la semántica previos; ningún consumidor existente se rompe. El campo es aditivo y opcional.
   Res `202`: `{ jobId: string, setsQueued: number, remaining: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar; con `force=true`, `remaining` puede ser `0` aunque se hayan encolado todos los sets). Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`, con `force` registrado en el detalle).
   > **Alternativa sin endpoint nuevo:** el mismo resultado se logra con `POST /admin/catalog/sync` pasando un `fromReleaseDate` muy antiguo (p. ej. `"1998/01/01"`) **más** `POST /admin/catalog/backfill` repetido hasta `remaining=0`. `sync-all` existe para hacerlo explícito y **seguro contra timeouts** en catálogos grandes. Backend decide si `sync-all` es un wrapper que encola lo mismo que `backfill` en lote completo.
+  > **Uso en Fase 1 (v1.12-catalog-pricing, ARCHITECTURE §4.13):** este endpoint **cubre 1.3 y 1.4 sin variantes nuevas** — (1.4, frontend) botón **"Importar sets nuevos"** en M2 = `sync-all {force:false}` (solo sets no importados) + polling `sync-status` + refrescar `remote-sets`; (1.3, disparo manual del refresco de precios) = `sync-all {force:true}` (re-sync completo que repuebla `PriceReference` por acabado). El job automático `catalog-price-sync` 2×/día ejecuta internamente la misma lógica de `force:true`.
 - `GET /api/v1/admin/catalog/sync-status` — **(v1.10-sync-status, NUEVO)** devuelve el **progreso** del barrido `sync-all` **en curso** (o del **último** ejecutado) → permite a M2 **pollear** (cada ~3s mientras `running`) y saber **cuándo** terminó (antes `sync-all` era fire-and-forget "a ciegas"). **Read-only**, **NO auditado** (es de polling), **NO llama a pokemontcg.io** (lee estado **en memoria del proceso**; **no** consume rate-limit ni la cola BullMQ). **Admin-only** (`super_admin`, hereda de `@Roles(Role.super_admin)` del controller). El shape corresponde **exactamente** a `CatalogSyncStatusResponse` (`frontend/src/types/contract.ts`).
   Res `200` (`CatalogSyncStatusResponse`):
   ```json
