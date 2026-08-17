@@ -1,8 +1,8 @@
--- M-22 (v1.18-master-set-everywhere, WS «Inventario y vault»): ajuste de inventario por
+-- M-24 (v1.20-master-set-everywhere, WS «Inventario y vault»): ajuste de inventario por
 -- LEVANTAMIENTO FÍSICO desde el binder M1 (POST /admin/inventory/adjustments). Aditiva, SIN
 -- backfill. NO cambia el modelo por-pieza ni añade valores a InventoryStatus (`error_captura`
 -- reusa `withdrawn`; la distinción vive en InventoryAdjustment.reason).
--- API_CONTRACT changelog v1.18 / ARCHITECTURE §4.18e, §11 (M-22). Sin diales nuevos.
+-- API_CONTRACT changelog v1.20 / ARCHITECTURE §4.20e, §11 (M-24). Sin diales nuevos.
 
 -- CreateEnum: motivo OBLIGATORIO del ajuste (tipado y consultable para reportes de merma M7/M9).
 CREATE TYPE "AdjustmentReason" AS ENUM ('encontrada', 'perdida', 'danada', 'error_captura');

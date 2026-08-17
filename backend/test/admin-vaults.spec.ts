@@ -3,7 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 
 /**
- * v1.18-master-set-everywhere (§4.18c) — GET /admin/vaults: lista de clientes CON bóveda.
+ * v1.20-master-set-everywhere (§4.20c) — GET /admin/vaults: lista de clientes CON bóveda.
  *  - valuación con la MISMA base del portafolio §3: referencia por acabado (getReferencesBatch,
  *    1 lote); pendientes EXCLUIDOS del total y CONTADOS en pendingPriceCount.
  *  - pieceCount con el filtro de status "en bóveda" (scope user_vault).
@@ -37,7 +37,7 @@ function build(over: {
   return { prisma, pricing, svc: new AdminVaultsService(prisma, pricing) };
 }
 
-describe('AdminVaultsService.list — valuación de portafolio + sorts (§4.18c)', () => {
+describe('AdminVaultsService.list — valuación de portafolio + sorts (§4.20c)', () => {
   const USERS = [
     { id: 'u1', name: 'Ana', email: 'ana@x.mx' },
     { id: 'u2', name: 'Beto', email: 'beto@x.mx' },

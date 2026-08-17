@@ -22,7 +22,7 @@ const PAGE_SIZE = 20;
 const ROW = 'grid grid-cols-[1fr_auto] items-center gap-3 sm:grid-cols-[1.4fr_1.6fr_auto_auto_auto] sm:gap-4';
 
 /**
- * «Bóvedas de clientes» (contrato §M1 v1.18 · GET /admin/vaults, `vault_operator+`):
+ * «Bóvedas de clientes» (contrato §M1 v1.20 · GET /admin/vaults, `vault_operator+`):
  * lista de clientes con bóveda (piezas + valor estimado con la MISMA base del portafolio §3).
  * Clic en un cliente → su master set (vista (ii), scope user_vault) reutilizando los
  * componentes compartidos en modo LECTURA: sin captura/publicación/ajuste y sin `buyable`.
@@ -59,7 +59,7 @@ export function VaultsView() {
           <h1 className="text-h1 font-bold">{selected.name}</h1>
           <span className="font-mono text-xs text-muted">{selected.email}</span>
         </div>
-        {/* Vista (ii): binder de la bóveda del cliente — lectura pura (§4.18a). */}
+        {/* Vista (ii): binder de la bóveda del cliente — lectura pura (§4.20a). */}
         <MasterSetPanel mode="user_vault_admin" userId={selected.userId} />
       </div>
     );

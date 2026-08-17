@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getAdminInventory, bulkPublishItems, createInventoryAdjustment } from '@/lib/api';
@@ -10,6 +10,7 @@ import type {
   Finish,
   GradingCompany,
   InventoryAdjustmentRequest,
+  InventoryStatus,
   MasterSetCardCellDTO,
   ProductType,
   VaultLocationDTO,
@@ -25,16 +26,20 @@ import { Banner } from '@/components/ui/Banner';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { PerLineErrors } from './PerLineErrors';
+import { FINISH_ORDER } from '@/lib/finish';
 import { localUid, type CaptureLine } from './capture';
 import type { MasterSetViewMode } from './mode';
 
-const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 // En el binder solo hay cartas numeradas → alta rápida de raw o gradeada (sellado se gestiona
 // en la pestaña "Piezas"). El acabado solo aplica a raw; graded es siempre normal.
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded'];
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'compra'];
 const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 const ADJUST_REASONS: AdjustmentReason[] = ['encontrada', 'perdida', 'danada', 'error_captura'];
+// Solo estos status de ORIGEN son publicables (contrato §M1 v1.16.1 / ITEM_NOT_PUBLISHABLE):
+// `in_stock` → publica; `listed` → no-op idempotente. Cualquier otro lo rechaza el backend.
+// El guardarraíl server-side se queda; deshabilitar aquí es solo UX (no ofrecer lo que va a fallar).
+const PUBLISHABLE_STATUSES: InventoryStatus[] = ['in_stock', 'listed'];
 
 interface Props {
   mode: MasterSetViewMode;
@@ -56,10 +61,10 @@ interface Props {
 }
 
 /**
- * Drawer COMPARTIDO de celda (§4.18f). Todas las vistas muestran las CASILLAS POR ACABADO
- * (variants[] v1.18). Las acciones dependen del modo: captura/publicación/ajuste SOLO en
+ * Drawer COMPARTIDO de celda (§4.20f). Todas las vistas muestran las CASILLAS POR ACABADO
+ * (variants[] v1.20). Las acciones dependen del modo: captura/publicación/ajuste SOLO en
  * `platform` (M1); CTA de compra de faltantes SOLO en `user_vault_self`; `user_vault_admin`
- * es lectura pura. Sin venta directa manual en ningún modo (contrato §M1 v1.18).
+ * es lectura pura. Sin venta directa manual en ningún modo (contrato §M1 v1.20).
  */
 export function CellDrawer({
   mode,
@@ -307,14 +312,25 @@ function PlatformPiecesSection({
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  // batchKey ESTABLE por SESIÓN DE PUBLICACIÓN (techlead #1): se fija una vez y solo se regenera
+  // tras un éxito confirmado. Un reintento por timeout reusa la MISMA key → replay idempotente en
+  // el backend → no se re-publica ni se duplica. Generarla en cada mutate() lo derrotaría.
+  const publishKeyRef = useRef<string | null>(null);
+  function ensurePublishKey(): string {
+    if (publishKeyRef.current === null) publishKeyRef.current = localUid('pub');
+    return publishKeyRef.current;
+  }
+
   const publish = useMutation({
     mutationFn: () =>
       bulkPublishItems({
-        batchKey: localUid('pub'),
+        batchKey: ensurePublishKey(),
         items: [...selected].map((inventoryItemId) => ({ inventoryItemId })),
       }),
     onSuccess: () => {
       setSelected(new Set());
+      // Sesión cerrada con éxito → la próxima publicación arranca con una batchKey NUEVA.
+      publishKeyRef.current = null;
       void pieces.refetch();
       onPublished?.();
     },
@@ -331,7 +347,7 @@ function PlatformPiecesSection({
 
   const publishResults: BulkPublishLineResult[] = publish.data?.results ?? [];
 
-  // ---- Ajuste por levantamiento físico (contrato §M1 v1.18.1) ----
+  // ---- Ajuste por levantamiento físico (contrato §M1 v1.20.1) ----
   const ta = useTranslations('masterSet.adjust');
   const availableFinishes = FINISH_ORDER.filter((f) => cell.availableFinishes.includes(f));
   const [reason, setReason] = useState<AdjustmentReason>('encontrada');
@@ -339,7 +355,7 @@ function PlatformPiecesSection({
   const [adjustFinish, setAdjustFinish] = useState<Finish>(availableFinishes[0] ?? 'normal');
   const [adjustQty, setAdjustQty] = useState('1');
   const [note, setNote] = useState('');
-  // batchKey ESTABLE por intento de `encontrada` (v1.18.1, mismo patrón que el alta por lote):
+  // batchKey ESTABLE por intento de `encontrada` (v1.20.1, mismo patrón que el alta por lote):
   // se genera al montar y SOLO rota tras un submit exitoso. Un doble submit / retry del mismo
   // intento reusa la MISMA clave → el backend hace replay idempotente y no duplica piezas.
   const [adjustBatchKey, setAdjustBatchKey] = useState(() => localUid('adj'));
@@ -368,7 +384,7 @@ function PlatformPiecesSection({
                 qty: Math.max(1, Math.floor(Number(adjustQty) || 1)),
               },
               ...(note.trim() ? { note: note.trim() } : {}),
-              // Idempotencia v1.18.1: clave estable del intento (SOLO en `encontrada`).
+              // Idempotencia v1.20.1: clave estable del intento (SOLO en `encontrada`).
               batchKey: adjustBatchKey,
             }
           : { reason, inventoryItemId: adjustItemId, note: note.trim() };
@@ -404,27 +420,41 @@ function PlatformPiecesSection({
               <p className="text-sm text-muted">{t('noPieces')}</p>
             ) : (
               <ul className="flex flex-col gap-1">
-                {pieces.data.data.map((piece) => (
-                  <li key={piece.id}>
-                    <label className="flex items-center gap-3 border border-border px-3 py-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(piece.id)}
-                        onChange={() => toggle(piece.id)}
-                        className="h-5 w-5 accent-[color:var(--color-accent)]"
-                      />
-                      <span className="font-mono tabular-nums text-xs">{piece.folio}</span>
-                      {piece.finish && (
-                        <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
-                          {tFinish(piece.finish)}
+                {pieces.data.data.map((piece) => {
+                  // UX: no ofrecer publicar piezas en un status no publicable (evita el
+                  // ITEM_NOT_PUBLISHABLE seguro). El backend sigue siendo la autoridad.
+                  const publishable = PUBLISHABLE_STATUSES.includes(piece.status);
+                  return (
+                    <li key={piece.id}>
+                      <label
+                        className={`flex items-center gap-3 border border-border px-3 py-2 text-sm ${
+                          publishable ? '' : 'cursor-not-allowed opacity-60'
+                        }`}
+                        title={publishable ? undefined : t('notPublishableHint')}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected.has(piece.id)}
+                          onChange={() => toggle(piece.id)}
+                          disabled={!publishable}
+                          className="h-5 w-5 accent-[color:var(--color-accent)] disabled:cursor-not-allowed"
+                        />
+                        <span className="font-mono tabular-nums text-xs">{piece.folio}</span>
+                        {piece.finish && (
+                          <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
+                            {tFinish(piece.finish)}
+                          </span>
+                        )}
+                        <span className="ml-auto">
+                          <StatusBadge domain="inventory" value={piece.status} />
                         </span>
+                      </label>
+                      {!publishable && (
+                        <p className="px-3 pt-0.5 text-[10px] text-muted">{t('notPublishableHint')}</p>
                       )}
-                      <span className="ml-auto">
-                        <StatusBadge domain="inventory" value={piece.status} />
-                      </span>
-                    </label>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             ))}
         </QueryState>
@@ -463,7 +493,7 @@ function PlatformPiecesSection({
         )}
       </section>
 
-      {/* ---- Ajuste por levantamiento físico (v1.18.1): motivo OBLIGATORIO; sin venta manual ---- */}
+      {/* ---- Ajuste por levantamiento físico (v1.20.1): motivo OBLIGATORIO; sin venta manual ---- */}
       <section className="flex flex-col gap-3 border-t border-border pt-4">
         <h3 className="text-h3">{ta('title')}</h3>
         <Select

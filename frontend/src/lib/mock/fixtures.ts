@@ -314,6 +314,10 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, capturedDate: '2026-08-13' },
+    // Settled y sin envío → retirable.
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: true,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -327,6 +331,10 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'pending',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, capturedDate: '2026-08-13' },
+    // Pending → no retirable (aún no liquidada), sin envío activo.
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: false,
   },
   {
     inventoryItemId: 'inv-1008',
@@ -338,6 +346,11 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
+    // v1.17: EN RETIRO — envío activo `enviado` (shp-7001 lo contiene). NO retirable (ya en un envío).
+    // El badge "EN RETIRO" hace deep-link a /shipments/shp-7001.
+    shipmentState: 'enviado',
+    activeShipmentId: 'shp-7001',
+    withdrawable: false,
   },
   {
     inventoryItemId: 'inv-1010',
@@ -350,6 +363,10 @@ export const mockHoldings: HoldingDTO[] = [
     status: 'in_custody',
     // Precio pendiente en portafolio: se excluye del total (no rompe el cálculo).
     referenceValue: { status: 'pending' },
+    // Settled y sin envío → retirable (aunque su precio esté pendiente).
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: true,
   },
 ];
 
@@ -571,6 +588,22 @@ export const mockAddresses: AddressDTO[] = [
 /** ISO de hace `n` días (para anclar la ventana de disputa a una entrega reciente). */
 const daysAgoIso = (n: number): string => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
 
+/** Snapshot de dirección MX de ejemplo para los retiros (contrato §5 `addressSnapshot`). */
+const mockShipmentAddress = {
+  line1: 'Av. Reforma 222',
+  line2: 'Piso 3',
+  neighborhood: 'Juárez',
+  city: 'Ciudad de México',
+  state: 'CDMX',
+  postalCode: '06600',
+  country: 'MX',
+} as const;
+
+/**
+ * MOCK v1.17: retiros del PROPIO usuario (contrato §5 · GET /shipments listMine / GET /shipments/:id).
+ * Enriquecidos con `addressSnapshot`, montos por retiro y `finish` por ítem para la vista de rastreo.
+ * shp-7001 (`enviado`) es el envío ACTIVO del holding inv-1002 (deep-link desde el badge "EN RETIRO").
+ */
 export const mockShipments: ShipmentDTO[] = [
   {
     id: 'shp-7001',
@@ -578,8 +611,22 @@ export const mockShipments: ShipmentDTO[] = [
     carrier: 'Estafeta',
     trackingNumber: '1234567890',
     createdAt: '2026-08-11T10:00:00Z',
+    addressSnapshot: mockShipmentAddress,
+    shippingFeeCents: 17500,
+    ivaCents: 2800,
+    processingFeeCents: 1050,
+    totalCents: 21350,
+    requestedAt: '2026-08-11T10:00:00Z',
+    pickingAt: '2026-08-11T15:00:00Z',
+    shippedAt: '2026-08-12T09:00:00Z',
     items: [
-      { inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise'), productType: 'raw' },
+      {
+        inventoryItemId: 'inv-1008',
+        folio: 'INV-000108',
+        card: cardById('c-sealed-sv08-box'),
+        productType: 'sealed',
+        finish: 'normal',
+      },
     ],
   },
   // WS-F F6: envío ENTREGADO reciente → habilita "Abrir disputa" en el ítem raw elegible; el ítem
@@ -591,10 +638,30 @@ export const mockShipments: ShipmentDTO[] = [
     carrier: 'Estafeta',
     trackingNumber: '9988776655',
     createdAt: '2026-08-09T10:00:00Z',
+    addressSnapshot: mockShipmentAddress,
+    shippingFeeCents: 17500,
+    ivaCents: 2800,
+    processingFeeCents: 1050,
+    totalCents: 21350,
+    requestedAt: '2026-08-09T10:00:00Z',
+    pickingAt: '2026-08-09T14:00:00Z',
+    shippedAt: '2026-08-10T09:00:00Z',
     deliveredAt: daysAgoIso(2),
     items: [
-      { inventoryItemId: 'inv-1003', folio: 'INV-000103', card: cardById('c-charizard'), productType: 'raw' },
-      { inventoryItemId: 'inv-1006', folio: 'INV-000106', card: cardById('c-latias-sir'), productType: 'graded' },
+      {
+        inventoryItemId: 'inv-1003',
+        folio: 'INV-000103',
+        card: cardById('c-charizard'),
+        productType: 'raw',
+        finish: 'holofoil',
+      },
+      {
+        inventoryItemId: 'inv-1006',
+        folio: 'INV-000106',
+        card: cardById('c-latias-sir'),
+        productType: 'graded',
+        finish: 'normal',
+      },
     ],
   },
 ];
@@ -869,7 +936,7 @@ function compareNatural(a: string, b: string): number {
 }
 
 // ===================================================================================
-// v1.18-master-set-everywhere: el MISMO shape sirve 3 vistas, cambia el ALCANCE de la
+// v1.20-master-set-everywhere: el MISMO shape sirve 3 vistas, cambia el ALCANCE de la
 // agregación (scope platform vs user_vault). MOCK: pendiente de backend real.
 // ===================================================================================
 
@@ -881,7 +948,7 @@ interface ScopePiece {
   finish: Finish;
 }
 
-// Scope del mock (espeja MasterSetQueryScope de ARCHITECTURE §4.18a). `includeBuyable`
+// Scope del mock (espeja MasterSetQueryScope de ARCHITECTURE §4.20a). `includeBuyable`
 // SOLO en la vista (iii) del propio cliente; `owner` presente solo en user_vault.
 export type MockMasterSetScope =
   | { kind: 'platform' }
@@ -902,6 +969,10 @@ export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
       ownershipStatus: 'settled',
       status: 'in_custody',
       referenceValue: { status: 'priced', referenceMxnCents: 9500, capturedDate: '2026-08-13' },
+      // v1.17-withdrawal-lifecycle (stream de retiros): settled y sin retiro activo → retirable.
+      shipmentState: null,
+      activeShipmentId: null,
+      withdrawable: true,
     },
   ],
 };
@@ -940,7 +1011,7 @@ function countsByFinishFor(cardId: string, pieces: ScopePiece[]): { counts: Mast
 
 /**
  * `buyable` de una variante FALTANTE (SOLO vista (iii)): la pieza `listed` de plataforma MÁS
- * BARATA de ese (cardId, finish), o null si no hay nada publicado (contrato §3 v1.18).
+ * BARATA de ese (cardId, finish), o null si no hay nada publicado (contrato §3 v1.20).
  */
 function cheapestListedFor(cardId: string, finish: Finish): { inventoryItemId: string; salePriceCents: number } | null {
   const candidates = mockListings.filter(
@@ -972,7 +1043,7 @@ function variantsForCell(
 /**
  * Índice de sets con resumen agregado (GET /admin/inventory/master-sets · scope platform,
  * GET /admin/vaults/:userId/master-sets · GET /vault/master-sets · scope user_vault).
- * v1.18: contadores por VARIANTE (universo = Card.availableFinishes) + scope/owner.
+ * v1.20: contadores por VARIANTE (universo = Card.availableFinishes) + scope/owner.
  */
 export function mockMasterSetIndex(
   params: {
@@ -1058,7 +1129,7 @@ export function mockMasterSetIndex(
 
 /**
  * Binder del set (GET /admin/inventory/master-sets/:setId y equivalentes por scope).
- * Celdas en ORDEN NATURAL. v1.18: variants[] por acabado (universo = availableFinishes),
+ * Celdas en ORDEN NATURAL. v1.20: variants[] por acabado (universo = availableFinishes),
  * expected/coveredVariantCount, scope/owner, y buyable SOLO en la vista (iii).
  */
 export function mockMasterSetBinder(
@@ -1123,7 +1194,7 @@ export function mockMasterSetBinder(
   };
 }
 
-/** Owner ref de un usuario para la vista admin (ii) — CON email (contrato §M1 v1.18). */
+/** Owner ref de un usuario para la vista admin (ii) — CON email (contrato §M1 v1.20). */
 export function mockVaultOwnerOf(userId: string): VaultOwnerRefDTO {
   const u = mockAdminUsers.find((x) => x.id === userId);
   if (!u || !(userId in mockVaultHoldingsByUser)) {
@@ -1196,23 +1267,23 @@ export class ApiFixtureError extends Error {
   }
 }
 
-// v1.18.1 — Idempotencia del ajuste `encontrada`: batchKey → respuesta guardada (MISMO mecanismo
+// v1.20.1 — Idempotencia del ajuste `encontrada`: batchKey → respuesta guardada (MISMO mecanismo
 // que el alta por lote / InventoryBatch M-21). Un replay NO re-crea piezas ni filas de ajuste.
 const mockAdjustmentStore = new Map<string, InventoryAdjustmentResponse>();
 
 /**
  * Ajuste de inventario por levantamiento físico (POST /admin/inventory/adjustments,
- * `vault_operator+`, auditado). Motivo OBLIGATORIO; modelo POR-PIEZA (contrato §M1 v1.18.1):
+ * `vault_operator+`, auditado). Motivo OBLIGATORIO; modelo POR-PIEZA (contrato §M1 v1.20.1):
  * encontrada → CREA pieza(s) in_stock (con `batchKey?` idempotente: un replay devuelve la
  * respuesta original con idempotentReplay:true, sin re-crear); perdida|danada|error_captura →
  * status de UNA pieza existente (lost | damaged | withdrawn) con note obligatoria y SIN
  * batchKey. Solo piezas platform con status ∈ {in_stock, listed} son ajustables
- * (422 ITEM_NOT_ADJUSTABLE en el resto). Respuesta v1.18.1: `adjustmentIds` (una fila
+ * (422 ITEM_NOT_ADJUSTABLE en el resto). Respuesta v1.20.1: `adjustmentIds` (una fila
  * InventoryAdjustment por pieza, alineada 1:1 con inventoryItemIds/folios).
  */
 export function mockCreateAdjustment(req: InventoryAdjustmentRequest): InventoryAdjustmentResponse {
   if (req.reason === 'encontrada') {
-    // v1.18.1 — replay idempotente por batchKey (mismo mecanismo que el alta por lote):
+    // v1.20.1 — replay idempotente por batchKey (mismo mecanismo que el alta por lote):
     // NO re-crea piezas ni filas de ajuste; devuelve la respuesta original guardada.
     if (req.batchKey) {
       const prior = mockAdjustmentStore.get(req.batchKey);
@@ -1238,7 +1309,7 @@ export function mockCreateAdjustment(req: InventoryAdjustmentRequest): Inventory
       const seq = String(mockInventory.length + 400 + k).padStart(6, '0');
       folios.push(`INV-${seq}`);
       inventoryItemIds.push(`inv-adj-${seq}`);
-      // Una fila InventoryAdjustment POR PIEZA (M-22), alineada 1:1 con folios (v1.18.1).
+      // Una fila InventoryAdjustment POR PIEZA (M-24), alineada 1:1 con folios (v1.20.1).
       adjustmentIds.push(`adj-${seq}`);
     }
     const res: InventoryAdjustmentResponse = {

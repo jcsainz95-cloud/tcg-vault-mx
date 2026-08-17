@@ -11,7 +11,7 @@ import { InventoryController } from '../src/modules/inventory/inventory.controll
 import { ROLES_KEY } from '../src/common/decorators/roles.decorator';
 
 /**
- * v1.18-master-set-everywhere (§4.18a/b/d) — contrato ÚNICO por scope + completitud por VARIANTE:
+ * v1.20-master-set-everywhere (§4.20a/b/d) — contrato ÚNICO por scope + completitud por VARIANTE:
  *  - variante = (carta, acabado); normal+reverse_holo = 2 casillas; universo = availableFinishes;
  *    histórico/vacío → ['normal']; DRIFT visible en countsByFinish pero fuera de expected/covered.
  *  - scope user_vault: agrega SOLO piezas del usuario (ownerType=customer, ownerUserId) y el índice
@@ -61,7 +61,7 @@ const SET = {
   printedTotal: 191,
 };
 
-describe('expectedFinishes — universo de variantes (v1.18 §4.18b)', () => {
+describe('expectedFinishes — universo de variantes (v1.20 §4.20b)', () => {
   it('normal + reverse_holo = 2 casillas (una por acabado)', () => {
     expect(expectedFinishes(['normal', 'reverse_holo'])).toEqual(['normal', 'reverse_holo']);
   });
@@ -77,7 +77,7 @@ describe('expectedFinishes — universo de variantes (v1.18 §4.18b)', () => {
   });
 });
 
-describe('binder — variants[] por celda: cobertura, drift y contadores (§4.18b)', () => {
+describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20b)', () => {
   function setupBinder(groupByRows: any[], cards?: any[]) {
     const prisma = buildPrisma();
     (prisma.cardSet.findUnique as jest.Mock).mockResolvedValue(SET);
@@ -134,7 +134,7 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.18
   });
 });
 
-describe('scope user_vault — filtro de agregación + owner por vista (§4.18a)', () => {
+describe('scope user_vault — filtro de agregación + owner por vista (§4.20a)', () => {
   const USER = { id: 'u1', name: 'Ana', email: 'ana@example.com' };
 
   it('binder user_vault agrega con ownerType=customer + ownerUserId (nunca plataforma)', async () => {
@@ -226,7 +226,7 @@ describe('scope user_vault — filtro de agregación + owner por vista (§4.18a)
   });
 });
 
-describe('buyable — SOLO vista (iii); pieza listed más barata o null (§4.18d)', () => {
+describe('buyable — SOLO vista (iii); pieza listed más barata o null (§4.20d)', () => {
   function setupCustomerBinder(listedItems: any[], pricingOver: any = {}) {
     const prisma = buildPrisma();
     (prisma.cardSet.findUnique as jest.Mock).mockResolvedValue(SET);
@@ -295,7 +295,7 @@ describe('buyable — SOLO vista (iii); pieza listed más barata o null (§4.18d
   });
 });
 
-describe('permisos de los endpoints nuevos (metadata @Roles, §4.18a)', () => {
+describe('permisos de los endpoints nuevos (metadata @Roles, §4.20a)', () => {
   it('/admin/vaults (índice + binder de cliente) exige vault_operator+ (un customer recibe 403 del RolesGuard)', () => {
     const roles = Reflect.getMetadata(ROLES_KEY, AdminVaultsController);
     expect(roles).toEqual([Role.vault_operator, Role.super_admin]);

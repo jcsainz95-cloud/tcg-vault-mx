@@ -4,11 +4,11 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
-## WS «Inventario y vault» — Master set en TODAS partes (2026-08-17, contrato v1.18-master-set-everywhere)
+## WS «Inventario y vault» — Master set en TODAS partes (2026-08-17, contrato v1.20-master-set-everywhere)
 
 El binder Master Set deja de ser exclusivo de M1: los componentes se **promueven a
 `frontend/src/components/master-set/`** (zona compartida, RESERVADA por este stream durante la
-promoción, ARCHITECTURE §4.18f) y sirven las TRES vistas del contrato con el MISMO shape:
+promoción, ARCHITECTURE §4.20f) y sirven las TRES vistas del contrato con el MISMO shape:
 (i) M1 plataforma, (ii) admin viendo la bóveda de un cliente, (iii) el cliente viendo la suya.
 Gates verdes: **lint 0**, **tsc 0**, **test 322/322** (43 files; +10 nuevos), **build OK**
 (ruta `/[locale]/admin/vaults` registrada).
@@ -20,7 +20,7 @@ y `capture.ts` → **`frontend/src/components/master-set/`** (mismos nombres) + 
 La carpeta vieja se eliminó; `M1View` importa `MasterSetPanel` desde `@/components/master-set/`.
 `MasterSet.test.tsx` se movió junto a los componentes.
 
-**Parametrización por scope/capacidades (props, §4.18f):** `MasterSetPanel` recibe
+**Parametrización por scope/capacidades (props, §4.20f):** `MasterSetPanel` recibe
 `mode: 'platform' | 'user_vault_admin' | 'user_vault_self'` (+ `userId?` en admin, + `onBuyMissing?`
 en self). El componente NO decide permisos: renderiza lo que el DTO trae (el backend omite campos
 por scope — `buyable` solo (iii), `owner.email` solo (ii)). Capacidades por modo:
@@ -29,7 +29,7 @@ por scope — `buyable` solo (iii), `owner.email` solo (ii)). Capacidades por mo
 - `user_vault_admin`: SOLO lectura (sin captura/publicación/ajuste/venta ni CTA de compra).
 - `user_vault_self`: lectura + **CTA de compra en variantes faltantes** con `buyable`.
 
-### Binder por VARIANTE (v1.18)
+### Binder por VARIANTE (v1.20)
 
 - Cada celda pinta **una casilla por acabado** (`variants[]`, universo = `availableFinishes`):
   cubierta → chip con conteo; faltante → chip **«HUECO»** por acabado (borde punteado, acento).
@@ -78,7 +78,7 @@ feedback. Sin acciones de venta/captura en vistas de cliente.
 - `GET /admin/vaults` → `getAdminVaults`; `GET /admin/vaults/:userId/master-sets[/:setId]` →
   `getAdminVaultMasterSets` / `getAdminVaultMasterSetBinder`.
 - `POST /admin/inventory/adjustments` → `createInventoryAdjustment`.
-- Tipos v1.18 en `contract.ts`: `MasterSetScope`, `VaultOwnerRefDTO`, `MasterSetVariantDTO`,
+- Tipos v1.20 en `contract.ts`: `MasterSetScope`, `VaultOwnerRefDTO`, `MasterSetVariantDTO`,
   extensiones de `MasterSetSummaryDTO`/`MasterSetCardCellDTO`/`MasterSet*Response`,
   `AdminVaultSummaryDTO/Sort/ListResponse`, `AdjustmentReason`,
   `InventoryAdjustmentRequest/Response`, `MovementReason += 'adjustment'`.
@@ -110,16 +110,16 @@ sets con piezas propias). `VaultsView.test.tsx` (2): lista + drill-down lectura.
 `VaultView.test.tsx` (+1): pestaña Master set. Comandos reales: `npm run lint` (0), `npx tsc
 --noEmit` (0), `npm test` (43 files / 322 pass), `npm run build` (OK).
 
-### Cierre v1.18.1-adjustments-clarify (2026-08-17, post-gates)
+### Cierre v1.20.1-adjustments-clarify (2026-08-17, post-gates)
 
-Adaptación al changelog **v1.18.1** del contrato (ajuste por levantamiento físico, §M1):
+Adaptación al changelog **v1.20.1** del contrato (ajuste por levantamiento físico, §M1):
 
 - **Response nuevo** (`contract.ts`): `InventoryAdjustmentResponse` pasa a `adjustmentIds: string[]`
   (SUSTITUYE al singular `adjustmentId`, alineado 1:1 con `inventoryItemIds`/`folios`; longitud 1 en
   motivos ≠ encontrada) + `idempotentReplay: boolean`. `InventoryAdjustmentRequest` gana `batchKey?`
   SOLO en la rama `encontrada`.
 - **batchKey ESTABLE por intento** (`CellDrawer.tsx`, sección de ajuste): en `encontrada` el drawer
-  SIEMPRE manda `batchKey` (obligación del front por contrato, cierra BE-41). La clave se genera con
+  SIEMPRE manda `batchKey` (obligación del front por contrato, cierra BE-47). La clave se genera con
   `localUid('adj')` al montar y **solo rota tras un submit exitoso** (fresco o replay): un doble
   submit / retry tras error reusa la MISMA clave → el backend hace replay idempotente y no duplica
   piezas ni filas de ajuste. Mismo mecanismo `localUid` que el alta por lote (`capture.ts`). Los
@@ -128,7 +128,7 @@ Adaptación al changelog **v1.18.1** del contrato (ajuste por levantamiento fís
 - **Replay sin efectos dobles:** con `idempotentReplay: true` el drawer muestra el MISMO éxito (un
   solo Banner con folios, sin aviso duplicado) y **NO** refresca agregados (`pieces.refetch()` /
   `onAdjusted` solo corren en procesamiento nuevo — nada cambió en el servidor).
-- **Mock** (`fixtures.ts`): `mockCreateAdjustment` devuelve el shape v1.18.1 y replica la
+- **Mock** (`fixtures.ts`): `mockCreateAdjustment` devuelve el shape v1.20.1 y replica la
   idempotencia con `mockAdjustmentStore` (batchKey → respuesta guardada; replay con
   `idempotentReplay:true` sin re-crear), espejo de `mockBatchStore` del alta por lote.
 - **Tests** (`MasterSet.test.tsx`, 17 specs = +2): payload de `encontrada` CON `batchKey`
@@ -136,8 +136,8 @@ Adaptación al changelog **v1.18.1** del contrato (ajuste por levantamiento fís
   replay → mismo éxito sin re-consultar piezas (`getAdminInventory` no vuelve a llamarse). Gates
   reales: `npx tsc --noEmit` 0 · `npm run lint` 0 · `npm test` **43 files / 324 pass** · `npm run
   build` OK.
-- **Deuda del veredicto techlead** anotada en `docs/TECH_DEBT.md`: **FE-20** (props de
-  `MasterSetPanel` permiten estados ilegales → unión discriminada sin default de `mode`) y **FE-21**
+- **Deuda del veredicto techlead** anotada en `docs/TECH_DEBT.md`: **FE-25** (props de
+  `MasterSetPanel` permiten estados ilegales → unión discriminada sin default de `mode`) y **FE-26**
   (`PlatformPiecesSection` acumula publicación+ajuste; extraer `AdjustSection` y eliminar el estado
   derivado de `adjustFinish`). Abiertas, no bloqueantes.
 
@@ -148,6 +148,142 @@ Adaptación al changelog **v1.18.1** del contrato (ajuste por levantamiento fís
   flujo de compra normal, y así se hace (carrito local → checkout §4).
 - Los E2E Playwright existentes (`e2e/*.spec.ts`) no referencian las claves movidas; pendiente de
   QA correr smoke E2E de los flujos tocados contra el stack levantado.
+
+### Merge con main (2026-08-17): integración con «Catálogo y precios» / WS-H retiros
+
+Al integrar este stream con `main` (que traía WS-H retiros v1.17 y el pulido de veredicto WS-E),
+los cambios de main sobre la ruta VIEJA `(admin)/admin/m1/master-set/` se **portaron a los
+componentes promovidos** `components/master-set/`:
+- `MasterSetPanel`/`CellDrawer`: **batchKey estable por sesión** también en captura por lote
+  (`batchKeyRef`/`ensureBatchKey`) y en bulk-publish (`publishKeyRef`) — el patrón que ya usábamos
+  en el ajuste (`localUid('adj')`) queda ahora en las tres mutaciones idempotentes.
+- `CellDrawer`: **piezas no-publicables deshabilitadas** (checkbox `disabled` + hint
+  `masterSet.notPublishableHint`, `PUBLISHABLE_STATUSES = ['in_stock','listed']`).
+- `MasterSetBinder`/`CellDrawer`: `FINISH_ORDER` desde el módulo único **`@/lib/finish`** (dedup
+  de main) en lugar de las consts locales.
+- `MasterSet.test.tsx`: se portó el test de checkbox deshabilitado (reemplaza al de
+  ITEM_NOT_PUBLISHABLE por-línea vía UI, inalcanzable con la nueva UX) y el de batchKey estable de
+  carrito. i18n: `notPublishableHint` se agregó al namespace top-level `masterSet.*` (el subtree
+  `admin.m1.masterSet` de main se descartó: ya no existe ningún consumidor).
+- Interacción real entre streams: el holding mock `inv-3001` (`mockVaultHoldingsByUser`, este
+  stream) ganó los campos v1.17 requeridos (`shipmentState:null`, `activeShipmentId:null`,
+  `withdrawable:true`).
+- Renumeración post-merge: contrato v1.18→**v1.20** / v1.18.1→**v1.20.1**, ARCHITECTURE
+  §4.18→**§4.20**, migración M-22 (inventory)→**M-24**, deuda FE-20/FE-21→**FE-25/FE-26**,
+  BE-41→BE-47. Gates del árbol mergeado: **tsc 0 · test 341/341 (45 files) · lint 0 · build OK**.
+
+## WS-H frontend · Retiro visible para el cliente (badge "EN RETIRO" + rastreo) (2026-08-17)
+
+Implementa el ciclo de RETIRO visible en la bóveda según **contrato v1.17-withdrawal-lifecycle** (§3
+HoldingDTO, §5 rastreo del cliente). Solo `frontend/` + este doc. **0 cambios de contrato/backend**; se
+consume el contrato como interfaz (nada depende de detalles internos del backend). Patrón real+mock
+(`config.useMocks`), tokens/`shadow-focus` respetados. Gates: **tsc 0**, **vitest 313** (42 files),
+**e2e mock 45 passed** (1 flake de `auth.spec` que pasa al re-correr; no relacionado).
+
+### 1) Tipos (contrato §3/§5) — `src/types/contract.ts`
+- `HoldingDTO` gana `shipmentState: ShipmentActiveStage | null`, `activeShipmentId: string | null`,
+  `withdrawable: boolean` (los tres **requeridos**, como el contrato). Nuevo alias
+  `ShipmentActiveStage = 'solicitado'|'picking'|'guia'|'enviado'`.
+- `ShipmentDTO` (== `ClientShipmentDTO` del contrato §5) se **enriquece** con `addressSnapshot`,
+  montos (`shippingFeeCents/ivaCents/processingFeeCents/totalCents`), timestamps por etapa
+  (`requestedAt/pickingAt/shippedAt`, `deliveredAt` ya existía) e `items[].finish`. Los campos nuevos
+  son **opcionales** para tolerar productores/mocks parciales (p. ej. la respuesta de captura de guía M4).
+
+### 2) "Mi Bóveda" (`vault/VaultView.tsx` + `components/domain/WithdrawalBadge.tsx`)
+- **Badge "EN RETIRO":** nuevo `WithdrawalBadge` (reusa el primitivo `Badge`, texto mono en versalitas,
+  `outline` acento) que se pinta cuando `shipmentState !== null`: chip `EN RETIRO` + el **label de etapa
+  del contrato §5** (namespace i18n `shipmentStage.*`, distinto de `status.shipment.*` operativo). Con
+  `activeShipmentId`, el badge es un **enlace** al detalle del retiro (`/shipments/:id`) = deep-link
+  bóveda→rastreo. Se apila bajo el badge de titularidad en la columna de estado.
+- **Gating de RETIRAR:** el botón/enlace usa **`withdrawable`** como fuente ÚNICA de verdad (antes se
+  derivaba de `ownershipStatus==='settled'`). Si `!withdrawable` → botón deshabilitado con hint accesible
+  (`title` + `aria-label`): "en retiro" si hay envío activo, "solo liquidadas" si aún es `pending`. Ya no
+  se descubre el `409/422` al intentar.
+
+### 3) Rastreo de retiros del cliente (contrato §5)
+- **`api.ts`:** `getShipments()` (ya existía, envelope `{ data }`) + nuevo **`getShipment(id)`**
+  (`GET /shipments/:id`) con rama real+mock.
+- **Lista ("Mis retiros"):** la sección de `ShipmentsView` se enriquece — cada retiro muestra la **etapa
+  legible** (`shipmentStage.*`), dirección (ciudad/estado del `addressSnapshot`), **total** del retiro,
+  guía/tracking y sus **cartas** (folio, nombre, set). El id del retiro es un **deep-link** al detalle.
+  La lista de cartas y las acciones de disputa (F6) se **unificaron** en un solo `<ul>` (antes duplicaban
+  el nombre de cada carta en dos bloques). La lista **seleccionable** del alta de retiro ahora filtra por
+  `withdrawable` (un item settled pero ya EN RETIRO cae en "no elegibles", con su badge + deep-link).
+- **Detalle (`shipments/[id]/ShipmentDetailView.tsx`, ruta nueva `shipments/[id]/page.tsx`):** destino del
+  deep-link. Muestra la etapa legible, la línea de tiempo (`useShipmentClientSteps` con la tabla §5),
+  dirección (snapshot, lectura defensiva), total desglosado (`AmountBreakdown` reconstruido desde los
+  montos del DTO; `ivaRatePct` no viaja en §5 → se deriva de iva/fee, default 16) y las cartas
+  (folio, nombre, set, número, acabado). Estados carga/error/no-encontrado explícitos (`QueryState`).
+- **Navegación:** "Mis retiros" añadido al `StorefrontHeader` (privado, junto a "Mis órdenes") → `/shipments`.
+
+### 4) i18n (ES/EN, paridad verde)
+- `nav.shipments`, `vault.inWithdrawal` / `inWithdrawalHint` / `trackWithdrawal`,
+  `shipments.{backToList,detailTitle,itemsInWithdrawal,shippingAddress,addressUnavailable,withdrawalTotal}`,
+  y el bloque top-level **`shipmentStage.*`** (tabla normativa etapa→texto cliente del contrato §5).
+
+### 5) Mocks (real+mock siguen funcionando)
+- `mockHoldings`: los 4 holdings ganan los campos v1.17; el **sellado (`inv-1008`) queda EN RETIRO**
+  (`shipmentState='enviado'`, `activeShipmentId='shp-7001'`, `withdrawable=false`); el resto retirables/
+  pending según su titularidad. `mockShipments` enriquecidos (address/montos/timestamps/finish); `shp-7001`
+  (`enviado`) contiene `inv-1008` para que el deep-link sea consistente.
+
+### 6) E2E (mock)
+- `e2e/vault.spec.ts`: +2 tests — badge "EN RETIRO" + etapa + RETIRAR deshabilitado; deep-link del badge al
+  detalle. `e2e/shipments.spec.ts`: +1 — la vista de rastreo lista un retiro con sus cartas y abre el
+  detalle (dirección + cartas). Todos mock-only (dependen del fixture de retiros); el patrón `@real`
+  existente se conserva.
+
+### Solicitudes al arquitecto
+- Ninguna. El contrato v1.17 (§3/§5) fue suficiente para implementar el flujo completo. Nota menor: el DTO
+  de rastreo §5 no incluye `ivaRatePct` en los montos; el front lo deriva de `iva/shippingFee` (default 16)
+  para el desglose. Si se prefiere exponerlo explícito, sería un aditivo sin migración (no bloquea).
+
+## WS-E frontend · Pulido de veredicto (batchKey estable + UX bulk-publish + dedup) (2026-08-17)
+
+Cierra hallazgos NO bloqueantes del veredicto sobre WS-E (Master Set). Solo `frontend/` + este doc +
+`docs/TECH_DEBT.md`. **0 cambios de contrato/backend**; no toca lógica de dinero (SEC-A1 intacto: el
+precio de venta lo deriva el backend). Patrón real+mock, tokens y `shadow-focus` respetados. Gates
+verdes: **lint 0**, **tsc 0**, **test 313** (42 files; +1 neto: se reemplazó 1 test y se añadieron 2),
+**build** OK.
+
+### 1) [techlead #1] `batchKey` ESTABLE por sesión de carrito (anti-duplicado)
+- **Problema:** `batchKey` se generaba con `localUid()` DENTRO del `mutationFn` en cada `.mutate()`
+  (`MasterSetPanel` carrito y `CellDrawer` bulk-publish). Un request que expira por red pero SÍ se
+  procesó, al reintentarse generaba una key NUEVA → el backend ya no lo veía como replay → **piezas
+  duplicadas** (la `batchKey` es la guardia anti-duplicado server-side).
+- **Fix (`MasterSetPanel.tsx`):** `batchKeyRef = useRef<string|null>(null)` + `ensureBatchKey()` que
+  la genera UNA vez (al empezar a llenar el carrito, en `addToCart`, y como fallback en `mutationFn`).
+  Se **regenera solo tras éxito confirmado** (`onSuccess`, tras limpiar el carrito → `batchKeyRef.current
+  = null`) o al vaciar el carrito manualmente (`clearCart`). Un reintento por timeout reusa la MISMA key
+  → replay idempotente → no duplica.
+- **Fix (`CellDrawer.tsx`):** mismo patrón con `publishKeyRef`/`ensurePublishKey()` para el bulk-publish;
+  se renueva tras un éxito confirmado (tras limpiar la selección).
+
+### 2) [qa MENOR] Deshabilitar piezas no-publicables en el bulk-publish del `CellDrawer`
+- La lista de piezas trae TODOS los status; solo `{in_stock, listed}` son publicables (contrato §M1
+  v1.16.1). Ahora el checkbox de una pieza cuyo status NO está en ese conjunto se **deshabilita** (input
+  `disabled` + fila `opacity-60`/`cursor-not-allowed`) con un **hint** (`notPublishableHint`) del porqué.
+  Const `PUBLISHABLE_STATUSES: InventoryStatus[] = ['in_stock','listed']`. El guardarraíl server-side
+  (`ITEM_NOT_PUBLISHABLE`) se queda; esto es solo UX para no ofrecer una acción que va a fallar.
+
+### 3) [techlead #3] Dedup de `FINISH_ORDER`
+- Estaba triplicada (M1View / MasterSetBinder / CellDrawer) y además en ShopFilters / BuylistView (5
+  copias). Se movió a un módulo único **`@/lib/finish.ts`** (`export const FINISH_ORDER`) y se importa en
+  los **5** consumidores. `Finish` (tipo) se quitó del import de `ShopFilters` por quedar sin uso.
+
+### i18n (paridad ES/EN)
+`admin.m1.masterSet.notPublishableHint` (ES/EN).
+
+### Tests (`MasterSet.test.tsx`)
+- **batchKey estable:** el reintento del mismo submit lógico reusa la MISMA key (mock que "expira" en la
+  1ª llamada); un carrito nuevo tras éxito → key NUEVA.
+- **bulk-publish UX:** el checkbox de la pieza `reserved` (INV-000203) está `disabled` + muestra el hint;
+  la `in_stock` (INV-000201) queda habilitada y el lote solo incluye la publicable. (Reemplaza al test
+  previo de ITEM_NOT_PUBLISHABLE por-línea vía UI, ya inalcanzable al no poder marcar la reservada; la
+  tolerancia por-línea sigue cubierta por el test de PRICE_PENDING.)
+
+### Sin solicitudes al arquitecto
+0 cambios de contrato/backend. Deuda FE no bloqueante restante registrada en `docs/TECH_DEBT.md`.
 
 ## WS-E frontend — Master Set + captura/publicación por lote (2026-08-17, contrato §M1 v1.16.1)
 
@@ -2863,3 +2999,249 @@ buylist rules, FX y pending sin tocar.
 `salesMarkupPct` (dial M10, `SettingsDTO`) queda **DEPRECADO** por el contrato (palanca de
 rollback). El front no lo consume en M2; sigue en `SettingsDTO` por compatibilidad hasta su
 retiro (decisión abierta v1.13-3). Sin solicitudes de contrato: los tres endpoints ya existen.
+
+---
+
+## WS-G · E2E smoke agnósticos de mocks (comprar / retirar / vender contra backend REAL)
+
+**Problema.** Los smoke de flujos de dinero eran verdes SIEMPRE en modo mock: autenticaban
+inyectando `tcg.user` en localStorage (sin token real), asertaban montos exactos de fixture
+(`MX$19,400.00`, `MX$3,380.00`), esperaban un stub de pago viejo (`checkout.paidTitle`) y
+hardcodeaban cartas (`Charizard`, `c-charizard`). Tras WS-F (comprar/retirar reales con Stripe)
+esos 4 tests quedaron ROTOS incluso en mock, pero "QA verde" los ocultó. Ahora los smoke corren,
+env-agnósticos, contra el backend real.
+
+### Helper `frontend/e2e/utils/auth.ts`
+- `loginAs(page, 'customer'|'admin'|'operator')` env-aware:
+  - **Real** (`E2E_REAL=1`): `POST {API}/auth/login` con `page.request` y persiste el `TokenPair`
+    + `user` en localStorage con el MISMO shape que `persistSession` (`src/lib/api.ts`):
+    `tcg.accessToken`, `tcg.refreshToken`, `tcg.user` (y `tcg.role` para staff), vía `addInitScript`
+    (aplica antes de la primera carga → llamar SIEMPRE antes de `page.goto`).
+  - **Mock**: inyecta solo `tcg.user` (las ramas mock de `api.ts` ignoran el token).
+- Credenciales del seed determinista viven SOLO aquí (sobreescribibles por env):
+  `customer@e2e.local`/`Customer123!`, `admin@e2e.local`/`Admin123!`, `operator@e2e.local`/`Operator123!`.
+- `IS_REAL` (`E2E_REAL==='1'`) y `MONEY_RE` (`/MX\$[\d,]+\.\d{2}/`, aserción por FORMATO) exportados.
+- API real por defecto en `http://localhost:3011/api/v1` (puerto del backend en `docker-compose.staging.yml`);
+  override con `E2E_API_BASE_URL`.
+
+### Tag `@real` + `playwright.config.ts`
+- Los smoke de dinero llevan `@real`. Cuando `E2E_REAL=1`, el config filtra `grep: /@real/`
+  globalmente → en real corre SOLO el subset (comprar/retirar/vender/bóveda). En mock (sin
+  `E2E_REAL`) NO se filtra: corre TODA la suite y los `@real` también pasan por su rama mock.
+- 4 tests `@real`: `checkout.spec.ts` (comprar), `shipments.spec.ts` (retirar),
+  `buylist.spec.ts` (vender), `vault.spec.ts` (portafolio/custodia).
+
+### Env-agnosticismo de los specs
+- **Descubre datos, no hardcodea**: catálogo → primera carta con "Agregar"; bóveda/retiro →
+  primer checkbox settled; buylist → primer set del dropdown → primera carta del grid
+  (`pickFirstSellableCard`).
+- **Aserciones de estructura**: `getByTestId('amount-breakdown')`, total con `MONEY_RE`,
+  `checkout.shipping`/`checkout.iva`. Cero montos de fixture.
+- **Pago (comprar/retirar)**: tras "Pagar"/"Solicitar retiro" el modal SOLO abre si la sesión
+  real (`POST /checkout/session` / `POST /shipments`) se creó. En real se asierta que el modal
+  monta Stripe `<Elements>` (el cuerpo simulado `payment.mockBody` está ausente); NO se depende de
+  una pantalla de "pagado" (el asentamiento es por webhook). En mock se conserva el camino simulado.
+- **Vender**: crea la solicitud (`POST /buylist/requests`). Maneja ambos modos de CLABE
+  (atajo "usar mi CLABE en archivo" si el seed la trae, o captura de CLABE válida si no) y espera
+  `buylist.created`. Viewport alto (2000px) porque el `Modal` no scrollea internamente y el CTA
+  quedaría fuera de pantalla (ver deuda menor abajo).
+
+### Cómo correr contra local-staging (lo que el humano SÍ puede)
+```
+# 1) Levantar el stack real y sembrar (una vez):
+docker compose -f docker-compose.staging.yml --profile apps up -d --build
+docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic
+
+# 2) Correr el subset @real contra el frontend real:
+cd frontend
+E2E_BASE_URL=http://localhost:3010 E2E_REAL=1 npm run test:e2e -- --grep @real
+```
+(El `--grep @real` es redundante con el grep del config cuando `E2E_REAL=1`, pero explícito como
+pide el runbook. Usa el Chromium preinstalado `/opt/pw-browsers`; NO `playwright install`.)
+
+### Verificado aquí (sin stack real)
+- `npx tsc --noEmit` limpio.
+- `npx playwright test --list` enumera los 4 `@real`; con `E2E_REAL=1` el grep deja SOLO esos 4.
+- Modo mock verde: `checkout/vault/shipments/buylist` = **20/20**; resto de la suite sin regresión.
+
+### Pendiente de validar contra el stack real (no ejecutable aquí)
+- Que `loginAs` real reciba `{accessToken, refreshToken, user}` del seed y el Bearer pase los guards.
+- Que exista ≥1 listing vendible en Compra (para comprar) — el seed debería traerlo.
+- Que el modal de Stripe monte `<Elements>` con el `clientSecret` real (en CI la publishable key es
+  dummy `pk_test_e2e_dummy`; por eso NO se asierta el iframe de Stripe, solo la ausencia del cuerpo
+  mock, que ya confirma que la sesión real se creó).
+- Que el cliente del seed traiga CLABE/INE en archivo para que "vender" no tope con
+  `CLABE_NOT_OWN_NAME` (el spec cae al modo captura si no; según lo confirmado, el seed los trae).
+
+### Solicitudes a otros roles (sin cambio de contrato)
+- **devops**: `e2e-real.yml` hoy corre `npm run test:e2e -- checkout.spec.ts shipments.spec.ts
+  buylist.spec.ts` **sin** `E2E_REAL=1`. Para que "verde de verdad" signifique real, añadir
+  `E2E_REAL: '1'` al `env` del job (basta eso: el config auto-filtra `@real` dentro de esos files).
+  Opcional: incluir `vault.spec.ts` en `SMOKE_SPECS`. Sin esto, el job seguiría corriendo la rama
+  mock de los `@real` y los tests mock-only fallarían contra el stack real.
+
+### Deuda técnica menor (frontend, no bloqueante)
+- `components/ui/Modal.tsx` no tiene `max-height`+scroll interno: en formularios altos (KYC de
+  buylist) el CTA "Confirmar y enviar" queda fuera del viewport. El spec lo sortea subiendo el
+  viewport a 2000px, pero es una fricción real de usabilidad. Anotar en `TECH_DEBT.md` a petición
+  de techlead.
+
+---
+
+## Rediseño del cotizador: grid protagonista (2026-08-17, stream «Catálogo y precios»)
+
+Rediseño integral de `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` en una sola
+pasada. Cambios de UX y sus decisiones:
+
+### Layout
+- **El grid de resultados manda:** ocupa el ancho/alto disponible con **scroll natural de página**
+  (se eliminó la caja `max-h-96 overflow-y-auto`). Retícula responsiva 2→3→4→5→6 columnas.
+- **Barra de filtros** encima del grid: set + buscador + **tipo de producto** (el select de tipo se
+  movió aquí desde el desaparecido "Paso 2" para no perder la capacidad de cotizar graded/sealed).
+- **Carrito de venta como columna lateral colapsable** (`lg:sticky`, 360px): toggle
+  "Ocultar/Mostrar carrito (N)" en la barra (`aria-expanded`). Colapsado, el grid usa todo el ancho.
+- La política **NM-only** y el copy de confianza (envío/pago SPEI/vigencia) viven en una sección
+  propia bajo el grid; **PAY_AFTER_RECEIPT** quedó en la cabecera, visible desde el load.
+
+### Cotización directa (sin panel «COTIZACIÓN»)
+- Se eliminó el panel de cotización, el botón "Agregar al carrito" intermedio y el **campo falso
+  «Condición: Near Mint (NM) fija»** (el aviso NM-only existente cubre esa información).
+- **Cada carta del grid lista sus acabados** (`availableFinishes`, orden `FINISH_ORDER`) como filas
+  agregables: una fila = un acabado con **su propio estimado server-side**; el clic **agrega directo
+  al carrito** (dedup por `cardId+productType+finish`, misma línea suma cantidad). En tipo
+  graded/sealed hay una sola fila por carta (cotizan en `normal`, contrato §I).
+- **Transparencia por línea:** cada línea del carrito tiene un **detalle expandible** (rareza,
+  acabado, valor de referencia, regla aplicada y la nota de «precio pendiente» cuando aplica) — la
+  misma información que daba el panel.
+
+### Límites del batch (decisión no obvia)
+- El grid cotiza **por acabado** en `POST /buylist/quote/batch` (cap **50 ítems/llamada**, throttle
+  **12/min**). Una página (pageSize 20) × hasta 4 acabados puede llegar a 80 ítems → el queryFn
+  **trocea en llamadas de ≤50** (`BUYLIST_QUOTE_BATCH_MAX` de `@/lib/api`): típico 1 llamada, peor
+  caso 2 por búsqueda; react-query cachea 5 min por (búsqueda × tipo). Se eligió cotizar TODOS los
+  acabados de la página (en vez de lazy al expandir) porque el peor caso cabe holgado en el throttle
+  y da estimados visibles sin interacción extra.
+- **El bulk ya no llama a la red:** «Agregar seleccionadas (N)» reusa las cotizaciones del batch del
+  grid (acabado por defecto por carta), tolerante por-ítem (`ok:false` → aviso parcial). El CTA se
+  deshabilita mientras el batch carga.
+- SEC-A1 intacto: los montos vienen SIEMPRE del server (batch); la UI no calcula ni manda precios.
+
+### «Mis solicitudes» sin sesión
+- El query `getSellRequests` se **gatea por sesión** (`useSellRequirements.ready && isAuthenticated`):
+  sin sesión no hay request y la sección muestra una **invitación neutra** a iniciar sesión
+  (`buylist.requestsLoginInvite`) — nunca un estado de error.
+
+### i18n (paridad ES/EN mantenida)
+- Nuevas claves `buylist.*`: `searchHint`, `gridQuotesFailed`, `addFinishAria`, `addedLine`,
+  `cartShow`, `cartHide`, `lineDetailShow`, `lineDetailHide`, `requestsLoginInvite`; rewording de
+  `gridEstimateLegend` y `cartEmpty`.
+- Claves retiradas (sin consumidores): `quoterTitle`, `selectCard`, `selectCondition`,
+  `selectFinish`, `quoting`, `quoteResult`, `category`, `categoryLabel`, `quotedPrice`,
+  `createRequest`, `conditionFixedNm`, `selectedCard`, `chooseCardFirst`, `addToCart`,
+  `addedToCart`.
+
+### Tests
+- `BuylistView.test.tsx` reescrito al nuevo flujo (42 tests): grid por acabado, add directo,
+  detalle expandible, colapso del carrito, bulk sin requests extra + parcial por-ítem, dedup por
+  acabado, «Mis solicitudes» sin sesión (endpoint NO consultado, sin `role=alert`), gating P-11 y
+  v1.15 CLABE/INE intactos.
+- `e2e/buylist.spec.ts` actualizado (11 tests, `--list` verificado): helpers `searchFor`/`addCard`
+  clican la fila de acabado por su `aria-label` (`buylist.addFinishAria`); el smoke `@real` agrega
+  la primera carta descubierta (Playwright auto-espera a que la fila se habilite con el estimado).
+- Flujos preservados: modal con `BuylistKycForm` (CLABE + INE, gating P-11), respuesta a ajuste F5.
+
+
+## 2026-08-17 · Feedback del CTA «Comprar» en la ficha de carta (carrito local)
+
+### Problema
+El botón «Comprar» de la ficha (`catalog/[cardId]/CardDetailView.tsx`) agregaba al carrito local
+(`useCart`, pieza única deduplicada en localStorage) sin ningún feedback: parecía un botón muerto.
+
+### Decisión (dónde vive el CTA)
+- **`InstanceCta` (componente local en `CardDetailView.tsx`):** CTA por ejemplar con tres estados —
+  «Comprar» (primary) → «✓ En el carrito» (secondary + check lucide `aria-hidden`; el texto porta el
+  estado, §7.4) → «No disponible» (disabled). El segundo clic **no re-agrega** (el carrito es pieza
+  única): navega a `/checkout` (misma ruta que el badge del `StorefrontHeader`) vía
+  `useRouter` de `@/i18n/navigation`. Vive en la vista y NO en `ListingCard` porque
+  `frontend/src/components/` es zona compartida de otro stream y las props actuales de `ListingCard`
+  (`{ listing, onAdd }`) no expresan el estado «en carrito».
+- **`catalog/CartAddedToast.tsx` (local al módulo de catálogo):** toast efímero (5 s, esquina,
+  DESIGN_SYSTEM §7.5) en bloque de tinta con texto mono en versalitas y enlace «Ver carrito» →
+  `/checkout`. La región `role="status"`/`aria-live="polite"` está siempre montada para que el
+  lector anuncie el cambio. No se construyó infra global de toasts (no existe y las zonas
+  compartidas están vetadas a este stream); si otro módulo lo necesita, promoverlo a
+  `src/components/` pasa por el stream dueño.
+- **Hidratación SSR:** sin `mounted` extra — `useCart` ya inicia `ids=[]` y puebla desde
+  localStorage en `useEffect` (post-hidratación), así que el estado «en el carrito» solo se pinta
+  tras montar (sin mismatch).
+- **`CatalogView` (vitrina):** mismo toast al agregar. El **botón** del card sigue diciendo
+  «Agregar» porque vive en `ListingCard` (zona compartida): queda como solicitud (abajo).
+
+### i18n (paridad ES/EN)
+Claves nuevas `catalog.inCart` («En el carrito»/«In cart»), `catalog.addedToCart`
+(«Agregado al carrito»/«Added to cart»), `catalog.viewCart` («Ver carrito»/«View cart»).
+
+### Tests
+- `CardDetailView.test.tsx` (4): agregar → CTA por pieza + toast + persistencia; segundo clic →
+  `push('/checkout')` sin re-agregar; pieza ya en carrito al montar → estado inicial correcto (y
+  toast vacío); ejemplar no vendible sigue deshabilitado.
+- `CatalogView.test.tsx` (1): toast con enlace al carrito al agregar desde la vitrina.
+- `e2e/catalog.spec.ts`: +2 tests en «Compra · ficha de carta» (feedback y estado tras recarga).
+
+### Solicitud pendiente (otro stream / arquitecto de streams)
+`ListingCard` necesitaría una prop tipo `inCart?: boolean` (+ label alterno del CTA) para que la
+vitrina muestre también el estado «En el carrito» en el botón del card; hoy solo la ficha lo hace.
+
+
+## 2026-08-17 · M5 admin: rechazos de buylist (contrato v1.18-buylist-rejects)
+
+### Qué cambió (`(admin)/admin/m5/M5View.tsx`)
+- **Pestaña «Rechazadas» (transversal):** consume `GET /admin/buylist/rejected-items` (query
+  propia, `enabled` solo con la pestaña abierta; paginación simple server-side con
+  `page/pageSize/total`). Muestra carta (nombre/set/acabado), vendedor legible, motivo,
+  `rejectedAt` y los DOS plazos del server: devolución hasta `returnDeadlineAt` (7 días, a costo
+  del vendedor) y abandono en `abandonDeadlineAt` (30 días). La **fase** (en plazo de devolución /
+  en ventana de abandono / vencido) se deriva en el front de `now` vs esas fechas (helper local
+  `rejectPhase`), como manda el contrato — las fechas mismas SIEMPRE vienen del server.
+  **Sin acción «Convertir a inventario»** en esta pestaña (PROJECT criterio 16 / §M5: una
+  rechazada no-NM jamás es convertible, ni vencidos los plazos); en el detalle de solicitud el
+  botón también se oculta para ítems `rechazada` (antes salía deshabilitado).
+- **Rechazo con motivo:** «Rechazar» abre un mini-diálogo con motivo obligatorio (3–500,
+  validación en cliente que espeja el 400 del backend; el error real del server se muestra dentro
+  del diálogo) y aviso de que el vendedor recibirá correo con motivo y plazos. Envía
+  `{ decision: 'reject', reason }`.
+- **Dinero (SEC-A1):** la cabecera muestra `quotedTotalCents` y, cuando llega,
+  `approvedTotalCents` — ambos TAL CUAL del server (que ya excluye rechazadas); la UI no suma
+  nada. En el detalle, el ítem rechazado sale con la cotización tachada + badge «Fuera del
+  total · no se paga» + motivo/fecha/plazos.
+- **Vendedor legible:** `seller.name · seller.email` como identidad primaria (v1.18); el UUID
+  queda en `title` (tooltip) y se conserva el enlace a la ficha 360° M6 (`?user=<id>`). El
+  buscador ahora también matchea nombre/correo del vendedor. Fallback al `userId` si el DTO no
+  trae `seller`.
+- **Orden y fecha:** el listado se muestra tal cual llega (el server ordena `createdAt` desc,
+  NORMA v1.18 — sin re-ordenar en cliente) y cada solicitud muestra su fecha de creación con
+  `formatDate` (mismo formato que el resto del admin).
+
+### API client (zona compartida, cambio serializado autorizado — SOLO aditivo)
+- `src/lib/api.ts`: `getAdminRejectedBuylistItems({page,pageSize,userId})` (real + rama mock que
+  deriva de fixtures y espeja orden `rejectedAt` desc / plazos 7d/30d); `decideBuylistItem` acepta
+  `reason` y en mock valida 3–500 (400 `VALIDATION_ERROR`) y fija `rejectedAt`/plazos/anula
+  `approvedPriceCents`; sellers mock locales (`MOCK_SELLERS`) para enriquecer fixtures sin tocar
+  `mock/fixtures.ts`.
+- `src/types/contract.ts`: `AdminSellerRef`, `RejectedSellItemDTO`, campos de rechazo en
+  `SellItemDTO`, `seller?` en `AdminBuylistDTO`, `reason?` en `BuylistItemDecisionInput` (§11).
+
+### i18n / tests / e2e
+- Claves nuevas `admin.m5.*` (`tabs.rechazadas`, `created`, `approvedTotal`, `reject*`,
+  `rejectedOutOfTotal`, bloque `rejected.*` con fases y paginación) — paridad ES/EN verificada
+  (`i18n-parity.test.ts` en verde).
+- `M5View.test.tsx`: 17 tests (diálogo de motivo + validación + error 400 del server en el
+  diálogo, pestaña Rechazadas con fases/plazos/sin convertir, vendedor con UUID en tooltip,
+  fecha de creación, total aprobado del server). `api.test.ts`: reject sin motivo → 400 mock;
+  reject con motivo → plazos +7d/+30d y aparición en `rejected-items`; rama REAL: URL/query de
+  `rejected-items` y body `{decision,reason}` del PATCH.
+- `e2e/admin.spec.ts`: +2 tests M5 (diálogo de motivo; pestaña Rechazadas sin convertir),
+  verificado con `--list`.
+
+### Gates
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (44 archivos / 329 tests).

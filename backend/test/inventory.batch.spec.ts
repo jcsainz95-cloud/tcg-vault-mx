@@ -67,7 +67,7 @@ function buildPrisma(over: any = {}) {
         return { id: `inv-${createdItems.length}`, folio: data.folio, status: data.status };
       }),
       findMany: jest.fn(async () => []),
-      // [BE-39] la publicación usa una guardia atómica updateMany + count (default: "gana").
+      // [BE-45] la publicación usa una guardia atómica updateMany + count (default: "gana").
       updateMany: jest.fn(async () => ({ count: 1 })),
     },
     inventoryMovement: { create: jest.fn() },
@@ -222,7 +222,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     return buildPrisma({
       inventoryItem: {
         findMany: jest.fn(async () => items),
-        // [BE-39] guardia atómica de status: updateMany condicionado + count (default: "gana").
+        // [BE-45] guardia atómica de status: updateMany condicionado + count (default: "gana").
         updateMany: jest.fn(async () => ({ count: 1 })),
       },
     });
@@ -261,7 +261,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
       priceSource: 'derived',
     });
     expect(res.summary.published).toBe(1);
-    // [BE-39] guardia ATÓMICA: el paso a listed va condicionado al allowlist en el propio UPDATE.
+    // [BE-45] guardia ATÓMICA: el paso a listed va condicionado al allowlist en el propio UPDATE.
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'i1', ownerType: 'platform', status: { in: ['in_stock', 'listed'] } },
@@ -333,7 +333,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     expect(prisma.inventoryItem.updateMany).not.toHaveBeenCalled();
   });
 
-  it('[MONEY · BE-39] CARRERA: el snapshot leído era in_stock pero updateMany devuelve count=0 → ITEM_NOT_PUBLISHABLE por-línea', async () => {
+  it('[MONEY · BE-45] CARRERA: el snapshot leído era in_stock pero updateMany devuelve count=0 → ITEM_NOT_PUBLISHABLE por-línea', async () => {
     // TOCTOU: entre el findMany y el UPDATE un checkout reservó la pieza. La guardia atómica
     // (updateMany condicionado + count) la detecta y NO re-lista la pieza para un 2º comprador.
     const items = [baseItem({ id: 'race1', status: 'in_stock' })];

@@ -11,7 +11,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
  *  - ORDEN NATURAL de Card.number String ("10" > "2"; no-numéricos/promos al final).
  *  - índice: completitud/piezas agregadas vs conteos reales, sin N+1 (nº de queries).
  *  - binder: countsByFinish por (cardId, finish) coincide con las piezas on-hand; secret rares.
- * v1.18-master-set-everywhere: el scope/variantes se prueba en test/master-set.scopes.spec.ts;
+ * v1.20-master-set-everywhere: el scope/variantes se prueba en test/master-set.scopes.spec.ts;
  * aquí se verifica que el comportamiento v1.16 (scope platform, default) NO cambió (aditivo).
  */
 
@@ -66,7 +66,7 @@ function buildPricing(over: any = {}) {
 }
 
 /**
- * El índice v1.18 hace DOS agregaciones raw (Σ|availableFinishes| sobre "Card" + piezas sobre
+ * El índice v1.20 hace DOS agregaciones raw (Σ|availableFinishes| sobre "Card" + piezas sobre
  * "InventoryItem"): el mock despacha por el TEXTO del SQL (Prisma.Sql.sql).
  */
 function mockRawQueries(
@@ -94,7 +94,7 @@ describe('MasterSetService.index — agregados vs conteos reales, sin N+1 (scope
       { setId: 's2', _count: { _all: 102 } },
     ]);
     mockRawQueries(prisma, {
-      // Σ|availableFinishes| por set (v1.18): s1=250 variantes de catálogo, s2=102.
+      // Σ|availableFinishes| por set (v1.20): s1=250 variantes de catálogo, s2=102.
       variantRows: [
         { setId: 's1', variantCount: 250n },
         { setId: 's2', variantCount: 102n },
@@ -106,7 +106,7 @@ describe('MasterSetService.index — agregados vs conteos reales, sin N+1 (scope
     const svc = new MasterSetService(prisma, buildPricing());
     const res = await svc.index({ page: 1, pageSize: 20, sort: 'release_desc' });
 
-    // v1.18: el scope default sigue siendo platform (respuesta aditiva, endpoints v1.16 intactos).
+    // v1.20: el scope default sigue siendo platform (respuesta aditiva, endpoints v1.16 intactos).
     expect(res.scope).toBe('platform');
     expect(res.owner).toBeUndefined();
 
@@ -116,7 +116,7 @@ describe('MasterSetService.index — agregados vs conteos reales, sin N+1 (scope
     expect(s1.totalPieces).toBe(5);
     expect(s1.completionPct).toBe(1.5); // 3/200 = 1.5% (denominador = catálogo real, nunca >100%)
     expect(s1.year).toBe(2024);
-    // v1.18: contadores por VARIANTE (los «X/Y» del front usan estos).
+    // v1.20: contadores por VARIANTE (los «X/Y» del front usan estos).
     expect(s1.catalogVariantCount).toBe(250);
     expect(s1.distinctVariantsOwned).toBe(4);
     expect(s1.variantCompletionPct).toBe(1.6); // 4/250
@@ -166,7 +166,7 @@ describe('MasterSetService.binder — countsByFinish, orden natural, secret rare
     const svc = new MasterSetService(prisma, buildPricing());
     const res = await svc.binder('s1');
 
-    // v1.18: scope default platform, sin owner y SIN buyable en ninguna variante.
+    // v1.20: scope default platform, sin owner y SIN buyable en ninguna variante.
     expect(res.scope).toBe('platform');
     expect(res.owner).toBeUndefined();
     for (const cell of res.cells) {

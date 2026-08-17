@@ -76,7 +76,7 @@ describe('VaultView · orden de holdings', () => {
   });
 });
 
-describe('VaultView · pestaña Master set (v1.18, vista (iii))', () => {
+describe('VaultView · pestaña Master set (v1.20, vista (iii))', () => {
   it('la pestaña "Master set" muestra el índice de MI bóveda (solo sets con piezas propias)', async () => {
     renderWithProviders(<VaultView />, 'es');
     await screen.findByText('Blastoise');

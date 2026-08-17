@@ -25,9 +25,9 @@ export class VaultController {
   }
 
   /**
-   * v1.18-master-set-everywhere (§3, vista (iii)) — "Mi bóveda como master set": índice con SOLO
+   * v1.20-master-set-everywhere (§3, vista (iii)) — "Mi bóveda como master set": índice con SOLO
    * los sets donde el usuario tiene ≥1 pieza. El userId es SIEMPRE el autenticado (jamás del
-   * request, §4.18a). `owner` SIN email; sin ubicaciones/costos/folios; lectura pura.
+   * request, §4.20a). `owner` SIN email; sin ubicaciones/costos/folios; lectura pura.
    */
   @Get('master-sets')
   myMasterSets(
@@ -50,7 +50,7 @@ export class VaultController {
   }
 
   /**
-   * v1.18 (§3) — binder de MI bóveda para CUALQUIER set del catálogo (las variantes sin piezas son
+   * v1.20 (§3) — binder de MI bóveda para CUALQUIER set del catálogo (las variantes sin piezas son
    * mis faltantes) + `buyable` por variante faltante (pieza `listed` más barata de plataforma, o
    * null). SIN compra dentro del binder: el CTA lleva a la ficha/checkout normal.
    */
@@ -59,7 +59,7 @@ export class VaultController {
     return this.masterSets.binder(
       setId,
       { kind: 'user_vault', userId },
-      { includeBuyable: true }, // SOLO esta vista puebla buyable (§4.18d)
+      { includeBuyable: true }, // SOLO esta vista puebla buyable (§4.20d)
     );
   }
 

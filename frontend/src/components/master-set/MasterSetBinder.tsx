@@ -19,9 +19,9 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
+import { FINISH_ORDER } from '@/lib/finish';
 import type { MasterSetViewMode } from './mode';
 
-const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 type PieceFilter = 'all' | 'with' | 'gaps';
 
 interface Props {
@@ -33,7 +33,7 @@ interface Props {
   onOpenCell: (cell: MasterSetCardCellDTO) => void;
 }
 
-/** Endpoint por modo (contrato v1.18: mismo shape de binder, distinto scope). */
+/** Endpoint por modo (contrato v1.20: mismo shape de binder, distinto scope). */
 function fetchBinder(
   mode: MasterSetViewMode,
   userId: string | undefined,
@@ -45,10 +45,10 @@ function fetchBinder(
 }
 
 /**
- * Binder COMPARTIDO del set (§4.18f): cuadrícula por número. Confía en el ORDEN NATURAL del
+ * Binder COMPARTIDO del set (§4.20f): cuadrícula por número. Confía en el ORDEN NATURAL del
  * backend (numéricos primero, promos al final): NO re-ordena por número en cliente (contrato
  * §M1). Los filtros (acabado, con/sin huecos, secret rares) son LOCALES y preservan ese orden.
- * v1.18: cada celda muestra sus CASILLAS POR ACABADO (variants[], universo = availableFinishes)
+ * v1.20: cada celda muestra sus CASILLAS POR ACABADO (variants[], universo = availableFinishes)
  * y el contador «X/Y» cuenta variantes.
  */
 export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell }: Props) {
@@ -75,7 +75,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell }: Props
     });
   }, [binder.data, finishFilter, pieceFilter, onlySecret]);
 
-  // v1.18: contador del set POR VARIANTE, derivado del binder (suma de expected/covered).
+  // v1.20: contador del set POR VARIANTE, derivado del binder (suma de expected/covered).
   const variantTotals = useMemo(() => {
     const all = binder.data?.cells ?? [];
     const expected = all.reduce((s, c) => s + c.expectedVariantCount, 0);
@@ -181,7 +181,7 @@ function BinderCell({ cell, onOpen }: { cell: MasterSetCardCellDTO; onOpen: () =
   const tFinish = useTranslations('finish');
   // Hueco TOTAL = ninguna variante cubierta → imagen atenuada + borde punteado (grid visual).
   const isGap = cell.coveredVariantCount === 0;
-  // Drift de catálogo (contrato v1.18): piezas con acabado FUERA del universo se VEN pero no
+  // Drift de catálogo (contrato v1.20): piezas con acabado FUERA del universo se VEN pero no
   // cuentan en expected/covered.
   const driftCounts = cell.countsByFinish.filter(
     (cf) => !cell.variants.some((v) => v.finish === cf.finish),
@@ -223,7 +223,7 @@ function BinderCell({ cell, onOpen }: { cell: MasterSetCardCellDTO; onOpen: () =
         {isGap ? (
           <span className="font-mono text-[10px] uppercase tracking-wide text-accent">{t('gap')}</span>
         ) : (
-          /* v1.18: el contador de la celda cuenta VARIANTES cubiertas del universo. */
+          /* v1.20: el contador de la celda cuenta VARIANTES cubiertas del universo. */
           <span className="font-mono tabular-nums text-xs">
             {t('variantCount', { covered: cell.coveredVariantCount, expected: cell.expectedVariantCount })}
           </span>
@@ -232,7 +232,7 @@ function BinderCell({ cell, onOpen }: { cell: MasterSetCardCellDTO; onOpen: () =
       <span lang="en" className="line-clamp-1 text-sm">
         {cell.name}
       </span>
-      {/* v1.18: CASILLAS POR ACABADO — una por variante del universo; «HUECO» por acabado. */}
+      {/* v1.20: CASILLAS POR ACABADO — una por variante del universo; «HUECO» por acabado. */}
       <div className="flex flex-wrap gap-1">
         {cell.variants.map((v) =>
           v.covered ? (

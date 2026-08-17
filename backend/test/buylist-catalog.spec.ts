@@ -116,6 +116,11 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
 });
 
 describe('CatalogService.listSetsWithImportedCards — sets del cotizador', () => {
+  /** Prisma stub que devuelve los sets dados desde cardSet.findMany. */
+  function prismaWithSets(rows: any[]): any {
+    return { cardSet: { findMany: jest.fn(async () => rows) } };
+  }
+
   it('devuelve solo sets con cartas importadas, con year derivado y orden desc', async () => {
     let capturedWhere: any;
     const prisma: any = {
@@ -138,5 +143,47 @@ describe('CatalogService.listSetsWithImportedCards — sets del cotizador', () =
     expect(res.data.map((s) => s.id)).toEqual(['sv8', 'base1']);
     expect(res.data[0]).toMatchObject({ id: 'sv8', name: 'Surging Sparks', series: 'Scarlet & Violet', year: 2024 });
     expect(res.data[1].year).toBe(1999);
+  });
+
+  it('ordena por releaseDate COMPLETA desc, no solo por año (mismo año, distinta fecha)', async () => {
+    const prisma = prismaWithSets([
+      { id: 'sv6', name: 'Twilight Masquerade', series: 'SV', releaseDate: '2024/05/24' },
+      { id: 'sv8', name: 'Surging Sparks', series: 'SV', releaseDate: '2024/11/08' },
+      { id: 'sv7', name: 'Stellar Crown', series: 'SV', releaseDate: '2024/09/13' },
+    ]);
+    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const res = await svc.listSetsWithImportedCards();
+    // Con orden solo-por-año los tres empatarían (2024); la fecha completa los distingue.
+    expect(res.data.map((s) => s.id)).toEqual(['sv8', 'sv7', 'sv6']);
+  });
+
+  it('empate exacto de releaseDate → desempata por name asc', async () => {
+    const prisma = prismaWithSets([
+      { id: 'swsh9tg', name: 'Brilliant Stars Trainer Gallery', series: 'SWSH', releaseDate: '2022/02/25' },
+      { id: 'swsh9', name: 'Brilliant Stars', series: 'SWSH', releaseDate: '2022/02/25' },
+      { id: 'zx', name: 'Astral Radiance', series: 'SWSH', releaseDate: '2022/02/25' },
+    ]);
+    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const res = await svc.listSetsWithImportedCards();
+    expect(res.data.map((s) => s.name)).toEqual([
+      'Astral Radiance',
+      'Brilliant Stars',
+      'Brilliant Stars Trainer Gallery',
+    ]);
+  });
+
+  it('sets sin releaseDate van al FINAL (no mezclados como antiguos), ordenados por nombre entre sí', async () => {
+    const prisma = prismaWithSets([
+      { id: 'nodate-b', name: 'Zeta Promos', series: null, releaseDate: null },
+      { id: 'base1', name: 'Base', series: 'Base', releaseDate: '1999/01/09' },
+      { id: 'nodate-a', name: 'Alpha Promos', series: null, releaseDate: null },
+      { id: 'sv8', name: 'Surging Sparks', series: 'SV', releaseDate: '2024/11/08' },
+    ]);
+    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    const res = await svc.listSetsWithImportedCards();
+    // Con fecha primero (desc); sin fecha al final, entre sí por nombre asc.
+    expect(res.data.map((s) => s.id)).toEqual(['sv8', 'base1', 'nodate-a', 'nodate-b']);
+    expect(res.data[2]).toMatchObject({ releaseDate: null, year: null });
+    expect(res.data[3]).toMatchObject({ releaseDate: null, year: null });
   });
 });

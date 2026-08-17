@@ -24,6 +24,7 @@ import type {
   CardDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
+import { FINISH_ORDER } from '@/lib/finish';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
@@ -37,7 +38,7 @@ import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { ItemDetailModal } from './ItemDetailModal';
 import { LocationsModal } from './LocationsModal';
-// v1.18 (§4.18f): el binder Master Set es COMPARTIDO (M1 + bóveda de cliente + "Mi bóveda");
+// v1.20 (§4.20f): el binder Master Set es COMPARTIDO (M1 + bóveda de cliente + "Mi bóveda");
 // M1 lo monta en modo `platform` (captura por lote, publicación, ajuste).
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 
@@ -50,8 +51,6 @@ const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 // MovementReason.buylist_convert); solo `aportacion_en_especie` y `compra` se dan de alta aquí.
 // El enum completo (incl. buylist) se sigue traduciendo en tabla/detalle para items ya convertidos.
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'compra'];
-// v1.6-finish: orden de despliegue del acabado; la etiqueta legible viene de i18n `finish`.
-const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 // Filtro de estado de la tabla (enum InventoryStatus completo del contrato).
 const INVENTORY_STATUSES: InventoryStatus[] = [
   'in_stock',

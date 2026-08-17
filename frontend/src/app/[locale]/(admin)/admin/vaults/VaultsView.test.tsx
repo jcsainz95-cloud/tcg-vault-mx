@@ -8,7 +8,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Admin · Bóvedas de clientes (GET /admin/vaults, v1.18)', () => {
+describe('Admin · Bóvedas de clientes (GET /admin/vaults, v1.20)', () => {
   it('lista clientes con piezas y valor estimado (orden default value_desc)', async () => {
     const spy = vi.spyOn(api, 'getAdminVaults');
     renderWithProviders(<VaultsView />, 'es');

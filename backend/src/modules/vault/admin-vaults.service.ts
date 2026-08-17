@@ -4,7 +4,7 @@ import { PricingService } from '../pricing/pricing.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 
 /**
- * AdminVaultsService (v1.18-master-set-everywhere, §4.18c) — GET /admin/vaults: lista de clientes
+ * AdminVaultsService (v1.20-master-set-everywhere, §4.20c) — GET /admin/vaults: lista de clientes
  * CON bóveda (≥1 pieza en bóveda) para soporte/operación. Identificación mínima (name/email, misma
  * exposición que M6 para vault_operator; NUNCA CLABE/RFC/INE) + conteo de piezas + valor estimado
  * con la MISMA base de valuación del portafolio §3: referencia vigente POR ACABADO

@@ -157,6 +157,7 @@ antes de usar esas funciones:
 | `POKEMONTCG_IO_API_KEY` | Precios raw/singles (fetch real), **import diario de metadata** (`catalog-metadata-sync`, §18) **y fuente del `price-ingest` 2×/día cuando `PRICE_PROVIDER=pokemontcg_io`** (el dial **sembrado por defecto**; cientos de req/corrida). **Obligatorio en prod** (ver §18/§19). | dev.pokemontcg.io (free; con key ~20k req/día) |
 | `CATALOG_METADATA_SYNC_CRON` (opcional) | Cron **en UTC** del import **diario de metadata** del catálogo (`catalog-metadata-sync` = `syncAll force:false`: solo sets/cartas **nuevas**, **NO** escribe precios ni FX). Default `0 1 * * *` (01:00 UTC = 19:00 CDMX). **v1.14 (WS-A):** reemplaza en el schedule al barrido pesado `catalog-price-sync` (force:true), ahora **MANUAL/ops-only**. Los viejos `CATALOG_PRICE_SYNC_CRON_1/_2` quedan **deprecados** (el scheduler ya no los lee). Requiere `REDIS_URL`. Ver §18. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
 | `PRICE_INGEST_CRON_1`, `PRICE_INGEST_CRON_2` (opcional) | Crons **en UTC** del **ingest masivo de precios** `price-ingest` (WS-A, §19), el **pricing primario** del catálogo. Defaults `0 0 * * *` (18:00 CDMX) y `0 12 * * *` (06:00 CDMX) → **06:00 y 18:00 CDMX**. **WS-A cierre: DEFAULT-ON 2×/día** (ya cableado en `scheduler.service.ts`; **ya no opt-in**) con el dial sembrado `pokemontcg_io`. Requieren `REDIS_URL`. Ver §19. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
+| `SEALED_PRICE_INGEST_CRON` (opcional) | Cron **en UTC** del ingest **diario de referencia del SELLADO** `sealed-price-ingest` (v1.19, tcgcsv.com; §21). Default `30 21 * * *` (21:30 UTC = 15:30 CDMX), tras el refresh diario de TCGCSV (~20:00 UTC) y tras `fx-refresh`. **El encendido real es el dial M10 `sealed_price_source`** (`tcgcsv \| off`, seed `off` fail-closed) — la env solo mueve el horario. Requiere `REDIS_URL`. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
 | `POKEMONPRICETRACKER_API_KEY` | **Proveedor de PAGA del ingest masivo `price-ingest` (WS-A, §19)** — bulk `POST /cards/bulk-price`, auth Bearer. **Requisito operativo en prod** cuando `PRICE_PROVIDER=pokemonpricetracker` (con **cuota del plan de paga**). Rol residual: stub graded/sealed per-carta (BE-6). **Valor en Railway, NUNCA en el repo.** | PokemonPriceTracker (**plan de paga**; key **ya en Railway**) |
 | `POKEMONPRICETRACKER_MARKET_FORMAT` (**money-safe, sin default**) | Moneda + unidad del campo `market` del proveedor de paga: `usd_dollars` / `usd_cents` / `mxn_dollars` / `mxn_cents`. **Candado fail-closed:** sin ella, con `PRICE_PROVIDER=pokemonpricetracker` el ingest corre **sample-only** (fetch + log de muestra, **no persiste** ningún precio). El **PO confirmó `usd_dollars`** — fijarla **solo tras leer el log de muestra** de una corrida `{setId}` (§19.5). Con `pokemontcg_io` (legacy) no aplica. **Valor en Railway, no en el repo.** | devops, tras verificar el log de la 1ª corrida (§19.5) |
 | `POKETRACE_API_KEY` | Respaldo per-carta gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
@@ -204,6 +205,112 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 
 ---
 
+## 5.1 E2E: modo MOCK (rápido) vs modo REAL (gate) — arreglo del Paso 5
+
+> **Actualización 2026-08-17 (devops):** se separó el E2E en dos caminos porque el
+> "verde" que veía QA corría **contra mocks**, lo que dejó pasar flujos reales rotos.
+
+### El problema (por qué "QA verde" no bastaba)
+
+La suite Playbook (`frontend/e2e/*.spec.ts`) se ejecutaba con el **webServer del
+`playwright.config.ts`**, que levanta Next con **`NEXT_PUBLIC_USE_MOCKS=true`** (fixtures
+en memoria; `frontend/src/lib/config.ts` → `useMocks = env !== 'false'`). Con eso la UI se
+prueba contra **datos simulados**, no contra los endpoints reales del backend. Resultado:
+stubs de **comprar/retirar** convivieron con "QA verde" hasta que se cablearon los endpoints.
+"Verde" significaba "la UI pinta bien con fixtures", no "el sistema funciona de punta a punta".
+
+### La solución (dos caminos, propósitos distintos)
+
+| Camino | Workflow | Cómo corre | Cuándo | Qué garantiza |
+|---|---|---|---|---|
+| **MOCK** (rápido) | `.github/workflows/e2e.yml` → job `frontend-e2e` | `playwright.config` levanta Next con `NEXT_PUBLIC_USE_MOCKS=true` (sin docker). Chromium preinstalado. | cada push/PR | Feedback rápido de UI/regresión contra **fixtures**. No prueba endpoints reales. |
+| **REAL** (gate) | `.github/workflows/e2e-real.yml` | `docker-compose.staging.yml --profile apps` (Postgres 16 + Redis 7 + MinIO + backend NestJS + frontend con **`NEXT_PUBLIC_USE_MOCKS=false`**) + `migrate deploy` (arranque) + `seed:synthetic` + Playwright **smoke** contra `E2E_BASE_URL` real | **nightly** (08:00 UTC) · **manual** · **gate previo a prod** (invocado por `deploy.yml` vía `workflow_call`) | "Verde de verdad": los flujos críticos pegan a **endpoints reales**. |
+
+**Smoke de flujos críticos (PROJECT.md)** que corre el modo REAL (parametrizable con el input
+`smoke_specs`; default los 3 archivos):
+- **comprar → orden**: `frontend/e2e/checkout.spec.ts`
+- **retirar → envío**: `frontend/e2e/shipments.spec.ts`
+- **vender/buylist → solicitud**: `frontend/e2e/buylist.spec.ts`
+
+**Navegador:** ambos jobs usan el **Chromium PREINSTALADO** del runner-harness en
+`/opt/pw-browsers` con `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. **NO** se ejecuta
+`playwright install` (se quitó el `npx playwright install --with-deps` que había en el job
+frontend anterior). Un paso *Guard navegador* falla con mensaje claro si el runner no trae
+`/opt/pw-browsers/chromium` (overridable con `PLAYWRIGHT_CHROMIUM_PATH`).
+
+### Cómo correr cada uno localmente
+
+```bash
+# --- MOCK (rápido, sin backend) ---
+cd frontend && npm ci
+PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:e2e
+#   (sin E2E_BASE_URL => el config levanta Next con NEXT_PUBLIC_USE_MOCKS=true)
+
+# --- REAL (stack completo, endpoints reales) ---
+# 1) Levantar el stack real de staging (frontend horneado con mocks=false):
+docker compose -f docker-compose.staging.yml --profile apps up -d --build
+# 2) Esperar salud del backend y sembrar datos sintéticos:
+curl -sf http://localhost:3011/api/v1/health
+docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic
+# 3) Correr el smoke contra el frontend REAL (3010):
+cd frontend && npm ci
+E2E_BASE_URL=http://localhost:3010 \
+  PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium \
+  npm run test:e2e -- checkout.spec.ts shipments.spec.ts buylist.spec.ts
+# 4) Apagar:
+docker compose -f docker-compose.staging.yml --profile apps down -v
+```
+
+### Cableado al gate de despliegue (DoD CLAUDE.md §10)
+
+`deploy.yml` ahora exige, para promover a **producción**, los tres gates de seguridad+E2E:
+- **SAST** en cada PR (`security-sast.yml`, branch protection antes del merge).
+- **DAST** contra staging (`dast-staging`, ZAP baseline + nuclei; bloquea por críticos/altos).
+- **E2E REAL** (`e2e-real.yml`, invocado como `uses: ./.github/workflows/e2e-real.yml` con
+  `secrets: inherit`): los jobs `promote-production-*` añaden `needs: [dast-staging, e2e-real]`
+  y la condición `needs.e2e-real.result == 'success'`. Sin E2E real verde, **no hay promoción**.
+
+Refuerzo recomendado (branch protection de `main`): marcar como *required status checks*
+`ci-ok`, `sast-ok`, `e2e-ok` (mock) y el job del **E2E real** (nightly/pre-deploy).
+
+### Qué queda PENDIENTE de validar en CI (no verificable en este sandbox)
+
+En este entorno **no hay stack levantable** (sin daemon Docker/Postgres/Redis fiables) y el
+dominio prod está bloqueado por egress, así que **el E2E real NO se pudo CORRER aquí**. Lo que
+**sí** se validó offline:
+- YAML de `e2e-real.yml`, `e2e.yml` y `deploy.yml` parsean OK (`yaml.safe_load`).
+- `playwright.config.ts` parsea y `npx playwright test --list` enumera **17 tests** en los 3
+  specs de smoke (checkout/shipments/buylist) usando el Chromium preinstalado.
+- `/opt/pw-browsers/chromium` existe (navegador preinstalado; `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`).
+
+Pendiente de la **primera corrida en CI/staging** (runner-harness con navegadores preinstalados):
+1. Que el stack real de `docker-compose.staging.yml --profile apps` **arranque** y el backend
+   pase health (build de imágenes + `migrate deploy`).
+2. Que `seed:synthetic` del backend cargue el dataset que esperan los specs.
+3. **Riesgo conocido (finding → rol frontend):** algunos specs de smoke están **acoplados a
+   mocks** — siembran sesión por `localStorage` (`seedVerifiedCustomer`), simulan el pago
+   ("pago simulado") y afirman **montos exactos de fixture** (p. ej. `MX$19,400.00`, `MX$0.50`).
+   Contra el backend real esas aserciones pueden **fallar**. Volver el smoke **agnóstico de
+   entorno** (o etiquetar un subconjunto `@real`) es trabajo del **rol frontend**; devops solo
+   ejecuta la suite (CLAUDE.md: los specs los escriben frontend/backend). El input `smoke_specs`
+   permite acotar el gate al subconjunto que ya sea real-safe mientras frontend adapta el resto.
+4. Requisito de runner: `e2e-real.yml` necesita navegadores Playwright preinstalados en
+   `/opt/pw-browsers`. En un runner **stock** de GitHub (sin ese preinstalado) el *Guard
+   navegador* falla a propósito — hay que usar el **runner-harness del proyecto** (o adaptar la
+   ruta con `PLAYWRIGHT_CHROMIUM_PATH`).
+
+### Deuda devops relacionada — throttler distribuido (store Redis)
+
+El rate-limit de NestJS (`@Throttle`) usa hoy **store en memoria** (por instancia). El E2E real
+corre **una sola** instancia de backend, así que el smoke **no** ejercita el rate-limit
+multi-instancia. En **prod con >1 réplica** el límite se aplicaría por-instancia (efectivo = N×
+el nominal) hasta migrar el throttler a un **store compartido en Redis** (`REDIS_URL` ya está
+disponible). Es deuda de **rol backend** (config del `ThrottlerModule`), registrada en
+`docs/TECH_DEBT.md` (v15-D3 / §5 throttler→Redis); relevante al gate porque el DAST/E2E de un
+único nodo **no** la detectaría. Disparador: subir a `numReplicas > 1` en `railway.json`.
+
+---
+
 ## 6. Deploy — estrategia propuesta (aún NO ejecutado)
 
 > El deploy real requiere credenciales prod y plataforma provisionada. Sigue el **runbook §11**.
@@ -244,7 +351,11 @@ Cadena de jobs:
 4. `deploy-staging-frontend` — `vercel pull/build/deploy` (env **preview** = staging).
 5. `dast-staging` — ZAP baseline + nuclei contra `STAGING_BASE_URL`. **Gate**: si hay críticos/altos,
    `exit 1` y **no** promueve.
-6. `promote-production-backend` / `promote-production-frontend` — solo si el DAST pasó; protegidos por el
+5b. `e2e-real` — invoca `./.github/workflows/e2e-real.yml` (`workflow_call`, `secrets: inherit`): levanta
+   el stack real (mocks=false) y corre el **smoke** de flujos críticos contra endpoints reales. **Gate**:
+   si el E2E real no pasa, **no** promueve (ver §5.1). Requiere runner-harness con Chromium preinstalado.
+6. `promote-production-backend` / `promote-production-frontend` — solo si **el DAST pasó Y el E2E real
+   pasó** (`needs: [dast-staging, e2e-real]` + `needs.e2e-real.result == 'success'`); protegidos por el
    GitHub **Environment `production`** (required reviewers). Backend a Railway (prod), frontend a Vercel
    `--prod`. Recordatorio de **snapshot de DB** antes de promover.
 
@@ -351,7 +462,8 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `.env.example` | Todas las variables documentadas (sin valores reales). |
 | `.github/workflows/ci.yml` | CI: lint + typecheck + test + build (backend/frontend) + gate `ci-ok`. |
 | `.github/workflows/security-sast.yml` | SAST en cada PR/push: semgrep + gitleaks + npm audit + trivy (gate high/critical). |
-| `.github/workflows/e2e.yml` | E2E en vivo: boota el stack y corre `test:integration` (backend) + `test:e2e` (frontend). |
+| `.github/workflows/e2e.yml` | E2E **rápido (PR)**: `test:integration` (backend, DB/Redis reales) + `test:e2e` frontend en **modo MOCK** (webServer del config, `NEXT_PUBLIC_USE_MOCKS=true`, Chromium preinstalado). Ver §5.1. |
+| `.github/workflows/e2e-real.yml` | E2E **modo REAL** (gate): stack completo `docker-compose.staging.yml` (mocks=false) + `migrate deploy` + `seed:synthetic` + **smoke** de flujos críticos (comprar/retirar/buylist) contra endpoints reales. Nightly + `workflow_call` desde `deploy.yml`. Ver §5.1. |
 | `.github/workflows/deploy.yml` | CD **ejecutable**: CI-gate → deploy staging (Railway+Vercel) → DAST → promoción a prod bloqueada por críticos y por Environment `production`. |
 | `railway.json` | Config de build/deploy del backend en Railway (Dockerfile.backend, 1 réplica, restart ON_FAILURE). |
 | `.github/workflows/security-scheduled.yml` | Cron semanal: DAST completo (ZAP full + nuclei) contra staging. |
@@ -1579,4 +1691,120 @@ Enrutadas en su momento al rol **backend** (dueño de `backend/src/**`); WS-A la
 
 > Estas son **dependencias de código**; devops solo provee el scheduling (env), Railway y este runbook. Un
 > fallo de build/deploy por un bug de estos se **reporta a backend**, no se corrige aquí.
+
+---
+
+## 20. Fix Redis IPv6 en Railway (auditoría de precios 2026-08-17) — checklist operativo post-deploy
+
+> **Contexto (resumen; el detalle vive en `BACKEND_NOTES §43` — no se duplica aquí):** el scheduler BullMQ
+> no conectaba al Redis de Railway. El private networking (`redis.railway.internal`) resuelve **solo IPv6**
+> y ioredis usa `family: 4` por default → lookup fallido, reintento infinito **en silencio**, crons muertos
+> y catálogo entero en «Precio pendiente». Backend lo arregló en `backend/src/jobs/redis-connection.util.ts`
+> (default **`family: 0`** dual-stack; override por env `REDIS_FAMILY` o `?family=` en la URL) + boot no
+> bloqueante + listeners de error/ready + **catch-up al arranque** (`price-ingest` inmediato si no hay
+> ingesta reciente). La parte devops es este checklist + la doc de `REDIS_FAMILY` en `.env.example`.
+
+### 20.1 Checklist ANTES del deploy (variables en Railway)
+
+1. **`REDIS_URL` en el SERVICIO `backend`** (Railway → servicio `backend` → Variables), no solo en el
+   add-on Redis: debe existir como variable del servicio con la referencia **`${{ Redis.REDIS_URL }}`**.
+   Una `REDIS_URL` que solo vive en el add-on NO llega al runtime del backend, y sin ella el scheduler ni
+   siquiera intenta programar crons (§19.2). El síntoma histórico (catálogo sin precios) es 100%
+   consistente con un scheduler sin conexión Redis viable (BACKEND_NOTES §43.6.1).
+2. **`POKEMONTCG_IO_API_KEY` presente** en el servicio `backend` (BACKEND_NOTES §43.6.3): el dial sembrado
+   es `pokemontcg_io`, y sin key el free tier (~30 req/min) ralentiza el ingest y multiplica los 429
+   (parciales visibles en logs; no borra precios, pero deja huecos).
+3. **`REDIS_FAMILY`: NO hace falta fijarla.** El default `0` (dual-stack) del código ya cubre el hostname
+   interno IPv6-only de Railway. Solo existe como override (`0|4|6`) para casos de DNS anómalo — ver el
+   bloque Redis de `.env.example`. Equivalente sin env: `REDIS_URL=...?family=0`.
+
+### 20.2 Checklist DESPUÉS del deploy (verificación en logs/health)
+
+Runbook completo en **BACKEND_NOTES §43.5**; lo mínimo a verificar:
+
+1. **Logs de arranque** (Railway → servicio `backend` → Deploy logs), en orden:
+   - `Scheduler: conexión Redis lista (BullMQ operativo).`
+   - `Scheduler activo (BullMQ): …`
+   - Una de las dos líneas de **catch-up**: `price-ingest catch-up: SIN ingesta de precios reciente →
+     encolado price-ingest inmediato (jobId=…)` (primer arranque tras el fix) o
+     `price-ingest catch-up: hay ingesta reciente…` (arranques posteriores).
+   - **Señal de fallo:** `Scheduler: error de conexión Redis…` repetido cada ~60s → la URL/red sigue mal;
+     re-verificar §20.1.1 y capturar el log de arranque completo para **backend** (§43.6.4).
+2. **Health:** `GET /api/v1/health` → componente Redis en **`up`**. Tras el fix el health usa el mismo
+   `family` que el scheduler, así que ya es una señal fiable (antes podía dar `down` con Redis sano).
+3. **Progreso del ingest:** líneas `price-ingest: encolados N sets (fan-out BullMQ).` y por set
+   `price-ingest-set(<setId>, pokemontcg_io): X cartas, Y refs, …` + `Job price-ingest-set (id=…) completado.`
+4. **Opcional — disparo manual** para no esperar al cron/catch-up:
+   `POST /api/v1/admin/jobs/price-ingest` (super_admin, 202; con `{"setId": "…"}` un solo set — §19.6).
+
+### 20.3 Recordatorio `numReplicas: 1` (railway.json)
+
+`railway.json` fija **`numReplicas: 1`** y debe seguir así mientras el worker BullMQ corra **in-process**
+en el mismo servicio que la API: con **N réplicas habría N schedulers** registrando los mismos repeatables
+y corriendo crons/catch-up por duplicado (N ingests simultáneos, N `fx-refresh`, etc. — idempotentes pero
+desperdicio de cuota de API y carga). Antes de subir réplicas hay que separar el worker a un servicio
+propio (decisión futura, §6.1) y además migrar el throttler a store Redis (deuda backend, §5.1). Para este
+fix **no se cambió nada** en `railway.json`: healthcheck (`/api/v1/health`, timeout 300s), restart policy y
+réplicas ya eran correctos; el bug era de código (family del DNS), no de config de plataforma.
+
+---
+
+## 21. Job `sealed-price-ingest` — referencia de mercado del SELLADO vía TCGCSV (v1.19)
+
+> **El runbook técnico normativo vive en `BACKEND_NOTES §44.3` (y el diseño en ARCHITECTURE §4.19);
+> aquí va la vista OPERATIVA de devops, sin duplicar el detalle.** El precio TCGCSV es **solo
+> referencia informativa** (`sealedMarketRef` en el admin M1): no publica, no fija `listPriceCents`,
+> no toca dinero. Por eso el rollback es trivial (dial `off`).
+
+### 21.1 Piezas operativas
+
+- **Job:** `sealed-price-ingest`, 1×/día, secuencial y awaited (sin fan-out). Cron por env
+  **`SEALED_PRICE_INGEST_CRON`** (default `30 21 * * *` = 21:30 UTC, tras el refresh diario de
+  tcgcsv.com ~20:00 UTC y tras `fx-refresh`; ver bloque en `.env.example` y fila en §4).
+- **Interruptor real:** el dial M10 **`sealed_price_source`** (ConfigSetting, `tcgcsv | off`, seed
+  **`off`** = fail-closed). Con `off`, el job es un **no-op logueado** aunque el cron dispare
+  (`enqueued:false, reason:SEALED_PRICE_SOURCE_OFF`). La env **solo** ajusta horario; el flip es por
+  panel/API M10, igual que `price_provider` (§19.5).
+- **Disparo manual:** `POST /api/v1/admin/jobs/sealed-price-ingest` (super_admin, 202, auditado);
+  body opcional `{"groupId": <int>}` para una corrida **acotada a un grupo** TCGplayer.
+- **Requisitos:** `REDIS_URL` para el cron (sin Redis solo queda el disparo manual, §19.2). Sin API
+  key: tcgcsv.com es público.
+
+### 21.2 Encendido en STAGING (antes de cualquier flip en prod)
+
+Pasos (detalle completo en BACKEND_NOTES §44.3; ahí está el porqué de cada uno):
+
+1. Deploy del release v1.19 + `prisma migrate deploy` (migración **M-23**: enum `tcgcsv` + columnas
+   `tcgplayerProductId`/`tcgplayerGroupId`).
+2. Verificar el dial: `GET /api/v1/admin/settings` → `sealedPriceSource=off` (seed).
+3. Mapear 1–2 items sellados reales vía M2: `GET /admin/pricing/sealed/tcgcsv/groups` →
+   `.../groups/:groupId/products` → `PUT /admin/pricing/sealed/items/:itemId/mapping`.
+4. **Flipear el dial a `tcgcsv` EN STAGING** (staging no es prod: inocuo) y lanzar la corrida
+   acotada: `POST /api/v1/admin/jobs/sealed-price-ingest {"groupId": <grupo mapeado>}`.
+5. **Logs esperados** (backend): línea resumen del ingest con `grupos`/`referencias` y los contadores
+   `fetchedRaw/skipped/usedFallbackMid/unmatched`; al final `Job sealed-price-ingest (id=…)
+   completado.` (heartbeat del worker, §19.8). Señales de problema: `502 UPSTREAM_ERROR` en el
+   explorador M2 (tcgcsv caído/bloqueado) o `unmatched` alto (mapeos rotos).
+6. **Verificación en datos:** `PriceReference` con `source=tcgcsv`, `gradeKey=sealed:tcg:<pid>`,
+   USD→MXN coherente con el FX del día + colchón; y en el admin **M1** el item sellado mapeado
+   muestra `sealedMarketRef` poblado (deja de ser `null`).
+7. **Validación de esquema (crítica):** los tests corren contra fixtures (el egress de dev bloquea
+   tcgcsv.com — ver 21.4), así que esta corrida en staging es la PRIMERA contra el payload real. Si
+   el esquema difiere de las fixtures → **hallazgo a backend** (adapter + fixtures); si cuadra →
+   flip del dial en prod.
+
+### 21.3 Rollback
+
+**Dial `sealed_price_source=off`** (panel/API M10, sin redeploy). El job vuelve a no-op fail-closed;
+los `PriceReference` ya escritos permanecen **inertes** (referencia informativa; nada público los
+consume). No hay que tocar env ni cron. Para desmapear un item puntual: `PUT .../mapping` con `null`.
+
+### 21.4 Nota de RED / egress (tcgcsv.com)
+
+- El **entorno de dev/sandbox BLOQUEA tcgcsv.com** (proxy 403): por eso los tests usan fixtures y la
+  validación real es obligatoria en staging (21.2.7). No intentes "probar el fetch" en local/dev.
+- **Staging y prod deben permitir HTTPS saliente a `tcgcsv.com`** (host **FIJO** en el adapter,
+  anti-SSRF; sin API key). En Railway el egress es abierto por defecto — no hay acción; si algún día
+  se restringe egress por allowlist, añadir `tcgcsv.com` junto a `api.pokemontcg.io`,
+  `www.banxico.org.mx` (SIE) y el dominio del proveedor de paga.
 

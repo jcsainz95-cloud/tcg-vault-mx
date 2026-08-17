@@ -5,7 +5,7 @@ import { AdminVaultsService } from './admin-vaults.service';
 import { MasterSetService } from '../inventory/master-set.service';
 
 /**
- * AdminVaultsController (v1.18-master-set-everywhere, §4.18a/§4.18c) — vista (ii): admin viendo
+ * AdminVaultsController (v1.20-master-set-everywhere, §4.20a/§4.20c) — vista (ii): admin viendo
  * bóvedas de clientes. `vault_operator+`. LECTURA PURA (soporte/operación): sin acciones de
  * captura/publicación/ajuste/venta y SIN `buyable` (solo existe en la vista (iii) del cliente).
  * El shape es el MISMO contrato master-set con scope=user_vault y `owner` CON email.
@@ -61,7 +61,7 @@ export class AdminVaultsController {
     return this.masterSets.binder(
       setId,
       { kind: 'user_vault', userId },
-      { includeOwnerEmail: true }, // SIN buyable: vista operativa, no de compra (§4.18d)
+      { includeOwnerEmail: true }, // SIN buyable: vista operativa, no de compra (§4.20d)
     );
   }
 }

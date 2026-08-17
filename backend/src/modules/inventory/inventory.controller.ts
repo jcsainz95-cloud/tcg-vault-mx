@@ -105,13 +105,13 @@ export class InventoryController {
     return res;
   }
 
-  // ===== v1.18-master-set-everywhere (§4.18e) — ajuste por levantamiento físico =====
+  // ===== v1.20-master-set-everywhere (§4.20e) — ajuste por levantamiento físico =====
 
   /**
    * POST /admin/inventory/adjustments — motivo OBLIGATORIO encontrada|perdida|danada|error_captura.
-   * Res 201 (encontrada, crea piezas) / 200 (resto Y el replay idempotente por `batchKey`, v1.18.1:
+   * Res 201 (encontrada, crea piezas) / 200 (resto Y el replay idempotente por `batchKey`, v1.20.1:
    * un replay devuelve la respuesta original guardada con `idempotentReplay: true` y 200 aunque la
-   * primera vez fuera 201). Registro triple: InventoryAdjustment (M-22) +
+   * primera vez fuera 201). Registro triple: InventoryAdjustment (M-24) +
    * InventoryMovement(reason=adjustment) [servicio, en tx] + AuditLog action=inventory.adjustment
    * con usuario y timestamp (aquí). NO es dinero saliente (sin MoneyOutGuard) y NO vende nada.
    */
@@ -127,7 +127,7 @@ export class InventoryController {
       actorRole: user.role,
       action: 'inventory.adjustment',
       entityType: 'InventoryAdjustment',
-      // v1.18.1: la respuesta es plural (una fila M-22 por pieza); la bitácora ancla en la primera
+      // v1.20.1: la respuesta es plural (una fila M-24 por pieza); la bitácora ancla en la primera
       // y lista TODAS en `after.adjustmentIds`.
       entityId: out.adjustmentIds[0],
       after: {

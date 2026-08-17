@@ -27,6 +27,12 @@ export const SettingKey = {
   // `pokemontcg_io` (legacy, sin cambio de fuente al desplegar); el humano flipa a
   // `pokemonpricetracker` tras verificar el esquema del proveedor de paga en la 1ª corrida.
   PRICE_PROVIDER: 'price_provider',
+  // v1.19-sealed-tcgcsv (§4.19e): dial FAIL-CLOSED de la ingesta de la referencia de mercado
+  // del SELLADO vía TCGCSV (job `sealed-price-ingest`). Valores `tcgcsv | off`, seed `off`:
+  // al desplegar NO se ingiere nada hasta que devops valide el esquema real en staging y
+  // flipee el dial (mismo patrón de rollout money-safe que `price_provider`). Rollback = `off`
+  // (los PriceReference ya escritos permanecen, informativos e inertes).
+  SEALED_PRICE_SOURCE: 'sealed_price_source',
   // v1.3.1 (§E.1): tabla de precio de buylist por RAREZA OFICIAL. Reemplaza `rarity_map` en la
   // ruta de cotización. Editables en M2 (GET/PUT /admin/pricing/buylist-rules), no en M10.
   BUYLIST_PRICE_RULES: 'buylist_price_rules',
@@ -73,6 +79,9 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // v1.14-price-ingest (WS-A): SEED `pokemontcg_io` por seguridad (rollout money-safe). El flip a
   // `pokemonpricetracker` lo hace el humano tras verificar el esquema (ARCHITECTURE §4.15h).
   [SettingKey.PRICE_PROVIDER]: 'pokemontcg_io',
+  // v1.19-sealed-tcgcsv (§4.19e): SEED `off` (fail-closed). El flip a `tcgcsv` lo hace el
+  // humano tras la 1ª corrida manual acotada en staging (runbook devops).
+  [SettingKey.SEALED_PRICE_SOURCE]: 'off',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
   // v1.3.1 (§E.1): seed que PRESERVA el negocio vigente (Common/Uncommon $0.50 fijo, Reverse
@@ -117,6 +126,12 @@ const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'm
  * SOLO los dos proveedores de ingest masivo (NO poketrace/manual, que son del pricing per-carta).
  */
 export const PRICE_PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker'];
+
+/**
+ * v1.19-sealed-tcgcsv (§4.19e): valores válidos del dial `sealed_price_source` (enum de
+ * contrato `SealedPriceSource`; NO es enum de BD). `off` = fail-closed (no se ingiere nada).
+ */
+export const SEALED_PRICE_SOURCE_VALUES = ['tcgcsv', 'off'];
 
 function isInt(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && Number.isFinite(v);
@@ -228,6 +243,11 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && PRICE_PROVIDER_VALUES.includes(v)
       ? null
       : `must be one of ${PRICE_PROVIDER_VALUES.join('|')}`,
+  // v1.19-sealed-tcgcsv (§4.19e): IsIn(['tcgcsv','off']) → 422 VALIDATION_ERROR si otro valor.
+  [SettingKey.SEALED_PRICE_SOURCE]: (v) =>
+    typeof v === 'string' && SEALED_PRICE_SOURCE_VALUES.includes(v)
+      ? null
+      : `must be one of ${SEALED_PRICE_SOURCE_VALUES.join('|')}`,
   [SettingKey.RARITY_MAP]: (v) =>
     v !== null && typeof v === 'object' && !Array.isArray(v) ? null : 'must be an object map',
   [SettingKey.BUYLIST_PRICE_RULES]: validateBuylistRules,
@@ -263,6 +283,8 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   pricingProviderSealed: SettingKey.PRICING_PROVIDER_SEALED,
   // v1.14-price-ingest (WS-A, §M10): dial del proveedor de la ingesta masiva de precios.
   priceProvider: SettingKey.PRICE_PROVIDER,
+  // v1.19-sealed-tcgcsv (§M10): dial fail-closed de la referencia de mercado del SELLADO.
+  sealedPriceSource: SettingKey.SEALED_PRICE_SOURCE,
   // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
   // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Trash2, Package } from 'lucide-react';
@@ -21,7 +21,7 @@ import { localUid, type CaptureLine } from './capture';
 import type { MasterSetViewMode } from './mode';
 
 interface Props {
-  /** Scope/capacidades de la vista (§4.18f). Default: M1 (plataforma). */
+  /** Scope/capacidades de la vista (§4.20f). Default: M1 (plataforma). */
   mode?: MasterSetViewMode;
   /** Requerido en `user_vault_admin` (bóveda de ESE cliente). */
   userId?: string;
@@ -33,7 +33,7 @@ interface Props {
 }
 
 /**
- * Orquestador COMPARTIDO de la vista Master Set (§4.18f): índice ⇆ binder y drawer por
+ * Orquestador COMPARTIDO de la vista Master Set (§4.20f): índice ⇆ binder y drawer por
  * celda en los TRES modos. El CARRITO DE CAPTURA por lote (#12), la publicación y el
  * ajuste por levantamiento físico SOLO se montan en modo `platform` (M1); los modos
  * `user_vault_*` son lectura (y compra de faltantes en la vista del propio cliente).
@@ -46,6 +46,17 @@ export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing }: Prop
   const [selectedSet, setSelectedSet] = useState<MasterSetSummaryDTO | null>(null);
   const [openCell, setOpenCell] = useState<MasterSetCardCellDTO | null>(null);
   const [cart, setCart] = useState<CaptureLine[]>([]);
+
+  // batchKey ESTABLE por SESIÓN DE CARRITO (techlead #1): se fija UNA vez al empezar a llenar el
+  // carrito y SOLO se regenera tras un éxito confirmado (o al vaciar el carrito). Si el request
+  // expira por red pero SÍ se procesó y el operador reintenta, el reintento reusa la MISMA key →
+  // el backend lo trata como replay (guardia anti-duplicado) → NO se duplican piezas. Generar la
+  // key dentro del mutationFn en cada mutate() derrotaría esa idempotencia.
+  const batchKeyRef = useRef<string | null>(null);
+  function ensureBatchKey(): string {
+    if (batchKeyRef.current === null) batchKeyRef.current = localUid('batch');
+    return batchKeyRef.current;
+  }
 
   // Ubicaciones: solo el alta rápida de M1 las usa (endpoint admin).
   const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations, enabled: isPlatform });
@@ -65,12 +76,14 @@ export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing }: Prop
         acquisitionPct: l.acquisitionPct,
         qty: l.qty,
       }));
-      // batchKey nuevo por submit: idempotencia server-side (un reenvío no duplica).
-      return batchCreateItems({ batchKey: localUid('batch'), items });
+      // Reusa la key de la sesión (un reenvío por timeout NO cambia la key → replay idempotente).
+      return batchCreateItems({ batchKey: ensureBatchKey(), items });
     },
     onSuccess: () => {
       // Refresca agregados (índice + binder abierto): las piezas nuevas cambian conteos.
       invalidateAggregates();
+      // Sesión cerrada con éxito → la próxima captura arranca con una batchKey NUEVA.
+      batchKeyRef.current = null;
       setCart([]);
     },
   });
@@ -82,12 +95,20 @@ export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing }: Prop
   }
 
   function addToCart(line: CaptureLine) {
+    // Fija la key de la sesión al empezar a llenar el carrito (si aún no existe).
+    ensureBatchKey();
     setCart((prev) => [...prev, line]);
     submit.reset();
   }
 
   function removeLine(key: string) {
     setCart((prev) => prev.filter((l) => l.key !== key));
+  }
+
+  function clearCart() {
+    // Vaciar el carrito termina la sesión → nueva batchKey en la próxima captura.
+    batchKeyRef.current = null;
+    setCart([]);
   }
 
   const batchResults: BatchInventoryLineResult[] = submit.data?.results ?? [];
@@ -143,7 +164,7 @@ export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing }: Prop
             <Button onClick={() => submit.mutate()} loading={submit.isPending} disabled={submit.isPending}>
               {t('cartSubmit', { count: totalPieces })}
             </Button>
-            <Button variant="secondary" onClick={() => setCart([])} disabled={submit.isPending}>
+            <Button variant="secondary" onClick={clearCart} disabled={submit.isPending}>
               {t('cartClear')}
             </Button>
           </div>

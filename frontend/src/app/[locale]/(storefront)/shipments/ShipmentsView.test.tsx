@@ -10,6 +10,15 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => ({ get: () => null }),
 }));
 
+// Link de i18n (deep-link al detalle del retiro) → <a> simple en el test.
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 // Módulo de API real (rama mock) salvo createShipment, que controlamos para el caso 403.
 // vi.hoisted: la fábrica de vi.mock se iza al top, así que el mock debe crearse con hoisted.
 const { createShipmentMock } = vi.hoisted(() => ({ createShipmentMock: vi.fn() }));

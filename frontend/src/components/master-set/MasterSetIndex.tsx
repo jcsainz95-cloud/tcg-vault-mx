@@ -28,7 +28,7 @@ interface Props {
   onOpenSet: (set: MasterSetSummaryDTO) => void;
 }
 
-/** Un solo lugar decide el endpoint por modo (contrato v1.18: mismo shape, distinto scope). */
+/** Un solo lugar decide el endpoint por modo (contrato v1.20: mismo shape, distinto scope). */
 function fetchIndex(
   mode: MasterSetViewMode,
   userId: string | undefined,
@@ -40,8 +40,8 @@ function fetchIndex(
 }
 
 /**
- * Índice Master Set COMPARTIDO (§4.18f): grid de sets con completitud POR VARIANTE
- * (v1.18: distinctVariantsOwned / catalogVariantCount · variantCompletionPct — los
+ * Índice Master Set COMPARTIDO (§4.20f): grid de sets con completitud POR VARIANTE
+ * (v1.20: distinctVariantsOwned / catalogVariantCount · variantCompletionPct — los
  * contadores «X/Y» cuentan variantes, no cartas) y conteo de piezas. Click → binder.
  */
 export function MasterSetIndex({ mode, userId, onOpenSet }: Props) {
@@ -125,7 +125,7 @@ export function MasterSetIndex({ mode, userId, onOpenSet }: Props) {
                         </span>
                       </div>
                       <div className="flex flex-col gap-2">
-                        {/* v1.18: completitud POR VARIANTE (carta+acabado), no por carta. */}
+                        {/* v1.20: completitud POR VARIANTE (carta+acabado), no por carta. */}
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-mono text-xs uppercase tracking-wide text-muted">
                             {t('completionLabel')}

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   getAdminBuylist,
+  getAdminRejectedBuylistItems,
   receiveBuylistRequest,
   verifyBuylistRequest,
   decideBuylistItem,
@@ -16,8 +17,9 @@ import { useRole } from '@/lib/role';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { SellItemDTO, SellRequestStatus } from '@/types/contract';
-import { formatMoneyCents } from '@/lib/format';
+import type { AdminBuylistDTO, SellItemDTO, SellRequestStatus } from '@/types/contract';
+import { formatMoneyCents, formatDate } from '@/lib/format';
+import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { Button } from '@/components/ui/Button';
@@ -33,15 +35,50 @@ import { useBuylistSteps } from '@/lib/pipelines';
 /**
  * Pestañas por ETAPA de la solicitud (G3): en vez de una pila plana con las 7 acciones
  * siempre visibles, se agrupa por `status` para que el operador vea solo la cola de su
- * etapa. Cada solicitud aparece en la pestaña de su `status`.
+ * etapa. Cada solicitud aparece en la pestaña de su `status`. La pestaña «Rechazadas»
+ * (v1.18) es TRANSVERSAL: no filtra solicitudes, consume su propio endpoint paginado.
  */
 type M5Tab = 'por_recibir' | 'verificando' | 'por_pagar' | 'cerradas';
+type M5TabAll = M5Tab | 'rechazadas';
 const M5_TABS: { key: M5Tab; statuses: SellRequestStatus[] }[] = [
   { key: 'por_recibir', statuses: ['cotizada'] },
   { key: 'verificando', statuses: ['recibida', 'verificacion'] },
   { key: 'por_pagar', statuses: ['aprobada'] },
   { key: 'cerradas', statuses: ['pagada', 'rechazada', 'abandonada'] },
 ];
+
+/** Límites del motivo de rechazo (contrato §M5: 3–500 chars; 400 si no cumple). */
+const REJECT_REASON_MIN = 3;
+const REJECT_REASON_MAX = 500;
+
+/**
+ * Fase del ítem rechazado derivada de `now` vs los plazos del SERVER (contrato §M5: la
+ * fase no se persiste ni se expone como campo; la deriva el front). Legacy sin fechas
+ * (rechazos pre-M-22) → 'unknown'.
+ */
+type RejectPhase = 'return' | 'abandon' | 'expired' | 'unknown';
+function rejectPhase(
+  returnDeadlineAt: string | null,
+  abandonDeadlineAt: string | null,
+  now: number = Date.now(),
+): RejectPhase {
+  if (!returnDeadlineAt || !abandonDeadlineAt) return 'unknown';
+  if (now <= new Date(returnDeadlineAt).getTime()) return 'return';
+  if (now <= new Date(abandonDeadlineAt).getTime()) return 'abandon';
+  return 'expired';
+}
+
+const PHASE_TONE: Record<RejectPhase, 'warning' | 'danger' | 'neutral'> = {
+  return: 'warning',
+  abandon: 'danger',
+  expired: 'neutral',
+  unknown: 'neutral',
+};
+
+/** Identidad visible del vendedor: nombre + correo (v1.18); cae al UUID si falta el join. */
+function sellerLabel(req: Pick<AdminBuylistDTO, 'userId' | 'seller'>): string {
+  return req.seller ? `${req.seller.name} · ${req.seller.email}` : req.userId;
+}
 
 /** Convierte pesos (texto) a centavos enteros; inválido/vacío → null. */
 function pesosToCents(value: string): number | null {
@@ -105,19 +142,35 @@ export function M5View() {
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const adjustCents = pesosToCents(adjustPrice);
 
+  // Rechazo con motivo obligatorio (v1.18): mini-diálogo antes de enviar la decisión.
+  const [rejectTarget, setRejectTarget] = useState<{ requestId: string; item: SellItemDTO } | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const rejectReasonTrimmed = rejectReason.trim();
+  const rejectReasonValid =
+    rejectReasonTrimmed.length >= REJECT_REASON_MIN && rejectReasonTrimmed.length <= REJECT_REASON_MAX;
+
   const decisionMutation = useMutation({
     mutationFn: (vars: {
       requestId: string;
       itemId: string;
       decision: 'approve' | 'adjust' | 'reject';
       approvedPriceCents?: number;
+      reason?: string;
     }) =>
-      decideBuylistItem(vars.itemId, {
-        decision: vars.decision,
-        approvedPriceCents: vars.approvedPriceCents,
-      }),
+      decideBuylistItem(
+        vars.itemId,
+        vars.decision === 'reject'
+          ? { decision: 'reject', reason: vars.reason }
+          : { decision: vars.decision, approvedPriceCents: vars.approvedPriceCents },
+      ),
     onSuccess: (_d, vars) => {
       if (vars.decision === 'adjust') closeAdjust();
+      if (vars.decision === 'reject') {
+        closeReject();
+        // La carta rechazada aparece en la pestaña transversal «Rechazadas».
+        void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+      }
       ok(
         vars.requestId,
         vars.decision === 'approve'
@@ -128,8 +181,10 @@ export function M5View() {
       );
     },
     onError: (e, vars) => {
-      // El ajuste muestra el error DENTRO del modal (p. ej. 422 APPROVED_PRICE_CAP_EXCEEDED).
+      // El ajuste/rechazo muestran el error DENTRO de su modal (p. ej. 422
+      // APPROVED_PRICE_CAP_EXCEEDED o el 400 VALIDATION_ERROR del motivo).
       if (vars.decision === 'adjust') setAdjustError(getError(e));
+      else if (vars.decision === 'reject') setRejectError(getError(e));
       else fail(vars.requestId, e);
     },
   });
@@ -143,6 +198,17 @@ export function M5View() {
     setAdjustTarget(null);
     setAdjustPrice('');
     setAdjustError(null);
+  }
+
+  function openReject(requestId: string, item: SellItemDTO) {
+    setRejectTarget({ requestId, item });
+    setRejectReason('');
+    setRejectError(null);
+  }
+  function closeReject() {
+    setRejectTarget(null);
+    setRejectReason('');
+    setRejectError(null);
   }
 
   // --- Conversión a inventario (contrato POST .../convert-to-inventory) ---
@@ -196,27 +262,49 @@ export function M5View() {
     setPayError(null);
   }
 
-  // --- Pestañas por etapa + buscador (folio/usuario) ---
-  const [tab, setTab] = useState<M5Tab | null>(null);
+  // --- Pestañas por etapa + buscador (folio/vendedor) ---
+  const [tab, setTab] = useState<M5TabAll | null>(null);
   const [search, setSearch] = useState('');
   const all = query.data ?? [];
   const searchTerm = search.trim().toLowerCase();
-  // Buscador global por folio o usuario (usa la clave i18n `admin.searchGlobal`).
+  // Buscador global por folio o vendedor —id, nombre o correo— (clave i18n `admin.searchGlobal`).
   const filtered =
     searchTerm === ''
       ? all
       : all.filter(
           (r) =>
-            r.id.toLowerCase().includes(searchTerm) || r.userId.toLowerCase().includes(searchTerm),
+            r.id.toLowerCase().includes(searchTerm) ||
+            r.userId.toLowerCase().includes(searchTerm) ||
+            (r.seller?.name.toLowerCase().includes(searchTerm) ?? false) ||
+            (r.seller?.email.toLowerCase().includes(searchTerm) ?? false),
         );
   const counts = Object.fromEntries(
     M5_TABS.map((tb) => [tb.key, filtered.filter((r) => tb.statuses.includes(r.status)).length]),
   ) as Record<M5Tab, number>;
   // Etapa activa: la elegida por el operador o, por defecto, la primera con solicitudes.
   const firstNonEmpty = M5_TABS.find((tb) => counts[tb.key] > 0)?.key ?? M5_TABS[0].key;
-  const activeTab: M5Tab = tab ?? firstNonEmpty;
-  const activeStatuses = M5_TABS.find((tb) => tb.key === activeTab)!.statuses;
+  const activeTab: M5TabAll = tab ?? firstNonEmpty;
+  const activeStatuses = M5_TABS.find((tb) => tb.key === activeTab)?.statuses ?? [];
   const visible = filtered.filter((r) => activeStatuses.includes(r.status));
+
+  // --- Pestaña «Rechazadas» (contrato §M5 · GET /admin/buylist/rejected-items) ---
+  // Query aparte (transversal a solicitudes), paginada server-side; solo se pide al abrirla.
+  const [rejectedPage, setRejectedPage] = useState(1);
+  const rejectedQuery = useQuery({
+    queryKey: ['admin-buylist-rejected', rejectedPage],
+    queryFn: () => getAdminRejectedBuylistItems({ page: rejectedPage }),
+    enabled: activeTab === 'rechazadas',
+  });
+  const rejectedTotalPages =
+    rejectedQuery.data && rejectedQuery.data.pageSize > 0
+      ? Math.max(1, Math.ceil(rejectedQuery.data.total / rejectedQuery.data.pageSize))
+      : 1;
+
+  /** Salta desde una fila rechazada a su solicitud (folio al buscador, etapa automática). */
+  function jumpToRequest(sellRequestId: string) {
+    setSearch(sellRequestId);
+    setTab(null);
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -233,7 +321,8 @@ export function M5View() {
         />
       </div>
 
-      {/* Pestañas por etapa: cada una muestra el conteo de solicitudes en esa etapa. */}
+      {/* Pestañas por etapa: cada una muestra el conteo de solicitudes en esa etapa.
+          «Rechazadas» es transversal (endpoint propio); su conteo es el total server-side. */}
       <div role="tablist" aria-label={t('title')} className="flex flex-wrap gap-1 border-b border-border">
         {M5_TABS.map((tb) => (
           <button
@@ -251,8 +340,132 @@ export function M5View() {
             <span className="tabular text-xs text-muted">{counts[tb.key]}</span>
           </button>
         ))}
+        <button
+          role="tab"
+          type="button"
+          aria-selected={activeTab === 'rechazadas'}
+          onClick={() => setTab('rechazadas')}
+          className={cn(
+            '-mb-px flex items-center gap-2 px-3 py-2 text-sm font-medium focus-visible:shadow-focus focus-visible:outline-none',
+            activeTab === 'rechazadas' ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+          )}
+        >
+          {t('tabs.rechazadas')}
+          {rejectedQuery.data && (
+            <span className="tabular text-xs text-muted">{rejectedQuery.data.total}</span>
+          )}
+        </button>
       </div>
 
+      {activeTab === 'rechazadas' ? (
+        <QueryState
+          isLoading={rejectedQuery.isLoading}
+          isError={rejectedQuery.isError}
+          error={rejectedQuery.error}
+          onRetry={() => rejectedQuery.refetch()}
+        >
+          {rejectedQuery.data && (
+            <div className="flex flex-col gap-4">
+              {/* PROJECT criterio 16 / contrato §M5: una carta rechazada (no-NM) JAMÁS se
+                  convierte a inventario vendible → esta pestaña no ofrece esa acción. */}
+              <p className="text-xs text-muted">{t('rejected.intro')}</p>
+              {rejectedQuery.data.data.length === 0 ? (
+                <EmptyState title={t('rejected.empty')} />
+              ) : (
+                <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface px-4">
+                  {rejectedQuery.data.data.map((row) => {
+                    const phase = rejectPhase(row.returnDeadlineAt, row.abandonDeadlineAt);
+                    return (
+                      <div key={row.id} className="flex flex-col gap-2 py-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <CardImage src={row.card.imageSmallUrl} alt={row.card.name} className="w-10 shrink-0" />
+                          <span className="text-sm font-medium" lang="en">
+                            {row.card.name}
+                          </span>
+                          <span className="text-xs text-muted" lang="en">
+                            {row.card.setName} · #{row.card.number}
+                          </span>
+                          <FinishBadge finish={row.finish} productType={row.productType} />
+                          {/* La cotización original NO se paga: fuera del total (tachada). */}
+                          {row.quotedPriceCents != null && (
+                            <span className="tabular text-xs text-muted line-through">
+                              {formatMoneyCents(row.quotedPriceCents, locale)}
+                            </span>
+                          )}
+                          <Badge tone={PHASE_TONE[phase]} shape="outline">
+                            {t(`rejected.phase.${phase}`)}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+                          {/* Vendedor legible (nombre + correo); UUID relegado al tooltip. */}
+                          <Link
+                            href={{ pathname: '/admin/m6', query: { user: row.seller?.id ?? '' } }}
+                            title={row.seller?.id}
+                            aria-label={t('sellerLink', { id: row.seller?.name ?? row.seller?.id ?? '' })}
+                            className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                          >
+                            {t('seller')}: {row.seller ? `${row.seller.name} · ${row.seller.email}` : '—'}
+                          </Link>
+                          <span>
+                            {t('rejected.rejectedAtLabel')}:{' '}
+                            <span className="tabular">{row.rejectedAt ? formatDate(row.rejectedAt, locale) : '—'}</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => jumpToRequest(row.sellRequestId)}
+                            className="tabular underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                          >
+                            {t('rejected.viewRequest', { id: row.sellRequestId })}
+                          </button>
+                        </div>
+                        {row.reason && (
+                          <p className="text-sm">
+                            <span className="text-muted">{t('rejected.reasonLabel')}:</span> {row.reason}
+                          </p>
+                        )}
+                        {/* Plazos del server (7d devolución a costo del usuario / 30d abandono). */}
+                        {row.returnDeadlineAt && row.abandonDeadlineAt ? (
+                          <p className="text-xs text-muted">
+                            {t('rejected.returnUntil', { date: formatDate(row.returnDeadlineAt, locale) })}
+                            {' · '}
+                            {t('rejected.abandonAt', { date: formatDate(row.abandonDeadlineAt, locale) })}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-muted">{t('rejected.noDeadlines')}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {/* Paginación simple server-side (page/pageSize/total del contrato). */}
+              {rejectedTotalPages > 1 && (
+                <div className="flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={rejectedPage <= 1}
+                    onClick={() => setRejectedPage((p) => Math.max(1, p - 1))}
+                  >
+                    {t('rejected.prev')}
+                  </Button>
+                  <span className="tabular text-xs text-muted">
+                    {t('rejected.pageInfo', { page: rejectedQuery.data.page, totalPages: rejectedTotalPages })}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={rejectedPage >= rejectedTotalPages}
+                    onClick={() => setRejectedPage((p) => p + 1)}
+                  >
+                    {t('rejected.next')}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </QueryState>
+      ) : (
       <QueryState
         isLoading={query.isLoading}
         isError={query.isError}
@@ -277,17 +490,33 @@ export function M5View() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="tabular text-sm font-medium">{req.id}</span>
                   <StatusBadge domain="sellRequest" value={req.status} />
-                  {/* Vendedor: la cola admin no trae el nombre resuelto; se muestra el
-                      userId como ENLACE a su ficha 360° en M6 (?user=<id>, sin endpoint nuevo). */}
+                  {/* Vendedor legible (v1.18: seller.name + seller.email del server); el UUID
+                      queda en el tooltip. Sigue enlazando a su ficha 360° en M6 (?user=<id>). */}
                   <Link
                     href={{ pathname: '/admin/m6', query: { user: req.userId } }}
-                    aria-label={t('sellerLink', { id: req.userId })}
-                    className="tabular text-xs text-muted underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    title={req.userId}
+                    aria-label={t('sellerLink', { id: req.seller?.name ?? req.userId })}
+                    className="text-xs text-muted underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
                   >
-                    {t('seller')}: {req.userId}
+                    {t('seller')}: {sellerLabel(req)}
                   </Link>
+                  {/* Fecha de creación (orden createdAt desc lo aplica el server; no se re-ordena). */}
+                  <span className="tabular text-xs text-muted">
+                    {t('created')}: {formatDate(req.createdAt, locale)}
+                  </span>
                 </div>
-                <span className="tabular text-sm">{formatMoneyCents(req.quotedTotalCents, locale)}</span>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="tabular text-sm">
+                    {t('quoted')}: {formatMoneyCents(req.quotedTotalCents, locale)}
+                  </span>
+                  {/* Total aprobado RECOMPUTADO por el backend (excluye rechazadas, SEC-A1:
+                      la UI nunca suma dinero por su cuenta). */}
+                  {req.approvedTotalCents != null && (
+                    <span className="tabular text-sm text-success">
+                      {t('approvedTotal')}: {formatMoneyCents(req.approvedTotalCents, locale)}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <PipelineStepper steps={steps} current={req.status} />
@@ -321,8 +550,10 @@ export function M5View() {
                   const decisionPending =
                     decisionMutation.isPending && decisionMutation.variables?.itemId === it.id;
                   const decidable = !ITEM_TERMINAL.has(it.itemStatus);
+                  const isRejected = it.itemStatus === 'rechazada';
                   return (
-                    <div key={it.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div key={it.id} className="flex flex-col gap-1 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-3">
                         {/* Imagen de catálogo por ítem: único referente visual para verificar
                             la carta física contra la que llegó a la bóveda. */}
@@ -331,7 +562,8 @@ export function M5View() {
                           {it.card.name}
                         </span>
                         <FinishBadge finish={it.finish} productType={it.productType} />
-                        <span className="tabular text-xs text-muted">
+                        {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
+                        <span className={cn('tabular text-xs text-muted', isRejected && 'line-through')}>
                           {formatMoneyCents(it.quotedPriceCents ?? 0, locale)}
                         </span>
                         {it.approvedPriceCents != null && (
@@ -340,6 +572,11 @@ export function M5View() {
                           </span>
                         )}
                         <StatusBadge domain="sellItem" value={it.itemStatus} />
+                        {isRejected && (
+                          <Badge tone="danger" shape="outline">
+                            {t('rejectedOutOfTotal')}
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {canDecide && decidable && (
@@ -357,19 +594,16 @@ export function M5View() {
                             <Button size="sm" variant="ghost" onClick={() => openAdjust(req.id, it)}>
                               {t('adjust')}
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              loading={decisionPending && decisionMutation.variables?.decision === 'reject'}
-                              onClick={() =>
-                                decisionMutation.mutate({ requestId: req.id, itemId: it.id, decision: 'reject' })
-                              }
-                            >
+                            {/* v1.18: el rechazo exige MOTIVO (3–500) → abre el mini-diálogo. */}
+                            <Button size="sm" variant="ghost" onClick={() => openReject(req.id, it)}>
                               {t('reject')}
                             </Button>
                           </>
                         )}
-                        {it.itemStatus !== 'convertida_inventario' && (
+                        {/* Convertir a inventario: SOLO para aprobadas. Un ítem `rechazada`
+                            (no-NM) NUNCA es convertible (contrato §M5, PROJECT criterio 16),
+                            ni siquiera vencidos sus plazos: el botón no se ofrece. */}
+                        {it.itemStatus !== 'convertida_inventario' && !isRejected && (
                           <Button
                             size="sm"
                             variant="secondary"
@@ -384,6 +618,30 @@ export function M5View() {
                           </Button>
                         )}
                       </div>
+                    </div>
+                    {/* Detalle del rechazo dentro de la solicitud: motivo + plazos (server). */}
+                    {isRejected && (
+                      <div className="flex flex-col gap-0.5 pl-14 text-xs text-muted">
+                        {it.rejectionReason && (
+                          <p>
+                            {t('rejected.reasonLabel')}: {it.rejectionReason}
+                          </p>
+                        )}
+                        {it.rejectedAt && (
+                          <p>
+                            {t('rejected.rejectedAtLabel')}:{' '}
+                            <span className="tabular">{formatDate(it.rejectedAt, locale)}</span>
+                          </p>
+                        )}
+                        {it.returnDeadlineAt && it.abandonDeadlineAt && (
+                          <p>
+                            {t('rejected.returnUntil', { date: formatDate(it.returnDeadlineAt, locale) })}
+                            {' · '}
+                            {t('rejected.abandonAt', { date: formatDate(it.abandonDeadlineAt, locale) })}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     </div>
                   );
                 })}
@@ -452,6 +710,68 @@ export function M5View() {
             })
           ))}
       </QueryState>
+      )}
+
+      {/* Modal de rechazo con motivo obligatorio (v1.18 · decision=reject + reason 3–500).
+          El motivo llega al vendedor por CORREO junto con sus plazos (aviso en el copy). */}
+      <Modal
+        open={!!rejectTarget}
+        onClose={closeReject}
+        title={t('rejectTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeReject}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              variant="accent"
+              disabled={!rejectReasonValid}
+              loading={decisionMutation.isPending && decisionMutation.variables?.decision === 'reject'}
+              onClick={() =>
+                rejectTarget &&
+                rejectReasonValid &&
+                decisionMutation.mutate({
+                  requestId: rejectTarget.requestId,
+                  itemId: rejectTarget.item.id,
+                  decision: 'reject',
+                  reason: rejectReasonTrimmed,
+                })
+              }
+            >
+              {t('rejectConfirm')}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {rejectTarget && (
+            <p className="text-sm text-muted">
+              <span lang="en" className="font-medium text-text">{rejectTarget.item.card.name}</span>
+              {' · '}
+              {t('quoted')}:{' '}
+              <span className="tabular">
+                {formatMoneyCents(rejectTarget.item.quotedPriceCents ?? 0, locale)}
+              </span>
+            </p>
+          )}
+          {/* Validación en cliente ANTES de enviar (espeja el 3–500 del backend). */}
+          <Input
+            label={t('rejectReasonLabel')}
+            hint={t('rejectReasonHint')}
+            error={rejectReason !== '' && !rejectReasonValid ? t('rejectReasonInvalid') : undefined}
+            type="text"
+            maxLength={REJECT_REASON_MAX}
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+          />
+          <p className="text-xs text-muted">{t('rejectNotifyNote')}</p>
+          {rejectError && (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+              {rejectError}
+            </Banner>
+          )}
+        </div>
+      </Modal>
 
       {/* Modal de ajuste de precio por carta (decision=adjust + approvedPriceCents) */}
       <Modal

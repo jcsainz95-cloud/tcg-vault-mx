@@ -74,6 +74,36 @@ test.describe('Compra · ficha de carta', () => {
     ).toBeEnabled();
   });
 
+  test('«Comprar» da feedback: toast + CTA «En el carrito»; el segundo clic lleva al carrito', async ({ page }) => {
+    await page.goto('/es/catalog/c-charizard');
+    await page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first().click();
+
+    // Confirmación efímera (toast §7.5) con enlace al carrito.
+    await expect(
+      page.getByRole('status').getByText(t('es', 'catalog.addedToCart')),
+    ).toBeVisible();
+
+    // El CTA de ESA pieza cambia de estado y, al re-clicar, navega al carrito.
+    const inCart = page.getByRole('button', { name: t('es', 'catalog.inCart') }).first();
+    await expect(inCart).toBeVisible();
+    await inCart.click();
+    await page.waitForURL('**/checkout');
+  });
+
+  test('pieza ya en el carrito al recargar la ficha → CTA inicial «En el carrito»', async ({ page }) => {
+    await page.goto('/es/catalog/c-charizard');
+    await page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first().click();
+    await expect(
+      page.getByRole('button', { name: t('es', 'catalog.inCart') }).first(),
+    ).toBeVisible();
+
+    // El carrito vive en localStorage: al recargar, el estado se restaura tras montar.
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: t('es', 'catalog.inCart') }).first(),
+    ).toBeVisible();
+  });
+
   test('ficha traducida a inglés mantiene el nombre de carta en inglés', async ({ page }) => {
     await page.goto('/en/catalog/c-charizard');
     await expect(page.getByText(t('en', 'card.referenceExplainer'))).toBeVisible();

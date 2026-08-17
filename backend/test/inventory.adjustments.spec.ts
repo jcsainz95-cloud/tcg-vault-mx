@@ -6,14 +6,14 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { InventoryAdjustmentRequestDto } from '../src/modules/inventory/dto/inventory.dto';
 
 /**
- * v1.18-master-set-everywhere (§4.18e) + v1.18.1-adjustments-clarify — POST /admin/inventory/adjustments:
+ * v1.20-master-set-everywhere (§4.20e) + v1.20.1-adjustments-clarify — POST /admin/inventory/adjustments:
  *  - motivos: encontrada (crea in_stock) · perdida → lost · danada → damaged · error_captura →
  *    withdrawn (SIN semántica de pérdida; el motivo queda tipado en InventoryAdjustment.reason).
- *  - v1.18.1: respuesta PLURAL `adjustmentIds: string[]` (una fila M-22 por pieza, alineada 1:1 con
+ *  - v1.20.1: respuesta PLURAL `adjustmentIds: string[]` (una fila M-24 por pieza, alineada 1:1 con
  *    inventoryItemIds/folios) + `idempotentReplay`. `batchKey?` SOLO con `encontrada` (idempotencia
  *    InventoryBatch M-21, misma semántica que batchCreate; replay → respuesta original + 200).
  *  - guardarraíl: SOLO piezas platform en {in_stock, listed} → 422 ITEM_NOT_ADJUSTABLE en el resto;
- *    [BE-39] la transición es una guardia ATÓMICA (updateMany condicionado + count) — una carrera
+ *    [BE-45] la transición es una guardia ATÓMICA (updateMany condicionado + count) — una carrera
  *    que saque la pieza del allowlist entre lectura y escritura da 422, no pisa el status.
  *  - registro triple: InventoryAdjustment + InventoryMovement(reason=adjustment) en la MISMA tx;
  *    AuditLog action=inventory.adjustment lo escribe el controller.
@@ -66,7 +66,7 @@ function buildPrisma(over: any = {}) {
         return { id: `inv-${createdItems.length}`, folio: data.folio, status: data.status };
       }),
       findUnique: jest.fn(async () => null),
-      // [BE-39] guardia atómica: el mock por default "gana" la carrera (count 1).
+      // [BE-45] guardia atómica: el mock por default "gana" la carrera (count 1).
       updateMany: jest.fn(async () => ({ count: 1 })),
     },
     inventoryMovement: {
@@ -114,7 +114,7 @@ const PLATFORM_ITEM = (status: string, over: any = {}) => ({
   ...over,
 });
 
-describe('InventoryService.adjust — transiciones por motivo (§4.18e)', () => {
+describe('InventoryService.adjust — transiciones por motivo (§4.20e)', () => {
   it.each([
     ['perdida', 'lost'],
     ['danada', 'damaged'],
@@ -129,7 +129,7 @@ describe('InventoryService.adjust — transiciones por motivo (§4.18e)', () => 
       'op-1',
     );
 
-    // v1.18.1: respuesta plural — arrays de longitud 1 en motivos por-pieza, sin replay.
+    // v1.20.1: respuesta plural — arrays de longitud 1 en motivos por-pieza, sin replay.
     expect(res).toEqual({
       adjustmentIds: ['adj-1'],
       reason,
@@ -139,7 +139,7 @@ describe('InventoryService.adjust — transiciones por motivo (§4.18e)', () => 
       toStatus,
       idempotentReplay: false,
     });
-    // [BE-39] Transición por guardia ATÓMICA de status (updateMany condicionado al allowlist;
+    // [BE-45] Transición por guardia ATÓMICA de status (updateMany condicionado al allowlist;
     // nunca a reserved/listed: el ajuste no vende ni publica).
     expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith({
       where: {
@@ -158,7 +158,7 @@ describe('InventoryService.adjust — transiciones por motivo (§4.18e)', () => 
       actorUserId: 'op-1',
       note: 'levantamiento agosto',
     });
-    // Fila InventoryAdjustment tipada (M-22) con motivo/actor/from/to.
+    // Fila InventoryAdjustment tipada (M-24) con motivo/actor/from/to.
     expect(prisma.__adjustments[0]).toMatchObject({
       inventoryItemId: 'inv-1',
       reason,
@@ -187,7 +187,7 @@ describe('InventoryService.adjust — transiciones por motivo (§4.18e)', () => 
     expect(res.fromStatus).toBeNull();
     expect(res.toStatus).toBe('in_stock');
     expect(res.idempotentReplay).toBe(false);
-    // v1.18.1: TODAS las filas M-22, alineadas 1:1 con inventoryItemIds/folios.
+    // v1.20.1: TODAS las filas M-24, alineadas 1:1 con inventoryItemIds/folios.
     expect(res.adjustmentIds).toEqual(['adj-1', 'adj-2']);
     expect(res.inventoryItemIds).toHaveLength(2);
     expect(res.folios).toHaveLength(2);
@@ -197,7 +197,7 @@ describe('InventoryService.adjust — transiciones por motivo (§4.18e)', () => 
       expect(item.status).toBe('in_stock');
       expect(item.ownerType).toBe('platform');
     }
-    // M-22: UNA fila InventoryAdjustment POR PIEZA creada + movement reason=adjustment por pieza.
+    // M-24: UNA fila InventoryAdjustment POR PIEZA creada + movement reason=adjustment por pieza.
     expect(prisma.__adjustments).toHaveLength(2);
     expect(prisma.__movements).toHaveLength(2);
     for (const m of prisma.__movements) expect(m.reason).toBe('adjustment');
@@ -246,7 +246,7 @@ describe('InventoryService.adjust — transiciones por motivo (§4.18e)', () => 
   });
 });
 
-describe('InventoryService.adjust — idempotencia por batchKey (v1.18.1, solo encontrada)', () => {
+describe('InventoryService.adjust — idempotencia por batchKey (v1.20.1, solo encontrada)', () => {
   const foundReq = (batchKey: string) =>
     ({
       reason: 'encontrada',
@@ -340,7 +340,7 @@ describe('InventoryService.adjust — idempotencia por batchKey (v1.18.1, solo e
   );
 });
 
-describe('InventoryService.adjust — guardarraíles (§4.18e)', () => {
+describe('InventoryService.adjust — guardarraíles (§4.20e)', () => {
   it.each(['reserved', 'in_custody', 'picking', 'shipped', 'delivered', 'lost', 'damaged', 'withdrawn'])(
     'status %s NO es ajustable → 422 ITEM_NOT_ADJUSTABLE (sin escritura)',
     async (status) => {
@@ -359,7 +359,7 @@ describe('InventoryService.adjust — guardarraíles (§4.18e)', () => {
     },
   );
 
-  it('[BE-39] CARRERA de status: el pre-check pasa pero updateMany devuelve count=0 → 422 y NO escribe registro', async () => {
+  it('[BE-45] CARRERA de status: el pre-check pasa pero updateMany devuelve count=0 → 422 y NO escribe registro', async () => {
     // Simula el TOCTOU: la pieza estaba in_stock al leerla, pero un checkout concurrente la puso
     // `reserved` antes del UPDATE. La guardia atómica (count!==1) la protege: 422 + rollback.
     const prisma = buildPrisma();
@@ -450,7 +450,7 @@ describe('InventoryService.adjust — guardarraíles (§4.18e)', () => {
   });
 });
 
-describe('InventoryController.adjust — auditoría + status HTTP (§4.18e / v1.18.1)', () => {
+describe('InventoryController.adjust — auditoría + status HTTP (§4.20e / v1.20.1)', () => {
   function buildController() {
     const inventory = {
       adjust: jest.fn(async () => ({
@@ -510,7 +510,7 @@ describe('InventoryController.adjust — auditoría + status HTTP (§4.18e / v1.
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
-  it('v1.18.1: replay idempotente por batchKey → 200 AUNQUE el motivo sea encontrada', async () => {
+  it('v1.20.1: replay idempotente por batchKey → 200 AUNQUE el motivo sea encontrada', async () => {
     const { ctrl, inventory, audit } = buildController();
     (inventory.adjust as jest.Mock).mockResolvedValue({
       adjustmentIds: ['adj-9'],

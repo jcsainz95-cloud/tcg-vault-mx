@@ -136,7 +136,7 @@ export class BulkPublishRequest {
   items!: BulkPublishLineInput[];
 }
 
-// ===== v1.18-master-set-everywhere (§4.18e) — ajuste por levantamiento físico =====
+// ===== v1.20-master-set-everywhere (§4.20e) — ajuste por levantamiento físico =====
 
 /**
  * Pieza "encontrada" del ajuste: MISMOS campos que `BatchInventoryItemInput` con UNA excepción
@@ -162,10 +162,10 @@ export class AdjustmentFoundItemInput {
 }
 
 /**
- * POST /admin/inventory/adjustments (API_CONTRACT §M1 v1.18/v1.18.1). Unión discriminada por `reason`:
+ * POST /admin/inventory/adjustments (API_CONTRACT §M1 v1.20/v1.20.1). Unión discriminada por `reason`:
  *  - `encontrada` → requiere `item` (crea pieza(s)); `note` opcional; `batchKey?` opcional
- *    (v1.18.1: idempotencia con la MISMA semántica que el alta por lote — replay devuelve la
- *    respuesta original con `idempotentReplay: true`; cierra BE-41).
+ *    (v1.20.1: idempotencia con la MISMA semántica que el alta por lote — replay devuelve la
+ *    respuesta original con `idempotentReplay: true`; cierra BE-47).
  *  - `perdida | danada | error_captura` → requieren `inventoryItemId` + `note` (obligatoria);
  *    NO aceptan `batchKey` (su replay cae en 422 ITEM_NOT_ADJUSTABLE — idempotencia natural).
  * La coherencia cruzada (campo requerido/prohibido según reason) la valida el servicio → 400.

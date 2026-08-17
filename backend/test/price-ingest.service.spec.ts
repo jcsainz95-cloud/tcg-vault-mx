@@ -158,6 +158,43 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
   });
 });
 
+/**
+ * Auditoría de precios (2026-08-17) — `hasRecentIngest` alimenta el catch-up al boot:
+ * "reciente" = ≥1 PriceReference NO-manual con capturedDate ≥ ayer 00:00 UTC. Los overrides
+ * manuales del admin NO cuentan como ingesta.
+ */
+describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', () => {
+  function buildWithRef(row: unknown) {
+    const prisma = { priceReference: { findFirst: jest.fn(async () => row) } } as any;
+    const svc = new PriceIngestService(
+      prisma,
+      settingsMock('pokemontcg_io') as any,
+      {} as PricingService,
+      {} as any,
+      {} as any,
+    );
+    return { svc, prisma };
+  }
+
+  it('hay referencia no-manual reciente → true', async () => {
+    const { svc } = buildWithRef({ id: 'ref-1' });
+    await expect(svc.hasRecentIngest()).resolves.toBe(true);
+  });
+
+  it('sin referencias recientes → false, y el filtro excluye manuales y acota a ayer 00:00 UTC', async () => {
+    const { svc, prisma } = buildWithRef(null);
+    await expect(svc.hasRecentIngest()).resolves.toBe(false);
+
+    const where = prisma.priceReference.findFirst.mock.calls[0][0].where;
+    expect(where.isManualOverride).toBe(false);
+    const since: Date = where.capturedDate.gte;
+    const expected = new Date();
+    expected.setUTCHours(0, 0, 0, 0);
+    expected.setUTCDate(expected.getUTCDate() - 1);
+    expect(since.toISOString()).toBe(expected.toISOString());
+  });
+});
+
 describe('PricingService.persistMarketReference — generalizado (source + moneda USD/MXN)', () => {
   function pricingSvc(existing: unknown) {
     const prisma: any = {

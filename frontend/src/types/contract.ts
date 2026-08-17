@@ -40,6 +40,13 @@ export type ShipmentStatus =
   | 'enviado'
   | 'entregado'
   | 'cancelado';
+/**
+ * v1.17-withdrawal-lifecycle: subconjunto "activo" de ShipmentStatus expuesto en
+ * HoldingDTO.shipmentState (etapa del envío activo de un item en bóveda). `entregado`
+ * NUNCA aparece (el item pasa a InventoryStatus.withdrawn y sale de holdings) y
+ * `cancelado` libera el item ⇒ shipmentState=null. Ver contrato §3 / Enums.
+ */
+export type ShipmentActiveStage = 'solicitado' | 'picking' | 'guia' | 'enviado';
 export type SellRequestStatus =
   | 'cotizada'
   | 'recibida'
@@ -339,6 +346,18 @@ export interface HoldingDTO {
   ownershipStatus: OwnershipStatus;
   status: InventoryStatus;
   referenceValue: PriceInfo;
+  // v1.17-withdrawal-lifecycle (contrato §3): etapa del envío ACTIVO del item (derivada del join
+  // InventoryItem → ShipmentItem → ShipmentRequest). `null` = sin envío activo. El front pinta el
+  // badge "EN RETIRO" cuando `shipmentState !== null`. `entregado` nunca llega aquí (el item ya salió
+  // de la bóveda como `withdrawn`).
+  shipmentState: ShipmentActiveStage | null;
+  // v1.17: id de la ShipmentRequest activa para deep-link al rastreo (GET /shipments/:id); null si no
+  // hay envío activo.
+  activeShipmentId: string | null;
+  // v1.17: flag AUTORITATIVO para habilitar/deshabilitar RETIRAR (fuente única de verdad). `true` solo
+  // si `ownershipStatus='settled' && shipmentState=null` (mismo criterio del backend). Evita descubrir
+  // el 409/422 al intentar.
+  withdrawable: boolean;
 }
 
 export interface PortfolioSummary {
@@ -407,19 +426,44 @@ export interface ShipmentCreateResponse {
   stripe: { paymentIntentId: string; clientSecret: string };
 }
 
+/**
+ * Retiro/envío del cliente (contrato §5 · GET /shipments listMine y GET /shipments/:id).
+ * v1.17-withdrawal-lifecycle norma y enriquece el shape (== `ClientShipmentDTO` del contrato) para
+ * que el cliente rastree qué cartas van en cada retiro y su etapa/guía. Los campos enriquecidos son
+ * OPCIONALES para tolerar productores/mocks parciales (p. ej. la respuesta de captura de guía en M4).
+ */
 export interface ShipmentDTO {
   id: string;
   status: ShipmentStatus;
   trackingNumber?: string;
   carrier?: string;
   createdAt: string;
+  // v1.17: dirección MX (snapshot). Forma abierta (line1/city/state/postalCode/…); el front la lee
+  // de modo defensivo. Sin PII sensible (es la dirección de envío del propio usuario).
+  addressSnapshot?: AddressDTO | Record<string, unknown>;
+  // v1.17: total del envío desglosado (tarifa + IVA + fee de procesamiento). No expone `shippingCostCents`
+  // (costo interno del carrier).
+  shippingFeeCents?: number;
+  ivaCents?: number;
+  processingFeeCents?: number;
+  totalCents?: number;
+  // v1.17: timestamps por etapa (para la línea de tiempo del rastreo). `requestedAt` == alta del retiro.
+  requestedAt?: string;
+  pickingAt?: string;
+  shippedAt?: string;
   // WS-F F6: fecha de entrega real (backend `toClientShipment.deliveredAt`). Ancla la ventana de
   // 7 días para abrir una disputa de condición. Presente solo cuando el envío llegó a `entregado`.
   deliveredAt?: string;
   // WS-F F6: `productType` por ítem alimenta el UI-gate de disputa (graded NO aplica → 422 NOT_RAW).
-  // Opcional: el listado real de GET /shipments no lo incluye siempre; cuando falta, el backend es la
-  // autoridad (guarda server-side). folio/card también son best-effort (el listado crudo puede omitirlos).
-  items: { inventoryItemId: string; folio: string; card: CardDTO; productType?: ProductType }[];
+  // v1.17: `finish` por ítem (acabado de la copia física). Opcional: el listado crudo puede omitir
+  // `productType`/`finish`/`folio`/`card`; cuando falta, el backend es la autoridad.
+  items: {
+    inventoryItemId: string;
+    folio: string;
+    card: CardDTO;
+    productType?: ProductType;
+    finish?: Finish;
+  }[];
 }
 
 /**
@@ -549,6 +593,14 @@ export interface SellItemDTO {
   approvedPriceCents?: number;
   itemStatus: SellItemStatus;
   inventoryItemId?: string;
+  // v1.18-buylist-rejects (contrato §11): poblados SOLO si itemStatus="rechazada"; en
+  // cualquier otro status van null/omitidos. Los plazos se DERIVAN server-side de
+  // rejectedAt (+7d devolución a costo del usuario / +30d abandono); legacy → null.
+  // INVARIANTE: un ítem `rechazada` tiene approvedPriceCents=null (no suma en el total).
+  rejectedAt?: string | null;
+  rejectionReason?: string | null;
+  returnDeadlineAt?: string | null;
+  abandonDeadlineAt?: string | null;
 }
 
 export interface SellRequestDTO {
@@ -609,7 +661,7 @@ export interface VaultLocationDTO {
 }
 
 // Motivo del movimiento de bóveda (enum MovementReason del backend; ARCHITECTURE/prisma).
-// v1.18: `adjustment` = ajuste por levantamiento físico desde el binder M1 (M-22).
+// v1.20: `adjustment` = ajuste por levantamiento físico desde el binder M1 (M-24).
 export type MovementReason =
   | 'alta'
   | 'move'
@@ -660,7 +712,7 @@ export interface MasterSetSummaryDTO {
   distinctCardsOwned: number;
   completionPct: number | null;
   totalPieces: number;
-  // ===== v1.18-master-set-everywhere (aditivo): completitud por VARIANTE (carta+acabado) =====
+  // ===== v1.20-master-set-everywhere (aditivo): completitud por VARIANTE (carta+acabado) =====
   // catalogVariantCount = Σ |availableFinishes| de las cartas del set (universo de variantes).
   // distinctVariantsOwned = variantes del universo con ≥1 pieza en el scope.
   // variantCompletionPct = distinctVariantsOwned / catalogVariantCount × 100 (null si universo=0).
@@ -673,10 +725,10 @@ export interface MasterSetSummaryDTO {
 // Ordenamiento del índice (contrato §M1). `release_desc` es el default.
 export type MasterSetSort = 'release_desc' | 'completion_asc' | 'pieces_desc';
 
-// v1.18: alcance de la vista master set — inventario de PLATAFORMA (M1) vs bóveda de UN usuario.
+// v1.20: alcance de la vista master set — inventario de PLATAFORMA (M1) vs bóveda de UN usuario.
 export type MasterSetScope = 'platform' | 'user_vault';
 
-// v1.18: dueño de la bóveda (solo scope user_vault). `email` SOLO en la vista admin (ii);
+// v1.20: dueño de la bóveda (solo scope user_vault). `email` SOLO en la vista admin (ii);
 // en la vista (iii) del propio cliente se omite.
 export interface VaultOwnerRefDTO {
   userId: string;
@@ -684,7 +736,7 @@ export interface VaultOwnerRefDTO {
   email?: string;
 }
 
-// v1.18: variante = (carta, acabado) con finish ∈ Card.availableFinishes (universo esperado).
+// v1.20: variante = (carta, acabado) con finish ∈ Card.availableFinishes (universo esperado).
 // `covered` = ≥1 pieza en el scope para ese (cardId, finish). `buyable` SOLO scope cliente (iii)
 // y SOLO cuando covered=false: la pieza `listed` de plataforma MÁS BARATA de ese (cardId, finish),
 // o null si no hay inventario publicado. En scopes admin el campo se OMITE.
@@ -700,7 +752,7 @@ export interface MasterSetIndexResponse {
   page: number;
   pageSize: number;
   total: number;
-  // v1.18 (aditivo): scope de la agregación + dueño (solo user_vault).
+  // v1.20 (aditivo): scope de la agregación + dueño (solo user_vault).
   scope: MasterSetScope;
   owner?: VaultOwnerRefDTO;
 }
@@ -728,7 +780,7 @@ export interface MasterSetCardCellDTO {
   countsByFinish: MasterSetCellCountDTO[];
   totalCount: number;
   isSecretRare: boolean;
-  // ===== v1.18 (aditivo): casillas POR ACABADO =====
+  // ===== v1.20 (aditivo): casillas POR ACABADO =====
   // `variants` trae EXACTAMENTE una entrada por acabado de availableFinishes (orden del enum
   // Finish). NOTA compat: countsByFinish (v1.16) se CONSERVA y puede traer acabados FUERA del
   // universo (drift de catálogo); esas piezas se ven pero NO cuentan en expected/covered.
@@ -742,12 +794,12 @@ export interface MasterSetBinderResponse {
   printedTotal: number | null;
   catalogCardCount: number;
   cells: MasterSetCardCellDTO[];
-  // v1.18 (aditivo): scope de la agregación + dueño (solo user_vault).
+  // v1.20 (aditivo): scope de la agregación + dueño (solo user_vault).
   scope: MasterSetScope;
   owner?: VaultOwnerRefDTO;
 }
 
-// ===== v1.18: lista de clientes con bóveda (GET /admin/vaults, `vault_operator+`) =====
+// ===== v1.20: lista de clientes con bóveda (GET /admin/vaults, `vault_operator+`) =====
 // totalValueMxnCents usa la MISMA base de valuación del portafolio (§3): referencia vigente del
 // ACABADO de cada pieza; piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
 export interface AdminVaultSummaryDTO {
@@ -768,7 +820,7 @@ export interface AdminVaultListResponse {
   total: number;
 }
 
-// ===== v1.18: ajuste de inventario por levantamiento físico (POST /admin/inventory/adjustments) =====
+// ===== v1.20: ajuste de inventario por levantamiento físico (POST /admin/inventory/adjustments) =====
 // Motivo OBLIGATORIO. Modelo POR-PIEZA (sin delta numérico): `encontrada` CREA pieza(s) nuevas
 // (reusa BatchInventoryItemInput; acquisitionType default `aportacion_en_especie`; qty default 1,
 // graded fuerza 1); los otros tres motivos operan UNA pieza existente y `note` es OBLIGATORIA.
@@ -778,7 +830,7 @@ export interface AdminVaultListResponse {
 // (422 ITEM_NOT_ADJUSTABLE en el resto). NO hay venta directa manual desde el binder.
 export type AdjustmentReason = 'encontrada' | 'perdida' | 'danada' | 'error_captura';
 
-// v1.18.1 — `batchKey?` SOLO en la rama `encontrada`: MISMA idempotencia que el alta por lote
+// v1.20.1 — `batchKey?` SOLO en la rama `encontrada`: MISMA idempotencia que el alta por lote
 // (mismo batchKey → no re-crea piezas ni filas de ajuste; el replay devuelve la respuesta original
 // guardada con idempotentReplay:true y 200). El front DEBE enviarlo desde el drawer de ajuste
 // (anti doble-submit). Los otros motivos NO lo aceptan (400 VALIDATION_ERROR si viaja): operan una
@@ -787,7 +839,7 @@ export type InventoryAdjustmentRequest =
   | { reason: 'perdida' | 'danada' | 'error_captura'; inventoryItemId: string; note: string }
   | { reason: 'encontrada'; item: BatchInventoryItemInput; note?: string; batchKey?: string };
 
-// v1.18.1 — `adjustmentIds` SUSTITUYE al singular `adjustmentId` (eliminado sin deprecated).
+// v1.20.1 — `adjustmentIds` SUSTITUYE al singular `adjustmentId` (eliminado sin deprecated).
 // Con `encontrada` y qty>1 hay N filas InventoryAdjustment (una por pieza): se devuelven TODAS,
 // alineadas 1:1 con inventoryItemIds/folios. Con los otros motivos, arrays de longitud 1.
 // `idempotentReplay`: true SOLO cuando un batchKey ya procesado repite la respuesta guardada;
@@ -885,14 +937,45 @@ export interface BulkPublishResponse {
   results: BulkPublishLineResult[];
 }
 
+// v1.18-buylist-rejects (contrato §11): identidad del vendedor en M5. El correo es dato
+// de contacto operativo de back-office (roles vault_operator/super_admin) — NO es la
+// CLABE: sin enmascarado ni reveal auditado. seller.id === SellRequest.userId (compat).
+export interface AdminSellerRef {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;
+  // v1.18-buylist-rejects: identidad legible del vendedor (join a User). Opcional por
+  // tolerancia a filas sin join; la UI cae a `userId` cuando falta.
+  seller?: AdminSellerRef;
   status: SellRequestStatus;
   quotedTotalCents: number;
+  // Total recomputado por el backend EXCLUYENDO ítems rechazados (invariante v1.18).
+  // SEC-A1: la UI solo lo muestra, nunca lo calcula.
   approvedTotalCents?: number;
   createdAt: string;
   items: SellItemDTO[];
+}
+
+// v1.18-buylist-rejects (contrato §M5/§11): fila de GET /admin/buylist/rejected-items
+// (pestaña «Rechazadas», transversal a solicitudes). `reason` = rejectionReason. La
+// "fase" (devolución / abandono / vencida) la deriva el FRONT de now vs las fechas.
+export interface RejectedSellItemDTO {
+  id: string;
+  sellRequestId: string;
+  seller?: AdminSellerRef;
+  card: CardDTO;
+  productType: ProductType;
+  finish: Finish;
+  quotedPriceCents?: number;
+  reason: string | null;
+  rejectedAt: string | null;
+  returnDeadlineAt: string | null;
+  abandonDeadlineAt: string | null;
 }
 
 export interface AdminOrderDTO extends OrderSummaryDTO {
@@ -916,9 +999,12 @@ export interface RevealClabeResponse {
 }
 
 // PATCH /admin/buylist/items/:itemId/decision — cherry-pick por carta.
+// v1.18-buylist-rejects: `reason` OBLIGATORIO con reject (3–500 chars; el backend
+// responde 400 VALIDATION_ERROR si falta). Para approve/adjust se ignora.
 export interface BuylistItemDecisionInput {
   decision: 'approve' | 'adjust' | 'reject';
   approvedPriceCents?: number;
+  reason?: string;
 }
 
 // POST /admin/buylist/items/:itemId/convert-to-inventory. `alreadyConverted` cuando el

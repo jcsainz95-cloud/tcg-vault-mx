@@ -26,8 +26,10 @@ export class PortfolioSnapshotJobService {
   /** Snapshotea todos los usuarios con holdings. Devuelve cuántos se snapshotearon. */
   async run(): Promise<number> {
     // Solo usuarios que tienen al menos un item en custodia (ownerType=customer).
+    // v1.17: excluye `withdrawn` (entregados) — misma regla de inclusión que
+    // `VaultService.holdings()` para que la gráfica de tendencia sea consistente.
     const owners = await this.prisma.inventoryItem.findMany({
-      where: { ownerType: 'customer', ownerUserId: { not: null } },
+      where: { ownerType: 'customer', ownerUserId: { not: null }, status: { not: 'withdrawn' } },
       distinct: ['ownerUserId'],
       select: { ownerUserId: true },
     });

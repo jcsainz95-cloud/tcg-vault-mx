@@ -9,7 +9,8 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { PricingService } from '../pricing/pricing.service';
+import { PriceInfo, PricingService } from '../pricing/pricing.service';
+import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { computeAportacionCostCents, computeSalePriceForRarity } from '../../common/money';
@@ -73,7 +74,7 @@ export interface BulkPublishResponse {
 const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
 
 /**
- * [v1.18 §4.18e] Allowlist de status AJUSTABLES por levantamiento físico. Solo una pieza de
+ * [v1.20 §4.20e] Allowlist de status AJUSTABLES por levantamiento físico. Solo una pieza de
  * PLATAFORMA que hoy esté `in_stock`/`listed` admite `perdida | danada | error_captura`; una
  * `reserved` (orden con PaymentIntent vivo), `in_custody`/`picking`/`shipped`/`delivered`
  * (bóveda/envío de cliente) o ya terminal (`lost|damaged|withdrawn`) se resuelve por su flujo
@@ -82,9 +83,9 @@ const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock',
 const ADJUSTABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
 
 /**
- * Respuesta del ajuste (API_CONTRACT §DTOs — InventoryAdjustmentResponse, v1.18.1):
+ * Respuesta del ajuste (API_CONTRACT §DTOs — InventoryAdjustmentResponse, v1.20.1):
  *  - `adjustmentIds` (plural) SUSTITUYE al singular `adjustmentId`: con `encontrada` y qty>1 hay
- *    UNA fila InventoryAdjustment por pieza (M-22) y se devuelven TODAS, alineadas 1:1 con
+ *    UNA fila InventoryAdjustment por pieza (M-24) y se devuelven TODAS, alineadas 1:1 con
  *    `inventoryItemIds`/`folios` (longitud 1 en los otros motivos).
  *  - `idempotentReplay`: true SOLO cuando un `batchKey` ya procesado repite la respuesta guardada;
  *    false en todo procesamiento nuevo (y siempre false sin batchKey / motivos ≠ encontrada).
@@ -483,7 +484,7 @@ export class InventoryService {
         }
 
         // status → listed. Re-publicar una `listed` = no-op idempotente. Persiste el override manual.
-        // [BE-39] Guardia ATÓMICA de status (par del ajuste): el paso a `listed` es CONDICIONAL al
+        // [BE-45] Guardia ATÓMICA de status (par del ajuste): el paso a `listed` es CONDICIONAL al
         // allowlist en el MISMO UPDATE (updateMany + count). El check en memoria de arriba valida
         // el snapshot leído; esta condición cierra el TOCTOU: si entre lectura y escritura la pieza
         // salió de {in_stock, listed} (p. ej. un checkout la reservó), count=0 → ITEM_NOT_PUBLISHABLE
@@ -635,7 +636,7 @@ export class InventoryService {
     if (q.locationId) where.locationId = q.locationId;
     if (q.zone) where.location = { zone: q.zone as never };
     if (q.q) where.OR = [{ folio: { contains: q.q, mode: 'insensitive' } }];
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.inventoryItem.findMany({
         where,
         include: { card: true, location: true },
@@ -645,7 +646,43 @@ export class InventoryService {
       }),
       this.prisma.inventoryItem.count({ where }),
     ]);
+    const data = await this.attachSealedMarketRefs(rows);
     return { data, page: q.page, pageSize: q.pageSize, total };
+  }
+
+  /**
+   * v1.19-sealed-tcgcsv (API_CONTRACT §M1, READ-ONLY) — adjunta `sealedMarketRef: PriceInfo`
+   * a los items SELLADOS del listado: la referencia de mercado TCGCSV del producto mapeado
+   * (`getReference(cardId, 'sealed', sealed:tcg:<productId>, 'normal')`, la más reciente).
+   * `null` si el item no está mapeado o aún no hay ingest. Resuelta POR LOTE vía
+   * `getReferencesBatch` (BE-25) — sin N+1. Es INFORMATIVA (sugerencia junto a
+   * `listPriceCents`); no cambia publicación, valuación ni venta (§4.19a).
+   */
+  private async attachSealedMarketRefs<
+    T extends { id: string; cardId: string; productType: string; tcgplayerProductId: number | null },
+  >(rows: T[]): Promise<(T & { sealedMarketRef?: PriceInfo | null })[]> {
+    const mapped = rows.filter(
+      (r) => r.productType === 'sealed' && r.tcgplayerProductId != null,
+    );
+    const refs = await this.pricing.getReferencesBatch(
+      mapped.map((r) => ({
+        cardId: r.cardId,
+        productType: 'sealed' as const,
+        gradeKey: sealedMarketGradeKey(r.tcgplayerProductId as number),
+        finish: 'normal' as const,
+      })),
+    );
+    return rows.map((r) => {
+      if (r.productType !== 'sealed') return r;
+      const ref =
+        r.tcgplayerProductId != null
+          ? refs.get(
+              `${r.cardId}|sealed|${sealedMarketGradeKey(r.tcgplayerProductId)}|normal`,
+            )
+          : undefined;
+      // Contrato §M1: null si no mapeado o sin ingest (pending NO se expone como PriceInfo).
+      return { ...r, sealedMarketRef: ref && ref.status === 'priced' ? ref : null };
+    });
   }
 
   async getItem(id: string) {
@@ -658,6 +695,21 @@ export class InventoryService {
       },
     });
     if (!item) throw BusinessException.notFound();
+    // v1.19-sealed-tcgcsv (§M1): el detalle de un sellado expone la referencia TCGCSV
+    // (read-only). Misma regla que el listado: null sin mapeo o sin ingest.
+    if (item.productType === 'sealed') {
+      let ref: PriceInfo | null = null;
+      if (item.tcgplayerProductId != null) {
+        const found = await this.pricing.getReference(
+          item.cardId,
+          'sealed',
+          sealedMarketGradeKey(item.tcgplayerProductId),
+          'normal',
+        );
+        ref = found.status === 'priced' ? found : null;
+      }
+      return { ...item, sealedMarketRef: ref };
+    }
     return item;
   }
 
@@ -721,7 +773,7 @@ export class InventoryService {
     return this.prisma.inventoryItem.update({ where: { id }, data: { status } });
   }
 
-  // ---------------- v1.18 §4.18e — Ajuste por levantamiento físico ----------------
+  // ---------------- v1.20 §4.20e — Ajuste por levantamiento físico ----------------
 
   /**
    * POST /admin/inventory/adjustments — ajuste de inventario por LEVANTAMIENTO FÍSICO desde la
@@ -732,7 +784,7 @@ export class InventoryService {
    *  - `perdida | danada` → `status → lost | damaged` (habilita reposición/merma M7/tope M10).
    *  - `error_captura` → `status → withdrawn` (la pieza NUNCA existió físicamente; NO cuenta como
    *    pérdida/reposición — el motivo real queda tipado en `InventoryAdjustment.reason`).
-   * Registro TRIPLE por pieza: fila `InventoryAdjustment` (M-22) + `InventoryMovement` con
+   * Registro TRIPLE por pieza: fila `InventoryAdjustment` (M-24) + `InventoryMovement` con
    * `reason=adjustment` (en la MISMA transacción); el `AuditLog action=inventory.adjustment` lo
    * escribe el controller (patrón del resto de M1). NO existe venta directa desde el binder: el
    * ajuste jamás pone `reserved`/crea órdenes; toda salida de venta pasa por checkout/M3.
@@ -741,7 +793,7 @@ export class InventoryService {
     dto: InventoryAdjustmentRequestDto,
     actorUserId: string,
   ): Promise<InventoryAdjustmentResponse> {
-    // v1.18.1 — `batchKey` SOLO es válido con `encontrada` (contrato §M1): los otros motivos
+    // v1.20.1 — `batchKey` SOLO es válido con `encontrada` (contrato §M1): los otros motivos
     // operan un id concreto y su replay cae en 422 ITEM_NOT_ADJUSTABLE (idempotencia natural).
     if (dto.batchKey != null && dto.reason !== 'encontrada') {
       throw BusinessException.badRequest(
@@ -756,8 +808,8 @@ export class InventoryService {
   /**
    * `encontrada`: alta de pieza(s) nueva(s) con la MISMA resolución del alta normal/lote.
    *
-   * v1.18.1 — idempotencia opcional por `batchKey` con el MISMO mecanismo `InventoryBatch` (M-21)
-   * que `batchCreate` (sin migración nueva; cierra BE-41, el doble submit del drawer ya no duplica):
+   * v1.20.1 — idempotencia opcional por `batchKey` con el MISMO mecanismo `InventoryBatch` (M-21)
+   * que `batchCreate` (sin migración nueva; cierra BE-47, el doble submit del drawer ya no duplica):
    *  - fast-path: batchKey ya persistido → respuesta ORIGINAL guardada + `idempotentReplay: true`
    *    (el controller responde 200 en el replay aunque la primera vez fuera 201).
    *  - claim `inventoryBatch.create({ id: batchKey })` PRIMERO dentro de la $transaction: la unique
@@ -806,7 +858,7 @@ export class InventoryService {
     const folios = await this.prisma.nextFolios(qty);
     try {
       const response = await this.prisma.$transaction(async (tx) => {
-        // v1.18.1 — claim atómico del batchKey PRIMERO (guardia de concurrencia, patrón batchCreate).
+        // v1.20.1 — claim atómico del batchKey PRIMERO (guardia de concurrencia, patrón batchCreate).
         if (dto.batchKey) {
           await tx.inventoryBatch.create({
             data: {
@@ -834,7 +886,7 @@ export class InventoryService {
               note: dto.note ?? 'encontrada',
             },
           });
-          // M-22: UNA fila InventoryAdjustment POR PIEZA creada (qty>1 → una por pieza).
+          // M-24: UNA fila InventoryAdjustment POR PIEZA creada (qty>1 → una por pieza).
           const adj = await tx.inventoryAdjustment.create({
             data: {
               inventoryItemId: item.id,
@@ -911,7 +963,7 @@ export class InventoryService {
       where: { id: dto.inventoryItemId },
     });
     if (!item) throw BusinessException.notFound('NOT_FOUND', 'Inventory item not found');
-    // Guardarraíl §4.18e: SOLO piezas de plataforma en {in_stock, listed} son ajustables.
+    // Guardarraíl §4.20e: SOLO piezas de plataforma en {in_stock, listed} son ajustables.
     if (item.ownerType !== 'platform' || !ADJUSTABLE_ORIGIN_STATUSES.includes(item.status)) {
       throw BusinessException.validation(
         'ITEM_NOT_ADJUSTABLE',
@@ -920,11 +972,11 @@ export class InventoryService {
       );
     }
     // perdida → lost · danada → damaged · error_captura → withdrawn (sin semántica de pérdida;
-    // se reusa `withdrawn` — la distinción vive en InventoryAdjustment.reason, §4.18e).
+    // se reusa `withdrawn` — la distinción vive en InventoryAdjustment.reason, §4.20e).
     const toStatus: InventoryStatus =
       dto.reason === 'perdida' ? 'lost' : dto.reason === 'danada' ? 'damaged' : 'withdrawn';
     const adjustmentId = await this.prisma.$transaction(async (tx) => {
-      // [BE-39] Guardia ATÓMICA de status: la transición es CONDICIONAL al allowlist en el MISMO
+      // [BE-45] Guardia ATÓMICA de status: la transición es CONDICIONAL al allowlist en el MISMO
       // UPDATE (updateMany + count), no un update incondicional tras el check en memoria de arriba
       // (que queda como pre-validación de mensajes amables). Cierra la ventana TOCTOU: si entre la
       // lectura y esta escritura la pieza salió de {in_stock, listed} (p. ej. un checkout la puso

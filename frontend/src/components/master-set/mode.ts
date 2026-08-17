@@ -1,5 +1,5 @@
 /**
- * v1.18-master-set-everywhere (ARCHITECTURE §4.18f): el binder Master Set es un componente
+ * v1.20-master-set-everywhere (ARCHITECTURE §4.20f): el binder Master Set es un componente
  * COMPARTIDO parametrizado por scope/capacidades. El modo decide QUÉ endpoints se consumen
  * y QUÉ acciones se montan; el componente NO decide permisos — renderiza lo que el DTO trae
  * (el backend ya omitió campos por scope: defensa en el dato, no en el if del front).

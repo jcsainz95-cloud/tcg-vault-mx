@@ -6,7 +6,7 @@ import { PricingService } from '../pricing/pricing.service';
 import { computeSalePriceForRarity } from '../../common/money';
 
 /**
- * MasterSetService (v1.16-master-set §4.17a · v1.18-master-set-everywhere §4.18a) — read model
+ * MasterSetService (v1.16-master-set §4.17a · v1.20-master-set-everywhere §4.20a) — read model
  * ÚNICO de "contenido agrupado por set y por acabado", parametrizado por SCOPE:
  *  - `platform`   → inventario de PLATAFORMA (M1, regla on-hand v1.16 intacta).
  *  - `user_vault` → bóveda de UN usuario (ownerType='customer' AND ownerUserId=:userId, ambas
@@ -15,17 +15,17 @@ import { computeSalePriceForRarity } from '../../common/money';
  *  - `index()`  → índice de sets con completitud/piezas + contadores por VARIANTE.
  *  - `binder()` → cuadrícula por número con countsByFinish + `variants[]`, ORDEN NATURAL.
  *
- * v1.18 — completitud por VARIANTE (carta+acabado): el universo esperado por carta =
+ * v1.20 — completitud por VARIANTE (carta+acabado): el universo esperado por carta =
  * `Card.availableFinishes` (histórico/vacío → ['normal']); los contadores «X/Y» cuentan variantes.
  * DRIFT: una pieza cuyo finish ya no está en availableFinishes se ve en countsByFinish pero NO
- * cuenta en expected/covered (evita covered > expected). Omisiones por scope (regla dura §4.18a):
+ * cuenta en expected/covered (evita covered > expected). Omisiones por scope (regla dura §4.20a):
  * este shape NUNCA expone ubicaciones/costos/folios; `owner` solo en user_vault (email solo vista
  * admin); `buyable` solo en la vista (iii) del propio cliente.
  *
  * Consultas FIJAS (sin N+1), patrón `set-value.service.ts`: queries en lote + agregación en memoria.
  */
 
-/** "on-hand"/"en bóveda" = status NOT IN estos (ARCHITECTURE §4.17a/§4.18a, API_CONTRACT §DTOs). */
+/** "on-hand"/"en bóveda" = status NOT IN estos (ARCHITECTURE §4.17a/§4.20a, API_CONTRACT §DTOs). */
 export const NOT_ON_HAND: InventoryStatus[] = [
   'withdrawn',
   'shipped',
@@ -45,10 +45,10 @@ export const FINISH_ORDER: Finish[] = [
   'first_edition_holofoil',
 ];
 
-/** Alcance de la agregación (ARCHITECTURE §4.18a). Solo cambia el WHERE, nunca el shape. */
+/** Alcance de la agregación (ARCHITECTURE §4.20a). Solo cambia el WHERE, nunca el shape. */
 export type MasterSetQueryScope = { kind: 'platform' } | { kind: 'user_vault'; userId: string };
 
-/** Opciones de vista (omisiones por scope §4.18a): email solo vista (ii); buyable solo vista (iii). */
+/** Opciones de vista (omisiones por scope §4.20a): email solo vista (ii); buyable solo vista (iii). */
 export interface MasterSetViewOptions {
   includeOwnerEmail?: boolean;
   includeBuyable?: boolean;
@@ -61,7 +61,7 @@ export interface VaultOwnerRefDTO {
 }
 
 /**
- * v1.18 — variante = (carta, acabado) del UNIVERSO `Card.availableFinishes`. `covered` = ≥1 pieza
+ * v1.20 — variante = (carta, acabado) del UNIVERSO `Card.availableFinishes`. `covered` = ≥1 pieza
  * en el scope. `buyable` SOLO scope cliente y SOLO cuando covered=false: la pieza `listed` de
  * plataforma MÁS BARATA de ese (cardId, finish), o null si no hay nada publicado.
  */
@@ -83,7 +83,7 @@ export interface MasterSetSummaryDTO {
   distinctCardsOwned: number;
   completionPct: number | null;
   totalPieces: number;
-  // v1.18 — contadores por VARIANTE (los «X/Y» de UI usan ESTOS, no los de carta).
+  // v1.20 — contadores por VARIANTE (los «X/Y» de UI usan ESTOS, no los de carta).
   catalogVariantCount: number;
   distinctVariantsOwned: number;
   variantCompletionPct: number | null;
@@ -94,7 +94,7 @@ export interface MasterSetIndexResponse {
   page: number;
   pageSize: number;
   total: number;
-  // v1.18 — scope de la agregación + dueño (solo user_vault; email solo vista admin).
+  // v1.20 — scope de la agregación + dueño (solo user_vault; email solo vista admin).
   scope: MasterSetQueryScope['kind'];
   owner?: VaultOwnerRefDTO;
 }
@@ -117,7 +117,7 @@ export interface MasterSetCardCellDTO {
   countsByFinish: { finish: Finish; count: number }[];
   totalCount: number;
   isSecretRare: boolean;
-  // v1.18 — completitud por variante de ESTA carta (universo = availableFinishes; drift fuera).
+  // v1.20 — completitud por variante de ESTA carta (universo = availableFinishes; drift fuera).
   expectedVariantCount: number;
   coveredVariantCount: number;
   variants: MasterSetVariantDTO[];
@@ -128,7 +128,7 @@ export interface MasterSetBinderResponse {
   printedTotal: number | null;
   catalogCardCount: number;
   cells: MasterSetCardCellDTO[];
-  // v1.18 — scope + dueño (solo user_vault; email solo vista admin).
+  // v1.20 — scope + dueño (solo user_vault; email solo vista admin).
   scope: MasterSetQueryScope['kind'];
   owner?: VaultOwnerRefDTO;
 }
@@ -141,7 +141,7 @@ export function yearFromReleaseDate(releaseDate?: string | null): number | undef
 }
 
 /**
- * v1.18 — universo de variantes esperadas de una carta: `Card.availableFinishes` en el orden del
+ * v1.20 — universo de variantes esperadas de una carta: `Card.availableFinishes` en el orden del
  * enum Finish; filas históricas/sin datos (array vacío o null) → ['normal'] (API_CONTRACT §DTOs).
  */
 export function expectedFinishes(available: Finish[] | null | undefined): Finish[] {
@@ -263,7 +263,7 @@ export class MasterSetService {
     });
 
     // Vista de bóveda: solo sets con ≥1 pieza del usuario (el catálogo entero como índice es ruido;
-    // la completitud contra el catálogo se ve al abrir el binder de un set, §4.18a).
+    // la completitud contra el catálogo se ve al abrir el binder de un set, §4.20a).
     if (scope.kind === 'user_vault') rows = rows.filter((r) => r.totalPieces > 0);
 
     rows = this.sortSummaries(rows, q.sort);
@@ -298,8 +298,8 @@ export class MasterSetService {
   }
 
   /**
-   * v1.18 — resuelve el `owner` del scope (`user_vault` → { userId, name, email? }; email SOLO en
-   * la vista admin (ii)). 404 si el usuario del scope no existe (API_CONTRACT §M1 v1.18).
+   * v1.20 — resuelve el `owner` del scope (`user_vault` → { userId, name, email? }; email SOLO en
+   * la vista admin (ii)). 404 si el usuario del scope no existe (API_CONTRACT §M1 v1.20).
    */
   private async resolveOwner(
     scope: MasterSetQueryScope,
@@ -333,7 +333,7 @@ export class MasterSetService {
   }
 
   /**
-   * v1.18 — UNA agregación raw sobre `Card`: Σ|availableFinishes| por set (denominador de la
+   * v1.20 — UNA agregación raw sobre `Card`: Σ|availableFinishes| por set (denominador de la
    * completitud por variante). Filas con array vacío cuentan 1 (universo histórico = ['normal']).
    */
   private async aggregateCatalogVariantsBySet(setIds: string[]): Promise<Map<string, number>> {
@@ -352,7 +352,7 @@ export class MasterSetService {
 
   /**
    * UNA agregación cruzada `InventoryItem ⋈ Card` (raw SQL) por SCOPE → piezas totales + cartas
-   * distintas + VARIANTES distintas del universo (v1.18: solo cuentan las (cardId, finish) cuyo
+   * distintas + VARIANTES distintas del universo (v1.20: solo cuentan las (cardId, finish) cuyo
    * finish ∈ availableFinishes; array vacío → universo ['normal']; el drift queda fuera del
    * numerador). 1 query por request (no por set). Vacío → Map vacío.
    */
@@ -380,7 +380,7 @@ export class MasterSetService {
       FROM "InventoryItem" ii
       JOIN "Card" c ON c.id = ii."cardId"
       WHERE ${this.scopeSql(scope)}
-        -- [BE-40] Lista on-hand interpolada desde NOT_ON_HAND (fuente única de verdad, misma que
+        -- [BE-46] Lista on-hand interpolada desde NOT_ON_HAND (fuente única de verdad, misma que
         -- scopeWhere/admin-vaults); el ::text castea el enum para comparar con los parámetros.
         AND ii.status::text NOT IN (${Prisma.join(NOT_ON_HAND)})
         AND c."setId" IN (${Prisma.join(setIds)})
@@ -398,7 +398,7 @@ export class MasterSetService {
 
   /**
    * Binder del set por SCOPE: una celda por Card del catálogo del set, en ORDEN NATURAL por número,
-   * con `variants[]` (v1.18, universo = availableFinishes). SIN N+1: (1) Card WHERE setId; (2) UNA
+   * con `variants[]` (v1.20, universo = availableFinishes). SIN N+1: (1) Card WHERE setId; (2) UNA
    * agregación `groupBy [cardId, finish]` de piezas del scope → countsByFinish; (3) si la vista es
    * la del cliente (`includeBuyable`), UNA resolución en lote de faltantes comprables. Los filtros
    * locales (rareza/acabado/faltantes/secret) los aplica el frontend. 404 si no existe el set.
@@ -453,7 +453,7 @@ export class MasterSetService {
           a.finish < b.finish ? -1 : a.finish > b.finish ? 1 : 0,
         );
         const totalCount = byFinish.reduce((s, x) => s + x.count, 0);
-        // v1.18 — universo de variantes esperado (histórico → ['normal']). El drift (piezas con
+        // v1.20 — universo de variantes esperado (histórico → ['normal']). El drift (piezas con
         // finish FUERA del universo) queda visible en countsByFinish pero no en variants/covered.
         const universe = expectedFinishes(c.availableFinishes as Finish[]);
         const variants: MasterSetVariantDTO[] = universe.map((finish) => {
@@ -482,7 +482,7 @@ export class MasterSetService {
         };
       });
 
-    // v1.18 §4.18d — faltantes comprables, SOLO vista (iii) del cliente: para cada variante
+    // v1.20 §4.20d — faltantes comprables, SOLO vista (iii) del cliente: para cada variante
     // covered=false, la pieza `listed` de plataforma MÁS BARATA de ese (cardId, finish), o null.
     if (opts.includeBuyable) {
       const missing: { cardId: string; finish: Finish }[] = [];
@@ -515,7 +515,7 @@ export class MasterSetService {
   }
 
   /**
-   * v1.18 §4.18d — resuelve en LOTE la pieza `listed` de plataforma MÁS BARATA por (cardId, finish)
+   * v1.20 §4.20d — resuelve en LOTE la pieza `listed` de plataforma MÁS BARATA por (cardId, finish)
    * para las variantes faltantes del binder del cliente. Precio con el MISMO criterio de la ficha
    * (§4.9): `listPriceCents` override manual o derivado de las reglas de venta por rareza+acabado
    * (§4.14, SEC-A1). Si el precio no resuelve (pct sin market) esa pieza NO es buyable. SIN N+1:

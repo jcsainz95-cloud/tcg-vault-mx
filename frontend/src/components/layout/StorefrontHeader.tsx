@@ -63,6 +63,7 @@ export function StorefrontHeader() {
       ? [
           { href: '/vault', label: t('vault') },
           { href: '/orders', label: t('orders') },
+          { href: '/shipments', label: t('shipments') },
         ]
       : []),
   ];

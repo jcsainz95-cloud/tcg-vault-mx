@@ -25,6 +25,8 @@ import {
   createDispute,
   getDisputes,
   getSellRequests,
+  decideBuylistItem,
+  getAdminRejectedBuylistItems,
 } from './api';
 import { getToken, setToken } from './api-client';
 import { config } from './config';
@@ -361,6 +363,42 @@ describe('api (rama mock) · WS-F Pass 2 (F4/F5/F6)', () => {
       createDispute({ inventoryItemId: 'inv-1006', description: 'anything' }),
     ).rejects.toMatchObject({ code: 'NOT_RAW', status: 422 });
   });
+
+  // ---- v1.18-buylist-rejects (§M5) ----
+  it('v1.18 · decideBuylistItem reject SIN motivo (o corto) → 400 VALIDATION_ERROR (espeja al backend)', async () => {
+    await expect(decideBuylistItem('sri-9', { decision: 'reject' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      status: 400,
+    });
+    await expect(
+      decideBuylistItem('sri-9', { decision: 'reject', reason: 'ab' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
+  });
+
+  it('v1.18 · reject con motivo fija rejectedAt + plazos (7d/30d), anula el precio aprobado y aparece en rejected-items', async () => {
+    const res = await decideBuylistItem('sri-9', {
+      decision: 'reject',
+      reason: 'no es NM: doblez central',
+    });
+    expect(res.itemStatus).toBe('rechazada');
+    expect(res.rejectionReason).toBe('no es NM: doblez central');
+    expect(res.approvedPriceCents).toBeUndefined();
+    expect(res.rejectedAt).toBeTruthy();
+    const DAY = 24 * 3600 * 1000;
+    const t0 = new Date(res.rejectedAt!).getTime();
+    expect(new Date(res.returnDeadlineAt!).getTime()).toBe(t0 + 7 * DAY);
+    expect(new Date(res.abandonDeadlineAt!).getTime()).toBe(t0 + 30 * DAY);
+
+    // La pestaña «Rechazadas» (transversal) lo lista con seller + reason + plazos.
+    const page = await getAdminRejectedBuylistItems();
+    const row = page.data.find((r) => r.id === 'sri-9')!;
+    expect(row).toBeTruthy();
+    expect(row.sellRequestId).toBe('sr-3002');
+    expect(row.seller?.email).toContain('@');
+    expect(row.reason).toBe('no es NM: doblez central');
+    expect(row.returnDeadlineAt).toBe(res.returnDeadlineAt);
+    expect(row.abandonDeadlineAt).toBe(res.abandonDeadlineAt);
+  });
 });
 
 // ---- WS-F · rama REAL (fetch stubeado, config.useMocks=false) ----
@@ -478,6 +516,28 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     expect(String(url)).toContain('/buylist/requests/sr-1/respond');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({ decision: 'accept' });
+  });
+
+  it('v1.18 · getAdminRejectedBuylistItems → GET /admin/buylist/rejected-items con paginación y userId', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { data: [], page: 2, pageSize: 50, total: 0 }));
+    await getAdminRejectedBuylistItems({ page: 2, pageSize: 50, userId: 'u-1' });
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/admin/buylist/rejected-items');
+    expect(String(url)).toContain('page=2');
+    expect(String(url)).toContain('pageSize=50');
+    expect(String(url)).toContain('userId=u-1');
+  });
+
+  it('v1.18 · decideBuylistItem reject → PATCH con body { decision, reason } (contrato §M5)', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { id: 'sri-1', itemStatus: 'rechazada' }));
+    await decideBuylistItem('sri-1', { decision: 'reject', reason: 'no es NM: esquina doblada' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/admin/buylist/items/sri-1/decision');
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual({
+      decision: 'reject',
+      reason: 'no es NM: esquina doblada',
+    });
   });
 
   it('F6 · createDispute → POST /disputes { inventoryItemId, description }; propaga 422 DISPUTE_WINDOW_CLOSED', async () => {

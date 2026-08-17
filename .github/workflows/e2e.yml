@@ -1,20 +1,28 @@
 # =============================================================================
-# e2e.yml — Suites E2E en vivo con el stack completo  ·  Propiedad: devops
+# e2e.yml — Suites E2E de FEEDBACK RÁPIDO en cada PR/push  ·  Propiedad: devops
 # Marketplace TCG con Bóveda (Pokémon, México)
 # =============================================================================
-# Boota el stack (Postgres 16 / Redis 7 / MinIO) y corre las suites E2E:
-#   - backend:  npm run test:integration   (integración con DB/Redis reales)
-#   - frontend: npm run test:e2e           (E2E contra el stack levantado)
+# Dos suites, ambas pensadas para dar señal RÁPIDA en cada cambio:
+#   - backend:  npm run test:integration   (integración con DB/Redis reales via
+#               service containers; suite propiedad del rol backend)
+#   - frontend: npm run test:e2e (Playwright) en MODO MOCK — el webServer del
+#               playwright.config levanta Next con NEXT_PUBLIC_USE_MOCKS=true.
+#               NO levanta el stack docker (rápido). Chromium PREINSTALADO
+#               (/opt/pw-browsers), sin `playwright install`.
+#
+# SEPARACIÓN mock vs real (arreglo Paso 5):
+#   - ESTE workflow = MOCK, rápido, feedback de PR. "Verde" aquí NO garantiza
+#     que los endpoints reales funcionen (usa fixtures).
+#   - El E2E en modo REAL (stack completo, NEXT_PUBLIC_USE_MOCKS=false, endpoints
+#     reales) vive en `.github/workflows/e2e-real.yml` y actúa como GATE previo a
+#     producción (+ nightly). Ese es el que hace que "verde" signifique
+#     "funciona de verdad". Ver DEVOPS_NOTES §5.1.
 #
 # GATE: bloquea si cualquiera de las dos suites falla.
 #
-# ESTADO: ACTIVO en cuanto backend/frontend expongan esos scripts npm. Si el
-# script no existe, el job FALLA con un mensaje claro (es un gate real: la
-# suite E2E es requisito del harness de "seguridad y E2E en vivo").
-#
-#   Nombres de script asumidos (los exponen los roles backend/frontend):
+#   Nombres de script (los exponen los roles backend/frontend):
 #     backend/package.json  -> "test:integration"
-#     frontend/package.json -> "test:e2e"   (p. ej. Playwright)
+#     frontend/package.json -> "test:e2e"   (Playwright)
 # =============================================================================
 
 name: E2E
@@ -170,17 +178,27 @@ jobs:
         run: npm run test:integration
 
   # ---------------------------------------------------------------------------
-  # Frontend E2E: levanta el STACK COMPLETO con docker compose (perfil apps),
-  # lo siembra con datos sintéticos y corre las pruebas E2E contra él.
+  # Frontend E2E — MODO MOCK (rápido, feedback de PR).
+  # El webServer del playwright.config levanta Next con NEXT_PUBLIC_USE_MOCKS=true
+  # (fixtures); NO se levanta el stack docker. Chromium PREINSTALADO en
+  # /opt/pw-browsers (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1); NO `playwright install`.
+  #
+  # OJO: "verde" aquí valida la UI contra FIXTURES, no contra endpoints reales.
+  # La verificación de que los endpoints reales funcionan es el GATE de
+  # e2e-real.yml (stack completo, mocks=false). Ver DEVOPS_NOTES §5.1.
   # ---------------------------------------------------------------------------
   frontend-e2e:
     needs: detect
     if: needs.detect.outputs.frontend_e2e != 'false'
     runs-on: ubuntu-latest
     env:
-      # E2E apunta al frontend del stack de staging levantado por compose.
-      E2E_BASE_URL: http://localhost:3010
+      # Chromium preinstalado del runner-harness; sin descargas.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+      PLAYWRIGHT_CHROMIUM_PATH: /opt/pw-browsers/chromium
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
+      # NO se fija E2E_BASE_URL a propósito: así el playwright.config levanta su
+      # propio webServer Next en modo mocks (NEXT_PUBLIC_USE_MOCKS=true).
     steps:
       - uses: actions/checkout@v4
       - name: Guard — el script test:e2e debe existir
@@ -189,53 +207,35 @@ jobs:
             echo "::error::frontend no expone 'npm run test:e2e'. El rol frontend debe añadirlo."
             exit 1
           fi
+      - name: Guard navegador — Chromium preinstalado (sin playwright install)
+        run: |
+          if [ ! -e "$PLAYWRIGHT_CHROMIUM_PATH" ]; then
+            echo "::error title=Runner sin navegadores Playwright::No existe $PLAYWRIGHT_CHROMIUM_PATH."
+            echo "::error::Este job usa el Chromium preinstalado del runner-harness (/opt/pw-browsers) y NO ejecuta 'playwright install'. Usa el runner del proyecto o define PLAYWRIGHT_CHROMIUM_PATH."
+            exit 1
+          fi
+          echo "Chromium preinstalado OK: $PLAYWRIGHT_CHROMIUM_PATH"
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Levantar stack completo (Postgres/Redis/MinIO + backend + frontend)
-        run: |
-          docker compose -f docker-compose.staging.yml --profile apps up -d --build
-      - name: Esperar a que el backend responda
-        run: |
-          # FIX harness: antes este bucle NUNCA fallaba en timeout (solo `break`),
-          # así que un backend que no arrancaba pasaba desapercibido y el error
-          # afloraba, opaco, en el seed. Ahora falla DURO en timeout y vuelca los
-          # logs del backend para diagnóstico/enrutamiento correcto.
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:3011/api/v1/health >/dev/null 2>&1; then
-              echo "Backend arriba."; exit 0
-            fi
-            echo "Esperando backend... ($i)"; sleep 5
-          done
-          echo "::error::El backend de staging no respondió en http://localhost:3011/api/v1/health tras ~5min. Revisa los logs del contenedor backend (migrate deploy / arranque). Si es un fallo de arranque del backend, corresponde al rol backend."
-          docker compose -f docker-compose.staging.yml logs --tail=200 backend || true
-          exit 1
-      - name: Seed sintético en staging
-        run: |
-          # El seed corre DENTRO del contenedor backend (tiene ts-node + prisma +
-          # DATABASE_URL de staging). Se quitó el fallback `|| ./scripts/seed-synthetic.sh`
-          # que corría en el RUNNER: en este job el backend NO tiene `npm ci` ni
-          # DATABASE_URL en el runner, así que ese fallback siempre fracasaba y
-          # ENMASCARABA el error real del contenedor. Si el seed del backend falla,
-          # el error del contenedor sale tal cual (y "Logs del stack" lo vuelca).
-          docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic --if-present
       - name: Install deps frontend
         working-directory: frontend
         run: npm ci
-      - name: Instalar navegadores Playwright (si aplica)
-        working-directory: frontend
-        run: npx playwright install --with-deps || echo "Playwright no presente; el runner de test:e2e maneja su propio driver."
-      - name: E2E frontend
+      - name: E2E frontend (MOCK — el config levanta Next con mocks=true)
         working-directory: frontend
         run: npm run test:e2e
-      - name: Logs del stack si algo falló
-        if: failure()
-        run: docker compose -f docker-compose.staging.yml logs --tail=200
-      - name: Apagar stack
+      - name: Subir reporte Playwright
         if: always()
-        run: docker compose -f docker-compose.staging.yml --profile apps down -v
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-mock
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Gate final E2E.

@@ -17,7 +17,7 @@ const groups: { groupKey: string; items: Item[] }[] = [
     items: [
       { href: '/admin', key: 'dashboard' },
       { href: '/admin/m1', key: 'm1' },
-      // v1.18: bóvedas de clientes (vista (ii) del master set, `vault_operator+`, lectura).
+      // v1.20: bóvedas de clientes (vista (ii) del master set, `vault_operator+`, lectura).
       { href: '/admin/vaults', key: 'vaults' },
       { href: '/admin/m4', key: 'm4' },
       { href: '/admin/m5', key: 'm5' },

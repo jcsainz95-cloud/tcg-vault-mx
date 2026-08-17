@@ -10,7 +10,7 @@ import { PortfolioSnapshotJobService } from '../../jobs/portfolio-snapshot.servi
 /**
  * VaultModule — bóveda/portafolio del cliente. Aloja también el job
  * `portfolio-snapshot` (BE-5) porque depende de VaultService (evita ciclos con JobsModule).
- * v1.18-master-set-everywhere (§4.18a): gana las vistas master-set por scope — rutas de cliente
+ * v1.20-master-set-everywhere (§4.20a): gana las vistas master-set por scope — rutas de cliente
  * `GET /vault/master-sets[...]` (VaultController) y las de admin `GET /admin/vaults[...]`
  * (AdminVaultsController, vault_operator+). El read model vive en MasterSetService
  * (InventoryModule, exportado); aquí solo se consumen sus scopes.
