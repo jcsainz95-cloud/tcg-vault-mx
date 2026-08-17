@@ -757,6 +757,19 @@ export const mockAdminBuylist: AdminBuylistDTO[] = [
       { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', appliedRule: { mode: 'fixed', value: 50, source: 'rule' }, quotedPriceCents: 1200, itemStatus: 'recibida' },
     ],
   },
+  // G3: solicitud en etapa `aprobada` (pestaña "Por pagar") — muestra pago SPEI/reveal y
+  // convertir a inventario habilitado, sin los botones de aprobar/ajustar/rechazar (etapa previa).
+  {
+    id: 'sr-3003',
+    userId: 'u-779',
+    status: 'aprobada',
+    quotedTotalCents: 30000,
+    approvedTotalCents: 28000,
+    createdAt: '2026-08-14T10:00:00Z',
+    items: [
+      { id: 'sri-appr', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', appliedRule: { mode: 'pct', value: 40, source: 'fallback' }, quotedPriceCents: 30000, approvedPriceCents: 28000, itemStatus: 'aprobada' },
+    ],
+  },
 ];
 
 export const mockAdminOrders: AdminOrderDTO[] = [

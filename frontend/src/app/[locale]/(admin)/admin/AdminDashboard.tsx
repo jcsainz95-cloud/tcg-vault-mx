@@ -4,11 +4,29 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getDashboard } from '@/lib/api';
 import { useRole } from '@/lib/role';
+import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
 import { StatCard } from '@/components/ui/StatCard';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
+
+/**
+ * §7.8 — Los conteos de la cola de trabajo son ENLACES accionables a su módulo
+ * (envíos→M4, buylist→M5, disputas→M8, precios pendientes→M2), no cifras muertas.
+ * Subrayado en hover + anillo bermellón en foco (DESIGN_SYSTEM §8.2); el número va
+ * en `tabular` para que StatCard lo tiña cuando corresponde.
+ */
+function QueueLink({ href, label, count }: { href: string; label: string; count: number }) {
+  return (
+    <Link
+      href={href}
+      className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+    >
+      {label} <span className="tabular font-medium text-text">{count}</span>
+    </Link>
+  );
+}
 
 /**
  * 6i — Las tarjetas de métricas se vuelven una retícula de celdas con regla: más
@@ -70,11 +88,12 @@ export function AdminDashboard() {
                 query.data.workQueue.disputes
               }
               sub={
-                <>
-                  {t('shipments')} {query.data.workQueue.shipments} · Buylist{' '}
-                  {query.data.workQueue.buylist} · {t('disputes')} {query.data.workQueue.disputes} ·{' '}
-                  {t('pendingPrices')} {query.data.workQueue.pendingPrices}
-                </>
+                <span className="flex flex-wrap gap-x-3 gap-y-1">
+                  <QueueLink href="/admin/m4" label={t('shipments')} count={query.data.workQueue.shipments} />
+                  <QueueLink href="/admin/m5" label="Buylist" count={query.data.workQueue.buylist} />
+                  <QueueLink href="/admin/m8" label={t('disputes')} count={query.data.workQueue.disputes} />
+                  <QueueLink href="/admin/m2" label={t('pendingPrices')} count={query.data.workQueue.pendingPrices} />
+                </span>
               }
             />
             <StatCard
@@ -101,7 +120,12 @@ export function AdminDashboard() {
               value={query.data.dataHealth.pendingPriceCount}
               sub={
                 <>
-                  {t('pendingPrices')}
+                  <Link
+                    href="/admin/m2"
+                    className="underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                  >
+                    {t('pendingPrices')}
+                  </Link>
                   <br />
                   {t('lastSync')} {formatDate(query.data.dataHealth.lastPriceSyncAt, locale)} ·{' '}
                   {t('lastFx')} {formatDate(query.data.dataHealth.lastFxAt, locale)}

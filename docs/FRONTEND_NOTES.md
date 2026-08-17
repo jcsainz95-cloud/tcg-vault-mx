@@ -4,6 +4,86 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-G Pass 2 (G3) — Reducir la sobrecomplicación del admin (2026-08-17)
+
+Cinco arreglos de UX del back-office señalados por la evaluación, **frontend-only** (0 cambios de
+contrato/backend; NO se tocó lógica de dinero — solo presentación, labels, navegación y etapa de las
+acciones). Patrón real+mock, `shadow-focus`, tokens y §9.2 respetados. Gates verdes: **lint 0**, **tsc 0**,
+**test 304** (41 files; +9 nuevos), **build** OK.
+
+### M5 (aprobar ventas) · de pila plana a cola por etapa — `admin/m5/M5View.tsx`
+- **Pestañas por etapa** (`M5_TABS`): "Por recibir" (`cotizada`), "Verificando" (`recibida`+`verificacion`),
+  "Por pagar" (`aprobada`), "Cerradas" (`pagada`/`rechazada`/`abandonada`). Cada pestaña muestra su conteo; la
+  etapa activa por defecto es la **primera con solicitudes** (`firstNonEmpty`), respetando la elegida por el
+  operador. Las solicitudes se agrupan por `status`.
+- **Buscador** por folio/usuario reusando la clave i18n **`admin.searchGlobal`** (antes huérfana): filtra `all`
+  por `id`/`userId` (case-insensitive); los conteos por pestaña reflejan el filtro.
+- **Acciones por etapa, no las 7 siempre:** aprobar/ajustar/rechazar solo si `req.status ∈ {recibida,
+  verificacion}` (`canDecide`) → una `cotizada`/`aprobada` ya no ofrece decidir carta; revelar CLABE / pagar
+  SPEI solo en `verificacion`/`aprobada` (`showMoneyOut`); en `pagada` se muestra una nota "Pagada por SPEI".
+  Convertir a inventario se conserva como estaba (visible, deshabilitado hasta `aprobada`).
+- **Vendedor con enlace a M6:** la cola admin (`AdminBuylistDTO`) **no trae el nombre resuelto** ni hay endpoint
+  para ello (ver "Solicitud al arquitecto"); se muestra el `userId` como **enlace** a la ficha 360° en
+  `/admin/m6?user=<id>`. `M6View` lee `?user=` (via `useSearchParams`, null-safe) y abre el detalle directo
+  reusando `GET /admin/users/:id` — **sin endpoint nuevo**.
+- **Imagen de catálogo por ítem** (`CardImage`, `imageSmallUrl`) como referente visual para verificar la carta
+  física.
+
+### M2 (precios) · jerarquía + % desambiguado — `admin/m2/M2View.tsx`
+- **UNA acción primaria "Actualizar precios"** al tope (sección nueva con el trigger de `triggerPriceIngest`,
+  botón `lg`), y una sección **"Operaciones avanzadas de catálogo / sync"** que agrupa/de-enfatiza el resto:
+  sync de precios de bóveda (botón bajado a `secondary` y movido aquí) + catálogo (backfill / importar sets /
+  re-sync-all / por-set). La sub-navegación **no** se reescribió (fase-2, abajo). El selector de proveedor sigue
+  en su sección "Ingesta masiva de precios" (config, no CTA); el trigger se movió al tope (no se duplicó, para
+  no romper `findByRole` único).
+- **Ejemplos en línea del %** en las dos tablas de reglas, porque el `%` significa lo OPUESTO en cada una:
+  buylist `buylistRules.example` ("pagas MX$40 por una carta de MX$100 (40%)") y venta `salesRules.example`
+  ("vendes en MX$115 una carta de MX$100 (+15%)").
+
+### M1 (inventario) · enums traducidos + confirmación + alta manual sin buylist
+- **Enums traducidos (§9.2, "nunca el enum crudo"):** `productType` → `admin.m1.productTypeLabel.{raw,graded,
+  sealed}` ("Suelta (raw)"/"Gradeada"/"Sellado", igual que el cliente) y `acquisitionType` →
+  `admin.m1.acquisitionLabel.*`, en los **selects** del alta y en la columna/detalle "Tipo" (`M1View.tsx` +
+  `ItemDetailModal.tsx`).
+- **Confirmación en "Marcar perdida/dañada" (§7.6):** el botón ya no dispara la mutación directo; abre un modal
+  de confirmación (patrón M3/M8) con CTA `mark.confirmCta`.
+- **Alta manual sin `buylist`:** `ACQ` pasó a `['aportacion_en_especie','compra']` (buylist es la conversión
+  automática de M5, no alta manual). El **label** de `buylist` se conserva para traducir items ya convertidos en
+  tabla/detalle.
+
+### Dashboard admin · cola de trabajo accionable + rol legible
+- Los conteos de "Cola de trabajo" (envíos/buylist/disputas/precios) y el de "Salud de datos" (precios
+  pendientes) son **enlaces** a su módulo (M4/M5/M8/M2) (§7.8), con subrayado en hover y `shadow-focus`
+  (`AdminDashboard.tsx`).
+- **Rol legible** en el topbar: `admin.roles.{customer,vault_operator,super_admin}` en vez del enum crudo; el
+  valor técnico queda en `aria-label`/`title` (`AdminTopbar.tsx`).
+
+### i18n (paridad ES/EN)
+`admin.roles.*`; `admin.m5.{tabs.*,searchLabel,emptyTab,emptySearch,seller,sellerLink,paidNote}`;
+`admin.m1.{productTypeLabel.*,acquisitionLabel.*,mark.confirmTitle/confirmQuestion/confirmCta}`;
+`admin.m2.{updatePrices.*,advancedOps.*,buylistRules.example,salesRules.example}`.
+
+### Mock
+`fixtures.ts`: +`sr-3003` (`AdminBuylistDTO` en etapa `aprobada`) para poblar la pestaña "Por pagar" y ejercer
+el gating de acciones (pago/convert sí, aprobar/rechazar no). Marcado como fixture G3.
+
+### Tests (+9)
+`M5View.test.tsx` (+4: pestañas filtran por etapa, acciones solo de la etapa, buscador, enlace del vendedor a
+M6 `?user=` — con stub de `@/i18n/navigation`); `M1View.test.tsx` (+3: tipo traducido en detalle, selects sin
+`buylist` y con labels legibles, confirmación antes de marcar); `M2View.test.tsx` (+2: ejemplos del % por
+tabla); `AdminDashboard.test.tsx` (nuevo: los conteos son enlaces a su módulo).
+
+### Diferido → fase-2 (ux-ui + frontend, NO en este pase)
+- **Rewrite completo de la sub-navegación de M2** (más allá de agrupar en "avanzadas"): reorganizar catálogo/sync
+  en un flujo con su propia navegación/tabs. Cosmético/estructural, transversal.
+- **Consistencia visual admin §3.2** (h1 serif en los 10 `M*View`): hoy conviven `text-h1 font-bold` (sans) y el
+  patrón serif de `AdminDashboard`. Cosmético y transversal; conviene un pase único de ux-ui + frontend.
+
+### Solicitud al arquitecto (no bloqueante, sin cambio en este pase)
+- **Nombre del vendedor en la cola de M5:** `AdminBuylistDTO` (§M5) expone solo `userId`; para mostrar el nombre
+  sin un fetch por-fila haría falta que el listado incluya `userName` (o un `user: { id, name }`), simétrico a lo
+  que ya se hizo en otros DTOs admin. Mientras tanto se muestra el `userId` como enlace a la ficha 360° (M6).
+
 ## WS-G Pass 1 — Dedup de config de dinero (G1) + gates de acceso (G2) (2026-08-17)
 
 Dos arreglos de admin, **frontend-only** (backend NO cambia; keys de settings intactas como rollback).

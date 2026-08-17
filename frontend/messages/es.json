@@ -557,6 +557,11 @@
     "authLoading": "Verificando sesión…",
     "roleLabel": "Rol",
     "searchGlobal": "Buscar folio o usuario…",
+    "roles": {
+      "customer": "Cliente",
+      "vault_operator": "Operador de bóveda",
+      "super_admin": "Súper-admin"
+    },
     "groups": {
       "operation": "Operación",
       "pricing": "Catálogo / Precios",
@@ -618,6 +623,16 @@
       "chooseCardFirst": "Elige una carta de los resultados para crear el item.",
       "createError": "No se pudo crear el item. Revisa los datos e inténtalo de nuevo.",
       "productType": "Tipo de producto",
+      "productTypeLabel": {
+        "raw": "Suelta (raw)",
+        "graded": "Gradeada",
+        "sealed": "Sellado"
+      },
+      "acquisitionLabel": {
+        "aportacion_en_especie": "Aportación en especie",
+        "buylist": "Buylist (conversión)",
+        "compra": "Compra"
+      },
       "condition": "Condición (raw)",
       "finish": "Acabado / versión",
       "finishFixedNormal": "Acabado: Normal (graded/sellado no llevan acabado).",
@@ -699,6 +714,9 @@
         "damaged": "Dañada",
         "note": "Nota (obligatoria)",
         "action": "Marcar",
+        "confirmTitle": "Confirmar marca",
+        "confirmQuestion": "¿Confirmas marcar esta pieza como {mark}? Cambia el estado del item, queda en bitácora y entra a reposición (M7).",
+        "confirmCta": "Sí, marcar {mark}",
         "success": "Item marcado como {mark}.",
         "error": "No se pudo marcar el item."
       },
@@ -789,6 +807,18 @@
       "convert": "Convertir a inventario",
       "paySpei": "Pagar por SPEI",
       "cherryPick": "Decisión carta por carta",
+      "tabs": {
+        "por_recibir": "Por recibir",
+        "verificando": "Verificando",
+        "por_pagar": "Por pagar",
+        "cerradas": "Cerradas"
+      },
+      "searchLabel": "Buscar solicitud",
+      "emptyTab": "No hay solicitudes en esta etapa.",
+      "emptySearch": "Ninguna solicitud coincide con la búsqueda.",
+      "seller": "Vendedor",
+      "sellerLink": "Ver ficha del vendedor {id}",
+      "paidNote": "Pagada por SPEI.",
       "pendingQueue": "Cola de precio pendiente",
       "item": "Carta",
       "quoted": "Cotizado",
@@ -831,6 +861,14 @@
     },
     "m2": {
       "title": "M2 · Catálogo y precios",
+      "updatePrices": {
+        "title": "Actualizar precios",
+        "subtitle": "Refresca los precios de referencia de todo el catálogo. Es la acción principal de este módulo; corre 1–2 veces al día y también puedes dispararla a mano aquí."
+      },
+      "advancedOps": {
+        "title": "Operaciones avanzadas de catálogo / sync",
+        "subtitle": "Herramientas de mantenimiento del catálogo y de sync: úsalas solo cuando haga falta importar sets nuevos, reprocesar todo o resolver precios pendientes a mano."
+      },
       "sync": {
         "title": "Sync de precios (bóveda)",
         "subtitle": "Refresca el precio de referencia de las cartas en bóveda desde la fuente según tipo. Cache diario.",
@@ -942,6 +980,7 @@
           "rule": "Regla",
           "fallback": "Fallback"
         },
+        "example": "Ejemplo: el % es lo que PAGAS de la referencia. Con 40%, pagas MX$40 por una carta de MX$100.",
         "saved": "Reglas de buylist guardadas."
       },
       "salesRules": {
@@ -967,6 +1006,7 @@
           "fallback": "Fallback"
         },
         "pctHint": "Porcentaje: precio de venta = mercado × (1 + %). Ejemplo: 15% deja el precio 15% arriba de mercado (se admite hasta 1000%). Fijo: el monto en MX$ es un piso de venta.",
+        "example": "Ejemplo: el % es lo que subes SOBRE el mercado. Con +15%, vendes en MX$115 una carta de MX$100.",
         "saved": "Reglas de venta guardadas."
       }
     },

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Search, ChevronLeft, ChevronRight, KeyRound, Trash2, Copy, Check, UserPlus } from 'lucide-react';
@@ -66,7 +67,13 @@ export function M6View() {
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<'' | 'active' | 'blocked'>('');
   const [page, setPage] = useState(1);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Deep-link `?user=<id>` (p. ej. desde el vendedor en M5): abre la ficha 360° directo
+  // reusando GET /admin/users/:id (sin endpoint nuevo). Solo el valor inicial; luego el
+  // estado local manda.
+  const searchParams = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => searchParams?.get('user') ?? null,
+  );
 
   const filters: AdminUsersFilters = {
     q: q || undefined,

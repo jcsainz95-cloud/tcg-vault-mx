@@ -58,8 +58,14 @@ export function AdminTopbar({ onMenu }: { onMenu?: () => void }) {
             </span>
           </label>
         ) : (
-          <span className="font-mono text-xs text-muted" aria-label={t('roleLabel')}>
-            {role}
+          // Rol legible (DESIGN_SYSTEM §9.2: nunca el enum crudo); el `role` sigue
+          // en el `aria-label`/title técnico por si el operador necesita el valor exacto.
+          <span
+            className="font-mono text-xs text-muted"
+            aria-label={`${t('roleLabel')}: ${t(`roles.${role}`)}`}
+            title={role}
+          >
+            {t(`roles.${role}`)}
           </span>
         )}
         <div className="hidden sm:block">

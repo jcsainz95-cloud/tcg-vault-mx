@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { M5View } from './M5View';
@@ -8,6 +9,22 @@ import { ApiClientError } from '@/lib/api-client';
 // Reveal CLABE / pago SPEI exigen super_admin (patrón useRole): se fija para ejercer el flujo.
 vi.mock('@/lib/role', () => ({
   useRole: () => ({ role: 'super_admin', setRole: () => {}, isSuperAdmin: true, canSwitchRole: false }),
+}));
+
+// El `Link` de next-intl (`@/i18n/navigation`) no resuelve bajo vitest; se stubea a un <a>
+// que preserva href/aria-label (enlace del vendedor a M6).
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: ReactNode }) => {
+    const to =
+      typeof href === 'string'
+        ? href
+        : `${(href as { pathname?: string })?.pathname ?? '#'}?user=${(href as { query?: { user?: string } })?.query?.user ?? ''}`;
+    return (
+      <a href={to} {...rest}>
+        {children}
+      </a>
+    );
+  },
 }));
 
 beforeEach(() => {
@@ -146,6 +163,48 @@ describe('M5View · Buylist admin end-to-end', () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-3001', 'MBAN-2026-081701'));
     expect(await screen.findByText(/Pago SPEI registrado/)).toBeInTheDocument();
+  });
+
+  it('las pestañas filtran por etapa: "Verificando" muestra sr-3001/sr-3002 y "Por pagar" muestra sr-3003', async () => {
+    renderWithProviders(<M5View />, 'es');
+    // Etapa por defecto (primera con solicitudes) = Verificando (sr-3001 verificacion, sr-3002 recibida).
+    expect(await screen.findByText('sr-3001')).toBeInTheDocument();
+    expect(screen.getByText('sr-3002')).toBeInTheDocument();
+    expect(screen.queryByText('sr-3003')).not.toBeInTheDocument();
+
+    // Cambiar a "Por pagar" (aprobada) muestra sr-3003 y oculta las de verificación.
+    fireEvent.click(screen.getByRole('tab', { name: /Por pagar/ }));
+    expect(await screen.findByText('sr-3003')).toBeInTheDocument();
+    expect(screen.queryByText('sr-3001')).not.toBeInTheDocument();
+  });
+
+  it('solo muestra las acciones de la etapa: una solicitud aprobada NO ofrece aprobar/rechazar', async () => {
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(screen.getByRole('tab', { name: /Por pagar/ }));
+    // sr-3003 (aprobada): decidir carta es de una etapa previa → no hay Aprobar/Rechazar.
+    expect(await screen.findByText('sr-3003')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rechazar' })).not.toBeInTheDocument();
+    // Sí ofrece pago SPEI (etapa por-pagar).
+    expect(screen.getAllByRole('button', { name: 'Pagar por SPEI' }).length).toBeGreaterThan(0);
+  });
+
+  it('el buscador filtra por folio/usuario', async () => {
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-3001');
+    // Buscar el usuario de sr-3003 (u-779) salta a esa solicitud aunque esté en otra etapa.
+    fireEvent.change(screen.getByLabelText('Buscar solicitud'), { target: { value: 'u-779' } });
+    fireEvent.click(screen.getByRole('tab', { name: /Por pagar/ }));
+    expect(await screen.findByText('sr-3003')).toBeInTheDocument();
+    // La pestaña Verificando ya no lista sr-3001 (no matchea la búsqueda).
+    fireEvent.click(screen.getByRole('tab', { name: /Verificando/ }));
+    expect(screen.queryByText('sr-3001')).not.toBeInTheDocument();
+  });
+
+  it('el vendedor es un enlace a la ficha del usuario en M6 (?user=)', async () => {
+    renderWithProviders(<M5View />, 'es');
+    const link = await screen.findByRole('link', { name: /Ver ficha del vendedor u-777/ });
+    expect(link.getAttribute('href')).toContain('user=u-777');
   });
 
   it('un error del pago SPEI muestra el mensaje real del backend dentro del modal', async () => {

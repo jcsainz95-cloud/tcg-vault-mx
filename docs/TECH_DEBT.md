@@ -1081,3 +1081,44 @@
 - **Disparador:** próximo pase de hardening de tests o al tocar el interceptor de refresh. Acción: agregar esos
   tres casos (dos 401 concurrentes con assert de **una** llamada a refresh; `fetchMock.mockRejectedValueOnce`;
   y un 200 con body incompleto).
+
+### FE-17 · `pay()` / `requestWithdrawal()` usan try/catch + `useState` en vez de `useMutation` (patrón inconsistente)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx` (`pay()` ~:93) y
+  `frontend/src/app/[locale]/(storefront)/shipments/ShipmentsView.tsx` (`requestWithdrawal()` ~:159).
+- **Estado actual:** el resto del proyecto dispara mutaciones de red con **`useMutation`** de TanStack Query
+  (estados `isPending`/`isError`/`isSuccess`, `reset`, invalidación de cache). Estas dos acciones que **tocan
+  dinero/custodia** (crear sesión de checkout; solicitar retiro) siguen el patrón viejo: `async function` con
+  `try/catch/finally` + banderas manuales en `useState` (`creating`/`payError`/`emailNotVerified`, etc.). El
+  comportamiento es correcto (bloquea doble envío, muestra el error real), pero el patrón diverge del estándar.
+- **Impacto:** bajo. Mantenibilidad/consistencia: dos formas de hacer lo mismo; el estado manual es más fácil de
+  desincronizar en un refactor (p. ej. olvidar `setCreating(false)` en una nueva rama) y no reusa la invalidación
+  declarativa de cache. Sin fuga ni bug funcional hoy.
+- **Disparador:** al tocar cualquiera de las dos vistas o en un pase de unificación de acceso a datos. Acción:
+  migrar ambas a `useMutation` (mapear `EMAIL_NOT_VERIFIED`/errores en `onError`, `isPending`→loading del botón),
+  como ya hacen M1/M2/M5/M6.
+
+### FE-18 · `PrivateRouteGuard` acopla la lista de rutas privadas por prefijo (frágil)
+- **Dónde:** `frontend/src/components/layout/PrivateRouteGuard.tsx` (`PRIVATE_PREFIXES`, `isPrivatePath`).
+- **Estado actual:** el guard de cliente decide qué rutas exigen sesión con una **lista hardcodeada de prefijos**
+  (`['/vault', '/orders', '/shipments', '/checkout']`) comparada contra el `pathname`. Cada ruta privada nueva
+  hay que **acordarse** de añadirla a ese array; si se olvida, la vista se renderiza sin sesión y solo revienta
+  al pegarle al backend (401 críptico) — justo lo que el guard evita.
+- **Impacto:** bajo-medio. Mantenibilidad/seguridad-de-UI: es defensa de UI (el backend sigue siendo la
+  autoridad), pero la lista puede quedar desincronizada del árbol de rutas real. Acoplamiento por convención de
+  strings, no por estructura.
+- **Disparador:** al añadir una nueva sección privada del storefront, o al reorganizar rutas. Acción: mover las
+  rutas privadas a un **route group `(protected)`** de Next (App Router) cuyo `layout` monte el guard, de modo que
+  la privacidad la determine la **ubicación en el árbol**, no una lista paralela de prefijos.
+
+### FE-19 · Lógica de auth-redirect duplicada entre `AdminShell` y `PrivateRouteGuard` (extraer `useAuthGate`)
+- **Dónde:** `frontend/src/components/layout/AdminShell.tsx` y `frontend/src/components/layout/PrivateRouteGuard.tsx`.
+- **Estado actual:** ambos componentes implementan **el mismo patrón** casi idéntico: `requireAuth = !config.useMocks`,
+  `useEffect` que en modo real hace `router.replace({ pathname: '/login', query: { next: pathname } })` cuando
+  `ready && !isAuthenticated`, y un estado de carga (`aria-busy`) mientras se resuelve la sesión — para no mostrar
+  contenido que dará 401. AdminShell añade encima el chequeo de **rol** de back-office; el resto es copia.
+- **Impacto:** bajo. Mantenibilidad: dos copias del mismo criterio de redirección (`next`, modo mock, orden de
+  `ready`/`isAuthenticated`); un cambio de política de auth-redirect hay que hacerlo en dos sitios y es fácil que
+  se separen.
+- **Disparador:** al tocar la política de redirección o al añadir un tercer consumidor. Acción: extraer un hook
+  `useAuthGate({ requireRole? })` que devuelva `{ blocked, redirecting }` y centralice el `useEffect` + el criterio;
+  AdminShell lo consume con `requireRole` de back-office y PrivateRouteGuard sin rol.

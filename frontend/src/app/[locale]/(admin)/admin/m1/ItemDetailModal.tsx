@@ -93,10 +93,13 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   // --- Marcar perdida / dañada (nota OBLIGATORIA por contrato) ---
   const [markKind, setMarkKind] = useState<'lost' | 'damaged'>('lost');
   const [markNote, setMarkNote] = useState('');
+  // §7.6: las acciones destructivas exigen confirmación (M3/M8 ya confirman) → paso extra.
+  const [markConfirmOpen, setMarkConfirmOpen] = useState(false);
   const mark = useMutation({
     mutationFn: () => markInventoryItem(itemId!, { mark: markKind, note: markNote.trim() }),
     onSuccess: () => {
       setMarkNote('');
+      setMarkConfirmOpen(false);
       void qc.invalidateQueries({ queryKey: ['admin-inventory'] });
       void qc.invalidateQueries({ queryKey: ['admin-inventory-item', itemId] });
     },
@@ -109,6 +112,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
     setMoveNote('');
     setMarkKind('lost');
     setMarkNote('');
+    setMarkConfirmOpen(false);
     publish.reset();
     move.reset();
     mark.reset();
@@ -124,6 +128,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const canOperate = item?.status === 'in_stock' || item?.status === 'listed';
 
   return (
+    <>
     <Modal
       open={!!itemId}
       onClose={onClose}
@@ -155,7 +160,8 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
               </p>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                 <dt className="text-muted">{t('table.type')}</dt>
-                <dd>{item.productType}</dd>
+                {/* §9.2: nunca el enum crudo → label legible. */}
+                <dd>{t(`productTypeLabel.${item.productType}`)}</dd>
                 <dt className="text-muted">{t('table.location')}</dt>
                 <dd className="tabular">{item.location?.label ?? '—'}</dd>
                 {item.productType === 'graded' && (
@@ -321,7 +327,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <div>
                   <Button
                     variant="destructive"
-                    onClick={() => mark.mutate()}
+                    onClick={() => setMarkConfirmOpen(true)}
                     disabled={markNote.trim() === '' || mark.isPending}
                     loading={mark.isPending}
                   >
@@ -371,5 +377,33 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
         )}
       </QueryState>
     </Modal>
+
+      {/* Confirmación de acción destructiva (§7.6): marcar perdida/dañada mueve el item a
+          reposición y queda en bitácora; se pide confirmar antes de disparar la mutación. */}
+      <Modal
+        open={markConfirmOpen}
+        onClose={() => setMarkConfirmOpen(false)}
+        title={t('mark.confirmTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setMarkConfirmOpen(false)}>
+              {tc('cancel')}
+            </Button>
+            <Button variant="destructive" loading={mark.isPending} onClick={() => mark.mutate()}>
+              {t('mark.confirmCta', { mark: t(`mark.${markKind}`) })}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p>{t('mark.confirmQuestion', { mark: t(`mark.${markKind}`) })}</p>
+          {mark.isError && (
+            <Banner variant="danger" role="alert" title={t('mark.error')}>
+              {getError(mark.error)}
+            </Banner>
+          )}
+        </div>
+      </Modal>
+    </>
   );
 }

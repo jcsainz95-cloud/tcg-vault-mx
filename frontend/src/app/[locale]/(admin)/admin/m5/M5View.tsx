@@ -13,8 +13,10 @@ import {
   paySpeiBuylist,
 } from '@/lib/api';
 import { useRole } from '@/lib/role';
+import { Link } from '@/i18n/navigation';
+import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { SellItemDTO } from '@/types/contract';
+import type { SellItemDTO, SellRequestStatus } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
@@ -22,9 +24,24 @@ import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { CardImage } from '@/components/ui/CardImage';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { useBuylistSteps } from '@/lib/pipelines';
+
+/**
+ * Pestañas por ETAPA de la solicitud (G3): en vez de una pila plana con las 7 acciones
+ * siempre visibles, se agrupa por `status` para que el operador vea solo la cola de su
+ * etapa. Cada solicitud aparece en la pestaña de su `status`.
+ */
+type M5Tab = 'por_recibir' | 'verificando' | 'por_pagar' | 'cerradas';
+const M5_TABS: { key: M5Tab; statuses: SellRequestStatus[] }[] = [
+  { key: 'por_recibir', statuses: ['cotizada'] },
+  { key: 'verificando', statuses: ['recibida', 'verificacion'] },
+  { key: 'por_pagar', statuses: ['aprobada'] },
+  { key: 'cerradas', statuses: ['pagada', 'rechazada', 'abandonada'] },
+];
 
 /** Convierte pesos (texto) a centavos enteros; inválido/vacío → null. */
 function pesosToCents(value: string): number | null {
@@ -179,10 +196,62 @@ export function M5View() {
     setPayError(null);
   }
 
+  // --- Pestañas por etapa + buscador (folio/usuario) ---
+  const [tab, setTab] = useState<M5Tab | null>(null);
+  const [search, setSearch] = useState('');
+  const all = query.data ?? [];
+  const searchTerm = search.trim().toLowerCase();
+  // Buscador global por folio o usuario (usa la clave i18n `admin.searchGlobal`).
+  const filtered =
+    searchTerm === ''
+      ? all
+      : all.filter(
+          (r) =>
+            r.id.toLowerCase().includes(searchTerm) || r.userId.toLowerCase().includes(searchTerm),
+        );
+  const counts = Object.fromEntries(
+    M5_TABS.map((tb) => [tb.key, filtered.filter((r) => tb.statuses.includes(r.status)).length]),
+  ) as Record<M5Tab, number>;
+  // Etapa activa: la elegida por el operador o, por defecto, la primera con solicitudes.
+  const firstNonEmpty = M5_TABS.find((tb) => counts[tb.key] > 0)?.key ?? M5_TABS[0].key;
+  const activeTab: M5Tab = tab ?? firstNonEmpty;
+  const activeStatuses = M5_TABS.find((tb) => tb.key === activeTab)!.statuses;
+  const visible = filtered.filter((r) => activeStatuses.includes(r.status));
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-h1 font-bold">{t('title')}</h1>
       <p className="text-sm text-muted">{t('cherryPick')}</p>
+
+      {/* Buscador por folio/usuario (clave i18n admin.searchGlobal) */}
+      <div className="max-w-sm">
+        <Input
+          label={t('searchLabel')}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={tm('searchGlobal')}
+        />
+      </div>
+
+      {/* Pestañas por etapa: cada una muestra el conteo de solicitudes en esa etapa. */}
+      <div role="tablist" aria-label={t('title')} className="flex flex-wrap gap-1 border-b border-border">
+        {M5_TABS.map((tb) => (
+          <button
+            key={tb.key}
+            role="tab"
+            type="button"
+            aria-selected={activeTab === tb.key}
+            onClick={() => setTab(tb.key)}
+            className={cn(
+              '-mb-px flex items-center gap-2 px-3 py-2 text-sm font-medium focus-visible:shadow-focus focus-visible:outline-none',
+              activeTab === tb.key ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+            )}
+          >
+            {t(`tabs.${tb.key}`)}
+            <span className="tabular text-xs text-muted">{counts[tb.key]}</span>
+          </button>
+        ))}
+      </div>
 
       <QueryState
         isLoading={query.isLoading}
@@ -190,16 +259,33 @@ export function M5View() {
         error={query.error}
         onRetry={() => query.refetch()}
       >
-        {(query.data ?? []).map((req) => {
+        {query.data &&
+          (visible.length === 0 ? (
+            <EmptyState title={searchTerm !== '' ? t('emptySearch') : t('emptyTab')} />
+          ) : (
+            visible.map((req) => {
           const canPay =
             isSuperAdmin && (req.status === 'aprobada' || req.status === 'verificacion');
+          // Solo se muestran las acciones de la ETAPA actual de la solicitud:
+          //  - decidir carta (aprobar/ajustar/rechazar) solo tras recibir/verificar;
+          //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.
+          const canDecide = req.status === 'recibida' || req.status === 'verificacion';
+          const showMoneyOut = req.status === 'verificacion' || req.status === 'aprobada';
           return (
             <div key={req.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="tabular text-sm font-medium">{req.id}</span>
                   <StatusBadge domain="sellRequest" value={req.status} />
-                  <span className="tabular text-xs text-muted">{req.userId}</span>
+                  {/* Vendedor: la cola admin no trae el nombre resuelto; se muestra el
+                      userId como ENLACE a su ficha 360° en M6 (?user=<id>, sin endpoint nuevo). */}
+                  <Link
+                    href={{ pathname: '/admin/m6', query: { user: req.userId } }}
+                    aria-label={t('sellerLink', { id: req.userId })}
+                    className="tabular text-xs text-muted underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                  >
+                    {t('seller')}: {req.userId}
+                  </Link>
                 </div>
                 <span className="tabular text-sm">{formatMoneyCents(req.quotedTotalCents, locale)}</span>
               </div>
@@ -238,6 +324,9 @@ export function M5View() {
                   return (
                     <div key={it.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                       <div className="flex flex-wrap items-center gap-3">
+                        {/* Imagen de catálogo por ítem: único referente visual para verificar
+                            la carta física contra la que llegó a la bóveda. */}
+                        <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="w-10 shrink-0" />
                         <span className="text-sm font-medium" lang="en">
                           {it.card.name}
                         </span>
@@ -253,7 +342,7 @@ export function M5View() {
                         <StatusBadge domain="sellItem" value={it.itemStatus} />
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {decidable && (
+                        {canDecide && decidable && (
                           <>
                             <Button
                               size="sm"
@@ -308,36 +397,43 @@ export function M5View() {
                 </Banner>
               )}
 
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
-                <div className="flex flex-wrap gap-2">
-                  {revealed?.requestId === req.id ? (
-                    <Button size="sm" variant="ghost" onClick={() => setRevealed(null)}>
-                      {t('hideClabe')}
-                    </Button>
-                  ) : (
+              {/* Acciones de dinero saliente: solo en la etapa de verificación / por-pagar. */}
+              {showMoneyOut && (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
+                  <div className="flex flex-wrap gap-2">
+                    {revealed?.requestId === req.id ? (
+                      <Button size="sm" variant="ghost" onClick={() => setRevealed(null)}>
+                        {t('hideClabe')}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!isSuperAdmin}
+                        title={!isSuperAdmin ? tm('masked') : undefined}
+                        loading={revealMutation.isPending && revealMutation.variables === req.id}
+                        onClick={() => revealMutation.mutate(req.id)}
+                      >
+                        {t('revealClabe')}
+                      </Button>
+                    )}
                     <Button
+                      variant="accent"
                       size="sm"
-                      variant="secondary"
-                      disabled={!isSuperAdmin}
+                      disabled={!canPay || req.status === 'pagada'}
                       title={!isSuperAdmin ? tm('masked') : undefined}
-                      loading={revealMutation.isPending && revealMutation.variables === req.id}
-                      onClick={() => revealMutation.mutate(req.id)}
+                      onClick={() => openPay(req.id)}
                     >
-                      {t('revealClabe')}
+                      {t('paySpei')}
                     </Button>
-                  )}
-                  <Button
-                    variant="accent"
-                    size="sm"
-                    disabled={!canPay || req.status === 'pagada'}
-                    title={!isSuperAdmin ? tm('masked') : undefined}
-                    onClick={() => openPay(req.id)}
-                  >
-                    {t('paySpei')}
-                  </Button>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {req.status === 'pagada' && (
+                <p className="text-xs text-success">{t('paidNote')}</p>
+              )}
 
               {feedback?.requestId === req.id && (
                 <Banner
@@ -348,10 +444,13 @@ export function M5View() {
                   {feedback.message}
                 </Banner>
               )}
-              {!isSuperAdmin && <Banner variant="warning">{te('MONEY_OUT_FORBIDDEN')}</Banner>}
+              {showMoneyOut && !isSuperAdmin && (
+                <Banner variant="warning">{te('MONEY_OUT_FORBIDDEN')}</Banner>
+              )}
             </div>
           );
-        })}
+            })
+          ))}
       </QueryState>
 
       {/* Modal de ajuste de precio por carta (decision=adjust + approvedPriceCents) */}

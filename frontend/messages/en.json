@@ -557,6 +557,11 @@
     "authLoading": "Checking session…",
     "roleLabel": "Role",
     "searchGlobal": "Search folio or user…",
+    "roles": {
+      "customer": "Customer",
+      "vault_operator": "Vault operator",
+      "super_admin": "Super-admin"
+    },
     "groups": {
       "operation": "Operation",
       "pricing": "Catalog / Pricing",
@@ -618,6 +623,16 @@
       "chooseCardFirst": "Pick a card from the results to create the item.",
       "createError": "We couldn't create the item. Check the details and try again.",
       "productType": "Product type",
+      "productTypeLabel": {
+        "raw": "Loose (raw)",
+        "graded": "Graded",
+        "sealed": "Sealed"
+      },
+      "acquisitionLabel": {
+        "aportacion_en_especie": "In-kind contribution",
+        "buylist": "Buylist (conversion)",
+        "compra": "Purchase"
+      },
       "condition": "Condition (raw)",
       "finish": "Finish / version",
       "finishFixedNormal": "Finish: Normal (graded/sealed have no finish).",
@@ -699,6 +714,9 @@
         "damaged": "Damaged",
         "note": "Note (required)",
         "action": "Mark",
+        "confirmTitle": "Confirm mark",
+        "confirmQuestion": "Confirm marking this piece as {mark}? It changes the item status, is logged, and enters replenishment (M7).",
+        "confirmCta": "Yes, mark {mark}",
         "success": "Item marked as {mark}.",
         "error": "We couldn't mark the item."
       },
@@ -789,6 +807,18 @@
       "convert": "Convert to inventory",
       "paySpei": "Pay via SPEI",
       "cherryPick": "Card-by-card decision",
+      "tabs": {
+        "por_recibir": "To receive",
+        "verificando": "Verifying",
+        "por_pagar": "To pay",
+        "cerradas": "Closed"
+      },
+      "searchLabel": "Search request",
+      "emptyTab": "No requests in this stage.",
+      "emptySearch": "No request matches the search.",
+      "seller": "Seller",
+      "sellerLink": "View seller profile {id}",
+      "paidNote": "Paid via SPEI.",
       "pendingQueue": "Pending-price queue",
       "item": "Card",
       "quoted": "Quoted",
@@ -831,6 +861,14 @@
     },
     "m2": {
       "title": "M2 · Catalog & pricing",
+      "updatePrices": {
+        "title": "Update prices",
+        "subtitle": "Refresh reference prices across the whole catalog. This is the module's primary action; it runs 1–2 times a day and you can also trigger it by hand here."
+      },
+      "advancedOps": {
+        "title": "Advanced catalog / sync operations",
+        "subtitle": "Catalog maintenance and sync tools: use them only when you need to import new sets, reprocess everything, or set pending prices by hand."
+      },
       "sync": {
         "title": "Price sync (vault)",
         "subtitle": "Refresh the reference price of vault cards from the source per type. Daily cache.",
@@ -942,6 +980,7 @@
           "rule": "Rule",
           "fallback": "Fallback"
         },
+        "example": "Example: the % is what you PAY of the reference. At 40%, you pay MX$40 for a MX$100 card.",
         "saved": "Buylist rules saved."
       },
       "salesRules": {
@@ -967,6 +1006,7 @@
           "fallback": "Fallback"
         },
         "pctHint": "Percentage: sale price = market × (1 + %). Example: 15% keeps the price 15% above market (up to 1000% allowed). Fixed: the MX$ amount is a sale floor.",
+        "example": "Example: the % is what you add ON TOP of market. At +15%, you sell a MX$100 card for MX$115.",
         "saved": "Sale rules saved."
       }
     },

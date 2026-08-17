@@ -397,22 +397,28 @@ export function M2View() {
     <div className="flex flex-col gap-10">
       <h1 className="text-h1 font-bold">{t('title')}</h1>
 
-      {/* Sección 1: sync de precios */}
+      {/* PRIMARIA (G3): UNA acción de "Actualizar precios" clara y visible. El resto de
+          operaciones de sync/catálogo (backfill, importar sets, re-sync, por-set, sync de
+          bóveda) se de-enfatizan bajo "Operaciones avanzadas" más abajo. */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('sync.title')}</h2>
-        <p className="text-sm text-muted">{t('sync.subtitle')}</p>
+        <h2 className="text-h2 font-semibold">{t('updatePrices.title')}</h2>
+        <p className="text-sm text-muted">{t('updatePrices.subtitle')}</p>
         <div>
-          <Button loading={syncMutation.isPending} onClick={() => syncMutation.mutate()}>
-            <RefreshCw size={18} /> {t('sync.launch')}
+          <Button size="lg" loading={ingestMutation.isPending} onClick={() => ingestMutation.mutate()}>
+            <Zap size={18} /> {t('priceIngest.trigger')}
           </Button>
         </div>
-        {syncMutation.isSuccess && (
+        <p className="text-xs text-muted">{t('priceIngest.triggerHint')}</p>
+        {ingestMutation.isSuccess && (
           <Banner variant="success" role="status">
-            {t('sync.queued', { count: syncMutation.data.queued, jobId: syncMutation.data.jobId })}
+            {/* single-flight: enqueued=false = ya había un pase en curso. */}
+            {ingestMutation.data.enqueued
+              ? t('priceIngest.queued')
+              : t('priceIngest.alreadyRunning')}
           </Banner>
         )}
-        {syncMutation.isError && (
-          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncMutation.error)}</Banner>
+        {ingestMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(ingestMutation.error)}</Banner>
         )}
       </section>
 
@@ -562,27 +568,6 @@ export function M2View() {
               )}
             </div>
           </QueryState>
-
-          {/* Disparo manual del ingest masivo (equivale a la corrida programada) */}
-          <div className="flex flex-col gap-2 border-t border-border pt-4">
-            <div>
-              <Button loading={ingestMutation.isPending} onClick={() => ingestMutation.mutate()}>
-                <Zap size={18} /> {t('priceIngest.trigger')}
-              </Button>
-            </div>
-            <p className="text-xs text-muted">{t('priceIngest.triggerHint')}</p>
-            {ingestMutation.isSuccess && (
-              <Banner variant="success" role="status">
-                {/* single-flight: enqueued=false = ya había un pase en curso. */}
-                {ingestMutation.data.enqueued
-                  ? t('priceIngest.queued')
-                  : t('priceIngest.alreadyRunning')}
-              </Banner>
-            )}
-            {ingestMutation.isError && (
-              <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(ingestMutation.error)}</Banner>
-            )}
-          </div>
         </div>
       </section>
 
@@ -590,6 +575,9 @@ export function M2View() {
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('buylistRules.title')}</h2>
         <p className="text-sm text-muted">{t('buylistRules.subtitle')}</p>
+        {/* G3: ejemplo en línea del % — en buylist el % es lo que PAGAS de la referencia
+            (semántica OPUESTA a la de venta, por eso el ejemplo textual). */}
+        <p className="text-xs text-muted">{t('buylistRules.example')}</p>
         <QueryState
           isLoading={rarities.isLoading}
           isError={rarities.isError}
@@ -701,6 +689,9 @@ export function M2View() {
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('salesRules.title')}</h2>
         <p className="text-sm text-muted">{t('salesRules.subtitle')}</p>
+        {/* G3: ejemplo en línea del % — en venta el % es lo que SUBES sobre el mercado
+            (semántica opuesta a la de buylist). */}
+        <p className="text-xs text-muted">{t('salesRules.example')}</p>
         <QueryState
           isLoading={salesRarities.isLoading}
           isError={salesRarities.isError}
@@ -809,6 +800,32 @@ export function M2View() {
             </div>
           )}
         </QueryState>
+      </section>
+
+      {/* Operaciones avanzadas de catálogo / sync (G3): de-enfatizadas bajo un encabezado
+          claro; el operador rara vez las necesita frente a "Actualizar precios" (arriba). */}
+      <section className="flex flex-col gap-2 border-t border-border pt-8">
+        <h2 className="text-h2 font-semibold">{t('advancedOps.title')}</h2>
+        <p className="text-sm text-muted">{t('advancedOps.subtitle')}</p>
+      </section>
+
+      {/* Sync de precios de bóveda (operación avanzada; botón secundario) */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h2 font-semibold">{t('sync.title')}</h2>
+        <p className="text-sm text-muted">{t('sync.subtitle')}</p>
+        <div>
+          <Button variant="secondary" loading={syncMutation.isPending} onClick={() => syncMutation.mutate()}>
+            <RefreshCw size={18} /> {t('sync.launch')}
+          </Button>
+        </div>
+        {syncMutation.isSuccess && (
+          <Banner variant="success" role="status">
+            {t('sync.queued', { count: syncMutation.data.queued, jobId: syncMutation.data.jobId })}
+          </Banner>
+        )}
+        {syncMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncMutation.error)}</Banner>
+        )}
       </section>
 
       {/* Sección 6: sync de catálogo */}

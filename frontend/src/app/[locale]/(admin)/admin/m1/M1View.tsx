@@ -41,7 +41,10 @@ import { LocationsModal } from './LocationsModal';
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
 const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
-const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'buylist', 'compra'];
+// Alta MANUAL: `buylist` NO es una vía de alta manual (es la conversión automática de M5,
+// MovementReason.buylist_convert); solo `aportacion_en_especie` y `compra` se dan de alta aquí.
+// El enum completo (incl. buylist) se sigue traduciendo en tabla/detalle para items ya convertidos.
+const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'compra'];
 // v1.6-finish: orden de despliegue del acabado; la etiqueta legible viene de i18n `finish`.
 const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 // Filtro de estado de la tabla (enum InventoryStatus completo del contrato).
@@ -185,7 +188,8 @@ export function M1View() {
   const columns: Column<InventoryItemDTO>[] = [
     { key: 'folio', header: tt('folio'), render: (i) => <span className="tabular">{i.folio}</span> },
     { key: 'card', header: tt('card'), render: (i) => <span lang="en">{i.card.name}</span> },
-    { key: 'type', header: tt('type'), render: (i) => i.productType },
+    // §9.2: nunca el enum crudo → label legible ("Suelta (raw)"/"Gradeada"/"Sellado").
+    { key: 'type', header: tt('type'), render: (i) => t(`productTypeLabel.${i.productType}`) },
     {
       key: 'finish',
       header: tt('finish'),
@@ -503,7 +507,7 @@ export function M1View() {
           )}
           <Select
             label={t('productType')}
-            options={PRODUCT_TYPES.map((p) => ({ value: p, label: p }))}
+            options={PRODUCT_TYPES.map((p) => ({ value: p, label: t(`productTypeLabel.${p}`) }))}
             value={productType}
             onChange={(e) => setProductType(e.target.value as ProductType)}
           />
@@ -587,7 +591,7 @@ export function M1View() {
           />
           <Select
             label={t('acquisitionType')}
-            options={ACQ.map((a) => ({ value: a, label: a }))}
+            options={ACQ.map((a) => ({ value: a, label: t(`acquisitionLabel.${a}`) }))}
             value={acq}
             onChange={(e) => setAcq(e.target.value as AcquisitionType)}
           />

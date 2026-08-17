@@ -304,6 +304,19 @@ describe('M2View · Catálogo y precios', () => {
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 250 }));
   });
 
+  // ---- Ejemplos en línea del % (G3: la semántica del % es OPUESTA entre compra y venta) ----
+  it('la tabla de buylist muestra un ejemplo textual del % (pagas MX$40 por MX$100)', async () => {
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Precio de buylist por rareza/);
+    expect(await s.findByText(/pagas MX\$40 por una carta de MX\$100/)).toBeInTheDocument();
+  });
+
+  it('la tabla de venta muestra un ejemplo textual del % (vendes en MX$115 una de MX$100)', async () => {
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    expect(await s.findByText(/vendes en MX\$115 una carta de MX\$100/)).toBeInTheDocument();
+  });
+
   // ---- FX · guardar SOLO el colchón (#13, v1.14-price-ingest) ----
   it('guardar solo el colchón (buffer) llama a updateFx SIN rate y muestra el mensaje claro', async () => {
     const spy = vi.spyOn(api, 'updateFx').mockResolvedValue({

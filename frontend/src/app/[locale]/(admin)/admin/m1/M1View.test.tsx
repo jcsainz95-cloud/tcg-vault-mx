@@ -176,6 +176,28 @@ describe('M1View · Tabla con filtros + paginación (Ola 2)', () => {
   });
 });
 
+describe('M1View · Alta manual (enums traducidos + sin buylist)', () => {
+  it('el select de tipo de producto usa labels legibles (Suelta (raw)), no el enum crudo', async () => {
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    const typeSelect = within(dialog).getByLabelText('Tipo de producto');
+    expect(within(typeSelect).getByRole('option', { name: 'Suelta (raw)' })).toBeInTheDocument();
+    expect(within(typeSelect).getByRole('option', { name: 'Gradeada' })).toBeInTheDocument();
+  });
+
+  it('el select de adquisición manual NO ofrece "buylist" (esa vía es la conversión de M5)', async () => {
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    const acqSelect = within(dialog).getByLabelText('Tipo de adquisición');
+    expect(within(acqSelect).getByRole('option', { name: 'Aportación en especie' })).toBeInTheDocument();
+    expect(within(acqSelect).getByRole('option', { name: 'Compra' })).toBeInTheDocument();
+    // buylist queda fuera del alta manual.
+    expect(within(acqSelect).queryByRole('option', { name: /Buylist/ })).not.toBeInTheDocument();
+  });
+});
+
 describe('M1View · Detalle por pieza + publicar (Ola 2)', () => {
   async function openDetail(folio: string) {
     renderWithProviders(<M1View />, 'es');
@@ -194,6 +216,13 @@ describe('M1View · Detalle por pieza + publicar (Ola 2)', () => {
     expect(within(dialog).getByText('Alta')).toBeInTheDocument();
     // Gradeada: certificado visible en el detalle.
     expect(within(dialog).getByText('82749163')).toBeInTheDocument();
+  });
+
+  it('el detalle muestra el tipo TRADUCIDO (Gradeada), no el enum crudo "graded"', async () => {
+    // inv-1001 es gradeada; §9.2 exige label legible, nunca el enum crudo.
+    const dialog = await openDetail('INV-000101');
+    expect(await within(dialog).findByText('Gradeada')).toBeInTheDocument();
+    expect(within(dialog).queryByText('graded')).not.toBeInTheDocument();
   });
 
   it('publicar convierte pesos→centavos (Math.round) y manda PATCH status=listed', async () => {
@@ -240,7 +269,13 @@ describe('M1View · Detalle por pieza + publicar (Ola 2)', () => {
       target: { value: 'Se dañó en manejo' },
     });
     expect(markBtn).not.toBeDisabled();
+    // §7.6: "Marcar" NO dispara la mutación directo → abre la confirmación.
     fireEvent.click(markBtn);
+    expect(spy).not.toHaveBeenCalled();
+
+    // Se confirma en el modal (acción destructiva).
+    const confirm = await screen.findByRole('dialog', { name: 'Confirmar marca' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Sí, marcar Perdida' }));
 
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith('inv-1010', { mark: 'lost', note: 'Se dañó en manejo' }),
