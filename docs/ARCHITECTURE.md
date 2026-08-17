@@ -2,7 +2,53 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.13-sales-pricing (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.14-price-ingest (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+>
+> **Changelog v1.14-price-ingest (2026-08-17) — WS-A: ingesta MASIVA de precios vía proveedor de PAGA
+> (PokemonPriceTracker), pluggable, que REEMPLAZA el barrido por-carta frágil.** Decisión del plan (WS-A): el pricing del
+> catálogo deja de depender del re-sync completo de pokemontcg.io corrido **fire-and-forget en memoria**
+> (`catalog-sync.service.ts` `syncAll`→`runSyncAll`, DEV-4) —que **muere al reiniciar el proceso** y tarda horas por
+> rate-limits, dejando el catálogo con "precio pendiente" masivo, todo en acabado `normal` y la gráfica del hero vacía— y
+> pasa a un **job de ingest masivo por SET, idempotente y reanudable** que consume un **endpoint bulk** del proveedor de
+> paga. **Aditivo, SIN migración de esquema** (reusa `PriceReference` con `finish` en su clave desde M-18, el enum
+> `PriceSource.pokemonpricetracker` **ya existente**, y `Card.availableFinishes`). Nuevo **§4.15**. **Toca dinero → triple
+> veredicto.** Datos confirmados del proveedor: endpoint `POST /api/v1/cards/bulk-price` (varias cartas por request;
+> acepta `set`, `limit`), auth `Authorization: Bearer <POKEMONPRICETRACKER_API_KEY>` (key **ya en Railway**, NUNCA en el
+> repo), respuesta con `market` (+historial/eBay/PSA). El **esquema EXACTO (campo de acabado/variante, precio, moneda)
+> se verifica en la 1ª corrida del backend en Railway** (desde dev el dominio está bloqueado por egress) → el ingest
+> mapea **defensivamente** (valida y **omite** entradas mal formadas; money-safe).
+> - **A.1 — Interfaz `BulkPriceProvider` pluggable (backend, §4.15b).** NUEVA interfaz de ingest masivo,
+>   `fetchPricesForSet(set)` → filas normalizadas `{ externalId?, setExternalId?, number?, finish, marketCents,
+>   currency }` por **carta+acabado**. Distinta del `PricingProvider` per-carta ya existente (§4.1), que se **conserva**
+>   para el refresco per-carta de bóveda y los stubs graded/sealed. Implementaciones: `PokemonPriceTrackerBulkProvider`
+>   (source `pokemonpricetracker`, PRIMARIO — bulk endpoint) y `PokemonTcgIoBulkProvider` (source `pokemontcg_io`,
+>   LEGACY/alterno — envuelve el `getCardsBySet` existente y extrae `tcgplayer.prices` por acabado). El **adapter** hace
+>   el mapeo defensivo del payload crudo; la interfaz solo expone filas ya validadas.
+> - **A.2 — Job `price-ingest` (parent) + `price-ingest-set` (child por set) (backend + devops, §4.15c).** Reemplaza el
+>   barrido frágil por un **fan-out BullMQ por set**: el parent lista `CardSet` locales y encola un child por set; cada
+>   child descarga UN set (pocas requests), agrupa por carta y hace **upsert idempotente** de `PriceReference`
+>   `(cardId, 'raw', 'raw:NM', finish, capturedDate=hoy)`. **Robusto:** un set que falla NO tumba el resto (job aparte,
+>   retry/backoff de BullMQ), **reanudable** ante reinicio (cola persistida en Redis, no memoria del proceso).
+>   **1–2×/día** (devops). Sin Redis (local/CI) el disparo manual corre secuencial **awaited** (nunca fire-and-forget).
+> - **A.3 — Variantes #8 (backend, §4.15e).** `Card.availableFinishes` pasa a **derivarse del proveedor** (que trae las
+>   variantes reales del mercado) durante el ingest, reemplazando la derivación frágil de `tcgplayer.prices`. Autoridad:
+>   si el proveedor reporta ≥1 acabado con market válido para la carta → `availableFinishes = {esos acabados}`; si no
+>   reporta nada → se **respeta** el valor existente (nunca se clobbea a `[normal]`). Sigue siendo la lista blanca SEC-A1.
+> - **A.4 — FX + colchón #13 (backend + frontend, §4.15f).** El ingest carga `FxService.getCurrent()` **una vez por
+>   corrida** y convierte USD→MXN con `usdToMxnCents(market, rate, bufferPct)` → el **colchón (#13) aplica en cada
+>   ingest**. Precios en **MXN** se guardan sin conversión (sin colchón). Fix de UI (#13): M2 debe poder **guardar solo
+>   el colchón** sin fijar `rate` (hoy `PUT /admin/fx` exige ambos y pinnea un override manual de tasa) → nota para
+>   frontend + ajuste menor de contrato (`rate?` opcional).
+> - **A.5 — Aligerar `catalog-sync` (backend, §4.15g).** `catalog-sync` vuelve a ser **solo metadata del catálogo**
+>   (nombres/imágenes/sets/números/rareza + import de sets nuevos): se **quita** `persistMarketReferences` de
+>   `upsertCards` (y las deps `PricingService`/`FxService` que v1.12 le añadió). El pricing lo hace **solo** `price-ingest`.
+>   El job `catalog-price-sync` (v1.12, `force:true` = re-sync completo para refrescar precios) queda **DEPRECADO** en su
+>   rol de pricing (lo cubre `price-ingest`, mucho más barato: bulk por set vs re-bajar todas las cartas).
+> - **A.6 — Config/env/contrato (§4.15h).** Nuevo dial `PRICE_PROVIDER` (`price_provider`, ConfigSetting editable sin
+>   redeploy en M2/M10, valores `pokemonpricetracker | pokemontcg_io`) — palanca de selección/rollback del proveedor de
+>   ingest. `POKEMONPRICETRACKER_API_KEY` (env, ya en Railway) pasa a ser **requisito operativo en prod** cuando el dial
+>   apunta al proveedor de paga. Disparo manual `POST /admin/jobs/price-ingest` (super_admin, auditado, single-flight;
+>   `setId?` opcional para verificación de esquema en la 1ª corrida). Ver `API_CONTRACT.md` (Changelog v1.14-price-ingest).
 >
 > **Changelog v1.13-sales-pricing (2026-08-17) — FASE 2 del epic de precios: precio de VENTA por RAREZA, editable
 > en admin (análogo al de COMPRA/buylist).** Decisión del humano (fija): el precio de VENTA se asigna **por rareza**,
@@ -1694,6 +1740,217 @@ Nueva sección "**Reglas de precio de VENTA por rareza**" dentro de **`frontend/
 
 ---
 
+### 4.15 WS-A — Ingesta MASIVA de precios vía proveedor de PAGA (PokemonPriceTracker), pluggable (v1.14-price-ingest)
+
+> **Reemplaza** el barrido por-carta frágil (re-sync completo de pokemontcg.io fire-and-forget en memoria, DEV-4) por un
+> **job de ingest masivo por SET** que consume el **endpoint bulk** del proveedor de paga. Objetivo: catálogo con
+> precios/variantes **completos y frescos**, sin "precio pendiente" masivo, con todos los acabados y la gráfica del hero
+> con datos. **Toca dinero → triple veredicto.** **Aditivo, SIN migración de esquema.**
+
+#### (a) Problema y doctrina
+
+Hoy `PriceReference` se puebla durante el `catalog-sync` reusando `tcgplayer.prices` (v1.12, §4.13a); el refresco
+2×/día (`catalog-price-sync`) lo hace vía **re-sync completo** (`syncAll({force:true})`). Ese barrido corre
+**fire-and-forget en memoria del proceso** (`catalog-sync.service.ts` `syncAll` hace `void this.runSyncAll(batch)` y su
+progreso vive en `syncAllStatus`, no persistido): **muere al reiniciar el proceso** (redeploys de Railway, crash, OOM),
+**tarda horas** (~160 sets, ~15–25k cartas, cientos de requests secuenciales con backoff 429) y deja el catálogo con
+**precios/variantes incompletos** → "precio pendiente" masivo, todo en acabado `normal` (los sets no alcanzados
+conservan `availableFinishes=[normal]` y sin `PriceReference` de acabados no-`normal`) y la gráfica pública del hero vacía.
+
+**Doctrina WS-A:** el **pricing del catálogo** lo hace un **proveedor de paga con descarga masiva** (bulk), enchufable
+tras una interfaz, corrido por un job **por set, idempotente y reanudable** apoyado en BullMQ (cola persistida en Redis),
+NO por un barrido per-carta detached de la memoria del proceso. La **metadata del catálogo** (nombres/imágenes/sets/
+números/rareza + import de sets nuevos) sigue viniendo de pokemontcg.io (`catalog-sync`), que se **aligera** a solo eso.
+
+> **Separación clave (independiente):** la **robustez del job** (fan-out BullMQ por set, awaited, reanudable) y la
+> **elección de proveedor** (dial `PRICE_PROVIDER`) son ortogonales. Incluso con el proveedor `pokemontcg_io` (legacy)
+> el nuevo job ya es robusto; el proveedor de paga aporta además **variantes completas** y **menos requests** (bulk por
+> set). Esto permite un rollout money-safe: primero el job robusto, luego el flip del dial al proveedor de paga tras
+> verificar el esquema en runtime.
+
+#### (b) Interfaz `BulkPriceProvider` pluggable (backend, `modules/pricing`)
+
+Interfaz **nueva** de ingest masivo, **distinta** del `PricingProvider` per-carta de §4.1 (que se **conserva** para el
+refresco per-carta de bóveda `price-sync` y los stubs graded/sealed). Se nombra `BulkPriceProvider` (es la
+«`PriceProvider`» pluggable del plan WS-A) para **no colisionar** con el `PricingProvider` ya existente.
+
+```ts
+// Fila NORMALIZADA por carta+acabado que devuelve el provider (el adapter ya la validó/omitió si venía mal formada).
+interface BulkPriceRow {
+  externalId?: string | null;     // id pokemontcg.io de la carta (mapeo PRIMARIO → Card.externalId, @unique)
+  setExternalId?: string | null;  // mapeo FALLBACK: (set + number) → Card
+  number?: string | null;
+  finish: Finish;                 // YA mapeado a nuestro enum canónico (normal|reverse_holo|holofoil|first_edition_holofoil)
+  marketCents: number;            // entero de centavos, > 0 (validado por el adapter)
+  currency: 'USD' | 'MXN';        // moneda de ORIGEN del market (defensivo; se verifica en runtime, §h)
+}
+interface BulkPriceResult {
+  rows: BulkPriceRow[];           // filas VÁLIDAS por (carta, acabado)
+  fetchedRaw: number;             // entradas crudas recibidas del proveedor (observabilidad)
+  skipped: number;                // entradas OMITIDAS por el mapeo defensivo (money-safe)
+}
+interface BulkPriceProvider {
+  readonly source: PriceSource;   // 'pokemonpricetracker' | 'pokemontcg_io'
+  /** Precios de un set completo en POCAS requests (bulk). El adapter valida y OMITE
+   *  entradas mal formadas ANTES de devolver (nunca NaN/negativo/cero/acabado desconocido). */
+  fetchPricesForSet(input: { set: CardSet }): Promise<BulkPriceResult>;
+}
+```
+
+Implementaciones MVP:
+- **`PokemonPriceTrackerBulkProvider`** (source `pokemonpricetracker`, **PRIMARIO**): llama `POST
+  https://www.pokemonpricetracker.com/api/v1/cards/bulk-price` (host FIJO, anti-SSRF, patrón `PokemonTcgIoClient`) con
+  `Authorization: Bearer ${POKEMONPRICETRACKER_API_KEY}` y body/params `{ set: <CardSet.externalId>, limit }`; pagina si
+  el set excede `limit`. **El adapter** mapea el payload crudo → `BulkPriceRow[]` **defensivamente** (§d). Sin key o con
+  key inválida → devuelve `{ rows: [], ... }` + log (no revienta; el ingest simplemente no escribe ese set — precios
+  quedan **stale**, que es seguro, en vez de borrarse).
+- **`PokemonTcgIoBulkProvider`** (source `pokemontcg_io`, **LEGACY/alterno**): envuelve el `PokemonTcgIoClient.getCardsBySet`
+  existente (paginado) y extrae `prices[FINISH_TO_TCG_KEY[finish]].market` por acabado (misma lógica que hoy, pero
+  detrás de la interfaz bulk). Permite `PRICE_PROVIDER=pokemontcg_io` como **rollback** sin la key de paga.
+
+Selección: `PriceIngestService.providerFor()` lee el **dial `PRICE_PROVIDER`** (§h) y elige la implementación cuyo
+`source` coincide. Nuevo plan de pago del proveedor = otra implementación + flip de dial, sin tocar el resto (§0).
+
+#### (c) Job `price-ingest` (parent) + `price-ingest-set` (child por set) — robusto, idempotente, reanudable
+
+Nuevo `PriceIngestService` (en `modules/pricing`) + jobs en `backend/src/jobs/`:
+
+- **`price-ingest` (parent):** lista los `CardSet` **locales** (la metadata ya existe; NO se consulta `/sets` remoto para
+  esto) y **encola un child `price-ingest-set` por set** en la cola BullMQ. Devuelve de inmediato (encola, no procesa).
+- **`price-ingest-set` (child, `{ setId }`):** carga el `CardSet`, llama `provider.fetchPricesForSet({ set })`, **agrupa
+  las filas por `cardId` resuelto** (§d) y por cada carta:
+  1. **Precio (por acabado):** por cada `BulkPriceRow` de la carta, `priceMxnCents = row.currency==='MXN' ? row.marketCents
+     : usdToMxnCents(row.marketCents, fx.rate, fx.bufferPct)`; **upsert idempotente** de `PriceReference`
+     `(cardId, productType='raw', gradeKey='raw:NM', finish, capturedDate=hoy)` con `source='pokemonpricetracker'` (o
+     `'pokemontcg_io'` en legacy), `priceUsdCents = currency==='USD' ? row.marketCents : null`. **Respeta
+     `isManualOverride`** (si la fila de hoy es override del admin → **skip**, §4.1). Reusa/generaliza
+     `PricingService.persistMarketReference` (hoy hardcodea `source='pokemontcg_io'` y asume USD; se extiende para aceptar
+     `source` y moneda — ver A.5/§g).
+  2. **Variantes:** refresca `Card.availableFinishes` desde el proveedor (§e).
+- **Robustez (el corazón de WS-A):**
+  - **Por set, no per-carta:** una descarga bulk por set (pocas requests) en vez de N fetches per-carta.
+  - **Aislamiento de fallos:** cada set es su **propio** job BullMQ → un set que falla (429 persistente, payload roto)
+    **no tumba** el resto; BullMQ reintenta ese job con backoff.
+  - **Reanudable:** la cola vive en **Redis** (persistida), no en memoria del proceso. Un reinicio a media corrida deja
+    los child jobs pendientes en la cola → se retoman solos (a diferencia del `syncAllStatus` en memoria de DEV-4).
+  - **Idempotente:** upsert sobre la clave única `(cardId, productType, gradeKey, finish, capturedDate)` — re-correr el
+    mismo día **actualiza** el precio (último market), no duplica; la 2ª corrida del día refina el precio de hoy.
+  - **Single-flight del parent:** el disparo manual/cron no encola un 2º barrido si ya hay uno en curso (patrón
+    `syncAllStatus.running`, o mejor: `jobId` determinista del día + `deduplication` de BullMQ). Backend decide el
+    mecanismo exacto.
+  - **FX una vez por corrida:** el `fx = FxService.getCurrent()` se carga una vez y se pasa a los child jobs (snapshot),
+    no por-carta (paridad con `catalog-sync`, §4.13a).
+- **Sin Redis (local/CI/manual):** si no hay `REDIS_URL`, el disparo manual (`POST /admin/jobs/price-ingest`) corre el
+  ingest **secuencial y AWAITED** dentro del handler/worker (recorre sets uno a uno). **Nunca** fire-and-forget: aunque
+  no haya fan-out por set, el trabajo se espera (a diferencia del `void runSyncAll` actual). Aceptable para dev/ops;
+  en prod el scheduler con Redis da el fan-out robusto.
+- **Pacing / rate-limit:** el bulk por set reduce ~100× el nº de requests frente al per-carta; aun así, secuencial entre
+  sets + backoff del cliente HTTP. Cuota/coste del proveedor de paga = riesgo devops (§h, decisión abierta v1.14-2).
+
+#### (d) Mapeo carta↔proveedor + mapeo DEFENSIVO (money-safe)
+
+El **esquema exacto** del payload (campo de acabado/variante, de precio y de moneda) **se verifica en la 1ª corrida en
+Railway** (desde dev el dominio está bloqueado por egress). Por eso **todo** el mapeo vive en el **adapter**, que:
+
+- **Resuelve la carta local** (para no crear referencias huérfanas):
+  1. **Primario:** `row.externalId` (id pokemontcg.io de la carta, ej. `sv8-123`) → `Card.externalId` (`@unique`, indexado).
+  2. **Fallback:** `(row.setExternalId, row.number)` → `Card` (`where { set: { externalId }, number }`). *(Nota perf:
+     no hay índice compuesto `(setId, number)`; el fallback es best-effort. Un índice sería una mejora **opcional** —
+     migración aparte, no requerida por WS-A.)*
+  3. Sin resolución → **omite** la fila + cuenta en `skipped` + log (no escribe nada).
+- **Valida cada entrada (money-safe):** `market` numérico **> 0** (descarta `0`/negativo/`NaN`/ausente); acabado/variante
+  mapeable a `Finish` por una tabla **conservadora** (mirror de `TCG_KEY_TO_FINISH` + los alias del proveedor que se
+  confirmen en runtime); **variante desconocida → OMITE** (no se atribuye un precio holo a `normal` — eso sería un error
+  de dinero). Moneda: si el payload la indica, se respeta; si es **ambigua/ausente**, se asume **USD** (el proveedor es
+  de mercado US — TCGPlayer/eBay/PSA) y **se marca como supuesto a validar en la 1ª corrida** (decisión abierta v1.14-1;
+  crítico: si en realidad fuera MXN, convertir USD→MXN inflaría ~18× → por eso el flip del dial al proveedor de paga
+  **se gatea** con la verificación de esquema, §h).
+- **Nunca** deriva el precio del cliente ni de un DTO — SEC-A1 intacto: la fuente es el proveedor server-side; `finish` se
+  usa como **dimensión de la clave** de `PriceReference`, no como monto.
+
+#### (e) Variantes (#8) — `Card.availableFinishes` derivado del PROVEEDOR
+
+Reemplaza la derivación frágil de `tcgplayer.prices` (que en el barrido roto dejaba casi todo en `[normal]`). En el
+`price-ingest-set`, tras agrupar las filas por carta:
+- `providerFinishes` = conjunto de `finish` **distintos** de la carta con `marketCents > 0`.
+- Si `providerFinishes` **no vacío** → `Card.availableFinishes = providerFinishes` (**autoridad**: el proveedor trae las
+  variantes reales del mercado; #8). **Reemplaza** el set previo.
+- Si `providerFinishes` **vacío** (carta no está en el proveedor, o sin filas válidas) → **se respeta** el valor existente
+  (bootstrap de `catalog-sync`, §g); **nunca** se clobbea a `[normal]` ni a vacío (el schema exige ≥1; default `[normal]`).
+- `availableFinishes` sigue siendo la **lista blanca SEC-A1** contra la que el buylist valida el `finish` del cliente
+  (`422 FINISH_NOT_AVAILABLE`, §4.2.1). Consecuencia money-safe: si el proveedor **omite** un acabado que sí existe, el
+  vendedor no podrá cotizarlo (falla **conservadora**: bloquea, no sobre-paga). Documentado.
+- La derivación de `availableFinishes` usa las **variantes reportadas** por el proveedor, con independencia de si ese día
+  se escribió la `PriceReference` (p. ej. si había override manual el precio no se pisa, pero el acabado sí cuenta como
+  disponible).
+
+#### (f) FX + colchón (#13) — aplica en cada ingest; y fix de UI
+
+- **Aplica en cada ingest:** el ingest carga `FxService.getCurrent()` **una vez por corrida** (snapshot `{ rate,
+  bufferPct }`) y aplica `usdToMxnCents(market, rate, bufferPct)` a cada fila **USD** → el **colchón (#13) entra en cada
+  corrida**, por diseño (paridad con §4.13a). Filas en **MXN** → sin conversión ni colchón (el colchón es un cushion del
+  riesgo FX USD→MXN; si el proveedor ya da MXN no hay FX que amortiguar).
+- **Fix de UI (#13) — guardar SOLO el colchón sin fijar la tasa:** hoy `PUT /admin/fx` exige `{ rate, bufferPct }` y
+  `FxService.setManual` **pinnea** `fx_manual_override_rate` (congela la tasa auto de Banxico). El dueño que solo quiere
+  subir el colchón (3%→5%) termina fijando una tasa manual sin querer. **Solución recomendada (mínima, money-safe):** el
+  colchón es un **dial de primera clase** (`fx_buffer_pct`) y `PUT /admin/settings` ya admite **body parcial** → M2 guarda
+  el colchón **solo** con `PUT /admin/settings { fxBufferPct }` (**sin** tocar `/admin/fx`, sin pinnear tasa). **Nota
+  para frontend** (M2). **Ajuste de correctness (backend, menor):** hoy `FxService.getCurrent()` en la rama auto-Banxico
+  devuelve el `bufferPct` de la **fila `FxRate`** (escrito por el último `fx-refresh`), no el del dial, así que un cambio
+  de colchón solo surte efecto tras el siguiente `fx-refresh`. Para que aplique **de inmediato** en el próximo ingest,
+  `getCurrent()` debería preferir el `bufferPct` del **dial** en todas las ramas. Enrutado a **backend** (correctness).
+  **Alternativa** (si el equipo prefiere mantener el colchón bajo el editor FX): hacer `rate?` **opcional** en `PUT
+  /admin/fx` → si se omite `rate`, actualiza solo el colchón y **no** pinnea `fx_manual_override_rate` (ver contrato
+  §M2). Recomendación: la vía del dial `fxBufferPct` (sin cambio de contrato de FX).
+
+#### (g) Scheduling + aligerar `catalog-sync`
+
+- **Scheduling (devops):** `price-ingest` **1–2×/día** vía el `SchedulerService` BullMQ existente (crons UTC configurables
+  por env, p. ej. `PRICE_INGEST_CRON_1`/`_2`). El slot 2×/día que hoy ocupa `catalog-price-sync` (v1.12) se **repunta** a
+  `price-ingest` para el **pricing**; se **conserva** un sync de **metadata** de catálogo (import de sets nuevos) en
+  cadencia propia (p. ej. `sync-all {force:false}` diario o semanal — solo sets no importados, barato). Orden con FX:
+  como el ingest necesita FX fresco, `fx-refresh` debe correr **antes** de cada `price-ingest` (`FxService.getCurrent()`
+  degrada al último `FxRate` si falta, así que el orden es **suave** pero recomendado). Horarios exactos = **devops**
+  (decisión abierta v1.14-3).
+- **Aligerar `catalog-sync` (backend, A.5):** `catalog-sync` vuelve a **solo metadata**:
+  - Se **quita** la llamada `persistMarketReferences` de `upsertCards` (y las deps `PricingService`/`FxService` que v1.12
+    inyectó a `CatalogSyncService`). `catalog-sync` deja de escribir `PriceReference`.
+  - `deriveAvailableFinishes(tcgplayer.prices)` se **conserva** como **bootstrap** (default seguro para un set recién
+    importado, antes de su primer `price-ingest`); `price-ingest` lo **sobre-escribe** con las variantes del proveedor
+    (§e). *(Alternativa: quitarlo también y dejar `[normal]` hasta el primer ingest; se prefiere conservarlo para que un
+    set nuevo sea usable de inmediato. Decisión menor, backend.)*
+  - `persistMarketReference` (en `PricingService`) se **generaliza**: hoy hardcodea `source='pokemontcg_io'` y asume USD;
+    pasa a aceptar `source: PriceSource` y `currency` (o un `priceMxnCents` ya convertido) para servir al ingest de paga.
+  - **`catalog-price-sync` (v1.12) queda DEPRECADO en su rol de pricing** (su `force:true` re-bajaba todo el catálogo solo
+    para refrescar precios; ahora lo hace `price-ingest`, mucho más barato). Su función de **import de sets nuevos** se
+    mantiene con `force:false`. `set-price-sync` (v1.9) queda **más** subsumido aún (el ingest precia todo el catálogo,
+    incluido el set del hero); se conserva inocuo, retiro opcional en fase 2.
+
+#### (h) Config / env / contrato
+
+- **Env (secreto):** `POKEMONPRICETRACKER_API_KEY` — **ya aprovisionada en Railway** (NUNCA en el repo; el código solo
+  lee `process.env`). Pasa a ser **requisito operativo en prod** cuando `PRICE_PROVIDER=pokemonpricetracker`. Recomendación
+  devops: añadirla a la lista *required* de `env.validation.ts` en no-local **solo** si el dial apunta al proveedor de
+  paga (o dejarla opcional y que el ingest degrade a "no escribe / precios stale" con alerta en `dataHealth`). Money-safe:
+  si el proveedor de paga está seleccionado pero la key falta/está inválida, **no** se borran precios (se dejan stale) y se
+  loguea/alerta; **no** hay fallback silencioso a otra fuente (evita mezclar fuentes sin querer). Ver decisión abierta v1.14-2.
+- **Dial `PRICE_PROVIDER` (`price_provider`, ConfigSetting):** selecciona el `BulkPriceProvider` de ingest. Valores
+  `pokemonpricetracker | pokemontcg_io`. Editable **sin redeploy** (M2/M10) → palanca de **rollback** money-safe. **Seed
+  recomendado (rollout money-safe): `pokemontcg_io`** (no cambia el comportamiento de fuente al desplegar; el job ya es
+  robusto) y **devops flip a `pokemonpricetracker`** tras verificar el esquema en la **1ª corrida manual** (`POST
+  /admin/jobs/price-ingest` con `setId?` de un set conocido → inspeccionar `PriceReference`/logs). Alternativa: sembrar
+  `pokemonpricetracker` desde el arranque (la key ya está) asumiendo la verificación previa. Decisión abierta v1.14-4.
+- **Disparo manual:** `POST /api/v1/admin/jobs/price-ingest` (super_admin, auditado, single-flight; familia §M10-ops).
+  Acepta `setId?` **opcional** (excepción justificada al body-vacío de la familia): un solo set para **verificar el
+  esquema** en la 1ª corrida sin barrer el catálogo entero. Ver `API_CONTRACT.md §M10-ops`.
+- **Contrato:** `POST /admin/jobs/price-ingest` (nuevo, §M10-ops); dial `priceProvider` en el DTO de `/admin/settings`
+  (§M10); nota de que `CardDTO.availableFinishes` pasa a **derivarse del proveedor** (mismo shape); `PUT /admin/fx` gana
+  `rate?` opcional (#13, alternativa). Sin migración de esquema.
+- **Sin migración:** WS-A reusa `PriceReference` (finish en la clave, M-18), `PriceSource.pokemonpricetracker` (ya en el
+  enum) y `Card.availableFinishes`. El dial `PRICE_PROVIDER` es una fila de `ConfigSetting` (dato, no esquema).
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -1849,6 +2106,20 @@ Riesgos técnicos:
   el objetivo robusto es encolar **un job BullMQ por set** (retry/persistencia de progreso). Registrar en
   `docs/TECH_DEBT.md` si se difiere. **Nota de escala:** `PriceReference` crece ~1 fila/día por (carta, acabado) del
   catálogo (~30–40k filas/día); considerar retención/particionado de la serie temporal en fase 2 (no bloquea el MVP).
+  - **DIRIGIDO por WS-A (v1.14-price-ingest, §4.15).** El "objetivo robusto (un job BullMQ por set)" es exactamente el
+    diseño del nuevo `price-ingest`/`price-ingest-set` (§4.15c): fan-out por set con cola persistida en Redis,
+    aislamiento de fallos, reintentos y reanudabilidad. Al desplegar WS-A, el `catalog-price-sync` `force:true`
+    (barrido fire-and-forget que motivó DEV-4) queda **deprecado en su rol de pricing** y se conserva solo para import de
+    metadata de sets nuevos (`force:false`). **Acción (backend):** implementar `price-ingest` (§4.15c) y aligerar
+    `catalog-sync` a metadata (§4.15g); (devops) repuntar el slot 2×/día al `price-ingest`.
+- **DEV-5 (backend, v1.14-price-ingest) — `catalog-sync` escribe PRECIOS (rol que WS-A le retira).** `upsertCards`
+  (`catalog-sync.service.ts`) llama `persistMarketReferences` y deriva `availableFinishes` de `tcgplayer.prices`
+  (v1.12). WS-A mueve el **pricing y las variantes** al `price-ingest` (proveedor de paga, §4.15e/g): `catalog-sync`
+  debe **quitar** `persistMarketReferences` (y las deps `PricingService`/`FxService`) y quedar en **solo metadata**;
+  `deriveAvailableFinishes` se conserva como **bootstrap** (default seguro para sets recién importados) que el ingest
+  sobre-escribe. `PricingService.persistMarketReference` se **generaliza** (aceptar `source`/moneda, hoy hardcodea
+  `pokemontcg_io`+USD). No es un bug en producción hoy (funciona), pero **contradice la doctrina WS-A** de "catalog-sync
+  = solo metadata" → se documenta y enruta a **backend**.
 
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
@@ -1856,6 +2127,34 @@ este documento y con `API_CONTRACT.md`.
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.14-price-ingest — WS-A: ingesta masiva vía proveedor de paga)
+> No bloquean el arranque del **diseño**: backend puede construir la interfaz `BulkPriceProvider`, el job
+> `price-ingest`/`price-ingest-set` y aligerar `catalog-sync` con los defaults propuestos. **Varias requieren
+> verificación en RUNTIME (1ª corrida en Railway)** — el arquitecto **no asume** el esquema del proveedor (CLAUDE.md).
+> **Toca dinero → validar antes de confiar el pricing al proveedor de paga.**
+- **v1.14-1 (RUNTIME, crítica) — esquema exacto de `POST /cards/bulk-price`.** Campo de **acabado/variante**, de
+  **precio** (`market`) y de **moneda** (¿USD o MXN?; ¿nombre del campo?). Default de diseño: `market` en **USD**,
+  variante mapeada por tabla conservadora; **variante desconocida → OMITE**; moneda ausente → **asume USD** (proveedor de
+  mercado US). **Se confirma en la 1ª corrida** (`POST /admin/jobs/price-ingest` con `setId?` conocido → inspeccionar
+  `PriceReference`). Riesgo money: si en realidad fuera MXN, la conversión USD→MXN inflaría ~18× → **gate** antes del flip.
+- **v1.14-2 (devops/negocio) — cuota/coste del plan del proveedor de paga.** ¿Límite de requests/día o de cartas del
+  plan contratado? El bulk por set reduce ~100× las requests vs per-carta, pero un refresco 1–2×/día del catálogo
+  completo (~160 sets) son ~cientos de requests/día. Confirmar plan/cuota y si `POKEMONPRICETRACKER_API_KEY` debe ser
+  *required* en prod (recomendado cuando `PRICE_PROVIDER=pokemonpricetracker`).
+- **v1.14-3 (devops) — cadencia y horarios del `price-ingest` (1–2×/día).** Default propuesto: **2×/día** alineado con
+  el `fx-refresh` (FX fresco antes de convertir). ¿Confirmar horas? ¿1×/día basta para el negocio? Scheduling = **devops**.
+- **v1.14-4 (rollout, money-safe) — seed del dial `PRICE_PROVIDER`.** Default recomendado: **`pokemontcg_io`** al
+  desplegar (sin cambio de fuente; el job ya es robusto) y **flip a `pokemonpricetracker`** tras verificar v1.14-1.
+  Alternativa: sembrar `pokemonpricetracker` desde el arranque (la key ya está en Railway). Confirmar la secuencia.
+- **v1.14-5 (alcance) — ¿el proveedor de paga precia también GRADEADAS (PSA) en WS-A?** La respuesta bulk trae eBay/**PSA**.
+  WS-A se acota a **raw market + variantes** (`raw:NM`, el barrido que hoy se cae). Preciar gradeadas (`graded:PSA:<grade>`)
+  con el mismo proveedor es una **extensión natural** (misma respuesta bulk) pero **fuera del core de WS-A**; queda como
+  puerta abierta (§0). Confirmar si se quiere en esta entrega o después.
+- **v1.14-6 (correctness FX, #13) — vía del colchón-solo.** Default recomendado: guardar el colchón por `PUT
+  /admin/settings { fxBufferPct }` (parcial, ya soportado) + hacer que `FxService.getCurrent()` prefiera el `bufferPct`
+  del **dial** en todas las ramas (para que aplique de inmediato). Alternativa: `rate?` opcional en `PUT /admin/fx`.
+  Confirmar cuál adopta el equipo (ambas son money-safe; la primera no cambia el contrato de FX).
 
 ### Preguntas abiertas (v1.13-sales-pricing — Fase 2 del epic de precios)
 > No bloquean el arranque: backend puede implementar 2.1–2.4 y frontend 2.5 con los defaults propuestos (que
@@ -1951,6 +2250,18 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.14-price-ingest (nueva — WS-A: ingesta masiva vía proveedor de paga) — **SIN migración de esquema**
+
+**No hay migración.** WS-A (§4.15) es 100% aditiva sobre modelos existentes: reusa `PriceReference` (con `finish` en su
+clave desde M-18), el enum `PriceSource.pokemonpricetracker` (**ya presente**) y `Card.availableFinishes` (M-18). Los
+cambios son de **código** (nueva interfaz `BulkPriceProvider` + adapters, `PriceIngestService`, jobs `price-ingest`/
+`price-ingest-set`, generalizar `PricingService.persistMarketReference`, aligerar `catalog-sync` a metadata) y de **jobs/
+scheduler** (devops repunta el slot 2×/día). El único dato nuevo es el dial `PRICE_PROVIDER` (`price_provider`), una fila
+de `ConfigSetting` sembrada por el seed de settings (no de esquema). **Nota de escala (heredada de DEV-4):** el ingest
+sigue creciendo `PriceReference` ~1 fila/día por (carta, acabado); la retención/particionado de la serie queda para
+fase 2. **Nota de rollout money-safe:** primero desplegar el job robusto con `PRICE_PROVIDER=pokemontcg_io`, verificar el
+esquema del proveedor de paga en la 1ª corrida (v1.14-1) y luego flip del dial (v1.14-4).
 
 ### v1.13-sales-pricing (nueva — Fase 2 del epic de precios) — **SIN migración de esquema**
 

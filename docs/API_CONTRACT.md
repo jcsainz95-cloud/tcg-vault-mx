@@ -2,7 +2,33 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-14 (rev v1.2.1).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.14-price-ingest).
+>
+> **Changelog v1.14-price-ingest (2026-08-17) — WS-A: ingesta MASIVA de precios vía proveedor de PAGA
+> (PokemonPriceTracker), pluggable, que reemplaza el barrido por-carta frágil.** El pricing del catálogo pasa de un
+> re-sync completo de pokemontcg.io fire-and-forget en memoria (que se cae al reiniciar) a un **job de ingest masivo por
+> SET** que consume el endpoint bulk del proveedor de paga (`POST /api/v1/cards/bulk-price`, auth `Bearer`). **Aditivo,
+> SIN migración** (reusa `PriceReference`+`finish`, `PriceSource.pokemonpricetracker` ya existente, `Card.availableFinishes`).
+> El **grueso es backend/devops interno**; la superficie de contrato es mínima. SEC-A1 intacto (precios server-side desde
+> el proveedor; `finish` es dimensión de la clave, no monto del cliente). Toca dinero → triple veredicto. Ver ARCHITECTURE §4.15.
+> - **Ops (NUEVO, §M10-ops):** `POST /api/v1/admin/jobs/price-ingest` (`super_admin`, auditado, single-flight) — dispara
+>   el ingest masivo (fan-out BullMQ **un job por set**; reanudable). Acepta **`setId?`** opcional (excepción al body-vacío
+>   de la familia, justificada: verificar el esquema del proveedor en la 1ª corrida con un solo set). **Toca dinero**
+>   (mueve precios de referencia). Equivale a la corrida programada 1–2×/día.
+> - **M10 settings (NUEVO dial):** `GET/PUT /api/v1/admin/settings` gana **`priceProvider`** (`price_provider`,
+>   `pokemonpricetracker | pokemontcg_io`) — selecciona el proveedor de ingest **sin redeploy** (palanca de rollback
+>   money-safe). Seed recomendado `pokemontcg_io` (sin cambio de fuente al desplegar; flip a `pokemonpricetracker` tras
+>   verificar el esquema en runtime). Editable por `PUT /admin/settings` parcial; auditado (`settings.update`).
+> - **FX / colchón (#13):** `PUT /api/v1/admin/fx` gana **`rate?` opcional** — si se omite `rate`, actualiza **solo** el
+>   colchón (`bufferPct`) y **NO** pinnea el override manual de tasa (hoy exige ambos y congela la tasa auto de Banxico).
+>   **Alternativa recomendada sin cambio de contrato de FX:** guardar el colchón por `PUT /admin/settings { fxBufferPct }`
+>   (parcial, ya soportado). Nota de UI para M2 (frontend). El colchón **aplica en cada ingest** (USD→MXN con FX+buffer).
+> - **`CardDTO.availableFinishes` (mismo shape, nueva FUENTE):** pasa a **derivarse del proveedor** de paga en el ingest
+>   (que trae las variantes reales del mercado), reemplazando la derivación frágil de `tcgplayer.prices`. Sin cambio de
+>   forma; sigue siendo la lista blanca SEC-A1 del `finish` (`422 FINISH_NOT_AVAILABLE`).
+> - **Sin endpoint nuevo de catálogo/quote:** el ingest es interno (job); `POST /buylist/quote`, `GET /catalog/*` y
+>   `POST /admin/catalog/sync-all` **no cambian de shape** — solo mejora la **completitud/frescura** de los precios que
+>   devuelven. `catalog-sync` queda como **solo metadata** (import de sets nuevos); su rol de pricing lo asume el ingest.
 >
 > **Changelog v1.13-sales-pricing (2026-08-17) — FASE 2 del epic de precios: precio de VENTA por RAREZA, editable en
 > M2 (análogo al de COMPRA/buylist).** Reemplaza el **markup GLOBAL único** de venta (`salesMarkupPct`, dial M10) por
@@ -323,9 +349,12 @@ FxSource            = banxico | manual                // fuente del tipo de camb
 Money        = { amountCents: number, currency: "MXN" }
 // PriceInfo describe el VALOR DE REFERENCIA (valor de mercado), no el precio de venta.
 PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, source?: PriceSource, capturedDate?: string }
-// v1.6-finish: availableFinishes = acabados en que existe la carta (derivados de tcgplayer.prices al importar).
-// SIGUE siendo 1 CardDTO por carta (externalId único); availableFinishes es un array en el MISMO objeto.
-// Filas históricas / sin re-sync → ["normal"]. Es la lista blanca contra la que el backend valida `finish`.
+// v1.6-finish: availableFinishes = acabados en que existe la carta. SIGUE siendo 1 CardDTO por carta
+// (externalId único); availableFinishes es un array en el MISMO objeto. Filas históricas / sin sincronizar →
+// ["normal"]. Es la lista blanca contra la que el backend valida `finish` (SEC-A1, 422 FINISH_NOT_AVAILABLE).
+// v1.14-price-ingest: la FUENTE de availableFinishes pasa a ser el PROVEEDOR de paga (que trae las variantes
+// reales del mercado) durante el price-ingest (ARCHITECTURE §4.15e), reemplazando la derivación de
+// tcgplayer.prices. MISMO shape; catalog-sync solo deja un bootstrap seguro que el ingest sobre-escribe.
 CardDTO      = { id, externalId, name, number, rarity, supertype, subtypes: string[],
                  setId, setName, imageSmallUrl, imageLargeUrl, availableFinishes: Finish[] }
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
@@ -881,7 +910,8 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   Req: `{ cardId, productType, gradeKey, priceMxnCents, finish? }` → crea `PriceReference` `source=manual` **para ese acabado**, resuelve **solo** el `PendingPriceEntry` de ese `(cardId, productType, gradeKey, finish)`.
   - **`finish?` (v1.8-ronda-c, opcional, default `normal`):** `normal | reverse_holo | holofoil | first_edition_holofoil`. Fija/actualiza la `PriceReference` del acabado indicado y resuelve el pendiente de **ese** acabado; el pendiente de otros acabados de la misma carta **permanece abierto**. Omitirlo mantiene el comportamiento previo (`normal`). No debilita SEC-A1 (es un precio de referencia del admin, no un monto de cliente).
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
-- FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate, bufferPct }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
+- FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate?, bufferPct? }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
+  - **`rate?` opcional (v1.14-price-ingest, #13):** si se **omite** `rate`, la llamada actualiza **solo** el colchón (`bufferPct`) y **NO** pinnea el override manual de tasa (`fx_manual_override_rate`) → la tasa **automática de Banxico sigue activa**. Antes exigía ambos, así que subir solo el colchón congelaba la tasa sin querer. El colchón **aplica en cada ingest de precios** (USD→MXN con FX+buffer, ARCHITECTURE §4.15f). **Vía recomendada sin cambiar este endpoint:** editar el colchón por `PUT /admin/settings { fxBufferPct }` (parcial, ya soportado). **Nota para frontend (M2):** exponer un guardado del colchón independiente del `rate`.
 #### Precio de buylist por RAREZA (v1.3.1 — NUEVO backend; editor M2)
 > Reemplaza `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
 > referencia)** + un **fallback %** para rarezas sin regla. Toda edición se **audita** (M10). Ver ARCHITECTURE §4.2.
@@ -1162,7 +1192,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, stripeFeeIvaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, catalogSyncFromDate }`. `stripeFeeIvaPct` (fracción `[0,1)`, default **0.16**) = IVA que Stripe MX cobra **sobre su comisión**; entra en el gross-up del fee (ver ARCHITECTURE §5.1). `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2.
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, stripeFeeIvaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, catalogSyncFromDate }`. `stripeFeeIvaPct` (fracción `[0,1)`, default **0.16**) = IVA que Stripe MX cobra **sobre su comisión**; entra en el gross-up del fee (ver ARCHITECTURE §5.1). `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest:** `priceProvider` (`price_provider`, enum `pokemonpricetracker | pokemontcg_io`, seed recomendado **`pokemontcg_io`**) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15); editable sin redeploy → palanca de **rollback** del proveedor de paga. Validado contra el enum; `422 VALIDATION_ERROR` si es otro valor. El flip a `pokemonpricetracker` se hace tras verificar el esquema del proveedor en la 1ª corrida (ARCHITECTURE decisión abierta v1.14-1/v1.14-4).
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
 
@@ -1172,19 +1202,32 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > p. ej. para re-correr un job que falló o forzar un refresco fuera de ventana. **Todos** los endpoints de esta
 > familia comparten el mismo contrato:
 > - **Método/forma:** `POST /api/v1/admin/jobs/<job-name>` con body **vacío** `{}` (sin parámetros de cliente; el
->   efecto del job está fijado server-side).
+>   efecto del job está fijado server-side). **Única excepción:** `price-ingest` (v1.14) admite `setId?` opcional para
+>   ingestar un solo set (verificación de esquema); ver su entrada abajo.
 > - **Rol:** `super_admin` (hereda `@Roles(Role.super_admin)` del controller). Err `403 FORBIDDEN` para otros.
 > - **Auditado:** cada disparo queda en `AuditLog` (`action: job.trigger`, con el `job` en `after` + `actorUserId`).
 > - **Single-flight:** si el job ya está corriendo, la llamada **no** encola un segundo pase; devuelve el estado del
 >   pase en curso (`enqueued: false`). Es **idempotente** ante doble clic.
 > - **Res `202`:** `{ job: string, enqueued: boolean, jobId?: string }` (`enqueued=false` si ya había uno en curso).
 >
-> **Jobs disparables** (nombre = el mismo del scheduler; ver ARCHITECTURE §5 y §4.13c):
-> - **`catalog-price-sync`** *(v1.12.1, tarea 1.3 — el que motivó esta reconciliación):* dispara el **re-sync
+> **Jobs disparables** (nombre = el mismo del scheduler; ver ARCHITECTURE §5, §4.13c y §4.15):
+> - **`price-ingest`** *(v1.14-price-ingest, WS-A — NUEVO, el pricing PRIMARIO):* dispara la **ingesta masiva de precios**
+>   vía el proveedor de paga seleccionado por el dial `priceProvider` (§M10). Encola un **fan-out BullMQ de un job por
+>   set** (`price-ingest-set`) que hace **upsert idempotente** de `PriceReference` por `(cardId, 'raw', 'raw:NM', finish,
+>   hoy)` y refresca `Card.availableFinishes` desde el proveedor. **Reanudable** (cola en Redis), aísla fallos por set,
+>   respeta `isManualOverride`. **Excepción a la forma de la familia:** acepta **`setId?`** opcional en el body (`POST
+>   /admin/jobs/price-ingest { "setId": "sv8" }`) para ingestar **un solo set** — pensado para **verificar el esquema del
+>   proveedor** en la 1ª corrida (v1.14-1) sin barrer todo el catálogo; omitirlo ingesta **todo** el catálogo. Res `202`:
+>   `{ job: "price-ingest", enqueued: boolean, jobId?: string }` (o `{ ..., scope: "set", setId }` si se pasó `setId`).
+>   **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto. Reemplaza a `catalog-price-sync` en el rol
+>   de pricing (abajo).
+> - **`catalog-price-sync`** *(v1.12.1, tarea 1.3 — **DEPRECADO en su rol de pricing por WS-A**):* dispara el **re-sync
 >   completo del catálogo** (`force:true`) que **repuebla `PriceReference` por `(card, finish)`** reusando
 >   `tcgplayer.prices` (FX del día). Es el **disparo manual** del refresco 2×/día (06:00 y 18:00 CDMX). **Equivale**
 >   a `POST /admin/catalog/sync-all {force:true}` (§M2); ambos conviven (este es el disparador de ops "por job",
->   `sync-all` es el de catálogo). **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto.
+>   `sync-all` es el de catálogo). **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto. **v1.14:**
+>   su rol de **pricing** lo asume `price-ingest` (arriba, mucho más barato); se **conserva** solo para **import de
+>   metadata de sets nuevos** con `force:false` (no re-baja todo el catálogo para refrescar precios).
 > - **`portfolio-snapshot`** — recalcula/escribe el snapshot diario del valor de portafolio (`PortfolioSnapshot`,
 >   alimenta `GET /vault/portfolio/history`, §3).
 > - **`set-price-sync`** / **`set-value-snapshot`** — refresco de precios y snapshot diario del **valor agregado de
