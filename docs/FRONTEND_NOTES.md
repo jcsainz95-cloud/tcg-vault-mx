@@ -4,6 +4,72 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-H frontend · Retiro visible para el cliente (badge "EN RETIRO" + rastreo) (2026-08-17)
+
+Implementa el ciclo de RETIRO visible en la bóveda según **contrato v1.17-withdrawal-lifecycle** (§3
+HoldingDTO, §5 rastreo del cliente). Solo `frontend/` + este doc. **0 cambios de contrato/backend**; se
+consume el contrato como interfaz (nada depende de detalles internos del backend). Patrón real+mock
+(`config.useMocks`), tokens/`shadow-focus` respetados. Gates: **tsc 0**, **vitest 313** (42 files),
+**e2e mock 45 passed** (1 flake de `auth.spec` que pasa al re-correr; no relacionado).
+
+### 1) Tipos (contrato §3/§5) — `src/types/contract.ts`
+- `HoldingDTO` gana `shipmentState: ShipmentActiveStage | null`, `activeShipmentId: string | null`,
+  `withdrawable: boolean` (los tres **requeridos**, como el contrato). Nuevo alias
+  `ShipmentActiveStage = 'solicitado'|'picking'|'guia'|'enviado'`.
+- `ShipmentDTO` (== `ClientShipmentDTO` del contrato §5) se **enriquece** con `addressSnapshot`,
+  montos (`shippingFeeCents/ivaCents/processingFeeCents/totalCents`), timestamps por etapa
+  (`requestedAt/pickingAt/shippedAt`, `deliveredAt` ya existía) e `items[].finish`. Los campos nuevos
+  son **opcionales** para tolerar productores/mocks parciales (p. ej. la respuesta de captura de guía M4).
+
+### 2) "Mi Bóveda" (`vault/VaultView.tsx` + `components/domain/WithdrawalBadge.tsx`)
+- **Badge "EN RETIRO":** nuevo `WithdrawalBadge` (reusa el primitivo `Badge`, texto mono en versalitas,
+  `outline` acento) que se pinta cuando `shipmentState !== null`: chip `EN RETIRO` + el **label de etapa
+  del contrato §5** (namespace i18n `shipmentStage.*`, distinto de `status.shipment.*` operativo). Con
+  `activeShipmentId`, el badge es un **enlace** al detalle del retiro (`/shipments/:id`) = deep-link
+  bóveda→rastreo. Se apila bajo el badge de titularidad en la columna de estado.
+- **Gating de RETIRAR:** el botón/enlace usa **`withdrawable`** como fuente ÚNICA de verdad (antes se
+  derivaba de `ownershipStatus==='settled'`). Si `!withdrawable` → botón deshabilitado con hint accesible
+  (`title` + `aria-label`): "en retiro" si hay envío activo, "solo liquidadas" si aún es `pending`. Ya no
+  se descubre el `409/422` al intentar.
+
+### 3) Rastreo de retiros del cliente (contrato §5)
+- **`api.ts`:** `getShipments()` (ya existía, envelope `{ data }`) + nuevo **`getShipment(id)`**
+  (`GET /shipments/:id`) con rama real+mock.
+- **Lista ("Mis retiros"):** la sección de `ShipmentsView` se enriquece — cada retiro muestra la **etapa
+  legible** (`shipmentStage.*`), dirección (ciudad/estado del `addressSnapshot`), **total** del retiro,
+  guía/tracking y sus **cartas** (folio, nombre, set). El id del retiro es un **deep-link** al detalle.
+  La lista de cartas y las acciones de disputa (F6) se **unificaron** en un solo `<ul>` (antes duplicaban
+  el nombre de cada carta en dos bloques). La lista **seleccionable** del alta de retiro ahora filtra por
+  `withdrawable` (un item settled pero ya EN RETIRO cae en "no elegibles", con su badge + deep-link).
+- **Detalle (`shipments/[id]/ShipmentDetailView.tsx`, ruta nueva `shipments/[id]/page.tsx`):** destino del
+  deep-link. Muestra la etapa legible, la línea de tiempo (`useShipmentClientSteps` con la tabla §5),
+  dirección (snapshot, lectura defensiva), total desglosado (`AmountBreakdown` reconstruido desde los
+  montos del DTO; `ivaRatePct` no viaja en §5 → se deriva de iva/fee, default 16) y las cartas
+  (folio, nombre, set, número, acabado). Estados carga/error/no-encontrado explícitos (`QueryState`).
+- **Navegación:** "Mis retiros" añadido al `StorefrontHeader` (privado, junto a "Mis órdenes") → `/shipments`.
+
+### 4) i18n (ES/EN, paridad verde)
+- `nav.shipments`, `vault.inWithdrawal` / `inWithdrawalHint` / `trackWithdrawal`,
+  `shipments.{backToList,detailTitle,itemsInWithdrawal,shippingAddress,addressUnavailable,withdrawalTotal}`,
+  y el bloque top-level **`shipmentStage.*`** (tabla normativa etapa→texto cliente del contrato §5).
+
+### 5) Mocks (real+mock siguen funcionando)
+- `mockHoldings`: los 4 holdings ganan los campos v1.17; el **sellado (`inv-1008`) queda EN RETIRO**
+  (`shipmentState='enviado'`, `activeShipmentId='shp-7001'`, `withdrawable=false`); el resto retirables/
+  pending según su titularidad. `mockShipments` enriquecidos (address/montos/timestamps/finish); `shp-7001`
+  (`enviado`) contiene `inv-1008` para que el deep-link sea consistente.
+
+### 6) E2E (mock)
+- `e2e/vault.spec.ts`: +2 tests — badge "EN RETIRO" + etapa + RETIRAR deshabilitado; deep-link del badge al
+  detalle. `e2e/shipments.spec.ts`: +1 — la vista de rastreo lista un retiro con sus cartas y abre el
+  detalle (dirección + cartas). Todos mock-only (dependen del fixture de retiros); el patrón `@real`
+  existente se conserva.
+
+### Solicitudes al arquitecto
+- Ninguna. El contrato v1.17 (§3/§5) fue suficiente para implementar el flujo completo. Nota menor: el DTO
+  de rastreo §5 no incluye `ivaRatePct` en los montos; el front lo deriva de `iva/shippingFee` (default 16)
+  para el desglose. Si se prefiere exponerlo explícito, sería un aditivo sin migración (no bloquea).
+
 ## WS-E frontend · Pulido de veredicto (batchKey estable + UX bulk-publish + dedup) (2026-08-17)
 
 Cierra hallazgos NO bloqueantes del veredicto sobre WS-E (Master Set). Solo `frontend/` + este doc +
@@ -2765,3 +2831,89 @@ buylist rules, FX y pending sin tocar.
 `salesMarkupPct` (dial M10, `SettingsDTO`) queda **DEPRECADO** por el contrato (palanca de
 rollback). El front no lo consume en M2; sigue en `SettingsDTO` por compatibilidad hasta su
 retiro (decisión abierta v1.13-3). Sin solicitudes de contrato: los tres endpoints ya existen.
+
+---
+
+## WS-G · E2E smoke agnósticos de mocks (comprar / retirar / vender contra backend REAL)
+
+**Problema.** Los smoke de flujos de dinero eran verdes SIEMPRE en modo mock: autenticaban
+inyectando `tcg.user` en localStorage (sin token real), asertaban montos exactos de fixture
+(`MX$19,400.00`, `MX$3,380.00`), esperaban un stub de pago viejo (`checkout.paidTitle`) y
+hardcodeaban cartas (`Charizard`, `c-charizard`). Tras WS-F (comprar/retirar reales con Stripe)
+esos 4 tests quedaron ROTOS incluso en mock, pero "QA verde" los ocultó. Ahora los smoke corren,
+env-agnósticos, contra el backend real.
+
+### Helper `frontend/e2e/utils/auth.ts`
+- `loginAs(page, 'customer'|'admin'|'operator')` env-aware:
+  - **Real** (`E2E_REAL=1`): `POST {API}/auth/login` con `page.request` y persiste el `TokenPair`
+    + `user` en localStorage con el MISMO shape que `persistSession` (`src/lib/api.ts`):
+    `tcg.accessToken`, `tcg.refreshToken`, `tcg.user` (y `tcg.role` para staff), vía `addInitScript`
+    (aplica antes de la primera carga → llamar SIEMPRE antes de `page.goto`).
+  - **Mock**: inyecta solo `tcg.user` (las ramas mock de `api.ts` ignoran el token).
+- Credenciales del seed determinista viven SOLO aquí (sobreescribibles por env):
+  `customer@e2e.local`/`Customer123!`, `admin@e2e.local`/`Admin123!`, `operator@e2e.local`/`Operator123!`.
+- `IS_REAL` (`E2E_REAL==='1'`) y `MONEY_RE` (`/MX\$[\d,]+\.\d{2}/`, aserción por FORMATO) exportados.
+- API real por defecto en `http://localhost:3011/api/v1` (puerto del backend en `docker-compose.staging.yml`);
+  override con `E2E_API_BASE_URL`.
+
+### Tag `@real` + `playwright.config.ts`
+- Los smoke de dinero llevan `@real`. Cuando `E2E_REAL=1`, el config filtra `grep: /@real/`
+  globalmente → en real corre SOLO el subset (comprar/retirar/vender/bóveda). En mock (sin
+  `E2E_REAL`) NO se filtra: corre TODA la suite y los `@real` también pasan por su rama mock.
+- 4 tests `@real`: `checkout.spec.ts` (comprar), `shipments.spec.ts` (retirar),
+  `buylist.spec.ts` (vender), `vault.spec.ts` (portafolio/custodia).
+
+### Env-agnosticismo de los specs
+- **Descubre datos, no hardcodea**: catálogo → primera carta con "Agregar"; bóveda/retiro →
+  primer checkbox settled; buylist → primer set del dropdown → primera carta del grid
+  (`pickFirstSellableCard`).
+- **Aserciones de estructura**: `getByTestId('amount-breakdown')`, total con `MONEY_RE`,
+  `checkout.shipping`/`checkout.iva`. Cero montos de fixture.
+- **Pago (comprar/retirar)**: tras "Pagar"/"Solicitar retiro" el modal SOLO abre si la sesión
+  real (`POST /checkout/session` / `POST /shipments`) se creó. En real se asierta que el modal
+  monta Stripe `<Elements>` (el cuerpo simulado `payment.mockBody` está ausente); NO se depende de
+  una pantalla de "pagado" (el asentamiento es por webhook). En mock se conserva el camino simulado.
+- **Vender**: crea la solicitud (`POST /buylist/requests`). Maneja ambos modos de CLABE
+  (atajo "usar mi CLABE en archivo" si el seed la trae, o captura de CLABE válida si no) y espera
+  `buylist.created`. Viewport alto (2000px) porque el `Modal` no scrollea internamente y el CTA
+  quedaría fuera de pantalla (ver deuda menor abajo).
+
+### Cómo correr contra local-staging (lo que el humano SÍ puede)
+```
+# 1) Levantar el stack real y sembrar (una vez):
+docker compose -f docker-compose.staging.yml --profile apps up -d --build
+docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic
+
+# 2) Correr el subset @real contra el frontend real:
+cd frontend
+E2E_BASE_URL=http://localhost:3010 E2E_REAL=1 npm run test:e2e -- --grep @real
+```
+(El `--grep @real` es redundante con el grep del config cuando `E2E_REAL=1`, pero explícito como
+pide el runbook. Usa el Chromium preinstalado `/opt/pw-browsers`; NO `playwright install`.)
+
+### Verificado aquí (sin stack real)
+- `npx tsc --noEmit` limpio.
+- `npx playwright test --list` enumera los 4 `@real`; con `E2E_REAL=1` el grep deja SOLO esos 4.
+- Modo mock verde: `checkout/vault/shipments/buylist` = **20/20**; resto de la suite sin regresión.
+
+### Pendiente de validar contra el stack real (no ejecutable aquí)
+- Que `loginAs` real reciba `{accessToken, refreshToken, user}` del seed y el Bearer pase los guards.
+- Que exista ≥1 listing vendible en Compra (para comprar) — el seed debería traerlo.
+- Que el modal de Stripe monte `<Elements>` con el `clientSecret` real (en CI la publishable key es
+  dummy `pk_test_e2e_dummy`; por eso NO se asierta el iframe de Stripe, solo la ausencia del cuerpo
+  mock, que ya confirma que la sesión real se creó).
+- Que el cliente del seed traiga CLABE/INE en archivo para que "vender" no tope con
+  `CLABE_NOT_OWN_NAME` (el spec cae al modo captura si no; según lo confirmado, el seed los trae).
+
+### Solicitudes a otros roles (sin cambio de contrato)
+- **devops**: `e2e-real.yml` hoy corre `npm run test:e2e -- checkout.spec.ts shipments.spec.ts
+  buylist.spec.ts` **sin** `E2E_REAL=1`. Para que "verde de verdad" signifique real, añadir
+  `E2E_REAL: '1'` al `env` del job (basta eso: el config auto-filtra `@real` dentro de esos files).
+  Opcional: incluir `vault.spec.ts` en `SMOKE_SPECS`. Sin esto, el job seguiría corriendo la rama
+  mock de los `@real` y los tests mock-only fallarían contra el stack real.
+
+### Deuda técnica menor (frontend, no bloqueante)
+- `components/ui/Modal.tsx` no tiene `max-height`+scroll interno: en formularios altos (KYC de
+  buylist) el CTA "Confirmar y enviar" queda fuera del viewport. El spec lo sortea subiendo el
+  viewport a 2000px, pero es una fricción real de usabilidad. Anotar en `TECH_DEBT.md` a petición
+  de techlead.

@@ -40,6 +40,13 @@ export type ShipmentStatus =
   | 'enviado'
   | 'entregado'
   | 'cancelado';
+/**
+ * v1.17-withdrawal-lifecycle: subconjunto "activo" de ShipmentStatus expuesto en
+ * HoldingDTO.shipmentState (etapa del envío activo de un item en bóveda). `entregado`
+ * NUNCA aparece (el item pasa a InventoryStatus.withdrawn y sale de holdings) y
+ * `cancelado` libera el item ⇒ shipmentState=null. Ver contrato §3 / Enums.
+ */
+export type ShipmentActiveStage = 'solicitado' | 'picking' | 'guia' | 'enviado';
 export type SellRequestStatus =
   | 'cotizada'
   | 'recibida'
@@ -339,6 +346,18 @@ export interface HoldingDTO {
   ownershipStatus: OwnershipStatus;
   status: InventoryStatus;
   referenceValue: PriceInfo;
+  // v1.17-withdrawal-lifecycle (contrato §3): etapa del envío ACTIVO del item (derivada del join
+  // InventoryItem → ShipmentItem → ShipmentRequest). `null` = sin envío activo. El front pinta el
+  // badge "EN RETIRO" cuando `shipmentState !== null`. `entregado` nunca llega aquí (el item ya salió
+  // de la bóveda como `withdrawn`).
+  shipmentState: ShipmentActiveStage | null;
+  // v1.17: id de la ShipmentRequest activa para deep-link al rastreo (GET /shipments/:id); null si no
+  // hay envío activo.
+  activeShipmentId: string | null;
+  // v1.17: flag AUTORITATIVO para habilitar/deshabilitar RETIRAR (fuente única de verdad). `true` solo
+  // si `ownershipStatus='settled' && shipmentState=null` (mismo criterio del backend). Evita descubrir
+  // el 409/422 al intentar.
+  withdrawable: boolean;
 }
 
 export interface PortfolioSummary {
@@ -407,19 +426,44 @@ export interface ShipmentCreateResponse {
   stripe: { paymentIntentId: string; clientSecret: string };
 }
 
+/**
+ * Retiro/envío del cliente (contrato §5 · GET /shipments listMine y GET /shipments/:id).
+ * v1.17-withdrawal-lifecycle norma y enriquece el shape (== `ClientShipmentDTO` del contrato) para
+ * que el cliente rastree qué cartas van en cada retiro y su etapa/guía. Los campos enriquecidos son
+ * OPCIONALES para tolerar productores/mocks parciales (p. ej. la respuesta de captura de guía en M4).
+ */
 export interface ShipmentDTO {
   id: string;
   status: ShipmentStatus;
   trackingNumber?: string;
   carrier?: string;
   createdAt: string;
+  // v1.17: dirección MX (snapshot). Forma abierta (line1/city/state/postalCode/…); el front la lee
+  // de modo defensivo. Sin PII sensible (es la dirección de envío del propio usuario).
+  addressSnapshot?: AddressDTO | Record<string, unknown>;
+  // v1.17: total del envío desglosado (tarifa + IVA + fee de procesamiento). No expone `shippingCostCents`
+  // (costo interno del carrier).
+  shippingFeeCents?: number;
+  ivaCents?: number;
+  processingFeeCents?: number;
+  totalCents?: number;
+  // v1.17: timestamps por etapa (para la línea de tiempo del rastreo). `requestedAt` == alta del retiro.
+  requestedAt?: string;
+  pickingAt?: string;
+  shippedAt?: string;
   // WS-F F6: fecha de entrega real (backend `toClientShipment.deliveredAt`). Ancla la ventana de
   // 7 días para abrir una disputa de condición. Presente solo cuando el envío llegó a `entregado`.
   deliveredAt?: string;
   // WS-F F6: `productType` por ítem alimenta el UI-gate de disputa (graded NO aplica → 422 NOT_RAW).
-  // Opcional: el listado real de GET /shipments no lo incluye siempre; cuando falta, el backend es la
-  // autoridad (guarda server-side). folio/card también son best-effort (el listado crudo puede omitirlos).
-  items: { inventoryItemId: string; folio: string; card: CardDTO; productType?: ProductType }[];
+  // v1.17: `finish` por ítem (acabado de la copia física). Opcional: el listado crudo puede omitir
+  // `productType`/`finish`/`folio`/`card`; cuando falta, el backend es la autoridad.
+  items: {
+    inventoryItemId: string;
+    folio: string;
+    card: CardDTO;
+    productType?: ProductType;
+    finish?: Finish;
+  }[];
 }
 
 /**

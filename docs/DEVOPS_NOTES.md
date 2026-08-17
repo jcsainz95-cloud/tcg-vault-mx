@@ -204,6 +204,112 @@ cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm ru
 
 ---
 
+## 5.1 E2E: modo MOCK (rápido) vs modo REAL (gate) — arreglo del Paso 5
+
+> **Actualización 2026-08-17 (devops):** se separó el E2E en dos caminos porque el
+> "verde" que veía QA corría **contra mocks**, lo que dejó pasar flujos reales rotos.
+
+### El problema (por qué "QA verde" no bastaba)
+
+La suite Playbook (`frontend/e2e/*.spec.ts`) se ejecutaba con el **webServer del
+`playwright.config.ts`**, que levanta Next con **`NEXT_PUBLIC_USE_MOCKS=true`** (fixtures
+en memoria; `frontend/src/lib/config.ts` → `useMocks = env !== 'false'`). Con eso la UI se
+prueba contra **datos simulados**, no contra los endpoints reales del backend. Resultado:
+stubs de **comprar/retirar** convivieron con "QA verde" hasta que se cablearon los endpoints.
+"Verde" significaba "la UI pinta bien con fixtures", no "el sistema funciona de punta a punta".
+
+### La solución (dos caminos, propósitos distintos)
+
+| Camino | Workflow | Cómo corre | Cuándo | Qué garantiza |
+|---|---|---|---|---|
+| **MOCK** (rápido) | `.github/workflows/e2e.yml` → job `frontend-e2e` | `playwright.config` levanta Next con `NEXT_PUBLIC_USE_MOCKS=true` (sin docker). Chromium preinstalado. | cada push/PR | Feedback rápido de UI/regresión contra **fixtures**. No prueba endpoints reales. |
+| **REAL** (gate) | `.github/workflows/e2e-real.yml` | `docker-compose.staging.yml --profile apps` (Postgres 16 + Redis 7 + MinIO + backend NestJS + frontend con **`NEXT_PUBLIC_USE_MOCKS=false`**) + `migrate deploy` (arranque) + `seed:synthetic` + Playwright **smoke** contra `E2E_BASE_URL` real | **nightly** (08:00 UTC) · **manual** · **gate previo a prod** (invocado por `deploy.yml` vía `workflow_call`) | "Verde de verdad": los flujos críticos pegan a **endpoints reales**. |
+
+**Smoke de flujos críticos (PROJECT.md)** que corre el modo REAL (parametrizable con el input
+`smoke_specs`; default los 3 archivos):
+- **comprar → orden**: `frontend/e2e/checkout.spec.ts`
+- **retirar → envío**: `frontend/e2e/shipments.spec.ts`
+- **vender/buylist → solicitud**: `frontend/e2e/buylist.spec.ts`
+
+**Navegador:** ambos jobs usan el **Chromium PREINSTALADO** del runner-harness en
+`/opt/pw-browsers` con `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. **NO** se ejecuta
+`playwright install` (se quitó el `npx playwright install --with-deps` que había en el job
+frontend anterior). Un paso *Guard navegador* falla con mensaje claro si el runner no trae
+`/opt/pw-browsers/chromium` (overridable con `PLAYWRIGHT_CHROMIUM_PATH`).
+
+### Cómo correr cada uno localmente
+
+```bash
+# --- MOCK (rápido, sin backend) ---
+cd frontend && npm ci
+PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:e2e
+#   (sin E2E_BASE_URL => el config levanta Next con NEXT_PUBLIC_USE_MOCKS=true)
+
+# --- REAL (stack completo, endpoints reales) ---
+# 1) Levantar el stack real de staging (frontend horneado con mocks=false):
+docker compose -f docker-compose.staging.yml --profile apps up -d --build
+# 2) Esperar salud del backend y sembrar datos sintéticos:
+curl -sf http://localhost:3011/api/v1/health
+docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic
+# 3) Correr el smoke contra el frontend REAL (3010):
+cd frontend && npm ci
+E2E_BASE_URL=http://localhost:3010 \
+  PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium \
+  npm run test:e2e -- checkout.spec.ts shipments.spec.ts buylist.spec.ts
+# 4) Apagar:
+docker compose -f docker-compose.staging.yml --profile apps down -v
+```
+
+### Cableado al gate de despliegue (DoD CLAUDE.md §10)
+
+`deploy.yml` ahora exige, para promover a **producción**, los tres gates de seguridad+E2E:
+- **SAST** en cada PR (`security-sast.yml`, branch protection antes del merge).
+- **DAST** contra staging (`dast-staging`, ZAP baseline + nuclei; bloquea por críticos/altos).
+- **E2E REAL** (`e2e-real.yml`, invocado como `uses: ./.github/workflows/e2e-real.yml` con
+  `secrets: inherit`): los jobs `promote-production-*` añaden `needs: [dast-staging, e2e-real]`
+  y la condición `needs.e2e-real.result == 'success'`. Sin E2E real verde, **no hay promoción**.
+
+Refuerzo recomendado (branch protection de `main`): marcar como *required status checks*
+`ci-ok`, `sast-ok`, `e2e-ok` (mock) y el job del **E2E real** (nightly/pre-deploy).
+
+### Qué queda PENDIENTE de validar en CI (no verificable en este sandbox)
+
+En este entorno **no hay stack levantable** (sin daemon Docker/Postgres/Redis fiables) y el
+dominio prod está bloqueado por egress, así que **el E2E real NO se pudo CORRER aquí**. Lo que
+**sí** se validó offline:
+- YAML de `e2e-real.yml`, `e2e.yml` y `deploy.yml` parsean OK (`yaml.safe_load`).
+- `playwright.config.ts` parsea y `npx playwright test --list` enumera **17 tests** en los 3
+  specs de smoke (checkout/shipments/buylist) usando el Chromium preinstalado.
+- `/opt/pw-browsers/chromium` existe (navegador preinstalado; `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`).
+
+Pendiente de la **primera corrida en CI/staging** (runner-harness con navegadores preinstalados):
+1. Que el stack real de `docker-compose.staging.yml --profile apps` **arranque** y el backend
+   pase health (build de imágenes + `migrate deploy`).
+2. Que `seed:synthetic` del backend cargue el dataset que esperan los specs.
+3. **Riesgo conocido (finding → rol frontend):** algunos specs de smoke están **acoplados a
+   mocks** — siembran sesión por `localStorage` (`seedVerifiedCustomer`), simulan el pago
+   ("pago simulado") y afirman **montos exactos de fixture** (p. ej. `MX$19,400.00`, `MX$0.50`).
+   Contra el backend real esas aserciones pueden **fallar**. Volver el smoke **agnóstico de
+   entorno** (o etiquetar un subconjunto `@real`) es trabajo del **rol frontend**; devops solo
+   ejecuta la suite (CLAUDE.md: los specs los escriben frontend/backend). El input `smoke_specs`
+   permite acotar el gate al subconjunto que ya sea real-safe mientras frontend adapta el resto.
+4. Requisito de runner: `e2e-real.yml` necesita navegadores Playwright preinstalados en
+   `/opt/pw-browsers`. En un runner **stock** de GitHub (sin ese preinstalado) el *Guard
+   navegador* falla a propósito — hay que usar el **runner-harness del proyecto** (o adaptar la
+   ruta con `PLAYWRIGHT_CHROMIUM_PATH`).
+
+### Deuda devops relacionada — throttler distribuido (store Redis)
+
+El rate-limit de NestJS (`@Throttle`) usa hoy **store en memoria** (por instancia). El E2E real
+corre **una sola** instancia de backend, así que el smoke **no** ejercita el rate-limit
+multi-instancia. En **prod con >1 réplica** el límite se aplicaría por-instancia (efectivo = N×
+el nominal) hasta migrar el throttler a un **store compartido en Redis** (`REDIS_URL` ya está
+disponible). Es deuda de **rol backend** (config del `ThrottlerModule`), registrada en
+`docs/TECH_DEBT.md` (v15-D3 / §5 throttler→Redis); relevante al gate porque el DAST/E2E de un
+único nodo **no** la detectaría. Disparador: subir a `numReplicas > 1` en `railway.json`.
+
+---
+
 ## 6. Deploy — estrategia propuesta (aún NO ejecutado)
 
 > El deploy real requiere credenciales prod y plataforma provisionada. Sigue el **runbook §11**.
@@ -244,7 +350,11 @@ Cadena de jobs:
 4. `deploy-staging-frontend` — `vercel pull/build/deploy` (env **preview** = staging).
 5. `dast-staging` — ZAP baseline + nuclei contra `STAGING_BASE_URL`. **Gate**: si hay críticos/altos,
    `exit 1` y **no** promueve.
-6. `promote-production-backend` / `promote-production-frontend` — solo si el DAST pasó; protegidos por el
+5b. `e2e-real` — invoca `./.github/workflows/e2e-real.yml` (`workflow_call`, `secrets: inherit`): levanta
+   el stack real (mocks=false) y corre el **smoke** de flujos críticos contra endpoints reales. **Gate**:
+   si el E2E real no pasa, **no** promueve (ver §5.1). Requiere runner-harness con Chromium preinstalado.
+6. `promote-production-backend` / `promote-production-frontend` — solo si **el DAST pasó Y el E2E real
+   pasó** (`needs: [dast-staging, e2e-real]` + `needs.e2e-real.result == 'success'`); protegidos por el
    GitHub **Environment `production`** (required reviewers). Backend a Railway (prod), frontend a Vercel
    `--prod`. Recordatorio de **snapshot de DB** antes de promover.
 
@@ -351,7 +461,8 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `.env.example` | Todas las variables documentadas (sin valores reales). |
 | `.github/workflows/ci.yml` | CI: lint + typecheck + test + build (backend/frontend) + gate `ci-ok`. |
 | `.github/workflows/security-sast.yml` | SAST en cada PR/push: semgrep + gitleaks + npm audit + trivy (gate high/critical). |
-| `.github/workflows/e2e.yml` | E2E en vivo: boota el stack y corre `test:integration` (backend) + `test:e2e` (frontend). |
+| `.github/workflows/e2e.yml` | E2E **rápido (PR)**: `test:integration` (backend, DB/Redis reales) + `test:e2e` frontend en **modo MOCK** (webServer del config, `NEXT_PUBLIC_USE_MOCKS=true`, Chromium preinstalado). Ver §5.1. |
+| `.github/workflows/e2e-real.yml` | E2E **modo REAL** (gate): stack completo `docker-compose.staging.yml` (mocks=false) + `migrate deploy` + `seed:synthetic` + **smoke** de flujos críticos (comprar/retirar/buylist) contra endpoints reales. Nightly + `workflow_call` desde `deploy.yml`. Ver §5.1. |
 | `.github/workflows/deploy.yml` | CD **ejecutable**: CI-gate → deploy staging (Railway+Vercel) → DAST → promoción a prod bloqueada por críticos y por Environment `production`. |
 | `railway.json` | Config de build/deploy del backend en Railway (Dockerfile.backend, 1 réplica, restart ON_FAILURE). |
 | `.github/workflows/security-scheduled.yml` | Cron semanal: DAST completo (ZAP full + nuclei) contra staging. |
