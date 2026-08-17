@@ -2,7 +2,40 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.15-buylist-batch-clabe).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.16-master-set).
+>
+> **Changelog v1.16-master-set (2026-08-17) — WS-E: Master Set + inventario a escala (M1, comentarios #4/#11/#12).**
+> El inventario admin (M1) hoy **no escala**: alta 1×1, tabla plana, sin vista agregada. Se añade una **vista Master
+> Set** (cada carta del set × cada acabado, como binder/cuadrícula por número, con cantidad por carta/acabado) para
+> **inventariar de un vistazo**, más **escritura por lote** (carrito de captura + publicación masiva). **El modelo
+> por-pieza NO cambia** (sigue 1 fila `InventoryItem` por pieza física — la custodia por-pieza lo exige); todo lo
+> nuevo es **agregación de lectura** + **lote de escritura**. **Aditivo.** Migración **M-21** (índice de agregación +
+> `InventoryBatch` de idempotencia/auditoría; sin backfill). NO toca dinero saliente (SPEI/reembolso); la publicación
+> deriva **precio de venta server-side** (SEC-A1, reusa reglas de venta §4.14). Ver ARCHITECTURE §4.17.
+> - **`GET /admin/inventory/master-sets` (NUEVO, `vault_operator+`, §M1):** índice de sets con resumen agregado
+>   (`MasterSetSummaryDTO`: `printedTotal`, cartas distintas en inventario / completitud, piezas totales). **Query
+>   fija** (patrón `set-value.service.ts`), sin N+1: groupBy/raw aggregate por `setId`. Paginado.
+> - **`GET /admin/inventory/master-sets/:setId` (NUEVO, `vault_operator+`, §M1):** binder del set — lista de
+>   `MasterSetCardCellDTO` por carta (número, nombre, imagen, rareza, `countsByFinish`, gaps/secret rares), en
+>   **orden natural por número** (`Card.number` es String → el backend ordena numéricamente, no lexicográfico). Los
+>   filtros locales (rareza/acabado/faltantes) los hace el front. No paginado (un set es acotado; virtualización = fase 2).
+> - **`POST /admin/inventory/items/batch` (NUEVO, `vault_operator+`, §M1):** alta por LOTE (carrito de captura, #12).
+>   N líneas en 1 request; **errores por-línea** (una línea inválida no tumba las demás → HTTP 200); **idempotencia
+>   por `batchKey`**; **auditoría por lote** (`InventoryBatch`). Cada línea reusa la misma resolución de
+>   `POST /admin/inventory/items` (costo por aportación server-side, validación de `finish`/cert). DTOs
+>   `BatchInventoryItemInput` / `BatchInventoryLineResult` / `BatchCreateInventoryResponse`.
+> - **`POST /admin/inventory/items/bulk-publish` (NUEVO, `vault_operator+`, §M1):** publicar por LOTE (varias piezas →
+>   `listed` con precio **derivado** de las reglas de venta por rareza+acabado o **manual**). **Errores por-línea**
+>   (`PRICE_PENDING` no publica esa pieza, no tumba las demás). DTOs `BulkPublishLineInput` / `BulkPublishLineResult` /
+>   `BulkPublishResponse`.
+> - **Backend además:** `@@index([cardId, finish, status])` en `InventoryItem` (M-21) para las agregaciones;
+>   `PrismaService.nextFolios(n)` (folios consecutivos por lote en 1 llamada a la secuencia); `PricingService.
+>   getReferencesBatch(items)` (referencias por lote, cierra la familia RB-8/BE-4/D3); y pago **mínimo** de **BE-25**
+>   (izar `SALES_PRICE_RULES`+fallback una vez por request + batch de referencias en `fetchSellable`/bulk-publish).
+> - **Reuso:** la misma vista Master Set (grid por número + acabados) sirve para **cotizar/comprar/inventariar** — el
+>   binder es la superficie común; back-office la usa para inventariar, el cotizador/Compra para elegir carta+acabado.
+> - **Sin cambios** en enums, SEC-A1, ni en el modelo por-pieza. **Fase 2 (fuera de este WS):** virtualización del
+>   binder, export/import CSV del lote, y una tabla materializada `InventoryStockSummary` (denormalización de conteos).
 >
 > **Changelog v1.15-buylist-batch-clabe (2026-08-17) — WS-C: cotizador de buylist (Fable) contra el backend REAL
 > (Fase 3b).** Cierra los mocks/atajos del cotizador rediseñado. **Aditivo, SIN migración.** **TOCA DINERO/PII**
@@ -433,6 +466,54 @@ BuylistBatchQuoteResultDTO =
     | ({ index: number, cardId: string, ok: true } & BuylistQuotePayload)
     | { index: number, cardId: string, ok: false, error: { code: "NOT_FOUND" | "FINISH_NOT_AVAILABLE", message: string } }
 BuylistBatchQuoteResponse = { results: BuylistBatchQuoteResultDTO[] }
+// ===== v1.16-master-set: Master Set + inventario a escala (§M1) =====
+// Fila del índice de sets (GET /admin/inventory/master-sets). Agregación SOLO de inventario de PLATAFORMA
+// (back-office). `catalogCardCount` = nº de Card del catálogo con ese setId (puede EXCEDER printedTotal por
+// secret/hyper rares > printedTotal). `distinctCardsOwned` = cartas DISTINTAS del set con ≥1 pieza on-hand.
+// `completionPct` = distinctCardsOwned / catalogCardCount × 100 (denominador = catálogo real, no printedTotal;
+// null si catalogCardCount=0). `totalPieces` = conteo de InventoryItem on-hand del set. "on-hand" = ownerType
+// 'platform' AND status NOT IN (withdrawn, shipped, delivered, lost, damaged). Ver ARCHITECTURE §4.17a (decisión abierta WS-E-1/2).
+MasterSetSummaryDTO = { setId: string, name: string, series?: string, releaseDate?: string, year?: number,
+                        printedTotal?: number, catalogCardCount: number, distinctCardsOwned: number,
+                        completionPct: number | null, totalPieces: number }
+MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: number, total: number }
+// Celda del binder (GET /admin/inventory/master-sets/:setId). Una por Card del catálogo del set. `number` es el
+// Card.number crudo (String, p. ej. "4", "SV107", "TG12"); `numberSort` es la CLAVE NUMÉRICA derivada server-side
+// para el orden natural estable (el front conserva/re-ordena por ella tras filtrar). `countsByFinish` = piezas
+// on-hand por acabado (solo acabados con ≥1 pieza); `totalCount` = suma. `isSecretRare` = numberSort > printedTotal
+// (gap/secret rare fuera del total nominal). Celda con `totalCount=0` = hueco de inventario (carta que aún no tenemos).
+MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, name: string, rarity?: string,
+                         imageSmallUrl?: string, availableFinishes: Finish[],
+                         countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean }
+MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalogCardCount: number,
+                            cells: MasterSetCardCellDTO[] }
+// ----- Alta por LOTE (POST /admin/inventory/items/batch) -----
+// Una línea = una intención de alta; `qty` (default 1) es un ATAJO que el backend expande a N InventoryItem
+// (N piezas físicas, N folios) para bulk raw/sellado. graded → qty forzado a 1 (cada slab es único por certNumber;
+// qty>1 en graded → 422 VALIDATION_ERROR). Los demás campos = MISMOS que POST /admin/inventory/items.
+BatchInventoryItemInput = { cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish,
+                            sealedSubtype?: SealedSubtype, gradingCompany?: GradingCompany, gradeValue?: string,
+                            certNumber?: string, locationId?: string, acquisitionType: AcquisitionType,
+                            acquisitionPct?: number, listPriceCents?: number, qty?: number }
+BatchCreateInventoryRequest = { batchKey: string, items: BatchInventoryItemInput[] }   // cap items = 200
+// Resultado por línea: ok:true crea qty piezas (devuelve sus folios); ok:false trae el error de ESA línea
+// (NO tumba las demás → HTTP 200). `index` = posición 0-based en items[].
+BatchInventoryLineResult =
+    | { index: number, ok: true, folios: string[], inventoryItemIds: string[], acquisitionCostCents?: number }
+    | { index: number, ok: false, error: { code: string, message: string } }
+// `idempotentReplay` = true si el batchKey ya se había procesado (se REPITE el resultado guardado; no re-crea).
+BatchCreateInventoryResponse = { batchKey: string, idempotentReplay: boolean,
+                                 summary: { requested: number, createdItems: number, failedLines: number },
+                                 results: BatchInventoryLineResult[] }
+// ----- Publicar por LOTE (POST /admin/inventory/items/bulk-publish) -----
+// `listPriceCents` omitido → precio DERIVADO server-side de las reglas de venta por rareza+acabado (§4.14, SEC-A1);
+// presente → override manual. Una pieza cuyo precio no se resuelve (pct sin market) NO se publica (PRICE_PENDING).
+BulkPublishLineInput = { inventoryItemId: string, listPriceCents?: number }
+BulkPublishRequest = { batchKey?: string, items: BulkPublishLineInput[] }   // cap items = 200
+BulkPublishLineResult =
+    | { index: number, inventoryItemId: string, ok: true, status: "listed", salePriceCents: number, priceSource: "manual" | "derived" }
+    | { index: number, inventoryItemId: string, ok: false, error: { code: string, message: string } }
+BulkPublishResponse = { summary: { requested: number, published: number, failedLines: number }, results: BulkPublishLineResult[] }
 // Desglose del checkout. base = subtotal + iva se recibe íntegro; el fee es gross-up de la comisión Stripe.
 // "SIN IVA" = el fee NO agrega una línea de IVA de PRODUCTO (no se vuelve a gravar la venta). Internamente
 // el gross-up SÍ cubre el IVA que Stripe MX cobra sobre SU comisión (dial stripe_fee_iva_pct, ver ARCHITECTURE §5.1).
@@ -998,6 +1079,56 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `POST /api/v1/admin/inventory/items/:id/move` — Req `{ toLocationId, note? }` → registra `InventoryMovement`.
 - `POST /api/v1/admin/inventory/items/:id/mark` — Req `{ mark: "lost" | "damaged", note }` → `status` y movimiento; disponible para reposición (M7/tope M10).
 - Ubicaciones: `GET /api/v1/admin/locations`, `POST /api/v1/admin/locations` (`{ zone, box, row, slot }`).
+
+#### Master Set + inventario a escala (v1.16-master-set) — `vault_operator+`
+> Vista agregada del inventario (binder/cuadrícula por set) + escritura por lote. **NO cambia el modelo por-pieza**
+> (1 `InventoryItem` por pieza física): todo es agregación de lectura + lote de escritura. Ver ARCHITECTURE §4.17.
+
+- `GET /api/v1/admin/inventory/master-sets` — **(NUEVO)** índice de sets con resumen agregado para inventariar.
+  Query: `?q=` (filtro por nombre de set, opcional), `?page=1&pageSize=20` (paginado; default `pageSize=20`),
+  `?sort=` (`release_desc` default | `completion_asc` | `pieces_desc`). **Solo inventario de PLATAFORMA.**
+  Res `200` (`MasterSetIndexResponse`): `{ data: MasterSetSummaryDTO[], page, pageSize, total }`.
+  - **Sin N+1 (patrón `set-value.service.ts`):** query fija — (1) página de `CardSet`; (2) `Card.groupBy({ by:[setId] })`
+    para `catalogCardCount`; (3) **una** agregación (raw SQL `GROUP BY c."setId"`) sobre `InventoryItem ⋈ Card` para
+    `totalPieces` + `distinctCardsOwned` de los `setId` de la página. `year` se deriva de `releaseDate` (yyyy/MM/dd).
+- `GET /api/v1/admin/inventory/master-sets/:setId` — **(NUEVO)** binder del set: una celda por carta del catálogo.
+  `:setId` = id LOCAL del `CardSet` (no `externalId`). Res `200` (`MasterSetBinderResponse`): `{ set, printedTotal,
+  catalogCardCount, cells: MasterSetCardCellDTO[] }`, `cells` en **ORDEN NATURAL por número** (ver nota).
+  - **Orden natural (obligatorio):** `Card.number` es **String** → el orden lexicográfico rompe ("10" < "2", "TG12"
+    mal ubicado). El backend ordena por `numberSort` (parte numérica extraída de `number`, p. ej. raw SQL
+    `NULLIF(regexp_replace(number,'\D','','g'),'')::int NULLS LAST`), desempatando por el `number` crudo. Los números
+    no-numéricos puros (promos/subsets tipo `TG`, `GG`, `SV`) van al final agrupados por prefijo. `isSecretRare` =
+    `numberSort > printedTotal`.
+  - **Sin N+1:** (1) `Card WHERE setId` (cartas del set); (2) **una** agregación (raw SQL o `groupBy [cardId, finish]`)
+    de piezas on-hand por `(cardId, finish)` para los `cardId` del set → `countsByFinish`. Los **filtros locales**
+    (rareza, acabado, solo faltantes, solo secret rares) los aplica el **frontend** sobre la respuesta completa.
+  - Err `404 NOT_FOUND` (no existe `CardSet` con ese id).
+- `POST /api/v1/admin/inventory/items/batch` — **(NUEVO)** alta por LOTE (carrito de captura, #12). N líneas en 1 request.
+  Req (`BatchCreateInventoryRequest`): `{ batchKey, items: BatchInventoryItemInput[] }` (cap **200** líneas). También
+  acepta header `Idempotency-Key` (equivalente a `batchKey`).
+  - **Errores por-línea:** una línea inválida (`FINISH_NOT_AVAILABLE`, `PRICE_PENDING` por aportación sin referencia,
+    `VALIDATION_ERROR` p. ej. graded sin `certNumber` o `qty>1`, sellado con `rawCondition`) **no tumba** las demás.
+    Las líneas válidas **SÍ se crean** (commit parcial, no atómico) → HTTP global **200**.
+  - **`qty` (default 1):** atajo que expande a N `InventoryItem` (N folios) para bulk raw/sellado; `graded` fuerza 1.
+    Cada línea reusa **exactamente** la lógica de `POST /admin/inventory/items` (costo de aportación server-side,
+    validación de `finish` contra `availableFinishes`, folio legible). Los folios del lote son **consecutivos**
+    (`PrismaService.nextFolios(n)` en 1 reserva de secuencia).
+  - **Idempotencia + auditoría:** el `batchKey` se persiste en `InventoryBatch` (M-21) con el resultado; un replay del
+    mismo `batchKey` devuelve el resultado guardado con `idempotentReplay:true` **sin** re-crear. El lote queda auditado
+    (`AuditLog action=inventory.batch_create`, con `batchKey` + resumen; nunca PII).
+  - Res `200` (`BatchCreateInventoryResponse`): `{ batchKey, idempotentReplay, summary, results }`.
+  - Err `400 VALIDATION_ERROR` (items vacío / sobre-cap / `batchKey` ausente).
+- `POST /api/v1/admin/inventory/items/bulk-publish` — **(NUEVO)** publicar por LOTE (varias piezas → `listed`).
+  Req (`BulkPublishRequest`): `{ batchKey?, items: BulkPublishLineInput[] }` (cap **200**).
+  - Por línea: `status → listed`. `listPriceCents` presente → **override manual**; ausente → **precio de venta
+    derivado** de las reglas por rareza+acabado (§M2 sales-rules, SEC-A1) reusando `computeSalePriceForItem`. Una pieza
+    cuyo precio **no se resuelve** (`pct` sin market) → línea falla `PRICE_PENDING` y **NO** se publica (regla "solo se
+    lista lo que tiene precio"). Sellado sin `listPriceCents` y sin override → `PRICE_PENDING`; graded sin `certNumber`
+    → `VALIDATION_ERROR`.
+  - **Errores por-línea** (item no encontrado, no `ownerType=platform`, precio pendiente) no tumban las demás → HTTP
+    **200**. Re-publicar una pieza ya `listed` es **no-op idempotente** (`ok:true`). Reusa `getReferencesBatch` (1
+    lote de referencias) e iza `SALES_PRICE_RULES`+fallback **una vez** por request (pago mínimo de **BE-25**).
+  - Res `200` (`BulkPublishResponse`): `{ summary, results }`. Auditado (`AuditLog action=inventory.bulk_publish`).
 
 ### M2 — Catálogo y precios (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`PricingController`, `FxController`, `AdminCatalogController`). No requiere backend nuevo para el flujo M2 existente (sync de precios de bóveda, override, FX, rareza→categoría, sync de catálogo por fecha/backfill); falta **consumo de frontend** (M2 es `ModuleTodo` en UI). Lo **único NUEVO** de backend en M2 es `POST /admin/catalog/sync-all` (abajo), para la Opción 1 del cotizador.

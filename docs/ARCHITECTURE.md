@@ -48,6 +48,23 @@
 >   `clabeOnFile` (§1); DTOs `BuylistQuoteItemDTO` / `BuylistBatchQuoteResultDTO` / `BuylistBatchQuoteResponse`. Sin
 >   migración.
 >
+> **Changelog v1.16-master-set (2026-08-17) — WS-E: Master Set + inventario a escala (M1, #4/#11/#12).**
+> El inventario admin no escala (alta 1×1, tabla plana, sin agregado). Se añade una **vista Master Set** (binder por
+> set: cada carta × cada acabado, cuadrícula por número, con cantidad on-hand por carta/acabado) + **escritura por
+> lote** (carrito de captura + publicación masiva). **El modelo por-pieza NO cambia** (1 `InventoryItem` por pieza —
+> la custodia por-pieza lo exige); todo lo nuevo es **agregación de lectura** + **lote de escritura**. **Aditivo.**
+> Migración **M-21** (índice de agregación + `InventoryBatch`). NO toca dinero saliente; la publicación deriva el
+> **precio de venta server-side** (reusa reglas de venta §4.14, SEC-A1). Nuevo **§4.17**.
+> - **Lectura agregada (§4.17a):** `GET /admin/inventory/master-sets` (índice con completitud/piezas por set) y
+>   `GET /admin/inventory/master-sets/:setId` (binder con `countsByFinish` por carta, **orden natural** de `Card.number`
+>   String). **Query fija, sin N+1** (patrón `set-value.service.ts`: groupBy + raw aggregate por set/carta).
+> - **Escritura por lote (§4.17b):** `POST /admin/inventory/items/batch` (alta N líneas, **errores por-línea**,
+>   idempotencia `batchKey`, folios consecutivos `nextFolios(n)`) y `POST /admin/inventory/items/bulk-publish`
+>   (publicar N piezas con precio derivado/manual, errores por-línea).
+> - **Deuda pagada:** `PricingService.getReferencesBatch` (cierra RB-8/BE-4/D3) y pago **mínimo de BE-25** (izar
+>   `SALES_PRICE_RULES`+fallback + batch de referencias en `fetchSellable`/bulk-publish). Índice `@@index([cardId,
+>   finish, status])` (M-21). **Fase 2:** virtualización del binder, CSV, tabla `InventoryStockSummary` materializada.
+>
 > **Changelog v1.14-price-ingest (2026-08-17) — WS-A: ingesta MASIVA de precios vía proveedor de PAGA
 > (PokemonPriceTracker), pluggable, que REEMPLAZA el barrido por-carta frágil.** Decisión del plan (WS-A): el pricing del
 > catálogo deja de depender del re-sync completo de pokemontcg.io corrido **fire-and-forget en memoria**
@@ -2107,6 +2124,80 @@ producto, no una traducción del modelo actual). Ver decisión abierta **WS-C-2*
   archivo (sin reteclear) y con INE en archivo (sin resubir); pentest del fallback (no fugar/loguear CLABE; no resolver
   la de otro usuario).
 
+### 4.17 WS-E — Master Set + inventario a escala (M1) (v1.16-master-set)
+
+**Problema.** M1 no escala: el alta es 1×1 (`M1View` abre un modal, elige carta, crea una pieza) y la lectura es una
+tabla plana paginada de piezas (`GET /admin/inventory/items`). Para inventariar una colección real (miles de cartas,
+cada set con ~150–400 cartas × varios acabados) el dueño necesita (a) ver **de un vistazo** qué tiene y qué falta por
+set y acabado, y (b) **dar de alta y publicar por lote**. **Invariante que NO cambia:** sigue habiendo **1
+`InventoryItem` por pieza física** (la custodia por-pieza, folios, ubicación y movimientos lo exigen). WS-E es
+**agregación de lectura** + **lote de escritura** encima del mismo modelo.
+
+**#### 4.17a Lectura agregada (binder).**
+- **Índice de sets** (`GET /admin/inventory/master-sets`): resumen por set. Consulta **fija, sin N+1** siguiendo el
+  patrón de `set-value.service.ts:computeSetValue` (2–3 queries en lote, agregación en memoria):
+  1. página de `CardSet` (con `q`/`sort`/paginación);
+  2. `Card.groupBy({ by:[setId], _count })` → `catalogCardCount` por set;
+  3. **una** agregación cruzada `InventoryItem ⋈ Card` para los `setId` de la página (raw SQL:
+     `SELECT c."setId", COUNT(*) pieces, COUNT(DISTINCT ii."cardId") distinctCards FROM "InventoryItem" ii JOIN "Card"
+     c ON c.id=ii."cardId" WHERE ii."ownerType"='platform' AND ii.status NOT IN (…) AND c."setId" = ANY($ids) GROUP BY
+     c."setId"`). Es 1 query por página, no por set.
+  `completionPct = distinctCardsOwned / catalogCardCount × 100` (denominador = **catálogo real**, no `printedTotal`,
+  para no dar >100% con secret rares; se expone también `printedTotal` para que el front muestre "X / printedTotal" si
+  quiere). Ver decisiones abiertas **WS-E-1/2**.
+- **Binder del set** (`GET /admin/inventory/master-sets/:setId`): una `MasterSetCardCellDTO` por `Card` del set.
+  Consulta fija: (1) `Card WHERE setId`; (2) **una** agregación `groupBy [cardId, finish]` (o raw) de piezas on-hand
+  → `countsByFinish`. Sirve el índice **M-21** `@@index([cardId, finish, status])`.
+- **Orden natural (obligatorio).** `Card.number` es **String**; el orden lexicográfico rompe ("10"<"2"; promos `TG12`).
+  El backend deriva `numberSort` (parte numérica: `NULLIF(regexp_replace(number,'\D','','g'),'')::int`, `NULLS LAST`)
+  y ordena por `(numberSort, number)`. `isSecretRare = numberSort > printedTotal`. El front hace **filtros locales**
+  (rareza/acabado/faltantes/secret) sobre la respuesta completa (no paginada; un set es acotado — virtualización = fase 2).
+
+**#### 4.17b Escritura por lote.**
+- **Alta por lote** (`POST /admin/inventory/items/batch`): reusa la lógica de `inventory.service.ts:create` por línea,
+  dentro de una iteración **tolerante a fallos** (una línea que lanza `BusinessException` se captura y se reporta como
+  `ok:false` sin abortar el lote → commit parcial). **`qty`** expande a N filas (bulk raw/sellado; graded=1). Los
+  folios del lote se reservan **consecutivos** con el nuevo `PrismaService.nextFolios(n)` (una llamada
+  `SELECT nextval(...) FROM generate_series(1,n)` en vez de N round-trips). **Idempotencia + auditoría por lote:** el
+  `batchKey` se persiste en el nuevo modelo `InventoryBatch` (M-21) junto con el resultado; un replay devuelve el
+  resultado guardado (`idempotentReplay:true`) sin re-crear. `InventoryBatch` **es** el registro de auditoría del lote.
+- **Publicación por lote** (`POST /admin/inventory/items/bulk-publish`): por pieza, `status→listed` + precio
+  **derivado** de las reglas de venta por rareza+acabado (§4.14, `computeSalePriceForItem`, SEC-A1) o **manual**
+  (`listPriceCents`). Una pieza cuyo precio no se resuelve (`pct` sin market) → `PRICE_PENDING`, **no** se publica
+  (regla "solo se lista lo que tiene precio", §4.9). Errores por-línea; re-publicar = no-op idempotente.
+
+**#### 4.17c Deuda pagada (parte del alcance de WS-E).**
+- **`PricingService.getReferencesBatch(items)`** (cierra **RB-8/BE-4/D3**): resuelve la "referencia vigente = más
+  reciente por acabado" para N ítems en **1** query (`WHERE (cardId,productType,gradeKey,finish) IN …`, orden
+  `capturedDate desc`, primera por clave). Lo usan `bulk-publish` y el binder, y queda disponible para `holdings`/
+  `ownedItemRefs`/`inventoryValue` (misma dirección que la deuda diferida).
+- **BE-25 (pago mínimo):** `fetchSellable` y `bulk-publish` **izan** `SALES_PRICE_RULES`+fallback **una vez por
+  request** (en vez de 2 lecturas de settings sin cache por ítem) y usan `getReferencesBatch`. Cierra el N+1 de
+  settings en la ruta de venta; el resto de BE-25 (memoización global de `SettingsService`) queda como deuda menor.
+
+**#### 4.17d Reuso.** El binder (grid por número + acabados disponibles con `countsByFinish`) es la **misma superficie**
+que ya usa el picker de catálogo del cotizador (`GET /buylist/cards`) y la de Compra: back-office la usa para
+**inventariar**; el cotizador/Compra, para **elegir carta+acabado**. El front puede compartir el componente de
+cuadrícula (celda = carta+acabados); solo cambia la acción (agregar-al-carrito vs cotizar vs comprar).
+
+#### Reparto de trabajo
+- **Backend (M1):** (1) `GET /admin/inventory/master-sets` + `/:setId` con las agregaciones fijas (raw SQL/groupBy,
+  sin N+1) y el orden natural de `number`. (2) `POST /admin/inventory/items/batch` (iteración tolerante a fallos,
+  `qty`, idempotencia `InventoryBatch`, auditoría). (3) `POST /admin/inventory/items/bulk-publish` (derivación de
+  precio server-side, errores por-línea). (4) `PrismaService.nextFolios(n)`. (5) `PricingService.getReferencesBatch`
+  + pago mínimo de BE-25. (6) Migración M-21 (índice + `InventoryBatch`). Tests: agregados coinciden con conteos
+  reales; orden natural ("10">"2", `TG12` al final); batch con 1 línea inválida devuelve 200 + resto creado; replay de
+  `batchKey` no duplica; bulk-publish con `pct` sin market → `PRICE_PENDING` sin publicar; sin N+1 (conteo de queries).
+- **Frontend (M1):** (1) **índice Master Set** (grid de sets con completitud/piezas, ordenable). (2) **binder** del set
+  (cuadrícula por número; celda con imagen, número, `countsByFinish`, badges de acabado; resaltar huecos y secret
+  rares; **filtros locales** rareza/acabado/faltantes). (3) **carrito de captura** (#12): acumular líneas → 1 POST
+  `/batch` → render **parcial-tolerante** (folios creados / errores por-línea). (4) **publicación masiva**: seleccionar
+  N piezas → `/bulk-publish` con precio derivado/manual → resultados por-línea. Reusa el componente de cuadrícula del
+  picker existente.
+- **Devops/QA:** doble veredicto (no toca dinero saliente; la publicación deriva precio server-side). E2E: inventariar
+  un set por el binder (alta por lote de varias cartas/acabados), ver el conteo agregado actualizarse, publicar en
+  lote, y confirmar que el replay del carrito no duplica.
+
 ---
 
 ## 5. Decisiones transversales
@@ -2279,12 +2370,43 @@ Riesgos técnicos:
   `pokemontcg_io`+USD). No es un bug en producción hoy (funciona), pero **contradice la doctrina WS-A** de "catalog-sync
   = solo metadata" → se documenta y enruta a **backend**.
 
+- **BE-25 — DIRIGIDO (parcial) por WS-E (v1.16-master-set, §4.17c).** El N+1 de settings en `fetchSellable`
+  (`SALES_PRICE_RULES`+fallback leídos sin cache por ítem) se paga **mínimamente** dentro de WS-E: izar esas dos
+  lecturas **una vez por request** + usar el nuevo `getReferencesBatch` en `fetchSellable`/`bulk-publish`. El resto de
+  BE-25 (memoización global de `SettingsService`, familia BE-4/D3) sigue como deuda menor en `docs/TECH_DEBT.md`.
+  **RB-8** (regla de valuación duplicada) se **cierra** al extraer `PricingService.getReferencesBatch` (§4.17c).
+  **Acción (backend):** aplicar dentro de la entrega de WS-E; anotar el remanente en `docs/TECH_DEBT.md`.
+
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.
 
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.16-master-set — WS-E: Master Set + inventario a escala)
+> No bloquean el diseño (defaults propuestos por el arquitecto). **Dos tocan una ambigüedad de PROJECT.md** (WS-E-1/2):
+> PROJECT §F/M1 pide "vista Master Set… cantidad por carta/acabado / completitud" pero **no define** contra qué se mide
+> la completitud ni qué inventario cuenta. El arquitecto **no asume** la regla de negocio (CLAUDE.md); propone default y
+> lo señala al humano.
+- **WS-E-1 — Denominador de la completitud.** `completionPct` = cartas distintas que tenemos / **total del set**. Pero
+  "total del set" es ambiguo: `printedTotal` (nominal, sin secret/hyper rares) **o** `catalogCardCount` (todas las
+  cartas del catálogo del set, incluidas las > printedTotal). Default propuesto: **`catalogCardCount`** (nunca da >100%;
+  el `printedTotal` se expone aparte para el label "X / printedTotal"). ¿Confirma, o la completitud debe medirse contra
+  `printedTotal` (y las secret rares cuentan como "extra")?
+- **WS-E-2 — Qué inventario cuenta como "on-hand".** Default propuesto: `ownerType='platform'` **y** `status NOT IN
+  (withdrawn, shipped, delivered, lost, damaged)` (lo que físicamente tenemos en bóveda de plataforma). ¿Se incluye
+  también la custodia de clientes (`customer_custody`) en el Master Set, o el binder es **solo** stock de plataforma
+  (recomendado, es back-office de inventario propio)? ¿`reserved`/`in_custody` cuentan como on-hand? Confirmar.
+- **WS-E-3 — `qty` en el alta por lote.** Propuesta: `qty` (default 1) expande a N piezas para **bulk raw/sellado**;
+  `graded` fuerza 1 (cada slab es único por `certNumber`). Es un atajo de captura, **no** cambia el modelo por-pieza (se
+  crean N `InventoryItem` reales). ¿Se desea `qty`, o el carrito manda siempre 1 línea = 1 pieza (más explícito)?
+- **WS-E-4 — Cap del lote (200) e idempotencia.** Cap propuesto **200** líneas/lote (constante de servidor) e
+  idempotencia con `InventoryBatch` (nuevo modelo, M-21) que además **es** la auditoría del lote. Alternativa: cap como
+  dial M10; idempotencia solo por header sin persistir (más frágil). Default: constante + `InventoryBatch`. Confirmar.
+- **WS-E-5 — `numberSort` para números no-numéricos.** `Card.number` incluye promos/subsets (`TG12`, `GG01`, `SV107`).
+  Propuesta: ordenar por parte numérica ascendente, con los no-numéricos-puros **al final** agrupados por prefijo. Es un
+  orden de presentación (no de negocio); si el dueño quiere otro criterio (p. ej. subsets `TG` intercalados), se ajusta.
 
 ### Preguntas abiertas (v1.15-buylist-batch-clabe — WS-C: cotizador de Fable contra el backend real)
 > No bloquean el diseño (defaults propuestos por el arquitecto); se listan para que el orquestador/humano vete o ajuste.
@@ -2424,6 +2546,22 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.16-master-set (nueva — WS-E: Master Set + inventario a escala)
+
+**Aditiva, una sola migración `M-21`.** Un índice compuesto (acelera las agregaciones del binder) + un modelo nuevo
+(`InventoryBatch`) de idempotencia/auditoría del alta por lote. **Sin backfill.** No crea enums ni diales. **NO cambia
+el modelo por-pieza** (`InventoryItem` sigue 1 fila por pieza). El resto de WS-E (§4.17) es **código**: agregaciones
+raw/`groupBy`, orden natural de `number`, `PrismaService.nextFolios(n)`, `PricingService.getReferencesBatch`, pago
+mínimo de BE-25, y los 4 endpoints M1.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-21 | `InventoryItem` `@@index([cardId, finish, status])` | **Nuevo** índice compuesto | Create index | Sirve la agregación `countsByFinish` del binder (`GROUP BY cardId, finish` filtrando `status` on-hand) y el conteo por set. Complementa los `@@index([cardId])`/`@@index([status])` existentes (no los reemplaza). |
+| M-21 | `InventoryBatch` | **Modelo nuevo** (`id`=`batchKey` `@id`, `actorUserId String?`, `kind String` (`create`\|`publish`), `requested Int`, `createdItems Int`, `failedLines Int`, `resultJson Json`, `createdAt`) | Create table | Idempotencia + auditoría del alta por lote: un replay del mismo `batchKey` devuelve `resultJson` sin re-crear. Es el registro de auditoría del lote (complementa `AuditLog`). Sin FK dura a `User` (auditoría, patrón `AuditLog`). |
+
+> **Enum:** ninguno nuevo. **Config/diales:** ninguno en DB; el cap del lote (200) y `BUYLIST_QUOTE_BATCH_MAX`-style son
+> **constantes de servidor** (decisión abierta WS-E-4 sobre si alguno debe ser dial M10).
 
 ### v1.14-price-ingest (nueva — WS-A: ingesta masiva vía proveedor de paga) — **SIN migración de esquema**
 
