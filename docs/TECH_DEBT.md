@@ -326,6 +326,97 @@
   (no urgente): **capturar el `jobId` en el closure** y verificar `this.syncAllStatus.jobId === jobId` antes de
   mutar en el `finally`.
 
+### Fase 0 del epic de precios — deuda del delta (commit ebb4dee, 2026-08-17, no bloqueante)
+
+> De la **Fase 0** del epic de precios (gate premium `isPremiumRarity`/`ruleKeyCandidates`, encolado honesto
+> de `publicQuote`, INE con línea pendiente). Triple veredicto **APROBADO** (qa + techlead APROBADO-con-deuda +
+> seguridad APROBADO). Todos los ítems de abajo son **no bloqueantes**, dueño **backend** salvo donde se
+> anota coordinación con **arquitecto**. Registrados a petición del techlead/seguridad sin tocar código de
+> producción. Continúan la numeración `BE-*` (tras BE-1..12). Detalle de implementación en
+> `docs/BACKEND_NOTES.md` (contrato §4.2.1 / §6).
+
+### BE-13 · Contabilidad AML mensual no re-cuenta ítems que fueron `precio_pendiente` (Media, seguridad)
+- **Dónde:** `src/modules/buylist/buylist.service.ts` → `monthUsedCentsTx` (~:294-307).
+- **Estado actual:** el acumulado mensual agrega `quotedTotalCents` (no `approvedTotalCents`). Un ítem que
+  entra como **`precio_pendiente`** (cotizado en 0) no suma al mensual al crearse; cuando el admin lo resuelve
+  su monto entra a `approvedTotalCents` de la solicitud pero **nunca se re-contabiliza** contra el tope
+  mensual AML del usuario. Un usuario podría, en teoría, superar el tope mensual acumulando aprobaciones de
+  ítems que nacieron pendientes.
+- **Impacto:** medio (AML/cumplimiento). **Compensado hoy** por tres capas: (1) la **INE siempre exigida** con
+  cualquier línea pendiente en la solicitud; (2) el **cap por-solicitud** en `assertApprovedPriceWithinCap`
+  (min(quoted×2, `buylist_cap_per_request_cents`)); (3) money-out **solo `super_admin`** y **auditado**. No hay
+  fuga automática de dinero: cada pago SPEI pasa por el super_admin.
+- **Disparador:** **abrir ticket ANTES de operar con dinero real / volumen AML relevante.** Solución: basar el
+  mensual en `max(quotedTotalCents, approvedTotalCents)`, o re-evaluar el cap mensual en
+  `itemDecision`/`recomputeApprovedTotal` al fijar `approvedPriceCents`.
+
+### BE-14 · `isPremiumRarity` es allowlist finita de patrones (Baja, seguridad)
+- **Dónde:** `src/common/money.ts` → `PREMIUM_RARITY_PATTERNS` / `isPremiumRarity` (~:125-153).
+- **Estado actual:** el gate premium empareja por substrings/tokens de una lista finita. Rarezas **chase
+  antiguas** que no matchean ningún patrón se escapan del gate (`Rare Shining`, `Rare Prime`, `Rare LEGEND`,
+  `Rare BREAK`, `Rare ACE`); en finish holofoil, una premium cuyo string no lleva "holo" y no está en la
+  allowlist cae al bin `['Holo']`.
+- **Impacto:** bajo y **acotado a la baja**: el fallo posible es **subcotización** (pagar de menos por una
+  chase antigua tratada como bulk), **nunca money-out excesivo**. No hay riesgo de sobrepago automático.
+- **Disparador:** si se empiezan a cotizar **eras antiguas** (pre-Scarlet&Violet chase). Solución: ampliar
+  `PREMIUM_RARITY_PATTERNS` con esos tokens. Dueño **backend**; la definición de taxonomía es del **arquitecto**.
+
+### BE-15 · `escalatePending` dedup no atómico (falta `@@unique`) (Baja, seguridad)
+- **Dónde:** `src/modules/pricing/pricing.service.ts` → `escalatePending` (~:189-195); modelo
+  `PendingPriceEntry` (`prisma/schema.prisma`).
+- **Estado actual:** el dedup es `findFirst` (`status='open'`) **+** `create`, sin unicidad en la tabla.
+  `PendingPriceEntry` **no** tiene `@@unique` sobre `(cardId, productType, gradeKey, finish)` → bajo
+  **concurrencia** (dos quotes/escaladas simultáneas de la misma combinación) pueden crearse **filas
+  duplicadas** en la cola de precio pendiente.
+- **Impacto:** bajo. A lo sumo entradas duplicadas en la cola de trabajo del admin (ruido operativo); no afecta
+  dinero ni correctness de cotización (la resolución del precio resuelve todas las abiertas de la combinación).
+- **Disparador:** al endurecer la cola de pendientes o si aparecen duplicados en operación. Solución: índice
+  único parcial `(cardId, productType, gradeKey, finish) WHERE status='open'` + `upsert`/captura de **P2002**.
+  **Toca `schema.prisma` → coordinar con arquitecto.**
+
+### BE-16 · `publicQuote` escala pendientes desde endpoint público/anónimo (hallazgo QA, aceptado por seguridad)
+- **Dónde:** `src/modules/buylist/buylist.service.ts` → `publicQuote` (~:81-83) +
+  `src/modules/buylist/buylist.controller.ts` (~:14-19).
+- **Estado actual:** el cotizador público (anónimo) llama `escalatePending` cuando el acabado cotiza
+  `precio_pendiente` — para cumplir la promesa del copy ("entrará a la cola de precio pendiente"). Un usuario
+  **anónimo** puede, en consecuencia, **poblar la cola** de precio-pendiente enumerando cartas. **Acotado**
+  por: solo cartas **existentes** en catálogo, throttle global (300/min), y dedup best-effort (BE-15).
+- **Impacto:** bajo. Ruido en la cola de trabajo del admin; sin fuga de datos ni de dinero (SEC-A1 intacto:
+  rareza/montos server-side).
+- **Disparador:** **la Fase 1 (precio on-demand) lo supersede** — el quote traerá precio real en vez de
+  encolar, y el punto desaparece. Si molesta la cola antes de eso: marcar el **origen** del pendiente
+  (público vs autenticado) o escalar **solo autenticado**. Aceptado como interino por seguridad.
+
+### BE-17 · Falta test unitario directo de `isPremiumRarity` / `ruleKeyCandidates` (D1 techlead)
+- **Dónde:** `test/money.spec.ts` (no las cubre directamente); hoy solo se ejercen vía integración en
+  `test/buylist.modern-rarity.spec.ts`.
+- **Estado actual:** el gate premium (`isPremiumRarity`) y la selección de candidatos (`ruleKeyCandidates`)
+  se prueban **indirectamente** por integración, no con una tabla de casos unitaria dedicada.
+- **Impacto:** bajo (calidad/mantenibilidad). Sin cobertura directa, un cambio en los patrones podría
+  regresar sin fallar un test unitario; el token `\b(v|ex|gx…)\b` es especialmente **propenso a falsos
+  positivos** (p. ej. "ex" dentro de otras palabras) y merece casos explícitos.
+- **Disparador:** próximo pase de hardening de tests. Solución: agregar a `test/money.spec.ts` una **tabla de
+  casos** (premium vs bulk, holofoil/reverse/normal, y el token de V-series/EX/GX).
+
+### BE-18 · Asimetría del gate: `reverse_holo` no pasa por `isPremiumRarity` (techlead punto 3)
+- **Dónde:** `src/common/money.ts` → `ruleKeyCandidates`, rama `case 'reverse_holo'` (~:173-174).
+- **Estado actual:** `reverse_holo` retorna **siempre** `['Reverse Holo']` **sin** pasar por el gate premium
+  (a diferencia de holofoil/1st-ed, que sí lo aplican). Probablemente inocuo: una rareza premium **rara vez**
+  existe en acabado reverse, y `assertFinishAvailable` filtra acabados no disponibles; pero la asimetría no
+  tiene test ni doc que la justifique.
+- **Impacto:** bajo/latente. Igual que BE-14, el fallo posible sería **subcotización**, no money-out excesivo.
+- **Disparador:** si aparece una rareza premium con `reverse_holo` real en catálogo. Solución: aplicar el
+  mismo gate premium a la rama `reverse_holo` (o documentar/testear la exclusión intencional).
+
+### BE-19 · Comentario "inocuo" de la sobre-inclusión en `money.ts` debería decir "costo acotado" (cosmético, D2 techlead)
+- **Dónde:** `src/common/money.ts` (~:120-121 y ~:166).
+- **Estado actual:** los comentarios describen la sobre-inclusión del gate premium (una carta barata
+  clasificada premium "solo pasa a % de mercado, **inocuo**"). En **buylist** ese "% de mercado" **es dinero
+  que sale** (aunque pequeño), así que la redacción correcta es "**costo acotado**", no "inocuo".
+- **Impacto:** nulo funcional; solo precisión del comentario (evita subestimar el efecto en dinero saliente).
+- **Disparador:** próximo toque de `money.ts`. Solución: reemplazar "inocuo" por "costo acotado" en esos dos
+  comentarios.
+
 ---
 
 ## Frontend (dueño: frontend)

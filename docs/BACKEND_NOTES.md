@@ -2093,3 +2093,56 @@ es el `PriceReference` completo (incluye `finish`). Auditado con `finish` en `af
   entrada expone `cardName`, `card{name,number,setName}` y `finish`.
 - `test/inventory.sealed.spec.ts` ajustado a la nueva llamada (`..., 'inventory', undefined, 'normal'`).
 - Gates: `lint` OK · `typecheck` OK · `build` OK · `npm test` = **58 suites / 377 tests verdes**.
+
+## 33. Fase 0 del epic de precios (commit ebb4dee, 2026-08-17) — gate premium + encolado honesto + INE con pendiente
+
+> Fase 0 del epic de precios, con **triple veredicto APROBADO** (qa + techlead APROBADO-con-deuda +
+> seguridad APROBADO). Cierra el bug estructural de dinero por el que una rareza chase podía cotizar al bin
+> fijo barato de bulk, hace real la promesa del copy del cotizador público, y sella el gating de INE cuando
+> la solicitud lleva líneas pendientes. Remite al contrato **§4.2.1** (semántica holofoil por rareza) y
+> **§6** (reglas de buylist). La deuda **no bloqueante** del delta quedó registrada como **BE-13..BE-19** en
+> `docs/TECH_DEBT.md` (ver disparadores; BE-13 pide ticket antes de operar con dinero real).
+
+### 33.1 (Fase 0.1) Gate premium — `isPremiumRarity` + `ruleKeyCandidates` (`common/money.ts`)
+- **Regla de negocio (humano):** SOLO Common/Uncommon y el "holo/reverse común" son precio **FIJO** de bulk;
+  todo lo más raro es un **% arriba del mercado**. Una rareza **premium (chase)** por tanto **NUNCA** debe
+  poder caer al bin fijo barato de bulk.
+- **`isPremiumRarity(rarity)`**: `true` si la rareza matchea `PREMIUM_RARITY_PATTERNS` (allowlist de
+  substrings/tokens case-insensitive: Illustration/Ultra/Double/Secret/Rainbow/Hyper/Full Art/Alt Art/
+  Amazing/Radiant/Shiny/Trainer Gallery/Character/Gold/Prism + token suelto `\b(v|vmax|vstar|vunion|ex|gx)\b`).
+  Diseñado para **sobre-incluir** a propósito: una carta barata mal clasificada como premium solo pasa a "%
+  de mercado" (**costo acotado**), mientras que sub-incluir una chase = tratarla como bulk = **pérdida de
+  dinero** (el fallo que se estaba cerrando).
+- **`ruleKeyCandidates(rarity, finish)`** devuelve los candidatos de `ruleKey` en orden de prioridad (gana el
+  primero con regla explícita; si ninguno → fallback pct). Fix central: la **rareza real va SIEMPRE primero**,
+  y para `holofoil`/`first_edition_holofoil` una rareza **premium** retorna `[rarity]` (su propia regla o el
+  fallback pct, **nunca** la clave sintética `'Holo'` que el admin puede tener fija barata). No-premium
+  preserva la semántica de ARCHITECTURE §4.2.1: holo de bulk → `[rarity, 'Holo']`; Common/Uncommon holofoil →
+  `['Holo']` (% del market holofoil). Antes, una holo premium sin "holo" en el string (Illustration/Ultra/
+  Double Rare) resolvía a `['Holo']` y una chase de miles de pesos cotizaba al bin fijo barato — bug
+  estructural, ya cerrado.
+- **Deuda anotada del gate:** la allowlist es finita (**BE-14**: chase antiguas — Rare Shining/Prime/LEGEND/
+  BREAK/ACE — se escapan → subcotización, nunca money-out excesivo) y la rama `reverse_holo` no pasa por el
+  gate (**BE-18**, asimetría probablemente inocua). Falta test unitario directo del gate (**BE-17**) y hay un
+  comentario cosmético a corregir ("inocuo" → "costo acotado", **BE-19**).
+
+### 33.2 (Fase 0.2) `publicQuote` encola el pendiente de forma honesta (`buylist.service.ts`)
+- El copy del cotizador público promete que un acabado en `precio_pendiente` "entrará a la cola de precio
+  pendiente". Igual que `createRequest`, `publicQuote` ahora llama
+  `pricing.escalatePending(cardId, productType, gradeKey, 'buylist', undefined, finish)` para cada acabado
+  cotizado como pendiente, de modo que la promesa sea real y el trabajo de fijar precio llegue al admin.
+- **SEC-A1 intacto:** rareza y montos se siguen derivando **server-side**; esto solo escala el trabajo de
+  precio. El dedup de `escalatePending` (`findFirst status='open'` + `create`) hace el llamado **idempotente**
+  en el caso normal.
+- **Deuda anotada:** el encolado ocurre desde un endpoint **público/anónimo** (**BE-16**, hallazgo QA aceptado
+  por seguridad — un anónimo puede poblar la cola enumerando cartas existentes; acotado por throttle 300/min y
+  dedup best-effort; **la Fase 1 on-demand lo supersede**), y el dedup **no es atómico** (**BE-15**: sin
+  `@@unique` en `PendingPriceEntry` → filas duplicadas bajo concurrencia; el fix toca `schema.prisma` →
+  coordinar con arquitecto).
+
+### 33.3 (Fase 0.3) INE exigida con línea en precio pendiente
+- Cuando una solicitud de buylist incluye cualquier línea en `precio_pendiente`, se mantiene la exigencia de
+  **INE en archivo** (además del umbral por monto). Es una de las capas que **compensan** la deuda AML **BE-13**
+  (el mensual `monthUsedCentsTx` agrega `quotedTotalCents`, no `approvedTotalCents`, y un ítem que nació
+  pendiente no se re-contabiliza contra el tope mensual al resolverse su precio). Las otras capas: cap
+  por-solicitud en `assertApprovedPriceWithinCap` y money-out solo `super_admin` + auditado. Ver contrato §6.

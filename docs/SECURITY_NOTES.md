@@ -1856,3 +1856,120 @@ globales**; la UI es cosmética. **SEC-A1 intacto.** Sin regresión en dinero/PI
   **aceptada con disparador** enrutada a arquitecto/backend; **no** bloquea este merge. Banderas
   legales de custodia/PII (§6) siguen abiertas para el humano, sin cambio.
 - **¿Puede ir a `main`?** **SÍ.**
+
+---
+
+# F. Revisión Fase 0 — Epic de precios / cierre del bypass del umbral INE (commit `ebb4dee`) · rama `claude/git-repo-review-c67xyk`
+
+> **Alcance:** Fase 0 del epic de precios. Foco de seguridad: (0.3) cierre del **bypass del umbral
+> INE / topes AML** vía líneas `precio_pendiente`; (0.1) **gate premium** del clasificador de rareza
+> que corrige la **subcotización** de chase sin abrir money-out; y verificación de que **SEC-A1**
+> (montos derivados/validados server-side) sigue intacto, incluida la **regresión positiva B-4**
+> (cap de aprobación).
+> **Modo:** revisión **estática** de código (buylist/pricing/money) cruzada con `docs/PENTEST_NOTES.md`.
+> Sin stack vivo (R2/Railway sin configurar) → los vectores de concurrencia siguen **[pendiente de
+> DAST]** (§6). **Fecha:** 2026-08-17. Blanco autorizado: staging/local.
+
+## F.0 Resumen — **0 Críticos / 0 Altos**; 1 Media + 2 Bajas abiertas (no bloqueantes, con disparador)
+
+| Severidad | # | ID / tema |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 1 | **F-1** — contabilidad AML mensual no re-cuenta ítems que fueron `precio_pendiente` |
+| Baja | 2 | **F-2** — allowlist `isPremiumRarity` finita (chase antiguas subcotizan); **F-3** — dedup de `escalatePending` no atómico |
+
+## F.1 Bypass del umbral INE — **CERRADO · [Verificado en código]**
+- **El hueco (pentest):** un ítem `precio_pendiente` suma **0** a `quotedTotalCents`, que es la base
+  del tope por-solicitud, el tope mensual y el **umbral INE**. Un cliente podía enviar una carta CARA
+  **sin referencia** → sumaba $0 → no se le exigía INE ni topaba contra los caps AML.
+- **El cierre:** `buylist.service.ts:221-227` — `hasPendingLine = itemsData.some(i => i.itemStatus
+  === 'precio_pendiente')` y `ineRequired = quotedTotalCents >= ineThreshold || hasPendingLine`. Si
+  hay **≥1 línea pendiente**, se **EXIGE INE** (`INE_REQUIRED`, 422) por decisión conservadora: la
+  incertidumbre del monto se trata como potencialmente por encima del umbral. **Solo endurece**; no
+  debilita ningún control existente. Confirmado en código.
+
+## F.2 Gate premium (Fase 0.1) — corrige subcotización SIN abrir money-out — **OK · [Verificado en código]**
+- `common/money.ts:149` `isPremiumRarity(rarity)` + `:177-184`: una rareza **premium/chase** SIEMPRE
+  cotiza por **su propia regla** (o fallback pct) y **NUNCA** cae al bin "Holo" ni a un plano de menor
+  valor. Corrige el **bug de dinero** por el que una holo premium sin "holo" en el string resolvía a
+  una referencia más barata (**subcotización** = la plataforma pagaba de menos, o el precio de venta
+  quedaba bajo). El fix mueve el precio **hacia arriba** para el chase — **no** abre un vector de
+  dinero saliente: la cotización sigue siendo **entrada al server** derivada de `Card.rarity` real, no
+  del DTO (**SEC-A1 intacto**, §F.3). Sin impacto de authz ni de desembolso.
+
+## F.3 SEC-A1 y regresión positiva B-4 — **INTACTOS · [Verificado en código]**
+- **SEC-A1:** los montos se derivan de la **rareza real** de la carta (`prisma.card` server-side),
+  no del cliente; el DTO no transporta `category`/precio manipulable. Sin cambio respecto a §B.4.
+- **B-4 → MITIGADO (regresión positiva):** `assertApprovedPriceWithinCap`
+  (`buylist.service.ts:510`, invocado en approve/adjust `:556,562`) topa la aprobación a
+  **min(quotedPriceCents × 2, capAML)** → `422 APPROVED_PRICE_CAP_EXCEEDED`. Un `vault_operator` no
+  puede aprobar montos arbitrarios; el desembolso SPEI sigue `@MoneyOut` **super_admin + auditado** y
+  usa el monto **capado** como base de costo. Ya registrado como cerrado (S-B5, §1247); se re-confirma
+  intacto tras la Fase 0.
+
+## F-1 (Media, abierta con disparador) — Contabilidad AML mensual no re-cuenta lo que fue `precio_pendiente`
+- **Ubicación:** `buylist.service.ts:294-307` (`monthUsedCentsTx`).
+- **Descripción:** el acumulado mensual agrega `_sum: { quotedTotalCents }` de las `SellRequest` del
+  mes. Un ítem que entró como `precio_pendiente` aportó **0** al `quotedTotalCents` **persistido** de
+  su solicitud; cuando luego se **resuelve/aprueba** con un `approvedTotalCents` > 0, ese monto real
+  **no** vuelve a sumarse al acumulado mensual (el agregado sigue leyendo `quotedTotalCents`, no
+  `approvedTotalCents`). Un cliente que reparta cartas caras como pendientes puede, en teoría, **quedar
+  por debajo del tope mensual AML medido** aunque el dinero efectivamente desembolsado lo supere.
+- **Por qué NO es bloqueante (compensado, defensa en capas):** (1) **INE-con-pendiente** ya exige
+  identificación ante cualquier línea pendiente (§F.1) → no hay anonimato; (2) el **cap por-solicitud**
+  (`BUYLIST_LIMIT_EXCEEDED`, `:201-207`) sigue acotando cada solicitud; (3) **money-out** de la
+  recompra está tras `@MoneyOut` **super_admin + auditado** (revisión humana del desembolso). El
+  faltante es de **medición contable AML**, no un money-out sin control.
+- **Rol dueño:** **backend** — que el acumulado mensual cuente el **monto efectivo** (usar
+  `approvedTotalCents` cuando exista, o re-imputar al resolver el pendiente). **Disparador: abrir
+  ticket a backend ANTES de operar con dinero real / volumen que dispare reportes AML/PLD.**
+
+## F-2 (Baja, abierta con disparador) — Allowlist `isPremiumRarity` finita → chase antiguas subcotizan
+- **Ubicación:** `common/money.ts:149` (`isPremiumRarity`).
+- **Descripción:** la allowlist premium cubre el set moderno (V/VMAX/VSTAR/EX/GX/Illustration/Ultra/
+  Double Rare, etc.) pero **no** rarezas chase **antiguas** (Shining, Prime, LEGEND, BREAK, ACE
+  SPEC...). Esas caen al camino no-premium y pueden **subcotizar** (referencia más baja de la debida).
+- **Impacto:** **subcotización** (la plataforma paga/vende de menos) — **no** hay money-out inflado ni
+  fuga; es pérdida de exactitud de precio, no un hueco de dinero saliente. Se prefiere sobre-incluir.
+- **Rol dueño:** **backend/arquitecto** — extender la allowlist (o mover a catálogo de rarezas
+  configurable). **Disparador:** al incorporar inventario/buylist de sets vintage relevantes.
+
+## F-3 (Baja, abierta con disparador) — Dedup de `escalatePending` no atómico → duplicados bajo concurrencia
+- **Ubicación:** `pricing.service.ts:189-195` — `findFirst({... status:'open'})` **y luego**
+  `create(...)`, sin `@@unique` en `PendingPriceEntry` (`schema.prisma`).
+- **Descripción:** patrón **read-then-write** sin unicidad a nivel de BD: dos escalaciones concurrentes
+  del mismo `(cardId, productType, gradeKey, finish)` pueden ambas ver "no open" y crear **dos**
+  entradas pendientes duplicadas.
+- **Impacto:** ruido en la cola de precios pendientes (el operador resuelve dos veces la misma carta);
+  **sin** efecto de dinero saliente, authz ni PII. Solo higiene de datos.
+- **Rol dueño:** **backend** (+ **arquitecto** por el schema) — añadir `@@unique` parcial sobre
+  `(cardId, productType, gradeKey, finish)` para `status='open'` (o upsert idempotente). **Disparador:**
+  antes de exponer el buylist a concurrencia real / múltiples réplicas.
+
+## F.4 Banderas para el humano (Fase 0)
+- **Compliance/legal AML-PLD:** validar la **política AML** implementada — (a) exigir **INE ante
+  cualquier línea pendiente** (§F.1) y (b) la **contabilidad mensual actual** (§F-1, que hoy mide sobre
+  `quotedTotalCents`). Confirmar con compliance que el umbral, los topes y la medición efectiva
+  cumplen la normativa de PLD antes de operar con dinero real.
+- **DAST de concurrencia de buylist — PENDIENTE (heredado, obligatorio antes de prod):** mantener en la
+  cola de DAST los vectores de **carrera de `escalatePending`** (F-3) y **carrera del cap mensual**
+  (`monthUsedCentsTx` bajo tráfico concurrente, ya cubierto por el aislamiento SERIALIZABLE en código
+  pero sin validación dinámica). Ejecutar en cuanto haya **staging autorizado** (§6).
+
+## F.5 VEREDICTO — Fase 0 (epic de precios, `ebb4dee`): **APROBADO** (2026-08-17)
+- **0 Críticos / 0 Altos abiertos** → aprobable por política (`CLAUDE.md` §7 y DoD).
+- **Bypass del umbral INE CERRADO** (`ineRequired = quotedTotalCents >= umbral || hayLíneaPendiente`,
+  `buylist.service.ts:221-227`). **SEC-A1 intacto**; el **gate premium (0.1)** corrige la
+  subcotización de chase **sin** abrir money-out. **Regresión positiva:** **B-4 mitigado** por
+  `assertApprovedPriceWithinCap` (aprobación topada a **min(quoted × 2, capAML)**).
+- **Abiertos NO bloqueantes (con disparador):** **F-1 (Media)** contabilidad AML mensual sobre
+  `quotedTotalCents` en vez del monto efectivo — compensado por INE-con-pendiente + cap por-solicitud +
+  money-out super_admin auditado; **abrir ticket a backend ANTES de operar con dinero real / volumen
+  AML**. **F-2 (Baja)** allowlist premium finita (subcotización de chase antiguas), dueño
+  backend/arquitecto. **F-3 (Baja)** dedup de `escalatePending` no atómico (duplicados bajo
+  concurrencia), dueño backend + arquitecto (schema).
+- **Deuda previa sin cambio:** S-M1 aceptada; S-B1/S-B2/residuo S-B3 y banderas legales de custodia/PII
+  (§5-§6) siguen abiertas para el humano. La **fase dinámica (DAST contra staging)** heredada sigue
+  **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea esta Fase 0.
+- **¿Puede ir a `main`?** **SÍ.**
