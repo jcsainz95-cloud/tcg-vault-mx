@@ -157,6 +157,7 @@ antes de usar esas funciones:
 | `POKEMONTCG_IO_API_KEY` | Precios raw/singles (fetch real), **import diario de metadata** (`catalog-metadata-sync`, §18) **y fuente del `price-ingest` 2×/día cuando `PRICE_PROVIDER=pokemontcg_io`** (el dial **sembrado por defecto**; cientos de req/corrida). **Obligatorio en prod** (ver §18/§19). | dev.pokemontcg.io (free; con key ~20k req/día) |
 | `CATALOG_METADATA_SYNC_CRON` (opcional) | Cron **en UTC** del import **diario de metadata** del catálogo (`catalog-metadata-sync` = `syncAll force:false`: solo sets/cartas **nuevas**, **NO** escribe precios ni FX). Default `0 1 * * *` (01:00 UTC = 19:00 CDMX). **v1.14 (WS-A):** reemplaza en el schedule al barrido pesado `catalog-price-sync` (force:true), ahora **MANUAL/ops-only**. Los viejos `CATALOG_PRICE_SYNC_CRON_1/_2` quedan **deprecados** (el scheduler ya no los lee). Requiere `REDIS_URL`. Ver §18. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
 | `PRICE_INGEST_CRON_1`, `PRICE_INGEST_CRON_2` (opcional) | Crons **en UTC** del **ingest masivo de precios** `price-ingest` (WS-A, §19), el **pricing primario** del catálogo. Defaults `0 0 * * *` (18:00 CDMX) y `0 12 * * *` (06:00 CDMX) → **06:00 y 18:00 CDMX**. **WS-A cierre: DEFAULT-ON 2×/día** (ya cableado en `scheduler.service.ts`; **ya no opt-in**) con el dial sembrado `pokemontcg_io`. Requieren `REDIS_URL`. Ver §19. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
+| `SEALED_PRICE_INGEST_CRON` (opcional) | Cron **en UTC** del ingest **diario de referencia del SELLADO** `sealed-price-ingest` (v1.19, tcgcsv.com; §21). Default `30 21 * * *` (21:30 UTC = 15:30 CDMX), tras el refresh diario de TCGCSV (~20:00 UTC) y tras `fx-refresh`. **El encendido real es el dial M10 `sealed_price_source`** (`tcgcsv \| off`, seed `off` fail-closed) — la env solo mueve el horario. Requiere `REDIS_URL`. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
 | `POKEMONPRICETRACKER_API_KEY` | **Proveedor de PAGA del ingest masivo `price-ingest` (WS-A, §19)** — bulk `POST /cards/bulk-price`, auth Bearer. **Requisito operativo en prod** cuando `PRICE_PROVIDER=pokemonpricetracker` (con **cuota del plan de paga**). Rol residual: stub graded/sealed per-carta (BE-6). **Valor en Railway, NUNCA en el repo.** | PokemonPriceTracker (**plan de paga**; key **ya en Railway**) |
 | `POKEMONPRICETRACKER_MARKET_FORMAT` (**money-safe, sin default**) | Moneda + unidad del campo `market` del proveedor de paga: `usd_dollars` / `usd_cents` / `mxn_dollars` / `mxn_cents`. **Candado fail-closed:** sin ella, con `PRICE_PROVIDER=pokemonpricetracker` el ingest corre **sample-only** (fetch + log de muestra, **no persiste** ningún precio). El **PO confirmó `usd_dollars`** — fijarla **solo tras leer el log de muestra** de una corrida `{setId}` (§19.5). Con `pokemontcg_io` (legacy) no aplica. **Valor en Railway, no en el repo.** | devops, tras verificar el log de la 1ª corrida (§19.5) |
 | `POKETRACE_API_KEY` | Respaldo per-carta gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
@@ -1745,4 +1746,65 @@ desperdicio de cuota de API y carga). Antes de subir réplicas hay que separar e
 propio (decisión futura, §6.1) y además migrar el throttler a store Redis (deuda backend, §5.1). Para este
 fix **no se cambió nada** en `railway.json`: healthcheck (`/api/v1/health`, timeout 300s), restart policy y
 réplicas ya eran correctos; el bug era de código (family del DNS), no de config de plataforma.
+
+---
+
+## 21. Job `sealed-price-ingest` — referencia de mercado del SELLADO vía TCGCSV (v1.19)
+
+> **El runbook técnico normativo vive en `BACKEND_NOTES §44.3` (y el diseño en ARCHITECTURE §4.19);
+> aquí va la vista OPERATIVA de devops, sin duplicar el detalle.** El precio TCGCSV es **solo
+> referencia informativa** (`sealedMarketRef` en el admin M1): no publica, no fija `listPriceCents`,
+> no toca dinero. Por eso el rollback es trivial (dial `off`).
+
+### 21.1 Piezas operativas
+
+- **Job:** `sealed-price-ingest`, 1×/día, secuencial y awaited (sin fan-out). Cron por env
+  **`SEALED_PRICE_INGEST_CRON`** (default `30 21 * * *` = 21:30 UTC, tras el refresh diario de
+  tcgcsv.com ~20:00 UTC y tras `fx-refresh`; ver bloque en `.env.example` y fila en §4).
+- **Interruptor real:** el dial M10 **`sealed_price_source`** (ConfigSetting, `tcgcsv | off`, seed
+  **`off`** = fail-closed). Con `off`, el job es un **no-op logueado** aunque el cron dispare
+  (`enqueued:false, reason:SEALED_PRICE_SOURCE_OFF`). La env **solo** ajusta horario; el flip es por
+  panel/API M10, igual que `price_provider` (§19.5).
+- **Disparo manual:** `POST /api/v1/admin/jobs/sealed-price-ingest` (super_admin, 202, auditado);
+  body opcional `{"groupId": <int>}` para una corrida **acotada a un grupo** TCGplayer.
+- **Requisitos:** `REDIS_URL` para el cron (sin Redis solo queda el disparo manual, §19.2). Sin API
+  key: tcgcsv.com es público.
+
+### 21.2 Encendido en STAGING (antes de cualquier flip en prod)
+
+Pasos (detalle completo en BACKEND_NOTES §44.3; ahí está el porqué de cada uno):
+
+1. Deploy del release v1.19 + `prisma migrate deploy` (migración **M-23**: enum `tcgcsv` + columnas
+   `tcgplayerProductId`/`tcgplayerGroupId`).
+2. Verificar el dial: `GET /api/v1/admin/settings` → `sealedPriceSource=off` (seed).
+3. Mapear 1–2 items sellados reales vía M2: `GET /admin/pricing/sealed/tcgcsv/groups` →
+   `.../groups/:groupId/products` → `PUT /admin/pricing/sealed/items/:itemId/mapping`.
+4. **Flipear el dial a `tcgcsv` EN STAGING** (staging no es prod: inocuo) y lanzar la corrida
+   acotada: `POST /api/v1/admin/jobs/sealed-price-ingest {"groupId": <grupo mapeado>}`.
+5. **Logs esperados** (backend): línea resumen del ingest con `grupos`/`referencias` y los contadores
+   `fetchedRaw/skipped/usedFallbackMid/unmatched`; al final `Job sealed-price-ingest (id=…)
+   completado.` (heartbeat del worker, §19.8). Señales de problema: `502 UPSTREAM_ERROR` en el
+   explorador M2 (tcgcsv caído/bloqueado) o `unmatched` alto (mapeos rotos).
+6. **Verificación en datos:** `PriceReference` con `source=tcgcsv`, `gradeKey=sealed:tcg:<pid>`,
+   USD→MXN coherente con el FX del día + colchón; y en el admin **M1** el item sellado mapeado
+   muestra `sealedMarketRef` poblado (deja de ser `null`).
+7. **Validación de esquema (crítica):** los tests corren contra fixtures (el egress de dev bloquea
+   tcgcsv.com — ver 21.4), así que esta corrida en staging es la PRIMERA contra el payload real. Si
+   el esquema difiere de las fixtures → **hallazgo a backend** (adapter + fixtures); si cuadra →
+   flip del dial en prod.
+
+### 21.3 Rollback
+
+**Dial `sealed_price_source=off`** (panel/API M10, sin redeploy). El job vuelve a no-op fail-closed;
+los `PriceReference` ya escritos permanecen **inertes** (referencia informativa; nada público los
+consume). No hay que tocar env ni cron. Para desmapear un item puntual: `PUT .../mapping` con `null`.
+
+### 21.4 Nota de RED / egress (tcgcsv.com)
+
+- El **entorno de dev/sandbox BLOQUEA tcgcsv.com** (proxy 403): por eso los tests usan fixtures y la
+  validación real es obligatoria en staging (21.2.7). No intentes "probar el fetch" en local/dev.
+- **Staging y prod deben permitir HTTPS saliente a `tcgcsv.com`** (host **FIJO** en el adapter,
+  anti-SSRF; sin API key). En Railway el egress es abierto por defecto — no hay acción; si algún día
+  se restringe egress por allowlist, añadir `tcgcsv.com` junto a `api.pokemontcg.io`,
+  `www.banxico.org.mx` (SIE) y el dominio del proveedor de paga.
 
