@@ -2,7 +2,28 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.14-price-ingest).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.15-buylist-batch-clabe).
+>
+> **Changelog v1.15-buylist-batch-clabe (2026-08-17) — WS-C: cotizador de buylist (Fable) contra el backend REAL
+> (Fase 3b).** Cierra los mocks/atajos del cotizador rediseñado. **Aditivo, SIN migración.** **TOCA DINERO/PII**
+> (buylist = pago SPEI + CLABE + INE) → triple veredicto. SEC-A1 intacto (montos server-side por `(Card.rarity,
+> finish)`; el cliente nunca fija precio ni CLABE de terceros). Ver ARCHITECTURE §4.16.
+> - **`clabe` OPCIONAL + fallback server-side (§6, PII):** `POST /buylist/requests` deja de exigir `clabe`. Si el
+>   request **no** la trae, el backend usa la CLABE **del propio usuario** en archivo (`kyc.clabeEnc`, desencriptada —
+>   mismo fallback que `reveal-clabe`). Si **no** viene ni hay en archivo → **`422 CLABE_REQUIRED`** (nuevo). La CLABE
+>   resuelta **nunca** se loguea ni se devuelve; se guarda cifrada (snapshot) y solo se revela por
+>   `GET /admin/buylist/:id/reveal-clabe`. Con `clabe` presente, el comportamiento no cambia (formato + nombre propio).
+> - **Batch quote `POST /buylist/quote/batch` (§6, NUEVO, `public`, READ-ONLY):** cotiza **N cartas en 1 request**
+>   (mata el fan-out FE-12). **No** crea solicitud, **no** mueve dinero, **no** persiste, **no** escala a pendiente.
+>   **Errores por-ítem** (una carta inválida no tumba las demás): cada resultado es `ok:true`/`ok:false`; HTTP global
+>   `200`. **Cap `50`** ítems (vacío/sobre-cap → `400 VALIDATION_ERROR`). Reusa la misma resolución de monto que
+>   `POST /buylist/quote` (rareza+acabado, gate premium, `BUYLIST_PRICE_RULES`, FX en `PriceReference`). Se **conserva**
+>   `POST /buylist/quote` (por-carta) intacto. DTOs `BuylistQuoteItemDTO`/`BuylistBatchQuoteResultDTO`/
+>   `BuylistBatchQuoteResponse`.
+> - **`GET /users/me/kyc` gana `clabeOnFile: boolean` (§1):** simétrico al **`ineOnFile`** ya existente. El front usa
+>   `ineOnFile` para **ocultar los uploaders de INE** (y omitir `ineUploadKeys`) y `clabeOnFile` para el atajo "usar mi
+>   CLABE ****1234" (= **omitir** `clabe`). `clabeMasked` se conserva para el label. Sin PII nueva.
+> - **Error nuevo:** `422 CLABE_REQUIRED`. **Sin cambios** en enums ni migración.
 >
 > **Changelog v1.14-price-ingest (2026-08-17) — WS-A: ingesta MASIVA de precios vía proveedor de PAGA
 > (PokemonPriceTracker), pluggable, que reemplaza el barrido por-carta frágil.** El pricing del catálogo pasa de un
@@ -309,6 +330,7 @@
 - **Códigos comunes:** `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `422` (regla de negocio), `429 RATE_LIMITED`, `500 INTERNAL`.
 - **`422 FINISH_NOT_AVAILABLE` (v1.6-finish):** el `finish` enviado (cotizador, alta de inventario, solicitud) **no** está en `Card.availableFinishes`. Guardarraíl SEC-A1: el cliente no puede cotizar/vender un acabado inexistente para pagar de más. Afecta `POST /buylist/quote`, `POST /buylist/requests`, `POST /admin/inventory/items`.
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
+- **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
 - **Idempotencia:** endpoints de pago aceptan header `Idempotency-Key`.
 - **PII sensible (CLABE / RFC / INE):** por **defecto se devuelven ENMASCARADOS** en **todas** las respuestas (cliente y back-office, incluido `super_admin`). Formato: CLABE → `****1234` (últimos 4 dígitos), RFC → parcial (ej. `XAX**********`). La **CLABE en claro (18 dígitos) SOLO** se obtiene por el endpoint dedicado `GET /admin/buylist/:id/reveal-clabe` (`super_admin`, money-out, **auditado**). Estos campos viven **cifrados en reposo** (ver ARCHITECTURE §3.4); el contrato nunca expone RFC/CLABE/INE en claro fuera del reveal.
 
@@ -397,6 +419,20 @@ BuylistRuleApplied = { mode: BuylistRuleMode, value: number, source: "rule" | "f
 // (¡OJO! en buylist pct = % de la referencia; en venta pct = % arriba de mercado. No confundir.)
 SalesRule         = { mode: SalesRuleMode, value: number }
 SalesRuleApplied  = { mode: SalesRuleMode, value: number, source: "rule" | "fallback" }
+// v1.15-buylist-batch-clabe: cotización en LOTE (POST /buylist/quote/batch). READ-ONLY. SIN `qty` — el modelo es
+// UNA línea por carta física (ARCHITECTURE §4.16b). Espeja EXACTAMENTE los campos del quote por-carta (PublicQuoteDto).
+BuylistQuoteItemDTO = { cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish }
+// Payload de éxito por ítem = MISMO shape que la respuesta de POST /buylist/quote por-carta (BuylistQuoteResponse).
+BuylistQuotePayload = { rarity: string | null, finish: Finish, appliedRule: BuylistRuleApplied,
+                        quote: { status: "cotizada" | "precio_pendiente", quotedPriceCents: number | null, currency: "MXN" },
+                        referencePrice: { status: "priced" | "pending", priceMxnCents?: number },
+                        paymentNotice: "PAY_AFTER_RECEIPT" }
+// Resultado por ítem: ok:true trae la cotización; ok:false trae el error de ESE ítem (NO tumba el lote → HTTP 200).
+// `index` = posición 0-based en el request `items[]` (llave de correlación robusta ante cardId+finish repetidos).
+BuylistBatchQuoteResultDTO =
+    | ({ index: number, cardId: string, ok: true } & BuylistQuotePayload)
+    | { index: number, cardId: string, ok: false, error: { code: "NOT_FOUND" | "FINISH_NOT_AVAILABLE", message: string } }
+BuylistBatchQuoteResponse = { results: BuylistBatchQuoteResultDTO[] }
 // Desglose del checkout. base = subtotal + iva se recibe íntegro; el fee es gross-up de la comisión Stripe.
 // "SIN IVA" = el fee NO agrega una línea de IVA de PRODUCTO (no se vuelve a gravar la venta). Internamente
 // el gross-up SÍ cubre el IVA que Stripe MX cobra sobre SU comisión (dial stripe_fee_iva_pct, ver ARCHITECTURE §5.1).
@@ -500,7 +536,9 @@ Req: `{ name?, phone?, locale? }` → Res `200`: user.
 - `PUT /api/v1/users/me/billing-profile` — `customer` — Req: `{ rfc, razonSocial, regimenFiscal, usoCfdi, postalCode, email }` (el RFC se recibe en claro y se cifra en reposo; ver ARCHITECTURE §3.4).
 
 ### KYC (buylist)
-- `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, ineOnFile: boolean, capPerRequestCents, capPerMonthCents, monthUsedCents }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint.
+- `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, clabeOnFile: boolean, ineOnFile: boolean, capPerRequestCents, capPerMonthCents, monthUsedCents }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint.
+  - **`ineOnFile: boolean`** (ya existente) = hay imagen de INE (frente+reverso) en archivo. El front lo usa para **ocultar los uploaders de INE** y **omitir `ineUploadKeys`** en `POST /buylist/requests`; el backend ya trata el INE en archivo como "provisto" para el umbral AML (no re-pide INE si ya está).
+  - **`clabeOnFile: boolean`** (**NUEVO v1.15**) = hay CLABE cifrada en archivo (`Boolean(KycProfile.clabeEnc)`). Booleano **limpio y simétrico** a `ineOnFile`. El front lo usa para ofrecer el atajo "usar mi CLABE ****1234" (= **omitir** `clabe` en `POST /buylist/requests`, resuelto server-side; ver §6) y, junto con `clabeMasked`, pintar el label. Si `clabeOnFile=false`, el front pide la CLABE.
 - `PUT /api/v1/users/me/kyc` — `customer` — Req: `{ clabe?, ineFrontUploadKey?, ineBackUploadKey? }` (keys de presign). La CLABE se recibe en claro (18 dígitos), se **cifra en reposo** y debe ser **a nombre del propio usuario** (declarado). Err `422 CLABE_INVALID`.
 
 ---
@@ -783,22 +821,82 @@ $0.50; **Illustration Rare / ex en holofoil = 40% del market holofoil** — nunc
 resto = 40% del market del acabado). El "precio pendiente" es de adquisición/back-office; **nunca** se muestra al
 comprador. Ver la tabla de ejemplos en ARCHITECTURE §4.2.1.
 
+### POST /api/v1/buylist/quote/batch — `public`  (v1.15 — NUEVO · cotización en LOTE · READ-ONLY)
+Cotiza **N cartas en 1 request** (colapsa el fan-out del cotizador: hoy el grid dispara ~`pageSize` llamadas a
+`POST /buylist/quote`). **No** crea solicitud, **no** mueve dinero, **no** persiste y **no** escala a
+`PendingPriceEntry` (misma doctrina read-only que el quote por-carta desde v1.12; crítico por ser endpoint anónimo).
+Cada ítem se resuelve **igual** que `POST /buylist/quote` (misma función de precio: rareza+acabado server-side, **gate
+premium**, `BUYLIST_PRICE_RULES` + fallback, referencia por acabado, FX ya bakeada en `PriceReference`). SEC-A1
+intacto.
+Req: `{ items: BuylistQuoteItemDTO[] }` donde `BuylistQuoteItemDTO = { cardId, productType, rawCondition?, finish? }`
+(mismos campos que el quote por-carta; **sin `qty`** — el modelo es una línea por carta física, ARCHITECTURE §4.16b).
+- **Límites:** `items` **no vacío**; **máx `50`** ítems por request (`BUYLIST_QUOTE_BATCH_MAX`). Vacío o sobre-cap →
+  `400 VALIDATION_ERROR`. Cuenta como **1** request contra el throttle público.
+- **`finish?`** (default `normal`): se valida por-ítem contra `Card.availableFinishes`; si no pertenece, **ese ítem**
+  sale `ok:false` con `error.code="FINISH_NOT_AVAILABLE"` (no tumba el lote).
+Res `200` (`BuylistBatchQuoteResponse`): **errores por-ítem** — una carta inválida NO afecta a las demás; el HTTP
+global es `200`. `index` = posición 0-based en `items[]` (llave de correlación); `cardId` se ecoa.
+```json
+{
+  "results": [
+    { "index": 0, "cardId": "card_abc", "ok": true,
+      "rarity": "Common", "finish": "reverse_holo",
+      "appliedRule": { "mode": "fixed", "value": 150, "source": "rule" },
+      "quote": { "status": "cotizada", "quotedPriceCents": 150, "currency": "MXN" },
+      "referencePrice": { "status": "priced", "priceMxnCents": 12500 },
+      "paymentNotice": "PAY_AFTER_RECEIPT" },
+    { "index": 1, "cardId": "card_zap", "ok": true,
+      "rarity": "Illustration Rare", "finish": "holofoil",
+      "appliedRule": { "mode": "pct", "value": 40, "source": "fallback" },
+      "quote": { "status": "precio_pendiente", "quotedPriceCents": null, "currency": "MXN" },
+      "referencePrice": { "status": "pending" },
+      "paymentNotice": "PAY_AFTER_RECEIPT" },
+    { "index": 2, "cardId": "card_bad", "ok": false,
+      "error": { "code": "FINISH_NOT_AVAILABLE", "message": "Finish 'holofoil' is not available for this card" } }
+  ]
+}
+```
+- **`ok:true`** → mismo payload que `POST /buylist/quote` (`rarity`, `finish`, `appliedRule`, `quote`,
+  `referencePrice`, `paymentNotice`). `quote.status="precio_pendiente"` cuando la regla es `pct` y falta la referencia
+  del acabado (igual que por-carta; el "precio pendiente" es de adquisición/back-office, **nunca** se muestra como
+  precio al comprador — aquí es un vendedor cotizando).
+- **`ok:false`** → `error.code ∈ { NOT_FOUND (carta inexistente), FINISH_NOT_AVAILABLE (acabado fuera de
+  availableFinishes) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería
+  como `404`/`422`, aquí **por-ítem**.
+Err (nivel request, no por-ítem): `400 VALIDATION_ERROR` (items vacío / > 50 / ítem malformado), `429 RATE_LIMITED`.
+Nota: el batch es **anónimo/público** como el quote por-carta; la creación de la solicitud (con topes/KYC/CLABE)
+sigue siendo el paso autenticado `POST /buylist/requests`.
+
 ### POST /api/v1/buylist/requests — `customer`
 Crea la solicitud; valida topes/KYC.
-Req: `{ items: [{ cardId, productType, rawCondition?, finish? }], clabe: string, ineUploadKeys?: { front, back } }`
+Req: `{ items: [{ cardId, productType, rawCondition?, finish? }], clabe?: string, ineUploadKeys?: { front, back } }`
+> **v1.15 — `clabe` OPCIONAL + fallback server-side (PII):** `clabe` deja de ser obligatoria. Resolución server-side:
+> - **`clabe` presente** → comportamiento actual: valida formato (18 dígitos → `422 CLABE_INVALID`) y **nombre propio**
+>   contra la CLABE en archivo por blind-index (`422 CLABE_NOT_OWN_NAME` si no coincide); se cifra/persiste.
+> - **`clabe` omitida** → el backend usa la **CLABE del PROPIO usuario** en archivo (`KycProfile.clabeEnc`,
+>   desencriptada — **misma fuente que `GET /admin/buylist/:id/reveal-clabe`**). Autorización estricta: **siempre** la
+>   del `userId` autenticado, **nunca** la de otro. Habilita el atajo del cotizador "usar mi CLABE ****1234" cuando
+>   `GET /users/me/kyc` reporta `clabeOnFile=true` (§1).
+> - **`clabe` omitida y sin CLABE en archivo** → **`422 CLABE_REQUIRED`**.
+> La CLABE **resuelta** (de request o fallback) se **snapshotea cifrada** en la solicitud (para el pago SPEI), **nunca
+> se loguea** y **nunca se devuelve** en la respuesta; su único punto de exposición en claro es el reveal dedicado.
+> **v1.15 — INE en archivo:** si `GET /users/me/kyc` reporta `ineOnFile=true`, el front **omite** `ineUploadKeys` y el
+> backend usa el INE ya en archivo para el umbral AML (no re-pide INE si ya está).
 > **v1.3.1:** `items` **ya no** incluye `category` (SEC-A1: el backend deriva la regla server-side de
 > `Card.rarity`; un `category` del cliente se ignora si se envía). Cada item cotizado snapshotea la regla
 > aplicada (rarity/ruleMode/ruleValue/ruleSource) y se refleja en `SellItemDTO`.
 > **v1.6-finish:** cada item lleva `finish?` (default `normal`, validado ∈ `card.availableFinishes`); se
 > **snapshotea** en `SellRequestItem.finish` y se propaga al `InventoryItem` al convertir (M5). El monto se deriva
 > por `(rarity, finish)` server-side.
-Res `201`: `{ sellRequestId, status: "cotizada", quotedTotalCents, ineRequired: boolean, items: SellItemDTO[] }`
+Res `201`: `{ sellRequestId, status: "cotizada", quotedTotalCents, ineRequired: boolean, items: SellItemDTO[] }` (**no** incluye la CLABE, ni enmascarada ni en claro).
 Err:
-- **`403 EMAIL_NOT_VERIFIED`** (v1.5 — vender es acción sensible; el cotizador público `POST /buylist/quote` **no** se bloquea)
+- **`403 EMAIL_NOT_VERIFIED`** (v1.5 — vender es acción sensible; el cotizador público `POST /buylist/quote` y `POST /buylist/quote/batch` **no** se bloquean)
 - **`422 FINISH_NOT_AVAILABLE`** (v1.6 — algún `finish` no está en `Card.availableFinishes` de su carta)
 - `422 BUYLIST_LIMIT_EXCEEDED` (details: `{ scope: "per_request" | "per_month", capCents, wouldBeCents }`)
-- `422 INE_REQUIRED` (supera el tope configurado y no hay INE)
-- `422 CLABE_NOT_OWN_NAME` (declaración/validación de CLABE a nombre propio)
+- `422 INE_REQUIRED` (supera el tope configurado y no hay INE ni en el request ni en archivo)
+- **`422 CLABE_REQUIRED`** (v1.15 — sin `clabe` en el body y sin CLABE en archivo)
+- `422 CLABE_INVALID` (formato != 18 dígitos, solo cuando `clabe` viene en el body)
+- `422 CLABE_NOT_OWN_NAME` (la `clabe` del body no coincide con la de archivo — nombre propio)
 
 ### GET /api/v1/buylist/requests — `customer` → lista propia.
 ### GET /api/v1/buylist/requests/:id — `customer` → detalle con estados por item, ajustes propuestos, plazos.

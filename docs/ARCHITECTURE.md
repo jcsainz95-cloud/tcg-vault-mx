@@ -2,7 +2,51 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.14-price-ingest (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.15-buylist-batch-clabe (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+>
+> **Changelog v1.15-buylist-batch-clabe (2026-08-17) — WS-C: cotizador de buylist (Fable) contra el backend REAL
+> (Fase 3b).** El cotizador rediseñado del frontend usa hoy **mocks/atajos** que NO funcionan contra el backend real:
+> (a) cotiza N cartas con **N requests** (fan-out FE-12) porque `POST /buylist/quote` es **por-carta**; (b) el atajo
+> "usar mi CLABE ****1234" es **mock-only** porque `CreateRequestDto` **exige** `clabe` en claro y el cliente solo tiene
+> `clabeMasked` (`buylist.dto.ts:51`, flag mock `useClabeOnFile` en `api.ts:542-550`); (c) el front no sabía de forma
+> limpia si el INE ya está en archivo. Se cierra el hueco de contrato. **Aditivo, SIN migración de esquema** (reusa
+> `KycProfile.clabeEnc`/`ineFrontKey`/`ineBackKey`, `SellRequest.clabeSnapshotEnc`, la función pura
+> `quoteAcquisitionForFinish` y `PriceReference`). **TOCA DINERO/PII** (buylist = pago SPEI + CLABE + INE) → **triple
+> veredicto**. SEC-A1 intacto (montos server-side por `(Card.rarity, finish)`; el cliente nunca fija precio ni CLABE de
+> terceros). Nuevo **§4.16**.
+> - **C.1 — `clabe` OPCIONAL + fallback server-side (backend, PII, §4.16a).** `POST /buylist/requests`: `clabe` pasa a
+>   **opcional**. Si el request **no** trae `clabe`, `createRequest` **resuelve la CLABE del propio usuario** desde
+>   `kyc.clabeEnc` (desencriptada con `PiiCryptoService`, **igual que el fallback de `revealClabe`**,
+>   `buylist.service.ts:453-457`). **Autorización:** la CLABE de fallback es **siempre** la del `userId` autenticado
+>   (`kyc = findUnique({ where:{ userId } })`), **jamás** la de otro usuario. Si **no** viene `clabe` **ni** hay una en
+>   archivo → **`422 CLABE_REQUIRED`** (nuevo, claro y accionable). La CLABE resuelta (venga del request o del fallback)
+>   se **snapshotea cifrada** en `SellRequest.clabeSnapshotEnc`, **nunca se loguea** y **nunca se devuelve** en la
+>   respuesta; su único punto de exposición en claro sigue siendo `GET /admin/buylist/:id/reveal-clabe` (super_admin,
+>   money-out, auditado). Cuando `clabe` **sí** viene, el comportamiento actual **no cambia** (valida formato →
+>   `422 CLABE_INVALID`; match a nombre propio por blind-index → `422 CLABE_NOT_OWN_NAME`; persiste en KYC).
+> - **C.2 — Batch quote `POST /buylist/quote/batch` (backend, §4.16b) — mata el fan-out FE-12.** Endpoint **NUEVO,
+>   público, READ-ONLY** que cotiza **N cartas en 1 request**. **No** crea solicitud, **no** mueve dinero, **no**
+>   persiste y **no** escala a `PendingPriceEntry` (misma doctrina read-only que `POST /buylist/quote` desde v1.12,
+>   crítica por ser endpoint anónimo). Reusa **exactamente** la lógica del cotizador por-carta (`publicQuote` →
+>   `quoteAcquisitionForFinish`, gate premium §4.2.1, `getReference` por acabado, FX ya bakeada en `PriceReference`),
+>   cargando `buylistRules()` **una vez** por request. **Errores por-ítem**: una carta inválida (`NOT_FOUND` /
+>   `FINISH_NOT_AVAILABLE`) **no tumba** las demás — cada ítem devuelve `ok:true` con su cotización u `ok:false` con su
+>   `error`; el HTTP global es `200`. **Cap** de ítems por request (**`BUYLIST_QUOTE_BATCH_MAX = 50`**, constante de
+>   servidor); vacío o sobre-cap → `400 VALIDATION_ERROR`. **Decisión de naming (endpoint NUEVO, no overload):** se
+>   **conserva** `POST /buylist/quote` (por-carta) intacto y se añade `/batch` — **aditivo y no-breaking** (estilo del
+>   contrato). Alternativa considerada y descartada: sobrecargar `POST /buylist/quote` con `items[]` (breaking para el
+>   consumidor por-carta actual). Ver decisión abierta WS-C-1 en §10.
+> - **C.3 — INE/CLABE en archivo expuestos al front (backend menor + frontend, §4.16c).** `GET /users/me/kyc` **ya**
+>   devuelve **`ineOnFile: boolean`** (`users.service.ts:139`) — el front lo usa para **ocultar los uploaders de INE**
+>   cuando ya está (y omitir `ineUploadKeys`; `createRequest` ya trata el INE en archivo como provisto,
+>   `buylist.service.ts:209-211`). Se **añade `clabeOnFile: boolean`** (derivado de `Boolean(kyc.clabeEnc)`) para dar al
+>   front un booleano **limpio y simétrico** a `ineOnFile` con el que habilitar el atajo "usar mi CLABE ****1234" (=
+>   omitir `clabe` en `POST /buylist/requests`); `clabeMasked` se mantiene para el label. Sin PII nueva (la CLABE sigue
+>   enmascarada).
+> - **Contrato:** `API_CONTRACT.md` (Changelog v1.15-buylist-batch-clabe): `POST /buylist/quote/batch` (nuevo, §6);
+>   `POST /buylist/requests` con `clabe?` opcional + fallback + `422 CLABE_REQUIRED` (§6); `GET /users/me/kyc` gana
+>   `clabeOnFile` (§1); DTOs `BuylistQuoteItemDTO` / `BuylistBatchQuoteResultDTO` / `BuylistBatchQuoteResponse`. Sin
+>   migración.
 >
 > **Changelog v1.14-price-ingest (2026-08-17) — WS-A: ingesta MASIVA de precios vía proveedor de PAGA
 > (PokemonPriceTracker), pluggable, que REEMPLAZA el barrido por-carta frágil.** Decisión del plan (WS-A): el pricing del
@@ -1951,6 +1995,120 @@ Reemplaza la derivación frágil de `tcgplayer.prices` (que en el barrido roto d
 
 ---
 
+### 4.16 WS-C — Cotizador de buylist (Fable) contra el backend real (v1.15-buylist-batch-clabe)
+
+> **Objetivo:** que el cotizador rediseñado del frontend funcione contra el backend real sin los mocks/atajos
+> actuales. Tres piezas: (a) **CLABE opcional** con fallback server-side (PII), (b) **batch quote** (mata el
+> fan-out FE-12), (c) **flags de KYC en archivo** para que el front oculte lo que ya está. **Aditivo, SIN
+> migración.** TOCA DINERO/PII → triple veredicto. SEC-A1 intacto.
+
+#### 4.16a — CLABE opcional + fallback server-side (PII)
+
+**Problema.** `CreateRequestDto.clabe` es **obligatoria** (`backend/src/modules/buylist/dto/buylist.dto.ts:51`,
+`@IsString() clabe!: string`). El cliente solo posee `clabeMasked` (`GET /users/me/kyc` nunca devuelve la CLABE en
+claro), así que el atajo "usar mi CLABE en archivo" del cotizador **no puede** rearmar los 18 dígitos y hoy es
+**mock-only** (`frontend/src/lib/api.ts:542-550`, flag `useClabeOnFile` que **no** viaja al backend real).
+
+**Decisión.** `clabe` pasa a **opcional** en `POST /buylist/requests`. El backend resuelve la CLABE efectiva así
+(pseudocódigo — lo implementa **backend**):
+
+```ts
+// createRequest(userId, items, clabe?, ineUploadKeys?)
+const kyc = await prisma.kycProfile.findUnique({ where: { userId } }); // SIEMPRE del userId autenticado
+let effectiveClabe: string;
+if (clabe) {
+  if (!isValidClabe(clabe)) throw CLABE_INVALID;                       // formato 18 dígitos (sin cambio)
+  // match a nombre propio contra la CLABE en archivo (blind index HMAC, sin descifrar) — sin cambio:
+  if (kyc?.clabeHmac && !blindIndexEquals(kyc.clabeHmac, clabeBlindIndex(clabe))) throw CLABE_NOT_OWN_NAME;
+  effectiveClabe = clabe;
+} else {
+  // FALLBACK server-side: la CLABE del PROPIO usuario, misma fuente que revealClabe (buylist.service.ts:453-457)
+  effectiveClabe = pii.decryptOptional(kyc?.clabeEnc) ?? null;
+  if (!effectiveClabe) throw CLABE_REQUIRED;                           // 422 nuevo: ni en request ni en archivo
+}
+const clabeEnc = pii.encrypt(effectiveClabe);                         // se SNAPSHOTEA cifrada en la solicitud
+// ... resto del flujo (topes, INE, persistencia, clabeSnapshotEnc = clabeEnc) sin cambio
+```
+
+**Garantías (obligatorias, verifica seguridad):**
+- **Autorización estricta.** El fallback lee `kyc` **por `userId` de la sesión**; es imposible resolver la CLABE de
+  otro usuario. El endpoint es `customer`-scoped y el `EmailVerifiedGuard` ya aplica.
+- **PII nunca en claro fuera del reveal.** `effectiveClabe` **no se loguea** (ni en `AuditLog`, ni en logs de app) y
+  **no se devuelve** en la respuesta (`{ sellRequestId, status, quotedTotalCents, ineRequired, items }` no contiene
+  CLABE). Se guarda **solo cifrada** (`clabeSnapshotEnc` + `KycProfile.clabeEnc`). El único punto de exposición en
+  claro sigue siendo `GET /admin/buylist/:id/reveal-clabe` (super_admin, money-out, auditado, §3.4).
+- **Snapshot en el momento de la solicitud.** Se snapshotea la CLABE **resuelta** en `clabeSnapshotEnc` para que el
+  pago SPEI use la CLABE vigente al crear la solicitud aunque el usuario cambie luego su KYC. `revealClabe` ya prioriza
+  el snapshot y cae a `kyc.clabeEnc` (sin cambio), por lo que **no requiere tocarse**.
+- **Sin debilitar controles.** Cuando `clabe` **sí** viaja, el path actual (formato + nombre propio + persistencia) es
+  idéntico. El fallback **no** puede inyectar una CLABE de tercero ni saltarse el match (es, por definición, la propia).
+
+#### 4.16b — Batch quote (`POST /buylist/quote/batch`) — mata el fan-out FE-12
+
+**Problema (FE-12, TECH_DEBT).** `POST /buylist/quote` es **por-carta**; el grid del cotizador monta un `useQuery`
+**por resultado visible** → una búsqueda dispara ~`pageSize` (≤20) quotes en ráfaga, y el bulk "agregar al carrito" es
+`Promise.all` **all-or-nothing** (un fallo aislado bloquea el lote). El disparador registrado para saldarlo es
+"**cuando exista el endpoint batch quote (Fase 3b)**".
+
+**Decisión.** Endpoint **NUEVO** `POST /buylist/quote/batch` (`public`, **READ-ONLY**), que cotiza **N cartas en 1
+request** con **errores por-ítem**. Es un **`map` de `publicQuote` sobre `items[]`** compartiendo `buylistRules()`
+(un solo read de config) — **misma matemática y mismos guardarraíles** que el cotizador por-carta:
+
+- **Reuso de pricing.** Cada ítem: `assertFinishAvailable(card, finish)` → `getReference(cardId, productType,
+  gradeKey, finish)` → `quoteAcquisitionForFinish(card.rarity, finish, ref, rules, fallbackPct)`. Idéntico a
+  `buylist.service.ts:57-102`. Incluye el **gate premium** (§4.2.1), reglas por rareza (`BUYLIST_PRICE_RULES`),
+  fallback pct, `precio_pendiente` cuando `pct` y falta referencia del acabado. La FX ya está bakeada en
+  `PriceReference` (MXN), así que la coherencia con el resto del sistema es automática.
+- **READ-ONLY estricto.** No crea `SellRequest`, no mueve dinero, no persiste y **no** llama `escalatePending`
+  (endpoint anónimo; escalar desde aquí sería superficie de abuso — misma razón que llevó a `publicQuote` a read-only
+  en v1.12). La escalada a `PendingPriceEntry` sigue **solo** en `POST /buylist/requests` (autenticado).
+- **Errores por-ítem.** Una carta inválida **no** tumba el lote: cada resultado es `ok:true` (con la cotización) u
+  `ok:false` (con `error.code` = `NOT_FOUND` | `FINISH_NOT_AVAILABLE`, los mismos que el endpoint por-carta
+  devolvería como 404/422). **HTTP global = 200.** Correlación por **`index`** (posición 0-based en `items`) + eco de
+  `cardId` (un mismo `cardId`+`finish` puede repetirse; el `index` es la llave robusta).
+- **Cap.** `BUYLIST_QUOTE_BATCH_MAX = 50` ítems por request (constante de servidor; cubre `pageSize` 20 del grid con
+  holgura sin ser vector de abuso). `items` vacío o por encima del cap → `400 VALIDATION_ERROR` (via
+  `@ArrayNotEmpty` + `@ArrayMaxSize(50)`). Cuenta como **1** request contra el throttle público (colapsa el fan-out;
+  **reduce** presión sobre el límite 300/min citado en FE-12).
+- **SEC-A1.** Rareza y acabado se derivan **server-side** de `Card.rarity` y del `finish` validado contra
+  `Card.availableFinishes`; el cliente nunca envía precio/monto/regla.
+
+**Modelo de cotización = una línea por carta física (SIN `qty`).** El modelo actual (`PublicQuoteDto`,
+`SellRequestItem`) es **one-line-per-card**; no existe multiplicador de cantidad. El batch **espeja** los campos del
+cotizador por-carta (`cardId`, `productType`, `rawCondition?`, `finish?`) y **no** introduce `qty` (sería un cambio de
+producto, no una traducción del modelo actual). Ver decisión abierta **WS-C-2** en §10.
+
+#### 4.16c — INE/CLABE en archivo expuestos al front
+
+- **`ineOnFile` ya existe** (`users.service.ts:139` = `Boolean(kyc.ineFrontKey && kyc.ineBackKey)`; contrato §1). El
+  front lo consume para **ocultar los uploaders de INE** cuando ya está en archivo y **omitir** `ineUploadKeys` en
+  `POST /buylist/requests`. El backend ya trata el INE en archivo como "provisto" para el umbral AML
+  (`buylist.service.ts:209-211`), así que ocultar los uploaders es seguro: la solicitud sobre el tope no se rechaza por
+  `INE_REQUIRED` si el INE ya está.
+- **`clabeOnFile: boolean` (NUEVO, aditivo)** = `Boolean(kyc.clabeEnc)`, para dar al front un booleano **limpio y
+  simétrico** a `ineOnFile`. Habilita el atajo "usar mi CLABE ****1234" (= **omitir** `clabe`, resuelto por 4.16a) sin
+  que el front tenga que inferirlo de la presencia de `clabeMasked`. `clabeMasked` se conserva para pintar el label.
+  Sin PII nueva.
+
+#### Reparto de trabajo
+
+- **Backend:** (1) `CreateRequestDto.clabe` → `@IsOptional() clabe?: string` y la resolución/fallback de 4.16a con el
+  nuevo `422 CLABE_REQUIRED`; asegurar que la CLABE resuelta **no** se loguea y se snapshotea cifrada. (2) Nuevo
+  controlador/servicio `POST /buylist/quote/batch` (public, read-only) que mapea `publicQuote` con `@ArrayNotEmpty` +
+  `@ArrayMaxSize(50)` y agrega errores por-ítem. (3) `getKyc` añade `clabeOnFile`. Tests: fallback usa solo la CLABE
+  propia; `CLABE_REQUIRED` cuando no hay ninguna; batch con 1 carta inválida devuelve 200 + error por-ítem; batch
+  respeta el cap; equivalencia numérica batch vs por-carta.
+- **Frontend:** (1) sustituir el fan-out por-resultado y el `Promise.all` all-or-nothing por **1** llamada a
+  `/buylist/quote/batch` por página, con render **parcial-tolerante** (mostrar lo cotizado, marcar lo fallido por
+  `error.code`). (2) Retirar el flag mock `useClabeOnFile`: si `clabeOnFile` → ofrecer "usar mi CLABE ****1234" y
+  **omitir** `clabe` en `POST /buylist/requests`; si no → pedir CLABE. (3) Ocultar uploaders de INE cuando `ineOnFile`.
+  (Extracción de hooks/subcomponentes de `BuylistView` = FE-13, oportunista.)
+- **Devops/QA/seguridad:** triple veredicto (toca dinero/PII). E2E: cotizar un lote, crear solicitud con CLABE en
+  archivo (sin reteclear) y con INE en archivo (sin resubir); pentest del fallback (no fugar/loguear CLABE; no resolver
+  la de otro usuario).
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -2127,6 +2285,22 @@ este documento y con `API_CONTRACT.md`.
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.15-buylist-batch-clabe — WS-C: cotizador de Fable contra el backend real)
+> No bloquean el diseño (defaults propuestos por el arquitecto); se listan para que el orquestador/humano vete o ajuste.
+- **WS-C-1 — Naming del batch quote.** Propuesta: endpoint **NUEVO** `POST /buylist/quote/batch` conservando el
+  por-carta `POST /buylist/quote` (aditivo, no-breaking). El pedido original nombraba `POST /buylist/quote` con
+  `items[]` (overload). El arquitecto **elige el endpoint nuevo** para no romper el consumidor por-carta y por claridad
+  de errores por-ítem. Si se prefiere el overload exacto (breaking, con el frontend migrado en la misma entrega), el
+  orquestador lo indica.
+- **WS-C-2 — ¿`qty` en el cotizador?** El modelo actual es **una línea por carta física** (sin `qty`). El batch espeja
+  ese modelo (sin `qty`). Si el humano quiere cotizar/vender **N copias idénticas en una sola línea**, es un cambio de
+  producto (afecta `SellRequestItem`, conversión a inventario 1-a-1 y topes AML) — **no se asume**. ¿Se desea `qty`?
+- **WS-C-3 — Cap del batch (`BUYLIST_QUOTE_BATCH_MAX = 50`).** Constante de servidor propuesta (cubre el `pageSize` 20
+  del grid con holgura). ¿Debe ser un dial M10 configurable en vez de constante? Default: constante (menos superficie).
+- **WS-C-4 — Código `422 CLABE_REQUIRED`.** Nuevo código para "ni en request ni en archivo". Alternativa: reusar
+  `422 CLABE_INVALID`. Propuesta: **código propio** (`CLABE_REQUIRED`) para que el front distinga "falta CLABE" de
+  "CLABE malformada" y enrute a capturar/registrar CLABE. Confirmar el código.
 
 ### Preguntas abiertas (v1.14-price-ingest — WS-A: ingesta masiva vía proveedor de paga)
 > No bloquean el arranque del **diseño**: backend puede construir la interfaz `BulkPriceProvider`, el job
