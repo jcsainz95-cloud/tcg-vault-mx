@@ -1,5 +1,5 @@
 import { config } from './config';
-import { apiRequest, ApiClientError, setToken, getToken } from './api-client';
+import { apiRequest, ApiClientError, setToken, setRefreshToken, getToken } from './api-client';
 import { setStoredUser, patchStoredUser } from './session';
 import * as fx from './mock/fixtures';
 import type {
@@ -677,6 +677,11 @@ export async function uploadToPresignedUrl(
 // ---------- Auth (contrato §1) ----------
 function persistSession(res: AuthResponse): AuthResponse {
   setToken(res.accessToken);
+  // WS-B: persistimos también el refresh token (contrato §1 lo devuelve en cada
+  // login/register/google/refresh). Sin esto, al vencer el access token (15m) toda
+  // request daba 401 y la sesión se caía a media corrida; el interceptor de api-client
+  // lo canjea por un TokenPair nuevo (POST /auth/refresh) y reintenta.
+  setRefreshToken(res.refreshToken);
   // Además del token, guardamos el usuario para que el header (y demás UI) pueda
   // reflejar la sesión de forma reactiva sin re-consultar al backend.
   setStoredUser(res.user);
@@ -693,6 +698,9 @@ export async function logout(): Promise<void> {
     if (!config.useMocks) await apiRequest<void>('/auth/logout', { method: 'POST' });
   } finally {
     setToken(null);
+    // WS-B: limpiar también el refresh token para no dejar una credencial de larga vida
+    // (30d) huérfana en localStorage tras cerrar sesión.
+    setRefreshToken(null);
     setStoredUser(null);
   }
 }

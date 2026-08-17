@@ -4,6 +4,121 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-D — Quick wins de UX (2026-08-17)
+- **#9 P-13 nav por sesión** (`StorefrontHeader.tsx`): "Mi Bóveda"/"Mis Órdenes" se ocultan sin sesión
+  (público solo Compra/Vender), vía spread condicional en el array `links` (aplica a nav desktop y móvil;
+  `authed` depende de `ready` → sin mismatch de hidratación).
+- **#6 márgenes**: `.gutter` 44→32px (`globals.css`, DS §4.1 "32px+"); canal del label vertical 56→40px
+  (`BuylistView.tsx`, `page.tsx`); quitado `lg:px-10` redundante del aside; header/footer/`VerifyEmailBanner`
+  alineados a `lg:px-8`. `max-w-7xl` intacto (DS §4.4).
+- **#7 placeholder**: "Buscar carta" acortado a "Nombre o número" (`buylist`, `admin.m1`).
+
+## WS-B — Auto-refresh del access token (sesión no se cae a los 15m) (2026-08-17)
+
+**Problema:** el access token dura `JWT_ACCESS_TTL`=15m; el backend TIENE `POST /auth/refresh`
+(devuelve un `TokenPair` nuevo) y el login/register/google ya devolvían `refreshToken`, pero el front lo
+**descartaba** (`persistSession` solo guardaba el access token) y `apiRequest` **no manejaba 401**. Resultado:
+a los 15m toda request daba 401 y el usuario quedaba deslogueado a media corrida (p. ej. un sync largo).
+Solo `frontend/` + este doc. **No** se tocó backend ni contrato. Auth-sensible → lo revisa seguridad.
+
+### 1) Persistir el refresh token — `lib/api-client.ts` + `lib/api.ts`
+- Nueva clave `tcg.refreshToken` en localStorage (junto a `tcg.accessToken`), con `getRefreshToken`/
+  `setRefreshToken` espejo de `getToken`/`setToken` (mismo almacenamiento, misma guarda SSR `typeof window`).
+- `persistSession` (`api.ts`) ahora guarda **también** `res.refreshToken` (contrato §1 lo devuelve en
+  login/register/google/refresh). `logout` limpia también el refresh token (no dejar una credencial de 30d
+  huérfana). Nuevo `clearClientSession()` (api-client) que limpia access + refresh + user en un solo lugar.
+
+### 2) Interceptor 401 → refresh → reintento (una vez) — `lib/api-client.ts` `apiRequest`
+`apiRequest` delega en un `requestWithRefresh(path, opts, allowRefresh)`:
+- Si la respuesta es **401**, hay refresh token, y **no** es una ruta `/auth/*`: llama `POST /auth/refresh`
+  (`fetch` directo, no `apiRequest`, para no re-entrar), persiste el `TokenPair` nuevo y **reintenta la
+  request original UNA vez** con el access token nuevo (`allowRefresh=false` en el reintento).
+- **Single-flight:** si varias requests reciben 401 a la vez, comparten UNA sola llamada a `/auth/refresh`
+  (`refreshInFlight`). El backend **rota** el refresh token en cada uso; llamadas paralelas se invalidarían
+  entre sí. El resto reutiliza la misma promesa y luego reintenta con el token ya rotado.
+
+### 3) Si el refresh falla → sesión limpiada, sin bucles
+- Refresh devuelve `null` (sin refresh token / 401 / error de red) → `clearClientSession()` y se propaga el
+  **401 original** al caller; el flujo normal (guards de UI / `useSession`) lleva a login. `setStoredUser(null)`
+  emite el evento `tcg.session.changed`, así que header y otras pestañas quedan deslogueadas (sync).
+- Reintento que **sigue** en 401 (token fresco igual rechazado ⇒ sesión no confiable) → también
+  `clearClientSession()` y se propaga el 401. Nunca hay 2º refresh ni 2º reintento.
+
+### Cómo se evitan los bucles (resumen)
+1. El reintento se hace con `allowRefresh=false` ⇒ **un solo** reintento por request.
+2. `isAuthPath('/auth/*')` **excluye** todo endpoint de auth del interceptor: el propio `/auth/refresh` nunca
+   se dispara a sí mismo, y un 401 de `/auth/login` (credenciales inválidas) no intenta refrescar ni borra la
+   sesión — es un error significativo por sí mismo.
+3. El refresh usa `fetch` directo (no `apiRequest`) ⇒ no re-entra en el interceptor.
+4. Single-flight ⇒ un stampede de 401 concurrentes = **una** llamada de refresh, no N.
+
+### Modo mock (`config.useMocks`) intacto
+El branching mock vive en `api.ts` (cada función corta con `delay(...)` sin llegar a `apiRequest`), así que el
+interceptor **solo corre en modo real**. Los tests mock existentes no se tocan; `mockAuthResponse` ya traía
+`refreshToken`, que ahora `persistSession` guarda sin efectos en las pruebas mock.
+
+### Fuera de alcance (deliberado)
+- `exportFinanceCsv` (`api.ts`) usa `fetch` directo (lee CSV, no JSON) y **no** pasa por `apiRequest`, así que
+  no tiene refresh-and-retry. Es una **descarga manual** (clic del admin), no un sync en background: si el
+  token venció, el siguiente `apiRequest` de esa vista ya habrá refrescado. No se refactorizó para acotar el WS.
+- **No** se añadió refresco proactivo (pre-15m). El interceptor 401 reactivo ya cubre el requisito de forma
+  transparente; se dejó fuera para minimizar la superficie de un cambio auth-sensible (lo revisa seguridad).
+- `inactivity.tsx` / `keep-alive.ts` (auto-logout por **inactividad**, 5 min) cubren otra cosa y **no** se
+  tocaron. Son ortogonales: keep-alive evita el logout por inactividad durante operaciones largas; WS-B evita
+  la caída por **expiración del access token**.
+
+### Pruebas — `lib/api-client.test.ts` (nuevo, 8 casos)
+Ejercitan la rama real mockeando `fetch`: (a) 401 → refresh → reintento OK con el token nuevo + rotación de
+tokens persistida; (b) refresh 401 → sesión limpiada (access+refresh+user) y 401 propagado, sin reintento;
+(c) reintento sigue 401 → sin bucle (exactamente 3 fetch) + sesión limpiada; (d) sin refresh token → 401 tal
+cual; (e) `/auth/login` 401 → sin refresh ni borrado de sesión; (f) 422 y (g) 200 no disparan refresh.
+
+**Gates:** `npm run lint` (0 warnings/errors), `npx tsc --noEmit` (exit 0), `npm run test`
+(**36 archivos, 244 tests** verdes — incluye los 8 nuevos del interceptor), `npm run build` (exit 0).
+
+## WS-D — 3 quick wins de UX (nav por sesión, márgenes, placeholder) (2026-08-17)
+
+Tres ajustes de bajo riesgo, solo `frontend/`. **No** se tocó `lib/api.ts`, `api-client.ts` ni `session.ts`
+(trabajo paralelo de otro agente), ni backend ni contrato. Sin claves i18n nuevas; paridad ES/EN preservada.
+
+### #9 — Nav por sesión (P-13) — `StorefrontHeader.tsx`
+El array `links` pintaba las 4 pestañas siempre. Ahora "Mi Bóveda" (`/vault`) y "Mis Órdenes" (`/orders`) se
+**gatean tras `authed`** (`ready && isAuthenticated`, ya calculado en `:51`); el público solo ve "Compra"
+(`/catalog`) y "Vender" (`/buylist`). El gate vive en la construcción del array (spread condicional), así que
+aplica **igual a nav desktop y menú móvil** (ambos hacen `links.map`). Como `authed` depende de `ready`, en
+SSR/hidratación se pinta el nav público (idéntico al render de servidor, sin mismatch) y las pestañas privadas
+aparecen al montar la sesión — mismo patrón ya usado para el botón login/logout.
+
+### #6 — Márgenes laterales grandes (columna vertical 56px + gutter 44px)
+- `globals.css` `.gutter` `@media (min-width:1024px)`: **44px → 32px** (DESIGN_SYSTEM §4.1 pide "32px+"; 32 es
+  el mínimo válido). Afecta a todas las secciones storefront que usan `.gutter` (ese es el objetivo).
+- Canal del label vertical **56px → 40px** en `BuylistView.tsx` (`grid lg:grid-cols-[40px_1fr]`) y
+  `page.tsx` (`[40px_1fr_1fr]` hero y `[40px_1fr_auto]` banda buylist). La etiqueta vertical (`.vertical-label`,
+  `writing-mode: vertical-rl`) se mantiene: en modo vertical su longitud crece en alto, no en ancho, así que
+  "Bóveda"/"Buylist" caben de sobra centradas en 40px.
+- Quitado `lg:px-10` redundante del `<aside>` del cotizador en `BuylistView.tsx` (ya lleva `.gutter`).
+- Alineación del **chrome** con el gutter nuevo (32px): `StorefrontHeader.tsx` y el footer de
+  `(storefront)/layout.tsx` bajaron `lg:px-11` → `lg:px-8`. **También** `VerifyEmailBanner.tsx` (banner que se
+  monta entre header y `main` y comparte el patrón idéntico `mx-auto max-w-7xl px-5 sm:px-6 lg:px-11`): bajado a
+  `lg:px-8` para no introducir una desalineación de 12px cuando el banner es visible. Los `lg:px-10` de asides
+  de otras vistas (checkout, order-detail, shipments) y el chrome admin (`AdminTopbar`/`AdminShell`) quedaron
+  **intactos** por estar fuera del alcance de este WS.
+- `max-w-7xl` **no se tocó** (fijado por DESIGN_SYSTEM §4.4). Anillo de foco `shadow-focus` intacto.
+
+### #7 — Placeholder "Buscar carta" que se truncaba
+`"Nombre o número (ej. Charizard, 4)"` se cortaba en el ancho del input. Acortado a **"Nombre o número" /
+"Name or number"** (describe los dos modos de búsqueda: nombre o número de carta). Cambiado en las 2 claves
+que compartían el texto largo: `buylist.searchPlaceholder` (`BuylistView`) y `admin.m1.searchPlaceholder`
+(picker de alta de inventario). `catalog.searchPlaceholder` ("Buscar carta…") ya era corto y no se tocó.
+
+### Tests / gates
+- `StorefrontHeader.test.tsx`: ningún test existente asumía las 4 pestañas sin sesión (solo verificaban links
+  públicos y el estado login/logout), así que nada se rompió. Se **añadieron 2 casos** de #9: sin sesión el nav
+  solo muestra Compra/Vender y **oculta** "Mi bóveda"/"Mis órdenes"; con sesión aparecen ligadas a `/vault` y
+  `/orders`.
+- Gates: `next lint` ✓ (0 warnings/errores) · `tsc --noEmit` ✓ · `vitest` **236/236** (35 archivos, incl.
+  paridad i18n) · `next build` ✓ (Compiled successfully). Sin solicitudes al arquitecto.
+
 ## Epic precios · Fase 1 · Tarea 1.4 — "Importar sets nuevos" (claridad UX, sin endpoint nuevo) (2026-08-17)
 
 Contrato/arquitectura v1.12. El humano pidió "mapear los sets nuevos que vayan saliendo"; el endpoint ya
