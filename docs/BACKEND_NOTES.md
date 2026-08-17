@@ -3170,3 +3170,20 @@ roles super_admin, 400 groupId, 502 UPSTREAM_ERROR, auditoría before/after),
 `test/inventory.sealed-market-ref.spec.ts` (M1 batch sin N+1 + dial), y actualizados
 `scheduler.spec.ts`/`admin-jobs.controller.spec.ts`. Gates: `lint` + `typecheck` + `test` (82 suites,
 633 tests) + `prisma validate/generate` — todo verde.
+
+### 44.5 Cierre de hallazgos techlead v1.19 (2026-08-17)
+- **T-1 (condición de merge) — RESUELTO.** `BuylistService.adminRejectedItems` devolvía la fila Prisma
+  cruda en `card` (con la relación `set` anidada); el contrato §11 exige `card: CardDTO`
+  (`setName`/`subtypes`/`availableFinishes` planos). Ahora proyecta con la canónica `toCardDTO`
+  (exportada por `catalog.service.ts`; mismo patrón que `sealed-mapping.service.ts`) y el `include` trae
+  `set: true`. `test/buylist.rejected-items.spec.ts` actualizado: fixture con fila Card realista y
+  aserciones que CEMENTAN el shape CardDTO (`setName` plano, `set` crudo NO se propaga, `subtypes`,
+  `availableFinishes`). `itemDTO` (~L470) NO se tocó — marcado por techlead como pre-existente para otro
+  pase. Gates: lint/typecheck verdes; suite completa **82 suites / 633 tests** verde.
+- **Deuda anotada en `docs/TECH_DEBT.md`** (sin cambio de código): nueva **BE-44** (cast local de
+  `UPSTREAM_ERROR`; duplicación de ~35 líneas del upsert money-safe en `persistSealedMarketReference` →
+  dirección `upsertDailyReference` común; heurística/fixtures TCGCSV pendientes de validar en staging con
+  dial `off` como candado), **ampliación de BE-43** (buzón `soporte@tcgvaultmx.com` hardcodeado en
+  `buylist-mail.templates.ts` vs env `DISPUTE_EVIDENCE_CONTACT` en disputes — dos fuentes de verdad) y
+  **nota baja** familia BE-4/BE-25/BE-35 (clave del Map de `getReferencesBatch` reconstruida a mano en 6
+  sitios → exportar `referenceKey(item)`).

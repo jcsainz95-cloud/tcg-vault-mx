@@ -38,10 +38,19 @@ function fakeRejectedRow(id: string, overrides: Record<string, unknown> = {}) {
     id,
     sellRequestId: 'sr-1',
     cardId: 'card-1',
+    // Fila Prisma Card + include set (T-1: el servicio la proyecta con toCardDTO, no la pasa cruda).
     card: {
       id: 'card-1',
+      externalId: 'base1-16',
       name: 'Pidgey',
       number: '16',
+      rarity: 'Common',
+      supertype: 'Pokémon',
+      subtypes: ['Basic'],
+      setId: 'set-1',
+      imageSmallUrl: null,
+      imageLargeUrl: null,
+      availableFinishes: ['normal'],
       set: { id: 'set-1', name: 'Base Set' },
     },
     productType: 'raw',
@@ -94,8 +103,13 @@ describe('BuylistService.adminRejectedItems — shape RejectedSellItemDTO + orde
     expect(row.id).toBe('sri-1');
     expect(row.sellRequestId).toBe('sr-1'); // deep-link al detalle
     expect(row.seller).toEqual({ id: 'user-1', name: 'Ash Ketchum', email: 'ash@example.com' });
+    // T-1: card es la proyección canónica CardDTO (§11) — setName PLANO, subtypes y
+    // availableFinishes presentes; la relación Prisma cruda `set` NO se propaga.
     expect(row.card.name).toBe('Pidgey');
-    expect(row.card.set.name).toBe('Base Set');
+    expect(row.card.setName).toBe('Base Set');
+    expect(row.card.set).toBeUndefined();
+    expect(row.card.subtypes).toEqual(['Basic']);
+    expect(row.card.availableFinishes).toEqual(['normal']);
     expect(row.productType).toBe('raw');
     expect(row.finish).toBe('normal');
     expect(row.quotedPriceCents).toBe(5000);

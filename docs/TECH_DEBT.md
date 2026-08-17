@@ -729,6 +729,11 @@
   constantes 7d/30d de los plazos del ítem rechazado viven en
   `src/modules/buylist/buylist-reject.constants.ts`; `src/jobs/buylist-sweep.service.ts` (zona de otro
   agente en este pase) conserva sus 7/30 inline — al tocar el sweep, importar esas constantes (fuente única).
+- **Ampliación (v1.19, techlead):** el correo de soporte `soporte@tcgvaultmx.com` está **hardcodeado** en
+  `buylist-mail.templates.ts:19` (`SUPPORT_EMAIL`), mientras `src/modules/disputes/disputes.constants.ts:10`
+  lee el MISMO buzón de la env `DISPUTE_EVIDENCE_CONTACT` (con ese fallback) — **dos fuentes de verdad** para
+  el mismo dato de contacto: un cambio del buzón vía env NO se reflejaría en el correo de rechazo de buylist.
+  Unificar (leer la misma fuente/env) cuando se absorba la plantilla en `mail/` (mismo disparador de abajo).
 - **Impacto:** bajo. Mantenibilidad (divergencia potencial de branding/escape entre plantillas) y, sin
   reintentos, un correo de rechazo puede perderse si el proveedor falla (el vendedor igual ve motivo y plazos
   en la app, `GET /buylist/requests/:id`).
@@ -743,6 +748,47 @@
   `GET /admin/buylist` y `GET /admin/buylist/:id` exponen **`seller: AdminSellerRef = { id, name, email }`**
   (join server-side a `User`), implementado por backend en este pase (`adminList`/`adminGet`). El N+1 de
   presentación desaparece. Entrada conservada como trazabilidad.
+
+### v1.19-sealed-tcgcsv (referencia de mercado del sellado) — deuda aceptada del pase (2026-08-17, no bloqueante)
+
+### BE-44 · Restos del pase sealed-TCGCSV: error-code por cast, upsert money-safe duplicado, heurística sin validar
+- **Dónde:** (a) `src/modules/pricing/sealed-pricing.controller.ts:19`; (b) `src/modules/pricing/pricing.service.ts`
+  (`persistSealedMarketReference`, ~:340-376, vs `persistMarketReference`); (c)
+  `src/modules/pricing/providers/tcgcsv-sealed.provider.ts` (heurística de "sellado", ~:130) + sus fixtures de test.
+- **Qué / por qué:**
+  - **(a) `UPSTREAM_ERROR` tipado por cast local.** El código 502 `UPSTREAM_ERROR` está en el contrato (§M2,
+    explorador TCGCSV) pero NO en `src/common/error-codes.ts`, porque `common/` (zona compartida) estaba
+    **serializada a otro stream** en esta ventana. El controller lo tipa con
+    `'UPSTREAM_ERROR' as ErrorCodeType` (cast local documentado). Follow-up de **1 línea** (añadirlo al
+    enum `ErrorCode`) en cuanto `common/` quede libre.
+  - **(b) upsert diario money-safe duplicado.** `persistSealedMarketReference` duplica ~35 líneas de
+    `persistMarketReference`: construcción de la clave compuesta
+    `cardId_productType_gradeKey_finish_capturedDate`, la guardia `existing?.isManualOverride` (NO clobbear
+    el override manual del admin) y el `upsert` create/update. Deliberado en el pase (hermano documentado)
+    pero la **doctrina money-safe debe vivir en UN solo sitio**. Dirección: extraer un privado común
+    `upsertDailyReference(key, data)` que ambos llamen; si un fix de la guardia (p. ej. un edge del override)
+    aterriza en una sola copia, la otra diverge en silencio sobre dinero.
+  - **(c) heurística de sellado + fixtures sin validar contra payloads reales.** La detección de "producto
+    sellado" del adapter TCGCSV (product SIN los extendedData de single) y los fixtures de test se
+    escribieron contra la documentación/muestras, **sin validar contra payloads reales** de tcgcsv.com
+    (egress bloqueado en local). Riesgo: clasificar mal un product en la primera corrida real. **Candado:**
+    el dial `sealed_price_source` tiene seed **`off`** (fail-closed); la ingesta no corre hasta que el
+    humano/devops flipee a `tcgcsv` en staging.
+- **Impacto:** bajo. (a) cosmético/tipado; (b) mantenibilidad sobre camino de dinero (correctness OK hoy,
+  riesgo de divergencia futura); (c) acotado por el dial `off` — sin corrida real no hay dato malo persistido.
+- **Disparador:** (a) primer pase que libere/toque `common/` (fix de 1 línea); (b) próximo toque a la familia
+  `persistMarketReference`/ingesta de precios; (c) **1ª corrida en staging** con el dial en `tcgcsv`:
+  validar la heurística contra los payloads reales y ajustar fixtures antes de considerar prod.
+- **Dueño:** **backend**. Prioridad: **baja** (aceptada por techlead en el veredicto v1.19).
+
+### Nota (baja) · La clave del Map de `getReferencesBatch` se reconstruye a mano en 6 sitios (familia BE-4/BE-25/BE-35)
+- **Qué:** la clave `` `${cardId}|${productType}|${gradeKey}|${finish}` `` del `Map` que devuelve
+  `PricingService.getReferencesBatch` se re-arma **a mano** en 6 sitios: `pricing.service.ts:107` (`keyOf`,
+  privada), `admin.service.ts:314,319`, `catalog.service.ts:99` e `inventory.service.ts:431,629`. Un cambio
+  de formato de la clave (p. ej. un campo nuevo) rompería consumidores en silencio (miss del Map → pending).
+- **Dirección:** exportar un helper `referenceKey(item)` desde `pricing.service.ts` (o devolver un objeto con
+  `get(item)`) y migrar los 5 sitios consumidores. Misma familia que **BE-4/BE-25/BE-35** (batch de
+  referencias); pagarlo junto con la próxima migración de esa familia. Dueño: **backend**. Prioridad: **baja**.
 
 > Deuda aceptada, no bloqueante para el MVP. El cliente compila y pasa lint/typecheck/test/build; todas
 > las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la

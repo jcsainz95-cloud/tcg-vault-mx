@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
+import { toCardDTO } from '../catalog/catalog.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
@@ -905,8 +906,9 @@ export class BuylistService {
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
-          // `set` incluido: la pestaña muestra nombre/set/acabado de la carta.
-          card: { include: { set: { select: { id: true, name: true } } } },
+          // `set` completo: `toCardDTO` proyecta `setName` desde la relación (patrón
+          // canónico, mismo include que sealed-mapping.service).
+          card: { include: { set: true } },
           sellRequest: {
             select: { id: true, userId: true, user: { select: { id: true, name: true, email: true } } },
           },
@@ -918,7 +920,9 @@ export class BuylistService {
       id: i.id,
       sellRequestId: i.sellRequestId,
       seller: this.sellerRef(i.sellRequest?.user),
-      card: i.card,
+      // T-1 (techlead v1.19): proyección canónica CardDTO (setName/subtypes/availableFinishes),
+      // NUNCA la fila Prisma cruda — contrato §11 RejectedSellItemDTO exige card: CardDTO.
+      card: toCardDTO(i.card),
       productType: i.productType,
       finish: i.finish ?? 'normal',
       quotedPriceCents: i.quotedPriceCents ?? undefined,
