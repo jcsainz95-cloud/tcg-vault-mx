@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { CatalogFacetsDTO, ProductType, SealedSubtype, Finish } from '@/types/contract';
+import type { CatalogFacetsDTO, ProductType, SealedSubtype } from '@/types/contract';
 import type { CatalogFilters } from '@/lib/api';
 import { groupRarities, type RarityGroup } from '@/lib/rarity-groups';
+import { FINISH_ORDER } from '@/lib/finish';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
 
@@ -323,8 +324,6 @@ function SetFilter({ facets, filters, onChange }: ShopFiltersProps) {
 }
 
 // ---- Acabado: chips de acabado (v1.6-finish), alimentado por facets.finishes ----
-const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
-
 function FinishFilter({ facets, filters, onChange }: ShopFiltersProps) {
   const t = useTranslations('shop.finish');
   const tFinish = useTranslations('finish');

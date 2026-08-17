@@ -124,24 +124,33 @@ describe('Master Set · Carrito de captura por lote (#12, tolerante por-línea)'
 });
 
 describe('Master Set · Publicación masiva (bulk-publish por-línea)', () => {
-  it('maneja ITEM_NOT_PUBLISHABLE (pieza reservada) sin tumbar la pieza publicable', async () => {
+  it('deshabilita el checkbox de una pieza NO publicable (reserved) y no la ofrece', async () => {
+    // qa MENOR: solo {in_stock, listed} son publicables; una `reserved` no debe poder marcarse
+    // (el backend la rechazaría con ITEM_NOT_PUBLISHABLE). El guardarraíl server-side se queda;
+    // esto es UX para no ofrecer una acción que va a fallar.
     const spy = vi.spyOn(api, 'bulkPublishItems');
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
     const drawer = await openCell(/Charizard/);
 
-    // Piezas de Charizard: [0]=listed, [1]=in_stock (publicable), [3]=reserved (NO publicable).
-    const boxes = await within(drawer).findAllByRole('checkbox');
-    fireEvent.click(boxes[1]); // in_stock → ok
-    fireEvent.click(boxes[3]); // reserved → ITEM_NOT_PUBLISHABLE
-    fireEvent.click(within(drawer).getByRole('button', { name: /Publicar seleccionadas/ }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalled());
-    // 1 publicada + 1 error, y el error por-línea traducido (no tumba a la publicable).
-    expect(await within(drawer).findByText('1 publicadas · 1 con error.')).toBeInTheDocument();
+    // La pieza reservada (INV-000203 / inv-2003) → checkbox deshabilitado + hint del porqué.
+    const reservedRow = (await within(drawer).findByText('INV-000203')).closest('li')!;
+    const reservedBox = within(reservedRow).getByRole('checkbox');
+    expect(reservedBox).toBeDisabled();
     expect(
-      within(drawer).getByText(/no se puede publicar en su estado actual/),
+      within(reservedRow).getByText(/No publicable en su estado actual/),
     ).toBeInTheDocument();
+
+    // Una pieza in_stock (INV-000201 / inv-2001) SÍ es publicable → checkbox habilitado.
+    const stockRow = within(drawer).getByText('INV-000201').closest('li')!;
+    const stockBox = within(stockRow).getByRole('checkbox');
+    expect(stockBox).toBeEnabled();
+
+    // Publicar: el lote solo incluye la pieza publicable (la reservada nunca entró).
+    fireEvent.click(stockBox);
+    fireEvent.click(within(drawer).getByRole('button', { name: /Publicar seleccionadas/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0].items).toEqual([{ inventoryItemId: 'inv-2001' }]);
   });
 
   it('maneja PRICE_PENDING (in_stock sin referencia) como error por-línea', async () => {
@@ -158,5 +167,52 @@ describe('Master Set · Publicación masiva (bulk-publish por-línea)', () => {
     expect(
       within(drawer).getByText(/Esta carta tiene precio pendiente/),
     ).toBeInTheDocument();
+  });
+});
+
+describe('Master Set · batchKey ESTABLE por sesión de carrito (techlead #1, anti-duplicado)', () => {
+  it('reusa la MISMA batchKey en un reintento y la RENUEVA solo tras un éxito', async () => {
+    const keys: string[] = [];
+    let n = 0;
+    vi.spyOn(api, 'batchCreateItems').mockImplementation(async (payload) => {
+      keys.push(payload.batchKey);
+      n += 1;
+      // 1ª llamada: "expira por red" (pero pudo procesarse) → el operador reintenta.
+      if (n === 1) throw new Error('network timeout');
+      return {
+        batchKey: payload.batchKey,
+        idempotentReplay: n > 2,
+        summary: { requested: 1, createdItems: 1, failedLines: 0 },
+        results: [{ index: 0, ok: true, folios: ['INV-000301'], inventoryItemIds: ['x1'] }],
+      };
+    });
+
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+
+    // --- Sesión de carrito 1: agrega una línea de Charizard ---
+    let drawer = await openCell(/Charizard/);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Agregar al carrito' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
+
+    // Submit 1 → falla (timeout). El carrito NO se limpia (onSuccess no corrió).
+    fireEvent.click(await screen.findByRole('button', { name: /Dar de alta/ }));
+    await waitFor(() => expect(keys.length).toBe(1));
+
+    // Reintento del MISMO submit lógico → misma batchKey (backend lo trata como replay).
+    fireEvent.click(await screen.findByRole('button', { name: /Dar de alta/ }));
+    await waitFor(() => expect(keys.length).toBe(2));
+    expect(keys[0]).toBe(keys[1]);
+
+    // Éxito confirmado → carrito vacío.
+    expect(await screen.findByText('1 piezas creadas · 0 líneas con error.')).toBeInTheDocument();
+
+    // --- Sesión de carrito 2 (nuevo carrito tras éxito) → batchKey NUEVA ---
+    drawer = await openCell(/Charizard/);
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Agregar al carrito' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Dar de alta/ }));
+    await waitFor(() => expect(keys.length).toBe(3));
+    expect(keys[2]).not.toBe(keys[1]);
   });
 });

@@ -650,6 +650,7 @@
         "publishPiecesTitle": "Publicar piezas de esta carta",
         "noPieces": "Aún no hay piezas de esta carta en bóveda.",
         "publishSelected": "Publicar seleccionadas ({count})",
+        "notPublishableHint": "No publicable en su estado actual (solo en stock o ya publicada).",
         "publishResult": "{published} publicadas · {failed} con error.",
         "cartTitle": "Carrito de captura",
         "cartSummary": "{lines} líneas · {pieces} piezas",

@@ -24,6 +24,7 @@ import type {
   CardDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
+import { FINISH_ORDER } from '@/lib/finish';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
@@ -48,8 +49,6 @@ const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 // MovementReason.buylist_convert); solo `aportacion_en_especie` y `compra` se dan de alta aquí.
 // El enum completo (incl. buylist) se sigue traduciendo en tabla/detalle para items ya convertidos.
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'compra'];
-// v1.6-finish: orden de despliegue del acabado; la etiqueta legible viene de i18n `finish`.
-const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 // Filtro de estado de la tabla (enum InventoryStatus completo del contrato).
 const INVENTORY_STATUSES: InventoryStatus[] = [
   'in_stock',

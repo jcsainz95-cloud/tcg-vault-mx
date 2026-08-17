@@ -10,8 +10,8 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
+import { FINISH_ORDER } from '@/lib/finish';
 
-const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 type PieceFilter = 'all' | 'with' | 'gaps';
 
 interface Props {

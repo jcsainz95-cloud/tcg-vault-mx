@@ -37,11 +37,10 @@ import { Link } from '@/i18n/navigation';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { useBuylistSteps } from '@/lib/pipelines';
+import { FINISH_ORDER } from '@/lib/finish';
 import { cn } from '@/lib/cn';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
-// v1.6-finish: acabados en el orden de despliegue del selector; la etiqueta legible viene de i18n `finish`.
-const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 
 /** Primer acabado disponible de la carta (normal va primero por convención del catálogo). */
 function firstAvailableFinish(card: CardDTO): Finish {

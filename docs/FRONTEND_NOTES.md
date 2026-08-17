@@ -4,6 +4,53 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-E frontend · Pulido de veredicto (batchKey estable + UX bulk-publish + dedup) (2026-08-17)
+
+Cierra hallazgos NO bloqueantes del veredicto sobre WS-E (Master Set). Solo `frontend/` + este doc +
+`docs/TECH_DEBT.md`. **0 cambios de contrato/backend**; no toca lógica de dinero (SEC-A1 intacto: el
+precio de venta lo deriva el backend). Patrón real+mock, tokens y `shadow-focus` respetados. Gates
+verdes: **lint 0**, **tsc 0**, **test 313** (42 files; +1 neto: se reemplazó 1 test y se añadieron 2),
+**build** OK.
+
+### 1) [techlead #1] `batchKey` ESTABLE por sesión de carrito (anti-duplicado)
+- **Problema:** `batchKey` se generaba con `localUid()` DENTRO del `mutationFn` en cada `.mutate()`
+  (`MasterSetPanel` carrito y `CellDrawer` bulk-publish). Un request que expira por red pero SÍ se
+  procesó, al reintentarse generaba una key NUEVA → el backend ya no lo veía como replay → **piezas
+  duplicadas** (la `batchKey` es la guardia anti-duplicado server-side).
+- **Fix (`MasterSetPanel.tsx`):** `batchKeyRef = useRef<string|null>(null)` + `ensureBatchKey()` que
+  la genera UNA vez (al empezar a llenar el carrito, en `addToCart`, y como fallback en `mutationFn`).
+  Se **regenera solo tras éxito confirmado** (`onSuccess`, tras limpiar el carrito → `batchKeyRef.current
+  = null`) o al vaciar el carrito manualmente (`clearCart`). Un reintento por timeout reusa la MISMA key
+  → replay idempotente → no duplica.
+- **Fix (`CellDrawer.tsx`):** mismo patrón con `publishKeyRef`/`ensurePublishKey()` para el bulk-publish;
+  se renueva tras un éxito confirmado (tras limpiar la selección).
+
+### 2) [qa MENOR] Deshabilitar piezas no-publicables en el bulk-publish del `CellDrawer`
+- La lista de piezas trae TODOS los status; solo `{in_stock, listed}` son publicables (contrato §M1
+  v1.16.1). Ahora el checkbox de una pieza cuyo status NO está en ese conjunto se **deshabilita** (input
+  `disabled` + fila `opacity-60`/`cursor-not-allowed`) con un **hint** (`notPublishableHint`) del porqué.
+  Const `PUBLISHABLE_STATUSES: InventoryStatus[] = ['in_stock','listed']`. El guardarraíl server-side
+  (`ITEM_NOT_PUBLISHABLE`) se queda; esto es solo UX para no ofrecer una acción que va a fallar.
+
+### 3) [techlead #3] Dedup de `FINISH_ORDER`
+- Estaba triplicada (M1View / MasterSetBinder / CellDrawer) y además en ShopFilters / BuylistView (5
+  copias). Se movió a un módulo único **`@/lib/finish.ts`** (`export const FINISH_ORDER`) y se importa en
+  los **5** consumidores. `Finish` (tipo) se quitó del import de `ShopFilters` por quedar sin uso.
+
+### i18n (paridad ES/EN)
+`admin.m1.masterSet.notPublishableHint` (ES/EN).
+
+### Tests (`MasterSet.test.tsx`)
+- **batchKey estable:** el reintento del mismo submit lógico reusa la MISMA key (mock que "expira" en la
+  1ª llamada); un carrito nuevo tras éxito → key NUEVA.
+- **bulk-publish UX:** el checkbox de la pieza `reserved` (INV-000203) está `disabled` + muestra el hint;
+  la `in_stock` (INV-000201) queda habilitada y el lote solo incluye la publicable. (Reemplaza al test
+  previo de ITEM_NOT_PUBLISHABLE por-línea vía UI, ya inalcanzable al no poder marcar la reservada; la
+  tolerancia por-línea sigue cubierta por el test de PRICE_PENDING.)
+
+### Sin solicitudes al arquitecto
+0 cambios de contrato/backend. Deuda FE no bloqueante restante registrada en `docs/TECH_DEBT.md`.
+
 ## WS-E frontend — Master Set + captura/publicación por lote (2026-08-17, contrato §M1 v1.16.1)
 
 Vista **Master Set** en M1 (índice de sets → binder por número) + **carrito de captura por lote** (#12)

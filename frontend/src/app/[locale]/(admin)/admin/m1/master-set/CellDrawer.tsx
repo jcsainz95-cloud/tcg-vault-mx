@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { getAdminInventory, bulkPublishItems } from '@/lib/api';
@@ -8,6 +8,7 @@ import type {
   AcquisitionType,
   Finish,
   GradingCompany,
+  InventoryStatus,
   MasterSetCardCellDTO,
   ProductType,
   VaultLocationDTO,
@@ -21,14 +22,18 @@ import { Banner } from '@/components/ui/Banner';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { QueryState } from '@/components/ui/QueryState';
 import { PerLineErrors } from './PerLineErrors';
+import { FINISH_ORDER } from '@/lib/finish';
 import { localUid, type CaptureLine } from './capture';
 
-const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 // En el binder solo hay cartas numeradas → alta rápida de raw o gradeada (sellado se gestiona
 // en la pestaña "Piezas"). El acabado solo aplica a raw; graded es siempre normal.
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded'];
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'compra'];
 const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
+// Solo estos status de ORIGEN son publicables (contrato §M1 v1.16.1 / ITEM_NOT_PUBLISHABLE):
+// `in_stock` → publica; `listed` → no-op idempotente. Cualquier otro lo rechaza el backend.
+// El guardarraíl server-side se queda; deshabilitar aquí es solo UX (no ofrecer lo que va a fallar).
+const PUBLISHABLE_STATUSES: InventoryStatus[] = ['in_stock', 'listed'];
 
 interface Props {
   cell: MasterSetCardCellDTO;
@@ -63,14 +68,25 @@ export function CellDrawer({ cell, locations, onClose, onAddToCart, onPublished 
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  // batchKey ESTABLE por SESIÓN DE PUBLICACIÓN (techlead #1): se fija una vez y solo se regenera
+  // tras un éxito confirmado. Un reintento por timeout reusa la MISMA key → replay idempotente en
+  // el backend → no se re-publica ni se duplica. Generarla en cada mutate() lo derrotaría.
+  const publishKeyRef = useRef<string | null>(null);
+  function ensurePublishKey(): string {
+    if (publishKeyRef.current === null) publishKeyRef.current = localUid('pub');
+    return publishKeyRef.current;
+  }
+
   const publish = useMutation({
     mutationFn: () =>
       bulkPublishItems({
-        batchKey: localUid('pub'),
+        batchKey: ensurePublishKey(),
         items: [...selected].map((inventoryItemId) => ({ inventoryItemId })),
       }),
     onSuccess: () => {
       setSelected(new Set());
+      // Sesión cerrada con éxito → la próxima publicación arranca con una batchKey NUEVA.
+      publishKeyRef.current = null;
       void pieces.refetch();
       onPublished();
     },
@@ -199,27 +215,41 @@ export function CellDrawer({ cell, locations, onClose, onAddToCart, onPublished 
                 <p className="text-sm text-muted">{t('noPieces')}</p>
               ) : (
                 <ul className="flex flex-col gap-1">
-                  {pieces.data.data.map((piece) => (
-                    <li key={piece.id}>
-                      <label className="flex items-center gap-3 border border-border px-3 py-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(piece.id)}
-                          onChange={() => toggle(piece.id)}
-                          className="h-5 w-5 accent-[color:var(--color-accent)]"
-                        />
-                        <span className="font-mono tabular-nums text-xs">{piece.folio}</span>
-                        {piece.finish && (
-                          <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
-                            {tFinish(piece.finish)}
+                  {pieces.data.data.map((piece) => {
+                    // UX: no ofrecer publicar piezas en un status no publicable (evita el
+                    // ITEM_NOT_PUBLISHABLE seguro). El backend sigue siendo la autoridad.
+                    const publishable = PUBLISHABLE_STATUSES.includes(piece.status);
+                    return (
+                      <li key={piece.id}>
+                        <label
+                          className={`flex items-center gap-3 border border-border px-3 py-2 text-sm ${
+                            publishable ? '' : 'cursor-not-allowed opacity-60'
+                          }`}
+                          title={publishable ? undefined : t('notPublishableHint')}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected.has(piece.id)}
+                            onChange={() => toggle(piece.id)}
+                            disabled={!publishable}
+                            className="h-5 w-5 accent-[color:var(--color-accent)] disabled:cursor-not-allowed"
+                          />
+                          <span className="font-mono tabular-nums text-xs">{piece.folio}</span>
+                          {piece.finish && (
+                            <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
+                              {tFinish(piece.finish)}
+                            </span>
+                          )}
+                          <span className="ml-auto">
+                            <StatusBadge domain="inventory" value={piece.status} />
                           </span>
+                        </label>
+                        {!publishable && (
+                          <p className="px-3 pt-0.5 text-[10px] text-muted">{t('notPublishableHint')}</p>
                         )}
-                        <span className="ml-auto">
-                          <StatusBadge domain="inventory" value={piece.status} />
-                        </span>
-                      </label>
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
               ))}
           </QueryState>

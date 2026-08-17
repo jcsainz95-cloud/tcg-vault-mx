@@ -650,6 +650,7 @@
         "publishPiecesTitle": "Publish pieces of this card",
         "noPieces": "No pieces of this card in the vault yet.",
         "publishSelected": "Publish selected ({count})",
+        "notPublishableHint": "Not publishable in its current status (only in stock or already listed).",
         "publishResult": "{published} published · {failed} failed.",
         "cartTitle": "Capture cart",
         "cartSummary": "{lines} lines · {pieces} pieces",

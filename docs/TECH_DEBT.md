@@ -1145,3 +1145,70 @@
 - **Disparador:** al tocar la política de redirección o al añadir un tercer consumidor. Acción: extraer un hook
   `useAuthGate({ requireRole? })` que devuelva `{ blocked, redirecting }` y centralice el `useEffect` + el criterio;
   AdminShell lo consume con `requireRole` de back-office y PrivateRouteGuard sin rol.
+
+### Pulido de veredicto WS-E frontend (Master Set) — deuda del delta (2026-08-17, no bloqueante)
+
+> Del pase de **pulido de WS-E** (cierre de hallazgos NO bloqueantes del veredicto). Se **RESOLVIERON**
+> en ese mismo pase, y por tanto **NO** figuran como deuda: **techlead #1** (`batchKey` ESTABLE por sesión
+> de carrito en `MasterSetPanel`/`CellDrawer` → un reintento por timeout reusa la key = replay idempotente,
+> no duplica piezas); la **UX del bulk-publish del `CellDrawer`** (deshabilitar checkboxes de piezas cuyo
+> status ∉ `{in_stock, listed}`, hint del porqué); y **techlead #3** (dedup de `FINISH_ORDER` a
+> `@/lib/finish.ts`, importado por los 5 consumidores). Lo de abajo es la deuda FE no bloqueante restante.
+> Continúan la numeración `FE-*` (tras FE-19).
+
+### FE-20 · Extraer `ItemCaptureFields` compartido entre M1 (alta manual) y `CellDrawer` (techlead #2)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (form de alta manual) y
+  `frontend/src/app/[locale]/(admin)/admin/m1/master-set/CellDrawer.tsx` (alta rápida → carrito).
+- **Estado actual:** ambos formularios capturan casi los MISMOS campos de una pieza (productType, finish,
+  gradingCompany/gradeValue/certNumber, acquisitionType/pct, location, qty) con su propia copia de estado
+  (`useState`) y de las reglas de visibilidad (finish solo si raw; cert requerido si graded; pct solo si
+  aportación). Divergen en detalles (M1 incluye `sealed`; el drawer no). El techlead lo marcó como
+  **"candidato #1 a divergir"**: un cambio de captura (p. ej. un campo nuevo o una regla de validación) hay
+  que replicarlo en dos sitios.
+- **Impacto:** bajo hoy (correctness OK), medio en mantenibilidad: alto riesgo de que las dos capturas se
+  separen sin que nada lo señale.
+- **Disparador:** al añadir/cambiar un campo de captura de pieza, o en un pase de unificación. Acción:
+  extraer un `ItemCaptureFields` (componente presentacional + un tipo/estado compartido) que ambos monten,
+  parametrizado por los product types permitidos.
+
+### FE-21 · `getAdminInventory({ pageSize: 100 })` en `CellDrawer` sin paginación (cap silencioso) (techlead #4)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/master-set/CellDrawer.tsx` (query `cell-pieces`).
+- **Estado actual:** la lista de piezas publicables de una carta pide `pageSize: 100` en **una sola página**,
+  sin controles de paginación ni indicación de "hay más". Si una carta tiene **>100 piezas de plataforma**
+  en bóveda, las excedentes **no se muestran** ni se pueden seleccionar para bulk-publish — cap **silencioso**.
+- **Impacto:** bajo hoy (raro tener >100 piezas de la MISMA carta), medio a escala. No corrompe nada; solo
+  oculta piezas del operador.
+- **Disparador:** cuando una carta acumule >100 piezas de plataforma, o en el pase de virtualización del
+  binder (FE-22). Acción: paginar la lista del drawer (o al menos avisar "mostrando 100 de N" + cargar más).
+
+### FE-22 · Fase-2 del binder: virtualización + export/import CSV del lote
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/master-set/MasterSetBinder.tsx` (grid completo) y el
+  carrito de captura (`MasterSetPanel.tsx`).
+- **Estado actual:** el binder pinta TODAS las celdas del set de una vez (mitigado con `loading=lazy` +
+  `content-visibility:auto`), sin virtualización; el lote de captura/publicación no tiene export/import CSV.
+  El contrato §M1 marca explícitamente **virtualización y CSV como fase 2** (fuera de WS-E).
+- **Impacto:** bajo. Sets acotados (~200-400 cartas) rinden aceptablemente con el lazy actual; el CSV es una
+  comodidad de captura a escala, no un bloqueo.
+- **Disparador:** sets muy grandes o captura/inventario masivo por lote. Acción: virtualizar el grid
+  (`@tanstack/react-virtual` o similar) y añadir export/import CSV del carrito.
+
+### FE-23 · Gating de M5 duplicado (tabs por etapa vs booleans de acción) → un solo mapa status→capacidades
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m5/M5View.tsx` (`M5_TABS` por etapa + `canDecide`/
+  `showMoneyOut`/gating de convertir).
+- **Estado actual:** la **agrupación por etapa** (qué `status` cae en cada pestaña) y las **capacidades por
+  acción** (`canDecide`, `showMoneyOut`, convertir habilitado) derivan del `status` en **dos lugares
+  independientes** con sus propias condiciones. Señalado por el techlead de WS-G P2: conviene un **único
+  mapa** `status → { etapa, capacidades }` del que salgan ambas cosas, para que no puedan desincronizarse.
+- **Impacto:** bajo (correctness OK hoy), medio en mantenibilidad: un cambio de máquina de estados de venta
+  hay que reflejarlo en las tabs Y en los booleans de acción por separado.
+- **Disparador:** al tocar la máquina de estados de `SellRequest`/`SellItem` o al añadir una acción/etapa.
+  Acción: un solo mapa declarativo `status → capacidades` consumido por tabs y por las acciones.
+
+### FE-24 · Rol crudo residual en `M6View` (§9.2 "nunca el enum crudo")
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m6/M6View.tsx`.
+- **Estado actual:** WS-G P1/P2 tradujo el rol en el topbar (`admin.roles.*`) y varios enums de M1/M5, pero
+  la ficha 360° de usuario (M6) aún muestra en algún punto el **valor crudo del rol** (enum del contrato) en
+  vez del label traducido, contra la convención §9.2 (el valor técnico solo debe vivir en `title`/`aria-label`).
+- **Impacto:** bajo. Cosmético/consistencia i18n; no afecta datos ni permisos (el rol lo autoriza el backend).
+- **Disparador:** próximo toque de M6 o un pase de consistencia i18n admin. Acción: mapear el rol por
+  `admin.roles.{customer,vault_operator,super_admin}` en M6, dejando el enum en `title`/`aria-label`.
