@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
+import { ErrorCodeType } from '../../common/error-codes';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
@@ -45,7 +46,16 @@ export class ShipmentsService {
     return address;
   }
 
-  /** Clasifica items en elegibles (settled del usuario) e inelegibles con razón. */
+  /**
+   * Clasifica items en elegibles (settled + EN CUSTODIA, del usuario) e inelegibles con razón.
+   *
+   * SEC-H1 (WS-H): la elegibilidad exige `status === 'in_custody'` como criterio POSITIVO —
+   * cualquier otro `status` (incl. `withdrawn`) es INELEGIBLE. La transición terminal de un
+   * envío entregado deja `status='withdrawn'` CONSERVANDO `ownershipStatus='settled'`; sin este
+   * gate un item ya entregado (fuera de la bóveda) pasaría los checks y se le cobraría un nuevo
+   * envío por Stripe (doble-retiro). Así el criterio de creación queda IDÉNTICO al flag de
+   * lectura `withdrawable` del HoldingDTO (settled && status==='in_custody' && sin envío activo).
+   */
   private async classifyItems(userId: string, ids: string[]) {
     const items = await this.prisma.inventoryItem.findMany({ where: { id: { in: ids } } });
     const eligibleItemIds: string[] = [];
@@ -58,6 +68,12 @@ export class ShipmentsService {
       }
       if (item.ownershipStatus !== 'settled') {
         ineligible.push({ inventoryItemId: id, reason: 'ITEM_NOT_SETTLED' });
+        continue;
+      }
+      // SEC-H1: criterio positivo — solo un item EN CUSTODIA es retirable. Un `withdrawn`
+      // (settled preservado) o cualquier otro estado no lo es.
+      if (item.status !== 'in_custody') {
+        ineligible.push({ inventoryItemId: id, reason: 'ITEM_NOT_IN_CUSTODY' });
         continue;
       }
       eligibleItemIds.push(id);
@@ -85,46 +101,67 @@ export class ShipmentsService {
     const address = await this.validateAddress(userId, addressId);
     const { ineligible } = await this.classifyItems(userId, inventoryItemIds);
     if (ineligible.length > 0) {
-      const notSettled = ineligible.some((i) => i.reason === 'ITEM_NOT_SETTLED');
-      throw BusinessException.validation(
-        notSettled ? 'ITEM_NOT_SETTLED' : 'NOT_FOUND',
-        'Some items are not eligible',
-        { ineligible },
-      );
-    }
-    // Un item no puede estar en dos envíos activos.
-    const active = await this.prisma.shipmentItem.findFirst({
-      where: {
-        inventoryItemId: { in: inventoryItemIds },
-        shipmentRequest: { status: { notIn: ['cancelado', 'entregado'] } },
-      },
-    });
-    if (active) {
-      throw BusinessException.conflict('ITEM_IN_ANOTHER_SHIPMENT', 'Item already in a shipment');
+      // Prioridad de reporte: settled → in_custody → not_found. Todos 422 (validación).
+      // SEC-H1: `ITEM_NOT_IN_CUSTODY` cubre el intento de re-retirar un item ya `withdrawn`.
+      const reasons = new Set(ineligible.map((i) => i.reason));
+      const code: ErrorCodeType = reasons.has('ITEM_NOT_SETTLED')
+        ? 'ITEM_NOT_SETTLED'
+        : reasons.has('ITEM_NOT_IN_CUSTODY')
+          ? 'ITEM_NOT_IN_CUSTODY'
+          : 'NOT_FOUND';
+      throw BusinessException.validation(code, 'Some items are not eligible', { ineligible });
     }
 
     const breakdown = await this.breakdown();
-    const shipment = await this.prisma.shipmentRequest.create({
-      data: {
-        userId,
-        addressSnapshot: {
-          line1: address.line1,
-          line2: address.line2,
-          neighborhood: address.neighborhood,
-          city: address.city,
-          state: address.state,
-          postalCode: address.postalCode,
-          country: address.country,
-          phone: address.phone,
-        },
-        status: 'solicitado',
-        shippingFeeCents: breakdown.subtotalCents,
-        ivaCents: breakdown.ivaCents,
-        processingFeeCents: breakdown.processingFeeCents,
-        totalCents: breakdown.totalCents,
-        items: { create: inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
+
+    // SEC-H2 (WS-H): el chequeo anti-doble-envío + la creación de la ShipmentRequest/items
+    // van en UNA transacción SERIALIZABLE (mismo patrón atómico que la reserva de checkout,
+    // orders.service, y el tope AML de buylist). Cierra la ventana TOCTOU: dos POST /shipments
+    // concurrentes del mismo item ya no pueden pasar ambos el `findFirst` y crear dos envíos
+    // (+ dos PaymentIntents) — el aislamiento serializable aborta a uno por conflicto de
+    // lectura/escritura. La creación del PaymentIntent (Stripe) queda FUERA de la tx a
+    // propósito (A2/BE-7: no bloquear una conexión de DB en una llamada de red; el rollback
+    // compensatorio borra la ShipmentRequest si Stripe falla). Nota: el índice único parcial
+    // sobre ShipmentItem.inventoryItemId (defensa en profundidad) queda como deuda BE-30.
+    const shipment = await this.prisma.$transaction(
+      async (tx) => {
+        // Un item no puede estar en dos envíos activos (re-verificado DENTRO de la tx).
+        const active = await tx.shipmentItem.findFirst({
+          where: {
+            inventoryItemId: { in: inventoryItemIds },
+            shipmentRequest: { status: { notIn: ['cancelado', 'entregado'] } },
+          },
+        });
+        if (active) {
+          throw BusinessException.conflict(
+            'ITEM_IN_ANOTHER_SHIPMENT',
+            'Item already in a shipment',
+          );
+        }
+        return tx.shipmentRequest.create({
+          data: {
+            userId,
+            addressSnapshot: {
+              line1: address.line1,
+              line2: address.line2,
+              neighborhood: address.neighborhood,
+              city: address.city,
+              state: address.state,
+              postalCode: address.postalCode,
+              country: address.country,
+              phone: address.phone,
+            },
+            status: 'solicitado',
+            shippingFeeCents: breakdown.subtotalCents,
+            ivaCents: breakdown.ivaCents,
+            processingFeeCents: breakdown.processingFeeCents,
+            totalCents: breakdown.totalCents,
+            items: { create: inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
+          },
+        });
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     // M3: idempotency-key derivada en servidor (`pi-shipment-<id>`); header del cliente = override.
     const idem = idempotencyKey ?? `pi-shipment-${shipment.id}`;

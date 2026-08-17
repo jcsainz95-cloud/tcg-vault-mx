@@ -2877,3 +2877,60 @@ El `InventoryItem.status` **NO se espeja por etapa**: permanece `in_custody` dur
 - `npm test` (unit) → **75 suites / 530 tests verdes** (incluye los 2 specs nuevos de este WS).
 - `npm run test:integration` → requiere Postgres/Redis/MinIO; **no se ejecutó en el entorno de desarrollo del
   agente** (sin Docker/DB). El spec añadido compila (incluido en `tsc`); QA lo ejecuta contra el stack.
+
+## 42. Cierre WS-H · invariante de retiro (SEC-H1 / SEC-H2, triple veredicto — 2026-08-17)
+
+> Pase de cierre tras el triple veredicto de WS-H. Cierra **SEC-H1** (techlead#1 / qa-IMPORTANTE: item
+> `withdrawn` re-retirable, se re-cobraba envío por una carta ya entregada) y **SEC-H2** (techlead#3: TOCTOU de
+> doble-envío concurrente). **Aditivo, SIN migración.** Alineado al contrato en actualización paralela v1.17.x
+> (código de error `ITEM_NOT_IN_CUSTODY`/422 que el arquitecto añade a §5). Solo se tocó `backend/`.
+
+### 42.1 FIX 1 (SEC-H1) — `classifyItems` exige `status === 'in_custody'` (criterio positivo)
+- **Problema:** la transición terminal deja el item `status='withdrawn'` **conservando**
+  `ownershipStatus='settled'` (histórico intacto, WD-1). `classifyItems` solo validaba `ownerUserId` +
+  `ownershipStatus==='settled'` y **NO** excluía `status='withdrawn'`; el chequeo anti-doble-envío excluye
+  envíos `entregado`. Resultado: un item ya entregado (fuera de la bóveda) pasaba ambos gates → se creaba una
+  `ShipmentRequest` y se **cobraba envío por Stripe** de una carta ya retirada (doble-retiro).
+- **Fix (`shipments.service.ts › classifyItems`):** tras el check de `settled`, se añade el criterio
+  **POSITIVO** `item.status === 'in_custody'`; cualquier otro status (incl. `withdrawn`) → inelegible con razón
+  `ITEM_NOT_IN_CUSTODY`. Así el criterio de **escritura** (creación de retiro) queda **IDÉNTICO** al flag de
+  **lectura** `withdrawable` del HoldingDTO (`settled && status==='in_custody' && sin envío activo`): la parte
+  "sin envío activo" la aporta el guard anti-doble-envío (§42.2).
+- **Error/HTTP:** nuevo código estable **`ITEM_NOT_IN_CUSTODY`** en `common/error-codes.ts`, devuelto vía
+  `BusinessException.validation(...)` → **HTTP 422**. En `create`, el mapeo de inelegibles prioriza
+  `ITEM_NOT_SETTLED` → `ITEM_NOT_IN_CUSTODY` → `NOT_FOUND` (todos 422), con `details.ineligible`.
+
+### 42.2 FIX 2 (SEC-H2) — guard transaccional SERIALIZABLE del anti-doble-envío + creación
+- **Problema:** el `findFirst` de "envío activo" y la creación de `ShipmentRequest`/`ShipmentItem` iban
+  **fuera** de transacción (y `ShipmentItem` no tiene unique en `inventoryItemId`) → dos `POST /shipments`
+  concurrentes del mismo item podían pasar ambos el check y crear **dos** envíos + **dos** PaymentIntents.
+- **Elección (sin migración):** envolví el **re-chequeo** (`tx.shipmentItem.findFirst`) **+** la creación
+  (`tx.shipmentRequest.create`, con items) en **UN** `$transaction` con
+  `isolationLevel: Prisma.TransactionIsolationLevel.Serializable` — **mismo patrón atómico** que ya usan el
+  checkout (`orders.service`, reserva `updateMany`+`count===1`) y el tope AML de buylist (SEC-A2). Bajo
+  SERIALIZABLE, dos transacciones que ambas leen "no hay envío activo" y ambas insertan producen un **conflicto
+  de serialización** que aborta a una → nunca se crean dos envíos activos. **No** metí la llamada a Stripe
+  (creación del PaymentIntent) dentro de la tx a propósito: sigue **después** (A2/BE-7), para no bloquear una
+  conexión de DB en una llamada de red y conservar el rollback compensatorio (borra la `ShipmentRequest` si
+  Stripe falla → cascada a items).
+- **Índice único parcial NO aplicado (deuda `BE-42`):** el cinturón-y-tirantes a nivel BD (índice único parcial
+  sobre `ShipmentItem.inventoryItemId` para envíos activos) **requiere migración** y se **difirió** por alcance;
+  queda registrado en `TECH_DEBT.md` (**BE-42**, dueño backend, schema→arquitecto, **disparador DAST**). El guard
+  serializable ya mitiga la carrera práctica.
+
+### 42.3 Tests (obligatorio del encargo)
+- **Nuevo** `test/shipments.withdraw-invariant.spec.ts` (6 casos): (a) `POST /shipments` con item `withdrawn`
+  (settled preservado) → **`ITEM_NOT_IN_CUSTODY`/422**, sin tocar Stripe ni crear solicitud; (b) ciclo
+  entregado→re-retiro falla (segundo intento rechazado); camino feliz (settled+in_custody) crea la solicitud
+  **dentro** del `$transaction` serializable; (c) guard SEC-H2: primer envío OK, segundo secuencial ve el envío
+  activo → **`ITEM_IN_ANOTHER_SHIPMENT`/409**, `shipmentRequest.create` llamado **una** sola vez y Stripe una
+  sola vez; y un caso que asserta que el re-chequeo corre dentro de `$transaction`.
+- **Actualizado** `test/shipments.rollback.spec.ts`: el mock del item ganó `status:'in_custody'` (antes sin
+  status → ahora lo exige el gate) y se añadió `prisma.$transaction` al mock (ejecuta el callback con el propio
+  cliente mock como `tx`). Mantiene verdes los 2 casos de rollback A2/BE-7.
+
+### 42.4 Gates
+- `npm run lint` → **0 errores**. `npm run typecheck` → **0 errores**.
+- `npm test` (unit) → **76 suites / 535 tests verdes** (antes 75/530; +1 suite / +5 tests netos de este pase).
+- `npm run test:integration` → requiere Postgres/Redis/MinIO; **no se ejecutó** en el entorno del agente (sin
+  Docker/DB). Los specs unitarios nuevos corren sin infra (Prisma mockeado).

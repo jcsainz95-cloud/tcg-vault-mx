@@ -643,6 +643,72 @@
 - **Disparador (aceptado):** reusar el **`getReferencesBatch`** ya existente (`PricingService`, ver **BE-35**)
   para resolver las 50 referencias en 1 consulta. Misma familia que **BE-4/D3**.
 
+### WS-H (cierre invariante de retiro) — deuda del delta (2026-08-17, no bloqueante)
+
+> Del pase de cierre WS-H (SEC-H1/SEC-H2: item `withdrawn` re-retirable + TOCTOU de doble-envío). Los
+> **dos fixes** (gate positivo `status==='in_custody'` en `classifyItems` → `ITEM_NOT_IN_CUSTODY`/422; y el
+> guard transaccional SERIALIZABLE del chequeo anti-doble-envío + creación) se **aplicaron** en este pase con
+> tests, y por tanto **no** figuran como deuda. Lo de abajo es la deuda **no bloqueante** que queda. Dueño
+> **backend** salvo donde se anota dependencia con **devops**. Continúan la numeración `BE-*` (tras BE-38).
+
+### BE-39 · Regla de exclusión `status!='withdrawn'` duplicada en 3 sitios (mantenibilidad)
+- **Dónde:** `src/modules/vault/vault.service.ts:35` (`holdings`) y `:121` (`costBasisCents`);
+  `src/jobs/portfolio-snapshot.service.ts:32` (snapshot por-usuario).
+- **Estado actual:** el `where` de "holdings activos del cliente" (`ownerType:'customer', ownerUserId:userId,
+  status:{ not:'withdrawn' }`) está **replicado a mano** en tres consultas. Si la definición de "holding activo"
+  cambia (p. ej. excluir también `lost`/`damaged` del portafolio, o añadir un nuevo status terminal), hay que
+  tocarlo en tres sitios y es fácil que diverjan (el snapshot mostraría un total distinto del de "Mi bóveda").
+- **Impacto:** bajo. Correctness OK hoy (los tres coinciden); riesgo de divergencia silenciosa al evolucionar
+  la máquina de estados del inventario.
+- **Disparador:** al tocar la definición de holding activo o la valuación de portafolio. Solución: extraer un
+  helper compartido `customerActiveHoldingsWhere(userId)` (un `Prisma.InventoryItemWhereInput`) reusado por los
+  tres call-sites. Owner: **backend**. Prioridad: **baja**.
+
+### BE-40 · Dos representaciones de "envío activo": allowlist vs denylist (fuente doble)
+- **Dónde:** `src/modules/vault/vault.service.ts:11-16` (`ACTIVE_SHIPMENT_STAGES` = allowlist
+  `[solicitado, picking, guia, enviado]`) vs. `src/modules/shipments/shipments.service.ts` (chequeo
+  anti-doble-envío usa `status: { notIn: ['cancelado','entregado'] }` = **denylist**).
+- **Estado actual:** el mismo concepto ("un envío que aún bloquea el item") se codifica de **dos formas
+  complementarias** en dos módulos. Hoy son equivalentes (los 6 estados particionan exactamente en 4 activos +
+  2 terminales), pero si se **añade un estado nuevo** al `ShipmentStatus` (p. ej. `retenido`/`devuelto`), la
+  allowlist y la denylist **discreparían** (uno lo trataría activo, el otro no) → un item podría listarse como
+  retirable en la bóveda y a la vez ser rechazado por el gate de creación, o viceversa.
+- **Impacto:** bajo/latente. Correctness OK con los 6 estados actuales; el riesgo aparece al extender el enum.
+- **Disparador:** al añadir un `ShipmentStatus` nuevo o al tocar cualquiera de los dos checks. Solución: derivar
+  ambas de **una sola constante** (p. ej. `ACTIVE_SHIPMENT_STAGES` como fuente; el gate de shipments usa
+  `status: { in: ACTIVE_SHIPMENT_STAGES }` en vez del `notIn`). Owner: **backend**. Prioridad: **baja**.
+
+### BE-41 · N+1 de pricing en `holdings` amplificado por el snapshot por-usuario (perf) — familia BE-4/D3
+- **Dónde:** `src/modules/vault/vault.service.ts:69-106` (`holdings` llama `PricingService.getReference` por
+  ítem) + el job `portfolio-snapshot` (mismo patrón, ahora por-usuario).
+- **Estado actual:** una consulta `PriceReference` por holding; con bóvedas grandes son decenas/cientos de
+  queries por request, y el snapshot diario lo repite **por cada usuario**. Es la misma familia que **BE-4/D3**,
+  aquí re-confirmada y amplificada por el snapshot por-usuario del portafolio.
+- **Impacto:** rendimiento de "Mi bóveda" y del snapshot diario al crecer el inventario. Correctness OK.
+- **Disparador:** cuando un usuario supere ~cientos de holdings o el snapshot se vuelva lento. Solución: migrar a
+  `PricingService.getReferencesBatch` (ya existe, ver BE-35) por `(cardId, productType, gradeKey, finish)` con un
+  `IN` y map en memoria, reusado por `holdings` y el job. **Re-confirmar/cerrar junto con BE-4.** Owner:
+  **backend**. Prioridad: **baja**.
+
+### BE-42 · Índice único parcial de `ShipmentItem` para SEC-H2 (defensa en profundidad) — disparador DAST
+- **Dónde:** `prisma/schema.prisma` (`ShipmentItem`, sin `@@unique`/índice parcial sobre `inventoryItemId`);
+  `src/modules/shipments/shipments.service.ts` (`create`, guard transaccional SERIALIZABLE).
+- **Estado actual:** SEC-H2 quedó **mitigado** en este pase por el guard transaccional serializable (dos
+  `POST /shipments` concurrentes del mismo item → uno aborta por conflicto de serialización, no se crean dos
+  envíos ni dos PaymentIntents), **SIN migración**. La defensa **en profundidad** —un índice único **parcial**
+  `ShipmentItem(inventoryItemId) WHERE shipmentRequest activo` que haga la doble-inserción imposible a nivel de
+  BD incluso bajo un aislamiento más laxo— **no** se aplicó en este pase (requiere migración; se difirió a
+  propósito por el alcance del encargo). Nota: un índice parcial sobre una condición que cruza tablas
+  (`shipmentRequest.status`) no es expresable directo en Postgres sin desnormalizar un flag "activo" en
+  `ShipmentItem` o materializarlo; evaluar el diseño al abordarlo.
+- **Impacto:** bajo residual (el guard serializable ya cierra la carrera práctica); el índice sería cinturón +
+  tirantes ante un cambio futuro de nivel de aislamiento o un camino de creación alterno.
+- **Disparador:** **al aparecer en un DAST** de doble-envío concurrente sobre staging, o al endurecer la ruta
+  de dinero antes de operar a escala/multi-instancia. Solución: migración con el índice único parcial (posible
+  columna `isActive`/`shipmentStatus` desnormalizada en `ShipmentItem` mantenida por la máquina de estados) +
+  captura de P2002 como `ITEM_IN_ANOTHER_SHIPMENT`. Owner: **backend** (schema → **coordinar con arquitecto**;
+  disparador **DAST/devops**). Prioridad: **baja**. Relacionado con **BE-2** (familia TOCTOU).
+
 ### Nota al arquitecto (NO backend) · `AdminBuylistDTO §M5` podría exponer `userName`
 - **Qué:** el flujo admin de buylist (§M5) hace un **fetch por-fila** del nombre del usuario. Si el contrato
   expusiera `userName` en `AdminBuylistDTO` se evitaría ese N+1 de presentación en M5.
