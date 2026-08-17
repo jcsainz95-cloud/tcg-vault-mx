@@ -342,7 +342,7 @@ export function BuylistView() {
   const requests = useQuery({ queryKey: ['sell-requests'], queryFn: getSellRequests });
 
   return (
-    <div className="grid lg:grid-cols-[56px_1fr]">
+    <div className="grid lg:grid-cols-[40px_1fr]">
       {/* Etiqueta vertical al margen: marca la sección sin recurrir a un color de fondo. */}
       <div className="hidden justify-center border-r border-border py-9 lg:flex">
         <span aria-hidden className="vertical-label text-xs text-muted">
@@ -563,7 +563,7 @@ export function BuylistView() {
           </div>
 
           {/* Cotización + carrito de venta */}
-          <aside className="gutter pb-11 pt-9 lg:px-10">
+          <aside className="gutter pb-11 pt-9">
             {/* La cabecera aparece con la cotización: sin datos no hay ficha que titular.
                 La cotización es automática: elegir carta/acabado dispara el quote. */}
             {selectedCard ? (

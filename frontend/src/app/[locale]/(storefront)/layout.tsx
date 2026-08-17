@@ -4,8 +4,8 @@ import { VerifyEmailBanner } from '@/components/domain/VerifyEmailBanner';
 import { Link } from '@/i18n/navigation';
 
 /*
- * Dirección 5a: el ancho de lectura es 1280px (max-w-7xl) y el margen crece a 44px
- * en escritorio, como en las pantallas. El contenido de cada vista trae su propia
+ * Dirección 5a: el ancho de lectura es 1280px (max-w-7xl) y el margen crece a 32px
+ * en escritorio (DESIGN_SYSTEM §4.1), alineado con el `.gutter`. El contenido de cada vista trae su propia
  * retícula reglada, así que el main no mete padding vertical propio: las secciones
  * se separan con reglas de borde a borde.
  */
@@ -21,7 +21,7 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
         {children}
       </main>
       <footer className="border-t border-border">
-        <div className="mx-auto max-w-7xl px-5 py-8 sm:px-6 lg:px-11">
+        <div className="mx-auto max-w-7xl px-5 py-8 sm:px-6 lg:px-8">
           <Footer />
         </div>
       </footer>

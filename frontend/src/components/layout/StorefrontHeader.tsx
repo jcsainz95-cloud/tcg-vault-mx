@@ -52,11 +52,19 @@ export function StorefrontHeader() {
   const displayName = user?.name || user?.email || '';
   const { count } = useCart();
 
+  // Nav por sesión (P-13): el público solo ve "Compra" y "Vender". "Mi Bóveda" y
+  // "Mis Órdenes" son áreas privadas y se muestran solo con sesión (authed). Como
+  // `authed` depende de `ready`, en SSR/hidratación se pinta el nav público —idéntico
+  // al render de servidor— y las pestañas privadas aparecen al montar la sesión.
   const links = [
     { href: '/catalog', label: t('shop') },
     { href: '/buylist', label: t('buylist') },
-    { href: '/vault', label: t('vault') },
-    { href: '/orders', label: t('orders') },
+    ...(authed
+      ? [
+          { href: '/vault', label: t('vault') },
+          { href: '/orders', label: t('orders') },
+        ]
+      : []),
   ];
 
   async function onLogout() {
@@ -67,7 +75,7 @@ export function StorefrontHeader() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-bg">
-      <div className="mx-auto flex max-w-7xl items-center gap-10 px-5 py-4 sm:px-6 lg:px-11 lg:py-[22px]">
+      <div className="mx-auto flex max-w-7xl items-center gap-10 px-5 py-4 sm:px-6 lg:px-8 lg:py-[22px]">
         <Link href="/" className="lg:hidden">
           <Wordmark size="sm" />
         </Link>

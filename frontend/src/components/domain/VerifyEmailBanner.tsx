@@ -26,7 +26,7 @@ export function VerifyEmailBanner() {
   return (
     // Dirección 5a: franja de papel con regla; el aviso lo marca la nota, no un fondo de color.
     <div className="border-b border-border">
-      <div className="mx-auto max-w-7xl px-5 py-3 sm:px-6 lg:px-11">
+      <div className="mx-auto max-w-7xl px-5 py-3 sm:px-6 lg:px-8">
         <Banner
           variant="warning"
           role="status"

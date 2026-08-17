@@ -118,9 +118,9 @@
     border-left: 1px solid var(--color-border-strong);
   }
   /*
-   * Margen lateral del contenido (44px en escritorio, como las pantallas).
-   * Las reglas van de borde a borde y el contenido respira dentro: por eso el
-   * margen lo pone cada sección y no el <main>.
+   * Margen lateral del contenido (32px en escritorio, mínimo del DESIGN_SYSTEM §4.1
+   * "32px+"). Las reglas van de borde a borde y el contenido respira dentro: por eso
+   * el margen lo pone cada sección y no el <main>.
    */
   .gutter {
     padding-left: 20px;
@@ -134,8 +134,8 @@
   }
   @media (min-width: 1024px) {
     .gutter {
-      padding-left: 44px;
-      padding-right: 44px;
+      padding-left: 32px;
+      padding-right: 32px;
     }
   }
   /* Etiqueta vertical al margen (BÓVEDA, BUYLIST). */

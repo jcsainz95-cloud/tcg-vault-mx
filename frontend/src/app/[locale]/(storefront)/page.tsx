@@ -66,7 +66,7 @@ export default function HomePage() {
 
   return (
     <div>
-      <div className="grid lg:grid-cols-[56px_1fr_1fr]">
+      <div className="grid lg:grid-cols-[40px_1fr_1fr]">
         {/* Etiqueta vertical al margen: marca la sección sin un fondo de color. */}
         <div className="hidden justify-center border-r border-border py-9 lg:flex">
           <span aria-hidden className="vertical-label text-xs uppercase text-muted">
@@ -233,7 +233,7 @@ export default function HomePage() {
       )}
 
       {/* Banda de tinta: el buylist cierra la home con el único botón bermellón. */}
-      <div className="grid bg-ink lg:grid-cols-[56px_1fr_auto] lg:items-center">
+      <div className="grid bg-ink lg:grid-cols-[40px_1fr_auto] lg:items-center">
         <div className="hidden justify-center self-stretch border-r border-on-ink-rule py-9 lg:flex">
           <span aria-hidden className="vertical-label text-xs uppercase text-on-ink-muted">
             {t('buylistLabel')}

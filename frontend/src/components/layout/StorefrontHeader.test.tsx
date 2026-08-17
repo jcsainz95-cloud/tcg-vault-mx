@@ -79,4 +79,21 @@ describe('StorefrontHeader — sesión', () => {
     const vender = screen.getByRole('link', { name: 'Vender' });
     expect(vender).toHaveAttribute('href', '/buylist');
   });
+
+  it('sin sesión el nav público solo muestra Compra y Vender (oculta bóveda y órdenes)', () => {
+    renderWithIntl(<StorefrontHeader />, 'es');
+    expect(screen.getByRole('link', { name: 'Compra' })).toHaveAttribute('href', '/catalog');
+    expect(screen.getByRole('link', { name: 'Vender' })).toHaveAttribute('href', '/buylist');
+    // Áreas privadas: no visibles para el público (P-13).
+    expect(screen.queryByRole('link', { name: 'Mi bóveda' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Mis órdenes' })).not.toBeInTheDocument();
+  });
+
+  it('con sesión el nav agrega "Mi bóveda" (/vault) y "Mis órdenes" (/orders)', async () => {
+    setStoredUser(user);
+    renderWithIntl(<StorefrontHeader />, 'es');
+    const vault = await screen.findByRole('link', { name: 'Mi bóveda' });
+    expect(vault).toHaveAttribute('href', '/vault');
+    expect(screen.getByRole('link', { name: 'Mis órdenes' })).toHaveAttribute('href', '/orders');
+  });
 });
