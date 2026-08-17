@@ -1691,3 +1691,58 @@ Enrutadas en su momento al rol **backend** (dueño de `backend/src/**`); WS-A la
 > Estas son **dependencias de código**; devops solo provee el scheduling (env), Railway y este runbook. Un
 > fallo de build/deploy por un bug de estos se **reporta a backend**, no se corrige aquí.
 
+---
+
+## 20. Fix Redis IPv6 en Railway (auditoría de precios 2026-08-17) — checklist operativo post-deploy
+
+> **Contexto (resumen; el detalle vive en `BACKEND_NOTES §43` — no se duplica aquí):** el scheduler BullMQ
+> no conectaba al Redis de Railway. El private networking (`redis.railway.internal`) resuelve **solo IPv6**
+> y ioredis usa `family: 4` por default → lookup fallido, reintento infinito **en silencio**, crons muertos
+> y catálogo entero en «Precio pendiente». Backend lo arregló en `backend/src/jobs/redis-connection.util.ts`
+> (default **`family: 0`** dual-stack; override por env `REDIS_FAMILY` o `?family=` en la URL) + boot no
+> bloqueante + listeners de error/ready + **catch-up al arranque** (`price-ingest` inmediato si no hay
+> ingesta reciente). La parte devops es este checklist + la doc de `REDIS_FAMILY` en `.env.example`.
+
+### 20.1 Checklist ANTES del deploy (variables en Railway)
+
+1. **`REDIS_URL` en el SERVICIO `backend`** (Railway → servicio `backend` → Variables), no solo en el
+   add-on Redis: debe existir como variable del servicio con la referencia **`${{ Redis.REDIS_URL }}`**.
+   Una `REDIS_URL` que solo vive en el add-on NO llega al runtime del backend, y sin ella el scheduler ni
+   siquiera intenta programar crons (§19.2). El síntoma histórico (catálogo sin precios) es 100%
+   consistente con un scheduler sin conexión Redis viable (BACKEND_NOTES §43.6.1).
+2. **`POKEMONTCG_IO_API_KEY` presente** en el servicio `backend` (BACKEND_NOTES §43.6.3): el dial sembrado
+   es `pokemontcg_io`, y sin key el free tier (~30 req/min) ralentiza el ingest y multiplica los 429
+   (parciales visibles en logs; no borra precios, pero deja huecos).
+3. **`REDIS_FAMILY`: NO hace falta fijarla.** El default `0` (dual-stack) del código ya cubre el hostname
+   interno IPv6-only de Railway. Solo existe como override (`0|4|6`) para casos de DNS anómalo — ver el
+   bloque Redis de `.env.example`. Equivalente sin env: `REDIS_URL=...?family=0`.
+
+### 20.2 Checklist DESPUÉS del deploy (verificación en logs/health)
+
+Runbook completo en **BACKEND_NOTES §43.5**; lo mínimo a verificar:
+
+1. **Logs de arranque** (Railway → servicio `backend` → Deploy logs), en orden:
+   - `Scheduler: conexión Redis lista (BullMQ operativo).`
+   - `Scheduler activo (BullMQ): …`
+   - Una de las dos líneas de **catch-up**: `price-ingest catch-up: SIN ingesta de precios reciente →
+     encolado price-ingest inmediato (jobId=…)` (primer arranque tras el fix) o
+     `price-ingest catch-up: hay ingesta reciente…` (arranques posteriores).
+   - **Señal de fallo:** `Scheduler: error de conexión Redis…` repetido cada ~60s → la URL/red sigue mal;
+     re-verificar §20.1.1 y capturar el log de arranque completo para **backend** (§43.6.4).
+2. **Health:** `GET /api/v1/health` → componente Redis en **`up`**. Tras el fix el health usa el mismo
+   `family` que el scheduler, así que ya es una señal fiable (antes podía dar `down` con Redis sano).
+3. **Progreso del ingest:** líneas `price-ingest: encolados N sets (fan-out BullMQ).` y por set
+   `price-ingest-set(<setId>, pokemontcg_io): X cartas, Y refs, …` + `Job price-ingest-set (id=…) completado.`
+4. **Opcional — disparo manual** para no esperar al cron/catch-up:
+   `POST /api/v1/admin/jobs/price-ingest` (super_admin, 202; con `{"setId": "…"}` un solo set — §19.6).
+
+### 20.3 Recordatorio `numReplicas: 1` (railway.json)
+
+`railway.json` fija **`numReplicas: 1`** y debe seguir así mientras el worker BullMQ corra **in-process**
+en el mismo servicio que la API: con **N réplicas habría N schedulers** registrando los mismos repeatables
+y corriendo crons/catch-up por duplicado (N ingests simultáneos, N `fx-refresh`, etc. — idempotentes pero
+desperdicio de cuota de API y carga). Antes de subir réplicas hay que separar el worker a un servicio
+propio (decisión futura, §6.1) y además migrar el throttler a store Redis (deuda backend, §5.1). Para este
+fix **no se cambió nada** en `railway.json`: healthcheck (`/api/v1/health`, timeout 300s), restart policy y
+réplicas ya eran correctos; el bug era de código (family del DNS), no de config de plataforma.
+
