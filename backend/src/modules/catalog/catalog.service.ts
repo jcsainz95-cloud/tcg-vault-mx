@@ -47,23 +47,20 @@ export class CatalogService {
   ) {}
 
   /**
-   * v1.1 — "Compra" = inventario PUBLICADO con precio de venta fijado (ARCHITECTURE §4.9):
-   * `status=listed`, plataforma, y con un precio de venta RESOLVIBLE (listPriceCents fijado
-   * u override, o referencia con la que calcular precio×markup). El comprador NUNCA ve
-   * "precio pendiente".
+   * v1.1 — "Compra" = inventario PUBLICADO con precio de venta RESOLVIBLE (ARCHITECTURE §4.9):
+   * `status=listed`, plataforma. El comprador NUNCA ve "precio pendiente".
    *
-   * Gate coarse en DB (para acotar): el item tiene listPriceCents fijado O su carta tiene
-   * alguna PriceReference. El precio EXACTO y la comprabilidad (`sellable`) se confirman al
-   * construir el ListingDTO; los items sin precio resoluble se descartan.
+   * v1.13-sales-pricing (§4.14d): el gate coarse en DB YA NO puede filtrar por existencia de precio.
+   * Con las reglas de venta por rareza, una regla `fixed` da PISO a una carta bulk SIN `PriceReference`
+   * (antes se excluía), volviéndola sellable — la resolubilidad depende de `SALES_PRICE_RULES`, que la
+   * DB no evalúa. Por eso el gate coarse se reduce a `platform + listed`; el precio EXACTO y la
+   * comprabilidad (`sellable`) se confirman al construir el ListingDTO (`fetchSellable` descarta los no
+   * resolubles: `pct` sin market → pending → no vendible).
    */
   private publishedWhere(extra: Prisma.InventoryItemWhereInput = {}): Prisma.InventoryItemWhereInput {
     return {
       ownerType: 'platform',
       status: 'listed',
-      OR: [
-        { listPriceCents: { not: null, gt: 0 } },
-        { card: { priceReferences: { some: {} } } },
-      ],
       ...extra,
     };
   }
@@ -102,9 +99,19 @@ export class CatalogService {
 
     let salePriceCents: number | undefined;
     if (item.listPriceCents != null) {
+      // Override manual → gana siempre (precio directo sin regla).
       salePriceCents = item.listPriceCents;
-    } else if (referenceValue.status === 'priced' && referenceValue.referenceMxnCents != null) {
-      salePriceCents = await this.pricing.computeSalePrice(referenceValue.referenceMxnCents);
+    } else {
+      // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity,
+      // acabado de InventoryItem.finish). Con regla `fixed` una bulk SIN market obtiene piso (sellable);
+      // con `pct` sin market → pending (sin precio, no vendible), igual que antes.
+      const referenceMxnCents =
+        referenceValue.status === 'priced' ? (referenceValue.referenceMxnCents ?? null) : null;
+      const sale = await this.pricing.computeSalePriceForItem(
+        { rarity: item.card.rarity, finish: item.finish },
+        referenceMxnCents,
+      );
+      if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
     }
 
     // v1.1: comprable solo si está PUBLICADO (listed) y con precio de venta fijado (>0).

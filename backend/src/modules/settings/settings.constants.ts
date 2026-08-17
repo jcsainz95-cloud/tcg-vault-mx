@@ -26,6 +26,12 @@ export const SettingKey = {
   // ruta de cotización. Editables en M2 (GET/PUT /admin/pricing/buylist-rules), no en M10.
   BUYLIST_PRICE_RULES: 'buylist_price_rules',
   BUYLIST_PRICE_FALLBACK_PCT: 'buylist_price_fallback_pct',
+  // v1.13-sales-pricing (§4.14, FASE 2): tabla de precio de VENTA por RAREZA OFICIAL. Reemplaza el
+  // markup GLOBAL único (SALES_MARKUP_PCT) en la ruta de venta. Editables en M2 (GET/PUT
+  // /admin/pricing/sales-rules), no en M10. `pct` = % ARRIBA de mercado (markup), NO % de la
+  // referencia como en buylist (ver money.ts computeSalePriceForRarity).
+  SALES_PRICE_RULES: 'sales_price_rules',
+  SALES_PRICE_FALLBACK_PCT: 'sales_price_fallback_pct',
   // DEPRECADO v1.3.1: `rarity_map` (RARITY_MAP) ya NO lo lee la cotización (reemplazado por
   // BUYLIST_PRICE_RULES). Se conserva como no-op/legacy hasta su retiro; no se siembra en nuevos.
   RARITY_MAP: 'rarity_map',
@@ -69,6 +75,18 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
     'Reverse Holo': { mode: 'fixed', value: 150 },
   },
   [SettingKey.BUYLIST_PRICE_FALLBACK_PCT]: 40,
+  // v1.13-sales-pricing (§4.14a): seed que reproduce el ejemplo del humano (Common $5, Uncommon $10,
+  // holo/reverse $10 FIJOS; todo lo más raro cae al fallback = market × (1 + 15/100)). value = centavos
+  // si fixed. Las claves "Holo"/"Reverse Holo" son sintéticas del resolver por acabado (§4.2.1/§4.14b).
+  [SettingKey.SALES_PRICE_RULES]: {
+    Common: { mode: 'fixed', value: 500 },
+    Uncommon: { mode: 'fixed', value: 1000 },
+    Holo: { mode: 'fixed', value: 1000 },
+    'Reverse Holo': { mode: 'fixed', value: 1000 },
+  },
+  // Default 15 = iguala EXACTAMENTE el SALES_MARKUP_PCT vigente → preserva el precio de venta actual
+  // (market × 1.15) para toda rareza que caiga al fallback. Solo el piso de bulk cambia.
+  [SettingKey.SALES_PRICE_FALLBACK_PCT]: 15,
   [SettingKey.RARITY_MAP]: {
     Common: 'comun',
     Uncommon: 'comun',
@@ -124,6 +142,45 @@ export function validateFallbackPct(v: unknown): string | null {
 }
 
 /**
+ * v1.13-sales-pricing (§4.14a): tope del `pct` de VENTA. A diferencia del pct de buylist (que topa
+ * en [0,100] porque comprar a >100% de mercado no tiene sentido), el pct de venta es un MARKUP
+ * ARRIBA de mercado y SÍ puede superar 100% (una chase se lista a 2×–3× market). Tope 1000% evita
+ * typos catastróficos sin limitar el markup real. Ver ARCHITECTURE decisión abierta v1.13-2.
+ */
+export const SALES_PCT_MAX = 1000;
+
+/**
+ * v1.13-sales-pricing (§4.14a): valida UNA regla de precio de VENTA `{ mode, value }`.
+ * fixed → value entero ≥ 0 (piso MX$ centavos). pct → value número en [0, SALES_PCT_MAX] (markup %).
+ * Clona `isValidBuylistRule` cambiando solo el tope del pct (100 → 1000).
+ */
+export function isValidSalesRule(v: unknown): boolean {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+  const r = v as { mode?: unknown; value?: unknown };
+  if (r.mode === 'fixed') return isInt(r.value) && r.value >= 0;
+  if (r.mode === 'pct') return isNum(r.value) && r.value >= 0 && r.value <= SALES_PCT_MAX;
+  return false;
+}
+
+/** Valida el mapa completo `sales_price_rules` (objeto, cada entrada una regla de venta válida). */
+export function validateSalesRules(v: unknown): string | null {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+    return 'must be an object map { [rarity]: { mode, value } }';
+  }
+  for (const [rarity, rule] of Object.entries(v as Record<string, unknown>)) {
+    if (!isValidSalesRule(rule)) {
+      return `invalid rule for rarity "${rarity}": fixed→integer>=0 (cents), pct→number in [0,${SALES_PCT_MAX}]`;
+    }
+  }
+  return null;
+}
+
+/** Valida el fallback `sales_price_fallback_pct` (número en [0, SALES_PCT_MAX]). */
+export function validateSalesFallbackPct(v: unknown): string | null {
+  return isNum(v) && v >= 0 && v <= SALES_PCT_MAX ? null : `must be a number in [0, ${SALES_PCT_MAX}]`;
+}
+
+/**
  * Validadores por dial (fix correctness #2). Cada uno devuelve un mensaje de error o
  * `null` si es válido. Rangos coherentes con la matemática de `money.ts` para que un
  * dial mal escrito NO rompa el checkout (NaN / división por cero / negativos).
@@ -156,6 +213,9 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     v !== null && typeof v === 'object' && !Array.isArray(v) ? null : 'must be an object map',
   [SettingKey.BUYLIST_PRICE_RULES]: validateBuylistRules,
   [SettingKey.BUYLIST_PRICE_FALLBACK_PCT]: validateFallbackPct,
+  // v1.13-sales-pricing (§4.14a): reglas de VENTA por rareza + fallback (pct = markup arriba de mercado).
+  [SettingKey.SALES_PRICE_RULES]: validateSalesRules,
+  [SettingKey.SALES_PRICE_FALLBACK_PCT]: validateSalesFallbackPct,
   [SettingKey.INE_RETENTION_DAYS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (days)'),
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
   [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>

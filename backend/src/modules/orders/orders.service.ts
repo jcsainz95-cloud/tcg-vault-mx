@@ -27,10 +27,18 @@ export class OrdersService {
     const gradeKey = this.pricing.gradeKeyFor(item);
     // v1.6-finish: precio de venta contra la referencia del ACABADO del item.
     const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
-    if (ref.status !== 'priced' || ref.referenceMxnCents == null) {
+    const referenceMxnCents = ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+    // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity, acabado
+    // de InventoryItem.finish). Con `fixed` devuelve el PISO aunque no haya market; con `pct` y sin
+    // referencia → 'pending' → PRICE_PENDING (se conserva el comportamiento previo).
+    const sale = await this.pricing.computeSalePriceForItem(
+      { rarity: item.card.rarity, finish: item.finish },
+      referenceMxnCents,
+    );
+    if (sale.salePriceCents == null) {
       throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
     }
-    return this.pricing.computeSalePrice(ref.referenceMxnCents);
+    return sale.salePriceCents;
   }
 
   private async loadItems(ids: string[]) {

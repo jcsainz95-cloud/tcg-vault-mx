@@ -20,6 +20,10 @@ export interface StripeFeeConfig {
 }
 
 /**
+ * @deprecated v1.13-sales-pricing (§4.14d): reemplazada por `computeSalePriceForRarity` (precio de
+ * venta por rareza). Se conserva como palanca de ROLLBACK del markup GLOBAL único; el retiro
+ * definitivo (junto con el dial SALES_MARKUP_PCT) es follow-up del humano (decisión abierta v1.13-3).
+ *
  * Precio de venta = round(referencia × (1 + markup%)). ARCHITECTURE §10.1.
  * El "valor de mercado" mostrado sigue siendo la referencia; esto es el precio cobrado.
  */
@@ -232,6 +236,72 @@ export function quoteAcquisitionForFinish(
   const rule: BuylistRule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };
   const ruleSource: 'rule' | 'fallback' = hitKey ? 'rule' : 'fallback';
   return applyRule(rule, ruleSource, referenceMxnCentsForFinish);
+}
+
+/**
+ * v1.13-sales-pricing (§4.14b) — precio de VENTA por RAREZA. Misma FORMA que BuylistRule pero la
+ * matemática del `pct` es DISTINTA (ver `computeSalePriceForRarity`).
+ * value = centavos MXN (piso) si mode='fixed'; % de MARKUP ARRIBA de mercado si mode='pct'.
+ */
+export type SalesRuleMode = 'fixed' | 'pct';
+export interface SalesRule {
+  mode: SalesRuleMode;
+  value: number;
+}
+
+export interface SalePriceResult {
+  salePriceCents: number | null;
+  status: 'priced' | 'pending';
+  /** Regla efectivamente aplicada (explícita o fallback). */
+  appliedRule: SalesRule;
+  /** "rule" = fila explícita en SALES_PRICE_RULES; "fallback" = SALES_PRICE_FALLBACK_PCT. */
+  ruleSource: 'rule' | 'fallback';
+}
+
+/**
+ * Precio de VENTA por RAREZA (función pura, v1.13-sales-pricing). ARCHITECTURE §4.14b.
+ * Análoga a `quoteAcquisitionForFinish` (§4.2.1): REUSA `ruleKeyCandidates(rarity, finish)`, por lo
+ * que hereda el **gate premium de Fase 0** — una rareza chase en holofoil/1st-ed holo NUNCA cae al
+ * piso fijo sintético "Holo" de bulk: resuelve por su propia regla o el fallback pct (markup sobre market).
+ *
+ *   - fixed → PISO en centavos; NO depende del mercado → SIEMPRE precia (mejora: una bulk sin market
+ *     obtiene precio de venta piso y puede volverse sellable).
+ *   - pct   → MARKUP ARRIBA DE MERCADO: sale = round(market × (1 + value/100)). Si falta referencia →
+ *     'pending' (sin precio; el llamador decide, como el legacy computeSalePrice).
+ *
+ * DIVERGENCIA DE SEMÁNTICA vs. COMPRA (crítico, no confundir): en buylist/compra (§4.2) `pct` = *% de*
+ * la referencia → `round(ref × value/100)`; aquí `pct` = *% ARRIBA de* mercado → `round(ref × (1 +
+ * value/100))`. Un mismo value=40 da 40% del market comprando y 140% del market vendiendo. La forma del
+ * dato es idéntica; solo cambia la fórmula del pct.
+ *
+ * SEC-A1: rarity de `Card.rarity` (BD), finish de `InventoryItem.finish` (BD); nunca del cliente.
+ */
+export function computeSalePriceForRarity(
+  rarity: string | null,
+  finish: Finish,
+  referenceMxnCents: number | null,
+  rules: Record<string, SalesRule>,
+  fallbackPct: number,
+): SalePriceResult {
+  const candidates = ruleKeyCandidates(rarity, finish); // REUSA §4.2.1 (gate premium)
+  const hitKey = candidates.find((k) => rules[k] != null);
+  const rule: SalesRule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };
+  const ruleSource: 'rule' | 'fallback' = hitKey ? 'rule' : 'fallback';
+
+  if (rule.mode === 'fixed') {
+    // PISO fijo en centavos; NO depende de la referencia → siempre 'priced'.
+    return { salePriceCents: rule.value, status: 'priced', appliedRule: rule, ruleSource };
+  }
+  // pct = MARKUP ARRIBA DE MERCADO (DISTINTO de buylist, que es ref × value/100).
+  if (referenceMxnCents == null) {
+    return { salePriceCents: null, status: 'pending', appliedRule: rule, ruleSource };
+  }
+  return {
+    salePriceCents: Math.round(referenceMxnCents * (1 + rule.value / 100)),
+    status: 'priced',
+    appliedRule: rule,
+    ruleSource,
+  };
 }
 
 export interface BreakdownDTO {

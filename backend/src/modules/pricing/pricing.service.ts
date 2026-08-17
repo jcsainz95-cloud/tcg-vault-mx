@@ -10,7 +10,12 @@ import {
   PokemonPriceTrackerProvider,
 } from './providers/graded-sealed.providers';
 import { PricingProvider, PriceSourceStr, buildGradeKey } from './pricing.types';
-import { usdToMxnCents } from '../../common/money';
+import {
+  usdToMxnCents,
+  computeSalePriceForRarity,
+  SalePriceResult,
+  SalesRule,
+} from '../../common/money';
 
 function today(): Date {
   const d = new Date();
@@ -327,10 +332,36 @@ export class PricingService {
     });
   }
 
-  /** Precio de venta = referencia × (1 + markup). ARCHITECTURE §10.1. */
+  /**
+   * @deprecated v1.13-sales-pricing (§4.14d): reemplazado por `computeSalePriceForItem` (precio de
+   * venta por RAREZA). Ya NO lo llama la ruta de venta (los 2 call-sites migraron: catalog.toListingDTO
+   * y orders.salePriceOf). Se conserva como palanca de ROLLBACK del markup GLOBAL único
+   * (SALES_MARKUP_PCT). Retiro definitivo = follow-up del humano (decisión abierta v1.13-3).
+   *
+   * Precio de venta = referencia × (1 + markup). ARCHITECTURE §10.1.
+   */
   async computeSalePrice(referenceMxnCents: number): Promise<number> {
     const markup = await this.settings.getNumber(SettingKey.SALES_MARKUP_PCT);
     return Math.round(referenceMxnCents * (1 + markup / 100));
+  }
+
+  /**
+   * v1.13-sales-pricing (§4.14d) — precio de VENTA por RAREZA. Lee la tabla `SALES_PRICE_RULES` + el
+   * fallback y aplica `computeSalePriceForRarity` (que reusa el gate premium de Fase 0).
+   *
+   * - `rarity` sale de `Card.rarity` (BD) y `finish` de `InventoryItem.finish` (BD) — SEC-A1, nunca del
+   *   cliente. `referenceMxnCents` es la `PriceReference` del ACABADO del item (getReference(...,finish)).
+   * - Con una regla `fixed`, una carta bulk SIN market obtiene precio de venta (piso) → puede ser
+   *   sellable. Con `pct` sin market → `pending` (sin precio; igual que hoy).
+   */
+  async computeSalePriceForItem(
+    item: { rarity: string | null; finish: Finish },
+    referenceMxnCents: number | null,
+  ): Promise<SalePriceResult> {
+    const rules =
+      ((await this.settings.getRaw(SettingKey.SALES_PRICE_RULES)) as Record<string, SalesRule> | null) ?? {};
+    const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
+    return computeSalePriceForRarity(item.rarity, item.finish, referenceMxnCents, rules, fallbackPct);
   }
 
   gradeKeyFor(item: {

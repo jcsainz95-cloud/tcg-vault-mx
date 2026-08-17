@@ -15,7 +15,13 @@ function pricing(): PricingService {
     getReference: jest.fn(async (cardId: string) =>
       cardId === 'pending' ? { status: 'pending' } : { status: 'priced', referenceMxnCents: 10000 },
     ),
-    computeSalePrice: jest.fn(async (ref: number) => Math.round(ref * 1.15)),
+    // v1.13-sales-pricing: el call-site migró a computeSalePriceForItem. Sin market → pending
+    // (Illustration Rare cae al fallback pct); con market → 15% arriba (equivale al legacy 1.15).
+    computeSalePriceForItem: jest.fn(async (_item: any, ref: number | null) =>
+      ref == null
+        ? { salePriceCents: null, status: 'pending', appliedRule: { mode: 'pct', value: 15 }, ruleSource: 'fallback' }
+        : { salePriceCents: Math.round(ref * 1.15), status: 'priced', appliedRule: { mode: 'pct', value: 15 }, ruleSource: 'fallback' },
+    ),
   } as unknown as PricingService;
 }
 

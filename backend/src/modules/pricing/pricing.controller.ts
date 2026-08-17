@@ -11,8 +11,10 @@ import {
   SettingKey,
   validateBuylistRules,
   validateFallbackPct,
+  validateSalesRules,
+  validateSalesFallbackPct,
 } from '../settings/settings.constants';
-import { BuylistRule } from '../../common/money';
+import { BuylistRule, SalesRule } from '../../common/money';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PriceSyncJobService } from '../../jobs/price-sync.service';
@@ -39,6 +41,12 @@ class RarityMapDto {
 /** v1.3.1: reemplaza la tabla completa de reglas de buylist por rareza (+ fallback opcional). */
 class BuylistRulesDto {
   @IsObject() rules!: Record<string, BuylistRule>;
+  @IsOptional() @IsNumber() fallbackPct?: number;
+}
+
+/** v1.13-sales-pricing: reemplaza la tabla completa de reglas de VENTA por rareza (+ fallback opcional). */
+class SalesRulesDto {
+  @IsObject() rules!: Record<string, SalesRule>;
   @IsOptional() @IsNumber() fallbackPct?: number;
 }
 
@@ -187,6 +195,89 @@ export class PricingController {
   @Get('rarities')
   async rarities() {
     const { rules, fallbackPct } = await this.readBuylistRules();
+    const grouped = await this.prisma.card.groupBy({
+      by: ['rarity'],
+      _count: { _all: true },
+    });
+    const rarities = grouped
+      .filter((g): g is { rarity: string; _count: { _all: number } } => g.rarity != null)
+      .map((g) => {
+        const explicit = rules[g.rarity];
+        return {
+          rarity: g.rarity,
+          cardCount: g._count._all,
+          rule: explicit ?? { mode: 'pct' as const, value: fallbackPct },
+          source: explicit ? ('rule' as const) : ('fallback' as const),
+        };
+      })
+      .sort((a, b) => b.cardCount - a.cardCount);
+    return { fallbackPct, rarities };
+  }
+
+  // ---------------- Precio de VENTA por RAREZA (v1.13-sales-pricing, §4.14c) ----------------
+  // Clones 1:1 del patrón buylist de arriba. Auditados (super_admin). API_CONTRACT §M2.
+  // OJO semántica: en venta `pct` = markup ARRIBA de mercado (no % de la referencia como en buylist);
+  // la matemática vive en money.computeSalePriceForRarity — aquí solo se lee/escribe la tabla cruda.
+
+  /** Lee la tabla cruda de reglas de VENTA + fallback. API_CONTRACT §M2. */
+  private async readSalesRules(): Promise<{ rules: Record<string, SalesRule>; fallbackPct: number }> {
+    const rules =
+      ((await this.settings.getRaw(SettingKey.SALES_PRICE_RULES)) as Record<string, SalesRule> | null) ?? {};
+    const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
+    return { rules, fallbackPct };
+  }
+
+  @Get('sales-rules')
+  async getSalesRules() {
+    return this.readSalesRules();
+  }
+
+  /**
+   * Reemplaza la tabla de reglas de VENTA y/o el fallback. Validación estricta (mode/value/rango,
+   * pct en [0,1000]) → 422 VALIDATION_ERROR. Surte efecto sin redeploy. Auditado (before/after).
+   */
+  @Put('sales-rules')
+  async putSalesRules(@Body() dto: SalesRulesDto, @CurrentUser('id') userId: string) {
+    const rulesErr = validateSalesRules(dto.rules);
+    if (rulesErr) throw BusinessException.validation('VALIDATION_ERROR', rulesErr, { field: 'rules' });
+    if (dto.fallbackPct !== undefined) {
+      const fbErr = validateSalesFallbackPct(dto.fallbackPct);
+      if (fbErr) throw BusinessException.validation('VALIDATION_ERROR', fbErr, { field: 'fallbackPct' });
+    }
+
+    const before = await this.readSalesRules();
+    const rulesJson = dto.rules as unknown as Prisma.InputJsonValue;
+    await this.prisma.configSetting.upsert({
+      where: { key: SettingKey.SALES_PRICE_RULES },
+      create: { key: SettingKey.SALES_PRICE_RULES, valueJson: rulesJson, updatedBy: userId },
+      update: { valueJson: rulesJson, updatedBy: userId },
+    });
+    if (dto.fallbackPct !== undefined) {
+      await this.prisma.configSetting.upsert({
+        where: { key: SettingKey.SALES_PRICE_FALLBACK_PCT },
+        create: { key: SettingKey.SALES_PRICE_FALLBACK_PCT, valueJson: dto.fallbackPct, updatedBy: userId },
+        update: { valueJson: dto.fallbackPct, updatedBy: userId },
+      });
+    }
+    const after = await this.readSalesRules();
+    await this.audit.log({
+      actorUserId: userId,
+      action: 'pricing.sales_rules.update',
+      entityType: 'ConfigSetting',
+      before,
+      after,
+    });
+    return after;
+  }
+
+  /**
+   * Rarezas distintas del catálogo unidas a sus reglas de VENTA (para poblar el editor M2).
+   * Devuelve rarezas con regla explícita y rarezas del catálogo aún sin regla (muestran el fallback).
+   * Ordenado por cardCount desc. API_CONTRACT §M2.
+   */
+  @Get('sales-rarities')
+  async salesRarities() {
+    const { rules, fallbackPct } = await this.readSalesRules();
     const grouped = await this.prisma.card.groupBy({
       by: ['rarity'],
       _count: { _all: true },

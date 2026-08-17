@@ -13,7 +13,12 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
     const pricing = {
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
-      computeSalePrice: jest.fn(async (r: number) => r),
+      computeSalePriceForItem: jest.fn(async (_i: any, r: number | null) => ({
+        salePriceCents: r,
+        status: r == null ? 'pending' : 'priced',
+        appliedRule: { mode: 'pct', value: 15 },
+        ruleSource: 'fallback',
+      })),
     } as unknown as PricingService;
     return { svc: new CatalogService(prisma as PrismaService, pricing), prisma };
   }
