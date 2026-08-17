@@ -297,6 +297,35 @@
   flujo de aprobación normal (aprobar el cotizado o ajuste ≤ 2× pasa). Cubierto con
   `test/buylist.approved-price-cap.spec.ts`. Ver `docs/BACKEND_NOTES.md §18.3`.
 
+### Delta rama `claude/git-repo-review-c67xyk` — review techlead (2026-08-17, no bloqueante)
+
+> Aprobado por **techlead** CON DEUDA ANOTADA. Dos ítems del código de catálogo (`catalog-sync.service.ts`),
+> dueño **backend**. No bloqueantes; registrados a petición del techlead sin tocar código de producción.
+
+### BE-11 · Estado de `sync-status` en memoria; restart silencioso
+- **Dónde:** `src/modules/catalog/catalog-sync.service.ts` → `syncAllStatus` (`{running,total,done,startedAt,finishedAt}`).
+  Dependencia: **devops/BullMQ (DEV-1)**.
+- **Estado actual:** el estado observable del barrido `sync-all` vive **en memoria del proceso**. Si el proceso
+  se reinicia a mitad del barrido, el estado vuelve a `{running:false,total:0}`, la barra de progreso de M2
+  desaparece y `finishedAt` **nunca** se setea → el operador puede creer que "terminó" cuando quedan sets
+  pendientes; el progreso `done/total` se pierde y no se reanuda solo (hay que **re-llamar** `sync-all`).
+- **Impacto:** medio. Aceptable como MVP (documentado en el propio código y en ARCHITECTURE DEV-1). No hay
+  fuga de datos ni doble importación (el upsert por `externalId` es idempotente y el barrido es resumible).
+- **Disparador:** al **cablear BullMQ** para catálogo (misma familia que D1/DEV-1). Solución: progreso
+  **persistido** en la cola + reintentos con backoff → cierra este ítem y el D1.
+
+### BE-12 · `.finally` muta `this.syncAllStatus` por referencia (seguro solo por el single-flight)
+- **Dónde:** `src/modules/catalog/catalog-sync.service.ts` → `syncAll`/`runSyncAll` (el `.finally` del
+  fire-and-forget que pone `running=false`/`finishedAt` sobre `this.syncAllStatus`).
+- **Estado actual:** el `.finally` cierra el estado sobre `this.syncAllStatus`. Hoy es seguro **SOLO** porque
+  el single-flight (`if (this.syncAllStatus.running) return`) impide barridos solapados. Si algún día se
+  **relaja** ese guard, el `finally` de un barrido viejo pisaría el estado de uno nuevo (race de cierre).
+- **Impacto:** bajo hoy (latente): el guard actual lo neutraliza; el riesgo aparece solo si se permite
+  concurrencia de barridos.
+- **Disparador:** si se relaja el single-flight o al mover el estado a la cola (BE-11/D1). Mitigación sugerida
+  (no urgente): **capturar el `jobId` en el closure** y verificar `this.syncAllStatus.jobId === jobId` antes de
+  mutar en el `finally`.
+
 ---
 
 ## Frontend (dueño: frontend)
@@ -613,3 +642,59 @@
 - **TL-FE-3 — RESUELTA (2026-08-17) — interfaz vacía `AdminBuylistItemDTO`.** `frontend/src/types/contract.ts`
   declaraba `export interface AdminBuylistItemDTO extends SellItemDTO {}` sin ningún consumidor (verificado
   por grep: solo la declaración). Se **eliminó**; `AdminBuylistDTO.items` ya tipaba `SellItemDTO[]` directo.
+
+### Delta rama `claude/git-repo-review-c67xyk` — review techlead (2026-08-17, no bloqueante)
+
+> Aprobado por **techlead** CON DEUDA ANOTADA. Cinco ítems de mantenibilidad/a11y/UX del delta, dueño
+> **frontend**. No bloqueantes; registrados a petición del techlead sin tocar código de producción.
+> Continúan la numeración `FE-*` (tras FE-1..6). FE-10 y FE-11 provienen de hallazgos QA (relacionados
+> con BE-11 / gating de KYC).
+
+### FE-7 · Doble fuente de verdad para "email bloqueado" en el gating de buylist
+- **Dónde:** `frontend/src/hooks/useSellRequirements.ts:57` vs.
+  `frontend/src/components/domain/BuylistKycForm.tsx:78`.
+- **Estado actual:** `BuylistKycForm` **recomputa su propio** `emailBlocked` en lugar de recibir
+  `sellReq.emailBlocked` por prop del hook. Lo necesita para el caso **403 en respuesta**, pero el gating
+  **proactivo** podría venir del hook. Quedan dos lugares que calculan lo mismo y evolucionan por separado.
+- **Impacto:** bajo. Deuda menor de mantenibilidad; riesgo de divergencia si la regla de "email bloqueado"
+  cambia en un solo sitio.
+- **Disparador:** al tocar el gating de buylist otra vez. Acción: **unificar en una sola fuente** (prop
+  `emailBlocked` proveniente del hook), dejando el manejo del 403 como reacción a la respuesta.
+
+### FE-8 · CTAs de login/register duplicados en la vista de buylist
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` — `SellRequirementsPanel`
+  (cuando no hay sesión) **y** un bloque inline (~líneas 544-560).
+- **Estado actual:** hay dos puntos que pintan el mismo llamado a iniciar sesión / registrarse cuando el
+  usuario no tiene sesión: el panel de requisitos y un bloque inline aparte. Redundancia visual y lógica.
+- **Impacto:** bajo. No bloqueante; posible inconsistencia si uno de los dos cambia y el otro no.
+- **Disparador:** al pulir la vista de buylist. Acción: **consolidar en un solo punto de CTA sin sesión**.
+
+### FE-9 · `SyncProgress` usa `role="status"` en vez de `role="progressbar"`
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` (componente `SyncProgress`).
+- **Estado actual:** la barra de progreso del barrido M2 se anuncia con `role="status"` y una alternativa
+  textual (`done/total` en el label) → **aceptable** en a11y. Un `role="progressbar"` **semántico** con
+  `aria-valuenow`/`aria-valuemax`/`aria-valuemin` sería más correcto; además el `aria-live="polite"` anuncia
+  cada ~3s (algo verboso).
+- **Impacto:** bajo. Nota menor de accesibilidad; hay alternativa textual válida, sin bloqueo funcional.
+- **Disparador:** pulido de a11y. Acción: migrar a `progressbar` con los `aria-value*` y moderar la
+  frecuencia/nivel del `aria-live`.
+
+### FE-10 · Barra "completada" persiste tras terminar el barrido (hallazgo QA, par de BE-11)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` — condición de render `running || total>0`.
+- **Estado actual:** con el estado del `sync-status` en memoria del proceso (ver **BE-11**), al reentrar a M2
+  se pinta la barra verde "Sincronización completada: N sets" del **último** barrido de forma indefinida
+  (hasta que el proceso se reinicie o se dispare un nuevo barrido). Quirk de UX; no bloquea.
+- **Impacto:** bajo. Cosmético/UX: puede confundir sobre si hay un barrido "reciente", pero no altera datos
+  ni acciones.
+- **Disparador:** cuando **BE-11** pase a progreso **persistido** (BullMQ). Acción: decidir cuándo
+  ocultar/expirar el estado "completada" (p. ej. TTL o descarte al montar tras `finishedAt`).
+
+### FE-11 · Staff no consulta KYC en el gating de venta (hallazgo QA, intencional/inocuo)
+- **Dónde:** `frontend/src/hooks/useSellRequirements.ts:48`.
+- **Estado actual:** para roles `vault_operator`/`super_admin` **no** se llama `GET /users/me/kyc` (evita el
+  403), por lo que `SellRequirementsPanel` les muestra "CLABE no registrada" aunque técnicamente puedan
+  enviar. **Intencional** (staff casi no vende); anotado por completitud.
+- **Impacto:** muy bajo. Solo afecta la señal visual de requisitos para cuentas staff, que no es el flujo de
+  venta objetivo; no hay error funcional ni fuga.
+- **Disparador:** si el staff empieza a vender de verdad. Acción: resolver el gating de KYC para roles staff
+  (consulta condicional o endpoint que no devuelva 403 para staff, coordinando con backend/arquitecto).
