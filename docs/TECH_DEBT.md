@@ -592,3 +592,24 @@
   - **Gates:** lint/typecheck/build OK; `npm test` **57 suites / 372 tests** (sin cambio de conteo; solo deps).
     Detalle en `docs/BACKEND_NOTES.md §30`. Owner: **backend**. El **verde final del gate lo confirma el runner
     de CI** (trivy-image necesita docker build + DB de trivy; egress bloqueado en local).
+
+### Ola 2 — deudas techlead de Ola 1 (frontend, 2026-08-17)
+
+> Las 3 deudas menores de mantenibilidad anotadas por **techlead** en la Ola 1 (dueño: **frontend**).
+> Las tres eran triviales y limpias, así que se **RESOLVIERON** en la misma Ola 2 (junto con la gestión
+> de inventario M1). Gates verdes tras el cierre: lint/typecheck/build OK, **35 archivos / 202 tests**.
+> Detalle en `docs/FRONTEND_NOTES.md` (sección Ola 2).
+
+- **TL-FE-1 — RESUELTA (2026-08-17) — paginación duplicada en ramas mock.** `getAdminShipments`,
+  `getAdminUsers`, `searchBuylistCards` y `getAuditLog` repetían inline el slice de paginación
+  (`pageSize/page/start`) en vez de usar el helper `paginate<T>` que ya existía para el historial 360°.
+  **Fix:** `paginate<T>(rows, { page?, pageSize? })` se movió a la cabecera de `frontend/src/lib/api.ts`
+  (junto a `delay`) y las 4 funciones lo reusan. De paso `getAdminShipments` ganó slicing real (antes
+  devolvía TODAS las filas ignorando `page/pageSize` en mock).
+- **TL-FE-2 — RESUELTA (2026-08-17) — generadores mock inline duplicados.** Los literales
+  `` `job-${Math.floor(Math.random()*9000+1000)}` `` (3 sitios: `syncPricing`, `syncCatalog`,
+  `syncAllCatalog`) y `` `Tmp-${...}-${...}` `` (2 sitios: `resetUserPassword`, `createAdminUser`) se
+  extrajeron a los helpers privados `mockJobId()` / `mockTempPassword()` en `frontend/src/lib/api.ts`.
+- **TL-FE-3 — RESUELTA (2026-08-17) — interfaz vacía `AdminBuylistItemDTO`.** `frontend/src/types/contract.ts`
+  declaraba `export interface AdminBuylistItemDTO extends SellItemDTO {}` sin ningún consumidor (verificado
+  por grep: solo la declaración). Se **eliminó**; `AdminBuylistDTO.items` ya tipaba `SellItemDTO[]` directo.

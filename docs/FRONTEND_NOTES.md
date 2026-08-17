@@ -1829,3 +1829,86 @@ Contrato consumido: `docs/API_CONTRACT.md` §M6 (changelog v1.7-admin-users). To
   sus endpoints `/admin/*`.
 - **Self-host de Inter** vía `next/font` (hoy fallback de sistema para evitar dependencia de red en
   build; los tokens tipográficos ya están listos).
+
+---
+
+## M1 · Gestión de inventario (Ola 2, 2026-08-17)
+
+Ola 2 del back-office M1: el operador pasa de "solo alta" a **gestión completa** del inventario.
+Todo contra endpoints **verificados** en `docs/API_CONTRACT.md §M1` **y** en
+`backend/src/modules/inventory/inventory.controller.ts` (ningún path inventado).
+
+### Endpoints cableados (todos existentes en backend)
+
+| Acción UI | Endpoint | Función `lib/api.ts` |
+|---|---|---|
+| Tabla con filtros + paginación | `GET /admin/inventory/items?q=&status=&zone=&locationId=&page=&pageSize=` | `getAdminInventory(filters)` (antes iba SIN query → capada a 20 sin filtros) |
+| Detalle + historial de movimientos | `GET /admin/inventory/items/:id` | `getAdminInventoryItem(id)` |
+| Publicar / retirar de venta + precio manual | `PATCH /admin/inventory/items/:id` (`{ status: 'listed'\|'in_stock', listPriceCents? }`) | `updateInventoryItem(id, input)` |
+| Mover de ubicación | `POST /admin/inventory/items/:id/move` (`{ toLocationId, note? }`) | `moveInventoryItem(id, input)` |
+| Marcar perdida/dañada | `POST /admin/inventory/items/:id/mark` (`{ mark, note }` — nota OBLIGATORIA) | `markInventoryItem(id, input)` |
+| Listar/crear ubicaciones | `GET/POST /admin/locations` (`{ zone, box, row, slot }`) | `getLocations()` / `createLocation(input)` |
+
+> **Nota de path:** las ubicaciones viven en **`/admin/locations`** (contrato §M1 línea "Ubicaciones" +
+> `@Controller('admin')` + `@Get('locations')`), NO en `/admin/inventory/locations`.
+
+### Decisiones de implementación
+
+- **Componentes nuevos** (en `frontend/src/app/[locale]/(admin)/admin/m1/`):
+  - `ItemDetailModal.tsx` — detalle por pieza: folio + acabado (FinishBadge) + estado (StatusBadge) +
+    ubicación + cert (graded) + referencia + precio de venta + **historial de movimientos** (motivo
+    traducido `admin.m1.movementReason.*`, transición de ubicación/estado, nota, fecha). Acciones:
+    **Publicar/Retirar** (solo `in_stock`/`listed`), **Mover** (excluye la ubicación actual) y
+    **Marcar pérdida/daño** (nota obligatoria; botón destructive + Banner de advertencia). Cada acción:
+    Banner de confirmación + error REAL del contrato (`useErrorMessage`) + invalidación de
+    `['admin-inventory']` y `['admin-inventory-item', id]`.
+  - `LocationsModal.tsx` — gestor mínimo de ubicaciones (lista + alta caja/fila/slot + zona). Sin esto,
+    el dropdown de ubicación del alta quedaba vacío en una BD limpia. Crear invalida `['locations']`.
+- **Precio de publicación:** el operador captura PESOS y se convierte con `Math.round(Number(x) * 100)`.
+  Es **precio de venta MANUAL** (override del contrato PATCH §M1), NO una derivación en cliente —
+  **SEC-A1 intacto** (la derivación referencia×markup la hace el backend cuando no hay override).
+  El **sellado** exige precio manual para publicar (botón bloqueado sin `listPriceCents` previo ni
+  capturado); raw/graded pueden publicar sin precio manual (el server deriva de la referencia). La
+  invariante "gradeada publicada exige `certNumber`" la valida el backend en el PATCH (la rama mock la
+  replica para la demo).
+- **Filtros/paginación de la tabla:** estado (enum `InventoryStatus` completo, labels del catálogo global
+  `status.inventory`), zona (`platform_stock`/`customer_custody`), ubicación y búsqueda por folio
+  (`q` → `folio contains`, case-insensitive, como en el service). Cambiar un filtro reinicia a página 1.
+  `queryKey: ['admin-inventory', filters]` — la invalidación por prefijo `['admin-inventory']` sigue
+  cubriendo todas las páginas/filtros.
+- **Tipos nuevos** (`types/contract.ts`): `MovementReason`, `InventoryMovementDTO`,
+  `AdminInventoryItemDetailDTO extends InventoryItemDTO { movements }` (shape del `getItem` del backend:
+  include card+location+movements desc).
+- **Mocks:** `fixtures.ts` gana `mockInventoryMovements` + `pushMockMovement()`; las ramas mock de
+  move/mark/patch mutan `mockInventory` en memoria (misma filosofía que M5).
+
+### i18n (paridad ES/EN verificada por `i18n-parity.test.ts`)
+
+Claves nuevas bajo `admin.m1`: `view`, `filtersFolio`, `filtersFolioPlaceholder`, `filtersZone`,
+`pageInfo`, `prev`, `next`, `emptyTitle`, `emptyBody`, `zone.*` (2), `detail.*` (4), `publish.*` (10),
+`move.*` (7), `mark.*` (9), `movementReason.*` (9), `locations.*` (11). Los estados de inventario
+reusan el catálogo global `status.inventory.*` (sin duplicar).
+
+### Deudas techlead Ola 1 (dueño frontend) — las 3 RESUELTAS
+
+1. `paginate<T>` único en la cabecera de `api.ts`, reusado por `getAdminShipments` / `getAdminUsers` /
+   `searchBuylistCards` / `getAuditLog` (y las nuevas ramas mock de M1). Bonus: `getAdminShipments`
+   ahora sí pagina en mock (antes ignoraba `page/pageSize`).
+2. `mockJobId()` / `mockTempPassword()` extraídos (5 sitios inline eliminados).
+3. Interfaz vacía `AdminBuylistItemDTO` eliminada de `types/contract.ts` (cero consumidores).
+
+Registradas como **TL-FE-1/2/3 (RESUELTAS)** en `docs/TECH_DEBT.md`.
+
+### Tests añadidos
+
+- `M1View.test.tsx` (12 tests): filtros reales (`status` + reinicio a página 1), paginación (`page=2`),
+  detalle (folio + cert + movimientos), publicar (pesos→centavos `1234.56 → 123456` + PATCH
+  `status=listed` + Banner de éxito), error real del PATCH (422), mark exige nota (botón deshabilitado),
+  crear ubicación (payload `{ zone, box, row, slot }` + Banner con label).
+- `api.test.ts` (+6): filtros/paginación mock de `getAdminInventory`, detalle con movimientos,
+  publicar + invariante cert de gradeada, move/mark registran movimiento, `createLocation` deriva label.
+
+### Gates (frontend/)
+
+`npm run lint` ✓ · `tsc --noEmit` ✓ · `npx vitest run` ✓ (**35 archivos / 202 tests**, incl. paridad
+i18n) · `npm run build` ✓.

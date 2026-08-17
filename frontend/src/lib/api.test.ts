@@ -6,6 +6,12 @@ import {
   getBuylistQuote,
   loginWithGoogle,
   presignUpload,
+  getAdminInventory,
+  getAdminInventoryItem,
+  updateInventoryItem,
+  moveInventoryItem,
+  markInventoryItem,
+  createLocation,
 } from './api';
 import { getToken, setToken } from './api-client';
 
@@ -119,5 +125,64 @@ describe('api (rama mock, v1.1)', () => {
     const res = await loginWithGoogle('mock-id-token');
     expect(res.user.authProvider).toBe('google');
     expect(getToken()).toBe('mock.session.token');
+  });
+});
+
+describe('api (rama mock) · M1 gestión de inventario (Ola 2)', () => {
+  it('getAdminInventory pagina y filtra por status/zone/q (contrato §M1)', async () => {
+    const all = await getAdminInventory();
+    expect(all.page).toBe(1);
+    expect(all.total).toBe(all.data.length);
+
+    const listed = await getAdminInventory({ status: 'listed' });
+    expect(listed.data.length).toBeGreaterThan(0);
+    expect(listed.data.every((i) => i.status === 'listed')).toBe(true);
+
+    const byFolio = await getAdminInventory({ q: 'inv-000110' });
+    expect(byFolio.data.map((i) => i.folio)).toEqual(['INV-000110']);
+
+    const byZone = await getAdminInventory({ zone: 'customer_custody' });
+    expect(byZone.data.every((i) => i.location?.zone === 'customer_custody')).toBe(true);
+  });
+
+  it('getAdminInventoryItem devuelve el detalle + historial de movimientos', async () => {
+    const detail = await getAdminInventoryItem('inv-1001');
+    expect(detail.folio).toBe('INV-000101');
+    expect(detail.movements.length).toBeGreaterThan(0);
+    expect(detail.movements.some((m) => m.reason === 'alta')).toBe(true);
+  });
+
+  it('updateInventoryItem publica con listPriceCents y bloquea gradeada sin cert (mock de la invariante v1.2)', async () => {
+    const updated = await updateInventoryItem('inv-1010', { status: 'listed', listPriceCents: 123456 });
+    expect(updated.status).toBe('listed');
+    expect(updated.listPriceCents).toBe(123456);
+    // Revertir para no ensuciar otros asserts del archivo.
+    await updateInventoryItem('inv-1010', { status: 'in_stock' });
+
+    // Gradeada publicada exige certNumber: vaciarlo y publicar debe fallar 422.
+    await expect(
+      updateInventoryItem('inv-1001', { status: 'listed', certNumber: '' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('moveInventoryItem cambia la ubicación y registra el movimiento (reason=move)', async () => {
+    const moved = await moveInventoryItem('inv-1010', { toLocationId: 'loc-1', note: 'reacomodo' });
+    expect(moved.location?.id).toBe('loc-1');
+    const detail = await getAdminInventoryItem('inv-1010');
+    expect(detail.movements[0]).toMatchObject({ reason: 'move', toLocationId: 'loc-1', note: 'reacomodo' });
+  });
+
+  it('markInventoryItem marca perdida/dañada y registra el movimiento', async () => {
+    const marked = await markInventoryItem('inv-1010', { mark: 'damaged', note: 'esquina doblada' });
+    expect(marked.status).toBe('damaged');
+    const detail = await getAdminInventoryItem('inv-1010');
+    expect(detail.movements[0]).toMatchObject({ reason: 'damaged', toStatus: 'damaged' });
+  });
+
+  it('createLocation deriva label = box-row-slot y la deja disponible en getLocations', async () => {
+    const created = await createLocation({ zone: 'platform_stock', box: 'C77', row: 'F03', slot: 'S09' });
+    expect(created.label).toBe('C77-F03-S09');
+    const byLocation = await getAdminInventory({ locationId: created.id });
+    expect(byLocation.total).toBe(0);
   });
 });

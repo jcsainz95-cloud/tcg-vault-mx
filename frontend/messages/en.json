@@ -584,7 +584,82 @@
       "resultCount": "{shown} of {total} cards",
       "loadMore": "Load more",
       "finishFixedSingle": "Finish: {finish} (the only one available for this card).",
-      "createSuccess": "Item created in the vault · folio {folio}."
+      "createSuccess": "Item created in the vault · folio {folio}.",
+      "view": "Detail",
+      "filtersFolio": "Search by folio",
+      "filtersFolioPlaceholder": "INV-000123",
+      "filtersZone": "Zone",
+      "pageInfo": "Page {page} of {totalPages} · {total} items",
+      "prev": "Previous",
+      "next": "Next",
+      "emptyTitle": "No items",
+      "emptyBody": "No inventory items match the filters.",
+      "zone": {
+        "platform_stock": "Platform stock",
+        "customer_custody": "Customer custody"
+      },
+      "detail": {
+        "title": "Item detail",
+        "certNumber": "Certificate",
+        "movements": "Movement history",
+        "noMovements": "No movements recorded."
+      },
+      "publish": {
+        "title": "Publish to Shop",
+        "priceLabel": "Sale price (MXN)",
+        "priceInvalid": "Enter a valid price (number ≥ 0).",
+        "priceRequiredSealed": "Sealed items require a manual price (MXN) to be published.",
+        "priceHint": "Optional: without a manual price, the sale price is derived from the reference on the server.",
+        "action": "Publish",
+        "unlist": "Unlist",
+        "success": "Item published to Shop · {folio}.",
+        "unlistSuccess": "Item unlisted · {folio}.",
+        "error": "We couldn't update the item."
+      },
+      "move": {
+        "title": "Move to another location",
+        "target": "New location",
+        "targetPlaceholder": "Pick the target location",
+        "note": "Note (optional)",
+        "action": "Move",
+        "success": "Item moved to {label}.",
+        "error": "We couldn't move the item."
+      },
+      "mark": {
+        "title": "Mark lost / damaged",
+        "warning": "This action changes the item status and is logged; the item enters replacement (M7).",
+        "kind": "Mark",
+        "lost": "Lost",
+        "damaged": "Damaged",
+        "note": "Note (required)",
+        "action": "Mark",
+        "success": "Item marked as {mark}.",
+        "error": "We couldn't mark the item."
+      },
+      "movementReason": {
+        "alta": "Intake",
+        "move": "Move",
+        "sale": "Sale",
+        "settle": "Settlement",
+        "chargeback_return": "Chargeback return",
+        "withdrawal": "Withdrawal",
+        "lost": "Lost",
+        "damaged": "Damaged",
+        "buylist_convert": "Buylist conversion"
+      },
+      "locations": {
+        "button": "Locations",
+        "title": "Vault locations",
+        "subtitle": "Box / row / slot where the pieces live. Create at least one to be able to add items.",
+        "empty": "No locations registered yet.",
+        "zone": "Zone",
+        "box": "Box",
+        "row": "Row",
+        "slot": "Slot",
+        "create": "Create location",
+        "createSuccess": "Location {label} created.",
+        "createError": "We couldn't create the location."
+      }
     },
     "m3": {
       "title": "M3 · Sales / orders",

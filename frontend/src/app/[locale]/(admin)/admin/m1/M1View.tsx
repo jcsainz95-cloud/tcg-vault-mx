@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Plus, Search, Check } from 'lucide-react';
+import { Plus, Search, Check, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import {
   getAdminInventory,
   getLocations,
   listBuylistSets,
   searchBuylistCards,
   createInventoryItem,
+  type AdminInventoryFilters,
 } from '@/lib/api';
 import type {
   ProductType,
@@ -18,6 +19,8 @@ import type {
   AcquisitionType,
   Finish,
   InventoryItemDTO,
+  InventoryStatus,
+  VaultZone,
   CardDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -28,9 +31,12 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { ItemDetailModal } from './ItemDetailModal';
+import { LocationsModal } from './LocationsModal';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
@@ -38,16 +44,41 @@ const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'buylist', 'compra'];
 // v1.6-finish: orden de despliegue del acabado; la etiqueta legible viene de i18n `finish`.
 const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
+// Filtro de estado de la tabla (enum InventoryStatus completo del contrato).
+const INVENTORY_STATUSES: InventoryStatus[] = [
+  'in_stock',
+  'listed',
+  'reserved',
+  'in_custody',
+  'picking',
+  'shipped',
+  'delivered',
+  'lost',
+  'damaged',
+  'withdrawn',
+];
+const ZONES: VaultZone[] = ['platform_stock', 'customer_custody'];
+const INVENTORY_PAGE_SIZE = 20;
 
 export function M1View() {
   const t = useTranslations('admin.m1');
   const tt = useTranslations('admin.m1.table');
   const tSub = useTranslations('status.sealedSubtype');
   const tFinish = useTranslations('finish');
+  const tInv = useTranslations('status.inventory');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  // Gestión Ola 2: detalle por pieza + gestor de ubicaciones.
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [locationsOpen, setLocationsOpen] = useState(false);
+  // Filtros de la tabla (contrato §M1 · ?q/status/zone/locationId + paginación).
+  const [folioQ, setFolioQ] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'' | InventoryStatus>('');
+  const [zoneFilter, setZoneFilter] = useState<'' | VaultZone>('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [page, setPage] = useState(1);
   // Picker sobre el catálogo REAL (patrón del cotizador): set + búsqueda + carta elegida.
   const [setId, setSetId] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -73,7 +104,19 @@ export function M1View() {
     : ['normal'];
   const showFinishSelect = productType === 'raw' && availableFinishes.length > 1;
 
-  const inventory = useQuery({ queryKey: ['admin-inventory'], queryFn: getAdminInventory });
+  // Tabla con filtros + paginación REALES (antes iba sin query y quedaba capada a 20).
+  const inventoryFilters: AdminInventoryFilters = {
+    q: folioQ.trim() || undefined,
+    status: statusFilter || undefined,
+    zone: zoneFilter || undefined,
+    locationId: locationFilter || undefined,
+    page,
+    pageSize: INVENTORY_PAGE_SIZE,
+  };
+  const inventory = useQuery({
+    queryKey: ['admin-inventory', inventoryFilters],
+    queryFn: () => getAdminInventory(inventoryFilters),
+  });
   const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations });
 
   // --- Picker de catálogo real (contrato §6 GET /buylist/sets + /buylist/cards, @Public) ---
@@ -161,21 +204,40 @@ export function M1View() {
           '—'
         ),
     },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (i) => (
+        <Button size="sm" variant="secondary" onClick={() => setDetailId(i.id)}>
+          {t('view')}
+        </Button>
+      ),
+    },
   ];
+
+  const totalPages = inventory.data
+    ? Math.max(1, Math.ceil(inventory.data.total / INVENTORY_PAGE_SIZE))
+    : 1;
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-h1 font-bold">{t('title')}</h1>
-        <Button
-          onClick={() => {
-            // Nueva alta: limpia el resultado anterior (banner de folio / error).
-            create.reset();
-            setOpen(true);
-          }}
-        >
-          <Plus size={18} /> {t('newItem')}
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setLocationsOpen(true)}>
+            <MapPin size={18} /> {t('locations.button')}
+          </Button>
+          <Button
+            onClick={() => {
+              // Nueva alta: limpia el resultado anterior (banner de folio / error).
+              create.reset();
+              setOpen(true);
+            }}
+          >
+            <Plus size={18} /> {t('newItem')}
+          </Button>
+        </div>
       </div>
 
       {/* P-4: confirmación de alta con el FOLIO devuelto por el backend (antes se ignoraba). */}
@@ -185,18 +247,92 @@ export function M1View() {
         </Banner>
       )}
 
+      {/* Filtros de la tabla (folio + estado + zona + ubicación). Cambiar un filtro
+          reinicia a la página 1 para no quedar fuera de rango. */}
+      <div className="flex flex-wrap items-end gap-3">
+        <Input
+          label={t('filtersFolio')}
+          className="w-56"
+          placeholder={t('filtersFolioPlaceholder')}
+          value={folioQ}
+          onChange={(e) => { setFolioQ(e.target.value); setPage(1); }}
+        />
+        <Select
+          label={tt('status')}
+          className="w-44"
+          options={[
+            { value: '', label: tc('all') },
+            ...INVENTORY_STATUSES.map((s) => ({ value: s, label: tInv(s) })),
+          ]}
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value as '' | InventoryStatus); setPage(1); }}
+        />
+        <Select
+          label={t('filtersZone')}
+          className="w-48"
+          options={[
+            { value: '', label: tc('all') },
+            ...ZONES.map((z) => ({ value: z, label: t(`zone.${z}`) })),
+          ]}
+          value={zoneFilter}
+          onChange={(e) => { setZoneFilter(e.target.value as '' | VaultZone); setPage(1); }}
+        />
+        <Select
+          label={tt('location')}
+          className="w-48"
+          options={[
+            { value: '', label: tc('all') },
+            ...(locations.data ?? []).map((l) => ({ value: l.id, label: l.label })),
+          ]}
+          value={locationFilter}
+          onChange={(e) => { setLocationFilter(e.target.value); setPage(1); }}
+        />
+      </div>
+
       <QueryState
         isLoading={inventory.isLoading}
         isError={inventory.isError}
         error={inventory.error}
         onRetry={() => inventory.refetch()}
       >
-        {inventory.data && (
-          <div className="rounded-lg border border-border bg-surface p-2">
-            <DataTable columns={columns} rows={inventory.data} rowKey={(i) => i.id} />
-          </div>
-        )}
+        {inventory.data &&
+          (inventory.data.data.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <div className="rounded-lg border border-border bg-surface p-2">
+                <DataTable columns={columns} rows={inventory.data.data} rowKey={(i) => i.id} />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted">
+                  {t('pageInfo', { page: inventory.data.page, totalPages, total: inventory.data.total })}
+                </span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                    <ChevronLeft size={16} /> {t('prev')}
+                  </Button>
+                  <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                    {t('next')} <ChevronRight size={16} />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <EmptyState title={t('emptyTitle')} body={t('emptyBody')} />
+          ))}
       </QueryState>
+
+      {/* Detalle por pieza + acciones de gestión (publicar / mover / marcar) */}
+      <ItemDetailModal
+        itemId={detailId}
+        onClose={() => setDetailId(null)}
+        locations={locations.data ?? []}
+      />
+
+      {/* Gestor mínimo de ubicaciones de bóveda (crear/listar) */}
+      <LocationsModal
+        open={locationsOpen}
+        onClose={() => setLocationsOpen(false)}
+        locations={locations.data ?? []}
+      />
 
       <Modal
         open={open}

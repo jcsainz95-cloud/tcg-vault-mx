@@ -19,7 +19,9 @@ import type {
   ShipmentTrackingRequest,
   DashboardDTO,
   InventoryItemDTO,
+  AdminInventoryItemDetailDTO,
   VaultLocationDTO,
+  VaultZone,
   AdminBuylistDTO,
   AdminOrderDTO,
   AdminShipmentDTO,
@@ -86,6 +88,32 @@ import type {
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
+
+/** Parámetros de paginación comunes de las ramas mock. */
+interface PageParams {
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Paginación local para las ramas mock (deuda techlead Ola 1 #1: helper ÚNICO en vez de
+ * slices duplicados en getAdminShipments/getAdminUsers/searchBuylistCards/getAuditLog).
+ */
+function paginate<T>(rows: T[], params: PageParams = {}): Paginated<T> {
+  const pageSize = params.pageSize ?? 20;
+  const page = params.page ?? 1;
+  const start = (page - 1) * pageSize;
+  return { data: rows.slice(start, start + pageSize), page, pageSize, total: rows.length };
+}
+
+// MOCK (deuda techlead Ola 1 #2): generadores compartidos de ids de job y contraseñas
+// temporales de las ramas mock (antes duplicados inline en 5 sitios).
+function mockJobId(): string {
+  return `job-${Math.floor(Math.random() * 9000 + 1000)}`;
+}
+function mockTempPassword(): string {
+  return `Tmp-${Math.random().toString(36).slice(2, 8)}-${Math.random().toString(36).slice(2, 6)}`;
+}
 
 // ---------- Catálogo / "Compra" (contrato §2) ----------
 export type CatalogSort = 'price_asc' | 'price_desc' | 'newest';
@@ -308,7 +336,7 @@ export async function getAdminShipments(
   }
   let data = [...fx.mockAdminShipments];
   if (filters.status) data = data.filter((s) => s.status === filters.status);
-  return delay({ data, page: filters.page ?? 1, pageSize: filters.pageSize ?? 20, total: data.length });
+  return delay(paginate(data, filters));
 }
 
 /**
@@ -427,10 +455,7 @@ export async function searchBuylistCards(
     );
   }
   if (filters.rarity) data = data.filter((c) => c.rarity === filters.rarity);
-  const pageSize = filters.pageSize ?? 20;
-  const page = filters.page ?? 1;
-  const start = (page - 1) * pageSize;
-  return delay({ data: data.slice(start, start + pageSize), page, pageSize, total: data.length });
+  return delay(paginate(data, filters));
 }
 
 export async function getBuylistQuote(input: {
@@ -811,12 +836,175 @@ export async function getDashboard(): Promise<DashboardDTO> {
   return delay(fx.mockDashboard);
 }
 
-export async function getAdminInventory(): Promise<InventoryItemDTO[]> {
+export interface AdminInventoryFilters {
+  /** búsqueda por folio (backend: `folio contains q`, case-insensitive). */
+  q?: string;
+  status?: InventoryStatus;
+  zone?: VaultZone;
+  locationId?: string;
+  cardId?: string;
+  ownerType?: 'platform' | 'customer';
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Tabla de inventario del back-office (contrato §M1 · GET /admin/inventory/items,
+ * query `?status=&cardId=&ownerType=&locationId=&zone=&q=&page=&pageSize=`, `vault_operator+`).
+ * Ola 2: ahora manda los filtros + paginación reales (antes iba sin query y quedaba
+ * capada a los 20 primeros items).
+ */
+export async function getAdminInventory(
+  filters: AdminInventoryFilters = {},
+): Promise<Paginated<InventoryItemDTO>> {
   if (!config.useMocks) {
-    const res = await apiRequest<Paginated<InventoryItemDTO>>('/admin/inventory/items');
-    return res.data;
+    return apiRequest<Paginated<InventoryItemDTO>>('/admin/inventory/items', {
+      query: {
+        q: filters.q,
+        status: filters.status,
+        zone: filters.zone,
+        locationId: filters.locationId,
+        cardId: filters.cardId,
+        ownerType: filters.ownerType,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
   }
-  return delay(fx.mockInventory);
+  let data = [...fx.mockInventory];
+  if (filters.q) {
+    const q = filters.q.toLowerCase();
+    data = data.filter((i) => i.folio.toLowerCase().includes(q));
+  }
+  if (filters.status) data = data.filter((i) => i.status === filters.status);
+  if (filters.zone) data = data.filter((i) => i.location?.zone === filters.zone);
+  if (filters.locationId) data = data.filter((i) => i.location?.id === filters.locationId);
+  if (filters.cardId) data = data.filter((i) => i.card.id === filters.cardId);
+  if (filters.ownerType) data = data.filter((i) => i.ownerType === filters.ownerType);
+  return delay(paginate(data, filters));
+}
+
+// MOCK: localiza el item en fixtures o 404 (mismo shape de error del contrato).
+function mockFindInventoryItem(id: string): InventoryItemDTO {
+  const item = fx.mockInventory.find((i) => i.id === id);
+  if (!item) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Inventory item not found' });
+  return item;
+}
+
+/**
+ * Detalle por pieza + historial de movimientos (contrato §M1 ·
+ * GET /admin/inventory/items/:id, `vault_operator+`).
+ */
+export async function getAdminInventoryItem(id: string): Promise<AdminInventoryItemDetailDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminInventoryItemDetailDTO>(`/admin/inventory/items/${id}`);
+  }
+  const item = mockFindInventoryItem(id);
+  return delay({ ...item, movements: [...(fx.mockInventoryMovements[id] ?? [])] });
+}
+
+export interface UpdateInventoryItemInput {
+  /** Publicar (`listed`) / despublicar (`in_stock`). El backend solo acepta esos dos aquí. */
+  status?: 'in_stock' | 'listed';
+  /** Precio de venta MANUAL en centavos MXN (obligatorio para publicar sellado). */
+  listPriceCents?: number;
+  certNumber?: string;
+  gradeValue?: string;
+  sealedSubtype?: SealedSubtype;
+}
+
+/**
+ * Edición/publicación del item (contrato §M1 · PATCH /admin/inventory/items/:id).
+ * Publicar una gradeada sin certNumber devuelve 422 VALIDATION_ERROR (invariante v1.2,
+ * revalidada server-side sobre el estado RESULTANTE del PATCH). `listPriceCents` es el
+ * precio de venta MANUAL del operador (no se deriva en el cliente — SEC-A1 intacto).
+ */
+export async function updateInventoryItem(
+  id: string,
+  input: UpdateInventoryItemInput,
+): Promise<InventoryItemDTO> {
+  if (!config.useMocks) {
+    return apiRequest<InventoryItemDTO>(`/admin/inventory/items/${id}`, {
+      method: 'PATCH',
+      body: input,
+    });
+  }
+  const item = mockFindInventoryItem(id);
+  // MOCK: replica la invariante v1.2 del backend (gradeada publicada exige certNumber).
+  const resultingStatus = input.status ?? item.status;
+  const resultingCert = input.certNumber !== undefined ? input.certNumber : item.certNumber;
+  if (item.productType === 'graded' && resultingStatus === 'listed' && !resultingCert?.trim()) {
+    throw new ApiClientError(422, {
+      code: 'VALIDATION_ERROR',
+      message: 'graded items require certNumber to be published',
+    });
+  }
+  Object.assign(item, {
+    ...(input.status !== undefined ? { status: input.status } : {}),
+    ...(input.listPriceCents !== undefined ? { listPriceCents: input.listPriceCents } : {}),
+    ...(input.certNumber !== undefined ? { certNumber: input.certNumber } : {}),
+    ...(input.gradeValue !== undefined ? { gradeValue: input.gradeValue } : {}),
+    ...(input.sealedSubtype !== undefined ? { sealedSubtype: input.sealedSubtype } : {}),
+  });
+  return delay({ ...item });
+}
+
+/**
+ * Mueve el item a otra ubicación de bóveda (contrato §M1 ·
+ * POST /admin/inventory/items/:id/move, req `{ toLocationId, note? }`).
+ * Registra un InventoryMovement con reason=move.
+ */
+export async function moveInventoryItem(
+  id: string,
+  input: { toLocationId: string; note?: string },
+): Promise<InventoryItemDTO> {
+  if (!config.useMocks) {
+    return apiRequest<InventoryItemDTO>(`/admin/inventory/items/${id}/move`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  const item = mockFindInventoryItem(id);
+  const to = fx.mockLocations.find((l) => l.id === input.toLocationId);
+  if (!to) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Location not found' });
+  fx.pushMockMovement(id, {
+    fromLocationId: item.location?.id,
+    toLocationId: to.id,
+    fromStatus: item.status,
+    toStatus: item.status,
+    reason: 'move',
+    note: input.note,
+  });
+  item.location = { id: to.id, label: to.label, zone: to.zone };
+  return delay({ ...item });
+}
+
+/**
+ * Marca el item como perdida/dañada (contrato §M1 ·
+ * POST /admin/inventory/items/:id/mark, req `{ mark: "lost"|"damaged", note }` — la nota
+ * es OBLIGATORIA). Cambia `status` y registra el movimiento; queda disponible para
+ * reposición (M7/tope M10).
+ */
+export async function markInventoryItem(
+  id: string,
+  input: { mark: 'lost' | 'damaged'; note: string },
+): Promise<InventoryItemDTO> {
+  if (!config.useMocks) {
+    return apiRequest<InventoryItemDTO>(`/admin/inventory/items/${id}/mark`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  const item = mockFindInventoryItem(id);
+  const next: InventoryStatus = input.mark === 'lost' ? 'lost' : 'damaged';
+  fx.pushMockMovement(id, {
+    fromStatus: item.status,
+    toStatus: next,
+    reason: input.mark,
+    note: input.note,
+  });
+  item.status = next;
+  return delay({ ...item });
 }
 
 export interface CreateInventoryItemInput {
@@ -873,6 +1061,32 @@ export async function getLocations(): Promise<VaultLocationDTO[]> {
     return res.data;
   }
   return delay(fx.mockLocations);
+}
+
+export interface CreateLocationInput {
+  zone: VaultZone;
+  box: string;
+  row: string;
+  slot: string;
+}
+
+/**
+ * Alta de ubicación de bóveda (contrato §M1 · POST /admin/locations,
+ * req `{ zone, box, row, slot }`, `vault_operator+`). El backend deriva
+ * `label = box-row-slot`. Ola 2: sin esto el dropdown de ubicación del alta
+ * quedaba vacío en una BD limpia.
+ */
+export async function createLocation(input: CreateLocationInput): Promise<VaultLocationDTO> {
+  if (!config.useMocks) {
+    return apiRequest<VaultLocationDTO>('/admin/locations', { method: 'POST', body: input });
+  }
+  const created: VaultLocationDTO = {
+    id: `loc-new-${fx.mockLocations.length + 1}`,
+    ...input,
+    label: `${input.box}-${input.row}-${input.slot}`,
+  };
+  fx.mockLocations.push(created);
+  return delay(created);
 }
 
 export async function getAdminBuylist(): Promise<AdminBuylistDTO[]> {
@@ -1092,7 +1306,7 @@ export async function syncPricing(input: {
   if (!config.useMocks) {
     return apiRequest<PricingSyncResponse>('/admin/pricing/sync', { method: 'POST', body: input });
   }
-  return delay({ jobId: `job-${Math.floor(Math.random() * 9000 + 1000)}`, queued: fx.mockListings.length });
+  return delay({ jobId: mockJobId(), queued: fx.mockListings.length });
 }
 
 /** Cola de precio pendiente (contrato GET /admin/pricing/pending). */
@@ -1212,7 +1426,7 @@ export async function syncCatalog(input: {
     return apiRequest<CatalogSyncResponse>('/admin/catalog/sync', { method: 'POST', body: input });
   }
   return delay({
-    jobId: `job-${Math.floor(Math.random() * 9000 + 1000)}`,
+    jobId: mockJobId(),
     setsQueued: input.setId ? 1 : fx.mockRemoteSets.filter((s) => !s.imported).length,
     mode: input.setId ? 'single' : 'from_date',
   });
@@ -1259,7 +1473,7 @@ export async function syncAllCatalog(
   const sets = input.force
     ? fx.mockRemoteSets.length
     : fx.mockRemoteSets.filter((s) => !s.imported).length;
-  return delay({ jobId: `job-${Math.floor(Math.random() * 9000 + 1000)}`, setsQueued: sets, remaining: 0 });
+  return delay({ jobId: mockJobId(), setsQueued: sets, remaining: 0 });
 }
 
 // ---------- Admin M6 · Usuarios / KYC (contrato §M6) ----------
@@ -1288,10 +1502,7 @@ export async function getAdminUsers(filters: AdminUsersFilters = {}): Promise<Pa
     data = data.filter((u) => u.email.toLowerCase().includes(q) || u.name.toLowerCase().includes(q));
   }
   if (filters.status) data = data.filter((u) => u.status === filters.status);
-  const pageSize = filters.pageSize ?? 20;
-  const page = filters.page ?? 1;
-  const start = (page - 1) * pageSize;
-  return delay({ data: data.slice(start, start + pageSize), page, pageSize, total: data.length });
+  return delay(paginate(data, filters));
 }
 
 /** Ficha 360° del usuario (contrato GET /admin/users/:id). CLABE/RFC enmascarados. */
@@ -1346,7 +1557,7 @@ export async function resetUserPassword(id: string): Promise<ResetPasswordRespon
     return apiRequest<ResetPasswordResponse>(`/admin/users/${id}/reset-password`, { method: 'POST', body: {} });
   }
   // MOCK: contraseña temporal aleatoria de alta entropía (simulada).
-  const tempPassword = `Tmp-${Math.random().toString(36).slice(2, 8)}-${Math.random().toString(36).slice(2, 6)}`;
+  const tempPassword = mockTempPassword();
   return delay({ userId: id, tempPassword, mustChangePassword: true });
 }
 
@@ -1396,9 +1607,7 @@ export async function createAdminUser(input: CreateAdminUserInput): Promise<Admi
     throw new ApiClientError(409, { code: 'EMAIL_TAKEN', message: 'Email already registered' });
   }
   const autogenerated = !input.password;
-  const tempPassword = autogenerated
-    ? `Tmp-${Math.random().toString(36).slice(2, 8)}-${Math.random().toString(36).slice(2, 6)}`
-    : undefined;
+  const tempPassword = autogenerated ? mockTempPassword() : undefined;
   const seq = Math.floor(Math.random() * 9000 + 1000);
   return delay({
     user: {
@@ -1425,14 +1634,6 @@ export interface UserHistoryParams {
   pageSize?: number;
 }
 export type UserAuditScope = 'target' | 'actor' | 'both';
-
-/** Paginación local para las ramas mock. */
-function paginate<T>(rows: T[], params: UserHistoryParams = {}): Paginated<T> {
-  const pageSize = params.pageSize ?? 20;
-  const page = params.page ?? 1;
-  const start = (page - 1) * pageSize;
-  return { data: rows.slice(start, start + pageSize), page, pageSize, total: rows.length };
-}
 
 /** Compras del usuario (contrato §M3 · GET /admin/orders?userId=). Paginado. */
 export async function getAdminUserOrders(
@@ -1560,10 +1761,7 @@ export async function getAuditLog(filters: AuditLogFilters = {}): Promise<Pagina
   if (filters.action) data = data.filter((a) => a.action.includes(filters.action!));
   if (filters.actorUserId) data = data.filter((a) => a.actorUserId === filters.actorUserId);
   if (filters.entityType) data = data.filter((a) => a.entityType === filters.entityType);
-  const pageSize = filters.pageSize ?? 20;
-  const page = filters.page ?? 1;
-  const start = (page - 1) * pageSize;
-  return delay({ data: data.slice(start, start + pageSize), page, pageSize, total: data.length });
+  return delay(paginate(data, filters));
 }
 
 // ---------- Admin M7 · Finanzas (contrato §M7) ----------

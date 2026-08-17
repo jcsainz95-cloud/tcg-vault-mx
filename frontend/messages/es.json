@@ -584,7 +584,82 @@
       "resultCount": "{shown} de {total} cartas",
       "loadMore": "Cargar más",
       "finishFixedSingle": "Acabado: {finish} (único disponible para esta carta).",
-      "createSuccess": "Item creado en bóveda · folio {folio}."
+      "createSuccess": "Item creado en bóveda · folio {folio}.",
+      "view": "Detalle",
+      "filtersFolio": "Buscar por folio",
+      "filtersFolioPlaceholder": "INV-000123",
+      "filtersZone": "Zona",
+      "pageInfo": "Página {page} de {totalPages} · {total} items",
+      "prev": "Anterior",
+      "next": "Siguiente",
+      "emptyTitle": "Sin items",
+      "emptyBody": "Ningún item de inventario coincide con los filtros.",
+      "zone": {
+        "platform_stock": "Stock de plataforma",
+        "customer_custody": "Custodia de clientes"
+      },
+      "detail": {
+        "title": "Detalle de pieza",
+        "certNumber": "Certificado",
+        "movements": "Historial de movimientos",
+        "noMovements": "Sin movimientos registrados."
+      },
+      "publish": {
+        "title": "Publicar en Compra",
+        "priceLabel": "Precio de venta (MXN)",
+        "priceInvalid": "Captura un precio válido (número ≥ 0).",
+        "priceRequiredSealed": "El sellado requiere precio manual (MXN) para publicarse.",
+        "priceHint": "Opcional: sin precio manual, el precio de venta se deriva de la referencia en el servidor.",
+        "action": "Publicar",
+        "unlist": "Retirar de venta",
+        "success": "Item publicado en Compra · {folio}.",
+        "unlistSuccess": "Item retirado de venta · {folio}.",
+        "error": "No se pudo actualizar el item."
+      },
+      "move": {
+        "title": "Mover de ubicación",
+        "target": "Nueva ubicación",
+        "targetPlaceholder": "Elige la ubicación destino",
+        "note": "Nota (opcional)",
+        "action": "Mover",
+        "success": "Item movido a {label}.",
+        "error": "No se pudo mover el item."
+      },
+      "mark": {
+        "title": "Marcar pérdida / daño",
+        "warning": "Esta acción cambia el estado del item y queda en bitácora; el item entra a reposición (M7).",
+        "kind": "Marca",
+        "lost": "Perdida",
+        "damaged": "Dañada",
+        "note": "Nota (obligatoria)",
+        "action": "Marcar",
+        "success": "Item marcado como {mark}.",
+        "error": "No se pudo marcar el item."
+      },
+      "movementReason": {
+        "alta": "Alta",
+        "move": "Movimiento",
+        "sale": "Venta",
+        "settle": "Liquidación",
+        "chargeback_return": "Devolución por contracargo",
+        "withdrawal": "Retiro",
+        "lost": "Pérdida",
+        "damaged": "Daño",
+        "buylist_convert": "Conversión de buylist"
+      },
+      "locations": {
+        "button": "Ubicaciones",
+        "title": "Ubicaciones de bóveda",
+        "subtitle": "Caja / fila / slot donde viven las piezas. Crea al menos una para poder dar de alta items.",
+        "empty": "Aún no hay ubicaciones registradas.",
+        "zone": "Zona",
+        "box": "Caja",
+        "row": "Fila",
+        "slot": "Slot",
+        "create": "Crear ubicación",
+        "createSuccess": "Ubicación {label} creada.",
+        "createError": "No se pudo crear la ubicación."
+      }
     },
     "m3": {
       "title": "M3 · Ventas / órdenes",

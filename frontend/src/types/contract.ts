@@ -551,7 +551,37 @@ export interface VaultLocationDTO {
   label: string;
 }
 
-export interface AdminBuylistItemDTO extends SellItemDTO {}
+// Motivo del movimiento de bóveda (enum MovementReason del backend; ARCHITECTURE/prisma).
+export type MovementReason =
+  | 'alta'
+  | 'move'
+  | 'sale'
+  | 'settle'
+  | 'chargeback_return'
+  | 'withdrawal'
+  | 'lost'
+  | 'damaged'
+  | 'buylist_convert';
+
+// Historial de movimientos de un item (contrato §M1 · GET /admin/inventory/items/:id:
+// "detalle + historial de movimientos"). El backend devuelve los InventoryMovement
+// ordenados por createdAt desc.
+export interface InventoryMovementDTO {
+  id: string;
+  fromLocationId?: string | null;
+  toLocationId?: string | null;
+  fromStatus?: InventoryStatus | null;
+  toStatus?: InventoryStatus | null;
+  reason: MovementReason;
+  actorUserId?: string | null;
+  note?: string | null;
+  createdAt: string;
+}
+
+// Detalle por pieza del back-office (GET /admin/inventory/items/:id): el item + movimientos.
+export interface AdminInventoryItemDetailDTO extends InventoryItemDTO {
+  movements: InventoryMovementDTO[];
+}
 
 export interface AdminBuylistDTO {
   id: string;

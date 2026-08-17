@@ -19,6 +19,7 @@ import type {
   SellRequestDTO,
   DashboardDTO,
   InventoryItemDTO,
+  InventoryMovementDTO,
   VaultLocationDTO,
   AdminBuylistDTO,
   AdminOrderDTO,
@@ -625,6 +626,59 @@ export const mockInventory: InventoryItemDTO[] = [
     acquisitionType: 'compra',
   },
 ];
+
+// Historial de movimientos por item (contrato §M1 · GET /admin/inventory/items/:id).
+// Cada item nace con su movimiento de `alta`; move/mark agregan entradas en memoria.
+export const mockInventoryMovements: Record<string, InventoryMovementDTO[]> = {
+  'inv-1001': [
+    {
+      id: 'mov-1001-1',
+      toLocationId: 'loc-1',
+      toStatus: 'in_stock',
+      reason: 'alta',
+      note: 'aportacion_en_especie',
+      createdAt: '2026-08-01T10:00:00Z',
+    },
+    {
+      id: 'mov-1001-2',
+      fromStatus: 'in_stock',
+      toStatus: 'listed',
+      reason: 'move',
+      note: 'published',
+      createdAt: '2026-08-02T09:00:00Z',
+    },
+  ],
+  'inv-1008': [
+    {
+      id: 'mov-1008-1',
+      toLocationId: 'loc-2',
+      toStatus: 'in_stock',
+      reason: 'alta',
+      note: 'compra',
+      createdAt: '2026-08-05T12:00:00Z',
+    },
+  ],
+  'inv-1010': [
+    {
+      id: 'mov-1010-1',
+      toLocationId: 'loc-2',
+      toStatus: 'in_stock',
+      reason: 'alta',
+      note: 'compra',
+      createdAt: '2026-08-10T16:30:00Z',
+    },
+  ],
+};
+
+/** Agrega un movimiento en memoria (ramas mock de move/mark) — más reciente primero. */
+export function pushMockMovement(itemId: string, movement: Omit<InventoryMovementDTO, 'id' | 'createdAt'>) {
+  const list = (mockInventoryMovements[itemId] ??= []);
+  list.unshift({
+    ...movement,
+    id: `mov-${itemId}-${list.length + 1}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: new Date().toISOString(),
+  });
+}
 
 export const mockAdminBuylist: AdminBuylistDTO[] = [
   {
