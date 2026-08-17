@@ -4,6 +4,120 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS «Inventario y vault» — Master set en TODAS partes (2026-08-17, contrato v1.18-master-set-everywhere)
+
+El binder Master Set deja de ser exclusivo de M1: los componentes se **promueven a
+`frontend/src/components/master-set/`** (zona compartida, RESERVADA por este stream durante la
+promoción, ARCHITECTURE §4.18f) y sirven las TRES vistas del contrato con el MISMO shape:
+(i) M1 plataforma, (ii) admin viendo la bóveda de un cliente, (iii) el cliente viendo la suya.
+Gates verdes: **lint 0**, **tsc 0**, **test 322/322** (43 files; +10 nuevos), **build OK**
+(ruta `/[locale]/admin/vaults` registrada).
+
+### Promoción de componentes (rutas viejas → nuevas)
+
+`frontend/src/app/[locale]/(admin)/admin/m1/master-set/{MasterSetIndex,MasterSetBinder,MasterSetPanel,CellDrawer,PerLineErrors}.tsx`
+y `capture.ts` → **`frontend/src/components/master-set/`** (mismos nombres) + nuevo `mode.ts`.
+La carpeta vieja se eliminó; `M1View` importa `MasterSetPanel` desde `@/components/master-set/`.
+`MasterSet.test.tsx` se movió junto a los componentes.
+
+**Parametrización por scope/capacidades (props, §4.18f):** `MasterSetPanel` recibe
+`mode: 'platform' | 'user_vault_admin' | 'user_vault_self'` (+ `userId?` en admin, + `onBuyMissing?`
+en self). El componente NO decide permisos: renderiza lo que el DTO trae (el backend omite campos
+por scope — `buyable` solo (iii), `owner.email` solo (ii)). Capacidades por modo:
+- `platform` (M1, default): carrito de captura por lote, publicación masiva y **ajuste por
+  levantamiento físico** (nuevo). Endpoints `/admin/inventory/master-sets[...]`.
+- `user_vault_admin`: SOLO lectura (sin captura/publicación/ajuste/venta ni CTA de compra).
+- `user_vault_self`: lectura + **CTA de compra en variantes faltantes** con `buyable`.
+
+### Binder por VARIANTE (v1.18)
+
+- Cada celda pinta **una casilla por acabado** (`variants[]`, universo = `availableFinishes`):
+  cubierta → chip con conteo; faltante → chip **«HUECO»** por acabado (borde punteado, acento).
+  El hueco TOTAL (0 variantes cubiertas) conserva la imagen de catálogo **atenuada** (grid visual).
+- Los contadores «X/Y» cuentan **variantes**: índice usa `distinctVariantsOwned`/`catalogVariantCount`/
+  `variantCompletionPct`; la celda usa `coveredVariantCount/expectedVariantCount`; el header del
+  binder suma expected/covered de las celdas (no depende del summary del índice).
+- **Drift de catálogo:** `countsByFinish` con acabado fuera del universo se pinta como chip
+  atenuado con «⚠» (se VE la pieza pero no cuenta en covered/expected, regla del contrato).
+- El filtro «Con huecos» ahora es por variante (≥1 casilla faltante); «Con piezas» = ≥1 cubierta.
+
+### M1 · Ajuste por levantamiento físico (`POST /admin/inventory/adjustments`)
+
+Sección nueva del `CellDrawer` (solo `platform`): **motivo OBLIGATORIO**
+(`encontrada | perdida | danada | error_captura`, labels es/en en `masterSet.adjust.reason.*`).
+- `encontrada` → alta mínima raw NM (acabado del universo + qty), `acquisitionType`
+  `aportacion_en_especie` explícito (default del contrato). *Simplificación deliberada: el alta
+  de una gradeada "encontrada" se hace por el alta normal de M1, no desde el ajuste.*
+- `perdida | danada | error_captura` → select de pieza **elegible** (solo `in_stock|listed` de
+  plataforma; `reserved` etc. ni se ofrecen) + **nota obligatoria** (el submit se deshabilita sin ella).
+- Éxito → Banner con folios; error → Banner con `useErrorMessage` (nuevo copy
+  `error.ITEM_NOT_ADJUSTABLE` es/en). **NO hay venta directa manual desde el binder** (contrato).
+
+### Admin «Bóvedas de clientes» (`/[locale]/admin/vaults`)
+
+Página nueva `(admin)/admin/vaults/{page,VaultsView}.tsx` + entrada en `AdminSidebar` (grupo
+Operación, tras M1; clave `admin.modules.vaults`, `vault_operator+`, sin candado súper-admin):
+- Lista `GET /admin/vaults` → `getAdminVaults({q,sort,page,pageSize})`: nombre, email, piezas,
+  **valor estimado** (`formatMoneyCents`), conteo sin precio; orden `value_desc|pieces_desc|name_asc`
+  (default `value_desc`) y paginación del contrato.
+- Clic en cliente → `MasterSetPanel mode="user_vault_admin" userId=…` (binder de lectura,
+  owner con email desde el DTO).
+
+### Storefront «Mi bóveda» (vista (iii))
+
+`VaultView` gana pestañas `Piezas ⇆ Master set` (mismo patrón tablist de M1). La pestaña Master
+set monta `MasterSetPanel mode="user_vault_self"` con `onBuyMissing = useCart().add`: el CTA de
+una variante faltante con `buyable` agrega la **pieza publicada** (`inventoryItemId`) al MISMO
+carrito local/checkout del catálogo (`src/lib/cart.ts`, sin órdenes desde el binder);
+`buyable=null` → «No disponible» (no clicable). Banner «Agregada al carrito de compra.» como
+feedback. Sin acciones de venta/captura en vistas de cliente.
+
+### Contrato consumido (nuevo en este stream)
+
+- `GET /vault/master-sets[/:setId]` → `getVaultMasterSets` / `getVaultMasterSetBinder`.
+- `GET /admin/vaults` → `getAdminVaults`; `GET /admin/vaults/:userId/master-sets[/:setId]` →
+  `getAdminVaultMasterSets` / `getAdminVaultMasterSetBinder`.
+- `POST /admin/inventory/adjustments` → `createInventoryAdjustment`.
+- Tipos v1.18 en `contract.ts`: `MasterSetScope`, `VaultOwnerRefDTO`, `MasterSetVariantDTO`,
+  extensiones de `MasterSetSummaryDTO`/`MasterSetCardCellDTO`/`MasterSet*Response`,
+  `AdminVaultSummaryDTO/Sort/ListResponse`, `AdjustmentReason`,
+  `InventoryAdjustmentRequest/Response`, `MovementReason += 'adjustment'`.
+- Mocks (`fixtures.ts`, rama `config.useMocks`): `mockMasterSetIndex/Binder` ganan **scope**
+  (`MockMasterSetScope`), `variants[]`+`buyable` (pieza `listed` más barata desde `mockListings`),
+  `mockVaultHoldingsByUser` (u-777 = mockHoldings, u-778 chica), `mockAdminVaults`,
+  `mockCreateAdjustment` (muta status + `pushMockMovement(reason:'adjustment')`), y
+  `ApiFixtureError` genérico (status+code) traducido a `ApiClientError` en `api.ts`.
+
+### i18n
+
+El subtree `admin.m1.masterSet` se movió a **`masterSet.*` top-level** (los componentes ahora son
+compartidos storefront+admin; el DESIGN_SYSTEM exige claves por superficie y `admin.*` ya no
+aplicaba). Claves nuevas: `masterSet.{variantCount,finishGapAria,driftChipAria,driftNote,ownerVault,
+variantsTitle,buyCta,buyAdded,notAvailable}`, `masterSet.adjust.*`, `vault.tabs.*`,
+`admin.modules.vaults`, `admin.vaults.*`, `error.ITEM_NOT_ADJUSTABLE`. `completionValue` pasa de
+«{owned}/{total} cartas» a «{owned}/{total} variantes». Paridad ES/EN verificada por
+`i18n-parity.test.ts`. Los labels del formulario de captura (solo modo platform) siguen en
+`admin.m1.*` (M1View los usa también).
+
+### Tests (nuevos/ajustados)
+
+`components/master-set/MasterSet.test.tsx` (12): contador por variantes (3/13 · 23.1%), casilla
+HUECO por acabado + `2/3 casillas`, orden natural, captura por lote y bulk-publish (sin cambios de
+comportamiento), ajuste (perdida con pieza+nota, encontrada con payload de alta, error
+`ITEM_NOT_ADJUSTABLE` traducido), modo admin lectura (owner con email; sin captura/publicación/
+ajuste/CTA), modo self (CTA comprable → `onBuyMissing('inv-1003')` vs «No disponible»; índice solo
+sets con piezas propias). `VaultsView.test.tsx` (2): lista + drill-down lectura.
+`VaultView.test.tsx` (+1): pestaña Master set. Comandos reales: `npm run lint` (0), `npx tsc
+--noEmit` (0), `npm test` (43 files / 322 pass), `npm run build` (OK).
+
+### Notas para QA / arquitecto
+
+- Sin desviaciones de contrato. El CTA de compra vive en el **drawer** de la celda (la celda del
+  grid abre el drawer, patrón existente); el contrato solo exige que el clic agregue la pieza al
+  flujo de compra normal, y así se hace (carrito local → checkout §4).
+- Los E2E Playwright existentes (`e2e/*.spec.ts`) no referencian las claves movidas; pendiente de
+  QA correr smoke E2E de los flujos tocados contra el stack levantado.
+
 ## WS-E frontend — Master Set + captura/publicación por lote (2026-08-17, contrato §M1 v1.16.1)
 
 Vista **Master Set** en M1 (índice de sets → binder por número) + **carrito de captura por lote** (#12)

@@ -18,22 +18,37 @@ import { MasterSetBinder } from './MasterSetBinder';
 import { CellDrawer } from './CellDrawer';
 import { PerLineErrors } from './PerLineErrors';
 import { localUid, type CaptureLine } from './capture';
+import type { MasterSetViewMode } from './mode';
+
+interface Props {
+  /** Scope/capacidades de la vista (§4.18f). Default: M1 (plataforma). */
+  mode?: MasterSetViewMode;
+  /** Requerido en `user_vault_admin` (bóveda de ESE cliente). */
+  userId?: string;
+  /**
+   * Solo `user_vault_self`: agrega la pieza `buyable` de una variante faltante al carrito
+   * de COMPRA del storefront (el checkout sigue siendo el flujo normal, §4).
+   */
+  onBuyMissing?: (inventoryItemId: string) => void;
+}
 
 /**
- * Orquestador de la vista Master Set (§M1): índice ⇆ binder, drawer por celda y el CARRITO
- * DE CAPTURA por lote (#12). El carrito acumula líneas de varias celdas y se envía en UN
- * request a `batchCreateItems` (idempotente por batchKey). El render de resultados es
- * tolerante por-línea: una línea inválida muestra su error y las válidas SÍ se crean.
+ * Orquestador COMPARTIDO de la vista Master Set (§4.18f): índice ⇆ binder y drawer por
+ * celda en los TRES modos. El CARRITO DE CAPTURA por lote (#12), la publicación y el
+ * ajuste por levantamiento físico SOLO se montan en modo `platform` (M1); los modos
+ * `user_vault_*` son lectura (y compra de faltantes en la vista del propio cliente).
  */
-export function MasterSetPanel() {
-  const t = useTranslations('admin.m1.masterSet');
+export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing }: Props) {
+  const t = useTranslations('masterSet');
   const queryClient = useQueryClient();
+  const isPlatform = mode === 'platform';
 
   const [selectedSet, setSelectedSet] = useState<MasterSetSummaryDTO | null>(null);
   const [openCell, setOpenCell] = useState<MasterSetCardCellDTO | null>(null);
   const [cart, setCart] = useState<CaptureLine[]>([]);
 
-  const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations });
+  // Ubicaciones: solo el alta rápida de M1 las usa (endpoint admin).
+  const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations, enabled: isPlatform });
 
   const submit = useMutation({
     mutationFn: () => {
@@ -55,12 +70,16 @@ export function MasterSetPanel() {
     },
     onSuccess: () => {
       // Refresca agregados (índice + binder abierto): las piezas nuevas cambian conteos.
-      void queryClient.invalidateQueries({ queryKey: ['master-sets'] });
-      void queryClient.invalidateQueries({ queryKey: ['master-set-binder'] });
-      void queryClient.invalidateQueries({ queryKey: ['cell-pieces'] });
+      invalidateAggregates();
       setCart([]);
     },
   });
+
+  function invalidateAggregates() {
+    void queryClient.invalidateQueries({ queryKey: ['master-sets'] });
+    void queryClient.invalidateQueries({ queryKey: ['master-set-binder'] });
+    void queryClient.invalidateQueries({ queryKey: ['cell-pieces'] });
+  }
 
   function addToCart(line: CaptureLine) {
     setCart((prev) => [...prev, line]);
@@ -78,16 +97,18 @@ export function MasterSetPanel() {
     <div className="flex flex-col gap-6">
       {selectedSet ? (
         <MasterSetBinder
+          mode={mode}
+          userId={userId}
           set={selectedSet}
           onBack={() => setSelectedSet(null)}
           onOpenCell={(cell) => setOpenCell(cell)}
         />
       ) : (
-        <MasterSetIndex onOpenSet={(s) => setSelectedSet(s)} />
+        <MasterSetIndex mode={mode} userId={userId} onOpenSet={(s) => setSelectedSet(s)} />
       )}
 
-      {/* Carrito de captura por lote (#12): acumula ítems de varias celdas. */}
-      {cart.length > 0 && (
+      {/* Carrito de captura por lote (#12): SOLO M1 (modo platform). */}
+      {isPlatform && cart.length > 0 && (
         <section className="border border-border-strong bg-surface-2 p-4" aria-label={t('cartTitle')}>
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="flex items-center gap-2 text-h3">
@@ -130,7 +151,7 @@ export function MasterSetPanel() {
       )}
 
       {/* Resultado del lote: tolerante por-línea. */}
-      {submit.data && (
+      {isPlatform && submit.data && (
         <div className="flex flex-col gap-2">
           <Banner
             variant={submit.data.summary.failedLines > 0 ? 'warning' : 'success'}
@@ -152,7 +173,7 @@ export function MasterSetPanel() {
           />
         </div>
       )}
-      {submit.isError && (
+      {isPlatform && submit.isError && (
         <Banner variant="danger" role="alert">
           {t('batchError')}
         </Banner>
@@ -160,14 +181,14 @@ export function MasterSetPanel() {
 
       {openCell && (
         <CellDrawer
+          mode={mode}
           cell={openCell}
           locations={locations.data ?? []}
           onClose={() => setOpenCell(null)}
           onAddToCart={addToCart}
-          onPublished={() => {
-            void queryClient.invalidateQueries({ queryKey: ['master-set-binder'] });
-            void queryClient.invalidateQueries({ queryKey: ['master-sets'] });
-          }}
+          onPublished={invalidateAggregates}
+          onAdjusted={invalidateAggregates}
+          onBuyMissing={onBuyMissing}
         />
       )}
     </div>

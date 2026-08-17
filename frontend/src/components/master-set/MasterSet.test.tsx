@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { ApiClientError } from '@/lib/api-client';
 import { MasterSetPanel } from './MasterSetPanel';
 import * as api from '@/lib/api';
 
@@ -26,13 +27,15 @@ async function openCell(name: RegExp): Promise<HTMLElement> {
   return screen.findByRole('dialog');
 }
 
-describe('Master Set · Índice (agregados)', () => {
-  it('la tarjeta del set pinta completitud (distintas/catálogo · %) y conteo de piezas', async () => {
+describe('Master Set · Índice (agregados por VARIANTE, v1.18)', () => {
+  it('la tarjeta del set pinta completitud POR VARIANTES (cubiertas/universo · %) y piezas', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Base' } });
 
-    // base1 en fixtures: 2 cartas distintas con piezas de 6 del catálogo (33.3%), 5 piezas on-hand.
-    expect(await screen.findByText('2/6 cartas · 33.3%')).toBeInTheDocument();
+    // base1 en fixtures: universo de variantes = Σ availableFinishes = 13 (Charizard 3,
+    // Blastoise/Pikachu/Zapdos/Eevee/Machamp 2 c/u). Cubiertas (plataforma on-hand): Charizard
+    // normal + Charizard reverse_holo + Zapdos holofoil = 3 → 23.1%. Piezas on-hand: 5.
+    expect(await screen.findByText('3/13 variantes · 23.1%')).toBeInTheDocument();
     expect(screen.getByText('5 piezas')).toBeInTheDocument();
   });
 
@@ -54,14 +57,17 @@ describe('Master Set · Índice (agregados)', () => {
   });
 });
 
-describe('Master Set · Binder (chips por acabado + orden + gaps + secret rare)', () => {
-  it('pinta chips de cantidad POR ACABADO desde countsByFinish', async () => {
+describe('Master Set · Binder (casillas por acabado + orden + huecos + secret rare)', () => {
+  it('pinta una casilla POR ACABADO: cubiertas con conteo y «HUECO» por acabado faltante', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
-    // Charizard (#4) tiene 3 piezas normal + 1 reverse holo en fixtures.
+    // Charizard (#4): normal:3 y reverse_holo:1 cubiertas; holofoil SIN pieza → HUECO por acabado.
     expect(document.querySelector('[aria-label="Normal: 3 piezas"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Reverse Holo: 1 piezas"]')).toBeTruthy();
+    expect(document.querySelector('[aria-label="Holofoil: hueco"]')).toBeTruthy();
+    // El contador de la celda cuenta VARIANTES (2 de 3 casillas cubiertas).
+    expect(screen.getByText('2/3 casillas')).toBeInTheDocument();
   });
 
   it('respeta el ORDEN NATURAL del backend (numéricos ascendentes) sin re-ordenar', async () => {
@@ -78,11 +84,11 @@ describe('Master Set · Binder (chips por acabado + orden + gaps + secret rare)'
     expect(numbers[0]).toBe(2);
   });
 
-  it('marca huecos (celdas sin piezas) y permite filtrar solo huecos', async () => {
+  it('marca huecos (celdas sin ninguna variante) y permite filtrar celdas con huecos', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
-    // Hay al menos un hueco (Pikachu/Blastoise/… sin piezas on-hand en fixtures).
+    // Hay al menos un hueco total (Pikachu/Blastoise/… sin piezas on-hand en fixtures).
     expect((await screen.findAllByText('Hueco')).length).toBeGreaterThan(0);
   });
 });
@@ -158,5 +164,157 @@ describe('Master Set · Publicación masiva (bulk-publish por-línea)', () => {
     expect(
       within(drawer).getByText(/Esta carta tiene precio pendiente/),
     ).toBeInTheDocument();
+  });
+});
+
+describe('Master Set · Ajuste por levantamiento físico (v1.18, solo M1)', () => {
+  it('registra un ajuste `perdida` con pieza + nota obligatoria y muestra éxito', async () => {
+    const spy = vi.spyOn(api, 'createInventoryAdjustment').mockResolvedValue({
+      adjustmentId: 'adj-1',
+      reason: 'perdida',
+      inventoryItemIds: ['inv-2001'],
+      folios: ['INV-000201'],
+      fromStatus: 'in_stock',
+      toStatus: 'lost',
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+
+    fireEvent.change(within(drawer).getByLabelText('Motivo'), { target: { value: 'perdida' } });
+    // Solo piezas in_stock/listed son elegibles (inv-2003 reserved NO aparece).
+    const pieceSelect = (await within(drawer).findByLabelText('Pieza a ajustar')) as HTMLSelectElement;
+    expect([...pieceSelect.options].map((o) => o.value)).not.toContain('inv-2003');
+    fireEvent.change(pieceSelect, { target: { value: 'inv-2001' } });
+    fireEvent.change(within(drawer).getByLabelText('Nota (obligatoria)'), {
+      target: { value: 'no aparece en el levantamiento' },
+    });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Registrar ajuste' }));
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith({
+        reason: 'perdida',
+        inventoryItemId: 'inv-2001',
+        note: 'no aparece en el levantamiento',
+      }),
+    );
+    expect(await within(drawer).findByText('Ajuste registrado (INV-000201).')).toBeInTheDocument();
+  });
+
+  it('registra `encontrada` creando pieza(s) nuevas (payload con item de alta)', async () => {
+    const spy = vi.spyOn(api, 'createInventoryAdjustment').mockResolvedValue({
+      adjustmentId: 'adj-2',
+      reason: 'encontrada',
+      inventoryItemIds: ['inv-adj-1'],
+      folios: ['INV-000401'],
+      fromStatus: null,
+      toStatus: 'in_stock',
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+
+    // Motivo default = encontrada → alta mínima raw NM con acabado del universo.
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Registrar ajuste' }));
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith({
+        reason: 'encontrada',
+        item: {
+          cardId: 'c-charizard',
+          productType: 'raw',
+          rawCondition: 'NM',
+          finish: 'normal',
+          acquisitionType: 'aportacion_en_especie',
+          qty: 1,
+        },
+      }),
+    );
+    expect(await within(drawer).findByText('Ajuste registrado (INV-000401).')).toBeInTheDocument();
+  });
+
+  it('muestra el error ITEM_NOT_ADJUSTABLE traducido cuando el backend rechaza', async () => {
+    vi.spyOn(api, 'createInventoryAdjustment').mockRejectedValue(
+      new ApiClientError(422, { code: 'ITEM_NOT_ADJUSTABLE', message: 'status reserved not adjustable' }),
+    );
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+
+    fireEvent.change(within(drawer).getByLabelText('Motivo'), { target: { value: 'danada' } });
+    fireEvent.change(await within(drawer).findByLabelText('Pieza a ajustar'), {
+      target: { value: 'inv-2001' },
+    });
+    fireEvent.change(within(drawer).getByLabelText('Nota (obligatoria)'), {
+      target: { value: 'borde dañado' },
+    });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Registrar ajuste' }));
+
+    expect(
+      await within(drawer).findByText('Esta pieza no se puede ajustar en su estado actual.'),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('Master Set · Modo user_vault_admin (bóveda de cliente, SOLO lectura)', () => {
+  it('muestra al dueño (con email) y NO monta captura/publicación/ajuste ni CTA de compra', async () => {
+    renderWithProviders(<MasterSetPanel mode="user_vault_admin" userId="u-777" />, 'es');
+
+    // Owner con email (vista (ii) del contrato).
+    expect(await screen.findByText(/Bóveda de Ana López · ana@example\.com/)).toBeInTheDocument();
+
+    await openBaseSetBinder();
+    const drawer = await openCell(/Zapdos/);
+
+    // Casillas por acabado visibles (lectura)…
+    expect(within(drawer).getByText('Casillas por acabado')).toBeInTheDocument();
+    // …pero SIN acciones de M1 ni de compra (scope read-only).
+    expect(within(drawer).queryByText('Alta rápida al carrito')).toBeNull();
+    expect(within(drawer).queryByText('Publicar piezas de esta carta')).toBeNull();
+    expect(within(drawer).queryByText('Ajuste por levantamiento físico')).toBeNull();
+    expect(within(drawer).queryByRole('button', { name: /Agregar al carrito/ })).toBeNull();
+    expect(within(drawer).queryByText('No disponible')).toBeNull();
+  });
+
+  it('consume GET /admin/vaults/:userId/master-sets (índice de ESE cliente)', async () => {
+    const spy = vi.spyOn(api, 'getAdminVaultMasterSets');
+    renderWithProviders(<MasterSetPanel mode="user_vault_admin" userId="u-777" />, 'es');
+    await screen.findByRole('button', { name: /Base Set/ });
+    expect(spy).toHaveBeenCalledWith('u-777', expect.objectContaining({ page: 1 }));
+  });
+});
+
+describe('Master Set · Modo user_vault_self (mi bóveda: faltantes comprables)', () => {
+  it('variante faltante con `buyable` → CTA agrega al carrito de compra; sin `buyable` → no disponible', async () => {
+    const onBuy = vi.fn();
+    renderWithProviders(<MasterSetPanel mode="user_vault_self" onBuyMissing={onBuy} />, 'es');
+    await openBaseSetBinder();
+
+    // Pikachu (#58): sin piezas del usuario. normal → sin inventario publicado (No disponible);
+    // reverse_holo → pieza listed más barata (inv-1003) con precio → CTA de compra.
+    const drawer = await openCell(/Pikachu/);
+    expect(await within(drawer).findByText('No disponible')).toBeInTheDocument();
+
+    const cta = within(drawer).getByRole('button', { name: /Agregar al carrito · MX\$/ });
+    fireEvent.click(cta);
+    expect(onBuy).toHaveBeenCalledWith('inv-1003');
+    expect(await within(drawer).findByText('Agregada al carrito de compra.')).toBeInTheDocument();
+
+    // SIN acciones de venta/captura en la vista del cliente.
+    expect(within(drawer).queryByText('Alta rápida al carrito')).toBeNull();
+    expect(within(drawer).queryByText('Publicar piezas de esta carta')).toBeNull();
+    expect(within(drawer).queryByText('Ajuste por levantamiento físico')).toBeNull();
+  });
+
+  it('el índice consume GET /vault/master-sets y solo lista sets con piezas propias', async () => {
+    const spy = vi.spyOn(api, 'getVaultMasterSets');
+    renderWithProviders(<MasterSetPanel mode="user_vault_self" />, 'es');
+
+    // mockHoldings vive en base1 (Blastoise/Zapdos) y sv08 (Latias) → esos sets sí…
+    await screen.findByRole('button', { name: /Base Set/ });
+    expect(screen.getByRole('button', { name: /Surging Sparks/ })).toBeInTheDocument();
+    // …pero un set sin piezas del usuario (swsh1) NO aparece en el índice.
+    expect(screen.queryByRole('button', { name: /Sword & Shield/ })).toBeNull();
+    expect(spy).toHaveBeenCalled();
   });
 });

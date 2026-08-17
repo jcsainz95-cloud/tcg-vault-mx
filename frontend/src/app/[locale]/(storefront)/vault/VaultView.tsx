@@ -4,10 +4,12 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getHoldings } from '@/lib/api';
+import { useCart } from '@/lib/cart';
 import type { AppLocale } from '@/i18n/routing';
 import type { HoldingDTO } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
+import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -18,6 +20,8 @@ import { Select } from '@/components/ui/Select';
 import { PortfolioTrendChart } from '@/components/domain/PortfolioTrendChart';
 
 type SortKey = 'default' | 'set' | 'value_desc' | 'value_asc';
+// v1.18: "Mi bóveda" gana la vista master set (vista (iii) del contrato, scope user_vault).
+type VaultTab = 'pieces' | 'masterSet';
 
 /** Retícula del inventario: misma en la cabecera y en cada renglón. */
 const ROW = 'grid grid-cols-[52px_1fr_auto] items-center gap-4 lg:grid-cols-[64px_2fr_1.2fr_1fr_1fr_140px] lg:gap-5';
@@ -64,6 +68,11 @@ export function VaultView() {
   const [sort, setSort] = useState<SortKey>('default');
   // Filtro por set (client-side). 'all' = todos los sets presentes en los holdings.
   const [setFilter, setSetFilter] = useState<string>('all');
+  // Pestañas: "Piezas" (renglones actuales) | "Master set" (binder v1.18, vista (iii)).
+  const [tab, setTab] = useState<VaultTab>('pieces');
+  // Carrito de COMPRA del storefront: el CTA de una variante faltante `buyable` agrega la
+  // pieza publicada (inventoryItemId) al MISMO carrito/checkout que usa el catálogo (§4).
+  const cart = useCart();
 
   const sortedHoldings = useMemo(
     () => (query.data ? sortHoldings(query.data.data, sort, locale) : []),
@@ -119,6 +128,33 @@ export function VaultView() {
         </Link>
       </div>
 
+      {/* Pestañas: piezas (renglones) ⇆ master set (binder por variantes, v1.18). */}
+      <div className="gutter flex gap-5 border-b border-border" role="tablist" aria-label={t('title')}>
+        {(['pieces', 'masterSet'] as VaultTab[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-1 pb-3 text-sm ${
+              tab === key ? 'border-primary text-text' : 'border-transparent text-muted hover:text-text'
+            }`}
+          >
+            {t(`tabs.${key}`)}
+          </button>
+        ))}
+      </div>
+
+      {/* Vista (iii): mi colección por set — faltantes con imagen atenuada y CTA de compra
+          cuando la variante trae `buyable`; sin acciones de venta (contrato §3 v1.18). */}
+      {tab === 'masterSet' && (
+        <div className="gutter py-8">
+          <MasterSetPanel mode="user_vault_self" onBuyMissing={cart.add} />
+        </div>
+      )}
+
+      {tab === 'pieces' && (
       <QueryState
         isLoading={query.isLoading}
         isError={query.isError}
@@ -307,6 +343,7 @@ export function VaultView() {
             </>
           ))}
       </QueryState>
+      )}
     </div>
   );
 }

@@ -37,7 +37,9 @@ import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { ItemDetailModal } from './ItemDetailModal';
 import { LocationsModal } from './LocationsModal';
-import { MasterSetPanel } from './master-set/MasterSetPanel';
+// v1.18 (§4.18f): el binder Master Set es COMPARTIDO (M1 + bóveda de cliente + "Mi bóveda");
+// M1 lo monta en modo `platform` (captura por lote, publicación, ajuste).
+import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 
 type M1Tab = 'pieces' | 'masterSet';
 

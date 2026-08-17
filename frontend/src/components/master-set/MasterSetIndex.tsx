@@ -4,27 +4,48 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { getMasterSets, type MasterSetIndexFilters } from '@/lib/api';
-import type { MasterSetSort, MasterSetSummaryDTO } from '@/types/contract';
+import {
+  getMasterSets,
+  getAdminVaultMasterSets,
+  getVaultMasterSets,
+  type MasterSetIndexFilters,
+} from '@/lib/api';
+import type { MasterSetIndexResponse, MasterSetSort, MasterSetSummaryDTO } from '@/types/contract';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
+import type { MasterSetViewMode } from './mode';
 
 const SORTS: MasterSetSort[] = ['release_desc', 'completion_asc', 'pieces_desc'];
 const PAGE_SIZE = 20;
 
 interface Props {
+  mode: MasterSetViewMode;
+  /** Requerido en `user_vault_admin` (bóveda de ESE cliente). */
+  userId?: string;
   onOpenSet: (set: MasterSetSummaryDTO) => void;
 }
 
+/** Un solo lugar decide el endpoint por modo (contrato v1.18: mismo shape, distinto scope). */
+function fetchIndex(
+  mode: MasterSetViewMode,
+  userId: string | undefined,
+  filters: MasterSetIndexFilters,
+): Promise<MasterSetIndexResponse> {
+  if (mode === 'user_vault_self') return getVaultMasterSets(filters);
+  if (mode === 'user_vault_admin') return getAdminVaultMasterSets(userId ?? '', filters);
+  return getMasterSets(filters);
+}
+
 /**
- * Índice Master Set: grid de sets con completitud (cartas distintas / catalogCardCount) y
- * conteo de piezas (contrato §M1 · GET /admin/inventory/master-sets). Click → binder.
+ * Índice Master Set COMPARTIDO (§4.18f): grid de sets con completitud POR VARIANTE
+ * (v1.18: distinctVariantsOwned / catalogVariantCount · variantCompletionPct — los
+ * contadores «X/Y» cuentan variantes, no cartas) y conteo de piezas. Click → binder.
  */
-export function MasterSetIndex({ onOpenSet }: Props) {
-  const t = useTranslations('admin.m1.masterSet');
+export function MasterSetIndex({ mode, userId, onOpenSet }: Props) {
+  const t = useTranslations('masterSet');
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<MasterSetSort>('release_desc');
   const [page, setPage] = useState(1);
@@ -36,14 +57,23 @@ export function MasterSetIndex({ onOpenSet }: Props) {
     pageSize: PAGE_SIZE,
   };
   const index = useQuery({
-    queryKey: ['master-sets', filters],
-    queryFn: () => getMasterSets(filters),
+    queryKey: ['master-sets', mode, userId ?? null, filters],
+    queryFn: () => fetchIndex(mode, userId, filters),
   });
 
   const totalPages = index.data ? Math.max(1, Math.ceil(index.data.total / PAGE_SIZE)) : 1;
+  const owner = index.data?.owner;
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Dueño de la bóveda (solo scope user_vault; email solo en la vista admin). */}
+      {mode === 'user_vault_admin' && owner && (
+        <p className="font-mono text-xs text-muted">
+          {t('ownerVault', { name: owner.name })}
+          {owner.email ? ` · ${owner.email}` : ''}
+        </p>
+      )}
+
       <div className="flex flex-wrap items-end gap-3">
         <Input
           label={t('searchSet')}
@@ -95,20 +125,20 @@ export function MasterSetIndex({ onOpenSet }: Props) {
                         </span>
                       </div>
                       <div className="flex flex-col gap-2">
-                        {/* Completitud = cartas distintas / catálogo del set. */}
+                        {/* v1.18: completitud POR VARIANTE (carta+acabado), no por carta. */}
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-mono text-xs uppercase tracking-wide text-muted">
                             {t('completionLabel')}
                           </span>
                           <span className="font-mono tabular-nums text-sm">
                             {t('completionValue', {
-                              owned: s.distinctCardsOwned,
-                              total: s.catalogCardCount,
-                              pct: s.completionPct ?? 0,
+                              owned: s.distinctVariantsOwned,
+                              total: s.catalogVariantCount,
+                              pct: s.variantCompletionPct ?? 0,
                             })}
                           </span>
                         </div>
-                        <ProgressBar pct={s.completionPct ?? 0} />
+                        <ProgressBar pct={s.variantCompletionPct ?? 0} />
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-mono text-xs uppercase tracking-wide text-muted">
                             {t('piecesLabel')}

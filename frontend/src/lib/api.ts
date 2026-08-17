@@ -114,6 +114,10 @@ import type {
   BatchCreateInventoryResponse,
   BulkPublishRequest,
   BulkPublishResponse,
+  AdminVaultSort,
+  AdminVaultListResponse,
+  InventoryAdjustmentRequest,
+  InventoryAdjustmentResponse,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -135,6 +139,20 @@ function paginate<T>(rows: T[], params: PageParams = {}): Paginated<T> {
   const page = params.page ?? 1;
   const start = (page - 1) * pageSize;
   return { data: rows.slice(start, start + pageSize), page, pageSize, total: rows.length };
+}
+
+/**
+ * MOCK: traduce los errores internos de fixtures (que no importan ApiClientError) al
+ * error del contrato, para que la UI reciba el MISMO shape con backend real o mock.
+ */
+function translateFixtureError(e: unknown): unknown {
+  if (e instanceof fx.ApiFixtureNotFound) {
+    return new ApiClientError(404, { code: 'NOT_FOUND', message: e.message });
+  }
+  if (e instanceof fx.ApiFixtureError) {
+    return new ApiClientError(e.status, { code: e.code, message: e.message });
+  }
+  return e;
 }
 
 // MOCK (deuda techlead Ola 1 #2): generadores compartidos de ids de job y contraseñas
@@ -242,6 +260,52 @@ export async function getCardDetail(cardId: string): Promise<CardDetailResponse>
 export async function getHoldings(): Promise<HoldingsResponse> {
   if (!config.useMocks) return apiRequest<HoldingsResponse>('/vault/holdings');
   return delay({ data: fx.mockHoldings, portfolio: fx.mockPortfolio });
+}
+
+/**
+ * "Mi bóveda como master set" (contrato §3 · GET /vault/master-sets, `customer`,
+ * v1.18-master-set-everywhere). Mismo shape que el índice admin con scope="user_vault" y
+ * owner = el propio usuario (sin email). Solo sets con ≥1 pieza del usuario.
+ */
+export async function getVaultMasterSets(
+  filters: MasterSetIndexFilters = {},
+): Promise<MasterSetIndexResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetIndexResponse>('/vault/master-sets', {
+      query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
+    });
+  }
+  return delay(
+    fx.mockMasterSetIndex(filters, {
+      kind: 'user_vault',
+      owner: fx.mockSelfVaultOwner,
+      holdings: fx.mockHoldings,
+      includeBuyable: true,
+    }),
+  );
+}
+
+/**
+ * Binder de MI bóveda (contrato §3 · GET /vault/master-sets/:setId, `customer`, v1.18).
+ * Funciona para CUALQUIER set del catálogo (los huecos son los faltantes del usuario).
+ * ÚNICA vista con `buyable` por variante faltante (pieza listed más barata o null).
+ */
+export async function getVaultMasterSetBinder(setId: string): Promise<MasterSetBinderResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetBinderResponse>(`/vault/master-sets/${setId}`);
+  }
+  try {
+    return await delay(
+      fx.mockMasterSetBinder(setId, {
+        kind: 'user_vault',
+        owner: fx.mockSelfVaultOwner,
+        holdings: fx.mockHoldings,
+        includeBuyable: true,
+      }),
+    );
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /** Serie de tendencia del portafolio (contrato GET /vault/portfolio/history, v1.1). */
@@ -1527,10 +1591,7 @@ export async function getMasterSetBinder(setId: string): Promise<MasterSetBinder
   try {
     return await delay(fx.mockMasterSetBinder(setId));
   } catch (e) {
-    if (e instanceof fx.ApiFixtureNotFound) {
-      throw new ApiClientError(404, { code: 'NOT_FOUND', message: e.message });
-    }
-    throw e;
+    throw translateFixtureError(e);
   }
 }
 
@@ -1570,6 +1631,102 @@ export async function bulkPublishItems(
     });
   }
   return delay(fx.mockBulkPublish(payload));
+}
+
+// ---------- Master set en todas partes (v1.18) · admin vaults + ajustes ----------
+
+export interface AdminVaultFilters {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: AdminVaultSort;
+}
+
+/**
+ * Lista de clientes CON bóveda (contrato §M1 v1.18 · GET /admin/vaults, `vault_operator+`).
+ * Valuación con la MISMA base del portafolio (§3); sort default `value_desc`.
+ */
+export async function getAdminVaults(filters: AdminVaultFilters = {}): Promise<AdminVaultListResponse> {
+  if (!config.useMocks) {
+    return apiRequest<AdminVaultListResponse>('/admin/vaults', {
+      query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
+    });
+  }
+  return delay(fx.mockAdminVaults(filters));
+}
+
+/**
+ * Vista (ii): índice master set de la bóveda de UN cliente (contrato §M1 v1.18 ·
+ * GET /admin/vaults/:userId/master-sets, `vault_operator+`). Mismo shape que el índice M1
+ * con scope="user_vault" y owner CON email. Solo sets con ≥1 pieza del cliente.
+ */
+export async function getAdminVaultMasterSets(
+  userId: string,
+  filters: MasterSetIndexFilters = {},
+): Promise<MasterSetIndexResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetIndexResponse>(`/admin/vaults/${userId}/master-sets`, {
+      query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
+    });
+  }
+  try {
+    return await delay(
+      fx.mockMasterSetIndex(filters, {
+        kind: 'user_vault',
+        owner: fx.mockVaultOwnerOf(userId),
+        holdings: fx.mockVaultHoldingsByUser[userId] ?? [],
+      }),
+    );
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Vista (ii): binder de la bóveda del cliente (contrato §M1 v1.18 ·
+ * GET /admin/vaults/:userId/master-sets/:setId). SIN `buyable` y SIN acciones: lectura pura
+ * para soporte/operación.
+ */
+export async function getAdminVaultMasterSetBinder(
+  userId: string,
+  setId: string,
+): Promise<MasterSetBinderResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetBinderResponse>(`/admin/vaults/${userId}/master-sets/${setId}`);
+  }
+  try {
+    return await delay(
+      fx.mockMasterSetBinder(setId, {
+        kind: 'user_vault',
+        owner: fx.mockVaultOwnerOf(userId),
+        holdings: fx.mockVaultHoldingsByUser[userId] ?? [],
+      }),
+    );
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Ajuste de inventario por levantamiento físico desde la celda del binder M1 (contrato
+ * §M1 v1.18 · POST /admin/inventory/adjustments, `vault_operator+`, auditado). Motivo
+ * OBLIGATORIO (encontrada | perdida | danada | error_captura). NO hay venta directa manual
+ * desde el binder: toda salida de venta pasa por órdenes (checkout/M3).
+ */
+export async function createInventoryAdjustment(
+  payload: InventoryAdjustmentRequest,
+): Promise<InventoryAdjustmentResponse> {
+  if (!config.useMocks) {
+    return apiRequest<InventoryAdjustmentResponse>('/admin/inventory/adjustments', {
+      method: 'POST',
+      body: payload,
+    });
+  }
+  try {
+    return await delay(fx.mockCreateAdjustment(payload));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 export async function getLocations(): Promise<VaultLocationDTO[]> {

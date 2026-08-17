@@ -609,6 +609,7 @@ export interface VaultLocationDTO {
 }
 
 // Motivo del movimiento de bóveda (enum MovementReason del backend; ARCHITECTURE/prisma).
+// v1.18: `adjustment` = ajuste por levantamiento físico desde el binder M1 (M-22).
 export type MovementReason =
   | 'alta'
   | 'move'
@@ -618,7 +619,8 @@ export type MovementReason =
   | 'withdrawal'
   | 'lost'
   | 'damaged'
-  | 'buylist_convert';
+  | 'buylist_convert'
+  | 'adjustment';
 
 // Historial de movimientos de un item (contrato §M1 · GET /admin/inventory/items/:id:
 // "detalle + historial de movimientos"). El backend devuelve los InventoryMovement
@@ -658,16 +660,49 @@ export interface MasterSetSummaryDTO {
   distinctCardsOwned: number;
   completionPct: number | null;
   totalPieces: number;
+  // ===== v1.18-master-set-everywhere (aditivo): completitud por VARIANTE (carta+acabado) =====
+  // catalogVariantCount = Σ |availableFinishes| de las cartas del set (universo de variantes).
+  // distinctVariantsOwned = variantes del universo con ≥1 pieza en el scope.
+  // variantCompletionPct = distinctVariantsOwned / catalogVariantCount × 100 (null si universo=0).
+  // Los contadores de UI «X/Y» usan ESTOS campos (variantes), no los de carta (compat v1.16).
+  catalogVariantCount: number;
+  distinctVariantsOwned: number;
+  variantCompletionPct: number | null;
 }
 
 // Ordenamiento del índice (contrato §M1). `release_desc` es el default.
 export type MasterSetSort = 'release_desc' | 'completion_asc' | 'pieces_desc';
+
+// v1.18: alcance de la vista master set — inventario de PLATAFORMA (M1) vs bóveda de UN usuario.
+export type MasterSetScope = 'platform' | 'user_vault';
+
+// v1.18: dueño de la bóveda (solo scope user_vault). `email` SOLO en la vista admin (ii);
+// en la vista (iii) del propio cliente se omite.
+export interface VaultOwnerRefDTO {
+  userId: string;
+  name: string;
+  email?: string;
+}
+
+// v1.18: variante = (carta, acabado) con finish ∈ Card.availableFinishes (universo esperado).
+// `covered` = ≥1 pieza en el scope para ese (cardId, finish). `buyable` SOLO scope cliente (iii)
+// y SOLO cuando covered=false: la pieza `listed` de plataforma MÁS BARATA de ese (cardId, finish),
+// o null si no hay inventario publicado. En scopes admin el campo se OMITE.
+export interface MasterSetVariantDTO {
+  finish: Finish;
+  count: number;
+  covered: boolean;
+  buyable?: { inventoryItemId: string; salePriceCents: number } | null;
+}
 
 export interface MasterSetIndexResponse {
   data: MasterSetSummaryDTO[];
   page: number;
   pageSize: number;
   total: number;
+  // v1.18 (aditivo): scope de la agregación + dueño (solo user_vault).
+  scope: MasterSetScope;
+  owner?: VaultOwnerRefDTO;
 }
 
 // Celda del binder (GET /admin/inventory/master-sets/:setId). Una por Card del catálogo del set.
@@ -693,6 +728,13 @@ export interface MasterSetCardCellDTO {
   countsByFinish: MasterSetCellCountDTO[];
   totalCount: number;
   isSecretRare: boolean;
+  // ===== v1.18 (aditivo): casillas POR ACABADO =====
+  // `variants` trae EXACTAMENTE una entrada por acabado de availableFinishes (orden del enum
+  // Finish). NOTA compat: countsByFinish (v1.16) se CONSERVA y puede traer acabados FUERA del
+  // universo (drift de catálogo); esas piezas se ven pero NO cuentan en expected/covered.
+  expectedVariantCount: number;
+  coveredVariantCount: number;
+  variants: MasterSetVariantDTO[];
 }
 
 export interface MasterSetBinderResponse {
@@ -700,6 +742,53 @@ export interface MasterSetBinderResponse {
   printedTotal: number | null;
   catalogCardCount: number;
   cells: MasterSetCardCellDTO[];
+  // v1.18 (aditivo): scope de la agregación + dueño (solo user_vault).
+  scope: MasterSetScope;
+  owner?: VaultOwnerRefDTO;
+}
+
+// ===== v1.18: lista de clientes con bóveda (GET /admin/vaults, `vault_operator+`) =====
+// totalValueMxnCents usa la MISMA base de valuación del portafolio (§3): referencia vigente del
+// ACABADO de cada pieza; piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
+export interface AdminVaultSummaryDTO {
+  userId: string;
+  name: string;
+  email: string;
+  pieceCount: number;
+  totalValueMxnCents: number;
+  pendingPriceCount: number;
+}
+
+export type AdminVaultSort = 'value_desc' | 'pieces_desc' | 'name_asc';
+
+export interface AdminVaultListResponse {
+  data: AdminVaultSummaryDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+// ===== v1.18: ajuste de inventario por levantamiento físico (POST /admin/inventory/adjustments) =====
+// Motivo OBLIGATORIO. Modelo POR-PIEZA (sin delta numérico): `encontrada` CREA pieza(s) nuevas
+// (reusa BatchInventoryItemInput; acquisitionType default `aportacion_en_especie`; qty default 1,
+// graded fuerza 1); los otros tres motivos operan UNA pieza existente y `note` es OBLIGATORIA.
+// Estado resultante: encontrada → in_stock · perdida → lost · danada → damaged ·
+// error_captura → withdrawn (NUNCA existió físicamente; NO cuenta como pérdida/reposición).
+// Solo piezas ownerType=platform con status ∈ {in_stock, listed} son ajustables
+// (422 ITEM_NOT_ADJUSTABLE en el resto). NO hay venta directa manual desde el binder.
+export type AdjustmentReason = 'encontrada' | 'perdida' | 'danada' | 'error_captura';
+
+export type InventoryAdjustmentRequest =
+  | { reason: 'perdida' | 'danada' | 'error_captura'; inventoryItemId: string; note: string }
+  | { reason: 'encontrada'; item: BatchInventoryItemInput; note?: string };
+
+export interface InventoryAdjustmentResponse {
+  adjustmentId: string;
+  reason: AdjustmentReason;
+  inventoryItemIds: string[];
+  folios: string[];
+  fromStatus: InventoryStatus | null;
+  toStatus: InventoryStatus;
 }
 
 // ----- Alta por LOTE (POST /admin/inventory/items/batch) -----
