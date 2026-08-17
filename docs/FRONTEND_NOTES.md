@@ -4,6 +4,62 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-G Pass 1 — Dedup de config de dinero (G1) + gates de acceso (G2) (2026-08-17)
+
+Dos arreglos de admin, **frontend-only** (backend NO cambia; keys de settings intactas como rollback).
+**G1 TOCA config de DINERO** → va a veredicto. Solo `frontend/` + este doc. Patrón real+mock, `shadow-focus`
+y tokens del design system respetados; **0 cambios de contrato**. Gates verdes: **lint** (0), **tsc** (0),
+**test 294** (40 files; +6 nuevos), **build** OK.
+
+### G1 · Dedup de config de dinero M2 vs M10 (`M10View.tsx` + i18n)
+- Del array `DIALS` se **quitaron** dos diales de dinero duplicados/muertos: `salesMarkupPct` (dial MUERTO —
+  el precio de venta lo deriva `SALES_PRICE_RULES`+fallback de M2 §5; el contrato lo marca DEPRECADO; quitarlo
+  del UI es inerte) y `fxBufferPct` (DUPLICADO real del mismo `fx_buffer_pct`; el editor canónico es **M2 §3
+  FX**). Las keys **siguen** en el backend y en `SettingsDTO` (types = espejo del contrato) como rollback;
+  solo dejan de editarse desde M10. `SettingsDTO` **no** se tocó.
+- Los 3 diales de proveedor `pricingProviderRaw/Graded/Sealed` pasaron de **texto libre** (un typo rompía la
+  resolución de precio) a **`Select` validado** con las 4 opciones válidas del contrato (`PriceSource`):
+  `pokemontcg_io | pokemonpricetracker | poketrace | manual`. Nuevo `DialKind = 'provider'` + constante
+  `PRICE_PROVIDER_OPTIONS`; `fromInputValue('provider')` devuelve el texto tal cual (igual que `text`). El
+  render bifurca: `provider` → `<Select>` (design system, `shadow-focus` en el wrapper), el resto → `<Input>`.
+- **Relabel** para distinguir del `priceProvider` del ingest BULK (M2 §3b): "Proveedor de referencia
+  por-carta (raw/graded/sellado)" / "Per-card reference provider (…)". Son conceptos **distintos** y ambos
+  viven. Los labels muertos `salesMarkupPct`/`fxBufferPct` se **eliminaron** de `messages/{es,en}.json`
+  (paridad verificada por `i18n-parity`).
+
+### G2 · Gate de rol admin + logout admin + guard de rutas privadas
+- **Gate de rol (`AdminShell.tsx`):** antes solo exigía **sesión** (`requireAuth = !config.useMocks`) → un
+  customer logueado veía todo el chrome del back-office. Ahora, en modo real, además de sesión exige **rol**
+  ∈ `{vault_operator, super_admin}` (nueva const `ADMIN_ROLES`; el rol sale de `useSession().user.role`).
+  `!isAuthenticated` → `replace('/login?next=…)`; autenticado pero **rol de cliente** → `replace('/')`. El
+  render de bloqueo (loader) ahora también cubre `!hasAdminRole` (nunca se pinta el chrome a un customer).
+  Modo mock/demo intacto (RoleProvider simula super_admin por defecto; `requireAuth` sigue apagado).
+- **Logout admin (`AdminTopbar.tsx`, P-1):** el topbar no tenía logout. Se añadió un control que reusa
+  `logout()` (`api.ts`, limpia access+refresh+user vía WS-B) + `useRouter().push('/')`, mismo patrón que
+  `StorefrontHeader.onLogout`. Copy `nav.logout` ya existía (ES/EN).
+- **Guard de rutas privadas storefront (`PrivateRouteGuard.tsx` NUEVO + `(storefront)/layout.tsx`):** antes
+  `/vault`,`/orders` solo ocultaban el link; el acceso directo por URL renderizaba la vista y daba un banner
+  401 críptico. El token vive en **localStorage** (no cookie) → guard de **cliente**, no middleware server.
+  **Espeja AdminShell:** activo solo en modo real (`requireAuth = !config.useMocks`; inerte en mock/demo). En
+  una ruta privada (prefijos `/vault`, `/orders`, `/shipments`, `/checkout`) con `ready && !isAuthenticated`
+  → `replace('/login?next=<ruta>')` y muestra loader (nunca el flash de contenido privado). Rutas públicas y
+  sesión válida pasan directo. Se montó envolviendo `{children}` dentro del `<main>` del layout storefront
+  (un solo punto; no toca las páginas privadas individuales).
+
+### Tests (+6; total 294 en 40 files)
+- `M10View.test.tsx` (+2): ya NO aparecen los diales `Markup de venta`/`Colchón FX`; el proveedor por-carta
+  es un `<select>` con exactamente las 4 opciones válidas del contrato (no texto libre).
+- `AdminShell.test.tsx` (+1): un **customer logueado** NO ve el back-office → `replace('/')` (no `/login`,
+  ya hay sesión) y nunca se pinta el chrome.
+- `AdminTopbar.test.tsx` (NUEVO, 1): el control de logout llama `logout()` y rutea a `/`.
+- `PrivateRouteGuard.test.tsx` (NUEVO, 4): ruta privada sin sesión → `/login?next=<ruta>` (con preservación
+  del destino por prefijo); ruta pública sin sesión → sin redirect; ruta privada con sesión → renderiza.
+- `PrivateRouteGuard.mock.test.tsx` (NUEVO, 1): en modo mock el guard es **inerte** (demo sin backend).
+
+### Solicitudes al arquitecto
+- **Ninguna.** 0 cambios de contrato/backend. Las keys deprecadas/duplicadas siguen vivas en el backend
+  (rollback); el gate de rol y los guards son defensa de UI — el backend sigue siendo la autoridad (401/403).
+
 ## WS-F Pass 2 — Cablear 3 flujos usuario↔admin rotos/sin UI (F4/F5/F6) (2026-08-17)
 
 Cablea tres flujos que existían en backend (+ tipos) pero no en UI o estaban rotos: **pipeline de

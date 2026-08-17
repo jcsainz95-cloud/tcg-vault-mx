@@ -90,4 +90,20 @@ describe('AdminShell — gate de sesión (modo real)', () => {
 
     await waitFor(() => expect(screen.getByText(/role:vault_operator/)).toBeInTheDocument());
   });
+
+  it('un customer logueado NO ve el back-office y es redirigido al storefront', async () => {
+    setStoredUser({ ...admin, role: 'customer' });
+    renderWithIntl(
+      <AdminShell>
+        <RoleProbe />
+      </AdminShell>,
+      'es',
+    );
+
+    // Rol de cliente → replace('/') (no /login: ya hay sesión, solo falta el rol).
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/'));
+    // Nunca se pinta el chrome del back-office.
+    expect(screen.queryByText(/role:/)).not.toBeInTheDocument();
+    expect(screen.getByText('Verificando sesión…')).toBeInTheDocument();
+  });
 });

@@ -1099,20 +1099,18 @@
         "saved": "Settings saved.",
         "labels": {
           "shippingFeeCents": "Shipping fee",
-          "salesMarkupPct": "Sales markup",
           "aportacionPct": "In-kind contribution %",
           "ivaPct": "VAT",
           "buylistCapPerRequestCents": "Buylist cap per request",
           "buylistCapPerMonthCents": "Buylist monthly cap",
           "ineThresholdCents": "INE threshold",
           "repoCapPerCardCents": "Repurchase cap per card",
-          "fxBufferPct": "FX buffer",
           "stripeFeePct": "Stripe fee",
           "stripeFeeFixedCents": "Stripe fixed fee",
           "stripeFeeIvaPct": "VAT on Stripe fee",
-          "pricingProviderRaw": "Price provider (raw)",
-          "pricingProviderGraded": "Price provider (graded)",
-          "pricingProviderSealed": "Price provider (sealed)",
+          "pricingProviderRaw": "Per-card reference provider (raw)",
+          "pricingProviderGraded": "Per-card reference provider (graded)",
+          "pricingProviderSealed": "Per-card reference provider (sealed)",
           "catalogSyncFromDate": "Catalog sync boundary"
         },
         "units": {

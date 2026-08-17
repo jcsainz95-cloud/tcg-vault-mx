@@ -9,36 +9,54 @@ import type { SettingsDTO, AuditLogDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate } from '@/lib/format';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 
-type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text';
+type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider';
 
 interface DialSpec {
   key: keyof SettingsDTO;
   kind: DialKind;
 }
 
+/**
+ * Proveedores válidos de referencia de precio POR-CARTA (contrato §M10 · `PriceSource`).
+ * Antes eran texto libre en M10: un typo (p. ej. "pokemontcg" sin `_io`) rompía la
+ * resolución de precio. Ahora es un Select cerrado. OJO: este `pricingProvider*` es la
+ * referencia por-carta, distinto del `priceProvider` del ingest BULK (M2 §3b) — son
+ * conceptos separados y ambos viven.
+ */
+const PRICE_PROVIDER_OPTIONS = [
+  'pokemontcg_io',
+  'pokemonpricetracker',
+  'poketrace',
+  'manual',
+] as const;
+
 // Diales editables (contrato §M10). El PUT es parcial: solo se envían las keys tocadas.
+// `salesMarkupPct` (dial MUERTO: el precio de venta lo deriva SALES_PRICE_RULES+fallback
+// de M2 §5, contrato lo marca DEPRECADO) y `fxBufferPct` (DUPLICADO del mismo
+// `fx_buffer_pct`; editor canónico = M2 §3 FX) se quitaron del UI de M10 para dedup de la
+// config de DINERO. Las keys siguen en el backend/SettingsDTO como rollback; solo dejan de
+// editarse desde aquí.
 const DIALS: DialSpec[] = [
   { key: 'shippingFeeCents', kind: 'cents' },
-  { key: 'salesMarkupPct', kind: 'pct' },
   { key: 'aportacionPct', kind: 'pct' },
   { key: 'ivaPct', kind: 'pct' },
   { key: 'buylistCapPerRequestCents', kind: 'cents' },
   { key: 'buylistCapPerMonthCents', kind: 'cents' },
   { key: 'ineThresholdCents', kind: 'cents' },
   { key: 'repoCapPerCardCents', kind: 'cents' },
-  { key: 'fxBufferPct', kind: 'pct' },
   { key: 'stripeFeePct', kind: 'pct' },
   { key: 'stripeFeeFixedCents', kind: 'cents' },
   { key: 'stripeFeeIvaPct', kind: 'fraction' },
-  { key: 'pricingProviderRaw', kind: 'text' },
-  { key: 'pricingProviderGraded', kind: 'text' },
-  { key: 'pricingProviderSealed', kind: 'text' },
+  { key: 'pricingProviderRaw', kind: 'provider' },
+  { key: 'pricingProviderGraded', kind: 'provider' },
+  { key: 'pricingProviderSealed', kind: 'provider' },
   { key: 'catalogSyncFromDate', kind: 'text' },
 ];
 
@@ -53,7 +71,7 @@ function toInputValue(kind: DialKind, value: number | string | undefined): strin
 
 /** Convierte el texto del input al valor del dial (pesos → cents). */
 function fromInputValue(kind: DialKind, text: string): number | string {
-  if (kind === 'text') return text;
+  if (kind === 'text' || kind === 'provider') return text;
   const n = Number(text);
   if (kind === 'cents') return Math.round(n * 100);
   if (kind === 'int') return Math.round(n);
@@ -141,20 +159,32 @@ export function M10View() {
           {settings.data && (
             <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {DIALS.map((spec) => (
-                  <Input
-                    key={spec.key}
-                    label={t(`dials.labels.${spec.key}`)}
-                    hint={t(`dials.units.${spec.kind}`)}
-                    type={spec.kind === 'text' ? 'text' : 'text'}
-                    inputMode={spec.kind === 'text' ? undefined : 'decimal'}
-                    prefix={spec.kind === 'cents' ? 'MX$' : undefined}
-                    value={currentText(spec)}
-                    onChange={(e) =>
-                      setDraft((prev) => ({ ...prev, [spec.key]: e.target.value }))
-                    }
-                  />
-                ))}
+                {DIALS.map((spec) =>
+                  spec.kind === 'provider' ? (
+                    <Select
+                      key={spec.key}
+                      label={t(`dials.labels.${spec.key}`)}
+                      options={PRICE_PROVIDER_OPTIONS.map((v) => ({ value: v, label: v }))}
+                      value={currentText(spec)}
+                      onChange={(e) =>
+                        setDraft((prev) => ({ ...prev, [spec.key]: e.target.value }))
+                      }
+                    />
+                  ) : (
+                    <Input
+                      key={spec.key}
+                      label={t(`dials.labels.${spec.key}`)}
+                      hint={t(`dials.units.${spec.kind}`)}
+                      type="text"
+                      inputMode={spec.kind === 'text' ? undefined : 'decimal'}
+                      prefix={spec.kind === 'cents' ? 'MX$' : undefined}
+                      value={currentText(spec)}
+                      onChange={(e) =>
+                        setDraft((prev) => ({ ...prev, [spec.key]: e.target.value }))
+                      }
+                    />
+                  ),
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <Button

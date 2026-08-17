@@ -26,4 +26,24 @@ describe('M10View · Config y bitácora', () => {
     expect((await screen.findAllByText('settings.update')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('order.refund')).length).toBeGreaterThan(0);
   });
+
+  it('ya NO muestra los diales dedup de dinero (salesMarkupPct / fxBufferPct)', async () => {
+    renderWithProviders(<M10View />, 'es');
+    // Espera a que carguen los diales.
+    await screen.findByLabelText(/Tarifa de envío/);
+    // salesMarkupPct (dial MUERTO) y fxBufferPct (duplicado de M2 §3 FX) se quitaron del UI.
+    expect(screen.queryByLabelText(/Markup de venta/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Colchón FX/)).not.toBeInTheDocument();
+  });
+
+  it('el proveedor de referencia por-carta es un Select validado (no texto libre)', async () => {
+    renderWithProviders(<M10View />, 'es');
+    const raw = (await screen.findByLabelText(/Proveedor de referencia por-carta \(raw\)/)) as
+      | HTMLSelectElement
+      | HTMLInputElement;
+    // Es un <select> con las 4 opciones válidas del contrato (PriceSource).
+    expect(raw.tagName).toBe('SELECT');
+    const options = Array.from((raw as HTMLSelectElement).options).map((o) => o.value);
+    expect(options).toEqual(['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual']);
+  });
 });

@@ -2,6 +2,8 @@
 
 import { useTranslations } from 'next-intl';
 import { useRole } from '@/lib/role';
+import { useRouter } from '@/i18n/navigation';
+import { logout as apiLogout } from '@/lib/api';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
 import type { Role } from '@/types/contract';
 
@@ -9,6 +11,14 @@ export function AdminTopbar({ onMenu }: { onMenu?: () => void }) {
   const t = useTranslations('admin');
   const tnav = useTranslations('nav');
   const { role, setRole, canSwitchRole } = useRole();
+  const router = useRouter();
+
+  // Logout del back-office (P-1): reusa el mismo `logout()` + ruteo al storefront que
+  // StorefrontHeader.onLogout. `logout()` limpia access+refresh+user (WS-B).
+  async function onLogout() {
+    await apiLogout();
+    router.push('/');
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-bg px-5 lg:px-10">
@@ -55,6 +65,14 @@ export function AdminTopbar({ onMenu }: { onMenu?: () => void }) {
         <div className="hidden sm:block">
           <LocaleToggle />
         </div>
+        <button
+          type="button"
+          onClick={onLogout}
+          // Anillo bermellón (--shadow-focus) en foco de teclado; sombras 0 salvo el foco.
+          className="text-[11px] font-medium uppercase tracking-label text-muted hover:text-text focus-visible:shadow-focus"
+        >
+          {tnav('logout')}
+        </button>
       </div>
     </header>
   );

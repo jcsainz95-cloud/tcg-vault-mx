@@ -1099,20 +1099,18 @@
         "saved": "Configuración guardada.",
         "labels": {
           "shippingFeeCents": "Tarifa de envío",
-          "salesMarkupPct": "Markup de venta",
           "aportacionPct": "% aportación en especie",
           "ivaPct": "IVA",
           "buylistCapPerRequestCents": "Tope buylist por solicitud",
           "buylistCapPerMonthCents": "Tope buylist mensual",
           "ineThresholdCents": "Umbral de INE",
           "repoCapPerCardCents": "Tope de reposición por carta",
-          "fxBufferPct": "Colchón FX",
           "stripeFeePct": "Comisión Stripe",
           "stripeFeeFixedCents": "Comisión Stripe fija",
           "stripeFeeIvaPct": "IVA sobre comisión Stripe",
-          "pricingProviderRaw": "Proveedor de precio (raw)",
-          "pricingProviderGraded": "Proveedor de precio (graded)",
-          "pricingProviderSealed": "Proveedor de precio (sellado)",
+          "pricingProviderRaw": "Proveedor de referencia por-carta (raw)",
+          "pricingProviderGraded": "Proveedor de referencia por-carta (graded)",
+          "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
           "catalogSyncFromDate": "Frontera de sync de catálogo"
         },
         "units": {

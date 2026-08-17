@@ -1,6 +1,7 @@
 import { useTranslations } from 'next-intl';
 import { StorefrontHeader } from '@/components/layout/StorefrontHeader';
 import { VerifyEmailBanner } from '@/components/domain/VerifyEmailBanner';
+import { PrivateRouteGuard } from '@/components/layout/PrivateRouteGuard';
 import { Link } from '@/i18n/navigation';
 
 /*
@@ -18,7 +19,9 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
           navegación; el bloqueo real de acciones sensibles lo hace el backend. */}
       <VerifyEmailBanner />
       <main id="main" className="mx-auto w-full max-w-7xl flex-1">
-        {children}
+        {/* Guard cliente: rutas privadas (/vault, /orders, /shipments, /checkout) sin
+            sesión → /login?next=… (modo real). Inerte en mock/demo. */}
+        <PrivateRouteGuard>{children}</PrivateRouteGuard>
       </main>
       <footer className="border-t border-border">
         <div className="mx-auto max-w-7xl px-5 py-8 sm:px-6 lg:px-8">

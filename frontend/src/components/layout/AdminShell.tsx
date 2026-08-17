@@ -7,13 +7,17 @@ import { RoleProvider } from '@/lib/role';
 import { useSession } from '@/lib/session';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { config } from '@/lib/config';
+import type { Role } from '@/types/contract';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminTopbar } from './AdminTopbar';
+
+// Roles con acceso al back-office (contrato §0). Un `customer` autenticado NO entra.
+const ADMIN_ROLES: Role[] = ['vault_operator', 'super_admin'];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const t = useTranslations('admin');
-  const { isAuthenticated, ready } = useSession();
+  const { user, isAuthenticated, ready } = useSession();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -21,19 +25,27 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   // del JWT y rechaza con 401 si no hay sesión). En modo mock/demo se deja pasar
   // para poder navegar el back-office sin backend (comportamiento de demostración).
   const requireAuth = !config.useMocks;
+  // Además de sesión, en modo real se exige ROL de back-office: un customer logueado
+  // NO debe ver el chrome del back-office (defensa de UI; el backend sigue siendo la
+  // autoridad y rechaza 403 por rol). En mock/demo el rol lo simula RoleProvider
+  // (super_admin por defecto), así que no se aplica aquí.
+  const hasAdminRole = !!user && ADMIN_ROLES.includes(user.role);
 
   useEffect(() => {
-    if (!requireAuth) return;
-    if (ready && !isAuthenticated) {
+    if (!requireAuth || !ready) return;
+    if (!isAuthenticated) {
       // Preserva el destino con `next` para volver tras el login; el router de
       // next-intl conserva el locale.
       router.replace({ pathname: '/login', query: { next: pathname } });
+    } else if (!hasAdminRole) {
+      // Sesión válida pero rol de cliente: fuera del back-office → al storefront.
+      router.replace('/');
     }
-  }, [requireAuth, ready, isAuthenticated, router, pathname]);
+  }, [requireAuth, ready, isAuthenticated, hasAdminRole, router, pathname]);
 
-  // Mientras no sepamos si hay sesión (o si falta) mostramos carga, NUNCA el
-  // contenido del back-office (evita el super_admin falso + 401 confuso).
-  if (requireAuth && (!ready || !isAuthenticated)) {
+  // Mientras no sepamos si hay sesión (o si falta el rol) mostramos carga, NUNCA el
+  // contenido del back-office (evita el super_admin falso + 401/403 confuso).
+  if (requireAuth && (!ready || !isAuthenticated || !hasAdminRole)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-bg" aria-busy="true">
         <span className="inline-flex items-center gap-2 font-mono text-sm text-muted">
