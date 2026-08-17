@@ -725,6 +725,36 @@
   **acotar primero a los sets del usuario** (una query corta `SELECT DISTINCT c."setId" FROM
   InventoryItem ii JOIN Card c ...` con el WHERE del scope) y agregar solo sobre esos setIds.
 
+### Re-verificación QA v1.18.1 (2026-08-17) — hallazgos MENORES no bloqueantes
+
+> De la **re-verificación de QA sobre v1.18.1-adjustments-clarify** (idempotencia `batchKey` en
+> ajustes `encontrada`, ver BE-41). Ambos son **menores, no bloqueantes**, dueño **backend**.
+> Continúa la numeración `BE-*` (tras BE-44).
+
+### BE-45 · Lookup de replay idempotente de adjustments no filtra `kind:'adjust'` (Baja)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts` L778 y L876:
+  `inventoryBatch.findUnique({ where: { id: batchKey } })`.
+- **Estado actual:** el lookup de replay resuelve por `id` sin filtrar `kind:'adjust'`; una **colisión de
+  clave** con un batch previo `create`/`publish` replayaría un `resultJson` **ajeno** como
+  `InventoryAdjustmentResponse`.
+- **Impacto:** riesgo práctico **~nulo**: las claves son UUID con prefijo `adj-` (colisión inviable en la
+  práctica) y el endpoint es solo admin. Además es un **patrón pre-existente idéntico** en
+  `batchCreate`/`bulkPublish` (mismo lookup sin filtro de `kind`).
+- **Disparador:** próximo toque de la infraestructura `InventoryBatch`. Dirección: **filtrar por `kind`
+  en el lookup** (y valorar hacerlo también en los caminos hermanos `batchCreate`/`bulkPublish`).
+
+### BE-46 · Catch de P2002 en la tx de ajuste interpreta cualquier violación de unique como carrera de batchKey (Baja)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts` L873-884 (catch de **P2002** dentro de
+  la `$transaction` de `adjustFound`).
+- **Estado actual:** el catch trata **cualquier** violación de unique como carrera del claim de
+  `batchKey`. Con folios generados por secuencia, otra fuente de P2002 es **prácticamente inalcanzable**
+  y, si ocurriera, **falla seguro**: 409 CONFLICT sin duplicación. (Nota informativa: 409 está en los
+  códigos comunes del contrato §0 aunque no aparece en la ficha §M1.)
+- **Impacto:** bajo. A lo sumo un 409 con causa mal atribuida en un caso hoy inalcanzable; sin riesgo de
+  duplicación ni de dinero.
+- **Disparador:** próximo toque de esa transacción. Dirección: **acotar el catch al target del claim de
+  `InventoryBatch`** (inspeccionar `error.meta.target` / modelo antes de mapear a la carrera de batchKey).
+
 ### Pendientes de OTROS streams detectados por QA en este gate (2026-08-17 — NO son de este stream)
 
 > Anotados aquí por trazabilidad a petición del gate; **dueño: backend de sus respectivos streams**
