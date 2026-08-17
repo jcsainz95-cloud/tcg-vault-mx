@@ -643,6 +643,118 @@
 - **Disparador (aceptado):** reusar el **`getReferencesBatch`** ya existente (`PricingService`, ver **BE-35**)
   para resolver las 50 referencias en 1 consulta. Misma familia que **BE-4/D3**.
 
+### Stream «Inventario y vault» (v1.18/v1.18.1) — ronda final post-gates (2026-08-17, no bloqueante)
+
+> Cierre del stream «Inventario y vault» tras el doble veredicto. **BE-39 y BE-40 se PAGARON en este
+> mismo stream** (autorizado por techlead sin re-review) y **BE-41 quedó CERRADA por el contrato
+> v1.18.1-adjustments-clarify**; BE-42..BE-44 quedan **abiertas, aceptadas no bloqueantes**. Al final
+> se anotan dos pendientes de **OTROS streams** detectados por QA en este gate (dueño: backend de sus
+> respectivos streams — NO se tocaron aquí). Continúa la numeración `BE-*` (tras BE-38). Detalle de
+> implementación en `docs/BACKEND_NOTES.md §41.7`.
+
+### BE-39 · Update incondicional de status en ajuste y bulk-publish (TOCTOU) — PAGADA (2026-08-17, este stream)
+- **Dónde:** `src/modules/inventory/inventory.service.ts` → `adjustExisting` (el update dentro de la
+  `$transaction`, antes ~:816-833) y `bulkPublish` (el paso a `listed`, antes ~:478).
+- **Estado:** **PAGADA.** Ambos sitios hacían check-then-act: validaban el allowlist de status sobre el
+  snapshot leído y luego escribían con `update` **incondicional** — una carrera (p. ej. un checkout que
+  pone la pieza `reserved` entre lectura y escritura) podía pisar la reserva con `lost|damaged|withdrawn`
+  o re-listar una pieza reservada (double-sell).
+- **Fix:** guardia **atómica** en el propio UPDATE: `updateMany({ where: { id, ownerType:'platform',
+  status: { in: ADJUSTABLE_ORIGIN_STATUSES | PUBLISHABLE_ORIGIN_STATUSES } } })` + `count === 1`; si
+  `count !== 1` → `422 ITEM_NOT_ADJUSTABLE` (ajuste, con rollback de la tx) / `ITEM_NOT_PUBLISHABLE`
+  por-línea (bulk-publish). El pre-check en memoria se conserva solo para mensajes amables. Cubierto con
+  tests de carrera (`test/inventory.adjustments.spec.ts`, `test/inventory.batch.spec.ts`).
+
+### BE-40 · Raw SQL del índice master set duplicaba a mano la lista de status on-hand — PAGADA (2026-08-17, este stream)
+- **Dónde:** `src/modules/inventory/master-set.service.ts` → `aggregateInventoryBySet` (raw SQL, ~:383)
+  vs la constante exportada `NOT_ON_HAND` (~:29, usada por `scopeWhere` y `admin-vaults.service.ts`).
+- **Estado:** **PAGADA.** El `AND ii.status NOT IN ('withdrawn', 'shipped', ...)` reescribía la lista
+  literal — dos fuentes de verdad que podían divergir al tocar el enum. Ahora el SQL interpola la
+  constante: `ii.status::text NOT IN (${Prisma.join(NOT_ON_HAND)})` (parametrizado por Prisma, cast
+  `::text` para comparar el enum con los parámetros). Una sola fuente de verdad para "on-hand".
+
+### BE-41 · Doble submit del drawer de ajuste duplicaba piezas (`encontrada` sin idempotencia) — CERRADA por v1.18.1 (2026-08-17)
+- **Dónde:** `POST /admin/inventory/adjustments` (`inventory.service.ts` → `adjustFound`).
+- **Estado:** **CERRADA** por el contrato **v1.18.1-adjustments-clarify** (§M1) implementado en este
+  stream: `batchKey?` opcional **solo** en la rama `encontrada`, con la MISMA semántica e infraestructura
+  `InventoryBatch` (M-21) que `batchCreate` — **sin migración nueva** (claim atómico `create({ id:
+  batchKey, kind:'adjust' })` PRIMERO dentro de la `$transaction`; P2002 → replay del ganador). Un replay
+  devuelve la **respuesta original guardada** con `idempotentReplay: true` y **200** (aunque la primera
+  vez fuera 201). `batchKey` con otro motivo → `400 VALIDATION_ERROR` (esos motivos tienen idempotencia
+  natural: su replay cae en `422 ITEM_NOT_ADJUSTABLE`). De paso se implementó la otra aclaración v1.18.1:
+  `adjustmentIds: string[]` (una fila M-22 por pieza, alineada 1:1 con `inventoryItemIds`/`folios`)
+  **sustituye** al singular `adjustmentId` (cierra la nota de BACKEND_NOTES §41.4).
+
+### BE-42 · `AdjustmentFoundItemInput` es copia casi 1:1 de `BatchInventoryItemInput` (Baja)
+- **Dónde:** `src/modules/inventory/dto/inventory.dto.ts` → `AdjustmentFoundItemInput` (~:146-162) vs
+  `BatchInventoryItemInput` (~:95-110).
+- **Estado actual:** los dos DTOs comparten 12 de 13 campos (decoradores incluidos); la ÚNICA diferencia
+  real es `acquisitionType` (obligatorio en el lote, opcional con default `aportacion_en_especie` en el
+  ajuste). Un cambio de validación en el alta (p. ej. un tope nuevo) hay que replicarlo a mano en la copia
+  — riesgo de divergencia silenciosa.
+- **Impacto:** bajo. Mantenibilidad; correctness OK hoy (el servicio reusa `resolveCreation`, así que la
+  lógica de negocio NO está duplicada — solo la capa de validación del DTO).
+- **Disparador:** al tocar cualquiera de los dos DTOs. Dirección: **derivar/extraer una base común**
+  (p. ej. clase base con los campos compartidos y `AdjustmentFoundItemInput extends` relajando solo
+  `acquisitionType`, o `OmitType`/`PartialType` de `@nestjs/mapped-types`).
+
+### BE-43 · `GET /admin/vaults` valúa TODAS las bóvedas por request; `getReferencesBatch` escala con el histórico (Media a futuro)
+- **Dónde:** `src/modules/vault/admin-vaults.service.ts` (`list`: 1 `findMany` de TODAS las piezas de
+  bóveda + 1 `getReferencesBatch` para valuar y ordenar globalmente ANTES de paginar) +
+  `src/modules/pricing/pricing.service.ts` (`getReferencesBatch`, que lee `PriceReference` con un WHERE
+  por combinaciones y resuelve "la más reciente" en memoria — su costo crece con el histórico diario de
+  `PriceReference`, ver BE-20). Detalle adicional: en ese camino `gradeKeyFor` se calcula **dos veces**
+  por pieza (una para armar el lote de combinaciones y otra al mapear el resultado) — trabajo redundante
+  que conviene izar a una sola pasada al pagar esta deuda.
+- **Impacto:** hoy O(1) queries y correcto; con **histórico real de PriceReference** (30-40k filas/día,
+  BE-20) o **miles de piezas** en bóveda, la valuación por-request se vuelve el cuello del listado admin.
+- **Disparador (aceptado):** **antes de staging con histórico real de precios o con miles de piezas.**
+  Dirección: materializar la valuación por usuario (familia `InventoryStockSummary`/BE-4/D3) o resolver
+  "última referencia por combinación" en SQL (`DISTINCT ON`) en vez de cargar+filtrar en memoria, y
+  calcular `gradeKeyFor` una sola vez por pieza.
+
+### BE-44 · Índice master set en scope `user_vault` agrega sobre el catálogo COMPLETO (Baja)
+- **Dónde:** `src/modules/inventory/master-set.service.ts` → `index()` con scope `user_vault`: las
+  agregaciones (`cardSet` + `card.groupBy` + raw de variantes de catálogo + raw de piezas) corren sobre
+  TODOS los sets del catálogo y el filtro "solo sets con ≥1 pieza del usuario" se aplica DESPUÉS, en
+  memoria.
+- **Impacto:** bajo hoy (queries fijas, catálogo acotado); al crecer el catálogo (cientos de sets tras el
+  backfill), cada vista "Mi bóveda"/admin-bóveda paga la agregación del catálogo entero para mostrar los
+  3-4 sets del usuario.
+- **Disparador (aceptado):** al crecer el catálogo o si el índice de bóveda se siente lento. Dirección:
+  **acotar primero a los sets del usuario** (una query corta `SELECT DISTINCT c."setId" FROM
+  InventoryItem ii JOIN Card c ...` con el WHERE del scope) y agregar solo sobre esos setIds.
+
+### Pendientes de OTROS streams detectados por QA en este gate (2026-08-17 — NO son de este stream)
+
+> Anotados aquí por trazabilidad a petición del gate; **dueño: backend de sus respectivos streams**
+> («Cuentas y acceso» / zona común de throttling). Este stream NO los tocó (regla 8: el hallazgo vuelve
+> al rol/stream responsable).
+
+### XS-1 · `jwt-auth.guard.ts:37` devuelve 422 UNAUTHENTICATED en vez de 401 (contrato §0) — stream «Cuentas y acceso»
+- **Dónde:** `src/common/guards/jwt-auth.guard.ts:37` — la rama "sin header Bearer" lanza
+  `BusinessException.validation('UNAUTHENTICATED', ...)` que mapea a **422**; el contrato §0 exige
+  **401** para `UNAUTHENTICATED` (las otras dos ramas del guard ya usan 401 explícito).
+- **Impacto:** medio-bajo: rompe el contrato de status para clientes/interceptores que disparan el
+  refresh de token con `response.status === 401` (una petición sin token recibiría 422 y no refrescaría).
+- **Dirección:** `new BusinessException('UNAUTHENTICATED', 401, 'Missing bearer token')` (paridad con
+  las líneas :48/:63 del mismo guard) + test de contrato del guard. **Fix trivial pero fuera de este
+  stream**; requiere pasar por los gates de su stream.
+
+### XS-2 · 5 fallos DETERMINISTAS de la suite de integración por rate-limit (login throttle + throttle B-C1) vs harness E2E — bloqueará la E2E completa de release
+- **Dónde:** `backend/test/integration/*` corriendo contra el stack levantado: el throttle de login
+  (`auth.controller.ts`, familia `@Throttle` anti fuerza-bruta) y el throttle dedicado del cotizador
+  batch (B-C1, 12/min — ver BACKEND_NOTES §40) se AGOTAN con la cadencia del harness E2E (todos los
+  specs se loguean/cotizan en ráfaga desde la MISMA IP del runner) → **5 tests fallan de forma
+  determinista** con 429, sin bug funcional detrás.
+- **Impacto:** **bloqueará la suite E2E completa de release** (gate de QA por-release): los 429 son
+  falsos negativos reproducibles, no flakes.
+- **Dirección:** **dial de throttle para entorno E2E** — p. ej. límites configurables por env
+  (`THROTTLE_*` que el harness/compose de E2E suba, sin tocar los defaults de prod) o allowlist de la IP
+  del runner SOLO en el perfil E2E. Los límites de producción NO se relajan. Dueño: backend del stream
+  correspondiente, coordinado con **devops** (harness/compose) y verificación de **seguridad** (toca
+  diales anti fuerza-bruta).
+
 ### Nota al arquitecto (NO backend) · `AdminBuylistDTO §M5` podría exponer `userName`
 - **Qué:** el flujo admin de buylist (§M5) hace un **fetch por-fila** del nombre del usuario. Si el contrato
   expusiera `userName` en `AdminBuylistDTO` se evitaría ese N+1 de presentación en M5.
@@ -1145,3 +1257,47 @@
 - **Disparador:** al tocar la política de redirección o al añadir un tercer consumidor. Acción: extraer un hook
   `useAuthGate({ requireRole? })` que devuelva `{ blocked, redirecting }` y centralice el `useEffect` + el criterio;
   AdminShell lo consume con `requireRole` de back-office y PrivateRouteGuard sin rol.
+
+### WS «Inventario y vault» — cierre v1.18.1 (2026-08-17, no bloqueante)
+
+> Hallazgos del veredicto del **techlead** en el cierre del stream «Inventario y vault» (master set en
+> todas partes + ajuste por levantamiento físico, contrato v1.18/v1.18.1). Aceptados como deuda
+> **no bloqueante**, dueño **frontend**. Continúan la numeración `FE-*` (tras FE-19).
+
+### FE-20 · Props de `MasterSetPanel` permiten estados ilegales (`mode` con default + `userId?` sueltos)
+- **Dónde:** `frontend/src/components/master-set/MasterSetPanel.tsx:24-27` (interfaz `Props`: `mode?` con
+  default `'platform'` y `userId?` independientes), y sus consumidores del `userId ?? ''`:
+  `frontend/src/components/master-set/MasterSetIndex.tsx:38` y
+  `frontend/src/components/master-set/MasterSetBinder.tsx:43`.
+- **Estado actual:** `mode` y `userId` son props sueltas: el tipo acepta combinaciones ilegales
+  (`user_vault_admin` **sin** `userId`, o `platform` **con** `userId` ignorado). En el caso malo real,
+  `fetchIndex`/`fetchBinder` hacen `userId ?? ''` y disparan un request a
+  `GET /admin/vaults//master-sets` → **404 opaco** en runtime en vez de un error de compilación. Además el
+  default `mode = 'platform'` hace que **omitir** `mode` monte silenciosamente la vista con MÁS capacidades
+  (captura/publicación/ajuste) en lugar de fallar.
+- **Impacto:** bajo-medio. Hoy los tres call-sites reales pasan props correctas (M1, `/admin/vaults`,
+  `VaultView`), pero el tipo no protege al siguiente consumidor; el fallo se manifiesta como 404 críptico de
+  red, no como error de tipos. Sin fuga de datos (el backend valida scope/rol por su lado).
+- **Disparador:** al añadir un consumidor nuevo del panel o al tocar `mode.ts`. Acción (dirección acordada
+  con el techlead): **unión discriminada de props** —
+  `{ mode: 'platform' } | { mode: 'user_vault_admin'; userId: string } | { mode: 'user_vault_self'; onBuyMissing?: … }` —
+  y **quitar el default** de `mode` (siempre explícito). Propagar la unión a `MasterSetIndex`/`MasterSetBinder`
+  para eliminar los `userId ?? ''`.
+
+### FE-21 · `PlatformPiecesSection` (CellDrawer) acumula publicación + ajuste (~240 líneas, ~12 useState, 2 mutaciones)
+- **Dónde:** `frontend/src/components/master-set/CellDrawer.tsx:290-532` aprox. (función
+  `PlatformPiecesSection`).
+- **Estado actual:** una sola función-componente concentra DOS features de M1 que solo comparten la query de
+  piezas: (a) publicación por lote (selección + `bulkPublishItems` + render por-línea) y (b) ajuste por
+  levantamiento físico (motivo, formulario `encontrada`/pieza+nota, `createInventoryAdjustment` con batchKey
+  idempotente v1.18.1). ~240 líneas, ~12 `useState` y 2 `useMutation` entrelazados. Además `adjustFinish` se
+  **inicializa desde props** (`useState(availableFinishes[0] …)` = estado derivado): si el drawer se
+  **reutilizara sin desmontar** para otra celda (hoy se desmonta al cerrar, por eso no muerde), el acabado
+  inicial quedaría stale respecto de la nueva carta.
+- **Impacto:** bajo. Funciona y está testeado (17 specs del master set); el costo es de mantenibilidad:
+  cualquier cambio en una feature obliga a razonar sobre el estado de la otra, y el estado derivado es una
+  trampa latente ante un refactor del ciclo de vida del drawer.
+- **Disparador:** al volver a tocar el drawer (nueva feature o fix) o si el drawer pasa a reutilizarse sin
+  desmontar. Acción (dirección acordada con el techlead): extraer **`AdjustSection` a su propio archivo**
+  recibiendo `pieces` por props (la query queda en el padre), y eliminar el estado derivado de `adjustFinish`
+  (derivarlo en render con override del usuario, o re-sincronizar con `cell.cardId` por `key`).
