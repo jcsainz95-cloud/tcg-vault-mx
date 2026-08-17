@@ -2,7 +2,26 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.18-master-set-everywhere).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.18.1-adjustments-clarify).
+>
+> **Changelog v1.18.1-adjustments-clarify (2026-08-17) — Aclaración post-gates del stream «Inventario y vault»:
+> `POST /admin/inventory/adjustments` (§M1). SOLO este endpoint; nada más del contrato cambia. Sin migración
+> (reusa `InventoryBatch` M-21 para la idempotencia). Resuelve las dos ambigüedades enrutadas por techlead/QA
+> (BACKEND_NOTES §41.4 y deuda BE-41).** Ver ARCHITECTURE §4.18e.
+> - **`adjustmentIds: string[]` SUSTITUYE al singular `adjustmentId` en `InventoryAdjustmentResponse` (cambio
+>   LIMPIO, sin campo deprecated).** Con `encontrada` y `qty>1` el backend crea **N** filas `InventoryAdjustment`
+>   (una por pieza, M-22); el singular obligaba a devolver solo la primera (BACKEND_NOTES §41.4). Ahora se devuelven
+>   **todas**, alineadas 1:1 con `inventoryItemIds`/`folios` (simetría con el alta por lote). Con los otros motivos
+>   el array tiene longitud 1. **Decisión explícita: se elimina `adjustmentId` sin periodo de deprecación** — no hay
+>   clientes externos; el único consumidor es el frontend propio y no navega por ese id.
+> - **`batchKey?` (opcional) en `InventoryAdjustmentRequest`, SOLO en el camino `encontrada`** (vive en esa rama de
+>   la unión), con la **MISMA semántica de idempotencia que el alta por lote** (`POST .../items/batch`): mismo
+>   `batchKey` → **no** re-crea piezas ni filas de ajuste; el **replay devuelve la respuesta original guardada**
+>   (mismo criterio que `batchCreate`) con el campo nuevo **`idempotentReplay: true`** y status **`200`**. Cierra la
+>   deuda **BE-41** (doble submit duplicaba piezas en `encontrada`). Los motivos `perdida | danada | error_captura`
+>   **no** llevan `batchKey` (operan sobre una pieza existente e id concreto): su replay cae solo en
+>   `422 ITEM_NOT_ADJUSTABLE` porque la pieza ya salió de `{in_stock, listed}` — idempotencia natural. `batchKey`
+>   con motivo distinto de `encontrada` → `400 VALIDATION_ERROR`.
 >
 > **Changelog v1.18-master-set-everywhere (2026-08-17) — WS «Inventario y vault»: Master set en TODAS partes.**
 > La vista Master Set (v1.16, solo back-office M1) se generaliza a un **contrato ÚNICO de "contenido de
@@ -607,12 +626,21 @@ AdminVaultListResponse = { data: AdminVaultSummaryDTO[], page: number, pageSize:
 // Estado resultante por motivo: encontrada → in_stock (fromStatus null) · perdida → lost · danada → damaged ·
 // error_captura → withdrawn (la pieza NUNCA existió físicamente; NO cuenta como pérdida/reposición — el motivo real
 // queda en InventoryAdjustment.reason, distinguible de un retiro de cliente).
+// v1.18.1 — `batchKey?` SOLO en la rama `encontrada`: MISMA idempotencia que el alta por lote (mismo batchKey →
+// no re-crea; el replay devuelve la respuesta original con idempotentReplay:true). Los otros motivos no lo llevan
+// (id concreto; un replay cae en 422 ITEM_NOT_ADJUSTABLE — idempotencia natural).
 InventoryAdjustmentRequest =
     | { reason: "perdida" | "danada" | "error_captura", inventoryItemId: string, note: string }
-    | { reason: "encontrada", item: BatchInventoryItemInput, note?: string }
-InventoryAdjustmentResponse = { adjustmentId: string, reason: AdjustmentReason,
+    | { reason: "encontrada", item: BatchInventoryItemInput, note?: string, batchKey?: string }
+// v1.18.1 — `adjustmentIds` SUSTITUYE al singular `adjustmentId` (eliminado sin deprecated; sin clientes externos).
+// Con `encontrada` y qty>1 hay N filas InventoryAdjustment (una por pieza, M-22): se devuelven TODAS, alineadas
+// 1:1 con inventoryItemIds/folios. Con los otros motivos, arrays de longitud 1.
+// `idempotentReplay`: true SOLO cuando un batchKey ya procesado repite la respuesta guardada; false en todo
+// procesamiento nuevo (y siempre false sin batchKey / en motivos ≠ encontrada).
+InventoryAdjustmentResponse = { adjustmentIds: string[], reason: AdjustmentReason,
                                 inventoryItemIds: string[], folios: string[],
-                                fromStatus: InventoryStatus | null, toStatus: InventoryStatus }
+                                fromStatus: InventoryStatus | null, toStatus: InventoryStatus,
+                                idempotentReplay: boolean }
 // ----- Alta por LOTE (POST /admin/inventory/items/batch) -----
 // Una línea = una intención de alta; `qty` (default 1) es un ATAJO que el backend expande a N InventoryItem
 // (N piezas físicas, N folios) para bulk raw/sellado. graded → qty forzado a 1 (cada slab es único por certNumber;
@@ -1344,6 +1372,12 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     del lote (`item: BatchInventoryItemInput`; misma validación de `finish`/cert; `qty` default 1, `graded` fuerza
     1). `acquisitionType` default **`aportacion_en_especie`** si se omite (costo = referencia × pct, con su
     `422 PRICE_PENDING` si no hay referencia — paridad con el alta normal). Piezas nacen `in_stock`, `ownerType=platform`.
+    - **Idempotencia (`batchKey?`, v1.18.1, SOLO `encontrada`):** misma semántica que el alta por lote
+      (`POST .../items/batch`, mecanismo `InventoryBatch` M-21): mismo `batchKey` → **no** re-crea piezas ni filas
+      de ajuste; el replay devuelve la **respuesta original guardada** con `idempotentReplay: true` y **`200`**
+      (aunque la primera vez fuera `201`). El front DEBE enviarlo desde el drawer de ajuste (anti doble-submit,
+      cierra BE-41). Los otros motivos no lo aceptan: operan una pieza existente y su replay cae en
+      `422 ITEM_NOT_ADJUSTABLE` (la pieza ya salió de `{in_stock, listed}`).
   - **`perdida` / `danada`** (la pieza del sistema no aparece o aparece dañada): `status → lost | damaged`
     (habilita el flujo de reposición/merma existente, M7/tope M10). `note` **obligatoria**.
   - **`error_captura`** (la pieza **nunca existió** físicamente; se capturó por error): `status → withdrawn` — sale
@@ -1358,10 +1392,13 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - **NO hay venta directa manual desde el binder:** el ajuste **no** puede poner una pieza en `reserved`, crear
     órdenes ni registrar una venta; **toda salida por venta pasa por órdenes (checkout Stripe / M3)**. Publicar a la
     venta sigue siendo `bulk-publish`/`PATCH` (con precio server-side SEC-A1). No es dinero saliente (sin `MoneyOutGuard`).
-  Res `201` (encontrada) / `200` (resto): `InventoryAdjustmentResponse`.
+  Res `201` (encontrada) / `200` (resto; también `200` el replay idempotente por `batchKey`):
+  `InventoryAdjustmentResponse` — v1.18.1: `adjustmentIds: string[]` (una fila `InventoryAdjustment` por pieza con
+  `encontrada` y `qty>1`, alineadas 1:1 con `inventoryItemIds`/`folios`; longitud 1 en el resto) +
+  `idempotentReplay: boolean`. El singular `adjustmentId` queda **eliminado** (sin deprecated).
   Err `400 VALIDATION_ERROR` (reason ausente/inválido; `encontrada` sin `item`; `perdida|danada|error_captura` sin
-  `inventoryItemId` o sin `note`), `404 NOT_FOUND`, `422 ITEM_NOT_ADJUSTABLE`, `422 FINISH_NOT_AVAILABLE`,
-  `422 PRICE_PENDING` (encontrada por aportación sin referencia).
+  `inventoryItemId`, sin `note`, o con `batchKey`), `404 NOT_FOUND`, `422 ITEM_NOT_ADJUSTABLE`,
+  `422 FINISH_NOT_AVAILABLE`, `422 PRICE_PENDING` (encontrada por aportación sin referencia).
 
 ### M2 — Catálogo y precios (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`PricingController`, `FxController`, `AdminCatalogController`). No requiere backend nuevo para el flujo M2 existente (sync de precios de bóveda, override, FX, rareza→categoría, sync de catálogo por fecha/backfill); falta **consumo de frontend** (M2 es `ModuleTodo` en UI). Lo **único NUEVO** de backend en M2 es `POST /admin/catalog/sync-all` (abajo), para la Opción 1 del cotizador.

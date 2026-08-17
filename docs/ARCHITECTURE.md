@@ -2329,6 +2329,16 @@ si el precio no resuelve, esa pieza no es buyable). El CTA del front lleva a la 
 - **Schema (decisión, migración M-22 — ver §11):** enum `AdjustmentReason`, valor nuevo
   `MovementReason.adjustment`, y modelo `InventoryAdjustment` (tabla propia y NO solo `AuditLog`, porque el motivo
   debe ser **tipado y consultable** para reportes, mientras `AuditLog` es texto/JSON de bitácora). Aditiva, sin backfill.
+- **Aclaración v1.18.1-adjustments-clarify (respuesta plural + idempotencia; contrato §M1):** dos ambigüedades
+  enrutadas por techlead/QA tras los gates del stream (BACKEND_NOTES §41.4, deuda BE-41):
+  - `InventoryAdjustmentResponse.adjustmentIds: string[]` **sustituye** al singular `adjustmentId`: con
+    `encontrada` y `qty>1` M-22 crea **una fila por pieza** y el singular obligaba a devolver solo la primera.
+    Ahora se devuelven todas, alineadas 1:1 con `inventoryItemIds`/`folios`. **Sustitución limpia, sin campo
+    deprecated** (sin clientes externos; el frontend propio no navega por ese id).
+  - `batchKey?` opcional **solo en el camino `encontrada`** con la **misma** semántica de idempotencia que el alta
+    por lote: reusa el mecanismo `InventoryBatch` (M-21, **sin migración nueva**); replay → respuesta original con
+    `idempotentReplay: true` (cierra BE-41: el doble submit ya no duplica piezas). Los otros motivos no lo
+    necesitan: operan un id concreto y su replay cae en `422 ITEM_NOT_ADJUSTABLE` (idempotencia natural).
 
 **#### 4.18f Frontend — promoción del binder a componentes compartidos.**
 Los componentes de master set viven hoy en `frontend/src/app/[locale]/(admin)/admin/m1/master-set/`
