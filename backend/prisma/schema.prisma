@@ -222,99 +222,99 @@ enum AuthTokenType {
 // ============================= USER / KYC / BILLING =============================
 
 model User {
-  id           String     @id @default(uuid())
-  email        String     @unique
+  id                 String       @id @default(uuid())
+  email              String       @unique
   // v1.1 (M-3): nullable — null para cuentas creadas SOLO con Google (sin contraseña).
-  passwordHash String?
-  role         Role       @default(customer)
-  name         String
-  phone        String?
-  locale       Locale     @default(es)
-  status       UserStatus @default(active)
+  passwordHash       String?
+  role               Role         @default(customer)
+  name               String
+  phone              String?
+  locale             Locale       @default(es)
+  status             UserStatus   @default(active)
   // v1.1 (M-4..M-7): campos de auth Google. `role` SIEMPRE server-side (nunca del token).
-  authProvider AuthProvider @default(local)
-  googleId     String?      @unique
-  emailVerified Boolean      @default(false)
-  avatarUrl    String?
+  authProvider       AuthProvider @default(local)
+  googleId           String?      @unique
+  emailVerified      Boolean      @default(false)
+  avatarUrl          String?
   // v1.3.1 (M-15): gestión de cuenta por admin (M6).
   // `mustChangePassword` lo activa el reset admin (opcional de consumir por el front).
   // `tokenVersion` se INCREMENTA en reset/soft-delete: el JWT lo lleva y el guard rechaza
   // los tokens (access/refresh) con versión previa → revoca sesiones vivas.
   deletedAt          DateTime?
   anonymizedAt       DateTime?
-  mustChangePassword Boolean   @default(false)
-  tokenVersion       Int       @default(0)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  mustChangePassword Boolean      @default(false)
+  tokenVersion       Int          @default(0)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  kycProfile      KycProfile?
-  billingProfile  BillingProfile?
-  addresses       Address[]
-  orders          Order[]
-  shipmentRequests ShipmentRequest[]
-  sellRequests    SellRequest[]
-  disputes        Dispute[]
-  ownedItems      InventoryItem[] @relation("OwnerUser")
+  kycProfile         KycProfile?
+  billingProfile     BillingProfile?
+  addresses          Address[]
+  orders             Order[]
+  shipmentRequests   ShipmentRequest[]
+  sellRequests       SellRequest[]
+  disputes           Dispute[]
+  ownedItems         InventoryItem[]     @relation("OwnerUser")
   portfolioSnapshots PortfolioSnapshot[]
   // v1.5 (M-17): tokens de verificación de correo / reset de contraseña (un solo uso, hash en BD).
-  authTokens      AuthToken[]
+  authTokens         AuthToken[]
 
   @@index([role])
   @@index([status])
 }
 
 model KycProfile {
-  id                        String    @id @default(uuid())
-  userId                    String    @unique
-  user                      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  legalName                 String?
+  id                         String    @id @default(uuid())
+  userId                     String    @unique
+  user                       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  legalName                  String?
   // PII cifrada en reposo (AES-256-GCM, formato `v1:iv:tag:ct`). Ver PiiCryptoService.
-  rfcEnc                    String?
-  clabeEnc                  String?
+  rfcEnc                     String?
+  clabeEnc                   String?
   // Blind index (HMAC-SHA256) de la CLABE normalizada: permite el match "a nombre propio"
   // (CLABE_NOT_OWN_NAME) y detectar CLABE compartida entre cuentas SIN descifrar.
-  clabeHmac                 String?
-  ineFrontKey               String?
-  ineBackKey                String?
-  kycStatus                 KycStatus @default(none)
+  clabeHmac                  String?
+  ineFrontKey                String?
+  ineBackKey                 String?
+  kycStatus                  KycStatus @default(none)
   capPerRequestCentsOverride Int?
   capPerMonthCentsOverride   Int?
-  verifiedBy                String?
-  verifiedAt                DateTime?
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  verifiedBy                 String?
+  verifiedAt                 DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
 
   @@index([clabeHmac])
 }
 
 model BillingProfile {
-  id             String   @id @default(uuid())
-  userId         String   @unique
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   // RFC cifrado en reposo (AES-256-GCM). Ver PiiCryptoService.
-  rfcEnc         String
-  razonSocial    String
-  regimenFiscal  String
-  usoCfdi        String
-  postalCode     String
-  email          String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  rfcEnc        String
+  razonSocial   String
+  regimenFiscal String
+  usoCfdi       String
+  postalCode    String
+  email         String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model Address {
-  id           String  @id @default(uuid())
+  id           String   @id @default(uuid())
   userId       String
-  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   line1        String
   line2        String?
   neighborhood String?
   city         String
   state        String
   postalCode   String
-  country      String  @default("MX")
+  country      String   @default("MX")
   phone        String
-  isDefault    Boolean @default(false)
+  isDefault    Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -333,30 +333,30 @@ model CardSet {
   ptcgoCode    String?
   createdAt    DateTime @default(now())
 
-  cards Card[]
+  cards     Card[]
   // v1.9-set-chart (M-20): serie diaria del valor de mercado agregado del set (gráfica pública del hero).
   snapshots SetValueSnapshot[]
 }
 
 model Card {
-  id            String   @id @default(uuid())
-  externalId    String   @unique
-  setId         String
-  set           CardSet  @relation(fields: [setId], references: [id])
-  name          String
-  number        String
-  rarity        String?
-  supertype     String?
-  subtypes      Json?
-  imageSmallUrl String?
-  imageLargeUrl String?
-  tcgplayerId   String?
+  id                String   @id @default(uuid())
+  externalId        String   @unique
+  setId             String
+  set               CardSet  @relation(fields: [setId], references: [id])
+  name              String
+  number            String
+  rarity            String?
+  supertype         String?
+  subtypes          Json?
+  imageSmallUrl     String?
+  imageLargeUrl     String?
+  tcgplayerId       String?
   // v1.6-finish (M-18): acabados en que existe esta carta, derivados de las llaves de
   // `tcgplayer.prices` al importar (ARCHITECTURE §3.7). SIGUE siendo 1 fila por externalId
   // (el @unique NO cambia; esto es un array en la MISMA fila). Filas históricas → [normal]
   // hasta el re-sync. Lista blanca contra la que el backend valida cualquier `finish` (SEC-A1).
   availableFinishes Finish[] @default([normal])
-  createdAt     DateTime @default(now())
+  createdAt         DateTime @default(now())
 
   inventoryItems   InventoryItem[]
   priceReferences  PriceReference[]
@@ -371,14 +371,14 @@ model Card {
 // ============================= INVENTORY / VAULT =============================
 
 model VaultLocation {
-  id       String    @id @default(uuid())
-  zone     VaultZone
-  box      String
-  row      String
-  slot     String
-  label    String
-  isActive Boolean   @default(true)
-  createdAt DateTime @default(now())
+  id        String    @id @default(uuid())
+  zone      VaultZone
+  box       String
+  row       String
+  slot      String
+  label     String
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
 
   items InventoryItem[]
 
@@ -386,58 +386,62 @@ model VaultLocation {
 }
 
 model InventoryItem {
-  id             String          @id @default(uuid())
-  folio          String          @unique
-  cardId         String
-  card           Card            @relation(fields: [cardId], references: [id])
-  productType    ProductType
-  rawCondition   RawCondition?
+  id                      String           @id @default(uuid())
+  folio                   String           @unique
+  cardId                  String
+  card                    Card             @relation(fields: [cardId], references: [id])
+  productType             ProductType
+  rawCondition            RawCondition?
   // v1.1 (M-2): subtipo del sellado (solo productType=sealed; nullable en el resto).
-  sealedSubtype  SealedSubtype?
-  gradingCompany GradingCompany?
-  gradeValue     String?
+  sealedSubtype           SealedSubtype?
+  gradingCompany          GradingCompany?
+  gradeValue              String?
   // v1.2 (M-12): nº de certificado PSA/CGC (solo productType=graded; null para raw/sealed).
   // Requerido a nivel de APLICACIÓN para publicar una gradeada; no NOT NULL en BD.
   // v1.2 (M-13): eliminados frontPhotoKey/backPhotoKey/extraPhotoKeys (producto sin fotos propias;
   // la imagen es la de catálogo remota de pokemontcg.io).
-  certNumber     String?
-  locationId     String?
-  location       VaultLocation?  @relation(fields: [locationId], references: [id])
-  ownerType      OwnerType       @default(platform)
-  ownerUserId    String?
-  ownerUser      User?           @relation("OwnerUser", fields: [ownerUserId], references: [id])
-  ownershipStatus OwnershipStatus?
-  status         InventoryStatus @default(in_stock)
+  certNumber              String?
+  locationId              String?
+  location                VaultLocation?   @relation(fields: [locationId], references: [id])
+  ownerType               OwnerType        @default(platform)
+  ownerUserId             String?
+  ownerUser               User?            @relation("OwnerUser", fields: [ownerUserId], references: [id])
+  ownershipStatus         OwnershipStatus?
+  status                  InventoryStatus  @default(in_stock)
   // v1.6-finish (M-18): acabado de ESTA copia física. Se captura al alta (M1) y debe
   // pertenecer a card.availableFinishes. Afecta la valuación (PriceReference de ESE acabado)
   // y el catálogo "Compra" (filtro/listado por acabado). graded/sealed → normal. ARCHITECTURE §3.7.
-  finish         Finish          @default(normal)
-  listPriceCents Int?
-  acquisitionType AcquisitionType
-  acquisitionCostCents Int?
-  acquisitionPct  Int?
+  finish                  Finish           @default(normal)
+  listPriceCents          Int?
+  acquisitionType         AcquisitionType
+  acquisitionCostCents    Int?
+  acquisitionPct          Int?
   // SEC-A3: unicidad para cerrar la doble conversión (convert-to-inventory) por carrera.
   // Dos conversiones concurrentes del mismo SellRequestItem colisionan aquí (P2002) y
   // solo una crea InventoryItem; la otra se trata como "ya convertido".
-  sourceSellRequestItemId String? @unique
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  sourceSellRequestItemId String?          @unique
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
 
-  movements   InventoryMovement[]
-  orderItems  OrderItem[]
+  movements     InventoryMovement[]
+  orderItems    OrderItem[]
   shipmentItems ShipmentItem[]
-  disputes    Dispute[]
+  disputes      Dispute[]
 
   @@index([cardId])
   @@index([status])
   @@index([ownerUserId])
   @@index([locationId])
+  // v1.16-master-set (M-21): sirve la agregación `countsByFinish` del binder
+  // (GROUP BY cardId, finish filtrando status on-hand) y el conteo por set del índice
+  // Master Set. Complementa (no reemplaza) los índices existentes. ARCHITECTURE §4.17a.
+  @@index([cardId, finish, status])
 }
 
 model InventoryMovement {
-  id             String        @id @default(uuid())
+  id             String           @id @default(uuid())
   itemId         String
-  item           InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  item           InventoryItem    @relation(fields: [itemId], references: [id], onDelete: Cascade)
   fromLocationId String?
   toLocationId   String?
   fromStatus     InventoryStatus?
@@ -445,67 +449,82 @@ model InventoryMovement {
   reason         MovementReason
   actorUserId    String?
   note           String?
-  createdAt      DateTime      @default(now())
+  createdAt      DateTime         @default(now())
 
   @@index([itemId])
+}
+
+// v1.16-master-set (M-21): idempotencia + auditoría del alta/publicación por LOTE (ARCHITECTURE
+// §4.17b). El `id` ES el `batchKey` (idempotencia natural): un replay del mismo batchKey devuelve
+// `resultJson` sin re-crear. Es el registro de auditoría del lote (complementa AuditLog). NO cambia
+// el modelo por-pieza (sigue 1 InventoryItem por pieza física). Sin FK dura a User (patrón AuditLog).
+model InventoryBatch {
+  id           String   @id // = batchKey (idempotency key)
+  actorUserId  String?
+  kind         String // 'create' | 'publish'
+  requested    Int
+  createdItems Int
+  failedLines  Int
+  resultJson   Json
+  createdAt    DateTime @default(now())
 }
 
 // ============================= PRICING / FX =============================
 
 model PriceReference {
-  id              String      @id @default(uuid())
-  cardId          String
-  card            Card        @relation(fields: [cardId], references: [id])
-  productType     ProductType
-  gradeKey        String
+  id               String      @id @default(uuid())
+  cardId           String
+  card             Card        @relation(fields: [cardId], references: [id])
+  productType      ProductType
+  gradeKey         String
   // v1.6-finish (M-18): acabado ORTOGONAL a gradeKey (que sigue describiendo condición/grado).
   // Añadido a la clave única: `normal` y `reverse_holo` de la misma carta tienen referencia de
   // precio DISTINTA (una fila por día por acabado). El provider guarda el precio POR acabado
   // (`tcgplayer.prices[finish].market`), no "el primer market disponible". ARCHITECTURE §3.2/§4.1.
-  finish          Finish      @default(normal)
-  source          PriceSource
-  priceUsdCents   Int?
-  fxRate          Decimal?    @db.Decimal(12, 6)
-  fxBufferPct     Decimal?    @db.Decimal(6, 3)
-  priceMxnCents   Int
-  capturedDate    DateTime    @db.Date
-  isManualOverride Boolean    @default(false)
-  createdAt       DateTime    @default(now())
+  finish           Finish      @default(normal)
+  source           PriceSource
+  priceUsdCents    Int?
+  fxRate           Decimal?    @db.Decimal(12, 6)
+  fxBufferPct      Decimal?    @db.Decimal(6, 3)
+  priceMxnCents    Int
+  capturedDate     DateTime    @db.Date
+  isManualOverride Boolean     @default(false)
+  createdAt        DateTime    @default(now())
 
   @@unique([cardId, productType, gradeKey, finish, capturedDate])
   @@index([cardId])
 }
 
 model PendingPriceEntry {
-  id                String              @id @default(uuid())
-  cardId            String
-  card              Card                @relation(fields: [cardId], references: [id])
-  productType       ProductType
-  gradeKey          String
+  id                 String              @id @default(uuid())
+  cardId             String
+  card               Card                @relation(fields: [cardId], references: [id])
+  productType        ProductType
+  gradeKey           String
   // v1.8-ronda-c (M-19): acabado ORTOGONAL a gradeKey (igual que en PriceReference). La cola de
   // precio pendiente es POR acabado: `normal` y `holofoil` de la misma carta sin precio son
   // entradas SEPARADAS. Antes se colapsaban en una y el override de un acabado cerraba el pendiente
   // de los demás. Default seguro `normal` para filas legacy (sin backfill). ARCHITECTURE §3.2/§4.1.
-  finish            Finish              @default(normal)
-  context           PendingPriceContext
-  refId             String?
-  status            PendingPriceStatus  @default(open)
+  finish             Finish              @default(normal)
+  context            PendingPriceContext
+  refId              String?
+  status             PendingPriceStatus  @default(open)
   resolvedPriceRefId String?
-  createdAt         DateTime            @default(now())
-  resolvedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  resolvedAt         DateTime?
 
   @@index([status])
 }
 
 model FxRate {
-  id            String      @id @default(uuid())
-  base          String      @default("USD")
-  quote         String      @default("MXN")
-  rate          Decimal     @db.Decimal(12, 6)
-  bufferPct     Decimal     @db.Decimal(6, 3)
-  effectiveDate DateTime    @db.Date
+  id            String   @id @default(uuid())
+  base          String   @default("USD")
+  quote         String   @default("MXN")
+  rate          Decimal  @db.Decimal(12, 6)
+  bufferPct     Decimal  @db.Decimal(6, 3)
+  effectiveDate DateTime @db.Date
   source        String // banxico | manual (fuente propia; ver ARCHITECTURE §3.2)
-  createdAt     DateTime    @default(now())
+  createdAt     DateTime @default(now())
 
   @@index([effectiveDate])
 }
@@ -595,30 +614,30 @@ model ShipmentItem {
 // ============================= BUYLIST =============================
 
 model SellRequest {
-  id                String            @id @default(uuid())
-  userId            String
-  user              User              @relation(fields: [userId], references: [id])
-  status            SellRequestStatus @default(cotizada)
-  quotedTotalCents  Int               @default(0)
+  id                 String            @id @default(uuid())
+  userId             String
+  user               User              @relation(fields: [userId], references: [id])
+  status             SellRequestStatus @default(cotizada)
+  quotedTotalCents   Int               @default(0)
   approvedTotalCents Int?
   // Snapshot de CLABE cifrado en reposo (AES-256-GCM). Reveal on-demand para pagar SPEI.
-  clabeSnapshotEnc  String?
-  ineRequired       Boolean           @default(false)
-  ineProvided       Boolean           @default(false)
-  speiReference     String?
-  paidBy            String?
-  paidAt            DateTime?
-  createdAt         DateTime          @default(now())
-  receivedAt        DateTime?
-  verifiedAt        DateTime?
-  approvedAt        DateTime?
-  adjustmentSentAt  DateTime?
-  deadlineAt        DateTime?
+  clabeSnapshotEnc   String?
+  ineRequired        Boolean           @default(false)
+  ineProvided        Boolean           @default(false)
+  speiReference      String?
+  paidBy             String?
+  paidAt             DateTime?
+  createdAt          DateTime          @default(now())
+  receivedAt         DateTime?
+  verifiedAt         DateTime?
+  approvedAt         DateTime?
+  adjustmentSentAt   DateTime?
+  deadlineAt         DateTime?
   // v1.8-ronda-c / SEC-D2 (M-19): fecha del cierre REAL de la solicitud, seteada al entrar a un
   // estado terminal (`pagada`/`rechazada`/`abandonada`). Ancla la ventana de retención de INE al
   // cierre efectivo (ine-retention.service), en vez de aproximarla por timestamps de estado. Campo
   // INTERNO de cumplimiento: NO se expone en DTOs de cliente. Nullable (filas legacy usan fallback).
-  closedAt          DateTime?
+  closedAt           DateTime?
 
   items SellRequestItem[]
 
@@ -627,29 +646,29 @@ model SellRequest {
 }
 
 model SellRequestItem {
-  id              String          @id @default(uuid())
-  sellRequestId   String
-  sellRequest     SellRequest     @relation(fields: [sellRequestId], references: [id], onDelete: Cascade)
-  cardId          String
-  card            Card            @relation(fields: [cardId], references: [id])
-  productType     ProductType
-  rawCondition    RawCondition?
+  id                 String           @id @default(uuid())
+  sellRequestId      String
+  sellRequest        SellRequest      @relation(fields: [sellRequestId], references: [id], onDelete: Cascade)
+  cardId             String
+  card               Card             @relation(fields: [cardId], references: [id])
+  productType        ProductType
+  rawCondition       RawCondition?
   // v1.6-finish (M-18): snapshot del acabado aplicado en la cotización/solicitud (validado
   // contra card.availableFinishes al crear). Determina la regla y la referencia usadas
   // (ARCHITECTURE §4.2.1). Al convertir a inventario (M5), se PROPAGA a InventoryItem.finish.
-  finish          Finish          @default(normal)
+  finish             Finish           @default(normal)
   // v1.3.1 (M-14): la cotización ya NO usa `category` (BuylistCategory). Se snapshotea la
   // REGLA POR RAREZA aplicada (auditoría). `category` queda NULLABLE/legacy (retención de
   // filas históricas); nada nuevo lo escribe. Ver ARCHITECTURE §3.2/§4.2.
-  category        BuylistCategory?
-  rarity          String?
-  ruleMode        BuylistRuleMode?
-  ruleValue       Int?
-  ruleSource      String?         // "rule" (fila explícita) | "fallback" (BUYLIST_PRICE_FALLBACK_PCT)
-  quotedPriceCents Int?
+  category           BuylistCategory?
+  rarity             String?
+  ruleMode           BuylistRuleMode?
+  ruleValue          Int?
+  ruleSource         String? // "rule" (fila explícita) | "fallback" (BUYLIST_PRICE_FALLBACK_PCT)
+  quotedPriceCents   Int?
   approvedPriceCents Int?
-  itemStatus      SellItemStatus  @default(cotizada)
-  inventoryItemId String?
+  itemStatus         SellItemStatus   @default(cotizada)
+  inventoryItemId    String?
   // v1.2 (M-13): eliminado photoKeys (buylist sin fotos de carta; verificación NM contra la física).
 
   @@index([sellRequestId])
@@ -658,22 +677,22 @@ model SellRequestItem {
 // ============================= DISPUTES =============================
 
 model Dispute {
-  id               String        @id @default(uuid())
-  userId           String
-  user             User          @relation(fields: [userId], references: [id])
-  inventoryItemId  String
-  inventoryItem    InventoryItem @relation(fields: [inventoryItemId], references: [id])
-  orderItemId      String?
-  type             String        @default("condition_raw")
-  status           DisputeStatus @default(abierta)
+  id                String        @id @default(uuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id])
+  inventoryItemId   String
+  inventoryItem     InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  orderItemId       String?
+  type              String        @default("condition_raw")
+  status            DisputeStatus @default(abierta)
   // v1.2 (M-13): eliminados ingressPhotoKeys/claimPhotoKeys (evidencia por correo a soporte).
-  description      String
-  resolution       String?
+  description       String
+  resolution        String?
   repurchaseOrderId String?
-  deadlineAt       DateTime
-  createdAt        DateTime      @default(now())
-  resolvedAt       DateTime?
-  resolvedBy       String?
+  deadlineAt        DateTime
+  createdAt         DateTime      @default(now())
+  resolvedAt        DateTime?
+  resolvedBy        String?
 
   @@index([userId])
   @@index([status])
@@ -685,7 +704,7 @@ model ConfigSetting {
   key       String   @id
   valueJson Json
   updatedBy String?
-  updatedAt DateTime @updatedAt @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 model AuditLog {

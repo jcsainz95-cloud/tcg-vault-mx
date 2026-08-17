@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService } from '../pricing/pricing.service';
+import { PricingService, PriceInfo } from '../pricing/pricing.service';
+import { computeSalePriceForRarity, SalesRule } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 
 // Conjuntos de valores válidos de los enums de Prisma. Un filtro público con un valor
@@ -65,7 +66,13 @@ export class CatalogService {
     };
   }
 
-  /** Trae items publicados que efectivamente son comprables (precio resoluble). */
+  /**
+   * Trae items publicados que efectivamente son comprables (precio resoluble).
+   *
+   * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza `SALES_PRICE_RULES`+fallback **una vez** por
+   * request y resuelve las referencias en **un** lote (`getReferencesBatch`) en vez de 2 lecturas de
+   * settings + 1 `getReference` **por ítem** (N+1). Cada DTO se construye con el contexto pre-cargado.
+   */
   private async fetchSellable(
     where: Prisma.InventoryItemWhereInput,
   ): Promise<{ item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[]> {
@@ -74,9 +81,24 @@ export class CatalogService {
       include: { card: { include: { set: true } } },
       orderBy: { createdAt: 'desc' },
     });
+    if (items.length === 0) return [];
+
+    const salesRules = await this.pricing.loadSalesRules();
+    const refs = await this.pricing.getReferencesBatch(
+      items.map((i) => ({
+        cardId: i.cardId,
+        productType: i.productType,
+        gradeKey: this.pricing.gradeKeyFor(i),
+        finish: i.finish,
+      })),
+    );
+
     const out: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[] = [];
     for (const item of items) {
-      const dto = await this.toListingDTO(item);
+      const reference = refs.get(
+        `${item.cardId}|${item.productType}|${this.pricing.gradeKeyFor(item)}|${item.finish}`,
+      );
+      const dto = await this.toListingDTO(item, { reference, salesRules });
       if (dto.sellable && dto.salePriceCents != null) out.push({ item, dto });
     }
     return out;
@@ -87,15 +109,21 @@ export class CatalogService {
    * (valor de mercado) de salePriceCents (precio de venta). El sellado lleva sealedSubtype
    * y NO lleva rawCondition/grade/rareza.
    */
-  async toListingDTO(item: ItemWithCard) {
+  async toListingDTO(
+    item: ItemWithCard,
+    ctx?: {
+      // BE-25 (§4.17c): contexto pre-cargado por `fetchSellable` (referencia del lote + reglas de
+      // venta izadas una vez) para evitar el N+1 de referencias/settings. Opcional: sin él el método
+      // resuelve todo por sí mismo (uso single).
+      reference?: PriceInfo;
+      salesRules?: { rules: Record<string, SalesRule>; fallbackPct: number };
+    },
+  ) {
     const gradeKey = this.pricing.gradeKeyFor(item);
     // v1.6-finish: valúa contra la PriceReference del ACABADO de ESTA copia física.
-    const referenceValue = await this.pricing.getReference(
-      item.cardId,
-      item.productType,
-      gradeKey,
-      item.finish,
-    );
+    const referenceValue =
+      ctx?.reference ??
+      (await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
 
     let salePriceCents: number | undefined;
     if (item.listPriceCents != null) {
@@ -107,10 +135,20 @@ export class CatalogService {
       // con `pct` sin market → pending (sin precio, no vendible), igual que antes.
       const referenceMxnCents =
         referenceValue.status === 'priced' ? (referenceValue.referenceMxnCents ?? null) : null;
-      const sale = await this.pricing.computeSalePriceForItem(
-        { rarity: item.card.rarity, finish: item.finish },
-        referenceMxnCents,
-      );
+      // BE-25: si viene el contexto pre-cargado usa la función pura (sin leer settings por ítem);
+      // si no, delega al servicio (que iza reglas por sí mismo).
+      const sale = ctx?.salesRules
+        ? computeSalePriceForRarity(
+            item.card.rarity,
+            item.finish,
+            referenceMxnCents,
+            ctx.salesRules.rules,
+            ctx.salesRules.fallbackPct,
+          )
+        : await this.pricing.computeSalePriceForItem(
+            { rarity: item.card.rarity, finish: item.finish },
+            referenceMxnCents,
+          );
       if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
     }
 

@@ -2574,3 +2574,120 @@ El contrato v1.15 es implementable tal cual con los defaults del arquitecto (end
 `qty`, cap 50, `422 CLABE_REQUIRED`). **No se solicitó ningún cambio de contrato ni de schema.**
 
 **Gates:** `npx tsc --noEmit` exit 0; `npx jest` **69 suites / 486 tests** verdes.
+
+---
+
+## 38. WS-E · Master Set + inventario a escala (v1.16-master-set, §M1, §4.17)
+
+Agregación de LECTURA (binder por set) + escritura por LOTE, **encima del modelo por-pieza sin
+cambiarlo** (sigue 1 `InventoryItem` por pieza física). Todos los endpoints `vault_operator+`. Migración
+única **M-21** (índice + `InventoryBatch`). NO toca dinero saliente; la publicación deriva el precio de
+venta server-side (reusa §4.14, SEC-A1).
+
+### 38.1 Migración M-21 (`prisma/migrations/20260817120000_m21_master_set_batch/`)
+- **Índice** `@@index([cardId, finish, status])` en `InventoryItem` — sirve la agregación `countsByFinish`
+  del binder (`GROUP BY cardId, finish` filtrando status on-hand) y el conteo por set. Complementa (no
+  reemplaza) los índices existentes.
+- **Modelo `InventoryBatch`** — `id` = `batchKey` (idempotencia natural), `actorUserId?`, `kind`
+  (`create|publish`), `requested`, `createdItems`, `failedLines`, `resultJson`, `createdAt`. Es el registro
+  de auditoría del lote (complementa `AuditLog`). Sin FK dura a `User` (patrón `AuditLog`). Aditiva, sin
+  backfill. **NO se aplicó a ninguna BD** (no hay DB en el sandbox); `prisma validate` + `prisma generate`
+  OK, la SQL sigue la convención del repo.
+
+### 38.2 Endpoints (§M1, `vault_operator+`)
+- **`GET /admin/inventory/master-sets`** (`MasterSetService.index`) — índice de sets con `MasterSetSummaryDTO`
+  (`printedTotal`, `catalogCardCount`, `distinctCardsOwned`, `completionPct`, `totalPieces`, `year`). **Query
+  fija sin N+1**: (1) página de `CardSet` (filtro `q`), (2) `Card.groupBy([setId])` → `catalogCardCount`,
+  (3) **una** agregación raw `InventoryItem ⋈ Card GROUP BY setId` → piezas + cartas distintas on-hand.
+  `sort`: `release_desc` (default) | `completion_asc` | `pieces_desc`.
+- **`GET /admin/inventory/master-sets/:setId`** (`MasterSetService.binder`) — binder con `MasterSetCardCellDTO`
+  por carta (`cardId`, `number`, `numberSort`, `name`, `rarity`, `imageSmallUrl`, `availableFinishes`,
+  `countsByFinish`, `totalCount`, `isSecretRare`). **Orden natural** obligatorio (ver 38.4). Sin N+1: 1
+  `Card WHERE setId` + 1 `groupBy [cardId, finish]`. 404 si el set no existe. `:setId` = id LOCAL del `CardSet`.
+- **`POST /admin/inventory/items/batch`** (`InventoryService.batchCreate`) — alta por LOTE. **Errores
+  por-línea** (una línea inválida no tumba el resto → commit parcial, HTTP 200), **`qty`** expande a N
+  `InventoryItem`/N folios (graded → qty 1; qty>1 en graded = `VALIDATION_ERROR`), folios **consecutivos** por
+  línea vía `PrismaService.nextFolios(qty)`, **idempotencia + auditoría** por `batchKey` en `InventoryBatch`
+  (replay → `idempotentReplay:true` sin re-crear). Header `Idempotency-Key` equivale a `batchKey`. La lógica
+  por línea reusa **exactamente** `resolveCreation` (extraída de `createItem`): costo de aportación
+  server-side, validación de `finish` contra `availableFinishes` (SEC-A1). Auditado `inventory.batch_create`.
+- **`POST /admin/inventory/items/bulk-publish`** (`InventoryService.bulkPublish`) — publicar N piezas →
+  `listed`. Precio **derivado** server-side (`computeSalePriceForRarity`, rareza de `Card.rarity` + acabado de
+  `InventoryItem.finish`, SEC-A1) o **manual** (`listPriceCents`). `pct` sin market → `PRICE_PENDING`: **no
+  publica** esa pieza (regla "solo se lista lo que tiene precio"). Errores por-línea (no encontrada, no
+  `platform`, graded sin `certNumber`, precio pendiente) → HTTP 200. Re-publicar una `listed` = no-op
+  idempotente. `batchKey?` opcional (idempotencia/auditoría del lote). Auditado `inventory.bulk_publish`.
+
+### 38.3 Deuda pagada
+- **`PricingService.getReferencesBatch(items)`** (cierra **RB-8/BE-4/D3**) — referencia vigente = más
+  reciente por acabado para N ítems en **1** query; devuelve `Map<cardId|productType|gradeKey|finish, PriceInfo>`.
+- **`PricingService.loadSalesRules()`** — iza `SALES_PRICE_RULES`+fallback en 1 par de lecturas.
+- **BE-25 (pago mínimo):** `bulk-publish` y `CatalogService.fetchSellable` izan las reglas **una vez** y usan
+  `getReferencesBatch` (antes: 2 lecturas de settings + 1 `getReference` **por ítem** = N+1). El resto de
+  BE-25 (memoización global de `SettingsService`, familia BE-4/D3) queda como deuda menor.
+- **`PrismaService.nextFolios(n)`** — reserva n folios consecutivos en 1 `SELECT nextval(...) FROM
+  generate_series(1,n)`.
+
+### 38.4 Orden natural de `Card.number` (String) — decisión de implementación
+`Card.number` es String; el orden lexicográfico rompe ("10" < "2"; promos mal ubicadas). `deriveNumberParts`
++ `compareByNumber` (puros expuestos y testeados) producen:
+1. cartas **puro-numéricas** primero, por su entero ("2" < "10" < "200");
+2. cartas con **prefijo** (promos/subsets `TG`/`GG`/`SV`) al **FINAL**, **agrupadas por prefijo** (GG → SV →
+   TG) y dentro del prefijo por su parte numérica ("TG2" < "TG12").
+`numberSort` (DTO) = entero para puros; `1_000_000 + parte_numérica` para promos (clave coarse "al final"
+que el front puede reusar). `isSecretRare = numberSort > printedTotal`.
+- **Desviación documentada del literal del contrato:** el contrato ilustra `numberSort` con
+  `regexp_replace(number,'\D','','g')::int` (que daría `TG12`→12, ubicándolo entre las numéricas), pero el
+  MISMO contrato y el reparto de ARCHITECTURE §4.17 exigen "**TG12 al final**" / "no-numéricos al final"
+  (default **WS-E-5**). Se implementó el comportamiento **observable** exigido (promos al final, agrupadas por
+  prefijo), no la fórmula literal (que lo contradice). No se cambió el contrato. **Punto para el arquitecto
+  si quiere reconciliar el texto de la fórmula.**
+
+### 38.5 Defaults de decisiones abiertas aplicados (para revisión del humano)
+- **WS-E-1** completitud = `distinctCardsOwned / catalogCardCount` (denominador = **catálogo real**, nunca
+  >100%; `printedTotal` se expone aparte). `completionPct=null` si `catalogCardCount=0`.
+- **WS-E-2** on-hand = **solo `ownerType='platform'`** con `status NOT IN (withdrawn, shipped, delivered,
+  lost, damaged)`. La custodia de clientes (`customer_custody`) NO cuenta en el binder de back-office.
+- **WS-E-3** `qty` es un **atajo bulk** (raw/sellado) que expande a N piezas/N folios; graded siempre 1.
+- **WS-E-4** cap **200** líneas por lote + idempotencia con `InventoryBatch` (que además ES la auditoría del
+  lote). Empty/over-cap/`batchKey` ausente → `400 VALIDATION_ERROR`.
+- **WS-E-5** no-numéricos/promos al final (ver 38.4).
+
+### 38.6 Desviación menor de implementación (sin cambio de contrato)
+- **Índice Master Set — agregación global vs. page-scoped:** el contrato sugiere agregar solo los `setId` de
+  la página. Para que `sort=completion_asc`/`pieces_desc` sea **globalmente correcto** (no solo dentro de la
+  página) se cargan los sets que hacen match con `q` (select liviano) y se agrega para ellos en **3 queries
+  fijas** (patrón `set-value.service`), no una por set. Sigue siendo **O(1) queries / sin N+1**; el nº de
+  sets es acotado (~cientos). Documentado por si el arquitecto prefiere paginar en DB solo para `release_desc`.
+
+### 38.7 Archivos tocados
+- `prisma/schema.prisma` (índice + `InventoryBatch`), `prisma/migrations/20260817120000_m21_master_set_batch/migration.sql`.
+- `src/prisma/prisma.service.ts` (`nextFolios`).
+- `src/modules/pricing/pricing.service.ts` (`getReferencesBatch`, `loadSalesRules`; `computeSalePriceForItem`
+  reusa `loadSalesRules`).
+- `src/modules/inventory/master-set.service.ts` (**nuevo**: index/binder + orden natural).
+- `src/modules/inventory/inventory.service.ts` (`resolveCreation`/`buildItemData` extraídos; `batchCreate`,
+  `bulkPublish`).
+- `src/modules/inventory/inventory.controller.ts` (4 endpoints), `inventory.module.ts`, `dto/inventory.dto.ts`
+  (DTOs de lote).
+- `src/modules/catalog/catalog.service.ts` (`fetchSellable`/`toListingDTO` con contexto pre-cargado, BE-25).
+- Tests: `test/master-set.service.spec.ts`, `test/inventory.batch.spec.ts`, `test/pricing.references-batch.spec.ts`,
+  `test/catalog.spec.ts` (mock actualizado a las nuevas deps de `fetchSellable`).
+
+### 38.8 Notas para otros roles
+- **frontend (M1):** índice Master Set (grid ordenable), binder (cuadrícula por número; `countsByFinish`,
+  huecos `totalCount=0`, secret rares; **filtros locales** rareza/acabado/faltantes sobre la respuesta
+  completa), carrito de captura → 1 POST `/batch` (render parcial-tolerante por `results[].ok`), publicación
+  masiva → `/bulk-publish`. Reusa el componente de cuadrícula del picker del cotizador.
+- **devops/QA:** doble veredicto (no toca dinero saliente; publicación deriva precio server-side). **No hay
+  DB en el sandbox → la migración M-21 se debe aplicar (`prisma migrate deploy`) en el entorno real.** E2E:
+  inventariar un set por el binder, ver el conteo agregado actualizarse, publicar en lote, confirmar que el
+  replay del carrito no duplica.
+
+### 38.9 Sin dudas de contrato bloqueantes
+El contrato v1.16 es implementable tal cual con los defaults del arquitecto. **Único punto de reconciliación
+NO bloqueante:** el texto de la fórmula `numberSort` del contrato (regexp) contradice el requisito
+"TG12/no-numéricos al final" del mismo contrato; se implementó el requisito observable. No se modificó
+`API_CONTRACT.md`.
+
+**Gates:** `npx tsc --noEmit` exit 0; `npx jest` **72 suites / 503 tests** verdes.

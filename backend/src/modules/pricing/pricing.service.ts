@@ -91,6 +91,66 @@ export class PricingService {
   }
 
   /**
+   * v1.16-master-set (§4.17c) — cierra **RB-8/BE-4/D3**. Resuelve la "referencia vigente = MÁS
+   * RECIENTE por acabado" para N ítems en **1** query (en vez de N `getReference`). Devuelve un
+   * `Map` clave `cardId|productType|gradeKey|finish` → PriceInfo (missing = pending).
+   *
+   * Misma regla de valuación que `getReference` (sin filtro de fecha, `capturedDate desc`, primera
+   * fila por clave). La usan `bulk-publish` y `fetchSellable` (pago mínimo de BE-25); disponible para
+   * `holdings`/`ownedItemRefs`/`inventoryValue` (deuda diferida, misma dirección).
+   */
+  async getReferencesBatch(
+    items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Map<string, PriceInfo>> {
+    const map = new Map<string, PriceInfo>();
+    if (items.length === 0) return map;
+    const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
+      `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
+    const wanted = new Set(items.map(keyOf));
+    const rows = await this.prisma.priceReference.findMany({
+      where: {
+        cardId: { in: [...new Set(items.map((i) => i.cardId))] },
+        productType: { in: [...new Set(items.map((i) => i.productType))] },
+        gradeKey: { in: [...new Set(items.map((i) => i.gradeKey))] },
+        finish: { in: [...new Set(items.map((i) => i.finish))] },
+      },
+      orderBy: { capturedDate: 'desc' },
+      select: {
+        cardId: true,
+        productType: true,
+        gradeKey: true,
+        finish: true,
+        priceMxnCents: true,
+        source: true,
+        capturedDate: true,
+      },
+    });
+    for (const r of rows) {
+      const k = keyOf(r);
+      if (!wanted.has(k) || map.has(k)) continue; // primera vista = más reciente (orden desc)
+      map.set(k, {
+        status: 'priced',
+        referenceMxnCents: r.priceMxnCents,
+        source: r.source as PriceSourceStr,
+        capturedDate: r.capturedDate.toISOString().slice(0, 10),
+      });
+    }
+    return map;
+  }
+
+  /**
+   * v1.16-master-set (BE-25, pago mínimo) — iza `SALES_PRICE_RULES` + fallback en **1** par de
+   * lecturas por request (en vez de 2 lecturas de settings por ítem). Lo usan `bulk-publish` y
+   * `fetchSellable` con `computeSalePriceForRarity` (pura) para evitar el N+1 de settings.
+   */
+  async loadSalesRules(): Promise<{ rules: Record<string, SalesRule>; fallbackPct: number }> {
+    const rules =
+      ((await this.settings.getRaw(SettingKey.SALES_PRICE_RULES)) as Record<string, SalesRule> | null) ?? {};
+    const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
+    return { rules, fallbackPct };
+  }
+
+  /**
    * Sincroniza el precio de una carta (cache diario). Devuelve el PriceInfo.
    * Si no hay precio y no hay override → crea PendingPriceEntry (no descarta).
    */
@@ -360,9 +420,7 @@ export class PricingService {
     item: { rarity: string | null; finish: Finish },
     referenceMxnCents: number | null,
   ): Promise<SalePriceResult> {
-    const rules =
-      ((await this.settings.getRaw(SettingKey.SALES_PRICE_RULES)) as Record<string, SalesRule> | null) ?? {};
-    const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
+    const { rules, fallbackPct } = await this.loadSalesRules();
     return computeSalePriceForRarity(item.rarity, item.finish, referenceMxnCents, rules, fallbackPct);
   }
 

@@ -1,18 +1,50 @@
 import { Injectable } from '@nestjs/common';
-import { Finish, InventoryStatus, MovementReason, Prisma } from '@prisma/client';
+import { Card, Finish, InventoryStatus, MovementReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import { computeAportacionCostCents } from '../../common/money';
+import { computeAportacionCostCents, computeSalePriceForRarity } from '../../common/money';
 import {
+  BatchCreateInventoryRequest,
+  BatchInventoryItemInput,
+  BulkPublishRequest,
   CreateItemDto,
   CreateLocationDto,
   MarkItemDto,
   MoveItemDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
+
+/** Resultado por línea del alta por lote (API_CONTRACT §DTOs — BatchInventoryLineResult). */
+type BatchLineResult =
+  | { index: number; ok: true; folios: string[]; inventoryItemIds: string[]; acquisitionCostCents?: number }
+  | { index: number; ok: false; error: { code: string; message: string } };
+
+export interface BatchCreateInventoryResponse {
+  batchKey: string;
+  idempotentReplay: boolean;
+  summary: { requested: number; createdItems: number; failedLines: number };
+  results: BatchLineResult[];
+}
+
+/** Resultado por línea de la publicación por lote (API_CONTRACT §DTOs — BulkPublishLineResult). */
+type BulkPublishLineResult =
+  | {
+      index: number;
+      inventoryItemId: string;
+      ok: true;
+      status: 'listed';
+      salePriceCents: number;
+      priceSource: 'manual' | 'derived';
+    }
+  | { index: number; inventoryItemId: string; ok: false; error: { code: string; message: string } };
+
+export interface BulkPublishResponse {
+  summary: { requested: number; published: number; failedLines: number };
+  results: BulkPublishLineResult[];
+}
 
 @Injectable()
 export class InventoryService {
@@ -28,6 +60,54 @@ export class InventoryService {
    * → 422 PRICE_PENDING + cola de precio pendiente (nunca se descarta).
    */
   async createItem(dto: CreateItemDto, actorUserId: string) {
+    const r = await this.resolveCreation(dto);
+
+    // v1.1: sellado = precio SIEMPRE manual (MXN). Obligatorio para PUBLICAR: sin
+    // listPriceCents el sellado queda "precio pendiente" (no aparece en Compra). Se escala
+    // a la cola de precio pendiente para que el dueño lo fije (regla transversal).
+    if (r.sealedNeedsEscalate) {
+      await this.pricing.escalatePending(
+        dto.cardId,
+        dto.productType,
+        r.gradeKey,
+        'inventory',
+        undefined,
+        r.finish,
+      );
+    }
+
+    const folio = await this.prisma.nextFolio();
+    const item = await this.prisma.inventoryItem.create({
+      data: this.buildItemData(dto, r, folio),
+    });
+    await this.prisma.inventoryMovement.create({
+      data: {
+        itemId: item.id,
+        toLocationId: dto.locationId,
+        toStatus: 'in_stock',
+        reason: MovementReason.alta,
+        actorUserId,
+        note: dto.acquisitionType,
+      },
+    });
+    return { id: item.id, folio: item.folio, status: item.status, acquisitionCostCents: r.acquisitionCostCents };
+  }
+
+  /**
+   * v1.16-master-set — resuelve/valida el alta de UNA línea (carta, shape por tipo, acabado, costo de
+   * aportación) SIN escribir el item. Extraído de `createItem` para que el ALTA POR LOTE reuse
+   * EXACTAMENTE la misma lógica (SEC-A1: costo de aportación derivado server-side). Lanza
+   * BusinessException (NOT_FOUND / VALIDATION_ERROR / FINISH_NOT_AVAILABLE / PRICE_PENDING) sin crear
+   * nada; para aportación sin referencia escala el pendiente (igual que antes) y lanza PRICE_PENDING.
+   */
+  private async resolveCreation(dto: CreateItemDto | BatchInventoryItemInput): Promise<{
+    card: Card;
+    finish: Finish;
+    gradeKey: string;
+    acquisitionCostCents: number | null;
+    acquisitionPct: number | null;
+    sealedNeedsEscalate: boolean;
+  }> {
     const card = await this.prisma.card.findUnique({ where: { id: dto.cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
 
@@ -39,7 +119,8 @@ export class InventoryService {
     const finish = this.resolveFinish(dto, card.availableFinishes as Finish[]);
 
     const gradeKey = this.pricing.gradeKeyFor(dto);
-    let acquisitionCostCents = dto.acquisitionCostCents ?? null;
+    let acquisitionCostCents =
+      ('acquisitionCostCents' in dto ? dto.acquisitionCostCents : undefined) ?? null;
     let acquisitionPct = dto.acquisitionPct ?? null;
 
     if (dto.acquisitionType === 'aportacion_en_especie') {
@@ -66,57 +147,282 @@ export class InventoryService {
       acquisitionCostCents = computeAportacionCostCents(ref.referenceMxnCents, pct);
     }
 
-    // v1.1: sellado = precio SIEMPRE manual (MXN). Obligatorio para PUBLICAR: sin
-    // listPriceCents el sellado queda "precio pendiente" (no aparece en Compra). Se escala
-    // a la cola de precio pendiente para que el dueño lo fije (regla transversal).
-    if (dto.productType === 'sealed' && dto.listPriceCents == null) {
-      // Tier 0 FIX: pasa el `finish` resuelto (para sealed siempre `normal`, resolveFinish lo
-      // garantiza) — misma firma que el escalado de aportación; la cola es por acabado (M-19).
-      await this.pricing.escalatePending(
-        dto.cardId,
-        dto.productType,
-        gradeKey,
-        'inventory',
-        undefined,
-        finish,
-      );
+    const sealedNeedsEscalate = dto.productType === 'sealed' && dto.listPriceCents == null;
+    return { card, finish, gradeKey, acquisitionCostCents, acquisitionPct, sealedNeedsEscalate };
+  }
+
+  /** Data de creación de un InventoryItem (compartida por alta single/lote). */
+  private buildItemData(
+    dto: CreateItemDto | BatchInventoryItemInput,
+    r: { finish: Finish; acquisitionCostCents: number | null; acquisitionPct: number | null },
+    folio: string,
+  ): Prisma.InventoryItemUncheckedCreateInput {
+    return {
+      folio,
+      cardId: dto.cardId,
+      productType: dto.productType,
+      // raw solo NM (default NM); sellado/graded no llevan rawCondition.
+      rawCondition: dto.productType === 'raw' ? (dto.rawCondition ?? 'NM') : null,
+      finish: r.finish,
+      sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
+      gradingCompany: dto.productType === 'graded' ? dto.gradingCompany : null,
+      gradeValue: dto.productType === 'graded' ? dto.gradeValue : null,
+      // v1.2 (M-12): certNumber solo para graded; null en raw/sealed.
+      certNumber: dto.productType === 'graded' ? dto.certNumber : null,
+      listPriceCents: dto.listPriceCents ?? null,
+      locationId: dto.locationId,
+      ownerType: 'platform',
+      status: 'in_stock',
+      acquisitionType: dto.acquisitionType,
+      acquisitionPct: r.acquisitionPct,
+      acquisitionCostCents: r.acquisitionCostCents,
+      sourceSellRequestItemId:
+        'sourceSellRequestItemId' in dto ? dto.sourceSellRequestItemId : undefined,
+    };
+  }
+
+  /**
+   * v1.16-master-set (§4.17b) — ALTA POR LOTE (carrito de captura). N líneas en 1 request con:
+   *  - **errores por-línea** (una línea inválida NO tumba las demás; commit parcial → HTTP 200);
+   *  - **`qty`** (default 1) atajo que expande a N InventoryItem (N folios) para bulk raw/sellado;
+   *    `graded` fuerza 1 (cada slab es único por certNumber; qty>1 → VALIDATION_ERROR);
+   *  - folios **consecutivos** por línea vía `PrismaService.nextFolios(qty)` (1 reserva de secuencia);
+   *  - **idempotencia + auditoría** por `batchKey` en `InventoryBatch`: un replay devuelve el resultado
+   *    guardado (`idempotentReplay:true`) SIN re-crear.
+   */
+  async batchCreate(
+    req: BatchCreateInventoryRequest,
+    actorUserId: string,
+  ): Promise<BatchCreateInventoryResponse> {
+    // Idempotencia: si el batchKey ya se procesó, repetir el resultado guardado (no re-crea).
+    const existing = await this.prisma.inventoryBatch.findUnique({ where: { id: req.batchKey } });
+    if (existing) {
+      const stored = existing.resultJson as unknown as {
+        summary: BatchCreateInventoryResponse['summary'];
+        results: BatchLineResult[];
+      };
+      return {
+        batchKey: req.batchKey,
+        idempotentReplay: true,
+        summary: stored.summary,
+        results: stored.results,
+      };
     }
 
-    const folio = await this.prisma.nextFolio();
-    const item = await this.prisma.inventoryItem.create({
+    const results: BatchLineResult[] = [];
+    let createdItems = 0;
+    for (let index = 0; index < req.items.length; index++) {
+      const line = req.items[index];
+      try {
+        // graded → cada slab es único (certNumber); qty>1 no tiene sentido → VALIDATION_ERROR.
+        const qty = line.qty ?? 1;
+        if (line.productType === 'graded' && qty > 1) {
+          throw BusinessException.validation('VALIDATION_ERROR', 'graded items cannot have qty > 1');
+        }
+        const r = await this.resolveCreation(line);
+        if (r.sealedNeedsEscalate) {
+          await this.pricing.escalatePending(
+            line.cardId,
+            line.productType,
+            r.gradeKey,
+            'inventory',
+            undefined,
+            r.finish,
+          );
+        }
+        const folios = await this.prisma.nextFolios(qty);
+        const inventoryItemIds: string[] = [];
+        for (const folio of folios) {
+          const item = await this.prisma.inventoryItem.create({
+            data: this.buildItemData(line, r, folio),
+          });
+          await this.prisma.inventoryMovement.create({
+            data: {
+              itemId: item.id,
+              toLocationId: line.locationId,
+              toStatus: 'in_stock',
+              reason: MovementReason.alta,
+              actorUserId,
+              note: line.acquisitionType,
+            },
+          });
+          inventoryItemIds.push(item.id);
+          createdItems++;
+        }
+        results.push({
+          index,
+          ok: true,
+          folios,
+          inventoryItemIds,
+          acquisitionCostCents: r.acquisitionCostCents ?? undefined,
+        });
+      } catch (e) {
+        const err = e as BusinessException;
+        results.push({
+          index,
+          ok: false,
+          error: { code: err.code ?? 'VALIDATION_ERROR', message: err.message ?? 'error' },
+        });
+      }
+    }
+
+    const summary = {
+      requested: req.items.length,
+      createdItems,
+      failedLines: results.filter((r) => !r.ok).length,
+    };
+    // Persistir idempotencia + auditoría del lote (InventoryBatch ES el registro del lote).
+    await this.prisma.inventoryBatch.create({
       data: {
-        folio,
-        cardId: dto.cardId,
-        productType: dto.productType,
-        // raw solo NM (default NM); sellado/graded no llevan rawCondition.
-        rawCondition: dto.productType === 'raw' ? (dto.rawCondition ?? 'NM') : null,
-        finish,
-        sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
-        gradingCompany: dto.productType === 'graded' ? dto.gradingCompany : null,
-        gradeValue: dto.productType === 'graded' ? dto.gradeValue : null,
-        // v1.2 (M-12): certNumber solo para graded; null en raw/sealed.
-        certNumber: dto.productType === 'graded' ? dto.certNumber : null,
-        listPriceCents: dto.listPriceCents ?? null,
-        locationId: dto.locationId,
-        ownerType: 'platform',
-        status: 'in_stock',
-        acquisitionType: dto.acquisitionType,
-        acquisitionPct,
-        acquisitionCostCents,
-        sourceSellRequestItemId: dto.sourceSellRequestItemId,
-      },
-    });
-    await this.prisma.inventoryMovement.create({
-      data: {
-        itemId: item.id,
-        toLocationId: dto.locationId,
-        toStatus: 'in_stock',
-        reason: MovementReason.alta,
+        id: req.batchKey,
         actorUserId,
-        note: dto.acquisitionType,
+        kind: 'create',
+        requested: summary.requested,
+        createdItems: summary.createdItems,
+        failedLines: summary.failedLines,
+        resultJson: { summary, results } as unknown as Prisma.InputJsonValue,
       },
     });
-    return { id: item.id, folio: item.folio, status: item.status, acquisitionCostCents };
+    return { batchKey: req.batchKey, idempotentReplay: false, summary, results };
+  }
+
+  /**
+   * v1.16-master-set (§4.17b) — PUBLICAR POR LOTE (varias piezas → `listed`). Por línea:
+   *  - `listPriceCents` presente → override manual; ausente → precio de venta **derivado** server-side
+   *    de las reglas por rareza+acabado (§4.14, SEC-A1) reusando `computeSalePriceForRarity`.
+   *  - Una pieza cuyo precio NO se resuelve (`pct` sin market) → `PRICE_PENDING`, NO se publica
+   *    (regla "solo se lista lo que tiene precio", §4.9). Sellado sin override → `PRICE_PENDING`.
+   *  - **Errores por-línea** (no encontrada, no `platform`, graded sin certNumber, precio pendiente)
+   *    no tumban las demás → HTTP 200. Re-publicar una `listed` = no-op idempotente (`ok:true`).
+   *  - Pago mínimo de BE-25: iza `SALES_PRICE_RULES`+fallback UNA vez y usa `getReferencesBatch` (1
+   *    lote de referencias) — sin N+1 de settings ni de referencias.
+   */
+  async bulkPublish(req: BulkPublishRequest, actorUserId: string): Promise<BulkPublishResponse> {
+    // Idempotencia opcional del lote (si trae batchKey) — replay devuelve lo guardado.
+    if (req.batchKey) {
+      const existing = await this.prisma.inventoryBatch.findUnique({ where: { id: req.batchKey } });
+      if (existing) {
+        const stored = existing.resultJson as unknown as BulkPublishResponse;
+        return stored;
+      }
+    }
+
+    const ids = req.items.map((i) => i.inventoryItemId);
+    const items = await this.prisma.inventoryItem.findMany({
+      where: { id: { in: ids } },
+      include: { card: true },
+    });
+    const byId = new Map(items.map((i) => [i.id, i]));
+
+    // Pago mínimo BE-25: reglas de venta izadas UNA vez + referencias en 1 lote (sin N+1).
+    const { rules, fallbackPct } = await this.pricing.loadSalesRules();
+    const derivable = items
+      .filter((i) => i.listPriceCents == null)
+      .map((i) => ({
+        cardId: i.cardId,
+        productType: i.productType,
+        gradeKey: this.pricing.gradeKeyFor(i),
+        finish: i.finish,
+      }));
+    const refs = await this.pricing.getReferencesBatch(derivable);
+
+    const results: BulkPublishLineResult[] = [];
+    let published = 0;
+    for (let index = 0; index < req.items.length; index++) {
+      const line = req.items[index];
+      const item = byId.get(line.inventoryItemId);
+      try {
+        if (!item) throw BusinessException.notFound('NOT_FOUND', 'Inventory item not found');
+        if (item.ownerType !== 'platform') {
+          throw BusinessException.validation('VALIDATION_ERROR', 'item is not platform inventory');
+        }
+        if (
+          item.productType === 'graded' &&
+          (!item.certNumber || item.certNumber.trim() === '')
+        ) {
+          throw BusinessException.validation(
+            'VALIDATION_ERROR',
+            'graded items require certNumber to be published',
+          );
+        }
+
+        let salePriceCents: number;
+        let priceSource: 'manual' | 'derived';
+        const manual = line.listPriceCents ?? item.listPriceCents;
+        if (manual != null) {
+          salePriceCents = manual;
+          priceSource = 'manual';
+        } else {
+          // Derivado server-side (SEC-A1): rareza de Card.rarity, acabado de InventoryItem.finish.
+          const gradeKey = this.pricing.gradeKeyFor(item);
+          const ref = refs.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`);
+          const refCents =
+            ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+          const sale = computeSalePriceForRarity(
+            item.card.rarity,
+            item.finish,
+            refCents,
+            rules,
+            fallbackPct,
+          );
+          if (sale.salePriceCents == null) {
+            throw BusinessException.validation(
+              'PRICE_PENDING',
+              'No resolvable sale price (pct without market); not published',
+            );
+          }
+          salePriceCents = sale.salePriceCents;
+          priceSource = 'derived';
+        }
+
+        // status → listed. Re-publicar una `listed` = no-op idempotente. Persiste el override manual.
+        await this.prisma.inventoryItem.update({
+          where: { id: item.id },
+          data: {
+            status: 'listed',
+            ...(line.listPriceCents != null ? { listPriceCents: line.listPriceCents } : {}),
+          },
+        });
+        published++;
+        results.push({
+          index,
+          inventoryItemId: line.inventoryItemId,
+          ok: true,
+          status: 'listed',
+          salePriceCents,
+          priceSource,
+        });
+      } catch (e) {
+        const err = e as BusinessException;
+        results.push({
+          index,
+          inventoryItemId: line.inventoryItemId,
+          ok: false,
+          error: { code: err.code ?? 'VALIDATION_ERROR', message: err.message ?? 'error' },
+        });
+      }
+    }
+
+    const summary = {
+      requested: req.items.length,
+      published,
+      failedLines: results.filter((r) => !r.ok).length,
+    };
+    const response: BulkPublishResponse = { summary, results };
+    if (req.batchKey) {
+      await this.prisma.inventoryBatch.create({
+        data: {
+          id: req.batchKey,
+          actorUserId,
+          kind: 'publish',
+          requested: summary.requested,
+          createdItems: summary.published,
+          failedLines: summary.failedLines,
+          resultJson: response as unknown as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return response;
   }
 
   /**
@@ -125,7 +431,10 @@ export class InventoryService {
    *  - raw → el finish del DTO (default normal), validado contra card.availableFinishes (SEC-A1);
    *    fuera de la lista → 422 FINISH_NOT_AVAILABLE.
    */
-  private resolveFinish(dto: CreateItemDto, availableFinishes: Finish[]): Finish {
+  private resolveFinish(
+    dto: CreateItemDto | BatchInventoryItemInput,
+    availableFinishes: Finish[],
+  ): Finish {
     if (dto.productType !== 'raw') return 'normal';
     const f = dto.finish ?? 'normal';
     const available = availableFinishes ?? ['normal'];
@@ -144,7 +453,7 @@ export class InventoryService {
    * el raw solo NM; el graded exige compañía+grado. Rechaza combinaciones inválidas con
    * 422 VALIDATION_ERROR (API_CONTRACT §M1).
    */
-  private validateProductShape(dto: CreateItemDto) {
+  private validateProductShape(dto: CreateItemDto | BatchInventoryItemInput) {
     if (dto.productType === 'sealed') {
       if (dto.rawCondition || dto.gradingCompany || dto.gradeValue) {
         throw BusinessException.validation(

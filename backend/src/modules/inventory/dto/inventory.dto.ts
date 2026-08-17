@@ -1,10 +1,15 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   AcquisitionType,
   Finish,
@@ -63,4 +68,55 @@ export class CreateLocationDto {
   @IsString() box!: string;
   @IsString() row!: string;
   @IsString() slot!: string;
+}
+
+// ===== v1.16-master-set (§4.17b) — alta por LOTE =====
+
+/**
+ * Una línea del alta por lote. MISMOS campos que POST /admin/inventory/items + `qty` (default 1),
+ * atajo que expande a N InventoryItem (N folios) para bulk raw/sellado; graded → qty forzado a 1
+ * (cada slab es único por certNumber). API_CONTRACT §DTOs (BatchInventoryItemInput).
+ */
+export class BatchInventoryItemInput {
+  @IsString() cardId!: string;
+  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
+  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  finish?: Finish;
+  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
+  @IsOptional() @IsString() gradeValue?: string;
+  @IsOptional() @IsString() certNumber?: string;
+  @IsOptional() @IsString() locationId?: string;
+  @IsIn(['aportacion_en_especie', 'buylist', 'compra']) acquisitionType!: AcquisitionType;
+  @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
+  @IsOptional() @IsInt() @Min(0) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) qty?: number;
+}
+
+export class BatchCreateInventoryRequest {
+  @IsString() batchKey!: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => BatchInventoryItemInput)
+  items!: BatchInventoryItemInput[];
+}
+
+// ===== v1.16-master-set (§4.17b) — publicar por LOTE =====
+
+export class BulkPublishLineInput {
+  @IsString() inventoryItemId!: string;
+  @IsOptional() @IsInt() @Min(0) listPriceCents?: number;
+}
+
+export class BulkPublishRequest {
+  @IsOptional() @IsString() batchKey?: string;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => BulkPublishLineInput)
+  items!: BulkPublishLineInput[];
 }

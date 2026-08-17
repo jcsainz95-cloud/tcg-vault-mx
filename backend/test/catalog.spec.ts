@@ -15,6 +15,20 @@ function pricing(): PricingService {
     getReference: jest.fn(async (cardId: string) =>
       cardId === 'pending' ? { status: 'pending' } : { status: 'priced', referenceMxnCents: 10000 },
     ),
+    // v1.16-master-set (BE-25): fetchSellable iza reglas 1 vez + resuelve referencias en lote.
+    loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+    getReferencesBatch: jest.fn(async (items: any[]) => {
+      const m = new Map<string, any>();
+      for (const it of items) {
+        if (it.cardId !== 'pending') {
+          m.set(`${it.cardId}|${it.productType}|${it.gradeKey}|${it.finish}`, {
+            status: 'priced',
+            referenceMxnCents: 10000,
+          });
+        }
+      }
+      return m;
+    }),
     // v1.13-sales-pricing: el call-site migró a computeSalePriceForItem. Sin market → pending
     // (Illustration Rare cae al fallback pct); con market → 15% arriba (equivale al legacy 1.15).
     computeSalePriceForItem: jest.fn(async (_item: any, ref: number | null) =>
@@ -53,6 +67,7 @@ function itemOf(over: Partial<any> = {}) {
     gradeValue: null,
     certNumber: null,
     status: 'listed',
+    finish: 'normal',
     listPriceCents: 11500,
     createdAt: new Date('2026-08-01'),
     card: cardOf(),
