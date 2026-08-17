@@ -1,5 +1,6 @@
-import { Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { IsOptional, IsString } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuditService } from '../modules/audit/audit.service';
@@ -11,6 +12,14 @@ import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
+import { PriceIngestJobService } from './price-ingest.service';
+
+/** Body opcional del disparo de `price-ingest` (excepción a la familia body-vacío, §M10-ops). */
+class PriceIngestDto {
+  // v1.14-price-ingest: `setId?` (externalId `sv8` o id interno) para ingestar UN solo set y
+  // verificar el esquema del proveedor en la 1ª corrida; omitirlo ingesta TODO el catálogo.
+  @IsOptional() @IsString() setId?: string;
+}
 
 /**
  * Disparo MANUAL de jobs (super_admin, auditado). Complementa al scheduler BullMQ (BE-5 /
@@ -31,6 +40,7 @@ export class AdminJobsController {
     private readonly setPriceSync: SetPriceSyncJobService,
     private readonly setValueSnapshot: SetValueSnapshotJobService,
     private readonly catalogPriceSync: CatalogPriceSyncJobService,
+    private readonly priceIngest: PriceIngestJobService,
     private readonly audit: AuditService,
   ) {}
 
@@ -156,6 +166,28 @@ export class AdminJobsController {
       entityType: 'Job',
       entityId: 'catalog-price-sync',
       after: result,
+    });
+    return result;
+  }
+
+  /**
+   * v1.14-price-ingest (WS-A, §4.15h / §M10-ops) — dispara la INGESTA MASIVA de precios vía el
+   * proveedor seleccionado por el dial `priceProvider`. Encola un fan-out BullMQ (un job por set,
+   * reanudable) o —sin Redis— corre secuencial AWAITED. `setId?` opcional ingesta un solo set
+   * (verificación de esquema en la 1ª corrida). **TOCA DINERO** (mueve precios de referencia) →
+   * super_admin, auditado, single-flight. Res `202` (contrato §M10-ops).
+   */
+  @Post('price-ingest')
+  @HttpCode(202)
+  async runPriceIngest(@Body() dto: PriceIngestDto, @CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.priceIngest.run(dto.setId);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.price_ingest.run',
+      entityType: 'Job',
+      entityId: 'price-ingest',
+      after: { job: result.job, setId: dto.setId ?? null, enqueued: result.enqueued },
     });
     return result;
   }

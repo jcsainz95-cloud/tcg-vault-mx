@@ -9,6 +9,7 @@ import { AuthTokenSweepJobService } from '../src/jobs/auth-token-sweep.service';
 import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
+import { PriceIngestJobService } from '../src/jobs/price-ingest.service';
 
 // BullMQ + ioredis mockeados: capturamos qué jobs se programan sin infra real (Redis).
 const addMock = jest.fn().mockResolvedValue(undefined);
@@ -49,10 +50,15 @@ const setSnap = {
 const catalogPrice = {
   run: jest.fn().mockResolvedValue({ jobId: 'catalog-sync-all-1', setsQueued: 0, remaining: 0 }),
 } as unknown as CatalogPriceSyncJobService;
+const priceIngest = {
+  setQueue: jest.fn(),
+  run: jest.fn().mockResolvedValue({ job: 'price-ingest', enqueued: true }),
+  runChild: jest.fn().mockResolvedValue(undefined),
+} as unknown as PriceIngestJobService;
 
 function build(config: ConfigService) {
   return new SchedulerService(
-    config, jobs, fx, snap, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice,
+    config, jobs, fx, snap, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest,
   );
 }
 
@@ -130,6 +136,35 @@ describe('SchedulerService — con REDIS_URL programa los jobs diarios + catalog
     expect(setSnap.run).toHaveBeenCalled();
     // Ambos repeatables (AM/PM) enrutan al mismo job de re-sync completo.
     expect(catalogPrice.run).toHaveBeenCalledTimes(2);
+
+    // WS-A (v1.14-price-ingest): la cola se ENTREGA al ingest para el fan-out por set, y el worker
+    // enruta el parent (`price-ingest` → run) y el child (`price-ingest-set` → runChild).
+    expect(priceIngest.setQueue).toHaveBeenCalled();
+    await workerProcessor!({ name: 'price-ingest' });
+    await workerProcessor!({ name: 'price-ingest-set', data: { setId: 's1', fx: { rate: 18, bufferPct: 0 } } } as any);
+    expect(priceIngest.run).toHaveBeenCalled();
+    expect(priceIngest.runChild).toHaveBeenCalledWith({ setId: 's1', fx: { rate: 18, bufferPct: 0 } });
+
+    // Por defecto (sin PRICE_INGEST_CRON_*) el ingest NO se auto-programa (rollout money-safe).
+    const scheduledNames = addMock.mock.calls.map((c) => c[0]);
+    expect(scheduledNames).not.toContain('price-ingest-1');
+    expect(scheduledNames).not.toContain('price-ingest-2');
+
+    await svc.onModuleDestroy();
+  });
+
+  it('programa price-ingest 2×/día SOLO si devops fija PRICE_INGEST_CRON_1/_2 (opt-in)', async () => {
+    const config = new ConfigService({
+      REDIS_URL: 'redis://localhost:6379',
+      PRICE_INGEST_CRON_1: '0 3 * * *',
+      PRICE_INGEST_CRON_2: '0 15 * * *',
+    });
+    const svc = build(config);
+    await svc.onModuleInit();
+
+    const byName = Object.fromEntries(addMock.mock.calls.map((c) => [c[0], c[2]?.repeat?.pattern]));
+    expect(byName['price-ingest-1']).toBe('0 3 * * *');
+    expect(byName['price-ingest-2']).toBe('0 15 * * *');
 
     await svc.onModuleDestroy();
   });

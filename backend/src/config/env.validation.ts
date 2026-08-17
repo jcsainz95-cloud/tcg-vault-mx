@@ -39,6 +39,16 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     'RESEND_API_KEY',
   ];
 
+  // v1.14-price-ingest (WS-A, §4.15h): `POKEMONPRICETRACKER_API_KEY` es requisito operativo en
+  // no-local SOLO cuando el proveedor de ingest es el de PAGA. La AUTORIDAD en runtime es el dial
+  // `price_provider` (BD, editable sin redeploy) — que env.validation no puede leer — por eso el
+  // fail-fast se activa con un HINT de env `PRICE_PROVIDER=pokemonpricetracker` (opt-in de devops).
+  // Sin el hint, la key queda OPCIONAL y el ingest degrada seguro (no escribe, precios STALE + log),
+  // NUNCA borra precios ni cae en fallback silencioso a otra fuente.
+  if (config.PRICE_PROVIDER === 'pokemonpricetracker') {
+    required.push('POKEMONPRICETRACKER_API_KEY');
+  }
+
   if (!isLocal) {
     const missing = required.filter((k) => !config[k]);
     if (missing.length > 0) {

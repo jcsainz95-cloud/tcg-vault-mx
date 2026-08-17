@@ -22,6 +22,11 @@ export const SettingKey = {
   PRICING_PROVIDER_RAW: 'pricing_provider_raw',
   PRICING_PROVIDER_GRADED: 'pricing_provider_graded',
   PRICING_PROVIDER_SEALED: 'pricing_provider_sealed',
+  // v1.14-price-ingest (WS-A, §4.15h): proveedor de la INGESTA MASIVA de precios (BulkPriceProvider).
+  // Distinto de los `pricing_provider_*` per-carta de arriba. Palanca de rollback money-safe: seed
+  // `pokemontcg_io` (legacy, sin cambio de fuente al desplegar); el humano flipa a
+  // `pokemonpricetracker` tras verificar el esquema del proveedor de paga en la 1ª corrida.
+  PRICE_PROVIDER: 'price_provider',
   // v1.3.1 (§E.1): tabla de precio de buylist por RAREZA OFICIAL. Reemplaza `rarity_map` en la
   // ruta de cotización. Editables en M2 (GET/PUT /admin/pricing/buylist-rules), no en M10.
   BUYLIST_PRICE_RULES: 'buylist_price_rules',
@@ -65,6 +70,9 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.PRICING_PROVIDER_RAW]: 'pokemontcg_io',
   [SettingKey.PRICING_PROVIDER_GRADED]: 'pokemonpricetracker',
   [SettingKey.PRICING_PROVIDER_SEALED]: 'pokemonpricetracker',
+  // v1.14-price-ingest (WS-A): SEED `pokemontcg_io` por seguridad (rollout money-safe). El flip a
+  // `pokemonpricetracker` lo hace el humano tras verificar el esquema (ARCHITECTURE §4.15h).
+  [SettingKey.PRICE_PROVIDER]: 'pokemontcg_io',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
   // v1.3.1 (§E.1): seed que PRESERVA el negocio vigente (Common/Uncommon $0.50 fijo, Reverse
@@ -103,6 +111,12 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
 };
 
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
+
+/**
+ * v1.14-price-ingest (WS-A, §4.15h): valores válidos del dial `price_provider` (BulkPriceProvider).
+ * SOLO los dos proveedores de ingest masivo (NO poketrace/manual, que son del pricing per-carta).
+ */
+export const PRICE_PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker'];
 
 function isInt(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && Number.isFinite(v);
@@ -209,6 +223,11 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
   [SettingKey.PRICING_PROVIDER_SEALED]: (v) =>
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
+  // v1.14-price-ingest (WS-A): IsIn(['pokemontcg_io','pokemonpricetracker']) → 422 si otro valor.
+  [SettingKey.PRICE_PROVIDER]: (v) =>
+    typeof v === 'string' && PRICE_PROVIDER_VALUES.includes(v)
+      ? null
+      : `must be one of ${PRICE_PROVIDER_VALUES.join('|')}`,
   [SettingKey.RARITY_MAP]: (v) =>
     v !== null && typeof v === 'object' && !Array.isArray(v) ? null : 'must be an object map',
   [SettingKey.BUYLIST_PRICE_RULES]: validateBuylistRules,
@@ -242,6 +261,8 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   pricingProviderRaw: SettingKey.PRICING_PROVIDER_RAW,
   pricingProviderGraded: SettingKey.PRICING_PROVIDER_GRADED,
   pricingProviderSealed: SettingKey.PRICING_PROVIDER_SEALED,
+  // v1.14-price-ingest (WS-A, §M10): dial del proveedor de la ingesta masiva de precios.
+  priceProvider: SettingKey.PRICE_PROVIDER,
   // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
   // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,

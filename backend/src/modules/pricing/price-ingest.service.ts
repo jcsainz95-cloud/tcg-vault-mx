@@ -1,0 +1,199 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { CardSet, Finish } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
+import { SettingKey } from '../settings/settings.constants';
+import { PricingService } from './pricing.service';
+import { BulkPriceProvider, BulkPriceRow } from './pricing.types';
+import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
+import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
+
+/** Snapshot de FX cargado UNA vez por corrida (§4.15f), pasado a cada set. */
+export type FxSnapshot = { rate: number; bufferPct: number };
+
+/** Resumen de la ingesta de un set (observabilidad; NO expuesto por contrato). */
+export interface IngestSetResult {
+  setId: string;
+  setExternalId: string | null;
+  provider: string;
+  /** Cartas locales tocadas (con ≥1 fila válida resuelta). */
+  cardCount: number;
+  /** Filas `PriceReference` upserteadas (por carta+acabado). */
+  priced: number;
+  /** Filas devueltas por el adapter que NO resolvieron a una carta local. */
+  unresolved: number;
+  /** Entradas omitidas por el adapter (mal formadas) + no resueltas. */
+  skipped: number;
+}
+
+/**
+ * PriceIngestService — corazón de WS-A (ARCHITECTURE §4.15c). Ingesta MASIVA de precios por SET
+ * vía un `BulkPriceProvider` pluggable, con **upsert idempotente** de `PriceReference` por
+ * `(cardId, 'raw', 'raw:NM', finish, hoy)` y refresco de `Card.availableFinishes` desde el proveedor.
+ *
+ * - **Provider por dial:** `providerFor()` lee `PRICE_PROVIDER` y elige la implementación.
+ * - **Resolución carta↔BD (§4.15d):** externalId (primario) → `(set, number)` (fallback); sin
+ *   resolución → se OMITE (no crea `PriceReference` huérfana). Vive AQUÍ (no en el adapter) porque
+ *   necesita la BD y el `BulkPriceRow` trae los identificadores (no un cardId ya resuelto).
+ * - **FX una vez por corrida (§4.15f):** el `fx` lo carga el JOB y se pasa a cada `ingestSet`.
+ * - **Money-safe:** respeta overrides manuales (vía `PricingService.persistMarketReference`), no
+ *   clobbea `availableFinishes` si el proveedor no reporta nada, MXN sin conversión.
+ */
+@Injectable()
+export class PriceIngestService {
+  private readonly logger = new Logger(PriceIngestService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+    private readonly pricing: PricingService,
+    private readonly pptBulk: PokemonPriceTrackerBulkProvider,
+    private readonly tcgIoBulk: PokemonTcgIoBulkProvider,
+  ) {}
+
+  /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
+  async providerFor(): Promise<BulkPriceProvider> {
+    const wanted = await this.settings.getString(SettingKey.PRICE_PROVIDER);
+    const providers: BulkPriceProvider[] = [this.pptBulk, this.tcgIoBulk];
+    const chosen = providers.find((p) => p.source === wanted);
+    if (!chosen) {
+      this.logger.warn(`PRICE_PROVIDER="${wanted}" desconocido → fallback a pokemontcg_io (legacy).`);
+      return this.tcgIoBulk;
+    }
+    return chosen;
+  }
+
+  /** IDs internos de TODOS los `CardSet` locales (parent fan-out + fallback secuencial). */
+  async listLocalSetIds(): Promise<string[]> {
+    const sets = await this.prisma.cardSet.findMany({ select: { id: true } });
+    return sets.map((s) => s.id);
+  }
+
+  /**
+   * Ingesta de UN set por su id interno (child job `price-ingest-set`). Idempotente.
+   * `fx` = snapshot cargado una vez por corrida.
+   */
+  async ingestSet(setId: string, fx: FxSnapshot): Promise<IngestSetResult> {
+    const set = await this.prisma.cardSet.findUnique({ where: { id: setId } });
+    if (!set) {
+      this.logger.warn(`price-ingest-set: set ${setId} no existe localmente; se omite.`);
+      return this.emptyResult(setId, null, 'none');
+    }
+    return this.ingestForSet(set, fx);
+  }
+
+  /**
+   * Ingesta de UN set por su externalId (`sv8`) o su id interno — para el disparo manual
+   * `POST /admin/jobs/price-ingest { setId }` (verificación de esquema en la 1ª corrida, §4.15h).
+   */
+  async ingestSetByExternalId(setIdOrExternal: string, fx: FxSnapshot): Promise<IngestSetResult> {
+    const set = await this.prisma.cardSet.findFirst({
+      where: { OR: [{ externalId: setIdOrExternal }, { id: setIdOrExternal }] },
+    });
+    if (!set) {
+      this.logger.warn(`price-ingest: set "${setIdOrExternal}" no encontrado (externalId/id); se omite.`);
+      return this.emptyResult(setIdOrExternal, null, 'none');
+    }
+    return this.ingestForSet(set, fx);
+  }
+
+  /** Ingesta secuencial y AWAITED de TODO el catálogo (fallback sin Redis, §4.15c). */
+  async ingestAll(fx: FxSnapshot): Promise<{ sets: number; priced: number }> {
+    const ids = await this.listLocalSetIds();
+    let priced = 0;
+    for (const id of ids) {
+      const res = await this.ingestSet(id, fx);
+      priced += res.priced;
+    }
+    this.logger.log(`price-ingest (secuencial): ${ids.length} sets, ${priced} referencias.`);
+    return { sets: ids.length, priced };
+  }
+
+  // ----------------------------------------------------------------------------
+
+  private async ingestForSet(set: CardSet, fx: FxSnapshot): Promise<IngestSetResult> {
+    const provider = await this.providerFor();
+    const result = await provider.fetchPricesForSet({ set });
+
+    // Agrupa las filas VÁLIDAS por cardId RESUELTO (§4.15c/§4.15d).
+    const byCard = new Map<string, Map<Finish, BulkPriceRow>>();
+    let unresolved = 0;
+    for (const row of result.rows) {
+      const cardId = await this.resolveCardId(row, set);
+      if (!cardId) {
+        unresolved += 1;
+        continue;
+      }
+      const finishes = byCard.get(cardId) ?? new Map<Finish, BulkPriceRow>();
+      // Si el proveedor repite un acabado para la misma carta, gana la ÚLTIMA (idempotente igual).
+      finishes.set(row.finish, row);
+      byCard.set(cardId, finishes);
+    }
+
+    let priced = 0;
+    for (const [cardId, finishes] of byCard) {
+      const providerFinishes: Finish[] = [];
+      for (const [finish, row] of finishes) {
+        // El adapter ya garantizó market > 0; doble-guard money-safe.
+        if (row.marketCents <= 0) continue;
+        await this.pricing.persistMarketReference(
+          cardId,
+          finish,
+          { marketCents: row.marketCents, currency: row.currency, source: provider.source },
+          fx,
+        );
+        providerFinishes.push(finish);
+        priced += 1;
+      }
+      // Variantes #8 (§4.15e): el proveedor es AUTORIDAD de availableFinishes. Solo se reemplaza
+      // si reporta ≥1 acabado válido; si no reporta nada se RESPETA lo existente (nunca se clobbea).
+      if (providerFinishes.length > 0) {
+        await this.prisma.card.update({
+          where: { id: cardId },
+          data: { availableFinishes: [...new Set(providerFinishes)] },
+        });
+      }
+    }
+
+    this.logger.log(
+      `price-ingest-set(${set.externalId}, ${provider.source}): ${byCard.size} cartas, ` +
+        `${priced} refs, ${unresolved} sin resolver, ${result.skipped} omitidas por el adapter.`,
+    );
+    return {
+      setId: set.id,
+      setExternalId: set.externalId,
+      provider: provider.source,
+      cardCount: byCard.size,
+      priced,
+      unresolved,
+      skipped: result.skipped + unresolved,
+    };
+  }
+
+  /**
+   * Resuelve la carta local (§4.15d): externalId (PRIMARIO) → `(set, number)` (FALLBACK).
+   * Sin resolución → null (la fila se OMITE en el llamador, no se crea referencia huérfana).
+   */
+  private async resolveCardId(row: BulkPriceRow, set: CardSet): Promise<string | null> {
+    if (row.externalId) {
+      const byExt = await this.prisma.card.findUnique({
+        where: { externalId: row.externalId },
+        select: { id: true },
+      });
+      if (byExt) return byExt.id;
+    }
+    if (row.number) {
+      // El ingest está acotado a ESTE set → el fallback busca por (set.id, number).
+      const byNumber = await this.prisma.card.findFirst({
+        where: { setId: set.id, number: row.number },
+        select: { id: true },
+      });
+      if (byNumber) return byNumber.id;
+    }
+    return null;
+  }
+
+  private emptyResult(setId: string, externalId: string | null, provider: string): IngestSetResult {
+    return { setId, setExternalId: externalId, provider, cardCount: 0, priced: 0, unresolved: 0, skipped: 0 };
+  }
+}

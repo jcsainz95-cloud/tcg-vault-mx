@@ -2341,3 +2341,114 @@ reemplaza la tabla `SALES_PRICE_RULES` + `SALES_PRICE_FALLBACK_PCT`). **Sigue ed
 **no-op** funcional: cambiarlo **no afecta** ningún precio de venta y **confunde** al operador. Se conserva
 solo como **palanca de rollback** (decisión abierta **v1.13-3**, ver ARCHITECTURE §4.14d). **Retiro definitivo
 pendiente** — cuando se cierre v1.13-3, quitar el dial del seed/DTO y del código muerto.
+
+## 36. WS-A (v1.14-price-ingest, 2026-08-17) — Ingesta MASIVA de precios (BulkPriceProvider) + FX #13
+
+> **TOCA DINERO → triple veredicto.** Implementa ARCHITECTURE §4.15 (a–h) y API_CONTRACT §M10-ops / §M10 / §M2.
+> **Aditivo, SIN migración de esquema** (reusa `PriceReference`+`finish`, `PriceSource.pokemonpricetracker`,
+> `Card.availableFinishes`). Gates verdes: `npx tsc --noEmit` (exit 0), `npx jest` (**68 suites / 467 tests**),
+> `eslint` limpio. **SEGURIDAD (repo público):** la API key SOLO se lee de
+> `process.env.POKEMONPRICETRACKER_API_KEY` (vía ConfigService) — cero secretos en el repo.
+
+### 36.1 Qué se implementó (por archivo)
+- **`modules/pricing/pricing.types.ts`** — interfaces nuevas `BulkPriceRow` / `BulkPriceResult` /
+  `BulkPriceProvider` (§4.15b, distintas del `PricingProvider` per-carta, que se conserva) + helper
+  `normalizeFinishAlias(raw) → Finish | null` (tabla conservadora variante→acabado; desconocida → `null` →
+  se OMITE, money-safe).
+- **`modules/pricing/providers/pokemonpricetracker-bulk.provider.ts`** (NUEVO, PRIMARIO) —
+  `POST https://www.pokemonpricetracker.com/api/v1/cards/bulk-price` (host FIJO anti-SSRF), `Authorization:
+  Bearer <env key>`, body `{ set, limit, page }`. **Mapeo defensivo:** valida `market>0`, `variante→Finish`,
+  omite mal formado, moneda defensiva. **LOGUEA UN ejemplo** de la 1ª entrada cruda (sin secretos) para
+  verificar el esquema en Railway. Sin key/HTTP fail → `{ rows: [] }` + log (precios STALE, no se borran).
+- **`modules/pricing/providers/pokemontcg-io-bulk.provider.ts`** (NUEVO, LEGACY/rollback) — envuelve
+  `PokemonTcgIoClient.getCardsBySet` (paginado) y extrae `tcgplayer.prices[llave].market` por acabado
+  (USD). Permite `PRICE_PROVIDER=pokemontcg_io` sin la key de paga; el job ya es robusto con esta fuente.
+- **`modules/pricing/price-ingest.service.ts`** (NUEVO, `PriceIngestService`) — `providerFor()` (dial),
+  `ingestSet(setId, fx)` / `ingestSetByExternalId` / `ingestAll(fx)`, resolución carta↔BD (externalId
+  primario → `(set,number)` fallback → omite no resueltas), agrupa por carta, **upsert por acabado** vía
+  `PricingService.persistMarketReference`, **`availableFinishes` derivado del proveedor** (autoridad, no
+  clobbea si el proveedor no reporta nada).
+- **`jobs/price-ingest.service.ts`** (NUEVO, `PriceIngestJobService`) — orquestación: **con Redis** fan-out
+  (un `price-ingest-set` por set, jobId determinista por día = single-flight, `attempts:3`+backoff,
+  reanudable); **sin Redis** secuencial **AWAITED** (nunca fire-and-forget). **FX una vez por corrida**
+  (`FxService.getCurrent()` → snapshot en `job.data`).
+- **`modules/pricing/pricing.service.ts`** — `persistMarketReference` **generalizado**: acepta
+  `{ marketCents, currency: 'USD'|'MXN', source: PriceSource }`. USD → `usdToMxnCents` (colchón) + guarda
+  `priceUsdCents`/`fxRate`/`fxBufferPct`; **MXN → sin conversión** (`priceUsdCents`/`fx*` = null). Respeta
+  `isManualOverride` (skip).
+- **`modules/catalog/catalog-sync.service.ts`** (DEV-5 / A.5) — **aligerado a SOLO metadata**: se
+  quitó `persistMarketReferences` + las deps `PricingService`/`FxService` + todo el threading de FX. Se
+  **conserva** `deriveAvailableFinishes` como **bootstrap** (default seguro; `price-ingest` lo sobre-escribe).
+  Constructor ahora `(prisma, client, settings)`.
+- **`modules/settings/settings.constants.ts`** — dial `PRICE_PROVIDER` (`price_provider`), **seed
+  `'pokemontcg_io'`** (money-safe), validador `IsIn(['pokemontcg_io','pokemonpricetracker'])`, en
+  `SETTING_DTO_MAP` como `priceProvider`.
+- **`modules/pricing/fx.service.ts`** (#13) — `getCurrent()` prefiere el `bufferPct` del **dial** en TODAS
+  las ramas (aplica de inmediato en el próximo ingest); `setManual(rate?, bufferPct?)` con `rate` opcional
+  (omitirlo guarda SOLO el colchón, NO pinnea `fx_manual_override_rate`).
+- **`modules/pricing/pricing.controller.ts`** — `FxDto.rate?` opcional (al menos uno; 422 si el body va vacío).
+- **`jobs/admin-jobs.controller.ts`** — `POST /admin/jobs/price-ingest` (super_admin, auditado
+  `jobs.price_ingest.run`, `HttpCode(202)`, `setId?` opcional). **Toca dinero.**
+- **`jobs/scheduler.service.ts`** — entrega la cola al ingest (`setQueue`), enruta `price-ingest` (parent) /
+  `price-ingest-set` (child) en el worker, y programa `price-ingest` **SOLO si** devops fija
+  `PRICE_INGEST_CRON_1/_2` (**opt-in** → por defecto NO cambia el scheduling actual; rollout money-safe).
+- **`config/env.validation.ts`** — `POKEMONPRICETRACKER_API_KEY` requerida en no-local **solo** cuando el
+  hint de env `PRICE_PROVIDER=pokemonpricetracker` está presente (la autoridad runtime es el dial en BD; el
+  provider degrada seguro si falta la key).
+
+### 36.2 Campos del proveedor de paga ASUMIDOS (a verificar en la 1ª corrida en Railway)
+El dominio del proveedor está **bloqueado en dev por egress**, así que el esquema exacto se verifica en la 1ª
+corrida (`POST /admin/jobs/price-ingest { "setId": "sv8" }` → inspeccionar el **log de ejemplo** +
+`PriceReference`). Supuestos marcados en el adapter (`pokemonpricetracker-bulk.provider.ts`):
+1. **Endpoint/params:** `POST /api/v1/cards/bulk-price` con `{ set, limit, page }`; paginación por `page`
+   (corta cuando la página viene `< limit`).
+2. **Envelope:** `{ data: [] }` (o `cards`/`results`/`prices`/array pelón).
+3. **Id de carta:** `id` | `cardId` | `productId` | `_id`; **número:** `number` | `cardNumber` | `collectorNumber`.
+4. **Variante/acabado:** shape (A) `prices: { <variante>: { market } }` (tcgplayer-like) o (B) plano
+   `variant`/`finish`/`printing` + `market`/`marketPrice`/`price`. Variante desconocida → **OMITE**.
+5. **⚠️ UNIDAD DE `market` (crítico):** se asume **DÓLARES (float)** → `×100` a centavos (como TCGPlayer). Si
+   en realidad viniera en centavos, inflaría 100× → **por eso el dial se siembra en `pokemontcg_io`** y el
+   flip a `pokemonpricetracker` lo hace el humano **tras** verificar el esquema (ARCHITECTURE §4.15h,
+   decisiones abiertas v1.14-1/4).
+6. **Moneda:** `currency` del payload; ausente/ambigua → **USD** (proveedor de mercado US).
+
+### 36.3 Seed del dial + rollout
+`price_provider` **seed `'pokemontcg_io'`** (legacy). El flip a `'pokemonpricetracker'` es del humano/devops
+por `PUT /admin/settings { "priceProvider": "pokemonpricetracker" }` (sin redeploy), tras verificar el esquema.
+El scheduling de `price-ingest` (crons) es **opt-in** por env (`PRICE_INGEST_CRON_1/_2`); por defecto no se
+auto-programa (el disparo manual sí funciona).
+
+### 36.4 Tests (mocks del provider; NO se llama la API real)
+- `test/price-ingest.provider.spec.ts` — mapeo defensivo de ambos adapters + `normalizeFinishAlias`
+  (variante→finish, desconocida→null, skip market≤0, moneda MXN respetada, sin key → `{rows:[]}`, HTTP fail).
+- `test/price-ingest.service.spec.ts` — dial elige provider; upsert por acabado; resolución externalId /
+  `(set,number)`; omite no resueltas; **no clobbea** `availableFinishes`; MXN propagada; `persistMarketReference`
+  USD vs MXN + respeta override.
+- `test/price-ingest.job.spec.ts` — fan-out (un `price-ingest-set` por set) + **FX una vez** (mismo snapshot
+  en cada child); sin cola → `ingestAll` AWAITED; single-flight → `enqueued:false`; `setId` → `scope:set`; `runChild`.
+- `test/fx.buffer-optional-rate.spec.ts` — `getCurrent` usa el colchón del dial; `setManual` con/sin `rate`;
+  `FxController` (422 body vacío, solo-buffer, rate+buffer).
+- `test/settings.validation.spec.ts` (+casos) — `priceProvider` válido/ inválido + expuesto en `getAllDto`.
+- Ajustados por el aligeramiento de `catalog-sync`: `catalog-sync.spec.ts`, `catalog-sync.finish.spec.ts`,
+  `catalog.remote-sets-fallback.spec.ts` (constructor 3 args), `catalog-price-sync.spec.ts` (solo el job),
+  `admin-jobs.controller.spec.ts` + `scheduler.spec.ts` (nueva dep `PriceIngestJobService`).
+
+### 36.5 Notas para otros roles
+- **devops:** (1) `POKEMONPRICETRACKER_API_KEY` ya se lee de env (añádela a `.env.example`/Railway; **no edité
+  `.env.example`**). (2) Programar `price-ingest` con `PRICE_INGEST_CRON_1/_2` (UTC) **cuando** el humano flipe
+  el dial; correr `fx-refresh` antes. (3) El slot 2×/día de `catalog-price-sync` puede **repuntarse** a
+  `price-ingest` para el pricing; `catalog-price-sync` se conserva para import de metadata (`force:false`). (4)
+  Cuota/coste del proveedor de paga = decisión abierta v1.14-2.
+- **QA/seguridad:** SEC-A1 intacto (precio server-side del proveedor; `finish` = dimensión de la clave, no
+  monto del cliente). Money-safe: sin key/fallo → NO se borran precios (STALE) + log; MXN sin ×FX; variante
+  desconocida → omitida (no se atribuye a `normal`). Verificar la unidad de `market` (§36.2.5) en la 1ª corrida.
+- **frontend (M2):** `PUT /admin/fx` acepta `rate?` opcional (guardar solo colchón); alternativa recomendada
+  `PUT /admin/settings { fxBufferPct }`. Dial `priceProvider` editable en M2/M10.
+
+### 36.6 Decisión de implementación a señalar (NO cambia el contrato)
+La **resolución carta↔BD** (externalId primario, `(set,number)` fallback, omitir no resueltas) vive en
+`PriceIngestService`, **no dentro del adapter HTTP**, porque (a) el `BulkPriceRow` del contrato §4.15b lleva
+`externalId`/`number` (NO un `cardId` ya resuelto) y §4.15c dice que el child "agrupa por cardId **resuelto**",
+y (b) mantiene el adapter **sin BD** y unit-testeable. Funcionalmente idéntico al requisito money-safe de §4.15d.
+Ninguna duda de contrato/esquema bloqueante: el único punto a confirmar en runtime es el **esquema del payload
+del proveedor de paga** (§36.2), ya contemplado por el diseño (dial seed legacy + verificación en 1ª corrida).

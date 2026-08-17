@@ -29,9 +29,14 @@ class OverrideDto {
   finish?: Finish;
 }
 
+/**
+ * v1.14-price-ingest (#13): `rate?` opcional. Si se omite, se actualiza SOLO el colchón
+ * (`bufferPct`) sin pinnear el override manual de tasa (Banxico auto sigue activo). Ambos son
+ * opcionales pero el controller exige al menos uno (422 si el body no trae ninguno).
+ */
 class FxDto {
-  @IsInt() @Min(1) rate!: number;
-  @IsInt() @Min(0) bufferPct!: number;
+  @IsOptional() @IsInt() @Min(1) rate?: number;
+  @IsOptional() @IsInt() @Min(0) bufferPct?: number;
 }
 
 class RarityMapDto {
@@ -316,11 +321,15 @@ export class FxController {
 
   @Put()
   async setManual(@Body() dto: FxDto, @CurrentUser('id') userId: string) {
+    // #13: al menos uno de rate/bufferPct. Omitir `rate` guarda SOLO el colchón (no pinnea tasa).
+    if (dto.rate == null && dto.bufferPct == null) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'Provide rate and/or bufferPct');
+    }
     await this.fx.setManual(dto.rate, dto.bufferPct);
     await this.audit.log({
       actorUserId: userId,
       action: 'fx.override',
-      after: { rate: dto.rate, bufferPct: dto.bufferPct },
+      after: { rate: dto.rate ?? null, bufferPct: dto.bufferPct ?? null },
     });
     return this.fx.getCurrent();
   }

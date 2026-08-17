@@ -7,6 +7,7 @@ import { AuthTokenSweepJobService } from '../src/jobs/auth-token-sweep.service';
 import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
+import { PriceIngestJobService } from '../src/jobs/price-ingest.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { Role } from '@prisma/client';
 
@@ -30,10 +31,13 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   const catalogPrice = {
     run: jest.fn().mockResolvedValue({ jobId: 'catalog-sync-all-1', setsQueued: 5, remaining: 0 }),
   } as unknown as CatalogPriceSyncJobService;
+  const priceIngest = {
+    run: jest.fn().mockResolvedValue({ job: 'price-ingest', enqueued: true, jobId: 'price-ingest-2026-08-17' }),
+  } as unknown as PriceIngestJobService;
   const audit = { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
   const ctrl = new AdminJobsController(
-    snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, audit,
+    snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest, audit,
   );
 
   beforeEach(() => jest.clearAllMocks());
@@ -126,6 +130,36 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
         entityType: 'Job',
         entityId: 'catalog-price-sync',
       }),
+    );
+  });
+
+  // v1.14-price-ingest (WS-A): ingesta masiva. Sin setId → catálogo completo; auditado. TOCA DINERO.
+  it('POST /admin/jobs/price-ingest (sin setId) corre run() y audita jobs.price_ingest.run', async () => {
+    const res = await ctrl.runPriceIngest({}, user);
+    expect(priceIngest.run).toHaveBeenCalledWith(undefined);
+    expect(res).toEqual({ job: 'price-ingest', enqueued: true, jobId: 'price-ingest-2026-08-17' });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.price_ingest.run',
+        entityType: 'Job',
+        entityId: 'price-ingest',
+        after: { job: 'price-ingest', setId: null, enqueued: true },
+      }),
+    );
+  });
+
+  it('POST /admin/jobs/price-ingest { setId } pasa el set al servicio (verificación de esquema)', async () => {
+    (priceIngest.run as jest.Mock).mockResolvedValueOnce({
+      job: 'price-ingest',
+      enqueued: true,
+      scope: 'set',
+      setId: 'sv8',
+    });
+    const res = await ctrl.runPriceIngest({ setId: 'sv8' }, user);
+    expect(priceIngest.run).toHaveBeenCalledWith('sv8');
+    expect(res).toMatchObject({ job: 'price-ingest', scope: 'set', setId: 'sv8' });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'jobs.price_ingest.run', after: expect.objectContaining({ setId: 'sv8' }) }),
     );
   });
 });

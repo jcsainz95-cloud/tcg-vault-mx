@@ -12,6 +12,8 @@ import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
+import { PriceIngestJobService, PRICE_INGEST_SET_JOB } from './price-ingest.service';
+import { FxSnapshot } from '../modules/pricing/price-ingest.service';
 
 const QUEUE_NAME = 'tcg-daily';
 
@@ -46,6 +48,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly setPriceSync: SetPriceSyncJobService,
     private readonly setValueSnapshot: SetValueSnapshotJobService,
     private readonly catalogPriceSync: CatalogPriceSyncJobService,
+    private readonly priceIngest: PriceIngestJobService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -89,6 +92,15 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.repeat('catalog-price-sync-2', catalogCron2),
     );
 
+    // v1.14-price-ingest (WS-A, §4.15c/§4.15g): entrega la cola al ingest para el fan-out por set,
+    // y programa `price-ingest` SOLO si devops fija los crons (opt-in, rollout money-safe: por
+    // defecto no se auto-programa; el disparo manual `POST /admin/jobs/price-ingest` sigue activo).
+    this.priceIngest.setQueue(this.queue);
+    const ingestCron1 = this.config.get<string>('PRICE_INGEST_CRON_1');
+    const ingestCron2 = this.config.get<string>('PRICE_INGEST_CRON_2');
+    if (ingestCron1) await this.queue.add('price-ingest-1', {}, this.repeat('price-ingest-1', ingestCron1));
+    if (ingestCron2) await this.queue.add('price-ingest-2', {}, this.repeat('price-ingest-2', ingestCron2));
+
     this.worker = new Worker(
       QUEUE_NAME,
       async (job) => {
@@ -114,6 +126,15 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
           case 'catalog-price-sync-1':
           case 'catalog-price-sync-2':
             return this.catalogPriceSync.run();
+          // v1.14-price-ingest (WS-A): parent (fan-out por set) y child (ingesta de UN set).
+          case 'price-ingest':
+          case 'price-ingest-1':
+          case 'price-ingest-2':
+            return this.priceIngest.run();
+          case PRICE_INGEST_SET_JOB:
+            return this.priceIngest.runChild(
+              job.data as { setId: string; fx: FxSnapshot },
+            );
           default:
             this.logger.warn(`Job desconocido en la cola: ${job.name}`);
             return null;
@@ -141,6 +162,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.priceIngest.setQueue(undefined);
     await this.worker?.close();
     await this.queue?.close();
     if (this.connection) await this.connection.quit();

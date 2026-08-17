@@ -46,7 +46,10 @@ export class FxService {
     if (latest) {
       return {
         rate: Number(latest.rate),
-        bufferPct: Number(latest.bufferPct),
+        // #13 fix (WS-A §4.15f): prefiere el colchón del DIAL (`fx_buffer_pct`) en TODAS las ramas,
+        // no el `bufferPct` congelado en la fila `FxRate` del último `fx-refresh`. Así un cambio de
+        // colchón aplica de INMEDIATO en el próximo ingest, sin esperar al siguiente `fx-refresh`.
+        bufferPct,
         source: latest.source === 'banxico' ? 'banxico' : 'manual',
         effectiveDate: latest.effectiveDate.toISOString().slice(0, 10),
       };
@@ -55,20 +58,31 @@ export class FxService {
     return { rate: 18, bufferPct, source: 'manual', effectiveDate: today().toISOString().slice(0, 10) };
   }
 
-  /** Fija override manual (M10). source=manual, prioridad sobre automático del día. */
-  async setManual(rate: number, bufferPct: number): Promise<void> {
-    await this.settings.update({ fxManualOverrideRate: rate, fxBufferPct: bufferPct });
-    await this.prisma.fxRate.upsert({
-      where: { id: `manual-${today().toISOString().slice(0, 10)}` },
-      create: {
-        id: `manual-${today().toISOString().slice(0, 10)}`,
-        rate,
-        bufferPct,
-        effectiveDate: today(),
-        source: 'manual',
-      },
-      update: { rate, bufferPct, source: 'manual' },
-    });
+  /**
+   * Fija override manual y/o el colchón (M10). `source=manual`, prioridad sobre el automático.
+   *
+   * #13 fix (WS-A §4.15f, `PUT /admin/fx` con `rate?` opcional): si se OMITE `rate`, actualiza
+   * SOLO el colchón (`fx_buffer_pct`) y **NO** pinnea `fx_manual_override_rate` → la tasa automática
+   * de Banxico SIGUE activa (antes exigía ambos y congelaba la tasa sin querer al subir el colchón).
+   * El colchón se refleja de inmediato vía `getCurrent()` (que ya prefiere el dial). Solo cuando se
+   * provee `rate` explícito se pinnea el override y se escribe una fila `FxRate` manual del día.
+   */
+  async setManual(rate?: number, bufferPct?: number): Promise<void> {
+    const patch: Record<string, unknown> = {};
+    if (bufferPct != null) patch.fxBufferPct = bufferPct;
+    if (rate != null) patch.fxManualOverrideRate = rate;
+    if (Object.keys(patch).length > 0) await this.settings.update(patch);
+
+    // Solo con `rate` explícito se pinnea el override y la fila `FxRate` manual (source=manual).
+    if (rate != null) {
+      const effBuffer = bufferPct ?? (await this.settings.getNumber(SettingKey.FX_BUFFER_PCT));
+      const id = `manual-${today().toISOString().slice(0, 10)}`;
+      await this.prisma.fxRate.upsert({
+        where: { id },
+        create: { id, rate, bufferPct: effBuffer, effectiveDate: today(), source: 'manual' },
+        update: { rate, bufferPct: effBuffer, source: 'manual' },
+      });
+    }
   }
 
   /** Job fx-refresh: obtiene de Banxico SIE, aplica colchón, escribe source=banxico. */

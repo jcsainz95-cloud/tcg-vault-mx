@@ -201,21 +201,28 @@ export class PricingService {
   }
 
   /**
-   * v1.12-catalog-pricing (§4.13a) — pobla `PriceReference` de MERCADO de una carta/acabado desde
-   * el `market` (USD) que trae `tcgplayer.prices`, durante el `catalog-sync`. Upsert idempotente por
-   * día sobre la clave `(cardId, 'raw', 'raw:NM', finish, capturedDate=hoy)`; `source='pokemontcg_io'`.
+   * v1.12-catalog-pricing (§4.13a) → GENERALIZADO por WS-A (v1.14-price-ingest, §4.15c/§4.15g).
+   * Pobla `PriceReference` de MERCADO de una carta/acabado. Upsert idempotente por día sobre la
+   * clave `(cardId, 'raw', 'raw:NM', finish, capturedDate=hoy)`.
+   *
+   * WS-A: antes hardcodeaba `source='pokemontcg_io'` y asumía USD. Ahora acepta `source`
+   * (`PriceSource`) y `currency` para servir también al ingest del proveedor de PAGA:
+   *  - `currency==='USD'` → convierte con `usdToMxnCents(market, fx.rate, fx.bufferPct)` (colchón #13),
+   *    guarda `priceUsdCents` + `fxRate`/`fxBufferPct` (trazabilidad de la conversión).
+   *  - `currency==='MXN'` → SIN conversión ni colchón (el colchón es un cushion del riesgo FX
+   *    USD→MXN; si el proveedor ya da MXN no hay FX que amortiguar). `priceUsdCents`/`fx*` = null.
    *
    * - **NO pisa overrides manuales:** si la fila de hoy existe con `isManualOverride=true`, hace
    *   **skip** (el override del admin manda, §4.1).
-   * - **NO escala pendientes:** este flujo (catálogo completo) nunca encola `PendingPriceEntry`
-   *   (§4.13a). El llamador solo invoca este método cuando hay `market > 0`.
+   * - **NO escala pendientes:** este flujo (catálogo completo) nunca encola `PendingPriceEntry`.
+   *   El llamador solo invoca este método cuando hay `market > 0` (validado por el adapter).
    * - **FX pre-cargado:** recibe el snapshot `{ rate, bufferPct }` cargado una sola vez por corrida
-   *   (no llama `FxService` por carta).
+   *   (no llama `FxService` por carta) — FX una vez por corrida (§4.15f).
    */
   async persistMarketReference(
     cardId: string,
     finish: Finish,
-    marketUsdCents: number,
+    market: { marketCents: number; currency: 'USD' | 'MXN'; source: PriceSourceStr },
     fx: { rate: number; bufferPct: number },
   ): Promise<void> {
     const productType: ProductType = 'raw';
@@ -233,30 +240,25 @@ export class PricingService {
     const existing = await this.prisma.priceReference.findUnique({ where: key });
     // No clobbea el override manual del admin (§4.1): si hay override de hoy, se respeta.
     if (existing?.isManualOverride) return;
-    const priceMxnCents = usdToMxnCents(marketUsdCents, fx.rate, fx.bufferPct);
+    const isUsd = market.currency === 'USD';
+    const priceMxnCents = isUsd
+      ? usdToMxnCents(market.marketCents, fx.rate, fx.bufferPct)
+      : market.marketCents;
+    const priceUsdCents = isUsd ? market.marketCents : null;
+    const fxRate = isUsd ? fx.rate : null;
+    const fxBufferPct = isUsd ? fx.bufferPct : null;
+    const data = {
+      source: market.source,
+      priceUsdCents,
+      fxRate,
+      fxBufferPct,
+      priceMxnCents,
+      isManualOverride: false,
+    };
     await this.prisma.priceReference.upsert({
       where: key,
-      create: {
-        cardId,
-        productType,
-        gradeKey,
-        finish,
-        source: 'pokemontcg_io',
-        priceUsdCents: marketUsdCents,
-        fxRate: fx.rate,
-        fxBufferPct: fx.bufferPct,
-        priceMxnCents,
-        capturedDate,
-        isManualOverride: false,
-      },
-      update: {
-        source: 'pokemontcg_io',
-        priceUsdCents: marketUsdCents,
-        fxRate: fx.rate,
-        fxBufferPct: fx.bufferPct,
-        priceMxnCents,
-        isManualOverride: false,
-      },
+      create: { cardId, productType, gradeKey, finish, capturedDate, ...data },
+      update: data,
     });
   }
 

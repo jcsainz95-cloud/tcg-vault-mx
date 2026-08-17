@@ -24,9 +24,7 @@ function remoteCard(id: string) {
 }
 
 const settings = () => ({ getString: jest.fn(async () => '2024/01/01') }) as unknown as SettingsService;
-// v1.12-catalog-pricing: deps nuevas del sync (PricingService + FxService).
-const pricingMock = () => ({ persistMarketReference: jest.fn(async () => {}) }) as any;
-const fxMock = () => ({ getCurrent: jest.fn(async () => ({ rate: 18, bufferPct: 0 })) }) as any;
+// WS-A (v1.14-price-ingest): `catalog-sync` volvió a SOLO metadata → constructor (prisma, client, settings).
 
 describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
   it('pokemontcg.io falla → fallback a sets LOCALES (degraded=true, source=local)', async () => {
@@ -40,7 +38,7 @@ describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
         throw new Error('pokemontcg.io /sets -> HTTP 429');
       }),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), pricingMock(), fxMock());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
 
     const res: any = await svc.remoteSets();
     expect(res.degraded).toBe(true);
@@ -64,7 +62,7 @@ describe('CatalogSyncService.remoteSets — degradación con gracia', () => {
     const client = {
       getSets: jest.fn(async () => [{ id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' }]),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), pricingMock(), fxMock());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
     const res: any = await svc.remoteSets();
     expect(res.degraded).toBe(false);
     expect(res.source).toBe('remote');
@@ -96,7 +94,7 @@ describe('CatalogSyncService — import robusto por carta', () => {
         totalCount: 3,
       })),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), pricingMock(), fxMock());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
 
     // importSet devuelve el cardCount REAL importado (2), no aborta en la 1ª.
     const res = await (svc as any).importSet({ id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' });
@@ -115,7 +113,7 @@ describe('CatalogSyncService — import robusto por carta', () => {
         totalCount: 3,
       })),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), pricingMock(), fxMock());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
     const res = await (svc as any).importSet({ id: 'sv8', name: 'S', releaseDate: '2024/11/08' });
     expect(res.cardCount).toBe(2); // la carta inválida se omite; las otras 2 entran
     expect(prisma.card.upsert).toHaveBeenCalledTimes(2);
@@ -130,7 +128,7 @@ describe('CatalogSyncService — import robusto por carta', () => {
       // página 2: la 3ª carta
       .mockResolvedValueOnce({ data: [remoteCard('c3')], page: 2, pageSize: 2, count: 1, totalCount: 3 });
     const client = { getCardsBySet } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), pricingMock(), fxMock());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
 
     const res = await (svc as any).importSet({ id: 'sv8', name: 'S', releaseDate: '2024/11/08' });
     expect(getCardsBySet).toHaveBeenCalledTimes(2); // page 1 y page 2

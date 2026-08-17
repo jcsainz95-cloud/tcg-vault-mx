@@ -57,13 +57,6 @@ describe('CatalogSyncService.upsertCards — persiste availableFinishes', () => 
   function settings(): SettingsService {
     return { getString: jest.fn(async () => '2024/01/01') } as unknown as SettingsService;
   }
-  // v1.12-catalog-pricing: deps nuevas del sync (pobla PriceReference + FX una vez por corrida).
-  function pricingMock() {
-    return { persistMarketReference: jest.fn(async () => {}) } as any;
-  }
-  function fxMock() {
-    return { getCurrent: jest.fn(async () => ({ rate: 18, bufferPct: 0 })) } as any;
-  }
 
   function remoteCard(id: string, prices?: Record<string, { market?: number }>) {
     return {
@@ -94,7 +87,7 @@ describe('CatalogSyncService.upsertCards — persiste availableFinishes', () => 
       })),
       getSets: jest.fn(),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), pricingMock(), fxMock());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
 
     await svc.sync('sv8');
 

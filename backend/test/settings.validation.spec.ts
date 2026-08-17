@@ -69,6 +69,25 @@ describe('SettingsService.update — validación de diales (fix #2)', () => {
     });
   });
 
+  // v1.14-price-ingest (WS-A): dial `priceProvider` (IsIn pokemontcg_io|pokemonpricetracker).
+  it('accepts priceProvider ∈ {pokemontcg_io, pokemonpricetracker}', async () => {
+    await expect(service.update({ priceProvider: 'pokemontcg_io' })).resolves.toEqual({
+      priceProvider: 'pokemontcg_io',
+    });
+    await expect(service.update({ priceProvider: 'pokemonpricetracker' })).resolves.toEqual({
+      priceProvider: 'pokemonpricetracker',
+    });
+  });
+
+  it('rejects priceProvider outside the ingest enum (e.g. poketrace/manual) with 422', async () => {
+    await expect(service.update({ priceProvider: 'poketrace' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    await expect(service.update({ priceProvider: 'made_up' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+  });
+
   it('allows fxManualOverrideRate null (no override) or positive number', async () => {
     await expect(service.update({ fxManualOverrideRate: null })).resolves.toBeDefined();
     await expect(service.update({ fxManualOverrideRate: 18.5 })).resolves.toBeDefined();
@@ -111,6 +130,14 @@ describe('SettingsService.getAllDto — expone catalogSyncFromDate', () => {
     const service = new SettingsService(prisma as unknown as PrismaService);
     const dto = await service.getAllDto();
     expect(dto).toHaveProperty('catalogSyncFromDate', '2024/01/01');
+  });
+
+  // v1.14-price-ingest (WS-A): el DTO M10 gana `priceProvider` con SEED `pokemontcg_io` (money-safe).
+  it('returns priceProvider with its default seed (pokemontcg_io) when no DB row exists', async () => {
+    const prisma = { configSetting: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const service = new SettingsService(prisma as unknown as PrismaService);
+    const dto = await service.getAllDto();
+    expect(dto).toHaveProperty('priceProvider', 'pokemontcg_io');
   });
 
   it('returns the persisted catalogSyncFromDate when a DB row exists', async () => {
