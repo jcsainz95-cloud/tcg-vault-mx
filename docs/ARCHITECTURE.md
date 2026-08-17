@@ -2,7 +2,27 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.17.1-withdrawal-eligibility (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.18-buylist-rejects (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/catalogo-precios-stream-blic9a`.
+>
+> **Changelog v1.18-buylist-rejects (2026-08-17) — WS «Catálogo y precios»: M5 operable — identidad del vendedor,
+> orden del listado, semántica completa del ítem RECHAZADO (plazos 7d/30d + correo al vendedor) y orden normativo de
+> `GET /buylist/sets`. PROJECT §H / criterios 15–16.** Aditivo, no-breaking. ⚠️ **UNA migración (M-22, §11):** 2
+> columnas nullable en `SellRequestItem` (`rejectedAt`, `rejectionReason`) — **prisma = zona compartida**, el
+> orquestador serializa. Ver **§4.18** (spec completa), §9 (BL-1) y API_CONTRACT v1.18 (§6, §M5, §11).
+> - **Rechazo de ítem:** `reason` obligatorio en `decision:"reject"`; `rejectedAt` = ancla ÚNICA de plazos;
+>   `returnDeadlineAt` (+7d, devolución a costo del usuario) y `abandonDeadlineAt` (+30d) **DERIVADOS** al proyectar
+>   (no columnas; mismas constantes que `buylist-sweep`). Invariante de dinero: ítem `rechazada` ⇒
+>   `approvedPriceCents=null` y fuera de `approvedTotalCents` (cierra BL-1: approve→reject dejaba monto fantasma).
+>   `rechazada` **NUNCA** convertible a inventario (guardia `ITEM_NOT_APPROVED` = norma; PROJECT criterio 16).
+> - **Correo de rechazo (§4.18):** enviado desde `buylist` inyectando el puerto global **`MAIL_PORT`** con plantilla
+>   LOCAL al módulo (ES/EN por `User.locale`, mismo layout/escape que `mail.templates.ts`). El módulo `mail` es de
+>   OTRO stream y NO se toca (deuda aceptada: la plantilla vive fuera de `mail/` hasta que «Cuentas y acceso» la
+>   absorba). **Best-effort** (fallo ⇒ log, nunca revierte la decisión); sin CLABE ni datos de otros ítems.
+> - **M5:** `seller: { id, name, email }` en listado/detalle (correo = contacto operativo, NO CLABE ⇒ sin reveal);
+>   listado por `createdAt` **desc**; nuevo `GET /admin/buylist/rejected-items` (pestaña «Rechazadas», transversal).
+> - **`GET /buylist/sets`:** norma `releaseDate` desc (fecha completa) → desempate `name` asc → sin `releaseDate` al
+>   final.
+> - **Coordinación de streams:** `backend/src/jobs/` se asigna al stream que toca sus jobs (nota en §2).
 >
 > **Changelog v1.17.1-withdrawal-eligibility (2026-08-17) — Cierre de invariante read/write del RETIRO (triple verdicto
 > WS-H: techlead + seguridad SEC-H1 + qa). SOLO documentación.** La transición terminal deja el item `status='withdrawn'`
@@ -517,6 +537,13 @@ backend/
     prisma/            # schema.prisma + migraciones
   test/
 ```
+
+> **Coordinación de work streams — `backend/src/jobs/` (v1.18-buylist-rejects):** la carpeta `jobs/` NO es zona
+> compartida fija: **queda asignada al stream que toca sus jobs correspondientes** (un job pertenece al dominio del
+> módulo que sirve). En el ciclo actual, el stream **«Catálogo y precios»** toca `scheduler.service.ts` /
+> `price-ingest*` (auditoría de precios en curso) y `buylist-sweep.service.ts` si el rechazo lo requiere. Si dos
+> streams necesitan el MISMO archivo de `jobs/` (típicamente `scheduler.service.ts`), el orquestador **serializa** ese
+> cambio como con cualquier zona compartida.
 
 ### frontend/ (Next.js App Router)
 ```
@@ -2307,6 +2334,57 @@ cuadrícula (celda = carta+acabados); solo cambia la acción (agregar-al-carrito
 
 ---
 
+### 4.18 WS «Catálogo y precios» — M5 operable: rechazo de ítem con plazos + correo al vendedor (v1.18-buylist-rejects)
+
+> Norma la parte del ciclo de buylist que faltaba tras la decisión `reject` (PROJECT §H / criterios 15–16): hoy el
+> rechazo solo cambia `itemStatus` — sin motivo, sin fechas, sin notificación al vendedor y con un hueco de dinero
+> (BL-1, §9). API_CONTRACT v1.18 (§M5) tiene los shapes; aquí van las decisiones de diseño.
+
+**a) Ancla única de plazos = `rejectedAt` (persistido, M-22).** `SellRequestItem` no tiene NINGÚN timestamp propio
+(ni `updatedAt`); `adjustmentSentAt` vive en la solicitud y solo aplica al flujo `adjust`; y `AuditLog` no es fuente
+válida para lógica de plazos (cross-módulo, sin índice útil, semántica de bitácora). Por eso `rejectedAt` (y el
+`rejectionReason` que exige el correo y la pestaña «Rechazadas») son columnas **imprescindibles** — las ÚNICAS de esta
+versión. Los plazos **NO se persisten**: `returnDeadlineAt = rejectedAt + 7d` y `abandonDeadlineAt = rejectedAt + 30d`
+se derivan al proyectar, con constantes de servidor de la **misma familia 7d/30d** que `buylist-sweep.service.ts`
+(coherencia: el sweep ancla el 7d del AJUSTE en `adjustmentSentAt` y el 30d de abandono de solicitud en `createdAt`;
+el ítem RECHAZADO ancla ambos en `rejectedAt` = momento en que se decide y se notifica). **Sin transición automática
+del ítem al vencer**: las fechas son informativas para back-office y vendedor; el sweep a nivel solicitud no cambia, y
+la retención física post-abandono se administra manualmente (la carta jamás se vuelve vendible — guardia
+`ITEM_NOT_APPROVED`).
+
+**b) Invariante de dinero (cierra BL-1).** `reject` ⇒ `approvedPriceCents = null` **antes** de
+`recomputeApprovedTotal`. Defensa en profundidad recomendada a backend: que el aggregate del recompute además excluya
+`itemStatus='rechazada'` (así el invariante sobrevive a escrituras futuras que olviden anular el monto). Observable
+normado: `approvedTotalCents` NUNCA incluye ítems rechazados; `quotedTotalCents` no se recalcula.
+
+**c) Correo de rechazo — mecanismo (decisión de diseño).** El módulo `mail` pertenece al stream «Cuentas y acceso» y
+**NO se toca**. `buylist` inyecta el **puerto público `MAIL_PORT`** (interfaz genérica `send({to, subject, html,
+text})`; el `MailModule` ya es `@Global` y exporta el token) y renderiza con **plantilla LOCAL al módulo buylist**
+(p. ej. `backend/src/modules/buylist/buylist-mail.templates.ts`), bilingüe **ES/EN por `User.locale`** y con el
+**mismo layout/branding y disciplina de escape HTML (S15-B1)** que `mail.templates.ts`. Firma sugerida:
+`sellItemRejectedTemplate({ cardName, setName, cardNumber, finish, reason, returnDeadlineAt, abandonDeadlineAt },
+name, locale) → MailMessage`. **Deuda aceptada:** la plantilla (y el helper de layout duplicado) vive fuera de `mail/`
+hasta que el stream «Cuentas y acceso» la absorba en `MailService` — backend la registra en `docs/TECH_DEBT.md`.
+- **Best-effort:** el envío corre **después** del commit de la decisión; su fallo se loggea (`logger.error`) y **no**
+  revierte ni falla el request. Sin cola de reintentos en MVP (parte de la misma deuda).
+- **Disparo:** SOLO en la transición a `rechazada` (re-`reject` idempotente ⇒ no re-envía).
+- **Minimización de datos:** el correo lleva carta (nombre/set/número), acabado, `reason` y los dos plazos con el
+  canal de coordinación (soporte@tcgvaultmx.com). **Prohibido:** CLABE (ni enmascarada), montos o estado de OTROS
+  ítems de la solicitud, cualquier dato de terceros.
+
+**d) Identidad del vendedor en M5 (PII).** `seller: { id, name, email }` en `GET /admin/buylist`,
+`GET /admin/buylist/:id` y `rejected-items`. El correo del vendedor es **dato de contacto operativo** de un
+back-office ya restringido por rol (`vault_operator`/`super_admin`) — **no** es secreto financiero como la CLABE, así
+que **no** requiere enmascarado, reveal dedicado ni auditoría por lectura (explícito para que nadie lo "endurezca" por
+analogía con `reveal-clabe`, ni lo relaje: la CLABE conserva su régimen íntegro).
+
+**e) Pestaña «Rechazadas».** Endpoint dedicado `GET /admin/buylist/rejected-items` (ítem-céntrico, transversal a
+solicitudes) en vez de forzar al front a paginar solicitudes y filtrar ítems. Orden `rejectedAt desc` (legacy `null`
+al final); la fase (ventana de devolución / de abandono / abandonada) se deriva en el front comparando `now` con las
+dos fechas. Índice recomendado `@@index([itemStatus])` (parte de M-22) para no barrer la tabla.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -2425,6 +2503,16 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **BL-1 (backend, v1.18-buylist-rejects) — monto FANTASMA en `approvedTotalCents` tras approve→reject.** Estado
+  detectado (`buylist.service.ts`, `itemDecision` L651 / `recomputeApprovedTotal` L707): la rama `reject` solo fija
+  `itemStatus='rechazada'` sin anular `approvedPriceCents`, y el recompute suma TODO `approvedPriceCents != null`
+  **sin filtrar por status**. Un ítem aprobado (o ajustado) y luego rechazado deja su monto dentro de
+  `SellRequest.approvedTotalCents` — infla el total que lee el pago SPEI/P&L (dinero saliente; contradice la
+  intención RB-6/SEC-D3). En el primer `reject` (sin monto previo) no se manifiesta. **Norma v1.18 (API_CONTRACT
+  §M5):** `reject` ⇒ `approvedPriceCents=null` + recompute; recomendado además excluir `itemStatus='rechazada'` en el
+  aggregate (defensa en profundidad, §4.18b). **Acción (backend, este stream):** aplicar ambas y cubrir con test la
+  secuencia approve→reject. Adicional menor detectado: `adminList` ordena `createdAt asc` — el contrato v1.18 norma
+  **desc** (mismo dueño, mismo stream).
 - **WD-1 (backend, v1.17) — el `InventoryItem` NUNCA se movía en el ciclo de RETIRO (bóveda "fantasma").** Estado
   detectado: al pagar un retiro, `payments.service` solo avanzaba `ShipmentRequest solicitado→picking` y el
   `InventoryItem` quedaba `ownerType=customer, ownershipStatus=settled, status=in_custody` **para siempre** —incluso
@@ -2678,6 +2766,23 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.18-buylist-rejects (nueva — WS «Catálogo y precios»: rechazo de ítem de buylist)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa esta migración frente a cualquier otro stream
+que toque el schema. Es **aditiva y nullable** (sin backfill: los ítems rechazados pre-M-22 quedan con `rejectedAt`/
+`rejectionReason` `null` y las proyecciones exponen los campos de rechazo en `null` — normado en API_CONTRACT §11).
+Los plazos (`returnDeadlineAt`/`abandonDeadlineAt`) **NO son columnas** (derivados de `rejectedAt` + constantes
+7d/30d, §4.18a).
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-22 | `SellRequestItem.rejectedAt DateTime?` | **Columna nueva** (nullable) | Add column | Timestamp de la decisión `reject` (= notificación al vendedor). **Ancla ÚNICA** de los plazos 7d (devolución a costo del usuario) y 30d (abandono). Imprescindible: el modelo no tiene ningún timestamp propio y `AuditLog` no es fuente válida de plazos (§4.18a). |
+| M-22 | `SellRequestItem.rejectionReason String?` | **Columna nueva** (nullable) | Add column | Motivo del rechazo (obligatorio en el request con `decision:"reject"`, 3–500 chars). Alimenta el correo al vendedor, la pestaña «Rechazadas» y el detalle del propio cliente. |
+| M-22 | `SellRequestItem` `@@index([itemStatus])` | **Índice nuevo** (recomendado) | Create index | Sirve `GET /admin/buylist/rejected-items` (filtro transversal por `itemStatus='rechazada'`) sin barrer la tabla. No bloqueante a volumen MVP, pero entra con la misma migración. |
+
+> **Enum:** ninguno nuevo (`SellItemStatus.rechazada` ya existe; sin estados nuevos de ítem). **Config/diales:**
+> ninguno; las ventanas 7/30 días son **constantes de servidor** compartidas con la familia `buylist-sweep`.
 
 ### v1.16-master-set (nueva — WS-E: Master Set + inventario a escala)
 

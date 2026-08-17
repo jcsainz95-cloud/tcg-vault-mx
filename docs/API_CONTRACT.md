@@ -2,7 +2,69 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.17.1-withdrawal-eligibility).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.18-buylist-rejects).
+>
+> **Changelog v1.18-buylist-rejects (2026-08-17) — WS «Catálogo y precios»: M5 operable (identidad del vendedor,
+> orden/fechas, semántica completa de cartas RECHAZADAS con plazos 7d/30d y correo al vendedor) + orden normativo de
+> `GET /buylist/sets`. PROJECT §H / criterios 15–16 (rechazo no-NM → no se paga → devolución 7 días a costo del
+> usuario, abandono a 30 días; abandonada no-NM NUNCA entra al inventario vendible). Aditivo, no-breaking. ⚠️ Incluye
+> UNA migración de esquema (M-22, ARCHITECTURE §11): 2 columnas nullable en `SellRequestItem` — prisma es zona
+> compartida, el orquestador la serializa. Ver §6, §M5, §11 (DTOs) y ARCHITECTURE §4.18.**
+> - **`GET /buylist/sets` — ordenamiento NORMATIVO (§6):** `releaseDate` **desc** por fecha COMPLETA (no solo año),
+>   desempate por `name` **asc**, y sets **sin** `releaseDate` **al final** (a su vez por `name` asc). Antes el texto
+>   decía "por año desc" (ambiguo dentro del mismo año); se vuelve norma lo que backend ya implementa en este stream.
+>   Sin cambio de shape.
+> - **§M5 · identidad del vendedor:** `GET /admin/buylist` (cada fila) y `GET /admin/buylist/:id` ganan
+>   **`seller: AdminSellerRef = { id, name, email }`** (join a `User`), además del `userId` existente (compat). La UI
+>   muestra nombre/correo y relega el UUID a tooltip/detalle. **PII:** son endpoints de back-office ya protegidos por
+>   rol (`vault_operator`/`super_admin`); el **correo es dato de contacto operativo, NO es la CLABE** — **no** requiere
+>   reveal auditado ni enmascarado. La CLABE sigue con su régimen actual (enmascarada; en claro SOLO por `reveal-clabe`).
+> - **§M5 · orden y fechas:** `GET /admin/buylist` se ordena por **`createdAt` desc** (más reciente primero) — NORMA;
+>   el código actual ordena `asc` y backend lo corrige en este stream. `createdAt` ya se expone por fila; el detalle ya
+>   expone `receivedAt`/`verifiedAt`/`approvedAt`/`adjustmentSentAt` (fechas de plazos de la solicitud).
+> - **§M5 · rechazo de ítem (`PATCH /admin/buylist/items/:itemId/decision`, `decision:"reject"`):**
+>   - **`reason: string` (NUEVO, OBLIGATORIO con `reject`, 3–500 chars):** motivo del rechazo (p. ej. "no es NM:
+>     whitening en el reverso"). Falta/vacío → `400 VALIDATION_ERROR`. Se persiste (`SellRequestItem.rejectionReason`),
+>     se ecoa en DTOs, va al `AuditLog` (`buylist.item.reject`, en `after`) y alimenta el correo al vendedor. Ignorado
+>     (y no persistido) para `approve`/`adjust`.
+>   - **`rejectedAt` (NUEVO, persistido):** timestamp de la decisión de rechazo (= momento en que se notifica al
+>     vendedor). **Ancla ÚNICA de los plazos del ítem rechazado.**
+>   - **INVARIANTE de dinero (norma):** un ítem `rechazada` **NO suma** en `SellRequest.approvedTotalCents`. El
+>     `reject` pone **`approvedPriceCents = null`** y dispara `recomputeApprovedTotal`. *Verificado en código:* hoy el
+>     recompute suma todo `approvedPriceCents != null` sin filtrar por status, así que la secuencia approve→reject
+>     dejaba el monto **fantasma** en el total (desviación BL-1, ARCHITECTURE §9; backend la corrige en este stream).
+>     `quotedTotalCents` NO se recalcula (es snapshot histórico de la cotización).
+>   - **Idempotencia:** re-enviar `reject` sobre un ítem ya `rechazada` es **no-op** (200 con el estado actual; no
+>     re-fija `rejectedAt`, no re-envía correo).
+>   - **Efecto lateral — CORREO al vendedor (best-effort):** al transicionar a `rechazada` se envía correo al dueño de
+>     la solicitud con carta (nombre/set/número), acabado, `reason` y los plazos de devolución/abandono con fechas.
+>     **Su fallo NO revierte la decisión ni falla el request** (se loggea). Spec completa en §M5 y ARCHITECTURE §4.18.
+> - **Plazos del ítem rechazado (derivados, NO columnas):** `returnDeadlineAt = rejectedAt + 7 días` (gestionar
+>   devolución **a costo del usuario**) y `abandonDeadlineAt = rejectedAt + 30 días` (abandono). Se **calculan
+>   server-side** al proyectar (misma familia de constantes 7d/30d que `buylist-sweep`); NO se persisten (fuente única
+>   = `rejectedAt`). Ítems rechazados ANTES de M-22 (legacy, sin `rejectedAt`) exponen los tres campos `null`. Son
+>   fechas **informativas para el back-office y el vendedor**: NO se añade transición automática de estado del ítem al
+>   vencer (la solicitud ya tiene su sweep 7d/30d a nivel request; sin cambio).
+> - **`SellItemDTO` (§11) gana `rejectedAt?`, `rejectionReason?`, `returnDeadlineAt?`, `abandonDeadlineAt?`** (los 4
+>   `null`/omitidos si el ítem no está `rechazada`). Aplica en TODAS las proyecciones que ya usan `SellItemDTO`,
+>   incluido el detalle del PROPIO cliente `GET /buylist/requests/:id` (el vendedor ve su motivo y sus plazos).
+> - **`GET /admin/buylist/rejected-items` (NUEVO, §M5):** listado paginado TRANSVERSAL de ítems `rechazada` (todas las
+>   solicitudes) para la pestaña «Rechazadas» de M5: `RejectedSellItemDTO` con `seller`, carta, `finish`, `reason` y
+>   plazos, ordenado por `rejectedAt` desc. `vault_operator`/`super_admin`.
+> - **`convert-to-inventory` — NORMA para rechazadas:** un ítem `rechazada` **NUNCA es convertible** a inventario
+>   (PROJECT criterio 16: la carta rechazada es no-NM y una no-NM abandonada NO entra al inventario vendible; la carta
+>   queda físicamente retenida hasta devolución o abandono, pero jamás vendible). La guardia existente
+>   `422 ITEM_NOT_APPROVED` (solo `aprobada` convierte) **es la norma**; no se abre excepción al vencer plazos.
+> - **Correo de rechazo — decisión de diseño (ARCHITECTURE §4.18):** el módulo `mail` pertenece a otro stream y **NO se
+>   toca**; `buylist` inyecta el puerto público **`MAIL_PORT`** (`send({to,subject,html,text})`, módulo @Global ya
+>   exportado) con **plantilla LOCAL al módulo buylist** (ES/EN por `User.locale`, mismo layout/escape que
+>   `mail.templates.ts`). **Deuda aceptada:** la plantilla vive fuera de `mail/` hasta que el stream «Cuentas y acceso»
+>   la absorba (backend la registra en TECH_DEBT). El correo **no filtra datos sensibles**: SIN CLABE (ni enmascarada),
+>   SIN montos ni estado de otros ítems, SIN datos de terceros.
+> - **⚠️ Migración M-22 (prisma = zona compartida — serializar):** `SellRequestItem.rejectedAt DateTime?` +
+>   `SellRequestItem.rejectionReason String?` (+ índice recomendado `@@index([itemStatus])` para el listado). Son
+>   **imprescindibles** (no derivables): `SellRequestItem` no tiene NINGÚN timestamp propio, `adjustmentSentAt` es de
+>   la solicitud y solo aplica a `adjust`, y `AuditLog` no es fuente válida para lógica de plazos. Ver ARCHITECTURE §11.
 >
 > **Changelog v1.17.1-withdrawal-eligibility (2026-08-17) — Cierre de invariante read/write del RETIRO tras el triple
 > verdicto de WS-H (techlead + seguridad SEC-H1 + qa). SOLO documentación; no cambia shapes ni añade endpoints.** El
@@ -999,7 +1061,11 @@ abierta 1** (pricing on-demand del cotizador) en ARCHITECTURE §10.
 Sets que tienen **cartas importadas** (para poblar el dropdown de set del cotizador). A diferencia de
 `GET /catalog/sets` (solo sets con inventario publicado), aquí aparecen **todos** los sets del catálogo.
 Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de
-`releaseDate`; ordenados por año **desc**).
+`releaseDate`).
+- **Ordenamiento NORMATIVO (v1.18-buylist-rejects):** por **`releaseDate` desc** usando la fecha **COMPLETA**
+  (no solo el año: dos sets del mismo año quedan por fecha real, el más reciente primero); **desempate** (misma
+  `releaseDate`) por **`name` asc**; los sets **sin `releaseDate`** (`null`) van **AL FINAL**, entre ellos por
+  `name` asc. Sin cambio de shape. (Antes decía "por año desc", ambiguo dentro del mismo año.)
 
 ### POST /api/v1/buylist/quote — `public`  (v1.3.1: por RAREZA · v1.6-finish: por ACABADO · v1.12: READ-ONLY)
 Cotizador público (stateless). Muestra el mensaje de "pago tras recepción y verificación" (copy en frontend).
@@ -1133,6 +1199,11 @@ Err:
 
 ### GET /api/v1/buylist/requests — `customer` → lista propia.
 ### GET /api/v1/buylist/requests/:id — `customer` → detalle con estados por item, ajustes propuestos, plazos.
+> **v1.18-buylist-rejects:** los items del detalle (`SellItemDTO`, §11) exponen — SOLO cuando `itemStatus="rechazada"` —
+> `rejectionReason`, `rejectedAt`, `returnDeadlineAt` (devolución, +7 días, **a costo del usuario**) y
+> `abandonDeadlineAt` (+30 días). Es la MISMA información del correo de rechazo (§M5): el vendedor ve en la app por qué
+> se rechazó su carta y hasta cuándo puede gestionar la devolución. Ítems legacy (rechazados antes de M-22) traen los
+> cuatro campos `null`.
 
 ### POST /api/v1/buylist/requests/:id/respond — `customer`
 Responde a un ajuste del admin (aceptar/rechazar el ajuste). Req: `{ decision: "accept" | "decline" }`. Plazo: 7 días sin respuesta → `rechazada` (job).
@@ -1440,13 +1511,51 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
 - `GET /api/v1/admin/buylist` — cola `?status=&userId=&page=`
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `SellRequest.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección PII por rol (la CLABE sigue enmascarada; en claro solo por `reveal-clabe`).
+  - **Orden (v1.18-buylist-rejects, NORMA):** **`createdAt` desc** (solicitud más reciente primero). El código previo ordenaba `asc`; backend lo alinea en este stream. Cada fila ya expone `createdAt`.
+  - **`seller` (v1.18-buylist-rejects, NUEVO):** cada fila gana **`seller: AdminSellerRef = { id, name, email }`** (join a `User`; `seller.id === userId`). `userId` se **conserva** (compat). La UI de M5 muestra **nombre + correo** como identidad primaria y relega el UUID a tooltip/detalle. **PII:** back-office protegido por rol (`vault_operator`/`super_admin`); el **correo del vendedor es dato de contacto operativo — NO es la CLABE** y por tanto **no** requiere enmascarado ni reveal auditado. El régimen de la CLABE **no cambia**.
 - `GET /api/v1/admin/buylist/:id` — detalle con items y estados. La CLABE del vendedor se expone **enmascarada** como `clabeMasked` (`****1234`); **nunca** el snapshot cifrado ni la CLABE en claro. Para pagar, el súper-admin usa `reveal-clabe` (ver abajo).
+  - **`seller` (v1.18-buylist-rejects, NUEVO):** el detalle gana el mismo **`seller: AdminSellerRef`** que el listado. Los `items` (`SellItemDTO`, §11) incluyen los campos de rechazo (`rejectionReason`, `rejectedAt`, `returnDeadlineAt`, `abandonDeadlineAt`) cuando aplique.
 - `GET /api/v1/admin/buylist/:id/reveal-clabe` — **`super_admin`** — **money-out, auditado**. Descifra y devuelve la **CLABE completa (18 dígitos)** para que el súper-admin la **copie a su banca al ejecutar el SPEI**. Es el **ÚNICO** punto del contrato que devuelve la CLABE en claro; cada llamada queda registrada en `AuditLog` (`action: buylist.reveal_clabe`, quién/cuándo/qué solicitud). Si el `clabeSnapshot` de la solicitud falta, **cae a la CLABE de KYC** del usuario.
   Res `200`: `{ sellRequestId, clabe }` (`clabe` = 18 dígitos en claro). Err `403 MONEY_OUT_FORBIDDEN` (operador/cliente), `404 NOT_FOUND`, `422 CLABE_UNAVAILABLE` (sin snapshot ni CLABE de KYC).
 - `POST /api/v1/admin/buylist/:id/receive` — marca recepción física → `recibida`.
 - `POST /api/v1/admin/buylist/:id/verify` — inicia/registra verificación → `verificacion`.
-- `PATCH /api/v1/admin/buylist/items/:itemId/decision` — **cherry-pick** — Req `{ decision: "approve" | "adjust" | "reject", approvedPriceCents? }` → actualiza `SellItemStatus`. `adjust` fija `adjustmentSentAt` (dispara plazo de 7 días).
+- `PATCH /api/v1/admin/buylist/items/:itemId/decision` — **cherry-pick** — Req `{ decision: "approve" | "adjust" | "reject", approvedPriceCents?, reason? }` → actualiza `SellItemStatus`. `adjust` fija `adjustmentSentAt` (dispara plazo de 7 días).
+  > **v1.18-buylist-rejects — semántica COMPLETA de `decision:"reject"`:**
+  > - **`reason: string` — OBLIGATORIO con `reject`** (3–500 chars; falta/vacío → `400 VALIDATION_ERROR`). Motivo del
+  >   rechazo (típicamente "no es NM: …", PROJECT §H). Se persiste en `SellRequestItem.rejectionReason`, va al
+  >   `AuditLog` (`buylist.item.reject`, en `after`) y es el motivo que recibe el vendedor por correo. Para
+  >   `approve`/`adjust` se **ignora** (no se persiste).
+  > - **Efectos:** `itemStatus → rechazada`; fija **`rejectedAt = now()`** (ancla única de plazos); pone
+  >   **`approvedPriceCents = null`** y recalcula `approvedTotalCents` (`recomputeApprovedTotal`). **INVARIANTE
+  >   (norma):** un ítem `rechazada` **jamás** suma en `SellRequest.approvedTotalCents` — el rechazo lo SACA del total
+  >   de la orden aunque antes hubiera sido aprobado/ajustado (cierra la secuencia approve→reject con monto fantasma;
+  >   desviación BL-1, ARCHITECTURE §9). `quotedTotalCents` no se toca (snapshot histórico).
+  > - **Plazos (derivados, server-side):** `returnDeadlineAt = rejectedAt + 7d` (gestionar devolución **a costo del
+  >   usuario**) y `abandonDeadlineAt = rejectedAt + 30d` (abandono). NO son columnas; se computan al proyectar
+  >   (mismas constantes 7d/30d que `buylist-sweep`). No hay transición automática del ÍTEM al vencer (informativo;
+  >   el sweep a nivel SOLICITUD no cambia).
+  > - **Idempotencia:** `reject` sobre un ítem ya `rechazada` = **no-op** (200 con estado actual; no re-fija
+  >   `rejectedAt`, no re-envía correo).
+  > - **Correo al vendedor (best-effort, POST-commit):** al transicionar a `rechazada` se envía correo al dueño de la
+  >   solicitud (`User.email`, idioma por `User.locale` ES/EN) con: **qué carta** (nombre, set, número), **acabado**,
+  >   **motivo** (`reason`) y **opciones con plazos**: devolución antes de `returnDeadlineAt` (a costo del usuario,
+  >   coordinada con soporte@tcgvaultmx.com) o abandono en `abandonDeadlineAt`. **PROHIBIDO** en el correo: CLABE (ni
+  >   enmascarada), montos/estado de OTROS ítems, datos de terceros. **El fallo del envío NO revierte la decisión ni
+  >   falla el request** (se loggea; sin reintento en MVP — deuda registrada). Mecanismo: `buylist` inyecta el puerto
+  >   global `MAIL_PORT` con plantilla local al módulo (ARCHITECTURE §4.18; el módulo `mail` NO se toca).
+- **`GET /api/v1/admin/buylist/rejected-items` (v1.18-buylist-rejects, NUEVO)** — `vault_operator`/`super_admin` — pestaña «Rechazadas» de M5: listado paginado **transversal** (todas las solicitudes) de ítems `itemStatus="rechazada"`.
+  Query: `?userId=&page=&pageSize=` (`userId?` filtra por vendedor, simetría F1; `pageSize` ≤ 100).
+  Res `200`: `{ data: RejectedSellItemDTO[], page, pageSize, total }` (§11) — cada fila trae `seller`, `card`, `finish`, `quotedPriceCents`, `reason`, `rejectedAt`, `returnDeadlineAt`, `abandonDeadlineAt` y `sellRequestId` (deep-link al detalle). **Orden:** `rejectedAt` **desc** (legacy sin `rejectedAt` al final). La fase (en ventana de devolución / en ventana de abandono / abandonada) la **deriva el front** comparando `now` contra las dos fechas — no se persiste ni se expone como campo.
+  Err: `400 VALIDATION_ERROR` (paginación inválida), `403`.
 - `POST /api/v1/admin/buylist/items/:itemId/convert-to-inventory` — **un clic** → crea `InventoryItem` (`acquisitionType=buylist`, **`finish` heredado del `SellRequestItem.finish`**, v1.6-finish), item `→convertida_inventario`.
+  > **v1.18-buylist-rejects — NORMA para ítems RECHAZADOS:** un ítem `rechazada` **NUNCA es convertible** a
+  > inventario — **ni siquiera tras vencer** `returnDeadlineAt`/`abandonDeadlineAt`. Base: PROJECT criterio 16 — el
+  > rechazo es por no-NM y "una carta **no-NM abandonada NO entra al inventario vendible**" (la carta queda retenida
+  > físicamente hasta su devolución o abandono, pero jamás se vuelve vendible). La guardia existente (**solo**
+  > `itemStatus="aprobada"` convierte → `422 ITEM_NOT_APPROVED` con `details.itemStatus`) **es la norma**; el caso "NM
+  > abandonada pasa a inventario" aplica a ítems **aprobados** cuya solicitud se abandonó (clic del admin sobre el ítem
+  > `aprobada`; deuda BE-3 para automatizarlo), nunca a `rechazada`. Reintento sobre ítem ya convertido sigue siendo
+  > idempotente (`alreadyConverted:true`).
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. Err `403 MONEY_OUT_FORBIDDEN`. Precondición: `aprobada` + verificada (pago **tras** recepción/verificación).
 
 ### M6 — Usuarios / KYC (`super_admin`; `vault_operator` lectura limitada)
@@ -1664,9 +1773,27 @@ OrderSummaryDTO  = { id, userId, status: OrderStatus, totalCents, createdAt, set
 // venir null en filas legacy; no lo consuma el front nuevo).
 // v1.6-finish: `finish` = acabado snapshot de la cotización/solicitud (default "normal"). Determina la regla
 // (appliedRule) y la referencia usadas; se propaga a InventoryItem.finish al convertir.
+// v1.18-buylist-rejects: campos de RECHAZO — poblados SOLO si itemStatus="rechazada"; en cualquier otro status van
+// null/omitidos. `rejectedAt`/`rejectionReason` se persisten (M-22); `returnDeadlineAt` (= rejectedAt + 7d,
+// devolución a costo del usuario) y `abandonDeadlineAt` (= rejectedAt + 30d) se DERIVAN server-side al proyectar
+// (no son columnas). Ítems rechazados antes de M-22 (sin rejectedAt): los 4 campos null. Un ítem `rechazada` tiene
+// SIEMPRE approvedPriceCents=null (invariante: no suma en approvedTotalCents).
 SellItemDTO      = { id, card: CardDTO, productType, rawCondition?, finish: Finish,
                      rarity?: string, appliedRule?: BuylistRuleApplied,
-                     quotedPriceCents?, approvedPriceCents?, itemStatus: SellItemStatus, inventoryItemId? }
+                     quotedPriceCents?, approvedPriceCents?, itemStatus: SellItemStatus, inventoryItemId?,
+                     rejectedAt?: string, rejectionReason?: string,
+                     returnDeadlineAt?: string, abandonDeadlineAt?: string }
+// v1.18-buylist-rejects: identidad del vendedor en M5 (GET /admin/buylist, /admin/buylist/:id, rejected-items).
+// PII: correo = dato de contacto operativo de back-office (roles vault_operator/super_admin); NO es la CLABE →
+// sin enmascarado ni reveal auditado. seller.id === SellRequest.userId (que se conserva por compat).
+AdminSellerRef   = { id: string, name: string, email: string }
+// v1.18-buylist-rejects: fila de GET /admin/buylist/rejected-items (pestaña «Rechazadas», transversal a
+// solicitudes). `reason` = rejectionReason. Deadlines derivadas como en SellItemDTO. La "fase" (devolución /
+// abandono) la deriva el front de now vs las fechas; no se expone como campo.
+RejectedSellItemDTO = { id, sellRequestId, seller: AdminSellerRef, card: CardDTO, productType: ProductType,
+                        finish: Finish, quotedPriceCents?: number, reason: string | null,
+                        rejectedAt: string | null, returnDeadlineAt: string | null,
+                        abandonDeadlineAt: string | null }
 // v1.8-ronda-c: `finish` añadido a la clave de la cola. `normal` y `holofoil` de la misma carta sin precio son
 // entradas SEPARADAS; resolver el override de un acabado NO cierra las de los demás. Modelo Prisma real (M-19).
 PendingPriceEntry= { id, cardId, productType, gradeKey, finish: Finish, context, status: "open"|"resolved", createdAt }
