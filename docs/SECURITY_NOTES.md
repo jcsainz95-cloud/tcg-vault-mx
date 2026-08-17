@@ -1742,3 +1742,117 @@ llamadas reales) ya estaban en la lista **[pendiente de DAST]** y no cambian con
   banderas legales de PII, §5-§6). La **fase dinámica (DAST contra staging)** heredada sigue
   **pendiente y obligatoria antes de operar con dinero real** (§6) — no bloquea este merge.
 - **¿Puede ir a `main`?** **SÍ.**
+
+---
+
+# E. Revisión Ola 2 — Gestión de inventario M1 (commit `a72f6e6`) · rama `claude/git-repo-review-c67xyk`
+
+> **Alcance:** wiring de UI a la gestión de inventario M1 del operador — tabla con filtros +
+> paginación, detalle por pieza con historial, publicar/retirar de venta (`listPriceCents` manual),
+> mover, marcar perdida/dañada, y gestor de ubicaciones. Toca **dinero** (precio de venta al
+> publicar) y **estado de bienes en custodia** (perdida/dañada → responsabilidad/reposición).
+> **Modo:** revisión **estática** de código (diff `a72f6e6` + endpoints backend ya existentes).
+> El commit es **frontend-only** (12 archivos: `frontend/` + `docs/FRONTEND_NOTES.md` + `docs/TECH_DEBT.md`);
+> **no toca `backend/`** — los endpoints M1 ya existían y estaban endurecidos.
+> **Fecha:** 2026-08-17. Blanco autorizado: staging/local.
+
+## E.0 Resumen — **0 Críticos / 0 Altos / 0 Medios / 0 Bajos nuevos**
+
+El commit es **wiring puro UI→endpoints M1 ya endurecidos**. No introduce endpoints nuevos, ni
+lógica de dinero saliente, ni superficie de red nueva. Todos los guards de rol son **server-side y
+globales**; la UI es cosmética. **SEC-A1 intacto.** Sin regresión en dinero/PII.
+
+## E.1 SEC-A1 / precio de venta (`listPriceCents`) — **OK · [Verificado en código]**
+- **Es entrada MANUAL legítima del operador**, no una derivación que el server deba calcular. El
+  operador captura el precio en **pesos** y el cliente lo convierte a centavos con `Math.round(Number(price)*100)`
+  (`ItemDetailModal.tsx:61`); se envía como `listPriceCents` en `PATCH /admin/inventory/items/:id`.
+  Es el **precio de venta** (override manual) — exactamente lo que PROJECT.md §A/§B autoriza al
+  admin a fijar (sellado con precio manual; markup sobre referencia). El comentario del código lo
+  reconoce: *"precio de venta MANUAL (override), no una derivación en cliente (SEC-A1)"* (`:57-59`).
+- **La valuación de REFERENCIA sigue server-side.** El cliente **nunca** envía ni puede manipular
+  `referenceValue`: lo recibe del server (display-only, `PriceTag mode="reference"`, `:169-176`) y
+  el backend lo deriva vía `PricingService.getReference(...)` (`inventory.service.ts:48`). El DTO de
+  entrada (`UpdateItemDto`) solo acepta `status/listPriceCents/certNumber/gradeValue/sealedSubtype`
+  (`inventory.dto.ts:42-49`) — **no** hay campo de referencia/costo manipulable por el cliente.
+- **Invariantes validadas en el backend, no en el cliente:**
+  - Sellado exige `listPriceCents` para publicar — el cliente lo pre-bloquea (`sealedNeedsPrice`,
+    `:64-65`, botón `disabled`) pero es **cosmético**; el gate real está en el servicio (escalado a
+    "precio pendiente" si falta, `inventory.service.ts:72-83`).
+  - Gradeada publicada exige `certNumber` no vacío — revalidado en el **UPDATE** (no solo en alta):
+    `updateItem` recomputa el estado resultante y lanza `422 VALIDATION_ERROR` si queda `listed` sin
+    cert (`inventory.service.ts:240-252`). Un `PATCH` no puede publicar una gradeada sin certificado.
+  - `@Min(0)` en `listPriceCents` (`inventory.dto.ts:47`) vía `ValidationPipe({whitelist:true})`.
+- **Residuo (sin cambio, ya registrado):** `listPriceCents` sin `@Max` — es el pentest **B-3**
+  (dinero en `Int` 32-bit + cota superior), ya en §5 como **Baja aceptada** enrutada a
+  arquitecto/backend. Entrada confiable (super_admin/operador), no explotable por externo; este
+  commit **no** lo agrava. **Sin acción para este bloque.**
+
+## E.2 Marcar perdida/dañada — **OK · [Verificado en código]**
+- **Endpoint admin + auditado server-side.** `POST /admin/inventory/items/:id/mark` cuelga de
+  `InventoryController` con `@Roles(Role.vault_operator, Role.super_admin)` a nivel de clase
+  (`inventory.controller.ts:18-19`) → enforced por el `RolesGuard` **global**
+  (`app.module.ts:65`, `APP_GUARD`). El controlador **audita siempre**: `audit.log` con
+  `action: inventory.mark_${dto.mark}`, actor, rol, entidad y `after:{note}` (`:109-117`).
+- **Nota obligatoria a nivel de DTO.** `MarkItemDto.note` es `@IsString()` **sin** `@IsOptional`
+  (`inventory.dto.ts:56-59`) → una llamada directa sin nota es **422**. El cliente además
+  deshabilita el botón con `markNote.trim() === ''` (`ItemDetailModal.tsx:325`), pero eso es
+  **redundante/cosmético**: la obligatoriedad la impone el backend. La nota queda registrada en el
+  `InventoryMovement` (`reason: lost|damaged`, `note`, `actorUserId`, `inventory.service.ts:279-288`)
+  **y** en el audit-log.
+- **Nota de negocio (no hallazgo):** marcar perdida/dañada dispara la **responsabilidad de reposición**
+  (PROJECT.md §H, tope por carta configurable en M10). El `mark` en sí **no** ejecuta dinero saliente
+  (no hay reembolso/pago aquí); la reposición/compensación es un flujo aparte (M3/M8) ya restringido a
+  `super_admin` por `MoneyOutGuard`. Correcto que un `vault_operator` pueda marcar el estado físico
+  pero **no** sacar dinero.
+
+## E.3 Autorización de las 6 acciones — **OK · [Verificado en código]**
+- Las 6 (list tabla / detalle / publicar-retirar / mover / marcar / ubicaciones) cuelgan del mismo
+  `InventoryController` con `@Roles(vault_operator, super_admin)` de clase — **todas** protegidas
+  server-side por la cadena de guards globales `JwtAuthGuard → RolesGuard → EmailVerifiedGuard →
+  MoneyOutGuard` (`app.module.ts:63-67`). El `RolesGuard` corta con `403 FORBIDDEN` si el rol no
+  está en la lista (`roles.guard.ts:25-27`).
+- **El cliente no asume seguridad:** el gating de la UI (`canPublish`/`canUnlist`/`canOperate` por
+  estado del item, `ItemDetailModal.tsx:122-124`; botones `disabled`) es **conveniencia visual**, no
+  control de acceso. Una llamada directa a cualquiera de los 6 endpoints la corta el guard. Consistente
+  con el patrón ya dictaminado en §A.4/§D.4 (botones cosméticos, autoridad server-side).
+
+## E.4 Fuga de datos — **OK · [Verificado en código]**
+- **Detalle admin-only, sin PII de cliente de más.** `GET /admin/inventory/items/:id`
+  (`getItem`, `inventory.service.ts:219-230`) incluye `card{+set}`, `location` y `movements`. El
+  `InventoryItem` de bóveda es `ownerType: 'platform'` y el `include` **no** trae relación de
+  usuario/cliente, CLABE, INE ni RFC. El historial (`InventoryMovementDTO`) expone `actorUserId`
+  (id de **staff** que ejecutó el movimiento, no un cliente) + `note` (texto del operador) +
+  ubicaciones/estados — **sin PII de comprador**. La UI tampoco pinta `actorUserId`
+  (`ItemDetailModal.tsx:340-367`). Endpoint tras `@Roles(vault_operator, super_admin)`.
+- **`useErrorMessage` no filtra internos.** Sin cambio respecto a §D.5: traduce `errorCode`; si no
+  hay copy, cae al `message` **curado** del backend; el `all-exceptions.filter` devuelve `500`
+  genérico para excepciones no controladas (stack solo en log server-side). Lo máximo que puede
+  pintar es un error de negocio (`PRICE_PENDING`, `FINISH_NOT_AVAILABLE`, `VALIDATION_ERROR`), nunca
+  stack/PII. Confirmado.
+
+## E.5 ¿Lógica de dinero o superficie de riesgo nueva? — **NO**
+- El único dinero es `listPriceCents` (override manual, §E.1) — ya existía como campo y flujo. **No**
+  hay endpoints nuevos, **no** hay dinero saliente, **no** hay `$queryRaw`, **no** hay nuevos campos
+  de entrada sensibles (los DTOs `Update/Move/Mark/CreateLocation` están acotados por `IsIn/IsString/@Min`).
+  El refactor de `paginate<T>`/`mockJobId`/`mockTempPassword` toca **solo ramas mock** (deuda techlead
+  Ola 1) — sin efecto en producción. Las nuevas queries de filtro usan **Prisma parametrizado**
+  (`listItems`, `inventory.service.ts:199-216`), con `pageSize` **capado a 100** server-side
+  (`inventory.controller.ts:59`) → sin abuso de paginación.
+
+## E.6 VEREDICTO — Ola 2 M1 (`a72f6e6`): **APROBADO**
+- **0 Críticos / 0 Altos / 0 Medios / 0 Bajos nuevos** → aprobable por política (`CLAUDE.md` §7 y DoD).
+- **SEC-A1 intacto:** `listPriceCents` es override manual legítimo del operador; la **referencia** de
+  mercado se deriva/valida **server-side** y el cliente no puede manipularla. Invariantes
+  (sellado exige precio, gradeada publicada exige cert) impuestas por el backend.
+- **Perdida/dañada:** endpoint `vault_operator+`, **auditado**, nota **obligatoria** en DTO; el estado
+  físico lo mueve el operador pero el dinero saliente sigue vetado (`MoneyOutGuard` → `super_admin`).
+- **Autorización 100% server-side** en las 6 acciones (guards globales); UI cosmética. Sin fuga de
+  PII en el detalle; `useErrorMessage` sin regresión.
+- **¿Basta la revisión estática?** **SÍ** para este bloque: es wiring UI→endpoints M1 preexistentes y
+  endurecidos, sin lógica de dinero nueva ni superficie de red nueva. Los vectores dinámicos
+  (concurrencia, idempotencia, rate-limit con tráfico real) ya están en la lista **[pendiente de DAST]**
+  (§6) y **no** los altera este commit.
+- **Deuda previa sin cambio:** B-3/S-B3 (`listPriceCents` sin `@Max`, dinero en `Int` 32-bit) sigue
+  **aceptada con disparador** enrutada a arquitecto/backend; **no** bloquea este merge. Banderas
+  legales de custodia/PII (§6) siguen abiertas para el humano, sin cambio.
+- **¿Puede ir a `main`?** **SÍ.**
