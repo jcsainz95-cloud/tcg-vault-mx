@@ -144,7 +144,10 @@ test.describe('buylist · grid protagonista (cotización directa al carrito)', (
   test('"Mis solicitudes" sin sesión: invitación neutra a iniciar sesión, nunca error', async ({ page }) => {
     await page.goto('/es/buylist');
     await expect(page.getByText(t('es', 'buylist.requestsLoginInvite'))).toBeVisible();
-    await expect(page.getByRole('alert')).toHaveCount(0);
+    // Acotado a #main (wrapper del storefront layout): en `npm run dev` el overlay de
+    // Next.js Dev Tools inyecta su propio role="alert" fuera del contenido de la app,
+    // y un getByRole('alert') a nivel página daría falso positivo siempre.
+    await expect(page.locator('#main').getByRole('alert')).toHaveCount(0);
   });
 
   test('guía de envío seguro menciona sleeve y top loader', async ({ page }) => {
