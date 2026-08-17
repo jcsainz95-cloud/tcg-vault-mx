@@ -44,9 +44,16 @@ export function Banner({
   return (
     <div
       role={role}
-      className={cn('flex items-start gap-4 py-1 pl-4 text-sm leading-relaxed', ruleFor[variant], className)}
+      className={cn(
+        // flex-wrap + basis: en contenedores angostos (p. ej. el carrito de venta) el
+        // `action` baja a su propia línea en vez de exprimir el texto a una palabra por
+        // renglón; en anchos normales sigue lado a lado.
+        'flex flex-wrap items-start gap-x-4 gap-y-2 py-1 pl-4 text-sm leading-relaxed',
+        ruleFor[variant],
+        className,
+      )}
     >
-      <div className="min-w-0 flex-1 text-muted">
+      <div className="min-w-0 flex-1 basis-40 text-muted">
         {title && <p className="font-medium text-text">{title}</p>}
         <div>{children}</div>
       </div>
