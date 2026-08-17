@@ -3023,3 +3023,57 @@ Claves nuevas `catalog.inCart` («En el carrito»/«In cart»), `catalog.addedTo
 ### Solicitud pendiente (otro stream / arquitecto de streams)
 `ListingCard` necesitaría una prop tipo `inCart?: boolean` (+ label alterno del CTA) para que la
 vitrina muestre también el estado «En el carrito» en el botón del card; hoy solo la ficha lo hace.
+
+
+## 2026-08-17 · M5 admin: rechazos de buylist (contrato v1.18-buylist-rejects)
+
+### Qué cambió (`(admin)/admin/m5/M5View.tsx`)
+- **Pestaña «Rechazadas» (transversal):** consume `GET /admin/buylist/rejected-items` (query
+  propia, `enabled` solo con la pestaña abierta; paginación simple server-side con
+  `page/pageSize/total`). Muestra carta (nombre/set/acabado), vendedor legible, motivo,
+  `rejectedAt` y los DOS plazos del server: devolución hasta `returnDeadlineAt` (7 días, a costo
+  del vendedor) y abandono en `abandonDeadlineAt` (30 días). La **fase** (en plazo de devolución /
+  en ventana de abandono / vencido) se deriva en el front de `now` vs esas fechas (helper local
+  `rejectPhase`), como manda el contrato — las fechas mismas SIEMPRE vienen del server.
+  **Sin acción «Convertir a inventario»** en esta pestaña (PROJECT criterio 16 / §M5: una
+  rechazada no-NM jamás es convertible, ni vencidos los plazos); en el detalle de solicitud el
+  botón también se oculta para ítems `rechazada` (antes salía deshabilitado).
+- **Rechazo con motivo:** «Rechazar» abre un mini-diálogo con motivo obligatorio (3–500,
+  validación en cliente que espeja el 400 del backend; el error real del server se muestra dentro
+  del diálogo) y aviso de que el vendedor recibirá correo con motivo y plazos. Envía
+  `{ decision: 'reject', reason }`.
+- **Dinero (SEC-A1):** la cabecera muestra `quotedTotalCents` y, cuando llega,
+  `approvedTotalCents` — ambos TAL CUAL del server (que ya excluye rechazadas); la UI no suma
+  nada. En el detalle, el ítem rechazado sale con la cotización tachada + badge «Fuera del
+  total · no se paga» + motivo/fecha/plazos.
+- **Vendedor legible:** `seller.name · seller.email` como identidad primaria (v1.18); el UUID
+  queda en `title` (tooltip) y se conserva el enlace a la ficha 360° M6 (`?user=<id>`). El
+  buscador ahora también matchea nombre/correo del vendedor. Fallback al `userId` si el DTO no
+  trae `seller`.
+- **Orden y fecha:** el listado se muestra tal cual llega (el server ordena `createdAt` desc,
+  NORMA v1.18 — sin re-ordenar en cliente) y cada solicitud muestra su fecha de creación con
+  `formatDate` (mismo formato que el resto del admin).
+
+### API client (zona compartida, cambio serializado autorizado — SOLO aditivo)
+- `src/lib/api.ts`: `getAdminRejectedBuylistItems({page,pageSize,userId})` (real + rama mock que
+  deriva de fixtures y espeja orden `rejectedAt` desc / plazos 7d/30d); `decideBuylistItem` acepta
+  `reason` y en mock valida 3–500 (400 `VALIDATION_ERROR`) y fija `rejectedAt`/plazos/anula
+  `approvedPriceCents`; sellers mock locales (`MOCK_SELLERS`) para enriquecer fixtures sin tocar
+  `mock/fixtures.ts`.
+- `src/types/contract.ts`: `AdminSellerRef`, `RejectedSellItemDTO`, campos de rechazo en
+  `SellItemDTO`, `seller?` en `AdminBuylistDTO`, `reason?` en `BuylistItemDecisionInput` (§11).
+
+### i18n / tests / e2e
+- Claves nuevas `admin.m5.*` (`tabs.rechazadas`, `created`, `approvedTotal`, `reject*`,
+  `rejectedOutOfTotal`, bloque `rejected.*` con fases y paginación) — paridad ES/EN verificada
+  (`i18n-parity.test.ts` en verde).
+- `M5View.test.tsx`: 17 tests (diálogo de motivo + validación + error 400 del server en el
+  diálogo, pestaña Rechazadas con fases/plazos/sin convertir, vendedor con UUID en tooltip,
+  fecha de creación, total aprobado del server). `api.test.ts`: reject sin motivo → 400 mock;
+  reject con motivo → plazos +7d/+30d y aparición en `rejected-items`; rama REAL: URL/query de
+  `rejected-items` y body `{decision,reason}` del PATCH.
+- `e2e/admin.spec.ts`: +2 tests M5 (diálogo de motivo; pestaña Rechazadas sin convertir),
+  verificado con `--list`.
+
+### Gates
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (44 archivos / 329 tests).

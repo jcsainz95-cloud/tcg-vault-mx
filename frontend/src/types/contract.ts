@@ -593,6 +593,14 @@ export interface SellItemDTO {
   approvedPriceCents?: number;
   itemStatus: SellItemStatus;
   inventoryItemId?: string;
+  // v1.18-buylist-rejects (contrato §11): poblados SOLO si itemStatus="rechazada"; en
+  // cualquier otro status van null/omitidos. Los plazos se DERIVAN server-side de
+  // rejectedAt (+7d devolución a costo del usuario / +30d abandono); legacy → null.
+  // INVARIANTE: un ítem `rechazada` tiene approvedPriceCents=null (no suma en el total).
+  rejectedAt?: string | null;
+  rejectionReason?: string | null;
+  returnDeadlineAt?: string | null;
+  abandonDeadlineAt?: string | null;
 }
 
 export interface SellRequestDTO {
@@ -829,14 +837,45 @@ export interface BulkPublishResponse {
   results: BulkPublishLineResult[];
 }
 
+// v1.18-buylist-rejects (contrato §11): identidad del vendedor en M5. El correo es dato
+// de contacto operativo de back-office (roles vault_operator/super_admin) — NO es la
+// CLABE: sin enmascarado ni reveal auditado. seller.id === SellRequest.userId (compat).
+export interface AdminSellerRef {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;
+  // v1.18-buylist-rejects: identidad legible del vendedor (join a User). Opcional por
+  // tolerancia a filas sin join; la UI cae a `userId` cuando falta.
+  seller?: AdminSellerRef;
   status: SellRequestStatus;
   quotedTotalCents: number;
+  // Total recomputado por el backend EXCLUYENDO ítems rechazados (invariante v1.18).
+  // SEC-A1: la UI solo lo muestra, nunca lo calcula.
   approvedTotalCents?: number;
   createdAt: string;
   items: SellItemDTO[];
+}
+
+// v1.18-buylist-rejects (contrato §M5/§11): fila de GET /admin/buylist/rejected-items
+// (pestaña «Rechazadas», transversal a solicitudes). `reason` = rejectionReason. La
+// "fase" (devolución / abandono / vencida) la deriva el FRONT de now vs las fechas.
+export interface RejectedSellItemDTO {
+  id: string;
+  sellRequestId: string;
+  seller?: AdminSellerRef;
+  card: CardDTO;
+  productType: ProductType;
+  finish: Finish;
+  quotedPriceCents?: number;
+  reason: string | null;
+  rejectedAt: string | null;
+  returnDeadlineAt: string | null;
+  abandonDeadlineAt: string | null;
 }
 
 export interface AdminOrderDTO extends OrderSummaryDTO {
@@ -860,9 +899,12 @@ export interface RevealClabeResponse {
 }
 
 // PATCH /admin/buylist/items/:itemId/decision — cherry-pick por carta.
+// v1.18-buylist-rejects: `reason` OBLIGATORIO con reject (3–500 chars; el backend
+// responde 400 VALIDATION_ERROR si falta). Para approve/adjust se ignora.
 export interface BuylistItemDecisionInput {
   decision: 'approve' | 'adjust' | 'reject';
   approvedPriceCents?: number;
+  reason?: string;
 }
 
 // POST /admin/buylist/items/:itemId/convert-to-inventory. `alreadyConverted` cuando el
