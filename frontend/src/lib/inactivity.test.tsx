@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { InactivityProvider, INACTIVITY_LOGOUT_MS } from './inactivity';
+import { pingActivity, useKeepSessionAlive } from './keep-alive';
 import { setStoredUser } from '@/lib/session';
 import type { UserDTO } from '@/types/contract';
 
@@ -99,5 +100,63 @@ describe('InactivityProvider — auto-logout por inactividad', () => {
     });
     expect(logout).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('pingActivity() reinicia el temporizador (operación larga sin interacción)', async () => {
+    setStoredUser(user);
+    render(
+      <InactivityProvider>
+        <div>app</div>
+      </InactivityProvider>,
+    );
+
+    // Casi al umbral, la app emite un ping sintético (no un clic): reinicia el contador.
+    act(() => {
+      vi.advanceTimersByTime(INACTIVITY_LOGOUT_MS - 1000);
+      pingActivity();
+    });
+    act(() => {
+      vi.advanceTimersByTime(INACTIVITY_LOGOUT_MS - 1000);
+    });
+    expect(logout).not.toHaveBeenCalled();
+
+    // Sin más pings, se cruza el umbral y sí cierra sesión.
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+      await Promise.resolve();
+    });
+    expect(logout).toHaveBeenCalledTimes(1);
+  });
+
+  it('useKeepSessionAlive mantiene viva la sesión mientras active=true, y la libera al terminar', async () => {
+    setStoredUser(user);
+    function KeepAlive({ active }: { active: boolean }) {
+      useKeepSessionAlive(active);
+      return <div>busy</div>;
+    }
+    const { rerender } = render(
+      <InactivityProvider>
+        <KeepAlive active />
+      </InactivityProvider>,
+    );
+
+    // Muy por encima del umbral (3×): el ping periódico (60 s) impide el logout.
+    act(() => {
+      vi.advanceTimersByTime(INACTIVITY_LOGOUT_MS * 3);
+    });
+    expect(logout).not.toHaveBeenCalled();
+
+    // Termina la operación (active=false): cesan los pings; el InactivityProvider sigue
+    // montado, así que el idle-logout vuelve a poder dispararse tras el umbral completo.
+    rerender(
+      <InactivityProvider>
+        <KeepAlive active={false} />
+      </InactivityProvider>,
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(INACTIVITY_LOGOUT_MS + 1000);
+      await Promise.resolve();
+    });
+    expect(logout).toHaveBeenCalledTimes(1);
   });
 });

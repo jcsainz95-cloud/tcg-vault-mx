@@ -38,6 +38,7 @@ import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 import { ApiClientError } from '@/lib/api-client';
+import { useKeepSessionAlive } from '@/lib/keep-alive';
 
 const RULE_MODES: BuylistRuleMode[] = ['fixed', 'pct'];
 
@@ -260,6 +261,18 @@ export function M2View() {
     mutationFn: () => syncAllCatalog({ force: true }),
     onSuccess: onSweepLaunched,
   });
+
+  // El operador mira el barrido de catálogo (o espera un backfill/sync por set, que son
+  // requests síncronos largos) SIN interactuar → sin esto, el auto-logout por inactividad
+  // (5 min) lo sacaría a mitad de la operación. Mientras haya una operación de catálogo en
+  // curso, mantenemos viva la sesión; al terminar, el idle-logout vuelve a la normalidad.
+  const catalogBusy =
+    isSweeping ||
+    catalogSyncMutation.isPending ||
+    backfillMutation.isPending ||
+    syncAllMutation.isPending ||
+    syncAllForceMutation.isPending;
+  useKeepSessionAlive(catalogBusy);
 
   const setColumns: Column<RemoteSetDTO>[] = [
     { key: 'name', header: t('catalog.set'), render: (s) => <span lang="en">{s.name}</span> },

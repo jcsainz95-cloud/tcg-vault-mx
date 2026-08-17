@@ -4,6 +4,11 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from '@/i18n/navigation';
 import { useSession } from '@/lib/session';
 import { logout } from '@/lib/api';
+import { ACTIVITY_PING_EVENT } from '@/lib/keep-alive';
+
+// Re-export de la primitiva de keep-alive (definida en `@/lib/keep-alive`, sin dependencias
+// de router) para conveniencia; las pantallas pueden importar desde cualquiera de los dos.
+export { ACTIVITY_PING_EVENT, pingActivity, useKeepSessionAlive } from '@/lib/keep-alive';
 
 /** Umbral de inactividad tras el cual se cierra la sesión (5 minutos). */
 export const INACTIVITY_LOGOUT_MS = 5 * 60 * 1000;
@@ -63,11 +68,14 @@ export function InactivityProvider({ children }: { children: React.ReactNode }) 
     for (const ev of ACTIVITY_EVENTS) {
       window.addEventListener(ev, reset, { passive: true });
     }
+    // Ping sintético de actividad (operaciones largas de la app, p. ej. barrido de catálogo).
+    window.addEventListener(ACTIVITY_PING_EVENT, reset);
     document.addEventListener('visibilitychange', onVisibility);
     reset(); // arranca el temporizador al montar / al iniciar sesión
 
     return () => {
       for (const ev of ACTIVITY_EVENTS) window.removeEventListener(ev, reset);
+      window.removeEventListener(ACTIVITY_PING_EVENT, reset);
       document.removeEventListener('visibilitychange', onVisibility);
       clearTimer();
     };
