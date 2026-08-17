@@ -153,7 +153,11 @@ services:
       # Endurecimiento PII. Staging corre en modo production (validaciones
       # estrictas): estas son OBLIGATORIAS. En local caen a dummies distintos
       # entre sí; en el staging real los inyecta el secret manager. Nunca reales.
-      PII_ENCRYPTION_KEY: ${STAGING_PII_ENCRYPTION_KEY:-staging_pii_enc_key_change_me_32bytes}
+      # PII_ENCRYPTION_KEY DEBE ser base64 que decodifique a exactamente 32 bytes
+      # (AES-256); si no, PiiCryptoService crashea al arrancar. El default es un
+      # dummy determinista de local (base64 de 'staging_pii_enc_key_32bytes_ok!!',
+      # 32 bytes); el staging real lo inyecta el secret manager (nunca real de prod).
+      PII_ENCRYPTION_KEY: ${STAGING_PII_ENCRYPTION_KEY:-c3RhZ2luZ19waWlfZW5jX2tleV8zMmJ5dGVzX29rISE=}
       PII_HMAC_KEY: ${STAGING_PII_HMAC_KEY:-staging_pii_hmac_key_change_me_distinct}
       # Secretos de staging: en local caen a dummies; en el staging real los
       # inyecta el secret manager de la plataforma. NUNCA reales de prod.
