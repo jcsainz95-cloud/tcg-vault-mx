@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
+import { Check } from 'lucide-react';
 import { getCardDetail } from '@/lib/api';
 import type { CardDTO, ListingDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
 import { useCart } from '@/lib/cart';
-import { Link } from '@/i18n/navigation';
+import { Link, useRouter } from '@/i18n/navigation';
+import { CartAddedToast } from '../CartAddedToast';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { CertNumberField } from '@/components/ui/CertNumberField';
@@ -20,6 +22,10 @@ import { cn } from '@/lib/cn';
 export function CardDetailView({ cardId }: { cardId: string }) {
   const cart = useCart();
   const [tab, setTab] = useState<'description' | 'condition'>('description');
+  // Señal del toast de confirmación: timestamp del último add (0 = oculto);
+  // usar timestamp reinicia el timer de auto-cierre en adds seguidos.
+  const [addedSignal, setAddedSignal] = useState(0);
+  const dismissToast = useCallback(() => setAddedSignal(0), []);
 
   const query = useQuery({ queryKey: ['card', cardId], queryFn: () => getCardDetail(cardId) });
 
@@ -41,13 +47,23 @@ export function CardDetailView({ cardId }: { cardId: string }) {
       }
     >
       {query.data && (
-        <Detail
-          card={query.data.card}
-          listings={query.data.listings}
-          tab={tab}
-          setTab={setTab}
-          onAdd={(l) => cart.add(l.inventoryItemId)}
-        />
+        <>
+          <Detail
+            card={query.data.card}
+            listings={query.data.listings}
+            tab={tab}
+            setTab={setTab}
+            // Sin riesgo de mismatch SSR: useCart inicia `ids=[]` y lo puebla
+            // desde localStorage en un useEffect (post-hidratación), así que el
+            // estado «en el carrito» solo se pinta tras montar.
+            cartIds={cart.ids}
+            onAdd={(l) => {
+              cart.add(l.inventoryItemId);
+              setAddedSignal(Date.now());
+            }}
+          />
+          <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
+        </>
       )}
     </QueryState>
   );
@@ -84,12 +100,14 @@ function Detail({
   listings,
   tab,
   setTab,
+  cartIds,
   onAdd,
 }: {
   card: CardDTO;
   listings: ListingDTO[];
   tab: 'description' | 'condition';
   setTab: (v: 'description' | 'condition') => void;
+  cartIds: string[];
   onAdd: (l: ListingDTO) => void;
 }) {
   const t = useTranslations('card');
@@ -219,14 +237,11 @@ function Detail({
                     )}
                   </div>
                 </div>
-                <Button
-                  variant={l.sellable ? 'primary' : 'secondary'}
-                  size="sm"
-                  disabled={!l.sellable}
-                  onClick={() => onAdd(l)}
-                >
-                  {l.sellable ? tcat('buyNow') : tcat('notForSale')}
-                </Button>
+                <InstanceCta
+                  listing={l}
+                  inCart={cartIds.includes(l.inventoryItemId)}
+                  onAdd={onAdd}
+                />
               </div>
             ))}
           </div>
@@ -286,5 +301,51 @@ function Detail({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * CTA por ejemplar con estado «En el carrito».
+ *
+ * Vive aquí (y no en `ListingCard`) a propósito: `frontend/src/components/` es
+ * zona compartida de otro stream y las props actuales de `ListingCard` no
+ * expresan este estado. El carrito es pieza única deduplicada (useCart), así
+ * que el segundo clic no re-agrega: lleva al carrito (/checkout, la misma ruta
+ * del badge del StorefrontHeader).
+ */
+function InstanceCta({
+  listing,
+  inCart,
+  onAdd,
+}: {
+  listing: ListingDTO;
+  inCart: boolean;
+  onAdd: (l: ListingDTO) => void;
+}) {
+  const tcat = useTranslations('catalog');
+  const router = useRouter();
+
+  if (!listing.sellable) {
+    return (
+      <Button variant="secondary" size="sm" disabled>
+        {tcat('notForSale')}
+      </Button>
+    );
+  }
+
+  if (inCart) {
+    return (
+      <Button variant="secondary" size="sm" onClick={() => router.push('/checkout')}>
+        {/* Check decorativo (§7.4): el texto es el portador del estado. */}
+        <Check size={14} aria-hidden />
+        {tcat('inCart')}
+      </Button>
+    );
+  }
+
+  return (
+    <Button variant="primary" size="sm" onClick={() => onAdd(listing)}>
+      {tcat('buyNow')}
+    </Button>
   );
 }

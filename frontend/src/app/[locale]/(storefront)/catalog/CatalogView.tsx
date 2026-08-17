@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { getCatalog, getCatalogFacets, type CatalogFilters, type CatalogSort } from '@/lib/api';
@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/Modal';
 import { CardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
+import { CartAddedToast } from './CartAddedToast';
 
 const SORTS: CatalogSort[] = ['newest', 'price_asc', 'price_desc'];
 
@@ -32,6 +33,11 @@ export function CatalogView() {
   const cart = useCart();
   const [filters, setFilters] = useState<CatalogFilters>({});
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Toast de confirmación al agregar (timestamp del último add; 0 = oculto).
+  // El estado «En el carrito» del botón vive en ListingCard (zona compartida de
+  // otro stream, sin prop para expresarlo): aquí el feedback es el toast.
+  const [addedSignal, setAddedSignal] = useState(0);
+  const dismissToast = useCallback(() => setAddedSignal(0), []);
 
   const facetsQuery = useQuery({ queryKey: ['facets'], queryFn: getCatalogFacets });
   const catalogQuery = useQuery({
@@ -45,6 +51,7 @@ export function CatalogView() {
 
   function onAdd(listing: ListingDTO) {
     cart.add(listing.inventoryItemId);
+    setAddedSignal(Date.now());
   }
 
   const sortControl = (
@@ -171,6 +178,8 @@ export function CatalogView() {
           </Button>
         </div>
       </Modal>
+
+      <CartAddedToast signal={addedSignal} onDismiss={dismissToast} />
     </div>
   );
 }

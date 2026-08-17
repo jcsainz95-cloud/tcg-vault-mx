@@ -2982,3 +2982,44 @@ pasada. Cambios de UX y sus decisiones:
   la primera carta descubierta (Playwright auto-espera a que la fila se habilite con el estimado).
 - Flujos preservados: modal con `BuylistKycForm` (CLABE + INE, gating P-11), respuesta a ajuste F5.
 
+
+## 2026-08-17 · Feedback del CTA «Comprar» en la ficha de carta (carrito local)
+
+### Problema
+El botón «Comprar» de la ficha (`catalog/[cardId]/CardDetailView.tsx`) agregaba al carrito local
+(`useCart`, pieza única deduplicada en localStorage) sin ningún feedback: parecía un botón muerto.
+
+### Decisión (dónde vive el CTA)
+- **`InstanceCta` (componente local en `CardDetailView.tsx`):** CTA por ejemplar con tres estados —
+  «Comprar» (primary) → «✓ En el carrito» (secondary + check lucide `aria-hidden`; el texto porta el
+  estado, §7.4) → «No disponible» (disabled). El segundo clic **no re-agrega** (el carrito es pieza
+  única): navega a `/checkout` (misma ruta que el badge del `StorefrontHeader`) vía
+  `useRouter` de `@/i18n/navigation`. Vive en la vista y NO en `ListingCard` porque
+  `frontend/src/components/` es zona compartida de otro stream y las props actuales de `ListingCard`
+  (`{ listing, onAdd }`) no expresan el estado «en carrito».
+- **`catalog/CartAddedToast.tsx` (local al módulo de catálogo):** toast efímero (5 s, esquina,
+  DESIGN_SYSTEM §7.5) en bloque de tinta con texto mono en versalitas y enlace «Ver carrito» →
+  `/checkout`. La región `role="status"`/`aria-live="polite"` está siempre montada para que el
+  lector anuncie el cambio. No se construyó infra global de toasts (no existe y las zonas
+  compartidas están vetadas a este stream); si otro módulo lo necesita, promoverlo a
+  `src/components/` pasa por el stream dueño.
+- **Hidratación SSR:** sin `mounted` extra — `useCart` ya inicia `ids=[]` y puebla desde
+  localStorage en `useEffect` (post-hidratación), así que el estado «en el carrito» solo se pinta
+  tras montar (sin mismatch).
+- **`CatalogView` (vitrina):** mismo toast al agregar. El **botón** del card sigue diciendo
+  «Agregar» porque vive en `ListingCard` (zona compartida): queda como solicitud (abajo).
+
+### i18n (paridad ES/EN)
+Claves nuevas `catalog.inCart` («En el carrito»/«In cart»), `catalog.addedToCart`
+(«Agregado al carrito»/«Added to cart»), `catalog.viewCart` («Ver carrito»/«View cart»).
+
+### Tests
+- `CardDetailView.test.tsx` (4): agregar → CTA por pieza + toast + persistencia; segundo clic →
+  `push('/checkout')` sin re-agregar; pieza ya en carrito al montar → estado inicial correcto (y
+  toast vacío); ejemplar no vendible sigue deshabilitado.
+- `CatalogView.test.tsx` (1): toast con enlace al carrito al agregar desde la vitrina.
+- `e2e/catalog.spec.ts`: +2 tests en «Compra · ficha de carta» (feedback y estado tras recarga).
+
+### Solicitud pendiente (otro stream / arquitecto de streams)
+`ListingCard` necesitaría una prop tipo `inCart?: boolean` (+ label alterno del CTA) para que la
+vitrina muestre también el estado «En el carrito» en el botón del card; hoy solo la ficha lo hace.
