@@ -14,9 +14,12 @@
 #      alguno, el pipeline FALLA con la lista exacta (no despliega a medias).
 #   2) Deploy a STAGING: backend->Railway(staging) + frontend->Vercel(preview).
 #      El backend corre `prisma migrate deploy` al arrancar (Dockerfile CMD).
-#   3) DAST contra STAGING (ZAP baseline + nuclei). Gate de promoción.
-#   4) SOLO si el DAST no tiene críticos -> promoción a PRODUCCIÓN, protegida
-#      por el GitHub Environment "production" (required reviewers).
+#   3) GATES de promoción (deben pasar los TRES para ir a prod):
+#        a) DAST contra STAGING (ZAP baseline + nuclei).
+#        b) E2E REAL (e2e-real.yml, stack real mocks=false, endpoints reales).
+#        c) SAST en PR (branch protection) ya exigido antes del merge.
+#   4) SOLO si DAST no tiene críticos Y el E2E real pasó -> promoción a PRODUCCIÓN,
+#      protegida por el GitHub Environment "production" (required reviewers).
 #
 # Rama de release: `main` (recomendada). Para que el trigger workflow_run
 # funcione, este archivo debe estar en la rama por defecto del repo. Ajusta
@@ -157,6 +160,19 @@ jobs:
           echo "Todos los secrets de deploy presentes. Continúa el pipeline."
 
   # ---------------------------------------------------------------------------
+  # GATE E2E REAL: stack completo (mocks=false) contra endpoints reales. Es el
+  # gate que hace que "verde" signifique "funciona de verdad" (arreglo Paso 5).
+  # Reutiliza e2e-real.yml (workflow_call); spin-up de su propio stack efímero,
+  # no depende de los deploys de staging. Debe pasar ANTES de promover a prod.
+  # REQUISITO: runner-harness con navegadores Playwright preinstalados (ver
+  # e2e-real.yml / DEVOPS_NOTES §5.1). `secrets: inherit` pasa STRIPE_TEST_*.
+  # ---------------------------------------------------------------------------
+  e2e-real:
+    needs: [preflight]
+    uses: ./.github/workflows/e2e-real.yml
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
   # STAGING — Backend a Railway (environment staging).
   # `railway up` sube el repo y construye con Dockerfile.backend (ver railway.json).
   # Al arrancar, el contenedor corre `prisma migrate deploy` (Dockerfile CMD).
@@ -271,9 +287,10 @@ jobs:
   # Solo corre si el DAST de staging pasó Y (en disparo manual) promote_to_prod.
   # ---------------------------------------------------------------------------
   promote-production-backend:
-    needs: [dast-staging]
+    needs: [dast-staging, e2e-real]
     if: >-
       needs.dast-staging.outputs.critical == 'false' &&
+      needs.e2e-real.result == 'success' &&
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest
     environment:
@@ -301,9 +318,10 @@ jobs:
   # PRODUCCIÓN — Frontend a Vercel (--prod).
   # ---------------------------------------------------------------------------
   promote-production-frontend:
-    needs: [dast-staging, promote-production-backend]
+    needs: [dast-staging, e2e-real, promote-production-backend]
     if: >-
       needs.dast-staging.outputs.critical == 'false' &&
+      needs.e2e-real.result == 'success' &&
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
     runs-on: ubuntu-latest
     environment:
