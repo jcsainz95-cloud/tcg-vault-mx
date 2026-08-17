@@ -2765,3 +2765,89 @@ buylist rules, FX y pending sin tocar.
 `salesMarkupPct` (dial M10, `SettingsDTO`) queda **DEPRECADO** por el contrato (palanca de
 rollback). El front no lo consume en M2; sigue en `SettingsDTO` por compatibilidad hasta su
 retiro (decisión abierta v1.13-3). Sin solicitudes de contrato: los tres endpoints ya existen.
+
+---
+
+## WS-G · E2E smoke agnósticos de mocks (comprar / retirar / vender contra backend REAL)
+
+**Problema.** Los smoke de flujos de dinero eran verdes SIEMPRE en modo mock: autenticaban
+inyectando `tcg.user` en localStorage (sin token real), asertaban montos exactos de fixture
+(`MX$19,400.00`, `MX$3,380.00`), esperaban un stub de pago viejo (`checkout.paidTitle`) y
+hardcodeaban cartas (`Charizard`, `c-charizard`). Tras WS-F (comprar/retirar reales con Stripe)
+esos 4 tests quedaron ROTOS incluso en mock, pero "QA verde" los ocultó. Ahora los smoke corren,
+env-agnósticos, contra el backend real.
+
+### Helper `frontend/e2e/utils/auth.ts`
+- `loginAs(page, 'customer'|'admin'|'operator')` env-aware:
+  - **Real** (`E2E_REAL=1`): `POST {API}/auth/login` con `page.request` y persiste el `TokenPair`
+    + `user` en localStorage con el MISMO shape que `persistSession` (`src/lib/api.ts`):
+    `tcg.accessToken`, `tcg.refreshToken`, `tcg.user` (y `tcg.role` para staff), vía `addInitScript`
+    (aplica antes de la primera carga → llamar SIEMPRE antes de `page.goto`).
+  - **Mock**: inyecta solo `tcg.user` (las ramas mock de `api.ts` ignoran el token).
+- Credenciales del seed determinista viven SOLO aquí (sobreescribibles por env):
+  `customer@e2e.local`/`Customer123!`, `admin@e2e.local`/`Admin123!`, `operator@e2e.local`/`Operator123!`.
+- `IS_REAL` (`E2E_REAL==='1'`) y `MONEY_RE` (`/MX\$[\d,]+\.\d{2}/`, aserción por FORMATO) exportados.
+- API real por defecto en `http://localhost:3011/api/v1` (puerto del backend en `docker-compose.staging.yml`);
+  override con `E2E_API_BASE_URL`.
+
+### Tag `@real` + `playwright.config.ts`
+- Los smoke de dinero llevan `@real`. Cuando `E2E_REAL=1`, el config filtra `grep: /@real/`
+  globalmente → en real corre SOLO el subset (comprar/retirar/vender/bóveda). En mock (sin
+  `E2E_REAL`) NO se filtra: corre TODA la suite y los `@real` también pasan por su rama mock.
+- 4 tests `@real`: `checkout.spec.ts` (comprar), `shipments.spec.ts` (retirar),
+  `buylist.spec.ts` (vender), `vault.spec.ts` (portafolio/custodia).
+
+### Env-agnosticismo de los specs
+- **Descubre datos, no hardcodea**: catálogo → primera carta con "Agregar"; bóveda/retiro →
+  primer checkbox settled; buylist → primer set del dropdown → primera carta del grid
+  (`pickFirstSellableCard`).
+- **Aserciones de estructura**: `getByTestId('amount-breakdown')`, total con `MONEY_RE`,
+  `checkout.shipping`/`checkout.iva`. Cero montos de fixture.
+- **Pago (comprar/retirar)**: tras "Pagar"/"Solicitar retiro" el modal SOLO abre si la sesión
+  real (`POST /checkout/session` / `POST /shipments`) se creó. En real se asierta que el modal
+  monta Stripe `<Elements>` (el cuerpo simulado `payment.mockBody` está ausente); NO se depende de
+  una pantalla de "pagado" (el asentamiento es por webhook). En mock se conserva el camino simulado.
+- **Vender**: crea la solicitud (`POST /buylist/requests`). Maneja ambos modos de CLABE
+  (atajo "usar mi CLABE en archivo" si el seed la trae, o captura de CLABE válida si no) y espera
+  `buylist.created`. Viewport alto (2000px) porque el `Modal` no scrollea internamente y el CTA
+  quedaría fuera de pantalla (ver deuda menor abajo).
+
+### Cómo correr contra local-staging (lo que el humano SÍ puede)
+```
+# 1) Levantar el stack real y sembrar (una vez):
+docker compose -f docker-compose.staging.yml --profile apps up -d --build
+docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic
+
+# 2) Correr el subset @real contra el frontend real:
+cd frontend
+E2E_BASE_URL=http://localhost:3010 E2E_REAL=1 npm run test:e2e -- --grep @real
+```
+(El `--grep @real` es redundante con el grep del config cuando `E2E_REAL=1`, pero explícito como
+pide el runbook. Usa el Chromium preinstalado `/opt/pw-browsers`; NO `playwright install`.)
+
+### Verificado aquí (sin stack real)
+- `npx tsc --noEmit` limpio.
+- `npx playwright test --list` enumera los 4 `@real`; con `E2E_REAL=1` el grep deja SOLO esos 4.
+- Modo mock verde: `checkout/vault/shipments/buylist` = **20/20**; resto de la suite sin regresión.
+
+### Pendiente de validar contra el stack real (no ejecutable aquí)
+- Que `loginAs` real reciba `{accessToken, refreshToken, user}` del seed y el Bearer pase los guards.
+- Que exista ≥1 listing vendible en Compra (para comprar) — el seed debería traerlo.
+- Que el modal de Stripe monte `<Elements>` con el `clientSecret` real (en CI la publishable key es
+  dummy `pk_test_e2e_dummy`; por eso NO se asierta el iframe de Stripe, solo la ausencia del cuerpo
+  mock, que ya confirma que la sesión real se creó).
+- Que el cliente del seed traiga CLABE/INE en archivo para que "vender" no tope con
+  `CLABE_NOT_OWN_NAME` (el spec cae al modo captura si no; según lo confirmado, el seed los trae).
+
+### Solicitudes a otros roles (sin cambio de contrato)
+- **devops**: `e2e-real.yml` hoy corre `npm run test:e2e -- checkout.spec.ts shipments.spec.ts
+  buylist.spec.ts` **sin** `E2E_REAL=1`. Para que "verde de verdad" signifique real, añadir
+  `E2E_REAL: '1'` al `env` del job (basta eso: el config auto-filtra `@real` dentro de esos files).
+  Opcional: incluir `vault.spec.ts` en `SMOKE_SPECS`. Sin esto, el job seguiría corriendo la rama
+  mock de los `@real` y los tests mock-only fallarían contra el stack real.
+
+### Deuda técnica menor (frontend, no bloqueante)
+- `components/ui/Modal.tsx` no tiene `max-height`+scroll interno: en formularios altos (KYC de
+  buylist) el CTA "Confirmar y enviar" queda fuera del viewport. El spec lo sortea subiendo el
+  viewport a 2000px, pero es una fricción real de usabilidad. Anotar en `TECH_DEBT.md` a petición
+  de techlead.

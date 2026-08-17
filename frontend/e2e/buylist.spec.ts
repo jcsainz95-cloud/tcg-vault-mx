@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
+import { loginAs, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: buylist (PROJECT §E / AC 12, 13, 33, 34; contrato §6).
@@ -20,26 +21,20 @@ async function pickCard(page: Page, term: string) {
 }
 
 /**
- * Siembra una sesión de cliente verificada (modo mock: la sesión vive en
- * localStorage `tcg.user`, mismo shape que AuthResponse.user del contrato §1).
- * Requerida para ENVIAR la solicitud (gating P-11); cotizar es público.
+ * Descubre y elige la PRIMERA carta del catálogo sin hardcodear nombre/id: filtra por
+ * el primer set real (el dropdown se puebla de GET /buylist/sets → mock o backend real)
+ * y elige la primera carta del grid. Env-agnóstico (mock y real).
  */
-async function seedVerifiedCustomer(page: Page) {
-  await page.addInitScript(() => {
-    window.localStorage.setItem(
-      'tcg.user',
-      JSON.stringify({
-        id: 'u-e2e',
-        email: 'e2e@example.com',
-        name: 'Cliente E2E',
-        role: 'customer',
-        locale: 'es',
-        status: 'active',
-        authProvider: 'local',
-        emailVerified: true,
-      }),
-    );
-  });
+async function pickFirstSellableCard(page: Page) {
+  const setSelect = page.getByLabel(t('es', 'buylist.filterBySet'));
+  // option[0] es el placeholder "Todos los sets"; option[1] es el primer set real.
+  const firstSet = await setSelect.locator('option').nth(1).getAttribute('value');
+  if (firstSet) await setSelect.selectOption(firstSet);
+  await page
+    .getByRole('list', { name: t('es', 'buylist.searchResults') })
+    .getByRole('button')
+    .first()
+    .click();
 }
 
 test.describe('buylist · cotizador público (auto-cotización)', () => {
@@ -67,8 +62,11 @@ test.describe('buylist · cotizador público (auto-cotización)', () => {
     await page.getByRole('button', { name: t('es', 'buylist.searchAction') }).click();
 
     // Sin elegir la carta: el resultado ya muestra su estimado (buylist navegable).
+    // Estructura, no monto exacto de fixture: hay una leyenda + un estimado con formato MXN.
     await expect(page.getByText(t('es', 'buylist.gridEstimateLegend'))).toBeVisible();
-    await expect(page.getByText('MX$19,400.00').first()).toBeVisible();
+    await expect(
+      page.getByRole('list', { name: t('es', 'buylist.searchResults') }).getByText(MONEY_RE).first(),
+    ).toBeVisible();
   });
 
   test('bulk: multi-selección en el grid y agregar varias de golpe', async ({ page }) => {
@@ -84,7 +82,7 @@ test.describe('buylist · cotizador público (auto-cotización)', () => {
   });
 
   test('agrega varias cartas al carrito y suma un total estimado', async ({ page }) => {
-    await seedVerifiedCustomer(page);
+    await loginAs(page, 'customer');
     await page.goto('/es/buylist');
     // Carta 1: Charizard (auto-cotiza al elegir).
     await pickCard(page, 'Charizard');
@@ -127,7 +125,9 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
   test('el paso de solicitud muestra RESUMEN + CLABE + INE (anverso/reverso) con aviso de privacidad', async ({
     page,
   }) => {
-    await seedVerifiedCustomer(page);
+    // Mock-only: asume KYC sin CLABE/INE en archivo (fixtures) para mostrar ambos uploaders.
+    // El seed real puede traer CLABE/INE en archivo → el modal usa atajos (cubierto por @real).
+    await loginAs(page, 'customer');
     await page.goto('/es/buylist');
     // Charizard (EX+) tiene referencia → se cotiza sola y se agrega al carrito.
     await pickCard(page, 'Charizard');
@@ -148,17 +148,39 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     await expect(dialog.getByText(t('es', 'ine.privacy'))).toBeVisible();
   });
 
-  test('crea la solicitud con CLABE válida y muestra confirmación', async ({ page }) => {
-    await seedVerifiedCustomer(page);
+  /**
+   * SMOKE @real — VENDER: descubre la primera carta, la agrega y crea la solicitud
+   * (`POST /buylist/requests`). Env-agnóstico:
+   *  - real: el cliente del seed suele traer CLABE/INE en archivo → el modal usa el atajo
+   *    "usar mi CLABE" y se envía directo. Si el backend pidiera CLABE, se captura una válida.
+   *  - mock: los fixtures no traen CLABE en archivo → se captura la CLABE en el modal.
+   * Viewport alto para que el CTA del modal quede en pantalla (el modal no scrollea internamente).
+   */
+  test('@real vender: crea la solicitud de venta y muestra confirmación', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 2000 });
+    await loginAs(page, 'customer');
     await page.goto('/es/buylist');
-    await pickCard(page, 'Charizard');
+
+    await pickFirstSellableCard(page);
+    // Cotización automática al elegir (sin botón "Cotizar").
+    await expect(page.getByRole('heading', { name: t('es', 'buylist.quoteResult') })).toBeVisible();
     await page.getByRole('button', { name: new RegExp(t('es', 'buylist.addToCart')) }).click();
+
+    // Estructura: el carrito suma un total ESTIMADO (no un monto exacto de fixture).
+    await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
+
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
 
-    const dialog = page.getByRole('dialog');
-    await dialog.getByLabel(/CLABE/).fill('002010077777777771');
-    await dialog.getByRole('button', { name: t('es', 'buylist.submit') }).click();
+    const dialog = page.getByRole('dialog', { name: t('es', 'buylist.requestTitle') });
+    await expect(dialog.getByText(t('es', 'buylist.summaryTitle'))).toBeVisible();
 
+    // CLABE: si el modal pide capturarla (sin CLABE en archivo), se llena una válida.
+    const clabeInput = dialog.getByLabel(/CLABE/);
+    if (await clabeInput.count()) {
+      await clabeInput.first().fill('002010077777777771');
+    }
+
+    await dialog.getByRole('button', { name: t('es', 'buylist.submit') }).click();
     await expect(page.getByText(t('es', 'buylist.created'))).toBeVisible();
   });
 });
