@@ -417,6 +417,55 @@
 - **Disparador:** próximo toque de `money.ts`. Solución: reemplazar "inocuo" por "costo acotado" en esos dos
   comentarios.
 
+### Fase 1 del epic de precios — deuda del delta (commit a6a79df, 2026-08-17, no bloqueante)
+
+> De la **Fase 1** del epic de precios (precio on-demand: `persistMarketReference`, disparo manual del job
+> de catálogo/precio). Triple veredicto **APROBADO** (seguridad + qa + techlead APROBADO-con-deuda). Todos
+> los ítems de abajo son **no bloqueantes**, dueño **backend** salvo dependencia con **devops** donde se
+> anota. Registrados a petición del techlead/seguridad sin tocar código de producción. Continúan la
+> numeración `BE-*` (tras BE-1..19).
+
+### BE-20 · `PriceReference` crece sin poda (prioridad alta de disparo)
+- **Dónde:** `src/modules/pricing/pricing.service.ts` → `persistMarketReference` (~:210-256).
+- **Estado actual:** el upsert va por `capturedDate=hoy` (idempotente **dentro** del día), pero entre días
+  acumula **una fila por `(card, finish, día)`** → ~30-40k filas/día, ~11-15M/año, **sin job de barrido**
+  (`priceReference.deleteMany` no existe). Es la contrapartida directa de "preciar todo el catálogo 2×/día".
+- **Impacto:** medio a alto a futuro: crecimiento monotónico de la tabla que degrada consultas y storage al
+  operar a escala. Correctness OK (el upsert diario no corrompe).
+- **Disparador:** **ANTES de operar a escala.** Solución: job de retención/particionado por `capturedDate`
+  (mantener N días de histórico raw + agregados para la gráfica de set §4.12). Dependencia **devops**
+  (particionado) / DEV-1.
+
+### BE-21 · single-flight solo en memoria del proceso; el disparo manual evade la cola
+- **Dónde:** `src/modules/catalog/catalog-sync.service.ts` → `syncAllStatus.running` (~:234) +
+  `src/modules/catalog/admin-jobs.controller.ts:150` (`POST /admin/jobs/catalog-price-sync`).
+- **Estado actual:** `syncAllStatus.running` es estado **en memoria**; el disparo manual corre `syncAll()`
+  **in-process en el web dyno**, saltándose el worker BullMQ. En multi-instancia, un disparo manual puede
+  solaparse con el programado → **dos re-syncs concurrentes** → doble carga y agotamiento del rate-limit
+  (429). Idempotente: no corrompe datos.
+- **Impacto:** medio bajo condiciones multi-instancia: doble carga sobre pokemontcg.io y 429. Aceptable en
+  instancia única (el single-flight en memoria basta).
+- **Disparador:** **multi-instancia o al cablear BullMQ para catálogo.** Mitigación: encolar también el
+  disparo manual, o lock en Redis (`SET NX`). Familia DEV-1/BE-11/BE-12.
+
+### BE-22 · `persistMarketReference` guard `isManualOverride` es TOCTOU (Baja)
+- **Dónde:** `src/modules/pricing/pricing.service.ts:228-254`.
+- **Estado actual:** `findUnique` → early-return si `isManualOverride`; si no, `upsert` cuyo `update` fija
+  `isManualOverride:false`. Entre lectura y escritura un admin podría setear override y el `update` lo
+  **pisaría** (`manual` → `pokemontcg_io`). Ventana **minúscula**; consistente con el TOCTOU de
+  `syncCardPrice` y BE-15. Es **dinero** (precio de referencia).
+- **Impacto:** bajo. Requiere que un override manual caiga exactamente en la ventana lectura→escritura de un
+  sync concurrente; el peor caso es un override pisado por el precio automático (recuperable re-aplicando).
+- **Disparador:** **al endurecer overrides o si aparece pisado en operación.** Solución:
+  `updateMany ... WHERE isManualOverride=false` en una sola sentencia, o `$transaction`.
+
+### BE-23 · Disparo manual del job sin `@Throttle` propio (Baja/Info, seguridad)
+- **Dónde:** `src/modules/catalog/admin-jobs.controller.ts:145-160`.
+- **Estado actual:** el single-flight impide barridos solapados, pero cada disparo en loop ejecuta
+  `client.getSets()` contra pokemontcg.io. **Solo `super_admin`**, impacto bajo.
+- **Impacto:** bajo. A lo sumo carga extra sobre el proveedor si un super_admin abusa del endpoint en loop.
+- **Disparador:** si se abusa. Mitigación: `@Throttle` nominal en el endpoint de jobs.
+
 ---
 
 ## Frontend (dueño: frontend)

@@ -140,7 +140,8 @@ antes de usar esas funciones:
 |---|---|---|
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Firmar JWT (auth). **Obligatorias en prod** (el backend aborta si faltan con `NODE_ENV=production`). | Generar: `openssl rand -hex 48` (distintas entre sí) |
 | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` | Pagos y webhooks | Dashboard de Stripe (test/live) |
-| `POKEMONTCG_IO_API_KEY` | Precios raw/singles (fetch real) | dev.pokemontcg.io (free) |
+| `POKEMONTCG_IO_API_KEY` | Precios raw/singles (fetch real) **y re-sync completo del catálogo 2×/día** (cientos de req/corrida; **obligatorio en prod**, ver §18) | dev.pokemontcg.io (free; con key ~20k req/día) |
+| `CATALOG_PRICE_SYNC_CRON_1`, `CATALOG_PRICE_SYNC_CRON_2` (opcional) | Crons **en UTC** del re-sync completo del catálogo (v1.12). Defaults `0 0 * * *` (00:00 UTC = 18:00 CDMX) y `0 12 * * *` (12:00 UTC = 06:00 CDMX) → juntos disparan a las **06:00 y 18:00 CDMX**. Requieren `REDIS_URL`. Ver §18. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
 | `POKEMONPRICETRACKER_API_KEY` | Precios gradeadas/sellado | PokemonPriceTracker (free tier) — **provider stub, ver BE-6** |
 | `POKETRACE_API_KEY` | Respaldo gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
 | `S3_*` (endpoint/bucket/keys/force-path-style) | **Object storage SOLO para la INE del buylist (`kyc_ine/`)**, cifrada + presigned PUT/GET. Local=MinIO (ya puesto); prod=R2/S3. v1.2.1: sin `S3_PUBLIC_BASE_URL` (no hay prefijo público) ni fotos de inventario/disputa. Nombres reales que consume el código: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`. | Cloudflare R2 o AWS S3 |
@@ -1227,4 +1228,128 @@ Si `set` resuelve pero `points: []`, revisa que el Paso 3 corrió en orden y que
 > Estos jobs **no** mueven dinero ni tocan PII: la gráfica es 100% valor de mercado agregado del set
 > (derivado server-side de `PriceReference`; SEC-A1 intacto). Un fallo de la gráfica **no** bloquea checkout,
 > bóveda ni buylist — degrada aislado.
+
+---
+
+## 18. Job `catalog-price-sync` — re-sync completo del catálogo 2×/día (v1.12-catalog-pricing)
+
+> Contexto: el precio de venta se deriva de `PriceReference` (por acabado), que se repuebla desde
+> pokemontcg.io. La operación de "refrescar precios de todo el catálogo" la implementa **backend** en
+> `backend/src/jobs/catalog-price-sync.service.ts` + su cableado en `scheduler.service.ts` (devops **no**
+> toca `backend/`). Devops aporta las env de scheduling (`.env.example`), su cableado operativo en Railway
+> y este runbook. Decisión del humano: **refresco de TODO el catálogo 2×/día a las 06:00 y 18:00 CDMX**;
+> la `POKEMONTCG_IO_API_KEY` ya está aprovisionada.
+
+### 18.1 Qué hace
+
+- El job `catalog-price-sync` ejecuta `CatalogSyncService.syncAll({ force:true })` = **re-sync completo**:
+  reprocesa todos los sets remotos → repuebla cartas + `availableFinishes` + `PriceReference` por acabado
+  (con el **FX del día**, USD→MXN) e **importa los sets nuevos** que aún no existían localmente, todo en
+  una sola pasada.
+- Es **secuencial** (respeta el backoff 429 del cliente de pokemontcg.io), **single-flight** (dos corridas
+  no se solapan: si ya hay una en curso, la nueva retorna `setsQueued:0`) e **idempotente** (upsert por
+  `externalId` / clave día-acabado). Reintentar no duplica.
+- El worker sólo corre si hay **`REDIS_URL`** (BullMQ). Sin Redis, el scheduler queda deshabilitado con un
+  warning y el job **sólo** es disparable a mano (§18.5).
+
+### 18.2 Horarios y cómo cambiarlos (env, sin redeploy de código)
+
+Dos BullMQ repeatables (`catalog-price-sync-1` y `-2`), con cron **en UTC** por env:
+
+| Env | Default | UTC | CDMX | Corrida |
+|---|---|---|---|---|
+| `CATALOG_PRICE_SYNC_CRON_1` | `0 0 * * *` | 00:00 UTC | **18:00 CDMX** | tarde |
+| `CATALOG_PRICE_SYNC_CRON_2` | `0 12 * * *` | 12:00 UTC | **06:00 CDMX** | mañana |
+
+- **CDMX = UTC−6, fijo (sin horario de verano).** Para pasar de CDMX a UTC se **SUMAN 6 h**:
+  `06:00 CDMX = 12:00 UTC` y `18:00 CDMX = 00:00 UTC`. Los dos defaults, **juntos**, disparan a las
+  **06:00 y 18:00 CDMX** — que es lo que pidió el humano. ✅
+- **Ojo con el numerito:** `CRON_1` (00:00 UTC) NO es la corrida de la mañana; es la de la **tarde**
+  (18:00 CDMX). `CRON_2` (12:00 UTC) es la de la **mañana** (06:00 CDMX). El nombre `-1/-2` es sólo el
+  id de la repeatable, no el orden horario. *(El comentario inline de `scheduler.service.ts` (líneas ~77 y
+  ~130) rotula "06:00 = 00:00 UTC / 18:00 = 12:00 UTC", que **empareja al revés**; el resultado que
+  dispara es correcto, sólo el rótulo por-cron está cruzado. Enrutado a backend como fix cosmético, §18.7.)*
+- **Cambiar horario en prod:** editar `CATALOG_PRICE_SYNC_CRON_1/_2` en **Railway → servicio `backend` →
+  Variables** y redeploy. Es config de env, no cambio de código. Mantén siempre el cron en **UTC**.
+- **NO** pongas la env a cadena **vacía**: el código usa `?? default`, que sólo cubre variable **ausente**;
+  `""` NO cae al default → produce un patrón de cron **inválido** que puede romper el arranque del
+  scheduler. Para apagar el job ver rollback (§18.6).
+
+### 18.3 Requisitos operativos (obligatorios en prod)
+
+- **`REDIS_URL`** — BullMQ. Ya inyectado por Railway (`${{ Redis.REDIS_URL }}`, ver §11.D). Sin él, ni
+  este ni ningún otro cron corre.
+- **`POKEMONTCG_IO_API_KEY`** — cada corrida son **cientos de requests** a pokemontcg.io (todo el
+  catálogo, ~150+ sets paginados) **× 2/día**. Con API key el free tier autenticado da **~20 000 req/día**,
+  holgado para dos re-syncs completos; **sin** key el límite sin autenticar es mucho más estricto y el
+  re-sync se estrangula (HTTP 429) o falla. Cárgala en Railway → `backend` (ya listada en `[RW]`, §11.D).
+
+### 18.4 Orden FX → precios (requisito operativo)
+
+El re-sync convierte USD→MXN con el **FxRate** vigente; conviene que el FX del día esté fresco **antes** de
+cada re-sync. Estado actual del scheduling (backend, `scheduler.service.ts`):
+
+- `fx-refresh` corre a **`0 6 * * *` = 06:00 UTC = 00:00 CDMX** (Banxico SIE + colchón). Es un cron
+  **hardcodeado** (NO configurable por env, a diferencia de los de `catalog-price-sync`).
+- Secuencia diaria en **hora CDMX**: `fx-refresh` **00:00** → `catalog-price-sync` mañana **06:00** →
+  `catalog-price-sync` tarde **18:00**. Es decir, **ambos** re-syncs corren **después** del `fx-refresh`
+  del día → se precian con el **FX de ese día**. ✅ **El orden FX→precios se cumple con el schedule actual.**
+- **Matiz (aceptable):** la corrida de la tarde (18:00 CDMX) usa el FX escrito a las 00:00 CDMX (~18 h
+  antes). Es tolerable porque (a) Banxico publica **un** FIX por día hábil, así que no hay un rate más
+  nuevo que buscar intradía, y (b) el precio lleva el **colchón** (dial M10) que absorbe la deriva FX.
+- **Regla para quien edite los crons por env:** manténlos disparando **después de las 00:00 CDMX** (después
+  del `fx-refresh`). En la práctica cualquier hora diurna CDMX cumple. Si algún día se retrasa el
+  `fx-refresh` o se mueve un cron a la franja **antes de las 06:00 UTC del mismo día UTC**, la corrida
+  afectada preciaría con FX del día anterior — evítalo.
+- **Recomendación a backend (§18.7):** `fx-refresh` no es configurable por env y sólo corre 1×/día; si se
+  quisiera FX más fresco para la corrida de la tarde, backend podría exponer su cron por env o añadir un
+  segundo `fx-refresh` antes de las 18:00 CDMX. No lo toca devops (es `backend/`).
+
+### 18.5 Disparo manual
+
+```
+POST /api/v1/admin/jobs/catalog-price-sync      # super_admin; 200 { jobId, setsQueued, remaining }
+```
+
+- Rol **`super_admin`** (guard `@Roles`), **auditado** en `AuditLog` (`action: jobs.catalog_price_sync.run`).
+- Mismo `run()` que el cron (re-sync `force:true`, single-flight): si ya hay una corrida en curso, retorna
+  `setsQueued:0` sin lanzar otra. Útil para forzar un refresco fuera de horario o tras cargar la API key.
+
+### 18.6 Monitoreo
+
+- **Duración de la corrida:** un re-sync completo procesa todo el catálogo secuencialmente; vigila el
+  `jobId`/tiempo entre inicio y fin (logs `catalog-price-sync: re-sync force lanzado (...)` del backend).
+  Alarma si una corrida no termina antes de la siguiente (00:00 y 12:00 UTC distan 12 h; el single-flight
+  evita solape, pero una corrida que dure >12 h haría que la siguiente salga en vacío → **investigar**).
+- **Rate-limit 429 de pokemontcg.io:** alarma sobre 429 repetidos en los logs del backend. Un 429 sostenido
+  indica que falta/está mal la `POKEMONTCG_IO_API_KEY` o que se excede la cuota (~20k/día). El cliente hace
+  backoff, pero un 429 persistente alarga o degrada el re-sync (precios sin refrescar ese ciclo).
+- **Crecimiento de `PriceReference`:** cada re-sync inserta filas por día×acabado → **~30–40k filas/día**
+  de crecimiento estimado. **Nota de retención futura:** sin una política de poda, la tabla crece de forma
+  monótona. Acción futura (a coordinar con **backend**, dueño del esquema): job de retención/agregación de
+  `PriceReference` (p. ej. conservar N días de granularidad diaria + resumen histórico), análogo a la
+  retención de INE. Hoy queda como **deuda registrada** (no bloqueante); vigilar el tamaño de la tabla y el
+  disco de Railway Postgres.
+- **Fallo del job:** el worker BullMQ registra `Job catalog-price-sync-N falló: <msg>`. Cablear la alerta
+  de plataforma sobre 5xx/errores del worker (mismo canal que las alertas de `price-sync`/`fx-refresh`, §8).
+
+### 18.7 Rollback / deshabilitar
+
+| Escenario | Acción |
+|---|---|
+| **Apagar el job sin tocar código (recomendado)** | Poner `CATALOG_PRICE_SYNC_CRON_1` y `_2` en un cron **válido que nunca dispare**, p. ej. `0 0 31 2 *` (31 de febrero = nunca), en Railway → `backend` → Variables, y redeploy. El scheduler sigue sano; el job no vuelve a correr. **NO** uses cadena vacía (produce patrón inválido, §18.2). |
+| **Pausa temporal (stopgap)** | Quitar la repeatable de Redis (`queue.removeRepeatable`/borrar la key de BullMQ vía `redis-cli`). **Se re-crea en el próximo arranque** del backend (el scheduler la vuelve a añadir en `onModuleInit`), así que es sólo un parche hasta el siguiente deploy/restart — para algo permanente usa el cron-nunca de arriba. |
+| **Toggle limpio (requiere backend)** | Un flag `CATALOG_PRICE_SYNC_ENABLED` que envuelva el `queue.add`. No existe hoy → enrutado a backend (§18.7 abajo). |
+| **Corrida en curso problemática** | Es idempotente y single-flight: se puede dejar terminar. Para que no vuelva a lanzarse, aplica el cron-nunca. No hay riesgo de dinero/PII (sólo repuebla precios de catálogo). |
+| **Apagar TODOS los jobs** | Quitar `REDIS_URL` deshabilita el scheduler completo (demasiado amplio; afecta fx/price/snapshots/barridos). Preferir el cron-nunca por-job. |
+
+**Enrutado a backend (cambios de código, NO devops):**
+1. **Rótulo CDMX cruzado** en el comentario de `scheduler.service.ts` (~L77 y L130): 00:00 UTC = **18:00**
+   CDMX (no 06:00) y 12:00 UTC = **06:00** CDMX (no 18:00). Los disparos son correctos; sólo el comentario
+   confunde al operador. Fix cosmético.
+2. **`fx-refresh` no configurable por env** (`0 6 * * *` hardcodeado) y 1×/día: si ops necesitara retimarlo
+   o dar FX más fresco a la corrida de las 18:00 CDMX, exponer su cron por env o añadir un 2º `fx-refresh`.
+3. **Robustez del `?? default`:** hoy `CATALOG_PRICE_SYNC_CRON_1/_2=""` (vacío) NO cae al default y genera un
+   patrón inválido. Sería más robusto tratar cadena vacía/espacios como "usar default" (o como "deshabilitado"
+   explícito). Mitigación devops mientras tanto: documentado en `.env.example` y §18.2 (no usar vacío).
 
