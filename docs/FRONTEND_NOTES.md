@@ -4,6 +4,43 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-A — Ingesta masiva de precios (frontend, v1.14-price-ingest) (2026-08-17)
+
+Parte de frontend del epic WS-A (contrato `API_CONTRACT.md` v1.14-price-ingest). Solo `frontend/` +
+este doc. NO se tocó `api-client.ts` ni `session.ts`. `api.ts` sí (WS-B ya cerró ahí).
+
+### #13 — Guardar SOLO el colchón (buffer) del FX — `M2View.tsx` (sección FX) + `api.ts`
+- `updateFx` (`api.ts`) ahora acepta `{ rate?, bufferPct? }` (**`rate` opcional**, contrato §M2). Si se
+  omite `rate`, el mock conserva la tasa vigente y **no** marca `source=manual` (solo cambia el colchón);
+  el backend real hace lo propio (no pinnea override de tasa). Al menos uno de los dos debe venir.
+- `M2View` arma el payload con las keys realmente capturadas (`saveFx()`): tasa vacía ⇒ `{ bufferPct }`
+  sin `rate`. El botón "Fijar override" se habilita si **AL MENOS uno** de los dos tiene valor
+  (antes: `disabled` si cualquiera vacío). Mensaje de éxito diferenciado: `fx.savedBufferOnly` cuando solo
+  se guardó el colchón (se decide por `fxUpdateMutation.variables.rate === undefined`), `fx.saved` si hubo
+  tasa. Se separó el banner de éxito compartido con "Refrescar Banxico" para poder dar el copy correcto.
+  Hint nuevo `fx.bufferOnlyHint` bajo los inputs.
+
+### Selector `priceProvider` + disparo manual del ingest — `M2View.tsx` (nueva Sección 3b) + `api.ts` + `contract.ts`
+- `contract.ts`: nuevo `type PriceProvider = 'pokemontcg_io' | 'pokemonpricetracker'`; `SettingsDTO` gana
+  `priceProvider?: PriceProvider` (opcional: el backend lo puede omitir hasta el seed). Nuevo
+  `PriceIngestResponse` (`{ job, enqueued, jobId?, scope?, setId? }`).
+- `api.ts`: `getPriceProvider()`/`updatePriceProvider(p)` = wrappers finos sobre el endpoint de settings ya
+  existente (`GET`/`PUT /admin/settings` parcial; SEC/auditoría del backend intactas). `triggerPriceIngest({ setId? })`
+  → `POST /admin/jobs/price-ingest` (body vacío salvo `setId?`, ÚNICA excepción de la familia `admin/jobs/*`).
+- `M2View` Sección 3b "Ingesta masiva de precios": `Select` del proveedor (patrón draft + botón Guardar,
+  money-safe como los editores de reglas) con hint "cambia la fuente sin redeploy"; botón "Actualizar
+  precios ahora" que llama `triggerPriceIngest()` con feedback encolado (`enqueued=true`) vs ya-en-curso
+  (`enqueued=false`, single-flight). Query propia `['price-provider']` con `QueryState` (carga/error/retry);
+  el disparo del ingest invalida `['pending-prices']`.
+- Mock: `mockSettings.priceProvider = 'pokemontcg_io'` (seed recomendado por contrato) en `mock/fixtures.ts`.
+- i18n: `admin.m2.priceIngest.*` + `admin.m2.fx.{bufferOnlyHint,savedBufferOnly}` en ES/EN (paridad). El copy
+  del `triggerHint` evita la frase "Corre en segundo plano" para no colisionar con el `getByText` del test
+  del barrido de catálogo (ambos textos coexisten en el DOM).
+- Tests (`M2View.test.tsx`): guardar-solo-buffer llama `updateFx({ bufferPct })` sin `rate` (+ estado
+  enabled/disabled del botón + copy); el selector guarda el dial (`updatePriceProvider('pokemonpricetracker')`);
+  el botón dispara `triggerPriceIngest` (feedback encolado y single-flight).
+- Preservado `shadow-focus` (Input/Select sin tocar). Gates verdes: lint, tsc, test (248), build.
+
 ## WS-D — Quick wins de UX (2026-08-17)
 - **#9 P-13 nav por sesión** (`StorefrontHeader.tsx`): "Mi Bóveda"/"Mis Órdenes" se ocultan sin sesión
   (público solo Compra/Vender), vía spread condicional en el array `links` (aplica a nav desktop y móvil;

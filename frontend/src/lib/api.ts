@@ -63,6 +63,8 @@ import type {
   IneUploadKeys,
   KycInfoDTO,
   FxDTO,
+  PriceProvider,
+  PriceIngestResponse,
   PendingPriceEntryDTO,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
@@ -1387,10 +1389,21 @@ export async function getFx(): Promise<FxDTO> {
   return delay(fx.mockFx);
 }
 
-/** Fija override manual de FX (contrato PUT /admin/fx). */
-export async function updateFx(input: { rate: number; bufferPct: number }): Promise<FxDTO> {
+/**
+ * Fija override manual de FX (contrato PUT /admin/fx). v1.14-price-ingest (#13): `rate` es
+ * OPCIONAL — si se omite, actualiza SOLO el colchón (`bufferPct`) y NO pinnea un override
+ * manual de tasa (conserva la tasa vigente de Banxico). Al menos uno de los dos debe venir.
+ */
+export async function updateFx(input: { rate?: number; bufferPct?: number }): Promise<FxDTO> {
   if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx', { method: 'PUT', body: input });
-  const next: FxDTO = { rate: input.rate, bufferPct: input.bufferPct, source: 'manual', effectiveDate: new Date().toISOString().slice(0, 10) };
+  // MOCK: si se omite `rate`, conserva la tasa vigente y la fuente (solo cambia el colchón);
+  // el override manual (`source=manual`) solo se marca cuando SÍ se fija una tasa.
+  const next: FxDTO = {
+    rate: input.rate ?? fx.mockFx.rate,
+    bufferPct: input.bufferPct ?? fx.mockFx.bufferPct,
+    source: input.rate != null ? 'manual' : fx.mockFx.source,
+    effectiveDate: new Date().toISOString().slice(0, 10),
+  };
   fx.setMockFx(next);
   return delay(next);
 }
@@ -1401,6 +1414,45 @@ export async function refreshFx(): Promise<FxDTO> {
   const next: FxDTO = { ...fx.mockFx, source: 'banxico', effectiveDate: new Date().toISOString().slice(0, 10) };
   fx.setMockFx(next);
   return delay(next);
+}
+
+/**
+ * Dispara la ingesta MASIVA de precios (contrato §M10-ops · POST /admin/jobs/price-ingest,
+ * `super_admin`, auditado, single-flight, v1.14-price-ingest). Fan-out BullMQ un job por set.
+ * `setId?` (ÚNICA excepción al body-vacío de la familia admin/jobs/*) ingesta UN solo set para
+ * verificar el esquema del proveedor en la 1ª corrida; omitirlo ingesta TODO el catálogo.
+ * Res `202`: `{ job, enqueued, jobId? }` (`enqueued=false` si ya había un pase en curso).
+ */
+export async function triggerPriceIngest(
+  input: { setId?: string } = {},
+): Promise<PriceIngestResponse> {
+  if (!config.useMocks) {
+    const body = input.setId ? { setId: input.setId } : {};
+    return apiRequest<PriceIngestResponse>('/admin/jobs/price-ingest', { method: 'POST', body });
+  }
+  const res: PriceIngestResponse = input.setId
+    ? { job: 'price-ingest', enqueued: true, jobId: mockJobId(), scope: 'set', setId: input.setId }
+    : { job: 'price-ingest', enqueued: true, jobId: mockJobId() };
+  return delay(res);
+}
+
+/**
+ * Lee el dial `priceProvider` (proveedor de la ingesta masiva de precios) reusando el endpoint
+ * de settings existente (contrato §M10 · GET /admin/settings, v1.14-price-ingest). Devuelve
+ * `undefined` si el backend aún no lo expone.
+ */
+export async function getPriceProvider(): Promise<PriceProvider | undefined> {
+  const settings = await getSettings();
+  return settings.priceProvider;
+}
+
+/**
+ * Actualiza el dial `priceProvider` vía PUT PARCIAL de settings (contrato §M10 ·
+ * PUT /admin/settings { priceProvider }, v1.14-price-ingest). Sin redeploy; auditado
+ * (`settings.update`). Palanca de rollback del proveedor de ingest.
+ */
+export async function updatePriceProvider(priceProvider: PriceProvider): Promise<SettingsDTO> {
+  return updateSettings({ priceProvider });
 }
 
 /**

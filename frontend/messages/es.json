@@ -824,7 +824,24 @@
         "saveOverride": "Fijar override",
         "refreshBanxico": "Refrescar Banxico",
         "hint": "El precio MXN = precio USD × tasa × (1 + colchón/100). El override manual tiene prioridad sobre el automático del día.",
-        "saved": "Tipo de cambio actualizado."
+        "bufferOnlyHint": "Puedes guardar solo el colchón: deja la tasa vacía y se conserva la tasa vigente.",
+        "saved": "Tipo de cambio actualizado.",
+        "savedBufferOnly": "Colchón actualizado; se conservó la tasa vigente."
+      },
+      "priceIngest": {
+        "title": "Ingesta masiva de precios",
+        "subtitle": "Refresca los precios de TODO el catálogo por lotes (un job por set) desde el proveedor seleccionado. Es la vía principal de precios; corre 1–2 veces al día y también puedes dispararla a mano.",
+        "providerLabel": "Proveedor de precios",
+        "providerOptions": {
+          "pokemontcg_io": "pokemontcg.io",
+          "pokemonpricetracker": "PokemonPriceTracker"
+        },
+        "providerHint": "Cambia la fuente de precios sin redeploy. Palanca de reversa: si el proveedor de paga falla, vuelve a pokemontcg.io al instante.",
+        "providerSaved": "Proveedor de precios actualizado.",
+        "trigger": "Actualizar precios ahora",
+        "triggerHint": "Encola la ingesta masiva (equivale a la corrida programada); se procesa set por set, en segundo plano.",
+        "queued": "Ingesta de precios encolada; se procesa en segundo plano.",
+        "alreadyRunning": "Ya hay una ingesta de precios en curso; no se encoló otra."
       },
       "rarityMap": {
         "title": "Rareza → categoría de buylist",

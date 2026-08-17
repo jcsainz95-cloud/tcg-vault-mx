@@ -824,7 +824,24 @@
         "saveOverride": "Set override",
         "refreshBanxico": "Refresh Banxico",
         "hint": "MXN price = USD price × rate × (1 + buffer/100). The manual override takes priority over the day's automatic rate.",
-        "saved": "Exchange rate updated."
+        "bufferOnlyHint": "You can save just the buffer: leave the rate empty to keep the current rate.",
+        "saved": "Exchange rate updated.",
+        "savedBufferOnly": "Buffer updated; kept the current rate."
+      },
+      "priceIngest": {
+        "title": "Bulk price ingest",
+        "subtitle": "Refreshes prices for the WHOLE catalog in batches (one job per set) from the selected provider. It's the primary pricing path; it runs 1–2 times a day and you can also trigger it manually.",
+        "providerLabel": "Price provider",
+        "providerOptions": {
+          "pokemontcg_io": "pokemontcg.io",
+          "pokemonpricetracker": "PokemonPriceTracker"
+        },
+        "providerHint": "Change the price source without a redeploy. Rollback lever: if the paid provider fails, switch back to pokemontcg.io instantly.",
+        "providerSaved": "Price provider updated.",
+        "trigger": "Refresh prices now",
+        "triggerHint": "Queues the bulk ingest (same as the scheduled run); processed set by set, in the background.",
+        "queued": "Price ingest queued; processing in the background.",
+        "alreadyRunning": "A price ingest is already running; no second run was queued."
       },
       "rarityMap": {
         "title": "Rarity → buylist category",

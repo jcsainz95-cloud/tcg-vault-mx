@@ -4,6 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { M2View } from './M2View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { mockSettings } from '@/lib/mock/fixtures';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -301,5 +302,73 @@ describe('M2View · Catálogo y precios', () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 250 }));
+  });
+
+  // ---- FX · guardar SOLO el colchón (#13, v1.14-price-ingest) ----
+  it('guardar solo el colchón (buffer) llama a updateFx SIN rate y muestra el mensaje claro', async () => {
+    const spy = vi.spyOn(api, 'updateFx').mockResolvedValue({
+      rate: 18.42,
+      bufferPct: 5,
+      source: 'banxico',
+      effectiveDate: '2026-08-17',
+    });
+    renderWithProviders(<M2View />, 'es');
+    // La sección FX carga async; el input del colchón aparece cuando llega el mock.
+    const bufferInput = await screen.findByLabelText('Nuevo colchón %');
+    // Ambos vacíos → el botón está deshabilitado.
+    expect(screen.getByRole('button', { name: 'Fijar override' })).toBeDisabled();
+
+    fireEvent.change(bufferInput, { target: { value: '5' } });
+    // Con la tasa vacía pero el colchón capturado, el botón se habilita (antes exigía ambos).
+    const saveBtn = screen.getByRole('button', { name: 'Fijar override' });
+    expect(saveBtn).toBeEnabled();
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // Manda SOLO el colchón: sin `rate` en el payload.
+    expect(spy).toHaveBeenCalledWith({ bufferPct: 5 });
+    expect(spy.mock.calls[0][0]).not.toHaveProperty('rate');
+
+    expect(
+      await screen.findByText('Colchón actualizado; se conservó la tasa vigente.'),
+    ).toBeInTheDocument();
+  });
+
+  // ---- Proveedor de precios + ingesta masiva (v1.14-price-ingest) ----
+  it('el selector de proveedor de precios guarda el dial (updatePriceProvider)', async () => {
+    const spy = vi.spyOn(api, 'updatePriceProvider').mockResolvedValue(mockSettings);
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Ingesta masiva de precios/);
+    const select = await s.findByLabelText('Proveedor de precios');
+    fireEvent.change(select, { target: { value: 'pokemonpricetracker' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledWith('pokemonpricetracker');
+    expect(await screen.findByText('Proveedor de precios actualizado.')).toBeInTheDocument();
+  });
+
+  it('el botón "Actualizar precios ahora" dispara triggerPriceIngest y muestra el feedback de encolado', async () => {
+    const spy = vi.spyOn(api, 'triggerPriceIngest').mockResolvedValue({
+      job: 'price-ingest',
+      enqueued: true,
+      jobId: 'job-1',
+    });
+    renderWithProviders(<M2View />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: /Actualizar precios ahora/ }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/Ingesta de precios encolada/)).toBeInTheDocument();
+  });
+
+  it('si el ingest ya está en curso (enqueued=false) el feedback lo dice (single-flight)', async () => {
+    vi.spyOn(api, 'triggerPriceIngest').mockResolvedValue({
+      job: 'price-ingest',
+      enqueued: false,
+    });
+    renderWithProviders(<M2View />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: /Actualizar precios ahora/ }));
+
+    expect(await screen.findByText(/Ya hay una ingesta de precios en curso/)).toBeInTheDocument();
   });
 });

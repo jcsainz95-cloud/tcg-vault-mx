@@ -1050,6 +1050,8 @@ export let mockSettings: SettingsDTO = {
   pricingProviderRaw: 'pokemontcg_io',
   pricingProviderGraded: 'pokemonpricetracker',
   pricingProviderSealed: 'manual',
+  // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
+  priceProvider: 'pokemontcg_io',
   catalogSyncFromDate: '2024/01/01',
 };
 export function setMockSettings(patch: Partial<SettingsDTO>) {

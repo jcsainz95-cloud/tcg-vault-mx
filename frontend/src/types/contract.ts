@@ -671,6 +671,22 @@ export interface FxDTO {
   effectiveDate: string;
 }
 
+// v1.14-price-ingest: proveedor de la ingesta MASIVA de precios (dial `price_provider`, §M10).
+// Palanca de rollback money-safe que cambia la fuente de precios del ingest SIN redeploy.
+export type PriceProvider = 'pokemontcg_io' | 'pokemonpricetracker';
+
+// POST /admin/jobs/price-ingest → 202 (contrato §M10-ops, v1.14-price-ingest): dispara la
+// ingesta masiva (fan-out BullMQ un job por set). `enqueued=false` si ya había un pase en
+// curso (single-flight). `scope`/`setId` solo vienen cuando se ingesta UN set (verificación
+// de esquema del proveedor en la 1ª corrida); omitir `setId` ingesta TODO el catálogo.
+export interface PriceIngestResponse {
+  job: 'price-ingest';
+  enqueued: boolean;
+  jobId?: string;
+  scope?: 'set';
+  setId?: string;
+}
+
 // GET /admin/pricing/pending: cola de precio pendiente (contrato §11 PendingPriceEntry).
 // v1.8-ronda-c (M-19): la cola es POR ACABADO — cada entrada lleva `finish` y el override
 // debe enviarlo para resolver SOLO el pendiente de ese acabado.
@@ -952,6 +968,11 @@ export interface SettingsDTO {
   pricingProviderRaw: string;
   pricingProviderGraded: string;
   pricingProviderSealed: string;
+  /**
+   * v1.14-price-ingest: proveedor de la ingesta MASIVA de precios (dial `price_provider`,
+   * editable sin redeploy). Opcional: el backend lo puede omitir hasta el seed. Ver §M10.
+   */
+  priceProvider?: PriceProvider;
   catalogSyncFromDate: string;
 }
 

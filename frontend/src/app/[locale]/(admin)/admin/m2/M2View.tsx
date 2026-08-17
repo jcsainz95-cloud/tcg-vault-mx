@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { RefreshCw, DownloadCloud, Layers } from 'lucide-react';
+import { RefreshCw, DownloadCloud, Layers, Zap } from 'lucide-react';
 import {
   syncPricing,
   getPendingPrices,
@@ -11,6 +11,9 @@ import {
   getFx,
   updateFx,
   refreshFx,
+  triggerPriceIngest,
+  getPriceProvider,
+  updatePriceProvider,
   getBuylistRarities,
   updateBuylistRules,
   getSalesRarities,
@@ -28,6 +31,7 @@ import type {
   BuylistRuleMode,
   SalesRule,
   SalesRuleMode,
+  PriceProvider,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
@@ -46,6 +50,8 @@ import { useKeepSessionAlive } from '@/lib/keep-alive';
 
 const RULE_MODES: BuylistRuleMode[] = ['fixed', 'pct'];
 const SALES_RULE_MODES: SalesRuleMode[] = ['fixed', 'pct'];
+// v1.14-price-ingest: proveedores del dial `priceProvider` (ingesta masiva de precios).
+const PRICE_PROVIDERS: PriceProvider[] = ['pokemontcg_io', 'pokemonpricetracker'];
 
 /** Convierte pesos (texto) a centavos enteros. */
 function pesosToCents(value: string): number {
@@ -170,13 +176,40 @@ export function M2View() {
   const fx = useQuery({ queryKey: ['admin-fx'], queryFn: getFx });
   const [fxRate, setFxRate] = useState('');
   const [fxBuffer, setFxBuffer] = useState('');
+  // #13: se puede guardar SOLO el colchón. El payload se arma con las keys realmente
+  // capturadas: si la tasa queda vacía, se manda `{ bufferPct }` sin `rate` → el backend
+  // conserva la tasa vigente y no pinnea un override manual de tasa.
   const fxUpdateMutation = useMutation({
-    mutationFn: () => updateFx({ rate: Number(fxRate), bufferPct: Number(fxBuffer) }),
+    mutationFn: (payload: { rate?: number; bufferPct?: number }) => updateFx(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-fx'] }),
   });
   const fxRefreshMutation = useMutation({
     mutationFn: refreshFx,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-fx'] }),
+  });
+  function saveFx() {
+    const payload: { rate?: number; bufferPct?: number } = {};
+    if (fxRate !== '') payload.rate = Number(fxRate);
+    if (fxBuffer !== '') payload.bufferPct = Number(fxBuffer);
+    fxUpdateMutation.mutate(payload);
+  }
+
+  // --- Sección 3b: proveedor de la ingesta masiva + disparo manual (v1.14-price-ingest) ---
+  const priceProvider = useQuery({ queryKey: ['price-provider'], queryFn: getPriceProvider });
+  const [providerDraft, setProviderDraft] = useState<PriceProvider | null>(null);
+  const providerValue: PriceProvider = providerDraft ?? priceProvider.data ?? 'pokemontcg_io';
+  const providerDirty = providerDraft != null && providerDraft !== priceProvider.data;
+  const providerMutation = useMutation({
+    mutationFn: (provider: PriceProvider) => updatePriceProvider(provider),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['price-provider'] });
+      setProviderDraft(null);
+    },
+  });
+  const ingestMutation = useMutation({
+    mutationFn: () => triggerPriceIngest(),
+    // El ingest repuebla PriceReference → puede resolver pendientes; refresca esa cola.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pending-prices'] }),
   });
 
   // --- Sección 4: precio de buylist por RAREZA (v1.3.1) ---
@@ -451,9 +484,11 @@ export function M2View() {
                 />
                 <Button
                   variant="secondary"
-                  disabled={fxRate === '' || fxBuffer === ''}
+                  // #13: habilitado si AL MENOS uno de los dos tiene valor (permite guardar
+                  // solo el colchón dejando la tasa vacía).
+                  disabled={fxRate === '' && fxBuffer === ''}
                   loading={fxUpdateMutation.isPending}
-                  onClick={() => fxUpdateMutation.mutate()}
+                  onClick={saveFx}
                 >
                   {t('fx.saveOverride')}
                 </Button>
@@ -462,7 +497,16 @@ export function M2View() {
                 </Button>
               </div>
               <p className="text-xs text-muted">{t('fx.hint')}</p>
-              {(fxUpdateMutation.isSuccess || fxRefreshMutation.isSuccess) && (
+              <p className="text-xs text-muted">{t('fx.bufferOnlyHint')}</p>
+              {fxUpdateMutation.isSuccess && (
+                <Banner variant="success" role="status">
+                  {/* Mensaje claro según lo que se guardó: solo colchón vs tasa (+colchón). */}
+                  {fxUpdateMutation.variables?.rate === undefined
+                    ? t('fx.savedBufferOnly')
+                    : t('fx.saved')}
+                </Banner>
+              )}
+              {fxRefreshMutation.isSuccess && (
                 <Banner variant="success" role="status">{t('fx.saved')}</Banner>
               )}
               {fxUpdateMutation.isError && (
@@ -474,6 +518,72 @@ export function M2View() {
             </div>
           )}
         </QueryState>
+      </section>
+
+      {/* Sección 3b: proveedor de precios + ingesta masiva (v1.14-price-ingest) */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h2 font-semibold">{t('priceIngest.title')}</h2>
+        <p className="text-sm text-muted">{t('priceIngest.subtitle')}</p>
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+          {/* Selector del dial priceProvider (fuente del ingest, sin redeploy) */}
+          <QueryState
+            isLoading={priceProvider.isLoading}
+            isError={priceProvider.isError}
+            error={priceProvider.error}
+            onRetry={() => priceProvider.refetch()}
+          >
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-end gap-3">
+                <Select
+                  label={t('priceIngest.providerLabel')}
+                  className="w-64"
+                  options={PRICE_PROVIDERS.map((p) => ({
+                    value: p,
+                    label: t(`priceIngest.providerOptions.${p}`),
+                  }))}
+                  value={providerValue}
+                  onChange={(e) => setProviderDraft(e.target.value as PriceProvider)}
+                />
+                <Button
+                  variant="secondary"
+                  disabled={!providerDirty}
+                  loading={providerMutation.isPending}
+                  onClick={() => providerMutation.mutate(providerValue)}
+                >
+                  {tc('save')}
+                </Button>
+              </div>
+              <p className="text-xs text-muted">{t('priceIngest.providerHint')}</p>
+              {providerMutation.isSuccess && (
+                <Banner variant="success" role="status">{t('priceIngest.providerSaved')}</Banner>
+              )}
+              {providerMutation.isError && (
+                <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(providerMutation.error)}</Banner>
+              )}
+            </div>
+          </QueryState>
+
+          {/* Disparo manual del ingest masivo (equivale a la corrida programada) */}
+          <div className="flex flex-col gap-2 border-t border-border pt-4">
+            <div>
+              <Button loading={ingestMutation.isPending} onClick={() => ingestMutation.mutate()}>
+                <Zap size={18} /> {t('priceIngest.trigger')}
+              </Button>
+            </div>
+            <p className="text-xs text-muted">{t('priceIngest.triggerHint')}</p>
+            {ingestMutation.isSuccess && (
+              <Banner variant="success" role="status">
+                {/* single-flight: enqueued=false = ya había un pase en curso. */}
+                {ingestMutation.data.enqueued
+                  ? t('priceIngest.queued')
+                  : t('priceIngest.alreadyRunning')}
+              </Banner>
+            )}
+            {ingestMutation.isError && (
+              <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(ingestMutation.error)}</Banner>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* Sección 4: precio de buylist por RAREZA (v1.3.1) */}
