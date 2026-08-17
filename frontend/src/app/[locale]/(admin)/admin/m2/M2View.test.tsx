@@ -32,8 +32,8 @@ describe('M2View · Catálogo y precios', () => {
   it('lista los sets remotos con estado imported/cardCount', async () => {
     renderWithProviders(<M2View />, 'es');
     expect((await screen.findAllByText('Surging Sparks')).length).toBeGreaterThan(0);
-    // El botón de catálogo sync-all está disponible (contrato v1.3, condicional).
-    expect(screen.getByRole('button', { name: /Sync de todo el catálogo/ })).toBeInTheDocument();
+    // El botón de importar sets nuevos (sync-all force:false) está disponible (contrato v1.3, condicional).
+    expect(screen.getByRole('button', { name: /Importar sets nuevos/ })).toBeInTheDocument();
   });
 
   it('abre el modal de override manual de precio', async () => {
@@ -95,12 +95,27 @@ describe('M2View · Catálogo y precios', () => {
     expect(await screen.findByText('Error del servidor. Intenta de nuevo.')).toBeInTheDocument();
   });
 
+  it('el botón "Importar sets nuevos" dispara syncAllCatalog sin forzar (force:false = solo sets nuevos)', async () => {
+    const spy = vi
+      .spyOn(api, 'syncAllCatalog')
+      .mockResolvedValue({ jobId: 'job-1', setsQueued: 3, remaining: 0 });
+    renderWithProviders(<M2View />, 'es');
+
+    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
+
+    // Importar sets nuevos NO fuerza: llama sin argumentos (o con force ausente/false),
+    // así el backend solo trae los sets recién salidos aún no importados.
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const arg = spy.mock.calls[0][0] as { force?: boolean } | undefined;
+    expect(arg?.force ?? false).toBe(false);
+  });
+
   it('un error real (no 404/405) del sync total muestra Banner danger, no el aviso "no disponible"', async () => {
     vi.spyOn(api, 'syncAllCatalog').mockRejectedValueOnce(
       new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
     );
     renderWithProviders(<M2View />, 'es');
-    fireEvent.click(await screen.findByRole('button', { name: /Sync de todo el catálogo/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
 
     expect(await screen.findByText('Error del servidor. Intenta de nuevo.')).toBeInTheDocument();
     expect(screen.queryByText(/no está disponible en el backend/)).not.toBeInTheDocument();
@@ -111,7 +126,7 @@ describe('M2View · Catálogo y precios', () => {
       new ApiClientError(404, { code: 'NOT_FOUND', message: 'missing' }),
     );
     renderWithProviders(<M2View />, 'es');
-    fireEvent.click(await screen.findByRole('button', { name: /Sync de todo el catálogo/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Importar sets nuevos/ }));
 
     expect(await screen.findByText(/no está disponible en el backend/)).toBeInTheDocument();
   });

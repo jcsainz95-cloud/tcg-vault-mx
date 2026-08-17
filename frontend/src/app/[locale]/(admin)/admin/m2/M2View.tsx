@@ -564,6 +564,9 @@ export function M2View() {
             <RefreshCw size={18} /> {t('catalog.syncAllForce')}
           </Button>
         </div>
+        {/* Diferencia ligera vs. pesada: "Importar sets nuevos" (force:false) trae solo los
+            sets recién salidos aún no importados; "Re-sincronizar todo (forzar)" repuebla precios. */}
+        <p className="text-xs text-muted">{t('catalog.syncAllHint')}</p>
         {/* Feedback del sync por set (Importar / Re-sincronizar) */}
         {catalogSyncMutation.isPending && (
           <Banner variant="info" role="status">{t('catalog.syncRunning')}</Banner>

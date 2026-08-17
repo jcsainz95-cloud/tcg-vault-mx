@@ -4,6 +4,27 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Epic precios · Fase 1 · Tarea 1.4 — "Importar sets nuevos" (claridad UX, sin endpoint nuevo) (2026-08-17)
+
+Contrato/arquitectura v1.12. El humano pidió "mapear los sets nuevos que vayan saliendo"; el endpoint ya
+existe (`POST /admin/catalog/sync-all` con `force:false` importa solo los NO importados = trae sets nuevos).
+El trabajo fue **de claridad de UX**, no contrato nuevo. Solo `frontend/` + esta nota.
+
+- **`M2View.tsx` §5 (sync de catálogo):** el botón antes rotulado "Sync de todo el catálogo" (`syncAllMutation`,
+  `force:false`) ahora se llama **"Importar sets nuevos"**. Su acción **no cambió** (sigue `syncAllCatalog()`
+  sin `force`). Se añadió un `<p class="text-xs text-muted">` con `catalog.syncAllHint` bajo la fila de botones
+  que explica la diferencia ligera vs. pesada: "Importar sets nuevos" (force:false, solo sets recién salidos +
+  el sistema lo hace 2×/día) vs. "Re-sincronizar todo (forzar)" (force:true, repuebla precios, pesado). No se
+  tocó la lógica de progreso/polling/keep-alive.
+- **i18n (`messages/{es,en}.json`, `admin.m2.catalog`):** cambiada `syncAll` ("Sync de todo el catálogo" →
+  **"Importar sets nuevos"** / "Sync entire catalog" → **"Import new sets"**); nueva `syncAllHint` (ES/EN,
+  paridad verificada por `i18n-parity`). El resto de claves del bloque intactas.
+- **Tests (`M2View.test.tsx`):** las 3 aserciones que buscaban `/Sync de todo el catálogo/` ahora usan
+  `/Importar sets nuevos/`; nuevo caso "el botón «Importar sets nuevos» dispara syncAllCatalog sin forzar"
+  (verifica `force` ausente/false). El caso del error por set (`/^(Importar|Re-sincronizar)$/`, anclado) sigue
+  sin capturar el nuevo botón. Gates: `lint` ✓ · `tsc --noEmit` ✓ · `vitest` **220/220** (35 archivos, incl.
+  paridad i18n) · `next build` ✓. Sin solicitudes al arquitecto.
+
 ## Gating temprano del flujo de VENDER (buylist) — fix UX del 403 críptico (2026-08-17)
 
 Branch `claude/git-repo-review-c67xyk`. Evidencia de prod: el usuario llenaba TODO el cotizador +
