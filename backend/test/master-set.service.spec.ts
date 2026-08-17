@@ -138,10 +138,14 @@ describe('MasterSetService.binder — countsByFinish, orden natural, secret rare
     const c200 = res.cells.find((c) => c.cardId === 'c200')!;
     expect(c200.totalCount).toBe(0);
     expect(c200.countsByFinish).toEqual([]);
-    // Secret rare: numberSort (200) > printedTotal (191).
+    // Secret rare (BE-36 / §M1 v1.16.1): numeración PRINCIPAL (número puro) con entero > printedTotal.
     expect(c200.isSecretRare).toBe(true);
     // Carta dentro del total nominal NO es secret.
     expect(c10.isSecretRare).toBe(false);
+    // Promo/subset con PREFIJO alfabético (TG12) NO es secret rare aunque su numberSort
+    // (PROMO_SORT_BASE + 12) supere printedTotal — es heurística de display, no numeración principal.
+    const ctg = res.cells.find((c) => c.cardId === 'ctg')!;
+    expect(ctg.isSecretRare).toBe(false);
 
     // Sin N+1: 1 findMany de cartas + 1 groupBy de agregación (no una query por carta).
     expect((prisma.card.findMany as jest.Mock).mock.calls).toHaveLength(1);

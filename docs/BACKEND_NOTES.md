@@ -2764,3 +2764,47 @@ en `backend/` (+ estas notas + `TECH_DEBT`), **sin tocar el contrato**. Gates: `
 - `src/modules/inventory/dto/inventory.dto.ts` (`@Max` en `qty`/`listPriceCents`; constantes
   `MAX_BATCH_QTY`/`MAX_LIST_PRICE_CENTS`).
 - `test/inventory.batch.spec.ts` (mock con `$transaction`/`inventoryBatch.update`/P2002; tests nuevos).
+
+## 40. Limpieza de dos veredictos (2026-08-17) — throttle del cotizador público + `isSecretRare` v1.16.1
+
+Pase pequeño de cierre de dos hallazgos ya señalados. No cambia el contrato; toca `backend/` + docs.
+
+### 40.1 [B-C1 · seguridad] `@Throttle` dedicado en el cotizador público de buylist
+- **Qué:** `POST /buylist/quote` y `POST /buylist/quote/batch` (ambos `@Public`/anónimos) dependían solo del
+  throttler **global** (300/min). El batch amplifica hasta **50×** el trabajo por request → amplificación DoS
+  anónima. Se añadió `@Throttle` propio, alineado con el patrón de los controllers públicos hermanos
+  (`buylist-catalog.controller.ts` usa `@Throttle({ default: { ttl: 60_000, limit: 60 } })`).
+- **Límites elegidos:**
+  - `POST /buylist/quote` → **60/min** por IP (igual que `buylist-catalog`).
+  - `POST /buylist/quote/batch` → **12/min** por IP (más estricto). Racional: 12 req/min × 50 ítems ≈ el mismo
+    techo de cotizaciones/min que 60/min del quote por-carta, así que cierra la amplificación sin penalizar el
+    uso legítimo (el batch existe justamente para mandar N cartas en 1 request).
+- **Archivos:** `src/modules/buylist/buylist.controller.ts` (import `Throttle`, decorador en los 2 métodos).
+- **Test:** `test/buylist.quote-throttle.spec.ts` — lee la metadata `THROTTLER:LIMITdefault`/`THROTTLER:TTLdefault`
+  (mismo patrón que `test/auth.throttle.spec.ts`): quote=60/60s, batch=12/60s, y batch < quote.
+
+### 40.2 [BE-36] `isSecretRare` alineado al contrato §M1 v1.16.1 / ARCHITECTURE §4.17a
+- **Qué:** en `master-set.service.ts` el flag era `printedTotal != null && parts.numberSort > printedTotal`.
+  Como los promos/subsets (`TG`/`GG`/`SV`) reciben `numberSort = PROMO_SORT_BASE + n` (clave "al final",
+  §38.4), su `numberSort` **siempre** superaba `printedTotal` → **todos** salían `isSecretRare: true`.
+- **Definición reconciliada (heurística de DISPLAY):** `true` **solo** para numeración PRINCIPAL (número
+  **puramente numérico**, sin prefijo alfabético) con entero `> printedTotal`; promos/subsets con **prefijo**
+  → `false`; `printedTotal` nulo → `false`.
+- **Fix:** `printedTotal != null && parts.prefix === '' && parts.num > printedTotal` (para un número puro
+  `deriveNumberParts` da `prefix === ''` y `num` = el entero; para `TG12`, `prefix === 'TG'`).
+- **Archivos:** `src/modules/inventory/master-set.service.ts` (línea del `map` del binder).
+- **Test:** `test/master-set.service.spec.ts` — `c200` (200 > 191) → `true`; `TG12` (prefijo) → `false`;
+  `c10` (dentro del total) → `false`.
+- **BE-36 cerrada** en `docs/TECH_DEBT.md`.
+
+### 40.3 Deuda no-bloqueante registrada (docs/TECH_DEBT.md)
+- **BE-37** — `nextFolios`/`escalatePending` corren fuera de `$transaction` (huecos de folio en rollback /
+  escalación huérfana; benigno, del re-chequeo de QA).
+- **BE-38** — `batchQuote` resuelve `getReference` por-ítem (hasta 50 lecturas); reusable con el
+  `getReferencesBatch` existente (par de BE-35/BE-4).
+- **Nota al arquitecto** (no implementada): `AdminBuylistDTO §M5` podría exponer `userName` para evitar el
+  fetch por-fila en M5.
+
+### 40.4 Gates
+- `npx tsc --noEmit` → 0 errores. `npx jest` → **73 suites / 516 tests verdes** (incluye los 2 tests nuevos/
+  ajustados).

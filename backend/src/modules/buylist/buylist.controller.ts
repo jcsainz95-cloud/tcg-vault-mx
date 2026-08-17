@@ -1,4 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -11,7 +12,11 @@ import { BatchQuoteDto, CreateRequestDto, PublicQuoteDto, RespondDto } from './d
 export class BuylistController {
   constructor(private readonly buylist: BuylistService) {}
 
+  // Rate-limit dedicado (60/min por IP) alineado con los controllers públicos hermanos
+  // (`buylist-catalog.controller.ts`). El cotizador por-carta es anónimo (@Public) y READ-ONLY;
+  // se acota para no depender solo del throttler global (300/min) — B-C1 (seguridad).
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post('quote')
   @HttpCode(200)
   quote(@Body() dto: PublicQuoteDto) {
@@ -21,7 +26,11 @@ export class BuylistController {
   // v1.15 (§4.16b): batch quote — cotiza N cartas en 1 request (mata el fan-out FE-12). Público y
   // READ-ONLY como el quote por-carta (anónimo, no se bloquea por emailVerified). Errores por-ítem:
   // HTTP global 200; el cap 50 / vacío lo impone el DTO (400 VALIDATION_ERROR).
+  // Rate-limit MÁS restrictivo (12/min) que el quote por-carta: cada request amplifica hasta 50×
+  // el trabajo, así que 12 req/min ≈ el mismo techo de cotizaciones/min que 60/min por-carta.
+  // Cierra la amplificación DoS anónima — B-C1 (seguridad).
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 12 } })
   @Post('quote/batch')
   @HttpCode(200)
   quoteBatch(@Body() dto: BatchQuoteDto) {

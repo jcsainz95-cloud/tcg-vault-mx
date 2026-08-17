@@ -287,7 +287,13 @@ export class MasterSetService {
           availableFinishes: (c.availableFinishes ?? ['normal']) as Finish[],
           countsByFinish: byFinish,
           totalCount,
-          isSecretRare: printedTotal != null && parts.numberSort > printedTotal,
+          // isSecretRare — heurística de DISPLAY (API_CONTRACT §M1 v1.16.1 / ARCHITECTURE §4.17a,
+          // BE-36). Secret rare REAL = numeración PRINCIPAL (número puramente numérico, sin prefijo
+          // alfabético) con entero > printedTotal. Los promos/subsets (TG/GG/SV, con prefijo) NO
+          // cuentan aunque su `numberSort` (PROMO_SORT_BASE + n) supere printedTotal; printedTotal
+          // nulo → false.
+          isSecretRare:
+            printedTotal != null && parts.prefix === '' && parts.num > printedTotal,
         };
       });
 

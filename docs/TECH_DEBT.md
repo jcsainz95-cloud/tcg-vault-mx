@@ -610,21 +610,44 @@
 - **Disparador (aceptado):** si se aumenta el cap de lote (>200) o aparece latencia en `bulk-publish`/
   `fetchSellable`, reescribir a un `IN` sobre claves compuestas o a tuplas `(cardId, finish)` acotadas.
 
-### BE-36 · `isSecretRare = numberSort > printedTotal` marca TODOS los promos TG/GG/SV (cosmético)
+### BE-36 · `isSecretRare = numberSort > printedTotal` marca TODOS los promos TG/GG/SV — RESUELTA (2026-08-17)
 - **Dónde:** `src/modules/inventory/master-set.service.ts` (`MasterSetCardCellDTO.isSecretRare`).
-- **Estado actual:** como los promos/subsets (`TG`/`GG`/`SV`) reciben `numberSort = 1_000_000 + parte`
-  (clave "al final", ver `BACKEND_NOTES §38.4`), su `numberSort` **siempre** supera `printedTotal` → el flag
-  `isSecretRare` sale `true` para **todas** esas cartas, no solo las secret rare reales. Es un **artefacto
-  cosmético del binder** (un badge en la cuadrícula), no afecta dinero, inventario ni valuación.
-- **Impacto:** puramente visual en el Master Set (badge de secret rare sobre-inclusivo en promos).
-- **Disparador (aceptado):** **coordinar la definición de "secret rare" con el arquitecto** (¿derivar de la
-  rareza real del catálogo? ¿solo numéricas con `number > printedTotal`?) antes de darle peso al badge en la
-  UI. Ligado a la reconciliación de la fórmula `numberSort` del contrato §M1 (ver nota al arquitecto en
-  `BACKEND_NOTES §38.4`/§39.1).
+- **Estado:** **RESUELTA** contra el contrato reconciliado §M1 **v1.16.1** / ARCHITECTURE §4.17a. El arquitecto
+  afinó la definición a **heurística de display**: `isSecretRare = true` **solo** para numeración PRINCIPAL
+  (número **puramente numérico**, sin prefijo alfabético) con entero `> printedTotal`; promos/subsets con
+  **prefijo** (`TG`/`GG`/`SV`) → **`false`** aunque su `numberSort` (`PROMO_SORT_BASE + n`) supere el total;
+  `printedTotal` nulo → `false`.
+- **Fix:** el cálculo pasó de `printedTotal != null && parts.numberSort > printedTotal` a
+  `printedTotal != null && parts.prefix === '' && parts.num > printedTotal`. Tests en
+  `test/master-set.service.spec.ts`: `c200` (número puro 200 > 191) → `true`; `TG12` (prefijo) → `false`;
+  `c10` (dentro del total) → `false`. Detalle en `BACKEND_NOTES §40`.
 
----
+### BE-37 · `nextFolios` / `escalatePending` corren FUERA de `$transaction` (Baja — re-chequeo de QA)
+- **Dónde:** creación de piezas de inventario (secuencia de folios) y `PricingService.escalatePending`.
+- **Estado actual:** ambos side-effects se ejecutan **fuera** de la transacción que los origina. Consecuencias
+  benignas: (a) si la transacción hace **rollback** tras reservar folios, quedan **huecos de folio** (la
+  secuencia no retrocede — comportamiento normal de una secuencia); (b) `escalatePending` puede quedar como
+  **escalación huérfana** si la operación que la disparó revierte. Ninguno afecta correctness de dinero ni
+  double-sell: los folios solo deben ser únicos/monótonos (no contiguos) y la escalación es idempotente/benigna.
+- **Impacto:** cosmético/operativo (huecos en la numeración de folios; alguna escalación de precio "de más").
+- **Disparador (aceptado):** si auditoría exige folios contiguos, o si las escalaciones huérfanas generan ruido,
+  mover ambos dentro del `$transaction` (o compensar en el `catch`). Relacionado con **BE-15** (dedup de
+  `escalatePending` no atómico).
 
-## Frontend (dueño: frontend)
+### BE-38 · `batchQuote` de buylist resuelve `getReference` por-ítem (hasta 50 lecturas) (Baja)
+- **Dónde:** `src/modules/buylist/buylist.service.ts` → `batchQuote` (usado por `POST /buylist/quote/batch`).
+- **Estado actual:** el cotizador batch resuelve la referencia de precio **por ítem** (`getReference` en bucle),
+  hasta 50 lecturas por request. **Inocuo hoy**: el lote está capado a 50 por el DTO y el endpoint ya lleva
+  `@Throttle` dedicado (12/min, ver B-C1 en `BACKEND_NOTES §40`), así que el techo de lecturas está acotado.
+- **Impacto:** rendimiento (latencia del batch) al crecer el uso; correctness OK.
+- **Disparador (aceptado):** reusar el **`getReferencesBatch`** ya existente (`PricingService`, ver **BE-35**)
+  para resolver las 50 referencias en 1 consulta. Misma familia que **BE-4/D3**.
+
+### Nota al arquitecto (NO backend) · `AdminBuylistDTO §M5` podría exponer `userName`
+- **Qué:** el flujo admin de buylist (§M5) hace un **fetch por-fila** del nombre del usuario. Si el contrato
+  expusiera `userName` en `AdminBuylistDTO` se evitaría ese N+1 de presentación en M5.
+- **Enrutado a:** **arquitecto** (cambio de contrato §M5). Backend **no** lo implementa hasta que el contrato lo
+  defina; se deja registrado aquí para trazabilidad.
 
 > Deuda aceptada, no bloqueante para el MVP. El cliente compila y pasa lint/typecheck/test/build; todas
 > las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la
