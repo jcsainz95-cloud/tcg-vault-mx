@@ -2,7 +2,33 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.18-buylist-rejects).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.19-sealed-tcgcsv).
+>
+> **Changelog v1.19-sealed-tcgcsv (2026-08-17) — WS «Catálogo y precios»: referencia de mercado para producto SELLADO
+> vía TCGCSV (espejo diario gratuito de precios de TCGplayer; cubre ETB/booster box/bundle/tin/blister). Aditivo,
+> no-breaking y TODO admin-only: **NINGÚN endpoint público ni DTO de cliente cambia** (ficha de Compra, holdings,
+> buylist: intactos). ⚠️ UNA migración (M-23, ARCHITECTURE §11): enum `PriceSource += tcgcsv` + 2 columnas nullable en
+> `InventoryItem` (`tcgplayerProductId`, `tcgplayerGroupId`) + índice — prisma es zona compartida, el orquestador la
+> serializa. Ver §0 (enums), §M1, §M2, §M10, §M10-ops y ARCHITECTURE §4.19.**
+> - **PRECEDENCIA (PROJECT 3e manda, sin cambio):** el sellado se sigue vendiendo con **precio manual del admin en MXN**
+>   (`listPriceCents` obligatorio para publicar). El precio TCGCSV es **valor de referencia informativo** para el
+>   back-office (sugerencia al fijar precio); NO auto-publica, NO fija `listPriceCents`, NO encola `PendingPriceEntry`
+>   y NO se muestra en la ficha pública en esta versión.
+> - **Enums:** `PriceSource += tcgcsv`; nuevo `SealedPriceSource = tcgcsv | off` (valores del dial `sealedPriceSource`).
+> - **§M1:** los items `productType=sealed` exponen (read-only en M1) `tcgplayerProductId?`, `tcgplayerGroupId?` y
+>   `sealedMarketRef?: PriceInfo` (`source:"tcgcsv"`; `null` si no mapeado o sin ingest). El mapeo NO se edita por
+>   `PATCH /admin/inventory/items/:id` — solo por §M2 › mapping.
+> - **§M2 (NUEVO, `super_admin`):** curación del mapeo sellado↔TCGCSV — `GET /admin/pricing/sealed/unmapped` (cola
+>   derivada), `GET /admin/pricing/sealed/tcgcsv/groups` y `GET .../groups/:groupId/products` (explorador proxy
+>   read-only, host fijo anti-SSRF) y `PUT /admin/pricing/sealed/items/:itemId/mapping` (asigna/desmapea,
+>   `applyToSiblings?`, auditado).
+> - **§M10:** dial nuevo **`sealedPriceSource`** (`sealed_price_source`, `tcgcsv | off`, **seed `off`** fail-closed;
+>   flip tras validar en staging — patrón `priceProvider`).
+> - **§M10-ops:** job nuevo **`sealed-price-ingest`** (`POST /admin/jobs/sealed-price-ingest`, acepta `groupId?` para la
+>   verificación de esquema de la 1ª corrida; 2ª excepción al body-vacío de la familia, junto a `price-ingest`).
+> - **Persistencia (interno, sin cambio de contrato):** upsert en `PriceReference` con `productType='sealed'`,
+>   `gradeKey='sealed:tcg:<productId>'`, `finish='normal'`, `source='tcgcsv'`, USD→MXN con FX+colchón. Sin cambio en
+>   `PriceInfo` (mismo shape; `source` gana el valor `tcgcsv`).
 >
 > **Changelog v1.18-buylist-rejects (2026-08-17) — WS «Catálogo y precios»: M5 operable (identidad del vendedor,
 > orden/fechas, semántica completa de cartas RECHAZADAS con plazos 7d/30d y correo al vendedor) + orden normativo de
@@ -538,12 +564,13 @@ BuylistRuleMode     = fixed | pct                       // v1.3.1: naturaleza de
 SalesRuleMode       = fixed | pct                       // v1.13-sales-pricing: regla de precio de VENTA por rareza (fixed = piso MX$ centavos; pct = % ARRIBA de mercado). Misma FORMA que BuylistRuleMode, semántica de pct DISTINTA.
 BuylistCategory     = comun | reverse_holo | ex_plus    // DEPRECADO v1.3.1: reemplazado por la tabla de regla por rareza (BuylistRuleMode). Retención legacy; nada nuevo lo usa.
 DisputeStatus       = abierta | en_revision | resuelta_recompra | rechazada
-PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual
+PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual | tcgcsv // v1.19: tcgcsv = referencia de SELLADO (M-23)
+SealedPriceSource   = tcgcsv | off                       // v1.19: valores del dial sealedPriceSource (§M10). NO es enum de BD; seed "off" (fail-closed)
 KycStatus           = none | pending | verified | rejected
 UserStatus          = active | blocked | deleted        // v1.3.1: `deleted` = cuenta soft-deleted/anonimizada (no puede iniciar sesión). `PATCH .../status` sigue aceptando solo active|blocked; `deleted` lo fija DELETE /admin/users/:id.
 AcquisitionType     = aportacion_en_especie | buylist | compra
 CfdiStatus          = registrado | no_aplica          // MVP sin PAC; "emitido" reservado para fase 2
-PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual   // fuentes de precio de carta
+PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual | tcgcsv   // fuentes de precio (tcgcsv = sellado, v1.19)
 FxSource            = banxico | manual                // fuente del tipo de cambio (separado de PriceSource)
 ```
 
@@ -1299,7 +1326,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   Err `422 PRICE_PENDING` (si aportación en especie y no hay referencia → cola de precio pendiente), `422 VALIDATION_ERROR` (p. ej. `sealed` con `rawCondition`, `raw` con `rawCondition != NM`, o **`graded` sin `certNumber`**).
 - `GET /api/v1/admin/inventory/items` — query `?status=&cardId=&ownerType=&locationId=&zone=&q=&page=`
 - `GET /api/v1/admin/inventory/items/:id` — detalle + historial de movimientos.
-- `PATCH /api/v1/admin/inventory/items/:id` — editar (grado, `certNumber`, `sealedSubtype`, `listPriceCents` manual, ubicación, etc.). **No** hay campos de foto de producto (v1.2).
+- `PATCH /api/v1/admin/inventory/items/:id` — editar (grado, `certNumber`, `sealedSubtype`, `listPriceCents` manual, ubicación, etc.). **No** hay campos de foto de producto (v1.2). **No** edita el mapeo TCGCSV (v1.19; ver abajo).
+- **Sellado — referencia de mercado TCGCSV (v1.19, READ-ONLY en M1):** para items `productType=sealed`, `GET /admin/inventory/items` (cada fila) y `GET .../items/:id` exponen además:
+  - `tcgplayerProductId?: number` y `tcgplayerGroupId?: number` — mapeo curado al producto de TCGplayer/TCGCSV (`null`/omitidos si no mapeado; M-23).
+  - `sealedMarketRef?: PriceInfo` — **valor de referencia de mercado** del producto sellado (`source: "tcgcsv"`, MXN con FX+colchón, `capturedDate` del último ingest). `null`/omitido si el item no está mapeado o aún no hay ingest. En listados se resuelve por lote (`getReferencesBatch`, sin N+1).
+  - **Semántica (PROJECT 3e):** es **informativo** — una sugerencia junto al campo `listPriceCents`. NO cambia la regla de publicación (el sellado publica SOLO con precio manual), NO se usa para valuar ni vender, y NO aparece en la superficie pública. El **mapeo se edita únicamente** por `PUT /admin/pricing/sealed/items/:itemId/mapping` (§M2, `super_admin`); `PATCH .../items/:id` lo ignora.
 - `POST /api/v1/admin/inventory/items/:id/move` — Req `{ toLocationId, note? }` → registra `InventoryMovement`.
 - `POST /api/v1/admin/inventory/items/:id/mark` — Req `{ mark: "lost" | "damaged", note }` → `status` y movimiento; disponible para reposición (M7/tope M10).
 - Ubicaciones: `GET /api/v1/admin/locations`, `POST /api/v1/admin/locations` (`{ zone, box, row, slot }`).
@@ -1491,6 +1522,40 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
     - **`finishedAt: string | null`** — ISO-8601; se **setea al terminar** (cuando `running` pasa a `false`). `null` mientras `running` o antes del primer barrido.
   > **Límite conocido (DEV-1):** el estado vive **en memoria del proceso** (**no persistido**). Si el proceso se **reinicia** a mitad del barrido, el estado se **pierde** (vuelve a `running:false`, `jobId:null`) y hay que **re-llamar** `sync-all`. Ligado al cableado pendiente de BullMQ — ver Desviación **DEV-1** en ARCHITECTURE §9.
 Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
+
+#### Referencia de mercado del SELLADO vía TCGCSV (v1.19-sealed-tcgcsv — NUEVO, `super_admin`)
+> El sellado se sigue **vendiendo** con precio manual en MXN (PROJECT 3e, sin cambio). Esta familia da al admin un
+> **valor de referencia informativo** desde **TCGCSV** (espejo diario de precios de TCGplayer, host fijo
+> `https://tcgcsv.com`, sin API key) y la **curación manual** del mapeo item sellado ↔ `productId` de TCGplayer.
+> El ingest lo corre el job `sealed-price-ingest` (§M10-ops) gateado por el dial `sealedPriceSource` (§M10, seed `off`);
+> la **curación funciona aunque el dial esté `off`** (mapear no mueve precios). Ver ARCHITECTURE §4.19.
+
+- `GET /api/v1/admin/pricing/sealed/unmapped` — **(NUEVO)** cola de curación: items `sealed` **sin mapeo**
+  (consulta derivada `productType='sealed' AND tcgplayerProductId IS NULL`; no hay tabla/estado nuevo).
+  Query `?page=1&pageSize=20`.
+  Res `200`: `{ data: [{ inventoryItemId, folio, card: CardDTO, sealedSubtype?: SealedSubtype, listPriceCents?: number, createdAt }], page, pageSize, total }` (orden `createdAt` asc — lo más viejo primero).
+- `GET /api/v1/admin/pricing/sealed/tcgcsv/groups` — **(NUEVO)** explorador de grupos TCGCSV (≈ sets/expansiones),
+  **proxy read-only server-side** (el navegador nunca habla con tcgcsv.com; host fijo anti-SSRF, categoría Pokémon=3
+  constante de servidor). Query `?q=` (filtro por nombre, opcional).
+  Res `200`: `{ data: [{ groupId: number, name: string, abbreviation?: string, publishedOn?: string }] }`.
+  Err `502 UPSTREAM_ERROR` (TCGCSV no responde/payload inválido; no afecta nada local).
+- `GET /api/v1/admin/pricing/sealed/tcgcsv/groups/:groupId/products` — **(NUEVO)** productos **SELLADOS** del grupo
+  (el proxy filtra los singles por heurística de `extendedData`; ARCHITECTURE §4.19b). `:groupId` debe ser **entero
+  positivo** → si no, `400 VALIDATION_ERROR` (nunca se interpola un string del cliente en el path remoto).
+  Query `?q=` (filtro por nombre, opcional).
+  Res `200`: `{ data: [{ productId: number, name: string, cleanName?: string, imageUrl?: string }] }`.
+  Err `400 VALIDATION_ERROR`, `502 UPSTREAM_ERROR`.
+- `PUT /api/v1/admin/pricing/sealed/items/:itemId/mapping` — **(NUEVO)** asigna, actualiza o quita el mapeo de UN item.
+  Req: `{ tcgplayerProductId: number | null, tcgplayerGroupId?: number, applyToSiblings?: boolean }`
+  - `tcgplayerProductId: null` → **desmapea** (limpia también `tcgplayerGroupId`); con valor → `tcgplayerGroupId`
+    **obligatorio** (el fetch de precios es por grupo) y ambos **enteros positivos**.
+  - `applyToSiblings` (default `false`): copia el mapeo a los demás items `sealed` **sin mapeo** con el mismo
+    `(cardId, sealedSubtype)` (las otras copias físicas del mismo producto). Nunca pisa mapeos existentes.
+  - Res `200`: `{ inventoryItemId, tcgplayerProductId: number | null, tcgplayerGroupId: number | null, siblingsUpdated: number }`.
+  - Err `404 NOT_FOUND` (item), `422 VALIDATION_ERROR` (item no es `sealed`; `tcgplayerGroupId` ausente con productId;
+    valores no enteros/negativos). **Auditado** (`AuditLog action=pricing.sealed_mapping.update`, con `before`/`after`).
+  - **No** valida contra TCGCSV en el request (la curación debe funcionar sin red al remoto); un `productId` erróneo
+    simplemente no matchea filas en el siguiente ingest (referencia queda `null`/stale — inocuo, informativo).
 
 ### M3 — Ventas / órdenes (`vault_operator` lectura; `super_admin` reembolso)
 - `GET /api/v1/admin/orders` — query `?status=&userId=&from=&to=&page=`
@@ -1703,7 +1768,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, stripeFeeIvaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, catalogSyncFromDate }`. `stripeFeeIvaPct` (fracción `[0,1)`, default **0.16**) = IVA que Stripe MX cobra **sobre su comisión**; entra en el gross-up del fee (ver ARCHITECTURE §5.1). `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest:** `priceProvider` (`price_provider`, enum `pokemonpricetracker | pokemontcg_io`, seed recomendado **`pokemontcg_io`**) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15); editable sin redeploy → palanca de **rollback** del proveedor de paga. Validado contra el enum; `422 VALIDATION_ERROR` si es otro valor. El flip a `pokemonpricetracker` se hace tras verificar el esquema del proveedor en la 1ª corrida (ARCHITECTURE decisión abierta v1.14-1/v1.14-4).
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, stripeFeeIvaPct, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, catalogSyncFromDate }`. `stripeFeeIvaPct` (fracción `[0,1)`, default **0.16**) = IVA que Stripe MX cobra **sobre su comisión**; entra en el gross-up del fee (ver ARCHITECTURE §5.1). `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest:** `priceProvider` (`price_provider`, enum `pokemonpricetracker | pokemontcg_io`, seed recomendado **`pokemontcg_io`**) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15); editable sin redeploy → palanca de **rollback** del proveedor de paga. Validado contra el enum; `422 VALIDATION_ERROR` si es otro valor. El flip a `pokemonpricetracker` se hace tras verificar el esquema del proveedor en la 1ª corrida (ARCHITECTURE decisión abierta v1.14-1/v1.14-4). **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). NO afecta el precio de venta del sellado (siempre manual, PROJECT 3e).
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
 
@@ -1713,8 +1778,9 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > p. ej. para re-correr un job que falló o forzar un refresco fuera de ventana. **Todos** los endpoints de esta
 > familia comparten el mismo contrato:
 > - **Método/forma:** `POST /api/v1/admin/jobs/<job-name>` con body **vacío** `{}` (sin parámetros de cliente; el
->   efecto del job está fijado server-side). **Única excepción:** `price-ingest` (v1.14) admite `setId?` opcional para
->   ingestar un solo set (verificación de esquema); ver su entrada abajo.
+>   efecto del job está fijado server-side). **Únicas excepciones:** `price-ingest` (v1.14) admite `setId?` y
+>   `sealed-price-ingest` (v1.19) admite `groupId?` — ambos opcionales y pensados para la **verificación de esquema**
+>   de la 1ª corrida acotada; ver sus entradas abajo.
 > - **Rol:** `super_admin` (hereda `@Roles(Role.super_admin)` del controller). Err `403 FORBIDDEN` para otros.
 > - **Auditado:** cada disparo queda en `AuditLog` (`action: job.trigger`, con el `job` en `after` + `actorUserId`).
 > - **Single-flight:** si el job ya está corriendo, la llamada **no** encola un segundo pase; devuelve el estado del
@@ -1732,6 +1798,17 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 >   `{ job: "price-ingest", enqueued: boolean, jobId?: string }` (o `{ ..., scope: "set", setId }` si se pasó `setId`).
 >   **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto. Reemplaza a `catalog-price-sync` en el rol
 >   de pricing (abajo).
+> - **`sealed-price-ingest`** *(v1.19-sealed-tcgcsv — NUEVO):* dispara la ingesta de la **referencia de mercado del
+>   SELLADO** vía TCGCSV (ARCHITECTURE §4.19d): grupos distintos de los items sellados **mapeados** → precios por grupo
+>   → USD→MXN con FX+colchón → upsert idempotente de `PriceReference` `(cardId ancla, 'sealed',
+>   'sealed:tcg:<productId>', 'normal', hoy)` con `source='tcgcsv'`. **Secuencial y AWAITED** (sin fan-out; volumen
+>   minúsculo), single-flight, respeta `isManualOverride`. **Gateado por el dial `sealedPriceSource`** (§M10): con
+>   `off` responde `202 { job, enqueued: false, reason: "SEALED_PRICE_SOURCE_OFF" }` y no ingiere nada (fail-closed).
+>   **Excepción a la forma de la familia:** acepta **`groupId?`** entero opcional (`POST /admin/jobs/sealed-price-ingest
+>   { "groupId": 23821 }`) para ingestar **un solo grupo** — verificación del esquema real en staging antes del flip del
+>   dial (fixtures en dev; runbook devops). Res `202`: `{ job: "sealed-price-ingest", enqueued: boolean, jobId?: string }`
+>   (o `{ ..., scope: "group", groupId }` si se pasó `groupId`). Es **referencia informativa** (no fija precio de venta
+>   ni pago), pero escribe `PriceReference` → auditado y cubierto por el gate de seguridad como el resto de la familia.
 > - **`catalog-price-sync`** *(v1.12.1, tarea 1.3 — **DEPRECADO en su rol de pricing por WS-A**):* dispara el **re-sync
 >   completo del catálogo** (`force:true`) que **repuebla `PriceReference` por `(card, finish)`** reusando
 >   `tcgplayer.prices` (FX del día). Es el **disparo manual** del refresco 2×/día (06:00 y 18:00 CDMX). **Equivale**
@@ -1834,7 +1911,7 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
 **Coherencia v1.1 (2026-08-14):**
 - **Raw solo NM:** `RawCondition=NM` (único valor); el filtro `condition` para raw solo admite `NM`. Labels legibles ("Casi nueva (Near Mint)" / "Near Mint") viven en i18n del **front**, no en la API. Migración: ARCHITECTURE §11 (M-1).
 - **Compra = inventario publicado con precio:** `GET /catalog/cards` **excluye** pendientes/sin precio (el comprador nunca ve "precio pendiente"). Facetas dinámicas en `GET /catalog/facets`: `rarities` distinct de `Card.rarity` espejando pokemontcg.io (lista abierta), `sets` con `year` derivado, filtros por set/rareza/tipo/precio. La **ruta se mantiene** `/catalog/cards` (rótulo "Compra" en el front).
-- **Sellado como línea de venta:** `productType=sealed`, `sealedSubtype?`, **precio manual MXN obligatorio para publicar**, sin condición/grade/rareza. Disputa de sellado = caja dañada/equivocada (evidencia por correo a soporte; ver Coherencia v1.2).
+- **Sellado como línea de venta:** `productType=sealed`, `sealedSubtype?`, **precio manual MXN obligatorio para publicar**, sin condición/grade/rareza. Disputa de sellado = caja dañada/equivocada (evidencia por correo a soporte; ver Coherencia v1.2). **v1.19-sealed-tcgcsv:** existe además una **referencia de mercado informativa** del sellado (TCGCSV, `source=tcgcsv`, solo back-office M1/M2, mapeo curado M-23, dial `sealedPriceSource` seed `off`) que **NO** altera esta regla: el precio de venta del sellado sigue siendo manual (PROJECT 3e); ver §M1/§M2/§M10 y ARCHITECTURE §4.19.
 - **Login Google:** `POST /auth/google` (mismo shape que `/login`); verificación server-side del ID token; `role` server-side (nunca del token); account-linking por email verificado; **no exime KYC**. Campos nuevos en `User` (migración M-3..M-7). Env `GOOGLE_CLIENT_ID` / `NEXT_PUBLIC_GOOGLE_CLIENT_ID`.
 - **Gráfica de portafolio:** `GET /vault/portfolio/history?range=...` sobre `PortfolioSnapshot` (modelo nuevo, migración M-8), escrito por job diario (BE-5). Backfill indicativo opcional marcado `estimated`.
 - **Sync de catálogo M2:** `GET /admin/catalog/remote-sets`, `POST /admin/catalog/sync`, `POST /admin/catalog/backfill` (`super_admin`, auditado). Guardarraíl `setId` `^[a-z0-9]+(-[a-z0-9]+)*$`, host fijo (anti-SSRF), `Card.rarity` String libre.

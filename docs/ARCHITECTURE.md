@@ -2,7 +2,36 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.18-buylist-rejects (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/catalogo-precios-stream-blic9a`.
+> Estado: v1.19-sealed-tcgcsv (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/catalogo-precios-stream-blic9a`.
+>
+> **Changelog v1.19-sealed-tcgcsv (2026-08-17) — WS «Catálogo y precios»: fuente de REFERENCIA de mercado para producto
+> SELLADO vía TCGCSV (tcgcsv.com — espejo diario estático de precios de TCGplayer, JSON, sin API key, cubre ETB/booster
+> box/bundle/tin/blister). Aditivo, no-breaking, TODO admin-only (la superficie pública NO cambia). ⚠️ **UNA migración
+> (M-23, §11):** enum `PriceSource += tcgcsv` + 2 columnas nullable en `InventoryItem` (`tcgplayerProductId`,
+> `tcgplayerGroupId`) + índice — **prisma = zona compartida**, el orquestador serializa. Ver **§4.19** (spec completa),
+> §3.6 (actualizado) y API_CONTRACT v1.19 (§0 enums, §M1, §M2, §M10, §M10-ops).**
+> - **PROJECT 3e MANDA — la precedencia no cambia:** el sellado se sigue vendiendo con **precio manual del admin en MXN**
+>   (`listPriceCents`, obligatorio para publicar). El precio TCGCSV es **valor de referencia informativo** (sugerencia en
+>   back-office M1/M2 al fijar el precio); NO auto-publica, NO fija `listPriceCents`, NO alimenta `PendingPriceEntry`,
+>   NO cambia el costo de aportación del sellado y NO se expone en la ficha pública en esta versión (preguntas abiertas
+>   v1.19-1/2).
+> - **Adapter `TcgcsvSealedBulkProvider`** (nuevo, `modules/pricing/providers/`), SEPARADO del bulk de cartas: nueva
+>   interfaz `SealedBulkPriceProvider` keyeada por `tcgplayerProductId` (no hay Card remota que resolver). Host FIJO
+>   `https://tcgcsv.com` anti-SSRF, categoría Pokémon = 3 (constante), `groupId` entero validado, sin API key.
+>   Money-safe: `subTypeName≠'Normal'` / market inválido → se OMITE; fallo parcial → NUNCA borra precios previos (stale).
+> - **Mapeo curado (M-23):** el sellado no tiene entidad de catálogo propia (es `InventoryItem` anclado a una `Card`);
+>   el mapeo vive en el item (`tcgplayerProductId`+`tcgplayerGroupId`, curación manual del admin en M2 con cola derivada
+>   de NO-mapeados + explorador proxy de grupos/productos TCGCSV + `applyToSiblings`). Sin fuzzy-matching automático.
+> - **Persistencia SIN migrar `PriceReference`:** upsert idempotente con `productType='sealed'`,
+>   **`gradeKey='sealed:tcg:<productId>'`** (nuevo esquema; desambigua 2 productos sellados anclados a la misma Card),
+>   `finish='normal'`, `source='tcgcsv'`, USD→MXN con `FxService` + colchón (FX 1 vez por corrida). `buildGradeKey`
+>   (`'sealed'`) NO cambia (lo siguen usando override manual y costo de aportación).
+> - **Job propio `sealed-price-ingest`** (1×/día tras la actualización TCGCSV ~20:00 UTC; secuencial AWAITED, sin fan-out
+>   — volumen minúsculo; single-flight; disparo manual `POST /admin/jobs/sealed-price-ingest { groupId? }`).
+> - **Dial fail-closed `sealed_price_source` (`tcgcsv | off`, seed `off`):** nada se ingiere hasta validar en staging y
+>   flipear (patrón `PRICE_PROVIDER` §4.15h). Rollback = volver a `off`.
+> - **Dev con red bloqueada → FIXTURES:** el adapter se desarrolla/testea contra JSON reales de muestra en
+>   `backend/test/fixtures/tcgcsv/`; la validación real es la 1ª corrida manual en staging (runbook = devops).
 >
 > **Changelog v1.18-buylist-rejects (2026-08-17) — WS «Catálogo y precios»: M5 operable — identidad del vendedor,
 > orden del listado, semántica completa del ítem RECHAZADO (plazos 7d/30d + correo al vendedor) y orden normativo de
@@ -962,6 +991,11 @@ Notas de coherencia:
 - **Sin `rawCondition`, sin `gradingCompany`/`gradeValue`, sin rareza** (no aplica taxonomía de carta individual). Puede referenciar un `Card`/`CardSet` para nombre/imagen del producto, pero no lleva condición ni rareza.
 - **Precio SIEMPRE manual del admin en MXN**: no hay fuente automática en el MVP (pokemontcg.io no cubre sellado; PriceCharting = fase 2). El `listPriceCents` se fija a mano (override manual) y es **obligatorio para publicar**: sin precio, el sellado queda como "precio pendiente" y **no aparece en Compra** (regla general — el comprador nunca ve precio pendiente).
 - `sealedSubtype?` (`box | etb | bundle | tin | blister`) opcional; alimenta el filtro de tipo de producto en Compra (subfaceta informativa).
+- **Referencia de mercado del sellado (v1.19-sealed-tcgcsv, §4.19):** existe una fuente automática de **valor de
+  referencia** para sellado — **TCGCSV** (espejo diario de precios de TCGplayer) — pero es **estrictamente informativa**
+  (sugerencia para el admin en M1/M2 al fijar `listPriceCents`). **NO altera esta sección:** el precio de VENTA del
+  sellado sigue siendo manual en MXN y obligatorio para publicar; la ficha pública no muestra la referencia TCGCSV en
+  esta versión. El mapeo item↔producto TCGplayer es curación manual (`InventoryItem.tcgplayerProductId`, M-23).
 - **Disputa de sellado (v1.2):** aplica a caja **dañada/equivocada** (no hay "condición NM" que comparar). **La evidencia se envía por correo a soporte** (no hay foto de ingreso ni comparador; ver §Dispute). El flujo reutiliza `Dispute` con `type=condition_sealed`.
 
 ---
@@ -2385,6 +2419,176 @@ dos fechas. Índice recomendado `@@index([itemStatus])` (parte de M-22) para no 
 
 ---
 
+### 4.19 WS «Catálogo y precios» — Referencia de mercado del SELLADO vía TCGCSV (v1.19-sealed-tcgcsv)
+
+> **Objetivo:** darle al admin un **valor de referencia de mercado** para el producto sellado (ETB, booster box,
+> bundle, tin, blister) usando **TCGCSV** (tcgcsv.com): espejo **diario** (~20:00 UTC), **estático** (JSON servido como
+> archivos), **gratuito y sin API key** de los precios de TCGplayer, que **sí cubre sellado** (pokemontcg.io no).
+> **Toca precios (dinero informativo) → triple veredicto.** Aditivo; **UNA migración (M-23, §11)**.
+
+#### (a) Doctrina y PRECEDENCIA (PROJECT decisión 3e manda — el modelo de venta del sellado NO cambia)
+
+- El precio TCGCSV es **VALOR DE REFERENCIA informativo/sugerencia**, nunca precio de venta. Sigue intacto:
+  el sellado se **vende** con `listPriceCents` **manual del admin en MXN, obligatorio para publicar** (PROJECT 3e,
+  criterio 3e, §3.6, y la regla de M1/bulk-publish "sellado sin `listPriceCents` → `PRICE_PENDING`").
+- **Lo que la referencia TCGCSV NO hace (norma explícita):**
+  1. **NO auto-publica** ni fija/actualiza `listPriceCents` (ni siquiera como default del formulario — el admin
+     teclea; el front puede MOSTRAR la sugerencia al lado).
+  2. **NO encola `PendingPriceEntry`**: un sellado sin mapeo/sin precio TCGCSV simplemente no tiene referencia
+     (`sealedMarketRef=null`); esa cola sigue reservada a los bloqueos reales de publicación/valuación.
+  3. **NO cambia el costo de aportación en especie** del sellado: sigue el flujo actual (`getReference` con
+     `gradeKey='sealed'` = override manual del admin, o escalación). Usar TCGCSV como base del costo = decisión del
+     humano (pregunta abierta v1.19-2), porque mueve dinero (P&L).
+  4. **NO se expone en la superficie pública** (ficha de Compra) en esta versión: criterio 2 de PROJECT define la
+     fuente del sellado como "precio manual del admin"; mostrar un "valor de mercado" público del sellado tocaría
+     PROJECT (pregunta abierta v1.19-1). Exposición v1.19 = **solo back-office** (M1 detalle/listado, M2 curación).
+- **Dónde se ve:** M1 (`GET /admin/inventory/items[/:id]`) expone `sealedMarketRef: PriceInfo` (source `tcgcsv`) +
+  el mapeo; M2 tiene la curación. Contrato en API_CONTRACT v1.19.
+
+#### (b) Adapter `TcgcsvSealedBulkProvider` — nueva interfaz, SEPARADA del bulk de cartas
+
+**Decisión de interfaz:** NO se reusa `BulkPriceProvider` (§4.15b). Aquella interfaz es por **carta+acabado** con
+resolución `Card` (externalId / set+number) — nada de eso aplica al sellado, que se keyea por **`tcgplayerProductId`**
+y no tiene carta remota que resolver. Forzarla obligaría a campos sin sentido (finish, externalId). Interfaz nueva en
+`pricing.types.ts` (pseudocódigo normativo; nombres exactos los decide backend manteniendo la semántica):
+
+```ts
+interface SealedPriceRow {
+  tcgplayerProductId: number;  // productId de TCGplayer/TCGCSV (clave del mapeo M-23)
+  marketCents: number;         // entero > 0 (validado por el adapter); marketPrice, o midPrice si market falta (ver d)
+  usedFallbackMid: boolean;    // observabilidad: true si el precio salió de midPrice
+  currency: 'USD';             // TCGCSV publica SIEMPRE USD (precios TCGplayer)
+}
+interface SealedBulkPriceResult { rows: SealedPriceRow[]; fetchedRaw: number; skipped: number; }
+
+interface SealedBulkPriceProvider {
+  readonly source: PriceSource;  // 'tcgcsv' (M-23)
+  listGroups(): Promise<TcgcsvGroupRef[]>;                          // curación M2: { groupId, name, abbreviation?, publishedOn? }
+  listSealedProducts(groupId: number): Promise<TcgcsvProductRef[]>; // curación M2: { productId, name, cleanName?, imageUrl? }
+  fetchSealedPricesForGroup(groupId: number): Promise<SealedBulkPriceResult>; // ingest
+}
+```
+
+Implementación **`TcgcsvSealedBulkProvider`** en `backend/src/modules/pricing/providers/tcgcsv-sealed.provider.ts`:
+
+- **Endpoints estáticos, host FIJO `https://tcgcsv.com`** (anti-SSRF, mismo patrón `PokemonTcgIoClient`):
+  `/tcgplayer/3/groups`, `/tcgplayer/3/{groupId}/products`, `/tcgplayer/3/{groupId}/prices`. La **categoría Pokémon
+  = 3 es CONSTANTE de servidor** (no configurable, no viene del cliente). Todo `{groupId}` interpolado en un path se
+  **valida como entero positivo** server-side ANTES (nunca un string del cliente al path). **Sin API key** (no hay
+  secreto nuevo). Timeout corto + sin seguir redirects fuera del host + `Accept: application/json`.
+- **Filtro "sellado" en `/products` (heurística conservadora, a confirmar con fixtures/1ª corrida):** un product **sin**
+  `extendedData` de carta individual (sin entradas `Number`/`Rarity`) se considera **sellado**; los que las traen son
+  singles y se descartan del explorador de curación. Si la heurística falla para algún producto, la curación es manual
+  de todos modos (el admin ve nombre y decide) — la heurística solo limpia la lista, no decide dinero.
+- **Money-safe (misma doctrina que §4.15d):**
+  - `subTypeName !== 'Normal'` → se **OMITE** la fila + cuenta en `skipped` (el sellado se pricia solo en su sub-tipo
+    base; nunca se atribuye el precio de un sub-tipo raro al producto).
+  - `marketPrice` (o su fallback `midPrice`) ausente / `NaN` / `<= 0` → se **OMITE**.
+  - Fallo de red/parse a media corrida → devuelve lo acumulado + log; **NUNCA se borran precios previos** (quedan
+    stale, que es seguro — paridad con el legacy `PokemonTcgIoBulkProvider`).
+  - `lowPrice`/`highPrice` **no se persisten** (solo observabilidad/logs; un rango de mercado en DTO = fase 2).
+
+#### (c) Mapeo producto sellado ↔ catálogo (curación manual del admin, M-23)
+
+No existe entidad "producto sellado de catálogo": hoy el sellado es `InventoryItem(productType='sealed')` **anclado a
+una `Card`** (para nombre/imagen, §3.6) + `sealedSubtype`. Se decide **NO introducir** una entidad nueva de catálogo
+sellado en el MVP (sería una tercera taxonomía con sync propio); el mapeo vive **en el item**:
+
+- **M-23 (§11):** `InventoryItem.tcgplayerProductId Int?` + `InventoryItem.tcgplayerGroupId Int?` (se fijan **juntos**;
+  ambos `null` = no mapeado; solo aplican a `productType='sealed'` — regla de aplicación, no constraint de BD) +
+  `@@index([tcgplayerProductId])`. El `groupId` se persiste porque el endpoint de precios de TCGCSV es **por grupo**.
+- **Flujo de curación (M2, `super_admin`):**
+  1. **Cola de pendientes de mapeo = consulta DERIVADA** (`productType='sealed' AND tcgplayerProductId IS NULL`),
+     expuesta en `GET /admin/pricing/sealed/unmapped` — **no** requiere tabla/estado nuevo, no puede desincronizarse.
+  2. El admin explora TCGCSV vía **proxy read-only server-side**: `GET /admin/pricing/sealed/tcgcsv/groups` y
+     `GET /admin/pricing/sealed/tcgcsv/groups/:groupId/products` (filtrados a sellado, con `?q=` por nombre). El
+     proxy existe porque el navegador no debe hablar con tcgcsv.com (CORS/consistencia/anti-SSRF centralizado).
+  3. Asigna con `PUT /admin/pricing/sealed/items/:itemId/mapping` (`tcgplayerProductId`+`tcgplayerGroupId`;
+     `tcgplayerProductId:null` desmapea). **`applyToSiblings?:boolean`** copia el mapeo a los demás sealed **sin
+     mapeo** con el mismo `(cardId, sealedSubtype)` (las copias físicas del mismo producto). **Auditado.**
+- **Sin matching automático por nombre en v1.19:** el fuzzy name-matching (nuestro `Card.name`/set vs `cleanName`
+  TCGCSV) es error-prone y esto alimenta una referencia de dinero; la curación es humana. Un asistente de sugerencias
+  (no auto-commit) = pregunta abierta v1.19-3.
+- Los endpoints de curación funcionan **aunque el dial esté `off`** (curar no ingiere precios); solo el explorador
+  llama a tcgcsv.com (read-only).
+
+#### (d) Ingest → `PriceReference` (SIN migrar `PriceReference`) + conversión MXN
+
+**Job propio `sealed-price-ingest`** (`backend/src/jobs/sealed-price-ingest.service.ts` + `SealedPriceIngestService`
+en `modules/pricing`), **separado** de `price-ingest` (§4.15): otra interfaz (product-keyed), otro dial, otro dominio
+de fallo — un TCGCSV caído no toca el pricing de singles y viceversa. `backend/src/jobs/` pertenece a este stream
+mientras toque sus jobs (nota §2 / v1.18).
+
+- **Cadencia:** **1×/día**, tras la actualización de TCGCSV (~20:00 UTC) y tras `fx-refresh` (orden **suave**, igual
+  que §4.15g: `getCurrent()` degrada al último `FxRate`). Sugerido **21:30 UTC**; cron por env
+  (`SEALED_PRICE_INGEST_CRON`), horario exacto = **devops**. **Single-flight** (patrón de la familia de jobs).
+- **Forma de ejecución:** **secuencial y AWAITED dentro del job** — SIN fan-out BullMQ por grupo. Justificación: el
+  alcance es minúsculo (solo los **grupos distintos de los items mapeados**, no todo TCGCSV; decenas de requests como
+  mucho), así que el fan-out de §4.15c sería sobre-ingeniería. Si el volumen creciera, se promueve al patrón parent/child
+  sin cambiar contrato.
+- **Algoritmo normativo:**
+  1. Lee el dial `SEALED_PRICE_SOURCE`; si `off` → **no-op logueado** (fail-closed, ver e).
+  2. `SELECT DISTINCT tcgplayerGroupId` de los `InventoryItem` sealed mapeados.
+  3. Carga **FX UNA vez por corrida** (`FxService.getCurrent()` → snapshot `{rate, bufferPct}`, paridad §4.15f).
+  4. Por grupo: `fetchSealedPricesForGroup(groupId)` → filtra a los `tcgplayerProductId` mapeados de ese grupo.
+  5. Por cada par **distinto** `(anchorCardId, tcgplayerProductId)` presente entre los items mapeados (el
+     `anchorCardId` es el `cardId` del item): `priceMxnCents = usdToMxnCents(marketCents, rate, bufferPct)` (TCGCSV
+     es **siempre USD** → el colchón #13 aplica en cada corrida) y **upsert idempotente** de `PriceReference` con
+     clave `(cardId=anchorCardId, productType='sealed', gradeKey='sealed:tcg:<productId>', finish='normal',
+     capturedDate=hoy)`, `source='tcgcsv'`, `priceUsdCents=marketCents`, `fxRate`, `fxBufferPct`.
+     **Respeta `isManualOverride`** de la fila del día (paridad con `persistMarketReference`; backend reusa/parametriza
+     ese método o crea uno hermano con la MISMA doctrina — no clobbear override, no escalar pendientes).
+- **`gradeKey` del sellado de MERCADO = `sealed:tcg:<tcgplayerProductId>`** (helper nuevo `sealedMarketGradeKey()` en
+  `pricing.types.ts`). Motivo: el legacy `buildGradeKey → 'sealed'` colisionaría en el unique cuando **dos productos
+  sellados distintos** (ETB y booster box del mismo set) están anclados a la **misma** `Card`. `buildGradeKey` **NO
+  cambia**: `'sealed'` sigue siendo el gradeKey del **override manual** y del costo de aportación (flujos intactos).
+- **`finish` siempre `'normal'`** (las filas con `subTypeName≠'Normal'` ya se omitieron en el adapter).
+- **Fallback `marketPrice → midPrice`** (con flag `usedFallbackMid`, contado/logueado): aceptable **solo aquí** porque
+  esta referencia es informativa (no fija venta ni pago). Para raw/singles ese fallback **sigue prohibido**.
+- **Lectura (`sealedMarketRef`):** para un item mapeado =
+  `getReference(item.cardId, 'sealed', sealedMarketGradeKey(item.tcgplayerProductId), 'normal')` (misma regla "más
+  reciente sin filtro de fecha" que el resto de valuaciones). Sin mapeo → `null`. En listados M1, batch vía
+  `getReferencesBatch` (BE-25) para no reintroducir N+1.
+- **Verificado: `PriceReference` soporta sellado SIN migración** — `productType='sealed'` ya existe en el enum,
+  `gradeKey` es `String` libre, `finish` tiene default `normal` y el unique
+  `(cardId, productType, gradeKey, finish, capturedDate)` aloja el nuevo esquema de gradeKey. Lo único de esquema es
+  **M-23** (enum `PriceSource.tcgcsv` + 2 columnas + índice en `InventoryItem`), §11.
+
+#### (e) Dial fail-closed `SEALED_PRICE_SOURCE` (`sealed_price_source`)
+
+- `ConfigSetting` nueva: valores **`tcgcsv | off`**, **seed `off`** — al desplegar NO se ingiere nada (fail-closed)
+  hasta que devops valide el esquema real en staging (1ª corrida manual, ver f) y **flipee el dial** (mismo patrón de
+  rollout money-safe que `PRICE_PROVIDER`, §4.15h). Editable **sin redeploy** (M10); validada contra el enum
+  (`422 VALIDATION_ERROR`). **Rollback = `off`**: los `PriceReference` ya escritos permanecen (informativos e inertes;
+  no alimentan venta ni publicación).
+- El job y el disparo manual **cortocircuitan** con `off` (`enqueued:false`/no-op logueado); la **curación de mapeos
+  NO depende del dial** (mapear no mueve precios).
+- **Coordinación de streams:** añadir la key a `settings.constants.ts` toca el módulo `settings` (stream «Cuentas y
+  acceso») — cambio mínimo/mecánico (constante + default + validador), el **orquestador lo serializa** (precedente:
+  `price_provider` en WS-A).
+
+#### (f) Desarrollo contra FIXTURES (red de dev bloqueada) + validación en staging
+
+- **Norma:** el adapter se desarrolla y testea **exclusivamente contra fixtures** — JSON **reales de muestra**
+  (payloads verbatim de tcgcsv.com de un grupo moderno, p. ej. Surging Sparks) en **`backend/test/fixtures/tcgcsv/`**:
+  `groups.json`, `products-<groupId>.json`, `prices-<groupId>.json`. Los unit tests del adapter (filtro sellado,
+  omisiones money-safe, fallback mid, mapeo a `SealedPriceRow`) corren **solo** sobre fixtures; **ni dev ni CI llaman
+  a tcgcsv.com** (el egress está bloqueado en dev y el test no debe depender de red).
+- **Validación real = staging:** 1ª corrida manual `POST /admin/jobs/sealed-price-ingest { groupId }` con un grupo
+  conocido → inspeccionar `PriceReference`/logs (¿coinciden los campos reales con las fixtures? ¿USD? ¿subTypeName?)
+  → **entonces** flip del dial a `tcgcsv`. El **runbook** de esa validación es de **devops** (`DEVOPS_NOTES.md`);
+  si el esquema real difiere de las fixtures, el hallazgo vuelve a backend (ajustar adapter + fixtures).
+
+#### (g) Contrato (resumen — todo aditivo y admin-only; la superficie pública NO cambia)
+
+Ver API_CONTRACT v1.19: enums (`PriceSource += tcgcsv`; `SealedPriceSource = tcgcsv | off`); §M1 (campos read-only
+`tcgplayerProductId`/`tcgplayerGroupId`/`sealedMarketRef` en items sellados); §M2 (subsección TCGCSV:
+`unmapped` / `tcgcsv/groups` / `tcgcsv/groups/:groupId/products` / `PUT .../items/:itemId/mapping`); §M10
+(`sealedPriceSource`); §M10-ops (job `sealed-price-ingest` con `groupId?`). Ningún endpoint público ni DTO de
+cliente cambia (ficha de Compra, holdings, buylist: intactos).
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -2604,6 +2808,23 @@ este documento y con `API_CONTRACT.md`.
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
 
+### Preguntas abiertas (v1.19-sealed-tcgcsv — referencia de mercado del sellado vía TCGCSV)
+> No bloquean el diseño (defaults conservadores que preservan PROJECT 3e tal cual). Las dos primeras tocan PROJECT.md
+> (fuente de precio del sellado / dinero), así que el arquitecto **no** las asume (CLAUDE.md — regla de conflicto).
+- **v1.19-1 — ¿Mostrar la referencia TCGCSV en la ficha PÚBLICA del sellado?** PROJECT (criterio 2/3e) define la fuente
+  del sellado como "precio manual del admin"; hoy la ficha pública del sellado no muestra "valor de mercado" aparte.
+  Default v1.19: **NO** (la referencia es solo back-office). Si el humano quiere mostrarla como "valor de mercado" del
+  sellado (paridad con singles), es un cambio de PROJECT + contrato público (versión futura).
+- **v1.19-2 — ¿Costo de aportación en especie del sellado contra la referencia TCGCSV?** Hoy el costo del sellado
+  aportado usa la referencia manual (`gradeKey='sealed'`) o escala. Usar TCGCSV automatizaría "referencia del día × %"
+  (PROJECT §G) también para sellado, pero **mueve dinero (P&L)** → default v1.19: **NO cambia**; decisión del humano.
+- **v1.19-3 — ¿Sugerencias asistidas de mapeo?** La curación v1.19 es 100% manual (explorador + asignación). Un
+  asistente de sugerencia por similitud de nombre/set (sin auto-commit; el admin siempre confirma) es un nice-to-have
+  de fase 2. Default: manual puro.
+- **v1.19-4 — ¿Quién cura el mapeo?** Default: **`super_admin`** (es configuración de pricing, dominio M2). Alternativa:
+  permitir a `vault_operator` mapear durante el alta M1 (no toca dinero directamente; la referencia es informativa).
+  Confirmar si se relaja.
+
 ### Preguntas abiertas (v1.16-master-set — WS-E: Master Set + inventario a escala)
 > No bloquean el diseño (defaults propuestos por el arquitecto). **Dos tocan una ambigüedad de PROJECT.md** (WS-E-1/2):
 > PROJECT §F/M1 pide "vista Master Set… cantidad por carta/acabado / completitud" pero **no define** contra qué se mide
@@ -2766,6 +2987,25 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.19-sealed-tcgcsv (nueva — WS «Catálogo y precios»: referencia de mercado del sellado vía TCGCSV)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa esta migración frente a cualquier otro stream que
+toque el schema. Es **aditiva y nullable** (sin backfill: los items sellados existentes quedan sin mapeo hasta que el
+admin los cure). **`PriceReference` NO se toca** (soporta sellado tal cual: `productType='sealed'` ya en el enum,
+`gradeKey` String libre — nuevo esquema `sealed:tcg:<productId>` —, `finish` default `normal`, unique existente). Ver
+§4.19c/d.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-23 | `enum PriceSource` **+= `tcgcsv`** | Valor de enum nuevo | Alter enum (add value) | Fuente de la referencia de sellado en `PriceReference.source` (y en `PriceInfo.source` del contrato). En Postgres, `ALTER TYPE ... ADD VALUE` — aditivo, sin reescritura de filas. |
+| M-23 | `InventoryItem.tcgplayerProductId Int?` | **Columna nueva** (nullable) | Add column | Mapeo curado item sellado ↔ `productId` de TCGplayer/TCGCSV. Solo aplica a `productType='sealed'` (regla de aplicación, no constraint de BD). `null` = no mapeado (cola derivada de curación, §4.19c). |
+| M-23 | `InventoryItem.tcgplayerGroupId Int?` | **Columna nueva** (nullable) | Add column | Grupo TCGCSV del producto (el endpoint de precios es **por grupo**). Se fija **junto** con `tcgplayerProductId`; ambos `null` o ambos poblados (invariante de aplicación). |
+| M-23 | `InventoryItem` `@@index([tcgplayerProductId])` | **Índice nuevo** | Create index | Sirve la cola de no-mapeados (`sealed AND productId IS NULL`) y el `DISTINCT tcgplayerGroupId` del ingest sin barrer la tabla. |
+
+> **Enum de contrato adicional:** `SealedPriceSource = tcgcsv | off` (valores del dial; NO es enum de BD — el dial es
+> una `ConfigSetting` string validada). **Config/diales:** `sealed_price_source` (seed **`off`**, fail-closed §4.19e),
+> sembrada por el seed de settings (dato, no esquema). **Sin backfill** de mapeos: la curación es manual post-deploy.
 
 ### v1.18-buylist-rejects (nueva — WS «Catálogo y precios»: rechazo de ítem de buylist)
 
