@@ -2,7 +2,40 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.16.1-master-set-reconcile).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.18-master-set-everywhere).
+>
+> **Changelog v1.18-master-set-everywhere (2026-08-17) — WS «Inventario y vault»: Master set en TODAS partes.**
+> La vista Master Set (v1.16, solo back-office M1) se generaliza a un **contrato ÚNICO de "contenido de
+> bóveda/inventario agrupado por set y por acabado"** que sirve **TRES vistas con el MISMO shape de respuesta**,
+> parametrizado por **`scope`** (`platform` | `user_vault`): (i) master set interno M1 (endpoints existentes
+> `GET /admin/inventory/master-sets[/:setId]` — DTOs **EXTENDIDOS, no duplicados**), (ii) admin viendo la bóveda de
+> **cualquier cliente** (`GET /admin/vaults/:userId/master-sets[/:setId]`, `vault_operator+`), (iii) cliente viendo
+> **su propia** bóveda (`GET /vault/master-sets[/:setId]`, `customer`). **Aditivo** sobre los DTOs v1.16 (solo campos
+> nuevos; nada se quita ni cambia de forma). Migración **M-22** (ajustes de inventario). NO toca dinero saliente.
+> Ver ARCHITECTURE §4.18.
+> - **Completitud por VARIANTE (carta+acabado), no por carta:** una carta que existe en `normal` y `reverse_holo`
+>   son **2 casillas**. El **universo de variantes esperadas por carta = `Card.availableFinishes`** (campo YA
+>   existente del catálogo, poblado por el price-ingest v1.14 / bootstrap de `tcgplayer.prices`; filas históricas →
+>   `["normal"]`). **No hace falta regla derivada nueva:** el catálogo SÍ declara los acabados esperados. Los
+>   contadores **«X/Y» cuentan variantes**: nuevos `variants[]` + `expectedVariantCount`/`coveredVariantCount`
+>   (celda) y `catalogVariantCount`/`distinctVariantsOwned`/`variantCompletionPct` (índice). Los campos por-carta
+>   de v1.16 (`distinctCardsOwned`, `completionPct`, `countsByFinish`…) se **conservan** (compat).
+> - **Scope `user_vault`:** mismo shape; cambia SOLO el filtro de agregación (piezas **del usuario en bóveda**:
+>   `ownerType='customer' AND ownerUserId=:userId AND status NOT IN (withdrawn, shipped, delivered, lost, damaged)`,
+>   ambas titularidades `pending|settled`) y las **omisiones por scope**: el shape compartido **NUNCA** expone
+>   ubicaciones físicas, costos, folios ni datos internos de inventario; en las vistas de cliente **no hay acciones
+>   de venta/captura/publicación/ajuste** y `buyable` **SOLO** existe en scope cliente (iii).
+> - **`buyable` (SOLO vista (iii), cliente):** cada **variante faltante** del binder resuelve a inventario publicado
+>   comprable: `buyable: { inventoryItemId, salePriceCents } | null` (la pieza `listed` **más barata** de ese
+>   `(cardId, finish)`; `null` si no hay nada publicado). En scopes admin el campo se **omite**.
+> - **`GET /admin/vaults` (NUEVO, `vault_operator+`):** lista de clientes **con bóveda** — identificación mínima
+>   (id, nombre, email), conteo de piezas y **valor estimado con la MISMA base de valuación del portafolio §3**
+>   (referencia por acabado; pendientes excluidos y contados). Paginación y orden (`value_desc` default).
+> - **`POST /api/v1/admin/inventory/adjustments` (NUEVO, `vault_operator+`, auditado):** ajuste de inventario por
+>   **levantamiento físico** desde la celda del binder M1. **Motivo OBLIGATORIO** enum
+>   `encontrada | perdida | danada | error_captura`; registra `InventoryAdjustment` (M-22) +
+>   `InventoryMovement(reason=adjustment)` + `AuditLog` con usuario y timestamp. **NO existe venta directa manual
+>   desde el binder: toda salida de venta pasa por órdenes (checkout/M3).** Error nuevo `422 ITEM_NOT_ADJUSTABLE`.
 >
 > **Changelog v1.16.1-master-set-reconcile (2026-08-17) — Reconciliación de contrato §M1 (Master Set) con el
 > comportamiento YA implementado por backend y señalado por qa/seguridad. SOLO documentación: el backend está bien;
@@ -392,6 +425,7 @@
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
 - **`422 ITEM_NOT_PUBLISHABLE` (v1.16.1):** en `POST /admin/inventory/items/bulk-publish`, la pieza está en un status de origen **no publicable**. Solo `{in_stock, listed}` son publicables (`in_stock` → publica; `listed` → no-op idempotente). Cualquier otro (`reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`) → **`ITEM_NOT_PUBLISHABLE`** por-línea. **Guardarraíl anti double-sell:** una pieza reservada/vendida/en-custodia/enviada no puede re-listarse. Distinto de `PRICE_PENDING` (precio no resuelto). Ver §M1 y ARCHITECTURE §4.17b.
+- **`422 ITEM_NOT_ADJUSTABLE` (v1.18):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.18e.
 - **Idempotencia:** endpoints de pago aceptan header `Idempotency-Key`.
 - **PII sensible (CLABE / RFC / INE):** por **defecto se devuelven ENMASCARADOS** en **todas** las respuestas (cliente y back-office, incluido `super_admin`). Formato: CLABE → `****1234` (últimos 4 dígitos), RFC → parcial (ej. `XAX**********`). La **CLABE en claro (18 dígitos) SOLO** se obtiene por el endpoint dedicado `GET /admin/buylist/:id/reveal-clabe` (`super_admin`, money-out, **auditado**). Estos campos viven **cifrados en reposo** (ver ARCHITECTURE §3.4); el contrato nunca expone RFC/CLABE/INE en claro fuera del reveal.
 
@@ -425,6 +459,8 @@ AcquisitionType     = aportacion_en_especie | buylist | compra
 CfdiStatus          = registrado | no_aplica          // MVP sin PAC; "emitido" reservado para fase 2
 PriceSource         = pokemontcg_io | pokemonpricetracker | poketrace | manual   // fuentes de precio de carta
 FxSource            = banxico | manual                // fuente del tipo de cambio (separado de PriceSource)
+MasterSetScope      = platform | user_vault           // v1.18: alcance de la vista master set (inventario de plataforma vs bóveda de UN usuario)
+AdjustmentReason    = encontrada | perdida | danada | error_captura // v1.18: motivo OBLIGATORIO del ajuste de inventario por levantamiento físico (M1)
 ```
 
 ### DTOs base (compartidos)
@@ -525,6 +561,58 @@ MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, nam
                          countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean }
 MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalogCardCount: number,
                             cells: MasterSetCardCellDTO[] }
+// ===== v1.18-master-set-everywhere: contrato ÚNICO por scope + completitud por VARIANTE =====
+// Un solo shape para 3 vistas; cambia el ALCANCE de la agregación, no la forma:
+//   scope="platform"   → inventario de PLATAFORMA (M1, `GET /admin/inventory/master-sets[...]`; regla on-hand v1.16).
+//   scope="user_vault" → bóveda de UN usuario: ownerType='customer' AND ownerUserId=:userId AND status NOT IN
+//                        (withdrawn, shipped, delivered, lost, damaged); cuenta AMBAS titularidades (pending|settled).
+// Omisiones por scope (regla dura): este shape NUNCA lleva ubicación física (box/row/slot/locationId), costos
+// (acquisitionCostCents/acquisitionPct), folios, ni ownerUserId de terceros — en NINGÚN scope (el detalle interno
+// vive en GET /admin/inventory/items). En scope cliente además NO hay acciones de captura/publicación/ajuste/venta,
+// y `buyable` SOLO se puebla en la vista (iii) del propio cliente.
+// `owner`: presente SOLO en scope user_vault. `email` SOLO en la vista admin (ii); en la vista (iii) se omite.
+VaultOwnerRefDTO = { userId: string, name: string, email?: string }
+// Variante = (carta, acabado). El UNIVERSO esperado por carta = Card.availableFinishes (campo YA existente del
+// catálogo; fuente: price-ingest v1.14 / bootstrap tcgplayer.prices; filas históricas/sin datos → ["normal"]).
+// `variants` trae EXACTAMENTE una entrada por acabado de availableFinishes (orden del enum Finish).
+// `covered` = ≥1 pieza en el scope para ese (cardId, finish). `buyable` SOLO scope cliente y SOLO cuando
+// covered=false: la pieza `listed` de plataforma MÁS BARATA de ese (cardId, finish) (cualquier productType), o null.
+// NOTA compat: `countsByFinish` (v1.16) se CONSERVA y puede traer acabados FUERA del universo (drift de catálogo:
+// pieza capturada con un finish que availableFinishes ya no declara); esas piezas se ven pero NO cuentan en
+// expected/covered (los contadores X/Y cuentan variantes del universo).
+MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean,
+                        buyable?: { inventoryItemId: string, salePriceCents: number } | null }
+// EXTENSIONES v1.18 (ADITIVAS — los campos v1.16 no cambian; notación `+=` = campos que se AÑADEN al DTO):
+// Índice: catalogVariantCount = Σ |availableFinishes| de las cartas del set; distinctVariantsOwned = variantes del
+// universo con ≥1 pieza en el scope; variantCompletionPct = distinctVariantsOwned / catalogVariantCount × 100
+// (null si catalogVariantCount=0). Los contadores de UI "X/Y" usan ESTOS campos (variantes), no los de carta.
+// En scope user_vault, `distinctCardsOwned`/`totalPieces`/`completionPct` se reinterpretan sobre la bóveda del usuario.
+MasterSetSummaryDTO  += { catalogVariantCount: number, distinctVariantsOwned: number,
+                          variantCompletionPct: number | null }
+MasterSetCardCellDTO += { expectedVariantCount: number, coveredVariantCount: number,
+                          variants: MasterSetVariantDTO[] }
+MasterSetIndexResponse  += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
+MasterSetBinderResponse += { scope: MasterSetScope, owner?: VaultOwnerRefDTO }
+// ----- Lista de clientes con bóveda (GET /admin/vaults) -----
+// totalValueMxnCents usa la MISMA base de valuación del portafolio (§3): referencia del ACABADO de cada pieza
+// (PriceReference vigente); piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
+// pieceCount = piezas del usuario "en bóveda" (mismo filtro de status del scope user_vault).
+AdminVaultSummaryDTO = { userId: string, name: string, email: string, pieceCount: number,
+                         totalValueMxnCents: number, pendingPriceCount: number }
+AdminVaultListResponse = { data: AdminVaultSummaryDTO[], page: number, pageSize: number, total: number }
+// ----- Ajuste de inventario por levantamiento físico (POST /admin/inventory/adjustments) -----
+// Modelo POR-PIEZA (sin "delta" numérico): `encontrada` CREA piezas nuevas (reusa los campos de alta del lote,
+// BatchInventoryItemInput; `acquisitionType` default "aportacion_en_especie" si se omite — excepción documentada;
+// qty default 1, graded fuerza 1); los otros tres motivos operan UNA pieza existente y `note` es OBLIGATORIA.
+// Estado resultante por motivo: encontrada → in_stock (fromStatus null) · perdida → lost · danada → damaged ·
+// error_captura → withdrawn (la pieza NUNCA existió físicamente; NO cuenta como pérdida/reposición — el motivo real
+// queda en InventoryAdjustment.reason, distinguible de un retiro de cliente).
+InventoryAdjustmentRequest =
+    | { reason: "perdida" | "danada" | "error_captura", inventoryItemId: string, note: string }
+    | { reason: "encontrada", item: BatchInventoryItemInput, note?: string }
+InventoryAdjustmentResponse = { adjustmentId: string, reason: AdjustmentReason,
+                                inventoryItemIds: string[], folios: string[],
+                                fromStatus: InventoryStatus | null, toStatus: InventoryStatus }
 // ----- Alta por LOTE (POST /admin/inventory/items/batch) -----
 // Una línea = una intención de alta; `qty` (default 1) es un ATAJO que el backend expande a N InventoryItem
 // (N piezas físicas, N folios) para bulk raw/sellado. graded → qty forzado a 1 (cada slab es único por certNumber;
@@ -789,6 +877,31 @@ Res `200`:
 - `change`: variación entre el primer y último punto del rango; `direction` ∈ `up | down | flat`. `pct` con 2 decimales; si el valor inicial es 0, `pct=null`.
 - Si el usuario no tiene snapshots todavía, `points: []` y `change` con `direction: "flat"`, `absMxnCents: 0`, `pct: null`.
 Err `401`.
+
+### GET /api/v1/vault/master-sets — `customer`  (v1.18-master-set-everywhere — vista (iii): MI bóveda por set)
+"Mi bóveda como master set": **mismo shape** que `GET /admin/inventory/master-sets` (`MasterSetIndexResponse` +
+extensiones v1.18) con `scope="user_vault"` y `owner = { userId, name }` (el propio usuario; **sin** `email`).
+Query: `?q=&page=&pageSize=&sort=` (mismos valores que el índice admin; `sort` default `release_desc`).
+- **Alcance:** SOLO piezas del usuario autenticado **en bóveda** (`ownerType='customer' AND ownerUserId=<yo>`,
+  status en bóveda; ver §DTOs). El índice devuelve **solo los sets con ≥1 pieza** del usuario (no lista los ~cientos
+  de sets vacíos; la completitud contra el catálogo se ve al abrir el binder de un set).
+- **Sin datos internos:** nada de ubicaciones/costos/folios (regla de omisión por scope, §DTOs). Sin acciones de
+  inventario: es lectura pura.
+Err `401`.
+
+### GET /api/v1/vault/master-sets/:setId — `customer`  (v1.18 — binder de MI bóveda + faltantes comprables)
+Binder del set sobre MI bóveda: **mismo shape** que el binder admin (`MasterSetBinderResponse` + extensiones v1.18),
+`scope="user_vault"`, `cells` en el **mismo orden natural** por número. `:setId` = id LOCAL del `CardSet` (funciona
+para CUALQUIER set del catálogo, tenga o no piezas el usuario: las celdas/variantes sin piezas son sus faltantes).
+- **Completitud por variante:** cada celda expone `variants[]` (universo = `Card.availableFinishes`) con `covered`
+  por acabado; los contadores «X/Y» del front cuentan **variantes** (`coveredVariantCount`/`expectedVariantCount` y
+  los agregados del set), no cartas.
+- **`buyable` (SOLO esta vista):** cada variante **faltante** (`covered=false`) trae
+  `buyable: { inventoryItemId, salePriceCents } | null` — la pieza **`listed` más barata** de plataforma para ese
+  `(cardId, finish)` (resoluble a ficha vía `GET /catalog/listings/:inventoryItemId` y comprable por el checkout
+  normal §4). `null` si no hay inventario publicado. **No** hay compra dentro del binder: el CTA lleva al flujo de
+  Compra/checkout existente (el binder no crea órdenes).
+Err `401`, `404 NOT_FOUND` (set inexistente).
 
 ---
 
@@ -1200,6 +1313,56 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `SALES_PRICE_RULES`+fallback **una vez** por request (pago mínimo de **BE-25**).
   - Res `200` (`BulkPublishResponse`): `{ summary, results }`. Auditado (`AuditLog action=inventory.bulk_publish`).
 
+#### Master set en todas partes (v1.18-master-set-everywhere) — `vault_operator+`
+> El binder deja de ser exclusivo del inventario de plataforma: el **mismo contrato** sirve (i) M1 interno,
+> (ii) la bóveda de cualquier cliente vista por admin y (iii) "Mi bóveda" del cliente (§3). Ver ARCHITECTURE §4.18.
+
+- `GET /api/v1/admin/inventory/master-sets` y `GET .../master-sets/:setId` — **(EXTENDIDOS, no duplicados)** los
+  endpoints v1.16 ganan los campos v1.18: `scope:"platform"` en la respuesta, contadores por **variante**
+  (`catalogVariantCount`/`distinctVariantsOwned`/`variantCompletionPct` en el índice;
+  `variants[]`/`expectedVariantCount`/`coveredVariantCount` por celda). `owner` ausente y `buyable` **omitido**
+  (solo existe en la vista (iii) del cliente). Query, orden natural, reglas on-hand y errores: **sin cambios v1.16**.
+- `GET /api/v1/admin/vaults` — **(NUEVO)** lista de clientes **con bóveda** (≥1 pieza en bóveda).
+  Query: `?q=` (nombre/email), `?page=1&pageSize=20`, `?sort=` (`value_desc` default | `pieces_desc` | `name_asc`).
+  Res `200` (`AdminVaultListResponse`): `{ data: AdminVaultSummaryDTO[], page, pageSize, total }` — por cliente:
+  `userId`, `name`, `email`, `pieceCount`, `totalValueMxnCents` (**misma valuación que el portafolio §3**:
+  referencia vigente por acabado; pendientes excluidos del total y contados en `pendingPriceCount`).
+  - **Sin N+1:** una agregación de piezas por usuario + `getReferencesBatch` para valuar la página (no una query
+    por pieza ni por usuario). El valor es **estimado del día** (misma frescura que el portafolio del cliente).
+  - PII: solo identificación mínima (`name`/`email`, ya visibles para `vault_operator` en M6). **Nunca** CLABE/RFC/INE.
+- `GET /api/v1/admin/vaults/:userId/master-sets` — **(NUEVO)** vista (ii): índice master set de la bóveda de un
+  cliente. **Mismo shape** que el índice M1 con `scope:"user_vault"` y `owner: { userId, name, email }`. Solo sets
+  con ≥1 pieza del cliente. Query igual al índice M1. Err `404 NOT_FOUND` (usuario inexistente).
+- `GET /api/v1/admin/vaults/:userId/master-sets/:setId` — **(NUEVO)** binder de la bóveda del cliente. **Mismo
+  shape** que el binder M1 (`scope:"user_vault"`, `owner` con `email`), mismo orden natural. **Sin `buyable`** (es
+  vista operativa, no de compra) y **sin acciones**: lectura pura para soporte/operación (¿qué tiene este cliente
+  de este set?). Err `404 NOT_FOUND` (usuario o set inexistente).
+- `POST /api/v1/admin/inventory/adjustments` — **(NUEVO)** ajuste por **levantamiento físico** desde la celda del
+  binder M1 (scope plataforma). Req (`InventoryAdjustmentRequest`) con **motivo OBLIGATORIO**
+  `reason: encontrada | perdida | danada | error_captura`:
+  - **`encontrada`** (aparece una pieza física no capturada): **crea** la(s) pieza(s) reusando los campos de alta
+    del lote (`item: BatchInventoryItemInput`; misma validación de `finish`/cert; `qty` default 1, `graded` fuerza
+    1). `acquisitionType` default **`aportacion_en_especie`** si se omite (costo = referencia × pct, con su
+    `422 PRICE_PENDING` si no hay referencia — paridad con el alta normal). Piezas nacen `in_stock`, `ownerType=platform`.
+  - **`perdida` / `danada`** (la pieza del sistema no aparece o aparece dañada): `status → lost | damaged`
+    (habilita el flujo de reposición/merma existente, M7/tope M10). `note` **obligatoria**.
+  - **`error_captura`** (la pieza **nunca existió** físicamente; se capturó por error): `status → withdrawn` — sale
+    del on-hand **sin** contar como pérdida/reposición; el motivo real queda en `InventoryAdjustment.reason`
+    (distinguible de un retiro de cliente en reportes/auditoría). `note` **obligatoria**.
+  - **Alcance ajustable:** SOLO piezas `ownerType=platform` con status ∈ `{in_stock, listed}` (para
+    `perdida|danada|error_captura`). Cualquier otro status → **`422 ITEM_NOT_ADJUSTABLE`** (§0): una pieza
+    `reserved`/vendida/en custodia/enviada se resuelve por su flujo dueño (M3/M4/`mark`), no por ajuste.
+  - **Registro (obligatorio):** cada ajuste persiste `InventoryAdjustment` (M-22, con `reason`, `fromStatus`,
+    `toStatus`, `actorUserId`, `note`, timestamp) + `InventoryMovement` con `reason=adjustment` (el historial de la
+    pieza distingue un ajuste de operador de un mark normal) + `AuditLog action=inventory.adjustment` (quién/qué/cuándo).
+  - **NO hay venta directa manual desde el binder:** el ajuste **no** puede poner una pieza en `reserved`, crear
+    órdenes ni registrar una venta; **toda salida por venta pasa por órdenes (checkout Stripe / M3)**. Publicar a la
+    venta sigue siendo `bulk-publish`/`PATCH` (con precio server-side SEC-A1). No es dinero saliente (sin `MoneyOutGuard`).
+  Res `201` (encontrada) / `200` (resto): `InventoryAdjustmentResponse`.
+  Err `400 VALIDATION_ERROR` (reason ausente/inválido; `encontrada` sin `item`; `perdida|danada|error_captura` sin
+  `inventoryItemId` o sin `note`), `404 NOT_FOUND`, `422 ITEM_NOT_ADJUSTABLE`, `422 FINISH_NOT_AVAILABLE`,
+  `422 PRICE_PENDING` (encontrada por aportación sin referencia).
+
 ### M2 — Catálogo y precios (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`PricingController`, `FxController`, `AdminCatalogController`). No requiere backend nuevo para el flujo M2 existente (sync de precios de bóveda, override, FX, rareza→categoría, sync de catálogo por fecha/backfill); falta **consumo de frontend** (M2 es `ModuleTodo` en UI). Lo **único NUEVO** de backend en M2 es `POST /admin/catalog/sync-all` (abajo), para la Opción 1 del cotizador.
 - `POST /api/v1/admin/pricing/sync` — dispara/encola el sync diario (solo bóveda). Req `{ scope?: "all_vault" | "cardIds" , cardIds?: [] }` → `{ jobId, queued: number }`.
@@ -1599,6 +1762,12 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
 - Contracargo (webhook `charge.dispute.created`) es **consciente del estado físico**: revierte el item a inventario de plataforma **solo si sigue en bóveda**; si ya se envió/entregó **no** re-agrega y marca `chargebackNeedsManual` (ver §9). Cierre de disputa: ganamos→`settled` (`disputeOutcome=won`), perdemos→`chargeback` (`disputeOutcome=lost`).
 - **VENTAS FINALES** (política del humano, ver `PROJECT.md`): no hay reembolso voluntario. Excepciones: (a) **error de la plataforma** (cobro doble/inventario fantasma) → **siempre** se reembolsa (§M3); (b) **disputa de condición** raw dañada/equivocada → el súper-admin compensa con **recompra al precio pagado**, el cliente **conserva la carta** y **no** vuelve al inventario (§M8). En ningún caso de reembolso/recompra el item se re-agrega al inventario.
 - Los montos exactos de los diales (envío 17500, IVA 16, markup de venta, tarifa Stripe, tope 300000/1000000, aportación 70%) provienen de `ConfigSetting` (M10), no hardcode; los valores aquí son defaults.
+- **Master set en todas partes (v1.18):** un solo contrato de "contenido por set y acabado" con `scope`
+  (`platform` | `user_vault`) sirve M1, la vista admin de la bóveda de un cliente y "Mi bóveda" del cliente. La
+  **completitud cuenta variantes (carta+acabado)**, con universo = `Card.availableFinishes`. `buyable` (variante
+  faltante → pieza `listed` más barata) SOLO en la vista del propio cliente. Ajustes de inventario con motivo
+  obligatorio (`AdjustmentReason`) + `InventoryAdjustment`/`InventoryMovement(adjustment)`/`AuditLog`; **sin venta
+  directa desde el binder** (toda venta va por órdenes). Migración M-22. Ver ARCHITECTURE §4.18.
 - **P&L separa ingreso vs costo de envío (v1.4-finance):** el envío entra al P&L por dos lados — **ingreso** (`ShipmentRequest.shippingFeeCents`, `shippingRevenueCents` en el response) y **costo** (`ShipmentRequest.shippingCostCents`, capturado en M4 al asignar guía, M-16). Fórmula: `profitCents = incomeCents + shippingRevenueCents − cogsCents − stripeFeesCents − shippingCostCents`. Ambos se acotan al periodo por `pickingAt`. `shippingCostCents` es un **costo interno**: no se expone al cliente. `GET /admin/finance/pnl` renombra `shippingCents`→`shippingRevenueCents` (M7 sin consumidores de frontend aún); el CSV espeja el shape.
 
 **Coherencia v1.1 (2026-08-14):**

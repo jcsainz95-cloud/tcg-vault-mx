@@ -2,7 +2,20 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.15-buylist-batch-clabe (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.18-master-set-everywhere (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+>
+> **Changelog v1.18-master-set-everywhere (2026-08-17) — WS «Inventario y vault»: Master set en TODAS partes.**
+> La vista Master Set (v1.16, §4.17, solo M1) se generaliza a un **read model único parametrizado por scope**
+> (`platform` | `user_vault`) que sirve tres vistas con el **mismo shape**: (i) M1 interno (endpoints existentes,
+> DTOs extendidos), (ii) admin viendo la bóveda de cualquier cliente (`GET /admin/vaults/:userId/master-sets[...]`,
+> `vault_operator+`) y (iii) el cliente viendo su propia bóveda (`GET /vault/master-sets[...]`, `customer`).
+> **Completitud por VARIANTE (carta+acabado)** con universo = `Card.availableFinishes` (campo ya existente, §4.15e).
+> Nuevos además: `GET /admin/vaults` (lista de clientes con bóveda, valuación reusada del portafolio),
+> **`buyable`** en el binder del cliente (variante faltante → pieza `listed` más barata), y
+> **`POST /admin/inventory/adjustments`** (levantamiento físico con motivo obligatorio, `InventoryAdjustment` +
+> `InventoryMovement(adjustment)` + `AuditLog`; **sin venta directa desde el binder**). Migración **M-22**.
+> Decisión de frontend: **promover** los componentes de master set de `(admin)/admin/m1/master-set/` a
+> `frontend/src/components/master-set/` (zona compartida, reservada por este stream). Nuevo **§4.18**.
 >
 > **Changelog v1.15-buylist-batch-clabe (2026-08-17) — WS-C: cotizador de buylist (Fable) contra el backend REAL
 > (Fase 3b).** El cotizador rediseñado del frontend usa hoy **mocks/atajos** que NO funcionan contra el backend real:
@@ -509,6 +522,8 @@ frontend/
         (admin)/                # back-office M1–M10 + dashboard (responsive; sin captura de fotos de producto, v1.2)
         (auth)/                 # login/registro
     components/                 # implementa el DESIGN_SYSTEM (ux-ui define tokens/componentes)
+      master-set/               # v1.18: binder/índice de master set PROMOVIDOS desde (admin)/admin/m1/master-set/
+                                #   (compartidos por M1, admin-bóveda-cliente y "Mi bóveda"; ver §4.18f)
     lib/                        # api client, stripe.js, query client
     i18n/                       # config next-intl + messages/es.json, messages/en.json (copys de UI)
     hooks/
@@ -2232,6 +2247,116 @@ cuadrícula (celda = carta+acabados); solo cambia la acción (agregar-al-carrito
   un set por el binder (alta por lote de varias cartas/acabados), ver el conteo agregado actualizarse, publicar en
   lote, y confirmar que el replay del carrito no duplica.
 
+### 4.18 WS «Inventario y vault» — Master set en todas partes (v1.18-master-set-everywhere)
+
+**Objetivo.** El binder Master Set (§4.17) demostró ser la superficie correcta para "ver un set de un vistazo".
+v1.18 lo convierte en el **read model único de "contenido agrupado por set y por acabado"**, parametrizado por
+**scope**, para tres consumidores: M1 (inventario de plataforma), soporte/operación (bóveda de un cliente vista por
+admin) y el propio cliente ("Mi bóveda" como colección). Un solo servicio, un solo shape; cambia el **filtro de
+agregación** y las **omisiones por permiso**. Contrato: `API_CONTRACT.md` Changelog v1.18 (§0/§DTOs/§3/§M1).
+
+**#### 4.18a Read model por scope (backend: `MasterSetService`).**
+- `MasterSetService.index()/binder()` ganan un parámetro de scope:
+  `type MasterSetQueryScope = { kind: 'platform' } | { kind: 'user_vault', userId: string }`.
+  El scope SOLO cambia el `WHERE` de la agregación de `InventoryItem`:
+  - `platform` → `ownerType='platform' AND status NOT IN NOT_ON_HAND` (regla v1.16 intacta).
+  - `user_vault` → `ownerType='customer' AND ownerUserId=:userId AND status NOT IN NOT_ON_HAND` (piezas del usuario
+    **en bóveda**; ambas titularidades `pending|settled` — es su colección, la titularidad afecta retiro, no vista).
+  Todo lo demás (queries fijas sin N+1, orden natural, `isSecretRare`, `numberSort`) se **reusa sin duplicar**.
+- **Controllers:** `MasterSetController` (M1, existente) + nuevos `AdminVaultsController`
+  (`/admin/vaults`, `vault_operator+`, módulo `vault`) y rutas `GET /vault/master-sets[...]` en `VaultController`
+  (`customer`, siempre `userId = el autenticado` — **jamás** un userId del request en la vista (iii)).
+- **Índice en scope `user_vault`:** solo sets con ≥1 pieza del usuario (el catálogo completo como índice es ruido
+  para un cliente); el binder de **cualquier** set sigue accesible por `:setId` (los huecos son sus faltantes).
+- **Omisiones por scope (regla dura de DTO):** el shape compartido nunca lleva ubicación física, costos, folios ni
+  ownerUserId de terceros; `owner` solo en `user_vault` (con `email` solo en la vista admin); `buyable` solo en la
+  vista (iii). Las acciones de escritura (batch/bulk-publish/adjustments) son **solo** rutas `/admin` de scope
+  plataforma — el binder de cliente y el de la vista admin de bóveda son **lectura pura**.
+
+**#### 4.18b Completitud por VARIANTE (carta+acabado).**
+- **Casilla = variante = `(Card, finish)`** con `finish ∈ Card.availableFinishes`. Una carta en `normal` y
+  `reverse_holo` son **2 casillas**; los contadores «X/Y» cuentan **variantes**, no cartas.
+- **Universo esperado — regla explícita:** el catálogo **SÍ declara** los acabados esperados por carta:
+  **`Card.availableFinishes`** (M-18), hoy poblado por el price-ingest v1.14 (variantes reales del proveedor,
+  §4.15e) con bootstrap desde `tcgplayer.prices` y default histórico `["normal"]`. **No se inventa una regla
+  derivada nueva**: es el mismo campo que ya funge de lista blanca SEC-A1 del `finish` en quote/alta. Si el ingest
+  amplía `availableFinishes`, el denominador de completitud crece (correcto: aparecieron variantes de mercado).
+- **Drift:** una pieza cuyo `finish` ya no esté en `availableFinishes` se muestra en `countsByFinish` (es una pieza
+  real) pero **no** cuenta en expected/covered — evita `covered > expected` y deja visible la inconsistencia.
+- **Nota (comportamiento v1.16 conservado):** la cobertura cuenta piezas de **cualquier** `productType` del
+  `(cardId, finish)` (graded/sealed mapean a `finish=normal` por §3.7). Cambiarlo a "solo raw" sería decisión de
+  producto (pregunta abierta WS-IV-1, §10).
+- **Costo de cómputo:** los campos nuevos salen de las MISMAS agregaciones v1.16 (`groupBy [cardId, finish]`) +
+  `availableFinishes` ya presente en la query de cartas; el índice suma una agregación de `Σ|availableFinishes|`
+  por set (raw SQL sobre `Card`). Sigue O(1) queries por request.
+
+**#### 4.18c Lista de clientes con bóveda (`GET /admin/vaults`).**
+Agregación por usuario (`ownerType='customer'`, status en bóveda) → `pieceCount` + valuación de la página con
+**la misma base del portafolio** (§3, `PriceReference` vigente por acabado, vía `getReferencesBatch` — §4.17c):
+piezas sin precio se excluyen del total y se cuentan en `pendingPriceCount`. Identificación mínima
+(`name`/`email`, misma exposición que el listado M6 para `vault_operator`); **nunca** PII sensible. Orden
+`value_desc | pieces_desc | name_asc`, paginado. Cada fila enlaza a la vista (ii) (`/admin/vaults/:userId/master-sets`).
+
+**#### 4.18d Faltantes comprables (`buyable`, solo vista (iii)).**
+Para las variantes `covered=false` del binder del cliente, **una** query adicional resuelve por `(cardId, finish)`
+la pieza de plataforma `status='listed'` con **menor precio de venta** (mismo criterio de precio de la ficha §4.9:
+`listPriceCents` override o derivado por reglas de venta §4.14 — el binder expone el `salePriceCents` ya resuelto;
+si el precio no resuelve, esa pieza no es buyable). El CTA del front lleva a la ficha
+(`GET /catalog/listings/:inventoryItemId`) y al **checkout normal** — el binder **no** crea órdenes ni reservas.
+`buyable` se **omite** en los scopes admin (allí el binder es operación, no compra).
+
+**#### 4.18e Ajuste de inventario por levantamiento físico (M1).**
+- **Flujo:** el operador abre la celda del binder M1, compara sistema vs físico y registra el ajuste
+  (`POST /admin/inventory/adjustments`) con **motivo obligatorio** `AdjustmentReason =
+  encontrada | perdida | danada | error_captura`:
+  - `encontrada` → crea pieza(s) nuevas reusando la lógica de alta (`inventory.service.create` /
+    `BatchInventoryItemInput`; `acquisitionType` default `aportacion_en_especie`, con su `PRICE_PENDING` normal).
+  - `perdida | danada` → `status → lost | damaged` (conecta con reposición/merma M7 + tope M10, igual que `mark`).
+  - `error_captura` → `status → withdrawn`: sale del on-hand **sin** semántica de pérdida (no dispara reposición ni
+    infla mermas); el motivo real queda tipado en `InventoryAdjustment.reason`. **Decisión:** se reusa `withdrawn`
+    en vez de añadir un `InventoryStatus` nuevo — el enum de status es zona compartida transversal (Compra, M4,
+    bulk-publish, contracargo) y un valor nuevo obligaría a revisar todos esos switches; la distinción
+    "error de captura vs retiro" vive en `InventoryAdjustment`/`AuditLog`, que es donde se reporta.
+  - **Guardarraíles:** solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` son ajustables
+    (`422 ITEM_NOT_ADJUSTABLE` en el resto — una pieza `reserved`/vendida/en custodia/enviada se resuelve por su
+    flujo dueño: M3/M4/`mark` de custodia). **NO hay venta directa manual desde el binder**: el ajuste no puede
+    reservar/vender; toda salida de venta va por órdenes (checkout Stripe/M3). No es money-out.
+- **Registro triple (auditoría con usuario y timestamp):** (1) fila `InventoryAdjustment` (M-22: motivo tipado,
+  from/to status, actor, note — consultable para reportes de merma/levantamiento M7/M9); (2) `InventoryMovement`
+  con el nuevo `MovementReason.adjustment` (el historial de la pieza distingue ajuste de operador vs mark normal);
+  (3) `AuditLog action=inventory.adjustment` (bitácora global M10). `mark` existente queda para el flujo no-binder
+  (incl. custodia de clientes); el ajuste es el camino normado del levantamiento físico.
+- **Schema (decisión, migración M-22 — ver §11):** enum `AdjustmentReason`, valor nuevo
+  `MovementReason.adjustment`, y modelo `InventoryAdjustment` (tabla propia y NO solo `AuditLog`, porque el motivo
+  debe ser **tipado y consultable** para reportes, mientras `AuditLog` es texto/JSON de bitácora). Aditiva, sin backfill.
+
+**#### 4.18f Frontend — promoción del binder a componentes compartidos.**
+Los componentes de master set viven hoy en `frontend/src/app/[locale]/(admin)/admin/m1/master-set/`
+(`MasterSetIndex.tsx`, `MasterSetBinder.tsx`, `MasterSetPanel.tsx`, `CellDrawer.tsx`, `PerLineErrors.tsx`,
+`capture.ts`). Con tres consumidores (M1, admin-bóveda-cliente, Mi bóveda) **se promueven a
+`frontend/src/components/master-set/`** (zona compartida — **reservada por este work stream** mientras dura la
+promoción; ningún otro stream la toca en paralelo). Reglas:
+- El componente se parametriza por **scope/capacidades vía props** (`scope`, `readOnly`, `showBuyable`,
+  `onAddToCapture?`, `onAdjust?`): las acciones de captura/publicación/ajuste solo se montan en M1; el CTA de
+  compra (`buyable`) solo en la vista del cliente. El componente **no** decide permisos: renderiza lo que el DTO
+  trae (el backend ya omitió campos por scope — defensa en el dato, no en el if del front).
+- Lo específico de M1 (carrito de captura, `capture.ts`, `PerLineErrors`) puede quedarse bajo `(admin)/admin/m1/`
+  si solo M1 lo usa; lo que se comparte (índice, binder, celda, drawer de variantes) se mueve. Los imports de
+  `M1View` se actualizan a la nueva ruta (trabajo de **frontend**, no del arquitecto).
+
+#### Reparto de trabajo (v1.18)
+- **Backend:** (1) parametrizar `MasterSetService` por scope + campos de variante; (2) `GET /vault/master-sets[...]`
+  (customer) y `GET /admin/vaults[...]` (vault_operator+); (3) `buyable` (query de mínimos por `(cardId, finish)`);
+  (4) `POST /admin/inventory/adjustments` + migración M-22; (5) tests: mismos shapes en 3 scopes, omisiones por
+  scope (nunca ubicación/costo/folio; `buyable` solo (iii)), contadores de variantes vs cartas, drift de
+  `availableFinishes`, `ITEM_NOT_ADJUSTABLE`, `error_captura` no dispara reposición, no-venta-desde-binder.
+- **Frontend:** (1) promover componentes a `components/master-set/` (§4.18f); (2) "Mi bóveda" gana la pestaña/vista
+  master set con X/Y por variantes y CTA de faltantes comprables; (3) vista admin `/admin/vaults` (lista + binder de
+  cliente, read-only); (4) drawer de ajuste en la celda M1 (motivo obligatorio, nota).
+- **QA/techlead:** doble veredicto por stream (no toca dinero saliente); E2E: cliente ve su set con variantes
+  cubiertas/faltantes y compra un faltante vía checkout; admin lista bóvedas y abre el binder de un cliente;
+  ajuste `perdida`/`encontrada`/`error_captura` deja `InventoryAdjustment` + movement + audit.
+
 ---
 
 ## 5. Decisiones transversales
@@ -2429,6 +2554,22 @@ este documento y con `API_CONTRACT.md`.
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
 
+### Preguntas abiertas (v1.18-master-set-everywhere — WS «Inventario y vault»)
+> No bloquean el diseño (defaults propuestos y **normados en el contrato**); se listan para veto/ajuste del humano.
+- **WS-IV-1 — ¿Qué `productType` cubre una casilla?** Default (conserva v1.16): **cualquier** pieza del
+  `(cardId, finish)` cubre la variante (graded/sealed mapean a `finish=normal`, §3.7). Alternativa de producto:
+  solo `raw` cuenta para el master set (una gradeada no "llena" la casilla de la carta raw). Cambiarlo es un filtro
+  más en la agregación, sin cambio de shape.
+- **WS-IV-2 — `buyable` = pieza `listed` más barata del `(cardId, finish)`, cualquier `productType`.** ¿Se
+  restringe a `raw` (coherente con WS-IV-1) o se deja abierto (el cliente ve la opción más barata y decide en la
+  ficha)? Default: abierto.
+- **WS-IV-3 — `encontrada` con costo por aportación (default `aportacion_en_especie`, 70%).** ¿Correcto que una
+  pieza hallada en el levantamiento se cargue como aportación en especie del dueño (afecta P&L/base de costo), o
+  debe pedirse `acquisitionType` explícito siempre? Default: `aportacion_en_especie` si se omite.
+- **WS-IV-4 — Índice de cliente solo con sets con ≥1 pieza.** ¿Se desea un toggle "ver todos los sets del
+  catálogo" en el índice (iii)? Hoy el binder de cualquier set ya es accesible por `:setId`; el índice filtrado
+  evita listar cientos de sets vacíos. Default: solo con piezas.
+
 ### Preguntas abiertas (v1.16-master-set — WS-E: Master Set + inventario a escala)
 > No bloquean el diseño (defaults propuestos por el arquitecto). **Dos tocan una ambigüedad de PROJECT.md** (WS-E-1/2):
 > PROJECT §F/M1 pide "vista Master Set… cantidad por carta/acabado / completitud" pero **no define** contra qué se mide
@@ -2591,6 +2732,21 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.18-master-set-everywhere (nueva — WS «Inventario y vault»: master set en todas partes)
+
+**Aditiva, una sola migración `M-22`** (ajustes de inventario). Las tres vistas por scope, los campos de variante y
+`GET /admin/vaults` son **solo código** (reusan `InventoryItem`, `Card.availableFinishes`, `PriceReference`,
+el índice M-21 y `getReferencesBatch`) — **sin** cambio de esquema. **Sin backfill.**
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-22 | `enum AdjustmentReason` | **Enum nuevo** (`encontrada \| perdida \| danada \| error_captura`) | Create enum | Motivo OBLIGATORIO del ajuste por levantamiento físico (§4.18e). |
+| M-22 | `enum MovementReason` | **Valor nuevo** `adjustment` | Alter enum (aditivo) | El historial de la pieza distingue un ajuste de operador (`adjustment`) de un `mark` normal (`lost`/`damaged`) o un retiro (`withdrawal`). Aditivo; nada existente cambia. |
+| M-22 | `InventoryAdjustment` | **Modelo nuevo** (`id` uuid `@id`, `inventoryItemId String` + FK a `InventoryItem`, `reason AdjustmentReason`, `fromStatus InventoryStatus?`, `toStatus InventoryStatus`, `actorUserId String?` sin FK dura (patrón `AuditLog`), `note String?`, `createdAt`; `@@index([inventoryItemId])`, `@@index([reason])`, `@@index([createdAt])`) | Create table | Registro **tipado y consultable** del levantamiento (reportes de merma M7/M9); complementa —no reemplaza— `InventoryMovement` y `AuditLog` (§4.18e). Para `encontrada` con `qty>1` se crea **una fila por pieza creada**. |
+
+> **NO se añade** valor nuevo a `InventoryStatus`: `error_captura` reusa `withdrawn` (decisión §4.18e — el enum de
+> status es zona transversal; la distinción vive en `InventoryAdjustment.reason`). **Config/diales:** ninguno.
 
 ### v1.16-master-set (nueva — WS-E: Master Set + inventario a escala)
 
