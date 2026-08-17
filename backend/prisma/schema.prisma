@@ -670,8 +670,17 @@ model SellRequestItem {
   itemStatus         SellItemStatus   @default(cotizada)
   inventoryItemId    String?
   // v1.2 (M-13): eliminado photoKeys (buylist sin fotos de carta; verificación NM contra la física).
+  // v1.18-buylist-rejects (M-22): rechazo de ítem operable. `rejectedAt` = timestamp de la decisión
+  // `reject` (= notificación al vendedor) y ANCLA ÚNICA de los plazos derivados 7d (devolución a
+  // costo del usuario) / 30d (abandono) — NO se persisten los plazos. `rejectionReason` = motivo
+  // obligatorio del rechazo (3–500 chars). Nullable sin backfill: ítems rechazados pre-M-22 (legacy)
+  // exponen los campos de rechazo en null. Ver ARCHITECTURE §4.18 / §11 (M-22).
+  rejectedAt         DateTime?
+  rejectionReason    String?
 
   @@index([sellRequestId])
+  // M-22: sirve GET /admin/buylist/rejected-items (filtro transversal itemStatus='rechazada').
+  @@index([itemStatus])
 }
 
 // ============================= DISPUTES =============================

@@ -714,11 +714,35 @@
   captura de P2002 como `ITEM_IN_ANOTHER_SHIPMENT`. Owner: **backend** (schema → **coordinar con arquitecto**;
   disparador **DAST/devops**). Prioridad: **baja**. Relacionado con **BE-2** (familia TOCTOU).
 
-### Nota al arquitecto (NO backend) · `AdminBuylistDTO §M5` podría exponer `userName`
-- **Qué:** el flujo admin de buylist (§M5) hace un **fetch por-fila** del nombre del usuario. Si el contrato
+### v1.18-buylist-rejects (M5 rechazos) — deuda aceptada del pase (2026-08-17, no bloqueante)
+
+### BE-43 · Plantilla del correo de rechazo de buylist vive FUERA de `mail/` (layout/escape duplicados)
+- **Dónde:** `src/modules/buylist/buylist-mail.templates.ts` (`sellItemRejectedTemplate` + helpers
+  `layout`/`escapeHtml`/`normalizeLocale` duplicados de `src/modules/mail/mail.templates.ts`) y el envío
+  best-effort en `buylist.service.ts` (`sendItemRejectedMail`, sin cola de reintentos).
+- **Estado actual:** decisión de diseño del arquitecto (ARCHITECTURE §4.18c / API_CONTRACT v1.18): el módulo
+  `mail` pertenece al stream «Cuentas y acceso» y NO se toca desde este stream; `buylist` inyecta solo el
+  puerto global `MAIL_PORT` y renderiza con plantilla LOCAL al módulo. Consecuencias: (a) el helper de
+  layout/branding y la disciplina de escape HTML (S15-B1) están **duplicados** (si `mail.templates.ts`
+  cambia el branding/escape, hay que espejarlo a mano aquí); (b) el envío es **best-effort sin reintentos**
+  (fallo → `logger.error`, la decisión NO se revierte — norma §M5). Relacionado (mismo pase, menor): las
+  constantes 7d/30d de los plazos del ítem rechazado viven en
+  `src/modules/buylist/buylist-reject.constants.ts`; `src/jobs/buylist-sweep.service.ts` (zona de otro
+  agente en este pase) conserva sus 7/30 inline — al tocar el sweep, importar esas constantes (fuente única).
+- **Impacto:** bajo. Mantenibilidad (divergencia potencial de branding/escape entre plantillas) y, sin
+  reintentos, un correo de rechazo puede perderse si el proveedor falla (el vendedor igual ve motivo y plazos
+  en la app, `GET /buylist/requests/:id`).
+- **Disparador (aceptado):** cuando el stream **«Cuentas y acceso»** toque `mail/`: absorber
+  `sellItemRejectedTemplate` en `mail.templates.ts`/`MailService` (helpers a fuente única) y evaluar cola de
+  reintentos para transaccionales de negocio. Dueño: **backend**. Aceptada por arquitecto en el contrato v1.18.
+
+### Nota al arquitecto (NO backend) · `AdminBuylistDTO §M5` podría exponer `userName` — CERRADA (v1.18)
+- **Qué:** el flujo admin de buylist (§M5) hacía un **fetch por-fila** del nombre del usuario. Si el contrato
   expusiera `userName` en `AdminBuylistDTO` se evitaría ese N+1 de presentación en M5.
-- **Enrutado a:** **arquitecto** (cambio de contrato §M5). Backend **no** lo implementa hasta que el contrato lo
-  defina; se deja registrado aquí para trazabilidad.
+- **Estado (2026-08-17):** **CERRADA.** El arquitecto lo normó en el contrato **v1.18-buylist-rejects**:
+  `GET /admin/buylist` y `GET /admin/buylist/:id` exponen **`seller: AdminSellerRef = { id, name, email }`**
+  (join server-side a `User`), implementado por backend en este pase (`adminList`/`adminGet`). El N+1 de
+  presentación desaparece. Entrada conservada como trazabilidad.
 
 > Deuda aceptada, no bloqueante para el MVP. El cliente compila y pasa lint/typecheck/test/build; todas
 > las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la

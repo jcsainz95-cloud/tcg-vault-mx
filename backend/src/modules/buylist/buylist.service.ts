@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   BuylistRuleMode,
   Card,
@@ -17,6 +17,9 @@ import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
 import { BuylistRule, quoteAcquisitionForFinish } from '../../common/money';
+import { MAIL_PORT, MailPort } from '../mail/mail.port';
+import { sellItemRejectedTemplate } from './buylist-mail.templates';
+import { rejectDeadlines } from './buylist-reject.constants';
 
 interface QuoteItemInput {
   cardId: string;
@@ -56,12 +59,19 @@ export type BuylistBatchQuoteResult =
 
 @Injectable()
 export class BuylistService {
+  private readonly logger = new Logger(BuylistService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly settings: SettingsService,
     private readonly users: UsersService,
     private readonly pii: PiiCryptoService,
+    // v1.18-buylist-rejects (§4.18c): puerto global MAIL_PORT para el correo de rechazo. El módulo
+    // `mail` (otro stream) NO se toca: solo se inyecta su token @Global. @Optional para que los
+    // tests unitarios legacy que construyen el servicio a mano no truenen; el envío es best-effort
+    // (sin puerto ⇒ se loggea y sigue, misma semántica que un fallo de envío).
+    @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
   ) {}
 
   /**
@@ -442,7 +452,21 @@ export class BuylistService {
     approvedPriceCents: number | null;
     itemStatus: string;
     inventoryItemId: string | null;
+    rejectedAt?: Date | null;
+    rejectionReason?: string | null;
   }) {
+    // v1.18-buylist-rejects (§11): campos de RECHAZO — poblados SOLO si itemStatus='rechazada';
+    // en cualquier otro status se OMITEN. Los plazos returnDeadlineAt/abandonDeadlineAt se DERIVAN
+    // server-side de rejectedAt (fuente única; NO son columnas). Ítems legacy (rechazados pre-M-22,
+    // sin rejectedAt) exponen los cuatro campos null.
+    const rejection =
+      i.itemStatus === 'rechazada'
+        ? {
+            rejectedAt: i.rejectedAt ?? null,
+            rejectionReason: i.rejectionReason ?? null,
+            ...rejectDeadlines(i.rejectedAt),
+          }
+        : {};
     // v1.3.1: `category` reemplazado por `rarity` + `appliedRule` (SellItemDTO). API_CONTRACT §11.
     return {
       id: i.id,
@@ -461,6 +485,7 @@ export class BuylistService {
       approvedPriceCents: i.approvedPriceCents ?? undefined,
       itemStatus: i.itemStatus,
       inventoryItemId: i.inventoryItemId ?? undefined,
+      ...rejection,
     };
   }
 
@@ -491,7 +516,16 @@ export class BuylistService {
       include: { items: { include: { card: true } } },
     });
     if (!req || req.userId !== userId) throw BusinessException.notFound();
-    return req;
+    // v1.18-buylist-rejects (§6): los items del detalle del PROPIO cliente se proyectan como
+    // SellItemDTO — cuando itemStatus='rechazada' exponen rejectionReason/rejectedAt y los plazos
+    // derivados (la misma información del correo de rechazo). Además, el snapshot CIFRADO de la
+    // CLABE jamás sale en la respuesta (el contrato: "nunca se devuelve").
+    const { clabeSnapshotEnc: _enc, items, ...rest } = req;
+    return {
+      ...rest,
+      sellRequestId: req.id,
+      items: items.map((i) => this.itemDTO(i)),
+    };
   }
 
   /** Responde a un ajuste del admin (accept/decline). API_CONTRACT §6. */
@@ -530,19 +564,27 @@ export class BuylistService {
     if (userId) where.userId = userId;
     // QA-BUG: `include: { items: true }` no traía `card`, y M5View crasheaba al leer
     // `it.card.name`. AdminBuylistDTO.items exige `card: CardDTO`; se incluye y mapea.
+    // v1.18-buylist-rejects: orden NORMATIVO `createdAt desc` (más reciente primero; antes `asc`,
+    // desviación anotada en BL-1) + `seller: AdminSellerRef` (join a User). El correo del vendedor
+    // es dato de contacto operativo de back-office por rol — NO es la CLABE: sin enmascarado ni
+    // reveal auditado (§4.18d). `userId` se conserva por compat (seller.id === userId).
     const [rows, total] = await Promise.all([
       this.prisma.sellRequest.findMany({
         where,
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { items: { include: { card: true } } },
+        include: {
+          items: { include: { card: true } },
+          user: { select: { id: true, name: true, email: true } },
+        },
       }),
       this.prisma.sellRequest.count({ where }),
     ]);
     const data = rows.map((r) => ({
       id: r.id,
       userId: r.userId,
+      seller: this.sellerRef(r.user),
       status: r.status,
       quotedTotalCents: r.quotedTotalCents,
       approvedTotalCents: r.approvedTotalCents ?? undefined,
@@ -552,15 +594,33 @@ export class BuylistService {
     return { data, page, pageSize, total };
   }
 
+  /** v1.18-buylist-rejects: AdminSellerRef = { id, name, email } (§11). Tolerante a mocks sin join. */
+  private sellerRef(
+    user: { id: string; name: string; email: string } | null | undefined,
+  ): { id: string; name: string; email: string } | undefined {
+    return user ? { id: user.id, name: user.name, email: user.email } : undefined;
+  }
+
   async adminGet(id: string) {
     const req = await this.prisma.sellRequest.findUnique({
       where: { id },
-      include: { items: { include: { card: true } } },
+      include: {
+        items: { include: { card: true } },
+        // v1.18-buylist-rejects: mismo `seller: AdminSellerRef` que el listado (§M5).
+        user: { select: { id: true, name: true, email: true } },
+      },
     });
     if (!req) throw BusinessException.notFound();
     // La CLABE cifrada NUNCA se expone en la vista de detalle; solo por el reveal dedicado.
-    const { clabeSnapshotEnc: _enc, ...safe } = req;
-    return { ...safe, clabeMasked: maskClabe(this.pii.decryptOptional(_enc)) };
+    // El join de User tampoco se propaga crudo: se proyecta SOLO el AdminSellerRef.
+    const { clabeSnapshotEnc: _enc, user, items, ...safe } = req;
+    return {
+      ...safe,
+      seller: this.sellerRef(user),
+      // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
+      items: (items ?? []).map((i) => this.itemDTO(i)),
+      clabeMasked: maskClabe(this.pii.decryptOptional(_enc)),
+    };
   }
 
   /**
@@ -652,12 +712,61 @@ export class BuylistService {
     itemId: string,
     decision: 'approve' | 'adjust' | 'reject',
     approvedPriceCents?: number,
+    // v1.18-buylist-rejects: motivo del rechazo — OBLIGATORIO con reject (3–500 chars); se IGNORA
+    // (no se persiste) para approve/adjust.
+    reason?: string,
   ) {
     const item = await this.prisma.sellRequestItem.findUnique({
       where: { id: itemId },
-      include: { sellRequest: { select: { userId: true } } },
+      include: {
+        sellRequest: {
+          select: {
+            userId: true,
+            // v1.18: destinatario/idioma del correo de rechazo (dueño de la solicitud).
+            user: { select: { email: true, name: true, locale: true } },
+          },
+        },
+        // v1.18: datos de la carta para el correo de rechazo (nombre/set/número).
+        card: { select: { name: true, number: true, set: { select: { name: true } } } },
+      },
     });
     if (!item) throw BusinessException.notFound();
+
+    // ------- v1.18-buylist-rejects: semántica COMPLETA de `reject` (API_CONTRACT §M5) -------
+    if (decision === 'reject') {
+      // Idempotencia: re-reject sobre un ítem ya `rechazada` = no-op (200 con el estado actual;
+      // NO re-fija rejectedAt, NO re-envía correo).
+      if (item.itemStatus === 'rechazada') {
+        const { sellRequest: _sr, card: _card, ...plain } = item;
+        return plain;
+      }
+      // `reason` obligatorio (3–500 chars tras trim). El DTO ya lo valida (400 VALIDATION_ERROR);
+      // esto es defensa en profundidad para llamadas internas/whitespace-only.
+      const trimmedReason = (reason ?? '').trim();
+      if (trimmedReason.length < 3 || trimmedReason.length > 500) {
+        throw BusinessException.badRequest(
+          'VALIDATION_ERROR',
+          'reason is required for decision "reject" (3–500 chars)',
+          { field: 'reason' },
+        );
+      }
+      const rejectedAt = new Date();
+      // INVARIANTE de dinero (BL-1, §4.18b): el rechazo SACA el ítem del total aprobado aunque
+      // antes hubiera sido aprobado/ajustado → approvedPriceCents=null ANTES del recompute.
+      const updated = await this.prisma.sellRequestItem.update({
+        where: { id: itemId },
+        data: {
+          itemStatus: 'rechazada',
+          approvedPriceCents: null,
+          rejectedAt,
+          rejectionReason: trimmedReason,
+        },
+      });
+      await this.recomputeApprovedTotal(item.sellRequestId);
+      // Correo al vendedor: best-effort POST-commit — su fallo se loggea y NO revierte la decisión.
+      await this.sendItemRejectedMail(item, trimmedReason, rejectedAt);
+      return updated;
+    }
     // RB-3: cap AML efectivo = override por-KYC del usuario si existe, si no el dial global.
     // Misma fuente que honra `createRequest` (evita rechazar una aprobación legítima de un
     // usuario con tope elevado).
@@ -668,7 +777,7 @@ export class BuylistService {
     const amlCap =
       kyc?.capPerRequestCentsOverride ??
       (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS));
-    let itemStatus: 'aprobada' | 'ajustada' | 'rechazada';
+    let itemStatus: 'aprobada' | 'ajustada';
     const data: Prisma.SellRequestItemUpdateInput = {};
     if (decision === 'approve') {
       itemStatus = 'aprobada';
@@ -676,7 +785,7 @@ export class BuylistService {
       // B-4: cota server-side de dinero saliente (además del @Max del DTO).
       await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents, amlCap);
       data.approvedPriceCents = effective;
-    } else if (decision === 'adjust') {
+    } else {
       itemStatus = 'ajustada';
       const effective = approvedPriceCents ?? 0;
       // B-4: cota server-side de dinero saliente (además del @Max del DTO).
@@ -687,10 +796,14 @@ export class BuylistService {
         where: { id: item.sellRequestId },
         data: { adjustmentSentAt: new Date() },
       });
-    } else {
-      itemStatus = 'rechazada';
     }
     data.itemStatus = itemStatus;
+    // v1.18: si un ítem antes rechazado se re-decide approve/adjust, los campos de rechazo se
+    // LIMPIAN (solo un ítem `rechazada` los expone; higiene de la fuente única de plazos).
+    if (item.itemStatus === 'rechazada') {
+      data.rejectedAt = null;
+      data.rejectionReason = null;
+    }
     const updated = await this.prisma.sellRequestItem.update({ where: { id: itemId }, data });
     // RB-6 / SEC-D3: deriva y persiste `approvedTotalCents` server-side desde los montos aprobados
     // por ítem, en el punto donde esos montos cambian. Lo lee el P&L / la tarjeta "buylist del periodo".
@@ -703,10 +816,19 @@ export class BuylistService {
    * de sus ítems (derivación server-side, SEC-A1 — nunca de input del cliente). Se invoca cada vez
    * que una decisión de ítem fija/ajusta el monto aprobado. Si ningún ítem tiene monto aprobado,
    * queda `null` (no `0`) para distinguir "sin aprobar aún" de "aprobado en cero".
+   *
+   * v1.18-buylist-rejects (BL-1, §4.18b): el aggregate EXCLUYE además `itemStatus='rechazada'` —
+   * defensa en profundidad sobre el invariante "un ítem rechazado JAMÁS suma en
+   * approvedTotalCents" (el reject ya anula approvedPriceCents; esto lo blinda ante escrituras
+   * futuras que olviden anular el monto). `quotedTotalCents` nunca se recalcula (snapshot).
    */
   private async recomputeApprovedTotal(sellRequestId: string): Promise<void> {
     const agg = await this.prisma.sellRequestItem.aggregate({
-      where: { sellRequestId, approvedPriceCents: { not: null } },
+      where: {
+        sellRequestId,
+        approvedPriceCents: { not: null },
+        itemStatus: { not: 'rechazada' },
+      },
       _sum: { approvedPriceCents: true },
       _count: { approvedPriceCents: true },
     });
@@ -715,6 +837,97 @@ export class BuylistService {
       where: { id: sellRequestId },
       data: { approvedTotalCents },
     });
+  }
+
+  /**
+   * v1.18-buylist-rejects (§4.18c): correo al vendedor por RECHAZO de su carta. BEST-EFFORT
+   * POST-COMMIT: se invoca DESPUÉS de persistir la decisión + recompute; cualquier fallo (puerto
+   * ausente, proveedor caído, datos incompletos) se loggea y NO revierte la decisión ni falla el
+   * request. Sin cola de reintentos en MVP (deuda aceptada BE-43). Minimización: solo carta
+   * (nombre/set/número), acabado, motivo y plazos — SIN CLABE, SIN montos/estado de otros ítems.
+   */
+  private async sendItemRejectedMail(
+    item: {
+      id: string;
+      finish: Finish;
+      sellRequest?: { user?: { email: string; name: string; locale: string | null } | null } | null;
+      card?: { name: string; number: string; set?: { name: string } | null } | null;
+    },
+    reason: string,
+    rejectedAt: Date,
+  ): Promise<void> {
+    try {
+      const user = item.sellRequest?.user;
+      if (!this.mail || !user?.email) {
+        this.logger.warn(
+          `buylist reject mail skipped for item ${item.id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`,
+        );
+        return;
+      }
+      const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
+      const msg = sellItemRejectedTemplate(
+        {
+          cardName: item.card?.name ?? '',
+          setName: item.card?.set?.name ?? '',
+          cardNumber: item.card?.number ?? '',
+          finish: item.finish ?? 'normal',
+          reason,
+          returnDeadlineAt,
+          abandonDeadlineAt,
+        },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      // El correo es efecto lateral best-effort: su fallo NUNCA revierte la decisión (§M5).
+      this.logger.error(
+        `buylist reject mail failed for item ${item.id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
+   * v1.18-buylist-rejects (§M5): pestaña «Rechazadas» — listado paginado TRANSVERSAL (todas las
+   * solicitudes) de ítems `itemStatus='rechazada'` (RejectedSellItemDTO, §11). Orden `rejectedAt`
+   * desc con legacy (sin rejectedAt) AL FINAL. La "fase" (ventana devolución/abandono/abandonada)
+   * la deriva el FRONT de now vs las fechas — aquí no se expone como campo. Índice
+   * `@@index([itemStatus])` (M-22) sirve el filtro sin barrer la tabla.
+   */
+  async adminRejectedItems(page: number, pageSize: number, userId?: string) {
+    const where: Prisma.SellRequestItemWhereInput = { itemStatus: 'rechazada' };
+    // Filtro por vendedor (simetría F1 con ?userId= de los otros listados admin).
+    if (userId) where.sellRequest = { userId };
+    const [rows, total] = await Promise.all([
+      this.prisma.sellRequestItem.findMany({
+        where,
+        orderBy: { rejectedAt: { sort: 'desc', nulls: 'last' } },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          // `set` incluido: la pestaña muestra nombre/set/acabado de la carta.
+          card: { include: { set: { select: { id: true, name: true } } } },
+          sellRequest: {
+            select: { id: true, userId: true, user: { select: { id: true, name: true, email: true } } },
+          },
+        },
+      }),
+      this.prisma.sellRequestItem.count({ where }),
+    ]);
+    const data = rows.map((i) => ({
+      id: i.id,
+      sellRequestId: i.sellRequestId,
+      seller: this.sellerRef(i.sellRequest?.user),
+      card: i.card,
+      productType: i.productType,
+      finish: i.finish ?? 'normal',
+      quotedPriceCents: i.quotedPriceCents ?? undefined,
+      reason: i.rejectionReason ?? null,
+      rejectedAt: i.rejectedAt ?? null,
+      // Plazos DERIVADOS de rejectedAt (misma familia 7d/30d que buylist-sweep); legacy → null.
+      ...rejectDeadlines(i.rejectedAt),
+    }));
+    return { data, page, pageSize, total };
   }
 
   /** Conversión a inventario en un clic. API_CONTRACT §M5. */
