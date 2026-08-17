@@ -2146,3 +2146,88 @@ es el `PriceReference` completo (incluye `finish`). Auditado con `finish` en `af
   (el mensual `monthUsedCentsTx` agrega `quotedTotalCents`, no `approvedTotalCents`, y un ítem que nació
   pendiente no se re-contabiliza contra el tope mensual al resolverse su precio). Las otras capas: cap
   por-solicitud en `assertApprovedPriceWithinCap` y money-out solo `super_admin` + auditado. Ver contrato §6.
+
+## 34. Fase 1 del epic de precios (v1.12-catalog-pricing, 2026-08-17) — preciar TODO el catálogo + refresco 2×/día
+
+> Implementa ARCHITECTURE **§4.13a/b/c** (Fase 1). **Aditivo, SIN migración de esquema** (reusa
+> `PriceReference`, que ya lleva `finish` en su clave desde M-18). Decisión del humano confirmada: refresco de
+> **todo el catálogo 2×/día** a las **06:00 y 18:00 CDMX** = **00:00 y 12:00 UTC**. Gates: `tsc --noEmit` exit 0,
+> `jest` 60 suites / 397 tests en verde. Toca dinero → requiere triple veredicto (qa + techlead + seguridad).
+
+### 34.1 (1.1) `catalog-sync` puebla `PriceReference` de todo el catálogo — sin llamadas extra
+- **`CatalogSyncService` gana dos dependencias:** `PricingService` (upsert de la referencia) y `FxService`
+  (tasa del día). `CatalogModule` ya importaba `PricingModule`, que exporta ambas → sin cambios de wiring de
+  módulos salvo el registro del job (§34.3).
+- **`upsertCards` ahora persiste precio por acabado:** por cada carta upserteada, `persistMarketReferences`
+  recorre `card.availableFinishes` y, por cada `finish` con `tcgplayer.prices[FINISH_TO_TCG_KEY[finish]].market
+  > 0`, llama `PricingService.persistMarketReference(cardId, finish, round(market×100), fx)`. Es el **mismo
+  payload** que ya se descargaba para derivar `availableFinishes` → **cero requests extra** a pokemontcg.io.
+- **`PricingService.persistMarketReference(cardId, finish, marketUsdCents, fx)` (NUEVO):** upsert idempotente
+  por día sobre la clave única existente `(cardId, 'raw', 'raw:NM', finish, capturedDate=hoy)`. `priceUsdCents =
+  marketUsdCents`, `priceMxnCents = usdToMxnCents(marketUsdCents, fx.rate, fx.bufferPct)`, `source='pokemontcg_io'`,
+  `isManualOverride=false`. **NO pisa overrides del admin:** hace `findUnique` de la fila de hoy y, si existe con
+  `isManualOverride=true`, hace **skip** (el override manda, §4.1). La 2ª pasada del día (18:00) **refina** el
+  precio de hoy (update sobre la misma fila), no duplica.
+- **FX una sola vez por corrida (no por carta):** cada punto de entrada del sync carga `FxService.getCurrent()`
+  UNA vez y pasa el snapshot `{ rate, bufferPct }` por toda la cadena hasta `upsertCards`. Puntos de entrada
+  instrumentados: `sync` (single y from_date), `runSyncAll` (barrido de `sync-all`; NO en `syncAll`, que sólo
+  encola y delega en `runSyncAll` fire-and-forget → el FX se carga dentro del barrido real) y `backfill`. Las
+  helpers privadas (`importSet`/`importSetByExternalId`/`importCardsForSet`/`importRemainingPages`/`upsertCards`)
+  reciben `fx: FxSnapshot` como parámetro.
+- **Cartas SIN market → ni referencia ni pendiente:** `escalate=false` de facto — este flujo **nunca** encola
+  `PendingPriceEntry` (mismo criterio que `set-price-sync`, §4.12a; escalar decenas de miles de cartas del
+  catálogo sería ruido). Una carta sin market simplemente no tiene referencia hasta que (i) el admin la fija a
+  mano o (ii) entra a un contexto real (bóveda/buylist) donde los flujos existentes SÍ escalan.
+- **Aislamiento de fallos:** si `persistMarketReference` truena para un acabado, se loguea y se continúa; la
+  carta ya quedó upserteada (el precio no aborta la importación).
+
+### 34.2 (1.2) `publicQuote` vuelve a READ-ONLY — cierra BE-16
+- Se **eliminó** la llamada a `pricing.escalatePending` del cotizador público (`BuylistService.publicQuote`).
+  Un endpoint público/anónimo dejaba de escribir en la cola de trabajo del dueño (superficie de abuso:
+  enumerar cartas inflaba la cola). Con el catálogo ya priceado por 1.1, el `getReference` del quote casi
+  siempre encuentra precio; si un acabado sigue `precio_pendiente`, el quote **lo reporta** sin escribir nada.
+- La escalada a `PendingPriceEntry` queda **SOLO** en el flujo autenticado `createRequest`
+  (`POST /buylist/requests`), sin cambio.
+- **Test actualizado:** en `test/buylist.modern-rarity.spec.ts` el bloque de Fase 0.2 (que verificaba el
+  encolado desde el quote) ahora verifica que `publicQuote` **NO** llama `escalatePending` (ni con pendiente ni
+  con cotizada).
+
+### 34.3 (1.3) Job `catalog-price-sync` 2×/día
+- **`CatalogPriceSyncJobService` (`backend/src/jobs/catalog-price-sync.service.ts`, NUEVO):** su `run()` ejecuta
+  `CatalogSyncService.syncAll({ force: true })` — re-sync completo que reprocesa TODOS los sets remotos
+  (`upsertCards` repuebla cartas + `availableFinishes` + `PriceReference` por acabado con el FX del día) e
+  **importa sets nuevos** en la misma pasada (procesa los sets que aún no existían localmente). Secuencial
+  (respeta el backoff 429 del cliente), **single-flight** garantizado por `syncAllStatus.running` dentro de
+  `syncAll`, idempotente.
+- **Registro (evita ciclos con JobsModule):** el job vive en `CatalogModule` (providers + exports), mismo patrón
+  que `set-price-sync`, porque depende de `CatalogSyncService`. `JobsModule` ya importa `CatalogModule`, así que
+  `SchedulerService` y `AdminJobsController` lo inyectan desde ahí.
+- **Scheduler — DOS repeatables:** en `scheduler.service.ts` se añaden `catalog-price-sync-1` y
+  `catalog-price-sync-2`, ambos enrutados al mismo `catalogPriceSync.run()` en el worker. Crons tomados de env
+  con defaults `0 0 * * *` (00:00 UTC = 18:00 CDMX del día anterior… ver nota) y `0 12 * * *` (12:00 UTC = 06:00
+  CDMX):
+  - **Env:** `CATALOG_PRICE_SYNC_CRON_1` (default `0 0 * * *`) y `CATALOG_PRICE_SYNC_CRON_2` (default
+    `0 12 * * *`). Devops puede ajustar ambos horarios **sin redeploy**. Crons en **UTC** (CDMX = UTC−6 sin DST).
+    Para **devops**: conviene un `fx-refresh` poco antes de la corrida de las 00:00 UTC (el `fx-refresh 0 6 UTC`
+    existente cubre la de las 12:00 UTC) si se quiere FX del mismo día; `FxService.getCurrent()` degrada al último
+    `FxRate` disponible, así que el orden es suave, no bloqueante.
+- **Disparo manual (opcional, implementado):** `POST /admin/jobs/catalog-price-sync` (super_admin, auditado
+  `jobs.catalog_price_sync.run`) en `AdminJobsController`, simetría con los demás disparos manuales de jobs. Es
+  alias operativo del job; también sigue disponible `POST /admin/catalog/sync-all {force:true}`.
+
+### 34.4 Tests nuevos
+- `test/catalog-price-sync.spec.ts` (NUEVO): (a) `catalog-sync` persiste un `PriceReference` por acabado desde
+  `tcgplayer.prices` y carga FX una sola vez por corrida; (c) carta sin market (sin `tcgplayer.prices` o con
+  todos `market<=0`) → `persistMarketReference` NO se llama; (b) `persistMarketReference` escribe la referencia
+  MXN (`usdToMxnCents`) y **respeta `isManualOverride=true`** (skip del upsert); (d) el job invoca
+  `syncAll({force:true})`.
+- Specs existentes ajustados al nuevo constructor de `CatalogSyncService` (+`PricingService`+`FxService`) y a los
+  nuevos deps de `SchedulerService`/`AdminJobsController`: `catalog-sync.spec.ts`, `catalog-sync.finish.spec.ts`,
+  `catalog.remote-sets-fallback.spec.ts`, `scheduler.spec.ts`, `admin-jobs.controller.spec.ts`.
+
+### 34.5 Para devops / notas
+- **Env nuevas (documentar en `.env.example`, propiedad devops):** `CATALOG_PRICE_SYNC_CRON_1`,
+  `CATALOG_PRICE_SYNC_CRON_2` (defaults arriba). **`POKEMONTCG_IO_API_KEY` pasa a requisito operativo:** el
+  re-sync 2×/día son ~cientos de requests por corrida; sin API key el free tier puede toparse (riesgo §8/§10 del
+  ARCHITECTURE).
+- **Sin cambios de contrato ni de `schema.prisma`.** Todo reusa modelos/claves existentes.

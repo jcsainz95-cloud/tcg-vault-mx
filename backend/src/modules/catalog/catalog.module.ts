@@ -8,6 +8,7 @@ import { PokemonTcgIoClient } from './pokemontcg-io.client';
 import { PricingModule } from '../pricing/pricing.module';
 import { SetPriceSyncJobService } from '../../jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../../jobs/set-value-snapshot.service';
+import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.service';
 
 /**
  * CatalogModule — Catálogo (M2) + gráfica PÚBLICA del valor de set (v1.9-set-chart). Aloja
@@ -23,8 +24,17 @@ import { SetValueSnapshotJobService } from '../../jobs/set-value-snapshot.servic
     SetValueService,
     SetPriceSyncJobService,
     SetValueSnapshotJobService,
+    // v1.12-catalog-pricing (§4.13c): vive aquí porque depende de CatalogSyncService (evita ciclos
+    // con JobsModule, mismo patrón que set-price-sync).
+    CatalogPriceSyncJobService,
   ],
   controllers: [CatalogController, AdminCatalogController],
-  exports: [CatalogService, SetValueService, SetPriceSyncJobService, SetValueSnapshotJobService],
+  exports: [
+    CatalogService,
+    SetValueService,
+    SetPriceSyncJobService,
+    SetValueSnapshotJobService,
+    CatalogPriceSyncJobService,
+  ],
 })
 export class CatalogModule {}

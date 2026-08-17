@@ -73,14 +73,13 @@ export class BuylistService {
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
     // SEC-A1: rareza + acabado derivados server-side (Card.rarity, finish validado), no del cliente.
     const quote = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct);
-    // Fase 0.2: el copy del front promete que un pendiente "entrará a la cola de precio pendiente".
-    // Igual que `createRequest`, encolamos el pendiente del ACABADO cotizado para que la promesa sea
-    // real. `escalatePending` deduplica por (cardId, productType, gradeKey, finish, status='open'),
-    // así que llamar en cada quote es idempotente y NO duplica entradas. SEC-A1 intacto (rareza y
-    // montos siguen derivándose server-side; esto solo escala el trabajo de precio al dueño).
-    if (quote.status === 'precio_pendiente') {
-      await this.pricing.escalatePending(cardId, productType, gradeKey, 'buylist', undefined, f);
-    }
+    // v1.12-catalog-pricing (§4.13b) — el cotizador público vuelve a READ-ONLY (cierra BE-16).
+    // Con el catálogo completo ya priceado durante el `catalog-sync` (§4.13a), este `getReference`
+    // casi siempre encuentra precio. Se ELIMINA la escalada a `PendingPriceEntry` que la Fase 0
+    // agregó aquí: un endpoint público/anónimo NO debe escribir en la cola de trabajo del dueño
+    // (superficie de abuso: enumerar cartas inflaba la cola). Si el acabado sigue `precio_pendiente`,
+    // el quote lo REPORTA sin escribir nada. La escalada queda SOLO en el flujo autenticado
+    // `createRequest` (POST /buylist/requests), sin cambio. SEC-A1 intacto.
     return {
       rarity: card.rarity ?? null,
       finish: f,

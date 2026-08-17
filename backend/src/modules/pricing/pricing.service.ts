@@ -195,6 +195,66 @@ export class PricingService {
     });
   }
 
+  /**
+   * v1.12-catalog-pricing (§4.13a) — pobla `PriceReference` de MERCADO de una carta/acabado desde
+   * el `market` (USD) que trae `tcgplayer.prices`, durante el `catalog-sync`. Upsert idempotente por
+   * día sobre la clave `(cardId, 'raw', 'raw:NM', finish, capturedDate=hoy)`; `source='pokemontcg_io'`.
+   *
+   * - **NO pisa overrides manuales:** si la fila de hoy existe con `isManualOverride=true`, hace
+   *   **skip** (el override del admin manda, §4.1).
+   * - **NO escala pendientes:** este flujo (catálogo completo) nunca encola `PendingPriceEntry`
+   *   (§4.13a). El llamador solo invoca este método cuando hay `market > 0`.
+   * - **FX pre-cargado:** recibe el snapshot `{ rate, bufferPct }` cargado una sola vez por corrida
+   *   (no llama `FxService` por carta).
+   */
+  async persistMarketReference(
+    cardId: string,
+    finish: Finish,
+    marketUsdCents: number,
+    fx: { rate: number; bufferPct: number },
+  ): Promise<void> {
+    const productType: ProductType = 'raw';
+    const gradeKey = 'raw:NM';
+    const capturedDate = today();
+    const key = {
+      cardId_productType_gradeKey_finish_capturedDate: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        capturedDate,
+      },
+    };
+    const existing = await this.prisma.priceReference.findUnique({ where: key });
+    // No clobbea el override manual del admin (§4.1): si hay override de hoy, se respeta.
+    if (existing?.isManualOverride) return;
+    const priceMxnCents = usdToMxnCents(marketUsdCents, fx.rate, fx.bufferPct);
+    await this.prisma.priceReference.upsert({
+      where: key,
+      create: {
+        cardId,
+        productType,
+        gradeKey,
+        finish,
+        source: 'pokemontcg_io',
+        priceUsdCents: marketUsdCents,
+        fxRate: fx.rate,
+        fxBufferPct: fx.bufferPct,
+        priceMxnCents,
+        capturedDate,
+        isManualOverride: false,
+      },
+      update: {
+        source: 'pokemontcg_io',
+        priceUsdCents: marketUsdCents,
+        fxRate: fx.rate,
+        fxBufferPct: fx.bufferPct,
+        priceMxnCents,
+        isManualOverride: false,
+      },
+    });
+  }
+
   /** Override manual del admin (respaldo siempre disponible). Resuelve pendientes. */
   async manualOverride(
     cardId: string,

@@ -10,6 +10,7 @@ import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
+import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
 
 /**
  * Disparo MANUAL de jobs (super_admin, auditado). Complementa al scheduler BullMQ (BE-5 /
@@ -29,6 +30,7 @@ export class AdminJobsController {
     private readonly authTokenSweep: AuthTokenSweepJobService,
     private readonly setPriceSync: SetPriceSyncJobService,
     private readonly setValueSnapshot: SetValueSnapshotJobService,
+    private readonly catalogPriceSync: CatalogPriceSyncJobService,
     private readonly audit: AuditService,
   ) {}
 
@@ -136,6 +138,23 @@ export class AdminJobsController {
       action: 'jobs.set_value_snapshot.run',
       entityType: 'Job',
       entityId: 'set-value-snapshot',
+      after: result,
+    });
+    return result;
+  }
+
+  // v1.12-catalog-pricing (§4.13c) — disparo manual del re-sync completo del catálogo (precios de
+  // todo el catálogo + import de sets nuevos, `force:true`). Alias operativo del job 2×/día.
+  @Post('catalog-price-sync')
+  @HttpCode(200)
+  async runCatalogPriceSync(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.catalogPriceSync.run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.catalog_price_sync.run',
+      entityType: 'Job',
+      entityId: 'catalog-price-sync',
       after: result,
     });
     return result;

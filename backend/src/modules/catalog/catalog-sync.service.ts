@@ -1,11 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Finish } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.client';
 import { yearFromReleaseDate } from './catalog.service';
-import { deriveAvailableFinishes } from '../pricing/pricing.types';
+import { deriveAvailableFinishes, FINISH_TO_TCG_KEY } from '../pricing/pricing.types';
+import { PricingService } from '../pricing/pricing.service';
+import { FxService } from '../pricing/fx.service';
+
+/**
+ * v1.12-catalog-pricing (§4.13a): snapshot del FX (USD→MXN + colchón) que se carga UNA vez por
+ * corrida de sync y se reusa para TODAS las cartas (nunca por carta). Estructural: acepta lo que
+ * devuelve `FxService.getCurrent()`.
+ */
+export type FxSnapshot = { rate: number; bufferPct: number };
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -25,6 +35,11 @@ export class CatalogSyncService {
     private readonly prisma: PrismaService,
     private readonly client: PokemonTcgIoClient,
     private readonly settings: SettingsService,
+    // v1.12-catalog-pricing (§4.13a): al importar, el MISMO `tcgplayer.prices` ya descargado
+    // puebla `PriceReference` por acabado vía `PricingService.persistMarketReference`. El FX se
+    // carga una sola vez por corrida con `FxService.getCurrent()`.
+    private readonly pricing: PricingService,
+    private readonly fx: FxService,
   ) {}
 
   /**
@@ -82,7 +97,9 @@ export class CatalogSyncService {
       if (!SET_ID_PATTERN.test(setId)) {
         throw BusinessException.validation('VALIDATION_ERROR', 'Invalid setId format');
       }
-      const res = await this.importSetByExternalId(setId);
+      // v1.12-catalog-pricing (§4.13a): FX una sola vez por corrida, reusado por todas las cartas.
+      const fx = await this.fx.getCurrent();
+      const res = await this.importSetByExternalId(setId, fx);
       return {
         jobId: `catalog-sync-${Date.now()}`,
         setsQueued: res.imported ? 1 : 0,
@@ -97,9 +114,11 @@ export class CatalogSyncService {
     }
     const remote = await this.client.getSets();
     const toImport = remote.filter((s) => (s.releaseDate ?? '') >= from);
+    // v1.12-catalog-pricing (§4.13a): FX una sola vez por corrida.
+    const fx = await this.fx.getCurrent();
     let setsQueued = 0;
     for (const s of toImport) {
-      const res = await this.importSet(s);
+      const res = await this.importSet(s, fx);
       if (res.imported) setsQueued += 1;
     }
     return { jobId: `catalog-sync-${Date.now()}`, setsQueued, mode: 'from_date' as const };
@@ -127,9 +146,11 @@ export class CatalogSyncService {
       .sort((a, b) => (a.releaseDate ?? '').localeCompare(b.releaseDate ?? ''));
 
     const batch = candidates.slice(0, size);
+    // v1.12-catalog-pricing (§4.13a): FX una sola vez por corrida de backfill.
+    const fx = await this.fx.getCurrent();
     const imported: { id: string; name: string; releaseDate: string | null; cardCount: number }[] = [];
     for (const s of batch) {
-      const res = await this.importSet(s);
+      const res = await this.importSet(s, fx);
       if (res.imported) {
         imported.push({ id: s.id, name: s.name, releaseDate: s.releaseDate ?? null, cardCount: res.cardCount });
       }
@@ -239,9 +260,11 @@ export class CatalogSyncService {
 
   /** Barrido en segundo plano de `sync-all`: importa cada set secuencialmente (rate-limit). */
   async runSyncAll(sets: RemoteCardSet[]): Promise<void> {
+    // v1.12-catalog-pricing (§4.13a): FX una sola vez por corrida (barrido completo), no por carta.
+    const fx = await this.fx.getCurrent();
     for (const s of sets) {
       try {
-        await this.importSet(s);
+        await this.importSet(s, fx);
       } catch (e) {
         this.logger.warn(`sync-all: set ${s.id} falló: ${(e as Error).message}`);
       } finally {
@@ -255,29 +278,39 @@ export class CatalogSyncService {
   // ---------------- helpers ----------------
 
   /** Importa un set del que ya tenemos metadata remota (from_date/backfill). */
-  private async importSet(rs: RemoteCardSet): Promise<{ imported: boolean; cardCount: number }> {
+  private async importSet(
+    rs: RemoteCardSet,
+    fx: FxSnapshot,
+  ): Promise<{ imported: boolean; cardCount: number }> {
     const localSet = await this.upsertSet(rs);
-    const cardCount = await this.importCardsForSet(rs.id, localSet.id);
+    const cardCount = await this.importCardsForSet(rs.id, localSet.id, fx);
     return { imported: true, cardCount };
   }
 
   /** Importa un set puntual por externalId (sync single); deriva la metadata de las cartas. */
-  private async importSetByExternalId(setId: string): Promise<{ imported: boolean; cardCount: number }> {
+  private async importSetByExternalId(
+    setId: string,
+    fx: FxSnapshot,
+  ): Promise<{ imported: boolean; cardCount: number }> {
     const first = await this.client.getCardsBySet(setId, 1);
     if (!first.data || first.data.length === 0) {
       return { imported: false, cardCount: 0 };
     }
     const localSet = await this.upsertSet(first.data[0].set);
-    let cardCount = await this.upsertCards(first.data, localSet.id);
-    cardCount += await this.importRemainingPages(setId, localSet.id, first);
+    let cardCount = await this.upsertCards(first.data, localSet.id, fx);
+    cardCount += await this.importRemainingPages(setId, localSet.id, first, fx);
     return { imported: true, cardCount };
   }
 
-  private async importCardsForSet(setExternalId: string, localSetId: string): Promise<number> {
+  private async importCardsForSet(
+    setExternalId: string,
+    localSetId: string,
+    fx: FxSnapshot,
+  ): Promise<number> {
     const first = await this.client.getCardsBySet(setExternalId, 1);
     if (!first.data || first.data.length === 0) return 0;
-    let count = await this.upsertCards(first.data, localSetId);
-    count += await this.importRemainingPages(setExternalId, localSetId, first);
+    let count = await this.upsertCards(first.data, localSetId, fx);
+    count += await this.importRemainingPages(setExternalId, localSetId, first, fx);
     return count;
   }
 
@@ -285,12 +318,13 @@ export class CatalogSyncService {
     setExternalId: string,
     localSetId: string,
     first: { page: number; pageSize: number; totalCount: number },
+    fx: FxSnapshot,
   ): Promise<number> {
     const totalPages = Math.max(1, Math.ceil(first.totalCount / (first.pageSize || 250)));
     let count = 0;
     for (let page = 2; page <= totalPages; page++) {
       const next = await this.client.getCardsBySet(setExternalId, page, first.pageSize || 250);
-      count += await this.upsertCards(next.data ?? [], localSetId);
+      count += await this.upsertCards(next.data ?? [], localSetId, fx);
     }
     return count;
   }
@@ -326,7 +360,7 @@ export class CatalogSyncService {
    * requeridos ausentes se manejan con gracia (`number` → ''), y una carta sin `id`/`name` (no
    * persistible) se omite con log en vez de reventar el barrido.
    */
-  private async upsertCards(cards: RemoteCard[], localSetId: string): Promise<number> {
+  private async upsertCards(cards: RemoteCard[], localSetId: string, fx: FxSnapshot): Promise<number> {
     let count = 0;
     for (const c of cards) {
       if (!c?.id || !c?.name) {
@@ -350,12 +384,16 @@ export class CatalogSyncService {
         availableFinishes,
       };
       try {
-        await this.prisma.card.upsert({
+        const saved = await this.prisma.card.upsert({
           where: { externalId: c.id },
           create: { externalId: c.id, ...data },
           update: data,
         });
         count += 1;
+        // v1.12-catalog-pricing (§4.13a): pobla `PriceReference` por acabado con el MISMO
+        // `tcgplayer.prices` ya descargado (sin llamadas extra). No aborta la carta si falla el
+        // precio (se aísla): la carta ya quedó upserteada.
+        await this.persistMarketReferences(saved.id, availableFinishes, c.tcgplayer?.prices, fx);
       } catch (e) {
         // Una carta mala NO tira el set: se omite y se sigue (importación parcial > 1 carta).
         this.logger.warn(
@@ -364,6 +402,36 @@ export class CatalogSyncService {
       }
     }
     return count;
+  }
+
+  /**
+   * v1.12-catalog-pricing (§4.13a) — pobla `PriceReference` por acabado desde `tcgplayer.prices`.
+   *
+   * Por cada `finish` disponible con `prices[FINISH_TO_TCG_KEY[finish]].market > 0` hace un upsert
+   * idempotente por día vía `PricingService.persistMarketReference` (productType `raw`, gradeKey
+   * `raw:NM`). Cartas/acabados **sin market** → NO se crea referencia y NO se escala pendiente
+   * (`escalate=false`, §4.13a: no inundar la cola con decenas de miles de cartas del catálogo).
+   * `persistMarketReference` respeta overrides manuales (`isManualOverride=true` → skip).
+   */
+  private async persistMarketReferences(
+    cardId: string,
+    availableFinishes: Finish[],
+    prices: Record<string, { market?: number }> | null | undefined,
+    fx: FxSnapshot,
+  ): Promise<void> {
+    if (!prices) return;
+    for (const finish of availableFinishes) {
+      const market = prices[FINISH_TO_TCG_KEY[finish]]?.market;
+      if (market == null || market <= 0) continue; // sin market → ni referencia ni pendiente
+      const marketUsdCents = Math.round(market * 100);
+      try {
+        await this.pricing.persistMarketReference(cardId, finish, marketUsdCents, fx);
+      } catch (e) {
+        this.logger.warn(
+          `sync: no se pudo poblar PriceReference (card=${cardId}, finish=${finish}): ${(e as Error).message}`,
+        );
+      }
+    }
   }
 
   /** Conteo de cartas locales agrupado por externalId del set (para remote-sets). */

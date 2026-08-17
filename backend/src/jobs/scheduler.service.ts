@@ -11,6 +11,7 @@ import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
+import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
 
 const QUEUE_NAME = 'tcg-daily';
 
@@ -44,6 +45,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly authTokenSweep: AuthTokenSweepJobService,
     private readonly setPriceSync: SetPriceSyncJobService,
     private readonly setValueSnapshot: SetValueSnapshotJobService,
+    private readonly catalogPriceSync: CatalogPriceSyncJobService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -71,6 +73,21 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     await this.queue.add('dispute-deadline', {}, this.repeat('dispute-deadline', '45 7 * * *'));
     await this.queue.add('buylist-sweep', {}, this.repeat('buylist-sweep', '0 8 * * *'));
     await this.queue.add('auth-token-sweep', {}, this.repeat('auth-token-sweep', '15 8 * * *'));
+    // v1.12-catalog-pricing (§4.13c): re-sync completo del catálogo (precios + sets nuevos) 2×/día.
+    // Horarios humano-confirmados: 06:00 y 18:00 CDMX = 00:00 y 12:00 UTC (CDMX = UTC−6, sin DST).
+    // Configurables por env (devops ajusta sin redeploy); crons en UTC.
+    const catalogCron1 = this.config.get<string>('CATALOG_PRICE_SYNC_CRON_1') ?? '0 0 * * *';
+    const catalogCron2 = this.config.get<string>('CATALOG_PRICE_SYNC_CRON_2') ?? '0 12 * * *';
+    await this.queue.add(
+      'catalog-price-sync-1',
+      {},
+      this.repeat('catalog-price-sync-1', catalogCron1),
+    );
+    await this.queue.add(
+      'catalog-price-sync-2',
+      {},
+      this.repeat('catalog-price-sync-2', catalogCron2),
+    );
 
     this.worker = new Worker(
       QUEUE_NAME,
@@ -94,6 +111,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
             return this.disputeDeadline.run();
           case 'auth-token-sweep':
             return this.authTokenSweep.run();
+          case 'catalog-price-sync-1':
+          case 'catalog-price-sync-2':
+            return this.catalogPriceSync.run();
           default:
             this.logger.warn(`Job desconocido en la cola: ${job.name}`);
             return null;
@@ -106,7 +126,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     );
     this.logger.log(
       'Scheduler activo (BullMQ): fx-refresh, price-sync, set-price-sync, portfolio-snapshot, ' +
-        'set-value-snapshot, ine-retention, buylist-sweep, dispute-deadline, auth-token-sweep diarios.',
+        'set-value-snapshot, ine-retention, buylist-sweep, dispute-deadline, auth-token-sweep diarios ' +
+        '+ catalog-price-sync 2×/día (00:00 y 12:00 UTC).',
     );
   }
 

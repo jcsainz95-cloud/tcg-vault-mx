@@ -6,6 +6,7 @@ import { DisputeDeadlineJobService } from '../src/jobs/dispute-deadline.service'
 import { AuthTokenSweepJobService } from '../src/jobs/auth-token-sweep.service';
 import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
+import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { Role } from '@prisma/client';
 
@@ -26,9 +27,14 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   const setSnap = {
     run: jest.fn().mockResolvedValue({ setId: 's1', totalValueMxnCents: 12345, pricedCardCount: 8, totalCardCount: 10 }),
   } as unknown as SetValueSnapshotJobService;
+  const catalogPrice = {
+    run: jest.fn().mockResolvedValue({ jobId: 'catalog-sync-all-1', setsQueued: 5, remaining: 0 }),
+  } as unknown as CatalogPriceSyncJobService;
   const audit = { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
-  const ctrl = new AdminJobsController(snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, audit);
+  const ctrl = new AdminJobsController(
+    snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, audit,
+  );
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -105,6 +111,20 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
         action: 'jobs.set_value_snapshot.run',
         entityType: 'Job',
         entityId: 'set-value-snapshot',
+      }),
+    );
+  });
+
+  // v1.12-catalog-pricing: disparo manual del re-sync completo del catálogo (force:true).
+  it('POST /admin/jobs/catalog-price-sync corre run() y audita jobs.catalog_price_sync.run', async () => {
+    const res = await ctrl.runCatalogPriceSync(user);
+    expect(catalogPrice.run).toHaveBeenCalled();
+    expect(res).toEqual({ jobId: 'catalog-sync-all-1', setsQueued: 5, remaining: 0 });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.catalog_price_sync.run',
+        entityType: 'Job',
+        entityId: 'catalog-price-sync',
       }),
     );
   });

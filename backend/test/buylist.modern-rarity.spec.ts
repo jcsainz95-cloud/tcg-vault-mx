@@ -139,19 +139,22 @@ describe('BuylistService.publicQuote — Fase 0.1: premium en holofoil no cae a 
 });
 
 /**
- * Fase 0.2 — `publicQuote` debe ENCOLAR el pendiente (el copy del front lo promete). Cuando el
- * resultado es `precio_pendiente`, se llama a `escalatePending` para el acabado cotizado.
+ * v1.12-catalog-pricing (§4.13b) — `publicQuote` vuelve a READ-ONLY (cierra BE-16, supersede la
+ * Fase 0.2). Un endpoint público/anónimo NO debe escribir en la cola de trabajo del dueño: con el
+ * catálogo completo ya priceado durante el `catalog-sync` (§4.13a), el quote LEE la referencia y,
+ * si el acabado sigue `precio_pendiente`, lo REPORTA sin encolar `PendingPriceEntry`. La escalada
+ * queda SOLO en el flujo autenticado `createRequest` (POST /buylist/requests).
  */
-describe('BuylistService.publicQuote — Fase 0.2: encola el pendiente', () => {
-  it('precio_pendiente → llama escalatePending con el acabado cotizado', async () => {
+describe('BuylistService.publicQuote — v1.12: read-only, NO crea PendingPriceEntry (cierra BE-16)', () => {
+  it('precio_pendiente → NO llama escalatePending (endpoint anónimo no escribe la cola)', async () => {
     const { svc, escalatePending } = svcWith({}, 40, null, 'Illustration Rare');
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
     expect(q.quote.status).toBe('precio_pendiente');
-    expect(escalatePending).toHaveBeenCalledTimes(1);
-    expect(escalatePending).toHaveBeenCalledWith('c1', 'raw', 'raw:NM', 'buylist', undefined, 'holofoil');
+    // El quote reporta el pendiente pero NO lo persiste (read-only).
+    expect(escalatePending).not.toHaveBeenCalled();
   });
 
-  it('cotizada (con referencia) → NO encola pendiente', async () => {
+  it('cotizada (con referencia) → tampoco encola pendiente', async () => {
     const { svc, escalatePending } = svcWith({}, 40, 500000, 'Illustration Rare');
     const q = await svc.publicQuote('c1', 'raw', 'NM', 'holofoil');
     expect(q.quote.status).toBe('cotizada');

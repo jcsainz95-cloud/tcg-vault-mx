@@ -8,6 +8,7 @@ import { DisputeDeadlineJobService } from '../src/jobs/dispute-deadline.service'
 import { AuthTokenSweepJobService } from '../src/jobs/auth-token-sweep.service';
 import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
+import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
 
 // BullMQ + ioredis mockeados: capturamos qué jobs se programan sin infra real (Redis).
 const addMock = jest.fn().mockResolvedValue(undefined);
@@ -45,9 +46,14 @@ const setPrice = {
 const setSnap = {
   run: jest.fn().mockResolvedValue({ setId: 's1', totalValueMxnCents: 0, pricedCardCount: 0, totalCardCount: 0 }),
 } as unknown as SetValueSnapshotJobService;
+const catalogPrice = {
+  run: jest.fn().mockResolvedValue({ jobId: 'catalog-sync-all-1', setsQueued: 0, remaining: 0 }),
+} as unknown as CatalogPriceSyncJobService;
 
 function build(config: ConfigService) {
-  return new SchedulerService(config, jobs, fx, snap, ine, sweep, dispute, tokens, setPrice, setSnap);
+  return new SchedulerService(
+    config, jobs, fx, snap, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice,
+  );
 }
 
 /**
@@ -77,7 +83,7 @@ describe('SchedulerService — gating por REDIS_URL', () => {
   });
 });
 
-describe('SchedulerService — con REDIS_URL programa los 9 jobs diarios', () => {
+describe('SchedulerService — con REDIS_URL programa los jobs diarios + catalog-price-sync 2×/día', () => {
   beforeEach(() => {
     addMock.mockClear();
     workerProcessor = undefined;
@@ -101,6 +107,9 @@ describe('SchedulerService — con REDIS_URL programa los 9 jobs diarios', () =>
       'dispute-deadline': '45 7 * * *',
       'buylist-sweep': '0 8 * * *',
       'auth-token-sweep': '15 8 * * *',
+      // v1.12-catalog-pricing: re-sync completo 2×/día (00:00 y 12:00 UTC = 06:00/18:00 CDMX).
+      'catalog-price-sync-1': '0 0 * * *',
+      'catalog-price-sync-2': '0 12 * * *',
     });
 
     // El worker enruta cada barrido a su servicio (single-flight vía jobId + removeOnComplete).
@@ -111,12 +120,16 @@ describe('SchedulerService — con REDIS_URL programa los 9 jobs diarios', () =>
     await workerProcessor!({ name: 'auth-token-sweep' });
     await workerProcessor!({ name: 'set-price-sync' });
     await workerProcessor!({ name: 'set-value-snapshot' });
+    await workerProcessor!({ name: 'catalog-price-sync-1' });
+    await workerProcessor!({ name: 'catalog-price-sync-2' });
     expect(ine.run).toHaveBeenCalled();
     expect(sweep.run).toHaveBeenCalled();
     expect(dispute.run).toHaveBeenCalled();
     expect(tokens.run).toHaveBeenCalled();
     expect(setPrice.run).toHaveBeenCalled();
     expect(setSnap.run).toHaveBeenCalled();
+    // Ambos repeatables (AM/PM) enrutan al mismo job de re-sync completo.
+    expect(catalogPrice.run).toHaveBeenCalledTimes(2);
 
     await svc.onModuleDestroy();
   });
