@@ -133,7 +133,9 @@ export class UsersService {
     return {
       kycStatus: kyc?.kycStatus ?? 'none',
       // CLABE cifrada en reposo → se devuelve ENMASCARADA (`****1234`), nunca en claro.
-      clabe: maskClabe(this.pii.decryptOptional(kyc?.clabeEnc)),
+      // Contrato GET /users/me/kyc: la clave es `clabeMasked` (el resto del sistema —
+      // contrato, admin.service, frontend— usa ese nombre; `clabe` rompía clabeOnFile).
+      clabeMasked: maskClabe(this.pii.decryptOptional(kyc?.clabeEnc)),
       ineOnFile: Boolean(kyc?.ineFrontKey && kyc?.ineBackKey),
       capPerRequestCents,
       capPerMonthCents,
