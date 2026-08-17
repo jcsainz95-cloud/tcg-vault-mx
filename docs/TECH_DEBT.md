@@ -1018,3 +1018,42 @@
 - **Disparador:** **al agregar otra tabla-por-rareza o al tocar ambos editores.** Acción: extraer un
   componente parametrizado `RarityRulesEditor` (por query/mutation/namespace i18n/fallback). Pagar **antes**
   de una 3ª variante.
+
+### Limpieza WS-B (auto-refresh de token) — deuda del delta (2026-08-17, no bloqueante)
+
+> Del pase de **limpieza sobre WS-B** (auto-refresh de token, ya en main). En este pase el frontend corrigió
+> un **comentario factualmente incorrecto** del single-flight en `api-client.ts` (afirmaba que el backend
+> **ROTA** el refresh token en cada uso y que refresh paralelos "se invalidarían entre sí" — **FALSO**:
+> `auth.service.ts` `refresh()` firma con el `tokenVersion` VIGENTE y NO incrementa ni persiste nada (JWT
+> stateless) → el refresh viejo sigue válido tras refrescar y dos refresh en paralelo NO se invalidan entre
+> sí) y **dedupó** `logout` para que delegue en `clearClientSession` (una sola fuente de limpieza de sesión).
+> Los ítems de abajo son la deuda **no bloqueante** que el **techlead** señaló y quedó diferida. Dueño
+> **frontend**. Continúan la numeración `FE-*` (tras FE-14).
+
+### FE-15 · Auto-refresh NO universal: `exportFinanceCsv` usa fetch directo (fuera del interceptor)
+- **Dónde:** `frontend/src/lib/api.ts` → `exportFinanceCsv` (~:1936-1960).
+- **Estado actual:** el interceptor `401 → refresh → reintento` vive en `apiRequest`/`requestWithRefresh`
+  (`api-client.ts`). `exportFinanceCsv` hace `fetch` directo con `Authorization: Bearer` manual (necesita leer
+  **texto** CSV, no JSON) y por eso **NO** pasa por el interceptor: si el access token (15m) venció, el export
+  CSV falla con **401 sin auto-refrescar**. (Nota: `uploadToPresignedUrl` **NO** es deuda — usa URL firmada
+  sin bearer y **debe** evitar el interceptor a propósito.)
+- **Impacto:** bajo. Admin-only (finanzas/`super_admin`) y **benigno**: en cuanto **cualquier** llamada que sí
+  pase por `apiRequest` refresque el token (navegar/recargar la vista), un reintento del export funciona; un
+  reintento **aislado** del export seguiría fallando porque no refresca por sí mismo. Sin fuga ni pérdida de datos.
+- **Disparador:** al unificar el cliente HTTP o si el 401 en export molesta en operación. Acción: extraer un
+  helper de `fetch` con refresh (o una variante de `apiRequest` que devuelva **texto**) y enrutar
+  `exportFinanceCsv` por él, reusando `refreshTokensShared`.
+
+### FE-16 · Huecos de tests del auto-refresh (single-flight concurrente, red, cuerpo 200 malformado)
+- **Dónde:** `frontend/src/lib/api-client.ts` (`refreshTokens`, `refreshTokensShared`, `requestWithRefresh`) y
+  su suite `frontend/src/lib/api-client.test.ts`.
+- **Estado actual:** la suite cubre el 401→refresh→reintento, el no-bucle, `/auth/*`, sin-refresh-token y
+  no-401; **faltan** tres casos: (1) **single-flight concurrente** — dos `apiRequest` que reciben 401 a la vez
+  comparten **UNA** sola llamada a `/auth/refresh` (`refreshInFlight`); (2) la rama **`catch` de error de red**
+  en `refreshTokens` (fetch que lanza → devuelve `null`, no bloquea); y (3) el **cuerpo 200 malformado** (200
+  sin `accessToken`/`refreshToken` → se trata como fallo y devuelve `null`).
+- **Impacto:** bajo. Calidad/mantenibilidad: la lógica funciona hoy, pero un refactor podría regresar el
+  single-flight o el manejo de fallos sin que un test lo señale.
+- **Disparador:** próximo pase de hardening de tests o al tocar el interceptor de refresh. Acción: agregar esos
+  tres casos (dos 401 concurrentes con assert de **una** llamada a refresh; `fetchMock.mockRejectedValueOnce`;
+  y un 200 con body incompleto).

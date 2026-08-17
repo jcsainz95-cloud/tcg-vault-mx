@@ -79,8 +79,12 @@ function isAuthPath(path: string): boolean {
 }
 
 // WS-B: single-flight. Si varias requests reciben 401 a la vez, comparten UNA sola llamada a
-// /auth/refresh (el backend ROTA el refresh token en cada uso; llamadas paralelas se
-// invalidarían entre sí). El resto reutiliza la misma promesa.
+// /auth/refresh. NO es por correctitud de invalidación: el backend firma el TokenPair nuevo con el
+// tokenVersion VIGENTE y NO rota ni incrementa ni persiste nada (JWT stateless), así que el refresh
+// token viejo sigue válido tras refrescar y dos refresh en paralelo NO se invalidan entre sí. El
+// single-flight se mantiene para (a) evitar llamadas redundantes a /auth/refresh y (b) la carrera
+// last-write-wins al persistir el par nuevo en localStorage (varios setToken/setRefreshToken
+// pisándose). El resto reutiliza la misma promesa.
 let refreshInFlight: Promise<TokenPair | null> | null = null;
 
 /**

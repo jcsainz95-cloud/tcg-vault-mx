@@ -1,5 +1,12 @@
 import { config } from './config';
-import { apiRequest, ApiClientError, setToken, setRefreshToken, getToken } from './api-client';
+import {
+  apiRequest,
+  ApiClientError,
+  setToken,
+  setRefreshToken,
+  getToken,
+  clearClientSession,
+} from './api-client';
 import { setStoredUser, patchStoredUser } from './session';
 import * as fx from './mock/fixtures';
 import type {
@@ -699,11 +706,10 @@ export async function logout(): Promise<void> {
   try {
     if (!config.useMocks) await apiRequest<void>('/auth/logout', { method: 'POST' });
   } finally {
-    setToken(null);
-    // WS-B: limpiar también el refresh token para no dejar una credencial de larga vida
-    // (30d) huérfana en localStorage tras cerrar sesión.
-    setRefreshToken(null);
-    setStoredUser(null);
+    // WS-B: una sola fuente de limpieza de sesión (access token + refresh token + user). Delega en
+    // clearClientSession (api-client) para no duplicar los tres removeItem: así no queda huérfana la
+    // credencial de larga vida (refresh, 30d) en localStorage y ambos caminos limpian idéntico.
+    clearClientSession();
   }
 }
 
