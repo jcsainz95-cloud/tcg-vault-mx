@@ -44,6 +44,9 @@ import type {
   BuylistRule,
   BuylistRulesDTO,
   BuylistRaritiesResponse,
+  SalesRule,
+  SalesRulesDTO,
+  SalesRaritiesResponse,
   BreakdownDTO,
   PortfolioRange,
   PortfolioHistoryResponse,
@@ -1422,6 +1425,40 @@ export async function updateBuylistRules(input: {
   }
   fx.setMockBuylistRules(input.rules, input.fallbackPct);
   return delay({ rules: fx.mockBuylistRules, fallbackPct: fx.mockBuylistFallbackPct });
+}
+
+/**
+ * Rarezas distintas del catálogo sincronizado UNIDAS a las reglas de VENTA, para poblar el
+ * editor de precio de venta por rareza (contrato GET /admin/pricing/sales-rarities,
+ * v1.13-sales-pricing). Clon de getBuylistRarities pero para el precio de VENTA. Las rarezas
+ * sin regla explícita muestran el fallback (source="fallback").
+ */
+export async function getSalesRarities(): Promise<SalesRaritiesResponse> {
+  if (!config.useMocks) return apiRequest<SalesRaritiesResponse>('/admin/pricing/sales-rarities');
+  return delay(fx.mockSalesRarities());
+}
+
+/** Tabla cruda de reglas de VENTA + fallback (contrato GET /admin/pricing/sales-rules, v1.13). */
+export async function getSalesRules(): Promise<SalesRulesDTO> {
+  if (!config.useMocks) return apiRequest<SalesRulesDTO>('/admin/pricing/sales-rules');
+  return delay({ rules: fx.mockSalesRules, fallbackPct: fx.mockSalesFallbackPct });
+}
+
+/**
+ * Reemplaza la tabla de reglas de VENTA y/o el fallback (contrato PUT /admin/pricing/sales-rules).
+ * Validación server-side: mode ∈ {fixed,pct}; fixed → value entero ≥ 0 (centavos, PISO);
+ * pct/fallback → número en [0,1000] (markup ARRIBA de mercado; puede >100% a diferencia del pct
+ * de buylist). Auditado (M10). Surte efecto sin redeploy.
+ */
+export async function updateSalesRules(input: {
+  rules: Record<string, SalesRule>;
+  fallbackPct?: number;
+}): Promise<SalesRulesDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SalesRulesDTO>('/admin/pricing/sales-rules', { method: 'PUT', body: input });
+  }
+  fx.setMockSalesRules(input.rules, input.fallbackPct);
+  return delay({ rules: fx.mockSalesRules, fallbackPct: fx.mockSalesFallbackPct });
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */

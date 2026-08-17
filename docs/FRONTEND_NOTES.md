@@ -2088,3 +2088,55 @@ carrito; keep-alive de sesión; anillo de foco `shadow-focus`.
 2. **CLABE en archivo**: `clabe?` opcional en `POST /buylist/requests` cuando el usuario tiene
    CLABE en KYC (fallback server-side, mismo patrón que `reveal-clabe`), para habilitar "Usar mi
    CLABE ****1234" contra el backend real.
+
+---
+
+## M2 · Editor de precio de VENTA por rareza (Fase 2, v1.13-sales-pricing)
+
+Sección nueva en `admin/m2/M2View.tsx` ("Sección 5"), clon análogo del editor de buylist por
+rareza (Sección 4), pero para el precio de **VENTA**. Consume los endpoints nuevos del backend
+(commit `fba6486`, contrato §M2 v1.13-sales-pricing):
+
+- `GET /admin/pricing/sales-rarities` → `getSalesRarities()` (mismo shape que buylist-rarities).
+- `GET /admin/pricing/sales-rules` → `getSalesRules()`.
+- `PUT /admin/pricing/sales-rules` → `updateSalesRules({ rules, fallbackPct })`.
+
+### Diferencia clave de copy vs. buylist (semántica de `pct`)
+
+El `pct` de VENTA es **markup ARRIBA de mercado** (no "% de la referencia" como en buylist):
+`salePrice = mercado × (1 + %)`. El editor lo rotula explícitamente: fallback = "Fallback (%
+sobre mercado)", modo pct = "% sobre mercado", más un hint con la fórmula. El `fixed` se rotula
+como **piso** en MX$ ("Piso (MX$)"). El validador de venta admite pct hasta 1000 (no topa en 100
+como buylist); el front no fuerza tope, deja pasar el valor y el backend valida `[0,1000]`.
+
+### Tipos / API / mocks
+
+- `contract.ts`: `SalesRuleMode`, `SalesRule`, `SalesRuleApplied`, `SalesRulesDTO`,
+  `SalesRarityRowDTO`, `SalesRaritiesResponse` (clones de los `Buylist*`).
+- `api.ts`: `getSalesRarities`, `getSalesRules`, `updateSalesRules` con rama `config.useMocks`.
+- `fixtures.ts`: `mockSalesRules` (seed: Common $5 fijo, Uncommon $10 fijo, Reverse Holo $10
+  fijo), `mockSalesFallbackPct=15`, `setMockSalesRules`, `resolveSalesRule`, `mockSalesRarities`.
+
+### i18n (paridad ES/EN)
+
+Claves nuevas bajo `admin.m2.salesRules`: `title`, `subtitle`, `fallbackLabel`, `fallbackHint`,
+`rarity`, `cardCount`, `mode`, `value`, `source`, `valueMxn`, `valuePct`, `modeFor`, `valueFor`,
+`modeLabel.{fixed,pct}`, `sourceLabel.{rule,fallback}`, `pctHint`, `saved`.
+
+### Tests
+
+`M2View.test.tsx`: +3 tests de la sección de venta (render + hint de markup, editar fijo Common →
+`updateSalesRules` en centavos, editar fallback pct>100 sin tope). Los tests de buylist y venta se
+acotan a su `<section>` (helper `sectionFor`) porque ambos editores comparten aria-labels
+("Guardar", "Modo/Valor para {rarity}"); refactor sin cambiar comportamiento. Suite: 234 tests.
+
+### Preservado
+
+Anillo de foco `shadow-focus`; secciones de sync de catálogo (barra de progreso/keep-alive),
+buylist rules, FX y pending sin tocar.
+
+### Nota para el arquitecto
+
+`salesMarkupPct` (dial M10, `SettingsDTO`) queda **DEPRECADO** por el contrato (palanca de
+rollback). El front no lo consume en M2; sigue en `SettingsDTO` por compatibilidad hasta su
+retiro (decisión abierta v1.13-3). Sin solicitudes de contrato: los tres endpoints ya existen.

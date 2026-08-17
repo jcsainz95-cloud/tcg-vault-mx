@@ -191,13 +191,23 @@ describe('M2View · Catálogo y precios', () => {
     expect(await screen.findByText(/Sincronización completada: 10 set\(s\)/)).toBeInTheDocument();
   });
 
+  // Devuelve un helper `within` acotado a la <section> cuyo encabezado matchea `name`.
+  // Evita ambigüedad entre los editores de buylist (Sección 4) y de venta (Sección 5),
+  // que comparten aria-labels ("Guardar", "Modo para {rarity}", "Valor para {rarity}").
+  async function sectionFor(name: RegExp) {
+    const heading = await screen.findByRole('heading', { name });
+    const section = heading.closest('section');
+    if (!section) throw new Error('section not found');
+    return within(section);
+  }
+
   // ---- Editor de precio de buylist por rareza (v1.3.1) ----
   it('renderiza el editor de reglas por rareza con el fallback y las rarezas del catálogo', async () => {
     renderWithProviders(<M2View />, 'es');
-    expect(await screen.findByRole('heading', { name: /Precio de buylist por rareza/ })).toBeInTheDocument();
+    const s = await sectionFor(/Precio de buylist por rareza/);
     // Fallback editable y una rareza fija del seed (Common).
-    expect(await screen.findByLabelText('Fallback (%)')).toBeInTheDocument();
-    expect((await screen.findAllByText('Common')).length).toBeGreaterThan(0);
+    expect(await s.findByLabelText('Fallback (%)')).toBeInTheDocument();
+    expect((await s.findAllByText('Common')).length).toBeGreaterThan(0);
   });
 
   it('editar el valor de una regla fija (Common) y guardar envía updateBuylistRules en centavos', async () => {
@@ -205,10 +215,11 @@ describe('M2View · Catálogo y precios', () => {
       .spyOn(api, 'updateBuylistRules')
       .mockResolvedValue({ rules: {}, fallbackPct: 40 });
     renderWithProviders(<M2View />, 'es');
-    const valueInput = await screen.findByLabelText('Valor para Common');
+    const s = await sectionFor(/Precio de buylist por rareza/);
+    const valueInput = await s.findByLabelText('Valor para Common');
     // 1 peso → 100 centavos.
     fireEvent.change(valueInput, { target: { value: '1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy).toHaveBeenCalledWith(
@@ -225,9 +236,10 @@ describe('M2View · Catálogo y precios', () => {
       .spyOn(api, 'updateBuylistRules')
       .mockResolvedValue({ rules: {}, fallbackPct: 55 });
     renderWithProviders(<M2View />, 'es');
-    const fallback = await screen.findByLabelText('Fallback (%)');
+    const s = await sectionFor(/Precio de buylist por rareza/);
+    const fallback = await s.findByLabelText('Fallback (%)');
     fireEvent.change(fallback, { target: { value: '55' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 55 }));
@@ -238,13 +250,56 @@ describe('M2View · Catálogo y precios', () => {
       .spyOn(api, 'updateBuylistRules')
       .mockResolvedValue({ rules: {}, fallbackPct: 40 });
     renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Precio de buylist por rareza/);
     // Rare Holo no tiene regla explícita (fallback pct); cambiar su modo a fijo.
-    const modeSelect = await screen.findByLabelText('Modo para Rare Holo');
+    const modeSelect = await s.findByLabelText('Modo para Rare Holo');
     fireEvent.change(modeSelect, { target: { value: 'fixed' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     const arg = spy.mock.calls[0][0] as { rules: Record<string, { mode: string }> };
     expect(arg.rules['Rare Holo'].mode).toBe('fixed');
+  });
+
+  // ---- Editor de precio de VENTA por rareza (v1.13-sales-pricing) ----
+  it('renderiza el editor de reglas de VENTA con el fallback (sobre mercado) y el hint de markup', async () => {
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    // El fallback de venta se rotula como markup "sobre mercado" (distinto del de buylist).
+    expect(await s.findByLabelText('Fallback (% sobre mercado)')).toBeInTheDocument();
+    // El hint deja claro que el pct es markup arriba de mercado (precio = mercado × (1 + %)).
+    expect(s.getByText(/precio de venta = mercado × \(1 \+ %\)/)).toBeInTheDocument();
+  });
+
+  it('editar el valor de una regla fija de venta (Common) y guardar envía updateSalesRules en centavos', async () => {
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const valueInput = await s.findByLabelText('Valor para Common');
+    // 20 pesos → 2000 centavos.
+    fireEvent.change(valueInput, { target: { value: '20' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fallbackPct: 15,
+        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 2000 } }),
+      }),
+    );
+    expect(await screen.findByText('Reglas de venta guardadas.')).toBeInTheDocument();
+  });
+
+  it('editar el fallback de venta acepta pct > 100 (markup sin tope en 100) y lo envía', async () => {
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 250 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const fallback = await s.findByLabelText('Fallback (% sobre mercado)');
+    // 250% de markup: válido en venta (el validador permite hasta 1000).
+    fireEvent.change(fallback, { target: { value: '250' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 250 }));
   });
 });

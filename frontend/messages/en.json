@@ -884,6 +884,31 @@
           "fallback": "Fallback"
         },
         "saved": "Buylist rules saved."
+      },
+      "salesRules": {
+        "title": "Sale price rules by rarity",
+        "subtitle": "Define a sale rule per official rarity: fixed amount (MX$, acts as a floor) or percentage (% over market). Rarities without a rule use the fallback. Replaces the single global markup. Takes effect without redeploy and is audited.",
+        "fallbackLabel": "Fallback (% over market)",
+        "fallbackHint": "Applies to rarities without an explicit rule (new or unconfigured). It is a markup above market.",
+        "rarity": "Rarity",
+        "cardCount": "Cards",
+        "mode": "Mode",
+        "value": "Value",
+        "source": "Source",
+        "valueMxn": "Floor (MX$)",
+        "valuePct": "% over market",
+        "modeFor": "Mode for {rarity}",
+        "valueFor": "Value for {rarity}",
+        "modeLabel": {
+          "fixed": "Fixed / floor (MX$)",
+          "pct": "% over market"
+        },
+        "sourceLabel": {
+          "rule": "Rule",
+          "fallback": "Fallback"
+        },
+        "pctHint": "Percentage: sale price = market × (1 + %). Example: 15% keeps the price 15% above market (up to 1000% allowed). Fixed: the MX$ amount is a sale floor.",
+        "saved": "Sale rules saved."
       }
     },
     "m6": {

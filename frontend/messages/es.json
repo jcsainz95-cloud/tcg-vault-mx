@@ -884,6 +884,31 @@
           "fallback": "Fallback"
         },
         "saved": "Reglas de buylist guardadas."
+      },
+      "salesRules": {
+        "title": "Reglas de precio de VENTA por rareza",
+        "subtitle": "Define una regla de venta por rareza oficial: monto fijo (MX$, actúa como piso) o porcentaje (% sobre mercado). Las rarezas sin regla usan el fallback. Reemplaza el markup global único. Surte efecto sin redeploy y queda auditado.",
+        "fallbackLabel": "Fallback (% sobre mercado)",
+        "fallbackHint": "Se aplica a las rarezas sin regla explícita (nuevas o no configuradas). Es un markup arriba de mercado.",
+        "rarity": "Rareza",
+        "cardCount": "Cartas",
+        "mode": "Modo",
+        "value": "Valor",
+        "source": "Origen",
+        "valueMxn": "Piso (MX$)",
+        "valuePct": "% sobre mercado",
+        "modeFor": "Modo para {rarity}",
+        "valueFor": "Valor para {rarity}",
+        "modeLabel": {
+          "fixed": "Fijo / piso (MX$)",
+          "pct": "% sobre mercado"
+        },
+        "sourceLabel": {
+          "rule": "Regla",
+          "fallback": "Fallback"
+        },
+        "pctHint": "Porcentaje: precio de venta = mercado × (1 + %). Ejemplo: 15% deja el precio 15% arriba de mercado (se admite hasta 1000%). Fijo: el monto en MX$ es un piso de venta.",
+        "saved": "Reglas de venta guardadas."
       }
     },
     "m6": {

@@ -64,6 +64,10 @@ export type BuylistCategory = 'comun' | 'reverse_holo' | 'ex_plus';
 // v1.3.1: naturaleza de la regla de precio de buylist por rareza.
 // fixed = monto fijo MX$ (centavos); pct = porcentaje [0,100] de la referencia.
 export type BuylistRuleMode = 'fixed' | 'pct';
+// v1.13-sales-pricing: regla de precio de VENTA por rareza. Misma FORMA que
+// BuylistRuleMode, pero la semántica del pct DIFIERE: fixed = piso MX$ (centavos);
+// pct = % de MARKUP ARRIBA de mercado ([0,1000]) → salePrice = round(ref × (1 + value/100)).
+export type SalesRuleMode = 'fixed' | 'pct';
 export type DisputeStatus = 'abierta' | 'en_revision' | 'resuelta_recompra' | 'rechazada';
 // v1.2: tipo de disputa derivado server-side del productType (no lo envía el cliente).
 export type DisputeType = 'condition_raw' | 'condition_sealed';
@@ -710,6 +714,39 @@ export interface BuylistRarityRowDTO {
 export interface BuylistRaritiesResponse {
   fallbackPct: number;
   rarities: BuylistRarityRowDTO[];
+}
+
+// ---- M2: precio de VENTA por RAREZA (contrato §M2, v1.13-sales-pricing) ----
+// Misma FORMA que BuylistRule; value = centavos MXN (PISO) si mode=fixed; % de MARKUP
+// ARRIBA de mercado ([0,1000]) si mode=pct → salePriceCents = round(ref × (1 + value/100)).
+// (¡OJO! en buylist pct = % de la referencia; en venta pct = % arriba de mercado.)
+export interface SalesRule {
+  mode: SalesRuleMode;
+  value: number;
+}
+// v1.13-sales-pricing: regla de venta resuelta para la carta. source="rule" (fila explícita
+// de SALES_PRICE_RULES) o "fallback" (SALES_PRICE_FALLBACK_PCT).
+export interface SalesRuleApplied {
+  mode: SalesRuleMode;
+  value: number;
+  source: 'rule' | 'fallback';
+}
+// GET /admin/pricing/sales-rules → tabla cruda + fallback.
+export interface SalesRulesDTO {
+  rules: Record<string, SalesRule>;
+  fallbackPct: number;
+}
+// GET /admin/pricing/sales-rarities → rarezas distintas del catálogo unidas a las reglas de
+// venta (para poblar el editor). Las rarezas sin regla explícita muestran source="fallback".
+export interface SalesRarityRowDTO {
+  rarity: string;
+  cardCount: number;
+  rule: SalesRule;
+  source: 'rule' | 'fallback';
+}
+export interface SalesRaritiesResponse {
+  fallbackPct: number;
+  rarities: SalesRarityRowDTO[];
 }
 
 // GET /admin/pricing/card/:cardId — historial de precios por fecha/fuente.

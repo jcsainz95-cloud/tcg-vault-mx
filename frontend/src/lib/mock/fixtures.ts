@@ -40,6 +40,8 @@ import type {
   RarityMapEntryDTO,
   BuylistRule,
   BuylistRaritiesResponse,
+  SalesRule,
+  SalesRaritiesResponse,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
   AdminUserSummaryDTO,
@@ -873,6 +875,51 @@ export function mockBuylistRarities(): BuylistRaritiesResponse {
     })
     .sort((a, b) => b.cardCount - a.cardCount);
   return { fallbackPct: mockBuylistFallbackPct, rarities };
+}
+
+/**
+ * Precio de VENTA por RAREZA (v1.13-sales-pricing). Seed análogo al de buylist, pero con
+ * semántica de VENTA: `fixed` = PISO en centavos MXN; `pct` = % de MARKUP ARRIBA de mercado
+ * ([0,1000]) → salePrice = round(ref × (1 + value/100)). Reemplaza el markup global único
+ * (salesMarkupPct, DEPRECADO). El fallback default de venta (15%) es menor que el de buylist.
+ */
+export let mockSalesRules: Record<string, SalesRule> = {
+  Common: { mode: 'fixed', value: 500 },
+  Uncommon: { mode: 'fixed', value: 1000 },
+  'Reverse Holo': { mode: 'fixed', value: 1000 },
+};
+export let mockSalesFallbackPct = 15;
+export function setMockSalesRules(rules: Record<string, SalesRule>, fallbackPct?: number) {
+  mockSalesRules = rules;
+  if (fallbackPct != null) mockSalesFallbackPct = fallbackPct;
+}
+
+/** Resuelve la regla de venta de una rareza: fila explícita o fallback (pct por defecto). */
+export function resolveSalesRule(rarity: string): { rule: SalesRule; source: 'rule' | 'fallback' } {
+  const explicit = mockSalesRules[rarity];
+  if (explicit) return { rule: explicit, source: 'rule' };
+  return { rule: { mode: 'pct', value: mockSalesFallbackPct }, source: 'fallback' };
+}
+
+/**
+ * Rarezas distintas del catálogo (mockCards) UNIDAS a las reglas de VENTA, ordenadas por
+ * cardCount desc (contrato GET /admin/pricing/sales-rarities). Clon del de buylist.
+ */
+export function mockSalesRarities(): SalesRaritiesResponse {
+  const counts = new Map<string, number>();
+  for (const c of mockCards) {
+    if (!c.rarity) continue; // el sellado no lleva rareza
+    counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
+  }
+  // Incluir también rarezas con regla explícita aunque no estén en el catálogo mock.
+  for (const r of Object.keys(mockSalesRules)) if (!counts.has(r)) counts.set(r, 0);
+  const rarities = [...counts.entries()]
+    .map(([rarity, cardCount]) => {
+      const { rule, source } = resolveSalesRule(rarity);
+      return { rarity, cardCount, rule, source };
+    })
+    .sort((a, b) => b.cardCount - a.cardCount);
+  return { fallbackPct: mockSalesFallbackPct, rarities };
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */

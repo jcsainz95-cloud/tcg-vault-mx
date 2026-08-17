@@ -13,6 +13,8 @@ import {
   refreshFx,
   getBuylistRarities,
   updateBuylistRules,
+  getSalesRarities,
+  updateSalesRules,
   getRemoteSets,
   syncCatalog,
   backfillCatalog,
@@ -24,6 +26,8 @@ import type {
   RemoteSetDTO,
   BuylistRule,
   BuylistRuleMode,
+  SalesRule,
+  SalesRuleMode,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
@@ -41,6 +45,7 @@ import { ApiClientError } from '@/lib/api-client';
 import { useKeepSessionAlive } from '@/lib/keep-alive';
 
 const RULE_MODES: BuylistRuleMode[] = ['fixed', 'pct'];
+const SALES_RULE_MODES: SalesRuleMode[] = ['fixed', 'pct'];
 
 /** Convierte pesos (texto) a centavos enteros. */
 function pesosToCents(value: string): number {
@@ -213,7 +218,45 @@ export function M2View() {
     });
   }
 
-  // --- Sección 5: sync de catálogo ---
+  // --- Sección 5: precio de VENTA por RAREZA (v1.13-sales-pricing) ---
+  // Análogo a buylist (Sección 4). DIFERENCIA CLAVE: aquí el `pct` es MARKUP ARRIBA de
+  // mercado (precio = mercado × (1 + %)), no "% de la referencia"; y `fixed` es un PISO.
+  // El validador de venta permite pct hasta 1000 (no topa en 100).
+  const salesRarities = useQuery({ queryKey: ['sales-rarities'], queryFn: getSalesRarities });
+  const [salesRuleDraft, setSalesRuleDraft] = useState<Record<string, SalesRule>>({});
+  const [salesFallbackDraft, setSalesFallbackDraft] = useState<string | null>(null);
+  const salesRulesMutation = useMutation({
+    mutationFn: (payload: { rules: Record<string, SalesRule>; fallbackPct: number }) =>
+      updateSalesRules(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sales-rarities'] });
+      setSalesRuleDraft({});
+      setSalesFallbackDraft(null);
+    },
+  });
+
+  const salesServerFallback = salesRarities.data?.fallbackPct ?? 15;
+  const salesEffectiveFallback = salesFallbackDraft ?? String(salesServerFallback);
+  function salesEffectiveRule(rarity: string, serverRule: SalesRule, source: 'rule' | 'fallback'): SalesRule {
+    if (salesRuleDraft[rarity]) return salesRuleDraft[rarity];
+    if (source === 'rule') return serverRule;
+    return { mode: 'pct', value: Number(salesEffectiveFallback) || 0 };
+  }
+  const salesRulesDirty =
+    Object.keys(salesRuleDraft).length > 0 ||
+    (salesFallbackDraft != null && salesFallbackDraft !== String(salesServerFallback));
+
+  function saveSalesRules() {
+    if (!salesRarities.data) return;
+    const serverRules: Record<string, SalesRule> = {};
+    for (const row of salesRarities.data.rarities) if (row.source === 'rule') serverRules[row.rarity] = row.rule;
+    salesRulesMutation.mutate({
+      rules: { ...serverRules, ...salesRuleDraft },
+      fallbackPct: Number(salesEffectiveFallback) || 0,
+    });
+  }
+
+  // --- Sección 6: sync de catálogo ---
   // Estado del barrido `sync-all` (GET /admin/catalog/sync-status). Se POLLEA cada 3 s
   // mientras `running` para saber en vivo cuántos sets faltan y CUÁNDO terminó (lo que
   // pedía el operador: "saber que acabó"). El endpoint puede no existir aún en backend
@@ -544,7 +587,121 @@ export function M2View() {
         </QueryState>
       </section>
 
-      {/* Sección 5: sync de catálogo */}
+      {/* Sección 5: precio de VENTA por RAREZA (v1.13-sales-pricing) */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h2 font-semibold">{t('salesRules.title')}</h2>
+        <p className="text-sm text-muted">{t('salesRules.subtitle')}</p>
+        <QueryState
+          isLoading={salesRarities.isLoading}
+          isError={salesRarities.isError}
+          error={salesRarities.error}
+          onRetry={() => salesRarities.refetch()}
+        >
+          {salesRarities.data && (
+            <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+              {/* Fallback % (markup arriba de mercado) para rarezas sin regla explícita */}
+              <div className="flex flex-wrap items-end gap-3 border-b border-border pb-4">
+                <Input
+                  label={t('salesRules.fallbackLabel')}
+                  type="text"
+                  inputMode="decimal"
+                  suffix="%"
+                  className="w-32"
+                  value={salesEffectiveFallback}
+                  onChange={(e) => setSalesFallbackDraft(e.target.value.replace(/[^0-9.]/g, ''))}
+                />
+                <p className="text-xs text-muted">{t('salesRules.fallbackHint')}</p>
+              </div>
+
+              <ul className="flex flex-col divide-y divide-border">
+                <li className="hidden gap-3 py-2 text-xs uppercase tracking-wide text-muted md:grid md:grid-cols-[1fr_auto_auto_auto_auto]">
+                  <span>{t('salesRules.rarity')}</span>
+                  <span className="text-right">{t('salesRules.cardCount')}</span>
+                  <span>{t('salesRules.mode')}</span>
+                  <span>{t('salesRules.value')}</span>
+                  <span>{t('salesRules.source')}</span>
+                </li>
+                {salesRarities.data.rarities.map((row) => {
+                  const rule = salesEffectiveRule(row.rarity, row.rule, row.source);
+                  const edited = !!salesRuleDraft[row.rarity];
+                  const effectiveSource: 'rule' | 'fallback' = edited ? 'rule' : row.source;
+                  return (
+                    <li
+                      key={row.rarity}
+                      className="grid grid-cols-2 items-end gap-3 py-3 md:grid-cols-[1fr_auto_auto_auto_auto]"
+                    >
+                      <span className="text-sm font-medium" lang="en">{row.rarity}</span>
+                      <span className="tabular text-right text-sm text-muted">{row.cardCount}</span>
+                      <Select
+                        label={t('salesRules.mode')}
+                        aria-label={t('salesRules.modeFor', { rarity: row.rarity })}
+                        className="w-32"
+                        options={SALES_RULE_MODES.map((m) => ({ value: m, label: t(`salesRules.modeLabel.${m}`) }))}
+                        value={rule.mode}
+                        onChange={(e) => {
+                          const mode = e.target.value as SalesRuleMode;
+                          setSalesRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode, value: rule.value } }));
+                        }}
+                      />
+                      <Input
+                        label={rule.mode === 'fixed' ? t('salesRules.valueMxn') : t('salesRules.valuePct')}
+                        aria-label={t('salesRules.valueFor', { rarity: row.rarity })}
+                        type="text"
+                        inputMode="decimal"
+                        prefix={rule.mode === 'fixed' ? 'MX$' : undefined}
+                        suffix={rule.mode === 'pct' ? '%' : undefined}
+                        className="w-32"
+                        value={rule.mode === 'fixed' ? String(rule.value / 100) : String(rule.value)}
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/[^0-9.]/g, '');
+                          const value = rule.mode === 'fixed' ? pesosToCents(raw) : Number(raw) || 0;
+                          setSalesRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode: rule.mode, value } }));
+                        }}
+                      />
+                      <Badge tone={effectiveSource === 'rule' ? 'info' : 'neutral'} shape="outline">
+                        {t(`salesRules.sourceLabel.${effectiveSource}`)}
+                      </Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {/* Copy clave de VENTA: el pct es markup ARRIBA de mercado; fixed es un piso. */}
+              <p className="text-xs text-muted">{t('salesRules.pctHint')}</p>
+
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  disabled={!salesRulesDirty}
+                  loading={salesRulesMutation.isPending}
+                  onClick={saveSalesRules}
+                >
+                  {tc('save')}
+                </Button>
+                {salesRulesDirty && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setSalesRuleDraft({});
+                      setSalesFallbackDraft(null);
+                    }}
+                  >
+                    {tc('cancel')}
+                  </Button>
+                )}
+              </div>
+              {salesRulesMutation.isSuccess && (
+                <Banner variant="success" role="status">{t('salesRules.saved')}</Banner>
+              )}
+              {salesRulesMutation.isError && (
+                <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(salesRulesMutation.error)}</Banner>
+              )}
+            </div>
+          )}
+        </QueryState>
+      </section>
+
+      {/* Sección 6: sync de catálogo */}
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('catalog.title')}</h2>
         <p className="text-sm text-muted">{t('catalog.subtitle')}</p>
