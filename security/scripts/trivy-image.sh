@@ -43,7 +43,7 @@ fi
 FAILED=0
 for img in ${IMAGES}; do
   echo "→ Trivy image: ${img} ..."
-  if ! trivy image --config "${SEC_DIR}/trivy.yaml" --exit-code 1 --no-progress "${img}"; then
+  if ! trivy image --config "${SEC_DIR}/trivy.yaml" --ignorefile "${SEC_DIR}/.trivyignore" --exit-code 1 --no-progress "${img}"; then
     echo "✗ ${img}: HIGH/CRITICAL detectadas."
     FAILED=1
   fi

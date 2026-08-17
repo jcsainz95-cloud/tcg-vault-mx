@@ -1998,3 +1998,52 @@ Tras `npm install` + `npm ci --include=dev` (lockfile regenerado, 788 paquetes a
 - `prisma generate` OK · `lint` OK · `typecheck` OK · `build` (`nest build`) OK.
 - `npm test` = **57 suites / 372 tests verdes** (sin cambio de conteo; solo bump de deps, sin tocar código).
 - `npm ci --include=dev` limpio desde el lockfile regenerado; `tmp` resuelve a **0.2.7** en instalación limpia.
+
+## 31. Fix E2E-1 — seed E2E idempotente + fin de la doble siembra (2026-08-16)
+
+> El gate **backend-e2e** (`npm run test:integration`) fallaba. Solo se tocó `backend/prisma/seed-e2e.ts` y
+> `backend/package.json`. Cerrado en `TECH_DEBT.md` → **E2E-1**. Ningún endpoint ni lógica de negocio tocada.
+
+### 31.1 Síntoma y diagnóstico
+Postgres del runner registraba, **durante** el `jest`:
+```
+ERROR: duplicate key ... "ProcessedStripeEvent_pkey" — (id)=(evt_e2e_succeeded_fixed) already exists.
+ERROR: duplicate key ... "User_email_key" — (email)=(customer@e2e.local) already exists.
+```
+Investigación (`seed-e2e.ts`, `jest-integration.config.js`, los 5 `*.e2e-spec.ts`, `payments.service.ts`,
+`auth.service.ts`):
+- **No hay `globalSetup`** en `jest-integration.config.js` (solo `setupFilesAfterEnv: setup.ts`, que NO
+  siembra). La "doble siembra" era: `test:integration` corría `seed:synthetic` **standalone** ANTES de `jest`
+  **y** cada uno de los 5 specs vuelve a llamar `seedE2E()` en `beforeAll` → 6 siembras/corrida.
+- Los DOS `ERROR` de Postgres citados son, en una corrida única, **P2002 capturados por diseño** (no el
+  fallo): `auth.service.ts:111` (test "rechaza email duplicado" → 409 `EMAIL_TAKEN`) y `payments.service.ts:44`
+  (guard de idempotencia atómica del webhook, test "es IDEMPOTENTE: reenviar el mismo event.id"). Postgres
+  loguea el `ERROR` aunque la app lo capture.
+- **Fallo real = idempotencia CROSS-RUN.** `seedE2E` reseteaba estado transaccional **por userId**
+  (orders/shipments/sellRequests/disputes/kyc) pero **NO** `ProcessedStripeEvent` ni `InventoryMovement` de
+  piezas de **plataforma** (que no cuelgan de userId). En una **2ª corrida** sobre la misma DB:
+  `evt_e2e_succeeded_fixed` persistía → el webhook hacía no-op → la orden no liquidaba (falla "el webhook
+  FIRMADO liquida la orden"); y los `InventoryMovement reason=settle` previos hacían que
+  `expect(settleMovements).toBe(1)` contara 2+.
+
+### 31.2 Fix
+1. **Fin de la doble siembra (lo más limpio):** `package.json` → `test:integration` pasa de
+   `prisma migrate deploy && npm run seed:synthetic && jest ...` a `prisma migrate deploy && jest ...`. La
+   siembra queda como **única fuente** en el `beforeAll` de cada spec (aislamiento por-spec necesario porque
+   las suites mutan estado). El script `seed:synthetic` (= `ts-node prisma/seed-e2e.ts`) **se conserva** —lo
+   usan `scripts/seed-synthetic.sh` y CI de staging.
+2. **`seedE2E` idempotente cross-run (defensa):** nuevo paso **3b** que borra, además del reset por-usuario:
+   - `InventoryMovement` de los ítems E2E (`where itemId IN (items con folio IN E2E_FOLIOS)`);
+   - `ProcessedStripeEvent` (`id = evt_e2e_succeeded_fixed` **OR** `id startsWith 'evt_e2e'`, que cubre los
+     `evt_e2e_<uuid>` aleatorios que genera el harness `sendStripeWebhook`).
+   El resto del seed ya era idempotente: **todos** los fixtures con clave única usan `upsert` (ConfigSetting,
+   User `by email`, VaultLocation, CardSet, Card, PriceReference, InventoryItem `by folio`) y `Address` va con
+   guard `findFirst`. Revisado el seed completo, no solo los dos fixtures del log.
+
+Resultado: `test:integration` corrido **dos veces seguidas** sobre la misma DB no rompe (idempotencia real).
+
+### 31.3 Gates (verde)
+- `lint` OK · `typecheck` OK · `build` (`nest build`) OK.
+- `npm test` = **57 suites / 372 tests verdes** (unit, sin infra; sin cambio de conteo).
+- **No** pude correr `test:integration` en local (egress bloquea el pull de imágenes Docker de Postgres/Redis/
+  MinIO). El **verde de E2E lo confirma el runner de CI**.

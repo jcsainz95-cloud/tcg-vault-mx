@@ -178,6 +178,10 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
+          # Excepciones JUSTIFICADAS (solo node-tar interno de npm en la imagen
+          # base; ver security/.trivyignore). El gate SIGUE fallando en cualquier
+          # otro HIGH/CRITICAL real de deps de la app.
+          trivyignores: security/.trivyignore
 
   # ---------------------------------------------------------------------------
   # Trivy image — CVEs de las imágenes Docker. ACTIVO si existen los Dockerfiles.
@@ -218,6 +222,9 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
+          # node-tar de npm en la base node:20 es build-time only y no es dep de
+          # la app (ver security/.trivyignore). Todo lo demás sigue bloqueando.
+          trivyignores: security/.trivyignore
       - name: Build + scan imagen frontend
         if: hashFiles('frontend/package.json') != ''
         run: |
@@ -237,6 +244,9 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
+          # Mismo criterio que el backend: solo el node-tar interno de npm en la
+          # base (ver security/.trivyignore). El resto sigue bloqueando.
+          trivyignores: security/.trivyignore
 
   # ---------------------------------------------------------------------------
   # Gate final SAST.

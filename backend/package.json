@@ -14,7 +14,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "test:integration": "prisma migrate deploy && npm run seed:synthetic && jest --config test/jest-integration.config.js --runInBand",
+    "test:integration": "prisma migrate deploy && jest --config test/jest-integration.config.js --runInBand",
     "test:e2e": "npm run test:integration",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

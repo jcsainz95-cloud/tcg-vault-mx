@@ -11,7 +11,10 @@
  *   import { seedE2E } from './seed-e2e'  // reutilizable desde las suites (beforeAll)
  *
  * Requiere: DATABASE_URL + migraciones aplicadas (`prisma migrate deploy`).
- * Idempotente: se puede correr N veces; resetea el estado transaccional E2E.
+ * Idempotente (E2E-1): se puede correr N veces sobre la MISMA DB sin romper. Todos los
+ * fixtures con clave única usan `upsert`; además resetea el estado transaccional por-usuario
+ * Y el estado E2E que no cuelga de userId (ProcessedStripeEvent + InventoryMovement de piezas
+ * de plataforma), de modo que una 2ª corrida de `test:integration` vuelve a partir de cero.
  */
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
@@ -77,6 +80,24 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await prisma.sellRequest.deleteMany({ where: { userId: { in: ids } } }); // cascada a SellRequestItem
   await prisma.order.deleteMany({ where: { userId: { in: ids } } }); // cascada a OrderItem
   await prisma.kycProfile.deleteMany({ where: { userId: { in: ids } } });
+
+  // 3b. Idempotencia CROSS-RUN (E2E-1). Hay estado E2E que NO cuelga de userId y que las
+  // suites de webhook mutan; si no se resetea, una 2ª corrida de `test:integration` sobre la
+  // MISMA DB rompe:
+  //   - ProcessedStripeEvent(id=evt_e2e_succeeded_fixed): persistiría de la corrida anterior;
+  //     el guard de idempotencia de PaymentsService haría no-op → la orden NO liquidaría y el
+  //     test "el webhook FIRMADO liquida la orden" fallaría.
+  //   - InventoryMovement de piezas de PLATAFORMA (settle/chargeback_return): se acumularían y
+  //     el assert "settleMovements === 1" contaría 2+.
+  // Se limpian aquí (idempotencia real, no solo dentro de una corrida).
+  const e2eItems = await prisma.inventoryItem.findMany({
+    where: { folio: { in: Object.values(E2E_FOLIOS) } },
+    select: { id: true },
+  });
+  await prisma.inventoryMovement.deleteMany({ where: { itemId: { in: e2eItems.map((i) => i.id) } } });
+  await prisma.processedStripeEvent.deleteMany({
+    where: { OR: [{ id: 'evt_e2e_succeeded_fixed' }, { id: { startsWith: 'evt_e2e' } }] },
+  });
 
   // 4. Ubicaciones (una por zona).
   const platformLoc = await prisma.vaultLocation.upsert({
