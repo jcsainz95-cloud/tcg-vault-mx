@@ -1,5 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { Card, Finish, InventoryStatus, MovementReason, Prisma } from '@prisma/client';
+import {
+  AdjustmentReason,
+  Card,
+  Finish,
+  InventoryStatus,
+  MovementReason,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -12,6 +19,7 @@ import {
   BulkPublishRequest,
   CreateItemDto,
   CreateLocationDto,
+  InventoryAdjustmentRequestDto,
   MarkItemDto,
   MoveItemDto,
   UpdateItemDto,
@@ -63,6 +71,25 @@ export interface BulkPublishResponse {
  * conjunto de status de origen permitido; hoy solo describe el error `PRICE_PENDING` por-línea.
  */
 const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
+
+/**
+ * [v1.18 §4.18e] Allowlist de status AJUSTABLES por levantamiento físico. Solo una pieza de
+ * PLATAFORMA que hoy esté `in_stock`/`listed` admite `perdida | danada | error_captura`; una
+ * `reserved` (orden con PaymentIntent vivo), `in_custody`/`picking`/`shipped`/`delivered`
+ * (bóveda/envío de cliente) o ya terminal (`lost|damaged|withdrawn`) se resuelve por su flujo
+ * dueño (M3/M4/`mark` + reposición) — NUNCA por ajuste → 422 ITEM_NOT_ADJUSTABLE.
+ */
+const ADJUSTABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock', 'listed'];
+
+/** Respuesta del ajuste (API_CONTRACT §DTOs — InventoryAdjustmentResponse). */
+export interface InventoryAdjustmentResponse {
+  adjustmentId: string;
+  reason: AdjustmentReason;
+  inventoryItemIds: string[];
+  folios: string[];
+  fromStatus: InventoryStatus | null;
+  toStatus: InventoryStatus;
+}
 
 @Injectable()
 export class InventoryService {
@@ -668,6 +695,172 @@ export class InventoryService {
       },
     });
     return this.prisma.inventoryItem.update({ where: { id }, data: { status } });
+  }
+
+  // ---------------- v1.18 §4.18e — Ajuste por levantamiento físico ----------------
+
+  /**
+   * POST /admin/inventory/adjustments — ajuste de inventario por LEVANTAMIENTO FÍSICO desde la
+   * celda del binder M1 (scope plataforma). Motivo OBLIGATORIO (`AdjustmentReason`):
+   *  - `encontrada` → CREA pieza(s) reusando la lógica de alta (`resolveCreation`/`buildItemData`;
+   *    `acquisitionType` default `aportacion_en_especie`, con su `PRICE_PENDING` normal; `qty`
+   *    default 1, graded fuerza 1). Nacen `in_stock`, ownerType=platform.
+   *  - `perdida | danada` → `status → lost | damaged` (habilita reposición/merma M7/tope M10).
+   *  - `error_captura` → `status → withdrawn` (la pieza NUNCA existió físicamente; NO cuenta como
+   *    pérdida/reposición — el motivo real queda tipado en `InventoryAdjustment.reason`).
+   * Registro TRIPLE por pieza: fila `InventoryAdjustment` (M-22) + `InventoryMovement` con
+   * `reason=adjustment` (en la MISMA transacción); el `AuditLog action=inventory.adjustment` lo
+   * escribe el controller (patrón del resto de M1). NO existe venta directa desde el binder: el
+   * ajuste jamás pone `reserved`/crea órdenes; toda salida de venta pasa por checkout/M3.
+   */
+  async adjust(
+    dto: InventoryAdjustmentRequestDto,
+    actorUserId: string,
+  ): Promise<InventoryAdjustmentResponse> {
+    if (dto.reason === 'encontrada') return this.adjustFound(dto, actorUserId);
+    return this.adjustExisting(dto, actorUserId);
+  }
+
+  /** `encontrada`: alta de pieza(s) nueva(s) con la MISMA resolución del alta normal/lote. */
+  private async adjustFound(
+    dto: InventoryAdjustmentRequestDto,
+    actorUserId: string,
+  ): Promise<InventoryAdjustmentResponse> {
+    if (!dto.item) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        "reason 'encontrada' requires `item`",
+      );
+    }
+    // Excepción documentada (API_CONTRACT §DTOs): acquisitionType default aportacion_en_especie.
+    const line: BatchInventoryItemInput = {
+      ...dto.item,
+      acquisitionType: dto.item.acquisitionType ?? 'aportacion_en_especie',
+    };
+    const qty = line.qty ?? 1;
+    if (line.productType === 'graded' && qty > 1) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'graded items cannot have qty > 1');
+    }
+    // Misma validación del alta (NOT_FOUND / VALIDATION_ERROR / FINISH_NOT_AVAILABLE /
+    // PRICE_PENDING con escalado del pendiente — paridad con el alta normal).
+    const r = await this.resolveCreation(line);
+    if (r.sealedNeedsEscalate) {
+      await this.pricing.escalatePending(
+        line.cardId,
+        line.productType,
+        r.gradeKey,
+        'inventory',
+        undefined,
+        r.finish,
+      );
+    }
+    const folios = await this.prisma.nextFolios(qty);
+    const { inventoryItemIds, adjustmentId } = await this.prisma.$transaction(async (tx) => {
+      const ids: string[] = [];
+      let firstAdjustmentId: string | null = null;
+      for (const folio of folios) {
+        const item = await tx.inventoryItem.create({ data: this.buildItemData(line, r, folio) });
+        await tx.inventoryMovement.create({
+          data: {
+            itemId: item.id,
+            toLocationId: line.locationId,
+            toStatus: 'in_stock',
+            reason: MovementReason.adjustment,
+            actorUserId,
+            note: dto.note ?? 'encontrada',
+          },
+        });
+        // M-22: UNA fila InventoryAdjustment POR PIEZA creada (qty>1 → una por pieza).
+        const adj = await tx.inventoryAdjustment.create({
+          data: {
+            inventoryItemId: item.id,
+            reason: 'encontrada',
+            fromStatus: null,
+            toStatus: 'in_stock',
+            actorUserId,
+            note: dto.note ?? null,
+          },
+        });
+        firstAdjustmentId ??= adj.id;
+        ids.push(item.id);
+      }
+      return { inventoryItemIds: ids, adjustmentId: firstAdjustmentId as string };
+    });
+    return {
+      adjustmentId,
+      reason: 'encontrada',
+      inventoryItemIds,
+      folios,
+      fromStatus: null,
+      toStatus: 'in_stock',
+    };
+  }
+
+  /** `perdida | danada | error_captura`: transición de UNA pieza existente; `note` OBLIGATORIA. */
+  private async adjustExisting(
+    dto: InventoryAdjustmentRequestDto,
+    actorUserId: string,
+  ): Promise<InventoryAdjustmentResponse> {
+    if (!dto.inventoryItemId) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `reason '${dto.reason}' requires inventoryItemId`,
+      );
+    }
+    if (!dto.note || dto.note.trim() === '') {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `reason '${dto.reason}' requires a note`,
+      );
+    }
+    const item = await this.prisma.inventoryItem.findUnique({
+      where: { id: dto.inventoryItemId },
+    });
+    if (!item) throw BusinessException.notFound('NOT_FOUND', 'Inventory item not found');
+    // Guardarraíl §4.18e: SOLO piezas de plataforma en {in_stock, listed} son ajustables.
+    if (item.ownerType !== 'platform' || !ADJUSTABLE_ORIGIN_STATUSES.includes(item.status)) {
+      throw BusinessException.validation(
+        'ITEM_NOT_ADJUSTABLE',
+        `item (ownerType '${item.ownerType}', status '${item.status}') cannot be adjusted`,
+        { ownerType: item.ownerType, status: item.status },
+      );
+    }
+    // perdida → lost · danada → damaged · error_captura → withdrawn (sin semántica de pérdida;
+    // se reusa `withdrawn` — la distinción vive en InventoryAdjustment.reason, §4.18e).
+    const toStatus: InventoryStatus =
+      dto.reason === 'perdida' ? 'lost' : dto.reason === 'danada' ? 'damaged' : 'withdrawn';
+    const adjustmentId = await this.prisma.$transaction(async (tx) => {
+      await tx.inventoryItem.update({ where: { id: item.id }, data: { status: toStatus } });
+      await tx.inventoryMovement.create({
+        data: {
+          itemId: item.id,
+          fromStatus: item.status,
+          toStatus,
+          reason: MovementReason.adjustment,
+          actorUserId,
+          note: dto.note,
+        },
+      });
+      const adj = await tx.inventoryAdjustment.create({
+        data: {
+          inventoryItemId: item.id,
+          reason: dto.reason as AdjustmentReason,
+          fromStatus: item.status,
+          toStatus,
+          actorUserId,
+          note: dto.note,
+        },
+      });
+      return adj.id;
+    });
+    return {
+      adjustmentId,
+      reason: dto.reason as AdjustmentReason,
+      inventoryItemIds: [item.id],
+      folios: [item.folio],
+      fromStatus: item.status,
+      toStatus,
+    };
   }
 
   // ---------------- Locations ----------------

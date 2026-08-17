@@ -4,12 +4,15 @@ import {
   deriveNumberParts,
 } from '../src/modules/inventory/master-set.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { PricingService } from '../src/modules/pricing/pricing.service';
 
 /**
  * WS-E (v1.16-master-set, §4.17a) — LECTURA AGREGADA del inventario:
  *  - ORDEN NATURAL de Card.number String ("10" > "2"; no-numéricos/promos al final).
  *  - índice: completitud/piezas agregadas vs conteos reales, sin N+1 (nº de queries).
  *  - binder: countsByFinish por (cardId, finish) coincide con las piezas on-hand; secret rares.
+ * v1.18-master-set-everywhere: el scope/variantes se prueba en test/master-set.scopes.spec.ts;
+ * aquí se verifica que el comportamiento v1.16 (scope platform, default) NO cambió (aditivo).
  */
 
 describe('orden natural (deriveNumberParts / compareByNumber)', () => {
@@ -43,13 +46,42 @@ function buildPrisma(over: any = {}) {
     },
     inventoryItem: {
       groupBy: jest.fn(),
+      findMany: jest.fn(),
     },
-    $queryRaw: jest.fn(),
+    user: {
+      findUnique: jest.fn(),
+    },
+    $queryRaw: jest.fn().mockResolvedValue([]),
     ...over,
   } as unknown as PrismaService;
 }
 
-describe('MasterSetService.index — agregados vs conteos reales, sin N+1', () => {
+function buildPricing(over: any = {}) {
+  return {
+    loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
+    getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
+    gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
+    ...over,
+  } as unknown as PricingService;
+}
+
+/**
+ * El índice v1.18 hace DOS agregaciones raw (Σ|availableFinishes| sobre "Card" + piezas sobre
+ * "InventoryItem"): el mock despacha por el TEXTO del SQL (Prisma.Sql.sql).
+ */
+function mockRawQueries(
+  prisma: PrismaService,
+  data: { variantRows?: any[]; inventoryRows?: any[] },
+) {
+  (prisma.$queryRaw as unknown as jest.Mock).mockImplementation((query: any) => {
+    const s = query && typeof query.sql === 'string' ? query.sql : String(query);
+    if (s.includes('FROM "InventoryItem"')) return Promise.resolve(data.inventoryRows ?? []);
+    if (s.includes('FROM "Card"')) return Promise.resolve(data.variantRows ?? []);
+    return Promise.resolve([]);
+  });
+}
+
+describe('MasterSetService.index — agregados vs conteos reales, sin N+1 (scope platform default)', () => {
   it('completionPct = distinctCardsOwned / catalogCardCount (nunca >100%) y piezas totales', async () => {
     const prisma = buildPrisma();
     (prisma.cardSet.findMany as jest.Mock).mockResolvedValue([
@@ -61,13 +93,22 @@ describe('MasterSetService.index — agregados vs conteos reales, sin N+1', () =
       { setId: 's1', _count: { _all: 200 } },
       { setId: 's2', _count: { _all: 102 } },
     ]);
-    // agregación raw: s1 con 5 piezas de 3 cartas distintas; s2 sin inventario.
-    (prisma.$queryRaw as jest.Mock).mockResolvedValue([
-      { setId: 's1', pieces: 5n, distinctCards: 3n },
-    ]);
+    mockRawQueries(prisma, {
+      // Σ|availableFinishes| por set (v1.18): s1=250 variantes de catálogo, s2=102.
+      variantRows: [
+        { setId: 's1', variantCount: 250n },
+        { setId: 's2', variantCount: 102n },
+      ],
+      // agregación de piezas: s1 con 5 piezas / 3 cartas distintas / 4 variantes; s2 sin inventario.
+      inventoryRows: [{ setId: 's1', pieces: 5n, distinctCards: 3n, distinctVariants: 4n }],
+    });
 
-    const svc = new MasterSetService(prisma);
+    const svc = new MasterSetService(prisma, buildPricing());
     const res = await svc.index({ page: 1, pageSize: 20, sort: 'release_desc' });
+
+    // v1.18: el scope default sigue siendo platform (respuesta aditiva, endpoints v1.16 intactos).
+    expect(res.scope).toBe('platform');
+    expect(res.owner).toBeUndefined();
 
     const s1 = res.data.find((r) => r.setId === 's1')!;
     expect(s1.catalogCardCount).toBe(200);
@@ -75,14 +116,19 @@ describe('MasterSetService.index — agregados vs conteos reales, sin N+1', () =
     expect(s1.totalPieces).toBe(5);
     expect(s1.completionPct).toBe(1.5); // 3/200 = 1.5% (denominador = catálogo real, nunca >100%)
     expect(s1.year).toBe(2024);
+    // v1.18: contadores por VARIANTE (los «X/Y» del front usan estos).
+    expect(s1.catalogVariantCount).toBe(250);
+    expect(s1.distinctVariantsOwned).toBe(4);
+    expect(s1.variantCompletionPct).toBe(1.6); // 4/250
     const s2 = res.data.find((r) => r.setId === 's2')!;
     expect(s2.totalPieces).toBe(0);
     expect(s2.completionPct).toBe(0);
+    expect(s2.variantCompletionPct).toBe(0);
 
-    // Sin N+1: 3 queries FIJAS sin importar el nº de sets (página + groupBy + 1 agregación raw).
+    // Sin N+1: 4 queries FIJAS sin importar el nº de sets (página + groupBy + 2 agregaciones raw).
     expect((prisma.cardSet.findMany as jest.Mock).mock.calls).toHaveLength(1);
     expect((prisma.card.groupBy as jest.Mock).mock.calls).toHaveLength(1);
-    expect((prisma.$queryRaw as jest.Mock).mock.calls).toHaveLength(1);
+    expect(((prisma as any).$queryRaw as jest.Mock).mock.calls).toHaveLength(2);
   });
 
   it('sort=release_desc ordena por releaseDate descendente', async () => {
@@ -92,14 +138,13 @@ describe('MasterSetService.index — agregados vs conteos reales, sin N+1', () =
       { id: 's1', name: 'Surging Sparks', releaseDate: '2024/11/08', printedTotal: 191 },
     ]);
     (prisma.card.groupBy as jest.Mock).mockResolvedValue([]);
-    (prisma.$queryRaw as jest.Mock).mockResolvedValue([]);
-    const svc = new MasterSetService(prisma);
+    const svc = new MasterSetService(prisma, buildPricing());
     const res = await svc.index({ page: 1, pageSize: 20, sort: 'release_desc' });
     expect(res.data.map((r) => r.setId)).toEqual(['s1', 's2']);
   });
 });
 
-describe('MasterSetService.binder — countsByFinish, orden natural, secret rares', () => {
+describe('MasterSetService.binder — countsByFinish, orden natural, secret rares (platform)', () => {
   it('agrega piezas on-hand por (cardId, finish) y ordena las celdas por número', async () => {
     const prisma = buildPrisma();
     (prisma.cardSet.findUnique as jest.Mock).mockResolvedValue({
@@ -118,8 +163,15 @@ describe('MasterSetService.binder — countsByFinish, orden natural, secret rare
       { cardId: 'c2', finish: 'normal', _count: { _all: 3 } },
     ]);
 
-    const svc = new MasterSetService(prisma);
+    const svc = new MasterSetService(prisma, buildPricing());
     const res = await svc.binder('s1');
+
+    // v1.18: scope default platform, sin owner y SIN buyable en ninguna variante.
+    expect(res.scope).toBe('platform');
+    expect(res.owner).toBeUndefined();
+    for (const cell of res.cells) {
+      for (const v of cell.variants) expect('buyable' in v).toBe(false);
+    }
 
     // Orden natural: 2, 10, 200, luego TG12 al final.
     expect(res.cells.map((c) => c.number)).toEqual(['2', '10', '200', 'TG12']);
@@ -155,7 +207,7 @@ describe('MasterSetService.binder — countsByFinish, orden natural, secret rare
   it('404 si el set no existe', async () => {
     const prisma = buildPrisma();
     (prisma.cardSet.findUnique as jest.Mock).mockResolvedValue(null);
-    const svc = new MasterSetService(prisma);
+    const svc = new MasterSetService(prisma, buildPricing());
     await expect(svc.binder('nope')).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });

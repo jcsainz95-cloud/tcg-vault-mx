@@ -2808,3 +2808,98 @@ Pase pequeño de cierre de dos hallazgos ya señalados. No cambia el contrato; t
 ### 40.4 Gates
 - `npx tsc --noEmit` → 0 errores. `npx jest` → **73 suites / 516 tests verdes** (incluye los 2 tests nuevos/
   ajustados).
+
+## 41. WS «Inventario y vault» (v1.18-master-set-everywhere, 2026-08-17) — master set en TODAS partes + ajustes (M-22)
+
+Implementa el contrato v1.18: el binder Master Set (v1.16, solo M1) se convierte en el **read model
+único por scope** que sirve tres vistas con el MISMO shape — (i) M1 plataforma, (ii) admin viendo la
+bóveda de un cliente, (iii) "Mi bóveda" del cliente — más `GET /admin/vaults` y el **ajuste por
+levantamiento físico** con migración **M-22**. Todo ADITIVO sobre v1.16 (los endpoints M1 existentes
+no cambian de forma; solo ganan campos). No toca dinero saliente.
+
+### 41.1 `MasterSetService` parametrizado por scope (§4.18a)
+- `index()/binder()` ganan `scope: MasterSetQueryScope = { kind:'platform' } | { kind:'user_vault', userId }`
+  (default `platform` → los llamadores v1.16 no cambian) y `opts: { includeOwnerEmail?, includeBuyable? }`.
+  El scope SOLO cambia el WHERE de la agregación (`ownerType='customer' AND ownerUserId=:userId` para
+  bóveda, ambas titularidades `pending|settled`, mismo filtro `NOT_ON_HAND` de status); orden natural,
+  `numberSort`, `isSecretRare` y el patrón sin-N+1 se reusan sin duplicar.
+- **Completitud por VARIANTE (§4.18b):** universo por carta = `Card.availableFinishes` (vacío/null →
+  `['normal']`, helper exportado `expectedFinishes`, orden del enum `Finish`). Por celda: `variants[]`
+  (`{finish, count, covered, buyable?}`), `expectedVariantCount`, `coveredVariantCount`. En el índice:
+  `catalogVariantCount` (Σ|availableFinishes| por set, 1 raw SQL sobre `Card`), `distinctVariantsOwned`
+  y `variantCompletionPct`. **Drift**: una pieza cuyo finish quedó fuera del universo se ve en
+  `countsByFinish`/`totalCount` pero NO cuenta en expected/covered (el CASE del raw SQL del índice y el
+  filtro del binder lo excluyen del numerador) → nunca `covered > expected`.
+- **Queries fijas:** índice = 4 (sets + `card.groupBy` + raw variantes de catálogo + raw agregación de
+  piezas con `distinctVariants`); binder = 2 (+1 lote de buyables solo en la vista (iii)). En scope
+  `user_vault` el índice filtra a sets con ≥1 pieza del usuario DESPUÉS de agregar (queries siguen fijas).
+- **Omisiones por scope (regla dura):** el shape jamás lleva ubicación/costos/folios; `owner` solo en
+  `user_vault` (`email` SOLO con `includeOwnerEmail`, vista (ii)); `buyable` SOLO con `includeBuyable`
+  (vista (iii)). `resolveOwner` hace el 404 de usuario inexistente para las rutas admin.
+- `MasterSetService` ahora inyecta `PricingService` (buyables); `InventoryModule` ya importaba
+  `PricingModule`, sin ciclos nuevos.
+
+### 41.2 Endpoints nuevos
+- **`GET /vault/master-sets` y `GET /vault/master-sets/:setId`** (`VaultController`, módulo vault,
+  guard de sesión existente): SIEMPRE `userId = req.user` (la vista (iii) jamás acepta un userId del
+  request). Índice = solo sets con ≥1 pieza mía; binder = cualquier set del catálogo (los huecos son
+  mis faltantes) con `buyable: {inventoryItemId, salePriceCents}|null` por variante faltante. Lectura
+  pura, sin acciones.
+- **`GET /admin/vaults`** (`AdminVaultsController` + `AdminVaultsService`, módulo vault,
+  `@Roles(vault_operator, super_admin)`): clientes con bóveda (≥1 pieza). Valuación con la MISMA base
+  del portafolio §3: `getReferencesBatch` en 1 lote (referencia por acabado); pendientes EXCLUIDOS del
+  total y contados en `pendingPriceCount`. Sorts `value_desc` (default) | `pieces_desc` | `name_asc`;
+  filtro `q` por nombre/email; paginado. 3 queries fijas (piezas de bóveda + users + lote de refs).
+- **`GET /admin/vaults/:userId/master-sets[/:setId]`**: vista (ii) — mismo shape, `owner` CON email,
+  SIN `buyable`, read-only. 404 usuario/set inexistente.
+- **`POST /admin/inventory/adjustments`** (`InventoryController`, `vault_operator+`): motivo
+  OBLIGATORIO `encontrada|perdida|danada|error_captura` (`InventoryAdjustmentRequestDto`; validación
+  cruzada por reason en el servicio → 400). `encontrada` crea pieza(s) reusando `resolveCreation`/
+  `buildItemData`/`nextFolios` del alta (acquisitionType default `aportacion_en_especie`, PRICE_PENDING
+  con escalado en paridad con el alta; qty default 1, graded fuerza 1) → Res **201**; los otros tres
+  operan UNA pieza existente con `note` obligatoria → Res **200**. Transiciones: perdida→`lost`,
+  danada→`damaged`, error_captura→`withdrawn` (SIN semántica de pérdida; la distinción vive en
+  `InventoryAdjustment.reason`). **Guardarraíl:** solo `ownerType=platform` con status ∈
+  `{in_stock, listed}` → resto `422 ITEM_NOT_ADJUSTABLE` (código nuevo en `error-codes.ts`).
+  **Registro triple:** fila(s) `InventoryAdjustment` + `InventoryMovement(reason=adjustment)` en UNA
+  `$transaction` (servicio) + `AuditLog action=inventory.adjustment` con usuario/timestamp
+  (controller, patrón M1). El ajuste JAMÁS pone `reserved`/`listed` ni crea órdenes (sin venta directa).
+
+### 41.3 Migración M-22 (`20260817200000_m22_inventory_adjustment`)
+- `enum AdjustmentReason`, valor `MovementReason.adjustment` (ALTER TYPE ADD VALUE, aditivo) y modelo
+  `InventoryAdjustment` (uuid id, FK `inventoryItemId` onDelete Cascade — patrón `InventoryMovement` —,
+  `reason/fromStatus/toStatus/actorUserId/note/createdAt`, índices por item/reason/createdAt). SQL
+  escrito a mano (sin BD local corriendo) y VERIFICADO contra `prisma migrate diff --from-empty
+  --to-schema-datamodel` (tabla/índices/FK/enums idénticos a lo que generaría Prisma). Sin backfill.
+  NO se añadió valor a `InventoryStatus` (decisión §4.18e).
+
+### 41.4 Decisiones/notas para otros roles
+- **`adjustmentId` con qty>1 (`encontrada`):** M-22 exige UNA fila `InventoryAdjustment` por pieza
+  creada, pero `InventoryAdjustmentResponse.adjustmentId` es singular → se devuelve el id de la
+  **primera** fila (las demás se recuperan por `inventoryItemIds`). Ambigüedad menor de contrato;
+  anotada para el arquitecto (no bloquea: el front no navega por adjustmentId).
+- **`GET /admin/vaults` valúa TODAS las piezas de bóveda** (1 findMany + 1 lote de refs) para poder
+  ordenar globalmente por `value_desc` antes de paginar — mismo patrón que el índice master-set (sort
+  global en memoria). A escala de decenas de miles de piezas convendría materializar (par de la fase 2
+  `InventoryStockSummary`); hoy es O(1) queries y suficiente para el MVP.
+- **`buyable`:** paridad con la ficha §4.9 — `listPriceCents` override gana; si no, derivado por
+  reglas de venta (`computeSalePriceForRarity` + `getReferencesBatch`); precio no resoluble o ≤0 → esa
+  pieza no es buyable. Solo `ownerType=platform AND status=listed`, cualquier productType.
+- **Zonas compartidas tocadas (aditivo, autorizado por el stream):** `prisma/schema.prisma` (M-22 ya
+  aprobada por el arquitecto) y `src/common/error-codes.ts` (+`ITEM_NOT_ADJUSTABLE`, exigido por §0).
+
+### 41.5 Archivos
+- `src/modules/inventory/master-set.service.ts` (scopes/variantes/buyable), `inventory.service.ts`
+  (`adjust` + allowlist ajustable), `inventory.controller.ts` (POST adjustments + audit),
+  `dto/inventory.dto.ts` (`AdjustmentFoundItemInput`, `InventoryAdjustmentRequestDto`).
+- `src/modules/vault/vault.controller.ts` (rutas master-sets del cliente), `admin-vaults.service.ts`,
+  `admin-vaults.controller.ts`, `vault.module.ts` (importa `InventoryModule`).
+- `src/common/error-codes.ts`; `prisma/schema.prisma` + `prisma/migrations/20260817200000_m22_inventory_adjustment/`.
+- Tests: `test/master-set.service.spec.ts` (actualizado: v1.16 intacto bajo scope default),
+  `test/master-set.scopes.spec.ts`, `test/admin-vaults.spec.ts`, `test/inventory.adjustments.spec.ts`.
+
+### 41.6 Gates
+- `npx prisma generate` OK · `npm run typecheck` → 0 errores · `npm run lint` → 0 warnings ·
+  `npm run build` OK · `npx jest` → **76 suites / 563 tests verdes** (antes 73/516: 3 suites nuevas +
+  1 actualizada, +47 tests de este WS). La suite de integración (`test:integration`) requiere la infra
+  levantada (la corre QA con el stack).

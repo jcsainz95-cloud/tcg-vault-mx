@@ -135,3 +135,45 @@ export class BulkPublishRequest {
   @Type(() => BulkPublishLineInput)
   items!: BulkPublishLineInput[];
 }
+
+// ===== v1.18-master-set-everywhere (§4.18e) — ajuste por levantamiento físico =====
+
+/**
+ * Pieza "encontrada" del ajuste: MISMOS campos que `BatchInventoryItemInput` con UNA excepción
+ * documentada (API_CONTRACT §DTOs): `acquisitionType` es OPCIONAL con default
+ * `aportacion_en_especie` (lo aplica el servicio). `qty` default 1; graded fuerza 1.
+ */
+export class AdjustmentFoundItemInput {
+  @IsString() cardId!: string;
+  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
+  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
+  finish?: Finish;
+  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
+  @IsOptional() @IsString() gradeValue?: string;
+  @IsOptional() @IsString() certNumber?: string;
+  @IsOptional() @IsString() locationId?: string;
+  @IsOptional() @IsIn(['aportacion_en_especie', 'buylist', 'compra'])
+  acquisitionType?: AcquisitionType;
+  @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
+}
+
+/**
+ * POST /admin/inventory/adjustments (API_CONTRACT §M1 v1.18). Unión discriminada por `reason`:
+ *  - `encontrada` → requiere `item` (crea pieza(s)); `note` opcional.
+ *  - `perdida | danada | error_captura` → requieren `inventoryItemId` + `note` (obligatoria).
+ * La coherencia cruzada (campo requerido según reason) la valida el servicio → 400 VALIDATION_ERROR.
+ */
+export class InventoryAdjustmentRequestDto {
+  @IsIn(['encontrada', 'perdida', 'danada', 'error_captura'])
+  reason!: 'encontrada' | 'perdida' | 'danada' | 'error_captura';
+  @IsOptional() @IsString() inventoryItemId?: string;
+  @IsOptional() @IsString() note?: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AdjustmentFoundItemInput)
+  item?: AdjustmentFoundItemInput;
+}

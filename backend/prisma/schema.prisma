@@ -197,6 +197,21 @@ enum MovementReason {
   lost
   damaged
   buylist_convert
+  // v1.18-master-set-everywhere (M-22): ajuste por LEVANTAMIENTO FÍSICO desde el binder M1
+  // (POST /admin/inventory/adjustments). El historial de la pieza distingue un ajuste de
+  // operador (`adjustment`) de un `mark` normal (`lost`/`damaged`) o un retiro (`withdrawal`).
+  adjustment
+}
+
+// v1.18-master-set-everywhere (M-22): motivo OBLIGATORIO del ajuste de inventario por
+// levantamiento físico (ARCHITECTURE §4.18e). `encontrada` crea pieza(s); `perdida`/`danada`
+// → lost/damaged (flujo de reposición/merma); `error_captura` → withdrawn SIN semántica de
+// pérdida (la pieza nunca existió físicamente; la distinción vive aquí, no en InventoryStatus).
+enum AdjustmentReason {
+  encontrada
+  perdida
+  danada
+  error_captura
 }
 
 enum PendingPriceContext {
@@ -427,6 +442,8 @@ model InventoryItem {
   orderItems    OrderItem[]
   shipmentItems ShipmentItem[]
   disputes      Dispute[]
+  // v1.18 (M-22): ajustes por levantamiento físico registrados sobre esta pieza.
+  adjustments   InventoryAdjustment[]
 
   @@index([cardId])
   @@index([status])
@@ -452,6 +469,27 @@ model InventoryMovement {
   createdAt      DateTime         @default(now())
 
   @@index([itemId])
+}
+
+// v1.18-master-set-everywhere (M-22): registro TIPADO y consultable del ajuste de inventario por
+// levantamiento físico (POST /admin/inventory/adjustments, ARCHITECTURE §4.18e). Tabla propia y NO
+// solo AuditLog porque el motivo debe ser consultable para reportes de merma/levantamiento (M7/M9);
+// complementa —no reemplaza— InventoryMovement(reason=adjustment) y AuditLog. Para `encontrada` con
+// qty>1 se crea UNA fila por pieza creada. Sin FK dura a User (patrón AuditLog).
+model InventoryAdjustment {
+  id              String           @id @default(uuid())
+  inventoryItemId String
+  item            InventoryItem    @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  reason          AdjustmentReason
+  fromStatus      InventoryStatus?
+  toStatus        InventoryStatus
+  actorUserId     String?
+  note            String?
+  createdAt       DateTime         @default(now())
+
+  @@index([inventoryItemId])
+  @@index([reason])
+  @@index([createdAt])
 }
 
 // v1.16-master-set (M-21): idempotencia + auditoría del alta/publicación por LOTE (ARCHITECTURE
