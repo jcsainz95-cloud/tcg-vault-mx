@@ -30,11 +30,13 @@ function buildService(prisma: any): BuylistService {
   );
 }
 
-// Fila tal cual la devuelve Prisma con `include: { items: { include: { card: true } } }`.
+// Fila tal cual la devuelve Prisma con `include: { items: { include: { card: true } }, user }`.
 function fakeRow(id: string) {
   return {
     id,
     userId: 'user-1',
+    // v1.18-buylist-rejects: join a User para `seller: AdminSellerRef` en adminList/adminGet.
+    user: { id: 'user-1', name: 'Ash Ketchum', email: 'ash@example.com' },
     status: 'cotizada',
     quotedTotalCents: 5000,
     approvedTotalCents: null,
@@ -91,7 +93,7 @@ describe('BuylistService.listMine — shape SellRequestDTO', () => {
 });
 
 describe('BuylistService.adminList — shape AdminBuylistDTO', () => {
-  it('devuelve `items[].card` (CardDTO) y conserva id/userId', async () => {
+  it('devuelve `items[].card` (CardDTO), conserva id/userId y expone `seller` (v1.18)', async () => {
     const findMany = jest.fn().mockResolvedValue([fakeRow('sr-1')]);
     const count = jest.fn().mockResolvedValue(1);
     const service = buildService({ sellRequest: { findMany, count } });
@@ -100,18 +102,36 @@ describe('BuylistService.adminList — shape AdminBuylistDTO', () => {
 
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        include: { items: { include: { card: true } } },
+        include: {
+          items: { include: { card: true } },
+          // v1.18: join a User para AdminSellerRef (solo id/name/email — nunca passwordHash etc.).
+          user: { select: { id: true, name: true, email: true } },
+        },
       }),
     );
 
     const row: any = res.data[0];
     expect(row.id).toBe('sr-1');
     expect(row.userId).toBe('user-1');
+    // v1.18: identidad del vendedor (seller.id === userId; email SIN enmascarar — no es la CLABE).
+    expect(row.seller).toEqual({ id: 'user-1', name: 'Ash Ketchum', email: 'ash@example.com' });
     // La cola M5 lee it.card.name → card debe venir poblado.
     expect(row.items[0].card).toEqual({ id: 'card-1', name: 'Pidgey', number: '16' });
     expect(row.items[0].card.name).toBe('Pidgey');
     expect(res.total).toBe(1);
     expect(res.page).toBe(1);
     expect(res.pageSize).toBe(20);
+  });
+
+  it('ordena por createdAt DESC (norma v1.18; antes asc)', async () => {
+    const findMany = jest.fn().mockResolvedValue([fakeRow('sr-1')]);
+    const count = jest.fn().mockResolvedValue(1);
+    const service = buildService({ sellRequest: { findMany, count } });
+
+    await service.adminList(undefined, 1, 20);
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { createdAt: 'desc' } }),
+    );
   });
 });

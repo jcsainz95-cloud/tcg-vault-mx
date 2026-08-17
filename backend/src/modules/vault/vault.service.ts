@@ -1,8 +1,19 @@
 import { Injectable } from '@nestjs/common';
+import { ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
 import { toCardDTO } from '../catalog/catalog.service';
+
+// v1.17: etapas de un envío ACTIVO (subconjunto expuesto en HoldingDTO.shipmentState).
+// `entregado` no aparece (el item ya es `withdrawn` y sale de holdings) y `cancelado`
+// libera el item ⇒ shipmentState=null. ARCHITECTURE §3.3, API_CONTRACT §3.
+const ACTIVE_SHIPMENT_STAGES: ShipmentStatus[] = [
+  ShipmentStatus.solicitado,
+  ShipmentStatus.picking,
+  ShipmentStatus.guia,
+  ShipmentStatus.enviado,
+];
 
 @Injectable()
 export class VaultService {
@@ -17,11 +28,41 @@ export class VaultService {
    * y se reportan en pendingPriceCount (no rompen el cálculo). API_CONTRACT §3.
    */
   async holdings(userId: string) {
+    // v1.17: los `entregado` salen de la bóveda (item.status='withdrawn') y NO cuentan en
+    // el portafolio; los items con envío ACTIVO (solicitado/picking/guia/enviado) SÍ se
+    // listan y SÍ cuentan. API_CONTRACT §3.
     const items = await this.prisma.inventoryItem.findMany({
-      where: { ownerType: 'customer', ownerUserId: userId },
+      where: { ownerType: 'customer', ownerUserId: userId, status: { not: 'withdrawn' } },
       include: { card: { include: { set: true } } },
       orderBy: { createdAt: 'desc' },
     });
+
+    // v1.17 — fuente de verdad canónica del estado de retiro: join
+    // InventoryItem → ShipmentItem → ShipmentRequest ACTIVO. Batch en UNA consulta
+    // (evita N+1); a lo más un envío activo por item (garantizado por
+    // 409 ITEM_IN_ANOTHER_SHIPMENT). ARCHITECTURE §3.3.
+    const itemIds = items.map((i) => i.id);
+    const activeShipmentItems = itemIds.length
+      ? await this.prisma.shipmentItem.findMany({
+          where: {
+            inventoryItemId: { in: itemIds },
+            shipmentRequest: { status: { in: ACTIVE_SHIPMENT_STAGES } },
+          },
+          select: {
+            inventoryItemId: true,
+            shipmentRequestId: true,
+            shipmentRequest: { select: { status: true } },
+          },
+        })
+      : [];
+    const activeByItem = new Map<string, { shipmentId: string; state: ShipmentStatus }>();
+    for (const si of activeShipmentItems) {
+      activeByItem.set(si.inventoryItemId, {
+        shipmentId: si.shipmentRequestId,
+        state: si.shipmentRequest.status,
+      });
+    }
+
     let totalValueMxnCents = 0;
     let pendingPriceCount = 0;
     const data = [];
@@ -39,6 +80,18 @@ export class VaultService {
       } else {
         pendingPriceCount += 1;
       }
+      // v1.17 — estado del retiro derivado del join; flag `withdrawable` AUTORITATIVO.
+      const active = activeByItem.get(item.id) ?? null;
+      const shipmentState = active ? active.state : null;
+      const activeShipmentId = active ? active.shipmentId : null;
+      // v1.17.1 (§3): criterio ÚNICO de elegibilidad read=write. Idéntico a `classifyItems`
+      // (shipments.service): settled + EN CUSTODIA + sin envío activo. El `status==='in_custody'`
+      // es imprescindible: la query filtra `status != 'withdrawn'`, pero un item `settled` puede
+      // estar `lost`/`damaged` (sigue en la bóveda) y NO debe ser retirable.
+      const withdrawable =
+        item.ownershipStatus === 'settled' &&
+        item.status === 'in_custody' &&
+        shipmentState === null;
       data.push({
         inventoryItemId: item.id,
         folio: item.folio,
@@ -51,6 +104,10 @@ export class VaultService {
         gradeValue: item.gradeValue ?? undefined,
         ownershipStatus: item.ownershipStatus,
         status: item.status,
+        // v1.17: etapa del envío activo, deep-link y flag anti doble-retiro.
+        shipmentState,
+        activeShipmentId,
+        withdrawable,
         referenceValue,
       });
     }
@@ -65,8 +122,10 @@ export class VaultService {
    * Opcional/nullable: si ningún item tiene costo registrado → null.
    */
   async costBasisCents(userId: string): Promise<number | null> {
+    // v1.17: misma exclusión que holdings — los `withdrawn` (entregados) salen del
+    // portafolio y de su base de costo, para que el snapshot histórico sea coherente.
     const agg = await this.prisma.inventoryItem.aggregate({
-      where: { ownerType: 'customer', ownerUserId: userId },
+      where: { ownerType: 'customer', ownerUserId: userId, status: { not: 'withdrawn' } },
       _sum: { acquisitionCostCents: true },
     });
     return agg._sum.acquisitionCostCents ?? null;

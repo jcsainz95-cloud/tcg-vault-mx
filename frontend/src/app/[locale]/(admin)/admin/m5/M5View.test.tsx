@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/render';
 import { M5View } from './M5View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import type { CardDTO } from '@/types/contract';
 
 // Reveal CLABE / pago SPEI exigen super_admin (patrón useRole): se fija para ejercer el flujo.
 vi.mock('@/lib/role', () => ({
@@ -97,22 +98,62 @@ describe('M5View · Buylist admin end-to-end', () => {
     ).toBeInTheDocument();
   });
 
-  it('Rechazar un ítem llama a la decisión reject', async () => {
+  it('Rechazar abre el diálogo de motivo (obligatorio 3–500), envía reason y confirma (v1.18)', async () => {
     const spy = vi.spyOn(api, 'decideBuylistItem').mockResolvedValue({
       id: 'sri-1',
       card: { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] },
       productType: 'raw',
       finish: 'holofoil',
       itemStatus: 'rechazada',
+      rejectionReason: 'no es NM: esquina doblada',
     });
     renderWithProviders(<M5View />, 'es');
     const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
     fireEvent.click(rejectButtons[0]);
 
+    // El clic NO envía nada aún: exige el motivo en el mini-diálogo.
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar ítem' });
+    const confirm = within(dialog).getByRole('button', { name: 'Rechazar y notificar' });
+    expect(confirm).toBeDisabled();
+    expect(spy).not.toHaveBeenCalled();
+    // Se avisa que el vendedor recibirá correo con motivo y plazos.
+    expect(within(dialog).getByText(/se notificará al vendedor por correo/)).toBeInTheDocument();
+
+    // Motivo demasiado corto → error de validación en cliente y confirm deshabilitado.
+    fireEvent.change(within(dialog).getByLabelText('Motivo del rechazo'), { target: { value: 'ab' } });
+    expect(within(dialog).getByText('El motivo debe tener entre 3 y 500 caracteres.')).toBeInTheDocument();
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText('Motivo del rechazo'), {
+      target: { value: 'no es NM: esquina doblada' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar y notificar' }));
+
     await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith('sri-1', { decision: 'reject', approvedPriceCents: undefined }),
+      expect(spy).toHaveBeenCalledWith('sri-1', { decision: 'reject', reason: 'no es NM: esquina doblada' }),
     );
     expect(await screen.findByText('Ítem rechazado.')).toBeInTheDocument();
+  });
+
+  it('el 400 del server al rechazar se muestra DENTRO del diálogo de motivo', async () => {
+    vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(
+      new ApiClientError(400, {
+        code: 'SOME_UNMAPPED_CODE',
+        message: 'reason is required for reject (3-500 chars)',
+      }),
+    );
+    renderWithProviders(<M5View />, 'es');
+    const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
+    fireEvent.click(rejectButtons[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar ítem' });
+    fireEvent.change(within(dialog).getByLabelText('Motivo del rechazo'), {
+      target: { value: 'motivo válido' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar y notificar' }));
+
+    expect(
+      await within(dialog).findByText('reason is required for reject (3-500 chars)'),
+    ).toBeInTheDocument();
   });
 
   it('Convertir a inventario está deshabilitado si el ítem no está aprobado', async () => {
@@ -201,10 +242,91 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(screen.queryByText('sr-3001')).not.toBeInTheDocument();
   });
 
-  it('el vendedor es un enlace a la ficha del usuario en M6 (?user=)', async () => {
+  it('el vendedor se muestra con nombre + correo (UUID en tooltip) y enlaza a M6 (?user=)', async () => {
     renderWithProviders(<M5View />, 'es');
-    const link = await screen.findByRole('link', { name: /Ver ficha del vendedor u-777/ });
+    // v1.18: identidad primaria = seller.name + seller.email; el UUID pasa a `title`.
+    const link = await screen.findByRole('link', { name: /Ver ficha del vendedor Diana Olvera/ });
+    expect(link.textContent).toContain('Diana Olvera');
+    expect(link.textContent).toContain('diana.olvera@example.mx');
+    expect(link.textContent).not.toContain('u-777');
+    expect(link.getAttribute('title')).toBe('u-777');
     expect(link.getAttribute('href')).toContain('user=u-777');
+  });
+
+  it('muestra la fecha de creación de cada solicitud (formato del admin)', async () => {
+    renderWithProviders(<M5View />, 'es');
+    // sr-3001 createdAt=2026-08-12 → formatDate es-MX "12 ago 2026".
+    await screen.findByText('sr-3001');
+    expect(screen.getByText(/12 ago 2026/)).toBeInTheDocument();
+  });
+
+  it('muestra el total aprobado DEL SERVER (approvedTotalCents, sin sumar en la UI)', async () => {
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-3001');
+    fireEvent.click(screen.getByRole('tab', { name: /Por pagar/ }));
+    // sr-3003: approvedTotalCents=28000 (fixture) → MX$280.00 etiquetado como total aprobado.
+    expect(await screen.findByText(/Total aprobado/)).toBeInTheDocument();
+    expect(screen.getByText(/Total aprobado/).textContent).toContain('280.00');
+  });
+
+  it('pestaña Rechazadas: lista transversal con plazos, fases y SIN convertir a inventario', async () => {
+    const DAY = 24 * 3600 * 1000;
+    const card: CardDTO = { id: 'c', externalId: 'c', name: 'Umbreon VMAX', number: '215', rarity: 'Rare Rainbow', supertype: 'Pokémon', subtypes: [], setId: 'swsh7', setName: 'Evolving Skies', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+    const spy = vi.spyOn(api, 'getAdminRejectedBuylistItems').mockResolvedValue({
+      data: [
+        {
+          // Rechazada ayer → fase "en plazo de devolución" (now <= returnDeadlineAt).
+          id: 'sri-r1',
+          sellRequestId: 'sr-3001',
+          seller: { id: 'u-777', name: 'Diana Olvera', email: 'diana.olvera@example.mx' },
+          card,
+          productType: 'raw',
+          finish: 'holofoil',
+          quotedPriceCents: 45000,
+          reason: 'no es NM: borde con desgaste',
+          rejectedAt: new Date(Date.now() - 1 * DAY).toISOString(),
+          returnDeadlineAt: new Date(Date.now() + 6 * DAY).toISOString(),
+          abandonDeadlineAt: new Date(Date.now() + 29 * DAY).toISOString(),
+        },
+        {
+          // Rechazada hace 40 días → ambos plazos vencidos.
+          id: 'sri-r2',
+          sellRequestId: 'sr-3002',
+          seller: { id: 'u-778', name: 'Marco Peña', email: 'marco.pena@example.mx' },
+          card,
+          productType: 'raw',
+          finish: 'normal',
+          quotedPriceCents: 1200,
+          reason: 'no es NM: doblez central',
+          rejectedAt: new Date(Date.now() - 40 * DAY).toISOString(),
+          returnDeadlineAt: new Date(Date.now() - 33 * DAY).toISOString(),
+          abandonDeadlineAt: new Date(Date.now() - 10 * DAY).toISOString(),
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-3001');
+    fireEvent.click(screen.getByRole('tab', { name: /Rechazadas/ }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ page: 1 }));
+    // Carta (nombre/set/acabado), vendedor y motivo visibles.
+    expect((await screen.findAllByText('Umbreon VMAX')).length).toBe(2);
+    expect(screen.getAllByText(/Evolving Skies/).length).toBe(2);
+    expect(screen.getByText(/diana\.olvera@example\.mx/)).toBeInTheDocument();
+    expect(screen.getByText(/no es NM: borde con desgaste/)).toBeInTheDocument();
+    // Fase derivada de now vs los plazos del server.
+    expect(screen.getByText('En plazo de devolución')).toBeInTheDocument();
+    expect(screen.getByText('Plazos vencidos')).toBeInTheDocument();
+    // Plazos visibles: devolución (7d, a costo del vendedor) y abandono (30d).
+    expect(screen.getAllByText(/Devolución hasta .+a costo del vendedor/).length).toBe(2);
+    expect(screen.getAllByText(/Abandono a partir de/).length).toBe(2);
+    // PROJECT criterio 16: una rechazada JAMÁS se convierte a inventario → sin botón.
+    expect(screen.queryByRole('button', { name: 'Convertir a inventario' })).not.toBeInTheDocument();
+    // Tampoco hay acciones de decisión en esta pestaña.
+    expect(screen.queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
   });
 
   it('un error del pago SPEI muestra el mensaje real del backend dentro del modal', async () => {

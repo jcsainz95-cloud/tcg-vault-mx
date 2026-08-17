@@ -119,4 +119,114 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
       expect(shipment!.stripePaymentIntentId).toBe(res.body.stripe.paymentIntentId);
     });
   });
+
+  /**
+   * v1.17 — ciclo de retiro visible en la bóveda (API_CONTRACT §3/§5/§M4). Continúa del
+   * retiro `ship-ok` (custSettled, solicitado): al pagar queda "EN RETIRO" y no retirable;
+   * al llegar a `entregado` sale de la bóveda (withdrawn) y deja de contar en el portafolio.
+   */
+  describe('ciclo de retiro visible (v1.17)', () => {
+    let adminToken: string;
+    let shipmentId: string;
+    let paymentIntentId: string;
+
+    beforeAll(async () => {
+      adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
+      // El envío activo que contiene la carta settled (creado por 'ship-ok').
+      const si = await h.prisma.shipmentItem.findFirst({
+        where: {
+          inventoryItemId: itemId.custSettled,
+          shipmentRequest: { status: { notIn: ['cancelado', 'entregado'] } },
+        },
+        include: { shipmentRequest: true },
+      });
+      shipmentId = si!.shipmentRequestId;
+      paymentIntentId = si!.shipmentRequest.stripePaymentIntentId!;
+    });
+
+    it('con envío activo: la carta se marca EN RETIRO y NO es retirable, pero SÍ cuenta', async () => {
+      const res = await h.api('GET', '/vault/holdings', { token });
+      const settled = (res.body.data as any[]).find((d) => d.folio === E2E_FOLIOS.custSettled);
+      expect(settled).toBeDefined();
+      expect(settled.shipmentState).toBe('solicitado');
+      expect(settled.activeShipmentId).toBe(shipmentId);
+      expect(settled.withdrawable).toBe(false);
+      // Sigue contando en el portafolio (aún es del cliente).
+      expect(res.body.portfolio.totalValueMxnCents).toBe(
+        E2E_CARDS.charizard.refNmCents + E2E_CARDS.common.refNmCents,
+      );
+    });
+
+    it('GET /shipments (mine) trae items enriquecidos y NO expone shippingCostCents', async () => {
+      const res = await h.api('GET', '/shipments', { token });
+      expect(res.status).toBe(200);
+      const dto = (res.body.data as any[]).find((s) => s.id === shipmentId);
+      expect(dto).toBeDefined();
+      expect(dto).not.toHaveProperty('shippingCostCents');
+      const item = dto.items.find((i: any) => i.inventoryItemId === itemId.custSettled);
+      expect(item.folio).toBe(E2E_FOLIOS.custSettled);
+      expect(typeof item.finish).toBe('string');
+      expect(item.card).toMatchObject({ name: expect.any(String), setName: expect.any(String) });
+    });
+
+    it('GET /shipments (mine) NO devuelve retiros de otro usuario', async () => {
+      const other = await h.login(E2E_USERS.customer2.email, E2E_USERS.customer2.password);
+      const res = await h.api('GET', '/shipments', { token: other });
+      expect(res.status).toBe(200);
+      expect((res.body.data as any[]).some((s) => s.id === shipmentId)).toBe(false);
+    });
+
+    it('avanza solicitado→picking→guia→enviado→entregado y retira el item de la bóveda', async () => {
+      // Pago liquidado → picking (webhook, sin tocar el item).
+      const wh = await h.sendStripeWebhook({
+        type: 'payment_intent.succeeded',
+        data: { object: { id: paymentIntentId } },
+      });
+      expect(wh.status).toBe(200);
+      let shipment = await h.prisma.shipmentRequest.findUnique({ where: { id: shipmentId } });
+      expect(shipment!.status).toBe('picking');
+      // El item NO se movió en el pago (sigue in_custody).
+      let item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId.custSettled } });
+      expect(item!.status).toBe('in_custody');
+
+      // guia (tracking) → enviado → entregado (admin).
+      const tr = await h.api('POST', `/admin/shipments/${shipmentId}/tracking`, {
+        token: adminToken,
+        json: { carrier: 'DHL', trackingNumber: 'TRK-E2E-1' },
+      });
+      expect(tr.status).toBe(201);
+      const s1 = await h.api('PATCH', `/admin/shipments/${shipmentId}/status`, {
+        token: adminToken,
+        json: { to: 'enviado' },
+      });
+      expect(s1.status).toBe(200);
+      const s2 = await h.api('PATCH', `/admin/shipments/${shipmentId}/status`, {
+        token: adminToken,
+        json: { to: 'entregado' },
+      });
+      expect(s2.status).toBe(200);
+
+      shipment = await h.prisma.shipmentRequest.findUnique({ where: { id: shipmentId } });
+      expect(shipment!.status).toBe('entregado');
+
+      // Transición terminal: item withdrawn, con movimiento, conservando titularidad histórica.
+      item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId.custSettled } });
+      expect(item!.status).toBe('withdrawn');
+      expect(item!.ownerType).toBe('customer');
+      expect(item!.ownershipStatus).toBe('settled');
+      const mov = await h.prisma.inventoryMovement.findFirst({
+        where: { itemId: itemId.custSettled, reason: 'withdrawal' },
+      });
+      expect(mov).toBeTruthy();
+      expect(mov!.toStatus).toBe('withdrawn');
+    });
+
+    it('tras entregado: la carta sale de la bóveda y deja de contar en el portafolio', async () => {
+      const res = await h.api('GET', '/vault/holdings', { token });
+      const folios = (res.body.data as any[]).map((d) => d.folio);
+      expect(folios).not.toContain(E2E_FOLIOS.custSettled);
+      // Solo queda la pending (common); el charizard entregado ya no cuenta.
+      expect(res.body.portfolio.totalValueMxnCents).toBe(E2E_CARDS.common.refNmCents);
+    });
+  });
 });

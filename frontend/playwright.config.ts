@@ -11,11 +11,21 @@ import { defineConfig } from '@playwright/test';
  * Base URL: parametrizable por `E2E_BASE_URL` (la app corriendo que levanta
  * devops en CI). Si NO se define, Playwright levanta el server Next en modo mocks
  * (`NEXT_PUBLIC_USE_MOCKS=true`) para poder correr sin backend real.
+ *
+ * Modo REAL (`E2E_REAL=1`): filtra automáticamente a los smoke tagueados `@real`
+ * (comprar/retirar/vender) — los ÚNICOS diseñados para correr contra el backend real
+ * (autentican de verdad vía `utils/auth.loginAs`, descubren datos del seed y asertan
+ * estructura, no montos de fixture). Los demás specs (copy/i18n/términos, casos mock-only)
+ * NO corren en real. Así el humano/devops solo necesita:
+ *   E2E_BASE_URL=http://localhost:3010 E2E_REAL=1 npm run test:e2e
+ * (o, equivalente/redundante, añadir `-- --grep @real`). En modo mock (sin `E2E_REAL`)
+ * NO se filtra: corre TODA la suite (los `@real` también corren, por su rama mock).
  */
 
 const CHROMIUM = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? '/opt/pw-browsers/chromium';
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
 const isCI = !!process.env.CI;
+const isReal = process.env.E2E_REAL === '1';
 
 export default defineConfig({
   testDir: './e2e',
@@ -26,6 +36,8 @@ export default defineConfig({
   workers: isCI ? 1 : undefined,
   timeout: 60_000,
   expect: { timeout: 15_000 },
+  // En real, solo el subset @real (smoke de flujos de dinero contra el stack real).
+  grep: isReal ? /@real/ : undefined,
   reporter: isCI
     ? [['list'], ['html', { open: 'never' }], ['github']]
     : [['list'], ['html', { open: 'never' }]],

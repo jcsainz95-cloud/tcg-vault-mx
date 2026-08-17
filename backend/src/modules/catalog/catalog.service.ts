@@ -335,13 +335,22 @@ export class CatalogService {
    * v1.3 — Sets que tienen cartas importadas (API_CONTRACT §6 `GET /buylist/sets`), para
    * poblar el dropdown del cotizador. A diferencia de `listSets` (solo sets con inventario
    * publicado), aquí aparecen TODOS los sets del catálogo con al menos una carta. `year`
-   * derivado de `releaseDate`; ordenados por año desc.
+   * derivado de `releaseDate`.
+   *
+   * Orden (fix del dropdown «Filtrar por set»): `releaseDate` COMPLETA descendente (no solo
+   * el año — dos sets del mismo año quedan por fecha exacta), desempate por `name` asc, y
+   * los sets SIN `releaseDate` al final (también por nombre), en vez de mezclados como si
+   * fueran los más antiguos.
    */
   async listSetsWithImportedCards() {
     const sets = await this.prisma.cardSet.findMany({
       where: { cards: { some: {} } },
       select: { id: true, name: true, series: true, releaseDate: true },
     });
+    // `releaseDate` viene de pokemontcg.io como `yyyy/MM/dd`, por lo que la comparación
+    // lexicográfica de strings equivale a la cronológica con la fecha completa.
+    const byName = (a: { name: string }, b: { name: string }) =>
+      a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true });
     const data = sets
       .map((s) => ({
         id: s.id,
@@ -350,7 +359,15 @@ export class CatalogService {
         releaseDate: s.releaseDate ?? null,
         year: yearFromReleaseDate(s.releaseDate),
       }))
-      .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+      .sort((a, b) => {
+        if (a.releaseDate && b.releaseDate) {
+          if (a.releaseDate !== b.releaseDate) return a.releaseDate < b.releaseDate ? 1 : -1;
+          return byName(a, b);
+        }
+        if (a.releaseDate) return -1; // b sin fecha → al final
+        if (b.releaseDate) return 1; // a sin fecha → al final
+        return byName(a, b);
+      });
     return { data };
   }
 

@@ -117,4 +117,34 @@ export class PriceIngestJobService {
   async runChild(data: { setId: string; fx: FxSnapshot }): Promise<void> {
     await this.ingest.ingestSet(data.setId, data.fx);
   }
+
+  /**
+   * Catch-up al boot (auditoría de precios 2026-08-17): si el scheduler está habilitado (hay
+   * cola) y NO existe NINGUNA `PriceReference` de mercado reciente (hoy/ayer UTC), encola un
+   * `price-ingest` inmediato con jobId dedup por día (`price-ingest-catchup-<día>`), para que
+   * los precios se pueblen solos tras cada deploy aunque el cron 00:00/12:00 UTC se haya
+   * perdido (p. ej. porque la conexión Redis estuvo rota o el deploy es nuevo).
+   *
+   * - Sin cola (local/CI sin Redis): no-op — NO se lanza el ingest secuencial pesado al boot.
+   * - Dedup: el jobId por día + el upsert idempotente de `PriceReference` hacen que reinicios
+   *   múltiples el mismo día no dupliquen trabajo.
+   */
+  async catchUpIfStale(): Promise<{ enqueued: boolean; reason: 'no-queue' | 'recent' | 'stale' }> {
+    if (!this.queue) return { enqueued: false, reason: 'no-queue' };
+    if (await this.ingest.hasRecentIngest()) {
+      this.logger.log('price-ingest catch-up: hay ingesta reciente (hoy/ayer); no se encola.');
+      return { enqueued: false, reason: 'recent' };
+    }
+    const day = new Date().toISOString().slice(0, 10);
+    await this.queue.add(
+      JOB,
+      {},
+      { jobId: `price-ingest-catchup-${day}`, removeOnComplete: true, removeOnFail: 100 },
+    );
+    this.logger.warn(
+      `price-ingest catch-up: SIN ingesta de precios reciente → encolado price-ingest inmediato ` +
+        `(jobId=price-ingest-catchup-${day}).`,
+    );
+    return { enqueued: true, reason: 'stale' };
+  }
 }

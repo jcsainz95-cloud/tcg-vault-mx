@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Card, Finish, InventoryStatus, MovementReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { PricingService } from '../pricing/pricing.service';
+import { PriceInfo, PricingService } from '../pricing/pricing.service';
+import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { computeAportacionCostCents, computeSalePriceForRarity } from '../../common/money';
@@ -584,7 +585,7 @@ export class InventoryService {
     if (q.locationId) where.locationId = q.locationId;
     if (q.zone) where.location = { zone: q.zone as never };
     if (q.q) where.OR = [{ folio: { contains: q.q, mode: 'insensitive' } }];
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.inventoryItem.findMany({
         where,
         include: { card: true, location: true },
@@ -594,7 +595,43 @@ export class InventoryService {
       }),
       this.prisma.inventoryItem.count({ where }),
     ]);
+    const data = await this.attachSealedMarketRefs(rows);
     return { data, page: q.page, pageSize: q.pageSize, total };
+  }
+
+  /**
+   * v1.19-sealed-tcgcsv (API_CONTRACT §M1, READ-ONLY) — adjunta `sealedMarketRef: PriceInfo`
+   * a los items SELLADOS del listado: la referencia de mercado TCGCSV del producto mapeado
+   * (`getReference(cardId, 'sealed', sealed:tcg:<productId>, 'normal')`, la más reciente).
+   * `null` si el item no está mapeado o aún no hay ingest. Resuelta POR LOTE vía
+   * `getReferencesBatch` (BE-25) — sin N+1. Es INFORMATIVA (sugerencia junto a
+   * `listPriceCents`); no cambia publicación, valuación ni venta (§4.19a).
+   */
+  private async attachSealedMarketRefs<
+    T extends { id: string; cardId: string; productType: string; tcgplayerProductId: number | null },
+  >(rows: T[]): Promise<(T & { sealedMarketRef?: PriceInfo | null })[]> {
+    const mapped = rows.filter(
+      (r) => r.productType === 'sealed' && r.tcgplayerProductId != null,
+    );
+    const refs = await this.pricing.getReferencesBatch(
+      mapped.map((r) => ({
+        cardId: r.cardId,
+        productType: 'sealed' as const,
+        gradeKey: sealedMarketGradeKey(r.tcgplayerProductId as number),
+        finish: 'normal' as const,
+      })),
+    );
+    return rows.map((r) => {
+      if (r.productType !== 'sealed') return r;
+      const ref =
+        r.tcgplayerProductId != null
+          ? refs.get(
+              `${r.cardId}|sealed|${sealedMarketGradeKey(r.tcgplayerProductId)}|normal`,
+            )
+          : undefined;
+      // Contrato §M1: null si no mapeado o sin ingest (pending NO se expone como PriceInfo).
+      return { ...r, sealedMarketRef: ref && ref.status === 'priced' ? ref : null };
+    });
   }
 
   async getItem(id: string) {
@@ -607,6 +644,21 @@ export class InventoryService {
       },
     });
     if (!item) throw BusinessException.notFound();
+    // v1.19-sealed-tcgcsv (§M1): el detalle de un sellado expone la referencia TCGCSV
+    // (read-only). Misma regla que el listado: null sin mapeo o sin ingest.
+    if (item.productType === 'sealed') {
+      let ref: PriceInfo | null = null;
+      if (item.tcgplayerProductId != null) {
+        const found = await this.pricing.getReference(
+          item.cardId,
+          'sealed',
+          sealedMarketGradeKey(item.tcgplayerProductId),
+          'normal',
+        );
+        ref = found.status === 'priced' ? found : null;
+      }
+      return { ...item, sealedMarketRef: ref };
+    }
     return item;
   }
 

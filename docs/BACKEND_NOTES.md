@@ -2808,3 +2808,382 @@ Pase pequeño de cierre de dos hallazgos ya señalados. No cambia el contrato; t
 ### 40.4 Gates
 - `npx tsc --noEmit` → 0 errores. `npx jest` → **73 suites / 516 tests verdes** (incluye los 2 tests nuevos/
   ajustados).
+
+---
+
+## 41. Ciclo de RETIRO visible para el cliente (WS-H / contrato v1.17-withdrawal-lifecycle)
+
+Implementa la **Opción 1** del contrato v1.17 (API_CONTRACT §3, §5, §M4, §9; ARCHITECTURE §3.3, §9 WD-1):
+la carta retirada permanece "EN RETIRO" en la bóveda con RETIRAR deshabilitado, el retiro es rastreable por
+etapa, y al llegar a `entregado` **sale de la bóveda**. **Aditivo, SIN migración** (reusa
+`InventoryStatus.withdrawn`, `MovementReason.withdrawal` y la máquina `ShipmentStatus` existentes).
+
+### 41.1 Fuente de verdad canónica (derivación, sin espejo)
+El estado/etapa del retiro se **deriva del join** `InventoryItem → ShipmentItem → ShipmentRequest.status`.
+El `InventoryItem.status` **NO se espeja por etapa**: permanece `in_custody` durante
+`solicitado→picking→guia→enviado`. La **única escritura persistente** del ciclo es la transición terminal en
+`entregado` (`in_custody → withdrawn`). Hay a lo más **un** envío activo por item (garantizado por
+`409 ITEM_IN_ANOTHER_SHIPMENT`).
+
+### 41.2 `GET /vault/holdings` — nuevos campos derivados (`vault.service.ts`)
+- **Query:** `ownerType='customer' AND ownerUserId=:me AND status != 'withdrawn'`. Los `withdrawn`
+  (entregados) NO se listan ni cuentan; los items con envío activo SÍ se listan y SÍ cuentan.
+- **Join eficiente (sin N+1):** UNA sola consulta batch a `shipmentItem.findMany` con
+  `inventoryItemId IN (ids)` y `shipmentRequest.status IN (solicitado,picking,guia,enviado)`; se construye un
+  `Map<inventoryItemId, {shipmentId, state}>`. Si no hay items, no se consulta el join.
+- **Campos por holding:** `shipmentState: ShipmentActiveStage|null` (etapa del envío activo),
+  `activeShipmentId: string|null` (deep-link a `GET /shipments/:id`), `withdrawable: boolean` =
+  `ownershipStatus==='settled' && status==='in_custody' && shipmentState===null` (flag autoritativo
+  anti doble-retiro). Ver §41.9 (alineación read=write, v1.17.1).
+- Constante `ACTIVE_SHIPMENT_STAGES` en el módulo (subconjunto activo del enum `ShipmentStatus`).
+
+### 41.3 Portafolio / snapshot coherentes
+- `costBasisCents` y el job `portfolio-snapshot` (`jobs/portfolio-snapshot.service.ts`) aplican la **misma**
+  exclusión `status != 'withdrawn'`. Como el snapshot reusa `VaultService.holdings()`, el valor histórico y
+  el valor en vivo quedan alineados (los entregados dejan de contar en ambos).
+
+### 41.4 Rastreo del cliente — `GET /shipments` (listMine) y `GET /shipments/:id` (`shipments.service.ts`)
+- `toClientShipment` ahora enriquece `items[]` a `ClientShipmentItemDTO`:
+  `{ inventoryItemId, folio, finish, card:{ id, name, setName, number, imageSmallUrl } }` (helper
+  `toClientShipmentItem`, tipo `EnrichedShipmentItem`). `listMine`/`getMine` incluyen
+  `items.inventoryItem.card.set`. Envelope `{ data }` (sin paginar) para listMine.
+- Sigue siendo **allowlist** de campos de cliente (SEC-C1): NO expone `shippingCostCents` ni costos internos.
+  Timestamps por etapa expuestos: `requestedAt/pickingAt/shippedAt/deliveredAt` (no existe `guiaAt` en el
+  modelo; la etapa `guia` se refleja por `status` + `carrier/trackingNumber`). Scoping por `userId`/owner.
+
+### 41.5 Transición terminal — `updateStatus` (`PATCH /admin/shipments/:id/status`)
+- Al pasar a `entregado`, **dentro de `$transaction`**: por cada `InventoryItem` de los `ShipmentItem` del
+  envío, `status: in_custody → withdrawn` (solo cambia `status`; **conserva** `ownerType='customer'`,
+  `ownerUserId`, `ownershipStatus='settled'` — histórico intacto) + `InventoryMovement reason='withdrawal'`.
+- **Idempotente:** un item ya `withdrawn` no duplica movimiento. Como `entregado` es terminal en la máquina,
+  reintentar la transición da `409 CONFLICT` (doble candado). Las transiciones no terminales NO tocan el item.
+
+### 41.6 Webhook (sin cambio, confirmado)
+`payments.service.ts` sigue avanzando **solo** `ShipmentRequest solicitado→picking` en
+`payment_intent.succeeded`, **sin tocar el item**. No se modificó.
+
+### 41.7 Tests
+- **Unit** (`npm test`): `test/vault.holdings-withdrawal.spec.ts` (exclusión de withdrawn, `shipmentState`/
+  `activeShipmentId`/`withdrawable`, join batch de 1 consulta, pending no retirable, costBasis excluye
+  withdrawn) y `test/shipments.client-tracking.spec.ts` (ClientShipmentDTO enriquecido sin `shippingCostCents`,
+  scoping por usuario, transición terminal a `withdrawn` en transacción + idempotencia + no-op en etapas no
+  terminales).
+- **Integración/E2E** (`npm run test:integration`, corre QA con infra): nuevo describe en
+  `test/integration/vault-shipments.e2e-spec.ts` que recorre `solicitado→picking→guia→enviado→entregado`,
+  verifica EN RETIRO / no-retirable con envío activo, items enriquecidos, aislamiento entre usuarios, y la
+  salida de la bóveda + caída del valor del portafolio tras entregar.
+
+### 41.8 Gates
+- `npm run typecheck` → **0 errores**.
+- `npm test` (unit) → **75 suites / 530 tests verdes** (incluye los 2 specs nuevos de este WS).
+- `npm run test:integration` → requiere Postgres/Redis/MinIO; **no se ejecutó en el entorno de desarrollo del
+  agente** (sin Docker/DB). El spec añadido compila (incluido en `tsc`); QA lo ejecuta contra el stack.
+
+### 41.9 Cierre WS-H (v1.17.1 §3) — el flag de LECTURA `withdrawable` alineado read=write (2026-08-17)
+> Micro-pase tras el RECHAZO de QA por divergencia contrato-vs-código: el read de `withdrawable` en
+> `vault.service.ts` omitía el chequeo `status==='in_custody'` que sí exige el contrato v1.17.1 §3 y el write
+> (`classifyItems`, §42.1). Un item `settled` pero `lost`/`damaged` (sigue en la bóveda; solo `withdrawn` se
+> excluye de la query) daba `withdrawable=true` por error. Solo se tocó `backend/`.
+- **Fix (`vault.service.ts`, cómputo del HoldingDTO):**
+  `withdrawable = ownershipStatus==='settled' && shipmentState===null`
+  → `withdrawable = ownershipStatus==='settled' && status==='in_custody' && shipmentState===null`.
+  El `status` ya estaba disponible en el item mapeado (no requiere query nueva).
+- **Invariante read=write cerrada:** el criterio de LECTURA (`withdrawable`) queda **IDÉNTICO** al de ESCRITURA
+  (`classifyItems`: `settled && status==='in_custody' && sin envío activo`) y al contrato §3/§5. La parte "sin
+  envío activo" la aporta `shipmentState===null` (read) / el guard anti-doble-envío (write, §42.2).
+- **Sin cambio de inclusión/exclusión de holdings:** la query sigue filtrando **solo** `status != 'withdrawn'`;
+  los `lost`/`damaged` **siguen apareciendo** en la bóveda y contando en el portafolio, ahora con
+  `withdrawable=false` (ya no ofrecen RETIRAR una carta en incidencia). Nota UX no bloqueante en `TECH_DEBT` BE-40.
+- **Test añadido** (`test/vault.holdings-withdrawal.spec.ts`): un holding `settled` con `status='lost'` y otro
+  `'damaged'`, sin envío → `withdrawable===false` pero **siguen listados** y contando en el portafolio (antes el
+  read daba `true`). Specs existentes de holdings intactos y verdes.
+- **Cosmético:** comentario de `shipments.service.ts` (guard SEC-H2) corregido de `BE-30` → `BE-42` (la deuda
+  real del índice único parcial de `ShipmentItem`).
+- **Gates de este micro-pase:** `typecheck` **0 errores**, `lint` **0 errores**, `npm test`
+  **76 suites / 536 tests verdes** (+1 test nuevo).
+
+## 42. Cierre WS-H · invariante de retiro (SEC-H1 / SEC-H2, triple veredicto — 2026-08-17)
+
+> Pase de cierre tras el triple veredicto de WS-H. Cierra **SEC-H1** (techlead#1 / qa-IMPORTANTE: item
+> `withdrawn` re-retirable, se re-cobraba envío por una carta ya entregada) y **SEC-H2** (techlead#3: TOCTOU de
+> doble-envío concurrente). **Aditivo, SIN migración.** Alineado al contrato en actualización paralela v1.17.x
+> (código de error `ITEM_NOT_IN_CUSTODY`/422 que el arquitecto añade a §5). Solo se tocó `backend/`.
+
+### 42.1 FIX 1 (SEC-H1) — `classifyItems` exige `status === 'in_custody'` (criterio positivo)
+- **Problema:** la transición terminal deja el item `status='withdrawn'` **conservando**
+  `ownershipStatus='settled'` (histórico intacto, WD-1). `classifyItems` solo validaba `ownerUserId` +
+  `ownershipStatus==='settled'` y **NO** excluía `status='withdrawn'`; el chequeo anti-doble-envío excluye
+  envíos `entregado`. Resultado: un item ya entregado (fuera de la bóveda) pasaba ambos gates → se creaba una
+  `ShipmentRequest` y se **cobraba envío por Stripe** de una carta ya retirada (doble-retiro).
+- **Fix (`shipments.service.ts › classifyItems`):** tras el check de `settled`, se añade el criterio
+  **POSITIVO** `item.status === 'in_custody'`; cualquier otro status (incl. `withdrawn`) → inelegible con razón
+  `ITEM_NOT_IN_CUSTODY`. Así el criterio de **escritura** (creación de retiro) queda **IDÉNTICO** al flag de
+  **lectura** `withdrawable` del HoldingDTO (`settled && status==='in_custody' && sin envío activo`): la parte
+  "sin envío activo" la aporta el guard anti-doble-envío (§42.2).
+- **Error/HTTP:** nuevo código estable **`ITEM_NOT_IN_CUSTODY`** en `common/error-codes.ts`, devuelto vía
+  `BusinessException.validation(...)` → **HTTP 422**. En `create`, el mapeo de inelegibles prioriza
+  `ITEM_NOT_SETTLED` → `ITEM_NOT_IN_CUSTODY` → `NOT_FOUND` (todos 422), con `details.ineligible`.
+
+### 42.2 FIX 2 (SEC-H2) — guard transaccional SERIALIZABLE del anti-doble-envío + creación
+- **Problema:** el `findFirst` de "envío activo" y la creación de `ShipmentRequest`/`ShipmentItem` iban
+  **fuera** de transacción (y `ShipmentItem` no tiene unique en `inventoryItemId`) → dos `POST /shipments`
+  concurrentes del mismo item podían pasar ambos el check y crear **dos** envíos + **dos** PaymentIntents.
+- **Elección (sin migración):** envolví el **re-chequeo** (`tx.shipmentItem.findFirst`) **+** la creación
+  (`tx.shipmentRequest.create`, con items) en **UN** `$transaction` con
+  `isolationLevel: Prisma.TransactionIsolationLevel.Serializable` — **mismo patrón atómico** que ya usan el
+  checkout (`orders.service`, reserva `updateMany`+`count===1`) y el tope AML de buylist (SEC-A2). Bajo
+  SERIALIZABLE, dos transacciones que ambas leen "no hay envío activo" y ambas insertan producen un **conflicto
+  de serialización** que aborta a una → nunca se crean dos envíos activos. **No** metí la llamada a Stripe
+  (creación del PaymentIntent) dentro de la tx a propósito: sigue **después** (A2/BE-7), para no bloquear una
+  conexión de DB en una llamada de red y conservar el rollback compensatorio (borra la `ShipmentRequest` si
+  Stripe falla → cascada a items).
+- **Índice único parcial NO aplicado (deuda `BE-42`):** el cinturón-y-tirantes a nivel BD (índice único parcial
+  sobre `ShipmentItem.inventoryItemId` para envíos activos) **requiere migración** y se **difirió** por alcance;
+  queda registrado en `TECH_DEBT.md` (**BE-42**, dueño backend, schema→arquitecto, **disparador DAST**). El guard
+  serializable ya mitiga la carrera práctica.
+
+### 42.3 Tests (obligatorio del encargo)
+- **Nuevo** `test/shipments.withdraw-invariant.spec.ts` (6 casos): (a) `POST /shipments` con item `withdrawn`
+  (settled preservado) → **`ITEM_NOT_IN_CUSTODY`/422**, sin tocar Stripe ni crear solicitud; (b) ciclo
+  entregado→re-retiro falla (segundo intento rechazado); camino feliz (settled+in_custody) crea la solicitud
+  **dentro** del `$transaction` serializable; (c) guard SEC-H2: primer envío OK, segundo secuencial ve el envío
+  activo → **`ITEM_IN_ANOTHER_SHIPMENT`/409**, `shipmentRequest.create` llamado **una** sola vez y Stripe una
+  sola vez; y un caso que asserta que el re-chequeo corre dentro de `$transaction`.
+- **Actualizado** `test/shipments.rollback.spec.ts`: el mock del item ganó `status:'in_custody'` (antes sin
+  status → ahora lo exige el gate) y se añadió `prisma.$transaction` al mock (ejecuta el callback con el propio
+  cliente mock como `tx`). Mantiene verdes los 2 casos de rollback A2/BE-7.
+
+### 42.4 Gates
+- `npm run lint` → **0 errores**. `npm run typecheck` → **0 errores**.
+- `npm test` (unit) → **76 suites / 535 tests verdes** (antes 75/530; +1 suite / +5 tests netos de este pase).
+- `npm run test:integration` → requiere Postgres/Redis/MinIO; **no se ejecutó** en el entorno del agente (sin
+  Docker/DB). Los specs unitarios nuevos corren sin infra (Prisma mockeado).
+
+## 43. Auditoría de precios (2026-08-17) — por qué el catálogo vive en «Precio pendiente» en producción
+
+Síntomas en prod (Railway, 1 réplica, worker BullMQ in-process): casi todas las cartas del cotizador/catálogo
+sin precio; el set destacado «Pitch Black» suma ~MX$10 en total.
+
+### 43.1 Causas raíz confirmadas (con evidencia de código)
+
+**CR-1 (principal) — La conexión Redis del scheduler no era viable en Railway y fallaba EN SILENCIO.**
+`SchedulerService.onModuleInit` creaba `new IORedis(url, { maxRetriesPerRequest: null })` **sin `family`**.
+El private networking de Railway (`redis.railway.internal`) resuelve **solo IPv6 (AAAA)**; ioredis usa
+`family: 4` (IPv4) **por default** → el lookup falla (ENOTFOUND/ETIMEDOUT) y el cliente **reintenta para
+siempre**. Consecuencias encadenadas, todas invisibles:
+- La conexión **no tenía listener `on('error')`** ni `on('ready')`: cero rastro en logs de que Redis nunca conectó.
+- Los `await this.queue.add(...)` de los crons quedaban esperando en la **offline queue** de ioredis →
+  `onModuleInit` **nunca resolvía** → Nest no llegaba a `app.listen()` → el healthcheck del deploy
+  (`railway.json: /api/v1/health`, timeout 300s) moría. Con Railway conservando el deployment anterior
+  sirviendo, el humano ve una app «funcionando» donde los crons jamás corren.
+- Con los crons muertos, **NADA** escribe `PriceReference` de mercado: ni `price-ingest` (00:00/12:00 UTC),
+  ni `set-price-sync` (06:30 UTC, el que precia el set destacado completo). Evidencia del MX$10: si el
+  scheduler corriera, `set-price-sync` habría preciado las ~150-250 cartas de «Pitch Black»;
+  `SetValueService.computeSetValue` **excluye del total las cartas sin precio** (diseño correcto, no inventa
+  precios) → un total ridículo = solo 1-3 cartas con referencia (p. ej. overrides manuales del admin), o sea:
+  la ingesta masiva **nunca corrió**.
+- El fallo del worker sí tenía `on('failed')`, pero jamás llegaba un job al worker: el fallo era **antes** (conexión).
+
+**CR-2 (agravante) — Sin catch-up: un cron perdido = catálogo sin precios hasta el siguiente cron.**
+Aunque se arregle la conexión, un deploy a las 13:00 UTC no precia nada hasta las 00:00 UTC. No existía
+ningún mecanismo de «si no hay ingesta reciente, ingesta ahora».
+
+### 43.2 Hipótesis auditadas y DESCARTADAS
+- **Switch del worker incompleto** — descartada: `scheduler.service.ts` enruta `price-ingest`,
+  `price-ingest-1`, `price-ingest-2` (→ `run()`) y `price-ingest-set` (→ `runChild()`); el `default` loggea warn.
+- **`onModuleInit` lanza y Nest se traga el error** — descartada como estaba escrito: no lanzaba; se **colgaba**
+  (peor: ni stack trace). Ahora ni lanza ni cuelga (ver fix).
+- **Dial `price_provider` sin sembrar** — descartada: `SettingsService.get` cae a `SETTING_DEFAULTS`
+  (`settings.constants.ts: PRICE_PROVIDER → 'pokemontcg_io'`) si no hay fila, y `providerFor()` además tiene
+  fallback explícito al provider legacy ante valor desconocido. Nunca queda sin provider.
+- **FX ausente rompe el ingest** — descartada: `FxService.getCurrent()` tiene fallback duro `rate=18`.
+- **Cobertura de pokemontcg.io** — *contribuyente menor, no causa raíz*: el provider bulk solo emite filas con
+  `tcgplayer.prices[llave].market > 0` y llave mapeada; cartas/sets sin precios de TCGPlayer quedarán
+  «pendiente» aunque el ingest corra (correcto, money-safe). No explica un catálogo *entero* vacío.
+- **Rate limit** — *riesgo operativo, no causa raíz*: full ingest ≈ nº sets × 1-2 páginas (250/pág) ≈ cientos de
+  requests, 2×/día. Con `POKEMONTCG_IO_API_KEY` (~20k/día) sobra; sin key el free tier (~30/min) provoca 429s;
+  el cliente reintenta 4 veces respetando `Retry-After` y el provider devuelve lo acumulado con `logger.warn`
+  (parcial, visible en logs, no borra precios). Verificar la key en Railway (ver 43.5).
+
+### 43.3 Fix aplicado (archivos)
+- **`backend/src/jobs/redis-connection.util.ts` (nuevo):** `resolveRedisFamily()` / `bullRedisOptions()` —
+  `family: 0` (lookup dual-stack) por default; precedencia: env `REDIS_FAMILY` (0|4|6) > `?family=` en la
+  REDIS_URL (se respeta, no se pisa) > default 0. Funciona igual en local/CI (IPv4) y Railway (IPv6-only).
+- **`backend/src/jobs/scheduler.service.ts`:**
+  - Conexión con `bullRedisOptions` + listeners `error` (con throttle 60s para no spamear; mensaje explícito
+    «los crons NO corren hasta reconectar») y `ready`.
+  - **Boot no bloqueante:** el wiring BullMQ corre en background (`setupDone`); un Redis caído ya no cuelga
+    `app.listen()` ni mata el healthcheck. Cuando Redis conecta, los adds pendientes fluyen y el scheduler
+    se activa solo. Un fallo del wiring se loggea como **error con stack** y la app sigue (jobs quedan en
+    modo disparo manual).
+  - Cola con `on('error')`; worker con `on('failed')` (ahora con id + nº de intento + stack), `on('error')`
+    y `on('completed')` (heartbeat observable de que los crons corren).
+  - **Catch-up al boot:** al terminar el wiring llama `priceIngest.catchUpIfStale()` (no fatal).
+  - `onModuleDestroy` tolerante: closes en try/catch; `quit()` solo con conexión `ready`, si no `disconnect()`
+    duro (antes un shutdown con Redis roto se colgaba).
+- **`backend/src/jobs/price-ingest.service.ts`:** `catchUpIfStale()` — con cola y **sin** `PriceReference`
+  no-manual de hoy/ayer, encola un `price-ingest` inmediato con `jobId=price-ingest-catchup-<día>` (dedup:
+  reinicios múltiples el mismo día no duplican; el upsert de PriceReference ya es idempotente). Sin cola: no-op
+  (no lanza el ingest secuencial pesado al boot en local/CI).
+- **`backend/src/modules/pricing/price-ingest.service.ts`:** `hasRecentIngest()` (señal del catch-up;
+  excluye `isManualOverride=true` — un precio manual del admin no cuenta como ingesta).
+- **`backend/src/modules/health/health-redis.provider.ts`:** mismo `family` que el scheduler → en Railway
+  `/api/v1/health` ahora reporta el estado REAL de Redis (antes daría `down` con Redis sano, o directamente
+  no se podía consultar porque el boot se colgaba).
+- Visibilidad del ingest: ya existía y es útil — resumen por set en `PriceIngestService.ingestForSet`
+  (`price-ingest-set(<set>, <provider>): N cartas, N refs, N sin resolver, N omitidas`) + total del fan-out.
+  Ahora además cada job loggea `completado`/`falló` desde el worker.
+
+### 43.4 Tests y gates
+- `test/scheduler.spec.ts` (+7 casos): family default/override/URL-passthrough, listeners de
+  conexión/cola/worker, catch-up disparado, wiring fallido no revienta el boot, destroy con conexión no lista.
+- `test/price-ingest.job.spec.ts` (+3): `catchUpIfStale` no-queue / recent / stale (jobId dedup por día).
+- `test/price-ingest.service.spec.ts` (+2): `hasRecentIngest` (ventana ayer 00:00 UTC, excluye manuales).
+- `test/health-redis.provider.spec.ts` (+2 y ctor actualizado con `family: 0`).
+- Gates: `npm run lint` **0 errores** · `npm run typecheck` **0 errores** · `npm test` **76 suites / 553 tests
+  verdes** (este pase añade **+14 tests** netos).
+
+### 43.5 Runbook de verificación en producción (post-deploy)
+1. **Logs de arranque (Railway):** deben aparecer, en orden:
+   `Scheduler: conexión Redis lista (BullMQ operativo).` → `Scheduler activo (BullMQ): …` → y una de:
+   `price-ingest catch-up: SIN ingesta de precios reciente → encolado price-ingest inmediato (jobId=…)` (primera
+   vez) o `price-ingest catch-up: hay ingesta reciente…`. Si en cambio se ve
+   `Scheduler: error de conexión Redis…` repetido cada ~60s → la URL/red sigue mal (ver ACCIÓN DEVOPS).
+2. **Health:** `GET /api/v1/health` → Redis `up` (ya con `family` correcto es señal fiable).
+3. **Progreso del ingest:** logs `price-ingest: encolados N sets (fan-out BullMQ).` y luego una línea
+   `price-ingest-set(<setId>, pokemontcg_io): X cartas, Y refs, …` por set + `Job price-ingest-set (id=…) completado.`
+4. **Disparo manual (si se quiere forzar sin esperar):** `POST /api/v1/admin/jobs/price-ingest` (super_admin,
+   202). Con body `{"setId": "<externalId, p.ej. el de Pitch Black>"}` ingesta SOLO ese set inline (verificación
+   rápida). Sin body: fan-out completo.
+5. **Datos:** el cotizador/catálogo deja de mostrar «Precio pendiente» para cartas con precio TCGPlayer, y el
+   total de «Pitch Black» sube a un valor plausible tras el snapshot (`set-value-snapshot` 07:15 UTC, o
+   `POST /api/v1/admin/jobs/set-value-snapshot` manual tras `set-price-sync`/ingest).
+6. Cartas que SIGAN en «pendiente» tras un ingest verde = sin `tcgplayer.prices.market>0` en la fuente
+   (cobertura, esperado); se resuelven con override manual del admin o cambiando el dial `priceProvider`.
+
+### 43.6 ACCIÓN DEVOPS REQUERIDA (no implementado por backend; zonas de devops)
+1. **Verificar en Railway que `REDIS_URL` está en el SERVICIO del backend** (variable del service, no solo del
+   entorno/proyecto) y apunta al Redis correcto. El síntoma histórico es 100% consistente con scheduler sin
+   conexión Redis viable.
+2. **`.env.example`:** documentar la nueva env OPCIONAL `REDIS_FAMILY` (`0` dual-stack default en código; `4`/`6`
+   para forzar). No requiere valor en Railway: el default 0 ya cubre `redis.railway.internal` (IPv6-only).
+   Alternativa equivalente: `REDIS_URL=...?family=0`.
+3. **Verificar `POKEMONTCG_IO_API_KEY` en Railway** (recomendada en prod; sin ella el free tier ~30 req/min
+   ralentiza el ingest y multiplica 429s). Opcional: pedir al arquitecto si debe ser env requerida no-local
+   (`env.validation.ts` es zona compartida `src/config/` — backend no la tocó).
+4. **Post-deploy:** correr el runbook 43.5; si el catch-up no aparece en logs, capturar el log de arranque
+   completo para backend.
+
+## 44. v1.19-sealed-tcgcsv (2026-08-17) — Referencia de mercado del SELLADO vía TCGCSV (§4.19, M-23)
+
+Implementación del diseño v1.19 (ARCHITECTURE §4.19a–g, API_CONTRACT §0/§M1/§M2/§M10/§M10-ops). El precio
+TCGCSV es SOLO referencia informativa: no publica, no fija `listPriceCents`, no encola `PendingPriceEntry`,
+no toca el costo de aportación ni la superficie pública.
+
+### 44.1 Qué hay (mapa de archivos)
+- **M-23** — `prisma/schema.prisma` + `prisma/migrations/20260817140000_m23_sealed_tcgcsv/`: enum
+  `PriceSource += tcgcsv` (`ALTER TYPE ... ADD VALUE`, aditivo), `InventoryItem.tcgplayerProductId Int?` +
+  `tcgplayerGroupId Int?` (se fijan JUNTOS; solo sealed — regla de aplicación) e índice
+  `@@index([tcgplayerProductId])`. **NO aplicada** (sin DB en este entorno); `prisma validate` y `generate`
+  verdes. Sin backfill: la curación es manual post-deploy.
+- **Tipos** — `modules/pricing/pricing.types.ts`: `SealedBulkPriceProvider` (interfaz NUEVA, keyeada por
+  `tcgplayerProductId`; no se reusa `BulkPriceProvider`), `SealedPriceRow` (con `usedFallbackMid`),
+  `TcgcsvGroupRef`/`TcgcsvProductRef`, `sealedMarketGradeKey(pid)` → `sealed:tcg:<pid>`. `PriceSourceStr`
+  ganó `'tcgcsv'`. `buildGradeKey` NO cambió (`'sealed'` sigue siendo override manual/costo de aportación).
+- **Adapter** — `modules/pricing/providers/tcgcsv-sealed.provider.ts` (`TcgcsvSealedBulkProvider`): host
+  FIJO `https://tcgcsv.com` (anti-SSRF), categoría Pokémon=3 constante de servidor, `groupId` validado
+  entero positivo ANTES de interpolar, sin API key, timeout 15s, `redirect:'error'`. Money-safe:
+  `subTypeName≠'Normal'` u market inválido → OMITE; fallback `marketPrice→midPrice` con flag; el fetch de
+  precios del ingest NUNCA lanza (devuelve lo acumulado + log; precios previos quedan STALE). El explorador
+  (`listGroups`/`listSealedProducts`) SÍ lanza → el controller lo mapea a `502 UPSTREAM_ERROR`. Heurística
+  de sellado: product SIN extendedData `Number`/`Rarity` (limpia la lista; no decide dinero).
+- **Ingest** — `modules/pricing/sealed-price-ingest.service.ts` (`SealedPriceIngestService`): algoritmo
+  normativo §4.19d (DISTINCT groupIds mapeados → precios por grupo → pares distintos
+  `(anchorCardId, productId)` → upsert). Escritura vía **`PricingService.persistSealedMarketReference`**
+  (método HERMANO de `persistMarketReference`, misma doctrina: upsert idempotente por día, respeta
+  `isManualOverride`, no escala pendientes) con clave `(cardId, 'sealed', sealed:tcg:<pid>, 'normal', hoy)`,
+  `source='tcgcsv'`, USD→MXN con FX+colchón y trazabilidad (`priceUsdCents`/`fxRate`/`fxBufferPct`).
+- **Job** — `jobs/sealed-price-ingest.service.ts` (`SealedPriceIngestJobService`): secuencial AWAITED SIN
+  fan-out (alcance minúsculo), single-flight en memoria (worker BullMQ y HTTP admin comparten proceso),
+  FX UNA vez por corrida, fail-closed por dial (`off` → `{enqueued:false, reason:'SEALED_PRICE_SOURCE_OFF'}`
+  ANTES de leer FX/red). Cableado en `scheduler.service.ts`: repeatable `sealed-price-ingest`, cron env
+  **`SEALED_PRICE_INGEST_CRON`** (default `30 21 * * *` = 21:30 UTC, tras el refresh TCGCSV ~20:00 UTC y
+  tras fx-refresh; horario final = devops) + case del worker (logging failed/completed heredado).
+- **M2 (4 endpoints, super_admin)** — `modules/pricing/sealed-pricing.controller.ts` +
+  `sealed-mapping.service.ts`: `GET /admin/pricing/sealed/unmapped` (cola DERIVADA
+  `sealed AND tcgplayerProductId IS NULL`, asc por createdAt), `GET .../tcgcsv/groups` y
+  `GET .../tcgcsv/groups/:groupId/products` (proxy read-only; `:groupId` no entero → 400; remoto caído →
+  502 UPSTREAM_ERROR; `?q=` filtra server-side sobre name/cleanName), `PUT .../items/:itemId/mapping`
+  (null desmapea y limpia groupId; con valor exige groupId; `applyToSiblings` copia SOLO a sealed sin mapeo
+  del mismo `(cardId, sealedSubtype)` — nunca pisa; auditado `pricing.sealed_mapping.update` con
+  before/after). La curación NO valida contra TCGCSV ni depende del dial.
+- **M1 read-only** — `modules/inventory/inventory.service.ts`: listado y detalle de items sealed exponen
+  `tcgplayerProductId`/`tcgplayerGroupId` (columnas fluyen solas) + `sealedMarketRef: PriceInfo|null`
+  (null sin mapeo o sin ingest). En listados por LOTE vía `getReferencesBatch` (una query por página, sin
+  N+1). `PATCH /admin/inventory/items/:id` IGNORA el mapeo (DTO whitelisted; solo el PUT de M2 lo edita).
+- **M10-ops** — `jobs/admin-jobs.controller.ts`: `POST /admin/jobs/sealed-price-ingest` (202, super_admin,
+  auditado `jobs.sealed_price_ingest.run`), body `{ groupId? }` entero ≥1 (2ª excepción de la familia).
+- **Dial (cambio serializado AUTORIZADO en `settings`)** — `modules/settings/settings.constants.ts`:
+  key `sealed_price_source`, seed **`off`** (fail-closed; el seed itera `SETTING_DEFAULTS`, así que se
+  siembra solo), `SEALED_PRICE_SOURCE_VALUES=['tcgcsv','off']`, validador (422 si otro valor), DTO
+  `sealedPriceSource` en §M10. Patrón EXACTO de `price_provider`. Nada más se tocó en ese módulo.
+
+### 44.2 Decisiones de implementación (no obvias del spec)
+- **`sealedMarketRef` pending → `null`:** el contrato §M1 dice "null si no mapeado o aún no hay ingest";
+  no se expone un `PriceInfo{status:'pending'}` (a diferencia de `referenceValue` de holdings).
+- **`UPSTREAM_ERROR` no está en `common/error-codes.ts`** (zona `src/common/` serializada a otro stream en
+  esta ventana): se tipa por cast local en `sealed-pricing.controller.ts`. **Follow-up de 1 línea** cuando
+  common/ esté libre: añadir `UPSTREAM_ERROR: 'UPSTREAM_ERROR'` a `ErrorCode`.
+- **Single-flight en memoria** (no jobId BullMQ): el job corre inline en el worker/HTTP del MISMO proceso
+  (sin fan-out), igual que la rama secuencial de `price-ingest`. Si algún día hay multi-instancia con
+  worker separado, promover a dedup por jobId (sin cambio de contrato).
+- **`applyToSiblings` con desmapeo (null) = no-op sobre terceros** (nunca desmapea en masa).
+- **DTO del PUT mapping usa `@Allow()`** en `tcgplayerProductId` (el ValidationPipe global corre con
+  `whitelist:true` y quitaría el campo); la validación fina (ausente≠null, enteros positivos, 422) vive en
+  `SealedMappingService`/controller.
+
+### 44.3 Fixtures y validación en STAGING (runbook para devops)
+- **Fixtures** en `backend/test/fixtures/tcgcsv/` (`groups.json`, `products-23821.json`,
+  `prices-23821.json`, grupo Surging Sparks): formato **documentado** de TCGCSV (wrapper
+  `{totalItems, success, errors, results[]}`; precios con `productId/lowPrice/midPrice/highPrice/
+  marketPrice/directLowPrice/subTypeName`). El egress a tcgcsv.com está BLOQUEADO en este entorno (se
+  intentó una descarga real: proxy 403), así que son verbatim del formato público documentado, NO payloads
+  descargados — **la validación del esquema real es obligatoria en staging antes del flip del dial**.
+- **Runbook (opera devops, §4.19f):** (1) deploy + `prisma migrate deploy` (M-23); (2) seed/verificar dial
+  `sealedPriceSource=off` (GET /admin/settings); (3) mapear 1-2 items sellados reales vía M2
+  (`tcgcsv/groups` → `.../products` → PUT mapping); (4) 1ª corrida acotada:
+  `POST /api/v1/admin/jobs/sealed-price-ingest {"groupId": <grupo mapeado>}` — con el dial `off` responde
+  `enqueued:false, reason:SEALED_PRICE_SOURCE_OFF`, así que para la corrida de VALIDACIÓN hay que flipear
+  el dial a `tcgcsv` en staging primero (staging no es prod: inocuo); (5) inspeccionar logs
+  (`fetchedRaw/skipped/usedFallbackMid/unmatched`) y `PriceReference` (`source=tcgcsv`,
+  `gradeKey=sealed:tcg:<pid>`, USD y MXN coherentes con FX del día); (6) si el esquema real difiere de las
+  fixtures → hallazgo a backend (ajustar adapter + fixtures); si cuadra → flip del dial en PROD.
+  Rollback = dial `off` (los PriceReference escritos permanecen, inertes). Env nueva opcional para
+  `.env.example` (zona devops): `SEALED_PRICE_INGEST_CRON`.
+
+### 44.4 Tests (todos contra fixtures/mocks; sin red)
+`test/tcgcsv-sealed.provider.spec.ts` (host fijo/anti-SSRF, parsing verbatim, heurística de sellado,
+omisiones money-safe, fallback mid, fallo parcial sin borrar), `test/sealed-price-ingest.spec.ts`
+(gradeKey, persist hermano + override manual, algoritmo por pares, FX una vez, dial off no-op,
+single-flight, scope groupId), `test/pricing.sealed-mapping.spec.ts` (404/422, desmapeo, applyToSiblings,
+roles super_admin, 400 groupId, 502 UPSTREAM_ERROR, auditoría before/after),
+`test/inventory.sealed-market-ref.spec.ts` (M1 batch sin N+1 + dial), y actualizados
+`scheduler.spec.ts`/`admin-jobs.controller.spec.ts`. Gates: `lint` + `typecheck` + `test` (82 suites,
+633 tests) + `prisma validate/generate` — todo verde.
+
+### 44.5 Cierre de hallazgos techlead v1.19 (2026-08-17)
+- **T-1 (condición de merge) — RESUELTO.** `BuylistService.adminRejectedItems` devolvía la fila Prisma
+  cruda en `card` (con la relación `set` anidada); el contrato §11 exige `card: CardDTO`
+  (`setName`/`subtypes`/`availableFinishes` planos). Ahora proyecta con la canónica `toCardDTO`
+  (exportada por `catalog.service.ts`; mismo patrón que `sealed-mapping.service.ts`) y el `include` trae
+  `set: true`. `test/buylist.rejected-items.spec.ts` actualizado: fixture con fila Card realista y
+  aserciones que CEMENTAN el shape CardDTO (`setName` plano, `set` crudo NO se propaga, `subtypes`,
+  `availableFinishes`). `itemDTO` (~L470) NO se tocó — marcado por techlead como pre-existente para otro
+  pase. Gates: lint/typecheck verdes; suite completa **82 suites / 633 tests** verde.
+- **Deuda anotada en `docs/TECH_DEBT.md`** (sin cambio de código): nueva **BE-44** (cast local de
+  `UPSTREAM_ERROR`; duplicación de ~35 líneas del upsert money-safe en `persistSealedMarketReference` →
+  dirección `upsertDailyReference` común; heurística/fixtures TCGCSV pendientes de validar en staging con
+  dial `off` como candado), **ampliación de BE-43** (buzón `soporte@tcgvaultmx.com` hardcodeado en
+  `buylist-mail.templates.ts` vs env `DISPUTE_EVIDENCE_CONTACT` en disputes — dos fuentes de verdad) y
+  **nota baja** familia BE-4/BE-25/BE-35 (clave del Map de `getReferencesBatch` reconstruida a mano en 6
+  sitios → exportar `referenceKey(item)`).

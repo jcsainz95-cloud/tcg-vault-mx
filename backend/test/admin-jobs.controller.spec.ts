@@ -8,6 +8,7 @@ import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
 import { PriceIngestJobService } from '../src/jobs/price-ingest.service';
+import { SealedPriceIngestJobService } from '../src/jobs/sealed-price-ingest.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { Role } from '@prisma/client';
 
@@ -34,10 +35,14 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   const priceIngest = {
     run: jest.fn().mockResolvedValue({ job: 'price-ingest', enqueued: true, jobId: 'price-ingest-2026-08-17' }),
   } as unknown as PriceIngestJobService;
+  const sealedPriceIngest = {
+    run: jest.fn().mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true }),
+  } as unknown as SealedPriceIngestJobService;
   const audit = { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
   const ctrl = new AdminJobsController(
-    snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest, audit,
+    snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest,
+    sealedPriceIngest, audit,
   );
 
   beforeEach(() => jest.clearAllMocks());
@@ -160,6 +165,59 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
     expect(res).toMatchObject({ job: 'price-ingest', scope: 'set', setId: 'sv8' });
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'jobs.price_ingest.run', after: expect.objectContaining({ setId: 'sv8' }) }),
+    );
+  });
+
+  // v1.19-sealed-tcgcsv (§M10-ops): referencia de mercado del sellado. Auditado; fail-closed por dial.
+  it('POST /admin/jobs/sealed-price-ingest (sin groupId) corre run() y audita jobs.sealed_price_ingest.run', async () => {
+    const res = await ctrl.runSealedPriceIngest({}, user);
+    expect(sealedPriceIngest.run).toHaveBeenCalledWith(undefined);
+    expect(res).toEqual({ job: 'sealed-price-ingest', enqueued: true });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.sealed_price_ingest.run',
+        entityType: 'Job',
+        entityId: 'sealed-price-ingest',
+        after: { job: 'sealed-price-ingest', groupId: null, enqueued: true },
+      }),
+    );
+  });
+
+  it('POST /admin/jobs/sealed-price-ingest { groupId } pasa el grupo (verificación de esquema en staging)', async () => {
+    (sealedPriceIngest.run as jest.Mock).mockResolvedValueOnce({
+      job: 'sealed-price-ingest',
+      enqueued: true,
+      scope: 'group',
+      groupId: 23821,
+    });
+    const res = await ctrl.runSealedPriceIngest({ groupId: 23821 }, user);
+    expect(sealedPriceIngest.run).toHaveBeenCalledWith(23821);
+    expect(res).toMatchObject({ job: 'sealed-price-ingest', scope: 'group', groupId: 23821 });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.sealed_price_ingest.run',
+        after: expect.objectContaining({ groupId: 23821 }),
+      }),
+    );
+  });
+
+  it('POST /admin/jobs/sealed-price-ingest con dial off → 202 enqueued:false + reason (auditado)', async () => {
+    (sealedPriceIngest.run as jest.Mock).mockResolvedValueOnce({
+      job: 'sealed-price-ingest',
+      enqueued: false,
+      reason: 'SEALED_PRICE_SOURCE_OFF',
+    });
+    const res = await ctrl.runSealedPriceIngest({}, user);
+    expect(res).toEqual({
+      job: 'sealed-price-ingest',
+      enqueued: false,
+      reason: 'SEALED_PRICE_SOURCE_OFF',
+    });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.sealed_price_ingest.run',
+        after: expect.objectContaining({ enqueued: false, reason: 'SEALED_PRICE_SOURCE_OFF' }),
+      }),
     );
   });
 });

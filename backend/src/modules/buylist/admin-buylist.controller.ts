@@ -5,7 +5,7 @@ import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
-import { ItemDecisionDto, PaySpeiDto } from './dto/buylist.dto';
+import { ItemDecisionDto, PaySpeiDto, RejectedItemsQueryDto } from './dto/buylist.dto';
 
 /**
  * M5 — Buylist admin. vault_operator hasta verificación; super_admin pago SPEI.
@@ -32,6 +32,18 @@ export class AdminBuylistController {
       Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
       userId,
     );
+  }
+
+  /**
+   * v1.18-buylist-rejects (§M5): pestaña «Rechazadas» — listado paginado TRANSVERSAL de ítems
+   * `itemStatus='rechazada'` con seller, carta, motivo y plazos derivados; orden `rejectedAt` desc.
+   * Mismo guard de roles que el resto de M5 (vault_operator/super_admin, heredado de la clase).
+   * DECLARADO ANTES de `@Get(':id')` para que la ruta literal no la capture el parámetro.
+   * Paginación inválida → 400 VALIDATION_ERROR (DTO).
+   */
+  @Get('rejected-items')
+  rejectedItems(@Query() query: RejectedItemsQueryDto) {
+    return this.buylist.adminRejectedItems(query.page ?? 1, query.pageSize ?? 20, query.userId);
   }
 
   @Get(':id')
@@ -92,14 +104,25 @@ export class AdminBuylistController {
     @Body() dto: ItemDecisionDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.buylist.itemDecision(itemId, dto.decision, dto.approvedPriceCents);
+    // v1.18-buylist-rejects: `reason` obligatorio con reject (DTO valida 3–500 → 400); para
+    // approve/adjust se ignora (no se persiste ni se audita).
+    const res = await this.buylist.itemDecision(
+      itemId,
+      dto.decision,
+      dto.approvedPriceCents,
+      dto.reason,
+    );
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: `buylist.item.${dto.decision}`,
       entityType: 'SellRequestItem',
       entityId: itemId,
-      after: { approvedPriceCents: dto.approvedPriceCents },
+      // El motivo del rechazo va al AuditLog en `after` (§M5); no contiene PII (texto del operador).
+      after:
+        dto.decision === 'reject'
+          ? { reason: dto.reason }
+          : { approvedPriceCents: dto.approvedPriceCents },
     });
     return res;
   }

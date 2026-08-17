@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
+import { loginAs, IS_REAL, MONEY_RE } from './utils/auth';
 
 /**
  * Flujo: agregar al carrito → checkout con AmountBreakdown (subtotal + fee + IVA
  * 16%) y mensaje CFDI por correo. PROJECT §B / AC 4, 30; contrato §4.
  * En modo mocks el pago se simula (no hay Stripe real); contra backend real el
- * botón dispara POST /checkout/session. Ver FRONTEND_NOTES.
+ * botón dispara POST /checkout/session y abre el modal de Stripe. Ver FRONTEND_NOTES.
  */
 test.describe('checkout · desglose y CFDI', () => {
   test('muestra subtotal + procesamiento + IVA 16% + total y aviso CFDI', async ({ page }) => {
@@ -34,15 +35,43 @@ test.describe('checkout · desglose y CFDI', () => {
     ).toBeVisible();
   });
 
-  test('el pago (simulado) confirma y ofrece ir a la bóveda', async ({ page }) => {
+  /**
+   * SMOKE @real — COMPRAR: el botón "Pagar" crea la sesión de checkout
+   * (`POST /checkout/session`) y abre el modal de pago. Env-agnóstico:
+   *  - real: verifica que se abre el modal de Stripe (monta `<Elements>` con el
+   *    clientSecret de la sesión REAL creada; el asentamiento es por webhook, así
+   *    que NO se espera pantalla de "pagado" inmediata).
+   *  - mock: conserva el camino simulado → confirma "en proceso" y ofrece la bóveda.
+   * Aserciones por ESTRUCTURA (desglose + total con formato de moneda), no por montos.
+   */
+  test('@real comprar: el pago crea la sesión y abre el modal de pago', async ({ page }) => {
+    await loginAs(page, 'customer');
     await page.goto('/es/catalog');
+    // Agrega la primera carta vendible que exista (descubre, no hardcodea id).
     await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
     await page.goto('/es/checkout');
 
+    const breakdown = page.getByTestId('amount-breakdown');
+    await expect(breakdown).toBeVisible();
+    await expect(breakdown.getByText(MONEY_RE).first()).toBeVisible();
+
     await page.getByRole('button', { name: /Pagar/ }).click();
-    await expect(page.getByText(t('es', 'checkout.paidTitle'))).toBeVisible();
-    // El CTA de éxito vive en el contenido principal (no en la nav del header).
-    await expect(page.getByRole('main').getByRole('link', { name: t('es', 'nav.vault') })).toBeVisible();
+
+    // El modal SOLO se abre si la sesión (POST /checkout/session) se creó con éxito.
+    const modal = page.getByRole('dialog', { name: t('es', 'checkout.payTitle') });
+    await expect(modal).toBeVisible();
+
+    if (IS_REAL) {
+      // Real: camino Stripe <Elements>, NO el cuerpo simulado (confirma sesión real creada).
+      await expect(modal.getByText(t('es', 'payment.mockBody'))).toBeHidden();
+    } else {
+      // Mock: completa el pago simulado y confirma la vista "en proceso".
+      await modal.getByRole('button', { name: /Pagar/ }).click();
+      await expect(page.getByText(t('es', 'checkout.processingTitle'))).toBeVisible();
+      await expect(
+        page.getByRole('main').getByRole('link', { name: t('es', 'nav.vault') }),
+      ).toBeVisible();
+    }
   });
 
   test('desglose de checkout en inglés', async ({ page }) => {

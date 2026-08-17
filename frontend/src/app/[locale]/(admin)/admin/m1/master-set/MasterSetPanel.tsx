@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Trash2, Package } from 'lucide-react';
@@ -33,6 +33,17 @@ export function MasterSetPanel() {
   const [openCell, setOpenCell] = useState<MasterSetCardCellDTO | null>(null);
   const [cart, setCart] = useState<CaptureLine[]>([]);
 
+  // batchKey ESTABLE por SESIÓN DE CARRITO (techlead #1): se fija UNA vez al empezar a llenar el
+  // carrito y SOLO se regenera tras un éxito confirmado (o al vaciar el carrito). Si el request
+  // expira por red pero SÍ se procesó y el operador reintenta, el reintento reusa la MISMA key →
+  // el backend lo trata como replay (guardia anti-duplicado) → NO se duplican piezas. Generar la
+  // key dentro del mutationFn en cada mutate() derrotaría esa idempotencia.
+  const batchKeyRef = useRef<string | null>(null);
+  function ensureBatchKey(): string {
+    if (batchKeyRef.current === null) batchKeyRef.current = localUid('batch');
+    return batchKeyRef.current;
+  }
+
   const locations = useQuery({ queryKey: ['locations'], queryFn: getLocations });
 
   const submit = useMutation({
@@ -50,25 +61,35 @@ export function MasterSetPanel() {
         acquisitionPct: l.acquisitionPct,
         qty: l.qty,
       }));
-      // batchKey nuevo por submit: idempotencia server-side (un reenvío no duplica).
-      return batchCreateItems({ batchKey: localUid('batch'), items });
+      // Reusa la key de la sesión (un reenvío por timeout NO cambia la key → replay idempotente).
+      return batchCreateItems({ batchKey: ensureBatchKey(), items });
     },
     onSuccess: () => {
       // Refresca agregados (índice + binder abierto): las piezas nuevas cambian conteos.
       void queryClient.invalidateQueries({ queryKey: ['master-sets'] });
       void queryClient.invalidateQueries({ queryKey: ['master-set-binder'] });
       void queryClient.invalidateQueries({ queryKey: ['cell-pieces'] });
+      // Sesión cerrada con éxito → la próxima captura arranca con una batchKey NUEVA.
+      batchKeyRef.current = null;
       setCart([]);
     },
   });
 
   function addToCart(line: CaptureLine) {
+    // Fija la key de la sesión al empezar a llenar el carrito (si aún no existe).
+    ensureBatchKey();
     setCart((prev) => [...prev, line]);
     submit.reset();
   }
 
   function removeLine(key: string) {
     setCart((prev) => prev.filter((l) => l.key !== key));
+  }
+
+  function clearCart() {
+    // Vaciar el carrito termina la sesión → nueva batchKey en la próxima captura.
+    batchKeyRef.current = null;
+    setCart([]);
   }
 
   const batchResults: BatchInventoryLineResult[] = submit.data?.results ?? [];
@@ -122,7 +143,7 @@ export function MasterSetPanel() {
             <Button onClick={() => submit.mutate()} loading={submit.isPending} disabled={submit.isPending}>
               {t('cartSubmit', { count: totalPieces })}
             </Button>
-            <Button variant="secondary" onClick={() => setCart([])} disabled={submit.isPending}>
+            <Button variant="secondary" onClick={clearCart} disabled={submit.isPending}>
               {t('cartClear')}
             </Button>
           </div>
