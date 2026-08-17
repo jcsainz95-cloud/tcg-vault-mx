@@ -2,7 +2,88 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.15-buylist-batch-clabe (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.20-master-set-everywhere (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+>
+> **Changelog v1.20-master-set-everywhere (2026-08-17) — WS «Inventario y vault»: Master set en TODAS partes.**
+> La vista Master Set (v1.16, §4.17, solo M1) se generaliza a un **read model único parametrizado por scope**
+> (`platform` | `user_vault`) que sirve tres vistas con el **mismo shape**: (i) M1 interno (endpoints existentes,
+> DTOs extendidos), (ii) admin viendo la bóveda de cualquier cliente (`GET /admin/vaults/:userId/master-sets[...]`,
+> `vault_operator+`) y (iii) el cliente viendo su propia bóveda (`GET /vault/master-sets[...]`, `customer`).
+> **Completitud por VARIANTE (carta+acabado)** con universo = `Card.availableFinishes` (campo ya existente, §4.15e).
+> Nuevos además: `GET /admin/vaults` (lista de clientes con bóveda, valuación reusada del portafolio),
+> **`buyable`** en el binder del cliente (variante faltante → pieza `listed` más barata), y
+> **`POST /admin/inventory/adjustments`** (levantamiento físico con motivo obligatorio, `InventoryAdjustment` +
+> `InventoryMovement(adjustment)` + `AuditLog`; **sin venta directa desde el binder**). Migración **M-24**.
+> Decisión de frontend: **promover** los componentes de master set de `(admin)/admin/m1/master-set/` a
+> `frontend/src/components/master-set/` (zona compartida, reservada por este stream). Nuevo **§4.20**.
+>
+> **Changelog v1.19-sealed-tcgcsv (2026-08-17) — WS «Catálogo y precios»: fuente de REFERENCIA de mercado para producto
+> SELLADO vía TCGCSV (tcgcsv.com — espejo diario estático de precios de TCGplayer, JSON, sin API key, cubre ETB/booster
+> box/bundle/tin/blister). Aditivo, no-breaking, TODO admin-only (la superficie pública NO cambia). ⚠️ **UNA migración
+> (M-23, §11):** enum `PriceSource += tcgcsv` + 2 columnas nullable en `InventoryItem` (`tcgplayerProductId`,
+> `tcgplayerGroupId`) + índice — **prisma = zona compartida**, el orquestador serializa. Ver **§4.19** (spec completa),
+> §3.6 (actualizado) y API_CONTRACT v1.19 (§0 enums, §M1, §M2, §M10, §M10-ops).**
+> - **PROJECT 3e MANDA — la precedencia no cambia:** el sellado se sigue vendiendo con **precio manual del admin en MXN**
+>   (`listPriceCents`, obligatorio para publicar). El precio TCGCSV es **valor de referencia informativo** (sugerencia en
+>   back-office M1/M2 al fijar el precio); NO auto-publica, NO fija `listPriceCents`, NO alimenta `PendingPriceEntry`,
+>   NO cambia el costo de aportación del sellado y NO se expone en la ficha pública en esta versión (preguntas abiertas
+>   v1.19-1/2).
+> - **Adapter `TcgcsvSealedBulkProvider`** (nuevo, `modules/pricing/providers/`), SEPARADO del bulk de cartas: nueva
+>   interfaz `SealedBulkPriceProvider` keyeada por `tcgplayerProductId` (no hay Card remota que resolver). Host FIJO
+>   `https://tcgcsv.com` anti-SSRF, categoría Pokémon = 3 (constante), `groupId` entero validado, sin API key.
+>   Money-safe: `subTypeName≠'Normal'` / market inválido → se OMITE; fallo parcial → NUNCA borra precios previos (stale).
+> - **Mapeo curado (M-23):** el sellado no tiene entidad de catálogo propia (es `InventoryItem` anclado a una `Card`);
+>   el mapeo vive en el item (`tcgplayerProductId`+`tcgplayerGroupId`, curación manual del admin en M2 con cola derivada
+>   de NO-mapeados + explorador proxy de grupos/productos TCGCSV + `applyToSiblings`). Sin fuzzy-matching automático.
+> - **Persistencia SIN migrar `PriceReference`:** upsert idempotente con `productType='sealed'`,
+>   **`gradeKey='sealed:tcg:<productId>'`** (nuevo esquema; desambigua 2 productos sellados anclados a la misma Card),
+>   `finish='normal'`, `source='tcgcsv'`, USD→MXN con `FxService` + colchón (FX 1 vez por corrida). `buildGradeKey`
+>   (`'sealed'`) NO cambia (lo siguen usando override manual y costo de aportación).
+> - **Job propio `sealed-price-ingest`** (1×/día tras la actualización TCGCSV ~20:00 UTC; secuencial AWAITED, sin fan-out
+>   — volumen minúsculo; single-flight; disparo manual `POST /admin/jobs/sealed-price-ingest { groupId? }`).
+> - **Dial fail-closed `sealed_price_source` (`tcgcsv | off`, seed `off`):** nada se ingiere hasta validar en staging y
+>   flipear (patrón `PRICE_PROVIDER` §4.15h). Rollback = volver a `off`.
+> - **Dev con red bloqueada → FIXTURES:** el adapter se desarrolla/testea contra JSON reales de muestra en
+>   `backend/test/fixtures/tcgcsv/`; la validación real es la 1ª corrida manual en staging (runbook = devops).
+>
+> **Changelog v1.18-buylist-rejects (2026-08-17) — WS «Catálogo y precios»: M5 operable — identidad del vendedor,
+> orden del listado, semántica completa del ítem RECHAZADO (plazos 7d/30d + correo al vendedor) y orden normativo de
+> `GET /buylist/sets`. PROJECT §H / criterios 15–16.** Aditivo, no-breaking. ⚠️ **UNA migración (M-22, §11):** 2
+> columnas nullable en `SellRequestItem` (`rejectedAt`, `rejectionReason`) — **prisma = zona compartida**, el
+> orquestador serializa. Ver **§4.18** (spec completa), §9 (BL-1) y API_CONTRACT v1.18 (§6, §M5, §11).
+> - **Rechazo de ítem:** `reason` obligatorio en `decision:"reject"`; `rejectedAt` = ancla ÚNICA de plazos;
+>   `returnDeadlineAt` (+7d, devolución a costo del usuario) y `abandonDeadlineAt` (+30d) **DERIVADOS** al proyectar
+>   (no columnas; mismas constantes que `buylist-sweep`). Invariante de dinero: ítem `rechazada` ⇒
+>   `approvedPriceCents=null` y fuera de `approvedTotalCents` (cierra BL-1: approve→reject dejaba monto fantasma).
+>   `rechazada` **NUNCA** convertible a inventario (guardia `ITEM_NOT_APPROVED` = norma; PROJECT criterio 16).
+> - **Correo de rechazo (§4.18):** enviado desde `buylist` inyectando el puerto global **`MAIL_PORT`** con plantilla
+>   LOCAL al módulo (ES/EN por `User.locale`, mismo layout/escape que `mail.templates.ts`). El módulo `mail` es de
+>   OTRO stream y NO se toca (deuda aceptada: la plantilla vive fuera de `mail/` hasta que «Cuentas y acceso» la
+>   absorba). **Best-effort** (fallo ⇒ log, nunca revierte la decisión); sin CLABE ni datos de otros ítems.
+> - **M5:** `seller: { id, name, email }` en listado/detalle (correo = contacto operativo, NO CLABE ⇒ sin reveal);
+>   listado por `createdAt` **desc**; nuevo `GET /admin/buylist/rejected-items` (pestaña «Rechazadas», transversal).
+> - **`GET /buylist/sets`:** norma `releaseDate` desc (fecha completa) → desempate `name` asc → sin `releaseDate` al
+>   final.
+> - **Coordinación de streams:** `backend/src/jobs/` se asigna al stream que toca sus jobs (nota en §2).
+>
+> **Changelog v1.17.1-withdrawal-eligibility (2026-08-17) — Cierre de invariante read/write del RETIRO (triple verdicto
+> WS-H: techlead + seguridad SEC-H1 + qa). SOLO documentación.** La transición terminal deja el item `status='withdrawn'`
+> pero conserva `ownershipStatus='settled'` (histórico); el criterio de creación de retiro (`classifyItems`) exigía
+> `settled` pero **no excluía** `withdrawn`, permitiendo re-enviar/re-cobrar un item ya entregado por llamada directa.
+> Se **norma en §3.3** que `withdrawn` es **TERMINAL para retiros** (no re-elegible) y que la fuente de verdad de
+> elegibilidad **excluye** `withdrawn` y exige `status='in_custody'`: `ownerType='customer' AND ownerUserId=usuario AND
+> ownershipStatus='settled' AND status='in_custody' AND sin envío activo` — **mismo** criterio que el flag de lectura
+> `HoldingDTO.withdrawable`. Error normado **`422 ITEM_NOT_IN_CUSTODY`**. Ver **§3.3** y API_CONTRACT v1.17.1 (§0, §3, §5).
+>
+> **Changelog v1.17-withdrawal-lifecycle (2026-08-17) — Cierre del ciclo de RETIRO en la bóveda (Opción 1 del humano).**
+> Cierra el hueco WD-1 (§9): el `InventoryItem` nunca se movía durante el envío, así que la carta seguía en "Mi Bóveda"
+> como liquidada con RETIRAR activo de por vida y sin rastreo para el cliente. Se norma: (1) al pagar, la carta se queda
+> en la bóveda marcada **EN RETIRO** con RETIRAR deshabilitado; (2) retiro **rastreable** por etapa; (3) en `entregado`
+> la carta **sale** de la bóveda (`in_custody → withdrawn`). **Fuente de verdad canónica = join
+> `InventoryItem→ShipmentItem→ShipmentRequest`** (no espejo de estado en el item; única escritura persistente =
+> transición terminal a `withdrawn`). **Aditivo, SIN migración** (reusa `InventoryStatus.withdrawn` y la máquina
+> `ShipmentStatus`). SEC-A1 intacto. Ver **§3.3** (ciclo de vida del item en retiro), §3.2 (InventoryItem.status), §9
+> (WD-1) y API_CONTRACT v1.17 (§3 HoldingDTO, §5 rastreo del cliente, §9 webhooks, §M4).
 >
 > **Changelog v1.15-buylist-batch-clabe (2026-08-17) — WS-C: cotizador de buylist (Fable) contra el backend REAL
 > (Fase 3b).** El cotizador rediseñado del frontend usa hoy **mocks/atajos** que NO funcionan contra el backend real:
@@ -499,6 +580,13 @@ backend/
   test/
 ```
 
+> **Coordinación de work streams — `backend/src/jobs/` (v1.18-buylist-rejects):** la carpeta `jobs/` NO es zona
+> compartida fija: **queda asignada al stream que toca sus jobs correspondientes** (un job pertenece al dominio del
+> módulo que sirve). En el ciclo actual, el stream **«Catálogo y precios»** toca `scheduler.service.ts` /
+> `price-ingest*` (auditoría de precios en curso) y `buylist-sweep.service.ts` si el rechazo lo requiere. Si dos
+> streams necesitan el MISMO archivo de `jobs/` (típicamente `scheduler.service.ts`), el orquestador **serializa** ese
+> cambio como con cualquier zona compartida.
+
 ### frontend/ (Next.js App Router)
 ```
 frontend/
@@ -509,6 +597,8 @@ frontend/
         (admin)/                # back-office M1–M10 + dashboard (responsive; sin captura de fotos de producto, v1.2)
         (auth)/                 # login/registro
     components/                 # implementa el DESIGN_SYSTEM (ux-ui define tokens/componentes)
+      master-set/               # v1.20: binder/índice de master set PROMOVIDOS desde (admin)/admin/m1/master-set/
+                                #   (compartidos por M1, admin-bóveda-cliente y "Mi bóveda"; ver §4.20f)
     lib/                        # api client, stripe.js, query client
     i18n/                       # config next-intl + messages/es.json, messages/en.json (copys de UI)
     hooks/
@@ -607,6 +697,7 @@ Núcleo del sistema. Una fila = una carta/producto físico.
   - `ownerType` (`platform | customer`), `ownerUserId?` (cuando `customer`).
   - `ownershipStatus?` (`pending | settled`, solo cuando `ownerType=customer`; ver §3.3).
 - Estado operativo: `status` (`in_stock | listed | reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`).
+  - **v1.17 — uso en el flujo de retiro:** durante un envío activo el item **permanece `in_custody`** (la etapa se deriva del join a `ShipmentRequest`, ver §3.3); al llegar el envío a **`entregado`** el item pasa a **`withdrawn`** (terminal: sale de la bóveda, no se lista ni cuenta en el portafolio). Los valores **`picking | shipped | delivered` quedan sin uso por diseño** en el ciclo de envío (no se espejan en el item; la fuente de verdad de la etapa es la `ShipmentRequest`). `withdrawn` es la **única** escritura del ciclo de retiro.
 - Precio de venta: `listPriceCents?` (MXN sin IVA; **= `round(referenciaMxn × (1 + salesMarkupPct/100))`** con `salesMarkupPct` dial M10, o override manual directo; si null y sin `PriceReference` → **"precio pendiente"**, no vendible). El **valor de referencia** (valor de mercado mostrado) es el de `PriceReference`, distinto del precio de venta.
 - Costo y adquisición: `acquisitionType` (`aportacion_en_especie | buylist | compra`), `acquisitionCostCents`, `acquisitionPct?` (ej. 70 para aportación en especie), `sourceSellRequestItemId?`.
 - **`finish Finish @default(normal)` (v1.6-finish, MIGRACIÓN M-18):** qué **acabado** es la copia física (Normal / Reverse Holo / Holofoil / 1st Edition Holo). Se captura al alta (M1) y debe pertenecer a `card.availableFinishes`. **Afecta la valuación** (se valúa contra la `PriceReference` de ESE acabado, §4.1) y el **catálogo "Compra"** (se lista/filtra por acabado, §4.9). Filas históricas → `normal`. Para `graded`/`sealed` el finish es siempre `normal` (el acabado solo aplica a raw/singles; ver §3.7).
@@ -776,10 +867,63 @@ webhook payment_intent.canceled
   → libera la reserva de compra (Order=failed, item reserved→listed)
     o cancela un envío en 'solicitado' (ShipmentRequest=cancelado, libera items)
 
-Retiro
-  → solo items con ownershipStatus=settled pueden entrar a ShipmentItem.
-    Un item pending es rechazado por la validación de creación de ShipmentRequest.
+Retiro  (criterio único de elegibilidad = classifyItems, v1.17.1)
+  → un item entra a ShipmentItem SOLO si cumple TODAS:
+    ownerType=customer AND ownerUserId=usuario AND ownershipStatus=settled
+    AND status=in_custody AND sin envío activo.
+    Rechazos: pending ⇒ 422 ITEM_NOT_SETTLED; con envío activo ⇒ 409 ITEM_IN_ANOTHER_SHIPMENT;
+    withdrawn / no-in_custody ⇒ 422 ITEM_NOT_IN_CUSTODY.
+    La elegibilidad EXCLUYE status=withdrawn (item ya entregado, terminal): NO basta ownershipStatus=settled.
 ```
+
+#### Ciclo de vida del item durante el RETIRO/envío (v1.17 — Opción 1)
+
+**Fuente de verdad canónica (UNA, declarada para evitar ambigüedad):** el **estado/etapa del retiro** de un
+item se **deriva del join** `InventoryItem → ShipmentItem → ShipmentRequest.status`. Hay a lo más **un envío
+activo por item** (lo garantiza `409 ITEM_IN_ANOTHER_SHIPMENT`: `shipmentItem.findFirst` sobre envíos
+`status NOT IN (cancelado, entregado)` al crear la solicitud). El `InventoryItem.status` **NO se espeja por
+etapa**: sigue `in_custody` durante `solicitado → picking → guia → enviado`. Los valores
+`InventoryStatus.picking | shipped | delivered` **quedan sin uso por diseño** (no se escriben en el flujo de
+envío). La **única** escritura persistente del ciclo es la **transición terminal** en `entregado`.
+
+```
+ShipmentRequest solicitado  (creado, PaymentIntent creado, pago pendiente)
+  → item SIN cambio (in_custody). shipmentItem existe ⇒ item bloqueado (ITEM_IN_ANOTHER_SHIPMENT).
+    HoldingDTO: shipmentState='solicitado', withdrawable=false, activeShipmentId set.
+
+webhook payment_intent.succeeded  (envío pagado)
+  → ShipmentRequest solicitado→picking (payments.service; SIN tocar el item).
+    HoldingDTO: shipmentState='picking'.
+
+PATCH /admin/shipments/:id/status  y  POST .../tracking   (máquina M4)
+  → picking → guia → enviado : item SIN cambio (in_custody). shipmentState se deriva del join.
+
+PATCH /admin/shipments/:id/status → entregado   (TRANSICIÓN TERMINAL)
+  → por cada ShipmentItem: InventoryItem in_custody → withdrawn
+    (+ InventoryMovement reason='withdrawal'). Conserva ownerType=customer,
+    ownerUserId, ownershipStatus=settled (histórico); solo cambia status.
+  → Efecto: el item SALE de la bóveda (GET /vault/holdings excluye status='withdrawn')
+    y deja de contar en el portafolio / snapshot diario.
+
+webhook payment_intent.canceled  (envío 'solicitado' nunca pagado)
+  → ShipmentRequest → cancelado ⇒ el item deja de tener envío activo (shipmentState=null,
+    withdrawable vuelve a true). El item nunca cambió de status.
+```
+
+Coherencia con el contracargo (§ webhook `charge.dispute.created`, abajo): ese handler ya usa el **mismo join**
+(`ShipmentItem` con envío `enviado`/`entregado`) para decidir si la carta "salió físicamente". Con v1.17, tras
+`entregado` el item además es `withdrawn`; el handler sigue siendo correcto (busca por `ShipmentItem`, no por
+`item.status`) y **no** re-agrega al inventario una carta ya entregada.
+
+**`withdrawn` es TERMINAL para retiros (v1.17.1 — invariante read/write).** Una vez que el item llega a
+`status='withdrawn'` (transición terminal en `entregado`), **NO es re-elegible** para un nuevo `POST /shipments`,
+aunque conserve `ownershipStatus='settled'` (histórico). La **fuente de verdad de elegibilidad** (`classifyItems`,
+misma que el flag de lectura `HoldingDTO.withdrawable`) **excluye** `status='withdrawn'` y exige `status='in_custody'`:
+`ownerType='customer' AND ownerUserId=usuario AND ownershipStatus='settled' AND status='in_custody' AND sin envío
+activo`. Un intento de retirar un item `withdrawn` (o cualquier `status != 'in_custody'`) por llamada directa a la API
+se rechaza con **`422 ITEM_NOT_IN_CUSTODY`** (API_CONTRACT §5). Esto cierra la divergencia detectada en el triple
+verdicto de WS-H (SEC-H1): la escritura de creación de retiro y la lectura `withdrawable` comparten **exactamente** el
+mismo criterio, evitando el re-envío/re-cobro de un item ya entregado.
 
 Separación física: los items en `ownerType=customer` viven en `VaultLocation.zone=customer_custody`; el stock de la plataforma en `zone=platform_stock`. El movimiento entre zonas queda en `InventoryMovement`.
 
@@ -862,6 +1006,11 @@ Notas de coherencia:
 - **Sin `rawCondition`, sin `gradingCompany`/`gradeValue`, sin rareza** (no aplica taxonomía de carta individual). Puede referenciar un `Card`/`CardSet` para nombre/imagen del producto, pero no lleva condición ni rareza.
 - **Precio SIEMPRE manual del admin en MXN**: no hay fuente automática en el MVP (pokemontcg.io no cubre sellado; PriceCharting = fase 2). El `listPriceCents` se fija a mano (override manual) y es **obligatorio para publicar**: sin precio, el sellado queda como "precio pendiente" y **no aparece en Compra** (regla general — el comprador nunca ve precio pendiente).
 - `sealedSubtype?` (`box | etb | bundle | tin | blister`) opcional; alimenta el filtro de tipo de producto en Compra (subfaceta informativa).
+- **Referencia de mercado del sellado (v1.19-sealed-tcgcsv, §4.19):** existe una fuente automática de **valor de
+  referencia** para sellado — **TCGCSV** (espejo diario de precios de TCGplayer) — pero es **estrictamente informativa**
+  (sugerencia para el admin en M1/M2 al fijar `listPriceCents`). **NO altera esta sección:** el precio de VENTA del
+  sellado sigue siendo manual en MXN y obligatorio para publicar; la ficha pública no muestra la referencia TCGCSV en
+  esta versión. El mapeo item↔producto TCGplayer es curación manual (`InventoryItem.tcgplayerProductId`, M-23).
 - **Disputa de sellado (v1.2):** aplica a caja **dañada/equivocada** (no hay "condición NM" que comparar). **La evidencia se envía por correo a soporte** (no hay foto de ingreso ni comparador; ver §Dispute). El flujo reutiliza `Dispute` con `type=condition_sealed`.
 
 ---
@@ -2234,6 +2383,349 @@ cuadrícula (celda = carta+acabados); solo cambia la acción (agregar-al-carrito
 
 ---
 
+### 4.18 WS «Catálogo y precios» — M5 operable: rechazo de ítem con plazos + correo al vendedor (v1.18-buylist-rejects)
+
+> Norma la parte del ciclo de buylist que faltaba tras la decisión `reject` (PROJECT §H / criterios 15–16): hoy el
+> rechazo solo cambia `itemStatus` — sin motivo, sin fechas, sin notificación al vendedor y con un hueco de dinero
+> (BL-1, §9). API_CONTRACT v1.18 (§M5) tiene los shapes; aquí van las decisiones de diseño.
+
+**a) Ancla única de plazos = `rejectedAt` (persistido, M-22).** `SellRequestItem` no tiene NINGÚN timestamp propio
+(ni `updatedAt`); `adjustmentSentAt` vive en la solicitud y solo aplica al flujo `adjust`; y `AuditLog` no es fuente
+válida para lógica de plazos (cross-módulo, sin índice útil, semántica de bitácora). Por eso `rejectedAt` (y el
+`rejectionReason` que exige el correo y la pestaña «Rechazadas») son columnas **imprescindibles** — las ÚNICAS de esta
+versión. Los plazos **NO se persisten**: `returnDeadlineAt = rejectedAt + 7d` y `abandonDeadlineAt = rejectedAt + 30d`
+se derivan al proyectar, con constantes de servidor de la **misma familia 7d/30d** que `buylist-sweep.service.ts`
+(coherencia: el sweep ancla el 7d del AJUSTE en `adjustmentSentAt` y el 30d de abandono de solicitud en `createdAt`;
+el ítem RECHAZADO ancla ambos en `rejectedAt` = momento en que se decide y se notifica). **Sin transición automática
+del ítem al vencer**: las fechas son informativas para back-office y vendedor; el sweep a nivel solicitud no cambia, y
+la retención física post-abandono se administra manualmente (la carta jamás se vuelve vendible — guardia
+`ITEM_NOT_APPROVED`).
+
+**b) Invariante de dinero (cierra BL-1).** `reject` ⇒ `approvedPriceCents = null` **antes** de
+`recomputeApprovedTotal`. Defensa en profundidad recomendada a backend: que el aggregate del recompute además excluya
+`itemStatus='rechazada'` (así el invariante sobrevive a escrituras futuras que olviden anular el monto). Observable
+normado: `approvedTotalCents` NUNCA incluye ítems rechazados; `quotedTotalCents` no se recalcula.
+
+**c) Correo de rechazo — mecanismo (decisión de diseño).** El módulo `mail` pertenece al stream «Cuentas y acceso» y
+**NO se toca**. `buylist` inyecta el **puerto público `MAIL_PORT`** (interfaz genérica `send({to, subject, html,
+text})`; el `MailModule` ya es `@Global` y exporta el token) y renderiza con **plantilla LOCAL al módulo buylist**
+(p. ej. `backend/src/modules/buylist/buylist-mail.templates.ts`), bilingüe **ES/EN por `User.locale`** y con el
+**mismo layout/branding y disciplina de escape HTML (S15-B1)** que `mail.templates.ts`. Firma sugerida:
+`sellItemRejectedTemplate({ cardName, setName, cardNumber, finish, reason, returnDeadlineAt, abandonDeadlineAt },
+name, locale) → MailMessage`. **Deuda aceptada:** la plantilla (y el helper de layout duplicado) vive fuera de `mail/`
+hasta que el stream «Cuentas y acceso» la absorba en `MailService` — backend la registra en `docs/TECH_DEBT.md`.
+- **Best-effort:** el envío corre **después** del commit de la decisión; su fallo se loggea (`logger.error`) y **no**
+  revierte ni falla el request. Sin cola de reintentos en MVP (parte de la misma deuda).
+- **Disparo:** SOLO en la transición a `rechazada` (re-`reject` idempotente ⇒ no re-envía).
+- **Minimización de datos:** el correo lleva carta (nombre/set/número), acabado, `reason` y los dos plazos con el
+  canal de coordinación (soporte@tcgvaultmx.com). **Prohibido:** CLABE (ni enmascarada), montos o estado de OTROS
+  ítems de la solicitud, cualquier dato de terceros.
+
+**d) Identidad del vendedor en M5 (PII).** `seller: { id, name, email }` en `GET /admin/buylist`,
+`GET /admin/buylist/:id` y `rejected-items`. El correo del vendedor es **dato de contacto operativo** de un
+back-office ya restringido por rol (`vault_operator`/`super_admin`) — **no** es secreto financiero como la CLABE, así
+que **no** requiere enmascarado, reveal dedicado ni auditoría por lectura (explícito para que nadie lo "endurezca" por
+analogía con `reveal-clabe`, ni lo relaje: la CLABE conserva su régimen íntegro).
+
+**e) Pestaña «Rechazadas».** Endpoint dedicado `GET /admin/buylist/rejected-items` (ítem-céntrico, transversal a
+solicitudes) en vez de forzar al front a paginar solicitudes y filtrar ítems. Orden `rejectedAt desc` (legacy `null`
+al final); la fase (ventana de devolución / de abandono / abandonada) se deriva en el front comparando `now` con las
+dos fechas. Índice recomendado `@@index([itemStatus])` (parte de M-22) para no barrer la tabla.
+
+---
+
+### 4.19 WS «Catálogo y precios» — Referencia de mercado del SELLADO vía TCGCSV (v1.19-sealed-tcgcsv)
+
+> **Objetivo:** darle al admin un **valor de referencia de mercado** para el producto sellado (ETB, booster box,
+> bundle, tin, blister) usando **TCGCSV** (tcgcsv.com): espejo **diario** (~20:00 UTC), **estático** (JSON servido como
+> archivos), **gratuito y sin API key** de los precios de TCGplayer, que **sí cubre sellado** (pokemontcg.io no).
+> **Toca precios (dinero informativo) → triple veredicto.** Aditivo; **UNA migración (M-23, §11)**.
+
+#### (a) Doctrina y PRECEDENCIA (PROJECT decisión 3e manda — el modelo de venta del sellado NO cambia)
+
+- El precio TCGCSV es **VALOR DE REFERENCIA informativo/sugerencia**, nunca precio de venta. Sigue intacto:
+  el sellado se **vende** con `listPriceCents` **manual del admin en MXN, obligatorio para publicar** (PROJECT 3e,
+  criterio 3e, §3.6, y la regla de M1/bulk-publish "sellado sin `listPriceCents` → `PRICE_PENDING`").
+- **Lo que la referencia TCGCSV NO hace (norma explícita):**
+  1. **NO auto-publica** ni fija/actualiza `listPriceCents` (ni siquiera como default del formulario — el admin
+     teclea; el front puede MOSTRAR la sugerencia al lado).
+  2. **NO encola `PendingPriceEntry`**: un sellado sin mapeo/sin precio TCGCSV simplemente no tiene referencia
+     (`sealedMarketRef=null`); esa cola sigue reservada a los bloqueos reales de publicación/valuación.
+  3. **NO cambia el costo de aportación en especie** del sellado: sigue el flujo actual (`getReference` con
+     `gradeKey='sealed'` = override manual del admin, o escalación). Usar TCGCSV como base del costo = decisión del
+     humano (pregunta abierta v1.19-2), porque mueve dinero (P&L).
+  4. **NO se expone en la superficie pública** (ficha de Compra) en esta versión: criterio 2 de PROJECT define la
+     fuente del sellado como "precio manual del admin"; mostrar un "valor de mercado" público del sellado tocaría
+     PROJECT (pregunta abierta v1.19-1). Exposición v1.19 = **solo back-office** (M1 detalle/listado, M2 curación).
+- **Dónde se ve:** M1 (`GET /admin/inventory/items[/:id]`) expone `sealedMarketRef: PriceInfo` (source `tcgcsv`) +
+  el mapeo; M2 tiene la curación. Contrato en API_CONTRACT v1.19.
+
+#### (b) Adapter `TcgcsvSealedBulkProvider` — nueva interfaz, SEPARADA del bulk de cartas
+
+**Decisión de interfaz:** NO se reusa `BulkPriceProvider` (§4.15b). Aquella interfaz es por **carta+acabado** con
+resolución `Card` (externalId / set+number) — nada de eso aplica al sellado, que se keyea por **`tcgplayerProductId`**
+y no tiene carta remota que resolver. Forzarla obligaría a campos sin sentido (finish, externalId). Interfaz nueva en
+`pricing.types.ts` (pseudocódigo normativo; nombres exactos los decide backend manteniendo la semántica):
+
+```ts
+interface SealedPriceRow {
+  tcgplayerProductId: number;  // productId de TCGplayer/TCGCSV (clave del mapeo M-23)
+  marketCents: number;         // entero > 0 (validado por el adapter); marketPrice, o midPrice si market falta (ver d)
+  usedFallbackMid: boolean;    // observabilidad: true si el precio salió de midPrice
+  currency: 'USD';             // TCGCSV publica SIEMPRE USD (precios TCGplayer)
+}
+interface SealedBulkPriceResult { rows: SealedPriceRow[]; fetchedRaw: number; skipped: number; }
+
+interface SealedBulkPriceProvider {
+  readonly source: PriceSource;  // 'tcgcsv' (M-23)
+  listGroups(): Promise<TcgcsvGroupRef[]>;                          // curación M2: { groupId, name, abbreviation?, publishedOn? }
+  listSealedProducts(groupId: number): Promise<TcgcsvProductRef[]>; // curación M2: { productId, name, cleanName?, imageUrl? }
+  fetchSealedPricesForGroup(groupId: number): Promise<SealedBulkPriceResult>; // ingest
+}
+```
+
+Implementación **`TcgcsvSealedBulkProvider`** en `backend/src/modules/pricing/providers/tcgcsv-sealed.provider.ts`:
+
+- **Endpoints estáticos, host FIJO `https://tcgcsv.com`** (anti-SSRF, mismo patrón `PokemonTcgIoClient`):
+  `/tcgplayer/3/groups`, `/tcgplayer/3/{groupId}/products`, `/tcgplayer/3/{groupId}/prices`. La **categoría Pokémon
+  = 3 es CONSTANTE de servidor** (no configurable, no viene del cliente). Todo `{groupId}` interpolado en un path se
+  **valida como entero positivo** server-side ANTES (nunca un string del cliente al path). **Sin API key** (no hay
+  secreto nuevo). Timeout corto + sin seguir redirects fuera del host + `Accept: application/json`.
+- **Filtro "sellado" en `/products` (heurística conservadora, a confirmar con fixtures/1ª corrida):** un product **sin**
+  `extendedData` de carta individual (sin entradas `Number`/`Rarity`) se considera **sellado**; los que las traen son
+  singles y se descartan del explorador de curación. Si la heurística falla para algún producto, la curación es manual
+  de todos modos (el admin ve nombre y decide) — la heurística solo limpia la lista, no decide dinero.
+- **Money-safe (misma doctrina que §4.15d):**
+  - `subTypeName !== 'Normal'` → se **OMITE** la fila + cuenta en `skipped` (el sellado se pricia solo en su sub-tipo
+    base; nunca se atribuye el precio de un sub-tipo raro al producto).
+  - `marketPrice` (o su fallback `midPrice`) ausente / `NaN` / `<= 0` → se **OMITE**.
+  - Fallo de red/parse a media corrida → devuelve lo acumulado + log; **NUNCA se borran precios previos** (quedan
+    stale, que es seguro — paridad con el legacy `PokemonTcgIoBulkProvider`).
+  - `lowPrice`/`highPrice` **no se persisten** (solo observabilidad/logs; un rango de mercado en DTO = fase 2).
+
+#### (c) Mapeo producto sellado ↔ catálogo (curación manual del admin, M-23)
+
+No existe entidad "producto sellado de catálogo": hoy el sellado es `InventoryItem(productType='sealed')` **anclado a
+una `Card`** (para nombre/imagen, §3.6) + `sealedSubtype`. Se decide **NO introducir** una entidad nueva de catálogo
+sellado en el MVP (sería una tercera taxonomía con sync propio); el mapeo vive **en el item**:
+
+- **M-23 (§11):** `InventoryItem.tcgplayerProductId Int?` + `InventoryItem.tcgplayerGroupId Int?` (se fijan **juntos**;
+  ambos `null` = no mapeado; solo aplican a `productType='sealed'` — regla de aplicación, no constraint de BD) +
+  `@@index([tcgplayerProductId])`. El `groupId` se persiste porque el endpoint de precios de TCGCSV es **por grupo**.
+- **Flujo de curación (M2, `super_admin`):**
+  1. **Cola de pendientes de mapeo = consulta DERIVADA** (`productType='sealed' AND tcgplayerProductId IS NULL`),
+     expuesta en `GET /admin/pricing/sealed/unmapped` — **no** requiere tabla/estado nuevo, no puede desincronizarse.
+  2. El admin explora TCGCSV vía **proxy read-only server-side**: `GET /admin/pricing/sealed/tcgcsv/groups` y
+     `GET /admin/pricing/sealed/tcgcsv/groups/:groupId/products` (filtrados a sellado, con `?q=` por nombre). El
+     proxy existe porque el navegador no debe hablar con tcgcsv.com (CORS/consistencia/anti-SSRF centralizado).
+  3. Asigna con `PUT /admin/pricing/sealed/items/:itemId/mapping` (`tcgplayerProductId`+`tcgplayerGroupId`;
+     `tcgplayerProductId:null` desmapea). **`applyToSiblings?:boolean`** copia el mapeo a los demás sealed **sin
+     mapeo** con el mismo `(cardId, sealedSubtype)` (las copias físicas del mismo producto). **Auditado.**
+- **Sin matching automático por nombre en v1.19:** el fuzzy name-matching (nuestro `Card.name`/set vs `cleanName`
+  TCGCSV) es error-prone y esto alimenta una referencia de dinero; la curación es humana. Un asistente de sugerencias
+  (no auto-commit) = pregunta abierta v1.19-3.
+- Los endpoints de curación funcionan **aunque el dial esté `off`** (curar no ingiere precios); solo el explorador
+  llama a tcgcsv.com (read-only).
+
+#### (d) Ingest → `PriceReference` (SIN migrar `PriceReference`) + conversión MXN
+
+**Job propio `sealed-price-ingest`** (`backend/src/jobs/sealed-price-ingest.service.ts` + `SealedPriceIngestService`
+en `modules/pricing`), **separado** de `price-ingest` (§4.15): otra interfaz (product-keyed), otro dial, otro dominio
+de fallo — un TCGCSV caído no toca el pricing de singles y viceversa. `backend/src/jobs/` pertenece a este stream
+mientras toque sus jobs (nota §2 / v1.18).
+
+- **Cadencia:** **1×/día**, tras la actualización de TCGCSV (~20:00 UTC) y tras `fx-refresh` (orden **suave**, igual
+  que §4.15g: `getCurrent()` degrada al último `FxRate`). Sugerido **21:30 UTC**; cron por env
+  (`SEALED_PRICE_INGEST_CRON`), horario exacto = **devops**. **Single-flight** (patrón de la familia de jobs).
+- **Forma de ejecución:** **secuencial y AWAITED dentro del job** — SIN fan-out BullMQ por grupo. Justificación: el
+  alcance es minúsculo (solo los **grupos distintos de los items mapeados**, no todo TCGCSV; decenas de requests como
+  mucho), así que el fan-out de §4.15c sería sobre-ingeniería. Si el volumen creciera, se promueve al patrón parent/child
+  sin cambiar contrato.
+- **Algoritmo normativo:**
+  1. Lee el dial `SEALED_PRICE_SOURCE`; si `off` → **no-op logueado** (fail-closed, ver e).
+  2. `SELECT DISTINCT tcgplayerGroupId` de los `InventoryItem` sealed mapeados.
+  3. Carga **FX UNA vez por corrida** (`FxService.getCurrent()` → snapshot `{rate, bufferPct}`, paridad §4.15f).
+  4. Por grupo: `fetchSealedPricesForGroup(groupId)` → filtra a los `tcgplayerProductId` mapeados de ese grupo.
+  5. Por cada par **distinto** `(anchorCardId, tcgplayerProductId)` presente entre los items mapeados (el
+     `anchorCardId` es el `cardId` del item): `priceMxnCents = usdToMxnCents(marketCents, rate, bufferPct)` (TCGCSV
+     es **siempre USD** → el colchón #13 aplica en cada corrida) y **upsert idempotente** de `PriceReference` con
+     clave `(cardId=anchorCardId, productType='sealed', gradeKey='sealed:tcg:<productId>', finish='normal',
+     capturedDate=hoy)`, `source='tcgcsv'`, `priceUsdCents=marketCents`, `fxRate`, `fxBufferPct`.
+     **Respeta `isManualOverride`** de la fila del día (paridad con `persistMarketReference`; backend reusa/parametriza
+     ese método o crea uno hermano con la MISMA doctrina — no clobbear override, no escalar pendientes).
+- **`gradeKey` del sellado de MERCADO = `sealed:tcg:<tcgplayerProductId>`** (helper nuevo `sealedMarketGradeKey()` en
+  `pricing.types.ts`). Motivo: el legacy `buildGradeKey → 'sealed'` colisionaría en el unique cuando **dos productos
+  sellados distintos** (ETB y booster box del mismo set) están anclados a la **misma** `Card`. `buildGradeKey` **NO
+  cambia**: `'sealed'` sigue siendo el gradeKey del **override manual** y del costo de aportación (flujos intactos).
+- **`finish` siempre `'normal'`** (las filas con `subTypeName≠'Normal'` ya se omitieron en el adapter).
+- **Fallback `marketPrice → midPrice`** (con flag `usedFallbackMid`, contado/logueado): aceptable **solo aquí** porque
+  esta referencia es informativa (no fija venta ni pago). Para raw/singles ese fallback **sigue prohibido**.
+- **Lectura (`sealedMarketRef`):** para un item mapeado =
+  `getReference(item.cardId, 'sealed', sealedMarketGradeKey(item.tcgplayerProductId), 'normal')` (misma regla "más
+  reciente sin filtro de fecha" que el resto de valuaciones). Sin mapeo → `null`. En listados M1, batch vía
+  `getReferencesBatch` (BE-25) para no reintroducir N+1.
+- **Verificado: `PriceReference` soporta sellado SIN migración** — `productType='sealed'` ya existe en el enum,
+  `gradeKey` es `String` libre, `finish` tiene default `normal` y el unique
+  `(cardId, productType, gradeKey, finish, capturedDate)` aloja el nuevo esquema de gradeKey. Lo único de esquema es
+  **M-23** (enum `PriceSource.tcgcsv` + 2 columnas + índice en `InventoryItem`), §11.
+
+#### (e) Dial fail-closed `SEALED_PRICE_SOURCE` (`sealed_price_source`)
+
+- `ConfigSetting` nueva: valores **`tcgcsv | off`**, **seed `off`** — al desplegar NO se ingiere nada (fail-closed)
+  hasta que devops valide el esquema real en staging (1ª corrida manual, ver f) y **flipee el dial** (mismo patrón de
+  rollout money-safe que `PRICE_PROVIDER`, §4.15h). Editable **sin redeploy** (M10); validada contra el enum
+  (`422 VALIDATION_ERROR`). **Rollback = `off`**: los `PriceReference` ya escritos permanecen (informativos e inertes;
+  no alimentan venta ni publicación).
+- El job y el disparo manual **cortocircuitan** con `off` (`enqueued:false`/no-op logueado); la **curación de mapeos
+  NO depende del dial** (mapear no mueve precios).
+- **Coordinación de streams:** añadir la key a `settings.constants.ts` toca el módulo `settings` (stream «Cuentas y
+  acceso») — cambio mínimo/mecánico (constante + default + validador), el **orquestador lo serializa** (precedente:
+  `price_provider` en WS-A).
+
+#### (f) Desarrollo contra FIXTURES (red de dev bloqueada) + validación en staging
+
+- **Norma:** el adapter se desarrolla y testea **exclusivamente contra fixtures** — JSON **reales de muestra**
+  (payloads verbatim de tcgcsv.com de un grupo moderno, p. ej. Surging Sparks) en **`backend/test/fixtures/tcgcsv/`**:
+  `groups.json`, `products-<groupId>.json`, `prices-<groupId>.json`. Los unit tests del adapter (filtro sellado,
+  omisiones money-safe, fallback mid, mapeo a `SealedPriceRow`) corren **solo** sobre fixtures; **ni dev ni CI llaman
+  a tcgcsv.com** (el egress está bloqueado en dev y el test no debe depender de red).
+- **Validación real = staging:** 1ª corrida manual `POST /admin/jobs/sealed-price-ingest { groupId }` con un grupo
+  conocido → inspeccionar `PriceReference`/logs (¿coinciden los campos reales con las fixtures? ¿USD? ¿subTypeName?)
+  → **entonces** flip del dial a `tcgcsv`. El **runbook** de esa validación es de **devops** (`DEVOPS_NOTES.md`);
+  si el esquema real difiere de las fixtures, el hallazgo vuelve a backend (ajustar adapter + fixtures).
+
+#### (g) Contrato (resumen — todo aditivo y admin-only; la superficie pública NO cambia)
+
+Ver API_CONTRACT v1.19: enums (`PriceSource += tcgcsv`; `SealedPriceSource = tcgcsv | off`); §M1 (campos read-only
+`tcgplayerProductId`/`tcgplayerGroupId`/`sealedMarketRef` en items sellados); §M2 (subsección TCGCSV:
+`unmapped` / `tcgcsv/groups` / `tcgcsv/groups/:groupId/products` / `PUT .../items/:itemId/mapping`); §M10
+(`sealedPriceSource`); §M10-ops (job `sealed-price-ingest` con `groupId?`). Ningún endpoint público ni DTO de
+cliente cambia (ficha de Compra, holdings, buylist: intactos).
+
+---
+
+### 4.20 WS «Inventario y vault» — Master set en todas partes (v1.20-master-set-everywhere)
+
+**Objetivo.** El binder Master Set (§4.17) demostró ser la superficie correcta para "ver un set de un vistazo".
+v1.20 lo convierte en el **read model único de "contenido agrupado por set y por acabado"**, parametrizado por
+**scope**, para tres consumidores: M1 (inventario de plataforma), soporte/operación (bóveda de un cliente vista por
+admin) y el propio cliente ("Mi bóveda" como colección). Un solo servicio, un solo shape; cambia el **filtro de
+agregación** y las **omisiones por permiso**. Contrato: `API_CONTRACT.md` Changelog v1.20 (§0/§DTOs/§3/§M1).
+
+**#### 4.20a Read model por scope (backend: `MasterSetService`).**
+- `MasterSetService.index()/binder()` ganan un parámetro de scope:
+  `type MasterSetQueryScope = { kind: 'platform' } | { kind: 'user_vault', userId: string }`.
+  El scope SOLO cambia el `WHERE` de la agregación de `InventoryItem`:
+  - `platform` → `ownerType='platform' AND status NOT IN NOT_ON_HAND` (regla v1.16 intacta).
+  - `user_vault` → `ownerType='customer' AND ownerUserId=:userId AND status NOT IN NOT_ON_HAND` (piezas del usuario
+    **en bóveda**; ambas titularidades `pending|settled` — es su colección, la titularidad afecta retiro, no vista).
+  Todo lo demás (queries fijas sin N+1, orden natural, `isSecretRare`, `numberSort`) se **reusa sin duplicar**.
+- **Controllers:** `MasterSetController` (M1, existente) + nuevos `AdminVaultsController`
+  (`/admin/vaults`, `vault_operator+`, módulo `vault`) y rutas `GET /vault/master-sets[...]` en `VaultController`
+  (`customer`, siempre `userId = el autenticado` — **jamás** un userId del request en la vista (iii)).
+- **Índice en scope `user_vault`:** solo sets con ≥1 pieza del usuario (el catálogo completo como índice es ruido
+  para un cliente); el binder de **cualquier** set sigue accesible por `:setId` (los huecos son sus faltantes).
+- **Omisiones por scope (regla dura de DTO):** el shape compartido nunca lleva ubicación física, costos, folios ni
+  ownerUserId de terceros; `owner` solo en `user_vault` (con `email` solo en la vista admin); `buyable` solo en la
+  vista (iii). Las acciones de escritura (batch/bulk-publish/adjustments) son **solo** rutas `/admin` de scope
+  plataforma — el binder de cliente y el de la vista admin de bóveda son **lectura pura**.
+
+**#### 4.20b Completitud por VARIANTE (carta+acabado).**
+- **Casilla = variante = `(Card, finish)`** con `finish ∈ Card.availableFinishes`. Una carta en `normal` y
+  `reverse_holo` son **2 casillas**; los contadores «X/Y» cuentan **variantes**, no cartas.
+- **Universo esperado — regla explícita:** el catálogo **SÍ declara** los acabados esperados por carta:
+  **`Card.availableFinishes`** (M-18), hoy poblado por el price-ingest v1.14 (variantes reales del proveedor,
+  §4.15e) con bootstrap desde `tcgplayer.prices` y default histórico `["normal"]`. **No se inventa una regla
+  derivada nueva**: es el mismo campo que ya funge de lista blanca SEC-A1 del `finish` en quote/alta. Si el ingest
+  amplía `availableFinishes`, el denominador de completitud crece (correcto: aparecieron variantes de mercado).
+- **Drift:** una pieza cuyo `finish` ya no esté en `availableFinishes` se muestra en `countsByFinish` (es una pieza
+  real) pero **no** cuenta en expected/covered — evita `covered > expected` y deja visible la inconsistencia.
+- **Nota (comportamiento v1.16 conservado):** la cobertura cuenta piezas de **cualquier** `productType` del
+  `(cardId, finish)` (graded/sealed mapean a `finish=normal` por §3.7). Cambiarlo a "solo raw" sería decisión de
+  producto (pregunta abierta WS-IV-1, §10).
+- **Costo de cómputo:** los campos nuevos salen de las MISMAS agregaciones v1.16 (`groupBy [cardId, finish]`) +
+  `availableFinishes` ya presente en la query de cartas; el índice suma una agregación de `Σ|availableFinishes|`
+  por set (raw SQL sobre `Card`). Sigue O(1) queries por request.
+
+**#### 4.20c Lista de clientes con bóveda (`GET /admin/vaults`).**
+Agregación por usuario (`ownerType='customer'`, status en bóveda) → `pieceCount` + valuación de la página con
+**la misma base del portafolio** (§3, `PriceReference` vigente por acabado, vía `getReferencesBatch` — §4.17c):
+piezas sin precio se excluyen del total y se cuentan en `pendingPriceCount`. Identificación mínima
+(`name`/`email`, misma exposición que el listado M6 para `vault_operator`); **nunca** PII sensible. Orden
+`value_desc | pieces_desc | name_asc`, paginado. Cada fila enlaza a la vista (ii) (`/admin/vaults/:userId/master-sets`).
+
+**#### 4.20d Faltantes comprables (`buyable`, solo vista (iii)).**
+Para las variantes `covered=false` del binder del cliente, **una** query adicional resuelve por `(cardId, finish)`
+la pieza de plataforma `status='listed'` con **menor precio de venta** (mismo criterio de precio de la ficha §4.9:
+`listPriceCents` override o derivado por reglas de venta §4.14 — el binder expone el `salePriceCents` ya resuelto;
+si el precio no resuelve, esa pieza no es buyable). El CTA del front lleva a la ficha
+(`GET /catalog/listings/:inventoryItemId`) y al **checkout normal** — el binder **no** crea órdenes ni reservas.
+`buyable` se **omite** en los scopes admin (allí el binder es operación, no compra).
+
+**#### 4.20e Ajuste de inventario por levantamiento físico (M1).**
+- **Flujo:** el operador abre la celda del binder M1, compara sistema vs físico y registra el ajuste
+  (`POST /admin/inventory/adjustments`) con **motivo obligatorio** `AdjustmentReason =
+  encontrada | perdida | danada | error_captura`:
+  - `encontrada` → crea pieza(s) nuevas reusando la lógica de alta (`inventory.service.create` /
+    `BatchInventoryItemInput`; `acquisitionType` default `aportacion_en_especie`, con su `PRICE_PENDING` normal).
+  - `perdida | danada` → `status → lost | damaged` (conecta con reposición/merma M7 + tope M10, igual que `mark`).
+  - `error_captura` → `status → withdrawn`: sale del on-hand **sin** semántica de pérdida (no dispara reposición ni
+    infla mermas); el motivo real queda tipado en `InventoryAdjustment.reason`. **Decisión:** se reusa `withdrawn`
+    en vez de añadir un `InventoryStatus` nuevo — el enum de status es zona compartida transversal (Compra, M4,
+    bulk-publish, contracargo) y un valor nuevo obligaría a revisar todos esos switches; la distinción
+    "error de captura vs retiro" vive en `InventoryAdjustment`/`AuditLog`, que es donde se reporta.
+  - **Guardarraíles:** solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` son ajustables
+    (`422 ITEM_NOT_ADJUSTABLE` en el resto — una pieza `reserved`/vendida/en custodia/enviada se resuelve por su
+    flujo dueño: M3/M4/`mark` de custodia). **NO hay venta directa manual desde el binder**: el ajuste no puede
+    reservar/vender; toda salida de venta va por órdenes (checkout Stripe/M3). No es money-out.
+- **Registro triple (auditoría con usuario y timestamp):** (1) fila `InventoryAdjustment` (M-24: motivo tipado,
+  from/to status, actor, note — consultable para reportes de merma/levantamiento M7/M9); (2) `InventoryMovement`
+  con el nuevo `MovementReason.adjustment` (el historial de la pieza distingue ajuste de operador vs mark normal);
+  (3) `AuditLog action=inventory.adjustment` (bitácora global M10). `mark` existente queda para el flujo no-binder
+  (incl. custodia de clientes); el ajuste es el camino normado del levantamiento físico.
+- **Schema (decisión, migración M-24 — ver §11):** enum `AdjustmentReason`, valor nuevo
+  `MovementReason.adjustment`, y modelo `InventoryAdjustment` (tabla propia y NO solo `AuditLog`, porque el motivo
+  debe ser **tipado y consultable** para reportes, mientras `AuditLog` es texto/JSON de bitácora). Aditiva, sin backfill.
+- **Aclaración v1.20.1-adjustments-clarify (respuesta plural + idempotencia; contrato §M1):** dos ambigüedades
+  enrutadas por techlead/QA tras los gates del stream (BACKEND_NOTES §45.4, deuda BE-47):
+  - `InventoryAdjustmentResponse.adjustmentIds: string[]` **sustituye** al singular `adjustmentId`: con
+    `encontrada` y `qty>1` M-24 crea **una fila por pieza** y el singular obligaba a devolver solo la primera.
+    Ahora se devuelven todas, alineadas 1:1 con `inventoryItemIds`/`folios`. **Sustitución limpia, sin campo
+    deprecated** (sin clientes externos; el frontend propio no navega por ese id).
+  - `batchKey?` opcional **solo en el camino `encontrada`** con la **misma** semántica de idempotencia que el alta
+    por lote: reusa el mecanismo `InventoryBatch` (M-21, **sin migración nueva**); replay → respuesta original con
+    `idempotentReplay: true` (cierra BE-47: el doble submit ya no duplica piezas). Los otros motivos no lo
+    necesitan: operan un id concreto y su replay cae en `422 ITEM_NOT_ADJUSTABLE` (idempotencia natural).
+
+**#### 4.20f Frontend — promoción del binder a componentes compartidos.**
+Los componentes de master set viven hoy en `frontend/src/app/[locale]/(admin)/admin/m1/master-set/`
+(`MasterSetIndex.tsx`, `MasterSetBinder.tsx`, `MasterSetPanel.tsx`, `CellDrawer.tsx`, `PerLineErrors.tsx`,
+`capture.ts`). Con tres consumidores (M1, admin-bóveda-cliente, Mi bóveda) **se promueven a
+`frontend/src/components/master-set/`** (zona compartida — **reservada por este work stream** mientras dura la
+promoción; ningún otro stream la toca en paralelo). Reglas:
+- El componente se parametriza por **scope/capacidades vía props** (`scope`, `readOnly`, `showBuyable`,
+  `onAddToCapture?`, `onAdjust?`): las acciones de captura/publicación/ajuste solo se montan en M1; el CTA de
+  compra (`buyable`) solo en la vista del cliente. El componente **no** decide permisos: renderiza lo que el DTO
+  trae (el backend ya omitió campos por scope — defensa en el dato, no en el if del front).
+- Lo específico de M1 (carrito de captura, `capture.ts`, `PerLineErrors`) puede quedarse bajo `(admin)/admin/m1/`
+  si solo M1 lo usa; lo que se comparte (índice, binder, celda, drawer de variantes) se mueve. Los imports de
+  `M1View` se actualizan a la nueva ruta (trabajo de **frontend**, no del arquitecto).
+
+#### Reparto de trabajo (v1.20)
+- **Backend:** (1) parametrizar `MasterSetService` por scope + campos de variante; (2) `GET /vault/master-sets[...]`
+  (customer) y `GET /admin/vaults[...]` (vault_operator+); (3) `buyable` (query de mínimos por `(cardId, finish)`);
+  (4) `POST /admin/inventory/adjustments` + migración M-24; (5) tests: mismos shapes en 3 scopes, omisiones por
+  scope (nunca ubicación/costo/folio; `buyable` solo (iii)), contadores de variantes vs cartas, drift de
+  `availableFinishes`, `ITEM_NOT_ADJUSTABLE`, `error_captura` no dispara reposición, no-venta-desde-binder.
+- **Frontend:** (1) promover componentes a `components/master-set/` (§4.20f); (2) "Mi bóveda" gana la pestaña/vista
+  master set con X/Y por variantes y CTA de faltantes comprables; (3) vista admin `/admin/vaults` (lista + binder de
+  cliente, read-only); (4) drawer de ajuste en la celda M1 (motivo obligatorio, nota).
+- **QA/techlead:** doble veredicto por stream (no toca dinero saliente); E2E: cliente ve su set con variantes
+  cubiertas/faltantes y compra un faltante vía checkout; admin lista bóvedas y abre el binder de un cliente;
+  ajuste `perdida`/`encontrada`/`error_captura` deja `InventoryAdjustment` + movement + audit.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -2352,6 +2844,30 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **BL-1 (backend, v1.18-buylist-rejects) — monto FANTASMA en `approvedTotalCents` tras approve→reject.** Estado
+  detectado (`buylist.service.ts`, `itemDecision` L651 / `recomputeApprovedTotal` L707): la rama `reject` solo fija
+  `itemStatus='rechazada'` sin anular `approvedPriceCents`, y el recompute suma TODO `approvedPriceCents != null`
+  **sin filtrar por status**. Un ítem aprobado (o ajustado) y luego rechazado deja su monto dentro de
+  `SellRequest.approvedTotalCents` — infla el total que lee el pago SPEI/P&L (dinero saliente; contradice la
+  intención RB-6/SEC-D3). En el primer `reject` (sin monto previo) no se manifiesta. **Norma v1.18 (API_CONTRACT
+  §M5):** `reject` ⇒ `approvedPriceCents=null` + recompute; recomendado además excluir `itemStatus='rechazada'` en el
+  aggregate (defensa en profundidad, §4.18b). **Acción (backend, este stream):** aplicar ambas y cubrir con test la
+  secuencia approve→reject. Adicional menor detectado: `adminList` ordena `createdAt asc` — el contrato v1.18 norma
+  **desc** (mismo dueño, mismo stream).
+- **WD-1 (backend, v1.17) — el `InventoryItem` NUNCA se movía en el ciclo de RETIRO (bóveda "fantasma").** Estado
+  detectado: al pagar un retiro, `payments.service` solo avanzaba `ShipmentRequest solicitado→picking` y el
+  `InventoryItem` quedaba `ownerType=customer, ownershipStatus=settled, status=in_custody` **para siempre** —incluso
+  tras `entregado`—; `vault.service.holdings` filtraba solo por `ownerType/ownerUserId` sin excluir ni marcar items en
+  retiro, así que la carta seguía en "Mi Bóveda" como LIQUIDADA con **RETIRAR activo** de por vida, y el cliente no
+  tenía rastreo por carta. El enum `InventoryStatus` ya incluía `picking|shipped|delivered|withdrawn` pero **ningún
+  código los escribía**. **Decisión de producto (humano) = Opción 1**, normada en API_CONTRACT v1.17 y §3.3 de este
+  doc. **Acción (backend):** (1) `vault.service.holdings` — excluir `status='withdrawn'` y **derivar** `shipmentState`
+  / `activeShipmentId` / `withdrawable` del join `ShipmentItem→ShipmentRequest` (sin espejar el estado en el item); (2)
+  `shipments.service.updateStatus` — al pasar a `entregado`, transicionar los `InventoryItem` `in_custody→withdrawn` +
+  `InventoryMovement reason='withdrawal'` (en transacción); (3) `shipments.service.listMine/getMine` — enriquecer
+  `items[]` con `folio` + `card` + `finish`; (4) `portfolio-snapshot` — aplicar la misma exclusión de `withdrawn`. **Sin
+  migración** (reusa enums existentes). SEC-A1 intacto (no toca montos). **Fuente de verdad = join** (no espejo en el
+  item), declarada en §3.3.
 - **DEV-1 (backend) — `POST /admin/catalog/sync` importa de forma SÍNCRONA en el request.** El contrato
   declara `202 { jobId, setsQueued, mode }` (semántica async/encolada), pero `CatalogSyncService.sync()`
   recorre e importa **todos** los sets `>= fromReleaseDate` **dentro del handler HTTP** (await inline por set y
@@ -2428,6 +2944,39 @@ este documento y con `API_CONTRACT.md`.
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.20-master-set-everywhere — WS «Inventario y vault»)
+> No bloquean el diseño (defaults propuestos y **normados en el contrato**); se listan para veto/ajuste del humano.
+- **WS-IV-1 — ¿Qué `productType` cubre una casilla?** Default (conserva v1.16): **cualquier** pieza del
+  `(cardId, finish)` cubre la variante (graded/sealed mapean a `finish=normal`, §3.7). Alternativa de producto:
+  solo `raw` cuenta para el master set (una gradeada no "llena" la casilla de la carta raw). Cambiarlo es un filtro
+  más en la agregación, sin cambio de shape.
+- **WS-IV-2 — `buyable` = pieza `listed` más barata del `(cardId, finish)`, cualquier `productType`.** ¿Se
+  restringe a `raw` (coherente con WS-IV-1) o se deja abierto (el cliente ve la opción más barata y decide en la
+  ficha)? Default: abierto.
+- **WS-IV-3 — `encontrada` con costo por aportación (default `aportacion_en_especie`, 70%).** ¿Correcto que una
+  pieza hallada en el levantamiento se cargue como aportación en especie del dueño (afecta P&L/base de costo), o
+  debe pedirse `acquisitionType` explícito siempre? Default: `aportacion_en_especie` si se omite.
+- **WS-IV-4 — Índice de cliente solo con sets con ≥1 pieza.** ¿Se desea un toggle "ver todos los sets del
+  catálogo" en el índice (iii)? Hoy el binder de cualquier set ya es accesible por `:setId`; el índice filtrado
+  evita listar cientos de sets vacíos. Default: solo con piezas.
+
+### Preguntas abiertas (v1.19-sealed-tcgcsv — referencia de mercado del sellado vía TCGCSV)
+> No bloquean el diseño (defaults conservadores que preservan PROJECT 3e tal cual). Las dos primeras tocan PROJECT.md
+> (fuente de precio del sellado / dinero), así que el arquitecto **no** las asume (CLAUDE.md — regla de conflicto).
+- **v1.19-1 — ¿Mostrar la referencia TCGCSV en la ficha PÚBLICA del sellado?** PROJECT (criterio 2/3e) define la fuente
+  del sellado como "precio manual del admin"; hoy la ficha pública del sellado no muestra "valor de mercado" aparte.
+  Default v1.19: **NO** (la referencia es solo back-office). Si el humano quiere mostrarla como "valor de mercado" del
+  sellado (paridad con singles), es un cambio de PROJECT + contrato público (versión futura).
+- **v1.19-2 — ¿Costo de aportación en especie del sellado contra la referencia TCGCSV?** Hoy el costo del sellado
+  aportado usa la referencia manual (`gradeKey='sealed'`) o escala. Usar TCGCSV automatizaría "referencia del día × %"
+  (PROJECT §G) también para sellado, pero **mueve dinero (P&L)** → default v1.19: **NO cambia**; decisión del humano.
+- **v1.19-3 — ¿Sugerencias asistidas de mapeo?** La curación v1.19 es 100% manual (explorador + asignación). Un
+  asistente de sugerencia por similitud de nombre/set (sin auto-commit; el admin siempre confirma) es un nice-to-have
+  de fase 2. Default: manual puro.
+- **v1.19-4 — ¿Quién cura el mapeo?** Default: **`super_admin`** (es configuración de pricing, dominio M2). Alternativa:
+  permitir a `vault_operator` mapear durante el alta M1 (no toca dinero directamente; la referencia es informativa).
+  Confirmar si se relaja.
 
 ### Preguntas abiertas (v1.16-master-set — WS-E: Master Set + inventario a escala)
 > No bloquean el diseño (defaults propuestos por el arquitecto). **Dos tocan una ambigüedad de PROJECT.md** (WS-E-1/2):
@@ -2591,6 +3140,57 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.20-master-set-everywhere (nueva — WS «Inventario y vault»: master set en todas partes)
+
+**Aditiva, una sola migración `M-24`** (ajustes de inventario). Las tres vistas por scope, los campos de variante y
+`GET /admin/vaults` son **solo código** (reusan `InventoryItem`, `Card.availableFinishes`, `PriceReference`,
+el índice M-21 y `getReferencesBatch`) — **sin** cambio de esquema. **Sin backfill.**
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-24 | `enum AdjustmentReason` | **Enum nuevo** (`encontrada \| perdida \| danada \| error_captura`) | Create enum | Motivo OBLIGATORIO del ajuste por levantamiento físico (§4.20e). |
+| M-24 | `enum MovementReason` | **Valor nuevo** `adjustment` | Alter enum (aditivo) | El historial de la pieza distingue un ajuste de operador (`adjustment`) de un `mark` normal (`lost`/`damaged`) o un retiro (`withdrawal`). Aditivo; nada existente cambia. |
+| M-24 | `InventoryAdjustment` | **Modelo nuevo** (`id` uuid `@id`, `inventoryItemId String` + FK a `InventoryItem`, `reason AdjustmentReason`, `fromStatus InventoryStatus?`, `toStatus InventoryStatus`, `actorUserId String?` sin FK dura (patrón `AuditLog`), `note String?`, `createdAt`; `@@index([inventoryItemId])`, `@@index([reason])`, `@@index([createdAt])`) | Create table | Registro **tipado y consultable** del levantamiento (reportes de merma M7/M9); complementa —no reemplaza— `InventoryMovement` y `AuditLog` (§4.20e). Para `encontrada` con `qty>1` se crea **una fila por pieza creada**. |
+
+> **NO se añade** valor nuevo a `InventoryStatus`: `error_captura` reusa `withdrawn` (decisión §4.20e — el enum de
+> status es zona transversal; la distinción vive en `InventoryAdjustment.reason`). **Config/diales:** ninguno.
+
+### v1.19-sealed-tcgcsv (nueva — WS «Catálogo y precios»: referencia de mercado del sellado vía TCGCSV)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa esta migración frente a cualquier otro stream que
+toque el schema. Es **aditiva y nullable** (sin backfill: los items sellados existentes quedan sin mapeo hasta que el
+admin los cure). **`PriceReference` NO se toca** (soporta sellado tal cual: `productType='sealed'` ya en el enum,
+`gradeKey` String libre — nuevo esquema `sealed:tcg:<productId>` —, `finish` default `normal`, unique existente). Ver
+§4.19c/d.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-23 | `enum PriceSource` **+= `tcgcsv`** | Valor de enum nuevo | Alter enum (add value) | Fuente de la referencia de sellado en `PriceReference.source` (y en `PriceInfo.source` del contrato). En Postgres, `ALTER TYPE ... ADD VALUE` — aditivo, sin reescritura de filas. |
+| M-23 | `InventoryItem.tcgplayerProductId Int?` | **Columna nueva** (nullable) | Add column | Mapeo curado item sellado ↔ `productId` de TCGplayer/TCGCSV. Solo aplica a `productType='sealed'` (regla de aplicación, no constraint de BD). `null` = no mapeado (cola derivada de curación, §4.19c). |
+| M-23 | `InventoryItem.tcgplayerGroupId Int?` | **Columna nueva** (nullable) | Add column | Grupo TCGCSV del producto (el endpoint de precios es **por grupo**). Se fija **junto** con `tcgplayerProductId`; ambos `null` o ambos poblados (invariante de aplicación). |
+| M-23 | `InventoryItem` `@@index([tcgplayerProductId])` | **Índice nuevo** | Create index | Sirve la cola de no-mapeados (`sealed AND productId IS NULL`) y el `DISTINCT tcgplayerGroupId` del ingest sin barrer la tabla. |
+
+> **Enum de contrato adicional:** `SealedPriceSource = tcgcsv | off` (valores del dial; NO es enum de BD — el dial es
+> una `ConfigSetting` string validada). **Config/diales:** `sealed_price_source` (seed **`off`**, fail-closed §4.19e),
+> sembrada por el seed de settings (dato, no esquema). **Sin backfill** de mapeos: la curación es manual post-deploy.
+
+### v1.18-buylist-rejects (nueva — WS «Catálogo y precios»: rechazo de ítem de buylist)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa esta migración frente a cualquier otro stream
+que toque el schema. Es **aditiva y nullable** (sin backfill: los ítems rechazados pre-M-22 quedan con `rejectedAt`/
+`rejectionReason` `null` y las proyecciones exponen los campos de rechazo en `null` — normado en API_CONTRACT §11).
+Los plazos (`returnDeadlineAt`/`abandonDeadlineAt`) **NO son columnas** (derivados de `rejectedAt` + constantes
+7d/30d, §4.18a).
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-22 | `SellRequestItem.rejectedAt DateTime?` | **Columna nueva** (nullable) | Add column | Timestamp de la decisión `reject` (= notificación al vendedor). **Ancla ÚNICA** de los plazos 7d (devolución a costo del usuario) y 30d (abandono). Imprescindible: el modelo no tiene ningún timestamp propio y `AuditLog` no es fuente válida de plazos (§4.18a). |
+| M-22 | `SellRequestItem.rejectionReason String?` | **Columna nueva** (nullable) | Add column | Motivo del rechazo (obligatorio en el request con `decision:"reject"`, 3–500 chars). Alimenta el correo al vendedor, la pestaña «Rechazadas» y el detalle del propio cliente. |
+| M-22 | `SellRequestItem` `@@index([itemStatus])` | **Índice nuevo** (recomendado) | Create index | Sirve `GET /admin/buylist/rejected-items` (filtro transversal por `itemStatus='rechazada'`) sin barrer la tabla. No bloqueante a volumen MVP, pero entra con la misma migración. |
+
+> **Enum:** ninguno nuevo (`SellItemStatus.rechazada` ya existe; sin estados nuevos de ítem). **Config/diales:**
+> ninguno; las ventanas 7/30 días son **constantes de servidor** compartidas con la familia `buylist-sweep`.
 
 ### v1.16-master-set (nueva — WS-E: Master Set + inventario a escala)
 

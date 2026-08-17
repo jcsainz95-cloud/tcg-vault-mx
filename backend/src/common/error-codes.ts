@@ -44,6 +44,11 @@ export const ErrorCode = {
   // shipped/delivered/lost/damaged/withdrawn) NO puede re-publicarse a `listed`. Guardarraíl
   // anti-double-sell del bulk-publish: solo se listan piezas en {in_stock, listed}. 422.
   ITEM_NOT_PUBLISHABLE: 'ITEM_NOT_PUBLISHABLE',
+  // v1.20-master-set-everywhere: POST /admin/inventory/adjustments sobre una pieza NO ajustable.
+  // Solo piezas ownerType=platform con status ∈ {in_stock, listed} admiten perdida|danada|
+  // error_captura; una reserved/vendida/en-custodia/enviada o ya terminal se resuelve por su
+  // flujo dueño (M3/M4/`mark`), no por ajuste. 422.
+  ITEM_NOT_ADJUSTABLE: 'ITEM_NOT_ADJUSTABLE',
 
   // Payments / Stripe
   AMOUNT_TOO_LOW: 'AMOUNT_TOO_LOW', // B2: por debajo del mínimo de Stripe MX
@@ -53,6 +58,11 @@ export const ErrorCode = {
   // Shipments
   ADDRESS_NOT_MX: 'ADDRESS_NOT_MX',
   ITEM_NOT_SETTLED: 'ITEM_NOT_SETTLED',
+  // SEC-H1 (WS-H): un item cuyo `status` no es `in_custody` (p. ej. ya `withdrawn` tras un
+  // envío entregado, conservando ownershipStatus='settled') es INELEGIBLE para un nuevo
+  // retiro. Criterio de escritura idéntico al flag de lectura `withdrawable` del HoldingDTO
+  // (settled && status==='in_custody' && sin envío activo). 422. API_CONTRACT §5.
+  ITEM_NOT_IN_CUSTODY: 'ITEM_NOT_IN_CUSTODY',
   ITEM_IN_ANOTHER_SHIPMENT: 'ITEM_IN_ANOTHER_SHIPMENT',
 
   // Buylist

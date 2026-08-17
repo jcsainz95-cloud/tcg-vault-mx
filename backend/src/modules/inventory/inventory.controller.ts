@@ -8,7 +8,9 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -21,6 +23,7 @@ import {
   BulkPublishRequest,
   CreateItemDto,
   CreateLocationDto,
+  InventoryAdjustmentRequestDto,
   MarkItemDto,
   MoveItemDto,
   UpdateItemDto,
@@ -100,6 +103,46 @@ export class InventoryController {
       after: { batchKey: dto.batchKey, summary: res.summary },
     });
     return res;
+  }
+
+  // ===== v1.20-master-set-everywhere (§4.20e) — ajuste por levantamiento físico =====
+
+  /**
+   * POST /admin/inventory/adjustments — motivo OBLIGATORIO encontrada|perdida|danada|error_captura.
+   * Res 201 (encontrada, crea piezas) / 200 (resto Y el replay idempotente por `batchKey`, v1.20.1:
+   * un replay devuelve la respuesta original guardada con `idempotentReplay: true` y 200 aunque la
+   * primera vez fuera 201). Registro triple: InventoryAdjustment (M-24) +
+   * InventoryMovement(reason=adjustment) [servicio, en tx] + AuditLog action=inventory.adjustment
+   * con usuario y timestamp (aquí). NO es dinero saliente (sin MoneyOutGuard) y NO vende nada.
+   */
+  @Post('inventory/adjustments')
+  async adjust(
+    @Body() dto: InventoryAdjustmentRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const out = await this.inventory.adjust(dto, user.id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.adjustment',
+      entityType: 'InventoryAdjustment',
+      // v1.20.1: la respuesta es plural (una fila M-24 por pieza); la bitácora ancla en la primera
+      // y lista TODAS en `after.adjustmentIds`.
+      entityId: out.adjustmentIds[0],
+      after: {
+        reason: out.reason,
+        adjustmentIds: out.adjustmentIds,
+        inventoryItemIds: out.inventoryItemIds,
+        folios: out.folios,
+        fromStatus: out.fromStatus,
+        toStatus: out.toStatus,
+        idempotentReplay: out.idempotentReplay,
+        note: dto.note,
+      },
+    });
+    res.status(dto.reason === 'encontrada' && !out.idempotentReplay ? 201 : 200);
+    return out;
   }
 
   @Post('inventory/items')

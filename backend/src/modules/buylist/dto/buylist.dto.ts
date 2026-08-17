@@ -7,8 +7,10 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Length,
   Max,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -99,6 +101,24 @@ export class ItemDecisionDto {
   // B-4: cota dura de sanidad (MX$10,000). La cota fina (≤ quoted × factor y ≤ tope por
   // solicitud) la impone `BuylistService.itemDecision` server-side.
   @IsOptional() @IsInt() @Min(0) @Max(MAX_APPROVED_PRICE_CENTS) approvedPriceCents?: number;
+  // v1.18-buylist-rejects (§M5): motivo del rechazo — OBLIGATORIO con decision:"reject"
+  // (3–500 chars; falta/vacío → 400 VALIDATION_ERROR vía ValidationPipe). Para approve/adjust se
+  // IGNORA (no se valida ni se persiste). El servicio re-valida (defensa en profundidad, con trim).
+  @ValidateIf((o: ItemDecisionDto) => o.decision === 'reject')
+  @IsString()
+  @Length(3, 500)
+  reason?: string;
+}
+
+/**
+ * v1.18-buylist-rejects (§M5): query de `GET /admin/buylist/rejected-items`. Paginación inválida
+ * (no entera, <1, pageSize>100) → 400 VALIDATION_ERROR (norma del contrato, a diferencia del
+ * clamp del listado legacy). `userId?` filtra por vendedor (simetría F1).
+ */
+export class RejectedItemsQueryDto {
+  @IsOptional() @IsString() userId?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize?: number;
 }
 
 export class PaySpeiDto {

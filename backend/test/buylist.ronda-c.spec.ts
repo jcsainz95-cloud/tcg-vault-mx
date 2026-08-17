@@ -87,7 +87,8 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
       aggregateSum: null,
       aggregateCount: 0,
     });
-    await svc.itemDecision('sri-1', 'reject');
+    // v1.18-buylist-rejects: reject exige `reason` (3–500 chars).
+    await svc.itemDecision('sri-1', 'reject', undefined, 'no es NM: whitening en el reverso');
     const totalUpdate = sellRequestUpdates.find(
       (u) => u.data && Object.prototype.hasOwnProperty.call(u.data, 'approvedTotalCents'),
     );

@@ -9,7 +9,7 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from './providers/graded-sealed.providers';
-import { PricingProvider, PriceSourceStr, buildGradeKey } from './pricing.types';
+import { PricingProvider, PriceSourceStr, buildGradeKey, sealedMarketGradeKey } from './pricing.types';
 import {
   usdToMxnCents,
   computeSalePriceForRarity,
@@ -318,6 +318,59 @@ export class PricingService {
     await this.prisma.priceReference.upsert({
       where: key,
       create: { cardId, productType, gradeKey, finish, capturedDate, ...data },
+      update: data,
+    });
+  }
+
+  /**
+   * v1.19-sealed-tcgcsv (§4.19d) — HERMANO de `persistMarketReference` para la referencia de
+   * mercado del SELLADO. MISMA doctrina money-safe (upsert idempotente por día, NO clobbea el
+   * override manual, NO escala pendientes), con la clave del sellado de mercado:
+   * `(cardId=anchorCardId, productType='sealed', gradeKey=sealed:tcg:<productId>, finish='normal',
+   * capturedDate=hoy)`, `source='tcgcsv'`.
+   *
+   * - TCGCSV publica SIEMPRE USD → conversión `usdToMxnCents(market, fx.rate, fx.bufferPct)`
+   *   (colchón #13 aplica en cada corrida); se guarda la trazabilidad (`priceUsdCents`, `fxRate`,
+   *   `fxBufferPct`).
+   * - El gradeKey legacy `'sealed'` (override manual / costo de aportación) NO se toca: dos
+   *   productos sellados distintos anclados a la misma Card conviven vía `sealed:tcg:<productId>`.
+   * - Esta referencia es INFORMATIVA: no fija `listPriceCents`, no publica, no encola
+   *   `PendingPriceEntry` (doctrina §4.19a).
+   */
+  async persistSealedMarketReference(
+    anchorCardId: string,
+    tcgplayerProductId: number,
+    market: { marketCents: number },
+    fx: { rate: number; bufferPct: number },
+  ): Promise<void> {
+    const productType: ProductType = 'sealed';
+    const gradeKey = sealedMarketGradeKey(tcgplayerProductId);
+    const finish: Finish = 'normal';
+    const capturedDate = today();
+    const key = {
+      cardId_productType_gradeKey_finish_capturedDate: {
+        cardId: anchorCardId,
+        productType,
+        gradeKey,
+        finish,
+        capturedDate,
+      },
+    };
+    const existing = await this.prisma.priceReference.findUnique({ where: key });
+    // No clobbea el override manual del admin (paridad con persistMarketReference, §4.1).
+    if (existing?.isManualOverride) return;
+    const priceMxnCents = usdToMxnCents(market.marketCents, fx.rate, fx.bufferPct);
+    const data = {
+      source: 'tcgcsv' as PriceSourceStr,
+      priceUsdCents: market.marketCents,
+      fxRate: fx.rate,
+      fxBufferPct: fx.bufferPct,
+      priceMxnCents,
+      isManualOverride: false,
+    };
+    await this.prisma.priceReference.upsert({
+      where: key,
+      create: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, ...data },
       update: data,
     });
   }

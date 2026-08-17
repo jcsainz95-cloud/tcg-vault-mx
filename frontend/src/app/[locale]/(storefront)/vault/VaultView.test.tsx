@@ -75,3 +75,19 @@ describe('VaultView · orden de holdings', () => {
     ]);
   });
 });
+
+describe('VaultView · pestaña Master set (v1.20, vista (iii))', () => {
+  it('la pestaña "Master set" muestra el índice de MI bóveda (solo sets con piezas propias)', async () => {
+    renderWithProviders(<VaultView />, 'es');
+    await screen.findByText('Blastoise');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Master set' }));
+
+    // Índice del scope user_vault: base1 y sv08 tienen piezas del usuario; swsh1 no aparece.
+    expect(await screen.findByRole('button', { name: /Base Set/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Surging Sparks/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Sword & Shield/ })).toBeNull();
+    // El contador «X/Y» cuenta VARIANTES, no cartas.
+    expect(screen.getAllByText(/variantes ·/).length).toBeGreaterThan(0);
+  });
+});

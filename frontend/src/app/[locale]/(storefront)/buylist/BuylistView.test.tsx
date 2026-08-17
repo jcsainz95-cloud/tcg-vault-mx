@@ -4,7 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { BuylistView } from './BuylistView';
 import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
-import type { KycInfoDTO, UserDTO, CardDTO } from '@/types/contract';
+import type { KycInfoDTO, UserDTO, CardDTO, BuylistQuoteItemDTO } from '@/types/contract';
 
 // El gating de venta usa Link de next-intl (login/registro); se mockea el router
 // de Next para aislar la vista (mismo patrón que StorefrontHeader.test).
@@ -48,68 +48,74 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-/**
- * Elige una carta buscando por texto. Los resultados son botones planos (ya no
- * listbox/option): el nombre accesible incluye nombre + set + estimado del grid.
- */
-async function pickCard(name: string) {
-  fireEvent.change(screen.getByLabelText('Buscar carta'), { target: { value: name } });
+/** Busca por texto en la barra de filtros. */
+function searchFor(term: string) {
+  fireEvent.change(screen.getByLabelText('Buscar carta'), { target: { value: term } });
   fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
-  // Una búsqueda puede devolver varias coincidencias (p. ej. "Pikachu" y "Pikachu ex");
-  // se toma la primera de la lista.
-  const options = await screen.findAllByRole('button', { name: new RegExp(name) });
-  fireEvent.click(options[0]);
-}
-
-/** Elige una carta y la agrega al carrito (la cotización es AUTOMÁTICA al elegir). */
-async function quoteAndAdd(name: string) {
-  await pickCard(name);
-  fireEvent.click(await screen.findByRole('button', { name: /Agregar al carrito/ }));
 }
 
 /**
- * Cotizador con búsqueda real (contrato §6 v1.3) + cotización AUTOMÁTICA al
- * elegir carta/acabado (useQuery, sin botón "Cotizar" — rediseño menos-clics).
+ * Agrega una carta al carrito clicando la FILA de su acabado en el grid (rediseño
+ * grid-protagonista: el clic en el acabado agrega DIRECTO al carrito, sin panel).
+ * La fila queda habilitada cuando el batch del grid trae su estimado.
  */
-describe('BuylistView · cotizador con auto-cotización', () => {
-  it('ya no existe el botón "Cotizar": la cotización es automática al elegir carta', () => {
+async function addCard(name: string, finish = 'Normal') {
+  searchFor(name);
+  const btn = await screen.findByRole('button', {
+    name: `Agregar ${name} (${finish}) al carrito`,
+  });
+  await waitFor(() => expect(btn).toBeEnabled());
+  fireEvent.click(btn);
+}
+
+/**
+ * Rediseño grid-protagonista (2026-08-17): ya no existe el panel "COTIZACIÓN" ni la
+ * selección intermedia — cada carta lista sus acabados con estimado server-side y el
+ * clic agrega directo al carrito.
+ */
+describe('BuylistView · grid protagonista (cotización directa al carrito)', () => {
+  it('ya no existe el panel COTIZACIÓN ni el campo falso de condición fija; el aviso NM-only queda', () => {
     renderWithProviders(<BuylistView />, 'es');
+    expect(screen.queryByText('Cotización')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cotizar' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Condición: Near Mint (NM) fija')).not.toBeInTheDocument();
+    // La política NM-only sigue comunicada por el aviso existente.
+    expect(screen.getByText(/Solo compramos en Near Mint/)).toBeInTheDocument();
+  });
+
+  it('sin búsqueda muestra la invitación a filtrar/buscar (grid vacío honesto)', () => {
+    renderWithProviders(<BuylistView />, 'es');
     expect(
-      screen.getByText('Elige una carta de los resultados: se cotiza automáticamente al seleccionarla.'),
+      screen.getByText('Filtra por set o busca por nombre para ver el catálogo con su precio de compra estimado.'),
     ).toBeInTheDocument();
   });
 
-  it('busca por texto, elige carta y cotiza SOLA mostrando rareza + regla aplicada (fallback 40%)', async () => {
+  it('el grid lista UNA fila por acabado disponible, cada una con su estimado', async () => {
     renderWithProviders(<BuylistView />, 'es');
-    await pickCard('Charizard');
+    searchFor('Charizard');
 
-    expect(await screen.findByRole('heading', { name: 'Cotización' })).toBeInTheDocument();
-    expect(screen.getByText('Rare Holo')).toBeInTheDocument();
-    expect(screen.getByText('40% de referencia')).toBeInTheDocument();
+    // Charizard existe en normal / reverse holo / holofoil: una fila agregable por acabado.
+    const normal = await screen.findByRole('button', { name: 'Agregar Charizard (Normal) al carrito' });
+    expect(screen.getByRole('button', { name: 'Agregar Charizard (Reverse Holo) al carrito' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Agregar Charizard (Holofoil) al carrito' })).toBeInTheDocument();
+    // Estimado del acabado normal: Rare Holo (fallback 40%) sobre MX$48,500 → MX$19,400.00.
+    // (getAllBy: otros acabados/coincidencias de "Charizard" pueden resolver el mismo monto.)
+    await waitFor(() => expect(normal).toBeEnabled());
+    expect(screen.getAllByText('MX$19,400.00').length).toBeGreaterThan(0);
+    expect(
+      screen.getByText('Estimado de compra por acabado (NM en sueltas); un clic agrega al carrito.'),
+    ).toBeInTheDocument();
   });
 
-  it('cotiza automáticamente al elegir carta y RE-cotiza al cambiar el acabado (sin clic extra)', async () => {
-    const spy = vi.spyOn(api, 'getBuylistQuote');
+  it('clic en un acabado agrega la carta DIRECTO al carrito con su estimado', async () => {
+    asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
-    await pickCard('Charizard');
+    await addCard('Charizard');
 
-    await waitFor(() =>
-      expect(
-        spy.mock.calls.some(
-          (c) => c[0].cardId === 'c-charizard' && c[0].productType === 'raw' && c[0].finish === 'normal',
-        ),
-      ).toBe(true),
-    );
-
-    fireEvent.change(screen.getByLabelText('Acabado / versión'), {
-      target: { value: 'reverse_holo' },
-    });
-    await waitFor(() =>
-      expect(
-        spy.mock.calls.some((c) => c[0].cardId === 'c-charizard' && c[0].finish === 'reverse_holo'),
-      ).toBe(true),
-    );
+    expect(screen.getByText('Charizard (Normal) agregada al carrito.')).toBeInTheDocument();
+    expect(screen.getByText('Total estimado')).toBeInTheDocument();
+    expect(screen.getByText('Estimado c/u:')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
   });
 
   it('filtra por set y muestra las cartas de ese set', async () => {
@@ -118,26 +124,20 @@ describe('BuylistView · cotizador con auto-cotización', () => {
     await screen.findByRole('option', { name: /Base Set/ });
     fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
 
-    expect((await screen.findAllByRole('button', { name: /Pikachu/ })).length).toBeGreaterThan(0);
-  });
-
-  it('una carta sin referencia (Zapdos) queda en precio pendiente', async () => {
-    renderWithProviders(<BuylistView />, 'es');
-    await pickCard('Zapdos');
-
-    expect((await screen.findAllByText(/precio pendiente/i)).length).toBeGreaterThan(0);
-  });
-
-  it('el grid de resultados muestra el precio de compra estimado por carta (buylist navegable)', async () => {
-    renderWithProviders(<BuylistView />, 'es');
-    fireEvent.change(screen.getByLabelText('Buscar carta'), { target: { value: 'Charizard' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
-
-    // Rare Holo (fallback 40%) sobre referencia MX$48,500 → MX$19,400.00, SIN elegir la carta.
-    expect(await screen.findByText('MX$19,400.00')).toBeInTheDocument();
     expect(
-      screen.getByText('Estimado de compra por carta (suelta NM, acabado por defecto).'),
-    ).toBeInTheDocument();
+      (await screen.findAllByRole('button', { name: /Agregar Pikachu/ })).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('una carta sin referencia (Zapdos) muestra "Precio pendiente" en su fila y sigue siendo agregable', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos');
+
+    // En el carrito la línea queda pendiente (no MX$0.00) y el total lo explica.
+    expect(screen.getAllByText('Precio pendiente').length).toBeGreaterThan(0);
+    expect(screen.getByText(/El total no incluye 1 carta\(s\) con precio pendiente/)).toBeInTheDocument();
+    expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
   });
 
   it('las etiquetas de tipo de producto están traducidas (no raw/graded/sealed crudos)', () => {
@@ -145,6 +145,65 @@ describe('BuylistView · cotizador con auto-cotización', () => {
     expect(screen.getByRole('option', { name: 'Suelta (raw)' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Gradeada' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Sellado' })).toBeInTheDocument();
+  });
+
+  it('en tipo Gradeada cada carta cotiza como gradeada (una sola fila, sin acabados raw)', async () => {
+    renderWithProviders(<BuylistView />, 'es');
+    fireEvent.change(screen.getByLabelText('Tipo de producto'), { target: { value: 'graded' } });
+    searchFor('Charizard');
+
+    const row = await screen.findByRole('button', { name: 'Agregar Charizard (Gradeada) al carrito' });
+    await waitFor(() => expect(row).toBeEnabled());
+    expect(
+      screen.queryByRole('button', { name: 'Agregar Charizard (Normal) al carrito' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('el carrito es colapsable desde la barra (el grid manda)', () => {
+    renderWithProviders(<BuylistView />, 'es');
+    expect(screen.getByText('Carrito de venta')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar carrito' }));
+    expect(screen.queryByText('Carrito de venta')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar carrito (0)' }));
+    expect(screen.getByText('Carrito de venta')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Transparencia por línea: el detalle expandible sustituye al panel COTIZACIÓN
+ * (valor de referencia, regla aplicada, acabado y nota de pendiente viven ahí).
+ */
+describe('BuylistView · detalle expandible por línea', () => {
+  it('muestra valor de referencia + regla aplicada + acabado al expandir', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Detalle del estimado' }));
+    expect(screen.getByText('Valor de referencia')).toBeInTheDocument();
+    expect(screen.getByText('MX$48,500.00')).toBeInTheDocument();
+    expect(screen.getByText('Regla aplicada')).toBeInTheDocument();
+    expect(screen.getByText('40% de referencia')).toBeInTheDocument();
+    expect(screen.getByText('Rare Holo')).toBeInTheDocument();
+
+    // El toggle colapsa de vuelta.
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar detalle' }));
+    expect(screen.queryByText('Regla aplicada')).not.toBeInTheDocument();
+  });
+
+  it('una línea pendiente explica el "precio pendiente" en su detalle', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Detalle del estimado' }));
+    expect(
+      screen.getByText(
+        'Esta carta no tiene precio de referencia; entrará a la cola de precio pendiente y la cotizaremos a mano.',
+      ),
+    ).toBeInTheDocument();
   });
 });
 
@@ -158,27 +217,16 @@ describe('BuylistView · carrito de venta', () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
     expect(
-      screen.getByText('Tu carrito está vacío. Cotiza una carta y agrégala para venderla.'),
+      screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Enviar solicitud/ })).not.toBeInTheDocument();
-  });
-
-  it('agrega una carta cotizada al carrito y muestra su estimado', async () => {
-    asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
-
-    // La línea aparece en el carrito con su nombre y hay un total estimado.
-    expect(screen.getByText('Total estimado')).toBeInTheDocument();
-    expect(screen.getByText('Estimado c/u:')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
   });
 
   it('la cantidad por línea suma al total y expande los items al enviar', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     // Sube la cantidad de la línea a 3 (alguien vende 3 iguales).
     const inc = screen.getByRole('button', { name: 'Aumentar cantidad' });
@@ -205,7 +253,7 @@ describe('BuylistView · carrito de venta', () => {
   it('la cantidad también se captura con input NUMÉRICO (no solo −/+ de 1 en 1)', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     fireEvent.change(screen.getByLabelText('Cantidad de Charizard'), { target: { value: '12' } });
     expect(screen.getByRole('button', { name: 'Enviar solicitud (12)' })).toBeInTheDocument();
@@ -219,8 +267,8 @@ describe('BuylistView · carrito de venta', () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
-    await quoteAndAdd('Pikachu');
+    await addCard('Charizard');
+    await addCard('Pikachu');
 
     expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
 
@@ -239,53 +287,42 @@ describe('BuylistView · carrito de venta', () => {
   it('quitar una línea la elimina del carrito', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Quitar' }));
     expect(
-      screen.getByText('Tu carrito está vacío. Cotiza una carta y agrégala para venderla.'),
+      screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.'),
     ).toBeInTheDocument();
   });
 
   it('vaciar el carrito lo deja vacío', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
     fireEvent.click(screen.getByRole('button', { name: /Vaciar carrito/ }));
     expect(
-      screen.getByText('Tu carrito está vacío. Cotiza una carta y agrégala para venderla.'),
+      screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.'),
     ).toBeInTheDocument();
-  });
-
-  it('una línea pendiente muestra "Precio pendiente" (no MX$0.00) y el total lo explica', async () => {
-    asVerifiedCustomer();
-    renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Zapdos');
-
-    expect(screen.getAllByText('Precio pendiente').length).toBeGreaterThan(0);
-    expect(screen.getByText(/El total no incluye 1 carta\(s\) con precio pendiente/)).toBeInTheDocument();
-    // El total NUNCA muestra MX$0.00 cuando todo el carrito está pendiente.
-    expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
   });
 
   it('el modal final muestra el RESUMEN de la venta (cartas + total + vigencia) antes de confirmar', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     expect(await screen.findByText('Resumen de tu venta')).toBeInTheDocument();
     // El total estimado aparece también dentro del modal (además del carrito).
     expect(screen.getAllByText('MX$19,400.00').length).toBeGreaterThan(1);
-    // Aviso de vigencia del estimado (en el cotizador y en el modal).
+    // Aviso de vigencia del estimado (en la página y en el modal).
     expect(screen.getAllByText(/estimado con los precios de hoy/).length).toBeGreaterThan(1);
   });
 });
 
 /**
- * Bulk: multi-selección en los resultados + agregar varias de golpe.
- * Fase 3b: UNA sola llamada POST /buylist/quote/batch (mata el fan-out FE-12), tolerante por-ítem.
+ * Bulk: multi-selección en los resultados + agregar varias de golpe. Reusa las
+ * cotizaciones del batch del grid (cero requests extra) y es tolerante por-ítem.
  */
 describe('BuylistView · bulk (multi-selección)', () => {
   it('selecciona varias cartas del grid y las agrega al carrito de golpe', async () => {
@@ -297,14 +334,16 @@ describe('BuylistView · bulk (multi-selección)', () => {
 
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Pikachu' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agregar seleccionadas (2)' }));
+    const addBtn = screen.getByRole('button', { name: 'Agregar seleccionadas (2)' });
+    await waitFor(() => expect(addBtn).toBeEnabled());
+    fireEvent.click(addBtn);
 
     expect(await screen.findByText('2 carta(s) agregada(s) al carrito.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(2);
   });
 
-  it('el bulk cotiza en UNA sola llamada batch con TODAS las cartas (mata el fan-out FE-12)', async () => {
+  it('el grid cotiza por ACABADO en batch y el bulk reusa esas cotizaciones (sin requests extra)', async () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'batchQuote');
     renderWithProviders(<BuylistView />, 'es');
@@ -314,42 +353,47 @@ describe('BuylistView · bulk (multi-selección)', () => {
 
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Eevee' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agregar seleccionadas (2)' }));
+    const addBtn = screen.getByRole('button', { name: 'Agregar seleccionadas (2)' });
+    await waitFor(() => expect(addBtn).toBeEnabled());
 
-    await screen.findByText('2 carta(s) agregada(s) al carrito.');
-    // Una única llamada al batch que resuelve el agregado de las seleccionadas.
-    const bulkCall = spy.mock.calls.find(
-      (c) => c[0].length === 2 && c[0].every((i) => i.productType === 'raw' && i.rawCondition === 'NM'),
-    );
-    expect(bulkCall).toBeTruthy();
-    const ids = bulkCall![0].map((i) => i.cardId).sort();
-    expect(ids).toEqual(['c-charizard', 'c-eevee']);
+    // El batch del grid incluye TODOS los acabados de Charizard (una entrada por acabado).
+    const gridItems = spy.mock.calls.flatMap((c) => c[0]);
+    for (const finish of ['normal', 'reverse_holo', 'holofoil']) {
+      expect(gridItems.some((i) => i.cardId === 'c-charizard' && i.finish === finish)).toBe(true);
+    }
+
+    const callsBefore = spy.mock.calls.length;
+    fireEvent.click(addBtn);
+    expect(await screen.findByText('2 carta(s) agregada(s) al carrito.')).toBeInTheDocument();
+    // El bulk NO dispara requests: reusa el batch ya cargado del grid.
+    expect(spy.mock.calls.length).toBe(callsBefore);
   });
 
   it('tolerante por-ítem: una carta inválida NO tumba el lote (batch parcial → aviso parcial)', async () => {
     asVerifiedCustomer();
-    // El batch responde 200 con un ok:true y un ok:false (carta inexistente): el parcial NO tira todo.
-    vi.spyOn(api, 'batchQuote').mockResolvedValue({
-      results: [
-        {
-          index: 0,
-          cardId: 'c-charizard',
-          ok: true,
-          rarity: 'Rare Holo',
-          finish: 'normal',
-          appliedRule: { mode: 'pct', value: 40, source: 'fallback' },
-          quote: { status: 'cotizada', quotedPriceCents: 1940000, currency: 'MXN' },
-          referencePrice: { status: 'priced', priceMxnCents: 4850000 },
-          paymentNotice: 'PAY_AFTER_RECEIPT',
-        },
-        {
-          index: 1,
-          cardId: 'c-eevee',
-          ok: false,
-          error: { code: 'NOT_FOUND', message: 'Card not found' },
-        },
-      ],
-    });
+    // El batch responde 200 con errores POR-ÍTEM: Eevee sale ok:false y no tira el resto.
+    vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => ({
+      results: items.map((it, index) =>
+        it.cardId === 'c-eevee'
+          ? {
+              index,
+              cardId: it.cardId,
+              ok: false as const,
+              error: { code: 'NOT_FOUND' as const, message: 'Card not found' },
+            }
+          : {
+              index,
+              cardId: it.cardId,
+              ok: true as const,
+              rarity: 'Rare Holo',
+              finish: it.finish ?? ('normal' as const),
+              appliedRule: { mode: 'pct' as const, value: 40, source: 'fallback' as const },
+              quote: { status: 'cotizada' as const, quotedPriceCents: 1940000, currency: 'MXN' as const },
+              referencePrice: { status: 'priced' as const, priceMxnCents: 4850000 },
+              paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+            },
+      ),
+    }));
     renderWithProviders(<BuylistView />, 'es');
 
     await screen.findByRole('option', { name: /Base Set/ });
@@ -357,11 +401,15 @@ describe('BuylistView · bulk (multi-selección)', () => {
 
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Eevee' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agregar seleccionadas (2)' }));
+    const addBtn = screen.getByRole('button', { name: 'Agregar seleccionadas (2)' });
+    await waitFor(() => expect(addBtn).toBeEnabled());
+    fireEvent.click(addBtn);
 
     // Aviso parcial (1 agregada, 1 no disponible) y la válida SÍ entró (1 línea "Quitar").
     expect(await screen.findByText('1 carta(s) agregada(s); 1 no disponible(s).')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(1);
+    // Las filas de Eevee muestran su error por-ítem sin romper el grid.
+    expect(screen.getAllByText('No disponible').length).toBeGreaterThan(0);
   });
 
   it('limpiar selección desmarca sin agregar nada', async () => {
@@ -380,31 +428,28 @@ describe('BuylistView · bulk (multi-selección)', () => {
 });
 
 /**
- * v1.6-finish: selector de acabado en el cotizador (poblado de card.availableFinishes) y
+ * v1.6-finish: acabados por carta en el grid (una fila agregable por acabado) y
  * dedup del carrito por (cardId + productType + finish).
  */
 describe('BuylistView · acabado (finish)', () => {
   it('dedup: agregar la MISMA (carta, tipo, acabado) incrementa la cantidad, no duplica la línea', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard'); // finish normal por defecto
-    // Segundo add del mismo acabado: reutiliza la cotización visible.
-    fireEvent.click(screen.getByRole('button', { name: /Agregar al carrito/ }));
+    await addCard('Charizard'); // finish normal
+    // Segundo clic en la misma fila de acabado: suma cantidad.
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar Charizard (Normal) al carrito' }));
 
     expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
     // Una sola línea en el carrito (un único botón "Quitar").
     expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(1);
   });
 
-  it('dedup: la MISMA carta en DISTINTO acabado es una línea separada (re-cotiza sola)', async () => {
+  it('dedup: la MISMA carta en DISTINTO acabado es una línea separada', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard'); // normal
-    // Cambia el acabado a Reverse Holo → auto re-cotiza → agrega → línea distinta.
-    fireEvent.change(screen.getByLabelText('Acabado / versión'), {
-      target: { value: 'reverse_holo' },
-    });
-    fireEvent.click(await screen.findByRole('button', { name: /Agregar al carrito/ }));
+    await addCard('Charizard'); // normal
+    // El acabado Reverse Holo es otra fila del MISMO tile → línea distinta del carrito.
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar Charizard (Reverse Holo) al carrito' }));
 
     expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(2);
@@ -414,11 +459,7 @@ describe('BuylistView · acabado (finish)', () => {
     asVerifiedCustomer();
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(<BuylistView />, 'es');
-    await pickCard('Charizard');
-    fireEvent.change(screen.getByLabelText('Acabado / versión'), {
-      target: { value: 'holofoil' },
-    });
-    fireEvent.click(await screen.findByRole('button', { name: /Agregar al carrito/ }));
+    await addCard('Charizard', 'Holofoil');
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
@@ -432,10 +473,22 @@ describe('BuylistView · acabado (finish)', () => {
 });
 
 /**
- * Estado pendiente honesto en "Mis solicitudes": los items sin cotización no
- * muestran MX$0.00 sino "Precio pendiente", y el total se explica.
+ * "Mis solicitudes": sin sesión NUNCA muestra estado de error — la sección invita a
+ * iniciar sesión en tono informativo y no consulta el endpoint. Con sesión, el
+ * pendiente sigue siendo honesto (sin MX$0.00).
  */
-describe('BuylistView · Mis solicitudes (pendiente honesto)', () => {
+describe('BuylistView · Mis solicitudes', () => {
+  it('sin sesión: invita a iniciar sesión, NO consulta el endpoint y NO muestra error', async () => {
+    const spy = vi.spyOn(api, 'getSellRequests').mockRejectedValue(new Error('401'));
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(
+      await screen.findByText('Inicia sesión para ver el estado de tus solicitudes de venta.'),
+    ).toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('un item sin precio muestra "Precio pendiente" (no MX$0.00) y una nota explica el total', async () => {
     asVerifiedCustomer();
     const card: CardDTO = {
@@ -587,9 +640,9 @@ describe('BuylistView · responder ajuste (F5)', () => {
  * todo; el bloqueo autoritativo sigue siendo server-side. (P-11)
  */
 describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
-  it('sin sesión: cotizar es libre, pero el envío se sustituye por CTA de iniciar sesión / crear cuenta', async () => {
+  it('sin sesión: cotizar/agregar es libre, pero el envío se sustituye por CTA de iniciar sesión / crear cuenta', async () => {
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     // Aviso claro desde el inicio (panel) + CTAs de login/registro; NO hay botón de enviar.
     expect(screen.getByText('Inicia sesión o crea cuenta para vender')).toBeInTheDocument();
@@ -601,7 +654,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
   it('correo no verificado: aviso con CTA de reenvío y el botón de enviar queda deshabilitado con motivo', async () => {
     asVerifiedCustomer({ emailVerified: false });
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     const send = screen.getByRole('button', { name: /Enviar solicitud/ });
     expect(send).toBeDisabled();
@@ -641,7 +694,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     asVerifiedCustomer({}, { clabeMasked: undefined });
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar y enviar' }));
@@ -662,7 +715,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     // v1.15: el atajo se gatea por el booleano REAL clabeOnFile (GET /users/me/kyc).
     asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true });
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     expect(
@@ -676,7 +729,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     // Tope por solicitud ínfimo → cualquier estimado lo supera (heads-up de INE_REQUIRED).
     asVerifiedCustomer({}, { capPerRequestCents: 1 });
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     expect(await screen.findByText(/supera el tope .*se pedirá tu INE/)).toBeInTheDocument();
 
@@ -697,7 +750,7 @@ describe('BuylistView · v1.15 CLABE/INE en archivo', () => {
     asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true });
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     // El modal arranca en modo "usar mi CLABE": se confirma sin teclear los 18 dígitos.
@@ -710,7 +763,7 @@ describe('BuylistView · v1.15 CLABE/INE en archivo', () => {
   it('con INE en archivo, el modal NO re-pide el INE (oculta los uploaders)', async () => {
     asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true, ineOnFile: true });
     renderWithProviders(<BuylistView />, 'es');
-    await quoteAndAdd('Charizard');
+    await addCard('Charizard');
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     expect(

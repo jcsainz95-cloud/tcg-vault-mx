@@ -67,7 +67,8 @@ function buildPrisma(over: any = {}) {
         return { id: `inv-${createdItems.length}`, folio: data.folio, status: data.status };
       }),
       findMany: jest.fn(async () => []),
-      update: jest.fn(async ({ where, data }: any) => ({ id: where.id, ...data })),
+      // [BE-45] la publicación usa una guardia atómica updateMany + count (default: "gana").
+      updateMany: jest.fn(async () => ({ count: 1 })),
     },
     inventoryMovement: { create: jest.fn() },
     inventoryBatch: {
@@ -221,7 +222,8 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     return buildPrisma({
       inventoryItem: {
         findMany: jest.fn(async () => items),
-        update: jest.fn(async ({ where, data }: any) => ({ id: where.id, ...data })),
+        // [BE-45] guardia atómica de status: updateMany condicionado + count (default: "gana").
+        updateMany: jest.fn(async () => ({ count: 1 })),
       },
     });
   }
@@ -259,8 +261,12 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
       priceSource: 'derived',
     });
     expect(res.summary.published).toBe(1);
-    expect(prisma.inventoryItem.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'i1' }, data: expect.objectContaining({ status: 'listed' }) }),
+    // [BE-45] guardia ATÓMICA: el paso a listed va condicionado al allowlist en el propio UPDATE.
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'i1', ownerType: 'platform', status: { in: ['in_stock', 'listed'] } },
+        data: expect.objectContaining({ status: 'listed' }),
+      }),
     );
   });
 
@@ -275,7 +281,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     const res = await svc.bulkPublish({ items: [{ inventoryItemId: 'i2' }] }, 'admin');
     expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'PRICE_PENDING' } });
     expect(res.summary.published).toBe(0);
-    expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+    expect(prisma.inventoryItem.updateMany).not.toHaveBeenCalled();
   });
 
   it('override manual gana; errores por-línea (item no encontrado no tumba el resto)', async () => {
@@ -324,7 +330,22 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
     expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE' } });
     expect(res.summary.published).toBe(0);
     // Jamás se fuerza status → listed sobre una pieza reservada.
-    expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+    expect(prisma.inventoryItem.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('[MONEY · BE-45] CARRERA: el snapshot leído era in_stock pero updateMany devuelve count=0 → ITEM_NOT_PUBLISHABLE por-línea', async () => {
+    // TOCTOU: entre el findMany y el UPDATE un checkout reservó la pieza. La guardia atómica
+    // (updateMany condicionado + count) la detecta y NO re-lista la pieza para un 2º comprador.
+    const items = [baseItem({ id: 'race1', status: 'in_stock' })];
+    const prisma = prismaWithItems(items);
+    prisma.inventoryItem.updateMany = jest.fn(async () => ({ count: 0 }));
+    const pricing = buildPricing({
+      loadSalesRules: jest.fn(async () => ({ rules: { Common: { mode: 'fixed', value: 500 } }, fallbackPct: 15 })),
+    });
+    const svc = new InventoryService(prisma as PrismaService, pricing, settings);
+    const res = await svc.bulkPublish({ items: [{ inventoryItemId: 'race1' }] }, 'admin');
+    expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE' } });
+    expect(res.summary.published).toBe(0);
   });
 
   it('[MONEY] OMITE piezas `lost` y `damaged` (sin existencia física real → inventario fantasma)', async () => {
@@ -337,7 +358,7 @@ describe('InventoryService.bulkPublish — publicar por lote', () => {
       const svc = new InventoryService(prisma as PrismaService, pricing, settings);
       const res = await svc.bulkPublish({ items: [{ inventoryItemId: status }] }, 'admin');
       expect(res.results[0]).toMatchObject({ ok: false, error: { code: 'ITEM_NOT_PUBLISHABLE' } });
-      expect(prisma.inventoryItem.update).not.toHaveBeenCalled();
+      expect(prisma.inventoryItem.updateMany).not.toHaveBeenCalled();
     }
   });
 

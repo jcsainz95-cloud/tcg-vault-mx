@@ -67,6 +67,26 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     // Nota de dinero saliente (solo súper-admin, queda en bitácora).
     await expect(page.getByText(t('es', 'admin.moneyOutNote')).first()).toBeVisible();
   });
+
+  test('v1.18: rechazar exige motivo en un diálogo (3–500) antes de enviar la decisión', async ({ page }) => {
+    await page.goto('/es/admin/m5');
+    await page.getByRole('button', { name: t('es', 'admin.m5.reject') }).first().click();
+
+    // El mini-diálogo pide el motivo; sin él, confirmar está deshabilitado.
+    const dialog = page.getByRole('dialog', { name: t('es', 'admin.m5.rejectTitle') });
+    await expect(dialog).toBeVisible();
+    const confirm = dialog.getByRole('button', { name: t('es', 'admin.m5.rejectConfirm') });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByLabel(t('es', 'admin.m5.rejectReasonLabel')).fill('no es NM: esquina doblada');
+    await expect(confirm).toBeEnabled();
+  });
+
+  test('v1.18: la pestaña Rechazadas existe y NO ofrece convertir a inventario', async ({ page }) => {
+    await page.goto('/es/admin/m5');
+    await page.getByRole('tab', { name: t('es', 'admin.m5.tabs.rechazadas') }).click();
+    // Pestaña transversal informativa: sin acción de conversión (PROJECT criterio 16).
+    await expect(page.getByRole('button', { name: t('es', 'admin.m5.convert') })).toHaveCount(0);
+  });
 });
 
 test.describe('admin · M8 disputas', () => {

@@ -15,7 +15,7 @@ describe('ShipmentsService.create — rollback del PaymentIntent (A2 / BE-7)', (
       address: { findUnique: jest.fn().mockResolvedValue(address) },
       inventoryItem: {
         findMany: jest.fn().mockResolvedValue([
-          { id: 'item1', ownerUserId: 'userA', ownershipStatus: 'settled' },
+          { id: 'item1', ownerUserId: 'userA', ownershipStatus: 'settled', status: 'in_custody' },
         ]),
       },
       shipmentItem: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -25,6 +25,9 @@ describe('ShipmentsService.create — rollback del PaymentIntent (A2 / BE-7)', (
         delete: jest.fn().mockResolvedValue({}),
       },
     };
+    // SEC-H2: el chequeo anti-doble-envío + creación van en una tx serializable; el mock
+    // ejecuta el callback con el propio cliente mock como `tx`.
+    prisma.$transaction = jest.fn((fn: any) => fn(prisma));
     const settings: any = {
       getNumber: jest.fn().mockResolvedValue(17500),
       getStripeFee: jest

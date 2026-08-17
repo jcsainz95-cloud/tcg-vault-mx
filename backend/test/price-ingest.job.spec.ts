@@ -11,13 +11,14 @@ import { PriceIngestService } from '../src/modules/pricing/price-ingest.service'
 
 const fxCur = { rate: 18, bufferPct: 3, source: 'manual', effectiveDate: '2026-08-17' };
 
-function build() {
+function build(hasRecentIngest = true) {
   const fx = { getCurrent: jest.fn(async () => fxCur) } as unknown as FxService;
   const ingest = {
     listLocalSetIds: jest.fn(async () => ['s1', 's2']),
     ingestSet: jest.fn(async () => ({})),
     ingestSetByExternalId: jest.fn(async () => ({})),
     ingestAll: jest.fn(async () => ({ sets: 2, priced: 4 })),
+    hasRecentIngest: jest.fn(async () => hasRecentIngest),
   } as unknown as PriceIngestService;
   const job = new PriceIngestJobService(fx, ingest);
   return { job, fx, ingest };
@@ -90,5 +91,51 @@ describe('PriceIngestJobService — setId (verificación de esquema) y runChild'
     const { job, ingest } = build();
     await job.runChild({ setId: 's1', fx: { rate: 18, bufferPct: 3 } });
     expect((ingest.ingestSet as jest.Mock)).toHaveBeenCalledWith('s1', { rate: 18, bufferPct: 3 });
+  });
+});
+
+/**
+ * Auditoría de precios (2026-08-17) — catch-up al boot: con scheduler habilitado y SIN ingesta
+ * reciente (hoy/ayer), se encola un `price-ingest` inmediato con jobId dedup por día, para que
+ * los precios se pueblen solos tras cada deploy aunque el cron se haya perdido.
+ */
+describe('PriceIngestJobService.catchUpIfStale — catch-up al boot', () => {
+  it('sin cola (local/CI sin Redis) → no-op (NO lanza el ingest secuencial pesado al boot)', async () => {
+    const { job, ingest } = build(false);
+    job.setQueue(undefined);
+
+    const res = await job.catchUpIfStale();
+
+    expect(res).toEqual({ enqueued: false, reason: 'no-queue' });
+    expect((ingest.hasRecentIngest as jest.Mock)).not.toHaveBeenCalled();
+    expect((ingest.ingestAll as jest.Mock)).not.toHaveBeenCalled();
+  });
+
+  it('con ingesta reciente (hoy/ayer) → NO encola nada', async () => {
+    const { job } = build(true);
+    const add = jest.fn().mockResolvedValue({});
+    job.setQueue({ add } as any);
+
+    const res = await job.catchUpIfStale();
+
+    expect(res).toEqual({ enqueued: false, reason: 'recent' });
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it('SIN ingesta reciente → encola un price-ingest inmediato con jobId dedup por día', async () => {
+    const { job } = build(false);
+    const add = jest.fn().mockResolvedValue({});
+    job.setQueue({ add } as any);
+
+    const res = await job.catchUpIfStale();
+
+    expect(res).toEqual({ enqueued: true, reason: 'stale' });
+    expect(add).toHaveBeenCalledTimes(1);
+    const [name, data, opts] = add.mock.calls[0];
+    expect(name).toBe('price-ingest'); // el worker ya enruta este case → run() (fan-out)
+    expect(data).toEqual({});
+    // Dedup: dos reinicios el mismo día NO duplican el catch-up (mismo jobId vigente).
+    expect(opts.jobId).toMatch(/^price-ingest-catchup-\d{4}-\d{2}-\d{2}$/);
+    expect(opts).toMatchObject({ removeOnComplete: true });
   });
 });

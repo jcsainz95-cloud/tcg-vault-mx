@@ -4,10 +4,12 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getHoldings } from '@/lib/api';
+import { useCart } from '@/lib/cart';
 import type { AppLocale } from '@/i18n/routing';
 import type { HoldingDTO } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
+import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -16,8 +18,11 @@ import { QueryState } from '@/components/ui/QueryState';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { PortfolioTrendChart } from '@/components/domain/PortfolioTrendChart';
+import { WithdrawalBadge } from '@/components/domain/WithdrawalBadge';
 
 type SortKey = 'default' | 'set' | 'value_desc' | 'value_asc';
+// v1.20: "Mi bóveda" gana la vista master set (vista (iii) del contrato, scope user_vault).
+type VaultTab = 'pieces' | 'masterSet';
 
 /** Retícula del inventario: misma en la cabecera y en cada renglón. */
 const ROW = 'grid grid-cols-[52px_1fr_auto] items-center gap-4 lg:grid-cols-[64px_2fr_1.2fr_1fr_1fr_140px] lg:gap-5';
@@ -64,6 +69,11 @@ export function VaultView() {
   const [sort, setSort] = useState<SortKey>('default');
   // Filtro por set (client-side). 'all' = todos los sets presentes en los holdings.
   const [setFilter, setSetFilter] = useState<string>('all');
+  // Pestañas: "Piezas" (renglones actuales) | "Master set" (binder v1.20, vista (iii)).
+  const [tab, setTab] = useState<VaultTab>('pieces');
+  // Carrito de COMPRA del storefront: el CTA de una variante faltante `buyable` agrega la
+  // pieza publicada (inventoryItemId) al MISMO carrito/checkout que usa el catálogo (§4).
+  const cart = useCart();
 
   const sortedHoldings = useMemo(
     () => (query.data ? sortHoldings(query.data.data, sort, locale) : []),
@@ -119,6 +129,33 @@ export function VaultView() {
         </Link>
       </div>
 
+      {/* Pestañas: piezas (renglones) ⇆ master set (binder por variantes, v1.20). */}
+      <div className="gutter flex gap-5 border-b border-border" role="tablist" aria-label={t('title')}>
+        {(['pieces', 'masterSet'] as VaultTab[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-1 pb-3 text-sm ${
+              tab === key ? 'border-primary text-text' : 'border-transparent text-muted hover:text-text'
+            }`}
+          >
+            {t(`tabs.${key}`)}
+          </button>
+        ))}
+      </div>
+
+      {/* Vista (iii): mi colección por set — faltantes con imagen atenuada y CTA de compra
+          cuando la variante trae `buyable`; sin acciones de venta (contrato §3 v1.20). */}
+      {tab === 'masterSet' && (
+        <div className="gutter py-8">
+          <MasterSetPanel mode="user_vault_self" onBuyMissing={cart.add} />
+        </div>
+      )}
+
+      {tab === 'pieces' && (
       <QueryState
         isLoading={query.isLoading}
         isError={query.isError}
@@ -236,7 +273,11 @@ export function VaultView() {
                 </div>
 
                 {filteredHoldings.map((h) => {
-                  const settled = h.ownershipStatus === 'settled';
+                  // v1.17: `withdrawable` es la fuente ÚNICA de verdad para habilitar RETIRAR
+                  // (true solo si settled && sin envío activo). El hint accesible del botón
+                  // deshabilitado distingue "en retiro" (envío activo) de "no liquidada".
+                  const inWithdrawal = h.shipmentState !== null;
+                  const disabledHint = inWithdrawal ? t('inWithdrawalHint') : t('onlySettled');
                   return (
                     <div key={h.inventoryItemId} className={`${ROW} border-b border-border py-4`}>
                       {/* imagen de catálogo remota (v1.2, sin fotos propias) */}
@@ -268,8 +309,15 @@ export function VaultView() {
 
                       <span className="tabular hidden font-mono text-xs text-muted lg:block">{h.folio}</span>
 
-                      <span className="justify-self-end lg:justify-self-start">
+                      <span className="flex flex-col items-end gap-1.5 justify-self-end lg:items-start lg:justify-self-start">
                         <StatusBadge domain="ownership" value={h.ownershipStatus} />
+                        {/* v1.17: badge "EN RETIRO" + etapa (deep-link al rastreo) cuando hay envío activo. */}
+                        {inWithdrawal && (
+                          <WithdrawalBadge
+                            stage={h.shipmentState!}
+                            activeShipmentId={h.activeShipmentId}
+                          />
+                        )}
                       </span>
 
                       <span className="tabular hidden text-base font-medium text-text lg:block">
@@ -278,9 +326,11 @@ export function VaultView() {
                           : '—'}
                       </span>
 
-                      {/* Retirar solo si settled → navega a /shipments con el ítem preseleccionado
-                          (?item=<inventoryItemId>). Pending: botón deshabilitado (no retirable). */}
-                      {settled ? (
+                      {/* Retirar solo si `withdrawable` (v1.17: settled && sin envío activo) → navega a
+                          /shipments con el ítem preseleccionado (?item=<inventoryItemId>). Si no es
+                          retirable, botón deshabilitado con hint accesible ("En retiro" si ya está en un
+                          envío; "solo liquidadas" si aún es pending). */}
+                      {h.withdrawable ? (
                         <Link
                           href={`/shipments?item=${h.inventoryItemId}`}
                           className="col-span-3 inline-flex min-h-[44px] w-full items-center justify-center border border-text px-4 text-[10px] font-medium uppercase leading-none tracking-label text-text hover:bg-text hover:text-primary-fg sm:min-h-0 sm:py-3 lg:col-span-1"
@@ -293,7 +343,8 @@ export function VaultView() {
                           size="sm"
                           disabled
                           className="col-span-3 w-full lg:col-span-1"
-                          title={t('onlySettled')}
+                          title={disabledHint}
+                          aria-label={`${t('withdraw')} — ${disabledHint}`}
                         >
                           {t('withdraw')}
                         </Button>
@@ -307,6 +358,7 @@ export function VaultView() {
             </>
           ))}
       </QueryState>
+      )}
     </div>
   );
 }

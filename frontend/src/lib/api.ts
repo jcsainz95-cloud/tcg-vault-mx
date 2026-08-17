@@ -37,6 +37,8 @@ import type {
   VaultLocationDTO,
   VaultZone,
   AdminBuylistDTO,
+  AdminSellerRef,
+  RejectedSellItemDTO,
   AdminOrderDTO,
   AdminShipmentDTO,
   PickingListEntryDTO,
@@ -114,6 +116,10 @@ import type {
   BatchCreateInventoryResponse,
   BulkPublishRequest,
   BulkPublishResponse,
+  AdminVaultSort,
+  AdminVaultListResponse,
+  InventoryAdjustmentRequest,
+  InventoryAdjustmentResponse,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -135,6 +141,20 @@ function paginate<T>(rows: T[], params: PageParams = {}): Paginated<T> {
   const page = params.page ?? 1;
   const start = (page - 1) * pageSize;
   return { data: rows.slice(start, start + pageSize), page, pageSize, total: rows.length };
+}
+
+/**
+ * MOCK: traduce los errores internos de fixtures (que no importan ApiClientError) al
+ * error del contrato, para que la UI reciba el MISMO shape con backend real o mock.
+ */
+function translateFixtureError(e: unknown): unknown {
+  if (e instanceof fx.ApiFixtureNotFound) {
+    return new ApiClientError(404, { code: 'NOT_FOUND', message: e.message });
+  }
+  if (e instanceof fx.ApiFixtureError) {
+    return new ApiClientError(e.status, { code: e.code, message: e.message });
+  }
+  return e;
 }
 
 // MOCK (deuda techlead Ola 1 #2): generadores compartidos de ids de job y contraseñas
@@ -242,6 +262,52 @@ export async function getCardDetail(cardId: string): Promise<CardDetailResponse>
 export async function getHoldings(): Promise<HoldingsResponse> {
   if (!config.useMocks) return apiRequest<HoldingsResponse>('/vault/holdings');
   return delay({ data: fx.mockHoldings, portfolio: fx.mockPortfolio });
+}
+
+/**
+ * "Mi bóveda como master set" (contrato §3 · GET /vault/master-sets, `customer`,
+ * v1.20-master-set-everywhere). Mismo shape que el índice admin con scope="user_vault" y
+ * owner = el propio usuario (sin email). Solo sets con ≥1 pieza del usuario.
+ */
+export async function getVaultMasterSets(
+  filters: MasterSetIndexFilters = {},
+): Promise<MasterSetIndexResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetIndexResponse>('/vault/master-sets', {
+      query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
+    });
+  }
+  return delay(
+    fx.mockMasterSetIndex(filters, {
+      kind: 'user_vault',
+      owner: fx.mockSelfVaultOwner,
+      holdings: fx.mockHoldings,
+      includeBuyable: true,
+    }),
+  );
+}
+
+/**
+ * Binder de MI bóveda (contrato §3 · GET /vault/master-sets/:setId, `customer`, v1.20).
+ * Funciona para CUALQUIER set del catálogo (los huecos son los faltantes del usuario).
+ * ÚNICA vista con `buyable` por variante faltante (pieza listed más barata o null).
+ */
+export async function getVaultMasterSetBinder(setId: string): Promise<MasterSetBinderResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetBinderResponse>(`/vault/master-sets/${setId}`);
+  }
+  try {
+    return await delay(
+      fx.mockMasterSetBinder(setId, {
+        kind: 'user_vault',
+        owner: fx.mockSelfVaultOwner,
+        holdings: fx.mockHoldings,
+        includeBuyable: true,
+      }),
+    );
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /** Serie de tendencia del portafolio (contrato GET /vault/portfolio/history, v1.1). */
@@ -458,6 +524,19 @@ export async function getShipments(): Promise<ShipmentDTO[]> {
     return res.data;
   }
   return delay(fx.mockShipments);
+}
+
+/**
+ * Detalle de un retiro propio (contrato §5 · GET /shipments/:id, `customer`, v1.17). Mismo
+ * `ClientShipmentDTO` que el listado, con `items` enriquecidos (folio/card/finish) y montos. Deep-link
+ * desde el badge "EN RETIRO" de la bóveda (`HoldingDTO.activeShipmentId`). Err `404` si no existe o no
+ * es del usuario.
+ */
+export async function getShipment(id: string): Promise<ShipmentDTO> {
+  if (!config.useMocks) return apiRequest<ShipmentDTO>(`/shipments/${id}`);
+  const found = fx.mockShipments.find((s) => s.id === id);
+  if (!found) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
+  return delay(found);
 }
 
 /**
@@ -1527,10 +1606,7 @@ export async function getMasterSetBinder(setId: string): Promise<MasterSetBinder
   try {
     return await delay(fx.mockMasterSetBinder(setId));
   } catch (e) {
-    if (e instanceof fx.ApiFixtureNotFound) {
-      throw new ApiClientError(404, { code: 'NOT_FOUND', message: e.message });
-    }
-    throw e;
+    throw translateFixtureError(e);
   }
 }
 
@@ -1572,6 +1648,106 @@ export async function bulkPublishItems(
   return delay(fx.mockBulkPublish(payload));
 }
 
+// ---------- Master set en todas partes (v1.20) · admin vaults + ajustes ----------
+
+export interface AdminVaultFilters {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: AdminVaultSort;
+}
+
+/**
+ * Lista de clientes CON bóveda (contrato §M1 v1.20 · GET /admin/vaults, `vault_operator+`).
+ * Valuación con la MISMA base del portafolio (§3); sort default `value_desc`.
+ */
+export async function getAdminVaults(filters: AdminVaultFilters = {}): Promise<AdminVaultListResponse> {
+  if (!config.useMocks) {
+    return apiRequest<AdminVaultListResponse>('/admin/vaults', {
+      query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
+    });
+  }
+  return delay(fx.mockAdminVaults(filters));
+}
+
+/**
+ * Vista (ii): índice master set de la bóveda de UN cliente (contrato §M1 v1.20 ·
+ * GET /admin/vaults/:userId/master-sets, `vault_operator+`). Mismo shape que el índice M1
+ * con scope="user_vault" y owner CON email. Solo sets con ≥1 pieza del cliente.
+ */
+export async function getAdminVaultMasterSets(
+  userId: string,
+  filters: MasterSetIndexFilters = {},
+): Promise<MasterSetIndexResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetIndexResponse>(`/admin/vaults/${userId}/master-sets`, {
+      query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
+    });
+  }
+  try {
+    return await delay(
+      fx.mockMasterSetIndex(filters, {
+        kind: 'user_vault',
+        owner: fx.mockVaultOwnerOf(userId),
+        holdings: fx.mockVaultHoldingsByUser[userId] ?? [],
+      }),
+    );
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Vista (ii): binder de la bóveda del cliente (contrato §M1 v1.20 ·
+ * GET /admin/vaults/:userId/master-sets/:setId). SIN `buyable` y SIN acciones: lectura pura
+ * para soporte/operación.
+ */
+export async function getAdminVaultMasterSetBinder(
+  userId: string,
+  setId: string,
+): Promise<MasterSetBinderResponse> {
+  if (!config.useMocks) {
+    return apiRequest<MasterSetBinderResponse>(`/admin/vaults/${userId}/master-sets/${setId}`);
+  }
+  try {
+    return await delay(
+      fx.mockMasterSetBinder(setId, {
+        kind: 'user_vault',
+        owner: fx.mockVaultOwnerOf(userId),
+        holdings: fx.mockVaultHoldingsByUser[userId] ?? [],
+      }),
+    );
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Ajuste de inventario por levantamiento físico desde la celda del binder M1 (contrato
+ * §M1 v1.20.1 · POST /admin/inventory/adjustments, `vault_operator+`, auditado). Motivo
+ * OBLIGATORIO (encontrada | perdida | danada | error_captura). Con `encontrada` el caller
+ * DEBE mandar `batchKey` (idempotencia: mismo batchKey → replay de la respuesta guardada
+ * con `idempotentReplay:true`, sin re-crear piezas); los otros motivos no lo llevan (su
+ * replay cae en 422 ITEM_NOT_ADJUSTABLE). Respuesta v1.20.1: `adjustmentIds: string[]`
+ * alineado 1:1 con `inventoryItemIds`/`folios` (sin el singular `adjustmentId`). NO hay
+ * venta directa manual desde el binder: toda salida de venta pasa por órdenes (checkout/M3).
+ */
+export async function createInventoryAdjustment(
+  payload: InventoryAdjustmentRequest,
+): Promise<InventoryAdjustmentResponse> {
+  if (!config.useMocks) {
+    return apiRequest<InventoryAdjustmentResponse>('/admin/inventory/adjustments', {
+      method: 'POST',
+      body: payload,
+    });
+  }
+  try {
+    return await delay(fx.mockCreateAdjustment(payload));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
 export async function getLocations(): Promise<VaultLocationDTO[]> {
   if (!config.useMocks) {
     const res = await apiRequest<{ data: VaultLocationDTO[] }>('/admin/locations');
@@ -1606,12 +1782,24 @@ export async function createLocation(input: CreateLocationInput): Promise<VaultL
   return delay(created);
 }
 
+// MOCK: identidad legible del vendedor (AdminSellerRef, v1.18) para las filas de
+// fixtures que solo traen userId. En rama real el join lo hace el backend.
+const MOCK_SELLERS: Record<string, AdminSellerRef> = {
+  'u-777': { id: 'u-777', name: 'Diana Olvera', email: 'diana.olvera@example.mx' },
+  'u-778': { id: 'u-778', name: 'Marco Peña', email: 'marco.pena@example.mx' },
+  'u-779': { id: 'u-779', name: 'Sofía Lara', email: 'sofia.lara@example.mx' },
+};
+function mockSellerFor(userId: string): AdminSellerRef {
+  return MOCK_SELLERS[userId] ?? { id: userId, name: userId, email: `${userId}@example.mx` };
+}
+
 export async function getAdminBuylist(): Promise<AdminBuylistDTO[]> {
   if (!config.useMocks) {
+    // v1.18-buylist-rejects: el server ya ordena createdAt desc (NORMA); no re-ordenar aquí.
     const res = await apiRequest<Paginated<AdminBuylistDTO>>('/admin/buylist');
     return res.data;
   }
-  return delay(fx.mockAdminBuylist);
+  return delay(fx.mockAdminBuylist.map((r) => ({ ...r, seller: r.seller ?? mockSellerFor(r.userId) })));
 }
 
 // ---- Admin M5 · acciones de buylist (contrato §M5) ----
@@ -1653,10 +1841,26 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
   return delay({ ...req });
 }
 
+/** Plazos del ítem rechazado en la rama MOCK (espeja las constantes 7d/30d del backend). */
+const DAY_MS = 24 * 3600 * 1000;
+function mockRejectDeadlines(rejectedAtIso: string): {
+  returnDeadlineAt: string;
+  abandonDeadlineAt: string;
+} {
+  const t0 = new Date(rejectedAtIso).getTime();
+  return {
+    returnDeadlineAt: new Date(t0 + 7 * DAY_MS).toISOString(),
+    abandonDeadlineAt: new Date(t0 + 30 * DAY_MS).toISOString(),
+  };
+}
+
 /**
  * Cherry-pick por carta (contrato PATCH /admin/buylist/items/:itemId/decision).
  * `adjust` exige `approvedPriceCents`; el backend valida el tope B-4/AML y puede responder
  * 422 APPROVED_PRICE_CAP_EXCEEDED (se muestra el mensaje real al operador).
+ * v1.18-buylist-rejects: `reject` exige `reason` (3–500 chars → 400 VALIDATION_ERROR si
+ * falta); fija rejectedAt y anula approvedPriceCents (el backend recomputa el total
+ * excluyendo rechazadas — la UI nunca suma dinero, SEC-A1).
  */
 export async function decideBuylistItem(
   itemId: string,
@@ -1674,11 +1878,71 @@ export async function decideBuylistItem(
     adjust: 'ajustada',
     reject: 'rechazada',
   };
-  item.itemStatus = next[input.decision];
-  if (input.decision !== 'reject') {
-    item.approvedPriceCents = input.approvedPriceCents ?? item.quotedPriceCents ?? 0;
+  if (input.decision === 'reject') {
+    // Espeja la validación del backend (400 VALIDATION_ERROR, contrato §M5).
+    const reason = input.reason?.trim() ?? '';
+    if (reason.length < 3 || reason.length > 500) {
+      throw new ApiClientError(400, {
+        code: 'VALIDATION_ERROR',
+        message: 'reason is required for reject (3-500 chars)',
+      });
+    }
+    const rejectedAt = new Date().toISOString();
+    item.itemStatus = 'rechazada';
+    item.approvedPriceCents = undefined; // invariante: fuera del total aprobado
+    item.rejectionReason = reason;
+    item.rejectedAt = rejectedAt;
+    const deadlines = mockRejectDeadlines(rejectedAt);
+    item.returnDeadlineAt = deadlines.returnDeadlineAt;
+    item.abandonDeadlineAt = deadlines.abandonDeadlineAt;
+    return delay({ ...item });
   }
+  item.itemStatus = next[input.decision];
+  item.approvedPriceCents = input.approvedPriceCents ?? item.quotedPriceCents ?? 0;
   return delay({ ...item });
+}
+
+/**
+ * Pestaña «Rechazadas» de M5 (contrato §M5 · GET /admin/buylist/rejected-items,
+ * v1.18-buylist-rejects). Listado paginado TRANSVERSAL (todas las solicitudes) de ítems
+ * `itemStatus="rechazada"`, orden `rejectedAt` desc (legacy sin fecha al final); el
+ * server deriva los plazos (+7d/+30d) y la UI solo deriva la FASE de now vs las fechas.
+ */
+export async function getAdminRejectedBuylistItems(
+  params: PageParams & { userId?: string } = {},
+): Promise<Paginated<RejectedSellItemDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<RejectedSellItemDTO>>('/admin/buylist/rejected-items', {
+      query: { page: params.page, pageSize: params.pageSize, userId: params.userId },
+    });
+  }
+  // MOCK: se derivan de los fixtures en memoria (los rechazos hechos en esta sesión
+  // aparecen aquí), espejando la proyección RejectedSellItemDTO del backend.
+  const rows: RejectedSellItemDTO[] = fx.mockAdminBuylist.flatMap((req) =>
+    req.items
+      .filter((it) => it.itemStatus === 'rechazada')
+      .map((it) => ({
+        id: it.id,
+        sellRequestId: req.id,
+        seller: req.seller ?? mockSellerFor(req.userId),
+        card: it.card,
+        productType: it.productType,
+        finish: it.finish,
+        quotedPriceCents: it.quotedPriceCents,
+        reason: it.rejectionReason ?? null,
+        rejectedAt: it.rejectedAt ?? null,
+        returnDeadlineAt: it.returnDeadlineAt ?? null,
+        abandonDeadlineAt: it.abandonDeadlineAt ?? null,
+      })),
+  );
+  const filtered = params.userId ? rows.filter((r) => r.seller?.id === params.userId) : rows;
+  // Orden del contrato: rejectedAt desc, legacy (null) al final.
+  filtered.sort((a, b) => {
+    if (!a.rejectedAt) return b.rejectedAt ? 1 : 0;
+    if (!b.rejectedAt) return -1;
+    return b.rejectedAt.localeCompare(a.rejectedAt);
+  });
+  return delay(paginate(filtered, params));
 }
 
 /**

@@ -167,6 +167,9 @@ enum PriceSource {
   pokemonpricetracker
   poketrace
   manual
+  // v1.19-sealed-tcgcsv (M-23): referencia de mercado del SELLADO vía TCGCSV
+  // (espejo diario de precios de TCGplayer). ARCHITECTURE §4.19.
+  tcgcsv
 }
 
 enum KycStatus {
@@ -197,6 +200,21 @@ enum MovementReason {
   lost
   damaged
   buylist_convert
+  // v1.20-master-set-everywhere (M-24): ajuste por LEVANTAMIENTO FÍSICO desde el binder M1
+  // (POST /admin/inventory/adjustments). El historial de la pieza distingue un ajuste de
+  // operador (`adjustment`) de un `mark` normal (`lost`/`damaged`) o un retiro (`withdrawal`).
+  adjustment
+}
+
+// v1.20-master-set-everywhere (M-24): motivo OBLIGATORIO del ajuste de inventario por
+// levantamiento físico (ARCHITECTURE §4.20e). `encontrada` crea pieza(s); `perdida`/`danada`
+// → lost/damaged (flujo de reposición/merma); `error_captura` → withdrawn SIN semántica de
+// pérdida (la pieza nunca existió físicamente; la distinción vive aquí, no en InventoryStatus).
+enum AdjustmentReason {
+  encontrada
+  perdida
+  danada
+  error_captura
 }
 
 enum PendingPriceContext {
@@ -420,6 +438,12 @@ model InventoryItem {
   // Dos conversiones concurrentes del mismo SellRequestItem colisionan aquí (P2002) y
   // solo una crea InventoryItem; la otra se trata como "ya convertido".
   sourceSellRequestItemId String?          @unique
+  // v1.19-sealed-tcgcsv (M-23): mapeo CURADO del item SELLADO al producto de TCGplayer/TCGCSV
+  // (ARCHITECTURE §4.19c). Se fijan JUNTOS (ambos null = no mapeado; ambos poblados = mapeado);
+  // solo aplican a productType='sealed' — regla de APLICACIÓN, no constraint de BD. El groupId
+  // se persiste porque el endpoint de precios de TCGCSV es POR GRUPO.
+  tcgplayerProductId      Int?
+  tcgplayerGroupId        Int?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
@@ -427,6 +451,8 @@ model InventoryItem {
   orderItems    OrderItem[]
   shipmentItems ShipmentItem[]
   disputes      Dispute[]
+  // v1.20 (M-24): ajustes por levantamiento físico registrados sobre esta pieza.
+  adjustments   InventoryAdjustment[]
 
   @@index([cardId])
   @@index([status])
@@ -436,6 +462,9 @@ model InventoryItem {
   // (GROUP BY cardId, finish filtrando status on-hand) y el conteo por set del índice
   // Master Set. Complementa (no reemplaza) los índices existentes. ARCHITECTURE §4.17a.
   @@index([cardId, finish, status])
+  // v1.19-sealed-tcgcsv (M-23): sirve la cola de NO-mapeados (sealed AND productId IS NULL)
+  // y el DISTINCT tcgplayerGroupId del ingest sin barrer la tabla. ARCHITECTURE §11.
+  @@index([tcgplayerProductId])
 }
 
 model InventoryMovement {
@@ -454,6 +483,27 @@ model InventoryMovement {
   @@index([itemId])
 }
 
+// v1.20-master-set-everywhere (M-24): registro TIPADO y consultable del ajuste de inventario por
+// levantamiento físico (POST /admin/inventory/adjustments, ARCHITECTURE §4.20e). Tabla propia y NO
+// solo AuditLog porque el motivo debe ser consultable para reportes de merma/levantamiento (M7/M9);
+// complementa —no reemplaza— InventoryMovement(reason=adjustment) y AuditLog. Para `encontrada` con
+// qty>1 se crea UNA fila por pieza creada. Sin FK dura a User (patrón AuditLog).
+model InventoryAdjustment {
+  id              String           @id @default(uuid())
+  inventoryItemId String
+  item            InventoryItem    @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  reason          AdjustmentReason
+  fromStatus      InventoryStatus?
+  toStatus        InventoryStatus
+  actorUserId     String?
+  note            String?
+  createdAt       DateTime         @default(now())
+
+  @@index([inventoryItemId])
+  @@index([reason])
+  @@index([createdAt])
+}
+
 // v1.16-master-set (M-21): idempotencia + auditoría del alta/publicación por LOTE (ARCHITECTURE
 // §4.17b). El `id` ES el `batchKey` (idempotencia natural): un replay del mismo batchKey devuelve
 // `resultJson` sin re-crear. Es el registro de auditoría del lote (complementa AuditLog). NO cambia
@@ -461,7 +511,7 @@ model InventoryMovement {
 model InventoryBatch {
   id           String   @id // = batchKey (idempotency key)
   actorUserId  String?
-  kind         String // 'create' | 'publish'
+  kind         String // 'create' | 'publish' | 'adjust' (v1.20.1: idempotencia del ajuste `encontrada`)
   requested    Int
   createdItems Int
   failedLines  Int
@@ -670,8 +720,17 @@ model SellRequestItem {
   itemStatus         SellItemStatus   @default(cotizada)
   inventoryItemId    String?
   // v1.2 (M-13): eliminado photoKeys (buylist sin fotos de carta; verificación NM contra la física).
+  // v1.18-buylist-rejects (M-22): rechazo de ítem operable. `rejectedAt` = timestamp de la decisión
+  // `reject` (= notificación al vendedor) y ANCLA ÚNICA de los plazos derivados 7d (devolución a
+  // costo del usuario) / 30d (abandono) — NO se persisten los plazos. `rejectionReason` = motivo
+  // obligatorio del rechazo (3–500 chars). Nullable sin backfill: ítems rechazados pre-M-22 (legacy)
+  // exponen los campos de rechazo en null. Ver ARCHITECTURE §4.18 / §11 (M-22).
+  rejectedAt         DateTime?
+  rejectionReason    String?
 
   @@index([sellRequestId])
+  // M-22: sirve GET /admin/buylist/rejected-items (filtro transversal itemStatus='rechazada').
+  @@index([itemStatus])
 }
 
 // ============================= DISPUTES =============================

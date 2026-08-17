@@ -15,6 +15,12 @@ import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 import { PriceIngestService } from './price-ingest.service';
 import { PriceIngestJobService } from '../../jobs/price-ingest.service';
+// v1.19-sealed-tcgcsv (§4.19): referencia de mercado del SELLADO vía TCGCSV.
+import { TcgcsvSealedBulkProvider } from './providers/tcgcsv-sealed.provider';
+import { SealedPriceIngestService } from './sealed-price-ingest.service';
+import { SealedMappingService } from './sealed-mapping.service';
+import { SealedPricingController } from './sealed-pricing.controller';
+import { SealedPriceIngestJobService } from '../../jobs/sealed-price-ingest.service';
 
 /**
  * PricingModule — M2. Providers intercambiables, FxService, PricingService y los
@@ -41,8 +47,14 @@ import { PriceIngestJobService } from '../../jobs/price-ingest.service';
     PokemonTcgIoBulkProvider,
     PriceIngestService,
     PriceIngestJobService,
+    // v1.19-sealed-tcgcsv (§4.19): adapter + ingest + curación del mapeo + su job (mismo
+    // patrón price-ingest: viven aquí para que JobsModule/Scheduler los inyecten sin ciclos).
+    TcgcsvSealedBulkProvider,
+    SealedPriceIngestService,
+    SealedMappingService,
+    SealedPriceIngestJobService,
   ],
-  controllers: [PricingController, FxController],
+  controllers: [PricingController, FxController, SealedPricingController],
   exports: [
     PricingService,
     FxService,
@@ -50,6 +62,8 @@ import { PriceIngestJobService } from '../../jobs/price-ingest.service';
     FxRefreshJobService,
     PriceIngestService,
     PriceIngestJobService,
+    SealedPriceIngestService,
+    SealedPriceIngestJobService,
   ],
 })
 export class PricingModule {}

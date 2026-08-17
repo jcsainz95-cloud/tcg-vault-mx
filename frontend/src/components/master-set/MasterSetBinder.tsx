@@ -4,50 +4,87 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { ChevronLeft } from 'lucide-react';
-import { getMasterSetBinder } from '@/lib/api';
-import type { Finish, MasterSetCardCellDTO, MasterSetSummaryDTO } from '@/types/contract';
+import {
+  getMasterSetBinder,
+  getAdminVaultMasterSetBinder,
+  getVaultMasterSetBinder,
+} from '@/lib/api';
+import type {
+  Finish,
+  MasterSetBinderResponse,
+  MasterSetCardCellDTO,
+  MasterSetSummaryDTO,
+} from '@/types/contract';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { FINISH_ORDER } from '@/lib/finish';
+import type { MasterSetViewMode } from './mode';
 
 type PieceFilter = 'all' | 'with' | 'gaps';
 
 interface Props {
+  mode: MasterSetViewMode;
+  /** Requerido en `user_vault_admin`. */
+  userId?: string;
   set: MasterSetSummaryDTO;
   onBack: () => void;
   onOpenCell: (cell: MasterSetCardCellDTO) => void;
 }
 
+/** Endpoint por modo (contrato v1.20: mismo shape de binder, distinto scope). */
+function fetchBinder(
+  mode: MasterSetViewMode,
+  userId: string | undefined,
+  setId: string,
+): Promise<MasterSetBinderResponse> {
+  if (mode === 'user_vault_self') return getVaultMasterSetBinder(setId);
+  if (mode === 'user_vault_admin') return getAdminVaultMasterSetBinder(userId ?? '', setId);
+  return getMasterSetBinder(setId);
+}
+
 /**
- * Binder del set: cuadrícula por número. Confía en el ORDEN NATURAL del backend (numéricos
- * primero, promos al final): NO re-ordena por número en cliente (contrato §M1). Los filtros
- * (acabado, con/sin piezas, secret rares) son LOCALES y preservan ese orden (Array.filter).
+ * Binder COMPARTIDO del set (§4.20f): cuadrícula por número. Confía en el ORDEN NATURAL del
+ * backend (numéricos primero, promos al final): NO re-ordena por número en cliente (contrato
+ * §M1). Los filtros (acabado, con/sin huecos, secret rares) son LOCALES y preservan ese orden.
+ * v1.20: cada celda muestra sus CASILLAS POR ACABADO (variants[], universo = availableFinishes)
+ * y el contador «X/Y» cuenta variantes.
  */
-export function MasterSetBinder({ set, onBack, onOpenCell }: Props) {
-  const t = useTranslations('admin.m1.masterSet');
+export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell }: Props) {
+  const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
   const [finishFilter, setFinishFilter] = useState<'' | Finish>('');
   const [pieceFilter, setPieceFilter] = useState<PieceFilter>('all');
   const [onlySecret, setOnlySecret] = useState(false);
 
   const binder = useQuery({
-    queryKey: ['master-set-binder', set.setId],
-    queryFn: () => getMasterSetBinder(set.setId),
+    queryKey: ['master-set-binder', mode, userId ?? null, set.setId],
+    queryFn: () => fetchBinder(mode, userId, set.setId),
   });
 
   const cells = useMemo(() => {
     const all = binder.data?.cells ?? [];
     // Filtros LOCALES sobre la respuesta completa; NO se re-ordena (se conserva el orden natural).
     return all.filter((c) => {
-      if (finishFilter && !c.countsByFinish.some((cf) => cf.finish === finishFilter)) return false;
-      if (pieceFilter === 'with' && c.totalCount === 0) return false;
-      if (pieceFilter === 'gaps' && c.totalCount > 0) return false;
+      if (finishFilter && !c.variants.some((v) => v.finish === finishFilter && v.covered)) return false;
+      if (pieceFilter === 'with' && c.coveredVariantCount === 0) return false;
+      if (pieceFilter === 'gaps' && c.coveredVariantCount >= c.expectedVariantCount) return false;
       if (onlySecret && !c.isSecretRare) return false;
       return true;
     });
   }, [binder.data, finishFilter, pieceFilter, onlySecret]);
+
+  // v1.20: contador del set POR VARIANTE, derivado del binder (suma de expected/covered).
+  const variantTotals = useMemo(() => {
+    const all = binder.data?.cells ?? [];
+    const expected = all.reduce((s, c) => s + c.expectedVariantCount, 0);
+    const covered = all.reduce((s, c) => s + c.coveredVariantCount, 0);
+    const pct = expected === 0 ? 0 : Math.round((covered / expected) * 1000) / 10;
+    return { expected, covered, pct };
+  }, [binder.data]);
+
+  const owner = binder.data?.owner;
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,13 +100,21 @@ export function MasterSetBinder({ set, onBack, onOpenCell }: Props) {
         {binder.data && (
           <span className="font-mono tabular-nums text-xs text-muted">
             {t('completionValue', {
-              owned: set.distinctCardsOwned,
-              total: binder.data.catalogCardCount,
-              pct: set.completionPct ?? 0,
+              owned: variantTotals.covered,
+              total: variantTotals.expected,
+              pct: variantTotals.pct,
             })}
           </span>
         )}
       </div>
+
+      {/* Dueño de la bóveda (scope user_vault; email solo en la vista admin). */}
+      {mode === 'user_vault_admin' && owner && (
+        <p className="font-mono text-xs text-muted">
+          {t('ownerVault', { name: owner.name })}
+          {owner.email ? ` · ${owner.email}` : ''}
+        </p>
+      )}
 
       {/* Filtros LOCALES (no vuelven a pegarle al backend). */}
       <div className="flex flex-wrap items-end gap-3">
@@ -132,9 +177,15 @@ export function MasterSetBinder({ set, onBack, onOpenCell }: Props) {
 }
 
 function BinderCell({ cell, onOpen }: { cell: MasterSetCardCellDTO; onOpen: () => void }) {
-  const t = useTranslations('admin.m1.masterSet');
+  const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
-  const isGap = cell.totalCount === 0;
+  // Hueco TOTAL = ninguna variante cubierta → imagen atenuada + borde punteado (grid visual).
+  const isGap = cell.coveredVariantCount === 0;
+  // Drift de catálogo (contrato v1.20): piezas con acabado FUERA del universo se VEN pero no
+  // cuentan en expected/covered.
+  const driftCounts = cell.countsByFinish.filter(
+    (cf) => !cell.variants.some((v) => v.finish === cf.finish),
+  );
   return (
     <button
       type="button"
@@ -172,27 +223,47 @@ function BinderCell({ cell, onOpen }: { cell: MasterSetCardCellDTO; onOpen: () =
         {isGap ? (
           <span className="font-mono text-[10px] uppercase tracking-wide text-accent">{t('gap')}</span>
         ) : (
-          <span className="font-mono tabular-nums text-xs">{t('totalCount', { count: cell.totalCount })}</span>
+          /* v1.20: el contador de la celda cuenta VARIANTES cubiertas del universo. */
+          <span className="font-mono tabular-nums text-xs">
+            {t('variantCount', { covered: cell.coveredVariantCount, expected: cell.expectedVariantCount })}
+          </span>
         )}
       </div>
       <span lang="en" className="line-clamp-1 text-sm">
         {cell.name}
       </span>
-      {/* Chips de cantidad POR ACABADO (#11) desde countsByFinish. */}
-      {cell.countsByFinish.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {cell.countsByFinish.map((cf) => (
+      {/* v1.20: CASILLAS POR ACABADO — una por variante del universo; «HUECO» por acabado. */}
+      <div className="flex flex-wrap gap-1">
+        {cell.variants.map((v) =>
+          v.covered ? (
             <span
-              key={cf.finish}
+              key={v.finish}
               className="border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide"
-              aria-label={t('finishChipAria', { finish: tFinish(cf.finish), count: cf.count })}
+              aria-label={t('finishChipAria', { finish: tFinish(v.finish), count: v.count })}
             >
-              {tFinish(cf.finish)} ·{' '}
-              <span className="tabular-nums">{cf.count}</span>
+              {tFinish(v.finish)} · <span className="tabular-nums">{v.count}</span>
             </span>
-          ))}
-        </div>
-      )}
+          ) : (
+            <span
+              key={v.finish}
+              className="border border-dashed border-border-strong px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-accent"
+              aria-label={t('finishGapAria', { finish: tFinish(v.finish) })}
+            >
+              {tFinish(v.finish)} · {t('gap')}
+            </span>
+          ),
+        )}
+        {driftCounts.map((cf) => (
+          <span
+            key={`drift-${cf.finish}`}
+            className="border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted"
+            aria-label={t('driftChipAria', { finish: tFinish(cf.finish), count: cf.count })}
+            title={t('driftNote')}
+          >
+            {tFinish(cf.finish)} · <span className="tabular-nums">{cf.count}</span> ⚠
+          </span>
+        ))}
+      </div>
     </button>
   );
 }

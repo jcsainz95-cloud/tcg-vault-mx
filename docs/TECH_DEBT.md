@@ -643,11 +643,294 @@
 - **Disparador (aceptado):** reusar el **`getReferencesBatch`** ya existente (`PricingService`, ver **BE-35**)
   para resolver las 50 referencias en 1 consulta. Misma familia que **BE-4/D3**.
 
-### Nota al arquitecto (NO backend) · `AdminBuylistDTO §M5` podría exponer `userName`
-- **Qué:** el flujo admin de buylist (§M5) hace un **fetch por-fila** del nombre del usuario. Si el contrato
+### WS-H (cierre invariante de retiro) — deuda del delta (2026-08-17, no bloqueante)
+
+> Del pase de cierre WS-H (SEC-H1/SEC-H2: item `withdrawn` re-retirable + TOCTOU de doble-envío). Los
+> **dos fixes** (gate positivo `status==='in_custody'` en `classifyItems` → `ITEM_NOT_IN_CUSTODY`/422; y el
+> guard transaccional SERIALIZABLE del chequeo anti-doble-envío + creación) se **aplicaron** en este pase con
+> tests, y por tanto **no** figuran como deuda. Lo de abajo es la deuda **no bloqueante** que queda. Dueño
+> **backend** salvo donde se anota dependencia con **devops**. Continúan la numeración `BE-*` (tras BE-38).
+
+### BE-39 · Regla de exclusión `status!='withdrawn'` duplicada en 3 sitios (mantenibilidad)
+- **Dónde:** `src/modules/vault/vault.service.ts:35` (`holdings`) y `:121` (`costBasisCents`);
+  `src/jobs/portfolio-snapshot.service.ts:32` (snapshot por-usuario).
+- **Estado actual:** el `where` de "holdings activos del cliente" (`ownerType:'customer', ownerUserId:userId,
+  status:{ not:'withdrawn' }`) está **replicado a mano** en tres consultas. Si la definición de "holding activo"
+  cambia (p. ej. excluir también `lost`/`damaged` del portafolio, o añadir un nuevo status terminal), hay que
+  tocarlo en tres sitios y es fácil que diverjan (el snapshot mostraría un total distinto del de "Mi bóveda").
+- **Impacto:** bajo. Correctness OK hoy (los tres coinciden); riesgo de divergencia silenciosa al evolucionar
+  la máquina de estados del inventario.
+- **Disparador:** al tocar la definición de holding activo o la valuación de portafolio. Solución: extraer un
+  helper compartido `customerActiveHoldingsWhere(userId)` (un `Prisma.InventoryItemWhereInput`) reusado por los
+  tres call-sites. Owner: **backend**. Prioridad: **baja**.
+
+### BE-40 · Dos representaciones de "envío activo": allowlist vs denylist (fuente doble)
+- **Dónde:** `src/modules/vault/vault.service.ts:11-16` (`ACTIVE_SHIPMENT_STAGES` = allowlist
+  `[solicitado, picking, guia, enviado]`) vs. `src/modules/shipments/shipments.service.ts` (chequeo
+  anti-doble-envío usa `status: { notIn: ['cancelado','entregado'] }` = **denylist**).
+- **Estado actual:** el mismo concepto ("un envío que aún bloquea el item") se codifica de **dos formas
+  complementarias** en dos módulos. Hoy son equivalentes (los 6 estados particionan exactamente en 4 activos +
+  2 terminales), pero si se **añade un estado nuevo** al `ShipmentStatus` (p. ej. `retenido`/`devuelto`), la
+  allowlist y la denylist **discreparían** (uno lo trataría activo, el otro no) → un item podría listarse como
+  retirable en la bóveda y a la vez ser rechazado por el gate de creación, o viceversa.
+- **Impacto:** bajo/latente. Correctness OK con los 6 estados actuales; el riesgo aparece al extender el enum.
+- **Disparador:** al añadir un `ShipmentStatus` nuevo o al tocar cualquiera de los dos checks. Solución: derivar
+  ambas de **una sola constante** (p. ej. `ACTIVE_SHIPMENT_STAGES` como fuente; el gate de shipments usa
+  `status: { in: ACTIVE_SHIPMENT_STAGES }` en vez del `notIn`). Owner: **backend**. Prioridad: **baja**.
+- **Nota UX (v1.17.1, no bloqueante):** con el read de `withdrawable` ya alineado al contrato §3 (read=write:
+  `settled && status==='in_custody' && sin envío activo`), un item `settled` pero `lost`/`damaged` ahora muestra
+  `withdrawable=false` (**resuelto**: ya no ofrece RETIRAR una carta en incidencia). Si en el futuro se quiere un
+  **mensaje específico** "carta en incidencia" en la bóveda (en vez de solo ocultar/deshabilitar el botón), es una
+  **mejora de UX** (frontend, requeriría exponer/consumir el `status` en la tarjeta). No bloqueante. Owner: **ux-ui/frontend**.
+
+### BE-41 · N+1 de pricing en `holdings` amplificado por el snapshot por-usuario (perf) — familia BE-4/D3
+- **Dónde:** `src/modules/vault/vault.service.ts:69-106` (`holdings` llama `PricingService.getReference` por
+  ítem) + el job `portfolio-snapshot` (mismo patrón, ahora por-usuario).
+- **Estado actual:** una consulta `PriceReference` por holding; con bóvedas grandes son decenas/cientos de
+  queries por request, y el snapshot diario lo repite **por cada usuario**. Es la misma familia que **BE-4/D3**,
+  aquí re-confirmada y amplificada por el snapshot por-usuario del portafolio.
+- **Impacto:** rendimiento de "Mi bóveda" y del snapshot diario al crecer el inventario. Correctness OK.
+- **Disparador:** cuando un usuario supere ~cientos de holdings o el snapshot se vuelva lento. Solución: migrar a
+  `PricingService.getReferencesBatch` (ya existe, ver BE-35) por `(cardId, productType, gradeKey, finish)` con un
+  `IN` y map en memoria, reusado por `holdings` y el job. **Re-confirmar/cerrar junto con BE-4.** Owner:
+  **backend**. Prioridad: **baja**.
+
+### BE-42 · Índice único parcial de `ShipmentItem` para SEC-H2 (defensa en profundidad) — disparador DAST
+- **Dónde:** `prisma/schema.prisma` (`ShipmentItem`, sin `@@unique`/índice parcial sobre `inventoryItemId`);
+  `src/modules/shipments/shipments.service.ts` (`create`, guard transaccional SERIALIZABLE).
+- **Estado actual:** SEC-H2 quedó **mitigado** en este pase por el guard transaccional serializable (dos
+  `POST /shipments` concurrentes del mismo item → uno aborta por conflicto de serialización, no se crean dos
+  envíos ni dos PaymentIntents), **SIN migración**. La defensa **en profundidad** —un índice único **parcial**
+  `ShipmentItem(inventoryItemId) WHERE shipmentRequest activo` que haga la doble-inserción imposible a nivel de
+  BD incluso bajo un aislamiento más laxo— **no** se aplicó en este pase (requiere migración; se difirió a
+  propósito por el alcance del encargo). Nota: un índice parcial sobre una condición que cruza tablas
+  (`shipmentRequest.status`) no es expresable directo en Postgres sin desnormalizar un flag "activo" en
+  `ShipmentItem` o materializarlo; evaluar el diseño al abordarlo.
+- **Impacto:** bajo residual (el guard serializable ya cierra la carrera práctica); el índice sería cinturón +
+  tirantes ante un cambio futuro de nivel de aislamiento o un camino de creación alterno.
+- **Disparador:** **al aparecer en un DAST** de doble-envío concurrente sobre staging, o al endurecer la ruta
+  de dinero antes de operar a escala/multi-instancia. Solución: migración con el índice único parcial (posible
+  columna `isActive`/`shipmentStatus` desnormalizada en `ShipmentItem` mantenida por la máquina de estados) +
+  captura de P2002 como `ITEM_IN_ANOTHER_SHIPMENT`. Owner: **backend** (schema → **coordinar con arquitecto**;
+  disparador **DAST/devops**). Prioridad: **baja**. Relacionado con **BE-2** (familia TOCTOU).
+
+### v1.18-buylist-rejects (M5 rechazos) — deuda aceptada del pase (2026-08-17, no bloqueante)
+
+### BE-43 · Plantilla del correo de rechazo de buylist vive FUERA de `mail/` (layout/escape duplicados)
+- **Dónde:** `src/modules/buylist/buylist-mail.templates.ts` (`sellItemRejectedTemplate` + helpers
+  `layout`/`escapeHtml`/`normalizeLocale` duplicados de `src/modules/mail/mail.templates.ts`) y el envío
+  best-effort en `buylist.service.ts` (`sendItemRejectedMail`, sin cola de reintentos).
+- **Estado actual:** decisión de diseño del arquitecto (ARCHITECTURE §4.18c / API_CONTRACT v1.18): el módulo
+  `mail` pertenece al stream «Cuentas y acceso» y NO se toca desde este stream; `buylist` inyecta solo el
+  puerto global `MAIL_PORT` y renderiza con plantilla LOCAL al módulo. Consecuencias: (a) el helper de
+  layout/branding y la disciplina de escape HTML (S15-B1) están **duplicados** (si `mail.templates.ts`
+  cambia el branding/escape, hay que espejarlo a mano aquí); (b) el envío es **best-effort sin reintentos**
+  (fallo → `logger.error`, la decisión NO se revierte — norma §M5). Relacionado (mismo pase, menor): las
+  constantes 7d/30d de los plazos del ítem rechazado viven en
+  `src/modules/buylist/buylist-reject.constants.ts`; `src/jobs/buylist-sweep.service.ts` (zona de otro
+  agente en este pase) conserva sus 7/30 inline — al tocar el sweep, importar esas constantes (fuente única).
+- **Ampliación (v1.19, techlead):** el correo de soporte `soporte@tcgvaultmx.com` está **hardcodeado** en
+  `buylist-mail.templates.ts:19` (`SUPPORT_EMAIL`), mientras `src/modules/disputes/disputes.constants.ts:10`
+  lee el MISMO buzón de la env `DISPUTE_EVIDENCE_CONTACT` (con ese fallback) — **dos fuentes de verdad** para
+  el mismo dato de contacto: un cambio del buzón vía env NO se reflejaría en el correo de rechazo de buylist.
+  Unificar (leer la misma fuente/env) cuando se absorba la plantilla en `mail/` (mismo disparador de abajo).
+- **Impacto:** bajo. Mantenibilidad (divergencia potencial de branding/escape entre plantillas) y, sin
+  reintentos, un correo de rechazo puede perderse si el proveedor falla (el vendedor igual ve motivo y plazos
+  en la app, `GET /buylist/requests/:id`).
+- **Disparador (aceptado):** cuando el stream **«Cuentas y acceso»** toque `mail/`: absorber
+  `sellItemRejectedTemplate` en `mail.templates.ts`/`MailService` (helpers a fuente única) y evaluar cola de
+  reintentos para transaccionales de negocio. Dueño: **backend**. Aceptada por arquitecto en el contrato v1.18.
+
+### Nota al arquitecto (NO backend) · `AdminBuylistDTO §M5` podría exponer `userName` — CERRADA (v1.18)
+- **Qué:** el flujo admin de buylist (§M5) hacía un **fetch por-fila** del nombre del usuario. Si el contrato
   expusiera `userName` en `AdminBuylistDTO` se evitaría ese N+1 de presentación en M5.
-- **Enrutado a:** **arquitecto** (cambio de contrato §M5). Backend **no** lo implementa hasta que el contrato lo
-  defina; se deja registrado aquí para trazabilidad.
+- **Estado (2026-08-17):** **CERRADA.** El arquitecto lo normó en el contrato **v1.18-buylist-rejects**:
+  `GET /admin/buylist` y `GET /admin/buylist/:id` exponen **`seller: AdminSellerRef = { id, name, email }`**
+  (join server-side a `User`), implementado por backend en este pase (`adminList`/`adminGet`). El N+1 de
+  presentación desaparece. Entrada conservada como trazabilidad.
+
+### v1.19-sealed-tcgcsv (referencia de mercado del sellado) — deuda aceptada del pase (2026-08-17, no bloqueante)
+
+### BE-44 · Restos del pase sealed-TCGCSV: error-code por cast, upsert money-safe duplicado, heurística sin validar
+- **Dónde:** (a) `src/modules/pricing/sealed-pricing.controller.ts:19`; (b) `src/modules/pricing/pricing.service.ts`
+  (`persistSealedMarketReference`, ~:340-376, vs `persistMarketReference`); (c)
+  `src/modules/pricing/providers/tcgcsv-sealed.provider.ts` (heurística de "sellado", ~:130) + sus fixtures de test.
+- **Qué / por qué:**
+  - **(a) `UPSTREAM_ERROR` tipado por cast local.** El código 502 `UPSTREAM_ERROR` está en el contrato (§M2,
+    explorador TCGCSV) pero NO en `src/common/error-codes.ts`, porque `common/` (zona compartida) estaba
+    **serializada a otro stream** en esta ventana. El controller lo tipa con
+    `'UPSTREAM_ERROR' as ErrorCodeType` (cast local documentado). Follow-up de **1 línea** (añadirlo al
+    enum `ErrorCode`) en cuanto `common/` quede libre.
+  - **(b) upsert diario money-safe duplicado.** `persistSealedMarketReference` duplica ~35 líneas de
+    `persistMarketReference`: construcción de la clave compuesta
+    `cardId_productType_gradeKey_finish_capturedDate`, la guardia `existing?.isManualOverride` (NO clobbear
+    el override manual del admin) y el `upsert` create/update. Deliberado en el pase (hermano documentado)
+    pero la **doctrina money-safe debe vivir en UN solo sitio**. Dirección: extraer un privado común
+    `upsertDailyReference(key, data)` que ambos llamen; si un fix de la guardia (p. ej. un edge del override)
+    aterriza en una sola copia, la otra diverge en silencio sobre dinero.
+  - **(c) heurística de sellado + fixtures sin validar contra payloads reales.** La detección de "producto
+    sellado" del adapter TCGCSV (product SIN los extendedData de single) y los fixtures de test se
+    escribieron contra la documentación/muestras, **sin validar contra payloads reales** de tcgcsv.com
+    (egress bloqueado en local). Riesgo: clasificar mal un product en la primera corrida real. **Candado:**
+    el dial `sealed_price_source` tiene seed **`off`** (fail-closed); la ingesta no corre hasta que el
+    humano/devops flipee a `tcgcsv` en staging.
+- **Impacto:** bajo. (a) cosmético/tipado; (b) mantenibilidad sobre camino de dinero (correctness OK hoy,
+  riesgo de divergencia futura); (c) acotado por el dial `off` — sin corrida real no hay dato malo persistido.
+- **Disparador:** (a) primer pase que libere/toque `common/` (fix de 1 línea); (b) próximo toque a la familia
+  `persistMarketReference`/ingesta de precios; (c) **1ª corrida en staging** con el dial en `tcgcsv`:
+  validar la heurística contra los payloads reales y ajustar fixtures antes de considerar prod.
+- **Dueño:** **backend**. Prioridad: **baja** (aceptada por techlead en el veredicto v1.19).
+
+### Nota (baja) · La clave del Map de `getReferencesBatch` se reconstruye a mano en 6 sitios (familia BE-4/BE-25/BE-35)
+- **Qué:** la clave `` `${cardId}|${productType}|${gradeKey}|${finish}` `` del `Map` que devuelve
+  `PricingService.getReferencesBatch` se re-arma **a mano** en 6 sitios: `pricing.service.ts:107` (`keyOf`,
+  privada), `admin.service.ts:314,319`, `catalog.service.ts:99` e `inventory.service.ts:431,629`. Un cambio
+  de formato de la clave (p. ej. un campo nuevo) rompería consumidores en silencio (miss del Map → pending).
+- **Dirección:** exportar un helper `referenceKey(item)` desde `pricing.service.ts` (o devolver un objeto con
+  `get(item)`) y migrar los 5 sitios consumidores. Misma familia que **BE-4/BE-25/BE-35** (batch de
+  referencias); pagarlo junto con la próxima migración de esa familia. Dueño: **backend**. Prioridad: **baja**.
+
+### Stream «Inventario y vault» (v1.20/v1.20.1) — ronda final post-gates (2026-08-17, no bloqueante)
+
+> Cierre del stream «Inventario y vault» tras el doble veredicto. **BE-45 y BE-46 se PAGARON en este
+> mismo stream** (autorizado por techlead sin re-review) y **BE-47 quedó CERRADA por el contrato
+> v1.20.1-adjustments-clarify**; BE-48..BE-50 quedan **abiertas, aceptadas no bloqueantes**. Al final
+> se anotan dos pendientes de **OTROS streams** detectados por QA en este gate (dueño: backend de sus
+> respectivos streams — NO se tocaron aquí). Continúa la numeración `BE-*` (tras BE-44). Detalle de
+> implementación en `docs/BACKEND_NOTES.md §45.7`.
+
+### BE-45 · Update incondicional de status en ajuste y bulk-publish (TOCTOU) — PAGADA (2026-08-17, este stream)
+- **Dónde:** `src/modules/inventory/inventory.service.ts` → `adjustExisting` (el update dentro de la
+  `$transaction`, antes ~:816-833) y `bulkPublish` (el paso a `listed`, antes ~:478).
+- **Estado:** **PAGADA.** Ambos sitios hacían check-then-act: validaban el allowlist de status sobre el
+  snapshot leído y luego escribían con `update` **incondicional** — una carrera (p. ej. un checkout que
+  pone la pieza `reserved` entre lectura y escritura) podía pisar la reserva con `lost|damaged|withdrawn`
+  o re-listar una pieza reservada (double-sell).
+- **Fix:** guardia **atómica** en el propio UPDATE: `updateMany({ where: { id, ownerType:'platform',
+  status: { in: ADJUSTABLE_ORIGIN_STATUSES | PUBLISHABLE_ORIGIN_STATUSES } } })` + `count === 1`; si
+  `count !== 1` → `422 ITEM_NOT_ADJUSTABLE` (ajuste, con rollback de la tx) / `ITEM_NOT_PUBLISHABLE`
+  por-línea (bulk-publish). El pre-check en memoria se conserva solo para mensajes amables. Cubierto con
+  tests de carrera (`test/inventory.adjustments.spec.ts`, `test/inventory.batch.spec.ts`).
+
+### BE-46 · Raw SQL del índice master set duplicaba a mano la lista de status on-hand — PAGADA (2026-08-17, este stream)
+- **Dónde:** `src/modules/inventory/master-set.service.ts` → `aggregateInventoryBySet` (raw SQL, ~:383)
+  vs la constante exportada `NOT_ON_HAND` (~:29, usada por `scopeWhere` y `admin-vaults.service.ts`).
+- **Estado:** **PAGADA.** El `AND ii.status NOT IN ('withdrawn', 'shipped', ...)` reescribía la lista
+  literal — dos fuentes de verdad que podían divergir al tocar el enum. Ahora el SQL interpola la
+  constante: `ii.status::text NOT IN (${Prisma.join(NOT_ON_HAND)})` (parametrizado por Prisma, cast
+  `::text` para comparar el enum con los parámetros). Una sola fuente de verdad para "on-hand".
+
+### BE-47 · Doble submit del drawer de ajuste duplicaba piezas (`encontrada` sin idempotencia) — CERRADA por v1.20.1 (2026-08-17)
+- **Dónde:** `POST /admin/inventory/adjustments` (`inventory.service.ts` → `adjustFound`).
+- **Estado:** **CERRADA** por el contrato **v1.20.1-adjustments-clarify** (§M1) implementado en este
+  stream: `batchKey?` opcional **solo** en la rama `encontrada`, con la MISMA semántica e infraestructura
+  `InventoryBatch` (M-21) que `batchCreate` — **sin migración nueva** (claim atómico `create({ id:
+  batchKey, kind:'adjust' })` PRIMERO dentro de la `$transaction`; P2002 → replay del ganador). Un replay
+  devuelve la **respuesta original guardada** con `idempotentReplay: true` y **200** (aunque la primera
+  vez fuera 201). `batchKey` con otro motivo → `400 VALIDATION_ERROR` (esos motivos tienen idempotencia
+  natural: su replay cae en `422 ITEM_NOT_ADJUSTABLE`). De paso se implementó la otra aclaración v1.20.1:
+  `adjustmentIds: string[]` (una fila M-24 por pieza, alineada 1:1 con `inventoryItemIds`/`folios`)
+  **sustituye** al singular `adjustmentId` (cierra la nota de BACKEND_NOTES §45.4).
+
+### BE-48 · `AdjustmentFoundItemInput` es copia casi 1:1 de `BatchInventoryItemInput` (Baja)
+- **Dónde:** `src/modules/inventory/dto/inventory.dto.ts` → `AdjustmentFoundItemInput` (~:146-162) vs
+  `BatchInventoryItemInput` (~:95-110).
+- **Estado actual:** los dos DTOs comparten 12 de 13 campos (decoradores incluidos); la ÚNICA diferencia
+  real es `acquisitionType` (obligatorio en el lote, opcional con default `aportacion_en_especie` en el
+  ajuste). Un cambio de validación en el alta (p. ej. un tope nuevo) hay que replicarlo a mano en la copia
+  — riesgo de divergencia silenciosa.
+- **Impacto:** bajo. Mantenibilidad; correctness OK hoy (el servicio reusa `resolveCreation`, así que la
+  lógica de negocio NO está duplicada — solo la capa de validación del DTO).
+- **Disparador:** al tocar cualquiera de los dos DTOs. Dirección: **derivar/extraer una base común**
+  (p. ej. clase base con los campos compartidos y `AdjustmentFoundItemInput extends` relajando solo
+  `acquisitionType`, o `OmitType`/`PartialType` de `@nestjs/mapped-types`).
+
+### BE-49 · `GET /admin/vaults` valúa TODAS las bóvedas por request; `getReferencesBatch` escala con el histórico (Media a futuro)
+- **Dónde:** `src/modules/vault/admin-vaults.service.ts` (`list`: 1 `findMany` de TODAS las piezas de
+  bóveda + 1 `getReferencesBatch` para valuar y ordenar globalmente ANTES de paginar) +
+  `src/modules/pricing/pricing.service.ts` (`getReferencesBatch`, que lee `PriceReference` con un WHERE
+  por combinaciones y resuelve "la más reciente" en memoria — su costo crece con el histórico diario de
+  `PriceReference`, ver BE-20). Detalle adicional: en ese camino `gradeKeyFor` se calcula **dos veces**
+  por pieza (una para armar el lote de combinaciones y otra al mapear el resultado) — trabajo redundante
+  que conviene izar a una sola pasada al pagar esta deuda.
+- **Impacto:** hoy O(1) queries y correcto; con **histórico real de PriceReference** (30-40k filas/día,
+  BE-20) o **miles de piezas** en bóveda, la valuación por-request se vuelve el cuello del listado admin.
+- **Disparador (aceptado):** **antes de staging con histórico real de precios o con miles de piezas.**
+  Dirección: materializar la valuación por usuario (familia `InventoryStockSummary`/BE-4/D3) o resolver
+  "última referencia por combinación" en SQL (`DISTINCT ON`) en vez de cargar+filtrar en memoria, y
+  calcular `gradeKeyFor` una sola vez por pieza.
+
+### BE-50 · Índice master set en scope `user_vault` agrega sobre el catálogo COMPLETO (Baja)
+- **Dónde:** `src/modules/inventory/master-set.service.ts` → `index()` con scope `user_vault`: las
+  agregaciones (`cardSet` + `card.groupBy` + raw de variantes de catálogo + raw de piezas) corren sobre
+  TODOS los sets del catálogo y el filtro "solo sets con ≥1 pieza del usuario" se aplica DESPUÉS, en
+  memoria.
+- **Impacto:** bajo hoy (queries fijas, catálogo acotado); al crecer el catálogo (cientos de sets tras el
+  backfill), cada vista "Mi bóveda"/admin-bóveda paga la agregación del catálogo entero para mostrar los
+  3-4 sets del usuario.
+- **Disparador (aceptado):** al crecer el catálogo o si el índice de bóveda se siente lento. Dirección:
+  **acotar primero a los sets del usuario** (una query corta `SELECT DISTINCT c."setId" FROM
+  InventoryItem ii JOIN Card c ...` con el WHERE del scope) y agregar solo sobre esos setIds.
+
+### Re-verificación QA v1.20.1 (2026-08-17) — hallazgos MENORES no bloqueantes
+
+> De la **re-verificación de QA sobre v1.20.1-adjustments-clarify** (idempotencia `batchKey` en
+> ajustes `encontrada`, ver BE-47). Ambos son **menores, no bloqueantes**, dueño **backend**.
+> Continúa la numeración `BE-*` (tras BE-50).
+
+### BE-51 · Lookup de replay idempotente de adjustments no filtra `kind:'adjust'` (Baja)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts` L778 y L876:
+  `inventoryBatch.findUnique({ where: { id: batchKey } })`.
+- **Estado actual:** el lookup de replay resuelve por `id` sin filtrar `kind:'adjust'`; una **colisión de
+  clave** con un batch previo `create`/`publish` replayaría un `resultJson` **ajeno** como
+  `InventoryAdjustmentResponse`.
+- **Impacto:** riesgo práctico **~nulo**: las claves son UUID con prefijo `adj-` (colisión inviable en la
+  práctica) y el endpoint es solo admin. Además es un **patrón pre-existente idéntico** en
+  `batchCreate`/`bulkPublish` (mismo lookup sin filtro de `kind`).
+- **Disparador:** próximo toque de la infraestructura `InventoryBatch`. Dirección: **filtrar por `kind`
+  en el lookup** (y valorar hacerlo también en los caminos hermanos `batchCreate`/`bulkPublish`).
+
+### BE-52 · Catch de P2002 en la tx de ajuste interpreta cualquier violación de unique como carrera de batchKey (Baja)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts` L873-884 (catch de **P2002** dentro de
+  la `$transaction` de `adjustFound`).
+- **Estado actual:** el catch trata **cualquier** violación de unique como carrera del claim de
+  `batchKey`. Con folios generados por secuencia, otra fuente de P2002 es **prácticamente inalcanzable**
+  y, si ocurriera, **falla seguro**: 409 CONFLICT sin duplicación. (Nota informativa: 409 está en los
+  códigos comunes del contrato §0 aunque no aparece en la ficha §M1.)
+- **Impacto:** bajo. A lo sumo un 409 con causa mal atribuida en un caso hoy inalcanzable; sin riesgo de
+  duplicación ni de dinero.
+- **Disparador:** próximo toque de esa transacción. Dirección: **acotar el catch al target del claim de
+  `InventoryBatch`** (inspeccionar `error.meta.target` / modelo antes de mapear a la carrera de batchKey).
+
+### Pendientes de OTROS streams detectados por QA en este gate (2026-08-17 — NO son de este stream)
+
+> Anotados aquí por trazabilidad a petición del gate; **dueño: backend de sus respectivos streams**
+> («Cuentas y acceso» / zona común de throttling). Este stream NO los tocó (regla 8: el hallazgo vuelve
+> al rol/stream responsable).
+
+### XS-1 · `jwt-auth.guard.ts:37` devuelve 422 UNAUTHENTICATED en vez de 401 (contrato §0) — stream «Cuentas y acceso»
+- **Dónde:** `src/common/guards/jwt-auth.guard.ts:37` — la rama "sin header Bearer" lanza
+  `BusinessException.validation('UNAUTHENTICATED', ...)` que mapea a **422**; el contrato §0 exige
+  **401** para `UNAUTHENTICATED` (las otras dos ramas del guard ya usan 401 explícito).
+- **Impacto:** medio-bajo: rompe el contrato de status para clientes/interceptores que disparan el
+  refresh de token con `response.status === 401` (una petición sin token recibiría 422 y no refrescaría).
+- **Dirección:** `new BusinessException('UNAUTHENTICATED', 401, 'Missing bearer token')` (paridad con
+  las líneas :48/:63 del mismo guard) + test de contrato del guard. **Fix trivial pero fuera de este
+  stream**; requiere pasar por los gates de su stream.
+
+### XS-2 · 5 fallos DETERMINISTAS de la suite de integración por rate-limit (login throttle + throttle B-C1) vs harness E2E — bloqueará la E2E completa de release
+- **Dónde:** `backend/test/integration/*` corriendo contra el stack levantado: el throttle de login
+  (`auth.controller.ts`, familia `@Throttle` anti fuerza-bruta) y el throttle dedicado del cotizador
+  batch (B-C1, 12/min — ver BACKEND_NOTES §40) se AGOTAN con la cadencia del harness E2E (todos los
+  specs se loguean/cotizan en ráfaga desde la MISMA IP del runner) → **5 tests fallan de forma
+  determinista** con 429, sin bug funcional detrás.
+- **Impacto:** **bloqueará la suite E2E completa de release** (gate de QA por-release): los 429 son
+  falsos negativos reproducibles, no flakes.
+- **Dirección:** **dial de throttle para entorno E2E** — p. ej. límites configurables por env
+  (`THROTTLE_*` que el harness/compose de E2E suba, sin tocar los defaults de prod) o allowlist de la IP
+  del runner SOLO en el perfil E2E. Los límites de producción NO se relajan. Dueño: backend del stream
+  correspondiente, coordinado con **devops** (harness/compose) y verificación de **seguridad** (toca
+  diales anti fuerza-bruta).
 
 > Deuda aceptada, no bloqueante para el MVP. El cliente compila y pasa lint/typecheck/test/build; todas
 > las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la
@@ -1038,15 +1321,22 @@
   batch quote (una llamada por página) y cambiar el bulk a **parcial-tolerante** (agregar lo que sí cotizó,
   reportar lo que falló).
 
-### FE-13 · `BuylistView.tsx` creció (~960 líneas) — pide extracción de hooks/subcomponentes (techlead)
-- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx`.
+### FE-13 · `BuylistView.tsx` creció (1115 líneas) — pide extracción de hooks/subcomponentes (techlead)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` (1115 líneas, medido
+  2026-08-17; antes ~960).
 - **Estado actual:** el archivo concentra carrito de venta, selección bulk, cotización por resultado, "Mis
-  solicitudes" y el panel de resultados en ~960 líneas. La lógica **ya está encapsulada** en funciones
-  pequeñas → la extracción sería **mecánica y de bajo riesgo**: hooks (`useCart`, `useBulkSelection`) y
-  subcomponentes (`ResultsGrid`, `QuoteResultPanel`, `SellCart`, `MyRequestsSection`).
-- **Impacto:** bajo. Mantenibilidad/legibilidad; no afecta comportamiento ni correctness.
-- **Disparador:** **próximo toque funcional del buylist** (p. ej. al cablear el batch quote de FE-12). Acción:
-  extraer los hooks y subcomponentes citados sin cambiar comportamiento.
+  solicitudes" y el panel de resultados. La lógica sigue encapsulada en funciones pequeñas → la extracción
+  sería **mecánica y de bajo riesgo**. Costuras identificadas por el techlead como guía: `SellCart`
+  (~líneas 666-860), `ResultsGrid` (~595-658), `MyRequestsSection` (~884-1033), hooks
+  `useSellCart`/`useBulkSelection` (12 `useState` viven hoy en el componente); los helpers puros ya están
+  aislados (`mergeCartLine`, `quoteFor`, `tileFinishes`).
+- **Impacto:** **medio** (subió de bajo). Mantenibilidad/legibilidad; no afecta comportamiento ni
+  correctness, pero el archivo siguió creciendo tras aplazar la extracción.
+- **Disparador:** **consumido una vez** — el disparador original («próximo toque funcional del buylist, p.
+  ej. al cablear el batch quote de FE-12») **se cumplió** en el rediseño 2026-08-17 (se cableó el batch
+  quote y se pagó FE-12) y la extracción **no se pagó**. Compromiso: extraer los hooks y subcomponentes
+  citados (sin cambiar comportamiento) en el **siguiente** toque de BuylistView, **sin tercer
+  aplazamiento**.
 
 ### Editor de venta en M2 — Fase 2 (commit fee3c19, 2026-08-17, no bloqueante)
 
@@ -1212,3 +1502,47 @@
 - **Impacto:** bajo. Cosmético/consistencia i18n; no afecta datos ni permisos (el rol lo autoriza el backend).
 - **Disparador:** próximo toque de M6 o un pase de consistencia i18n admin. Acción: mapear el rol por
   `admin.roles.{customer,vault_operator,super_admin}` en M6, dejando el enum en `title`/`aria-label`.
+
+### WS «Inventario y vault» — cierre v1.20.1 (2026-08-17, no bloqueante)
+
+> Hallazgos del veredicto del **techlead** en el cierre del stream «Inventario y vault» (master set en
+> todas partes + ajuste por levantamiento físico, contrato v1.20/v1.20.1). Aceptados como deuda
+> **no bloqueante**, dueño **frontend**. Continúan la numeración `FE-*` (tras FE-24).
+
+### FE-25 · Props de `MasterSetPanel` permiten estados ilegales (`mode` con default + `userId?` sueltos)
+- **Dónde:** `frontend/src/components/master-set/MasterSetPanel.tsx:24-27` (interfaz `Props`: `mode?` con
+  default `'platform'` y `userId?` independientes), y sus consumidores del `userId ?? ''`:
+  `frontend/src/components/master-set/MasterSetIndex.tsx:38` y
+  `frontend/src/components/master-set/MasterSetBinder.tsx:43`.
+- **Estado actual:** `mode` y `userId` son props sueltas: el tipo acepta combinaciones ilegales
+  (`user_vault_admin` **sin** `userId`, o `platform` **con** `userId` ignorado). En el caso malo real,
+  `fetchIndex`/`fetchBinder` hacen `userId ?? ''` y disparan un request a
+  `GET /admin/vaults//master-sets` → **404 opaco** en runtime en vez de un error de compilación. Además el
+  default `mode = 'platform'` hace que **omitir** `mode` monte silenciosamente la vista con MÁS capacidades
+  (captura/publicación/ajuste) en lugar de fallar.
+- **Impacto:** bajo-medio. Hoy los tres call-sites reales pasan props correctas (M1, `/admin/vaults`,
+  `VaultView`), pero el tipo no protege al siguiente consumidor; el fallo se manifiesta como 404 críptico de
+  red, no como error de tipos. Sin fuga de datos (el backend valida scope/rol por su lado).
+- **Disparador:** al añadir un consumidor nuevo del panel o al tocar `mode.ts`. Acción (dirección acordada
+  con el techlead): **unión discriminada de props** —
+  `{ mode: 'platform' } | { mode: 'user_vault_admin'; userId: string } | { mode: 'user_vault_self'; onBuyMissing?: … }` —
+  y **quitar el default** de `mode` (siempre explícito). Propagar la unión a `MasterSetIndex`/`MasterSetBinder`
+  para eliminar los `userId ?? ''`.
+
+### FE-26 · `PlatformPiecesSection` (CellDrawer) acumula publicación + ajuste (~240 líneas, ~12 useState, 2 mutaciones)
+- **Dónde:** `frontend/src/components/master-set/CellDrawer.tsx:290-532` aprox. (función
+  `PlatformPiecesSection`).
+- **Estado actual:** una sola función-componente concentra DOS features de M1 que solo comparten la query de
+  piezas: (a) publicación por lote (selección + `bulkPublishItems` + render por-línea) y (b) ajuste por
+  levantamiento físico (motivo, formulario `encontrada`/pieza+nota, `createInventoryAdjustment` con batchKey
+  idempotente v1.20.1). ~240 líneas, ~12 `useState` y 2 `useMutation` entrelazados. Además `adjustFinish` se
+  **inicializa desde props** (`useState(availableFinishes[0] …)` = estado derivado): si el drawer se
+  **reutilizara sin desmontar** para otra celda (hoy se desmonta al cerrar, por eso no muerde), el acabado
+  inicial quedaría stale respecto de la nueva carta.
+- **Impacto:** bajo. Funciona y está testeado (17 specs del master set); el costo es de mantenibilidad:
+  cualquier cambio en una feature obliga a razonar sobre el estado de la otra, y el estado derivado es una
+  trampa latente ante un refactor del ciclo de vida del drawer.
+- **Disparador:** al volver a tocar el drawer (nueva feature o fix) o si el drawer pasa a reutilizarse sin
+  desmontar. Acción (dirección acordada con el techlead): extraer **`AdjustSection` a su propio archivo**
+  recibiendo `pieces` por props (la query queda en el padre), y eliminar el estado derivado de `adjustFinish`
+  (derivarlo en render con override del usuario, o re-sincronizar con `cell.cardId` por `key`).

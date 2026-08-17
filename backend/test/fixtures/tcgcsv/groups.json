@@ -1,0 +1,52 @@
+{
+  "totalItems": 5,
+  "success": true,
+  "errors": [],
+  "results": [
+    {
+      "groupId": 23821,
+      "name": "SV08: Surging Sparks",
+      "abbreviation": "SV08",
+      "isSupplemental": false,
+      "publishedOn": "2024-11-08T00:00:00",
+      "modifiedOn": "2026-08-16T18:41:52.397",
+      "categoryId": 3
+    },
+    {
+      "groupId": 23651,
+      "name": "SV07: Stellar Crown",
+      "abbreviation": "SV07",
+      "isSupplemental": false,
+      "publishedOn": "2024-09-13T00:00:00",
+      "modifiedOn": "2026-08-16T18:41:50.101",
+      "categoryId": 3
+    },
+    {
+      "groupId": 23874,
+      "name": "SV: Prismatic Evolutions",
+      "abbreviation": "PRE",
+      "isSupplemental": true,
+      "publishedOn": "2025-01-17T00:00:00",
+      "modifiedOn": "2026-08-16T18:41:53.020",
+      "categoryId": 3
+    },
+    {
+      "groupId": 24380,
+      "name": "SV10: Destined Rivals",
+      "abbreviation": "DRI",
+      "isSupplemental": false,
+      "publishedOn": "2025-05-30T00:00:00",
+      "modifiedOn": "2026-08-16T18:41:55.310",
+      "categoryId": 3
+    },
+    {
+      "groupId": 17688,
+      "name": "SWSH12: Silver Tempest",
+      "abbreviation": "SIT",
+      "isSupplemental": false,
+      "publishedOn": "2022-11-11T00:00:00",
+      "modifiedOn": "2026-08-16T18:41:31.223",
+      "categoryId": 3
+    }
+  ]
+}

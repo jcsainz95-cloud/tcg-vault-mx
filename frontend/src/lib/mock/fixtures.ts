@@ -62,6 +62,13 @@ import type {
   MasterSetCardCellDTO,
   MasterSetCellCountDTO,
   MasterSetBinderResponse,
+  MasterSetVariantDTO,
+  VaultOwnerRefDTO,
+  AdminVaultSummaryDTO,
+  AdminVaultSort,
+  AdminVaultListResponse,
+  InventoryAdjustmentRequest,
+  InventoryAdjustmentResponse,
   BatchCreateInventoryRequest,
   BatchCreateInventoryResponse,
   BatchInventoryLineResult,
@@ -307,6 +314,10 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 128000, capturedDate: '2026-08-13' },
+    // Settled y sin envío → retirable.
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: true,
   },
   {
     inventoryItemId: 'inv-1006',
@@ -320,6 +331,10 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'pending',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 950000, capturedDate: '2026-08-13' },
+    // Pending → no retirable (aún no liquidada), sin envío activo.
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: false,
   },
   {
     inventoryItemId: 'inv-1008',
@@ -331,6 +346,11 @@ export const mockHoldings: HoldingDTO[] = [
     ownershipStatus: 'settled',
     status: 'in_custody',
     referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
+    // v1.17: EN RETIRO — envío activo `enviado` (shp-7001 lo contiene). NO retirable (ya en un envío).
+    // El badge "EN RETIRO" hace deep-link a /shipments/shp-7001.
+    shipmentState: 'enviado',
+    activeShipmentId: 'shp-7001',
+    withdrawable: false,
   },
   {
     inventoryItemId: 'inv-1010',
@@ -343,6 +363,10 @@ export const mockHoldings: HoldingDTO[] = [
     status: 'in_custody',
     // Precio pendiente en portafolio: se excluye del total (no rompe el cálculo).
     referenceValue: { status: 'pending' },
+    // Settled y sin envío → retirable (aunque su precio esté pendiente).
+    shipmentState: null,
+    activeShipmentId: null,
+    withdrawable: true,
   },
 ];
 
@@ -564,6 +588,22 @@ export const mockAddresses: AddressDTO[] = [
 /** ISO de hace `n` días (para anclar la ventana de disputa a una entrega reciente). */
 const daysAgoIso = (n: number): string => new Date(Date.now() - n * 24 * 3600 * 1000).toISOString();
 
+/** Snapshot de dirección MX de ejemplo para los retiros (contrato §5 `addressSnapshot`). */
+const mockShipmentAddress = {
+  line1: 'Av. Reforma 222',
+  line2: 'Piso 3',
+  neighborhood: 'Juárez',
+  city: 'Ciudad de México',
+  state: 'CDMX',
+  postalCode: '06600',
+  country: 'MX',
+} as const;
+
+/**
+ * MOCK v1.17: retiros del PROPIO usuario (contrato §5 · GET /shipments listMine / GET /shipments/:id).
+ * Enriquecidos con `addressSnapshot`, montos por retiro y `finish` por ítem para la vista de rastreo.
+ * shp-7001 (`enviado`) es el envío ACTIVO del holding inv-1002 (deep-link desde el badge "EN RETIRO").
+ */
 export const mockShipments: ShipmentDTO[] = [
   {
     id: 'shp-7001',
@@ -571,8 +611,22 @@ export const mockShipments: ShipmentDTO[] = [
     carrier: 'Estafeta',
     trackingNumber: '1234567890',
     createdAt: '2026-08-11T10:00:00Z',
+    addressSnapshot: mockShipmentAddress,
+    shippingFeeCents: 17500,
+    ivaCents: 2800,
+    processingFeeCents: 1050,
+    totalCents: 21350,
+    requestedAt: '2026-08-11T10:00:00Z',
+    pickingAt: '2026-08-11T15:00:00Z',
+    shippedAt: '2026-08-12T09:00:00Z',
     items: [
-      { inventoryItemId: 'inv-1002', folio: 'INV-000102', card: cardById('c-blastoise'), productType: 'raw' },
+      {
+        inventoryItemId: 'inv-1008',
+        folio: 'INV-000108',
+        card: cardById('c-sealed-sv08-box'),
+        productType: 'sealed',
+        finish: 'normal',
+      },
     ],
   },
   // WS-F F6: envío ENTREGADO reciente → habilita "Abrir disputa" en el ítem raw elegible; el ítem
@@ -584,10 +638,30 @@ export const mockShipments: ShipmentDTO[] = [
     carrier: 'Estafeta',
     trackingNumber: '9988776655',
     createdAt: '2026-08-09T10:00:00Z',
+    addressSnapshot: mockShipmentAddress,
+    shippingFeeCents: 17500,
+    ivaCents: 2800,
+    processingFeeCents: 1050,
+    totalCents: 21350,
+    requestedAt: '2026-08-09T10:00:00Z',
+    pickingAt: '2026-08-09T14:00:00Z',
+    shippedAt: '2026-08-10T09:00:00Z',
     deliveredAt: daysAgoIso(2),
     items: [
-      { inventoryItemId: 'inv-1003', folio: 'INV-000103', card: cardById('c-charizard'), productType: 'raw' },
-      { inventoryItemId: 'inv-1006', folio: 'INV-000106', card: cardById('c-latias-sir'), productType: 'graded' },
+      {
+        inventoryItemId: 'inv-1003',
+        folio: 'INV-000103',
+        card: cardById('c-charizard'),
+        productType: 'raw',
+        finish: 'holofoil',
+      },
+      {
+        inventoryItemId: 'inv-1006',
+        folio: 'INV-000106',
+        card: cardById('c-latias-sir'),
+        productType: 'graded',
+        finish: 'normal',
+      },
     ],
   },
 ];
@@ -861,14 +935,71 @@ function compareNatural(a: string, b: string): number {
   return numberSortKey(a) - numberSortKey(b);
 }
 
-// countsByFinish on-hand de una carta (solo acabados con ≥1 pieza), en orden de acabado.
+// ===================================================================================
+// v1.20-master-set-everywhere: el MISMO shape sirve 3 vistas, cambia el ALCANCE de la
+// agregación (scope platform vs user_vault). MOCK: pendiente de backend real.
+// ===================================================================================
+
+// Pieza "en el scope": proyección mínima (cardId, finish, setId) para agregar por celda.
+interface ScopePiece {
+  cardId: string;
+  setId: string;
+  number: string;
+  finish: Finish;
+}
+
+// Scope del mock (espeja MasterSetQueryScope de ARCHITECTURE §4.20a). `includeBuyable`
+// SOLO en la vista (iii) del propio cliente; `owner` presente solo en user_vault.
+export type MockMasterSetScope =
+  | { kind: 'platform' }
+  | { kind: 'user_vault'; owner: VaultOwnerRefDTO; holdings: HoldingDTO[]; includeBuyable?: boolean };
+
+// Bóveda POR USUARIO para la vista admin (ii). u-777 (Ana) = las mismas piezas que
+// mockHoldings ("mi bóveda" del cliente demo); u-778 (Bruno) = bóveda chica.
+export const mockVaultHoldingsByUser: Record<string, HoldingDTO[]> = {
+  'u-777': mockHoldings,
+  'u-778': [
+    {
+      inventoryItemId: 'inv-3001',
+      folio: 'INV-000301',
+      card: cardById('c-pikachu'),
+      productType: 'raw',
+      rawCondition: 'NM',
+      finish: 'normal',
+      ownershipStatus: 'settled',
+      status: 'in_custody',
+      referenceValue: { status: 'priced', referenceMxnCents: 9500, capturedDate: '2026-08-13' },
+      // v1.17-withdrawal-lifecycle (stream de retiros): settled y sin retiro activo → retirable.
+      shipmentState: null,
+      activeShipmentId: null,
+      withdrawable: true,
+    },
+  ],
+};
+
+/** Dueño de la bóveda en la vista (iii) — el propio usuario, SIN email (contrato §3). */
+export const mockSelfVaultOwner: VaultOwnerRefDTO = { userId: 'u-mock', name: 'Cliente Demo' };
+
+// Piezas del scope: plataforma = mockInventory on-hand; user_vault = holdings del usuario
+// que siguen "en bóveda" (status NOT IN OFF_HAND; ambas titularidades pending|settled).
+function piecesOfScope(scope: MockMasterSetScope): ScopePiece[] {
+  if (scope.kind === 'platform') {
+    return mockInventory
+      .filter(isOnHand)
+      .map((i) => ({ cardId: i.card.id, setId: i.card.setId, number: i.card.number, finish: (i.finish ?? 'normal') as Finish }));
+  }
+  return scope.holdings
+    .filter((h) => !OFF_HAND.includes(h.status))
+    .map((h) => ({ cardId: h.card.id, setId: h.card.setId, number: h.card.number, finish: (h.finish ?? 'normal') as Finish }));
+}
+
+// countsByFinish de una carta en el scope (solo acabados con ≥1 pieza), en orden de acabado.
 const FINISH_DISPLAY_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
-function countsByFinishFor(cardId: string): { counts: MasterSetCellCountDTO[]; total: number } {
+function countsByFinishFor(cardId: string, pieces: ScopePiece[]): { counts: MasterSetCellCountDTO[]; total: number } {
   const byFinish = new Map<Finish, number>();
-  for (const i of mockInventory) {
-    if (i.card.id !== cardId || !isOnHand(i)) continue;
-    const f = (i.finish ?? 'normal') as Finish;
-    byFinish.set(f, (byFinish.get(f) ?? 0) + 1);
+  for (const p of pieces) {
+    if (p.cardId !== cardId) continue;
+    byFinish.set(p.finish, (byFinish.get(p.finish) ?? 0) + 1);
   }
   const counts = FINISH_DISPLAY_ORDER.filter((f) => byFinish.has(f)).map((finish) => ({
     finish,
@@ -878,31 +1009,81 @@ function countsByFinishFor(cardId: string): { counts: MasterSetCellCountDTO[]; t
   return { counts, total };
 }
 
-/** Índice de sets con resumen agregado (GET /admin/inventory/master-sets). */
-export function mockMasterSetIndex(params: {
-  q?: string;
-  page?: number;
-  pageSize?: number;
-  sort?: MasterSetSort;
-}): MasterSetIndexResponse {
+/**
+ * `buyable` de una variante FALTANTE (SOLO vista (iii)): la pieza `listed` de plataforma MÁS
+ * BARATA de ese (cardId, finish), o null si no hay nada publicado (contrato §3 v1.20).
+ */
+function cheapestListedFor(cardId: string, finish: Finish): { inventoryItemId: string; salePriceCents: number } | null {
+  const candidates = mockListings.filter(
+    (l) => l.card.id === cardId && l.finish === finish && l.sellable && l.salePriceCents != null,
+  );
+  if (candidates.length === 0) return null;
+  const best = candidates.reduce((a, b) => ((a.salePriceCents ?? 0) <= (b.salePriceCents ?? 0) ? a : b));
+  return { inventoryItemId: best.inventoryItemId, salePriceCents: best.salePriceCents! };
+}
+
+// Variantes de una celda: EXACTAMENTE una entrada por acabado de availableFinishes (orden del
+// enum Finish). Piezas con finish FUERA del universo (drift) se ven en countsByFinish pero NO
+// cuentan en expected/covered. `buyable` SOLO scope cliente y SOLO cuando covered=false.
+function variantsForCell(
+  cardId: string,
+  availableFinishes: Finish[],
+  counts: MasterSetCellCountDTO[],
+  includeBuyable: boolean,
+): MasterSetVariantDTO[] {
+  return FINISH_DISPLAY_ORDER.filter((f) => availableFinishes.includes(f)).map((finish) => {
+    const count = counts.find((c) => c.finish === finish)?.count ?? 0;
+    const covered = count > 0;
+    const variant: MasterSetVariantDTO = { finish, count, covered };
+    if (includeBuyable && !covered) variant.buyable = cheapestListedFor(cardId, finish);
+    return variant;
+  });
+}
+
+/**
+ * Índice de sets con resumen agregado (GET /admin/inventory/master-sets · scope platform,
+ * GET /admin/vaults/:userId/master-sets · GET /vault/master-sets · scope user_vault).
+ * v1.20: contadores por VARIANTE (universo = Card.availableFinishes) + scope/owner.
+ */
+export function mockMasterSetIndex(
+  params: {
+    q?: string;
+    page?: number;
+    pageSize?: number;
+    sort?: MasterSetSort;
+  },
+  scope: MockMasterSetScope = { kind: 'platform' },
+): MasterSetIndexResponse {
   const pageSize = params.pageSize ?? 20;
   const page = params.page ?? 1;
   const sort: MasterSetSort = params.sort ?? 'release_desc';
+  const pieces = piecesOfScope(scope);
 
   let summaries: MasterSetSummaryDTO[] = mockSets.map((s) => {
     const promo = MASTER_SET_PROMO_CELLS[s.id] ?? [];
-    const catalogCardCount = numberedCardsOfSet(s.id).length + promo.length;
-    // Cartas distintas con ≥1 pieza on-hand + total de piezas on-hand del set.
+    const numbered = numberedCardsOfSet(s.id);
+    const catalogCardCount = numbered.length + promo.length;
+    // Universo de VARIANTES del set = Σ |availableFinishes| (promos sintéticos = 1 acabado).
+    const finishesByCard = new Map<string, Finish[]>(numbered.map((c) => [c.id, c.availableFinishes]));
+    for (const p of promo) finishesByCard.set(p.cardId, ['holofoil']);
+    const catalogVariantCount = [...finishesByCard.values()].reduce((sum, fs) => sum + fs.length, 0);
+    // Cartas y variantes distintas con ≥1 pieza del scope + total de piezas del set.
     const owned = new Set<string>();
+    const ownedVariants = new Set<string>();
     let totalPieces = 0;
-    for (const i of mockInventory) {
-      if (i.card.setId !== s.id || !isOnHand(i) || i.card.number.trim() === '') continue;
-      owned.add(i.card.id);
+    for (const p of pieces) {
+      if (p.setId !== s.id || p.number.trim() === '') continue;
+      owned.add(p.cardId);
       totalPieces += 1;
+      // Solo variantes del UNIVERSO cuentan (drift de catálogo queda fuera de covered).
+      if ((finishesByCard.get(p.cardId) ?? []).includes(p.finish)) ownedVariants.add(`${p.cardId}:${p.finish}`);
     }
     const distinctCardsOwned = owned.size;
+    const distinctVariantsOwned = ownedVariants.size;
     const completionPct =
       catalogCardCount === 0 ? null : Math.round((distinctCardsOwned / catalogCardCount) * 1000) / 10;
+    const variantCompletionPct =
+      catalogVariantCount === 0 ? null : Math.round((distinctVariantsOwned / catalogVariantCount) * 1000) / 10;
     return {
       setId: s.id,
       name: s.name,
@@ -914,15 +1095,21 @@ export function mockMasterSetIndex(params: {
       distinctCardsOwned,
       completionPct,
       totalPieces,
+      catalogVariantCount,
+      distinctVariantsOwned,
+      variantCompletionPct,
     };
   });
+
+  // En scope user_vault el índice devuelve SOLO los sets con ≥1 pieza del usuario (contrato §3).
+  if (scope.kind === 'user_vault') summaries = summaries.filter((s) => s.totalPieces > 0);
 
   if (params.q) {
     const q = params.q.toLowerCase();
     summaries = summaries.filter((s) => s.name.toLowerCase().includes(q));
   }
   summaries.sort((a, b) => {
-    if (sort === 'completion_asc') return (a.completionPct ?? 0) - (b.completionPct ?? 0);
+    if (sort === 'completion_asc') return (a.variantCompletionPct ?? 0) - (b.variantCompletionPct ?? 0);
     if (sort === 'pieces_desc') return b.totalPieces - a.totalPieces;
     // release_desc (default): más reciente primero.
     return (b.releaseDate ?? '').localeCompare(a.releaseDate ?? '');
@@ -930,19 +1117,35 @@ export function mockMasterSetIndex(params: {
 
   const total = summaries.length;
   const start = (page - 1) * pageSize;
-  return { data: summaries.slice(start, start + pageSize), page, pageSize, total };
+  return {
+    data: summaries.slice(start, start + pageSize),
+    page,
+    pageSize,
+    total,
+    scope: scope.kind,
+    ...(scope.kind === 'user_vault' ? { owner: scope.owner } : {}),
+  };
 }
 
-/** Binder del set (GET /admin/inventory/master-sets/:setId). Celdas en ORDEN NATURAL. */
-export function mockMasterSetBinder(setId: string): MasterSetBinderResponse {
+/**
+ * Binder del set (GET /admin/inventory/master-sets/:setId y equivalentes por scope).
+ * Celdas en ORDEN NATURAL. v1.20: variants[] por acabado (universo = availableFinishes),
+ * expected/coveredVariantCount, scope/owner, y buyable SOLO en la vista (iii).
+ */
+export function mockMasterSetBinder(
+  setId: string,
+  scope: MockMasterSetScope = { kind: 'platform' },
+): MasterSetBinderResponse {
   const set = mockSets.find((s) => s.id === setId);
   if (!set) {
     throw new ApiFixtureNotFound(`CardSet ${setId} not found`);
   }
   const printedTotal = SET_PRINTED_TOTAL[setId] ?? null;
+  const pieces = piecesOfScope(scope);
+  const includeBuyable = scope.kind === 'user_vault' && scope.includeBuyable === true;
 
   const catalogCells = numberedCardsOfSet(setId).map((c) => {
-    const { counts, total } = countsByFinishFor(c.id);
+    const { counts, total } = countsByFinishFor(c.id, pieces);
     return {
       cardId: c.id,
       number: c.number,
@@ -967,25 +1170,183 @@ export function mockMasterSetBinder(setId: string): MasterSetBinderResponse {
 
   const cells: MasterSetCardCellDTO[] = [...catalogCells, ...promoCells]
     .sort((a, b) => compareNatural(a.number, b.number))
-    .map((c) => ({
-      ...c,
-      numberSort: numberSortKey(c.number),
-      // isSecretRare (v1.16.1): SOLO números puramente numéricos cuyo entero > printedTotal.
-      isSecretRare:
-        printedTotal != null && isPureNumber(c.number) && parseInt(c.number, 10) > printedTotal,
-    }));
+    .map((c) => {
+      const variants = variantsForCell(c.cardId, c.availableFinishes, c.countsByFinish, includeBuyable);
+      return {
+        ...c,
+        numberSort: numberSortKey(c.number),
+        // isSecretRare (v1.16.1): SOLO números puramente numéricos cuyo entero > printedTotal.
+        isSecretRare:
+          printedTotal != null && isPureNumber(c.number) && parseInt(c.number, 10) > printedTotal,
+        expectedVariantCount: variants.length,
+        coveredVariantCount: variants.filter((v) => v.covered).length,
+        variants,
+      };
+    });
 
   return {
     set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate },
     printedTotal,
     catalogCardCount: cells.length,
     cells,
+    scope: scope.kind,
+    ...(scope.kind === 'user_vault' ? { owner: scope.owner } : {}),
   };
+}
+
+/** Owner ref de un usuario para la vista admin (ii) — CON email (contrato §M1 v1.20). */
+export function mockVaultOwnerOf(userId: string): VaultOwnerRefDTO {
+  const u = mockAdminUsers.find((x) => x.id === userId);
+  if (!u || !(userId in mockVaultHoldingsByUser)) {
+    throw new ApiFixtureNotFound(`User ${userId} has no vault`);
+  }
+  return { userId: u.id, name: u.name, email: u.email };
+}
+
+/**
+ * Lista de clientes CON bóveda (GET /admin/vaults, `vault_operator+`). Valuación con la
+ * MISMA base del portafolio (§3): referencia del acabado; pendientes excluidos y contados.
+ */
+export function mockAdminVaults(params: {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: AdminVaultSort;
+}): AdminVaultListResponse {
+  const pageSize = params.pageSize ?? 20;
+  const page = params.page ?? 1;
+  const sort: AdminVaultSort = params.sort ?? 'value_desc';
+
+  let rows: AdminVaultSummaryDTO[] = Object.entries(mockVaultHoldingsByUser).map(([userId, holdings]) => {
+    const user = mockAdminUsers.find((u) => u.id === userId);
+    const inVault = holdings.filter((h) => !OFF_HAND.includes(h.status));
+    let totalValueMxnCents = 0;
+    let pendingPriceCount = 0;
+    for (const h of inVault) {
+      if (h.referenceValue.referenceMxnCents != null) totalValueMxnCents += h.referenceValue.referenceMxnCents;
+      else pendingPriceCount += 1;
+    }
+    return {
+      userId,
+      name: user?.name ?? userId,
+      email: user?.email ?? '',
+      pieceCount: inVault.length,
+      totalValueMxnCents,
+      pendingPriceCount,
+    };
+  });
+
+  if (params.q) {
+    const q = params.q.toLowerCase();
+    rows = rows.filter((r) => r.name.toLowerCase().includes(q) || r.email.toLowerCase().includes(q));
+  }
+  rows.sort((a, b) => {
+    if (sort === 'pieces_desc') return b.pieceCount - a.pieceCount;
+    if (sort === 'name_asc') return a.name.localeCompare(b.name);
+    return b.totalValueMxnCents - a.totalValueMxnCents; // value_desc default
+  });
+
+  const total = rows.length;
+  const start = (page - 1) * pageSize;
+  return { data: rows.slice(start, start + pageSize), page, pageSize, total };
 }
 
 // Error interno del mock con el shape del contrato (404 NOT_FOUND). Se traduce a
 // ApiClientError en api.ts (que sí importa ApiClientError; fixtures no debe importarlo).
 export class ApiFixtureNotFound extends Error {}
+
+// Error genérico del mock con status + errorCode del contrato (422 ITEM_NOT_ADJUSTABLE,
+// 400 VALIDATION_ERROR…). api.ts lo traduce a ApiClientError.
+export class ApiFixtureError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+// v1.20.1 — Idempotencia del ajuste `encontrada`: batchKey → respuesta guardada (MISMO mecanismo
+// que el alta por lote / InventoryBatch M-21). Un replay NO re-crea piezas ni filas de ajuste.
+const mockAdjustmentStore = new Map<string, InventoryAdjustmentResponse>();
+
+/**
+ * Ajuste de inventario por levantamiento físico (POST /admin/inventory/adjustments,
+ * `vault_operator+`, auditado). Motivo OBLIGATORIO; modelo POR-PIEZA (contrato §M1 v1.20.1):
+ * encontrada → CREA pieza(s) in_stock (con `batchKey?` idempotente: un replay devuelve la
+ * respuesta original con idempotentReplay:true, sin re-crear); perdida|danada|error_captura →
+ * status de UNA pieza existente (lost | damaged | withdrawn) con note obligatoria y SIN
+ * batchKey. Solo piezas platform con status ∈ {in_stock, listed} son ajustables
+ * (422 ITEM_NOT_ADJUSTABLE en el resto). Respuesta v1.20.1: `adjustmentIds` (una fila
+ * InventoryAdjustment por pieza, alineada 1:1 con inventoryItemIds/folios).
+ */
+export function mockCreateAdjustment(req: InventoryAdjustmentRequest): InventoryAdjustmentResponse {
+  if (req.reason === 'encontrada') {
+    // v1.20.1 — replay idempotente por batchKey (mismo mecanismo que el alta por lote):
+    // NO re-crea piezas ni filas de ajuste; devuelve la respuesta original guardada.
+    if (req.batchKey) {
+      const prior = mockAdjustmentStore.get(req.batchKey);
+      if (prior) return { ...prior, idempotentReplay: true };
+    }
+    const item = req.item;
+    const card = mockCards.find((c) => c.id === item.cardId);
+    if (!card) throw new ApiFixtureError(404, 'NOT_FOUND', 'card not found');
+    const finish = (item.finish ?? 'normal') as Finish;
+    if (item.productType === 'raw' && !card.availableFinishes.includes(finish)) {
+      throw new ApiFixtureError(422, 'FINISH_NOT_AVAILABLE', 'finish not available');
+    }
+    // acquisitionType default aportacion_en_especie → PRICE_PENDING si no hay referencia (paridad alta).
+    const acq = item.acquisitionType ?? 'aportacion_en_especie';
+    if (acq === 'aportacion_en_especie' && mockReferenceByCardId[item.cardId] == null) {
+      throw new ApiFixtureError(422, 'PRICE_PENDING', 'no reference for aportacion');
+    }
+    const qty = item.productType === 'graded' ? 1 : item.qty ?? 1;
+    const folios: string[] = [];
+    const inventoryItemIds: string[] = [];
+    const adjustmentIds: string[] = [];
+    for (let k = 0; k < qty; k++) {
+      const seq = String(mockInventory.length + 400 + k).padStart(6, '0');
+      folios.push(`INV-${seq}`);
+      inventoryItemIds.push(`inv-adj-${seq}`);
+      // Una fila InventoryAdjustment POR PIEZA (M-24), alineada 1:1 con folios (v1.20.1).
+      adjustmentIds.push(`adj-${seq}`);
+    }
+    const res: InventoryAdjustmentResponse = {
+      adjustmentIds,
+      reason: 'encontrada',
+      inventoryItemIds,
+      folios,
+      fromStatus: null,
+      toStatus: 'in_stock',
+      idempotentReplay: false,
+    };
+    if (req.batchKey) mockAdjustmentStore.set(req.batchKey, res);
+    return res;
+  }
+
+  if (!req.note?.trim()) throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'note is required');
+  const piece = mockInventory.find((i) => i.id === req.inventoryItemId);
+  if (!piece) throw new ApiFixtureError(404, 'NOT_FOUND', 'inventory item not found');
+  if (piece.ownerType !== 'platform' || (piece.status !== 'in_stock' && piece.status !== 'listed')) {
+    throw new ApiFixtureError(422, 'ITEM_NOT_ADJUSTABLE', `status ${piece.status} not adjustable`);
+  }
+  const toStatus: InventoryStatus =
+    req.reason === 'perdida' ? 'lost' : req.reason === 'danada' ? 'damaged' : 'withdrawn';
+  const fromStatus = piece.status;
+  piece.status = toStatus;
+  pushMockMovement(piece.id, { fromStatus, toStatus, reason: 'adjustment', note: req.note });
+  return {
+    // Longitud 1 en motivos ≠ encontrada (una pieza existente → una fila de ajuste).
+    adjustmentIds: [`adj-${Math.random().toString(36).slice(2, 8)}`],
+    reason: req.reason,
+    inventoryItemIds: [piece.id],
+    folios: [piece.folio],
+    fromStatus,
+    toStatus,
+    idempotentReplay: false,
+  };
+}
 
 // Idempotencia de lote: batchKey → resultado guardado (replay sin re-crear, contrato §M1).
 const mockBatchStore = new Map<string, BatchCreateInventoryResponse>();
