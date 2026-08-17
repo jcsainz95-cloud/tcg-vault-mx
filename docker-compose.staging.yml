@@ -157,8 +157,10 @@ services:
       PII_HMAC_KEY: ${STAGING_PII_HMAC_KEY:-staging_pii_hmac_key_change_me_distinct}
       # Secretos de staging: en local caen a dummies; en el staging real los
       # inyecta el secret manager de la plataforma. NUNCA reales de prod.
-      JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:-staging_access_secret_change_me}
-      JWT_REFRESH_SECRET: ${STAGING_JWT_REFRESH_SECRET:-staging_refresh_secret_change_me}
+      # Defaults >= 32 chars (MIN_JWT_SECRET_LENGTH): la validacion de arranque
+      # rechaza secretos JWT mas cortos. En el staging real los inyecta el secret manager.
+      JWT_ACCESS_SECRET: ${STAGING_JWT_ACCESS_SECRET:-staging_access_secret_change_me_please_32}
+      JWT_REFRESH_SECRET: ${STAGING_JWT_REFRESH_SECRET:-staging_refresh_secret_change_me_please_32}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-30d}
       # Stripe en modo TEST siempre en staging (nunca claves live).
@@ -180,6 +182,11 @@ services:
       SEED_OPERATOR_EMAIL: ${STAGING_SEED_OPERATOR_EMAIL:-operador@staging.local}
       SEED_OPERATOR_PASSWORD: ${STAGING_SEED_OPERATOR_PASSWORD:-StagingOperator123!}
       APP_BASE_URL: ${STAGING_APP_BASE_URL:-http://localhost:3010}
+      # OBLIGATORIA en modo production: la validacion de arranque aborta si falta.
+      # En local el correo NO se envia de verdad; los usuarios sembrados vienen con
+      # emailVerified:true, asi que un dummy no bloquea comprar/vender/retirar. En el
+      # staging real la inyecta el secret manager (nunca una clave real de prod).
+      RESEND_API_KEY: ${RESEND_API_KEY:-re_staging_dummy_key_for_local_testing}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
     ports:
       - "${STAGING_BACKEND_PORT:-3011}:3001"
