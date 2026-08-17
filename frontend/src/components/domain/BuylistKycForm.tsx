@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { config } from '@/lib/config';
 import type { ProductType, RawCondition, Finish } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -62,6 +63,19 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
   const getErrorMessage = useErrorMessage();
   const { user, ready } = useSession();
 
+  /**
+   * "Usar mi CLABE en archivo" en un clic (no reteclear 18 dígitos): el cliente
+   * NUNCA tiene la CLABE en claro (el contrato solo devuelve `clabeMasked`), y
+   * POST /buylist/requests HOY exige `clabe` en claro (contrato §6) validada por
+   * blind-index contra la de KYC.
+   * MOCK: pendiente de contrato — el atajo solo se ofrece en modo mock; contra el
+   * backend real se sigue capturando. Solicitud al arquitecto: `clabe?` opcional en
+   * POST /buylist/requests con fallback server-side a la CLABE de KYC (mismo
+   * fallback que ya implementa reveal-clabe).
+   */
+  const clabeShortcutAvailable = !!clabeMasked && config.useMocks;
+  const [useStoredClabe, setUseStoredClabe] = useState(clabeShortcutAvailable);
+
   const [clabe, setClabe] = useState('');
   const [clabeError, setClabeError] = useState<string | null>(null);
   const [ineFrontKey, setIneFrontKey] = useState<string | null>(null);
@@ -84,7 +98,8 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
     setClabeError(null);
     setEmailNotVerified(false);
 
-    if (!CLABE_RE.test(clabe)) {
+    const storedMode = useStoredClabe && clabeShortcutAvailable;
+    if (!storedMode && !CLABE_RE.test(clabe)) {
       setClabeError(t('clabeInvalid'));
       return;
     }
@@ -96,7 +111,9 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
         // lleva cardId/productType/rawCondition; el backend re-deriva el monto
         // y decide el requisito de INE/tope por el TOTAL (SEC-A1, server-side).
         items,
-        clabe,
+        // Modo "CLABE en archivo" (solo mock, ver nota arriba): se omite la CLABE
+        // tecleada y se marca useClabeOnFile; con backend real siempre va `clabe`.
+        ...(storedMode ? { useClabeOnFile: true as const } : { clabe }),
         ineUploadKeys: ineComplete ? { front: ineFrontKey!, back: ineBackKey! } : undefined,
       });
       onCreated(res.sellRequestId);
@@ -134,16 +151,45 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
 
   return (
     <div className="flex flex-col gap-5">
-      <Input
-        label={t('clabeLabel')}
-        hint={clabeMasked ? t('clabeOnFileHint', { masked: clabeMasked }) : t('clabeHint')}
-        error={clabeError ?? undefined}
-        inputMode="numeric"
-        maxLength={18}
-        value={clabe}
-        onChange={(e) => setClabe(e.target.value.replace(/\D/g, ''))}
-        autoComplete="off"
-      />
+      {useStoredClabe && clabeShortcutAvailable ? (
+        /* Un clic (de hecho cero): por defecto se reusa la CLABE ya registrada. */
+        <div className="flex flex-col gap-2">
+          <p className="eyebrow">{t('clabeSectionTitle')}</p>
+          <p className="text-sm text-text">{t('clabeStoredSelected', { masked: clabeMasked! })}</p>
+          <button
+            type="button"
+            onClick={() => setUseStoredClabe(false)}
+            className="self-start border-b border-accent pb-1 text-xs font-medium text-accent hover:border-text hover:text-text"
+          >
+            {t('clabeUseAnother')}
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <Input
+            label={t('clabeLabel')}
+            hint={clabeMasked ? t('clabeOnFileHint', { masked: clabeMasked }) : t('clabeHint')}
+            error={clabeError ?? undefined}
+            inputMode="numeric"
+            maxLength={18}
+            value={clabe}
+            onChange={(e) => setClabe(e.target.value.replace(/\D/g, ''))}
+            autoComplete="off"
+          />
+          {clabeShortcutAvailable && (
+            <button
+              type="button"
+              onClick={() => {
+                setUseStoredClabe(true);
+                setClabeError(null);
+              }}
+              className="self-start border-b border-accent pb-1 text-xs font-medium text-accent hover:border-text hover:text-text"
+            >
+              {t('clabeUseStored', { masked: clabeMasked! })}
+            </button>
+          )}
+        </div>
+      )}
 
       <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface-2/40 p-4">
         <div className="flex items-center gap-2">

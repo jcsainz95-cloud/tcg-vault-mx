@@ -530,7 +530,19 @@ export interface CreateSellRequestInput {
     rawCondition?: RawCondition;
     finish?: Finish;
   }[];
-  clabe: string;
+  /**
+   * CLABE destino en claro (18 dígitos). El contrato §6 la EXIGE en POST
+   * /buylist/requests; solo puede omitirse con `useClabeOnFile` (atajo mock, abajo).
+   */
+  clabe?: string;
+  /**
+   * MOCK: pendiente de contrato — "Usar mi CLABE en archivo" sin reteclear. El
+   * cliente nunca tiene la CLABE en claro (solo `clabeMasked`), así que este flag
+   * solo funciona en modo mock. Solicitud al arquitecto: `clabe?` opcional en
+   * POST /buylist/requests con fallback server-side a la CLABE de KYC (mismo
+   * fallback que ya hace reveal-clabe). NO se envía al backend real.
+   */
+  useClabeOnFile?: boolean;
   /** keys de presign del INE (contrato §6 POST /buylist/requests: ineUploadKeys?) */
   ineUploadKeys?: IneUploadKeys;
 }
@@ -542,7 +554,10 @@ export interface CreateSellRequestInput {
  */
 export async function createSellRequest(input: CreateSellRequestInput): Promise<SellRequestDTO> {
   if (!config.useMocks) {
-    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
+    // `useClabeOnFile` es un flag de cliente (atajo mock): NUNCA viaja al backend real,
+    // cuyo contrato exige `clabe` en claro (§6).
+    const { useClabeOnFile: _clientOnly, ...body } = input;
+    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body });
   }
   // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO). El monto se
   // resuelve por la REGLA de la rareza (v1.3.1), igual que el cotizador.

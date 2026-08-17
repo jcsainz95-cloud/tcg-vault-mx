@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getBuylistQuote, getSellRequests, listBuylistSets, searchBuylistCards } from '@/lib/api';
 import type { ProductType, CardDTO, RawCondition, Finish, BuylistQuoteResponse } from '@/types/contract';
@@ -28,6 +28,20 @@ const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 // v1.6-finish: acabados en el orden de despliegue del selector; la etiqueta legible viene de i18n `finish`.
 const FINISH_ORDER: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 
+/** Primer acabado disponible de la carta (normal va primero por convención del catálogo). */
+function firstAvailableFinish(card: CardDTO): Finish {
+  return FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal';
+}
+
+/**
+ * queryKey ÚNICO de cotización por (carta, tipo, acabado). Lo comparten la cotización
+ * principal, el precio estimado del grid y el bulk: cotizar en un sitio cachea para
+ * los demás (0 requests repetidos dentro del staleTime).
+ */
+const quoteKeyFor = (cardId: string, productType: ProductType, finish: Finish) =>
+  ['buylist-quote', cardId, productType, finish] as const;
+const QUOTE_STALE_MS = 5 * 60_000;
+
 /**
  * Una línea del carrito de venta. Snapshotea el ESTIMADO de la cotización
  * (`quote`) que se le muestra al usuario; el monto autoritativo lo re-deriva el
@@ -49,6 +63,55 @@ interface CartLine {
 }
 
 let lineSeq = 0;
+
+/**
+ * Merge con dedup por (cardId + productType + finish): la misma línea suma cantidad,
+ * una combinación nueva agrega línea. Reusado por el add unitario y por el bulk.
+ */
+function mergeCartLine(
+  prev: CartLine[],
+  line: Omit<CartLine, 'id' | 'quantity'>,
+): CartLine[] {
+  const idx = prev.findIndex(
+    (l) => l.card.id === line.card.id && l.productType === line.productType && l.finish === line.finish,
+  );
+  if (idx >= 0) {
+    return prev.map((l, i) => (i === idx ? { ...l, quantity: l.quantity + 1 } : l));
+  }
+  lineSeq += 1;
+  return [...prev, { id: `line-${lineSeq}`, ...line, quantity: 1 }];
+}
+
+/**
+ * Precio de compra ESTIMADO por resultado del grid: convierte la búsqueda en una
+ * "buylist navegable". Cotiza la variante por defecto (raw NM, primer acabado
+ * disponible) con el MISMO queryKey que la cotización principal, así que elegir la
+ * carta después no re-pide nada (cache compartido, staleTime 5 min).
+ *
+ * Fase 3b: reemplazar por batch quote — hoy no existe endpoint de cotización en lote
+ * en el contrato, así que es 1 POST /buylist/quote (unitario, existente) por resultado
+ * visible; react-query dedupea y cachea.
+ */
+function ResultQuote({ card }: { card: CardDTO }) {
+  const t = useTranslations('buylist');
+  const locale = useLocale() as AppLocale;
+  const finish = firstAvailableFinish(card);
+  const q = useQuery({
+    queryKey: quoteKeyFor(card.id, 'raw', finish),
+    queryFn: () => getBuylistQuote({ cardId: card.id, productType: 'raw', rawCondition: 'NM', finish }),
+    staleTime: QUOTE_STALE_MS,
+  });
+  if (q.isLoading) return <span className="text-muted">…</span>;
+  if (q.isError || !q.data) return null;
+  if (q.data.quote.status === 'precio_pendiente') {
+    return <span className="text-accent">{t('linePending')}</span>;
+  }
+  return (
+    <span className="tabular text-text">
+      {formatMoneyCents(q.data.quote.quotedPriceCents ?? 0, locale)}
+    </span>
+  );
+}
 
 /**
  * Renglón de la cotización: concepto a la izquierda, dato a la derecha, regla debajo.
@@ -79,6 +142,12 @@ function QuoteRow({
  * derecha, y el carrito de venta debajo. Las advertencias (solo NM, pago tras
  * verificar) llevan la regla bermellón en vez de un banner de color, y la sección
  * se marca con la etiqueta vertical BUYLIST al margen.
+ *
+ * Rediseño "menos clics" (2026-08-17):
+ * - La cotización es AUTOMÁTICA al elegir carta/tipo/acabado (useQuery, sin botón "Cotizar").
+ * - El grid de resultados muestra el precio de compra estimado por carta (ResultQuote).
+ * - Multi-selección en resultados + "Agregar seleccionadas (N)" para bulk.
+ * - Cantidad por línea con input numérico (además de −/+).
  */
 export function BuylistView() {
   const t = useTranslations('buylist');
@@ -104,6 +173,12 @@ export function BuylistView() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [justAdded, setJustAdded] = useState(false);
 
+  // --- Bulk: multi-selección en los resultados de búsqueda ---
+  const [bulkSelected, setBulkSelected] = useState<Record<string, CardDTO>>({});
+  const [bulkAdding, setBulkAdding] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<'added' | 'error' | null>(null);
+  const [bulkAddedCount, setBulkAddedCount] = useState(0);
+
   const sets = useQuery({ queryKey: ['buylist-sets'], queryFn: listBuylistSets });
 
   // Solo se busca cuando hay set o texto (evita traer todo el catálogo sin filtro).
@@ -128,54 +203,98 @@ export function BuylistView() {
   // Se muestra el selector solo cuando hay >1 acabado disponible (si es ["normal"], queda fijo/oculto).
   const showFinishSelect = productType === 'raw' && availableFinishes.length > 1;
 
-  const quote = useMutation({
-    // Condición de compra SIEMPRE NM (v1.1): raw se envía con rawCondition='NM', sin selector.
-    // v1.6-finish: el acabado elegido viaja en `finish`; el backend valida ∈ availableFinishes.
-    mutationFn: () =>
+  /**
+   * Cotización AUTOMÁTICA (menos clics): al elegir carta/tipo/acabado la key cambia y
+   * react-query cotiza sola — sin botón "Cotizar". useQuery (no mutation) porque el
+   * quote es read-only en el contrato (§6, v1.12) y así se cachea/comparte con el grid.
+   * v1.6-finish: el acabado viaja en `finish`; el backend valida ∈ availableFinishes.
+   */
+  const quoteQuery = useQuery({
+    queryKey: quoteKeyFor(selectedCard?.id ?? 'none', productType, effectiveFinish),
+    queryFn: () =>
       getBuylistQuote({ cardId: selectedCard!.id, productType, rawCondition, finish: effectiveFinish }),
+    enabled: !!selectedCard,
+    staleTime: QUOTE_STALE_MS,
   });
 
   function pickCard(card: CardDTO) {
     setSelectedCard(card);
-    // Arranca en el primer acabado disponible (normal va primero por convención del catálogo).
-    const first = FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal';
-    setFinish(first);
+    // Arranca en el primer acabado disponible; la cotización dispara sola (auto-quote).
+    setFinish(firstAvailableFinish(card));
     setJustAdded(false);
-    quote.reset();
   }
 
   function addToCart() {
-    if (!selectedCard || !quote.data) return;
-    // Identidad de línea = (cardId + productType + finish). El acabado autoritativo es el que
-    // ecoa el quote (validado server-side). Dedup: si ya existe la MISMA línea, +1 cantidad.
-    const lineFinish = quote.data.finish;
-    const cardId = selectedCard.id;
-    setCart((prev) => {
-      const idx = prev.findIndex(
-        (l) => l.card.id === cardId && l.productType === productType && l.finish === lineFinish,
-      );
-      if (idx >= 0) {
-        return prev.map((l, i) => (i === idx ? { ...l, quantity: l.quantity + 1 } : l));
-      }
-      lineSeq += 1;
-      return [
-        ...prev,
-        {
-          id: `line-${lineSeq}`,
-          card: selectedCard,
-          productType,
-          rawCondition,
-          finish: lineFinish,
-          quote: quote.data!,
-          quantity: 1,
-        },
-      ];
-    });
+    if (!selectedCard || !quoteQuery.data) return;
+    const data = quoteQuery.data;
+    const card = selectedCard;
+    // El acabado autoritativo es el que ecoa el quote (validado server-side).
+    setCart((prev) => mergeCartLine(prev, { card, productType, rawCondition, finish: data.finish, quote: data }));
     setJustAdded(true);
   }
 
+  function toggleBulk(card: CardDTO) {
+    setBulkNotice(null);
+    setBulkSelected((prev) => {
+      const next = { ...prev };
+      if (next[card.id]) delete next[card.id];
+      else next[card.id] = card;
+      return next;
+    });
+  }
+
+  /**
+   * Bulk: agrega TODAS las seleccionadas de golpe (raw NM, acabado por defecto; el
+   * acabado/tipo se puede afinar por línea re-cotizando esa carta en el panel).
+   *
+   * Fase 3b: reemplazar por batch quote — mientras no exista cotización en lote en el
+   * contrato, se hace LOOP del endpoint unitario POST /buylist/quote vía fetchQuery:
+   * lo ya cotizado por el grid sale de cache (0 requests extra).
+   */
+  async function addSelectedToCart() {
+    const cards = Object.values(bulkSelected);
+    if (cards.length === 0) return;
+    setBulkAdding(true);
+    setBulkNotice(null);
+    try {
+      const quoted = await Promise.all(
+        cards.map(async (card) => {
+          const f = firstAvailableFinish(card);
+          const data = await queryClient.fetchQuery({
+            queryKey: quoteKeyFor(card.id, 'raw', f),
+            queryFn: () =>
+              getBuylistQuote({ cardId: card.id, productType: 'raw', rawCondition: 'NM', finish: f }),
+            staleTime: QUOTE_STALE_MS,
+          });
+          return { card, data };
+        }),
+      );
+      setCart((prev) => {
+        let next = prev;
+        for (const { card, data } of quoted) {
+          next = mergeCartLine(next, {
+            card,
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: data.finish,
+            quote: data,
+          });
+        }
+        return next;
+      });
+      setBulkAddedCount(cards.length);
+      setBulkNotice('added');
+      setBulkSelected({});
+    } catch {
+      setBulkNotice('error');
+    } finally {
+      setBulkAdding(false);
+    }
+  }
+
   function setQuantity(lineId: string, quantity: number) {
-    setCart((prev) => prev.map((l) => (l.id === lineId ? { ...l, quantity: Math.max(1, quantity) } : l)));
+    const clean = Number.isFinite(quantity) ? Math.max(1, Math.floor(quantity)) : 1;
+    setCart((prev) => prev.map((l) => (l.id === lineId ? { ...l, quantity: clean } : l)));
   }
 
   function removeLine(lineId: string) {
@@ -183,13 +302,22 @@ export function BuylistView() {
   }
 
   // Total ESTIMADO: suma quotedPriceCents × cantidad. Las líneas en precio
-  // pendiente no aportan (el backend fija su monto al recibir).
+  // pendiente no aportan (el backend fija su monto al recibir) y se EXPLICAN
+  // debajo del total en vez de sumar MX$0.00 en silencio.
   const totalEstimatedCents = useMemo(
     () => cart.reduce((sum, l) => sum + (l.quote.quote.quotedPriceCents ?? 0) * l.quantity, 0),
     [cart],
   );
+  const pendingCardCount = useMemo(
+    () =>
+      cart
+        .filter((l) => l.quote.quote.status === 'precio_pendiente')
+        .reduce((n, l) => n + l.quantity, 0),
+    [cart],
+  );
 
   const cartCount = cart.reduce((n, l) => n + l.quantity, 0);
+  const bulkCount = Object.keys(bulkSelected).length;
 
   // Gating de cuenta ANTES de llenar todo (guards del contrato §6): sesión, correo
   // verificado, CLABE registrada e INE esperado por topes. El bloqueo real es server-side;
@@ -269,10 +397,13 @@ export function BuylistView() {
               </div>
             </div>
 
-            {/* Resultados: el arte manda; el elegido se marca con el filete bermellón. */}
+            {/* Resultados: el arte manda; el elegido se marca con el filete bermellón.
+                Cada carta muestra su precio de compra estimado (buylist navegable) y un
+                checkbox de multi-selección para agregar en lote. */}
             {hasSearch && (
               <div className="mt-9">
                 <p className="eyebrow">{t('searchResults')}</p>
+                <p className="mt-2 font-mono text-[11px] text-muted">{t('gridEstimateLegend')}</p>
                 <div className="mt-4">
                   <QueryState
                     isLoading={cardsResult.isLoading}
@@ -286,17 +417,23 @@ export function BuylistView() {
                       ) : (
                         <ul
                           className="flex max-h-96 flex-wrap gap-5 overflow-y-auto"
-                          role="listbox"
                           aria-label={t('searchResults')}
                         >
                           {cardsResult.data.data.map((card) => {
                             const active = selectedCard?.id === card.id;
                             return (
-                              <li key={card.id}>
+                              <li key={card.id} className="relative w-24">
+                                {/* Multi-selección (bulk): checkbox FUERA del botón de detalle. */}
+                                <input
+                                  type="checkbox"
+                                  aria-label={t('bulkSelect', { name: card.name })}
+                                  checked={!!bulkSelected[card.id]}
+                                  onChange={() => toggleBulk(card)}
+                                  className="absolute left-1 top-1 z-10 h-4 w-4 accent-accent focus-visible:shadow-focus"
+                                />
                                 <button
                                   type="button"
-                                  role="option"
-                                  aria-selected={active}
+                                  aria-pressed={active}
                                   onClick={() => pickCard(card)}
                                   className="block w-24 text-left"
                                 >
@@ -321,6 +458,10 @@ export function BuylistView() {
                                     {card.setName}
                                     {card.number && ` · #${card.number}`}
                                   </span>
+                                  {/* Estimado de compra por carta (raw NM, acabado default). */}
+                                  <span className="mt-1 block truncate font-mono text-[10px]">
+                                    <ResultQuote card={card} />
+                                  </span>
                                 </button>
                               </li>
                             );
@@ -329,6 +470,32 @@ export function BuylistView() {
                       ))}
                   </QueryState>
                 </div>
+
+                {/* Barra de bulk: agrega todas las seleccionadas en un clic. */}
+                {bulkCount > 0 && (
+                  <div className="mt-5 flex flex-wrap items-center gap-5">
+                    <Button size="sm" variant="secondary" loading={bulkAdding} onClick={addSelectedToCart}>
+                      {t('bulkAddCta', { count: bulkCount })}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setBulkSelected({})}
+                      className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
+                    >
+                      {t('bulkClear')}
+                    </button>
+                  </div>
+                )}
+                {bulkNotice === 'added' && (
+                  <p role="status" className="mt-3 font-mono text-[11px] text-success">
+                    {t('bulkAdded', { count: bulkAddedCount })}
+                  </p>
+                )}
+                {bulkNotice === 'error' && (
+                  <p role="alert" className="mt-3 font-mono text-[11px] text-accent">
+                    {t('bulkAddError')}
+                  </p>
+                )}
               </div>
             )}
 
@@ -336,12 +503,11 @@ export function BuylistView() {
             <div className="mt-9 grid gap-7 sm:grid-cols-3">
               <Select
                 label={t('selectType')}
-                options={PRODUCT_TYPES.map((p) => ({ value: p, label: p }))}
+                options={PRODUCT_TYPES.map((p) => ({ value: p, label: t(`productType.${p}`) }))}
                 value={productType}
                 onChange={(e) => {
                   setProductType(e.target.value as ProductType);
                   setJustAdded(false);
-                  quote.reset();
                 }}
               />
               {productType === 'raw' && (
@@ -354,7 +520,8 @@ export function BuylistView() {
                 </div>
               )}
               {/* v1.6-finish: selector de acabado poblado de card.availableFinishes. Solo cuando
-                  la carta tiene >1 acabado; si es ["normal"] queda fijo en Normal (oculto). */}
+                  la carta tiene >1 acabado; si es ["normal"] queda fijo en Normal (oculto).
+                  Cambiarlo RE-COTIZA automáticamente (auto-quote). */}
               {selectedCard && showFinishSelect && (
                 <Select
                   label={t('selectFinish')}
@@ -363,16 +530,12 @@ export function BuylistView() {
                   onChange={(e) => {
                     setFinish(e.target.value as Finish);
                     setJustAdded(false);
-                    quote.reset();
                   }}
                 />
               )}
             </div>
 
             <div className="mt-9 flex flex-wrap items-center gap-6">
-              <Button onClick={() => quote.mutate()} loading={quote.isPending} disabled={!selectedCard}>
-                {quote.isPending ? t('quoting') : t('getQuote')}
-              </Button>
               <button
                 type="button"
                 onClick={() => setGuideOpen(true)}
@@ -389,65 +552,88 @@ export function BuylistView() {
             <p className="rule-note mt-10 max-w-[640px] text-[13px] leading-[1.7] text-muted">
               <span className="font-medium text-text">{t('nmOnlyTitle')}.</span> {t('nmOnlyBody')}
             </p>
+
+            {/* Copy de confianza (EDITABLE): quién paga el envío, tiempos de verificación/
+                pago SPEI y vigencia de la cotización (ver FRONTEND_NOTES). */}
+            <div className="mt-6 max-w-[640px] text-[13px] leading-[1.7] text-muted">
+              <p>{t('trustShipping')}</p>
+              <p className="mt-2">{t('trustPayment')}</p>
+              <p className="mt-2">{t('trustValidity')}</p>
+            </div>
           </div>
 
           {/* Cotización + carrito de venta */}
           <aside className="gutter pb-11 pt-9 lg:px-10">
-            {/* La cabecera aparece con la cotización: sin datos no hay ficha que titular. */}
-            {quote.data ? (
-              <>
-                <h2 className="eyebrow">{t('quoteResult')}</h2>
-                <div className="mt-5 border-t border-border">
-                  {selectedCard && (
-                    <QuoteRow label={t('selectedCard')} lang="en">
-                      {selectedCard.name}
-                    </QuoteRow>
-                  )}
-                  <QuoteRow label={t('rarityLabel')} lang="en">
-                    {quote.data.rarity}
-                  </QuoteRow>
-                  {/* v1.6-finish: acabado cotizado; la regla y la referencia se resuelven por acabado. */}
-                  <QuoteRow label={tFinish('label')}>{tFinish(quote.data.finish)}</QuoteRow>
-                  {quote.data.referencePrice.status === 'priced' && (
-                    <QuoteRow label={t('referencePrice')}>
-                      <span className="tabular">
-                        {formatMoneyCents(quote.data.referencePrice.priceMxnCents ?? 0, locale)}
-                      </span>
-                    </QuoteRow>
-                  )}
-                  {/* Regla aplicada, resuelta por el acabado (ej. "40% de referencia" o "$1.50 fijo"). */}
-                  <QuoteRow label={t('appliedRuleLabel')}>
-                    {quote.data.appliedRule.mode === 'fixed'
-                      ? t('ruleFixed', { amount: formatMoneyCents(quote.data.appliedRule.value, locale) })
-                      : t('rulePct', { pct: quote.data.appliedRule.value })}
-                  </QuoteRow>
-                </div>
-
-                {quote.data.quote.status === 'precio_pendiente' ? (
-                  <p className="rule-note mt-6 text-[13px] leading-[1.7] text-muted">
-                    {t('pricePendingNotice')}
+            {/* La cabecera aparece con la cotización: sin datos no hay ficha que titular.
+                La cotización es automática: elegir carta/acabado dispara el quote. */}
+            {selectedCard ? (
+              <QueryState
+                isLoading={quoteQuery.isLoading}
+                isError={quoteQuery.isError}
+                error={quoteQuery.error}
+                onRetry={() => quoteQuery.refetch()}
+                loading={
+                  <p role="status" className="text-[13px] leading-[1.7] text-muted">
+                    {t('quoting')}
                   </p>
-                ) : (
-                  <div className="mt-6">
-                    <p className="eyebrow">{t('quotedPrice')}</p>
-                    <p className="tabular mt-2.5 text-[36px] font-medium leading-none text-text">
-                      {formatMoneyCents(quote.data.quote.quotedPriceCents ?? 0, locale)}
-                    </p>
-                  </div>
-                )}
+                }
+              >
+                {quoteQuery.data && (
+                  <>
+                    <h2 className="eyebrow">{t('quoteResult')}</h2>
+                    <div className="mt-5 border-t border-border">
+                      <QuoteRow label={t('selectedCard')} lang="en">
+                        {selectedCard.name}
+                      </QuoteRow>
+                      <QuoteRow label={t('rarityLabel')} lang="en">
+                        {quoteQuery.data.rarity}
+                      </QuoteRow>
+                      {/* v1.6-finish: acabado cotizado; la regla y la referencia se resuelven por acabado. */}
+                      <QuoteRow label={tFinish('label')}>{tFinish(quoteQuery.data.finish)}</QuoteRow>
+                      {quoteQuery.data.referencePrice.status === 'priced' && (
+                        <QuoteRow label={t('referencePrice')}>
+                          <span className="tabular">
+                            {formatMoneyCents(quoteQuery.data.referencePrice.priceMxnCents ?? 0, locale)}
+                          </span>
+                        </QuoteRow>
+                      )}
+                      {/* Regla aplicada, resuelta por el acabado (ej. "40% de referencia" o "$1.50 fijo"). */}
+                      <QuoteRow label={t('appliedRuleLabel')}>
+                        {quoteQuery.data.appliedRule.mode === 'fixed'
+                          ? t('ruleFixed', {
+                              amount: formatMoneyCents(quoteQuery.data.appliedRule.value, locale),
+                            })
+                          : t('rulePct', { pct: quoteQuery.data.appliedRule.value })}
+                      </QuoteRow>
+                    </div>
 
-                {/* PAY_AFTER_RECEIPT (PROJECT AC 33, DESIGN §7.5) */}
-                <p className="mt-5 text-xs leading-[1.6] text-muted">{t('payAfterReceipt')}</p>
+                    {quoteQuery.data.quote.status === 'precio_pendiente' ? (
+                      <p className="rule-note mt-6 text-[13px] leading-[1.7] text-muted">
+                        {t('pricePendingNotice')}
+                      </p>
+                    ) : (
+                      <div className="mt-6">
+                        <p className="eyebrow">{t('quotedPrice')}</p>
+                        <p className="tabular mt-2.5 text-[36px] font-medium leading-none text-text">
+                          {formatMoneyCents(quoteQuery.data.quote.quotedPriceCents ?? 0, locale)}
+                        </p>
+                      </div>
+                    )}
 
-                <Button variant="secondary" className="mt-6 w-full" onClick={addToCart}>
-                  {t('addToCart')}
-                </Button>
-                {justAdded && (
-                  <p className="mt-3 font-mono text-[11px] text-success" role="status">
-                    {t('addedToCart')}
-                  </p>
+                    {/* PAY_AFTER_RECEIPT (PROJECT AC 33, DESIGN §7.5) */}
+                    <p className="mt-5 text-xs leading-[1.6] text-muted">{t('payAfterReceipt')}</p>
+
+                    <Button variant="secondary" className="mt-6 w-full" onClick={addToCart}>
+                      {t('addToCart')}
+                    </Button>
+                    {justAdded && (
+                      <p className="mt-3 font-mono text-[11px] text-success" role="status">
+                        {t('addedToCart')}
+                      </p>
+                    )}
+                  </>
                 )}
-              </>
+              </QueryState>
             ) : (
               <p className="text-[13px] leading-[1.7] text-muted">{t('payAfterReceipt')}</p>
             )}
@@ -480,7 +666,12 @@ export function BuylistView() {
                               {l.card.name}
                             </p>
                             <span className="tabular shrink-0 text-sm font-medium text-text">
-                              {pending ? '—' : formatMoneyCents(unitCents * l.quantity, locale)}
+                              {/* Honesto: una línea pendiente NO muestra MX$0.00. */}
+                              {pending ? (
+                                <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
+                              ) : (
+                                formatMoneyCents(unitCents * l.quantity, locale)
+                              )}
                             </span>
                           </div>
                           <p className="mt-1 font-mono text-[10px] text-muted">
@@ -496,7 +687,7 @@ export function BuylistView() {
                             <span className="tabular">{l.quantity}</span>
                           </p>
                           <div className="mt-2 flex items-center gap-4">
-                            <div className="flex items-center gap-2" role="group" aria-label={t('quantity')}>
+                            <div className="flex items-center gap-2">
                               <button
                                 type="button"
                                 aria-label={t('decreaseQty')}
@@ -506,9 +697,16 @@ export function BuylistView() {
                               >
                                 −
                               </button>
-                              <span className="tabular w-6 text-center font-mono text-xs" aria-live="polite">
-                                {l.quantity}
-                              </span>
+                              {/* Cantidad con input numérico: vender 20 iguales sin 20 clics. */}
+                              <input
+                                type="number"
+                                min={1}
+                                inputMode="numeric"
+                                aria-label={t('quantityFor', { name: l.card.name })}
+                                value={l.quantity}
+                                onChange={(e) => setQuantity(l.id, Number.parseInt(e.target.value, 10))}
+                                className="w-14 border-b border-border-strong bg-transparent py-0.5 text-center font-mono text-xs text-text outline-none focus-visible:shadow-focus"
+                              />
                               <button
                                 type="button"
                                 aria-label={t('increaseQty')}
@@ -533,10 +731,20 @@ export function BuylistView() {
 
                   <div className="flex items-baseline justify-between gap-3 py-4">
                     <span className="text-[13px] font-medium text-text">{t('totalEstimated')}</span>
-                    <span className="tabular text-[22px] font-medium leading-none text-text">
-                      {formatMoneyCents(totalEstimatedCents, locale)}
-                    </span>
+                    {/* Si TODO el carrito está pendiente, el total no es MX$0.00: es pendiente. */}
+                    {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
+                      <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
+                    ) : (
+                      <span className="tabular text-[22px] font-medium leading-none text-text">
+                        {formatMoneyCents(totalEstimatedCents, locale)}
+                      </span>
+                    )}
                   </div>
+                  {pendingCardCount > 0 && (
+                    <p className="mb-3 font-mono text-[11px] leading-[1.6] text-muted">
+                      {t('totalPendingNote', { count: pendingCardCount })}
+                    </p>
+                  )}
 
                   {/* SEC-A1: el total es un ESTIMADO; el backend confirma el monto al recibir. */}
                   <p className="font-mono text-[11px] leading-[1.6] text-muted">{t('estimateNote')}</p>
@@ -611,46 +819,59 @@ export function BuylistView() {
               {(requests.data?.length ?? 0) === 0 ? (
                 <EmptyState title={t('noRequests')} />
               ) : (
-                requests.data!.map((r) => (
-                  <div key={r.sellRequestId} className="border-t border-border py-6">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <span className="flex items-center gap-3">
-                        <span className="tabular font-mono text-[13px] text-text">{r.sellRequestId}</span>
-                        <StatusBadge domain="sellRequest" value={r.status} />
-                      </span>
-                      <span className="tabular text-sm font-medium text-text">
-                        {formatMoneyCents(r.quotedTotalCents, locale)}
-                      </span>
-                    </div>
+                requests.data!.map((r) => {
+                  const hasPendingItems = r.items.some((it) => it.quotedPriceCents == null);
+                  return (
+                    <div key={r.sellRequestId} className="border-t border-border py-6">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <span className="flex items-center gap-3">
+                          <span className="tabular font-mono text-[13px] text-text">{r.sellRequestId}</span>
+                          <StatusBadge domain="sellRequest" value={r.status} />
+                        </span>
+                        <span className="tabular text-sm font-medium text-text">
+                          {formatMoneyCents(r.quotedTotalCents, locale)}
+                        </span>
+                      </div>
 
-                    <div className="mt-5">
-                      <PipelineStepper
-                        steps={buylistSteps}
-                        current={r.status}
-                        errored={r.status === 'rechazada' || r.status === 'abandonada'}
-                      />
-                    </div>
+                      <div className="mt-5">
+                        <PipelineStepper
+                          steps={buylistSteps}
+                          current={r.status}
+                          errored={r.status === 'rechazada' || r.status === 'abandonada'}
+                        />
+                      </div>
 
-                    <div className="mt-5">
-                      {r.items.map((it) => (
-                        <div
-                          key={it.id}
-                          className="flex items-center justify-between gap-3 border-b border-border py-2.5 text-sm last:border-b-0"
-                        >
-                          <span lang="en" className="text-text">
-                            {it.card.name}
-                          </span>
-                          <span className="flex items-center gap-4">
-                            <span className="tabular text-muted">
-                              {formatMoneyCents(it.quotedPriceCents ?? 0, locale)}
+                      <div className="mt-5">
+                        {r.items.map((it) => (
+                          <div
+                            key={it.id}
+                            className="flex items-center justify-between gap-3 border-b border-border py-2.5 text-sm last:border-b-0"
+                          >
+                            <span lang="en" className="text-text">
+                              {it.card.name}
                             </span>
-                            <StatusBadge domain="sellItem" value={it.itemStatus} />
-                          </span>
-                        </div>
-                      ))}
+                            <span className="flex items-center gap-4">
+                              {/* Honesto: sin cotización NO se muestra MX$0.00. */}
+                              {it.quotedPriceCents == null ? (
+                                <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
+                              ) : (
+                                <span className="tabular text-muted">
+                                  {formatMoneyCents(it.quotedPriceCents, locale)}
+                                </span>
+                              )}
+                              <StatusBadge domain="sellItem" value={it.itemStatus} />
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {hasPendingItems && (
+                        <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">
+                          {t('requestPendingNote')}
+                        </p>
+                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </QueryState>
           </div>
@@ -663,19 +884,72 @@ export function BuylistView() {
 
       <Modal open={requestOpen} onClose={() => setRequestOpen(false)} title={t('requestTitle')}>
         {requestItems.length > 0 && (
-          <BuylistKycForm
-            items={requestItems}
-            // Heads-up de topes/CLABE derivado de GET /users/me/kyc; el backend re-decide (SEC-A1).
-            ineExpected={sellReq.ineExpected}
-            clabeMasked={sellReq.clabeMasked}
-            onCreated={(sellRequestId) => {
-              setCreatedId(sellRequestId);
-              setRequestOpen(false);
-              setCart([]);
-              setJustAdded(false);
-              void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
-            }}
-          />
+          <>
+            {/* Resumen de la venta ANTES de confirmar: qué cartas, cuánto (estimado) y
+                la vigencia del estimado. Evita enviar "a ciegas" desde el modal. */}
+            <div className="mb-6">
+              <p className="eyebrow">{t('summaryTitle')}</p>
+              <ul className="mt-3">
+                {cart.map((l) => {
+                  const pending = l.quote.quote.status === 'precio_pendiente';
+                  const unitCents = l.quote.quote.quotedPriceCents ?? 0;
+                  return (
+                    <li
+                      key={l.id}
+                      className="flex items-baseline justify-between gap-3 border-b border-border py-2 text-sm"
+                    >
+                      <span className="min-w-0 truncate text-text">
+                        <span lang="en">{l.card.name}</span>
+                        <span className="ml-2 font-mono text-[10px] text-muted">
+                          ×{l.quantity} · {tFinish(l.finish)}
+                        </span>
+                      </span>
+                      <span className="tabular shrink-0">
+                        {pending ? (
+                          <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
+                        ) : (
+                          formatMoneyCents(unitCents * l.quantity, locale)
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="flex items-baseline justify-between gap-3 pt-3">
+                <span className="text-[13px] font-medium text-text">{t('totalEstimated')}</span>
+                {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
+                  <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
+                ) : (
+                  <span className="tabular text-[18px] font-medium text-text">
+                    {formatMoneyCents(totalEstimatedCents, locale)}
+                  </span>
+                )}
+              </div>
+              {pendingCardCount > 0 && (
+                <p className="mt-2 font-mono text-[11px] leading-[1.6] text-muted">
+                  {t('totalPendingNote', { count: pendingCardCount })}
+                </p>
+              )}
+              {/* Vigencia del estimado (copy editable de confianza). */}
+              <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">{t('trustValidity')}</p>
+            </div>
+
+            <BuylistKycForm
+              items={requestItems}
+              // Heads-up de topes/CLABE derivado de GET /users/me/kyc; el backend re-decide (SEC-A1).
+              ineExpected={sellReq.ineExpected}
+              clabeMasked={sellReq.clabeMasked}
+              onCreated={(sellRequestId) => {
+                setCreatedId(sellRequestId);
+                setRequestOpen(false);
+                setCart([]);
+                setJustAdded(false);
+                void queryClient.invalidateQueries({ queryKey: ['sell-requests'] });
+                // La solicitud pudo registrar la CLABE en KYC → refresca el checklist.
+                void queryClient.invalidateQueries({ queryKey: ['kyc'] });
+              }}
+            />
+          </>
         )}
       </Modal>
     </div>

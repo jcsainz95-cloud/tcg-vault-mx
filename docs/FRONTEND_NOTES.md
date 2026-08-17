@@ -1994,3 +1994,97 @@ Registradas como **TL-FE-1/2/3 (RESUELTAS)** en `docs/TECH_DEBT.md`.
 
 `npm run lint` ✓ · `tsc --noEmit` ✓ · `npx vitest run` ✓ (**35 archivos / 202 tests**, incl. paridad
 i18n) · `npm run build` ✓.
+
+## Buylist · Rediseño "menos clics" del flujo de venta/cotización (2026-08-17)
+
+Rediseño del cotizador público + carrito de venta (`BuylistView.tsx`) y del paso de pago
+(`BuylistKycForm.tsx`). **Solo frontend**: endpoints EXISTENTES del contrato §6, sin cambio de
+backend ni de contrato. SEC-A1 intacto (el front solo MUESTRA estimados; el backend re-deriva
+todos los montos).
+
+### Qué cambió (recorrido del cliente)
+
+| Antes | Después |
+|---|---|
+| Elegir carta → clic "Cotizar" → clic "Agregar" (3 clics/carta tras la búsqueda) | Elegir carta → **auto-cotiza** → clic "Agregar" (2 clics; cambiar acabado también re-cotiza solo) |
+| Cotizar N cartas = 3N clics | **Bulk**: N checkboxes + 1 clic "Agregar seleccionadas (N)" |
+| Cantidad solo con −/+ de 1 en 1 | **Input numérico** por línea (además de −/+) |
+| Grid de resultados sin precio | Cada resultado muestra su **estimado de compra** (raw NM, acabado default) |
+| Línea/total pendiente = "—" o MX$0.00 | **"Precio pendiente"** explícito + nota que explica el total (carrito, modal y "Mis solicitudes") |
+| Modal final sin contexto | **Resumen de la venta** (cartas × cantidad × acabado + total + vigencia) antes de "Confirmar y enviar" |
+| Tipos `raw/graded/sealed` crudos | Etiquetas traducidas: **"Suelta (raw)" / "Gradeada" / "Sellado"** |
+
+### Decisiones técnicas
+
+- **Auto-cotización con `useQuery` (no mutation)**: `POST /buylist/quote` es read-only en el
+  contrato (v1.12), así que se modela como query con key `['buylist-quote', cardId, productType,
+  finish]` y `staleTime` 5 min. La MISMA key la comparten la cotización principal, el precio del
+  grid (`ResultQuote`) y el bulk (`fetchQuery`): cotizar en un sitio cachea para los demás.
+- **Precio en el grid = 1 quote unitario por resultado visible** (página ≤ ~20), cacheado.
+  UX elegida sobre "on-expand" porque convierte el buscador en buylist navegable (objetivo ALTO).
+  Marcado `Fase 3b: reemplazar por batch quote` — cuando el arquitecto/backend expongan cotización
+  en lote, `ResultQuote` y `addSelectedToCart` cambian a un solo POST.
+- **Bulk** cotiza con productType `raw` + NM + primer acabado disponible (la buylist compra raw);
+  el acabado/tipo se afina por carta re-cotizando en el panel. Dedup del carrito intacto
+  (cardId + productType + finish).
+- **Resultados del grid**: se quitó el patrón `listbox/option` (inválido con el checkbox de
+  multi-selección dentro) → lista plana con botón `aria-pressed` + checkbox con
+  `aria-label="Seleccionar {carta}"`. Anillo de foco `shadow-focus` respetado (DESIGN §8.2);
+  el input numérico de cantidad usa `focus-visible:shadow-focus`.
+- **"Usar mi CLABE ****1234" (BuylistKycForm)**: implementado como modo por defecto cuando
+  `clabeMasked` existe, con "Usar otra CLABE" para capturar una distinta. **LIMITACIÓN DE
+  CONTRATO**: `POST /buylist/requests` exige `clabe` en claro (18 dígitos) y la valida por
+  blind-index contra la de KYC; el cliente NUNCA tiene la CLABE en claro (solo `clabeMasked`).
+  Por eso el atajo está **acotado a modo mock** (`config.useMocks`) y marcado
+  `// MOCK: pendiente de contrato`. **Solicitud al arquitecto** (registrada abajo): `clabe?`
+  opcional en `POST /buylist/requests` con fallback server-side a la CLABE de KYC (mismo fallback
+  que ya implementa `reveal-clabe`). Con ese cambio, quitar el gate `useMocks` habilita el atajo
+  en producción sin tocar nada más.
+- **Copy de confianza (EDITABLE)**: `buylist.trustShipping` (el vendedor paga el envío de ida y
+  la devolución de rechazos no-NM — respaldado por PROJECT §H), `buylist.trustPayment`
+  (**placeholder "2–3 días hábiles"** para verificación+pago SPEI — SIN dato oficial, editar
+  cuando el negocio lo confirme) y `buylist.trustValidity` (vigencia del estimado; espeja SEC-A1:
+  el monto final se confirma al verificar). `trustValidity` se reusa como aviso de vigencia en el
+  resumen del modal.
+- `onCreated` del modal ahora invalida también `['kyc']` (la solicitud puede registrar la CLABE
+  → el checklist de requisitos se refresca).
+
+### i18n (paridad ES/EN verificada por `i18n-parity.test.ts`)
+
+Claves nuevas bajo `buylist`: `gridEstimateLegend`, `bulkSelect`, `bulkAddCta`, `bulkClear`,
+`bulkAdded`, `bulkAddError`, `productType.{raw,graded,sealed}`, `quantityFor`, `totalPendingNote`,
+`requestPendingNote`, `summaryTitle`, `trustShipping`, `trustPayment`, `trustValidity`,
+`clabeSectionTitle`, `clabeStoredSelected`, `clabeUseStored`, `clabeUseAnother`.
+Eliminadas (sin consumidores): `getQuote` (ya no hay botón), `quantity` (reemplazada por
+`quantityFor`). Ajustada: `chooseCardFirst` (explica la auto-cotización).
+
+### Preservado (no romper)
+
+Cotizador público sin login; gating P-11 (`useSellRequirements` + `SellRequirementsPanel`, tests
+intactos y verdes); transparencia de la regla ("40% de referencia" / "$X fijo"); dedup del
+carrito; keep-alive de sesión; anillo de foco `shadow-focus`.
+
+### Tests y gates
+
+- `BuylistView.test.tsx`: 31 tests (antes 20) — auto-quote (sin botón "Cotizar"), estimado en el
+  grid, bulk (multi-selección + loop del quote unitario + limpiar), input numérico de cantidad,
+  pendiente honesto (carrito y "Mis solicitudes"), resumen del modal, tipos traducidos, y TODOS
+  los de gating P-11 actualizados al flujo nuevo.
+- `BuylistKycForm.test.tsx`: 11 tests — + modo "usar mi CLABE" (toggle y envío con
+  `useClabeOnFile` sin reteclear, mock) y el resto intactos.
+- `e2e/buylist.spec.ts` (Playwright, la corre QA): actualizado al flujo sin botón "Cotizar";
+  + grid con estimado, + bulk, + resumen del modal; los tests de envío ahora SIEMBRAN sesión de
+  cliente verificada (`tcg.user` en localStorage, modo mock) porque el gating P-11 sustituye el
+  CTA de enviar por login/registro sin sesión (la spec anterior era pre-gating y ya no reflejaba
+  la UI).
+- Gates (frontend/): `npm run lint` ✓ · `npx tsc --noEmit` ✓ · `npx vitest run` ✓
+  (**35 archivos / 231 tests**) · `npm run build` ✓.
+
+### Solicitudes al arquitecto (pendientes de contrato)
+
+1. **Batch quote (Fase 3b)**: endpoint de cotización en lote (p. ej.
+   `POST /buylist/quote-batch { items: [{cardId, finish?}] }`) para el precio del grid y el bulk;
+   hoy es loop del unitario (marcado en código).
+2. **CLABE en archivo**: `clabe?` opcional en `POST /buylist/requests` cuando el usuario tiene
+   CLABE en KYC (fallback server-side, mismo patrón que `reveal-clabe`), para habilitar "Usar mi
+   CLABE ****1234" contra el backend real.

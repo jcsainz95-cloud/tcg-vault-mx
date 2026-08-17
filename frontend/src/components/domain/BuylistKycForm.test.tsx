@@ -164,11 +164,41 @@ describe('BuylistKycForm — gating proactivo de cuenta/KYC', () => {
     ).toBeInTheDocument();
   });
 
-  it('clabeMasked orienta la captura con la CLABE ya registrada', () => {
+  it('con CLABE en archivo arranca en modo "usar mi CLABE" y permite cambiar a capturar otra', () => {
     renderWithProviders(
       <BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} clabeMasked="****1234" />,
       'es',
     );
+    // Por defecto se reusa la CLABE registrada: sin input de 18 dígitos.
+    expect(screen.getByText('El pago irá a tu CLABE registrada (****1234).')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/CLABE \(18 dígitos/)).not.toBeInTheDocument();
+
+    // "Usar otra CLABE" revela la captura, con el hint de la registrada.
+    fireEvent.click(screen.getByRole('button', { name: 'Usar otra CLABE' }));
+    expect(screen.getByLabelText(/CLABE \(18 dígitos/)).toBeInTheDocument();
     expect(screen.getByText(/Ya tienes una CLABE registrada \(\*\*\*\*1234\)/)).toBeInTheDocument();
+
+    // Y se puede volver al atajo en un clic.
+    fireEvent.click(screen.getByRole('button', { name: 'Usar mi CLABE ****1234' }));
+    expect(screen.queryByLabelText(/CLABE \(18 dígitos/)).not.toBeInTheDocument();
+  });
+
+  it('en modo "usar mi CLABE" envía sin reteclear los 18 dígitos (atajo mock, useClabeOnFile)', async () => {
+    const onCreated = vi.fn();
+    const spy = vi.spyOn(api, 'createSellRequest');
+    renderWithProviders(
+      <BuylistKycForm items={RAW_ITEMS} onCreated={onCreated} clabeMasked="****1234" />,
+      'es',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    // MOCK: pendiente de contrato — el flag useClabeOnFile es del cliente (no viaja al
+    // backend real); la solicitud NO lleva la CLABE tecleada.
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ items: RAW_ITEMS, useClabeOnFile: true }),
+    );
+    expect(spy.mock.calls[0][0].clabe).toBeUndefined();
   });
 });
