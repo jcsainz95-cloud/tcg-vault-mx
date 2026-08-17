@@ -778,17 +778,28 @@ export interface AdminVaultListResponse {
 // (422 ITEM_NOT_ADJUSTABLE en el resto). NO hay venta directa manual desde el binder.
 export type AdjustmentReason = 'encontrada' | 'perdida' | 'danada' | 'error_captura';
 
+// v1.18.1 — `batchKey?` SOLO en la rama `encontrada`: MISMA idempotencia que el alta por lote
+// (mismo batchKey → no re-crea piezas ni filas de ajuste; el replay devuelve la respuesta original
+// guardada con idempotentReplay:true y 200). El front DEBE enviarlo desde el drawer de ajuste
+// (anti doble-submit). Los otros motivos NO lo aceptan (400 VALIDATION_ERROR si viaja): operan una
+// pieza existente por id y su replay cae en 422 ITEM_NOT_ADJUSTABLE (idempotencia natural).
 export type InventoryAdjustmentRequest =
   | { reason: 'perdida' | 'danada' | 'error_captura'; inventoryItemId: string; note: string }
-  | { reason: 'encontrada'; item: BatchInventoryItemInput; note?: string };
+  | { reason: 'encontrada'; item: BatchInventoryItemInput; note?: string; batchKey?: string };
 
+// v1.18.1 — `adjustmentIds` SUSTITUYE al singular `adjustmentId` (eliminado sin deprecated).
+// Con `encontrada` y qty>1 hay N filas InventoryAdjustment (una por pieza): se devuelven TODAS,
+// alineadas 1:1 con inventoryItemIds/folios. Con los otros motivos, arrays de longitud 1.
+// `idempotentReplay`: true SOLO cuando un batchKey ya procesado repite la respuesta guardada;
+// false en todo procesamiento nuevo (y siempre false sin batchKey / en motivos ≠ encontrada).
 export interface InventoryAdjustmentResponse {
-  adjustmentId: string;
+  adjustmentIds: string[];
   reason: AdjustmentReason;
   inventoryItemIds: string[];
   folios: string[];
   fromStatus: InventoryStatus | null;
   toStatus: InventoryStatus;
+  idempotentReplay: boolean;
 }
 
 // ----- Alta por LOTE (POST /admin/inventory/items/batch) -----

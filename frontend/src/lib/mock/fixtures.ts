@@ -1196,17 +1196,28 @@ export class ApiFixtureError extends Error {
   }
 }
 
+// v1.18.1 — Idempotencia del ajuste `encontrada`: batchKey → respuesta guardada (MISMO mecanismo
+// que el alta por lote / InventoryBatch M-21). Un replay NO re-crea piezas ni filas de ajuste.
+const mockAdjustmentStore = new Map<string, InventoryAdjustmentResponse>();
+
 /**
  * Ajuste de inventario por levantamiento físico (POST /admin/inventory/adjustments,
- * `vault_operator+`, auditado). Motivo OBLIGATORIO; modelo POR-PIEZA (contrato §M1 v1.18):
- * encontrada → CREA pieza(s) in_stock; perdida|danada|error_captura → status de UNA pieza
- * existente (lost | damaged | withdrawn) con note obligatoria. Solo piezas platform con
- * status ∈ {in_stock, listed} son ajustables (422 ITEM_NOT_ADJUSTABLE en el resto).
+ * `vault_operator+`, auditado). Motivo OBLIGATORIO; modelo POR-PIEZA (contrato §M1 v1.18.1):
+ * encontrada → CREA pieza(s) in_stock (con `batchKey?` idempotente: un replay devuelve la
+ * respuesta original con idempotentReplay:true, sin re-crear); perdida|danada|error_captura →
+ * status de UNA pieza existente (lost | damaged | withdrawn) con note obligatoria y SIN
+ * batchKey. Solo piezas platform con status ∈ {in_stock, listed} son ajustables
+ * (422 ITEM_NOT_ADJUSTABLE en el resto). Respuesta v1.18.1: `adjustmentIds` (una fila
+ * InventoryAdjustment por pieza, alineada 1:1 con inventoryItemIds/folios).
  */
 export function mockCreateAdjustment(req: InventoryAdjustmentRequest): InventoryAdjustmentResponse {
-  const adjustmentId = `adj-${Math.random().toString(36).slice(2, 8)}`;
-
   if (req.reason === 'encontrada') {
+    // v1.18.1 — replay idempotente por batchKey (mismo mecanismo que el alta por lote):
+    // NO re-crea piezas ni filas de ajuste; devuelve la respuesta original guardada.
+    if (req.batchKey) {
+      const prior = mockAdjustmentStore.get(req.batchKey);
+      if (prior) return { ...prior, idempotentReplay: true };
+    }
     const item = req.item;
     const card = mockCards.find((c) => c.id === item.cardId);
     if (!card) throw new ApiFixtureError(404, 'NOT_FOUND', 'card not found');
@@ -1222,12 +1233,25 @@ export function mockCreateAdjustment(req: InventoryAdjustmentRequest): Inventory
     const qty = item.productType === 'graded' ? 1 : item.qty ?? 1;
     const folios: string[] = [];
     const inventoryItemIds: string[] = [];
+    const adjustmentIds: string[] = [];
     for (let k = 0; k < qty; k++) {
       const seq = String(mockInventory.length + 400 + k).padStart(6, '0');
       folios.push(`INV-${seq}`);
       inventoryItemIds.push(`inv-adj-${seq}`);
+      // Una fila InventoryAdjustment POR PIEZA (M-22), alineada 1:1 con folios (v1.18.1).
+      adjustmentIds.push(`adj-${seq}`);
     }
-    return { adjustmentId, reason: 'encontrada', inventoryItemIds, folios, fromStatus: null, toStatus: 'in_stock' };
+    const res: InventoryAdjustmentResponse = {
+      adjustmentIds,
+      reason: 'encontrada',
+      inventoryItemIds,
+      folios,
+      fromStatus: null,
+      toStatus: 'in_stock',
+      idempotentReplay: false,
+    };
+    if (req.batchKey) mockAdjustmentStore.set(req.batchKey, res);
+    return res;
   }
 
   if (!req.note?.trim()) throw new ApiFixtureError(400, 'VALIDATION_ERROR', 'note is required');
@@ -1242,12 +1266,14 @@ export function mockCreateAdjustment(req: InventoryAdjustmentRequest): Inventory
   piece.status = toStatus;
   pushMockMovement(piece.id, { fromStatus, toStatus, reason: 'adjustment', note: req.note });
   return {
-    adjustmentId,
+    // Longitud 1 en motivos ≠ encontrada (una pieza existente → una fila de ajuste).
+    adjustmentIds: [`adj-${Math.random().toString(36).slice(2, 8)}`],
     reason: req.reason,
     inventoryItemIds: [piece.id],
     folios: [piece.folio],
     fromStatus,
     toStatus,
+    idempotentReplay: false,
   };
 }
 

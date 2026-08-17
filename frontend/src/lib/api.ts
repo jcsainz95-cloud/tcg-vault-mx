@@ -1709,9 +1709,13 @@ export async function getAdminVaultMasterSetBinder(
 
 /**
  * Ajuste de inventario por levantamiento físico desde la celda del binder M1 (contrato
- * §M1 v1.18 · POST /admin/inventory/adjustments, `vault_operator+`, auditado). Motivo
- * OBLIGATORIO (encontrada | perdida | danada | error_captura). NO hay venta directa manual
- * desde el binder: toda salida de venta pasa por órdenes (checkout/M3).
+ * §M1 v1.18.1 · POST /admin/inventory/adjustments, `vault_operator+`, auditado). Motivo
+ * OBLIGATORIO (encontrada | perdida | danada | error_captura). Con `encontrada` el caller
+ * DEBE mandar `batchKey` (idempotencia: mismo batchKey → replay de la respuesta guardada
+ * con `idempotentReplay:true`, sin re-crear piezas); los otros motivos no lo llevan (su
+ * replay cae en 422 ITEM_NOT_ADJUSTABLE). Respuesta v1.18.1: `adjustmentIds: string[]`
+ * alineado 1:1 con `inventoryItemIds`/`folios` (sin el singular `adjustmentId`). NO hay
+ * venta directa manual desde el binder: toda salida de venta pasa por órdenes (checkout/M3).
  */
 export async function createInventoryAdjustment(
   payload: InventoryAdjustmentRequest,

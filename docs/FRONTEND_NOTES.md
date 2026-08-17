@@ -110,6 +110,37 @@ sets con piezas propias). `VaultsView.test.tsx` (2): lista + drill-down lectura.
 `VaultView.test.tsx` (+1): pestaña Master set. Comandos reales: `npm run lint` (0), `npx tsc
 --noEmit` (0), `npm test` (43 files / 322 pass), `npm run build` (OK).
 
+### Cierre v1.18.1-adjustments-clarify (2026-08-17, post-gates)
+
+Adaptación al changelog **v1.18.1** del contrato (ajuste por levantamiento físico, §M1):
+
+- **Response nuevo** (`contract.ts`): `InventoryAdjustmentResponse` pasa a `adjustmentIds: string[]`
+  (SUSTITUYE al singular `adjustmentId`, alineado 1:1 con `inventoryItemIds`/`folios`; longitud 1 en
+  motivos ≠ encontrada) + `idempotentReplay: boolean`. `InventoryAdjustmentRequest` gana `batchKey?`
+  SOLO en la rama `encontrada`.
+- **batchKey ESTABLE por intento** (`CellDrawer.tsx`, sección de ajuste): en `encontrada` el drawer
+  SIEMPRE manda `batchKey` (obligación del front por contrato, cierra BE-41). La clave se genera con
+  `localUid('adj')` al montar y **solo rota tras un submit exitoso** (fresco o replay): un doble
+  submit / retry tras error reusa la MISMA clave → el backend hace replay idempotente y no duplica
+  piezas ni filas de ajuste. Mismo mecanismo `localUid` que el alta por lote (`capture.ts`). Los
+  motivos `perdida|danada|error_captura` NO llevan batchKey (400 si viaja; su replay cae en
+  `422 ITEM_NOT_ADJUSTABLE`, idempotencia natural).
+- **Replay sin efectos dobles:** con `idempotentReplay: true` el drawer muestra el MISMO éxito (un
+  solo Banner con folios, sin aviso duplicado) y **NO** refresca agregados (`pieces.refetch()` /
+  `onAdjusted` solo corren en procesamiento nuevo — nada cambió en el servidor).
+- **Mock** (`fixtures.ts`): `mockCreateAdjustment` devuelve el shape v1.18.1 y replica la
+  idempotencia con `mockAdjustmentStore` (batchKey → respuesta guardada; replay con
+  `idempotentReplay:true` sin re-crear), espejo de `mockBatchStore` del alta por lote.
+- **Tests** (`MasterSet.test.tsx`, 17 specs = +2): payload de `encontrada` CON `batchKey`
+  (`expect.stringMatching(/^adj-/)`); batchKey estable en retry tras error y rotación tras éxito;
+  replay → mismo éxito sin re-consultar piezas (`getAdminInventory` no vuelve a llamarse). Gates
+  reales: `npx tsc --noEmit` 0 · `npm run lint` 0 · `npm test` **43 files / 324 pass** · `npm run
+  build` OK.
+- **Deuda del veredicto techlead** anotada en `docs/TECH_DEBT.md`: **FE-20** (props de
+  `MasterSetPanel` permiten estados ilegales → unión discriminada sin default de `mode`) y **FE-21**
+  (`PlatformPiecesSection` acumula publicación+ajuste; extraer `AdjustSection` y eliminar el estado
+  derivado de `adjustFinish`). Abiertas, no bloqueantes.
+
 ### Notas para QA / arquitecto
 
 - Sin desviaciones de contrato. El CTA de compra vive en el **drawer** de la celda (la celda del

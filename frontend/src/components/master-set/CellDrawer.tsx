@@ -331,7 +331,7 @@ function PlatformPiecesSection({
 
   const publishResults: BulkPublishLineResult[] = publish.data?.results ?? [];
 
-  // ---- Ajuste por levantamiento físico (contrato §M1 v1.18) ----
+  // ---- Ajuste por levantamiento físico (contrato §M1 v1.18.1) ----
   const ta = useTranslations('masterSet.adjust');
   const availableFinishes = FINISH_ORDER.filter((f) => cell.availableFinishes.includes(f));
   const [reason, setReason] = useState<AdjustmentReason>('encontrada');
@@ -339,6 +339,10 @@ function PlatformPiecesSection({
   const [adjustFinish, setAdjustFinish] = useState<Finish>(availableFinishes[0] ?? 'normal');
   const [adjustQty, setAdjustQty] = useState('1');
   const [note, setNote] = useState('');
+  // batchKey ESTABLE por intento de `encontrada` (v1.18.1, mismo patrón que el alta por lote):
+  // se genera al montar y SOLO rota tras un submit exitoso. Un doble submit / retry del mismo
+  // intento reusa la MISMA clave → el backend hace replay idempotente y no duplica piezas.
+  const [adjustBatchKey, setAdjustBatchKey] = useState(() => localUid('adj'));
 
   // Solo piezas platform en {in_stock, listed} son ajustables (422 ITEM_NOT_ADJUSTABLE resto).
   const adjustablePieces = useMemo(
@@ -364,15 +368,23 @@ function PlatformPiecesSection({
                 qty: Math.max(1, Math.floor(Number(adjustQty) || 1)),
               },
               ...(note.trim() ? { note: note.trim() } : {}),
+              // Idempotencia v1.18.1: clave estable del intento (SOLO en `encontrada`).
+              batchKey: adjustBatchKey,
             }
           : { reason, inventoryItemId: adjustItemId, note: note.trim() };
       return createInventoryAdjustment(payload);
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setNote('');
       setAdjustItemId('');
-      void pieces.refetch();
-      onAdjusted?.();
+      // El intento se consumió (fresco o replay): la siguiente intención usa clave nueva.
+      setAdjustBatchKey(localUid('adj'));
+      if (!data.idempotentReplay) {
+        // Solo un procesamiento NUEVO cambia agregados; un replay muestra el MISMO éxito
+        // (Banner desde adjust.data) sin refrescar doble ni duplicar avisos.
+        void pieces.refetch();
+        onAdjusted?.();
+      }
     },
   });
 
@@ -451,7 +463,7 @@ function PlatformPiecesSection({
         )}
       </section>
 
-      {/* ---- Ajuste por levantamiento físico (v1.18): motivo OBLIGATORIO; sin venta manual ---- */}
+      {/* ---- Ajuste por levantamiento físico (v1.18.1): motivo OBLIGATORIO; sin venta manual ---- */}
       <section className="flex flex-col gap-3 border-t border-border pt-4">
         <h3 className="text-h3">{ta('title')}</h3>
         <Select

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { ApiClientError } from '@/lib/api-client';
+import type { InventoryAdjustmentRequest } from '@/types/contract';
 import { MasterSetPanel } from './MasterSetPanel';
 import * as api from '@/lib/api';
 
@@ -167,15 +168,16 @@ describe('Master Set · Publicación masiva (bulk-publish por-línea)', () => {
   });
 });
 
-describe('Master Set · Ajuste por levantamiento físico (v1.18, solo M1)', () => {
-  it('registra un ajuste `perdida` con pieza + nota obligatoria y muestra éxito', async () => {
+describe('Master Set · Ajuste por levantamiento físico (v1.18.1, solo M1)', () => {
+  it('registra un ajuste `perdida` con pieza + nota obligatoria (SIN batchKey) y muestra éxito', async () => {
     const spy = vi.spyOn(api, 'createInventoryAdjustment').mockResolvedValue({
-      adjustmentId: 'adj-1',
+      adjustmentIds: ['adj-1'],
       reason: 'perdida',
       inventoryItemIds: ['inv-2001'],
       folios: ['INV-000201'],
       fromStatus: 'in_stock',
       toStatus: 'lost',
+      idempotentReplay: false,
     });
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
@@ -201,14 +203,15 @@ describe('Master Set · Ajuste por levantamiento físico (v1.18, solo M1)', () =
     expect(await within(drawer).findByText('Ajuste registrado (INV-000201).')).toBeInTheDocument();
   });
 
-  it('registra `encontrada` creando pieza(s) nuevas (payload con item de alta)', async () => {
+  it('registra `encontrada` creando pieza(s) nuevas (payload con item de alta + batchKey v1.18.1)', async () => {
     const spy = vi.spyOn(api, 'createInventoryAdjustment').mockResolvedValue({
-      adjustmentId: 'adj-2',
+      adjustmentIds: ['adj-2'],
       reason: 'encontrada',
       inventoryItemIds: ['inv-adj-1'],
       folios: ['INV-000401'],
       fromStatus: null,
       toStatus: 'in_stock',
+      idempotentReplay: false,
     });
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
@@ -228,9 +231,73 @@ describe('Master Set · Ajuste por levantamiento físico (v1.18, solo M1)', () =
           acquisitionType: 'aportacion_en_especie',
           qty: 1,
         },
+        // Idempotencia v1.18.1: el drawer SIEMPRE manda batchKey en `encontrada`.
+        batchKey: expect.stringMatching(/^adj-/),
       }),
     );
     expect(await within(drawer).findByText('Ajuste registrado (INV-000401).')).toBeInTheDocument();
+  });
+
+  it('el batchKey de `encontrada` es ESTABLE por intento: un retry tras error reusa la MISMA clave y solo rota tras éxito', async () => {
+    const spy = vi
+      .spyOn(api, 'createInventoryAdjustment')
+      .mockRejectedValueOnce(
+        new ApiClientError(422, { code: 'PRICE_PENDING', message: 'no reference' }),
+      )
+      .mockResolvedValue({
+        adjustmentIds: ['adj-3'],
+        reason: 'encontrada',
+        inventoryItemIds: ['inv-adj-2'],
+        folios: ['INV-000402'],
+        fromStatus: null,
+        toStatus: 'in_stock',
+        idempotentReplay: false,
+      });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+    const submit = within(drawer).getByRole('button', { name: 'Registrar ajuste' });
+
+    // Intento 1 falla → retry (intento MISMO) debe reusar la clave (el backend no duplica).
+    fireEvent.click(submit);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    fireEvent.click(submit);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+
+    type FoundReq = Extract<InventoryAdjustmentRequest, { reason: 'encontrada' }>;
+    const keyOf = (i: number) => (spy.mock.calls[i][0] as FoundReq).batchKey;
+    expect(keyOf(1)).toBe(keyOf(0));
+
+    // Tras el éxito, una intención NUEVA usa clave NUEVA (no replayaría el ajuste anterior).
+    await within(drawer).findByText('Ajuste registrado (INV-000402).');
+    fireEvent.click(submit);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
+    expect(keyOf(2)).not.toBe(keyOf(1));
+  });
+
+  it('replay idempotente (idempotentReplay:true) → mismo éxito, SIN refrescar agregados doble', async () => {
+    const piecesSpy = vi.spyOn(api, 'getAdminInventory');
+    vi.spyOn(api, 'createInventoryAdjustment').mockResolvedValue({
+      adjustmentIds: ['adj-4'],
+      reason: 'encontrada',
+      inventoryItemIds: ['inv-adj-3'],
+      folios: ['INV-000403'],
+      fromStatus: null,
+      toStatus: 'in_stock',
+      idempotentReplay: true,
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+    await within(drawer).findAllByRole('checkbox'); // piezas de la celda cargadas
+    const callsBefore = piecesSpy.mock.calls.length;
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Registrar ajuste' }));
+
+    // MISMO éxito que un procesamiento nuevo (un solo Banner, sin aviso duplicado)…
+    expect(await within(drawer).findAllByText('Ajuste registrado (INV-000403).')).toHaveLength(1);
+    // …pero SIN re-consultar piezas ni invalidar agregados (nada cambió en el servidor).
+    expect(piecesSpy.mock.calls.length).toBe(callsBefore);
   });
 
   it('muestra el error ITEM_NOT_ADJUSTABLE traducido cuando el backend rechaza', async () => {
