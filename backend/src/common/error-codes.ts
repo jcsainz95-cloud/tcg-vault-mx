@@ -54,6 +54,9 @@ export const ErrorCode = {
   INE_REQUIRED: 'INE_REQUIRED',
   CLABE_NOT_OWN_NAME: 'CLABE_NOT_OWN_NAME',
   CLABE_INVALID: 'CLABE_INVALID',
+  // v1.15: POST /buylist/requests sin `clabe` en el body Y sin CLABE en archivo
+  // (KycProfile.clabeEnc vacío). Distinto de CLABE_INVALID (formato) y CLABE_NOT_OWN_NAME.
+  CLABE_REQUIRED: 'CLABE_REQUIRED',
   // Una carta rechazada en verificación (resultado NO-NM, PROJECT §H) NUNCA puede
   // convertirse en InventoryItem vendible: convert-to-inventory exige itemStatus='aprobada'.
   ITEM_NOT_APPROVED: 'ITEM_NOT_APPROVED',

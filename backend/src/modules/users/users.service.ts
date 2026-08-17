@@ -136,6 +136,10 @@ export class UsersService {
       // Contrato GET /users/me/kyc: la clave es `clabeMasked` (el resto del sistema —
       // contrato, admin.service, frontend— usa ese nombre; `clabe` rompía clabeOnFile).
       clabeMasked: maskClabe(this.pii.decryptOptional(kyc?.clabeEnc)),
+      // v1.15 (§4.16c): booleano LIMPIO y simétrico a `ineOnFile`. Habilita el atajo del cotizador
+      // "usar mi CLABE ****1234" (= omitir `clabe` en POST /buylist/requests, resuelto server-side).
+      // Sin PII nueva (la CLABE sigue enmascarada en `clabeMasked`).
+      clabeOnFile: Boolean(kyc?.clabeEnc),
       ineOnFile: Boolean(kyc?.ineFrontKey && kyc?.ineBackKey),
       capPerRequestCents,
       capPerMonthCents,

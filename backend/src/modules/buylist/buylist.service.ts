@@ -27,6 +27,33 @@ interface QuoteItemInput {
   // v1.3.1: el cliente ya NO envía `category`. La regla se deriva server-side de Card.rarity.
 }
 
+/**
+ * Payload de una cotización por-carta = shape de la respuesta de `POST /buylist/quote`
+ * (BuylistQuotePayload del contrato §DTOs base). Lo reusan el quote por-carta y el batch.
+ */
+export interface BuylistQuotePayload {
+  rarity: string | null;
+  finish: Finish;
+  appliedRule: { mode: BuylistRuleMode; value: number; source: 'rule' | 'fallback' };
+  quote: { status: 'cotizada' | 'precio_pendiente'; quotedPriceCents: number | null; currency: 'MXN' };
+  referencePrice: { status: 'priced'; priceMxnCents: number } | { status: 'pending' };
+  paymentNotice: 'PAY_AFTER_RECEIPT';
+}
+
+/**
+ * v1.15 (§4.16b) — resultado por-ítem del batch quote (BuylistBatchQuoteResultDTO). Una carta
+ * inválida NO tumba el lote: `ok:false` acarrea su propio error; el HTTP global es 200. `index` =
+ * posición 0-based en `items[]` (llave de correlación robusta ante cardId+finish repetidos).
+ */
+export type BuylistBatchQuoteResult =
+  | ({ index: number; cardId: string; ok: true } & BuylistQuotePayload)
+  | {
+      index: number;
+      cardId: string;
+      ok: false;
+      error: { code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE'; message: string };
+    };
+
 @Injectable()
 export class BuylistService {
   constructor(
@@ -60,12 +87,88 @@ export class BuylistService {
     productType: ProductType,
     rawCondition?: RawCondition,
     finish?: Finish,
-  ) {
+  ): Promise<BuylistQuotePayload> {
+    // Carga la tabla de reglas UNA vez y delega en el núcleo compartido (mismo que usa el batch).
+    const { rules, fallbackPct } = await this.buylistRules();
+    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, rules, fallbackPct);
+  }
+
+  /**
+   * v1.15 (§4.16b) — cotización en LOTE (`POST /buylist/quote/batch`, public, READ-ONLY). Mata el
+   * fan-out FE-12: cotiza N cartas en 1 request. Es un `map` de la MISMA lógica por-carta
+   * (`quoteCardForFinish`) compartiendo `buylistRules()` (un solo read de config) → misma matemática
+   * y mismos guardarraíles (gate premium, BUYLIST_PRICE_RULES + fallback, referencia por acabado, FX
+   * ya bakeada en PriceReference). SEC-A1 intacto.
+   *
+   * ERRORES POR-ÍTEM: una carta inválida (NOT_FOUND / FINISH_NOT_AVAILABLE) NO tumba las demás — su
+   * resultado sale `ok:false` con el `error` de ESE ítem; el HTTP global es 200. Correlación por
+   * `index` + eco de `cardId`. READ-ONLY estricto: NO crea solicitud, NO mueve dinero, NO persiste y
+   * NO escala a PendingPriceEntry (endpoint anónimo; la escalada sigue solo en `createRequest`).
+   */
+  async batchQuote(items: QuoteItemInput[]): Promise<{ results: BuylistBatchQuoteResult[] }> {
+    const { rules, fallbackPct } = await this.buylistRules();
+    const results: BuylistBatchQuoteResult[] = [];
+    for (let index = 0; index < items.length; index++) {
+      const it = items[index];
+      try {
+        const payload = await this.quoteCardForFinish(
+          it.cardId,
+          it.productType,
+          it.rawCondition,
+          it.finish,
+          rules,
+          fallbackPct,
+        );
+        results.push({ index, cardId: it.cardId, ok: true, ...payload });
+      } catch (e) {
+        // Solo los errores por-ítem esperados (los mismos que el endpoint por-carta devolvería como
+        // 404/422) se degradan a `ok:false`; cualquier otro error (p. ej. fallo de infra) se propaga.
+        if (
+          e instanceof BusinessException &&
+          (e.code === 'NOT_FOUND' || e.code === 'FINISH_NOT_AVAILABLE')
+        ) {
+          const body = e.getResponse() as { message?: string };
+          results.push({
+            index,
+            cardId: it.cardId,
+            ok: false,
+            error: {
+              code: e.code,
+              message: typeof body?.message === 'string' ? body.message : e.code,
+            },
+          });
+        } else {
+          throw e;
+        }
+      }
+    }
+    return { results };
+  }
+
+  /**
+   * Núcleo de cotización por-carta+acabado (READ-ONLY). Lo comparten `publicQuote` (por-carta) y
+   * `batchQuote` (lote) — recibe `rules`/`fallbackPct` ya cargados para no re-leer config por ítem.
+   * SEC-A1: rareza + acabado se derivan SIEMPRE server-side (Card.rarity + finish validado contra
+   * card.availableFinishes), nunca del cliente. Lanza `NOT_FOUND` (carta inexistente) o
+   * `FINISH_NOT_AVAILABLE` (acabado fuera de availableFinishes) — el batch los captura por-ítem.
+   *
+   * v1.12-catalog-pricing (§4.13b) — READ-ONLY: NO escala a `PendingPriceEntry` aunque el resultado
+   * sea `precio_pendiente`. Con el catálogo ya priceado (§4.13a) este `getReference` casi siempre
+   * encuentra precio; un endpoint público/anónimo NO debe escribir en la cola del dueño (superficie
+   * de abuso). La escalada queda SOLO en el flujo autenticado `createRequest`.
+   */
+  private async quoteCardForFinish(
+    cardId: string,
+    productType: ProductType,
+    rawCondition: RawCondition | undefined,
+    finish: Finish | undefined,
+    rules: Record<string, BuylistRule>,
+    fallbackPct: number,
+  ): Promise<BuylistQuotePayload> {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
     // SEC-A1: el acabado se valida contra los acabados REALES de la carta antes de cotizar.
     const f = this.assertFinishAvailable(card, finish);
-    const { rules, fallbackPct } = await this.buylistRules();
     const gradeKey = this.pricing.gradeKeyFor({ productType, rawCondition });
     // v1.6-finish: la referencia del `pct` es la del ACABADO cotizado.
     const ref = await this.pricing.getReference(cardId, productType, gradeKey, f);
@@ -73,13 +176,6 @@ export class BuylistService {
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
     // SEC-A1: rareza + acabado derivados server-side (Card.rarity, finish validado), no del cliente.
     const quote = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct);
-    // v1.12-catalog-pricing (§4.13b) — el cotizador público vuelve a READ-ONLY (cierra BE-16).
-    // Con el catálogo completo ya priceado durante el `catalog-sync` (§4.13a), este `getReference`
-    // casi siempre encuentra precio. Se ELIMINA la escalada a `PendingPriceEntry` que la Fase 0
-    // agregó aquí: un endpoint público/anónimo NO debe escribir en la cola de trabajo del dueño
-    // (superficie de abuso: enumerar cartas inflaba la cola). Si el acabado sigue `precio_pendiente`,
-    // el quote lo REPORTA sin escribir nada. La escalada queda SOLO en el flujo autenticado
-    // `createRequest` (POST /buylist/requests), sin cambio. SEC-A1 intacto.
     return {
       rarity: card.rarity ?? null,
       finish: f,
@@ -121,21 +217,46 @@ export class BuylistService {
   async createRequest(
     userId: string,
     items: QuoteItemInput[],
-    clabe: string,
+    // v1.15 (§4.16a, PII): `clabe` OPCIONAL. Ver resolución/fallback abajo.
+    clabe?: string,
     ineUploadKeys?: { front: string; back: string },
   ) {
-    if (!isValidClabe(clabe)) {
-      throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
-    }
-    // La CLABE debe estar a nombre del propio usuario: se valida contra la KYC declarada.
-    // SEC/PII: el match se hace por BLIND INDEX (HMAC), SIN descifrar la CLABE almacenada.
+    // SEC/PII: la KYC se lee SIEMPRE por el `userId` autenticado (nunca la de otro usuario).
     const kyc = await this.prisma.kycProfile.findUnique({ where: { userId } });
-    const incomingHmac = this.pii.clabeBlindIndex(clabe);
-    if (kyc?.clabeHmac && !this.pii.blindIndexEquals(kyc.clabeHmac, incomingHmac)) {
-      throw BusinessException.validation(
-        'CLABE_NOT_OWN_NAME',
-        'CLABE must match the one on file (own name)',
-      );
+
+    // v1.15 (§4.16a) — Resolución de la CLABE efectiva:
+    //  - `clabe` presente → comportamiento actual: valida formato (CLABE_INVALID) y nombre propio
+    //    por BLIND INDEX (HMAC, SIN descifrar) contra la de archivo (CLABE_NOT_OWN_NAME); se persiste
+    //    en KYC (clabeEnc + clabeHmac).
+    //  - `clabe` omitida → FALLBACK server-side a la CLABE del PROPIO usuario en archivo
+    //    (KycProfile.clabeEnc, desencriptada — MISMA fuente que revealClabe). NUNCA la de otro.
+    //    Sin CLABE en archivo → 422 CLABE_REQUIRED. La CLABE en claro NUNCA se loguea ni se devuelve.
+    let effectiveClabe: string;
+    // Solo cuando `clabe` viene en el body se (re)persiste en la KYC; el fallback ya está en archivo.
+    let kycClabeFields: { clabeEnc: string; clabeHmac: string } | null = null;
+    if (clabe != null && clabe !== '') {
+      if (!isValidClabe(clabe)) {
+        throw BusinessException.validation('CLABE_INVALID', 'CLABE must be 18 digits');
+      }
+      const incomingHmac = this.pii.clabeBlindIndex(clabe);
+      if (kyc?.clabeHmac && !this.pii.blindIndexEquals(kyc.clabeHmac, incomingHmac)) {
+        throw BusinessException.validation(
+          'CLABE_NOT_OWN_NAME',
+          'CLABE must match the one on file (own name)',
+        );
+      }
+      effectiveClabe = clabe;
+      kycClabeFields = { clabeEnc: this.pii.encrypt(clabe), clabeHmac: incomingHmac };
+    } else {
+      // FALLBACK: CLABE del propio usuario en archivo (misma vía que revealClabe, buylist.service.ts).
+      const onFile = this.pii.decryptOptional(kyc?.clabeEnc);
+      if (!onFile) {
+        throw BusinessException.validation(
+          'CLABE_REQUIRED',
+          'A CLABE is required: none provided and none on file',
+        );
+      }
+      effectiveClabe = onFile;
     }
 
     // Cotiza cada item. SEC-A1: la regla (que determina el monto a pagar) NO se toma del DTO
@@ -225,21 +346,22 @@ export class BuylistService {
       });
     }
 
-    // Persiste CLABE/INE en KYC declarada. CLABE cifrada en reposo + blind index.
-    const clabeEnc = this.pii.encrypt(clabe);
+    // Snapshot CIFRADO de la CLABE resuelta (de request o fallback) para el pago SPEI: usa la CLABE
+    // vigente al crear la solicitud aunque el usuario cambie luego su KYC. NUNCA en claro/logueada.
+    const clabeEnc = this.pii.encrypt(effectiveClabe);
+    // Persiste CLABE/INE en KYC. La CLABE solo se (re)escribe cuando vino en el body (`kycClabeFields`);
+    // en el fallback ya está en archivo. El INE se actualiza si vienen keys nuevas.
     await this.prisma.kycProfile.upsert({
       where: { userId },
       create: {
         userId,
-        clabeEnc,
-        clabeHmac: incomingHmac,
+        ...(kycClabeFields ?? {}),
         ineFrontKey: ineUploadKeys?.front,
         ineBackKey: ineUploadKeys?.back,
         kycStatus: 'pending',
       },
       update: {
-        clabeEnc,
-        clabeHmac: incomingHmac,
+        ...(kycClabeFields ?? {}),
         ...(ineUploadKeys?.front ? { ineFrontKey: ineUploadKeys.front } : {}),
         ...(ineUploadKeys?.back ? { ineBackKey: ineUploadKeys.back } : {}),
       },

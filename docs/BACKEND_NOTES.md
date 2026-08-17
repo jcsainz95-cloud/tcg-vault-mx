@@ -2493,3 +2493,84 @@ hallazgos no bloqueantes (SIN cambio de contrato/schema):
   ahora **mitigada** por B — disparador: fijar `MARKET_FORMAT` antes de flipar).
 
 **Gates tras el pase:** `npx tsc --noEmit` exit 0; `npx jest` **68 suites / 469 tests** verdes.
+
+## 37. WS-C (v1.15-buylist-batch-clabe, 2026-08-17) — cotizador buylist contra el backend REAL (Fase 3b)
+
+> **TOCA DINERO/PII → triple veredicto.** Implementa ARCHITECTURE §4.16 (a–c) y API_CONTRACT §0/§1/§6
+> (Changelog v1.15). **Aditivo, SIN migración de esquema** (reusa `KycProfile.clabeEnc`,
+> `SellRequest.clabeSnapshotEnc`, `quoteAcquisitionForFinish`, `PriceReference`). **SEC-A1 intacto**
+> (montos server-side por `(Card.rarity, finish)`; el cliente nunca fija precio ni CLABE de terceros).
+> Gates verdes: `npx tsc --noEmit` (exit 0), `npx jest` (**69 suites / 486 tests**).
+
+### 37.1 Qué se implementó (por archivo)
+- **`modules/buylist/dto/buylist.dto.ts`**:
+  - `CreateRequestDto.clabe` → **`@IsOptional() @IsString() clabe?: string`** (antes `@IsString() clabe!`).
+  - **NUEVO** `BuylistQuoteItemDto` (espeja `PublicQuoteDto`: `cardId`, `productType`, `rawCondition?`,
+    `finish?`; **SIN `qty`** — una línea por carta física) y **`BatchQuoteDto`** (`items` con
+    `@ArrayNotEmpty` + `@ArrayMaxSize(BUYLIST_QUOTE_BATCH_MAX)` + `@ValidateNested`/`@Type`). Constante
+    exportada **`BUYLIST_QUOTE_BATCH_MAX = 50`**.
+- **`modules/buylist/buylist.service.ts`**:
+  - **`createRequest(userId, items, clabe?, ineUploadKeys?)`** — CLABE opcional + **fallback server-side**
+    (§4.16a). La KYC se lee SIEMPRE por el `userId` autenticado. Con `clabe` en el body: flujo idéntico al
+    actual (formato → `422 CLABE_INVALID`; nombre propio por blind-index HMAC → `422 CLABE_NOT_OWN_NAME`;
+    persiste `clabeEnc`+`clabeHmac` en KYC). Sin `clabe`: **desencripta `kyc.clabeEnc`** (misma vía que
+    `revealClabe`) → si no hay → **`422 CLABE_REQUIRED`** (nuevo). La CLABE resuelta se **snapshotea
+    cifrada** en `clabeSnapshotEnc`, **NUNCA se loguea ni se devuelve**. En el fallback **no** se reescribe
+    la CLABE en KYC (ya está en archivo); el INE sí se actualiza si vienen keys nuevas.
+  - **`batchQuote(items)`** (§4.16b) — `map` de `quoteCardForFinish` sobre `items[]` cargando
+    `buylistRules()` **una vez**. **Errores por-ítem**: `NOT_FOUND`/`FINISH_NOT_AVAILABLE` → `ok:false` de ESE
+    ítem (cualquier otro error se propaga); el resto sale `ok:true`. **READ-ONLY**: no crea solicitud, no
+    persiste, **no** llama `escalatePending`. Correlación por `index` + eco de `cardId`.
+  - **`quoteCardForFinish(...)`** (privado, NUEVO) — núcleo READ-ONLY extraído de `publicQuote`, recibe
+    `rules`/`fallbackPct` ya cargados. `publicQuote` ahora delega en él (misma matemática/guardarraíles;
+    shape del quote por-carta **sin cambios**). Tipos exportados `BuylistQuotePayload` /
+    `BuylistBatchQuoteResult` (para nombrar el retorno en el controller).
+- **`modules/buylist/buylist.controller.ts`** — **`POST /buylist/quote/batch`** (`@Public()`,
+  `@HttpCode(200)`, sin `@RequireEmailVerified`). `create` pasa `dto.clabe` (ahora opcional) sin cambios.
+- **`modules/users/users.service.ts`** — `getKyc` añade **`clabeOnFile: Boolean(kyc?.clabeEnc)`** (§4.16c),
+  simétrico a `ineOnFile`. `clabeMasked` se conserva; sin PII nueva.
+- **`common/error-codes.ts`** — nuevo código estable **`CLABE_REQUIRED`** (se serializa como `422`).
+
+### 37.2 Garantías de PII / dinero (para seguridad y QA)
+- **Autorización estricta del fallback:** `kyc = findUnique({ where: { userId } })` con el `userId` de la
+  sesión; es **imposible** resolver la CLABE de otro usuario. Test dedicado: un `u2` con OTRA CLABE en
+  archivo **jamás** se usa para `u1` (y si `u1` no tiene CLABE → `CLABE_REQUIRED`, no cae a la de `u2`).
+- **CLABE nunca en claro fuera del reveal:** no se loguea, la respuesta (`{ sellRequestId, status,
+  quotedTotalCents, ineRequired, items }`) **no** la incluye, y el snapshot va cifrado (`pii.encrypt`). El
+  único punto de exposición en claro sigue siendo `GET /admin/buylist/:id/reveal-clabe`.
+- **SEC-A1 en batch:** rareza (`Card.rarity`) y `finish` (validado contra `Card.availableFinishes`) se
+  derivan server-side; el cliente no envía precio/monto/regla. El batch es anónimo pero **read-only** — no
+  escribe en la cola de precio pendiente (misma doctrina que `publicQuote` desde v1.12).
+- **Cap 50:** lo impone el DTO (`@ArrayMaxSize(50)`) → `400 VALIDATION_ERROR`; cuenta como **1** request
+  contra el throttle público (colapsa el fan-out FE-12).
+
+### 37.3 Tests (jest) — `test/buylist.batch-clabe.spec.ts` (17 casos)
+- **Fallback usa SOLO la CLABE propia** (snapshot descifra a la propia; la KYC se lee siempre por el
+  `userId` autenticado; no reescribe la CLABE en KYC en el fallback).
+- **`CLABE_REQUIRED`** cuando no hay `clabe` ni CLABE en archivo (con y sin KYC) — no crea solicitud, no
+  alcanza la CLABE de otro usuario.
+- **`clabe` en el body**: comportamiento intacto (persiste `clabeEnc`+`clabeHmac`); formato inválido →
+  `CLABE_INVALID` sin caer al fallback.
+- **Batch con 1 carta inválida → 200 + error por-ítem** (mezcla `ok`/`NOT_FOUND`/`FINISH_NOT_AVAILABLE`/
+  `precio_pendiente`, correlada por `index`); **READ-ONLY** (`escalatePending` nunca llamado).
+- **Equivalencia batch vs. quote por-carta** (mismo `payload` por acabado: normal $0.50, reverse $1.50,
+  holofoil 40% del market).
+- **DTO del batch**: cap 50 exacto válido, 51 → `arrayMaxSize`, vacío → `arrayNotEmpty`, ítem malformado →
+  error nested.
+- **`clabeOnFile`** refleja el estado real (con CLABE / solo INE / sin KYC), y la CLABE sigue enmascarada.
+- Ninguna aserción imprime/valida la CLABE en claro salvo para comprobar que el snapshot **NO** la contiene
+  sin cifrar.
+
+### 37.4 Notas para otros roles
+- **frontend:** `POST /buylist/quote/batch` (1 request por página del grid, render parcial-tolerante por
+  `results[].ok`/`error.code`); usar `clabeOnFile` para el atajo "usar mi CLABE ****1234" (**omitir** `clabe`
+  en `POST /buylist/requests`) e `ineOnFile` para ocultar los uploaders de INE. Ver §4.16c.
+- **devops/QA/seguridad:** sin nueva ENV ni migración. E2E sugerido (ARCHITECTURE §4.16, reparto): cotizar un
+  lote, crear solicitud con CLABE en archivo (sin reteclear) y con INE en archivo (sin resubir); pentest del
+  fallback (no fugar/loguear CLABE; no resolver la de otro usuario).
+
+### 37.5 Sin dudas de contrato/esquema
+El contrato v1.15 es implementable tal cual con los defaults del arquitecto (endpoint aditivo `/batch`, sin
+`qty`, cap 50, `422 CLABE_REQUIRED`). **No se solicitó ningún cambio de contrato ni de schema.**
+
+**Gates:** `npx tsc --noEmit` exit 0; `npx jest` **69 suites / 486 tests** verdes.

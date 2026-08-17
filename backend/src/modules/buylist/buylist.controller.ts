@@ -5,7 +5,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
-import { CreateRequestDto, PublicQuoteDto, RespondDto } from './dto/buylist.dto';
+import { BatchQuoteDto, CreateRequestDto, PublicQuoteDto, RespondDto } from './dto/buylist.dto';
 
 @Controller('buylist')
 export class BuylistController {
@@ -16,6 +16,16 @@ export class BuylistController {
   @HttpCode(200)
   quote(@Body() dto: PublicQuoteDto) {
     return this.buylist.publicQuote(dto.cardId, dto.productType, dto.rawCondition, dto.finish);
+  }
+
+  // v1.15 (§4.16b): batch quote — cotiza N cartas en 1 request (mata el fan-out FE-12). Público y
+  // READ-ONLY como el quote por-carta (anónimo, no se bloquea por emailVerified). Errores por-ítem:
+  // HTTP global 200; el cap 50 / vacío lo impone el DTO (400 VALIDATION_ERROR).
+  @Public()
+  @Post('quote/batch')
+  @HttpCode(200)
+  quoteBatch(@Body() dto: BatchQuoteDto) {
+    return this.buylist.batchQuote(dto.items);
   }
 
   // v1.5: vender (crear SellRequest) es acción sensible → requiere emailVerified. El cotizador

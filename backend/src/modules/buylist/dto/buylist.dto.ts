@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   ArrayNotEmpty,
   IsArray,
   IsIn,
@@ -14,6 +15,13 @@ import { Type } from 'class-transformer';
 import { Finish, ProductType, RawCondition } from '@prisma/client';
 
 const FINISHES = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'] as const;
+
+/**
+ * v1.15 (ARCHITECTURE §4.16b) — cap de ítems por request del batch quote
+ * (`POST /buylist/quote/batch`). Constante de servidor: cubre el `pageSize` 20 del grid del
+ * cotizador con holgura sin ser vector de abuso. Vacío o sobre-cap → 400 VALIDATION_ERROR.
+ */
+export const BUYLIST_QUOTE_BATCH_MAX = 50;
 
 /**
  * B-4 / S-B5 (pentest): cota dura de sanidad sobre `approvedPriceCents` en la decisión
@@ -35,6 +43,32 @@ export class PublicQuoteDto {
   @IsOptional() @IsIn(FINISHES) finish?: Finish;
 }
 
+/**
+ * v1.15 (BuylistQuoteItemDTO del contrato §6) — un ítem del batch quote. Espeja EXACTAMENTE los
+ * campos del quote por-carta (`PublicQuoteDto`); SIN `qty` (el modelo es una línea por carta
+ * física, ARCHITECTURE §4.16b). El `finish` se valida por-ítem server-side (SEC-A1).
+ */
+export class BuylistQuoteItemDto {
+  @IsString() cardId!: string;
+  @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
+  @IsOptional() @IsIn(['NM']) rawCondition?: RawCondition;
+  @IsOptional() @IsIn(FINISHES) finish?: Finish;
+}
+
+/**
+ * v1.15 (§4.16b) — `POST /buylist/quote/batch`. `items` no vacío (`@ArrayNotEmpty`) y con tope
+ * `BUYLIST_QUOTE_BATCH_MAX` (`@ArrayMaxSize`). Vacío o sobre-cap → 400 VALIDATION_ERROR (nivel
+ * request). Los errores de cada carta (NOT_FOUND / FINISH_NOT_AVAILABLE) son POR-ÍTEM (HTTP 200).
+ */
+export class BatchQuoteDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(BUYLIST_QUOTE_BATCH_MAX)
+  @ValidateNested({ each: true })
+  @Type(() => BuylistQuoteItemDto)
+  items!: BuylistQuoteItemDto[];
+}
+
 export class RequestItemDto {
   @IsString() cardId!: string;
   @IsIn(['graded', 'sealed', 'raw']) productType!: ProductType;
@@ -48,7 +82,11 @@ export class RequestItemDto {
 export class CreateRequestDto {
   @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => RequestItemDto)
   items!: RequestItemDto[];
-  @IsString() clabe!: string;
+  // v1.15 (ARCHITECTURE §4.16a, PII): `clabe` OPCIONAL. Si se omite, el backend resuelve la CLABE
+  // del PROPIO usuario en archivo (KycProfile.clabeEnc, desencriptada — misma fuente que
+  // reveal-clabe); si tampoco hay en archivo → 422 CLABE_REQUIRED. Con `clabe` presente el flujo
+  // no cambia (formato 18 dígitos → CLABE_INVALID; nombre propio por blind index → CLABE_NOT_OWN_NAME).
+  @IsOptional() @IsString() clabe?: string;
   @IsOptional() @IsObject() ineUploadKeys?: { front: string; back: string };
 }
 
