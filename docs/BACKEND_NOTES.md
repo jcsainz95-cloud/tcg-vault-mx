@@ -2358,8 +2358,11 @@ pendiente** — cuando se cierre v1.13-3, quitar el dial del seed/DTO y del cód
 - **`modules/pricing/providers/pokemonpricetracker-bulk.provider.ts`** (NUEVO, PRIMARIO) —
   `POST https://www.pokemonpricetracker.com/api/v1/cards/bulk-price` (host FIJO anti-SSRF), `Authorization:
   Bearer <env key>`, body `{ set, limit, page }`. **Mapeo defensivo:** valida `market>0`, `variante→Finish`,
-  omite mal formado, moneda defensiva. **LOGUEA UN ejemplo** de la 1ª entrada cruda (sin secretos) para
-  verificar el esquema en Railway. Sin key/HTTP fail → `{ rows: [] }` + log (precios STALE, no se borran).
+  omite mal formado. **FAIL-CLOSED de moneda/unidad (post-veredicto B):** NO persiste bajo moneda/unidad
+  asumida — el operador fija `POKEMONPRICETRACKER_MARKET_FORMAT` (sin default, valores
+  `usd_dollars|usd_cents|mxn_dollars|mxn_cents`); **sin él → modo sample-only** (loguea la muestra, persiste
+  NADA). **LOGUEA UN ejemplo** de la 1ª entrada cruda (sin secretos). Sin key/HTTP fail → `{ rows: [] }` + log
+  (precios STALE, no se borran). **PO confirmó `usd_dollars`** (= ×100 + FX + colchón, idéntico al legacy USD).
 - **`modules/pricing/providers/pokemontcg-io-bulk.provider.ts`** (NUEVO, LEGACY/rollback) — envuelve
   `PokemonTcgIoClient.getCardsBySet` (paginado) y extrae `tcgplayer.prices[llave].market` por acabado
   (USD). Permite `PRICE_PROVIDER=pokemontcg_io` sin la key de paga; el job ya es robusto con esta fuente.
@@ -2390,8 +2393,14 @@ pendiente** — cuando se cierre v1.13-3, quitar el dial del seed/DTO y del cód
 - **`jobs/admin-jobs.controller.ts`** — `POST /admin/jobs/price-ingest` (super_admin, auditado
   `jobs.price_ingest.run`, `HttpCode(202)`, `setId?` opcional). **Toca dinero.**
 - **`jobs/scheduler.service.ts`** — entrega la cola al ingest (`setQueue`), enruta `price-ingest` (parent) /
-  `price-ingest-set` (child) en el worker, y programa `price-ingest` **SOLO si** devops fija
-  `PRICE_INGEST_CRON_1/_2` (**opt-in** → por defecto NO cambia el scheduling actual; rollout money-safe).
+  `price-ingest-set` (child) en el worker. **Transición de scheduling completada (post-veredicto A):**
+  `price-ingest` se programa **POR DEFECTO 2×/día** (00:00 y 12:00 UTC, `PRICE_INGEST_CRON_1/_2` overridable) con
+  el dial sembrado `pokemontcg_io` (legacy USD → money-safe); el barrido pesado `catalog-price-sync force:true`
+  **se retiró del schedule** y se reemplazó por `catalog-metadata-sync` **diario** (`syncAll({force:false})`,
+  solo sets nuevos, barato; `CATALOG_METADATA_SYNC_CRON` overridable). El disparo manual
+  `POST /admin/jobs/catalog-price-sync` (force:true, ops) se conserva intacto.
+- **`jobs/catalog-price-sync.service.ts`** — nuevo `runMetadataImport()` (`syncAll({force:false})`) para la
+  cadencia ligera del scheduler; `run()` (force:true) se conserva para el disparo manual de ops.
 - **`config/env.validation.ts`** — `POKEMONPRICETRACKER_API_KEY` requerida en no-local **solo** cuando el
   hint de env `PRICE_PROVIDER=pokemonpricetracker` está presente (la autoridad runtime es el dial en BD; el
   provider degrada seguro si falta la key).
@@ -2406,21 +2415,27 @@ corrida (`POST /admin/jobs/price-ingest { "setId": "sv8" }` → inspeccionar el 
 3. **Id de carta:** `id` | `cardId` | `productId` | `_id`; **número:** `number` | `cardNumber` | `collectorNumber`.
 4. **Variante/acabado:** shape (A) `prices: { <variante>: { market } }` (tcgplayer-like) o (B) plano
    `variant`/`finish`/`printing` + `market`/`marketPrice`/`price`. Variante desconocida → **OMITE**.
-5. **⚠️ UNIDAD DE `market` (crítico):** se asume **DÓLARES (float)** → `×100` a centavos (como TCGPlayer). Si
-   en realidad viniera en centavos, inflaría 100× → **por eso el dial se siembra en `pokemontcg_io`** y el
-   flip a `pokemonpricetracker` lo hace el humano **tras** verificar el esquema (ARCHITECTURE §4.15h,
-   decisiones abiertas v1.14-1/4).
-6. **Moneda:** `currency` del payload; ausente/ambigua → **USD** (proveedor de mercado US).
+5. **MONEDA + UNIDAD de `market` = FAIL-CLOSED (post-veredicto B):** ya NO se asume nada. El operador fija
+   `POKEMONPRICETRACKER_MARKET_FORMAT` (env, **sin default**): `usd_dollars` (×100 + FX + colchón, **confirmado
+   por el PO** 2026-08-17), `usd_cents` (sin ×100 + FX), `mxn_dollars` (×100, sin FX), `mxn_cents` (sin ×100, sin
+   FX). **Sin la env → sample-only** (loguea la muestra, persiste NADA). La moneda de la fila viene del FORMATO,
+   no de un campo `currency` del payload. Runbook: correr `POST /admin/jobs/price-ingest { "setId": "sv8" }` con
+   el dial en `pokemonpricetracker` → leer el log de muestra → fijar `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`.
 
 ### 36.3 Seed del dial + rollout
-`price_provider` **seed `'pokemontcg_io'`** (legacy). El flip a `'pokemonpricetracker'` es del humano/devops
-por `PUT /admin/settings { "priceProvider": "pokemonpricetracker" }` (sin redeploy), tras verificar el esquema.
-El scheduling de `price-ingest` (crons) es **opt-in** por env (`PRICE_INGEST_CRON_1/_2`); por defecto no se
-auto-programa (el disparo manual sí funciona).
+`price_provider` **seed `'pokemontcg_io'`** (legacy, **NO cambia**). El flip a `'pokemonpricetracker'` es del
+humano/devops por `PUT /admin/settings { "priceProvider": "pokemonpricetracker" }` (sin redeploy) — y requiere
+además fijar `POKEMONPRICETRACKER_MARKET_FORMAT` (si no, el proveedor de paga corre sample-only y no escribe).
+**Scheduling (post-veredicto A): `price-ingest` corre POR DEFECTO 2×/día** con Redis (usa el dial sembrado
+`pokemontcg_io` → misma fuente USD de siempre, money-safe). Es decir: en un deploy por defecto CON Redis
+(Railway) los precios del catálogo **sí se refrescan** desde el arranque (desatoro de #1/#8/#10), sin activar el
+proveedor de paga. Sin Redis → fallback manual awaited.
 
 ### 36.4 Tests (mocks del provider; NO se llama la API real)
 - `test/price-ingest.provider.spec.ts` — mapeo defensivo de ambos adapters + `normalizeFinishAlias`
-  (variante→finish, desconocida→null, skip market≤0, moneda MXN respetada, sin key → `{rows:[]}`, HTTP fail).
+  (variante→finish, desconocida→null, skip market≤0); **fail-closed (B):** sin `MARKET_FORMAT` → sample-only
+  (fetch sí, persiste nada); `usd_dollars` → ×100 (=legacy USD); `usd_cents` → sin ×100; `mxn_dollars` → ×100 +
+  moneda MXN; sin key → `{rows:[]}`; HTTP fail.
 - `test/price-ingest.service.spec.ts` — dial elige provider; upsert por acabado; resolución externalId /
   `(set,number)`; omite no resueltas; **no clobbea** `availableFinishes`; MXN propagada; `persistMarketReference`
   USD vs MXN + respeta override.
@@ -2434,14 +2449,22 @@ auto-programa (el disparo manual sí funciona).
   `admin-jobs.controller.spec.ts` + `scheduler.spec.ts` (nueva dep `PriceIngestJobService`).
 
 ### 36.5 Notas para otros roles
-- **devops:** (1) `POKEMONPRICETRACKER_API_KEY` ya se lee de env (añádela a `.env.example`/Railway; **no edité
-  `.env.example`**). (2) Programar `price-ingest` con `PRICE_INGEST_CRON_1/_2` (UTC) **cuando** el humano flipe
-  el dial; correr `fx-refresh` antes. (3) El slot 2×/día de `catalog-price-sync` puede **repuntarse** a
-  `price-ingest` para el pricing; `catalog-price-sync` se conserva para import de metadata (`force:false`). (4)
-  Cuota/coste del proveedor de paga = decisión abierta v1.14-2.
+- **devops — ENV NUEVAS a añadir a `.env.example`/Railway (NO las edité yo; ruta devops):**
+  - `POKEMONPRICETRACKER_API_KEY` (secreto; ya se lee de env). Requerida en no-local solo si el hint
+    `PRICE_PROVIDER=pokemonpricetracker` está puesto.
+  - **`POKEMONPRICETRACKER_MARKET_FORMAT`** (NUEVA, post-veredicto B): fijar a **`usd_dollars`** (confirmado PO)
+    tras ver el log de la 1ª corrida. **Sin ella el proveedor de paga NO escribe precios** (fail-closed).
+  - `PRICE_INGEST_CRON_1` / `PRICE_INGEST_CRON_2` (opcionales; **defaults `0 0 * * *` / `0 12 * * *`** — ya no
+    son opt-in, el ingest se programa por defecto). `CATALOG_METADATA_SYNC_CRON` (opcional; default `0 1 * * *`).
+- **devops — scheduling (post-veredicto A):** ya NO hay que hacer nada para que el pricing corra: `price-ingest`
+  2×/día está por defecto con `pokemontcg_io`. Se **retiró** el barrido pesado `catalog-price-sync` del schedule
+  (reemplazado por `catalog-metadata-sync` diario, `force:false`). Recomendado: `fx-refresh` (06:00 UTC) antes
+  del ingest de 12:00 UTC (el de 00:00 usa el FX del día previo — degradación suave, aceptable §4.15g). Cuota/
+  coste del proveedor de paga = decisión abierta v1.14-2.
 - **QA/seguridad:** SEC-A1 intacto (precio server-side del proveedor; `finish` = dimensión de la clave, no
-  monto del cliente). Money-safe: sin key/fallo → NO se borran precios (STALE) + log; MXN sin ×FX; variante
-  desconocida → omitida (no se atribuye a `normal`). Verificar la unidad de `market` (§36.2.5) en la 1ª corrida.
+  monto del cliente). Money-safe: sin key/fallo/formato → NO se escriben precios (STALE/sample-only) + log; MXN
+  sin ×FX; variante desconocida → omitida (no se atribuye a `normal`). El **fail-closed de MARKET_FORMAT** cierra
+  el riesgo de inflar ~18×/100× al flipar (§36.2.5).
 - **frontend (M2):** `PUT /admin/fx` acepta `rate?` opcional (guardar solo colchón); alternativa recomendada
   `PUT /admin/settings { fxBufferPct }`. Dial `priceProvider` editable en M2/M10.
 
@@ -2452,3 +2475,21 @@ La **resolución carta↔BD** (externalId primario, `(set,number)` fallback, omi
 y (b) mantiene el adapter **sin BD** y unit-testeable. Funcionalmente idéntico al requisito money-safe de §4.15d.
 Ninguna duda de contrato/esquema bloqueante: el único punto a confirmar en runtime es el **esquema del payload
 del proveedor de paga** (§36.2), ya contemplado por el diseño (dial seed legacy + verificación en 1ª corrida).
+
+### 36.7 Cierre post-triple-veredicto (2026-08-17) — 3 follow-ups no bloqueantes
+WS-A recibió **triple veredicto APROBADO** (qa+techlead+seguridad). Antes de promover a main se cerraron 3
+hallazgos no bloqueantes (SIN cambio de contrato/schema):
+- **(A) Transición de scheduling [techlead].** `price-ingest` ahora corre **por defecto 2×/día** (dial sembrado
+  `pokemontcg_io` → money-safe) y el barrido pesado `catalog-price-sync force:true` se **retiró del schedule**,
+  reemplazado por `catalog-metadata-sync` diario (`force:false`, solo sets nuevos). Así el deploy por defecto CON
+  Redis **cumple el desatoro** de #1/#8/#10 sin activar el proveedor de paga. Ver §36.3 y `scheduler.spec.ts`.
+- **(B) Fail-closed de moneda/unidad [seguridad Media + qa].** El proveedor de paga NO persiste bajo formato
+  asumido: `POKEMONPRICETRACKER_MARKET_FORMAT` (sin default) o **sample-only**. PO confirmó **`usd_dollars`**
+  (= comportamiento legacy). Cierra el riesgo de inflar ~18×/100× al flipar. Ver §36.2.5 / §36.5.
+- **(C) Deuda aceptada registrada** en `docs/TECH_DEBT.md` (Backend): **BE-28** (FxDto.rate entero, pre-WS-A),
+  **BE-29** (resolveCardId `(set,number)` ambiguo), **BE-30** (seed sin fila `price_provider` explícita),
+  **BE-31** (single-flight del parent solo explícito en la rama secuencial; comentario simétrico añadido),
+  **BE-32** (loop de páginas si el proveedor ignora `page` + batch de `resolveCardId`), **BE-33** (moneda/unidad,
+  ahora **mitigada** por B — disparador: fijar `MARKET_FORMAT` antes de flipar).
+
+**Gates tras el pase:** `npx tsc --noEmit` exit 0; `npx jest` **68 suites / 469 tests** verdes.

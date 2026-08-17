@@ -76,30 +76,24 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     await this.queue.add('dispute-deadline', {}, this.repeat('dispute-deadline', '45 7 * * *'));
     await this.queue.add('buylist-sweep', {}, this.repeat('buylist-sweep', '0 8 * * *'));
     await this.queue.add('auth-token-sweep', {}, this.repeat('auth-token-sweep', '15 8 * * *'));
-    // v1.12-catalog-pricing (§4.13c): re-sync completo del catálogo (precios + sets nuevos) 2×/día.
-    // Horarios humano-confirmados: 06:00 y 18:00 CDMX = 00:00 y 12:00 UTC (CDMX = UTC−6, sin DST).
-    // Configurables por env (devops ajusta sin redeploy); crons en UTC.
-    const catalogCron1 = this.config.get<string>('CATALOG_PRICE_SYNC_CRON_1') ?? '0 0 * * *';
-    const catalogCron2 = this.config.get<string>('CATALOG_PRICE_SYNC_CRON_2') ?? '0 12 * * *';
-    await this.queue.add(
-      'catalog-price-sync-1',
-      {},
-      this.repeat('catalog-price-sync-1', catalogCron1),
-    );
-    await this.queue.add(
-      'catalog-price-sync-2',
-      {},
-      this.repeat('catalog-price-sync-2', catalogCron2),
-    );
-
-    // v1.14-price-ingest (WS-A, §4.15c/§4.15g): entrega la cola al ingest para el fan-out por set,
-    // y programa `price-ingest` SOLO si devops fija los crons (opt-in, rollout money-safe: por
-    // defecto no se auto-programa; el disparo manual `POST /admin/jobs/price-ingest` sigue activo).
+    // v1.14-price-ingest (WS-A, §4.15c/§4.15g): entrega la cola al ingest para el fan-out por set.
     this.priceIngest.setQueue(this.queue);
-    const ingestCron1 = this.config.get<string>('PRICE_INGEST_CRON_1');
-    const ingestCron2 = this.config.get<string>('PRICE_INGEST_CRON_2');
-    if (ingestCron1) await this.queue.add('price-ingest-1', {}, this.repeat('price-ingest-1', ingestCron1));
-    if (ingestCron2) await this.queue.add('price-ingest-2', {}, this.repeat('price-ingest-2', ingestCron2));
+
+    // WS-A — PRICING del catálogo = `price-ingest` POR DEFECTO 2×/día (reemplaza al barrido pesado
+    // `catalog-price-sync force:true`, que tras el aligeramiento ya NO escribe precios). Usa el dial
+    // SEMBRADO `price_provider=pokemontcg_io` (legacy, misma fuente USD de siempre → money-safe; NO
+    // activa el proveedor de paga). Mismos horarios que el barrido que reemplaza: 06:00 y 18:00 CDMX
+    // = 00:00 y 12:00 UTC. Configurables por env (devops ajusta sin redeploy).
+    const ingestCron1 = this.config.get<string>('PRICE_INGEST_CRON_1') ?? '0 0 * * *';
+    const ingestCron2 = this.config.get<string>('PRICE_INGEST_CRON_2') ?? '0 12 * * *';
+    await this.queue.add('price-ingest-1', {}, this.repeat('price-ingest-1', ingestCron1));
+    await this.queue.add('price-ingest-2', {}, this.repeat('price-ingest-2', ingestCron2));
+
+    // WS-A — METADATA del catálogo = import de sets/cartas/imágenes NUEVAS con `force:false` (barato:
+    // salta sets ya poblados), cadencia LIGERA (diaria), NO el barrido redundante 2×/día `force:true`.
+    // El disparo manual `POST /admin/jobs/catalog-price-sync` (force:true, ops) se conserva intacto.
+    const metadataCron = this.config.get<string>('CATALOG_METADATA_SYNC_CRON') ?? '0 1 * * *';
+    await this.queue.add('catalog-metadata-sync', {}, this.repeat('catalog-metadata-sync', metadataCron));
 
     this.worker = new Worker(
       QUEUE_NAME,
@@ -123,9 +117,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
             return this.disputeDeadline.run();
           case 'auth-token-sweep':
             return this.authTokenSweep.run();
-          case 'catalog-price-sync-1':
-          case 'catalog-price-sync-2':
-            return this.catalogPriceSync.run();
+          // WS-A: metadata del catálogo (sets nuevos, force:false) — cadencia ligera diaria.
+          case 'catalog-metadata-sync':
+            return this.catalogPriceSync.runMetadataImport();
           // v1.14-price-ingest (WS-A): parent (fan-out por set) y child (ingesta de UN set).
           case 'price-ingest':
           case 'price-ingest-1':
@@ -148,7 +142,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       'Scheduler activo (BullMQ): fx-refresh, price-sync, set-price-sync, portfolio-snapshot, ' +
         'set-value-snapshot, ine-retention, buylist-sweep, dispute-deadline, auth-token-sweep diarios ' +
-        '+ catalog-price-sync 2×/día (00:00 y 12:00 UTC).',
+        '+ price-ingest 2×/día (00:00 y 12:00 UTC, dial pokemontcg_io) ' +
+        '+ catalog-metadata-sync diario (import de sets nuevos, force:false).',
     );
   }
 

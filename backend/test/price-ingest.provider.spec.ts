@@ -88,8 +88,17 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
     global.fetch = originalFetch;
   });
 
-  function cfg(key?: string): ConfigService {
-    return { get: (k: string) => (k === 'POKEMONPRICETRACKER_API_KEY' ? key : undefined) } as unknown as ConfigService;
+  // FAIL-CLOSED: la moneda/unidad la fija el operador con POKEMONPRICETRACKER_MARKET_FORMAT (sin
+  // default). PO confirmó `usd_dollars` (= ×100 + FX + colchón, como el legacy USD).
+  function cfg(key?: string, marketFormat?: string): ConfigService {
+    return {
+      get: (k: string) =>
+        k === 'POKEMONPRICETRACKER_API_KEY'
+          ? key
+          : k === 'POKEMONPRICETRACKER_MARKET_FORMAT'
+            ? marketFormat
+            : undefined,
+    } as unknown as ConfigService;
   }
   function mockFetchOnce(body: unknown) {
     global.fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => body })) as unknown as typeof fetch;
@@ -98,21 +107,36 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
   it('sin API key → { rows: [] } y NO llama a fetch (money-safe: precios STALE, no se borran)', async () => {
     const fetchSpy = jest.fn();
     global.fetch = fetchSpy as unknown as typeof fetch;
-    const provider = new PokemonPriceTrackerBulkProvider(cfg(undefined));
+    const provider = new PokemonPriceTrackerBulkProvider(cfg(undefined, 'usd_dollars'));
     const res = await provider.fetchPricesForSet({ set: SET });
     expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0 });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('shape (A) prices map: variante→finish, market×100, omite market<=0 y variante desconocida', async () => {
-    // Una sola página (< limit ⇒ corta). Entrada con acabados válidos y mal formados.
+  it('FAIL-CLOSED: con key pero SIN MARKET_FORMAT → sample-only (fetch sí, persiste NADA)', async () => {
+    const fetchSpy = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ id: 'sv8-1', number: '1', prices: { normal: { market: 1.5 } } }] }),
+    }));
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key')); // sin formato
+    const res = await provider.fetchPricesForSet({ set: SET });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // sí hace el fetch (para loguear la muestra)
+    expect(res.rows).toHaveLength(0); // pero NO persiste ninguna fila (candado money-safe)
+    expect(res.fetchedRaw).toBe(1);
+    expect(res.skipped).toBe(1);
+  });
+
+  it('usd_dollars (confirmado PO): variante→finish, market×100 (=legacy USD), omite mal formado', async () => {
     mockFetchOnce({
       data: [
         {
           id: 'sv8-1',
           number: '1',
           prices: {
-            normal: { market: 1.5 }, // → normal 150¢
+            normal: { market: 1.5 }, // → normal 150¢ (×100)
             reverseHolofoil: { market: 2 }, // → reverse_holo 200¢
             holofoil: { market: 0 }, // market 0 → OMITE
             weirdFoil: { market: 5 }, // variante desconocida → OMITE (no se atribuye a normal)
@@ -120,7 +144,7 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
         },
       ],
     });
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key'));
+    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars'));
     const res = await provider.fetchPricesForSet({ set: SET });
 
     expect(res.rows).toEqual(
@@ -135,16 +159,28 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
     const normals = res.rows.filter((r) => r.finish === 'normal');
     expect(normals).toHaveLength(1);
     expect(normals[0].marketCents).toBe(150);
+    // Moneda USD → el ingest aplicará FX+colchón aguas abajo (idéntico al legacy).
+    expect(res.rows.every((r) => r.currency === 'USD')).toBe(true);
   });
 
-  it('shape (B) plano: variant + market escalar; respeta currency MXN (sin ×FX aguas abajo)', async () => {
+  it('usd_cents: el payload YA da centavos → SIN ×100 (moneda USD)', async () => {
+    mockFetchOnce({ data: [{ id: 'sv8-2', number: '2', prices: { normal: { market: 1500 } } }] });
+    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_cents'));
+    const res = await provider.fetchPricesForSet({ set: SET });
+    expect(res.rows).toEqual([
+      { externalId: 'sv8-2', setExternalId: 'sv8', number: '2', finish: 'normal', marketCents: 1500, currency: 'USD' },
+    ]);
+  });
+
+  it('mxn_dollars: ×100 pero moneda MXN → el ingest NO convierte (sin FX)', async () => {
+    // La moneda viene del FORMATO (no del payload): aquí el campo currency del payload se ignora.
     mockFetchOnce({
       cards: [
-        { cardId: 'sv8-3', number: '3', variant: 'Reverse Holo', market: 12.34, currency: 'MXN' },
+        { cardId: 'sv8-3', number: '3', variant: 'Reverse Holo', market: 12.34, currency: 'USD' },
         { cardId: 'sv8-4', number: '4', finish: 'unknown-thing', market: 99 }, // desconocida → OMITE
       ],
     });
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key'));
+    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'mxn_dollars'));
     const res = await provider.fetchPricesForSet({ set: SET });
 
     expect(res.rows).toEqual([
@@ -155,7 +191,7 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
 
   it('entrada sin variante ni market válido → OMITE (no crea fila basura)', async () => {
     mockFetchOnce({ data: [{ id: 'sv8-9', number: '9' }] });
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key'));
+    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars'));
     const res = await provider.fetchPricesForSet({ set: SET });
     expect(res.rows).toHaveLength(0);
     expect(res.skipped).toBe(1);
@@ -163,7 +199,7 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
 
   it('fallo HTTP → devuelve lo acumulado sin reventar (precios previos quedan STALE)', async () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })) as unknown as typeof fetch;
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key'));
+    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars'));
     const res = await provider.fetchPricesForSet({ set: SET });
     expect(res.rows).toHaveLength(0);
   });

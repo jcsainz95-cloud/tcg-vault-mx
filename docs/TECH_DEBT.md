@@ -526,6 +526,78 @@
 - **Disparador:** al abordar B-3. Mitigación: **cota superior en `fixed`** dentro de la decisión BigInt de
   B-3 (acotar también el `pct×market`).
 
+### WS-A (v1.14-price-ingest) — deuda aceptada del triple veredicto (2026-08-17, no bloqueante)
+
+### BE-28 · `FxDto.rate` `@IsInt @Min(1)` — override manual de FX solo admite pesos enteros (MENOR-1)
+- **Dónde:** `src/modules/pricing/pricing.controller.ts` (`FxDto.rate` `@IsInt`), pre-existente (commit `eb29654`,
+  NO introducido por WS-A).
+- **Estado actual:** el override manual de la tasa USD→MXN se valida como **entero** (18, 19…), no decimal.
+  Un tipo real como 18.75 se rechaza; el admin fijaría 18 o 19 → **~2.7% de error** en el precio de referencia
+  cuando se usa el override manual. El colchón (`fx_buffer_pct`) sí es decimal. La ruta automática (Banxico) sí
+  guarda el rate decimal real; esto solo afecta al **override manual** explícito.
+- **Impacto:** bajo. Solo cuando el admin fija tasa manual (respaldo); el flujo normal (Banxico) no se afecta.
+- **Disparador:** al pulir la UX de FX de M2. Mitigación: `@IsNumber()` + `@Min(0.000001)` en `rate` (permitir
+  decimales) — **cambio menor de validación, sin efecto en el resto**. Fuera de alcance de WS-A (no lo tocó).
+
+### BE-29 · `resolveCardId` fallback `(set, number)` puede mal-resolver si dos cartas comparten `number` (MENOR-3)
+- **Dónde:** `src/modules/pricing/price-ingest.service.ts` → `resolveCardId` (`card.findFirst({ setId, number })`).
+- **Estado actual:** la resolución **primaria** es `Card.externalId` (`@unique`, exacta). El **fallback** por
+  `(setId, number)` usa `findFirst`; si un set tuviera **dos cartas con el mismo `number`** (p. ej. variantes/
+  promos con numeración repetida), podría resolver a la "otra" y escribir el `PriceReference` en la carta
+  equivocada. No hay índice/constraint `(setId, number)` único. En la práctica el proveedor de paga trae
+  `externalId`, así que el fallback rara vez actúa.
+- **Impacto:** bajo. Ruta de dinero (precio de referencia) pero acotado al caso raro de `number` duplicado en un
+  set Y sin `externalId` en la fila del proveedor. SEC-A1 intacto (no viene del cliente).
+- **Disparador:** si el proveedor de paga entregara filas SIN `externalId`. Mitigación: preferir siempre
+  `externalId`; si se necesita robustez del fallback, desambiguar (p. ej. por `finish`/`rarity`) o rechazar el
+  `number` ambiguo en vez de adivinar.
+
+### BE-30 · El seed depende del default de código para `price_provider` (auditoría) (MENOR-4)
+- **Dónde:** `prisma/seed.ts` (siembra `SETTING_DEFAULTS`) + `SettingsService.get` (cae al default de código si
+  no hay fila).
+- **Estado actual:** `PRICE_PROVIDER` **sí** está en `SETTING_DEFAULTS` (`pokemontcg_io`) → un **seed fresco**
+  escribe la fila. Pero una BD **pre-existente** que no re-corra el seed **no** tendrá la fila `price_provider`
+  hasta el primer `PUT /admin/settings`; mientras tanto `providerFor()` resuelve por el **default de código**
+  (`pokemontcg_io`) — funciona y es money-safe, pero **no deja rastro en `ConfigSetting`** para auditoría.
+- **Impacto:** muy bajo. Solo cosmético/auditoría; el comportamiento efectivo es correcto (legacy).
+- **Disparador:** opcional. Mitigación: sembrar/backfillear explícitamente la fila `price_provider` en la BD de
+  staging/prod (o un `PUT /admin/settings { priceProvider: "pokemontcg_io" }` una vez) para que el dial sea visible.
+
+### BE-31 · Single-flight del parent solo explícito en la rama secuencial (techlead-3)
+- **Dónde:** `src/jobs/price-ingest.service.ts` → `run()` (flag `running` para la rama SIN Redis) vs
+  `enqueueAllSets()` (rama CON cola).
+- **Estado actual:** la rama **secuencial** (sin Redis) tiene single-flight explícito (`running`). La rama **con
+  cola** se apoya en el **jobId determinista por día por set** (`price-ingest-set-<setId>-<día>`): BullMQ
+  deduplica y el upsert es idempotente → no hay doble escritura, pero NO hay un guard "ya hay una corrida
+  activa" simétrico. Se añadió un **comentario** explicando el mecanismo; el guard explícito queda pendiente.
+- **Impacto:** ninguno de dinero (dedup + upsert idempotente lo cubren). A lo sumo, dos disparos casi simultáneos
+  re-encolan los mismos jobIds (no-op para los pendientes).
+- **Disparador:** si se quisiera un `enqueued:false` fiable en la rama con cola. Mitigación: guard simétrico
+  (p. ej. contar jobs activos/deduplicados del día antes de re-encolar).
+
+### BE-32 · Si el bulk del proveedor ignora `page` → hasta `maxPages` requests idénticas + N queries/set (techlead-4)
+- **Dónde:** `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts` (loop de páginas) y
+  `price-ingest.service.ts` → `resolveCardId` (una query por fila).
+- **Estado actual:** (a) si el endpoint del proveedor **ignora** `page` y devuelve siempre la misma página llena,
+  el loop iteraría hasta `maxPages` (40) requests **idénticas** (gasta cuota; **sin** error de dinero — el upsert
+  idempotente y el jobId por día lo neutralizan). (b) `resolveCardId` hace **N queries** por set (una por fila);
+  se podría **batchear** (un `findMany` por `externalId[]`/`number[]` y resolver en memoria).
+- **Impacto:** bajo. Coste de cuota/latencia, no de dinero. Solo relevante al flipar al proveedor de paga.
+- **Disparador:** verificar la paginación real en la 1ª corrida (§36.2). Mitigación: cortar el loop si una página
+  repite el contenido de la anterior; batchear `resolveCardId` con un `findMany` por set.
+
+### BE-33 · Moneda/unidad del proveedor de paga — MITIGADA por fail-closed `MARKET_FORMAT` (seguridad Media)
+- **Dónde:** `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts` (`POKEMONPRICETRACKER_MARKET_FORMAT`).
+- **Estado actual:** el riesgo original (asumir USD-dólares y persistir precios inflados ~18×/100× si el payload
+  fuera MXN o centavos) queda **mitigado por construcción**: el proveedor de paga **NO persiste** bajo una
+  moneda/unidad asumida — el operador debe fijar `POKEMONPRICETRACKER_MARKET_FORMAT` (sin default); sin él corre
+  en **sample-only** (loguea la muestra, persiste nada). **PO confirmó `usd_dollars`** (2026-08-17). El dial
+  `price_provider` sigue sembrado en `pokemontcg_io` (legacy) hasta el flip consciente.
+- **Impacto:** residual muy bajo (el candado exige acción explícita). Queda como recordatorio operativo.
+- **Disparador (aceptado):** **abordar/confirmar ANTES de flipar a `pokemonpricetracker`** — fijar
+  `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars` tras inspeccionar el log de la 1ª corrida (runbook en
+  `BACKEND_NOTES §36`). Sin esa env, el flip del dial NO escribe precios (seguro).
+
 ---
 
 ## Frontend (dueño: frontend)

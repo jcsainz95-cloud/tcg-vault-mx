@@ -81,7 +81,16 @@ export class PriceIngestJobService {
     return { job: JOB, enqueued: true };
   }
 
-  /** Fan-out: encola un `price-ingest-set` por set con jobId determinista por día (single-flight). */
+  /**
+   * Fan-out: encola un `price-ingest-set` por set con jobId determinista por día (single-flight).
+   *
+   * NOTA single-flight (simétrica a la rama secuencial `run()`+`running`, ver BE-31): en la rama CON
+   * cola el single-flight lo da el **jobId determinista** `price-ingest-set-<setId>-<día>` — BullMQ
+   * DEDUPLICA (no encola dos veces el mismo jobId vigente) y el upsert de `PriceReference` es
+   * idempotente, así que dos disparos del día no duplican trabajo ni escriben dos veces. No hay un
+   * guard "ya hay corrida activa" explícito aquí (queda como deuda BE-31): es innecesario para la
+   * money-safety (dedup + idempotencia lo cubren), solo afecta el valor informativo de `enqueued`.
+   */
   async enqueueAllSets(fx: FxSnapshot): Promise<string> {
     if (!this.queue) throw new Error('price-ingest: no hay cola BullMQ (REDIS_URL ausente).');
     const ids = await this.ingest.listLocalSetIds();

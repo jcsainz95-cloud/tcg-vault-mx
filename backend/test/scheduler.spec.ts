@@ -49,6 +49,7 @@ const setSnap = {
 } as unknown as SetValueSnapshotJobService;
 const catalogPrice = {
   run: jest.fn().mockResolvedValue({ jobId: 'catalog-sync-all-1', setsQueued: 0, remaining: 0 }),
+  runMetadataImport: jest.fn().mockResolvedValue({ jobId: 'catalog-sync-all-2', setsQueued: 0, remaining: 0 }),
 } as unknown as CatalogPriceSyncJobService;
 const priceIngest = {
   setQueue: jest.fn(),
@@ -89,13 +90,13 @@ describe('SchedulerService — gating por REDIS_URL', () => {
   });
 });
 
-describe('SchedulerService — con REDIS_URL programa los jobs diarios + catalog-price-sync 2×/día', () => {
+describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest 2×/día + metadata', () => {
   beforeEach(() => {
     addMock.mockClear();
     workerProcessor = undefined;
   });
 
-  it('programa fx/price/snapshot + los 4 barridos con su cron, y los enruta en el worker', async () => {
+  it('programa fx/price/snapshot + barridos + price-ingest (default) + metadata, y los enruta', async () => {
     const config = new ConfigService({ REDIS_URL: 'redis://localhost:6379' });
     const svc = build(config);
     await svc.onModuleInit();
@@ -113,10 +114,15 @@ describe('SchedulerService — con REDIS_URL programa los jobs diarios + catalog
       'dispute-deadline': '45 7 * * *',
       'buylist-sweep': '0 8 * * *',
       'auth-token-sweep': '15 8 * * *',
-      // v1.12-catalog-pricing: re-sync completo 2×/día (00:00 y 12:00 UTC = 06:00/18:00 CDMX).
-      'catalog-price-sync-1': '0 0 * * *',
-      'catalog-price-sync-2': '0 12 * * *',
+      // WS-A: price-ingest 2×/día POR DEFECTO (reemplaza el barrido pesado catalog-price-sync).
+      'price-ingest-1': '0 0 * * *',
+      'price-ingest-2': '0 12 * * *',
+      // WS-A: metadata (sets nuevos, force:false) — cadencia ligera diaria (01:00 UTC).
+      'catalog-metadata-sync': '0 1 * * *',
     });
+    // El barrido pesado catalog-price-sync YA NO se auto-programa (su rol de pricing lo tomó price-ingest).
+    expect(byName['catalog-price-sync-1']).toBeUndefined();
+    expect(byName['catalog-price-sync-2']).toBeUndefined();
 
     // El worker enruta cada barrido a su servicio (single-flight vía jobId + removeOnComplete).
     expect(workerProcessor).toBeDefined();
@@ -126,38 +132,35 @@ describe('SchedulerService — con REDIS_URL programa los jobs diarios + catalog
     await workerProcessor!({ name: 'auth-token-sweep' });
     await workerProcessor!({ name: 'set-price-sync' });
     await workerProcessor!({ name: 'set-value-snapshot' });
-    await workerProcessor!({ name: 'catalog-price-sync-1' });
-    await workerProcessor!({ name: 'catalog-price-sync-2' });
+    // WS-A: metadata cron → import de sets nuevos (force:false), NO el barrido pesado.
+    await workerProcessor!({ name: 'catalog-metadata-sync' });
     expect(ine.run).toHaveBeenCalled();
     expect(sweep.run).toHaveBeenCalled();
     expect(dispute.run).toHaveBeenCalled();
     expect(tokens.run).toHaveBeenCalled();
     expect(setPrice.run).toHaveBeenCalled();
     expect(setSnap.run).toHaveBeenCalled();
-    // Ambos repeatables (AM/PM) enrutan al mismo job de re-sync completo.
-    expect(catalogPrice.run).toHaveBeenCalledTimes(2);
+    expect(catalogPrice.runMetadataImport).toHaveBeenCalledTimes(1);
+    // El barrido pesado force:true (run) NO lo dispara el scheduler (solo el disparo manual de ops).
+    expect(catalogPrice.run).not.toHaveBeenCalled();
 
     // WS-A (v1.14-price-ingest): la cola se ENTREGA al ingest para el fan-out por set, y el worker
     // enruta el parent (`price-ingest` → run) y el child (`price-ingest-set` → runChild).
     expect(priceIngest.setQueue).toHaveBeenCalled();
-    await workerProcessor!({ name: 'price-ingest' });
+    await workerProcessor!({ name: 'price-ingest-1' });
     await workerProcessor!({ name: 'price-ingest-set', data: { setId: 's1', fx: { rate: 18, bufferPct: 0 } } } as any);
     expect(priceIngest.run).toHaveBeenCalled();
     expect(priceIngest.runChild).toHaveBeenCalledWith({ setId: 's1', fx: { rate: 18, bufferPct: 0 } });
 
-    // Por defecto (sin PRICE_INGEST_CRON_*) el ingest NO se auto-programa (rollout money-safe).
-    const scheduledNames = addMock.mock.calls.map((c) => c[0]);
-    expect(scheduledNames).not.toContain('price-ingest-1');
-    expect(scheduledNames).not.toContain('price-ingest-2');
-
     await svc.onModuleDestroy();
   });
 
-  it('programa price-ingest 2×/día SOLO si devops fija PRICE_INGEST_CRON_1/_2 (opt-in)', async () => {
+  it('los crons de price-ingest/metadata son overridables por env (devops)', async () => {
     const config = new ConfigService({
       REDIS_URL: 'redis://localhost:6379',
       PRICE_INGEST_CRON_1: '0 3 * * *',
       PRICE_INGEST_CRON_2: '0 15 * * *',
+      CATALOG_METADATA_SYNC_CRON: '0 2 * * 0',
     });
     const svc = build(config);
     await svc.onModuleInit();
@@ -165,6 +168,7 @@ describe('SchedulerService — con REDIS_URL programa los jobs diarios + catalog
     const byName = Object.fromEntries(addMock.mock.calls.map((c) => [c[0], c[2]?.repeat?.pattern]));
     expect(byName['price-ingest-1']).toBe('0 3 * * *');
     expect(byName['price-ingest-2']).toBe('0 15 * * *');
+    expect(byName['catalog-metadata-sync']).toBe('0 2 * * 0');
 
     await svc.onModuleDestroy();
   });

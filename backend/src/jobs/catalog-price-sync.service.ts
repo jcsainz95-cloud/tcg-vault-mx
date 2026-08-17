@@ -34,4 +34,18 @@ export class CatalogPriceSyncJobService {
     );
     return res;
   }
+
+  /**
+   * WS-A (v1.14-price-ingest, §4.15g) — import de METADATA de sets NUEVOS con `force:false`
+   * (barato: salta los sets ya poblados; NO re-descarga todo el catálogo). Es la cadencia LIGERA
+   * que el scheduler corre a diario en lugar del barrido pesado `force:true` (cuyo rol de pricing lo
+   * asumió `price-ingest`). El disparo manual `run()` (force:true) se conserva para ops.
+   */
+  async runMetadataImport(): Promise<{ jobId: string; setsQueued: number; remaining: number }> {
+    const res = await this.catalogSync.syncAll({ force: false });
+    this.logger.log(
+      `catalog-metadata-sync: import de sets nuevos (jobId=${res.jobId}, setsQueued=${res.setsQueued}).`,
+    );
+    return res;
+  }
 }

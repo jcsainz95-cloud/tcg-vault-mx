@@ -9,6 +9,28 @@ import {
 } from '../pricing.types';
 
 /**
+ * Formato de precio del proveedor de paga = **moneda + unidad**, FIJADO EXPLÍCITAMENTE por el
+ * operador (env `POKEMONPRICETRACKER_MARKET_FORMAT`). NO hay default: el candado fail-closed exige
+ * una acción consciente antes de persistir dinero (WS-A seguridad Media + qa IMPORTANTE).
+ *
+ * PO CONFIRMÓ (2026-08-17): PokemonPriceTracker devuelve `market` en **USD dólares** (unidades) →
+ * el operador debe fijar `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars` tras ver el log de la 1ª
+ * corrida. Aun así NO lo sembramos como default en código: el flip requiere fijar la env a mano.
+ */
+type MarketFormat = { currency: 'USD' | 'MXN'; unit: 'dollars' | 'cents' };
+const MARKET_FORMATS: Record<string, MarketFormat> = {
+  usd_dollars: { currency: 'USD', unit: 'dollars' }, // ← confirmado PO (×100 + FX + colchón, = legacy)
+  usd_cents: { currency: 'USD', unit: 'cents' }, //     (sin ×100; + FX + colchón)
+  mxn_dollars: { currency: 'MXN', unit: 'dollars' }, //  (×100; SIN conversión FX)
+  mxn_cents: { currency: 'MXN', unit: 'cents' }, //      (sin ×100; SIN conversión FX)
+};
+
+function parseMarketFormat(raw: unknown): MarketFormat | null {
+  if (typeof raw !== 'string') return null;
+  return MARKET_FORMATS[raw.trim().toLowerCase()] ?? null;
+}
+
+/**
  * PokemonPriceTrackerBulkProvider — implementación PRIMARIA del `BulkPriceProvider`
  * (WS-A, ARCHITECTURE §4.15b). Consume el endpoint BULK del proveedor de PAGA:
  *
@@ -22,18 +44,17 @@ import {
  *  - La API key se lee SOLO de `process.env.POKEMONPRICETRACKER_API_KEY` (vía ConfigService).
  *    NUNCA se hardcodea, se loguea ni se commitea (repo público).
  *
- * MONEY-SAFE (ARCHITECTURE §4.15d): el adapter mapea el payload CRUDO → `BulkPriceRow[]`
- * DEFENSIVAMENTE y OMITE lo mal formado (nunca NaN/negativo/cero/variante desconocida):
- *  - `market` numérico **> 0** (descarta 0/negativo/NaN/ausente).
- *  - variante → `Finish` por `normalizeFinishAlias` (tabla conservadora); variante DESCONOCIDA →
- *    se OMITE (jamás se atribuye un precio holo a `normal`).
- *  - Sin key / key inválida → devuelve `{ rows: [], ... }` + log (el ingest NO escribe ese set:
- *    los precios quedan STALE, que es seguro, en vez de borrarse).
+ * FAIL-CLOSED de moneda/unidad (WS-A, seguridad Media + qa): el proveedor de paga **NO persiste
+ * precios bajo una moneda/unidad ASUMIDA**. El formato lo fija el operador con
+ * `POKEMONPRICETRACKER_MARKET_FORMAT` (sin default):
+ *  - **Sin formato** → modo **sample-only**: hace el fetch, LOGUEA la muestra cruda (sin key/headers)
+ *    y persiste **NADA** (`rows: []`). Así el flip es seguro aunque el humano olvide el runbook.
+ *  - **Con formato** → mapea EXACTO: `usd`→ el ingest aplica FX+colchón; `mxn`→ sin conversión;
+ *    `*_dollars`→ ×100; `*_cents`→ sin ×100. La moneda de la fila viene del FORMATO (no del payload).
  *
- * ⚠️ ESQUEMA EXACTO A VERIFICAR EN LA 1ª CORRIDA EN RAILWAY (dominio bloqueado en dev por egress).
- * Todos los campos marcados `SUPUESTO` abajo se confirman con el `LOG de ejemplo` de la 1ª respuesta.
- * Por eso el dial `PRICE_PROVIDER` se siembra en `pokemontcg_io` (legacy): el flip a este proveedor
- * lo hace el humano tras verificar el esquema (ARCHITECTURE §4.15h, decisión abierta v1.14-1/4).
+ * MONEY-SAFE (§4.15d): valida `market > 0`, mapea variante→`Finish` (desconocida → OMITE, jamás la
+ * atribuye a `normal`), resuelve la carta aguas abajo (PriceIngestService). Sin key / HTTP fail →
+ * `{ rows: [] }` + log (precios STALE, no se borran).
  */
 @Injectable()
 export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
@@ -59,6 +80,9 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
       return { rows: [], fetchedRaw: 0, skipped: 0 };
     }
 
+    // FAIL-CLOSED: sin formato explícito, el proveedor NO persiste nada (solo muestra el esquema).
+    const format = parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_MARKET_FORMAT'));
+
     const setExternalId = input.set.externalId;
     const rows: BulkPriceRow[] = [];
     let fetchedRaw = 0;
@@ -81,8 +105,20 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
           );
         }
 
+        if (!format) {
+          // Sample-only: se logueó la muestra; NO se persiste ni una fila (fail-closed money-safe).
+          // Una sola página basta para inspeccionar el esquema y NO quema cuota del proveedor.
+          this.logger.warn(
+            'PokemonPriceTracker bulk: POKEMONPRICETRACKER_MARKET_FORMAT no configurado → modo ' +
+              'SAMPLE-ONLY: se logueó la muestra pero NO se persiste ningún precio. Fija el formato ' +
+              '(PO confirmó usd_dollars) tras inspeccionar el log.',
+          );
+          skipped += entries.length;
+          break;
+        }
+
         for (const entry of entries) {
-          const { added, dropped } = this.mapEntry(entry, setExternalId);
+          const { added, dropped } = this.mapEntry(entry, setExternalId, format);
           rows.push(...added);
           skipped += dropped;
         }
@@ -133,7 +169,8 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
   }
 
   /**
-   * Mapea UNA entrada cruda → filas por (carta, acabado). Money-safe: valida y OMITE lo mal formado.
+   * Mapea UNA entrada cruda → filas por (carta, acabado), con la MONEDA y UNIDAD del `format`
+   * confirmado por el operador (no del payload). Money-safe: valida y OMITE lo mal formado.
    * Maneja los dos shapes probables (SUPUESTO, verificar 1ª corrida):
    *  (A) tcgplayer-like: `entry.prices = { <variante>: { market } | <número> }`.
    *  (B) plano: `entry.{variant|finish|printing}` + `entry.{market|marketPrice|price}`.
@@ -141,6 +178,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
   private mapEntry(
     entry: unknown,
     setExternalId: string,
+    format: MarketFormat,
   ): { added: BulkPriceRow[]; dropped: number } {
     const added: BulkPriceRow[] = [];
     let dropped = 0;
@@ -150,20 +188,18 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
     // Identificadores de la carta (SUPUESTO de nombres; se OMITE si no hay ninguno resoluble).
     const externalId = firstString(e, ['id', 'cardId', 'productId', '_id']);
     const number = firstString(e, ['number', 'cardNumber', 'collectorNumber']);
-    // moneda de ORIGEN (SUPUESTO: ausente ⇒ USD, proveedor de mercado US). Se verifica 1ª corrida.
-    const currency = readCurrency(e['currency']);
 
     const pricesObj = e['prices'];
     if (pricesObj && typeof pricesObj === 'object' && !Array.isArray(pricesObj)) {
       // Shape (A): mapa variante → { market } | número.
       for (const [rawVariant, val] of Object.entries(pricesObj as Record<string, unknown>)) {
         const finish = normalizeFinishAlias(rawVariant);
-        const marketCents = readMarketCents(val);
+        const marketCents = toCents(extractMarketNumber(val), format.unit);
         if (finish == null || marketCents == null) {
           dropped += 1;
           continue;
         }
-        added.push({ externalId, setExternalId, number, finish, marketCents, currency });
+        added.push({ externalId, setExternalId, number, finish, marketCents, currency: format.currency });
       }
       return { added, dropped };
     }
@@ -172,14 +208,15 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
     const finish = normalizeFinishAlias(
       firstString(e, ['variant', 'finish', 'printing', 'condition']),
     );
-    const marketCents = readMarketCents(
-      e['market'] ?? e['marketPrice'] ?? e['price'] ?? e['marketCents'],
+    const marketCents = toCents(
+      extractMarketNumber(e['market'] ?? e['marketPrice'] ?? e['price'] ?? e['marketCents']),
+      format.unit,
     );
     if (finish == null || marketCents == null) {
       // Variante desconocida o sin market válido → OMITE (money-safe: no atribuye a `normal`).
       return { added, dropped: 1 };
     }
-    added.push({ externalId, setExternalId, number, finish, marketCents, currency });
+    added.push({ externalId, setExternalId, number, finish, marketCents, currency: format.currency });
     return { added, dropped };
   }
 }
@@ -194,26 +231,24 @@ function firstString(o: Record<string, unknown>, keys: string[]): string | null 
   return null;
 }
 
-/** USD/MXN respetando el payload; ausente/ambiguo ⇒ USD (SUPUESTO, §4.15d). */
-function readCurrency(v: unknown): 'USD' | 'MXN' {
-  if (typeof v === 'string' && v.toUpperCase() === 'MXN') return 'MXN';
-  return 'USD';
+/** Extrae el número de market crudo (de un número o de `{ market }`), sin decidir la unidad. */
+function extractMarketNumber(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (v && typeof v === 'object') {
+    const m = (v as Record<string, unknown>)['market'];
+    if (typeof m === 'number' && Number.isFinite(m)) return m;
+  }
+  return null;
 }
 
 /**
- * Lee el market y lo devuelve en CENTAVOS enteros (>0), o null si es inválido.
- * SUPUESTO CRÍTICO (verificar 1ª corrida): `market` viene en DÓLARES (float, ej. 12.34), como
- * TCGPlayer → se multiplica ×100. Si en realidad viniera en centavos, este ×100 INFLARÍA 100× →
- * por eso el flip del dial al proveedor de paga se GATEA con la verificación de esquema (§4.15h).
+ * Convierte el market crudo a CENTAVOS enteros (>0) según la UNIDAD confirmada por el operador:
+ *  - `dollars` → ×100 (float en unidades monetarias → centavos), como el legacy USD/TCGPlayer.
+ *  - `cents`   → sin ×100 (el payload YA da centavos), solo redondea.
+ * Devuelve null si el market es inválido (ausente/≤0/NaN) → la fila se OMITE (money-safe).
  */
-function readMarketCents(v: unknown): number | null {
-  let dollars: number | null = null;
-  if (typeof v === 'number') dollars = v;
-  else if (v && typeof v === 'object') {
-    const m = (v as Record<string, unknown>)['market'];
-    if (typeof m === 'number') dollars = m;
-  }
-  if (dollars == null || !Number.isFinite(dollars) || dollars <= 0) return null;
-  const cents = Math.round(dollars * 100);
+function toCents(raw: number | null, unit: 'dollars' | 'cents'): number | null {
+  if (raw == null || !Number.isFinite(raw) || raw <= 0) return null;
+  const cents = unit === 'cents' ? Math.round(raw) : Math.round(raw * 100);
   return cents > 0 ? cents : null;
 }
