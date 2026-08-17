@@ -44,7 +44,8 @@
 > - **`GET /vault/holdings` — HoldingDTO gana `shipmentState`, `activeShipmentId`, `withdrawable` (§3):** `shipmentState:
 >   ShipmentActiveStage | null` (etapa del envío activo, derivada del join); `activeShipmentId: string | null`
 >   (deep-link a la vista de rastreo); `withdrawable: boolean` (flag **autoritativo** para deshabilitar RETIRAR = mismo
->   criterio que el backend: `ownershipStatus='settled' && shipmentState=null`). **Regla de inclusión/exclusión:** los
+>   criterio que el backend: `ownershipStatus='settled' && status='in_custody' && shipmentState=null`, refinado en v1.17.1
+> con `status='in_custody'`; ver §3 normativa). **Regla de inclusión/exclusión:** los
 >   holdings **excluyen** `status='withdrawn'` (los `entregado` salen de la bóveda y **no** cuentan en el portafolio);
 >   los items con envío **activo** (`picking/guia/enviado`, y el transitorio `solicitado`) **SÍ se listan y SÍ cuentan**
 >   en el portafolio, marcados y **no** retirables. Ver §3.
