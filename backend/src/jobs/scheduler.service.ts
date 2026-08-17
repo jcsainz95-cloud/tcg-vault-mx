@@ -13,6 +13,7 @@ import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
 import { PriceIngestJobService, PRICE_INGEST_SET_JOB } from './price-ingest.service';
+import { SealedPriceIngestJobService } from './sealed-price-ingest.service';
 import { FxSnapshot } from '../modules/pricing/price-ingest.service';
 import { bullRedisOptions } from './redis-connection.util';
 
@@ -70,6 +71,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly setValueSnapshot: SetValueSnapshotJobService,
     private readonly catalogPriceSync: CatalogPriceSyncJobService,
     private readonly priceIngest: PriceIngestJobService,
+    private readonly sealedPriceIngest: SealedPriceIngestJobService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -133,6 +135,14 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     await this.queue.add('price-ingest-1', {}, this.repeat('price-ingest-1', ingestCron1));
     await this.queue.add('price-ingest-2', {}, this.repeat('price-ingest-2', ingestCron2));
 
+    // v1.19-sealed-tcgcsv (§4.19d) — referencia de mercado del SELLADO: 1×/día tras la
+    // actualización de TCGCSV (~20:00 UTC) y tras fx-refresh (orden SUAVE, §4.15g). Sugerido
+    // 21:30 UTC; configurable por env (horario exacto = devops). El job corre secuencial y
+    // AWAITED dentro del worker (sin fan-out; alcance minúsculo) y es fail-closed por el dial
+    // `sealed_price_source` (seed `off`): hasta el flip en staging es un no-op logueado.
+    const sealedIngestCron = this.config.get<string>('SEALED_PRICE_INGEST_CRON') ?? '30 21 * * *';
+    await this.queue.add('sealed-price-ingest', {}, this.repeat('sealed-price-ingest', sealedIngestCron));
+
     // WS-A — METADATA del catálogo = import de sets/cartas/imágenes NUEVAS con `force:false` (barato:
     // salta sets ya poblados), cadencia LIGERA (diaria), NO el barrido redundante 2×/día `force:true`.
     // El disparo manual `POST /admin/jobs/catalog-price-sync` (force:true, ops) se conserva intacto.
@@ -173,6 +183,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
             return this.priceIngest.runChild(
               job.data as { setId: string; fx: FxSnapshot },
             );
+          // v1.19-sealed-tcgcsv (§4.19d): referencia del SELLADO — secuencial AWAITED,
+          // single-flight, fail-closed por dial `sealed_price_source`.
+          case 'sealed-price-ingest':
+            return this.sealedPriceIngest.run();
           default:
             this.logger.warn(`Job desconocido en la cola: ${job.name}`);
             return null;
@@ -198,6 +212,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       'Scheduler activo (BullMQ): fx-refresh, price-sync, set-price-sync, portfolio-snapshot, ' +
         'set-value-snapshot, ine-retention, buylist-sweep, dispute-deadline, auth-token-sweep diarios ' +
         '+ price-ingest 2×/día (00:00 y 12:00 UTC, dial pokemontcg_io) ' +
+        '+ sealed-price-ingest diario (21:30 UTC, dial sealed_price_source, seed off) ' +
         '+ catalog-metadata-sync diario (import de sets nuevos, force:false).',
     );
 

@@ -3073,3 +3073,100 @@ ningún mecanismo de «si no hay ingesta reciente, ingesta ahora».
    (`env.validation.ts` es zona compartida `src/config/` — backend no la tocó).
 4. **Post-deploy:** correr el runbook 43.5; si el catch-up no aparece en logs, capturar el log de arranque
    completo para backend.
+
+## 44. v1.19-sealed-tcgcsv (2026-08-17) — Referencia de mercado del SELLADO vía TCGCSV (§4.19, M-23)
+
+Implementación del diseño v1.19 (ARCHITECTURE §4.19a–g, API_CONTRACT §0/§M1/§M2/§M10/§M10-ops). El precio
+TCGCSV es SOLO referencia informativa: no publica, no fija `listPriceCents`, no encola `PendingPriceEntry`,
+no toca el costo de aportación ni la superficie pública.
+
+### 44.1 Qué hay (mapa de archivos)
+- **M-23** — `prisma/schema.prisma` + `prisma/migrations/20260817140000_m23_sealed_tcgcsv/`: enum
+  `PriceSource += tcgcsv` (`ALTER TYPE ... ADD VALUE`, aditivo), `InventoryItem.tcgplayerProductId Int?` +
+  `tcgplayerGroupId Int?` (se fijan JUNTOS; solo sealed — regla de aplicación) e índice
+  `@@index([tcgplayerProductId])`. **NO aplicada** (sin DB en este entorno); `prisma validate` y `generate`
+  verdes. Sin backfill: la curación es manual post-deploy.
+- **Tipos** — `modules/pricing/pricing.types.ts`: `SealedBulkPriceProvider` (interfaz NUEVA, keyeada por
+  `tcgplayerProductId`; no se reusa `BulkPriceProvider`), `SealedPriceRow` (con `usedFallbackMid`),
+  `TcgcsvGroupRef`/`TcgcsvProductRef`, `sealedMarketGradeKey(pid)` → `sealed:tcg:<pid>`. `PriceSourceStr`
+  ganó `'tcgcsv'`. `buildGradeKey` NO cambió (`'sealed'` sigue siendo override manual/costo de aportación).
+- **Adapter** — `modules/pricing/providers/tcgcsv-sealed.provider.ts` (`TcgcsvSealedBulkProvider`): host
+  FIJO `https://tcgcsv.com` (anti-SSRF), categoría Pokémon=3 constante de servidor, `groupId` validado
+  entero positivo ANTES de interpolar, sin API key, timeout 15s, `redirect:'error'`. Money-safe:
+  `subTypeName≠'Normal'` u market inválido → OMITE; fallback `marketPrice→midPrice` con flag; el fetch de
+  precios del ingest NUNCA lanza (devuelve lo acumulado + log; precios previos quedan STALE). El explorador
+  (`listGroups`/`listSealedProducts`) SÍ lanza → el controller lo mapea a `502 UPSTREAM_ERROR`. Heurística
+  de sellado: product SIN extendedData `Number`/`Rarity` (limpia la lista; no decide dinero).
+- **Ingest** — `modules/pricing/sealed-price-ingest.service.ts` (`SealedPriceIngestService`): algoritmo
+  normativo §4.19d (DISTINCT groupIds mapeados → precios por grupo → pares distintos
+  `(anchorCardId, productId)` → upsert). Escritura vía **`PricingService.persistSealedMarketReference`**
+  (método HERMANO de `persistMarketReference`, misma doctrina: upsert idempotente por día, respeta
+  `isManualOverride`, no escala pendientes) con clave `(cardId, 'sealed', sealed:tcg:<pid>, 'normal', hoy)`,
+  `source='tcgcsv'`, USD→MXN con FX+colchón y trazabilidad (`priceUsdCents`/`fxRate`/`fxBufferPct`).
+- **Job** — `jobs/sealed-price-ingest.service.ts` (`SealedPriceIngestJobService`): secuencial AWAITED SIN
+  fan-out (alcance minúsculo), single-flight en memoria (worker BullMQ y HTTP admin comparten proceso),
+  FX UNA vez por corrida, fail-closed por dial (`off` → `{enqueued:false, reason:'SEALED_PRICE_SOURCE_OFF'}`
+  ANTES de leer FX/red). Cableado en `scheduler.service.ts`: repeatable `sealed-price-ingest`, cron env
+  **`SEALED_PRICE_INGEST_CRON`** (default `30 21 * * *` = 21:30 UTC, tras el refresh TCGCSV ~20:00 UTC y
+  tras fx-refresh; horario final = devops) + case del worker (logging failed/completed heredado).
+- **M2 (4 endpoints, super_admin)** — `modules/pricing/sealed-pricing.controller.ts` +
+  `sealed-mapping.service.ts`: `GET /admin/pricing/sealed/unmapped` (cola DERIVADA
+  `sealed AND tcgplayerProductId IS NULL`, asc por createdAt), `GET .../tcgcsv/groups` y
+  `GET .../tcgcsv/groups/:groupId/products` (proxy read-only; `:groupId` no entero → 400; remoto caído →
+  502 UPSTREAM_ERROR; `?q=` filtra server-side sobre name/cleanName), `PUT .../items/:itemId/mapping`
+  (null desmapea y limpia groupId; con valor exige groupId; `applyToSiblings` copia SOLO a sealed sin mapeo
+  del mismo `(cardId, sealedSubtype)` — nunca pisa; auditado `pricing.sealed_mapping.update` con
+  before/after). La curación NO valida contra TCGCSV ni depende del dial.
+- **M1 read-only** — `modules/inventory/inventory.service.ts`: listado y detalle de items sealed exponen
+  `tcgplayerProductId`/`tcgplayerGroupId` (columnas fluyen solas) + `sealedMarketRef: PriceInfo|null`
+  (null sin mapeo o sin ingest). En listados por LOTE vía `getReferencesBatch` (una query por página, sin
+  N+1). `PATCH /admin/inventory/items/:id` IGNORA el mapeo (DTO whitelisted; solo el PUT de M2 lo edita).
+- **M10-ops** — `jobs/admin-jobs.controller.ts`: `POST /admin/jobs/sealed-price-ingest` (202, super_admin,
+  auditado `jobs.sealed_price_ingest.run`), body `{ groupId? }` entero ≥1 (2ª excepción de la familia).
+- **Dial (cambio serializado AUTORIZADO en `settings`)** — `modules/settings/settings.constants.ts`:
+  key `sealed_price_source`, seed **`off`** (fail-closed; el seed itera `SETTING_DEFAULTS`, así que se
+  siembra solo), `SEALED_PRICE_SOURCE_VALUES=['tcgcsv','off']`, validador (422 si otro valor), DTO
+  `sealedPriceSource` en §M10. Patrón EXACTO de `price_provider`. Nada más se tocó en ese módulo.
+
+### 44.2 Decisiones de implementación (no obvias del spec)
+- **`sealedMarketRef` pending → `null`:** el contrato §M1 dice "null si no mapeado o aún no hay ingest";
+  no se expone un `PriceInfo{status:'pending'}` (a diferencia de `referenceValue` de holdings).
+- **`UPSTREAM_ERROR` no está en `common/error-codes.ts`** (zona `src/common/` serializada a otro stream en
+  esta ventana): se tipa por cast local en `sealed-pricing.controller.ts`. **Follow-up de 1 línea** cuando
+  common/ esté libre: añadir `UPSTREAM_ERROR: 'UPSTREAM_ERROR'` a `ErrorCode`.
+- **Single-flight en memoria** (no jobId BullMQ): el job corre inline en el worker/HTTP del MISMO proceso
+  (sin fan-out), igual que la rama secuencial de `price-ingest`. Si algún día hay multi-instancia con
+  worker separado, promover a dedup por jobId (sin cambio de contrato).
+- **`applyToSiblings` con desmapeo (null) = no-op sobre terceros** (nunca desmapea en masa).
+- **DTO del PUT mapping usa `@Allow()`** en `tcgplayerProductId` (el ValidationPipe global corre con
+  `whitelist:true` y quitaría el campo); la validación fina (ausente≠null, enteros positivos, 422) vive en
+  `SealedMappingService`/controller.
+
+### 44.3 Fixtures y validación en STAGING (runbook para devops)
+- **Fixtures** en `backend/test/fixtures/tcgcsv/` (`groups.json`, `products-23821.json`,
+  `prices-23821.json`, grupo Surging Sparks): formato **documentado** de TCGCSV (wrapper
+  `{totalItems, success, errors, results[]}`; precios con `productId/lowPrice/midPrice/highPrice/
+  marketPrice/directLowPrice/subTypeName`). El egress a tcgcsv.com está BLOQUEADO en este entorno (se
+  intentó una descarga real: proxy 403), así que son verbatim del formato público documentado, NO payloads
+  descargados — **la validación del esquema real es obligatoria en staging antes del flip del dial**.
+- **Runbook (opera devops, §4.19f):** (1) deploy + `prisma migrate deploy` (M-23); (2) seed/verificar dial
+  `sealedPriceSource=off` (GET /admin/settings); (3) mapear 1-2 items sellados reales vía M2
+  (`tcgcsv/groups` → `.../products` → PUT mapping); (4) 1ª corrida acotada:
+  `POST /api/v1/admin/jobs/sealed-price-ingest {"groupId": <grupo mapeado>}` — con el dial `off` responde
+  `enqueued:false, reason:SEALED_PRICE_SOURCE_OFF`, así que para la corrida de VALIDACIÓN hay que flipear
+  el dial a `tcgcsv` en staging primero (staging no es prod: inocuo); (5) inspeccionar logs
+  (`fetchedRaw/skipped/usedFallbackMid/unmatched`) y `PriceReference` (`source=tcgcsv`,
+  `gradeKey=sealed:tcg:<pid>`, USD y MXN coherentes con FX del día); (6) si el esquema real difiere de las
+  fixtures → hallazgo a backend (ajustar adapter + fixtures); si cuadra → flip del dial en PROD.
+  Rollback = dial `off` (los PriceReference escritos permanecen, inertes). Env nueva opcional para
+  `.env.example` (zona devops): `SEALED_PRICE_INGEST_CRON`.
+
+### 44.4 Tests (todos contra fixtures/mocks; sin red)
+`test/tcgcsv-sealed.provider.spec.ts` (host fijo/anti-SSRF, parsing verbatim, heurística de sellado,
+omisiones money-safe, fallback mid, fallo parcial sin borrar), `test/sealed-price-ingest.spec.ts`
+(gradeKey, persist hermano + override manual, algoritmo por pares, FX una vez, dial off no-op,
+single-flight, scope groupId), `test/pricing.sealed-mapping.spec.ts` (404/422, desmapeo, applyToSiblings,
+roles super_admin, 400 groupId, 502 UPSTREAM_ERROR, auditoría before/after),
+`test/inventory.sealed-market-ref.spec.ts` (M1 batch sin N+1 + dial), y actualizados
+`scheduler.spec.ts`/`admin-jobs.controller.spec.ts`. Gates: `lint` + `typecheck` + `test` (82 suites,
+633 tests) + `prisma validate/generate` — todo verde.

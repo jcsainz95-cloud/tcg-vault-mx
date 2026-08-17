@@ -167,6 +167,9 @@ enum PriceSource {
   pokemonpricetracker
   poketrace
   manual
+  // v1.19-sealed-tcgcsv (M-23): referencia de mercado del SELLADO vía TCGCSV
+  // (espejo diario de precios de TCGplayer). ARCHITECTURE §4.19.
+  tcgcsv
 }
 
 enum KycStatus {
@@ -420,6 +423,12 @@ model InventoryItem {
   // Dos conversiones concurrentes del mismo SellRequestItem colisionan aquí (P2002) y
   // solo una crea InventoryItem; la otra se trata como "ya convertido".
   sourceSellRequestItemId String?          @unique
+  // v1.19-sealed-tcgcsv (M-23): mapeo CURADO del item SELLADO al producto de TCGplayer/TCGCSV
+  // (ARCHITECTURE §4.19c). Se fijan JUNTOS (ambos null = no mapeado; ambos poblados = mapeado);
+  // solo aplican a productType='sealed' — regla de APLICACIÓN, no constraint de BD. El groupId
+  // se persiste porque el endpoint de precios de TCGCSV es POR GRUPO.
+  tcgplayerProductId      Int?
+  tcgplayerGroupId        Int?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
@@ -436,6 +445,9 @@ model InventoryItem {
   // (GROUP BY cardId, finish filtrando status on-hand) y el conteo por set del índice
   // Master Set. Complementa (no reemplaza) los índices existentes. ARCHITECTURE §4.17a.
   @@index([cardId, finish, status])
+  // v1.19-sealed-tcgcsv (M-23): sirve la cola de NO-mapeados (sealed AND productId IS NULL)
+  // y el DISTINCT tcgplayerGroupId del ingest sin barrer la tabla. ARCHITECTURE §11.
+  @@index([tcgplayerProductId])
 }
 
 model InventoryMovement {

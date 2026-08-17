@@ -1,6 +1,7 @@
 import { Card, CardSet, Finish, PriceSource, ProductType } from '@prisma/client';
 
-export type PriceSourceStr = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual';
+// v1.19-sealed-tcgcsv: += 'tcgcsv' (fuente de la referencia de mercado del SELLADO, M-23).
+export type PriceSourceStr = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual' | 'tcgcsv';
 
 /**
  * v1.6-finish — mapeo Finish → llave de `tcgplayer.prices` (inverso de ARCHITECTURE §3.7).
@@ -144,6 +145,77 @@ export function normalizeFinishAlias(raw: unknown): Finish | null {
   if (typeof raw !== 'string') return null;
   const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
   return BULK_VARIANT_TO_FINISH[key] ?? null;
+}
+
+// ============================================================================
+// v1.19-sealed-tcgcsv (ARCHITECTURE §4.19b) — Interfaz de INGESTA del SELLADO.
+// SEPARADA del `BulkPriceProvider` de cartas: el sellado se keyea por
+// `tcgplayerProductId` (M-23) y no tiene Card remota que resolver (forzar la
+// interfaz de cartas obligaría a campos sin sentido: finish, externalId).
+// ============================================================================
+
+/** Grupo TCGCSV (≈ set/expansión) para el explorador de curación M2. */
+export interface TcgcsvGroupRef {
+  groupId: number;
+  name: string;
+  abbreviation?: string;
+  publishedOn?: string;
+}
+
+/** Producto SELLADO de un grupo TCGCSV para el explorador de curación M2. */
+export interface TcgcsvProductRef {
+  productId: number;
+  name: string;
+  cleanName?: string;
+  imageUrl?: string;
+}
+
+/**
+ * Fila NORMALIZADA por producto sellado que devuelve el `SealedBulkPriceProvider`.
+ * El adapter YA validó/omitió (money-safe): `subTypeName !== 'Normal'` u market
+ * inválido (ausente/NaN/<=0, incluso tras el fallback mid) → la fila NO existe.
+ */
+export interface SealedPriceRow {
+  /** productId de TCGplayer/TCGCSV (clave del mapeo M-23). */
+  tcgplayerProductId: number;
+  /** entero de centavos USD, > 0 (validado por el adapter). */
+  marketCents: number;
+  /** Observabilidad: true si el precio salió de midPrice (fallback marketPrice→midPrice, §4.19d). */
+  usedFallbackMid: boolean;
+  /** TCGCSV publica SIEMPRE USD (precios TCGplayer) → el ingest aplica FX+colchón. */
+  currency: 'USD';
+}
+
+export interface SealedBulkPriceResult {
+  /** Filas VÁLIDAS por producto (sub-tipo base 'Normal'). */
+  rows: SealedPriceRow[];
+  /** Entradas crudas recibidas del remoto (observabilidad). */
+  fetchedRaw: number;
+  /** Entradas OMITIDAS por el mapeo defensivo del adapter (money-safe). */
+  skipped: number;
+}
+
+/**
+ * SealedBulkPriceProvider — proveedor de la referencia de mercado del SELLADO
+ * (ARCHITECTURE §4.19b). `listGroups`/`listSealedProducts` sirven al explorador
+ * de curación M2 (proxy read-only); `fetchSealedPricesForGroup` al ingest.
+ */
+export interface SealedBulkPriceProvider {
+  readonly source: PriceSource; // 'tcgcsv' (M-23)
+  listGroups(): Promise<TcgcsvGroupRef[]>;
+  listSealedProducts(groupId: number): Promise<TcgcsvProductRef[]>;
+  fetchSealedPricesForGroup(groupId: number): Promise<SealedBulkPriceResult>;
+}
+
+/**
+ * v1.19-sealed-tcgcsv (§4.19d) — gradeKey del sellado de MERCADO: `sealed:tcg:<productId>`.
+ * Motivo: el legacy `buildGradeKey → 'sealed'` colisionaría en el unique de PriceReference
+ * cuando DOS productos sellados distintos (ETB y booster box del mismo set) están anclados a
+ * la MISMA Card. `buildGradeKey` NO cambia: `'sealed'` sigue siendo el gradeKey del override
+ * MANUAL del admin y del costo de aportación (flujos intactos).
+ */
+export function sealedMarketGradeKey(tcgplayerProductId: number): string {
+  return `sealed:tcg:${tcgplayerProductId}`;
 }
 
 /** Normaliza el gradeKey usado en PriceReference (ARCHITECTURE §3.2). */

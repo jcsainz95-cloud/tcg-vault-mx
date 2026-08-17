@@ -1,0 +1,97 @@
+{
+  "totalItems": 6,
+  "success": true,
+  "errors": [],
+  "results": [
+    {
+      "productId": 610894,
+      "name": "Surging Sparks Booster Box",
+      "cleanName": "Surging Sparks Booster Box",
+      "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/610894_200w.jpg",
+      "categoryId": 3,
+      "groupId": 23821,
+      "url": "https://www.tcgplayer.com/product/610894/pokemon-sv08-surging-sparks-surging-sparks-booster-box",
+      "modifiedOn": "2026-08-16T18:41:52.397",
+      "imageCount": 1,
+      "presaleInfo": { "isPresale": false, "releasedOn": "2024-11-08T00:00:00", "note": null },
+      "extendedData": [
+        { "name": "UPC", "displayName": "UPC", "value": "820650858321" }
+      ]
+    },
+    {
+      "productId": 610903,
+      "name": "Surging Sparks Elite Trainer Box",
+      "cleanName": "Surging Sparks Elite Trainer Box",
+      "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/610903_200w.jpg",
+      "categoryId": 3,
+      "groupId": 23821,
+      "url": "https://www.tcgplayer.com/product/610903/pokemon-sv08-surging-sparks-surging-sparks-elite-trainer-box",
+      "modifiedOn": "2026-08-16T18:41:52.397",
+      "imageCount": 1,
+      "presaleInfo": { "isPresale": false, "releasedOn": "2024-11-08T00:00:00", "note": null },
+      "extendedData": [
+        { "name": "UPC", "displayName": "UPC", "value": "820650858338" }
+      ]
+    },
+    {
+      "productId": 610905,
+      "name": "Surging Sparks Booster Bundle",
+      "cleanName": "Surging Sparks Booster Bundle",
+      "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/610905_200w.jpg",
+      "categoryId": 3,
+      "groupId": 23821,
+      "url": "https://www.tcgplayer.com/product/610905/pokemon-sv08-surging-sparks-surging-sparks-booster-bundle",
+      "modifiedOn": "2026-08-16T18:41:52.397",
+      "imageCount": 1,
+      "presaleInfo": { "isPresale": false, "releasedOn": "2024-11-08T00:00:00", "note": null },
+      "extendedData": null
+    },
+    {
+      "productId": 593245,
+      "name": "Pikachu ex - 057/191",
+      "cleanName": "Pikachu ex 057191",
+      "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/593245_200w.jpg",
+      "categoryId": 3,
+      "groupId": 23821,
+      "url": "https://www.tcgplayer.com/product/593245/pokemon-sv08-surging-sparks-pikachu-ex-057-191",
+      "modifiedOn": "2026-08-16T18:41:52.397",
+      "imageCount": 1,
+      "presaleInfo": { "isPresale": false, "releasedOn": "2024-11-08T00:00:00", "note": null },
+      "extendedData": [
+        { "name": "Rarity", "displayName": "Rarity", "value": "DR" },
+        { "name": "Number", "displayName": "Number", "value": "057/191" },
+        { "name": "Card Type", "displayName": "Card Type", "value": "Pokemon" },
+        { "name": "HP", "displayName": "HP", "value": "200" }
+      ]
+    },
+    {
+      "productId": 593301,
+      "name": "Alolan Exeggutor ex - 167/191",
+      "cleanName": "Alolan Exeggutor ex 167191",
+      "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/593301_200w.jpg",
+      "categoryId": 3,
+      "groupId": 23821,
+      "url": "https://www.tcgplayer.com/product/593301/pokemon-sv08-surging-sparks-alolan-exeggutor-ex-167-191",
+      "modifiedOn": "2026-08-16T18:41:52.397",
+      "imageCount": 1,
+      "presaleInfo": { "isPresale": false, "releasedOn": "2024-11-08T00:00:00", "note": null },
+      "extendedData": [
+        { "name": "Number", "displayName": "Number", "value": "167/191" },
+        { "name": "Card Type", "displayName": "Card Type", "value": "Pokemon" }
+      ]
+    },
+    {
+      "productId": 610910,
+      "name": "Surging Sparks Sleeved Booster Pack",
+      "cleanName": "Surging Sparks Sleeved Booster Pack",
+      "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/610910_200w.jpg",
+      "categoryId": 3,
+      "groupId": 23821,
+      "url": "https://www.tcgplayer.com/product/610910/pokemon-sv08-surging-sparks-surging-sparks-sleeved-booster-pack",
+      "modifiedOn": "2026-08-16T18:41:52.397",
+      "imageCount": 1,
+      "presaleInfo": { "isPresale": false, "releasedOn": "2024-11-08T00:00:00", "note": null },
+      "extendedData": []
+    }
+  ]
+}

@@ -10,6 +10,7 @@ import { SetPriceSyncJobService } from '../src/jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
 import { PriceIngestJobService } from '../src/jobs/price-ingest.service';
+import { SealedPriceIngestJobService } from '../src/jobs/sealed-price-ingest.service';
 
 // BullMQ + ioredis mockeados: capturamos qué jobs se programan sin infra real (Redis).
 const addMock = jest.fn().mockResolvedValue(undefined);
@@ -75,10 +76,15 @@ const priceIngest = {
   runChild: jest.fn().mockResolvedValue(undefined),
   catchUpIfStale: jest.fn().mockResolvedValue({ enqueued: false, reason: 'recent' }),
 } as unknown as PriceIngestJobService;
+// v1.19-sealed-tcgcsv: job de la referencia de mercado del sellado (secuencial, sin fan-out).
+const sealedPriceIngest = {
+  run: jest.fn().mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true }),
+} as unknown as SealedPriceIngestJobService;
 
 function build(config: ConfigService) {
   return new SchedulerService(
     config, jobs, fx, snap, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest,
+    sealedPriceIngest,
   );
 }
 
@@ -137,6 +143,9 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
       // WS-A: price-ingest 2×/día POR DEFECTO (reemplaza el barrido pesado catalog-price-sync).
       'price-ingest-1': '0 0 * * *',
       'price-ingest-2': '0 12 * * *',
+      // v1.19-sealed-tcgcsv: referencia del sellado 1×/día tras la actualización TCGCSV (~20:00
+      // UTC) y tras fx-refresh (orden suave). Fail-closed por dial (seed off).
+      'sealed-price-ingest': '30 21 * * *',
       // WS-A: metadata (sets nuevos, force:false) — cadencia ligera diaria (01:00 UTC).
       'catalog-metadata-sync': '0 1 * * *',
     });
@@ -172,6 +181,10 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
     expect(priceIngest.run).toHaveBeenCalled();
     expect(priceIngest.runChild).toHaveBeenCalledWith({ setId: 's1', fx: { rate: 18, bufferPct: 0 } });
 
+    // v1.19-sealed-tcgcsv: el worker enruta sealed-price-ingest a su servicio (secuencial AWAITED).
+    await workerProcessor!({ name: 'sealed-price-ingest' });
+    expect(sealedPriceIngest.run).toHaveBeenCalledTimes(1);
+
     await svc.onModuleDestroy();
   });
 
@@ -180,6 +193,7 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
       REDIS_URL: 'redis://localhost:6379',
       PRICE_INGEST_CRON_1: '0 3 * * *',
       PRICE_INGEST_CRON_2: '0 15 * * *',
+      SEALED_PRICE_INGEST_CRON: '45 22 * * *',
       CATALOG_METADATA_SYNC_CRON: '0 2 * * 0',
     });
     const svc = build(config);
@@ -189,6 +203,7 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
     const byName = Object.fromEntries(addMock.mock.calls.map((c) => [c[0], c[2]?.repeat?.pattern]));
     expect(byName['price-ingest-1']).toBe('0 3 * * *');
     expect(byName['price-ingest-2']).toBe('0 15 * * *');
+    expect(byName['sealed-price-ingest']).toBe('45 22 * * *');
     expect(byName['catalog-metadata-sync']).toBe('0 2 * * 0');
 
     await svc.onModuleDestroy();
