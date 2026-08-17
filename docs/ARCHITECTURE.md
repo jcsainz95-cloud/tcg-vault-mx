@@ -48,6 +48,23 @@
 >   `clabeOnFile` (§1); DTOs `BuylistQuoteItemDTO` / `BuylistBatchQuoteResultDTO` / `BuylistBatchQuoteResponse`. Sin
 >   migración.
 >
+> **Changelog v1.16.1-master-set-reconcile (2026-08-17) — Reconciliación de docs §4.17 (Master Set) con el
+> comportamiento YA implementado por backend y señalado por qa/seguridad. SOLO documentación; sin cambio de
+> comportamiento, sin migración, sin endpoints nuevos.**
+> - **§4.17b — `bulk-publish`: status de origen publicable + `ITEM_NOT_PUBLISHABLE`.** Se documenta el conjunto
+>   permitido `{in_stock, listed}` (`in_stock`→publica; `listed`→no-op idempotente; **cualquier otro**→`422
+>   ITEM_NOT_PUBLISHABLE`). Cierra un **double-sell** (una pieza `reserved`/vendida/en-custodia/enviada no puede volver
+>   a `listed`) señalado por seguridad.
+> - **§4.17a — `numberSort`: fórmula corregida.** La ilustrativa previa (`regexp_replace(number,'\D','','g')::int`)
+>   ponía `TG12`→12 entre las numéricas, contradiciendo "promos (TG/GG/SV) al final". Se corrige a: numéricos puros por
+>   entero primero, promos alfabéticos al final agrupados por prefijo (el backend ya lo hace así).
+> - **§4.17a / §9 — `isSecretRare`: afinado a heurística de display.** La forma amplia `numberSort > printedTotal`
+>   marcaba TODOS los promos como secret rare (deuda **BE-36**, §9). Se afina: secret rare **real** = numeración
+>   principal (número puramente numérico) con entero > `printedTotal`; promos/subsets alfabéticos NO cuentan.
+>   Decisión de producto (default propuesto, marcado). BE-36 enrutado a backend (no bloqueante, cosmético).
+> - **Contrato:** `API_CONTRACT.md` Changelog v1.16.1 (§0 `422 ITEM_NOT_PUBLISHABLE`; DTO `MasterSetCardCellDTO`/
+>   `BulkPublishLineInput`; §M1 binder + bulk-publish; §5 nota de enhancement opcional de `GET /shipments`).
+>
 > **Changelog v1.16-master-set (2026-08-17) — WS-E: Master Set + inventario a escala (M1, #4/#11/#12).**
 > El inventario admin no escala (alta 1×1, tabla plana, sin agregado). Se añade una **vista Master Set** (binder por
 > set: cada carta × cada acabado, cuadrícula por número, con cantidad on-hand por carta/acabado) + **escritura por
@@ -2148,10 +2165,22 @@ set y acabado, y (b) **dar de alta y publicar por lote**. **Invariante que NO ca
 - **Binder del set** (`GET /admin/inventory/master-sets/:setId`): una `MasterSetCardCellDTO` por `Card` del set.
   Consulta fija: (1) `Card WHERE setId`; (2) **una** agregación `groupBy [cardId, finish]` (o raw) de piezas on-hand
   → `countsByFinish`. Sirve el índice **M-21** `@@index([cardId, finish, status])`.
-- **Orden natural (obligatorio).** `Card.number` es **String**; el orden lexicográfico rompe ("10"<"2"; promos `TG12`).
-  El backend deriva `numberSort` (parte numérica: `NULLIF(regexp_replace(number,'\D','','g'),'')::int`, `NULLS LAST`)
-  y ordena por `(numberSort, number)`. `isSecretRare = numberSort > printedTotal`. El front hace **filtros locales**
-  (rareza/acabado/faltantes/secret) sobre la respuesta completa (no paginada; un set es acotado — virtualización = fase 2).
+- **Orden natural (obligatorio) — v1.16.1 CORREGIDO.** `Card.number` es **String**; el orden lexicográfico rompe
+  ("10"<"2"; promos `TG12`). El requisito es: **numéricos puros por valor entero primero, promos/subsets alfabéticos
+  (TG/GG/SV) al final agrupados por prefijo**. La fórmula ilustrativa previa
+  (`NULLIF(regexp_replace(number,'\D','','g'),'')::int`) era **incorrecta**: convertía `TG12`→`12` e intercalaba el
+  promo entre las numéricas (contradice "promos al final"). El backend implementó el correcto — el entero solo se
+  parsea cuando `number ~ '^[0-9]+$'`:
+  `ORDER BY (number ~ '^[0-9]+$') DESC, CASE WHEN number ~ '^[0-9]+$' THEN number::int END NULLS LAST,
+  regexp_replace(number,'[0-9]','','g'), NULLIF(regexp_replace(number,'\D','','g'),'')::int, number`.
+  `numberSort` (DTO) = el entero para numéricas; sentinela que empuja al final para promos.
+- **`isSecretRare` — heurística SOLO de display (v1.16.1 afinado).** `true` **solo** para cartas de la numeración
+  **principal** (número puramente numérico) cuyo entero **> `printedTotal`** (secret/hyper rare real); promos/subsets
+  con prefijo alfabético (TG/GG/SV) → `false` (subset aparte); `printedTotal` nulo → `false`. **Decisión de producto
+  (default propuesto):** el subset se distingue por prefijo alfabético, no cuenta como secret rare. La forma amplia
+  previa (`numberSort > printedTotal` sin más) marcaba TODOS los promos → **deuda BE-36** (§9). El front hace
+  **filtros locales** (rareza/acabado/faltantes/secret) sobre la respuesta completa (no paginada; un set es acotado —
+  virtualización = fase 2).
 
 **#### 4.17b Escritura por lote.**
 - **Alta por lote** (`POST /admin/inventory/items/batch`): reusa la lógica de `inventory.service.ts:create` por línea,
@@ -2165,6 +2194,11 @@ set y acabado, y (b) **dar de alta y publicar por lote**. **Invariante que NO ca
   **derivado** de las reglas de venta por rareza+acabado (§4.14, `computeSalePriceForItem`, SEC-A1) o **manual**
   (`listPriceCents`). Una pieza cuyo precio no se resuelve (`pct` sin market) → `PRICE_PENDING`, **no** se publica
   (regla "solo se lista lo que tiene precio", §4.9). Errores por-línea; re-publicar = no-op idempotente.
+  - **Status de origen publicable (v1.16.1, guardarraíl anti double-sell).** SOLO `{in_stock, listed}` son publicables:
+    `in_stock` → publica (`→listed`); `listed` → **no-op idempotente**; **cualquier otro** status (`reserved |
+    in_custody | picking | shipped | delivered | lost | damaged | withdrawn`) → **`422 ITEM_NOT_PUBLISHABLE`** por-línea,
+    **no** se publica. Esto cierra el double-sell señalado por seguridad: una pieza **reservada/vendida/en-custodia/
+    enviada** no puede regresar a `listed`. `ITEM_NOT_PUBLISHABLE` es **distinto** de `PRICE_PENDING` (precio no resuelto).
 
 **#### 4.17c Deuda pagada (parte del alcance de WS-E).**
 - **`PricingService.getReferencesBatch(items)`** (cierra **RB-8/BE-4/D3**): resuelve la "referencia vigente = más
@@ -2376,6 +2410,17 @@ Riesgos técnicos:
   BE-25 (memoización global de `SettingsService`, familia BE-4/D3) sigue como deuda menor en `docs/TECH_DEBT.md`.
   **RB-8** (regla de valuación duplicada) se **cierra** al extraer `PricingService.getReferencesBatch` (§4.17c).
   **Acción (backend):** aplicar dentro de la entrega de WS-E; anotar el remanente en `docs/TECH_DEBT.md`.
+
+- **BE-36 (backend, v1.16.1) — `isSecretRare` del binder marca TODOS los promos como secret rare.** La forma amplia
+  `isSecretRare = numberSort > printedTotal` (§4.17a original) marca como secret rare **cualquier** carta empujada al
+  final del orden, incluidos los promos/subsets con prefijo alfabético (TG/GG/SV), que **no** son secret rares sino un
+  subset aparte. El contrato (v1.16.1) **afina** la definición como **heurística de display**: `true` **solo** para
+  numeración principal (número puramente numérico) con entero `> printedTotal`; promos/subsets alfabéticos → `false`;
+  `printedTotal` nulo → `false`. **Es solo un flag de presentación** (no afecta dinero, custodia ni completitud —
+  `completionPct` usa `catalogCardCount`, WS-E-1). **Acción (backend):** alinear el cómputo de `isSecretRare` a la
+  definición afinada (gate `number ~ '^[0-9]+$'` + `printedTotal` no nulo); registrar en `docs/TECH_DEBT.md` si se
+  difiere (no bloqueante — es cosmético). Decisión de producto (default propuesto): subset por prefijo alfabético no
+  cuenta como secret rare.
 
 Fuera de estos puntos, el código revisado (M2, M6, M7, M9, M10, buylist, catalog, pricing) **concuerda** con
 este documento y con `API_CONTRACT.md`.

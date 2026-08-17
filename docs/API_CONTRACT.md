@@ -2,7 +2,34 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.16-master-set).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-17 (rev v1.16.1-master-set-reconcile).
+>
+> **Changelog v1.16.1-master-set-reconcile (2026-08-17) — Reconciliación de contrato §M1 (Master Set) con el
+> comportamiento YA implementado por backend y señalado por qa/seguridad. SOLO documentación: el backend está bien;
+> se alinea el TEXTO del contrato. Sin cambio de comportamiento, sin migración, sin nuevos endpoints.** Ver
+> ARCHITECTURE §4.17 (actualizado) y §9 (Desviaciones).
+> - **`POST /admin/inventory/items/bulk-publish` — status de ORIGEN permitido + error `ITEM_NOT_PUBLISHABLE` (NUEVO
+>   código):** el §M1 previo solo mencionaba `PRICE_PENDING`. Se documenta EXPLÍCITAMENTE el conjunto de status de
+>   origen publicable **`{in_stock, listed}`**: `in_stock` → **publica** (`→ listed`); `listed` → **no-op idempotente**
+>   (`ok:true`, no re-cobra ni duplica); **cualquier otro** status (`reserved | in_custody | picking | shipped |
+>   delivered | lost | damaged | withdrawn`) → **`422 ITEM_NOT_PUBLISHABLE`** por-línea (no tumba las demás). Esto
+>   **cierra un double-sell**: una pieza `reserved`/vendida/en-custodia/enviada NO puede volver a `listed`. `PRICE_PENDING`
+>   se conserva para el caso "precio no resuelto". Ver §0, §DTOs y §M1.
+> - **`numberSort` (binder `GET .../master-sets/:setId`) — fórmula ilustrativa CORREGIDA:** el texto previo
+>   (`regexp_replace(number,'\D','','g')::int`) **contradecía** el requisito "no-numéricos (TG/GG/SV promos) al final":
+>   esa fórmula convierte `TG12`→`12` y lo intercala **entre** las numéricas. El backend implementó el comportamiento
+>   correcto: **puros-numéricos por valor entero primero**; **promos/subsets con prefijo alfabético al final, agrupados
+>   por prefijo**. Se corrige la fórmula/nota del contrato para describir ESE orden. Ver §DTOs y §M1.
+> - **`isSecretRare` (`MasterSetCardCellDTO`) — definición AFINADA a heurística de display:** la definición previa
+>   (`numberSort > printedTotal`) marcaba **TODOS** los promos (TG/GG/SV) como secret rare (deuda **BE-36**). Se
+>   documenta como **heurística SOLO de display** y se afina: `isSecretRare=true` **solo** para cartas de
+>   numeración principal (número **puramente numérico**) cuyo entero **> `printedTotal`** (secret/hyper rare real);
+>   los promos/subsets con **prefijo alfabético** (TG/GG/SV) **NO** son secret rare (son subset aparte, `isSecretRare=false`);
+>   `printedTotal` nulo → `false`. **Decisión de producto (default propuesto, marcado)**: los subsets se distinguen por
+>   prefijo alfabético, no se cuentan como secret rare. Ver §DTOs, §M1 y ARCHITECTURE §9 (BE-36).
+> - **Enhancement futuro (§6, NO exigido ahora):** `GET /shipments` (listMine) devolver `productType`/`deliveredAt`
+>   por ítem para un gate 100%-cliente del UI de disputas (WS-F). Hoy el backend `NOT_RAW` es la autoridad y solo
+>   `GET /shipments/:id` trae `productType`. Documentado como **opcional**; no obliga cambio de backend. Ver §5.
 >
 > **Changelog v1.16-master-set (2026-08-17) — WS-E: Master Set + inventario a escala (M1, comentarios #4/#11/#12).**
 > El inventario admin (M1) hoy **no escala**: alta 1×1, tabla plana, sin vista agregada. Se añade una **vista Master
@@ -364,6 +391,7 @@
 - **`422 FINISH_NOT_AVAILABLE` (v1.6-finish):** el `finish` enviado (cotizador, alta de inventario, solicitud) **no** está en `Card.availableFinishes`. Guardarraíl SEC-A1: el cliente no puede cotizar/vender un acabado inexistente para pagar de más. Afecta `POST /buylist/quote`, `POST /buylist/requests`, `POST /admin/inventory/items`.
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
+- **`422 ITEM_NOT_PUBLISHABLE` (v1.16.1):** en `POST /admin/inventory/items/bulk-publish`, la pieza está en un status de origen **no publicable**. Solo `{in_stock, listed}` son publicables (`in_stock` → publica; `listed` → no-op idempotente). Cualquier otro (`reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`) → **`ITEM_NOT_PUBLISHABLE`** por-línea. **Guardarraíl anti double-sell:** una pieza reservada/vendida/en-custodia/enviada no puede re-listarse. Distinto de `PRICE_PENDING` (precio no resuelto). Ver §M1 y ARCHITECTURE §4.17b.
 - **Idempotencia:** endpoints de pago aceptan header `Idempotency-Key`.
 - **PII sensible (CLABE / RFC / INE):** por **defecto se devuelven ENMASCARADOS** en **todas** las respuestas (cliente y back-office, incluido `super_admin`). Formato: CLABE → `****1234` (últimos 4 dígitos), RFC → parcial (ej. `XAX**********`). La **CLABE en claro (18 dígitos) SOLO** se obtiene por el endpoint dedicado `GET /admin/buylist/:id/reveal-clabe` (`super_admin`, money-out, **auditado**). Estos campos viven **cifrados en reposo** (ver ARCHITECTURE §3.4); el contrato nunca expone RFC/CLABE/INE en claro fuera del reveal.
 
@@ -480,8 +508,18 @@ MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: 
 // Celda del binder (GET /admin/inventory/master-sets/:setId). Una por Card del catálogo del set. `number` es el
 // Card.number crudo (String, p. ej. "4", "SV107", "TG12"); `numberSort` es la CLAVE NUMÉRICA derivada server-side
 // para el orden natural estable (el front conserva/re-ordena por ella tras filtrar). `countsByFinish` = piezas
-// on-hand por acabado (solo acabados con ≥1 pieza); `totalCount` = suma. `isSecretRare` = numberSort > printedTotal
-// (gap/secret rare fuera del total nominal). Celda con `totalCount=0` = hueco de inventario (carta que aún no tenemos).
+// on-hand por acabado (solo acabados con ≥1 pieza); `totalCount` = suma. Celda con `totalCount=0` = hueco de
+// inventario (carta que aún no tenemos).
+// v1.16.1 — ORDEN NATURAL (corrige la nota previa): los números **puramente numéricos** ordenan por su valor ENTERO
+//   primero; los **promos/subsets con prefijo alfabético** (TG/GG/SV…) van AL FINAL, agrupados por prefijo. La
+//   fórmula ilustrativa previa (`regexp_replace(number,'\D','','g')::int`) era INCORRECTA porque convertía `TG12`→12
+//   y lo intercalaba entre las numéricas; el `numberSort` correcto solo parsea el entero cuando `number ~ '^[0-9]+$'`
+//   (ver §M1 para el orden completo). Para una celda promo, `numberSort` es un valor sentinela que la empuja al final.
+// v1.16.1 — `isSecretRare` es una HEURÍSTICA SOLO DE DISPLAY (no es dato de negocio): true SOLO para cartas de la
+//   numeración PRINCIPAL (número puramente numérico) cuyo entero > `printedTotal` (secret/hyper rare real). Los
+//   promos/subsets con prefijo alfabético (TG/GG/SV) NO son secret rare → `isSecretRare=false` (son subset aparte).
+//   `printedTotal` nulo → `false`. (Definición previa `numberSort > printedTotal` marcaba TODOS los promos; deuda
+//   BE-36, ver ARCHITECTURE §9.)
 MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, name: string, rarity?: string,
                          imageSmallUrl?: string, availableFinishes: Finish[],
                          countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean }
@@ -508,6 +546,10 @@ BatchCreateInventoryResponse = { batchKey: string, idempotentReplay: boolean,
 // ----- Publicar por LOTE (POST /admin/inventory/items/bulk-publish) -----
 // `listPriceCents` omitido → precio DERIVADO server-side de las reglas de venta por rareza+acabado (§4.14, SEC-A1);
 // presente → override manual. Una pieza cuyo precio no se resuelve (pct sin market) NO se publica (PRICE_PENDING).
+// v1.16.1 — STATUS DE ORIGEN PUBLICABLE = { in_stock, listed }: in_stock → publica (→ listed); listed → NO-OP
+//   idempotente (ok:true, no re-cobra ni duplica); cualquier otro status (reserved | in_custody | picking | shipped |
+//   delivered | lost | damaged | withdrawn) → 422 ITEM_NOT_PUBLISHABLE por-línea (anti double-sell: una pieza
+//   reservada/vendida/en-custodia/enviada no se re-lista). Distinto de PRICE_PENDING (precio no resuelto).
 BulkPublishLineInput = { inventoryItemId: string, listPriceCents?: number }
 BulkPublishRequest = { batchKey?: string, items: BulkPublishLineInput[] }   // cap items = 200
 BulkPublishLineResult =
@@ -811,6 +853,15 @@ Err: `422 ITEM_NOT_SETTLED` (incluye algún item `pending`), `422 ADDRESS_NOT_MX
 ### GET /api/v1/shipments — `customer` → lista propia.
 ### GET /api/v1/shipments/:id — `customer` → detalle con `status`, `trackingNumber?`, `carrier?`, items.
 
+> **Enhancement OPCIONAL (v1.16.1 — NO exigido en el MVP, no obliga cambio de backend ahora):** el UI de disputas
+> (WS-F) querría hacer un **gate 100%-cliente** (mostrar/ocultar el botón "abrir disputa" sin ida y vuelta al server),
+> para lo cual `GET /shipments` (listMine) debería devolver por ítem **`productType`** y **`deliveredAt`**. **Hoy la
+> autoridad es el backend** (`POST /disputes` deriva el tipo del `productType` y rechaza graded con `422 NOT_RAW`, y
+> valida la ventana de 7 días desde entrega); solo `GET /shipments/:id` trae `productType`. Mientras no se implemente,
+> el front puede resolver el gate con `GET /shipments/:id` o simplemente intentar `POST /disputes` y manejar
+> `NOT_RAW`/`DISPUTE_WINDOW_CLOSED`. Si se prioriza, entra como cambio **aditivo** al `ShipmentDTO` de listMine (sin
+> PII, sin migración). No es requisito de la Definición de Terminado actual.
+
 ---
 
 ## 6. Buylist (cotizador público + solicitudes)
@@ -1094,11 +1145,23 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `GET /api/v1/admin/inventory/master-sets/:setId` — **(NUEVO)** binder del set: una celda por carta del catálogo.
   `:setId` = id LOCAL del `CardSet` (no `externalId`). Res `200` (`MasterSetBinderResponse`): `{ set, printedTotal,
   catalogCardCount, cells: MasterSetCardCellDTO[] }`, `cells` en **ORDEN NATURAL por número** (ver nota).
-  - **Orden natural (obligatorio):** `Card.number` es **String** → el orden lexicográfico rompe ("10" < "2", "TG12"
-    mal ubicado). El backend ordena por `numberSort` (parte numérica extraída de `number`, p. ej. raw SQL
-    `NULLIF(regexp_replace(number,'\D','','g'),'')::int NULLS LAST`), desempatando por el `number` crudo. Los números
-    no-numéricos puros (promos/subsets tipo `TG`, `GG`, `SV`) van al final agrupados por prefijo. `isSecretRare` =
-    `numberSort > printedTotal`.
+  - **Orden natural (obligatorio) — v1.16.1 CORREGIDO:** `Card.number` es **String** → el orden lexicográfico rompe
+    ("10" < "2", "TG12" mal ubicado). El backend produce el orden correcto: **(1)** las cartas con `number`
+    **puramente numérico** (`number ~ '^[0-9]+$'`) primero, ordenadas por su **valor entero**; **(2)** los
+    **promos/subsets con prefijo alfabético** (`TG`, `GG`, `SV`…) **AL FINAL**, agrupados por prefijo y luego por su
+    sufijo numérico. Ilustrativo (Postgres):
+    `ORDER BY (number ~ '^[0-9]+$') DESC, CASE WHEN number ~ '^[0-9]+$' THEN number::int END NULLS LAST,
+    regexp_replace(number,'[0-9]','','g'), NULLIF(regexp_replace(number,'\D','','g'),'')::int, number`.
+    > **NOTA:** la fórmula previa `NULLIF(regexp_replace(number,'\D','','g'),'')::int` era **incorrecta** — convertía
+    > `TG12`→`12` y lo intercalaba entre las numéricas, contradiciendo "promos al final". Solo debe parsearse el entero
+    > cuando el `number` es puramente numérico. `numberSort` (en el DTO) es el entero para cartas numéricas y un
+    > sentinela que empuja al final para promos.
+  - **`isSecretRare` (v1.16.1 — heurística SOLO de display):** `true` **solo** para cartas de la numeración
+    **principal** (número puramente numérico) cuyo entero **> `printedTotal`** (secret/hyper rare real). Los
+    promos/subsets con **prefijo alfabético** (TG/GG/SV) → `isSecretRare=false` (subset aparte, no secret rare).
+    `printedTotal` nulo → `false`. **Decisión de producto (default propuesto):** distinguir subset por prefijo
+    alfabético; no cuentan como secret rare. La definición previa (`numberSort > printedTotal` sin más) marcaba TODOS
+    los promos → **deuda BE-36** (ARCHITECTURE §9); si el código aún usa la forma amplia, backend debe alinearlo.
   - **Sin N+1:** (1) `Card WHERE setId` (cartas del set); (2) **una** agregación (raw SQL o `groupBy [cardId, finish]`)
     de piezas on-hand por `(cardId, finish)` para los `cardId` del set → `countsByFinish`. Los **filtros locales**
     (rareza, acabado, solo faltantes, solo secret rares) los aplica el **frontend** sobre la respuesta completa.
@@ -1120,14 +1183,21 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - Err `400 VALIDATION_ERROR` (items vacío / sobre-cap / `batchKey` ausente).
 - `POST /api/v1/admin/inventory/items/bulk-publish` — **(NUEVO)** publicar por LOTE (varias piezas → `listed`).
   Req (`BulkPublishRequest`): `{ batchKey?, items: BulkPublishLineInput[] }` (cap **200**).
-  - Por línea: `status → listed`. `listPriceCents` presente → **override manual**; ausente → **precio de venta
+  - **Status de origen publicable (v1.16.1, OBLIGATORIO) = `{in_stock, listed}`:**
+    - `in_stock` → **publica** (`status → listed`).
+    - `listed` → **no-op idempotente** (`ok:true`; no re-cobra, no duplica, no cambia precio salvo override explícito).
+    - **cualquier otro** status (`reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`)
+      → línea falla **`422 ITEM_NOT_PUBLISHABLE`** y **NO** se publica. **Guardarraíl anti double-sell:** una pieza
+      reservada/vendida/en-custodia/enviada **no** puede regresar a `listed`.
+  - Precio por línea: `listPriceCents` presente → **override manual**; ausente → **precio de venta
     derivado** de las reglas por rareza+acabado (§M2 sales-rules, SEC-A1) reusando `computeSalePriceForItem`. Una pieza
     cuyo precio **no se resuelve** (`pct` sin market) → línea falla `PRICE_PENDING` y **NO** se publica (regla "solo se
     lista lo que tiene precio"). Sellado sin `listPriceCents` y sin override → `PRICE_PENDING`; graded sin `certNumber`
     → `VALIDATION_ERROR`.
-  - **Errores por-línea** (item no encontrado, no `ownerType=platform`, precio pendiente) no tumban las demás → HTTP
-    **200**. Re-publicar una pieza ya `listed` es **no-op idempotente** (`ok:true`). Reusa `getReferencesBatch` (1
-    lote de referencias) e iza `SALES_PRICE_RULES`+fallback **una vez** por request (pago mínimo de **BE-25**).
+  - **Errores por-línea** (item no encontrado `404`/`NOT_FOUND`, no `ownerType=platform`, status no publicable
+    `ITEM_NOT_PUBLISHABLE`, precio pendiente `PRICE_PENDING`) no tumban las demás → HTTP **200**. Re-publicar una pieza
+    ya `listed` es **no-op idempotente** (`ok:true`). Reusa `getReferencesBatch` (1 lote de referencias) e iza
+    `SALES_PRICE_RULES`+fallback **una vez** por request (pago mínimo de **BE-25**).
   - Res `200` (`BulkPublishResponse`): `{ summary, results }`. Auditado (`AuditLog action=inventory.bulk_publish`).
 
 ### M2 — Catálogo y precios (`super_admin`)
