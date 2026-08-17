@@ -1179,15 +1179,22 @@
   batch quote (una llamada por página) y cambiar el bulk a **parcial-tolerante** (agregar lo que sí cotizó,
   reportar lo que falló).
 
-### FE-13 · `BuylistView.tsx` creció (~960 líneas) — pide extracción de hooks/subcomponentes (techlead)
-- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx`.
+### FE-13 · `BuylistView.tsx` creció (1115 líneas) — pide extracción de hooks/subcomponentes (techlead)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` (1115 líneas, medido
+  2026-08-17; antes ~960).
 - **Estado actual:** el archivo concentra carrito de venta, selección bulk, cotización por resultado, "Mis
-  solicitudes" y el panel de resultados en ~960 líneas. La lógica **ya está encapsulada** en funciones
-  pequeñas → la extracción sería **mecánica y de bajo riesgo**: hooks (`useCart`, `useBulkSelection`) y
-  subcomponentes (`ResultsGrid`, `QuoteResultPanel`, `SellCart`, `MyRequestsSection`).
-- **Impacto:** bajo. Mantenibilidad/legibilidad; no afecta comportamiento ni correctness.
-- **Disparador:** **próximo toque funcional del buylist** (p. ej. al cablear el batch quote de FE-12). Acción:
-  extraer los hooks y subcomponentes citados sin cambiar comportamiento.
+  solicitudes" y el panel de resultados. La lógica sigue encapsulada en funciones pequeñas → la extracción
+  sería **mecánica y de bajo riesgo**. Costuras identificadas por el techlead como guía: `SellCart`
+  (~líneas 666-860), `ResultsGrid` (~595-658), `MyRequestsSection` (~884-1033), hooks
+  `useSellCart`/`useBulkSelection` (12 `useState` viven hoy en el componente); los helpers puros ya están
+  aislados (`mergeCartLine`, `quoteFor`, `tileFinishes`).
+- **Impacto:** **medio** (subió de bajo). Mantenibilidad/legibilidad; no afecta comportamiento ni
+  correctness, pero el archivo siguió creciendo tras aplazar la extracción.
+- **Disparador:** **consumido una vez** — el disparador original («próximo toque funcional del buylist, p.
+  ej. al cablear el batch quote de FE-12») **se cumplió** en el rediseño 2026-08-17 (se cableó el batch
+  quote y se pagó FE-12) y la extracción **no se pagó**. Compromiso: extraer los hooks y subcomponentes
+  citados (sin cambiar comportamiento) en el **siguiente** toque de BuylistView, **sin tercer
+  aplazamiento**.
 
 ### Editor de venta en M2 — Fase 2 (commit fee3c19, 2026-08-17, no bloqueante)
 
