@@ -84,7 +84,14 @@ export class VaultService {
       const active = activeByItem.get(item.id) ?? null;
       const shipmentState = active ? active.state : null;
       const activeShipmentId = active ? active.shipmentId : null;
-      const withdrawable = item.ownershipStatus === 'settled' && shipmentState === null;
+      // v1.17.1 (§3): criterio ÚNICO de elegibilidad read=write. Idéntico a `classifyItems`
+      // (shipments.service): settled + EN CUSTODIA + sin envío activo. El `status==='in_custody'`
+      // es imprescindible: la query filtra `status != 'withdrawn'`, pero un item `settled` puede
+      // estar `lost`/`damaged` (sigue en la bóveda) y NO debe ser retirable.
+      const withdrawable =
+        item.ownershipStatus === 'settled' &&
+        item.status === 'in_custody' &&
+        shipmentState === null;
       data.push({
         inventoryItemId: item.id,
         folio: item.folio,

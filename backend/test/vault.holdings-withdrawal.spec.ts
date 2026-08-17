@@ -103,6 +103,26 @@ describe('VaultService.holdings — estado de retiro (v1.17)', () => {
     expect(res.data[0].withdrawable).toBe(false);
   });
 
+  it('item settled pero lost/damaged (sin envío) → withdrawable=false pero SIGUE en la bóveda (v1.17.1 §3)', async () => {
+    // read=write: `classifyItems` exige status==='in_custody'; un settled `lost`/`damaged`
+    // sigue listándose (solo `withdrawn` se excluye) pero NO es retirable.
+    const { svc } = makeService(
+      [
+        makeItem({ id: 'i1', status: 'lost' }),
+        makeItem({ id: 'i2', status: 'damaged' }),
+      ],
+      [],
+    );
+    const res = await svc.holdings('u1');
+    expect(res.data).toHaveLength(2);
+    expect(res.data[0].status).toBe('lost');
+    expect(res.data[0].withdrawable).toBe(false);
+    expect(res.data[1].status).toBe('damaged');
+    expect(res.data[1].withdrawable).toBe(false);
+    // Siguen contando en el portafolio (solo `withdrawn` se excluye del total).
+    expect(res.portfolio.totalValueMxnCents).toBe(25000);
+  });
+
   it('sin items → no consulta el join (evita query innecesaria)', async () => {
     const { svc, prisma } = makeService([], []);
     await svc.holdings('u1');

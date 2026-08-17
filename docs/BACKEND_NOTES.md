@@ -2833,7 +2833,8 @@ El `InventoryItem.status` **NO se espeja por etapa**: permanece `in_custody` dur
   `Map<inventoryItemId, {shipmentId, state}>`. Si no hay items, no se consulta el join.
 - **Campos por holding:** `shipmentState: ShipmentActiveStage|null` (etapa del envío activo),
   `activeShipmentId: string|null` (deep-link a `GET /shipments/:id`), `withdrawable: boolean` =
-  `ownershipStatus==='settled' && shipmentState===null` (flag autoritativo anti doble-retiro).
+  `ownershipStatus==='settled' && status==='in_custody' && shipmentState===null` (flag autoritativo
+  anti doble-retiro). Ver §41.9 (alineación read=write, v1.17.1).
 - Constante `ACTIVE_SHIPMENT_STAGES` en el módulo (subconjunto activo del enum `ShipmentStatus`).
 
 ### 41.3 Portafolio / snapshot coherentes
@@ -2877,6 +2878,29 @@ El `InventoryItem.status` **NO se espeja por etapa**: permanece `in_custody` dur
 - `npm test` (unit) → **75 suites / 530 tests verdes** (incluye los 2 specs nuevos de este WS).
 - `npm run test:integration` → requiere Postgres/Redis/MinIO; **no se ejecutó en el entorno de desarrollo del
   agente** (sin Docker/DB). El spec añadido compila (incluido en `tsc`); QA lo ejecuta contra el stack.
+
+### 41.9 Cierre WS-H (v1.17.1 §3) — el flag de LECTURA `withdrawable` alineado read=write (2026-08-17)
+> Micro-pase tras el RECHAZO de QA por divergencia contrato-vs-código: el read de `withdrawable` en
+> `vault.service.ts` omitía el chequeo `status==='in_custody'` que sí exige el contrato v1.17.1 §3 y el write
+> (`classifyItems`, §42.1). Un item `settled` pero `lost`/`damaged` (sigue en la bóveda; solo `withdrawn` se
+> excluye de la query) daba `withdrawable=true` por error. Solo se tocó `backend/`.
+- **Fix (`vault.service.ts`, cómputo del HoldingDTO):**
+  `withdrawable = ownershipStatus==='settled' && shipmentState===null`
+  → `withdrawable = ownershipStatus==='settled' && status==='in_custody' && shipmentState===null`.
+  El `status` ya estaba disponible en el item mapeado (no requiere query nueva).
+- **Invariante read=write cerrada:** el criterio de LECTURA (`withdrawable`) queda **IDÉNTICO** al de ESCRITURA
+  (`classifyItems`: `settled && status==='in_custody' && sin envío activo`) y al contrato §3/§5. La parte "sin
+  envío activo" la aporta `shipmentState===null` (read) / el guard anti-doble-envío (write, §42.2).
+- **Sin cambio de inclusión/exclusión de holdings:** la query sigue filtrando **solo** `status != 'withdrawn'`;
+  los `lost`/`damaged` **siguen apareciendo** en la bóveda y contando en el portafolio, ahora con
+  `withdrawable=false` (ya no ofrecen RETIRAR una carta en incidencia). Nota UX no bloqueante en `TECH_DEBT` BE-40.
+- **Test añadido** (`test/vault.holdings-withdrawal.spec.ts`): un holding `settled` con `status='lost'` y otro
+  `'damaged'`, sin envío → `withdrawable===false` pero **siguen listados** y contando en el portafolio (antes el
+  read daba `true`). Specs existentes de holdings intactos y verdes.
+- **Cosmético:** comentario de `shipments.service.ts` (guard SEC-H2) corregido de `BE-30` → `BE-42` (la deuda
+  real del índice único parcial de `ShipmentItem`).
+- **Gates de este micro-pase:** `typecheck` **0 errores**, `lint` **0 errores**, `npm test`
+  **76 suites / 536 tests verdes** (+1 test nuevo).
 
 ## 42. Cierre WS-H · invariante de retiro (SEC-H1 / SEC-H2, triple veredicto — 2026-08-17)
 

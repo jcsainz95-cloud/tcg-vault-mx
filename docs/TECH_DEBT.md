@@ -677,6 +677,11 @@
 - **Disparador:** al añadir un `ShipmentStatus` nuevo o al tocar cualquiera de los dos checks. Solución: derivar
   ambas de **una sola constante** (p. ej. `ACTIVE_SHIPMENT_STAGES` como fuente; el gate de shipments usa
   `status: { in: ACTIVE_SHIPMENT_STAGES }` en vez del `notIn`). Owner: **backend**. Prioridad: **baja**.
+- **Nota UX (v1.17.1, no bloqueante):** con el read de `withdrawable` ya alineado al contrato §3 (read=write:
+  `settled && status==='in_custody' && sin envío activo`), un item `settled` pero `lost`/`damaged` ahora muestra
+  `withdrawable=false` (**resuelto**: ya no ofrece RETIRAR una carta en incidencia). Si en el futuro se quiere un
+  **mensaje específico** "carta en incidencia" en la bóveda (en vez de solo ocultar/deshabilitar el botón), es una
+  **mejora de UX** (frontend, requeriría exponer/consumir el `status` en la tarjeta). No bloqueante. Owner: **ux-ui/frontend**.
 
 ### BE-41 · N+1 de pricing en `holdings` amplificado por el snapshot por-usuario (perf) — familia BE-4/D3
 - **Dónde:** `src/modules/vault/vault.service.ts:69-106` (`holdings` llama `PricingService.getReference` por

@@ -122,7 +122,7 @@ export class ShipmentsService {
     // lectura/escritura. La creación del PaymentIntent (Stripe) queda FUERA de la tx a
     // propósito (A2/BE-7: no bloquear una conexión de DB en una llamada de red; el rollback
     // compensatorio borra la ShipmentRequest si Stripe falla). Nota: el índice único parcial
-    // sobre ShipmentItem.inventoryItemId (defensa en profundidad) queda como deuda BE-30.
+    // sobre ShipmentItem.inventoryItemId (defensa en profundidad) queda como deuda BE-42.
     const shipment = await this.prisma.$transaction(
       async (tx) => {
         // Un item no puede estar en dos envíos activos (re-verificado DENTRO de la tx).
