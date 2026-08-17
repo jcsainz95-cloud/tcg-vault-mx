@@ -3,8 +3,16 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { getBuylistQuote, getSellRequests, listBuylistSets, searchBuylistCards } from '@/lib/api';
-import type { ProductType, CardDTO, RawCondition, Finish, BuylistQuoteResponse } from '@/types/contract';
+import { batchQuote, getBuylistQuote, getSellRequests, listBuylistSets, searchBuylistCards } from '@/lib/api';
+import type {
+  ProductType,
+  CardDTO,
+  RawCondition,
+  Finish,
+  BuylistQuoteResponse,
+  BuylistQuoteItemDTO,
+  BuylistBatchQuoteResultDTO,
+} from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { CardImage } from '@/components/ui/CardImage';
@@ -82,33 +90,53 @@ function mergeCartLine(
   return [...prev, { id: `line-${lineSeq}`, ...line, quantity: 1 }];
 }
 
+/** Ítem de cotización en lote para una carta del grid: raw NM, primer acabado disponible. */
+const gridQuoteItem = (card: CardDTO): BuylistQuoteItemDTO => ({
+  cardId: card.id,
+  productType: 'raw',
+  rawCondition: 'NM',
+  finish: firstAvailableFinish(card),
+});
+
 /**
- * Precio de compra ESTIMADO por resultado del grid: convierte la búsqueda en una
- * "buylist navegable". Cotiza la variante por defecto (raw NM, primer acabado
- * disponible) con el MISMO queryKey que la cotización principal, así que elegir la
- * carta después no re-pide nada (cache compartido, staleTime 5 min).
- *
- * Fase 3b: reemplazar por batch quote — hoy no existe endpoint de cotización en lote
- * en el contrato, así que es 1 POST /buylist/quote (unitario, existente) por resultado
- * visible; react-query dedupea y cachea.
+ * Convierte un resultado batch `ok:true` en el `BuylistQuoteResponse` que consume el carrito.
+ * (En el batch `rarity` es `string | null`; el carrito solo usa quote/finish, así que se normaliza.)
  */
-function ResultQuote({ card }: { card: CardDTO }) {
+function batchResultToQuote(r: Extract<BuylistBatchQuoteResultDTO, { ok: true }>): BuylistQuoteResponse {
+  return {
+    rarity: r.rarity ?? '',
+    finish: r.finish,
+    appliedRule: r.appliedRule,
+    quote: r.quote,
+    referencePrice: r.referencePrice,
+    paymentNotice: r.paymentNotice,
+  };
+}
+
+/**
+ * Precio de compra ESTIMADO por resultado del grid: convierte la búsqueda en una "buylist
+ * navegable". Fase 3b: el estimado ya NO se pide por-carta (fan-out FE-12); llega del RESULTADO
+ * de UNA sola llamada `POST /buylist/quote/batch` hecha a nivel del grid. Presentacional y tolerante
+ * a errores por-ítem: si ESE ítem salió `ok:false`, muestra su error sin afectar a las demás filas.
+ */
+function ResultQuote({
+  result,
+  loading,
+}: {
+  result?: BuylistBatchQuoteResultDTO;
+  loading: boolean;
+}) {
   const t = useTranslations('buylist');
   const locale = useLocale() as AppLocale;
-  const finish = firstAvailableFinish(card);
-  const q = useQuery({
-    queryKey: quoteKeyFor(card.id, 'raw', finish),
-    queryFn: () => getBuylistQuote({ cardId: card.id, productType: 'raw', rawCondition: 'NM', finish }),
-    staleTime: QUOTE_STALE_MS,
-  });
-  if (q.isLoading) return <span className="text-muted">…</span>;
-  if (q.isError || !q.data) return null;
-  if (q.data.quote.status === 'precio_pendiente') {
+  if (loading) return <span className="text-muted">…</span>;
+  if (!result) return null;
+  if (!result.ok) return <span className="text-accent">{t('gridQuoteError')}</span>;
+  if (result.quote.status === 'precio_pendiente') {
     return <span className="text-accent">{t('linePending')}</span>;
   }
   return (
     <span className="tabular text-text">
-      {formatMoneyCents(q.data.quote.quotedPriceCents ?? 0, locale)}
+      {formatMoneyCents(result.quote.quotedPriceCents ?? 0, locale)}
     </span>
   );
 }
@@ -176,8 +204,9 @@ export function BuylistView() {
   // --- Bulk: multi-selección en los resultados de búsqueda ---
   const [bulkSelected, setBulkSelected] = useState<Record<string, CardDTO>>({});
   const [bulkAdding, setBulkAdding] = useState(false);
-  const [bulkNotice, setBulkNotice] = useState<'added' | 'error' | null>(null);
+  const [bulkNotice, setBulkNotice] = useState<'added' | 'partial' | 'error' | null>(null);
   const [bulkAddedCount, setBulkAddedCount] = useState(0);
+  const [bulkFailedCount, setBulkFailedCount] = useState(0);
 
   const sets = useQuery({ queryKey: ['buylist-sets'], queryFn: listBuylistSets });
 
@@ -188,6 +217,26 @@ export function BuylistView() {
     queryFn: () => searchBuylistCards({ setId: setId || undefined, q: searchQuery || undefined }),
     enabled: hasSearch,
   });
+
+  // Estimado de compra del grid en UNA sola llamada batch (mata el fan-out FE-12: antes cada carta
+  // del grid disparaba su propio POST /buylist/quote → ~pageSize requests). El backend responde con
+  // resultado/error POR-ÍTEM (HTTP 200), así que una carta inválida no tumba el resto del grid.
+  const gridBatchItems: BuylistQuoteItemDTO[] = useMemo(
+    () => (cardsResult.data?.data ?? []).map(gridQuoteItem),
+    [cardsResult.data],
+  );
+  const gridQuotes = useQuery({
+    queryKey: ['buylist-quote-batch', gridBatchItems.map((i) => `${i.cardId}:${i.finish}`).join('|')],
+    queryFn: () => batchQuote(gridBatchItems),
+    enabled: gridBatchItems.length > 0,
+    staleTime: QUOTE_STALE_MS,
+  });
+  // index por cardId (cada carta aparece una vez en el grid) para pintar su estimado/su error.
+  const gridQuoteByCardId = useMemo(() => {
+    const map = new Map<string, BuylistBatchQuoteResultDTO>();
+    for (const r of gridQuotes.data?.results ?? []) map.set(r.cardId, r);
+    return map;
+  }, [gridQuotes.data]);
 
   function runSearch() {
     setSearchQuery(searchInput.trim());
@@ -247,9 +296,10 @@ export function BuylistView() {
    * Bulk: agrega TODAS las seleccionadas de golpe (raw NM, acabado por defecto; el
    * acabado/tipo se puede afinar por línea re-cotizando esa carta en el panel).
    *
-   * Fase 3b: reemplazar por batch quote — mientras no exista cotización en lote en el
-   * contrato, se hace LOOP del endpoint unitario POST /buylist/quote vía fetchQuery:
-   * lo ya cotizado por el grid sale de cache (0 requests extra).
+   * Fase 3b: UNA sola llamada `POST /buylist/quote/batch` (antes: `Promise.all` de N
+   * `POST /buylist/quote`, all-or-nothing — una carta inválida tumbaba TODO el lote). Ahora es
+   * tolerante por-ítem: las que salen `ok:true` se agregan y las `ok:false` se cuentan aparte
+   * sin bloquear a las demás.
    */
   async function addSelectedToCart() {
     const cards = Object.values(bulkSelected);
@@ -257,35 +307,36 @@ export function BuylistView() {
     setBulkAdding(true);
     setBulkNotice(null);
     try {
-      const quoted = await Promise.all(
-        cards.map(async (card) => {
-          const f = firstAvailableFinish(card);
-          const data = await queryClient.fetchQuery({
-            queryKey: quoteKeyFor(card.id, 'raw', f),
-            queryFn: () =>
-              getBuylistQuote({ cardId: card.id, productType: 'raw', rawCondition: 'NM', finish: f }),
-            staleTime: QUOTE_STALE_MS,
-          });
-          return { card, data };
-        }),
+      const { results } = await batchQuote(cards.map(gridQuoteItem));
+      const cardById = new Map(cards.map((c) => [c.id, c]));
+      const okResults = results.filter(
+        (r): r is Extract<BuylistBatchQuoteResultDTO, { ok: true }> => r.ok,
       );
       setCart((prev) => {
         let next = prev;
-        for (const { card, data } of quoted) {
+        for (const r of okResults) {
+          const card = cardById.get(r.cardId);
+          if (!card) continue;
           next = mergeCartLine(next, {
             card,
             productType: 'raw',
             rawCondition: 'NM',
-            finish: data.finish,
-            quote: data,
+            finish: r.finish,
+            quote: batchResultToQuote(r),
           });
         }
         return next;
       });
-      setBulkAddedCount(cards.length);
-      setBulkNotice('added');
+      const added = okResults.filter((r) => cardById.has(r.cardId)).length;
+      const failed = results.length - added;
+      setBulkAddedCount(added);
+      setBulkFailedCount(failed);
+      // Tolerante por-ítem: éxito total → "added"; algunas fallaron pero otras entraron → "partial";
+      // ninguna entró → "error".
+      setBulkNotice(failed === 0 ? 'added' : added > 0 ? 'partial' : 'error');
       setBulkSelected({});
     } catch {
+      // Error a nivel request (p. ej. 400 VALIDATION_ERROR por vacío/sobre-cap, o red).
       setBulkNotice('error');
     } finally {
       setBulkAdding(false);
@@ -458,9 +509,12 @@ export function BuylistView() {
                                     {card.setName}
                                     {card.number && ` · #${card.number}`}
                                   </span>
-                                  {/* Estimado de compra por carta (raw NM, acabado default). */}
+                                  {/* Estimado de compra por carta (raw NM, acabado default), del batch. */}
                                   <span className="mt-1 block truncate font-mono text-[10px]">
-                                    <ResultQuote card={card} />
+                                    <ResultQuote
+                                      result={gridQuoteByCardId.get(card.id)}
+                                      loading={gridQuotes.isLoading}
+                                    />
                                   </span>
                                 </button>
                               </li>
@@ -489,6 +543,12 @@ export function BuylistView() {
                 {bulkNotice === 'added' && (
                   <p role="status" className="mt-3 font-mono text-[11px] text-success">
                     {t('bulkAdded', { count: bulkAddedCount })}
+                  </p>
+                )}
+                {bulkNotice === 'partial' && (
+                  /* Tolerante por-ítem: algunas entraron, otras no (batch, HTTP 200 con errores por-ítem). */
+                  <p role="status" className="mt-3 font-mono text-[11px] text-accent">
+                    {t('bulkAddedPartial', { added: bulkAddedCount, failed: bulkFailedCount })}
                   </p>
                 )}
                 {bulkNotice === 'error' && (
@@ -939,6 +999,9 @@ export function BuylistView() {
               // Heads-up de topes/CLABE derivado de GET /users/me/kyc; el backend re-decide (SEC-A1).
               ineExpected={sellReq.ineExpected}
               clabeMasked={sellReq.clabeMasked}
+              // v1.15: atajo "usar mi CLABE" (omite `clabe`) e INE en archivo (oculta uploaders).
+              clabeOnFile={sellReq.clabeOnFile}
+              ineOnFile={sellReq.ineOnFile}
               onCreated={(sellRequestId) => {
                 setCreatedId(sellRequestId);
                 setRequestOpen(false);

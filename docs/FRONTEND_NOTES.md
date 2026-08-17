@@ -4,6 +4,75 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## WS-C — Cotizador de buylist contra el backend REAL (Fase 3b, contrato v1.15) (2026-08-17)
+
+Enchufa el cotizador rediseñado de Fable al backend real: mata el fan-out FE-12 con `POST
+/buylist/quote/batch`, y cierra los atajos de CLABE/INE que estaban gateados por `config.useMocks`.
+**TOCA DINERO/PII** (buylist = SPEI + CLABE + INE) → triple veredicto. Solo `frontend/` + este doc; NO
+se tocó `api-client.ts` ni `session.ts`. SEC-A1 intacto (monto server-side; el cliente nunca fija
+precio ni CLABE de terceros). Gates verdes: **lint** (0), **tsc** (0), **test 257** (36 files; +9 nuevos).
+
+### 1) Batch quote — mata el fan-out FE-12 (`api.ts` + `contract.ts` + `BuylistView.tsx`)
+- `contract.ts`: `BuylistQuoteItemDTO`, `BuylistQuotePayload` (`rarity: string | null`),
+  `BuylistBatchQuoteResultDTO` (unión `ok:true & payload` | `ok:false & error{ NOT_FOUND |
+  FINISH_NOT_AVAILABLE }`) y `BuylistBatchQuoteResponse`, espejando el contrato §6 v1.15.
+- `api.ts`: nuevo `batchQuote(items)` → `POST /buylist/quote/batch` (thin 1:1 con el endpoint). Cap
+  `BUYLIST_QUOTE_BATCH_MAX=50` (exportado); vacío/sobre-cap → `400 VALIDATION_ERROR` (el mock también
+  lo espeja). El mock resuelve cada ítem con `mockQuotePayload` (helper extraído de `getBuylistQuote`,
+  para que por-carta y batch coincidan) y añade los guardas por-ítem `NOT_FOUND` (carta inexistente) y
+  `FINISH_NOT_AVAILABLE` (finish ∉ `availableFinishes`, como el backend real). `getBuylistQuote`
+  (por-carta) se **conserva** intacto (lo usa el panel de cotización de UNA carta, que no es fan-out).
+- `BuylistView.tsx`:
+  - **Grid navegable:** antes cada carta del grid montaba su propio `useQuery(getBuylistQuote)` (N
+    cartas = N requests). Ahora UNA sola `useQuery(batchQuote)` por página; `ResultQuote` pasó de
+    componente-con-query a **presentacional** que lee su resultado de un `Map<cardId, result>`. Render
+    **tolerante por-ítem**: si ESE ítem salió `ok:false` pinta `gridQuoteError` en su fila sin afectar a
+    las demás; `precio_pendiente` → `linePending`; ok → el estimado.
+  - **Bulk "Agregar seleccionadas":** antes `Promise.all` de N `getBuylistQuote` (**all-or-nothing**:
+    una inválida tumbaba TODO). Ahora UNA `batchQuote`; se agregan las `ok:true` y las `ok:false` se
+    cuentan aparte. Nuevo estado de aviso `partial` (`bulkAddedPartial` = "{added} agregada(s); {failed}
+    no disponible(s)."). `batchResultToQuote()` normaliza `rarity: string|null → string` para el carrito.
+- **Decisión:** el panel de la carta seleccionada sigue en `getBuylistQuote` (1 request, no fan-out) y
+  el contrato conserva `/buylist/quote`; solo el **grid** y el **bulk** (los dos fan-outs reales)
+  migran a batch.
+
+### 2) CLABE en un clic REAL — quita el guard de mock (#5) (`BuylistKycForm.tsx` + `api.ts` + `useSellRequirements.ts`)
+- `contract.ts`: `KycInfoDTO` gana `clabeOnFile: boolean` (requerido, simétrico a `ineOnFile`).
+- `useSellRequirements`: `clabeOnFile` ahora sale del **booleano REAL** `kyc.clabeOnFile` (antes
+  `!!kyc.clabeMasked`). `clabeMasked` se conserva solo para el label.
+- `BuylistKycForm`: el atajo "usar mi CLABE ****1234" se gatea por la nueva prop `clabeOnFile` (ya **no**
+  por `config.useMocks` — se quitó el import de `config`). En modo atajo, `createSellRequest` se llama
+  **OMITIENDO `clabe`** (el backend hace el fallback server-side a la CLABE en archivo del propio
+  usuario). Se **eliminó** el flag de cliente `useClabeOnFile` de `CreateSellRequestInput` (ya no hace
+  falta stripping antes del backend real; el contrato v1.15 soporta `clabe?` opcional directo).
+- Manejo del nuevo `422 CLABE_REQUIRED`: fuerza salir del atajo y capturar la CLABE (`clabeRequired`).
+
+### 3) No re-pedir INE si ya está (#5) (`BuylistKycForm.tsx`)
+- Nueva prop `ineOnFile` (de `GET /users/me/kyc`, vía `useSellRequirements`). Si es true, la sección de
+  INE **oculta los uploaders** y muestra `ineOnFileNote` ("Tu INE ya está en archivo…"); al enviar se
+  **OMITE `ineUploadKeys`** (el backend usa el INE de archivo para el umbral AML — KYC parcial).
+
+### i18n (ES/EN, paridad)
+- `buylist.gridQuoteError`, `buylist.bulkAddedPartial`, `buylist.clabeRequired`, `buylist.ineOnFileNote`.
+
+### Diseño
+- `shadow-focus` y tokens del design system intactos (no se tocaron Input/Select/Button; el grid, el
+  carrito y el modal reusan los mismos componentes/estilos). Sin estilos improvisados.
+
+### Tests añadidos/ajustados
+- `api.test.ts`: batch de N en 1 request (mismo monto que el por-carta), tolerancia por-ítem
+  (`NOT_FOUND`), `FINISH_NOT_AVAILABLE` por-ítem, y cap vacío/>50 → `400`.
+- `BuylistView.test.tsx`: el bulk cotiza en UNA sola `batchQuote` (no loop); batch parcial-tolerante
+  (1 ok + 1 error → aviso parcial, la válida entra); CLABE en archivo → enviar omite `clabe`; INE en
+  archivo → el modal no re-pide INE. `BASE_KYC` gana `clabeOnFile`.
+- `BuylistKycForm.test.tsx`: atajo gateado por `clabeOnFile` (no mock); envío omite `clabe` y ya no
+  existe `useClabeOnFile`; `clabeOnFile=false` pide la CLABE; `ineOnFile` oculta uploaders y omite keys.
+
+### Solicitudes al arquitecto
+- Ninguna: el contrato v1.15 (§0, §1, §6) ya cubre `POST /buylist/quote/batch`, `clabe?` opcional con
+  fallback + `422 CLABE_REQUIRED`, y `clabeOnFile`/`ineOnFile` en `GET /users/me/kyc`. Cero cambios de
+  contrato. (La deuda **FE-13** —extraer hooks de `BuylistView`— quedó como oportunista y no se forzó.)
+
 ## WS-A — Ingesta masiva de precios (frontend, v1.14-price-ingest) (2026-08-17)
 
 Parte de frontend del epic WS-A (contrato `API_CONTRACT.md` v1.14-price-ingest). Solo `frontend/` +

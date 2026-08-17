@@ -20,6 +20,9 @@ import type {
   OrderDetailDTO,
   CheckoutQuoteResponse,
   BuylistQuoteResponse,
+  BuylistQuoteItemDTO,
+  BuylistBatchQuoteResultDTO,
+  BuylistBatchQuoteResponse,
   SellRequestDTO,
   ShipmentDTO,
   ShipmentQuoteResponse,
@@ -471,19 +474,21 @@ export async function searchBuylistCards(
   return delay(paginate(data, filters));
 }
 
-export async function getBuylistQuote(input: {
+export interface BuylistQuoteInput {
   cardId: string;
   productType: ProductType;
   rawCondition?: RawCondition;
   /** v1.6-finish: acabado a cotizar; default `normal`. Debe pertenecer a card.availableFinishes. */
   finish?: Finish;
-}): Promise<BuylistQuoteResponse> {
-  if (!config.useMocks) {
-    return apiRequest<BuylistQuoteResponse>('/buylist/quote', { method: 'POST', body: input });
-  }
-  // MOCK v1.3.1/v1.6-finish: el monto se resuelve por REGLA (fixed MX$ / pct % de la referencia
-  // + fallback), donde el ACABADO selecciona la regla y la referencia. El backend deriva la
-  // rareza + acabado server-side (SEC-A1); aquí lo replicamos para la demo.
+}
+
+/**
+ * MOCK v1.3.1/v1.6-finish: resuelve el payload de una cotización por REGLA (fixed MX$ / pct % de
+ * la referencia + fallback), donde el ACABADO selecciona la regla y la referencia. El backend
+ * deriva la rareza + acabado server-side (SEC-A1); aquí lo replicamos para la demo. Compartido por
+ * el quote por-carta (getBuylistQuote) y el quote en lote (batchQuote) para que ambos coincidan.
+ */
+function mockQuotePayload(input: BuylistQuoteInput): BuylistQuoteResponse {
   const card = fx.mockCards.find((c) => c.id === input.cardId);
   const rarity = card?.rarity ?? '';
   const finish: Finish = input.finish ?? 'normal';
@@ -491,36 +496,90 @@ export async function getBuylistQuote(input: {
   const appliedRule = { mode: rule.mode, value: rule.value, source };
   // Referencia de mercado por carta+acabado (Zapdos = null → precio pendiente de adquisición).
   const refCents = fx.mockReferenceForFinish(input.cardId, finish);
+  const referencePrice: BuylistQuoteResponse['referencePrice'] =
+    refCents != null ? { status: 'priced', priceMxnCents: refCents } : { status: 'pending' };
   if (rule.mode === 'fixed') {
     // Fijo: NO depende de la referencia → siempre cotiza.
-    return delay({
+    return {
       rarity,
       finish,
       appliedRule,
       quote: { status: 'cotizada', quotedPriceCents: rule.value, currency: 'MXN' },
-      referencePrice: refCents != null ? { status: 'priced', priceMxnCents: refCents } : { status: 'pending' },
+      referencePrice,
       paymentNotice: 'PAY_AFTER_RECEIPT',
-    });
+    };
   }
   // Porcentaje: si falta referencia del acabado → precio pendiente.
   if (refCents == null) {
-    return delay({
+    return {
       rarity,
       finish,
       appliedRule,
       quote: { status: 'precio_pendiente', quotedPriceCents: null, currency: 'MXN' },
       referencePrice: { status: 'pending' },
       paymentNotice: 'PAY_AFTER_RECEIPT',
-    });
+    };
   }
-  return delay({
+  return {
     rarity,
     finish,
     appliedRule,
     quote: { status: 'cotizada', quotedPriceCents: Math.round((refCents * rule.value) / 100), currency: 'MXN' },
-    referencePrice: { status: 'priced', priceMxnCents: refCents },
+    referencePrice,
     paymentNotice: 'PAY_AFTER_RECEIPT',
+  };
+}
+
+export async function getBuylistQuote(input: BuylistQuoteInput): Promise<BuylistQuoteResponse> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistQuoteResponse>('/buylist/quote', { method: 'POST', body: input });
+  }
+  return delay(mockQuotePayload(input));
+}
+
+/** Cap de ítems por request de POST /buylist/quote/batch (contrato §6 · BUYLIST_QUOTE_BATCH_MAX). */
+export const BUYLIST_QUOTE_BATCH_MAX = 50;
+
+/**
+ * Cotización en LOTE (contrato §6 · POST /buylist/quote/batch, v1.15, `public`, READ-ONLY). Cotiza
+ * N cartas en 1 request (mata el fan-out FE-12: antes N cartas = N POST /buylist/quote). NO crea
+ * solicitud, NO mueve dinero, NO persiste. TOLERANTE A ERRORES POR-ÍTEM: una carta inválida sale
+ * `ok:false` (NOT_FOUND / FINISH_NOT_AVAILABLE) y NO tumba las demás (HTTP global 200). Cap 50 ítems
+ * (vacío/sobre-cap → 400 VALIDATION_ERROR). Reusa la misma resolución de monto que el quote por-carta.
+ */
+export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistBatchQuoteResponse> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistBatchQuoteResponse>('/buylist/quote/batch', {
+      method: 'POST',
+      body: { items },
+    });
+  }
+  // MOCK: espeja el contrato — cap a nivel request (vacío/>50 → 400) y errores POR-ÍTEM (200 global).
+  if (items.length === 0 || items.length > BUYLIST_QUOTE_BATCH_MAX) {
+    throw new ApiClientError(400, {
+      code: 'VALIDATION_ERROR',
+      message: `items must be between 1 and ${BUYLIST_QUOTE_BATCH_MAX}`,
+    });
+  }
+  const results: BuylistBatchQuoteResultDTO[] = items.map((item, index) => {
+    const card = fx.mockCards.find((c) => c.id === item.cardId);
+    if (!card) {
+      // Carta inexistente → error de ESE ítem (equivale al 404 del endpoint por-carta).
+      return { index, cardId: item.cardId, ok: false, error: { code: 'NOT_FOUND', message: 'Card not found' } };
+    }
+    const finish: Finish = item.finish ?? 'normal';
+    if (!card.availableFinishes.includes(finish)) {
+      // Acabado fuera de availableFinishes → error de ESE ítem (SEC-A1; equivale al 422 por-carta).
+      return {
+        index,
+        cardId: item.cardId,
+        ok: false,
+        error: { code: 'FINISH_NOT_AVAILABLE', message: `Finish '${finish}' is not available for this card` },
+      };
+    }
+    return { index, cardId: item.cardId, ok: true, ...mockQuotePayload(item) };
   });
+  return delay({ results });
 }
 
 export async function getSellRequests(): Promise<SellRequestDTO[]> {
@@ -543,19 +602,14 @@ export interface CreateSellRequestInput {
     finish?: Finish;
   }[];
   /**
-   * CLABE destino en claro (18 dígitos). El contrato §6 la EXIGE en POST
-   * /buylist/requests; solo puede omitirse con `useClabeOnFile` (atajo mock, abajo).
+   * CLABE destino en claro (18 dígitos). v1.15: OPCIONAL. Si se OMITE, el backend hace fallback
+   * server-side a la CLABE en archivo del PROPIO usuario (`clabeOnFile=true`; mismo fallback que
+   * `reveal-clabe`). Sin `clabe` y sin CLABE en archivo → `422 CLABE_REQUIRED`. Con `clabe` presente
+   * se valida formato (`422 CLABE_INVALID`) y nombre propio (`422 CLABE_NOT_OWN_NAME`).
    */
   clabe?: string;
-  /**
-   * MOCK: pendiente de contrato — "Usar mi CLABE en archivo" sin reteclear. El
-   * cliente nunca tiene la CLABE en claro (solo `clabeMasked`), así que este flag
-   * solo funciona en modo mock. Solicitud al arquitecto: `clabe?` opcional en
-   * POST /buylist/requests con fallback server-side a la CLABE de KYC (mismo
-   * fallback que ya hace reveal-clabe). NO se envía al backend real.
-   */
-  useClabeOnFile?: boolean;
-  /** keys de presign del INE (contrato §6 POST /buylist/requests: ineUploadKeys?) */
+  /** keys de presign del INE (contrato §6 POST /buylist/requests: ineUploadKeys?). v1.15: se OMITE
+   *  si el INE ya está en archivo (`ineOnFile=true`); el backend usa el de archivo para el umbral AML. */
   ineUploadKeys?: IneUploadKeys;
 }
 
@@ -566,10 +620,10 @@ export interface CreateSellRequestInput {
  */
 export async function createSellRequest(input: CreateSellRequestInput): Promise<SellRequestDTO> {
   if (!config.useMocks) {
-    // `useClabeOnFile` es un flag de cliente (atajo mock): NUNCA viaja al backend real,
-    // cuyo contrato exige `clabe` en claro (§6).
-    const { useClabeOnFile: _clientOnly, ...body } = input;
-    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body });
+    // v1.15: `clabe` es opcional. Cuando se omite (atajo "usar mi CLABE en archivo"), el body no la
+    // lleva y el backend hace el fallback server-side a la CLABE del propio usuario (§6). Sin flags
+    // de cliente: el contrato ya soporta el shape directo.
+    return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
   }
   // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO). El monto se
   // resuelve por la REGLA de la rareza (v1.3.1), igual que el cotizador.
@@ -623,6 +677,8 @@ export async function updateKyc(input: UpdateKycInput): Promise<KycInfoDTO> {
   return delay({
     ...fx.mockKyc,
     clabeMasked: input.clabe ? `****${input.clabe.slice(-4)}` : fx.mockKyc.clabeMasked,
+    // v1.15: registrar la CLABE la deja "en archivo" (habilita el atajo en el siguiente flujo).
+    clabeOnFile: !!input.clabe || fx.mockKyc.clabeOnFile,
     ineOnFile: !!(input.ineFrontUploadKey && input.ineBackUploadKey) || fx.mockKyc.ineOnFile,
   });
 }

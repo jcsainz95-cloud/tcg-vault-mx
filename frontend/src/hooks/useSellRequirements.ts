@@ -26,7 +26,10 @@ export interface SellRequirements {
   /** KYC del contrato GET /users/me/kyc (solo customers; staff no consulta ese endpoint). */
   kyc?: KycInfoDTO;
   kycLoading: boolean;
-  /** hay CLABE registrada en KYC (`clabeMasked` presente). El contrato §6 igual pide capturarla al enviar. */
+  /**
+   * v1.15: hay CLABE en archivo (booleano REAL `clabeOnFile` de GET /users/me/kyc). Habilita el atajo
+   * "usar mi CLABE ****1234" (= OMITIR `clabe` en POST /buylist/requests, fallback server-side).
+   */
   clabeOnFile: boolean;
   clabeMasked?: string;
   ineOnFile: boolean;
@@ -69,7 +72,9 @@ export function useSellRequirements(totalEstimatedCents = 0): SellRequirements {
     emailBlocked,
     kyc,
     kycLoading: kycEnabled && kycQuery.isLoading,
-    clabeOnFile: !!kyc?.clabeMasked,
+    // v1.15: booleano REAL del contrato (`clabeOnFile`, requerido en GET /users/me/kyc). `?? false`
+    // solo cubre el estado "sin KYC cargado aún" (kyc undefined), no un backend parcial.
+    clabeOnFile: kyc?.clabeOnFile ?? false,
     clabeMasked: kyc?.clabeMasked,
     ineOnFile,
     ineExpected: overCaps && !ineOnFile,

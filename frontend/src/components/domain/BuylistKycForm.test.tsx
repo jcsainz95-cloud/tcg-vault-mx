@@ -164,9 +164,9 @@ describe('BuylistKycForm — gating proactivo de cuenta/KYC', () => {
     ).toBeInTheDocument();
   });
 
-  it('con CLABE en archivo arranca en modo "usar mi CLABE" y permite cambiar a capturar otra', () => {
+  it('con CLABE en archivo (clabeOnFile) arranca en modo "usar mi CLABE" y permite cambiar a capturar otra', () => {
     renderWithProviders(
-      <BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} clabeMasked="****1234" />,
+      <BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} clabeMasked="****1234" clabeOnFile />,
       'es',
     );
     // Por defecto se reusa la CLABE registrada: sin input de 18 dígitos.
@@ -183,22 +183,52 @@ describe('BuylistKycForm — gating proactivo de cuenta/KYC', () => {
     expect(screen.queryByLabelText(/CLABE \(18 dígitos/)).not.toBeInTheDocument();
   });
 
-  it('en modo "usar mi CLABE" envía sin reteclear los 18 dígitos (atajo mock, useClabeOnFile)', async () => {
+  it('v1.15: en modo "usar mi CLABE" envía OMITIENDO `clabe` (fallback server-side a la de archivo)', async () => {
     const onCreated = vi.fn();
     const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(
-      <BuylistKycForm items={RAW_ITEMS} onCreated={onCreated} clabeMasked="****1234" />,
+      <BuylistKycForm items={RAW_ITEMS} onCreated={onCreated} clabeMasked="****1234" clabeOnFile />,
       'es',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
-    // MOCK: pendiente de contrato — el flag useClabeOnFile es del cliente (no viaja al
-    // backend real); la solicitud NO lleva la CLABE tecleada.
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ items: RAW_ITEMS, useClabeOnFile: true }),
+    // v1.15: la solicitud NO lleva `clabe` (el backend hace el fallback a la CLABE en archivo);
+    // ya NO existe el flag de cliente `useClabeOnFile`.
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ items: RAW_ITEMS }));
+    const payload = spy.mock.calls[0][0];
+    expect(payload.clabe).toBeUndefined();
+    expect('useClabeOnFile' in payload).toBe(false);
+  });
+
+  it('v1.15: el atajo NO depende del modo mock — con clabeOnFile=false se pide la CLABE (sin atajo)', () => {
+    renderWithProviders(
+      <BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} clabeMasked="****1234" clabeOnFile={false} />,
+      'es',
     );
-    expect(spy.mock.calls[0][0].clabe).toBeUndefined();
+    // Sin CLABE en archivo: se captura de una (aunque haya un `clabeMasked` de referencia),
+    // y NO se ofrece el atajo "usar mi CLABE".
+    expect(screen.getByLabelText(/CLABE \(18 dígitos/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Usar mi CLABE/ })).not.toBeInTheDocument();
+  });
+
+  it('v1.15: con INE en archivo (ineOnFile) OCULTA los uploaders y OMITE ineUploadKeys al enviar', async () => {
+    const spy = vi.spyOn(api, 'createSellRequest');
+    renderWithProviders(
+      <BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} ineOnFile />,
+      'es',
+    );
+    // No hay uploaders de INE; en su lugar, la nota de "ya en archivo".
+    expect(screen.getByText('Tu INE ya está en archivo; no necesitas volver a subirlo.')).toBeInTheDocument();
+    expect(screen.queryByText('INE (anverso)')).not.toBeInTheDocument();
+    expect(screen.queryByText('INE (reverso)')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '002010077777777771' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // El backend usa el INE de archivo: la solicitud no reenvía keys de INE.
+    expect(spy.mock.calls[0][0].ineUploadKeys).toBeUndefined();
   });
 });

@@ -247,6 +247,12 @@ export interface KycInfoDTO {
   // Contrato GET /users/me/kyc devuelve la CLABE ENMASCARADA (`clabeMasked` = `****1234`),
   // nunca en claro por este endpoint.
   clabeMasked?: string;
+  // v1.15-buylist-batch-clabe: booleano REAL "hay CLABE cifrada en archivo" (`Boolean(clabeEnc)`),
+  // simétrico a `ineOnFile`. El front lo usa para ofrecer el atajo "usar mi CLABE ****1234" (=
+  // OMITIR `clabe` en POST /buylist/requests, resuelto server-side). Si es false, se pide la CLABE.
+  clabeOnFile: boolean;
+  // v1.15: hay imagen de INE (frente+reverso) en archivo. El front oculta los uploaders de INE y
+  // omite `ineUploadKeys`; el backend trata el INE en archivo como "provisto" para el umbral AML.
   ineOnFile: boolean;
   capPerRequestCents: number;
   capPerMonthCents: number;
@@ -478,6 +484,47 @@ export interface BuylistQuoteResponse {
   };
   referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
   paymentNotice: 'PAY_AFTER_RECEIPT';
+}
+
+// ---- Cotización en LOTE (contrato §6 · POST /buylist/quote/batch, v1.15) ----
+// READ-ONLY. Cotiza N cartas en 1 request (mata el fan-out FE-12). SIN `qty` — el modelo es
+// UNA línea por carta física (ARCHITECTURE §4.16b). Mismos campos que el quote por-carta.
+export interface BuylistQuoteItemDTO {
+  cardId: string;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  finish?: Finish;
+}
+
+// Payload de éxito por ítem = MISMO shape que la respuesta de POST /buylist/quote por-carta.
+// `rarity` puede ser null (p. ej. sellado sin rareza); el resto espeja BuylistQuoteResponse.
+export interface BuylistQuotePayload {
+  rarity: string | null;
+  finish: Finish;
+  appliedRule: BuylistRuleApplied;
+  quote: {
+    status: 'cotizada' | 'precio_pendiente';
+    quotedPriceCents: number | null;
+    currency: 'MXN';
+  };
+  referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
+  paymentNotice: 'PAY_AFTER_RECEIPT';
+}
+
+// Resultado por ítem: ok:true trae la cotización; ok:false trae el error de ESE ítem (NO tumba el
+// lote → HTTP 200). `index` = posición 0-based en el request items[] (llave de correlación robusta
+// ante cardId+finish repetidos); `cardId` se ecoa. Errores por-ítem: NOT_FOUND | FINISH_NOT_AVAILABLE.
+export type BuylistBatchQuoteResultDTO =
+  | ({ index: number; cardId: string; ok: true } & BuylistQuotePayload)
+  | {
+      index: number;
+      cardId: string;
+      ok: false;
+      error: { code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE'; message: string };
+    };
+
+export interface BuylistBatchQuoteResponse {
+  results: BuylistBatchQuoteResultDTO[];
 }
 
 // v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity` + `appliedRule`.

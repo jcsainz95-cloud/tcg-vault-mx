@@ -4,6 +4,8 @@ import {
   getCatalogFacets,
   getPortfolioHistory,
   getBuylistQuote,
+  batchQuote,
+  BUYLIST_QUOTE_BATCH_MAX,
   loginWithGoogle,
   presignUpload,
   getAdminInventory,
@@ -109,6 +111,57 @@ describe('api (rama mock, v1.1)', () => {
     const q = await getBuylistQuote({ cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' });
     expect(q.finish).toBe('normal');
     expect(q.appliedRule).toEqual({ mode: 'fixed', value: 50, source: 'rule' });
+  });
+
+  // ---- Batch quote (contrato §6 · POST /buylist/quote/batch, v1.15) ----
+  it('batchQuote (v1.15): cotiza N cartas en 1 request, ecoando index/cardId y el MISMO monto que el por-carta', async () => {
+    const res = await batchQuote([
+      { cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' }, // Common → fixed 50
+      { cardId: 'c-charizard', productType: 'raw', rawCondition: 'NM' }, // Rare Holo → fallback 40%
+    ]);
+    expect(res.results).toHaveLength(2);
+    // index 0 = correlación posicional; cardId ecoado.
+    const r0 = res.results[0];
+    expect(r0).toMatchObject({ index: 0, cardId: 'c-pikachu', ok: true });
+    if (r0.ok) expect(r0.quote.quotedPriceCents).toBe(50);
+    const r1 = res.results[1];
+    expect(r1).toMatchObject({ index: 1, cardId: 'c-charizard', ok: true });
+    // Coincide EXACTAMENTE con el quote por-carta (misma función de precio).
+    const single = await getBuylistQuote({ cardId: 'c-charizard', productType: 'raw', rawCondition: 'NM' });
+    if (r1.ok) expect(r1.quote.quotedPriceCents).toBe(single.quote.quotedPriceCents);
+  });
+
+  it('batchQuote (v1.15): TOLERANTE por-ítem — una carta inexistente sale ok:false NOT_FOUND sin tumbar las demás', async () => {
+    const res = await batchQuote([
+      { cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM' },
+      { cardId: 'c-does-not-exist', productType: 'raw', rawCondition: 'NM' },
+    ]);
+    // HTTP 200 con resultado/error por índice: la válida cotiza; la inválida trae su error.
+    const ok = res.results[0];
+    const bad = res.results[1];
+    expect(ok.ok).toBe(true);
+    expect(bad).toMatchObject({ index: 1, cardId: 'c-does-not-exist', ok: false });
+    if (!bad.ok) expect(bad.error.code).toBe('NOT_FOUND');
+  });
+
+  it('batchQuote (v1.15): acabado fuera de availableFinishes sale ok:false FINISH_NOT_AVAILABLE (por-ítem, SEC-A1)', async () => {
+    // Pikachu (Base Set) NO tiene holofoil disponible → error de ESE ítem, no del lote.
+    const res = await batchQuote([
+      { cardId: 'c-pikachu', productType: 'raw', rawCondition: 'NM', finish: 'holofoil' },
+    ]);
+    const r = res.results[0];
+    expect(r).toMatchObject({ index: 0, cardId: 'c-pikachu', ok: false });
+    if (!r.ok) expect(r.error.code).toBe('FINISH_NOT_AVAILABLE');
+  });
+
+  it('batchQuote (v1.15): vacío o sobre-cap (>50) es error de request (400 VALIDATION_ERROR)', async () => {
+    await expect(batchQuote([])).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
+    const overCap = Array.from({ length: BUYLIST_QUOTE_BATCH_MAX + 1 }, () => ({
+      cardId: 'c-pikachu',
+      productType: 'raw' as const,
+      rawCondition: 'NM' as const,
+    }));
+    await expect(batchQuote(overCap)).rejects.toMatchObject({ code: 'VALIDATION_ERROR', status: 400 });
   });
 
   it('presignUpload (mock) devuelve maxBytes como tope de tamaño del presign', async () => {

@@ -5,7 +5,6 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import { config } from '@/lib/config';
 import type { ProductType, RawCondition, Finish } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -42,8 +41,18 @@ export interface BuylistKycFormProps {
    * El backend sigue decidiendo el requisito real (SEC-A1).
    */
   ineExpected?: boolean;
-  /** CLABE ya registrada en KYC (enmascarada, `****1234`) para orientar la captura. */
+  /** CLABE ya registrada en KYC (enmascarada, `****1234`) para el label del atajo. */
   clabeMasked?: string;
+  /**
+   * v1.15: hay CLABE en archivo (booleano REAL de GET /users/me/kyc). Si es true se ofrece el atajo
+   * "usar mi CLABE ****1234" y al enviar se OMITE `clabe` (fallback server-side). Si es false, se pide.
+   */
+  clabeOnFile?: boolean;
+  /**
+   * v1.15: el INE ya está en archivo (booleano de GET /users/me/kyc). Si es true se OCULTAN los
+   * uploaders de INE y se OMITE `ineUploadKeys` (el backend usa el INE de archivo para el umbral AML).
+   */
+  ineOnFile?: boolean;
 }
 
 const CLABE_RE = /^\d{18}$/;
@@ -56,7 +65,14 @@ const CLABE_RE = /^\d{18}$/;
  * BUYLIST_LIMIT_EXCEEDED). Gating proactivo: si la sesión trae `emailVerified=false`
  * muestra el aviso con CTA de reenvío y deshabilita el envío ANTES del 403.
  */
-export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: BuylistKycFormProps) {
+export function BuylistKycForm({
+  items,
+  onCreated,
+  ineExpected,
+  clabeMasked,
+  clabeOnFile,
+  ineOnFile,
+}: BuylistKycFormProps) {
   const t = useTranslations('buylist');
   const tine = useTranslations('ine');
   const locale = useLocale() as AppLocale;
@@ -64,16 +80,12 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
   const { user, ready } = useSession();
 
   /**
-   * "Usar mi CLABE en archivo" en un clic (no reteclear 18 dígitos): el cliente
-   * NUNCA tiene la CLABE en claro (el contrato solo devuelve `clabeMasked`), y
-   * POST /buylist/requests HOY exige `clabe` en claro (contrato §6) validada por
-   * blind-index contra la de KYC.
-   * MOCK: pendiente de contrato — el atajo solo se ofrece en modo mock; contra el
-   * backend real se sigue capturando. Solicitud al arquitecto: `clabe?` opcional en
-   * POST /buylist/requests con fallback server-side a la CLABE de KYC (mismo
-   * fallback que ya implementa reveal-clabe).
+   * "Usar mi CLABE en archivo" en un clic (no reteclear 18 dígitos): el cliente NUNCA tiene la CLABE
+   * en claro (el contrato solo devuelve `clabeMasked`). v1.15: el atajo se gatea con el booleano REAL
+   * `clabeOnFile` de GET /users/me/kyc (ya no por config.useMocks); al enviar en este modo se OMITE
+   * `clabe` y el backend hace el fallback server-side a la CLABE del propio usuario (contrato §6).
    */
-  const clabeShortcutAvailable = !!clabeMasked && config.useMocks;
+  const clabeShortcutAvailable = !!clabeOnFile;
   const [useStoredClabe, setUseStoredClabe] = useState(clabeShortcutAvailable);
 
   const [clabe, setClabe] = useState('');
@@ -111,10 +123,11 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
         // lleva cardId/productType/rawCondition; el backend re-deriva el monto
         // y decide el requisito de INE/tope por el TOTAL (SEC-A1, server-side).
         items,
-        // Modo "CLABE en archivo" (solo mock, ver nota arriba): se omite la CLABE
-        // tecleada y se marca useClabeOnFile; con backend real siempre va `clabe`.
-        ...(storedMode ? { useClabeOnFile: true as const } : { clabe }),
-        ineUploadKeys: ineComplete ? { front: ineFrontKey!, back: ineBackKey! } : undefined,
+        // v1.15: modo "CLABE en archivo" → se OMITE `clabe` (el backend usa la CLABE del propio
+        // usuario en archivo, fallback server-side). Si no, va la CLABE capturada.
+        ...(storedMode ? {} : { clabe }),
+        // v1.15: si el INE ya está en archivo se OMITE ineUploadKeys (el backend usa el de archivo).
+        ineUploadKeys: !ineOnFile && ineComplete ? { front: ineFrontKey!, back: ineBackKey! } : undefined,
       });
       onCreated(res.sellRequestId);
     } catch (e) {
@@ -126,6 +139,10 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
       } else if (code === 'INE_REQUIRED') {
         setIneRequired(true);
         setFormError(t('ineRequiredError'));
+      } else if (code === 'CLABE_REQUIRED') {
+        // v1.15: se envió sin `clabe` y no hay CLABE en archivo → forzar captura y salir del atajo.
+        setUseStoredClabe(false);
+        setClabeError(t('clabeRequired'));
       } else if (code === 'CLABE_NOT_OWN_NAME') {
         setClabeError(t('clabeNotOwnName'));
       } else if (code === 'CLABE_INVALID') {
@@ -155,7 +172,7 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
         /* Un clic (de hecho cero): por defecto se reusa la CLABE ya registrada. */
         <div className="flex flex-col gap-2">
           <p className="eyebrow">{t('clabeSectionTitle')}</p>
-          <p className="text-sm text-text">{t('clabeStoredSelected', { masked: clabeMasked! })}</p>
+          <p className="text-sm text-text">{t('clabeStoredSelected', { masked: clabeMasked ?? '' })}</p>
           <button
             type="button"
             onClick={() => setUseStoredClabe(false)}
@@ -185,7 +202,7 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
               }}
               className="self-start border-b border-accent pb-1 text-xs font-medium text-accent hover:border-text hover:text-text"
             >
-              {t('clabeUseStored', { masked: clabeMasked! })}
+              {t('clabeUseStored', { masked: clabeMasked ?? '' })}
             </button>
           )}
         </div>
@@ -196,24 +213,31 @@ export function BuylistKycForm({ items, onCreated, ineExpected, clabeMasked }: B
           <ShieldCheck size={18} className="text-info" aria-hidden />
           <h3 className="text-h3 font-semibold">{t('ineSectionTitle')}</h3>
         </div>
-        <p className="text-sm text-muted">{t('ineSectionNote')}</p>
-        {ineRequired && <Banner variant="warning" role="alert">{t('ineRequiredError')}</Banner>}
-        <div className="flex flex-wrap gap-4">
-          <PhotoUploader
-            label={tine('front')}
-            purpose="kyc_ine"
-            onUploaded={setIneFrontKey}
-            onCleared={() => setIneFrontKey(null)}
-          />
-          <PhotoUploader
-            label={tine('back')}
-            purpose="kyc_ine"
-            onUploaded={setIneBackKey}
-            onCleared={() => setIneBackKey(null)}
-          />
-        </div>
-        {/* Aviso de privacidad obligatorio (DESIGN_SYSTEM §7.10). */}
-        <p className="text-xs text-muted">{tine('privacy')}</p>
+        {ineOnFile ? (
+          /* v1.15: INE ya en archivo → no se re-pide (el backend lo trata como provisto, umbral AML). */
+          <p className="text-sm text-success">{t('ineOnFileNote')}</p>
+        ) : (
+          <>
+            <p className="text-sm text-muted">{t('ineSectionNote')}</p>
+            {ineRequired && <Banner variant="warning" role="alert">{t('ineRequiredError')}</Banner>}
+            <div className="flex flex-wrap gap-4">
+              <PhotoUploader
+                label={tine('front')}
+                purpose="kyc_ine"
+                onUploaded={setIneFrontKey}
+                onCleared={() => setIneFrontKey(null)}
+              />
+              <PhotoUploader
+                label={tine('back')}
+                purpose="kyc_ine"
+                onUploaded={setIneBackKey}
+                onCleared={() => setIneBackKey(null)}
+              />
+            </div>
+            {/* Aviso de privacidad obligatorio (DESIGN_SYSTEM §7.10). */}
+            <p className="text-xs text-muted">{tine('privacy')}</p>
+          </>
+        )}
       </section>
 
       {(emailBlocked || emailNotVerified) && <EmailNotVerifiedNotice />}

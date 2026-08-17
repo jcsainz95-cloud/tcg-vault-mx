@@ -506,6 +506,8 @@ export const mockSellRequests: SellRequestDTO[] = [
 export const mockKyc: KycInfoDTO = {
   kycStatus: 'none',
   clabeMasked: undefined,
+  // v1.15: sin CLABE ni INE en archivo por defecto (el checklist los marca como pendientes).
+  clabeOnFile: false,
   ineOnFile: false,
   capPerRequestCents: 300000, // MOCK: dial M10 default (MX$3,000).
   capPerMonthCents: 1000000, // MOCK: dial M10 default (MX$10,000).

@@ -21,6 +21,7 @@ vi.mock('@/i18n/navigation', () => ({
 const BASE_KYC: KycInfoDTO = {
   kycStatus: 'none',
   clabeMasked: undefined,
+  clabeOnFile: false,
   ineOnFile: false,
   capPerRequestCents: 300000,
   capPerMonthCents: 1000000,
@@ -284,7 +285,7 @@ describe('BuylistView · carrito de venta', () => {
 
 /**
  * Bulk: multi-selección en los resultados + agregar varias de golpe.
- * Fase 3b: hoy hace loop del endpoint unitario POST /buylist/quote (no hay batch).
+ * Fase 3b: UNA sola llamada POST /buylist/quote/batch (mata el fan-out FE-12), tolerante por-ítem.
  */
 describe('BuylistView · bulk (multi-selección)', () => {
   it('selecciona varias cartas del grid y las agrega al carrito de golpe', async () => {
@@ -303,9 +304,9 @@ describe('BuylistView · bulk (multi-selección)', () => {
     expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(2);
   });
 
-  it('el bulk cotiza cada carta con el endpoint unitario existente (loop, Fase 3b)', async () => {
+  it('el bulk cotiza en UNA sola llamada batch con TODAS las cartas (mata el fan-out FE-12)', async () => {
     asVerifiedCustomer();
-    const spy = vi.spyOn(api, 'getBuylistQuote');
+    const spy = vi.spyOn(api, 'batchQuote');
     renderWithProviders(<BuylistView />, 'es');
 
     await screen.findByRole('option', { name: /Base Set/ });
@@ -316,12 +317,51 @@ describe('BuylistView · bulk (multi-selección)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Agregar seleccionadas (2)' }));
 
     await screen.findByText('2 carta(s) agregada(s) al carrito.');
-    // Cada carta seleccionada tiene una cotización unitaria (raw NM, acabado default).
-    for (const cardId of ['c-charizard', 'c-eevee']) {
-      expect(
-        spy.mock.calls.some((c) => c[0].cardId === cardId && c[0].productType === 'raw'),
-      ).toBe(true);
-    }
+    // Una única llamada al batch que resuelve el agregado de las seleccionadas.
+    const bulkCall = spy.mock.calls.find(
+      (c) => c[0].length === 2 && c[0].every((i) => i.productType === 'raw' && i.rawCondition === 'NM'),
+    );
+    expect(bulkCall).toBeTruthy();
+    const ids = bulkCall![0].map((i) => i.cardId).sort();
+    expect(ids).toEqual(['c-charizard', 'c-eevee']);
+  });
+
+  it('tolerante por-ítem: una carta inválida NO tumba el lote (batch parcial → aviso parcial)', async () => {
+    asVerifiedCustomer();
+    // El batch responde 200 con un ok:true y un ok:false (carta inexistente): el parcial NO tira todo.
+    vi.spyOn(api, 'batchQuote').mockResolvedValue({
+      results: [
+        {
+          index: 0,
+          cardId: 'c-charizard',
+          ok: true,
+          rarity: 'Rare Holo',
+          finish: 'normal',
+          appliedRule: { mode: 'pct', value: 40, source: 'fallback' },
+          quote: { status: 'cotizada', quotedPriceCents: 1940000, currency: 'MXN' },
+          referencePrice: { status: 'priced', priceMxnCents: 4850000 },
+          paymentNotice: 'PAY_AFTER_RECEIPT',
+        },
+        {
+          index: 1,
+          cardId: 'c-eevee',
+          ok: false,
+          error: { code: 'NOT_FOUND', message: 'Card not found' },
+        },
+      ],
+    });
+    renderWithProviders(<BuylistView />, 'es');
+
+    await screen.findByRole('option', { name: /Base Set/ });
+    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Eevee' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar seleccionadas (2)' }));
+
+    // Aviso parcial (1 agregada, 1 no disponible) y la válida SÍ entró (1 línea "Quitar").
+    expect(await screen.findByText('1 carta(s) agregada(s); 1 no disponible(s).')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(1);
   });
 
   it('limpiar selección desmarca sin agregar nada', async () => {
@@ -512,7 +552,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
   });
 
   it('con CLABE registrada: el checklist la muestra cumplida (enmascarada)', async () => {
-    asVerifiedCustomer({}, { clabeMasked: '****1234', kycStatus: 'pending' });
+    asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true, kycStatus: 'pending' });
     renderWithProviders(<BuylistView />, 'es');
 
     expect(await screen.findByText('CLABE registrada (****1234)')).toBeInTheDocument();
@@ -520,7 +560,8 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
   });
 
   it('con CLABE registrada: el modal ofrece "Usar mi CLABE" en un clic (sin reteclear)', async () => {
-    asVerifiedCustomer({}, { clabeMasked: '****1234' });
+    // v1.15: el atajo se gatea por el booleano REAL clabeOnFile (GET /users/me/kyc).
+    asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true });
     renderWithProviders(<BuylistView />, 'es');
     await quoteAndAdd('Charizard');
 
@@ -545,5 +586,37 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     expect(
       await screen.findByText('Esta solicitud supera el tope: sube tu INE (anverso y reverso) para continuar.'),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * v1.15 — CLABE en un clic REAL (omite `clabe`, fallback server-side) e INE en archivo (no re-pide),
+ * cableados de useSellRequirements (GET /users/me/kyc) → BuylistKycForm de punta a punta.
+ */
+describe('BuylistView · v1.15 CLABE/INE en archivo', () => {
+  it('con CLABE en archivo, enviar la solicitud OMITE `clabe` (el backend hace el fallback)', async () => {
+    asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true });
+    const spy = vi.spyOn(api, 'createSellRequest');
+    renderWithProviders(<BuylistView />, 'es');
+    await quoteAndAdd('Charizard');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    // El modal arranca en modo "usar mi CLABE": se confirma sin teclear los 18 dígitos.
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].clabe).toBeUndefined();
+  });
+
+  it('con INE en archivo, el modal NO re-pide el INE (oculta los uploaders)', async () => {
+    asVerifiedCustomer({}, { clabeMasked: '****1234', clabeOnFile: true, ineOnFile: true });
+    renderWithProviders(<BuylistView />, 'es');
+    await quoteAndAdd('Charizard');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    expect(
+      await screen.findByText('Tu INE ya está en archivo; no necesitas volver a subirlo.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('INE (anverso)')).not.toBeInTheDocument();
   });
 });
