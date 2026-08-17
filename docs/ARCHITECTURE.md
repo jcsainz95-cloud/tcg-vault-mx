@@ -2,7 +2,16 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.17-withdrawal-lifecycle (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.17.1-withdrawal-eligibility (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+>
+> **Changelog v1.17.1-withdrawal-eligibility (2026-08-17) — Cierre de invariante read/write del RETIRO (triple verdicto
+> WS-H: techlead + seguridad SEC-H1 + qa). SOLO documentación.** La transición terminal deja el item `status='withdrawn'`
+> pero conserva `ownershipStatus='settled'` (histórico); el criterio de creación de retiro (`classifyItems`) exigía
+> `settled` pero **no excluía** `withdrawn`, permitiendo re-enviar/re-cobrar un item ya entregado por llamada directa.
+> Se **norma en §3.3** que `withdrawn` es **TERMINAL para retiros** (no re-elegible) y que la fuente de verdad de
+> elegibilidad **excluye** `withdrawn` y exige `status='in_custody'`: `ownerType='customer' AND ownerUserId=usuario AND
+> ownershipStatus='settled' AND status='in_custody' AND sin envío activo` — **mismo** criterio que el flag de lectura
+> `HoldingDTO.withdrawable`. Error normado **`422 ITEM_NOT_IN_CUSTODY`**. Ver **§3.3** y API_CONTRACT v1.17.1 (§0, §3, §5).
 >
 > **Changelog v1.17-withdrawal-lifecycle (2026-08-17) — Cierre del ciclo de RETIRO en la bóveda (Opción 1 del humano).**
 > Cierra el hueco WD-1 (§9): el `InventoryItem` nunca se movía durante el envío, así que la carta seguía en "Mi Bóveda"
@@ -787,9 +796,13 @@ webhook payment_intent.canceled
   → libera la reserva de compra (Order=failed, item reserved→listed)
     o cancela un envío en 'solicitado' (ShipmentRequest=cancelado, libera items)
 
-Retiro
-  → solo items con ownershipStatus=settled pueden entrar a ShipmentItem.
-    Un item pending es rechazado por la validación de creación de ShipmentRequest.
+Retiro  (criterio único de elegibilidad = classifyItems, v1.17.1)
+  → un item entra a ShipmentItem SOLO si cumple TODAS:
+    ownerType=customer AND ownerUserId=usuario AND ownershipStatus=settled
+    AND status=in_custody AND sin envío activo.
+    Rechazos: pending ⇒ 422 ITEM_NOT_SETTLED; con envío activo ⇒ 409 ITEM_IN_ANOTHER_SHIPMENT;
+    withdrawn / no-in_custody ⇒ 422 ITEM_NOT_IN_CUSTODY.
+    La elegibilidad EXCLUYE status=withdrawn (item ya entregado, terminal): NO basta ownershipStatus=settled.
 ```
 
 #### Ciclo de vida del item durante el RETIRO/envío (v1.17 — Opción 1)
@@ -830,6 +843,16 @@ Coherencia con el contracargo (§ webhook `charge.dispute.created`, abajo): ese 
 (`ShipmentItem` con envío `enviado`/`entregado`) para decidir si la carta "salió físicamente". Con v1.17, tras
 `entregado` el item además es `withdrawn`; el handler sigue siendo correcto (busca por `ShipmentItem`, no por
 `item.status`) y **no** re-agrega al inventario una carta ya entregada.
+
+**`withdrawn` es TERMINAL para retiros (v1.17.1 — invariante read/write).** Una vez que el item llega a
+`status='withdrawn'` (transición terminal en `entregado`), **NO es re-elegible** para un nuevo `POST /shipments`,
+aunque conserve `ownershipStatus='settled'` (histórico). La **fuente de verdad de elegibilidad** (`classifyItems`,
+misma que el flag de lectura `HoldingDTO.withdrawable`) **excluye** `status='withdrawn'` y exige `status='in_custody'`:
+`ownerType='customer' AND ownerUserId=usuario AND ownershipStatus='settled' AND status='in_custody' AND sin envío
+activo`. Un intento de retirar un item `withdrawn` (o cualquier `status != 'in_custody'`) por llamada directa a la API
+se rechaza con **`422 ITEM_NOT_IN_CUSTODY`** (API_CONTRACT §5). Esto cierra la divergencia detectada en el triple
+verdicto de WS-H (SEC-H1): la escritura de creación de retiro y la lectura `withdrawable` comparten **exactamente** el
+mismo criterio, evitando el re-envío/re-cobro de un item ya entregado.
 
 Separación física: los items en `ownerType=customer` viven en `VaultLocation.zone=customer_custody`; el stock de la plataforma en `zone=platform_stock`. El movimiento entre zonas queda en `InventoryMovement`.
 
