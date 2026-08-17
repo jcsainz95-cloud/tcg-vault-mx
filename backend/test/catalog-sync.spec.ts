@@ -273,4 +273,51 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
     ).resolves.toBeUndefined();
     expect(importSpy).toHaveBeenCalledTimes(2); // siguió con el segundo pese al fallo del primero
   });
+
+  it('getSyncStatus refleja el progreso: total al lanzar, done por set, running→false al terminar', async () => {
+    const prisma = prismaWithLocal([]); // nada importado → ambos remotos pendientes (total 2)
+    const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+
+    // Estado inicial: nunca corrió → running false, total/done 0, sin timestamps.
+    expect(svc.getSyncStatus()).toMatchObject({ running: false, total: 0, done: 0, jobId: null });
+
+    // Difiere el barrido para observar el estado "en curso" (running con total fijado).
+    let resolveRun!: () => void;
+    jest.spyOn(svc as any, 'runSyncAll').mockReturnValue(new Promise<void>((r) => { resolveRun = r; }));
+
+    await svc.syncAll();
+    const mid = svc.getSyncStatus();
+    expect(mid.running).toBe(true);
+    expect(mid.total).toBe(2);
+    expect(mid.jobId).toMatch(/^catalog-sync-all-/);
+    expect(mid.startedAt).not.toBeNull();
+    expect(mid.finishedAt).toBeNull();
+
+    resolveRun();
+    await Promise.resolve(); // deja correr el .finally del fire-and-forget
+    const done = svc.getSyncStatus();
+    expect(done.running).toBe(false);
+    expect(done.finishedAt).not.toBeNull();
+  });
+
+  it('runSyncAll incrementa done por cada set intentado (éxito o fallo)', async () => {
+    const prisma = prismaWithLocal([]);
+    const svc = new CatalogSyncService(
+      prisma as PrismaService,
+      { getSets: jest.fn() } as unknown as PokemonTcgIoClient,
+      settings(),
+    );
+    jest
+      .spyOn(svc as any, 'importSet')
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ imported: true, cardCount: 1 });
+
+    await svc.runSyncAll([
+      { id: 'bad', name: 'Bad', releaseDate: '2020/01/01' },
+      { id: 'ok', name: 'Ok', releaseDate: '2021/01/01' },
+    ]);
+    // done cuenta ambos (el que falló y el que pasó): barra honesta de "intentados".
+    expect(svc.getSyncStatus().done).toBe(2);
+  });
 });

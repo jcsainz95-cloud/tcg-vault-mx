@@ -148,10 +148,26 @@ export class CatalogSyncService {
   }
 
   /**
-   * Single-flight: evita lanzar dos barridos de `sync-all` en paralelo (duplicaría la carga
-   * contra pokemontcg.io y el consumo de rate-limit). Vive en memoria del proceso.
+   * Estado observable del barrido `sync-all` (para `GET /admin/catalog/sync-status`).
+   *
+   * Vive en memoria del proceso (no persistido; ver límite conocido en `syncAll`). Da un
+   * progreso HONESTO `done/total` en SETS y un momento claro de "terminó" (`running=false` +
+   * `finishedAt`), SIN llamar a pokemontcg.io en cada poll (no consume rate-limit). `running`
+   * también sirve de single-flight: mientras es `true` no se lanza un segundo barrido.
    */
-  private syncAllRunning = false;
+  private syncAllStatus: {
+    running: boolean;
+    jobId: string | null;
+    total: number;
+    done: number;
+    startedAt: string | null;
+    finishedAt: string | null;
+  } = { running: false, jobId: null, total: 0, done: 0, startedAt: null, finishedAt: null };
+
+  /** GET /admin/catalog/sync-status — progreso del barrido en curso (o del último). */
+  getSyncStatus() {
+    return { ...this.syncAllStatus };
+  }
 
   /**
    * POST /admin/catalog/sync-all (v1.3, NUEVO) — importa TODO el catálogo (todos los sets
@@ -194,16 +210,27 @@ export class CatalogSyncService {
     const pending = force ? [...remote] : remote.filter((s) => !importedWithCards.has(s.id));
     const jobId = `catalog-sync-all-${Date.now()}`;
 
-    if (this.syncAllRunning) {
+    if (this.syncAllStatus.running) {
       // Ya hay un barrido en curso → no lanzamos otro; reportamos lo que falta.
       return { jobId, setsQueued: 0, remaining: pending.length };
     }
 
-    this.syncAllRunning = true;
     const batch = [...pending];
+    // Publica el estado observable del barrido ANTES de lanzarlo: jobId/total/startedAt se
+    // fijan aquí; `done` avanza por set en runSyncAll; `running`/`finishedAt` se cierran en el
+    // finally. Así el front puede pintar una barra honesta done/total y saber cuándo terminó.
+    this.syncAllStatus = {
+      running: true,
+      jobId,
+      total: batch.length,
+      done: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+    };
     // Fire-and-forget: el request NO espera a que se importen todos los sets.
     void this.runSyncAll(batch).finally(() => {
-      this.syncAllRunning = false;
+      this.syncAllStatus.running = false;
+      this.syncAllStatus.finishedAt = new Date().toISOString();
     });
     // `setsQueued` = sets encolados en esta llamada; `remaining` = sets aún sin importar que
     // NO se encolaron (0: encolamos todos los pendientes).
@@ -217,6 +244,9 @@ export class CatalogSyncService {
         await this.importSet(s);
       } catch (e) {
         this.logger.warn(`sync-all: set ${s.id} falló: ${(e as Error).message}`);
+      } finally {
+        // Avanza el progreso por set intentado (éxito o fallo) → barra honesta done/total.
+        this.syncAllStatus.done += 1;
       }
     }
     this.logger.log(`sync-all: barrido de ${sets.length} sets completado.`);

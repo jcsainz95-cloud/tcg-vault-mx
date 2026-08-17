@@ -132,7 +132,8 @@ describe('M2View · Catálogo y precios', () => {
     // Confirmar dispara la mutación con force=true.
     fireEvent.click(screen.getByRole('button', { name: /Sí, re-sincronizar todo/ }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ force: true }));
-    expect(await screen.findByText(/Re-sync forzado encolado: 42 sets/)).toBeInTheDocument();
+    // El barrido corre en segundo plano: copy honesto "encolado", no "listo".
+    expect(await screen.findByText(/Barrido encolado: 42 set\(s\)/)).toBeInTheDocument();
   });
 
   it('cancelar la confirmación del re-sync forzado no llama al endpoint', async () => {
@@ -144,6 +145,35 @@ describe('M2View · Catálogo y precios', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /Cancelar/ }));
 
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('pinta la barra de progreso del barrido cuando GET /sync-status reporta running', async () => {
+    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
+      running: true,
+      jobId: 'catalog-sync-all-1',
+      total: 10,
+      done: 4,
+      startedAt: '2026-08-17T00:00:00.000Z',
+      finishedAt: null,
+    });
+    renderWithProviders(<M2View />, 'es');
+    // Progreso honesto done/total + porcentaje, con aviso de que corre en segundo plano.
+    expect(await screen.findByText(/Importando catálogo… 4\/10 sets/)).toBeInTheDocument();
+    expect(screen.getByText('40%')).toBeInTheDocument();
+    expect(screen.getByText(/Corre en segundo plano/)).toBeInTheDocument();
+  });
+
+  it('al terminar el barrido (running=false, total>0) muestra "completada", no la barra viva', async () => {
+    vi.spyOn(api, 'getSyncStatus').mockResolvedValue({
+      running: false,
+      jobId: 'catalog-sync-all-1',
+      total: 10,
+      done: 10,
+      startedAt: '2026-08-17T00:00:00.000Z',
+      finishedAt: '2026-08-17T00:05:00.000Z',
+    });
+    renderWithProviders(<M2View />, 'es');
+    expect(await screen.findByText(/Sincronización completada: 10 set\(s\)/)).toBeInTheDocument();
   });
 
   // ---- Editor de precio de buylist por rareza (v1.3.1) ----

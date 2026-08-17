@@ -17,6 +17,7 @@ import {
   syncCatalog,
   backfillCatalog,
   syncAllCatalog,
+  getSyncStatus,
 } from '@/lib/api';
 import type {
   PendingPriceEntryDTO,
@@ -53,6 +54,44 @@ function pesosToCents(value: string): number {
  */
 function isEndpointMissing(error: unknown): boolean {
   return error instanceof ApiClientError && (error.status === 404 || error.status === 405);
+}
+
+/**
+ * Barra de progreso del barrido de catálogo (sync-all). Mientras corre pinta done/total en
+ * SETS y avisa —honestamente— que sigue en segundo plano; al terminar muestra el éxito.
+ * `role="status"` + `aria-live` para que un lector de pantalla anuncie el avance.
+ */
+function SyncProgress({
+  running,
+  done,
+  total,
+  labels,
+}: {
+  running: boolean;
+  done: number;
+  total: number;
+  labels: { running: string; runningHint: string; done: string };
+}) {
+  const pct = total > 0 ? Math.min(100, Math.round((Math.min(done, total) / total) * 100)) : 0;
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-medium">{running ? labels.running : labels.done}</span>
+        {running && <span className="tabular text-muted">{pct}%</span>}
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-border" aria-hidden>
+        <div
+          className={`h-full rounded-full transition-all ${running ? 'bg-accent' : 'bg-success'}`}
+          style={{ width: `${running ? pct : 100}%` }}
+        />
+      </div>
+      {running && <p className="text-xs text-muted">{labels.runningHint}</p>}
+    </div>
+  );
 }
 
 export function M2View() {
@@ -174,7 +213,25 @@ export function M2View() {
   }
 
   // --- Sección 5: sync de catálogo ---
-  const remoteSets = useQuery({ queryKey: ['remote-sets'], queryFn: getRemoteSets });
+  // Estado del barrido `sync-all` (GET /admin/catalog/sync-status). Se POLLEA cada 3 s
+  // mientras `running` para saber en vivo cuántos sets faltan y CUÁNDO terminó (lo que
+  // pedía el operador: "saber que acabó"). El endpoint puede no existir aún en backend
+  // (404/405): en ese caso no se pinta la barra (retry:false + isError → nada). No llama
+  // a pokemontcg.io, así que pollearlo no consume rate-limit.
+  const syncStatus = useQuery({
+    queryKey: ['catalog-sync-status'],
+    queryFn: getSyncStatus,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.running ? 3000 : false),
+  });
+  const isSweeping = syncStatus.data?.running ?? false;
+
+  // Mientras hay un barrido en curso, refresca la tabla (cardCount/imported avanzan solos).
+  const remoteSets = useQuery({
+    queryKey: ['remote-sets'],
+    queryFn: getRemoteSets,
+    refetchInterval: isSweeping ? 5000 : false,
+  });
   const catalogSyncMutation = useMutation({
     mutationFn: (setId?: string) => syncCatalog(setId ? { setId } : {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['remote-sets'] }),
@@ -183,11 +240,17 @@ export function M2View() {
     mutationFn: () => backfillCatalog({ batchSize: 10 }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['remote-sets'] }),
   });
+  // Tras lanzar un barrido (sync-all / force), arranca de inmediato el poll del estado
+  // (invalida la query) y refresca la tabla; el barrido corre en segundo plano en backend.
+  const onSweepLaunched = () => {
+    qc.invalidateQueries({ queryKey: ['catalog-sync-status'] });
+    qc.invalidateQueries({ queryKey: ['remote-sets'] });
+  };
   // v1.3: sync-all puede no existir en backend; se usa condicionalmente y su fallo
   // no rompe la vista (se muestra aviso). Ver contrato §M2.
   const syncAllMutation = useMutation({
     mutationFn: () => syncAllCatalog(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['remote-sets'] }),
+    onSuccess: onSweepLaunched,
   });
   // v1.6-finish: re-sync FORZADO (contrato §M2, `force=true`): reprocesa TODO el
   // catálogo (incluidos sets ya importados) para repoblar availableFinishes/precios
@@ -195,7 +258,7 @@ export function M2View() {
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
   const syncAllForceMutation = useMutation({
     mutationFn: () => syncAllCatalog({ force: true }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['remote-sets'] }),
+    onSuccess: onSweepLaunched,
   });
 
   const setColumns: Column<RemoteSetDTO>[] = [
@@ -211,7 +274,19 @@ export function M2View() {
           <Badge tone="neutral" shape="outline">{t('catalog.no')}</Badge>
         ),
     },
-    { key: 'cardCount', header: t('catalog.cardCount'), align: 'right', render: (s) => <span className="tabular">{s.cardCount}</span> },
+    {
+      key: 'cardCount',
+      header: t('catalog.cardCount'),
+      align: 'right',
+      // Progreso por set: cartas importadas / total impreso del set. Si no hay printedTotal
+      // (dato remoto ausente) se muestra solo el conteo. Da una noción de "cuánto trajo".
+      render: (s) => (
+        <span className="tabular">
+          {s.cardCount}
+          {s.printedTotal ? <span className="text-muted"> / {s.printedTotal}</span> : null}
+        </span>
+      ),
+    },
     {
       key: 'actions',
       header: '',
@@ -502,9 +577,13 @@ export function M2View() {
         {backfillMutation.isError && (
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(backfillMutation.error)}</Banner>
         )}
-        {syncAllMutation.isSuccess && (
-          <Banner variant="success" role="status">
-            {t('catalog.syncAllDone', { count: syncAllMutation.data.setsQueued })}
+        {/* Barrido lanzado: NO decimos "listo" (corre en segundo plano). Si setsQueued=0 y
+            no hay barrido corriendo, significa que ya estaba todo importado (o single-flight). */}
+        {syncAllMutation.isSuccess && !isSweeping && (
+          <Banner variant="info" role="status">
+            {syncAllMutation.data.setsQueued > 0
+              ? t('catalog.syncAllQueued', { count: syncAllMutation.data.setsQueued })
+              : t('catalog.syncAllNothing')}
           </Banner>
         )}
         {syncAllMutation.isError &&
@@ -513,12 +592,11 @@ export function M2View() {
           ) : (
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllMutation.error)}</Banner>
           ))}
-        {syncAllForceMutation.isPending && (
-          <Banner variant="info" role="status">{t('catalog.syncAllForceRunning')}</Banner>
-        )}
-        {syncAllForceMutation.isSuccess && (
-          <Banner variant="success" role="status">
-            {t('catalog.syncAllForceDone', { count: syncAllForceMutation.data.setsQueued })}
+        {syncAllForceMutation.isSuccess && !isSweeping && (
+          <Banner variant="info" role="status">
+            {syncAllForceMutation.data.setsQueued > 0
+              ? t('catalog.syncAllQueued', { count: syncAllForceMutation.data.setsQueued })
+              : t('catalog.syncAllNothing')}
           </Banner>
         )}
         {syncAllForceMutation.isError &&
@@ -527,6 +605,23 @@ export function M2View() {
           ) : (
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllForceMutation.error)}</Banner>
           ))}
+
+        {/* Estado del barrido en curso / recién terminado (GET /sync-status, poll cada 3 s). */}
+        {syncStatus.data && (syncStatus.data.running || syncStatus.data.total > 0) && (
+          <SyncProgress
+            running={syncStatus.data.running}
+            done={syncStatus.data.done}
+            total={syncStatus.data.total}
+            labels={{
+              running: t('catalog.sweepRunning', {
+                done: Math.min(syncStatus.data.done, syncStatus.data.total),
+                total: syncStatus.data.total,
+              }),
+              runningHint: t('catalog.sweepRunningHint'),
+              done: t('catalog.sweepDone', { total: syncStatus.data.total }),
+            }}
+          />
+        )}
         <QueryState
           isLoading={remoteSets.isLoading}
           isError={remoteSets.isError}

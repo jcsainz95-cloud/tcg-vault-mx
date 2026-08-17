@@ -67,6 +67,7 @@ import type {
   CatalogSyncResponse,
   CatalogBackfillResponse,
   CatalogSyncAllResponse,
+  CatalogSyncStatusResponse,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
   AdminCreatedUserDTO,
@@ -1474,6 +1475,20 @@ export async function syncAllCatalog(
     ? fx.mockRemoteSets.length
     : fx.mockRemoteSets.filter((s) => !s.imported).length;
   return delay({ jobId: mockJobId(), setsQueued: sets, remaining: 0 });
+}
+
+/**
+ * Progreso del barrido `sync-all` (contrato GET /admin/catalog/sync-status). Pensado para
+ * POLLING desde M2: da done/total en sets y el momento en que termina, sin llamar a
+ * pokemontcg.io. Puede no existir aún en backend (v1.11): el llamador trata 404/405 como
+ * "no disponible" y simplemente no pinta la barra.
+ */
+export async function getSyncStatus(): Promise<CatalogSyncStatusResponse> {
+  if (!config.useMocks) {
+    return apiRequest<CatalogSyncStatusResponse>('/admin/catalog/sync-status');
+  }
+  // Mock: nunca hay un barrido corriendo (el estado vive en memoria del backend real).
+  return delay({ running: false, jobId: null, total: 0, done: 0, startedAt: null, finishedAt: null });
 }
 
 // ---------- Admin M6 · Usuarios / KYC (contrato §M6) ----------

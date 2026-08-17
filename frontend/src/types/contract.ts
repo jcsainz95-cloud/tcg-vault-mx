@@ -762,6 +762,19 @@ export interface CatalogSyncAllResponse {
   remaining: number;
 }
 
+// GET /admin/catalog/sync-status — progreso del barrido `sync-all` en curso (o del último).
+// Estado en memoria del proceso (no persistido); para POLLING desde M2 sin llamar a pokemontcg.io.
+export interface CatalogSyncStatusResponse {
+  running: boolean;
+  jobId: string | null;
+  /** sets encolados en el barrido actual/último. */
+  total: number;
+  /** sets ya procesados (éxito o fallo) → barra de progreso done/total. */
+  done: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
 // ---- M6: Usuarios / KYC (contrato §M6) ----
 // v1.3.1: `deleted` = cuenta soft-deleted/anonimizada (no puede iniciar sesión).
 export type AdminUserStatus = 'active' | 'blocked' | 'deleted';

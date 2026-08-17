@@ -51,6 +51,16 @@ export class AdminCatalogController {
     return res;
   }
 
+  /**
+   * GET /admin/catalog/sync-status — progreso del barrido `sync-all` en curso (o del último).
+   * Pensado para POLLING desde M2 (cada pocos segundos): por eso NO se audita (evita inundar
+   * AuditLog) y NO llama a pokemontcg.io (lee estado en memoria; no consume rate-limit).
+   */
+  @Get('sync-status')
+  syncStatus() {
+    return this.sync.getSyncStatus();
+  }
+
   @Post('sync')
   @HttpCode(202)
   async doSync(@Body() dto: SyncDto, @CurrentUser() user: { id: string; role: Role }) {
