@@ -2,7 +2,37 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.20-master-set-everywhere (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.21-guest-checkout (MVP, plataforma en producción). Fecha: 2026-08-18. Branch: `stream/ordenes-guest-checkout`.
+>
+> **Changelog v1.21-guest-checkout (2026-08-18) — WS «Órdenes y dinero»: COMPRAR SIN CUENTA (PROJECT §J, §J.1,
+> criterios 45–56b).** Ver **§4.21** (spec completa: ruta de fulfillment, ciclo de vida de los items, modelo de
+> amenazas del enlace), §3.3 (pointer), §7, §11 (**M-25**) y API_CONTRACT §4-G.
+> - **El hallazgo que da forma al diseño:** hoy **no existe** la elección "envío vs bóveda". Comprar **siempre**
+>   deposita en la bóveda (`createSession` pone `ownerType='customer'` + `ownerUserId`; el webhook lo pasa a
+>   `in_custody/settled`) y el **envío es un flujo posterior COBRADO APARTE** (`ShipmentsService` exige
+>   `ownerUserId === userId`, `settled`, `in_custody` y una `Address` **guardada del usuario**, y crea su **propio**
+>   PaymentIntent). Por eso «envío directo para invitados» **no es aflojar el auth: es una ruta de fulfillment
+>   NUEVA** — `Order.fulfillmentMode = vault | direct_ship`, dirección **capturada en línea** (snapshot en la orden,
+>   el invitado no tiene `Address`) y **envío cobrado en el MISMO PaymentIntent** (el invitado no puede pagar un
+>   segundo PI desde una bóveda que no tiene).
+> - **Ciclo de vida del item sin bóveda:** en `direct_ship` el item **jamás** pasa a `ownerType='customer'`
+>   (no hay `ownerUserId` que poner, y ponerlo `null` rompería la bóveda de todos). Conserva
+>   `platform/null/null` y su ciclo lo lleva `status`: `reserved → picking → shipped → delivered`, estrenando los
+>   tres valores de `InventoryStatus` que v1.17 dejó **sin uso por diseño**. **Sin enum nuevo.** Se eleva a
+>   invariante escrito: **`ownerType='customer'` ⇒ `ownerUserId NOT NULL`**.
+> - **`ShipmentRequest` con dos naturalezas:** `userId` nullable + `orderId?` como **discriminador**. El envío
+>   directo lo **crea el servidor** al liquidar (nace en `picking`, sin PI propio, con montos en `0` para que el
+>   P&L no cuente el envío dos veces: el ingreso vive en `Order.shippingFeeCents`). M4 lo opera igual salvo la
+>   **transición terminal** (`delivered`, no `withdrawn`).
+> - **Token de seguimiento = opaco + hash en BD, NO JWT** (`OrderAccessToken`): 32 bytes `base64url`, solo el
+>   SHA-256 persistido, **multi-uso** (`revokedAt`, no `usedAt`), TTL 90d, rotación al reenviar, tope de edad 365d.
+>   Es el patrón de `AuthToken` (§3.2) con la única diferencia semántica de "revocable pero no consumible".
+> - **Anti-enumeración como propiedad del código, no del copy:** el camino de invitado **nunca** consulta `User`
+>   por correo; el reenvío exige `(email + orderNumber)` y responde `202` siempre; el reclamo exige **correo
+>   verificado** (prueba de titularidad) y es **explícito**, nunca silencioso. El modelo soporta las **tres**
+>   políticas posibles del hueco abierto del PO **sin migración**.
+> - **Migración M-25** (`Order.userId` nullable + 9 columnas, `ShipmentRequest` +2, enum `FulfillmentMode`, modelo
+>   `OrderAccessToken`): **`backend/prisma/` es zona compartida**, el orquestador la serializa.
 >
 > **Changelog v1.20-master-set-everywhere (2026-08-17) — WS «Inventario y vault»: Master set en TODAS partes.**
 > La vista Master Set (v1.16, §4.17, solo M1) se generaliza a un **read model único parametrizado por scope**
@@ -619,8 +649,10 @@ Convención de dinero: **todos los montos son enteros en centavos (`*Cents`) de 
 User 1───* Address
 User 1───1 KycProfile           (CLABE/INE/límites)
 User 1───1 BillingProfile       (CFDI)
-User 1───* Order 1───* OrderItem *───1 InventoryItem
-User 1───* ShipmentRequest 1───* ShipmentItem *───1 InventoryItem
+User 0/1─* Order 1───* OrderItem *───1 InventoryItem      (v1.21: userId NULLABLE = pedido de invitado)
+User 0/1─* ShipmentRequest 1───* ShipmentItem *───1 InventoryItem   (v1.21: userId NULLABLE = envío directo)
+Order 1───* OrderAccessToken        (v1.21: enlace de seguimiento del invitado; solo el SHA-256 en BD)
+Order 0/1─* ShipmentRequest         (v1.21: orderId poblado = envío directo que fulfilla ese pedido)
 User 1───* SellRequest 1───* SellRequestItem 0/1─1 InventoryItem  (al convertir)
 User 1───* Dispute *───1 InventoryItem
 
@@ -730,6 +762,14 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - `ivaRatePct` (snapshot del dial, default 16), `stripePaymentIntentId?`, `stripeChargeId?`, `billingSnapshot` (JSONB, datos CFDI al momento), `cfdiStatus` (`registrado | no_aplica` en MVP — sin PAC; `emitido` reservado para fase 2), `invoiceRequested` (bool, default false — el cliente pide factura por correo), `createdAt`, `settledAt?`, `refundedAt?`.
 - **Banderas operativas de disputa/contracargo** (escalares, NO cambian el enum `OrderStatus`): `chargebackNeedsManual` (bool, default false — el contracargo llegó cuando la carta **ya se había enviado/entregado**; requiere pelear la disputa con la guía, sin re-agregar inventario) y `disputeOutcome?` (`won | lost | null` — resultado del cierre de la disputa Stripe: `won→settled`, `lost→chargeback`). Se **exponen solo** en el detalle admin de orden del contrato (`GET /admin/orders/:id`), no en `OrderSummaryDTO` ni en el detalle del cliente.
 - Índices: `(userId)`, `(status)`, `stripePaymentIntentId` único.
+- **Guest checkout (v1.21, MIGRACIÓN M-25):** `userId` pasa a **nullable** (un pedido de invitado no tiene `User`) y
+  se añaden: `guestEmail?` (normalizado, indexado; `!= null` ⇔ el pedido **nació** de invitado, inmutable),
+  `fulfillmentMode` (`vault | direct_ship`, **default `vault`** = comportamiento actual), `shippingAddressSnapshot?`
+  (JSONB — el invitado no tiene `Address`), `shippingFeeCents` (`@default(0)`, envío cobrado **dentro** de esta
+  orden y **única** fuente de ese ingreso para el P&L), `orderNumber?` (`@unique`, `TCG-000123`, secuencia
+  `order_number_seq`), `claimedAt?`, `locale?`, `paymentMethodBrand?`/`paymentMethodLast4?` (marca + 4 últimos del
+  `charge`; **nunca** PAN/BIN/titular). Relaciones nuevas: `accessTokens OrderAccessToken[]`,
+  `shipmentRequests ShipmentRequest[]`. Invariantes y `CHECK` recomendados en §11 (M-25); diseño en §4.21.
 
 #### OrderItem
 - `id`, `orderId`, `inventoryItemId`, `cardSnapshot` (JSONB: nombre/set/número/tipo/condición-grado), `unitPriceCents` (sin IVA, congelado al checkout).
@@ -740,9 +780,29 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - **Costo** de envío (v1.4-finance, **MIGRACIÓN M-16**): `shippingCostCents` (`Int @default(0)`) = **lo que la plataforma paga a la paquetería** por ese envío (MXN centavos). **Distinto de `shippingFeeCents`** (ingreso ≠ costo). Se **captura en M4 al asignar carrier/guía** (`POST /admin/shipments/:id/tracking`), es **opcional** (default 0 mientras no se conoce) y **editable** después re-invocando el mismo endpoint; validación de aplicación **entero ≥ 0**. Alimenta el P&L de M7 (se resta), acotado por `pickingAt` (§ P&L M7). Filas históricas/sin captura ⇒ 0 (no rompen el P&L).
 - Logística manual: `carrier?`, `trackingNumber?`, `requestedAt`, `pickingAt?`, `shippedAt?`, `deliveredAt?`.
 - Restricción: solo se incluyen items `settled` (ver validación en §3.3).
+- **Guest checkout (v1.21, MIGRACIÓN M-25):** `userId` pasa a **nullable** y se añade **`orderId?`** (FK a `Order`,
+  indexado) como **discriminador de naturaleza**: `orderId == null` ⇒ **retiro de bóveda** (todo lo de arriba, sin
+  cambios); `orderId != null` ⇒ **envío directo** que fulfilla un pedido de invitado, creado **por el servidor** al
+  liquidar el pago, nacido en `picking`, con `stripePaymentIntentId = null` y **montos en `0`** (el envío ya se
+  cobró en la orden — evita el doble conteo en el P&L). La restricción de "solo items `settled`" **no aplica** al
+  envío directo: sus items nunca estuvieron en bóveda (§4.21c). Invariante de aplicación: **a lo más un envío
+  activo por orden** (no se pone `@unique` para no cerrar la re-expedición por pérdida).
 
 #### ShipmentItem
 - `id`, `shipmentRequestId`, `inventoryItemId`.
+
+#### OrderAccessToken (enlace de seguimiento del invitado) — **MIGRACIÓN M-25 (modelo nuevo, v1.21-guest-checkout)**
+- `id`, `orderId` (+FK `onDelete: Cascade`), `tokenHash` (**SHA-256 hex `@unique`** del claro; el claro son 32 bytes
+  aleatorios `base64url` que viajan **solo por correo** y en la respuesta del checkout a quien creó el pedido),
+  `expiresAt`, `revokedAt?`, `lastUsedAt?`, `useCount` (`@default(0)`), `requestIp?`, `createdAt`.
+  Índices: `(orderId)`, `(expiresAt)`.
+- **Mismo patrón que `AuthToken`** (§3.2/§4.11) con **una** diferencia semántica: es **multi-uso** — `usedAt`
+  (consumible) se sustituye por `revokedAt` (revocable). Por eso **no** se reusa `AuthToken`: su `userId` es
+  obligatorio (un invitado no lo tiene) y su `consume()` marca uso único.
+- Reglas: TTL **90 días**; emitir uno **rota** (revoca) los vigentes del mismo pedido ⇒ solo el último enlace vale;
+  se revoca al **reclamar** el pedido y por **soporte**; no se emiten tokens para pedidos con más de **365 días**.
+- **No es una credencial de sesión**: no otorga rol, no se acepta en `Authorization` y solo habilita la lectura de
+  **un** pedido con datos mínimos. Modelo de amenazas completo en §4.21e.
 
 #### SellRequest (M5/E — buylist)
 - `id`, `userId`, `status` (`cotizada | recibida | verificacion | aprobada | pagada | rechazada | abandonada`).
@@ -926,6 +986,13 @@ verdicto de WS-H (SEC-H1): la escritura de creación de retiro y la lectura `wit
 mismo criterio, evitando el re-envío/re-cobro de un item ya entregado.
 
 Separación física: los items en `ownerType=customer` viven en `VaultLocation.zone=customer_custody`; el stock de la plataforma en `zone=platform_stock`. El movimiento entre zonas queda en `InventoryMovement`.
+
+> **v1.21-guest-checkout — este ciclo describe la ruta `fulfillmentMode='vault'` (la de siempre) y NO cambia.** Un
+> pedido de **invitado** (`fulfillmentMode='direct_ship'`) **no tiene titularidad**: el item conserva
+> `ownerType='platform', ownerUserId=null, ownershipStatus=null` durante todo el ciclo y este lo lleva `status`
+> (`reserved → picking → shipped → delivered`), estrenando los tres valores que el bloque de arriba declara "sin uso
+> por diseño". **Invariante que se eleva a norma con esta versión: `ownerType='customer'` ⇒ `ownerUserId NOT NULL`**
+> (es lo que hace segura la nulabilidad de `Order.userId`). Ciclo completo y reversos en **§4.21c**.
 
 ### 3.4 Protección de PII (cifrado en reposo, blind index, enmascarado, retención)
 
@@ -2726,6 +2793,209 @@ promoción; ningún otro stream la toca en paralelo). Reglas:
 
 ---
 
+### 4.21 WS «Órdenes y dinero» — Guest checkout: comprar sin cuenta (v1.21-guest-checkout)
+
+> **PROJECT §J / §J.1 / criterios 45–56b.** Contrato completo (endpoints, DTOs, diff de esquema campo por campo) en
+> **API_CONTRACT §4-G**. Aquí vive el **por qué**: la ruta de fulfillment nueva, el ciclo de vida de los items y el
+> modelo de amenazas del enlace tokenizado.
+
+#### (a) El problema real: hoy no existe «envío vs bóveda»
+
+Lo que parece "quitar el login del checkout" es en realidad **construir una segunda ruta de fulfillment**. Estado
+verificado del código antes de esta versión:
+
+| Pieza | Comportamiento actual | Por qué bloquea al invitado |
+|---|---|---|
+| `OrdersService.createSession` | Reserva cada `InventoryItem` con `status='reserved'`, **`ownerType='customer'`, `ownerUserId=userId`**, `ownershipStatus='pending'` | Necesita un `User`. Un invitado no lo tiene, y `ownerUserId=null` con `ownerType='customer'` rompería la definición de bóveda (holdings, portafolio, snapshots, master set por usuario). |
+| `PaymentsService.onPaymentSucceeded` | Pasa el item a **`status='in_custody'`, `ownershipStatus='settled'`** | Deposita en bóveda. Para un invitado no hay bóveda donde depositar. |
+| `ShipmentsService.create` | Exige `ownerUserId === userId`, `ownershipStatus='settled'`, `status='in_custody'`, una **`Address` guardada del usuario**, y crea **su propio PaymentIntent** con `shippingFeeCents` | Triple bloqueo: sin usuario, sin bóveda y sin dirección guardada. Y el invitado **no puede pagar un segundo PI**: no tiene desde dónde iniciarlo. |
+| `Order.userId` / `ShipmentRequest.userId` | `String` **NOT NULL** con FK a `User` | El cambio de esquema es **inevitable**; este stream es su caso legítimo. |
+
+De ahí las tres decisiones estructurales: **(1)** un modo de fulfillment explícito en la orden, **(2)** dirección
+**capturada en línea** como *snapshot* (no una fila `Address`), **(3)** el envío se cobra **dentro del mismo
+`PaymentIntent`** de la orden. No es una optimización: es la única forma de que el invitado pague una sola vez.
+
+#### (b) Ruta de fulfillment `direct_ship` (nueva) vs `vault` (la de siempre)
+
+```
+                       ┌──────────────── fulfillmentMode ────────────────┐
+                       │                                                 │
+             vault (DEFAULT, requiere cuenta)              direct_ship (invitado, v1.5)
+                       │                                                 │
+ POST /checkout/session (customer)                 POST /checkout/guest/session (public)
+   items → ownerType=customer, ownerUserId,          items → SIGUEN ownerType=platform,
+           ownershipStatus=pending, reserved                 ownerUserId=null, reserved
+   PI = cartas + IVA + fee                           PI = cartas + ENVÍO + IVA + fee   ← una sola vez
+                       │                                                 │
+ webhook succeeded                                  webhook succeeded
+   items → in_custody / settled  (BÓVEDA)             items → picking (siguen de plataforma)
+                       │                              + se CREA ShipmentRequest(orderId, userId=null,
+                       │                                status='picking', montos 0)
+                       │                              + correo con enlace tokenizado (best-effort)
+                       │                                                 │
+ POST /shipments (customer, SEGUNDO PI)             (no aplica: ya está pagado y encolado)
+   ShipmentRequest(userId, addressId guardado)
+                       │                                                 │
+ M4: picking→guia→enviado→entregado                 M4: picking→guia→enviado→entregado (MISMA cola)
+   entregado ⇒ item in_custody → withdrawn            enviado   ⇒ item picking → shipped
+                                                      entregado ⇒ item shipped → delivered
+```
+
+**Por qué el envío del `ShipmentRequest` de invitado va en `0`:** el P&L de M7 suma `ShipmentRequest.shippingFeeCents`
+de los envíos liquidados. Si el envío directo repitiera ahí la tarifa ya cobrada en la orden, **el ingreso se
+contaría dos veces**. El ingreso vive en `Order.shippingFeeCents` (única fuente) y el envío de fulfillment queda en
+`0`; el **costo** real del carrier (`shippingCostCents`) se sigue capturando en M4 igual para los dos tipos, así que
+el lado del costo no cambia. La fórmula corregida de M7 está normada en API_CONTRACT §12.
+
+#### (c) Ciclo de vida de los items en un pedido de invitado
+
+**Decisión de fondo: la titularidad del invitado NO se modela.** Un invitado no tiene bóveda, no tiene portafolio y
+no tiene retiros; modelarle una "titularidad" obligaría a `ownerType='customer'` con `ownerUserId=null`, y ese par
+es exactamente lo que rompería todas las consultas de bóveda existentes (holdings, `PortfolioSnapshot`, master set
+`scope=user_vault`, ficha 360°, `classifyItems`). Se elige lo contrario: **el item sigue siendo de la plataforma
+hasta que sale por la puerta**, y todo el ciclo lo expresa `status`.
+
+```
+listed | in_stock
+   │  POST /checkout/guest/session
+   ▼
+reserved        ownerType=platform · ownerUserId=null · ownershipStatus=null
+   │  payment_intent.succeeded  (Order settled)
+   ▼
+picking         vendida y en preparación (aún físicamente en el almacén)
+   │  M4: PATCH .../status → enviado
+   ▼
+shipped         salió físicamente
+   │  M4: PATCH .../status → entregado   (deliveredAt ancla la ventana de disputa de 7 días)
+   ▼
+delivered       TERMINAL de una venta con envío directo   (NO `withdrawn`)
+
+Reversos:
+  payment_failed | canceled           → reserved → listed     (Order failed; nada que revertir de titularidad)
+  chargeback con item reserved|picking → vuelve a listed        (movimiento chargeback_return)
+  chargeback con item shipped|delivered→ NO se re-agrega; Order.chargebackNeedsManual=true
+```
+
+Tres consecuencias que se declaran de forma explícita para que nadie las "arregle" después:
+1. **No hace falta ningún valor nuevo en `InventoryStatus`.** `picking | shipped | delivered` estaban **sin uso por
+   diseño** desde v1.17 (el retiro de bóveda no los escribe; §3.3) y sus nombres describen exactamente estos tres
+   momentos. Reusarlos evita tocar un enum transversal — mismo criterio con el que v1.20 hizo que `error_captura`
+   reusara `withdrawn`.
+2. **`delivered` ≠ `withdrawn`.** `withdrawn` significa "salió de la bóveda de un cliente". Un pedido de invitado
+   nunca estuvo en bóveda, así que usar `withdrawn` mentiría en los reportes de custodia. M4 **ramifica** por
+   `ShipmentRequest.orderId != null`.
+3. **Los guardarraíles anti double-sell ya cubren los tres estados nuevos** sin tocarlos: el checkout exige
+   `{listed, in_stock}`, `bulk-publish` devuelve `ITEM_NOT_PUBLISHABLE` fuera de `{in_stock, listed}` y el ajuste
+   de M1 devuelve `ITEM_NOT_ADJUSTABLE` fuera de `{in_stock, listed}`. **Cero cambios en módulos de otros streams.**
+
+**Efecto conocido y aceptado en los conteos de M1:** una pieza `reserved`/`picking` de un pedido de invitado sigue
+siendo `ownerType='platform'` y por tanto cuenta como *on-hand* en el master set de plataforma hasta pasar a
+`shipped`. Es coherente con el criterio físico de ese contador (la carta está en el almacén) y con que `reserved`
+ya contaba; **no** se cambia la regla *on-hand* de §4.17/§4.20 (es de otro work stream).
+
+#### (d) `ShipmentRequest` con dos naturalezas — por qué no se creó un modelo nuevo
+
+Se evaluó crear un `GuestShipment` separado. Se descarta: duplicaría la cola de M4, la lista de picking, la captura
+de guía, la máquina de estados y los reportes, para representar **la misma operación física** (meter cartas en una
+caja y darle una guía). La diferencia real es de **origen y de cobro**, no de operación. Por eso:
+`ShipmentRequest.userId` nullable + `orderId?` como **discriminador único** (`orderId == null` ⇔ retiro de bóveda),
+y M4 opera una sola cola. La única bifurcación de comportamiento está en la transición terminal (§c).
+
+#### (e) Modelo de amenazas del enlace tokenizado
+
+El enlace **sustituye a una contraseña**: quien lo tiene, ve el pedido. El diseño ataca cada vector por separado.
+
+| # | Amenaza | Mitigación | Residual |
+|---|---|---|---|
+| T1 | **Adivinar/enumerar tokens** | 256 bits de entropía (`randomBytes(32)`), lookup por `SHA-256 @unique` (no hay comparación parcial ni prefijos), rate limit 20/min por IP | Nulo en la práctica (2^256). |
+| T2 | **Enumerar pedidos por id o número** | El token es la **única** llave; la vista pública **no expone el uuid** del pedido y **no existe** endpoint público de búsqueda por número/correo (criterio 52). El `orderNumber` es secuencial pero **no da acceso** (solo sirve, junto al correo, para pedir un reenvío que va al correo del pedido) | Un tercero puede estimar el volumen de ventas a partir de un `orderNumber` que le muestren. Aceptado. |
+| T3 | **Oráculo "¿este correo compró aquí?"** | El reenvío exige `(email + orderNumber)` juntos, responde **`202` siempre** y envía **solo** a `Order.guestEmail`. El checkout **nunca** consulta `User` por correo. `GET /orders/claimable` solo habla del correo **verificado** de quien pregunta | Ninguno conocido. |
+| T4 | **Fuga del token por `Referer` / logs / historial** | Token en el **body de un POST**, no en la ruta; página `noindex` + `Referrer-Policy: no-referrer`; el front borra el token de la URL (`history.replaceState`); prohibido loguear bodies de `/orders/guest/*` | El token pasa por el correo y por la URL inicial. Inevitable en un enlace por correo (mismo modelo que un reset de contraseña). |
+| T5 | **Fuga por dump/backup de BD** | En BD solo vive el **SHA-256**. Un dump **no** produce enlaces utilizables. *(Esta es la razón principal para NO usar un JWT: un JWT robado del correo es igual de malo, pero además la fuga del **secreto de firma** permitiría fabricar tokens para pedidos arbitrarios.)* | Ninguno. |
+| T6 | **Reenvío del correo a un tercero / dispositivo compartido** | `GuestOrderTrackingDTO` de **datos mínimos** (§4-G.3): sin dirección completa, sin correo/teléfono, sin PAN, **sin ninguna acción**. El daño máximo es *ver* qué compró alguien | Aceptado explícitamente por PROJECT §J. |
+| T7 | **Token vivo para siempre** | TTL 90 días, **rotación** al reenviar (solo el último vale), **revocación** al reclamar y por soporte, y tope de edad de la orden (365 días) para emitir nuevos | Ventana de 90 días. Revisable por el humano. |
+| T8 | **Escalada del token a acciones** | El token **no** es credencial: no se acepta en `Authorization`, no crea sesión, no otorga rol y solo lo leen los endpoints `/orders/guest/*`. Ninguna mutación acepta token | Ninguno. |
+| T9 | **DoS de inventario con pedidos no pagados** | Rate limit 5/hora por IP, tope de 20 líneas por pedido, y **job de barrido** `guest-order-sweep` que libera reservas de órdenes `pending` con más de `GUEST_ORDER_RESERVATION_TTL_MIN` (60 min) y cancela su PI | Ventana de 60 min de inventario retenido por un atacante. El barrido **también** beneficia a los pedidos con cuenta (hoy dependen solo de que Stripe cancele el PI). |
+| T10 | **Fraude con tarjeta sin historial de usuario** | Fuera del alcance técnico: se cubre con el flujo de contracargo existente (§9 API_CONTRACT). PROJECT deja abierto si el humano quiere un **tope de monto por pedido de invitado** (pregunta v1.5-5) | Exposición comercial conocida; hoy **no** hay tope. |
+
+**Por qué opaco y no JWT (decisión, no preferencia):** (i) **revocable** borrando/marcando una fila — un JWT solo
+se revoca con lista negra, que es exactamente la tabla que el opaco ya es; (ii) **no filtra claims** (un JWT lleva
+`orderId` y fechas legibles por cualquiera que lo intercepte); (iii) **no depende de la rotación de un secreto**
+(rotar el secreto invalidaría *todos* los enlaces vivos); (iv) **precedente probado en casa** (`AuthToken`,
+§3.2/§4.11) con el mismo `hashAuthToken`/`randomBytes(32)`. La **única** diferencia semántica que hay que codificar
+es que este token es **multi-uso**: `usedAt` (consumo) se sustituye por `revokedAt` (revocación) y `useCount`/
+`lastUsedAt` (telemetría). No se reusa el modelo `AuthToken` porque su `userId` es obligatorio y su semántica de
+un-solo-uso está cableada en `consume()`.
+
+#### (f) Reclamo: la prueba de titularidad, dicha en voz alta
+
+**¿Basta con verificar el correo? Sí, y además es obligatorio.** Verificar el buzón es *exactamente* la misma
+prueba con la que el invitado recibió su enlace de seguimiento: si alguien controla ese buzón, ya podía ver el
+pedido. No se está bajando el listón, se está igualando. Consecuencias:
+- El reclamo **exige `emailVerified=true`** (`403 EMAIL_NOT_VERIFIED`, guard existente). Sin ese requisito,
+  registrarse con el correo de un tercero bastaría para quedarse su pedido — el agujero clásico de esta feature.
+- El **token NO es prueba alternativa**: se descarta permitir "reclamar con el enlace desde una cuenta con otro
+  correo", porque dejaría que quien intercepte el enlace se apropie del pedido y **bloquee** al comprador legítimo
+  (el reclamo es de una sola vez). El token sirve para *leer*, nunca para *apropiarse*.
+- **Vinculación explícita, nunca silenciosa** (decisión del orquestador sobre el hueco abierto del PO): nadie debe
+  poder inyectar pedidos al historial de un tercero escribiendo su correo en un checkout.
+- **El modelo aguanta las tres políticas sin migración**, que era el requisito: el pedido guarda `guestEmail` y la
+  vinculación es un `UPDATE` posterior sobre `userId`+`claimedAt`. Cambiar a *auto-vínculo al pagar* = poblar esos
+  dos campos en el settle; cambiar a *exigir login* = un check en el checkout. **El punto de decisión queda acotado
+  a un solo lugar** y la política es **revisable por el humano**.
+- **Efectos acotados (criterio 54):** el reclamo **solo** escribe `userId`, `claimedAt`, revoca los tokens y
+  audita. No mueve items a la bóveda, no cambia `fulfillmentMode`, ni precios, ni políticas, ni el estado del
+  pedido. Un pedido ya entregado se reclama igual y queda como pedido cerrado en el historial.
+- **Una sola vez (criterio 55):** `UPDATE ... WHERE id=:id AND userId IS NULL AND guestEmail=:correoVerificado`
+  con `count===1` como ganador. Es el mismo patrón de reserva atómica que ya usa `createSession`; no hace falta
+  bloqueo ni transacción serializable.
+
+**Disputa de un invitado (criterio 56b) — decisión de NO modelar:** se descarta volver `Dispute.userId` nullable en
+esta versión. El invitado abre su disputa **por correo a soporte** citando su `orderNumber` (que es exactamente lo
+que PROJECT §J describe), el súper-admin evalúa y, si procede, ejecuta **reembolso en M3** — endpoint que ya existe,
+ya es money-out, ya es `super_admin` y ya queda auditado. Coste: en v1.5 una disputa de invitado **no deja fila
+`Dispute`**, así que no aparece en la cola de M8 ni en las métricas de disputas. **Deuda propuesta (para que el
+techlead decida si la registra y a quién la enruta): `Dispute.userId` nullable + `orderId` para dar trazabilidad a
+las disputas de invitado en M8.** No es bloqueante del DoD de este stream.
+
+#### (g) Correo: `orders` usa el puerto, no toca el módulo `mail`
+
+`MailModule` es `@Global()` y **exporta `MAIL_PORT`** (`MailPort.send({to,subject,html,text})`), de modo que
+`orders` puede renderizar su **plantilla local** (`backend/src/modules/orders/mail/guest-order.templates.ts`, ES/EN
+por `Order.locale`) y enviarla **sin modificar `mail` por dentro** — exactamente el patrón que `buylist` estrenó en
+v1.18 (§4.18) y que PROJECT declara fuera de alcance ("cambios internos al módulo `mail`"). `MailService` conserva
+sus dos métodos actuales; **no se le añade nada**.
+
+Envío **best-effort post-commit**: su fallo se loguea y **no** revierte el pago ni hace fallar el webhook (un 5xx
+haría que Stripe reintentara un settle ya aplicado). La red de seguridad ante un fallo de correo es triple: el
+`trackingToken` ya devuelto por `POST /checkout/guest/session`, el reenvío self-service y el reenvío de soporte.
+Contenido **prohibido** en el correo: cualquier dato de otro pedido, la dirección completa, datos de pago más allá
+de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
+
+#### (h) Reparto de trabajo (v1.21)
+
+- **Backend:** (1) migración **M-25** + secuencia `order_number_seq` y backfill; (2)
+  `computeDirectShipBreakdown` en `common/money.ts` (aditivo) y 7 códigos en `common/error-codes.ts`;
+  (3) `GuestCheckoutService` en `modules/orders` (quote/session, `@Public()`, throttle, sin consultar `User`);
+  (4) `OrderAccessTokenService` (emitir/rotar/validar/revocar, espejo de `AuthTokenService` pero multi-uso);
+  (5) rama `direct_ship` en `payments.service` (settle → `picking` + crear `ShipmentRequest` idempotente +
+  `paymentMethodBrand/last4` + correo post-commit); (6) ramificación de la terminal en M4; (7) claim
+  (`/orders/claimable`, `/orders/claim`) con guard de `emailVerified` y update condicional; (8) endpoint admin de
+  reenvío + `AuditLog`; (9) job `guest-order-sweep`; (10) plantilla de correo local; (11) **tests**: DTO público sin
+  ningún campo prohibido, token inválido/expirado/revocado/de otro pedido, reclamo doble, reclamo con correo no
+  verificado, `GET /shipments` no devuelve envíos `userId=null`, contracargo antes/después de enviar, idempotencia
+  del webhook, no doble conteo del envío.
+- **Frontend:** checkout de invitado (3 vías sin perder carrito), doble captura de correo, upsell de bóveda a partir
+  de `422 VAULT_REQUIRES_ACCOUNT`, página `/[locale]/pedido` (token del query → body, `replaceState`, `noindex`),
+  pantalla de enlace expirado con reenvío, confirmación con oferta de cuenta, y banner "tienes N pedidos por
+  reclamar" tras verificar el correo.
+- **QA:** los flujos de PROJECT §J.1 tal cual, incluidos los negativos (correo inválido, dirección no-MX, token
+  manipulado/expirado, token de un pedido que no abre otro, pedido ya reclamado).
+- **Seguridad (fase de release):** el `GuestOrderTrackingDTO` y el oráculo del reenvío son los dos objetivos
+  prioritarios del pentester.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -2798,6 +3068,26 @@ processingFeeCents = totalCents − baseCents
 | M10 Bitácora (lectura) | — | ❌ | ✅ |
 
 Regla de oro: **el dinero que sale solo lo toca el súper-admin**; todo queda en bitácora.
+
+**Invitado (sin cuenta) — v1.21-guest-checkout.** No es un `Role` (no hay fila `User`, no hay JWT, no hay rol que
+escalar): es la **ausencia** de sesión, y su superficie es una lista cerrada de endpoints `@Public()`
+(`POST /checkout/guest/quote|session`, `POST /orders/guest/track|resend-link`). Autorización por acción:
+
+| Acción | Invitado |
+|---|---|
+| Navegar Compra / ver ficha y precios | ✅ (ya era público) |
+| **Comprar con envío directo a domicilio MX** | ✅ (`direct_ship`, envío en el mismo PaymentIntent) |
+| **Guardar en bóveda** | ❌ `422 VAULT_REQUIRES_ACCOUNT` → **upsell de registro**, nunca un error |
+| Ver **su** pedido por enlace tokenizado | ✅ solo lectura, datos mínimos, **un** pedido |
+| Listar/buscar pedidos, ver otro pedido | ❌ no existe endpoint (criterio 52) |
+| Cualquier mutación sobre el pedido (cancelar, cambiar dirección, reembolso, factura) | ❌ ninguna acción disponible con token |
+| Vender (buylist), portafolio, direcciones guardadas, back-office | ❌ exigen cuenta |
+| Abrir disputa por API | ❌ — se atiende **por correo a soporte** citando el `orderNumber` (§4.21f) |
+| Reclamar su pedido | ✅ solo tras **crear cuenta y verificar el correo** (`403 EMAIL_NOT_VERIFIED` si no) |
+
+Dos reglas que cierran el cruce entre mundos: un endpoint `/checkout/guest/*` con **sesión válida** responde
+`409 ALREADY_AUTHENTICATED`, y el `OrderAccessToken` **nunca** se acepta como credencial de sesión (no otorga rol,
+no lo lee ningún guard, no abre ningún endpoint `customer`).
 
 ---
 
@@ -2944,6 +3234,44 @@ este documento y con `API_CONTRACT.md`.
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.21-guest-checkout — WS «Órdenes y dinero»)
+
+> Ninguna bloquea el desarrollo: **todas tienen un supuesto implementado** y el modelo está diseñado para que
+> cambiar la respuesta sea un ajuste acotado, **sin migración**.
+
+- **v1.21-1 — Correo del invitado que YA tiene cuenta (la que PROJECT deja abierta, v1.5-1).** Implementado:
+  **no se revela**, la compra procede como invitado y el pedido queda **sin vincular** hasta el **reclamo explícito**
+  del titular con correo **verificado**. Es la única de las tres opciones que **no** reintroduce enumeración de
+  usuarios ni permite ensuciar el historial de un tercero. **Punto de decisión acotado (§4.21f):** el modelo guarda
+  `guestEmail` en el pedido y la vinculación es un `UPDATE` posterior de `userId`+`claimedAt`, así que pasar a
+  *auto-vínculo al pagar* = poblar esos dos campos en el settle, y a *exigir login* = un check en el checkout.
+  **Decisión del orquestador; revisable por el humano.**
+- **v1.21-2 — Vigencia del enlace (PROJECT v1.5-2).** Implementado: **90 días** desde cada emisión, con **tope de
+  edad de la orden de 365 días** para emitir nuevos (si no, el reenvío mantendría la puerta abierta para siempre).
+  Cambiar a 30 días o a "X días tras entregado" es cambiar una constante.
+- **v1.21-3 — Reenvío self-service (PROJECT v1.5-3).** Implementado: **sí**, con respuesta `202` neutra siempre,
+  3/hora por IP, 5/día por pedido, y exigiendo `(email + orderNumber)` juntos cuando no se presenta un token.
+  Existe además el reenvío **de soporte** (endpoint admin auditado). Si el humano prefiere "solo soporte", se
+  desactiva el endpoint público sin tocar nada más.
+- **v1.21-4 — `orderNumber` secuencial y legible.** Se elige `TCG-000123` con secuencia Postgres (patrón `folio`)
+  porque los criterios 45/49/53/56b lo exigen para correos, soporte y disputas. **Filtra el volumen de ventas** a
+  quien vea un número. La alternativa (número aleatorio no correlativo) es igual de barata si al humano le importa
+  esa señal. **No da acceso a nada por sí solo.**
+- **v1.21-5 — Tope comercial por pedido de invitado (PROJECT v1.5-5).** Hoy **no hay tope de monto** (solo el
+  técnico de **20 líneas** por pedido, anti-abuso). Si el humano quiere limitar exposición a contracargos, entra
+  como constante/dial sin cambio de contrato.
+- **v1.21-6 — Disputa de invitado sin fila `Dispute` (§4.21f).** Implementado: correo a soporte + **reembolso en
+  M3**. Coste: no aparece en la cola de M8 ni en métricas de disputas. **Deuda propuesta** (que el techlead enrute
+  si la considera): `Dispute.userId` nullable + `orderId`.
+- **v1.21-7 — Retención de datos del invitado no reclamado (PROJECT v1.5-7, sin supuesto).** El pedido guarda
+  correo, teléfono y dirección de una persona **sin cuenta**, en claro (mismo régimen que `User.email`; el cifrado
+  en reposo de §3.4 está reservado a CLABE/RFC/INE). **Depende de la postura legal**, no de la técnica: cuando el
+  humano fije el plazo, la implementación natural es un job que **anonimiza el snapshot y el `guestEmail`** de
+  pedidos entregados hace más de N días, **conservando** los montos e IVA para M7. Se deja anotado porque afecta
+  también a "solicitud de borrado" (bandera de privacidad de PROJECT).
+- **v1.21-8 — Idioma del correo (PROJECT v1.5-8).** Implementado: `Order.locale` capturado en el checkout, default
+  `es`.
 
 ### Preguntas abiertas (v1.20-master-set-everywhere — WS «Inventario y vault»)
 > No bloquean el diseño (defaults propuestos y **normados en el contrato**); se listan para veto/ajuste del humano.
@@ -3140,6 +3468,41 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.21-guest-checkout (nueva — WS «Órdenes y dinero»: comprar sin cuenta)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-25** frente a cualquier otro stream. Es la
+migración **menos aditiva** de las recientes: incluye **dos `DROP NOT NULL`** (`Order.userId`,
+`ShipmentRequest.userId`). Aun así es **compatible hacia atrás**: ninguna fila existente cambia de valor, los
+defaults (`vault`, `0`) reproducen el comportamiento actual bit a bit, y los índices `@@index([userId])` **se
+conservan** (un B-tree de Postgres indexa `NULL` y las consultas `where userId = X` lo siguen usando igual). Diff
+campo por campo, con nota de compatibilidad por columna, en **API_CONTRACT §4-G.10**.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-25 | `enum FulfillmentMode` | **Enum nuevo** (`vault \| direct_ship`) | Create enum | Destino del pedido. `vault` = comportamiento actual. |
+| M-25 | `Order.userId` | `String` → **`String?`** (relación a opcional) | **Alter column (DROP NOT NULL)** | Un pedido de invitado no tiene `User`. **No relaja ninguna autorización**: la puerta sigue siendo `order.userId !== :sessionUser`, y `null` nunca iguala a un uuid. El **compilador** de TypeScript señalará cada punto que asumía no-nulo: backend debe resolverlos con decisión explícita, no con `!`. |
+| M-25 | `Order.guestEmail String?` | **Columna nueva** (nullable) + `@@index([guestEmail])` | Add column + index | Correo del invitado, normalizado (trim+lowercase) por la aplicación. `guestEmail != null` ⇔ el pedido **nació** de invitado (inmutable, sobrevive al reclamo). |
+| M-25 | `Order.fulfillmentMode` | **Columna nueva** `FulfillmentMode` **`@default(vault)`** | Add column | El default preserva el comportamiento existente sin backfill. |
+| M-25 | `Order.shippingAddressSnapshot Json?` | **Columna nueva** (nullable) | Add column | Dirección capturada en línea (el invitado no tiene `Address`). Mismo criterio de *snapshot* que `ShipmentRequest.addressSnapshot`. |
+| M-25 | `Order.shippingFeeCents Int @default(0)` | **Columna nueva** | Add column | Envío cobrado **dentro** de la orden. `0` en pedidos a bóveda ⇒ el P&L histórico no cambia. **Única** fuente del ingreso de envío de un pedido de invitado (§4.21b). |
+| M-25 | `Order.orderNumber String? @unique` | **Columna nueva** + **secuencia** `order_number_seq` + **backfill** | Add column + create sequence + data | Número legible `TCG-000123` (criterios 45/49/53/56b). Mismo patrón que `inventory_folio_seq`/`PrismaService.nextFolio`. Nullable solo para permitir el backfill; la aplicación lo escribe siempre. Greenfield ⇒ backfill trivial por `createdAt`. |
+| M-25 | `Order.claimedAt DateTime?` | **Columna nueva** (nullable) | Add column | Momento del reclamo. Con `guestEmail != null`: `null` ⇒ reclamable. |
+| M-25 | `Order.locale Locale?` | **Columna nueva** (nullable) | Add column | Idioma del correo del invitado (no hay `User.locale`). Resolución `order.locale ?? user.locale ?? 'es'`. |
+| M-25 | `Order.paymentMethodBrand String?`, `Order.paymentMethodLast4 String?` | **2 columnas nuevas** (nullable) | Add column | Capturadas del `charge` al liquidar. **Solo** marca + 4 últimos dígitos (permitido por PCI-DSS); jamás PAN/BIN/titular. Alimentan la vista pública. |
+| M-25 | `ShipmentRequest.userId` | `String` → **`String?`** | **Alter column (DROP NOT NULL)** | `null` **solo** en el envío directo creado por el servidor. Riesgo #1 de la migración: `GET /shipments[...]` debe filtrar por `userId = :sessionUser` de forma **positiva** (caso negativo obligatorio de QA). |
+| M-25 | `ShipmentRequest.orderId String?` + FK a `Order` + `@@index([orderId])` | **Columna + índice nuevos** | Add column + FK + index | **Discriminador**: `null` ⇒ retiro de bóveda (todo lo existente); poblado ⇒ envío directo que fulfilla ese pedido. **No `@unique`** (deja abierta la re-expedición sin migrar); invariante de aplicación: a lo más un envío **activo** por orden. |
+| M-25 | `OrderAccessToken` | **Modelo nuevo** (`id` uuid `@id`, `orderId` + FK `onDelete: Cascade`, `tokenHash String @unique`, `expiresAt DateTime`, `revokedAt DateTime?`, `lastUsedAt DateTime?`, `useCount Int @default(0)`, `requestIp String?`, `createdAt`; `@@index([orderId])`, `@@index([expiresAt])`) | Create table | Enlace de seguimiento. **Solo** el SHA-256 del claro. **Multi-uso**: `revokedAt` (revocable) en vez de `usedAt` (consumible) — es la única diferencia semántica con `AuthToken`, y la razón de no reusar ese modelo (su `userId` es obligatorio y su `consume()` es de un solo uso). |
+
+> **`CHECK` recomendados en SQL crudo dentro de la migración** (Prisma no los expresa; son baratos y atrapan bugs de
+> aplicación): `userId IS NOT NULL OR guestEmail IS NOT NULL`; `guestEmail IS NOT NULL ⇒ fulfillmentMode='direct_ship'`;
+> `fulfillmentMode='direct_ship' ⇒ shippingAddressSnapshot IS NOT NULL`; `claimedAt IS NOT NULL ⇒ userId IS NOT NULL`.
+> **Enums:** ninguno más — `InventoryStatus` **NO** crece (`picking|shipped|delivered` ya existen sin uso, §4.21c) y
+> `ShipmentStatus` tampoco. **Config/diales:** **ninguno** — los cinco parámetros del guest checkout son
+> **constantes de servidor** (`GUEST_TRACKING_TTL_DAYS=90`, `GUEST_TRACKING_MAX_AGE_DAYS=365`,
+> `GUEST_RESEND_MAX_PER_DAY=5`, `GUEST_MAX_ITEMS=20`, `GUEST_ORDER_RESERVATION_TTL_MIN=60`), mismo precedente que
+> las ventanas 7d/30d del buylist (v1.18); promoverlas a M10 después es no-breaking. La tarifa de envío reusa el
+> dial existente `SHIPPING_FEE_CENTS`. **Sin variables de entorno nuevas** (el enlace se arma con `APP_BASE_URL`).
 
 ### v1.20-master-set-everywhere (nueva — WS «Inventario y vault»: master set en todas partes)
 
