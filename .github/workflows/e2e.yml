@@ -230,8 +230,23 @@ jobs:
       # real con la API oficial (`chromium.executablePath()`), no a mano.
       - name: Instalar Chromium de Playwright
         working-directory: frontend
+        # ROBUSTEZ (2026-08-18): ver la nota extendida en security-sast.yml. `--with-deps`
+        # ejecuta `apt-get` por dentro, y un mirror atascado deja el job colgado en vez de
+        # fallar (visto: 15 min parados aquí). timeout + 3 intentos.
+        timeout-minutes: 10
         run: |
-          npx playwright install --with-deps chromium
+          set -uo pipefail
+          for intento in 1 2 3; do
+            if timeout 300 npx playwright install --with-deps chromium; then
+              break
+            fi
+            if [ "$intento" = "3" ]; then
+              echo "::error title=No se pudo instalar Chromium::3 intentos agotados."
+              exit 1
+            fi
+            echo "::warning title=Instalacion de Chromium fallida::Intento $intento agotado o fallido; reintentando en 10s."
+            sleep 10
+          done
           CHROMIUM_BIN="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
           if [ ! -x "$CHROMIUM_BIN" ]; then
             echo "::error title=Chromium no quedó instalado::No existe/ejecutable: $CHROMIUM_BIN"

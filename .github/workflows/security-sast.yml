@@ -178,16 +178,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
+        # ROBUSTEZ (2026-08-18): timeout por comando + reintentos.
+        # Sin esto, un mirror de apt que se atasca deja el job COLGADO hasta el timeout de
+        # 6 h de Actions en lugar de fallar. Ocurrió 4 veces en una sola noche (trivy-fs ×2,
+        # trivy-image, y el `playwright install` de e2e): 25 min parados en `apt-get`, sin
+        # log ni señal. Es especialmente dañino aquí porque Railway espera al CHECK SUITE
+        # COMPLETO: un job colgado bloquea el deploy indefinidamente y parece "aún corriendo".
+        # `timeout` acota cada comando, 3 intentos absorben el fallo transitorio, y
+        # `timeout-minutes` es el tope duro del step.
+        # El gate NO se relaja: si tras 3 intentos no hay Trivy, el step FALLA (exit 1).
+        # Nunca se continúa sin escanear.
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
-            | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-          trivy --version
+          set -uo pipefail
+          instalar_trivy() {
+            sudo timeout 150 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 150 apt-get install -y wget gnupg || return 1
+            wget -qO - --timeout=30 --tries=3 https://aquasecurity.github.io/trivy-repo/deb/public.key \
+              | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null || return 1
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+              | sudo tee /etc/apt/sources.list.d/trivy.list || return 1
+            sudo timeout 150 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 180 apt-get install -y trivy || return 1
+          }
+          for intento in 1 2 3; do
+            if instalar_trivy; then
+              trivy --version
+              exit 0
+            fi
+            echo "::warning title=Instalacion de Trivy fallida::Intento $intento agotado o fallido; reintentando en 10s."
+            sleep 10
+          done
+          echo "::error title=No se pudo instalar Trivy::3 intentos agotados. El gate NO se salta: el job falla."
+          exit 1
       - name: Trivy fs (HIGH/CRITICAL => fallo)
         uses: aquasecurity/trivy-action@v0.33.1
         with:
@@ -218,16 +241,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
+        # ROBUSTEZ (2026-08-18): timeout por comando + reintentos.
+        # Sin esto, un mirror de apt que se atasca deja el job COLGADO hasta el timeout de
+        # 6 h de Actions en lugar de fallar. Ocurrió 4 veces en una sola noche (trivy-fs ×2,
+        # trivy-image, y el `playwright install` de e2e): 25 min parados en `apt-get`, sin
+        # log ni señal. Es especialmente dañino aquí porque Railway espera al CHECK SUITE
+        # COMPLETO: un job colgado bloquea el deploy indefinidamente y parece "aún corriendo".
+        # `timeout` acota cada comando, 3 intentos absorben el fallo transitorio, y
+        # `timeout-minutes` es el tope duro del step.
+        # El gate NO se relaja: si tras 3 intentos no hay Trivy, el step FALLA (exit 1).
+        # Nunca se continúa sin escanear.
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
-            | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-          trivy --version
+          set -uo pipefail
+          instalar_trivy() {
+            sudo timeout 150 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 150 apt-get install -y wget gnupg || return 1
+            wget -qO - --timeout=30 --tries=3 https://aquasecurity.github.io/trivy-repo/deb/public.key \
+              | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null || return 1
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+              | sudo tee /etc/apt/sources.list.d/trivy.list || return 1
+            sudo timeout 150 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 180 apt-get install -y trivy || return 1
+          }
+          for intento in 1 2 3; do
+            if instalar_trivy; then
+              trivy --version
+              exit 0
+            fi
+            echo "::warning title=Instalacion de Trivy fallida::Intento $intento agotado o fallido; reintentando en 10s."
+            sleep 10
+          done
+          echo "::error title=No se pudo instalar Trivy::3 intentos agotados. El gate NO se salta: el job falla."
+          exit 1
       - name: Build + scan imagen backend
         if: hashFiles('backend/package.json') != ''
         run: |
