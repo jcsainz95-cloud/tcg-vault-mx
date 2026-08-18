@@ -33,9 +33,11 @@ const ORACLE = IS_REAL
       dual: { name: 'E2E Reverse Bird', number: '17', finishes: ['Normal', 'Reverse Holo'] },
       single: { name: 'E2E Pidgey', number: '16', finish: 'Normal' },
       orderSet: 'E2E Order Set',
-      // El seed de orden garantiza al menos esta secuencia; el assert tolera cartas
-      // adicionales (p. ej. un SV107 nuevo) mientras respeten el orden natural.
-      orderMustContain: { numeric: [2, 10], promos: ['TG01'] },
+      // Copia LITERAL de `E2E_ORDER_EXPECTED_NUMBERS` (backend/prisma/e2e-fixtures.ts, §4.22e):
+      // el spec no importa de `backend/` (paquetes separados), así que el oráculo se copia con
+      // su fuente citada. `SV` < `TG` ⇒ SV107 va ANTES de TG01 (promos agrupados por prefijo).
+      orderExact: ['2', '10', 'SV107', 'TG01'] as string[] | null,
+      orderMustContain: { numeric: [2, 10], promos: ['SV107', 'TG01'] },
     }
   : {
       variantsSet: 'Base Set',
@@ -45,7 +47,8 @@ const ORACLE = IS_REAL
       // El catálogo mock del COTIZADOR (`mockCards`) no incluye celdas promo con prefijo
       // (TG12 solo existe en el binder de inventario `mockMasterSetBinder`): la rama mock
       // verifica la ESTRUCTURA del orden (numéricos ascendentes / prefijos al final); la
-      // secuencia literal 2 → 10 → TG01 la cubre la rama real contra los seeds §4.22e.
+      // secuencia literal 2 → 10 → SV107 → TG01 la cubre la rama real contra los seeds §4.22e.
+      orderExact: null as string[] | null,
       orderMustContain: { numeric: [213, 238], promos: [] as string[] },
     };
 
@@ -154,5 +157,8 @@ test.describe('master set · cotizador: una casilla de IMAGEN por variante real 
     // (c) La secuencia mínima del seed §4.22e está presente y en su grupo correcto.
     for (const n of ORACLE.orderMustContain.numeric) expect(numeric).toContain(n);
     for (const p of ORACLE.orderMustContain.promos) expect(promos).toContain(p);
+    // (d) Rama real: la secuencia COMPLETA es EXACTAMENTE la del fixture §4.22e
+    //     (2 → 10 → SV107 → TG01; los promos se agrupan por prefijo: SV antes que TG).
+    if (ORACLE.orderExact) expect(numbers).toEqual(ORACLE.orderExact);
   });
 });
