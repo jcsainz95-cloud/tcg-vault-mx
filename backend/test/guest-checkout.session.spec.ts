@@ -90,7 +90,7 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     stripe as StripeService,
     {} as never,
   );
-  jest.spyOn(orders, 'priceCartLines').mockImplementation(async (ids: string[]) => ({
+  jest.spyOn(orders, 'priceCartForOrder').mockImplementation(async (ids: string[]) => ({
     items: ids.map((id) => ({ id, folio: `INV-${id}` })) as never,
     subtotalCents: 25000 * ids.length,
     lines: ids.map((id) => ({
@@ -101,7 +101,7 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
   }));
   // v1.21.3-quote-prune: el QUOTE usa la variante tolerante (poda por ítem). Por defecto todo
   // resuelve (`unavailableItems: []`); cada test de poda la re-mockea con sus muertos.
-  jest.spyOn(orders, 'priceCartLinesLenient').mockImplementation(async (ids: string[]) => ({
+  jest.spyOn(orders, 'priceCartForQuote').mockImplementation(async (ids: string[]) => ({
     items: ids.map((id) => ({ id, folio: `INV-${id}` })) as never,
     subtotalCents: 25000 * ids.length,
     lines: ids.map((id) => ({
@@ -279,10 +279,10 @@ describe('GuestCheckoutService.quote', () => {
   it('el precio del invitado es el MISMO que el del comprador con cuenta (misma fuente de precio)', async () => {
     const { svc, orders } = buildService();
     await svc.quote({ inventoryItemIds: ['item-1'] } as never);
-    // Comparte `OrdersService.priceCartLinesLenient` con POST /checkout/quote (v1.21.3): no hay
+    // Comparte `OrdersService.priceCartForQuote` con POST /checkout/quote (v1.21.3): no hay
     // tabla de precios paralela para invitados (criterio 48b: comprar como invitado no cambia
     // condiciones). La regla de venta/precio es la MISMA que la ruta estricta de session.
-    expect(orders.priceCartLinesLenient).toHaveBeenCalledWith(['item-1']);
+    expect(orders.priceCartForQuote).toHaveBeenCalledWith(['item-1']);
   });
 
   describe('v1.21.3-quote-prune — poda por ítem (§4-G.1)', () => {
@@ -295,7 +295,7 @@ describe('GuestCheckoutService.quote', () => {
 
     it('mezcla: cotiza SOLO los válidos y devuelve los muertos en `unavailableItems`', async () => {
       const { svc, orders } = buildService();
-      (orders.priceCartLinesLenient as jest.Mock).mockResolvedValueOnce({
+      (orders.priceCartForQuote as jest.Mock).mockResolvedValueOnce({
         items: [{ id: 'viva', folio: 'INV-viva' }],
         subtotalCents: 25000,
         lines: [
@@ -324,7 +324,7 @@ describe('GuestCheckoutService.quote', () => {
 
     it('carrito 100 % muerto ⇒ items: [], breakdown EN CEROS con shippingFeeCents: 0, y conserva fulfillmentMode/notices', async () => {
       const { svc, orders, prisma } = buildService();
-      (orders.priceCartLinesLenient as jest.Mock).mockResolvedValueOnce({
+      (orders.priceCartForQuote as jest.Mock).mockResolvedValueOnce({
         items: [],
         subtotalCents: 0,
         lines: [],
@@ -355,12 +355,12 @@ describe('GuestCheckoutService.quote', () => {
     });
   });
 
-  it('ANTI-SOBRECORRECCIÓN: session usa la ruta ESTRICTA (priceCartLines), nunca la tolerante', async () => {
+  it('ANTI-SOBRECORRECCIÓN: session usa la ruta ESTRICTA (priceCartForOrder), nunca la tolerante', async () => {
     const { svc, orders } = buildService();
     await svc.createSession(validDto() as never);
     // La poda vive SOLO en el quote. Crear un pedido con una pieza muerta DEBE seguir fallando
     // con 404/409 globales (anti double-sell, caso v de ARCHITECTURE §4.21h-1).
-    expect(orders.priceCartLines).toHaveBeenCalledWith(['item-1']);
-    expect(orders.priceCartLinesLenient).not.toHaveBeenCalled();
+    expect(orders.priceCartForOrder).toHaveBeenCalledWith(['item-1']);
+    expect(orders.priceCartForQuote).not.toHaveBeenCalled();
   });
 });

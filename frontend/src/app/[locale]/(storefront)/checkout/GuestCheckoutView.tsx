@@ -157,6 +157,19 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       if (e instanceof ApiClientError && e.code === 'VAULT_REQUIRES_ACCOUNT') {
         setDestination('vault');
         setUpsellOpen(true);
+      } else if (
+        e instanceof ApiClientError &&
+        (e.code === 'ITEM_UNAVAILABLE' || e.code === 'NOT_FOUND')
+      ) {
+        // v1.21.3-F2 — carrera "pieza vendida ENTRE el quote y el pago": la session
+        // sigue estricta (anti double-sell, contrato §4-G.2), así que aquí se
+        // RE-COTIZA. El quote nuevo trae la pieza en `unavailableItems` y la
+        // maquinaria existente (efecto de poda + UnavailableItemsNotice) poda el
+        // carrito y avisa sola: el banner ES el aviso, no se pinta además el mensaje
+        // genérico junto al botón (evitaría un doble mensaje contradictorio).
+        // Respaldo: si la re-cotización MISMA falla, sí se muestra el mensaje.
+        const requote = await query.refetch();
+        if (requote.error) setPayError(getMessage(e));
       } else {
         setPayError(getMessage(e));
       }

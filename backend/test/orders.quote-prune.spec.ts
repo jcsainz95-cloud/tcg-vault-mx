@@ -17,7 +17,7 @@ const IVA = 16;
  * SESSION sigue ESTRICTA a propósito (anti double-sell): eso también se asegura aquí.
  */
 describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () => {
-  /** Pieza de inventario mínima para `priceCartLines*` (con card+set como el include real). */
+  /** Pieza de inventario mínima para `priceCartForOrder`/`priceCartForQuote` (con card+set como el include real). */
   const piece = (id: string, over: Record<string, unknown> = {}) => ({
     id,
     folio: `INV-${id}`,
@@ -73,7 +73,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
       piece('b', { status: 'shipped' }), // muerta: existe pero salió de {listed, in_stock}
       piece('d', { listPriceCents: 15000 }),
     ]);
-    const res = await svc.quote('u1', ['a', 'b', 'no-existe', 'd']);
+    const res = await svc.quote(['a', 'b', 'no-existe', 'd']);
 
     expect(res.items.map((i: any) => i.inventoryItemId)).toEqual(['a', 'd']);
     expect(res.items.map((i: any) => i.unitPriceCents)).toEqual([10000, 15000]);
@@ -90,14 +90,14 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
       piece('a'),
       piece('v', { ownerType: 'customer', status: 'in_custody' }),
     ]);
-    const res = await svc.quote('u1', ['a', 'v']);
+    const res = await svc.quote(['a', 'v']);
     expect(res.items.map((i: any) => i.inventoryItemId)).toEqual(['a']);
     expect(res.unavailableItems).toEqual([{ inventoryItemId: 'v', cardName: 'Card v' }]);
   });
 
   it('carrito 100 % muerto ⇒ items: [], unavailableItems poblado y breakdown EN CEROS (misma forma)', async () => {
     const { svc, settings } = build([piece('b', { status: 'reserved' })]);
-    const res = await svc.quote('u1', ['b', 'no-existe']);
+    const res = await svc.quote(['b', 'no-existe']);
 
     expect(res.items).toEqual([]);
     expect(res.unavailableItems).toEqual([
@@ -118,7 +118,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
 
   it('compatibilidad: si todo el carrito resuelve, la forma previa NO cambia (solo se suma `[]`)', async () => {
     const { svc } = build([piece('a'), piece('d', { listPriceCents: 15000 })]);
-    const res = await svc.quote('u1', ['a', 'd']);
+    const res = await svc.quote(['a', 'd']);
     expect(res.breakdown).toEqual(computeCartBreakdown(25000, IVA, FEE));
     expect(res.items).toHaveLength(2);
     expect(res.unavailableItems).toEqual([]); // SIEMPRE presente, [] cuando todo resuelve
@@ -126,7 +126,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
 
   it('un id repetido en el carrito no cotiza dos veces la misma pieza única', async () => {
     const { svc } = build([piece('a')]);
-    const res = await svc.quote('u1', ['a', 'a']);
+    const res = await svc.quote(['a', 'a']);
     expect(res.items).toHaveLength(1);
     expect(res.breakdown.subtotalCents).toBe(10000);
   });
@@ -134,7 +134,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
   describe('PRICE_PENDING (422) conserva su semántica pero se evalúa DESPUÉS de la poda', () => {
     it('un ítem VÁLIDO sin precio resoluble sigue disparando PRICE_PENDING', async () => {
       const { svc } = build([piece('p', { listPriceCents: null })]);
-      await expect(svc.quote('u1', ['p'])).rejects.toMatchObject({ code: 'PRICE_PENDING' });
+      await expect(svc.quote(['p'])).rejects.toMatchObject({ code: 'PRICE_PENDING' });
     });
 
     it('un ítem MUERTO sin precio NO lo dispara: se poda antes de tocar la regla de precios', async () => {
@@ -142,7 +142,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
         piece('a'),
         piece('m', { status: 'shipped', listPriceCents: null }),
       ]);
-      const res = await svc.quote('u1', ['a', 'm']);
+      const res = await svc.quote(['a', 'm']);
       expect(res.items.map((i: any) => i.inventoryItemId)).toEqual(['a']);
       expect(res.unavailableItems).toEqual([{ inventoryItemId: 'm', cardName: 'Card m' }]);
       // La ruta de precios ni se enteró de la pieza muerta.
@@ -151,16 +151,16 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
   });
 
   describe('ANTI-SOBRECORRECCIÓN — session sigue ESTRICTA (caso v, ARCHITECTURE §4.21h-1)', () => {
-    it('priceCartLines (la ruta de las DOS sessions) con un id inexistente ⇒ 404 NOT_FOUND global', async () => {
+    it('priceCartForOrder (la ruta de las DOS sessions) con un id inexistente ⇒ 404 NOT_FOUND global', async () => {
       const { svc } = build([piece('a')]);
-      await expect(svc.priceCartLines(['a', 'no-existe'])).rejects.toMatchObject({
+      await expect(svc.priceCartForOrder(['a', 'no-existe'])).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
     });
 
-    it('priceCartLines con una pieza muerta ⇒ 409 ITEM_UNAVAILABLE global (sin poda)', async () => {
+    it('priceCartForOrder con una pieza muerta ⇒ 409 ITEM_UNAVAILABLE global (sin poda)', async () => {
       const { svc } = build([piece('a'), piece('b', { status: 'picking' })]);
-      await expect(svc.priceCartLines(['a', 'b'])).rejects.toMatchObject({
+      await expect(svc.priceCartForOrder(['a', 'b'])).rejects.toMatchObject({
         code: 'ITEM_UNAVAILABLE',
       });
     });

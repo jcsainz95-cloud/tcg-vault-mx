@@ -3585,7 +3585,7 @@ exactamente el comportamiento previo a M-25. **La migración NO recrea esas FKs*
    transaccional): un hueco es inocuo, un duplicado no. No hay `PrismaService.nextOrderNumber()`
    porque `src/prisma/` es zona de otro stream: la consulta vive en `OrdersService`.
 2. **El precio del invitado sale de la MISMA función** que el del comprador con cuenta
-   (`OrdersService.priceCartLines`, extraída de `quote`/`createSession`). No hay tabla de precios
+   (`OrdersService.priceCartForOrder`, extraída de `quote`/`createSession`). No hay tabla de precios
    paralela: comprar como invitado no cambia condiciones comerciales (criterio 48b).
 3. **El envío del `ShipmentRequest` de invitado va en `0`** a propósito. El ingreso vive en
    `Order.shippingFeeCents`. **M7 (módulo `admin`, OTRO work stream) debe corregir su fórmula**
@@ -4153,7 +4153,8 @@ expiración de 30 días, dueño: frontend) → session recibe solo ids vivos.
 - `isSellable(item)` — EL predicado de venta (plataforma + `{listed, in_stock}`), un solo cuerpo.
 - `buildLines(items)` — precios server-side vía `salePriceOf` (SEC-A1), un solo cuerpo; conserva
   `PRICE_PENDING`.
-- `priceCartLines` (ESTRICTA, la de las dos sessions) y `priceCartLinesLenient` (tolerante, la de
+- `priceCartForOrder` (ESTRICTA, la de las dos sessions — ruta de dinero/reserva) y
+  `priceCartForQuote` (tolerante, la de
   los dos quotes) **delegan ambas** en esos helpers: solo cambia el TRANSPORTE del fallo
   (excepción global vs. poda a `unavailableItems`), nunca el criterio. El breakdown en ceros
   canónico es `OrdersService.zeroCartBreakdown(ivaPct)`; el invitado lo extiende con
@@ -4163,7 +4164,7 @@ expiración de 30 días, dueño: frontend) → session recibe solo ids vivos.
 - Unit nueva: `test/orders.quote-prune.spec.ts` (11 casos): mezcla viva+vendida+borrada, pieza de
   bóveda podada, 100 % muerto en ceros sin gross-up, compat `[]`, dedupe, `PRICE_PENDING`
   post-poda (y que un muerto sin precio NO lo dispara), y la estrictez intacta de
-  `priceCartLines`/`createSession` (`NOT_FOUND`/`ITEM_UNAVAILABLE`, sin crear la Order).
+  `priceCartForOrder`/`createSession` (`NOT_FOUND`/`ITEM_UNAVAILABLE`, sin crear la Order).
 - `test/guest-checkout.session.spec.ts`: el quote de invitado ahora ancla poda/ceros/shape estable
   y que session usa la ruta ESTRICTA (nunca la tolerante).
 - Integración actualizada: `catalog-checkout-webhook` (describe nuevo de poda customer + session

@@ -1296,6 +1296,10 @@ Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableIte
   currency: "MXN" }`). El front pinta carrito vacío + aviso; **nunca** pantalla de error.
 - **Deber del front:** tras cada quote, **podar del carrito** (`localStorage`) los `inventoryItemId` que vengan en
   `unavailableItems`, ANTES de llamar a `POST /checkout/session` (que sigue estricto, ver abajo).
+- **Ids repetidos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1 del techlead):** los `inventoryItemIds`
+  duplicados se **deduplican** antes de resolver (cada pieza física es única y solo puede comprarse una vez):
+  `["a","a"]` ⇒ `200` con **1** ítem, sin error ni entrada en `unavailableItems`. Comportamiento vigente que se
+  documenta, no se cambia. ⚠️ `POST /checkout/session` **no** deduplica (ver su nota abajo).
 
 Ejemplo (una pieza vendida entre visitas, otra borrada):
 ```json
@@ -1330,6 +1334,10 @@ Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inven
 > **v1.21.3 — session sigue ESTRICTO a propósito:** la poda por ítem de v1.21.3 aplica **SOLO a los quotes**. Aquí
 > una pieza muerta en el carrito DEBE seguir fallando con `404`/`409` globales (anti double-sell, caso v de
 > ARCHITECTURE §4.21h-1). El front llega a session con el carrito YA podado por el quote.
+> **Ids únicos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** a diferencia del quote, session **no
+> deduplica**: `inventoryItemIds` duplicados o no resolubles caen en el `404 NOT_FOUND` / `409 ITEM_UNAVAILABLE`
+> estricto vigente (la carga estricta compara el conteo pedido contra el resuelto; `["a","a"]` ⇒ `404`). El
+> cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza (un id por pieza única).
 > **v1.5:** `POST /checkout/session` está bloqueado por `EmailVerifiedGuard` (crear orden = acción sensible). El
 > `POST /checkout/quote` (read-only) **no** se bloquea, para que la UI muestre precios con el banner "verifica tu correo".
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA **de producto**). El gross-up sí cubre el IVA que Stripe MX cobra sobre su comisión (dial `stripe_fee_iva_pct`, default 0.16). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
@@ -1434,6 +1442,10 @@ Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**):
   que valida pero queda vacío tras la poda es `200`, no `400`.
 - **Deber del front:** podar del carrito los ids de `unavailableItems` ANTES de llamar a
   `POST /checkout/guest/session` (§4-G.2), que **sigue estricto**.
+- **Ids repetidos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** MISMA norma que §4 — los
+  `inventoryItemIds` duplicados se **deduplican** antes de resolver (`["a","a"]` ⇒ `200` con 1 ítem, sin error).
+  El límite `1..GUEST_MAX_ITEMS` sigue validándose sobre el **array del request**, antes del dedupe y de la poda.
+  ⚠️ `POST /checkout/guest/session` (§4-G.2) **no** deduplica (ver su nota).
 
 Err: `422 PRICE_PENDING` (ítem **válido** sin precio; se evalúa **después** de la poda, semántica intacta),
 `422 ADDRESS_NOT_MX`, `400 VALIDATION_ERROR` (carrito vacío o por encima de `GUEST_MAX_ITEMS`),
@@ -1496,6 +1508,9 @@ Err: `400 VALIDATION_ERROR` (correo inválido/vacío, dirección incompleta, `ac
 vacío/`>20`), `422 ADDRESS_NOT_MX` (criterio 48b / 31), `422 VAULT_REQUIRES_ACCOUNT`, `422 PRICE_PENDING`,
 `409 ITEM_UNAVAILABLE`, `409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`, `503 PAYMENT_PROVIDER_UNAVAILABLE`
 (mismo comportamiento compensatorio A2 de §4: se libera la reserva y la orden queda `failed`).
+> **Ids únicos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** igual que `POST /checkout/session` (§4),
+> este endpoint **no deduplica**: `inventoryItemIds` duplicados o no resolubles producen el `404 NOT_FOUND` /
+> `409 ITEM_UNAVAILABLE` estricto vigente. El cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza.
 **NO aplica `403 EMAIL_NOT_VERIFIED`** (no hay cuenta que verificar) — ver la asimetría documentada en §4-G.8.
 
 ### 4-G.3 POST /api/v1/orders/guest/track — `public` (`@Public()`)

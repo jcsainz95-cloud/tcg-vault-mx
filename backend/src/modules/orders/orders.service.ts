@@ -118,9 +118,9 @@ export class OrdersService {
    * `NOT_FOUND` global si algún id no resuelve; `ITEM_UNAVAILABLE` si la pieza no es de plataforma
    * o no está en `{listed, in_stock}`; `PRICE_PENDING` si no tiene precio de venta resoluble.
    * v1.21.3-quote-prune: session se queda estricta A PROPÓSITO (anti double-sell, caso v de
-   * ARCHITECTURE §4.21h-1); la resolución por ítem vive SOLO en `priceCartLinesLenient` (quotes).
+   * ARCHITECTURE §4.21h-1); la resolución por ítem vive SOLO en `priceCartForQuote` (quotes).
    */
-  async priceCartLines(inventoryItemIds: string[]): Promise<{
+  async priceCartForOrder(inventoryItemIds: string[]): Promise<{
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
     subtotalCents: number;
     lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
@@ -147,7 +147,7 @@ export class OrdersService {
    * el TRANSPORTE del fallo (poda vs. excepción), nunca el criterio. `PRICE_PENDING` (422) se
    * conserva y se evalúa DESPUÉS de la poda: solo lo dispara un ítem VÁLIDO sin precio.
    */
-  async priceCartLinesLenient(inventoryItemIds: string[]): Promise<{
+  async priceCartForQuote(inventoryItemIds: string[]): Promise<{
     items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
     subtotalCents: number;
     lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
@@ -196,9 +196,9 @@ export class OrdersService {
    * forma; NO se corre el gross-up: cotizar la nada no puede producir un fee fijo > 0).
    * Session (`createSession`, abajo) NO usa esta ruta: sigue estricta.
    */
-  async quote(userId: string, inventoryItemIds: string[]) {
+  async quote(inventoryItemIds: string[]) {
     const { subtotalCents, lines, unavailableItems } =
-      await this.priceCartLinesLenient(inventoryItemIds);
+      await this.priceCartForQuote(inventoryItemIds);
     const previews = lines.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: l.cardSnapshot,
@@ -250,7 +250,7 @@ export class OrdersService {
    *
    * Guardias (se conserva la versión CORRECTA, la que tenía el guard):
    *  - `ownerType: 'platform'` — cierra la ventana TOCTOU que dejaba el chequeo pre-transaccional
-   *    de `priceCartLines`: entre aquel `findMany` y esta transacción, otro flujo podía cambiar la
+   *    de `priceCartForOrder`: entre aquel `findMany` y esta transacción, otro flujo podía cambiar la
    *    titularidad de la pieza y el checkout de bóveda la habría reservado igual.
    *  - `status ∈ {listed, in_stock}` + `count === 1` — dos checkouts concurrentes por la misma
    *    pieza: solo uno gana la transición a `reserved`; el otro recibe `ITEM_UNAVAILABLE`.
@@ -363,7 +363,7 @@ export class OrdersService {
     idempotencyKey?: string,
   ) {
     const { items, subtotalCents: subtotal, lines: orderItemsData } =
-      await this.priceCartLines(inventoryItemIds);
+      await this.priceCartForOrder(inventoryItemIds);
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
     const breakdown = computeCartBreakdown(subtotal, ivaPct, fee);

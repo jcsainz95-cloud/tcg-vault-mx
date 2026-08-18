@@ -3714,6 +3714,23 @@ Se limpia al cerrarlo (X del banner) o al salir del checkout (cleanup de `Checko
   `shippingFeeCents: 0`). El caso "existe pero fuera de venta" (`cardName` poblado) no se modela
   en fixtures; lo cubren los tests de vista con el API mockeado y el backend real.
 
+### F-2 (veredicto techlead, misma rama) — carrera "pieza vendida ENTRE el quote y el pago"
+
+La session sigue estricta (anti double-sell): si la pieza muere DESPUÉS del quote y el usuario
+paga, `createCheckoutSession`/`createGuestCheckoutSession` responde `409 ITEM_UNAVAILABLE` (o
+`404 NOT_FOUND`) y antes eso era un callejón sin salida (solo el mensaje genérico junto al botón).
+Ahora el catch de `pay()` en AMBAS vistas, para esos dos códigos, dispara **`query.refetch()`**:
+el re-quote trae la pieza en `unavailableItems` y la maquinaria ya construida (efecto de poda +
+`UnavailableItemsNotice`) poda el localStorage y avisa sola.
+
+**Decisión de UX:** con el re-quote en marcha, el banner ES el aviso — NO se pinta además el
+`payError` genérico junto al botón (evita el doble mensaje contradictorio "esta carta ya no está
+disponible" + banner "se quitó de tu carrito"). **Respaldo si el refetch falla:** se setea
+`payError` con el mensaje del error original y, además, el quote queda en estado de error, así que
+`QueryState` pinta su aviso con "Reintentar" — nunca una pantalla muda. El manejo de los demás
+códigos NO cambió (`EMAIL_NOT_VERIFIED` → banner de verificación; `VAULT_REQUIRES_ACCOUNT` →
+upsell de bóveda).
+
 ### Tests
 
 `lib/cart.test.ts` +8 (migración v1→v2 sin pérdida, expiración >30d, 30d exactos se conserva,
@@ -3723,7 +3740,11 @@ nombre, renglones vivos y storage podado; cierre del aviso; invitado todas muert
 aviso plural sin error/reintentar; con cuenta: mismo par de casos, incl. `cardName: null` ⇒ copy
 genérico). Tests preexistentes que asserteaban el array plano de `tcg.cart` se actualizaron al
 formato v2 (`.ids`).
+**F-2:** +3 en `CheckoutUnavailable.test.tsx` (con cuenta y de invitado: session rechaza
+`ITEM_UNAVAILABLE` ⇒ se re-cotiza, banner con nombre, renglón y localStorage podados, sin
+`role=alert` ni modal Stripe; y el caso "el refetch de respaldo también falla" ⇒ QueryState en
+error con "Reintentar", nunca mudo).
 
 ### Gates
-`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓
-(52 archivos / 391 tests, +13 nuevos).
+`npm run lint` ✓ · `npx tsc --noEmit` ✓ · `npm run build` ✓ · `npx vitest run` ✓
+(52 archivos / 394 tests, +16 nuevos en la rama).

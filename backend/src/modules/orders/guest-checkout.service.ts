@@ -67,7 +67,7 @@ export class GuestCheckoutService {
   /**
    * §4-G.1 — desglose sin cobrar del carrito de invitado. READ-ONLY: no reserva inventario.
    * v1.21.3-quote-prune: resolución POR ÍTEM (misma norma que `POST /checkout/quote`, porque
-   * comparten `priceCartLinesLenient`): los ids muertos viajan en `unavailableItems` con `200`;
+   * comparten `priceCartForQuote`): los ids muertos viajan en `unavailableItems` con `200`;
    * `items`/`breakdown` se calculan SOLO con los válidos. Carrito 100 % muerto ⇒ breakdown EN
    * CEROS incluido `shippingFeeCents: 0` (no hay nada que enviar), conservando
    * `fulfillmentMode`/`notices` (shape estable). El tope `GUEST_MAX_ITEMS` lo valida el DTO sobre
@@ -76,7 +76,7 @@ export class GuestCheckoutService {
    */
   async quote(dto: GuestQuoteDto) {
     if (dto.shippingAddress) this.assertMxAddress(dto.shippingAddress.country);
-    const { lines, subtotalCents, unavailableItems } = await this.orders.priceCartLinesLenient(
+    const { lines, subtotalCents, unavailableItems } = await this.orders.priceCartForQuote(
       dto.inventoryItemIds,
     );
     const breakdown =
@@ -117,7 +117,7 @@ export class GuestCheckoutService {
     // es indistinguible desde fuera (mismo status, mismo shape, mismos tiempos).
     const guestEmail = normalizeEmail(dto.email);
 
-    const { items, lines, subtotalCents } = await this.orders.priceCartLines(dto.inventoryItemIds);
+    const { items, lines, subtotalCents } = await this.orders.priceCartForOrder(dto.inventoryItemIds);
     const breakdown = await this.breakdownFor(subtotalCents);
     const orderNumber = await this.orders.nextOrderNumber();
     const addressSnapshot = this.toAddressSnapshot(dto.shippingAddress);
