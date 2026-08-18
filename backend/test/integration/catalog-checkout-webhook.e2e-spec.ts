@@ -42,14 +42,28 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
 
   describe('catálogo y pricing', () => {
     it('lista listings y distingue referenceValue del salePrice (markup)', async () => {
-      const res = await h.api('GET', '/catalog/cards?pageSize=50');
-      expect(res.status).toBe(200);
-      const listing = (res.body.data as any[]).find((l) => l.inventoryItemId === itemId.listedCharizard);
-      expect(listing).toBeDefined();
-      expect(listing.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: E2E_CARDS.charizard.refNmCents });
+      // BE-64 (patrón, regla de la casa): NUNCA buscar una fila concreta en un listado paginado de
+      // BD compartida — las suites de guest checkout dejan piezas `E2E-GST-*` listadas del MISMO
+      // charizard por corrida y al acumularse >50 la pieza del seed caía fuera de la página (falló
+      // primero con `?pageSize=50` a secas y luego incluso acotando con `q=`: 51 listings del mismo
+      // nombre). La pieza concreta se pide POR ID (`/catalog/listings/:id`, mismo ListingDTO) y el
+      // listado se asierta por COMPORTAMIENTO (responde y contiene solo vendibles), no por volumen.
+      const byId = await h.api('GET', `/catalog/listings/${itemId.listedCharizard}`);
+      expect(byId.status).toBe(200);
+      expect(byId.body.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: E2E_CARDS.charizard.refNmCents });
       // salePrice = referencia × (1 + markup); el valor de mercado sigue siendo la referencia.
-      expect(listing.salePriceCents).toBe(computeSalePriceCents(E2E_CARDS.charizard.refNmCents, MARKUP));
-      expect(listing.sellable).toBe(true);
+      expect(byId.body.salePriceCents).toBe(computeSalePriceCents(E2E_CARDS.charizard.refNmCents, MARKUP));
+      expect(byId.body.sellable).toBe(true);
+
+      // El listado de Compra responde y toda fila publicada es vendible con precio resuelto
+      // (invariante «solo se lista lo que tiene precio»), sin depender de qué página cae cada pieza.
+      const list = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.charizard.name)}&pageSize=20`);
+      expect(list.status).toBe(200);
+      expect((list.body.data as any[]).length).toBeGreaterThan(0);
+      for (const l of list.body.data as any[]) {
+        expect(l.sellable).toBe(true);
+        expect(l.salePriceCents).toBeGreaterThan(0);
+      }
     });
 
     it('override manual de listPrice se refleja como salePrice', async () => {

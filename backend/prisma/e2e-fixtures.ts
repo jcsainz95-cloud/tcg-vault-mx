@@ -54,19 +54,32 @@ export const E2E_CARDS = {
 /**
  * Cartas del `E2E_ORDER_SET`, declaradas a propósito en orden NO natural para que el seed no pueda
  * "acertar" por accidente. El orden ESPERADO de `GET /buylist/cards?setId=<e2e-order>` es:
- * `2` → `10` → `TG01`. Antes de v1.22 salía `10` → `2` → `TG01` (Card.number es String).
- * `orderTwo` lleva reverse holo para que el binder de este set también pruebe las dos casillas.
+ * `2` → `10` → `SV107` → `TG01`. Antes de v1.22 salía `10, 2, SV107, TG01` (Card.number es String,
+ * orden lexicográfico — defecto ORD-1).
+ * - `orderTwo` lleva reverse holo para que el binder de este set también pruebe las dos casillas.
+ * - Hay DOS prefijos de promo (`SV` y `TG`): `SV107` y `TG01` colisionarían si el orden dependiera
+ *   solo de `numberSort` con un único prefijo — los dos prefijos ejercitan la agrupación por
+ *   `numberPrefix` (la razón de ser de la columna, §4.22b: `TG12` y `GG12` empatan en 1000012).
+ *   `SV` < `TG` alfabéticamente, por eso `SV107` sale ANTES que `TG01` pese a su parte numérica mayor.
  */
 export const E2E_ORDER_CARDS = {
   orderTen: { externalId: 'e2e-order-10', name: 'E2E Order Ten', number: '10', rarity: 'Common', availableFinishes: ['normal'] },
   orderTwo: { externalId: 'e2e-order-2', name: 'E2E Order Two', number: '2', rarity: 'Common', availableFinishes: ['normal', 'reverse_holo'] },
+  orderShiny: { externalId: 'e2e-order-sv107', name: 'E2E Order Shiny Vault', number: 'SV107', rarity: 'Rare Shiny', availableFinishes: ['normal'] },
   orderPromo: { externalId: 'e2e-order-tg01', name: 'E2E Order Trainer Gallery', number: 'TG01', rarity: 'Trainer Gallery Rare Holo', availableFinishes: ['normal'] },
 } as const;
 
-/** Orden natural ESPERADO de `E2E_ORDER_SET` (oráculo de los asserts de QA/integración). */
-export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'TG01'] as const;
+/**
+ * Orden natural ESPERADO de `E2E_ORDER_SET` — oráculo del test de integración
+ * `test/integration/buylist-cards-order.e2e-spec.ts` (§4.22 «Tests obligatorios»): numéricos puros
+ * por entero, promos AL FINAL agrupados por prefijo alfabético (`SV` antes que `TG`).
+ */
+export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 
-/** Orden natural ESPERADO de `E2E_SET` (`GET /buylist/cards?setId=<e2e-base>`). */
+/**
+ * Orden natural ESPERADO de `E2E_SET` (`GET /buylist/cards?setId=<e2e-base>`) — oráculo del test
+ * de integración `buylist-cards-order.e2e-spec.ts` (orden + paginación sin huecos ni duplicados).
+ */
 export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '99'] as const;
 
 /**
