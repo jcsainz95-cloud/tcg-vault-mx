@@ -65,14 +65,15 @@ describe('M1View · Buscador / picker del catálogo', () => {
     const dialog = await openModalAndSearch('Fake');
 
     expect(await within(dialog).findByText('20 de 25 cartas')).toBeInTheDocument();
+    // P-3: el buscador del alta pide pageSize 50 (antes 20) para bajar la fricción de "Cargar más".
     expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ q: 'Fake', page: 1, pageSize: 20 }),
+      expect.objectContaining({ q: 'Fake', page: 1, pageSize: 50 }),
     );
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cargar más' }));
 
     await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ q: 'Fake', page: 2, pageSize: 20 })),
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ q: 'Fake', page: 2, pageSize: 50 })),
     );
     expect(await within(dialog).findByText('25 de 25 cartas')).toBeInTheDocument();
     // Con todo cargado, el botón desaparece.
@@ -107,7 +108,23 @@ describe('M1View · Buscador / picker del catálogo', () => {
     ).toBeInTheDocument();
   });
 
-  it('P-4: un error del alta muestra el mensaje real del contrato (PRICE_PENDING)', async () => {
+  it('P-4.3: al crear con éxito dispara un toast INEQUÍVOCO con el folio devuelto', async () => {
+    vi.spyOn(api, 'createInventoryItem').mockResolvedValue({
+      id: 'inv-new-1',
+      folio: 'INV-000777',
+      status: 'in_stock',
+      acquisitionCostCents: 0,
+    });
+    renderWithProviders(<M1View />, 'es');
+    const dialog = await openModalAndSearch('Pikachu');
+    fireEvent.click((await within(dialog).findAllByRole('option', { name: /Pikachu/ }))[0]);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
+
+    // El toast vive en un portal a <body> (visible por encima del modal), no dentro del dialog.
+    expect(await screen.findByText('Pieza dada de alta · folio INV-000777.')).toBeInTheDocument();
+  });
+
+  it('P-4.1/4.2: un error del alta se ve ARRIBA con copy del OPERADOR (PRICE_PENDING)', async () => {
     vi.spyOn(api, 'createInventoryItem').mockRejectedValue(
       new ApiClientError(422, { code: 'PRICE_PENDING', message: 'price pending' }),
     );
@@ -116,9 +133,74 @@ describe('M1View · Buscador / picker del catálogo', () => {
     fireEvent.click((await within(dialog).findAllByRole('option', { name: /Pikachu/ }))[0]);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
 
+    // Copy del alta admin (no el de storefront "no se puede comprar").
+    const alert = await within(dialog).findByRole('alert');
     expect(
-      await within(dialog).findByText('Esta carta tiene precio pendiente y aún no se puede comprar.'),
+      within(alert).getByText(
+        'No se pudo dar de alta: esta carta aún no tiene precio de referencia; se envió a la cola de precios pendientes.',
+      ),
     ).toBeInTheDocument();
+  });
+
+  it('P-5: alta MASIVA envía un lote y muestra el resultado por-ítem (folio + fallo)', async () => {
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([fakeCard(1), fakeCard(2)], 1, 2));
+    const batchSpy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
+      batchKey: 'batch-test',
+      idempotentReplay: false,
+      summary: { requested: 2, createdItems: 1, failedLines: 1 },
+      results: [
+        { index: 0, ok: true, folios: ['INV-000501'], inventoryItemIds: ['inv-a'] },
+        { index: 1, ok: false, error: { code: 'PRICE_PENDING', message: 'price pending' } },
+      ],
+    });
+    renderWithProviders(<M1View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    // Activa el modo de selección múltiple.
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ }));
+    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'Fake' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
+
+    // Marca las dos cartas en el lote.
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Fake Card 1/ }));
+    fireEvent.click(within(dialog).getByRole('option', { name: /Fake Card 2/ }));
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 2 cartas' }));
+
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+    const payload = batchSpy.mock.calls[0][0];
+    expect(payload.items).toHaveLength(2);
+    expect(payload.batchKey).toBeTruthy();
+
+    // Resultado por-ítem: la creada con su folio, la fallida con su motivo (copy del operador).
+    expect(await within(dialog).findByText('INV-000501')).toBeInTheDocument();
+    expect(within(dialog).getByText(/precio de referencia/)).toBeInTheDocument();
+  });
+
+  it('P-5: idempotencia — un mismo lote enviado dos veces reusa el batchKey (replay)', async () => {
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([fakeCard(1)], 1, 1));
+    const batchSpy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
+      batchKey: 'batch-test',
+      idempotentReplay: false,
+      summary: { requested: 1, createdItems: 1, failedLines: 0 },
+      results: [{ index: 0, ok: true, folios: ['INV-000600'], inventoryItemIds: ['inv-a'] }],
+    });
+    renderWithProviders(<M1View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ }));
+    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'Fake' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Fake Card 1/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' }));
+
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+    // Tras un envío exitoso el lote se vacía (evita reenviar y duplicar las creadas): el botón
+    // queda deshabilitado con conteo 0 y el resultado por-ítem se conserva.
+    expect(await within(dialog).findByText('INV-000600')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Dar de alta 0 cartas' })).toBeDisabled();
   });
 });
 
