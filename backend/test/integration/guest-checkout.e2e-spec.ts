@@ -104,6 +104,63 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.body.breakdown.shippingFeeCents).toBe(SHIPPING);
       // Avisos como BANDERAS (el texto lo pinta el front con su i18n).
       expect(res.body.notices).toEqual({ finalSale: true, invoiceByEmail: true, termsRequired: true });
+      // v1.21.3-quote-prune: `unavailableItems` SIEMPRE presente; `[]` cuando todo resuelve.
+      expect(res.body.unavailableItems).toEqual([]);
+    });
+
+    it('v1.21.3-quote-prune: 1 vendida + 1 id inexistente + 2 vivas ⇒ 200 con 2 cotizadas y 2 podadas', async () => {
+      const template = await h.prisma.inventoryItem.findUnique({
+        where: { folio: E2E_FOLIOS.listedCharizard },
+      });
+      const viva = (await createGuestItem(h, template!, `E2E-GST-${RUN}-QPR1`)).id;
+      const vendida = await createGuestItem(h, template!, `E2E-GST-${RUN}-QPR2`);
+      await h.prisma.inventoryItem.update({ where: { id: vendida.id }, data: { status: 'shipped' } });
+      const borrada = `no-existe-${RUN}`;
+
+      const res = await h.api('POST', '/checkout/guest/quote', {
+        json: { inventoryItemIds: [viva, vendida.id, borrada, itemId] },
+      });
+      expect(res.status).toBe(200);
+      expect((res.body.items as any[]).map((i) => i.inventoryItemId).sort()).toEqual(
+        [viva, itemId].sort(),
+      );
+      // Breakdown SOLO con las vivas (2 × unitPrice) — la poda no suma al total.
+      expect(res.body.breakdown).toEqual(
+        computeDirectShipBreakdown(unitPriceCents * 2, SHIPPING, IVA, FEE),
+      );
+      expect(res.body.unavailableItems).toEqual([
+        { inventoryItemId: vendida.id, cardName: 'E2E Charizard' },
+        { inventoryItemId: borrada, cardName: null },
+      ]);
+      expect(res.body.fulfillmentMode).toBe('direct_ship');
+    });
+
+    it('v1.21.3-quote-prune: carrito 100 % muerto ⇒ 200 con breakdown EN CEROS (incl. envío) y shape estable', async () => {
+      const template = await h.prisma.inventoryItem.findUnique({
+        where: { folio: E2E_FOLIOS.listedCharizard },
+      });
+      const vendida = await createGuestItem(h, template!, `E2E-GST-${RUN}-QPR3`);
+      await h.prisma.inventoryItem.update({ where: { id: vendida.id }, data: { status: 'shipped' } });
+
+      const res = await h.api('POST', '/checkout/guest/quote', {
+        json: { inventoryItemIds: [vendida.id, `no-existe-2-${RUN}`] },
+      });
+      // Podar a vacío es 200, no 400: el tope GUEST_MAX_ITEMS se valida sobre el array del REQUEST.
+      expect(res.status).toBe(200);
+      expect(res.body.items).toEqual([]);
+      expect(res.body.unavailableItems).toHaveLength(2);
+      expect(res.body.breakdown).toEqual({
+        subtotalCents: 0,
+        shippingFeeCents: 0, // no hay nada que enviar
+        ivaCents: 0,
+        ivaRatePct: IVA,
+        processingFeeCents: 0,
+        totalCents: 0,
+        currency: 'MXN',
+      });
+      // `fulfillmentMode`/`notices` se conservan: nunca pantalla de error, solo carrito vacío + aviso.
+      expect(res.body.fulfillmentMode).toBe('direct_ship');
+      expect(res.body.notices).toEqual({ finalSale: true, invoiceByEmail: true, termsRequired: true });
     });
 
     it('el quote NO reserva inventario (sigue vendible)', async () => {
@@ -206,9 +263,26 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     });
 
     it('la pieza reservada ya no se puede volver a vender (anti double-sell)', async () => {
+      // v1.21.3-quote-prune: el QUOTE ya no da 409 — responde 200 con la pieza PODADA (fuera de
+      // `items`/`breakdown`, con su cardName para el aviso del front).
       const res = await h.api('POST', '/checkout/guest/quote', { json: { inventoryItemIds: [itemId] } });
-      expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('ITEM_UNAVAILABLE');
+      expect(res.status).toBe(200);
+      expect(res.body.items).toEqual([]);
+      expect(res.body.unavailableItems).toEqual([
+        { inventoryItemId: itemId, cardName: 'E2E Charizard' },
+      ]);
+      // El gate DURO anti double-sell es SESSION, que sigue estricta: crear un pedido con la
+      // pieza reservada DEBE fallar con 409 global.
+      const session = await h.api('POST', '/checkout/guest/session', {
+        json: {
+          inventoryItemIds: [itemId],
+          email: `segundo.comprador.${RUN}@example.com`,
+          shippingAddress: ADDRESS,
+          acceptedTerms: true,
+        },
+      });
+      expect(session.status).toBe(409);
+      expect(session.body.error.code).toBe('ITEM_UNAVAILABLE');
     });
 
     it('en BD solo vive el SHA-256 del token (un dump no produce enlaces válidos)', async () => {
@@ -602,9 +676,12 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(order!.status).toBe('failed');
       expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith(session.body.stripe.paymentIntentId);
 
-      // Y la pieza se puede volver a vender (el inventario no quedó bloqueado).
+      // Y la pieza se puede volver a vender (el inventario no quedó bloqueado). v1.21.3: un 200
+      // ya no basta como prueba (el quote podado también da 200) — debe estar COTIZADA.
       const quote = await h.api('POST', '/checkout/guest/quote', { json: { inventoryItemIds: [item.id] } });
       expect(quote.status).toBe(200);
+      expect((quote.body.items as any[]).map((i) => i.inventoryItemId)).toEqual([item.id]);
+      expect(quote.body.unavailableItems).toEqual([]);
       jest.restoreAllMocks();
     });
 
@@ -669,13 +746,16 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       h.stripe.cancelOutcome = 'throws-succeeded';
       expect(await h.app.get(GuestOrderSweepJobService).run()).toEqual({ swept: 0 });
 
-      // La reserva sigue en pie: la pieza NO volvió a estar comprable.
+      // La reserva sigue en pie: la pieza NO volvió a estar comprable. v1.21.3: el quote responde
+      // 200 pero PODADA (fuera de `items`); el 409 duro vive en session.
       const afterSweep = await h.prisma.inventoryItem.findUnique({ where: { id: item.id } });
       expect(afterSweep!.status).toBe('reserved');
       const quote = await h.api('POST', '/checkout/guest/quote', {
         json: { inventoryItemIds: [item.id] },
       });
-      expect(quote.status).toBe(409);
+      expect(quote.status).toBe(200);
+      expect(quote.body.items).toEqual([]);
+      expect((quote.body.unavailableItems as any[]).map((u) => u.inventoryItemId)).toEqual([item.id]);
       h.stripe.cancelOutcome = 'canceled';
 
       // Y el webhook tardío liquida con la pieza donde debe estar: `picking`, no `listed`.
@@ -842,12 +922,16 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     });
 
     it('REGRESIÓN DEL DOUBLE-SELL: la pieza no es comprable y sale de la cola de picking', async () => {
-      // (a) el checkout la rechaza…
+      // (a) el quote la PODA (v1.21.3, caso v ajustado): 200 con la pieza en `unavailableItems`
+      // y FUERA de `items`/`breakdown` — la pieza sigue invendible, solo cambia el transporte…
       const quote = await h.api('POST', '/checkout/guest/quote', {
         json: { inventoryItemIds: [cbItemId] },
       });
-      expect(quote.status).toBe(409);
-      expect(quote.body.error.code).toBe('ITEM_UNAVAILABLE');
+      expect(quote.status).toBe(200);
+      expect(quote.body.items).toEqual([]);
+      expect((quote.body.unavailableItems as any[]).map((u) => u.inventoryItemId)).toEqual([cbItemId]);
+      expect(quote.body.breakdown.totalCents).toBe(0);
+      // …y el gate DURO anti double-sell (session) la sigue rechazando con 409 global.
       const session = await h.api('POST', '/checkout/guest/session', {
         json: {
           inventoryItemIds: [cbItemId],

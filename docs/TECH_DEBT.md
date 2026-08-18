@@ -1603,6 +1603,97 @@
   `errorCode`), reusando el patrón `@real` + `E2E_REAL=1` ya existente. Dueño: **frontend** escribe
   el spec; **QA** fija la cadencia (por stream vs. por release) y siembra el pedido de invitado.
 
+### FE-29 · `numberSort`/`numberPrefix` opcionales en `types/contract.ts` + fallback duplicado `deriveNumberParts` en cliente (Baja, con condición de retiro)
+- **Dónde:** `frontend/src/types/contract.ts` (`CardDTO.numberSort?/numberPrefix?`,
+  `MasterSetCardCellDTO.numberSort?/numberPrefix?`) y `frontend/src/lib/cardOrder.ts`
+  (`deriveNumberParts` + el fallback dentro de `compareCardNumber`/`keysOf`).
+- **Estado actual:** el contrato v1.22 declara ambos campos **requeridos** (columnas de `Card`
+  desde M-26, siempre presentes en el DTO), pero el tipo del frontend los marca `?` a propósito:
+  **tolerancia de despliegue** mientras el re-sync/backfill (`POST /admin/catalog/sync-all
+  {force:true}`, ARCHITECTURE §4.22d) no haya corrido sobre TODAS las filas de producción. Si el
+  campo falta, `cardOrder.ts` deriva la clave equivalente en cliente con la MISMA regla del
+  contrato. Costo: la fórmula del orden natural vive **duplicada** front/back (ya con una
+  divergencia teórica conocida: el `.toUpperCase()` del front, ver BE-65b), y el tipo miente
+  respecto al contrato (dice "opcional" donde la norma dice "siempre").
+- **Impacto:** bajo. El fallback reproduce la misma secuencia para todos los `number` reales del
+  catálogo (prefijos ya en mayúsculas); el riesgo es de deriva futura entre las dos copias de la
+  fórmula, no de comportamiento hoy.
+- **Disparador / CONDICIÓN DE RETIRO:** cuando devops confirme la corrida del
+  `sync-all {force:true}` de §4.22d **en producción** (registro en `docs/DEVOPS_NOTES.md`, gate del
+  paso 4), el rol frontend debe: (1) volver **requeridos** `numberSort`/`numberPrefix` en ambos DTOs
+  de `types/contract.ts`; (2) **borrar** `deriveNumberParts` y el fallback de `keysOf` en
+  `cardOrder.ts` (queda solo el comparador sobre los campos del DTO — elimina la duplicación
+  front/back de la fórmula y de paso el `.toUpperCase()` divergente de BE-65b); (3) ajustar los
+  fixtures/tests que hoy construyen `CardDTO` sin esos campos. Anotada a petición del **techlead**
+  (veredicto del stream v1.22-variantes-orden); la decisión del `?` está documentada en
+  `docs/FRONTEND_NOTES.md` (entrada 2026-08-18 T1/T2/T3, «Nota de tipos»).
+
+### Rama `fix/m1-alta-inventario` — cierre M1 alta (2026-08-18, no bloqueante)
+
+> Deuda **aceptada, no bloqueante** anotada a petición del **techlead** tras el pase de fixes de dinero del
+> alta M1 (FIX 1 gradeadas sin cert compartido, FIX 2 reset de formulario, FIX 3 banner, FIX 4 tests).
+> Dueño **frontend**. Registradas sin implementar en este pase. Continúan la numeración `FE-*` (tras FE-29).
+
+### FE-30 · Extraer el modal de alta de `M1View.tsx` a `<AddItemModal>` + hooks de mutación
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (≈945 líneas: tabla+pestañas+filtros
+  **y** todo el modal de alta simple/masiva con sus dos `useMutation`).
+- **Estado actual:** un solo componente concentra la orquestación de tabla/pestañas/filtros/paginación **y**
+  el formulario de alta (picker de catálogo, lote, gradeada/sellado/raw, los `create`/`batch` mutations,
+  el reset de formulario `resetAddForm`, el manejo de `batchKey`). El archivo es grande y mezcla dos
+  responsabilidades; cada fix del alta obliga a navegar todo el componente.
+- **Impacto:** medio (mantenibilidad). Sin bug; el tamaño eleva el costo de cambios y el riesgo de regresión
+  al tocar el alta (justo la superficie de dinero de este pase).
+- **Disparador:** próximo toque sustancial del alta M1. Acción: extraer `<AddItemModal>` (formulario + lote)
+  con hooks `useInventoryCreate` / `useBatchCreate` que encapsulen las mutaciones + invalidación de
+  `['admin-inventory']`; `M1View` queda como orquestador de tabla+pestañas+filtros.
+
+### FE-31 · Reusar `PerLineErrors` (master-set) para el resultado por-línea del lote de M1
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (~:563-600, render del `batch.data.results`)
+  vs. `frontend/src/components/master-set/PerLineErrors.tsx`.
+- **Estado actual:** M1 **reimplementa** a mano el render del resultado por-línea del lote (folios OK / motivo
+  de fallo por-código con `Check`/`AlertTriangle`), mientras master-set ya tiene `PerLineErrors` para el mismo
+  propósito. Dos presentaciones divergentes de "resultado de lote".
+- **Impacto:** bajo (mantenibilidad/consistencia). Cualquier mejora de presentación de lotes hay que hacerla
+  dos veces.
+- **Disparador:** al unificar la presentación de lotes o al tocar el resultado del alta masiva. Acción: usar
+  `PerLineErrors` (o extraer un componente común) para el detalle por-línea, **sin** acoplar M1 a
+  `MasterSetPanel`. Nota: `capture.ts`/master-set quedaron **fuera de alcance** de este pase (NO TOCAR).
+
+### FE-32 · Unificar la generación de `batchKey` con `localUid('batch')`
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (`ensureBatchKey`, inline con
+  `Date.now().toString(36)` + `Math.random()`) vs. `frontend/src/components/master-set/capture.ts`
+  (`localUid('batch')`, ya usado por `MasterSetPanel`/`CellDrawer`).
+- **Estado actual:** M1 genera su `batchKey` de idempotencia **inline** con su propia fórmula; master-set usa
+  el helper compartido `localUid`. Dos fuentes para la misma noción (clave estable de lote).
+- **Impacto:** bajo. Funciona; es duplicación de un helper ya existente.
+- **Disparador:** al extraer los hooks de alta (FE-30) o al tocar `capture.ts` (hoy en la lista NO TOCAR).
+  Acción: reusar `localUid('batch')`.
+
+### FE-33 · Mostrar el acabado ASIGNADO por línea en el resultado del lote (hoy degrada en silencio)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (`finishForCard`, ~:159-162, y el render
+  del resultado del lote).
+- **Estado actual:** en el alta masiva el acabado elegido se recorta por-carta (`finishForCard`): si la carta
+  no soporta el acabado del formulario, se sustituye por su primer acabado disponible **sin avisar**. El
+  resultado por-línea muestra folio/motivo pero **no** el acabado con que finalmente se creó cada pieza. El
+  acabado afecta la valuación, así que un degradado silencioso puede pasar inadvertido al operador.
+- **Impacto:** bajo/medio (transparencia de captura; el acabado incide en valuación). No corrompe: la pieza se
+  crea con un acabado válido para la carta; solo falta hacerlo visible.
+- **Disparador:** al tocar el resultado del alta masiva. Acción: incluir en cada línea OK el acabado asignado
+  (badge `FinishBadge`), destacando cuando difiere del elegido en el formulario.
+
+### FE-34 · P-1 · Tras logout el guard de `AdminShell` impone `/login?next=/admin/m1` (cosmético)
+- **Dónde:** `frontend/src/components/layout/AdminShell.tsx` (guard de sesión) vs. el `router.replace('/login')`
+  del logout.
+- **Estado actual:** al cerrar sesión, el guard de `AdminShell` **gana la carrera** y redirige a
+  `/login?next=/admin/m1` (con el `?next=`/flash) antes de que el `router.replace('/login')` limpio tome
+  efecto. El usuario acaba en login con un `next` que apunta de vuelta a la ruta admin recién cerrada.
+- **Impacto:** cosmético. No hay fuga (el guard protege igual); solo el query param sobra tras un logout
+  explícito.
+- **Disparador:** aceptado; **no arreglar ahora** salvo que resulte trivial y sin riesgo para el guard.
+  Acción posible: que el logout señale un "logout intencional" para que el guard omita el `?next=` en esa
+  transición.
+
+
 ### WS «Órdenes y dinero» — cierre v1.21 guest checkout (2026-08-18, no bloqueante)
 
 > Hallazgos del veredicto del **techlead** sobre el stream «Órdenes y dinero» (guest checkout, contrato
@@ -1791,3 +1882,188 @@
 - **Se anota igualmente** porque el patrón —*asertar sobre un listado paginado compartido*— puede
   repetirse en cualquier spec futuro de back-office; la regla es: filtra o busca por id, nunca
   confíes en que tu fila entra en la primera página.
+- **Recurrencia confirmada y corregida (2026-08-18, WS v1.22):** el mismo patrón latente vivía en
+  `catalog-checkout-webhook.e2e-spec.ts` (buscaba el charizard del seed en `GET /catalog/cards?
+  pageSize=50`) y despertó al acumular la BD compartida >50 piezas listadas del MISMO nombre
+  (`E2E-GST-*` por corrida). Ni siquiera acotar con `q=` bastó (51 listings del mismo charizard).
+  Corregido a la regla: la pieza concreta se pide **por id** (`/catalog/listings/:id`) y el listado
+  se asierta por comportamiento, no por volumen.
+
+### WS «Catálogo y precios» — v1.22 variantes y orden (2026-08-18, no bloqueante; anotado a petición del techlead)
+
+### BE-65 · Casos borde del orden natural: `"23a"`, `number` vacío, y dos divergencias oráculo↔clave persistida (Baja)
+- **Dónde:** `backend/src/common/card-order.ts` (`deriveNumberParts` / `compareByNumber`) y su
+  espejo del front `frontend/src/lib/cardOrder.ts` (dueño frontend para su mitad).
+- **Estado actual:** ARCHITECTURE §4.22b decidió explícitamente NO cambiar la semántica de estos
+  bordes en este WS (parity con el comparador previo): `"23a"` → `prefix="a"`,
+  `numberSort=1_000_023` (cae en el bloque de promos en vez de junto a `"23"`); `number=""` →
+  `prefix=""`, `numberSort=1_000_000` (al final del bloque numérico). Además hay **dos divergencias
+  reales** entre implementaciones del mismo orden:
+  - **(a) `compareByNumber` diverge de la clave persistida para `number=""`:** el comparador decide
+    "promo" por `prefix !== ''` y compara por `num` (no por `numberSort`), así que `""` (prefix `''`,
+    num `0`) se trata como puro-numérico y ordena **PRIMERO** en memoria, mientras que en BD su
+    `numberSort=1_000_000` lo manda **al final del bloque numérico**. `compareByNumber` es hoy solo
+    oráculo de tests y comparador de colecciones ya materializadas, pero un oráculo que diverge del
+    dato que audita es una trampa esperando a su test.
+  - **(b) El fallback del front normaliza el prefijo a MAYÚSCULAS y el backend no:**
+    `frontend/src/lib/cardOrder.ts` hace `.toUpperCase()` del prefijo derivado; el backend
+    (`deriveNumberParts` y el backfill SQL de M-26) conserva las minúsculas. Un `number` con prefijo
+    en minúsculas (`"23a"` → backend `prefix="a"`, front `prefix="A"`) ordenaría distinto al
+    re-ordenar localmente tras filtrar que en la página servida por la BD.
+- **Impacto:** bajo. pokemontcg.io emite los prefijos reales en mayúsculas (`TG`/`GG`/`SV`) y no se
+  han visto `number` vacíos en producción; los bordes son teóricos hoy.
+- **Disparador:** al afinar los casos borde que §4.22b dejó como deuda, o si un sync real trae un
+  `number` con letra minúscula/vacío. Acción: (1) unificar la decisión "¿es promo?" y la comparación
+  sobre `numberSort`+`prefix` (las MISMAS claves persistidas) en `compareByNumber`; (2) decidir UNA
+  normalización de prefijo (recomendado: ninguna, y quitar el `.toUpperCase()` del front — cambio
+  del rol frontend); (3) si se cambia la semántica de `""`/`"23a"`, actualizar `deriveNumberParts`,
+  el backfill de referencia y re-sync — **pasa por el arquitecto** (cambia el orden observable del
+  contrato).
+
+### BE-66 · `availableFinishes ?? ['normal']` no cubre el array VACÍO (Baja)
+- **Dónde:** `backend/src/modules/catalog/catalog.service.ts` (`toCardDTO`) y
+  `backend/src/modules/inventory/master-set.service.ts` (celda del binder): ambos emiten
+  `(card.availableFinishes ?? ['normal'])`.
+- **Estado actual:** Prisma **nunca devuelve `null`** en columnas de lista (devuelve `[]`), así que
+  el `??` solo protege contra un caso que no ocurre; un `[]` legado/corrupto se emitiría **tal
+  cual**, violando el invariante del contrato («el array nunca llega vacío», API_CONTRACT §6 /
+  §4.22c) y dejando una celda del binder con CERO casillas. Hoy es **inalcanzable por código**: el
+  schema tiene `@default([normal])`, `upsertCards` nunca escribe vacío (`derived ?? ['normal']` en
+  CREATE, omisión en UPDATE), los seeds siembran explícito y `expectedFinishes()` del master-set SÍ
+  cubre `length === 0`. El agujero requeriría un UPDATE manual en BD.
+- **Impacto:** bajo (defensa en profundidad, no bug activo).
+- **Disparador:** al tocar `toCardDTO` o el binder. Acción: helper único
+  `presentFinishes(arr: Finish[] | null | undefined): Finish[]` (en `common/card-order.ts`, junto a
+  `orderFinishes`) que cubra `null | undefined | []` → `['normal']`, y usarlo en los tres sitios
+  (`toCardDTO`, binder, `expectedFinishes`) para que el invariante viva en UN lugar.
+
+### BE-67 · Supuestos S1/S2/S3 del payload de pokemontcg.io SIN verificar en vivo — gate de la secuencia §4.22d (Media hasta la 1ª corrida)
+- **Dónde:** `backend/src/modules/pricing/pricing.types.ts` (`deriveAvailableFinishes`) y
+  `backend/src/modules/catalog/pokemontcg-io.client.ts` (`RemoteCard.cardmarket`). Detalle completo:
+  `docs/BACKEND_NOTES.md` §49.6 y ARCHITECTURE §4.22f (tabla S1/S2/S3).
+- **Estado actual:** el proxy del sandbox bloquea `api.pokemontcg.io` (403 en CONNECT), así que la
+  derivación de dos señales se implementó contra el esquema DOCUMENTADO de la API v2, cubierta solo
+  por tests de tabla de verdad sobre payloads fijos. Supuestos: **S1** la llave de `tcgplayer.prices`
+  solo aparece cuando la impresión existe; **S2** `cardmarket.prices.reverseHolo*` viene siempre
+  (señal = valor > 0); **S3** el payload de `GET /v2/cards?q=set.id:*` ya incluye `cardmarket` sin
+  `select=` (cero requests extra).
+- **Impacto:** medio **hasta** la primera corrida real: si S1/S2 fallan, el re-sync de §4.22d
+  repoblará `['normal']` masivamente (el gate del paso 4 lo detecta); si S3 falla, el sync necesita
+  una llamada extra (avisar al arquitecto ANTES: cambia el costo del sync).
+- **Disparador:** la **ejecución de la secuencia §4.22d en Railway/staging** (dueño devops, con
+  backend). Acción: correr `sync` sobre UN set moderno conocido antes del `sync-all {force:true}`,
+  revisar `cardsWithoutFinishSignal` en logs y el `SELECT count(*)... 'reverse_holo' =
+  ANY("availableFinishes")` del gate, registrar el resultado en `docs/DEVOPS_NOTES.md` y cerrar esta
+  entrada (o escalar v1.22-1 al arquitecto si el payload no trae ninguna señal). **Esta entrada
+  existe para que el supuesto no se pierda entre el merge del stream y el deploy.**
+
+### Rama `fix/carrito-pieza-muerta` (v1.21.3-quote-prune) — deuda del veredicto techlead (2026-08-18, no bloqueante)
+
+> Del stream de poda de carrito (quote por ítem). Techlead **APROBADO con condiciones**; el rename
+> `priceCartForOrder`/`priceCartForQuote` (B-4 del review) se aplicó en la propia rama y NO figura
+> aquí. IDs `B-1..B-3` del review de ese stream (no confundir con la serie `BE-*` de arriba).
+
+### B-1 · Dedupe asimétrico quote vs session
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` — `priceCartForQuote` deduplica ids
+  (`new Set`) antes de cotizar; `loadItems` (la ruta estricta de `priceCartForOrder`/sessions) NO:
+  con un id duplicado en el carrito `items.length !== ids.length` y responde `404 NOT_FOUND`.
+- **Dueño:** backend.
+- **Estado actual:** el arquitecto lo está documentando en el contrato como comportamiento vigente
+  (quote dedupe; session estricta rechaza duplicados). No es bug hoy: el front manda ids únicos.
+- **Impacto:** bajo. Asimetría de normalización entre las dos rutas; un cliente que repita un id
+  ve `200` en quote y `404` en session para el mismo carrito.
+- **Disparador:** próximo cambio en `loadItems`/checkout, o si aparece un cliente de API externo.
+  Acción: normalizar los ids en un punto ÚNICO de entrada para ambas rutas.
+
+### B-2 · `QuoteDto` sin `ArrayMaxSize`
+- **Dónde:** `backend/src/modules/orders/dto/orders.dto.ts:11-13` (`QuoteDto.inventoryItemIds`).
+- **Dueño:** backend.
+- **Estado actual:** el DTO de quote de invitado acota a `GUEST_MAX_ITEMS=20` y el de customer NO
+  tiene cota. Desde v1.21.3 la petición se procesa COMPLETA (la poda tolerante ya no corta con el
+  404 temprano que antes actuaba de freno accidental).
+- **Impacto:** superficie de abuso: un autenticado puede cotizar arrays enormes de ids y cargar
+  BD/CPU (una query `IN` gigante + resolución de precio por ítem válido).
+- **Disparador:** fase de seguridad del próximo release — **pedir a pentester/seguridad que lo
+  evalúen**. Acción probable: `@ArrayMaxSize` en `QuoteDto` alineada con una cota de producto.
+
+### B-3 · Regla de venta con gemelo SQL
+- **Dónde:** predicado TS `isSellable` (`backend/src/modules/orders/orders.service.ts`) vs. el
+  `where` literal de `reserveItems` (`ownerType:'platform', status:{in:['listed','in_stock']}`) y la
+  copia en `backend/src/modules/payments/payments.service.ts:218`.
+- **Dueño:** backend.
+- **Estado actual:** deuda HEREDADA (este stream la REDUJO al unificar el predicado TS en un solo
+  cuerpo), pero la regla sigue viviendo también como literales SQL en dos sitios: un cambio en la
+  lista de estados vendibles exige tocar tres lugares coordinados o la regla diverge en silencio.
+- **Impacto:** medio/latente. Es la regla que decide qué pieza puede venderse/reservarse: una
+  divergencia sería double-sell o pieza invendible.
+- **Disparador:** próximo cambio en CUALQUIERA de los tres sitios. Dirección: constante compartida
+  `SELLABLE_STATUSES` (mismo patrón que `inventory.service.ts:74`) consumida por el predicado y por
+  los dos `where`.
+
+---
+
+## Frontend (dueño: frontend)
+
+> Deuda aceptada del veredicto del techlead sobre la rama `fix/carrito-pieza-muerta`
+> (v1.21.3-quote-prune, 2026-08-18) + un hallazgo de QA. El único fix de código de ese veredicto
+> (F-2: re-quote tras `ITEM_UNAVAILABLE`/`NOT_FOUND` en session) **ya se corrigió en la misma rama**
+> y no figura aquí. Todos los ítems son no bloqueantes; dueño **frontend**.
+
+### F-1 · Efecto de poda duplicado en CheckoutView/GuestCheckoutView (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx` y
+  `GuestCheckoutView.tsx` — el mismo par `pushUnavailableNotice(unavailable)` +
+  `prune(unavailable.map(...))` vive copiado en un `useEffect` de cada componente.
+- **Impacto:** bajo (mantenibilidad). Un matiz futuro a la lógica de poda (orden, dedupe, telemetría)
+  hay que aplicarlo dos veces; si se aplica en una sola vista, las dos naturalezas del checkout
+  divergen en silencio.
+- **Disparador:** próximo matiz a la lógica de poda. Acción: extraer un hook
+  `useQuotePrune(unavailableItems)` junto a `unavailable-notice.ts` y consumirlo desde ambas vistas.
+
+### F-3 · Store de módulo con `getServerSnapshot` compartido en `unavailable-notice.ts` (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/unavailable-notice.ts` —
+  `useSyncExternalStore(subscribe, getSnapshot, getSnapshot)` usa la MISMA función para cliente y
+  servidor; la seguridad SSR depende de una invariante **no escrita**: «el array `notice` solo se
+  muta desde efectos de cliente» (si algún día se mutara en render/SSR, el snapshot de servidor
+  dejaría de ser estable).
+- **Impacto:** bajo/latente. Hoy correcto; el riesgo aparece con el próximo colaborador que mute el
+  store fuera de un efecto.
+- **Disparador:** próximo toque al store. Acción: `getServerSnapshot = () => EMPTY` (constante
+  congelada) o documentar la invariante en el docblock del store.
+
+### F-4 · Dos idioms de estado compartido conviven (`useSyncExternalStore` vs `useState`+evento `window`) (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/unavailable-notice.ts`
+  (useSyncExternalStore) vs `frontend/src/lib/cart.ts` y `frontend/src/lib/session.ts`
+  (useState + evento de `window`).
+- **Impacto:** bajo (consistencia/mantenibilidad). Dos patrones para el mismo problema aumentan la
+  carga cognitiva y el riesgo de elegir el equivocado en el siguiente store.
+- **Disparador:** próxima vez que se toquen `cart.ts`/`session.ts`. Acción: converger a
+  `useSyncExternalStore` como idiom único de estado compartido de módulo.
+
+### F-5 · `UnavailableItemsNotice` reimplementa el botón de cierre del Banner (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/UnavailableItemsNotice.tsx` (X propia
+  vía `action`) porque el `dismissible` de `frontend/src/components/ui/Banner.tsx` no expone callback
+  de cierre; de paso, el `aria-label="Close"` sin i18n de `Banner.tsx:65` (preexistente).
+- **Impacto:** bajo (duplicación de UI + un aria-label sin traducir en el componente base).
+- **Disparador:** próximo consumidor que necesite un cierre con efecto. Acción: darle a `Banner` un
+  `onDismiss?` (y usar copy i18n en su aria-label); `UnavailableItemsNotice` pasa a usarlo.
+
+### F-6 · JSDoc/mocks desactualizados en `api.ts` tras v1.21.3 (Baja)
+- **Dónde:** `frontend/src/lib/api.ts` — (1) el JSDoc del quote de invitado aún lista
+  `409 ITEM_UNAVAILABLE` como error del quote (desde v1.21.3 los quotes resuelven por ítem y
+  devuelven `200` con `unavailableItems`); (2) la lógica de poda del mock está duplicada en los dos
+  quotes mock; (3) el mock no modela el caso «existe pero fuera de venta» (`cardName` poblado) — los
+  ids ausentes de fixtures siempre salen con `cardName: null`.
+- **Impacto:** bajo (documentación/mocks; no afecta producción). Puede confundir al siguiente
+  desarrollador o dejar sin cobertura de mock un copy real.
+- **Disparador:** próximo toque a los mocks de `api.ts`. Acción: corregir el JSDoc, extraer la poda
+  mock a un helper único y añadir un fixture «fuera de venta» con nombre.
+
+### F-7 · Suite Playwright sin los flujos de poda de piezas muertas (QA) (Media)
+- **Dónde:** `frontend/e2e/checkout.spec.ts` y `frontend/e2e/guest-checkout.spec.ts` — el banner de
+  piezas muertas, el EmptyState por carrito 100 % muerto y la poda del `localStorage` hoy solo están
+  cubiertos en jsdom (`CheckoutUnavailable.test.tsx`), no de punta a punta contra el stack corriendo.
+- **Impacto:** medio para la garantía de release: el flujo crítico nuevo de v1.21.3 (incluido el
+  re-quote F-2) no forma parte del harness E2E que ejecuta QA.
+- **Disparador:** cierre de release (suite E2E completa). Acción: añadir a las dos specs los
+  escenarios de poda (parcial, total y carrera quote→pago) sembrando una pieza que muere entre
+  medias.

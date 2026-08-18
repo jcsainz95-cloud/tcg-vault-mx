@@ -2,7 +2,62 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-18 (rev v1.21.2-chargeback-fulfillment).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-18 (rev v1.22-variantes-orden).
+>
+> **Changelog v1.22-variantes-orden (2026-08-18) — «Una casilla de imagen por VARIANTE REAL» (requisito del PO,
+> tercera ronda) + orden natural por número. TODO ADITIVO: ningún campo se quita ni cambia de tipo, ningún endpoint
+> cambia de ruta ni de códigos de error. NO se toca ninguna regla de precio de buylist ni de venta.**
+> Ver §DTOs (`CardDTO`, `MasterSetCardCellDTO`, `MasterSetVariantDTO`), §6 (`GET /buylist/cards`), §M1 (binder) y
+> ARCHITECTURE **§4.22** / §3.7 / §11 (**M-26**).
+> - **`Card.availableFinishes` cambia de FUENTE, no de shape (lo importante).** La nota de v1.14 —«la fuente pasa a
+>   ser el proveedor de paga durante el price-ingest»— queda **DEROGADA**: el `price-ingest` **sobrescribía** el campo
+>   con los acabados que tenían `market > 0`, así que una carta con reverse holo **sin precio** de reverse holo se
+>   reducía a `["normal"]` y el binder pintaba **una** casilla. **Fuente única = el sync de catálogo**, derivando de
+>   `tcgplayer.prices` (**llaves presentes**, con o sin `market`) **∪** `cardmarket.prices.reverseHolo*` (valor > 0).
+>   **La ausencia de precio ya no reduce variantes.** Sin señal remota, el catálogo **no sobrescribe** lo existente.
+> - **Garantías nuevas del array (normativas):** nunca vacío, **orden canónico** `normal → reverse_holo → holofoil →
+>   first_edition_holofoil`, y es el **universo exacto de casillas**: `|casillas| = |availableFinishes| ≥ 1`,
+>   **prohibida la casilla de relleno**. De ahí sale literalmente «la común a la izquierda y la holo a la derecha»,
+>   **sin** que el front ordene nada.
+> - **`MasterSetVariantDTO` NO cambia — y es decisión, no omisión.** pokemontcg.io publica **una** imagen por carta
+>   (el reverse holo no tiene arte propia en la fuente) ⇒ las N casillas de una celda usan la **misma**
+>   `imageSmallUrl`. **No se añade `imageByFinish`** ni imagen por variante; diferenciar el acabado es
+>   **presentación** del front (marco/badge), no contrato.
+> - **Orden por número — `GET /buylist/cards` gana garantía NORMATIVA.** Hoy ordena `name asc, number asc` con
+>   `number` **String** (`"10"` antes que `"2"`) **y pagina**, así que el orden **debe** vivir en SQL: con `setId` →
+>   `numberPrefix, numberSort, number, id`; sin `setId` → `name, setId, numberPrefix, numberSort, id`. El `id` final
+>   es lo que hace **determinista** la paginación. Ordenar en memoria tras paginar queda **prohibido**.
+> - **DTOs aditivos:** `CardDTO` **+= `numberSort: number`, `numberPrefix: string`** (matan el `numberSort` sintético
+>   que el front calculaba con el índice del arreglo); `MasterSetCardCellDTO` **+= `numberPrefix: string`**
+>   (`numberSort` solo no basta: `TG12` y `GG12` colisionan). Ambos son **columnas** de `Card` desde **M-26**.
+> - **Migración M-26** (2 columnas + backfill + índice) y **re-sync `POST /admin/catalog/sync-all {force:true}`**
+>   como paso de despliegue: el código corregido **no repara** las filas ya grabadas. Detalle en ARCHITECTURE §4.22d.
+>
+> **Changelog v1.21.3-quote-prune (2026-08-18) — Fix de producción (decisión cerrada con el PO): una pieza MUERTA
+> en un carrito viejo NO debe bloquear el checkout. SOLO cambian los DOS endpoints de QUOTE (§4 `POST /checkout/quote`
+> y §4-G.1 `POST /checkout/guest/quote`); los de SESSION siguen ESTRICTOS.** Ver §4, §4-G.1 y ARCHITECTURE §4.21h-1 (caso v ajustado).
+> - **Bug raíz:** el carrito vive en `localStorage` como lista de `inventoryItemId` (piezas físicas ÚNICAS — al
+>   venderse desaparecen). Hoy, si UN id ya no resuelve, el quote entero revienta con `404 NOT_FOUND` global
+>   ("One or more items not found"), y si UNA pieza existe pero salió de `{listed, in_stock}` de plataforma, con
+>   `409 ITEM_UNAVAILABLE` global ⇒ el checkout queda 100 % bloqueado para todo el carrito.
+> - **Norma nueva — resolución POR ÍTEM con poda amable (SOLO quote):** los ítems que no resuelven o no están
+>   disponibles **ya no producen `404`/`409` a nivel de request**. La respuesta es `200` con `items` + `breakdown`
+>   calculados SOLO sobre los ítems válidos, más el campo nuevo **`unavailableItems: UnavailableCartItemDTO[]`**
+>   (**siempre presente**, `[]` cuando todo el carrito resuelve — tipado estable; shape sin cambios en ese caso
+>   salvo el `[]` aditivo). `UnavailableCartItemDTO = { inventoryItemId, cardName: string | null }` — `cardName`
+>   viene cuando la pieza aún existe en BD (para el aviso «X ya no está disponible y se quitó de tu carrito»);
+>   `null` si el id ya no existe.
+> - **Carrito 100 % muerto:** `200` con `items: []`, `unavailableItems` poblado y **`breakdown` presente EN CEROS**
+>   (nunca pantalla de error; el front pinta carrito vacío + aviso y deshabilita "pagar").
+> - **`422 PRICE_PENDING` NO cambia de semántica**, pero se evalúa **DESPUÉS de la poda**: solo un ítem válido
+>   (existente y disponible) sin precio dispara el 422.
+> - **SESSION sigue estricto A PROPÓSITO (no "arreglar" de más):** `POST /checkout/session` y
+>   `POST /checkout/guest/session` conservan `404 NOT_FOUND` / `409 ITEM_UNAVAILABLE` globales — crear un pedido
+>   con una pieza muerta DEBE fallar (anti double-sell; el caso v de ARCHITECTURE §4.21h-1 lo cubre). El flujo es:
+>   quote poda → el front actualiza el carrito → session recibe solo ids vivos.
+> - **Nota de frontend (no es API):** el carrito de `localStorage` gana timestamp de última modificación y
+>   **expira a los 30 días** (dueño: frontend; complementa la poda, no la sustituye).
+> - **Fuera de alcance:** reglas de precios, tracking de invitado (token) y `GET /buylist/cards` NO cambian.
 >
 > **Changelog v1.21.2-chargeback-fulfillment (2026-08-18) — Cierre del hallazgo BLOQUEANTE del techlead (T1) + D6 y
 > D4. Un endpoint admin nuevo (`chargeback-inventory`) y UN constraint (M-25b); ningún DTO de cliente cambia.**
@@ -118,7 +173,8 @@
 > Ver ARCHITECTURE §4.20.
 > - **Completitud por VARIANTE (carta+acabado), no por carta:** una carta que existe en `normal` y `reverse_holo`
 >   son **2 casillas**. El **universo de variantes esperadas por carta = `Card.availableFinishes`** (campo YA
->   existente del catálogo, poblado por el price-ingest v1.14 / bootstrap de `tcgplayer.prices`; filas históricas →
+>   existente del catálogo; ~~poblado por el price-ingest v1.14~~ → **v1.22: poblado SOLO por el sync de catálogo**
+>   (`tcgplayer.prices` ∪ `cardmarket.reverseHolo*`); filas históricas →
 >   `["normal"]`). **No hace falta regla derivada nueva:** el catálogo SÍ declara los acabados esperados. Los
 >   contadores **«X/Y» cuentan variantes**: nuevos `variants[]` + `expectedVariantCount`/`coveredVariantCount`
 >   (celda) y `catalogVariantCount`/`distinctVariantsOwned`/`variantCompletionPct` (índice). Los campos por-carta
@@ -384,9 +440,12 @@
 >   colchón (`bufferPct`) y **NO** pinnea el override manual de tasa (hoy exige ambos y congela la tasa auto de Banxico).
 >   **Alternativa recomendada sin cambio de contrato de FX:** guardar el colchón por `PUT /admin/settings { fxBufferPct }`
 >   (parcial, ya soportado). Nota de UI para M2 (frontend). El colchón **aplica en cada ingest** (USD→MXN con FX+buffer).
-> - **`CardDTO.availableFinishes` (mismo shape, nueva FUENTE):** pasa a **derivarse del proveedor** de paga en el ingest
->   (que trae las variantes reales del mercado), reemplazando la derivación frágil de `tcgplayer.prices`. Sin cambio de
->   forma; sigue siendo la lista blanca SEC-A1 del `finish` (`422 FINISH_NOT_AVAILABLE`).
+> - ~~**`CardDTO.availableFinishes` (mismo shape, nueva FUENTE):** pasa a **derivarse del proveedor** de paga en el
+>   ingest (que trae las variantes reales del mercado), reemplazando la derivación frágil de `tcgplayer.prices`.~~
+>   ⛔ **DEROGADO por v1.22-variantes-orden:** derivar las **variantes** de un feed de **precios** hacía que un acabado
+>   sin `market` desapareciera del catálogo (una casilla de menos en el binder y `422 FINISH_NOT_AVAILABLE` al
+>   cotizarlo). Fuente vigente = **sync de catálogo** (`tcgplayer.prices` ∪ `cardmarket.reverseHolo*`); el ingest
+>   **no escribe** el campo. Sigue siendo la lista blanca SEC-A1 del `finish`. Ver §DTOs y ARCHITECTURE §4.22a.
 > - **Sin endpoint nuevo de catálogo/quote:** el ingest es interno (job); `POST /buylist/quote`, `GET /catalog/*` y
 >   `POST /admin/catalog/sync-all` **no cambian de shape** — solo mejora la **completitud/frescura** de los precios que
 >   devuelven. `catalog-sync` queda como **solo metadata** (import de sets nuevos); su rol de pricing lo asume el ingest.
@@ -727,10 +786,24 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 // v1.6-finish: availableFinishes = acabados en que existe la carta. SIGUE siendo 1 CardDTO por carta
 // (externalId único); availableFinishes es un array en el MISMO objeto. Filas históricas / sin sincronizar →
 // ["normal"]. Es la lista blanca contra la que el backend valida `finish` (SEC-A1, 422 FINISH_NOT_AVAILABLE).
-// v1.14-price-ingest: la FUENTE de availableFinishes pasa a ser el PROVEEDOR de paga (que trae las variantes
-// reales del mercado) durante el price-ingest (ARCHITECTURE §4.15e), reemplazando la derivación de
-// tcgplayer.prices. MISMO shape; catalog-sync solo deja un bootstrap seguro que el ingest sobre-escribe.
-CardDTO      = { id, externalId, name, number, rarity, supertype, subtypes: string[],
+// v1.14-price-ingest: la FUENTE de availableFinishes pasa a ser el PROVEEDOR de paga (…) — ⛔ DEROGADO por v1.22.
+// v1.22-variantes-orden (NORMATIVO, sustituye a la nota v1.14):
+//   * FUENTE ÚNICA = el SYNC DE CATÁLOGO. Se deriva de `tcgplayer.prices` (llaves PRESENTES, con o sin `market`)
+//     ∪ `cardmarket.prices.reverseHolo*` (valor numérico > 0). El price-ingest YA NO escribe este campo: la
+//     ausencia de PRECIO de un acabado NO reduce las variantes (ARCHITECTURE §4.22a; §4.15e derogada).
+//   * ORDEN CANÓNICO GARANTIZADO: normal → reverse_holo → holofoil → first_edition_holofoil. El front NO ordena;
+//     consume el orden del array. De ahí sale "normal a la IZQUIERDA, reverse holo a la DERECHA".
+//   * NUNCA vacío (mínimo ["normal"]) y NUNCA con acabados inventados: es el universo EXACTO de casillas del
+//     binder. Invariante de render: |casillas| = |availableFinishes| ≥ 1; PROHIBIDA la casilla de relleno.
+//   * La IMAGEN es la MISMA para todas las variantes de la carta (`imageSmallUrl`/`imageLargeUrl` del CardDTO):
+//     pokemontcg.io publica UNA imagen por carta, sin arte por acabado. Por eso NO existe `imageByFinish`.
+// v1.22 — numberSort / numberPrefix: claves DERIVADAS de `number` (String) para el ORDEN NATURAL, persistidas en
+//   BD (M-26) y ya usadas por el `ORDER BY` del servidor. El front las usa SOLO para re-ordenar localmente tras
+//   filtrar, con el comparador (numberPrefix asc, numberSort asc, number asc) — que reproduce EXACTAMENTE el orden
+//   del servidor. numberPrefix="" ⇒ número puramente numérico (ordena primero); "TG"/"SV"/"GG" ⇒ promo/subset al
+//   final. Reemplaza cualquier `numberSort` sintético que el front venga calculando (p. ej. el índice del arreglo).
+CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix: string,
+                 rarity, supertype, subtypes: string[],
                  setId, setName, imageSmallUrl, imageLargeUrl, availableFinishes: Finish[] }
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
@@ -812,7 +885,11 @@ MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: 
 //   promos/subsets con prefijo alfabético (TG/GG/SV) NO son secret rare → `isSecretRare=false` (son subset aparte).
 //   `printedTotal` nulo → `false`. (Definición previa `numberSort > printedTotal` marcaba TODOS los promos; deuda
 //   BE-36, ver ARCHITECTURE §9.)
-MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, name: string, rarity?: string,
+// v1.22-variantes-orden — `numberSort` y el NUEVO `numberPrefix` dejan de ser derivados en memoria: son COLUMNAS
+//   de `Card` (M-26) y el servidor ordena por ellas en SQL. `numberSort` SOLO no basta para re-ordenar en el front
+//   (`TG12` y `GG12` colisionan en 1000012): el comparador correcto es (numberPrefix asc, numberSort asc, number asc).
+MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, numberPrefix: string,
+                         name: string, rarity?: string,
                          imageSmallUrl?: string, availableFinishes: Finish[],
                          countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean }
 MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalogCardCount: number,
@@ -829,8 +906,14 @@ MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalog
 // `owner`: presente SOLO en scope user_vault. `email` SOLO en la vista admin (ii); en la vista (iii) se omite.
 VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 // Variante = (carta, acabado). El UNIVERSO esperado por carta = Card.availableFinishes (campo YA existente del
-// catálogo; fuente: price-ingest v1.14 / bootstrap tcgplayer.prices; filas históricas/sin datos → ["normal"]).
-// `variants` trae EXACTAMENTE una entrada por acabado de availableFinishes (orden del enum Finish).
+// catálogo; v1.22: fuente ÚNICA = sync de catálogo — tcgplayer.prices ∪ cardmarket.reverseHolo*; el price-ingest
+// YA NO lo escribe. Filas históricas/sin datos → ["normal"]).
+// `variants` trae EXACTAMENTE una entrada por acabado de availableFinishes (orden canónico FINISH_ORDER:
+// normal → reverse_holo → holofoil → first_edition_holofoil), ni una más ni una menos.
+// v1.22 — SIN CAMBIO DE SHAPE, y es una decisión, no un olvido: la variante NO lleva imagen propia. pokemontcg.io
+// publica UNA sola imagen por carta (el reverse holo no tiene arte distinta en la fuente), así que las N casillas
+// de una celda usan la MISMA `MasterSetCardCellDTO.imageSmallUrl`. Diferenciar visualmente el acabado es
+// PRESENTACIÓN del front (marco/badge/overlay), no un campo del contrato. No proponer `imageByFinish`.
 // `covered` = ≥1 pieza en el scope para ese (cardId, finish). `buyable` SOLO scope cliente y SOLO cuando
 // covered=false: la pieza `listed` de plataforma MÁS BARATA de ese (cardId, finish) (cualquier productType), o null.
 // NOTA compat: `countsByFinish` (v1.16) se CONSERVA y puede traer acabados FUERA del universo (drift de catálogo:
@@ -926,6 +1009,12 @@ BulkPublishResponse = { summary: { requested: number, published: number, failedL
 // como línea aparte y NO restarla del subtotal.
 BreakdownDTO = { subtotalCents, ivaCents, ivaRatePct, processingFeeCents, totalCents, currency: "MXN",
                  shippingFeeCents?: number }
+// v1.21.3-quote-prune — ítem de carrito podado por los DOS endpoints de QUOTE (§4 y §4-G.1). SOLO quote:
+// los endpoints de session NO lo usan (siguen estrictos). `cardName` = nombre de la carta si la pieza aún
+// existe en BD (aunque ya no esté disponible); null si el `inventoryItemId` ya no resuelve (pieza borrada).
+// El front lo usa para el aviso «X ya no está disponible y se quitó de tu carrito» y para PODAR el
+// localStorage antes de llamar a session.
+UnavailableCartItemDTO = { inventoryItemId: string, cardName: string | null }
 ```
 
 ---
@@ -1189,11 +1278,48 @@ Err `401`, `404 NOT_FOUND` (set inexistente).
 
 ## 4. Compra, checkout y órdenes (Stripe)
 
-### POST /api/v1/checkout/quote — `customer`
+### POST /api/v1/checkout/quote — `customer`  (v1.21.3-quote-prune: resolución POR ÍTEM)
 Calcula el desglose sin cobrar (para mostrar líneas en el checkout).
-Req: `{ inventoryItemIds: string[] }`
-Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO }`
-Err: `422 PRICE_PENDING` (algún item sin precio), `409 ITEM_UNAVAILABLE` (ya vendido/reservado).
+Req: `{ inventoryItemIds: string[] }`  *(sin cambios)*
+Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableItems: UnavailableCartItemDTO[] }`
+
+**Poda amable (v1.21.3):** el quote resuelve **por ítem**, nunca revienta por una pieza muerta del carrito
+(`localStorage` puede traer ids de piezas ya vendidas/borradas):
+- **`unavailableItems` — SIEMPRE presente** (tipado estable): `[]` si todos los ids resuelven y están disponibles
+  (en ese caso la forma previa de la respuesta NO cambia: mismo `items` y `breakdown`, solo se suma el `[]`).
+  Entra a `unavailableItems` todo id que (a) **no existe** en BD (`cardName: null`) o (b) existe pero **no** está
+  disponible para venta de plataforma (`ownerType != 'platform'` o `status ∉ {listed, in_stock}`) — ahí
+  `cardName` trae el nombre de la carta para el aviso del front.
+- `items` y `breakdown` se calculan **SOLO con los ítems válidos** (los podados no suman al total).
+- **Carrito 100 % no disponible:** `200` con `items: []`, `unavailableItems` poblado y **`breakdown` presente en
+  CEROS** (`{ subtotalCents: 0, ivaCents: 0, ivaRatePct: 16, processingFeeCents: 0, totalCents: 0,
+  currency: "MXN" }`). El front pinta carrito vacío + aviso; **nunca** pantalla de error.
+- **Deber del front:** tras cada quote, **podar del carrito** (`localStorage`) los `inventoryItemId` que vengan en
+  `unavailableItems`, ANTES de llamar a `POST /checkout/session` (que sigue estricto, ver abajo).
+- **Ids repetidos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1 del techlead):** los `inventoryItemIds`
+  duplicados se **deduplican** antes de resolver (cada pieza física es única y solo puede comprarse una vez):
+  `["a","a"]` ⇒ `200` con **1** ítem, sin error ni entrada en `unavailableItems`. Comportamiento vigente que se
+  documenta, no se cambia. ⚠️ `POST /checkout/session` **no** deduplica (ver su nota abajo).
+
+Ejemplo (una pieza vendida entre visitas, otra borrada):
+```json
+{ "items": [{ "inventoryItemId": "a1…", "card": {}, "unitPriceCents": 12500 }],
+  "breakdown": { "subtotalCents": 12500, "ivaCents": 2000, "ivaRatePct": 16,
+                 "processingFeeCents": 700, "totalCents": 15200, "currency": "MXN" },
+  "unavailableItems": [
+    { "inventoryItemId": "b2…", "cardName": "Antique Skull Fossil" },
+    { "inventoryItemId": "c3…", "cardName": null }
+  ] }
+```
+Err: `422 PRICE_PENDING` (algún ítem **VÁLIDO** —existente y disponible— sin precio; se evalúa **después** de la
+poda, semántica intacta), `400 VALIDATION_ERROR` (carrito vacío en el request), `401`.
+**Eliminados en v1.21.3 (SOLO en este endpoint):** `404 NOT_FOUND` global y `409 ITEM_UNAVAILABLE` global — ambos
+casos ahora viajan en `unavailableItems` con `200`.
+> ⚠️ **NO propagar la poda a session:** `POST /checkout/session` (abajo) **conserva** `404 NOT_FOUND` /
+> `409 ITEM_UNAVAILABLE` estrictos. Crear un pedido con una pieza muerta DEBE seguir fallando (anti double-sell,
+> regresión caso v de ARCHITECTURE §4.21h-1). La poda vive únicamente en los dos quotes.
+> **Nota de frontend (no es API):** el carrito de `localStorage` gana timestamp de última modificación y **expira
+> a los 30 días** (complementa la poda; dueño: frontend).
 
 ### POST /api/v1/checkout/session — `customer`
 Reserva los items (`status=reserved`), crea la `Order` en `pending` y el `PaymentIntent` de Stripe.
@@ -1204,7 +1330,14 @@ Res `201`:
 { "orderId": "…", "breakdown": { "…": "BreakdownDTO" },
   "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" } }
 ```
-Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, **`403 EMAIL_NOT_VERIFIED`** (v1.5 — `emailVerified=false`; comprar es acción sensible). (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
+Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inventoryItemId` no existe), **`403 EMAIL_NOT_VERIFIED`** (v1.5 — `emailVerified=false`; comprar es acción sensible). (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
+> **v1.21.3 — session sigue ESTRICTO a propósito:** la poda por ítem de v1.21.3 aplica **SOLO a los quotes**. Aquí
+> una pieza muerta en el carrito DEBE seguir fallando con `404`/`409` globales (anti double-sell, caso v de
+> ARCHITECTURE §4.21h-1). El front llega a session con el carrito YA podado por el quote.
+> **Ids únicos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** a diferencia del quote, session **no
+> deduplica**: `inventoryItemIds` duplicados o no resolubles caen en el `404 NOT_FOUND` / `409 ITEM_UNAVAILABLE`
+> estricto vigente (la carga estricta compara el conteo pedido contra el resuelto; `["a","a"]` ⇒ `404`). El
+> cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza (un id por pieza única).
 > **v1.5:** `POST /checkout/session` está bloqueado por `EmailVerifiedGuard` (crear orden = acción sensible). El
 > `POST /checkout/quote` (read-only) **no** se bloquea, para que la UI muestre precios con el banner "verifica tu correo".
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA **de producto**). El gross-up sí cubre el IVA que Stripe MX cobra sobre su comisión (dial `stripe_fee_iva_pct`, default 0.16). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
@@ -1283,12 +1416,13 @@ GuestCheckoutQuoteRequest = { inventoryItemIds: string[], shippingAddress?: Gues
 se cotiza igual y la validación de dirección ocurre en la sesión. `inventoryItemIds`: 1..`GUEST_MAX_ITEMS` (**20**,
 constante de servidor, §4-G.10).
 
-Res `200`:
+Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**):
 ```json
 { "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
   "fulfillmentMode": "direct_ship",
   "breakdown": { "subtotalCents": 25000, "shippingFeeCents": 17500, "ivaCents": 6800,
                  "ivaRatePct": 16, "processingFeeCents": 1900, "totalCents": 51200, "currency": "MXN" },
+  "unavailableItems": [{ "inventoryItemId": "…", "cardName": "Antique Skull Fossil" }],
   "notices": { "finalSale": true, "invoiceByEmail": true, "termsRequired": true } }
 ```
 > `notices` son **banderas**, no texto (§0 i18n): el front renderiza el aviso de **ventas finales**, el mensaje de
@@ -1296,8 +1430,29 @@ Res `200`:
 > mismo** que para un usuario con cuenta (mismas reglas de venta por rareza/acabado; comprar como invitado no cambia
 > condiciones comerciales).
 
-Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `422 ADDRESS_NOT_MX`, `400 VALIDATION_ERROR` (carrito vacío o por
-encima de `GUEST_MAX_ITEMS`), `409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`.
+**Poda amable (v1.21.3 — MISMA norma que `POST /checkout/quote`, §4, porque comparten la lógica de pricing):**
+- `unavailableItems: UnavailableCartItemDTO[]` **siempre presente**; `[]` cuando todo el carrito resuelve (y en ese
+  caso la forma previa de la respuesta NO cambia). Entra todo id inexistente (`cardName: null`) o existente pero
+  fuera de venta de plataforma (`ownerType != 'platform'` o `status ∉ {listed, in_stock}`; `cardName` con nombre).
+- `items` y `breakdown` se calculan SOLO con los ítems válidos.
+- **Carrito 100 % no disponible:** `200` con `items: []`, `unavailableItems` poblado y `breakdown` **en CEROS,
+  incluido `shippingFeeCents: 0`** (no hay nada que enviar; el front pinta carrito vacío + aviso, nunca error).
+  `fulfillmentMode` y `notices` se conservan (shape estable).
+- El límite `1..GUEST_MAX_ITEMS` (**20**) se valida sobre el **array del request** (antes de la poda): un carrito
+  que valida pero queda vacío tras la poda es `200`, no `400`.
+- **Deber del front:** podar del carrito los ids de `unavailableItems` ANTES de llamar a
+  `POST /checkout/guest/session` (§4-G.2), que **sigue estricto**.
+- **Ids repetidos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** MISMA norma que §4 — los
+  `inventoryItemIds` duplicados se **deduplican** antes de resolver (`["a","a"]` ⇒ `200` con 1 ítem, sin error).
+  El límite `1..GUEST_MAX_ITEMS` sigue validándose sobre el **array del request**, antes del dedupe y de la poda.
+  ⚠️ `POST /checkout/guest/session` (§4-G.2) **no** deduplica (ver su nota).
+
+Err: `422 PRICE_PENDING` (ítem **válido** sin precio; se evalúa **después** de la poda, semántica intacta),
+`422 ADDRESS_NOT_MX`, `400 VALIDATION_ERROR` (carrito vacío o por encima de `GUEST_MAX_ITEMS`),
+`409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`.
+**Eliminados en v1.21.3 (SOLO en este endpoint):** `404 NOT_FOUND` global y `409 ITEM_UNAVAILABLE` global — ahora
+viajan en `unavailableItems` con `200`. ⚠️ `POST /checkout/guest/session` (§4-G.2) **conserva** ambos errores
+estrictos: crear pedido con pieza muerta DEBE seguir fallando (anti double-sell).
 
 ### 4-G.2 POST /api/v1/checkout/guest/session — `public` (`@Public()`)
 
@@ -1353,6 +1508,9 @@ Err: `400 VALIDATION_ERROR` (correo inválido/vacío, dirección incompleta, `ac
 vacío/`>20`), `422 ADDRESS_NOT_MX` (criterio 48b / 31), `422 VAULT_REQUIRES_ACCOUNT`, `422 PRICE_PENDING`,
 `409 ITEM_UNAVAILABLE`, `409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`, `503 PAYMENT_PROVIDER_UNAVAILABLE`
 (mismo comportamiento compensatorio A2 de §4: se libera la reserva y la orden queda `failed`).
+> **Ids únicos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** igual que `POST /checkout/session` (§4),
+> este endpoint **no deduplica**: `inventoryItemIds` duplicados o no resolubles producen el `404 NOT_FOUND` /
+> `409 ITEM_UNAVAILABLE` estricto vigente. El cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza.
 **NO aplica `403 EMAIL_NOT_VERIFIED`** (no hay cuenta que verificar) — ver la asimetría documentada en §4-G.8.
 
 ### 4-G.3 POST /api/v1/orders/guest/track — `public` (`@Public()`)
@@ -1907,6 +2065,29 @@ Res `200`: `{ data: CardDTO[], page, pageSize, total }`
   imageLargeUrl` + **`availableFinishes: Finish[]`** — cumple id/nombre/set/rareza/imagen/número/acabados).
   **No** hay `sellable`/`salePriceCents` (no es Compra); no hay precio en este DTO. El front puebla el **selector
   de acabado** del cotizador con `availableFinishes` (v1.6-finish).
+
+**Ordenamiento NORMATIVO (v1.22-variantes-orden) — el binder del cotizador depende de él.** El orden se aplica
+**en la base de datos, antes de paginar**; ordenar en el cliente o en memoria tras el `skip/take` está
+**prohibido** (reordenaría la página, no el conjunto ⇒ orden global incorrecto y filas repetidas/saltadas entre
+páginas). Dos casos:
+
+| Caso | Orden garantizado |
+|---|---|
+| **con `setId`** (binder / master set) | `numberPrefix` asc → `numberSort` asc → `number` asc → `id` asc |
+| **sin `setId`** (búsqueda de texto en todo el catálogo) | `name` asc → `setId` asc → `numberPrefix` asc → `numberSort` asc → `id` asc |
+
+- Efecto observable: dentro de un set la secuencia es **`1, 2, 3, … 10, 11 …`** (nunca `1, 10, 100, 2`) y los
+  promos/subsets van **al final, agrupados por prefijo alfabético** (`GG50` → `SV107` → `TG01`: `numberPrefix` asc). Antes de v1.22 el orden era
+  `name asc, number asc` con `number` como **String** (`"10"` antes que `"2"`) — defecto **ORD-1**, ARCHITECTURE §9.
+- El **`id` asc final es obligatorio**: es el desempate total que hace **determinista** la paginación.
+- El front **no re-implementa** este orden: lo recibe ya aplicado, y si filtra localmente re-ordena con
+  `(numberPrefix, numberSort, number)` del propio DTO — nunca con el índice del arreglo.
+
+**Garantía de VARIANTES (v1.22).** `availableFinishes` de cada `CardDTO` es el **universo exacto de casillas** que
+el binder debe pintar: **una casilla de imagen por entrada**, en el **orden del array** (`normal` primero ⇒
+izquierda, `reverse_holo` después ⇒ derecha), todas con la **misma** `imageSmallUrl` de la carta. Si la carta solo
+trae `["normal"]` se pinta **una** casilla: **nunca** un hueco de relleno ni un acabado por convención. El array
+**nunca llega vacío** y **nunca** se reduce por falta de precio (ARCHITECTURE §4.22a/§4.22c).
 Err: `400 VALIDATION_ERROR` (paginación inválida).
 Nota: para **cotizar** una carta encontrada, el front llama `POST /buylist/quote` con su `cardId`. Si la carta
 es `ex_plus` y **no tiene precio de referencia** (típico en cartas fuera de bóveda), la cotización sale
@@ -2219,6 +2400,14 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     > `TG12`→`12` y lo intercalaba entre las numéricas, contradiciendo "promos al final". Solo debe parsearse el entero
     > cuando el `number` es puramente numérico. `numberSort` (en el DTO) es el entero para cartas numéricas y un
     > sentinela que empuja al final para promos.
+  - **v1.22-variantes-orden — el orden deja de calcularse en cada consulta: se PERSISTE.** `Card.numberSort` y
+    `Card.numberPrefix` son **columnas** (migración **M-26**) pobladas por el sync con `deriveNumberParts`, y el
+    `ORDER BY` normativo pasa a ser **`numberPrefix asc, numberSort asc, number asc, id asc`** — equivalente exacto al
+    de arriba, pero indexable (`@@index([setId, numberPrefix, numberSort])`) y **reutilizable por `GET /buylist/cards`,
+    que pagina** (ordenar en memoria ahí daría un orden global incorrecto; ver §6 y ARCHITECTURE §4.22b). El SQL crudo
+    ilustrativo previo queda como **referencia histórica**; el orden vigente es el de columnas.
+    `MasterSetCardCellDTO` gana **`numberPrefix`** porque `numberSort` **solo no basta** para que el front re-ordene
+    tras filtrar (`TG12` y `GG12` colisionan en el mismo sentinela).
   - **`isSecretRare` (v1.16.1 — heurística SOLO de display):** `true` **solo** para cartas de la numeración
     **principal** (número puramente numérico) cuyo entero **> `printedTotal`** (secret/hyper rare real). Los
     promos/subsets con **prefijo alfabético** (TG/GG/SV) → `isSecretRare=false` (subset aparte, no secret rare).

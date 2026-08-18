@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { createGuestCheckoutSession, getGuestCheckoutQuote } from '@/lib/api';
@@ -20,6 +20,8 @@ import { CheckoutIdentityGate, type IdentityMode } from './CheckoutIdentityGate'
 import { GuestCheckoutForm, type Destination } from './GuestCheckoutForm';
 import { GuestOrderConfirmation } from './GuestOrderConfirmation';
 import { InlineAuthPanel } from './InlineAuthPanel';
+import { UnavailableItemsNotice } from './UnavailableItemsNotice';
+import { pushUnavailableNotice } from './unavailable-notice';
 import {
   EMPTY_GUEST_ADDRESS,
   toAddressPayload,
@@ -75,6 +77,21 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     queryFn: () => getGuestCheckoutQuote(cart.ids),
     enabled: cart.ids.length > 0,
   });
+
+  /**
+   * v1.21.3-quote-prune (misma mecánica que CheckoutView): las piezas muertas del
+   * quote se podan del localStorage en un efecto idempotente y el aviso queda en el
+   * store, que sobrevive tanto a la re-cotización como al desmonte de esta vista
+   * (si TODO murió, el padre pinta EmptyState + aviso). Sin ciclo: el segundo fetch
+   * trae `unavailableItems: []` y el efecto es no-op.
+   */
+  const unavailable = query.data?.unavailableItems;
+  const { prune } = cart; // estable (useCallback sin deps)
+  useEffect(() => {
+    if (!unavailable || unavailable.length === 0) return;
+    pushUnavailableNotice(unavailable);
+    prune(unavailable.map((u) => u.inventoryItemId));
+  }, [unavailable, prune]);
 
   const errors: GuestErrors = useMemo(() => validateGuestForm(form), [form]);
   const shippingFeeCents = query.data?.breakdown.shippingFeeCents;
@@ -140,6 +157,19 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       if (e instanceof ApiClientError && e.code === 'VAULT_REQUIRES_ACCOUNT') {
         setDestination('vault');
         setUpsellOpen(true);
+      } else if (
+        e instanceof ApiClientError &&
+        (e.code === 'ITEM_UNAVAILABLE' || e.code === 'NOT_FOUND')
+      ) {
+        // v1.21.3-F2 — carrera "pieza vendida ENTRE el quote y el pago": la session
+        // sigue estricta (anti double-sell, contrato §4-G.2), así que aquí se
+        // RE-COTIZA. El quote nuevo trae la pieza en `unavailableItems` y la
+        // maquinaria existente (efecto de poda + UnavailableItemsNotice) poda el
+        // carrito y avisa sola: el banner ES el aviso, no se pinta además el mensaje
+        // genérico junto al botón (evitaría un doble mensaje contradictorio).
+        // Respaldo: si la re-cotización MISMA falla, sí se muestra el mensaje.
+        const requote = await query.refetch();
+        if (requote.error) setPayError(getMessage(e));
       } else {
         setPayError(getMessage(e));
       }
@@ -163,6 +193,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       <div className="gutter pb-6 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
       </div>
+
+      {/* Aviso informativo de poda (v1.21.3), FUERA de QueryState: sobrevive al estado
+          de carga de la re-cotización que la propia poda dispara. */}
+      <UnavailableItemsNotice className="gutter mb-6 max-w-[680px]" />
 
       <QueryState
         isLoading={query.isLoading}

@@ -29,7 +29,14 @@ export interface IngestSetResult {
 /**
  * PriceIngestService — corazón de WS-A (ARCHITECTURE §4.15c). Ingesta MASIVA de precios por SET
  * vía un `BulkPriceProvider` pluggable, con **upsert idempotente** de `PriceReference` por
- * `(cardId, 'raw', 'raw:NM', finish, hoy)` y refresco de `Card.availableFinishes` desde el proveedor.
+ * `(cardId, 'raw', 'raw:NM', finish, hoy)`.
+ *
+ * ⛔ **v1.22-variantes-orden (§4.22a): CERO escrituras sobre `Card`.** El refresco de
+ * `Card.availableFinishes` desde el proveedor (§4.15e) queda **DEROGADO** — era la causa raíz del
+ * bug de tres rondas del PO (VAR-1, §9): derivar las VARIANTES de la existencia de un PRECIO
+ * borraba el reverse holo de toda carta sin precio de reverse holo. La autoridad única es el
+ * **sync de catálogo** (`CatalogSyncService.upsertCards`). Aquí solo se LOGUEA el drift
+ * (`finishNotInCatalog`).
  *
  * - **Provider por dial:** `providerFor()` lee `PRICE_PROVIDER` y elige la implementación.
  * - **Resolución carta↔BD (§4.15d):** externalId (primario) → `(set, number)` (fallback); sin
@@ -37,7 +44,7 @@ export interface IngestSetResult {
  *   necesita la BD y el `BulkPriceRow` trae los identificadores (no un cardId ya resuelto).
  * - **FX una vez por corrida (§4.15f):** el `fx` lo carga el JOB y se pasa a cada `ingestSet`.
  * - **Money-safe:** respeta overrides manuales (vía `PricingService.persistMarketReference`), no
- *   clobbea `availableFinishes` si el proveedor no reporta nada, MXN sin conversión.
+ *   toca `availableFinishes` en ningún caso (§4.22a), MXN sin conversión.
  */
 @Injectable()
 export class PriceIngestService {
@@ -147,9 +154,21 @@ export class PriceIngestService {
       byCard.set(cardId, finishes);
     }
 
+    // v1.22 (§4.22a): CATÁLOGO de acabados de las cartas tocadas — se lee SOLO para detectar drift
+    // y LOGUEARLO (`finishNotInCatalog`). NUNCA para escribir `availableFinishes` desde aquí.
+    const catalogFinishes = new Map<string, Finish[]>();
+    if (byCard.size > 0) {
+      const rows = await this.prisma.card.findMany({
+        where: { id: { in: [...byCard.keys()] } },
+        select: { id: true, externalId: true, availableFinishes: true },
+      });
+      for (const r of rows) catalogFinishes.set(r.id, (r.availableFinishes ?? ['normal']) as Finish[]);
+    }
+
     let priced = 0;
+    const driftPairs: string[] = [];
     for (const [cardId, finishes] of byCard) {
-      const providerFinishes: Finish[] = [];
+      const known = catalogFinishes.get(cardId) ?? ['normal'];
       for (const [finish, row] of finishes) {
         // El adapter ya garantizó market > 0; doble-guard money-safe.
         if (row.marketCents <= 0) continue;
@@ -159,22 +178,34 @@ export class PriceIngestService {
           { marketCents: row.marketCents, currency: row.currency, source: provider.source },
           fx,
         );
-        providerFinishes.push(finish);
+        // §4.22a — DRIFT observable: el proveedor reporta un acabado que el CATÁLOGO no declara.
+        // `PriceReference` se persiste igual (dato inocuo: el quote valida el finish contra
+        // `Card.availableFinishes` ANTES de leer precio, SEC-A1), pero queda evidencia para el
+        // dueño. El remedio es un `sync-all {force:true}` o el override manual — jamás escribir
+        // la lista blanca desde un feed de precios.
+        if (!known.includes(finish)) driftPairs.push(`${cardId}:${finish}`);
         priced += 1;
       }
-      // Variantes #8 (§4.15e): el proveedor es AUTORIDAD de availableFinishes. Solo se reemplaza
-      // si reporta ≥1 acabado válido; si no reporta nada se RESPETA lo existente (nunca se clobbea).
-      if (providerFinishes.length > 0) {
-        await this.prisma.card.update({
-          where: { id: cardId },
-          data: { availableFinishes: [...new Set(providerFinishes)] },
-        });
-      }
+      // ⛔ v1.22-variantes-orden (§4.22a-1/2): ELIMINADO el `card.update({ availableFinishes })`
+      // que vivía aquí (VAR-1, §9). El price-ingest hace **CERO escrituras** sobre `Card`: derivar
+      // las VARIANTES de la existencia de un PRECIO clobbeaba a `['normal']` toda carta cuyo
+      // reverse holo no tuviera precio, y ensanchaba/estrechaba una lista blanca de seguridad
+      // (SEC-A1) desde un feed de terceros. Autoridad única = `CatalogSyncService.upsertCards`.
+    }
+
+    if (driftPairs.length > 0) {
+      this.logger.warn(
+        `price-ingest-set(${set.externalId}, ${provider.source}): finishNotInCatalog — ` +
+          `${driftPairs.length} referencia(s) de acabados FUERA de Card.availableFinishes ` +
+          `[${driftPairs.slice(0, 20).join(', ')}${driftPairs.length > 20 ? ', …' : ''}]. ` +
+          `El precio SÍ se persiste; el catálogo NO se modifica (§4.22a).`,
+      );
     }
 
     this.logger.log(
       `price-ingest-set(${set.externalId}, ${provider.source}): ${byCard.size} cartas, ` +
-        `${priced} refs, ${unresolved} sin resolver, ${result.skipped} omitidas por el adapter.`,
+        `${priced} refs, ${unresolved} sin resolver, ${result.skipped} omitidas por el adapter, ` +
+        `${driftPairs.length} finishNotInCatalog.`,
     );
     return {
       setId: set.id,

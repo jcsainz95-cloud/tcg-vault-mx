@@ -165,9 +165,12 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
         expect(item!.ownerType).toBe('platform');
         expect(order!.chargebackNeedsManual).toBe(true); // el bug lo borraba a `false`
       }
-      // La consecuencia que importa: sigue sin ser comprable.
+      // La consecuencia que importa: sigue sin ser comprable. v1.21.3-quote-prune: el quote
+      // responde 200 con la pieza PODADA (fuera de `items`); el 409 duro vive en session.
       const q = await h.api('POST', '/checkout/guest/quote', { json: { inventoryItemIds: [o.itemId] } });
-      expect(q.status).toBe(409);
+      expect(q.status).toBe(200);
+      expect(q.body.items).toEqual([]);
+      expect((q.body.unavailableItems as any[]).map((u) => u.inventoryItemId)).toEqual([o.itemId]);
     }, 60000);
 
     it('MONOTONÍA: un webhook que computa `false` no puede bajar un flag ya puesto en `true`', async () => {
@@ -217,21 +220,44 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
       const o = await paidOrder('casov');
       await dispute(o.piId, 1);
 
-      // (a) invitado
+      // v1.21.3-quote-prune (caso v AJUSTADO, API_CONTRACT §4/§4-G.1): los QUOTES ya no devuelven
+      // 409 global — la aserción equivalente es 200 con la pieza en `unavailableItems` y FUERA de
+      // `items`/`breakdown`. La pieza sigue invendible: el gate duro anti double-sell es SESSION,
+      // que conserva el 409. El guardarraíl es el `status` de la pieza (`picking` ∉ {listed,
+      // in_stock}), así que protege a las dos rutas de fulfillment por igual.
+
+      // (a) invitado: quote poda, session rechaza.
       const guestQuote = await h.api('POST', '/checkout/guest/quote', {
         json: { inventoryItemIds: [o.itemId] },
       });
-      expect(guestQuote.status).toBe(409);
-      expect(guestQuote.body.error.code).toBe('ITEM_UNAVAILABLE');
+      expect(guestQuote.status).toBe(200);
+      expect(guestQuote.body.items).toEqual([]);
+      expect((guestQuote.body.unavailableItems as any[]).map((u) => u.inventoryItemId)).toEqual([
+        o.itemId,
+      ]);
+      expect(guestQuote.body.breakdown.totalCents).toBe(0);
 
-      // (b) y (c) comprador CON cuenta: quote y session. El guardarraíl es el `status` de la pieza
-      // (`picking` ∉ {listed, in_stock}), así que protege a las dos rutas de fulfillment por igual.
+      const guestSession = await h.api('POST', '/checkout/guest/session', {
+        json: {
+          inventoryItemIds: [o.itemId],
+          email: `casov.ladron.${RUN}@example.com`,
+          shippingAddress: ADDRESS,
+          acceptedTerms: true,
+        },
+      });
+      expect(guestSession.status).toBe(409);
+      expect(guestSession.body.error.code).toBe('ITEM_UNAVAILABLE');
+
+      // (b) y (c) comprador CON cuenta: quote poda, session rechaza.
       const custQuote = await h.api('POST', '/checkout/quote', {
         token: customerToken,
         json: { inventoryItemIds: [o.itemId] },
       });
-      expect(custQuote.status).toBe(409);
-      expect(custQuote.body.error.code).toBe('ITEM_UNAVAILABLE');
+      expect(custQuote.status).toBe(200);
+      expect(custQuote.body.items).toEqual([]);
+      expect((custQuote.body.unavailableItems as any[]).map((u) => u.inventoryItemId)).toEqual([
+        o.itemId,
+      ]);
 
       const custSession = await h.api('POST', '/checkout/session', {
         token: customerToken,

@@ -361,13 +361,34 @@ export function computeBreakdown(subtotalCents: number, ivaBaseCents = subtotalC
   return { subtotalCents, ivaCents, ivaRatePct: IVA_PCT, processingFeeCents, totalCents, currency: 'MXN' };
 }
 
+/** Breakdown en CEROS del contrato (v1.21.3): carrito 100 % no disponible ⇒ 200, nunca error. */
+function zeroBreakdown(withShipping = false): BreakdownDTO {
+  return {
+    subtotalCents: 0,
+    ivaCents: 0,
+    ivaRatePct: IVA_PCT,
+    processingFeeCents: 0,
+    totalCents: 0,
+    currency: 'MXN',
+    ...(withShipping ? { shippingFeeCents: 0 } : {}),
+  };
+}
+
 export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<CheckoutQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<CheckoutQuoteResponse>('/checkout/quote', { method: 'POST', body: { inventoryItemIds } });
   }
+  // MOCK v1.21.3-quote-prune: resolución POR ÍTEM. Un id que no está en los fixtures se
+  // trata como pieza borrada (`cardName: null`); los fixtures no modelan el caso
+  // «existe pero fuera de {listed, in_stock}» (cardName con nombre) — ese lo ejercita
+  // el backend real y las pruebas de vista con el API mockeado.
+  const unavailableItems = inventoryItemIds
+    .filter((id) => !fx.mockListings.some((l) => l.inventoryItemId === id))
+    .map((id) => ({ inventoryItemId: id, cardName: null }));
   const items = inventoryItemIds
     .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
     .filter((l): l is ListingDTO => !!l);
+  // 422 PRICE_PENDING se evalúa DESPUÉS de la poda (solo ítems válidos), contrato §4.
   const pending = items.find((l) => !l.sellable);
   if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
   const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
@@ -379,7 +400,8 @@ export async function getCheckoutQuote(inventoryItemIds: string[]): Promise<Chec
       rawCondition: l.rawCondition,
       unitPriceCents: l.salePriceCents ?? 0,
     })),
-    breakdown: computeBreakdown(subtotal),
+    breakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(subtotal),
+    unavailableItems,
   });
 }
 
@@ -2788,6 +2810,11 @@ export async function getGuestCheckoutQuote(
       body: { inventoryItemIds, shippingAddress },
     });
   }
+  // MOCK v1.21.3-quote-prune: MISMA poda por ítem que getCheckoutQuote (§4-G.1 comparte
+  // la norma con §4). Carrito 100 % muerto ⇒ breakdown en CEROS con shippingFeeCents: 0.
+  const unavailableItems = inventoryItemIds
+    .filter((id) => !fx.mockListings.some((l) => l.inventoryItemId === id))
+    .map((id) => ({ inventoryItemId: id, cardName: null }));
   const items = inventoryItemIds
     .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
     .filter((l): l is ListingDTO => !!l);
@@ -2801,8 +2828,10 @@ export async function getGuestCheckoutQuote(
       unitPriceCents: l.salePriceCents ?? 0,
     })),
     fulfillmentMode: 'direct_ship' as const,
-    breakdown: computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
+    breakdown:
+      items.length === 0 ? zeroBreakdown(true) : computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
     notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
+    unavailableItems,
   });
 }
 

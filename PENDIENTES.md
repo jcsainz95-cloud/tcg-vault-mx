@@ -7,10 +7,12 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 
 ## Abiertos
 
-### P-1 · Botón de "Cerrar sesión" en admin
+### ~~P-1 · Botón de "Cerrar sesión" en admin~~ ✅ HECHO (rama `fix/m1-alta-inventario`)
 - **Observado:** no hay forma de cerrar sesión desde el panel de admin.
-- **Qué implica:** añadir un botón "Cerrar sesión" en el header del admin (limpia el token/sesión y
-  redirige a login). Frontend (layout/topbar de admin). Tamaño: pequeño.
+- **Resuelto:** el botón "Cerrar sesión" del `AdminTopbar` ya existía y funciona (limpia
+  access/refresh/user y bloquea la re-entrada a rutas admin) — verificado en navegador. Pulido:
+  `onLogout` usa `router.replace('/login')`. Deuda menor FE-34 (el guard de `AdminShell` impone
+  `/login?next=…`, cosmético). Doble veredicto qa+techlead APROBADO.
 
 ### ~~P-2 · Barra de avance al sincronizar catálogo~~ ✅ HECHO Y EN `main`
 - **Observado:** al sincronizar no se sabía cuánto faltaba ni cuándo terminaba ("a ciegas") y el
@@ -21,25 +23,55 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
   terminar muestra "completada". La columna Cartas ahora muestra `cardCount / printedTotal` por set.
   Triple veredicto APROBADO (qa+techlead+seguridad) y promovido a `main`. Deuda: BE-11/BE-12, FE-9/FE-10.
 
-### P-3 · No aparecen todas las versiones/acabados de la misma carta al dar de alta
+### ~~P-3 · No aparecen todas las versiones/acabados de la misma carta al dar de alta~~ ✅ HECHO (rama `fix/m1-alta-inventario`)
 - **Observado:** al **dar de alta** inventario, en el set **"Pitch Black"** salen **pocas opciones**,
   pero aparecen **120 sincronizadas**. Hay desajuste entre lo sincronizado y lo que ofrece el alta.
-- **Qué implica:** revisar el flujo de alta (M1): el selector no está mostrando todas las cartas/
-  versiones/acabados del set aunque estén en catálogo. Investigar backend (qué devuelve el buscador de
-  alta: ¿filtra de más? ¿no pagina? ¿no trae los acabados?) y frontend (cómo lo pinta). Bug real.
-  Relacionado con el tema recurrente de "acabados/versiones" del cotizador.
+- **Diagnóstico:** el backend del selector de alta (`GET /buylist/cards` → `catalog.searchAllCards`,
+  fuera de nuestro ámbito, es correcto) devuelve TODAS las cartas paginadas con sus `availableFinishes`;
+  el frontend ya paginaba y pintaba los acabados. Verificado con un set de prueba de 120 cartas: el
+  selector llega a **120/120** (badges + selector de acabado, `reverse_holo` incluido). El síntoma real
+  ("pocas opciones") era el **dato stale de `availableFinishes`** (arreglado por la rama
+  `fix/variantes-y-orden-master-set`, ya en `main`) — **requiere re-sync en prod**
+  (`POST /admin/catalog/sync-all {"force":true}`, ver nota del master set). Pulido nuestro: `PAGE_SIZE`
+  del buscador 20→50 (menos clics de "Cargar más"). Doble veredicto qa+techlead APROBADO.
 
-### P-4 · Al crear inventario y dar "Crear" no pasa nada (sin confirmación)
+### Nota 2026-08-18 · Variantes/orden del master set — HECHO Y EN `main` (rama `fix/variantes-y-orden-master-set`)
+- **Qué se cerró (doble veredicto QA+techlead, verificado en navegador):** cada carta del binder
+  (cotizador, M1, bóvedas) muestra **una casilla de imagen por variante real** (normal izquierda,
+  reverse holo derecha; sin relleno); el orden es **por número** (M-26, persistido en BD, paginación
+  determinista); en admin el alta dice y hace **«Dar de alta al inventario»** con resultado visible
+  dentro del modal (antes el paso de confirmación quedaba tapado por el overlay: por eso «no pasaba nada»).
+- **Causa de fondo de que solo se pintara una variante:** `availableFinishes` se derivaba de PRECIOS
+  (y el price-ingest lo sobrescribía con solo lo que tenía precio). Ahora la única autoridad es el
+  sync de catálogo. **⚠ ACCIÓN REQUERIDA EN PROD:** los sets ya importados siguen en `['normal']`
+  hasta re-sincronizar: `POST /api/v1/admin/catalog/sync-all` con body `{"force": true}` como
+  super_admin (detalle en `docs/BACKEND_NOTES.md §49.7`). Sin ese re-sync, Pitch Black seguirá
+  mostrando una sola casilla por carta.
+- **Relación con P-3/P-4:** ataca la parte de «acabados/versiones» de P-3 y el patrón de «no pasa
+  nada» de P-4 en el flujo del master set; el alta clásica (formulario «Alta de item») y el resto de
+  P-3/P-5 siguen abiertos como están anotados.
+
+### ~~P-4 · Al crear inventario y dar "Crear" no pasa nada (sin confirmación)~~ ✅ HECHO (rama `fix/m1-alta-inventario`)
 - **Observado:** das de alta un item, clic en **Crear**, y **no hay ningún mensaje** (ni éxito ni error);
   no se sabe si se creó.
-- **Qué implica:** puede ser (a) el guardado **falla en silencio** (error no mostrado), o (b) sí crea
-  pero **falta el aviso de confirmación** y/o refrescar la lista. Frontend (manejo de la respuesta del
-  submit + toast) y backend (¿responde OK o error?). **Bug real.**
+- **Qué era en realidad:** el caso **(a) falla en silencio**. Con la adquisición **default "aportación
+  en especie"** sobre una carta **sin precio de referencia** (la mayoría hoy, por P-6), el backend
+  responde **422 `PRICE_PENDING`** y NO crea nada (money-safe, intencional); el banner de error SÍ se
+  renderizaba pero **al fondo del modal scrolleable, fuera del viewport** → "no pasa nada". El camino
+  "compra" (201) sí confirmaba. Confirmado en navegador contra el backend real.
+- **Resuelto (solo frontend):** el error va **anclado arriba** del modal (sticky, `role="alert"`,
+  scrollIntoView + foco) con copy de operador para `PRICE_PENDING`; el éxito muestra **toast con folio**
+  + refresca la lista. NO se tocó el backend (su respuesta ya era correcta). Doble veredicto
+  qa+techlead APROBADO, verificado en navegador.
 
-### P-5 · Alta masiva (varias cartas a la vez, no una por una)
+### ~~P-5 · Alta masiva (varias cartas a la vez, no una por una)~~ ✅ HECHO (rama `fix/m1-alta-inventario`)
 - **Observado:** hoy el alta es **de una en una**; debería poder darse de alta **varias al mismo tiempo**.
-- **Qué implica:** selección múltiple / carga por lote en el alta (M1). Frontend (UI de multi-selección)
-  + backend (endpoint de alta en lote, o reusar el actual en bucle). Tamaño: mediano.
+- **Resuelto (solo frontend, sin cambio de contrato):** multi-selección en el mismo modal que arma
+  `items[]` y llama `batchCreateItems` (`POST /admin/inventory/items/batch`, endpoint que YA existía).
+  Resultado **tolerante por-ítem** (folios de las creadas + fallos con motivo, p.ej. `PRICE_PENDING`),
+  `batchKey` idempotente (se renueva tras éxito → un reintento por timeout es replay, no duplica).
+  Guarda de dinero: el lote **no admite gradeadas** (cert único por slab). Verificado contra el backend
+  real (lote mixto: unas creadas, otras rechazadas por-línea). Doble veredicto qa+techlead APROBADO.
 
 > **Nota:** P-3, P-4 y P-5 son todos del **flujo de alta de inventario (M1)** y apuntan a que esa
 > pantalla tiene un problema de fondo (no muestra todo, no confirma, no permite lote). Conviene

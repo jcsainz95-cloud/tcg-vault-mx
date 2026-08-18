@@ -4,6 +4,130 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Fix M1 · alta de inventario (2026-08-18, branch `fix/m1-alta-inventario`)
+
+Cuatro hallazgos del diagnóstico E2E (stack real, mocks OFF) sobre el ALTA de inventario admin.
+
+### P-4 (BLOQUEANTE, bug de dinero) — el alta SIEMPRE da feedback visible
+**Qué era en realidad:** con el tipo de adquisición **default "aportación en especie"** sobre una
+carta SIN precio de referencia, `POST /admin/inventory/items` responde **422 `PRICE_PENDING`** (no
+crea la pieza; el backend la deja en la cola de precios pendientes — comportamiento money-safe
+intencional). El `Banner` de `create.isError` estaba renderizado al **final del cuerpo scrolleable**
+del modal, fuera del viewport (y≈1242 con viewport 900) → el operador veía "que no pasa nada". El
+caso "compra" (201) sí funcionaba.
+
+**Resuelto (`M1View.tsx`):**
+- **Error anclado ARRIBA (sticky):** el banner de error se movió al inicio del cuerpo del modal en
+  un contenedor `sticky top-0 z-10` con `tabIndex=-1`; al fallar, un `useEffect` hace
+  `scrollIntoView` + `focus()` al banner (a11y: `role="alert"`). Verificado en navegador: el alert
+  queda en `y=114` con viewport 900 (dentro de vista, sin scroll).
+- **Copy del OPERADOR, no de storefront:** el `error.PRICE_PENDING` global dice "…aún no se puede
+  **comprar**" (lenguaje de tienda) y confunde en el alta. Se añadió un override de i18n SOLO-frontend
+  `admin.m1.errorByCode.PRICE_PENDING` ("No se pudo dar de alta: esta carta aún no tiene precio de
+  referencia; se envió a la cola de precios pendientes."). El helper `messageForCode()` prioriza
+  `admin.m1.errorByCode.*` → `error.*` → mensaje real del backend. **No se tocó el `error.*` global**
+  (lo usa el storefront/checkout).
+- **Éxito con TOAST + refresco:** no había infra de toasts → se creó `components/ui/Toast.tsx`
+  (`useToasts()` + `<Toaster>`), toast MÍNIMO reutilizable alineado a DESIGN_SYSTEM (bloque de tinta
+  §7.2b, regla verde/bermellón por variante, mono versalitas, radio 0, portal a `<body>` en `z-[60]`
+  para verse sobre el modal `z-50`, auto-cierre). El alta con éxito dispara un toast con el folio
+  devuelto; se mantiene además el banner de éxito existente e `invalidateQueries(['admin-inventory'])`.
+- No se tocó nada del backend money-safe.
+
+### P-5 (mejora) — alta MASIVA (varias cartas en un envío)
+Modo de **selección múltiple** opcional dentro del MISMO modal (checkbox "Seleccionar varias
+cartas"): las filas del buscador pasan a checkbox, se arma un "carrito" de líneas y el botón primario
+cambia a "Dar de alta N cartas". Reusa el endpoint de lote existente `batchCreateItems({ batchKey,
+items })` (POST /admin/inventory/items/batch), con los mismos parámetros del formulario aplicados a
+todas las cartas; el acabado se recorta **por-carta** (`finishForCard`) a la unión de acabados del
+lote para no mandar un acabado inexistente. Resultado **tolerante por-ítem**: se pinta cada folio
+creado (verde) y cada fallo con su motivo (reusa `messageForCode`), más un toast con el `summary`.
+**Idempotencia** como MasterSetPanel: `batchKey` ESTABLE por sesión (ref), se renueva solo tras un
+envío exitoso; el lote se **vacía siempre** al terminar (aun con fallos parciales) para no reenviar y
+duplicar las líneas ya creadas. El alta de UNA sola carta sigue intacta.
+
+### P-3 (pulido) — `PAGE_SIZE` del buscador del alta 20 → 50
+Baja la fricción de "Cargar más" (un set de 120 cabe en 3 páginas, no 6; el backend topa en 100).
+Verificado en navegador: sigue llegando a **120/120**.
+
+### P-1 (pulido) — logout del back-office sin flash
+`AdminTopbar.onLogout` ahora hace `router.replace('/login')` (antes `push('/')`): evita la carrera
+con el guard del `AdminShell` que dejaba un flash "Verificando sesión…" y una URL `?next=`.
+
+### Verificación en navegador (stack real, mocks OFF)
+Script Playwright ad-hoc (scratchpad) contra `localhost:3000/es`, login `admin@e2e.local`, set de
+prueba `Pitch Black TEST`:
+- (a) aportación en especie → error CLARO anclado arriba (`y=114`, dentro de viewport 900).
+- (b) compra → toast "ALTA REGISTRADA · folio INV-000002" + la pieza aparece en la tabla sin recargar
+  (filas 8→9).
+- (c) alta MASIVA (compra) → resultado por-ítem con 3 folios (INV-000003/004/005), lista refrescada,
+  lote vaciado. Nota: con aportación el endpoint de LOTE **crea** las piezas (pendientes de precio) en
+  vez de rechazarlas por-línea, así que no se reprodujo un fallo por-línea REAL en navegador; el
+  render de fallos por-ítem queda cubierto por unit test (mock PRICE_PENDING).
+- (d) P-3 → "120 de 120 cartas".
+
+### Archivos
+`app/[locale]/(admin)/admin/m1/M1View.tsx` (feedback sticky + toast + alta masiva + PAGE_SIZE 50),
+`components/ui/Toast.tsx` (**nuevo**), `components/layout/AdminTopbar.tsx` (logout→/login),
+`messages/{es,en}.json` (`admin.m1.errorByCode.*`, copy de toast/lote), `M1View.test.tsx` (+toast,
++2 alta masiva, PRICE_PENDING→copy admin, pageSize 50), `AdminTopbar.test.tsx` (replace→/login).
+
+### Comportamiento alta simple vs. por lote (NO hay inconsistencia — aclaración)
+Con adquisición `aportacion_en_especie` sobre carta **sin** precio de referencia, alta simple y por
+lote **coinciden**: ambos **rechazan** la línea (no crean la pieza). Solo cambia la **forma de
+reportarlo**, que es el patrón money-safe normal de cada endpoint:
+- **`POST /admin/inventory/items`** (simple) → **422 `PRICE_PENDING`** de todo el request (no crea).
+- **`POST /admin/inventory/items/batch`** (lote) → **HTTP 200** con esa línea en **`ok:false`
+  `PRICE_PENDING`** (tolerancia por-ítem: no tumba las demás), y **NO** crea la pieza.
+
+Verificado: backend `inventory.service.ts` → `batchCreate` llama `resolveCreation(line)` por línea, que
+lanza `PRICE_PENDING` para aportación sin referencia; el `catch` del lote la marca `ok:false` (no crea).
+QA lo confirmó contra el backend real (lote mixto de 4 líneas aportación, 2 con precio y 2 sin →
+`summary: requested 4, createdItems 2, failedLines 2`; las 2 sin precio salieron `ok:false` PRICE_PENDING
+sin crearse en BD). El front consume ambos tal cual. **No hay solicitud al arquitecto: no existe
+divergencia que resolver.**
+
+### Gates
+`npm run typecheck` ✓ · `npm run lint` ✓ (0 warnings) · `npm run test` ✓ (50 archivos / 384 tests).
+
+### Seguimiento (2026-08-18) — cierre de 2 hallazgos de dinero + 2 menores (post e2df8e0)
+
+Cuatro FIX sobre el mismo alta M1 (solo `frontend/`), aprobado el commit previo por qa+techlead.
+
+- **FIX 1 (dinero — integridad de inventario):** el alta MASIVA aplicaba `gradingCompany/gradeValue/
+  certNumber` del formulario a TODAS las cartas del lote; para gradeadas el `certNumber` es **único por
+  slab**, así que un lote de N gradeadas creaba N piezas con el **mismo certificado** (dato corrupto en
+  inventario de alto valor). Solución mínima: la multi-selección se **deshabilita en `productType==='graded'`**
+  (checkbox `disabled` + nota i18n `admin.m1.gradedNoBulk` es/en explicando el porqué) y al **cambiar a
+  graded estando en modo masivo** se apaga `multiSelect` y se `clearBatch()` (no queda carrito de gradeadas
+  armado). El alta simple de gradeada (con su cert único) sigue intacta. Verificado en navegador: en graded
+  no hay botón "Dar de alta N cartas", solo "Crear item".
+- **FIX 2 (dinero — base de costo/P&L):** abrir "Alta de item" reseteaba la mutación/lote pero **NO** los
+  campos del formulario → la `acq` (que determina costo/origen, M7) se heredaba de la tanda anterior en
+  silencio. Se añadió `resetAddForm()` (acq→`aportacion_en_especie`, productType→`raw`, finish→`normal`,
+  sealedSubtype→`box`, gradingCompany→`PSA`, gradeValue→`10`, certNumber/listPrice→'', pct→`70`, y limpia
+  set/búsqueda/carta/ubicación) invocado en el handler de apertura junto a los `reset()` existentes. **No se
+  cambiaron los defaults iniciales.** Verificado: tras elegir "compra" y reabrir, el alta arranca en
+  "Aportación en especie".
+- **FIX 3 (cosmético):** el banner de error (P-4) repetía el prefijo — `title`="No se pudo dar de alta" y el
+  cuerpo `errorByCode.PRICE_PENDING` **también** empezaba con "No se pudo dar de alta:". Se quitó el prefijo del
+  cuerpo (es: "Esta carta aún no tiene precio de referencia; …"; en equivalente) → título corto + mensaje real,
+  sin redundancia. Solo i18n. Verificado en navegador con 422 real.
+- **FIX 4 (tests):** (a) el test rotulado "replay/idempotencia" solo enviaba UNA vez → **renombrado** a
+  "vaciado tras éxito" y **añadidos dos tests separados**: uno prueba que tras un ÉXITO el `batchKey` se
+  **renueva** (2ª tanda usa otra key), otro que un **reintento tras FALLO reusa** la misma key (idempotencia
+  anti-doble-alta). (b) el test de éxito ahora **asserta la invalidación** de `['admin-inventory']`
+  (spy sobre `QueryClient.prototype.invalidateQueries`). Suite M1: 21 tests verdes.
+
+**Nota de contrato (sin cambios):** el FIX 1 es una restricción de UI de captura, no del contrato — el batch
+endpoint sigue aceptando graded; simplemente el front deja de ofrecer ese camino peligroso. No hay solicitud al
+arquitecto en este pase.
+
+Gates de este pase: `typecheck` ✓ · `lint` ✓ (0 warnings) · `test` ✓ (**50 archivos / 387 tests**).
+Evidencia navegador (stack real, mocks OFF, `admin@e2e.local`, set `Pitch Black TEST`): graded multi
+deshabilitado, reset a "aportación en especie", banner sin repetir copy, y bulk raw con `compra` creando
+folios reales (INV-000019/020) + refresco de la tabla.
+
 ## WS «Inventario y vault» — Master set en TODAS partes (2026-08-17, contrato v1.20-master-set-everywhere)
 
 El binder Master Set deja de ser exclusivo de M1: los componentes se **promueven a
@@ -3520,3 +3644,231 @@ rechazo"; falla sin el fix con solo el primer carácter registrado, pasa con el 
 ### Gates
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓
 (45 archivos / 346 tests, incluye los 17 tests preexistentes de `M5View.test.tsx` + 1 nuevo).
+
+## 2026-08-18 · T1/T2/T3 — casillas por variante real, copy de inventario admin, alta concluyente
+
+Tercera ronda sobre el mismo bug (rama `fix/variantes-y-orden-master-set`). El PO pidió, textual:
+«en el master set son dos cartas de cada una: la común a la izquierda y la holo a la derecha» — es
+decir, una casilla de IMAGEN por variante real, no un chip de texto con etiqueta de acabado.
+
+### T1 — Una casilla de imagen por variante (`MasterSetBinder.tsx`, `CellDrawer.tsx`)
+
+**Qué cambió.** `BinderCell` y `QuoterCell` ya NO pintan una sola imagen + chips de texto por
+acabado debajo: pintan **una casilla de imagen por entrada de `cell.variants`**, lado a lado, en
+el orden de `FINISH_ORDER` (normal izquierda, reverse holo derecha, contrato v1.22 — el backend
+garantiza ese orden y que `|casillas| = |availableFinishes| ≥ 1`, nunca relleno). Las N casillas
+de una celda usan la MISMA `cell.imageSmallUrl` (pokemontcg.io no publica arte por acabado; el
+contrato lo deja explícito: NO hay `imageByFinish`). Cada casilla lleva su etiqueta de acabado en
+mono debajo de la imagen y su estado (conteo si `covered`, «HUECO» si no — atenuada + borde
+punteado), así que nunca hay que adivinar cuál casilla es cuál. Una carta con una sola variante
+pinta UNA sola casilla (sin hueco fantasma de relleno). Aplica también a `VariantSlots` en
+`CellDrawer.tsx` ("Casillas por acabado").
+
+**Rejilla responsive.** El binder calcula `slotCols = max(variants.length)` de las celdas
+visibles y baja un escalón de columnas por cada casilla extra (`gridColsForSlots`): 1 casilla →
+`grid-cols-2 sm:3 lg:4 xl:5` (como antes); 2 casillas → `grid-cols-1 sm:2 lg:3 xl:4`; así la
+imagen de cada casilla no se encoge ilegible en móvil cuando el set tiene cartas multi-acabado.
+Todas las celdas comparten el MISMO `slotCols` (vía `style={gridTemplateColumns}`) para que el
+binder se lea como una retícula uniforme aunque cada celda tenga distinto nº de variantes.
+
+**Orden — `@/lib/cardOrder.ts` (nuevo).** Contrato v1.22: `CardDTO`/`MasterSetCardCellDTO` ganan
+`numberSort`/`numberPrefix` (columnas persistidas, M-26) y el `ORDER BY` correcto es
+`(numberPrefix, numberSort, number, id)` — el front NUNCA re-ordena por número tras recibir la
+página, pero SÍ debe reproducir ese orden al filtrar LOCALMENTE (el binder ya filtraba por
+acabado/huecos/secret-rare/nombre en cliente). `compareCardNumber` implementa ese comparador;
+`deriveNumberParts` lo deriva en cliente como red de seguridad si el backend todavía no manda las
+columnas (marcadas `?` en el tipo a propósito — ver nota de tipos abajo). El cotizador
+(`fetchQuoterBinder`, compuesto 100% client-side) también usa estas claves en vez del índice del
+arreglo que usaba antes (`numberSort: idx` quedaba mal para sets con promos intercalados).
+
+**Nota de tipos (decisión de frontend, no de contrato).** `numberSort`/`numberPrefix` se
+declararon `?` opcionales en `types/contract.ts` en vez de requeridos: la norma v1.22 los hace
+normativos, pero mientras el re-sync/backfill (M-26) no haya corrido en TODAS las filas — y para
+no obligar a tocar decenas de fixtures/tests ajenos a este bug en todo el repo — el tipo tolera su
+ausencia y `cardOrder.ts` cae a `deriveNumberParts`. Cuando el campo llega, manda él. No es un
+relajamiento del contrato: es tolerancia de despliegue documentada in situ.
+
+### T2 — Copy de admin: inventario, no carrito (`CellDrawer.tsx`, `MasterSetPanel.tsx`, i18n)
+
+Regla del PO: el carrito NO aplica a admin. Se renombró TODO el copy de M1 que hablaba de
+"carrito" a lenguaje de inventario/alta/lote, en `es.json` y `en.json` (namespace `masterSet`
+únicamente — `catalog.addToCart`/`buylist.cartTitle` son carritos DE VERDAD y no se tocaron):
+
+| Antes (`masterSet.*`) | Ahora |
+|---|---|
+| `quickAddTitle` "Alta rápida al carrito" | `quickIntakeTitle` "Alta rápida al inventario" |
+| `addToCart` "Agregar al carrito" | `addToInventory` "Dar de alta al inventario" (alta INMEDIATA) + `addToBatch` "Agregar al lote" (encola, alta por lote) |
+| `addedToCart` "Agregado al carrito de captura." | `addedToBatch` "Agregada al lote de alta." |
+| `cartTitle`/`cartSummary`/`cartRemove`/`cartSubmit`/`cartClear` | `batchTitle`/`batchSummary`/`batchRemove`/`batchSubmit`/`batchClear` (mismo copy de fondo, "carrito"→"lote") |
+
+`masterSet.buyCta`/`buyAdded` ("Agregar al carrito de compra") NO se tocaron a propósito: es el
+CTA de `user_vault_self` para comprar una pieza faltante — un carrito de COMPRA de verdad, del
+cliente, no de admin.
+
+### T3 — El botón de alta ahora es concluyente y visible
+
+**Diagnóstico (confirmado, no supuesto).** La mutación de alta SÍ funcionaba — el bug no era de
+red ni de lógica de negocio. Era de FLUJO: (1) "Agregar al carrito" solo ENCOLABA la línea; el
+botón que REALMENTE hacía POST (`batchCreateItems`, "Dar de alta N piezas") vivía en
+`MasterSetPanel.tsx`, renderizado DEBAJO de toda la cuadrícula del binder; (2) el modal del
+drawer (`CellDrawer.tsx`) se quedaba abierto tapando la pantalla con el overlay, así que ese
+segundo paso quedaba invisible detrás del overlay y al final de la página — para el operador,
+"presiono y no pasa nada".
+
+**Solución — el lote vive DENTRO del modal, en su pie fijo.**
+- `Modal.tsx`: el diálogo ganó un layout `flex flex-col` con altura acotada
+  (`max-h-[100dvh] sm:max-h-[90vh]`); el `title`/header y el `footer` quedan `shrink-0` (fijos) y
+  el `children` scrollea (`overflow-y-auto`). Antes un drawer largo (muchos campos + piezas +
+  ajuste) desbordaba la ventana y el `footer` quedaba fuera de la vista sin scrollear — exactamente
+  el síntoma que reportó el PO. Cambio en el componente COMPARTIDO: beneficia a todos los modales
+  con `footer` largo (M1/M5/M6…), no solo a éste.
+- `CellDrawer.tsx` gana `BatchFooter`: pinta, DENTRO del `footer` fijo del modal, el desenlace del
+  lote — banner de éxito/error tolerante por-línea (`PerLineErrors`) Y, si hay líneas pendientes,
+  el resumen + botón "Dar de alta N piezas" / "Vaciar lote". El operador ve el resultado SIN
+  cerrar el modal y SIN hacer scroll.
+- `QuickAddSection` ahora ofrece DOS acciones, ninguna ambigua: **"Dar de alta al inventario"**
+  (primaria) — encola la línea Y envía el lote en el MISMO clic (`queueAndSubmit`), para el caso
+  común de una sola carta; **"Agregar al lote"** (secundaria) — solo encola, para seguir
+  capturando varias cartas antes de confirmar (alta por LOTE, P-5 de `PENDIENTES.md`, se
+  conserva). `MasterSetPanel.tsx` expone ambas como `CaptureBatchState` (`capture.ts`), un objeto
+  compartido entre el panel (dueño del `useMutation`/`batchKeyRef`) y el drawer (que solo lo lee y
+  dispara).
+- **Éxito falso corregido.** Antes `QuickAddSection` hacía `setAdded(true)` incluso si
+  `onAddToCart` era `undefined` (nunca ocurría en la práctica porque el padre siempre lo pasaba,
+  pero era una trampa: la UI mentía si algún día faltara el callback). Ahora sin `batch` cableado
+  no hay botones de alta que fingir — la sección no tiene ninguna ruta de "éxito" sin una
+  mutación real detrás.
+- **Error visible corregido.** Antes `submit.isError` pintaba un banner en `MasterSetPanel.tsx`,
+  AL FONDO de la página — con el modal abierto, tapado por el overlay. Ahora, si el drawer está
+  abierto, el error (y el resultado) se pintan en `BatchFooter` (el banner del panel se omite
+  mientras `openCell` esté seteado, para no duplicar el aviso); si el drawer está cerrado, el
+  banner del panel sigue ahí como antes.
+- **Idempotencia intacta.** `queueAndSubmit` reusa la MISMA `batchKeyRef` de la sesión
+  (`ensureBatchKey`) — un reintento por timeout sigue siendo replay idempotente en el backend. El
+  lote viaja como ARGUMENTO de `submit.mutate(lines)` (no se lee `cart` del closure dentro de
+  `mutationFn`), porque React agrupa el `setState` del mismo tick: sin este cambio, la línea recién
+  agregada en el mismo clic de "Dar de alta al inventario" se habría perdido de la primera llamada.
+  `PlatformPiecesSection` (publicar/ajustar) no se tocó — su idempotencia por batchKey ya estaba
+  bien y es independiente de este lote.
+
+**Verificado en navegador (stack real, no mocks) — evidencia:**
+- `UPDATE "Card" SET "availableFinishes"='{normal,reverse_holo}' WHERE name='E2E Reverse Bird'`
+  (luego el backend la sembró así de forma permanente): en `/es/buylist` → «E2E Base Set» y en
+  `/es/admin/m1` → Master Set → «E2E Base Set», «E2E Reverse Bird» (#17) es la ÚNICA carta con
+  DOS casillas de imagen lado a lado (NORMAL izquierda, REVERSE HOLO derecha); las demás 5 cartas
+  muestran UNA sola casilla.
+- Clic en "Dar de alta al inventario" sobre «E2E Charizard» (con precio) → banner
+  "1 piezas creadas · 0 líneas con error." + folio `INV-000001` visible DENTRO del modal, sin
+  cerrarlo; confirmado además contra la API (`GET /admin/inventory/items?cardId=...`) que la
+  pieza existe de verdad (no solo optimista en UI) y que el conteo de la celda subió en vivo.
+  Clic sobre «E2E Reverse Bird» en `reverse_holo` (sin precio de referencia) → banner
+  "0 piezas creadas · 1 líneas con error." + "Esta carta tiene precio pendiente…" — también
+  DENTRO del modal, mismo comportamiento concluyente para el camino de error.
+
+### Archivos
+`components/master-set/MasterSetBinder.tsx` (casillas por variante, `slotCols`, orden local con
+`cardOrder.ts`), `CellDrawer.tsx` (`VariantSlots` con imagen por variante, `BatchFooter`,
+`QuickAddSection` con alta inmediata/por-lote), `MasterSetPanel.tsx` (`CaptureBatchState`,
+`queueAndSubmit`/`submitBatch`/`clearBatch`, banner del panel oculto si el drawer está abierto),
+`capture.ts` (+`CaptureBatchState`), `components/ui/Modal.tsx` (pie fijo + cuerpo scrolleable),
+`lib/cardOrder.ts` (nuevo), `types/contract.ts` (`CardDTO`/`MasterSetCardCellDTO` +=
+`numberSort?`/`numberPrefix?`), `messages/{es,en}.json` (copy de inventario, namespace
+`masterSet`), `MasterSet.test.tsx` (+5: dos tests de T3 alta inmediata éxito/error dentro del
+modal; un test de T1 conteo de imágenes 2 vs 1; tests existentes de "Agregar al carrito" migrados
+a "Agregar al lote").
+
+### Solicitud al arquitecto (pendiente, no bloqueante)
+Ninguna nueva. Sigue vigente la de la ronda anterior: confirmar si al backend le conviene exponer
+`numberSort`/`numberPrefix` como NO opcionales en el DTO ya con M-26 desplegado (el frontend ya
+tolera su ausencia por diseño, así que esto es solo para que el contrato deje de decir "aditivo
+opcional" si en la práctica ya siempre viajan).
+
+### Gates
+`npm run typecheck` ✓ · `npm run lint` ✓ · `npm run test` ✓ (50 archivos / 381 tests).
+
+## Fix de producción — pieza muerta en carrito viejo NO bloquea el checkout (2026-08-18, contrato v1.21.3-quote-prune, rama `fix/carrito-pieza-muerta`)
+
+Los dos quotes (§4 y §4-G.1) ahora resuelven POR ÍTEM y devuelven `200` con
+`unavailableItems: UnavailableCartItemDTO[]` (siempre presente). El front cumple su "deber de
+contrato": **poda del localStorage** los ids muertos antes de llamar a session (que sigue
+estricta, anti double-sell) y muestra un aviso informativo. Además el carrito local gana
+**expiración a 30 días** (nota de frontend del contrato, complementa la poda).
+
+### Formato de storage del carrito (`lib/cart.ts`)
+
+- **v2:** `tcg.cart = { ids: string[], updatedAt: number }` (epoch ms de la última modificación).
+  `add`/`remove`/`prune`/`clear` refrescan `updatedAt`; **leer NO lo refresca** (si leer contara
+  como "tocar", un carrito abierto a diario jamás expiraría distinto… pero tampoco expiraría el
+  aviso de 30 días de un carrito que solo se mira; se decidió que solo MODIFICAR cuenta).
+- **Expiración:** al leer, si `now - updatedAt > 30 días` (estrictamente MÁS de 30 días — a los
+  30 exactos sigue vivo), el carrito se limpia y se persiste vacío.
+- **Migración suave:** el formato v1 era un array JSON plano. Un array plano (o un objeto con
+  `ids` pero sin `updatedAt` numérico) se trata como carrito VÁLIDO y se re-persiste en v2 con
+  `updatedAt = now` en esa misma lectura. **Nunca** se descarta un carrito por cambio de formato;
+  el costo es que un carrito legado "renace" con timestamp fresco una única vez.
+- **`prune(ids: string[])`** nuevo en `useCart`: poda en lote con la misma semántica de storage
+  que `remove` (mismo write + evento), pero **idempotente**: si ningún id sigue en el carrito no
+  escribe ni emite — clave para poder llamarlo desde un efecto sin ciclar la re-cotización.
+
+### Dónde vive el estado del aviso (`(storefront)/checkout/unavailable-notice.ts`)
+
+Mini-store de módulo (`useSyncExternalStore`) y NO estado de componente, por dos razones:
+1. el aviso debe **sobrevivir a la re-cotización** (la poda cambia `cart.ids` → la queryKey
+   cambia → el siguiente fetch trae `unavailableItems: []`); 2. debe sobrevivir al **desmonte de
+   la vista que lo produjo** — si TODO el carrito murió, `CheckoutView` desmonta
+   `GuestCheckoutView` y pinta el EmptyState, y el aviso tiene que seguir junto al carrito vacío.
+Se limpia al cerrarlo (X del banner) o al salir del checkout (cleanup de `CheckoutView`).
+`pushUnavailableNotice` dedupea por `inventoryItemId` (idempotente ante re-fetches).
+
+### Vistas (`CheckoutView.tsx` / `GuestCheckoutView.tsx`)
+
+- Efecto idempotente tras cada quote: `pushUnavailableNotice(unavailableItems)` +
+  `cart.prune(ids)`. Sin ciclo: el fetch posterior a la poda trae `[]` y el efecto es no-op.
+- `UnavailableItemsNotice` (nuevo, carpeta checkout) usa `Banner variant="info"`
+  (`role="status"`, regla fina neutra, tinta muted — informativo, NO bermellón ni `alert`).
+  Copy i18n en `checkout.unavailable.*` (ES/EN): con nombre si `cardName` viene, genérico si es
+  `null`, plural con lista de nombres si son varias. Se renderiza **FUERA de `QueryState`**
+  (bajo el título) para que no desaparezca durante el loading de la re-cotización.
+- **Carrito 100 % muerto:** la poda vacía el carrito → `CheckoutView` pinta el EmptyState
+  existente MÁS el aviso; nunca la pantalla de error genérico ni "Reintentar" (los quotes ya no
+  devuelven `404`/`409` globales). No hay mini-cart lateral en la app (el header solo muestra el
+  contador `useCart().count`), así que no hubo nada más que podar.
+- Mocks (`lib/api.ts`): los dos quotes mock devuelven `unavailableItems` (id ausente de los
+  fixtures ⇒ `cardName: null`) y **breakdown en CEROS** si todo murió (guest incluye
+  `shippingFeeCents: 0`). El caso "existe pero fuera de venta" (`cardName` poblado) no se modela
+  en fixtures; lo cubren los tests de vista con el API mockeado y el backend real.
+
+### F-2 (veredicto techlead, misma rama) — carrera "pieza vendida ENTRE el quote y el pago"
+
+La session sigue estricta (anti double-sell): si la pieza muere DESPUÉS del quote y el usuario
+paga, `createCheckoutSession`/`createGuestCheckoutSession` responde `409 ITEM_UNAVAILABLE` (o
+`404 NOT_FOUND`) y antes eso era un callejón sin salida (solo el mensaje genérico junto al botón).
+Ahora el catch de `pay()` en AMBAS vistas, para esos dos códigos, dispara **`query.refetch()`**:
+el re-quote trae la pieza en `unavailableItems` y la maquinaria ya construida (efecto de poda +
+`UnavailableItemsNotice`) poda el localStorage y avisa sola.
+
+**Decisión de UX:** con el re-quote en marcha, el banner ES el aviso — NO se pinta además el
+`payError` genérico junto al botón (evita el doble mensaje contradictorio "esta carta ya no está
+disponible" + banner "se quitó de tu carrito"). **Respaldo si el refetch falla:** se setea
+`payError` con el mensaje del error original y, además, el quote queda en estado de error, así que
+`QueryState` pinta su aviso con "Reintentar" — nunca una pantalla muda. El manejo de los demás
+códigos NO cambió (`EMAIL_NOT_VERIFIED` → banner de verificación; `VAULT_REQUIRES_ACCOUNT` →
+upsell de bóveda).
+
+### Tests
+
+`lib/cart.test.ts` +8 (migración v1→v2 sin pérdida, expiración >30d, 30d exactos se conserva,
+refresh de timestamp en add/remove/clear, prune en lote e idempotente, `{ids}` sin timestamp).
+`checkout/CheckoutUnavailable.test.tsx` +5 (invitado: 1 muerta con nombre + 2 vivas ⇒ banner con
+nombre, renglones vivos y storage podado; cierre del aviso; invitado todas muertas ⇒ EmptyState +
+aviso plural sin error/reintentar; con cuenta: mismo par de casos, incl. `cardName: null` ⇒ copy
+genérico). Tests preexistentes que asserteaban el array plano de `tcg.cart` se actualizaron al
+formato v2 (`.ids`).
+**F-2:** +3 en `CheckoutUnavailable.test.tsx` (con cuenta y de invitado: session rechaza
+`ITEM_UNAVAILABLE` ⇒ se re-cotiza, banner con nombre, renglón y localStorage podados, sin
+`role=alert` ni modal Stripe; y el caso "el refetch de respaldo también falla" ⇒ QueryState en
+error con "Reintentar", nunca mudo).
+
+### Gates
+`npm run lint` ✓ · `npx tsc --noEmit` ✓ · `npm run build` ✓ · `npx vitest run` ✓
+(52 archivos / 394 tests, +16 nuevos en la rama).
