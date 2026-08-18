@@ -4124,3 +4124,53 @@ listings del mismo nombre). Corregido a la regla de la casa: la pieza concreta s
 (`GET /catalog/listings/:id`, mismo `ListingDTO`) y el listado se asierta por comportamiento (toda
 fila publicada es vendible con precio > 0), no por volumen. Recurrencia anotada en la propia entrada
 BE-64 de `TECH_DEBT.md`.
+## 50. v1.21.3-quote-prune (2026-08-18) — poda por ítem en los DOS quotes; session sigue estricta
+
+**Qué cambió (API_CONTRACT §4, §4-G.1; ARCHITECTURE §4.21h-1 caso v ajustado).** El carrito vive en
+`localStorage` como ids de piezas físicas ÚNICAS: al venderse desaparecen, y un solo id muerto
+reventaba el quote completo (`404 NOT_FOUND` / `409 ITEM_UNAVAILABLE` globales) bloqueando el
+checkout. Ahora `POST /checkout/quote` y `POST /checkout/guest/quote` resuelven **por ítem**:
+
+- Los ids que no resuelven (`cardName: null`) o existen pero están fuera de la venta de plataforma
+  (`ownerType != 'platform'` o `status ∉ {listed, in_stock}` ⇒ `cardName` con el nombre) viajan en
+  **`unavailableItems: UnavailableCartItemDTO[]`** con `200`. **Siempre presente**, `[]` si todo
+  resuelve (shape previo intacto en ese caso).
+- `items`/`breakdown` se calculan SOLO con los válidos. **Carrito 100 % muerto ⇒ `200` con
+  `items: []` y breakdown EN CEROS** (sin gross-up: cotizar la nada no puede producir el fee fijo
+  \> 0; `ivaRatePct` conserva el dial). En invitado el cero incluye `shippingFeeCents: 0` y se
+  conservan `fulfillmentMode`/`notices`.
+- `422 PRICE_PENDING` conserva su semántica pero se evalúa **DESPUÉS de la poda**: solo lo dispara
+  un ítem VÁLIDO sin precio. `GUEST_MAX_ITEMS` se valida sobre el array del REQUEST (el DTO, como
+  siempre): podar a vacío es `200`, no `400`.
+- Un id **repetido** en el carrito se dedupe (una pieza única no puede cotizarse dos veces).
+
+**Qué NO cambió (anti-sobrecorrección).** `POST /checkout/session` y `POST /checkout/guest/session`
+siguen ESTRICTOS (`404`/`409` globales) y la reserva atómica está intacta: el gate duro anti
+double-sell es session. El flujo es: quote poda → el front actualiza el carrito (y le pone
+expiración de 30 días, dueño: frontend) → session recibe solo ids vivos.
+
+**Diseño (regla de venta ÚNICA, sin duplicar precios).** En `OrdersService`:
+- `isSellable(item)` — EL predicado de venta (plataforma + `{listed, in_stock}`), un solo cuerpo.
+- `buildLines(items)` — precios server-side vía `salePriceOf` (SEC-A1), un solo cuerpo; conserva
+  `PRICE_PENDING`.
+- `priceCartLines` (ESTRICTA, la de las dos sessions) y `priceCartLinesLenient` (tolerante, la de
+  los dos quotes) **delegan ambas** en esos helpers: solo cambia el TRANSPORTE del fallo
+  (excepción global vs. poda a `unavailableItems`), nunca el criterio. El breakdown en ceros
+  canónico es `OrdersService.zeroCartBreakdown(ivaPct)`; el invitado lo extiende con
+  `shippingFeeCents: 0`.
+
+**Tests.**
+- Unit nueva: `test/orders.quote-prune.spec.ts` (11 casos): mezcla viva+vendida+borrada, pieza de
+  bóveda podada, 100 % muerto en ceros sin gross-up, compat `[]`, dedupe, `PRICE_PENDING`
+  post-poda (y que un muerto sin precio NO lo dispara), y la estrictez intacta de
+  `priceCartLines`/`createSession` (`NOT_FOUND`/`ITEM_UNAVAILABLE`, sin crear la Order).
+- `test/guest-checkout.session.spec.ts`: el quote de invitado ahora ancla poda/ceros/shape estable
+  y que session usa la ruta ESTRICTA (nunca la tolerante).
+- Integración actualizada: `catalog-checkout-webhook` (describe nuevo de poda customer + session
+  estricta sin dejar reservas), `guest-checkout.e2e-spec` (poda de invitado, pieza reservada ⇒
+  quote podado + session 409) y `guest-chargeback.e2e-spec` — **caso v ajustado**: los quotes ya no
+  dan `409`; la aserción equivalente es `200` con la pieza en `unavailableItems` y FUERA de
+  `items`/`breakdown`; las DOS sessions siguen en `409` y la pieza fuera de la `picking-list`.
+- Resultado: `npm test` 101 suites / 944 tests en verde; integración 7/8 suites en verde
+  (119/120 — el único rojo es el PUT a MinIO de `infra-smoke`, entorno sin S3, ajeno al cambio);
+  `lint` y `typecheck` limpios.

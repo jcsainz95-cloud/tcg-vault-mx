@@ -185,6 +185,12 @@
     "pay": "Pay {amount}",
     "paying": "Paying…",
     "empty": "Your cart is empty.",
+    "unavailable": {
+      "one": "{cardName} is no longer available and was removed from your cart.",
+      "oneGeneric": "An item in your cart is no longer available and was removed.",
+      "many": "{count} items in your cart are no longer available and were removed.",
+      "dismiss": "Dismiss notice"
+    },
     "cfdiNotice": "To request an invoice (CFDI), email your tax data to facturacion@tcgvaultmx.com after payment.",
     "finalSaleNotice": "All sales are final. No refunds except for a damaged or wrong card.",
     "viewTerms": "View terms",

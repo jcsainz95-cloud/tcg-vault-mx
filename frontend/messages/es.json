@@ -185,6 +185,12 @@
     "pay": "Pagar {amount}",
     "paying": "Pagando…",
     "empty": "Tu carrito está vacío.",
+    "unavailable": {
+      "one": "{cardName} ya no está disponible y se quitó de tu carrito.",
+      "oneGeneric": "Una pieza de tu carrito ya no está disponible y se quitó.",
+      "many": "{count} piezas de tu carrito ya no están disponibles y se quitaron.",
+      "dismiss": "Cerrar aviso"
+    },
     "cfdiNotice": "Para solicitar factura (CFDI), envía un correo con tus datos fiscales a facturacion@tcgvaultmx.com tras el pago.",
     "finalSaleNotice": "Todas las ventas son finales. Sin reembolsos salvo carta dañada o equivocada.",
     "viewTerms": "Ver términos",

@@ -99,6 +99,18 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
       unitPriceCents: 25000,
     })),
   }));
+  // v1.21.3-quote-prune: el QUOTE usa la variante tolerante (poda por ítem). Por defecto todo
+  // resuelve (`unavailableItems: []`); cada test de poda la re-mockea con sus muertos.
+  jest.spyOn(orders, 'priceCartLinesLenient').mockImplementation(async (ids: string[]) => ({
+    items: ids.map((id) => ({ id, folio: `INV-${id}` })) as never,
+    subtotalCents: 25000 * ids.length,
+    lines: ids.map((id) => ({
+      inventoryItemId: id,
+      cardSnapshot: { name: 'E2E Charizard', setName: 'Base', number: '4' },
+      unitPriceCents: 25000,
+    })),
+    unavailableItems: [],
+  }));
   jest.spyOn(orders, 'nextOrderNumber').mockResolvedValue('TCG-000123');
   const svc = new GuestCheckoutService(
     prisma as PrismaService,
@@ -267,8 +279,88 @@ describe('GuestCheckoutService.quote', () => {
   it('el precio del invitado es el MISMO que el del comprador con cuenta (misma fuente de precio)', async () => {
     const { svc, orders } = buildService();
     await svc.quote({ inventoryItemIds: ['item-1'] } as never);
-    // Comparte `OrdersService.priceCartLines` con POST /checkout/quote: no hay tabla de precios
-    // paralela para invitados (criterio 48b: comprar como invitado no cambia condiciones).
+    // Comparte `OrdersService.priceCartLinesLenient` con POST /checkout/quote (v1.21.3): no hay
+    // tabla de precios paralela para invitados (criterio 48b: comprar como invitado no cambia
+    // condiciones). La regla de venta/precio es la MISMA que la ruta estricta de session.
+    expect(orders.priceCartLinesLenient).toHaveBeenCalledWith(['item-1']);
+  });
+
+  describe('v1.21.3-quote-prune — poda por ítem (§4-G.1)', () => {
+    it('compatibilidad: todo el carrito resuelve ⇒ shape previo + `unavailableItems: []` (siempre presente)', async () => {
+      const { svc } = buildService();
+      const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
+      expect(res.unavailableItems).toEqual([]);
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE));
+    });
+
+    it('mezcla: cotiza SOLO los válidos y devuelve los muertos en `unavailableItems`', async () => {
+      const { svc, orders } = buildService();
+      (orders.priceCartLinesLenient as jest.Mock).mockResolvedValueOnce({
+        items: [{ id: 'viva', folio: 'INV-viva' }],
+        subtotalCents: 25000,
+        lines: [
+          {
+            inventoryItemId: 'viva',
+            cardSnapshot: { name: 'E2E Charizard', setName: 'Base', number: '4' },
+            unitPriceCents: 25000,
+          },
+        ],
+        unavailableItems: [
+          { inventoryItemId: 'vendida', cardName: 'Antique Skull Fossil' }, // existe pero no vendible
+          { inventoryItemId: 'borrada', cardName: null }, // el id ya no resuelve
+        ],
+      });
+      const res = await svc.quote({
+        inventoryItemIds: ['viva', 'vendida', 'borrada'],
+      } as never);
+      expect(res.items.map((i) => i.inventoryItemId)).toEqual(['viva']);
+      // El breakdown se calcula SOLO con los válidos (con envío: sí hay algo que mandar).
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE));
+      expect(res.unavailableItems).toEqual([
+        { inventoryItemId: 'vendida', cardName: 'Antique Skull Fossil' },
+        { inventoryItemId: 'borrada', cardName: null },
+      ]);
+    });
+
+    it('carrito 100 % muerto ⇒ items: [], breakdown EN CEROS con shippingFeeCents: 0, y conserva fulfillmentMode/notices', async () => {
+      const { svc, orders, prisma } = buildService();
+      (orders.priceCartLinesLenient as jest.Mock).mockResolvedValueOnce({
+        items: [],
+        subtotalCents: 0,
+        lines: [],
+        unavailableItems: [
+          { inventoryItemId: 'vendida', cardName: 'Antique Skull Fossil' },
+          { inventoryItemId: 'borrada', cardName: null },
+        ],
+      });
+      const res = await svc.quote({ inventoryItemIds: ['vendida', 'borrada'] } as never);
+      expect(res.items).toEqual([]);
+      // EN CEROS de verdad, incluida la tarifa de envío (no hay nada que enviar) y sin gross-up.
+      expect(res.breakdown).toEqual({
+        subtotalCents: 0,
+        shippingFeeCents: 0,
+        ivaCents: 0,
+        ivaRatePct: IVA,
+        processingFeeCents: 0,
+        totalCents: 0,
+        currency: 'MXN',
+      });
+      // Shape estable: el front pinta carrito vacío + aviso, NUNCA pantalla de error.
+      expect(res.fulfillmentMode).toBe('direct_ship');
+      expect(res.notices).toEqual({ finalSale: true, invoiceByEmail: true, termsRequired: true });
+      expect(res.unavailableItems).toHaveLength(2);
+      // Sigue siendo READ-ONLY: podar a vacío no toca inventario ni crea nada.
+      expect(prisma.inventoryItem.updateMany).not.toHaveBeenCalled();
+      expect(prisma.order.create).not.toHaveBeenCalled();
+    });
+  });
+
+  it('ANTI-SOBRECORRECCIÓN: session usa la ruta ESTRICTA (priceCartLines), nunca la tolerante', async () => {
+    const { svc, orders } = buildService();
+    await svc.createSession(validDto() as never);
+    // La poda vive SOLO en el quote. Crear un pedido con una pieza muerta DEBE seguir fallando
+    // con 404/409 globales (anti double-sell, caso v de ARCHITECTURE §4.21h-1).
     expect(orders.priceCartLines).toHaveBeenCalledWith(['item-1']);
+    expect(orders.priceCartLinesLenient).not.toHaveBeenCalled();
   });
 });

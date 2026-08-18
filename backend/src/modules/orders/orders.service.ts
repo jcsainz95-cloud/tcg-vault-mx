@@ -22,6 +22,16 @@ export type ReservationOwnership = {
   ownershipStatus: 'pending';
 } | null;
 
+/**
+ * v1.21.3-quote-prune — ítem de carrito PODADO por los dos endpoints de QUOTE (§4 y §4-G.1).
+ * `cardName` viene si la pieza aún existe en BD (aunque ya no esté disponible); `null` si el
+ * `inventoryItemId` ya no resuelve. SOLO quote: los caminos de session no lo usan (siguen estrictos).
+ */
+export interface UnavailableCartItemDTO {
+  inventoryItemId: string;
+  cardName: string | null;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -66,24 +76,29 @@ export class OrdersService {
   }
 
   /**
-   * Valida disponibilidad y resuelve el precio de venta de cada línea del carrito.
-   * Fuente ÚNICA de la regla de venta para los DOS checkouts (con cuenta y de invitado, §4-G.1):
-   * comprar como invitado NO cambia condiciones comerciales (mismo precio, mismas validaciones).
-   * `ITEM_UNAVAILABLE` si la pieza no es de plataforma o no está en `{listed, in_stock}`;
-   * `PRICE_PENDING` si no tiene precio de venta resoluble (SEC-A1: se deriva server-side).
+   * v1.21.3-quote-prune — LA regla de venta, en un solo predicado: solo se vende una pieza de
+   * PLATAFORMA en estado vendible. La usan la ruta estricta (session) y la tolerante (quote);
+   * cambiarla aquí cambia a las dos — no admite dos cuerpos.
    */
-  async priceCartLines(inventoryItemIds: string[]): Promise<{
-    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+  private isSellable(item: InventoryItem): boolean {
+    return item.ownerType === 'platform' && ['listed', 'in_stock'].includes(item.status);
+  }
+
+  /**
+   * Resuelve el precio de venta de cada línea (SEC-A1: server-side, vía `salePriceOf`) y acumula
+   * el subtotal. Cuerpo ÚNICO de la regla de precios para strict Y lenient: `PRICE_PENDING`
+   * conserva su semántica de 422 en ambos (en el quote se evalúa DESPUÉS de la poda porque aquí
+   * solo entran ítems ya validados).
+   */
+  private async buildLines(
+    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[],
+  ): Promise<{
     subtotalCents: number;
     lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
   }> {
-    const items = await this.loadItems(inventoryItemIds);
     const lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[] = [];
     let subtotalCents = 0;
     for (const item of items) {
-      if (item.ownerType !== 'platform' || !['listed', 'in_stock'].includes(item.status)) {
-        throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
-      }
       const price = await this.salePriceOf(item);
       subtotalCents += price;
       lines.push({
@@ -92,7 +107,74 @@ export class OrdersService {
         unitPriceCents: price,
       });
     }
+    return { subtotalCents, lines };
+  }
+
+  /**
+   * Valida disponibilidad y resuelve el precio de venta de cada línea del carrito — versión
+   * ESTRICTA, usada por los DOS caminos de SESSION (con cuenta y de invitado). Fuente ÚNICA de la
+   * regla de venta (delega en `isSellable`/`buildLines`): comprar como invitado NO cambia
+   * condiciones comerciales (mismo precio, mismas validaciones).
+   * `NOT_FOUND` global si algún id no resuelve; `ITEM_UNAVAILABLE` si la pieza no es de plataforma
+   * o no está en `{listed, in_stock}`; `PRICE_PENDING` si no tiene precio de venta resoluble.
+   * v1.21.3-quote-prune: session se queda estricta A PROPÓSITO (anti double-sell, caso v de
+   * ARCHITECTURE §4.21h-1); la resolución por ítem vive SOLO en `priceCartLinesLenient` (quotes).
+   */
+  async priceCartLines(inventoryItemIds: string[]): Promise<{
+    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+    subtotalCents: number;
+    lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
+  }> {
+    const items = await this.loadItems(inventoryItemIds);
+    for (const item of items) {
+      if (!this.isSellable(item)) {
+        throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
+      }
+    }
+    const { subtotalCents, lines } = await this.buildLines(items);
     return { items, subtotalCents, lines };
+  }
+
+  /**
+   * v1.21.3-quote-prune (§4, §4-G.1) — resolución POR ÍTEM con poda amable, SOLO para los dos
+   * endpoints de QUOTE. El carrito vive en `localStorage` como ids de piezas físicas ÚNICAS: al
+   * venderse desaparecen, y un id muerto NO debe reventar la cotización entera con `404`/`409`
+   * globales. Aquí ningún id produce error: los que no resuelven (`cardName: null`) o existen pero
+   * no pasan `isSellable` (`cardName` con nombre, para el aviso del front) se devuelven en
+   * `unavailableItems` (SIEMPRE presente; `[]` si todo el carrito resuelve) y `lines`/`subtotal`
+   * se calculan SOLO con los válidos.
+   * MISMA regla de venta y de precios que session (`isSellable` + `buildLines`): esto solo cambia
+   * el TRANSPORTE del fallo (poda vs. excepción), nunca el criterio. `PRICE_PENDING` (422) se
+   * conserva y se evalúa DESPUÉS de la poda: solo lo dispara un ítem VÁLIDO sin precio.
+   */
+  async priceCartLinesLenient(inventoryItemIds: string[]): Promise<{
+    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+    subtotalCents: number;
+    lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
+    unavailableItems: UnavailableCartItemDTO[];
+  }> {
+    // Un id repetido en el carrito no debe cotizar (ni podar) dos veces la misma pieza única.
+    const uniqueIds = [...new Set(inventoryItemIds)];
+    const found = await this.prisma.inventoryItem.findMany({
+      where: { id: { in: uniqueIds } },
+      include: { card: { include: { set: true } } },
+    });
+    const byId = new Map(found.map((i) => [i.id, i]));
+
+    const valid: (InventoryItem & { card: Card & { set?: CardSet | null } })[] = [];
+    const unavailableItems: UnavailableCartItemDTO[] = [];
+    for (const id of uniqueIds) {
+      const item = byId.get(id);
+      if (!item) {
+        unavailableItems.push({ inventoryItemId: id, cardName: null });
+      } else if (!this.isSellable(item)) {
+        unavailableItems.push({ inventoryItemId: id, cardName: item.card.name });
+      } else {
+        valid.push(item);
+      }
+    }
+    const { subtotalCents, lines } = await this.buildLines(valid);
+    return { items: valid, subtotalCents, lines, unavailableItems };
   }
 
   /**
@@ -107,17 +189,43 @@ export class OrdersService {
     return `TCG-${String(Number(rows[0].nextval)).padStart(6, '0')}`;
   }
 
+  /**
+   * POST /checkout/quote (§4) — v1.21.3-quote-prune: resolución POR ÍTEM. Los ids muertos del
+   * carrito viajan en `unavailableItems` (siempre presente) con `200`; `items` y `breakdown` se
+   * calculan SOLO con los válidos. Carrito 100 % muerto ⇒ `items: []` y breakdown EN CEROS (misma
+   * forma; NO se corre el gross-up: cotizar la nada no puede producir un fee fijo > 0).
+   * Session (`createSession`, abajo) NO usa esta ruta: sigue estricta.
+   */
   async quote(userId: string, inventoryItemIds: string[]) {
-    const { subtotalCents, lines } = await this.priceCartLines(inventoryItemIds);
+    const { subtotalCents, lines, unavailableItems } =
+      await this.priceCartLinesLenient(inventoryItemIds);
     const previews = lines.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: l.cardSnapshot,
       unitPriceCents: l.unitPriceCents,
     }));
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
-    const fee = await this.settings.getStripeFee();
-    const breakdown = computeCartBreakdown(subtotalCents, ivaPct, fee);
-    return { items: previews, breakdown };
+    const breakdown: BreakdownDTO =
+      lines.length === 0
+        ? this.zeroCartBreakdown(ivaPct)
+        : computeCartBreakdown(subtotalCents, ivaPct, await this.settings.getStripeFee());
+    return { items: previews, breakdown, unavailableItems };
+  }
+
+  /**
+   * Breakdown EN CEROS para el quote de un carrito 100 % podado (§4/§4-G.1): misma forma, todo 0
+   * (nunca pantalla de error en el front). `ivaRatePct` conserva el dial vigente — es una tasa,
+   * no un monto. El invitado lo extiende con `shippingFeeCents: 0` (no hay nada que enviar).
+   */
+  zeroCartBreakdown(ivaRatePct: number): BreakdownDTO {
+    return {
+      subtotalCents: 0,
+      ivaCents: 0,
+      ivaRatePct,
+      processingFeeCents: 0,
+      totalCents: 0,
+      currency: 'MXN',
+    };
   }
 
   private cardSnapshot(item: InventoryItem & { card: Card & { set?: CardSet | null } }) {

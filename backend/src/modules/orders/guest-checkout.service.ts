@@ -64,11 +64,23 @@ export class GuestCheckoutService {
 
   // ------------------------------------------------------------------ quote
 
-  /** §4-G.1 — desglose sin cobrar del carrito de invitado. READ-ONLY: no reserva inventario. */
+  /**
+   * §4-G.1 — desglose sin cobrar del carrito de invitado. READ-ONLY: no reserva inventario.
+   * v1.21.3-quote-prune: resolución POR ÍTEM (misma norma que `POST /checkout/quote`, porque
+   * comparten `priceCartLinesLenient`): los ids muertos viajan en `unavailableItems` con `200`;
+   * `items`/`breakdown` se calculan SOLO con los válidos. Carrito 100 % muerto ⇒ breakdown EN
+   * CEROS incluido `shippingFeeCents: 0` (no hay nada que enviar), conservando
+   * `fulfillmentMode`/`notices` (shape estable). El tope `GUEST_MAX_ITEMS` lo valida el DTO sobre
+   * el array del REQUEST (pre-poda): podar a vacío es `200`, no `400`.
+   * `createSession` (abajo) NO usa esta ruta: sigue estricta (anti double-sell).
+   */
   async quote(dto: GuestQuoteDto) {
     if (dto.shippingAddress) this.assertMxAddress(dto.shippingAddress.country);
-    const { lines, subtotalCents } = await this.orders.priceCartLines(dto.inventoryItemIds);
-    const breakdown = await this.breakdownFor(subtotalCents);
+    const { lines, subtotalCents, unavailableItems } = await this.orders.priceCartLinesLenient(
+      dto.inventoryItemIds,
+    );
+    const breakdown =
+      lines.length === 0 ? await this.zeroBreakdown() : await this.breakdownFor(subtotalCents);
     return {
       items: lines.map((l) => ({
         inventoryItemId: l.inventoryItemId,
@@ -77,6 +89,7 @@ export class GuestCheckoutService {
       })),
       fulfillmentMode: 'direct_ship' as const,
       breakdown,
+      unavailableItems,
       // Banderas, no texto (§0 i18n): el front renderiza ventas finales / factura / términos.
       notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
     };
@@ -382,6 +395,16 @@ export class GuestCheckoutService {
       phone: a.phone,
       recipientName: a.recipientName,
     };
+  }
+
+  /**
+   * v1.21.3-quote-prune (§4-G.1) — breakdown EN CEROS del quote con carrito 100 % podado:
+   * extiende el cero canónico de `OrdersService` con `shippingFeeCents: 0` (no hay nada que
+   * enviar, así que tampoco se cobra tarifa ni se corre el gross-up).
+   */
+  private async zeroBreakdown(): Promise<DirectShipBreakdownDTO> {
+    const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
+    return { ...this.orders.zeroCartBreakdown(ivaPct), shippingFeeCents: 0 };
   }
 
   /** Desglose con envío DENTRO de la orden (§4-G.0-2). La tarifa reusa el dial `SHIPPING_FEE_CENTS`. */
