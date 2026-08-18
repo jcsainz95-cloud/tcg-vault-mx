@@ -29,6 +29,22 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
   alta: ¿filtra de más? ¿no pagina? ¿no trae los acabados?) y frontend (cómo lo pinta). Bug real.
   Relacionado con el tema recurrente de "acabados/versiones" del cotizador.
 
+### Nota 2026-08-18 · Variantes/orden del master set — HECHO Y EN `main` (rama `fix/variantes-y-orden-master-set`)
+- **Qué se cerró (doble veredicto QA+techlead, verificado en navegador):** cada carta del binder
+  (cotizador, M1, bóvedas) muestra **una casilla de imagen por variante real** (normal izquierda,
+  reverse holo derecha; sin relleno); el orden es **por número** (M-26, persistido en BD, paginación
+  determinista); en admin el alta dice y hace **«Dar de alta al inventario»** con resultado visible
+  dentro del modal (antes el paso de confirmación quedaba tapado por el overlay: por eso «no pasaba nada»).
+- **Causa de fondo de que solo se pintara una variante:** `availableFinishes` se derivaba de PRECIOS
+  (y el price-ingest lo sobrescribía con solo lo que tenía precio). Ahora la única autoridad es el
+  sync de catálogo. **⚠ ACCIÓN REQUERIDA EN PROD:** los sets ya importados siguen en `['normal']`
+  hasta re-sincronizar: `POST /api/v1/admin/catalog/sync-all` con body `{"force": true}` como
+  super_admin (detalle en `docs/BACKEND_NOTES.md §49.7`). Sin ese re-sync, Pitch Black seguirá
+  mostrando una sola casilla por carta.
+- **Relación con P-3/P-4:** ataca la parte de «acabados/versiones» de P-3 y el patrón de «no pasa
+  nada» de P-4 en el flujo del master set; el alta clásica (formulario «Alta de item») y el resto de
+  P-3/P-5 siguen abiertos como están anotados.
+
 ### P-4 · Al crear inventario y dar "Crear" no pasa nada (sin confirmación)
 - **Observado:** das de alta un item, clic en **Crear**, y **no hay ningún mensaje** (ni éxito ni error);
   no se sabe si se creó.
