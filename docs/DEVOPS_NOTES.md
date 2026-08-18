@@ -2073,3 +2073,64 @@ colgó **antes** de ejecutar la verificación (setup del entorno, instalación d
 Si el escaneo o los tests llegaron a correr y fallaron, eso es un hallazgo real y se diagnostica — no
 se relanza. Los cuatro reintentos de esta noche caen todos en el primer caso, y en ninguno se cambió
 el commit entre intentos.
+
+---
+
+## 23. Bring-up ad-hoc para el pentest de release (sesión efímera, sin Docker Hub)
+
+> **Contexto:** fase de seguridad de release (CLAUDE.md paso 7). El sandbox de esta sesión tenía el
+> egress a **Docker Hub bloqueado por política** (`production.cloudfront.docker.com` → 403 en el
+> proxy), así que `docker compose -f docker-compose.staging.yml --profile apps up -d --build` **no
+> se pudo usar** (no hay forma de bajar `postgres:16-alpine`, `redis:7-alpine`, `minio/minio`). El
+> registro **npm SÍ tenía salida** (`registry.npmjs.org` → 200), igual que `dl.min.io` **no** (403 —
+> se comprobó y se descartó, no se intentó rodear). Con eso se armó un **equivalente nativo,
+> temporal y solo de esta sesión** (no toca `docker-compose.staging.yml` ni ningún archivo del
+> repo, salvo esta nota):
+>
+> | Pieza | Cómo se cubrió | Puerto |
+> |---|---|---|
+> | PostgreSQL 16 | Cluster **nativo ya instalado** en la imagen (`pg_ctlcluster 16 main start`); rol y DB `tcg_staging` creados aislados (`CREATE ROLE`/`createdb`), password aleatoria de sesión (no la del `.env.example`). | `127.0.0.1:5432` |
+> | Redis 7 | Binario **nativo ya instalado** (`redis-server --port 6380 --bind 127.0.0.1`), datos en un directorio del scratchpad de la sesión (no persistente). | `127.0.0.1:6380` |
+> | Object storage (S3, solo `kyc_ine/`) | **Sin MinIO** (ni binario ni imagen Docker disponibles en el sandbox). Se instaló por **npm** (registro sí accesible) el paquete **`s3rver`** — un mock S3 en Node — como *shim* **temporal y solo de esta sesión**, en el scratchpad, **no** en el repo ni en `docker-compose.staging.yml`. Cubre el bucket `tcg-photos` con path-style, igual que el backend espera. Verificado extremo a extremo: `POST /uploads/presign` (purpose `kyc_ine`) → `PUT` real contra la URL firmada → `200`. | `127.0.0.1:9010` |
+> | Backend (NestJS) | `npm ci && npx prisma generate && npx prisma migrate deploy && npm run build`, arrancado con `node dist/main.js` y las env de arriba pasadas por **variables de entorno del proceso** (no se escribió ningún `.env` dentro de `backend/`, para no tocar esa carpeta). | `127.0.0.1:3011` (`/api/v1`) |
+> | Frontend (Next.js) | `npm ci && npm run build` con `NEXT_PUBLIC_API_BASE_URL=http://localhost:3011/api/v1` y `NEXT_PUBLIC_USE_MOCKS=false` horneados en build-time, luego `next start -p 3010`. | `127.0.0.1:3010` |
+>
+> **Seed:** `./scripts/seed-synthetic.sh` corrido tal cual (sin tocar el script); su salvaguarda
+> anti-producción (aborta si `DATABASE_URL` no matchea `*staging*|*localhost*|*127.0.0.1*|*postgres:5432*`)
+> se respetó — la `DATABASE_URL` usada apunta a `127.0.0.1`, así que pasó la guardia sin bypass.
+>
+> **Limitaciones honestas de este bring-up (no de la app):**
+> - **Stripe:** no había claves `sk_test_`/`pk_test_` reales de Stripe cargadas en este sandbox. Se
+>   usaron los **mismos dummies ya documentados** en `docker-compose.staging.yml`
+>   (`sk_test_staging_dummy` / `pk_test_staging_dummy` / `whsec_staging_dummy`) — **no se inventó
+>   ninguna clave nueva**. Con esto el backend arranca y las rutas de checkout responden, pero
+>   cualquier llamada real a la API de Stripe (crear PaymentIntent, verificar webhook firmado)
+>   **fallará**. Alcance reducido: el pentester puede atacar la superficie de checkout (validación,
+>   IDOR, control de acceso, lógica de montos/IVA/envío antes de tocar Stripe) pero **no** el flujo
+>   de pago-confirmado-por-webhook de Stripe real.
+> - **Proveedores de precios externos** (`pokemontcg.io`, PokemonPriceTracker, Banxico SIE): sin
+>   API keys en este sandbox (y con egress restringido), los jobs de ingest corren en modo
+>   degradado/log-only (visible en el log del backend: `HTTP 403` de pokemontcg.io). No afecta el
+>   alcance del pentest (cotizador/carrito/checkout/buylist/master set/inventario/retiro), que usa
+>   los `PriceReference` ya sembrados por el seed sintético.
+> - **S3 = shim `s3rver`, no MinIO real:** cubre el contrato S3 (presigned PUT/GET, bucket privado)
+>   con fidelidad suficiente para probar el flujo de subida de INE del buylist (auth, validación de
+>   `purpose`, tamaño máximo, path del objeto), pero **no** es MinIO ni R2: no reproduce políticas
+>   IAM ni comportamientos específicos del proveedor real. Diferencia a tener presente si el
+>   pentester encuentra algo específico de S3/MinIO que no reproduce aquí.
+> - **Sin Docker en absoluto en esta sesión:** ninguna imagen (`Dockerfile.backend`/`Dockerfile.frontend`)
+>   se construyó ni se probó aquí; el bring-up usa los binarios nativos (`node dist/main.js`,
+>   `next start`) en vez del `CMD` de los Dockerfiles. Eso queda **sin verificar en esta sesión**
+>   (ya estaba cubierto por builds anteriores documentados en §22).
+>
+> **Aislamiento confirmado:** base de datos `tcg_staging` separada (rol/DB propios, password de
+> sesión, no reutiliza credenciales de ningún `.env` real), sin ninguna referencia a un
+> `DATABASE_URL`/dominio de producción en ningún punto de este bring-up. Redis y Postgres
+> escuchan solo en `127.0.0.1` (Redis se reinició explícitamente con `--bind 127.0.0.1` tras
+> notar que el bind por defecto sin archivo de config es `* -::*`). Nada de esto se comitea:
+> es exclusivamente para levantar el objetivo del pentest en esta sesión efímera.
+>
+> **Esto no reemplaza el runbook real.** `docker-compose.staging.yml` sigue siendo la fuente de
+> verdad de staging (§13) para cualquier sesión con Docker Hub accesible; este bring-up nativo es
+> una nota operativa de que, cuando Docker Hub esté bloqueado, existe una alternativa viable con
+> Postgres/Redis nativos + `s3rver` por npm, documentada aquí para no tener que re-descubrirla.
