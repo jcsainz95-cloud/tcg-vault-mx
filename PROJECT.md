@@ -46,6 +46,16 @@
 > (costo/P&L). Ver §I (nueva), §A, §C, §E, §E.1, M1, M2, §G, criterios 37–44 y las **preguntas abiertas v1.4**
 > al final. **Este bloque tiene preguntas abiertas pendientes**; los defaults preservan el comportamiento
 > actual y no bloquean el arranque si el humano los autoriza.
+> **Requisito v1.5 — GUEST CHECKOUT (2026-08-18, decisiones del humano YA tomadas):** se puede **comprar sin
+> crear cuenta**. Tres decisiones cerradas (no se re-litigan): (1) el invitado **solo puede elegir envío
+> directo a domicilio** — **guardar en bóveda REQUIERE cuenta**, y eso es deliberado: la bóveda es el
+> **gancho de registro**; si el invitado intenta elegir bóveda se le ofrece **crear cuenta ahí mismo**
+> (upsell in-situ, **no** un error); (2) **correo obligatorio** y **seguimiento por enlace tokenizado**
+> (token firmado y expirable, enviado por correo); (3) **reclamo post-compra**: al completar la compra se le
+> ofrece crear cuenta con ese mismo correo y el pedido **pasa a su historial**. Ver **§J** (nueva), §B, §C,
+> "Usuarios y roles", criterios **45–56** y las **preguntas abiertas v1.5** al final. **Quedan dos huecos
+> pendientes** (qué pasa si el correo del invitado **ya tiene cuenta** y el **plazo de expiración** del
+> enlace); el resto del bloque está decidido.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -67,6 +77,12 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - **Portafolio visible**: el usuario ve el valor de su colección en custodia, valuado a mercado.
 
 ## Usuarios y roles de la app
+- **Invitado (comprador sin cuenta)** *(NUEVO v1.5)*: navega **Compra** y **compra sin registrarse**,
+  dando **correo obligatorio** y dirección de envío. **Solo puede elegir envío directo a domicilio**: la
+  **bóveda requiere cuenta** (si la intenta elegir, se le ofrece crear cuenta ahí mismo). No tiene sesión,
+  historial ni portafolio: da seguimiento a **su pedido** mediante un **enlace tokenizado** que recibe por
+  correo. No puede vender (buylist), no ve bóveda ni back-office. Tras la compra puede **crear cuenta con el
+  mismo correo** y **reclamar el pedido** para que pase a su historial (ver §J).
 - **Comprador (usuario final / cliente)**: se registra (email/contraseña o **Google**), navega la sección
   **Compra** (nuestro inventario a la venta), compra cartas, ve su bóveda y el valor de su portafolio (con
   **gráfica de tendencia**), pide retiros/envíos y crea solicitudes de venta (buylist). No opera dinero de
@@ -120,6 +136,9 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Registro/login de usuario **por email/contraseña o con Google** (ver Restricciones técnicas).
 
 ### B. Compra y checkout (Stripe)
+- [ ] **Comprar NO exige cuenta** *(v1.5)*: el checkout ofrece **"continuar como invitado"** además de
+      iniciar sesión/registrarse. El invitado solo puede elegir **envío directo a domicilio**; el **destino
+      bóveda requiere cuenta**. Reglas completas, flujos y límites en **§J**.
 - [ ] Carrito y checkout con **Stripe**. El **precio de venta** que se cobra es **referencia + markup**
       (el markup es un dial configurable en M10); el "valor de mercado" mostrado sigue siendo la referencia.
 - [ ] Precios en catálogo/ficha se muestran **sin IVA**.
@@ -128,7 +147,9 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] **Facturación (CFDI) manual por correo en el MVP** (sin timbrado con PAC, eso es fase 2): en el
       checkout y/o FAQ/términos se muestra un **mensaje** indicando que **para solicitar factura el cliente
       debe enviar un correo con sus datos fiscales**. El IVA cobrado se guarda para M7 Finanzas.
-- [ ] Al pagar, la carta comprada entra a la **bóveda del usuario** con titularidad `pending`.
+- [ ] Al pagar, la carta comprada entra a la **bóveda del usuario** con titularidad `pending` **cuando el
+      comprador tiene cuenta y eligió destino bóveda**. En una **compra de invitado** (§J) no hay bóveda: la
+      carta queda **reservada al pedido** y se prepara para **envío directo**.
 - [ ] Cuando el pago se liquida, la titularidad pasa a `settled`.
 - [ ] **Sin wallet de saldo**: el dinero se liquida por transacción; la plataforma no guarda saldo del usuario.
 - [ ] **Ventas finales — sin reembolso voluntario**: una vez comprada una carta **no hay reembolso** a
@@ -154,6 +175,9 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] **Contracargo**: revierte la carta al inventario de la plataforma y refleja el estado de la orden.
 
 ### C. Bóveda y portafolio (comprador)
+- [ ] **La bóveda es exclusiva de usuarios con cuenta** *(v1.5)*: un invitado **no puede** guardar en bóveda
+      ni ver portafolio. Es una decisión de producto, no una limitación técnica: la bóveda es el **gancho de
+      registro** y el checkout la usa como upsell para convertir invitados en usuarios (§J).
 - [ ] Vista de "Mi bóveda": todas las cartas en custodia del usuario, con su estado de titularidad, **su
       acabado/versión** (Normal, Reverse Holo, Holofoil, 1st Edition; ver §I) y la **imagen de catálogo de
       pokemontcg.io**; con **ordenamiento por set y por valor**.
@@ -406,6 +430,123 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **cotizador de buylist** (el vendedor captura cuál vende), **inventario/bóveda** (se captura al alta y se
       muestra), **valuación de portafolio** (usa el precio del acabado) y **back-office** (M1/M2/M5).
 
+### J. Guest checkout — comprar sin crear cuenta (transversal — NUEVO v1.5)
+> **Qué es**: cualquier visitante puede completar una compra en **Compra** sin registrarse, dando únicamente
+> **correo** y **dirección de envío nacional**. **Por qué**: hoy el registro obligatorio es la mayor fricción
+> antes del pago —especialmente en la primera compra, donde el usuario todavía no confía en la plataforma—.
+> Quitarlo sube la conversión sin canibalizar el registro, porque **la bóveda (el diferenciador del producto)
+> sigue exigiendo cuenta**: el invitado que quiere acumular cartas, valuar su portafolio o pagar un solo
+> envío **tiene que registrarse**. El registro deja de ser un peaje de entrada y pasa a ser el **premio**:
+> se ofrece donde tiene valor (al elegir bóveda y al terminar la compra), no antes de pagar.
+> **Alcance de esta feature**: checkout del storefront + vista pública de seguimiento; en backend toca
+> `orders`, `payments`, `shipments` (y `disputes` en lo que aplique al invitado). **No** cambia el catálogo,
+> el buylist ni la bóveda.
+
+**Qué puede hacer un invitado**
+- [ ] **Navegar Compra y comprar sin cuenta**: el checkout ofrece explícitamente **"continuar como
+      invitado"** junto a "iniciar sesión" / "crear cuenta"; ninguna de las tres opciones es un callejón sin
+      salida y el carrito se conserva al cambiar entre ellas.
+- [ ] **Correo obligatorio y validado**: se pide un correo en el checkout de invitado, con **validación de
+      formato** y **confirmación** de que es correcto antes de pagar (es el único canal de contacto y de
+      seguimiento del pedido). Sin correo válido no se puede pagar.
+- [ ] **Único destino disponible: envío directo a domicilio nacional** con la **tarifa fija de envío** (§D,
+      default MX$175). Aplican las mismas reglas de §D: solo direcciones en **México**.
+- [ ] **Mismo precio, mismos impuestos, mismas políticas** que un usuario con cuenta: precio de venta =
+      referencia + markup, **línea de costo de procesamiento**, **IVA 16% desglosado**, aviso de **ventas
+      finales**, enlace a términos y el mensaje de **factura CFDI manual por correo**. Comprar como invitado
+      **no** cambia condiciones comerciales.
+- [ ] **Seguimiento de su pedido por enlace tokenizado** (ver abajo).
+- [ ] **Disputa de condición y errores de plataforma**: aplican **igual** que a un usuario con cuenta
+      (ventana de **7 días desde la entrega**, evidencia **por correo a soporte** citando el **número de
+      pedido**; recompra al precio pagado o reembolso según §H). El invitado **no necesita cuenta** para
+      abrir una disputa. *(SUPUESTO: la compensación por recompra a un invitado se ejecuta como **reembolso
+      por el monto pagado** —no hay bóveda ni saldo donde abonarlo—; ver preguntas abiertas v1.5.)*
+
+**Qué NO puede hacer un invitado**
+- [ ] **No puede guardar en bóveda** (decisión de producto, ver §C). Si intenta elegir "guardar en bóveda",
+      **no se muestra un error**: se muestra un **upsell in-situ** que explica el beneficio (acumular
+      cartas, un solo envío, portafolio valuado) y permite **crear cuenta sin salir del checkout**,
+      **conservando el carrito y los datos ya capturados**; al crear la cuenta, el destino bóveda queda
+      disponible y el flujo continúa donde estaba. También puede **descartar** el upsell y seguir con envío
+      directo.
+- [ ] **No puede vender (buylist)**, ni acceder a cotizador con solicitud, portafolio, gráfica de tendencia,
+      historial de pedidos, direcciones guardadas ni back-office.
+- [ ] **No puede consultar pedidos que no sean el suyo**: no existe ninguna pantalla pública de "buscar mi
+      pedido" por número de pedido o por correo. **El único acceso es el enlace tokenizado** que llegó al
+      correo (ver nota de seguridad).
+
+**Seguimiento por enlace tokenizado**
+- [ ] Al confirmarse el pago, la plataforma envía al correo del invitado un **correo de confirmación** con
+      el **resumen del pedido** y un **enlace de seguimiento** que contiene un **token firmado y expirable**
+      ligado a **ese** pedido.
+- [ ] La **vista pública de seguimiento** muestra: número de pedido, estado (`pagado → preparando → guía →
+      enviado → entregado`), **número de guía** cuando existe, artículos comprados y el total pagado.
+- [ ] **Expiración**: el enlace **caduca**. *(SUPUESTO: vigencia de **90 días** desde la creación del
+      pedido, suficiente para cubrir entrega + ventana de disputa de 7 días; por confirmar — ver preguntas
+      abiertas v1.5.)* Con el token **expirado o inválido**, la página muestra un mensaje neutro y ofrece
+      **reenviar un enlace nuevo al correo del pedido**; el reenvío **no confirma ni niega** que el pedido
+      exista y está **limitado por frecuencia**. El token también puede reenviarse desde soporte.
+- [ ] **Reclamar el pedido no requiere el enlace vigente**: si el enlace ya caducó, el invitado siempre
+      puede crear cuenta con el mismo correo y recuperar el pedido por la vía de reclamo (ver abajo).
+
+**Reclamo post-compra (conversión a cuenta)**
+- [ ] En la **pantalla de confirmación de compra** y en el **correo de confirmación** se ofrece
+      **crear cuenta con el mismo correo** ("guarda tu pedido y tus próximas compras en tu bóveda").
+- [ ] Al crear la cuenta con **ese mismo correo**, el pedido de invitado **se vincula** a la cuenta y
+      **aparece en su historial de pedidos**, con su estado y su seguimiento ya dentro de la sesión.
+- [ ] El reclamo **no cambia el pedido**: no altera el destino (sigue siendo envío directo), ni el precio,
+      ni las políticas ya aplicadas. Un pedido de invitado **ya enviado o entregado** también puede
+      reclamarse (queda en el historial como pedido cerrado).
+- [ ] El pedido solo puede reclamarse **una vez**; un pedido ya vinculado a una cuenta no puede vincularse
+      a otra.
+- [ ] **Si el correo del invitado YA tiene cuenta**: el checkout **no revela** que ese correo está
+      registrado (evitar enumeración de usuarios) y **la compra como invitado se permite normalmente**.
+      *(SUPUESTO: el pedido **no se vincula en silencio**; queda como pedido de invitado y se ofrece al
+      titular **reclamarlo explícitamente** cuando inicia sesión con ese correo —o desde el enlace de
+      seguimiento—, para que nadie pueda inyectar pedidos al historial de un tercero escribiendo su correo.
+      **Este punto necesita decisión del humano** — ver preguntas abiertas v1.5.)*
+
+**Nota de seguridad a nivel producto (el enlace es una puerta sin contraseña)**
+- [ ] El enlace de seguimiento **sustituye a una contraseña**: quien lo tenga ve el pedido. Por eso la vista
+      pública debe ser **de datos mínimos**: **no** muestra la dirección completa (a lo mucho ciudad/estado y
+      los últimos dígitos del CP), **no** muestra datos de pago más allá de "pagado con tarjeta terminación
+      ****", **no** muestra el correo completo ni el teléfono, y **no** permite ninguna acción sensible
+      (cambiar dirección, cancelar, pedir reembolso, ver otros pedidos).
+- [ ] **Prohibido enumerar pedidos**: no debe existir forma de listar o adivinar pedidos ajenos —ni por
+      número de pedido secuencial, ni por correo, ni probando tokens—. El acceso es **solo por token no
+      adivinable** y **acotado a un pedido**.
+- [ ] El **reenvío de enlace** y el **reclamo de pedido** deben tener **límite de frecuencia** y **respuesta
+      neutra** (mismo mensaje exista o no el pedido/correo), para que no sirvan como oráculo de "este correo
+      compró aquí".
+- [ ] *(El **cómo** —tipo de token, firma, rotación, rate limiting, cabeceras— lo define el arquitecto y lo
+      audita la fase de seguridad; aquí solo se fija el requisito de producto.)*
+
+#### J.1 Flujos críticos (base para el E2E de QA)
+> **Camino feliz — compra como invitado con envío directo:**
+> 1. Un visitante **sin sesión** entra a **Compra**, abre la ficha de una carta publicada y la agrega al
+>    carrito.
+> 2. En el checkout elige **"continuar como invitado"** (no inicia sesión ni se registra).
+> 3. Captura **correo válido** y **dirección de envío nacional**; el sistema valida el formato del correo y
+>    que la dirección sea de México.
+> 4. Ve el desglose: subtotal, **costo de procesamiento**, **IVA 16%**, **envío MX$175** y total; ve el
+>    aviso de **ventas finales** y el mensaje de **factura por correo**.
+> 5. Paga con **Stripe** con éxito.
+> 6. Llega a la **confirmación** con su **número de pedido** y la oferta de **crear cuenta con ese correo**.
+> 7. **Recibe el correo** de confirmación con el **enlace de seguimiento tokenizado**.
+> 8. Abre el enlace y ve el **estado del pedido** (datos mínimos, sin acciones sensibles).
+> 9. El admin/operador captura la **guía**; el invitado **vuelve a abrir el mismo enlace** y ve el estado
+>    actualizado con el número de guía.
+> 10. El invitado **crea cuenta con el mismo correo** y el pedido **aparece en su historial**.
+>
+> **Flujo crítico — upsell de bóveda (conversión):** invitado en checkout intenta elegir **"guardar en
+> bóveda"** → ve el **upsell** (no un error) → **crea cuenta sin perder el carrito** → ahora sí puede elegir
+> bóveda → paga → la carta entra a **su bóveda** con titularidad `pending`.
+>
+> **Flujos negativos que QA debe cubrir:** correo con formato inválido bloquea el pago; dirección fuera de
+> México rechazada; token **manipulado/inválido** no da acceso; token **expirado** muestra mensaje neutro y
+> ofrece reenvío; enlace de un pedido **no da acceso a otro** (cambiar el identificador no expone nada);
+> un pedido **ya reclamado** no puede vincularse a una segunda cuenta.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
 - **Order-book / trading instantáneo** (compra/venta digital tipo bolsa dentro de la bóveda).
@@ -426,6 +567,15 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - **PriceCharting**: **no se usa en el MVP** (las fuentes free + override manual cubren singles/gradeadas y
   el **sellado se pricia manualmente**). Queda como **fuente de mercado del sellado en fase 2** (u opción
   futura si se decide).
+- **Bóveda para invitados** *(v1.5)*: guardar en custodia **requiere cuenta**, por decisión de producto (la
+  bóveda es el gancho de registro). No se contempla ninguna variante de "bóveda temporal sin cuenta".
+- **Buylist / venta como invitado** *(v1.5)*: vender cartas a la plataforma sigue exigiendo cuenta (hay
+  KYC, CLABE y pagos SPEI de por medio). El invitado solo compra.
+- **Cambios internos al módulo de correo (`mail`)** *(v1.5)*: el guest checkout **usa** el envío de correo
+  existente (confirmación + enlace de seguimiento); rediseñar plantillas, proveedor o infraestructura de
+  correo queda fuera de este alcance.
+- **Historial/portafolio para invitados** *(v1.5)*: un invitado ve **un** pedido por su enlace; no hay
+  "mis pedidos" sin cuenta ni consulta de pedidos por correo.
 - **Plan de pago de proveedor de precios** (~$9.99/mes): no se contrata en MVP; el `PricingProvider`
   intercambiable permite subir a él más adelante sin tocar el resto del sistema.
 
@@ -691,6 +841,59 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     a partir del acabado validado, la rareza real y la regla configurada (no se debilita la protección
     anti-manipulación existente, SEC-A1).
 
+**Guest checkout — comprar sin cuenta (v1.5)**
+45. Un visitante **sin sesión** completa una compra de punta a punta (carrito → checkout de invitado → pago
+    Stripe exitoso → confirmación con número de pedido) **sin crear cuenta**, y al terminar **no existe
+    ninguna cuenta nueva** ni sesión iniciada. La orden queda registrada como **pedido de invitado** con su
+    correo y su dirección de envío.
+46. El checkout ofrece las tres vías —**continuar como invitado**, **iniciar sesión**, **crear cuenta**— y
+    **cambiar entre ellas no vacía el carrito** ni pierde los datos ya capturados.
+47. El correo es **obligatorio y validado**: un correo con **formato inválido** (o vacío) **impide avanzar
+    al pago** con un mensaje claro; el correo capturado es exactamente el que recibe la confirmación y el
+    enlace de seguimiento.
+48. Un invitado **solo puede elegir envío directo a domicilio nacional**: la opción **"guardar en bóveda"
+    no completa la compra sin cuenta**, y al intentarla se muestra un **upsell** (mensaje de beneficio +
+    "crear cuenta") **y nunca un error**. Desde ese upsell el invitado **crea cuenta sin salir del
+    checkout**, **conserva el carrito**, y tras registrarse el destino **bóveda queda disponible** y el
+    flujo continúa; si descarta el upsell, sigue con envío directo.
+48b. El checkout de invitado muestra **el mismo desglose y los mismos avisos** que el de un usuario con
+    cuenta: subtotal sin IVA, **costo de procesamiento**, **IVA 16%**, **envío fijo (default MX$175)**,
+    aviso de **ventas finales** con enlace a términos y mensaje de **factura CFDI manual por correo**; el
+    precio de venta cobrado es el mismo (referencia + markup) que para un usuario registrado. Una dirección
+    **fuera de México** se rechaza (criterio 31).
+49. Tras el pago exitoso el invitado **recibe en su correo** un mensaje de confirmación con el **resumen del
+    pedido**, el **número de pedido** y un **enlace de seguimiento** con token; la **pantalla de
+    confirmación** muestra el número de pedido y la **oferta de crear cuenta con ese mismo correo**.
+50. Abriendo el **enlace de seguimiento** (sin iniciar sesión) el invitado ve el **estado del pedido**
+    (`pagado → preparando → guía → enviado → entregado`), los artículos y el total pagado; cuando el
+    admin/operador **captura la guía**, al reabrir **el mismo enlace** aparece el **número de guía** y el
+    estado actualizado.
+51. La vista pública de seguimiento es de **datos mínimos**: **no** muestra la dirección completa (a lo mucho
+    ciudad/estado y CP parcial), **no** muestra datos de pago más allá de la **terminación de tarjeta**,
+    **no** muestra el correo completo ni el teléfono, y **no ofrece ninguna acción sensible** (cambiar
+    dirección, cancelar, reembolsar, ver otros pedidos).
+52. **Un token da acceso a un solo pedido**: un token **manipulado, inventado o de otro pedido** **no**
+    concede acceso (respuesta neutra, sin filtrar si el pedido existe), y **no existe** ninguna pantalla ni
+    endpoint público que permita **listar o buscar pedidos** por número de pedido, por correo o por
+    iteración de identificadores.
+53. Un **token expirado** muestra un mensaje neutro y ofrece **reenviar un enlace nuevo al correo del
+    pedido**; el reenvío responde **lo mismo exista o no el pedido/correo** y está **limitado por
+    frecuencia** (intentos repetidos se bloquean/atenúan), de modo que no funcione como oráculo para saber
+    si un correo compró en la plataforma.
+54. **Reclamo post-compra**: si el invitado **crea cuenta con el mismo correo** de su pedido, ese pedido
+    **aparece en su historial** con su estado y seguimiento dentro de la sesión, **sin cambiar** destino,
+    precio ni políticas del pedido. Funciona también con el pedido **ya enviado/entregado**.
+55. Un pedido **solo puede reclamarse una vez**: un pedido ya vinculado a una cuenta **no** puede vincularse
+    a una segunda cuenta, y el intento se rechaza (y queda registrado).
+56. Si el correo del invitado **ya tiene cuenta**, el checkout **no revela** que ese correo está registrado
+    y **permite completar la compra como invitado**; el pedido **no se agrega en silencio** al historial de
+    esa cuenta: requiere el **reclamo explícito** del titular tras iniciar sesión *(sujeto a confirmación
+    del humano — ver preguntas abiertas v1.5)*.
+56b. Un invitado puede abrir una **disputa de condición** o reportar un **error de plataforma** con las
+    **mismas reglas** que un usuario con cuenta (ventana de **7 días desde la entrega**, evidencia **por
+    correo a soporte** citando su **número de pedido**); no se le exige crear cuenta para ser atendido ni
+    compensado.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Legal — custodia/depositario**: la bóveda implica guardar bienes de terceros. Validar con abogado la
@@ -713,6 +916,16 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   **PokemonPriceTracker** y **PokeTrace** para confirmar que está permitido mostrar precios de referencia y
   valuar portafolios comercialmente, bajo qué atribución y **respetando los límites de rate del free tier**
   (100/día y 250/día respectivamente); el diseño ya mitiga esto priciando solo la bóveda + cache diario.
+- **Privacidad / datos personales — compras de invitado** *(v1.5)*: el guest checkout guarda **correo y
+  dirección de una persona sin cuenta**, y el **enlace de seguimiento es un acceso sin contraseña**. Validar
+  (a) el **aviso de privacidad** que se muestra al invitado antes de pagar, (b) **cuánto tiempo** se retienen
+  los datos de un pedido de invitado que nunca se reclama y (c) cómo atiende la plataforma una **solicitud de
+  borrado** de esos datos sin romper la contabilidad de la orden (M7) ni la ventana de disputa.
+- **Fraude / contracargos sin cuenta** *(v1.5)*: comprar sin registro baja la fricción también para el
+  fraude con tarjeta (no hay historial de usuario ni correo verificado). El **contracargo** ya está cubierto
+  operativamente (revierte inventario y estado de orden), pero conviene definir con el humano si quiere
+  algún **límite comercial** para invitados (p. ej. monto máximo por pedido de invitado) — hoy **no se
+  impone ninguno** (ver preguntas abiertas v1.5).
 - **Fiscal/legal — valuación en MXN a mercado**: confirmar que mostrar valor de portafolio a clientes no
   crea expectativa contractual de recompra a ese valor (más allá del remedio de recompra ya definido).
 
@@ -804,6 +1017,20 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    se abandona el uso de cartas mock.
 29. **Origen del inventario por item** → `owner_contribution` (aportación 70%) vs `client_purchase` (comprada
    a cliente en buylist); capturado al alta, afecta costo/P&L (M7).
+
+**Decisiones v1.5 — guest checkout (2026-08-18, tomadas por el humano):**
+30. **Comprar sin cuenta, con envío directo únicamente** → el invitado puede completar la compra dando
+   correo y dirección, pero **solo con envío a domicilio**. **Guardar en bóveda REQUIERE cuenta**: es una
+   decisión deliberada de producto (la bóveda es el **gancho de registro**). En el checkout, elegir bóveda
+   como invitado **no es un error**: dispara un **upsell in-situ** para crear cuenta sin perder el carrito.
+   Ver §J.
+31. **Correo obligatorio + seguimiento por enlace tokenizado** → se exige y valida un correo; el
+   seguimiento del pedido se hace con un **enlace con token firmado y expirable** enviado por correo, que da
+   acceso a **un solo pedido**, con **datos mínimos** y **sin acciones sensibles**. No hay consulta pública
+   de pedidos por número ni por correo. Ver §J y criterios 49–53.
+32. **Reclamo post-compra** → al completar la compra se ofrece **crear cuenta con el mismo correo**; al
+   hacerlo, el pedido de invitado **pasa al historial** de esa cuenta (una sola vez, sin alterar el pedido).
+   Ver §J y criterios 54–56.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
