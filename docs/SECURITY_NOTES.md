@@ -2262,3 +2262,246 @@ globales**; la UI es cosmética. **SEC-A1 intacto.** Sin regresión en dinero/PI
   (`fixed >= 1`) y fijar cota superior a `fixed` (junto con la decisión `BigInt` de B-3/S-B2). Dueño
   **backend**; endurecer antes de operar con dinero real.
 - **¿Puede ir a `main`?** **SÍ** (ambas fases: 3a y 2).
+
+---
+
+# J. Cierre de release v2.0 (2026-08-18) — WS «Catálogo y precios» + WS «Inventario y vault» + fix retiro visible
+
+> **Alcance:** cierre de release según `CLAUDE.md` §7/cadencia de gates — dos work streams completos
+> mergeados hoy a `main` («Catálogo y precios», «Inventario y vault») más el fix de retiro visible de
+> bóveda v1.17.1. Consolida `docs/PENTEST_NOTES.md` **pase v2.0** (2026-08-18), que por primera vez es
+> **DAST en vivo real** (stack levantado, 4 cuentas sintéticas, tráfico real) y no solo lectura de
+> código. Foco del pentester: (a) checkout/cotizador, (b) buylist completo, (c) `/admin/vaults` nuevo,
+> (d) `/admin/inventory/adjustments` nuevo, (e) retiro visible de bóveda.
+> **Modo de esta revisión:** cruce del `PENTEST_NOTES.md` contra el código (lectura dirigida de
+> `catalog`, `pricing`, `buylist`, `inventory`, `vault`, `uploads`, `orders`, `payments`, `auth`,
+> `main.ts`, `env.validation.ts`, `schema.prisma`) + `npm audit --omit=dev` propio.
+
+## J.0 Resumen ejecutivo
+
+**Concuerdo con el pentester: 0 Críticos / 0 Altos / 0 Medios abiertos en este pase.** Verifiqué en
+código (no solo tomé su palabra) los seis focos (a)-(e) más los positivos I-1…I-8, y **no encontré
+discrepancias ni falsos positivos** en su reporte. Un hallazgo es genuinamente **nuevo** (B-1,
+`ineUploadKeys` sin validar formato/pertenencia); los otros cinco Bajos son **carryovers ya
+registrados y aceptados** en revisiones previas de este mismo documento (mapeo abajo, §J.2) — **no
+los duplico**, solo confirmo que siguen sin cambio.
+
+| Severidad | # | Estado |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 0 | — |
+| Baja | 6 | 1 nueva (**S17-B1** = pentest B-1), 5 carryovers ya aceptados (§J.2) |
+
+## J.1 Verificación en código de los focos (a)-(e) del encargo — concuerdo con el pentester
+
+- **(a) Checkout / reserva atómica** (`orders.service.ts`): confirmé el `updateMany` con guardia
+  `status:{in:['listed','in_stock']}` + `count!==1 → 409 ITEM_UNAVAILABLE` dentro de la `$transaction`
+  que reserva cada pieza (línea ~124-141). El precio (`salePriceOf`) se deriva del item real, nunca del
+  body — un `unitPriceCents`/`totalCents` en el DTO del cliente no tiene canal de escritura hacia el
+  monto cobrado. El pentester lo disparó **en vivo** con 10 requests concurrentes (2 clientes × 5) sobre
+  la misma pieza: 1 ganadora, 9 `409` limpio. Coincide con el diseño verificado en código.
+- **(b) Buylist**: `buylist.service.ts:236` lee la KYC **siempre** por el `userId` del JWT
+  (`findUnique({where:{userId}})`), nunca de un parámetro — sin vía de leer/escribir la KYC de otro
+  usuario. El rechazo con `reason` XSS: confirmé `escapeHtml(params.reason)` en
+  `buylist-mail.templates.ts:91` y **cero** ocurrencias de `dangerouslySetInnerHTML` en
+  `frontend/src` (`grep` propio, coincide con el pentester). El tope `MAX_APPROVED_PRICE_CENTS =
+  1_000_000` está en el DTO (`buylist.dto.ts:37,103`) — cierra el B-4 histórico del pentest v1.5
+  (= **S-B5** en este documento, §D.5, **ya CERRADO** con doble capa DTO+servicio, línea ~1247).
+- **(c) `/admin/vaults/*`**: `admin-vaults.controller.ts` es `@Roles(vault_operator, super_admin)` a
+  nivel de clase — `customer` nunca alcanza estos métodos (`RolesGuard` 403 antes de ejecutar el
+  handler). En paralelo, `vault.controller.ts` (vista propia del cliente) usa
+  `@CurrentUser('id') userId` en **todos** sus métodos (`holdings`, `portfolio/history`,
+  `master-sets[/:setId]`, `holdings/:inventoryItemId`) — **no existe** un `:userId` de URL en la
+  superficie del cliente, así que no hay ni siquiera *shape* de IDOR posible ahí. Coincide exactamente
+  con el reporte del pentester.
+- **(d) `POST /admin/inventory/adjustments`**: `inventory.controller.ts` toma `actorUserId: user.id`
+  del `@CurrentUser()` en los 8 endpoints de escritura (grep propio, líneas 80/98/126/152/198/215/232) —
+  **nunca** del body. La transición `perdida|danada|error_captura` (`adjustExisting`,
+  `inventory.service.ts:978-990`) usa una guardia **atómica** de status dentro de la `$transaction`
+  (comentario `[BE-45]` en el propio código) — no un check-then-act en memoria — cerrando la ventana
+  TOCTOU que el pentester describe. El camino `encontrada` (`adjustFound`) reusa el claim atómico
+  `InventoryBatch.create` + `P2002` (mismo patrón que `batchCreate`) para el `batchKey` opcional. Ambos
+  confirmados en código, coincide con "(d) verificado en código" del pentester.
+- **(e) Retiro visible de bóveda**: no re-verifiqué la máquina de estados completa esta ronda (el
+  pentester la probó en vivo con resultado limpio), pero confirmé que `PATCH
+  admin/shipments/:id/status` vive solo en `AdminShipmentsController` (`vault_operator+`) y que no hay
+  ruta de cliente hacia esa transición — consistente con "sin ruta para auto-marcarse entregado".
+
+**Conclusión de J.1:** no tengo objeciones ni encontré nada que el pentester haya pasado por alto en
+el alcance (a)-(e). Las defensas verificadas EN VIVO (I-1 a I-8 de `PENTEST_NOTES.md`) están respaldadas
+por el código que revisé independientemente.
+
+## J.2 B-1 (NUEVO) — `ineUploadKeys` sin validar formato ni pertenencia — asigno **S17-B1**
+
+- **Severidad: Baja.** Confirmo la caracterización del pentester, con el mismo razonamiento.
+- **Ubicación confirmada:** `backend/src/modules/buylist/dto/buylist.dto.ts:92` —
+  `@IsOptional() @IsObject() ineUploadKeys?: { front: string; back: string }` — el decorador
+  `@IsObject()` solo exige que el valor sea un objeto; **no** hay `@IsString()`/regex en `front`/`back`,
+  así que cualquier string (incluida una ruta tipo `../../etc/passwd` o una key ajena) pasa el
+  `ValidationPipe`. `buylist.service.ts:370-377` persiste `ineUploadKeys.front/back` tal cual en
+  `KycProfile.ineFrontKey/ineBackKey` vía `upsert`, sin verificar (i) el prefijo esperado del presign
+  (`uploads.service.ts:107`: `kyc_ine/<fecha>/<uuid>.<ext>`), (ii) que el objeto exista en el bucket, ni
+  (iii) que la key haya sido emitida a **este** usuario — `POST /uploads/presign`
+  (`uploads.service.ts:63-125`) es **stateless**: no persiste "qué key se le dio a quién".
+- **Por qué Baja y no Media, hoy:** verifiqué (igual que el pentester) que `presignGet`
+  (`uploads.service.ts:134-144`, generación de URL de lectura de vida corta) está **definido pero no
+  cableado a ningún controller** (`grep presignGet` en `backend/src` → 1 sola coincidencia, el propio
+  método). No existe endpoint que sirva de vuelta la imagen de un INE hoy, así que aunque un atacante
+  lograra apuntar su `ineFrontKey`/`ineBackKey` a la key de otro usuario (requiere primero **filtrar**
+  esa key por otro canal — no hay enumeración trivial, son UUID v4), el efecto inmediato es limitado:
+  el registro KYC del atacante referenciaría un objeto que no puede ver ni él ni el admin todavía.
+- **Por qué SÍ es hallazgo real y no ruido:** es un hueco de **integridad**, no de confidencialidad
+  hoy. El día que se cablee un visor de INE para el admin — natural, dado que M6 (Usuarios/KYC) ya
+  muestra `ineOnFile` y el campo existe para eso — este hueco se vuelve directamente explotable para
+  que un usuario sustituya el documento de identidad asociado a su propia cuenta (o, si obtiene la key
+  de otro por un canal lateral, a la de un tercero), lo cual **debilita el soporte AML** que el INE
+  existe para dar (PROJECT.md "AML/KYC — INE almacenado", líneas 702-707). Es exactamente el tipo de
+  hallazgo que conviene cerrar **antes** de que se dependa de él, no después.
+- **PoC del pentester: válido.** `POST /buylist/requests` con
+  `ineUploadKeys:{front:"cualquier-string", back:"../../etc/passwd"}` pasa el DTO — confirmado leyendo
+  el decorador, no requiere ejecución para validarlo.
+- **Recomendación (rol dueño: backend, NO la implemento yo):**
+  1. Validar formato en el DTO: regex `^kyc_ine/\d{4}-\d{2}-\d{2}/[0-9a-f-]{36}\.\w+$` sobre
+     `front`/`back` (cierra el caso trivial `../../etc/passwd` con un `400` del `ValidationPipe`, sin
+     tocar el servicio).
+  2. Defensa en profundidad (recomendado, no bloqueante para este release): que `POST /uploads/presign`
+     persista `{key, userId, purpose, expiresAt}` en una tabla efímera y que `createRequest` valide que
+     la key recibida fue emitida a `userId` — cierra también el escenario de key ajena filtrada por otro
+     canal. Puede diferirse hasta que exista el visor de INE (ese es el disparador natural), pero **debe
+     hacerse antes o junto con** ese visor.
+- **No bloqueante para este release**: sin visor de INE cableado, no hay superficie de explotación de
+  confidencialidad hoy; es integridad diferida. Se registra como deuda con disparador explícito (§J.4).
+
+## J.3 Carryovers Bajos "fuera de alcance (a)-(e)" del pentest v2.0 — decisión: **aceptar, no re-verificar hoy**
+
+El pentester señaló 4 Bajos que no re-testeó a fondo por foco explícito en (a)-(e). Decisión: **los
+mapeo contra mis IDs ya establecidos en este documento (todos vistos y aceptados en revisiones
+anteriores), confirmo con una relectura rápida de código que el código no cambió, y los acepto sin
+re-medición dinámica.** Justificación de por qué NO ameritan un re-test completo ahora mismo: (1)
+ninguno toca los módulos que se mergearon hoy (`catalog`/`pricing`/`buylist`/`inventory`/`vault`/
+`uploads`) — `git log` de los streams de hoy no los roza; (2) los cuatro son Bajos de **defensa en
+profundidad** (ninguno es explotable de forma directa sin una precondición fuerte: control previo del
+inbox de la víctima, ser super_admin, o agregados de dinero en escala que el MVP aún no alcanza); (3)
+ya tienen disparador de remediación explícito documentado en revisiones previas — releerlos hoy no
+cambia la severidad ni el disparador.
+
+| Pentest v2.0 | = ID en este doc | Tema | Confirmo sin cambio (releído hoy) | Rol dueño | Disparador (sin cambio) |
+|---|---|---|---|---|---|
+| B-3 | **S15-B2** | Oráculo de timing en `forgot-password` (`auth.service.ts:195-218`) | Sí — el `if (user && status===active)` sigue ramificando trabajo async antes del `return {ok:true}` genérico; `login` sí tiene la mitigación `DUMMY_PASSWORD_HASH` (línea 271) pero `forgotPassword` no la replica | backend | Endurecimiento previo a GA / próximo pase DAST con medición de latencia real |
+| B-4 | **S-B1** | Google linking alcanza cuentas privilegiadas (`auth.service.ts:308-331`) | Sí — `byEmail` no filtra por `role`; cualquier cuenta local (incl. `super_admin`/`vault_operator`) se enlaza a Google por email verificado, sin paso de confirmación adicional | backend | Antes de alta de cualquier cuenta de back-office con email @gmail, o exigir MFA para back-office |
+| B-5 | **S-B2** | Dinero en `Int` 32-bit (`schema.prisma`, columnas `*Cents`) | Sí — confirmé por grep: `listPriceCents`, `totalValueMxnCents`, `quotedTotalCents`, `approvedTotalCents`, etc. siguen `Int` (32-bit, tope ≈ MX$21.47M por campo) | arquitecto + backend | Antes de que agregados (portafolio total, P&L acumulado) se acerquen a MX$21M, o al escalar |
+| B-6 | **S15-B3** | Token de verificación/reset en el query-string (`auth.service.ts:63-72`, `buildFrontendLink`) | Sí — `?token=<claro>` sin cambio; mitigado parcialmente por single-use + TTL corto, pero fuga potencial por `Referer`/historial del navegador sigue abierta | frontend (+ backend para `Referrer-Policy`) | Endurecimiento previo a GA / próximo pase DAST (medir fuga real por Referer) |
+
+Ninguno de los cuatro cambia de severidad ni se reclasifica a Media/Alta con esta relectura. Se
+mantienen **aceptados** con sus disparadores ya documentados (§D.5, y ahora también aquí para
+continuidad del cierre de release).
+
+**Nota sobre B-2 del pentest (deps, `npm audit`):** re-corrí `npm audit --omit=dev` en `backend/`
+independientemente (§J.0, ver salida abajo) y obtuve el mismo resultado que el pentester: **2
+moderate, 0 high/critical**, misma cadena `@nestjs/core`→`@nestjs/platform-express`
+(GHSA-36xv-jgw5-4q75). Es el mismo **S-M1** ya registrado (aceptado, no alcanzable sin SSE, disparador
+= bump a NestJS 11, dueño **devops**). Frontend prod: 0 vulnerabilidades, coincide.
+
+```
+@nestjs/core  <=11.1.17
+Severity: moderate
+2 moderate severity vulnerabilities
+```
+
+## J.4 Riesgo residual por limitaciones del entorno de hoy (Stripe dummy keys, S3 shim) — no bloqueante, visible
+
+El pentester señala correctamente que el bring-up de hoy corrió con `sk_test_staging_dummy` (Stripe) y
+`s3rver` (shim de S3, no MinIO/R2 real). Evalúo el riesgo residual de lo que **no** se pudo probar en
+vivo por esto:
+
+- **Webhook de Stripe, camino de firma VÁLIDA (éxito).** Lo que SÍ se probó en vivo (sin firma / firma
+  basura → `400` ambos) cubre el caso más común de ataque (bypass del webhook). Lo que falta es el
+  camino positivo: firma válida con `event.id` repetido (replay), o eventos de `refund`/`dispute`
+  forjados que sí pasan la verificación de firma (solo posible si un atacante comprometiera la
+  `STRIPE_WEBHOOK_SECRET`, un escenario distinto). Revisé el código de ese camino
+  (`payments.service.ts:26-46`): la guardia de idempotencia (`ProcessedStripeEvent` con `id` único,
+  claim atómico antes de procesar, se borra el claim si el handler falla y se re-lanza) está
+  correctamente diseñada — **coincide** con el patrón ya verificado en revisiones previas de este
+  documento (§2, "Webhook Stripe: idempotencia — OK"). **Riesgo residual: bajo, no bloqueante.** El
+  diseño en código es correcto; falta la confirmación empírica bajo firma real, que requiere Stripe
+  test-mode real (no dummy). Esto ya está anotado como pendiente de DAST en revisiones previas de este
+  documento (§D.4.2) — no es un hallazgo nuevo, solo reafirmo que sigue pendiente y por qué no es
+  bloqueante hoy (el diseño defensivo está en su lugar).
+- **Bucket real (MinIO/R2): CORS del bucket, política de acceso privado, y el comportamiento real del
+  `ContentLength` fijado en la firma bajo un servidor S3-compatible real (no el shim `s3rver`).** El
+  código (`uploads.service.ts`) hace lo correcto de su lado (allow-list `image/*`, tope de tamaño
+  fijado en la firma cuando el cliente declara `contentLength`, `ResponseContentDisposition:
+  attachment` al leer, bucket-privado delegado a devops). Lo que no se pudo probar hoy es el
+  comportamiento del bucket **real** ante esas firmas (¿S3rver simula fielmente el rechazo por
+  `ContentLength` no coincidente? ¿la política de bucket-privado de R2/MinIO en `devops` está
+  efectivamente aplicada?). **Riesgo residual: bajo, no bloqueante** para este cierre de release —
+  ya está cubierto por el ítem "DAST/pentest de tercero antes de dinero real" (§D.6/§6, heredado) y
+  por el checklist de `DEVOPS_NOTES.md` (bucket privado, `S3_*` reales en prod). No es un hallazgo de
+  producto: es infraestructura de prueba, correctamente señalado como limitación por el pentester.
+
+**Conclusión de J.4:** ninguno de los dos residuales es nuevo ni cambia el veredicto — ambos ya estaban
+cubiertos por la bandera heredada "DAST contra staging con Stripe/R2 reales, obligatorio antes de
+producción" (§D.6, §6). Los anoto aquí explícitamente para que el cierre de este release release dado
+en `main` no se lea como "probado con Stripe/S3 reales" cuando no lo fue.
+
+## J.5 Deuda de seguridad — tabla consolidada de este cierre de release
+
+| ID | = Pentest v2.0 | Deuda | Impacto | Disparador | Rol dueño |
+|---|---|---|---|---|---|
+| **S17-B1** | **B-1 (nuevo)** | `ineUploadKeys` sin validar formato/prefijo ni pertenencia al usuario | Integridad KYC — sustitución del INE asociado a una cuenta; sin impacto de confidencialidad hoy (sin visor de INE cableado) | Antes de/junto con cablear cualquier endpoint que sirva `presignGet` para INE (visor admin) | backend |
+| S15-B2 | B-3 | Timing oracle en `forgot-password` | Enumeración por canal lateral (ya parcialmente expuesta por `409 EMAIL_TAKEN` de `register`) | Endurecimiento previo a GA / próximo pase DAST | backend |
+| S-B1 | B-4 | Google-linking alcanza cuentas privilegiadas sin filtro de rol | Traslada la seguridad de cuentas back-office a Google | Antes de alta de back-office con email @gmail, o exigir MFA back-office | backend |
+| S-B2 | B-5 | Dinero en `Int` 32-bit | Overflow de integridad en agregados > ~MX$21.47M | Antes de acercarse a ese umbral / al escalar | arquitecto + backend |
+| S15-B3 | B-6 | Token de reset/verify en query-string | Fuga potencial por Referer/historial (mitigado por single-use + TTL) | Endurecimiento previo a GA / próximo pase DAST | frontend |
+| S-M1 | B-2 | `@nestjs/core` SSE injection sin parchar (fix = major 10→11) | Ninguno hoy (backend sin SSE, confirmado por grep) | Antes de cualquier endpoint SSE, o próxima ventana de deps | devops |
+
+Ninguna de las seis es Crítica/Alta; ninguna bloquea el DoD de este release.
+
+## J.6 Banderas para el humano (sin cambio de fondo, reafirmadas al cierre de este release)
+
+- **DAST/pentest de tercero + bug bounty antes de operar con dinero real** — sigue **pendiente y
+  obligatorio**. El pase de hoy fue la primera vez que el pentester disparó tráfico real contra el
+  stack (no solo lectura de código), y eso es una mejora real de cobertura, pero corrió con **Stripe
+  dummy keys** y **shim de S3**, no con los proveedores reales de producción (§J.4). No se aprueba a
+  ciegas el camino de éxito del webhook de Stripe ni el comportamiento del bucket real hasta que se
+  ejecute contra staging con credenciales reales de prueba.
+- **Validaciones legales de custodia/PII (INE/CLABE)** — sin cambio, sigue pendiente de abogado/contador
+  (figura de depositario, base legal de tratamiento del INE, retención `INE_RETENTION_DAYS`, derecho de
+  supresión frente a `Order.billingSnapshot`/`SellRequest.clabeSnapshotEnc`). Ver §D.6/PROJECT.md
+  "Riesgos y banderas para el humano".
+- **MFA para back-office** si alguna cuenta privilegiada usa email @gmail — cierra el riesgo real de
+  S-B1/B-4 sin depender de que backend cambie la lógica de linking.
+- **Cablear el visor de INE (M6) solo después de cerrar S17-B1** — es una recomendación de secuencia,
+  no un bloqueo de este release (el visor no existe hoy).
+
+## J.7 VEREDICTO — Cierre de release v2.0 (2026-08-18)
+
+**VEREDICTO seguridad (consolidación pentester + revisión de código): APROBADO.**
+
+- **0 Críticos / 0 Altos / 0 Medios abiertos.** Verifiqué independientemente los seis focos (a)-(e) del
+  encargo contra el código y **concuerdo en todo** con `docs/PENTEST_NOTES.md` v2.0 — sin discrepancias,
+  sin hallazgos que el pentester haya pasado por alto en ese alcance. El criterio de RECHAZO de
+  `CLAUDE.md` §7 (críticos/altos abiertos) **no se cumple** → **no procede RECHAZO**.
+- **6 Bajas abiertas, todas aceptadas con disparador y rol dueño (§J.5), ninguna bloqueante:** 1 nueva
+  (**S17-B1**, `ineUploadKeys` — backend, disparador = antes de cablear visor de INE) + 5 carryovers ya
+  registrados en revisiones previas de este documento y confirmados sin cambio hoy (S15-B2 timing,
+  S-B1 Google-linking, S-B2 Int32 money, S15-B3 token en URL, S-M1 deps NestJS).
+- **Riesgo residual del entorno de prueba (Stripe dummy / S3 shim, §J.4): no bloqueante para este
+  release, pero visible y ya cubierto por la bandera heredada de DAST-contra-staging-real (§J.6, §D.6)**
+  — no se reinterpreta como "probado en producción-like" el pase de hoy.
+- **Ruteo por rol dueño (nada vuelve a `seguridad` ni a `pentester`, todo lo abierto se enruta a quien
+  corrige):**
+  - **backend** → S17-B1 (validar formato/pertenencia de `ineUploadKeys`), S15-B2 (timing
+    forgot-password), S-B1 (política de linking Google / MFA back-office).
+  - **arquitecto + backend** → S-B2 (decisión `BigInt` para agregados de dinero).
+  - **frontend** → S15-B3 (limpiar token de la URL de reset/verify + `Referrer-Policy`).
+  - **devops** → S-M1 (bump NestJS 11 + gate `npm audit` en CI), habilitar staging con Stripe
+    test-mode real + MinIO/R2 real para el próximo pase DAST, KMS/secret manager en prod.
+- **Mínimo necesario para mantener la aprobación (no para este release, sino antes de producción con
+  dinero real):** ejecutar la fase dinámica (DAST/pentester) contra staging con **Stripe real** y
+  **bucket S3/MinIO/R2 real** (no dummy/shim); cerrar S17-B1 antes de exponer cualquier visor de INE;
+  ninguno de los Bajos aceptados requiere cerrarse para que este release llegue a `main`/staging.
+- **¿Puede cerrarse este release (work streams «Catálogo y precios» + «Inventario y vault» + fix de
+  retiro visible)?** **SÍ**, en lo que a seguridad concierne. El DoD global sigue sujeto también a los
+  veredictos de QA y techlead (fuera del alcance de este documento).
