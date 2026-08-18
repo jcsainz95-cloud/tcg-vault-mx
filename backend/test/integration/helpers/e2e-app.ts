@@ -68,14 +68,58 @@ export class TestStripeService extends StripeService {
     return { brand: 'visa', last4: '4242' };
   }
 
-  /** B3 — el barrido solo libera si el PI queda CANCELADO; offline y determinista. */
+  /**
+   * B3 — el barrido solo libera si el PI queda CANCELADO. El doble por defecto cancela SIEMPRE, así
+   * que por sí solo **nunca ejercita la rama peligrosa** (lo señaló QA). `cancelOutcome` permite
+   * guionizar el comportamiento del Stripe REAL sin parchear la instancia a mano:
+   *  - `'canceled'`            → cancela de verdad (camino feliz).
+   *  - `'throws-succeeded'`   → LANZA como Stripe con un PI ya pagado, y el estado observable es
+   *                              `succeeded` ⇒ la reserva NO se debe soltar.
+   *  - `'throws-canceled'`    → LANZA pero el PI ya estaba cancelado ⇒ sí se puede soltar.
+   *  - `'throws-unknown'`     → LANZA y el estado no se puede consultar ⇒ ante la duda, no soltar.
+   *  - `'requires_capture'`   → responde un estado que NO es `canceled` ⇒ tampoco se suelta.
+   */
+  public cancelOutcome:
+    | 'canceled'
+    | 'throws-succeeded'
+    | 'throws-canceled'
+    | 'throws-unknown'
+    | 'requires_capture' = 'canceled';
+
   async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
-    this.canceledIntents.push(paymentIntentId);
-    return { status: 'canceled' };
+    switch (this.cancelOutcome) {
+      case 'throws-succeeded':
+        throw new Error(
+          'You cannot cancel this PaymentIntent because it has a status of succeeded.',
+        );
+      case 'throws-canceled':
+        throw new Error(
+          'You cannot cancel this PaymentIntent because it has a status of canceled.',
+        );
+      case 'throws-unknown':
+        throw new Error('network down');
+      case 'requires_capture':
+        return { status: 'requires_capture' };
+      case 'canceled':
+      default:
+        this.canceledIntents.push(paymentIntentId);
+        return { status: 'canceled' };
+    }
   }
 
   async getPaymentIntentStatus(paymentIntentId: string): Promise<string | null> {
-    return this.canceledIntents.includes(paymentIntentId) ? 'canceled' : 'requires_payment_method';
+    switch (this.cancelOutcome) {
+      case 'throws-succeeded':
+        return 'succeeded';
+      case 'throws-canceled':
+        return 'canceled';
+      case 'throws-unknown':
+        return null;
+      default:
+        return this.canceledIntents.includes(paymentIntentId)
+          ? 'canceled'
+          : 'requires_payment_method';
+    }
   }
 }
 

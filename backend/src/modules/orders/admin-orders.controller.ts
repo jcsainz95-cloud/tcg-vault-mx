@@ -35,6 +35,10 @@ export class AdminOrdersController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('guest') guest?: string,
+    // v1.21.2 (§M3, aditivo): cola de "contracargos por resolver". Sin este filtro el operador no
+    // tiene forma de DESCUBRIR que hay piezas congeladas por un contracargo, y el desenlace humano
+    // (`chargeback-inventory`) no se llamaría nunca — la pieza se quedaría congelada para siempre.
+    @Query('needsManual') needsManual?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
@@ -46,6 +50,10 @@ export class AdminOrdersController {
     // v1.21-guest-checkout (§M3): filtro opcional por naturaleza del pedido.
     if (guest === 'true') where.guestEmail = { not: null };
     if (guest === 'false') where.guestEmail = null;
+    // Solo los dos valores explícitos filtran: omitirlo (o cualquier otro valor) deja el listado
+    // EXACTAMENTE como estaba (misma forma de respuesta y mismo comportamiento por defecto).
+    if (needsManual === 'true') where.chargebackNeedsManual = true;
+    if (needsManual === 'false') where.chargebackNeedsManual = false;
     if (from || to) {
       where.createdAt = {
         ...(from ? { gte: new Date(from) } : {}),

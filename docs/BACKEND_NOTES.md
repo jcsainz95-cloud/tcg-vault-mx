@@ -3669,17 +3669,64 @@ que `reexpedir` sobre una orden aún en `chargeback` devuelva **422**, mientras 
 **409 CONFLICT** para ese mismo caso. Implementé y testeé **409** (el contrato manda sobre el código
 y §M3 es la especificación del endpoint). Reportado al orquestador.
 
+### 47.8 T1-b + atomicidad del desenlace (ronda de rechazo del techlead)
+
+**T1-b — la rama «envío cancelado» reabría el double-sell.** Mi `else` guardaba
+`status: { in: ['reserved','picking'] }`, ampliando la fila 1 de la tabla normativa (que autoriza
+**solo `reserved → listed`**), y mi docblock documentaba la ampliación como si fuera la norma.
+
+- **Camino automático que lo disparaba:** la idempotencia del webhook es por `event.id`, así que una
+  **segunda** `charge.dispute.created` (reapertura / segunda disputa) **no** se deduplica; encontraba
+  el envío ya `cancelado`, caía en esa rama y re-listaba la pieza **congelada**, además de bajar
+  `chargebackNeedsManual` a `false` — borrando la única señal de que faltaba una decisión humana.
+- **Arreglado:** guardia `status: 'reserved'` exacta; una pieza en `picking` con envío cancelado
+  **se queda congelada** y va al desenlace humano. Docblock corregido para **citar** la tabla, no
+  reinterpretarla, y test reescrito para asertar el congelamiento (antes fijaba el comportamiento
+  ampliado).
+- **`chargebackNeedsManual` es MONÓTONO en el webhook:** solo sube a `true`, nunca baja (se escribe
+  `undefined` cuando no hay nada que elevar). Bajarlo es competencia **exclusiva** de
+  `resolveChargebackInventory`. Hay un test que recorre las cuatro ramas y verifica que el webhook
+  **nunca** escribe `false`.
+
+**Atomicidad del desenlace (mismo archivo, pagado en la misma pasada).**
+`resolveChargebackInventory` leía `chargebackNeedsManual` **fuera** de la transacción y lo escribía
+**dentro**: dos llamadas concurrentes (doble submit; el endpoint no lleva `Idempotency-Key`) pasaban
+ambas, y `reexpedir` creaba **dos `ShipmentRequest`** para la misma orden — rompiendo «a lo más un
+envío activo por orden» (§4-G.10) y duplicando la pieza en `pickingList()`. Ahora **todo** ocurre en
+una transacción y la decisión se **reclama** con `updateMany(where: { chargebackNeedsManual: true })`
++ `count === 1` (el patrón de la casa, el mismo de `reserveItems`). El perdedor recibe `409`, que
+**es** la regla de idempotencia de §M3. Y como la transacción revierte al lanzar, un desenlace
+**rechazado** (p. ej. `reexpedir` sin disputa ganada) **no consume** la decisión: el flag vuelve a
+`true`. Cubierto con un test de dos `reexpedir` concurrentes.
+
+**`GET /admin/orders?needsManual=true` (§M3, aditivo).** Filtro opcional sobre el listado que ya
+existía: sin el parámetro, misma forma de respuesta y mismo comportamiento. Es la **cola de
+contracargos por resolver**; sin ella nadie sabría **cuándo** llamar a `chargeback-inventory` y la
+pieza congelada se quedaría congelada para siempre. **La UI es del WS «Admin y auditoría»**; aquí
+solo está el filtro porque `admin-orders.controller.ts` vive en este módulo.
+
+**Regresión adoptada de QA.** El `TestStripeService` del harness devolvía **siempre** `canceled`, así
+que por sí solo **nunca ejercitaba la rama peligrosa** de B3. Ahora tiene un `cancelOutcome`
+guionizable (`canceled | throws-succeeded | throws-canceled | throws-unknown | requires_capture`) y
+los casos **A1, A3 y C2** de QA viven en la suite E2E del repo, más las variantes «estado distinto de
+canceled» y «PI ya cancelado ⇒ sí libera». También se añadió el caso T1-b contra Postgres real (una
+segunda disputa no descongela la pieza ni baja el flag).
+
+> **Nota de mocks:** dos dobles de `inventoryItem.updateMany` ignoraban la guardia **escalar**
+> (`status: 'reserved'`) y solo honraban la forma `{ in: [...] }`, con lo que dejaban pasar
+> exactamente el bug de T1-b. Corregidos para honrar ambas, como hace Prisma contra la fila real.
+
 ### 47.6 Cómo probarlo
 
 ```bash
 cd backend
-npm test                    # 99 suites / 901 tests (incluye las 13 suites nuevas del guest checkout)
+npm test                    # 100 suites / 912 tests (incluye las 14 suites nuevas del guest checkout)
 npm run lint && npm run typecheck
 # E2E (requiere Postgres real):
 DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
 ```
 
-- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (52 casos) — camino feliz de
+- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (57 casos) — camino feliz de
   §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
   negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
   `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida

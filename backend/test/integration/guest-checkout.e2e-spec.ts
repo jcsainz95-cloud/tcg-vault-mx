@@ -610,6 +610,32 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     });
   });
 
+  /** Pedido de invitado ya envejecido más allá de la ventana de reserva (T9). */
+  async function makeStaleGuestOrder(sfx: string) {
+    const template = await h.prisma.inventoryItem.findUnique({
+      where: { folio: E2E_FOLIOS.listedCharizard },
+    });
+    const item = await createGuestItem(h, template!, `E2E-GST-${RUN}-${sfx}`);
+    const session = await h.api('POST', '/checkout/guest/session', {
+      json: {
+        inventoryItemIds: [item.id],
+        email: `stale.${sfx}.${RUN}@example.com`,
+        shippingAddress: ADDRESS,
+        acceptedTerms: true,
+      },
+    });
+    expect(session.status).toBe(201);
+    await h.prisma.order.update({
+      where: { id: session.body.orderId },
+      data: { createdAt: new Date(Date.now() - 120 * 60 * 1000) },
+    });
+    return {
+      orderId: session.body.orderId as string,
+      itemId: item.id,
+      piId: session.body.stripe.paymentIntentId as string,
+    };
+  }
+
   describe('B3 — carrera barrido↔settle (regresión del bloqueante de QA)', () => {
     it('ESCENARIO A: con el PI vivo, el barrido NO libera la pieza (no hay pedido pagado y comprable)', async () => {
       const template = await h.prisma.inventoryItem.findUnique({
@@ -630,9 +656,9 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         data: { createdAt: new Date(Date.now() - 120 * 60 * 1000) },
       });
 
-      // El PI NO se puede cancelar (ya se estaba pagando): el barrido debe abstenerse.
-      jest.spyOn(h.stripe, 'cancelPaymentIntent').mockRejectedValue(new Error('already succeeded'));
-      jest.spyOn(h.stripe, 'getPaymentIntentStatus').mockResolvedValue('succeeded');
+      // A1 (QA) — el PI ya se estaba pagando: el Stripe real LANZA al cancelarlo. El doble por
+      // defecto siempre cancela, así que hay que guionizarlo o esta rama nunca se ejercita.
+      h.stripe.cancelOutcome = 'throws-succeeded';
       expect(await h.app.get(GuestOrderSweepJobService).run()).toEqual({ swept: 0 });
 
       // La reserva sigue en pie: la pieza NO volvió a estar comprable.
@@ -642,7 +668,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         json: { inventoryItemIds: [item.id] },
       });
       expect(quote.status).toBe(409);
-      jest.restoreAllMocks();
+      h.stripe.cancelOutcome = 'canceled';
 
       // Y el webhook tardío liquida con la pieza donde debe estar: `picking`, no `listed`.
       const wh = await h.sendStripeWebhook({
@@ -659,6 +685,60 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(finalItem!.status).toBe('picking');
       expect(['listed', 'in_stock']).not.toContain(finalItem!.status);
       expect(shipment!.status).toBe('picking');
+    });
+
+    /** A3 (QA) — ambigüedad total: ni se pudo cancelar ni se pudo consultar el estado. */
+    it('A3: si el estado del PI no se puede determinar, NO suelta la reserva (ante la duda, no)', async () => {
+      const { itemId, orderId: staleId } = await makeStaleGuestOrder('A3');
+      h.stripe.cancelOutcome = 'throws-unknown';
+      expect(await h.app.get(GuestOrderSweepJobService).run()).toEqual({ swept: 0 });
+      const item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId } });
+      const order = await h.prisma.order.findUnique({ where: { id: staleId } });
+      expect(item!.status).toBe('reserved');
+      expect(order!.status).toBe('pending'); // sigue barrible en la próxima pasada
+      h.stripe.cancelOutcome = 'canceled';
+    });
+
+    it('el barrido tampoco suelta si el cancel responde un estado distinto de `canceled`', async () => {
+      const { itemId } = await makeStaleGuestOrder('A2');
+      h.stripe.cancelOutcome = 'requires_capture';
+      expect(await h.app.get(GuestOrderSweepJobService).run()).toEqual({ swept: 0 });
+      expect((await h.prisma.inventoryItem.findUnique({ where: { id: itemId } }))!.status).toBe(
+        'reserved',
+      );
+      h.stripe.cancelOutcome = 'canceled';
+    });
+
+    it('si el PI YA estaba cancelado, sí libera (no deja reservas atrapadas para siempre)', async () => {
+      const { itemId, orderId: staleId } = await makeStaleGuestOrder('A5');
+      h.stripe.cancelOutcome = 'throws-canceled';
+      expect((await h.app.get(GuestOrderSweepJobService).run()).swept).toBeGreaterThanOrEqual(1);
+      const item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId } });
+      const order = await h.prisma.order.findUnique({ where: { id: staleId } });
+      expect(item!.status).toBe('listed');
+      expect(order!.status).toBe('failed');
+      h.stripe.cancelOutcome = 'canceled';
+    });
+
+    /** C2 (QA) — la pieza ya está en manos de otro flujo: no se le quita a nadie. */
+    it('C2: pieza comprometida con OTRO flujo al liquidar ⇒ no se le roba, se audita sin recuperar', async () => {
+      const { itemId, orderId: staleId, piId } = await makeStaleGuestOrder('C2');
+      await h.prisma.inventoryItem.update({
+        where: { id: itemId },
+        data: { status: 'in_custody', ownerType: 'platform' },
+      });
+      const wh = await h.sendStripeWebhook({
+        type: 'payment_intent.succeeded',
+        data: { object: { id: piId, object: 'payment_intent' } },
+      });
+      expect(wh.status).toBe(200);
+      const item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId } });
+      expect(item!.status).toBe('in_custody'); // intacta
+      const audit = await h.prisma.auditLog.findFirst({
+        where: { action: 'order.settle_inventory_anomaly', entityId: staleId },
+      });
+      expect(audit).toBeTruthy();
+      expect(JSON.stringify(audit!.after)).toContain('"needsHumanReview":true');
     });
 
     it('ESCENARIO B: el barrido no toca un pedido ya liquidado (sigue `settled`, pieza en `picking`)', async () => {
@@ -705,6 +785,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     let cbOrderId: string;
     let cbItemId: string;
     let cbShipmentId: string;
+    let cbPiId: string;
 
     beforeAll(async () => {
       const template = await h.prisma.inventoryItem.findUnique({
@@ -721,6 +802,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         },
       });
       cbOrderId = session.body.orderId;
+      cbPiId = session.body.stripe.paymentIntentId;
       await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
         data: { object: { id: session.body.stripe.paymentIntentId, object: 'payment_intent' } },
@@ -771,6 +853,23 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const picking = await h.api('GET', '/admin/shipments/picking-list', { token: adminToken });
       expect(picking.status).toBe(200);
       expect((picking.body.data as any[]).some((r) => r.inventoryItemId === cbItemId)).toBe(false);
+    });
+
+    it('T1-b: una SEGUNDA disputa (otro event.id) NO descongela la pieza ni baja el flag', async () => {
+      const before = await h.prisma.inventoryItem.findUnique({ where: { id: cbItemId } });
+      expect(before!.status).toBe('picking');
+      // Otro `event.id` ⇒ la idempotencia por evento NO lo filtra; el envío ya está `cancelado`.
+      const wh = await h.sendStripeWebhook({
+        id: 'evt_e2e_cb_2',
+        type: 'charge.dispute.created',
+        data: { object: { id: 'dp_e2e_cb_2', object: 'dispute', payment_intent: cbPiId } },
+      });
+      expect(wh.status).toBe(200);
+      const after = await h.prisma.inventoryItem.findUnique({ where: { id: cbItemId } });
+      const order = await h.prisma.order.findUnique({ where: { id: cbOrderId } });
+      expect(after!.status).toBe('picking'); // sigue congelada
+      expect(['listed', 'in_stock']).not.toContain(after!.status);
+      expect(order!.chargebackNeedsManual).toBe(true); // la señal NO se borra
     });
 
     it('`reexpedir` con la orden aún en `chargeback` ⇒ 409 (no se re-expide lo que no se ganó)', async () => {

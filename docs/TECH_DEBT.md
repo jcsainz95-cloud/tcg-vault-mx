@@ -1663,3 +1663,34 @@
 - **Disparador:** si soporte reporta invitados sin reenvíos disponibles. Acción: contar solo emisiones de
   **reenvío** —distinguibles hoy por su TTL de 90 días frente a los 120 min del checkout, sin columna nueva—
   o pedir al arquitecto que fije el criterio exacto de conteo en §4-G.4.
+
+### BE-60 · Una fila corrupta de M4 tumba el listado entero (Media)
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts` — `kindForFulfillment()` lanza
+  (`409 CONFLICT`) y se invoca desde `withAdminKind()` dentro del `.map()` de `adminList()`.
+- **Estado actual:** D4 exige que un `fulfillmentMode` no soportado (o un `vault` con `orderId`,
+  combinación imposible) **rompa visiblemente** en vez de comportarse como envío directo. Correcto
+  en el **detalle** (`adminGet`) y en la máquina de estados. Pero en el **listado** el mismo throw
+  hace que **una sola fila corrupta** devuelva `409` para **toda la cola de M4**: el operador se
+  queda sin listado, sin poder ni siquiera identificar la fila culpable.
+- **Impacto:** medio. Hoy no puede ocurrir (`fulfillmentMode` es NOT NULL con default y el
+  invariante lo sostiene la aplicación), pero el modo de fallo elegido es "apagar la cola" en vez
+  de "señalar la fila", justo en la pantalla operativa de la que depende el trabajo diario.
+- **Disparador:** al añadir un tercer `FulfillmentMode` o ante corrupción de datos. Acción:
+  degradar **por fila** en el listado (`kind: 'unknown'` + `logger.error` con el `shipmentId`),
+  conservando el throw en el detalle y en la transición terminal, donde sí debe frenar.
+
+### BE-61 · El envío del settle se crea incluyendo piezas con anomalía no recuperada (Baja)
+- **Dónde:** `backend/src/modules/payments/payments.service.ts` (`settleDirectShipOrder`: el
+  `shipmentRequest.create` usa **todos** los `order.items`, incluidas las piezas cuya anomalía B3
+  no se pudo recuperar).
+- **Estado actual:** si al liquidar una pieza está comprometida con otro flujo (`shipped`,
+  `in_custody`…), el settle **no se la quita a nadie** (correcto) pero el `ShipmentRequest` que crea
+  **sí la incluye** como `ShipmentItem`. Queda un envío que promete una carta que no está
+  disponible; el operador lo descubre al hacer picking. La anomalía **ya se registra** (`logger.error`
+  + `AuditLog order.settle_inventory_anomaly` con `needsHumanReview: true`).
+- **Impacto:** bajo. El caso solo aparece tras una anomalía ya auditada y con intervención humana
+  pendiente; el pedido pagado necesita **algún** envío, así que crearlo completo es lo menos malo
+  (lo contrario —omitir la línea— escondería la deuda al operador).
+- **Disparador:** al construir la cola de "anomalías de settle" en back-office. Acción: excluir del
+  `ShipmentRequest` las piezas no recuperadas y reflejarlas en esa cola, o marcar la línea del
+  envío como pendiente de confirmación. **Decisión de producto/UX ⇒ pasa por el arquitecto.**
