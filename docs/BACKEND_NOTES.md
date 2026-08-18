@@ -3716,17 +3716,52 @@ segunda disputa no descongela la pieza ni baja el flag).
 > (`status: 'reserved'`) y solo honraban la forma `{ in: [...] }`, con lo que dejaban pasar
 > exactamente el bug de T1-b. Corregidos para honrar ambas, como hace Prisma contra la fila real.
 
+### 47.9 Regresión adoptada de QA + cierre del stream (última ronda: solo tests y docs)
+
+**Suite nueva: `backend/test/integration/guest-chargeback.e2e-spec.ts` (11 casos).** Vive aparte de
+`guest-checkout.e2e-spec.ts` porque cuenta otra historia: qué pasa cuando el dinero se da la vuelta.
+Adopta como regresión permanente los hallazgos que QA cubrió y la suite del equipo no:
+
+| Caso | Qué ancla |
+|---|---|
+| Disputa **PERDIDA** | El otro camino al «congelada para siempre»: `lost` **no** limpia `chargebackNeedsManual`, el pedido sigue en `?needsManual=true` y el desenlace humano funciona igual. |
+| **Segunda y tercera** disputa | La idempotencia del webhook es por `event.id`: no filtra una reapertura. La pieza sigue `picking` y el flag en `true`. |
+| **Monotonía** del flag | Un webhook que computa `false` no puede bajar un `true` ya puesto: solo el desenlace humano lo baja. |
+| **Fila 1 legítima** | Ceñir la guardia a `reserved` no rompió el caso que la norma **sí** autoriza (pieza `reserved` sin envío ⇒ `listed` + `chargeback_return` + cierre automático). |
+| Caso **i** | Congelar **no** deja ningún `InventoryMovement` (no pasó nada físico todavía). |
+| Caso **v** por las **tres puertas** | `/checkout/guest/quote`, `/checkout/quote` y `/checkout/session` ⇒ `409 ITEM_UNAVAILABLE`, y la pieza fuera de la `picking-list`. El guardarraíl es el `status`, así que protege a las dos rutas de fulfillment por igual. |
+| **Atomicidad** | Dos `reexpedir` concurrentes ⇒ `[200, 409]` y **un** envío activo; un desenlace rechazado **revierte el claim** y la decisión sigue pendiente. |
+| `no_recuperada` | Cierra sin mover inventario ni marcar merma. |
+| Filtro `?needsManual` | Partición exacta del listado; un valor no reconocido lo deja intacto. |
+| Caso **viii** (D4) | `vault` con `orderId` ⇒ la transición terminal responde `409` y el helper lanza `Unsupported fulfillmentMode`, en vez de asumir envío directo. |
+
+**BE-64 (QA) resuelta en esta ronda — flake latente, no regresión.** El caso «el envío aparece en la
+cola de M4» buscaba su fila en un listado **paginado de 20** sin filtrar, así que empezaba a fallar
+solo cuando la BD compartida acumulaba envíos (QA: 102/104 con 41 envíos, 103/104 tras recrear).
+Ahora la consulta se acota (`status=picking&pageSize=100`). **Verificado corriendo la integración dos
+veces seguidas sobre la misma BD acumulada** (40 envíos): 114/115 en ambas pasadas.
+
+> **Lección del stream, para quien herede esto:** los tres bloqueantes (T1, T1-b, B3) sobrevivieron
+> a los gates por la misma razón —**el instrumento estaba ciego**—, no por falta de tests:
+> dos dobles de `inventoryItem.updateMany` ignoraban la guardia **escalar** (`status: 'reserved'`) y
+> solo honraban `{ in: [...] }`, y `TestStripeService.cancelPaymentIntent` devolvía **siempre**
+> `canceled`. Con esos dos dobles, un test podía pasar en verde afirmando justo lo contrario de lo
+> que hacía el código. Antes de escribir el test de un bug de inventario o de dinero, **comprueba
+> que el doble sabe fallar**.
+
 ### 47.6 Cómo probarlo
 
 ```bash
 cd backend
 npm test                    # 100 suites / 912 tests (incluye las 14 suites nuevas del guest checkout)
+npm run test:integration    # 8 suites / 115 casos (requiere Postgres; `infra-smoke` exige S3/MinIO)
 npm run lint && npm run typecheck
 # E2E (requiere Postgres real):
 DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
 ```
 
-- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (57 casos) — camino feliz de
+- **Suites E2E nuevas:** `test/integration/guest-checkout.e2e-spec.ts` (57 casos) y
+  `test/integration/guest-chargeback.e2e-spec.ts` (11 casos, §47.9) — camino feliz de
   §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
   negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
   `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida

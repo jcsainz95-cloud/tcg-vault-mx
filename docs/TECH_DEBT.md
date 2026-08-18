@@ -1742,3 +1742,52 @@
 - **Disparador:** al construir la cola de "anomalías de settle" en back-office. Acción: excluir del
   `ShipmentRequest` las piezas no recuperadas y reflejarlas en esa cola, o marcar la línea del
   envío como pendiente de confirmación. **Decisión de producto/UX ⇒ pasa por el arquitecto.**
+
+### BE-62 · `sellableStatusFor` usa el cliente NO transaccional dentro de una transacción abierta (Media)
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` — `resolveChargebackInventory` la invoca
+  **dentro** del `$transaction` (rama `recuperada`) y el helper lee por **`this.prisma`**, no por el
+  `tx` de esa transacción.
+- **Estado actual:** inofensivo hoy y verificado por el techlead: `PricingService.getReference` es
+  lectura pura de BD (sin red) y un `SELECT` por otra conexión no se bloquea bajo READ COMMITTED.
+  Pero **contradice la regla que el propio proyecto se escribió** en `shipments.service.ts` —*«la
+  creación del PaymentIntent queda FUERA de la tx a propósito: no bloquear una conexión de DB en una
+  llamada de red»*— y el helper está **a una llamada de proveedor** de reabrir BE-7: basta que
+  mañana la resolución de precio consulte un proveedor externo (el `PricingProvider` es
+  intercambiable por diseño) para tener una llamada de red con una transacción abierta y filas
+  bloqueadas.
+- **Impacto:** medio en riesgo futuro; ninguno observable hoy.
+- **Disparador:** al tocar `sellableStatusFor`, al cambiar de `PricingProvider` o al añadir otra
+  resolución de precio dentro de una transacción. Acción: pasar el `tx` al helper (firma
+  `sellableStatusFor(tx, item)`) y dejar **explícito en su docblock** que no puede hacer I/O externa.
+
+### BE-63 · `catch {}` desnudo en `sellableStatusFor` degrada a `in_stock` en silencio (Baja)
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` (`sellableStatusFor`, el `catch` sin
+  filtro que devuelve `'in_stock'`).
+- **Estado actual:** el `catch` está pensado para `PRICE_PENDING` (una pieza sin precio no se
+  publica), pero atrapa **cualquier** excepción: ahora que corre **dentro de la transacción**, un
+  fallo real de Prisma (conexión, timeout, constraint) se traga y la pieza se degrada a `in_stock`
+  como si el problema fuera de precio. **Es la misma especie que el `continue` mudo del settle que
+  B3 nos enseñó a no dejar pasar**: una rama silenciosa en el camino del inventario que convierte un
+  fallo de infraestructura en una decisión de negocio plausible, y por eso nadie la investiga.
+- **Impacto:** bajo. La dirección del error es conservadora (no publica de más) y el desenlace queda
+  auditado igualmente; lo que se pierde es la señal de que algo falló.
+- **Disparador:** al tocar el helper o al investigar piezas que "aparecen" en `in_stock` sin motivo.
+  Acción: capturar **solo** `BusinessException` con `code === 'PRICE_PENDING'` y dejar propagar el
+  resto (la transacción revertirá, que es lo correcto ante un fallo real).
+
+### BE-64 · La suite de integración dependía del volumen acumulado de la BD compartida — RESUELTA en esta ronda (Baja)
+- **Dónde:** `backend/test/integration/guest-checkout.e2e-spec.ts` (el caso «el envío de invitado
+  aparece en la cola de M4»).
+- **Qué pasaba (hallazgo de QA):** el test buscaba **su** envío en
+  `GET /admin/shipments?kind=guest_direct_ship` **sin paginar**, y ese endpoint sirve `pageSize=20`
+  por defecto. QA lo demostró: **102/104** con la BD acumulada (41 envíos) y **103/104** tras
+  recrearla. CI usa BD efímera, pero el propio spec declara que la suite comparte BD entre
+  ejecuciones, así que en staging **habría empezado a fallar solo** — un flake que se disfraza de
+  regresión y quema tiempo de QA.
+- **Resolución:** la consulta se acota (`status=picking&pageSize=100`), de modo que el aserto
+  depende del **comportamiento** y no del volumen histórico. Verificado corriendo la suite de
+  integración **dos veces seguidas sobre la misma BD acumulada** (40 envíos): 114/115 en ambas
+  pasadas, con el único fallo en `infra-smoke` (MinIO/S3 ausente en el entorno, ajeno).
+- **Se anota igualmente** porque el patrón —*asertar sobre un listado paginado compartido*— puede
+  repetirse en cualquier spec futuro de back-office; la regla es: filtra o busca por id, nunca
+  confíes en que tu fila entra en la primera página.

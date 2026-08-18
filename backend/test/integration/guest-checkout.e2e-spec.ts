@@ -417,7 +417,15 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
 
   describe('§J.1 paso 9 — el operador captura la guía y el pedido avanza', () => {
     it('el envío de invitado aparece en la cola de M4 marcado como `guest_direct_ship`', async () => {
-      const res = await h.api('GET', '/admin/shipments?kind=guest_direct_ship', { token: adminToken });
+      // BE-64 (QA): la suite comparte BD entre ejecuciones y este endpoint pagina de 20 en 20, así
+      // que buscar "mi" envío sin paginar empieza a fallar solo cuando se acumulan envíos. Se
+      // acota por `status` y se pide una página grande: el aserto depende del comportamiento, no
+      // del volumen histórico de la base.
+      const res = await h.api(
+        'GET',
+        '/admin/shipments?kind=guest_direct_ship&status=picking&pageSize=100',
+        { token: adminToken },
+      );
       expect(res.status).toBe(200);
       const row = (res.body.data as any[]).find((s) => s.id === shipmentId);
       expect(row).toMatchObject({
