@@ -2309,3 +2309,27 @@ Consecuencias:
   retirar `set-price-sync` del schedule —o repuntarlo a leer las `PriceReference` ya ingestadas— una vez
   que el flip esté verificado. Devops no lo toca (regla de propiedad de archivos). Mientras tanto no
   bloquea nada.
+
+### 23.8 Estado de las variables en Railway (verificado 2026-08-18) y la trampa de `PRICE_PROVIDER` como env
+
+Captura de **Railway → `backend` → Variables** (31 service variables) aportada por el PO:
+
+- ✅ **`POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`** — el candado money-safe ya está **abierto**. El
+  paso 1 de §23.4 está HECHO (queda confirmar que el deploy posterior al cambio terminó `Success`: la env
+  se lee en runtime).
+- ✅ `POKEMONPRICETRACKER_API_KEY` presente. 🚨 **Se expuso en claro en la captura → ROTAR** en el portal
+  del proveedor y actualizar el valor en Railway. El valor NO se transcribe aquí ni en ningún archivo del
+  repo (§15.2). Rotarla no afecta al runbook: es la misma variable, otro valor.
+- ⚠️ **`PRICE_PROVIDER` existe como variable de Railway — y NO flipea el proveedor.** Es un punto de
+  confusión real, así que queda escrito: esa env es **solo un HINT de arranque** para `env.validation.ts:48`
+  (si vale `pokemonpricetracker`, el backend exige `POKEMONPRICETRACKER_API_KEY` al boot y falla rápido si
+  falta). **La autoridad en runtime es el ConfigSetting `price_provider`**, que el ingest lee en cada
+  corrida (`price-ingest.service.ts:56`, `settings.getString(SettingKey.PRICE_PROVIDER)`). Ningún código
+  lee `process.env.PRICE_PROVIDER` para elegir proveedor (grep exhaustivo: 0 hits fuera de la validación).
+  → **Poner `PRICE_PROVIDER=pokemonpricetracker` en Railway deja el sistema con el candado abierto pero el
+  proveedor todavía en `pokemontcg_io`** (es decir, ingiriendo de la fuente que hoy devuelve 5xx, §23.7).
+  El flip de verdad es el paso 2 de §23.4: admin **M2** o `PUT /admin/settings {"priceProvider":…}`.
+
+> Ambigüedad de nombres a tener presente: `PRICE_PROVIDER` (env, hint de boot) ≠ dial `price_provider`
+> (ConfigSetting, autoridad) ≠ `pricing_provider_raw/graded/sealed` (M10, ruta por-carta, §23.7). Tres
+> cosas distintas con nombres casi idénticos; solo la segunda decide de dónde salen los precios del ingest.
