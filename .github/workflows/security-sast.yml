@@ -95,6 +95,13 @@ jobs:
   # ---------------------------------------------------------------------------
   gitleaks:
     runs-on: ubuntu-latest
+    # Permisos ACOTADOS a este job (sobreescriben los del workflow, no lo amplían):
+    # gitleaks-action necesita leer el repo y los metadatos del PR que escanea.
+    # NO se le da `security-events: write` (no sube SARIF a code scanning: lo deja
+    # como artifact) ni `pull-requests: write` (ver GITLEAKS_ENABLE_COMMENTS abajo).
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,8 +109,21 @@ jobs:
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
+          # OBLIGATORIO: sin esto la acción aborta con
+          #   "GITHUB_TOKEN is now required to scan pull requests"
+          # (fue el fallo del release PR #3). Va por ENV, no por `with:` — así lo
+          # documenta el README de gitleaks-action v2.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: ${{ github.workspace }}/security/gitleaks.toml
+          # Comentarios en el PR DESACTIVADOS a propósito: publicarlos requiere
+          # `pull-requests: write` y no queremos ese scope en un job de secretos.
+          # El gate no se relaja: si hay leaks el job FALLA y el detalle está en el
+          # log y en el artifact SARIF.
+          GITLEAKS_ENABLE_COMMENTS: "false"
           # GITLEAKS_LICENSE solo hace falta para org accounts; en repos personales no.
+          # DEUDA (no bloqueante): gitleaks-action@v2 corre sobre Node 20, que GitHub
+          # retira de los runners el 2026-09-16. Antes de esa fecha hay que subir a
+          # @v3 (mismos inputs/env; requiere runner >= 2.327.1). Ver DEVOPS_NOTES §22.
 
   # ---------------------------------------------------------------------------
   # npm audit — backend + frontend. ACTIVO (se salta la app que no exista).
@@ -158,16 +178,54 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
+        # ROBUSTEZ (2026-08-18): timeout por comando + reintentos.
+        # Sin esto, un mirror de apt que se atasca deja el job COLGADO hasta el timeout de
+        # 6 h de Actions en lugar de fallar. Ocurrió 4 veces en una sola noche (trivy-fs ×2,
+        # trivy-image, y el `playwright install` de e2e): 25 min parados en `apt-get`, sin
+        # log ni señal. Es especialmente dañino aquí porque Railway espera al CHECK SUITE
+        # COMPLETO: un job colgado bloquea el deploy indefinidamente y parece "aún corriendo".
+        # `timeout` acota cada comando, 3 intentos absorben el fallo transitorio, y
+        # `timeout-minutes` es el tope duro del step.
+        # El gate NO se relaja: si tras 3 intentos no hay Trivy, el step FALLA (exit 1).
+        # Nunca se continúa sin escanear.
+        # CORRECCIÓN (2026-08-18, misma noche): la primera versión de este bloque reintentaba
+        # sin soltar el lock. `timeout` mata apt A MITAD de la descarga y el proceso huérfano
+        # CONSERVA /var/lib/dpkg/lock-frontend, así que los intentos 2 y 3 morían al instante
+        # con "Could not get lock ... It is held by process N" — reintentos inútiles contra un
+        # lock que el propio timeout dejaba tomado. `liberar_apt` lo suelta antes de reintentar.
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
-            | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-          trivy --version
+          set -uo pipefail
+          liberar_apt() {
+            sudo pkill -x apt-get 2>/dev/null || true
+            sudo pkill -x dpkg 2>/dev/null || true
+            for _ in $(seq 1 30); do
+              sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
+              sleep 2
+            done
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+          }
+          instalar_trivy() {
+            sudo timeout 240 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 240 apt-get install -y wget gnupg || return 1
+            wget -qO - --timeout=30 --tries=3 https://aquasecurity.github.io/trivy-repo/deb/public.key \
+              | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null || return 1
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+              | sudo tee /etc/apt/sources.list.d/trivy.list || return 1
+            sudo timeout 240 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 300 apt-get install -y trivy || return 1
+          }
+          for intento in 1 2 3; do
+            if instalar_trivy; then
+              trivy --version
+              exit 0
+            fi
+            echo "::warning title=Instalacion de Trivy fallida::Intento $intento agotado o fallido; liberando lock de apt y reintentando."
+            liberar_apt
+            sleep 10
+          done
+          echo "::error title=No se pudo instalar Trivy::3 intentos agotados. El gate NO se salta: el job falla."
+          exit 1
       - name: Trivy fs (HIGH/CRITICAL => fallo)
         uses: aquasecurity/trivy-action@v0.33.1
         with:
@@ -178,9 +236,10 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
-          # Excepciones JUSTIFICADAS (solo node-tar interno de npm en la imagen
-          # base; ver security/.trivyignore). El gate SIGUE fallando en cualquier
-          # otro HIGH/CRITICAL real de deps de la app.
+          # security/.trivyignore está VACÍO de excepciones desde 2026-08-17 (los
+          # ignores de node-tar se retiraron: el npm que los traía ya no existe en
+          # la etapa runtime de las imágenes). Se sigue pasando el archivo para que
+          # cualquier excepción futura quede en un único sitio auditable.
           trivyignores: security/.trivyignore
 
   # ---------------------------------------------------------------------------
@@ -197,16 +256,54 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Instalar Trivy (repo apt oficial de Aqua — evita el rate-limit del instalador)
+        # ROBUSTEZ (2026-08-18): timeout por comando + reintentos.
+        # Sin esto, un mirror de apt que se atasca deja el job COLGADO hasta el timeout de
+        # 6 h de Actions en lugar de fallar. Ocurrió 4 veces en una sola noche (trivy-fs ×2,
+        # trivy-image, y el `playwright install` de e2e): 25 min parados en `apt-get`, sin
+        # log ni señal. Es especialmente dañino aquí porque Railway espera al CHECK SUITE
+        # COMPLETO: un job colgado bloquea el deploy indefinidamente y parece "aún corriendo".
+        # `timeout` acota cada comando, 3 intentos absorben el fallo transitorio, y
+        # `timeout-minutes` es el tope duro del step.
+        # El gate NO se relaja: si tras 3 intentos no hay Trivy, el step FALLA (exit 1).
+        # Nunca se continúa sin escanear.
+        # CORRECCIÓN (2026-08-18, misma noche): la primera versión de este bloque reintentaba
+        # sin soltar el lock. `timeout` mata apt A MITAD de la descarga y el proceso huérfano
+        # CONSERVA /var/lib/dpkg/lock-frontend, así que los intentos 2 y 3 morían al instante
+        # con "Could not get lock ... It is held by process N" — reintentos inútiles contra un
+        # lock que el propio timeout dejaba tomado. `liberar_apt` lo suelta antes de reintentar.
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-            | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
-            | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-          trivy --version
+          set -uo pipefail
+          liberar_apt() {
+            sudo pkill -x apt-get 2>/dev/null || true
+            sudo pkill -x dpkg 2>/dev/null || true
+            for _ in $(seq 1 30); do
+              sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
+              sleep 2
+            done
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+          }
+          instalar_trivy() {
+            sudo timeout 240 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 240 apt-get install -y wget gnupg || return 1
+            wget -qO - --timeout=30 --tries=3 https://aquasecurity.github.io/trivy-repo/deb/public.key \
+              | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null || return 1
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+              | sudo tee /etc/apt/sources.list.d/trivy.list || return 1
+            sudo timeout 240 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 300 apt-get install -y trivy || return 1
+          }
+          for intento in 1 2 3; do
+            if instalar_trivy; then
+              trivy --version
+              exit 0
+            fi
+            echo "::warning title=Instalacion de Trivy fallida::Intento $intento agotado o fallido; liberando lock de apt y reintentando."
+            liberar_apt
+            sleep 10
+          done
+          echo "::error title=No se pudo instalar Trivy::3 intentos agotados. El gate NO se salta: el job falla."
+          exit 1
       - name: Build + scan imagen backend
         if: hashFiles('backend/package.json') != ''
         run: |
@@ -222,8 +319,11 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
-          # node-tar de npm en la base node:20 es build-time only y no es dep de
-          # la app (ver security/.trivyignore). Todo lo demás sigue bloqueando.
+          # Sin excepciones activas: los CVE de node-pkg que reportaba este scan
+          # venían del npm empaquetado en `node:20-alpine`
+          # (/usr/local/lib/node_modules/npm/node_modules/...), NO de deps de la
+          # app. Dockerfile.backend elimina npm/npx de la etapa `runtime`, así que
+          # esa superficie desapareció en vez de ignorarse. Todo bloquea.
           trivyignores: security/.trivyignore
       - name: Build + scan imagen frontend
         if: hashFiles('frontend/package.json') != ''
@@ -244,8 +344,9 @@ jobs:
           exit-code: "1"
           ignore-unfixed: false
           format: table
-          # Mismo criterio que el backend: solo el node-tar interno de npm en la
-          # base (ver security/.trivyignore). El resto sigue bloqueando.
+          # Mismo criterio que el backend: sin excepciones activas. La etapa
+          # `runtime` de Dockerfile.frontend también borra npm/npx de la imagen
+          # base (el runtime standalone de Next arranca con `node server.js`).
           trivyignores: security/.trivyignore
 
   # ---------------------------------------------------------------------------

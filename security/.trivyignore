@@ -1,36 +1,30 @@
 # =============================================================================
 # .trivyignore — Excepciones JUSTIFICADAS del gate Trivy  ·  Propiedad: devops
 # =============================================================================
-# Este archivo suprime SOLO CVEs concretos, con justificación auditable. NO baja
-# el rigor del gate: cualquier HIGH/CRITICAL de una dependencia REAL de la app
-# (backend/ o frontend/) o de la capa OS de la imagen SIGUE bloqueando el
-# pipeline. Aquí solo van CVEs cuyo componente NO es alcanzable por la app.
+# ESTADO (2026-08-17): SIN EXCEPCIONES ACTIVAS. El archivo se conserva y se sigue
+# pasando a los jobs `trivy-fs` / `trivy-image` (security-sast.yml) para que, si
+# algún día hace falta una excepción, viva en un único sitio auditable.
 #
-# Regla: si algún día `tar` (node-tar) entra como dependencia REAL de la app
-# (`npm ls tar` deja de estar vacío), estos ignores DEBEN retirarse y tratar el
-# CVE en serio. Hoy no lo es (verificado por backend: `npm ls tar` vacío).
+# Regla: aquí solo puede entrar un CVE cuyo componente NO sea alcanzable por la
+# app, con justificación escrita y fecha. Cualquier HIGH/CRITICAL de una
+# dependencia REAL de la app (backend/ o frontend/) o de la capa OS de la imagen
+# SIGUE bloqueando el pipeline. Preferencia siempre: ELIMINAR el componente
+# vulnerable antes que ignorar el CVE.
 #
 # -----------------------------------------------------------------------------
-# node-tar (>= 7.5.18) — CVE-2026-26960 / -29786 / -31802 / -59874
+# HISTÓRICO — node-tar (CVE-2026-26960 / -29786 / -31802 / -59874): RETIRADOS
 # -----------------------------------------------------------------------------
-# POR QUÉ SE IGNORAN (solo estos 4, y solo de node-tar):
-#   (a) NO es dependencia de la app. Backend confirmó `npm ls tar` VACÍO en
-#       backend/ (y `tmp` ya se parcheó aparte). El frontend tampoco lo declara.
-#   (b) El `node-tar` que reporta Trivy es el que viene EMPAQUETADO DENTRO de
-#       `npm` en la imagen base `node:20(-alpine)`:
-#       /usr/local/lib/node_modules/npm/node_modules/tar
-#       No lo controlamos desde package.json; llega con la imagen oficial de Node.
-#   (c) Es BUILD-TIME ONLY: ese tar solo lo usa `npm` para instalar paquetes
-#       (`npm ci`) durante el build. En runtime la app corre `node dist/main.js`
-#       y NUNCA invoca el tar interno de npm. La superficie de estos CVE (parseo
-#       de archivos .tar maliciosos) no es alcanzable con datos de la app en prod.
-#   (d) Sin fix aplicable por nosotros: no podemos bumpear un paquete que no
-#       declaramos; solo se limpiaría cuando la imagen base de Node reempaquete un
-#       npm con node-tar >= 7.5.18. Se revisa al subir de imagen base.
+# Se ignoraban porque el `node-tar` reportado NO era dependencia de la app
+# (`npm ls tar` vacío en backend/ y frontend/, sin entradas en los lockfiles):
+# venía EMPAQUETADO DENTRO de npm en la imagen base `node:20-alpine`
+# (/usr/local/lib/node_modules/npm/node_modules/tar), junto con el resto de deps
+# internas de npm (brace-expansion, cross-spawn, minimatch, picomatch, sigstore...).
+# Por eso tampoco lo arreglaba el `overrides.tar` de backend/package.json.
 #
-# Ámbito: se listan por ID; como estos IDs son EXCLUSIVOS de node-tar, ignorarlos
-# no oculta ningún otro paquete. No se añade ningún CVE de deps reales de la app.
-CVE-2026-26960
-CVE-2026-29786
-CVE-2026-31802
-CVE-2026-59874
+# Desde 2026-08-17 el arreglo es estructural: la etapa `runtime` de
+# Dockerfile.backend y Dockerfile.frontend BORRA npm/npx de la imagen final
+# (el backend arranca con `node node_modules/prisma/build/index.js migrate deploy
+# && node dist/main.js`, el frontend con `node server.js`). Sin npm en la imagen
+# no hay node-tar que reportar: los ignores dejaron de tener sentido y se
+# retiraron. Si un futuro cambio reintrodujera npm en el runtime, el gate volverá
+# a fallar — y eso es lo correcto: se corrige la imagen, no este archivo.

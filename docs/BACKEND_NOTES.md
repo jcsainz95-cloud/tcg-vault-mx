@@ -3327,3 +3327,108 @@ no cambian de forma; solo ganan campos). No toca dinero saliente.
   `test/inventory.batch.spec.ts` (bulk-publish con guardia atómica + test de carrera count=0).
   `npm run typecheck` 0 errores · `npm run lint` 0 warnings · `npm run build` OK · `npx jest` →
   **76 suites / 572 tests verdes** (+9 sobre §45.6).
+
+---
+
+## 46. Desbloqueo del gate `backend-e2e` + 2 CVEs HIGH de dependencias (2026-08-18)
+
+> Contexto: el release quedó bloqueado con el check suite en rojo (PR #4, runs 32080601928 /
+> 32080601897). Devops cerró gitleaks y el Chromium del E2E de frontend; lo que quedaba era
+> **de backend**: 4 tests de integración en 429 y un `afterAll` colgado, más 2 CVEs HIGH que sí
+> son dependencias reales de la app. Nada de esto tocó el contrato.
+
+### 46.1 `NODE_ENV=test` como ÚNICO relajo, centralizado y auditable (`src/config/test-env.ts`)
+
+Nuevo módulo con tres funciones puras (`isTestEnv`, `isThrottlerDisabled`, `isSchedulerDisabled`).
+**Regla dura:** ambas banderas exigen `NODE_ENV === 'test'` como AND obligatorio; **no existe env
+var capaz de apagar el rate-limiting ni el scheduler en staging/producción**. Las envs
+`E2E_ENABLE_THROTTLER` / `E2E_ENABLE_SCHEDULER` solo sirven para volver a ENCENDER la pieza dentro
+de la propia suite. El candado está testeado (`test/test-env.spec.ts`: en `production`, `staging`,
+`development`, `local` y sin `NODE_ENV` las funciones devuelven `false` aunque se pongan las envs).
+
+### 46.2 Throttler: 4 tests en 429 (`auth-authz.e2e-spec.ts`) — **cierra XS-2**
+
+- **Causa:** `POST /auth/login` está limitado a **5/min por IP** (SEC-C1) y el storage del throttler
+  es in-memory: la suite hace ~10 logins desde 127.0.0.1 dentro del mismo minuto y del mismo proceso
+  (`--runInBand`) → 429 `RATE_LIMITED` determinista, sin bug funcional detrás.
+- **Fix:** `src/common/guards/app-throttler.guard.ts` — `AppThrottlerGuard extends ThrottlerGuard`
+  con `shouldSkip()` que devuelve `true` solo si `isThrottlerDisabled()`. Se cablea en `app.module.ts`
+  en lugar del `ThrottlerGuard` pelado. **A nivel de guard a propósito**: los límites sensibles son
+  `@Throttle(...)` **por handler** (login/register 5/min, refresh 20/min, cotizador batch B-C1 12/min),
+  así que relajar la config global del `ThrottlerModule` no habría servido de nada.
+- **Los límites NO cambian** (global 300/min y todos los `@Throttle` siguen idénticos); en
+  staging/producción —donde corre el DAST— el rate-limiting está intacto.
+- **El control de seguridad sigue verificado punta a punta:** nueva
+  `test/integration/auth-throttle.e2e-spec.ts` re-activa el throttler (`E2E_ENABLE_THROTTLER=true`),
+  martillea `/auth/login` y exige **429 `RATE_LIMITED`** dentro del límite del minuto (y restaura la
+  env en `afterAll` para no contagiar a las demás suites del proceso).
+- Cierra **XS-2** de `docs/TECH_DEBT.md` (incluye el throttle B-C1 del cotizador batch, que caía por
+  lo mismo).
+
+### 46.3 Scheduler BullMQ: `afterAll` colgado 30 s + "Jest did not exit"
+
+- **Causa (confirmada leyendo el wiring, ver limitación en 46.5):** cada harness E2E levanta el
+  `AppModule` completo, así que **cada suite** arrancaba el `SchedulerService` contra el Redis real:
+  crons repetibles + worker sobre la cola compartida `tcg-daily` y, desde el fix de la auditoría de
+  precios (§43), un **catch-up de `price-ingest` al arranque** — que en la BD de E2E siempre se
+  dispara, porque las `PriceReference` del seed sintético son `isManualOverride: true` y
+  `hasRecentIngest()` las ignora. El worker se ponía a ingerir precios REALES contra pokemontcg.io y
+  `worker.close()` (sin `force`) **espera a que termine el job en vuelo** → `h.close()` > 30 s y
+  conexiones ioredis vivas al final del run.
+- **Fix 1 (el que desbloquea CI):** el scheduler **no arranca bajo `NODE_ENV=test`** (log de aviso;
+  `E2E_ENABLE_SCHEDULER=true` lo fuerza). Ninguna spec lo ejercita y sí aportaba indeterminismo,
+  tráfico a una API externa y escrituras de fondo en la BD de test.
+- **Fix 2 (bug REAL de producción, no solo de tests):** `onModuleDestroy` era propenso a colgarse y a
+  dejar handles:
+  - ahora **espera (acotado) a `setupDone`** antes de cerrar — el wiring corre en background desde §43,
+    y si el destroy llegaba antes, la cola/worker se creaban **después** del cierre y nadie los cerraba;
+  - un flag `destroying` aborta el wiring en curso (no se crea el worker si ya se está apagando);
+  - `worker.close()`, `queue.close()` y `connection.quit()` tienen **plazo máximo**
+    (`SCHEDULER_SHUTDOWN_TIMEOUT_MS`, default 10 s): vencido, se loggea y se continúa. Un
+    `price-ingest` largo ya no puede colgar el apagado de un deploy (los jobs son idempotentes —
+    upsert + jobId dedup— y BullMQ recupera el abandonado como *stalled*).
+  - Nota técnica: `Worker.close(force)` de BullMQ **cachea la promesa** en la primera llamada, así que
+    "reintentar con force" no funciona; por eso el plazo + seguir, en vez de un segundo `close(true)`.
+- **Tests:** `test/scheduler.spec.ts` (+3): no arranca bajo `NODE_ENV=test`; un `worker.close()` que
+  nunca resuelve **no** cuelga el destroy (y cola/conexión igual se cierran); un destroy durante el
+  wiring **no** crea el worker.
+
+### 46.4 Ruido de Postgres en los logs de CI (revisado: **no es un bug**)
+
+Las dos violaciones de unicidad del log de Postgres son **esperadas** y las provoca la propia suite:
+`User_email_key (customer@e2e.local)` viene del test que exige **409 `EMAIL_TAKEN`** al registrar un
+email duplicado, y `ProcessedStripeEvent_pkey (evt_e2e_succeeded_fixed)` del test de **idempotencia**
+del webhook (reentregar el mismo `event.id`). En ambos casos el código captura la violación y responde
+lo que el contrato manda; no hay nada que arreglar.
+
+### 46.5 CVEs HIGH: `glob` y `picomatch` (bump REAL, sin ignores de trivy)
+
+| Librería | CVE | Antes | Ahora | De dónde venía |
+|---|---|---|---|---|
+| `glob` | CVE-2025-64756 (command injection) | 10.4.5 | **10.5.0** | `@nestjs/cli` (transitiva) |
+| `picomatch` | CVE-2026-33671 (ReDoS extglob) | 4.0.1 | **4.0.5** | `@nestjs/cli` → `@angular-devkit/core` |
+
+- Se usan **overrides acotados por rango** en `backend/package.json`: `"glob@^10": "^10.5.0"` y
+  `"picomatch@^4": "^4.0.4"`. **A propósito no son overrides globales**: el árbol también tiene
+  `glob@7.2.3` (jest/eslint) y `picomatch@2.3.2` (chokidar/micromatch/jest-util), que **no están
+  afectados** (2.3.2 es justamente una de las versiones parchadas) y a los que empujar a 10.x/4.x
+  rompería APIs incompatibles. `npm ls` confirma que **no queda ninguna versión vulnerable** en el árbol.
+- Se retiró `overrides.tar` por **inefectivo**: `npm ls tar` sale vacío (ningún paquete del árbol
+  depende de `tar`; el `tar` del CVE viejo venía dentro del npm empaquetado en la imagen, que devops ya
+  eliminó del runtime). Un override que no aplica a nada solo da falsa sensación de cobertura. Los
+  demás overrides (`multer`, `qs`, `express`, `body-parser`, `uuid`, `file-type`, `tmp`) **sí** aplican
+  y se conservan.
+- La imagen instala con `npm ci --include=dev` (conserva devDependencies a propósito, ver NOTA de
+  `Dockerfile.backend`), así que el bump del lockfile es lo que llega al `app/node_modules` escaneado.
+
+### 46.6 Verificación ejecutada (2026-08-18)
+
+- `npm ci` limpio + `npm run test:integration` **contra Postgres 16 y Redis reales** (levantados
+  local, sin docker): **6 suites / 47 tests verdes**, sin el aviso "Jest did not exit".
+- `npm test` (unitarios): **86 suites / 701 tests verdes**. `npm run typecheck`, `npm run lint` y
+  `npm run build`: OK.
+- `npm ls glob` / `npm ls picomatch` tras `npm ci`: 10.5.0 y 4.0.5 (`overridden`), resto en versiones
+  no afectadas.
+- **NO verificado en este entorno (sin docker ni trivy):** el escaneo `trivy-image` real y el PUT
+  contra MinIO del `infra-smoke` (se salta con aviso si no hay S3; en CI sí corre). La confirmación
+  final de los 2 CVEs cerrados la da el job `trivy-image` de CI.
