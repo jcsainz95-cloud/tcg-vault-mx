@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InventoryItem, Card, CardSet } from '@prisma/client';
+import { InventoryItem, Card, CardSet, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -8,6 +8,19 @@ import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { computeCartBreakdown, BreakdownDTO } from '../../common/money';
+
+/**
+ * Titularidad a escribir al RESERVAR una pieza (T2). Es el único eje en el que difieren las dos
+ * rutas de fulfillment:
+ *  - `null` ⇒ envío directo (invitado): la pieza NO cambia de dueño, sigue siendo de la
+ *    plataforma todo el ciclo (§4-G.0-1: un invitado no tiene bóveda).
+ *  - objeto ⇒ bóveda: la pieza entra a la bóveda del comprador con titularidad `pending`.
+ */
+export type ReservationOwnership = {
+  ownerType: 'customer';
+  ownerUserId: string;
+  ownershipStatus: 'pending';
+} | null;
 
 @Injectable()
 export class OrdersService {
@@ -121,6 +134,117 @@ export class OrdersService {
   }
 
   /**
+   * T2 (techlead) — RESERVA ATÓMICA de piezas únicas, **fuente ÚNICA para las dos rutas de
+   * fulfillment**. Antes vivía duplicada en `OrdersService` (bóveda) y `GuestCheckoutService`
+   * (envío directo), y las copias ya habían DIVERGIDO: la de invitado añadía el guard
+   * `ownerType='platform'` y la de bóveda no. Unificar aquí garantiza que el próximo arreglo se
+   * aplique a ambas — es el punto donde se corrompe inventario, así que no admite dos versiones.
+   *
+   * Guardias (se conserva la versión CORRECTA, la que tenía el guard):
+   *  - `ownerType: 'platform'` — cierra la ventana TOCTOU que dejaba el chequeo pre-transaccional
+   *    de `priceCartLines`: entre aquel `findMany` y esta transacción, otro flujo podía cambiar la
+   *    titularidad de la pieza y el checkout de bóveda la habría reservado igual.
+   *  - `status ∈ {listed, in_stock}` + `count === 1` — dos checkouts concurrentes por la misma
+   *    pieza: solo uno gana la transición a `reserved`; el otro recibe `ITEM_UNAVAILABLE`.
+   *
+   * `ownership` es el ÚNICO eje en el que difieren las dos rutas:
+   *  - `null` (envío directo / invitado): NO se escribe titularidad. La pieza sigue siendo de la
+   *    plataforma durante todo el ciclo — invariante §4-G.0-1 (un invitado no tiene bóveda).
+   *  - `{ownerType:'customer', ownerUserId, ownershipStatus:'pending'}` (bóveda): la pieza pasa a
+   *    la bóveda del comprador con titularidad pendiente hasta el settle.
+   */
+  async reserveItems(
+    tx: Prisma.TransactionClient,
+    items: { id: string; folio: string }[],
+    ownership: ReservationOwnership,
+  ): Promise<void> {
+    for (const item of items) {
+      const reserved = await tx.inventoryItem.updateMany({
+        where: { id: item.id, ownerType: 'platform', status: { in: ['listed', 'in_stock'] } },
+        data: { status: 'reserved', ...(ownership ?? {}) },
+      });
+      if (reserved.count !== 1) {
+        // Otro checkout ya reservó/vendió esta pieza (o cambió de estado/titularidad).
+        throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
+      }
+    }
+  }
+
+  /**
+   * A2 — compensación de la reserva ante fallo del PaymentIntent (fuente ÚNICA, T2). Devuelve cada
+   * pieza a estado vendible y de plataforma, y marca la orden `failed`. La guardia
+   * `status: 'reserved'` evita liberar items que otro flujo ya movió.
+   *
+   * Escribe la titularidad de plataforma SIEMPRE, también en el envío directo: ahí es un no-op
+   * (la pieza nunca dejó de ser de la plataforma) y evita tener dos cuerpos que puedan divergir.
+   */
+  async releaseReservation(orderId: string, itemIds: string[]): Promise<void> {
+    await this.prisma
+      .$transaction(async (tx) => {
+        await tx.inventoryItem.updateMany({
+          where: { id: { in: itemIds }, status: 'reserved' },
+          data: {
+            status: 'listed',
+            ownerType: 'platform',
+            ownerUserId: null,
+            ownershipStatus: null,
+          },
+        });
+        await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * A2 (cierra BE-7) — crea el PaymentIntent de una orden ya reservada, COMPENSA si el proveedor
+   * falla y persiste `stripePaymentIntentId`. Fuente ÚNICA para las dos rutas (T2): el bloque
+   * «crear PI → compensar → persistir» estaba duplicado casi verbatim.
+   *
+   * La idempotency-key se deriva en el SERVIDOR (`pi-order-<id>`); el header del cliente es solo
+   * un override, así que un reintento del mismo checkout no crea dos PaymentIntents.
+   * Si Stripe falla TRAS reservar, se libera la reserva y la orden queda `failed`, en vez de dejar
+   * piezas únicas atrapadas en `reserved` con una orden `pending` sin PaymentIntent.
+   */
+  async attachPaymentIntent(params: {
+    orderId: string;
+    amountCents: number;
+    metadata: Record<string, string>;
+    inventoryItemIds: string[];
+    idempotencyKey?: string;
+  }): Promise<{ id: string; clientSecret: string }> {
+    const idem = params.idempotencyKey ?? `pi-order-${params.orderId}`;
+    let pi: { id: string; clientSecret: string };
+    try {
+      pi = await this.stripe.createPaymentIntent({
+        amountCents: params.amountCents,
+        metadata: params.metadata,
+        idempotencyKey: idem,
+      });
+    } catch (e) {
+      await this.releaseReservation(params.orderId, params.inventoryItemIds);
+      throw this.toRetryError(e);
+    }
+    await this.prisma.order.update({
+      where: { id: params.orderId },
+      data: { stripePaymentIntentId: pi.id },
+    });
+    return pi;
+  }
+
+  /**
+   * A2 — convierte un fallo del proveedor de pago en un error de reintento (503). Los errores de
+   * negocio ya legibles (p. ej. `AMOUNT_TOO_LOW`, `CARD_DECLINED`) se propagan tal cual para que
+   * el cliente no reintente ciegamente. Fuente ÚNICA (T2): estaba duplicado verbatim.
+   */
+  toRetryError(e: unknown): unknown {
+    if (e instanceof BusinessException) return e;
+    return BusinessException.retriable(
+      'PAYMENT_PROVIDER_UNAVAILABLE',
+      'Payment provider unavailable; the reservation was released. Please retry.',
+    );
+  }
+
+  /**
    * Checkout session: reserva items, crea Order pending y PaymentIntent Stripe.
    * ARCHITECTURE §3.3, §5.1. Concurrencia: reserva con status=reserved (pieza única).
    */
@@ -144,27 +268,16 @@ export class OrdersService {
     // no transaccional; un hueco en la secuencia es inocuo, un número duplicado no).
     const orderNumber = await this.nextOrderNumber();
 
-    // Reserva ATÓMICA de cada pieza única + creación de la Order pending (ARCHITECTURE §8).
-    // Se usa updateMany con guardia de estado vendible (listed/in_stock) y se exige
-    // count===1: si dos checkouts concurrentes compiten por el mismo item, solo uno gana
-    // la transición a `reserved`; el otro recibe ITEM_UNAVAILABLE. Transición de estados:
-    //   listed/in_stock → reserved (aquí) → in_custody (settle) | listed (pago falla/contracargo).
+    // Reserva ATÓMICA de cada pieza única (helper compartido, T2) + creación de la Order pending
+    // (ARCHITECTURE §8). Transición: listed/in_stock → reserved (aquí) → in_custody (settle) |
+    // listed (pago falla / contracargo).
     const order = await this.prisma.$transaction(async (tx) => {
-      for (const item of items) {
-        const reserved = await tx.inventoryItem.updateMany({
-          where: { id: item.id, status: { in: ['listed', 'in_stock'] } },
-          data: {
-            status: 'reserved',
-            ownerType: 'customer',
-            ownerUserId: userId,
-            ownershipStatus: 'pending',
-          },
-        });
-        if (reserved.count !== 1) {
-          // Otro checkout ya reservó/vendió esta pieza (o cambió de estado).
-          throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
-        }
-      }
+      // Bóveda: la pieza pasa a la bóveda del comprador con titularidad `pending`.
+      await this.reserveItems(tx, items, {
+        ownerType: 'customer',
+        ownerUserId: userId,
+        ownershipStatus: 'pending',
+      });
       const created = await tx.order.create({
         data: {
           userId,
@@ -184,32 +297,13 @@ export class OrdersService {
       return created;
     });
 
-    // M3: la idempotency-key se deriva en el SERVIDOR (`pi-order-<id>`); el header del
-    // cliente es solo un override. Así, reintentos del mismo checkout no crean PIs dobles.
-    const idem = idempotencyKey ?? `pi-order-${order.id}`;
-
-    // A2 (cierra BE-7): el PaymentIntent es transaccional con la reserva. Si Stripe falla
-    // TRAS reservar, compensamos —liberamos la reserva (items → vendibles) y marcamos la
-    // orden `failed`— y devolvemos un error de reintento en vez de dejar la pieza única
-    // atrapada en `reserved` con una orden `pending` sin PaymentIntent.
-    let pi: { id: string; clientSecret: string };
-    try {
-      pi = await this.stripe.createPaymentIntent({
-        amountCents: breakdown.totalCents,
-        metadata: { orderId: order.id, userId, kind: 'order' },
-        idempotencyKey: idem,
-      });
-    } catch (e) {
-      await this.releaseReservation(
-        order.id,
-        orderItemsData.map((oi) => oi.inventoryItemId),
-      );
-      throw this.toRetryError(e);
-    }
-
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { stripePaymentIntentId: pi.id },
+    // A2 (cierra BE-7): crear PI + compensar si falla + persistir el id (helper compartido, T2).
+    const pi = await this.attachPaymentIntent({
+      orderId: order.id,
+      amountCents: breakdown.totalCents,
+      metadata: { orderId: order.id, userId, kind: 'order' },
+      inventoryItemIds: orderItemsData.map((oi) => oi.inventoryItemId),
+      idempotencyKey,
     });
 
     return {
@@ -217,41 +311,6 @@ export class OrdersService {
       breakdown,
       stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
     };
-  }
-
-  /**
-   * A2: compensación de la reserva ante fallo del PaymentIntent. Devuelve cada pieza a
-   * estado vendible (`listed`, `ownerType=platform`) y marca la orden `failed`. La guardia
-   * `status: 'reserved'` evita liberar items que otro flujo ya movió.
-   */
-  private async releaseReservation(orderId: string, itemIds: string[]): Promise<void> {
-    await this.prisma
-      .$transaction(async (tx) => {
-        await tx.inventoryItem.updateMany({
-          where: { id: { in: itemIds }, status: 'reserved' },
-          data: {
-            status: 'listed',
-            ownerType: 'platform',
-            ownerUserId: null,
-            ownershipStatus: null,
-          },
-        });
-        await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
-      })
-      .catch(() => undefined);
-  }
-
-  /**
-   * A2: convierte un fallo del proveedor de pago en un error de reintento (503). Los
-   * errores de negocio ya legibles (p. ej. `AMOUNT_TOO_LOW`, `CARD_DECLINED`) se propagan
-   * tal cual para que el cliente no reintente ciegamente.
-   */
-  private toRetryError(e: unknown): unknown {
-    if (e instanceof BusinessException) return e;
-    return BusinessException.retriable(
-      'PAYMENT_PROVIDER_UNAVAILABLE',
-      'Payment provider unavailable; the reservation was released. Please retry.',
-    );
   }
 
   async listOrders(userId: string, page: number, pageSize: number) {

@@ -104,9 +104,19 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const stripe: any = { cancelPaymentIntent: jest.fn(async () => undefined) };
+    // T2: la liberación de la reserva es la del helper COMPARTIDO de `OrdersService` (el mismo que
+    // compensa un PaymentIntent fallido). Se usa el servicio REAL con el prisma mockeado para que
+    // el barrido ejercite ese código y no un doble.
+    const ordersService = new OrdersService(
+      prisma as PrismaService,
+      {} as never,
+      {} as SettingsService,
+      stripe as StripeService,
+      {} as never,
+    );
     const svc = new GuestCheckoutService(
       prisma as PrismaService,
-      {} as OrdersService,
+      ordersService,
       {} as SettingsService,
       stripe as StripeService,
       {} as OrderAccessTokenService,
@@ -127,7 +137,10 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
     expect(await svc.sweepStaleGuestOrders()).toEqual({ swept: 1 });
     expect(released).toContainEqual({
       items: { id: { in: ['item-1'] }, status: 'reserved' },
-      data: { status: 'listed' },
+      // El helper compartido (T2) reescribe la titularidad de plataforma; para un pedido de
+      // invitado es un NO-OP (la pieza nunca dejó de ser de la plataforma), y tener un solo cuerpo
+      // evita que las dos rutas de compensación vuelvan a divergir.
+      data: { status: 'listed', ownerType: 'platform', ownerUserId: null, ownershipStatus: null },
     });
     expect(released).toContainEqual({ order: { status: 'failed' } });
     expect(stripe.cancelPaymentIntent).toHaveBeenCalledWith('pi_viejo');

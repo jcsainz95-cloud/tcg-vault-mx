@@ -104,29 +104,17 @@ export class GuestCheckoutService {
     // es indistinguible desde fuera (mismo status, mismo shape, mismos tiempos).
     const guestEmail = normalizeEmail(dto.email);
 
-    const { lines, subtotalCents } = await this.orders.priceCartLines(dto.inventoryItemIds);
+    const { items, lines, subtotalCents } = await this.orders.priceCartLines(dto.inventoryItemIds);
     const breakdown = await this.breakdownFor(subtotalCents);
     const orderNumber = await this.orders.nextOrderNumber();
     const addressSnapshot = this.toAddressSnapshot(dto.shippingAddress);
 
     const order = await this.prisma.$transaction(async (tx) => {
-      for (const line of lines) {
-        // Reserva ATÓMICA de la pieza única. DIFERENCIA CLAVE con el checkout con cuenta: NO se
-        // escribe ownerType/ownerUserId/ownershipStatus — un pedido de invitado nunca entra a
-        // bóveda (invariante §4-G.0-1). El guard `ownerType='platform'` impide además reservar
-        // una pieza que ya es de un cliente.
-        const reserved = await tx.inventoryItem.updateMany({
-          where: {
-            id: line.inventoryItemId,
-            ownerType: 'platform',
-            status: { in: ['listed', 'in_stock'] },
-          },
-          data: { status: 'reserved' },
-        });
-        if (reserved.count !== 1) {
-          throw BusinessException.conflict('ITEM_UNAVAILABLE', 'Item unavailable');
-        }
-      }
+      // Reserva ATÓMICA por el helper COMPARTIDO con el checkout de bóveda (T2): mismas guardias
+      // (`ownerType='platform'` + estado vendible + `count===1`). La diferencia de esta ruta es el
+      // `null`: NO se escribe titularidad, la pieza sigue siendo de la plataforma durante todo el
+      // ciclo — invariante §4-G.0-1 (un invitado no tiene bóveda).
+      await this.orders.reserveItems(tx, items, null);
       return tx.order.create({
         data: {
           userId: null,
@@ -148,28 +136,15 @@ export class GuestCheckoutService {
       });
     });
 
-    // A2: el PaymentIntent es transaccional con la reserva. Si Stripe falla TRAS reservar, se
-    // compensa (items vendibles otra vez + orden `failed`) y se devuelve un error de reintento.
-    const idem = idempotencyKey ?? `pi-order-${order.id}`;
-    let pi: { id: string; clientSecret: string };
-    try {
-      pi = await this.stripe.createPaymentIntent({
-        amountCents: breakdown.totalCents,
-        // Sin `userId` en la metadata: no hay usuario. `guest` permite distinguir en el dashboard.
-        metadata: { orderId: order.id, kind: 'order', guest: 'true' },
-        idempotencyKey: idem,
-      });
-    } catch (e) {
-      await this.releaseReservation(
-        order.id,
-        lines.map((l) => l.inventoryItemId),
-      );
-      throw this.toRetryError(e);
-    }
-
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { stripePaymentIntentId: pi.id },
+    // A2: crear PI + compensar si el proveedor falla + persistir el id, por el helper COMPARTIDO
+    // (T2). Lo único propio de esta ruta es la metadata: sin `userId` (no hay usuario) y con
+    // `guest:'true'` para distinguir el pedido en el dashboard de Stripe.
+    const pi = await this.orders.attachPaymentIntent({
+      orderId: order.id,
+      amountCents: breakdown.totalCents,
+      metadata: { orderId: order.id, kind: 'order', guest: 'true' },
+      inventoryItemIds: lines.map((l) => l.inventoryItemId),
+      idempotencyKey,
     });
 
     // §4-G.0-5: ÚNICA respuesta de API con un token en claro. Quien llama ES quien creó el pedido,
@@ -321,7 +296,7 @@ export class GuestCheckoutService {
     });
     let swept = 0;
     for (const order of stale) {
-      await this.releaseReservation(
+      await this.orders.releaseReservation(
         order.id,
         order.items.map((i) => i.inventoryItemId),
       );
@@ -376,31 +351,6 @@ export class GuestCheckoutService {
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
     return computeDirectShipBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee);
-  }
-
-  /**
-   * A2: compensación de la reserva. Devuelve cada pieza a `listed` (sigue siendo de plataforma:
-   * nunca dejó de serlo) y marca la orden `failed`. La guardia `status:'reserved'` evita liberar
-   * piezas que otro flujo ya movió.
-   */
-  private async releaseReservation(orderId: string, itemIds: string[]): Promise<void> {
-    await this.prisma
-      .$transaction(async (tx) => {
-        await tx.inventoryItem.updateMany({
-          where: { id: { in: itemIds }, status: 'reserved' },
-          data: { status: 'listed' },
-        });
-        await tx.order.update({ where: { id: orderId }, data: { status: 'failed' } });
-      })
-      .catch(() => undefined);
-  }
-
-  private toRetryError(e: unknown): unknown {
-    if (e instanceof BusinessException) return e;
-    return BusinessException.retriable(
-      'PAYMENT_PROVIDER_UNAVAILABLE',
-      'Payment provider unavailable; the reservation was released. Please retry.',
-    );
   }
 
   /**

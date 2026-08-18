@@ -61,18 +61,6 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     },
     $transaction: jest.fn(async (cb: any) => cb(prisma)),
   };
-  const orders: any = {
-    priceCartLines: jest.fn(async (ids: string[]) => ({
-      items: [],
-      subtotalCents: 25000 * ids.length,
-      lines: ids.map((id) => ({
-        inventoryItemId: id,
-        cardSnapshot: { name: 'E2E Charizard', setName: 'Base', number: '4' },
-        unitPriceCents: 25000,
-      })),
-    })),
-    nextOrderNumber: jest.fn(async () => 'TCG-000123'),
-  };
   const settings: any = {
     getNumber: jest.fn(async (key: string) => (key.includes('shipping') ? SHIPPING : IVA)),
     getStripeFee: jest.fn(async () => FEE),
@@ -90,9 +78,31 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     })),
   };
   const mail: any = { sendTrackingLink: jest.fn(), sendConfirmation: jest.fn() };
+  // T2: la reserva atómica y la compensación del PaymentIntent viven en `OrdersService` y son la
+  // FUENTE ÚNICA de las dos rutas de fulfillment. Por eso aquí se usa un OrdersService REAL (con el
+  // mismo prisma/stripe mockeados) y solo se stubean el pricing y la secuencia del número de
+  // pedido: así este test ejercita DE VERDAD el código compartido, en vez de un doble que podría
+  // divergir justo del código que se quería unificar.
+  const orders = new OrdersService(
+    prisma as PrismaService,
+    {} as never,
+    settings as SettingsService,
+    stripe as StripeService,
+    {} as never,
+  );
+  jest.spyOn(orders, 'priceCartLines').mockImplementation(async (ids: string[]) => ({
+    items: ids.map((id) => ({ id, folio: `INV-${id}` })) as never,
+    subtotalCents: 25000 * ids.length,
+    lines: ids.map((id) => ({
+      inventoryItemId: id,
+      cardSnapshot: { name: 'E2E Charizard', setName: 'Base', number: '4' },
+      unitPriceCents: 25000,
+    })),
+  }));
+  jest.spyOn(orders, 'nextOrderNumber').mockResolvedValue('TCG-000123');
   const svc = new GuestCheckoutService(
     prisma as PrismaService,
-    orders as OrdersService,
+    orders,
     settings as SettingsService,
     stripe as StripeService,
     tokens as OrderAccessTokenService,

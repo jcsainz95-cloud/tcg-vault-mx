@@ -2,7 +2,30 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.21.1-guest-checkout-fixes (MVP, plataforma en producción). Fecha: 2026-08-18. Branch: `stream/ordenes-guest-checkout`.
+> Estado: v1.21.2-chargeback-fulfillment (MVP, plataforma en producción). Fecha: 2026-08-18. Branch: `stream/ordenes-guest-checkout`.
+>
+> **Changelog v1.21.2-chargeback-fulfillment (2026-08-18) — Cierre del hallazgo BLOQUEANTE del techlead (T1) + D6 y
+> D4. El hueco era de la NORMA, no de la implementación: §4.21c describía el reverso del contracargo solo en
+> términos del `InventoryItem` y no decía nada del `ShipmentRequest`.** Ver **§4.21c-bis** (nueva), §4.21d, §4.21h,
+> §11 (**M-25b**) y API_CONTRACT §9/§M3/§M4.
+> - **T1 — double-sell físico (bloqueante).** Un contracargo sobre un pedido `direct_ship` con el envío en
+>   `picking`/`guia` re-listaba la pieza **mientras el envío seguía en la cola de picking** ⇒ la misma pieza única
+>   podía venderse a un segundo comprador mientras el operador la metía en la caja. **Norma nueva: el contracargo
+>   NUNCA re-lista automáticamente una pieza con envío vivo.** Envío no terminal ⇒ `ShipmentRequest → cancelado` en
+>   la misma transacción (sale de `pickingList()`) + item **congelado** en `picking` (fuera de venta) +
+>   `chargebackNeedsManual=true`; el desenlace lo confirma un humano
+>   (`POST /admin/orders/:id/chargeback-inventory`: `recuperada | no_recuperada | reexpedir`). Se eleva a invariante:
+>   **una pieza con `ShipmentItem` en un envío no terminal jamás puede estar en `{listed, in_stock}`**. Ganar la
+>   disputa **no** re-expide solo. **Sin enums ni columnas nuevas** (reusa `ShipmentStatus.cancelado`).
+> - **D6 — el `CHECK` que faltaba pasa a NORMATIVO (M-25b):**
+>   `InventoryItem CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)`. Era el único de los cinco
+>   invariantes sin implementar, y es justo el que §4-G.0-1 llama «lo que hace segura la nulabilidad de
+>   `Order.userId`». Tabla de otro stream ⇒ el orquestador serializa.
+> - **D4 — un solo discriminador canónico:** `ShipmentRequest.orderId` responde **solo** "¿de dónde viene el
+>   envío?"; **todo comportamiento** (terminal del item, `kind` del DTO) se decide por **`Order.fulfillmentMode`**,
+>   con `switch` **exhaustivo y ruidoso** (un modo no soportado **lanza**, nunca cae en `direct_ship`).
+> - **§4.21h — el test «contracargo antes/después de enviar» ya estaba pedido y no se escribió**; ahora es condición
+>   de aprobación, desglosado en 8 casos (incluido el de regresión del double-sell).
 >
 > **Changelog v1.21.1-guest-checkout-fixes (2026-08-18) — Correcciones post-implementación (regla 9). SIN migración
 > adicional; M-25 no cambia.** Ver **§4.21e-bis** (nueva), §4.21c y §3.2 (`OrderAccessToken`).
@@ -2889,10 +2912,78 @@ shipped         salió físicamente
 delivered       TERMINAL de una venta con envío directo   (NO `withdrawn`)
 
 Reversos:
-  payment_failed | canceled           → reserved → listed     (Order failed; nada que revertir de titularidad)
-  chargeback con item reserved|picking → vuelve a listed        (movimiento chargeback_return)
-  chargeback con item shipped|delivered→ NO se re-agrega; Order.chargebackNeedsManual=true
+  payment_failed | canceled  → reserved → listed              (Order failed; nada que revertir de titularidad)
+  chargeback                 → ver §4.21c-bis (NO basta mirar el item: hay que mirar el ENVÍO)
 ```
+
+#### (c-bis) Contracargo de un pedido `direct_ship` — el envío manda (T1, corrección normativa v1.21.2)
+
+**El hueco (real, verificado en código).** La v1.21 describió el reverso del contracargo **solo en términos del
+`InventoryItem`** y no dijo nada del `ShipmentRequest`. Backend implementó lo que decía la norma, y el resultado es
+un **double-sell físico**:
+
+1. `settleDirectShipOrder` crea el envío en **`picking`**.
+2. `onChargeDispute` decide "¿ya salió?" buscando un `ShipmentItem` cuyo envío esté en `enviado|entregado`. Un envío
+   en **`picking`** o **`guia` NO coincide** ⇒ cae en la rama "sigue en bóveda".
+3. Esa rama pone el item en `listed` / `platform` ⇒ **vuelve a ser comprable**.
+4. El `ShipmentRequest` **no se toca** ⇒ sigue en `picking` ⇒ **`pickingList()` lo sigue mostrando al operador**.
+
+Resultado: la **misma pieza única** puede venderse a un segundo comprador **mientras el operador la está metiendo en
+la caja del contracargo**. `ITEM_IN_ANOTHER_SHIPMENT` (SEC-H2) no protege aquí: solo cubre `POST /shipments`, no el
+checkout. En la ruta de bóveda esto era inocuo (una orden liquidada no tenía envío colgando); en `direct_ship`
+**siempre lo tiene por construcción**, así que es un daño colateral directo de la ruta de fulfillment que introdujo
+este stream.
+
+**El invariante que se violaba (y que ahora es norma explícita):**
+> **Una pieza con un `ShipmentItem` en un envío NO terminal jamás puede estar en `{listed, in_stock}`.**
+> Ninguna automatización puede devolver a la venta una pieza cuya ubicación física está comprometida con una
+> operación de fulfillment viva.
+
+**Norma: el contracargo NUNCA re-lista automáticamente una pieza con envío vivo. La congela y la escala a un
+humano.** Tabla normativa por estado del envío en el momento de `charge.dispute.created`:
+
+| Envío del pedido | `ShipmentRequest` | `InventoryItem` | `chargebackNeedsManual` |
+|---|---|---|---|
+| **No existe** (orden `pending`, item `reserved`) o **`cancelado`** | — | `reserved → listed`, `ownerType=platform` (+ movimiento `chargeback_return`) | `false` — cerrado automáticamente, la pieza nunca salió del estante |
+| **`solicitado` \| `picking` \| `guia`** (NO terminal) | **→ `cancelado`**, en la **MISMA transacción** (sale de `pickingList()` de inmediato: ese query filtra `status:'picking'`) | **CONGELADO**: se queda en `picking`. **NO** se re-lista, **NO** cambia `ownerType`. Fuera de venta por construcción (`picking ∉ {listed, in_stock}`) | **`true`** — lo resuelve un humano (abajo) |
+| **`enviado` \| `entregado`** | sin cambio (histórico) | sin cambio (`shipped` / `delivered`) | **`true`** (comportamiento v1.21, sin regresión) |
+
+**Por qué congelar en vez de auto-cancelar-y-re-listar** (que era la otra opción obvia para el caso `picking`):
+- Re-listar es una **acción automática que vuelve a vender**. Dispararla a partir de un evento que significa
+  "algo salió mal con el dinero", y encima mientras hay una caja abierta en la mesa del operador, es precisamente
+  la clase de automatismo que produce pérdidas reales (vender dos veces, enviar al defraudador y tener que
+  compensar al segundo comprador).
+- **Un contracargo no es prueba de nada todavía**: podemos ganar la disputa (`funds_reinstated`), y entonces la
+  venta era legítima y la carta tenía que salir. Liberarla al inventario al primer aviso presume el peor caso y
+  destruye la posibilidad de completar el envío.
+- **`guia` no es lo mismo que `picking`**, y esa diferencia es justo la que una regla automática no puede resolver:
+  con etiqueta generada el paquete suele estar **armado y esperando al mensajero**. La única fuente de verdad sobre
+  dónde está físicamente la carta es **el operador mirando el estante**. Por eso el desenlace es una **confirmación
+  humana**, no una heurística de estados.
+- Se prefiere **una sola regla** ("envío vivo ⇒ congelar") a una regla partida por estado: en dinero e inventario,
+  la uniformidad vale más que ahorrarle un clic al operador en un evento tan raro como un contracargo.
+- **Reusa `ShipmentStatus.cancelado`** (ya existe y ya significa "envío que no se va a ejecutar"): **cero valores
+  de enum nuevos, cero migración**.
+
+**Desenlace humano — `POST /api/v1/admin/orders/:id/chargeback-inventory`** (`vault_operator+`, auditado; contrato
+en API_CONTRACT §M3). Es la pieza que faltaba: sin ella una pieza congelada se queda congelada para siempre.
+Tres desenlaces, todos con `note` obligatoria y todos dejando `chargebackNeedsManual=false`:
+- **`recuperada`** — el operador confirma que tiene la carta ⇒ `picking|shipped → listed` (o `in_stock` si su precio
+  no resuelve), `ownerType=platform`, movimiento **`chargeback_return`**. Vuelve a la venta **con respaldo físico**.
+- **`no_recuperada`** — la carta ya no está (salió, o se entregó al defraudador) ⇒ **sin** movimiento de inventario;
+  el item se queda donde está (`shipped`/`delivered`, terminal de venta). La pérdida queda reflejada en la orden
+  `chargeback` para M7. **No** se marca `lost`/`damaged`: no fue merma de almacén y ensuciaría los reportes de
+  pérdida (mismo cuidado que llevó a usar `delivered` en vez de `withdrawn`).
+- **`reexpedir`** — solo válido si **ganamos la disputa** (la orden volvió a `settled` por
+  `charge.dispute.closed`/`funds_reinstated`) y la pieza sigue congelada ⇒ se crea un `ShipmentRequest` **nuevo**
+  con la misma forma que el del settle (`orderId`, `userId=null`, `status='picking'`, montos en `0`,
+  `addressSnapshot` de `Order.shippingAddressSnapshot`) y el item sigue en `picking`. Cierra el agujero silencioso
+  de "ganamos la disputa pero el envío ya estaba cancelado". Cualquier otro estado ⇒ `422`.
+
+**Cierre de la disputa (`charge.dispute.closed` / `funds_reinstated`) — precisión v1.21.2:** ganar **NO** re-expide
+automáticamente. La orden vuelve a `settled` (`disputeOutcome='won'`) y **`chargebackNeedsManual` se mantiene en
+`true`** para que el caso siga visible en la cola de M3 hasta que un humano confirme si la carta sigue ahí y pulse
+`reexpedir`. Automatizar la re-expedición volvería a presuponer una realidad física que nadie ha comprobado.
 
 **Motivos de `InventoryMovement` (v1.21.1, normativo — sin valores nuevos en `MovementReason`):** `settle` para
 `reserved → picking` (mismo evento y misma causa que `reserved → in_custody` de la ruta de bóveda; lo que cambia es
@@ -2924,8 +3015,26 @@ ya contaba; **no** se cambia la regla *on-hand* de §4.17/§4.20 (es de otro wor
 Se evaluó crear un `GuestShipment` separado. Se descarta: duplicaría la cola de M4, la lista de picking, la captura
 de guía, la máquina de estados y los reportes, para representar **la misma operación física** (meter cartas en una
 caja y darle una guía). La diferencia real es de **origen y de cobro**, no de operación. Por eso:
-`ShipmentRequest.userId` nullable + `orderId?` como **discriminador único** (`orderId == null` ⇔ retiro de bóveda),
-y M4 opera una sola cola. La única bifurcación de comportamiento está en la transición terminal (§c).
+`ShipmentRequest.userId` nullable + `orderId?` como **vínculo** (`orderId == null` ⇔ retiro de bóveda), y M4 opera
+una sola cola. La única bifurcación de comportamiento está en la transición terminal (§c).
+
+**Discriminador canónico — corrección normativa v1.21.2 (D4).** La implementación quedó con **dos** discriminadores
+para el mismo concepto: `payments` decide por `Order.fulfillmentMode === 'direct_ship'` y `shipments` por
+`ShipmentRequest.orderId != null`. Hoy coinciden, pero **no preguntan lo mismo**, y con un tercer modo con envío
+(p. ej. `pickup_in_store`) el segundo lo clasificaría como envío directo **en silencio** — el peor tipo de fallo.
+Norma:
+
+1. **`ShipmentRequest.orderId` responde SOLO a "¿de dónde viene este envío?"**: `null` ⇒ **retiro de bóveda**;
+   poblado ⇒ **fulfillment de una orden**. Ese uso es exhaustivo y correcto para separar las dos colas.
+2. **El COMPORTAMIENTO (transiciones terminales del item, `kind` del DTO, cualquier rama futura) se decide SIEMPRE
+   por `Order.fulfillmentMode`**, resuelto con un join a la orden vinculada. `fulfillmentMode` es el **único
+   discriminador canónico de ruta de fulfillment** de todo el sistema.
+3. Ese `switch` debe ser **exhaustivo y ruidoso**: un `fulfillmentMode` no soportado por M4 **lanza y se loguea**
+   (`500`/alerta), **nunca** cae por default en la rama `direct_ship`. Un modo nuevo debe **romper visiblemente** en
+   el punto exacto donde falta decidir su terminal, no comportarse como otro modo.
+4. `vault` con `orderId != null` es una **combinación imposible** por invariante (un pedido a bóveda no genera
+   `ShipmentRequest` de fulfillment; su retiro nace del cliente y va sin `orderId`): si aparece, es corrupción de
+   datos y debe tratarse como el caso (3), no "arreglarse" silenciosamente.
 
 #### (e) Modelo de amenazas del enlace tokenizado
 
@@ -3038,6 +3147,18 @@ de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
   ningún campo prohibido, token inválido/expirado/revocado/de otro pedido, reclamo doble, reclamo con correo no
   verificado, `GET /shipments` no devuelve envíos `userId=null`, contracargo antes/después de enviar, idempotencia
   del webhook, no doble conteo del envío.
+  - **v1.21.2 — tests EXIGIDOS de contracargo (§4.21c-bis). El caso «contracargo antes/después de enviar» ya estaba
+    pedido aquí y NO se escribió; sin él T1 pasó los gates. Ahora es condición de aprobación**, uno por fila de la
+    tabla normativa: (i) contracargo con envío en **`picking`** ⇒ envío a `cancelado`, item **sigue** en `picking`
+    (**assert explícito de que NO queda en `listed`/`in_stock`**), `chargebackNeedsManual=true`; (ii) ídem con envío
+    en **`guia`**; (iii) contracargo con envío **`enviado`** ⇒ nada de inventario, flag `true`; (iv) contracargo
+    **sin envío** (orden `pending`) ⇒ `reserved → listed` y flag `false`; (v) **test de regresión del double-sell**:
+    tras (i), `POST /checkout/quote|session` sobre esa pieza devuelve **`409 ITEM_UNAVAILABLE`** y
+    `GET /admin/shipments/picking-list` **no la incluye**; (vi) los tres desenlaces de
+    `POST /admin/orders/:id/chargeback-inventory`, incluido `reexpedir` **rechazado con `422`** mientras la orden
+    siga en `chargeback`; (vii) `charge.dispute.closed` con `won` **no** re-expide solo y **mantiene** el flag en
+    `true`. Además: (viii) invariante D4 — un `ShipmentRequest` con `orderId` cuya orden tenga un
+    `fulfillmentMode` no soportado **lanza**, no cae en la rama `direct_ship`.
 - **Frontend:** checkout de invitado (3 vías sin perder carrito), doble captura de correo, upsell de bóveda a partir
   de `422 VAULT_REQUIRES_ACCOUNT`, página `/[locale]/pedido` (token del query → body, `replaceState`, `noindex`),
   pantalla de enlace expirado con reenvío, confirmación con oferta de cuenta, y banner "tienes N pedidos por
@@ -3547,9 +3668,13 @@ campo por campo, con nota de compatibilidad por columna, en **API_CONTRACT §4-G
 | M-25 | `ShipmentRequest.orderId String?` + FK a `Order` + `@@index([orderId])` | **Columna + índice nuevos** | Add column + FK + index | **Discriminador**: `null` ⇒ retiro de bóveda (todo lo existente); poblado ⇒ envío directo que fulfilla ese pedido. **No `@unique`** (deja abierta la re-expedición sin migrar); invariante de aplicación: a lo más un envío **activo** por orden. |
 | M-25 | `OrderAccessToken` | **Modelo nuevo** (`id` uuid `@id`, `orderId` + FK `onDelete: Cascade`, `tokenHash String @unique`, `expiresAt DateTime`, `revokedAt DateTime?`, `lastUsedAt DateTime?`, `useCount Int @default(0)`, `requestIp String?`, `createdAt`; `@@index([orderId])`, `@@index([expiresAt])`) | Create table | Enlace de seguimiento. **Solo** el SHA-256 del claro. **Multi-uso**: `revokedAt` (revocable) en vez de `usedAt` (consumible) — es la única diferencia semántica con `AuthToken`, y la razón de no reusar ese modelo (su `userId` es obligatorio y su `consume()` es de un solo uso). |
 
-> **`CHECK` recomendados en SQL crudo dentro de la migración** (Prisma no los expresa; son baratos y atrapan bugs de
+> **`CHECK` en SQL crudo dentro de la migración** (Prisma no los expresa; son baratos y atrapan bugs de
 > aplicación): `userId IS NOT NULL OR guestEmail IS NOT NULL`; `guestEmail IS NOT NULL ⇒ fulfillmentMode='direct_ship'`;
 > `fulfillmentMode='direct_ship' ⇒ shippingAddressSnapshot IS NOT NULL`; `claimedAt IS NOT NULL ⇒ userId IS NOT NULL`.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| **M-25b** | `InventoryItem` — `CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)` | **Constraint nuevo** (SQL crudo) | Add check constraint | **v1.21.2 (D6) — pasa de "recomendado" a NORMATIVO.** Es el invariante que §4-G.0-1 declara literalmente «lo que hace segura la nulabilidad de `Order.userId`», y era el **único** de los cinco que no se implementó. Sin él, un bug futuro que escriba `ownerType='customer'` con `ownerUserId=null` produce una pieza en el limbo: no sale en la bóveda de nadie (todas las consultas filtran por `ownerUserId`), no es vendible (`ownerType≠platform`) y no es ajustable en M1 — una carta desaparecida en silencio. Es una **tabla de otro work stream**: el orquestador serializa. **Precondición de despliegue:** `SELECT count(*) FROM "InventoryItem" WHERE "ownerType"='customer' AND "ownerUserId" IS NULL` debe dar **0** (debe darlo: hoy nada escribe esa combinación); si no, se corrige el dato **antes** de añadir el constraint. |
 > **Enums:** ninguno más — `InventoryStatus` **NO** crece (`picking|shipped|delivered` ya existen sin uso, §4.21c) y
 > `ShipmentStatus` tampoco. **Config/diales:** **ninguno** — los cinco parámetros del guest checkout son
 > **constantes de servidor** (`GUEST_TRACKING_TTL_DAYS=90`, `GUEST_TRACKING_MAX_AGE_DAYS=365`,
