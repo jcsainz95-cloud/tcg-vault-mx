@@ -174,18 +174,31 @@ jobs:
         # ROBUSTEZ (2026-08-18): ver la nota extendida en security-sast.yml. `--with-deps`
         # ejecuta `apt-get` por dentro, y un mirror atascado deja el job colgado en vez de
         # fallar. timeout + 3 intentos.
-        timeout-minutes: 10
+        # CORRECCIÓN (2026-08-18, misma noche): ver la nota extendida en security-sast.yml.
+        # `timeout` mata apt a mitad de la descarga y el proceso huérfano CONSERVA el lock de
+        # dpkg -> los reintentos morían al instante con "Could not get lock".
+        timeout-minutes: 25
         run: |
           set -uo pipefail
+          liberar_apt() {
+            sudo pkill -x apt-get 2>/dev/null || true
+            sudo pkill -x dpkg 2>/dev/null || true
+            for _ in $(seq 1 30); do
+              sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
+              sleep 2
+            done
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+          }
           for intento in 1 2 3; do
-            if timeout 300 npx playwright install --with-deps chromium; then
+            if timeout 420 npx playwright install --with-deps chromium; then
               break
             fi
             if [ "$intento" = "3" ]; then
               echo "::error title=No se pudo instalar Chromium::3 intentos agotados."
               exit 1
             fi
-            echo "::warning title=Instalacion de Chromium fallida::Intento $intento agotado o fallido; reintentando en 10s."
+            echo "::warning title=Instalacion de Chromium fallida::Intento $intento agotado o fallido; liberando lock de apt y reintentando."
+            liberar_apt
             sleep 10
           done
           CHROMIUM_BIN="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
