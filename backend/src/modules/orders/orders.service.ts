@@ -331,7 +331,10 @@ export class OrdersService {
    *                      settle; las piezas siguen en `picking`.
    *
    * Idempotencia (norma §M3): **cualquier** outcome sobre una orden con `chargebackNeedsManual=false`
-   * (ya resuelta) devuelve `409 CONFLICT` y no duplica movimientos ni envíos.
+   * (ya resuelta) devuelve `409 CONFLICT` y no duplica movimientos ni envíos. La garantía es
+   * ATÓMICA, no de comentario: el guard y los efectos van en UNA transacción y la decisión se
+   * "reclama" con `updateMany ... count===1` (ver dentro), así que dos llamadas concurrentes no
+   * pueden crear dos envíos.
    */
   async resolveChargebackInventory(
     orderId: string,
@@ -344,45 +347,67 @@ export class OrdersService {
     shipmentId?: string;
     chargebackNeedsManual: false;
   }> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { items: true },
-    });
-    if (!order) throw BusinessException.notFound();
-    if (order.fulfillmentMode !== 'direct_ship') {
-      throw BusinessException.badRequest(
-        'VALIDATION_ERROR',
-        'Only a direct_ship order can have a frozen piece from a chargeback',
-      );
-    }
-    // Idempotencia: una orden ya resuelta no vuelve a moverse.
-    if (!order.chargebackNeedsManual) {
-      throw BusinessException.conflict(
-        'CONFLICT',
-        'This chargeback has no pending inventory decision (already resolved)',
-      );
-    }
-
-    // Piezas CONGELADAS del pedido: las que siguen en el almacén comprometidas con la venta.
-    const frozen = await this.prisma.inventoryItem.findMany({
-      where: {
-        id: { in: order.items.map((oi) => oi.inventoryItemId) },
-        status: { in: ['picking', 'shipped'] },
-      },
-    });
-
-    if (outcome === 'reexpedir') {
-      // Re-expedir solo tiene sentido si la disputa se GANÓ (los fondos volvieron).
-      if (order.status !== 'settled' || order.disputeOutcome !== 'won') {
-        throw BusinessException.conflict(
-          'CONFLICT',
-          'Re-shipping requires a won dispute (order settled with disputeOutcome=won)',
+    // TODO EN UNA TRANSACCIÓN (techlead): antes se leía `chargebackNeedsManual` FUERA y se
+    // escribía DENTRO, así que dos llamadas concurrentes (doble submit; el endpoint no lleva
+    // Idempotency-Key) pasaban ambas el guard. Con `recuperada` salvaba el `count===1` por pieza,
+    // pero `reexpedir` creaba DOS `ShipmentRequest` para la misma orden — rompiendo el invariante
+    // «a lo más un envío activo por orden» (§4-G.10) y duplicando la pieza en `pickingList()`.
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
+      if (!order) throw BusinessException.notFound();
+      if (order.fulfillmentMode !== 'direct_ship') {
+        throw BusinessException.badRequest(
+          'VALIDATION_ERROR',
+          'Only a direct_ship order can have a frozen piece from a chargeback',
         );
       }
-      if (frozen.length === 0) {
-        throw BusinessException.conflict('CONFLICT', 'There is no frozen piece to re-ship');
+
+      // CLAIM ATÓMICO de la decisión: gana quien consiga la transición `true → false`
+      // (mismo patrón `updateMany` + `count===1` que la reserva de piezas únicas). El perdedor ve
+      // `count===0` ⇒ `409`, que ES la regla de idempotencia de §M3.
+      // Si algo posterior lanza, la transacción REVIERTE y el flag vuelve a `true`: un desenlace
+      // rechazado (p. ej. `reexpedir` sin disputa ganada) NO consume la decisión.
+      const claimed = await tx.order.updateMany({
+        where: { id: orderId, chargebackNeedsManual: true },
+        data: { chargebackNeedsManual: false },
+      });
+      if (claimed.count !== 1) {
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'This chargeback has no pending inventory decision (already resolved or being resolved)',
+        );
       }
-      const shipment = await this.prisma.$transaction(async (tx) => {
+
+      // Piezas CONGELADAS del pedido: las que siguen comprometidas con la venta.
+      const frozen = await tx.inventoryItem.findMany({
+        where: {
+          id: { in: order.items.map((oi) => oi.inventoryItemId) },
+          status: { in: ['picking', 'shipped'] },
+        },
+      });
+
+      if (outcome === 'reexpedir') {
+        // Re-expedir solo tiene sentido si la disputa se GANÓ (los fondos volvieron).
+        if (order.status !== 'settled' || order.disputeOutcome !== 'won') {
+          throw BusinessException.conflict(
+            'CONFLICT',
+            'Re-shipping requires a won dispute (order settled with disputeOutcome=won)',
+          );
+        }
+        if (frozen.length === 0) {
+          throw BusinessException.conflict('CONFLICT', 'There is no frozen piece to re-ship');
+        }
+        // Invariante §4-G.10: a lo más UN envío activo por orden. Con el claim atómico de arriba
+        // esta comprobación no debería disparar nunca; se deja como red de seguridad explícita.
+        const active = await tx.shipmentRequest.findFirst({
+          where: { orderId: order.id, status: { not: 'cancelado' } },
+        });
+        if (active) {
+          throw BusinessException.conflict(
+            'CONFLICT',
+            'This order already has an active shipment',
+          );
+        }
         // Misma FORMA que el envío del settle: montos en 0 (el ingreso vive en
         // Order.shippingFeeCents), sin userId y con el snapshot de dirección de la orden.
         const created = await tx.shipmentRequest.create({
@@ -399,27 +424,20 @@ export class OrdersService {
             items: { create: frozen.map((i) => ({ inventoryItemId: i.id })) },
           },
         });
-        await tx.order.update({
-          where: { id: order.id },
-          data: { chargebackNeedsManual: false },
-        });
-        return created;
-      });
-      return {
-        orderId: order.id,
-        outcome,
-        inventoryItemIds: frozen.map((i) => i.id),
-        shipmentId: shipment.id,
-        chargebackNeedsManual: false,
-      };
-    }
-
-    if (outcome === 'recuperada') {
-      if (frozen.length === 0) {
-        throw BusinessException.conflict('CONFLICT', 'There is no frozen piece to recover');
+        return {
+          orderId: order.id,
+          outcome,
+          inventoryItemIds: frozen.map((i) => i.id),
+          shipmentId: created.id,
+          chargebackNeedsManual: false as const,
+        };
       }
-      const recovered: string[] = [];
-      await this.prisma.$transaction(async (tx) => {
+
+      if (outcome === 'recuperada') {
+        if (frozen.length === 0) {
+          throw BusinessException.conflict('CONFLICT', 'There is no frozen piece to recover');
+        }
+        const recovered: string[] = [];
         for (const item of frozen) {
           // `listed` solo si su precio de venta resuelve; si no, `in_stock` (en Compra NUNCA se
           // muestra una pieza sin precio — PROJECT §A).
@@ -445,27 +463,23 @@ export class OrdersService {
           });
           recovered.push(item.id);
         }
-        await tx.order.update({ where: { id: order.id }, data: { chargebackNeedsManual: false } });
-      });
+        return {
+          orderId: order.id,
+          outcome,
+          inventoryItemIds: recovered,
+          chargebackNeedsManual: false as const,
+        };
+      }
+
+      // `no_recuperada`: SIN movimiento de inventario. La pieza se queda donde está (terminal de
+      // venta). NO se marca `lost`/`damaged`: no fue merma de almacén y ensuciaría los reportes.
       return {
         orderId: order.id,
         outcome,
-        inventoryItemIds: recovered,
-        chargebackNeedsManual: false,
+        inventoryItemIds: frozen.map((i) => i.id),
+        chargebackNeedsManual: false as const,
       };
-    }
-
-    // `no_recuperada`: SIN movimiento de inventario. La pieza se queda donde está.
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { chargebackNeedsManual: false },
     });
-    return {
-      orderId: order.id,
-      outcome,
-      inventoryItemIds: frozen.map((i) => i.id),
-      chargebackNeedsManual: false,
-    };
   }
 
   /**

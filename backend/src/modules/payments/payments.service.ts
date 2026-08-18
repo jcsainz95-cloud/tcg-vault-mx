@@ -428,9 +428,11 @@ export class PaymentsService {
    * v1.21.2 (T1, §4-G.6 / ARCHITECTURE §4.21c-bis) — contracargo de un pedido con **ENVÍO
    * DIRECTO**. La decisión la toma el **estado del envío**, no el del item:
    *
+   * Tabla normativa (§4-G.6, copiada LITERAL — este docblock no la reinterpreta):
+   *
    * | Envío | ShipmentRequest | InventoryItem | needsManual |
    * |---|---|---|---|
-   * | no existe / `cancelado` | — | `reserved\|picking → listed` + `chargeback_return` | `false` |
+   * | no existe / `cancelado` | — | **`reserved → listed`** + `chargeback_return` | `false` |
    * | `solicitado\|picking\|guia` | **→ `cancelado`** (misma tx) | **CONGELADO** en `picking` | `true` |
    * | `enviado\|entregado` | sin cambio | sin cambio | `true` |
    *
@@ -441,6 +443,20 @@ export class PaymentsService {
    * pieza se **congela** (doblemente fuera de venta: `picking ∉ {listed,in_stock}` y su envío sale
    * de la cola) y el desenlace lo confirma un humano con
    * `POST /admin/orders/:id/chargeback-inventory` (§M3).
+   *
+   * **T1-b (techlead) — la fila 1 autoriza SOLO `reserved → listed`, y solo eso hace el código.**
+   * Una pieza en `reserved` nunca se pagó ni se movió del estante: re-listarla es trivialmente
+   * correcto. Una en **`picking`** pertenece a un pedido LIQUIDADO que el operador ya sacó del
+   * estante; que su envío esté `cancelado` **no** significa que la carta volviera sola a su slot.
+   * Ampliarlo a `picking` reabría el double-sell por un camino 100% automático: una **segunda**
+   * `charge.dispute.created` (otro `event.id`, así que no la deduplica el guard de idempotencia)
+   * encuentra el envío ya `cancelado`, cae en esta rama y re-listaría la pieza congelada.
+   * Una pieza en `picking` con envío cancelado **se queda congelada** y va al desenlace humano.
+   *
+   * **`chargebackNeedsManual` es MONÓTONO aquí: solo sube a `true`, nunca baja.** Bajarlo es
+   * competencia EXCLUSIVA de `resolveChargebackInventory` (la confirmación humana). Si un segundo
+   * evento de disputa lo bajara, el caso desaparecería de la cola de M3 sin que nadie hubiera
+   * confirmado dónde está la carta — se perdería la única señal de que faltaba una decisión.
    */
   private async onChargeDisputeDirectShip(order: Order & { items: OrderItem[] }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
@@ -468,12 +484,15 @@ export class PaymentsService {
         // Ya salió: no la tenemos, no se re-agrega. Gestión manual (pelear la disputa con la guía).
         needsManual = true;
       } else {
-        // Sin envío (orden `pending`) o envío ya cancelado: la pieza nunca salió del estante.
+        // Sin envío (orden `pending`) o envío ya `cancelado`.
+        // T1-b: la guardia es `status: 'reserved'` EXACTO — la letra de la fila 1 de la tabla.
+        // Una pieza en `picking` NO se re-lista aquí: se queda congelada para el desenlace humano
+        // (su envío cancelado no prueba que la carta haya vuelto al estante).
         for (const oi of order.items) {
           const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
           if (!item) continue;
           const reverted = await tx.inventoryItem.updateMany({
-            where: { id: oi.inventoryItemId, status: { in: ['reserved', 'picking'] } },
+            where: { id: oi.inventoryItemId, status: 'reserved' },
             data: {
               status: 'listed',
               ownerType: 'platform',
@@ -481,7 +500,12 @@ export class PaymentsService {
               ownershipStatus: null,
             },
           });
-          if (reverted.count !== 1) continue;
+          if (reverted.count !== 1) {
+            // Pieza fuera de `reserved` (típicamente `picking` congelada por una disputa previa):
+            // no se toca y el caso sigue necesitando confirmación humana.
+            if (item.status === 'picking' || item.status === 'shipped') needsManual = true;
+            continue;
+          }
           await tx.inventoryMovement.create({
             data: {
               itemId: oi.inventoryItemId,
@@ -496,7 +520,12 @@ export class PaymentsService {
 
       await tx.order.update({
         where: { id: order.id },
-        data: { status: 'chargeback', chargebackNeedsManual: needsManual },
+        data: {
+          status: 'chargeback',
+          // MONÓTONO (T1-b): `undefined` = no se toca. El webhook solo puede SUBIR el flag; bajarlo
+          // es competencia exclusiva del desenlace humano (`resolveChargebackInventory`).
+          chargebackNeedsManual: needsManual ? true : undefined,
+        },
       });
     });
   }

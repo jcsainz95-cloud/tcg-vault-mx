@@ -44,8 +44,17 @@ function build(opts: {
         return {};
       }),
       updateMany: jest.fn(async ({ where, data }: any) => {
-        const ok = where.status?.in ? where.status.in.includes(itemState.status) : true;
-        if (!ok) return { count: 0 };
+        // Honra las DOS formas de guardia como haría Prisma contra la fila real: escalar
+        // (`status: 'reserved'`) y lista (`status: { in: [...] }`). Un mock que ignore la escalar
+        // deja pasar justo el bug de T1-b (re-listar una pieza en `picking`).
+        const expected = where.status;
+        if (expected != null) {
+          const matches =
+            typeof expected === 'string'
+              ? itemState.status === expected
+              : Array.isArray(expected.in) && expected.in.includes(itemState.status);
+          if (!matches) return { count: 0 };
+        }
         itemUpdates.push(data);
         Object.assign(itemState, data);
         return { count: 1 };
@@ -145,17 +154,75 @@ describe('Contracargo direct_ship — sin envío o envío cancelado (caso iv de 
       ownershipStatus: null,
     });
     expect(movements[0]).toMatchObject({ toStatus: 'listed', reason: 'chargeback_return' });
-    expect(orderUpdates[0]).toEqual({ status: 'chargeback', chargebackNeedsManual: false });
+    // Monótono (T1-b): no se escribe `false`; simplemente no se toca el flag.
+    expect(orderUpdates[0]).toEqual({ status: 'chargeback', chargebackNeedsManual: undefined });
   });
 
-  it('envío ya `cancelado`: la pieza vuelve al inventario (su envío ya no está vivo)', async () => {
+  it('envío `cancelado` con la pieza en `reserved`: vuelve al inventario (nunca salió del estante)', async () => {
     const { svc, itemState, orderUpdates } = build({
+      shipment: { id: 'shp-1', status: 'cancelado' },
+      itemStatus: 'reserved',
+    });
+    await svc.onChargeDispute(dispute);
+    expect(itemState.status).toBe('listed');
+    // Monótono: no se baja el flag, solo se omite (no había nada que decidir).
+    expect(orderUpdates[0]).toEqual({ status: 'chargeback', chargebackNeedsManual: undefined });
+  });
+
+  /**
+   * T1-b (techlead) — la fila 1 de la tabla normativa autoriza SOLO `reserved → listed`. Una pieza
+   * en `picking` pertenece a un pedido LIQUIDADO que el operador ya sacó del estante: que su envío
+   * esté `cancelado` NO prueba que la carta volviera a su slot.
+   */
+  it('T1-b: envío `cancelado` con la pieza en `picking` ⇒ SIGUE CONGELADA (no se re-lista)', async () => {
+    const { svc, itemState, itemUpdates, orderUpdates } = build({
       shipment: { id: 'shp-1', status: 'cancelado' },
       itemStatus: 'picking',
     });
     await svc.onChargeDispute(dispute);
-    expect(itemState.status).toBe('listed');
-    expect(orderUpdates[0]).toEqual({ status: 'chargeback', chargebackNeedsManual: false });
+    expect(itemState.status).toBe('picking');
+    expect(['listed', 'in_stock']).not.toContain(itemState.status);
+    expect(itemUpdates).toHaveLength(0);
+    // Y el caso sigue exigiendo desenlace humano.
+    expect(orderUpdates[0]).toEqual({ status: 'chargeback', chargebackNeedsManual: true });
+  });
+
+  /**
+   * T1-b — el camino 100% automático que reabría el double-sell: una SEGUNDA disputa (otro
+   * `event.id`, así que la idempotencia por evento no la filtra) encontraba el envío ya
+   * `cancelado`, caía en la rama de "sin envío" y re-listaba la pieza congelada, borrando además
+   * la única señal de que faltaba una decisión humana.
+   */
+  it('T1-b: una SEGUNDA `charge.dispute.created` no descongela la pieza ni baja el flag', async () => {
+    // 1ª disputa: envío vivo ⇒ congela.
+    const first = build({ shipment: { id: 'shp-1', status: 'picking' }, itemStatus: 'picking' });
+    await first.svc.onChargeDispute(dispute);
+    expect(first.orderUpdates[0].chargebackNeedsManual).toBe(true);
+
+    // 2ª disputa: el envío ya está `cancelado` y la pieza congelada.
+    const second = build({
+      shipment: { id: 'shp-1', status: 'cancelado' },
+      itemStatus: 'picking',
+      order: { chargebackNeedsManual: true },
+    });
+    await second.svc.onChargeDispute(dispute);
+    expect(second.itemState.status).toBe('picking'); // NO vuelve a la venta
+    expect(second.itemUpdates).toHaveLength(0);
+    // NUNCA baja: el caso no puede desaparecer de la cola de M3 por un webhook.
+    expect(second.orderUpdates[0].chargebackNeedsManual).not.toBe(false);
+  });
+
+  it('T1-b: el flag es MONÓTONO — el webhook nunca escribe `false`', async () => {
+    for (const scenario of [
+      { shipment: { id: 'shp-1', status: 'picking' }, itemStatus: 'picking' },
+      { shipment: { id: 'shp-1', status: 'enviado' }, itemStatus: 'shipped' },
+      { shipment: null, itemStatus: 'reserved' },
+      { shipment: { id: 'shp-1', status: 'cancelado' }, itemStatus: 'picking' },
+    ]) {
+      const { svc, orderUpdates } = build(scenario as never);
+      await svc.onChargeDispute(dispute);
+      expect(orderUpdates[0].chargebackNeedsManual).not.toBe(false);
+    }
   });
 });
 

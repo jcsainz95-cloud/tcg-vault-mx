@@ -11,11 +11,19 @@ import { CatalogService } from '../src/modules/catalog/catalog.service';
  * congelada para siempre; con él, quien decide es el operador que mira el estante, no una
  * heurística de estados.
  */
-function build(opts: {
-  order?: Record<string, unknown> | null;
-  frozen?: { id: string; status: string }[];
-  priceResolves?: boolean;
-} = {}) {
+function build(
+  opts: {
+    order?: Record<string, unknown> | null;
+    frozen?: { id: string; status: string }[];
+    priceResolves?: boolean;
+    /** Estado compartido del flag, para simular DOS llamadas concurrentes sobre la misma orden. */
+    shared?: { needsManual: boolean };
+    activeShipment?: unknown;
+  } = {},
+) {
+  const shared = opts.shared ?? {
+    needsManual: (opts.order?.chargebackNeedsManual as boolean | undefined) ?? true,
+  };
   const order =
     opts.order === null
       ? null
@@ -25,27 +33,28 @@ function build(opts: {
           fulfillmentMode: 'direct_ship',
           status: 'chargeback',
           disputeOutcome: null,
-          chargebackNeedsManual: true,
           shippingAddressSnapshot: { city: 'CDMX', recipientName: 'Juan Pérez' },
           items: [{ inventoryItemId: 'item-1' }],
           ...(opts.order ?? {}),
         };
   const frozen = opts.frozen ?? [{ id: 'item-1', status: 'picking' }];
-  const created: any = { shipments: [], movements: [], itemUpdates: [], orderUpdates: [] };
+  const created: any = { shipments: [], movements: [], itemUpdates: [], claims: 0 };
+
+  // TODO el flujo corre DENTRO de una transacción: el doble de `tx` es el que importa.
   const tx: any = {
-    shipmentRequest: {
-      create: jest.fn(async ({ data }: any) => {
-        created.shipments.push(data);
-        return { id: 'shp-nuevo', ...data };
-      }),
-    },
     order: {
-      update: jest.fn(async ({ data }: any) => {
-        created.orderUpdates.push(data);
-        return {};
+      findUnique: jest.fn(async () => order),
+      // CLAIM atómico: `updateMany` con `chargebackNeedsManual: true` solo puede ganar UNA vez
+      // (mismo patrón que la reserva de piezas únicas).
+      updateMany: jest.fn(async ({ where }: any) => {
+        created.claims += 1;
+        if (where.chargebackNeedsManual === true && !shared.needsManual) return { count: 0 };
+        shared.needsManual = false;
+        return { count: 1 };
       }),
     },
     inventoryItem: {
+      findMany: jest.fn(async () => frozen),
       updateMany: jest.fn(async ({ data }: any) => {
         created.itemUpdates.push(data);
         return { count: 1 };
@@ -57,17 +66,29 @@ function build(opts: {
         return data;
       }),
     },
-  };
-  const prisma: any = {
-    order: {
-      findUnique: jest.fn(async () => order),
-      update: jest.fn(async ({ data }: any) => {
-        created.orderUpdates.push(data);
-        return {};
+    shipmentRequest: {
+      findFirst: jest.fn(async () => opts.activeShipment ?? null),
+      create: jest.fn(async ({ data }: any) => {
+        created.shipments.push(data);
+        return { id: `shp-nuevo-${created.shipments.length}`, ...data };
       }),
     },
+  };
+  const prisma: any = {
+    // La transacción REVIERTE al lanzar: se simula restaurando el flag reclamado.
+    $transaction: jest.fn(async (cb: any) => {
+      const before = shared.needsManual;
+      try {
+        return await cb(tx);
+      } catch (e) {
+        shared.needsManual = before;
+        created.itemUpdates.length = 0;
+        created.movements.length = 0;
+        created.shipments.length = 0;
+        throw e;
+      }
+    }),
     inventoryItem: {
-      findMany: jest.fn(async () => frozen),
       findUnique: jest.fn(async () => ({
         id: 'item-1',
         status: 'picking',
@@ -75,7 +96,6 @@ function build(opts: {
         card: { rarity: 'Common', set: {} },
       })),
     },
-    $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
   const pricing: any = {
     gradeKeyFor: jest.fn(() => 'nm'),
@@ -89,7 +109,7 @@ function build(opts: {
     {} as StripeService,
     {} as CatalogService,
   );
-  return { svc, prisma, created };
+  return { svc, prisma, tx, created, shared };
 }
 
 describe('POST /admin/orders/:id/chargeback-inventory — `recuperada`', () => {
@@ -113,7 +133,8 @@ describe('POST /admin/orders/:id/chargeback-inventory — `recuperada`', () => {
       toStatus: 'listed',
       reason: 'chargeback_return',
     });
-    expect(created.orderUpdates).toContainEqual({ chargebackNeedsManual: false });
+    // El flag se reclamó (true→false) DENTRO de la transacción, no después.
+    expect(created.claims).toBe(1);
   });
 
   it('si el precio no resuelve, vuelve a `in_stock` (en Compra nunca se publica sin precio)', async () => {
@@ -151,7 +172,7 @@ describe('POST /admin/orders/:id/chargeback-inventory — `reexpedir`', () => {
   it('con la disputa GANADA crea un envío nuevo con la forma del settle (montos en 0, sin userId)', async () => {
     const { svc, created } = build({ order: { status: 'settled', disputeOutcome: 'won' } });
     const res = await svc.resolveChargebackInventory('order-1', 'reexpedir');
-    expect(res.shipmentId).toBe('shp-nuevo');
+    expect(res.shipmentId).toBe('shp-nuevo-1');
     expect(created.shipments[0]).toMatchObject({
       userId: null,
       orderId: 'order-1',
@@ -204,6 +225,40 @@ describe('POST /admin/orders/:id/chargeback-inventory — guardas comunes', () =
     expect(created.itemUpdates).toHaveLength(0);
     expect(created.movements).toHaveLength(0);
     expect(created.shipments).toHaveLength(0);
-    expect(created.orderUpdates).toHaveLength(0);
+  });
+
+  /**
+   * Techlead — el guard se leía FUERA de la transacción y se escribía DENTRO: dos llamadas
+   * concurrentes (doble submit; el endpoint no lleva Idempotency-Key) pasaban ambas, y `reexpedir`
+   * creaba DOS `ShipmentRequest` para la misma orden, rompiendo «a lo más un envío activo por
+   * orden» (§4-G.10) y duplicando la pieza en `pickingList()`.
+   */
+  it('ATOMICIDAD: dos `reexpedir` concurrentes ⇒ solo UNO crea envío; el otro recibe 409', async () => {
+    const shared = { needsManual: true };
+    const wonOrder = { status: 'settled', disputeOutcome: 'won' };
+    const a = build({ order: wonOrder, shared });
+    const b = build({ order: wonOrder, shared });
+
+    const [resA, resB] = await Promise.allSettled([
+      a.svc.resolveChargebackInventory('order-1', 'reexpedir'),
+      b.svc.resolveChargebackInventory('order-1', 'reexpedir'),
+    ]);
+    const fulfilled = [resA, resB].filter((r) => r.status === 'fulfilled');
+    const rejected = [resA, resB].filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'CONFLICT' });
+    // UN solo envío entre ambas llamadas.
+    expect(a.created.shipments.length + b.created.shipments.length).toBe(1);
+  });
+
+  it('un desenlace RECHAZADO no consume la decisión (la transacción revierte el claim)', async () => {
+    const shared = { needsManual: true };
+    const { svc } = build({ shared }); // orden aún en `chargeback` ⇒ `reexpedir` inválido
+    await expect(svc.resolveChargebackInventory('order-1', 'reexpedir')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    // El flag vuelve a `true`: el operador todavía puede resolverlo con el desenlace correcto.
+    expect(shared.needsManual).toBe(true);
   });
 });
