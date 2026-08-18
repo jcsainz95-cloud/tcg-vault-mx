@@ -2104,6 +2104,19 @@ el commit entre intentos.
   `sealed-price-ingest.service.ts`) y la migración **M-23** (`20260817140000_m23_sealed_tcgcsv`).
 - **Railway auto-despliega desde `main`** (HANDOFF §3) y `deploy.yml` **no** corre solo (§16.4): el deploy
   real es la integración nativa de Railway, no GitHub Actions.
+- ✅ **CONFIRMADO en runtime 2026-08-18 06:24 UTC** (deploy logs de Railway aportados por el PO, servicio
+  `tcg-vault-mx-production.up.railway.app`, deploy `Active`): el backend en producción **SÍ tiene WS-A y
+  v1.19**. Evidencia directa: rutas `Mapped {/api/v1/admin/jobs/price-ingest, POST}` y
+  `Mapped {/api/v1/admin/jobs/sealed-price-ingest, POST}`; `Scheduler: conexión Redis lista (BullMQ
+  operativo).`; `Scheduler activo (BullMQ): … + price-ingest 2×/día (00:00 y 12:00 UTC, dial
+  pokemontcg_io) + sealed-price-ingest diario (21:30 UTC, dial sealed_price_source, seed off) +
+  catalog-metadata-sync diario`; y `price-ingest catch-up: hay ingesta reciente (hoy/ayer); no se encola.`
+  **El scheduler está vivo, los dos crons están registrados y los dos diales están en su seed.** La
+  precondición del §23.2 queda cumplida: se puede proceder con §23.4 y §23.5.
+- ⚠️ **Detalle sin resolver (menor):** Railway reporta el commit **`9cb1534a`**, que **no existe** en el
+  repo (`git cat-file` y la API de GitHub → `422 No commit found`); probablemente una rama borrada tras
+  merge. No bloquea: las rutas y la línea del scheduler prueban que el binario desplegado incluye WS-A +
+  v1.19. Si se quiere trazabilidad exacta, re-desplegar desde `main` deja el commit identificable.
 - **NO verificable desde aquí (lo primero que debe mirar el humano):** que el **último deploy de Railway
   haya quedado verde y esté sirviendo ese commit**. Tras el día de CI/deploy con problemas (§22), esto no
   se puede asumir. Verificación mínima, en este orden:
@@ -2252,3 +2265,47 @@ y cada uno tiene su propio dial de apagado. Encender o apagar uno no afecta al o
       atajo aprobado por el PO (fijar `usd_dollars` sin leer la muestra) se paga o se cobra.
 - [ ] **Frontend** (otro rol): exponer en el admin el dial `sealedPriceSource`, la curación TCGCSV del
       sellado y el `setId` del disparo de `price-ingest` (§23.3).
+
+### 23.7 Hallazgo 2026-08-18 — pokemontcg.io está caído (500/502) y por eso el catálogo sigue sin precios
+
+Los deploy logs del 18/08 (06:30–06:32 UTC) muestran el job `set-price-sync` recorriendo el set destacado
+carta por carta contra pokemontcg.io y recibiendo **HTTP 500/502 en prácticamente todas**:
+
+```
+WARN [PokemonTcgIoProvider] pokemontcg.io me5-2  -> HTTP 502
+WARN [PokemonTcgIoProvider] pokemontcg.io me5-3  -> HTTP 500
+…  (≈100 líneas, todo el set)
+LOG  [SetPriceSyncJobService] set-price-sync: set 7b1e3f3b-…-51031b2c1db1 → 0/120 cartas con precio del día.
+```
+
+**Lectura operativa — esto cambia la urgencia del flip:**
+
+1. **El fix de Redis (§20) funcionó.** El scheduler corre, los crons disparan y los jobs completan
+   (`Job set-price-sync (…) completado.`). El catálogo sin precios **ya no es culpa del scheduler**.
+2. **La causa viva es el proveedor:** con el dial en `pokemontcg_io`, la fuente **está devolviendo 5xx** →
+   `0/120` cartas preciadas. Ningún ajuste de devops arregla eso: es un upstream de terceros caído o
+   rate-limiteando con 5xx. **Flipear a PokemonPriceTracker (§23.4) no es solo el plan del PO: hoy es la
+   única vía que puede poblar precios.**
+3. **Money-safe intacto:** el ingest **no borra** precios al fallar (los deja stale) y `set-price-sync` no
+   escala pendientes. El daño es cobertura cero, no precios malos.
+
+**Hallazgo colateral — `set-price-sync` NO se apaga con el flip (enrutado a `backend`):**
+
+El dial `price_provider` gobierna **solo** el ingest masivo (`price-ingest`). El job `set-price-sync`
+(cron `30 6 * * *`, `scheduler.service.ts:158`) va por otra ruta: `PricingService.syncCardPrice` →
+`providerFor()` → dial **`pricing_provider_raw`** (M10), cuyo seed es `pokemontcg_io`
+(`settings.constants.ts:76`). Y **no hay alternativa**: el `PokemonPriceTrackerProvider` **por-carta** es
+un **STUB** que siempre devuelve `null` y además **solo declara `supports('graded'|'sealed')`**
+(`graded-sealed.providers.ts:19-31`) — la integración real de paga vive únicamente en el adapter **bulk**.
+Consecuencias:
+
+- Poner `pricingProviderRaw=pokemonpricetracker` en M10 **empeoraría** la situación (ningún provider
+  matchea `raw` → todo pendiente, sin siquiera intentar). **NO tocar ese dial.**
+- Tras el flip de §23.4, `set-price-sync` **seguirá** golpeando pokemontcg.io a las 06:30 UTC y llenando
+  los logs de WARN. Es **ruido inocuo** (no borra ni corrompe), pero es trabajo desperdiciado: según
+  ARCHITECTURE §4.15g, `price-ingest` **subsume** a `set-price-sync` (el ingest precia todo el catálogo,
+  incluido el set del hero).
+- **Solicitud a `backend`** (es código de `backend/src/jobs/scheduler.service.ts`, no config de devops):
+  retirar `set-price-sync` del schedule —o repuntarlo a leer las `PriceReference` ya ingestadas— una vez
+  que el flip esté verificado. Devops no lo toca (regla de propiedad de archivos). Mientras tanto no
+  bloquea nada.
