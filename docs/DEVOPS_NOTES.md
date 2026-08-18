@@ -349,9 +349,22 @@ disponible). Es deuda de **rol backend** (config del `ThrottlerModule`), registr
 `.github/workflows/deploy.yml` ya **no** es plantilla: tiene los pasos **reales** de Vercel y Railway.
 Cadena de jobs:
 
-1. `ci-ok` — gate. Se dispara vía **`workflow_run`** cuando el workflow **CI** termina en la rama de
-   release (`main`); exige `conclusion == success`. También admite `workflow_dispatch` (disparo manual
-   para el primer deploy / promoción puntual).
+1. `ci-ok` — gate. **HOY SOLO `workflow_dispatch` (disparo manual).** El trigger `workflow_run` que
+   dispararía el CD al terminar **CI** en `main` está **COMENTADO** en el archivo (ver la cabecera de
+   `deploy.yml`): sigue comentado a la espera de que se carguen los 6 secrets de deploy, porque sin
+   ellos `preflight` falla. Mientras siga así, **NADA de esta cadena corre automáticamente**.
+
+   > ⚠️ **Discrepancia detectada el 2026-08-18 y corregida aquí.** Esta sección afirmaba que el CD se
+   > disparaba solo vía `workflow_run`. No era cierto, y la diferencia importa: significa que
+   > `promote-production-frontend` (el `vercel deploy --prod`) **nunca se ha ejecutado**, y que los
+   > gates de **DAST contra staging** y **E2E real** —descritos abajo como bloqueantes para promover a
+   > producción— **nunca han corrido como parte de un deploy**. Todo lo que hay hoy en producción
+   > (backend y frontend) llegó por las **integraciones de Git propias de Railway y Vercel**, que
+   > despliegan al hacer push a su rama configurada, saltándose por completo esta cadena.
+   >
+   > Para cerrar el hueco hay que: (a) cargar los 6 secrets, (b) descomentar `workflow_run`, y
+   > (c) decidir si Railway/Vercel siguen desplegando por su cuenta o se les quita el auto-deploy para
+   > que la única vía sea el pipeline. Hacer las dos cosas a la vez provoca deploys duplicados.
 2. `preflight` — verifica que existan **todos** los GitHub Secrets de deploy. Si falta alguno, **falla
    con la lista exacta** (`::error::Faltan GitHub Secrets de deploy: ...`) y **no despliega a medias**.
 3. `deploy-staging-backend` — `railway up --service backend --environment staging`. El contenedor corre
