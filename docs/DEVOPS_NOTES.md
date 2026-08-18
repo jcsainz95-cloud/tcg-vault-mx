@@ -1995,3 +1995,68 @@ apareciera `Cannot find module '/app/node_modules/prisma/build/index.js'`, el ro
 volver al `CMD` con `npx` **y** revertir el `rm -rf` de npm en `Dockerfile.backend` (ambos a la vez:
 el `npx` no funciona sin npm). El guard `test -f` del build debería impedir que ese caso llegue a
 producción.
+
+### 22.6 Tercera capa de `trivy-image`: OpenSSL de la capa OS (`apk upgrade`)
+
+Cerrados los CVE de npm (§22.3) y los 2 HIGH de dependencias reales del backend (`glob` 10.4.5 →
+10.5.0 / CVE-2025-64756, `picomatch` 4.0.1 → 4.0.5 / CVE-2026-33671, que arregló el rol **backend**
+en `backend/package.json` con overrides acotados por rango), el gate SIGUIÓ rojo con un hallazgo de
+naturaleza distinta:
+
+```
+tcg-frontend:scan (alpine 3.23.4)
+libcrypto3  CVE-2026-45447  HIGH  3.5.6-r0 → 3.5.7-r0
+libssl3     CVE-2026-45447  HIGH  3.5.6-r0 → 3.5.7-r0
+openssl: Heap Use-After-Free in PKCS7_verify()
+```
+
+**Por qué solo el frontend:** la base del backend hace `apk add ... openssl`, que resuelve contra el
+índice ACTUAL del repo de Alpine y de paso arrastraba `libcrypto3`/`libssl3` al día. La del frontend
+no instala openssl, así que conservaba las libs congeladas en el tag `node:20-alpine`. O sea: que el
+backend pasara era un **efecto colateral**, no una garantía.
+
+**Arreglo (no un ignore):** `apk upgrade --no-cache` en la etapa `base` de AMBOS Dockerfiles, antes
+del `apk add`. Cierra el CVE en el frontend, iguala la política en los dos, y cubre futuros CVE de la
+capa OS sin depender de que el tag de Node se reconstruya. Se revisa al subir de imagen base.
+
+**Lección para la próxima vez:** los hallazgos de `trivy-image` venían en TRES capas y cada una tapaba
+a la siguiente — npm de la imagen base → devDependencies reales de la app → paquetes del sistema. Un
+"arreglé el CVE" tras la primera capa habría sido falso. Conviene volver a correr el gate después de
+cada capa hasta que salga limpio de verdad.
+
+### 22.7 Robustez de los pasos de instalación en CI (cuelgues de `apt`)
+
+**Síntoma.** En una sola noche, cuatro jobs se quedaron colgados en `apt-get`: `trivy-fs` (×2),
+`trivy-image` y el `playwright install --with-deps` de `frontend-e2e`. Hasta **25 minutos** parados en
+un paso que en un runner sano tarda entre 30 y 90 s — sin log, sin fallo, solo `in_progress` indefinido.
+Hubo que cancelar y relanzar a mano cada vez.
+
+**Por qué importa más de lo que parece.** Railway espera al **check suite COMPLETO** antes de
+desplegar. Un job colgado bloquea el deploy sin dar ninguna señal accionable, y en el dashboard es
+indistinguible de un job que todavía corre. La causa raíz no es el mirror de apt (que va a seguir
+fallando de vez en cuando): era que estos pasos **no tenían ni timeout ni reintentos**, así que un
+fallo transitorio se convertía en un cuelgue permanente.
+
+**Arreglo, en dos iteraciones — la primera estaba mal y conviene que quede escrito:**
+
+1. **Intento 1 (insuficiente):** `timeout` por comando + 3 reintentos + `timeout-minutes`. Acotaba el
+   cuelgue, pero los reintentos **no servían**: `timeout` mata `apt-get` a mitad de la descarga y el
+   proceso huérfano CONSERVA `/var/lib/dpkg/lock-frontend`, así que los intentos 2 y 3 morían al
+   instante con `Could not get lock ... It is held by process N`. Reintentaba contra un lock que el
+   propio timeout dejaba tomado.
+2. **Intento 2 (el bueno):** `liberar_apt()` antes de cada reintento — mata `apt-get`/`dpkg` por
+   **nombre exacto** (`pkill -x`, deliberadamente NO `-f`, para no arriesgarse a matar el propio shell
+   del step), espera con `fuser` a que `lock-frontend` quede libre (máx. 60 s) y repara estado parcial
+   con `dpkg --configure -a`. Además se subieron los márgenes, porque el fallo real **no era un cuelgue
+   sino lentitud**: el log muestra `apt` tardando ~2 min en bajar un solo paquete de fuentes, de 21 MB
+   totales. Playwright: 420 s por intento. `apt-get` de Trivy: 240/300 s.
+
+**El gate NO se relaja.** Si tras 3 intentos no hay Trivy o no hay Chromium, el step FALLA (`exit 1`).
+Nunca se continúa sin escanear ni sin navegador. `timeout-minutes` (20 en SAST, 25 en E2E) es un tope
+duro frente al default de 6 h de Actions.
+
+**Criterio para reintentar un job en el futuro.** Relanzar es legítimo SOLO cuando el job murió o se
+colgó **antes** de ejecutar la verificación (setup del entorno, instalación de herramientas, checkout).
+Si el escaneo o los tests llegaron a correr y fallaron, eso es un hallazgo real y se diagnostica — no
+se relanza. Los cuatro reintentos de esta noche caen todos en el primer caso, y en ninguno se cambió
+el commit entre intentos.
