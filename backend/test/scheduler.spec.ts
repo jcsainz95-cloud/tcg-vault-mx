@@ -53,6 +53,17 @@ jest.mock('ioredis', () => ({
 // Import DESPUÉS de los mocks para que el servicio use las clases mockeadas.
 import { SchedulerService } from '../src/jobs/scheduler.service';
 
+// El scheduler NO arranca bajo `NODE_ENV=test` (config/test-env.ts, arreglo CI 2026-08-18):
+// cada harness E2E levantaba crons + worker reales y el catch-up de price-ingest colgaba el
+// teardown. Estas pruebas SÍ quieren ejercitar el wiring → lo re-activan explícitamente.
+// El gating en sí se prueba en el describe «deshabilitado bajo NODE_ENV=test» del final.
+beforeAll(() => {
+  process.env.E2E_ENABLE_SCHEDULER = 'true';
+});
+afterAll(() => {
+  delete process.env.E2E_ENABLE_SCHEDULER;
+});
+
 const jobs = {} as PriceSyncJobService;
 const fx = {} as FxRefreshJobService;
 const snap = {} as PortfolioSnapshotJobService;
@@ -311,5 +322,77 @@ describe('SchedulerService — conexión Redis robusta (Railway IPv6) + visibili
     await svc.onModuleDestroy();
     expect(redisQuitMock).not.toHaveBeenCalled();
     expect(redisDisconnectMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Arreglo CI 2026-08-18 (run 32080601928): bajo la suite automatizada el scheduler queda
+ * DESHABILITADO — no abre conexiones ni encola nada — porque cada spec E2E levanta el
+ * AppModule completo y el catch-up de `price-ingest` disparaba ingesta real (worker.close()
+ * esperándola → `afterAll` colgado + handles abiertos). Ver `src/config/test-env.ts`.
+ */
+describe('SchedulerService — deshabilitado bajo NODE_ENV=test', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.E2E_ENABLE_SCHEDULER;
+  });
+  afterEach(() => {
+    process.env.E2E_ENABLE_SCHEDULER = 'true';
+  });
+
+  it('con REDIS_URL pero NODE_ENV=test: no crea conexión ni programa jobs', async () => {
+    expect(process.env.NODE_ENV).toBe('test');
+    const svc = build(new ConfigService({ REDIS_URL: 'redis://localhost:6379' }));
+    await svc.onModuleInit();
+    await svc.setupDone;
+
+    expect(redisCtorMock).not.toHaveBeenCalled();
+    expect(addMock).not.toHaveBeenCalled();
+    expect(priceIngest.catchUpIfStale).not.toHaveBeenCalled();
+    await expect(svc.onModuleDestroy()).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * Shutdown ACOTADO (mismo arreglo): `worker.close()` sin force espera a que TERMINE el job en
+ * vuelo; con un `price-ingest` largo el apagado se colgaba (30 s de timeout en el hook E2E y
+ * "Jest did not exit"). Ahora cada etapa del destroy tiene plazo máximo y, vencido, se sigue.
+ */
+describe('SchedulerService — el shutdown nunca se cuelga', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    workerProcessor = undefined;
+  });
+
+  it('worker.close() que nunca resuelve NO cuelga onModuleDestroy', async () => {
+    workerCloseMock.mockImplementationOnce(() => new Promise(() => undefined)); // jamás resuelve
+    const svc = build(
+      new ConfigService({ REDIS_URL: 'redis://localhost:6379', SCHEDULER_SHUTDOWN_TIMEOUT_MS: '50' }),
+    );
+    await svc.onModuleInit();
+    await svc.setupDone;
+
+    const started = Date.now();
+    await expect(svc.onModuleDestroy()).resolves.toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(5000);
+    // Pese al worker colgado, la cola y la conexión SÍ se cierran (no quedan handles vivos).
+    expect(queueCloseMock).toHaveBeenCalled();
+    expect(redisQuitMock).toHaveBeenCalled();
+  });
+
+  it('si el destroy llega durante el wiring, NO se crea el worker (handle huérfano)', async () => {
+    // catch-up lento: el wiring sigue en background cuando entra el shutdown.
+    const svc = build(new ConfigService({ REDIS_URL: 'redis://localhost:6379' }));
+    const { Worker } = jest.requireMock('bullmq') as { Worker: jest.Mock };
+    (Worker as jest.Mock).mockClear();
+    addMock.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+    });
+    await svc.onModuleInit();
+    await svc.onModuleDestroy(); // entra ANTES de que el wiring termine
+    await svc.setupDone;
+    addMock.mockResolvedValue(undefined);
+
+    expect(Worker).not.toHaveBeenCalled();
   });
 });
