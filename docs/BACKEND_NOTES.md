@@ -3432,3 +3432,128 @@ lo que el contrato manda; no hay nada que arreglar.
 - **NO verificado en este entorno (sin docker ni trivy):** el escaneo `trivy-image` real y el PUT
   contra MinIO del `infra-smoke` (se salta con aviso si no hay S3; en CI sí corre). La confirmación
   final de los 2 CVEs cerrados la da el job `trivy-image` de CI.
+
+---
+
+## 47. WS «Órdenes y dinero» — GUEST CHECKOUT (v1.21-guest-checkout, M-25, 2026-08-18)
+
+> Implementa `API_CONTRACT §4-G` completa (§4-G.0–§4-G.11) y `ARCHITECTURE §4.21`.
+> PROJECT §J / §J.1, criterios 45–56b. **Alcance tocado:** `modules/orders`, `modules/payments`,
+> `modules/shipments`, `prisma/` (solo M-25) y dos adiciones en `common/`.
+
+### 47.1 Qué se construyó (mapa rápido para QA / frontend)
+
+| Superficie | Archivo | Nota |
+|---|---|---|
+| `POST /checkout/guest/quote` · `/session` · `POST /orders/guest/track` · `/resend-link` | `orders/guest-orders.controller.ts` | `@Public()` + `@Throttle` EXACTO del contrato (30/min, 5/h, 20/min, 3/h). |
+| Lógica de los 4 endpoints + barrido T9 | `orders/guest-checkout.service.ts` | Incluye el mapeo `Order.status`+envío → `GuestOrderPublicStatus` y el `GuestOrderTrackingDTO`. |
+| Enlace tokenizado (emitir/validar/rotar/revocar) | `orders/order-access-token.service.ts` | Multi-uso, `revokedAt`, solo SHA-256 en BD. |
+| Correo (plantilla LOCAL, sin tocar `mail/`) | `orders/mail/guest-order.templates.ts` + `orders/guest-order-mail.service.ts` | Inyecta el puerto global `MAIL_PORT`. |
+| Reclamo (`GET /orders/claimable`, `POST /orders/claim`) | `orders/order-claim.service.ts` + rutas en `orders.controller.ts` | `@RequireEmailVerified()`; UPDATE condicional. |
+| Reenvío de soporte (`POST /admin/orders/:id/tracking-link`) + campos M3 | `orders/admin-orders.controller.ts` | Auditado (`order.tracking_link.reissue`), no money-out. |
+| Rechazo de sesión en `/checkout/guest/*` | `orders/guards/reject-authenticated.guard.ts` | `409 ALREADY_AUTHENTICATED`. |
+| Rama `direct_ship` del webhook | `payments/payments.service.ts` (`settleDirectShipOrder`) | items → `picking`, crea `ShipmentRequest`, captura marca/last4, correo post-commit. |
+| Ramificación terminal de M4 + `kind` en la cola | `shipments/shipments.service.ts` | `enviado` ⇒ `picking→shipped`; `entregado` ⇒ `shipped→delivered`. |
+| Helpers de minimización | `orders/guest-privacy.ts` | `maskEmail`, `maskPostalCode`, `maskRecipientName`, `normalizeEmail`. |
+| Constantes de servidor | `orders/guest-checkout.constants.ts` | 90d / 365d / 5 por día / 20 líneas / 60 min. **No son diales de M10.** |
+
+**Zonas compartidas — solo adiciones:** `common/money.ts` gana `computeDirectShipBreakdown()` +
+`DirectShipBreakdownDTO`; `common/error-codes.ts` gana los códigos nuevos. Nada existente se
+modificó ni se reformateó (para no romper el merge de otras sesiones).
+
+### 47.2 Migración M-25 aplicada (diff real)
+
+`backend/prisma/migrations/20260818120000_m25_guest_checkout/migration.sql`. Verificada contra un
+Postgres 16 real: `migrate deploy` + `migrate diff --exit-code` ⇒ **sin drift**.
+
+- **Enum nuevo** `FulfillmentMode { vault | direct_ship }`.
+- **`Order`**: `userId` → nullable; columnas nuevas `guestEmail`, `orderNumber @unique`,
+  `fulfillmentMode @default(vault)`, `shippingAddressSnapshot`, `shippingFeeCents @default(0)`,
+  `claimedAt`, `locale`, `paymentMethodBrand`, `paymentMethodLast4`; índice `@@index([guestEmail])`;
+  relaciones `accessTokens`, `shipmentRequests`.
+- **`ShipmentRequest`**: `userId` → nullable; `orderId?` + FK + `@@index([orderId])`.
+- **Modelo nuevo `OrderAccessToken`** (tal cual §4-G.10).
+- **Secuencia `order_number_seq`** + backfill de `orderNumber` por `createdAt` dentro de la migración.
+- **4 CHECK** de invariantes (probados uno por uno contra Postgres: los tres pedidos mal formados
+  son rechazados y el `UPDATE` que dejaría `claimedAt` sin `userId` también).
+
+**Desviación consciente y necesaria (reportada al arquitecto):** las relaciones `Order.user`,
+`ShipmentRequest.user` y `ShipmentRequest.order` se declaran **`onDelete: Restrict` explícito**. Al
+volver opcional una relación, el default de Prisma pasa a `SET NULL`, y con `SET NULL` un borrado
+duro de usuario **huerfanaría** sus pedidos y **rompería** el CHECK
+`claimedAt IS NOT NULL ⇒ userId IS NOT NULL` (lo reprodujo el E2E). Con `Restrict` se conserva
+exactamente el comportamiento previo a M-25. **La migración NO recrea esas FKs**: quedan como estaban.
+
+### 47.3 Decisiones de implementación que otros roles deben conocer
+
+1. **`orderNumber` se escribe en TODOS los pedidos nuevos**, también en los de bóveda
+   (`POST /checkout/session`). La secuencia se reserva **antes** de la transacción (`nextval` no es
+   transaccional): un hueco es inocuo, un duplicado no. No hay `PrismaService.nextOrderNumber()`
+   porque `src/prisma/` es zona de otro stream: la consulta vive en `OrdersService`.
+2. **El precio del invitado sale de la MISMA función** que el del comprador con cuenta
+   (`OrdersService.priceCartLines`, extraída de `quote`/`createSession`). No hay tabla de precios
+   paralela: comprar como invitado no cambia condiciones comerciales (criterio 48b).
+3. **El envío del `ShipmentRequest` de invitado va en `0`** a propósito. El ingreso vive en
+   `Order.shippingFeeCents`. **M7 (módulo `admin`, OTRO work stream) debe corregir su fórmula**
+   según §12; mientras no lo haga, el ingreso de envío de los pedidos de invitado **no aparece** en
+   el P&L (no se duplica, se omite). *No se tocó `admin` por indicación explícita del orquestador.*
+4. **Movimientos de inventario del ciclo de invitado:** `reserved→picking` con `reason='settle'`
+   (mismo disparador que la ruta de bóveda) y `picking→shipped` / `shipped→delivered` con
+   `reason='sale'`. **No se usa `withdrawal`**: significaría "salió de la bóveda de un cliente" y
+   mentiría en los reportes de custodia. *El contrato no fija el `reason`; queda documentado aquí.*
+5. **`GET /shipments` y `/shipments/:id`** ganaron una guardia explícita contra `userId` vacío,
+   además del filtro positivo que ya tenían. Un envío `userId=null` no es de nadie (riesgo #1 de M-25).
+6. **El correo es best-effort post-commit.** Si Resend falla, el pago NO se revierte y el webhook
+   responde 200 (un 5xx haría que Stripe reintentara un settle ya aplicado).
+7. **`RejectAuthenticatedGuard` deja pasar una sesión INVÁLIDA** (token expirado/firma mala/cuenta
+   bloqueada): no hay sesión, luego es un invitado. Solo una sesión **válida** produce `409`.
+8. **El correo se recorta (`trim`) antes de validar** el formato y se pasa a minúsculas al persistir.
+   Un espacio pegado al copiar no puede bloquear una compra legítima.
+
+### 47.4 Dos puntos donde el contrato no se pudo cumplir al pie de la letra
+
+> Ambos están **reportados al arquitecto**; aquí queda la decisión tomada mientras se resuelve.
+
+1. **«El MISMO token se envía por correo al liquidar» (§4-G.2) es IMPOSIBLE.** En BD solo vive el
+   SHA-256, así que el claro devuelto por `POST /checkout/guest/session` **no se puede recuperar**
+   en el webhook. Opciones: (a) emitir uno nuevo **rotando** ⇒ mataría el token que el navegador ya
+   tiene y la pantalla de confirmación tras el 3DS dejaría de funcionar; (b) emitir uno nuevo **sin
+   rotar** ⇒ dos puertas vivas para el mismo pedido durante el TTL. **Se eligió (b)**: preserva la
+   UX que el propio contrato describe y el coste es acotado (ambos tokens caducan igual, y el
+   siguiente reenvío o el reclamo revocan los dos). Guardar el claro cifrado se descartó: el
+   contrato lo prohíbe explícitamente.
+2. **`details.reason` de `410 TOKEN_REVOKED` se DERIVA, no se persiste.** El diff de §4-G.10 no
+   incluye columna de motivo y la instrucción fue "ni un campo más". Derivación: pedido reclamado ⇒
+   `CLAIMED`; existe un token vigente que lo sustituye ⇒ `ROTATED`; si no ⇒ `SUPPORT`. Consecuencia:
+   la rotación pedida por **soporte** (§4-G.9b) se lee como `ROTATED`, no como `SUPPORT`.
+   Distinguirlas exige una columna nueva (decisión del arquitecto).
+
+### 47.5 Pendiente que NO se hizo (fuera del alcance autorizado)
+
+**El job `guest-order-sweep` (T9) NO está cableado al scheduler.** La lógica existe y está probada
+(`GuestCheckoutService.sweepStaleGuestOrders()`, libera reservas de pedidos `pending` de más de 60
+min, marca la orden `failed` y cancela el PaymentIntent), pero registrar el cron exige tocar
+`backend/src/jobs/`, que no estaba en el alcance de esta sesión. **Mientras no se cablee, una
+reserva de invitado no pagada se libera solo cuando Stripe cancela el PI.** Es un paso pequeño
+(un `@Injectable` en `jobs/` que llame al método) y necesita autorización del orquestador.
+
+### 47.6 Cómo probarlo
+
+```bash
+cd backend
+npm test                    # 96 suites / 847 tests (incluye las 10 suites nuevas del guest checkout)
+npm run lint && npm run typecheck
+# E2E (requiere Postgres real):
+DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
+```
+
+- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (37 casos) — camino feliz de
+  §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
+  negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
+  `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida
+  (`E2E-GST-<run>-*`), porque deja `ShipmentItem` de un envío entregado y eso alteraría el
+  contracargo de otra suite si reusara los folios compartidos del seed.
+- **Suites unitarias nuevas:** `money.direct-ship`, `guest-order-token`, `guest-checkout.session`,
+  `guest-checkout.tracking` (minimización + neutralidad + mapeo de estado), `guest-checkout.resend`,
+  `guest-claim`, `payments.guest-settle`, `shipments.guest-direct-ship`, `guest-checkout.contract`,
+  `guest-checkout.guard-sweep-mail`.
