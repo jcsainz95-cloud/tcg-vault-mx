@@ -1555,6 +1555,54 @@
   recibiendo `pieces` por props (la query queda en el padre), y eliminar el estado derivado de `adjustFinish`
   (derivarlo en render con override del usuario, o re-sincronizar con `cell.cardId` por `key`).
 
+### WS «Órdenes y dinero» — guest checkout, frontend (2026-08-18, no bloqueante)
+
+> Hallazgos de **techlead** y **QA** en el cierre del stream «Órdenes y dinero» sobre la parte de
+> **frontend** (checkout de invitado + seguimiento público por token, contrato v1.21/v1.21.1).
+> Ninguno bloquea: el veredicto de código fue **sin hallazgos**; estas dos son deudas de diseño
+> defensivo y de cobertura. Aceptadas como deuda **no bloqueante**, dueño **frontend** (FE-28 con
+> cadencia compartida con QA). Continúan la numeración `FE-*` (tras FE-26).
+
+### FE-27 · La `queryKey` del seguimiento público no incluye el token (aislamiento por caché, no por clave) (Media)
+- **Dónde:** `frontend/src/app/[locale]/pedido/TrackingPageClient.tsx:46` —
+  `useQuery({ queryKey: ['guest-order-track'], queryFn: () => trackGuestOrder(token) })`.
+- **Estado actual:** la clave de caché es **constante** para un recurso que es **por-token**: dos
+  pedidos distintos comparten la misma entrada en el `QueryClient`. Hoy no se manifiesta porque la
+  query se configuró con `gcTime: 0` y `staleTime: 0` (y `retry: false`), así que nunca hay una
+  entrada viva que reutilizar. Es decir: **el aislamiento entre pedidos lo está sosteniendo la
+  configuración de caché, no la identidad del recurso**.
+- **Impacto:** medio. **No hay bug hoy** ni fuga observable —los E2E y los unitarios lo confirman—,
+  pero la protección es **accidental**: cualquier cambio de política de caché (subir `staleTime`,
+  activar `gcTime` por defecto, un `QueryClient` con defaults distintos, o prefetch) convierte esto
+  en una **fuga entre pedidos**: el `GuestOrderTrackingDTO` de un invitado servido a otro. Y es
+  justo la superficie más sensible del stream (criterio 51/52: un token ⇒ un pedido).
+- **Disparador:** al tocar los defaults del `QueryClient`, al añadir prefetch/persistencia de caché,
+  o al permitir cambiar de token sin remontar la página. Acción: **incluir el token en la
+  `queryKey`** —`['guest-order-track', token]`, o un hash/prefijo suyo si se prefiere no dejar el
+  secreto en las devtools de React Query— de modo que el aislamiento sea una propiedad de la clave y
+  no del `gcTime`.
+
+### FE-28 · La E2E del seguimiento público es mock-driven: la superficie del enlace tokenizado no se ejerce contra el stack real (Media)
+- **Dónde:** `frontend/e2e/guest-checkout.spec.ts:144-235` (bloque `seguimiento público · /pedido`:
+  `mock-demo-token`, `mock-expired-token`, `mock-…-checkout-token-expired`), servidos por la rama
+  mock de `trackGuestOrder` / `resendGuestTrackingLink` en `frontend/src/lib/api.ts`. El único caso
+  tagueado `@real` del spec (`comprar como invitado`) **degrada a mock** cuando no hay backend.
+- **Estado actual:** todo el comportamiento de seguridad del enlace que valida el front —token
+  válido, token inválido/expirado con pantalla neutra idéntica, reenvío neutro— se verifica contra
+  **fixtures del propio frontend**, no contra el backend. Los casos negativos comprueban que la UI
+  no ramifica, pero **no** que el backend responda `404/410/429` como el contrato §4-G.3 exige, ni
+  que el DTO real venga sin los campos prohibidos.
+- **Impacto:** medio. **Precedente concreto de este mismo stream:** `/checkout` estaba en
+  `PRIVATE_PREFIXES` de `PrivateRouteGuard`, lo que **rompía el criterio 45/46 en modo REAL**
+  (redirect a `/login`), y **los 60 E2E en modo mock pasaban igual** — porque el guard es inerte con
+  `useMocks`. El verde en mock no dice nada sobre el stack real, y aquí lo que quedaría sin cubrir
+  no es una pantalla cualquiera sino la **puerta sin contraseña** del pedido.
+- **Disparador:** próxima ronda de E2E `@real` / cierre de release. Acción: cubrir contra el backend
+  vivo al menos (a) **token válido** (pedido sembrado por el seed E2E ⇒ la vista pinta su
+  `orderNumber` y su estado) y (b) **token inválido/manipulado** (⇒ pantalla neutra, sin eco del
+  `errorCode`), reusando el patrón `@real` + `E2E_REAL=1` ya existente. Dueño: **frontend** escribe
+  el spec; **QA** fija la cadencia (por stream vs. por release) y siembra el pedido de invitado.
+
 ### WS «Órdenes y dinero» — cierre v1.21 guest checkout (2026-08-18, no bloqueante)
 
 > Hallazgos del veredicto del **techlead** sobre el stream «Órdenes y dinero» (guest checkout, contrato
