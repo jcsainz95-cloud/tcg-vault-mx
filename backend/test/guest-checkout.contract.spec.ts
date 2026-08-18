@@ -66,7 +66,14 @@ describe('Contrato — endpoints públicos del guest checkout', () => {
     quote: jest.fn(async () => ({ items: [], fulfillmentMode: 'direct_ship', breakdown: {}, notices: {} })),
     createSession: jest.fn(
       async (dto: Record<string, unknown>) =>
-        ({ orderId: 'o1', orderNumber: 'TCG-000001', trackingToken: 'tok', echo: dto }) as unknown,
+        ({
+          orderId: 'o1',
+          orderNumber: 'TCG-000001',
+          // v1.21.1 (§4-G.2): el campo se llama `checkoutToken` (+ `checkoutTokenExpiresAt`).
+          checkoutToken: 'tok',
+          checkoutTokenExpiresAt: '2026-08-18T12:00:00.000Z',
+          echo: dto,
+        }) as unknown,
     ),
     track: jest.fn(async () => ({ orderNumber: 'TCG-000001' })),
     resendLink: jest.fn(() => ({ status: 'ACCEPTED' })),
@@ -126,6 +133,12 @@ describe('Contrato — endpoints públicos del guest checkout', () => {
     });
     expect(res.status).toBe(201);
     expect(service.createSession).toHaveBeenCalled();
+    // v1.21.1 (§4-G.2): `checkoutToken` + `checkoutTokenExpiresAt`; el nombre viejo no existe.
+    expect(res.body).toMatchObject({
+      checkoutToken: 'tok',
+      checkoutTokenExpiresAt: '2026-08-18T12:00:00.000Z',
+    });
+    expect(res.body).not.toHaveProperty('trackingToken');
   });
 
   it('POST /checkout/guest/session → 400 sin correo, con correo inválido o sin acceptedTerms', async () => {

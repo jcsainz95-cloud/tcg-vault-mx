@@ -3447,7 +3447,7 @@ lo que el contrato manda; no hay nada que arreglar.
 |---|---|---|
 | `POST /checkout/guest/quote` · `/session` · `POST /orders/guest/track` · `/resend-link` | `orders/guest-orders.controller.ts` | `@Public()` + `@Throttle` EXACTO del contrato (30/min, 5/h, 20/min, 3/h). |
 | Lógica de los 4 endpoints + barrido T9 | `orders/guest-checkout.service.ts` | Incluye el mapeo `Order.status`+envío → `GuestOrderPublicStatus` y el `GuestOrderTrackingDTO`. |
-| Enlace tokenizado (emitir/validar/rotar/revocar) | `orders/order-access-token.service.ts` | Multi-uso, `revokedAt`, solo SHA-256 en BD. |
+| Enlace tokenizado (emitir/validar/rotar/revocar/selector) | `orders/order-access-token.service.ts` | Multi-uso, `revokedAt`, solo SHA-256 en BD. **Dos vidas** (checkout 120 min / seguimiento 90 d) por `ttlMs`, sin columna nueva (§4-G.7a). |
 | Correo (plantilla LOCAL, sin tocar `mail/`) | `orders/mail/guest-order.templates.ts` + `orders/guest-order-mail.service.ts` | Inyecta el puerto global `MAIL_PORT`. |
 | Reclamo (`GET /orders/claimable`, `POST /orders/claim`) | `orders/order-claim.service.ts` + rutas en `orders.controller.ts` | `@RequireEmailVerified()`; UPDATE condicional. |
 | Reenvío de soporte (`POST /admin/orders/:id/tracking-link`) + campos M3 | `orders/admin-orders.controller.ts` | Auditado (`order.tracking_link.reissue`), no money-out. |
@@ -3510,23 +3510,51 @@ exactamente el comportamiento previo a M-25. **La migración NO recrea esas FKs*
 8. **El correo se recorta (`trim`) antes de validar** el formato y se pasa a minúsculas al persistir.
    Un espacio pegado al copiar no puede bloquear una compra legítima.
 
-### 47.4 Dos puntos donde el contrato no se pudo cumplir al pie de la letra
+### 47.4 v1.21.1 — resolución del arquitecto a los dos puntos que backend reportó
 
-> Ambos están **reportados al arquitecto**; aquí queda la decisión tomada mientras se resuelve.
+> Los dos huecos que backend detectó (regla 9) los resolvió el arquitecto en
+> **`API_CONTRACT §4-G.7a`** / **`ARCHITECTURE §4.21e-bis` + amenaza T7b**. **Sin migración
+> adicional: M-25 no cambia.** Esto es lo que quedó implementado.
 
-1. **«El MISMO token se envía por correo al liquidar» (§4-G.2) es IMPOSIBLE.** En BD solo vive el
-   SHA-256, así que el claro devuelto por `POST /checkout/guest/session` **no se puede recuperar**
-   en el webhook. Opciones: (a) emitir uno nuevo **rotando** ⇒ mataría el token que el navegador ya
-   tiene y la pantalla de confirmación tras el 3DS dejaría de funcionar; (b) emitir uno nuevo **sin
-   rotar** ⇒ dos puertas vivas para el mismo pedido durante el TTL. **Se eligió (b)**: preserva la
-   UX que el propio contrato describe y el coste es acotado (ambos tokens caducan igual, y el
-   siguiente reenvío o el reclamo revocan los dos). Guardar el claro cifrado se descartó: el
-   contrato lo prohíbe explícitamente.
-2. **`details.reason` de `410 TOKEN_REVOKED` se DERIVA, no se persiste.** El diff de §4-G.10 no
-   incluye columna de motivo y la instrucción fue "ni un campo más". Derivación: pedido reclamado ⇒
-   `CLAIMED`; existe un token vigente que lo sustituye ⇒ `ROTATED`; si no ⇒ `SUPPORT`. Consecuencia:
-   la rotación pedida por **soporte** (§4-G.9b) se lee como `ROTATED`, no como `SUPPORT`.
-   Distinguirlas exige una columna nueva (decisión del arquitecto).
+**1. Las DOS VIDAS del token (§4-G.7a).** Se retiró el requisito irrealizable ("el mismo token se
+envía por correo al liquidar"): con solo el SHA-256 en BD el claro **no es recuperable**, y esa
+irrecuperabilidad es la propiedad de seguridad **T5**, no un defecto. Ahora hay **dos emisiones en
+la misma tabla, sin columna nueva**, distinguidas **solo por `expiresAt`**:
+
+| | Token de **checkout** | Token de **seguimiento** |
+|---|---|---|
+| Lo emite | `POST /checkout/guest/session` | webhook `payment_intent.succeeded`, reenvío (§4-G.4), soporte (§4-G.9b) |
+| Se entrega | en la **respuesta HTTP** (campo **`checkoutToken`** + `checkoutTokenExpiresAt`) | **solo por correo** |
+| TTL | **120 min** (`GUEST_CHECKOUT_TOKEN_TTL_MIN`) | **90 días** (`GUEST_TRACKING_TTL_DAYS`) |
+| ¿Rota? | n/a (es el primero) | **NO en el settle** · **SÍ en reenvío/soporte** |
+
+- **El campo de la respuesta se renombró `trackingToken` → `checkoutToken`** (+
+  `checkoutTokenExpiresAt`). **Es contract-breaking para frontend**, ya avisado por el orquestador.
+- **El settle NO rota** (excepción acotada: rotar mataría la confirmación post-3DS en curso) y es
+  seguro porque la puerta que sobrevive se apaga sola en 2 h. **Reenvío y soporte SÍ rotan** y
+  revocan *todos* los vivos —incluido cualquier `checkoutToken` residual—. **El reclamo revoca todo.**
+- Resultado: el solapamiento de dos puertas sin contraseña baja de **90 días a ≤2 horas** (T7b).
+- `issue()` acepta `ttlMs`; el default sigue siendo 90 días. **No hay `type` ni `purpose` en la
+  tabla y no hace falta ninguna env nueva.**
+
+**2. `details.reason` del `410 TOKEN_REVOKED`: se ELIMINA `SUPPORT`.** Valores normativos:
+**`CLAIMED | ROTATED`**, derivados de forma literal — `order.claimedAt != null` ⇒ `CLAIMED`, en
+cualquier otro caso ⇒ `ROTATED`. Una rotación de soporte se reporta como `ROTATED` (es lo que el
+usuario necesita leer). **La trazabilidad forense no se pierde y está probada en la E2E:** el
+reenvío de **soporte** escribe `AuditLog` (`order.tracking_link.reissue`, con actor y timestamp) y
+el **self-service no escribe ninguno** — esa asimetría es la que distingue quién rotó.
+
+**3. Selector del reenvío (§4-G.4) — verificado.** `POST /orders/guest/resend-link` con `{token}`
+resuelve el pedido con **`OrderAccessTokenService.orderIdForSelector()`**, que busca **solo por
+`tokenHash`, SIN filtrar por `expiresAt` ni `revokedAt`**. Es el caso normal: se llega desde la
+pantalla de "enlace expirado" (o con un `checkoutToken` de 120 min ya vencido). *Identificar* el
+pedido ≠ *leerlo*: la lectura (§4-G.3) sigue exigiendo un token vigente vía `validate()`.
+Cubierto por tests unitarios (incluido uno que afirma que el `where` de la consulta tiene
+**exactamente** la clave `tokenHash`) y por un caso E2E con un token realmente revocado.
+
+**4. Ratificados sin cambio:** los `InventoryMovement.reason` (`settle` en `reserved→picking`,
+`sale` en `picking→shipped` y `shipped→delivered`, **`withdrawal` prohibido**) y el conteo de
+**8** códigos de error nuevos.
 
 ### 47.5 Job `guest-order-sweep` (T9) — CABLEADO (2026-08-18, ronda 2)
 
@@ -3544,6 +3572,7 @@ sin estado que **delega la regla de negocio** en `GuestCheckoutService.sweepStal
 - **Cron overridable por env: `GUEST_ORDER_SWEEP_CRON`** (default `*/15 * * * *`).
   ⚠️ **`.env.example` es de devops: la variable NO se añadió ahí.** Queda reportada al orquestador
   para que devops la documente/propague (el default ya es sensato, así que no bloquea el deploy).
+  **Es la ÚNICA variable de entorno nueva de todo el guest checkout** (ver §47.5b).
 - **Sin Redis no hay cron** (mismo gating que todos los jobs: `SchedulerService` se desactiva sin
   `REDIS_URL`). **No se expuso `POST /admin/jobs/guest-order-sweep`**: sería superficie de API nueva
   y el contrato no la contempla; si ops la quiere, pasa por el arquitecto.
@@ -3556,17 +3585,40 @@ sin estado que **delega la regla de negocio** en `GuestCheckoutService.sweepStal
   `guest-order-sweep-daily` pese a correr cada 15 min. Es solo la clave de dedup (invisible para
   ops); no se modificó el helper para no tocar código compartido.
 
+### 47.5b Handoff a devops — variables y constantes del guest checkout
+
+**Variables de entorno (única lista; todo lo demás son constantes de servidor):**
+
+| Variable | Default | Para qué | Dueño del archivo |
+|---|---|---|---|
+| `GUEST_ORDER_SWEEP_CRON` | `*/15 * * * *` | Cadencia del barrido T9 de reservas de invitado sin pagar. Sin `REDIS_URL` el scheduler está apagado y el job no corre. | devops (`.env.example`) — **no la añadí yo** |
+
+**Constantes de servidor** (`backend/src/modules/orders/guest-checkout.constants.ts`; **NO son
+diales de M10 ni envs**, mismo precedente que las ventanas 7d/30d del buylist):
+
+| Constante | Valor | Nota |
+|---|---|---|
+| `GUEST_TRACKING_TTL_DAYS` | 90 | TTL del enlace que viaja por correo. |
+| `GUEST_CHECKOUT_TOKEN_TTL_MIN` | **120** | v1.21.1 — TTL del `checkoutToken` de la respuesta del checkout. |
+| `GUEST_TRACKING_MAX_AGE_DAYS` | 365 | Tope de edad del pedido para emitir enlaces nuevos. |
+| `GUEST_RESEND_MAX_PER_DAY` | 5 | Tope de enlaces por pedido en 24 h. |
+| `GUEST_MAX_ITEMS` | 20 | Máximo de líneas por pedido de invitado. |
+| `GUEST_ORDER_RESERVATION_TTL_MIN` | 60 | Ventana de reserva que barre el job T9. |
+
+La **tarifa de envío** NO es constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (M10).
+Promover cualquiera de estas constantes a `ConfigSetting` más adelante es **no-breaking**.
+
 ### 47.6 Cómo probarlo
 
 ```bash
 cd backend
-npm test                    # 97 suites / 852 tests (incluye las 11 suites nuevas del guest checkout)
+npm test                    # 97 suites / 862 tests (incluye las 11 suites nuevas del guest checkout)
 npm run lint && npm run typecheck
 # E2E (requiere Postgres real):
 DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
 ```
 
-- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (39 casos) — camino feliz de
+- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (42 casos) — camino feliz de
   §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
   negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
   `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida

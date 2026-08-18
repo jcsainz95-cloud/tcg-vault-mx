@@ -17,7 +17,7 @@ import {
  *
  * Envío BEST-EFFORT POST-COMMIT: cualquier fallo (puerto ausente, proveedor caído) se loguea y
  * NUNCA revierte el pago ni hace fallar el webhook (un 5xx haría que Stripe reintentara un settle
- * ya aplicado). La red de seguridad es triple: el `trackingToken` que ya devolvió
+ * ya aplicado). La red de seguridad es triple: el `checkoutToken` que ya devolvió
  * `POST /checkout/guest/session`, el reenvío self-service y el reenvío de soporte.
  */
 @Injectable()
@@ -43,9 +43,10 @@ export class GuestOrderMailService {
   }
 
   /**
-   * Correo de CONFIRMACIÓN al liquidar (criterio 49). `rotate:false` A PROPÓSITO: el token que
-   * `POST /checkout/guest/session` devolvió al navegador debe seguir vivo (la confirmación tras el
-   * redirect 3DS lo usa). Ver la desviación documentada en docs/BACKEND_NOTES.md.
+   * Correo de CONFIRMACIÓN al liquidar (criterio 49). Emite el token de SEGUIMIENTO: TTL por
+   * defecto (90 días) y **`rotate:false` A PROPÓSITO** (§4-G.7a): rotar aquí mataría el
+   * `checkoutToken` que el navegador está usando en la confirmación post-3DS. Es la ÚNICA
+   * excepción a la rotación, y es segura porque ese token de checkout caduca solo en 120 min.
    */
   async sendConfirmation(order: {
     id: string;

@@ -31,11 +31,10 @@ function buildService(opts: { order?: any; quotaExceeded?: boolean; tokenOrderId
     },
   };
   const tokens: any = {
-    validate: jest.fn(async () =>
-      opts.tokenOrderId
-        ? { ok: false, code: 'TOKEN_EXPIRED', token: { orderId: opts.tokenOrderId } }
-        : { ok: false, code: 'INVALID_TOKEN' },
-    ),
+    // v1.21.1 (§4-G.4): el reenvío resuelve el pedido con `orderIdForSelector` —lookup por hash
+    // SIN filtros de validez—, no con `validate` (que exige vigencia). Si el servicio usara
+    // `validate`, este mock lo delataría: no lo expone.
+    orderIdForSelector: jest.fn(async () => opts.tokenOrderId ?? null),
     resendQuotaExceeded: jest.fn(async () => opts.quotaExceeded ?? false),
   };
   const mail: any = { sendTrackingLink: jest.fn(async () => new Date()) };
@@ -138,9 +137,30 @@ describe('resendLink — trabajo real (best-effort, silencioso)', () => {
   });
 
   it('acepta un token EXPIRADO para identificar el pedido (camino "enlace caducado")', async () => {
-    const { svc, mail } = buildService({ tokenOrderId: 'order-1' });
+    const { svc, mail, tokens } = buildService({ tokenOrderId: 'order-1' });
     expect(await svc.processResend({ token: 'token-expirado' })).toBe(true);
     expect(mail.sendTrackingLink).toHaveBeenCalledTimes(1);
+    // §4-G.4: se resuelve por SELECTOR (hash sin filtrar por expiresAt/revokedAt).
+    expect(tokens.orderIdForSelector).toHaveBeenCalledWith('token-expirado');
+  });
+
+  it('acepta un token REVOCADO (rotado por un reenvío previo) como selector', async () => {
+    const { svc, mail, tokens } = buildService({ tokenOrderId: 'order-1' });
+    expect(await svc.processResend({ token: 'token-revocado' })).toBe(true);
+    expect(tokens.orderIdForSelector).toHaveBeenCalledWith('token-revocado');
+    expect(mail.sendTrackingLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('acepta un `checkoutToken` de 120 min ya vencido como selector (§4-G.7a)', async () => {
+    const { svc, mail } = buildService({ tokenOrderId: 'order-1' });
+    expect(await svc.processResend({ token: 'checkout-token-vencido' })).toBe(true);
+    expect(mail.sendTrackingLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('el reenvío NUNCA exige un token vigente: no llama a `validate` (eso es para LEER)', async () => {
+    const { svc, tokens } = buildService({ tokenOrderId: 'order-1' });
+    await svc.processResend({ token: 'token-expirado' });
+    expect(tokens.validate).toBeUndefined();
   });
 
   it('un token inventado no identifica ningún pedido ⇒ no hay correo', async () => {

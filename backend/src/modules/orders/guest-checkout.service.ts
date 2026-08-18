@@ -13,6 +13,7 @@ import { GuestQuoteDto, GuestResendLinkDto, GuestSessionDto } from './dto/guest-
 import { maskEmail, maskPostalCode, maskRecipientName, normalizeEmail } from './guest-privacy';
 import {
   DAY_MS,
+  GUEST_CHECKOUT_TOKEN_TTL_MIN,
   GUEST_DISPUTE_WINDOW_DAYS,
   GUEST_ORDER_RESERVATION_TTL_MIN,
   GUEST_TRACKING_MAX_AGE_DAYS,
@@ -86,7 +87,7 @@ export class GuestCheckoutService {
   /**
    * §4-G.2 — crea el pedido de invitado: reserva items, `Order` (`userId=null`, `guestEmail`,
    * `direct_ship`, snapshot de dirección) y UN SOLO PaymentIntent por el total (cartas + envío +
-   * IVA + fee). Devuelve el `trackingToken` en claro a quien acaba de crear el pedido.
+   * IVA + fee). Devuelve el `checkoutToken` (vida corta, §4-G.7a) a quien acaba de crear el pedido.
    */
   async createSession(dto: GuestSessionDto, requestIp?: string | null, idempotencyKey?: string) {
     // Destino bóveda ⇒ UPSELL, no error (criterio 48). El front NUNCA lo pinta como error.
@@ -173,13 +174,21 @@ export class GuestCheckoutService {
 
     // §4-G.0-5: ÚNICA respuesta de API con un token en claro. Quien llama ES quien creó el pedido,
     // así que no hay filtración posible; resuelve la confirmación tras el redirect 3DS (sin sesión).
-    const { clear } = await this.tokens.issue(order.id, { rotate: false, requestIp });
+    // v1.21.1 (§4-G.7a): es el token de CHECKOUT — vida CORTA (120 min) y NUNCA por correo. El
+    // enlace duradero de 90 días lo emite el settle y viaja solo por correo. Así, el solapamiento
+    // de dos puertas sin contraseña dura ≤2 h (T7b) en vez de 90 días.
+    const { clear, expiresAt } = await this.tokens.issue(order.id, {
+      rotate: false,
+      requestIp,
+      ttlMs: GUEST_CHECKOUT_TOKEN_TTL_MIN * 60 * 1000,
+    });
 
     return {
       orderId: order.id,
       orderNumber,
       breakdown,
-      trackingToken: clear,
+      checkoutToken: clear,
+      checkoutTokenExpiresAt: expiresAt,
       stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
     };
   }
@@ -275,10 +284,11 @@ export class GuestCheckoutService {
   /** Resuelve el pedido del reenvío. NUNCA consulta `User`; compara contra `Order.guestEmail`. */
   private async findOrderForResend(dto: GuestResendLinkDto): Promise<Order | null> {
     if (dto.token) {
-      // Se acepta un token EXPIRADO o REVOCADO (el caso de uso es justo la página de "enlace
-      // caducado"); solo se usa para identificar el pedido, nunca para autorizar una acción.
-      const validation = await this.tokens.validate(dto.token);
-      const orderId = validation.ok ? validation.token.orderId : (validation as { token?: { orderId: string } }).token?.orderId;
+      // v1.21.1 (§4-G.4): el token vale como SELECTOR aunque esté EXPIRADO o REVOCADO — es el caso
+      // NORMAL (se llega desde la página de "enlace expirado", o con un checkoutToken de 120 min ya
+      // vencido). `orderIdForSelector` busca SOLO por hash, sin filtrar por expiresAt/revokedAt.
+      // Identificar el pedido ≠ leerlo: la lectura (§4-G.3) sí exige un token vigente.
+      const orderId = await this.tokens.orderIdForSelector(dto.token);
       if (!orderId) return null;
       return this.prisma.order.findUnique({ where: { id: orderId } });
     }

@@ -4,7 +4,11 @@ import {
   OrderAccessTokenService,
 } from '../src/modules/orders/order-access-token.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { GUEST_TRACKING_TTL_DAYS, GUEST_RESEND_MAX_PER_DAY } from '../src/modules/orders/guest-checkout.constants';
+import {
+  GUEST_CHECKOUT_TOKEN_TTL_MIN,
+  GUEST_RESEND_MAX_PER_DAY,
+  GUEST_TRACKING_TTL_DAYS,
+} from '../src/modules/orders/guest-checkout.constants';
 
 /**
  * Enlace tokenizado del invitado (API_CONTRACT §4-G.7, ARCHITECTURE §4.21e — amenazas T1/T5/T7).
@@ -26,6 +30,7 @@ describe('OrderAccessTokenService', () => {
           return row;
         }),
         findUnique: jest.fn(async ({ where }: any) => rows.find((r) => r.tokenHash === where.tokenHash) ?? null),
+        // (el mock ignora `select`: devolver la fila entera basta para los asserts)
         updateMany: jest.fn(async ({ where, data }: any) => {
           const hits = rows.filter((r) => r.orderId === where.orderId && r.revokedAt === null);
           hits.forEach((r) => Object.assign(r, data));
@@ -62,11 +67,26 @@ describe('OrderAccessTokenService', () => {
     expect(rows[0]).not.toHaveProperty('token');
   });
 
-  it('fija expiración a 90 días (TTL del contrato)', async () => {
+  it('por defecto fija expiración a 90 días: es el token de SEGUIMIENTO (el que va por correo)', async () => {
     const now = new Date('2026-01-01T00:00:00.000Z');
     const { expiresAt } = await svc.issue('order-1', { now });
     const days = (expiresAt.getTime() - now.getTime()) / 86_400_000;
     expect(days).toBe(GUEST_TRACKING_TTL_DAYS);
+  });
+
+  it('v1.21.1 §4-G.7a: con `ttlMs` emite el token de CHECKOUT (120 min) en la MISMA tabla', async () => {
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    const { expiresAt } = await svc.issue('order-1', {
+      now,
+      ttlMs: GUEST_CHECKOUT_TOKEN_TTL_MIN * 60 * 1000,
+    });
+    expect(expiresAt.getTime() - now.getTime()).toBe(120 * 60 * 1000);
+    // Sin columna de tipo: lo ÚNICO que distingue las dos vidas es `expiresAt`.
+    expect(rows[0]).not.toHaveProperty('type');
+    expect(rows[0]).not.toHaveProperty('purpose');
+    expect(Object.keys(rows[0])).toEqual(
+      expect.arrayContaining(['orderId', 'tokenHash', 'expiresAt']),
+    );
   });
 
   it('dos emisiones nunca producen el mismo token (256 bits de entropía, T1)', async () => {
@@ -130,11 +150,20 @@ describe('OrderAccessTokenService', () => {
     expect((res as any).reason).toBe('CLAIMED');
   });
 
-  it('revocado sin sucesor y sin reclamo → reason SUPPORT', async () => {
+  it('v1.21.1: `SUPPORT` ya NO existe — sin reclamo, cualquier revocación reporta ROTATED', async () => {
     const { clear } = await svc.issue('order-1');
-    await svc.revokeAll('order-1');
+    await svc.revokeAll('order-1'); // revocación sin sucesor vivo (p. ej. rotación de soporte)
     const res = await svc.validate(clear);
-    expect((res as any).reason).toBe('SUPPORT');
+    expect((res as any).reason).toBe('ROTATED');
+    expect((res as any).reason).not.toBe('SUPPORT');
+  });
+
+  it('la derivación del motivo es LITERAL: claimedAt != null ⇒ CLAIMED; si no ⇒ ROTATED', async () => {
+    const a = await svc.issue('order-1', { rotate: false });
+    await svc.revokeAll('order-1');
+    expect(((await svc.validate(a.clear)) as any).reason).toBe('ROTATED');
+    prisma.order.findUnique.mockResolvedValue({ claimedAt: new Date() });
+    expect(((await svc.validate(a.clear)) as any).reason).toBe('CLAIMED');
   });
 
   it('revokeAll es idempotente y solo toca los vigentes', async () => {
@@ -149,6 +178,38 @@ describe('OrderAccessTokenService', () => {
     expect(await svc.resendQuotaExceeded('order-1')).toBe(false);
     await svc.issue('order-1', { rotate: false });
     expect(await svc.resendQuotaExceeded('order-1')).toBe(true);
+  });
+
+  it('SELECTOR de reenvío: encuentra el pedido con un token EXPIRADO (§4-G.4, v1.21.1)', async () => {
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    const { clear } = await svc.issue('order-1', { now });
+    // Expira el token: la LECTURA falla…
+    const later = new Date(now.getTime() + (GUEST_TRACKING_TTL_DAYS + 1) * 86_400_000);
+    expect((await svc.validate(clear, later)).ok).toBe(false);
+    // …pero el reenvío SÍ lo acepta como selector (es justo la pantalla de "enlace expirado").
+    expect(await svc.orderIdForSelector(clear)).toBe('order-1');
+  });
+
+  it('SELECTOR de reenvío: encuentra el pedido con un token REVOCADO', async () => {
+    const { clear } = await svc.issue('order-1');
+    await svc.revokeAll('order-1');
+    expect((await svc.validate(clear)).ok).toBe(false);
+    expect(await svc.orderIdForSelector(clear)).toBe('order-1');
+  });
+
+  it('SELECTOR: la consulta busca SOLO por hash — sin filtrar por expiresAt ni revokedAt', async () => {
+    const { clear } = await svc.issue('order-1');
+    prisma.orderAccessToken.findUnique.mockClear();
+    await svc.orderIdForSelector(clear);
+    const where = prisma.orderAccessToken.findUnique.mock.calls[0][0].where;
+    expect(Object.keys(where)).toEqual(['tokenHash']);
+    expect(where).not.toHaveProperty('expiresAt');
+    expect(where).not.toHaveProperty('revokedAt');
+  });
+
+  it('SELECTOR: un token inventado no identifica ningún pedido', async () => {
+    await svc.issue('order-1');
+    expect(await svc.orderIdForSelector('token-que-nunca-existio')).toBeNull();
   });
 
   it('un token de OTRO pedido solo abre SU pedido (un token ⇒ un pedido)', async () => {

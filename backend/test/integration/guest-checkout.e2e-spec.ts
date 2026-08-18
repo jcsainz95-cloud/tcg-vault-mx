@@ -66,7 +66,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
   // Estado del camino feliz, compartido entre pasos (el test es una historia).
   let orderId: string;
   let orderNumber: string;
-  let trackingToken: string;
+  let checkoutToken: string;
   let paymentIntentId: string;
   let shipmentId: string;
   // Segundo pedido de invitado (mismo flujo, otro comprador): sirve para probar aislamiento
@@ -171,11 +171,15 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.status).toBe(201);
       orderId = res.body.orderId;
       orderNumber = res.body.orderNumber;
-      trackingToken = res.body.trackingToken;
+      checkoutToken = res.body.checkoutToken;
       paymentIntentId = res.body.stripe.paymentIntentId;
 
       expect(orderNumber).toMatch(/^TCG-\d{6}$/);
-      expect(trackingToken).toHaveLength(43); // 32 bytes base64url
+      expect(checkoutToken).toHaveLength(43); // 32 bytes base64url
+      // v1.21.1 (§4-G.7a): el token del checkout es de VIDA CORTA (120 min), no de 90 días.
+      const ttlMin = (new Date(res.body.checkoutTokenExpiresAt).getTime() - Date.now()) / 60000;
+      expect(ttlMin).toBeGreaterThan(110);
+      expect(ttlMin).toBeLessThanOrEqual(120);
       expect(res.body.breakdown).toEqual(computeDirectShipBreakdown(unitPriceCents, SHIPPING, IVA, FEE));
       // UN solo PaymentIntent por el total (cartas + envío + IVA + fee).
       const intents = h.stripe.createdIntents.filter((i) => i.metadata.orderId === orderId);
@@ -211,7 +215,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const tokens = await h.prisma.orderAccessToken.findMany({ where: { orderId } });
       expect(tokens).toHaveLength(1);
       expect(tokens[0].tokenHash).toMatch(/^[a-f0-9]{64}$/);
-      expect(JSON.stringify(tokens)).not.toContain(trackingToken);
+      expect(JSON.stringify(tokens)).not.toContain(checkoutToken);
       expect(tokens[0].revokedAt).toBeNull();
     });
 
@@ -245,6 +249,25 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(shipment!.stripePaymentIntentId).toBeNull();
     });
 
+    it('v1.21.1 §4-G.7a: el settle emite un 2º token de 90 días y NO rota el de checkout', async () => {
+      const tokens = await h.prisma.orderAccessToken.findMany({
+        where: { orderId },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(tokens).toHaveLength(2);
+      // Ninguno revocado: el settle es la excepción acotada a la rotación (mataría la
+      // confirmación post-3DS que el navegador está usando).
+      expect(tokens.every((t) => t.revokedAt === null)).toBe(true);
+      // Dos vidas distintas, misma tabla, sin columna de tipo: solo cambia `expiresAt`.
+      const ttlMin = (t: { expiresAt: Date; createdAt: Date }) =>
+        (t.expiresAt.getTime() - t.createdAt.getTime()) / 60000;
+      expect(ttlMin(tokens[0])).toBeCloseTo(120, 0); // checkout
+      expect(ttlMin(tokens[1])).toBeCloseTo(90 * 24 * 60, 0); // seguimiento (correo)
+      // El token de checkout SIGUE sirviendo para leer el pedido (esa es su razón de ser).
+      const track = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
+      expect(track.status).toBe(200);
+    });
+
     it('el webhook es idempotente (reintento de Stripe no duplica envío ni movimientos)', async () => {
       await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
@@ -257,7 +280,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
 
   describe('§J.1 paso 7-8 — seguimiento por enlace tokenizado', () => {
     it('POST /orders/guest/track devuelve el pedido con datos MÍNIMOS y cabeceras no-store/noindex', async () => {
-      const res = await h.api('POST', '/orders/guest/track', { json: { token: trackingToken } });
+      const res = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
       expect(res.status).toBe(200);
       expect(res.headers['cache-control']).toBe('no-store');
       expect(res.headers['x-robots-tag']).toBe('noindex, nofollow');
@@ -274,7 +297,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     });
 
     it('el payload NO contiene ningún campo prohibido de la tabla cerrada (§4-G.3)', async () => {
-      const res = await h.api('POST', '/orders/guest/track', { json: { token: trackingToken } });
+      const res = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
       const raw = JSON.stringify(res.body);
       // Ids internos y datos de otro nivel de confianza.
       for (const secret of [orderId, itemId, paymentIntentId, shipmentId, GUEST_EMAIL, ADDRESS.line1, ADDRESS.phone, '06600']) {
@@ -303,7 +326,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       });
       expect(other.status).toBe(201);
       otherOrderNumber = other.body.orderNumber;
-      otherToken = other.body.trackingToken;
+      otherToken = other.body.checkoutToken;
       const res = await h.api('POST', '/orders/guest/track', { json: { token: otherToken } });
       expect(res.status).toBe(200);
       expect(res.body.orderNumber).toBe(other.body.orderNumber);
@@ -311,9 +334,9 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     });
 
     it('el token NO es una credencial: no abre ningún endpoint `customer`', async () => {
-      const res = await h.api('GET', '/orders', { token: trackingToken });
+      const res = await h.api('GET', '/orders', { token: checkoutToken });
       expect(res.status).toBe(401);
-      const detail = await h.api('GET', `/orders/${orderId}`, { token: trackingToken });
+      const detail = await h.api('GET', `/orders/${orderId}`, { token: checkoutToken });
       expect(detail.status).toBe(401);
     });
 
@@ -346,6 +369,32 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.status).toBe(410);
       expect(res.body.error.code).toBe('TOKEN_REVOKED');
       expect(res.body.error.details).toMatchObject({ reason: 'ROTATED' });
+      // v1.21.1 (§4-G.7a): el reenvío revoca TODOS los vivos (incluido el checkoutToken residual)
+      // y deja exactamente UNA puerta abierta: la del último correo.
+      const tokens = await h.prisma.orderAccessToken.findMany({ where: { orderId: otherOrder!.id } });
+      expect(tokens.filter((t) => t.revokedAt === null)).toHaveLength(1);
+      // Y `SUPPORT` ya no existe como motivo (v1.21.1): solo CLAIMED | ROTATED.
+      expect(JSON.stringify(res.body)).not.toContain('SUPPORT');
+    });
+
+    it('v1.21.1 §4-G.4: un token EXPIRADO/REVOCADO sigue sirviendo como SELECTOR de reenvío', async () => {
+      // `otherToken` quedó REVOCADO por la rotación del test anterior: leer con él da 410…
+      const read = await h.api('POST', '/orders/guest/track', { json: { token: otherToken } });
+      expect(read.status).toBe(410);
+      // …y aun así el reenvío lo acepta para identificar el pedido (es la pantalla de "enlace
+      // expirado", justo el momento en que se usa) y emite uno nuevo.
+      const otherOrder = await h.prisma.order.findFirst({ where: { guestEmail: OTHER_GUEST_EMAIL } });
+      const before = await h.prisma.orderAccessToken.count({ where: { orderId: otherOrder!.id } });
+      const res = await h.api('POST', '/orders/guest/resend-link', { json: { token: otherToken } });
+      expect(res.status).toBe(202);
+      for (let i = 0; i < 40; i++) {
+        const count = await h.prisma.orderAccessToken.count({ where: { orderId: otherOrder!.id } });
+        if (count > before) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(await h.prisma.orderAccessToken.count({ where: { orderId: otherOrder!.id } })).toBe(
+        before + 1,
+      );
     });
 
     it('`email` a solas ⇒ 400 (no sirve como oráculo de "este correo compró aquí")', async () => {
@@ -375,7 +424,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         json: { carrier: 'Estafeta', trackingNumber: 'EST-E2E-0001', shippingCostCents: 14900 },
       });
       expect(res.status).toBe(201);
-      const track = await h.api('POST', '/orders/guest/track', { json: { token: trackingToken } });
+      const track = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
       expect(track.body.status).toBe('guia');
       expect(track.body.shipping.carrier).toBe('Estafeta');
       expect(track.body.shipping.trackingNumber).toBe('EST-E2E-0001');
@@ -391,7 +440,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.status).toBe(200);
       const item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId } });
       expect(item!.status).toBe('shipped');
-      const track = await h.api('POST', '/orders/guest/track', { json: { token: trackingToken } });
+      const track = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
       expect(track.body.status).toBe('enviado');
     });
 
@@ -405,7 +454,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(item!.status).toBe('delivered');
       expect(item!.ownerType).toBe('platform');
 
-      const track = await h.api('POST', '/orders/guest/track', { json: { token: trackingToken } });
+      const track = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
       expect(track.body.status).toBe('entregado');
       expect(track.body.support.disputeWindowDays).toBe(7);
       expect(track.body.support.evidenceContact).toBe('soporte@tcgvaultmx.com');
@@ -477,7 +526,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     });
 
     it('reclamar REVOCA el enlace: el token viejo responde 410 TOKEN_REVOKED (reason CLAIMED)', async () => {
-      const res = await h.api('POST', '/orders/guest/track', { json: { token: trackingToken } });
+      const res = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
       expect(res.status).toBe(410);
       expect(res.body.error.code).toBe('TOKEN_REVOKED');
       expect(res.body.error.details).toMatchObject({ reason: 'CLAIMED' });
@@ -559,7 +608,26 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(JSON.stringify(res.body)).not.toContain(OTHER_GUEST_EMAIL);
       // NUNCA devuelve el token en claro.
       expect(res.body).not.toHaveProperty('token');
-      expect(res.body).not.toHaveProperty('trackingToken');
+      expect(res.body).not.toHaveProperty('checkoutToken');
+    });
+
+    it('v1.21.1: el reenvío de SOPORTE deja AuditLog y el self-service NO (así el forense distingue)', async () => {
+      const other = await h.prisma.order.findFirst({ where: { guestEmail: OTHER_GUEST_EMAIL } });
+      // El contrato eliminó el `reason: SUPPORT` del cuerpo; la trazabilidad de QUIÉN rotó vive
+      // aquí (§4-G.3 / ARCHITECTURE §4.21e-bis).
+      const logs = await h.prisma.auditLog.findMany({
+        where: { action: 'order.tracking_link.reissue', entityId: other!.id },
+      });
+      expect(logs.length).toBeGreaterThanOrEqual(1);
+      expect(logs[0].actorUserId).toBeTruthy();
+      expect(logs[0].entityType).toBe('Order');
+
+      // El reenvío self-service (§4-G.4) NO escribe auditoría: es la asimetría que permite
+      // distinguir una rotación de soporte de una del propio comprador.
+      const selfService = await h.prisma.auditLog.findMany({
+        where: { action: { contains: 'resend' } },
+      });
+      expect(selfService).toHaveLength(0);
     });
 
     it('el endpoint de soporte rechaza un pedido que no es de invitado', async () => {

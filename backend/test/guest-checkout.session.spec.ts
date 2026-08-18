@@ -7,6 +7,10 @@ import { OrderAccessTokenService } from '../src/modules/orders/order-access-toke
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
 import { BusinessException } from '../src/common/business.exception';
 import { computeDirectShipBreakdown } from '../src/common/money';
+import {
+  GUEST_CHECKOUT_TOKEN_TTL_MIN,
+  GUEST_TRACKING_TTL_DAYS,
+} from '../src/modules/orders/guest-checkout.constants';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
@@ -80,7 +84,10 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
     cancelPaymentIntent: jest.fn(async () => undefined),
   };
   const tokens: any = {
-    issue: jest.fn(async () => ({ clear: 'CLEAR_TOKEN_43_CHARS', expiresAt: new Date() })),
+    issue: jest.fn(async () => ({
+      clear: 'CLEAR_TOKEN_43_CHARS',
+      expiresAt: new Date('2026-08-18T12:00:00.000Z'),
+    })),
   };
   const mail: any = { sendTrackingLink: jest.fn(), sendConfirmation: jest.fn() };
   const svc = new GuestCheckoutService(
@@ -165,13 +172,29 @@ describe('GuestCheckoutService.createSession', () => {
     expect(meta).not.toHaveProperty('userId');
   });
 
-  it('INVARIANTE 5: devuelve el trackingToken en claro a quien acaba de crear el pedido', async () => {
+  it('INVARIANTE 5: devuelve el `checkoutToken` en claro a quien acaba de crear el pedido', async () => {
     const { svc } = buildService();
     const out = await svc.createSession(validDto() as never);
-    expect(out.trackingToken).toBe('CLEAR_TOKEN_43_CHARS');
+    expect(out.checkoutToken).toBe('CLEAR_TOKEN_43_CHARS');
+    expect(out.checkoutTokenExpiresAt).toEqual(new Date('2026-08-18T12:00:00.000Z'));
     expect(out.orderId).toBe('order-guest-1');
     expect(out.orderNumber).toBe('TCG-000123');
     expect(out.stripe).toEqual({ paymentIntentId: 'pi_guest_1', clientSecret: 'cs_guest_1' });
+    // v1.21.1: el campo se llama `checkoutToken`; el nombre viejo NO debe sobrevivir.
+    expect(out).not.toHaveProperty('trackingToken');
+  });
+
+  it('v1.21.1 §4-G.7a: el token del checkout es de VIDA CORTA (120 min), no de 90 días', async () => {
+    const { svc, tokens } = buildService();
+    await svc.createSession(validDto() as never);
+    expect(tokens.issue).toHaveBeenCalledWith(
+      'order-guest-1',
+      expect.objectContaining({ ttlMs: GUEST_CHECKOUT_TOKEN_TTL_MIN * 60 * 1000 }),
+    );
+    // Y NO es el TTL del enlace de seguimiento (el de correo).
+    const ttlMs = tokens.issue.mock.calls[0][1].ttlMs;
+    expect(ttlMs).toBe(2 * 60 * 60 * 1000);
+    expect(ttlMs).toBeLessThan(GUEST_TRACKING_TTL_DAYS * 24 * 60 * 60 * 1000);
   });
 
   it('el token de la sesión se emite SIN rotar (el correo de confirmación no debe matarlo)', async () => {
