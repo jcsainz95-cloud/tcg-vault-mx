@@ -1694,6 +1694,7 @@
       "claimAlternative": "Want it always at hand? Create an account with that same email and your order will appear in your history.",
       "support": "Need help? Write to us at {contact}.",
       "noLinkToggle": "I don't have the link"
-    }
+    },
+    "temporaryLinkNotice": "This link is temporary and expires in a few hours. Your order's tracking link arrives by email; if you don't see it, request a new one."
   }
 }

@@ -118,6 +118,23 @@ describe('PublicOrderTracking · vista pública (criterios 50, 51)', () => {
     expect(screen.getByText('Consulta con soporte citando tu número de pedido.')).toBeInTheDocument();
   });
 
+  it('avisa que el enlace es TEMPORAL solo con el token de checkout de 120 min (§4-G.7a)', () => {
+    // Enlace de correo (90 días): sin aviso.
+    const { unmount } = renderTracking();
+    expect(screen.queryByTestId('temporary-link-notice')).not.toBeInTheDocument();
+    unmount();
+
+    // Token de checkout (caduca dentro de 2 h): avisa y remite al correo, para que nadie
+    // guarde esta URL como si fuera el enlace duradero.
+    renderTracking({
+      ...DTO,
+      tokenExpiresAt: new Date(Date.now() + 90 * 60_000).toISOString(),
+    });
+    expect(screen.getByTestId('temporary-link-notice')).toBeInTheDocument();
+    // Y la salida está a la vista: pedir un enlace nuevo.
+    expect(screen.getByRole('button', { name: 'Reenviar el enlace a mi correo' })).toBeInTheDocument();
+  });
+
   it('la disputa se atiende por correo a soporte citando el pedido (criterio 56b)', () => {
     renderTracking();
     expect(screen.getByTestId('evidence-email')).toHaveTextContent('soporte@tcgvaultmx.com');

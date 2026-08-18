@@ -13,8 +13,12 @@ export function hashOrderAccessToken(clear: string): string {
   return createHash('sha256').update(clear).digest('hex');
 }
 
-/** Motivo de revocación (§4-G.3). Derivado, no persistido: el esquema M-25 no lleva columna. */
-export type RevocationReason = 'CLAIMED' | 'ROTATED' | 'SUPPORT';
+/**
+ * Motivo de revocación (§4-G.3). **Derivado, no persistido** (M-25 no lleva columna de motivo y
+ * v1.21.1 decide explícitamente NO añadir una para pintar un texto de UX).
+ * Valores normativos tras v1.21.1: `CLAIMED` | `ROTATED`. **`SUPPORT` fue ELIMINADO del contrato.**
+ */
+export type RevocationReason = 'CLAIMED' | 'ROTATED';
 
 /** Resultado de validar un token presentado. Respuestas NEUTRAS: nunca revela si el pedido existe. */
 export type TokenValidation =
@@ -46,22 +50,30 @@ export class OrderAccessTokenService {
   /**
    * Emite un token para `orderId`: 32 bytes aleatorios (base64url, 43 chars) en claro —que el
    * llamador envía por correo o devuelve a quien acaba de crear el pedido— y persiste SOLO el
-   * SHA-256. Devuelve el CLARO (única copia; no se puede recuperar después).
+   * SHA-256. Devuelve el CLARO (única copia; **no se puede recuperar después**: esa
+   * irrecuperabilidad es la propiedad de seguridad T5, no un defecto).
    *
-   * `rotate` (default `true`): revoca los tokens vigentes del pedido ⇒ solo el último enlace vale
-   * (§4-G.7). Se emite con `rotate:false` en UN caso: el correo de confirmación al liquidar, para
-   * no matar el token que `POST /checkout/guest/session` ya entregó al navegador del comprador
-   * (ver nota de desviación en docs/BACKEND_NOTES.md).
+   * **Dos vidas, misma tabla, sin columna nueva (§4-G.7a / ARCHITECTURE §4.21e-bis):**
+   *  - `ttlMs` por defecto = `GUEST_TRACKING_TTL_DAYS` (90 días) ⇒ token de SEGUIMIENTO, el que
+   *    viaja por correo (settle, reenvío, soporte).
+   *  - `POST /checkout/guest/session` lo emite con `GUEST_CHECKOUT_TOKEN_TTL_MS` (120 min) ⇒ token
+   *    de CHECKOUT, el único que la API devuelve en claro. Lo único que los distingue es
+   *    `expiresAt`.
+   *
+   * `rotate` (default `true`): revoca los tokens vigentes del pedido ⇒ solo el último enlace vale.
+   * **Excepción acotada `rotate:false`:** el correo de confirmación del settle, para no matar el
+   * token de checkout que el navegador está usando en la confirmación post-3DS (§4-G.7a). Es
+   * seguro porque ese token se apaga solo en 2 h. **Reenvío y soporte SÍ rotan.**
    */
   async issue(
     orderId: string,
-    opts: { rotate?: boolean; requestIp?: string | null; now?: Date } = {},
+    opts: { rotate?: boolean; requestIp?: string | null; now?: Date; ttlMs?: number } = {},
   ): Promise<{ clear: string; expiresAt: Date }> {
     const now = opts.now ?? new Date();
     const rotate = opts.rotate ?? true;
     const clear = randomBytes(32).toString('base64url');
     const tokenHash = hashOrderAccessToken(clear);
-    const expiresAt = new Date(now.getTime() + GUEST_TRACKING_TTL_DAYS * DAY_MS);
+    const expiresAt = new Date(now.getTime() + (opts.ttlMs ?? GUEST_TRACKING_TTL_DAYS * DAY_MS));
 
     if (rotate) await this.revokeAll(orderId, now);
     await this.prisma.orderAccessToken.create({
@@ -97,24 +109,40 @@ export class OrderAccessTokenService {
   }
 
   /**
-   * Deriva el motivo de la revocación (§4-G.3 pide `details.reason`). El esquema M-25 NO lleva
-   * columna de motivo (diff cerrado, "ni un campo más"), así que se INFIERE:
-   *   pedido ya reclamado ⇒ `CLAIMED`; existe un token vigente que lo sustituye ⇒ `ROTATED`;
-   *   en otro caso ⇒ `SUPPORT`.
-   * Limitación conocida y REPORTADA: la rotación pedida por soporte (§4-G.9b) también deja un
-   * token vigente, así que se lee como `ROTATED`. Distinguirla exigiría una columna nueva
-   * (decisión del arquitecto). Ver docs/BACKEND_NOTES.md.
+   * Deriva el motivo de la revocación (§4-G.3 pide `details.reason`). **Regla normativa v1.21.1,
+   * literal:** `order.claimedAt != null` ⇒ `CLAIMED`; en cualquier otro caso ⇒ `ROTATED`.
+   *
+   * No se persiste ningún motivo: el esquema M-25 no lleva columna y el arquitecto decidió NO
+   * añadir una para cambiar un texto de UX. Una rotación pedida por **soporte** se reporta como
+   * `ROTATED` —que es justo lo que el usuario necesita saber ("tu enlace fue sustituido")—; la
+   * distinción forense de QUIÉN rotó vive donde corresponde: el reenvío de soporte deja
+   * `AuditLog` (`order.tracking_link.reissue`, con actor y timestamp) y el self-service no.
    */
   private async revocationReason(token: OrderAccessToken): Promise<RevocationReason> {
     const order = await this.prisma.order.findUnique({
       where: { id: token.orderId },
       select: { claimedAt: true },
     });
-    if (order?.claimedAt != null) return 'CLAIMED';
-    const liveSuccessors = await this.prisma.orderAccessToken.count({
-      where: { orderId: token.orderId, revokedAt: null },
+    return order?.claimedAt != null ? 'CLAIMED' : 'ROTATED';
+  }
+
+  /**
+   * **SELECTOR de reenvío (§4-G.4, v1.21.1).** Devuelve el `orderId` del token presentado
+   * buscando **solo por hash**, SIN filtrar por `expiresAt` ni por `revokedAt`.
+   *
+   * Es deliberado y es el caso NORMAL: a `POST /orders/guest/resend-link` se llega justamente
+   * desde la pantalla de "enlace expirado" (o con un `checkoutToken` de 120 min ya vencido). Si
+   * este lookup filtrara por validez, el reenvío no funcionaría precisamente cuando se necesita.
+   * Un token caduco/revocado sirve para **identificar** el pedido, nunca para **leerlo**: la
+   * lectura pasa por `validate()` (§4-G.3), que sí exige vigencia.
+   */
+  async orderIdForSelector(clear: string): Promise<string | null> {
+    const tokenHash = hashOrderAccessToken(clear);
+    const token = await this.prisma.orderAccessToken.findUnique({
+      where: { tokenHash },
+      select: { orderId: true },
     });
-    return liveSuccessors > 0 ? 'ROTATED' : 'SUPPORT';
+    return token?.orderId ?? null;
   }
 
   /** Telemetría de uso (best-effort: su fallo nunca rompe la lectura del pedido). */

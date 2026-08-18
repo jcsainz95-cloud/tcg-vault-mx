@@ -7,8 +7,27 @@
  * `SHIPPING_FEE_CENTS` (default 17500).
  */
 
-/** TTL del enlace de seguimiento: 90 días (cubre entrega + ventana de disputa de 7d con margen). */
+/**
+ * TTL del enlace de SEGUIMIENTO —el que viaja por correo (settle / reenvío / soporte)—: 90 días
+ * (cubre entrega + ventana de disputa de 7d con margen). API_CONTRACT §4-G.7a.
+ */
 export const GUEST_TRACKING_TTL_DAYS = 90;
+
+/**
+ * v1.21.1 (§4-G.7a, ARCHITECTURE §4.21e-bis / amenaza T7b) — TTL del token de CHECKOUT, el único
+ * que la API devuelve en claro (respuesta de `POST /checkout/guest/session`): **120 minutos**.
+ *
+ * Existe para UNA sola cosa: sobrevivir al redirect 3DS de Stripe y pintar la confirmación +
+ * seguimiento inmediato, cuando el navegador puede haber perdido el estado y no hay sesión.
+ * **Nunca se envía por correo.** Es una fila `OrderAccessToken` normal: lo ÚNICO que lo distingue
+ * del token de seguimiento es su `expiresAt` (sin columna nueva, sin migración).
+ *
+ * Por qué corto: el claro es irrecuperable (en BD solo vive el SHA-256 — propiedad de seguridad
+ * T5), así que el correo del settle lleva **otro** token y ambos coexisten. Con 120 min el
+ * solapamiento de dos puertas sin contraseña dura **≤2 horas** en vez de los 90 días que suponía
+ * emitir ambas con la misma vida (T7b).
+ */
+export const GUEST_CHECKOUT_TOKEN_TTL_MIN = 120;
 
 /** Tope de edad del pedido para EMITIR enlaces nuevos: 365 días. Después, la vía es el reclamo. */
 export const GUEST_TRACKING_MAX_AGE_DAYS = 365;

@@ -195,6 +195,29 @@ test.describe('seguimiento público · /pedido', () => {
     await expect(page.getByRole('button', { name: t('es', 'track.neutral.submit') })).toHaveCount(0);
   });
 
+  test('el enlace del CHECKOUT caduca a las 2 h y cae en la pantalla neutra, que sí reenvía (§4-G.7a)', async ({
+    page,
+  }) => {
+    // v1.21.1: el token que devuelve el checkout vive 120 min y NUNCA se manda por correo
+    // (el enlace de 90 días llega en el correo del settle). Si el comprador vuelve a esa URL
+    // más tarde, debe caer en la pantalla neutra y poder pedir uno nuevo — no quedarse sin salida.
+    await page.goto('/es/pedido?token=mock-ord-guest-1234-checkout-token-expired');
+
+    await expect(
+      page.getByRole('heading', { level: 1, name: t('es', 'track.neutral.title') }),
+    ).toBeVisible();
+    // Camino preferente con token: reenvío por `{ token }`, sin pedir nada más.
+    await page.getByRole('button', { name: t('es', 'track.neutral.submit') }).click();
+    await expect(page.getByText(t('es', 'track.neutral.result'))).toBeVisible();
+  });
+
+  test('un enlace de checkout VIGENTE avisa de que es temporal y remite al correo', async ({ page }) => {
+    await page.goto('/es/pedido?token=mock-demo-token');
+    // El pedido demo del mock caduca en 90 días (enlace de correo): sin aviso de temporalidad.
+    await expect(page.getByTestId('tracking-order-number')).toBeVisible();
+    await expect(page.getByTestId('temporary-link-notice')).toHaveCount(0);
+  });
+
   test('la pantalla neutra también existe en inglés', async ({ page }) => {
     await page.goto('/en/pedido?token=token-inventado');
     await expect(

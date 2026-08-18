@@ -1694,6 +1694,7 @@
       "claimAlternative": "¿Prefieres tenerlo siempre a la mano? Crea tu cuenta con ese mismo correo y tu pedido aparecerá en tu historial.",
       "support": "¿Necesitas ayuda? Escríbenos a {contact}.",
       "noLinkToggle": "No tengo el enlace"
-    }
+    },
+    "temporaryLinkNotice": "Este enlace es temporal y caduca en unas horas. El enlace de seguimiento de tu pedido te llega por correo; si no lo ves, pide uno nuevo."
   }
 }

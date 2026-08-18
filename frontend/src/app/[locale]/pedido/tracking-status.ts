@@ -44,3 +44,20 @@ export const TRACKING_STATUS_TONE: Record<GuestOrderPublicStatus, string> = {
 export function stepForStatus(status: GuestOrderPublicStatus): TrackingStep | null {
   return (TRACKING_STEPS as readonly string[]).includes(status) ? (status as TrackingStep) : null;
 }
+
+/**
+ * Un `OrderAccessToken` no dice de qué emisión viene (§4-G.7a: no hay columna de tipo; ambas
+ * vidas son filas idénticas y solo las distingue `expiresAt`). Para la UI basta con mirar
+ * cuánto le queda: si caduca dentro de este margen, es el **token de checkout** de 120 min
+ * (el puente post-3DS), no el enlace de 90 días que llega por correo. Se usa solo para avisar
+ * "este enlace es temporal", nunca para cambiar el acceso ni para ramificar errores.
+ */
+const CHECKOUT_TOKEN_TTL_MIN = 120; // GUEST_CHECKOUT_TOKEN_TTL_MIN del contrato
+const MARGIN_MIN = 10; // holgura por reloj del cliente / latencia
+
+export function isShortLivedCheckoutToken(tokenExpiresAt: string, now: Date = new Date()): boolean {
+  const expires = new Date(tokenExpiresAt).getTime();
+  if (Number.isNaN(expires)) return false;
+  const minutesLeft = (expires - now.getTime()) / 60_000;
+  return minutesLeft <= CHECKOUT_TOKEN_TTL_MIN + MARGIN_MIN;
+}

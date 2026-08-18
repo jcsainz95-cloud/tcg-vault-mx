@@ -12,7 +12,13 @@ import { CardImage } from '@/components/ui/CardImage';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { DisputeEvidenceContact } from '@/components/domain/DisputeEvidenceContact';
-import { TRACKING_STATUS_KEY, TRACKING_STATUS_TONE, TRACKING_STEPS, stepForStatus } from './tracking-status';
+import {
+  TRACKING_STATUS_KEY,
+  TRACKING_STATUS_TONE,
+  TRACKING_STEPS,
+  isShortLivedCheckoutToken,
+  stepForStatus,
+} from './tracking-status';
 
 export interface PublicOrderTrackingProps {
   data: GuestOrderTrackingDTO;
@@ -225,6 +231,18 @@ export function PublicOrderTracking({
           {t('resendCta')}
         </Button>
       </div>
+
+      {/*
+       * v1.21.1 (§4-G.7a): si el token que abrió esta página es el de CHECKOUT (120 min, el
+       * puente post-3DS), se avisa de que es temporal y de que el enlace duradero llega por
+       * correo — para que nadie lo guarde como favorito y se quede sin acceso en 2 h. El
+       * enlace de 90 días no dispara este aviso. Es solo copy: no cambia el acceso.
+       */}
+      {isShortLivedCheckoutToken(data.tokenExpiresAt) && (
+        <p data-testid="temporary-link-notice" className="mt-4 text-xs leading-relaxed text-muted">
+          {t('temporaryLinkNotice')}
+        </p>
+      )}
 
       {/* Disputa / error de plataforma: por correo a soporte citando el nº de pedido
           (criterio 56b). La página no abre disputas: no escribe en el pedido. */}
