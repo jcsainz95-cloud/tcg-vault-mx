@@ -2,7 +2,20 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.21-guest-checkout (MVP, plataforma en producción). Fecha: 2026-08-18. Branch: `stream/ordenes-guest-checkout`.
+> Estado: v1.21.1-guest-checkout-fixes (MVP, plataforma en producción). Fecha: 2026-08-18. Branch: `stream/ordenes-guest-checkout`.
+>
+> **Changelog v1.21.1-guest-checkout-fixes (2026-08-18) — Correcciones post-implementación (regla 9). SIN migración
+> adicional; M-25 no cambia.** Ver **§4.21e-bis** (nueva), §4.21c y §3.2 (`OrderAccessToken`).
+> - **Las dos vidas del token (lo importante).** La v1.21 pedía enviar por correo "el mismo" token del checkout:
+>   **irrealizable** (solo hay hash en BD ⇒ el claro es irrecuperable — que es la propiedad T5 que queríamos).
+>   Norma: **checkout = 120 min**, **correo = 90 días**; el **settle no rota** (rotar mataría la confirmación
+>   post-3DS), **reenvío y soporte sí**. El solapamiento de dos puertas sin contraseña baja de **90 días a ≤2 h**.
+>   Sin columna nueva: las dos emisiones se distinguen solo por `expiresAt`.
+> - **`details.reason` de la revocación se deriva** (`CLAIMED` | `ROTATED`); se elimina `SUPPORT` — el forense vive
+>   en `AuditLog`, no en el cuerpo de la respuesta.
+> - **`InventoryMovement.reason` del ciclo de invitado:** `settle` (reserved→picking) y `sale` (→shipped,
+>   →delivered); **`withdrawal` prohibido** (es de bóveda). Sin valores nuevos en el enum.
+> - Conteo de códigos de error: **8**, no 7 (API_CONTRACT §0 manda).
 >
 > **Changelog v1.21-guest-checkout (2026-08-18) — WS «Órdenes y dinero»: COMPRAR SIN CUENTA (PROJECT §J, §J.1,
 > criterios 45–56b).** Ver **§4.21** (spec completa: ruta de fulfillment, ciclo de vida de los items, modelo de
@@ -799,8 +812,13 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - **Mismo patrón que `AuthToken`** (§3.2/§4.11) con **una** diferencia semántica: es **multi-uso** — `usedAt`
   (consumible) se sustituye por `revokedAt` (revocable). Por eso **no** se reusa `AuthToken`: su `userId` es
   obligatorio (un invitado no lo tiene) y su `consume()` marca uso único.
-- Reglas: TTL **90 días**; emitir uno **rota** (revoca) los vigentes del mismo pedido ⇒ solo el último enlace vale;
-  se revoca al **reclamar** el pedido y por **soporte**; no se emiten tokens para pedidos con más de **365 días**.
+- Reglas (v1.21.1, §4.21e-bis): **dos vidas según origen** — token de **checkout** (respuesta de
+  `POST /checkout/guest/session`) **120 min**, token de **seguimiento** (correo/reenvío/soporte) **90 días**; se
+  distinguen **solo por `expiresAt`** (no hay columna `type`/`purpose`/`reason`). **Rotan** (revocando todos los
+  vivos del pedido) el **reenvío** y el **reenvío de soporte**; el **settle NO rota** (dejaría sin acceso la
+  confirmación post-3DS en curso). El **reclamo revoca todo**. No se emiten tokens para pedidos con más de
+  **365 días**. El motivo de revocación que ve el cliente se **deriva** (`CLAIMED` si `Order.claimedAt != null`,
+  si no `ROTATED`); el detalle de quién rotó vive en `AuditLog`.
 - **No es una credencial de sesión**: no otorga rol, no se acepta en `Authorization` y solo habilita la lectura de
   **un** pedido con datos mínimos. Modelo de amenazas completo en §4.21e.
 
@@ -2876,6 +2894,14 @@ Reversos:
   chargeback con item shipped|delivered→ NO se re-agrega; Order.chargebackNeedsManual=true
 ```
 
+**Motivos de `InventoryMovement` (v1.21.1, normativo — sin valores nuevos en `MovementReason`):** `settle` para
+`reserved → picking` (mismo evento y misma causa que `reserved → in_custody` de la ruta de bóveda; lo que cambia es
+el destino, no el motivo) y **`sale`** para `picking → shipped` y `shipped → delivered` (salida física y cierre de
+la venta). **`withdrawal` queda prohibido** en esta ruta: significa "retiro de la bóveda de un cliente" y ensuciaría
+los reportes de custodia, exactamente el mismo cuidado que llevó a usar `delivered` en vez de `withdrawn`. Las dos
+filas `sale` se distinguen por `fromStatus`/`toStatus`, así que no hace falta un motivo "entregado". La liberación
+de reserva por pago fallido **no** registra movimiento, igual que hoy en la ruta con cuenta (sin asimetría nueva).
+
 Tres consecuencias que se declaran de forma explícita para que nadie las "arregle" después:
 1. **No hace falta ningún valor nuevo en `InventoryStatus`.** `picking | shipped | delivered` estaban **sin uso por
    diseño** desde v1.17 (el retiro de bóveda no los escribe; §3.3) y sus nombres describen exactamente estos tres
@@ -2914,9 +2940,36 @@ El enlace **sustituye a una contraseña**: quien lo tiene, ve el pedido. El dise
 | T5 | **Fuga por dump/backup de BD** | En BD solo vive el **SHA-256**. Un dump **no** produce enlaces utilizables. *(Esta es la razón principal para NO usar un JWT: un JWT robado del correo es igual de malo, pero además la fuga del **secreto de firma** permitiría fabricar tokens para pedidos arbitrarios.)* | Ninguno. |
 | T6 | **Reenvío del correo a un tercero / dispositivo compartido** | `GuestOrderTrackingDTO` de **datos mínimos** (§4-G.3): sin dirección completa, sin correo/teléfono, sin PAN, **sin ninguna acción**. El daño máximo es *ver* qué compró alguien | Aceptado explícitamente por PROJECT §J. |
 | T7 | **Token vivo para siempre** | TTL 90 días, **rotación** al reenviar (solo el último vale), **revocación** al reclamar y por soporte, y tope de edad de la orden (365 días) para emitir nuevos | Ventana de 90 días. Revisable por el humano. |
+| T7b | **Puertas duplicadas por pedido** (v1.21.1) | El claro del token es irrecuperable (solo hay hash), así que el correo del settle lleva **otro** token y durante un rato **coexisten dos**. Se acota haciendo el token de **checkout de vida corta (120 min)** frente al de **correo (90 días)**: pasadas 2 h queda **una sola** puerta duradera. El settle **no rota** (rotar mataría la confirmación post-3DS en curso); reenvío y soporte **sí** rotan y revocan **todos** los vivos | Solapamiento de ≤2 h. La alternativa descartada —dos tokens de 90 días— **duplicaba la exposición durante tres meses** sin beneficio. Ver §4.21e-bis. |
 | T8 | **Escalada del token a acciones** | El token **no** es credencial: no se acepta en `Authorization`, no crea sesión, no otorga rol y solo lo leen los endpoints `/orders/guest/*`. Ninguna mutación acepta token | Ninguno. |
 | T9 | **DoS de inventario con pedidos no pagados** | Rate limit 5/hora por IP, tope de 20 líneas por pedido, y **job de barrido** `guest-order-sweep` que libera reservas de órdenes `pending` con más de `GUEST_ORDER_RESERVATION_TTL_MIN` (60 min) y cancela su PI | Ventana de 60 min de inventario retenido por un atacante. El barrido **también** beneficia a los pedidos con cuenta (hoy dependen solo de que Stripe cancele el PI). |
 | T10 | **Fraude con tarjeta sin historial de usuario** | Fuera del alcance técnico: se cubre con el flujo de contracargo existente (§9 API_CONTRACT). PROJECT deja abierto si el humano quiere un **tope de monto por pedido de invitado** (pregunta v1.5-5) | Exposición comercial conocida; hoy **no** hay tope. |
+
+#### (e-bis) Las dos vidas del token — corrección normativa v1.21.1
+
+La v1.21 pedía algo **irrealizable**: "el mismo token del checkout se envía por correo al liquidar". Con **solo el
+SHA-256 en BD**, el claro **no se puede recuperar** en el webhook — y esa imposibilidad es justamente la propiedad
+de seguridad que se buscaba (T5). Rotar en el settle tampoco era opción: mataría el token que el navegador está
+usando en la confirmación tras el 3DS.
+
+**Norma:** dos emisiones, misma tabla, **sin columna nueva** (se distinguen solo por `expiresAt`):
+- **Token de checkout** — lo devuelve `POST /checkout/guest/session` al comprador, **TTL 120 min**
+  (`GUEST_CHECKOUT_TOKEN_TTL_MIN`). Existe para una sola cosa: sobrevivir al redirect de Stripe y pintar la
+  confirmación/seguimiento inmediato. **Nunca** se envía por correo.
+- **Token de seguimiento** — lo emiten el settle, el reenvío y soporte; **TTL 90 días**; **solo** viaja por correo.
+
+Reglas de rotación (asimétricas a propósito): **el settle NO rota** (excepción acotada, justificada por la UX
+post-3DS y segura porque la puerta que no revoca se apaga sola en 2 h); **el reenvío y el reenvío de soporte SÍ
+rotan**, revocando *todos* los tokens vivos del pedido; **el reclamo revoca todo**. Resultado: el estado estable de
+un pedido es **una única puerta sin contraseña**, con una ventana de solapamiento de como mucho dos horas el día de
+la compra. Si el correo falla, el comprador tiene 2 h de acceso y después el reenvío con `(email + orderNumber)`
+—datos que la confirmación le mostró—, así que no queda sin salida.
+
+**Motivo de revocación (`details.reason`) — se DERIVA, no se persiste.** `order.claimedAt != null` ⇒ `CLAIMED`; en
+otro caso ⇒ `ROTATED`. Se **elimina** el valor `SUPPORT` de la v1.21: era inderivable sin una columna de motivo, y
+no se añade una columna para cambiar un texto de UX. **La trazabilidad no se pierde**: el reenvío de soporte deja
+`AuditLog` (`order.tracking_link.reissue`, con actor y timestamp) y el self-service no, así que el forense
+distingue perfectamente quién rotó. Lo que no distingue es el **cuerpo de la respuesta**, que es copy, no auditoría.
 
 **Por qué opaco y no JWT (decisión, no preferencia):** (i) **revocable** borrando/marcando una fila — un JWT solo
 se revoca con lista negra, que es exactamente la tabla que el opaco ya es; (ii) **no filtra claims** (un JWT lleva

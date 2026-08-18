@@ -10,6 +10,7 @@
  * API_CONTRACT §4-G; ARCHITECTURE §4.21; PROJECT §J / criterios 45–56b.
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { GuestOrderSweepJobService } from '../../src/jobs/guest-order-sweep.service';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { computeDirectShipBreakdown } from '../../src/common/money';
@@ -494,6 +495,57 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       const otherOrder = await h.prisma.order.findFirst({ where: { guestEmail: OTHER_GUEST_EMAIL } });
       const res = await h.api('GET', `/orders/${otherOrder!.id}`, { token: userToken });
       expect([403, 404]).toContain(res.status);
+    });
+  });
+
+  describe('T9 — barrido de reservas de invitado sin pagar (job `guest-order-sweep`)', () => {
+    it('libera la pieza, marca la orden `failed` y la carta vuelve a estar vendible', async () => {
+      const template = await h.prisma.inventoryItem.findUnique({
+        where: { folio: E2E_FOLIOS.listedCharizard },
+      });
+      const item = await createGuestItem(h, template!, `E2E-GST-${RUN}-3`);
+      const session = await h.api('POST', '/checkout/guest/session', {
+        json: {
+          inventoryItemIds: [item.id],
+          email: `abandonado.${RUN}@example.com`,
+          shippingAddress: ADDRESS,
+          acceptedTerms: true,
+        },
+      });
+      expect(session.status).toBe(201);
+      expect((await h.prisma.inventoryItem.findUnique({ where: { id: item.id } }))!.status).toBe('reserved');
+
+      // Se envejece la orden más allá de la ventana de reserva (60 min) sin pagarla.
+      await h.prisma.order.update({
+        where: { id: session.body.orderId },
+        data: { createdAt: new Date(Date.now() - 90 * 60 * 1000) },
+      });
+      // El PI de prueba es un stub offline: cancelarlo no debe salir a la red.
+      jest.spyOn(h.stripe, 'cancelPaymentIntent').mockResolvedValue(undefined);
+
+      const res = await h.app.get(GuestOrderSweepJobService).run();
+      expect(res.swept).toBeGreaterThanOrEqual(1);
+
+      const swept = await h.prisma.inventoryItem.findUnique({ where: { id: item.id } });
+      expect(swept!.status).toBe('listed');
+      expect(swept!.ownerType).toBe('platform');
+      const order = await h.prisma.order.findUnique({ where: { id: session.body.orderId } });
+      expect(order!.status).toBe('failed');
+      expect(h.stripe.cancelPaymentIntent).toHaveBeenCalledWith(session.body.stripe.paymentIntentId);
+
+      // Y la pieza se puede volver a vender (el inventario no quedó bloqueado).
+      const quote = await h.api('POST', '/checkout/guest/quote', { json: { inventoryItemIds: [item.id] } });
+      expect(quote.status).toBe(200);
+      jest.restoreAllMocks();
+    });
+
+    it('NO toca pedidos recientes ni pedidos con cuenta', async () => {
+      const before = await h.prisma.order.findUnique({ where: { id: orderId } });
+      await h.app.get(GuestOrderSweepJobService).run();
+      const after = await h.prisma.order.findUnique({ where: { id: orderId } });
+      // El pedido del camino feliz (ya liquidado) sigue intacto.
+      expect(after!.status).toBe(before!.status);
+      expect(after!.status).toBe('settled');
     });
   });
 

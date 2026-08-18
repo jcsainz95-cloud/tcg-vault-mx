@@ -2,7 +2,28 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-18 (rev v1.21-guest-checkout).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-18 (rev v1.21.1-guest-checkout-fixes).
+>
+> **Changelog v1.21.1-guest-checkout-fixes (2026-08-18) — Correcciones post-implementación del WS «Órdenes y
+> dinero» (regla 9: backend detectó, el arquitecto resuelve). SOLO estos 4 puntos; nada más del contrato cambia.
+> SIN migración adicional (M-25 se queda como está).** Ver §4-G.7a, §4-G.3, §4-G.6, §4-G.11.
+> - **§4-G.2/§9 — se retira un requisito IRREALIZABLE.** Decía "el **mismo** token se envía por correo al
+>   liquidar": imposible, porque en BD solo vive el `SHA-256` y el claro **no es recuperable** en el webhook (esa
+>   irrecuperabilidad es justamente la propiedad de seguridad T5). **Norma nueva: dos emisiones con vidas
+>   distintas** — `checkoutToken` de **120 min** (respuesta del checkout, para la confirmación post-3DS) y token de
+>   seguimiento de **90 días** (solo por correo). El **settle NO rota** (rotar mataría la confirmación en curso);
+>   **reenvío y soporte SÍ rotan** revocando todos los vivos. Así el solapamiento de dos puertas dura **≤2 horas**
+>   en vez de 90 días. **Sin columna nueva** (se distinguen solo por `expiresAt`). El campo de la respuesta pasa a
+>   llamarse **`checkoutToken`** (+ `checkoutTokenExpiresAt`).
+> - **§4-G.3 — `details.reason` del `410 TOKEN_REVOKED` se DERIVA**, no se persiste: `CLAIMED` si
+>   `Order.claimedAt != null`, si no `ROTATED`. **Se ELIMINA el valor `SUPPORT`** (inderivable sin columna de
+>   motivo; no se añade una columna para cambiar un texto de UX). La distinción "quién rotó" **sigue disponible en
+>   `AuditLog`** (`order.tracking_link.reissue`), que es donde corresponde.
+> - **§4-G.6 — se fijan los `InventoryMovement.reason`** del ciclo de invitado (faltaban): **`settle`** en
+>   `reserved → picking`; **`sale`** en `picking → shipped` y `shipped → delivered`; **`withdrawal` PROHIBIDO**
+>   (ensuciaría los reportes de custodia). Sin valores nuevos en el enum. Ratifica lo que backend implementó.
+> - **§4-G.11 — corrección de conteo:** son **8** códigos de error nuevos, no 7. La lista normativa de §0 (que
+>   siempre tuvo 8) es la que manda.
 >
 > **Changelog v1.21-guest-checkout (2026-08-18) — WS «Órdenes y dinero»: COMPRAR SIN CUENTA (PROJECT §J, §J.1,
 > criterios 45–56b).** Superficie **nueva y aislada** (`/checkout/guest/*`, `/orders/guest/*`, `/orders/claim*`):
@@ -1206,9 +1227,11 @@ El IVA cobrado ya queda registrado en `Order.ivaCents` (disponible en M7).
    habilita la lectura de **un** pedido por los endpoints `/orders/guest/*`.
 4. **El camino de invitado JAMÁS consulta `User` por correo.** No hay `findUnique({ where: { email } })` en
    `/checkout/guest/*` ni en `/orders/guest/*`. Es la garantía de criterio 56 a nivel de código, no de mensaje.
-5. **Ninguna respuesta de API devuelve un token en claro salvo a quien acaba de crear el pedido.** El token viaja
-   por correo; la única excepción es la respuesta de `POST /checkout/guest/session` (quien la recibe **es** el
-   comprador que creó ese pedido, ver §4-G.2).
+5. **Ninguna respuesta de API devuelve un token en claro salvo a quien acaba de crear el pedido.** El token de
+   seguimiento viaja **por correo**; la única excepción es el `checkoutToken` **de vida corta** que devuelve
+   `POST /checkout/guest/session` (quien la recibe **es** el comprador que creó ese pedido, §4-G.2/§4-G.7a).
+   Consecuencia directa del hash: **el claro es irrecuperable** una vez emitido — ningún proceso posterior
+   (webhook, reenvío, soporte) puede "volver a mandar el mismo token"; solo puede **emitir uno nuevo**.
 
 ### 4-G.1 POST /api/v1/checkout/guest/quote — `public` (`@Public()`)
 
@@ -1281,17 +1304,19 @@ Res `201`:
 ```json
 { "orderId": "uuid…", "orderNumber": "TCG-000123",
   "breakdown": { "…": "BreakdownDTO con shippingFeeCents" },
-  "trackingToken": "9f8a…43-chars-base64url",
+  "checkoutToken": "9f8a…43-chars-base64url", "checkoutTokenExpiresAt": "2026-08-18T16:30:00Z",
   "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" } }
 ```
-> **Por qué la respuesta devuelve `trackingToken`:** quien llama a este endpoint **es** quien crea el pedido, así que
-> no hay filtración posible (el token solo abre *ese* pedido, cuyos datos el llamante acaba de escribir). Resuelve
-> el problema real de la pantalla de confirmación: tras el redirect 3DS de Stripe el navegador puede perder el
-> estado, y sin token la confirmación no podría leer nada (el invitado no tiene sesión). El front lo usa para armar
-> el `return_url` y renderizar confirmación + seguimiento. **Es la ÚNICA respuesta de API que contiene un token en
-> claro** (invariante §4-G.0-5). El **mismo** token se envía por correo al liquidar (criterio 49).
-> **Regla para el front:** no persistir el token en `localStorage` compartido ni loguearlo; tratarlo como secreto de
-> URL (ver §4-G.7).
+> **`checkoutToken` — token de VIDA CORTA (v1.21.1, corrección normativa).** Quien llama a este endpoint **es** quien
+> crea el pedido, así que devolvérselo no filtra nada (solo abre *ese* pedido, cuyos datos el llamante acaba de
+> escribir). Resuelve el problema real de la pantalla de confirmación: tras el redirect 3DS de Stripe el navegador
+> puede perder el estado y, sin sesión, la confirmación no podría leer nada. El front lo usa para armar el
+> `return_url` y renderizar confirmación + seguimiento inmediato.
+> **TTL = `GUEST_CHECKOUT_TOKEN_TTL_MIN` (120 minutos), NO 90 días.** Es un `OrderAccessToken` normal (mismo modelo,
+> misma tabla, **sin columna nueva**): lo único que lo distingue es su `expiresAt`. Ver §4-G.7a para el porqué de
+> las dos vidas.
+> **Es la ÚNICA respuesta de API que contiene un token en claro** (invariante §4-G.0-5). **Regla para el front:** no
+> persistirlo en `localStorage` compartido ni loguearlo; tratarlo como secreto de URL (§4-G.7).
 
 `orderId` (uuid) se devuelve **solo aquí** (lo necesita el flujo de pago/soporte); **no** aparece en la vista pública
 de seguimiento.
@@ -1366,8 +1391,17 @@ GuestTrackingPaymentDTO = { brand?: string, last4?: string }   // "visa", "4242"
   borrado). Mensaje genérico; **no** dice si el pedido existe (criterio 52).
 - `410 TOKEN_EXPIRED` — el token existe pero `expiresAt < now`. La página muestra mensaje neutro y **ofrece
   reenviar** (criterio 53).
-- `410 TOKEN_REVOKED` con `details.reason = "CLAIMED" | "ROTATED" | "SUPPORT"` — el enlace dejó de valer porque el
-  pedido se reclamó, porque se emitió uno nuevo, o porque soporte lo rotó.
+- `410 TOKEN_REVOKED` con **`details.reason = "CLAIMED" | "ROTATED"`** — el enlace dejó de valer porque el pedido se
+  **reclamó** (hay cuenta detrás: el front invita a iniciar sesión) o porque se **emitió uno nuevo** (el front
+  invita a usar el último correo o a pedir reenvío).
+  > **v1.21.1 — el `reason` se DERIVA, no se persiste (decisión: ningún campo nuevo).** Regla normativa:
+  > `order.claimedAt != null` ⇒ `"CLAIMED"`; en cualquier otro caso ⇒ `"ROTATED"`. **El valor `"SUPPORT"` se
+  > ELIMINA del contrato** (era inderivable sin una columna de motivo): una rotación hecha por soporte se reporta
+  > como `"ROTATED"`, que es exactamente lo que el usuario necesita saber ("tu enlace fue sustituido por uno
+  > nuevo"). **La distinción no se pierde para forense**: el reenvío de soporte deja `AuditLog`
+  > (`action: 'order.tracking_link.reissue'`, con actor y timestamp) y el self-service no. Se acepta a conciencia
+  > que el **cuerpo de la respuesta** no distinga quién rotó: es copy de UX, no un dato de auditoría, y añadir una
+  > columna para pintar un texto distinto no lo justifica.
 - `429 RATE_LIMITED`.
 > **Por qué distinguir "expirado/revocado" de "inválido" NO es un oráculo:** para obtener un `410` hay que
 > **presentar un token real de 256 bits**, que solo se consigue teniéndolo. No existe espacio adivinable donde la
@@ -1390,6 +1424,15 @@ GuestResendLinkRequest =
 > **`email` solo NUNCA se acepta.** Pedir además el número de pedido lo inutiliza como oráculo ("¿este correo
 > compró aquí?") y como vector de spam a terceros: un par incorrecto no produce ningún correo. El envío siempre va
 > a `Order.guestEmail`, **jamás** al correo del request (que solo se usa para comparar).
+> **v1.21.1 — el `token` sirve como selector aunque esté EXPIRADO o REVOCADO** (es el caso normal: se llega aquí
+> desde la página de "enlace expirado", y también desde un `checkoutToken` de 120 min ya vencido). La búsqueda es
+> por hash **sin filtrar por `expiresAt`/`revokedAt`**; lo único que un token caduco **no** puede hacer es *leer*
+> el pedido (§4-G.3). Emitir el nuevo **rota** y revoca todos los vivos (§4-G.7a).
+> **v1.21.1 — discrepancia con `DESIGN_SYSTEM §15.7` (reenvío pidiendo solo el correo): manda el contrato y NO se
+> relaja.** Un formulario de "reenviar por correo" a secas es exactamente el oráculo que el criterio 53 prohíbe
+> ("que no sirva para saber si un correo compró aquí") y, además, un vector para mandar correos a terceros. La UI
+> debe pedir **correo + número de pedido** (el número se le mostró en la confirmación y va en el correo) o venir
+> con el token de la página de enlace expirado. *(ux-ui: ajustar §15.7 en su documento.)*
 
 Res **`202`** — **SIEMPRE el mismo cuerpo, exista o no el pedido/correo/token** (criterio 53):
 ```json
@@ -1451,6 +1494,21 @@ listed | in_stock
 - **Anti double-sell:** `picking`/`shipped`/`delivered` no están en `{in_stock, listed}`, así que ni el checkout
   (`ITEM_UNAVAILABLE`) ni `bulk-publish` (`ITEM_NOT_PUBLISHABLE`) ni el ajuste de M1 (`ITEM_NOT_ADJUSTABLE`) pueden
   tocarlos. **No hace falta ninguna guarda nueva** en esos endpoints.
+- **`InventoryMovement.reason` de cada transición (v1.21.1 — NORMATIVO; no se añade ningún valor al enum):**
+
+  | Transición | Disparador | `reason` |
+  |---|---|---|
+  | `reserved → picking` | `payment_intent.succeeded` (pedido liquidado) | **`settle`** — mismo motivo y mismo evento que la ruta de bóveda (`reserved → in_custody`); lo que cambia es el `toStatus`, no la causa. |
+  | `picking → shipped` | M4 `→ enviado` | **`sale`** — la pieza sale del almacén por una **venta**. |
+  | `shipped → delivered` | M4 `→ entregado` | **`sale`** — cierre de la misma venta. |
+  | `reserved → listed` | pago fallido/cancelado | **sin `InventoryMovement`** — se conserva el comportamiento actual de la liberación de reserva (§4/§9), que tampoco lo registra para pedidos con cuenta. No se introduce asimetría entre las dos rutas. |
+  | `reserved\|picking → listed` | contracargo | **`chargeback_return`** (sin cambio respecto a la ruta de bóveda). |
+
+  **`withdrawal` queda PROHIBIDO en el ciclo de invitado.** Ese motivo significa "retiro de la bóveda de un
+  cliente" y usarlo aquí ensuciaría los reportes de custodia (un pedido de invitado nunca estuvo en bóveda), igual
+  que `delivered` existe para no mentir con `withdrawn`. Las dos filas `sale` de un mismo item se distinguen sin
+  ambigüedad por `fromStatus`/`toStatus` (`picking→shipped` vs `shipped→delivered`), así que no hace falta un
+  motivo nuevo para "entregado".
 
 ### 4-G.7 El enlace tokenizado — parámetros normativos
 
@@ -1459,12 +1517,45 @@ listed | in_stock
 | Tipo | **Token opaco aleatorio**, `randomBytes(32).toString('base64url')` (256 bits, 43 chars). **NO JWT** | Revocable por fila; no lleva claims que filtrar; no depende de rotación de secreto; un dump de BD **no** produce enlaces válidos (solo hay hashes). Mismo patrón ya probado en `AuthToken` (ARCHITECTURE §3.2). |
 | Persistencia | Solo `SHA-256` hex en `OrderAccessToken.tokenHash @unique`. El claro **jamás** se guarda | Idéntico a `AuthToken`. SHA-256 basta (256 bits de entropía: no hay fuerza bruta posible, a diferencia de una contraseña). |
 | Usos | **MULTI-USO** (a diferencia de `AuthToken`): **no** hay `usedAt` | El invitado reabre el mismo enlace cada vez que quiere ver su pedido (criterio 50). |
-| Revocación | `revokedAt DateTime?`. Se revoca al **reclamar** el pedido, al **rotar** (reenvío) y por **soporte** | "Revocable sí, consumible no". |
-| Rotación | Emitir uno nuevo revoca los vigentes de ese pedido ⇒ **solo el último enlace funciona** | Limita el número de puertas sin contraseña abiertas simultáneamente; mismo criterio que `AuthToken.issue`. |
-| TTL | `expiresAt = now + GUEST_TRACKING_TTL_DAYS` (**90 días**, supuesto del PO — cubre entrega + ventana de disputa de 7 días con margen) | PROJECT §J. **Revisable por el humano** (pregunta abierta v1.5-2). |
+| Revocación | `revokedAt DateTime?`. Se revoca al **reclamar** el pedido, al **rotar** (reenvío self-service o de soporte) | "Revocable sí, consumible no". |
+| Rotación | **Solo el reenvío** (§4-G.4) y el **reenvío de soporte** (§4-G.9b) rotan: revocan **todos** los tokens vivos del pedido y emiten uno nuevo ⇒ **solo el último enlace funciona**. La emisión del token de correo en el settle **NO rota** (§4-G.7a) | Limita las puertas abiertas simultáneas; mismo criterio que `AuthToken.issue`, con la excepción acotada del settle. |
+| TTL | **Dos vidas, según origen** (§4-G.7a): token de **checkout** = `GUEST_CHECKOUT_TOKEN_TTL_MIN` (**120 min**); token de **correo/reenvío/soporte** = `GUEST_TRACKING_TTL_DAYS` (**90 días**, supuesto del PO — cubre entrega + ventana de disputa con margen). Se distinguen **solo** por `expiresAt`; **no hay columna de tipo** | PROJECT §J. Los 90 días son **revisables por el humano** (pregunta abierta v1.5-2). |
 | Tope de edad | No se emiten tokens nuevos para pedidos con `createdAt` anterior a `GUEST_TRACKING_MAX_AGE_DAYS` (**365 días**) | Evita que el reenvío mantenga la puerta abierta para siempre. Pasado ese punto, la vía es el **reclamo** (que no necesita enlace) o soporte. |
 | Transporte | El correo lleva `${APP_BASE_URL}/${locale}/pedido?token=<claro>`; el front mueve el token al **body** de `POST /orders/guest/track` y lo **borra de la URL** (`history.replaceState`) | Minimiza exposición en historial/`Referer`. La página debe ser `noindex` y `Referrer-Policy: no-referrer`. |
 | Alcance | **Un token ⇒ un pedido** (`orderId` en la fila). No hay token "de correo" ni token multi-pedido | Criterio 52. |
+
+#### 4-G.7a Ciclo de vida de los tokens de un pedido — CORRECCIÓN NORMATIVA (v1.21.1)
+
+**Qué estaba mal.** La v1.21 decía que "el **mismo** token se envía por correo al liquidar". **Es irrealizable**: en
+BD solo vive el `SHA-256`, así que el claro devuelto en el checkout **no es recuperable** por el webhook. Y "rotar
+al liquidar" tampoco sirve: mataría justo el token que el navegador está usando en la pantalla de confirmación tras
+el 3DS — precisamente la UX que el propio contrato describe.
+
+**Qué es normativo ahora.** Un pedido de invitado tiene **dos emisiones** con **vidas deliberadamente distintas**:
+
+| | Token de **checkout** | Token de **seguimiento** |
+|---|---|---|
+| Lo emite | `POST /checkout/guest/session` | el webhook `payment_intent.succeeded` (§9), el reenvío (§4-G.4) y soporte (§4-G.9b) |
+| Se entrega | en la **respuesta HTTP** al comprador | **solo por correo** |
+| TTL | **120 min** (`GUEST_CHECKOUT_TOKEN_TTL_MIN`) | **90 días** (`GUEST_TRACKING_TTL_DAYS`) |
+| ¿Rota los anteriores? | n/a (es el primero) | **NO** en el settle · **SÍ** en reenvío/soporte |
+| Para qué | confirmación post-3DS y seguimiento inmediato | el enlace duradero de PROJECT §J (criterios 49/50/53) |
+
+- **Sí hay dos puertas vivas a la vez, pero solo durante ≤2 horas.** Pasado el TTL corto queda **una sola** puerta
+  de larga duración. Esto era el punto débil de la lectura anterior (dos tokens de 90 días por pedido **duplicaban
+  la exposición del enlace sin contraseña durante tres meses**, sin ningún beneficio: el token de checkout no se
+  vuelve a usar una vez que llega el correo).
+- **El settle NO rota** — es la excepción acotada y la razón está arriba: rotar mataría la confirmación en curso.
+  Es seguro precisamente porque el token que sobrevive sin rotar (el de checkout) **se apaga solo** en 2 horas.
+- **Reenvío y soporte SÍ rotan**: revocan **todos** los tokens vivos del pedido (los de ambas vidas) y emiten uno
+  nuevo de 90 días. Tras un reenvío, el enlace del correo anterior **y** cualquier token de checkout residual
+  devuelven `410 TOKEN_REVOKED`.
+- **El reclamo revoca todo** (sin cambio respecto a v1.21).
+- **Sin columna nueva:** ambas emisiones son filas idénticas de `OrderAccessToken`; lo único que las distingue es
+  `expiresAt`. No hay `type`, ni `purpose`, ni migración adicional.
+- **Si el correo falla** (envío best-effort), el comprador conserva 2 horas de acceso por el token de checkout y,
+  después, el camino es el **reenvío** con `{ email, orderNumber }` — datos que la pantalla de confirmación le
+  mostró. No queda sin salida.
 
 ### 4-G.8 Endpoints existentes: qué cambia y qué NO
 
@@ -1635,7 +1726,8 @@ model OrderAccessToken {
 
 **Constantes de servidor (NO son diales de M10)** — en `backend/src/modules/orders/guest-checkout.constants.ts`,
 siguiendo el precedente de las ventanas 7d/30d del buylist (v1.18):
-`GUEST_TRACKING_TTL_DAYS=90`, `GUEST_TRACKING_MAX_AGE_DAYS=365`, `GUEST_RESEND_MAX_PER_DAY=5`,
+`GUEST_TRACKING_TTL_DAYS=90`, **`GUEST_CHECKOUT_TOKEN_TTL_MIN=120`** (v1.21.1, §4-G.7a),
+`GUEST_TRACKING_MAX_AGE_DAYS=365`, `GUEST_RESEND_MAX_PER_DAY=5`,
 `GUEST_MAX_ITEMS=20`, `GUEST_ORDER_RESERVATION_TTL_MIN=60`. Promoverlas a `ConfigSetting` (M10) más adelante es
 **no-breaking**; hoy se evitan para no tocar el módulo `settings` (otro work stream). La **tarifa de envío** NO es
 constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (default 17500).
@@ -1646,7 +1738,7 @@ constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (default 17500).
 |---|---|---|
 | `backend/prisma/schema.prisma` | Migración **M-25** | Serializar (regla de zona compartida). |
 | `backend/src/common/money.ts` | Función **nueva** `computeDirectShipBreakdown(subtotal, shippingFee, ivaPct, fee)` | **Aditiva**: `computeCartBreakdown` y `computeShipmentBreakdown` **no se tocan**. |
-| `backend/src/common/error-codes.ts` | 7 códigos nuevos (§0) | Aditiva. |
+| `backend/src/common/error-codes.ts` | **8** códigos nuevos (§0) — `VAULT_REQUIRES_ACCOUNT`, `ALREADY_AUTHENTICATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `ORDER_ALREADY_CLAIMED`, `CLAIM_EMAIL_MISMATCH`, `GUEST_ORDER_TOO_OLD` *(v1.21.1: la v1.21 decía "7" por error de conteo; la lista normativa de §0 siempre fue de 8 y es la que manda)* | Aditiva. |
 | `docs/API_CONTRACT.md` | Esta sección | Ya aplicada, aditiva y localizada. |
 
 **No se necesita tocar:** `common/decorators/public.decorator.ts` (se usa tal cual), `@nestjs/throttler` (ya
@@ -1979,9 +2071,13 @@ Eventos manejados:
     (`orderId` = la orden, `userId=null`, `status='picking'`, `pickingAt=now`, `addressSnapshot` copiado de
     `Order.shippingAddressSnapshot`, montos en `0` — ver §5), **idempotente** (si ya existe un envío para esa
     orden, no se crea otro: el webhook se reintenta); (3) se persisten `paymentMethodBrand` / `paymentMethodLast4`
-    del `charge`. **Post-commit y best-effort:** se emite el `OrderAccessToken` y se envía el **correo de
-    confirmación con el enlace de seguimiento** (criterio 49); su fallo **no** revierte nada y **no** debe hacer
-    fallar el webhook (si el handler devolviera 5xx, Stripe reintentaría un settle ya aplicado).
+    del `charge`. **Post-commit y best-effort:** se emite un `OrderAccessToken` **NUEVO de 90 días — sin rotar los
+    anteriores** (§4-G.7a: el token de checkout que el navegador está usando tras el 3DS debe sobrevivir; se apaga
+    solo a los 120 min) y se envía el **correo de confirmación con el enlace de seguimiento** (criterio 49). El
+    claro del token de checkout **no es recuperable** (en BD solo hay hash), por eso el correo lleva **otro** token.
+    El fallo del correo **no** revierte nada y **no** debe hacer fallar el webhook (un 5xx haría que Stripe
+    reintentara un settle ya aplicado). **Idempotencia:** si el webhook se reintenta y la orden ya está `settled`,
+    **no** se emite otro token ni se reenvía el correo.
 - `payment_intent.payment_failed` → Order `pending→failed`; libera reserva de items (`reserved→listed`).
   - **v1.21:** en un pedido de invitado la liberación es idéntica (`reserved → listed`) y **más simple**, porque el
     item nunca dejó de ser `ownerType='platform'` (no hay titularidad que revertir).
