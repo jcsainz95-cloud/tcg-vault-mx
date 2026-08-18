@@ -1848,7 +1848,9 @@ en la confirmación como —en versión "solo enlace"— en la vista de seguimie
   `trackingPending`, `shipToLabel`, `paidWithCard`, `updatedAt`, `refresh`, `copyOrderNumber`,
   `troubleWithOrder`, `createAccountHint`.
 - `track.neutral.*` — `title`, `body`, `emailLabel`, `submit`, `result`, `cooldown`, `claimAlternative`,
-  `support`. **Textos normativos: los de la tabla de §15.7, literales en ES y EN.**
+  `support`, `noLinkCta`, `manualIntro`, `orderNumberLabel`, `orderNumberHelp`, `incompleteForm`
+  (los cinco últimos, de la **vía B** de §15.7: correo + número de pedido juntos).
+  **Textos normativos: los de la tabla de §15.7, literales en ES y EN.**
 - `status.tracking.*` — `paid`, `preparing`, `label`, `shipped`, `delivered`, `refunded`, `cancelled`
   (versalitas de §15.6).
 
