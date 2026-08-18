@@ -2073,3 +2073,182 @@ colgó **antes** de ejecutar la verificación (setup del entorno, instalación d
 Si el escaneo o los tests llegaron a correr y fallaron, eso es un hallazgo real y se diagnostica — no
 se relanza. Los cuatro reintentos de esta noche caen todos en el primer caso, y en ninguno se cambió
 el commit entre intentos.
+
+---
+
+## 23. Encendido del proveedor de PAGA (cartas) y del sellado TCGCSV — intento de ejecución 2026-08-18
+
+> **Estado honesto: NO EJECUTADO desde la sesión de devops.** Ninguna de las dos palancas se movió:
+> `POKEMONPRICETRACKER_MARKET_FORMAT` sigue **sin fijar** en Railway, el dial `price_provider` sigue en
+> `pokemontcg_io` y `sealed_price_source` sigue en `off`. Esta sección documenta **por qué** (bloqueo de
+> acceso, no de conocimiento), **qué sí se verificó** y deja el **guion exacto** para que lo corra quien
+> tenga las credenciales. Cross-ref: §19.5 (runbook original del flip), §19.7 (rollback), §21 (sellado).
+
+### 23.1 Por qué no se pudo ejecutar (bloqueos verificados, no supuestos)
+
+| Bloqueo | Evidencia |
+|---|---|
+| **Sin acceso a Railway** | No hay `railway` CLI ni `RAILWAY_TOKEN` en el entorno de la sesión (`which railway` → nada; `env` sin variables de Railway). Fijar `POKEMONPRICETRACKER_MARKET_FORMAT` y `SEALED_PRICE_INGEST_CRON` es **dashboard de Railway**, no repo. |
+| **Sin credenciales `super_admin`** | Los diales (`PUT /admin/settings`) y los disparos (`POST /admin/jobs/*`) exigen bearer de `super_admin`. La sesión no tiene ni token ni el `NEXT_PUBLIC_API_BASE_URL` real del backend en prod (en el repo solo hay placeholders `api.tudominio.com`). |
+| **Egress bloqueado hacia la app** | El proxy de la sesión rechaza el CONNECT a producción: `403 … "host":"www.tcgvaultmx.com:443"` (`$HTTPS_PROXY/__agentproxy/status` → `recentRelayFailures`). Aun con token, **no se puede llamar a prod desde aquí**. La red de la sesión solo abre registries + GitHub. |
+
+> Consecuencia: los pasos 2–6 de la Tarea A y todo §21 los ejecuta **el humano** (o una sesión con
+> credenciales). Abajo va el guion copiable, con los criterios de go/no-go y qué traer de vuelta.
+
+### 23.2 Lo que SÍ se verificó desde aquí (precondición de código)
+
+- **El código de WS-A está en las dos ramas relevantes:** `main` @`915210d` y `production` @`5422bae`
+  contienen `backend/src/jobs/price-ingest.service.ts`, `backend/src/modules/pricing/price-ingest.service.ts`,
+  el provider de paga con el **candado** `POKEMONPRICETRACKER_MARKET_FORMAT` (fail-closed → `sample-only`,
+  `pokemonpricetracker-bulk.provider.ts:84,112`), el sellado TCGCSV (`tcgcsv-sealed.provider.ts`,
+  `sealed-price-ingest.service.ts`) y la migración **M-23** (`20260817140000_m23_sealed_tcgcsv`).
+- **Railway auto-despliega desde `main`** (HANDOFF §3) y `deploy.yml` **no** corre solo (§16.4): el deploy
+  real es la integración nativa de Railway, no GitHub Actions.
+- **NO verificable desde aquí (lo primero que debe mirar el humano):** que el **último deploy de Railway
+  haya quedado verde y esté sirviendo ese commit**. Tras el día de CI/deploy con problemas (§22), esto no
+  se puede asumir. Verificación mínima, en este orden:
+  1. Railway → servicio `backend` → **Deployments**: el último `Success` y su commit = `915210d` (o posterior).
+  2. `GET /api/v1/health` → `200`, componente **Redis `up`** (§20.2).
+  3. Deploy logs con `Scheduler: conexión Redis lista (BullMQ operativo).` + `Scheduler activo (BullMQ): …`
+     y una línea de **catch-up** de `price-ingest` (§20.2.1). **Si el scheduler no está vivo, ningún cron
+     corre y nada de lo de abajo se programa solo** — se puede seguir, pero todo queda a disparo manual.
+  Si el backend en prod es viejo (sin `price-ingest` cableado), **PARAR**: no es un problema de config, es
+  un deploy pendiente → se reporta y se re-despliega antes de tocar diales.
+
+### 23.3 Corrección a §19.5 y §21 — dónde vive REALMENTE cada dial (hallazgo de esta sesión)
+
+Los runbooks decían "panel M10". Verificado contra el código del front, **no es exacto**:
+
+| Palanca | Dónde está de verdad | Nota |
+|---|---|---|
+| `priceProvider` (dial del ingest masivo) | **Admin M2**, sección "proveedor de la ingesta masiva" (`M2View.tsx:197-213`, `updatePriceProvider`) | **NO** está en M10: `M10View.tsx` `DIALS[]` no lo lista. Lo que M10 sí tiene es `pricingProviderRaw/Graded/Sealed`, que es **otro** dial (referencia por-carta), fácil de confundir. |
+| Disparo `price-ingest` **completo** | Admin M2, botón junto al selector (`triggerPriceIngest()`) | Dispara **sin `setId`** → barre TODO el catálogo. |
+| Disparo `price-ingest` de **UN set** (`{setId}`) | **Solo API** (`POST /admin/jobs/price-ingest {"setId":"…"}`) | El front no expone el `setId` → la corrida de blast-radius contenido de §19.5 **exige curl**. |
+| `sealedPriceSource` (dial del sellado) | **Sin UI en ningún módulo** (`grep sealedPriceSource frontend/src` → 0 hits) | Tarea B es **100% por API**. |
+| Curación de mapeo sellado (`/admin/pricing/sealed/*`) | **Sin UI** (`M2View.tsx` no consume esos endpoints) | Sin mapeos, el ingest de sellado **no escribe nada** (§23.5). |
+
+> **Hallazgo enrutado a `frontend`** (dueño de `frontend/`; devops no lo toca): faltan en el admin (a) el
+> dial `sealedPriceSource`, (b) el explorador/curación TCGCSV de sellado (`unmapped` → `groups` →
+> `products` → `PUT mapping`) y (c) el `setId` opcional en el disparo de `price-ingest`. El contrato ya
+> los define (`API_CONTRACT` §M2 sealed-tcgcsv y §M10/§M10-ops) y `api.ts` ya tiene `updatePriceProvider`.
+> Mientras tanto, ambas tareas se operan por API con token `super_admin`.
+
+### 23.4 Guion Tarea A — flip a `pokemonpricetracker` (variante aprobada por el PO)
+
+> **Desviación respecto de §19.5, decidida por el PO:** el formato se fija **`usd_dollars` de entrada**,
+> **sin** el paso intermedio de leer el log de muestra (§19.5 pasos 2-4). Queda escrito que es una
+> decisión del PO, no un olvido del runbook. El riesgo que cubría ese paso (payload en MXN → precios
+> **~18× inflados**) se traslada al **chequeo de salida del paso 4 de abajo**, que es OBLIGATORIO y
+> tiene acción correctiva definida. El ingest es idempotente por día, así que un error del formato se
+> corrige re-corriendo el set con el formato bueno.
+
+Prerrequisitos: haber pasado §23.2 (deploy nuevo + Redis/scheduler vivos) y tener `BASE` (base URL del
+backend en prod, `…/api/v1`) y `TOKEN` (bearer de `super_admin`).
+
+1. **Railway → servicio `backend` → Variables:** confirmar `POKEMONPRICETRACKER_API_KEY` presente y
+   añadir **`POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`**. Railway redespliega solo al cambiar
+   variables; si no, redeploy manual. **Esperar a que el deploy quede `Success` antes de seguir** (la env
+   se lee en runtime: sin el nuevo deploy el proveedor sigue en `sample-only`).
+2. **Flip del dial** (sin redeploy) — en el admin **M2** (no M10), o por API:
+   ```bash
+   curl -sS -X PUT "$BASE/admin/settings" -H "Authorization: Bearer $TOKEN" \
+        -H 'Content-Type: application/json' -d '{"priceProvider":"pokemonpricetracker"}' | jq .
+   # verificar:
+   curl -sS "$BASE/admin/settings" -H "Authorization: Bearer $TOKEN" | jq '.priceProvider'
+   ```
+3. **Corrida de UN set** (blast radius contenido; usar el set que el PO está probando — el `setId` real se
+   saca de `GET $BASE/catalog/sets`, es el id del proveedor de catálogo, p. ej. `sv8`):
+   ```bash
+   curl -sS -X POST "$BASE/admin/jobs/price-ingest" -H "Authorization: Bearer $TOKEN" \
+        -H 'Content-Type: application/json' -d '{"setId":"sv8"}' | jq .     # 202 {scope:"set", …}
+   ```
+4. **Verificar la salida ANTES del rollout** (esto no es un gate de aprobación, es leer el resultado):
+   - **Rango sano:** una carta de **~$10 USD** debe quedar en **~180–220 MXN** ya con FX+colchón.
+     Se ve en la ficha pública de la carta (deja de decir "Precio pendiente") o en el admin M2.
+   - **Acabados mapeados:** que no todo quede en `normal` (debe haber `reverse_holo`/`holofoil` donde aplique).
+   - **Cobertura:** `GET $BASE/admin/dashboard` → `dataHealth.pendingPriceCount` debe **bajar** y
+     `lastPriceSyncAt` ser de hoy; en logs, `price-ingest-set(<setId>, pokemonpricetracker): X cartas,
+     Y refs, …` con `skipped` bajo.
+   - 🚨 **Si los precios salen ~18× inflados (una carta de $10 USD en ~3,600 MXN):** el payload venía en
+     **MXN**. Corregir `POKEMONPRICETRACKER_MARKET_FORMAT=mxn_dollars` en Railway (+ redeploy), re-correr
+     el mismo set (paso 3) y re-verificar. **Avisar al PO del hallazgo** — es exactamente el caso que el
+     paso del log de muestra cubría. No requiere cambio de código.
+   - Si no cuadra con **ninguno** de los 4 formatos (`usd_dollars`/`usd_cents`/`mxn_dollars`/`mxn_cents`):
+     **rollback por dial** a `pokemontcg_io` (§19.7) y enrutar a **backend**.
+5. **Rollout completo** (solo si el paso 4 cuadró):
+   ```bash
+   curl -sS -X POST "$BASE/admin/jobs/price-ingest" -H "Authorization: Bearer $TOKEN" | jq .
+   ```
+   o dejar que lo hagan los crons 2×/día (`PRICE_INGEST_CRON_1/_2`, 06:00 y 18:00 CDMX, §19.3).
+6. **Después:** si se quiere la gráfica del home con datos frescos, `POST /admin/jobs/set-value-snapshot`
+   una vez tras el ingest (§19.9).
+
+**Rollback money-safe (cualquier momento):** dial `priceProvider` → `pokemontcg_io` desde M2/API, **sin
+redeploy** (§19.7). No se tocan `BUYLIST_PRICE_RULES` ni `BUYLIST_PRICE_FALLBACK_PCT`: este trabajo cambia
+**solo el proveedor de la referencia de mercado**, nunca la regla que se le aplica encima.
+
+### 23.5 Guion Tarea B — encender el sellado por TCGCSV (§21)
+
+**Lo que hay que entender antes:** el cron **no basta**. El job recorre `InventoryItem` con
+`productType='sealed'` **y mapeo TCGplayer no nulo** (`sealed-price-ingest.service.ts:60`). **Sin mapeos
+curados, el ingest corre y escribe cero referencias** — no es un fallo, es que no hay a qué apuntar. Y la
+curación **no tiene UI** (§23.3), así que hoy es por API.
+
+1. **Railway → `backend` → Variables:** `SEALED_PRICE_INGEST_CRON` — el default del código ya es
+   `30 21 * * *` (21:30 UTC = 15:30 CDMX, después del refresh diario de tcgcsv.com y del `fx-refresh`).
+   **Solo hay que fijarla si se quiere otro horario**; ponerla vacía es peor que no ponerla (§19.3).
+2. **Curar 1–2 mapeos** (mínimo para probar):
+   ```bash
+   curl -sS "$BASE/admin/pricing/sealed/unmapped" -H "Authorization: Bearer $TOKEN" | jq '.data[] | {inventoryItemId, folio, sealedSubtype}'
+   curl -sS "$BASE/admin/pricing/sealed/tcgcsv/groups?q=surging" -H "Authorization: Bearer $TOKEN" | jq '.data'
+   curl -sS "$BASE/admin/pricing/sealed/tcgcsv/groups/<GROUP_ID>/products?q=elite" -H "Authorization: Bearer $TOKEN" | jq '.data'
+   curl -sS -X PUT "$BASE/admin/pricing/sealed/items/<ITEM_ID>/mapping" -H "Authorization: Bearer $TOKEN" \
+        -H 'Content-Type: application/json' \
+        -d '{"tcgplayerProductId":<PID>,"tcgplayerGroupId":<GROUP_ID>,"applyToSiblings":true}' | jq .
+   ```
+   (`applyToSiblings:true` copia el mapeo a las otras copias físicas del mismo producto sin mapeo.)
+3. **Flip del dial** (fail-closed `off` → `tcgcsv`; sin UI, por API):
+   ```bash
+   curl -sS -X PUT "$BASE/admin/settings" -H "Authorization: Bearer $TOKEN" \
+        -H 'Content-Type: application/json' -d '{"sealedPriceSource":"tcgcsv"}' | jq '.sealedPriceSource'
+   ```
+4. **Corrida acotada a un grupo** y verificación:
+   ```bash
+   curl -sS -X POST "$BASE/admin/jobs/sealed-price-ingest" -H "Authorization: Bearer $TOKEN" \
+        -H 'Content-Type: application/json' -d '{"groupId":<GROUP_ID>}' | jq .
+   ```
+   - Logs: resumen con `grupos`/`referencias` + contadores `fetchedRaw/skipped/usedFallbackMid/unmatched`.
+   - Datos: en el admin **M1** el item sellado mapeado muestra **`sealedMarketRef` poblado** (deja de ser
+     `null`), coherente con el FX del día.
+   - Señales de problema: `502 UPSTREAM_ERROR` (tcgcsv caído o egress bloqueado) o `unmatched` alto
+     (mapeos apuntando a productIds que no existen en ese grupo).
+   - **Esta es la primera corrida contra el payload real** (los tests usan fixtures porque dev bloquea
+     tcgcsv.com, §21.4). Si el esquema difiere → **hallazgo a backend**, no se parchea aquí.
+5. **Rollback:** dial `sealedPriceSource` → `off` (sin redeploy). Las filas ya escritas quedan inertes:
+   son referencia informativa, nadie las consume para publicar ni valuar (§21.3).
+
+**Independencia de los dos adapters — verificada en código, uno no pisa al otro:**
+
+| | Cartas sueltas (Tarea A) | Sellado (Tarea B) |
+|---|---|---|
+| Dial | `price_provider` (`pokemonpricetracker`) | `sealed_price_source` (`tcgcsv`) |
+| Job / cron | `price-ingest` (+`-set`), `PRICE_INGEST_CRON_1/_2` | `sealed-price-ingest`, `SEALED_PRICE_INGEST_CRON` |
+| `PriceReference.source` | `pokemonpricetracker` (`pokemonpricetracker-bulk.provider.ts:61`) | `tcgcsv` (`tcgcsv-sealed.provider.ts:74`) |
+| Filas que toca | `productType` raw, por `(cardId, finish)` | `productType='sealed'` **con mapeo** (`sealed-price-ingest.service.ts:60,107`) |
+
+Escriben en la misma tabla pero **nunca en la misma fila** (clave única distinta por `productType`/`gradeKey`),
+y cada uno tiene su propio dial de apagado. Encender o apagar uno no afecta al otro.
+
+### 23.6 Qué falta del lado del humano (checklist accionable)
+
+- [ ] **Confirmar el deploy de prod** (§23.2): último deploy `Success` en Railway con commit ≥ `915210d`,
+      `/api/v1/health` con Redis `up`, y las líneas de scheduler + catch-up en logs. **Si esto falla, parar.**
+- [ ] **Traer de vuelta**, si se quiere que devops continúe: (a) base URL real del backend en prod,
+      (b) confirmación de que existe la env `POKEMONPRICETRACKER_API_KEY`, (c) las 3 líneas de log del
+      arranque del scheduler, (d) el `setId` exacto del set "Pitch Black" que el PO está probando.
+- [ ] **Ejecutar §23.4** (Railway var + flip en M2 + corrida de un set + verificación de rango) y
+      **§23.5** (mapeos + dial + corrida por grupo).
+- [ ] **Reportar el resultado del chequeo de rango** del paso 4 de §23.4 — es el único punto donde el
+      atajo aprobado por el PO (fijar `usd_dollars` sin leer la muestra) se paga o se cobra.
+- [ ] **Frontend** (otro rol): exponer en el admin el dial `sealedPriceSource`, la curación TCGCSV del
+      sellado y el `setId` del disparo de `price-ingest` (§23.3).
