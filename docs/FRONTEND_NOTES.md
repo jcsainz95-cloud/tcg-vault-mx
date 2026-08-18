@@ -3520,3 +3520,144 @@ rechazo"; falla sin el fix con solo el primer carácter registrado, pasa con el 
 ### Gates
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓
 (45 archivos / 346 tests, incluye los 17 tests preexistentes de `M5View.test.tsx` + 1 nuevo).
+
+## 2026-08-18 · T1/T2/T3 — casillas por variante real, copy de inventario admin, alta concluyente
+
+Tercera ronda sobre el mismo bug (rama `fix/variantes-y-orden-master-set`). El PO pidió, textual:
+«en el master set son dos cartas de cada una: la común a la izquierda y la holo a la derecha» — es
+decir, una casilla de IMAGEN por variante real, no un chip de texto con etiqueta de acabado.
+
+### T1 — Una casilla de imagen por variante (`MasterSetBinder.tsx`, `CellDrawer.tsx`)
+
+**Qué cambió.** `BinderCell` y `QuoterCell` ya NO pintan una sola imagen + chips de texto por
+acabado debajo: pintan **una casilla de imagen por entrada de `cell.variants`**, lado a lado, en
+el orden de `FINISH_ORDER` (normal izquierda, reverse holo derecha, contrato v1.22 — el backend
+garantiza ese orden y que `|casillas| = |availableFinishes| ≥ 1`, nunca relleno). Las N casillas
+de una celda usan la MISMA `cell.imageSmallUrl` (pokemontcg.io no publica arte por acabado; el
+contrato lo deja explícito: NO hay `imageByFinish`). Cada casilla lleva su etiqueta de acabado en
+mono debajo de la imagen y su estado (conteo si `covered`, «HUECO» si no — atenuada + borde
+punteado), así que nunca hay que adivinar cuál casilla es cuál. Una carta con una sola variante
+pinta UNA sola casilla (sin hueco fantasma de relleno). Aplica también a `VariantSlots` en
+`CellDrawer.tsx` ("Casillas por acabado").
+
+**Rejilla responsive.** El binder calcula `slotCols = max(variants.length)` de las celdas
+visibles y baja un escalón de columnas por cada casilla extra (`gridColsForSlots`): 1 casilla →
+`grid-cols-2 sm:3 lg:4 xl:5` (como antes); 2 casillas → `grid-cols-1 sm:2 lg:3 xl:4`; así la
+imagen de cada casilla no se encoge ilegible en móvil cuando el set tiene cartas multi-acabado.
+Todas las celdas comparten el MISMO `slotCols` (vía `style={gridTemplateColumns}`) para que el
+binder se lea como una retícula uniforme aunque cada celda tenga distinto nº de variantes.
+
+**Orden — `@/lib/cardOrder.ts` (nuevo).** Contrato v1.22: `CardDTO`/`MasterSetCardCellDTO` ganan
+`numberSort`/`numberPrefix` (columnas persistidas, M-26) y el `ORDER BY` correcto es
+`(numberPrefix, numberSort, number, id)` — el front NUNCA re-ordena por número tras recibir la
+página, pero SÍ debe reproducir ese orden al filtrar LOCALMENTE (el binder ya filtraba por
+acabado/huecos/secret-rare/nombre en cliente). `compareCardNumber` implementa ese comparador;
+`deriveNumberParts` lo deriva en cliente como red de seguridad si el backend todavía no manda las
+columnas (marcadas `?` en el tipo a propósito — ver nota de tipos abajo). El cotizador
+(`fetchQuoterBinder`, compuesto 100% client-side) también usa estas claves en vez del índice del
+arreglo que usaba antes (`numberSort: idx` quedaba mal para sets con promos intercalados).
+
+**Nota de tipos (decisión de frontend, no de contrato).** `numberSort`/`numberPrefix` se
+declararon `?` opcionales en `types/contract.ts` en vez de requeridos: la norma v1.22 los hace
+normativos, pero mientras el re-sync/backfill (M-26) no haya corrido en TODAS las filas — y para
+no obligar a tocar decenas de fixtures/tests ajenos a este bug en todo el repo — el tipo tolera su
+ausencia y `cardOrder.ts` cae a `deriveNumberParts`. Cuando el campo llega, manda él. No es un
+relajamiento del contrato: es tolerancia de despliegue documentada in situ.
+
+### T2 — Copy de admin: inventario, no carrito (`CellDrawer.tsx`, `MasterSetPanel.tsx`, i18n)
+
+Regla del PO: el carrito NO aplica a admin. Se renombró TODO el copy de M1 que hablaba de
+"carrito" a lenguaje de inventario/alta/lote, en `es.json` y `en.json` (namespace `masterSet`
+únicamente — `catalog.addToCart`/`buylist.cartTitle` son carritos DE VERDAD y no se tocaron):
+
+| Antes (`masterSet.*`) | Ahora |
+|---|---|
+| `quickAddTitle` "Alta rápida al carrito" | `quickIntakeTitle` "Alta rápida al inventario" |
+| `addToCart` "Agregar al carrito" | `addToInventory` "Dar de alta al inventario" (alta INMEDIATA) + `addToBatch` "Agregar al lote" (encola, alta por lote) |
+| `addedToCart` "Agregado al carrito de captura." | `addedToBatch` "Agregada al lote de alta." |
+| `cartTitle`/`cartSummary`/`cartRemove`/`cartSubmit`/`cartClear` | `batchTitle`/`batchSummary`/`batchRemove`/`batchSubmit`/`batchClear` (mismo copy de fondo, "carrito"→"lote") |
+
+`masterSet.buyCta`/`buyAdded` ("Agregar al carrito de compra") NO se tocaron a propósito: es el
+CTA de `user_vault_self` para comprar una pieza faltante — un carrito de COMPRA de verdad, del
+cliente, no de admin.
+
+### T3 — El botón de alta ahora es concluyente y visible
+
+**Diagnóstico (confirmado, no supuesto).** La mutación de alta SÍ funcionaba — el bug no era de
+red ni de lógica de negocio. Era de FLUJO: (1) "Agregar al carrito" solo ENCOLABA la línea; el
+botón que REALMENTE hacía POST (`batchCreateItems`, "Dar de alta N piezas") vivía en
+`MasterSetPanel.tsx`, renderizado DEBAJO de toda la cuadrícula del binder; (2) el modal del
+drawer (`CellDrawer.tsx`) se quedaba abierto tapando la pantalla con el overlay, así que ese
+segundo paso quedaba invisible detrás del overlay y al final de la página — para el operador,
+"presiono y no pasa nada".
+
+**Solución — el lote vive DENTRO del modal, en su pie fijo.**
+- `Modal.tsx`: el diálogo ganó un layout `flex flex-col` con altura acotada
+  (`max-h-[100dvh] sm:max-h-[90vh]`); el `title`/header y el `footer` quedan `shrink-0` (fijos) y
+  el `children` scrollea (`overflow-y-auto`). Antes un drawer largo (muchos campos + piezas +
+  ajuste) desbordaba la ventana y el `footer` quedaba fuera de la vista sin scrollear — exactamente
+  el síntoma que reportó el PO. Cambio en el componente COMPARTIDO: beneficia a todos los modales
+  con `footer` largo (M1/M5/M6…), no solo a éste.
+- `CellDrawer.tsx` gana `BatchFooter`: pinta, DENTRO del `footer` fijo del modal, el desenlace del
+  lote — banner de éxito/error tolerante por-línea (`PerLineErrors`) Y, si hay líneas pendientes,
+  el resumen + botón "Dar de alta N piezas" / "Vaciar lote". El operador ve el resultado SIN
+  cerrar el modal y SIN hacer scroll.
+- `QuickAddSection` ahora ofrece DOS acciones, ninguna ambigua: **"Dar de alta al inventario"**
+  (primaria) — encola la línea Y envía el lote en el MISMO clic (`queueAndSubmit`), para el caso
+  común de una sola carta; **"Agregar al lote"** (secundaria) — solo encola, para seguir
+  capturando varias cartas antes de confirmar (alta por LOTE, P-5 de `PENDIENTES.md`, se
+  conserva). `MasterSetPanel.tsx` expone ambas como `CaptureBatchState` (`capture.ts`), un objeto
+  compartido entre el panel (dueño del `useMutation`/`batchKeyRef`) y el drawer (que solo lo lee y
+  dispara).
+- **Éxito falso corregido.** Antes `QuickAddSection` hacía `setAdded(true)` incluso si
+  `onAddToCart` era `undefined` (nunca ocurría en la práctica porque el padre siempre lo pasaba,
+  pero era una trampa: la UI mentía si algún día faltara el callback). Ahora sin `batch` cableado
+  no hay botones de alta que fingir — la sección no tiene ninguna ruta de "éxito" sin una
+  mutación real detrás.
+- **Error visible corregido.** Antes `submit.isError` pintaba un banner en `MasterSetPanel.tsx`,
+  AL FONDO de la página — con el modal abierto, tapado por el overlay. Ahora, si el drawer está
+  abierto, el error (y el resultado) se pintan en `BatchFooter` (el banner del panel se omite
+  mientras `openCell` esté seteado, para no duplicar el aviso); si el drawer está cerrado, el
+  banner del panel sigue ahí como antes.
+- **Idempotencia intacta.** `queueAndSubmit` reusa la MISMA `batchKeyRef` de la sesión
+  (`ensureBatchKey`) — un reintento por timeout sigue siendo replay idempotente en el backend. El
+  lote viaja como ARGUMENTO de `submit.mutate(lines)` (no se lee `cart` del closure dentro de
+  `mutationFn`), porque React agrupa el `setState` del mismo tick: sin este cambio, la línea recién
+  agregada en el mismo clic de "Dar de alta al inventario" se habría perdido de la primera llamada.
+  `PlatformPiecesSection` (publicar/ajustar) no se tocó — su idempotencia por batchKey ya estaba
+  bien y es independiente de este lote.
+
+**Verificado en navegador (stack real, no mocks) — evidencia:**
+- `UPDATE "Card" SET "availableFinishes"='{normal,reverse_holo}' WHERE name='E2E Reverse Bird'`
+  (luego el backend la sembró así de forma permanente): en `/es/buylist` → «E2E Base Set» y en
+  `/es/admin/m1` → Master Set → «E2E Base Set», «E2E Reverse Bird» (#17) es la ÚNICA carta con
+  DOS casillas de imagen lado a lado (NORMAL izquierda, REVERSE HOLO derecha); las demás 5 cartas
+  muestran UNA sola casilla.
+- Clic en "Dar de alta al inventario" sobre «E2E Charizard» (con precio) → banner
+  "1 piezas creadas · 0 líneas con error." + folio `INV-000001` visible DENTRO del modal, sin
+  cerrarlo; confirmado además contra la API (`GET /admin/inventory/items?cardId=...`) que la
+  pieza existe de verdad (no solo optimista en UI) y que el conteo de la celda subió en vivo.
+  Clic sobre «E2E Reverse Bird» en `reverse_holo` (sin precio de referencia) → banner
+  "0 piezas creadas · 1 líneas con error." + "Esta carta tiene precio pendiente…" — también
+  DENTRO del modal, mismo comportamiento concluyente para el camino de error.
+
+### Archivos
+`components/master-set/MasterSetBinder.tsx` (casillas por variante, `slotCols`, orden local con
+`cardOrder.ts`), `CellDrawer.tsx` (`VariantSlots` con imagen por variante, `BatchFooter`,
+`QuickAddSection` con alta inmediata/por-lote), `MasterSetPanel.tsx` (`CaptureBatchState`,
+`queueAndSubmit`/`submitBatch`/`clearBatch`, banner del panel oculto si el drawer está abierto),
+`capture.ts` (+`CaptureBatchState`), `components/ui/Modal.tsx` (pie fijo + cuerpo scrolleable),
+`lib/cardOrder.ts` (nuevo), `types/contract.ts` (`CardDTO`/`MasterSetCardCellDTO` +=
+`numberSort?`/`numberPrefix?`), `messages/{es,en}.json` (copy de inventario, namespace
+`masterSet`), `MasterSet.test.tsx` (+5: dos tests de T3 alta inmediata éxito/error dentro del
+modal; un test de T1 conteo de imágenes 2 vs 1; tests existentes de "Agregar al carrito" migrados
+a "Agregar al lote").
+
+### Solicitud al arquitecto (pendiente, no bloqueante)
+Ninguna nueva. Sigue vigente la de la ronda anterior: confirmar si al backend le conviene exponer
+`numberSort`/`numberPrefix` como NO opcionales en el DTO ya con M-26 desplegado (el frontend ya
+tolera su ausencia por diseño, así que esto es solo para que el contrato deje de decir "aditivo
+opcional" si en la práctica ya siempre viajan).
+
+### Gates
+`npm run typecheck` ✓ · `npm run lint` ✓ · `npm run test` ✓ (50 archivos / 381 tests).

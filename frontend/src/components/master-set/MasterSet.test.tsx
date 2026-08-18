@@ -117,8 +117,8 @@ describe('Master Set · Carrito de captura por lote (#12, tolerante por-línea)'
     await openBaseSetBinder();
     const drawer = await openCell(/Charizard/);
 
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Agregar al carrito' }));
-    expect(await within(drawer).findByText('Agregado al carrito de captura.')).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Agregar al lote' }));
+    expect(await within(drawer).findByText('Agregada al lote de alta.')).toBeInTheDocument();
 
     // Cerrar el drawer para operar el carrito del panel.
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
@@ -133,6 +133,67 @@ describe('Master Set · Carrito de captura por lote (#12, tolerante por-línea)'
     expect(
       screen.getByText(/Esta carta tiene precio pendiente/),
     ).toBeInTheDocument();
+  });
+});
+
+describe('Master Set · Alta INMEDIATA al inventario (T3: concluyente y visible)', () => {
+  it('"Dar de alta al inventario" encola y envía en el MISMO clic; el resultado se ve DENTRO del modal, sin cerrar nada', async () => {
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
+      batchKey: 'b-immediate',
+      idempotentReplay: false,
+      summary: { requested: 1, createdItems: 1, failedLines: 0 },
+      results: [{ index: 0, ok: true, folios: ['INV-000500'], inventoryItemIds: ['x9'] }],
+    });
+
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Dar de alta al inventario' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+    // El desenlace se pinta en el PIE del propio modal: sin scroll, sin cerrar el drawer.
+    expect(await within(drawer).findByText('1 piezas creadas · 0 líneas con error.')).toBeInTheDocument();
+    expect(within(drawer).getByText('INV-000500')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('un error de alta se muestra VISIBLE dentro del modal (antes quedaba al fondo de la página, tapado por el overlay)', async () => {
+    vi.spyOn(api, 'batchCreateItems').mockRejectedValue(
+      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
+    );
+
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Dar de alta al inventario' }));
+
+    expect(
+      await within(drawer).findByText('Error del servidor. Intenta de nuevo.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('Master Set · Una casilla de imagen POR VARIANTE (T1, binder de M1 — no solo el cotizador)', () => {
+  it('Zapdos (2 acabados) pinta 2 imágenes; una carta promo de 1 acabado pinta SOLO 1 (nunca relleno)', async () => {
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+
+    const zapdos = await screen.findByText('Zapdos');
+    const zapdosCell = zapdos.closest('button')!;
+    expect(zapdosCell.querySelectorAll('img')).toHaveLength(2);
+
+    // Set con carta promo de UN solo acabado (Rayquaza Trainer Gallery, sv08 en fixtures).
+    fireEvent.click(await screen.findByRole('button', { name: 'Sets' }));
+    fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Surging Sparks' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Surging Sparks/ }));
+    await screen.findByRole('heading', { level: 2, name: 'Surging Sparks' });
+
+    const rayquaza = await screen.findByText(/Rayquaza/);
+    const rayquazaCell = rayquaza.closest('button')!;
+    expect(rayquazaCell.querySelectorAll('img')).toHaveLength(1);
   });
 });
 
@@ -205,7 +266,7 @@ describe('Master Set · batchKey ESTABLE por sesión de carrito (techlead #1, an
 
     // --- Sesión de carrito 1: agrega una línea de Charizard ---
     let drawer = await openCell(/Charizard/);
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Agregar al carrito' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Agregar al lote' }));
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
 
     // Submit 1 → falla (timeout). El carrito NO se limpia (onSuccess no corrió).
@@ -222,7 +283,7 @@ describe('Master Set · batchKey ESTABLE por sesión de carrito (techlead #1, an
 
     // --- Sesión de carrito 2 (nuevo carrito tras éxito) → batchKey NUEVA ---
     drawer = await openCell(/Charizard/);
-    fireEvent.click(within(drawer).getByRole('button', { name: 'Agregar al carrito' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Agregar al lote' }));
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }));
     fireEvent.click(await screen.findByRole('button', { name: /Dar de alta/ }));
     await waitFor(() => expect(keys.length).toBe(3));
@@ -398,10 +459,10 @@ describe('Master Set · Modo user_vault_admin (bóveda de cliente, SOLO lectura)
     // Casillas por acabado visibles (lectura)…
     expect(within(drawer).getByText('Casillas por acabado')).toBeInTheDocument();
     // …pero SIN acciones de M1 ni de compra (scope read-only).
-    expect(within(drawer).queryByText('Alta rápida al carrito')).toBeNull();
+    expect(within(drawer).queryByText('Alta rápida al inventario')).toBeNull();
     expect(within(drawer).queryByText('Publicar piezas de esta carta')).toBeNull();
     expect(within(drawer).queryByText('Ajuste por levantamiento físico')).toBeNull();
-    expect(within(drawer).queryByRole('button', { name: /Agregar al carrito/ })).toBeNull();
+    expect(within(drawer).queryByRole('button', { name: /Dar de alta al inventario|Agregar al lote/ })).toBeNull();
     expect(within(drawer).queryByText('No disponible')).toBeNull();
   });
 

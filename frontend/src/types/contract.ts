@@ -104,9 +104,11 @@ export interface CardDTO {
   // v1.22-variantes-orden: claves de ORDEN NATURAL persistidas en BD (M-26). El servidor ya entrega
   // `GET /buylist/cards` ordenado por (numberPrefix, numberSort, number, id); el front NUNCA inventa
   // esta clave (antes se usaba el índice del arreglo) y solo re-ordena localmente tras filtrar con
-  // el comparador de `@/lib/cardOrder`.
-  numberSort: number;
-  numberPrefix: string;
+  // el comparador de `@/lib/cardOrder`. Opcionales en el TIPO (no en la norma): mientras el re-sync
+  // de M-26 no haya corrido en TODAS las filas, `@/lib/cardOrder` deriva la clave equivalente en
+  // cliente con `deriveNumberParts` para no degradar a orden lexicográfico ("10" antes que "2").
+  numberSort?: number;
+  numberPrefix?: string;
   rarity: string;
   supertype: string;
   subtypes: string[];
@@ -807,9 +809,11 @@ export interface MasterSetCellCountDTO {
 export interface MasterSetCardCellDTO {
   cardId: string;
   number: string;
-  numberSort: number;
+  // Opcionales en el TIPO por la misma razón que en CardDTO (ver arriba): `@/lib/cardOrder` deriva
+  // la clave equivalente en cliente si el backend todavía no las manda.
+  numberSort?: number;
   /** v1.22 (aditivo): "" = número puramente numérico; "TG"/"SV"/"GG"… = promo/subset (va al final). */
-  numberPrefix: string;
+  numberPrefix?: string;
   name: string;
   rarity?: string;
   imageSmallUrl?: string;
