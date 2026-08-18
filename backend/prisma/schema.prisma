@@ -382,7 +382,17 @@ model Card {
   // `tcgplayer.prices` al importar (ARCHITECTURE §3.7). SIGUE siendo 1 fila por externalId
   // (el @unique NO cambia; esto es un array en la MISMA fila). Filas históricas → [normal]
   // hasta el re-sync. Lista blanca contra la que el backend valida cualquier `finish` (SEC-A1).
+  // v1.22-variantes-orden (§4.22a): la FUENTE es el SYNC DE CATÁLOGO y SOLO él (tcgplayer.prices
+  // por llave presente ∪ cardmarket.prices.reverseHolo* por valor > 0). `price-ingest` NO escribe
+  // esta columna (§4.15e derogada). Se almacena SIEMPRE en orden canónico FINISH_ORDER y nunca vacía.
   availableFinishes Finish[] @default([normal])
+  // v1.22-variantes-orden (M-26, §4.22b): claves DERIVADAS de `number` (String) para el ORDEN
+  // NATURAL en BD. `number` sigue siendo la fuente de verdad; si divergen, se recalculan de él.
+  // Puro numérico → numberSort = entero (clamp 999_999) y numberPrefix = ''. Con prefijo
+  // alfabético (TG12/SV107) → numberPrefix = las letras y numberSort = 1_000_000 + parte numérica
+  // (promos/subsets al final). El default 1_000_000 deja cualquier fila no backfilleada AL FINAL.
+  numberSort        Int      @default(1000000)
+  numberPrefix      String   @default("")
   createdAt         DateTime @default(now())
 
   inventoryItems   InventoryItem[]
@@ -393,6 +403,8 @@ model Card {
   @@index([setId])
   @@index([name])
   @@index([rarity])
+  // M-26: sirve el ORDER BY del binder y de `GET /buylist/cards` con `setId` (§4.22b).
+  @@index([setId, numberPrefix, numberSort])
 }
 
 // ============================= INVENTORY / VAULT =============================

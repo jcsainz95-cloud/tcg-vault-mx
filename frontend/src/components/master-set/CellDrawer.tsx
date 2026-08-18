@@ -27,7 +27,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { PerLineErrors } from './PerLineErrors';
 import { FINISH_ORDER } from '@/lib/finish';
-import { localUid, type CaptureLine } from './capture';
+import { localUid, type CaptureBatchState, type CaptureLine } from './capture';
 import type { MasterSetViewMode } from './mode';
 
 // En el binder solo hay cartas numeradas → alta rápida de raw o gradeada (sellado se gestiona
@@ -47,8 +47,12 @@ interface Props {
   /** Solo modo platform (ubicaciones del alta rápida). */
   locations?: VaultLocationDTO[];
   onClose: () => void;
-  /** Solo modo platform: acumula la línea en el carrito de captura por lote. */
-  onAddToCart?: (line: CaptureLine) => void;
+  /**
+   * Solo modo platform: LOTE de alta al inventario (estado + acciones, dueño = MasterSetPanel).
+   * El drawer lo pinta DENTRO del modal para que el alta sea concluyente y visible sin cerrar
+   * ni hacer scroll (el segundo paso vivía debajo de la cuadrícula, tapado por el overlay).
+   */
+  batch?: CaptureBatchState;
   /** Solo modo platform: refresca agregados tras publicar. */
   onPublished?: () => void;
   /** Solo modo platform: refresca agregados tras un ajuste por levantamiento físico. */
@@ -71,18 +75,25 @@ export function CellDrawer({
   cell,
   locations = [],
   onClose,
-  onAddToCart,
+  batch,
   onPublished,
   onAdjusted,
   onBuyMissing,
 }: Props) {
   return (
-    <Modal open onClose={onClose} title={`${cell.name} · #${cell.number}`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={`${cell.name} · #${cell.number}`}
+      /* El lote pendiente vive en el PIE FIJO del modal: siempre visible mientras el operador
+         captura, sin scroll y sin cerrar nada (T3). */
+      footer={mode === 'platform' && batch ? <BatchFooter batch={batch} /> : undefined}
+    >
       <div className="flex flex-col gap-6">
         <VariantSlots cell={cell} mode={mode} onBuyMissing={onBuyMissing} />
         {mode === 'platform' && (
           <>
-            <QuickAddSection cell={cell} locations={locations} onAddToCart={onAddToCart} />
+            <QuickAddSection cell={cell} locations={locations} batch={batch} />
             <PlatformPiecesSection cell={cell} onPublished={onPublished} onAdjusted={onAdjusted} />
           </>
         )}
@@ -92,9 +103,74 @@ export function CellDrawer({
 }
 
 /**
- * Casillas por acabado (todas las vistas): cubierta → conteo; faltante → HUECO. En la vista
- * del cliente (iii) una variante faltante con `buyable` ofrece el CTA de COMPRA (un clic
- * agrega la pieza al carrito del storefront); `buyable=null` → "No disponible" (no clicable).
+ * Pie del drawer de M1 (T3): resultado del alta y lote pendiente, SIEMPRE a la vista.
+ *
+ * Antes: «Agregar al carrito» encolaba la línea y el botón que REALMENTE daba de alta vivía
+ * debajo de toda la cuadrícula del binder, tapado por el overlay del modal → para el operador
+ * «no pasaba nada». Ahora el desenlace (piezas creadas / error / lote pendiente + su botón de
+ * confirmación) se pinta en el pie fijo del propio modal.
+ */
+function BatchFooter({ batch }: { batch: CaptureBatchState }) {
+  const t = useTranslations('masterSet');
+  const errorMessage = useErrorMessage();
+  const result = batch.result;
+  const hasLines = batch.lines.length > 0;
+
+  if (!hasLines && !result && !batch.isError) return null;
+
+  return (
+    <div className="flex w-full flex-col gap-2 border-t border-border pt-3">
+      {/* Error VISIBLE junto al botón que falló (antes se pintaba al fondo de la página). */}
+      {batch.isError && (
+        <Banner variant="danger" role="alert">
+          {errorMessage(batch.error)}
+        </Banner>
+      )}
+      {result && !hasLines && (
+        <Banner variant={result.summary.failedLines > 0 ? 'warning' : 'success'} role="status">
+          {t('batchResult', {
+            created: result.summary.createdItems,
+            failed: result.summary.failedLines,
+          })}
+          {result.idempotentReplay ? ` · ${t('batchReplay')}` : ''}
+        </Banner>
+      )}
+      {result && (
+        <PerLineErrors
+          lines={result.results.map((r, i) => ({
+            ok: r.ok,
+            label: r.ok ? r.folios.join(', ') : t('lineLabel', { index: i + 1 }),
+            code: r.ok ? undefined : r.error.code,
+            message: r.ok ? undefined : r.error.message,
+          }))}
+        />
+      )}
+      {hasLines && (
+        <>
+          <p className="font-mono text-xs uppercase tracking-wide text-muted">
+            {t('batchPending')} · {t('batchSummary', { lines: batch.lines.length, pieces: batch.totalPieces })}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={batch.submit} loading={batch.isPending} disabled={batch.isPending}>
+              {t('batchSubmit', { count: batch.totalPieces })}
+            </Button>
+            <Button variant="secondary" onClick={batch.clear} disabled={batch.isPending}>
+              {t('batchClear')}
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Casillas por acabado (todas las vistas) — v1.22: UNA CASILLA DE IMAGEN POR VARIANTE REAL, en
+ * el orden del array (`normal` izquierda → `reverse_holo` derecha), todas con la MISMA imagen de
+ * catálogo de la carta (pokemontcg.io publica una sola imagen; el contrato NO lleva imagen por
+ * acabado). Cubierta → conteo; faltante → HUECO (marco punteado + arte atenuado). En la vista del
+ * cliente (iii) una variante faltante con `buyable` ofrece el CTA de COMPRA (un clic agrega la
+ * pieza al carrito del storefront); `buyable=null` → "No disponible" (no clicable).
  */
 function VariantSlots({
   cell,
@@ -113,15 +189,31 @@ function VariantSlots({
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-h3">{t('variantsTitle')}</h3>
-      <ul className="flex flex-col gap-1">
+      <ul
+        className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(${Math.max(1, cell.variants.length)}, minmax(0, 1fr))` }}
+      >
         {cell.variants.map((v) => (
-          <li
-            key={v.finish}
-            className="flex min-h-[44px] flex-wrap items-center gap-3 border border-border px-3 py-2 text-sm"
-          >
+          <li key={v.finish} className="flex flex-col gap-1">
+            <span
+              className={`block aspect-[5/7] w-full overflow-hidden border bg-surface-2 ${
+                v.covered ? 'border-border' : 'border-dashed border-border-strong'
+              }`}
+            >
+              {cell.imageSmallUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={cell.imageSmallUrl}
+                  alt=""
+                  aria-hidden
+                  loading="lazy"
+                  className={`h-full w-full object-contain ${v.covered ? '' : 'opacity-30'}`}
+                />
+              ) : null}
+            </span>
             <span className="font-mono text-[10px] uppercase tracking-wide">{tFinish(v.finish)}</span>
             {v.covered ? (
-              <span className="ml-auto font-mono tabular-nums text-xs">
+              <span className="font-mono tabular-nums text-xs">
                 {t('totalCount', { count: v.count })}
               </span>
             ) : (
@@ -134,7 +226,6 @@ function VariantSlots({
                   (v.buyable ? (
                     <Button
                       size="sm"
-                      className="ml-auto"
                       onClick={() => {
                         onBuyMissing?.(v.buyable!.inventoryItemId);
                         setAddedId(v.buyable!.inventoryItemId);
@@ -143,7 +234,7 @@ function VariantSlots({
                       {t('buyCta', { price: formatMoneyCents(v.buyable.salePriceCents, locale) })}
                     </Button>
                   ) : (
-                    <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-muted">
+                    <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
                       {t('notAvailable')}
                     </span>
                   ))}
@@ -165,14 +256,25 @@ function VariantSlots({
 // Secciones SOLO de M1 (modo platform): alta rápida, publicación por lote y ajuste.
 // ---------------------------------------------------------------------------------------
 
+/**
+ * Alta rápida al INVENTARIO (M1 admin). Regla de producto: **el carrito NO aplica a admin** —
+ * cliente (Mi bóveda) → carrito de compra; cotizador (Vender) → carrito de venta; admin → ALTA
+ * al inventario. Por eso el copy de esta sección habla de alta/inventario/lote.
+ *
+ * Dos acciones, ninguna ambigua (T3):
+ *  - **Dar de alta al inventario** (primaria): encola la línea Y envía el lote en el MISMO clic
+ *    → el operador ve el folio creado (o el error) sin cerrar el modal ni hacer scroll.
+ *  - **Agregar al lote** (secundaria): conserva el alta por LOTE (P-5) para capturar varias
+ *    cartas y confirmarlas de una sola vez desde el pie del modal.
+ */
 function QuickAddSection({
   cell,
   locations,
-  onAddToCart,
+  batch,
 }: {
   cell: MasterSetCardCellDTO;
   locations: VaultLocationDTO[];
-  onAddToCart?: (line: CaptureLine) => void;
+  batch?: CaptureBatchState;
 }) {
   const t = useTranslations('masterSet');
   const tp = useTranslations('admin.m1');
@@ -189,13 +291,13 @@ function QuickAddSection({
   const [gradeValue, setGradeValue] = useState('10');
   const [certNumber, setCertNumber] = useState('');
   const [locationId, setLocationId] = useState('');
-  const [added, setAdded] = useState(false);
+  const [queued, setQueued] = useState(false);
 
   const gradedCertMissing = productType === 'graded' && certNumber.trim() === '';
   const qtyNum = Math.max(1, Math.floor(Number(qty) || 1));
 
-  function addLine() {
-    const line: CaptureLine = {
+  function buildLine(): CaptureLine {
+    return {
       key: localUid('line'),
       cardId: cell.cardId,
       cardName: cell.name,
@@ -211,14 +313,27 @@ function QuickAddSection({
       acquisitionPct: acq === 'aportacion_en_especie' ? Number(pct) : undefined,
       qty: productType === 'graded' ? 1 : qtyNum,
     };
-    onAddToCart?.(line);
-    setAdded(true);
+  }
+
+  /** Alta INMEDIATA (primaria): encola + envía. El desenlace lo pinta el pie del modal. */
+  function intakeNow() {
+    if (!batch) return;
+    setQueued(false);
+    batch.queueAndSubmit(buildLine());
+    setCertNumber('');
+  }
+
+  /** Alta por LOTE (secundaria): solo encola; se confirma desde el pie del modal. */
+  function queueLine() {
+    if (!batch) return;
+    batch.queue(buildLine());
+    setQueued(true);
     setCertNumber('');
   }
 
   return (
     <section className="flex flex-col gap-3 border-t border-border pt-4">
-      <h3 className="text-h3">{t('quickAddTitle')}</h3>
+      <h3 className="text-h3">{t('quickIntakeTitle')}</h3>
       <Select
         label={tp('productType')}
         options={PRODUCT_TYPES.map((p) => ({ value: p, label: tp(`productTypeLabel.${p}`) }))}
@@ -276,12 +391,29 @@ function QuickAddSection({
           onChange={(e) => setLocationId(e.target.value)}
         />
       )}
-      <Button onClick={addLine} disabled={gradedCertMissing}>
-        {t('addToCart')}
-      </Button>
-      {added && (
+      {/* Sin lote cableado NO hay alta posible: se dice, no se finge éxito (antes `setAdded(true)`
+          corría aunque el callback fuera undefined → éxito falso). */}
+      {batch ? (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={intakeNow}
+            disabled={gradedCertMissing || batch.isPending}
+            loading={batch.isPending}
+          >
+            {t('addToInventory')}
+          </Button>
+          <Button variant="secondary" onClick={queueLine} disabled={gradedCertMissing || batch.isPending}>
+            {t('addToBatch')}
+          </Button>
+        </div>
+      ) : (
+        <Banner variant="danger" role="alert">
+          {t('intakeUnavailable')}
+        </Banner>
+      )}
+      {queued && (
         <Banner variant="success" role="status">
-          {t('addedToCart')}
+          {t('addedToBatch')}
         </Banner>
       )}
     </section>

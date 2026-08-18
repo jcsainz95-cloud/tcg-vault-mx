@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { computeSalePriceForRarity } from '../../common/money';
+import { CARD_ORDER_BY_IN_SET, FINISH_ORDER } from '../../common/card-order';
 
 /**
  * MasterSetService (v1.16-master-set §4.17a · v1.20-master-set-everywhere §4.20a) — read model
@@ -34,16 +35,17 @@ export const NOT_ON_HAND: InventoryStatus[] = [
   'damaged',
 ];
 
-/** Base de orden para números NO-puros-numéricos (promos/subsets tipo TG/GG/SV) → van al FINAL. */
-const PROMO_SORT_BASE = 1_000_000;
-
-/** Orden canónico del enum Finish (API_CONTRACT §DTOs: `variants` en el orden del enum). */
-export const FINISH_ORDER: Finish[] = [
-  'normal',
-  'reverse_holo',
-  'holofoil',
-  'first_edition_holofoil',
-];
+/**
+ * v1.22 — el ORDEN CANONICO (de acabados y de numeros) vive en `common/card-order.ts`: UN solo
+ * algoritmo compartido por el sync (que ESCRIBE `numberSort`/`numberPrefix`), por el `orderBy` de
+ * la BD y por los seeds (ARCHITECTURE 4.22b). Se re-exporta aqui por compatibilidad de imports.
+ */
+export {
+  FINISH_ORDER,
+  PROMO_SORT_BASE,
+  deriveNumberParts,
+  compareByNumber,
+} from '../../common/card-order';
 
 /** Alcance de la agregación (ARCHITECTURE §4.20a). Solo cambia el WHERE, nunca el shape. */
 export type MasterSetQueryScope = { kind: 'platform' } | { kind: 'user_vault'; userId: string };
@@ -109,7 +111,10 @@ export interface SetRefDTO {
 export interface MasterSetCardCellDTO {
   cardId: string;
   number: string;
+  // v1.22 (M-26): claves PERSISTIDAS del orden natural. `numberSort` SOLO no basta para re-ordenar
+  // en el front (`TG12` y `GG12` colisionan en 1000012) -> el contrato anade `numberPrefix`.
   numberSort: number;
+  numberPrefix: string;
   name: string;
   rarity?: string;
   imageSmallUrl?: string;
@@ -148,49 +153,6 @@ export function expectedFinishes(available: Finish[] | null | undefined): Finish
   const arr = available ?? [];
   if (arr.length === 0) return ['normal'];
   return FINISH_ORDER.filter((f) => arr.includes(f));
-}
-
-/**
- * ORDEN NATURAL (ARCHITECTURE §4.17a, obligatorio). `Card.number` es String → el orden lexicográfico
- * rompe ("10" < "2"; "TG12" mal ubicado). Deriva la clave numérica:
- *  - número PURO ("4", "10", "191") → su entero; ordena numéricamente ("10" > "2").
- *  - número con letras ("TG12", "SV107", "GG50") → PROMO_SORT_BASE + parte numérica → va al FINAL,
- *    agrupado por prefijo (desempate por prefijo alfabético y luego por su parte numérica).
- * `numberSort` se expone en el DTO para que el front re-ordene tras filtrar localmente.
- */
-export function deriveNumberParts(raw: string): { numberSort: number; prefix: string; num: number } {
-  if (/^\d+$/.test(raw)) {
-    const n = parseInt(raw, 10);
-    return { numberSort: n, prefix: '', num: n };
-  }
-  const digits = raw.replace(/\D/g, '');
-  const num = digits === '' ? 0 : parseInt(digits, 10);
-  const prefix = raw.replace(/[0-9]/g, '');
-  return { numberSort: PROMO_SORT_BASE + num, prefix, num };
-}
-
-/**
- * Comparador de orden natural estable:
- *  1. las cartas PURO-numéricas van primero, ordenadas por su entero ("2" < "10" < "200");
- *  2. las cartas con prefijo (promos/subsets TG/GG/SV) van al FINAL, **agrupadas por prefijo**
- *     alfabético (GG → SV → TG), y dentro del prefijo por su parte numérica ("TG2" < "TG12");
- *  3. desempate final por el `number` crudo.
- */
-export function compareByNumber(a: { number: string }, b: { number: string }): number {
-  const pa = deriveNumberParts(a.number);
-  const pb = deriveNumberParts(b.number);
-  const promoA = pa.prefix !== '';
-  const promoB = pb.prefix !== '';
-  if (promoA !== promoB) return promoA ? 1 : -1; // puro-numérico antes que promo
-  if (!promoA) {
-    // ambos puro-numéricos → por entero
-    if (pa.num !== pb.num) return pa.num - pb.num;
-    return a.number < b.number ? -1 : a.number > b.number ? 1 : 0;
-  }
-  // ambos promos → agrupar por prefijo, luego por número
-  if (pa.prefix !== pb.prefix) return pa.prefix < pb.prefix ? -1 : 1;
-  if (pa.num !== pb.num) return pa.num - pb.num;
-  return a.number < b.number ? -1 : a.number > b.number ? 1 : 0;
 }
 
 @Injectable()
@@ -424,7 +386,14 @@ export class MasterSetService {
         rarity: true,
         imageSmallUrl: true,
         availableFinishes: true,
+        // v1.22 (M-26): se LEEN de la columna; ya no se derivan en memoria (ARCHITECTURE 4.22b).
+        numberSort: true,
+        numberPrefix: true,
       },
+      // v1.22: el ORDEN NATURAL lo aplica la BASE DE DATOS con el mismo `orderBy` normativo de
+      // `GET /buylist/cards?setId=` (indice `(setId, numberPrefix, numberSort)`), en vez del
+      // `.sort(compareByNumber)` en memoria. UN solo algoritmo, una sola fuente del orden.
+      orderBy: CARD_ORDER_BY_IN_SET,
     });
     const cardIds = cards.map((c) => c.id);
 
@@ -445,10 +414,7 @@ export class MasterSetService {
 
     const printedTotal = set.printedTotal ?? null;
     const cells: MasterSetCardCellDTO[] = cards
-      .slice()
-      .sort(compareByNumber)
       .map((c) => {
-        const parts = deriveNumberParts(c.number);
         const byFinish = (countsByCard.get(c.id) ?? []).sort((a, b) =>
           a.finish < b.finish ? -1 : a.finish > b.finish ? 1 : 0,
         );
@@ -463,7 +429,8 @@ export class MasterSetService {
         return {
           cardId: c.id,
           number: c.number,
-          numberSort: parts.numberSort,
+          numberSort: c.numberSort,
+          numberPrefix: c.numberPrefix,
           name: c.name,
           rarity: c.rarity ?? undefined,
           imageSmallUrl: c.imageSmallUrl ?? undefined,
@@ -475,7 +442,9 @@ export class MasterSetService {
           // alfabético) con entero > printedTotal. Los promos/subsets (TG/GG/SV, con prefijo) NO
           // cuentan aunque su `numberSort` (PROMO_SORT_BASE + n) supere printedTotal; printedTotal
           // nulo → false.
-          isSecretRare: printedTotal != null && parts.prefix === '' && parts.num > printedTotal,
+          // v1.22: mismas dos claves, leidas de las COLUMNAS (para un numero puro `numberSort` ES
+          // el entero, asi que la heuristica no cambia de semantica).
+          isSecretRare: printedTotal != null && c.numberPrefix === '' && c.numberSort > printedTotal,
           expectedVariantCount: universe.length,
           coveredVariantCount: variants.filter((v) => v.covered).length,
           variants,
