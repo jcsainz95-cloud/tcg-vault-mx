@@ -184,12 +184,20 @@ test.describe('seguimiento público · /pedido', () => {
 
   test('el reenvío responde siempre lo mismo y entra en enfriamiento (criterio 53)', async ({ page }) => {
     await page.goto('/es/pedido?token=mock-expired-token');
-    // Con token, el camino preferente es reenviar por `{ token }`; el par
-    // `{ email, orderNumber }` vive tras "No tengo el enlace" (contrato §4-G.4).
-    await page.getByRole('button', { name: t('es', 'track.neutral.noLinkToggle') }).click();
+
+    // Vía A (con token): ningún campo, solo el botón. La vía B vive tras el disclosure.
+    await expect(page.getByLabel(t('es', 'track.neutral.emailLabel'))).toHaveCount(0);
+    await page.getByRole('button', { name: t('es', 'track.neutral.noLinkCta') }).click();
+
+    // Vía B: ni el correo ni el número de pedido por separado habilitan el envío (§15.7).
+    const submit = page.getByRole('button', { name: t('es', 'track.neutral.submit') });
+    await expect(submit).toBeDisabled();
+    await expect(page.getByText(t('es', 'track.neutral.incompleteForm'))).toBeVisible();
     await page.getByLabel(t('es', 'track.neutral.emailLabel')).fill('invitado@dominio.com');
+    await expect(submit).toBeDisabled();
     await page.getByLabel(t('es', 'track.neutral.orderNumberLabel')).fill('TCG-000123');
-    await page.getByRole('button', { name: t('es', 'track.neutral.submit') }).click();
+    await expect(submit).toBeEnabled();
+    await submit.click();
 
     await expect(page.getByText(t('es', 'track.neutral.result'))).toBeVisible();
     await expect(page.getByRole('button', { name: t('es', 'track.neutral.submit') })).toHaveCount(0);

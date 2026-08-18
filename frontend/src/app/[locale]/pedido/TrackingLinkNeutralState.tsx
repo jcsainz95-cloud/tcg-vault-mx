@@ -12,9 +12,10 @@ import { SUPPORT_CONTACT_FALLBACK } from '../(storefront)/checkout/support-conta
 
 export interface TrackingLinkNeutralStateProps {
   /**
-   * Token que venía en el enlace (si lo había). Con token, el reenvío usa la forma
-   * `{ token }` del contrato §4-G.4 (camino preferente); sin él hace falta el par
-   * `{ email, orderNumber }` — `email` a secas NUNCA se acepta.
+   * Token que venía en el enlace (si lo había). Con token se usa la **vía A** del contrato
+   * §4-G.4 / DESIGN_SYSTEM §15.7: `{ token }`, sin pedir ningún campo. Sin token (o si el
+   * usuario abre "No tengo el enlace") va la **vía B**: `{ email, orderNumber }` JUNTOS —
+   * el correo por sí solo NUNCA se acepta.
    */
   token?: string;
 }
@@ -34,28 +35,47 @@ const MIN_VISIBLE_MS = 700;
  * se imprime el `errorCode`: cualquier diferencia visible convierte la pantalla en un
  * oráculo ("¿este correo compró aquí?").
  *
- * Por eso también: el resultado del reenvío se pinta SIEMPRE igual (`Banner info`, nunca
- * verde de éxito ni bermellón de error), el enfriamiento es el mismo siempre, y el `429`
- * muestra el mismo mensaje que un envío correcto. El backend responde `202 ACCEPTED` exista
- * o no el pedido (§4-G.4); esta UI no delata la diferencia.
+ * Por qué el formulario pide DOS datos (arbitraje del arquitecto, §15.7): un formulario de
+ * un único campo de correo es el oráculo de enumeración que prohíbe el criterio 53 —basta
+ * con que el correo llegue (o no)— y convierte a la plataforma en emisora de correo hacia
+ * terceros. El número de pedido ata la petición a algo que solo tiene quien compró.
+ *
+ * Neutralidad que NO se relaja: la respuesta es **la misma frase** en la vía A y en la vía B,
+ * coincidan o no los datos; el `429` muestra ese mismo mensaje; el resultado se pinta con
+ * `Banner info` (nunca verde de éxito ni bermellón de error) y el enfriamiento es idéntico
+ * siempre. La validación es **solo local**: formato del correo y que el número de pedido no
+ * esté vacío. Ningún campo consulta al servidor (si lo hiciera, el campo sería el oráculo).
  */
 export function TrackingLinkNeutralState({ token }: TrackingLinkNeutralStateProps) {
   const t = useTranslations('track.neutral');
   const tTrack = useTranslations('track');
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState('');
   const [orderNumber, setOrderNumber] = useState('');
-  const [manualForm, setManualForm] = useState(!token);
-  const [emailError, setEmailError] = useState<string | null>(null);
-  const [orderError, setOrderError] = useState<string | null>(null);
+  // Vía B revelada por disclosure: sin token arranca abierta (no hay otra forma de pedirlo);
+  // con token permanece cerrada, porque el caso común es bastar el botón (§15.7).
+  const [manualOpen, setManualOpen] = useState(!token);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+
+  const useManual = manualOpen || !token;
+  const emailOk = isValidEmail(email);
+  const orderOk = orderNumber.trim().length > 0;
+  const incomplete = useManual && !(emailOk && orderOk);
 
   // El h1 recibe el foco al montar para que el lector anuncie el estado (§15.7).
   useEffect(() => {
     headingRef.current?.focus();
   }, []);
+
+  // El disclosure de la vía B mueve el foco al PRIMER campo al abrirse (§15.7). Solo aplica
+  // al camino con token: sin token la vía B ya está desplegada al montar y el foco lo tiene
+  // el h1 (que es lo que debe anunciar el lector).
+  useEffect(() => {
+    if (token && manualOpen) emailRef.current?.focus();
+  }, [token, manualOpen]);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -65,24 +85,10 @@ export function TrackingLinkNeutralState({ token }: TrackingLinkNeutralStateProp
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (sending || cooldown > 0) return;
-
-    // Validación LOCAL de formato únicamente: el campo nunca se valida contra el servidor.
-    let invalid = false;
-    if (manualForm) {
-      if (!isValidEmail(email)) {
-        setEmailError(t('emailInvalid'));
-        invalid = true;
-      } else setEmailError(null);
-      if (!orderNumber.trim()) {
-        setOrderError(t('orderNumberRequired'));
-        invalid = true;
-      } else setOrderError(null);
-      if (invalid) return;
-    }
+    if (sending || cooldown > 0 || incomplete) return;
 
     setSending(true);
-    const request = manualForm
+    const request = useManual
       ? { email: email.trim(), orderNumber: orderNumber.trim() }
       : { token: token as string };
     try {
@@ -113,7 +119,7 @@ export function TrackingLinkNeutralState({ token }: TrackingLinkNeutralStateProp
 
       {sent ? (
         <div className="mt-8">
-          {/* Mismo tratamiento neutro SIEMPRE: el verde leería como "sí, existe". */}
+          {/* Mismo tratamiento neutro SIEMPRE (vía A y vía B): el verde leería como "sí, existe". */}
           <Banner variant="info" role="status">
             {t('result')}
           </Banner>
@@ -131,43 +137,78 @@ export function TrackingLinkNeutralState({ token }: TrackingLinkNeutralStateProp
         </div>
       ) : (
         <form onSubmit={submit} className="mt-8">
-          {manualForm && (
-            <div className="flex max-w-[420px] flex-col gap-6">
-              <Input
-                label={t('emailLabel')}
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                spellCheck={false}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                error={emailError ?? undefined}
-              />
-              {/*
-               * El contrato §4-G.4 NO acepta `email` a secas: exige `{ email, orderNumber }`
-               * juntos, justamente para que el reenvío no sirva de oráculo ("¿este correo
-               * compró aquí?") ni de vector de spam a terceros. Por eso el formulario pide
-               * también el número de pedido, que el comprador tiene en su correo.
-               */}
-              <Input
-                label={t('orderNumberLabel')}
-                value={orderNumber}
-                onChange={(e) => setOrderNumber(e.target.value)}
-                hint={t('orderNumberHelp')}
-                error={orderError ?? undefined}
-              />
-            </div>
+          {useManual && (
+            /* Vía B: los dos campos en un fieldset; la intro es su legend (§15.7). */
+            <fieldset id="neutral-manual-form" className="max-w-[420px] border-0 p-0">
+              <legend className="mb-5 text-sm leading-relaxed text-muted">{t('manualIntro')}</legend>
+              <div className="flex flex-col gap-6">
+                <Input
+                  ref={emailRef}
+                  id="neutral-email"
+                  label={t('emailLabel')}
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  spellCheck={false}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  aria-invalid={!emailOk || undefined}
+                  aria-describedby={!emailOk ? 'neutral-incomplete-note' : undefined}
+                />
+                {/*
+                 * El número de pedido NO lleva `autocomplete` (§15.7) y NO se valida contra
+                 * el servidor ni contra ningún catálogo: solo que no esté vacío. Validarlo
+                 * en `blur` convertiría este campo en el oráculo que el criterio 53 prohíbe.
+                 */}
+                <Input
+                  id="neutral-order"
+                  label={t('orderNumberLabel')}
+                  autoComplete="off"
+                  value={orderNumber}
+                  onChange={(e) => setOrderNumber(e.target.value)}
+                  hint={t('orderNumberHelp')}
+                  aria-invalid={!orderOk || undefined}
+                  // La ayuda del campo se conserva en el describedby; la nota de validación
+                  // local se suma solo mientras falte el dato.
+                  aria-describedby={
+                    orderOk ? 'neutral-order-hint' : 'neutral-incomplete-note neutral-order-hint'
+                  }
+                />
+              </div>
+            </fieldset>
           )}
-          <Button type="submit" variant="primary" loading={sending} className="mt-7">
+
+          {/* Nota de validación LOCAL: ni afirma ni niega nada sobre los datos. */}
+          <p
+            id="neutral-incomplete-note"
+            className={incomplete ? 'mt-5 text-xs leading-relaxed text-muted' : 'sr-only'}
+          >
+            {incomplete ? t('incompleteForm') : ''}
+          </p>
+
+          <Button
+            type="submit"
+            variant="primary"
+            loading={sending}
+            disabled={incomplete}
+            aria-describedby={incomplete ? 'neutral-incomplete-note' : undefined}
+            className="mt-6"
+          >
             {t('submit')}
           </Button>
-          {!manualForm && (
+
+          {/* Disclosure de la vía B: solo tiene sentido cuando SÍ hay token (si no, la vía B
+              es el único camino y ya está desplegada). */}
+          {token && (
             <button
               type="button"
-              onClick={() => setManualForm(true)}
-              className="mt-5 block text-sm text-accent underline underline-offset-4 hover:text-text"
+              onClick={() => setManualOpen(true)}
+              disabled={manualOpen}
+              aria-expanded={manualOpen}
+              aria-controls="neutral-manual-form"
+              className="mt-5 block text-sm text-accent underline underline-offset-4 hover:text-text disabled:hidden"
             >
-              {t('noLinkToggle')}
+              {t('noLinkCta')}
             </button>
           )}
         </form>

@@ -1681,19 +1681,19 @@
     "footerTerms": "Términos y políticas",
     "neutral": {
       "title": "Este enlace ya no funciona",
-      "body": "Por seguridad, los enlaces de seguimiento caducan. Si tienes un pedido con nosotros, podemos enviarte un enlace nuevo al correo que usaste al comprar.",
-      "emailLabel": "Correo con el que compraste",
-      "emailInvalid": "Escribe un correo válido, por ejemplo nombre@dominio.com.",
-      "orderNumberLabel": "Número de pedido",
-      "orderNumberHelp": "Viene en tu correo de confirmación, por ejemplo TCG-000123.",
-      "orderNumberRequired": "Escribe tu número de pedido.",
+      "body": "Por seguridad, los enlaces de seguimiento caducan. Podemos enviarte uno nuevo al correo con el que hiciste la compra.",
       "submit": "Enviarme un enlace nuevo",
-      "result": "Si hay un pedido asociado a ese correo, te enviamos un enlace nuevo. Revisa tu bandeja de entrada y la carpeta de spam.",
+      "noLinkCta": "No tengo el enlace",
+      "manualIntro": "Escribe el correo con el que compraste y el número de pedido de tu confirmación.",
+      "emailLabel": "Correo con el que compraste",
+      "orderNumberLabel": "Número de pedido",
+      "orderNumberHelp": "Viene en tu correo de confirmación (por ejemplo, TCG-000123).",
+      "incompleteForm": "Escribe el correo y el número de pedido para continuar.",
+      "result": "Si esos datos corresponden a un pedido, enviamos un enlace nuevo a ese correo. Revisa tu bandeja de entrada y la carpeta de spam.",
       "cooldown": "Puedes volver a intentarlo en {seconds} s.",
-      "cooldownAnnounce": "Puedes volver a intentarlo en un minuto.",
+      "cooldownAnnounce": "Vuelve a intentarlo en un minuto.",
       "claimAlternative": "¿Prefieres tenerlo siempre a la mano? Crea tu cuenta con ese mismo correo y tu pedido aparecerá en tu historial.",
-      "support": "¿Necesitas ayuda? Escríbenos a {contact}.",
-      "noLinkToggle": "No tengo el enlace"
+      "support": "¿Necesitas ayuda? Escríbenos a {contact}."
     },
     "temporaryLinkNotice": "Este enlace es temporal y caduca en unas horas. El enlace de seguimiento de tu pedido te llega por correo; si no lo ves, pide uno nuevo."
   }
