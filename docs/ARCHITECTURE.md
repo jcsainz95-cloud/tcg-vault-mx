@@ -3471,8 +3471,11 @@ código que ya lo consume, con estos supuestos explícitos:
   (9) opcional recomendado: `cardsWithoutFinishSignal` en `dataHealth`.
   **Tests obligatorios:** carta con llave `reverseHolofoil` y `market:null` ⇒ `['normal','reverse_holo']`; carta con
   solo `cardmarket.reverseHoloTrend > 0` ⇒ idem; carta sin ninguna señal en UPDATE ⇒ **conserva** el valor previo;
-  `price-ingest` **no** modifica `Card` (assert sobre el spy de `card.update`); `["2","10","TG01","SV107"]` sale en
-  ese orden **atravesando dos páginas** de `GET /buylist/cards`.
+  `price-ingest` **no** modifica `Card` (assert sobre el spy de `card.update`); `["2","10","SV107","TG01"]` sale en
+  ese orden **atravesando dos páginas** de `GET /buylist/cards`. *(Errata v1.22.1: esta línea ilustrativa decía
+  `["2","10","TG01","SV107"]`, contradiciendo el `orderBy` normativo de §4.22b — `numberPrefix asc` ⇒ `SV` < `TG`.
+  **Manda la norma**; backend implementó lo correcto y lo anotó en BACKEND_NOTES §49.8. No "arreglar" el orden en la
+  dirección contraria.)*
 - **Frontend:** (1) **eliminar** el `numberSort: idx` de `MasterSetBinder.tsx:104` y usar
   `(numberPrefix, numberSort, number)` del DTO al re-ordenar tras filtrar localmente; (2) el binder del cotizador
   pinta **una casilla por entrada de `availableFinishes`**, en el **orden del array** (sin `sort` propio, sin lista
