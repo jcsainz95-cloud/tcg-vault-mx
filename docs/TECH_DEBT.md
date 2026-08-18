@@ -1791,3 +1791,77 @@
 - **Se anota igualmente** porque el patrón —*asertar sobre un listado paginado compartido*— puede
   repetirse en cualquier spec futuro de back-office; la regla es: filtra o busca por id, nunca
   confíes en que tu fila entra en la primera página.
+- **Recurrencia confirmada y corregida (2026-08-18, WS v1.22):** el mismo patrón latente vivía en
+  `catalog-checkout-webhook.e2e-spec.ts` (buscaba el charizard del seed en `GET /catalog/cards?
+  pageSize=50`) y despertó al acumular la BD compartida >50 piezas listadas del MISMO nombre
+  (`E2E-GST-*` por corrida). Ni siquiera acotar con `q=` bastó (51 listings del mismo charizard).
+  Corregido a la regla: la pieza concreta se pide **por id** (`/catalog/listings/:id`) y el listado
+  se asierta por comportamiento, no por volumen.
+
+### WS «Catálogo y precios» — v1.22 variantes y orden (2026-08-18, no bloqueante; anotado a petición del techlead)
+
+### BE-65 · Casos borde del orden natural: `"23a"`, `number` vacío, y dos divergencias oráculo↔clave persistida (Baja)
+- **Dónde:** `backend/src/common/card-order.ts` (`deriveNumberParts` / `compareByNumber`) y su
+  espejo del front `frontend/src/lib/cardOrder.ts` (dueño frontend para su mitad).
+- **Estado actual:** ARCHITECTURE §4.22b decidió explícitamente NO cambiar la semántica de estos
+  bordes en este WS (parity con el comparador previo): `"23a"` → `prefix="a"`,
+  `numberSort=1_000_023` (cae en el bloque de promos en vez de junto a `"23"`); `number=""` →
+  `prefix=""`, `numberSort=1_000_000` (al final del bloque numérico). Además hay **dos divergencias
+  reales** entre implementaciones del mismo orden:
+  - **(a) `compareByNumber` diverge de la clave persistida para `number=""`:** el comparador decide
+    "promo" por `prefix !== ''` y compara por `num` (no por `numberSort`), así que `""` (prefix `''`,
+    num `0`) se trata como puro-numérico y ordena **PRIMERO** en memoria, mientras que en BD su
+    `numberSort=1_000_000` lo manda **al final del bloque numérico**. `compareByNumber` es hoy solo
+    oráculo de tests y comparador de colecciones ya materializadas, pero un oráculo que diverge del
+    dato que audita es una trampa esperando a su test.
+  - **(b) El fallback del front normaliza el prefijo a MAYÚSCULAS y el backend no:**
+    `frontend/src/lib/cardOrder.ts` hace `.toUpperCase()` del prefijo derivado; el backend
+    (`deriveNumberParts` y el backfill SQL de M-26) conserva las minúsculas. Un `number` con prefijo
+    en minúsculas (`"23a"` → backend `prefix="a"`, front `prefix="A"`) ordenaría distinto al
+    re-ordenar localmente tras filtrar que en la página servida por la BD.
+- **Impacto:** bajo. pokemontcg.io emite los prefijos reales en mayúsculas (`TG`/`GG`/`SV`) y no se
+  han visto `number` vacíos en producción; los bordes son teóricos hoy.
+- **Disparador:** al afinar los casos borde que §4.22b dejó como deuda, o si un sync real trae un
+  `number` con letra minúscula/vacío. Acción: (1) unificar la decisión "¿es promo?" y la comparación
+  sobre `numberSort`+`prefix` (las MISMAS claves persistidas) en `compareByNumber`; (2) decidir UNA
+  normalización de prefijo (recomendado: ninguna, y quitar el `.toUpperCase()` del front — cambio
+  del rol frontend); (3) si se cambia la semántica de `""`/`"23a"`, actualizar `deriveNumberParts`,
+  el backfill de referencia y re-sync — **pasa por el arquitecto** (cambia el orden observable del
+  contrato).
+
+### BE-66 · `availableFinishes ?? ['normal']` no cubre el array VACÍO (Baja)
+- **Dónde:** `backend/src/modules/catalog/catalog.service.ts` (`toCardDTO`) y
+  `backend/src/modules/inventory/master-set.service.ts` (celda del binder): ambos emiten
+  `(card.availableFinishes ?? ['normal'])`.
+- **Estado actual:** Prisma **nunca devuelve `null`** en columnas de lista (devuelve `[]`), así que
+  el `??` solo protege contra un caso que no ocurre; un `[]` legado/corrupto se emitiría **tal
+  cual**, violando el invariante del contrato («el array nunca llega vacío», API_CONTRACT §6 /
+  §4.22c) y dejando una celda del binder con CERO casillas. Hoy es **inalcanzable por código**: el
+  schema tiene `@default([normal])`, `upsertCards` nunca escribe vacío (`derived ?? ['normal']` en
+  CREATE, omisión en UPDATE), los seeds siembran explícito y `expectedFinishes()` del master-set SÍ
+  cubre `length === 0`. El agujero requeriría un UPDATE manual en BD.
+- **Impacto:** bajo (defensa en profundidad, no bug activo).
+- **Disparador:** al tocar `toCardDTO` o el binder. Acción: helper único
+  `presentFinishes(arr: Finish[] | null | undefined): Finish[]` (en `common/card-order.ts`, junto a
+  `orderFinishes`) que cubra `null | undefined | []` → `['normal']`, y usarlo en los tres sitios
+  (`toCardDTO`, binder, `expectedFinishes`) para que el invariante viva en UN lugar.
+
+### BE-67 · Supuestos S1/S2/S3 del payload de pokemontcg.io SIN verificar en vivo — gate de la secuencia §4.22d (Media hasta la 1ª corrida)
+- **Dónde:** `backend/src/modules/pricing/pricing.types.ts` (`deriveAvailableFinishes`) y
+  `backend/src/modules/catalog/pokemontcg-io.client.ts` (`RemoteCard.cardmarket`). Detalle completo:
+  `docs/BACKEND_NOTES.md` §49.6 y ARCHITECTURE §4.22f (tabla S1/S2/S3).
+- **Estado actual:** el proxy del sandbox bloquea `api.pokemontcg.io` (403 en CONNECT), así que la
+  derivación de dos señales se implementó contra el esquema DOCUMENTADO de la API v2, cubierta solo
+  por tests de tabla de verdad sobre payloads fijos. Supuestos: **S1** la llave de `tcgplayer.prices`
+  solo aparece cuando la impresión existe; **S2** `cardmarket.prices.reverseHolo*` viene siempre
+  (señal = valor > 0); **S3** el payload de `GET /v2/cards?q=set.id:*` ya incluye `cardmarket` sin
+  `select=` (cero requests extra).
+- **Impacto:** medio **hasta** la primera corrida real: si S1/S2 fallan, el re-sync de §4.22d
+  repoblará `['normal']` masivamente (el gate del paso 4 lo detecta); si S3 falla, el sync necesita
+  una llamada extra (avisar al arquitecto ANTES: cambia el costo del sync).
+- **Disparador:** la **ejecución de la secuencia §4.22d en Railway/staging** (dueño devops, con
+  backend). Acción: correr `sync` sobre UN set moderno conocido antes del `sync-all {force:true}`,
+  revisar `cardsWithoutFinishSignal` en logs y el `SELECT count(*)... 'reverse_holo' =
+  ANY("availableFinishes")` del gate, registrar el resultado en `docs/DEVOPS_NOTES.md` y cerrar esta
+  entrada (o escalar v1.22-1 al arquitecto si el payload no trae ninguna señal). **Esta entrada
+  existe para que el supuesto no se pierda entre el merge del stream y el deploy.**

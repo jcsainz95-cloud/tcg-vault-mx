@@ -3973,8 +3973,10 @@ entre páginas). Se eligieron **columnas persistidas**:
 EXPLÍCITO en cada carta (nunca el `@default([normal])` del schema): **`reverse` (E2E Reverse Bird,
 #17) nace en `['normal','reverse_holo']`** — la candidata obvia, antes sembrada en `{normal}` pese a
 su nombre — y el resto en `['normal']` (probando que no se pinta relleno). Se añadió un **segundo
-set sintético**, `E2E_ORDER_SET` (`e2e-order`), dedicado solo al orden natural: cartas `"2"`, `"10"` y
-`"TG01"` sembradas fuera de orden, con el oráculo `E2E_ORDER_EXPECTED_NUMBERS = ['2','10','TG01']`. Se
+set sintético**, `E2E_ORDER_SET` (`e2e-order`), dedicado solo al orden natural: cartas `"2"`, `"10"`,
+`"SV107"` y `"TG01"` sembradas fuera de orden (DOS prefijos de promo, para ejercitar la agrupación por
+`numberPrefix`), con el oráculo `E2E_ORDER_EXPECTED_NUMBERS = ['2','10','SV107','TG01']` que consume el
+test de integración de §49.9. Se
 mantuvo separado de `E2E_SET` a propósito — meterle cartas nuevas a `E2E Base Set` cambiaría totales y
 páginas ya cableados en `buylist.e2e-spec.ts`/`vault-shipments.e2e-spec.ts`/etc. `seed-e2e.ts` puebla
 `numberSort`/`numberPrefix` con `deriveNumberParts` (la misma función del sync) tanto en `create`
@@ -3997,7 +3999,7 @@ $ for p in 1 2 3; do curl ".../buylist/cards?setId=<e2e-base>&page=$p&pageSize=2
 # page=1 → [4,16]  page=2 → [17,20]  page=3 → [25,99]   (sin huecos ni duplicados)
 
 $ curl "http://localhost:3011/api/v1/buylist/cards?setId=<e2e-order>&page=1&pageSize=50"
-# data[].number en orden: 2, 10, TG01   (promo al final, nunca intercalado)
+# data[].number en orden: 2, 10, SV107, TG01   (promos al final, agrupados por prefijo SV < TG)
 ```
 
 ```
@@ -4071,7 +4073,54 @@ re-sync, tal como lo especifica ARCHITECTURE §4.22a/§4.22d.
 
 ### 49.8 Discrepancias / bloqueos para el arquitecto
 
-Ninguna. La especificación de ARCHITECTURE §4.22 se implementó tal cual (incluida la migración M-26
-copiada literal de §11) y no encontré nada imposible o contradictorio en el contrato v1.22. El único
-punto abierto es el supuesto S1/S2/S3 de §49.6, que el propio arquitecto ya dejó documentado como
-pendiente de la primera corrida real (no bloqueante para este WS).
+**Corrección (2026-08-18, tras el rechazo del techlead):** la primera versión de esta sección
+afirmaba «se implementó tal cual» y era **inexacta**: faltaba uno de los **tests obligatorios** del
+reparto de trabajo de §4.22 — el de **orden paginado** de `GET /buylist/cards` («`["2","10","TG01",
+"SV107"]` sale en ese orden atravesando dos páginas»). Se había verificado a mano con `curl`, pero
+ninguna suite lo anclaba: el oráculo `E2E_ORDER_EXPECTED_NUMBERS` no tenía consumidores, el fixture
+de orden no tenía `SV107` (con un solo prefijo la agrupación por `numberPrefix` no se ejercitaba) y
+`buylist-catalog.spec.ts` no asertaba el `orderBy` (una regresión a `[{name},{number}]` — ORD-1 —
+habría pasado verde). Resuelto en §49.9.
+
+**Nit de doc para el arquitecto (no bloqueante):** la línea «Tests obligatorios» de §4.22 lista el
+orden esperado como `["2","10","TG01","SV107"]`, pero el `orderBy` **normativo** del propio §4.22b
+(`numberPrefix asc` primero) y `compareByNumber` (agrupación «GG → SV → TG») producen
+**`2, 10, SV107, TG01`** — `SV` < `TG` alfabéticamente. El test implementado sigue la norma
+(§4.22b), no la línea ilustrativa. Sería bueno corregir esa línea en ARCHITECTURE para que nadie
+"arregle" el orden en la dirección equivocada.
+
+Fuera de eso, la especificación de §4.22 se implementó sin cambios (incluida la migración M-26
+copiada literal de §11). El único punto abierto es el supuesto S1/S2/S3 de §49.6, que el propio
+arquitecto ya dejó documentado como pendiente de la primera corrida real (no bloqueante).
+
+### 49.9 Test de integración obligatorio del orden paginado (añadido tras veredicto del techlead)
+
+**Suite nueva: `backend/test/integration/buylist-cards-order.e2e-spec.ts`** (contra Postgres real,
+vía la app Nest completa del harness). Consume los oráculos `E2E_ORDER_EXPECTED_NUMBERS` y
+`E2E_SET_EXPECTED_NUMBERS` de `prisma/e2e-fixtures.ts` (antes exportados sin consumidor):
+
+| Caso | Qué ancla |
+|---|---|
+| `pageSize=2` sobre `E2E_ORDER_SET` (4 cartas → 2 páginas) | Orden GLOBAL `2, 10, SV107, TG01` atravesando páginas; sin duplicados (`Set` de ids) ni huecos (`rows.length === total`). Regresión directa de ORD-1. |
+| `pageSize=1` y `pageSize=3` | El mismo orden global con fronteras de página desalineadas (el `{id:'asc'}` final garantiza paginación determinista). |
+| Columnas M-26 expuestas | `numberSort`/`numberPrefix` del DTO coherentes (`SV107` → `{1000107,'SV'}`, `TG01` → `{1000001,'TG'}`) y **`SV107` sale ANTES que `TG01` pese a `numberSort` mayor** — es la agrupación por `numberPrefix`, la razón de ser de la columna (`TG12`/`GG12` colisionan en `numberSort`). |
+| `E2E Base Set` con `pageSize=2` | Páginas 4,16 / 17,20 / 25,99 y `E2E Reverse Bird` con `availableFinishes: ['normal','reverse_holo']` en orden canónico (§4.22c, el requisito del PO); ningún array vacío. |
+
+**Fixture ampliado:** `E2E_ORDER_CARDS` gana `orderShiny` (`SV107`, `Rare Shiny`) — **segundo
+prefijo** de promo, sin el cual la agrupación por `numberPrefix` no quedaba ejercitada por datos
+sembrados. El oráculo pasa a `['2','10','SV107','TG01']`.
+
+**Asserts de `orderBy` en unitarias:** `test/buylist-catalog.spec.ts` ahora asierta que
+`searchAllCards` pasa a Prisma exactamente `CARD_ORDER_BY_IN_SET` (con `setId`) y
+`CARD_ORDER_BY_GLOBAL` (sin él), con el shape literal duplicado en el assert (defensa en
+profundidad: si alguien cambiara la constante Y el call-site a la vez, el literal sigue fallando).
+
+**Hallazgo lateral corregido — recurrencia del patrón BE-64:**
+`catalog-checkout-webhook.e2e-spec.ts` buscaba el charizard del seed en `GET /catalog/cards?
+pageSize=50`; al acumular la BD compartida >50 piezas listadas del MISMO charizard (`E2E-GST-*` que
+dejan las suites de guest checkout por corrida) la pieza cayó fuera de la página y el test empezó a
+fallar solo — exactamente el flake que BE-64 documentó, y acotar con `q=` tampoco bastaba (51
+listings del mismo nombre). Corregido a la regla de la casa: la pieza concreta se pide **por id**
+(`GET /catalog/listings/:id`, mismo `ListingDTO`) y el listado se asierta por comportamiento (toda
+fila publicada es vendible con precio > 0), no por volumen. Recurrencia anotada en la propia entrada
+BE-64 de `TECH_DEBT.md`.
