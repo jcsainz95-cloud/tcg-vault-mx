@@ -2733,7 +2733,7 @@ export async function getLaunchMetrics(range: FinanceRange = {}): Promise<Launch
 }
 
 // ============================================================================
-// Guest checkout — comprar sin cuenta (contrato §4-G, v1.21-guest-checkout)
+// Guest checkout — comprar sin cuenta (contrato §4-G, v1.21.1-guest-checkout-fixes)
 // ----------------------------------------------------------------------------
 // Sección ADITIVA: ninguna función anterior cambia. Reglas del contrato que se
 // respetan aquí y que NO deben "mejorarse" desde el front:
@@ -2742,8 +2742,10 @@ export async function getLaunchMetrics(range: FinanceRange = {}): Promise<Launch
 //    apiRequest solo añade Authorization si hay token; el flujo de invitado se
 //    renderiza únicamente sin sesión).
 //  - El token de seguimiento viaja en el BODY de un POST, jamás en la URL de la API.
-//  - `trackingToken` es la ÚNICA respuesta con un token en claro (§4-G.0-5): no se
-//    persiste en localStorage ni se loguea.
+//  - `checkoutToken` (v1.21.1; antes `trackingToken`) es la ÚNICA respuesta con un token
+//    en claro (§4-G.0-5): no se persiste en localStorage ni se loguea. Vive 120 MINUTOS y
+//    solo sirve para la confirmación post-3DS; el enlace de seguimiento de 90 días lo emite
+//    el webhook del settle y llega SOLO por correo (§4-G.7a).
 // ============================================================================
 
 /** Tarifa fija de envío (dial SHIPPING_FEE_CENTS, default 17500). MOCK: el valor real viaja en el BreakdownDTO. */
@@ -2809,6 +2811,12 @@ export async function getGuestCheckoutQuote(
  * items, crea la Order (userId=null, guestEmail, direct_ship) y UN solo PaymentIntent por
  * cartas + envío + IVA + fee. TOCA DINERO.
  *
+ * Devuelve `checkoutToken` + `checkoutTokenExpiresAt` (v1.21.1, §4-G.7a): token de VIDA
+ * CORTA (120 min) para el `return_url` del 3DS y la confirmación. NO es el enlace de
+ * seguimiento —ese lo manda el correo del settle y dura 90 días—, así que el front no debe
+ * invitar a guardarlo ni a marcarlo como favorito. Pasadas las 2 h, esa URL cae en la
+ * pantalla neutra, desde donde se puede pedir un enlace nuevo (§4-G.4).
+ *
  * `fulfillmentMode: "vault"` → **422 VAULT_REQUIRES_ACCOUNT** con `details.upsell=true`:
  * el front lo trata como UPSELL (crear cuenta sin salir del checkout), NUNCA como error.
  * Otros errores: 400 VALIDATION_ERROR, 422 ADDRESS_NOT_MX, 422 PRICE_PENDING,
@@ -2848,7 +2856,9 @@ export async function createGuestCheckoutSession(
     orderNumber: 'TCG-000123',
     breakdown: computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
     // MOCK: en real son 32 bytes base64url; el prefijo `mock-` lo reconoce el track mock.
-    trackingToken: `mock-${orderId}-tracking-token`,
+    checkoutToken: `mock-${orderId}-checkout-token`,
+    // MOCK: TTL corto del contrato (GUEST_CHECKOUT_TOKEN_TTL_MIN = 120 min).
+    checkoutTokenExpiresAt: new Date(Date.now() + 120 * 60_000).toISOString(),
     stripe: { paymentIntentId: `pi_mock_${orderId}`, clientSecret: `pi_mock_${orderId}_secret_mock` },
   });
 }

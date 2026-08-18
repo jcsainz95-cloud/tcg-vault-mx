@@ -313,13 +313,18 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         clientSecret={session?.stripe.clientSecret ?? null}
         /*
          * El `return_url` de un 3DS con redirección lleva al SEGUIMIENTO PÚBLICO con el
-         * token que acaba de devolver el checkout (§4-G.2/§4-G.7): tras el redirect el
-         * navegador puede perder el estado y, sin sesión, es la única forma de que el
-         * invitado siga viendo su pedido. La página mueve el token al body y lo borra de
-         * la URL (`history.replaceState`).
+         * `checkoutToken` que acaba de devolver el checkout (§4-G.2/§4-G.7a): tras el
+         * redirect el navegador puede perder el estado y, sin sesión, es la única forma de
+         * que el invitado siga viendo su pedido. La página mueve el token al body y lo
+         * borra de la URL (`history.replaceState`).
+         *
+         * v1.21.1 — ese token dura **120 minutos**, no 90 días: es un puente para la
+         * confirmación, NO el enlace duradero. El enlace de 90 días llega por correo al
+         * liquidar, así que esta URL no se ofrece para guardar. Pasadas las 2 h cae en la
+         * pantalla neutra, que ofrece el reenvío.
          */
         returnUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/${locale}/pedido?token=${encodeURIComponent(
-          session?.trackingToken ?? '',
+          session?.checkoutToken ?? '',
         )}`}
         title={t('payTitle')}
         amountLabel={

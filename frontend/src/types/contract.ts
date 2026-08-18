@@ -1483,9 +1483,11 @@ export interface ApiError {
 //   1. El invitado NO tiene bóveda (fulfillmentMode siempre 'direct_ship').
 //   3. Un invitado nunca toca un endpoint `customer` (y al revés: con sesión, los
 //      endpoints /checkout/guest/* responden 409 ALREADY_AUTHENTICATED).
-//   5. El ÚNICO token en claro que devuelve la API es el `trackingToken` de
+//   5. El ÚNICO token en claro que devuelve la API es el `checkoutToken` de
 //      POST /checkout/guest/session (a quien acaba de crear el pedido). No se
-//      persiste en localStorage ni se loguea (§4-G.2).
+//      persiste en localStorage ni se loguea (§4-G.2). v1.21.1: es un token de
+//      VIDA CORTA (120 min); el enlace de seguimiento de 90 días llega SOLO por
+//      correo y nunca por una respuesta de API (§4-G.7a).
 // ============================================================================
 
 export type FulfillmentMode = 'vault' | 'direct_ship';
@@ -1544,8 +1546,17 @@ export interface GuestCheckoutSessionResponse {
   orderId: string;
   orderNumber: string;
   breakdown: BreakdownDTO;
-  /** 43 chars base64url. Secreto de URL: NO se persiste ni se loguea (§4-G.2). */
-  trackingToken: string;
+  /**
+   * v1.21.1 (§4-G.2/§4-G.7a) — antes `trackingToken`. Token de **VIDA CORTA**
+   * (`GUEST_CHECKOUT_TOKEN_TTL_MIN` = **120 minutos**), 43 chars base64url, cuyo único
+   * propósito es sobrevivir al redirect 3DS y pintar la confirmación + el seguimiento
+   * inmediato. **NUNCA se envía por correo**: el enlace duradero (90 días) lo emite el
+   * webhook del settle y viaja SOLO por correo. Secreto de URL: no se persiste en
+   * `localStorage` ni se loguea.
+   */
+  checkoutToken: string;
+  /** ISO — cuándo se apaga el `checkoutToken` (≈ ahora + 120 min). */
+  checkoutTokenExpiresAt: string;
   stripe: { paymentIntentId: string; clientSecret: string };
 }
 

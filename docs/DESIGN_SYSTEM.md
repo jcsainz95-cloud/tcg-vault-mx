@@ -1693,28 +1693,67 @@ inventado, token de otro pedido, pedido inexistente, pedido borrado → **exacta
 el mismo texto, el mismo layout**. El frontend **no** ramifica por código de estado (401/403/404/410) ni
 imprime el `errorCode`. Cualquier diferencia visible entre casos convierte la pantalla en un oráculo.
 
+**Dos vías de reenvío — corrección arbitrada por el arquitecto (contrato §4-G.4 manda sobre el diseño).**
+La versión inicial de §15.7 pedía **solo el correo**; queda **corregida**: el reenvío acepta **`{token}`**
+**o** **`{correo + número de pedido}` juntos**, nunca el correo por sí solo.
+
+> **Por qué (razón de seguridad, no de implementación):** un formulario de un único campo de correo es
+> exactamente el **oráculo de enumeración que prohíbe el criterio 53** ("¿este correo compró aquí?") — el
+> atacante no necesita leer la respuesta, le basta con que llegue (o no) un correo. Además convierte a la
+> plataforma en un **emisor de correo hacia terceros**: escribiendo la dirección de otra persona se le
+> provoca un envío. Exigir el **número de pedido** ata la petición a algo que solo tiene quien compró.
+> **La neutralidad del copy no se relaja en absoluto:** la respuesta sigue siendo idéntica coincidan o no
+> los datos, y el `429` sigue mostrando el mismo mensaje. Lo único que cambia es **qué campos se piden**.
+
+| Vía | Cuándo | Qué pide la UI |
+|---|---|---|
+| **A — con token** | La URL trae un token (vigente, vencido o manipulado: la UI no lo sabe ni lo distingue) | **Ningún campo.** Un botón directo "Enviarme un enlace nuevo"; el token identifica el pedido. Es también la vía de la acción "Reenviar el enlace a mi correo" de §15.6. |
+| **B — sin token** | No hay token, o el usuario pulsa **"No tengo el enlace"** | **Los dos campos juntos**: correo **y** número de pedido. Ninguno por separado habilita el envío. |
+
+La vía B se revela con un *disclosure* ("No tengo el enlace", `aria-expanded`/`aria-controls`), no está
+abierta por defecto: el caso común es llegar con un enlace caducado y bastar con el botón.
+
 **Copy normativo (no editable sin ux-ui + seguridad):**
 
 | Elemento | Español | English |
 |---|---|---|
 | Título (`h1` serif) | **Este enlace ya no funciona** | **This link no longer works** |
-| Cuerpo | Por seguridad, los enlaces de seguimiento caducan. Si tienes un pedido con nosotros, podemos enviarte un enlace nuevo al correo que usaste al comprar. | For security, tracking links expire. If you have an order with us, we can send a new link to the email you used at checkout. |
-| Label del campo | Correo con el que compraste | Email you used at checkout |
-| Botón | Enviarme un enlace nuevo | Email me a new link |
-| Respuesta (**siempre la misma**) | Si hay un pedido asociado a ese correo, te enviamos un enlace nuevo. Revisa tu bandeja de entrada y la carpeta de spam. | If there's an order for that email, we've sent a new link. Check your inbox and your spam folder. |
+| Cuerpo | Por seguridad, los enlaces de seguimiento caducan. Podemos enviarte uno nuevo al correo con el que hiciste la compra. | For security, tracking links expire. We can send you a new one to the email you used for the purchase. |
+| Botón (vía A y vía B) | Enviarme un enlace nuevo | Email me a new link |
+| Disclosure a la vía B | No tengo el enlace | I don't have the link |
+| Intro de la vía B | Escribe el correo con el que compraste y el número de pedido de tu confirmación. | Enter the email you used at checkout and the order number from your confirmation. |
+| Label del campo correo | Correo con el que compraste | Email you used at checkout |
+| Label del campo pedido | Número de pedido | Order number |
+| Ayuda del campo pedido | Viene en tu correo de confirmación (por ejemplo, TCG-000123). | It's in your confirmation email (for example, TCG-000123). |
+| Validación local (faltan datos) | Escribe el correo y el número de pedido para continuar. | Enter both the email and the order number to continue. |
+| Respuesta (**siempre la misma**) | Si esos datos corresponden a un pedido, enviamos un enlace nuevo a ese correo. Revisa tu bandeja de entrada y la carpeta de spam. | If those details match an order, we've sent a new link to that email. Check your inbox and your spam folder. |
 | Espera | Puedes volver a intentarlo en {seconds} s. | You can try again in {seconds}s. |
 | Alternativa | ¿Prefieres tenerlo siempre a la mano? Crea tu cuenta con ese mismo correo y tu pedido aparecerá en tu historial. | Want it always at hand? Create an account with that same email and your order will appear in your history. |
 | Soporte | ¿Necesitas ayuda? Escríbenos a {evidenceContact}. | Need help? Write to us at {evidenceContact}. |
 
+Nota de redacción: el cuerpo y la respuesta están en **condicional** ("si esos datos corresponden a un
+pedido") y **nunca en primera persona afirmativa** ("te enviamos tu enlace"), de modo que el texto no
+confirma ni niega la existencia del pedido, del correo ni de la relación entre ambos. La vía A usa **la
+misma** frase de respuesta que la vía B.
+
 **Frases prohibidas** (ni en pantalla, ni en `alt`, ni en `title`, ni en consola): "pedido no encontrado",
-"ese pedido no existe", "el correo no está registrado", "token inválido", "la firma no coincide", "expiró
-hace N días", "ya te enviamos un enlace", "demasiados intentos **para ese correo**", "no hay pedidos con
-ese correo". Tampoco se enuncia **la vigencia en días** del enlace: el copy es **agnóstico al TTL** para no
-depender de la pregunta abierta de PROJECT v1.5 ni dar información de temporización.
+"ese pedido no existe", "el correo no está registrado", "ese número de pedido no existe", "el correo y el
+número de pedido no coinciden", "el número de pedido es incorrecto", "token inválido", "la firma no
+coincide", "expiró hace N días", "ya te enviamos un enlace", "demasiados intentos **para ese correo**",
+"no hay pedidos con ese correo". Tampoco se enuncia **la vigencia en días** del enlace: el copy es
+**agnóstico al TTL** para no depender de la pregunta abierta de PROJECT v1.5 ni dar información de
+temporización (sigue siendo válido tras acotar el token de checkout a 120 min y mantener el de seguimiento
+en 90 días: ningún texto menciona plazos).
 
 **Comportamiento del reenvío (normativo):**
+- **Nunca se pide el correo solo.** Cualquier variante de un formulario de un único campo de correo está
+  prohibida en esta pantalla y en cualquier otra superficie pública.
 - El resultado se pinta **siempre igual**: mismo texto, mismo tratamiento visual **neutro** (tinta/muted,
-  `Banner info`). **Nunca verde de éxito** ni bermellón de error: el verde leería como "sí, existe".
+  `Banner info`), **para la vía A y para la vía B por igual**. **Nunca verde de éxito** ni bermellón de
+  error: el verde leería como "sí, existe".
+- **Datos que no coinciden** (correo correcto + pedido ajeno, pedido inexistente, token manipulado) producen
+  **exactamente la misma pantalla** que unos datos válidos: mismo mensaje, mismo enfriamiento, misma
+  ausencia de detalle. La UI no distingue el motivo ni lo puede distinguir.
 - El formulario se sustituye por el mensaje y el botón queda en **enfriamiento visible** con cuenta regresiva
   en mono. La cuenta regresiva es **idéntica** en todos los casos.
 - **`429` (límite de frecuencia) muestra exactamente el mismo mensaje** que un envío correcto, solo con un
@@ -1722,13 +1761,19 @@ depender de la pregunta abierta de PROJECT v1.5 ni dar información de temporiza
 - El botón entra en `loading` con **un mínimo de latencia visible constante** (skeleton/spinner con duración
   mínima) para que el usuario no distinga "encontrado" de "no encontrado" por el tiempo de respuesta. *(La
   igualación real de tiempos es responsabilidad del backend; la UI no debe delatarla.)*
-- El campo de correo **no** valida contra el servidor; solo formato local.
+- **Validación solo local:** formato de correo y presencia del número de pedido. **Ningún campo consulta al
+  servidor** mientras se escribe (sin autocompletado, sin comprobación en `blur`, sin marcar un pedido como
+  "existente"); el número de pedido **no** se valida contra ningún catálogo, solo que no esté vacío. Ambos
+  campos deben estar llenos para habilitar el botón, con la nota textual de validación local asociada.
 
 **Accesibilidad:** el `h1` recibe foco al montar (`tabIndex={-1}`) para que el lector anuncie el estado; el
-campo tiene `<label>` visible; el mensaje de resultado va en `role="status"` `aria-live="polite"` (no
-`assertive`: no es un error del usuario); la cuenta regresiva se anuncia **una sola vez** al iniciar, no
-cada segundo (`aria-live="off"` en el contador, texto alternativo "Vuelve a intentarlo en un minuto").
-Ruta con `noindex`.
+disclosure "No tengo el enlace" mueve el foco al **primer campo** de la vía B al abrirse; los dos campos van
+en un `<fieldset>` con `<legend>` (la intro de la vía B) y cada uno con `<label>` visible, `autocomplete`
+adecuado (`email` en el correo; **ninguno** en el número de pedido) y, si falta alguno, `aria-invalid` +
+`aria-describedby` a la nota de validación local; el mensaje de resultado va en `role="status"`
+`aria-live="polite"` (no `assertive`: no es un error del usuario); la cuenta regresiva se anuncia **una sola
+vez** al iniciar, no cada segundo (`aria-live="off"` en el contador, texto alternativo "Vuelve a intentarlo
+en un minuto"). Ruta con `noindex`.
 
 ### 15.8 Correo de confirmación (nota de diseño; el módulo `mail` no cambia)
 
