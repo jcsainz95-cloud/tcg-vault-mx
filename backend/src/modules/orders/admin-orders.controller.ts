@@ -8,7 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../payments/stripe.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
-import { RefundDto } from './dto/orders.dto';
+import { ChargebackInventoryDto, RefundDto } from './dto/orders.dto';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { maskEmail } from './guest-privacy';
 import { DAY_MS, GUEST_TRACKING_MAX_AGE_DAYS } from './guest-checkout.constants';
@@ -137,6 +137,40 @@ export class AdminOrdersController {
     });
     // `sentTo` enmascarado: el operador confirma a qué buzón fue sin exponerlo en la respuesta.
     return { orderNumber: order.orderNumber, sentTo: maskEmail(order.guestEmail), expiresAt };
+  }
+
+  /**
+   * v1.21.2 (T1, §M3) — DESENLACE HUMANO del inventario tras un contracargo con envío vivo.
+   * `vault_operator+`, **auditado**, y **NO es money-out**: no mueve dinero, solo resuelve dónde
+   * está una carta física. Es la contraparte obligatoria del congelamiento: sin este endpoint, una
+   * pieza congelada por `charge.dispute.created` se queda congelada para siempre.
+   *
+   * `409 CONFLICT` si el desenlace no aplica al estado actual (re-expedir con la orden todavía en
+   * `chargeback`, o cualquier desenlace sobre una orden ya resuelta) — eso ES la regla de
+   * idempotencia: repetir un desenlace no duplica movimientos de inventario ni envíos.
+   */
+  @Post(':id/chargeback-inventory')
+  @HttpCode(200)
+  async chargebackInventory(
+    @Param('id') id: string,
+    @Body() dto: ChargebackInventoryDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.orders.resolveChargebackInventory(id, dto.outcome);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'order.chargeback_inventory',
+      entityType: 'Order',
+      entityId: id,
+      after: {
+        outcome: dto.outcome,
+        note: dto.note,
+        inventoryItemIds: res.inventoryItemIds,
+        ...(res.shipmentId ? { shipmentId: res.shipmentId } : {}),
+      },
+    });
+    return res;
   }
 
   /**

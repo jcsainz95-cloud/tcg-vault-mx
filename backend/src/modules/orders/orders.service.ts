@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InventoryItem, Card, CardSet, Prisma } from '@prisma/client';
+import { InventoryItem, Card, CardSet, MovementReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -311,6 +311,180 @@ export class OrdersService {
       breakdown,
       stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
     };
+  }
+
+  /**
+   * v1.21.2 (T1, §M3) — DESENLACE HUMANO de una pieza CONGELADA por un contracargo con envío vivo.
+   * Sin esta acción, la pieza congelada (`picking`, fuera de venta) se quedaría congelada para
+   * siempre: ninguna automatización puede decidir dónde está físicamente la carta.
+   *
+   * Tres desenlaces, todos con `note` obligatoria (el registro de lo que el operador vio en el
+   * estante) y todos dejando `chargebackNeedsManual=false`:
+   *  - `recuperada`    — el operador tiene la carta ⇒ `picking|shipped → listed` (o `in_stock` si
+   *                      su precio no resuelve) + `chargeback_return`. Vuelve a la venta CON
+   *                      respaldo físico.
+   *  - `no_recuperada` — la carta ya no está ⇒ **sin** movimiento de inventario; se queda donde
+   *                      está. **No** se marca `lost`/`damaged`: no fue merma de almacén y
+   *                      ensuciaría los reportes de pérdida (mismo cuidado que `delivered` vs
+   *                      `withdrawn`). La pérdida se refleja en la orden `chargeback` para M7.
+   *  - `reexpedir`     — solo si GANAMOS la disputa ⇒ envío nuevo con la misma forma que el del
+   *                      settle; las piezas siguen en `picking`.
+   *
+   * Idempotencia (norma §M3): **cualquier** outcome sobre una orden con `chargebackNeedsManual=false`
+   * (ya resuelta) devuelve `409 CONFLICT` y no duplica movimientos ni envíos.
+   */
+  async resolveChargebackInventory(
+    orderId: string,
+    outcome: 'recuperada' | 'no_recuperada' | 'reexpedir',
+    now = new Date(),
+  ): Promise<{
+    orderId: string;
+    outcome: string;
+    inventoryItemIds: string[];
+    shipmentId?: string;
+    chargebackNeedsManual: false;
+  }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!order) throw BusinessException.notFound();
+    if (order.fulfillmentMode !== 'direct_ship') {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        'Only a direct_ship order can have a frozen piece from a chargeback',
+      );
+    }
+    // Idempotencia: una orden ya resuelta no vuelve a moverse.
+    if (!order.chargebackNeedsManual) {
+      throw BusinessException.conflict(
+        'CONFLICT',
+        'This chargeback has no pending inventory decision (already resolved)',
+      );
+    }
+
+    // Piezas CONGELADAS del pedido: las que siguen en el almacén comprometidas con la venta.
+    const frozen = await this.prisma.inventoryItem.findMany({
+      where: {
+        id: { in: order.items.map((oi) => oi.inventoryItemId) },
+        status: { in: ['picking', 'shipped'] },
+      },
+    });
+
+    if (outcome === 'reexpedir') {
+      // Re-expedir solo tiene sentido si la disputa se GANÓ (los fondos volvieron).
+      if (order.status !== 'settled' || order.disputeOutcome !== 'won') {
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'Re-shipping requires a won dispute (order settled with disputeOutcome=won)',
+        );
+      }
+      if (frozen.length === 0) {
+        throw BusinessException.conflict('CONFLICT', 'There is no frozen piece to re-ship');
+      }
+      const shipment = await this.prisma.$transaction(async (tx) => {
+        // Misma FORMA que el envío del settle: montos en 0 (el ingreso vive en
+        // Order.shippingFeeCents), sin userId y con el snapshot de dirección de la orden.
+        const created = await tx.shipmentRequest.create({
+          data: {
+            userId: null,
+            orderId: order.id,
+            addressSnapshot: (order.shippingAddressSnapshot ?? {}) as Prisma.InputJsonValue,
+            status: 'picking',
+            pickingAt: now,
+            shippingFeeCents: 0,
+            ivaCents: 0,
+            processingFeeCents: 0,
+            totalCents: 0,
+            items: { create: frozen.map((i) => ({ inventoryItemId: i.id })) },
+          },
+        });
+        await tx.order.update({
+          where: { id: order.id },
+          data: { chargebackNeedsManual: false },
+        });
+        return created;
+      });
+      return {
+        orderId: order.id,
+        outcome,
+        inventoryItemIds: frozen.map((i) => i.id),
+        shipmentId: shipment.id,
+        chargebackNeedsManual: false,
+      };
+    }
+
+    if (outcome === 'recuperada') {
+      if (frozen.length === 0) {
+        throw BusinessException.conflict('CONFLICT', 'There is no frozen piece to recover');
+      }
+      const recovered: string[] = [];
+      await this.prisma.$transaction(async (tx) => {
+        for (const item of frozen) {
+          // `listed` solo si su precio de venta resuelve; si no, `in_stock` (en Compra NUNCA se
+          // muestra una pieza sin precio — PROJECT §A).
+          const toStatus = await this.sellableStatusFor(item);
+          const moved = await tx.inventoryItem.updateMany({
+            where: { id: item.id, status: item.status },
+            data: {
+              status: toStatus,
+              ownerType: 'platform',
+              ownerUserId: null,
+              ownershipStatus: null,
+            },
+          });
+          if (moved.count !== 1) continue;
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: item.id,
+              fromStatus: item.status,
+              toStatus,
+              reason: MovementReason.chargeback_return,
+              note: `chargeback resolved (recuperada) order ${order.orderNumber ?? order.id}`,
+            },
+          });
+          recovered.push(item.id);
+        }
+        await tx.order.update({ where: { id: order.id }, data: { chargebackNeedsManual: false } });
+      });
+      return {
+        orderId: order.id,
+        outcome,
+        inventoryItemIds: recovered,
+        chargebackNeedsManual: false,
+      };
+    }
+
+    // `no_recuperada`: SIN movimiento de inventario. La pieza se queda donde está.
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { chargebackNeedsManual: false },
+    });
+    return {
+      orderId: order.id,
+      outcome,
+      inventoryItemIds: frozen.map((i) => i.id),
+      chargebackNeedsManual: false,
+    };
+  }
+
+  /**
+   * ¿A qué estado vendible vuelve una pieza recuperada? `listed` si su precio de venta resuelve;
+   * `in_stock` si queda pendiente (una pieza sin precio NUNCA se publica en Compra, PROJECT §A).
+   */
+  private async sellableStatusFor(item: InventoryItem): Promise<'listed' | 'in_stock'> {
+    try {
+      const full = await this.prisma.inventoryItem.findUnique({
+        where: { id: item.id },
+        include: { card: { include: { set: true } } },
+      });
+      if (!full) return 'in_stock';
+      await this.salePriceOf(full);
+      return 'listed';
+    } catch {
+      // PRICE_PENDING (o cualquier fallo al resolver el precio) ⇒ no se publica.
+      return 'in_stock';
+    }
   }
 
   async listOrders(userId: string, page: number, pageSize: number) {

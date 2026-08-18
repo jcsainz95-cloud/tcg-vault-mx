@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   Card,
   CardSet,
+  FulfillmentMode,
   InventoryItem,
   MovementReason,
   Prisma,
@@ -24,6 +25,8 @@ type EnrichedShipmentItem = ShipmentItem & {
 
 @Injectable()
 export class ShipmentsService {
+  private readonly logger = new Logger(ShipmentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
@@ -310,7 +313,10 @@ export class ShipmentsService {
         orderBy: { requestedAt: 'asc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { items: true, order: { select: { orderNumber: true, guestEmail: true } } },
+        include: {
+          items: true,
+          order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true } },
+        },
       }),
       this.prisma.shipmentRequest.count({ where }),
     ]);
@@ -322,7 +328,7 @@ export class ShipmentsService {
       where: { id },
       include: {
         items: { include: { inventoryItem: { include: { card: true, location: true } } } },
-        order: { select: { orderNumber: true, guestEmail: true } },
+        order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true } },
       },
     });
     if (!shipment) throw BusinessException.notFound();
@@ -336,17 +342,75 @@ export class ShipmentsService {
    * es dato de contacto operativo (mismo criterio que `AdminSellerRef.email` de §M5).
    */
   private withAdminKind<
-    T extends ShipmentRequest & { order?: { orderNumber: string | null; guestEmail: string | null } | null },
+    T extends ShipmentRequest & {
+      order?: {
+        orderNumber: string | null;
+        guestEmail: string | null;
+        fulfillmentMode: FulfillmentMode;
+      } | null;
+    },
   >(s: T) {
     const snapshot = (s.addressSnapshot ?? {}) as { recipientName?: string };
     const { order, ...row } = s;
     return {
       ...row,
-      kind: s.orderId == null ? ('vault_withdrawal' as const) : ('guest_direct_ship' as const),
+      // v1.21.2 (D4): `orderId == null` ⇒ retiro de bóveda; con orden vinculada, el `kind` se
+      // resuelve LEYENDO `Order.fulfillmentMode` (nunca asumiendo `direct_ship` por tener orderId).
+      kind:
+        s.orderId == null
+          ? ('vault_withdrawal' as const)
+          : this.kindForFulfillment(order?.fulfillmentMode, s.id),
       orderNumber: order?.orderNumber ?? undefined,
       guestEmail: order?.guestEmail ?? undefined,
       recipientName: snapshot.recipientName ?? undefined,
     };
+  }
+
+  /**
+   * v1.21.2 (D4, ARCHITECTURE §4.21d) — ¿este envío fulfilla una orden de ENVÍO DIRECTO?
+   *
+   * `ShipmentRequest.orderId` responde solo "¿de dónde viene?" (null ⇒ retiro de bóveda). El
+   * COMPORTAMIENTO lo decide `Order.fulfillmentMode`, el único discriminador canónico de ruta de
+   * fulfillment. El `switch` es EXHAUSTIVO y RUIDOSO: un modo nuevo (p. ej. `pickup_in_store`)
+   * **rompe visiblemente aquí**, en el punto exacto donde falta decidir su transición terminal, en
+   * vez de comportarse como un envío directo en silencio — que es el peor tipo de fallo.
+   *
+   * `vault` con `orderId != null` es una combinación IMPOSIBLE por invariante (un pedido a bóveda
+   * no genera envío de fulfillment; su retiro nace del cliente y va sin `orderId`): si aparece es
+   * corrupción de datos y se trata como error, NO se "arregla" en silencio.
+   */
+  private async isDirectShipFulfillment(shipment: ShipmentRequest): Promise<boolean> {
+    if (shipment.orderId == null) return false; // retiro de bóveda
+    const order = await this.prisma.order.findUnique({
+      where: { id: shipment.orderId },
+      select: { fulfillmentMode: true },
+    });
+    return this.kindForFulfillment(order?.fulfillmentMode, shipment.id) === 'guest_direct_ship';
+  }
+
+  /** Traduce `fulfillmentMode` → `kind` de §M4. Lanza ante un modo no soportado (D4). */
+  private kindForFulfillment(
+    mode: FulfillmentMode | undefined,
+    shipmentId: string,
+  ): 'guest_direct_ship' {
+    switch (mode) {
+      case 'direct_ship':
+        return 'guest_direct_ship';
+      case 'vault':
+      case undefined:
+      default: {
+        const seen = mode ?? 'ORDEN_INEXISTENTE';
+        this.logger.error(
+          `ShipmentRequest ${shipmentId} tiene orderId pero su orden es '${seen}': combinación ` +
+            'imposible por invariante (un pedido a bóveda no genera envío de fulfillment). Es ' +
+            'corrupción de datos o un modo de fulfillment nuevo sin terminal definida.',
+        );
+        throw BusinessException.conflict(
+          'CONFLICT',
+          `Unsupported fulfillmentMode for shipment ${shipmentId}: ${seen}`,
+        );
+      }
+    }
   }
 
   /**
@@ -410,15 +474,19 @@ export class ShipmentsService {
     if (to === 'enviado') data.shippedAt = new Date();
     if (to === 'entregado') data.deliveredAt = new Date();
 
-    // v1.21-guest-checkout (§M4) — RAMIFICACIÓN OBLIGATORIA por tipo de envío. La máquina de
+    // v1.21-guest-checkout (§M4) — RAMIFICACIÓN OBLIGATORIA por RUTA DE FULFILLMENT. La máquina de
     // estados, el picking list y la captura de guía son IDÉNTICOS para los dos tipos; lo único que
     // cambia es qué le pasa al `InventoryItem` en las transiciones terminales:
-    //   · Retiro de bóveda (`orderId == null`): v1.17 SIN CAMBIO ALGUNO — solo `entregado` toca el
-    //     item (`in_custody → withdrawn`, reason `withdrawal`).
-    //   · Envío directo de invitado (`orderId != null`): DOS transiciones, ambas por `status` (el
-    //     item es `ownerType='platform'` todo el tiempo): `enviado` ⇒ `picking → shipped`;
-    //     `entregado` ⇒ `shipped → delivered`. NUNCA `withdrawn` (nunca estuvo en bóveda).
-    const isDirectShip = shipment.orderId != null;
+    //   · Retiro de bóveda: v1.17 SIN CAMBIO ALGUNO — solo `entregado` toca el item
+    //     (`in_custody → withdrawn`, reason `withdrawal`).
+    //   · Envío directo: DOS transiciones, ambas por `status` (el item es `ownerType='platform'`
+    //     todo el tiempo): `enviado` ⇒ `picking → shipped`; `entregado` ⇒ `shipped → delivered`.
+    //     NUNCA `withdrawn` (nunca estuvo en bóveda).
+    //
+    // v1.21.2 (D4): el discriminador es `Order.fulfillmentMode`, NO `orderId != null`. `orderId`
+    // dice de DÓNDE VIENE el envío; el COMPORTAMIENTO lo decide el modo de fulfillment, que es el
+    // único discriminador canónico del sistema (ARCHITECTURE §4.21d).
+    const isDirectShip = await this.isDirectShipFulfillment(shipment);
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.shipmentRequest.update({ where: { id }, data });

@@ -320,12 +320,13 @@ export class PaymentsService {
   }
 
   /**
-   * charge.dispute.created (contracargo) → Order `chargeback`. Fix 4: consciente del estado
-   * FÍSICO de la carta:
-   *  - Sigue en bóveda (no enviada/entregada) → revierte a plataforma (`listed`) +
-   *    InventoryMovement `chargeback_return` (la tenemos, la recuperamos).
-   *  - Ya enviada/entregada → NO se re-agrega (no la tenemos): se marca la orden para
-   *    gestión manual (`chargebackNeedsManual`) para pelear el contracargo con la guía.
+   * charge.dispute.created (contracargo) → Order `chargeback`.
+   *
+   * v1.21.2 (T1) — **ramifica por `Order.fulfillmentMode`**, el único discriminador canónico de
+   * ruta de fulfillment (D4, ARCHITECTURE §4.21d). El `switch` es EXHAUSTIVO y RUIDOSO: un modo
+   * nuevo **lanza** en vez de comportarse como otro en silencio.
+   *  - `vault`: comportamiento v1.21 sin cambio (abajo).
+   *  - `direct_ship`: tabla normativa de §4-G.6 — **el envío manda** (§4.21c-bis).
    */
   async onChargeDispute(dispute: Stripe.Dispute): Promise<void> {
     const pi = typeof dispute.payment_intent === 'string' ? dispute.payment_intent : dispute.payment_intent?.id;
@@ -335,14 +336,121 @@ export class PaymentsService {
       include: { items: true },
     });
     if (!order) return;
+    switch (order.fulfillmentMode) {
+      case 'direct_ship':
+        return this.onChargeDisputeDirectShip(order);
+      case 'vault':
+        return this.onChargeDisputeVault(order);
+      default: {
+        const mode: string = order.fulfillmentMode;
+        this.logger.error(
+          `Contracargo sobre un fulfillmentMode no soportado (${mode}) en la orden ${order.id}: ` +
+            'no se aplica ningún reverso automático. Requiere decidir su regla de inventario.',
+        );
+        throw new Error(`Unsupported fulfillmentMode in chargeback: ${mode}`);
+      }
+    }
+  }
+
+  /**
+   * v1.21.2 (T1, §4-G.6 / ARCHITECTURE §4.21c-bis) — contracargo de un pedido con **ENVÍO
+   * DIRECTO**. La decisión la toma el **estado del envío**, no el del item:
+   *
+   * | Envío | ShipmentRequest | InventoryItem | needsManual |
+   * |---|---|---|---|
+   * | no existe / `cancelado` | — | `reserved\|picking → listed` + `chargeback_return` | `false` |
+   * | `solicitado\|picking\|guia` | **→ `cancelado`** (misma tx) | **CONGELADO** en `picking` | `true` |
+   * | `enviado\|entregado` | sin cambio | sin cambio | `true` |
+   *
+   * **Por qué NO se re-lista con envío vivo:** re-listar es una acción automática que vuelve a
+   * VENDER, y el envío seguía en `pickingList()` ⇒ la misma pieza única podía venderse a un
+   * segundo comprador mientras el operador la metía en la caja del contracargo (double-sell
+   * físico). Además un contracargo no prueba nada todavía: podemos ganar la disputa. Por eso la
+   * pieza se **congela** (doblemente fuera de venta: `picking ∉ {listed,in_stock}` y su envío sale
+   * de la cola) y el desenlace lo confirma un humano con
+   * `POST /admin/orders/:id/chargeback-inventory` (§M3).
+   */
+  private async onChargeDisputeDirectShip(order: Order & { items: OrderItem[] }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      // Envío de FULFILLMENT de esta orden (el más reciente). Un retiro de bóveda no lleva
+      // `orderId`, así que esta consulta nunca lo confunde con el envío de la orden.
+      const shipment = await tx.shipmentRequest.findFirst({
+        where: { orderId: order.id },
+        orderBy: { requestedAt: 'desc' },
+      });
+      const status = shipment?.status;
+      const isLive = status === 'solicitado' || status === 'picking' || status === 'guia';
+      const isShippedOut = status === 'enviado' || status === 'entregado';
+      let needsManual = false;
+
+      if (isLive) {
+        // Sale de la cola de picking en la MISMA transacción (pickingList() filtra status:'picking').
+        await tx.shipmentRequest.update({
+          where: { id: shipment!.id },
+          data: { status: 'cancelado' },
+        });
+        // La pieza NO se toca: queda CONGELADA en `picking` (fuera de venta) hasta que un humano
+        // confirme dónde está físicamente.
+        needsManual = true;
+      } else if (isShippedOut) {
+        // Ya salió: no la tenemos, no se re-agrega. Gestión manual (pelear la disputa con la guía).
+        needsManual = true;
+      } else {
+        // Sin envío (orden `pending`) o envío ya cancelado: la pieza nunca salió del estante.
+        for (const oi of order.items) {
+          const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
+          if (!item) continue;
+          const reverted = await tx.inventoryItem.updateMany({
+            where: { id: oi.inventoryItemId, status: { in: ['reserved', 'picking'] } },
+            data: {
+              status: 'listed',
+              ownerType: 'platform',
+              ownerUserId: null,
+              ownershipStatus: null,
+            },
+          });
+          if (reverted.count !== 1) continue;
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: oi.inventoryItemId,
+              fromStatus: item.status,
+              toStatus: 'listed',
+              reason: MovementReason.chargeback_return,
+              note: `chargeback order ${order.orderNumber ?? order.id}`,
+            },
+          });
+        }
+      }
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: { status: 'chargeback', chargebackNeedsManual: needsManual },
+      });
+    });
+  }
+
+  /**
+   * Contracargo de un pedido a BÓVEDA (comportamiento v1.21, sin cambio). Consciente del estado
+   * FÍSICO de la carta:
+   *  - Sigue en bóveda (no enviada/entregada) → revierte a plataforma (`listed`) +
+   *    InventoryMovement `chargeback_return` (la tenemos, la recuperamos).
+   *  - Ya enviada/entregada (retiro del cliente) → NO se re-agrega: gestión manual.
+   *
+   * Aquí SÍ es correcto preguntar por `ShipmentItem` en `enviado|entregado`: el retiro de bóveda
+   * nace del cliente y **no** lleva `orderId`, así que no hay "envío de la orden" que consultar.
+   * (En `direct_ship` ese criterio era el bug: un envío en `picking`/`guia` no coincidía.)
+   */
+  private async onChargeDisputeVault(order: Order & { items: OrderItem[] }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       let needsManual = false;
       for (const oi of order.items) {
         const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
         if (!item) continue;
-        // ¿La carta ya salió físicamente (enviada/entregada)? El estado del InventoryItem no
-        // se mueve en el flujo de envío, así que la señal canónica es un ShipmentItem cuyo
-        // ShipmentRequest esté en `enviado`/`entregado`.
+        // ¿La carta ya salió físicamente (enviada/entregada)? En el RETIRO DE BÓVEDA el estado
+        // del InventoryItem no se mueve hasta la entrega, así que la señal canónica es un
+        // ShipmentItem cuyo ShipmentRequest esté en `enviado`/`entregado`.
+        // (v1.21.2: esto vale SOLO aquí. En `direct_ship` el item sí avanza con el envío
+        // —picking/shipped/delivered— y la decisión la toma el estado del envío, ver arriba.)
         const shippedOut = await tx.shipmentItem.findFirst({
           where: {
             inventoryItemId: oi.inventoryItemId,
@@ -387,12 +495,24 @@ export class PaymentsService {
    *  - Ganamos → estado terminal correcto: los fondos vuelven (Order `settled`). Si el item
    *    se revirtió y seguía en bóveda, se QUEDA en inventario (no se toca aquí).
    *  - Perdimos → `chargeback` terminal.
+   *
+   * **v1.21.2 (T1) — `direct_ship`: el flag `chargebackNeedsManual` NO se limpia aquí.** Ganar la
+   * disputa **NO re-expide automáticamente**: el envío original ya fue `cancelado` y la pieza sigue
+   * CONGELADA, así que el caso debe seguir visible en la cola de M3 hasta que un humano confirme
+   * dónde está la carta y ejecute `POST /admin/orders/:id/chargeback-inventory` (`reexpedir` si
+   * ganamos, `recuperada`/`no_recuperada` si no). Automatizarlo presupondría una realidad física
+   * que nadie comprobó. **Lo mismo aplica al desenlace `lost`** por la misma razón: limpiar el flag
+   * dejaría la pieza congelada para siempre y fuera de toda cola. En la ruta de **bóveda** no hay
+   * pieza congelada, así que se conserva el comportamiento v1.21 (el flag se limpia).
    */
   async onChargeDisputeClosed(dispute: Stripe.Dispute, forced?: 'won' | 'lost'): Promise<void> {
     const pi = typeof dispute.payment_intent === 'string' ? dispute.payment_intent : dispute.payment_intent?.id;
     if (!pi) return;
     const order = await this.prisma.order.findUnique({ where: { stripePaymentIntentId: pi } });
     if (!order) return;
+
+    // `undefined` = no se toca el flag (lo resolverá el humano en `chargeback-inventory`).
+    const clearManualFlag = order.fulfillmentMode === 'direct_ship' ? undefined : false;
 
     const outcome = forced ?? (dispute.status === 'won' ? 'won' : dispute.status === 'lost' ? 'lost' : null);
     if (outcome === 'won') {
@@ -402,13 +522,17 @@ export class PaymentsService {
           status: 'settled',
           settledAt: order.settledAt ?? new Date(),
           disputeOutcome: 'won',
-          chargebackNeedsManual: false,
+          chargebackNeedsManual: clearManualFlag,
         },
       });
     } else if (outcome === 'lost') {
       await this.prisma.order.update({
         where: { id: order.id },
-        data: { status: 'chargeback', disputeOutcome: 'lost', chargebackNeedsManual: false },
+        data: {
+          status: 'chargeback',
+          disputeOutcome: 'lost',
+          chargebackNeedsManual: clearManualFlag,
+        },
       });
     } else {
       this.logger.debug(`dispute.closed status=${dispute.status}: sin cambio terminal.`);

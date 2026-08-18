@@ -1554,3 +1554,112 @@
   desmontar. Acción (dirección acordada con el techlead): extraer **`AdjustSection` a su propio archivo**
   recibiendo `pieces` por props (la query queda en el padre), y eliminar el estado derivado de `adjustFinish`
   (derivarlo en render con override del usuario, o re-sincronizar con `cell.cardId` por `key`).
+
+### WS «Órdenes y dinero» — cierre v1.21 guest checkout (2026-08-18, no bloqueante)
+
+> Hallazgos del veredicto del **techlead** sobre el stream «Órdenes y dinero» (guest checkout, contrato
+> v1.21/v1.21.1/v1.21.2). Aceptados como deuda **no bloqueante**, dueño **backend**. Continúan la
+> numeración `BE-*` (tras BE-52).
+>
+> **No están aquí, porque se pagaron en el propio stream:** **T2** (reserva atómica y compensación del
+> PaymentIntent duplicadas y ya divergentes → fuente única `OrdersService.reserveItems` /
+> `attachPaymentIntent`, con la titularidad como parámetro), **T1** (double-sell físico del contracargo con
+> envío vivo, v1.21.2), **D4** (discriminador canónico `Order.fulfillmentMode` con `switch` exhaustivo) y
+> **D6** (`CHECK` de `InventoryItem`, migración M-25b).
+
+### BE-53 · `sendTrackingLink` revoca los enlaces ANTES de saber si el correo salió (Media)
+- **Dónde:** `backend/src/modules/orders/guest-order-mail.service.ts` (`sendTrackingLink`, la llamada a
+  `tokens.issue(..., { rotate: true })` previa a `mail.send`).
+- **Estado actual:** el reenvío **rota primero** (revoca todos los tokens vivos del pedido) y **después**
+  intenta enviar el correo. Si el proveedor falla, el invitado se queda **sin el enlace que tenía** y **sin
+  el nuevo**; y como `POST /orders/guest/resend-link` responde siempre `202` por diseño anti-oráculo
+  (§4-G.4), **no se entera**. Le quedan el reclamo (si tiene cuenta) o soporte.
+- **Impacto:** medio. No hay pérdida de dinero ni de datos y el pedido se prepara y envía igual, pero el
+  comprador puede perder la visibilidad de su pedido justo cuando pidió ayuda. Probabilidad = la de un fallo
+  del proveedor de correo.
+- **Disparador:** al tocar el reenvío o al añadir reintentos de correo. Acción (dirección del techlead):
+  **emitir sin rotar** y revocar los anteriores **solo tras `mail.send` OK** (dos pasos), aceptando una
+  ventana breve de dos enlaces vivos —que es exactamente el patrón ya normado para el settle en §4-G.7a—.
+
+### BE-54 · El listado de M3 devuelve la fila cruda con spread en vez de una allowlist (Media)
+- **Dónde:** `backend/src/modules/orders/admin-orders.controller.ts` (`list()`, el `data.map((o) => ({ ...o,
+  isGuestOrder }))`).
+- **Estado actual:** el listado admin proyecta la fila de `Order` **entera** (spread) y solo añade el flag
+  derivado. Hoy eso incluye `guestEmail` y el `shippingAddressSnapshot` **completo** (dirección con calle y
+  teléfono), que el contrato sí permite en back-office, pero la forma es **denylist implícita**: cualquier
+  columna sensible que se añada mañana a `Order` se expone sola. Contradice el criterio de **allowlist
+  explícita** que este mismo stream defiende en `toTrackingDto` y que `toClientShipment` ya aplica.
+- **Impacto:** medio en riesgo futuro, bajo hoy (endpoint protegido por rol `vault_operator+`).
+- **Disparador:** al añadir columnas a `Order` o al tocar M3. Acción: proyección **por allowlist explícita**
+  (misma disciplina que `toClientShipment`), enumerando los campos que §M3 declara.
+
+### BE-55 · `getOrder('', id, true)`: centinela de string vacío + flag `isAdmin` para saltarse el check de dueño (Media)
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` (`getOrder(userId, orderId, isAdmin)`) y su
+  llamada desde `admin-orders.controller.ts` (`this.orders.getOrder('', id, true)`).
+- **Estado actual:** una sola función sirve a dos autorizaciones distintas; el llamador admin pasa un
+  **centinela `''`** como `userId` y un **flag booleano** que desactiva la comparación de dueño. Con
+  `Order.userId` **ya nullable** (M-25) este es justo el patrón que produce fugas: basta un futuro
+  `if (!isAdmin && order.userId !== userId)` mal editado, o un llamador que pase `''` sin querer, para que
+  la puerta quede abierta. Hoy es correcto (`'' !== uuid` y `null !== ''`), pero la seguridad depende de una
+  coincidencia, no del tipo.
+- **Impacto:** medio (riesgo de autorización latente); ninguno observable hoy.
+- **Disparador:** al tocar el detalle de pedido o al añadir un tercer llamador. Acción (dirección del
+  techlead): **dos métodos separados** —`getForCustomer(userId, orderId)` y `getForAdmin(orderId)`—, sin
+  flags ni centinelas, cada uno con su proyección.
+
+### BE-56 · Discrepancia doc↔código: el barrido T9 solo cubre pedidos de invitado (Baja)
+- **Dónde:** `backend/src/modules/orders/guest-checkout.service.ts` (`sweepStaleGuestOrders`, el `where` con
+  `guestEmail: { not: null }` y `fulfillmentMode: 'direct_ship'`) frente a `docs/ARCHITECTURE.md` §4.21e (T9),
+  que afirma que el barrido «**también** beneficia a los pedidos con cuenta (hoy dependen solo de que Stripe
+  cancele el PI)».
+- **Estado actual:** el filtro excluye a propósito los pedidos de bóveda, así que **hoy esa frase no se
+  cumple**: una reserva de un pedido con cuenta no pagado sigue dependiendo de que Stripe cancele el PI.
+- **Impacto:** bajo. No hay bug en la ruta de invitado (que es la que el job debía cubrir); es una
+  discrepancia de documentación y una mejora no hecha para la ruta con cuenta.
+- **Disparador:** decidir cuál de las dos se alinea. Acción: o ampliar el barrido a `status='pending'` sin
+  filtrar por `guestEmail` (con la ventana de reserva que decida el arquitecto para bóveda), o corregir la
+  frase de §4.21e. **La ampliación toca la ruta con cuenta ⇒ pasa por el arquitecto antes.**
+
+### BE-57 · `RejectAuthenticatedGuard` aplicado por handler y no a nivel de clase (Media)
+- **Dónde:** `backend/src/modules/orders/guest-orders.controller.ts` (`@UseGuards(RejectAuthenticatedGuard)`
+  repetido en `quote` y `session`).
+- **Estado actual:** el invariante §4-G.0-3 («los endpoints `/checkout/guest/*` rechazan una sesión válida
+  con `409 ALREADY_AUTHENTICATED`») depende de que **cada handler nuevo recuerde el decorador**. Un quinto
+  endpoint `/checkout/guest/*` que lo olvide pierde el invariante **en silencio**: no falla ningún test
+  existente ni ningún tipo. El controlador mezcla además las dos familias (`/checkout/guest/*`, que rechaza
+  sesión, y `/orders/guest/*`, que no), por lo que no basta con subir el guard a la clase actual.
+- **Impacto:** medio en riesgo futuro; ninguno hoy (los dos handlers que lo necesitan lo tienen, y hay test
+  que lo verifica).
+- **Disparador:** al añadir cualquier endpoint `/checkout/guest/*`. Acción: **separar en dos controladores**
+  (`GuestCheckoutController` con el guard a **nivel de clase** y `GuestOrdersController` sin él), de modo que
+  el invariante lo dé la **estructura** y no la disciplina.
+
+### BE-58 · Tests de implementación en el spec de contrato del guest checkout (Baja)
+- **Dónde:** `backend/test/guest-checkout.contract.spec.ts`, describe «metadatos de seguridad» (lecturas de
+  `Reflect.getMetadata('THROTTLER:LIMITdefault' | '__guards__')` y comprobación del **orden de declaración**
+  de los métodos de `OrdersController`).
+- **Estado actual:** esos casos afirman **cómo está construido** el código (claves internas de
+  Nest/Throttler, orden de métodos) en vez de **qué hace**. El más peligroso es
+  `expect(guardsOf(proto.track)).not.toContain(...)`: si la clave `'__guards__'` cambia de nombre en una
+  versión de Nest, el helper devuelve `[]` y el aserto **pasa en vacío** — verde sin probar nada. Se
+  escribieron así porque probar el rate-limit real exigiría infra (y el throttler se salta bajo
+  `NODE_ENV=test`).
+- **Impacto:** bajo. Los mismos invariantes están cubiertos por tests de comportamiento (el guard tiene su
+  propia suite; la ruta `claimable` se ejercita por HTTP en la E2E), así que el riesgo es falsa confianza,
+  no un agujero descubierto.
+- **Disparador:** al subir de major de `@nestjs/throttler`/`@nestjs/core`. Acción: sustituir por
+  comportamiento (E2E de `429` con el throttler activo y una llamada real a `/orders/claimable`), o al menos
+  hacer que el helper **falle si la metadata no existe** en vez de devolver vacío.
+
+### BE-59 · `resendQuotaExceeded` cuenta también los tokens que no son reenvíos (Baja)
+- **Dónde:** `backend/src/modules/orders/order-access-token.service.ts` (`resendQuotaExceeded`: `count` de
+  todas las filas `OrderAccessToken` del pedido en 24 h).
+- **Estado actual:** el tope `GUEST_RESEND_MAX_PER_DAY = 5` del contrato (§4-G.4) cuenta **cualquier** fila
+  emitida en 24 h, incluidos el **`checkoutToken`** del checkout y el token del **settle**. El día de la
+  compra esos dos ya consumen cuota ⇒ el invitado dispone de **3 reenvíos reales, no 5**. El contrato dice
+  «contando `OrderAccessToken` emitidos», así que la implementación es literal, pero el efecto observable
+  discrepa de la intención («5 reenvíos»).
+- **Impacto:** bajo. Solo aprieta el límite (nunca lo afloja) y ocurre únicamente el primer día.
+- **Disparador:** si soporte reporta invitados sin reenvíos disponibles. Acción: contar solo emisiones de
+  **reenvío** —distinguibles hoy por su TTL de 90 días frente a los 120 min del checkout, sin columna nueva—
+  o pedir al arquitecto que fije el criterio exacto de conteo en §4-G.4.

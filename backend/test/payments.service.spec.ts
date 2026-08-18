@@ -69,6 +69,9 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   it('payment_intent.succeeded → Order settled + items ownershipStatus settled', async () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'o1',
+      // v1.21.2 (D4): el reverso del contracargo ramifica por `fulfillmentMode`; en BD la
+      // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
+      fulfillmentMode: 'vault',
       status: 'pending',
       items: [{ inventoryItemId: 'item1' }],
     });
@@ -99,6 +102,9 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   it('fix QA #2: double concurrent delivery of the same event → a single settled', async () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'o1',
+      // v1.21.2 (D4): el reverso del contracargo ramifica por `fulfillmentMode`; en BD la
+      // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
+      fulfillmentMode: 'vault',
       status: 'pending',
       items: [{ inventoryItemId: 'item1' }],
     });
@@ -135,6 +141,9 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     // Reintento de Stripe: ahora sí procesa y liquida.
     prisma.order.findUnique.mockResolvedValue({
       id: 'o1',
+      // v1.21.2 (D4): el reverso del contracargo ramifica por `fulfillmentMode`; en BD la
+      // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
+      fulfillmentMode: 'vault',
       status: 'pending',
       items: [{ inventoryItemId: 'item1' }],
     });
@@ -146,7 +155,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   });
 
   it('already-settled order is not re-processed', async () => {
-    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'settled', items: [] });
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled', items: [] });
     await payments.onPaymentSucceeded('pi_1');
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -154,6 +163,9 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   it('Fix 4: contracargo con carta EN BÓVEDA → chargeback + revierte a plataforma (no manual)', async () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'o1',
+      // v1.21.2 (D4): el reverso del contracargo ramifica por `fulfillmentMode`; en BD la
+      // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
+      fulfillmentMode: 'vault',
       status: 'settled',
       items: [{ inventoryItemId: 'item1' }],
     });
@@ -181,6 +193,9 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   it('Fix 4: contracargo con carta ENVIADA/ENTREGADA → NO re-agrega + flag manual', async () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'o1',
+      // v1.21.2 (D4): el reverso del contracargo ramifica por `fulfillmentMode`; en BD la
+      // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
+      fulfillmentMode: 'vault',
       status: 'settled',
       items: [{ inventoryItemId: 'item1' }],
     });
@@ -198,7 +213,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   });
 
   it('Fix 5: charge.dispute.closed won → Order settled (item se queda en inventario)', async () => {
-    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'chargeback', settledAt: new Date() });
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'chargeback', settledAt: new Date() });
     await payments.onChargeDisputeClosed({ payment_intent: 'pi_1', status: 'won' } as any);
     expect(prisma.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -209,7 +224,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   });
 
   it('Fix 5: charge.dispute.funds_reinstated → tratado como won (settled)', async () => {
-    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'chargeback', settledAt: null });
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'chargeback', settledAt: null });
     // funds_reinstated fuerza 'won' aunque el status del objeto no sea 'won'.
     await payments.onChargeDisputeClosed({ payment_intent: 'pi_1', status: 'under_review' } as any, 'won');
     expect(prisma.order.update).toHaveBeenCalledWith(
@@ -218,7 +233,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   });
 
   it('Fix 5: charge.dispute.closed lost → Order chargeback terminal', async () => {
-    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'chargeback' });
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'chargeback' });
     await payments.onChargeDisputeClosed({ payment_intent: 'pi_1', status: 'lost' } as any);
     expect(prisma.order.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -228,13 +243,13 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   });
 
   it('M2: reembolso PARCIAL no cambia el estado de la orden', async () => {
-    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'settled' });
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 40000 } as any);
     expect(prisma.order.update).not.toHaveBeenCalled();
   });
 
   it('M2/A1: reembolso TOTAL → refunded, SIN re-agregar item al inventario', async () => {
-    prisma.order.findUnique.mockResolvedValue({ id: 'o1', status: 'settled' });
+    prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled' });
     await payments.onChargeRefunded({ payment_intent: 'pi_1', amount: 100000, amount_refunded: 100000 } as any);
     expect(prisma.order.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'refunded' }) }),
@@ -247,6 +262,9 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   it('B5: payment_intent.canceled → libera la reserva (reserved→listed) + Order failed', async () => {
     prisma.order.findUnique.mockResolvedValue({
       id: 'o1',
+      // v1.21.2 (D4): el reverso del contracargo ramifica por `fulfillmentMode`; en BD la
+      // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
+      fulfillmentMode: 'vault',
       status: 'pending',
       items: [{ inventoryItemId: 'item1' }],
     });

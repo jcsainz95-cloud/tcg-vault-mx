@@ -3,7 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 
-function build(shipment: any, itemStatus: string) {
+function build(shipment: any, itemStatus: string, fulfillmentMode: string | null = 'direct_ship') {
   const state = { status: itemStatus };
   const movements: any[] = [];
   const tx: any = {
@@ -30,6 +30,11 @@ function build(shipment: any, itemStatus: string) {
   };
   const prisma: any = {
     shipmentRequest: { findUnique: jest.fn(async () => shipment) },
+    // v1.21.2 (D4): el comportamiento se decide leyendo `Order.fulfillmentMode` de la orden
+    // vinculada, no por la mera presencia de `orderId`.
+    order: {
+      findUnique: jest.fn(async () => (fulfillmentMode === null ? null : { fulfillmentMode })),
+    },
     $transaction: jest.fn(async (cb: any) => cb(tx)),
   };
   const svc = new ShipmentsService(
@@ -37,7 +42,7 @@ function build(shipment: any, itemStatus: string) {
     {} as SettingsService,
     {} as StripeService,
   );
-  return { svc, tx, movements, state };
+  return { svc, tx, prisma, movements, state };
 }
 
 const guestShipment = (status: string) => ({ id: 'shp-guest', orderId: 'order-1', userId: null, status });
@@ -95,6 +100,36 @@ describe('ShipmentsService.updateStatus — envío DIRECTO de invitado (orderId 
   it('respeta la misma máquina de estados (transición inválida ⇒ CONFLICT)', async () => {
     const { svc } = build(guestShipment('picking'), 'picking');
     await expect(svc.updateStatus('shp-guest', 'entregado')).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+});
+
+describe('D4 — el discriminador canónico es `Order.fulfillmentMode` (§4.21d, caso viii de §4.21h)', () => {
+  it('lee el modo de la ORDEN vinculada, no la mera presencia de `orderId`', async () => {
+    const { svc, prisma } = build(guestShipment('guia'), 'picking');
+    await svc.updateStatus('shp-guest', 'enviado');
+    expect(prisma.order.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'order-1' } }),
+    );
+  });
+
+  it('un `fulfillmentMode` no soportado LANZA: nunca cae en la rama de envío directo', async () => {
+    // `vault` con `orderId != null` es combinación imposible por invariante: corrupción de datos.
+    const { svc, movements, state } = build(guestShipment('guia'), 'picking', 'vault');
+    await expect(svc.updateStatus('shp-guest', 'enviado')).rejects.toMatchObject({ code: 'CONFLICT' });
+    // Y NO se aplicó ninguna transición "por si acaso".
+    expect(movements).toHaveLength(0);
+    expect(state.status).toBe('picking');
+  });
+
+  it('si la orden vinculada no existe, también lanza (no asume envío directo)', async () => {
+    const { svc } = build(guestShipment('guia'), 'picking', null);
+    await expect(svc.updateStatus('shp-guest', 'enviado')).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
+  it('un retiro de bóveda (`orderId == null`) NI SIQUIERA consulta la orden', async () => {
+    const { svc, prisma } = build(vaultShipment('enviado'), 'in_custody');
+    await svc.updateStatus('shp-vault', 'entregado');
+    expect(prisma.order.findUnique).not.toHaveBeenCalled();
   });
 });
 
