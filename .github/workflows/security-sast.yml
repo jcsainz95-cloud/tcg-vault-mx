@@ -188,25 +188,40 @@ jobs:
         # `timeout-minutes` es el tope duro del step.
         # El gate NO se relaja: si tras 3 intentos no hay Trivy, el step FALLA (exit 1).
         # Nunca se continúa sin escanear.
-        timeout-minutes: 10
+        # CORRECCIÓN (2026-08-18, misma noche): la primera versión de este bloque reintentaba
+        # sin soltar el lock. `timeout` mata apt A MITAD de la descarga y el proceso huérfano
+        # CONSERVA /var/lib/dpkg/lock-frontend, así que los intentos 2 y 3 morían al instante
+        # con "Could not get lock ... It is held by process N" — reintentos inútiles contra un
+        # lock que el propio timeout dejaba tomado. `liberar_apt` lo suelta antes de reintentar.
+        timeout-minutes: 20
         run: |
           set -uo pipefail
+          liberar_apt() {
+            sudo pkill -x apt-get 2>/dev/null || true
+            sudo pkill -x dpkg 2>/dev/null || true
+            for _ in $(seq 1 30); do
+              sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
+              sleep 2
+            done
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+          }
           instalar_trivy() {
-            sudo timeout 150 apt-get update -o Acquire::Retries=3 || return 1
-            sudo timeout 150 apt-get install -y wget gnupg || return 1
+            sudo timeout 240 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 240 apt-get install -y wget gnupg || return 1
             wget -qO - --timeout=30 --tries=3 https://aquasecurity.github.io/trivy-repo/deb/public.key \
               | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null || return 1
             echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
               | sudo tee /etc/apt/sources.list.d/trivy.list || return 1
-            sudo timeout 150 apt-get update -o Acquire::Retries=3 || return 1
-            sudo timeout 180 apt-get install -y trivy || return 1
+            sudo timeout 240 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 300 apt-get install -y trivy || return 1
           }
           for intento in 1 2 3; do
             if instalar_trivy; then
               trivy --version
               exit 0
             fi
-            echo "::warning title=Instalacion de Trivy fallida::Intento $intento agotado o fallido; reintentando en 10s."
+            echo "::warning title=Instalacion de Trivy fallida::Intento $intento agotado o fallido; liberando lock de apt y reintentando."
+            liberar_apt
             sleep 10
           done
           echo "::error title=No se pudo instalar Trivy::3 intentos agotados. El gate NO se salta: el job falla."
@@ -251,25 +266,40 @@ jobs:
         # `timeout-minutes` es el tope duro del step.
         # El gate NO se relaja: si tras 3 intentos no hay Trivy, el step FALLA (exit 1).
         # Nunca se continúa sin escanear.
-        timeout-minutes: 10
+        # CORRECCIÓN (2026-08-18, misma noche): la primera versión de este bloque reintentaba
+        # sin soltar el lock. `timeout` mata apt A MITAD de la descarga y el proceso huérfano
+        # CONSERVA /var/lib/dpkg/lock-frontend, así que los intentos 2 y 3 morían al instante
+        # con "Could not get lock ... It is held by process N" — reintentos inútiles contra un
+        # lock que el propio timeout dejaba tomado. `liberar_apt` lo suelta antes de reintentar.
+        timeout-minutes: 20
         run: |
           set -uo pipefail
+          liberar_apt() {
+            sudo pkill -x apt-get 2>/dev/null || true
+            sudo pkill -x dpkg 2>/dev/null || true
+            for _ in $(seq 1 30); do
+              sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
+              sleep 2
+            done
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+          }
           instalar_trivy() {
-            sudo timeout 150 apt-get update -o Acquire::Retries=3 || return 1
-            sudo timeout 150 apt-get install -y wget gnupg || return 1
+            sudo timeout 240 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 240 apt-get install -y wget gnupg || return 1
             wget -qO - --timeout=30 --tries=3 https://aquasecurity.github.io/trivy-repo/deb/public.key \
               | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null || return 1
             echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
               | sudo tee /etc/apt/sources.list.d/trivy.list || return 1
-            sudo timeout 150 apt-get update -o Acquire::Retries=3 || return 1
-            sudo timeout 180 apt-get install -y trivy || return 1
+            sudo timeout 240 apt-get update -o Acquire::Retries=3 || return 1
+            sudo timeout 300 apt-get install -y trivy || return 1
           }
           for intento in 1 2 3; do
             if instalar_trivy; then
               trivy --version
               exit 0
             fi
-            echo "::warning title=Instalacion de Trivy fallida::Intento $intento agotado o fallido; reintentando en 10s."
+            echo "::warning title=Instalacion de Trivy fallida::Intento $intento agotado o fallido; liberando lock de apt y reintentando."
+            liberar_apt
             sleep 10
           done
           echo "::error title=No se pudo instalar Trivy::3 intentos agotados. El gate NO se salta: el job falla."
