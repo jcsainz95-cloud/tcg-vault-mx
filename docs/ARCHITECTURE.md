@@ -25,7 +25,16 @@
 >   envío?"; **todo comportamiento** (terminal del item, `kind` del DTO) se decide por **`Order.fulfillmentMode`**,
 >   con `switch` **exhaustivo y ruidoso** (un modo no soportado **lanza**, nunca cae en `direct_ship`).
 > - **§4.21h — el test «contracargo antes/después de enviar» ya estaba pedido y no se escribió**; ahora es condición
->   de aprobación, desglosado en 8 casos (incluido el de regresión del double-sell).
+>   de aprobación, desglosado en **8 casos enumerados en la tabla de §4.21h-1** (numeración `i…viii` **canónica y
+>   estable**: los tests de backend ya la citan y **no debe renumerarse**). *(Errata de forma corregida: estaban
+>   redactados como viñeta de prosa dentro del reparto de trabajo — existían pero eran ilocalizables.)*
+> - **Errata `422` → `409`:** §4.21c-bis decía que un `reexpedir` en estado inválido devuelve `422`, contradiciendo a
+>   API_CONTRACT §M3 (`409`). **Manda el contrato y `409` es lo correcto**: el cuerpo es válido y bien formado, el
+>   obstáculo es el **estado del recurso**. Backend ya implementó `409`. **Sin cambio de código.**
+> - **Requisito pendiente registrado (hallazgo de QA):** el desenlace humano **no tiene interfaz humana**
+>   (`chargebackNeedsManual` no se consume en el front). Se añade el filtro `GET /admin/orders?needsManual=true` y se
+>   enruta la UI al WS **«Admin y auditoría»**; **sin ella el flujo de contracargo no es operable** a efectos del DoD
+>   de release (no bloquea el veredicto por-stream de «Órdenes y dinero»).
 >
 > **Changelog v1.21.1-guest-checkout-fixes (2026-08-18) — Correcciones post-implementación (regla 9). SIN migración
 > adicional; M-25 no cambia.** Ver **§4.21e-bis** (nueva), §4.21c y §3.2 (`OrderAccessToken`).
@@ -2978,12 +2987,40 @@ Tres desenlaces, todos con `note` obligatoria y todos dejando `chargebackNeedsMa
   `charge.dispute.closed`/`funds_reinstated`) y la pieza sigue congelada ⇒ se crea un `ShipmentRequest` **nuevo**
   con la misma forma que el del settle (`orderId`, `userId=null`, `status='picking'`, montos en `0`,
   `addressSnapshot` de `Order.shippingAddressSnapshot`) y el item sigue en `picking`. Cierra el agujero silencioso
-  de "ganamos la disputa pero el envío ya estaba cancelado". Cualquier otro estado ⇒ `422`.
+  de "ganamos la disputa pero el envío ya estaba cancelado". Cualquier otro estado ⇒ **`409 CONFLICT`**.
+
+> **Errata corregida en v1.21.2:** este párrafo decía `422` y contradecía a API_CONTRACT §M3, que dice **`409`**.
+> **Manda el contrato** (regla de conflicto) y además `409` es lo correcto: el cuerpo `{outcome:'reexpedir', note}`
+> está **bien formado y es válido** —no hay nada que el cliente pueda corregir en la entrada—; el obstáculo es
+> **100 % el estado del recurso**, que es la definición de `409`. Es además el mismo código que el endpoint ya usa
+> para "orden ya resuelta" (idéntico tipo de obstáculo: partirlos obligaría al front a ramificar dos códigos para
+> pintar un solo mensaje), y respeta la convención del proyecto: **`409` = conflicto de estado**
+> (`ITEM_UNAVAILABLE`, `ITEM_IN_ANOTHER_SHIPMENT`, `ALREADY_AUTHENTICATED`) frente a **`422` = rechazo de la
+> entrada** (`PRICE_PENDING`, `ADDRESS_NOT_MX`, `VAULT_REQUIRES_ACCOUNT`). Backend implementó `409` y reportó sin
+> auto-resolver: correcto. **Ningún cambio de código.**
 
 **Cierre de la disputa (`charge.dispute.closed` / `funds_reinstated`) — precisión v1.21.2:** ganar **NO** re-expide
 automáticamente. La orden vuelve a `settled` (`disputeOutcome='won'`) y **`chargebackNeedsManual` se mantiene en
 `true`** para que el caso siga visible en la cola de M3 hasta que un humano confirme si la carta sigue ahí y pulse
 `reexpedir`. Automatizar la re-expedición volvería a presuponer una realidad física que nadie ha comprobado.
+
+**REQUISITO PENDIENTE — el desenlace humano necesita una interfaz humana (v1.21.2, hallazgo de QA).** Esta norma
+crea deliberadamente un estado que **solo una persona puede cerrar**, pero hoy `chargebackNeedsManual` **no se
+consume en ningún lado del front** (`grep chargebackNeedsManual|chargeback-inventory frontend/src/` ⇒ **cero**; el
+campo ni siquiera está en los tipos del contrato del front). Consecuencia operativa: el operador **no puede ver que
+hay una pieza congelada** salvo llamando a la API a mano, así que en la práctica **la pieza se queda congelada** y
+el inventario se degrada en silencio — exactamente el fallo que el congelamiento pretendía evitar, movido de sitio.
+Se registra como **requisito normativo de la feature, no como defecto de este stream**:
+
+- **Dueño: work stream «Admin y auditoría»** (M3 es suyo; el backend de §4.21c-bis ya está y es de este stream).
+- **Alcance mínimo:** (1) `chargebackNeedsManual` y `disputeOutcome` en los tipos del contrato del front;
+  (2) **cola visible** de "contracargos por resolver" en M3 —para eso se añade el filtro
+  `GET /admin/orders?needsManual=true` (API_CONTRACT §M3)— con badge en el dashboard;
+  (3) formulario del desenlace (`recuperada | no_recuperada | reexpedir`) con **`note` obligatoria** y confirmación
+  explícita, mostrando qué piezas (folio + carta) están congeladas.
+- **Criterio de cierre:** mientras no exista, **el flujo de contracargo de `direct_ship` NO puede declararse
+  operable** en el DoD del proyecto, aunque el backend esté verde. QA debe reflejarlo así en su veredicto de
+  release (no en el veredicto por-stream de «Órdenes y dinero», que sí puede cerrar).
 
 **Motivos de `InventoryMovement` (v1.21.1, normativo — sin valores nuevos en `MovementReason`):** `settle` para
 `reserved → picking` (mismo evento y misma causa que `reserved → in_custody` de la ruta de bóveda; lo que cambia es
@@ -3134,10 +3171,15 @@ haría que Stripe reintentara un settle ya aplicado). La red de seguridad ante u
 Contenido **prohibido** en el correo: cualquier dato de otro pedido, la dirección completa, datos de pago más allá
 de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
 
-#### (h) Reparto de trabajo (v1.21)
+#### (h) Reparto de trabajo (v1.21) y **CASOS DE PRUEBA EXIGIDOS del contracargo (v1.21.2, normativos)**
+
+> **Los 8 casos exigidos viven en la tabla de §4.21h-1, más abajo en esta misma sección** (`§4.21h caso i` …
+> `§4.21h caso viii` es la forma canónica de citarlos; los tests de backend ya usan esa numeración y **no deben
+> cambiarla**). Antes estaban redactados como viñeta de prosa dentro del reparto de trabajo: existían, pero eran
+> ilocalizables — errata de forma corregida en v1.21.2, **sin cambiar la numeración ni la sustancia**.
 
 - **Backend:** (1) migración **M-25** + secuencia `order_number_seq` y backfill; (2)
-  `computeDirectShipBreakdown` en `common/money.ts` (aditivo) y 7 códigos en `common/error-codes.ts`;
+  `computeDirectShipBreakdown` en `common/money.ts` (aditivo) y **8** códigos en `common/error-codes.ts`;
   (3) `GuestCheckoutService` en `modules/orders` (quote/session, `@Public()`, throttle, sin consultar `User`);
   (4) `OrderAccessTokenService` (emitir/rotar/validar/revocar, espejo de `AuthTokenService` pero multi-uso);
   (5) rama `direct_ship` en `payments.service` (settle → `picking` + crear `ShipmentRequest` idempotente +
@@ -3146,19 +3188,7 @@ de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
   reenvío + `AuditLog`; (9) job `guest-order-sweep`; (10) plantilla de correo local; (11) **tests**: DTO público sin
   ningún campo prohibido, token inválido/expirado/revocado/de otro pedido, reclamo doble, reclamo con correo no
   verificado, `GET /shipments` no devuelve envíos `userId=null`, contracargo antes/después de enviar, idempotencia
-  del webhook, no doble conteo del envío.
-  - **v1.21.2 — tests EXIGIDOS de contracargo (§4.21c-bis). El caso «contracargo antes/después de enviar» ya estaba
-    pedido aquí y NO se escribió; sin él T1 pasó los gates. Ahora es condición de aprobación**, uno por fila de la
-    tabla normativa: (i) contracargo con envío en **`picking`** ⇒ envío a `cancelado`, item **sigue** en `picking`
-    (**assert explícito de que NO queda en `listed`/`in_stock`**), `chargebackNeedsManual=true`; (ii) ídem con envío
-    en **`guia`**; (iii) contracargo con envío **`enviado`** ⇒ nada de inventario, flag `true`; (iv) contracargo
-    **sin envío** (orden `pending`) ⇒ `reserved → listed` y flag `false`; (v) **test de regresión del double-sell**:
-    tras (i), `POST /checkout/quote|session` sobre esa pieza devuelve **`409 ITEM_UNAVAILABLE`** y
-    `GET /admin/shipments/picking-list` **no la incluye**; (vi) los tres desenlaces de
-    `POST /admin/orders/:id/chargeback-inventory`, incluido `reexpedir` **rechazado con `422`** mientras la orden
-    siga en `chargeback`; (vii) `charge.dispute.closed` con `won` **no** re-expide solo y **mantiene** el flag en
-    `true`. Además: (viii) invariante D4 — un `ShipmentRequest` con `orderId` cuya orden tenga un
-    `fulfillmentMode` no soportado **lanza**, no cae en la rama `direct_ship`.
+  del webhook, no doble conteo del envío, **y los 8 casos de §4.21h-1**.
 - **Frontend:** checkout de invitado (3 vías sin perder carrito), doble captura de correo, upsell de bóveda a partir
   de `422 VAULT_REQUIRES_ACCOUNT`, página `/[locale]/pedido` (token del query → body, `replaceState`, `noindex`),
   pantalla de enlace expirado con reenvío, confirmación con oferta de cuenta, y banner "tienes N pedidos por
@@ -3167,6 +3197,25 @@ de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
   manipulado/expirado, token de un pedido que no abre otro, pedido ya reclamado).
 - **Seguridad (fase de release):** el `GuestOrderTrackingDTO` y el oráculo del reenvío son los dos objetivos
   prioritarios del pentester.
+
+##### §4.21h-1 — Casos de prueba EXIGIDOS del contracargo `direct_ship` (v1.21.2, NORMATIVO)
+
+> **Por qué son condición de aprobación y no una recomendación:** el caso «contracargo antes/después de enviar» ya
+> estaba pedido en el reparto de trabajo de v1.21 y **no se escribió**; sin él, **T1 (double-sell físico) pasó todos
+> los gates**. La numeración `i … viii` es **canónica y estable** — los tests de backend ya la citan
+> (`§4.21h caso v`, `caso vi`, `caso vii`) y **no debe renumerarse**. Cada caso i–iv corresponde 1:1 a una fila de
+> la tabla normativa de **§4.21c-bis**.
+
+| # | Caso | Qué debe verificar (aserciones mínimas) |
+|---|---|---|
+| **i** | Contracargo con envío en **`picking`** | `ShipmentRequest → cancelado`; el item **sigue en `picking`** — **assert explícito de que NO queda en `listed` ni `in_stock`**; `chargebackNeedsManual=true`; **sin** `InventoryMovement` de retorno. |
+| **ii** | Contracargo con envío en **`guia`** | Idéntico a (i). Es su propio caso porque `guia` (etiqueta generada, paquete probablemente armado) fue el estado que más tentó a una regla automática distinta. |
+| **iii** | Contracargo con envío **`enviado`** (o `entregado`) | **Nada** cambia en inventario ni en el envío; `chargebackNeedsManual=true`. |
+| **iv** | Contracargo **sin envío** (orden `pending`, item `reserved`) | `reserved → listed`, `ownerType=platform`, `InventoryMovement reason='chargeback_return'`, `chargebackNeedsManual=false`. **Única fila que autoriza re-listar automáticamente, y solo desde `reserved`.** |
+| **v** | **Regresión del double-sell** (el test que faltaba y que habría atrapado T1) | Partiendo del estado final de (i): `POST /checkout/quote` y `POST /checkout/session` sobre esa pieza devuelven **`409 ITEM_UNAVAILABLE`**, `POST /checkout/guest/session` también, y `GET /admin/shipments/picking-list` **no la incluye**. |
+| **vi** | Desenlaces de `POST /admin/orders/:id/chargeback-inventory` | Los tres (`recuperada`, `no_recuperada`, `reexpedir`) con sus efectos de §4.21c-bis; **`reexpedir` rechazado con `409 CONFLICT`** mientras la orden siga en `chargeback`; repetir un `outcome` ya aplicado ⇒ **`409`** sin duplicar movimientos ni envíos. |
+| **vii** | `charge.dispute.closed` con `won` | La orden vuelve a `settled` con `disputeOutcome='won'` y **`chargebackNeedsManual` SIGUE en `true`**: ganar **no** re-expide solo. |
+| **viii** | Invariante **D4** (discriminador) | Un `ShipmentRequest` con `orderId` cuya orden tenga un `fulfillmentMode` no soportado **lanza y se loguea**; **no** cae por default en la rama `direct_ship`. |
 
 ---
 

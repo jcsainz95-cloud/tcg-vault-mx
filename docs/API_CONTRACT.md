@@ -23,6 +23,14 @@
 > - **D4 — un solo discriminador canónico:** `ShipmentRequest.orderId` dice **de dónde viene** el envío; **el
 >   comportamiento** (terminal del item, `kind` de §M4) se resuelve **siempre** por **`Order.fulfillmentMode`**, con
 >   `switch` exhaustivo que **lanza** ante un modo no soportado en vez de asumir `direct_ship` en silencio.
+> - **Erratas de documentación corregidas (post-QA/techlead), sin cambio de código:** (a) se **ratifica `409 CONFLICT`**
+>   —no `422`— para un `outcome` que no aplica al estado del recurso en `chargeback-inventory` (ARCHITECTURE §4.21c-bis
+>   decía `422`; ya corregido: el cuerpo es válido, el obstáculo es el **estado**); (b) los 8 casos de prueba exigidos
+>   del contracargo se enumeran en **ARCHITECTURE §4.21h-1** con numeración `i…viii` **canónica** (los tests ya la
+>   citan; no se renumera).
+> - **`GET /admin/orders?needsManual=true` (NUEVO, aditivo)** + **requisito de UI pendiente**: el desenlace humano del
+>   contracargo **no tiene pantalla** hoy; sin la cola visible y el formulario de desenlace la pieza congelada se
+>   queda congelada. Dueño: WS **«Admin y auditoría»**.
 >
 > **Changelog v1.21.1-guest-checkout-fixes (2026-08-18) — Correcciones post-implementación del WS «Órdenes y
 > dinero» (regla 9: backend detectó, el arquitecto resuelve). SOLO estos 4 puntos; nada más del contrato cambia.
@@ -2469,6 +2477,11 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 
 ### M3 — Ventas / órdenes (`vault_operator` lectura; `super_admin` reembolso)
 - `GET /api/v1/admin/orders` — query `?status=&userId=&from=&to=&page=`
+  - **`needsManual?=true|false` (v1.21.2, NUEVO, aditivo):** filtra por `Order.chargebackNeedsManual`. Es la **cola
+    de "contracargos por resolver"** que alimenta el desenlace humano de `chargeback-inventory` (abajo). Sin este
+    filtro no hay forma de que el operador **descubra** que hay piezas congeladas — hoy solo se sabrían llamando a
+    la API a mano. Mismo guard, misma proyección y misma paginación que sin filtro. **Dueño de la UI: WS «Admin y
+    auditoría»** (ver ARCHITECTURE §4.21c-bis › «Requisito pendiente»).
 - `GET /api/v1/admin/orders/:id` — detalle con desglose + línea de Stripe + CFDI. Incluye además **dos banderas operativas de back-office** (solo en este detalle admin, **no** en `OrderSummaryDTO` ni en el detalle del cliente): `chargebackNeedsManual: boolean` (un contracargo llegó cuando la carta **ya se había enviado**, hay que pelear la disputa con la guía; ver §9) y `disputeOutcome: "won" | "lost" | null` (resultado del cierre de la disputa Stripe). El enum `OrderStatus` **no cambia**: `won → settled`, `lost → chargeback`; estas banderas dan el matiz que el enum no expresa.
 - **v1.21-guest-checkout — pedidos de invitado en M3:** un pedido de invitado se ve **igual** que uno con cuenta
   (PROJECT pregunta abierta v1.5-6: no se crea "usuario fantasma"). El listado y el detalle ganan, **aditivo**:
@@ -2499,6 +2512,16 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   en `chargeback`, o **cualquier** `outcome` sobre una orden con `chargebackNeedsManual=false` (ya resuelta). Esto
   último **es** la regla de idempotencia: repetir un `outcome` ya aplicado devuelve `409` y **no** duplica
   movimientos de inventario ni envíos.
+  > **`409` y no `422` (ratificado en v1.21.2; ARCHITECTURE §4.21c-bis decía `422` por errata y ya está corregido):**
+  > el cuerpo `{outcome, note}` está **bien formado y es válido** —no hay nada que el cliente pueda corregir en la
+  > entrada—; el obstáculo es **el estado del recurso**, que es la definición de `409`. Consistente con la
+  > convención del proyecto (`409` = conflicto de estado: `ITEM_UNAVAILABLE`, `ITEM_IN_ANOTHER_SHIPMENT`,
+  > `ALREADY_AUTHENTICATED`; `422` = rechazo de la entrada: `PRICE_PENDING`, `ADDRESS_NOT_MX`,
+  > `VAULT_REQUIRES_ACCOUNT`) y con el `409` que este mismo endpoint ya usa para "orden ya resuelta".
+  > **UI OBLIGATORIA (requisito pendiente, dueño: WS «Admin y auditoría»):** este endpoint crea un estado que
+  > **solo un humano cierra**, y hoy **no hay pantalla** que lo exponga (`chargebackNeedsManual` no se consume en el
+  > front). Sin la cola visible + el formulario de desenlace, la pieza congelada **se queda congelada** y el
+  > inventario se degrada en silencio. Ver ARCHITECTURE §4.21c-bis › «Requisito pendiente».
 - `POST /api/v1/admin/orders/:id/refund` — **`super_admin`** — Req `{ reason }` + `Idempotency-Key` → reembolso Stripe, Order `→refunded`. Err `403 MONEY_OUT_FORBIDDEN` para operador. **Reembolso EXCEPCIONAL** (política VENTAS FINALES): no hay reembolso voluntario. La excepción legítima es un **error de la plataforma** (p. ej. cobro doble, inventario fantasma), que **siempre** se reembolsa. **NO** re-agrega el item al inventario. (La política de negocio completa vive en `PROJECT.md`.)
 
 ### M4 — Retiros / envíos (`vault_operator+`)
