@@ -3321,13 +3321,25 @@ vitrina muestre también el estado «En el carrito» en el botón del card; hoy 
 - `e2e/checkout.spec.ts`: los casos del checkout **con cuenta** ahora hacen `loginAs` antes (sin
   sesión esa ruta es, por diseño, el checkout de invitado).
 
-### Bloqueo conocido (NO lo corregí: es zona compartida, lo enruta el orquestador)
-- **`src/components/layout/PrivateRouteGuard.tsx` incluye `/checkout` en `PRIVATE_PREFIXES`.** En modo
-  real (`NEXT_PUBLIC_USE_MOCKS=false`) un visitante **sin sesión** que entra a `/checkout` es
-  redirigido a `/login?next=/checkout`, lo que **impide el criterio 45/46 completo**. En modo mock el
-  guard es inerte, por eso la suite E2E actual pasa. Cambio necesario (una línea, sin efecto sobre el
-  flujo con cuenta): quitar `'/checkout'` de `PRIVATE_PREFIXES`. **No lo apliqué** porque hay otra
-  sesión de frontend trabajando zonas compartidas; requiere autorización del orquestador.
+### `/checkout` deja de ser ruta privada (cambio en zona compartida, AUTORIZADO por el orquestador)
+- **`src/components/layout/PrivateRouteGuard.tsx`: se quitó `'/checkout'` de `PRIVATE_PREFIXES`.**
+  Con `/checkout` en la lista, en modo real (`NEXT_PUBLIC_USE_MOCKS=false`) un visitante **sin
+  sesión** era redirigido a `/login?next=/checkout` y los **criterios 45/46 quedaban rotos**. En modo
+  mock el guard es inerte, por eso la suite E2E daba verde igual (verde engañoso).
+- **Por qué NO es una relajación de seguridad:** el criterio 45 exige que un visitante sin cuenta
+  llegue al checkout y pague, y el contrato §4-G hace `@Public()` los endpoints `/checkout/guest/*`;
+  es requisito de producto. El guard es una **conveniencia de cliente** —como dice su propio
+  comentario, el **backend sigue siendo la autoridad**— y `/vault`, `/orders` y `/shipments` siguen
+  guardados; cualquier llamada privilegiada sigue devolviendo `401`. El flujo con cuenta no cambia.
+- **Anclaje de la regresión (modo REAL, no mock):**
+  `app/[locale]/(storefront)/checkout/checkout-public-route.test.tsx` monta el guard con
+  `config.useMocks = false` y verifica que `/checkout` y sus subrutas se montan **sin** redirección,
+  que con sesión se comportan igual, y que `/vault`/`/orders`/`/shipments` **siguen** redirigiendo.
+  Verificado a mano: reintroducir `'/checkout'` en el array pone ese test en rojo (2 casos).
+- **Efecto colateral en un test preexistente:** `components/layout/PrivateRouteGuard.test.tsx` tenía
+  el caso "preserva el destino en `next` … (/checkout)", que afirmaba justo el comportamiento
+  derogado. Se cambió **solo ese caso** a `/shipments` (misma intención, prefijo que sigue siendo
+  privado) con una nota que apunta al test ancla. No se tocó nada más de `components/`.
 
 ### Ambigüedades detectadas (reportadas, NO resueltas por mi cuenta)
 1. **Contrato vs. diseño — reenvío de enlace.** §15.7 dibuja el formulario con **solo** el correo;
