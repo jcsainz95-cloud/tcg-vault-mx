@@ -80,6 +80,30 @@ export const ErrorCode = {
   // cota (≤ quoted × factor y ≤ tope AML por solicitud). Defensa de dinero saliente. 422.
   APPROVED_PRICE_CAP_EXCEEDED: 'APPROVED_PRICE_CAP_EXCEEDED',
 
+  // Guest checkout (v1.21) — API_CONTRACT §0 / §4-G. Todos ADITIVOS: ningún código previo cambia.
+  // El invitado eligió destino bóveda. NO es un error de UI: es la señal del UPSELL (criterio 48),
+  // con `details.upsell=true`. La bóveda exige cuenta por decisión de producto (PROJECT §C/§J). 422.
+  VAULT_REQUIRES_ACCOUNT: 'VAULT_REQUIRES_ACCOUNT',
+  // Se llamó un endpoint /checkout/guest/* con una SESIÓN VÁLIDA. Un invitado nunca toca un
+  // endpoint `customer` y viceversa (invariante §4-G.0-3). 409.
+  ALREADY_AUTHENTICATED: 'ALREADY_AUTHENTICATED',
+  // Enlace de seguimiento: el hash NO existe (token inventado/manipulado/de un pedido borrado).
+  // Mensaje genérico: NO dice si el pedido existe (criterio 52). 404.
+  INVALID_TOKEN: 'INVALID_TOKEN',
+  // El token existe pero `expiresAt < now`. Mensaje neutro + oferta de reenvío (criterio 53). 410.
+  TOKEN_EXPIRED: 'TOKEN_EXPIRED',
+  // El token dejó de valer: el pedido se reclamó, se emitió uno nuevo (rotación) o soporte lo rotó.
+  // `details.reason = CLAIMED | ROTATED | SUPPORT`. 410.
+  TOKEN_REVOKED: 'TOKEN_REVOKED',
+  // Reclamo: el pedido ya está vinculado a una cuenta (una sola vez, criterio 55). 409.
+  ORDER_ALREADY_CLAIMED: 'ORDER_ALREADY_CLAIMED',
+  // Reclamo: el correo VERIFICADO de la sesión no es el `guestEmail` del pedido. 403.
+  CLAIM_EMAIL_MISMATCH: 'CLAIM_EMAIL_MISMATCH',
+  // Reenvío de enlace sobre un pedido fuera del tope de edad (GUEST_TRACKING_MAX_AGE_DAYS).
+  // SOLO lo devuelve el endpoint ADMIN (§4-G.9b); el reenvío público responde 202 siempre
+  // (devolverlo ahí sería un oráculo de existencia). 422.
+  GUEST_ORDER_TOO_OLD: 'GUEST_ORDER_TOO_OLD',
+
   // Disputes
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',
   NOT_RAW: 'NOT_RAW',

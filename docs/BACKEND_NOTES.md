@@ -3528,3 +3528,344 @@ Reglas de buylist (`BUYLIST_PRICE_RULES` / `BUYLIST_PRICE_FALLBACK_PCT`), `.gith
 dial `price_provider`, envs y cron: intactos. El candado fail-closed de moneda/unidad y el
 comportamiento money-safe ante error (0 filas, precios previos **stale**, nunca borrados ni
 estimados) siguen exactamente igual. Sin cambios en el contrato de API.
+
+## 48. WS «Órdenes y dinero» — GUEST CHECKOUT (v1.21-guest-checkout, M-25, 2026-08-18)
+
+> Implementa `API_CONTRACT §4-G` completa (§4-G.0–§4-G.11) y `ARCHITECTURE §4.21`.
+> PROJECT §J / §J.1, criterios 45–56b. **Alcance tocado:** `modules/orders`, `modules/payments`,
+> `modules/shipments`, `prisma/` (solo M-25) y dos adiciones en `common/`.
+
+### 48.1 Qué se construyó (mapa rápido para QA / frontend)
+
+| Superficie | Archivo | Nota |
+|---|---|---|
+| `POST /checkout/guest/quote` · `/session` · `POST /orders/guest/track` · `/resend-link` | `orders/guest-orders.controller.ts` | `@Public()` + `@Throttle` EXACTO del contrato (30/min, 5/h, 20/min, 3/h). |
+| Lógica de los 4 endpoints + barrido T9 | `orders/guest-checkout.service.ts` | Incluye el mapeo `Order.status`+envío → `GuestOrderPublicStatus` y el `GuestOrderTrackingDTO`. |
+| Enlace tokenizado (emitir/validar/rotar/revocar/selector) | `orders/order-access-token.service.ts` | Multi-uso, `revokedAt`, solo SHA-256 en BD. **Dos vidas** (checkout 120 min / seguimiento 90 d) por `ttlMs`, sin columna nueva (§4-G.7a). |
+| Correo (plantilla LOCAL, sin tocar `mail/`) | `orders/mail/guest-order.templates.ts` + `orders/guest-order-mail.service.ts` | Inyecta el puerto global `MAIL_PORT`. |
+| Reclamo (`GET /orders/claimable`, `POST /orders/claim`) | `orders/order-claim.service.ts` + rutas en `orders.controller.ts` | `@RequireEmailVerified()`; UPDATE condicional. |
+| Reenvío de soporte (`POST /admin/orders/:id/tracking-link`) + campos M3 | `orders/admin-orders.controller.ts` | Auditado (`order.tracking_link.reissue`), no money-out. |
+| Rechazo de sesión en `/checkout/guest/*` | `orders/guards/reject-authenticated.guard.ts` | `409 ALREADY_AUTHENTICATED`. |
+| Rama `direct_ship` del webhook | `payments/payments.service.ts` (`settleDirectShipOrder`) | items → `picking`, crea `ShipmentRequest`, captura marca/last4, correo post-commit. |
+| Ramificación terminal de M4 + `kind` en la cola | `shipments/shipments.service.ts` | `enviado` ⇒ `picking→shipped`; `entregado` ⇒ `shipped→delivered`. |
+| Helpers de minimización | `orders/guest-privacy.ts` | `maskEmail`, `maskPostalCode`, `maskRecipientName`, `normalizeEmail`. |
+| Constantes de servidor | `orders/guest-checkout.constants.ts` | 90d / 365d / 5 por día / 20 líneas / 60 min. **No son diales de M10.** |
+
+**Zonas compartidas — solo adiciones:** `common/money.ts` gana `computeDirectShipBreakdown()` +
+`DirectShipBreakdownDTO`; `common/error-codes.ts` gana los códigos nuevos. Nada existente se
+modificó ni se reformateó (para no romper el merge de otras sesiones).
+
+### 48.2 Migración M-25 aplicada (diff real)
+
+`backend/prisma/migrations/20260818120000_m25_guest_checkout/migration.sql`. Verificada contra un
+Postgres 16 real: `migrate deploy` + `migrate diff --exit-code` ⇒ **sin drift**.
+
+- **Enum nuevo** `FulfillmentMode { vault | direct_ship }`.
+- **`Order`**: `userId` → nullable; columnas nuevas `guestEmail`, `orderNumber @unique`,
+  `fulfillmentMode @default(vault)`, `shippingAddressSnapshot`, `shippingFeeCents @default(0)`,
+  `claimedAt`, `locale`, `paymentMethodBrand`, `paymentMethodLast4`; índice `@@index([guestEmail])`;
+  relaciones `accessTokens`, `shipmentRequests`.
+- **`ShipmentRequest`**: `userId` → nullable; `orderId?` + FK + `@@index([orderId])`.
+- **Modelo nuevo `OrderAccessToken`** (tal cual §4-G.10).
+- **Secuencia `order_number_seq`** + backfill de `orderNumber` por `createdAt` dentro de la migración.
+- **4 CHECK** de invariantes (probados uno por uno contra Postgres: los tres pedidos mal formados
+  son rechazados y el `UPDATE` que dejaría `claimedAt` sin `userId` también).
+
+**Desviación consciente y necesaria (reportada al arquitecto):** las relaciones `Order.user`,
+`ShipmentRequest.user` y `ShipmentRequest.order` se declaran **`onDelete: Restrict` explícito**. Al
+volver opcional una relación, el default de Prisma pasa a `SET NULL`, y con `SET NULL` un borrado
+duro de usuario **huerfanaría** sus pedidos y **rompería** el CHECK
+`claimedAt IS NOT NULL ⇒ userId IS NOT NULL` (lo reprodujo el E2E). Con `Restrict` se conserva
+exactamente el comportamiento previo a M-25. **La migración NO recrea esas FKs**: quedan como estaban.
+
+### 48.3 Decisiones de implementación que otros roles deben conocer
+
+1. **`orderNumber` se escribe en TODOS los pedidos nuevos**, también en los de bóveda
+   (`POST /checkout/session`). La secuencia se reserva **antes** de la transacción (`nextval` no es
+   transaccional): un hueco es inocuo, un duplicado no. No hay `PrismaService.nextOrderNumber()`
+   porque `src/prisma/` es zona de otro stream: la consulta vive en `OrdersService`.
+2. **El precio del invitado sale de la MISMA función** que el del comprador con cuenta
+   (`OrdersService.priceCartLines`, extraída de `quote`/`createSession`). No hay tabla de precios
+   paralela: comprar como invitado no cambia condiciones comerciales (criterio 48b).
+3. **El envío del `ShipmentRequest` de invitado va en `0`** a propósito. El ingreso vive en
+   `Order.shippingFeeCents`. **M7 (módulo `admin`, OTRO work stream) debe corregir su fórmula**
+   según §12; mientras no lo haga, el ingreso de envío de los pedidos de invitado **no aparece** en
+   el P&L (no se duplica, se omite). *No se tocó `admin` por indicación explícita del orquestador.*
+4. **Movimientos de inventario del ciclo de invitado:** `reserved→picking` con `reason='settle'`
+   (mismo disparador que la ruta de bóveda) y `picking→shipped` / `shipped→delivered` con
+   `reason='sale'`. **No se usa `withdrawal`**: significaría "salió de la bóveda de un cliente" y
+   mentiría en los reportes de custodia. *El contrato no fija el `reason`; queda documentado aquí.*
+5. **`GET /shipments` y `/shipments/:id`** ganaron una guardia explícita contra `userId` vacío,
+   además del filtro positivo que ya tenían. Un envío `userId=null` no es de nadie (riesgo #1 de M-25).
+6. **El correo es best-effort post-commit.** Si Resend falla, el pago NO se revierte y el webhook
+   responde 200 (un 5xx haría que Stripe reintentara un settle ya aplicado).
+7. **`RejectAuthenticatedGuard` deja pasar una sesión INVÁLIDA** (token expirado/firma mala/cuenta
+   bloqueada): no hay sesión, luego es un invitado. Solo una sesión **válida** produce `409`.
+8. **El correo se recorta (`trim`) antes de validar** el formato y se pasa a minúsculas al persistir.
+   Un espacio pegado al copiar no puede bloquear una compra legítima.
+
+### 48.4 v1.21.1 — resolución del arquitecto a los dos puntos que backend reportó
+
+> Los dos huecos que backend detectó (regla 9) los resolvió el arquitecto en
+> **`API_CONTRACT §4-G.7a`** / **`ARCHITECTURE §4.21e-bis` + amenaza T7b**. **Sin migración
+> adicional: M-25 no cambia.** Esto es lo que quedó implementado.
+
+**1. Las DOS VIDAS del token (§4-G.7a).** Se retiró el requisito irrealizable ("el mismo token se
+envía por correo al liquidar"): con solo el SHA-256 en BD el claro **no es recuperable**, y esa
+irrecuperabilidad es la propiedad de seguridad **T5**, no un defecto. Ahora hay **dos emisiones en
+la misma tabla, sin columna nueva**, distinguidas **solo por `expiresAt`**:
+
+| | Token de **checkout** | Token de **seguimiento** |
+|---|---|---|
+| Lo emite | `POST /checkout/guest/session` | webhook `payment_intent.succeeded`, reenvío (§4-G.4), soporte (§4-G.9b) |
+| Se entrega | en la **respuesta HTTP** (campo **`checkoutToken`** + `checkoutTokenExpiresAt`) | **solo por correo** |
+| TTL | **120 min** (`GUEST_CHECKOUT_TOKEN_TTL_MIN`) | **90 días** (`GUEST_TRACKING_TTL_DAYS`) |
+| ¿Rota? | n/a (es el primero) | **NO en el settle** · **SÍ en reenvío/soporte** |
+
+- **El campo de la respuesta se renombró `trackingToken` → `checkoutToken`** (+
+  `checkoutTokenExpiresAt`). **Es contract-breaking para frontend**, ya avisado por el orquestador.
+- **El settle NO rota** (excepción acotada: rotar mataría la confirmación post-3DS en curso) y es
+  seguro porque la puerta que sobrevive se apaga sola en 2 h. **Reenvío y soporte SÍ rotan** y
+  revocan *todos* los vivos —incluido cualquier `checkoutToken` residual—. **El reclamo revoca todo.**
+- Resultado: el solapamiento de dos puertas sin contraseña baja de **90 días a ≤2 horas** (T7b).
+- `issue()` acepta `ttlMs`; el default sigue siendo 90 días. **No hay `type` ni `purpose` en la
+  tabla y no hace falta ninguna env nueva.**
+
+**2. `details.reason` del `410 TOKEN_REVOKED`: se ELIMINA `SUPPORT`.** Valores normativos:
+**`CLAIMED | ROTATED`**, derivados de forma literal — `order.claimedAt != null` ⇒ `CLAIMED`, en
+cualquier otro caso ⇒ `ROTATED`. Una rotación de soporte se reporta como `ROTATED` (es lo que el
+usuario necesita leer). **La trazabilidad forense no se pierde y está probada en la E2E:** el
+reenvío de **soporte** escribe `AuditLog` (`order.tracking_link.reissue`, con actor y timestamp) y
+el **self-service no escribe ninguno** — esa asimetría es la que distingue quién rotó.
+
+**3. Selector del reenvío (§4-G.4) — verificado.** `POST /orders/guest/resend-link` con `{token}`
+resuelve el pedido con **`OrderAccessTokenService.orderIdForSelector()`**, que busca **solo por
+`tokenHash`, SIN filtrar por `expiresAt` ni `revokedAt`**. Es el caso normal: se llega desde la
+pantalla de "enlace expirado" (o con un `checkoutToken` de 120 min ya vencido). *Identificar* el
+pedido ≠ *leerlo*: la lectura (§4-G.3) sigue exigiendo un token vigente vía `validate()`.
+Cubierto por tests unitarios (incluido uno que afirma que el `where` de la consulta tiene
+**exactamente** la clave `tokenHash`) y por un caso E2E con un token realmente revocado.
+
+**4. Ratificados sin cambio:** los `InventoryMovement.reason` (`settle` en `reserved→picking`,
+`sale` en `picking→shipped` y `shipped→delivered`, **`withdrawal` prohibido**) y el conteo de
+**8** códigos de error nuevos.
+
+### 48.5 Job `guest-order-sweep` (T9) — CABLEADO (2026-08-18, ronda 2)
+
+`backend/src/jobs/guest-order-sweep.service.ts`, registrado en `JobsModule` y en el
+`SchedulerService`. Sigue el patrón standalone de `auth-token-sweep` / `buylist-sweep`: un `run()`
+sin estado que **delega la regla de negocio** en `GuestCheckoutService.sweepStaleGuestOrders()`
+(el dueño del ciclo del pedido de invitado) para no duplicar lógica en `jobs/`.
+
+- **Qué hace:** libera las piezas (`reserved → listed`) de las órdenes de invitado `pending` con más
+  de `GUEST_ORDER_RESERVATION_TTL_MIN` (**60 min**), marca la orden `failed` y cancela el
+  PaymentIntent (best-effort).
+- **Cadencia: cada 15 minutos, NO diaria** — a diferencia del resto de barridos. Una reserva de
+  invitado sin pagar bloquea **piezas únicas**; con cron diario, una carta abandonada tras el 3DS
+  quedaría invendible hasta el día siguiente.
+- **Cron overridable por env: `GUEST_ORDER_SWEEP_CRON`** (default `*/15 * * * *`).
+  ⚠️ **`.env.example` es de devops: la variable NO se añadió ahí.** Queda reportada al orquestador
+  para que devops la documente/propague (el default ya es sensato, así que no bloquea el deploy).
+  **Es la ÚNICA variable de entorno nueva de todo el guest checkout** (ver §48.5b).
+- **Sin Redis no hay cron** (mismo gating que todos los jobs: `SchedulerService` se desactiva sin
+  `REDIS_URL`). **No se expuso `POST /admin/jobs/guest-order-sweep`**: sería superficie de API nueva
+  y el contrato no la contempla; si ops la quiere, pasa por el arquitecto.
+- **Adición estrictamente localizada en `scheduler.service.ts`** (12 líneas, 0 borradas): import,
+  parámetro de constructor **al final**, un `queue.add` junto a los demás barridos y un `case` en el
+  worker. **No se tocó el bloque de pricing** (hay otra sesión trabajando ahí) ni el log-resumen del
+  arranque, que por eso **no lista** `guest-order-sweep`; es cosmético (el job loguea cada corrida y
+  el worker loguea `completed`) y se puede plegar cuando esa sesión cierre.
+- **Nota menor:** el helper `repeat()` sufija el `jobId` con `-daily`, así que el id en Redis es
+  `guest-order-sweep-daily` pese a correr cada 15 min. Es solo la clave de dedup (invisible para
+  ops); no se modificó el helper para no tocar código compartido.
+
+### 48.5b Handoff a devops — variables y constantes del guest checkout
+
+**Variables de entorno (única lista; todo lo demás son constantes de servidor):**
+
+| Variable | Default | Para qué | Dueño del archivo |
+|---|---|---|---|
+| `GUEST_ORDER_SWEEP_CRON` | `*/15 * * * *` | Cadencia del barrido T9 de reservas de invitado sin pagar. Sin `REDIS_URL` el scheduler está apagado y el job no corre. | devops (`.env.example`) — **no la añadí yo** |
+
+**Constantes de servidor** (`backend/src/modules/orders/guest-checkout.constants.ts`; **NO son
+diales de M10 ni envs**, mismo precedente que las ventanas 7d/30d del buylist):
+
+| Constante | Valor | Nota |
+|---|---|---|
+| `GUEST_TRACKING_TTL_DAYS` | 90 | TTL del enlace que viaja por correo. |
+| `GUEST_CHECKOUT_TOKEN_TTL_MIN` | **120** | v1.21.1 — TTL del `checkoutToken` de la respuesta del checkout. |
+| `GUEST_TRACKING_MAX_AGE_DAYS` | 365 | Tope de edad del pedido para emitir enlaces nuevos. |
+| `GUEST_RESEND_MAX_PER_DAY` | 5 | Tope de enlaces por pedido en 24 h. |
+| `GUEST_MAX_ITEMS` | 20 | Máximo de líneas por pedido de invitado. |
+| `GUEST_ORDER_RESERVATION_TTL_MIN` | 60 | Ventana de reserva que barre el job T9. |
+
+La **tarifa de envío** NO es constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (M10).
+Promover cualquiera de estas constantes a `ConfigSetting` más adelante es **no-breaking**.
+
+### 48.7 v1.21.2 — T1 (double-sell del contracargo), D4, D6 y el bloqueante B3 de QA
+
+**T1 — el contracargo NUNCA re-lista una pieza con envío vivo.** `onChargeDispute` ramifica ahora
+por `Order.fulfillmentMode` (switch exhaustivo que **lanza** ante un modo desconocido) y, en
+`direct_ship`, decide **por el estado del envío**:
+
+| Envío al llegar el contracargo | `ShipmentRequest` | `InventoryItem` | `chargebackNeedsManual` |
+|---|---|---|---|
+| no existe / `cancelado` | — | `reserved\|picking → listed` + `chargeback_return` | `false` |
+| `solicitado\|picking\|guia` | **→ `cancelado`** (misma tx) | **CONGELADO** en `picking` | `true` |
+| `enviado\|entregado` | sin cambio | sin cambio | `true` |
+
+- **Desenlace humano nuevo:** `POST /admin/orders/:id/chargeback-inventory`
+  (`recuperada | no_recuperada | reexpedir`, `note` obligatoria, `vault_operator+`, auditado, **no
+  money-out**). Sin él la pieza congelada se quedaba congelada para siempre.
+- **Ganar la disputa NO re-expide.** En `direct_ship` el flag `chargebackNeedsManual` **no se
+  limpia** al cerrar la disputa (ni en `won` ni en `lost`): lo limpia solo el desenlace humano. En
+  `vault` se conserva el comportamiento v1.21 (se limpia). *La extensión al caso `lost` la decidí
+  yo por simetría —el contrato solo norma `won`—: limpiarlo dejaría la pieza congelada fuera de
+  toda cola.*
+- `recuperada` devuelve la pieza a `listed`, o a **`in_stock`** si su precio de venta no resuelve
+  (en Compra nunca se publica una pieza sin precio).
+
+**D4 — discriminador canónico.** `ShipmentRequest.orderId` responde solo "¿de dónde viene?"; el
+**comportamiento** (transición terminal del item y `kind` de §M4) se resuelve leyendo
+`Order.fulfillmentMode`. El switch **lanza** ante un modo no soportado y ante `vault` con
+`orderId != null` (combinación imposible = corrupción de datos), en vez de asumir `direct_ship`.
+
+**D6 — migración M-25b** (`backend/prisma/migrations/20260818160000_m25b_inventory_owner_check/`):
+`InventoryItem CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)`. Es el quinto invariante
+de §4-G.10, el que sostiene la nulabilidad de `Order.userId`. **`InventoryItem` es tabla del stream
+«Inventario y vault» ⇒ el orquestador serializa.**
+> **Precondición verificada contra Postgres real:**
+> `SELECT count(*) FROM "InventoryItem" WHERE "ownerType"='customer' AND "ownerUserId" IS NULL` → **0**
+> (antes de escribir la migración y de nuevo tras correr la suite E2E completa). **devops debe
+> re-ejecutarla en staging/producción antes de aplicar**; si diera > 0, se corrige el dato primero.
+
+**B3 (bloqueante de QA) — carrera barrido↔settle.** El orden estaba invertido: se liberaba el
+inventario y **después** se intentaba cancelar el PaymentIntent, tragándose el fallo con un `warn`.
+Un webhook `succeeded` tardío liquidaba la orden ⇒ **pedido pagado, envío en la cola del operador y
+la misma pieza única otra vez comprable**. Tres arreglos:
+1. **Cancelar el PI primero, liberar solo si quedó `canceled`.** `StripeService.cancelPaymentIntent`
+   devuelve el `status`; si la cancelación falla, se consulta el PI: `canceled` ⇒ se libera
+   (evita reservas atrapadas para siempre); `succeeded`/vivo/desconocido ⇒ **no se libera**.
+2. **El fallo ya no se traga:** es `logger.error` y el pedido **no se barre en esa pasada** (se
+   reintenta en la siguiente). El barrido reporta `swept` y cuántos se saltaron.
+3. **La rama silenciosa del settle es ruidosa:** si una pieza no está `reserved` al liquidar, se
+   **re-congela** en `picking` cuando sigue libre (el pago confirmado manda sobre una reserva
+   liberada) y, si ya está comprometida con otro flujo, **no se le quita a nadie** — en ambos casos
+   `logger.error` + `AuditLog` (`order.settle_inventory_anomaly`, con `needsHumanReview`).
+
+**I2 (QA) — el bloque `payment` nunca había corrido en verde.** `TestStripeService` no sobrescribía
+`getCardDetails`, así que salía a la red real y devolvía `null`. Ahora el doble devuelve una tarjeta
+determinista y la E2E verifica que `paymentMethodBrand/Last4` se persisten al liquidar y que el
+`GuestOrderTrackingDTO` expone `{brand, last4}` y nada más.
+
+**Discrepancia detectada entre documentos (no la resolví yo):** ARCHITECTURE §4.21h (caso vi) pide
+que `reexpedir` sobre una orden aún en `chargeback` devuelva **422**, mientras API_CONTRACT §M3 dice
+**409 CONFLICT** para ese mismo caso. Implementé y testeé **409** (el contrato manda sobre el código
+y §M3 es la especificación del endpoint). Reportado al orquestador.
+
+### 48.8 T1-b + atomicidad del desenlace (ronda de rechazo del techlead)
+
+**T1-b — la rama «envío cancelado» reabría el double-sell.** Mi `else` guardaba
+`status: { in: ['reserved','picking'] }`, ampliando la fila 1 de la tabla normativa (que autoriza
+**solo `reserved → listed`**), y mi docblock documentaba la ampliación como si fuera la norma.
+
+- **Camino automático que lo disparaba:** la idempotencia del webhook es por `event.id`, así que una
+  **segunda** `charge.dispute.created` (reapertura / segunda disputa) **no** se deduplica; encontraba
+  el envío ya `cancelado`, caía en esa rama y re-listaba la pieza **congelada**, además de bajar
+  `chargebackNeedsManual` a `false` — borrando la única señal de que faltaba una decisión humana.
+- **Arreglado:** guardia `status: 'reserved'` exacta; una pieza en `picking` con envío cancelado
+  **se queda congelada** y va al desenlace humano. Docblock corregido para **citar** la tabla, no
+  reinterpretarla, y test reescrito para asertar el congelamiento (antes fijaba el comportamiento
+  ampliado).
+- **`chargebackNeedsManual` es MONÓTONO en el webhook:** solo sube a `true`, nunca baja (se escribe
+  `undefined` cuando no hay nada que elevar). Bajarlo es competencia **exclusiva** de
+  `resolveChargebackInventory`. Hay un test que recorre las cuatro ramas y verifica que el webhook
+  **nunca** escribe `false`.
+
+**Atomicidad del desenlace (mismo archivo, pagado en la misma pasada).**
+`resolveChargebackInventory` leía `chargebackNeedsManual` **fuera** de la transacción y lo escribía
+**dentro**: dos llamadas concurrentes (doble submit; el endpoint no lleva `Idempotency-Key`) pasaban
+ambas, y `reexpedir` creaba **dos `ShipmentRequest`** para la misma orden — rompiendo «a lo más un
+envío activo por orden» (§4-G.10) y duplicando la pieza en `pickingList()`. Ahora **todo** ocurre en
+una transacción y la decisión se **reclama** con `updateMany(where: { chargebackNeedsManual: true })`
++ `count === 1` (el patrón de la casa, el mismo de `reserveItems`). El perdedor recibe `409`, que
+**es** la regla de idempotencia de §M3. Y como la transacción revierte al lanzar, un desenlace
+**rechazado** (p. ej. `reexpedir` sin disputa ganada) **no consume** la decisión: el flag vuelve a
+`true`. Cubierto con un test de dos `reexpedir` concurrentes.
+
+**`GET /admin/orders?needsManual=true` (§M3, aditivo).** Filtro opcional sobre el listado que ya
+existía: sin el parámetro, misma forma de respuesta y mismo comportamiento. Es la **cola de
+contracargos por resolver**; sin ella nadie sabría **cuándo** llamar a `chargeback-inventory` y la
+pieza congelada se quedaría congelada para siempre. **La UI es del WS «Admin y auditoría»**; aquí
+solo está el filtro porque `admin-orders.controller.ts` vive en este módulo.
+
+**Regresión adoptada de QA.** El `TestStripeService` del harness devolvía **siempre** `canceled`, así
+que por sí solo **nunca ejercitaba la rama peligrosa** de B3. Ahora tiene un `cancelOutcome`
+guionizable (`canceled | throws-succeeded | throws-canceled | throws-unknown | requires_capture`) y
+los casos **A1, A3 y C2** de QA viven en la suite E2E del repo, más las variantes «estado distinto de
+canceled» y «PI ya cancelado ⇒ sí libera». También se añadió el caso T1-b contra Postgres real (una
+segunda disputa no descongela la pieza ni baja el flag).
+
+> **Nota de mocks:** dos dobles de `inventoryItem.updateMany` ignoraban la guardia **escalar**
+> (`status: 'reserved'`) y solo honraban la forma `{ in: [...] }`, con lo que dejaban pasar
+> exactamente el bug de T1-b. Corregidos para honrar ambas, como hace Prisma contra la fila real.
+
+### 48.9 Regresión adoptada de QA + cierre del stream (última ronda: solo tests y docs)
+
+**Suite nueva: `backend/test/integration/guest-chargeback.e2e-spec.ts` (11 casos).** Vive aparte de
+`guest-checkout.e2e-spec.ts` porque cuenta otra historia: qué pasa cuando el dinero se da la vuelta.
+Adopta como regresión permanente los hallazgos que QA cubrió y la suite del equipo no:
+
+| Caso | Qué ancla |
+|---|---|
+| Disputa **PERDIDA** | El otro camino al «congelada para siempre»: `lost` **no** limpia `chargebackNeedsManual`, el pedido sigue en `?needsManual=true` y el desenlace humano funciona igual. |
+| **Segunda y tercera** disputa | La idempotencia del webhook es por `event.id`: no filtra una reapertura. La pieza sigue `picking` y el flag en `true`. |
+| **Monotonía** del flag | Un webhook que computa `false` no puede bajar un `true` ya puesto: solo el desenlace humano lo baja. |
+| **Fila 1 legítima** | Ceñir la guardia a `reserved` no rompió el caso que la norma **sí** autoriza (pieza `reserved` sin envío ⇒ `listed` + `chargeback_return` + cierre automático). |
+| Caso **i** | Congelar **no** deja ningún `InventoryMovement` (no pasó nada físico todavía). |
+| Caso **v** por las **tres puertas** | `/checkout/guest/quote`, `/checkout/quote` y `/checkout/session` ⇒ `409 ITEM_UNAVAILABLE`, y la pieza fuera de la `picking-list`. El guardarraíl es el `status`, así que protege a las dos rutas de fulfillment por igual. |
+| **Atomicidad** | Dos `reexpedir` concurrentes ⇒ `[200, 409]` y **un** envío activo; un desenlace rechazado **revierte el claim** y la decisión sigue pendiente. |
+| `no_recuperada` | Cierra sin mover inventario ni marcar merma. |
+| Filtro `?needsManual` | Partición exacta del listado; un valor no reconocido lo deja intacto. |
+| Caso **viii** (D4) | `vault` con `orderId` ⇒ la transición terminal responde `409` y el helper lanza `Unsupported fulfillmentMode`, en vez de asumir envío directo. |
+
+**BE-64 (QA) resuelta en esta ronda — flake latente, no regresión.** El caso «el envío aparece en la
+cola de M4» buscaba su fila en un listado **paginado de 20** sin filtrar, así que empezaba a fallar
+solo cuando la BD compartida acumulaba envíos (QA: 102/104 con 41 envíos, 103/104 tras recrear).
+Ahora la consulta se acota (`status=picking&pageSize=100`). **Verificado corriendo la integración dos
+veces seguidas sobre la misma BD acumulada** (40 envíos): 114/115 en ambas pasadas.
+
+> **Lección del stream, para quien herede esto:** los tres bloqueantes (T1, T1-b, B3) sobrevivieron
+> a los gates por la misma razón —**el instrumento estaba ciego**—, no por falta de tests:
+> dos dobles de `inventoryItem.updateMany` ignoraban la guardia **escalar** (`status: 'reserved'`) y
+> solo honraban `{ in: [...] }`, y `TestStripeService.cancelPaymentIntent` devolvía **siempre**
+> `canceled`. Con esos dos dobles, un test podía pasar en verde afirmando justo lo contrario de lo
+> que hacía el código. Antes de escribir el test de un bug de inventario o de dinero, **comprueba
+> que el doble sabe fallar**.
+
+### 48.6 Cómo probarlo
+
+```bash
+cd backend
+npm test                    # 100 suites / 912 tests (incluye las 14 suites nuevas del guest checkout)
+npm run test:integration    # 8 suites / 115 casos (requiere Postgres; `infra-smoke` exige S3/MinIO)
+npm run lint && npm run typecheck
+# E2E (requiere Postgres real):
+DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
+```
+
+- **Suites E2E nuevas:** `test/integration/guest-checkout.e2e-spec.ts` (57 casos) y
+  `test/integration/guest-chargeback.e2e-spec.ts` (11 casos, §48.9) — camino feliz de
+  §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
+  negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
+  `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida
+  (`E2E-GST-<run>-*`), porque deja `ShipmentItem` de un envío entregado y eso alteraría el
+  contracargo de otra suite si reusara los folios compartidos del seed.
+- **Suites unitarias nuevas:** `money.direct-ship`, `guest-order-token`, `guest-checkout.session`,
+  `guest-checkout.tracking` (minimización + neutralidad + mapeo de estado), `guest-checkout.resend`,
+  `guest-claim`, `payments.guest-settle`, `shipments.guest-direct-ship`, `guest-checkout.contract`,
+  `guest-checkout.guard-sweep-mail`, `guest-order-sweep.job`.
+- **El barrido T9 se probó contra Postgres real** (dos casos en la E2E): una orden de invitado
+  envejecida a 90 min libera su pieza (`listed`, `ownerType=platform`), la orden queda `failed`, el
+  PI se cancela y la carta se puede volver a cotizar; y el barrido **no toca** pedidos recientes ni
+  liquidados.

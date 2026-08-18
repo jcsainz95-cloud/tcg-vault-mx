@@ -18,6 +18,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
+import { useSession } from '@/lib/session';
+import { GuestCheckoutView } from './GuestCheckoutView';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -30,13 +32,32 @@ import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNoti
  * asienta por webhook (`payment_intent.succeeded`), así que tras confirmar mostramos
  * "procesando" y limpiamos el carrito. Un `403 EMAIL_NOT_VERIFIED` muestra el banner de
  * verificación (reusa el patrón existente).
+ *
+ * v1.21-guest-checkout — esta vista es ahora el CONMUTADOR de las dos naturalezas del
+ * checkout, en la MISMA ruta `/checkout` (criterio 46):
+ *  - CON sesión: exactamente el flujo de abajo, sin un solo cambio de comportamiento
+ *    (`/checkout/quote` → `/checkout/session` → Stripe, destino bóveda).
+ *  - SIN sesión: `GuestCheckoutView` (gate de identidad + formulario de invitado + upsell
+ *    de bóveda + `/checkout/guest/*`). Un invitado NUNCA toca un endpoint `customer` ni ve
+ *    `EmailNotVerifiedNotice` (contrato §4-G.0-3 / §4-G.8, DESIGN_SYSTEM §15.2).
+ * Al crear cuenta/iniciar sesión desde el flujo de invitado, `useSession` reacciona y esta
+ * misma vista conmuta al flujo con cuenta sin recargar la ruta: el carrito (localStorage)
+ * se conserva y el desglose se re-cotiza.
  */
 export function CheckoutView() {
   const t = useTranslations('checkout');
   const tn = useTranslations('nav');
+  const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const getMessage = useErrorMessage();
   const cart = useCart();
+  const { isAuthenticated, ready } = useSession();
+  // true si la sesión nació del upsell de bóveda: el desglose se re-cotizó sin envío y hay
+  // que anunciarlo (§15.4, estado "éxito" del panel).
+  const [vaultUpsellDone, setVaultUpsellDone] = useState(false);
+  // El invitado ya pagó: la confirmación (con su número de pedido y la oferta de cuenta)
+  // debe sobrevivir tanto al vaciado del carrito como a que el reclamo cree la sesión.
+  const [guestPaid, setGuestPaid] = useState(false);
   const [paid, setPaid] = useState(false);
   const [creating, setCreating] = useState(false);
   const [session, setSession] = useState<CheckoutSessionResponse | null>(null);
@@ -46,10 +67,12 @@ export function CheckoutView() {
   const query = useQuery({
     queryKey: ['checkout-quote', cart.ids],
     queryFn: () => getCheckoutQuote(cart.ids),
-    enabled: cart.ids.length > 0,
+    // Solo con sesión: `/checkout/quote` es `customer` y un invitado cotiza por
+    // `/checkout/guest/quote` (contrato §4-G.0-3). Así no se dispara un 401 inútil.
+    enabled: cart.ids.length > 0 && ready && isAuthenticated,
   });
 
-  if (cart.ids.length === 0 && !paid) {
+  if (cart.ids.length === 0 && !paid && !guestPaid) {
     return (
       <div className="gutter py-14">
         <EmptyState
@@ -64,6 +87,27 @@ export function CheckoutView() {
           }
         />
       </div>
+    );
+  }
+
+  // Sin sesión → checkout de invitado, en la misma ruta (criterio 45/46). Mientras la
+  // sesión no está resuelta (`ready=false`, SSR y primer render) no se pinta ninguna de las
+  // dos naturalezas, para no hacer parpadear el flujo equivocado.
+  if (!ready && !guestPaid) {
+    return (
+      <div className="gutter py-14" aria-busy="true">
+        <p className="font-mono text-sm text-muted">{tc('loading')}</p>
+      </div>
+    );
+  }
+  // `guestPaid` manda sobre la sesión: si el invitado crea cuenta desde el reclamo
+  // post-compra, la confirmación NO se desmonta a media conversión (criterios 49/54).
+  if (guestPaid || !isAuthenticated) {
+    return (
+      <GuestCheckoutView
+        onPaid={() => setGuestPaid(true)}
+        onAccountReady={({ fromVaultUpsell }) => setVaultUpsellDone(fromVaultUpsell)}
+      />
     );
   }
 
@@ -181,6 +225,16 @@ export function CheckoutView() {
               <div className="mt-5">
                 <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
               </div>
+
+              {/* Éxito del upsell de bóveda (§15.4): el desglose se re-cotizó sin envío. */}
+              {vaultUpsellDone && (
+                <div role="status" aria-live="polite" className="mt-6">
+                  <p className="font-mono text-[11px] uppercase tracking-label text-success">
+                    {t('vaultUpsell.created')}
+                  </p>
+                  <p className="mt-2 text-xs leading-relaxed text-muted">{t('vaultUpsell.shippingRemoved')}</p>
+                </div>
+              )}
 
               {emailNotVerified && (
                 <div className="mt-6">

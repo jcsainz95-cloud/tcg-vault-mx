@@ -39,6 +39,12 @@
 > (imagen de catálogo remota), **gradeada = empresa+grado+`certNumber`** (§7.2c), **disputa por correo**
 > (§7.11), **único uploader = INE** (§7.10). Lo que cambia en v1.3 es la **piel** (paleta, tipografía,
 > radios, sombras) y la **regla de badges/NM**, no los flujos ni el contrato.
+>
+> **Añadido v1.5 (guest checkout) → ver §15.** Comprar **sin cuenta**: bifurcación de identidad en el
+> checkout, formulario de invitado, **upsell de bóveda in-situ** (panel inline, nunca un error),
+> confirmación con **reclamo post-compra** y **vista pública de seguimiento por enlace tokenizado** con
+> **estado neutro** de token inválido/expirado. **No introduce tokens nuevos** de color/tipografía ni
+> cambia ninguna sección previa: §15 es aditiva y reutiliza los componentes existentes.
 
 ---
 
@@ -1343,3 +1349,543 @@ No bloquean el diseño; se registran para coherencia:
   - **`ListingSpec` (`Raw · NM · Acabado` en mono)** = representación por defecto en retícula; estándar en
     `aria-label`/`title`, etiqueta legible en la ficha. Decisión **ratificada** (§7.2b).
 ```
+
+---
+
+## 15. Guest checkout — comprar sin cuenta (v1.5)
+
+> **Alcance:** patrones de UX/UI de la feature **guest checkout** (`PROJECT.md` §J, §J.1, criterios
+> **45–56b**). Sección **aditiva**: no modifica ninguna decisión previa, **no introduce tokens nuevos** de
+> color/tipografía/espaciado y reutiliza los componentes ya existentes. Todo lo que aquí se define se pinta
+> con la paleta papel/tinta/bermellón (§2), la tipografía de §3, radios 0 / sombras 0 (§4) y el anillo de
+> foco bermellón (§8.2).
+>
+> **Decisiones de producto cerradas que este diseño acata (no se re-litigan):** (1) el invitado **solo**
+> tiene envío directo nacional — la **bóveda exige cuenta** y al elegirla se muestra **upsell, nunca un
+> error**; (2) **correo obligatorio y confirmado**, seguimiento por **enlace tokenizado**; (3) al terminar
+> se ofrece **crear cuenta con el mismo correo** (reclamo post-compra).
+>
+> **Dos superficies de seguridad en esta sección.** La **vista pública de seguimiento** (§15.6) y el
+> **estado neutro de token** (§15.7) son *puertas sin contraseña*: su copy y su lista de datos visibles son
+> **normativos**. El frontend no los "mejora" ni los adapta; cualquier cambio pasa por **ux-ui + seguridad**.
+
+### 15.1 Principios propios de esta feature
+
+1. **Ninguna de las tres vías es un callejón sin salida** (criterio 46). Invitado, iniciar sesión y crear
+   cuenta conviven en la **misma ruta** y se puede ir y volver entre ellas sin perder nada.
+2. **El registro es premio, no peaje.** Se ofrece donde tiene valor (al elegir bóveda y al confirmar la
+   compra), nunca como requisito para pagar y nunca con culpa. **Prohibido el confirmshaming**: no existe
+   copy tipo "No, prefiero pagar envío siempre" ni "No quiero cuidar mis cartas". El botón de salida del
+   upsell siempre está redactado en **positivo** ("Seguir con envío a domicilio").
+3. **Datos mínimos por defecto.** Todo lo que se muestre en una página accesible sin sesión debe justificar
+   su presencia. Ante la duda, **se omite** (`PROJECT.md` §J dice "a lo mucho…", así que mostrar **menos**
+   siempre cumple).
+4. **Mismo trato comercial.** El invitado ve el **mismo desglose** y los **mismos avisos** que un usuario con
+   cuenta (criterio 48b). No hay precio de invitado, ni aviso rebajado, ni políticas distintas.
+5. **Un solo canal.** El correo del invitado es su único acceso al pedido; el diseño lo trata con la
+   gravedad de una contraseña: se lee de vuelta y se confirma antes de pagar (§15.3).
+
+### 15.2 Bifurcación de identidad (`CheckoutIdentityGate`) — criterio 46
+
+**Ubicación y forma: bloque inline en la parte superior de la columna izquierda del checkout**, sobre los
+renglones del carrito, **en la misma ruta `/checkout`** (no es modal, no es intersticial, no es otra ruta).
+
+*Por qué inline y no modal ni ruta aparte:* (a) el `AmountBreakdown` y los artículos siguen visibles a la
+derecha (el motivo de la compra nunca desaparece); (b) al no cambiar de ruta, el estado del carrito no se
+desmonta y el criterio 46 se cumple **por construcción**, no por una salvaguarda; (c) el botón "atrás" del
+navegador no expulsa al usuario del checkout.
+
+Anatomía (todo separado por **reglas**, sin cajas de color, §2.1):
+- `eyebrow` mono: `IDENTIDAD` / `IDENTITY`.
+- `h2` serif: "¿Cómo quieres continuar?" / "How do you want to continue?".
+- **Tres opciones apiladas**, cada una: botón de ancho completo, alto `lg` (48px) + una línea de apoyo
+  `text-sm muted` debajo, separadas por regla de 1px. En `lg+` pueden ir en 3 columnas iguales; en móvil
+  siempre apiladas.
+- Línea de cierre, mono `text-[11px] muted`, **siempre visible**: "Tu carrito se conserva en cualquiera de
+  las tres." / "Your cart is kept in all three."
+
+**Jerarquía visual — igual dignidad, una sola acción por defecto:**
+
+| Vía | Variante de botón | Tamaño / área táctil | Apoyo |
+|---|---|---|---|
+| **Continuar como invitado** | `primary` (tinta, relleno) | `lg`, ancho completo | "Solo necesitas tu correo y tu dirección." |
+| **Iniciar sesión** | `secondary` (borde, papel) | `lg`, ancho completo | "Tus direcciones y tu bóveda te esperan." |
+| **Crear cuenta** | `secondary` (borde, papel) | `lg`, ancho completo | "Guarda tus cartas en la bóveda y paga un solo envío." |
+
+**Justificación de la jerarquía (decisión de diseño):** "continuar como invitado" es la **acción primaria**
+porque es la vía de **menor compromiso** y el objetivo declarado de la feature es quitar el peaje antes de
+pagar; poner el registro primero reintroduce exactamente la fricción que se quiere eliminar. **La igualdad
+de dignidad se garantiza por geometría, no por color:** las tres opciones comparten **mismo alto, mismo
+ancho, misma escala tipográfica, mismo peso de label y misma área táctil**; la única diferencia es
+**relleno vs. borde**, que es el vocabulario normal de "primaria/secundaria" del sistema (§6.1). Ninguna de
+las tres es un enlace pequeño, texto gris ni está debajo del pliegue. El **gancho de la bóveda** se enuncia
+una vez, en la línea de apoyo de "crear cuenta", sin repetirse ni presionar.
+
+**Comportamiento (reglas normativas para frontend):**
+- Elegir una vía **expande su panel debajo** (patrón *disclosure*: `aria-expanded` + `aria-controls`); el
+  gate se colapsa a un renglón con la vía elegida y un botón **"Cambiar" / "Change"** siempre disponible.
+- **Iniciar sesión y crear cuenta se renderizan inline** (reusando `AuthForm` y `GoogleSignInButton` §6.7),
+  **no navegan** a `/login` ni `/register`. Si por alguna razón técnica hubiera navegación, debe llevar
+  `returnTo=/checkout` y **jamás** limpiar el carrito.
+- **Ningún cambio de vía borra datos:** el correo y la dirección ya capturados como invitado siguen en el
+  estado del checkout aunque el usuario vaya a "iniciar sesión" y vuelva. Regla: el estado del formulario de
+  invitado vive por encima del gate, no dentro del panel.
+- Tras iniciar sesión/registrarse, el gate desaparece y el checkout pasa al flujo con cuenta **sin recargar
+  la ruta**; el carrito y el desglose se re-cotizan, no se reinician.
+- **El invitado nunca ve `EmailNotVerifiedNotice`** (§ checkout actual): esa notificación es de usuarios con
+  sesión. **No hay verificación de correo previa al pago** (criterio 45).
+
+**Accesibilidad:** el gate es `<section aria-labelledby>` con su `h2`; las tres opciones son `<button>`
+reales; al expandir un panel, el foco se mueve al **encabezado del panel** (`tabIndex={-1}`), no al primer
+campo, para que el lector anuncie el contexto; "Cambiar" devuelve el foco al botón de la vía elegida.
+
+### 15.3 Formulario de invitado (`GuestCheckoutForm`) — criterios 47, 48b
+
+Composición de componentes existentes (`Input` §6.2, `Select` §6.3, `Banner` §7.5); **no es un componente
+base nuevo**. Dos grupos separados por regla, con `eyebrow` mono cada uno.
+
+**Grupo 1 — `CONTACTO` / `CONTACT` (el campo más importante de la feature)**
+- Un solo campo: **Correo electrónico** — `type="email"`, `inputmode="email"`,
+  `autocomplete="email"`, `spellcheck=false`, label visible (nunca solo placeholder), 16px mínimo en móvil.
+- Ayuda debajo (`text-xs muted`, siempre presente, no solo en error): "Es el único canal de tu pedido: ahí
+  te llegan la confirmación y el enlace de seguimiento." / "It's the only channel for your order: your
+  confirmation and tracking link go there."
+- **Validación de formato**: en `blur` y al intentar pagar. Error inline en bermellón con `aria-invalid`,
+  `aria-describedby`, y el campo recibe foco desde el resumen de errores. **Correo vacío o inválido bloquea
+  el pago** (criterio 47).
+- **Sugerencia de erratas (no bloqueante):** ante dominios típicos mal escritos (`gmial.com`, `hotmial.com`,
+  `outlok.com`), nota `text-xs` con acción: "¿Quisiste decir **{sugerencia}**?" + botón `link` "Sí,
+  corregir". Es una sugerencia, **nunca** rechaza el correo.
+- **Confirmación de que el correo es correcto (requisito de PROJECT §J):** se resuelve con **lectura de
+  vuelta + casilla obligatoria**, no con un segundo campo.
+  - Justo encima del botón de pago: `Checkbox` (§6.4) **no pre-marcada** con el correo **completo en mono**:
+    "Confirmo que **{email}** es correcto. Es el único canal para dar seguimiento a mi pedido." /
+    "I confirm that **{email}** is correct. It's the only way to track my order."
+  - Mientras no esté marcada, el botón de pago está **deshabilitado con explicación textual** (§15.9).
+  - Si el usuario **edita el correo**, la casilla se **desmarca automáticamente** y se anuncia con
+    `aria-live="polite"`.
+  - **Rechazado a propósito: un segundo campo "confirma tu correo".** Se copia/pega en el 95% de los casos
+    (no detecta nada), duplica la fricción justo antes de pagar y no muestra el dato para revisarlo. La
+    lectura de vuelta sí obliga a **leer** la cadena exacta que recibirá el correo.
+- **Prohibido:** consultar al backend si ese correo tiene cuenta, cambiar el estilo del campo, mostrar
+  avatar/"bienvenido de nuevo" o cualquier pista de existencia (**criterio 56 — no enumeración**). El campo
+  se comporta idéntico exista o no la cuenta.
+
+**Grupo 2 — `ENVÍO` / `SHIPPING` (dirección nacional)**
+- Mismos campos y validaciones que el formulario de dirección ya existente (línea 1, línea 2 opcional,
+  colonia, ciudad, estado, CP, teléfono opcional), en su versión **anónima**: sin "guardar dirección", sin
+  alias, sin "predeterminada" (no hay cuenta donde guardar).
+- **País fijo México**, mostrado como texto no editable con `eyebrow` "PAÍS" (mismo tratamiento que hoy).
+  Una dirección fuera de MX se rechaza con el `Banner danger` de `error.ADDRESS_NOT_MX` (criterio 31/48b).
+- CP: `inputmode="numeric"`, `maxlength` 5, `tabular-nums`.
+- Teléfono: **opcional**, con ayuda "Solo lo usa la paquetería para entregar." Regla dura: **el teléfono
+  nunca aparece en la vista pública de seguimiento** (§15.6).
+- **Destino de la compra** (`FulfillmentChoice`): ver §15.4. Va **después** del envío, porque el upsell
+  necesita que el usuario ya haya invertido esfuerzo (efecto dotación) y porque tras crear cuenta la
+  dirección capturada no se pierde.
+
+**Resumen de errores al intentar pagar:** si hay campos inválidos, se pinta arriba del formulario un bloque
+`role="alert"` con "Revisa {n} campo(s)" y una lista de enlaces al campo correspondiente; el foco va al
+bloque. Esto sustituye a hacer scroll a ciegas.
+
+**Desglose y avisos (idénticos al checkout con cuenta, criterio 48b):** `AmountBreakdown` (§7.12) con
+**subtotal sin IVA · costo de procesamiento · IVA 16% · envío (MX$175, del dial, nunca hardcodeado) ·
+total**, más las tres notas al margen ya existentes (ventas finales con enlace a términos, factura CFDI por
+correo, "qué pasa después del pago"). No se añade ni se quita ninguna.
+
+**Móvil:** el resumen del `aside` colapsa a una **barra inferior sticky** con total + botón de pago
+(`accent`, alto 48px, área táctil ≥44px), y un botón "Ver desglose" que despliega el `AmountBreakdown`
+completo. El total nunca aparece sin acceso a su desglose (§7.12).
+
+### 15.4 Selector de destino y **upsell de bóveda in-situ** (`VaultUpsellPanel`) — criterio 48
+
+Este es **el momento de conversión más importante del producto**; el diseño lo trata como una oferta, no
+como un permiso denegado.
+
+**Selector de destino (`FulfillmentChoice`)** — grupo de radios (§6.4) con dos opciones, visible para
+invitados y para usuarios con cuenta por igual:
+
+| Opción | Micro-etiqueta mono | Estado para invitado |
+|---|---|---|
+| **Envío a mi domicilio** / Home delivery | `+ MX$175` | seleccionada por defecto |
+| **Guardar en mi bóveda** / Keep in my vault | `REQUIERE CUENTA` / `REQUIRES ACCOUNT` | **seleccionable** (no deshabilitada, no oculta, sin candado rojo) |
+
+La micro-etiqueta "REQUIERE CUENTA" en mono muted es **honestidad previa, no una barrera**: evita la
+sorpresa sin impedir el clic. **Prohibido**: `disabled`, `aria-disabled`, candado bermellón, tooltip de
+error, `Banner danger` o cualquier tratamiento que lea como "no puedes".
+
+**Formato del upsell: panel inline que se expande justo debajo de la opción elegida.** No es modal, no es
+un paso nuevo, no es una ruta.
+
+*Justificación (decisión de diseño explícita):*
+- **Modal (descartado):** tapa el carrito y el total —justo la evidencia de valor que motiva registrarse—,
+  atrapa el foco, obliga a una decisión de "cerrar" que se lee como rechazar el producto, y en móvil ocupa
+  la pantalla completa como si fuera una alerta. Un modal comunica *interrupción*; aquí no hubo error.
+- **Paso separado (descartado):** viola literalmente "crear cuenta **sin salir del checkout**" (criterio 48)
+  e introduce la transición donde más riesgo hay de perder carrito y datos capturados.
+- **Panel inline (elegido):** mantiene visibles artículos, total y la dirección ya escrita; la salida
+  ("Seguir con envío a domicilio") queda a un clic y en el mismo bloque; el registro ocurre a 200px de donde
+  el usuario ya estaba mirando; en móvil se comporta como un bloque más del flujo, sin capa encima.
+
+**Anatomía del panel** (papel sobre pozo `surface-2` + regla superior de énfasis `border-strong`; **sin
+sombra, radio 0**):
+1. `eyebrow` mono `BÓVEDA` / `VAULT`.
+2. `h3` serif: "Guarda tus cartas en la bóveda" / "Keep your cards in the vault".
+3. **Tres beneficios**, uno por renglón, separados por regla fina, cada uno en una sola línea
+   (`text-sm`, cifra en mono):
+   - "Acumula cartas y paga **un solo envío** — te ahorras **MX$175** cada vez que no envías." *(la cifra
+     sale del dial de envío de la cotización; si no está disponible, se omite el paréntesis, nunca se
+     inventa)*
+   - "Ve el **valor de tu colección** actualizado a diario."
+   - "Custodia con **autenticidad y condición garantizadas**."
+4. **Formulario de registro inline** (reusa `AuthForm` en modo compacto):
+   - **Correo prellenado** con el que ya capturó (editable; si lo edita, la casilla de confirmación de
+     §15.3 se desmarca).
+   - Contraseña + `GoogleSignInButton` (§6.7) con el divisor "o / or". **No se pide nada más**: ni nombre,
+     ni dirección de nuevo, ni teléfono.
+   - Botón principal: **"Crear cuenta y guardar en bóveda"** / "Create account and keep in vault" —
+     variante **`primary` (tinta)**, ancho completo. *No usa `accent`* a propósito: el bermellón ya está
+     asignado al botón de pago de esta pantalla y dos acentos compitiendo diluyen ambos (§2.1, "acento con
+     avaricia").
+5. **Salidas, siempre visibles sin scroll dentro del panel:**
+   - `link`/ghost: **"Seguir con envío a domicilio"** / "Continue with home delivery" → colapsa el panel y
+     vuelve a seleccionar envío. Redacción en positivo, sin culpa.
+   - `link`: **"Ya tengo cuenta"** / "I already have an account" → intercambia el formulario por el de
+     login **dentro del mismo panel** (carrito y dirección intactos).
+
+**Estados del panel:**
+- *Abierto sin cuenta creada:* el destino queda en "bóveda (pendiente)". El **botón de pago se deshabilita**
+  con nota textual asociada por `aria-describedby` (no solo `disabled`): "Para pagar, crea tu cuenta o elige
+  envío a domicilio." / "To pay, create your account or choose home delivery." Tono **muted, no bermellón**:
+  es una condición, no un error.
+- *Enviando:* solo el botón del panel entra en `loading` (label persistente, §6.1); los datos ya capturados
+  no se tocan y ningún otro control se bloquea.
+- *Éxito:* el panel colapsa a un renglón mono en **verde**: `CUENTA CREADA · DESTINO: BÓVEDA` /
+  `ACCOUNT CREATED · DESTINATION: VAULT`, anunciado con `aria-live="polite"`. El desglose **se re-cotiza**:
+  la línea de envío desaparece y el total baja; se anuncia con una nota `text-xs muted` junto al desglose:
+  "El envío ya no aplica: tus cartas quedan en la bóveda." El flujo **continúa donde estaba** (no vuelve
+  arriba, no recarga).
+- *Error de red:* mensaje inline en el panel + "Reintentar"; nunca se pierde el estado del checkout.
+- *Correo ya registrado:* mensaje **neutro y accionable, sin afirmar existencia**: "No se pudo crear la
+  cuenta con ese correo. Puedes **iniciar sesión** o **seguir como invitado**." / "We couldn't create an
+  account with that email. You can **log in** or **continue as a guest**." Ambas salidas se ofrecen juntas
+  para no convertir el mensaje en un oráculo (criterio 56).
+
+**Accesibilidad del panel:** `role="region"` etiquetado por su `h3`; al abrirse el foco va al `h3`
+(`tabIndex={-1}`) para que se lea el beneficio antes que los campos; `Esc` **no** descarta datos: devuelve
+el foco al radio de destino sin cambiar la selección (la salida explícita es el botón "Seguir con envío a
+domicilio"). Área táctil de radios y salidas ≥ 44px.
+
+### 15.5 Confirmación de compra y reclamo post-compra (`GuestOrderConfirmation` + `AccountClaimOffer`) — criterios 49, 54, 55
+
+Página editorial de una columna (`max-w-2xl`), en la línea de la pantalla "procesando" que ya existe.
+
+**Bloque 1 — el pedido**
+- `eyebrow` mono `PEDIDO CONFIRMADO` / `ORDER CONFIRMED`.
+- `h1` serif: "Gracias por tu compra" / "Thank you for your order".
+- **Número de pedido** en mono `text-h2` con botón **"Copiar"** (`ghost`, con `aria-live` de confirmación).
+  Es la referencia que el invitado necesita para soporte y para una disputa (criterio 56b), así que se
+  presenta como el dato dominante.
+- Línea: "Te enviamos la confirmación y el **enlace de seguimiento** a **{correo completo}**." /
+  "We sent your confirmation and **tracking link** to **{full email}**."
+  > **Asimetría deliberada:** aquí se muestra el **correo completo**; en la vista pública de seguimiento
+  > (§15.6) **no se muestra en absoluto**. Motivo: esta pantalla la ve **solo** quien acaba de pagar, en su
+  > propio dispositivo, y es la **última oportunidad de detectar una errata** antes de depender del correo;
+  > la de seguimiento vive detrás de una URL compartible y no debe filtrar identidad.
+- Debajo, `text-xs muted`: "¿No es tu correo? Escríbenos a **{evidenceContact}** citando tu número de
+  pedido." (`mailto:`, valor del contrato, nunca hardcodeado — §7.11).
+
+**Bloque 2 — reclamo post-compra (`AccountClaimOffer`)**, separado por regla de énfasis:
+- `eyebrow` mono `CREA TU CUENTA` / `CREATE YOUR ACCOUNT`.
+- `h2` serif: "Guarda este pedido en tu cuenta" / "Save this order to your account".
+- Cuerpo: "Crea tu cuenta con **{correo}** y este pedido aparecerá en tu historial con su estado y su
+  seguimiento. En tus próximas compras podrás guardar cartas en la **bóveda**." / equivalente EN.
+- Formulario mínimo: correo **prellenado y visible**, contraseña, o `GoogleSignInButton`. Botón `primary`
+  ancho completo: **"Crear cuenta con este correo"** / "Create account with this email".
+- Éxito → mensaje verde en versalitas `PEDIDO EN TU HISTORIAL` + enlace "Ver mis pedidos".
+- **Segundo reclamo (criterio 55):** si el pedido ya está vinculado, mensaje **neutro** sin decir a quién:
+  "No fue posible vincular este pedido." / "We couldn't link this order." + línea de soporte con el número
+  de pedido. Nunca "ya pertenece a otra cuenta" (revela que existe otra cuenta con ese correo).
+- **Correo ya registrado:** misma pauta neutra de §15.4 ("No se pudo crear la cuenta con ese correo. Si ya
+  tienes una, inicia sesión para reclamar el pedido desde tu historial.").
+
+**Bloque 3 — salidas**: `secondary` "Seguir comprando" → **Compra**. **No** se muestran enlaces a "Mis
+órdenes" ni "Mi bóveda" (llevarían a un muro de sesión y leerían como error). Se repite en una línea el
+recordatorio de factura CFDI citando el número de pedido y el enlace a términos.
+
+**Regla de seguridad de esta pantalla:** la confirmación **no debe ser una URL adivinable que renderice el
+pedido**. Se pinta desde el estado de la transacción recién completada; si necesita URL propia, debe usar
+el **mismo token** que el seguimiento. Anotado como solicitud al arquitecto (§15.11).
+
+### 15.6 Vista pública de seguimiento (`PublicOrderTracking`) — criterios 50, 51, 52 · **CRÍTICO**
+
+> **Es una puerta sin contraseña: quien tenga el enlace, ve la página.** La regla rectora es
+> **minimización**: la pantalla muestra lo estrictamente necesario para que el comprador sepa dónde está su
+> pedido, y **nada** que sirva para suplantarlo, ubicarlo o contactarlo.
+
+**Chrome reducido (obligatorio).** Cabecera con **logo + `LocaleToggle`** y nada más: sin buscador, sin
+carrito, sin "Mi cuenta", sin nav a Bóveda/Buylist/Mis órdenes. Pie con enlace a términos y correo de
+soporte. Motivo: la página no implica sesión y no debe ofrecer superficies que sugieran una.
+La ruta se marca **`noindex, nofollow`** y con **`Referrer-Policy: no-referrer`** para que el token no viaje
+en el `Referer` hacia terceros (requisito de diseño con implicación técnica; ver §15.11).
+
+**Contenido visible — lista cerrada, en este orden:**
+
+| # | Elemento | Detalle de presentación |
+|---|---|---|
+| 1 | **Número de pedido** | `eyebrow` `PEDIDO` + número en mono `text-h2` + botón "Copiar". Único identificador en pantalla. |
+| 2 | **Estado** | `PipelineStepper` (§7.9): `pagado → preparando → guía → enviado → entregado`. Horizontal en `lg+`, vertical en móvil. Paso completado = verde + label en versalitas; actual = tinta + anillo + `aria-current="step"`; pendiente = muted. Fecha localizada bajo cada paso cumplido (§9.3). |
+| 3 | **Guía** | Solo cuando existe: paquetería + número en mono + "Copiar". Si la URL de rastreo del carrier no está confirmada, **se muestra como texto copiable, no como enlace inventado** (misma regla que §7.2c). Sin guía todavía → el paso "guía" dice `PENDIENTE` en muted, no una caja vacía. |
+| 4 | **Artículos** | Lista con imagen de catálogo (`CardImage`), nombre EN (`lang="en"`), set · número, `ListingSpec` y precio unitario. **Sin folio de inventario** (`INV-…`, dato interno). |
+| 5 | **Total pagado** | `AmountBreakdown` en modo **solo lectura**: subtotal, procesamiento, IVA, envío, total. Es la misma información que ya recibió por correo. |
+| 6 | **Pago** | **Una sola línea mono**: `TARJETA ···· 4242` / `CARD ···· 4242`. Nada más: sin titular, sin banco, sin fecha de expiración, sin `paymentIntent`. |
+| 7 | **Envío (mínimo)** | **Ciudad y estado únicamente**: "Envío a Guadalajara, Jalisco". **Sin calle, sin número, sin colonia, sin CP, sin nombre del destinatario.** |
+| 8 | **Frescura** | `text-xs muted` "Actualizado {hora}" + botón `ghost` "Actualizar" (refetch, acción de solo lectura). |
+
+> **Nota sobre el CP.** `PROJECT.md` §J permite "**a lo mucho** ciudad/estado y los últimos dígitos del CP".
+> El diseño elige el extremo conservador: **no mostrar CP**. Para el destinatario es información redundante
+> (ya conoce su dirección) y en una página sin contraseña añade identificabilidad sin aportar valor. Si el
+> product-owner prefiere mostrarlo, el máximo autorizado es **CP parcial enmascarado** (`CP ···45`); no se
+> implementa hasta que lo pida explícitamente.
+
+**Acciones permitidas — exactamente tres, todas no mutantes del pedido:**
+1. **Copiar número de pedido.**
+2. **"Reenviar el enlace a mi correo"** → abre el formulario neutro de §15.7 (misma respuesta neutra y mismo
+   límite de frecuencia, aunque el token actual sea válido).
+3. **"¿Un problema con tu pedido?"** → línea con `DisputeEvidenceContact` (§7.11): correo de soporte
+   (`evidenceContact` del contrato) + instrucción de **citar el número de pedido**. Cubre la disputa de
+   condición y el error de plataforma del invitado (criterio 56b) **sin** dar a la página ninguna acción que
+   modifique nada.
+4. *(Enlace secundario)* **"Crear cuenta y guardar este pedido"** → lleva a registro con la nota "Usa el
+   mismo correo donde recibiste este enlace". **No prellena ni muestra el correo** (la página no lo conoce
+   en pantalla). Cubre el reclamo aunque el enlace haya caducado.
+
+**Prohibiciones explícitas (normativas — QA y seguridad las verifican como lista):** en esta vista **NO**
+existen ni deben implementarse: dirección completa · nombre del destinatario · correo (ni completo ni
+enmascarado) · teléfono · datos de pago más allá de la terminación · cancelar · cambiar dirección ·
+solicitar reembolso · editar artículos · descargar factura · "ver mis otros pedidos" · buscador de pedidos ·
+enlaces a otros pedidos · IDs internos (inventario, `orderId` crudo, `userId`) · cualquier formulario que
+escriba en el pedido.
+
+**Estados de la vista:** *loading* → skeleton que respeta el layout (stepper + filas de artículos); *error
+de red* → `QueryState` con "Reintentar" (mensaje genérico, **sin** eco del `errorCode`); *token
+inválido/expirado* → §15.7; *pedido reembolsado/contracargo* → el estado muestra la versalita
+correspondiente y una línea "Consulta con soporte citando tu número de pedido", **sin** detalles del
+proceso.
+
+**Mapa de presentación del estado público** (reusa tokens de §2.4; el color es redundante, el portador es el
+texto en versalitas):
+
+| Estado | Versalitas ES / EN | Token de color |
+|---|---|---|
+| `pagado` | `PAGADO` / `PAID` | success (verde) |
+| `preparando` | `PREPARANDO` / `PREPARING` | accent (bermellón) |
+| `guia` | `GUÍA GENERADA` / `LABEL CREATED` | info (muted) |
+| `enviado` | `ENVIADO` / `SHIPPED` | primary (tinta) |
+| `entregado` | `ENTREGADO` / `DELIVERED` | success (verde) |
+| `reembolsado` | `REEMBOLSADO` / `REFUNDED` | info (muted) |
+| `cancelado` | `CANCELADO` / `CANCELLED` | neutral (muted) |
+
+### 15.7 Token expirado o inválido (`TrackingLinkNeutralState`) — criterios 52, 53 · **superficie de seguridad**
+
+**Regla número uno: una sola pantalla para todos los fallos.** Token expirado, token manipulado, token
+inventado, token de otro pedido, pedido inexistente, pedido borrado → **exactamente el mismo componente,
+el mismo texto, el mismo layout**. El frontend **no** ramifica por código de estado (401/403/404/410) ni
+imprime el `errorCode`. Cualquier diferencia visible entre casos convierte la pantalla en un oráculo.
+
+**Dos vías de reenvío — corrección arbitrada por el arquitecto (contrato §4-G.4 manda sobre el diseño).**
+La versión inicial de §15.7 pedía **solo el correo**; queda **corregida**: el reenvío acepta **`{token}`**
+**o** **`{correo + número de pedido}` juntos**, nunca el correo por sí solo.
+
+> **Por qué (razón de seguridad, no de implementación):** un formulario de un único campo de correo es
+> exactamente el **oráculo de enumeración que prohíbe el criterio 53** ("¿este correo compró aquí?") — el
+> atacante no necesita leer la respuesta, le basta con que llegue (o no) un correo. Además convierte a la
+> plataforma en un **emisor de correo hacia terceros**: escribiendo la dirección de otra persona se le
+> provoca un envío. Exigir el **número de pedido** ata la petición a algo que solo tiene quien compró.
+> **La neutralidad del copy no se relaja en absoluto:** la respuesta sigue siendo idéntica coincidan o no
+> los datos, y el `429` sigue mostrando el mismo mensaje. Lo único que cambia es **qué campos se piden**.
+
+| Vía | Cuándo | Qué pide la UI |
+|---|---|---|
+| **A — con token** | La URL trae un token (vigente, vencido o manipulado: la UI no lo sabe ni lo distingue) | **Ningún campo.** Un botón directo "Enviarme un enlace nuevo"; el token identifica el pedido. Es también la vía de la acción "Reenviar el enlace a mi correo" de §15.6. |
+| **B — sin token** | No hay token, o el usuario pulsa **"No tengo el enlace"** | **Los dos campos juntos**: correo **y** número de pedido. Ninguno por separado habilita el envío. |
+
+La vía B se revela con un *disclosure* ("No tengo el enlace", `aria-expanded`/`aria-controls`), no está
+abierta por defecto: el caso común es llegar con un enlace caducado y bastar con el botón.
+
+**Copy normativo (no editable sin ux-ui + seguridad):**
+
+| Elemento | Español | English |
+|---|---|---|
+| Título (`h1` serif) | **Este enlace ya no funciona** | **This link no longer works** |
+| Cuerpo | Por seguridad, los enlaces de seguimiento caducan. Podemos enviarte uno nuevo al correo con el que hiciste la compra. | For security, tracking links expire. We can send you a new one to the email you used for the purchase. |
+| Botón (vía A y vía B) | Enviarme un enlace nuevo | Email me a new link |
+| Disclosure a la vía B | No tengo el enlace | I don't have the link |
+| Intro de la vía B | Escribe el correo con el que compraste y el número de pedido de tu confirmación. | Enter the email you used at checkout and the order number from your confirmation. |
+| Label del campo correo | Correo con el que compraste | Email you used at checkout |
+| Label del campo pedido | Número de pedido | Order number |
+| Ayuda del campo pedido | Viene en tu correo de confirmación (por ejemplo, TCG-000123). | It's in your confirmation email (for example, TCG-000123). |
+| Validación local (faltan datos) | Escribe el correo y el número de pedido para continuar. | Enter both the email and the order number to continue. |
+| Respuesta (**siempre la misma**) | Si esos datos corresponden a un pedido, enviamos un enlace nuevo a ese correo. Revisa tu bandeja de entrada y la carpeta de spam. | If those details match an order, we've sent a new link to that email. Check your inbox and your spam folder. |
+| Espera | Puedes volver a intentarlo en {seconds} s. | You can try again in {seconds}s. |
+| Alternativa | ¿Prefieres tenerlo siempre a la mano? Crea tu cuenta con ese mismo correo y tu pedido aparecerá en tu historial. | Want it always at hand? Create an account with that same email and your order will appear in your history. |
+| Soporte | ¿Necesitas ayuda? Escríbenos a {evidenceContact}. | Need help? Write to us at {evidenceContact}. |
+
+Nota de redacción: el cuerpo y la respuesta están en **condicional** ("si esos datos corresponden a un
+pedido") y **nunca en primera persona afirmativa** ("te enviamos tu enlace"), de modo que el texto no
+confirma ni niega la existencia del pedido, del correo ni de la relación entre ambos. La vía A usa **la
+misma** frase de respuesta que la vía B.
+
+**Frases prohibidas** (ni en pantalla, ni en `alt`, ni en `title`, ni en consola): "pedido no encontrado",
+"ese pedido no existe", "el correo no está registrado", "ese número de pedido no existe", "el correo y el
+número de pedido no coinciden", "el número de pedido es incorrecto", "token inválido", "la firma no
+coincide", "expiró hace N días", "ya te enviamos un enlace", "demasiados intentos **para ese correo**",
+"no hay pedidos con ese correo". Tampoco se enuncia **la vigencia en días** del enlace: el copy es
+**agnóstico al TTL** para no depender de la pregunta abierta de PROJECT v1.5 ni dar información de
+temporización (sigue siendo válido tras acotar el token de checkout a 120 min y mantener el de seguimiento
+en 90 días: ningún texto menciona plazos).
+
+**Comportamiento del reenvío (normativo):**
+- **Nunca se pide el correo solo.** Cualquier variante de un formulario de un único campo de correo está
+  prohibida en esta pantalla y en cualquier otra superficie pública.
+- El resultado se pinta **siempre igual**: mismo texto, mismo tratamiento visual **neutro** (tinta/muted,
+  `Banner info`), **para la vía A y para la vía B por igual**. **Nunca verde de éxito** ni bermellón de
+  error: el verde leería como "sí, existe".
+- **Datos que no coinciden** (correo correcto + pedido ajeno, pedido inexistente, token manipulado) producen
+  **exactamente la misma pantalla** que unos datos válidos: mismo mensaje, mismo enfriamiento, misma
+  ausencia de detalle. La UI no distingue el motivo ni lo puede distinguir.
+- El formulario se sustituye por el mensaje y el botón queda en **enfriamiento visible** con cuenta regresiva
+  en mono. La cuenta regresiva es **idéntica** en todos los casos.
+- **`429` (límite de frecuencia) muestra exactamente el mismo mensaje** que un envío correcto, solo con un
+  enfriamiento mayor. Un mensaje distinto por rate-limit filtra que ese correo es "interesante".
+- El botón entra en `loading` con **un mínimo de latencia visible constante** (skeleton/spinner con duración
+  mínima) para que el usuario no distinga "encontrado" de "no encontrado" por el tiempo de respuesta. *(La
+  igualación real de tiempos es responsabilidad del backend; la UI no debe delatarla.)*
+- **Validación solo local:** formato de correo y presencia del número de pedido. **Ningún campo consulta al
+  servidor** mientras se escribe (sin autocompletado, sin comprobación en `blur`, sin marcar un pedido como
+  "existente"); el número de pedido **no** se valida contra ningún catálogo, solo que no esté vacío. Ambos
+  campos deben estar llenos para habilitar el botón, con la nota textual de validación local asociada.
+
+**Accesibilidad:** el `h1` recibe foco al montar (`tabIndex={-1}`) para que el lector anuncie el estado; el
+disclosure "No tengo el enlace" mueve el foco al **primer campo** de la vía B al abrirse; los dos campos van
+en un `<fieldset>` con `<legend>` (la intro de la vía B) y cada uno con `<label>` visible, `autocomplete`
+adecuado (`email` en el correo; **ninguno** en el número de pedido) y, si falta alguno, `aria-invalid` +
+`aria-describedby` a la nota de validación local; el mensaje de resultado va en `role="status"`
+`aria-live="polite"` (no `assertive`: no es un error del usuario); la cuenta regresiva se anuncia **una sola
+vez** al iniciar, no cada segundo (`aria-live="off"` en el contador, texto alternativo "Vuelve a intentarlo
+en un minuto"). Ruta con `noindex`.
+
+### 15.8 Correo de confirmación (nota de diseño; el módulo `mail` no cambia)
+
+`PROJECT.md` deja fuera de alcance rediseñar plantillas de correo. Como referencia mínima para quien las
+redacte: el correo debe contener **número de pedido**, **resumen de artículos**, **total**, el **enlace de
+seguimiento** y la oferta de **crear cuenta con el mismo correo**; y **no** debe contener la dirección
+completa ni datos de pago (un correo se reenvía y se filtra igual que una URL). Se pide el mismo criterio
+de minimización de §15.6.
+
+### 15.9 Accesibilidad — reglas específicas de guest checkout
+
+- **Foco visible** bermellón en todos los controles nuevos (§8.2); ningún panel, disclosure ni sticky bar
+  puede quitar el `outline`.
+- **Orden de tabulación** = orden visual: gate → panel de la vía elegida → contacto → envío → destino
+  (→ panel de upsell si está abierto) → confirmación de correo → pago. La barra sticky de móvil se coloca al
+  final del DOM pero **no** rompe el orden porque es un duplicado accesible del botón de pago; si se
+  duplica, el duplicado va `aria-hidden` y solo uno recibe foco.
+- **Botones deshabilitados con explicación:** cada vez que el pago se bloquea (correo sin confirmar, destino
+  bóveda sin cuenta, dirección inválida) hay un **texto asociado por `aria-describedby`**; nunca un botón
+  apagado y mudo.
+- **Anuncios asíncronos:** cotización recalculada, cuenta creada, correo desmarcado, resultado del reenvío →
+  `aria-live="polite"`. Errores de pago → `aria-live="assertive"` (§8.2).
+- **Etiquetas reales** en todos los campos (`<label htmlFor>`), `autocomplete` correcto en correo y
+  dirección (ayuda enorme al invitado, que no tiene datos guardados).
+- **Áreas táctiles ≥ 44px** en las tres opciones del gate, los radios de destino y las salidas del upsell.
+- **`prefers-reduced-motion`**: la expansión de gate y upsell degrada a mostrar/ocultar sin animación.
+- **Contraste:** esta sección **no introduce ningún par nuevo**. Todo lo usado ya está verificado en §10 —
+  tinta sobre papel ~15.5:1 (números de pedido, guía, totales), muted `#6E695E` sobre papel ~4.8:1 y sobre
+  pozo ~4.6:1 (ayudas y micro-etiquetas), bermellón ~4.65:1 (errores, anillo de foco), verde ~4.4:1 con
+  **versalitas como portador** (pasos completados, "cuenta creada"), papel sobre tinta ~15.5:1 (botón
+  primario del upsell), papel sobre bermellón ~4.64:1 (botón de pago). El texto muted **no** porta
+  información esencial: las micro-etiquetas tipo `REQUIERE CUENTA` se acompañan siempre del texto del
+  upsell al activarse.
+
+### 15.10 Componentes: qué se reutiliza y qué es nuevo
+
+**Se reutiliza tal cual (sin variantes nuevas):** `Button` (§6.1, variantes `primary`/`secondary`/`accent`/
+`link`/`ghost`), `Input`/`Textarea` (§6.2), `Select` (§6.3), `Checkbox`/`Radio` (§6.4), `LocaleToggle`
+(§6.5), `GoogleSignInButton` (§6.7), `Banner` (§7.5), `AmountBreakdown` (§7.12), `PipelineStepper` (§7.9),
+`StatusBadge` (§2.4), `CardImage`, `ListingSpec` (§7.2b), `EmptyState`, `QueryState`, `Skeleton`,
+`DisputeEvidenceContact` (§7.11), `AuthForm`, `StripePaymentModal`.
+
+**Componentes nuevos propuestos (4 — solo donde no hay equivalente):**
+
+| Componente | Por qué no hay equivalente | Ubicación |
+|---|---|---|
+| `CheckoutIdentityGate` | No existe ningún patrón de tres vías de identidad con estado persistente en la misma ruta. | `components/domain/` |
+| `VaultUpsellPanel` | No hay panel de oferta inline; `Banner` es informativo y `Modal` está descartado por §15.4. | `components/domain/` |
+| `PublicOrderTracking` (vista) + su chrome reducido | Toda vista actual asume header de storefront con sesión/carrito; esta exige un chrome propio y minimización de datos. | ruta pública + `components/layout/` |
+| `TrackingLinkNeutralState` | El patrón de error de §8.1 (banner + `errorCode` + reintentar) es justo lo que **no** se puede hacer aquí: exige copy neutro, un solo mensaje para todos los fallos y enfriamiento visible. | `components/domain/` |
+
+**Composiciones (no son componentes base nuevos):** `GuestCheckoutForm` (Input + campos de dirección ya
+existentes), `FulfillmentChoice` (Radio group), `AccountClaimOffer` (AuthForm compacto + copy), usado tanto
+en la confirmación como —en versión "solo enlace"— en la vista de seguimiento y en el estado neutro.
+
+**Ningún token nuevo.** Cero colores, tipografías, radios, sombras o breakpoints añadidos.
+
+### 15.11 i18n — claves nuevas (propiedad de frontend; el copy de seguridad es normativo)
+
+- `checkout.identity.*` — `title`, `guest.cta`/`guest.hint`, `login.cta`/`login.hint`,
+  `register.cta`/`register.hint`, `cartKept`, `change`.
+- `checkout.guest.*` — `contactGroup`, `email.label`/`email.help`/`email.invalid`/`email.required`,
+  `email.typoSuggestion`, `email.confirmCheckbox`, `shippingGroup`, `errorSummary`, `payBlocked.email`,
+  `payBlocked.vault`, `payBlocked.address`.
+- `checkout.destination.*` — `ship`, `vault`, `vault.requiresAccount`, `shipFeeHint`.
+- `checkout.vaultUpsell.*` — `eyebrow`, `title`, `benefit.oneShipment`, `benefit.portfolio`,
+  `benefit.custody`, `cta`, `dismiss`, `haveAccount`, `created`, `shippingRemoved`, `emailTakenNeutral`.
+- `checkout.confirmation.*` — `eyebrow`, `title`, `orderNumber`, `copyOrderNumber`, `emailSentTo`,
+  `wrongEmail`, `claim.*` (`eyebrow`, `title`, `body`, `cta`, `success`, `alreadyClaimedNeutral`),
+  `keepShopping`, `cfdiReminder`.
+- `track.*` — `orderLabel`, `statusLabel`, `itemsLabel`, `totalPaidLabel`, `trackingLabel`,
+  `trackingPending`, `shipToLabel`, `paidWithCard`, `updatedAt`, `refresh`, `copyOrderNumber`,
+  `troubleWithOrder`, `createAccountHint`.
+- `track.neutral.*` — `title`, `body`, `emailLabel`, `submit`, `result`, `cooldown`, `claimAlternative`,
+  `support`, `noLinkCta`, `manualIntro`, `orderNumberLabel`, `orderNumberHelp`, `incompleteForm`
+  (los cinco últimos, de la **vía B** de §15.7: correo + número de pedido juntos).
+  **Textos normativos: los de la tabla de §15.7, literales en ES y EN.**
+- `status.tracking.*` — `paid`, `preparing`, `label`, `shipped`, `delivered`, `refunded`, `cancelled`
+  (versalitas de §15.6).
+
+**Reglas de i18n aplicables:** contenedores dimensionados para ES (§9.4) — "Continuar como invitado" y
+"Crear cuenta y guardar en bóveda" son las cadenas largas a probar; dinero e importes con `Intl` y
+`tabular-nums` (§9.3); el **número de pedido y la guía no se traducen ni se formatean** (mono, tal cual);
+los nombres de cartas siguen en inglés con `lang="en"` (§9.2).
+
+### 15.12 Notas para el arquitecto / product-owner (solicitudes derivadas del diseño)
+
+No bloquean el diseño; el contrato aún **no** cubre guest checkout (§J es nuevo). Se listan como petición:
+
+1. **Minimización en el servidor, no en la UI (la más importante).** El endpoint público de seguimiento debe
+   **devolver únicamente** lo que §15.6 pinta: número de pedido, estado + timestamps, paquetería y guía,
+   artículos (carta, set, número, acabado, precio unitario), desglose y total, `cardLast4`, y `city`/`state`.
+   **No debe devolver** dirección completa, CP, nombre, correo, teléfono, `userId`, `orderId` interno ni
+   folios de inventario. Ocultarlos en el front no basta: el payload es público.
+2. **Cotización de invitado con línea de envío.** `checkout/quote` (o su equivalente de invitado) debe
+   exponer el **envío** como línea del `BreakdownDTO` y el **destino** (`ship | vault`) para que el
+   `AmountBreakdown` se re-cotice al crear cuenta desde el upsell (§15.4). La cifra de MX$175 del copy del
+   upsell debe salir del dial, no del front.
+3. **Número de pedido legible** (`TCG-000123` o similar) para mostrar y copiar; **no** es una credencial:
+   debe ser inútil como vía de acceso (criterio 52).
+4. **Confirmación no adivinable.** La pantalla de confirmación no debe renderizarse desde una URL con un id
+   adivinable; o vive en estado de transacción, o usa el mismo token del seguimiento (§15.5).
+5. **Reenvío de enlace:** respuesta **idéntica** exista o no el pedido, **límite de frecuencia** y
+   **tiempos igualados** (el diseño ya iguala lo visible; la temporización es del backend) — criterio 53.
+6. **Cabeceras de la ruta pública:** `noindex, nofollow` y `Referrer-Policy: no-referrer` (y que el token no
+   quede en logs de acceso). Es una decisión de arquitectura/devops con consecuencia directa en el diseño.
+7. **URL de rastreo de la paquetería:** si el contrato entrega `carrier` + un patrón de URL confiable, la
+   guía se vuelve enlace; **si no, se queda como texto copiable** (misma política que el `certNumber`,
+   §7.2c). Falta confirmación.
+8. **Preguntas abiertas de PROJECT v1.5 que el copy ya evita.** (a) *TTL del enlace*: ningún texto menciona
+   días, así que cambiar 90 días por otro valor **no obliga a retocar copy**; (b) *correo que ya tiene
+   cuenta*: el diseño nunca lo revela y ofrece siempre las dos salidas (login / seguir como invitado), así
+   que sirve para cualquiera de las dos resoluciones que elija el humano.
+9. **`evidenceContact`**: la vista pública y la confirmación toman el correo de soporte del contrato (§7.11),
+   nunca hardcodeado; sigue pendiente de confirmación del humano el valor definitivo.

@@ -9,6 +9,7 @@ import { IneRetentionJobService } from './ine-retention.service';
 import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
+import { GuestOrderSweepJobService } from './guest-order-sweep.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
@@ -100,6 +101,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly catalogPriceSync: CatalogPriceSyncJobService,
     private readonly priceIngest: PriceIngestJobService,
     private readonly sealedPriceIngest: SealedPriceIngestJobService,
+    // v1.21-guest-checkout (T9): barrido de reservas de pedidos de invitado sin pagar.
+    private readonly guestOrderSweep: GuestOrderSweepJobService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -162,6 +165,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     await this.queue.add('dispute-deadline', {}, this.repeat('dispute-deadline', '45 7 * * *'));
     await this.queue.add('buylist-sweep', {}, this.repeat('buylist-sweep', '0 8 * * *'));
     await this.queue.add('auth-token-sweep', {}, this.repeat('auth-token-sweep', '15 8 * * *'));
+    // v1.21-guest-checkout (T9, ARCHITECTURE §4.21e): a diferencia del resto de barridos, este
+    // NO es diario — una reserva de invitado sin pagar bloquea PIEZAS ÚNICAS durante
+    // GUEST_ORDER_RESERVATION_TTL_MIN (60 min), así que barre cada 15 min para que el inventario
+    // vuelva a estar vendible poco después de vencer. Cron overridable por env (devops).
+    const guestSweepCron = this.config.get<string>('GUEST_ORDER_SWEEP_CRON') ?? '*/15 * * * *';
+    await this.queue.add('guest-order-sweep', {}, this.repeat('guest-order-sweep', guestSweepCron));
     // v1.14-price-ingest (WS-A, §4.15c/§4.15g): entrega la cola al ingest para el fan-out por set.
     this.priceIngest.setQueue(this.queue);
 
@@ -220,6 +229,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
             return this.disputeDeadline.run();
           case 'auth-token-sweep':
             return this.authTokenSweep.run();
+          // v1.21-guest-checkout (T9): libera reservas de pedidos de invitado no pagados.
+          case 'guest-order-sweep':
+            return this.guestOrderSweep.run();
           // WS-A: metadata del catálogo (sets nuevos, force:false) — cadencia ligera diaria.
           case 'catalog-metadata-sync':
             return this.catalogPriceSync.runMetadataImport();
