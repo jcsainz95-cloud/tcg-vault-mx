@@ -3528,26 +3528,45 @@ exactamente el comportamiento previo a M-25. **La migración NO recrea esas FKs*
    la rotación pedida por **soporte** (§4-G.9b) se lee como `ROTATED`, no como `SUPPORT`.
    Distinguirlas exige una columna nueva (decisión del arquitecto).
 
-### 47.5 Pendiente que NO se hizo (fuera del alcance autorizado)
+### 47.5 Job `guest-order-sweep` (T9) — CABLEADO (2026-08-18, ronda 2)
 
-**El job `guest-order-sweep` (T9) NO está cableado al scheduler.** La lógica existe y está probada
-(`GuestCheckoutService.sweepStaleGuestOrders()`, libera reservas de pedidos `pending` de más de 60
-min, marca la orden `failed` y cancela el PaymentIntent), pero registrar el cron exige tocar
-`backend/src/jobs/`, que no estaba en el alcance de esta sesión. **Mientras no se cablee, una
-reserva de invitado no pagada se libera solo cuando Stripe cancela el PI.** Es un paso pequeño
-(un `@Injectable` en `jobs/` que llame al método) y necesita autorización del orquestador.
+`backend/src/jobs/guest-order-sweep.service.ts`, registrado en `JobsModule` y en el
+`SchedulerService`. Sigue el patrón standalone de `auth-token-sweep` / `buylist-sweep`: un `run()`
+sin estado que **delega la regla de negocio** en `GuestCheckoutService.sweepStaleGuestOrders()`
+(el dueño del ciclo del pedido de invitado) para no duplicar lógica en `jobs/`.
+
+- **Qué hace:** libera las piezas (`reserved → listed`) de las órdenes de invitado `pending` con más
+  de `GUEST_ORDER_RESERVATION_TTL_MIN` (**60 min**), marca la orden `failed` y cancela el
+  PaymentIntent (best-effort).
+- **Cadencia: cada 15 minutos, NO diaria** — a diferencia del resto de barridos. Una reserva de
+  invitado sin pagar bloquea **piezas únicas**; con cron diario, una carta abandonada tras el 3DS
+  quedaría invendible hasta el día siguiente.
+- **Cron overridable por env: `GUEST_ORDER_SWEEP_CRON`** (default `*/15 * * * *`).
+  ⚠️ **`.env.example` es de devops: la variable NO se añadió ahí.** Queda reportada al orquestador
+  para que devops la documente/propague (el default ya es sensato, así que no bloquea el deploy).
+- **Sin Redis no hay cron** (mismo gating que todos los jobs: `SchedulerService` se desactiva sin
+  `REDIS_URL`). **No se expuso `POST /admin/jobs/guest-order-sweep`**: sería superficie de API nueva
+  y el contrato no la contempla; si ops la quiere, pasa por el arquitecto.
+- **Adición estrictamente localizada en `scheduler.service.ts`** (12 líneas, 0 borradas): import,
+  parámetro de constructor **al final**, un `queue.add` junto a los demás barridos y un `case` en el
+  worker. **No se tocó el bloque de pricing** (hay otra sesión trabajando ahí) ni el log-resumen del
+  arranque, que por eso **no lista** `guest-order-sweep`; es cosmético (el job loguea cada corrida y
+  el worker loguea `completed`) y se puede plegar cuando esa sesión cierre.
+- **Nota menor:** el helper `repeat()` sufija el `jobId` con `-daily`, así que el id en Redis es
+  `guest-order-sweep-daily` pese a correr cada 15 min. Es solo la clave de dedup (invisible para
+  ops); no se modificó el helper para no tocar código compartido.
 
 ### 47.6 Cómo probarlo
 
 ```bash
 cd backend
-npm test                    # 96 suites / 847 tests (incluye las 10 suites nuevas del guest checkout)
+npm test                    # 97 suites / 852 tests (incluye las 11 suites nuevas del guest checkout)
 npm run lint && npm run typecheck
 # E2E (requiere Postgres real):
 DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
 ```
 
-- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (37 casos) — camino feliz de
+- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (39 casos) — camino feliz de
   §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
   negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
   `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida
@@ -3556,4 +3575,8 @@ DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
 - **Suites unitarias nuevas:** `money.direct-ship`, `guest-order-token`, `guest-checkout.session`,
   `guest-checkout.tracking` (minimización + neutralidad + mapeo de estado), `guest-checkout.resend`,
   `guest-claim`, `payments.guest-settle`, `shipments.guest-direct-ship`, `guest-checkout.contract`,
-  `guest-checkout.guard-sweep-mail`.
+  `guest-checkout.guard-sweep-mail`, `guest-order-sweep.job`.
+- **El barrido T9 se probó contra Postgres real** (dos casos en la E2E): una orden de invitado
+  envejecida a 90 min libera su pieza (`listed`, `ownerType=platform`), la orden queda `failed`, el
+  PI se cancela y la carta se puede volver a cotizar; y el barrido **no toca** pedidos recientes ni
+  liquidados.
