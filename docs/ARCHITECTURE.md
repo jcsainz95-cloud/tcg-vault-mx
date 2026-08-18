@@ -40,6 +40,16 @@
 >   payload remoto **no se pudo verificar en vivo**. La derivación se diseñó contra el esquema documentado del API v2 y
 >   queda **pendiente de verificación en la 1ª corrida** (devops/backend, gate de despliegue).
 >
+> **Changelog v1.21.3-quote-prune (2026-08-18, branch `fix/carrito-pieza-muerta`) — Nota corta (la spec vive en API_CONTRACT v1.21.3): los DOS quotes
+> del checkout (`POST /checkout/quote` y `POST /checkout/guest/quote`) pasan a resolución POR ÍTEM con poda amable.**
+> Bug de producción: el carrito `localStorage` (lista de `inventoryItemId`, piezas únicas) envejece; una pieza
+> vendida/borrada reventaba TODO el quote (`loadItems` → `404` global en `orders.service.ts:63`, o `409` global si
+> salió de `{listed, in_stock}`) y bloqueaba el checkout completo. Ahora el quote responde `200` con `items` +
+> `breakdown` de los válidos y `unavailableItems` (siempre presente) con los muertos; **SESSION sigue estricta**
+> (`404`/`409` intactos — es el gate duro anti double-sell). Único ajuste aquí: la aserción de quote del **caso v de
+> §4.21h-1** (abajo). El carrito de front gana además expiración a 30 días (dueño: frontend). Sin migración, sin
+> enums, sin cambios en pricing.
+>
 > **Changelog v1.21.2-chargeback-fulfillment (2026-08-18) — Cierre del hallazgo BLOQUEANTE del techlead (T1) + D6 y
 > D4. El hueco era de la NORMA, no de la implementación: §4.21c describía el reverso del contracargo solo en
 > términos del `InventoryItem` y no decía nada del `ShipmentRequest`.** Ver **§4.21c-bis** (nueva), §4.21d, §4.21h,
@@ -3273,7 +3283,7 @@ de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
 | **ii** | Contracargo con envío en **`guia`** | Idéntico a (i). Es su propio caso porque `guia` (etiqueta generada, paquete probablemente armado) fue el estado que más tentó a una regla automática distinta. |
 | **iii** | Contracargo con envío **`enviado`** (o `entregado`) | **Nada** cambia en inventario ni en el envío; `chargebackNeedsManual=true`. |
 | **iv** | Contracargo **sin envío** (orden `pending`, item `reserved`) | `reserved → listed`, `ownerType=platform`, `InventoryMovement reason='chargeback_return'`, `chargebackNeedsManual=false`. **Única fila que autoriza re-listar automáticamente, y solo desde `reserved`.** |
-| **v** | **Regresión del double-sell** (el test que faltaba y que habría atrapado T1) | Partiendo del estado final de (i): `POST /checkout/quote` y `POST /checkout/session` sobre esa pieza devuelven **`409 ITEM_UNAVAILABLE`**, `POST /checkout/guest/session` también, y `GET /admin/shipments/picking-list` **no la incluye**. |
+| **v** | **Regresión del double-sell** (el test que faltaba y que habría atrapado T1) | Partiendo del estado final de (i): `POST /checkout/session` sobre esa pieza devuelve **`409 ITEM_UNAVAILABLE`**, `POST /checkout/guest/session` también, y `GET /admin/shipments/picking-list` **no la incluye**. *(Ajuste v1.21.3-quote-prune, API_CONTRACT §4/§4-G.1: los QUOTES ya no devuelven `409` global — la aserción equivalente es `200` con la pieza en `unavailableItems` y FUERA de `items`/`breakdown`. La pieza sigue invendible: el gate duro anti double-sell es SESSION, que conserva el `409`.)* |
 | **vi** | Desenlaces de `POST /admin/orders/:id/chargeback-inventory` | Los tres (`recuperada`, `no_recuperada`, `reexpedir`) con sus efectos de §4.21c-bis; **`reexpedir` rechazado con `409 CONFLICT`** mientras la orden siga en `chargeback`; repetir un `outcome` ya aplicado ⇒ **`409`** sin duplicar movimientos ni envíos. |
 | **vii** | `charge.dispute.closed` con `won` | La orden vuelve a `settled` con `disputeOutcome='won'` y **`chargebackNeedsManual` SIGUE en `true`**: ganar **no** re-expide solo. |
 | **viii** | Invariante **D4** (discriminador) | Un `ShipmentRequest` con `orderId` cuya orden tenga un `fulfillmentMode` no soportado **lanza y se loguea**; **no** cae por default en la rama `direct_ship`. |

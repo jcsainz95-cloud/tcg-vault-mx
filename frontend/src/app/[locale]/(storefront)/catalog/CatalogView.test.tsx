@@ -36,6 +36,7 @@ describe('CatalogView · toast de confirmación al agregar', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Agregado al carrito');
     expect(screen.getByRole('link', { name: 'Ver carrito' })).toHaveAttribute('href', '/checkout');
-    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!)).toHaveLength(1);
+    // Formato v2 del carrito: { ids, updatedAt } (expiración a 30 días).
+    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toHaveLength(1);
   });
 });

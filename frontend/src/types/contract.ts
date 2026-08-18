@@ -399,9 +399,24 @@ export interface OrderItemPreview {
   unitPriceCents: number;
 }
 
+/**
+ * v1.21.3-quote-prune — ítem de carrito podado por los DOS endpoints de QUOTE (§4 y
+ * §4-G.1). SOLO quote: los endpoints de session NO lo usan (siguen estrictos).
+ * `cardName` = nombre de la carta si la pieza aún existe en BD (aunque ya no esté
+ * disponible); `null` si el `inventoryItemId` ya no resuelve (pieza borrada). El front
+ * lo usa para el aviso «X ya no está disponible y se quitó de tu carrito» y para PODAR
+ * el localStorage antes de llamar a session.
+ */
+export interface UnavailableCartItemDTO {
+  inventoryItemId: string;
+  cardName: string | null;
+}
+
 export interface CheckoutQuoteResponse {
   items: OrderItemPreview[];
   breakdown: BreakdownDTO;
+  /** SIEMPRE presente (v1.21.3); `[]` cuando todo el carrito resuelve. */
+  unavailableItems: UnavailableCartItemDTO[];
 }
 
 export interface CheckoutSessionResponse {
@@ -1557,6 +1572,12 @@ export interface GuestCheckoutQuoteResponse {
   fulfillmentMode: FulfillmentMode;
   breakdown: BreakdownDTO;
   notices: GuestCheckoutNotices;
+  /**
+   * SIEMPRE presente (v1.21.3-quote-prune, misma norma que §4). Carrito 100 % no
+   * disponible ⇒ `items: []` + breakdown en CEROS (incl. `shippingFeeCents: 0`),
+   * nunca error.
+   */
+  unavailableItems: UnavailableCartItemDTO[];
 }
 
 /** POST /checkout/guest/session. §4-G.2 */

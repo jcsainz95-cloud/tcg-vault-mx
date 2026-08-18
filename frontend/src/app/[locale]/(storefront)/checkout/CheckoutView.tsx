@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { createCheckoutSession, getCheckoutQuote } from '@/lib/api';
@@ -20,6 +20,8 @@ import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
 import { useSession } from '@/lib/session';
 import { GuestCheckoutView } from './GuestCheckoutView';
+import { UnavailableItemsNotice } from './UnavailableItemsNotice';
+import { clearUnavailableNotice, pushUnavailableNotice } from './unavailable-notice';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -72,9 +74,31 @@ export function CheckoutView() {
     enabled: cart.ids.length > 0 && ready && isAuthenticated,
   });
 
+  /**
+   * v1.21.3-quote-prune: si el quote trae piezas muertas, se PODAN del localStorage
+   * y se registra el aviso. Efecto idempotente (nunca en render): la poda cambia
+   * `cart.ids` → la queryKey cambia → se re-cotiza SOLO con ids vivos y el nuevo
+   * fetch trae `unavailableItems: []` → este efecto ya no hace nada (push dedupe +
+   * prune no-op), así que no hay ciclo. El aviso vive en el store para sobrevivir
+   * a esa re-cotización.
+   */
+  const unavailable = query.data?.unavailableItems;
+  const { prune } = cart; // estable (useCallback sin deps)
+  useEffect(() => {
+    if (!unavailable || unavailable.length === 0) return;
+    pushUnavailableNotice(unavailable);
+    prune(unavailable.map((u) => u.inventoryItemId));
+  }, [unavailable, prune]);
+
+  // Al salir del checkout el aviso caduca: solo lo conserva la sesión de compra actual.
+  useEffect(() => () => clearUnavailableNotice(), []);
+
   if (cart.ids.length === 0 && !paid && !guestPaid) {
+    // Carrito vacío — incluido el caso "todo el carrito murió": EmptyState + aviso,
+    // NUNCA la pantalla de error genérico ni un botón de reintentar (contrato §4).
     return (
       <div className="gutter py-14">
+        <UnavailableItemsNotice className="mx-auto mb-10 max-w-[620px]" />
         <EmptyState
           title={t('empty')}
           action={
@@ -144,6 +168,19 @@ export function CheckoutView() {
     } catch (e) {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
         setEmailNotVerified(true);
+      } else if (
+        e instanceof ApiClientError &&
+        (e.code === 'ITEM_UNAVAILABLE' || e.code === 'NOT_FOUND')
+      ) {
+        // v1.21.3-F2 — carrera "pieza vendida ENTRE el quote y el pago": la session
+        // sigue estricta (anti double-sell, contrato §4), así que aquí se RE-COTIZA.
+        // El quote nuevo trae la pieza en `unavailableItems` y la maquinaria existente
+        // (efecto de poda + UnavailableItemsNotice) poda el carrito y avisa sola: el
+        // banner ES el aviso, no se pinta además el mensaje genérico junto al botón
+        // (evitaría un doble mensaje contradictorio). Respaldo: si la re-cotización
+        // MISMA falla, sí se muestra el mensaje del error original.
+        const requote = await query.refetch();
+        if (requote.error) setPayError(getMessage(e));
       } else {
         setPayError(getMessage(e));
       }
@@ -165,6 +202,10 @@ export function CheckoutView() {
       <div className="gutter pb-6 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
       </div>
+
+      {/* Aviso informativo de poda (v1.21.3), FUERA de QueryState: sobrevive al estado
+          de carga de la re-cotización que la propia poda dispara. */}
+      <UnavailableItemsNotice className="gutter mb-6 max-w-[680px]" />
 
       <QueryState
         isLoading={query.isLoading}

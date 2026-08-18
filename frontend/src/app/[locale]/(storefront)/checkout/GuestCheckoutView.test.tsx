@@ -50,8 +50,8 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     await user.click(screen.getByRole('button', { name: 'Continuar como invitado' }));
 
     expect(screen.getByLabelText('Correo electrónico')).toHaveValue('juan@dominio.com');
-    // El carrito nunca se toca al cambiar de vía.
-    expect(window.localStorage.getItem('tcg.cart')).toBe(JSON.stringify(['inv-1002']));
+    // El carrito nunca se toca al cambiar de vía (formato v2: { ids, updatedAt }).
+    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-1002']);
   });
 
   it('muestra el desglose con LÍNEA DE ENVÍO y los tres avisos del contrato (criterio 48b)', async () => {
