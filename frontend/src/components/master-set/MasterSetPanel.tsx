@@ -8,6 +8,7 @@ import { batchCreateItems, getLocations } from '@/lib/api';
 import type {
   MasterSetCardCellDTO,
   MasterSetSummaryDTO,
+  MasterSetVariantDTO,
   BatchInventoryItemInput,
   BatchInventoryLineResult,
 } from '@/types/contract';
@@ -30,6 +31,11 @@ interface Props {
    * de COMPRA del storefront (el checkout sigue siendo el flujo normal, §4).
    */
   onBuyMissing?: (inventoryItemId: string) => void;
+  /**
+   * Solo `quoter`: clic en una casilla de acabado ya cotizada agrega esa combinación
+   * (carta, acabado) al carrito de VENTA del cotizador (BuylistView es dueño del carrito).
+   */
+  onAddToSellCart?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
 }
 
 /**
@@ -38,7 +44,7 @@ interface Props {
  * ajuste por levantamiento físico SOLO se montan en modo `platform` (M1); los modos
  * `user_vault_*` son lectura (y compra de faltantes en la vista del propio cliente).
  */
-export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing }: Props) {
+export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing, onAddToSellCart }: Props) {
   const t = useTranslations('masterSet');
   const queryClient = useQueryClient();
   const isPlatform = mode === 'platform';
@@ -123,6 +129,7 @@ export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing }: Prop
           set={selectedSet}
           onBack={() => setSelectedSet(null)}
           onOpenCell={(cell) => setOpenCell(cell)}
+          onAddVariant={onAddToSellCart}
         />
       ) : (
         <MasterSetIndex mode={mode} userId={userId} onOpenSet={(s) => setSelectedSet(s)} />

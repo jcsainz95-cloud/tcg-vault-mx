@@ -3245,3 +3245,82 @@ vitrina muestre también el estado «En el carrito» en el botón del card; hoy 
 
 ### Gates
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (44 archivos / 329 tests).
+
+
+## 2026-08-18 · Cotizador unificado con Master Set (mode="quoter") + fix foco M5
+
+### Tarea 1 — `mode="quoter"` en el binder COMPARTIDO de Master Set
+
+**Qué cambió.** `BuylistView.tsx` (raw) ya NO tiene su propio grid de búsqueda plano: monta
+`<MasterSetPanel mode="quoter" onAddToSellCart={...} />` (mismo componente que M1/bóveda,
+§4.20f). Cada carta muestra sus **casillas por acabado** derivadas de `card.availableFinishes`
+(nunca un chip de texto, nunca una casilla para un acabado que la carta no tiene); clic en una
+casilla agrega esa combinación (carta, acabado) al carrito de VENTA con el precio ya cotizado.
+graded/sealed (sin variantes por acabado — cotizan siempre en `normal`) CONSERVAN el grid plano
+anterior sin cambios, incluida "Filtrar por set"/"Buscar carta" y el bulk multi-selección.
+
+**Sin cambio de contrato.** `mode="quoter"` NO agrega ningún endpoint: compone client-side con
+los MISMOS tres endpoints públicos que ya usaba el cotizador — `GET /buylist/sets`,
+`GET /buylist/cards` (troceado en TODAS sus páginas antes de resolver — ver bug P-4a abajo) y
+`POST /buylist/quote/batch` (troceado en lotes de `BUYLIST_QUOTE_BATCH_MAX`). La lógica vive en
+`fetchQuoterIndex` (`MasterSetIndex.tsx`) y `fetchQuoterBinder` (`MasterSetBinder.tsx`), paralelas
+a `fetchIndex`/`fetchBinder` existentes. `MasterSetVariantDTO.quote` (`types/contract.ts`) es un
+campo ADITIVO documentado como "solo frontend, NO viaja del backend" — no toca `API_CONTRACT.md`.
+
+**Bug de paginación (P-4a, confirmado con Pitch Black · 120 cartas).** Antes el cotizador cortaba
+en 20 cartas sin control. `fetchQuoterBinder` acumula TODAS las páginas de `GET /buylist/cards`
+(pageSize 50) antes de resolver la promesa del binder, así que el set completo se ve de una vez
+— **decisión de diseño, no el patrón "Cargar más" de M1View**: para un set >20 cartas
+multi-acabado esto dispara varias llamadas a `batchQuote` al abrir el set (ej. 120 cartas ×
+2 acabados ≈ 5 llamadas de 50). Es correcto y simple, pero si algún set crece mucho más
+(cientos de cartas) valdría la pena revisar si conviene paginación explícita — anotado, no
+bloqueante.
+
+**Decisiones de producto tomadas sin volver a preguntar (AUTO, a revisar si no convencen):**
+- El multi-selección (bulk) del grid plano **NO existe para raw**: cada casilla del binder ya es
+  su propia acción de un clic: no hace falta un paso de selección previo. Sigue existiendo para
+  graded/sealed (sin tocar).
+- "Filtrar por set" / "Buscar carta" del enunciado se resuelven con los controles PROPIOS de
+  Master Set: `MasterSetIndex` aporta "Buscar set" (elegir un set) y `MasterSetBinder` ahora
+  tiene un "Buscar carta" nuevo (SOLO en `quoter`, nombre/número dentro del set elegido). La
+  etiqueta exacta difiere ("Buscar set" vs "Filtrar por set" del enunciado) pero la función es
+  equivalente; no se duplicaron labels para no fragmentar el sistema de i18n del binder
+  compartido.
+
+**Archivos.** `components/master-set/mode.ts` (+`'quoter'`), `MasterSetIndex.tsx` (fetch +
+oculta completitud/piezas/orden en `quoter`), `MasterSetBinder.tsx` (fetch + `QuoterCell` nueva:
+casillas-botón con precio, "Buscar carta" local, oculta filtros de huecos/secret rare en
+`quoter`), `MasterSetPanel.tsx` (prop `onAddToSellCart`), `types/contract.ts`
+(`MasterSetVariantDTO.quote?`), `(storefront)/buylist/BuylistView.tsx` (monta el panel en raw;
+`CartLine.card` se angostó a `{id,name,number,imageSmallUrl}` — ya no requiere el `CardDTO`
+completo del catálogo).
+
+**Tests.** `MasterSet.test.tsx` +4 (dos acabados → dos casillas independientes; un acabado → sin
+hueco vacío; 120 cartas → todas visibles sin "Cargar más"; clic agrega al carrito con el precio
+correcto de esa combinación). `BuylistView.test.tsx` reescrito: el describe `raw` ahora navega
+por el binder Master Set; graded/sealed quedó en su propio describe con el grid plano y el bulk
+intactos; carrito/KYC/gating/F5/"Mis solicitudes" sin cambios de fondo (mismos textos i18n,
+mismos precios de fixtures — solo cambió CÓMO se llega a tener algo en el carrito).
+
+### Tarea 2 — bug real: el textbox de motivo de rechazo perdía el foco (M5)
+
+**Causa raíz.** `components/ui/Modal.tsx` tenía un solo `useEffect` que hacía
+`ref.current?.focus()` Y registraba el listener de Escape, con `[open, onClose]` como
+dependencias. `onClose` (`closeReject` en `M5View.tsx`) es una función NUEVA en cada render del
+padre (no memoizada) — cada tecleo cambia `rejectReason` → M5View re-renderiza → `onClose` cambia
+de referencia → el efecto se re-dispara → `ref.current?.focus()` vuelve a enfocar el **wrapper**
+del modal, robándole el foco al `<input>` a media escritura.
+
+**Fix.** Se separó en dos efectos: el foco inicial depende SOLO de `open` (se enfoca una vez al
+abrir, nunca en cada re-render); el listener de Escape sigue dependiendo de `[open, onClose]`
+(re-suscribirse ahí es inofensivo, no roba foco). Cambio confinado a `Modal.tsx`; no se tocó
+`M5View.tsx` — el mismo bug existía potencialmente en cualquier otro modal con un `footer` que
+referencia una función inline del padre (p. ej. los otros modales de M5, M1, M6…), así que el fix
+en el componente compartido los corrige a todos de una vez.
+
+**Test.** `M5View.test.tsx` +1 (`userEvent.type` de varias letras seguidas sobre "Motivo del
+rechazo"; falla sin el fix con solo el primer carácter registrado, pasa con el fix).
+
+### Gates
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓
+(45 archivos / 346 tests, incluye los 17 tests preexistentes de `M5View.test.tsx` + 1 nuevo).

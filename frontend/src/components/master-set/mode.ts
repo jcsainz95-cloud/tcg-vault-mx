@@ -11,5 +11,12 @@
  *  - `user_vault_self` → vista (iii): "Mi bóveda" del cliente. SOLO lectura + CTA de COMPRA
  *                        en variantes faltantes (`buyable`); sin acciones de venta ni datos
  *                        internos. /vault/master-sets[...].
+ *  - `quoter`           → cotizador (Vender, storefront/buylist): SOLO lectura del CATÁLOGO
+ *                        (no de inventario/bóveda) compuesta 100% client-side con los mismos
+ *                        endpoints públicos del cotizador (`listBuylistSets` / `searchBuylistCards`
+ *                        / `batchQuote` — SIN endpoint nuevo, SIN cambio de contrato). Cada
+ *                        variante trae su cotización (`variants[].quote`, campo aditivo SOLO
+ *                        de este modo); clic en una casilla agrega esa combinación (carta,
+ *                        acabado) al carrito de VENTA. Sin captura/publicación/ajuste/compra.
  */
-export type MasterSetViewMode = 'platform' | 'user_vault_admin' | 'user_vault_self';
+export type MasterSetViewMode = 'platform' | 'user_vault_admin' | 'user_vault_self' | 'quoter';
