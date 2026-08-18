@@ -20,7 +20,14 @@
 
 # ---- Base ----
 FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat openssl
+# SEGURIDAD (2026-08-18): `apk upgrade` ANTES de instalar nada — ver la nota gemela
+# en Dockerfile.frontend. La imagen base trae los paquetes de Alpine congelados al
+# publicarse el tag y arrastra CVEs de la capa OS ya parcheados upstream. Esta imagen
+# no fallaba el gate (su `apk add openssl` resolvía contra el índice actual y de paso
+# subía libcrypto3/libssl3), pero eso era un efecto colateral, no una garantía: en
+# cuanto aparezca un CVE en un paquete que NO sea dependencia de openssl, la imagen
+# lo arrastraría igual. Se explicita para que ambas imágenes tengan la misma política.
+RUN apk upgrade --no-cache && apk add --no-cache libc6-compat openssl
 WORKDIR /app
 ENV NODE_ENV=production
 
