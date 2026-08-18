@@ -314,6 +314,15 @@ export interface BreakdownDTO {
 }
 
 /**
+ * v1.21-guest-checkout — `BreakdownDTO` + la línea de envío cobrada DENTRO de la misma orden
+ * (`direct_ship`). Aditivo: un `DirectShipBreakdownDTO` ES un `BreakdownDTO` válido.
+ */
+export interface DirectShipBreakdownDTO extends BreakdownDTO {
+  /** Tarifa de envío (dial `SHIPPING_FEE_CENTS`) cobrada en el MISMO PaymentIntent. */
+  shippingFeeCents: number;
+}
+
+/**
  * Desglose de compra de cartas. ARCHITECTURE §5.1.
  *   subtotal = Σ salePrice
  *   iva      = round(subtotal × ivaPct/100)                (IVA grava el subtotal)
@@ -356,6 +365,43 @@ export function computeShipmentBreakdown(
   const processingFeeCents = totalCents - baseCents;
   return {
     subtotalCents: shippingFeeCents,
+    ivaCents,
+    ivaRatePct: ivaPct,
+    processingFeeCents,
+    totalCents,
+    currency: 'MXN',
+  };
+}
+
+/**
+ * v1.21-guest-checkout (§4-G.1/§4-G.2) — desglose de una compra con ENVÍO DIRECTO (`direct_ship`).
+ * ADITIVA: `computeCartBreakdown` y `computeShipmentBreakdown` NO se tocan.
+ *
+ * Diferencia estructural con el flujo de bóveda: el envío se cobra en el MISMO PaymentIntent que
+ * las cartas (el invitado no tiene bóveda desde donde pedir un segundo retiro), así que:
+ *   subtotal = Σ salePrice                      (solo cartas; es lo que el DTO llama subtotalCents)
+ *   iva      = round((subtotal + envío) × ivaPct/100)   (el IVA grava cartas Y tarifa de envío)
+ *   base     = subtotal + envío + iva           (lo que la plataforma debe recibir íntegro)
+ *   total    = grossUp(base)                    (misma fórmula de gross-up, incl. IVA de la comisión)
+ *   fee      = total − base
+ *
+ * `shippingFeeCents` viaja aparte del `subtotalCents` para que la UI lo muestre como línea propia
+ * y para que el P&L (M7) lo lea de `Order.shippingFeeCents` sin doble conteo (ARCHITECTURE §4.21b).
+ */
+export function computeDirectShipBreakdown(
+  subtotalCents: number,
+  shippingFeeCents: number,
+  ivaPct: number,
+  fee: StripeFeeConfig,
+): DirectShipBreakdownDTO {
+  const taxableCents = subtotalCents + shippingFeeCents;
+  const ivaCents = Math.round((taxableCents * ivaPct) / 100);
+  const baseCents = taxableCents + ivaCents;
+  const totalCents = grossUpTotal(baseCents, fee);
+  const processingFeeCents = totalCents - baseCents;
+  return {
+    subtotalCents,
+    shippingFeeCents,
     ivaCents,
     ivaRatePct: ivaPct,
     processingFeeCents,

@@ -2,6 +2,7 @@ import { PriceIngestService } from '../src/modules/pricing/price-ingest.service'
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { usdToMxnCents } from '../src/common/money';
+import { cardNumberVariants } from '../src/modules/pricing/pricing.types';
 
 /**
  * WS-A (v1.14-price-ingest, §4.15c/§4.15d/§4.15e) — PriceIngestService:
@@ -241,5 +242,82 @@ describe('PricingService.persistMarketReference — generalizado (source + moned
       'c1', 'normal', { marketCents: 500, currency: 'USD', source: 'pokemonpricetracker' }, { rate: 18, bufferPct: 0 },
     );
     expect(prisma.priceReference.upsert).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * P-6 (2026-08-18) — el proveedor de paga publica `cardNumber`, que puede venir con el total del
+ * set (`"104/159"`) o con ceros a la izquierda (`"004"`), mientras `Card.number` viene de
+ * pokemontcg.io (`"104"`). El fallback `(set, number)` tolera esas formas SIN adivinar la carta.
+ */
+describe('cardNumberVariants — formas equivalentes del número de carta', () => {
+  it('corta el total del set: "104/159" → incluye "104"', () => {
+    expect(cardNumberVariants('104/159')).toContain('104');
+  });
+
+  it('tolera el relleno de ceros en ambos sentidos', () => {
+    expect(cardNumberVariants('004')).toEqual(expect.arrayContaining(['4', '04']));
+    expect(cardNumberVariants('4')).toEqual(expect.arrayContaining(['04', '004']));
+  });
+
+  it('NO toca los números alfanuméricos (TG01, SV107) ni devuelve el valor exacto', () => {
+    expect(cardNumberVariants('TG01')).toEqual([]);
+    expect(cardNumberVariants('104')).not.toContain('104');
+    expect(cardNumberVariants('  ')).toEqual([]);
+  });
+});
+
+describe('PriceIngestService.resolveCardId — fallback por número con formato distinto (P-6)', () => {
+  const fx = { rate: 18, bufferPct: 3 };
+
+  function build(cards: { findFirst: jest.Mock; findMany?: jest.Mock }) {
+    const prisma = {
+      cardSet: { findUnique: jest.fn(async () => SET) },
+      card: { findUnique: jest.fn(async () => null), update: jest.fn(async () => ({})), ...cards },
+    } as any;
+    const pricing = { persistMarketReference: jest.fn(async () => {}) };
+    const provider = providerMock('pokemonpricetracker', [
+      { externalId: null, setExternalId: 'sv8', number: '104/159', finish: 'normal', marketCents: 100, currency: 'USD' },
+    ]);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    return { svc, prisma, pricing };
+  }
+
+  it('"104/159" del proveedor resuelve a la carta "104" del set (coincidencia ÚNICA)', async () => {
+    const findMany = jest.fn(async () => [{ id: 'db-104' }]);
+    const { svc, prisma, pricing } = build({ findFirst: jest.fn(async () => null), findMany });
+
+    const res = await svc.ingestSet('local-sv8', fx);
+
+    // Primero se intentó el número EXACTO; solo al fallar se probaron las variantes.
+    expect(prisma.card.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { setId: 'local-sv8', number: '104/159' } }),
+    );
+    const variantsWhere = (findMany.mock.calls[0] as unknown[])[0] as { where: { number: { in: string[] } } };
+    expect(variantsWhere.where.number.in).toContain('104');
+    expect(pricing.persistMarketReference).toHaveBeenCalledWith(
+      'db-104', 'normal', expect.objectContaining({ marketCents: 100 }), fx,
+    );
+    expect(res.unresolved).toBe(0);
+  });
+
+  it('el número EXACTO manda: si casa, NO se consultan variantes', async () => {
+    const findMany = jest.fn(async () => []);
+    const { svc, pricing } = build({ findFirst: jest.fn(async () => ({ id: 'db-exact' })), findMany });
+
+    await svc.ingestSet('local-sv8', fx);
+    expect(findMany).not.toHaveBeenCalled();
+    expect(pricing.persistMarketReference).toHaveBeenCalledWith(
+      'db-exact', 'normal', expect.objectContaining({ marketCents: 100 }), fx,
+    );
+  });
+
+  it('variantes AMBIGUAS (2 cartas casan) → se OMITE la fila (no se adivina la carta)', async () => {
+    const findMany = jest.fn(async () => [{ id: 'db-a' }, { id: 'db-b' }]);
+    const { svc, pricing } = build({ findFirst: jest.fn(async () => null), findMany });
+
+    const res = await svc.ingestSet('local-sv8', fx);
+    expect(pricing.persistMarketReference).not.toHaveBeenCalled();
+    expect(res.unresolved).toBe(1);
   });
 });

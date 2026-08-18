@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InventoryItem, Card, CardSet } from '@prisma/client';
+import { InventoryItem, Card, CardSet, MovementReason, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -8,6 +8,19 @@ import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { computeCartBreakdown, BreakdownDTO } from '../../common/money';
+
+/**
+ * Titularidad a escribir al RESERVAR una pieza (T2). Es el único eje en el que difieren las dos
+ * rutas de fulfillment:
+ *  - `null` ⇒ envío directo (invitado): la pieza NO cambia de dueño, sigue siendo de la
+ *    plataforma todo el ciclo (§4-G.0-1: un invitado no tiene bóveda).
+ *  - objeto ⇒ bóveda: la pieza entra a la bóveda del comprador con titularidad `pending`.
+ */
+export type ReservationOwnership = {
+  ownerType: 'customer';
+  ownerUserId: string;
+  ownershipStatus: 'pending';
+} | null;
 
 @Injectable()
 export class OrdersService {
@@ -52,25 +65,58 @@ export class OrdersService {
     return items;
   }
 
-  async quote(userId: string, inventoryItemIds: string[]) {
+  /**
+   * Valida disponibilidad y resuelve el precio de venta de cada línea del carrito.
+   * Fuente ÚNICA de la regla de venta para los DOS checkouts (con cuenta y de invitado, §4-G.1):
+   * comprar como invitado NO cambia condiciones comerciales (mismo precio, mismas validaciones).
+   * `ITEM_UNAVAILABLE` si la pieza no es de plataforma o no está en `{listed, in_stock}`;
+   * `PRICE_PENDING` si no tiene precio de venta resoluble (SEC-A1: se deriva server-side).
+   */
+  async priceCartLines(inventoryItemIds: string[]): Promise<{
+    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+    subtotalCents: number;
+    lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
+  }> {
     const items = await this.loadItems(inventoryItemIds);
-    const previews: { inventoryItemId: string; card: unknown; unitPriceCents: number }[] = [];
-    let subtotal = 0;
+    const lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[] = [];
+    let subtotalCents = 0;
     for (const item of items) {
       if (item.ownerType !== 'platform' || !['listed', 'in_stock'].includes(item.status)) {
         throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
       }
       const price = await this.salePriceOf(item);
-      subtotal += price;
-      previews.push({
+      subtotalCents += price;
+      lines.push({
         inventoryItemId: item.id,
-        card: this.cardSnapshot(item),
+        cardSnapshot: this.cardSnapshot(item),
         unitPriceCents: price,
       });
     }
+    return { items, subtotalCents, lines };
+  }
+
+  /**
+   * v1.21 (M-25): siguiente número legible de pedido `TCG-000123` desde la secuencia Postgres
+   * `order_number_seq`. Mismo patrón que `inventory_folio_seq` (`PrismaService.nextFolio`); se
+   * implementa aquí —y no en `PrismaService`— porque `src/prisma/` es zona de otro stream.
+   */
+  async nextOrderNumber(): Promise<string> {
+    const rows = await this.prisma.$queryRawUnsafe<{ nextval: bigint }[]>(
+      "SELECT nextval('order_number_seq') AS nextval",
+    );
+    return `TCG-${String(Number(rows[0].nextval)).padStart(6, '0')}`;
+  }
+
+  async quote(userId: string, inventoryItemIds: string[]) {
+    const { subtotalCents, lines } = await this.priceCartLines(inventoryItemIds);
+    const previews = lines.map((l) => ({
+      inventoryItemId: l.inventoryItemId,
+      card: l.cardSnapshot,
+      unitPriceCents: l.unitPriceCents,
+    }));
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
-    const breakdown = computeCartBreakdown(subtotal, ivaPct, fee);
+    const breakdown = computeCartBreakdown(subtotalCents, ivaPct, fee);
     return { items: previews, breakdown };
   }
 
@@ -88,117 +134,51 @@ export class OrdersService {
   }
 
   /**
-   * Checkout session: reserva items, crea Order pending y PaymentIntent Stripe.
-   * ARCHITECTURE §3.3, §5.1. Concurrencia: reserva con status=reserved (pieza única).
+   * T2 (techlead) — RESERVA ATÓMICA de piezas únicas, **fuente ÚNICA para las dos rutas de
+   * fulfillment**. Antes vivía duplicada en `OrdersService` (bóveda) y `GuestCheckoutService`
+   * (envío directo), y las copias ya habían DIVERGIDO: la de invitado añadía el guard
+   * `ownerType='platform'` y la de bóveda no. Unificar aquí garantiza que el próximo arreglo se
+   * aplique a ambas — es el punto donde se corrompe inventario, así que no admite dos versiones.
+   *
+   * Guardias (se conserva la versión CORRECTA, la que tenía el guard):
+   *  - `ownerType: 'platform'` — cierra la ventana TOCTOU que dejaba el chequeo pre-transaccional
+   *    de `priceCartLines`: entre aquel `findMany` y esta transacción, otro flujo podía cambiar la
+   *    titularidad de la pieza y el checkout de bóveda la habría reservado igual.
+   *  - `status ∈ {listed, in_stock}` + `count === 1` — dos checkouts concurrentes por la misma
+   *    pieza: solo uno gana la transición a `reserved`; el otro recibe `ITEM_UNAVAILABLE`.
+   *
+   * `ownership` es el ÚNICO eje en el que difieren las dos rutas:
+   *  - `null` (envío directo / invitado): NO se escribe titularidad. La pieza sigue siendo de la
+   *    plataforma durante todo el ciclo — invariante §4-G.0-1 (un invitado no tiene bóveda).
+   *  - `{ownerType:'customer', ownerUserId, ownershipStatus:'pending'}` (bóveda): la pieza pasa a
+   *    la bóveda del comprador con titularidad pendiente hasta el settle.
    */
-  async createSession(
-    userId: string,
-    inventoryItemIds: string[],
-    billingProfileId: string | undefined,
-    idempotencyKey?: string,
-  ) {
-    const items = await this.loadItems(inventoryItemIds);
-    let subtotal = 0;
-    const orderItemsData: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[] = [];
+  async reserveItems(
+    tx: Prisma.TransactionClient,
+    items: { id: string; folio: string }[],
+    ownership: ReservationOwnership,
+  ): Promise<void> {
     for (const item of items) {
-      if (item.ownerType !== 'platform' || !['listed', 'in_stock'].includes(item.status)) {
+      const reserved = await tx.inventoryItem.updateMany({
+        where: { id: item.id, ownerType: 'platform', status: { in: ['listed', 'in_stock'] } },
+        data: { status: 'reserved', ...(ownership ?? {}) },
+      });
+      if (reserved.count !== 1) {
+        // Otro checkout ya reservó/vendió esta pieza (o cambió de estado/titularidad).
         throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
       }
-      const price = await this.salePriceOf(item);
-      subtotal += price;
-      orderItemsData.push({
-        inventoryItemId: item.id,
-        cardSnapshot: this.cardSnapshot(item),
-        unitPriceCents: price,
-      });
     }
-    const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
-    const fee = await this.settings.getStripeFee();
-    const breakdown = computeCartBreakdown(subtotal, ivaPct, fee);
-
-    const billingSnapshot = billingProfileId
-      ? await this.prisma.billingProfile.findFirst({ where: { id: billingProfileId, userId } })
-      : await this.prisma.billingProfile.findUnique({ where: { userId } });
-
-    // Reserva ATÓMICA de cada pieza única + creación de la Order pending (ARCHITECTURE §8).
-    // Se usa updateMany con guardia de estado vendible (listed/in_stock) y se exige
-    // count===1: si dos checkouts concurrentes compiten por el mismo item, solo uno gana
-    // la transición a `reserved`; el otro recibe ITEM_UNAVAILABLE. Transición de estados:
-    //   listed/in_stock → reserved (aquí) → in_custody (settle) | listed (pago falla/contracargo).
-    const order = await this.prisma.$transaction(async (tx) => {
-      for (const item of items) {
-        const reserved = await tx.inventoryItem.updateMany({
-          where: { id: item.id, status: { in: ['listed', 'in_stock'] } },
-          data: {
-            status: 'reserved',
-            ownerType: 'customer',
-            ownerUserId: userId,
-            ownershipStatus: 'pending',
-          },
-        });
-        if (reserved.count !== 1) {
-          // Otro checkout ya reservó/vendió esta pieza (o cambió de estado).
-          throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
-        }
-      }
-      const created = await tx.order.create({
-        data: {
-          userId,
-          status: 'pending',
-          subtotalCents: breakdown.subtotalCents,
-          processingFeeCents: breakdown.processingFeeCents,
-          ivaCents: breakdown.ivaCents,
-          totalCents: breakdown.totalCents,
-          ivaRatePct: breakdown.ivaRatePct,
-          cfdiStatus: 'registrado',
-          billingSnapshot: billingSnapshot ?? undefined,
-          items: { create: orderItemsData },
-        },
-      });
-      return created;
-    });
-
-    // M3: la idempotency-key se deriva en el SERVIDOR (`pi-order-<id>`); el header del
-    // cliente es solo un override. Así, reintentos del mismo checkout no crean PIs dobles.
-    const idem = idempotencyKey ?? `pi-order-${order.id}`;
-
-    // A2 (cierra BE-7): el PaymentIntent es transaccional con la reserva. Si Stripe falla
-    // TRAS reservar, compensamos —liberamos la reserva (items → vendibles) y marcamos la
-    // orden `failed`— y devolvemos un error de reintento en vez de dejar la pieza única
-    // atrapada en `reserved` con una orden `pending` sin PaymentIntent.
-    let pi: { id: string; clientSecret: string };
-    try {
-      pi = await this.stripe.createPaymentIntent({
-        amountCents: breakdown.totalCents,
-        metadata: { orderId: order.id, userId, kind: 'order' },
-        idempotencyKey: idem,
-      });
-    } catch (e) {
-      await this.releaseReservation(
-        order.id,
-        orderItemsData.map((oi) => oi.inventoryItemId),
-      );
-      throw this.toRetryError(e);
-    }
-
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { stripePaymentIntentId: pi.id },
-    });
-
-    return {
-      orderId: order.id,
-      breakdown,
-      stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
-    };
   }
 
   /**
-   * A2: compensación de la reserva ante fallo del PaymentIntent. Devuelve cada pieza a
-   * estado vendible (`listed`, `ownerType=platform`) y marca la orden `failed`. La guardia
+   * A2 — compensación de la reserva ante fallo del PaymentIntent (fuente ÚNICA, T2). Devuelve cada
+   * pieza a estado vendible y de plataforma, y marca la orden `failed`. La guardia
    * `status: 'reserved'` evita liberar items que otro flujo ya movió.
+   *
+   * Escribe la titularidad de plataforma SIEMPRE, también en el envío directo: ahí es un no-op
+   * (la pieza nunca dejó de ser de la plataforma) y evita tener dos cuerpos que puedan divergir.
    */
-  private async releaseReservation(orderId: string, itemIds: string[]): Promise<void> {
+  async releaseReservation(orderId: string, itemIds: string[]): Promise<void> {
     await this.prisma
       .$transaction(async (tx) => {
         await tx.inventoryItem.updateMany({
@@ -216,16 +196,309 @@ export class OrdersService {
   }
 
   /**
-   * A2: convierte un fallo del proveedor de pago en un error de reintento (503). Los
-   * errores de negocio ya legibles (p. ej. `AMOUNT_TOO_LOW`, `CARD_DECLINED`) se propagan
-   * tal cual para que el cliente no reintente ciegamente.
+   * A2 (cierra BE-7) — crea el PaymentIntent de una orden ya reservada, COMPENSA si el proveedor
+   * falla y persiste `stripePaymentIntentId`. Fuente ÚNICA para las dos rutas (T2): el bloque
+   * «crear PI → compensar → persistir» estaba duplicado casi verbatim.
+   *
+   * La idempotency-key se deriva en el SERVIDOR (`pi-order-<id>`); el header del cliente es solo
+   * un override, así que un reintento del mismo checkout no crea dos PaymentIntents.
+   * Si Stripe falla TRAS reservar, se libera la reserva y la orden queda `failed`, en vez de dejar
+   * piezas únicas atrapadas en `reserved` con una orden `pending` sin PaymentIntent.
    */
-  private toRetryError(e: unknown): unknown {
+  async attachPaymentIntent(params: {
+    orderId: string;
+    amountCents: number;
+    metadata: Record<string, string>;
+    inventoryItemIds: string[];
+    idempotencyKey?: string;
+  }): Promise<{ id: string; clientSecret: string }> {
+    const idem = params.idempotencyKey ?? `pi-order-${params.orderId}`;
+    let pi: { id: string; clientSecret: string };
+    try {
+      pi = await this.stripe.createPaymentIntent({
+        amountCents: params.amountCents,
+        metadata: params.metadata,
+        idempotencyKey: idem,
+      });
+    } catch (e) {
+      await this.releaseReservation(params.orderId, params.inventoryItemIds);
+      throw this.toRetryError(e);
+    }
+    await this.prisma.order.update({
+      where: { id: params.orderId },
+      data: { stripePaymentIntentId: pi.id },
+    });
+    return pi;
+  }
+
+  /**
+   * A2 — convierte un fallo del proveedor de pago en un error de reintento (503). Los errores de
+   * negocio ya legibles (p. ej. `AMOUNT_TOO_LOW`, `CARD_DECLINED`) se propagan tal cual para que
+   * el cliente no reintente ciegamente. Fuente ÚNICA (T2): estaba duplicado verbatim.
+   */
+  toRetryError(e: unknown): unknown {
     if (e instanceof BusinessException) return e;
     return BusinessException.retriable(
       'PAYMENT_PROVIDER_UNAVAILABLE',
       'Payment provider unavailable; the reservation was released. Please retry.',
     );
+  }
+
+  /**
+   * Checkout session: reserva items, crea Order pending y PaymentIntent Stripe.
+   * ARCHITECTURE §3.3, §5.1. Concurrencia: reserva con status=reserved (pieza única).
+   */
+  async createSession(
+    userId: string,
+    inventoryItemIds: string[],
+    billingProfileId: string | undefined,
+    idempotencyKey?: string,
+  ) {
+    const { items, subtotalCents: subtotal, lines: orderItemsData } =
+      await this.priceCartLines(inventoryItemIds);
+    const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
+    const fee = await this.settings.getStripeFee();
+    const breakdown = computeCartBreakdown(subtotal, ivaPct, fee);
+
+    const billingSnapshot = billingProfileId
+      ? await this.prisma.billingProfile.findFirst({ where: { id: billingProfileId, userId } })
+      : await this.prisma.billingProfile.findUnique({ where: { userId } });
+
+    // v1.21 (M-25): el número legible se reserva ANTES de la transacción (nextval es
+    // no transaccional; un hueco en la secuencia es inocuo, un número duplicado no).
+    const orderNumber = await this.nextOrderNumber();
+
+    // Reserva ATÓMICA de cada pieza única (helper compartido, T2) + creación de la Order pending
+    // (ARCHITECTURE §8). Transición: listed/in_stock → reserved (aquí) → in_custody (settle) |
+    // listed (pago falla / contracargo).
+    const order = await this.prisma.$transaction(async (tx) => {
+      // Bóveda: la pieza pasa a la bóveda del comprador con titularidad `pending`.
+      await this.reserveItems(tx, items, {
+        ownerType: 'customer',
+        ownerUserId: userId,
+        ownershipStatus: 'pending',
+      });
+      const created = await tx.order.create({
+        data: {
+          userId,
+          // v1.21 (M-25): TODO pedido nuevo lleva número legible (también los de bóveda).
+          orderNumber,
+          status: 'pending',
+          subtotalCents: breakdown.subtotalCents,
+          processingFeeCents: breakdown.processingFeeCents,
+          ivaCents: breakdown.ivaCents,
+          totalCents: breakdown.totalCents,
+          ivaRatePct: breakdown.ivaRatePct,
+          cfdiStatus: 'registrado',
+          billingSnapshot: billingSnapshot ?? undefined,
+          items: { create: orderItemsData },
+        },
+      });
+      return created;
+    });
+
+    // A2 (cierra BE-7): crear PI + compensar si falla + persistir el id (helper compartido, T2).
+    const pi = await this.attachPaymentIntent({
+      orderId: order.id,
+      amountCents: breakdown.totalCents,
+      metadata: { orderId: order.id, userId, kind: 'order' },
+      inventoryItemIds: orderItemsData.map((oi) => oi.inventoryItemId),
+      idempotencyKey,
+    });
+
+    return {
+      orderId: order.id,
+      breakdown,
+      stripe: { paymentIntentId: pi.id, clientSecret: pi.clientSecret },
+    };
+  }
+
+  /**
+   * v1.21.2 (T1, §M3) — DESENLACE HUMANO de una pieza CONGELADA por un contracargo con envío vivo.
+   * Sin esta acción, la pieza congelada (`picking`, fuera de venta) se quedaría congelada para
+   * siempre: ninguna automatización puede decidir dónde está físicamente la carta.
+   *
+   * Tres desenlaces, todos con `note` obligatoria (el registro de lo que el operador vio en el
+   * estante) y todos dejando `chargebackNeedsManual=false`:
+   *  - `recuperada`    — el operador tiene la carta ⇒ `picking|shipped → listed` (o `in_stock` si
+   *                      su precio no resuelve) + `chargeback_return`. Vuelve a la venta CON
+   *                      respaldo físico.
+   *  - `no_recuperada` — la carta ya no está ⇒ **sin** movimiento de inventario; se queda donde
+   *                      está. **No** se marca `lost`/`damaged`: no fue merma de almacén y
+   *                      ensuciaría los reportes de pérdida (mismo cuidado que `delivered` vs
+   *                      `withdrawn`). La pérdida se refleja en la orden `chargeback` para M7.
+   *  - `reexpedir`     — solo si GANAMOS la disputa ⇒ envío nuevo con la misma forma que el del
+   *                      settle; las piezas siguen en `picking`.
+   *
+   * Idempotencia (norma §M3): **cualquier** outcome sobre una orden con `chargebackNeedsManual=false`
+   * (ya resuelta) devuelve `409 CONFLICT` y no duplica movimientos ni envíos. La garantía es
+   * ATÓMICA, no de comentario: el guard y los efectos van en UNA transacción y la decisión se
+   * "reclama" con `updateMany ... count===1` (ver dentro), así que dos llamadas concurrentes no
+   * pueden crear dos envíos.
+   */
+  async resolveChargebackInventory(
+    orderId: string,
+    outcome: 'recuperada' | 'no_recuperada' | 'reexpedir',
+    now = new Date(),
+  ): Promise<{
+    orderId: string;
+    outcome: string;
+    inventoryItemIds: string[];
+    shipmentId?: string;
+    chargebackNeedsManual: false;
+  }> {
+    // TODO EN UNA TRANSACCIÓN (techlead): antes se leía `chargebackNeedsManual` FUERA y se
+    // escribía DENTRO, así que dos llamadas concurrentes (doble submit; el endpoint no lleva
+    // Idempotency-Key) pasaban ambas el guard. Con `recuperada` salvaba el `count===1` por pieza,
+    // pero `reexpedir` creaba DOS `ShipmentRequest` para la misma orden — rompiendo el invariante
+    // «a lo más un envío activo por orden» (§4-G.10) y duplicando la pieza en `pickingList()`.
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({ where: { id: orderId }, include: { items: true } });
+      if (!order) throw BusinessException.notFound();
+      if (order.fulfillmentMode !== 'direct_ship') {
+        throw BusinessException.badRequest(
+          'VALIDATION_ERROR',
+          'Only a direct_ship order can have a frozen piece from a chargeback',
+        );
+      }
+
+      // CLAIM ATÓMICO de la decisión: gana quien consiga la transición `true → false`
+      // (mismo patrón `updateMany` + `count===1` que la reserva de piezas únicas). El perdedor ve
+      // `count===0` ⇒ `409`, que ES la regla de idempotencia de §M3.
+      // Si algo posterior lanza, la transacción REVIERTE y el flag vuelve a `true`: un desenlace
+      // rechazado (p. ej. `reexpedir` sin disputa ganada) NO consume la decisión.
+      const claimed = await tx.order.updateMany({
+        where: { id: orderId, chargebackNeedsManual: true },
+        data: { chargebackNeedsManual: false },
+      });
+      if (claimed.count !== 1) {
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'This chargeback has no pending inventory decision (already resolved or being resolved)',
+        );
+      }
+
+      // Piezas CONGELADAS del pedido: las que siguen comprometidas con la venta.
+      const frozen = await tx.inventoryItem.findMany({
+        where: {
+          id: { in: order.items.map((oi) => oi.inventoryItemId) },
+          status: { in: ['picking', 'shipped'] },
+        },
+      });
+
+      if (outcome === 'reexpedir') {
+        // Re-expedir solo tiene sentido si la disputa se GANÓ (los fondos volvieron).
+        if (order.status !== 'settled' || order.disputeOutcome !== 'won') {
+          throw BusinessException.conflict(
+            'CONFLICT',
+            'Re-shipping requires a won dispute (order settled with disputeOutcome=won)',
+          );
+        }
+        if (frozen.length === 0) {
+          throw BusinessException.conflict('CONFLICT', 'There is no frozen piece to re-ship');
+        }
+        // Invariante §4-G.10: a lo más UN envío activo por orden. Con el claim atómico de arriba
+        // esta comprobación no debería disparar nunca; se deja como red de seguridad explícita.
+        const active = await tx.shipmentRequest.findFirst({
+          where: { orderId: order.id, status: { not: 'cancelado' } },
+        });
+        if (active) {
+          throw BusinessException.conflict(
+            'CONFLICT',
+            'This order already has an active shipment',
+          );
+        }
+        // Misma FORMA que el envío del settle: montos en 0 (el ingreso vive en
+        // Order.shippingFeeCents), sin userId y con el snapshot de dirección de la orden.
+        const created = await tx.shipmentRequest.create({
+          data: {
+            userId: null,
+            orderId: order.id,
+            addressSnapshot: (order.shippingAddressSnapshot ?? {}) as Prisma.InputJsonValue,
+            status: 'picking',
+            pickingAt: now,
+            shippingFeeCents: 0,
+            ivaCents: 0,
+            processingFeeCents: 0,
+            totalCents: 0,
+            items: { create: frozen.map((i) => ({ inventoryItemId: i.id })) },
+          },
+        });
+        return {
+          orderId: order.id,
+          outcome,
+          inventoryItemIds: frozen.map((i) => i.id),
+          shipmentId: created.id,
+          chargebackNeedsManual: false as const,
+        };
+      }
+
+      if (outcome === 'recuperada') {
+        if (frozen.length === 0) {
+          throw BusinessException.conflict('CONFLICT', 'There is no frozen piece to recover');
+        }
+        const recovered: string[] = [];
+        for (const item of frozen) {
+          // `listed` solo si su precio de venta resuelve; si no, `in_stock` (en Compra NUNCA se
+          // muestra una pieza sin precio — PROJECT §A).
+          const toStatus = await this.sellableStatusFor(item);
+          const moved = await tx.inventoryItem.updateMany({
+            where: { id: item.id, status: item.status },
+            data: {
+              status: toStatus,
+              ownerType: 'platform',
+              ownerUserId: null,
+              ownershipStatus: null,
+            },
+          });
+          if (moved.count !== 1) continue;
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: item.id,
+              fromStatus: item.status,
+              toStatus,
+              reason: MovementReason.chargeback_return,
+              note: `chargeback resolved (recuperada) order ${order.orderNumber ?? order.id}`,
+            },
+          });
+          recovered.push(item.id);
+        }
+        return {
+          orderId: order.id,
+          outcome,
+          inventoryItemIds: recovered,
+          chargebackNeedsManual: false as const,
+        };
+      }
+
+      // `no_recuperada`: SIN movimiento de inventario. La pieza se queda donde está (terminal de
+      // venta). NO se marca `lost`/`damaged`: no fue merma de almacén y ensuciaría los reportes.
+      return {
+        orderId: order.id,
+        outcome,
+        inventoryItemIds: frozen.map((i) => i.id),
+        chargebackNeedsManual: false as const,
+      };
+    });
+  }
+
+  /**
+   * ¿A qué estado vendible vuelve una pieza recuperada? `listed` si su precio de venta resuelve;
+   * `in_stock` si queda pendiente (una pieza sin precio NUNCA se publica en Compra, PROJECT §A).
+   */
+  private async sellableStatusFor(item: InventoryItem): Promise<'listed' | 'in_stock'> {
+    try {
+      const full = await this.prisma.inventoryItem.findUnique({
+        where: { id: item.id },
+        include: { card: { include: { set: true } } },
+      });
+      if (!full) return 'in_stock';
+      await this.salePriceOf(full);
+      return 'listed';
+    } catch {
+      // PRICE_PENDING (o cualquier fallo al resolver el precio) ⇒ no se publica.
+      return 'in_stock';
+    }
   }
 
   async listOrders(userId: string, page: number, pageSize: number) {
@@ -278,6 +551,10 @@ export class OrdersService {
       cfdiStatus: order.cfdiStatus,
       invoiceRequested: order.invoiceRequested,
       stripePaymentIntentId: order.stripePaymentIntentId,
+      // v1.21-guest-checkout (§4-G.8, ADITIVO): permite a la UI etiquetar "pedido hecho como
+      // invitado" y mostrar cuándo se reclamó. SIN PII: no expone `guestEmail`.
+      isGuestOrder: order.guestEmail != null,
+      claimedAt: order.claimedAt ?? undefined,
     };
   }
 

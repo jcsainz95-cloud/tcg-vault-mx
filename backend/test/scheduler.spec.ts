@@ -11,6 +11,7 @@ import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.servi
 import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
 import { PriceIngestJobService } from '../src/jobs/price-ingest.service';
 import { SealedPriceIngestJobService } from '../src/jobs/sealed-price-ingest.service';
+import { GuestOrderSweepJobService } from '../src/jobs/guest-order-sweep.service';
 
 // BullMQ + ioredis mockeados: capturamos qué jobs se programan sin infra real (Redis).
 const addMock = jest.fn().mockResolvedValue(undefined);
@@ -91,11 +92,15 @@ const priceIngest = {
 const sealedPriceIngest = {
   run: jest.fn().mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true }),
 } as unknown as SealedPriceIngestJobService;
+// v1.21-guest-checkout (T9): barrido de reservas de pedidos de invitado sin pagar.
+const guestOrderSweep = {
+  run: jest.fn().mockResolvedValue({ swept: 0 }),
+} as unknown as GuestOrderSweepJobService;
 
 function build(config: ConfigService) {
   return new SchedulerService(
     config, jobs, fx, snap, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest,
-    sealedPriceIngest,
+    sealedPriceIngest, guestOrderSweep,
   );
 }
 
@@ -159,6 +164,9 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
       'sealed-price-ingest': '30 21 * * *',
       // WS-A: metadata (sets nuevos, force:false) — cadencia ligera diaria (01:00 UTC).
       'catalog-metadata-sync': '0 1 * * *',
+      // v1.21-guest-checkout (T9): NO es diario — una reserva de invitado sin pagar bloquea
+      // piezas únicas 60 min, así que barre cada 15 min.
+      'guest-order-sweep': '*/15 * * * *',
     });
     // El barrido pesado catalog-price-sync YA NO se auto-programa (su rol de pricing lo tomó price-ingest).
     expect(byName['catalog-price-sync-1']).toBeUndefined();
@@ -196,6 +204,10 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
     await workerProcessor!({ name: 'sealed-price-ingest' });
     expect(sealedPriceIngest.run).toHaveBeenCalledTimes(1);
 
+    // v1.21-guest-checkout (T9): el worker enruta guest-order-sweep a su servicio.
+    await workerProcessor!({ name: 'guest-order-sweep' });
+    expect(guestOrderSweep.run).toHaveBeenCalledTimes(1);
+
     await svc.onModuleDestroy();
   });
 
@@ -206,6 +218,7 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
       PRICE_INGEST_CRON_2: '0 15 * * *',
       SEALED_PRICE_INGEST_CRON: '45 22 * * *',
       CATALOG_METADATA_SYNC_CRON: '0 2 * * 0',
+      GUEST_ORDER_SWEEP_CRON: '*/30 * * * *',
     });
     const svc = build(config);
     await svc.onModuleInit();
@@ -216,6 +229,8 @@ describe('SchedulerService — con REDIS_URL programa los diarios + price-ingest
     expect(byName['price-ingest-2']).toBe('0 15 * * *');
     expect(byName['sealed-price-ingest']).toBe('45 22 * * *');
     expect(byName['catalog-metadata-sync']).toBe('0 2 * * 0');
+    // v1.21-guest-checkout: el cron del barrido de invitados también es overridable por env.
+    expect(byName['guest-order-sweep']).toBe('*/30 * * * *');
 
     await svc.onModuleDestroy();
   });

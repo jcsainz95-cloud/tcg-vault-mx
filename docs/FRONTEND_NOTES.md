@@ -3245,3 +3245,278 @@ vitrina muestre también el estado «En el carrito» en el botón del card; hoy 
 
 ### Gates
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (44 archivos / 329 tests).
+
+## 2026-08-18 · Guest checkout — comprar sin cuenta (stream «Órdenes y dinero», contrato v1.21-guest-checkout)
+
+> Alcance implementado: **checkout de invitado** en `(storefront)/checkout` + **vista pública de
+> seguimiento** `/[locale]/pedido`. PROJECT §J/§J.1 (criterios 45–56b), contrato **§4-G**,
+> DESIGN_SYSTEM **§15**. NO se tocó `backend/` ni `docs/API_CONTRACT.md`.
+
+### Pantallas y componentes nuevos (todos junto a su ruta, no en `components/` compartidos)
+| Archivo | Qué es |
+|---|---|
+| `checkout/CheckoutView.tsx` (modificado) | Conmutador de las dos naturalezas del checkout **en la misma ruta**: con sesión = flujo de cuenta intacto; sin sesión = `GuestCheckoutView`. |
+| `checkout/GuestCheckoutView.tsx` | Contenedor del flujo de invitado: cotización, gate, formulario, destino, pago, confirmación. |
+| `checkout/CheckoutIdentityGate.tsx` | §15.2 — las tres vías (invitado / iniciar sesión / crear cuenta) inline, con "Cambiar". |
+| `checkout/GuestCheckoutForm.tsx` | §15.3 — contacto (correo + lectura de vuelta), envío MX, destino, términos, resumen de errores. |
+| `checkout/VaultUpsellPanel.tsx` | §15.4 — upsell inline de bóveda (nunca error), con salida en positivo. |
+| `checkout/InlineAuthPanel.tsx` | Login/registro inline **sin navegar** (ver "Por qué no se reusó `AuthForm`"). |
+| `checkout/GuestOrderConfirmation.tsx` | §15.5 — confirmación + reclamo post-compra (`AccountClaimOffer` incluido). |
+| `checkout/guest-validation.ts` | Validación local (correo, erratas de dominio, `GuestAddressInput` del contrato). |
+| `checkout/support-contact.ts` | Correo de soporte para pantallas sin DTO (ver solicitud 1 al arquitecto). |
+| `pedido/page.tsx` + `pedido/layout.tsx` | Ruta pública con **chrome reducido** (logo + LocaleToggle) y `noindex, nofollow` + `referrer: no-referrer`. |
+| `pedido/TrackingPageClient.tsx` | Token del query → **body** del POST + `history.replaceState`; estados loading/neutral/error. |
+| `pedido/PublicOrderTracking.tsx` | §15.6 — vista de datos mínimos (superficie de seguridad). |
+| `pedido/TrackingLinkNeutralState.tsx` | §15.7 — **una sola pantalla** para todos los fallos de token, con reenvío neutro. |
+| `pedido/tracking-status.ts` | Mapa `GuestOrderPublicStatus` → versalita i18n + pasos del stepper (§4-G.5). |
+
+### Endpoints consumidos (tal cual el contrato §4-G; ninguno inventado)
+`POST /checkout/guest/quote` · `POST /checkout/guest/session` · `POST /orders/guest/track` ·
+`POST /orders/guest/resend-link` · `POST /orders/claim` (tras el registro del reclamo).
+`GET /orders/claimable` queda implementada en `lib/api.ts` pero **sin UI en este stream** (el banner
+"tienes N pedidos por reclamar" vive en `/orders`, fuera del alcance acordado).
+
+### Decisiones de implementación que conviene conocer
+- **Criterio 46 por construcción:** el estado del formulario de invitado vive en `GuestCheckoutView`,
+  **por encima** del gate; el carrito sigue en `localStorage`. Cambiar de vía no desmonta nada ni
+  navega, así que ni el carrito ni los datos capturados se pierden (hay test unitario y E2E).
+- **Criterio 48 (upsell, no error):** el radio de bóveda **nunca** está `disabled`/`aria-disabled`;
+  al elegirlo se expande el panel y el botón de pago se bloquea con **texto explicativo**
+  (`aria-describedby`), no mudo. Si el backend devolviera `422 VAULT_REQUIRES_ACCOUNT`, el `catch`
+  **abre el upsell** en lugar de pintar error (doble red: proactiva + reactiva).
+- **Criterios 51/52/53 (superficies de seguridad):** la vista pública pinta **solo** la lista cerrada
+  de §15.6 — en particular **no** se pintan `emailMasked`, `recipientNameMasked` ni
+  `postalCodeMasked` aunque el DTO los traiga. Cualquier rechazo del token (404 / 410 / **429** /
+  cualquier `< 500`) y también "sin token en la URL" caen en la **misma** pantalla neutra, con el
+  mismo texto; solo un 5xx/red muestra el error genérico con reintentar (sin eco de `errorCode`).
+- **Confirmación no adivinable:** se pinta desde el estado de la transacción; el `orderId` solo se usa
+  para `POST /orders/claim` y nunca se muestra ni entra en la URL. El `return_url` de Stripe (3DS con
+  redirección) apunta a `/{locale}/pedido?token=…` con el `trackingToken` que devolvió el checkout
+  (§4-G.2): es la única forma de que el invitado recupere su pedido si el navegador pierde estado.
+  El token **no** se persiste en `localStorage` ni se loguea.
+- **`guestPaid` en `CheckoutView`:** al limpiar el carrito tras pagar, y al crear cuenta desde el
+  reclamo, la vista habría conmutado (carrito vacío / sesión nueva) y habría desmontado la
+  confirmación. Por eso el "ya pagó como invitado" manda sobre ambas condiciones.
+- **Por qué NO se reusó `components/domain/AuthForm`:** navega al terminar
+  (`router.push(destForRole(...))`) y no expone `onSuccess`, así que dentro del checkout expulsaría
+  al usuario de `/checkout` — justo lo que §15.2 prohíbe. `InlineAuthPanel` usa las **mismas**
+  funciones (`login`/`register` de `lib/api`) y el **mismo** `GoogleSignInButton`; no duplica lógica
+  de sesión. Alternativa futura (fuera de este stream, toca zona compartida): añadir `onSuccess?` y
+  un modo compacto a `AuthForm` y hacer que `InlineAuthPanel` lo envuelva.
+- **Barra sticky de pago en móvil (§15.3) NO implementada** a propósito: duplicaría el botón de pago
+  y §15.9 exige que solo uno reciba foco. El `aside` ya queda al final del flujo en móvil. Si ux-ui
+  la quiere, pido que defina el comportamiento de foco.
+
+### Zonas compartidas tocadas (solo adiciones; nada existente cambia de comportamiento)
+- `src/types/contract.ts`: bloque **aditivo** al final con los DTOs de §4-G + `shippingFeeCents?` en
+  `BreakdownDTO` (campo opcional que el contrato v1.21 añade; los shapes previos no cambian).
+- `src/lib/api.ts`: sección **aditiva** al final (6 funciones nuevas + mocks marcados). Solo se tocó
+  la lista de imports de tipos.
+- `src/components/ui/AmountBreakdown.tsx`: renglón de **envío** que se pinta **solo si**
+  `breakdown.shippingFeeCents != null`. En bóveda y retiros el campo no viene ⇒ desglose idéntico al
+  de v1.20 (el test existente del componente sigue verde sin cambios).
+- `messages/{es,en}.json`: claves nuevas `checkout.identity/guest/destination/vaultUpsell/confirmation`,
+  `track.*`, `track.neutral.*` (copy **normativo** de §15.7 literal), `status.tracking.*` y 4 códigos
+  de error. Paridad ES/EN verificada por `i18n-parity.test.ts`.
+- `e2e/checkout.spec.ts`: los casos del checkout **con cuenta** ahora hacen `loginAs` antes (sin
+  sesión esa ruta es, por diseño, el checkout de invitado).
+
+### `/checkout` deja de ser ruta privada (cambio en zona compartida, AUTORIZADO por el orquestador)
+- **`src/components/layout/PrivateRouteGuard.tsx`: se quitó `'/checkout'` de `PRIVATE_PREFIXES`.**
+  Con `/checkout` en la lista, en modo real (`NEXT_PUBLIC_USE_MOCKS=false`) un visitante **sin
+  sesión** era redirigido a `/login?next=/checkout` y los **criterios 45/46 quedaban rotos**. En modo
+  mock el guard es inerte, por eso la suite E2E daba verde igual (verde engañoso).
+- **Por qué NO es una relajación de seguridad:** el criterio 45 exige que un visitante sin cuenta
+  llegue al checkout y pague, y el contrato §4-G hace `@Public()` los endpoints `/checkout/guest/*`;
+  es requisito de producto. El guard es una **conveniencia de cliente** —como dice su propio
+  comentario, el **backend sigue siendo la autoridad**— y `/vault`, `/orders` y `/shipments` siguen
+  guardados; cualquier llamada privilegiada sigue devolviendo `401`. El flujo con cuenta no cambia.
+- **Anclaje de la regresión (modo REAL, no mock):**
+  `app/[locale]/(storefront)/checkout/checkout-public-route.test.tsx` monta el guard con
+  `config.useMocks = false` y verifica que `/checkout` y sus subrutas se montan **sin** redirección,
+  que con sesión se comportan igual, y que `/vault`/`/orders`/`/shipments` **siguen** redirigiendo.
+  Verificado a mano: reintroducir `'/checkout'` en el array pone ese test en rojo (2 casos).
+- **Efecto colateral en un test preexistente:** `components/layout/PrivateRouteGuard.test.tsx` tenía
+  el caso "preserva el destino en `next` … (/checkout)", que afirmaba justo el comportamiento
+  derogado. Se cambió **solo ese caso** a `/shipments` (misma intención, prefijo que sigue siendo
+  privado) con una nota que apunta al test ancla. No se tocó nada más de `components/`.
+
+### Ambigüedades detectadas (reportadas, NO resueltas por mi cuenta)
+1. **Contrato vs. diseño — reenvío de enlace: RESUELTO por arbitraje (v1.21.1 + §15.7 corregida).**
+   Lo que reporté (el formulario de un solo campo de §15.7 chocaba con `{email, orderNumber}` de
+   §4-G.4) lo arbitró el arquitecto a favor del contrato y ux-ui reescribió §15.7 con las **dos
+   vías**. Mi implementación se realineó al texto normativo — ver "Realineación con §15.7" abajo.
+2. **Contrato vs. diseño — teléfono.** §15.3 lo marca **opcional**; `GuestAddressInput` (§4-G.1) lo
+   pide obligatorio (10 dígitos MX). Se implementó **obligatorio** (manda el contrato).
+3. **`recipientName` y `acceptedTerms`** los exige el contrato y el diseño no los describe: se
+   añadieron como campo obligatorio y casilla de aceptación explícita, con copy propio.
+4. **`name` en el registro inline.** §15.4 dice "no se pide nada más" que correo + contraseña, pero
+   `POST /auth/register` (§1) exige `name`. Se pide, **prellenado** con el nombre del destinatario.
+5. **Reclamo inmediato vs. `emailVerified`.** §15.5 dibuja éxito inmediato tras crear la cuenta;
+   §4-G.9 exige `emailVerified` (403). Implementado: se intenta el reclamo y, si responde
+   `EMAIL_NOT_VERIFIED`, se muestra "verifica tu correo y vincúlalo desde tu historial"
+   (`checkout.confirmation.claim.needsVerification`), nunca un error rojo.
+6. **Estados públicos sin copy en §15.6.** El enum de §4-G.5 tiene 9 valores y la tabla de diseño
+   solo 7: añadí `status.tracking.pendingPayment` y `status.tracking.inReview` (neutros, sin nombrar
+   "contracargo").
+
+### Solicitudes al arquitecto (no bloquean; NO edité el contrato)
+1. **Correo de soporte antes de tener el DTO.** `support.evidenceContact` solo existe dentro de
+   `GuestOrderTrackingDTO` (§4-G.3), pero la **confirmación** (§15.5) y el **estado neutro** (§15.7)
+   lo necesitan sin token. Hoy vive centralizado en `checkout/support-contact.ts` con el valor
+   normativo del contrato. Petición: exponerlo en un endpoint/campo público de configuración.
+2. **URL de rastreo de paquetería.** El DTO trae `carrier` + `trackingNumber` pero no un patrón de URL
+   confiable: la guía se pinta como **texto copiable**, no como enlace (misma política que
+   `certNumber`). Si se confirma el patrón, se vuelve enlace.
+3. **`GET /orders/claimable` sin superficie.** Queda lista en `lib/api.ts` para el banner de "pedidos
+   por reclamar" en `/orders`; conviene decidir en qué stream se implementa.
+
+### Mocks (claramente marcados, todos con el shape del contrato)
+`lib/api.ts` — `computeGuestBreakdown` (réplica de `computeDirectShipBreakdown`), envío
+`MOCK_SHIPPING_FEE_CENTS=17500` (el valor real viaja en el `BreakdownDTO`), y para
+`trackGuestOrder`: token con `expired`/`revoked` → 410, token que empieza con `mock` → pedido demo,
+cualquier otro → 404 `INVALID_TOKEN`. `createGuestCheckoutSession` replica
+`422 VAULT_REQUIRES_ACCOUNT` y `422 ADDRESS_NOT_MX`. El backend sigue siendo la autoridad.
+
+### Gates
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓ (49 archivos /
+366 tests) · `npx playwright test` ✓ **60/60** en modo mock (incluye los 9 nuevos de
+`e2e/guest-checkout.spec.ts`, que cubren §J.1: camino feliz, upsell, correo inválido, token
+manipulado vs. expirado con texto idéntico, reenvío neutro con enfriamiento y ES/EN).
+
+
+## 2026-08-18 (2ª ronda) · v1.21.1 — `checkoutToken` de 120 min + §15.7 corregida
+
+### 1. Renombre CONTRACT-BREAKING: `trackingToken` → `checkoutToken` (+ `checkoutTokenExpiresAt`)
+- `types/contract.ts` · `GuestCheckoutSessionResponse`: el campo pasa a **`checkoutToken`** y se
+  añade **`checkoutTokenExpiresAt`** (ISO). Actualizado también el invariante §4-G.0-5 del comentario
+  de cabecera.
+- `lib/api.ts` · `createGuestCheckoutSession`: doc y **mock** al día
+  (`checkoutToken: mock-<orderId>-checkout-token`, `checkoutTokenExpiresAt = ahora + 120 min`). No
+  quedó **ninguna** referencia viva al nombre viejo (solo dos menciones históricas en comentarios,
+  marcadas como "antes `trackingToken`").
+- Consumidor: el `return_url` del 3DS en `GuestCheckoutView` usa `session.checkoutToken`.
+
+### 2. La SEMÁNTICA nueva, reflejada en la UX (§4-G.7a)
+- **El token del checkout vive 120 min y nunca viaja por correo.** El enlace de 90 días lo emite el
+  webhook del settle y llega **solo** por correo. Verificado que la confirmación **no invita a
+  guardar ni marcar como favorito** esa URL: su mensaje es `emailSentTo` ("te enviamos la confirmación
+  y el enlace de seguimiento a {email}"), y no muestra ni ofrece la URL del checkout.
+- **Aviso nuevo `track.temporaryLinkNotice`** en la vista de seguimiento: si `tokenExpiresAt` cae
+  dentro de los 120 min + 10 de holgura (`isShortLivedCheckoutToken`, en `pedido/tracking-status.ts`),
+  se avisa de que ese enlace es temporal y que el duradero llega por correo, con "Reenviar el enlace a
+  mi correo" a la vista. El enlace de 90 días **no** dispara el aviso. Es solo copy: no cambia el
+  acceso, y se apoya en el campo que §15.6 ya destina a eso. El texto dice "en unas horas" (agnóstico
+  al valor exacto, coherente con los 120 min).
+- **Camino de "volver pasadas las 2 h" verificado:** cae en `TrackingLinkNeutralState` y desde ahí el
+  reenvío funciona (vía A con el propio token vencido). Cubierto con E2E dedicada.
+
+### 3. Realineación con `DESIGN_SYSTEM §15.7` (corregida por ux-ui)
+- **Copy normativo literal, ES y EN**, reemplazando el mío: el `body` y —lo importante— el `result`:
+  *"Si **esos datos** corresponden a un pedido, enviamos un enlace nuevo a ese correo…"*. Mi versión
+  anterior condicionaba sobre **el correo** ("si hay un pedido asociado a ese correo"), que enmarca la
+  respuesta como una afirmación sobre esa dirección; la normativa condiciona sobre los datos en
+  conjunto y no insinúa nada. **La vía A usa exactamente la misma frase** (hay test que compara el
+  texto de ambas vías carácter a carácter).
+- **Inventario de claves alineado con §15.11:** `track.neutral.*` = `title`, `body`, `emailLabel`,
+  `submit`, `result`, `cooldown`, `claimAlternative`, `support`, **`noLinkCta`**, **`manualIntro`**,
+  `orderNumberLabel`, `orderNumberHelp`, **`incompleteForm`** (+ `cooldownAnnounce`, exigido por el
+  párrafo de accesibilidad de §15.7). Se retiraron mis nombres propios `noLinkToggle`,
+  `orderNumberRequired` y `emailInvalid`: la validación local usa **una sola** nota normativa
+  (`incompleteForm`), que cubre tanto "falta el dato" como "correo mal formado".
+- **Vía B conforme:** tras *disclosure* (`aria-expanded`/`aria-controls`, cerrado por defecto cuando
+  hay token); **ningún campo por separado habilita el envío** (el botón está `disabled` hasta tener
+  correo válido **y** número de pedido); `<fieldset>` + `<legend>` (= `manualIntro`), labels visibles,
+  `autocomplete="email"` en el correo y **`off`** en el número de pedido; `aria-invalid` +
+  `aria-describedby` a la nota local en los campos que falten (conservando la ayuda del campo de
+  pedido en el `describedby`); foco al primer campo al abrir el disclosure.
+- **Validación 100% local, confirmado:** el número de pedido solo se comprueba "no vacío"; no hay
+  llamada al servidor en `blur`, ni autocompletado, ni comprobación de existencia. La única petición
+  es el `POST /orders/guest/resend-link` al enviar.
+- **Frases prohibidas (lista ampliada) verificadas por test:** el render no contiene
+  "no encontrado", "no existe", "no coinciden", "incorrecto", "no está registrado", "token",
+  "expiró hace N", ni plazos en días.
+
+### Gates de esta ronda
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ (`/[locale]/checkout` y `/[locale]/pedido`
+presentes) · `npx vitest run` ✓ **50 archivos / 373 tests** · `npx playwright test` ✓ **62/62** en modo
+mock (2 E2E nuevas: enlace de checkout vencido → pantalla neutra que sí reenvía, y enlace de 90 días
+sin aviso de temporalidad).
+
+## 2026-08-18 · Cotizador unificado con Master Set (mode="quoter") + fix foco M5
+
+### Tarea 1 — `mode="quoter"` en el binder COMPARTIDO de Master Set
+
+**Qué cambió.** `BuylistView.tsx` (raw) ya NO tiene su propio grid de búsqueda plano: monta
+`<MasterSetPanel mode="quoter" onAddToSellCart={...} />` (mismo componente que M1/bóveda,
+§4.20f). Cada carta muestra sus **casillas por acabado** derivadas de `card.availableFinishes`
+(nunca un chip de texto, nunca una casilla para un acabado que la carta no tiene); clic en una
+casilla agrega esa combinación (carta, acabado) al carrito de VENTA con el precio ya cotizado.
+graded/sealed (sin variantes por acabado — cotizan siempre en `normal`) CONSERVAN el grid plano
+anterior sin cambios, incluida "Filtrar por set"/"Buscar carta" y el bulk multi-selección.
+
+**Sin cambio de contrato.** `mode="quoter"` NO agrega ningún endpoint: compone client-side con
+los MISMOS tres endpoints públicos que ya usaba el cotizador — `GET /buylist/sets`,
+`GET /buylist/cards` (troceado en TODAS sus páginas antes de resolver — ver bug P-4a abajo) y
+`POST /buylist/quote/batch` (troceado en lotes de `BUYLIST_QUOTE_BATCH_MAX`). La lógica vive en
+`fetchQuoterIndex` (`MasterSetIndex.tsx`) y `fetchQuoterBinder` (`MasterSetBinder.tsx`), paralelas
+a `fetchIndex`/`fetchBinder` existentes. `MasterSetVariantDTO.quote` (`types/contract.ts`) es un
+campo ADITIVO documentado como "solo frontend, NO viaja del backend" — no toca `API_CONTRACT.md`.
+
+**Bug de paginación (P-4a, confirmado con Pitch Black · 120 cartas).** Antes el cotizador cortaba
+en 20 cartas sin control. `fetchQuoterBinder` acumula TODAS las páginas de `GET /buylist/cards`
+(pageSize 50) antes de resolver la promesa del binder, así que el set completo se ve de una vez
+— **decisión de diseño, no el patrón "Cargar más" de M1View**: para un set >20 cartas
+multi-acabado esto dispara varias llamadas a `batchQuote` al abrir el set (ej. 120 cartas ×
+2 acabados ≈ 5 llamadas de 50). Es correcto y simple, pero si algún set crece mucho más
+(cientos de cartas) valdría la pena revisar si conviene paginación explícita — anotado, no
+bloqueante.
+
+**Decisiones de producto tomadas sin volver a preguntar (AUTO, a revisar si no convencen):**
+- El multi-selección (bulk) del grid plano **NO existe para raw**: cada casilla del binder ya es
+  su propia acción de un clic: no hace falta un paso de selección previo. Sigue existiendo para
+  graded/sealed (sin tocar).
+- "Filtrar por set" / "Buscar carta" del enunciado se resuelven con los controles PROPIOS de
+  Master Set: `MasterSetIndex` aporta "Buscar set" (elegir un set) y `MasterSetBinder` ahora
+  tiene un "Buscar carta" nuevo (SOLO en `quoter`, nombre/número dentro del set elegido). La
+  etiqueta exacta difiere ("Buscar set" vs "Filtrar por set" del enunciado) pero la función es
+  equivalente; no se duplicaron labels para no fragmentar el sistema de i18n del binder
+  compartido.
+
+**Archivos.** `components/master-set/mode.ts` (+`'quoter'`), `MasterSetIndex.tsx` (fetch +
+oculta completitud/piezas/orden en `quoter`), `MasterSetBinder.tsx` (fetch + `QuoterCell` nueva:
+casillas-botón con precio, "Buscar carta" local, oculta filtros de huecos/secret rare en
+`quoter`), `MasterSetPanel.tsx` (prop `onAddToSellCart`), `types/contract.ts`
+(`MasterSetVariantDTO.quote?`), `(storefront)/buylist/BuylistView.tsx` (monta el panel en raw;
+`CartLine.card` se angostó a `{id,name,number,imageSmallUrl}` — ya no requiere el `CardDTO`
+completo del catálogo).
+
+**Tests.** `MasterSet.test.tsx` +4 (dos acabados → dos casillas independientes; un acabado → sin
+hueco vacío; 120 cartas → todas visibles sin "Cargar más"; clic agrega al carrito con el precio
+correcto de esa combinación). `BuylistView.test.tsx` reescrito: el describe `raw` ahora navega
+por el binder Master Set; graded/sealed quedó en su propio describe con el grid plano y el bulk
+intactos; carrito/KYC/gating/F5/"Mis solicitudes" sin cambios de fondo (mismos textos i18n,
+mismos precios de fixtures — solo cambió CÓMO se llega a tener algo en el carrito).
+
+### Tarea 2 — bug real: el textbox de motivo de rechazo perdía el foco (M5)
+
+**Causa raíz.** `components/ui/Modal.tsx` tenía un solo `useEffect` que hacía
+`ref.current?.focus()` Y registraba el listener de Escape, con `[open, onClose]` como
+dependencias. `onClose` (`closeReject` en `M5View.tsx`) es una función NUEVA en cada render del
+padre (no memoizada) — cada tecleo cambia `rejectReason` → M5View re-renderiza → `onClose` cambia
+de referencia → el efecto se re-dispara → `ref.current?.focus()` vuelve a enfocar el **wrapper**
+del modal, robándole el foco al `<input>` a media escritura.
+
+**Fix.** Se separó en dos efectos: el foco inicial depende SOLO de `open` (se enfoca una vez al
+abrir, nunca en cada re-render); el listener de Escape sigue dependiendo de `[open, onClose]`
+(re-suscribirse ahí es inofensivo, no roba foco). Cambio confinado a `Modal.tsx`; no se tocó
+`M5View.tsx` — el mismo bug existía potencialmente en cualquier otro modal con un `footer` que
+referencia una función inline del padre (p. ej. los otros modales de M5, M1, M6…), así que el fix
+en el componente compartido los corrige a todos de una vez.
+
+**Test.** `M5View.test.tsx` +1 (`userEvent.type` de varias letras seguidas sobre "Motivo del
+rechazo"; falla sin el fix con solo el primer carácter registrado, pasa con el fix).
+
+### Gates
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓
+(45 archivos / 346 tests, incluye los 17 tests preexistentes de `M5View.test.tsx` + 1 nuevo).

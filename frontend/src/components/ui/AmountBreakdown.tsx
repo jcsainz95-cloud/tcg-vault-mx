@@ -61,6 +61,15 @@ export function AmountBreakdown({ breakdown, variant = 'purchase' }: AmountBreak
         hint={variant === 'shipment' ? undefined : t('subtotalHint')}
         locale={locale}
       />
+      {/*
+       * v1.21-guest-checkout (ADITIVO): un pedido `direct_ship` (invitado) cobra las cartas
+       * y el envío en el MISMO PaymentIntent, así que el desglose trae `shippingFeeCents`
+       * como LÍNEA APARTE (contrato §4-G / BreakdownDTO). En compras a bóveda y en retiros
+       * el campo no viene y este renglón no se pinta: el desglose queda idéntico a v1.20.
+       */}
+      {breakdown.shippingFeeCents != null && (
+        <Line label={t('shipping')} amount={breakdown.shippingFeeCents} locale={locale} />
+      )}
       <Line
         label={t('iva', { rate: breakdown.ivaRatePct })}
         amount={breakdown.ivaCents}

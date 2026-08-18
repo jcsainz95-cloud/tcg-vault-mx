@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { M5View } from './M5View';
 import * as api from '@/lib/api';
@@ -347,5 +348,30 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(
       await within(dialog).findByText('Payment allowed only after receipt/verification and approval'),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * Bug reportado: al escribir el motivo de rechazo, CADA carácter sacaba el cursor del campo
+ * (había que hacer clic de nuevo para seguir escribiendo). Causa raíz: el `useEffect` de foco
+ * de `Modal` (components/ui/Modal.tsx) tenía `onClose` en su arreglo de dependencias — como
+ * `closeReject` es una función NUEVA en cada render de M5View (no memoizada), cada tecleo
+ * (cambio de `rejectReason`) re-disparaba el efecto y volvía a enfocar el wrapper del modal,
+ * robándole el foco al input. Fix: el foco inicial de `Modal` solo depende de `open`.
+ */
+describe('M5View · modal de rechazo (bug de foco al escribir)', () => {
+  it('escribir varios caracteres seguidos NO pierde el foco del campo', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<M5View />, 'es');
+    const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
+    fireEvent.click(rejectButtons[0]);
+
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar ítem' });
+    const input = within(dialog).getByLabelText('Motivo del rechazo');
+
+    await user.type(input, 'no esta en NM');
+
+    expect(input).toHaveValue('no esta en NM');
+    expect(input).toHaveFocus();
   });
 });
