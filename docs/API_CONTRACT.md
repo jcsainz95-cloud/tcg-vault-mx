@@ -1976,7 +1976,7 @@ páginas). Dos casos:
 | **sin `setId`** (búsqueda de texto en todo el catálogo) | `name` asc → `setId` asc → `numberPrefix` asc → `numberSort` asc → `id` asc |
 
 - Efecto observable: dentro de un set la secuencia es **`1, 2, 3, … 10, 11 …`** (nunca `1, 10, 100, 2`) y los
-  promos/subsets (`TG01`, `SV107`, `GG50`) van **al final, agrupados por prefijo**. Antes de v1.22 el orden era
+  promos/subsets van **al final, agrupados por prefijo alfabético** (`GG50` → `SV107` → `TG01`: `numberPrefix` asc). Antes de v1.22 el orden era
   `name asc, number asc` con `number` como **String** (`"10"` antes que `"2"`) — defecto **ORD-1**, ARCHITECTURE §9.
 - El **`id` asc final es obligatorio**: es el desempate total que hace **determinista** la paginación.
 - El front **no re-implementa** este orden: lo recibe ya aplicado, y si filtra localmente re-ordena con
