@@ -204,3 +204,233 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
     expect(res.rows).toHaveLength(0);
   });
 });
+
+/**
+ * P-6 (2026-08-18, DEVOPS_NOTES §23.9) — El barrido por set usa el endpoint de PRECIOS
+ * (`GET /api/prices?setId=…` → `{ data, pagination }`), NO el `POST /cards/bulk-price` (que espera
+ * una lista explícita `{ cardIds }` y respondía 4xx → 0 filas → catálogo sin precios).
+ *
+ * Como el egress del sandbox bloquea el dominio del proveedor, estos casos van contra FIXTURES del
+ * formato documentado: envelope `{ data, pagination }`, paginación multi-página, `cardNumber` con
+ * formato distinto al nuestro, acabados variados y error 4xx (que debe dar 0 filas sin romper).
+ */
+describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices (P-6)', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  function cfg(marketFormat: string | undefined = 'usd_dollars'): ConfigService {
+    return {
+      get: (k: string) =>
+        k === 'POKEMONPRICETRACKER_API_KEY'
+          ? 'test-key'
+          : k === 'POKEMONPRICETRACKER_MARKET_FORMAT'
+            ? marketFormat
+            : undefined,
+    } as unknown as ConfigService;
+  }
+
+  /** Fila cruda del formato documentado del proveedor (`/api/prices`). */
+  function entry(over: Record<string, unknown> = {}) {
+    return {
+      id: 'sv8-104',
+      name: 'Pikachu ex',
+      setId: 'sv8',
+      setName: 'Surging Sparks',
+      cardNumber: '104',
+      rarity: 'Double Rare',
+      printing: 'Normal',
+      marketPrice: 12.34,
+      lowPrice: 9.99,
+      lastPriceUpdate: '2026-08-18T03:00:00.000Z',
+      ...over,
+    };
+  }
+
+  /** fetch mockeado: una respuesta OK por llamada, en orden. */
+  function mockPages(pages: unknown[]) {
+    const spy = jest.fn(async () => {
+      const body = pages.shift() ?? { data: [], pagination: { total: 0, page: 1, limit: 1000 } };
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+    });
+    global.fetch = spy as unknown as typeof fetch;
+    return spy;
+  }
+
+  /** Argumentos de la n-ésima llamada a fetch (las tuplas de jest.Mock vienen sin tipar). */
+  function callArgs(spy: jest.Mock, call: number): unknown[] {
+    return spy.mock.calls[call] as unknown[];
+  }
+  function urlOf(spy: jest.Mock, call: number): string {
+    return String(callArgs(spy, call)[0]);
+  }
+
+  it('hace GET /api/prices?setId=… con Bearer y SIN cuerpo (ya no POST bulk-price)', async () => {
+    const spy = mockPages([{ data: [entry()], pagination: { total: 1, page: 1, limit: 1000 } }]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    const url = urlOf(spy, 0);
+    expect(url).toContain('https://www.pokemonpricetracker.com/api/prices?');
+    expect(url).toContain('setId=sv8');
+    expect(url).toContain('page=1');
+    expect(url).not.toContain('bulk-price');
+    const init = callArgs(spy, 0)[1] as RequestInit;
+    expect(init.method).toBe('GET');
+    expect(init.body).toBeUndefined();
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-key');
+
+    expect(res.rows).toEqual([
+      {
+        externalId: 'sv8-104',
+        setExternalId: 'sv8',
+        number: '104',
+        finish: 'normal',
+        marketCents: 1234,
+        currency: 'USD',
+      },
+    ]);
+  });
+
+  it('pagina con el objeto `pagination` de la respuesta (total/limit efectivos del servidor)', async () => {
+    // El servidor capa el limit pedido (1000) a 2 → 3 resultados = 2 páginas.
+    const spy = mockPages([
+      {
+        data: [entry({ id: 'sv8-1', cardNumber: '1' }), entry({ id: 'sv8-2', cardNumber: '2' })],
+        pagination: { total: 3, page: 1, limit: 2 },
+      },
+      { data: [entry({ id: 'sv8-3', cardNumber: '3' })], pagination: { total: 3, page: 2, limit: 2 } },
+    ]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(urlOf(spy, 0)).toContain('page=1');
+    expect(urlOf(spy, 1)).toContain('page=2');
+    expect(res.rows.map((r) => r.externalId)).toEqual(['sv8-1', 'sv8-2', 'sv8-3']);
+    expect(res.fetchedRaw).toBe(3);
+  });
+
+  it('sin objeto `pagination`: página incompleta = última (no bucle infinito)', async () => {
+    const spy = mockPages([{ data: [entry()] }]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(res.rows).toHaveLength(1);
+  });
+
+  it('si /api/prices responde 404, reintenta en /api/v1/prices y NO aborta la corrida', async () => {
+    const ok = { data: [entry()], pagination: { total: 1, page: 1, limit: 1000 } };
+    const spy = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => 'Not Found', json: async () => ({}) })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ok, text: async () => '' });
+    global.fetch = spy as unknown as typeof fetch;
+
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    expect(urlOf(spy, 0)).toContain('/api/prices?');
+    expect(urlOf(spy, 1)).toContain('/api/v1/prices?');
+    expect(res.rows).toHaveLength(1);
+  });
+
+  it('mapea los acabados documentados (`printing`) a nuestros Finish canónicos', async () => {
+    mockPages([
+      {
+        data: [
+          entry({ id: 'sv8-1', cardNumber: '1', printing: 'Normal', marketPrice: 1 }),
+          entry({ id: 'sv8-1', cardNumber: '1', printing: 'Reverse Holofoil', marketPrice: 2 }),
+          entry({ id: 'sv8-1', cardNumber: '1', printing: 'Holofoil', marketPrice: 3 }),
+          entry({ id: 'sv8-1', cardNumber: '1', printing: '1st Edition Holofoil', marketPrice: 4 }),
+          entry({ id: 'sv8-1', cardNumber: '1', printing: 'Unlimited', marketPrice: 5 }), // → OMITE
+        ],
+        pagination: { total: 5, page: 1, limit: 1000 },
+      },
+    ]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+
+    expect(res.rows.map((r) => [r.finish, r.marketCents])).toEqual([
+      ['normal', 100],
+      ['reverse_holo', 200],
+      ['holofoil', 300],
+      ['first_edition_holofoil', 400],
+    ]);
+    expect(res.skipped).toBe(1); // "Unlimited" no tiene enum propio → se OMITE (no se vuelve normal)
+  });
+
+  it('acabado AUSENTE con precio válido → OMITE (nunca se atribuye a `normal`)', async () => {
+    mockPages([{ data: [entry({ printing: undefined })], pagination: { total: 1, page: 1, limit: 1000 } }]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    expect(res.rows).toHaveLength(0);
+    expect(res.fetchedRaw).toBe(1); // el request SÍ pasó: la señal de "no mapeó" queda en el log
+    expect(res.skipped).toBe(1);
+  });
+
+  it('`cardNumber` con el total del set ("104/159") se propaga tal cual para el fallback del ingest', async () => {
+    mockPages([{ data: [entry({ cardNumber: '104/159' })], pagination: { total: 1, page: 1, limit: 1000 } }]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    expect(res.rows[0].number).toBe('104/159');
+    expect(res.rows[0].externalId).toBe('sv8-104');
+  });
+
+  it('entrada de OTRO set → se DESCARTA (el fallback (set,number) casaría la carta equivocada)', async () => {
+    mockPages([
+      {
+        data: [entry(), entry({ id: 'sv7-104', setId: 'sv7' })],
+        pagination: { total: 2, page: 1, limit: 1000 },
+      },
+    ]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].externalId).toBe('sv8-104');
+    expect(res.skipped).toBe(1);
+  });
+
+  it('marketPrice <= 0 o no numérico → OMITE la fila (money-safe)', async () => {
+    mockPages([
+      {
+        data: [entry({ marketPrice: 0 }), entry({ id: 'sv8-2', cardNumber: '2', marketPrice: null })],
+        pagination: { total: 2, page: 1, limit: 1000 },
+      },
+    ]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    expect(res.rows).toHaveLength(0);
+    expect(res.skipped).toBe(2);
+  });
+
+  it('4xx del proveedor (el bug P-6) → 0 filas, sin excepción y sin borrar nada', async () => {
+    const spy = jest.fn(async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({}),
+      text: async () => '{"error":"cardIds is required"}',
+    }));
+    global.fetch = spy as unknown as typeof fetch;
+
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0 });
+    expect(spy).toHaveBeenCalledTimes(2); // probó ambas rutas candidatas antes de rendirse
+  });
+
+  it('soporta el shape con una lista de printings anidada por carta', async () => {
+    mockPages([
+      {
+        data: [
+          {
+            id: 'sv8-9',
+            setId: 'sv8',
+            cardNumber: '9',
+            printings: [
+              { printing: 'Normal', marketPrice: 1.5 },
+              { printing: 'Reverse Holofoil', marketPrice: 2.5 },
+            ],
+          },
+        ],
+        pagination: { total: 1, page: 1, limit: 1000 },
+      },
+    ]);
+    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    expect(res.rows.map((r) => [r.finish, r.marketCents])).toEqual([
+      ['normal', 150],
+      ['reverse_holo', 250],
+    ]);
+  });
+});

@@ -3432,3 +3432,99 @@ lo que el contrato manda; no hay nada que arreglar.
 - **NO verificado en este entorno (sin docker ni trivy):** el escaneo `trivy-image` real y el PUT
   contra MinIO del `infra-smoke` (se salta con aviso si no hay S3; en CI sí corre). La confirmación
   final de los 2 CVEs cerrados la da el job `trivy-image` de CI.
+
+---
+
+## 47. P-6 (2026-08-18) — El proveedor de PAGA no escribía ni un precio: el adapter llamaba al endpoint equivocado
+
+**Síntoma:** con `price_provider=pokemonpricetracker`, la key en Railway y
+`POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`, `PriceReference` **no recibía ni una fila** y el
+cotizador mostraba «Precio pendiente» en todo lo que cotiza por regla `pct`. Las cartas con importe
+(MX$1.00 / MX$0.50) son **pisos fijos por rareza** de las reglas de buylist y **enmascaran** el
+problema: no pasan por precio de mercado. Diagnóstico de devops en `DEVOPS_NOTES §23.9` / `P-6`.
+
+### 47.1 Causa: endpoint y forma del request
+
+El adapter hacía `POST /api/v1/cards/bulk-price` con cuerpo `{ set, limit, page }`. Ese endpoint
+**existe**, pero su cuerpo documentado es una **lista explícita** `{ cardIds: ["base1-4", …] }`: no
+acepta un filtro por set. El proveedor respondía 4xx → `throw` → lo capturaba el `catch` money-safe
+→ **0 filas sin borrar nada** (correcto por diseño) → cero referencias de mercado. Eran exactamente
+los tres `SUPUESTO (verificar 1ª corrida)` que el propio adapter dejó anotados.
+
+**Ahora:** el barrido por set usa el endpoint de precios —
+`GET /api/prices?setId=<CardSet.externalId>&limit=&page=` → `{ data, pagination }` — con el mismo
+`Authorization: Bearer`. La paginación se calcula con el objeto `pagination` de la RESPUESTA
+(`totalPages`, o `total`/`limit` **efectivos**, o `hasMore`), no con el heurístico «página
+incompleta»: si el servidor capa el `limit` pedido, la cuenta de páginas sigue saliendo bien. El
+`limit` pedido pasó de 250 a **1000** (el tope que documenta `/api/prices`; el de 100 es del bulk
+por-lista). Cota dura de 40 páginas como anti-bucle, igual que antes.
+
+**El modo por-lista (`{ cardIds }`) NO se implementó:** ningún flujo lo necesita (el ingest siempre
+trabaja set por set) y construirlo desde la BD serían más requests y más frágil para el mismo
+resultado. Queda documentado en el docblock del adapter por si algún día hace falta.
+
+**Ruta no verificada en runtime (honestidad):** el egress del sandbox bloquea el dominio del
+proveedor, así que la fuente sigue siendo su documentación pública. Como la doc alterna entre
+`/api/prices` y `/api/v1/prices` según la página, el adapter **prueba ambas en orden** en el primer
+request, memoriza la que respondió (`resolvedPath`, una sola vez por proceso) y deja en el log cuál
+fue. Un 404/400 de la primera **no** aborta la corrida.
+
+### 47.2 Mapeo (revisado aunque el endpoint fuera la causa)
+
+| Campo del proveedor | Nuestro campo | Nota |
+|---|---|---|
+| `id` / `cardId` | `Card.externalId` | mismo namespace pokemontcg.io (`sv8-104`). Se quitaron `productId`/`_id` de los candidatos: son de otro namespace y jamás resolverían. |
+| `cardNumber` | fallback `(set, number)` | **riesgo real confirmado**: nuestro `Card.number` viene de pokemontcg.io (`"104"`) y el proveedor puede publicar `"104/159"` o `"004"`. Ver 47.3. |
+| `printing` | `Finish` | se lee ahora `printing` **primero** (es el campo documentado), luego `variant`/`finish`/`printingName`/`subTypeName`. Se quitó `condition`: es el estado (NM/LP), no el acabado — leerlo podía atribuir un precio a un acabado inventado. |
+| `marketPrice` | `marketCents` | se lee `marketPrice` primero, luego `market`/`price`. La unidad la sigue fijando `POKEMONPRICETRACKER_MARKET_FORMAT` (fail-closed intacto). |
+| `setId` | — | **nuevo guard money-safe**: si la entrada trae un `setId` distinto al del set que se está ingiriendo, se DESCARTA. Si el filtro del proveedor no se respetara, el fallback `(set, number)` habría atribuido el precio a la carta equivocada. |
+
+Los acabados documentados mapean a nuestros canónicos con el mapa existente: `Normal`→`normal`,
+`Reverse Holofoil`→`reverse_holo`, `Holofoil`→`holofoil`, `1st Edition Holofoil`→
+`first_edition_holofoil`. `Unlimited` (y cualquier otro) **se OMITE**: no tiene enum propio y
+atribuirlo a `normal` cotizaría de más al comprar. **Acabado AUSENTE también se omite** (no se
+asume `normal`) — pero el resumen del log dice cuántas filas cayeron ahí y con qué ejemplo crudo,
+que es lo que permite ampliar el mapa de alias si el proveedor usa otros nombres.
+
+### 47.3 `cardNumber`: variantes de formato (`cardNumberVariants`)
+
+`PriceIngestService.resolveCardId` sigue resolviendo primero por `externalId` y luego por el número
+**EXACTO**. Solo si ambos fallan prueba las formas equivalentes (`pricing.types.cardNumberVariants`):
+`"104/159"` → `"104"` (se corta el total del set) y relleno de ceros en ambos sentidos
+(`"004"`↔`"4"`). Los alfanuméricos (`TG01`, `SV107`) no se tocan. Money-safe: la variante solo se
+acepta si casa con **UNA** carta del set; si casan dos, se omite la fila y se loguea — nunca se
+adivina a qué carta pertenece un precio.
+
+### 47.4 Diagnóstico observable (lo que hay que buscar en los Deploy Logs)
+
+Filtrando `PokemonPriceTracker` en Railway, los dos modos de falla ahora se distinguen sin acceso
+al proveedor:
+
+- **El request falló** → `EL REQUEST FALLÓ para el set <id>: HTTP <status> en <ruta> — cuerpo: <…>`.
+  Trae status **y cuerpo** del error del proveedor (contrato 400 / ruta 404 / auth 401-403 / cuota
+  429). Nunca se loguean la key ni los headers.
+- **El request pasó pero no mapeó** → `El request PASÓ pero NADA mapeó → revisa los nombres de campo
+  contra el ejemplo crudo: {…}`, además del resumen por set:
+  `<N> entradas crudas → <M> filas mapeadas [x sin acabado reconocible, y sin market válido, z de
+  otro set, w no-objeto]`.
+- **Todo bien** → `GET /api/prices OK (set <id>, pág 1): <N> entradas, pagination={…}` + el resumen
+  con `M > 0`, y aguas abajo el de siempre:
+  `price-ingest-set(<set>, pokemonpricetracker): <cartas> cartas, <refs> refs, …`.
+
+### 47.5 Tests
+
+`test/price-ingest.provider.spec.ts` cubre con **fixtures del formato documentado** (no se puede
+llamar al proveedor real desde el sandbox): request GET con `setId`/`Bearer` y sin cuerpo,
+paginación multi-página con `limit` capado por el servidor, respuesta sin `pagination`, caída a la
+ruta alterna ante 404, los cuatro acabados + `Unlimited` omitido, acabado ausente, `cardNumber`
+`"104/159"`, entrada de otro set, `marketPrice<=0` y **4xx → 0 filas sin excepción**.
+`test/price-ingest.service.spec.ts` cubre `cardNumberVariants` y la resolución por variantes
+(exacto primero, ambigua → omitida). Suite backend completa: **86 suites / 718 tests** en verde,
+más `lint` y `typecheck`.
+
+### 47.6 Lo que NO se tocó
+
+Reglas de buylist (`BUYLIST_PRICE_RULES` / `BUYLIST_PRICE_FALLBACK_PCT`), `.github/workflows/`,
+dial `price_provider`, envs y cron: intactos. El candado fail-closed de moneda/unidad y el
+comportamiento money-safe ante error (0 filas, precios previos **stale**, nunca borrados ni
+estimados) siguen exactamente igual. Sin cambios en el contrato de API.
