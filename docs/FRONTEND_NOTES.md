@@ -3342,10 +3342,10 @@ vitrina muestre también el estado «En el carrito» en el botón del card; hoy 
   privado) con una nota que apunta al test ancla. No se tocó nada más de `components/`.
 
 ### Ambigüedades detectadas (reportadas, NO resueltas por mi cuenta)
-1. **Contrato vs. diseño — reenvío de enlace.** §15.7 dibuja el formulario con **solo** el correo;
-   §4-G.4 **exige** `{token}` o `{email, orderNumber}` juntos (email a secas → `400`). Implementado:
-   con token, botón directo (`{token}`); sin token, correo **+ número de pedido** tras "No tengo el
-   enlace". Copy normativo intacto; clave nueva `track.neutral.orderNumberLabel`.
+1. **Contrato vs. diseño — reenvío de enlace: RESUELTO por arbitraje (v1.21.1 + §15.7 corregida).**
+   Lo que reporté (el formulario de un solo campo de §15.7 chocaba con `{email, orderNumber}` de
+   §4-G.4) lo arbitró el arquitecto a favor del contrato y ux-ui reescribió §15.7 con las **dos
+   vías**. Mi implementación se realineó al texto normativo — ver "Realineación con §15.7" abajo.
 2. **Contrato vs. diseño — teléfono.** §15.3 lo marca **opcional**; `GuestAddressInput` (§4-G.1) lo
    pide obligatorio (10 dígitos MX). Se implementó **obligatorio** (manda el contrato).
 3. **`recipientName` y `acceptedTerms`** los exige el contrato y el diseño no los describe: se
@@ -3383,3 +3383,62 @@ cualquier otro → 404 `INVALID_TOKEN`. `createGuestCheckoutSession` replica
 366 tests) · `npx playwright test` ✓ **60/60** en modo mock (incluye los 9 nuevos de
 `e2e/guest-checkout.spec.ts`, que cubren §J.1: camino feliz, upsell, correo inválido, token
 manipulado vs. expirado con texto idéntico, reenvío neutro con enfriamiento y ES/EN).
+
+
+## 2026-08-18 (2ª ronda) · v1.21.1 — `checkoutToken` de 120 min + §15.7 corregida
+
+### 1. Renombre CONTRACT-BREAKING: `trackingToken` → `checkoutToken` (+ `checkoutTokenExpiresAt`)
+- `types/contract.ts` · `GuestCheckoutSessionResponse`: el campo pasa a **`checkoutToken`** y se
+  añade **`checkoutTokenExpiresAt`** (ISO). Actualizado también el invariante §4-G.0-5 del comentario
+  de cabecera.
+- `lib/api.ts` · `createGuestCheckoutSession`: doc y **mock** al día
+  (`checkoutToken: mock-<orderId>-checkout-token`, `checkoutTokenExpiresAt = ahora + 120 min`). No
+  quedó **ninguna** referencia viva al nombre viejo (solo dos menciones históricas en comentarios,
+  marcadas como "antes `trackingToken`").
+- Consumidor: el `return_url` del 3DS en `GuestCheckoutView` usa `session.checkoutToken`.
+
+### 2. La SEMÁNTICA nueva, reflejada en la UX (§4-G.7a)
+- **El token del checkout vive 120 min y nunca viaja por correo.** El enlace de 90 días lo emite el
+  webhook del settle y llega **solo** por correo. Verificado que la confirmación **no invita a
+  guardar ni marcar como favorito** esa URL: su mensaje es `emailSentTo` ("te enviamos la confirmación
+  y el enlace de seguimiento a {email}"), y no muestra ni ofrece la URL del checkout.
+- **Aviso nuevo `track.temporaryLinkNotice`** en la vista de seguimiento: si `tokenExpiresAt` cae
+  dentro de los 120 min + 10 de holgura (`isShortLivedCheckoutToken`, en `pedido/tracking-status.ts`),
+  se avisa de que ese enlace es temporal y que el duradero llega por correo, con "Reenviar el enlace a
+  mi correo" a la vista. El enlace de 90 días **no** dispara el aviso. Es solo copy: no cambia el
+  acceso, y se apoya en el campo que §15.6 ya destina a eso. El texto dice "en unas horas" (agnóstico
+  al valor exacto, coherente con los 120 min).
+- **Camino de "volver pasadas las 2 h" verificado:** cae en `TrackingLinkNeutralState` y desde ahí el
+  reenvío funciona (vía A con el propio token vencido). Cubierto con E2E dedicada.
+
+### 3. Realineación con `DESIGN_SYSTEM §15.7` (corregida por ux-ui)
+- **Copy normativo literal, ES y EN**, reemplazando el mío: el `body` y —lo importante— el `result`:
+  *"Si **esos datos** corresponden a un pedido, enviamos un enlace nuevo a ese correo…"*. Mi versión
+  anterior condicionaba sobre **el correo** ("si hay un pedido asociado a ese correo"), que enmarca la
+  respuesta como una afirmación sobre esa dirección; la normativa condiciona sobre los datos en
+  conjunto y no insinúa nada. **La vía A usa exactamente la misma frase** (hay test que compara el
+  texto de ambas vías carácter a carácter).
+- **Inventario de claves alineado con §15.11:** `track.neutral.*` = `title`, `body`, `emailLabel`,
+  `submit`, `result`, `cooldown`, `claimAlternative`, `support`, **`noLinkCta`**, **`manualIntro`**,
+  `orderNumberLabel`, `orderNumberHelp`, **`incompleteForm`** (+ `cooldownAnnounce`, exigido por el
+  párrafo de accesibilidad de §15.7). Se retiraron mis nombres propios `noLinkToggle`,
+  `orderNumberRequired` y `emailInvalid`: la validación local usa **una sola** nota normativa
+  (`incompleteForm`), que cubre tanto "falta el dato" como "correo mal formado".
+- **Vía B conforme:** tras *disclosure* (`aria-expanded`/`aria-controls`, cerrado por defecto cuando
+  hay token); **ningún campo por separado habilita el envío** (el botón está `disabled` hasta tener
+  correo válido **y** número de pedido); `<fieldset>` + `<legend>` (= `manualIntro`), labels visibles,
+  `autocomplete="email"` en el correo y **`off`** en el número de pedido; `aria-invalid` +
+  `aria-describedby` a la nota local en los campos que falten (conservando la ayuda del campo de
+  pedido en el `describedby`); foco al primer campo al abrir el disclosure.
+- **Validación 100% local, confirmado:** el número de pedido solo se comprueba "no vacío"; no hay
+  llamada al servidor en `blur`, ni autocompletado, ni comprobación de existencia. La única petición
+  es el `POST /orders/guest/resend-link` al enviar.
+- **Frases prohibidas (lista ampliada) verificadas por test:** el render no contiene
+  "no encontrado", "no existe", "no coinciden", "incorrecto", "no está registrado", "token",
+  "expiró hace N", ni plazos en días.
+
+### Gates de esta ronda
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ (`/[locale]/checkout` y `/[locale]/pedido`
+presentes) · `npx vitest run` ✓ **50 archivos / 373 tests** · `npx playwright test` ✓ **62/62** en modo
+mock (2 E2E nuevas: enlace de checkout vencido → pantalla neutra que sí reenvía, y enlace de 90 días
+sin aviso de temporalidad).
