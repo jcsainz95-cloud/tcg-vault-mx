@@ -2333,3 +2333,49 @@ Captura de **Railway → `backend` → Variables** (31 service variables) aporta
 > Ambigüedad de nombres a tener presente: `PRICE_PROVIDER` (env, hint de boot) ≠ dial `price_provider`
 > (ConfigSetting, autoridad) ≠ `pricing_provider_raw/graded/sealed` (M10, ruta por-carta, §23.7). Tres
 > cosas distintas con nombres casi idénticos; solo la segunda decide de dónde salen los precios del ingest.
+
+### 23.9 Causa probable de "0 refs": el adapter llama al endpoint bulk con un cuerpo que ese endpoint no acepta
+
+**Síntoma (PO, 18/08):** con el dial ya en `pokemonpricetracker` y `MARKET_FORMAT=usd_dollars`, el cotizador
+sigue mostrando **"Precio pendiente"** en las cartas cuya regla de rareza es `pct` (las de regla `fixed`
+muestran su piso y **enmascaran** el problema — `money.ts:206-208`). El PO verificó que el proveedor **sí
+tiene precios** para ese set. Es decir: el dinero está pagado, los datos existen, y no llegan a la BD.
+
+**Hallazgo (devops, verificado contra la documentación pública del proveedor — el egress de la sesión
+bloquea el dominio, así que la fuente son las páginas de doc/API-reference indexadas, NO una corrida real):**
+
+| | Lo que hace el adapter (`pokemonpricetracker-bulk.provider.ts:140-147`) | Lo que documenta el proveedor |
+|---|---|---|
+| Endpoint | `POST /api/v1/cards/bulk-price` | `POST …/cards/bulk-price` **existe**, pero su cuerpo es `{ cardIds: ["base1-4", …], includeHistory }` — una **lista explícita de ids**, no un filtro |
+| Cuerpo enviado | `{ set: <CardSet.externalId>, limit: 250, page: N }` | ese endpoint **no documenta** `set`/`limit`/`page` |
+| "Todas las cartas de un set" | — | `GET /api/prices?setId=<ids,coma>&limit=1000` → `{ data: [...], pagination: { total, page, limit } }` |
+| Campos de precio | busca `market`/`marketPrice`/`price` | `marketPrice`, `lowPrice`, + `setId`, `cardNumber`, `rarity`, `printing`, `lastPriceUpdate` |
+
+Los tres `SUPUESTO (verificar 1ª corrida)` que el propio adapter dejó escritos (líneas 65, 146, 157) son
+exactamente los que fallan. Con un cuerpo que el endpoint no reconoce, `fetchPage` recibe un `!res.ok` →
+`throw HTTP <code>` → lo captura el `catch` money-safe → **devuelve 0 filas sin borrar nada** → cero
+`PriceReference` → todo lo `pct` queda pendiente. El síntoma encaja al 100%.
+
+**Confirmación en una línea de log** (Railway, filtro `PokemonPriceTracker`):
+`PokemonPriceTracker bulk: set <id> falló: HTTP 400/404 … Se devuelven 0 filas`. Si en cambio apareciera
+la línea `ejemplo de entrada cruda`, el request sí pasó y el problema sería de mapeo, no de endpoint.
+
+**ENRUTADO A `backend`** (dueño de `backend/src/modules/pricing/providers/**`; devops no toca código de app,
+regla de propiedad de archivos). Alcance del cambio, acotado:
+
+1. `fetchPage`: cambiar a **`GET /api/prices?setId=<externalId>&limit=<N>&page=<n>`** con el mismo
+   `Authorization: Bearer`, y paginar por `pagination.total/page/limit` en vez de por "página incompleta".
+   Alternativa equivalente: seguir con `bulk-price` pero enviando `cardIds` construidos desde las `Card`
+   locales del set (más requests y más frágil; preferible la primera).
+2. `extractEntries` **ya sirve** (`{ data: [] }` está contemplado). `mapEntry` shape (B) **ya lee**
+   `marketPrice` y `printing`/`variant` → probablemente no requiere cambios.
+3. `resolveCardId` (`price-ingest.service.ts:193`) resuelve por `externalId` y cae a `(set, number)`:
+   verificar contra el `cardNumber` real del proveedor (formato `"104"` vs `"104/159"`).
+4. Confirmar la unidad de `marketPrice` (dólares) contra el log de muestra: si es dólares, el
+   `MARKET_FORMAT=usd_dollars` ya fijado es correcto y no hay que tocar Railway.
+5. Verificar el tope real de `limit` (la doc de marketing menciona 100 por request en el bulk y 1000 en
+   `/api/prices`) y ajustar `pageLimit`/`maxPages`.
+
+> Nota de honestidad: esto es **causa probable, no verificada en runtime**. La confirmación barata es la
+> línea de log de arriba; la definitiva, una corrida tras el fix. Ninguna palanca de devops (dial, env,
+> cron) puede arreglarlo: el request sale mal formado desde el código.
