@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { MovementReason, Prisma } from '@prisma/client';
+import { MovementReason, Order, OrderItem, Prisma } from '@prisma/client';
 import Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
+import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -16,6 +17,8 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
+    // v1.21-guest-checkout: correo + enlace tokenizado al liquidar un pedido de invitado.
+    private readonly guestMail: GuestOrderMailService,
   ) {}
 
   verifyAndParse(payload: Buffer, signature: string): Stripe.Event {
@@ -96,6 +99,13 @@ export class PaymentsService {
     });
     if (order) {
       if (order.status === 'settled') return;
+      // v1.21-guest-checkout: SEGUNDA RUTA DE FULFILLMENT. Un pedido `direct_ship` NO deposita en
+      // bóveda (el invitado no tiene): sus piezas siguen siendo de la plataforma y avanzan por
+      // `status` hasta salir por la puerta. ARCHITECTURE §4.21c.
+      if (order.fulfillmentMode === 'direct_ship') {
+        await this.settleDirectShipOrder(order);
+        return;
+      }
       await this.prisma.$transaction(async (tx) => {
         await tx.order.update({
           where: { id: order.id },
@@ -132,6 +142,99 @@ export class PaymentsService {
         data: { status: 'picking', pickingAt: new Date() },
       });
     }
+  }
+
+  /**
+   * v1.21-guest-checkout — liquidación de un pedido con ENVÍO DIRECTO (§4-G.6, ARCHITECTURE §4.21c).
+   *
+   * Diferencias con la ruta de bóveda, todas deliberadas:
+   *  - Los items NO cambian de dueño: siguen `ownerType='platform'`, `ownerUserId=null`,
+   *    `ownershipStatus=null`. Solo avanza `status`: `reserved → picking` (vendida y en
+   *    preparación, aún físicamente en el almacén).
+   *  - Se CREA el `ShipmentRequest` de fulfillment (`userId=null`, `orderId`, `status='picking'`)
+   *    ya pagado: nace en `picking` y NUNCA pasa por `solicitado`.
+   *  - Sus montos van en CERO a propósito: el ingreso del envío vive en `Order.shippingFeeCents`
+   *    (mismo PaymentIntent). Repetirlo aquí lo contaría DOS VECES en el P&L de M7 (§4.21b).
+   *  - Se capturan marca + últimos 4 de la tarjeta (único dato de pago que se persiste).
+   *
+   * Idempotente: el early-return por `status==='settled'`, la guardia `status:'reserved'` de cada
+   * pieza y la búsqueda del envío activo hacen que un reintento de Stripe no duplique nada.
+   * El correo es POST-COMMIT y BEST-EFFORT: su fallo NO revierte el pago ni falla el webhook.
+   */
+  private async settleDirectShipOrder(order: Order & { items: OrderItem[] }): Promise<void> {
+    const card = order.stripePaymentIntentId
+      ? await this.stripe.getCardDetails(order.stripePaymentIntentId).catch(() => null)
+      : null;
+    const now = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'settled',
+          settledAt: now,
+          ...(card ? { paymentMethodBrand: card.brand, paymentMethodLast4: card.last4 } : {}),
+        },
+      });
+      for (const oi of order.items) {
+        const item = await tx.inventoryItem.findUnique({ where: { id: oi.inventoryItemId } });
+        if (!item) continue;
+        // Guardia positiva: solo una pieza aún `reserved` avanza (idempotencia ante reintentos).
+        const moved = await tx.inventoryItem.updateMany({
+          where: { id: oi.inventoryItemId, status: 'reserved' },
+          data: { status: 'picking' },
+        });
+        if (moved.count !== 1) continue;
+        await tx.inventoryMovement.create({
+          data: {
+            itemId: oi.inventoryItemId,
+            fromStatus: item.status,
+            toStatus: 'picking',
+            reason: MovementReason.settle,
+            note: `guest order ${order.orderNumber ?? order.id} settled (direct_ship)`,
+          },
+        });
+      }
+      // A lo más UN envío activo por orden (invariante de aplicación, §4-G.10).
+      const existing = await tx.shipmentRequest.findFirst({
+        where: { orderId: order.id, status: { not: 'cancelado' } },
+      });
+      if (!existing) {
+        await tx.shipmentRequest.create({
+          data: {
+            userId: null,
+            orderId: order.id,
+            addressSnapshot: (order.shippingAddressSnapshot ?? {}) as Prisma.InputJsonValue,
+            status: 'picking',
+            pickingAt: now,
+            // CERO a propósito (ver arriba): el ingreso del envío ya está en Order.shippingFeeCents.
+            shippingFeeCents: 0,
+            ivaCents: 0,
+            processingFeeCents: 0,
+            totalCents: 0,
+            items: { create: order.items.map((oi) => ({ inventoryItemId: oi.inventoryItemId })) },
+          },
+        });
+      }
+    });
+
+    // POST-COMMIT, BEST-EFFORT (§4.21g): un fallo del correo se loguea; la red de seguridad es el
+    // `trackingToken` ya devuelto por el checkout + el reenvío self-service + el de soporte.
+    await this.guestMail
+      .sendConfirmation({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        guestEmail: order.guestEmail,
+        locale: order.locale,
+        totalCents: order.totalCents,
+        items: order.items.map((oi) => {
+          const snap = (oi.cardSnapshot ?? {}) as { name?: string; setName?: string; number?: string };
+          return { name: snap.name ?? '', setName: snap.setName ?? '', number: snap.number ?? '' };
+        }),
+      })
+      .catch((e: unknown) =>
+        this.logger.error(`guest confirmation mail failed for ${order.id}: ${(e as Error).message}`),
+      );
   }
 
   /** payment_intent.payment_failed → Order failed + libera reserva (reserved→listed). */

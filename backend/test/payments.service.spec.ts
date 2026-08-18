@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { PaymentsService } from '../src/modules/payments/payments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
+import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
 
 /** Error P2002 (unique violation) tal como lo lanza Prisma. */
 function uniqueViolation(): Prisma.PrismaClientKnownRequestError {
@@ -56,7 +57,13 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       shipmentRequest: { findUnique: jest.fn(), update: jest.fn() },
       $transaction: jest.fn(async (cb: any) => cb(tx)),
     };
-    payments = new PaymentsService(prisma as unknown as PrismaService, {} as StripeService);
+    // v1.21-guest-checkout: 3ª dependencia (correo del invitado). Este bloque solo cubre la ruta
+    // de BÓVEDA, que nunca la usa; se pasa un stub inerte.
+    payments = new PaymentsService(
+      prisma as unknown as PrismaService,
+      {} as StripeService,
+      { sendConfirmation: jest.fn() } as unknown as GuestOrderMailService,
+    );
   });
 
   it('payment_intent.succeeded → Order settled + items ownershipStatus settled', async () => {

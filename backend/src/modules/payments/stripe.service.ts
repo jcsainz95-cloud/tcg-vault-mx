@@ -89,6 +89,37 @@ export class StripeService implements OnModuleInit {
     }
   }
 
+  /**
+   * v1.21-guest-checkout (T9): cancela un PaymentIntent aún no pagado. Lo usa el barrido de
+   * reservas de pedidos de invitado (`guest-order-sweep`) para no dejar cobrable un PI cuyo
+   * inventario ya se liberó. NO es money-out (no mueve dinero: un PI cancelado nunca se capturó).
+   * Un PI ya liquidado/cancelado hace que Stripe lance; el llamador lo trata como best-effort.
+   */
+  async cancelPaymentIntent(paymentIntentId: string): Promise<void> {
+    await this.stripe.paymentIntents.cancel(paymentIntentId);
+  }
+
+  /**
+   * v1.21-guest-checkout (§4-G.10): marca + 4 últimos dígitos de la tarjeta con la que se pagó,
+   * leídos del `charge` del PaymentIntent. Es el ÚNICO dato de tarjeta que se persiste (permitido
+   * por PCI-DSS); jamás PAN, BIN ni titular. Best-effort: devuelve `null` si no se puede resolver
+   * (no debe hacer fallar un webhook de pago ya liquidado).
+   */
+  async getCardDetails(paymentIntentId: string): Promise<{ brand: string; last4: string } | null> {
+    try {
+      const pi = await this.stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ['latest_charge'],
+      });
+      const charge = pi.latest_charge as Stripe.Charge | null;
+      const card = charge?.payment_method_details?.card;
+      if (!card?.brand || !card?.last4) return null;
+      return { brand: card.brand, last4: card.last4 };
+    } catch (e) {
+      this.logger.warn(`No se pudieron leer los datos de tarjeta de ${paymentIntentId}: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
   async refund(paymentIntentId: string, idempotencyKey?: string): Promise<string> {
     try {
       const refund = await this.stripe.refunds.create(

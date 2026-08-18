@@ -37,6 +37,8 @@ describe('OrdersService.createSession — reserva atómica (fix #1)', () => {
       },
       billingProfile: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn() },
       order: { create: jest.fn(async () => ({ id: `order-${Math.random()}` })), update: jest.fn() },
+      // v1.21 (M-25): todo pedido nuevo reserva su número legible de la secuencia Postgres.
+      $queryRawUnsafe: jest.fn(async () => [{ nextval: 1n }]),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const settings: any = {
@@ -121,6 +123,8 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
       },
       billingProfile: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn() },
       order: { create: jest.fn(async () => ({ id: 'order-1' })), update: jest.fn() },
+      // v1.21 (M-25): todo pedido nuevo reserva su número legible de la secuencia Postgres.
+      $queryRawUnsafe: jest.fn(async () => [{ nextval: 1n }]),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const settings: any = {

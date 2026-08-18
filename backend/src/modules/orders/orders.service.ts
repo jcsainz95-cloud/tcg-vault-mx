@@ -52,25 +52,58 @@ export class OrdersService {
     return items;
   }
 
-  async quote(userId: string, inventoryItemIds: string[]) {
+  /**
+   * Valida disponibilidad y resuelve el precio de venta de cada línea del carrito.
+   * Fuente ÚNICA de la regla de venta para los DOS checkouts (con cuenta y de invitado, §4-G.1):
+   * comprar como invitado NO cambia condiciones comerciales (mismo precio, mismas validaciones).
+   * `ITEM_UNAVAILABLE` si la pieza no es de plataforma o no está en `{listed, in_stock}`;
+   * `PRICE_PENDING` si no tiene precio de venta resoluble (SEC-A1: se deriva server-side).
+   */
+  async priceCartLines(inventoryItemIds: string[]): Promise<{
+    items: (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+    subtotalCents: number;
+    lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[];
+  }> {
     const items = await this.loadItems(inventoryItemIds);
-    const previews: { inventoryItemId: string; card: unknown; unitPriceCents: number }[] = [];
-    let subtotal = 0;
+    const lines: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[] = [];
+    let subtotalCents = 0;
     for (const item of items) {
       if (item.ownerType !== 'platform' || !['listed', 'in_stock'].includes(item.status)) {
         throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
       }
       const price = await this.salePriceOf(item);
-      subtotal += price;
-      previews.push({
+      subtotalCents += price;
+      lines.push({
         inventoryItemId: item.id,
-        card: this.cardSnapshot(item),
+        cardSnapshot: this.cardSnapshot(item),
         unitPriceCents: price,
       });
     }
+    return { items, subtotalCents, lines };
+  }
+
+  /**
+   * v1.21 (M-25): siguiente número legible de pedido `TCG-000123` desde la secuencia Postgres
+   * `order_number_seq`. Mismo patrón que `inventory_folio_seq` (`PrismaService.nextFolio`); se
+   * implementa aquí —y no en `PrismaService`— porque `src/prisma/` es zona de otro stream.
+   */
+  async nextOrderNumber(): Promise<string> {
+    const rows = await this.prisma.$queryRawUnsafe<{ nextval: bigint }[]>(
+      "SELECT nextval('order_number_seq') AS nextval",
+    );
+    return `TCG-${String(Number(rows[0].nextval)).padStart(6, '0')}`;
+  }
+
+  async quote(userId: string, inventoryItemIds: string[]) {
+    const { subtotalCents, lines } = await this.priceCartLines(inventoryItemIds);
+    const previews = lines.map((l) => ({
+      inventoryItemId: l.inventoryItemId,
+      card: l.cardSnapshot,
+      unitPriceCents: l.unitPriceCents,
+    }));
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
-    const breakdown = computeCartBreakdown(subtotal, ivaPct, fee);
+    const breakdown = computeCartBreakdown(subtotalCents, ivaPct, fee);
     return { items: previews, breakdown };
   }
 
@@ -97,21 +130,8 @@ export class OrdersService {
     billingProfileId: string | undefined,
     idempotencyKey?: string,
   ) {
-    const items = await this.loadItems(inventoryItemIds);
-    let subtotal = 0;
-    const orderItemsData: { inventoryItemId: string; cardSnapshot: object; unitPriceCents: number }[] = [];
-    for (const item of items) {
-      if (item.ownerType !== 'platform' || !['listed', 'in_stock'].includes(item.status)) {
-        throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
-      }
-      const price = await this.salePriceOf(item);
-      subtotal += price;
-      orderItemsData.push({
-        inventoryItemId: item.id,
-        cardSnapshot: this.cardSnapshot(item),
-        unitPriceCents: price,
-      });
-    }
+    const { items, subtotalCents: subtotal, lines: orderItemsData } =
+      await this.priceCartLines(inventoryItemIds);
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
     const breakdown = computeCartBreakdown(subtotal, ivaPct, fee);
@@ -119,6 +139,10 @@ export class OrdersService {
     const billingSnapshot = billingProfileId
       ? await this.prisma.billingProfile.findFirst({ where: { id: billingProfileId, userId } })
       : await this.prisma.billingProfile.findUnique({ where: { userId } });
+
+    // v1.21 (M-25): el número legible se reserva ANTES de la transacción (nextval es
+    // no transaccional; un hueco en la secuencia es inocuo, un número duplicado no).
+    const orderNumber = await this.nextOrderNumber();
 
     // Reserva ATÓMICA de cada pieza única + creación de la Order pending (ARCHITECTURE §8).
     // Se usa updateMany con guardia de estado vendible (listed/in_stock) y se exige
@@ -144,6 +168,8 @@ export class OrdersService {
       const created = await tx.order.create({
         data: {
           userId,
+          // v1.21 (M-25): TODO pedido nuevo lleva número legible (también los de bóveda).
+          orderNumber,
           status: 'pending',
           subtotalCents: breakdown.subtotalCents,
           processingFeeCents: breakdown.processingFeeCents,
@@ -278,6 +304,10 @@ export class OrdersService {
       cfdiStatus: order.cfdiStatus,
       invoiceRequested: order.invoiceRequested,
       stripePaymentIntentId: order.stripePaymentIntentId,
+      // v1.21-guest-checkout (§4-G.8, ADITIVO): permite a la UI etiquetar "pedido hecho como
+      // invitado" y mostrar cuándo se reclamó. SIN PII: no expone `guestEmail`.
+      isGuestOrder: order.guestEmail != null,
+      claimedAt: order.claimedAt ?? undefined,
     };
   }
 
