@@ -1956,3 +1956,114 @@
   ANY("availableFinishes")` del gate, registrar el resultado en `docs/DEVOPS_NOTES.md` y cerrar esta
   entrada (o escalar v1.22-1 al arquitecto si el payload no trae ninguna señal). **Esta entrada
   existe para que el supuesto no se pierda entre el merge del stream y el deploy.**
+
+### Rama `fix/carrito-pieza-muerta` (v1.21.3-quote-prune) — deuda del veredicto techlead (2026-08-18, no bloqueante)
+
+> Del stream de poda de carrito (quote por ítem). Techlead **APROBADO con condiciones**; el rename
+> `priceCartForOrder`/`priceCartForQuote` (B-4 del review) se aplicó en la propia rama y NO figura
+> aquí. IDs `B-1..B-3` del review de ese stream (no confundir con la serie `BE-*` de arriba).
+
+### B-1 · Dedupe asimétrico quote vs session
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` — `priceCartForQuote` deduplica ids
+  (`new Set`) antes de cotizar; `loadItems` (la ruta estricta de `priceCartForOrder`/sessions) NO:
+  con un id duplicado en el carrito `items.length !== ids.length` y responde `404 NOT_FOUND`.
+- **Dueño:** backend.
+- **Estado actual:** el arquitecto lo está documentando en el contrato como comportamiento vigente
+  (quote dedupe; session estricta rechaza duplicados). No es bug hoy: el front manda ids únicos.
+- **Impacto:** bajo. Asimetría de normalización entre las dos rutas; un cliente que repita un id
+  ve `200` en quote y `404` en session para el mismo carrito.
+- **Disparador:** próximo cambio en `loadItems`/checkout, o si aparece un cliente de API externo.
+  Acción: normalizar los ids en un punto ÚNICO de entrada para ambas rutas.
+
+### B-2 · `QuoteDto` sin `ArrayMaxSize`
+- **Dónde:** `backend/src/modules/orders/dto/orders.dto.ts:11-13` (`QuoteDto.inventoryItemIds`).
+- **Dueño:** backend.
+- **Estado actual:** el DTO de quote de invitado acota a `GUEST_MAX_ITEMS=20` y el de customer NO
+  tiene cota. Desde v1.21.3 la petición se procesa COMPLETA (la poda tolerante ya no corta con el
+  404 temprano que antes actuaba de freno accidental).
+- **Impacto:** superficie de abuso: un autenticado puede cotizar arrays enormes de ids y cargar
+  BD/CPU (una query `IN` gigante + resolución de precio por ítem válido).
+- **Disparador:** fase de seguridad del próximo release — **pedir a pentester/seguridad que lo
+  evalúen**. Acción probable: `@ArrayMaxSize` en `QuoteDto` alineada con una cota de producto.
+
+### B-3 · Regla de venta con gemelo SQL
+- **Dónde:** predicado TS `isSellable` (`backend/src/modules/orders/orders.service.ts`) vs. el
+  `where` literal de `reserveItems` (`ownerType:'platform', status:{in:['listed','in_stock']}`) y la
+  copia en `backend/src/modules/payments/payments.service.ts:218`.
+- **Dueño:** backend.
+- **Estado actual:** deuda HEREDADA (este stream la REDUJO al unificar el predicado TS en un solo
+  cuerpo), pero la regla sigue viviendo también como literales SQL en dos sitios: un cambio en la
+  lista de estados vendibles exige tocar tres lugares coordinados o la regla diverge en silencio.
+- **Impacto:** medio/latente. Es la regla que decide qué pieza puede venderse/reservarse: una
+  divergencia sería double-sell o pieza invendible.
+- **Disparador:** próximo cambio en CUALQUIERA de los tres sitios. Dirección: constante compartida
+  `SELLABLE_STATUSES` (mismo patrón que `inventory.service.ts:74`) consumida por el predicado y por
+  los dos `where`.
+
+---
+
+## Frontend (dueño: frontend)
+
+> Deuda aceptada del veredicto del techlead sobre la rama `fix/carrito-pieza-muerta`
+> (v1.21.3-quote-prune, 2026-08-18) + un hallazgo de QA. El único fix de código de ese veredicto
+> (F-2: re-quote tras `ITEM_UNAVAILABLE`/`NOT_FOUND` en session) **ya se corrigió en la misma rama**
+> y no figura aquí. Todos los ítems son no bloqueantes; dueño **frontend**.
+
+### F-1 · Efecto de poda duplicado en CheckoutView/GuestCheckoutView (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx` y
+  `GuestCheckoutView.tsx` — el mismo par `pushUnavailableNotice(unavailable)` +
+  `prune(unavailable.map(...))` vive copiado en un `useEffect` de cada componente.
+- **Impacto:** bajo (mantenibilidad). Un matiz futuro a la lógica de poda (orden, dedupe, telemetría)
+  hay que aplicarlo dos veces; si se aplica en una sola vista, las dos naturalezas del checkout
+  divergen en silencio.
+- **Disparador:** próximo matiz a la lógica de poda. Acción: extraer un hook
+  `useQuotePrune(unavailableItems)` junto a `unavailable-notice.ts` y consumirlo desde ambas vistas.
+
+### F-3 · Store de módulo con `getServerSnapshot` compartido en `unavailable-notice.ts` (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/unavailable-notice.ts` —
+  `useSyncExternalStore(subscribe, getSnapshot, getSnapshot)` usa la MISMA función para cliente y
+  servidor; la seguridad SSR depende de una invariante **no escrita**: «el array `notice` solo se
+  muta desde efectos de cliente» (si algún día se mutara en render/SSR, el snapshot de servidor
+  dejaría de ser estable).
+- **Impacto:** bajo/latente. Hoy correcto; el riesgo aparece con el próximo colaborador que mute el
+  store fuera de un efecto.
+- **Disparador:** próximo toque al store. Acción: `getServerSnapshot = () => EMPTY` (constante
+  congelada) o documentar la invariante en el docblock del store.
+
+### F-4 · Dos idioms de estado compartido conviven (`useSyncExternalStore` vs `useState`+evento `window`) (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/unavailable-notice.ts`
+  (useSyncExternalStore) vs `frontend/src/lib/cart.ts` y `frontend/src/lib/session.ts`
+  (useState + evento de `window`).
+- **Impacto:** bajo (consistencia/mantenibilidad). Dos patrones para el mismo problema aumentan la
+  carga cognitiva y el riesgo de elegir el equivocado en el siguiente store.
+- **Disparador:** próxima vez que se toquen `cart.ts`/`session.ts`. Acción: converger a
+  `useSyncExternalStore` como idiom único de estado compartido de módulo.
+
+### F-5 · `UnavailableItemsNotice` reimplementa el botón de cierre del Banner (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/UnavailableItemsNotice.tsx` (X propia
+  vía `action`) porque el `dismissible` de `frontend/src/components/ui/Banner.tsx` no expone callback
+  de cierre; de paso, el `aria-label="Close"` sin i18n de `Banner.tsx:65` (preexistente).
+- **Impacto:** bajo (duplicación de UI + un aria-label sin traducir en el componente base).
+- **Disparador:** próximo consumidor que necesite un cierre con efecto. Acción: darle a `Banner` un
+  `onDismiss?` (y usar copy i18n en su aria-label); `UnavailableItemsNotice` pasa a usarlo.
+
+### F-6 · JSDoc/mocks desactualizados en `api.ts` tras v1.21.3 (Baja)
+- **Dónde:** `frontend/src/lib/api.ts` — (1) el JSDoc del quote de invitado aún lista
+  `409 ITEM_UNAVAILABLE` como error del quote (desde v1.21.3 los quotes resuelven por ítem y
+  devuelven `200` con `unavailableItems`); (2) la lógica de poda del mock está duplicada en los dos
+  quotes mock; (3) el mock no modela el caso «existe pero fuera de venta» (`cardName` poblado) — los
+  ids ausentes de fixtures siempre salen con `cardName: null`.
+- **Impacto:** bajo (documentación/mocks; no afecta producción). Puede confundir al siguiente
+  desarrollador o dejar sin cobertura de mock un copy real.
+- **Disparador:** próximo toque a los mocks de `api.ts`. Acción: corregir el JSDoc, extraer la poda
+  mock a un helper único y añadir un fixture «fuera de venta» con nombre.
+
+### F-7 · Suite Playwright sin los flujos de poda de piezas muertas (QA) (Media)
+- **Dónde:** `frontend/e2e/checkout.spec.ts` y `frontend/e2e/guest-checkout.spec.ts` — el banner de
+  piezas muertas, el EmptyState por carrito 100 % muerto y la poda del `localStorage` hoy solo están
+  cubiertos en jsdom (`CheckoutUnavailable.test.tsx`), no de punta a punta contra el stack corriendo.
+- **Impacto:** medio para la garantía de release: el flujo crítico nuevo de v1.21.3 (incluido el
+  re-quote F-2) no forma parte del harness E2E que ejecuta QA.
+- **Disparador:** cierre de release (suite E2E completa). Acción: añadir a las dos specs los
+  escenarios de poda (parcial, total y carrera quote→pago) sembrando una pieza que muere entre
+  medias.

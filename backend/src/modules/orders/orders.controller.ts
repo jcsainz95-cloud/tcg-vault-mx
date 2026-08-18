@@ -19,8 +19,8 @@ export class OrdersController {
 
   @Post('checkout/quote')
   @HttpCode(200)
-  quote(@CurrentUser('id') userId: string, @Body() dto: QuoteDto) {
-    return this.orders.quote(userId, dto.inventoryItemIds);
+  quote(@Body() dto: QuoteDto) {
+    return this.orders.quote(dto.inventoryItemIds);
   }
 
   // v1.5: comprar es acción sensible → requiere emailVerified (403 EMAIL_NOT_VERIFIED si no).

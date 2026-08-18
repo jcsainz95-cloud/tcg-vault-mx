@@ -33,6 +33,32 @@
 > - **Migración M-26** (2 columnas + backfill + índice) y **re-sync `POST /admin/catalog/sync-all {force:true}`**
 >   como paso de despliegue: el código corregido **no repara** las filas ya grabadas. Detalle en ARCHITECTURE §4.22d.
 >
+> **Changelog v1.21.3-quote-prune (2026-08-18) — Fix de producción (decisión cerrada con el PO): una pieza MUERTA
+> en un carrito viejo NO debe bloquear el checkout. SOLO cambian los DOS endpoints de QUOTE (§4 `POST /checkout/quote`
+> y §4-G.1 `POST /checkout/guest/quote`); los de SESSION siguen ESTRICTOS.** Ver §4, §4-G.1 y ARCHITECTURE §4.21h-1 (caso v ajustado).
+> - **Bug raíz:** el carrito vive en `localStorage` como lista de `inventoryItemId` (piezas físicas ÚNICAS — al
+>   venderse desaparecen). Hoy, si UN id ya no resuelve, el quote entero revienta con `404 NOT_FOUND` global
+>   ("One or more items not found"), y si UNA pieza existe pero salió de `{listed, in_stock}` de plataforma, con
+>   `409 ITEM_UNAVAILABLE` global ⇒ el checkout queda 100 % bloqueado para todo el carrito.
+> - **Norma nueva — resolución POR ÍTEM con poda amable (SOLO quote):** los ítems que no resuelven o no están
+>   disponibles **ya no producen `404`/`409` a nivel de request**. La respuesta es `200` con `items` + `breakdown`
+>   calculados SOLO sobre los ítems válidos, más el campo nuevo **`unavailableItems: UnavailableCartItemDTO[]`**
+>   (**siempre presente**, `[]` cuando todo el carrito resuelve — tipado estable; shape sin cambios en ese caso
+>   salvo el `[]` aditivo). `UnavailableCartItemDTO = { inventoryItemId, cardName: string | null }` — `cardName`
+>   viene cuando la pieza aún existe en BD (para el aviso «X ya no está disponible y se quitó de tu carrito»);
+>   `null` si el id ya no existe.
+> - **Carrito 100 % muerto:** `200` con `items: []`, `unavailableItems` poblado y **`breakdown` presente EN CEROS**
+>   (nunca pantalla de error; el front pinta carrito vacío + aviso y deshabilita "pagar").
+> - **`422 PRICE_PENDING` NO cambia de semántica**, pero se evalúa **DESPUÉS de la poda**: solo un ítem válido
+>   (existente y disponible) sin precio dispara el 422.
+> - **SESSION sigue estricto A PROPÓSITO (no "arreglar" de más):** `POST /checkout/session` y
+>   `POST /checkout/guest/session` conservan `404 NOT_FOUND` / `409 ITEM_UNAVAILABLE` globales — crear un pedido
+>   con una pieza muerta DEBE fallar (anti double-sell; el caso v de ARCHITECTURE §4.21h-1 lo cubre). El flujo es:
+>   quote poda → el front actualiza el carrito → session recibe solo ids vivos.
+> - **Nota de frontend (no es API):** el carrito de `localStorage` gana timestamp de última modificación y
+>   **expira a los 30 días** (dueño: frontend; complementa la poda, no la sustituye).
+> - **Fuera de alcance:** reglas de precios, tracking de invitado (token) y `GET /buylist/cards` NO cambian.
+>
 > **Changelog v1.21.2-chargeback-fulfillment (2026-08-18) — Cierre del hallazgo BLOQUEANTE del techlead (T1) + D6 y
 > D4. Un endpoint admin nuevo (`chargeback-inventory`) y UN constraint (M-25b); ningún DTO de cliente cambia.**
 > Ver §4-G.6, §9, §M3, §M4 y ARCHITECTURE §4.21c-bis.
@@ -983,6 +1009,12 @@ BulkPublishResponse = { summary: { requested: number, published: number, failedL
 // como línea aparte y NO restarla del subtotal.
 BreakdownDTO = { subtotalCents, ivaCents, ivaRatePct, processingFeeCents, totalCents, currency: "MXN",
                  shippingFeeCents?: number }
+// v1.21.3-quote-prune — ítem de carrito podado por los DOS endpoints de QUOTE (§4 y §4-G.1). SOLO quote:
+// los endpoints de session NO lo usan (siguen estrictos). `cardName` = nombre de la carta si la pieza aún
+// existe en BD (aunque ya no esté disponible); null si el `inventoryItemId` ya no resuelve (pieza borrada).
+// El front lo usa para el aviso «X ya no está disponible y se quitó de tu carrito» y para PODAR el
+// localStorage antes de llamar a session.
+UnavailableCartItemDTO = { inventoryItemId: string, cardName: string | null }
 ```
 
 ---
@@ -1246,11 +1278,48 @@ Err `401`, `404 NOT_FOUND` (set inexistente).
 
 ## 4. Compra, checkout y órdenes (Stripe)
 
-### POST /api/v1/checkout/quote — `customer`
+### POST /api/v1/checkout/quote — `customer`  (v1.21.3-quote-prune: resolución POR ÍTEM)
 Calcula el desglose sin cobrar (para mostrar líneas en el checkout).
-Req: `{ inventoryItemIds: string[] }`
-Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO }`
-Err: `422 PRICE_PENDING` (algún item sin precio), `409 ITEM_UNAVAILABLE` (ya vendido/reservado).
+Req: `{ inventoryItemIds: string[] }`  *(sin cambios)*
+Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableItems: UnavailableCartItemDTO[] }`
+
+**Poda amable (v1.21.3):** el quote resuelve **por ítem**, nunca revienta por una pieza muerta del carrito
+(`localStorage` puede traer ids de piezas ya vendidas/borradas):
+- **`unavailableItems` — SIEMPRE presente** (tipado estable): `[]` si todos los ids resuelven y están disponibles
+  (en ese caso la forma previa de la respuesta NO cambia: mismo `items` y `breakdown`, solo se suma el `[]`).
+  Entra a `unavailableItems` todo id que (a) **no existe** en BD (`cardName: null`) o (b) existe pero **no** está
+  disponible para venta de plataforma (`ownerType != 'platform'` o `status ∉ {listed, in_stock}`) — ahí
+  `cardName` trae el nombre de la carta para el aviso del front.
+- `items` y `breakdown` se calculan **SOLO con los ítems válidos** (los podados no suman al total).
+- **Carrito 100 % no disponible:** `200` con `items: []`, `unavailableItems` poblado y **`breakdown` presente en
+  CEROS** (`{ subtotalCents: 0, ivaCents: 0, ivaRatePct: 16, processingFeeCents: 0, totalCents: 0,
+  currency: "MXN" }`). El front pinta carrito vacío + aviso; **nunca** pantalla de error.
+- **Deber del front:** tras cada quote, **podar del carrito** (`localStorage`) los `inventoryItemId` que vengan en
+  `unavailableItems`, ANTES de llamar a `POST /checkout/session` (que sigue estricto, ver abajo).
+- **Ids repetidos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1 del techlead):** los `inventoryItemIds`
+  duplicados se **deduplican** antes de resolver (cada pieza física es única y solo puede comprarse una vez):
+  `["a","a"]` ⇒ `200` con **1** ítem, sin error ni entrada en `unavailableItems`. Comportamiento vigente que se
+  documenta, no se cambia. ⚠️ `POST /checkout/session` **no** deduplica (ver su nota abajo).
+
+Ejemplo (una pieza vendida entre visitas, otra borrada):
+```json
+{ "items": [{ "inventoryItemId": "a1…", "card": {}, "unitPriceCents": 12500 }],
+  "breakdown": { "subtotalCents": 12500, "ivaCents": 2000, "ivaRatePct": 16,
+                 "processingFeeCents": 700, "totalCents": 15200, "currency": "MXN" },
+  "unavailableItems": [
+    { "inventoryItemId": "b2…", "cardName": "Antique Skull Fossil" },
+    { "inventoryItemId": "c3…", "cardName": null }
+  ] }
+```
+Err: `422 PRICE_PENDING` (algún ítem **VÁLIDO** —existente y disponible— sin precio; se evalúa **después** de la
+poda, semántica intacta), `400 VALIDATION_ERROR` (carrito vacío en el request), `401`.
+**Eliminados en v1.21.3 (SOLO en este endpoint):** `404 NOT_FOUND` global y `409 ITEM_UNAVAILABLE` global — ambos
+casos ahora viajan en `unavailableItems` con `200`.
+> ⚠️ **NO propagar la poda a session:** `POST /checkout/session` (abajo) **conserva** `404 NOT_FOUND` /
+> `409 ITEM_UNAVAILABLE` estrictos. Crear un pedido con una pieza muerta DEBE seguir fallando (anti double-sell,
+> regresión caso v de ARCHITECTURE §4.21h-1). La poda vive únicamente en los dos quotes.
+> **Nota de frontend (no es API):** el carrito de `localStorage` gana timestamp de última modificación y **expira
+> a los 30 días** (complementa la poda; dueño: frontend).
 
 ### POST /api/v1/checkout/session — `customer`
 Reserva los items (`status=reserved`), crea la `Order` en `pending` y el `PaymentIntent` de Stripe.
@@ -1261,7 +1330,14 @@ Res `201`:
 { "orderId": "…", "breakdown": { "…": "BreakdownDTO" },
   "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" } }
 ```
-Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, **`403 EMAIL_NOT_VERIFIED`** (v1.5 — `emailVerified=false`; comprar es acción sensible). (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
+Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inventoryItemId` no existe), **`403 EMAIL_NOT_VERIFIED`** (v1.5 — `emailVerified=false`; comprar es acción sensible). (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
+> **v1.21.3 — session sigue ESTRICTO a propósito:** la poda por ítem de v1.21.3 aplica **SOLO a los quotes**. Aquí
+> una pieza muerta en el carrito DEBE seguir fallando con `404`/`409` globales (anti double-sell, caso v de
+> ARCHITECTURE §4.21h-1). El front llega a session con el carrito YA podado por el quote.
+> **Ids únicos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** a diferencia del quote, session **no
+> deduplica**: `inventoryItemIds` duplicados o no resolubles caen en el `404 NOT_FOUND` / `409 ITEM_UNAVAILABLE`
+> estricto vigente (la carga estricta compara el conteo pedido contra el resuelto; `["a","a"]` ⇒ `404`). El
+> cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza (un id por pieza única).
 > **v1.5:** `POST /checkout/session` está bloqueado por `EmailVerifiedGuard` (crear orden = acción sensible). El
 > `POST /checkout/quote` (read-only) **no** se bloquea, para que la UI muestre precios con el banner "verifica tu correo".
 Notas: `breakdown` incluye **IVA 16% desglosado** (sobre el subtotal de cartas) y **línea de fee de procesamiento por gross-up** (para que la plataforma reciba íntegro `subtotal+IVA` tras la comisión Stripe; el fee **no** lleva IVA **de producto**). El gross-up sí cubre el IVA que Stripe MX cobra sobre su comisión (dial `stripe_fee_iva_pct`, default 0.16). `totalCents = subtotalCents + ivaCents + processingFeeCents` (ver ARCHITECTURE §5.1).
@@ -1340,12 +1416,13 @@ GuestCheckoutQuoteRequest = { inventoryItemIds: string[], shippingAddress?: Gues
 se cotiza igual y la validación de dirección ocurre en la sesión. `inventoryItemIds`: 1..`GUEST_MAX_ITEMS` (**20**,
 constante de servidor, §4-G.10).
 
-Res `200`:
+Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**):
 ```json
 { "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
   "fulfillmentMode": "direct_ship",
   "breakdown": { "subtotalCents": 25000, "shippingFeeCents": 17500, "ivaCents": 6800,
                  "ivaRatePct": 16, "processingFeeCents": 1900, "totalCents": 51200, "currency": "MXN" },
+  "unavailableItems": [{ "inventoryItemId": "…", "cardName": "Antique Skull Fossil" }],
   "notices": { "finalSale": true, "invoiceByEmail": true, "termsRequired": true } }
 ```
 > `notices` son **banderas**, no texto (§0 i18n): el front renderiza el aviso de **ventas finales**, el mensaje de
@@ -1353,8 +1430,29 @@ Res `200`:
 > mismo** que para un usuario con cuenta (mismas reglas de venta por rareza/acabado; comprar como invitado no cambia
 > condiciones comerciales).
 
-Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `422 ADDRESS_NOT_MX`, `400 VALIDATION_ERROR` (carrito vacío o por
-encima de `GUEST_MAX_ITEMS`), `409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`.
+**Poda amable (v1.21.3 — MISMA norma que `POST /checkout/quote`, §4, porque comparten la lógica de pricing):**
+- `unavailableItems: UnavailableCartItemDTO[]` **siempre presente**; `[]` cuando todo el carrito resuelve (y en ese
+  caso la forma previa de la respuesta NO cambia). Entra todo id inexistente (`cardName: null`) o existente pero
+  fuera de venta de plataforma (`ownerType != 'platform'` o `status ∉ {listed, in_stock}`; `cardName` con nombre).
+- `items` y `breakdown` se calculan SOLO con los ítems válidos.
+- **Carrito 100 % no disponible:** `200` con `items: []`, `unavailableItems` poblado y `breakdown` **en CEROS,
+  incluido `shippingFeeCents: 0`** (no hay nada que enviar; el front pinta carrito vacío + aviso, nunca error).
+  `fulfillmentMode` y `notices` se conservan (shape estable).
+- El límite `1..GUEST_MAX_ITEMS` (**20**) se valida sobre el **array del request** (antes de la poda): un carrito
+  que valida pero queda vacío tras la poda es `200`, no `400`.
+- **Deber del front:** podar del carrito los ids de `unavailableItems` ANTES de llamar a
+  `POST /checkout/guest/session` (§4-G.2), que **sigue estricto**.
+- **Ids repetidos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** MISMA norma que §4 — los
+  `inventoryItemIds` duplicados se **deduplican** antes de resolver (`["a","a"]` ⇒ `200` con 1 ítem, sin error).
+  El límite `1..GUEST_MAX_ITEMS` sigue validándose sobre el **array del request**, antes del dedupe y de la poda.
+  ⚠️ `POST /checkout/guest/session` (§4-G.2) **no** deduplica (ver su nota).
+
+Err: `422 PRICE_PENDING` (ítem **válido** sin precio; se evalúa **después** de la poda, semántica intacta),
+`422 ADDRESS_NOT_MX`, `400 VALIDATION_ERROR` (carrito vacío o por encima de `GUEST_MAX_ITEMS`),
+`409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`.
+**Eliminados en v1.21.3 (SOLO en este endpoint):** `404 NOT_FOUND` global y `409 ITEM_UNAVAILABLE` global — ahora
+viajan en `unavailableItems` con `200`. ⚠️ `POST /checkout/guest/session` (§4-G.2) **conserva** ambos errores
+estrictos: crear pedido con pieza muerta DEBE seguir fallando (anti double-sell).
 
 ### 4-G.2 POST /api/v1/checkout/guest/session — `public` (`@Public()`)
 
@@ -1410,6 +1508,9 @@ Err: `400 VALIDATION_ERROR` (correo inválido/vacío, dirección incompleta, `ac
 vacío/`>20`), `422 ADDRESS_NOT_MX` (criterio 48b / 31), `422 VAULT_REQUIRES_ACCOUNT`, `422 PRICE_PENDING`,
 `409 ITEM_UNAVAILABLE`, `409 ALREADY_AUTHENTICATED`, `429 RATE_LIMITED`, `503 PAYMENT_PROVIDER_UNAVAILABLE`
 (mismo comportamiento compensatorio A2 de §4: se libera la reserva y la orden queda `failed`).
+> **Ids únicos — adenda v1.21.3-quote-prune (2026-08-18, hallazgo B-1):** igual que `POST /checkout/session` (§4),
+> este endpoint **no deduplica**: `inventoryItemIds` duplicados o no resolubles producen el `404 NOT_FOUND` /
+> `409 ITEM_UNAVAILABLE` estricto vigente. El cliente DEBE enviar ids únicos — el carrito del front ya lo garantiza.
 **NO aplica `403 EMAIL_NOT_VERIFIED`** (no hay cuenta que verificar) — ver la asimetría documentada en §4-G.8.
 
 ### 4-G.3 POST /api/v1/orders/guest/track — `public` (`@Public()`)

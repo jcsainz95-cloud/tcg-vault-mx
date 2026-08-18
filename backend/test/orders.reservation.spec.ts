@@ -174,7 +174,7 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
  * T2 (techlead, 2026-08-18) — la reserva atómica y la compensación del PaymentIntent vivían
  * DUPLICADAS en `OrdersService` (bóveda) y `GuestCheckoutService` (envío directo), y las copias ya
  * habían divergido: la de invitado tenía el guard `ownerType='platform'` y la de bóveda NO,
- * confiando en el chequeo pre-transaccional de `priceCartLines` (ventana TOCTOU).
+ * confiando en el chequeo pre-transaccional de `priceCartForOrder` (ventana TOCTOU).
  *
  * Ahora hay una sola implementación (`OrdersService.reserveItems`), con la titularidad como
  * parámetro. Esta suite fija el comportamiento que NO puede volver a perderse.

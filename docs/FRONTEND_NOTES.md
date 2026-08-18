@@ -3785,3 +3785,90 @@ opcional" si en la práctica ya siempre viajan).
 
 ### Gates
 `npm run typecheck` ✓ · `npm run lint` ✓ · `npm run test` ✓ (50 archivos / 381 tests).
+
+## Fix de producción — pieza muerta en carrito viejo NO bloquea el checkout (2026-08-18, contrato v1.21.3-quote-prune, rama `fix/carrito-pieza-muerta`)
+
+Los dos quotes (§4 y §4-G.1) ahora resuelven POR ÍTEM y devuelven `200` con
+`unavailableItems: UnavailableCartItemDTO[]` (siempre presente). El front cumple su "deber de
+contrato": **poda del localStorage** los ids muertos antes de llamar a session (que sigue
+estricta, anti double-sell) y muestra un aviso informativo. Además el carrito local gana
+**expiración a 30 días** (nota de frontend del contrato, complementa la poda).
+
+### Formato de storage del carrito (`lib/cart.ts`)
+
+- **v2:** `tcg.cart = { ids: string[], updatedAt: number }` (epoch ms de la última modificación).
+  `add`/`remove`/`prune`/`clear` refrescan `updatedAt`; **leer NO lo refresca** (si leer contara
+  como "tocar", un carrito abierto a diario jamás expiraría distinto… pero tampoco expiraría el
+  aviso de 30 días de un carrito que solo se mira; se decidió que solo MODIFICAR cuenta).
+- **Expiración:** al leer, si `now - updatedAt > 30 días` (estrictamente MÁS de 30 días — a los
+  30 exactos sigue vivo), el carrito se limpia y se persiste vacío.
+- **Migración suave:** el formato v1 era un array JSON plano. Un array plano (o un objeto con
+  `ids` pero sin `updatedAt` numérico) se trata como carrito VÁLIDO y se re-persiste en v2 con
+  `updatedAt = now` en esa misma lectura. **Nunca** se descarta un carrito por cambio de formato;
+  el costo es que un carrito legado "renace" con timestamp fresco una única vez.
+- **`prune(ids: string[])`** nuevo en `useCart`: poda en lote con la misma semántica de storage
+  que `remove` (mismo write + evento), pero **idempotente**: si ningún id sigue en el carrito no
+  escribe ni emite — clave para poder llamarlo desde un efecto sin ciclar la re-cotización.
+
+### Dónde vive el estado del aviso (`(storefront)/checkout/unavailable-notice.ts`)
+
+Mini-store de módulo (`useSyncExternalStore`) y NO estado de componente, por dos razones:
+1. el aviso debe **sobrevivir a la re-cotización** (la poda cambia `cart.ids` → la queryKey
+   cambia → el siguiente fetch trae `unavailableItems: []`); 2. debe sobrevivir al **desmonte de
+   la vista que lo produjo** — si TODO el carrito murió, `CheckoutView` desmonta
+   `GuestCheckoutView` y pinta el EmptyState, y el aviso tiene que seguir junto al carrito vacío.
+Se limpia al cerrarlo (X del banner) o al salir del checkout (cleanup de `CheckoutView`).
+`pushUnavailableNotice` dedupea por `inventoryItemId` (idempotente ante re-fetches).
+
+### Vistas (`CheckoutView.tsx` / `GuestCheckoutView.tsx`)
+
+- Efecto idempotente tras cada quote: `pushUnavailableNotice(unavailableItems)` +
+  `cart.prune(ids)`. Sin ciclo: el fetch posterior a la poda trae `[]` y el efecto es no-op.
+- `UnavailableItemsNotice` (nuevo, carpeta checkout) usa `Banner variant="info"`
+  (`role="status"`, regla fina neutra, tinta muted — informativo, NO bermellón ni `alert`).
+  Copy i18n en `checkout.unavailable.*` (ES/EN): con nombre si `cardName` viene, genérico si es
+  `null`, plural con lista de nombres si son varias. Se renderiza **FUERA de `QueryState`**
+  (bajo el título) para que no desaparezca durante el loading de la re-cotización.
+- **Carrito 100 % muerto:** la poda vacía el carrito → `CheckoutView` pinta el EmptyState
+  existente MÁS el aviso; nunca la pantalla de error genérico ni "Reintentar" (los quotes ya no
+  devuelven `404`/`409` globales). No hay mini-cart lateral en la app (el header solo muestra el
+  contador `useCart().count`), así que no hubo nada más que podar.
+- Mocks (`lib/api.ts`): los dos quotes mock devuelven `unavailableItems` (id ausente de los
+  fixtures ⇒ `cardName: null`) y **breakdown en CEROS** si todo murió (guest incluye
+  `shippingFeeCents: 0`). El caso "existe pero fuera de venta" (`cardName` poblado) no se modela
+  en fixtures; lo cubren los tests de vista con el API mockeado y el backend real.
+
+### F-2 (veredicto techlead, misma rama) — carrera "pieza vendida ENTRE el quote y el pago"
+
+La session sigue estricta (anti double-sell): si la pieza muere DESPUÉS del quote y el usuario
+paga, `createCheckoutSession`/`createGuestCheckoutSession` responde `409 ITEM_UNAVAILABLE` (o
+`404 NOT_FOUND`) y antes eso era un callejón sin salida (solo el mensaje genérico junto al botón).
+Ahora el catch de `pay()` en AMBAS vistas, para esos dos códigos, dispara **`query.refetch()`**:
+el re-quote trae la pieza en `unavailableItems` y la maquinaria ya construida (efecto de poda +
+`UnavailableItemsNotice`) poda el localStorage y avisa sola.
+
+**Decisión de UX:** con el re-quote en marcha, el banner ES el aviso — NO se pinta además el
+`payError` genérico junto al botón (evita el doble mensaje contradictorio "esta carta ya no está
+disponible" + banner "se quitó de tu carrito"). **Respaldo si el refetch falla:** se setea
+`payError` con el mensaje del error original y, además, el quote queda en estado de error, así que
+`QueryState` pinta su aviso con "Reintentar" — nunca una pantalla muda. El manejo de los demás
+códigos NO cambió (`EMAIL_NOT_VERIFIED` → banner de verificación; `VAULT_REQUIRES_ACCOUNT` →
+upsell de bóveda).
+
+### Tests
+
+`lib/cart.test.ts` +8 (migración v1→v2 sin pérdida, expiración >30d, 30d exactos se conserva,
+refresh de timestamp en add/remove/clear, prune en lote e idempotente, `{ids}` sin timestamp).
+`checkout/CheckoutUnavailable.test.tsx` +5 (invitado: 1 muerta con nombre + 2 vivas ⇒ banner con
+nombre, renglones vivos y storage podado; cierre del aviso; invitado todas muertas ⇒ EmptyState +
+aviso plural sin error/reintentar; con cuenta: mismo par de casos, incl. `cardName: null` ⇒ copy
+genérico). Tests preexistentes que asserteaban el array plano de `tcg.cart` se actualizaron al
+formato v2 (`.ids`).
+**F-2:** +3 en `CheckoutUnavailable.test.tsx` (con cuenta y de invitado: session rechaza
+`ITEM_UNAVAILABLE` ⇒ se re-cotiza, banner con nombre, renglón y localStorage podados, sin
+`role=alert` ni modal Stripe; y el caso "el refetch de respaldo también falla" ⇒ QueryState en
+error con "Reintentar", nunca mudo).
+
+### Gates
+`npm run lint` ✓ · `npx tsc --noEmit` ✓ · `npm run build` ✓ · `npx vitest run` ✓
+(52 archivos / 394 tests, +16 nuevos en la rama).
