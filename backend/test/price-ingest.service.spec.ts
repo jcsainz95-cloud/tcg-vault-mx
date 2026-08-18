@@ -5,12 +5,18 @@ import { usdToMxnCents } from '../src/common/money';
 import { cardNumberVariants } from '../src/modules/pricing/pricing.types';
 
 /**
- * WS-A (v1.14-price-ingest, §4.15c/§4.15d/§4.15e) — PriceIngestService:
+ * WS-A (v1.14-price-ingest, §4.15c/§4.15d) — PriceIngestService:
  *  - el dial `PRICE_PROVIDER` elige el provider;
  *  - upsert por ACABADO (una persistMarketReference por finish) con el FX del snapshot;
- *  - resolución de carta (externalId primario, (set,number) fallback), omite las no resueltas;
- *  - availableFinishes se DERIVA del proveedor (autoridad) y NO se clobbea si no reporta nada.
+ *  - resolución de carta (externalId primario, (set,number) fallback), omite las no resueltas.
  * + PricingService.persistMarketReference generalizado (source + moneda USD/MXN).
+ *
+ * v1.22-variantes-orden (§4.22a) — CERO ESCRITURAS sobre `Card` desde este servicio.
+ * `availableFinishes` DEJA de derivarse/escribirse aquí (§4.15e DEROGADA, VAR-1 §9): la autoridad
+ * única es `CatalogSyncService.upsertCards`. En su lugar, este servicio LEE (nunca escribe) el
+ * catálogo de acabados de las cartas tocadas para loguear `finishNotInCatalog` cuando el proveedor
+ * reporta un acabado que `Card.availableFinishes` no declara (drift observable, dato inocuo: el
+ * quote valida el finish contra el catálogo ANTES de leer precio).
  */
 
 function providerMock(source: string, rows: unknown[], skipped = 0) {
@@ -60,6 +66,9 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
         findFirst: jest.fn(async ({ where }: any) =>
           where.setId === 'local-sv8' && where.number === '5' ? { id: 'db-5' } : null,
         ),
+        // §4.22a — lectura de SOLO LECTURA del catálogo de acabados (drift/`finishNotInCatalog`).
+        // Por default el catálogo NO conoce ningún finish extra → sin drift en estos tests.
+        findMany: jest.fn(async () => []),
         update: jest.fn(async () => ({})),
       },
       ...overrides,
@@ -68,7 +77,7 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
 
   const fx = { rate: 18, bufferPct: 3 };
 
-  it('persiste una referencia por acabado (source+moneda del provider) y deriva availableFinishes', async () => {
+  it('persiste una referencia por acabado (source+moneda del provider) y NO toca Card (§4.22a)', async () => {
     const provider = providerMock('pokemonpricetracker', [
       { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 150, currency: 'USD' },
       { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'reverse_holo', marketCents: 200, currency: 'USD' },
@@ -87,12 +96,40 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
       'db-1', 'reverse_holo', { marketCents: 200, currency: 'USD', source: 'pokemonpricetracker' }, fx,
     );
-    // Variantes #8: availableFinishes = acabados reportados por el proveedor (autoridad).
-    expect(prisma.card.update).toHaveBeenCalledWith({
-      where: { id: 'db-1' },
-      data: { availableFinishes: ['normal', 'reverse_holo'] },
-    });
+    // v1.22 (§4.22a) — CERO escrituras sobre `Card`: ni siquiera cuando el proveedor reporta 2
+    // acabados. La autoridad de `availableFinishes` es SOLO el sync de catálogo.
+    expect(prisma.card.update).not.toHaveBeenCalled();
     expect(res).toMatchObject({ cardCount: 1, priced: 2, unresolved: 0 });
+  });
+
+  it('finishNotInCatalog: el proveedor reporta un acabado FUERA de Card.availableFinishes → se LOGUEA, NO se escribe', async () => {
+    const provider = providerMock('pokemonpricetracker', [
+      { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'holofoil', marketCents: 300, currency: 'USD' },
+    ]);
+    // El catálogo SOLO conoce ['normal'] para db-1 → 'holofoil' es DRIFT.
+    const prisma = prismaMock({
+      card: {
+        findUnique: jest.fn(async ({ where }: any) => (where.externalId === 'sv8-1' ? { id: 'db-1' } : null)),
+        findFirst: jest.fn(async () => null),
+        findMany: jest.fn(async () => [{ id: 'db-1', externalId: 'sv8-1', availableFinishes: ['normal'] }]),
+        update: jest.fn(async () => ({})),
+      },
+    });
+    const pricing = { persistMarketReference: jest.fn(async () => {}) };
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
+
+    await svc.ingestSet('local-sv8', fx);
+
+    // El PRECIO sí se persiste (dato inocuo: el quote valida el finish antes de leer precio).
+    expect(pricing.persistMarketReference).toHaveBeenCalledWith(
+      'db-1', 'holofoil', expect.objectContaining({ marketCents: 300 }), fx,
+    );
+    // El CATÁLOGO no se toca nunca.
+    expect(prisma.card.update).not.toHaveBeenCalled();
+    // La divergencia queda LOGUEADA como finishNotInCatalog.
+    expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('finishNotInCatalog'))).toBe(true);
+    warnSpy.mockRestore();
   });
 
   it('resuelve por (set, number) cuando falta externalId (fallback §4.15d)', async () => {
@@ -107,6 +144,7 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
       'db-5', 'normal', expect.objectContaining({ marketCents: 100 }), fx,
     );
+    expect(prisma.card.update).not.toHaveBeenCalled();
   });
 
   it('fila que NO resuelve a carta local → se OMITE (no crea referencia huérfana)', async () => {
@@ -123,14 +161,14 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
     expect(res.unresolved).toBe(1);
   });
 
-  it('proveedor sin filas válidas → NO clobbea availableFinishes (respeta lo existente, §4.15e)', async () => {
+  it('proveedor sin filas válidas → sigue sin tocar Card (cero escrituras, §4.22a)', async () => {
     const provider = providerMock('pokemonpricetracker', []);
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
     const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
 
     await svc.ingestSet('local-sv8', fx);
-    expect(prisma.card.update).not.toHaveBeenCalled(); // nunca se pisa a [normal] ni a []
+    expect(prisma.card.update).not.toHaveBeenCalled();
   });
 
   it('propaga la moneda MXN de la fila (el ingest no convierte MXN)', async () => {
@@ -271,21 +309,34 @@ describe('PriceIngestService.resolveCardId — fallback por número con formato 
   const fx = { rate: 18, bufferPct: 3 };
 
   function build(cards: { findFirst: jest.Mock; findMany?: jest.Mock }) {
+    // §4.22a añadió una SEGUNDA consulta `card.findMany` (lectura del catálogo de acabados para
+    // `finishNotInCatalog`), con forma `where.id.in`. Se enruta por forma del `where` para no
+    // interferir con la de este describe, que es la del fallback por NÚMERO (`where.number.in`).
+    const variantFindMany = cards.findMany ?? jest.fn(async () => []);
+    const routedFindMany = jest.fn(async (args: any) => {
+      if (args?.where?.id) return []; // catálogo de acabados: sin drift en estos tests
+      return variantFindMany(args);
+    });
     const prisma = {
       cardSet: { findUnique: jest.fn(async () => SET) },
-      card: { findUnique: jest.fn(async () => null), update: jest.fn(async () => ({})), ...cards },
+      card: {
+        findUnique: jest.fn(async () => null),
+        update: jest.fn(async () => ({})),
+        findFirst: cards.findFirst,
+        findMany: routedFindMany,
+      },
     } as any;
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
     const provider = providerMock('pokemonpricetracker', [
       { externalId: null, setExternalId: 'sv8', number: '104/159', finish: 'normal', marketCents: 100, currency: 'USD' },
     ]);
     const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
-    return { svc, prisma, pricing };
+    return { svc, prisma, pricing, variantFindMany };
   }
 
   it('"104/159" del proveedor resuelve a la carta "104" del set (coincidencia ÚNICA)', async () => {
     const findMany = jest.fn(async () => [{ id: 'db-104' }]);
-    const { svc, prisma, pricing } = build({ findFirst: jest.fn(async () => null), findMany });
+    const { svc, prisma, pricing, variantFindMany } = build({ findFirst: jest.fn(async () => null), findMany });
 
     const res = await svc.ingestSet('local-sv8', fx);
 
@@ -293,7 +344,7 @@ describe('PriceIngestService.resolveCardId — fallback por número con formato 
     expect(prisma.card.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { setId: 'local-sv8', number: '104/159' } }),
     );
-    const variantsWhere = (findMany.mock.calls[0] as unknown[])[0] as { where: { number: { in: string[] } } };
+    const variantsWhere = (variantFindMany.mock.calls[0] as unknown[])[0] as { where: { number: { in: string[] } } };
     expect(variantsWhere.where.number.in).toContain('104');
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
       'db-104', 'normal', expect.objectContaining({ marketCents: 100 }), fx,
@@ -303,10 +354,10 @@ describe('PriceIngestService.resolveCardId — fallback por número con formato 
 
   it('el número EXACTO manda: si casa, NO se consultan variantes', async () => {
     const findMany = jest.fn(async () => []);
-    const { svc, pricing } = build({ findFirst: jest.fn(async () => ({ id: 'db-exact' })), findMany });
+    const { svc, pricing, variantFindMany } = build({ findFirst: jest.fn(async () => ({ id: 'db-exact' })), findMany });
 
     await svc.ingestSet('local-sv8', fx);
-    expect(findMany).not.toHaveBeenCalled();
+    expect(variantFindMany).not.toHaveBeenCalled();
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
       'db-exact', 'normal', expect.objectContaining({ marketCents: 100 }), fx,
     );

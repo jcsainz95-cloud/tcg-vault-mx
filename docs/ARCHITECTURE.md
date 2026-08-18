@@ -2,7 +2,43 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.21.2-chargeback-fulfillment (MVP, plataforma en producción). Fecha: 2026-08-18. Branch: `stream/ordenes-guest-checkout`.
+> Estado: v1.22-variantes-orden (MVP, plataforma en producción). Fecha: 2026-08-18. Branch: `fix/variantes-y-orden-master-set`.
+>
+> **Changelog v1.22-variantes-orden (2026-08-18) — WS «Catálogo y precios» + «Inventario y vault»: (1) `Card.availableFinishes`
+> deja de estar CONTAMINADO por precios y (2) el orden por número deja de ser lexicográfico en el cotizador. Tercera ronda del
+> mismo bug del PO («en el master set son dos cartas de cada una: la común a la izquierda y la holo a la derecha»).**
+> Ver **§4.22** (spec completa), §3.7 (reescrito), §3.2 (`Card`), §4.15e (**derogado**), §9 (VAR-1…4 / ORD-1 / SEED-1),
+> §11 (**M-26**) y API_CONTRACT v1.22.
+> - **El error de fondo es de AUTORIDAD, no de UI.** `availableFinishes` es **metadata de catálogo** («¿en qué impresiones
+>   existe esta carta?») y hoy se escribe desde la ruta de **precios**: `price-ingest.service.ts:151-172` lo **sobrescribe**
+>   con los acabados que obtuvieron `market > 0`. Una carta con reverse holo **sin precio de reverse holo** queda reducida a
+>   `['normal']` ⇒ el binder pinta **una** casilla. Precio ausente **no** es prueba de que la variante no exista. Se **deroga
+>   §4.15e** (v1.14 había elevado al proveedor de precios a autoridad de variantes).
+> - **Norma nueva (§4.22a), en una línea:** el **sync de catálogo es el ÚNICO escritor** de `availableFinishes`;
+>   **`price-ingest` NO lo escribe nunca** (ni ampliando: un alias mal mapeado inflaría para siempre una lista blanca
+>   SEC-A1 que ninguna autoridad podría limpiar); la derivación combina **`tcgplayer.prices` (llaves presentes, con o sin
+>   `market`) ∪ `cardmarket.prices.reverseHolo*` (valor numérico > 0)**; **sin señal remota → no se sobrescribe** lo
+>   existente (y `['normal']` solo al CREAR). **Cero heurísticas por rareza**: nunca se inventa una variante ⇒ nunca una
+>   casilla de relleno.
+> - **Orden natural PERSISTIDO (§4.22b, M-26):** `searchAllCards` (`GET /buylist/cards`) ordena `[{name},{number}]` sobre un
+>   `number` **String** (`"10" < "2"`) **y pagina** ⇒ ordenar en memoria tras el `skip/take` da un orden **globalmente
+>   incorrecto**. Por eso se **descarta** ordenar en memoria y se añaden **dos columnas derivadas** —`Card.numberSort Int`
+>   y `Card.numberPrefix String`— pobladas en el upsert del sync y por backfill SQL en la migración, con `orderBy` en
+>   Prisma e índice `(setId, numberPrefix, numberSort)`. `deriveNumberParts` (ya existente) pasa de comparador en memoria a
+>   **función de escritura canónica**.
+> - **Contrato (aditivo, sin breaking):** `GET /buylist/cards` gana **garantía de orden NORMATIVA**; `CardDTO` gana
+>   `numberSort` + `numberPrefix` (mata el `numberSort: idx` que el front inventa en `MasterSetBinder.tsx:104`);
+>   `MasterSetCardCellDTO` gana `numberPrefix`. **`MasterSetVariantDTO` NO cambia**: pokemontcg.io publica **una** imagen
+>   por carta, la misma para todas sus variantes ⇒ la casilla de variante usa `imageSmallUrl` de la CELDA. Confirmado.
+> - **Invariante de render (§4.22c):** `|casillas| = |availableFinishes| ≥ 1`, en **orden canónico `FINISH_ORDER`**
+>   (`normal → reverse_holo → holofoil → first_edition_holofoil`) ⇒ «normal a la izquierda, reverse holo a la derecha»
+>   sale del **orden del dato**, no de un `sort` del front. **Prohibido** pintar una casilla que no esté en el array.
+> - **Seeds (§4.22e):** los tres seeds (`seed.ts`, `seed-e2e.ts`, `e2e-fixtures.ts`) **no setean** `availableFinishes` ⇒ todo
+>   cae al `@default([normal])` y el bug **se reproduce en local y staging**. Norma: seedear **explícitamente**, con ≥1 carta
+>   `['normal','reverse_holo']`, ≥1 carta `['normal']` y números `"2" / "10" / "TG01"` para que el E2E pruebe ambas cosas.
+> - **Supuesto declarado (§4.22f):** el proxy del sandbox **bloquea `api.pokemontcg.io` (403 en CONNECT)**, así que el
+>   payload remoto **no se pudo verificar en vivo**. La derivación se diseñó contra el esquema documentado del API v2 y
+>   queda **pendiente de verificación en la 1ª corrida** (devops/backend, gate de despliegue).
 >
 > **Changelog v1.21.2-chargeback-fulfillment (2026-08-18) — Cierre del hallazgo BLOQUEANTE del techlead (T1) + D6 y
 > D4. El hueco era de la NORMA, no de la implementación: §4.21c describía el reverso del contracargo solo en
@@ -753,8 +789,10 @@ PendingPriceEntry (cola de precio pendiente)
 
 #### Card (catálogo, datos en inglés, no se traduce)
 - `id`, `externalId` (pokemontcg.io id), `setId` (FK CardSet), `name` (EN), `number`, `rarity`, `supertype`, `subtypes` (JSONB), `imageSmallUrl`, `imageLargeUrl`, `tcgplayerId?`, `createdAt`.
-- **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta, **derivados de las llaves de `tcgplayer.prices`** al importar (ver mapeo §3.7). **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2).
-- Índices: `(setId)`, `(name)`, `(rarity)`, `externalId` único.
+- **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta. **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2) **y** el **universo de casillas** del binder (§4.20b).
+  - **v1.22 — AUTORIDAD ÚNICA = el sync de CATÁLOGO.** Derivado de `tcgplayer.prices` ∪ `cardmarket.prices.reverseHolo*` (§3.7). **`price-ingest` NO escribe esta columna** (§4.22a deroga §4.15e). Almacenado **siempre en orden canónico `FINISH_ORDER`** y **nunca vacío**.
+- **`numberSort Int @default(1000000)` / `numberPrefix String @default("")` (v1.22, MIGRACIÓN M-26):** **claves derivadas** de `number` (que es `String`) para el **orden natural en BD** — `number` puramente numérico → `numberSort` = su entero y `numberPrefix = ''`; con prefijo alfabético (`TG12`, `SV107`) → `numberPrefix` = las letras y `numberSort = 1_000_000 + parte numérica` (promos/subsets al final). Escritas por `upsertCards` con la MISMA función que las backfillea (`deriveNumberParts`, §4.22b). **Derivadas, no autoritativas:** la fuente de verdad sigue siendo `number`; si divergen, se recalculan desde `number`.
+- Índices: `(setId)`, `(name)`, `(rarity)`, **`(setId, numberPrefix, numberSort)` (M-26)**, `externalId` único.
 
 #### VaultLocation (M1 — ubicación jerárquica CAJA/FILA/SLOT)
 - `id`, `zone` (`platform_stock | customer_custody` — **separación física de custodia de clientes**), `box` (CAJA), `row` (FILA), `slot` (SLOT), `label` (derivado, ej. `C03-F02-S15`), `isActive`.
@@ -1152,10 +1190,22 @@ acabados disponibles viven en `Card.availableFinishes` (array en la misma fila),
 | `1stEditionNormal` | *(no mapeada en el MVP)* | Se ignora al derivar `availableFinishes`. Ver pregunta abierta v1.4-1. |
 | `unlimitedHolofoil` / `unlimited` | *(no mapeada en el MVP)* | Idem. |
 
-- **Derivación de `availableFinishes`:** al importar (`upsertCards`, §4.8), se recorren las **llaves presentes**
-  de `card.tcgplayer.prices`, se mapean con la tabla anterior (descartando las no mapeadas) y el conjunto único
-  resultante se guarda en `Card.availableFinishes`. Si `tcgplayer.prices` está ausente/vacío → `[normal]`
-  (default seguro). El `client` de pokemontcg.io **deja de descartar** `tcgplayer.prices` (§4.8).
+**Orden canónico (`FINISH_ORDER`, NORMATIVO desde v1.22):** `normal → reverse_holo → holofoil →
+first_edition_holofoil`. Es el orden en que se **persiste** `Card.availableFinishes` y en que se **emite** en todo
+DTO que lo exponga. De él sale, sin `sort` en el front, el requisito del PO: **la normal a la izquierda, la reverse
+holo a la derecha**.
+
+- **Derivación de `availableFinishes` (v1.22 — REESCRITA; la regla operativa completa está en §4.22a):** la deriva
+  **solo** el sync de catálogo (`upsertCards`, §4.8) combinando **dos** señales del payload remoto:
+  (1) las **llaves presentes** de `card.tcgplayer.prices` mapeadas con la tabla de arriba — **la llave presente ES la
+  señal**, con `market` o sin él— y (2) `reverse_holo` si algún campo `card.cardmarket.prices.reverseHolo*` trae un
+  **número > 0**. **Sin ninguna señal** → no se sobrescribe lo existente (y `[normal]` solo al **crear**).
+  `price-ingest` **no escribe** este campo (§4.22a; deroga §4.15e). El `client` de pokemontcg.io **deja de descartar**
+  `tcgplayer.prices` (§4.8) y **debe dejar de descartar `cardmarket.prices`** (§4.22a).
+  - ❌ **Prohibido derivar acabados de la existencia de un PRECIO** (`PriceReference`, `market > 0`, respuesta del
+    proveedor de paga): precio ausente ≠ variante inexistente. Este fue el bug de tres rondas.
+  - ❌ **Prohibida cualquier heurística por rareza** («toda Common tiene reverse holo»): inventaría casillas de relleno,
+    que el PO prohíbe explícitamente.
 - **Alcance por tipo de producto:** el acabado aplica a **raw/singles**. Para `graded`/`sealed` el `finish` es
   siempre `normal` (el slab/sellado no distingue acabado a efectos de precio); el default lo cubre y no cambia el
   comportamiento actual.
@@ -2212,7 +2262,15 @@ Railway** (desde dev el dominio está bloqueado por egress). Por eso **todo** el
 - **Nunca** deriva el precio del cliente ni de un DTO — SEC-A1 intacto: la fuente es el proveedor server-side; `finish` se
   usa como **dimensión de la clave** de `PriceReference`, no como monto.
 
-#### (e) Variantes (#8) — `Card.availableFinishes` derivado del PROVEEDOR
+#### (e) Variantes (#8) — `Card.availableFinishes` derivado del PROVEEDOR — ⛔ **DEROGADO por §4.22a (v1.22)**
+
+> ⛔ **DEROGADO (v1.22-variantes-orden).** Esta subsección elevó al **proveedor de PRECIOS** a autoridad de las
+> **variantes de catálogo**, y ese es el error de diseño que produjo tres rondas del mismo bug del PO: `providerFinishes`
+> solo contiene acabados con `market > 0`, así que una carta con reverse holo **sin precio de reverse holo** se reducía a
+> `['normal']` y el binder pintaba una sola casilla. **Norma vigente: §4.22a** — el sync de catálogo es el **único**
+> escritor de `Card.availableFinishes`; `price-ingest` **no lo escribe** (ni siquiera ampliando). El resto de §4.15
+> (interfaz bulk, job, FX, dial) **sigue vigente sin cambios**: lo único derogado es la escritura de variantes.
+> Se conserva el texto original abajo como registro de la decisión revertida.
 
 Reemplaza la derivación frágil de `tcgplayer.prices` (que en el barrido roto dejaba casi todo en `[normal]`). En el
 `price-ingest-set`, tras agrupar las filas por carta:
@@ -2288,7 +2346,8 @@ Reemplaza la derivación frágil de `tcgplayer.prices` (que en el barrido roto d
   Acepta `setId?` **opcional** (excepción justificada al body-vacío de la familia): un solo set para **verificar el
   esquema** en la 1ª corrida sin barrer el catálogo entero. Ver `API_CONTRACT.md §M10-ops`.
 - **Contrato:** `POST /admin/jobs/price-ingest` (nuevo, §M10-ops); dial `priceProvider` en el DTO de `/admin/settings`
-  (§M10); nota de que `CardDTO.availableFinishes` pasa a **derivarse del proveedor** (mismo shape); `PUT /admin/fx` gana
+  (§M10); ~~nota de que `CardDTO.availableFinishes` pasa a **derivarse del proveedor** (mismo shape)~~ **⛔ derogado por
+  §4.22a: el ingest NO escribe `availableFinishes`**; `PUT /admin/fx` gana
   `rate?` opcional (#13, alternativa). Sin migración de esquema.
 - **Sin migración:** WS-A reusa `PriceReference` (finish en la clave, M-18), `PriceSource.pokemonpricetracker` (ya en el
   enum) y `Card.availableFinishes`. El dial `PRICE_PROVIDER` es una fila de `ConfigSetting` (dato, no esquema).
@@ -2751,10 +2810,12 @@ agregación** y las **omisiones por permiso**. Contrato: `API_CONTRACT.md` Chang
 - **Casilla = variante = `(Card, finish)`** con `finish ∈ Card.availableFinishes`. Una carta en `normal` y
   `reverse_holo` son **2 casillas**; los contadores «X/Y» cuentan **variantes**, no cartas.
 - **Universo esperado — regla explícita:** el catálogo **SÍ declara** los acabados esperados por carta:
-  **`Card.availableFinishes`** (M-18), hoy poblado por el price-ingest v1.14 (variantes reales del proveedor,
-  §4.15e) con bootstrap desde `tcgplayer.prices` y default histórico `["normal"]`. **No se inventa una regla
-  derivada nueva**: es el mismo campo que ya funge de lista blanca SEC-A1 del `finish` en quote/alta. Si el ingest
-  amplía `availableFinishes`, el denominador de completitud crece (correcto: aparecieron variantes de mercado).
+  **`Card.availableFinishes`** (M-18). **No se inventa una regla derivada nueva**: es el mismo campo que ya funge de
+  lista blanca SEC-A1 del `finish` en quote/alta.
+  - **v1.22 (CORRECCIÓN):** la frase «hoy poblado por el price-ingest v1.14 (§4.15e)» queda **derogada**. El campo lo
+    puebla **solo el sync de catálogo** (§3.7 / §4.22a); `price-ingest` **no lo escribe**. Consecuencia directa para
+    este binder: el denominador de completitud ya **no** encoge cuando el proveedor de precios no trae precio de un
+    acabado — deja de haber cartas de dos variantes que se muestran con una sola casilla.
 - **Drift:** una pieza cuyo `finish` ya no esté en `availableFinishes` se muestra en `countsByFinish` (es una pieza
   real) pero **no** cuenta en expected/covered — evita `covered > expected` y deja visible la inconsistencia.
 - **Nota (comportamiento v1.16 conservado):** la cobertura cuenta piezas de **cualquier** `productType` del
@@ -3219,6 +3280,215 @@ de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
 
 ---
 
+### 4.22 WS «Catálogo y precios» + «Inventario y vault» — Variantes reales y orden natural del master set (v1.22-variantes-orden)
+
+> **Requisito del PO, textual:** «Ve cómo en el master set son dos cartas de cada una: la común a la izquierda y la
+> holo a la derecha.» Traducido a norma: **una casilla de imagen por VARIANTE REAL** de la carta —normal a la
+> izquierda, reverse holo a la derecha— y **jamás una casilla de relleno** si la variante no existe. Es la **tercera
+> ronda** del mismo bug: las dos anteriores atacaron el render; la causa está en **el dato** y en **quién lo escribe**.
+
+#### (a) `availableFinishes`: una sola autoridad, y no es la de precios
+
+**Diagnóstico (código verificado el 2026-08-18, hallazgos del orquestador ratificados).**
+
+| # | Dónde | Qué hace hoy | Efecto |
+|---|---|---|---|
+| VAR-1 | `price-ingest.service.ts:151-172` | Tras ingerir precios **sobrescribe** `Card.availableFinishes` con `providerFinishes` = los acabados que obtuvieron **`market > 0`** | **Causa raíz.** Carta con reverse holo **sin precio** de reverse holo ⇒ clobbeada a `['normal']` ⇒ **una** casilla. Agravado por **P-6** (el adapter de paga devuelve 0 filas). |
+| VAR-2 | `catalog-sync.service.ts:355` + `pricing.types.ts:32` | `deriveAvailableFinishes(c.tcgplayer?.prices)`; sin bloque `tcgplayer` en el payload → `['normal']` | Pierde el reverse holo de toda carta que TCGplayer no liste, aunque Cardmarket sí lo publique. |
+| VAR-3 | `seed.ts`, `seed-e2e.ts`, `e2e-fixtures.ts` | **No setean** `availableFinishes` ⇒ `@default([normal])` | El bug **se reproduce en local y staging**, y ningún E2E lo puede atrapar. |
+| VAR-4 | `syncAll` / `backfill` | Solo refrescan `availableFinishes` con `force:true` | Los sets importados antes de v1.6-finish siguen en `['normal']` indefinidamente. |
+
+**El error conceptual, en una frase:** `availableFinishes` responde *«¿en qué impresiones existe esta carta?»* —
+**metadata de catálogo**— y se está escribiendo desde la ruta que responde *«¿cuánto vale hoy?»*. **La ausencia de un
+precio no es prueba de la inexistencia de una impresión.** Además, `availableFinishes` es la **lista blanca SEC-A1**
+del `finish` (§3.7): que la escriba un feed de precios significa que un fallo del feed **restringe** lo que un
+vendedor puede cotizar y **borra** casillas del binder.
+
+**Norma v1.22 (5 reglas, normativas):**
+
+1. **Autoridad única = el sync de catálogo.** `CatalogSyncService.upsertCards` (§4.8) es el **ÚNICO** escritor de
+   `Card.availableFinishes` en todo el sistema.
+2. **`price-ingest` NO escribe `availableFinishes`. Cero escrituras.** Se elimina el bloque
+   `price-ingest.service.ts:167-172` (§4.15e queda derogada).
+   > **Por qué "cero" y no "solo ampliar" (decisión explícita, se pidió argumentarla).** «Ampliar sin reducir»
+   > parece la opción segura, y **no lo es**: la unión es **monótona creciente y nadie puede limpiarla**. Basta un
+   > alias mal mapeado en `BULK_VARIANT_TO_FINISH` (`foil → holofoil`, `reverse → reverse_holo`, todos marcados
+   > *SUPUESTO — verificar 1ª corrida* en `pricing.types.ts:127-141`) para grabar un acabado **inexistente** que
+   > (i) el catálogo ya no podrá quitar —el ingest lo re-añadiría en la siguiente corrida—, (ii) el binder pintará
+   > como **casilla de relleno** (justo lo que el PO prohíbe) y (iii) **ensancha una lista blanca de seguridad**
+   > (SEC-A1) desde un feed de precios de terceros. Con **cero escrituras**, un `sync --force` **repara** cualquier
+   > estado; con «solo ampliar», no. Un solo escritor también hace el sistema **determinista y diagnosticable**:
+   > ante una discrepancia hay **un** lugar donde mirar.
+   > **Contrapartida aceptada y documentada:** si el proveedor de paga conociera una variante que **ni** TCGplayer
+   > **ni** Cardmarket publican, no se registrará. La falla es **conservadora** (falta una casilla, no sobra una
+   > falsa) y su remedio es **override manual del admin**, no escritura automática (ver `dataHealth`, punto 5).
+3. **Derivación = unión de dos señales del MISMO payload que ya se descarga (cero requests extra).** Firma nueva:
+
+   ```ts
+   // backend/src/modules/pricing/pricing.types.ts  (reemplaza deriveAvailableFinishes(prices))
+   /** null  = el payload remoto NO trae NINGUNA señal de acabado (≠ "solo existe normal"). */
+   export function deriveAvailableFinishes(remote: {
+     tcgplayer?:  { prices?: Record<string, unknown> | null } | null;
+     cardmarket?: { prices?: Record<string, unknown> | null } | null;
+   }): Finish[] | null;
+   ```
+   - **Señal A — `tcgplayer.prices`:** por cada **llave presente** mapeable con la tabla de §3.7 se añade su
+     `Finish`. **La presencia de la llave ES la señal**; `market` puede ser `null`/`0` y la variante **sigue
+     contando**. *(Este es el cambio que arregla «tiene reverse holo pero no tiene precio de reverse holo».)*
+   - **Señal B — `cardmarket.prices.reverseHolo*`:** se añade `reverse_holo` si **alguno** de
+     `reverseHoloSell | reverseHoloLow | reverseHoloTrend | reverseHoloAvg1 | reverseHoloAvg7 | reverseHoloAvg30`
+     es un **número finito > 0**. ⚠️ **Ojo, asimetría deliberada con la señal A:** Cardmarket emite esas llaves
+     **siempre**, con `0`/`null` cuando la impresión no existe ⇒ aquí **la llave NO es señal, el valor sí**. Tratarla
+     como la A inventaría un reverse holo en **todas** las cartas.
+   - **Resultado:** `union(A, B)` ordenada por `FINISH_ORDER`, o **`null`** si A y B están ambas vacías.
+   - Llaves no mapeadas (`1stEditionNormal`, `unlimitedHolofoil`) se siguen ignorando (§3.7). Consecuencia asumida:
+     una carta que **solo** exista en `1stEditionNormal` cae a `['normal']` — **una** casilla, ninguna inventada.
+4. **Comportamiento sin señal remota (regla anti-regresión).** `upsertCards`:
+   - **CREATE** → `availableFinishes = derived ?? ['normal']` (conservador: **una** casilla; nunca relleno).
+   - **UPDATE** → el campo se incluye en el `data` del upsert **solo si `derived !== null`**. Con `derived === null`
+     **se omite la clave** y se **conserva** el valor previo. Un payload remoto parcial/degradado **no puede** volver
+     a clobbear a `['normal']` una carta que ya sabíamos de dos variantes. Cuando **sí** hay señal, el catálogo es
+     autoridad plena y **puede reducir** (es la corrección legítima de un dato erróneo).
+5. **Observabilidad en vez de adivinanza.** Se **prohíbe** cualquier heurística de relleno; a cambio, la carencia se
+   hace **visible**: contador `cardsWithoutFinishSignal` (cartas cuyo último sync devolvió `derived === null`) en el
+   `dataHealth` de M2 (**recomendado, no bloqueante**, backend). El remedio de negocio ante una variante faltante es
+   el **override manual del admin**, nunca una regla automática.
+
+**Consecuencias fuera de este WS (ninguna es breaking):** `PriceReference` **no cambia** — `price-ingest` sigue
+persistiendo el precio de **cualquier** `finish` válido que reporte el proveedor, **incluso si no está** en
+`availableFinishes` (dato inocuo: el quote valida el finish **antes** de leer precio). Esa divergencia se **loguea**
+como `finishNotInCatalog` (evidencia de drift para el dueño), y el binder ya la tolera por §4.20b («drift»).
+
+#### (b) Orden natural del número — columnas PERSISTIDAS (decisión (a); se descarta ordenar en memoria)
+
+**Diagnóstico.** `catalog.service.ts:325` (`searchAllCards`, el que alimenta el binder del cotizador vía
+`GET /buylist/cards`) ordena `orderBy: [{ name:'asc' }, { number:'asc' }]`. `Card.number` es **`String`** ⇒ `"10"`
+antes que `"2"`. `master-set.service.ts:449` **sí** ordena bien, pero **en memoria** con `compareByNumber` +
+`deriveNumberParts` (que ya maneja `TG01`/`SV107` con `PROMO_SORT_BASE`). El front tapa el hueco pisando
+`numberSort: idx` en `MasterSetBinder.tsx:104` — un índice de arreglo, no una clave de orden.
+
+**Decisión: (a) columnas persistidas.** El argumento decisivo es el que señaló el orquestador: **`searchAllCards`
+pagina** (`skip`/`take`). Ordenar en memoria ocurre **después** del `LIMIT`, así que reordenaría **la página**, no el
+conjunto: la página 1 traería las 50 cartas *lexicográficamente* menores y luego las barajaría — orden **global
+incorrecto**, y encima cartas duplicadas/ausentes entre páginas. El orden **debe** estar en el `ORDER BY` de SQL, y
+Prisma no sabe ordenar por expresión ⇒ o `$queryRaw` (pierde tipos, `where` y paginación de Prisma en la ruta pública
+del cotizador) o **columnas derivadas**. Se eligen las columnas: son indexables, reutilizables por todas las vistas y
+convierten el orden en una propiedad del **dato**, no de cada call-site.
+
+- **Esquema (M-26, §11):** `Card.numberSort Int @default(1000000)`, `Card.numberPrefix String @default("")`,
+  índice `@@index([setId, numberPrefix, numberSort])`.
+- **Escritura:** `upsertCards` puebla ambas con `deriveNumberParts(number)` en **create y update**.
+  `deriveNumberParts` (hoy en `master-set.service.ts:161`) se **promueve** a utilidad compartida y pasa de
+  *comparador en memoria* a **función de escritura canónica**; debe **clampear** `num` a `999_999` para no desbordar
+  `Int` con un `number` absurdamente largo (mismo clamp que el backfill SQL).
+- **Lectura — `orderBy` NORMATIVO** (equivale exactamente a `compareByNumber`, porque `''` es el menor string ⇒ las
+  puramente numéricas van primero, y luego se agrupa por prefijo):
+  ```ts
+  // con setId (caso del binder): orden natural puro
+  orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }, { number: 'asc' }, { id: 'asc' }]
+  // sin setId (búsqueda de texto en varios sets): nombre primero, natural dentro
+  orderBy: [{ name: 'asc' }, { setId: 'asc' }, { numberPrefix: 'asc' }, { numberSort: 'asc' }, { id: 'asc' }]
+  ```
+  El `{ id: 'asc' }` final **no es cosmético**: sin desempate total, dos filas empatadas pueden intercambiarse entre
+  dos consultas paginadas y producir **filas repetidas o saltadas** al cambiar de página.
+- **`master-set.service`:** el binder pasa a ordenar en **BD** con el mismo `orderBy` y a **leer `numberSort` de la
+  columna**; `compareByNumber` se conserva **solo** como oráculo de tests y para colecciones ya materializadas.
+  Prohibido que la clave persistida y la función diverjan: **un** algoritmo, en `deriveNumberParts`.
+- **Casos borde documentados (parity con el comparador actual; NO se cambia la semántica en este WS):** `"23a"` →
+  `prefix="a"`, `numberSort=1_000_023` ⇒ cae en el bloque de promos en vez de junto a `"23"`; `number=""` →
+  `prefix=""`, `numberSort=1_000_000` ⇒ al final del bloque numérico. Afinarlos es **deuda menor** (nueva entrada
+  sugerida en `TECH_DEBT.md`, dueño backend), no parte de este arreglo.
+
+#### (c) Invariante de render: una casilla por variante real
+
+Normativo para **toda** vista de master set (cotizador, binder M1, bóveda admin, «Mi bóveda»):
+
+1. **`|casillas| = |availableFinishes|`**, siempre **≥ 1**.
+2. El **orden de izquierda a derecha** es el del array, que se persiste y se emite en **`FINISH_ORDER`** (§3.7)
+   ⇒ *normal a la izquierda, reverse holo a la derecha*. El front **no ordena** acabados: consume el orden del DTO.
+3. **Prohibido pintar una casilla cuyo `finish` no esté en `availableFinishes`** (nada de placeholder, "hueco de
+   relleno" ni acabado fijo por convención). Si la carta solo tiene `['normal']`, se pinta **una** casilla y la
+   celda queda más angosta — eso es correcto, no un defecto visual a compensar.
+4. **La imagen de la variante es la imagen de la CARTA.** Confirmado: pokemontcg.io v2 publica **un solo**
+   `images.small` / `images.large` por objeto carta; **no existe** imagen por acabado (el reverse holo no tiene arte
+   propia en la fuente). Por eso **`MasterSetVariantDTO` NO gana campo de imagen** y `CardDTO`/`MasterSetCardCellDTO`
+   **no** ganan un mapa `imageByFinish`. La lectura del orquestador es **correcta**; se ratifica como norma para que
+   ninguna ronda futura vuelva a proponerlo. *(Si algún día se quisiera diferenciar visualmente el reverse holo, es
+   un efecto de **presentación** del front —marco/badge/overlay—, no un dato nuevo del contrato.)*
+
+#### (d) Reparación del dato ya existente (prod y staging)
+
+El código corregido **no repara solo** las filas ya escritas: hay cartas con `['normal']` grabado por VAR-1/VAR-2/VAR-4.
+Secuencia de despliegue (**dueño: devops**, con backend):
+
+1. Migración **M-26** (columnas de orden + backfill SQL + índice). No toca `availableFinishes`.
+2. Deploy del backend con (a) `price-ingest` sin escritura de variantes y (b) la derivación de dos señales.
+3. **Re-sync forzado del catálogo:** `POST /api/v1/admin/catalog/sync-all { force: true }` (super_admin) — es el
+   único camino que reprocesa sets ya importados (VAR-4) y el que repuebla `availableFinishes` **y** las nuevas
+   columnas de orden. Verificar con `GET /admin/catalog/sync-status`.
+4. **Verificación (gate):** sobre un set moderno conocido, `SELECT count(*) FROM "Card" WHERE
+   'reverse_holo' = ANY("availableFinishes") AND "setId" = :set` debe ser **> 0** (hoy da 0 en el set afectado); y en
+   el binder, una común moderna debe mostrar **dos** casillas. Si sigue en `['normal']` masivo ⇒ el payload remoto no
+   trae ninguna de las dos señales y se abre la pregunta v1.22-1 (§10) antes de tocar más código.
+
+#### (e) Seeds (norma; la implementa el rol dueño de `backend/prisma/`)
+
+Los seeds **deben setear `availableFinishes` explícitamente** en cada `Card` que crean —nunca depender del
+`@default([normal])`— y el conjunto sembrado debe contener, como mínimo:
+
+- **≥ 1 carta con `['normal','reverse_holo']`** (la que prueba las **dos** casillas del PO);
+- **≥ 1 carta con `['normal']`** (la que prueba que **no** se pinta relleno);
+- números **`"2"`, `"10"` y `"TG01"`** en el mismo set (la carta `"10"` debe salir **después** de `"2"` y `"TG01"`
+  **al final**), y `numberSort`/`numberPrefix` coherentes (sembrados o derivados con `deriveNumberParts`).
+
+Aplica a `backend/prisma/seed.ts`, `backend/prisma/seed-e2e.ts` y las `e2e-fixtures.ts`. Sin esto, **ningún E2E puede
+fallar ante el bug del PO**, que es exactamente por lo que sobrevivió tres rondas.
+
+#### (f) Supuesto abierto y su verificación
+
+⚠️ **No se pudo verificar el payload remoto en vivo:** el proxy del entorno **bloquea `api.pokemontcg.io` (403 en
+CONNECT)**. La derivación de §4.22a-3 está diseñada contra el **esquema documentado de pokemontcg.io v2** y contra el
+código que ya lo consume, con estos supuestos explícitos:
+
+| # | Supuesto | Cómo se verifica | Si resulta falso |
+|---|---|---|---|
+| S1 | `tcgplayer.prices` solo trae la sub-llave de una impresión **cuando esa impresión existe** (la llave es metadata, no un slot fijo) | 1ª corrida: contar cartas con llave `reverseHolofoil` y `market` nulo | Se cae a la señal B; si ninguna sirve, ver pregunta abierta v1.22-1 |
+| S2 | `cardmarket.prices` expone `reverseHolo*` **siempre**, con `0`/`null` cuando no hay reverse holo | 1ª corrida: histograma de `reverseHoloTrend` por set | Si solo aparece cuando existe, la señal B se relaja a "llave presente" (más simple) |
+| S3 | El objeto carta de `GET /v2/cards?q=set.id:*` **ya incluye** `cardmarket` (no hay `select=`) ⇒ **cero requests extra** | Inspeccionar una respuesta cruda en la 1ª corrida | Habría que añadir `select` o una 2ª llamada — **avisar al arquitecto antes** (cambia el coste del sync) |
+
+**Dueño de la verificación: backend, en la primera corrida en Railway**, y **devops** la registra en
+`docs/DEVOPS_NOTES.md`. `PokemonTcgIoClient.RemoteCard` debe **ampliar su interfaz** con
+`cardmarket?: { prices?: Record<string, unknown> | null }` (solo tipos: el JSON ya se descarga completo).
+
+#### Reparto de trabajo (v1.22)
+
+- **Backend (WS «Catálogo y precios»):** (1) `deriveAvailableFinishes` con la firma nueva (2 señales, `null` sin
+  señal) + tests de tabla de verdad; (2) `upsertCards` — omitir la clave en UPDATE cuando `derived === null`, poblar
+  `numberSort`/`numberPrefix`; (3) **eliminar** la escritura de `availableFinishes` en `price-ingest.service.ts`
+  (+ log `finishNotInCatalog`); (4) ampliar `RemoteCard` con `cardmarket`; (5) migración **M-26** con backfill;
+  (6) `searchAllCards` con el `orderBy` normativo (§4.22b) y `CardDTO` con `numberSort`/`numberPrefix`;
+  (7) `master-set.service` ordenando en BD y leyendo `numberSort` de la columna; (8) seeds (§4.22e);
+  (9) opcional recomendado: `cardsWithoutFinishSignal` en `dataHealth`.
+  **Tests obligatorios:** carta con llave `reverseHolofoil` y `market:null` ⇒ `['normal','reverse_holo']`; carta con
+  solo `cardmarket.reverseHoloTrend > 0` ⇒ idem; carta sin ninguna señal en UPDATE ⇒ **conserva** el valor previo;
+  `price-ingest` **no** modifica `Card` (assert sobre el spy de `card.update`); `["2","10","SV107","TG01"]` sale en
+  ese orden **atravesando dos páginas** de `GET /buylist/cards`. *(Errata v1.22.1: esta línea ilustrativa decía
+  `["2","10","TG01","SV107"]`, contradiciendo el `orderBy` normativo de §4.22b — `numberPrefix asc` ⇒ `SV` < `TG`.
+  **Manda la norma**; backend implementó lo correcto y lo anotó en BACKEND_NOTES §49.8. No "arreglar" el orden en la
+  dirección contraria.)*
+- **Frontend:** (1) **eliminar** el `numberSort: idx` de `MasterSetBinder.tsx:104` y usar
+  `(numberPrefix, numberSort, number)` del DTO al re-ordenar tras filtrar localmente; (2) el binder del cotizador
+  pinta **una casilla por entrada de `availableFinishes`**, en el **orden del array** (sin `sort` propio, sin lista
+  fija de acabados), con `imageSmallUrl` de la carta en todas; (3) ninguna casilla de relleno cuando el array trae un
+  solo acabado. **No** requiere cambio de diseño (ux-ui no bloquea este WS).
+- **Devops:** secuencia de §4.22d (migración → deploy → `sync-all {force:true}` → verificación), y registrar en
+  `DEVOPS_NOTES.md` el resultado de S1/S2/S3.
+- **QA:** doble veredicto por stream (**no toca dinero**: no se cambia ninguna regla de precio de buylist ni de venta).
+  E2E mínimo: en el cotizador, una carta con reverse holo muestra **dos** casillas y una sin él **una**; el set se
+  lista `2 → 10 → … → TG01`; el smoke corre contra los seeds de §4.22e.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -3357,6 +3627,34 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **VAR-1 (backend, v1.22) — `price-ingest` CLOBBEA `Card.availableFinishes` con los acabados que tuvieron precio.**
+  Estado detectado (`price-ingest.service.ts:151-172`): tras persistir precios, `Card.update({ availableFinishes:
+  providerFinishes })` donde `providerFinishes` solo contiene acabados con `marketCents > 0`. Una carta con reverse
+  holo **sin precio de reverse holo** queda reducida a `['normal']` ⇒ el binder pinta **una** casilla y el vendedor no
+  puede cotizar ese acabado (`422 FINISH_NOT_AVAILABLE`). Combinado con **P-6** (adapter de paga devolviendo 0 filas),
+  explica el bug en producción. **Es la causa raíz de las tres rondas.** **Norma: §4.22a** (autoridad única = catálogo;
+  `price-ingest` **cero escrituras**; §4.15e derogada). **Acción (backend, este stream):** eliminar el bloque y cubrir
+  con un test que asserte que el ingest **no** llama `card.update`.
+- **VAR-2 (backend, v1.22) — la derivación de catálogo ignora Cardmarket.** `catalog-sync.service.ts:355` →
+  `deriveAvailableFinishes(c.tcgplayer?.prices)` (`pricing.types.ts:32`): sin bloque `tcgplayer` en el payload →
+  `['normal']`, y las llaves con `market` nulo no se distinguen de las ausentes. Se pierde el reverse holo de toda
+  carta que TCGplayer no liste aunque `cardmarket.prices.reverseHolo*` lo publique. **Norma: §4.22a-3** (unión de dos
+  señales, `null` cuando no hay ninguna) **y §4.22a-4** (sin señal ⇒ **no** se sobrescribe en UPDATE).
+  **Acción (backend):** nueva firma + ampliar `RemoteCard` con `cardmarket`.
+- **VAR-4 / SEED-1 (backend, v1.22) — el dato ya grabado no se repara solo, y los seeds lo reproducen.**
+  `syncAll`/`backfill` solo refrescan `availableFinishes` con `force:true` ⇒ los sets importados antes de v1.6-finish
+  siguen en `['normal']`; y `seed.ts` / `seed-e2e.ts` / `e2e-fixtures.ts` **no setean** el campo, así que **local y
+  staging nacen con el bug** y **ningún E2E puede fallar ante él**. **Norma: §4.22d** (secuencia de reparación con
+  `sync-all {force:true}`, dueño devops) y **§4.22e** (seeds con ≥1 carta `['normal','reverse_holo']`, ≥1 `['normal']`
+  y números `"2"/"10"/"TG01"`). **Acción:** backend (seeds), devops (re-sync + verificación).
+- **ORD-1 (backend, v1.22) — orden LEXICOGRÁFICO por número en el cotizador.** `catalog.service.ts:325`
+  (`searchAllCards`, que alimenta `GET /buylist/cards`) ordena `[{name:'asc'},{number:'asc'}]` sobre un `number`
+  **String** ⇒ `"10"` antes que `"2"`. `master-set.service.ts:449` sí ordena bien pero **en memoria**, y
+  `searchAllCards` **pagina**, así que copiar ese enfoque daría un orden **globalmente incorrecto** (se ordenaría la
+  página, no el conjunto). Síntoma colateral: el front pisa `numberSort: idx` en `MasterSetBinder.tsx:104`.
+  **Norma: §4.22b** (columnas persistidas `numberSort`/`numberPrefix`, migración **M-26**, `orderBy` normativo con
+  desempate por `id`). **Acción:** backend (migración + `orderBy` + promoción de `deriveNumberParts`), frontend
+  (quitar el `idx` y re-ordenar por `(numberPrefix, numberSort, number)`).
 - **BL-1 (backend, v1.18-buylist-rejects) — monto FANTASMA en `approvedTotalCents` tras approve→reject.** Estado
   detectado (`buylist.service.ts`, `itemDecision` L651 / `recomputeApprovedTotal` L707): la rama `reject` solo fija
   `itemStatus='rechazada'` sin anular `approvedPriceCents`, y el recompute suma TODO `approvedPriceCents != null`
@@ -3457,6 +3755,22 @@ este documento y con `API_CONTRACT.md`.
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.22-variantes-orden — variantes reales y orden natural)
+
+- **v1.22-1 — ¿Y si el payload remoto no basta?** (bloquea solo si S1 y S2 de §4.22f fallan). Si tras el
+  `sync-all {force:true}` un set moderno sigue **sin ninguna** carta con `reverse_holo`, significa que pokemontcg.io
+  no publica la señal para ese set. Opciones, en orden de preferencia del arquitecto: (a) **override manual del
+  admin** por carta/set en M2 (respeta "un solo escritor automático" y no inventa nada); (b) declarar el reverse holo
+  a nivel **set** (`CardSet.hasReverseHolo`, dato editable por el dueño) y aplicarlo a las cartas del set que cumplan
+  la regla del set — **requiere decisión de producto** y migración; (c) tomar la señal de un tercero. **Lo que NO se
+  hará sin decisión explícita del humano: heurísticas por rareza.** Pendiente hasta ver el resultado de §4.22d-4.
+- **v1.22-2 — Casos borde del orden (`"23a"`, `number` vacío).** §4.22b los deja con la semántica **actual** de
+  `compareByNumber` (bloque de promos / final del bloque numérico). ¿Se afinan? Propuesta del arquitecto: **no en este
+  WS** (es cosmético y arriesga regresiones en el binder M1 ya aprobado); queda como deuda menor con dueño backend.
+- **v1.22-3 — `PriceReference` de un finish fuera de `availableFinishes`.** Se decide **conservarlo** (dato inocuo,
+  evidencia de drift) y solo loguearlo. Alternativa descartada por ahora: no persistirlo. Si el volumen de
+  `finishNotInCatalog` resulta alto en la 1ª corrida, se revisa (dueño: arquitecto, a petición de backend).
 
 ### Preguntas abiertas (v1.21-guest-checkout — WS «Órdenes y dinero»)
 
@@ -3691,6 +4005,49 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.22-variantes-orden (nueva — orden natural del número persistido)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-26**. Es **estrictamente aditiva** (dos
+columnas `NOT NULL` con `DEFAULT`, un backfill `UPDATE` y un índice); **no** hay `DROP`, ni enums, ni cambios de
+nulabilidad, y **no toca `availableFinishes`** (el arreglo de variantes es **solo código** + re-sync, §4.22a/§4.22d).
+Segura para ejecutar con la app corriendo: hasta que el nuevo código despliegue, nadie lee las columnas.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-26 | `Card.numberSort Int @default(1000000)` | **Columna nueva** (`NOT NULL` con default) | Add column + backfill | Clave numérica del orden natural. `1_000_000` = `PROMO_SORT_BASE`: el default deja cualquier fila no backfilleada **al final**, nunca intercalada en falso. |
+| M-26 | `Card.numberPrefix String @default("")` | **Columna nueva** (`NOT NULL` con default) | Add column + backfill | Prefijo alfabético (`""` para números puros ⇒ ordenan **primero**, porque `''` es el menor string). |
+| M-26 | `@@index([setId, numberPrefix, numberSort])` | **Índice nuevo** | Create index | Sirve el `ORDER BY` del binder y de `GET /buylist/cards` **con `setId`** (el caso real de las tres vistas). Sin `setId` (búsqueda de texto global) el orden lo lidera `name`, ya indexado. |
+
+**SQL exacto de la migración** (Prisma no expresa el backfill; va en el mismo `migration.sql`, **después** de los
+`ADD COLUMN` y **antes** del `CREATE INDEX`). La fórmula es el espejo 1:1 de `deriveNumberParts` (§4.22b), incluido el
+**clamp a `999_999`** vía `numeric` para no desbordar `Int` con un `number` de muchos dígitos:
+
+```sql
+ALTER TABLE "Card" ADD COLUMN "numberSort"   INTEGER NOT NULL DEFAULT 1000000;
+ALTER TABLE "Card" ADD COLUMN "numberPrefix" TEXT    NOT NULL DEFAULT '';
+
+UPDATE "Card" SET
+  "numberSort" = CASE
+    WHEN "number" ~ '^[0-9]+$'
+      THEN LEAST(("number")::numeric, 999999)::int
+      ELSE 1000000 + LEAST(
+             COALESCE(NULLIF(regexp_replace("number", '\D', '', 'g'), '')::numeric, 0),
+             999999)::int
+  END,
+  "numberPrefix" = CASE
+    WHEN "number" ~ '^[0-9]+$' THEN ''
+    ELSE regexp_replace("number", '[0-9]', '', 'g')
+  END;
+
+CREATE INDEX "Card_setId_numberPrefix_numberSort_idx"
+  ON "Card" ("setId", "numberPrefix", "numberSort");
+```
+
+> **Verificación post-migración (devops):** `SELECT number, "numberPrefix", "numberSort" FROM "Card" WHERE "setId"=:s
+> ORDER BY "numberPrefix","numberSort" LIMIT 20` debe arrancar en `1,2,3,…` (no `1,10,100`) y terminar con los
+> `TG*`/`SV*`. **El backfill no sustituye al re-sync** de §4.22d: este solo arregla el **orden**; las **variantes**
+> requieren `sync-all {force:true}`.
 
 ### v1.21-guest-checkout (nueva — WS «Órdenes y dinero»: comprar sin cuenta)
 

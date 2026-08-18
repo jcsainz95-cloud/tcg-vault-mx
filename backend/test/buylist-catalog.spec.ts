@@ -1,6 +1,7 @@
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET } from '../src/common/card-order';
 
 /**
  * v1.3 — Cotizador (API_CONTRACT §6): búsqueda pública sobre TODA la tabla `Card`
@@ -59,6 +60,16 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
     // Paginación: page 2 → skip = 20.
     expect(capturedArgs.skip).toBe(20);
     expect(capturedArgs.take).toBe(20);
+    // v1.22 (§4.22b / API_CONTRACT §6) — con setId el orden NORMATIVO es el natural puro, aplicado
+    // EN LA BD antes de paginar. Una regresión a [{name},{number}] (ORD-1: "10" antes que "2")
+    // debe romper este assert, no pasar en verde.
+    expect(capturedArgs.orderBy).toEqual(CARD_ORDER_BY_IN_SET);
+    expect(capturedArgs.orderBy).toEqual([
+      { numberPrefix: 'asc' },
+      { numberSort: 'asc' },
+      { number: 'asc' },
+      { id: 'asc' },
+    ]);
     // Shape CardDTO (sin sellable/salePriceCents) + total del count.
     expect(res.data).toHaveLength(2);
     expect(res.data[0]).toMatchObject({
@@ -92,6 +103,32 @@ describe('CatalogService.searchAllCards — cotizador sobre TODO el catálogo', 
     expect(capturedWhere.OR).toEqual([
       { name: { contains: 'pika', mode: 'insensitive' } },
       { number: { contains: 'pika', mode: 'insensitive' } },
+    ]);
+  });
+
+  it('sin setId → orden GLOBAL normativo (name, setId, numberPrefix, numberSort, id) en la BD', async () => {
+    let capturedArgs: any;
+    const prisma: any = {
+      card: {
+        findMany: jest.fn(async (args: any) => {
+          capturedArgs = args;
+          return [];
+        }),
+        count: jest.fn(async () => 0),
+      },
+    };
+    const svc = new CatalogService(prisma as PrismaService, pricingStub());
+    await svc.searchAllCards({ q: 'pika', page: 1, pageSize: 20 });
+
+    // v1.22 (§4.22b): búsqueda de texto en varios sets → nombre primero, natural dentro; el
+    // {id:'asc'} final es el desempate TOTAL que hace determinista la paginación.
+    expect(capturedArgs.orderBy).toEqual(CARD_ORDER_BY_GLOBAL);
+    expect(capturedArgs.orderBy).toEqual([
+      { name: 'asc' },
+      { setId: 'asc' },
+      { numberPrefix: 'asc' },
+      { numberSort: 'asc' },
+      { id: 'asc' },
     ]);
   });
 

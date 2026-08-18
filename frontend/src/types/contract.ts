@@ -101,6 +101,14 @@ export interface CardDTO {
   externalId: string;
   name: string;
   number: string;
+  // v1.22-variantes-orden: claves de ORDEN NATURAL persistidas en BD (M-26). El servidor ya entrega
+  // `GET /buylist/cards` ordenado por (numberPrefix, numberSort, number, id); el front NUNCA inventa
+  // esta clave (antes se usaba el índice del arreglo) y solo re-ordena localmente tras filtrar con
+  // el comparador de `@/lib/cardOrder`. Opcionales en el TIPO (no en la norma): mientras el re-sync
+  // de M-26 no haya corrido en TODAS las filas, `@/lib/cardOrder` deriva la clave equivalente en
+  // cliente con `deriveNumberParts` para no degradar a orden lexicográfico ("10" antes que "2").
+  numberSort?: number;
+  numberPrefix?: string;
   rarity: string;
   supertype: string;
   subtypes: string[];
@@ -785,7 +793,12 @@ export interface MasterSetIndexResponse {
 // `number` = Card.number crudo (String, p. ej. "4", "SV107", "TG12"). `numberSort` = CLAVE NUMÉRICA
 // derivada SERVER-SIDE para el orden natural estable — el front NO re-ordena por número, confía en el
 // orden natural del backend (numéricos por valor entero primero; promos/subsets con prefijo alfabético
-// al final). `countsByFinish` = piezas on-hand por acabado (solo acabados con ≥1 pieza); `totalCount` =
+// al final).
+// v1.22-variantes-orden: `numberSort`/`numberPrefix` son COLUMNAS de `Card` (M-26) y el servidor ya
+// ordena por ellas. El front las usa SOLO para re-ordenar localmente tras filtrar, con el comparador
+// (numberPrefix asc, numberSort asc, number asc) — ver `@/lib/cardOrder`. `numberSort` solo NO basta
+// (`TG12` y `GG12` colisionan en el sentinela), por eso la celda gana `numberPrefix`.
+// `countsByFinish` = piezas on-hand por acabado (solo acabados con ≥1 pieza); `totalCount` =
 // suma. `totalCount=0` = HUECO de inventario. `isSecretRare` = heurística SOLO de display (número
 // puramente numérico cuyo entero > printedTotal); los promos/subsets con prefijo NO son secret rare.
 export interface MasterSetCellCountDTO {
@@ -796,7 +809,11 @@ export interface MasterSetCellCountDTO {
 export interface MasterSetCardCellDTO {
   cardId: string;
   number: string;
-  numberSort: number;
+  // Opcionales en el TIPO por la misma razón que en CardDTO (ver arriba): `@/lib/cardOrder` deriva
+  // la clave equivalente en cliente si el backend todavía no las manda.
+  numberSort?: number;
+  /** v1.22 (aditivo): "" = número puramente numérico; "TG"/"SV"/"GG"… = promo/subset (va al final). */
+  numberPrefix?: string;
   name: string;
   rarity?: string;
   imageSmallUrl?: string;

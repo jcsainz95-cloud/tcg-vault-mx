@@ -3869,3 +3869,258 @@ DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
   envejecida a 90 min libera su pieza (`listed`, `ownerType=platform`), la orden queda `failed`, el
   PI se cancela y la carta se puede volver a cotizar; y el barrido **no toca** pedidos recientes ni
   liquidados.
+
+## 49. WS «Catálogo y precios» + «Inventario y vault» — Variantes reales y orden natural del master set (v1.22-variantes-orden, M-26, 2026-08-18)
+
+Implementa ARCHITECTURE §4.22 / API_CONTRACT v1.22 tal cual las cerró el arquitecto. Es la **tercera
+ronda** del mismo bug del PO («una casilla de imagen por VARIANTE REAL, normal a la izquierda, holo
+reverso a la derecha»): las dos rondas previas atacaron el render; la causa estaba en el dato y en
+quién lo escribía.
+
+### 49.1 Causa raíz y el arreglo (§4.22a)
+
+`Card.availableFinishes` respondía *«¿en qué impresiones existe esta carta?»* (metadata de catálogo)
+pero se escribía desde la ruta que responde *«¿cuánto vale hoy?»* (`price-ingest.service.ts:167-172`,
+VAR-1): tras ingerir precios, **sobrescribía** el campo con los acabados que obtuvieron `market > 0`.
+Una carta con reverse holo **sin precio** de reverse holo quedaba clobbeada a `['normal']` — una sola
+casilla. Agravado por VAR-2 (`catalog-sync` solo miraba `tcgplayer.prices`, ignorando `cardmarket`),
+VAR-3 (los seeds no seteaban el campo, así que el bug era invisible a cualquier E2E) y VAR-4 (los
+sets importados antes de v1.6-finish nunca se refrescaban sin `force:true`).
+
+**Norma aplicada — 5 reglas:**
+1. **Autoridad única = `CatalogSyncService.upsertCards`.** Es el ÚNICO escritor de
+   `Card.availableFinishes` en todo el sistema.
+2. **`price-ingest` no escribe `availableFinishes`. Cero escrituras.** Se eliminó el bloque completo
+   (el `card.update({ data: { availableFinishes } })` en `ingestForSet`), no se "amplió sin reducir":
+   la unión monótona con un alias mal mapeado en `BULK_VARIANT_TO_FINISH` (todavía marcado *SUPUESTO
+   — verificar 1ª corrida*) grabaría un acabado inexistente que el catálogo ya no podría limpiar.
+3. **Derivación = unión de DOS señales del mismo payload** (`backend/src/modules/pricing/pricing.types.ts`,
+   `deriveAvailableFinishes(remote): Finish[] | null`):
+   - **Señal A** — `tcgplayer.prices`: cada **llave presente** (mapeable) añade su `Finish`. La
+     presencia de la llave ES la señal; `market` puede ser `null`/`0`.
+   - **Señal B** — `cardmarket.prices.reverseHolo*` (`reverseHoloSell|Low|Trend|Avg1|Avg7|Avg30`):
+     añade `reverse_holo` si ALGUNO de esos campos es un número **finito > 0**. ⚠️ Asimetría
+     deliberada con la señal A: Cardmarket emite esas llaves SIEMPRE (con `0`/`null` cuando la
+     impresión no existe) ⇒ aquí la llave NO es señal, el VALOR sí. Tratarla como la A inventaría un
+     reverse holo en TODAS las cartas — la casilla de relleno que el PO prohíbe.
+   - Sin ninguna señal → **`null`** (≠ `['normal']`: significa «el payload no dice nada»).
+4. **`upsertCards` (`catalog-sync.service.ts`):**
+   - **CREATE** → `derived ?? ['normal']` (conservador, nunca relleno).
+   - **UPDATE** → la clave `availableFinishes` se **omite del objeto `data`** cuando `derived ===
+     null` (Prisma conserva el valor existente); se incluye y **puede reducir** cuando `derived !==
+     null` (corrección legítima).
+5. **Observabilidad, no adivinanza.** El sync loguea `cardsWithoutFinishSignal=N/M` por lote (WARN) y
+   `price-ingest` loguea `finishNotInCatalog` cuando el proveedor de paga reporta un acabado que
+   `Card.availableFinishes` no declara — el precio **sí** se persiste (el quote valida el finish
+   contra el catálogo antes de leer precio; dato inocuo), el catálogo **no** se toca.
+
+### 49.2 Orden natural persistido — M-26 (§4.22b)
+
+`Card.number` es `String`; el `orderBy: [{name},{number}]` anterior ordenaba `"10"` antes de `"2"`.
+Se descartó ordenar en memoria porque **`searchAllCards` pagina** (`skip`/`take`): ordenar después
+del `LIMIT` reordena la página, no el conjunto (orden global incorrecto + filas repetidas/saltadas
+entre páginas). Se eligieron **columnas persistidas**:
+
+- `Card.numberSort Int @default(1000000)` / `Card.numberPrefix String @default("")` — migración
+  `20260818180000_m26_card_number_order` (aditiva: dos `ADD COLUMN NOT NULL DEFAULT`, un backfill
+  `UPDATE` con el mismo clamp a `999999` vía `numeric` que el código, y `CREATE INDEX
+  "Card_setId_numberPrefix_numberSort_idx" ON "Card"("setId","numberPrefix","numberSort")`). El SQL
+  es copia literal del que especificó el arquitecto en ARCHITECTURE §11.
+- **Un solo algoritmo** en `backend/src/common/card-order.ts` (`deriveNumberParts`,
+  `compareByNumber`, `FINISH_ORDER`, `orderFinishes`, `CARD_ORDER_BY_IN_SET`, `CARD_ORDER_BY_GLOBAL`):
+  lo usan `upsertCards` (escribe las columnas), `CatalogService.searchAllCards`
+  (`GET /buylist/cards`), `MasterSetService.binder` (ordena en BD, ya no en memoria) y los tres
+  seeds. `master-set.service.ts` **re-exporta** estos símbolos por compatibilidad de imports (varios
+  módulos/tests los importaban desde ahí).
+- `orderBy` normativo: con `setId` → `[{numberPrefix},{numberSort},{number},{id}]`; sin `setId` →
+  `[{name},{setId},{numberPrefix},{numberSort},{id}]`. El `{id:'asc'}` final es el desempate total
+  que hace determinista la paginación (sin él, dos filas empatadas pueden intercambiarse entre dos
+  consultas y producir filas repetidas/saltadas al cambiar de página).
+- `MasterSetService.binder`: el `card.findMany` del binder ahora usa `orderBy: CARD_ORDER_BY_IN_SET`
+  y lee `numberSort`/`numberPrefix` de la fila; se eliminó el `.sort(compareByNumber)` + `parts =
+  deriveNumberParts(c.number)` en memoria. `isSecretRare` (heurística de display, BE-36) ahora lee
+  `c.numberPrefix === ''` y `c.numberSort > printedTotal` directo de las columnas — misma semántica
+  para números puros (donde `numberSort` ES el entero).
+- `CardDTO` y `MasterSetCardCellDTO` ganan `numberSort`/`numberPrefix` (aditivo).
+
+### 49.3 Archivos tocados
+
+- **Nuevo** `backend/src/common/card-order.ts` — algoritmo único de orden (números + acabados).
+- `backend/src/modules/pricing/pricing.types.ts` — `deriveAvailableFinishes` reescrita con la firma
+  `(remote) => Finish[] | null`; nuevo `CARDMARKET_REVERSE_HOLO_KEYS` / `FinishSignalSource`.
+- `backend/src/modules/catalog/pokemontcg-io.client.ts` — `RemoteCard.cardmarket?: { prices?:
+  Record<string, unknown> | null }` (solo tipos: el JSON de `GET /v2/cards` ya venía completo sin
+  `select=`, cero requests extra).
+- `backend/src/modules/catalog/catalog-sync.service.ts` — `upsertCards` puebla
+  `numberSort`/`numberPrefix` y aplica la regla CREATE/UPDATE de `availableFinishes`; log
+  `cardsWithoutFinishSignal`.
+- `backend/src/modules/pricing/price-ingest.service.ts` — eliminado el `card.update` de variantes;
+  nueva lectura de solo-consulta del catálogo tocado (`card.findMany({ where: { id: { in: [...] } }
+  })`) para loguear `finishNotInCatalog` cuando hay drift precio↔catálogo.
+- `backend/src/modules/catalog/catalog.service.ts` — `toCardDTO` expone `numberSort`/`numberPrefix`;
+  `searchAllCards` usa `CARD_ORDER_BY_IN_SET`/`CARD_ORDER_BY_GLOBAL` según haya o no `setId`.
+- `backend/src/modules/inventory/master-set.service.ts` — binder ordena en BD, DTO
+  `+= numberPrefix`, re-exporta el orden canónico desde `common/card-order.ts`.
+- `backend/prisma/schema.prisma` + `backend/prisma/migrations/20260818180000_m26_card_number_order/` (M-26).
+- `backend/prisma/seed.ts`, `backend/prisma/seed-e2e.ts`, `backend/prisma/e2e-fixtures.ts` — ver §49.4.
+- Tests: `test/catalog-sync.finish.spec.ts` (tabla de verdad completa, reemplaza la suite v1.6-finish),
+  `test/price-ingest.service.spec.ts` (cero escrituras + `finishNotInCatalog` + mocks de `findMany`
+  ruteados por forma de `where`), `test/master-set.service.spec.ts` (mock ya ordenado + `orderBy`).
+
+### 49.4 Seeds (§4.22e)
+
+`E2E_CARDS`/`E2E_ORDER_CARDS` (`prisma/e2e-fixtures.ts`) ahora declaran `availableFinishes`
+EXPLÍCITO en cada carta (nunca el `@default([normal])` del schema): **`reverse` (E2E Reverse Bird,
+#17) nace en `['normal','reverse_holo']`** — la candidata obvia, antes sembrada en `{normal}` pese a
+su nombre — y el resto en `['normal']` (probando que no se pinta relleno). Se añadió un **segundo
+set sintético**, `E2E_ORDER_SET` (`e2e-order`), dedicado solo al orden natural: cartas `"2"`, `"10"`,
+`"SV107"` y `"TG01"` sembradas fuera de orden (DOS prefijos de promo, para ejercitar la agrupación por
+`numberPrefix`), con el oráculo `E2E_ORDER_EXPECTED_NUMBERS = ['2','10','SV107','TG01']` que consume el
+test de integración de §49.9. Se
+mantuvo separado de `E2E_SET` a propósito — meterle cartas nuevas a `E2E Base Set` cambiaría totales y
+páginas ya cableados en `buylist.e2e-spec.ts`/`vault-shipments.e2e-spec.ts`/etc. `seed-e2e.ts` puebla
+`numberSort`/`numberPrefix` con `deriveNumberParts` (la misma función del sync) tanto en `create`
+como en `update` (idempotencia E2E-1: una 2ª corrida sobre una BD vieja corrige, no conserva, el bug).
+`seed.ts` (dev/local) siembra el Charizard `base1-4` con `availableFinishes: ['holofoil']` (Rare Holo
+pura del Base Set original, sin reverse holo/normal reales para esa impresión) y sus claves de orden.
+
+### 49.5 Verificado contra Postgres local (migrate deploy + reseed + build + server real)
+
+```
+$ npx prisma migrate deploy   # aplica 20260818180000_m26_card_number_order
+$ npm run seed && npm run seed:synthetic
+$ npm run build && node dist/main.js   # :3011
+
+$ curl "http://localhost:3011/api/v1/buylist/cards?setId=<e2e-base>&page=1&pageSize=50"
+# data[].number en orden: 4, 16, 17, 20, 25, 99
+# "E2E Reverse Bird" (#17) → availableFinishes: ["normal","reverse_holo"]
+
+$ for p in 1 2 3; do curl ".../buylist/cards?setId=<e2e-base>&page=$p&pageSize=2"; done
+# page=1 → [4,16]  page=2 → [17,20]  page=3 → [25,99]   (sin huecos ni duplicados)
+
+$ curl "http://localhost:3011/api/v1/buylist/cards?setId=<e2e-order>&page=1&pageSize=50"
+# data[].number en orden: 2, 10, SV107, TG01   (promos al final, agrupados por prefijo SV < TG)
+```
+
+```
+npm run typecheck   # limpio
+npm run lint        # limpio
+npm test            # 100 suites / 940 tests, todo verde
+npm run test:integration   # 8 suites / 115 casos — 114 verdes, 1 falla PRE-EXISTENTE
+                            # y NO relacionada (infra-smoke.e2e-spec.ts, presign de MinIO
+                            # devuelve 403 en vez de [200,204]; confirmado con `git stash`
+                            # que falla igual ANTES de este cambio — es un asunto de
+                            # infraestructura local de MinIO/S3, no de este WS).
+```
+
+### 49.6 Supuesto abierto, sin verificar (bloqueado por el proxy del sandbox)
+
+El proxy de este entorno bloquea `api.pokemontcg.io` (403 en `CONNECT`), así que **no se pudo
+verificar el payload remoto real** de pokemontcg.io v2. La derivación de §49.1 se implementó contra
+el esquema DOCUMENTADO de la API y el código existente que ya lo consumía, con tres supuestos
+explícitos (ARCHITECTURE §4.22f, tabla S1/S2/S3) que quedan **pendientes de la primera corrida real**:
+
+- **S1** — que `tcgplayer.prices` solo trae la sub-llave de una impresión cuando esa impresión
+  existe (i.e. que la llave es metadata real y no un slot fijo siempre presente). Si resulta falso,
+  la señal A degenera y hay que apoyarse más en la señal B.
+- **S2** — que `cardmarket.prices` expone `reverseHolo*` SIEMPRE (con `0`/`null` cuando no aplica).
+  Si en realidad solo aparecen cuando existe la impresión, la señal B se **simplifica** (bastaría con
+  "llave presente", igual que la A) — cambio de código menor, no rompe el contrato.
+- **S3** — que el endpoint `GET /v2/cards?q=set.id:*` YA incluye `cardmarket` en el payload sin
+  `select=` explícito (cero requests extra). Si resulta falso, hace falta un `select=` o una segunda
+  llamada por carta — **avisar al arquitecto antes**, porque cambia el costo del sync.
+
+**Acción recomendada para quien opere el próximo sync en Railway/staging con acceso real a
+pokemontcg.io:** antes de lanzar `sync-all {force:true}` a gran escala, correr `sync` sobre UN set
+moderno conocido (p. ej. `sv8`, Surging Sparks) y verificar en logs (a) cuántas cartas reportan
+`cardsWithoutFinishSignal` (si es masivo, S1/S2 fallaron) y (b) hacer un `SELECT count(*) FROM "Card"
+WHERE 'reverse_holo' = ANY("availableFinishes") AND "setId" = :set` — debe ser **> 0** para un set con
+reverse holos conocidos. Documentar el resultado en `docs/DEVOPS_NOTES.md` (dueño: backend/devops,
+ARCHITECTURE §4.22f).
+
+### 49.7 Re-sync requerido en producción/staging (dueño: devops, con backend)
+
+El código corregido **no repara solo** las filas ya escritas con el bug (`['normal']` grabado por
+VAR-1/VAR-2/VAR-4). Secuencia exacta (ARCHITECTURE §4.22d):
+
+1. Desplegar la migración **M-26** primero (aditiva, seguro con la app corriendo — nadie lee las
+   columnas nuevas hasta que el código nuevo despliegue): `npx prisma migrate deploy`.
+2. Desplegar el backend con este código (price-ingest sin escritura de variantes + derivación de dos
+   señales + `numberSort`/`numberPrefix` poblados por el sync).
+3. **Re-sync forzado del catálogo completo** — es el único camino que reprocesa sets ya importados y
+   repuebla `availableFinishes` **y** las columnas de orden en un solo paso:
+   ```
+   POST /api/v1/admin/catalog/sync-all
+   Authorization: Bearer <token super_admin>
+   Content-Type: application/json
+
+   { "force": true }
+   ```
+   Verificar progreso con `GET /api/v1/admin/catalog/sync-status`.
+4. **Gate de verificación** sobre un set moderno conocido:
+   ```sql
+   SELECT count(*) FROM "Card"
+   WHERE 'reverse_holo' = ANY("availableFinishes") AND "setId" = :set;
+   -- debe ser > 0 (hoy da 0 en el set afectado)
+   ```
+   y en el binder, una común moderna debe mostrar **dos** casillas. Si sigue en `['normal']` masivo,
+   el payload remoto no trae ninguna de las dos señales (S1/S2 de §49.6 fallaron) — abrir la pregunta
+   con el arquitecto antes de tocar más código, NO inventar una heurística de relleno.
+
+No hace falta ningún backfill SQL adicional de `availableFinishes`: la migración M-26 **no la toca**
+(solo aditiva sobre `numberSort`/`numberPrefix`); el arreglo de variantes es enteramente código +
+re-sync, tal como lo especifica ARCHITECTURE §4.22a/§4.22d.
+
+### 49.8 Discrepancias / bloqueos para el arquitecto
+
+**Corrección (2026-08-18, tras el rechazo del techlead):** la primera versión de esta sección
+afirmaba «se implementó tal cual» y era **inexacta**: faltaba uno de los **tests obligatorios** del
+reparto de trabajo de §4.22 — el de **orden paginado** de `GET /buylist/cards` («`["2","10","TG01",
+"SV107"]` sale en ese orden atravesando dos páginas»). Se había verificado a mano con `curl`, pero
+ninguna suite lo anclaba: el oráculo `E2E_ORDER_EXPECTED_NUMBERS` no tenía consumidores, el fixture
+de orden no tenía `SV107` (con un solo prefijo la agrupación por `numberPrefix` no se ejercitaba) y
+`buylist-catalog.spec.ts` no asertaba el `orderBy` (una regresión a `[{name},{number}]` — ORD-1 —
+habría pasado verde). Resuelto en §49.9.
+
+**Nit de doc para el arquitecto (no bloqueante):** la línea «Tests obligatorios» de §4.22 lista el
+orden esperado como `["2","10","TG01","SV107"]`, pero el `orderBy` **normativo** del propio §4.22b
+(`numberPrefix asc` primero) y `compareByNumber` (agrupación «GG → SV → TG») producen
+**`2, 10, SV107, TG01`** — `SV` < `TG` alfabéticamente. El test implementado sigue la norma
+(§4.22b), no la línea ilustrativa. Sería bueno corregir esa línea en ARCHITECTURE para que nadie
+"arregle" el orden en la dirección equivocada.
+
+Fuera de eso, la especificación de §4.22 se implementó sin cambios (incluida la migración M-26
+copiada literal de §11). El único punto abierto es el supuesto S1/S2/S3 de §49.6, que el propio
+arquitecto ya dejó documentado como pendiente de la primera corrida real (no bloqueante).
+
+### 49.9 Test de integración obligatorio del orden paginado (añadido tras veredicto del techlead)
+
+**Suite nueva: `backend/test/integration/buylist-cards-order.e2e-spec.ts`** (contra Postgres real,
+vía la app Nest completa del harness). Consume los oráculos `E2E_ORDER_EXPECTED_NUMBERS` y
+`E2E_SET_EXPECTED_NUMBERS` de `prisma/e2e-fixtures.ts` (antes exportados sin consumidor):
+
+| Caso | Qué ancla |
+|---|---|
+| `pageSize=2` sobre `E2E_ORDER_SET` (4 cartas → 2 páginas) | Orden GLOBAL `2, 10, SV107, TG01` atravesando páginas; sin duplicados (`Set` de ids) ni huecos (`rows.length === total`). Regresión directa de ORD-1. |
+| `pageSize=1` y `pageSize=3` | El mismo orden global con fronteras de página desalineadas (el `{id:'asc'}` final garantiza paginación determinista). |
+| Columnas M-26 expuestas | `numberSort`/`numberPrefix` del DTO coherentes (`SV107` → `{1000107,'SV'}`, `TG01` → `{1000001,'TG'}`) y **`SV107` sale ANTES que `TG01` pese a `numberSort` mayor** — es la agrupación por `numberPrefix`, la razón de ser de la columna (`TG12`/`GG12` colisionan en `numberSort`). |
+| `E2E Base Set` con `pageSize=2` | Páginas 4,16 / 17,20 / 25,99 y `E2E Reverse Bird` con `availableFinishes: ['normal','reverse_holo']` en orden canónico (§4.22c, el requisito del PO); ningún array vacío. |
+
+**Fixture ampliado:** `E2E_ORDER_CARDS` gana `orderShiny` (`SV107`, `Rare Shiny`) — **segundo
+prefijo** de promo, sin el cual la agrupación por `numberPrefix` no quedaba ejercitada por datos
+sembrados. El oráculo pasa a `['2','10','SV107','TG01']`.
+
+**Asserts de `orderBy` en unitarias:** `test/buylist-catalog.spec.ts` ahora asierta que
+`searchAllCards` pasa a Prisma exactamente `CARD_ORDER_BY_IN_SET` (con `setId`) y
+`CARD_ORDER_BY_GLOBAL` (sin él), con el shape literal duplicado en el assert (defensa en
+profundidad: si alguien cambiara la constante Y el call-site a la vez, el literal sigue fallando).
+
+**Hallazgo lateral corregido — recurrencia del patrón BE-64:**
+`catalog-checkout-webhook.e2e-spec.ts` buscaba el charizard del seed en `GET /catalog/cards?
+pageSize=50`; al acumular la BD compartida >50 piezas listadas del MISMO charizard (`E2E-GST-*` que
+dejan las suites de guest checkout por corrida) la pieza cayó fuera de la página y el test empezó a
+fallar solo — exactamente el flake que BE-64 documentó, y acotar con `q=` tampoco bastaba (51
+listings del mismo nombre). Corregido a la regla de la casa: la pieza concreta se pide **por id**
+(`GET /catalog/listings/:id`, mismo `ListingDTO`) y el listado se asierta por comportamiento (toda
+fila publicada es vendible con precio > 0), no por volumen. Recurrencia anotada en la propia entrada
+BE-64 de `TECH_DEBT.md`.

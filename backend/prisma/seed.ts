@@ -6,6 +6,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { SETTING_DEFAULTS } from '../src/modules/settings/settings.constants';
+import { deriveNumberParts } from '../src/common/card-order';
 
 const prisma = new PrismaClient();
 
@@ -125,6 +126,11 @@ async function main() {
     },
     update: {},
   });
+  // v1.22-variantes-orden (§4.22e) — `availableFinishes` EXPLÍCITO (nunca el `@default` del
+  // schema) y `numberSort`/`numberPrefix` (M-26) con la MISMA función que usa el sync de catálogo.
+  // Charizard base1-4 es Rare Holo pura del Base Set original (sin reverse holo/normal real para
+  // esta rareza en esa impresión): UNA sola casilla, nunca relleno.
+  const charizardParts = deriveNumberParts('4');
   await prisma.card.upsert({
     where: { externalId: 'base1-4' },
     create: {
@@ -132,13 +138,20 @@ async function main() {
       setId: set.id,
       name: 'Charizard',
       number: '4',
+      numberSort: charizardParts.numberSort,
+      numberPrefix: charizardParts.prefix,
       rarity: 'Rare Holo',
       supertype: 'Pokémon',
       subtypes: ['Stage 2'],
       imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
       imageLargeUrl: 'https://images.pokemontcg.io/base1/4_hires.png',
+      availableFinishes: ['holofoil'],
     },
-    update: {},
+    update: {
+      numberSort: charizardParts.numberSort,
+      numberPrefix: charizardParts.prefix,
+      availableFinishes: ['holofoil'],
+    },
   });
 
   console.log('Seed completo.');

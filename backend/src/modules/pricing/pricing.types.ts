@@ -1,4 +1,5 @@
 import { Card, CardSet, Finish, PriceSource, ProductType } from '@prisma/client';
+import { orderFinishes } from '../../common/card-order';
 
 // v1.19-sealed-tcgcsv: += 'tcgcsv' (fuente de la referencia de mercado del SELLADO, M-23).
 export type PriceSourceStr = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual' | 'tcgcsv';
@@ -26,19 +27,72 @@ export const TCG_KEY_TO_FINISH: Record<string, Finish> = {
 };
 
 /**
- * Deriva los acabados disponibles a partir de las llaves presentes en `tcgplayer.prices`.
- * Descarta las no mapeadas; ausente/vacío → [normal] (default seguro). ARCHITECTURE §3.7/§4.8.
+ * Llaves de `cardmarket.prices` que denotan la existencia de una impresión REVERSE HOLO.
+ * ⚠️ ASIMETRÍA DELIBERADA con `tcgplayer.prices` (ARCHITECTURE §4.22a-3): Cardmarket emite estas
+ * llaves SIEMPRE (con `0`/`null` cuando la impresión no existe) ⇒ aquí la llave NO es señal, **el
+ * valor sí**. Tratarlas como las de TCGplayer inventaría un reverse holo en TODAS las cartas —
+ * justo la «casilla de relleno» que el PO prohíbe.
  */
-export function deriveAvailableFinishes(
-  prices?: Record<string, unknown> | null,
-): Finish[] {
-  if (!prices) return ['normal'];
-  const set = new Set<Finish>();
-  for (const key of Object.keys(prices)) {
-    const finish = TCG_KEY_TO_FINISH[key];
-    if (finish) set.add(finish);
+export const CARDMARKET_REVERSE_HOLO_KEYS = [
+  'reverseHoloSell',
+  'reverseHoloLow',
+  'reverseHoloTrend',
+  'reverseHoloAvg1',
+  'reverseHoloAvg7',
+  'reverseHoloAvg30',
+] as const;
+
+/** Payload remoto mínimo del que se derivan las variantes (subconjunto de `RemoteCard`). */
+export interface FinishSignalSource {
+  tcgplayer?: { prices?: Record<string, unknown> | null } | null;
+  cardmarket?: { prices?: Record<string, unknown> | null } | null;
+}
+
+/**
+ * v1.22-variantes-orden (ARCHITECTURE §3.7 / §4.22a-3) — deriva los acabados en que EXISTE la
+ * carta a partir de DOS señales del MISMO payload que el sync ya descarga (cero requests extra):
+ *
+ *  - **Señal A — `tcgplayer.prices`:** cada LLAVE PRESENTE mapeable (§3.7) añade su `Finish`.
+ *    **La presencia de la llave ES la señal**: `market` puede ser `null`/`0` y la variante SIGUE
+ *    contando. Este es el cambio que arregla «tiene reverse holo pero no tiene precio de reverse
+ *    holo». Llaves no mapeadas (`1stEditionNormal`, `unlimitedHolofoil`) se ignoran.
+ *  - **Señal B — `cardmarket.prices.reverseHolo*`:** añade `reverse_holo` si ALGUNA de esas llaves
+ *    trae un número FINITO > 0 (ver `CARDMARKET_REVERSE_HOLO_KEYS`).
+ *
+ * @returns `union(A, B)` en orden canónico `FINISH_ORDER`, o **`null`** si NINGUNA de las dos
+ * señales existe. `null` ≠ `['normal']`: significa «el payload no dice nada de acabados» y el
+ * llamador debe CONSERVAR lo que ya sabía (§4.22a-4), nunca clobbear a `['normal']`.
+ *
+ * ❌ PROHIBIDO derivar acabados de la existencia de un PRECIO (`PriceReference`, `market > 0`,
+ * respuesta del proveedor de paga): precio ausente ≠ variante inexistente. Ese fue el bug de tres
+ * rondas (VAR-1, §9). ❌ Prohibida cualquier heurística por rareza.
+ */
+export function deriveAvailableFinishes(remote: FinishSignalSource | null | undefined): Finish[] | null {
+  const found = new Set<Finish>();
+
+  // Señal A — la LLAVE presente de tcgplayer.prices es la señal (con o sin `market`).
+  const tcgPrices = remote?.tcgplayer?.prices;
+  if (tcgPrices && typeof tcgPrices === 'object') {
+    for (const key of Object.keys(tcgPrices)) {
+      const finish = TCG_KEY_TO_FINISH[key];
+      if (finish) found.add(finish);
+    }
   }
-  return set.size > 0 ? [...set] : ['normal'];
+
+  // Señal B — en cardmarket la señal es el VALOR (> 0), no la llave (asimetría deliberada).
+  const cmPrices = remote?.cardmarket?.prices;
+  if (cmPrices && typeof cmPrices === 'object') {
+    for (const key of CARDMARKET_REVERSE_HOLO_KEYS) {
+      const raw = (cmPrices as Record<string, unknown>)[key];
+      if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+        found.add('reverse_holo');
+        break;
+      }
+    }
+  }
+
+  if (found.size === 0) return null;
+  return orderFinishes(found);
 }
 
 export interface PriceQuote {

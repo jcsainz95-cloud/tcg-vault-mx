@@ -30,7 +30,13 @@ export interface RemoteCard {
   images?: { small?: string; large?: string };
   // v1.6-finish: se DEJA de descartar `prices` — las llaves presentes derivan availableFinishes
   // (mapeo ARCHITECTURE §3.7) y el precio por acabado (`prices[llave].market`). Ver upsertCards.
-  tcgplayer?: { url?: string; prices?: Record<string, { market?: number }> };
+  // v1.22: la LLAVE PRESENTE es la señal de que la impresión existe, con `market` o sin él.
+  tcgplayer?: { url?: string; prices?: Record<string, { market?: number } | null> | null } | null;
+  // v1.22-variantes-orden (§4.22a/§4.22f-S3): SEGUNDA señal de variantes — `cardmarket.prices`
+  // publica `reverseHolo*` y ahí la señal es el VALOR (> 0), no la llave. SOLO ES TIPADO: el
+  // endpoint `GET /v2/cards?q=set.id:*` NO usa `select=`, así que este bloque YA venía en el JSON
+  // descargado y se estaba descartando ⇒ CERO requests extra.
+  cardmarket?: { url?: string; prices?: Record<string, unknown> | null } | null;
   set: RemoteCardSet;
 }
 
