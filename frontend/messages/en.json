@@ -195,7 +195,99 @@
     "preparing": "Preparing…",
     "payTitle": "Complete payment",
     "processingTitle": "Payment in progress",
-    "processingBody": "We received your payment and are confirming it. Your cards will appear in your vault as pending and become settled once the payment confirms."
+    "processingBody": "We received your payment and are confirming it. Your cards will appear in your vault as pending and become settled once the payment confirms.",
+    "afterPaymentGuest": "Once you pay we prepare your order and ship it to your address. Your confirmation and tracking link arrive by email.",
+    "identity": {
+      "eyebrow": "IDENTITY",
+      "title": "How do you want to continue?",
+      "cartKept": "Your cart is kept in all three.",
+      "change": "Change",
+      "chosen": "Chosen path",
+      "guest": {
+        "cta": "Continue as guest",
+        "hint": "You only need your email and your address."
+      },
+      "login": {
+        "cta": "Log in",
+        "hint": "Your addresses and your vault are waiting."
+      },
+      "register": {
+        "cta": "Create account",
+        "hint": "Keep your cards in the vault and pay a single shipping fee."
+      }
+    },
+    "guest": {
+      "contactGroup": "CONTACT",
+      "shippingGroup": "SHIPPING",
+      "recipientName": "Recipient name",
+      "phoneHelp": "Only the courier uses it to deliver.",
+      "errorSummary": "Check {count, plural, one {# field} other {# fields}}.",
+      "acceptTerms": "I accept the terms and the privacy notice, and I understand that all sales are final.",
+      "acceptTermsRequired": "To pay, accept the terms.",
+      "email": {
+        "label": "Email",
+        "help": "It's the only channel for your order: your confirmation and tracking link go there.",
+        "invalid": "Enter a valid email, for example name@domain.com.",
+        "required": "Email is required.",
+        "typoSuggestion": "Did you mean {suggestion}?",
+        "typoAccept": "Yes, fix it",
+        "confirmCheckbox": "I confirm that <mono>{email}</mono> is correct. It's the only way to track my order.",
+        "confirmReset": "You changed the email: confirm it again before paying."
+      },
+      "payBlocked": {
+        "email": "To pay, confirm that your email is correct.",
+        "vault": "To pay, create your account or choose home delivery.",
+        "address": "To pay, complete your shipping address in Mexico.",
+        "terms": "To pay, accept the terms."
+      }
+    },
+    "destination": {
+      "eyebrow": "DESTINATION",
+      "ship": "Home delivery",
+      "shipFeeHint": "+ {amount}",
+      "vault": "Keep in my vault",
+      "vaultRequiresAccount": "REQUIRES ACCOUNT"
+    },
+    "vaultUpsell": {
+      "eyebrow": "VAULT",
+      "title": "Keep your cards in the vault",
+      "benefit": {
+        "oneShipment": "Stack up cards and pay a single shipping fee — you save {amount} every time you don't ship.",
+        "oneShipmentPlain": "Stack up cards and pay a single shipping fee.",
+        "portfolio": "See the value of your collection updated daily.",
+        "custody": "Custody with guaranteed authenticity and condition."
+      },
+      "cta": "Create account and keep in vault",
+      "dismiss": "Continue with home delivery",
+      "haveAccount": "I already have an account",
+      "backToRegister": "I'd rather create an account",
+      "created": "ACCOUNT CREATED · DESTINATION: VAULT",
+      "shippingRemoved": "Shipping no longer applies: your cards stay in the vault.",
+      "emailTakenNeutral": "We couldn't create an account with that email. You can log in or continue as a guest.",
+      "retry": "Retry"
+    },
+    "confirmation": {
+      "eyebrow": "ORDER CONFIRMED",
+      "title": "Thank you for your order",
+      "orderNumber": "ORDER",
+      "copyOrderNumber": "Copy",
+      "copied": "Copied",
+      "emailSentTo": "We sent your confirmation and tracking link to {email}.",
+      "wrongEmail": "Not your email? Write to us at {contact} quoting your order number.",
+      "keepShopping": "Keep shopping",
+      "cfdiReminder": "To request an invoice (CFDI) send your tax details to facturacion@tcgvaultmx.com quoting order {orderNumber}.",
+      "claim": {
+        "eyebrow": "CREATE YOUR ACCOUNT",
+        "title": "Save this order to your account",
+        "body": "Create your account with {email} and this order will appear in your history with its status and tracking. On your next purchases you'll be able to keep cards in the vault.",
+        "cta": "Create account with this email",
+        "success": "ORDER IN YOUR HISTORY",
+        "successLink": "View my orders",
+        "needsVerification": "Account created. Verify your email and link the order from your history.",
+        "alreadyClaimedNeutral": "We couldn't link this order.",
+        "emailTakenNeutral": "We couldn't create an account with that email. If you already have one, log in to claim the order from your history."
+      }
+    }
   },
   "vault": {
     "title": "My vault",
@@ -1475,6 +1567,17 @@
       "lost": "Lost",
       "damaged": "Damaged",
       "withdrawn": "Withdrawn"
+    },
+    "tracking": {
+      "pendingPayment": "PAYMENT PENDING",
+      "paid": "PAID",
+      "preparing": "PREPARING",
+      "label": "LABEL CREATED",
+      "shipped": "SHIPPED",
+      "delivered": "DELIVERED",
+      "refunded": "REFUNDED",
+      "cancelled": "CANCELLED",
+      "inReview": "UNDER REVIEW"
     }
   },
   "error": {
@@ -1511,7 +1614,11 @@
     "APPROVED_PRICE_CAP_EXCEEDED": "The approved price exceeds the allowed cap for this item (quoted × 2 or AML cap).",
     "ITEM_NOT_APPROVED": "Only an approved item can be converted to inventory.",
     "CLABE_UNAVAILABLE": "No CLABE available for this request (no snapshot and no KYC record).",
-    "ITEM_NOT_ADJUSTABLE": "This piece can't be adjusted in its current status."
+    "ITEM_NOT_ADJUSTABLE": "This piece can't be adjusted in its current status.",
+    "ALREADY_AUTHENTICATED": "You already have a session: continue with your account.",
+    "PAYMENT_PROVIDER_UNAVAILABLE": "We couldn't reach the payment processor. Try again in a few minutes.",
+    "ORDER_ALREADY_CLAIMED": "We couldn't link this order.",
+    "CLAIM_EMAIL_MISMATCH": "We couldn't link this order."
   },
   "payment": {
     "title": "Payment",
@@ -1549,5 +1656,44 @@
     "country": "Country",
     "countryMx": "Mexico (MX)",
     "makeDefault": "Use as default"
+  },
+  "track": {
+    "title": "Track your order",
+    "orderLabel": "ORDER",
+    "statusLabel": "STATUS",
+    "itemsLabel": "ITEMS",
+    "totalPaidLabel": "TOTAL PAID",
+    "paymentLabel": "PAYMENT",
+    "trackingLabel": "TRACKING",
+    "trackingPending": "PENDING",
+    "shipToLabel": "Shipping to {city}, {state}",
+    "paidWithCard": "CARD ···· {last4}",
+    "updatedAt": "Updated {time}",
+    "refresh": "Refresh",
+    "copyOrderNumber": "Copy",
+    "copied": "Copied",
+    "copyTracking": "Copy tracking number",
+    "troubleWithOrder": "A problem with your order?",
+    "supportNote": "Check with support quoting your order number.",
+    "resendCta": "Email the link to me again",
+    "createAccountCta": "Create an account and save this order",
+    "createAccountHint": "Use the same email where you received this link.",
+    "footerTerms": "Terms and policies",
+    "neutral": {
+      "title": "This link no longer works",
+      "body": "For security, tracking links expire. If you have an order with us, we can send a new link to the email you used at checkout.",
+      "emailLabel": "Email you used at checkout",
+      "emailInvalid": "Enter a valid email, for example name@domain.com.",
+      "orderNumberLabel": "Order number",
+      "orderNumberHelp": "It's in your confirmation email, for example TCG-000123.",
+      "orderNumberRequired": "Enter your order number.",
+      "submit": "Email me a new link",
+      "result": "If there's an order for that email, we've sent a new link. Check your inbox and your spam folder.",
+      "cooldown": "You can try again in {seconds}s.",
+      "cooldownAnnounce": "You can try again in a minute.",
+      "claimAlternative": "Want it always at hand? Create an account with that same email and your order will appear in your history.",
+      "support": "Need help? Write to us at {contact}.",
+      "noLinkToggle": "I don't have the link"
+    }
   }
 }

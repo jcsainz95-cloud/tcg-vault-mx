@@ -195,7 +195,99 @@
     "preparing": "Preparando…",
     "payTitle": "Completar pago",
     "processingTitle": "Pago en proceso",
-    "processingBody": "Recibimos tu pago y lo estamos confirmando. Tus cartas aparecerán en tu bóveda con titularidad pendiente y pasarán a liquidadas en cuanto el pago se confirme."
+    "processingBody": "Recibimos tu pago y lo estamos confirmando. Tus cartas aparecerán en tu bóveda con titularidad pendiente y pasarán a liquidadas en cuanto el pago se confirme.",
+    "afterPaymentGuest": "Al pagar preparamos tu pedido y lo enviamos a tu domicilio. Te llega al correo la confirmación con tu enlace de seguimiento.",
+    "identity": {
+      "eyebrow": "IDENTIDAD",
+      "title": "¿Cómo quieres continuar?",
+      "cartKept": "Tu carrito se conserva en cualquiera de las tres.",
+      "change": "Cambiar",
+      "chosen": "Vía elegida",
+      "guest": {
+        "cta": "Continuar como invitado",
+        "hint": "Solo necesitas tu correo y tu dirección."
+      },
+      "login": {
+        "cta": "Iniciar sesión",
+        "hint": "Tus direcciones y tu bóveda te esperan."
+      },
+      "register": {
+        "cta": "Crear cuenta",
+        "hint": "Guarda tus cartas en la bóveda y paga un solo envío."
+      }
+    },
+    "guest": {
+      "contactGroup": "CONTACTO",
+      "shippingGroup": "ENVÍO",
+      "recipientName": "Nombre de quien recibe",
+      "phoneHelp": "Solo lo usa la paquetería para entregar.",
+      "errorSummary": "Revisa {count, plural, one {# campo} other {# campos}}.",
+      "acceptTerms": "Acepto los términos y el aviso de privacidad, y entiendo que todas las ventas son finales.",
+      "acceptTermsRequired": "Para pagar, acepta los términos.",
+      "email": {
+        "label": "Correo electrónico",
+        "help": "Es el único canal de tu pedido: ahí te llegan la confirmación y el enlace de seguimiento.",
+        "invalid": "Escribe un correo válido, por ejemplo nombre@dominio.com.",
+        "required": "El correo es obligatorio.",
+        "typoSuggestion": "¿Quisiste decir {suggestion}?",
+        "typoAccept": "Sí, corregir",
+        "confirmCheckbox": "Confirmo que <mono>{email}</mono> es correcto. Es el único canal para dar seguimiento a mi pedido.",
+        "confirmReset": "Cambiaste el correo: vuelve a confirmarlo antes de pagar."
+      },
+      "payBlocked": {
+        "email": "Para pagar, confirma que tu correo es correcto.",
+        "vault": "Para pagar, crea tu cuenta o elige envío a domicilio.",
+        "address": "Para pagar, completa tu dirección de envío en México.",
+        "terms": "Para pagar, acepta los términos."
+      }
+    },
+    "destination": {
+      "eyebrow": "DESTINO",
+      "ship": "Envío a mi domicilio",
+      "shipFeeHint": "+ {amount}",
+      "vault": "Guardar en mi bóveda",
+      "vaultRequiresAccount": "REQUIERE CUENTA"
+    },
+    "vaultUpsell": {
+      "eyebrow": "BÓVEDA",
+      "title": "Guarda tus cartas en la bóveda",
+      "benefit": {
+        "oneShipment": "Acumula cartas y paga un solo envío — te ahorras {amount} cada vez que no envías.",
+        "oneShipmentPlain": "Acumula cartas y paga un solo envío.",
+        "portfolio": "Ve el valor de tu colección actualizado a diario.",
+        "custody": "Custodia con autenticidad y condición garantizadas."
+      },
+      "cta": "Crear cuenta y guardar en bóveda",
+      "dismiss": "Seguir con envío a domicilio",
+      "haveAccount": "Ya tengo cuenta",
+      "backToRegister": "Prefiero crear una cuenta",
+      "created": "CUENTA CREADA · DESTINO: BÓVEDA",
+      "shippingRemoved": "El envío ya no aplica: tus cartas quedan en la bóveda.",
+      "emailTakenNeutral": "No se pudo crear la cuenta con ese correo. Puedes iniciar sesión o seguir como invitado.",
+      "retry": "Reintentar"
+    },
+    "confirmation": {
+      "eyebrow": "PEDIDO CONFIRMADO",
+      "title": "Gracias por tu compra",
+      "orderNumber": "PEDIDO",
+      "copyOrderNumber": "Copiar",
+      "copied": "Copiado",
+      "emailSentTo": "Te enviamos la confirmación y el enlace de seguimiento a {email}.",
+      "wrongEmail": "¿No es tu correo? Escríbenos a {contact} citando tu número de pedido.",
+      "keepShopping": "Seguir comprando",
+      "cfdiReminder": "Para solicitar factura (CFDI) envía tus datos fiscales a facturacion@tcgvaultmx.com citando el pedido {orderNumber}.",
+      "claim": {
+        "eyebrow": "CREA TU CUENTA",
+        "title": "Guarda este pedido en tu cuenta",
+        "body": "Crea tu cuenta con {email} y este pedido aparecerá en tu historial con su estado y su seguimiento. En tus próximas compras podrás guardar cartas en la bóveda.",
+        "cta": "Crear cuenta con este correo",
+        "success": "PEDIDO EN TU HISTORIAL",
+        "successLink": "Ver mis pedidos",
+        "needsVerification": "Cuenta creada. Verifica tu correo y vincula el pedido desde tu historial.",
+        "alreadyClaimedNeutral": "No fue posible vincular este pedido.",
+        "emailTakenNeutral": "No se pudo crear la cuenta con ese correo. Si ya tienes una, inicia sesión para reclamar el pedido desde tu historial."
+      }
+    }
   },
   "vault": {
     "title": "Mi bóveda",
@@ -1475,6 +1567,17 @@
       "lost": "Pérdida",
       "damaged": "Dañada",
       "withdrawn": "Retirada"
+    },
+    "tracking": {
+      "pendingPayment": "PAGO PENDIENTE",
+      "paid": "PAGADO",
+      "preparing": "PREPARANDO",
+      "label": "GUÍA GENERADA",
+      "shipped": "ENVIADO",
+      "delivered": "ENTREGADO",
+      "refunded": "REEMBOLSADO",
+      "cancelled": "CANCELADO",
+      "inReview": "EN REVISIÓN"
     }
   },
   "error": {
@@ -1511,7 +1614,11 @@
     "APPROVED_PRICE_CAP_EXCEEDED": "El precio aprobado excede el tope permitido para este ítem (cotizado × 2 o tope AML).",
     "ITEM_NOT_APPROVED": "Solo un ítem aprobado puede convertirse a inventario.",
     "CLABE_UNAVAILABLE": "No hay CLABE disponible para esta solicitud (ni snapshot ni KYC).",
-    "ITEM_NOT_ADJUSTABLE": "Esta pieza no se puede ajustar en su estado actual."
+    "ITEM_NOT_ADJUSTABLE": "Esta pieza no se puede ajustar en su estado actual.",
+    "ALREADY_AUTHENTICATED": "Ya tienes una sesión iniciada: continúa con tu cuenta.",
+    "PAYMENT_PROVIDER_UNAVAILABLE": "No pudimos contactar al procesador de pago. Inténtalo de nuevo en unos minutos.",
+    "ORDER_ALREADY_CLAIMED": "No fue posible vincular este pedido.",
+    "CLAIM_EMAIL_MISMATCH": "No fue posible vincular este pedido."
   },
   "payment": {
     "title": "Pago",
@@ -1549,5 +1656,44 @@
     "country": "País",
     "countryMx": "México (MX)",
     "makeDefault": "Usar como predeterminada"
+  },
+  "track": {
+    "title": "Seguimiento de tu pedido",
+    "orderLabel": "PEDIDO",
+    "statusLabel": "ESTADO",
+    "itemsLabel": "ARTÍCULOS",
+    "totalPaidLabel": "TOTAL PAGADO",
+    "paymentLabel": "PAGO",
+    "trackingLabel": "GUÍA",
+    "trackingPending": "PENDIENTE",
+    "shipToLabel": "Envío a {city}, {state}",
+    "paidWithCard": "TARJETA ···· {last4}",
+    "updatedAt": "Actualizado {time}",
+    "refresh": "Actualizar",
+    "copyOrderNumber": "Copiar",
+    "copied": "Copiado",
+    "copyTracking": "Copiar guía",
+    "troubleWithOrder": "¿Un problema con tu pedido?",
+    "supportNote": "Consulta con soporte citando tu número de pedido.",
+    "resendCta": "Reenviar el enlace a mi correo",
+    "createAccountCta": "Crear cuenta y guardar este pedido",
+    "createAccountHint": "Usa el mismo correo donde recibiste este enlace.",
+    "footerTerms": "Términos y políticas",
+    "neutral": {
+      "title": "Este enlace ya no funciona",
+      "body": "Por seguridad, los enlaces de seguimiento caducan. Si tienes un pedido con nosotros, podemos enviarte un enlace nuevo al correo que usaste al comprar.",
+      "emailLabel": "Correo con el que compraste",
+      "emailInvalid": "Escribe un correo válido, por ejemplo nombre@dominio.com.",
+      "orderNumberLabel": "Número de pedido",
+      "orderNumberHelp": "Viene en tu correo de confirmación, por ejemplo TCG-000123.",
+      "orderNumberRequired": "Escribe tu número de pedido.",
+      "submit": "Enviarme un enlace nuevo",
+      "result": "Si hay un pedido asociado a ese correo, te enviamos un enlace nuevo. Revisa tu bandeja de entrada y la carpeta de spam.",
+      "cooldown": "Puedes volver a intentarlo en {seconds} s.",
+      "cooldownAnnounce": "Puedes volver a intentarlo en un minuto.",
+      "claimAlternative": "¿Prefieres tenerlo siempre a la mano? Crea tu cuenta con ese mismo correo y tu pedido aparecerá en tu historial.",
+      "support": "¿Necesitas ayuda? Escríbenos a {contact}.",
+      "noLinkToggle": "No tengo el enlace"
+    }
   }
 }

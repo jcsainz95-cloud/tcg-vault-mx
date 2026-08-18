@@ -120,6 +120,16 @@ import type {
   AdminVaultListResponse,
   InventoryAdjustmentRequest,
   InventoryAdjustmentResponse,
+  // v1.21-guest-checkout (contrato §4-G) — sección aditiva al final del archivo.
+  GuestAddressInput,
+  GuestCheckoutQuoteResponse,
+  GuestCheckoutSessionRequest,
+  GuestCheckoutSessionResponse,
+  GuestOrderTrackingDTO,
+  GuestResendLinkRequest,
+  GuestResendLinkResponse,
+  ClaimableOrderDTO,
+  ClaimOrdersResponse,
 } from '@/types/contract';
 
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
@@ -2720,4 +2730,239 @@ export async function getLaunchMetrics(range: FinanceRange = {}): Promise<Launch
     });
   }
   return delay(fx.mockLaunchMetrics);
+}
+
+// ============================================================================
+// Guest checkout — comprar sin cuenta (contrato §4-G, v1.21-guest-checkout)
+// ----------------------------------------------------------------------------
+// Sección ADITIVA: ninguna función anterior cambia. Reglas del contrato que se
+// respetan aquí y que NO deben "mejorarse" desde el front:
+//  - Los endpoints /checkout/guest/* y /orders/guest/* son públicos y RECHAZAN una
+//    sesión válida (409 ALREADY_AUTHENTICATED): por eso NO se les manda Bearer (el
+//    apiRequest solo añade Authorization si hay token; el flujo de invitado se
+//    renderiza únicamente sin sesión).
+//  - El token de seguimiento viaja en el BODY de un POST, jamás en la URL de la API.
+//  - `trackingToken` es la ÚNICA respuesta con un token en claro (§4-G.0-5): no se
+//    persiste en localStorage ni se loguea.
+// ============================================================================
+
+/** Tarifa fija de envío (dial SHIPPING_FEE_CENTS, default 17500). MOCK: el valor real viaja en el BreakdownDTO. */
+const MOCK_SHIPPING_FEE_CENTS = 17500;
+
+/**
+ * MOCK: réplica local de `computeDirectShipBreakdown` (contrato §4-G / ARCHITECTURE §5.1)
+ * — el IVA grava cartas + envío y el fee es gross-up sobre esa base.
+ */
+function computeGuestBreakdown(subtotalCents: number, shippingFeeCents: number): BreakdownDTO {
+  const ivaCents = Math.round(((subtotalCents + shippingFeeCents) * IVA_PCT) / 100);
+  const baseCents = subtotalCents + shippingFeeCents + ivaCents;
+  const totalCents = Math.ceil((baseCents + STRIPE_FIXED) / (1 - STRIPE_PCT));
+  const processingFeeCents = totalCents - baseCents;
+  return {
+    subtotalCents,
+    shippingFeeCents,
+    ivaCents,
+    ivaRatePct: IVA_PCT,
+    processingFeeCents,
+    totalCents,
+    currency: 'MXN',
+  };
+}
+
+/**
+ * Desglose del carrito de invitado (contrato POST /checkout/guest/quote, §4-G.1).
+ * Read-only: NO reserva inventario. `shippingAddress` es opcional (la tarifa es fija y
+ * nacional); si se envía, el backend valida MX (422 ADDRESS_NOT_MX).
+ * Errores: 422 PRICE_PENDING, 409 ITEM_UNAVAILABLE, 422 ADDRESS_NOT_MX,
+ * 400 VALIDATION_ERROR (carrito vacío o > 20 items), 409 ALREADY_AUTHENTICATED, 429.
+ */
+export async function getGuestCheckoutQuote(
+  inventoryItemIds: string[],
+  shippingAddress?: GuestAddressInput,
+): Promise<GuestCheckoutQuoteResponse> {
+  if (!config.useMocks) {
+    return apiRequest<GuestCheckoutQuoteResponse>('/checkout/guest/quote', {
+      method: 'POST',
+      body: { inventoryItemIds, shippingAddress },
+    });
+  }
+  const items = inventoryItemIds
+    .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
+    .filter((l): l is ListingDTO => !!l);
+  const pending = items.find((l) => !l.sellable);
+  if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
+  const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  return delay({
+    items: items.map((l) => ({
+      inventoryItemId: l.inventoryItemId,
+      card: l.card,
+      unitPriceCents: l.salePriceCents ?? 0,
+    })),
+    fulfillmentMode: 'direct_ship' as const,
+    breakdown: computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
+    notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
+  });
+}
+
+/**
+ * Crea el pedido de invitado (contrato POST /checkout/guest/session, §4-G.2): reserva los
+ * items, crea la Order (userId=null, guestEmail, direct_ship) y UN solo PaymentIntent por
+ * cartas + envío + IVA + fee. TOCA DINERO.
+ *
+ * `fulfillmentMode: "vault"` → **422 VAULT_REQUIRES_ACCOUNT** con `details.upsell=true`:
+ * el front lo trata como UPSELL (crear cuenta sin salir del checkout), NUNCA como error.
+ * Otros errores: 400 VALIDATION_ERROR, 422 ADDRESS_NOT_MX, 422 PRICE_PENDING,
+ * 409 ITEM_UNAVAILABLE, 409 ALREADY_AUTHENTICATED, 429, 503 PAYMENT_PROVIDER_UNAVAILABLE.
+ * NO aplica 403 EMAIL_NOT_VERIFIED (no hay cuenta que verificar).
+ */
+export async function createGuestCheckoutSession(
+  input: GuestCheckoutSessionRequest,
+): Promise<GuestCheckoutSessionResponse> {
+  if (!config.useMocks) {
+    return apiRequest<GuestCheckoutSessionResponse>('/checkout/guest/session', {
+      method: 'POST',
+      body: input,
+      headers: { 'Idempotency-Key': idempotencyKey() },
+    });
+  }
+  // MOCK: replica los rechazos del contrato que el front debe saber manejar.
+  if (input.fulfillmentMode === 'vault') {
+    throw new ApiClientError(422, {
+      code: 'VAULT_REQUIRES_ACCOUNT',
+      message: 'Vault requires an account',
+      details: { upsell: true, reason: 'VAULT_REQUIRES_ACCOUNT' },
+    });
+  }
+  if (input.shippingAddress?.country !== 'MX') {
+    throw new ApiClientError(422, { code: 'ADDRESS_NOT_MX', message: 'Address must be in Mexico' });
+  }
+  const items = input.inventoryItemIds
+    .map((id) => fx.mockListings.find((l) => l.inventoryItemId === id))
+    .filter((l): l is ListingDTO => !!l);
+  const pending = items.find((l) => !l.sellable);
+  if (pending) throw new ApiClientError(422, { code: 'PRICE_PENDING', message: 'Item price pending' });
+  const subtotal = items.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const orderId = `ord-guest-${Math.floor(Math.random() * 9000 + 1000)}`;
+  return delay({
+    orderId,
+    orderNumber: 'TCG-000123',
+    breakdown: computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
+    // MOCK: en real son 32 bytes base64url; el prefijo `mock-` lo reconoce el track mock.
+    trackingToken: `mock-${orderId}-tracking-token`,
+    stripe: { paymentIntentId: `pi_mock_${orderId}`, clientSecret: `pi_mock_${orderId}_secret_mock` },
+  });
+}
+
+/**
+ * Vista pública de seguimiento (contrato POST /orders/guest/track, §4-G.3). Es un POST a
+ * propósito: el token va en el CUERPO para que no aparezca en access logs, `Referer`,
+ * historial ni cachés.
+ *
+ * Errores NEUTROS para la UI: 404 INVALID_TOKEN, 410 TOKEN_EXPIRED, 410 TOKEN_REVOKED,
+ * 429 RATE_LIMITED. La pantalla es LA MISMA para todos (criterio 52/53): el front no
+ * ramifica el mensaje por código.
+ */
+export async function trackGuestOrder(token: string): Promise<GuestOrderTrackingDTO> {
+  if (!config.useMocks) {
+    return apiRequest<GuestOrderTrackingDTO>('/orders/guest/track', { method: 'POST', body: { token } });
+  }
+  // MOCK determinista (para demo y E2E sin backend):
+  //   token con "expired"/"revoked" → 410; token que empieza con "mock" → pedido demo;
+  //   cualquier otro → 404 INVALID_TOKEN. El BACKEND es la autoridad real.
+  if (token.includes('expired')) {
+    throw new ApiClientError(410, { code: 'TOKEN_EXPIRED', message: 'Link expired' });
+  }
+  if (token.includes('revoked')) {
+    throw new ApiClientError(410, {
+      code: 'TOKEN_REVOKED',
+      message: 'Link revoked',
+      details: { reason: 'CLAIMED' },
+    });
+  }
+  if (!token.startsWith('mock')) {
+    throw new ApiClientError(404, { code: 'INVALID_TOKEN', message: 'Invalid link' });
+  }
+  const listings = fx.mockListings.filter((l) => l.sellable).slice(0, 2);
+  const subtotal = listings.reduce((s, l) => s + (l.salePriceCents ?? 0), 0);
+  const shipped = token.includes('shipped');
+  return delay<GuestOrderTrackingDTO>({
+    orderNumber: 'TCG-000123',
+    status: shipped ? 'enviado' : 'preparando',
+    placedAt: '2026-08-16T18:20:00.000Z',
+    paidAt: '2026-08-16T18:21:10.000Z',
+    emailMasked: 'j***@***.com',
+    items: listings.map((l) => ({
+      name: l.card.name,
+      setName: l.card.setName,
+      number: l.card.number,
+      finish: l.finish,
+      productType: l.productType,
+      rawCondition: l.rawCondition,
+      sealedSubtype: l.sealedSubtype,
+      gradingCompany: l.gradingCompany,
+      gradeValue: l.gradeValue,
+      imageSmallUrl: l.card.imageSmallUrl,
+      unitPriceCents: l.salePriceCents ?? 0,
+    })),
+    breakdown: computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
+    shipping: {
+      city: 'Guadalajara',
+      state: 'Jalisco',
+      postalCodeMasked: '***45',
+      recipientNameMasked: 'Juan P.',
+      carrier: shipped ? 'Estafeta' : undefined,
+      trackingNumber: shipped ? '7712 4498 0021' : undefined,
+      shippedAt: shipped ? '2026-08-17T15:00:00.000Z' : undefined,
+    },
+    payment: { brand: 'visa', last4: '4242' },
+    claim: { available: true },
+    support: { evidenceContact: 'soporte@tcgvaultmx.com', disputeWindowDays: 7 },
+    tokenExpiresAt: '2026-11-14T18:20:00.000Z',
+  });
+}
+
+/**
+ * Reenvía al correo DEL PEDIDO (nunca a otro) un enlace nuevo, rotando los anteriores
+ * (contrato POST /orders/guest/resend-link, §4-G.4).
+ *
+ * Responde SIEMPRE `202 { status: "ACCEPTED" }`, exista o no el pedido/correo/token: es
+ * anti-oráculo (criterio 53). El front debe pintar el MISMO mensaje neutro siempre,
+ * incluido el 429. `email` a secas nunca se acepta: va junto con `orderNumber`.
+ */
+export async function resendGuestTrackingLink(
+  input: GuestResendLinkRequest,
+): Promise<GuestResendLinkResponse> {
+  if (!config.useMocks) {
+    return apiRequest<GuestResendLinkResponse>('/orders/guest/resend-link', {
+      method: 'POST',
+      body: input,
+    });
+  }
+  return delay<GuestResendLinkResponse>({ status: 'ACCEPTED' }, 400);
+}
+
+/**
+ * Pedidos de invitado sin reclamar cuyo `guestEmail` == correo VERIFICADO de la sesión
+ * (contrato GET /orders/claimable, §4-G.9). Nunca acepta un correo como parámetro (no es
+ * oráculo). Err: 401, 403 EMAIL_NOT_VERIFIED.
+ */
+export async function getClaimableOrders(): Promise<ClaimableOrderDTO[]> {
+  if (!config.useMocks) {
+    const res = await apiRequest<{ data: ClaimableOrderDTO[] }>('/orders/claimable');
+    return res.data;
+  }
+  return delay<ClaimableOrderDTO[]>([]);
+}
+
+/**
+ * Vincula pedidos de invitado a la cuenta en sesión (contrato POST /orders/claim, §4-G.9).
+ * Exige `emailVerified` (403 EMAIL_NOT_VERIFIED). Es PARCIAL-TOLERANTE: HTTP 200 con
+ * `failed[]` por pedido (`ORDER_ALREADY_CLAIMED` | `CLAIM_EMAIL_MISMATCH` | `NOT_FOUND`).
+ * El reclamo NO cambia destino, precio, políticas ni estado del pedido (criterio 54).
+ */
+export async function claimGuestOrders(orderIds: string[]): Promise<ClaimOrdersResponse> {
+  if (!config.useMocks) {
+    return apiRequest<ClaimOrdersResponse>('/orders/claim', { method: 'POST', body: { orderIds } });
+  }
+  return delay<ClaimOrdersResponse>({ claimed: orderIds, failed: [] }, 400);
 }

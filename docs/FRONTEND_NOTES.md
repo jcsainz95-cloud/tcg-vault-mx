@@ -3245,3 +3245,129 @@ vitrina muestre también el estado «En el carrito» en el botón del card; hoy 
 
 ### Gates
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (44 archivos / 329 tests).
+
+## 2026-08-18 · Guest checkout — comprar sin cuenta (stream «Órdenes y dinero», contrato v1.21-guest-checkout)
+
+> Alcance implementado: **checkout de invitado** en `(storefront)/checkout` + **vista pública de
+> seguimiento** `/[locale]/pedido`. PROJECT §J/§J.1 (criterios 45–56b), contrato **§4-G**,
+> DESIGN_SYSTEM **§15**. NO se tocó `backend/` ni `docs/API_CONTRACT.md`.
+
+### Pantallas y componentes nuevos (todos junto a su ruta, no en `components/` compartidos)
+| Archivo | Qué es |
+|---|---|
+| `checkout/CheckoutView.tsx` (modificado) | Conmutador de las dos naturalezas del checkout **en la misma ruta**: con sesión = flujo de cuenta intacto; sin sesión = `GuestCheckoutView`. |
+| `checkout/GuestCheckoutView.tsx` | Contenedor del flujo de invitado: cotización, gate, formulario, destino, pago, confirmación. |
+| `checkout/CheckoutIdentityGate.tsx` | §15.2 — las tres vías (invitado / iniciar sesión / crear cuenta) inline, con "Cambiar". |
+| `checkout/GuestCheckoutForm.tsx` | §15.3 — contacto (correo + lectura de vuelta), envío MX, destino, términos, resumen de errores. |
+| `checkout/VaultUpsellPanel.tsx` | §15.4 — upsell inline de bóveda (nunca error), con salida en positivo. |
+| `checkout/InlineAuthPanel.tsx` | Login/registro inline **sin navegar** (ver "Por qué no se reusó `AuthForm`"). |
+| `checkout/GuestOrderConfirmation.tsx` | §15.5 — confirmación + reclamo post-compra (`AccountClaimOffer` incluido). |
+| `checkout/guest-validation.ts` | Validación local (correo, erratas de dominio, `GuestAddressInput` del contrato). |
+| `checkout/support-contact.ts` | Correo de soporte para pantallas sin DTO (ver solicitud 1 al arquitecto). |
+| `pedido/page.tsx` + `pedido/layout.tsx` | Ruta pública con **chrome reducido** (logo + LocaleToggle) y `noindex, nofollow` + `referrer: no-referrer`. |
+| `pedido/TrackingPageClient.tsx` | Token del query → **body** del POST + `history.replaceState`; estados loading/neutral/error. |
+| `pedido/PublicOrderTracking.tsx` | §15.6 — vista de datos mínimos (superficie de seguridad). |
+| `pedido/TrackingLinkNeutralState.tsx` | §15.7 — **una sola pantalla** para todos los fallos de token, con reenvío neutro. |
+| `pedido/tracking-status.ts` | Mapa `GuestOrderPublicStatus` → versalita i18n + pasos del stepper (§4-G.5). |
+
+### Endpoints consumidos (tal cual el contrato §4-G; ninguno inventado)
+`POST /checkout/guest/quote` · `POST /checkout/guest/session` · `POST /orders/guest/track` ·
+`POST /orders/guest/resend-link` · `POST /orders/claim` (tras el registro del reclamo).
+`GET /orders/claimable` queda implementada en `lib/api.ts` pero **sin UI en este stream** (el banner
+"tienes N pedidos por reclamar" vive en `/orders`, fuera del alcance acordado).
+
+### Decisiones de implementación que conviene conocer
+- **Criterio 46 por construcción:** el estado del formulario de invitado vive en `GuestCheckoutView`,
+  **por encima** del gate; el carrito sigue en `localStorage`. Cambiar de vía no desmonta nada ni
+  navega, así que ni el carrito ni los datos capturados se pierden (hay test unitario y E2E).
+- **Criterio 48 (upsell, no error):** el radio de bóveda **nunca** está `disabled`/`aria-disabled`;
+  al elegirlo se expande el panel y el botón de pago se bloquea con **texto explicativo**
+  (`aria-describedby`), no mudo. Si el backend devolviera `422 VAULT_REQUIRES_ACCOUNT`, el `catch`
+  **abre el upsell** en lugar de pintar error (doble red: proactiva + reactiva).
+- **Criterios 51/52/53 (superficies de seguridad):** la vista pública pinta **solo** la lista cerrada
+  de §15.6 — en particular **no** se pintan `emailMasked`, `recipientNameMasked` ni
+  `postalCodeMasked` aunque el DTO los traiga. Cualquier rechazo del token (404 / 410 / **429** /
+  cualquier `< 500`) y también "sin token en la URL" caen en la **misma** pantalla neutra, con el
+  mismo texto; solo un 5xx/red muestra el error genérico con reintentar (sin eco de `errorCode`).
+- **Confirmación no adivinable:** se pinta desde el estado de la transacción; el `orderId` solo se usa
+  para `POST /orders/claim` y nunca se muestra ni entra en la URL. El `return_url` de Stripe (3DS con
+  redirección) apunta a `/{locale}/pedido?token=…` con el `trackingToken` que devolvió el checkout
+  (§4-G.2): es la única forma de que el invitado recupere su pedido si el navegador pierde estado.
+  El token **no** se persiste en `localStorage` ni se loguea.
+- **`guestPaid` en `CheckoutView`:** al limpiar el carrito tras pagar, y al crear cuenta desde el
+  reclamo, la vista habría conmutado (carrito vacío / sesión nueva) y habría desmontado la
+  confirmación. Por eso el "ya pagó como invitado" manda sobre ambas condiciones.
+- **Por qué NO se reusó `components/domain/AuthForm`:** navega al terminar
+  (`router.push(destForRole(...))`) y no expone `onSuccess`, así que dentro del checkout expulsaría
+  al usuario de `/checkout` — justo lo que §15.2 prohíbe. `InlineAuthPanel` usa las **mismas**
+  funciones (`login`/`register` de `lib/api`) y el **mismo** `GoogleSignInButton`; no duplica lógica
+  de sesión. Alternativa futura (fuera de este stream, toca zona compartida): añadir `onSuccess?` y
+  un modo compacto a `AuthForm` y hacer que `InlineAuthPanel` lo envuelva.
+- **Barra sticky de pago en móvil (§15.3) NO implementada** a propósito: duplicaría el botón de pago
+  y §15.9 exige que solo uno reciba foco. El `aside` ya queda al final del flujo en móvil. Si ux-ui
+  la quiere, pido que defina el comportamiento de foco.
+
+### Zonas compartidas tocadas (solo adiciones; nada existente cambia de comportamiento)
+- `src/types/contract.ts`: bloque **aditivo** al final con los DTOs de §4-G + `shippingFeeCents?` en
+  `BreakdownDTO` (campo opcional que el contrato v1.21 añade; los shapes previos no cambian).
+- `src/lib/api.ts`: sección **aditiva** al final (6 funciones nuevas + mocks marcados). Solo se tocó
+  la lista de imports de tipos.
+- `src/components/ui/AmountBreakdown.tsx`: renglón de **envío** que se pinta **solo si**
+  `breakdown.shippingFeeCents != null`. En bóveda y retiros el campo no viene ⇒ desglose idéntico al
+  de v1.20 (el test existente del componente sigue verde sin cambios).
+- `messages/{es,en}.json`: claves nuevas `checkout.identity/guest/destination/vaultUpsell/confirmation`,
+  `track.*`, `track.neutral.*` (copy **normativo** de §15.7 literal), `status.tracking.*` y 4 códigos
+  de error. Paridad ES/EN verificada por `i18n-parity.test.ts`.
+- `e2e/checkout.spec.ts`: los casos del checkout **con cuenta** ahora hacen `loginAs` antes (sin
+  sesión esa ruta es, por diseño, el checkout de invitado).
+
+### Bloqueo conocido (NO lo corregí: es zona compartida, lo enruta el orquestador)
+- **`src/components/layout/PrivateRouteGuard.tsx` incluye `/checkout` en `PRIVATE_PREFIXES`.** En modo
+  real (`NEXT_PUBLIC_USE_MOCKS=false`) un visitante **sin sesión** que entra a `/checkout` es
+  redirigido a `/login?next=/checkout`, lo que **impide el criterio 45/46 completo**. En modo mock el
+  guard es inerte, por eso la suite E2E actual pasa. Cambio necesario (una línea, sin efecto sobre el
+  flujo con cuenta): quitar `'/checkout'` de `PRIVATE_PREFIXES`. **No lo apliqué** porque hay otra
+  sesión de frontend trabajando zonas compartidas; requiere autorización del orquestador.
+
+### Ambigüedades detectadas (reportadas, NO resueltas por mi cuenta)
+1. **Contrato vs. diseño — reenvío de enlace.** §15.7 dibuja el formulario con **solo** el correo;
+   §4-G.4 **exige** `{token}` o `{email, orderNumber}` juntos (email a secas → `400`). Implementado:
+   con token, botón directo (`{token}`); sin token, correo **+ número de pedido** tras "No tengo el
+   enlace". Copy normativo intacto; clave nueva `track.neutral.orderNumberLabel`.
+2. **Contrato vs. diseño — teléfono.** §15.3 lo marca **opcional**; `GuestAddressInput` (§4-G.1) lo
+   pide obligatorio (10 dígitos MX). Se implementó **obligatorio** (manda el contrato).
+3. **`recipientName` y `acceptedTerms`** los exige el contrato y el diseño no los describe: se
+   añadieron como campo obligatorio y casilla de aceptación explícita, con copy propio.
+4. **`name` en el registro inline.** §15.4 dice "no se pide nada más" que correo + contraseña, pero
+   `POST /auth/register` (§1) exige `name`. Se pide, **prellenado** con el nombre del destinatario.
+5. **Reclamo inmediato vs. `emailVerified`.** §15.5 dibuja éxito inmediato tras crear la cuenta;
+   §4-G.9 exige `emailVerified` (403). Implementado: se intenta el reclamo y, si responde
+   `EMAIL_NOT_VERIFIED`, se muestra "verifica tu correo y vincúlalo desde tu historial"
+   (`checkout.confirmation.claim.needsVerification`), nunca un error rojo.
+6. **Estados públicos sin copy en §15.6.** El enum de §4-G.5 tiene 9 valores y la tabla de diseño
+   solo 7: añadí `status.tracking.pendingPayment` y `status.tracking.inReview` (neutros, sin nombrar
+   "contracargo").
+
+### Solicitudes al arquitecto (no bloquean; NO edité el contrato)
+1. **Correo de soporte antes de tener el DTO.** `support.evidenceContact` solo existe dentro de
+   `GuestOrderTrackingDTO` (§4-G.3), pero la **confirmación** (§15.5) y el **estado neutro** (§15.7)
+   lo necesitan sin token. Hoy vive centralizado en `checkout/support-contact.ts` con el valor
+   normativo del contrato. Petición: exponerlo en un endpoint/campo público de configuración.
+2. **URL de rastreo de paquetería.** El DTO trae `carrier` + `trackingNumber` pero no un patrón de URL
+   confiable: la guía se pinta como **texto copiable**, no como enlace (misma política que
+   `certNumber`). Si se confirma el patrón, se vuelve enlace.
+3. **`GET /orders/claimable` sin superficie.** Queda lista en `lib/api.ts` para el banner de "pedidos
+   por reclamar" en `/orders`; conviene decidir en qué stream se implementa.
+
+### Mocks (claramente marcados, todos con el shape del contrato)
+`lib/api.ts` — `computeGuestBreakdown` (réplica de `computeDirectShipBreakdown`), envío
+`MOCK_SHIPPING_FEE_CENTS=17500` (el valor real viaja en el `BreakdownDTO`), y para
+`trackGuestOrder`: token con `expired`/`revoked` → 410, token que empieza con `mock` → pedido demo,
+cualquier otro → 404 `INVALID_TOKEN`. `createGuestCheckoutSession` replica
+`422 VAULT_REQUIRES_ACCOUNT` y `422 ADDRESS_NOT_MX`. El backend sigue siendo la autoridad.
+
+### Gates
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓ (49 archivos /
+366 tests) · `npx playwright test` ✓ **60/60** en modo mock (incluye los 9 nuevos de
+`e2e/guest-checkout.spec.ts`, que cubren §J.1: camino feliz, upsell, correo inválido, token
+manipulado vs. expirado con texto idéntico, reenvío neutro con enfriamiento y ES/EN).
