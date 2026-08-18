@@ -45,6 +45,37 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 > pantalla tiene un problema de fondo (no muestra todo, no confirma, no permite lote). Conviene
 > atacarlas juntas en una ronda cuando se decida.
 
+### P-6 · El proveedor de precios de PAGA no escribe ni un precio: el adapter llama mal a su API
+- **Observado:** con la API de paga (PokemonPriceTracker) ya contratada, la key en Railway,
+  `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars` puesta y el dial `price_provider` ya flipeado desde M2,
+  el cotizador **sigue mostrando "Precio pendiente"**. El PO verificó que el proveedor **sí tiene** los
+  precios del set. Las cartas que sí muestran importe (MX$1.00 / MX$0.50) son pisos fijos por rareza y
+  **enmascaran** el problema: no pasan por el mercado.
+- **Diagnóstico (devops, `DEVOPS_NOTES §23.9`):** el adapter hace
+  `POST /api/v1/cards/bulk-price` con `{ set, limit, page }`, pero ese endpoint del proveedor espera una
+  **lista explícita** `{ cardIds: [...] }`. El barrido por set es otro endpoint:
+  `GET /api/prices?setId=<ids>&limit=<n>` → `{ data, pagination }`. Con el cuerpo no reconocido el
+  proveedor responde 4xx, el `catch` money-safe devuelve **0 filas sin borrar nada**, y el resultado es
+  cero `PriceReference` → todo lo que cotiza por regla `pct` queda pendiente. Son exactamente los tres
+  `SUPUESTO (verificar 1ª corrida)` que el propio adapter dejó anotados.
+- **Qué implica:** cambio **acotado en backend** (`modules/pricing/providers/pokemonpricetracker-bulk.provider.ts`):
+  cambiar el request a `GET /api/prices?setId=…` paginando por `pagination`, verificar que `cardNumber`
+  del proveedor empate con `resolveCardId` (`"104"` vs `"104/159"`) y ajustar el tope real de `limit`.
+  El mapeo probablemente NO se toca (ya lee `marketPrice` y `printing`). Ninguna palanca de devops
+  (dial, env, cron) puede arreglarlo: el request sale mal formado desde el código.
+- **Estado de la verificación (honesto):** causa **probable**, no confirmada en runtime — el egress del
+  sandbox bloquea el dominio del proveedor, así que la fuente es su documentación pública, no una corrida.
+  **Confirmación barata (1 línea):** filtrar `PokemonPriceTracker` en los Deploy Logs de Railway →
+  `set <id> falló: HTTP 400/404 … Se devuelven 0 filas` confirma el diagnóstico; si en cambio aparece
+  `ejemplo de entrada cruda`, el request sí pasó y el problema sería de **mapeo**, no de endpoint.
+- **A decidir por el humano:** (a) lanzar ya al rol **backend** con esta especificación, (b) pedir primero
+  esa línea de log para confirmar antes de gastar el turno, o (c) dejarlo en cola y seguir con los
+  pendientes de M1 (P-3/P-4/P-5). **Bloquea** que el catálogo tenga precios de referencia: hoy el
+  proveedor legacy (pokemontcg.io) responde 500/502 en masa, así que sin este fix **no hay ninguna fuente
+  de precios viva**. Lo ya configurado (dial, `MARKET_FORMAT`, scheduler) sirve tal cual cuando se arregle.
+- **NO tocar:** las reglas de buylist (`BUYLIST_PRICE_RULES` / fallback) están como el PO las quiere —
+  el problema es la referencia de mercado que alimenta la regla, no la regla.
+
 ---
 
 ## En curso / Hecho (referencia)

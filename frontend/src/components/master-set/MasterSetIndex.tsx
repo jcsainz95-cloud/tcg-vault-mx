@@ -8,6 +8,7 @@ import {
   getMasterSets,
   getAdminVaultMasterSets,
   getVaultMasterSets,
+  listBuylistSets,
   type MasterSetIndexFilters,
 } from '@/lib/api';
 import type { MasterSetIndexResponse, MasterSetSort, MasterSetSummaryDTO } from '@/types/contract';
@@ -28,12 +29,46 @@ interface Props {
   onOpenSet: (set: MasterSetSummaryDTO) => void;
 }
 
+/**
+ * mode="quoter" (cotizador): SIN endpoint de índice propio — se compone client-side con
+ * `GET /buylist/sets` (público, ya usado por el cotizador) filtrando/ordenando/paginando en
+ * el cliente. Sin inventario/bóveda: no hay completitud/piezas que agregar (van en 0/null y
+ * la UI las oculta para este modo — ver `MasterSetIndex`).
+ */
+async function fetchQuoterIndex(filters: MasterSetIndexFilters): Promise<MasterSetIndexResponse> {
+  const sets = await listBuylistSets();
+  const q = (filters.q ?? '').trim().toLowerCase();
+  const matched = q ? sets.filter((s) => s.name.toLowerCase().includes(q)) : sets;
+  const sorted = [...matched].sort(
+    (a, b) => (b.year ?? 0) - (a.year ?? 0) || a.name.localeCompare(b.name),
+  );
+  const pageSize = filters.pageSize ?? PAGE_SIZE;
+  const page = filters.page ?? 1;
+  const start = (page - 1) * pageSize;
+  const data: MasterSetSummaryDTO[] = sorted.slice(start, start + pageSize).map((s) => ({
+    setId: s.id,
+    name: s.name,
+    series: s.series,
+    releaseDate: s.releaseDate,
+    year: s.year,
+    catalogCardCount: 0,
+    distinctCardsOwned: 0,
+    completionPct: null,
+    totalPieces: 0,
+    catalogVariantCount: 0,
+    distinctVariantsOwned: 0,
+    variantCompletionPct: null,
+  }));
+  return { data, page, pageSize, total: sorted.length, scope: 'platform' };
+}
+
 /** Un solo lugar decide el endpoint por modo (contrato v1.20: mismo shape, distinto scope). */
 function fetchIndex(
   mode: MasterSetViewMode,
   userId: string | undefined,
   filters: MasterSetIndexFilters,
 ): Promise<MasterSetIndexResponse> {
+  if (mode === 'quoter') return fetchQuoterIndex(filters);
   if (mode === 'user_vault_self') return getVaultMasterSets(filters);
   if (mode === 'user_vault_admin') return getAdminVaultMasterSets(userId ?? '', filters);
   return getMasterSets(filters);
@@ -85,16 +120,20 @@ export function MasterSetIndex({ mode, userId, onOpenSet }: Props) {
             setPage(1);
           }}
         />
-        <Select
-          label={t('sortLabel')}
-          className="w-56"
-          options={SORTS.map((s) => ({ value: s, label: t(`sort.${s}`) }))}
-          value={sort}
-          onChange={(e) => {
-            setSort(e.target.value as MasterSetSort);
-            setPage(1);
-          }}
-        />
+        {/* Ordenar por completitud/piezas no aplica en quoter (sin inventario/bóveda que agregar):
+            el índice del cotizador siempre ordena por lanzamiento (server-side no hay qué elegir). */}
+        {mode !== 'quoter' && (
+          <Select
+            label={t('sortLabel')}
+            className="w-56"
+            options={SORTS.map((s) => ({ value: s, label: t(`sort.${s}`) }))}
+            value={sort}
+            onChange={(e) => {
+              setSort(e.target.value as MasterSetSort);
+              setPage(1);
+            }}
+          />
+        )}
       </div>
 
       <QueryState
@@ -124,30 +163,34 @@ export function MasterSetIndex({ mode, userId, onOpenSet }: Props) {
                           {[s.series, s.year].filter(Boolean).join(' · ')}
                         </span>
                       </div>
-                      <div className="flex flex-col gap-2">
-                        {/* v1.20: completitud POR VARIANTE (carta+acabado), no por carta. */}
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="font-mono text-xs uppercase tracking-wide text-muted">
-                            {t('completionLabel')}
-                          </span>
-                          <span className="font-mono tabular-nums text-sm">
-                            {t('completionValue', {
-                              owned: s.distinctVariantsOwned,
-                              total: s.catalogVariantCount,
-                              pct: s.variantCompletionPct ?? 0,
-                            })}
-                          </span>
+                      {/* Completitud/piezas: conceptos de INVENTARIO/bóveda — no aplican en quoter
+                          (el cotizador no posee las cartas, solo las cotiza). */}
+                      {mode !== 'quoter' && (
+                        <div className="flex flex-col gap-2">
+                          {/* v1.20: completitud POR VARIANTE (carta+acabado), no por carta. */}
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="font-mono text-xs uppercase tracking-wide text-muted">
+                              {t('completionLabel')}
+                            </span>
+                            <span className="font-mono tabular-nums text-sm">
+                              {t('completionValue', {
+                                owned: s.distinctVariantsOwned,
+                                total: s.catalogVariantCount,
+                                pct: s.variantCompletionPct ?? 0,
+                              })}
+                            </span>
+                          </div>
+                          <ProgressBar pct={s.variantCompletionPct ?? 0} />
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="font-mono text-xs uppercase tracking-wide text-muted">
+                              {t('piecesLabel')}
+                            </span>
+                            <span className="font-mono tabular-nums text-sm">
+                              {t('piecesValue', { count: s.totalPieces })}
+                            </span>
+                          </div>
                         </div>
-                        <ProgressBar pct={s.variantCompletionPct ?? 0} />
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="font-mono text-xs uppercase tracking-wide text-muted">
-                            {t('piecesLabel')}
-                          </span>
-                          <span className="font-mono tabular-nums text-sm">
-                            {t('piecesValue', { count: s.totalPieces })}
-                          </span>
-                        </div>
-                      </div>
+                      )}
                     </button>
                   </li>
                 ))}

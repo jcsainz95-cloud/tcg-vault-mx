@@ -386,6 +386,12 @@
     "buyCta": "Agregar al carrito · {price}",
     "buyAdded": "Agregada al carrito de compra.",
     "notAvailable": "No disponible",
+    "quoterCardCount": "{count, plural, one {# carta} other {# cartas}}",
+    "quoterSearchCard": "Buscar carta",
+    "quoterSearchCardPlaceholder": "Nombre o número",
+    "quoterAddAria": "Agregar {name} ({finish}) a la venta · {price}",
+    "quoterPending": "Precio pendiente",
+    "quoterUnavailable": "No disponible",
     "adjust": {
       "title": "Ajuste por levantamiento físico",
       "reasonLabel": "Motivo",

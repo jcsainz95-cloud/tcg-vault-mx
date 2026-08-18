@@ -3435,13 +3435,107 @@ lo que el contrato manda; no hay nada que arreglar.
 
 ---
 
-## 47. WS «Órdenes y dinero» — GUEST CHECKOUT (v1.21-guest-checkout, M-25, 2026-08-18)
+## 47. P-6 (2026-08-18) — El proveedor de PAGA no escribía ni un precio: el adapter llamaba al endpoint equivocado
+
+**Síntoma:** con `price_provider=pokemonpricetracker`, la key en Railway y
+`POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`, `PriceReference` **no recibía ni una fila** y el
+cotizador mostraba «Precio pendiente» en todo lo que cotiza por regla `pct`. Las cartas con importe
+(MX$1.00 / MX$0.50) son **pisos fijos por rareza** de las reglas de buylist y **enmascaran** el
+problema: no pasan por precio de mercado. Diagnóstico de devops en `DEVOPS_NOTES §23.9` / `P-6`.
+
+### 47.1 Causa: endpoint y forma del request
+
+El adapter hacía `POST /api/v1/cards/bulk-price` con cuerpo `{ set, limit, page }`. Ese endpoint
+**existe**, pero su cuerpo documentado es una **lista explícita** `{ cardIds: ["base1-4", …] }`: no
+acepta un filtro por set. El proveedor respondía 4xx → `throw` → lo capturaba el `catch` money-safe
+→ **0 filas sin borrar nada** (correcto por diseño) → cero referencias de mercado. Eran exactamente
+los tres `SUPUESTO (verificar 1ª corrida)` que el propio adapter dejó anotados.
+
+**Ahora:** el barrido por set usa el endpoint de precios —
+`GET /api/prices?setId=<CardSet.externalId>&limit=&page=` → `{ data, pagination }` — con el mismo
+`Authorization: Bearer`. La paginación se calcula con el objeto `pagination` de la RESPUESTA
+(`totalPages`, o `total`/`limit` **efectivos**, o `hasMore`), no con el heurístico «página
+incompleta»: si el servidor capa el `limit` pedido, la cuenta de páginas sigue saliendo bien. El
+`limit` pedido pasó de 250 a **1000** (el tope que documenta `/api/prices`; el de 100 es del bulk
+por-lista). Cota dura de 40 páginas como anti-bucle, igual que antes.
+
+**El modo por-lista (`{ cardIds }`) NO se implementó:** ningún flujo lo necesita (el ingest siempre
+trabaja set por set) y construirlo desde la BD serían más requests y más frágil para el mismo
+resultado. Queda documentado en el docblock del adapter por si algún día hace falta.
+
+**Ruta no verificada en runtime (honestidad):** el egress del sandbox bloquea el dominio del
+proveedor, así que la fuente sigue siendo su documentación pública. Como la doc alterna entre
+`/api/prices` y `/api/v1/prices` según la página, el adapter **prueba ambas en orden** en el primer
+request, memoriza la que respondió (`resolvedPath`, una sola vez por proceso) y deja en el log cuál
+fue. Un 404/400 de la primera **no** aborta la corrida.
+
+### 47.2 Mapeo (revisado aunque el endpoint fuera la causa)
+
+| Campo del proveedor | Nuestro campo | Nota |
+|---|---|---|
+| `id` / `cardId` | `Card.externalId` | mismo namespace pokemontcg.io (`sv8-104`). Se quitaron `productId`/`_id` de los candidatos: son de otro namespace y jamás resolverían. |
+| `cardNumber` | fallback `(set, number)` | **riesgo real confirmado**: nuestro `Card.number` viene de pokemontcg.io (`"104"`) y el proveedor puede publicar `"104/159"` o `"004"`. Ver 47.3. |
+| `printing` | `Finish` | se lee ahora `printing` **primero** (es el campo documentado), luego `variant`/`finish`/`printingName`/`subTypeName`. Se quitó `condition`: es el estado (NM/LP), no el acabado — leerlo podía atribuir un precio a un acabado inventado. |
+| `marketPrice` | `marketCents` | se lee `marketPrice` primero, luego `market`/`price`. La unidad la sigue fijando `POKEMONPRICETRACKER_MARKET_FORMAT` (fail-closed intacto). |
+| `setId` | — | **nuevo guard money-safe**: si la entrada trae un `setId` distinto al del set que se está ingiriendo, se DESCARTA. Si el filtro del proveedor no se respetara, el fallback `(set, number)` habría atribuido el precio a la carta equivocada. |
+
+Los acabados documentados mapean a nuestros canónicos con el mapa existente: `Normal`→`normal`,
+`Reverse Holofoil`→`reverse_holo`, `Holofoil`→`holofoil`, `1st Edition Holofoil`→
+`first_edition_holofoil`. `Unlimited` (y cualquier otro) **se OMITE**: no tiene enum propio y
+atribuirlo a `normal` cotizaría de más al comprar. **Acabado AUSENTE también se omite** (no se
+asume `normal`) — pero el resumen del log dice cuántas filas cayeron ahí y con qué ejemplo crudo,
+que es lo que permite ampliar el mapa de alias si el proveedor usa otros nombres.
+
+### 47.3 `cardNumber`: variantes de formato (`cardNumberVariants`)
+
+`PriceIngestService.resolveCardId` sigue resolviendo primero por `externalId` y luego por el número
+**EXACTO**. Solo si ambos fallan prueba las formas equivalentes (`pricing.types.cardNumberVariants`):
+`"104/159"` → `"104"` (se corta el total del set) y relleno de ceros en ambos sentidos
+(`"004"`↔`"4"`). Los alfanuméricos (`TG01`, `SV107`) no se tocan. Money-safe: la variante solo se
+acepta si casa con **UNA** carta del set; si casan dos, se omite la fila y se loguea — nunca se
+adivina a qué carta pertenece un precio.
+
+### 47.4 Diagnóstico observable (lo que hay que buscar en los Deploy Logs)
+
+Filtrando `PokemonPriceTracker` en Railway, los dos modos de falla ahora se distinguen sin acceso
+al proveedor:
+
+- **El request falló** → `EL REQUEST FALLÓ para el set <id>: HTTP <status> en <ruta> — cuerpo: <…>`.
+  Trae status **y cuerpo** del error del proveedor (contrato 400 / ruta 404 / auth 401-403 / cuota
+  429). Nunca se loguean la key ni los headers.
+- **El request pasó pero no mapeó** → `El request PASÓ pero NADA mapeó → revisa los nombres de campo
+  contra el ejemplo crudo: {…}`, además del resumen por set:
+  `<N> entradas crudas → <M> filas mapeadas [x sin acabado reconocible, y sin market válido, z de
+  otro set, w no-objeto]`.
+- **Todo bien** → `GET /api/prices OK (set <id>, pág 1): <N> entradas, pagination={…}` + el resumen
+  con `M > 0`, y aguas abajo el de siempre:
+  `price-ingest-set(<set>, pokemonpricetracker): <cartas> cartas, <refs> refs, …`.
+
+### 47.5 Tests
+
+`test/price-ingest.provider.spec.ts` cubre con **fixtures del formato documentado** (no se puede
+llamar al proveedor real desde el sandbox): request GET con `setId`/`Bearer` y sin cuerpo,
+paginación multi-página con `limit` capado por el servidor, respuesta sin `pagination`, caída a la
+ruta alterna ante 404, los cuatro acabados + `Unlimited` omitido, acabado ausente, `cardNumber`
+`"104/159"`, entrada de otro set, `marketPrice<=0` y **4xx → 0 filas sin excepción**.
+`test/price-ingest.service.spec.ts` cubre `cardNumberVariants` y la resolución por variantes
+(exacto primero, ambigua → omitida). Suite backend completa: **86 suites / 718 tests** en verde,
+más `lint` y `typecheck`.
+
+### 47.6 Lo que NO se tocó
+
+Reglas de buylist (`BUYLIST_PRICE_RULES` / `BUYLIST_PRICE_FALLBACK_PCT`), `.github/workflows/`,
+dial `price_provider`, envs y cron: intactos. El candado fail-closed de moneda/unidad y el
+comportamiento money-safe ante error (0 filas, precios previos **stale**, nunca borrados ni
+estimados) siguen exactamente igual. Sin cambios en el contrato de API.
+
+## 48. WS «Órdenes y dinero» — GUEST CHECKOUT (v1.21-guest-checkout, M-25, 2026-08-18)
 
 > Implementa `API_CONTRACT §4-G` completa (§4-G.0–§4-G.11) y `ARCHITECTURE §4.21`.
 > PROJECT §J / §J.1, criterios 45–56b. **Alcance tocado:** `modules/orders`, `modules/payments`,
 > `modules/shipments`, `prisma/` (solo M-25) y dos adiciones en `common/`.
 
-### 47.1 Qué se construyó (mapa rápido para QA / frontend)
+### 48.1 Qué se construyó (mapa rápido para QA / frontend)
 
 | Superficie | Archivo | Nota |
 |---|---|---|
@@ -3461,7 +3555,7 @@ lo que el contrato manda; no hay nada que arreglar.
 `DirectShipBreakdownDTO`; `common/error-codes.ts` gana los códigos nuevos. Nada existente se
 modificó ni se reformateó (para no romper el merge de otras sesiones).
 
-### 47.2 Migración M-25 aplicada (diff real)
+### 48.2 Migración M-25 aplicada (diff real)
 
 `backend/prisma/migrations/20260818120000_m25_guest_checkout/migration.sql`. Verificada contra un
 Postgres 16 real: `migrate deploy` + `migrate diff --exit-code` ⇒ **sin drift**.
@@ -3484,7 +3578,7 @@ duro de usuario **huerfanaría** sus pedidos y **rompería** el CHECK
 `claimedAt IS NOT NULL ⇒ userId IS NOT NULL` (lo reprodujo el E2E). Con `Restrict` se conserva
 exactamente el comportamiento previo a M-25. **La migración NO recrea esas FKs**: quedan como estaban.
 
-### 47.3 Decisiones de implementación que otros roles deben conocer
+### 48.3 Decisiones de implementación que otros roles deben conocer
 
 1. **`orderNumber` se escribe en TODOS los pedidos nuevos**, también en los de bóveda
    (`POST /checkout/session`). La secuencia se reserva **antes** de la transacción (`nextval` no es
@@ -3510,7 +3604,7 @@ exactamente el comportamiento previo a M-25. **La migración NO recrea esas FKs*
 8. **El correo se recorta (`trim`) antes de validar** el formato y se pasa a minúsculas al persistir.
    Un espacio pegado al copiar no puede bloquear una compra legítima.
 
-### 47.4 v1.21.1 — resolución del arquitecto a los dos puntos que backend reportó
+### 48.4 v1.21.1 — resolución del arquitecto a los dos puntos que backend reportó
 
 > Los dos huecos que backend detectó (regla 9) los resolvió el arquitecto en
 > **`API_CONTRACT §4-G.7a`** / **`ARCHITECTURE §4.21e-bis` + amenaza T7b**. **Sin migración
@@ -3556,7 +3650,7 @@ Cubierto por tests unitarios (incluido uno que afirma que el `where` de la consu
 `sale` en `picking→shipped` y `shipped→delivered`, **`withdrawal` prohibido**) y el conteo de
 **8** códigos de error nuevos.
 
-### 47.5 Job `guest-order-sweep` (T9) — CABLEADO (2026-08-18, ronda 2)
+### 48.5 Job `guest-order-sweep` (T9) — CABLEADO (2026-08-18, ronda 2)
 
 `backend/src/jobs/guest-order-sweep.service.ts`, registrado en `JobsModule` y en el
 `SchedulerService`. Sigue el patrón standalone de `auth-token-sweep` / `buylist-sweep`: un `run()`
@@ -3572,7 +3666,7 @@ sin estado que **delega la regla de negocio** en `GuestCheckoutService.sweepStal
 - **Cron overridable por env: `GUEST_ORDER_SWEEP_CRON`** (default `*/15 * * * *`).
   ⚠️ **`.env.example` es de devops: la variable NO se añadió ahí.** Queda reportada al orquestador
   para que devops la documente/propague (el default ya es sensato, así que no bloquea el deploy).
-  **Es la ÚNICA variable de entorno nueva de todo el guest checkout** (ver §47.5b).
+  **Es la ÚNICA variable de entorno nueva de todo el guest checkout** (ver §48.5b).
 - **Sin Redis no hay cron** (mismo gating que todos los jobs: `SchedulerService` se desactiva sin
   `REDIS_URL`). **No se expuso `POST /admin/jobs/guest-order-sweep`**: sería superficie de API nueva
   y el contrato no la contempla; si ops la quiere, pasa por el arquitecto.
@@ -3585,7 +3679,7 @@ sin estado que **delega la regla de negocio** en `GuestCheckoutService.sweepStal
   `guest-order-sweep-daily` pese a correr cada 15 min. Es solo la clave de dedup (invisible para
   ops); no se modificó el helper para no tocar código compartido.
 
-### 47.5b Handoff a devops — variables y constantes del guest checkout
+### 48.5b Handoff a devops — variables y constantes del guest checkout
 
 **Variables de entorno (única lista; todo lo demás son constantes de servidor):**
 
@@ -3608,7 +3702,7 @@ diales de M10 ni envs**, mismo precedente que las ventanas 7d/30d del buylist):
 La **tarifa de envío** NO es constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (M10).
 Promover cualquiera de estas constantes a `ConfigSetting` más adelante es **no-breaking**.
 
-### 47.7 v1.21.2 — T1 (double-sell del contracargo), D4, D6 y el bloqueante B3 de QA
+### 48.7 v1.21.2 — T1 (double-sell del contracargo), D4, D6 y el bloqueante B3 de QA
 
 **T1 — el contracargo NUNCA re-lista una pieza con envío vivo.** `onChargeDispute` ramifica ahora
 por `Order.fulfillmentMode` (switch exhaustivo que **lanza** ante un modo desconocido) y, en
@@ -3669,7 +3763,7 @@ que `reexpedir` sobre una orden aún en `chargeback` devuelva **422**, mientras 
 **409 CONFLICT** para ese mismo caso. Implementé y testeé **409** (el contrato manda sobre el código
 y §M3 es la especificación del endpoint). Reportado al orquestador.
 
-### 47.8 T1-b + atomicidad del desenlace (ronda de rechazo del techlead)
+### 48.8 T1-b + atomicidad del desenlace (ronda de rechazo del techlead)
 
 **T1-b — la rama «envío cancelado» reabría el double-sell.** Mi `else` guardaba
 `status: { in: ['reserved','picking'] }`, ampliando la fila 1 de la tabla normativa (que autoriza
@@ -3716,7 +3810,7 @@ segunda disputa no descongela la pieza ni baja el flag).
 > (`status: 'reserved'`) y solo honraban la forma `{ in: [...] }`, con lo que dejaban pasar
 > exactamente el bug de T1-b. Corregidos para honrar ambas, como hace Prisma contra la fila real.
 
-### 47.9 Regresión adoptada de QA + cierre del stream (última ronda: solo tests y docs)
+### 48.9 Regresión adoptada de QA + cierre del stream (última ronda: solo tests y docs)
 
 **Suite nueva: `backend/test/integration/guest-chargeback.e2e-spec.ts` (11 casos).** Vive aparte de
 `guest-checkout.e2e-spec.ts` porque cuenta otra historia: qué pasa cuando el dinero se da la vuelta.
@@ -3749,7 +3843,7 @@ veces seguidas sobre la misma BD acumulada** (40 envíos): 114/115 en ambas pasa
 > que hacía el código. Antes de escribir el test de un bug de inventario o de dinero, **comprueba
 > que el doble sabe fallar**.
 
-### 47.6 Cómo probarlo
+### 48.6 Cómo probarlo
 
 ```bash
 cd backend
@@ -3761,7 +3855,7 @@ DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
 ```
 
 - **Suites E2E nuevas:** `test/integration/guest-checkout.e2e-spec.ts` (57 casos) y
-  `test/integration/guest-chargeback.e2e-spec.ts` (11 casos, §47.9) — camino feliz de
+  `test/integration/guest-chargeback.e2e-spec.ts` (11 casos, §48.9) — camino feliz de
   §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
   negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
   `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida

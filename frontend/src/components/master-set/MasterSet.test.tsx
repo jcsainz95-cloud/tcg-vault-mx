@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { ApiClientError } from '@/lib/api-client';
-import type { InventoryAdjustmentRequest } from '@/types/contract';
+import type {
+  BuylistBatchQuoteResultDTO,
+  BuylistQuoteItemDTO,
+  CardDTO,
+  CardSetDTO,
+  InventoryAdjustmentRequest,
+} from '@/types/contract';
 import { MasterSetPanel } from './MasterSetPanel';
 import * as api from '@/lib/api';
 
@@ -439,5 +445,203 @@ describe('Master Set · Modo user_vault_self (mi bóveda: faltantes comprables)'
     // …pero un set sin piezas del usuario (swsh1) NO aparece en el índice.
     expect(screen.queryByRole('button', { name: /Sword & Shield/ })).toBeNull();
     expect(spy).toHaveBeenCalled();
+  });
+});
+
+/**
+ * mode="quoter" (WS-cotizador, unificación con Master Set): el binder compone client-side
+ * `GET /buylist/sets` + `GET /buylist/cards` + `POST /buylist/quote/batch` (SIN endpoint
+ * nuevo). Cada casilla es UNA IMAGEN por acabado real de la carta (nunca chip de texto,
+ * nunca hueco para un acabado que no existe); clic = agrega al carrito de venta.
+ */
+describe('Master Set · mode="quoter" (cotizador unificado con el binder de Master Set)', () => {
+  const QUOTER_SET: CardSetDTO = { id: 'set-quoter', name: 'Quoter Set', year: 2024 };
+
+  function mockOneSet() {
+    vi.spyOn(api, 'listBuylistSets').mockResolvedValue([QUOTER_SET]);
+  }
+
+  /** Cotización determinista: MX$100.00 en normal, MX$150.00 en cualquier otro acabado. */
+  function mockDeterministicQuotes() {
+    vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => ({
+      results: items.map(
+        (it, index): BuylistBatchQuoteResultDTO => ({
+          index,
+          cardId: it.cardId,
+          ok: true,
+          rarity: 'Rare',
+          finish: it.finish ?? 'normal',
+          appliedRule: { mode: 'fixed', value: it.finish === 'normal' ? 10000 : 15000, source: 'rule' },
+          quote: {
+            status: 'cotizada',
+            quotedPriceCents: it.finish === 'normal' ? 10000 : 15000,
+            currency: 'MXN',
+          },
+          referencePrice: { status: 'priced', priceMxnCents: 25000 },
+          paymentNotice: 'PAY_AFTER_RECEIPT',
+        }),
+      ),
+    }));
+  }
+
+  async function openQuoterSet() {
+    renderWithProviders(<MasterSetPanel mode="quoter" onAddToSellCart={vi.fn()} />, 'es');
+    fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Quoter' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Quoter Set/ }));
+  }
+
+  it('una carta con DOS acabados muestra DOS casillas cotizables independientes (nunca un chip de texto)', async () => {
+    mockOneSet();
+    const dualFinishCard: CardDTO = {
+      id: 'c-dual',
+      externalId: 'quoter-1',
+      name: 'Dual Finish Card',
+      number: '1',
+      rarity: 'Rare',
+      supertype: 'Pokémon',
+      subtypes: [],
+      setId: 'set-quoter',
+      setName: 'Quoter Set',
+      imageSmallUrl: 'https://images.pokemontcg.io/quoter/1.png',
+      imageLargeUrl: 'https://images.pokemontcg.io/quoter/1_hires.png',
+      availableFinishes: ['normal', 'reverse_holo'],
+    };
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: [dualFinishCard],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    });
+    mockDeterministicQuotes();
+
+    renderWithProviders(<MasterSetPanel mode="quoter" />, 'es');
+    fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Quoter' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Quoter Set/ }));
+
+    // Dos casillas independientes, cada una con su propio precio cotizado.
+    expect(
+      await screen.findByRole('button', {
+        name: 'Agregar Dual Finish Card (Normal) a la venta · MX$100.00',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · MX$150.00',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('una carta con UN solo acabado muestra SOLO una casilla, sin hueco vacío para los demás', async () => {
+    mockOneSet();
+    const singleFinishCard: CardDTO = {
+      id: 'c-single',
+      externalId: 'quoter-2',
+      name: 'Single Finish Card',
+      number: '2',
+      rarity: 'Common',
+      supertype: 'Pokémon',
+      subtypes: [],
+      setId: 'set-quoter',
+      setName: 'Quoter Set',
+      imageSmallUrl: 'https://images.pokemontcg.io/quoter/2.png',
+      imageLargeUrl: 'https://images.pokemontcg.io/quoter/2_hires.png',
+      availableFinishes: ['normal'],
+    };
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: [singleFinishCard],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    });
+    mockDeterministicQuotes();
+
+    renderWithProviders(<MasterSetPanel mode="quoter" />, 'es');
+    fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Quoter' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Quoter Set/ }));
+
+    expect(
+      await screen.findByRole('button', {
+        name: 'Agregar Single Finish Card (Normal) a la venta · MX$100.00',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Single Finish Card \(Reverse Holo\)/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Single Finish Card \(Holofoil\)/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('un set con 120 cartas (bug P-4a: el cotizador cortaba en 20 sin control) muestra TODAS, no solo la primera página', async () => {
+    mockOneSet();
+    const cards: CardDTO[] = Array.from({ length: 120 }, (_, i) => ({
+      id: `c-pb-${i + 1}`,
+      externalId: `quoter-pb-${i + 1}`,
+      name: `Pitch Black Card ${i + 1}`,
+      number: String(i + 1),
+      rarity: 'Common',
+      supertype: 'Pokémon',
+      subtypes: [],
+      setId: 'set-quoter',
+      setName: 'Quoter Set',
+      imageSmallUrl: '',
+      imageLargeUrl: '',
+      availableFinishes: ['normal'],
+    }));
+    vi.spyOn(api, 'searchBuylistCards').mockImplementation(async ({ page = 1, pageSize = 50 } = {}) => {
+      const start = (page - 1) * pageSize;
+      return { data: cards.slice(start, start + pageSize), page, pageSize, total: cards.length };
+    });
+    mockDeterministicQuotes();
+
+    await openQuoterSet();
+
+    // La última carta de la 3ª página (50+50+20) prueba que se acumularon TODAS las páginas.
+    expect(await screen.findByText('#120')).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('button', { name: /Agregar Pitch Black Card \d+ \(Normal\)/ }),
+    ).toHaveLength(120);
+  });
+
+  it('clic en una casilla agrega al carrito de venta con el precio correcto de esa combinación', async () => {
+    mockOneSet();
+    const dualFinishCard: CardDTO = {
+      id: 'c-dual',
+      externalId: 'quoter-1',
+      name: 'Dual Finish Card',
+      number: '1',
+      rarity: 'Rare',
+      supertype: 'Pokémon',
+      subtypes: [],
+      setId: 'set-quoter',
+      setName: 'Quoter Set',
+      imageSmallUrl: '',
+      imageLargeUrl: '',
+      availableFinishes: ['normal', 'reverse_holo'],
+    };
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: [dualFinishCard],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    });
+    mockDeterministicQuotes();
+
+    const onAddToSellCart = vi.fn();
+    renderWithProviders(<MasterSetPanel mode="quoter" onAddToSellCart={onAddToSellCart} />, 'es');
+    fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Quoter' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Quoter Set/ }));
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · MX$150.00',
+      }),
+    );
+
+    await waitFor(() => expect(onAddToSellCart).toHaveBeenCalledTimes(1));
+    const [cellArg, variantArg] = onAddToSellCart.mock.calls[0];
+    expect(cellArg.cardId).toBe('c-dual');
+    expect(variantArg.finish).toBe('reverse_holo');
+    expect(variantArg.quote?.quotedPriceCents).toBe(15000);
   });
 });

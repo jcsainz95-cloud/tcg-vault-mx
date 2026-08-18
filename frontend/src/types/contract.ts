@@ -756,6 +756,19 @@ export interface MasterSetVariantDTO {
   count: number;
   covered: boolean;
   buyable?: { inventoryItemId: string; salePriceCents: number } | null;
+  // SOLO mode="quoter" (frontend, WS-cotizador): NO viaja del backend en ningún endpoint del
+  // contrato — el cotizador compone este campo 100% client-side a partir de POST
+  // /buylist/quote/batch (mismo shape que BuylistQuoteResponse) para reusar el binder de
+  // Master Set como grid de cotización. `covered` en este modo significa "cotización resuelta"
+  // (no "en inventario"); null = la combinación (carta, acabado) no cotizó (NOT_FOUND/
+  // FINISH_NOT_AVAILABLE — no debería ocurrir si `finish` viene de availableFinishes).
+  quote?: {
+    status: 'cotizada' | 'precio_pendiente';
+    quotedPriceCents: number | null;
+    rarity: string | null;
+    appliedRule: BuylistRuleApplied;
+    referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
+  } | null;
 }
 
 export interface MasterSetIndexResponse {
