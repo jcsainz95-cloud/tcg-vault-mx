@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { QueryClient } from '@tanstack/react-query';
 import { renderWithProviders } from '@/test/render';
 import { M1View } from './M1View';
 import * as api from '@/lib/api';
@@ -108,13 +109,15 @@ describe('M1View · Buscador / picker del catálogo', () => {
     ).toBeInTheDocument();
   });
 
-  it('P-4.3: al crear con éxito dispara un toast INEQUÍVOCO con el folio devuelto', async () => {
+  it('P-4.3: al crear con éxito dispara un toast INEQUÍVOCO con el folio y refresca la lista', async () => {
     vi.spyOn(api, 'createInventoryItem').mockResolvedValue({
       id: 'inv-new-1',
       folio: 'INV-000777',
       status: 'in_stock',
       acquisitionCostCents: 0,
     });
+    // FIX 4: el éxito debe invalidar la query del inventario admin (refresco de la tabla).
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
     renderWithProviders(<M1View />, 'es');
     const dialog = await openModalAndSearch('Pikachu');
     fireEvent.click((await within(dialog).findAllByRole('option', { name: /Pikachu/ }))[0]);
@@ -122,6 +125,9 @@ describe('M1View · Buscador / picker del catálogo', () => {
 
     // El toast vive en un portal a <body> (visible por encima del modal), no dentro del dialog.
     expect(await screen.findByText('Pieza dada de alta · folio INV-000777.')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-inventory'] }),
+    );
   });
 
   it('P-4.1/4.2: un error del alta se ve ARRIBA con copy del OPERADOR (PRICE_PENDING)', async () => {
@@ -135,11 +141,15 @@ describe('M1View · Buscador / picker del catálogo', () => {
 
     // Copy del alta admin (no el de storefront "no se puede comprar").
     const alert = await within(dialog).findByRole('alert');
+    // FIX 3: el título es corto y el cuerpo NO repite "No se pudo dar de alta:" (sin redundancia).
+    expect(within(alert).getByText('No se pudo dar de alta')).toBeInTheDocument();
     expect(
       within(alert).getByText(
-        'No se pudo dar de alta: esta carta aún no tiene precio de referencia; se envió a la cola de precios pendientes.',
+        'Esta carta aún no tiene precio de referencia; se envió a la cola de precios pendientes.',
       ),
     ).toBeInTheDocument();
+    // El cuerpo no arrastra el prefijo del título.
+    expect(within(alert).queryByText(/No se pudo dar de alta:/)).not.toBeInTheDocument();
   });
 
   it('P-5: alta MASIVA envía un lote y muestra el resultado por-ítem (folio + fallo)', async () => {
@@ -178,7 +188,7 @@ describe('M1View · Buscador / picker del catálogo', () => {
     expect(within(dialog).getByText(/precio de referencia/)).toBeInTheDocument();
   });
 
-  it('P-5: idempotencia — un mismo lote enviado dos veces reusa el batchKey (replay)', async () => {
+  it('P-5: tras un envío exitoso el lote se VACÍA (no se puede reenviar y duplicar las creadas)', async () => {
     vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([fakeCard(1)], 1, 1));
     const batchSpy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue({
       batchKey: 'batch-test',
@@ -201,6 +211,96 @@ describe('M1View · Buscador / picker del catálogo', () => {
     // queda deshabilitado con conteo 0 y el resultado por-ítem se conserva.
     expect(await within(dialog).findByText('INV-000600')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Dar de alta 0 cartas' })).toBeDisabled();
+  });
+
+  it('P-5: anti-doble-alta — tras un ÉXITO el batchKey se RENUEVA (la nueva tanda usa otra key)', async () => {
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([fakeCard(1), fakeCard(2)], 1, 2));
+    const batchSpy = vi.spyOn(api, 'batchCreateItems').mockImplementation(async (payload) => ({
+      batchKey: payload.batchKey,
+      idempotentReplay: false,
+      summary: { requested: payload.items.length, createdItems: payload.items.length, failedLines: 0 },
+      results: payload.items.map((_, i) => ({
+        index: i,
+        ok: true as const,
+        folios: [`INV-00070${i}`],
+        inventoryItemIds: [`inv-${i}`],
+      })),
+    }));
+    renderWithProviders(<M1View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ }));
+    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'Fake' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
+
+    // 1ª tanda.
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Fake Card 1/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' }));
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+    await within(dialog).findByText('INV-000700');
+
+    // 2ª tanda: se arma un nuevo lote y se envía.
+    fireEvent.click(within(dialog).getByRole('option', { name: /Fake Card 2/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' }));
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
+
+    const firstKey = batchSpy.mock.calls[0][0].batchKey;
+    const secondKey = batchSpy.mock.calls[1][0].batchKey;
+    // Cada tanda exitosa RENUEVA la key → dos altas distintas, nunca un replay que duplique.
+    expect(firstKey).toBeTruthy();
+    expect(secondKey).toBeTruthy();
+    expect(secondKey).not.toBe(firstKey);
+  });
+
+  it('P-5: replay — un reintento del MISMO envío (tras fallo) REUSA la batchKey (idempotencia)', async () => {
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([fakeCard(1)], 1, 1));
+    // El envío falla (p. ej. timeout de red): el lote NO se vacía y la key NO se renueva.
+    const batchSpy = vi
+      .spyOn(api, 'batchCreateItems')
+      .mockRejectedValue(new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }));
+    renderWithProviders(<M1View />, 'es');
+
+    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ }));
+    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'Fake' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Fake Card 1/ }));
+
+    const submit = within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' });
+    fireEvent.click(submit);
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
+
+    // Reintento del mismo lote (el botón sigue con conteo 1 porque el fallo no vació el lote).
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' }));
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
+
+    // Misma key en ambos envíos → el backend lo trata como replay idempotente, no como alta nueva.
+    expect(batchSpy.mock.calls[1][0].batchKey).toBe(batchSpy.mock.calls[0][0].batchKey);
+  });
+
+  it('FIX 1: en `graded` la multi-selección se DESHABILITA (no se arma/envía lote con cert compartido)', async () => {
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+
+    const multi = within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ });
+    // En raw se puede activar el modo masivo.
+    fireEvent.click(multi);
+    expect(multi).toBeChecked();
+
+    // Cambiar a gradeada FUERZA selección única: apaga el modo masivo y deshabilita el checkbox.
+    fireEvent.change(within(dialog).getByLabelText('Tipo de producto'), {
+      target: { value: 'graded' },
+    });
+    expect(multi).not.toBeChecked();
+    expect(multi).toBeDisabled();
+    // No hay botón de envío de LOTE en graded (solo alta simple con su cert único).
+    expect(
+      within(dialog).queryByRole('button', { name: /Dar de alta \d+ cartas/ }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Crear item' })).toBeInTheDocument();
   });
 });
 

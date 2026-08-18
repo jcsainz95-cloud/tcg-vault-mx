@@ -821,8 +821,9 @@
       "createError": "We couldn't create the item. Check the details and try again.",
       "createErrorTitle": "Couldn't add to inventory",
       "errorByCode": {
-        "PRICE_PENDING": "Couldn't add to inventory: this card has no reference price yet; it was sent to the pending-price queue."
+        "PRICE_PENDING": "This card has no reference price yet; it was sent to the pending-price queue."
       },
+      "gradedNoBulk": "Bulk add doesn't apply to graded cards: each certificate (cert #) is unique per slab, so graded cards are added one at a time.",
       "createToastTitle": "Item added",
       "createToast": "Item added to the vault · folio {folio}.",
       "multiSelect": "Select multiple cards (bulk add)",

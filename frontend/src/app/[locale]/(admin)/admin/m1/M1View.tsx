@@ -243,6 +243,27 @@ export function M1View() {
 
   const [locationId, setLocationId] = useState<string>('');
 
+  // FIX 2 (dinero — base de costo/P&L): cada apertura del alta arranca LIMPIA. Reseteamos los
+  // campos del formulario a sus defaults iniciales (los mismos de los useState de arriba) para
+  // que la ADQUISICIÓN, %, tipo, acabado, cert, precio y la selección de set/búsqueda/carta NO
+  // se hereden de la tanda anterior (una `acq` heredada fijaría un costo/origen equivocado en M7).
+  function resetAddForm() {
+    setAcq('aportacion_en_especie');
+    setProductType('raw');
+    setFinish('normal');
+    setSealedSubtype('box');
+    setGradingCompany('PSA');
+    setGradeValue('10');
+    setCertNumber('');
+    setListPrice('');
+    setPct('70');
+    setLocationId('');
+    setSetId('');
+    setSearchInput('');
+    setSearchQuery('');
+    setSelectedCard(null);
+  }
+
   // Alta contra el catálogo real: cardId = selectedCard.id (contrato POST /admin/inventory/items).
   const create = useMutation({
     mutationFn: () =>
@@ -391,6 +412,9 @@ export function M1View() {
                 batchKeyRef.current = null;
                 setBatchCards([]);
                 setMultiSelect(false);
+                // FIX 2: además del estado de mutación/lote, resetea los CAMPOS del formulario
+                // (acq/%/tipo/acabado/cert/precio + set/búsqueda/carta) a sus defaults limpios.
+                resetAddForm();
                 setOpen(true);
               }}
             >
@@ -602,12 +626,18 @@ export function M1View() {
           {/* v1.2: alta SIN foto propia; la imagen es la de catálogo remota de pokemontcg.io */}
           <Banner variant="info">{t('noPhotoNotice')}</Banner>
 
-          {/* P-5: modo de alta MASIVA — marca varias cartas y dalas de alta en un solo envío. */}
-          <label className="flex items-center gap-2 text-sm text-text">
+          {/* P-5: modo de alta MASIVA — marca varias cartas y dalas de alta en un solo envío.
+              FIX 1: deshabilitado en `graded` (cert único por pieza ⇒ el alta masiva no aplica). */}
+          <label
+            className={`flex items-center gap-2 text-sm ${
+              productType === 'graded' ? 'text-muted' : 'text-text'
+            }`}
+          >
             <input
               type="checkbox"
-              className="h-4 w-4 accent-[var(--color-primary)]"
+              className="h-4 w-4 accent-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-50"
               checked={multiSelect}
+              disabled={productType === 'graded'}
               onChange={(e) => {
                 setMultiSelect(e.target.checked);
                 batch.reset();
@@ -619,6 +649,9 @@ export function M1View() {
             />
             {t('multiSelect')}
           </label>
+          {productType === 'graded' && (
+            <p className="text-xs text-muted">{t('gradedNoBulk')}</p>
+          )}
 
           {/* Picker de catálogo REAL (contrato §6): filtra por set + busca sobre TODO el catálogo. */}
           <Select
@@ -834,7 +867,19 @@ export function M1View() {
             label={t('productType')}
             options={PRODUCT_TYPES.map((p) => ({ value: p, label: t(`productTypeLabel.${p}`) }))}
             value={productType}
-            onChange={(e) => setProductType(e.target.value as ProductType)}
+            onChange={(e) => {
+              const next = e.target.value as ProductType;
+              setProductType(next);
+              // FIX 1 (dinero — integridad de inventario): el alta MASIVA NO admite gradeadas.
+              // El certNumber es ÚNICO por slab; un lote aplicaría el mismo cert a N piezas y
+              // crearía inventario de alto valor con certificado duplicado. Al pasar a `graded`
+              // forzamos selección única y limpiamos cualquier lote ya armado (evita enviar un
+              // carrito de gradeadas con cert compartido).
+              if (next === 'graded' && multiSelect) {
+                setMultiSelect(false);
+                clearBatch();
+              }
+            }}
           />
           {productType === 'raw' && (
             // Raw solo NM (v1.1): sin selector de grados; condición fija.

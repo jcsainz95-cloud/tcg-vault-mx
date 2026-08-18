@@ -821,8 +821,9 @@
       "createError": "No se pudo crear el item. Revisa los datos e inténtalo de nuevo.",
       "createErrorTitle": "No se pudo dar de alta",
       "errorByCode": {
-        "PRICE_PENDING": "No se pudo dar de alta: esta carta aún no tiene precio de referencia; se envió a la cola de precios pendientes."
+        "PRICE_PENDING": "Esta carta aún no tiene precio de referencia; se envió a la cola de precios pendientes."
       },
+      "gradedNoBulk": "El alta masiva no aplica a gradeadas: cada certificado (cert #) es único por pieza, así que las gradeadas se dan de alta una por una.",
       "createToastTitle": "Alta registrada",
       "createToast": "Pieza dada de alta · folio {folio}.",
       "multiSelect": "Seleccionar varias cartas (alta masiva)",
