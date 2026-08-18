@@ -223,7 +223,7 @@ stubs de **comprar/retirar** convivieron con "QA verde" hasta que se cablearon l
 
 | Camino | Workflow | Cómo corre | Cuándo | Qué garantiza |
 |---|---|---|---|---|
-| **MOCK** (rápido) | `.github/workflows/e2e.yml` → job `frontend-e2e` | `playwright.config` levanta Next con `NEXT_PUBLIC_USE_MOCKS=true` (sin docker). Chromium preinstalado. | cada push/PR | Feedback rápido de UI/regresión contra **fixtures**. No prueba endpoints reales. |
+| **MOCK** (rápido) | `.github/workflows/e2e.yml` → job `frontend-e2e` | `playwright.config` levanta Next con `NEXT_PUBLIC_USE_MOCKS=true` (sin docker). Chromium instalado en el job (`playwright install --with-deps chromium`). | cada push/PR | Feedback rápido de UI/regresión contra **fixtures**. No prueba endpoints reales. |
 | **REAL** (gate) | `.github/workflows/e2e-real.yml` | `docker-compose.staging.yml --profile apps` (Postgres 16 + Redis 7 + MinIO + backend NestJS + frontend con **`NEXT_PUBLIC_USE_MOCKS=false`**) + `migrate deploy` (arranque) + `seed:synthetic` + Playwright **smoke** contra `E2E_BASE_URL` real | **nightly** (08:00 UTC) · **manual** · **gate previo a prod** (invocado por `deploy.yml` vía `workflow_call`) | "Verde de verdad": los flujos críticos pegan a **endpoints reales**. |
 
 **Smoke de flujos críticos (PROJECT.md)** que corre el modo REAL (parametrizable con el input
@@ -232,30 +232,36 @@ stubs de **comprar/retirar** convivieron con "QA verde" hasta que se cablearon l
 - **retirar → envío**: `frontend/e2e/shipments.spec.ts`
 - **vender/buylist → solicitud**: `frontend/e2e/buylist.spec.ts`
 
-**Navegador:** ambos jobs usan el **Chromium PREINSTALADO** del runner-harness en
-`/opt/pw-browsers` con `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`. **NO** se ejecuta
-`playwright install` (se quitó el `npx playwright install --with-deps` que había en el job
-frontend anterior). Un paso *Guard navegador* falla con mensaje claro si el runner no trae
-`/opt/pw-browsers/chromium` (overridable con `PLAYWRIGHT_CHROMIUM_PATH`).
+**Navegador (política vigente desde 2026-08-17 — ver §22.2):** ambos jobs corren en
+`ubuntu-latest` (runner **estándar** de GitHub) e instalan el navegador en el propio job con
+`npx playwright install --with-deps chromium`, **después** del `npm ci` del frontend. Se
+retiraron `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` / `PLAYWRIGHT_BROWSERS_PATH` /
+`PLAYWRIGHT_CHROMIUM_PATH` y el paso *Guard navegador*: apuntaban a `/opt/pw-browsers`, una
+ruta que **solo existe en el runner-harness local**, y hacían fallar los dos workflows en CI.
 
 ### Cómo correr cada uno localmente
 
 ```bash
 # --- MOCK (rápido, sin backend) ---
 cd frontend && npm ci
-PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:e2e
+npx playwright install --with-deps chromium   # una vez por máquina/runner
+npm run test:e2e
 #   (sin E2E_BASE_URL => el config levanta Next con NEXT_PUBLIC_USE_MOCKS=true)
+#   Si trabajas en el runner-harness con Chromium ya preinstalado, puedes saltarte
+#   el install y exportar PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers.
 
 # --- REAL (stack completo, endpoints reales) ---
 # 1) Levantar el stack real de staging (frontend horneado con mocks=false):
 docker compose -f docker-compose.staging.yml --profile apps up -d --build
-# 2) Esperar salud del backend y sembrar datos sintéticos:
+# 2) Esperar salud del backend y sembrar datos sintéticos.
+#    OJO: la imagen de backend YA NO trae npm (§22.3) => el seed se invoca por bin:
 curl -sf http://localhost:3011/api/v1/health
-docker compose -f docker-compose.staging.yml exec -T backend npm run seed:synthetic
+docker compose -f docker-compose.staging.yml exec -T backend \
+  sh -c 'export PATH=/app/node_modules/.bin:$PATH; ts-node prisma/seed-e2e.ts'
 # 3) Correr el smoke contra el frontend REAL (3010):
 cd frontend && npm ci
+npx playwright install --with-deps chromium
 E2E_BASE_URL=http://localhost:3010 \
-  PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium \
   npm run test:e2e -- checkout.spec.ts shipments.spec.ts buylist.spec.ts
 # 4) Apagar:
 docker compose -f docker-compose.staging.yml --profile apps down -v
@@ -281,7 +287,9 @@ dominio prod está bloqueado por egress, así que **el E2E real NO se pudo CORRE
 - YAML de `e2e-real.yml`, `e2e.yml` y `deploy.yml` parsean OK (`yaml.safe_load`).
 - `playwright.config.ts` parsea y `npx playwright test --list` enumera **17 tests** en los 3
   specs de smoke (checkout/shipments/buylist) usando el Chromium preinstalado.
-- `/opt/pw-browsers/chromium` existe (navegador preinstalado; `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`).
+- `/opt/pw-browsers/chromium` existía en el sandbox donde se validó (navegador preinstalado del
+  harness). **Ya no se depende de esa ruta en CI**: desde 2026-08-17 los workflows instalan
+  Chromium con `npx playwright install --with-deps chromium` (§22.2).
 
 Pendiente de la **primera corrida en CI/staging** (runner-harness con navegadores preinstalados):
 1. Que el stack real de `docker-compose.staging.yml --profile apps` **arranque** y el backend
@@ -294,10 +302,10 @@ Pendiente de la **primera corrida en CI/staging** (runner-harness con navegadore
    entorno** (o etiquetar un subconjunto `@real`) es trabajo del **rol frontend**; devops solo
    ejecuta la suite (CLAUDE.md: los specs los escriben frontend/backend). El input `smoke_specs`
    permite acotar el gate al subconjunto que ya sea real-safe mientras frontend adapta el resto.
-4. Requisito de runner: `e2e-real.yml` necesita navegadores Playwright preinstalados en
-   `/opt/pw-browsers`. En un runner **stock** de GitHub (sin ese preinstalado) el *Guard
-   navegador* falla a propósito — hay que usar el **runner-harness del proyecto** (o adaptar la
-   ruta con `PLAYWRIGHT_CHROMIUM_PATH`).
+4. ~~Requisito de runner: navegadores preinstalados en `/opt/pw-browsers`.~~ **RESUELTO
+   2026-08-17 (§22.2):** `e2e.yml` y `e2e-real.yml` corren en `ubuntu-latest` stock e instalan
+   Chromium con `npx playwright install --with-deps chromium` tras el `npm ci` del frontend.
+   Ya no hay requisito de runner-harness ni *Guard navegador*.
 
 ### Deuda devops relacionada — throttler distribuido (store Redis)
 
@@ -1808,3 +1816,182 @@ consume). No hay que tocar env ni cron. Para desmapear un item puntual: `PUT ...
   se restringe egress por allowlist, añadir `tcgcsv.com` junto a `api.pokemontcg.io`,
   `www.banxico.org.mx` (SIE) y el dominio del proveedor de paga.
 
+
+---
+
+## 22. Desbloqueo de los gates rojos del release PR #3 (`main` → `production`, 2026-08-17)
+
+> **Contexto:** el PR de release #3 (mergeado en `production`, commit `9940adc`) quedó con tres
+> checks en rojo que bloquean el "Wait for CI" del deploy en Railway: `gitleaks`, `frontend-e2e`
+> (y su gemelo del E2E real) y `trivy-image`. Los tres eran fallos de **infraestructura de CI**,
+> no de código de aplicación: se arreglan en zona devops y no hubo que tocar `backend/` ni
+> `frontend/`. Rama del arreglo: `claude/fix-ci-gates-release`.
+
+### 22.1 `gitleaks` — faltaba `GITHUB_TOKEN`
+
+**Síntoma (log real):**
+
+```
+##[error]🛑 GITHUB_TOKEN is now required to scan pull requests. You can use the automatically created token as shown in the README.
+```
+
+**Causa raíz:** `gitleaks/gitleaks-action@v2` exige `GITHUB_TOKEN` para escanear PRs (lo usa para
+resolver los commits del PR y, si procede, comentar). El step de `security-sast.yml` solo pasaba
+`GITLEAKS_CONFIG`. El input va por **`env:`**, no por `with:` (así lo documenta el README de la
+acción).
+
+**Cambio (`.github/workflows/security-sast.yml`, job `gitleaks`):**
+- `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` en el bloque `env:` del step.
+- `permissions:` **a nivel de job** (no del workflow, para no ampliar el scope de los demás):
+  `contents: read` + `pull-requests: read`.
+- `GITLEAKS_ENABLE_COMMENTS: "false"`: publicar comentarios en el PR exigiría
+  `pull-requests: write` y no queremos ese permiso en un job de secretos. El gate **no se relaja**:
+  si hay leaks el job falla igual y el detalle queda en el log y en el artifact SARIF.
+
+**Deuda anotada (no bloqueante):** `gitleaks-action@v2` corre sobre Node 20, que GitHub retira de
+los runners el **2026-09-16**. Antes de esa fecha hay que subir a `@v3` (mismos inputs/env; requiere
+runner ≥ 2.327.1). No se subió en este arreglo para no mezclar un cambio de mayor con el desbloqueo
+del release. Está anotado como comentario en el propio workflow.
+
+### 22.2 `frontend-e2e` / `e2e-real` — Chromium inexistente en `ubuntu-latest`
+
+**Síntoma (log real):**
+
+```
+##[error]No existe /opt/pw-browsers/chromium.
+##[error]Este job usa el Chromium preinstalado del runner-harness (/opt/pw-browsers) y NO ejecuta 'playwright install'.
+```
+
+**Causa raíz:** los dos workflows E2E asumían un **runner-harness** con los navegadores de Playwright
+preinstalados en `/opt/pw-browsers`, pero los jobs corren en `ubuntu-latest` (runner **estándar** de
+GitHub), donde esa ruta **no existe** — solo existe dentro del entorno de Claude Code. El "Guard
+navegador" hacía exactamente lo que decía su mensaje: abortar. Es decir, el job **nunca** pudo pasar
+en CI con esa política.
+
+**Cambio (approach estándar de Playwright en Actions):**
+- `.github/workflows/e2e.yml` (job `frontend-e2e`): se eliminaron
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`, `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_CHROMIUM_PATH` y el
+  step *Guard navegador*. Se añadió `npx playwright install --with-deps chromium`
+  (`working-directory: frontend`) **después** del `npm ci` del frontend — el orden importa: el CLI
+  `playwright` vive en `frontend/node_modules`, antes del `npm ci` `npx` no lo encuentra.
+- `.github/workflows/e2e-real.yml` (job `e2e-real`): mismas env vars y mismo guard eliminados; el
+  `playwright install` va justo después del `npm ci` del frontend (que está al final del job) y
+  antes del step *Playwright smoke*.
+- Se reescribieron las cabeceras de ambos workflows y §5.1 de este documento, que documentaban la
+  política vieja ("Chromium PREINSTALADO", "NO se ejecuta playwright install", "REQUISITO DE
+  RUNNER"). Dejarlas habría sido documentación que miente sobre el pipeline.
+- **Detalle que casi se escapa (y que habría dejado el job igual de rojo):**
+  `frontend/playwright.config.ts` (rol **frontend**) fija
+  `launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? '/opt/pw-browsers/chromium'`.
+  Con solo instalar el navegador, Playwright habría seguido intentando lanzar la ruta del harness.
+  Por eso el step, tras instalar, **resuelve la ruta real con la API oficial**
+  (`require('@playwright/test').chromium.executablePath()`), comprueba que el binario existe y es
+  ejecutable (ese check sustituye al viejo *Guard navegador*, ahora sí con sentido en CI) y la
+  exporta a `$GITHUB_ENV` como `PLAYWRIGHT_CHROMIUM_PATH` para los steps siguientes.
+  **Hallazgo → rol frontend (no bloqueante):** el default hardcodeado `/opt/pw-browsers/chromium`
+  del config solo tiene sentido en el runner-harness; lo natural sería dejar que Playwright resuelva
+  el navegador por defecto y usar `executablePath` **solo** si la env está definida. Mientras el
+  config siga así, estos workflows deben exportar la variable.
+- **No** se añadió cache de navegadores (`actions/cache`): con `--with-deps` haría falta igual la
+  instalación de libs de sistema y el ahorro no compensa el riesgo de cache stale. Si el tiempo de
+  job molesta, es una optimización posterior.
+- **Observación NO tocada (decisión consciente):** `e2e-real.yml` invoca el smoke con
+  `E2E_BASE_URL` pero **sin** `E2E_REAL=1`, mientras que el `playwright.config.ts` documenta
+  `E2E_BASE_URL=... E2E_REAL=1 npm run test:e2e` como forma de correr en real (filtra a los tests
+  tagueados `@real`). No se cambió en este arreglo para no alterar qué tests corren en el gate de
+  promoción a prod dentro de un fix de desbloqueo; queda como decisión para la próxima corrida real
+  (si los specs mock-only de esos archivos fallan contra el backend real, la respuesta es añadir
+  `E2E_REAL: "1"` al step del smoke).
+
+### 22.3 `trivy-image` — **no era node-tar de la app: era el npm de la imagen base**
+
+**La premisa inicial ("bumpear node-tar") era equivocada.** Verificado:
+- `npm ls tar` **vacío** en `backend/` y en `frontend/`; ni `backend/package-lock.json` ni
+  `frontend/package-lock.json` tienen una sola entrada de `tar`.
+- Por eso el `"tar": ">=7.5.18"` de `overrides` en `backend/package.json` era **inefectivo**: no
+  existe ningún `tar` en el árbol de dependencias que sobreescribir.
+
+**Causa raíz real:** el reporte que rompía el gate era la sección **Node.js (node-pkg)** — *Total 16
+(HIGH 15, CRITICAL 1)* — y **todos** los paths eran
+`usr/local/lib/node_modules/npm/node_modules/...`: las dependencias internas del **npm empaquetado
+dentro de la imagen base `node:20-alpine`** (`tar` 6.2.1 con CVE-2026-59873 CRITICAL y
+CVE-2026-23745/23950/24842 HIGH, `brace-expansion` 2.0.1, `cross-spawn` 7.0.3, `minimatch`,
+`picomatch`, `sigstore`…). Eso **no se puede arreglar desde package.json**: no lo declaramos
+nosotros, llega con la imagen oficial de Node.
+
+**Arreglo (elimina la vulnerabilidad, no la ignora): npm fuera de la etapa `runtime`.**
+El runtime de producción no necesita npm; borrarlo hace desaparecer toda esa superficie y además
+adelgaza la imagen.
+
+- **`Dockerfile.frontend`** (etapa `runtime`): `RUN rm -rf /usr/local/lib/node_modules/npm
+  /usr/local/bin/npm /usr/local/bin/npx` (en `/usr/local/bin`, `npm` y `npx` son symlinks a esa
+  carpeta). El arranque es `node server.js` (output standalone de Next): no usa npm ni npx.
+- **`Dockerfile.backend`** (etapa `runtime`): mismo `rm -rf`, **y cambio obligado del `CMD`**. El
+  CMD anterior era `sh -c "npx prisma migrate deploy && node dist/main.js"`: sin npx **habría roto
+  el arranque en Railway**. Ahora:
+
+  ```dockerfile
+  CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]
+  ```
+
+  `build/index.js` es el entrypoint real del CLI (verificado: `prisma@5.x` declara
+  `"bin": {"prisma": "build/index.js"}`; `node_modules/.bin/prisma` es un symlink a ese archivo, y
+  `node build/index.js --version` responde correctamente). El paquete `prisma` viaja en la imagen
+  porque esta etapa conserva `node_modules` completo con devDeps a propósito (ver NOTA de la etapa
+  build y §6).
+- **Guards de build (ambos Dockerfiles):** tras el `rm -rf`, un `if` falla el build si `npm` sigue
+  presente; en el backend, además, un `test -f node_modules/prisma/build/index.js`. Si una imagen
+  base futura mueve esas rutas, o un bump de Prisma cambia su bin, el **build** falla con mensaje
+  claro en vez de publicar una imagen vulnerable o crash-loopear al arrancar en Railway.
+- **`security/.trivyignore`:** se **retiraron** los 4 CVE de node-tar (CVE-2026-26960/-29786/-31802/
+  -59874) — ya no hay npm en el runtime que los traiga. El archivo queda **sin excepciones activas**
+  (solo la justificación histórica) y se sigue pasando a los jobs para que cualquier excepción futura
+  viva en un único sitio auditable. **No se añadió ningún CVE nuevo.**
+- **Comentarios de `security-sast.yml`** (`trivy-fs`, `trivy-image` backend y frontend) actualizados:
+  ya no justifican nada por node-tar.
+
+**Efecto colateral que hubo que arreglar:** `e2e-real.yml` sembraba con
+`docker compose exec -T backend npm run seed:synthetic --if-present` — **npm ya no existe en ese
+contenedor**. Ahora el step lee el script `seed:synthetic` del `package.json` del contenedor
+(`node -e`, misma fuente de verdad, sin hardcodear la ruta del seed, que es del rol backend) y lo
+ejecuta con `node_modules/.bin` en el `PATH`. Semántica idéntica, incluido el "si no existe, se
+salta" del `--if-present`. Los scripts de host (`scripts/seed.sh`, `scripts/seed-synthetic.sh`,
+`scripts/db-migrate.sh`) **no** se ven afectados: corren en el host (que sí tiene npm/npx), no dentro
+de la imagen.
+
+### 22.4 Qué se verificó y qué NO (honestidad de la verificación)
+
+**Verificado en este entorno:**
+- YAML de `e2e.yml`, `e2e-real.yml`, `security-sast.yml` (+ `ci.yml`, `deploy.yml`) parsea con
+  `yaml.safe_load`.
+- Todos los bloques `run:` de los tres workflows tocados pasan `bash -n`.
+- Lógica de extracción del seed (`node -e` + `sh -c` con PATH) probada localmente con el
+  `backend/package.json` real: devuelve `ts-node prisma/seed-e2e.ts`, y con el script ausente emite
+  el warning y sale 0.
+- Entrypoint del CLI de Prisma: instalación limpia de `prisma@^5.20.0` →
+  `bin.prisma = "build/index.js"`, `node node_modules/prisma/build/index.js --version` OK.
+
+**NO verificado (bloqueo de entorno, no del arreglo):** **no se pudo construir ni escanear las
+imágenes**. El daemon Docker arranca, pero el pull de `node:20-alpine` muere porque la política de
+egress del sandbox bloquea el CDN de blobs de Docker Hub:
+
+```
+403 CONNECT production.cloudfront.docker.com:443
+ERROR: failed to solve: node:20-alpine: ... Forbidden
+```
+
+Por tanto **queda pendiente de la primera corrida en CI**: (a) que el build de ambas imágenes pase
+con el `rm -rf` de npm y los guards, (b) que `trivy image` ya no reporte HIGH/CRITICAL, y (c) que el
+backend arranque con el nuevo `CMD` (migrate deploy + `node dist/main.js`). Si el gate siguiera rojo
+por CVEs que **no** vengan de `usr/local/lib/node_modules/npm/...`, son CVEs reales: se tratan (bump
+de imagen base o de dependencia), **no** se añaden al `.trivyignore`.
+
+### 22.5 Rollback de este cambio
+
+Todo el arreglo es de infraestructura y reversible con `git revert` del commit en
+`claude/fix-ci-gates-release`. Riesgo a vigilar en el **primer deploy** tras el merge: el arranque
+del backend depende ahora de `node node_modules/prisma/build/index.js migrate deploy`. Si en Railway
+apareciera `Cannot find module '/app/node_modules/prisma/build/index.js'`, el rollback inmediato es
+volver al `CMD` con `npx` **y** revertir el `rm -rf` de npm en `Dockerfile.backend` (ambos a la vez:
+el `npx` no funciona sin npm). El guard `test -f` del build debería impedir que ese caso llegue a
+producción.

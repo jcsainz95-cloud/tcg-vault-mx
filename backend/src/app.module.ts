@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { CryptoModule } from './common/crypto/crypto.module';
@@ -22,6 +22,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { HealthModule } from './modules/health/health.module';
 import { JobsModule } from './jobs/jobs.module';
+import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { EmailVerifiedGuard } from './common/guards/email-verified.guard';
@@ -60,7 +61,9 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     // (APP_GUARD respeta el orden.) El throttling corre antes que la autenticación para frenar
     // fuerza bruta en /auth/login. EmailVerifiedGuard (v1.5) corre tras JwtAuthGuard/RolesGuard,
     // usando `req.user.emailVerified` para gatear las acciones sensibles marcadas.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // AppThrottlerGuard = ThrottlerGuard + skip SOLO bajo NODE_ENV=test (ver config/test-env.ts).
+    // Los límites (global 300/min y los @Throttle por handler) NO cambian en entornos reales.
+    { provide: APP_GUARD, useClass: AppThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: EmailVerifiedGuard },

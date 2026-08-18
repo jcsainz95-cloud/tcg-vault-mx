@@ -918,7 +918,7 @@
   las líneas :48/:63 del mismo guard) + test de contrato del guard. **Fix trivial pero fuera de este
   stream**; requiere pasar por los gates de su stream.
 
-### XS-2 · 5 fallos DETERMINISTAS de la suite de integración por rate-limit (login throttle + throttle B-C1) vs harness E2E — bloqueará la E2E completa de release
+### XS-2 · 5 fallos DETERMINISTAS de la suite de integración por rate-limit (login throttle + throttle B-C1) vs harness E2E — **CERRADA (2026-08-18, backend)**
 - **Dónde:** `backend/test/integration/*` corriendo contra el stack levantado: el throttle de login
   (`auth.controller.ts`, familia `@Throttle` anti fuerza-bruta) y el throttle dedicado del cotizador
   batch (B-C1, 12/min — ver BACKEND_NOTES §40) se AGOTAN con la cadencia del harness E2E (todos los
@@ -931,6 +931,14 @@
   del runner SOLO en el perfil E2E. Los límites de producción NO se relajan. Dueño: backend del stream
   correspondiente, coordinado con **devops** (harness/compose) y verificación de **seguridad** (toca
   diales anti fuerza-bruta).
+- **CERRADA (2026-08-18, backend — ver BACKEND_NOTES §46.2):** en vez de un dial de límites (que sí
+  habría podido relajarse por error en un entorno real), el `ThrottlerGuard` se sustituyó por
+  `AppThrottlerGuard`, que **omite el rate-limiting solo si `NODE_ENV === 'test'`**
+  (`src/config/test-env.ts`; no hay env var capaz de apagarlo en staging/prod, con test que lo prueba).
+  Cubre a la vez el throttle de login y el B-C1 del cotizador batch, porque actúa sobre el guard y no
+  sobre la config global. Los límites configurados quedan **intactos** y el 429 real sigue verificado
+  punta a punta en `test/integration/auth-throttle.e2e-spec.ts` (que re-activa el throttler a
+  propósito). Pendiente de que **seguridad** lo valide en su gate de release.
 
 > Deuda aceptada, no bloqueante para el MVP. El cliente compila y pasa lint/typecheck/test/build; todas
 > las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la

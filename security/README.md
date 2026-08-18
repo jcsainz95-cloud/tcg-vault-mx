@@ -22,7 +22,7 @@ security/
   semgrep.yml               reglas SAST locales (money-out, webhook, XSS, SQLi, logs)
   gitleaks.toml             detección de secretos + allowlist de placeholders
   trivy.yaml                política de escaneo de deps/imágenes (HIGH/CRITICAL)
-  .trivyignore              excepciones JUSTIFICADAS por CVE ID (hoy: node-tar interno de npm base)
+  .trivyignore              excepciones JUSTIFICADAS por CVE ID (hoy: NINGUNA activa — ver DEVOPS_NOTES §22.3)
   zap/
     baseline.conf           reglas ZAP (FAIL/WARN/IGNORE) para el gate de prod
   nuclei/
