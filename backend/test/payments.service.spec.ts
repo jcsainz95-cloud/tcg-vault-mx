@@ -3,6 +3,7 @@ import { PaymentsService } from '../src/modules/payments/payments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
+import { AuditService } from '../src/modules/audit/audit.service';
 
 /** Error P2002 (unique violation) tal como lo lanza Prisma. */
 function uniqueViolation(): Prisma.PrismaClientKnownRequestError {
@@ -63,6 +64,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       prisma as unknown as PrismaService,
       {} as StripeService,
       { sendConfirmation: jest.fn() } as unknown as GuestOrderMailService,
+      { log: jest.fn() } as unknown as AuditService,
     );
   });
 

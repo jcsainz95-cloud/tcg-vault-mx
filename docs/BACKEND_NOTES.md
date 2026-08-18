@@ -3608,17 +3608,78 @@ diales de M10 ni envs**, mismo precedente que las ventanas 7d/30d del buylist):
 La **tarifa de envío** NO es constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (M10).
 Promover cualquiera de estas constantes a `ConfigSetting` más adelante es **no-breaking**.
 
+### 47.7 v1.21.2 — T1 (double-sell del contracargo), D4, D6 y el bloqueante B3 de QA
+
+**T1 — el contracargo NUNCA re-lista una pieza con envío vivo.** `onChargeDispute` ramifica ahora
+por `Order.fulfillmentMode` (switch exhaustivo que **lanza** ante un modo desconocido) y, en
+`direct_ship`, decide **por el estado del envío**:
+
+| Envío al llegar el contracargo | `ShipmentRequest` | `InventoryItem` | `chargebackNeedsManual` |
+|---|---|---|---|
+| no existe / `cancelado` | — | `reserved\|picking → listed` + `chargeback_return` | `false` |
+| `solicitado\|picking\|guia` | **→ `cancelado`** (misma tx) | **CONGELADO** en `picking` | `true` |
+| `enviado\|entregado` | sin cambio | sin cambio | `true` |
+
+- **Desenlace humano nuevo:** `POST /admin/orders/:id/chargeback-inventory`
+  (`recuperada | no_recuperada | reexpedir`, `note` obligatoria, `vault_operator+`, auditado, **no
+  money-out**). Sin él la pieza congelada se quedaba congelada para siempre.
+- **Ganar la disputa NO re-expide.** En `direct_ship` el flag `chargebackNeedsManual` **no se
+  limpia** al cerrar la disputa (ni en `won` ni en `lost`): lo limpia solo el desenlace humano. En
+  `vault` se conserva el comportamiento v1.21 (se limpia). *La extensión al caso `lost` la decidí
+  yo por simetría —el contrato solo norma `won`—: limpiarlo dejaría la pieza congelada fuera de
+  toda cola.*
+- `recuperada` devuelve la pieza a `listed`, o a **`in_stock`** si su precio de venta no resuelve
+  (en Compra nunca se publica una pieza sin precio).
+
+**D4 — discriminador canónico.** `ShipmentRequest.orderId` responde solo "¿de dónde viene?"; el
+**comportamiento** (transición terminal del item y `kind` de §M4) se resuelve leyendo
+`Order.fulfillmentMode`. El switch **lanza** ante un modo no soportado y ante `vault` con
+`orderId != null` (combinación imposible = corrupción de datos), en vez de asumir `direct_ship`.
+
+**D6 — migración M-25b** (`backend/prisma/migrations/20260818160000_m25b_inventory_owner_check/`):
+`InventoryItem CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)`. Es el quinto invariante
+de §4-G.10, el que sostiene la nulabilidad de `Order.userId`. **`InventoryItem` es tabla del stream
+«Inventario y vault» ⇒ el orquestador serializa.**
+> **Precondición verificada contra Postgres real:**
+> `SELECT count(*) FROM "InventoryItem" WHERE "ownerType"='customer' AND "ownerUserId" IS NULL` → **0**
+> (antes de escribir la migración y de nuevo tras correr la suite E2E completa). **devops debe
+> re-ejecutarla en staging/producción antes de aplicar**; si diera > 0, se corrige el dato primero.
+
+**B3 (bloqueante de QA) — carrera barrido↔settle.** El orden estaba invertido: se liberaba el
+inventario y **después** se intentaba cancelar el PaymentIntent, tragándose el fallo con un `warn`.
+Un webhook `succeeded` tardío liquidaba la orden ⇒ **pedido pagado, envío en la cola del operador y
+la misma pieza única otra vez comprable**. Tres arreglos:
+1. **Cancelar el PI primero, liberar solo si quedó `canceled`.** `StripeService.cancelPaymentIntent`
+   devuelve el `status`; si la cancelación falla, se consulta el PI: `canceled` ⇒ se libera
+   (evita reservas atrapadas para siempre); `succeeded`/vivo/desconocido ⇒ **no se libera**.
+2. **El fallo ya no se traga:** es `logger.error` y el pedido **no se barre en esa pasada** (se
+   reintenta en la siguiente). El barrido reporta `swept` y cuántos se saltaron.
+3. **La rama silenciosa del settle es ruidosa:** si una pieza no está `reserved` al liquidar, se
+   **re-congela** en `picking` cuando sigue libre (el pago confirmado manda sobre una reserva
+   liberada) y, si ya está comprometida con otro flujo, **no se le quita a nadie** — en ambos casos
+   `logger.error` + `AuditLog` (`order.settle_inventory_anomaly`, con `needsHumanReview`).
+
+**I2 (QA) — el bloque `payment` nunca había corrido en verde.** `TestStripeService` no sobrescribía
+`getCardDetails`, así que salía a la red real y devolvía `null`. Ahora el doble devuelve una tarjeta
+determinista y la E2E verifica que `paymentMethodBrand/Last4` se persisten al liquidar y que el
+`GuestOrderTrackingDTO` expone `{brand, last4}` y nada más.
+
+**Discrepancia detectada entre documentos (no la resolví yo):** ARCHITECTURE §4.21h (caso vi) pide
+que `reexpedir` sobre una orden aún en `chargeback` devuelva **422**, mientras API_CONTRACT §M3 dice
+**409 CONFLICT** para ese mismo caso. Implementé y testeé **409** (el contrato manda sobre el código
+y §M3 es la especificación del endpoint). Reportado al orquestador.
+
 ### 47.6 Cómo probarlo
 
 ```bash
 cd backend
-npm test                    # 97 suites / 862 tests (incluye las 11 suites nuevas del guest checkout)
+npm test                    # 99 suites / 901 tests (incluye las 13 suites nuevas del guest checkout)
 npm run lint && npm run typecheck
 # E2E (requiere Postgres real):
 DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
 ```
 
-- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (42 casos) — camino feliz de
+- **Suite E2E nueva:** `test/integration/guest-checkout.e2e-spec.ts` (52 casos) — camino feliz de
   §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
   negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
   `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida

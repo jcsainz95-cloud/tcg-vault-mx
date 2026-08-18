@@ -296,6 +296,17 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(res.body.claim).toEqual({ available: true });
     });
 
+    it('I2: el bloque `payment` viaja con marca + últimos 4 (y nada más de la tarjeta)', async () => {
+      const res = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
+      expect(res.body.payment).toEqual({ brand: 'visa', last4: '4242' });
+      // Y quedó persistido al liquidar (§4-G.10), que es la ruta que nunca se había ejercido.
+      const order = await h.prisma.order.findUnique({ where: { id: orderId } });
+      expect(order!.paymentMethodBrand).toBe('visa');
+      expect(order!.paymentMethodLast4).toBe('4242');
+      // NUNCA el PAN ni nada más allá de la terminación.
+      expect(JSON.stringify(res.body.payment)).not.toContain('4242424242424242');
+    });
+
     it('el payload NO contiene ningún campo prohibido de la tabla cerrada (§4-G.3)', async () => {
       const res = await h.api('POST', '/orders/guest/track', { json: { token: checkoutToken } });
       const raw = JSON.stringify(res.body);
@@ -570,7 +581,8 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
         data: { createdAt: new Date(Date.now() - 90 * 60 * 1000) },
       });
       // El PI de prueba es un stub offline: cancelarlo no debe salir a la red.
-      jest.spyOn(h.stripe, 'cancelPaymentIntent').mockResolvedValue(undefined);
+      // B3: el barrido solo libera si el PI queda CANCELADO; el stub lo simula.
+      jest.spyOn(h.stripe, 'cancelPaymentIntent').mockResolvedValue({ status: 'canceled' });
 
       const res = await h.app.get(GuestOrderSweepJobService).run();
       expect(res.swept).toBeGreaterThanOrEqual(1);
@@ -595,6 +607,222 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       // El pedido del camino feliz (ya liquidado) sigue intacto.
       expect(after!.status).toBe(before!.status);
       expect(after!.status).toBe('settled');
+    });
+  });
+
+  describe('B3 — carrera barrido↔settle (regresión del bloqueante de QA)', () => {
+    it('ESCENARIO A: con el PI vivo, el barrido NO libera la pieza (no hay pedido pagado y comprable)', async () => {
+      const template = await h.prisma.inventoryItem.findUnique({
+        where: { folio: E2E_FOLIOS.listedCharizard },
+      });
+      const item = await createGuestItem(h, template!, `E2E-GST-${RUN}-B3`);
+      const session = await h.api('POST', '/checkout/guest/session', {
+        json: {
+          inventoryItemIds: [item.id],
+          email: `race.${RUN}@example.com`,
+          shippingAddress: ADDRESS,
+          acceptedTerms: true,
+        },
+      });
+      expect(session.status).toBe(201);
+      await h.prisma.order.update({
+        where: { id: session.body.orderId },
+        data: { createdAt: new Date(Date.now() - 120 * 60 * 1000) },
+      });
+
+      // El PI NO se puede cancelar (ya se estaba pagando): el barrido debe abstenerse.
+      jest.spyOn(h.stripe, 'cancelPaymentIntent').mockRejectedValue(new Error('already succeeded'));
+      jest.spyOn(h.stripe, 'getPaymentIntentStatus').mockResolvedValue('succeeded');
+      expect(await h.app.get(GuestOrderSweepJobService).run()).toEqual({ swept: 0 });
+
+      // La reserva sigue en pie: la pieza NO volvió a estar comprable.
+      const afterSweep = await h.prisma.inventoryItem.findUnique({ where: { id: item.id } });
+      expect(afterSweep!.status).toBe('reserved');
+      const quote = await h.api('POST', '/checkout/guest/quote', {
+        json: { inventoryItemIds: [item.id] },
+      });
+      expect(quote.status).toBe(409);
+      jest.restoreAllMocks();
+
+      // Y el webhook tardío liquida con la pieza donde debe estar: `picking`, no `listed`.
+      const wh = await h.sendStripeWebhook({
+        type: 'payment_intent.succeeded',
+        data: { object: { id: session.body.stripe.paymentIntentId, object: 'payment_intent' } },
+      });
+      expect(wh.status).toBe(200);
+      const order = await h.prisma.order.findUnique({ where: { id: session.body.orderId } });
+      const finalItem = await h.prisma.inventoryItem.findUnique({ where: { id: item.id } });
+      const shipment = await h.prisma.shipmentRequest.findFirst({
+        where: { orderId: session.body.orderId },
+      });
+      expect(order!.status).toBe('settled');
+      expect(finalItem!.status).toBe('picking');
+      expect(['listed', 'in_stock']).not.toContain(finalItem!.status);
+      expect(shipment!.status).toBe('picking');
+    });
+
+    it('ESCENARIO B: el barrido no toca un pedido ya liquidado (sigue `settled`, pieza en `picking`)', async () => {
+      const order = await h.prisma.order.findUnique({ where: { id: orderId } });
+      expect(order!.status).toBe('settled');
+      await h.app.get(GuestOrderSweepJobService).run();
+      const after = await h.prisma.order.findUnique({ where: { id: orderId } });
+      expect(after!.status).toBe('settled');
+    });
+
+    it('B3: si la pieza YA se liberó y el pago se confirma, el settle la RE-CONGELA y lo audita', async () => {
+      const template = await h.prisma.inventoryItem.findUnique({
+        where: { folio: E2E_FOLIOS.listedCharizard },
+      });
+      const item = await createGuestItem(h, template!, `E2E-GST-${RUN}-B3B`);
+      const session = await h.api('POST', '/checkout/guest/session', {
+        json: {
+          inventoryItemIds: [item.id],
+          email: `race2.${RUN}@example.com`,
+          shippingAddress: ADDRESS,
+          acceptedTerms: true,
+        },
+      });
+      // Se simula el daño ya consumado: la pieza suelta y comprable.
+      await h.prisma.inventoryItem.update({ where: { id: item.id }, data: { status: 'listed' } });
+      await h.prisma.order.update({ where: { id: session.body.orderId }, data: { status: 'failed' } });
+
+      const wh = await h.sendStripeWebhook({
+        type: 'payment_intent.succeeded',
+        data: { object: { id: session.body.stripe.paymentIntentId, object: 'payment_intent' } },
+      });
+      expect(wh.status).toBe(200);
+
+      const after = await h.prisma.inventoryItem.findUnique({ where: { id: item.id } });
+      expect(after!.status).toBe('picking'); // fuera de venta otra vez
+      const anomalies = await h.prisma.auditLog.findMany({
+        where: { action: 'order.settle_inventory_anomaly', entityId: session.body.orderId },
+      });
+      expect(anomalies).toHaveLength(1);
+    });
+  });
+
+  describe('T1 — contracargo con envío vivo: congelar, no re-listar (§4.21h caso v)', () => {
+    let cbOrderId: string;
+    let cbItemId: string;
+    let cbShipmentId: string;
+
+    beforeAll(async () => {
+      const template = await h.prisma.inventoryItem.findUnique({
+        where: { folio: E2E_FOLIOS.listedCharizard },
+      });
+      const item = await createGuestItem(h, template!, `E2E-GST-${RUN}-CB`);
+      cbItemId = item.id;
+      const session = await h.api('POST', '/checkout/guest/session', {
+        json: {
+          inventoryItemIds: [cbItemId],
+          email: `chargeback.${RUN}@example.com`,
+          shippingAddress: ADDRESS,
+          acceptedTerms: true,
+        },
+      });
+      cbOrderId = session.body.orderId;
+      await h.sendStripeWebhook({
+        type: 'payment_intent.succeeded',
+        data: { object: { id: session.body.stripe.paymentIntentId, object: 'payment_intent' } },
+      });
+      const shipment = await h.prisma.shipmentRequest.findFirst({ where: { orderId: cbOrderId } });
+      cbShipmentId = shipment!.id;
+      // Contracargo con el envío VIVO (`picking`).
+      await h.sendStripeWebhook({
+        type: 'charge.dispute.created',
+        data: {
+          object: {
+            id: 'dp_e2e_cb',
+            object: 'dispute',
+            payment_intent: session.body.stripe.paymentIntentId,
+          },
+        },
+      });
+    });
+
+    it('congela la pieza y cancela el envío (no la devuelve a la venta)', async () => {
+      const item = await h.prisma.inventoryItem.findUnique({ where: { id: cbItemId } });
+      const shipment = await h.prisma.shipmentRequest.findUnique({ where: { id: cbShipmentId } });
+      const order = await h.prisma.order.findUnique({ where: { id: cbOrderId } });
+      expect(item!.status).toBe('picking');
+      expect(['listed', 'in_stock']).not.toContain(item!.status);
+      expect(shipment!.status).toBe('cancelado');
+      expect(order!.status).toBe('chargeback');
+      expect(order!.chargebackNeedsManual).toBe(true);
+    });
+
+    it('REGRESIÓN DEL DOUBLE-SELL: la pieza no es comprable y sale de la cola de picking', async () => {
+      // (a) el checkout la rechaza…
+      const quote = await h.api('POST', '/checkout/guest/quote', {
+        json: { inventoryItemIds: [cbItemId] },
+      });
+      expect(quote.status).toBe(409);
+      expect(quote.body.error.code).toBe('ITEM_UNAVAILABLE');
+      const session = await h.api('POST', '/checkout/guest/session', {
+        json: {
+          inventoryItemIds: [cbItemId],
+          email: `ladron.${RUN}@example.com`,
+          shippingAddress: ADDRESS,
+          acceptedTerms: true,
+        },
+      });
+      expect(session.status).toBe(409);
+      // (b) …y el operador ya no la ve en la lista de picking.
+      const picking = await h.api('GET', '/admin/shipments/picking-list', { token: adminToken });
+      expect(picking.status).toBe(200);
+      expect((picking.body.data as any[]).some((r) => r.inventoryItemId === cbItemId)).toBe(false);
+    });
+
+    it('`reexpedir` con la orden aún en `chargeback` ⇒ 409 (no se re-expide lo que no se ganó)', async () => {
+      const res = await h.api('POST', `/admin/orders/${cbOrderId}/chargeback-inventory`, {
+        token: adminToken,
+        json: { outcome: 'reexpedir', note: 'intento indebido' },
+      });
+      expect(res.status).toBe(409);
+    });
+
+    it('`note` ausente o corta ⇒ 400 VALIDATION_ERROR (es el registro de lo que vio el operador)', async () => {
+      const res = await h.api('POST', `/admin/orders/${cbOrderId}/chargeback-inventory`, {
+        token: adminToken,
+        json: { outcome: 'recuperada' },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('`recuperada` devuelve la pieza a la venta, audita y cierra la gestión manual', async () => {
+      const res = await h.api('POST', `/admin/orders/${cbOrderId}/chargeback-inventory`, {
+        token: adminToken,
+        json: { outcome: 'recuperada', note: 'La carta sigue en el estante E2E-F01-S01' },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ outcome: 'recuperada', chargebackNeedsManual: false });
+
+      const item = await h.prisma.inventoryItem.findUnique({ where: { id: cbItemId } });
+      expect(['listed', 'in_stock']).toContain(item!.status);
+      expect(item!.ownerType).toBe('platform');
+      const movement = await h.prisma.inventoryMovement.findFirst({
+        where: { itemId: cbItemId, reason: 'chargeback_return' },
+      });
+      expect(movement).toBeTruthy();
+      const order = await h.prisma.order.findUnique({ where: { id: cbOrderId } });
+      expect(order!.chargebackNeedsManual).toBe(false);
+      const audit = await h.prisma.auditLog.findMany({
+        where: { action: 'order.chargeback_inventory', entityId: cbOrderId },
+      });
+      expect(audit).toHaveLength(1);
+      expect(JSON.stringify(audit[0].after)).toContain('estante');
+    });
+
+    it('IDEMPOTENCIA: repetir el desenlace ⇒ 409 y sin efectos nuevos', async () => {
+      const movementsBefore = await h.prisma.inventoryMovement.count({ where: { itemId: cbItemId } });
+      const res = await h.api('POST', `/admin/orders/${cbOrderId}/chargeback-inventory`, {
+        token: adminToken,
+        json: { outcome: 'recuperada', note: 'segundo intento' },
+      });
+      expect(res.status).toBe(409);
+      expect(await h.prisma.inventoryMovement.count({ where: { itemId: cbItemId } })).toBe(
+        movementsBefore,
+      );
     });
   });
 

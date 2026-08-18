@@ -91,12 +91,34 @@ export class StripeService implements OnModuleInit {
 
   /**
    * v1.21-guest-checkout (T9): cancela un PaymentIntent aún no pagado. Lo usa el barrido de
-   * reservas de pedidos de invitado (`guest-order-sweep`) para no dejar cobrable un PI cuyo
-   * inventario ya se liberó. NO es money-out (no mueve dinero: un PI cancelado nunca se capturó).
-   * Un PI ya liquidado/cancelado hace que Stripe lance; el llamador lo trata como best-effort.
+   * reservas de pedidos de invitado (`guest-order-sweep`) ANTES de liberar el inventario. NO es
+   * money-out (un PI cancelado nunca se capturó).
+   *
+   * **B3 (v1.21.2):** devuelve el `status` resultante en vez de `void`. El barrido lo NECESITA:
+   * liberar la reserva de un PI que sigue vivo es lo que producía «pedido pagado con la carta de
+   * vuelta a la venta». Un PI ya `succeeded` hace que Stripe LANCE — y eso es exactamente la señal
+   * de "no sueltes esta reserva".
    */
-  async cancelPaymentIntent(paymentIntentId: string): Promise<void> {
-    await this.stripe.paymentIntents.cancel(paymentIntentId);
+  async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
+    const pi = await this.stripe.paymentIntents.cancel(paymentIntentId);
+    return { status: pi.status };
+  }
+
+  /**
+   * B3 — estado actual de un PaymentIntent. Solo se usa para DESAMBIGUAR un fallo de cancelación:
+   * «ya estaba cancelado» (seguro liberar la reserva) vs «ya se pagó / se está procesando» (JAMÁS
+   * liberar). Devuelve `null` si no se puede consultar: ante la duda, el barrido no libera.
+   */
+  async getPaymentIntentStatus(paymentIntentId: string): Promise<string | null> {
+    try {
+      const pi = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+      return pi.status;
+    } catch (e) {
+      this.logger.warn(
+        `No se pudo consultar el estado del PaymentIntent ${paymentIntentId}: ${(e as Error).message}`,
+      );
+      return null;
+    }
   }
 
   /**

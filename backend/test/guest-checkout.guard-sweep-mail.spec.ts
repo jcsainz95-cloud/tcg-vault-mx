@@ -84,6 +84,8 @@ describe('RejectAuthenticatedGuard — /checkout/guest/* rechaza sesiones válid
 describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
   function build(orders: any[]) {
     const released: any[] = [];
+    // B3: el ORDEN importa (cancelar el cobro antes de soltar el inventario), así que se registra.
+    const calls: string[] = [];
     const prisma: any = {
       order: {
         findMany: jest.fn(async ({ where }: any) => {
@@ -91,19 +93,28 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
           return orders.filter((o) => o.createdAt < cutoff);
         }),
         update: jest.fn(async ({ data }: any) => {
+          calls.push('release-order');
           released.push({ order: data });
           return {};
         }),
       },
       inventoryItem: {
         updateMany: jest.fn(async ({ where, data }: any) => {
+          calls.push('release-items');
           released.push({ items: where, data });
           return { count: 1 };
         }),
       },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
-    const stripe: any = { cancelPaymentIntent: jest.fn(async () => undefined) };
+    const stripe: any = {
+      // B3: el barrido solo libera si el PI queda CANCELADO.
+      cancelPaymentIntent: jest.fn(async () => {
+        calls.push('cancel-pi');
+        return { status: 'canceled' };
+      }),
+      getPaymentIntentStatus: jest.fn(async () => 'canceled'),
+    };
     // T2: la liberación de la reserva es la del helper COMPARTIDO de `OrdersService` (el mismo que
     // compensa un PaymentIntent fallido). Se usa el servicio REAL con el prisma mockeado para que
     // el barrido ejercite ese código y no un doble.
@@ -122,7 +133,7 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
       {} as OrderAccessTokenService,
       {} as GuestOrderMailService,
     );
-    return { svc, prisma, stripe, released };
+    return { svc, prisma, stripe, released, calls };
   }
 
   const staleOrder = {
@@ -162,10 +173,48 @@ describe('GuestCheckoutService.sweepStaleGuestOrders', () => {
     expect(stripe.cancelPaymentIntent).not.toHaveBeenCalled();
   });
 
-  it('un fallo cancelando el PI no aborta el barrido', async () => {
-    const { svc, stripe } = build([staleOrder]);
-    stripe.cancelPaymentIntent.mockRejectedValue(new Error('ya capturado'));
-    await expect(svc.sweepStaleGuestOrders()).resolves.toEqual({ swept: 1 });
+  /**
+   * B3 (bloqueante encontrado por QA contra Postgres real). El orden estaba INVERTIDO: se liberaba
+   * el inventario y DESPUÉS se intentaba cancelar el PI, tragándose el fallo con un `warn`. Un
+   * webhook `succeeded` posterior liquidaba la orden y creaba el envío ⇒ pedido PAGADO, envío en la
+   * cola del operador y la MISMA pieza única otra vez comprable.
+   */
+  it('B3: cancela el PaymentIntent ANTES de liberar el inventario', async () => {
+    const { svc, calls } = build([staleOrder]);
+    await svc.sweepStaleGuestOrders();
+    expect(calls[0]).toBe('cancel-pi');
+    expect(calls.indexOf('cancel-pi')).toBeLessThan(calls.indexOf('release-items'));
+  });
+
+  it('B3: si el PI NO se puede cancelar (sigue vivo/pagado), NO libera la reserva', async () => {
+    const { svc, released, stripe } = build([staleOrder]);
+    stripe.cancelPaymentIntent.mockRejectedValue(new Error('already succeeded'));
+    stripe.getPaymentIntentStatus.mockResolvedValue('succeeded');
+    expect(await svc.sweepStaleGuestOrders()).toEqual({ swept: 0 });
+    // Ni un solo write: la pieza sigue reservada y el pago puede confirmarse sin double-sell.
+    expect(released).toHaveLength(0);
+  });
+
+  it('B3: tampoco libera si el estado del PI no se puede determinar (ante la duda, no soltar)', async () => {
+    const { svc, released, stripe } = build([staleOrder]);
+    stripe.cancelPaymentIntent.mockRejectedValue(new Error('network'));
+    stripe.getPaymentIntentStatus.mockResolvedValue(null);
+    expect(await svc.sweepStaleGuestOrders()).toEqual({ swept: 0 });
+    expect(released).toHaveLength(0);
+  });
+
+  it('B3: si el PI YA estaba cancelado, sí libera (no deja la reserva atrapada para siempre)', async () => {
+    const { svc, released, stripe } = build([staleOrder]);
+    stripe.cancelPaymentIntent.mockRejectedValue(new Error('already canceled'));
+    stripe.getPaymentIntentStatus.mockResolvedValue('canceled');
+    expect(await svc.sweepStaleGuestOrders()).toEqual({ swept: 1 });
+    expect(released.length).toBeGreaterThan(0);
+  });
+
+  it('un pedido sin PaymentIntent (Stripe falló al crearlo) se libera sin más', async () => {
+    const { svc, stripe } = build([{ ...staleOrder, stripePaymentIntentId: null }]);
+    expect(await svc.sweepStaleGuestOrders()).toEqual({ swept: 1 });
+    expect(stripe.cancelPaymentIntent).not.toHaveBeenCalled();
   });
 });
 

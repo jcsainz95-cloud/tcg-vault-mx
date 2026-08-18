@@ -295,22 +295,61 @@ export class GuestCheckoutService {
       include: { items: { select: { inventoryItemId: true } } },
     });
     let swept = 0;
+    let skipped = 0;
     for (const order of stale) {
+      // B3 (v1.21.2) — ORDEN CRÍTICO: primero se CIERRA la vía de cobro y solo DESPUÉS se suelta
+      // el inventario. Al revés (v1.21) producía el peor estado posible: el barrido liberaba la
+      // pieza, la cancelación fallaba o llegaba tarde, y un webhook `succeeded` posterior liquidaba
+      // la orden y creaba el envío ⇒ pedido PAGADO, envío en la cola del operador y la MISMA pieza
+      // única otra vez comprable. Un PI que no se pudo cancelar significa que el pago **todavía
+      // puede confirmarse**: esa reserva NO se puede soltar.
+      if (order.stripePaymentIntentId) {
+        const closed = await this.closePaymentIntentForSweep(order.stripePaymentIntentId);
+        if (!closed) {
+          // NO se traga el fallo (B3): el pedido no se barre en esta pasada y queda visible.
+          this.logger.error(
+            `guest-order-sweep: NO se pudo cancelar el PaymentIntent ${order.stripePaymentIntentId} ` +
+              `del pedido ${order.orderNumber ?? order.id}; la reserva NO se libera (el pago aún ` +
+              'puede confirmarse). Se reintentará en la próxima pasada.',
+          );
+          skipped += 1;
+          continue;
+        }
+      }
       await this.orders.releaseReservation(
         order.id,
         order.items.map((i) => i.inventoryItemId),
       );
-      if (order.stripePaymentIntentId) {
-        await this.stripe
-          .cancelPaymentIntent(order.stripePaymentIntentId)
-          .catch((e: unknown) =>
-            this.logger.warn(`guest-order-sweep: no se pudo cancelar el PI: ${(e as Error).message}`),
-          );
-      }
       swept += 1;
+    }
+    if (skipped > 0) {
+      this.logger.warn(`guest-order-sweep: ${skipped} pedidos NO barridos (PaymentIntent vivo).`);
     }
     if (swept > 0) this.logger.log(`guest-order-sweep: ${swept} pedidos de invitado liberados.`);
     return { swept };
+  }
+
+  /**
+   * B3 — cierra la vía de cobro de un pedido abandonado. Devuelve `true` SOLO si el PaymentIntent
+   * quedó efectivamente cancelado (o ya lo estaba); `false` si sigue vivo, si ya se pagó o si no
+   * se pudo determinar. **Ante la duda, `false`**: no liberar una reserva es un coste acotado
+   * (inventario retenido una pasada más); liberarla con el pago vivo es un double-sell.
+   */
+  private async closePaymentIntentForSweep(paymentIntentId: string): Promise<boolean> {
+    try {
+      const { status } = await this.stripe.cancelPaymentIntent(paymentIntentId);
+      return status === 'canceled';
+    } catch (e) {
+      // Stripe lanza tanto si el PI YA estaba cancelado (inocuo, se puede liberar) como si ya se
+      // PAGÓ (jamás liberar). Se desambigua consultando el estado real.
+      const status = await this.stripe.getPaymentIntentStatus(paymentIntentId);
+      if (status === 'canceled') return true;
+      this.logger.error(
+        `guest-order-sweep: cancelación del PI ${paymentIntentId} falló (${(e as Error).message}); ` +
+          `estado observado: ${status ?? 'desconocido'}.`,
+      );
+      return false;
+    }
   }
 
   // ------------------------------------------------------------- internals

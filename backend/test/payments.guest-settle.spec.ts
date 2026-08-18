@@ -2,6 +2,7 @@ import { PaymentsService } from '../src/modules/payments/payments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
+import { AuditService } from '../src/modules/audit/audit.service';
 
 const GUEST_ORDER = {
   id: 'order-guest-1',
@@ -32,7 +33,16 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
     inventoryItem: {
       findUnique: jest.fn(async () => ({ id: 'item-1', ...itemState })),
       updateMany: jest.fn(async ({ where, data }: any) => {
-        if (where.status && itemState.status !== where.status) return { count: 0 };
+        // Soporta la guardia escalar (`status: 'reserved'`) y la de recuperación B3
+        // (`status: { in: ['listed','in_stock'] }`), como hace Prisma contra la fila real.
+        const expected = where.status;
+        if (expected != null) {
+          const matches =
+            typeof expected === 'string'
+              ? itemState.status === expected
+              : Array.isArray(expected.in) && expected.in.includes(itemState.status);
+          if (!matches) return { count: 0 };
+        }
         itemState.status = data.status;
         return { count: 1 };
       }),
@@ -63,12 +73,15 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
     getCardDetails: jest.fn(async () => ('card' in opts ? opts.card : { brand: 'visa', last4: '4242' })),
   };
   const mail: any = { sendConfirmation: jest.fn(async () => undefined) };
+  // B3: la anomalía de inventario al liquidar se AUDITA además de loguearse.
+  const audit: any = { log: jest.fn(async () => undefined) };
   const svc = new PaymentsService(
     prisma as PrismaService,
     stripe as StripeService,
     mail as GuestOrderMailService,
+    audit as AuditService,
   );
-  return { svc, prisma, tx, stripe, mail, created, itemState };
+  return { svc, prisma, tx, stripe, mail, audit, created, itemState };
 }
 
 /**
@@ -163,10 +176,52 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
     expect(created.shipments).toHaveLength(0);
   });
 
-  it('no re-avanza una pieza que ya no está `reserved` (reintento del webhook)', async () => {
-    const { svc, created } = build({ itemStatus: 'picking' });
+  it('no re-avanza una pieza que ya está en `picking` (reintento del webhook): no es anomalía', async () => {
+    const { svc, created, audit } = build({ itemStatus: 'picking' });
     await svc.onPaymentSucceeded('pi_guest_1');
     expect(created.movements).toHaveLength(0);
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  /**
+   * B3 — la rama silenciosa del settle. Si al liquidar la pieza NO está `reserved`, eso es una
+   * ANOMALÍA (así sobrevivió el bug del barrido: un `continue` mudo en el camino del dinero).
+   */
+  it('B3: pieza liberada por el barrido y aún libre ⇒ se RE-CONGELA en `picking` y se audita', async () => {
+    const { svc, created, audit, itemState } = build({ itemStatus: 'listed' });
+    await svc.onPaymentSucceeded('pi_guest_1');
+    // El pago confirmado manda sobre una reserva liberada: la pieza vuelve a estar fuera de venta.
+    expect(itemState.status).toBe('picking');
+    expect(['listed', 'in_stock']).not.toContain(itemState.status);
+    expect(created.movements[0]).toMatchObject({ toStatus: 'picking', reason: 'settle' });
+    expect(created.movements[0].note).toMatch(/ANOMAL/i);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'order.settle_inventory_anomaly',
+        entityType: 'Order',
+        after: expect.objectContaining({ needsHumanReview: false }),
+      }),
+    );
+  });
+
+  it('B3: pieza ya comprometida con otro flujo ⇒ NO se le quita a nadie, pero se escala a humano', async () => {
+    const { svc, created, audit, itemState } = build({ itemStatus: 'shipped' });
+    await svc.onPaymentSucceeded('pi_guest_1');
+    expect(itemState.status).toBe('shipped'); // intacta
+    expect(created.movements).toHaveLength(0);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'order.settle_inventory_anomaly',
+        after: expect.objectContaining({ needsHumanReview: true }),
+      }),
+    );
+  });
+
+  it('B3: la anomalía NO impide liquidar el pedido (el invitado pagó) ni crear su envío', async () => {
+    const { svc, created } = build({ itemStatus: 'listed' });
+    await svc.onPaymentSucceeded('pi_guest_1');
+    expect(created.orderUpdates[0]).toMatchObject({ status: 'settled' });
+    expect(created.shipments).toHaveLength(1);
   });
 
   it('envía el correo de confirmación con el enlace tokenizado (post-commit)', async () => {

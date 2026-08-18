@@ -37,6 +37,8 @@ export function webhookSecret(): string {
 @Injectable()
 export class TestStripeService extends StripeService {
   public readonly createdIntents: { id: string; amountCents: number; metadata: Record<string, string> }[] = [];
+  /** PaymentIntents cancelados por el barrido (B3). */
+  public readonly canceledIntents: string[] = [];
 
   constructor(config: ConfigService) {
     super(config);
@@ -54,6 +56,26 @@ export class TestStripeService extends StripeService {
 
   async refund(_paymentIntentId: string, _idempotencyKey?: string): Promise<string> {
     return `re_e2e_${randomUUID().replace(/-/g, '')}`;
+  }
+
+  /**
+   * I2 (QA) — sin este override, `getCardDetails` salía a la RED real con la clave dummy, fallaba y
+   * devolvía `null`: la ruta que persiste `paymentMethodBrand`/`paymentMethodLast4` (§4-G.10) y el
+   * bloque `payment` del `GuestOrderTrackingDTO` (§4-G.3) **nunca corrían en verde**. Devuelve una
+   * tarjeta determinista, como haría Stripe con el charge liquidado.
+   */
+  async getCardDetails(_paymentIntentId: string): Promise<{ brand: string; last4: string } | null> {
+    return { brand: 'visa', last4: '4242' };
+  }
+
+  /** B3 — el barrido solo libera si el PI queda CANCELADO; offline y determinista. */
+  async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
+    this.canceledIntents.push(paymentIntentId);
+    return { status: 'canceled' };
+  }
+
+  async getPaymentIntentStatus(paymentIntentId: string): Promise<string | null> {
+    return this.canceledIntents.includes(paymentIntentId) ? 'canceled' : 'requires_payment_method';
   }
 }
 

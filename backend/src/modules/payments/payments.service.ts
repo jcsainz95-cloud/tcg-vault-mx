@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
 import { GuestOrderMailService } from '../orders/guest-order-mail.service';
+import { AuditService } from '../audit/audit.service';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -19,6 +20,8 @@ export class PaymentsService {
     private readonly stripe: StripeService,
     // v1.21-guest-checkout: correo + enlace tokenizado al liquidar un pedido de invitado.
     private readonly guestMail: GuestOrderMailService,
+    // B3 (v1.21.2): las anomalías de inventario al liquidar quedan en la bitácora, no solo en logs.
+    private readonly audit: AuditService,
   ) {}
 
   verifyAndParse(payload: Buffer, signature: string): Stripe.Event {
@@ -166,6 +169,9 @@ export class PaymentsService {
       ? await this.stripe.getCardDetails(order.stripePaymentIntentId).catch(() => null)
       : null;
     const now = new Date();
+    // B3: anomalías de inventario detectadas al liquidar (ver dentro del bucle). Se reportan FUERA
+    // de la transacción para que el log y la auditoría no dependan de su commit.
+    const anomalies: { inventoryItemId: string; was: string; recovered: boolean }[] = [];
 
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
@@ -184,16 +190,53 @@ export class PaymentsService {
           where: { id: oi.inventoryItemId, status: 'reserved' },
           data: { status: 'picking' },
         });
-        if (moved.count !== 1) continue;
-        await tx.inventoryMovement.create({
-          data: {
-            itemId: oi.inventoryItemId,
-            fromStatus: item.status,
-            toStatus: 'picking',
-            reason: MovementReason.settle,
-            note: `guest order ${order.orderNumber ?? order.id} settled (direct_ship)`,
-          },
+        if (moved.count === 1) {
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: oi.inventoryItemId,
+              fromStatus: item.status,
+              toStatus: 'picking',
+              reason: MovementReason.settle,
+              note: `guest order ${order.orderNumber ?? order.id} settled (direct_ship)`,
+            },
+          });
+          continue;
+        }
+
+        // B3 (v1.21.2) — la pieza NO estaba `reserved` al liquidar. Esto NO es un no-op: es una
+        // ANOMALÍA. Así sobrevivió el bug del barrido: un `continue` mudo en el camino del dinero.
+        // Un reintento del webhook la deja ya en `picking` (idempotencia legítima); cualquier otro
+        // estado significa que la reserva se soltó por debajo (p. ej. el barrido liberó la pieza y
+        // el pago se confirmó después).
+        if (item.status === 'picking') continue;
+
+        // Recuperación: si la pieza volvió al pool y NADIE la tomó, el pedido PAGADO manda — se
+        // re-congela en `picking`, que es donde debía estar. Restaura el invariante «ShipmentItem
+        // en envío no terminal ⇒ item fuera de {listed, in_stock}» y corta el double-sell ANTES de
+        // que ocurra.
+        const recovered = await tx.inventoryItem.updateMany({
+          where: { id: oi.inventoryItemId, status: { in: ['listed', 'in_stock'] } },
+          data: { status: 'picking' },
         });
+        if (recovered.count === 1) {
+          await tx.inventoryMovement.create({
+            data: {
+              itemId: oi.inventoryItemId,
+              fromStatus: item.status,
+              toStatus: 'picking',
+              reason: MovementReason.settle,
+              note:
+                `ANOMALÍA: pieza no reservada al liquidar el pedido ` +
+                `${order.orderNumber ?? order.id} (estaba ${item.status}); re-congelada por pago confirmado`,
+            },
+          });
+          anomalies.push({ inventoryItemId: oi.inventoryItemId, was: item.status, recovered: true });
+          continue;
+        }
+
+        // La pieza ya está en manos de otro flujo (reservada por otro checkout, enviada, perdida…):
+        // NO se le quita a nadie automáticamente. Queda registrada para intervención humana.
+        anomalies.push({ inventoryItemId: oi.inventoryItemId, was: item.status, recovered: false });
       }
       // A lo más UN envío activo por orden (invariante de aplicación, §4-G.10).
       const existing = await tx.shipmentRequest.findFirst({
@@ -218,8 +261,37 @@ export class PaymentsService {
       }
     });
 
+    // B3 — las anomalías son RUIDOSAS: log de error + AuditLog consultable (M10). Nunca se
+    // liquidan en silencio: cada una significa que una pieza única no estaba donde el pedido
+    // pagado suponía, y las no recuperadas exigen intervención humana.
+    if (anomalies.length > 0) {
+      const unrecovered = anomalies.filter((a) => !a.recovered);
+      const detail = anomalies
+        .map((a) => `${a.inventoryItemId}:${a.was}${a.recovered ? '→picking' : ':SIN RECUPERAR'}`)
+        .join(', ');
+      this.logger.error(
+        `ANOMALÍA al liquidar el pedido ${order.orderNumber ?? order.id}: ${anomalies.length} ` +
+          `pieza(s) no estaban 'reserved' (${detail}). ` +
+          (unrecovered.length > 0
+            ? 'Requiere INTERVENCIÓN HUMANA: la pieza está comprometida con otro flujo.'
+            : 'Recuperadas: el pago confirmado manda sobre una reserva liberada.'),
+      );
+      await this.audit
+        .log({
+          actorUserId: null,
+          actorRole: null,
+          action: 'order.settle_inventory_anomaly',
+          entityType: 'Order',
+          entityId: order.id,
+          after: { anomalies, needsHumanReview: unrecovered.length > 0 },
+        })
+        .catch((e: unknown) =>
+          this.logger.error(`No se pudo auditar la anomalía de settle: ${(e as Error).message}`),
+        );
+    }
+
     // POST-COMMIT, BEST-EFFORT (§4.21g): un fallo del correo se loguea; la red de seguridad es el
-    // `trackingToken` ya devuelto por el checkout + el reenvío self-service + el de soporte.
+    // `checkoutToken` ya devuelto por el checkout + el reenvío self-service + el de soporte.
     await this.guestMail
       .sendConfirmation({
         id: order.id,
