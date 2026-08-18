@@ -15,13 +15,22 @@ export interface ModalProps {
 export function Modal({ open, onClose, title, children, footer }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
 
+  // Foco inicial: SOLO cuando el modal pasa a abierto (dep únicamente `open`). `onClose` es una
+  // función nueva en cada render del padre (no memoizada) — si estuviera en este array, cada
+  // tecleo dentro del modal (p. ej. el motivo de rechazo de M5) re-dispararía el efecto y
+  // robaría el foco de vuelta al wrapper del modal a media escritura (bug: el cursor "salta"
+  // del campo en cada carácter).
+  useEffect(() => {
+    if (!open) return;
+    ref.current?.focus();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose();
     }
     document.addEventListener('keydown', onKey);
-    ref.current?.focus();
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 

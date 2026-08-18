@@ -294,6 +294,12 @@
     "buyCta": "Add to cart · {price}",
     "buyAdded": "Added to your purchase cart.",
     "notAvailable": "Not available",
+    "quoterCardCount": "{count, plural, one {# card} other {# cards}}",
+    "quoterSearchCard": "Search card",
+    "quoterSearchCardPlaceholder": "Name or number",
+    "quoterAddAria": "Add {name} ({finish}) to the sale · {price}",
+    "quoterPending": "Price pending",
+    "quoterUnavailable": "Not available",
     "adjust": {
       "title": "Physical count adjustment",
       "reasonLabel": "Reason",
