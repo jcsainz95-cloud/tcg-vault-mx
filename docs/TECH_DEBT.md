@@ -1603,6 +1603,32 @@
   `errorCode`), reusando el patrón `@real` + `E2E_REAL=1` ya existente. Dueño: **frontend** escribe
   el spec; **QA** fija la cadencia (por stream vs. por release) y siembra el pedido de invitado.
 
+### FE-29 · `numberSort`/`numberPrefix` opcionales en `types/contract.ts` + fallback duplicado `deriveNumberParts` en cliente (Baja, con condición de retiro)
+- **Dónde:** `frontend/src/types/contract.ts` (`CardDTO.numberSort?/numberPrefix?`,
+  `MasterSetCardCellDTO.numberSort?/numberPrefix?`) y `frontend/src/lib/cardOrder.ts`
+  (`deriveNumberParts` + el fallback dentro de `compareCardNumber`/`keysOf`).
+- **Estado actual:** el contrato v1.22 declara ambos campos **requeridos** (columnas de `Card`
+  desde M-26, siempre presentes en el DTO), pero el tipo del frontend los marca `?` a propósito:
+  **tolerancia de despliegue** mientras el re-sync/backfill (`POST /admin/catalog/sync-all
+  {force:true}`, ARCHITECTURE §4.22d) no haya corrido sobre TODAS las filas de producción. Si el
+  campo falta, `cardOrder.ts` deriva la clave equivalente en cliente con la MISMA regla del
+  contrato. Costo: la fórmula del orden natural vive **duplicada** front/back (ya con una
+  divergencia teórica conocida: el `.toUpperCase()` del front, ver BE-65b), y el tipo miente
+  respecto al contrato (dice "opcional" donde la norma dice "siempre").
+- **Impacto:** bajo. El fallback reproduce la misma secuencia para todos los `number` reales del
+  catálogo (prefijos ya en mayúsculas); el riesgo es de deriva futura entre las dos copias de la
+  fórmula, no de comportamiento hoy.
+- **Disparador / CONDICIÓN DE RETIRO:** cuando devops confirme la corrida del
+  `sync-all {force:true}` de §4.22d **en producción** (registro en `docs/DEVOPS_NOTES.md`, gate del
+  paso 4), el rol frontend debe: (1) volver **requeridos** `numberSort`/`numberPrefix` en ambos DTOs
+  de `types/contract.ts`; (2) **borrar** `deriveNumberParts` y el fallback de `keysOf` en
+  `cardOrder.ts` (queda solo el comparador sobre los campos del DTO — elimina la duplicación
+  front/back de la fórmula y de paso el `.toUpperCase()` divergente de BE-65b); (3) ajustar los
+  fixtures/tests que hoy construyen `CardDTO` sin esos campos. Anotada a petición del **techlead**
+  (veredicto del stream v1.22-variantes-orden); la decisión del `?` está documentada en
+  `docs/FRONTEND_NOTES.md` (entrada 2026-08-18 T1/T2/T3, «Nota de tipos»).
+
+
 ### WS «Órdenes y dinero» — cierre v1.21 guest checkout (2026-08-18, no bloqueante)
 
 > Hallazgos del veredicto del **techlead** sobre el stream «Órdenes y dinero» (guest checkout, contrato
