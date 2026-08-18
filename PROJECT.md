@@ -1081,3 +1081,34 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 5. **Reverse Holo en cartas sin esa versión**: si el vendedor intenta cotizar un acabado que **esa carta no
    ofrece** (no está en `tcgplayer.prices`), ¿lo **bloqueamos** (solo se pueden elegir acabados disponibles,
    recomendado) o lo dejamos en "precio pendiente"?
+
+## Preguntas abiertas — guest checkout (v1.5)
+> Las **tres decisiones de producto** del guest checkout (solo envío directo + bóveda con cuenta y upsell;
+> correo obligatorio + enlace tokenizado; reclamo post-compra) están **cerradas** y ya redactadas en §J.
+> Lo que sigue son huecos de detalle; cada uno tiene un supuesto en el documento para no bloquear.
+1. **El correo del invitado YA tiene cuenta (la más importante)**: el supuesto actual es **no revelar** que
+   el correo está registrado (evitar enumeración), **permitir la compra como invitado** y dejar el pedido
+   **sin vincular** hasta que el titular inicie sesión y lo **reclame explícitamente** (así nadie inyecta
+   pedidos al historial de un tercero escribiendo su correo). Alternativas: (a) **vincular automáticamente**
+   el pedido a la cuenta existente al momento del pago —más cómodo, pero permite ensuciar el historial
+   ajeno—; (b) **pedir iniciar sesión** antes de continuar —revela que el correo existe y reintroduce la
+   fricción que esta feature quiere eliminar—. ¿Confirmas el supuesto (reclamo explícito) o prefieres (a)/(b)?
+2. **Vigencia del enlace de seguimiento**: el supuesto son **90 días** desde la creación del pedido (cubre
+   entrega + los 7 días de ventana de disputa con margen). ¿Te sirve 90, prefieres 30, o "hasta X días
+   después de entregado"?
+3. **Reenvío del enlace**: ¿el invitado puede **auto-servirse** un enlace nuevo desde la página de "enlace
+   expirado" (supuesto actual: sí, con respuesta neutra y límite de frecuencia), o prefieres que el reenvío
+   **solo lo haga soporte** a petición?
+4. **Compensación de una disputa a un invitado**: el supuesto es **reembolso del monto pagado** (no hay
+   bóveda ni saldo donde abonar la recompra) manteniendo el resto de la política (§H: el cliente conserva la
+   carta). ¿Confirmas?
+5. **Límite comercial para pedidos de invitado**: hoy **no se impone ninguno** (mismo precio, mismos
+   límites). ¿Quieres un **monto máximo por pedido de invitado** o restringir ciertos productos (p. ej.
+   gradeadas caras o sellado de alto valor) para bajar exposición a contracargos?
+6. **Datos del invitado en el back-office**: se asume que un **pedido de invitado se ve igual que uno con
+   cuenta** en M3 (con etiqueta "invitado" y su correo), sin crear un usuario fantasma. ¿De acuerdo?
+7. **Retención de datos del invitado no reclamado**: ¿cuánto tiempo conservamos correo y dirección de un
+   pedido de invitado que nunca se convierte en cuenta? (Ligado a la bandera de privacidad; sin supuesto
+   propuesto porque depende de la postura legal/fiscal.)
+8. **Idioma del correo de seguimiento**: se asume que el correo sale en el **idioma que el invitado tenía
+   activo** en la interfaz al comprar (ES por default). ¿De acuerdo?
