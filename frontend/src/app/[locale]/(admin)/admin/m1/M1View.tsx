@@ -1,15 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Plus, Search, Check, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
+import {
+  Plus,
+  Search,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  Trash2,
+  AlertTriangle,
+} from 'lucide-react';
 import {
   getAdminInventory,
   getLocations,
   listBuylistSets,
   searchBuylistCards,
   createInventoryItem,
+  batchCreateItems,
   type AdminInventoryFilters,
 } from '@/lib/api';
 import type {
@@ -22,6 +32,7 @@ import type {
   InventoryStatus,
   VaultZone,
   CardDTO,
+  BatchInventoryItemInput,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { FINISH_ORDER } from '@/lib/finish';
@@ -35,7 +46,9 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceTag } from '@/components/ui/PriceTag';
-import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { QueryState } from '@/components/ui/QueryState';
+import { Toaster, useToasts } from '@/components/ui/Toast';
+import { ApiClientError } from '@/lib/api-client';
 import { ItemDetailModal } from './ItemDetailModal';
 import { LocationsModal } from './LocationsModal';
 // v1.20 (§4.20f): el binder Master Set es COMPARTIDO (M1 + bóveda de cliente + "Mi bóveda");
@@ -74,8 +87,11 @@ export function M1View() {
   const tFinish = useTranslations('finish');
   const tInv = useTranslations('status.inventory');
   const tc = useTranslations('common');
+  const tRoot = useTranslations();
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
+  // Toasts (P-4): confirmación INEQUÍVOCA de éxito/fallo, visible por encima del modal.
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
   // Pestañas M1: "Piezas" = tabla plana actual; "Master Set" = binder/cuadrícula por set (WS-E).
   const [tab, setTab] = useState<M1Tab>('pieces');
   const [open, setOpen] = useState(false);
@@ -103,6 +119,21 @@ export function M1View() {
   const [listPrice, setListPrice] = useState('');
   const [acq, setAcq] = useState<AcquisitionType>('aportacion_en_especie');
   const [pct, setPct] = useState('70');
+  // P-5 · Alta MASIVA: modo de selección múltiple + "carrito" de cartas del lote.
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [batchCards, setBatchCards] = useState<CardDTO[]>([]);
+  // batchKey ESTABLE por sesión de captura (patrón MasterSetPanel): se fija al empezar a
+  // armar el lote y SOLO se regenera tras un envío exitoso → un reintento por timeout es
+  // replay idempotente en el backend (no duplica piezas), no un alta nueva.
+  const batchKeyRef = useRef<string | null>(null);
+  function ensureBatchKey(): string {
+    if (batchKeyRef.current === null) {
+      batchKeyRef.current = `batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+    return batchKeyRef.current;
+  }
+  // Foco/scroll al banner de error del alta (P-4: feedback visible sin depender de scroll).
+  const errorRef = useRef<HTMLDivElement>(null);
 
   // Gradeada: certNumber es obligatorio para publicar (contrato §M1, v1.2).
   const gradedCertMissing = productType === 'graded' && certNumber.trim() === '';
@@ -111,7 +142,36 @@ export function M1View() {
   const availableFinishes: Finish[] = selectedCard
     ? FINISH_ORDER.filter((f) => selectedCard.availableFinishes.includes(f))
     : ['normal'];
-  const showFinishSelect = productType === 'raw' && availableFinishes.length > 1;
+  // En alta MASIVA el acabado se elige de la UNIÓN de acabados de las cartas del lote; al
+  // enviar se recorta por-carta (`finishForCard`) para no mandar un acabado inexistente.
+  const batchFinishes: Finish[] = FINISH_ORDER.filter((f) =>
+    batchCards.some((c) => c.availableFinishes.includes(f)),
+  );
+  const finishOptions: Finish[] = multiSelect
+    ? batchFinishes.length > 0
+      ? batchFinishes
+      : ['normal']
+    : availableFinishes;
+  const showFinishSelect = productType === 'raw' && finishOptions.length > 1;
+
+  // Acabado efectivo de una carta del lote: el elegido si la carta lo soporta; si no, su
+  // primer acabado disponible (evita FINISH_NOT_AVAILABLE espurio en el alta masiva).
+  function finishForCard(card: CardDTO): Finish {
+    if (card.availableFinishes.includes(finish)) return finish;
+    return FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal';
+  }
+
+  // Mensaje de error en el CONTEXTO DEL ALTA ADMIN (P-4.2): prioriza copy propio del operador
+  // (`admin.m1.errorByCode.*`) sobre el genérico de storefront (`error.*`), que habla de "comprar".
+  function messageForCode(code: string | undefined, message?: string): string {
+    if (code && t.has(`errorByCode.${code}`)) return t(`errorByCode.${code}`);
+    if (code && tRoot.has(`error.${code}`)) return tRoot(`error.${code}`);
+    return message ?? tc('errorGeneric');
+  }
+  function errorMessage(error: unknown): string {
+    if (error instanceof ApiClientError) return messageForCode(error.code, error.message);
+    return tc('errorGeneric');
+  }
 
   // Tabla con filtros + paginación REALES (antes iba sin query y quedaba capada a 20).
   const inventoryFilters: AdminInventoryFilters = {
@@ -134,7 +194,9 @@ export function M1View() {
   const hasSearch = setId !== '' || searchQuery.trim() !== '';
   // Paginado real (P-4a): el endpoint topa en 20 por página; sin `page` el operador solo
   // veía las primeras ~20 cartas del set. "Cargar más" acumula páginas hasta `total`.
-  const PAGE_SIZE = 20;
+  // P-3: subir el tamaño de página del buscador del alta (de 20 a 50; el backend topa en 100)
+  // para reducir la fricción de "Cargar más" (un set de 120 cartas cabe en 3 páginas, no 6).
+  const PAGE_SIZE = 50;
   const cardsResult = useInfiniteQuery({
     queryKey: ['m1-cards', setId, searchQuery],
     queryFn: ({ pageParam }) =>
@@ -150,7 +212,6 @@ export function M1View() {
   });
   const cards: CardDTO[] = cardsResult.data?.pages.flatMap((p) => p.data) ?? [];
   const cardsTotal = cardsResult.data?.pages[0]?.total ?? 0;
-  const getError = useErrorMessage();
 
   function runSearch() {
     setSearchQuery(searchInput.trim());
@@ -162,7 +223,46 @@ export function M1View() {
     setFinish(FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal');
   }
 
+  const inBatch = (cardId: string) => batchCards.some((c) => c.id === cardId);
+
+  /** Alta MASIVA: alterna la carta en el lote (checkbox por fila). */
+  function toggleBatch(card: CardDTO) {
+    ensureBatchKey();
+    batch.reset();
+    setBatchCards((prev) =>
+      prev.some((c) => c.id === card.id) ? prev.filter((c) => c.id !== card.id) : [...prev, card],
+    );
+  }
+
+  function clearBatch() {
+    // Vaciar el lote cierra la sesión → nueva batchKey en el próximo lote.
+    batchKeyRef.current = null;
+    setBatchCards([]);
+    batch.reset();
+  }
+
   const [locationId, setLocationId] = useState<string>('');
+
+  // FIX 2 (dinero — base de costo/P&L): cada apertura del alta arranca LIMPIA. Reseteamos los
+  // campos del formulario a sus defaults iniciales (los mismos de los useState de arriba) para
+  // que la ADQUISICIÓN, %, tipo, acabado, cert, precio y la selección de set/búsqueda/carta NO
+  // se hereden de la tanda anterior (una `acq` heredada fijaría un costo/origen equivocado en M7).
+  function resetAddForm() {
+    setAcq('aportacion_en_especie');
+    setProductType('raw');
+    setFinish('normal');
+    setSealedSubtype('box');
+    setGradingCompany('PSA');
+    setGradeValue('10');
+    setCertNumber('');
+    setListPrice('');
+    setPct('70');
+    setLocationId('');
+    setSetId('');
+    setSearchInput('');
+    setSearchQuery('');
+    setSelectedCard(null);
+  }
 
   // Alta contra el catálogo real: cardId = selectedCard.id (contrato POST /admin/inventory/items).
   const create = useMutation({
@@ -184,12 +284,75 @@ export function M1View() {
             ? Math.round(Number(listPrice) * 100)
             : undefined,
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       setOpen(false);
       setSelectedCard(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-inventory'] });
+      // P-4.3: toast flotante INEQUÍVOCO con el folio devuelto (imposible de no ver).
+      pushToast({
+        variant: 'success',
+        title: t('createToastTitle'),
+        message: t('createToast', { folio: data.folio }),
+      });
     },
   });
+
+  // P-5 · Alta MASIVA (POST /admin/inventory/items/batch): tolerante por-línea (HTTP 200);
+  // una línea inválida trae su error y NO tumba las demás. Reusa el endpoint de lote existente.
+  const batch = useMutation({
+    mutationFn: (cardsToAdd: CardDTO[]) => {
+      const items: BatchInventoryItemInput[] = cardsToAdd.map((card) => ({
+        cardId: card.id,
+        productType,
+        rawCondition: productType === 'raw' ? 'NM' : undefined,
+        finish: productType === 'raw' ? finishForCard(card) : undefined,
+        sealedSubtype: productType === 'sealed' ? sealedSubtype : undefined,
+        gradingCompany: productType === 'graded' ? gradingCompany : undefined,
+        gradeValue: productType === 'graded' ? gradeValue : undefined,
+        certNumber: productType === 'graded' ? certNumber.trim() : undefined,
+        locationId: locationId || undefined,
+        acquisitionType: acq,
+        acquisitionPct: acq === 'aportacion_en_especie' ? Number(pct) : undefined,
+        listPriceCents:
+          productType === 'sealed' && listPrice ? Math.round(Number(listPrice) * 100) : undefined,
+        qty: 1,
+      }));
+      return batchCreateItems({ batchKey: ensureBatchKey(), items });
+    },
+    onSuccess: (data) => {
+      // Sesión cerrada con éxito → próxima captura arranca con batchKey NUEVA. Se vacía el
+      // lote SIEMPRE (aun con fallos parciales): las líneas OK ya se crearon en el backend;
+      // reenviar el mismo lote con key nueva DUPLICARÍA las creadas. El detalle por-línea
+      // (data.results) se sigue mostrando desde `batch.data` aunque el lote quede vacío.
+      batchKeyRef.current = null;
+      setBatchCards([]);
+      void queryClient.invalidateQueries({ queryKey: ['admin-inventory'] });
+      const { createdItems, failedLines } = data.summary;
+      if (failedLines === 0) {
+        pushToast({
+          variant: 'success',
+          title: t('batchToastTitle'),
+          message: t('batchToastAllOk', { created: createdItems }),
+        });
+      } else {
+        pushToast({
+          variant: 'danger',
+          title: t('batchToastTitle'),
+          message: t('batchToastPartial', { created: createdItems, failed: failedLines }),
+          duration: 9000,
+        });
+      }
+    },
+  });
+
+  // P-4.1: al fallar el alta, lleva el banner de error al viewport y mueve el foco (a11y).
+  useEffect(() => {
+    if ((create.isError || batch.isError) && errorRef.current) {
+      // `scrollIntoView` no existe en jsdom (tests) → optional call defensivo.
+      errorRef.current.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+      errorRef.current.focus();
+    }
+  }, [create.isError, batch.isError]);
 
   const columns: Column<InventoryItemDTO>[] = [
     { key: 'folio', header: tt('folio'), render: (i) => <span className="tabular">{i.folio}</span> },
@@ -232,6 +395,8 @@ export function M1View() {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Viewport de toasts (portal a <body>, z-[60]) — visible por encima del modal (z-50). */}
+      <Toaster toasts={toasts} onDismiss={dismissToast} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-h1 font-bold">{t('title')}</h1>
         {tab === 'pieces' && (
@@ -241,8 +406,15 @@ export function M1View() {
             </Button>
             <Button
               onClick={() => {
-                // Nueva alta: limpia el resultado anterior (banner de folio / error).
+                // Nueva alta: limpia el resultado anterior (banner de folio / error) y el lote.
                 create.reset();
+                batch.reset();
+                batchKeyRef.current = null;
+                setBatchCards([]);
+                setMultiSelect(false);
+                // FIX 2: además del estado de mutación/lote, resetea los CAMPOS del formulario
+                // (acq/%/tipo/acabado/cert/precio + set/búsqueda/carta) a sus defaults limpios.
+                resetAddForm();
                 setOpen(true);
               }}
             >
@@ -377,19 +549,109 @@ export function M1View() {
             <Button variant="secondary" onClick={() => setOpen(false)}>
               {tc('cancel')}
             </Button>
-            <Button
-              onClick={() => create.mutate()}
-              disabled={!selectedCard || gradedCertMissing || create.isPending}
-              loading={create.isPending}
-            >
-              {t('createItem')}
-            </Button>
+            {multiSelect ? (
+              // P-5: alta MASIVA — un solo envío por lote (batchCreateItems).
+              <Button
+                onClick={() => batch.mutate(batchCards)}
+                disabled={batchCards.length === 0 || gradedCertMissing || batch.isPending}
+                loading={batch.isPending}
+              >
+                {t('batchSubmit', { count: batchCards.length })}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => create.mutate()}
+                disabled={!selectedCard || gradedCertMissing || create.isPending}
+                loading={create.isPending}
+              >
+                {t('createItem')}
+              </Button>
+            )}
           </>
         }
       >
         <div className="flex flex-col gap-4">
+          {/* P-4.1: zona de feedback ANCLADA ARRIBA (sticky) — el error del alta se ve SIEMPRE,
+              sin depender de hacer scroll hasta el fondo del formulario. `errorRef` recibe el
+              foco y el scroll al fallar (a11y: role=alert en el Banner). */}
+          {(create.isError || batch.isError) && (
+            <div ref={errorRef} tabIndex={-1} className="sticky top-0 z-10 -mx-1 bg-bg px-1 pt-1 outline-none">
+              <Banner variant="danger" role="alert" title={t('createErrorTitle')}>
+                {create.isError ? errorMessage(create.error) : errorMessage(batch.error)}
+              </Banner>
+            </div>
+          )}
+
+          {/* P-5: resultado del alta MASIVA (tolerante por-línea): cuántas se crearon (con folios)
+              y cuáles fallaron con su motivo. Se conserva aunque el lote quede vacío tras enviar. */}
+          {batch.data && (
+            <div className="flex flex-col gap-2 border border-border-strong bg-surface-2 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text">
+                  {t('batchResultTitle')}
+                </p>
+                <span className="font-mono text-xs text-muted">
+                  {batch.data.summary.failedLines === 0
+                    ? t('batchToastAllOk', { created: batch.data.summary.createdItems })
+                    : t('batchToastPartial', {
+                        created: batch.data.summary.createdItems,
+                        failed: batch.data.summary.failedLines,
+                      })}
+                  {batch.data.idempotentReplay ? ` · ${t('batchReplay')}` : ''}
+                </span>
+              </div>
+              <ul className="flex flex-col gap-1" aria-label={t('batchResultTitle')}>
+                {batch.data.results.map((r) => (
+                  <li
+                    key={r.index}
+                    className={`flex items-start gap-2 font-mono text-xs ${
+                      r.ok ? 'text-success' : 'text-accent'
+                    }`}
+                  >
+                    {r.ok ? (
+                      <Check size={14} className="mt-0.5 shrink-0" aria-hidden />
+                    ) : (
+                      <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden />
+                    )}
+                    <span className="tabular-nums">
+                      {r.ok ? r.folios.join(', ') : t('batchLine', { index: r.index + 1 })}
+                    </span>
+                    {!r.ok && <span>— {messageForCode(r.error.code, r.error.message)}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* v1.2: alta SIN foto propia; la imagen es la de catálogo remota de pokemontcg.io */}
           <Banner variant="info">{t('noPhotoNotice')}</Banner>
+
+          {/* P-5: modo de alta MASIVA — marca varias cartas y dalas de alta en un solo envío.
+              FIX 1: deshabilitado en `graded` (cert único por pieza ⇒ el alta masiva no aplica). */}
+          <label
+            className={`flex items-center gap-2 text-sm ${
+              productType === 'graded' ? 'text-muted' : 'text-text'
+            }`}
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+              checked={multiSelect}
+              disabled={productType === 'graded'}
+              onChange={(e) => {
+                setMultiSelect(e.target.checked);
+                batch.reset();
+                create.reset();
+                // Al cambiar de modo se limpia la selección del otro modo para no confundir.
+                if (e.target.checked) setSelectedCard(null);
+                else clearBatch();
+              }}
+            />
+            {t('multiSelect')}
+          </label>
+          {productType === 'graded' && (
+            <p className="text-xs text-muted">{t('gradedNoBulk')}</p>
+          )}
 
           {/* Picker de catálogo REAL (contrato §6): filtra por set + busca sobre TODO el catálogo. */}
           <Select
@@ -439,20 +701,32 @@ export function M1View() {
                         className="flex max-h-72 flex-col gap-1 overflow-y-auto"
                         role="listbox"
                         aria-label={t('searchResults')}
+                        aria-multiselectable={multiSelect || undefined}
                       >
                         {cards.map((card) => {
-                          const active = selectedCard?.id === card.id;
+                          // En modo masivo el "activo" = está en el lote; en modo simple = carta elegida.
+                          const active = multiSelect ? inBatch(card.id) : selectedCard?.id === card.id;
                           return (
                             <li key={card.id}>
                               <button
                                 type="button"
                                 role="option"
                                 aria-selected={active}
-                                onClick={() => pickCard(card)}
+                                onClick={() => (multiSelect ? toggleBatch(card) : pickCard(card))}
                                 className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors ${
                                   active ? 'border-primary bg-primary/5' : 'border-border hover:bg-surface-2'
                                 }`}
                               >
+                                {multiSelect && (
+                                  <span
+                                    aria-hidden
+                                    className={`flex h-4 w-4 shrink-0 items-center justify-center border ${
+                                      active ? 'border-primary bg-primary text-primary-fg' : 'border-border-strong'
+                                    }`}
+                                  >
+                                    {active && <Check size={12} />}
+                                  </span>
+                                )}
                                 {/* Miniatura de catálogo remota (misma fuente que CardImage) */}
                                 {card.imageSmallUrl && (
                                   // eslint-disable-next-line @next/next/no-img-element
@@ -476,7 +750,9 @@ export function M1View() {
                                   {card.availableFinishes.map((f) => (
                                     <FinishBadge key={f} finish={f} />
                                   ))}
-                                  {active && <Check size={16} className="text-primary" aria-hidden />}
+                                  {!multiSelect && active && (
+                                    <Check size={16} className="text-primary" aria-hidden />
+                                  )}
                                 </span>
                               </button>
                             </li>
@@ -504,7 +780,59 @@ export function M1View() {
             </div>
           )}
 
-          {selectedCard ? (
+          {/* P-5: "carrito" del lote — cartas marcadas para el alta masiva (solo modo múltiple). */}
+          {multiSelect &&
+            (batchCards.length > 0 ? (
+              <section
+                aria-label={t('batchTitle')}
+                className="flex flex-col gap-2 border border-border-strong bg-surface-2 p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-text">
+                    {t('batchTitle')}
+                  </p>
+                  <span className="font-mono text-xs text-muted">
+                    {t('batchCount', { count: batchCards.length })}
+                  </span>
+                </div>
+                <ul className="flex flex-col gap-1">
+                  {batchCards.map((c) => (
+                    <li
+                      key={c.id}
+                      className="flex items-center gap-2 border-b border-border py-1 text-sm last:border-b-0"
+                    >
+                      <span lang="en" className="min-w-0 flex-1 truncate">
+                        {c.name}
+                        {c.number && <span className="tabular text-muted"> · #{c.number}</span>}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => toggleBatch(c)}
+                        aria-label={t('batchRemove')}
+                      >
+                        <Trash2 size={16} />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={clearBatch}
+                    disabled={batch.isPending}
+                  >
+                    {t('batchClear')}
+                  </Button>
+                </div>
+              </section>
+            ) : (
+              <p className="text-xs text-muted">{t('batchEmpty')}</p>
+            ))}
+
+          {!multiSelect &&
+            (selectedCard ? (
             <div className="flex items-center gap-3 rounded-md bg-primary/5 px-3 py-2 text-sm">
               {selectedCard.imageSmallUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -532,14 +860,26 @@ export function M1View() {
                 </span>
               </div>
             </div>
-          ) : (
-            <p className="text-xs text-muted">{t('chooseCardFirst')}</p>
-          )}
+            ) : (
+              <p className="text-xs text-muted">{t('chooseCardFirst')}</p>
+            ))}
           <Select
             label={t('productType')}
             options={PRODUCT_TYPES.map((p) => ({ value: p, label: t(`productTypeLabel.${p}`) }))}
             value={productType}
-            onChange={(e) => setProductType(e.target.value as ProductType)}
+            onChange={(e) => {
+              const next = e.target.value as ProductType;
+              setProductType(next);
+              // FIX 1 (dinero — integridad de inventario): el alta MASIVA NO admite gradeadas.
+              // El certNumber es ÚNICO por slab; un lote aplicaría el mismo cert a N piezas y
+              // crearía inventario de alto valor con certificado duplicado. Al pasar a `graded`
+              // forzamos selección única y limpiamos cualquier lote ya armado (evita enviar un
+              // carrito de gradeadas con cert compartido).
+              if (next === 'graded' && multiSelect) {
+                setMultiSelect(false);
+                clearBatch();
+              }
+            }}
           />
           {productType === 'raw' && (
             // Raw solo NM (v1.1): sin selector de grados; condición fija.
@@ -550,8 +890,8 @@ export function M1View() {
           {showFinishSelect ? (
             <Select
               label={t('finish')}
-              options={availableFinishes.map((f) => ({ value: f, label: tFinish(f) }))}
-              value={finish}
+              options={finishOptions.map((f) => ({ value: f, label: tFinish(f) }))}
+              value={finishOptions.includes(finish) ? finish : finishOptions[0]}
               onChange={(e) => setFinish(e.target.value as Finish)}
             />
           ) : productType !== 'raw' ? (
@@ -560,6 +900,7 @@ export function M1View() {
             </p>
           ) : (
             // Raw con UN solo acabado disponible: se muestra fijo, no se oculta en silencio.
+            !multiSelect &&
             selectedCard && (
               <p className="rounded-md bg-surface-2/60 px-3 py-2 text-sm text-muted">
                 {t('finishFixedSingle', { finish: tFinish(availableFinishes[0] ?? 'normal') })}
@@ -637,13 +978,8 @@ export function M1View() {
               <Banner variant="info">{t('costHint', { pct })}</Banner>
             </>
           )}
-          {create.isError && (
-            // P-4: mensaje REAL del backend (p. ej. 422 PRICE_PENDING / FINISH_NOT_AVAILABLE),
-            // no un genérico: el operador necesita saber POR QUÉ no se creó.
-            <Banner variant="danger" role="alert" title={t('createError')}>
-              {getError(create.error)}
-            </Banner>
-          )}
+          {/* El error del alta ya NO va al final del formulario (quedaba fuera del viewport):
+              se pinta ARRIBA, anclado (sticky), al inicio del cuerpo del modal (P-4.1). */}
         </div>
       </Modal>
       </>

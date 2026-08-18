@@ -4,6 +4,130 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Fix M1 · alta de inventario (2026-08-18, branch `fix/m1-alta-inventario`)
+
+Cuatro hallazgos del diagnóstico E2E (stack real, mocks OFF) sobre el ALTA de inventario admin.
+
+### P-4 (BLOQUEANTE, bug de dinero) — el alta SIEMPRE da feedback visible
+**Qué era en realidad:** con el tipo de adquisición **default "aportación en especie"** sobre una
+carta SIN precio de referencia, `POST /admin/inventory/items` responde **422 `PRICE_PENDING`** (no
+crea la pieza; el backend la deja en la cola de precios pendientes — comportamiento money-safe
+intencional). El `Banner` de `create.isError` estaba renderizado al **final del cuerpo scrolleable**
+del modal, fuera del viewport (y≈1242 con viewport 900) → el operador veía "que no pasa nada". El
+caso "compra" (201) sí funcionaba.
+
+**Resuelto (`M1View.tsx`):**
+- **Error anclado ARRIBA (sticky):** el banner de error se movió al inicio del cuerpo del modal en
+  un contenedor `sticky top-0 z-10` con `tabIndex=-1`; al fallar, un `useEffect` hace
+  `scrollIntoView` + `focus()` al banner (a11y: `role="alert"`). Verificado en navegador: el alert
+  queda en `y=114` con viewport 900 (dentro de vista, sin scroll).
+- **Copy del OPERADOR, no de storefront:** el `error.PRICE_PENDING` global dice "…aún no se puede
+  **comprar**" (lenguaje de tienda) y confunde en el alta. Se añadió un override de i18n SOLO-frontend
+  `admin.m1.errorByCode.PRICE_PENDING` ("No se pudo dar de alta: esta carta aún no tiene precio de
+  referencia; se envió a la cola de precios pendientes."). El helper `messageForCode()` prioriza
+  `admin.m1.errorByCode.*` → `error.*` → mensaje real del backend. **No se tocó el `error.*` global**
+  (lo usa el storefront/checkout).
+- **Éxito con TOAST + refresco:** no había infra de toasts → se creó `components/ui/Toast.tsx`
+  (`useToasts()` + `<Toaster>`), toast MÍNIMO reutilizable alineado a DESIGN_SYSTEM (bloque de tinta
+  §7.2b, regla verde/bermellón por variante, mono versalitas, radio 0, portal a `<body>` en `z-[60]`
+  para verse sobre el modal `z-50`, auto-cierre). El alta con éxito dispara un toast con el folio
+  devuelto; se mantiene además el banner de éxito existente e `invalidateQueries(['admin-inventory'])`.
+- No se tocó nada del backend money-safe.
+
+### P-5 (mejora) — alta MASIVA (varias cartas en un envío)
+Modo de **selección múltiple** opcional dentro del MISMO modal (checkbox "Seleccionar varias
+cartas"): las filas del buscador pasan a checkbox, se arma un "carrito" de líneas y el botón primario
+cambia a "Dar de alta N cartas". Reusa el endpoint de lote existente `batchCreateItems({ batchKey,
+items })` (POST /admin/inventory/items/batch), con los mismos parámetros del formulario aplicados a
+todas las cartas; el acabado se recorta **por-carta** (`finishForCard`) a la unión de acabados del
+lote para no mandar un acabado inexistente. Resultado **tolerante por-ítem**: se pinta cada folio
+creado (verde) y cada fallo con su motivo (reusa `messageForCode`), más un toast con el `summary`.
+**Idempotencia** como MasterSetPanel: `batchKey` ESTABLE por sesión (ref), se renueva solo tras un
+envío exitoso; el lote se **vacía siempre** al terminar (aun con fallos parciales) para no reenviar y
+duplicar las líneas ya creadas. El alta de UNA sola carta sigue intacta.
+
+### P-3 (pulido) — `PAGE_SIZE` del buscador del alta 20 → 50
+Baja la fricción de "Cargar más" (un set de 120 cabe en 3 páginas, no 6; el backend topa en 100).
+Verificado en navegador: sigue llegando a **120/120**.
+
+### P-1 (pulido) — logout del back-office sin flash
+`AdminTopbar.onLogout` ahora hace `router.replace('/login')` (antes `push('/')`): evita la carrera
+con el guard del `AdminShell` que dejaba un flash "Verificando sesión…" y una URL `?next=`.
+
+### Verificación en navegador (stack real, mocks OFF)
+Script Playwright ad-hoc (scratchpad) contra `localhost:3000/es`, login `admin@e2e.local`, set de
+prueba `Pitch Black TEST`:
+- (a) aportación en especie → error CLARO anclado arriba (`y=114`, dentro de viewport 900).
+- (b) compra → toast "ALTA REGISTRADA · folio INV-000002" + la pieza aparece en la tabla sin recargar
+  (filas 8→9).
+- (c) alta MASIVA (compra) → resultado por-ítem con 3 folios (INV-000003/004/005), lista refrescada,
+  lote vaciado. Nota: con aportación el endpoint de LOTE **crea** las piezas (pendientes de precio) en
+  vez de rechazarlas por-línea, así que no se reprodujo un fallo por-línea REAL en navegador; el
+  render de fallos por-ítem queda cubierto por unit test (mock PRICE_PENDING).
+- (d) P-3 → "120 de 120 cartas".
+
+### Archivos
+`app/[locale]/(admin)/admin/m1/M1View.tsx` (feedback sticky + toast + alta masiva + PAGE_SIZE 50),
+`components/ui/Toast.tsx` (**nuevo**), `components/layout/AdminTopbar.tsx` (logout→/login),
+`messages/{es,en}.json` (`admin.m1.errorByCode.*`, copy de toast/lote), `M1View.test.tsx` (+toast,
++2 alta masiva, PRICE_PENDING→copy admin, pageSize 50), `AdminTopbar.test.tsx` (replace→/login).
+
+### Comportamiento alta simple vs. por lote (NO hay inconsistencia — aclaración)
+Con adquisición `aportacion_en_especie` sobre carta **sin** precio de referencia, alta simple y por
+lote **coinciden**: ambos **rechazan** la línea (no crean la pieza). Solo cambia la **forma de
+reportarlo**, que es el patrón money-safe normal de cada endpoint:
+- **`POST /admin/inventory/items`** (simple) → **422 `PRICE_PENDING`** de todo el request (no crea).
+- **`POST /admin/inventory/items/batch`** (lote) → **HTTP 200** con esa línea en **`ok:false`
+  `PRICE_PENDING`** (tolerancia por-ítem: no tumba las demás), y **NO** crea la pieza.
+
+Verificado: backend `inventory.service.ts` → `batchCreate` llama `resolveCreation(line)` por línea, que
+lanza `PRICE_PENDING` para aportación sin referencia; el `catch` del lote la marca `ok:false` (no crea).
+QA lo confirmó contra el backend real (lote mixto de 4 líneas aportación, 2 con precio y 2 sin →
+`summary: requested 4, createdItems 2, failedLines 2`; las 2 sin precio salieron `ok:false` PRICE_PENDING
+sin crearse en BD). El front consume ambos tal cual. **No hay solicitud al arquitecto: no existe
+divergencia que resolver.**
+
+### Gates
+`npm run typecheck` ✓ · `npm run lint` ✓ (0 warnings) · `npm run test` ✓ (50 archivos / 384 tests).
+
+### Seguimiento (2026-08-18) — cierre de 2 hallazgos de dinero + 2 menores (post e2df8e0)
+
+Cuatro FIX sobre el mismo alta M1 (solo `frontend/`), aprobado el commit previo por qa+techlead.
+
+- **FIX 1 (dinero — integridad de inventario):** el alta MASIVA aplicaba `gradingCompany/gradeValue/
+  certNumber` del formulario a TODAS las cartas del lote; para gradeadas el `certNumber` es **único por
+  slab**, así que un lote de N gradeadas creaba N piezas con el **mismo certificado** (dato corrupto en
+  inventario de alto valor). Solución mínima: la multi-selección se **deshabilita en `productType==='graded'`**
+  (checkbox `disabled` + nota i18n `admin.m1.gradedNoBulk` es/en explicando el porqué) y al **cambiar a
+  graded estando en modo masivo** se apaga `multiSelect` y se `clearBatch()` (no queda carrito de gradeadas
+  armado). El alta simple de gradeada (con su cert único) sigue intacta. Verificado en navegador: en graded
+  no hay botón "Dar de alta N cartas", solo "Crear item".
+- **FIX 2 (dinero — base de costo/P&L):** abrir "Alta de item" reseteaba la mutación/lote pero **NO** los
+  campos del formulario → la `acq` (que determina costo/origen, M7) se heredaba de la tanda anterior en
+  silencio. Se añadió `resetAddForm()` (acq→`aportacion_en_especie`, productType→`raw`, finish→`normal`,
+  sealedSubtype→`box`, gradingCompany→`PSA`, gradeValue→`10`, certNumber/listPrice→'', pct→`70`, y limpia
+  set/búsqueda/carta/ubicación) invocado en el handler de apertura junto a los `reset()` existentes. **No se
+  cambiaron los defaults iniciales.** Verificado: tras elegir "compra" y reabrir, el alta arranca en
+  "Aportación en especie".
+- **FIX 3 (cosmético):** el banner de error (P-4) repetía el prefijo — `title`="No se pudo dar de alta" y el
+  cuerpo `errorByCode.PRICE_PENDING` **también** empezaba con "No se pudo dar de alta:". Se quitó el prefijo del
+  cuerpo (es: "Esta carta aún no tiene precio de referencia; …"; en equivalente) → título corto + mensaje real,
+  sin redundancia. Solo i18n. Verificado en navegador con 422 real.
+- **FIX 4 (tests):** (a) el test rotulado "replay/idempotencia" solo enviaba UNA vez → **renombrado** a
+  "vaciado tras éxito" y **añadidos dos tests separados**: uno prueba que tras un ÉXITO el `batchKey` se
+  **renueva** (2ª tanda usa otra key), otro que un **reintento tras FALLO reusa** la misma key (idempotencia
+  anti-doble-alta). (b) el test de éxito ahora **asserta la invalidación** de `['admin-inventory']`
+  (spy sobre `QueryClient.prototype.invalidateQueries`). Suite M1: 21 tests verdes.
+
+**Nota de contrato (sin cambios):** el FIX 1 es una restricción de UI de captura, no del contrato — el batch
+endpoint sigue aceptando graded; simplemente el front deja de ofrecer ese camino peligroso. No hay solicitud al
+arquitecto en este pase.
+
+Gates de este pase: `typecheck` ✓ · `lint` ✓ (0 warnings) · `test` ✓ (**50 archivos / 387 tests**).
+Evidencia navegador (stack real, mocks OFF, `admin@e2e.local`, set `Pitch Black TEST`): graded multi
+deshabilitado, reset a "aportación en especie", banner sin repetir copy, y bulk raw con `compra` creando
+folios reales (INV-000019/020) + refresco de la tabla.
+
 ## WS «Inventario y vault» — Master set en TODAS partes (2026-08-17, contrato v1.20-master-set-everywhere)
 
 El binder Master Set deja de ser exclusivo de M1: los componentes se **promueven a

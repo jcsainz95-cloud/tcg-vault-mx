@@ -1628,6 +1628,71 @@
   (veredicto del stream v1.22-variantes-orden); la decisión del `?` está documentada en
   `docs/FRONTEND_NOTES.md` (entrada 2026-08-18 T1/T2/T3, «Nota de tipos»).
 
+### Rama `fix/m1-alta-inventario` — cierre M1 alta (2026-08-18, no bloqueante)
+
+> Deuda **aceptada, no bloqueante** anotada a petición del **techlead** tras el pase de fixes de dinero del
+> alta M1 (FIX 1 gradeadas sin cert compartido, FIX 2 reset de formulario, FIX 3 banner, FIX 4 tests).
+> Dueño **frontend**. Registradas sin implementar en este pase. Continúan la numeración `FE-*` (tras FE-29).
+
+### FE-30 · Extraer el modal de alta de `M1View.tsx` a `<AddItemModal>` + hooks de mutación
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (≈945 líneas: tabla+pestañas+filtros
+  **y** todo el modal de alta simple/masiva con sus dos `useMutation`).
+- **Estado actual:** un solo componente concentra la orquestación de tabla/pestañas/filtros/paginación **y**
+  el formulario de alta (picker de catálogo, lote, gradeada/sellado/raw, los `create`/`batch` mutations,
+  el reset de formulario `resetAddForm`, el manejo de `batchKey`). El archivo es grande y mezcla dos
+  responsabilidades; cada fix del alta obliga a navegar todo el componente.
+- **Impacto:** medio (mantenibilidad). Sin bug; el tamaño eleva el costo de cambios y el riesgo de regresión
+  al tocar el alta (justo la superficie de dinero de este pase).
+- **Disparador:** próximo toque sustancial del alta M1. Acción: extraer `<AddItemModal>` (formulario + lote)
+  con hooks `useInventoryCreate` / `useBatchCreate` que encapsulen las mutaciones + invalidación de
+  `['admin-inventory']`; `M1View` queda como orquestador de tabla+pestañas+filtros.
+
+### FE-31 · Reusar `PerLineErrors` (master-set) para el resultado por-línea del lote de M1
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (~:563-600, render del `batch.data.results`)
+  vs. `frontend/src/components/master-set/PerLineErrors.tsx`.
+- **Estado actual:** M1 **reimplementa** a mano el render del resultado por-línea del lote (folios OK / motivo
+  de fallo por-código con `Check`/`AlertTriangle`), mientras master-set ya tiene `PerLineErrors` para el mismo
+  propósito. Dos presentaciones divergentes de "resultado de lote".
+- **Impacto:** bajo (mantenibilidad/consistencia). Cualquier mejora de presentación de lotes hay que hacerla
+  dos veces.
+- **Disparador:** al unificar la presentación de lotes o al tocar el resultado del alta masiva. Acción: usar
+  `PerLineErrors` (o extraer un componente común) para el detalle por-línea, **sin** acoplar M1 a
+  `MasterSetPanel`. Nota: `capture.ts`/master-set quedaron **fuera de alcance** de este pase (NO TOCAR).
+
+### FE-32 · Unificar la generación de `batchKey` con `localUid('batch')`
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (`ensureBatchKey`, inline con
+  `Date.now().toString(36)` + `Math.random()`) vs. `frontend/src/components/master-set/capture.ts`
+  (`localUid('batch')`, ya usado por `MasterSetPanel`/`CellDrawer`).
+- **Estado actual:** M1 genera su `batchKey` de idempotencia **inline** con su propia fórmula; master-set usa
+  el helper compartido `localUid`. Dos fuentes para la misma noción (clave estable de lote).
+- **Impacto:** bajo. Funciona; es duplicación de un helper ya existente.
+- **Disparador:** al extraer los hooks de alta (FE-30) o al tocar `capture.ts` (hoy en la lista NO TOCAR).
+  Acción: reusar `localUid('batch')`.
+
+### FE-33 · Mostrar el acabado ASIGNADO por línea en el resultado del lote (hoy degrada en silencio)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (`finishForCard`, ~:159-162, y el render
+  del resultado del lote).
+- **Estado actual:** en el alta masiva el acabado elegido se recorta por-carta (`finishForCard`): si la carta
+  no soporta el acabado del formulario, se sustituye por su primer acabado disponible **sin avisar**. El
+  resultado por-línea muestra folio/motivo pero **no** el acabado con que finalmente se creó cada pieza. El
+  acabado afecta la valuación, así que un degradado silencioso puede pasar inadvertido al operador.
+- **Impacto:** bajo/medio (transparencia de captura; el acabado incide en valuación). No corrompe: la pieza se
+  crea con un acabado válido para la carta; solo falta hacerlo visible.
+- **Disparador:** al tocar el resultado del alta masiva. Acción: incluir en cada línea OK el acabado asignado
+  (badge `FinishBadge`), destacando cuando difiere del elegido en el formulario.
+
+### FE-34 · P-1 · Tras logout el guard de `AdminShell` impone `/login?next=/admin/m1` (cosmético)
+- **Dónde:** `frontend/src/components/layout/AdminShell.tsx` (guard de sesión) vs. el `router.replace('/login')`
+  del logout.
+- **Estado actual:** al cerrar sesión, el guard de `AdminShell` **gana la carrera** y redirige a
+  `/login?next=/admin/m1` (con el `?next=`/flash) antes de que el `router.replace('/login')` limpio tome
+  efecto. El usuario acaba en login con un `next` que apunta de vuelta a la ruta admin recién cerrada.
+- **Impacto:** cosmético. No hay fuga (el guard protege igual); solo el query param sobra tras un logout
+  explícito.
+- **Disparador:** aceptado; **no arreglar ahora** salvo que resulte trivial y sin riesgo para el guard.
+  Acción posible: que el logout señale un "logout intencional" para que el guard omita el `?next=` en esa
+  transición.
+
 
 ### WS «Órdenes y dinero» — cierre v1.21 guest checkout (2026-08-18, no bloqueante)
 
