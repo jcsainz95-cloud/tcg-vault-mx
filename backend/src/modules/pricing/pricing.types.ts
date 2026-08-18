@@ -147,6 +147,44 @@ export function normalizeFinishAlias(raw: unknown): Finish | null {
   return BULK_VARIANT_TO_FINISH[key] ?? null;
 }
 
+/**
+ * P-6 (2026-08-18) — VARIANTES de formato del número de carta, para el fallback `(set, number)`
+ * de `PriceIngestService.resolveCardId`. `Card.number` viene de pokemontcg.io (`"104"`, `"TG01"`,
+ * `"SV107"`), pero el proveedor de paga publica `cardNumber` y puede darlo con el total del set
+ * (`"104/159"`) o con ceros a la izquierda (`"004"`). Se devuelven las formas EQUIVALENTES del
+ * mismo número, SIN el valor exacto (que el llamador ya probó) y sin inventar cartas nuevas:
+ *
+ *   "104/159" → ["104"]      (se corta el total del set)
+ *   "004"     → ["4", "04"]  (nuestro catálogo pudo guardarlo sin relleno)
+ *   "4"       → ["04", "004"] (o con relleno)
+ *
+ * Money-safe: es solo un conjunto de CANDIDATOS; el llamador exige coincidencia ÚNICA dentro del
+ * set antes de atribuir un precio (si dos cartas casan, se omite en vez de adivinar).
+ */
+export function cardNumberVariants(raw: string): string[] {
+  const exact = raw.trim();
+  if (exact === '') return [];
+  const out = new Set<string>();
+  const seeds = new Set<string>([exact]);
+
+  // `"104/159"` → `"104"` (el proveedor anexa el total del set).
+  const slash = exact.indexOf('/');
+  if (slash > 0) seeds.add(exact.slice(0, slash).trim());
+
+  for (const seed of seeds) {
+    out.add(seed);
+    // Solo se juega con el relleno de ceros en números PUROS (`"004"`), nunca en `"TG01"`/`"SV107"`.
+    if (!/^\d+$/.test(seed)) continue;
+    const bare = String(Number(seed));
+    out.add(bare);
+    if (bare.length <= 2) out.add(bare.padStart(2, '0'));
+    if (bare.length <= 3) out.add(bare.padStart(3, '0'));
+  }
+
+  out.delete(exact);
+  return [...out];
+}
+
 // ============================================================================
 // v1.19-sealed-tcgcsv (ARCHITECTURE §4.19b) — Interfaz de INGESTA del SELLADO.
 // SEPARADA del `BulkPriceProvider` de cartas: el sellado se keyea por

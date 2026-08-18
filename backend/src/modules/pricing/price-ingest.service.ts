@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PricingService } from './pricing.service';
-import { BulkPriceProvider, BulkPriceRow } from './pricing.types';
+import { BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 
@@ -190,6 +190,11 @@ export class PriceIngestService {
   /**
    * Resuelve la carta local (§4.15d): externalId (PRIMARIO) → `(set, number)` (FALLBACK).
    * Sin resolución → null (la fila se OMITE en el llamador, no se crea referencia huérfana).
+   *
+   * P-6 (2026-08-18): el fallback tolera las VARIANTES de formato del número del proveedor de
+   * paga (`"104/159"` o `"004"` contra nuestro `"104"`, ver `cardNumberVariants`). El número
+   * EXACTO manda; solo si no casa se prueban las variantes, y únicamente se acepta si casan con
+   * UNA sola carta del set (money-safe: ante ambigüedad se omite en vez de adivinar la carta).
    */
   private async resolveCardId(row: BulkPriceRow, set: CardSet): Promise<string | null> {
     if (row.externalId) {
@@ -206,6 +211,22 @@ export class PriceIngestService {
         select: { id: true },
       });
       if (byNumber) return byNumber.id;
+
+      const variants = cardNumberVariants(row.number);
+      if (variants.length > 0) {
+        const matches = await this.prisma.card.findMany({
+          where: { setId: set.id, number: { in: variants } },
+          select: { id: true },
+          take: 2,
+        });
+        if (matches.length === 1) return matches[0].id;
+        if (matches.length > 1) {
+          this.logger.warn(
+            `price-ingest: el número "${row.number}" del proveedor casa con ${matches.length} cartas ` +
+              `del set ${set.externalId} → se OMITE (no se adivina la carta).`,
+          );
+        }
+      }
     }
     return null;
   }
