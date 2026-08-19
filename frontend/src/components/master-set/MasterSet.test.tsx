@@ -23,14 +23,17 @@ async function openBaseSetBinder() {
   fireEvent.click(setBtn);
   // El binder pinta el título del set como h2.
   await screen.findByRole('heading', { level: 2, name: 'Base Set' });
-  // Espera a que el binder cargue sus celdas (Blastoise #2 siempre existe en base1).
-  await screen.findByText('#2');
+  // Espera a que el binder cargue sus tarjetas (Blastoise #2 siempre existe en base1). Rejilla plana
+  // (N-16): una carta con varios acabados aporta varias tarjetas → varios "#2".
+  await screen.findAllByText('#2');
 }
 
-// Abre el drawer de una celda por su número (#4 = Charizard, #16 = Zapdos en fixtures base1).
+// Abre el drawer de una carta desde la REJILLA PLANA (N-16). Ahora hay una TARJETA por acabado a
+// pintar, así que una misma carta tiene varias tarjetas; el drawer es por-carta, así que se abre
+// desde la PRIMERA tarjeta que casa el nombre (#4 = Charizard, #16 = Zapdos en fixtures base1).
 async function openCell(name: RegExp): Promise<HTMLElement> {
-  const cellBtn = await screen.findByRole('button', { name });
-  fireEvent.click(cellBtn);
+  const tiles = await screen.findAllByRole('button', { name });
+  fireEvent.click(tiles[0]);
   return screen.findByRole('dialog');
 }
 
@@ -64,25 +67,29 @@ describe('Master Set · Índice (agregados por VARIANTE, v1.20)', () => {
   });
 });
 
-describe('Master Set · Binder (carta normal + desglose por acabado en el drawer + orden + huecos)', () => {
-  it('N-16: la celda es una CARTA NORMAL (una imagen + completitud); el desglose por acabado vive en el drawer', async () => {
+describe('Master Set · Binder (rejilla PLANA: una tarjeta por impresión + orden + huecos)', () => {
+  it('N-16: una TARJETA por impresión (carta+acabado), imagen COMPARTIDA por carta y conteo por acabado', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
-    // La celda del grid ya NO desglosa una imagen por variante: Charizard pinta UNA sola imagen…
-    const charizardName = await screen.findByText('Charizard');
-    const charizardCell = charizardName.closest('button')!;
-    expect(charizardCell.querySelectorAll('img')).toHaveLength(1);
-    // …y su contador de completitud por VARIANTES (2 de 3 cubiertas).
-    expect(within(charizardCell).getByText('2/3 casillas')).toBeInTheDocument();
+    // Charizard (#4) tiene 3 acabados en el universo → 3 TARJETAS independientes en el flujo plano.
+    const charizardTiles = await screen.findAllByRole('button', { name: /Charizard/ });
+    expect(charizardTiles).toHaveLength(3);
+    // Todas comparten la imagen de la carta: cada tarjeta pinta UNA sola imagen.
+    charizardTiles.forEach((tile) => expect(tile.querySelectorAll('img')).toHaveLength(1));
 
-    // Charizard (#4): normal:3 y reverse_holo:1 cubiertas; holofoil SIN pieza → HUECO por acabado.
-    // Ese desglose por acabado ahora vive en el DRAWER de la celda, no en la cuadrícula.
+    // Conteo POR ACABADO en la propia tarjeta: normal 3 piezas, reverse holo 1 pieza, holofoil HUECO.
+    const normalTile = charizardTiles.find((t) => /·\s*Normal/.test(t.textContent ?? ''))!;
+    const reverseTile = charizardTiles.find((t) => /Reverse Holo/.test(t.textContent ?? ''))!;
+    const holoTile = charizardTiles.find((t) => /·\s*Holofoil/.test(t.textContent ?? ''))!;
+    expect(within(normalTile).getByText('3 piezas')).toBeInTheDocument();
+    expect(within(reverseTile).getByText('1 pieza')).toBeInTheDocument();
+    expect(within(holoTile).getByText('Hueco')).toBeInTheDocument();
+
+    // El drawer por-carta sigue mostrando el desglose por acabado (detalle/alta/publicación).
     const drawer = await openCell(/Charizard/);
     expect(within(drawer).getByText('Casillas por acabado')).toBeInTheDocument();
-    expect(within(drawer).getByText('3 piezas')).toBeInTheDocument(); // normal
-    expect(within(drawer).getByText('1 pieza')).toBeInTheDocument(); // reverse holo
-    expect(within(drawer).getAllByText('Hueco').length).toBeGreaterThan(0); // holofoil sin pieza
+    expect(within(drawer).getByText('3 piezas')).toBeInTheDocument();
   });
 
   it('respeta el ORDEN NATURAL del backend (numéricos ascendentes) sin re-ordenar', async () => {
@@ -184,25 +191,26 @@ describe('Master Set · Alta INMEDIATA al inventario (T3: concluyente y visible)
   });
 });
 
-describe('Master Set · Carta normal en el binder (N-16: sin imagen por variante)', () => {
-  it('una carta con VARIOS acabados pinta UNA sola imagen en la celda (no una por variante)', async () => {
+describe('Master Set · Rejilla plana (N-16: una tarjeta por impresión)', () => {
+  it('una carta con VARIOS acabados genera VARIAS tarjetas (una por acabado), cada una con la imagen de la carta', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
-    // Zapdos tiene 2 acabados, pero la celda (carta normal) pinta UNA sola imagen.
-    const zapdos = await screen.findByText('Zapdos');
-    const zapdosCell = zapdos.closest('button')!;
-    expect(zapdosCell.querySelectorAll('img')).toHaveLength(1);
+    // Zapdos tiene 2 acabados → 2 tarjetas independientes; cada una pinta UNA imagen (la de la carta).
+    const zapdosTiles = await screen.findAllByRole('button', { name: /Zapdos/ });
+    expect(zapdosTiles).toHaveLength(2);
+    zapdosTiles.forEach((tile) => expect(tile.querySelectorAll('img')).toHaveLength(1));
 
-    // Set con carta promo de UN solo acabado (Rayquaza Trainer Gallery, sv08 en fixtures): también 1.
+    // Set con carta promo de UN solo acabado (Rayquaza Trainer Gallery, sv08): UNA sola tarjeta, sin
+    // "Normal" espuria — el universo a pintar sale de displayFinishes (fallback availableFinishes).
     fireEvent.click(await screen.findByRole('button', { name: 'Sets' }));
     fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Surging Sparks' } });
     fireEvent.click(await screen.findByRole('button', { name: /Surging Sparks/ }));
     await screen.findByRole('heading', { level: 2, name: 'Surging Sparks' });
 
-    const rayquaza = await screen.findByText(/Rayquaza/);
-    const rayquazaCell = rayquaza.closest('button')!;
-    expect(rayquazaCell.querySelectorAll('img')).toHaveLength(1);
+    const rayquazaTiles = await screen.findAllByRole('button', { name: /Rayquaza/ });
+    expect(rayquazaTiles).toHaveLength(1);
+    expect(rayquazaTiles[0].querySelectorAll('img')).toHaveLength(1);
   });
 });
 

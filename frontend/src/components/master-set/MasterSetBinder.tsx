@@ -27,9 +27,10 @@ import { compareCardNumber, deriveNumberParts } from '@/lib/cardOrder';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { CardImage } from '@/components/ui/CardImage';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
-import { FINISH_ORDER } from '@/lib/finish';
+import { FINISH_ORDER, displayFinishesOf, displayedVariants } from '@/lib/finish';
 import type { MasterSetViewMode } from './mode';
 
 type PieceFilter = 'all' | 'with' | 'gaps';
@@ -89,6 +90,9 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<MasterSetBin
     // contrato). Se filtra por FINISH_ORDER solo como red de seguridad ante datos históricos; NO
     // se rellena con acabados que la carta no tiene.
     const availableFinishes = FINISH_ORDER.filter((f) => c.availableFinishes.includes(f));
+    // v1.22-2 (N-15): displayFinishes del CardDTO (o fallback a availableFinishes) manda QUÉ se pinta;
+    // el render plano (N-16) usa `variant.displayed` para expandir la celda en una tarjeta por acabado.
+    const display = displayFinishesOf(c);
     const variants: MasterSetVariantDTO[] = availableFinishes.map((f) => {
       const r = quoteByKey.get(`${c.id}:${f}`);
       const quote = r && r.ok
@@ -100,7 +104,7 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<MasterSetBin
             referencePrice: r.referencePrice,
           }
         : null;
-      return { finish: f, count: 0, covered: quote != null, buyable: undefined, quote };
+      return { finish: f, count: 0, covered: quote != null, buyable: undefined, quote, displayed: display.includes(f) };
     });
     // v1.22: las claves de orden vienen del CardDTO (columnas de `Card`, M-26). Si el backend aún
     // no las expone, se derivan con la regla del contrato — NUNCA con el índice del arreglo.
@@ -114,9 +118,11 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<MasterSetBin
       rarity: c.rarity,
       imageSmallUrl: c.imageSmallUrl,
       availableFinishes,
+      displayFinishes: display,
       countsByFinish: [],
       totalCount: 0,
       isSecretRare: false,
+      // Completitud: sobre availableFinishes (N-16: las variantes no mostradas SÍ cuentan).
       expectedVariantCount: availableFinishes.length,
       coveredVariantCount: variants.filter((v) => v.covered).length,
       variants,
@@ -169,21 +175,32 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
     queryFn: () => fetchBinder(mode, userId, set),
   });
 
-  const cells = useMemo(() => {
+  // N-16 REJILLA PLANA: el grid ya NO es una casilla por carta con sub-acabados, sino UNA TARJETA
+  // por impresión (carta+acabado). Se expande cada celda con `displayedVariants` (una entrada por
+  // `displayFinish`, orden FINISH_ORDER) y el resultado es un flujo plano de `{cell, variant}`.
+  const tiles = useMemo(() => {
     const all = binder.data?.cells ?? [];
     const name = nameFilter.trim().toLowerCase();
-    // Filtros LOCALES sobre la respuesta completa. El orden lo da el backend (SQL, antes de
-    // paginar); al filtrar en cliente se REPRODUCE con las claves del DTO (numberPrefix,
-    // numberSort, number) — contrato v1.22. Nunca con el índice del arreglo.
-    const filtered = all.filter((c) => {
-      if (finishFilter && !c.variants.some((v) => v.finish === finishFilter && v.covered)) return false;
-      if (!isQuoter && pieceFilter === 'with' && c.coveredVariantCount === 0) return false;
-      if (!isQuoter && pieceFilter === 'gaps' && c.coveredVariantCount >= c.expectedVariantCount) return false;
+    // El orden de CARTAS lo da el backend (SQL, antes de paginar); al filtrar en cliente se REPRODUCE
+    // con las claves del DTO (numberPrefix, numberSort, number) — contrato v1.22. Dentro de una carta,
+    // el orden de acabados lo fija FINISH_ORDER (garantizado por displayedVariants).
+    const cellMatches = (c: MasterSetCardCellDTO) => {
       if (!isQuoter && onlySecret && !c.isSecretRare) return false;
       if (name && !c.name.toLowerCase().includes(name) && !c.number.toLowerCase().includes(name)) return false;
       return true;
-    });
-    return [...filtered].sort(compareCardNumber);
+    };
+    const sortedCells = [...all.filter(cellMatches)].sort(compareCardNumber);
+    const out: { cell: MasterSetCardCellDTO; variant: MasterSetVariantDTO }[] = [];
+    for (const cell of sortedCells) {
+      for (const variant of displayedVariants(cell)) {
+        // Filtros por TARJETA (acabado): con/sin huecos y acabado ahora deciden a nivel impresión.
+        if (finishFilter && variant.finish !== finishFilter) continue;
+        if (!isQuoter && pieceFilter === 'with' && !variant.covered) continue;
+        if (!isQuoter && pieceFilter === 'gaps' && variant.covered) continue;
+        out.push({ cell, variant });
+      }
+    }
+    return out;
   }, [binder.data, finishFilter, pieceFilter, onlySecret, isQuoter, nameFilter]);
 
   // v1.20: contador del set POR VARIANTE, derivado del binder (suma de expected/covered).
@@ -290,19 +307,19 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
         onRetry={() => binder.refetch()}
       >
         {binder.data &&
-          (cells.length === 0 ? (
+          (tiles.length === 0 ? (
             <EmptyState title={t('emptyBinderTitle')} body={t('emptyBinderBody')} />
           ) : (
             <ul
-              className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+              className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
               aria-label={t('binderGridLabel')}
             >
-              {cells.map((cell) => (
-                <li key={cell.cardId}>
+              {tiles.map(({ cell, variant }) => (
+                <li key={`${cell.cardId}:${variant.finish}`} className="min-w-0">
                   {isQuoter ? (
-                    <QuoterCell cell={cell} onAddVariant={(v) => onAddVariant?.(cell, v)} />
+                    <QuoterTile cell={cell} variant={variant} onAdd={() => onAddVariant?.(cell, variant)} />
                   ) : (
-                    <BinderCell cell={cell} onOpen={() => onOpenCell(cell)} />
+                    <BinderTile cell={cell} variant={variant} onOpen={() => onOpenCell(cell)} />
                   )}
                 </li>
               ))}
@@ -315,70 +332,31 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
 
 
 /**
- * Imagen ÚNICA de la carta (`cell.imageSmallUrl`) — N-16: el binder muestra cada carta como
- * CARTA NORMAL (una sola imagen), sin desglosar una casilla por variante. El detalle por acabado
- * (conteos, huecos, compra de faltantes, alta) vive en el drawer de la celda (CellDrawer), no en
- * la cuadrícula. pokemontcg.io publica una sola imagen por carta y el contrato NO lleva
- * `imageByFinish`; una carta totalmente sin piezas va con marco punteado + arte atenuado.
+ * Cabecera COMPARTIDA de una tarjeta de impresión (N-16): arte de catálogo + nombre (serif) +
+ * "#número · Acabado" (mono). Todas las tarjetas de una MISMA carta comparten la imagen
+ * (`cell.imageSmallUrl`); lo que las distingue es el acabado. Reusa `CardImage` (el mismo
+ * componente de arte de la tienda / `ListingCard`), no la casilla de master-set con sub-celdas.
  */
-function CardTileImage({
-  imageSmallUrl,
+function TileHeader({
+  cell,
+  finishLabel,
   dimmed,
   dashed,
 }: {
-  imageSmallUrl?: string;
+  cell: MasterSetCardCellDTO;
+  finishLabel: string;
   dimmed?: boolean;
   dashed?: boolean;
 }) {
-  return (
-    <span
-      className={`block aspect-[5/7] w-full overflow-hidden border bg-surface-2 ${
-        dashed ? 'border-dashed border-border-strong' : 'border-border'
-      }`}
-      style={{ contentVisibility: 'auto', containIntrinsicSize: '120px 168px' } as React.CSSProperties}
-    >
-      {imageSmallUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imageSmallUrl}
-          alt=""
-          aria-hidden
-          loading="lazy"
-          className={`h-full w-full object-contain ${dimmed ? 'opacity-30' : ''}`}
-        />
-      ) : null}
-    </span>
-  );
-}
-
-function BinderCell({
-  cell,
-  onOpen,
-}: {
-  cell: MasterSetCardCellDTO;
-  onOpen: () => void;
-}) {
   const t = useTranslations('masterSet');
-  const tFinish = useTranslations('finish');
-  // Hueco TOTAL = ninguna variante cubierta → arte atenuado + borde punteado (grid visual).
-  const isGap = cell.coveredVariantCount === 0;
-  // Drift de catálogo (contrato v1.20): piezas con acabado FUERA del universo se VEN pero no
-  // cuentan en expected/covered.
-  const driftCounts = cell.countsByFinish.filter(
-    (cf) => !cell.variants.some((v) => v.finish === cf.finish),
-  );
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`flex w-full flex-col gap-2 border p-2 text-left transition-colors focus-visible:shadow-focus focus-visible:outline-none ${
-        isGap ? 'border-dashed border-border-strong bg-surface' : 'border-border bg-surface hover:bg-surface-2'
-      }`}
-    >
-      {/* N-16: UNA sola imagen (carta normal). El desglose por acabado (conteos/huecos/compra)
-          vive en el drawer de la celda, no aquí. */}
+    <>
       <span className="relative block">
-        <CardTileImage imageSmallUrl={cell.imageSmallUrl} dimmed={isGap} dashed={isGap} />
+        <CardImage
+          src={cell.imageSmallUrl}
+          alt={`${cell.name} · ${finishLabel}`}
+          className={`${dashed ? 'border border-dashed border-border-strong' : ''} ${dimmed ? 'opacity-40' : ''}`}
+        />
         {/* Badge secret rare (solo display) con scrim de tinta (§7.2b). */}
         {cell.isSecretRare && (
           <span className="absolute right-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]">
@@ -386,93 +364,106 @@ function BinderCell({
           </span>
         )}
       </span>
-      <span className="flex items-baseline justify-between gap-1">
-        <span className="font-mono tabular-nums text-xs text-muted">#{cell.number}</span>
+      <p lang="en" className="mt-2.5 line-clamp-2 font-serif text-[15px] leading-tight text-text">
+        {cell.name}
+      </p>
+      {/* El acabado es el DISCRIMINADOR de la tarjeta: en mono, junto al número. */}
+      <p className="mt-1 font-mono text-[10px] uppercase leading-snug tracking-wide text-muted">
+        <span className="tabular-nums">#{cell.number}</span>
+        <span aria-hidden> · </span>
+        <span className="text-text">{finishLabel}</span>
+      </p>
+    </>
+  );
+}
+
+/**
+ * Tarjeta de impresión del BINDER (M1 / bóveda cliente / bóveda admin) — N-16: una tarjeta por
+ * (carta, acabado a pintar). Muestra el conteo de ESE acabado (cubierto) o "HUECO"; el clic abre el
+ * drawer de la carta (detalle por acabado, alta/publicación/ajuste en M1, compra de faltantes en la
+ * bóveda del propio cliente). Los contadores de completitud «X/Y» del encabezado siguen contando
+ * sobre availableFinishes (variantes no mostradas cuentan pero no se pintan).
+ */
+function BinderTile({
+  cell,
+  variant,
+  onOpen,
+}: {
+  cell: MasterSetCardCellDTO;
+  variant: MasterSetVariantDTO;
+  onOpen: () => void;
+}) {
+  const t = useTranslations('masterSet');
+  const tFinish = useTranslations('finish');
+  const finishLabel = tFinish(variant.finish);
+  const isGap = !variant.covered;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex h-full w-full flex-col text-left transition-colors focus-visible:shadow-focus focus-visible:outline-none"
+    >
+      <TileHeader cell={cell} finishLabel={finishLabel} dimmed={isGap} dashed={isGap} />
+      <span className="mt-auto pt-2">
         {isGap ? (
           <span className="font-mono text-[10px] uppercase tracking-wide text-accent">{t('gap')}</span>
         ) : (
-          /* v1.20: el contador de la celda cuenta VARIANTES cubiertas del universo. */
-          <span className="font-mono tabular-nums text-xs">
-            {t('variantCount', { covered: cell.coveredVariantCount, expected: cell.expectedVariantCount })}
+          <span className="font-mono tabular-nums text-xs text-text">
+            {t('totalCount', { count: variant.count })}
           </span>
         )}
       </span>
-      <span lang="en" className="line-clamp-1 text-sm">
-        {cell.name}
-      </span>
-      {/* DRIFT de catálogo: acabados FUERA del universo (se ven, no cuentan). */}
-      {driftCounts.length > 0 && (
-        <span className="flex flex-wrap gap-1">
-          {driftCounts.map((cf) => (
-            <span
-              key={`drift-${cf.finish}`}
-              className="border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted"
-              aria-label={t('driftChipAria', { finish: tFinish(cf.finish), count: cf.count })}
-              title={t('driftNote')}
-            >
-              {tFinish(cf.finish)} · <span className="tabular-nums">{cf.count}</span> ⚠
-            </span>
-          ))}
-        </span>
-      )}
     </button>
   );
 }
 
 /**
- * Celda del cotizador (mode="quoter") — N-16: CARTA NORMAL (una sola imagen). El nombre y el
- * número son informativos; debajo de la imagen, un botón POR ACABADO (etiqueta + precio cotizado)
- * es su propia acción: un clic agrega esa combinación (carta, acabado) al carrito de venta con el
- * precio ya cotizado. Una variante SIN precio se SIGUE mostrando (en "precio pendiente"): el
- * universo de acabados sale de `availableFinishes`, nunca de los precios.
+ * Tarjeta de impresión del COTIZADOR (mode="quoter") — N-16: una tarjeta por (carta, acabado a
+ * pintar) con su propio precio cotizado y su propio botón "Agregar" (agrega esa combinación al
+ * carrito de venta con el precio ya cotizado server-side). Una variante SIN precio se SIGUE
+ * mostrando en "precio pendiente" (el universo de acabados sale de displayFinishes, no de los precios).
  */
-function QuoterCell({
+function QuoterTile({
   cell,
-  onAddVariant,
+  variant,
+  onAdd,
 }: {
   cell: MasterSetCardCellDTO;
-  onAddVariant: (variant: MasterSetVariantDTO) => void;
+  variant: MasterSetVariantDTO;
+  onAdd: () => void;
 }) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
+  const finishLabel = tFinish(variant.finish);
+  const pending = variant.quote?.status === 'precio_pendiente';
+  const price =
+    variant.quote?.quotedPriceCents != null ? formatMoneyCents(variant.quote.quotedPriceCents, locale) : null;
   return (
-    <div className="flex w-full flex-col gap-2 border border-border bg-surface p-2">
-      <CardTileImage imageSmallUrl={cell.imageSmallUrl} />
-      <div className="flex items-baseline justify-between gap-1">
-        <span className="font-mono tabular-nums text-xs text-muted">#{cell.number}</span>
-      </div>
-      <span lang="en" className="line-clamp-1 text-sm">
-        {cell.name}
-      </span>
-      {/* Acción de venta POR ACABADO, en lista bajo la carta (no una imagen duplicada por variante). */}
-      <div className="flex flex-col gap-1">
-        {cell.variants.map((v) => {
-          const pending = v.quote?.status === 'precio_pendiente';
-          const price =
-            v.quote?.quotedPriceCents != null ? formatMoneyCents(v.quote.quotedPriceCents, locale) : null;
-          return (
-            <button
-              key={v.finish}
-              type="button"
-              disabled={!v.quote}
-              onClick={() => onAddVariant(v)}
-              aria-label={t('quoterAddAria', {
-                name: cell.name,
-                finish: tFinish(v.finish),
-                price: price ?? t('quoterPending'),
-              })}
-              className="flex items-center justify-between gap-2 border border-border px-2 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="font-mono text-[10px] uppercase leading-tight tracking-wide">
-                {tFinish(v.finish)}
-              </span>
-              <span className="font-mono tabular-nums text-[11px] leading-tight">
-                {pending ? t('quoterPending') : (price ?? t('quoterUnavailable'))}
-              </span>
-            </button>
-          );
-        })}
+    <div className="flex h-full flex-col">
+      <TileHeader cell={cell} finishLabel={finishLabel} />
+      <p className="mt-2 font-mono tabular-nums text-[13px] text-text">
+        {pending ? (
+          <span className="text-accent">{t('quoterPending')}</span>
+        ) : (
+          price ?? <span className="text-accent">{t('quoterUnavailable')}</span>
+        )}
+      </p>
+      <div className="mt-auto pt-2.5">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="w-full"
+          disabled={!variant.quote}
+          onClick={onAdd}
+          aria-label={t('quoterAddAria', {
+            name: cell.name,
+            finish: finishLabel,
+            price: price ?? t('quoterPending'),
+          })}
+        >
+          {t('quoterAdd')}
+        </Button>
       </div>
     </div>
   );

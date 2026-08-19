@@ -407,6 +407,7 @@
     "quoterCardCount": "{count, plural, one {# carta} other {# cartas}}",
     "quoterSearchCard": "Buscar carta",
     "quoterSearchCardPlaceholder": "Nombre o número",
+    "quoterAdd": "Agregar",
     "quoterAddAria": "Agregar {name} ({finish}) a la venta · {price}",
     "quoterPending": "Precio pendiente",
     "quoterUnavailable": "No disponible",

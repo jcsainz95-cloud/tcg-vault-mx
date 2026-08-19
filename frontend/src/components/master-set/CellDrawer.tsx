@@ -26,7 +26,7 @@ import { Banner } from '@/components/ui/Banner';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { PerLineErrors } from './PerLineErrors';
-import { FINISH_ORDER } from '@/lib/finish';
+import { FINISH_ORDER, displayedVariants } from '@/lib/finish';
 import { localUid, type CaptureBatchState, type CaptureLine } from './capture';
 import type { MasterSetViewMode } from './mode';
 
@@ -209,7 +209,10 @@ function VariantSlots({
           ) : null}
         </span>
         <ul className="flex min-w-0 flex-1 flex-col gap-2">
-          {cell.variants.map((v) => (
+          {/* N-16: solo los acabados a PINTAR (displayFinishes); un `normal` espurio de premium no
+              se lista aquí (coherente con la rejilla plana). El alta/ajuste de M1 sí usa la lista
+              blanca availableFinishes (operación de inventario validada server-side). */}
+          {displayedVariants(cell).map((v) => (
             <li
               key={v.finish}
               className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pb-2 last:border-b-0"
