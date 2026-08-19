@@ -2,7 +2,26 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-19 (rev v1.23-sealed-sales).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-19 (rev v1.22-2-finish-display).
+>
+> **Changelog v1.22-2-finish-display (2026-08-19, rama `claude/pulido-precios-display`) — Pulido de derivación/
+> visualización de acabados (N-15 + N-16). ADITIVO: ningún campo se quita ni cambia de tipo; NO se toca ninguna regla
+> de precio ni la whitelist SEC-A1 `Card.availableFinishes`. Ver ARCHITECTURE §4.22a-6 / §4.22c / §3.7.**
+> - **N-15 — nuevo campo derivado de DISPLAY `displayFinishes: Finish[]`.** `availableFinishes` **NO cambia**: sigue
+>   siendo la **lista blanca SEC-A1** que valida el `finish` (`422 FINISH_NOT_AVAILABLE`) y con la que se **deriva el
+>   monto** server-side. `displayFinishes` (`⊆ availableFinishes`, mismo orden `FINISH_ORDER`, nunca vacío) es lo que
+>   el front **pinta**: en una carta **premium de una sola impresión** (`isPremiumRarity`) oculta el acabado `normal`
+>   **espurio** (entró solo por llave de `tcgplayer.prices` sin `market>0`). En el resto de cartas (y en rareza
+>   `null`/desconocida) `displayFinishes === availableFinishes` (sin supresión). Solo RESTA casillas, **nunca** añade:
+>   **no** inventa `reverse_holo` por rareza (VAR-1 intacto).
+> - **DTOs aditivos:** `CardDTO` **+= `displayFinishes: Finish[]`**; `MasterSetCardCellDTO` **+= `displayFinishes:
+>   Finish[]`**; `MasterSetVariantDTO` **+= `displayed: boolean`** (`= finish ∈ displayFinishes`, espejo de
+>   conveniencia para el render plano). Sin endpoints nuevos, sin migración, sin cambio de códigos de error.
+> - **N-16 — rejilla PLANA (presentación del FRONT, no cambio de contrato).** El front deja de agrupar por carta con
+>   sub-casillas y muestra **una tarjeta por impresión (carta+acabado)** en flujo plano en cotizador, master-set M1,
+>   «Mi bóveda» y bóvedas de cliente (admin). El conjunto de tarjetas por carta = **`displayFinishes`** (tras N-15),
+>   NO `availableFinishes`. El precio por acabado ya existía (quote por `(card,finish)`, `ListingDTO.finish`,
+>   `MasterSetVariantDTO`): **no** se añade shape de precio.
 >
 > **Changelog v1.21.4-dual-breakdown (2026-08-19, rama `claude/pulido-checkout`, N-12) — WS «Pulido checkout invitado».
 > TODO ADITIVO: ningún endpoint/DTO existente cambia de forma.** `POST /checkout/guest/quote` (§4-G.1) gana
@@ -849,9 +868,18 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 //   filtrar, con el comparador (numberPrefix asc, numberSort asc, number asc) — que reproduce EXACTAMENTE el orden
 //   del servidor. numberPrefix="" ⇒ número puramente numérico (ordena primero); "TG"/"SV"/"GG" ⇒ promo/subset al
 //   final. Reemplaza cualquier `numberSort` sintético que el front venga calculando (p. ej. el índice del arreglo).
+// v1.22-2 (N-15, ARCHITECTURE §4.22a-6): displayFinishes = acabados que el front PINTA como casillas/tarjetas.
+//   * SIEMPRE `⊆ availableFinishes`, mismo orden FINISH_ORDER, nunca vacío (≥ 1).
+//   * DEFAULT: displayFinishes === availableFinishes (misma lista). SOLO difiere en una carta PREMIUM de una sola
+//     impresión (isPremiumRarity(rarity) === true): se ocultan los acabados SIN precio (market>0) — típicamente el
+//     `normal` espurio de una ex/full-art — dejando solo su impresión real (p. ej. ["holofoil"]).
+//   * NO es whitelist ni vector de dinero: `availableFinishes` sigue siendo la lista blanca SEC-A1 (valida `finish`
+//     y deriva el monto). displayFinishes SOLO gobierna el render. Solo RESTA acabados, jamás los INVENTA
+//     (no crea reverse_holo por rareza; VAR-1 intacto). Server-side, derivado; el front NO lo recalcula.
 CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix: string,
                  rarity, supertype, subtypes: string[],
-                 setId, setName, imageSmallUrl, imageLargeUrl, availableFinishes: Finish[] }
+                 setId, setName, imageSmallUrl, imageLargeUrl,
+                 availableFinishes: Finish[], displayFinishes: Finish[] }
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
@@ -935,9 +963,12 @@ MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: 
 // v1.22-variantes-orden — `numberSort` y el NUEVO `numberPrefix` dejan de ser derivados en memoria: son COLUMNAS
 //   de `Card` (M-26) y el servidor ordena por ellas en SQL. `numberSort` SOLO no basta para re-ordenar en el front
 //   (`TG12` y `GG12` colisionan en 1000012): el comparador correcto es (numberPrefix asc, numberSort asc, number asc).
+// v1.22-2 (N-15): displayFinishes = subconjunto de availableFinishes que el front RENDERIZA (oculta el acabado
+//   espurio de una premium de una sola impresión). Ver CardDTO. Con N-16 (rejilla plana) el nº de TARJETAS por
+//   carta = |displayFinishes| (una tarjeta por acabado visible), NO |availableFinishes|.
 MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, numberPrefix: string,
                          name: string, rarity?: string,
-                         imageSmallUrl?: string, availableFinishes: Finish[],
+                         imageSmallUrl?: string, availableFinishes: Finish[], displayFinishes: Finish[],
                          countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean }
 MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalogCardCount: number,
                             cells: MasterSetCardCellDTO[] }
@@ -966,7 +997,12 @@ VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 // NOTA compat: `countsByFinish` (v1.16) se CONSERVA y puede traer acabados FUERA del universo (drift de catálogo:
 // pieza capturada con un finish que availableFinishes ya no declara); esas piezas se ven pero NO cuentan en
 // expected/covered (los contadores X/Y cuentan variantes del universo).
-MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean,
+// v1.22-2 (N-15/N-16): `displayed` = (finish ∈ cell.displayFinishes) — espejo de conveniencia para el render PLANO.
+//   `variants` SIGUE trayendo una entrada por acabado de availableFinishes (universo de completitud X/Y intacto:
+//   coveredVariantCount/expectedVariantCount cuentan sobre availableFinishes). El front que pinta la REJILLA PLANA
+//   (N-16) renderiza UNA tarjeta por variante con `displayed===true`; las variantes `displayed===false` (acabado
+//   espurio suprimido) NO se pintan pero SIGUEN contando para completitud y buyable. Whitelist SEC-A1 sin cambio.
+MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean, displayed: boolean,
                         buyable?: { inventoryItemId: string, salePriceCents: number } | null }
 // EXTENSIONES v1.20 (ADITIVAS — los campos v1.16 no cambian; notación `+=` = campos que se AÑADEN al DTO):
 // Índice: catalogVariantCount = Σ |availableFinishes| de las cartas del set; distinctVariantsOwned = variantes del
@@ -1402,6 +1438,10 @@ para CUALQUIER set del catálogo, tenga o no piezas el usuario: las celdas/varia
 - **Completitud por variante:** cada celda expone `variants[]` (universo = `Card.availableFinishes`) con `covered`
   por acabado; los contadores «X/Y» del front cuentan **variantes** (`coveredVariantCount`/`expectedVariantCount` y
   los agregados del set), no cartas.
+- **v1.22-2 (N-15/N-16) — render plano:** las **tarjetas** que se PINTAN son las de `cell.displayFinishes` (equiv.
+  `variants[].displayed === true`); el acabado espurio suprimido por N-15 **no se pinta** pero **sigue contando**
+  para completitud (X/Y) y `buyable`. La whitelist SEC-A1 no cambia. Mismo criterio en la vista admin de bóveda
+  (`GET /admin/vaults/:userId/master-sets`) y en el binder M1 (`GET /admin/inventory/master-sets/:setId`).
 - **`buyable` (SOLO esta vista):** cada variante **faltante** (`covered=false`) trae
   `buyable: { inventoryItemId, salePriceCents } | null` — la pieza **`listed` más barata** de plataforma para ese
   `(cardId, finish)` (resoluble a ficha vía `GET /catalog/listings/:inventoryItemId` y comprable por el checkout
@@ -2285,6 +2325,12 @@ el binder debe pintar: **una casilla de imagen por entrada**, en el **orden del 
 izquierda, `reverse_holo` después ⇒ derecha), todas con la **misma** `imageSmallUrl` de la carta. Si la carta solo
 trae `["normal"]` se pinta **una** casilla: **nunca** un hueco de relleno ni un acabado por convención. El array
 **nunca llega vacío** y **nunca** se reduce por falta de precio (ARCHITECTURE §4.22a/§4.22c).
+**v1.22-2 (N-15/N-16):** lo que el front PINTA es **`CardDTO.displayFinishes`** (`⊆ availableFinishes`), que en una
+carta **premium de una sola impresión** oculta el acabado `normal` **espurio**; en el resto coincide con
+`availableFinishes`. Con la **rejilla plana (N-16)** el front genera **una tarjeta por cada `finish` de
+`displayFinishes`** (una common con reverse holo real → 2 tarjetas; una ex/full-art → 1 tarjeta Holofoil, sin
+`normal` espuria) y **cotiza cada tarjeta** con `POST /buylist/quote` por `(cardId, finish)`. La **validación
+SEC-A1** del quote sigue contra `availableFinishes` (no contra `displayFinishes`).
 Err: `400 VALIDATION_ERROR` (paginación inválida).
 Nota: para **cotizar** una carta encontrada, el front llama `POST /buylist/quote` con su `cardId`. Si la carta
 es `ex_plus` y **no tiene precio de referencia** (típico en cartas fuera de bóveda), la cotización sale
