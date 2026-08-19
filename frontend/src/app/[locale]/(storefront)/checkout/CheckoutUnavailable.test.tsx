@@ -110,6 +110,16 @@ function guestQuote(ids: string[], dead: Dead): GuestCheckoutQuoteResponse {
       totalCents: subtotal + shipping,
       currency: 'MXN',
     },
+    // v1.21.4-dual-breakdown (§4-G.1): segundo desglose (destino bóveda) — mismo subtotal SIN
+    // envío. Siempre presente en el 200 (ceros cuando todo el carrito murió).
+    vaultBreakdown: {
+      subtotalCents: subtotal,
+      ivaCents: 0,
+      ivaRatePct: 16,
+      processingFeeCents: 0,
+      totalCents: subtotal,
+      currency: 'MXN',
+    },
     notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
     unavailableItems,
   };

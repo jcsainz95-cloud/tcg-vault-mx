@@ -94,9 +94,23 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   }, [unavailable, prune]);
 
   const errors: GuestErrors = useMemo(() => validateGuestForm(form), [form]);
+  // `shippingFeeLabel` sale SIEMPRE del `breakdown` de envío directo (la tarifa REAL): alimenta
+  // el hint del radio «envío {amount}» y el upsell «te ahorras {amount}» — es cuánto se ahorra
+  // el invitado al NO enviar, NO un dato del desglose de bóveda (N-12).
   const shippingFeeCents = query.data?.breakdown.shippingFeeCents;
   const shippingFeeLabel =
     shippingFeeCents != null ? formatMoneyCents(shippingFeeCents, locale) : undefined;
+
+  // v1.21.4-dual-breakdown (N-12): el resumen conmuta según el destino elegido, SIN refetch —
+  // ambos desgloses vienen en la misma respuesta del quote. Bóveda ⇒ `vaultBreakdown` (sin
+  // envío); envío directo ⇒ `breakdown`. El total del botón «Pagar» y el `amountLabel` del
+  // modal usan ESTE desglose para no contradecir el resumen. (Fallback defensivo al `breakdown`
+  // por si un productor/mock parcial omitiera `vaultBreakdown`; el contrato lo garantiza.)
+  const activeBreakdown = query.data
+    ? destination === 'vault'
+      ? query.data.vaultBreakdown ?? query.data.breakdown
+      : query.data.breakdown
+    : undefined;
 
   // Pantalla de confirmación: se pinta desde el estado de la transacción recién
   // completada, nunca desde una URL con id adivinable (§15.5).
@@ -303,7 +317,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
             <aside className="gutter h-fit pb-14 pt-8 lg:px-10">
               <h2 className="eyebrow">{t('summary')}</h2>
               <div className="mt-5">
-                <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
+                <AmountBreakdown
+                  breakdown={activeBreakdown ?? query.data.breakdown}
+                  variant="purchase"
+                />
               </div>
 
               {payError && (
@@ -353,7 +370,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   >
                     {creating
                       ? t('preparing')
-                      : t('pay', { amount: formatMoneyCents(query.data.breakdown.totalCents, locale) })}
+                      : t('pay', {
+                          amount: formatMoneyCents(
+                            (activeBreakdown ?? query.data.breakdown).totalCents,
+                            locale,
+                          ),
+                        })}
                   </Button>
                   {/* Nunca un botón apagado y mudo: la condición se explica (§15.9). */}
                   {payBlockedReason && (
@@ -397,7 +419,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         )}`}
         title={t('payTitle')}
         amountLabel={
-          query.data ? formatMoneyCents(query.data.breakdown.totalCents, locale) : undefined
+          activeBreakdown ? formatMoneyCents(activeBreakdown.totalCents, locale) : undefined
         }
         onConfirmed={onConfirmed}
       />

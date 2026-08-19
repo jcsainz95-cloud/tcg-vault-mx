@@ -3988,3 +3988,21 @@ mockeado a `<a>` + `push` espía. No se tocó lógica de producción (ningún te
 
 Gates de esta pasada: `npx tsc --noEmit` ✓ · `npx next lint` ✓ (sin warnings) · `npx vitest run` ✓
 (57 archivos / 428 tests, sin regresiones).
+
+## N-12 · Resumen de pago reactivo al destino (v1.21.4-dual-breakdown, rama `claude/pulido-checkout`)
+`POST /checkout/guest/quote` ahora devuelve DOS desgloses en el mismo `200`: `breakdown` (envío
+directo, con `shippingFeeCents`) y `vaultBreakdown` (destino bóveda, SIN envío). El front conmuta
+el resumen «recibir ⇄ bóveda» al instante, SIN refetch (ambos vienen precomputados).
+- `GuestCheckoutView` calcula `activeBreakdown = destination === 'vault' ? vaultBreakdown : breakdown`
+  y lo pasa a `<AmountBreakdown>`, al total del botón «Pagar» y al `amountLabel` del `StripePaymentModal`.
+  `AmountBreakdown` NO se tocó: ya oculta la línea de envío cuando `shippingFeeCents == null`.
+- `shippingFeeLabel` (hint del radio «envío {amount}» + upsell «te ahorras {amount}») SIGUE saliendo de
+  `breakdown.shippingFeeCents` (tarifa REAL de envío), no del vault: es cuánto se ahorra al NO enviar.
+- Zonas compartidas de `frontend/src/` tocadas (serializar merge): `types/contract.ts`
+  (`GuestCheckoutQuoteResponse` gana `vaultBreakdown: BreakdownDTO`, aditivo) y `lib/api.ts` (mock de
+  `getGuestCheckoutQuote` devuelve `vaultBreakdown` = `computeBreakdown(subtotal)`, réplica de
+  `computeCartBreakdown`; ceros sin `shippingFeeCents` para el carrito 100 % podado). `lib/mock/fixtures.ts`
+  NO cambió (el quote de invitado se compone inline en `api.ts`, no desde un objeto fijo).
+- Tests: se desambiguaron 2 fallos preexistentes en `GuestCheckoutView.test.tsx` (había DOS selectores de
+  destino tras N-9) con `within()` acotando al formulario (`region` «DESTINO») vs. el aside
+  (`complementary`); nuevo archivo `GuestCheckoutDestinationBreakdown.test.tsx` (3) cubre la reactividad.

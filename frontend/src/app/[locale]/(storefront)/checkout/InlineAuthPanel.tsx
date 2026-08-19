@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { login, register } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
@@ -57,19 +57,61 @@ export function InlineAuthPanel({
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * N-13 · cuando el registro devuelve `409 EMAIL_TAKEN` ofrecemos iniciar sesión con el
+   * MISMO correo, sin sacar al usuario de `/checkout` (§15.2). Marcamos el caso para pintar
+   * el CTA neutro y, en el gate de identidad (donde el padre NO controla la variante vía
+   * `onSwitchVariant`), conmutamos a login con un override local. En el upsell —que ya
+   * controla la variante— delegamos en `onSwitchVariant` para no tener dos switches en pugna.
+   */
+  const [emailTaken, setEmailTaken] = useState(false);
+  const [variantOverride, setVariantOverride] = useState<'login' | 'register' | null>(null);
+  const [focusPasswordOnLogin, setFocusPasswordOnLogin] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
+
+  const activeVariant = variantOverride ?? variant;
+
+  // Si el padre reasigna la variante (p. ej. el switch del upsell), el override local deja
+  // de mandar: así nunca conviven dos fuentes de verdad contradictorias.
+  useEffect(() => {
+    setVariantOverride(null);
+  }, [variant]);
+
+  // Al conmutar a login por EMAIL_TAKEN, el correo ya está escrito: enfocamos lo único que
+  // falta, la contraseña.
+  useEffect(() => {
+    if (activeVariant === 'login' && focusPasswordOnLogin) {
+      passwordRef.current?.focus();
+      setFocusPasswordOnLogin(false);
+    }
+  }, [activeVariant, focusPasswordOnLogin]);
+
+  function offerLogin() {
+    // Conserva el correo (vive en el estado del panel) y limpia el aviso de registro fallido.
+    setError(null);
+    setEmailTaken(false);
+    setFocusPasswordOnLogin(true);
+    if (onSwitchVariant) onSwitchVariant();
+    else setVariantOverride('login');
+  }
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setEmailTaken(false);
     setLoading(true);
     try {
-      if (variant === 'login') await login({ email, password });
+      if (activeVariant === 'login') await login({ email, password });
       else await register({ email, password, name });
       onSuccess();
     } catch (err) {
       // 409 EMAIL_TAKEN → mensaje neutro con dos salidas (nunca "ese correo ya existe").
-      if (err instanceof ApiClientError && err.code === 'EMAIL_TAKEN') setError(neutralEmailTaken);
-      else setError(getMessage(err));
+      if (err instanceof ApiClientError && err.code === 'EMAIL_TAKEN') {
+        setError(neutralEmailTaken);
+        setEmailTaken(true);
+      } else {
+        setError(getMessage(err));
+      }
       setLoading(false);
     }
   }
@@ -79,11 +121,22 @@ export function InlineAuthPanel({
       {error && (
         <Banner variant="warning" role="status" className="mb-6">
           {error}
+          {/* CTA neutro (no afirma que el correo tenga cuenta, criterio 56): ofrece login
+              INLINE, pre-llenado, sin abandonar el checkout (§15.2). Solo en registro. */}
+          {emailTaken && activeVariant === 'register' && (
+            <button
+              type="button"
+              onClick={offerLogin}
+              className="mt-3 block border-b border-accent pb-0.5 text-left text-sm text-accent hover:border-text hover:text-text"
+            >
+              {t('loginWithThisEmail')}
+            </button>
+          )}
         </Banner>
       )}
 
       <div className="[&>*]:mt-6 first:[&>*]:mt-0">
-        {variant === 'register' && (
+        {activeVariant === 'register' && (
           <Input
             label={t('name')}
             name="name"
@@ -105,10 +158,11 @@ export function InlineAuthPanel({
           required
         />
         <Input
+          ref={passwordRef}
           label={t('password')}
           name="password"
           type="password"
-          autoComplete={variant === 'login' ? 'current-password' : 'new-password'}
+          autoComplete={activeVariant === 'login' ? 'current-password' : 'new-password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
@@ -116,7 +170,9 @@ export function InlineAuthPanel({
       </div>
 
       <Button type="submit" variant="primary" loading={loading} className="mt-8 w-full">
-        {loading ? t('loading') : (submitLabel ?? (variant === 'login' ? t('loginCta') : t('registerCta')))}
+        {loading
+          ? t('loading')
+          : (activeVariant === 'login' ? t('loginCta') : (submitLabel ?? t('registerCta')))}
       </Button>
 
       {/* Divisor "o / or": Google es alternativa neutra, no compite como CTA (§6.7). */}

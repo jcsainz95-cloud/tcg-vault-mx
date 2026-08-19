@@ -1674,6 +1674,15 @@ export interface GuestCheckoutQuoteResponse {
   items: { inventoryItemId: string; card: CardDTO; unitPriceCents: number }[];
   fulfillmentMode: FulfillmentMode;
   breakdown: BreakdownDTO;
+  /**
+   * v1.21.4-dual-breakdown (contrato §4-G.1, N-12): SEGUNDO desglose, SIEMPRE presente en
+   * el `200` (incl. carrito 100 % podado, en ceros). Es el resumen del destino BÓVEDA:
+   * la bóveda NO se envía ⇒ SIN `shippingFeeCents`, IVA solo sobre el subtotal de cartas y
+   * total = gross-up recalculado sobre la base menor. Mismo `subtotalCents` que `breakdown`.
+   * Permite al front conmutar el resumen «recibir ⇄ bóveda» al instante SIN refetch. El
+   * `breakdown` (direct_ship, con `shippingFeeCents`) NO cambia y es lo que se COBRA.
+   */
+  vaultBreakdown: BreakdownDTO;
   notices: GuestCheckoutNotices;
   /**
    * SIEMPRE presente (v1.21.3-quote-prune, misma norma que §4). Carrito 100 % no

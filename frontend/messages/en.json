@@ -697,6 +697,7 @@
     "registerCta": "Create account",
     "toRegister": "No account? Sign up",
     "toLogin": "Already have an account? Log in",
+    "loginWithThisEmail": "Log in with this email",
     "loading": "Processing…",
     "mockNotice": "Authentication pending backend: submit simulates the flow and stores a local session.",
     "inactivityLogout": "Your session was closed due to inactivity.",

@@ -2238,3 +2238,27 @@
   subtype+condición; a lo sumo un render inestable de esas filas.
 - **Disparador:** si aparece un Card ancla con dos productos del mismo subtype+condición. Solución: incluir
   `tcgplayerProductId` (o el `representativeItemId`, que ya es único por grupo) en la key.
+
+### Stream «pulido del CHECKOUT de invitado» (rama `claude/pulido-checkout`) — deuda del delta (2026-08-19, no bloqueante)
+
+> Deuda aceptada del veredicto del **techlead** (gate por-stream) sobre el pulido del guest checkout.
+> El único ítem es **dueño frontend**, no bloqueante, registrado sin tocar código de producción en este
+> pase. Continúa la numeración `F-*` (tras F-10).
+
+### F-11 · Mock de dinero del frontend omite el IVA de la comisión Stripe (C1) en el gross-up (Baja)
+- **Dónde:** `frontend/src/lib/api.ts` — `computeBreakdown` (~L511-517) y `computeGuestBreakdown`
+  (~L2963-2977); el nuevo `vaultBreakdown` (N-12) reusa `computeBreakdown` y por tanto **hereda la misma
+  omisión**.
+- **Estado actual:** el mock calcula el total como `ceil((base + STRIPE_FIXED) / (1 - STRIPE_PCT))`,
+  mientras que el backend (`backend/src/common/money.ts`, `grossUpTotal`) aplica **además** el factor
+  `(1 + stripe_fee_iva_pct)` (dial `stripe_fee_iva_pct=0.16`, IVA que Stripe MX cobra sobre su comisión,
+  C1). Para el mismo input, el mock produce un `processingFeeCents`/`totalCents` **distinto** al de
+  producción.
+- **Severidad:** **NO bloqueante.** **Preexistente** — ambas réplicas ya omitían el factor; N-12 solo lo
+  **propaga** a `vaultBreakdown`. El mock es **dev-only** (`config.useMocks`); en runtime el desglose
+  autoritativo es el del **backend**, y el contrato §4-G.1 reconoce que el mock replica con un
+  `StripeFeeConfig` de prueba **solo para desarrollo offline**.
+- **Riesgo:** un dev que valide totales contra el mock verá cifras que no cuadran con staging/prod y puede
+  perseguir un **bug fantasma**. **NO** usar los totales del mock como referencia de fee/total.
+- **Disparador / dirección de pago (si algún día se toma):** una **única** `computeBreakdown` en el mock que
+  acepte `stripeFeeIvaPct` y **espeje `grossUpTotal`**, para tener una sola fórmula replicada en vez de dos.

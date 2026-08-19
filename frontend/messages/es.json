@@ -697,6 +697,7 @@
     "registerCta": "Crear cuenta",
     "toRegister": "¿No tienes cuenta? Regístrate",
     "toLogin": "¿Ya tienes cuenta? Inicia sesión",
+    "loginWithThisEmail": "Iniciar sesión con este correo",
     "loading": "Procesando…",
     "mockNotice": "Autenticación pendiente de backend: el envío simula el flujo y guarda una sesión local.",
     "inactivityLogout": "Tu sesión se cerró por inactividad.",
