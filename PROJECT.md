@@ -595,9 +595,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       solo para raw (§E)**.
 - [ ] En la **ventana/ficha de sellado** hay un **call-out `mailto`**: *"¿Quieres revender tu sellado a TCG
       Vault MX? Escríbenos a **contacto@tcgvaultmx.com** con fotos y lo cotizamos."* Es un enlace de correo,
-      **no** un flujo dentro de la app. *(SUPUESTO (confirmar con PO): el dominio del correo es
-      `contacto@tcgvaultmx.com`, que difiere del `soporte@tcgvault.mx` usado para disputas en Restricciones
-      técnicas; confirmar si ambos dominios son correctos o deben unificarse.)*
+      **no** un flujo dentro de la app. *(Confirmado por el PO, ago-2026: el call-out de reventa usa
+      `contacto@tcgvaultmx.com` (dominio `tcgvaultmx.com`); las disputas siguen en `soporte@tcgvault.mx`
+      (dominio `tcgvault.mx`). Son propósitos y dominios distintos; ambos son correctos y no se unifican.)*
 
 **Precio de venta derivado (money-safe, server-side)**
 - [ ] El **precio de venta del sellado** se **deriva del precio de mercado de TCGCSV** (vía el **mapeo curado**
@@ -727,7 +727,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   mostrar el aviso** y debe existir una **página de términos/políticas** con el texto completo.
 - **Correo de evidencia / soporte de disputas**: la evidencia de una disputa de condición se envía por
   **correo a un buzón de soporte** (no hay subida de foto en la app). Correo de contacto:
-  **soporte@tcgvault.mx** *(SUPUESTO: dirección por confirmar por el humano)*. Debe aparecer en términos/FAQ
+  **soporte@tcgvault.mx** *(Confirmado por el PO, ago-2026: disputas sigue en `soporte@tcgvault.mx` (dominio
+  `tcgvault.mx`); es un dominio distinto del `contacto@tcgvaultmx.com` del call-out de reventa y ambos son
+  correctos)*. Debe aparecer en términos/FAQ
   y en el flujo de disputa.
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
   se guarda **cifrada en BD**; el **INE se almacena cifrado en R2 con retención** (`INE_RETENTION_DAYS`,
