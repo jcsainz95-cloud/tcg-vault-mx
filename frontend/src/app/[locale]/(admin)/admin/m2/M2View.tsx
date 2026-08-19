@@ -16,8 +16,10 @@ import {
   getPriceProvider,
   updatePriceProvider,
   getBuylistRarities,
+  getBuylistRules,
   updateBuylistRules,
   getSalesRarities,
+  getSalesRules,
   updateSalesRules,
   getSealedSpreads,
   updateSealedSpreads,
@@ -268,6 +270,12 @@ export function M2View() {
 
   // --- Sección 4: precio de buylist por RAREZA (v1.3.1) ---
   const rarities = useQuery({ queryKey: ['buylist-rarities'], queryFn: getBuylistRarities });
+  // INV-1 (money-safe): tabla CRUDA COMPLETA de reglas del servidor (TODAS las claves, incluidas
+  // las SINTÉTICAS del resolver por acabado —"Holo"/"Reverse Holo"— que NO son Card.rarity y por
+  // eso NO aparecen en `rarities` = groupBy(Card.rarity)). El PUT hace REEMPLAZO TOTAL de la tabla,
+  // así que el merge del guardado debe partir de ESTA base cruda, no de la vista de rarezas, o las
+  // claves sintéticas se perderían en cada Guardar (cartas holo/reverse revertían a fallback/pending).
+  const buylistRules = useQuery({ queryKey: ['buylist-rules'], queryFn: getBuylistRules });
   // Borrador de reglas explícitas editadas por el admin (por rareza) + fallback editado.
   const [ruleDraft, setRuleDraft] = useState<Record<string, BuylistRule>>({});
   const [fallbackDraft, setFallbackDraft] = useState<string | null>(null);
@@ -276,6 +284,7 @@ export function M2View() {
       updateBuylistRules(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['buylist-rarities'] });
+      qc.invalidateQueries({ queryKey: ['buylist-rules'] });
       setRuleDraft({});
       setFallbackDraft(null);
     },
@@ -294,13 +303,14 @@ export function M2View() {
     (fallbackDraft != null && fallbackDraft !== String(serverFallback));
 
   function saveRules() {
-    if (!rarities.data) return;
-    // Preserva las reglas explícitas del servidor y aplica el borrador encima. Las
-    // rarezas dejadas en fallback (no editadas) NO se incluyen → siguen en fallback.
-    const serverRules: Record<string, BuylistRule> = {};
-    for (const row of rarities.data.rarities) if (row.source === 'rule') serverRules[row.rarity] = row.rule;
+    // INV-1: money-safe. Sin la tabla CRUDA no guardamos: partir de la vista de rarezas
+    // (solo Card.rarity) descartaría las claves SINTÉTICAS y REEMPLAZARÍA la tabla sin ellas.
+    if (!buylistRules.data) return;
+    // Parte de TODAS las claves crudas del servidor (incluidas sintéticas y rarezas fuera del
+    // catálogo actual) y aplica el borrador encima. Así el REEMPLAZO TOTAL del PUT preserva todo
+    // lo no editado; las rarezas dejadas en fallback siguen sin regla explícita.
     rulesMutation.mutate({
-      rules: { ...serverRules, ...ruleDraft },
+      rules: { ...buylistRules.data.rules, ...ruleDraft },
       fallbackPct: Number(effectiveFallback) || 0,
     });
   }
@@ -310,6 +320,11 @@ export function M2View() {
   // mercado (precio = mercado × (1 + %)), no "% de la referencia"; y `fixed` es un PISO.
   // El validador de venta permite pct hasta 1000 (no topa en 100).
   const salesRarities = useQuery({ queryKey: ['sales-rarities'], queryFn: getSalesRarities });
+  // INV-1 (money-safe): tabla CRUDA COMPLETA de reglas de VENTA del servidor. El seed incluye la
+  // clave SINTÉTICA "Holo" (§4.14b) que NO es Card.rarity → NO aparece en `salesRarities`
+  // (groupBy(Card.rarity)). El merge del guardado parte de esta base para no perderla en el
+  // REEMPLAZO TOTAL del PUT (cartas holo/reverse revertían a fallback y caían a pending).
+  const salesRules = useQuery({ queryKey: ['sales-rules'], queryFn: getSalesRules });
   const [salesRuleDraft, setSalesRuleDraft] = useState<Record<string, SalesRule>>({});
   const [salesFallbackDraft, setSalesFallbackDraft] = useState<string | null>(null);
   const salesRulesMutation = useMutation({
@@ -317,6 +332,7 @@ export function M2View() {
       updateSalesRules(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sales-rarities'] });
+      qc.invalidateQueries({ queryKey: ['sales-rules'] });
       setSalesRuleDraft({});
       setSalesFallbackDraft(null);
     },
@@ -334,11 +350,12 @@ export function M2View() {
     (salesFallbackDraft != null && salesFallbackDraft !== String(salesServerFallback));
 
   function saveSalesRules() {
-    if (!salesRarities.data) return;
-    const serverRules: Record<string, SalesRule> = {};
-    for (const row of salesRarities.data.rarities) if (row.source === 'rule') serverRules[row.rarity] = row.rule;
+    // INV-1: money-safe. Base = tabla CRUDA COMPLETA (incluye la clave sintética "Holo" y cualquier
+    // rareza fuera del catálogo actual); el borrador se aplica encima. Sin la cruda no guardamos
+    // para no borrar claves sintéticas en el REEMPLAZO TOTAL del PUT.
+    if (!salesRules.data) return;
     salesRulesMutation.mutate({
-      rules: { ...serverRules, ...salesRuleDraft },
+      rules: { ...salesRules.data.rules, ...salesRuleDraft },
       fallbackPct: Number(salesEffectiveFallback) || 0,
     });
   }
@@ -795,7 +812,10 @@ export function M2View() {
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
-                  disabled={!rulesDirty}
+                  // INV-1 robustez: Guardar merge-ea sobre la tabla CRUDA (buylistRules). Sin ella el
+                  // guard hace return silencioso → gateamos el botón también con `!buylistRules.data`
+                  // para que el clic NUNCA sea un no-op mudo (cargando o en error).
+                  disabled={!rulesDirty || !buylistRules.data}
                   loading={rulesMutation.isPending}
                   onClick={saveRules}
                 >
@@ -813,6 +833,21 @@ export function M2View() {
                   </Button>
                 )}
               </div>
+              {/* Si la tabla cruda falló, se explica por qué no se puede guardar (con reintento). */}
+              {buylistRules.isError && (
+                <Banner
+                  variant="warning"
+                  role="alert"
+                  title={tc('errorTitle')}
+                  action={
+                    <Button variant="secondary" size="sm" onClick={() => buylistRules.refetch()}>
+                      {tc('retry')}
+                    </Button>
+                  }
+                >
+                  {t('buylistRules.rulesUnavailable')}
+                </Banner>
+              )}
               {rulesMutation.isSuccess && (
                 <Banner variant="success" role="status">{t('buylistRules.saved')}</Banner>
               )}
@@ -912,7 +947,9 @@ export function M2View() {
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
-                  disabled={!salesRulesDirty}
+                  // INV-1 robustez: idéntico gate que buylist — sin la tabla CRUDA (salesRules) el
+                  // guard hace return silencioso; gateamos también con `!salesRules.data`.
+                  disabled={!salesRulesDirty || !salesRules.data}
                   loading={salesRulesMutation.isPending}
                   onClick={saveSalesRules}
                 >
@@ -930,6 +967,21 @@ export function M2View() {
                   </Button>
                 )}
               </div>
+              {/* Si la tabla cruda de venta falló, se explica por qué no se puede guardar (con reintento). */}
+              {salesRules.isError && (
+                <Banner
+                  variant="warning"
+                  role="alert"
+                  title={tc('errorTitle')}
+                  action={
+                    <Button variant="secondary" size="sm" onClick={() => salesRules.refetch()}>
+                      {tc('retry')}
+                    </Button>
+                  }
+                >
+                  {t('salesRules.rulesUnavailable')}
+                </Banner>
+              )}
               {salesRulesMutation.isSuccess && (
                 <Banner variant="success" role="status">{t('salesRules.saved')}</Banner>
               )}

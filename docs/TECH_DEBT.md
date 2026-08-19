@@ -2263,6 +2263,38 @@
 - **Disparador / dirección de pago (si algún día se toma):** una **única** `computeBreakdown` en el mock que
   acepte `stripeFeeIvaPct` y **espeje `grossUpTotal`**, para tener una sola fórmula replicada en vez de dos.
 
+### Stream `inventario-precios-admin` — deuda de INV-1/INV-2 (2026-08-19, no bloqueante)
+
+> Deuda aceptada del veredicto del **techlead** (gate por-stream) sobre `claude/inventario-precios-admin`
+> (INV-1: editor de reglas money-safe que preserva claves sintéticas; INV-2: total on-hand por carta en el
+> binder de Master Set). Ambos ítems son **dueño frontend**, no bloqueantes, registrados a petición del
+> techlead sin tocar código de producción. La observación de robustez del propio INV-1 (Guardar como no-op
+> silencioso si la tabla cruda falla/carga) **se corrigió en la misma rama** (gate del `disabled` con
+> `!buylistRules.data`/`!salesRules.data` + Banner de reintento) y **no** figura como deuda. Continúa la
+> numeración `F-*` (tras F-11).
+
+### F-12 · `fallbackPct` con doble fuente en M2View (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` — editores de buylist y de venta.
+- **Estado actual:** el `fallbackPct` se lee de la **vista de rarezas** (`rarities.data.fallbackPct` /
+  `salesRarities.data.fallbackPct`) para pintar el input, mientras que la **tabla cruda** (`getBuylistRules`/
+  `getSalesRules`, añadida en INV-1 como base del merge de guardado) **también** trae `fallbackPct`. Hoy ambas
+  fuentes **coinciden** (el backend las deriva del mismo dial), así que no hay divergencia observable.
+- **Impacto:** bajo (mantenibilidad/consistencia). Si en el futuro las dos rutas divirgieran, el valor pintado
+  y el efectivo podrían desalinearse.
+- **Disparador:** próximo toque a los editores de reglas de M2. Solución: leer `fallbackPct` de **una sola
+  fuente** (preferir la tabla cruda, que ya es la base del guardado) y derivar de ahí el input y el merge.
+
+### F-13 · Total on-hand por carta se repite en cada tarjeta de impresión (Baja)
+- **Dónde:** `frontend/src/components/master-set/MasterSetBinder.tsx` — `TileHeader` (badge `cardTotalCount`).
+- **Estado actual:** por la rejilla plana N-16 (una tarjeta por impresión), el total on-hand **por carta**
+  (`cell.totalCount`) se pinta en **cada** tarjeta de esa carta (p. ej. las 3 tarjetas de Charizard muestran
+  las tres «4 en total»). Es intencional (el `TileHeader` es compartido) y está desambiguado por `title`
+  (tooltip «tengo N de esta carta en total»), pero visualmente el mismo dato se repite.
+- **Impacto:** bajo (UX/estética). No es incorrecto; puede leerse como redundante en cartas con muchos acabados.
+- **Disparador:** próxima iteración de UX del binder. Posible mejora: **agrupar visualmente** las impresiones
+  de una misma carta (encabezado por-carta sobre su grupo de tarjetas) y mostrar el total **una sola vez** ahí,
+  en vez de por tarjeta.
+
 ### Pase `pulido-precios-display` — deuda del pulido de display de precios (2026-08-19, no bloqueante)
 
 > Del stream `claude/pulido-precios-display` (referencia de mercado viva: `liveMxnCents` re-FX-eado al vuelo
