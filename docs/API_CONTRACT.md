@@ -2,7 +2,35 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-19 (rev v1.23-sealed-sales).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-19 (rev v1.22-2-finish-display).
+>
+> **Changelog v1.22-2-finish-display (2026-08-19, rama `claude/pulido-precios-display`) — Pulido de derivación/
+> visualización de acabados (N-15 + N-16). ADITIVO: ningún campo se quita ni cambia de tipo; NO se toca ninguna regla
+> de precio ni la whitelist SEC-A1 `Card.availableFinishes`. Ver ARCHITECTURE §4.22a-6 / §4.22c / §3.7.**
+> - **N-15 — nuevo campo derivado de DISPLAY `displayFinishes: Finish[]`.** `availableFinishes` **NO cambia**: sigue
+>   siendo la **lista blanca SEC-A1** que valida el `finish` (`422 FINISH_NOT_AVAILABLE`) y con la que se **deriva el
+>   monto** server-side. `displayFinishes` (`⊆ availableFinishes`, mismo orden `FINISH_ORDER`, nunca vacío) es lo que
+>   el front **pinta**: en una carta **premium de una sola impresión** (`isPremiumRarity`) oculta el acabado `normal`
+>   **espurio** (entró solo por llave de `tcgplayer.prices` sin `market>0`). En el resto de cartas (y en rareza
+>   `null`/desconocida) `displayFinishes === availableFinishes` (sin supresión). Solo RESTA casillas, **nunca** añade:
+>   **no** inventa `reverse_holo` por rareza (VAR-1 intacto).
+> - **DTOs aditivos:** `CardDTO` **+= `displayFinishes: Finish[]`**; `MasterSetCardCellDTO` **+= `displayFinishes:
+>   Finish[]`**; `MasterSetVariantDTO` **+= `displayed: boolean`** (`= finish ∈ displayFinishes`, espejo de
+>   conveniencia para el render plano). Sin endpoints nuevos, sin migración, sin cambio de códigos de error.
+> - **N-16 — rejilla PLANA (presentación del FRONT, no cambio de contrato).** El front deja de agrupar por carta con
+>   sub-casillas y muestra **una tarjeta por impresión (carta+acabado)** en flujo plano en cotizador, master-set M1,
+>   «Mi bóveda» y bóvedas de cliente (admin). El conjunto de tarjetas por carta = **`displayFinishes`** (tras N-15),
+>   NO `availableFinishes`. El precio por acabado ya existía (quote por `(card,finish)`, `ListingDTO.finish`,
+>   `MasterSetVariantDTO`): **no** se añade shape de precio.
+>
+> **Changelog v1.21.4-dual-breakdown (2026-08-19, rama `claude/pulido-checkout`, N-12) — WS «Pulido checkout invitado».
+> TODO ADITIVO: ningún endpoint/DTO existente cambia de forma.** `POST /checkout/guest/quote` (§4-G.1) gana
+> `vaultBreakdown: BreakdownDTO` (SIN `shippingFeeCents`, **siempre presente** en el `200`, incluido el carrito 100 %
+> podado con subtotal 0), ADEMÁS del `breakdown` de envío directo que NO cambia. Permite al front conmutar el resumen
+> «recibir ⇄ bóveda» **al instante** sin refetch por toggle. `vaultBreakdown` = `computeCartBreakdown(subtotal, ivaRatePct,
+> fee)` (IVA solo sobre cartas, gross-up sobre la base menor, sin envío); DEBE venir del backend porque el gross-up de
+> Stripe (`StripeFeeConfig` fija+pct) no se expone al cliente y no es invertible. Zona compartida a serializar:
+> `frontend/src/types/contract.ts` (tipo espejo). Solo afecta el quote; `/checkout/guest/session` sigue con un `breakdown`.
 >
 > **Changelog v1.23-sealed-sales (2026-08-19, rama `claude/sellado-producto-cerrado`) — WS «Sellado / Producto cerrado».
 > TODO ADITIVO: ningún endpoint/DTO existente cambia de forma; se AÑADEN endpoints y campos. Cambia una REGLA de precio
@@ -840,9 +868,18 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 //   filtrar, con el comparador (numberPrefix asc, numberSort asc, number asc) — que reproduce EXACTAMENTE el orden
 //   del servidor. numberPrefix="" ⇒ número puramente numérico (ordena primero); "TG"/"SV"/"GG" ⇒ promo/subset al
 //   final. Reemplaza cualquier `numberSort` sintético que el front venga calculando (p. ej. el índice del arreglo).
+// v1.22-2 (N-15, ARCHITECTURE §4.22a-6): displayFinishes = acabados que el front PINTA como casillas/tarjetas.
+//   * SIEMPRE `⊆ availableFinishes`, mismo orden FINISH_ORDER, nunca vacío (≥ 1).
+//   * DEFAULT: displayFinishes === availableFinishes (misma lista). SOLO difiere en una carta PREMIUM de una sola
+//     impresión (isPremiumRarity(rarity) === true): se ocultan los acabados SIN precio (market>0) — típicamente el
+//     `normal` espurio de una ex/full-art — dejando solo su impresión real (p. ej. ["holofoil"]).
+//   * NO es whitelist ni vector de dinero: `availableFinishes` sigue siendo la lista blanca SEC-A1 (valida `finish`
+//     y deriva el monto). displayFinishes SOLO gobierna el render. Solo RESTA acabados, jamás los INVENTA
+//     (no crea reverse_holo por rareza; VAR-1 intacto). Server-side, derivado; el front NO lo recalcula.
 CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix: string,
                  rarity, supertype, subtypes: string[],
-                 setId, setName, imageSmallUrl, imageLargeUrl, availableFinishes: Finish[] }
+                 setId, setName, imageSmallUrl, imageLargeUrl,
+                 availableFinishes: Finish[], displayFinishes: Finish[] }
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
@@ -926,9 +963,12 @@ MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: 
 // v1.22-variantes-orden — `numberSort` y el NUEVO `numberPrefix` dejan de ser derivados en memoria: son COLUMNAS
 //   de `Card` (M-26) y el servidor ordena por ellas en SQL. `numberSort` SOLO no basta para re-ordenar en el front
 //   (`TG12` y `GG12` colisionan en 1000012): el comparador correcto es (numberPrefix asc, numberSort asc, number asc).
+// v1.22-2 (N-15): displayFinishes = subconjunto de availableFinishes que el front RENDERIZA (oculta el acabado
+//   espurio de una premium de una sola impresión). Ver CardDTO. Con N-16 (rejilla plana) el nº de TARJETAS por
+//   carta = |displayFinishes| (una tarjeta por acabado visible), NO |availableFinishes|.
 MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, numberPrefix: string,
                          name: string, rarity?: string,
-                         imageSmallUrl?: string, availableFinishes: Finish[],
+                         imageSmallUrl?: string, availableFinishes: Finish[], displayFinishes: Finish[],
                          countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean }
 MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalogCardCount: number,
                             cells: MasterSetCardCellDTO[] }
@@ -957,7 +997,12 @@ VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 // NOTA compat: `countsByFinish` (v1.16) se CONSERVA y puede traer acabados FUERA del universo (drift de catálogo:
 // pieza capturada con un finish que availableFinishes ya no declara); esas piezas se ven pero NO cuentan en
 // expected/covered (los contadores X/Y cuentan variantes del universo).
-MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean,
+// v1.22-2 (N-15/N-16): `displayed` = (finish ∈ cell.displayFinishes) — espejo de conveniencia para el render PLANO.
+//   `variants` SIGUE trayendo una entrada por acabado de availableFinishes (universo de completitud X/Y intacto:
+//   coveredVariantCount/expectedVariantCount cuentan sobre availableFinishes). El front que pinta la REJILLA PLANA
+//   (N-16) renderiza UNA tarjeta por variante con `displayed===true`; las variantes `displayed===false` (acabado
+//   espurio suprimido) NO se pintan pero SIGUEN contando para completitud y buyable. Whitelist SEC-A1 sin cambio.
+MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean, displayed: boolean,
                         buyable?: { inventoryItemId: string, salePriceCents: number } | null }
 // EXTENSIONES v1.20 (ADITIVAS — los campos v1.16 no cambian; notación `+=` = campos que se AÑADEN al DTO):
 // Índice: catalogVariantCount = Σ |availableFinishes| de las cartas del set; distinctVariantsOwned = variantes del
@@ -1048,6 +1093,13 @@ BulkPublishResponse = { summary: { requested: number, published: number, failedL
 // como línea aparte y NO restarla del subtotal.
 BreakdownDTO = { subtotalCents, ivaCents, ivaRatePct, processingFeeCents, totalCents, currency: "MXN",
                  shippingFeeCents?: number }
+// v1.21.4-dual-breakdown (§4-G.1, N-12) — el QUOTE de invitado (`POST /checkout/guest/quote`) devuelve DOS
+// desgloses en el mismo `200`: `breakdown` (CON `shippingFeeCents` = envío directo, lo que se cobra) y
+// `vaultBreakdown` (SIN `shippingFeeCents` = destino bóveda, informativo/reactivo). `vaultBreakdown` es
+// EXACTAMENTE computeCartBreakdown(subtotal, ivaRatePct, fee): IVA solo sobre cartas, gross-up sobre la base
+// menor, sin línea de envío. Ambos usan el MISMO subtotalCents (Σ cartas válidas tras dedupe+poda). Es SOLO
+// del quote: `POST /checkout/guest/session` (§4-G.2) sigue devolviendo UN solo `breakdown` (direct_ship, lo
+// que se cobra), porque el invitado solo puede PAGAR envío directo (bóveda → 422 VAULT_REQUIRES_ACCOUNT).
 // v1.21.3-quote-prune — ítem de carrito podado por los DOS endpoints de QUOTE (§4 y §4-G.1). SOLO quote:
 // los endpoints de session NO lo usan (siguen estrictos). `cardName` = nombre de la carta si la pieza aún
 // existe en BD (aunque ya no esté disponible); null si el `inventoryItemId` ya no resuelve (pieza borrada).
@@ -1386,6 +1438,10 @@ para CUALQUIER set del catálogo, tenga o no piezas el usuario: las celdas/varia
 - **Completitud por variante:** cada celda expone `variants[]` (universo = `Card.availableFinishes`) con `covered`
   por acabado; los contadores «X/Y» del front cuentan **variantes** (`coveredVariantCount`/`expectedVariantCount` y
   los agregados del set), no cartas.
+- **v1.22-2 (N-15/N-16) — render plano:** las **tarjetas** que se PINTAN son las de `cell.displayFinishes` (equiv.
+  `variants[].displayed === true`); el acabado espurio suprimido por N-15 **no se pinta** pero **sigue contando**
+  para completitud (X/Y) y `buyable`. La whitelist SEC-A1 no cambia. Mismo criterio en la vista admin de bóveda
+  (`GET /admin/vaults/:userId/master-sets`) y en el binder M1 (`GET /admin/inventory/master-sets/:setId`).
 - **`buyable` (SOLO esta vista):** cada variante **faltante** (`covered=false`) trae
   `buyable: { inventoryItemId, salePriceCents } | null` — la pieza **`listed` más barata** de plataforma para ese
   `(cardId, finish)` (resoluble a ficha vía `GET /catalog/listings/:inventoryItemId` y comprable por el checkout
@@ -1552,12 +1608,15 @@ GuestCheckoutQuoteRequest = { inventoryItemIds: string[], shippingAddress?: Gues
 se cotiza igual y la validación de dirección ocurre en la sesión. `inventoryItemIds`: 1..`GUEST_MAX_ITEMS` (**20**,
 constante de servidor, §4-G.10).
 
-Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**):
+Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**; v1.21.4-dual-breakdown:
+gana `vaultBreakdown`, **siempre presente** — ver abajo):
 ```json
 { "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
   "fulfillmentMode": "direct_ship",
   "breakdown": { "subtotalCents": 25000, "shippingFeeCents": 17500, "ivaCents": 6800,
                  "ivaRatePct": 16, "processingFeeCents": 1900, "totalCents": 51200, "currency": "MXN" },
+  "vaultBreakdown": { "subtotalCents": 25000, "ivaCents": 4000,
+                      "ivaRatePct": 16, "processingFeeCents": 1400, "totalCents": 30400, "currency": "MXN" },
   "unavailableItems": [{ "inventoryItemId": "…", "cardName": "Antique Skull Fossil" }],
   "notices": { "finalSale": true, "invoiceByEmail": true, "termsRequired": true } }
 ```
@@ -1565,6 +1624,47 @@ Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**):
 > **factura CFDI manual por correo** y el enlace a términos desde su i18n (criterio 48b). El **precio de venta es el
 > mismo** que para un usuario con cuenta (mismas reglas de venta por rareza/acabado; comprar como invitado no cambia
 > condiciones comerciales).
+
+**`vaultBreakdown` — desglose reactivo del destino (v1.21.4-dual-breakdown, N-12).** El quote devuelve **DOS
+desgloses en una sola respuesta** para que la UI conmute el resumen **al instante** al alternar el radio de destino
+(«recibir en casa» ⇄ «guardar en bóveda»), **sin refetch por toggle**:
+- `breakdown` (`DirectShipBreakdownDTO`, **CON `shippingFeeCents`**) = el resumen del destino **envío directo**;
+  **no cambia** respecto de v1.21.3 (mismo shape, mismas fórmulas). Es lo que se cobra si el invitado paga sin cuenta.
+- `vaultBreakdown` (`BreakdownDTO`, **SIN `shippingFeeCents`**) = el resumen del destino **bóveda**: **la bóveda no se
+  envía**, así que **se quita la línea de envío** y el IVA/fee/total se recalculan sobre la base menor (solo cartas).
+  Es **exactamente** `computeCartBreakdown(subtotal, ivaRatePct, fee)` (`backend/src/common/money.ts`, ARCHITECTURE §5.1).
+  Fórmulas normativas (idénticas en backend y en el mock del front — el front **no las puede derivar por su cuenta**,
+  ver nota de seguridad abajo):
+  - `subtotalCents = Σ` precio de venta de las cartas válidas (el **mismo** `subtotalCents` que `breakdown`; sin envío).
+  - `ivaCents = round(subtotalCents × ivaRatePct/100)` — IVA **solo sobre cartas** (sin la línea de envío que sí grava en `breakdown`).
+  - `base = subtotalCents + ivaCents`.
+  - `totalCents = grossUp(base)` — mismo gross-up de Stripe (fija + pct, incl. IVA de la comisión) sobre la base menor.
+  - `processingFeeCents = totalCents − base`.
+  - **NO lleva** campo `shippingFeeCents` (ni `0` ni presente): su ausencia es la señal de shape de «destino bóveda».
+
+> **Por qué DOS desgloses y no un parámetro `destination`/`fulfillmentMode` en el request.** El PO pidió reactividad
+> **«al instante»**. Un parámetro de destino en el request forzaría un **round-trip por cada toggle** del radio (latencia
+> + parpadeo + carrera de respuestas fuera de orden). Devolver ambos desgloses en el mismo `200` los deja precomputados:
+> el front pinta uno u otro con un puro cambio de estado local, sin red. El costo es un segundo desglose barato
+> (aritmética pura sobre el mismo subtotal ya calculado), y el `breakdown` de envío directo **no cambia de shape**, así
+> que la respuesta es 100 % aditiva. `fulfillmentMode` en la RESPUESTA sigue siendo `"direct_ship"` (es el único destino
+> que un invitado puede **pagar**; la bóveda exige cuenta, §4-G.2 `422 VAULT_REQUIRES_ACCOUNT`). `vaultBreakdown` es
+> **solo informativo**: le permite al invitado **ver** el ahorro de no pagar envío y es el gancho del upsell de bóveda
+> (§4-G.2 / PROJECT §J), pero **elegir bóveda sigue produciendo el upsell/crear-cuenta, no un cobro**.
+>
+> **Por qué el desglose de bóveda TIENE que venir del backend (no lo puede derivar el front).** El `processingFeeCents`
+> es un **gross-up de la comisión de Stripe** cuya config (`StripeFeeConfig`: **fija + pct**, + IVA de la comisión) **nunca
+> se expone al cliente** — el front solo recibe el `BreakdownDTO` final. Con un solo `total` conocido y **dos incógnitas**
+> (fija y pct) el cálculo **no es invertible**: el front no puede «quitarle el envío» al `breakdown` de envío directo y
+> re-derivar el fee/total de bóveda. Por eso el backend computa `vaultBreakdown` con el `StripeFeeConfig` real (misma
+> `grossUpTotal`) y lo entrega ya hecho. El **mock del front** replica `computeCartBreakdown` con un `StripeFeeConfig` de
+> prueba **solo** para desarrollo offline; en runtime el desglose autoritativo es el del backend.
+
+**Poda / carrito 100 % podado — coherencia de `vaultBreakdown`:** `vaultBreakdown` se calcula sobre los **mismos ítems
+válidos** que `breakdown` (después de dedupe + poda). En el caso **100 % no disponible** (`items: []`), además del
+`breakdown` en CEROS (`shippingFeeCents: 0` incluido), `vaultBreakdown` también va en CEROS con **subtotal 0**
+(`subtotalCents: 0, ivaCents: 0, processingFeeCents: 0, totalCents: 0, ivaRatePct` = dial, `currency: "MXN"`, **sin
+`shippingFeeCents`**). Shape estable: `vaultBreakdown` está **siempre presente** en todo `200`.
 
 **Poda amable (v1.21.3 — MISMA norma que `POST /checkout/quote`, §4, porque comparten la lógica de pricing):**
 - `unavailableItems: UnavailableCartItemDTO[]` **siempre presente**; `[]` cuando todo el carrito resuelve (y en ese
@@ -2088,7 +2188,8 @@ constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (default 17500).
 | `backend/prisma/schema.prisma` | Migración **M-25** | Serializar (regla de zona compartida). |
 | `backend/src/common/money.ts` | Función **nueva** `computeDirectShipBreakdown(subtotal, shippingFee, ivaPct, fee)` | **Aditiva**: `computeCartBreakdown` y `computeShipmentBreakdown` **no se tocan**. |
 | `backend/src/common/error-codes.ts` | **8** códigos nuevos (§0) — `VAULT_REQUIRES_ACCOUNT`, `ALREADY_AUTHENTICATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `ORDER_ALREADY_CLAIMED`, `CLAIM_EMAIL_MISMATCH`, `GUEST_ORDER_TOO_OLD` *(v1.21.1: la v1.21 decía "7" por error de conteo; la lista normativa de §0 siempre fue de 8 y es la que manda)* | Aditiva. |
-| `docs/API_CONTRACT.md` | Esta sección | Ya aplicada, aditiva y localizada. |
+| `frontend/src/types/contract.ts` | **v1.21.4-dual-breakdown (N-12):** el tipo espejo de la respuesta del quote de invitado gana `vaultBreakdown: BreakdownDTO` (siempre presente). `BreakdownDTO` ya existe; NO se le agrega `shippingFeeCents` — `vaultBreakdown` reusa el shape base sin envío. | **Aditiva. SERIALIZAR** (zona compartida `frontend/src/types/`): lo edita el stream de frontend, no el arquitecto. |
+| `docs/API_CONTRACT.md` | Esta sección + §4-G.1 (`vaultBreakdown`) + bloque de DTOs (§0) | Ya aplicada, aditiva y localizada. |
 
 **No se necesita tocar:** `common/decorators/public.decorator.ts` (se usa tal cual), `@nestjs/throttler` (ya
 configurado), y **el módulo `mail` NO se modifica por dentro**: `orders` inyecta el puerto global **`MAIL_PORT`**
@@ -2224,6 +2325,12 @@ el binder debe pintar: **una casilla de imagen por entrada**, en el **orden del 
 izquierda, `reverse_holo` después ⇒ derecha), todas con la **misma** `imageSmallUrl` de la carta. Si la carta solo
 trae `["normal"]` se pinta **una** casilla: **nunca** un hueco de relleno ni un acabado por convención. El array
 **nunca llega vacío** y **nunca** se reduce por falta de precio (ARCHITECTURE §4.22a/§4.22c).
+**v1.22-2 (N-15/N-16):** lo que el front PINTA es **`CardDTO.displayFinishes`** (`⊆ availableFinishes`), que en una
+carta **premium de una sola impresión** oculta el acabado `normal` **espurio**; en el resto coincide con
+`availableFinishes`. Con la **rejilla plana (N-16)** el front genera **una tarjeta por cada `finish` de
+`displayFinishes`** (una common con reverse holo real → 2 tarjetas; una ex/full-art → 1 tarjeta Holofoil, sin
+`normal` espuria) y **cotiza cada tarjeta** con `POST /buylist/quote` por `(cardId, finish)`. La **validación
+SEC-A1** del quote sigue contra `availableFinishes` (no contra `displayFinishes`).
 Err: `400 VALIDATION_ERROR` (paginación inválida).
 Nota: para **cotizar** una carta encontrada, el front llama `POST /buylist/quote` con su `cardId`. Si la carta
 es `ex_plus` y **no tiene precio de referencia** (típico en cartas fuera de bóveda), la cotización sale

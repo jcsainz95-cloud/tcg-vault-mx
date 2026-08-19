@@ -1258,6 +1258,13 @@ holo a la derecha**.
 - **Validación (SEC-A1):** cualquier `finish` recibido del cliente (cotizador, alta de inventario) se **valida
   contra `card.availableFinishes`**; si no pertenece → `422 FINISH_NOT_AVAILABLE`. El monto/precio **nunca** se
   toma del cliente: se deriva server-side de `(Card.rarity, finish)` (§4.2).
+- **`displayFinishes` vs `availableFinishes` (v1.22-2 / N-15, §4.22a-6):** `availableFinishes` es la **whitelist
+  SEC-A1** (validación + derivación de dinero) y **no cambia**. `displayFinishes: Finish[]` es un campo **derivado
+  de DISPLAY** (`⊆ availableFinishes`, mismo `FINISH_ORDER`) que **oculta el acabado espurio** de una carta
+  **premium de una sola impresión** (`normal` que entró solo por llave de `tcgplayer.prices` sin `market>0`). Solo
+  RESTA casillas; nunca AÑADE. **La prohibición de heurística por rareza SIGUE VIGENTE:** N-15 usa `isPremiumRarity`
+  únicamente como *gate* para ocultar un acabado que **ya está** en la whitelist —**no** deriva ni **inventa**
+  acabados por rareza; en particular **no inventa `reverse_holo`** (VAR-1 intacto, §9).
 - **Filas históricas / default:** `Card.availableFinishes=[normal]`, `InventoryItem.finish=normal`,
   `SellRequestItem.finish=normal`, `PriceReference.finish=normal`. El **re-sync** repuebla los reales.
 
@@ -3350,7 +3357,7 @@ precio no es prueba de la inexistencia de una impresión.** Además, `availableF
 del `finish` (§3.7): que la escriba un feed de precios significa que un fallo del feed **restringe** lo que un
 vendedor puede cotizar y **borra** casillas del binder.
 
-**Norma v1.22 (5 reglas, normativas):**
+**Norma v1.22 (6 reglas, normativas — la 6ª es v1.22-2/N-15):**
 
 1. **Autoridad única = el sync de catálogo.** `CatalogSyncService.upsertCards` (§4.8) es el **ÚNICO** escritor de
    `Card.availableFinishes` en todo el sistema.
@@ -3405,6 +3412,61 @@ vendedor puede cotizar y **borra** casillas del binder.
    `dataHealth` de M2 (**recomendado, no bloqueante**, backend). El remedio de negocio ante una variante faltante es
    el **override manual del admin**, nunca una regla automática.
 
+6. **§4.22a-6 (v1.22-2 / N-15) — `displayFinishes`: supresión de acabado ESPURIO en premium de una sola impresión
+   (DISPLAY, NO whitelist).** *(El PO resolvió N-15 eligiendo la opción MÍNIMA: solo suprimir la casilla `normal`
+   espuria; ver PROJECT §I. Numeración: se usa `§4.22a-6` y NO `§4.22a-4` porque ese ordinal ya está tomado por la
+   regla anti-regresión `null ⇒ conserva`, referenciada además en comentarios de código.)*
+
+   **Problema.** Por la regla 3 (Señal A) «la LLAVE presente ES la señal, con o sin `market`»: si `tcgplayer.prices`
+   de una **carta premium** (`isPremiumRarity(rarity) === true`, `common/money.ts`) trae una sub-llave `normal`
+   (o cualquier acabado que **no** es su impresión real) **solo como precio pendiente/espurio** (`market` ausente/`0`),
+   ese acabado entra a `catalogFinishes` → `availableFinishes` y el binder pinta una casilla `Normal` para una carta
+   que **en realidad solo existe** en Holofoil (ex/full-art). N-15 elimina esa casilla espuria **sin** tocar la
+   whitelist ni el vector de dinero.
+
+   **Mecanismo — campo DERIVADO de DISPLAY, separado de la whitelist (decisión del arquitecto).** Se expone un
+   campo derivado nuevo `displayFinishes: Finish[]` (subconjunto de `availableFinishes`, mismo orden `FINISH_ORDER`)
+   que el frontend usa para **pintar casillas/tarjetas**. `availableFinishes` **NO cambia**: sigue siendo la
+   **lista blanca SEC-A1** contra la que el backend valida el `finish` del cotizador (`422 FINISH_NOT_AVAILABLE`) y
+   la clave con la que se **deriva el monto** server-side. `displayFinishes` **jamás** valida dinero ni recorta la
+   whitelist. La semántica de seguridad SEC-A1 es intacta.
+
+   **Derivación (función pura, server-side, money-safe):**
+   ```
+   // hasPricedRef(card, f) := existe PriceReference vigente (raw, gradeKey='raw:NM', finish=f) con
+   //                          priceMxnCents > 0 (el MISMO por-acabado que resuelve referenceValue/quote).
+   pricedFinishes := { f ∈ availableFinishes : hasPricedRef(card, f) }
+
+   displayFinishes(card) :=
+     if isPremiumRarity(card.rarity) === true  AND  pricedFinishes ≠ ∅:
+          orderFinishes(pricedFinishes)          // premium de 1 impresión: se conservan SOLO los acabados con
+                                                 // market>0 (su impresión real); los sin precio se OCULTAN.
+     else:
+          availableFinishes                      // DEFAULT: sin supresión (comportamiento actual).
+   ```
+   Invariante **`displayFinishes ⊆ availableFinishes`, no vacío, orden `FINISH_ORDER`**. La supresión **solo RESTA**
+   casillas; **jamás AÑADE** un acabado ⇒ es imposible que N-15 invente nada.
+
+   - **`isPremiumRarity` reusa `common/money.ts`** (el mismo clasificador chase de la Fase 0.1 del buylist). Ninguna
+     lógica de rareza vive en el front (SEC-A1 / una sola autoridad).
+   - **Default rareza `null`/desconocida:** `isPremiumRarity(null) === false` ⇒ **sin supresión**,
+     `displayFinishes = availableFinishes` (comportamiento actual, como pide el PO).
+   - **Salvaguarda anti-cero-casillas:** si la carta premium **no** tiene ningún acabado priceado (toda pendiente),
+     `pricedFinishes = ∅` ⇒ NO se suprime nada (`displayFinishes = availableFinishes`); una carta pendiente no se
+     vende de todos modos, y nunca se deja una celda sin casillas.
+   - **Autocuración:** la supresión es DERIVADA de los precios vigentes; cuando el acabado real recupera precio,
+     reaparece en `displayFinishes` en el siguiente cómputo/refresh (recomputable, no persiste un veredicto).
+   - **Tradeoff aceptado y documentado:** en una carta premium con dos impresiones reales donde una está
+     momentáneamente sin precio, esa segunda casilla se **oculta** en display mientras no tenga `market>0`. Es
+     money-safe (solo se oculta una casilla **sin precio que mostrar**; el acabado sigue en la whitelist, vendible;
+     re-priceo la restaura). Se prefiere sobre pintar una casilla `Normal` espuria en una chase.
+
+   **Prohibición de heurística por rareza — SIGUE VIGENTE (no confundir con N-15).** N-15 **no** deriva ni inventa
+   acabados por rareza: usa la rareza **solo** como *gate* para decidir si OCULTAR un acabado que **ya está** en la
+   whitelist. En particular **NO se inventa `reverse_holo` por rareza**: VAR-1 (§9) se respeta al 100% — el reverse
+   holo de una normal aparece **únicamente** donde PPT/Cardmarket dan señal real (§4.22a-3 / §4.22g), y N-15 nunca lo
+   añade (solo resta). La regla 5 (prohibida cualquier heurística de relleno **aditiva**) queda intacta.
+
 **Consecuencias fuera de este WS (ninguna es breaking):** `PriceReference` **no cambia** — `price-ingest` sigue
 persistiendo el precio de **cualquier** `finish` válido que reporte el proveedor, **incluso si no está** en
 `availableFinishes` (dato inocuo: el quote valida el finish **antes** de leer precio). Esa divergencia se **loguea**
@@ -3454,18 +3516,32 @@ convierten el orden en una propiedad del **dato**, no de cada call-site.
 
 Normativo para **toda** vista de master set (cotizador, binder M1, bóveda admin, «Mi bóveda»):
 
-1. **`|casillas| = |availableFinishes|`**, siempre **≥ 1**.
+1. **`|casillas| = |displayFinishes|`**, siempre **≥ 1**. *(v1.22-2/N-15: el universo de casillas RENDERIZADAS es
+   `displayFinishes` (§4.22a-6), NO `availableFinishes` crudo. En la inmensa mayoría de cartas coinciden; solo una
+   **premium de una sola impresión** con un acabado espurio los distingue —`displayFinishes ⊊ availableFinishes`—.
+   `availableFinishes` sigue siendo la **whitelist SEC-A1** para validar `finish`; `displayFinishes` es lo que se
+   PINTA.)*
 2. El **orden de izquierda a derecha** es el del array, que se persiste y se emite en **`FINISH_ORDER`** (§3.7)
    ⇒ *normal a la izquierda, reverse holo a la derecha*. El front **no ordena** acabados: consume el orden del DTO.
-3. **Prohibido pintar una casilla cuyo `finish` no esté en `availableFinishes`** (nada de placeholder, "hueco de
-   relleno" ni acabado fijo por convención). Si la carta solo tiene `['normal']`, se pinta **una** casilla y la
-   celda queda más angosta — eso es correcto, no un defecto visual a compensar.
+   `displayFinishes` conserva ese mismo orden canónico.
+3. **Prohibido pintar una casilla cuyo `finish` no esté en `displayFinishes`** (nada de placeholder, "hueco de
+   relleno" ni acabado fijo por convención, **ni** el acabado espurio suprimido por N-15). Si la carta solo tiene
+   `['normal']`, se pinta **una** casilla y la celda queda más angosta — eso es correcto, no un defecto visual a
+   compensar.
 4. **La imagen de la variante es la imagen de la CARTA.** Confirmado: pokemontcg.io v2 publica **un solo**
    `images.small` / `images.large` por objeto carta; **no existe** imagen por acabado (el reverse holo no tiene arte
    propia en la fuente). Por eso **`MasterSetVariantDTO` NO gana campo de imagen** y `CardDTO`/`MasterSetCardCellDTO`
    **no** ganan un mapa `imageByFinish`. La lectura del orquestador es **correcta**; se ratifica como norma para que
    ninguna ronda futura vuelva a proponerlo. *(Si algún día se quisiera diferenciar visualmente el reverse holo, es
    un efecto de **presentación** del front —marco/badge/overlay—, no un dato nuevo del contrato.)*
+5. **v1.22-2/N-16 — REJILLA PLANA, una TARJETA por impresión.** La presentación deja de agrupar por carta con
+   sub-casillas y pasa a **una tarjeta (carta+acabado) por cada `finish` de `displayFinishes`**, en flujo plano, en:
+   cotizador, master-set de inventario (admin M1), «Mi bóveda» (cliente) y bóvedas de cliente (admin). El número de
+   tarjetas por carta lo determina **exactamente `displayFinishes`** (tras la supresión N-15), **no** `availableFinishes`
+   crudo: una common con reverse holo real en PPT → **2 tarjetas** (Normal, Reverse Holo); una ex/full-art →
+   **1 tarjeta** (Holofoil), sin `Normal` espuria. Es **presentación del frontend**; el contrato solo expone
+   `displayFinishes` + el precio por acabado que ya existía (§4.22a-6 y API_CONTRACT). El invariante «la imagen es la
+   de la carta» (punto 4) no cambia: todas las tarjetas de una misma carta comparten `imageSmallUrl`/`imageLargeUrl`.
 
 #### (d) Reparación del dato ya existente (prod y staging)
 
@@ -3636,6 +3712,15 @@ pokemontcg.io (cuando responde)                     PPT (paga, responde hoy)
 heurística por rareza (§4.22a-5). (a) queda como la salida documentada para el residuo; **NO** se elige (b)
 `CardSet.hasReverseHolo` porque requiere decisión de producto y **arriesga inventar** reverse holo en cartas del set
 que no lo tienen (viola anti-invención).
+
+**Nota v1.22-2 / N-15 (relación con §4.22a-6).** La supresión de acabado espurio de N-15 opera **aguas abajo** de
+toda la maquinaria de este §4.22g: se computa sobre `availableFinishes` **ya materializada** (unión money-safe de
+`catalogFinishes ∪ pricedFinishesSnapshot`) y produce `displayFinishes ⊆ availableFinishes` **solo para pintar**.
+**No** toca ninguna de las dos columnas de entrada, **no** toca la whitelist SEC-A1, **no** reintroduce la conversa
+prohibida (precio ausente ⇒ quitar del universo de dinero) y —clave— **no** añade acabados: solo oculta. La
+**prohibición de heurística por rareza (candado 3 / regla 5 / §4.22a-5) SIGUE VIGENTE**; N-15 usa la rareza
+(`isPremiumRarity`) exclusivamente como *gate de display* para OCULTAR una casilla ya presente, **jamás** para
+DERIVAR o INVENTAR una (en particular jamás un `reverse_holo`).
 
 #### (h) Reparto de trabajo (v1.22-1 / opción c)
 

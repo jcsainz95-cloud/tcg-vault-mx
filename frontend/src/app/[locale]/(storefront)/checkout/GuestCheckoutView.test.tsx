@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 
@@ -77,8 +77,13 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     await user.type(screen.getByLabelText('Correo electrónico'), 'no-es-correo');
     await user.click(screen.getByRole('button', { name: /Pagar/ }));
 
-    const summary = await screen.findByRole('alert');
-    expect(summary).toHaveTextContent('Revisa');
+    // Al pagar con datos inválidos hay DOS alerts: el resumen de errores del formulario y el
+    // aviso junto al botón (en el aside `complementary`). Acotamos al resumen del formulario,
+    // que vive FUERA del aside (N-9/N-12: el aside agregó su propio destino + aviso de pago).
+    const aside = screen.getByRole('complementary');
+    const summary = (await screen.findAllByRole('alert')).find((el) => !aside.contains(el));
+    expect(summary).toBeDefined();
+    expect(summary!).toHaveTextContent('Revisa');
     expect(
       screen.getAllByText('Escribe un correo válido, por ejemplo nombre@dominio.com.').length,
     ).toBeGreaterThan(0);
@@ -91,7 +96,11 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
 
     await user.click(await screen.findByRole('button', { name: 'Continuar como invitado' }));
-    const vaultRadio = screen.getByRole('radio', { name: /Guardar en mi bóveda/ });
+    // N-9/N-12: hay DOS selectores de destino (el del formulario y el del aside), así que
+    // acotamos al del FORMULARIO (única `region` con nombre accesible "DESTINO"; el aside usa
+    // un `radiogroup` sin rol de región).
+    const form = screen.getByRole('region', { name: 'DESTINO' });
+    const vaultRadio = within(form).getByRole('radio', { name: /Guardar en mi bóveda/ });
     expect(vaultRadio).not.toBeDisabled();
     expect(vaultRadio).not.toHaveAttribute('aria-disabled');
 
@@ -113,7 +122,7 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     // Descartar el upsell devuelve el flujo a envío directo.
     await user.click(screen.getByRole('button', { name: 'Seguir con envío a domicilio' }));
     await waitFor(() => expect(screen.queryByTestId('vault-upsell')).not.toBeInTheDocument());
-    expect(screen.getByRole('radio', { name: /Envío a mi domicilio/ })).toBeChecked();
+    expect(within(form).getByRole('radio', { name: /Envío a mi domicilio/ })).toBeChecked();
   });
 
   it('editar el correo desmarca la confirmación y vuelve a bloquear el pago (§15.3)', async () => {

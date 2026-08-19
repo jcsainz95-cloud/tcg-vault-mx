@@ -15,6 +15,7 @@ import {
   validateSalesFallbackPct,
   validateSealedSpreads,
   validateSealedSpreadFallback,
+  validateFxManualOverrideRate,
 } from '../settings/settings.constants';
 import { BuylistRule, SalesRule } from '../../common/money';
 import { AuditService } from '../audit/audit.service';
@@ -39,7 +40,10 @@ class OverrideDto {
  * opcionales pero el controller exige al menos uno (422 si el body no trae ninguno).
  */
 class FxDto {
-  @IsOptional() @IsInt() @Min(1) rate?: number;
+  // FX-B2: fraccional permitido (FxRate es Decimal(12,6)); el rango [min, MAX] lo aplica el
+  // validador compartido `validateFxManualOverrideRate` en setManual(), MISMA regla que
+  // PUT /admin/settings. Aquí solo se exige que sea número finito (rechaza strings/NaN).
+  @IsOptional() @IsNumber() rate?: number;
   @IsOptional() @IsInt() @Min(0) bufferPct?: number;
 }
 
@@ -421,6 +425,13 @@ export class FxController {
     // #13: al menos uno de rate/bufferPct. Omitir `rate` guarda SOLO el colchón (no pinnea tasa).
     if (dto.rate == null && dto.bufferPct == null) {
       throw BusinessException.validation('VALIDATION_ERROR', 'Provide rate and/or bufferPct');
+    }
+    // FX-B1/FX-B2: mismo validador compartido que PUT /admin/settings → rango [min, MAX] idéntico
+    // en ambas puertas (esta NO queda más permisiva). Rechaza overrides absurdos que desbordarían
+    // `Int priceMxnCents` en price-ingest. `null`/omitido = no pinnea la tasa (solo colchón).
+    if (dto.rate != null) {
+      const err = validateFxManualOverrideRate(dto.rate);
+      if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'rate' });
     }
     await this.fx.setManual(dto.rate, dto.bufferPct);
     await this.audit.log({

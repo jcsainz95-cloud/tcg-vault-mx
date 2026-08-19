@@ -56,6 +56,8 @@ function build(items: any[], refs: Map<string, any>) {
       it.tcgplayerProductId != null ? `sealed:tcg:${it.tcgplayerProductId}` : null,
     ),
     getReferencesBatch: jest.fn(async () => refs),
+    // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
+    getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     // H-1 (v1.24): dial encendido EN RUNTIME (sourceOn:true) — el SEED del dial es `off` (fail-closed,
     // por contrato §M10); este test fija sourceOn:true para ejercer la valuación con el mercado activo.
     // El gate es la misma expresión trivial que el método real `PricingService.gateSealedMarketCents`

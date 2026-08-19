@@ -52,6 +52,8 @@ describe('VaultService.holdings — estado de retiro (v1.17)', () => {
       getReference: jest
         .fn()
         .mockResolvedValue({ status: 'priced', referenceMxnCents: 12500, capturedDate: '2026-08-13' }),
+      // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
+      getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
     const svc = new VaultService(prisma as PrismaService, pricing);
     return { svc, prisma };

@@ -11,8 +11,11 @@ import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET } from '../src/common/card-o
  */
 
 function pricingStub(): PricingService {
-  // El cotizador no usa pricing; se pasa un stub para el constructor de CatalogService.
-  return {} as unknown as PricingService;
+  // El cotizador solo usa pricing para el lote de acabados priceados (displayFinishes, N-15);
+  // stub que devuelve vacío = sin supresión (displayFinishes = availableFinishes).
+  return {
+    getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+  } as unknown as PricingService;
 }
 
 function cardRow(over: Partial<any> = {}) {

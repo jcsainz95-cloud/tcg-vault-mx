@@ -86,11 +86,13 @@ export default function HomePage() {
               href="/catalog"
               className="inline-flex h-[54px] items-center justify-center bg-primary px-8 text-xs font-medium uppercase tracking-[0.18em] text-primary-fg hover:bg-primary-hover"
             >
-              {t('ctaCatalog')}
+              {t('ctaShop')}
             </Link>
+            {/* Link subrayado alineado al CENTRO del botón: en sm el padding vertical es simétrico
+                (pt = pb) para que su texto quede a la misma altura que el texto del botón negro. */}
             <Link
               href="/buylist"
-              className="inline-flex h-[54px] items-center justify-center border border-text px-8 text-xs font-medium uppercase tracking-[0.18em] text-text sm:h-auto sm:border-0 sm:border-b sm:border-accent sm:px-0 sm:pb-1.5"
+              className="inline-flex h-[54px] items-center justify-center border border-text px-8 text-xs font-medium uppercase tracking-[0.18em] text-text sm:h-auto sm:border-0 sm:border-b sm:border-accent sm:px-0 sm:py-1.5"
             >
               {t('ctaBuylist')}
             </Link>

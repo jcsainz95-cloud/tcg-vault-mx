@@ -4654,3 +4654,108 @@ Pase de saneo aprobado por el PO sobre el work stream de Sellado (ya cerrado). S
 `npx tsc --noEmit` limpio · `npm run lint` limpio · `npx jest` **1036 tests / 109 suites en VERDE**
 (1035 previos + 1 nuevo: el 4º call-site `bulkPublish` en `sealed-price-resolver.spec.ts`). Sin commit
 ni push (por instrucción del pase).
+
+## 54. FX AL VUELO — la referencia de mercado en USD se valúa con la tasa vigente (money-safe)
+
+**Problema (dinero):** la FX se aplicaba AL SINCRONIZAR y se congelaba en `PriceReference.priceMxnCents`.
+Cambiar el dial `fx_manual_override_rate` (o Banxico) NO movía los precios hasta re-sincronizar.
+
+**Fix:** la referencia de MERCADO en USD se **recalcula al VALUAR** con la FX vigente
+(`FxService.getCurrent()`), no con el `priceMxnCents` congelado. Un cambio de tasa se refleja al instante,
+sin re-sync. La ingesta NO cambió: sigue guardando `priceUsdCents` (+ `fxRate`/`fxBufferPct` de trazabilidad)
+para las fuentes en USD, y el `priceMxnCents` almacenado se **repurposa como fallback money-safe** (último
+válido si la FX falla).
+
+### 54.1 Distinción "referencia de mercado viva" vs "precio histórico/aceptado"
+Encapsulada en el helper puro `PricingService.liveMxnCents(ref, fx)`:
+- `priceUsdCents != null` y `isManualOverride=false` → **REFERENCIA DE MERCADO VIVA** → `usdToMxnCents(priceUsdCents, fx.rate, fx.bufferPct)` con la FX vigente.
+- `isManualOverride=true` (override del admin en MXN, `priceUsdCents=null`) → **CONGELADO** (el admin fijó pesos a mano).
+- `priceUsdCents=null` sin override (proveedor nativo en MXN) → **CONGELADO** (no hay FX que aplicar).
+- **Órdenes/compras:** el precio se **snapshotea** en la línea de la orden al comprar (`orders.buildLines` → `unitPriceCents`). Una orden pagada NO se mueve retroactivamente aunque cambie la FX.
+- **Series históricas de tendencia** (gráfica de sellado `sealed-catalog` byDate; `SetValueSnapshot` diario; `PortfolioSnapshot` diario) → **CONGELADAS**: cada día conserva la FX con que se ingirió/snapshoteó. Solo el valor "hoy" (sin `asOf`) se recalcula vivo.
+
+### 54.2 Invariantes money-safe
+- `market > 0` siempre: si el recomputo no es finito o `<= 0`, cae al `priceMxnCents` almacenado.
+- **Fallo de FX nunca rompe la valuación ni anula la referencia:** `fxSnapshotSafe()` captura errores de `FxService.getCurrent()` y devuelve `null` → se usa el `priceMxnCents` congelado (último válido).
+- Redondeo consistente en centavos vía el helper existente `usdToMxnCents` (`common/money.ts`).
+- **Sellado (autoprecio = mercado × spread):** el spread se aplica sobre el mercado YA convertido con la FX vigente (`getSealedMarketRef` → `getReference` → live), no sobre un MXN congelado.
+
+### 54.3 Puntos tocados (todos en `backend/`)
+- `pricing.service.ts`: nuevos `fxSnapshotSafe()` (público) y `liveMxnCents()`; `getReference` y `getReferencesBatch` recalculan el MXN vivo (FX izada 1 vez por request; el batch añade `priceUsdCents`/`isManualOverride` al `select`).
+- `admin.service.ts` `ownedItemRefs` (ficha 360° viva): recalcula con FX vigente vía `pricing.liveMxnCents`.
+- `set-value.service.ts` `computeSetValue`: valor "hoy" (sin `asOf`) recalcula vivo; con `asOf` (histórico/snapshot) queda congelado. Se inyectó `PricingService` (sin ciclo).
+- Consumidores que ya pasan por `getReference`/`getReferencesBatch` heredan el fix sin cambios: buylist, inventory/bulk-publish, vault/holdings/admin-vaults, catalog/sealed-catalog listings, orders `salePriceOf`, admin finanzas/custodia, portfolio-snapshot (reusa `VaultService.holdings`).
+
+### 54.4 Migración / backfill
+**No se requiere migración ni backfill.** El schema ya tenía `priceUsdCents`/`fxRate`/`fxBufferPct`, y la
+ingesta SIEMPRE poblaba `priceUsdCents` al convertir desde USD (`syncCardPrice`, `persistMarketReference`,
+`persistSealedMarketReference`). Por tanto cualquier fila con `priceUsdCents=null` es legítimamente un
+override manual o un precio nativo en MXN (ambos correctamente congelados). No hay que re-derivar ni borrar
+nada. Las referencias de mercado USD ya existentes empiezan a valuarse vivas de inmediato (y cada ingesta
+diaria repuebla `priceUsdCents`).
+
+### 54.5 Contrato de API
+**Sin cambios de shape.** Los DTO siguen exponiendo `referenceMxnCents`/`priceMxnCents`; solo cambia el
+VALOR (ahora vivo para referencias USD). No se editó `docs/API_CONTRACT.md`.
+
+### 54.6 Verificación
+`npx tsc --noEmit` limpio · `npm run lint` limpio · `npm test` **1087 tests / 114 suites en VERDE**
+(incluye el nuevo `test/pricing.fx-live.spec.ts`, 8 casos: recomputo vivo, cambio de tasa sin re-sync,
+override/MXN congelados, fallo de FX → fallback, tasa `<=0` → fallback, batch, y sellado mercado×spread
+sobre mercado vivo). Se ajustaron dos mocks existentes (`set-value.spec.ts`, `admin.pii.spec.ts`) para el
+nuevo constructor/superficie de `PricingService`. Sin commit ni push (lo hace el orquestador).
+
+---
+
+## N-15 — `displayFinishes` (supresión de acabado espurio, DISPLAY-only) · rama `claude/pulido-precios-display`
+
+Implementación EXACTA de ARCHITECTURE §4.22a-6 / API_CONTRACT changelog v1.22-2-finish-display. `availableFinishes`
+(whitelist SEC-A1: valida `finish` y deriva el monto) NO cambia; se AÑADE el campo derivado DISPLAY-only
+`displayFinishes: Finish[]` que el front usa para pintar casillas/tarjetas.
+
+### Función pura compartida (UNA sola, sin duplicar)
+`computeDisplayFinishes(rarity, availableFinishes, pricedFinishes)` en `backend/src/common/card-order.ts`
+(zona compartida). Reusa `isPremiumRarity` de `common/money.ts` (NO se redefine la lista de rarezas) y
+`orderFinishes` (FINISH_ORDER). Reglas: premium (`isPremiumRarity===true`) con `pricedFinishes≠∅` ⇒
+`orderFinishes(availableFinishes ∩ priced)`; en cualquier otro caso ⇒ `availableFinishes`. Invariantes
+garantizadas por construcción (el resultado se FILTRA de `availableFinishes`): `⊆ availableFinishes`, nunca
+vacío (salvaguarda anti-cero-casillas: premium totalmente pendiente ⇒ `availableFinishes`), orden FINISH_ORDER.
+SOLO RESTA, jamás AÑADE (un finish priceado fuera de la whitelist no aparece); `isPremiumRarity(null)===false`
+⇒ sin supresión. NO inventa `reverse_holo` por rareza (VAR-1 §9 intacto).
+
+`card-order.ts` pasa a importar `money.ts` — sin ciclo (`money.ts` no importa `card-order.ts`).
+
+### `hasPricedRef` en LOTE (sin N+1)
+Nuevo `PricingService.getPricedRawFinishesBatch(cardIds): Map<cardId, Set<Finish>>` — UNA query
+(`productType='raw'`, `gradeKey='raw:NM'`, `priceMxnCents>0`, `distinct [cardId,finish]`). Es el mismo
+por-acabado que alimenta `referenceValue`/quote. No aplica FX: solo interesa la EXISTENCIA de precio>0 para
+display (el monto valuado no cambia; la invariante de ingesta `market>0` ya se refleja en `priceMxnCents`).
+
+### Exposición en DTOs (aditiva, sin endpoints ni migración)
+- `CardDTO += displayFinishes` — en `toCardDTO(card, pricedFinishes?)` (`catalog.service.ts`). Segundo parámetro
+  OPCIONAL: omitido ⇒ conjunto vacío ⇒ sin supresión money-safe (premium cae a la salvaguarda; no-premium
+  intacto). Los call-sites de catalog/quoter/master-set/vault SIEMPRE lo pasan (batch).
+- `MasterSetCardCellDTO += displayFinishes` y `MasterSetVariantDTO += displayed` (`= finish ∈ displayFinishes`)
+  en `master-set.service.ts` (`binder`). `variants` SIGUE trayendo una entrada por acabado de `availableFinishes`
+  (universo de completitud X/Y = `expected/coveredVariantCount` sobre `availableFinishes`, SIN cambio);
+  `displayed` solo indica cuál PINTA el render plano N-16.
+
+### Call-sites tocados (todos evitan N+1)
+- `catalog.service.ts`: `fetchSellable` (batch por card, threaded a `toListingDTO` vía ctx.pricedFinishes),
+  `getCard` (batch de 1), `searchAllCards` (batch de la página — picker del cotizador).
+- `vault.service.ts`: `holdings`, bóveda sellada y `holdingDetail` (batch antes del loop / batch de 1).
+- `buylist.service.ts`: `adminRejectedItems` (batch de la página).
+- `admin.service.ts`: lista de inventario — REUSA los `refs` YA cargados (deriva el set de acabados raw/`raw:NM`
+  con `priceMxnCents>0` inline, SIN query extra).
+- `master-set.service.ts`: `binder` (batch por cards del set).
+- `sealed-catalog.service.ts` / `pricing/sealed-mapping.service.ts`: sin cambio (sellado siempre `finish=normal`;
+  con el default vacío `displayFinishes = availableFinishes`, no-op deliberado).
+
+### Verificación
+`npx tsc --noEmit` limpio · `npm run lint` limpio · `npm test` **1096 tests / 115 suites en VERDE**.
+Nuevo `test/display-finishes.spec.ts` (9 casos: función pura ex/full-art, common, salvaguarda ∅, rareza null,
+orden FINISH_ORDER, SOLO-resta, default; + binder `displayed` por variante y X/Y intacto). Se ajustaron mocks
+existentes que ahora rozan `getPricedRawFinishesBatch` (`master-set.service`, `master-set.scopes`, `catalog`,
+`buylist-catalog`, `vault.holdings-withdrawal`, `vault-sealed`, `buylist.rejected-items`) y las aserciones
+`toEqual` de `variants` en `master-set.scopes` (ahora incluyen `displayed`). Suites de finish/completitud NO
+cambiaron su semántica (X/Y sigue sobre `availableFinishes`). Sin commit ni push (lo hace el orquestador).

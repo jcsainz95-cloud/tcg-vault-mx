@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { computeSalePriceForRarity } from '../../common/money';
-import { CARD_ORDER_BY_IN_SET, FINISH_ORDER } from '../../common/card-order';
+import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
 
 /**
  * MasterSetService (v1.16-master-set §4.17a · v1.20-master-set-everywhere §4.20a) — read model
@@ -71,6 +71,10 @@ export interface MasterSetVariantDTO {
   finish: Finish;
   count: number;
   covered: boolean;
+  // v1.22-2 / N-16 (§4.22a-6): espejo de conveniencia para el render PLANO — `= finish ∈
+  // cell.displayFinishes`. Las variantes `displayed=false` (acabado espurio suprimido) NO se pintan
+  // pero SIGUEN contando para completitud (X/Y) y buyable (universo = availableFinishes, intacto).
+  displayed: boolean;
   buyable?: { inventoryItemId: string; salePriceCents: number } | null;
 }
 
@@ -119,6 +123,10 @@ export interface MasterSetCardCellDTO {
   rarity?: string;
   imageSmallUrl?: string;
   availableFinishes: Finish[];
+  // v1.22-2 / N-15 (§4.22a-6): subconjunto DISPLAY-only de availableFinishes que el front PINTA
+  // (oculta el acabado espurio de una premium de 1 impresión). ⊆ availableFinishes, orden
+  // FINISH_ORDER, nunca vacío. NO cambia la completitud X/Y (que cuenta sobre availableFinishes).
+  displayFinishes: Finish[];
   countsByFinish: { finish: Finish; count: number }[];
   totalCount: number;
   isSecretRare: boolean;
@@ -412,6 +420,9 @@ export class MasterSetService {
       countsByCard.set(g.cardId, list);
     }
 
+    // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch(cardIds);
+
     const printedTotal = set.printedTotal ?? null;
     const cells: MasterSetCardCellDTO[] = cards
       .map((c) => {
@@ -422,9 +433,18 @@ export class MasterSetService {
         // v1.20 — universo de variantes esperado (histórico → ['normal']). El drift (piezas con
         // finish FUERA del universo) queda visible en countsByFinish pero no en variants/covered.
         const universe = expectedFinishes(c.availableFinishes as Finish[]);
+        // v1.22-2 / N-15 (§4.22a-6): displayFinishes ⊆ availableFinishes (oculta el espurio de una
+        // premium de 1 impresión); `displayed` marca por variante si el front la PINTA. La completitud
+        // (expected/covered) SIGUE contando sobre el universo `availableFinishes`, sin cambio.
+        const displayFinishes = computeDisplayFinishes(
+          c.rarity,
+          c.availableFinishes as Finish[],
+          pricedByCard.get(c.id) ?? [],
+        );
+        const displaySet = new Set<Finish>(displayFinishes);
         const variants: MasterSetVariantDTO[] = universe.map((finish) => {
           const count = byFinish.find((x) => x.finish === finish)?.count ?? 0;
-          return { finish, count, covered: count > 0 };
+          return { finish, count, covered: count > 0, displayed: displaySet.has(finish) };
         });
         return {
           cardId: c.id,
@@ -435,6 +455,7 @@ export class MasterSetService {
           rarity: c.rarity ?? undefined,
           imageSmallUrl: c.imageSmallUrl ?? undefined,
           availableFinishes: (c.availableFinishes ?? ['normal']) as Finish[],
+          displayFinishes,
           countsByFinish: byFinish,
           totalCount,
           // isSecretRare — heurística de DISPLAY (API_CONTRACT §M1 v1.16.1 / ARCHITECTURE §4.17a,

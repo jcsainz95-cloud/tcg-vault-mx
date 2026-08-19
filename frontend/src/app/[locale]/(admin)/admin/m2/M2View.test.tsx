@@ -449,4 +449,49 @@ describe('M2View · Catálogo y precios', () => {
 
     expect(await screen.findByText(/Ya hay una ingesta de precios en curso/)).toBeInTheDocument();
   });
+
+  // ---- N-14: la barra de progreso aparece SIN recargar tras disparar el ingest ----
+  it('N-14: tras "Actualizar precios ahora" la barra aparece sin recargar (refetch inmediato + poll proactivo)', async () => {
+    vi.spyOn(api, 'triggerPriceIngest').mockResolvedValue({
+      job: 'price-ingest',
+      enqueued: true,
+      jobId: 'pi-1',
+    });
+    // El backend tarda un instante en reportar `running`: la 1ª lectura (al montar) y la 2ª (el
+    // refetch inmediato del onSuccess) AÚN reportan running:false — el job apenas se encoló. Solo
+    // una lectura POSTERIOR ve running:true. Sin `justDispatched` el poll no arrancaría (el viejo
+    // refetchInterval solo poll-ea si YA vio running) y la barra nunca saldría hasta recargar.
+    let calls = 0;
+    vi.spyOn(api, 'getPriceSyncStatus').mockImplementation(async () => {
+      calls += 1;
+      const running = calls >= 3;
+      return {
+        running,
+        jobId: 'pi-1',
+        total: running ? 10 : 0,
+        done: running ? 2 : 0,
+        startedAt: running ? '2026-08-19T00:00:00.000Z' : null,
+        finishedAt: null,
+        lastError: null,
+        dailyRemaining: null,
+        dailyLimited: false,
+        pending: 0,
+        provider: 'pokemonpricetracker',
+      };
+    });
+
+    renderWithProviders(<M2View />, 'es');
+    // Estado inicial: sin barrido (running:false, total:0) → NO hay barra todavía.
+    await waitFor(() => expect(calls).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText(/Actualizando precios…/)).toBeNull();
+
+    // Dispara la actualización: el onSuccess refetch-ea de inmediato (call 2, aún running:false) y
+    // marca justDispatched → el poll sigue vivo y la lectura siguiente (call 3) ve running:true.
+    fireEvent.click(await screen.findByRole('button', { name: /Actualizar precios ahora/ }));
+
+    // La barra aparece SIN recargar la página (la atrapa el poll proactivo, no una recarga).
+    expect(
+      await screen.findByText(/Actualizando precios… 2\/10 sets/, undefined, { timeout: 6000 }),
+    ).toBeInTheDocument();
+  });
 });

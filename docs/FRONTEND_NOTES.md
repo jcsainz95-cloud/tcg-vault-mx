@@ -4,6 +4,54 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Pulido precios/display (2026-08-19, branch `claude/pulido-precios-display`)
+
+Tres tareas independientes de pulido de UI/UX.
+
+### N-16 · Carta normal en el binder Master Set (quitar la agrupación por variante)
+Antes (v1.22) cada carta se pintaba con UNA CASILLA DE IMAGEN POR VARIANTE (una imagen por
+acabado), lo que visualmente "agrupaba" la carta en varias casillas. El PO pidió mostrar cada
+carta como **carta normal**: UNA sola imagen. Como el binder Master Set es un **componente
+COMPARTIDO** (`components/master-set/`) usado por las 4 vistas (§4.20f), el cambio se hizo en un
+solo lugar y aplica a todas: cotizador (`mode="quoter"`), master set de inventario admin (M1),
+Mi bóveda (`user_vault_self`) y bóvedas de cliente admin (`user_vault_admin`).
+- **`MasterSetBinder.tsx`**: la cuadrícula pasa a un grid normal de tarjetas
+  (`grid-cols-2 … xl:grid-cols-5`). `BinderCell` pinta UNA imagen (`CardTileImage`, antes
+  `VariantImage`) + `#número` + completitud por variantes (`{covered}/{expected} casillas`) +
+  badge secret rare + chips de drift; el desglose por acabado (conteos/huecos/compra/alta) vive en
+  el drawer. `QuoterCell` pinta UNA imagen + botones de venta POR ACABADO en lista debajo (mismos
+  `aria-label`/`onAddVariant` → carrito de venta intacto). Se eliminaron `slotCols`,
+  `gridColsForSlots` y `slotGridStyle` (ya no hay retícula interna por casilla).
+- **`CellDrawer.tsx`** (`VariantSlots`): el detalle deja de repetir la imagen por variante; ahora
+  es UNA imagen de la carta + LISTA por acabado (etiqueta, conteo/hueco, CTA de compra en
+  `user_vault_self`). Se conservan título "Casillas por acabado", CTA `buyable`/"No disponible" y
+  todas las acciones de M1 (alta/publicación/ajuste) sin tocar.
+- **Datos/contrato SIN cambios**: se sigue consumiendo `variants[]`/`availableFinishes` del
+  contrato (completitud por variante) — solo cambia la PRESENTACIÓN a carta normal.
+- Tests (`MasterSet.test.tsx`): se actualizaron las 2 aserciones de grid que exigían "una imagen
+  por variante" a la nueva forma (1 imagen por celda; el desglose por acabado se verifica en el
+  drawer). El resto (25 tests) verde.
+- **Componente compartido tocado** (`components/master-set/`): serializar el merge con cualquier
+  otro stream que toque esa carpeta.
+
+### N-14 · Barra de progreso de precios (M2) que aparecía solo tras recargar
+`M2View.tsx`: el `refetchInterval` de `price-sync-status` solo poll-eaba si YA había visto
+`running:true`. Tras disparar el ingest, el job tarda un instante en marcar `running`, así que el
+refetch inmediato veía `running:false`, el poll se apagaba y la barra no salía hasta recargar. Fix:
+estado local `justDispatched` (se marca en `onSuccess` de `ingestMutation` junto con un `refetch()`
+inmediato) que mantiene el poll vivo (`refetchInterval` considera `running || justDispatched`) hasta
+que el barrido asome; al ver `running:true` se suelta la bandera (poll gobernado por `running`, se
+detiene al terminar) y un `setTimeout` de 30 s la caduca como red anti-poll-infinito. Test de
+regresión N-14 añadido (falla sin el fix).
+
+### CTA del hero: alineación + relabel a "Tienda"
+`(storefront)/page.tsx`: los dos CTA del hero ("Ir a la Tienda" botón negro y "Vender mis cartas"
+link subrayado) no quedaban al mismo nivel — el link tenía `sm:pb-1.5` sin padding superior, así que
+con `items-center` su texto quedaba ~3px arriba del centro del botón. Se cambió a `sm:py-1.5`
+(padding vertical simétrico) → centros alineados (verificado con Playwright: delta 0.00px). Además,
+como "Compra" ahora se llama **"Tienda"**, la clave i18n `home.ctaCatalog` se renombró a
+`home.ctaShop` ("Ir a la Tienda" / "Go to Store") en `messages/es.json` y `en.json`.
+
 ## Fix M1 · alta de inventario (2026-08-18, branch `fix/m1-alta-inventario`)
 
 Cuatro hallazgos del diagnóstico E2E (stack real, mocks OFF) sobre el ALTA de inventario admin.
@@ -3988,3 +4036,21 @@ mockeado a `<a>` + `push` espía. No se tocó lógica de producción (ningún te
 
 Gates de esta pasada: `npx tsc --noEmit` ✓ · `npx next lint` ✓ (sin warnings) · `npx vitest run` ✓
 (57 archivos / 428 tests, sin regresiones).
+
+## N-12 · Resumen de pago reactivo al destino (v1.21.4-dual-breakdown, rama `claude/pulido-checkout`)
+`POST /checkout/guest/quote` ahora devuelve DOS desgloses en el mismo `200`: `breakdown` (envío
+directo, con `shippingFeeCents`) y `vaultBreakdown` (destino bóveda, SIN envío). El front conmuta
+el resumen «recibir ⇄ bóveda» al instante, SIN refetch (ambos vienen precomputados).
+- `GuestCheckoutView` calcula `activeBreakdown = destination === 'vault' ? vaultBreakdown : breakdown`
+  y lo pasa a `<AmountBreakdown>`, al total del botón «Pagar» y al `amountLabel` del `StripePaymentModal`.
+  `AmountBreakdown` NO se tocó: ya oculta la línea de envío cuando `shippingFeeCents == null`.
+- `shippingFeeLabel` (hint del radio «envío {amount}» + upsell «te ahorras {amount}») SIGUE saliendo de
+  `breakdown.shippingFeeCents` (tarifa REAL de envío), no del vault: es cuánto se ahorra al NO enviar.
+- Zonas compartidas de `frontend/src/` tocadas (serializar merge): `types/contract.ts`
+  (`GuestCheckoutQuoteResponse` gana `vaultBreakdown: BreakdownDTO`, aditivo) y `lib/api.ts` (mock de
+  `getGuestCheckoutQuote` devuelve `vaultBreakdown` = `computeBreakdown(subtotal)`, réplica de
+  `computeCartBreakdown`; ceros sin `shippingFeeCents` para el carrito 100 % podado). `lib/mock/fixtures.ts`
+  NO cambió (el quote de invitado se compone inline en `api.ts`, no desde un objeto fijo).
+- Tests: se desambiguaron 2 fallos preexistentes en `GuestCheckoutView.test.tsx` (había DOS selectores de
+  destino tras N-9) con `within()` acotando al formulario (`region` «DESTINO») vs. el aside
+  (`complementary`); nuevo archivo `GuestCheckoutDestinationBreakdown.test.tsx` (3) cubre la reactividad.

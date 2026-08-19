@@ -97,8 +97,10 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
       screen.getByRole('button', { name: /^Agregar Charizard \(Holofoil\) a la venta/ }),
     ).toBeInTheDocument();
     // Estimado del acabado normal: Rare Holo (fallback 40%) sobre MX$48,500 → MX$19,400.00.
+    // N-16 rejilla plana: el botón "Agregar" es su propia acción; el precio va en su etiqueta
+    // accesible (aria-label) y en el renglón mono de la tarjeta, no dentro del texto del botón.
     await waitFor(() => expect(normal).toBeEnabled());
-    expect(normal.textContent).toContain('MX$19,400.00');
+    expect(normal.getAttribute('aria-label')).toContain('MX$19,400.00');
   });
 
   it('clic en una casilla agrega la carta DIRECTO al carrito con su estimado', async () => {

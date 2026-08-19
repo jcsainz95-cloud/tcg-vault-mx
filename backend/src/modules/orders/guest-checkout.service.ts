@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Locale, Order, OrderStatus, Prisma, ShipmentRequest, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { computeDirectShipBreakdown, DirectShipBreakdownDTO } from '../../common/money';
+import {
+  BreakdownDTO,
+  computeCartBreakdown,
+  computeDirectShipBreakdown,
+  DirectShipBreakdownDTO,
+} from '../../common/money';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
@@ -79,8 +84,10 @@ export class GuestCheckoutService {
     const { lines, subtotalCents, unavailableItems } = await this.orders.priceCartForQuote(
       dto.inventoryItemIds,
     );
-    const breakdown =
-      lines.length === 0 ? await this.zeroBreakdown() : await this.breakdownFor(subtotalCents);
+    const { breakdown, vaultBreakdown } = await this.quoteBreakdowns(
+      subtotalCents,
+      lines.length === 0,
+    );
     return {
       items: lines.map((l) => ({
         inventoryItemId: l.inventoryItemId,
@@ -89,6 +96,10 @@ export class GuestCheckoutService {
       })),
       fulfillmentMode: 'direct_ship' as const,
       breakdown,
+      // v1.21.4-dual-breakdown (§4-G.1): segundo desglose "de bóveda" (solo cartas, SIN envío),
+      // informativo/reactivo (gancho del upsell). SIEMPRE presente; pagar bóveda sigue exigiendo
+      // cuenta (§4-G.2 `422 VAULT_REQUIRES_ACCOUNT`).
+      vaultBreakdown,
       unavailableItems,
       // Banderas, no texto (§0 i18n): el front renderiza ventas finales / factura / términos.
       notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
@@ -398,13 +409,31 @@ export class GuestCheckoutService {
   }
 
   /**
-   * v1.21.3-quote-prune (§4-G.1) — breakdown EN CEROS del quote con carrito 100 % podado:
-   * extiende el cero canónico de `OrdersService` con `shippingFeeCents: 0` (no hay nada que
-   * enviar, así que tampoco se cobra tarifa ni se corre el gross-up).
+   * v1.21.4-dual-breakdown (§4-G.1) — computa los DOS desgloses del quote de invitado en UNA sola
+   * lectura de settings (mismos diales que `breakdownFor`), sobre el MISMO `subtotalCents`:
+   *  - `breakdown` (`DirectShipBreakdownDTO`, CON envío): el destino "envío directo", lo que se
+   *    cobra; no cambió de shape ni fórmulas respecto de v1.21.3.
+   *  - `vaultBreakdown` (`BreakdownDTO`, SIN envío): el destino "bóveda", SOLO cartas, informativo.
+   *    Es EXACTAMENTE `computeCartBreakdown(subtotal, ivaRatePct, fee)` (§4-G.1).
+   * Carrito 100 % podado (`empty`): AMBOS en ceros. El `breakdown` extiende el cero canónico de
+   * `OrdersService` con `shippingFeeCents: 0` (nada que enviar); el `vaultBreakdown` ES ese mismo
+   * cero canónico (cart breakdown sin envío), SIN `shippingFeeCents`.
    */
-  private async zeroBreakdown(): Promise<DirectShipBreakdownDTO> {
+  private async quoteBreakdowns(
+    subtotalCents: number,
+    empty: boolean,
+  ): Promise<{ breakdown: DirectShipBreakdownDTO; vaultBreakdown: BreakdownDTO }> {
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
-    return { ...this.orders.zeroCartBreakdown(ivaPct), shippingFeeCents: 0 };
+    const fee = await this.settings.getStripeFee();
+    if (empty) {
+      const zero = this.orders.zeroCartBreakdown(ivaPct);
+      return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero };
+    }
+    const shippingFeeCents = await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS);
+    return {
+      breakdown: computeDirectShipBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
+      vaultBreakdown: computeCartBreakdown(subtotalCents, ivaPct, fee),
+    };
   }
 
   /** Desglose con envío DENTRO de la orden (§4-G.0-2). La tarifa reusa el dial `SHIPPING_FEE_CENTS`. */
