@@ -39,9 +39,19 @@ async function fetchQuoterIndex(filters: MasterSetIndexFilters): Promise<MasterS
   const sets = await listBuylistSets();
   const q = (filters.q ?? '').trim().toLowerCase();
   const matched = q ? sets.filter((s) => s.name.toLowerCase().includes(q)) : sets;
-  const sorted = [...matched].sort(
-    (a, b) => (b.year ?? 0) - (a.year ?? 0) || a.name.localeCompare(b.name),
-  );
+  // N-1: ordenar por `releaseDate` COMPLETA descendente (no solo por año), igual que el
+  // backend en `listSetsWithImportedCards`. Con año-solo, los sets del mismo año caían en
+  // orden alfabético y Pitch Black (2026) quedaba tras Ascended/Chaos/Perfect. Sets sin
+  // fecha van al final (por año y nombre) en vez de mezclarse como si fueran los más nuevos.
+  const sorted = [...matched].sort((a, b) => {
+    if (a.releaseDate && b.releaseDate) {
+      if (a.releaseDate !== b.releaseDate) return a.releaseDate < b.releaseDate ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    }
+    if (a.releaseDate) return -1; // b sin fecha → al final
+    if (b.releaseDate) return 1; // a sin fecha → al final
+    return (b.year ?? 0) - (a.year ?? 0) || a.name.localeCompare(b.name);
+  });
   const pageSize = filters.pageSize ?? PAGE_SIZE;
   const page = filters.page ?? 1;
   const start = (page - 1) * pageSize;

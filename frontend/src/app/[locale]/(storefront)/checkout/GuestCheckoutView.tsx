@@ -138,7 +138,13 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       setUpsellOpen(true);
       return;
     }
-    if (Object.keys(errors).length > 0) return;
+    // N-3: el botón ya no se queda mudo. Si faltan datos del formulario (p. ej. teléfono
+    // inválido) los campos marcan su error arriba, PERO además avisamos junto al botón para
+    // que no parezca que "no hace nada".
+    if (Object.keys(errors).length > 0) {
+      setPayError(t('guest.formIncomplete'));
+      return;
+    }
 
     setCreating(true);
     try {
@@ -308,13 +314,42 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
               {identity === 'guest' ? (
                 <>
+                  {/* N-9: destino JUSTO arriba de "Pagar" (además del detalle+upsell en el
+                      formulario), para que el invitado confirme a dónde va su compra antes de
+                      pagar. Comparte el mismo estado: elegir bóveda abre el upsell y explica el
+                      bloqueo bajo el botón. */}
+                  <div className="mt-7">
+                    <h2 className="eyebrow">{t('destination.eyebrow')}</h2>
+                    <div
+                      className="mt-3 grid grid-cols-2 gap-2"
+                      role="radiogroup"
+                      aria-label={t('destination.eyebrow')}
+                    >
+                      {(['ship', 'vault'] as const).map((opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          role="radio"
+                          aria-checked={destination === opt}
+                          onClick={() => chooseDestination(opt)}
+                          className={`min-h-[44px] border px-3 py-2 text-sm transition-colors ${
+                            destination === opt
+                              ? 'border-text bg-surface-2 text-text'
+                              : 'border-border text-muted hover:text-text'
+                          }`}
+                        >
+                          {t(`destination.${opt}`)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <Button
                     variant="accent"
                     loading={creating}
                     disabled={!!payBlockedReason}
                     aria-describedby={payBlockedReason ? 'pay-blocked-note' : undefined}
                     onClick={pay}
-                    className="mt-7 w-full"
+                    className="mt-5 w-full"
                   >
                     {creating
                       ? t('preparing')

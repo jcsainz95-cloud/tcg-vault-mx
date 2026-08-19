@@ -228,6 +228,7 @@
       "recipientName": "Recipient name",
       "phoneHelp": "Only the courier uses it to deliver.",
       "errorSummary": "Check {count, plural, one {# field} other {# fields}}.",
+      "formIncomplete": "Check the highlighted fields above (for example your phone) to continue to payment.",
       "acceptTerms": "I accept the terms and the privacy notice, and I understand that all sales are final.",
       "acceptTermsRequired": "To pay, accept the terms.",
       "email": {
