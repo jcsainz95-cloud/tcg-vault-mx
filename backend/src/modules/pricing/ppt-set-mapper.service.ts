@@ -136,6 +136,18 @@ export function normalizeSetName(name: string | null | undefined): string {
   return (name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/**
+ * Nombres normalizados con los que un set de PPT puede empatar: el nombre COMPLETO y —si trae un
+ * prefijo de código de colección tipo `"ME05:"` / `"ME:"` / `"SV08:"`— también el nombre SIN ese
+ * prefijo. PokemonPriceTracker prefija (`"ME05: Pitch Black"`), pero el catálogo local
+ * (pokemontcg.io) NO (`"Pitch Black"`); sin esto, el match exacto fallaba para TODO set prefijado.
+ */
+export function setNameCandidates(remoteName: string | null | undefined): string[] {
+  const full = normalizeSetName(remoteName);
+  const stripped = normalizeSetName((remoteName ?? '').replace(/^\s*[A-Za-z0-9]{1,6}\s*:\s*/, ''));
+  return stripped !== '' && stripped !== full ? [full, stripped] : [full];
+}
+
 /** El `setId` a mandar a PPT: GroupId numérico (preferido) → slug → mongo id. Null si ninguno sirve. */
 export function pptSetIdOf(remote: PptRemoteSet): string | null {
   const numeric = remote.tcgPlayerNumericId;
@@ -155,7 +167,10 @@ export function matchSet(local: Pick<CardSet, 'name' | 'releaseDate'>, remote: P
   const targetName = normalizeSetName(local.name);
   if (targetName === '') return null;
 
-  const byName = remote.filter((r) => normalizeSetName(r.name) === targetName);
+  // Empata contra el nombre completo O contra el nombre sin el prefijo de código de colección
+  // (PPT: "ME05: Pitch Black" ↔ local "Pitch Black"). Money-safe: sigue exigiendo match ÚNICO;
+  // el desempate por año se mantiene.
+  const byName = remote.filter((r) => setNameCandidates(r.name).includes(targetName));
   if (byName.length === 1) return pptSetIdOf(byName[0]);
   if (byName.length === 0) return null;
 
