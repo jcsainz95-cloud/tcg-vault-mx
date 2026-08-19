@@ -1,6 +1,7 @@
 import { AdminVaultsService } from '../src/modules/vault/admin-vaults.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { VaultService } from '../src/modules/vault/vault.service';
 
 /**
  * v1.20-master-set-everywhere (§4.20c) — GET /admin/vaults: lista de clientes CON bóveda.
@@ -34,7 +35,9 @@ function build(over: {
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     getReferencesBatch: jest.fn().mockResolvedValue(over.refs ?? new Map()),
   } as unknown as PricingService;
-  return { prisma, pricing, svc: new AdminVaultsService(prisma, pricing) };
+  // VaultService solo lo usa `AdminVaultsService.sealed` (no `list`); stub vacío para estos tests.
+  const vault = { sealedTab: jest.fn() } as unknown as VaultService;
+  return { prisma, pricing, svc: new AdminVaultsService(prisma, pricing, vault) };
 }
 
 describe('AdminVaultsService.list — valuación de portafolio + sorts (§4.20c)', () => {

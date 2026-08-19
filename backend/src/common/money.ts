@@ -304,6 +304,57 @@ export function computeSalePriceForRarity(
   };
 }
 
+/**
+ * v1.23-sealed-sales (§4.23b) — precio de VENTA del SELLADO por PRESENTACIÓN. Hermana de
+ * `computeSalePriceForRarity`, keyeada por `SealedSubtype` en vez de rareza+acabado.
+ * `source` = de dónde salió el precio (SealedSpreadSource del contrato).
+ */
+export type SealedSpreadSource = 'override' | 'subtype_spread' | 'global_spread';
+export interface SealedSpreadResult {
+  salePriceCents: number | null;
+  status: 'priced' | 'pending';
+  source: SealedSpreadSource;
+  /** null cuando source='override'. */
+  appliedSpreadPct: number | null;
+}
+
+/**
+ * Precedencia money-safe (SEC-A1, todo server-side — ARCHITECTURE §4.23a):
+ *   override (InventoryItem.listPriceCents)           ← gana SIEMPRE si presente
+ *     > mercado × (1 + spread_de_su_presentación/100) ← si hay market y su SealedSubtype tiene spread
+ *     > mercado × (1 + spread_global/100)             ← si hay market pero sin spread de presentación
+ *     > (sin precio) ⇒ PRICE_PENDING ⇒ NO se publica  ← sin mercado y sin override, NUNCA se inventa
+ *
+ * La condición NO altera el precio (el spread es por presentación); para descontar una caja con
+ * detalle el admin usa el override de esa pieza. `pct` = markup ARRIBA de mercado (como ventas §4.14,
+ * NO «% de la referencia» del buylist). `subtype`/`market`/`override` salen de BD; los spreads de
+ * ConfigSetting. Nada viene del DTO del cliente.
+ */
+export function computeSealedSalePrice(
+  overrideCents: number | null,
+  sealedSubtype: string | null,
+  marketMxnCents: number | null,
+  spreadPctBySubtype: Record<string, number>,
+  fallbackPct: number,
+): SealedSpreadResult {
+  if (overrideCents != null) {
+    return { salePriceCents: overrideCents, status: 'priced', source: 'override', appliedSpreadPct: null };
+  }
+  const hasSubtypeSpread = sealedSubtype != null && spreadPctBySubtype[sealedSubtype] != null;
+  const spread = hasSubtypeSpread ? spreadPctBySubtype[sealedSubtype as string] : fallbackPct;
+  const source: SealedSpreadSource = hasSubtypeSpread ? 'subtype_spread' : 'global_spread';
+  if (marketMxnCents == null) {
+    // Sin mercado y sin override → pendiente (no publicable). NUNCA se inventa un precio.
+    return { salePriceCents: null, status: 'pending', source, appliedSpreadPct: spread };
+  }
+  return {
+    salePriceCents: Math.round(marketMxnCents * (1 + spread / 100)),
+    status: 'priced',
+    source,
+    appliedSpreadPct: spread,
+  };
+}
+
 export interface BreakdownDTO {
   subtotalCents: number;
   ivaCents: number;

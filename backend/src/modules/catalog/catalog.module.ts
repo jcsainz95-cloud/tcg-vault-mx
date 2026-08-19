@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { CatalogService } from './catalog.service';
 import { SetValueService } from './set-value.service';
+import { SealedCatalogService } from './sealed-catalog.service';
+import { SealedRestockNotifyService } from './sealed-restock-notify.service';
 import { CatalogController } from './catalog.controller';
 import { AdminCatalogController } from './admin-catalog.controller';
 import { CatalogSyncService } from './catalog-sync.service';
@@ -23,6 +25,8 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     CatalogSyncService,
     PokemonTcgIoClient,
     SetValueService,
+    SealedCatalogService,
+    SealedRestockNotifyService,
     SetPriceSyncJobService,
     SetValueSnapshotJobService,
     // v1.12-catalog-pricing (§4.13c): vive aquí porque depende de CatalogSyncService (evita ciclos
@@ -33,6 +37,8 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
   exports: [
     CatalogService,
     SetValueService,
+    SealedCatalogService,
+    SealedRestockNotifyService,
     SetPriceSyncJobService,
     SetValueSnapshotJobService,
     CatalogPriceSyncJobService,

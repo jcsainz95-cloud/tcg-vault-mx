@@ -13,8 +13,10 @@ import { PricingProvider, PriceSourceStr, buildGradeKey, sealedMarketGradeKey } 
 import {
   usdToMxnCents,
   computeSalePriceForRarity,
+  computeSealedSalePrice,
   SalePriceResult,
   SalesRule,
+  SealedSpreadResult,
 } from '../../common/money';
 
 function today(): Date {
@@ -148,6 +150,69 @@ export class PricingService {
       ((await this.settings.getRaw(SettingKey.SALES_PRICE_RULES)) as Record<string, SalesRule> | null) ?? {};
     const fallbackPct = await this.settings.getNumber(SettingKey.SALES_PRICE_FALLBACK_PCT);
     return { rules, fallbackPct };
+  }
+
+  /**
+   * v1.23-sealed-sales (§4.23b/§4.23c/§4.23d) — CONTEXTO de precio del SELLADO izado en UNA lectura
+   * por request (espejo de `loadSalesRules`, pago mínimo de BE-25): spreads por presentación +
+   * fallback + estado del dial `sealedPriceSource`. `sourceOn=false` (dial off) ⇒ el sellado solo se
+   * vende con override manual (el `sealedMarketRef` queda inerte, ARCHITECTURE §4.23a).
+   */
+  async loadSealedSpreads(): Promise<{
+    spreadPctBySubtype: Record<string, number>;
+    fallbackPct: number;
+    sourceOn: boolean;
+  }> {
+    const spreadPctBySubtype =
+      ((await this.settings.getRaw(SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE)) as Record<
+        string,
+        number
+      > | null) ?? {};
+    const fallbackPct = await this.settings.getNumber(SettingKey.SEALED_SPREAD_FALLBACK_PCT);
+    const sourceOn = (await this.settings.getString(SettingKey.SEALED_PRICE_SOURCE)) === 'tcgcsv';
+    return { spreadPctBySubtype, fallbackPct, sourceOn };
+  }
+
+  /**
+   * gradeKey de la referencia de MERCADO del sellado de UN item (`sealed:tcg:<productId>`), o `null`
+   * si el item no está mapeado (sin productId → sin mercado). Lo usan los call-sites que batchean
+   * referencias de sellado (grid, bulk-publish, bóveda sellada) para no reinventar la clave.
+   */
+  sealedMarketGradeKeyForItem(item: { tcgplayerProductId: number | null }): string | null {
+    return item.tcgplayerProductId != null ? sealedMarketGradeKey(item.tcgplayerProductId) : null;
+  }
+
+  /**
+   * v1.23-sealed-sales (§4.23d) — resuelve el `sealedMarketRef` (referencia de mercado TCGCSV) de un
+   * item sellado: `PriceReference(cardId, 'sealed', 'sealed:tcg:<productId>', 'normal')`. `null` si no
+   * mapeado. Uso SINGLE (los batch usan `getReferencesBatch` con `sealedMarketGradeKeyForItem`).
+   */
+  async getSealedMarketRef(item: {
+    cardId: string;
+    tcgplayerProductId: number | null;
+  }): Promise<PriceInfo> {
+    const gradeKey = this.sealedMarketGradeKeyForItem(item);
+    if (gradeKey == null) return { status: 'pending' };
+    return this.getReference(item.cardId, 'sealed', gradeKey, 'normal');
+  }
+
+  /**
+   * v1.23-sealed-sales (§4.23d) — precio de VENTA del sellado por presentación (SEC-A1). Lee el
+   * contexto de spreads e invoca la pura `computeSealedSalePrice`. `marketMxnCents` = el
+   * `sealedMarketRef` YA gateado por el dial (el llamador pasa `null` si `sourceOn=false`).
+   */
+  async computeSealedSalePriceForItem(
+    item: { listPriceCents: number | null; sealedSubtype: string | null },
+    marketMxnCents: number | null,
+  ): Promise<SealedSpreadResult> {
+    const { spreadPctBySubtype, fallbackPct } = await this.loadSealedSpreads();
+    return computeSealedSalePrice(
+      item.listPriceCents,
+      item.sealedSubtype,
+      marketMxnCents,
+      spreadPctBySubtype,
+      fallbackPct,
+    );
   }
 
   /**

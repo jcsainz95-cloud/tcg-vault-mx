@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
+import { VaultService } from './vault.service';
+import { BusinessException } from '../../common/business.exception';
 
 /**
  * AdminVaultsService (v1.20-master-set-everywhere, §4.20c) — GET /admin/vaults: lista de clientes
@@ -34,7 +36,24 @@ export class AdminVaultsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
+    private readonly vault: VaultService,
   ) {}
+
+  /**
+   * v1.23-sealed-sales (§4.23g / API_CONTRACT §M1) — pestaña «Sellado» de la bóveda de UN cliente
+   * (hermana admin de `GET /vault/sealed`). Mismo shape (`VaultSealedResponse`) con `owner`
+   * (name/email, ya visibles para vault_operator en M6; NUNCA CLABE/RFC/INE). Reusa la agregación de
+   * `VaultService.sealedTab` (una fuente de verdad). Err 404 NOT_FOUND si el usuario no existe.
+   */
+  async sealed(userId: string, q: { sealedSubtype?: string; condition?: string; sort?: string }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true },
+    });
+    if (!user) throw BusinessException.notFound('NOT_FOUND', 'User not found');
+    const base = await this.vault.sealedTab(userId, q);
+    return { ...base, owner: { userId: user.id, name: user.name, email: user.email } };
+  }
 
   async list(q: {
     q?: string;

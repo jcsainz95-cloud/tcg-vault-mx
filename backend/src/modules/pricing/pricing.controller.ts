@@ -13,6 +13,8 @@ import {
   validateFallbackPct,
   validateSalesRules,
   validateSalesFallbackPct,
+  validateSealedSpreads,
+  validateSealedSpreadFallback,
 } from '../settings/settings.constants';
 import { BuylistRule, SalesRule } from '../../common/money';
 import { AuditService } from '../audit/audit.service';
@@ -52,6 +54,15 @@ class BuylistRulesDto {
 /** v1.13-sales-pricing: reemplaza la tabla completa de reglas de VENTA por rareza (+ fallback opcional). */
 class SalesRulesDto {
   @IsObject() rules!: Record<string, SalesRule>;
+  @IsOptional() @IsNumber() fallbackPct?: number;
+}
+
+/**
+ * v1.23-sealed-sales (§M2): spreads de venta del SELLADO por presentación (+ fallback global).
+ * PARCIAL: solo las claves a cambiar. `pct` = markup ARRIBA de mercado, número en [0,1000].
+ */
+class SealedSpreadsDto {
+  @IsOptional() @IsObject() spreadPctBySubtype?: Record<string, number>;
   @IsOptional() @IsNumber() fallbackPct?: number;
 }
 
@@ -300,6 +311,78 @@ export class PricingController {
       })
       .sort((a, b) => b.cardCount - a.cardCount);
     return { fallbackPct, rarities };
+  }
+
+  // ---------------- Spreads de venta del SELLADO (v1.23-sealed-sales, §4.23c) ----------------
+  // Espejo de sales-rules pero keyeado por SealedSubtype. `pct` = markup ARRIBA de mercado.
+  // Auditados (super_admin). Surten efecto sin redeploy. API_CONTRACT §M2 (sealed-spreads).
+
+  /** Lee los spreads crudos por presentación + el fallback global. */
+  private async readSealedSpreads(): Promise<{
+    spreadPctBySubtype: Record<string, number>;
+    fallbackPct: number;
+  }> {
+    const spreadPctBySubtype =
+      ((await this.settings.getRaw(SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE)) as Record<
+        string,
+        number
+      > | null) ?? {};
+    const fallbackPct = await this.settings.getNumber(SettingKey.SEALED_SPREAD_FALLBACK_PCT);
+    return { spreadPctBySubtype, fallbackPct };
+  }
+
+  @Get('sealed-spreads')
+  async getSealedSpreads() {
+    return this.readSealedSpreads();
+  }
+
+  /**
+   * Reemplaza los spreads y/o el fallback (parcial: solo las claves a cambiar). Validación estricta
+   * (subtype ∈ {box,etb,bundle,tin,blister}, value/fallback en [0,1000]) → 422 VALIDATION_ERROR.
+   * Auditado (before/after). Surte efecto sin redeploy.
+   */
+  @Put('sealed-spreads')
+  async putSealedSpreads(@Body() dto: SealedSpreadsDto, @CurrentUser('id') userId: string) {
+    if (dto.spreadPctBySubtype === undefined && dto.fallbackPct === undefined) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'Provide spreadPctBySubtype and/or fallbackPct',
+      );
+    }
+    if (dto.spreadPctBySubtype !== undefined) {
+      const err = validateSealedSpreads(dto.spreadPctBySubtype);
+      if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'spreadPctBySubtype' });
+    }
+    if (dto.fallbackPct !== undefined) {
+      const err = validateSealedSpreadFallback(dto.fallbackPct);
+      if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'fallbackPct' });
+    }
+
+    const before = await this.readSealedSpreads();
+    if (dto.spreadPctBySubtype !== undefined) {
+      const spreadsJson = dto.spreadPctBySubtype as unknown as Prisma.InputJsonValue;
+      await this.prisma.configSetting.upsert({
+        where: { key: SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE },
+        create: { key: SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE, valueJson: spreadsJson, updatedBy: userId },
+        update: { valueJson: spreadsJson, updatedBy: userId },
+      });
+    }
+    if (dto.fallbackPct !== undefined) {
+      await this.prisma.configSetting.upsert({
+        where: { key: SettingKey.SEALED_SPREAD_FALLBACK_PCT },
+        create: { key: SettingKey.SEALED_SPREAD_FALLBACK_PCT, valueJson: dto.fallbackPct, updatedBy: userId },
+        update: { valueJson: dto.fallbackPct, updatedBy: userId },
+      });
+    }
+    const after = await this.readSealedSpreads();
+    await this.audit.log({
+      actorUserId: userId,
+      action: 'pricing.sealed_spreads.update',
+      entityType: 'ConfigSetting',
+      before,
+      after,
+    });
+    return after;
   }
 }
 

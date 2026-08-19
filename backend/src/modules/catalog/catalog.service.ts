@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
-import { computeSalePriceForRarity, SalesRule } from '../../common/money';
+import { computeSalePriceForRarity, computeSealedSalePrice, SalesRule } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET } from '../../common/card-order';
 
@@ -90,24 +90,36 @@ export class CatalogService {
     if (items.length === 0) return [];
 
     const salesRules = await this.pricing.loadSalesRules();
+    // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (pago mínimo BE-25).
+    const sealedSpreads = await this.pricing.loadSealedSpreads();
+    // Batch de referencias: para el SELLADO la clave es la de MERCADO (`sealed:tcg:<productId>`,
+    // finish normal), NO el gradeKey legacy 'sealed'; un sellado no mapeado no aporta clave (sin market).
     const refs = await this.pricing.getReferencesBatch(
-      items.map((i) => ({
-        cardId: i.cardId,
-        productType: i.productType,
-        gradeKey: this.pricing.gradeKeyFor(i),
-        finish: i.finish,
-      })),
+      items.flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
+        if (i.productType === 'sealed') {
+          const gk = this.pricing.sealedMarketGradeKeyForItem(i);
+          return gk ? [{ cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }] : [];
+        }
+        return [{ cardId: i.cardId, productType: i.productType, gradeKey: this.pricing.gradeKeyFor(i), finish: i.finish }];
+      }),
     );
 
     const out: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[] = [];
     for (const item of items) {
-      const reference = refs.get(
-        `${item.cardId}|${item.productType}|${this.pricing.gradeKeyFor(item)}|${item.finish}`,
-      );
-      const dto = await this.toListingDTO(item, { reference, salesRules });
+      const reference = this.refFromBatch(refs, item);
+      const dto = await this.toListingDTO(item, { reference, salesRules, sealedSpreads });
       if (dto.sellable && dto.salePriceCents != null) out.push({ item, dto });
     }
     return out;
+  }
+
+  /** Referencia del lote para un item (mercado sellado vs. gradeKey+acabado del resto). */
+  private refFromBatch(refs: Map<string, PriceInfo>, item: ItemWithCard): PriceInfo | undefined {
+    if (item.productType === 'sealed') {
+      const gk = this.pricing.sealedMarketGradeKeyForItem(item);
+      return gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
+    }
+    return refs.get(`${item.cardId}|${item.productType}|${this.pricing.gradeKeyFor(item)}|${item.finish}`);
   }
 
   /**
@@ -123,39 +135,67 @@ export class CatalogService {
       // resuelve todo por sí mismo (uso single).
       reference?: PriceInfo;
       salesRules?: { rules: Record<string, SalesRule>; fallbackPct: number };
+      // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
+      // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
+      sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
     },
   ) {
-    const gradeKey = this.pricing.gradeKeyFor(item);
-    // v1.6-finish: valúa contra la PriceReference del ACABADO de ESTA copia física.
-    const referenceValue =
-      ctx?.reference ??
-      (await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
-
+    let referenceValue: PriceInfo;
     let salePriceCents: number | undefined;
-    if (item.listPriceCents != null) {
-      // Override manual → gana siempre (precio directo sin regla).
-      salePriceCents = item.listPriceCents;
-    } else {
-      // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity,
-      // acabado de InventoryItem.finish). Con regla `fixed` una bulk SIN market obtiene piso (sellable);
-      // con `pct` sin market → pending (sin precio, no vendible), igual que antes.
-      const referenceMxnCents =
-        referenceValue.status === 'priced' ? (referenceValue.referenceMxnCents ?? null) : null;
-      // BE-25: si viene el contexto pre-cargado usa la función pura (sin leer settings por ítem);
-      // si no, delega al servicio (que iza reglas por sí mismo).
-      const sale = ctx?.salesRules
-        ? computeSalePriceForRarity(
-            item.card.rarity,
-            item.finish,
-            referenceMxnCents,
-            ctx.salesRules.rules,
-            ctx.salesRules.fallbackPct,
-          )
-        : await this.pricing.computeSalePriceForItem(
-            { rarity: item.card.rarity, finish: item.finish },
-            referenceMxnCents,
-          );
+
+    if (item.productType === 'sealed') {
+      // v1.23-sealed-sales (§4.23a/§4.23b): precio del sellado por precedencia money-safe
+      // override > mercado×spread(subtype) > mercado×spread(global) > PRICE_PENDING. referenceValue
+      // del sellado = valor de mercado TCGCSV (sealedMarketRef), informativo. SEC-A1: todo server-side.
+      const sealedCtx = ctx?.sealedSpreads ?? (await this.pricing.loadSealedSpreads());
+      const marketRef = ctx?.sealedSpreads
+        ? ctx.reference // lote: puede venir undefined (sellado no mapeado → sin mercado)
+        : await this.pricing.getSealedMarketRef(item);
+      // El mercado solo cuenta con el dial encendido (§4.23a); con off el sellado solo se vende con override.
+      const marketPriced =
+        sealedCtx.sourceOn && marketRef?.status === 'priced' && marketRef.referenceMxnCents != null;
+      const marketCents = marketPriced ? marketRef!.referenceMxnCents! : null;
+      const sale = computeSealedSalePrice(
+        item.listPriceCents,
+        item.sealedSubtype,
+        marketCents,
+        sealedCtx.spreadPctBySubtype,
+        sealedCtx.fallbackPct,
+      );
       if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
+      referenceValue = marketPriced ? marketRef! : { status: 'pending' };
+    } else {
+      const gradeKey = this.pricing.gradeKeyFor(item);
+      // v1.6-finish: valúa contra la PriceReference del ACABADO de ESTA copia física.
+      referenceValue =
+        ctx?.reference ??
+        (await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
+
+      if (item.listPriceCents != null) {
+        // Override manual → gana siempre (precio directo sin regla).
+        salePriceCents = item.listPriceCents;
+      } else {
+        // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity,
+        // acabado de InventoryItem.finish). Con regla `fixed` una bulk SIN market obtiene piso (sellable);
+        // con `pct` sin market → pending (sin precio, no vendible), igual que antes.
+        const referenceMxnCents =
+          referenceValue.status === 'priced' ? (referenceValue.referenceMxnCents ?? null) : null;
+        // BE-25: si viene el contexto pre-cargado usa la función pura (sin leer settings por ítem);
+        // si no, delega al servicio (que iza reglas por sí mismo).
+        const sale = ctx?.salesRules
+          ? computeSalePriceForRarity(
+              item.card.rarity,
+              item.finish,
+              referenceMxnCents,
+              ctx.salesRules.rules,
+              ctx.salesRules.fallbackPct,
+            )
+          : await this.pricing.computeSalePriceForItem(
+              { rarity: item.card.rarity, finish: item.finish },
+              referenceMxnCents,
+            );
+        if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
+      }
     }
 
     // v1.1: comprable solo si está PUBLICADO (listed) y con precio de venta fijado (>0).
@@ -167,6 +207,8 @@ export class CatalogService {
       productType: item.productType,
       rawCondition: item.rawCondition ?? undefined,
       sealedSubtype: item.sealedSubtype ?? undefined,
+      // v1.23-sealed-sales: condición del sellado (mint|minor_box_damage); undefined en raw/graded.
+      sealedCondition: item.sealedCondition ?? undefined,
       // v1.6-finish: acabado de esta copia (graded/sealed → normal). ListingDTO.finish.
       finish: item.finish,
       gradingCompany: item.gradingCompany ?? undefined,

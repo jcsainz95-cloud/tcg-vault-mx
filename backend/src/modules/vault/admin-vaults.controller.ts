@@ -64,4 +64,18 @@ export class AdminVaultsController {
       { includeOwnerEmail: true }, // SIN buyable: vista operativa, no de compra (§4.20d)
     );
   }
+
+  /**
+   * v1.23-sealed-sales (§M1) — pestaña «Sellado» de la bóveda de un cliente (hermana admin de
+   * GET /vault/sealed). Mismo shape con `owner` (name/email). Lectura pura. 404 si usuario inexistente.
+   */
+  @Get(':userId/sealed')
+  sealed(
+    @Param('userId') userId: string,
+    @Query('sealedSubtype') sealedSubtype?: string,
+    @Query('condition') condition?: string,
+    @Query('sort') sort?: string,
+  ) {
+    return this.adminVaults.sealed(userId, { sealedSubtype, condition, sort });
+  }
 }

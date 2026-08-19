@@ -9,6 +9,7 @@ import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.servi
 import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
 import { PriceIngestJobService } from '../src/jobs/price-ingest.service';
 import { SealedPriceIngestJobService } from '../src/jobs/sealed-price-ingest.service';
+import { SealedRestockNotifyService } from '../src/modules/catalog/sealed-restock-notify.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { Role } from '@prisma/client';
 
@@ -38,11 +39,14 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   const sealedPriceIngest = {
     run: jest.fn().mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true }),
   } as unknown as SealedPriceIngestJobService;
+  const sealedRestockNotify = {
+    run: jest.fn().mockResolvedValue({ job: 'sealed-restock-notify', enqueued: false, reason: 'SEALED_RESTOCK_ALERTS_OFF' }),
+  } as unknown as SealedRestockNotifyService;
   const audit = { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
   const ctrl = new AdminJobsController(
     snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest,
-    sealedPriceIngest, audit,
+    sealedPriceIngest, sealedRestockNotify, audit,
   );
 
   beforeEach(() => jest.clearAllMocks());
@@ -217,6 +221,23 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
       expect.objectContaining({
         action: 'jobs.sealed_price_ingest.run',
         after: expect.objectContaining({ enqueued: false, reason: 'SEALED_PRICE_SOURCE_OFF' }),
+      }),
+    );
+  });
+
+  it('POST /admin/jobs/sealed-restock-notify con dial off → 202 enqueued:false + reason (auditado)', async () => {
+    const res = await ctrl.runSealedRestockNotify(user);
+    expect(sealedRestockNotify.run).toHaveBeenCalled();
+    expect(res).toEqual({
+      job: 'sealed-restock-notify',
+      enqueued: false,
+      reason: 'SEALED_RESTOCK_ALERTS_OFF',
+    });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.sealed_restock_notify.run',
+        entityId: 'sealed-restock-notify',
+        after: expect.objectContaining({ enqueued: false, reason: 'SEALED_RESTOCK_ALERTS_OFF' }),
       }),
     );
   });

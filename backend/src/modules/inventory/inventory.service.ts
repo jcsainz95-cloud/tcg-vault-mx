@@ -6,6 +6,7 @@ import {
   InventoryStatus,
   MovementReason,
   Prisma,
+  ProductType,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -13,7 +14,11 @@ import { PriceInfo, PricingService } from '../pricing/pricing.service';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import { computeAportacionCostCents, computeSalePriceForRarity } from '../../common/money';
+import {
+  computeAportacionCostCents,
+  computeSalePriceForRarity,
+  computeSealedSalePrice,
+} from '../../common/money';
 import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
@@ -219,6 +224,8 @@ export class InventoryService {
       rawCondition: dto.productType === 'raw' ? (dto.rawCondition ?? 'NM') : null,
       finish: r.finish,
       sealedSubtype: dto.productType === 'sealed' ? (dto.sealedSubtype ?? null) : null,
+      // v1.23-sealed-sales (M-28): condición del sellado (default mint); null en raw/graded.
+      sealedCondition: dto.productType === 'sealed' ? (dto.sealedCondition ?? 'mint') : null,
       gradingCompany: dto.productType === 'graded' ? dto.gradingCompany : null,
       gradeValue: dto.productType === 'graded' ? dto.gradeValue : null,
       // v1.2 (M-12): certNumber solo para graded; null en raw/sealed.
@@ -414,14 +421,19 @@ export class InventoryService {
 
     // Pago mínimo BE-25: reglas de venta izadas UNA vez + referencias en 1 lote (sin N+1).
     const { rules, fallbackPct } = await this.pricing.loadSalesRules();
+    // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (mismo pago mínimo).
+    const sealed = await this.pricing.loadSealedSpreads();
+    // Para el SELLADO derivable la clave del lote es la de MERCADO (`sealed:tcg:<productId>`, finish
+    // normal); un sellado no mapeado no aporta clave (sin market → solo override, ya filtrado abajo).
     const derivable = items
       .filter((i) => i.listPriceCents == null)
-      .map((i) => ({
-        cardId: i.cardId,
-        productType: i.productType,
-        gradeKey: this.pricing.gradeKeyFor(i),
-        finish: i.finish,
-      }));
+      .flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
+        if (i.productType === 'sealed') {
+          const gk = this.pricing.sealedMarketGradeKeyForItem(i);
+          return gk ? [{ cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }] : [];
+        }
+        return [{ cardId: i.cardId, productType: i.productType, gradeKey: this.pricing.gradeKeyFor(i), finish: i.finish }];
+      });
     const refs = await this.pricing.getReferencesBatch(derivable);
 
     const results: BulkPublishLineResult[] = [];
@@ -460,6 +472,28 @@ export class InventoryService {
         if (manual != null) {
           salePriceCents = manual;
           priceSource = 'manual';
+        } else if (item.productType === 'sealed') {
+          // v1.23-sealed-sales (§4.23d): el sellado ya NO exige listPriceCents — deriva por
+          // override/mercado×spread. Sin override y sin mercado → PRICE_PENDING (money-safe). SEC-A1.
+          const gk = this.pricing.sealedMarketGradeKeyForItem(item);
+          const ref = gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
+          const marketCents =
+            sealed.sourceOn && ref?.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+          const sale = computeSealedSalePrice(
+            item.listPriceCents,
+            item.sealedSubtype,
+            marketCents,
+            sealed.spreadPctBySubtype,
+            sealed.fallbackPct,
+          );
+          if (sale.salePriceCents == null) {
+            throw BusinessException.validation(
+              'PRICE_PENDING',
+              'No resolvable sale price for sealed (no override and no market); not published',
+            );
+          }
+          salePriceCents = sale.salePriceCents;
+          priceSource = 'derived';
         } else {
           // Derivado server-side (SEC-A1): rareza de Card.rarity, acabado de InventoryItem.finish.
           const gradeKey = this.pricing.gradeKeyFor(item);
@@ -589,10 +623,10 @@ export class InventoryService {
       if (dto.rawCondition && dto.rawCondition !== 'NM') {
         throw BusinessException.validation('VALIDATION_ERROR', 'raw condition must be NM');
       }
-      if (dto.sealedSubtype || dto.gradingCompany || dto.gradeValue) {
+      if (dto.sealedSubtype || dto.sealedCondition || dto.gradingCompany || dto.gradeValue) {
         throw BusinessException.validation(
           'VALIDATION_ERROR',
-          'raw items carry no sealedSubtype/grade',
+          'raw items carry no sealedSubtype/sealedCondition/grade',
         );
       }
     } else {
@@ -610,10 +644,10 @@ export class InventoryService {
           'graded items require certNumber to be published',
         );
       }
-      if (dto.rawCondition || dto.sealedSubtype) {
+      if (dto.rawCondition || dto.sealedSubtype || dto.sealedCondition) {
         throw BusinessException.validation(
           'VALIDATION_ERROR',
-          'graded items carry no rawCondition/sealedSubtype',
+          'graded items carry no rawCondition/sealedSubtype/sealedCondition',
         );
       }
     }

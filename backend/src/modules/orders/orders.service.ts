@@ -7,7 +7,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
-import { computeCartBreakdown, BreakdownDTO } from '../../common/money';
+import { computeCartBreakdown, computeSealedSalePrice, BreakdownDTO } from '../../common/money';
 
 /**
  * Titularidad a escribir al RESERVAR una pieza (T2). Es el único eje en el que difieren las dos
@@ -47,6 +47,25 @@ export class OrdersService {
     item: InventoryItem & { card: Card & { set?: CardSet | null } },
   ): Promise<number> {
     if (item.listPriceCents != null && item.listPriceCents > 0) return item.listPriceCents;
+    // v1.23-sealed-sales (§4.23d): el SELLADO deriva por mercado×spread (override ya cubierto arriba).
+    // Sin override y sin mercado → PRICE_PENDING (money-safe, no se vende a precio basura). SEC-A1.
+    if (item.productType === 'sealed') {
+      const { spreadPctBySubtype, fallbackPct, sourceOn } = await this.pricing.loadSealedSpreads();
+      const marketRef = await this.pricing.getSealedMarketRef(item);
+      const marketCents =
+        sourceOn && marketRef.status === 'priced' ? (marketRef.referenceMxnCents ?? null) : null;
+      const sale = computeSealedSalePrice(
+        item.listPriceCents,
+        item.sealedSubtype,
+        marketCents,
+        spreadPctBySubtype,
+        fallbackPct,
+      );
+      if (sale.salePriceCents == null) {
+        throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
+      }
+      return sale.salePriceCents;
+    }
     const gradeKey = this.pricing.gradeKeyFor(item);
     // v1.6-finish: precio de venta contra la referencia del ACABADO del item.
     const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
