@@ -17,6 +17,7 @@ import {
   GradingCompany,
   ProductType,
   RawCondition,
+  SealedCondition,
   SealedSubtype,
 } from '@prisma/client';
 
@@ -45,6 +46,8 @@ export class CreateItemDto {
   finish?: Finish;
   // v1.1: subtipo del sellado (solo productType=sealed).
   @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  // v1.23-sealed-sales: condición del sellado (solo productType=sealed; default mint en el servicio).
+  @IsOptional() @IsIn(['mint', 'minor_box_damage']) sealedCondition?: SealedCondition;
   @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
   @IsOptional() @IsString() gradeValue?: string;
   // v1.2 (M-12): nº de certificado PSA/CGC. Requerido para publicar una gradeada.
@@ -99,6 +102,8 @@ export class BatchInventoryItemInput {
   @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
   finish?: Finish;
   @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  // v1.23-sealed-sales: condición del sellado (default mint en el servicio); solo productType=sealed.
+  @IsOptional() @IsIn(['mint', 'minor_box_damage']) sealedCondition?: SealedCondition;
   @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
   @IsOptional() @IsString() gradeValue?: string;
   @IsOptional() @IsString() certNumber?: string;
@@ -150,6 +155,8 @@ export class AdjustmentFoundItemInput {
   @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
   finish?: Finish;
   @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  // v1.23-sealed-sales: condición del sellado (default mint en el servicio); solo productType=sealed.
+  @IsOptional() @IsIn(['mint', 'minor_box_damage']) sealedCondition?: SealedCondition;
   @IsOptional() @IsIn(['PSA', 'CGC']) gradingCompany?: GradingCompany;
   @IsOptional() @IsString() gradeValue?: string;
   @IsOptional() @IsString() certNumber?: string;

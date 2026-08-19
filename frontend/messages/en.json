@@ -43,7 +43,8 @@
     "admin": "Admin panel",
     "cart": "Cart",
     "menu": "Menu",
-    "terms": "Terms & policy"
+    "terms": "Terms & policy",
+    "sealed": "Sealed"
   },
   "home": {
     "heroTitle": "Buy Pokémon cards at real prices and keep them in the vault",
@@ -331,7 +332,8 @@
     },
     "tabs": {
       "pieces": "Pieces",
-      "masterSet": "Master set"
+      "masterSet": "Master set",
+      "sealed": "Sealed"
     }
   },
   "masterSet": {
@@ -969,7 +971,11 @@
         "create": "Create location",
         "createSuccess": "Location {label} created.",
         "createError": "We couldn't create the location."
-      }
+      },
+      "sealedCondition": "Sealed condition",
+      "sealedConditionHint": "Visible to the buyer. Does not affect price.",
+      "listPriceOptional": "Sale price (optional)",
+      "listPriceOptionalHint": "Leave empty to price by market × spread. A manual price overrides it."
     },
     "m3": {
       "title": "M3 · Sales / orders",
@@ -1268,6 +1274,20 @@
         "pctHint": "Percentage: sale price = market × (1 + %). Example: 15% keeps the price 15% above market (up to 1000% allowed). Fixed: the MX$ amount is a sale floor.",
         "example": "Example: the % is what you add ON TOP of market. At +15%, you sell a MX$100 card for MX$115.",
         "saved": "Sale rules saved."
+      },
+      "sealedSpreads": {
+        "title": "Sealed sale spreads",
+        "subtitle": "Markup over market value (TCGCSV) by format. Sale price = market × (1 + spread).",
+        "example": "E.g.: 15% over a MX$3,000 market = MX$3,450.",
+        "fallbackLabel": "Global spread",
+        "fallbackHint": "Applied to formats without their own rule.",
+        "subtype": "Format",
+        "spread": "Spread",
+        "spreadFor": "{subtype} spread",
+        "zeroWarning": "No margin",
+        "zeroBanner": "A 0% spread sells at market cost, with no margin. Double-check before saving.",
+        "prereqHint": "The spread only produces a price if the product is mapped to TCGCSV and the sealed price source is on.",
+        "saved": "Spreads saved."
       }
     },
     "m6": {
@@ -1528,7 +1548,11 @@
       "emptyBody": "No customer with a vault matches your search.",
       "pageInfo": "Page {page} of {totalPages} · {total} customers",
       "prev": "Previous",
-      "next": "Next"
+      "next": "Next",
+      "detailTabs": {
+        "cards": "Cards",
+        "sealed": "Sealed"
+      }
     }
   },
   "locale": {
@@ -1621,6 +1645,10 @@
       "refunded": "REFUNDED",
       "cancelled": "CANCELLED",
       "inReview": "UNDER REVIEW"
+    },
+    "sealedCondition": {
+      "mint": "Like new",
+      "minor_box_damage": "Minor box damage"
     }
   },
   "error": {
@@ -1739,5 +1767,87 @@
       "support": "Need help? Write to us at {contact}."
     },
     "temporaryLinkNotice": "This link is temporary and expires in a few hours. Your order's tracking link arrives by email; if you don't see it, request a new one."
+  },
+  "sealed": {
+    "title": "Sealed",
+    "subtitle": "Factory-sealed product: boxes, ETBs, bundles and more. Sale only.",
+    "badge": "Sealed",
+    "available": "{count, plural, =0 {Sold out} one {# available} other {# available}}",
+    "fromPrice": "From",
+    "withoutIva": "without VAT",
+    "resultsCount": "{count, plural, =0 {No products} one {# product} other {# products}}",
+    "filters": {
+      "set": "Set",
+      "allSets": "All sets",
+      "subtype": "Format",
+      "allSubtypes": "All",
+      "condition": "Condition",
+      "allConditions": "All"
+    },
+    "sort": {
+      "label": "Sort",
+      "newest": "Newest",
+      "price_asc": "Price: low to high",
+      "price_desc": "Price: high to low"
+    },
+    "emptyTitle": "No sealed product in stock yet",
+    "emptyBody": "Check back soon: we publish sealed product as it arrives at the vault.",
+    "condition": {
+      "mint": "Like new",
+      "minor_box_damage": "Minor box damage"
+    },
+    "buylistCallout": {
+      "title": "Want to sell your sealed product to TCG Vault MX?",
+      "body": "Email us at contacto@tcgvaultmx.com with photos and we will quote it.",
+      "cta": "Email us"
+    },
+    "detail": {
+      "backToShop": "Sealed",
+      "marketValue": "Market value",
+      "decrease": "Remove one",
+      "increase": "Add one",
+      "addToCart": "Add {count} to cart",
+      "goToCart": "Go to cart",
+      "destinationNote": "Choose at checkout whether to have it shipped to you or kept in your vault.",
+      "minorDamageNote": "Sealed product with minor box damage; the contents are unaffected. Price is unchanged."
+    },
+    "trend": {
+      "title": "Value trend",
+      "noChange": "No change",
+      "collecting": "Collecting market history.",
+      "marketRefNote": "Reference market value (TCGCSV), updated daily.",
+      "rangesAria": "Trend range",
+      "ranges": {
+        "5d": "5D",
+        "15d": "15D",
+        "1m": "1M",
+        "3m": "3M",
+        "6m": "6M",
+        "1y": "1Y",
+        "ytd": "YTD",
+        "all": "All"
+      }
+    },
+    "restock": {
+      "title": "Notify me when it returns",
+      "body": "We will email you as soon as this product is back in stock.",
+      "emailLabel": "Email",
+      "emailPlaceholder": "you@example.com",
+      "cta": "Notify me",
+      "confirmed": "Done. We will email you when it returns."
+    },
+    "vault": {
+      "emptyTitle": "You have no sealed product in your vault yet",
+      "emptyBody": "Sealed product you buy and keep in the vault will appear here.",
+      "totalValue": "Total market value",
+      "pendingPrice": "{count, plural, one {# product without market price} other {# products without market price}}",
+      "productColumn": "Product",
+      "conditionColumn": "Condition",
+      "countColumn": "Quantity",
+      "marketValueColumn": "Market value",
+      "countValue": "{count, plural, one {# piece} other {# pieces}}",
+      "pendingLabel": "Price pending",
+      "valuationNote": "Valued at reference market value; pieces without a market price are excluded from the total."
+    }
   }
 }

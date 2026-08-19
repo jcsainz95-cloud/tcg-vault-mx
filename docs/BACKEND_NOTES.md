@@ -4434,3 +4434,223 @@ El endpoint nuevo (`GET /admin/pricing/sync-status`) es superficie de contrato �
 formalizarlo en `docs/API_CONTRACT.md §M2/§M10-ops` (no lo edité: propiedad de otro rol). El frontend
 (M2View + `SyncProgress`) lo implementa un subagente **frontend** (excepción explícita del PO a
 "solo backend") tocando solo `frontend/`.
+## 52. WS «Sellado / Producto cerrado» (v1.23-sealed-sales, M-28, 2026-08-19)
+
+Implementa el contrato §2-S/§3/§M1/§M2/§M10 y ARCHITECTURE §4.23. El sellado pasa de «precio manual
+único» a **línea de venta con precio derivado** (`override > mercado TCGCSV × spread > PRICE_PENDING`),
+con superficie propia (grid + ficha), pestaña «Sellado» en bóveda, y dos diferenciadores
+feature-flagged (tendencia + restock). **Todo aditivo; una migración (M-28); cuatro diales.**
+
+### 52.1 Migración M-28 (`prisma/migrations/20260819130000_m28_sealed_sales/`)
+Aditiva y nullable, con backfill. **NO toca** `PriceReference`/`Order`/`OrderItem`.
+- `enum SealedCondition { mint, minor_box_damage }` — condición SIMPLE visible al comprador (labels en
+  i18n del front). **No altera el precio** (el spread es por presentación); para descontar una caja con
+  detalle el admin usa el **override** de esa pieza.
+- `InventoryItem.sealedCondition SealedCondition?` — app-requerido para `sealed` (default `mint`), null
+  en raw/graded. **Backfill:** `UPDATE ... SET sealedCondition='mint' WHERE productType='sealed'`.
+- `InventoryItem @@index([productType, status])` — sirve el grid del sellado (`sealed AND listed`).
+- `model SealedRestockSubscription` — «avísame cuando vuelva» (feature-flagged; solo se puebla con el
+  flag on). FK `userId` opcional (`onDelete: SetNull`) y `cardId` (RESTRICT).
+
+### 52.2 Cuatro diales (`settings.constants.ts`)
+- `sealed_spread_pct_by_subtype` (seed `{box:18,etb:22,bundle:25,tin:30,blister:35}`) y
+  `sealed_spread_fallback_pct` (seed `25`) — markup % **ARRIBA de mercado** por presentación. **NO se
+  exponen en el DTO de M10 ni se editan por `PUT /admin/settings`**: solo por los endpoints M2
+  dedicados `GET/PUT /admin/pricing/sealed-spreads` (como sales/buylist rules). Validación: subtype ∈
+  {box,etb,bundle,tin,blister}, value/fallback en `[0,1000]`.
+- `sealed_value_trend` y `sealed_restock_alerts` (seed **off** ambos) — feature flags **expuestos** en el
+  DTO de M10 (`sealedValueTrend`/`sealedRestockAlerts`), editables por `PUT /admin/settings`, validados `on|off`.
+El seed los siembra automáticamente (loop `SETTING_DEFAULTS` en `seed.ts`/`seed-e2e.ts`).
+
+### 52.3 Precio del sellado (money-safe, SEC-A1) — función pura + call-sites
+- **`computeSealedSalePrice(overrideCents, sealedSubtype, marketMxnCents, spreadPctBySubtype,
+  fallbackPct)`** (`common/money.ts`): precedencia `override > mercado×spread(subtype) >
+  mercado×spread(global) > pending`. Devuelve `{ salePriceCents, status, source, appliedSpreadPct }`.
+  `source` ∈ `override|subtype_spread|global_spread` (= `SealedSpreadSource` del contrato). **Nunca
+  inventa precio:** sin override y sin mercado → `status:'pending'` (no publicable).
+- **`PricingService`** gana `loadSealedSpreads()` (iza spreads + `sourceOn` = dial `sealedPriceSource===tcgcsv`,
+  una lectura por request), `sealedMarketGradeKeyForItem(item)`, `getSealedMarketRef(item)`,
+  `computeSealedSalePriceForItem(item, marketCents)`.
+- **Gating por dial:** el `sealedMarketRef` solo cuenta como mercado si `sourceOn` (dial `tcgcsv`). Con
+  `off`, el sellado solo se vende con **override** (retro-compatible con hoy; §4.23a). Se aplica en los
+  3 call-sites.
+- **Call-sites ramificados por `productType==='sealed'`** (mismo patrón §4.14d):
+  `catalog.service.toListingDTO` (grid/Compra), `orders.service.salePriceOf` (checkout → `422 PRICE_PENDING`
+  si no resuelve) e `inventory.service.bulkPublish` (§M1; la rama sealed **ya no exige** `listPriceCents`).
+  Todos batchean referencias con la clave de MERCADO `sealed:tcg:<productId>` (un sellado no mapeado no
+  aporta clave). `ListingDTO` gana `sealedCondition?` y para sellado `referenceValue` = `sealedMarketRef`.
+
+### 52.4 Endpoints nuevos
+- **Público (§2-S), `catalog.controller` + `SealedCatalogService`:**
+  - `GET /catalog/sealed` — grid AGREGADO por producto+condición («N disponibles»). Agrupa
+    mapeado→`p:<productId>:<cond>`, no mapeado→`c:<cardId>:<subtype>:<cond>`. La **condición separa
+    grupos**. Solo grupos con ≥1 pieza vendible (precio resuelto). Filtros set/subtype/condición/q,
+    paginado, sort `price_asc|price_desc|newest`. **Sin N+1**: 1 query + `getReferencesBatch` + groupBy.
+  - `GET /catalog/sealed/:inventoryItemId` — ficha: grupo + `listings: ListingDTO[]` (todas las piezas
+    del grupo, más baratas primero) + `trendEnabled`/`restockEnabled`.
+  - `GET /catalog/sealed/:inventoryItemId/value-history` — **feature-flagged** `sealed_value_trend`
+    (`404 FEATURE_DISABLED` si off). Reusa el historial de `PriceReference(sealed:tcg:<productId>)` que
+    el job `sealed-price-ingest` ya acumula (cero fabricación de datos). `404 NOT_FOUND` si pieza
+    inexistente o no mapeada. Rate-limit 60/min.
+  - `POST /catalog/sealed/restock-subscriptions` — **feature-flagged** `sealed_restock_alerts`. Respuesta
+    **neutra `202 {subscribed:true}`** (anti-enumeración), rate-limit 5/min. `422 VALIDATION_ERROR` si
+    correo inválido o sin identidad de producto. Resuelve el `cardId` ancla (explícito o desde un item
+    con ese `productId`); si no ancla a una Card real, 202 neutro sin persistir.
+- **Bóveda (§3/§M1):** `GET /vault/sealed` (`VaultService.sealedTab`, cliente) y
+  `GET /admin/vaults/:userId/sealed` (`AdminVaultsService.sealed`, `vault_operator+`, con `owner`
+  name/email, `404` si usuario inexistente). Agrupan las piezas selladas en bóveda por
+  producto+condición; valúan por `sealedMarketRef`; piezas sin mercado **excluidas** del total y
+  contadas en `pendingPriceCount`. Desglose `ownership {pending, settled}`.
+- **M2 (§M2), `PricingController`:** `GET/PUT /admin/pricing/sealed-spreads` (`super_admin`, **auditado**
+  `pricing.sealed_spreads.update` before/after). PUT parcial; validación estricta → `422`.
+- **Alta admin (§M1):** `sealedCondition?` aceptado en `CreateItemDto`/`BatchInventoryItemInput`/
+  `AdjustmentFoundItemInput`; persistido en `buildItemData` (default `mint`, null en raw/graded);
+  raw/graded rechazan `sealedCondition` en `validateProductShape`.
+- **Job `sealed-restock-notify` (§M10-ops, `SealedRestockNotifyService`):** cableado + disparo manual
+  `POST /admin/jobs/sealed-restock-notify` (auditado). Feature-flagged (`off` → no-op). Empareja
+  suscripciones pendientes con productos de vuelta a `listed` (identidad + condición), envía correo
+  (módulo `mail`, `@Global`), marca `notifiedAt`. **NO agendado en cron** (por §4.23h, «no agendado
+  hasta el flip»); solo disparo manual.
+
+### 52.5 Decisiones / supuestos de implementación
+- **Imagen del grid/bóveda del sellado** = imagen de catálogo de la `Card` (`imageSmallUrl`). El
+  contrato dice «TCGCSV si mapeado», pero **la imagen TCGCSV no se persiste** (el adapter la expone solo
+  en el explorador de curación M2, no en BD); traerla por producto sería un N+1 contra el remoto. Se usa
+  la de catálogo (remota, pokemontcg.io), money-safe y consistente con el resto del producto (§H). Igual
+  con `productName` = `Card.name` (el nombre TCGCSV tampoco se persiste). **Si el arquitecto quiere la
+  imagen/nombre TCGCSV reales, hace falta persistirlos en el mapeo (columna nueva) — decisión suya.**
+- **Valuación de la pestaña «Sellado» NO se gatea por `sealedPriceSource`** (usa el `sealedMarketRef` si
+  existe = «valor de mercado actual»); el gating por dial se aplica solo a la **resolución del precio de
+  venta** (§4.23a). El precio de venta del sellado sí requiere el dial `tcgcsv`.
+- **`GET /vault/holdings` (portafolio general) NO cambia** para el sellado: sigue valuando por el
+  gradeKey legacy `'sealed'` (§3 lo declara fuera de alcance). La pestaña «Sellado» es la superficie
+  dedicada con valuación de mercado. El sellado ya contaba en el portafolio (item de bóveda), así que el
+  criterio «incluir sellado en la valuación» se cumple sin tocar `holdings()`.
+- **`POST /catalog/sealed/restock-subscriptions` es `@Public`** y NO asocia `userId` de una sesión: en
+  una ruta pública el guard JWT se salta y `req.user` queda vacío, así que las suscripciones de usuarios
+  logueados se guardan con `userId=null`. Asociarlo requeriría un guard de auth **opcional** (no cableado
+  hoy). No afecta la respuesta neutra ni el emparejamiento por identidad+correo. **Minor; dueño backend
+  si se quiere el `userId`.**
+
+### 52.6 Cómo correr los tests
+Desde `backend/`: `npm ci` (una vez) → `npx prisma generate` → `npx tsc --noEmit` (typecheck) →
+`npx jest` (unitarios) → `npm run lint`. Los de integración/contrato con DB:
+`npm run test:integration` (corre `prisma migrate deploy` + jest `--runInBand`; requiere Postgres).
+Suites nuevas del sellado: `test/sealed-pricing.spec.ts` (precedencia money-safe de la función pura),
+`test/sealed-catalog.spec.ts` (grid agregado, condición separa grupos, money-safe, feature-flags off →
+404, restock neutro/anti-enumeración), `test/sealed-settings.spec.ts` (validadores + DTO M10),
+`test/vault-sealed.spec.ts` (agregación/valuación de bóveda), `test/sealed-restock-notify.spec.ts` (job).
+**Estado:** typecheck limpio, `1023 tests / 108 suites` en verde, lint limpio (`npx jest` + `npm run lint`).
+
+### 52.7 Bloqueos / discrepancias con el contrato para el arquitecto
+Ninguno bloqueante. Puntos que conviene que el arquitecto confirme (no «arreglé» el contrato):
+1. **Imagen/nombre TCGCSV** del grid/bóveda: implementados con la imagen/nombre de catálogo de la `Card`
+   (ver §52.5). Si se quiere la imagen/nombre reales de TCGCSV, requiere persistirlos (columna en el
+   mapeo M-23) — cambio de esquema/decisión del arquitecto.
+2. **`userId` en restock**: la ruta pública no asocia sesión (§52.5). Si el contrato exige asociar
+   `userId` del usuario logueado, hace falta un guard de auth opcional (no existe hoy).
+
+## 53. Saneo del Sellado (v1.24, pase `sellado-producto-cerrado`, 2026-08-19)
+
+Pase de saneo aprobado por el PO sobre el work stream de Sellado (ya cerrado). Solo `backend/`,
+`docs/BACKEND_NOTES.md`, `docs/TECH_DEBT.md`. Contrato/arquitectura/PROJECT SIN tocar.
+
+### 53.1 Autoprecio del sellado — seed `off` (fail-closed, por contrato); se enciende en RUNTIME
+> **CORRECCIÓN (2026-08-19, hallazgo ALTO del techlead):** un intento previo de este pase cambió el
+> **seed** de `sealed_price_source` de `off` → `tcgcsv`. Eso **violaba** el contrato/arquitectura
+> (§4.19e / §4.23e y API_CONTRACT §M10 mandan **`seed off, fail-closed`**), rompía el runbook de devops
+> y **removía el candado money-safe** del que depende la deuda §BE-44(c) de `TECH_DEBT.md`. **Revertido:**
+> el seed vuelve a **`off`**. El autoprecio que pidió el PO NO se logra por seed sino en runtime (abajo).
+- **Seed:** el dial `sealed_price_source` (`settings.constants.ts` → `SETTING_DEFAULTS`) queda en
+  **`off`** (FAIL-CLOSED). Un **seed fresco** (BD nueva: CI/dev/prod) arranca con el autoprecio del
+  sellado **APAGADO** — así el arranque respeta el checkpoint de validación-en-staging (§4.23f) y NO
+  se salta el candado money-safe.
+- **Cómo se ENCIENDE el autoprecio (runtime, NO seed):** tras validar el esquema TCGCSV con una corrida
+  acotada del `sealed-price-ingest` en staging (§4.23f), un `super_admin` flipea el dial por M10:
+  ```
+  PUT /admin/settings
+  Authorization: Bearer <token super_admin>
+  Content-Type: application/json
+  { "sealedPriceSource": "tcgcsv" }
+  ```
+  (`SettingsController.updateSettings`, `@Roles(super_admin)`, **auditado** `settings.update`
+  before/after). **Ese PUT es el mecanismo money-safe.** **Rollback = mismo PUT con `"off"`.** Aplica
+  igual en staging y prod; en una BD ya sembrada el seed no re-siembra (`SettingsService.get` cae al
+  default de código solo si la fila falta), así que el flip de runtime es el único camino.
+- **Money-safe (independiente del dial):** con el dial en `tcgcsv` (`sourceOn=true`), una pieza sellada
+  **SIN `sealedMarketRef`** mapeado/curado (sin `tcgplayerProductId` → sin clave de mercado
+  `sealed:tcg:<productId>` → `getSealedMarketRef` = `pending`) sigue resolviendo a **`PRICE_PENDING`** y
+  **NO se publica**: `gateSealedMarketCents(undefined, true)=null` →
+  `computeSealedSalePrice(override, subtype, null, …)` → sin override>0 → `status:'pending'`,
+  `salePriceCents:null`. Solo se auto-precian las piezas **curadas** (mapeadas y con `PriceReference`
+  de mercado ingerida por el job `sealed-price-ingest`). Con el dial en `off` (seed) el mercado TCGCSV
+  queda inerte (§4.23a) y todo sellado sin override cae a pending. Cubierto en
+  `test/sealed-price-resolver.spec.ts` («sin market → pending») y `test/sealed-pricing.spec.ts`.
+
+### 53.2 H-1 · Resolver ÚNICO del precio de venta del sellado (Tarea 2, hallazgo techlead — dinero)
+- **Problema:** el gating del precio de venta del sellado (`sourceOn && ref priced && refCents != null`
+  → arma `marketCents` → llama `computeSealedSalePrice`) estaba **copiado y DIVERGIDO** en varios
+  call-sites. Divergencia concreta de dinero: `orders.salePriceOf` trataba el override como
+  `listPriceCents != null && > 0`, mientras la pura y `catalog.toListingDTO` lo trataban como
+  `!= null`. Con un **override degenerado de `0`** centavos, Compra (catálogo) marcaba `sellable=false`
+  pero el checkout resolvía por otra rama → **inconsistencia de dinero** (un sellado no-vendible en el
+  grid podía cobrarse).
+- **Fix — un solo cuerpo en `PricingService`:**
+  - `gateSealedMarketCents(ref, sourceOn)`: gate ÚNICO del mercado (dial encendido + ref priced +
+    `referenceMxnCents != null`) → `number | null`. Con `off` el mercado TCGCSV queda inerte (§4.23a).
+  - `resolveSealedSalePrice(item, ref, ctx)`: gate + pura `computeSealedSalePrice` → `SealedSpreadResult`
+    completo (`{ salePriceCents, source, status, appliedSpreadPct }`).
+- **REGLA ÚNICA DE OVERRIDE (money-safe elegida):** un override se considera **presente solo si
+  `overrideCents > 0`**. Un override **`<= 0`** (0 o negativo) es **input DEGENERADO** → se trata como
+  **AUSENTE**: el precio cae a `mercado×spread` (y a `PRICE_PENDING` si tampoco hay mercado). Elección:
+  **nunca cobrar un sellado gratis ni por debajo de mercado** por un override mal capturado; para
+  descontar una caja con detalle el admin fija un override **positivo** (deliberado), no un 0. La regla
+  vive en la pura `computeSealedSalePrice` (`if (overrideCents != null && overrideCents > 0)`), así que
+  es **idéntica** en todos los consumidores.
+- **Call-sites que ahora consumen el resolver** (mismo precio SIEMPRE, incluido override=0):
+  `catalog.service.toListingDTO` (grid/Compra), `orders.service.salePriceOf` (checkout),
+  `sealed-catalog.service.loadPricedSealed` (grid agregado §2-S) e `inventory.service.bulkPublish`
+  (§M1). La **valuación** de la pestaña «Sellado» (`vault.service.sealedTab`) ahora usa
+  `gateSealedMarketCents` con `sourceOn` — antes **NO gateaba por dial** (divergía con catálogo/grid
+  cuando `sealed_price_source=off`); ahora la valuación **coincide** con las demás superficies.
+- **Nota de alcance:** la dedup de `groupKey` (H-2) NO se hizo (habría requerido tocar mocks de dos
+  suites y no da valor de correctness); se deja como está para no salir de alcance. La regla de override
+  de las **cartas sueltas** (raw/graded) en `orders.salePriceOf` línea 49 (`!= null && > 0`) ya era
+  money-safe y no se tocó (la divergencia raw/catálogo está registrada como **BE-26**).
+
+### 53.3 Archivos tocados (solo `backend/`)
+- `src/modules/settings/settings.constants.ts` — seed `sealed_price_source` = **`off`** (fail-closed,
+  por contrato §M10; el autoprecio se enciende en runtime con el PUT de §53.1, no por seed).
+- `src/common/money.ts` — `computeSealedSalePrice`: override presente ⇔ `> 0` (+ doc).
+- `src/modules/pricing/pricing.service.ts` — `gateSealedMarketCents` + `resolveSealedSalePrice`.
+- `src/modules/catalog/catalog.service.ts`, `src/modules/orders/orders.service.ts`,
+  `src/modules/catalog/sealed-catalog.service.ts`, `src/modules/inventory/inventory.service.ts` —
+  consumen el resolver; imports de `computeSealedSalePrice` retirados donde ya no se usa.
+- `src/modules/vault/vault.service.ts` — valuación gatea por `sourceOn` vía `gateSealedMarketCents`.
+- Tests: `test/sealed-price-resolver.spec.ts` (resolver único + gate + consistencia
+  catálogo/orders/grid para override=0), `test/sealed-pricing.spec.ts` (regla override=0/negativo/1c),
+  mocks de `test/catalog.spec.ts` / `test/sealed-catalog.spec.ts` / `test/vault-sealed.spec.ts`
+  ampliados con los métodos nuevos del `PricingService`.
+
+### 53.4 Corrección del rechazo del techlead + cierre de 2 BAJOS (2026-08-19)
+- **ALTO (revertido):** el seed de `sealed_price_source` vuelve a **`off`** (fail-closed, por contrato
+  §M10 / arquitectura §4.19e·§4.23e). Ver §53.1 corregido: el autoprecio se enciende en runtime con
+  `PUT /admin/settings {"sealedPriceSource":"tcgcsv"}` tras validar en staging (§4.23f); rollback = mismo
+  PUT con `"off"`. Restaurado el candado money-safe del que depende §BE-44(c) de `TECH_DEBT.md`.
+- **BAJO (techlead+QA) — 4º call-site del resolver:** `test/sealed-price-resolver.spec.ts` gana un
+  describe que ejercita `inventory.bulkPublish` como 4º consumidor de `resolveSealedSalePrice`: (a) un
+  sellado SIN mapeo → `PRICE_PENDING`, no publicado; (b) un sellado mapeado + mercado priceado (sin
+  override) → converge al MISMO `EXPECTED` (mercado×spread) que catálogo/Compra/grid, publicado
+  `derived`. Nota: en `bulkPublish` un `listPriceCents=0` almacenado entra por la rama `manual` (precio
+  explícito 0) ANTES del resolver, así que la convergencia del override=0 se prueba en los 3 sitios que
+  sí pasan por el resolver; el 4º se ancla con el caso derivado sin override (mismo `EXPECTED`).
+- **BAJO (techlead) — mocks que reimplementaban la pura:** `test/catalog.spec.ts` y
+  `test/sealed-catalog.spec.ts` ahora **importan y delegan** en la pura real `computeSealedSalePrice`
+  (antes la reescribían a mano → riesgo de divergencia silenciosa). `test/vault-sealed.spec.ts` solo
+  mockea el gate trivial `gateSealedMarketCents` (no la pura); se dejó como está y se corrigió su
+  comentario (referenciaba el seed `tcgcsv` ya revertido → ahora `sourceOn:true` explícito de runtime).
+
+### 53.5 Estado de verificación
+`npx tsc --noEmit` limpio · `npm run lint` limpio · `npx jest` **1036 tests / 109 suites en VERDE**
+(1035 previos + 1 nuevo: el 4º call-site `bulkPublish` en `sealed-price-resolver.spec.ts`). Sin commit
+ni push (por instrucción del pase).

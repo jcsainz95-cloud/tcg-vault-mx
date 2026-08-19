@@ -63,6 +63,20 @@ export class VaultController {
     );
   }
 
+  /**
+   * v1.23-sealed-sales (§3) — pestaña «Sellado» de MI bóveda: piezas selladas agrupadas por
+   * producto+condición con valor de mercado. Sin `owner` (es la vista del propio cliente).
+   */
+  @Get('sealed')
+  sealed(
+    @CurrentUser('id') userId: string,
+    @Query('sealedSubtype') sealedSubtype?: string,
+    @Query('condition') condition?: string,
+    @Query('sort') sort?: string,
+  ) {
+    return this.vault.sealedTab(userId, { sealedSubtype, condition, sort });
+  }
+
   @Get('holdings/:inventoryItemId')
   detail(@CurrentUser('id') userId: string, @Param('inventoryItemId') id: string) {
     return this.vault.holdingDetail(userId, id);

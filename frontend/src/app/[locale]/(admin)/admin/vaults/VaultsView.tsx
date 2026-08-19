@@ -14,9 +14,13 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
+import { SealedVaultPanel } from '@/components/domain/SealedVaultPanel';
 
 const SORTS: AdminVaultSort[] = ['value_desc', 'pieces_desc', 'name_asc'];
 const PAGE_SIZE = 20;
+
+// v1.23-sealed-sales: la bóveda del cliente se lee en dos pestañas — «Cartas» (master set) y «Sellado».
+type VaultDetailTab = 'cards' | 'sealed';
 
 /** Retícula compartida de cabecera y renglones de la lista. */
 const ROW = 'grid grid-cols-[1fr_auto] items-center gap-3 sm:grid-cols-[1.4fr_1.6fr_auto_auto_auto] sm:gap-4';
@@ -34,6 +38,7 @@ export function VaultsView() {
   const [sort, setSort] = useState<AdminVaultSort>('value_desc');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<AdminVaultSummaryDTO | null>(null);
+  const [detailTab, setDetailTab] = useState<VaultDetailTab>('cards');
 
   const filters: AdminVaultFilters = {
     q: q.trim() || undefined,
@@ -59,8 +64,28 @@ export function VaultsView() {
           <h1 className="text-h1 font-bold">{selected.name}</h1>
           <span className="font-mono text-xs text-muted">{selected.email}</span>
         </div>
-        {/* Vista (ii): binder de la bóveda del cliente — lectura pura (§4.20a). */}
-        <MasterSetPanel mode="user_vault_admin" userId={selected.userId} />
+
+        {/* Pestañas: «Cartas» (binder master set) ⇆ «Sellado» (producto cerrado, §M1 GET
+            /admin/vaults/:userId/sealed). Ambas lectura pura (§4.20a / §3). */}
+        <div className="flex gap-5 border-b border-border" role="tablist" aria-label={selected.name}>
+          {(['cards', 'sealed'] as VaultDetailTab[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={detailTab === key}
+              onClick={() => setDetailTab(key)}
+              className={`-mb-px border-b-2 px-1 pb-3 text-sm ${
+                detailTab === key ? 'border-primary text-text' : 'border-transparent text-muted hover:text-text'
+              }`}
+            >
+              {t(`detailTabs.${key}`)}
+            </button>
+          ))}
+        </div>
+
+        {detailTab === 'cards' && <MasterSetPanel mode="user_vault_admin" userId={selected.userId} />}
+        {detailTab === 'sealed' && <SealedVaultPanel mode="admin" userId={selected.userId} />}
       </div>
     );
   }

@@ -19,10 +19,12 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { PortfolioTrendChart } from '@/components/domain/PortfolioTrendChart';
 import { WithdrawalBadge } from '@/components/domain/WithdrawalBadge';
+import { SealedVaultPanel } from '@/components/domain/SealedVaultPanel';
 
 type SortKey = 'default' | 'set' | 'value_desc' | 'value_asc';
 // v1.20: "Mi bóveda" gana la vista master set (vista (iii) del contrato, scope user_vault).
-type VaultTab = 'pieces' | 'masterSet';
+// v1.23-sealed-sales: pestaña «Sellado» — superficie dedicada del producto cerrado (§3 GET /vault/sealed).
+type VaultTab = 'pieces' | 'masterSet' | 'sealed';
 
 /** Retícula del inventario: misma en la cabecera y en cada renglón. */
 const ROW = 'grid grid-cols-[52px_1fr_auto] items-center gap-4 lg:grid-cols-[64px_2fr_1.2fr_1fr_1fr_140px] lg:gap-5';
@@ -131,7 +133,7 @@ export function VaultView() {
 
       {/* Pestañas: piezas (renglones) ⇆ master set (binder por variantes, v1.20). */}
       <div className="gutter flex gap-5 border-b border-border" role="tablist" aria-label={t('title')}>
-        {(['pieces', 'masterSet'] as VaultTab[]).map((key) => (
+        {(['pieces', 'masterSet', 'sealed'] as VaultTab[]).map((key) => (
           <button
             key={key}
             type="button"
@@ -152,6 +154,13 @@ export function VaultView() {
       {tab === 'masterSet' && (
         <div className="gutter py-8">
           <MasterSetPanel mode="user_vault_self" onBuyMissing={cart.add} />
+        </div>
+      )}
+
+      {/* Pestaña «Sellado» (§3 GET /vault/sealed): producto cerrado agrupado por producto+condición. */}
+      {tab === 'sealed' && (
+        <div className="gutter py-8">
+          <SealedVaultPanel mode="self" />
         </div>
       )}
 

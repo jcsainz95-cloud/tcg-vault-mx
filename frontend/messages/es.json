@@ -43,7 +43,8 @@
     "admin": "Panel admin",
     "cart": "Carrito",
     "menu": "Menú",
-    "terms": "Términos y política"
+    "terms": "Términos y política",
+    "sealed": "Sellado"
   },
   "home": {
     "heroTitle": "Compra cartas Pokémon con precio real y guárdalas en la bóveda",
@@ -331,7 +332,8 @@
     },
     "tabs": {
       "pieces": "Piezas",
-      "masterSet": "Master set"
+      "masterSet": "Master set",
+      "sealed": "Sellado"
     }
   },
   "masterSet": {
@@ -969,7 +971,11 @@
         "create": "Crear ubicación",
         "createSuccess": "Ubicación {label} creada.",
         "createError": "No se pudo crear la ubicación."
-      }
+      },
+      "sealedCondition": "Condición del sellado",
+      "sealedConditionHint": "Visible al comprador. No afecta el precio.",
+      "listPriceOptional": "Precio de venta (opcional)",
+      "listPriceOptionalHint": "Si lo dejas vacío, se calcula por mercado × spread. Un precio manual lo sobreescribe."
     },
     "m3": {
       "title": "M3 · Ventas / órdenes",
@@ -1268,6 +1274,20 @@
         "pctHint": "Porcentaje: precio de venta = mercado × (1 + %). Ejemplo: 15% deja el precio 15% arriba de mercado (se admite hasta 1000%). Fijo: el monto en MX$ es un piso de venta.",
         "example": "Ejemplo: el % es lo que subes SOBRE el mercado. Con +15%, vendes en MX$115 una carta de MX$100.",
         "saved": "Reglas de venta guardadas."
+      },
+      "sealedSpreads": {
+        "title": "Spreads de venta del sellado",
+        "subtitle": "Markup sobre el valor de mercado (TCGCSV) por presentación. Precio de venta = mercado × (1 + spread).",
+        "example": "Ej.: 15% sobre un mercado de MX$3,000 = MX$3,450.",
+        "fallbackLabel": "Spread global",
+        "fallbackHint": "Se aplica a las presentaciones sin regla propia.",
+        "subtype": "Presentación",
+        "spread": "Spread",
+        "spreadFor": "Spread de {subtype}",
+        "zeroWarning": "Sin margen",
+        "zeroBanner": "Un spread de 0% vende al costo de mercado, sin margen. Verifica antes de guardar.",
+        "prereqHint": "El spread solo produce precio si el producto está mapeado a TCGCSV y la fuente de precio del sellado está activa.",
+        "saved": "Spreads guardados."
       }
     },
     "m6": {
@@ -1528,7 +1548,11 @@
       "emptyBody": "Ningún cliente con bóveda coincide con tu búsqueda.",
       "pageInfo": "Página {page} de {totalPages} · {total} clientes",
       "prev": "Anterior",
-      "next": "Siguiente"
+      "next": "Siguiente",
+      "detailTabs": {
+        "cards": "Cartas",
+        "sealed": "Sellado"
+      }
     }
   },
   "locale": {
@@ -1621,6 +1645,10 @@
       "refunded": "REEMBOLSADO",
       "cancelled": "CANCELADO",
       "inReview": "EN REVISIÓN"
+    },
+    "sealedCondition": {
+      "mint": "Como nueva",
+      "minor_box_damage": "Detalle menor en caja"
     }
   },
   "error": {
@@ -1739,5 +1767,87 @@
       "support": "¿Necesitas ayuda? Escríbenos a {contact}."
     },
     "temporaryLinkNotice": "Este enlace es temporal y caduca en unas horas. El enlace de seguimiento de tu pedido te llega por correo; si no lo ves, pide uno nuevo."
+  },
+  "sealed": {
+    "title": "Sellado",
+    "subtitle": "Producto cerrado de fábrica: cajas, ETB, bundles y más. Solo venta.",
+    "badge": "Sellado",
+    "available": "{count, plural, =0 {Agotado} one {# disponible} other {# disponibles}}",
+    "fromPrice": "Desde",
+    "withoutIva": "sin IVA",
+    "resultsCount": "{count, plural, =0 {Sin productos} one {# producto} other {# productos}}",
+    "filters": {
+      "set": "Set",
+      "allSets": "Todos los sets",
+      "subtype": "Presentación",
+      "allSubtypes": "Todas",
+      "condition": "Condición",
+      "allConditions": "Todas"
+    },
+    "sort": {
+      "label": "Ordenar",
+      "newest": "Más recientes",
+      "price_asc": "Precio: menor a mayor",
+      "price_desc": "Precio: mayor a menor"
+    },
+    "emptyTitle": "Aún no hay sellado en stock",
+    "emptyBody": "Vuelve pronto: publicamos producto cerrado conforme llega a la bóveda.",
+    "condition": {
+      "mint": "Como nueva",
+      "minor_box_damage": "Detalle menor en caja"
+    },
+    "buylistCallout": {
+      "title": "¿Quieres revender tu sellado a TCG Vault MX?",
+      "body": "Escríbenos a contacto@tcgvaultmx.com con fotos y lo cotizamos.",
+      "cta": "Escríbenos"
+    },
+    "detail": {
+      "backToShop": "Sellado",
+      "marketValue": "Valor de mercado",
+      "decrease": "Quitar uno",
+      "increase": "Agregar uno",
+      "addToCart": "Agregar {count} al carrito",
+      "goToCart": "Ir al carrito",
+      "destinationNote": "Elige en el checkout si prefieres recibirlo en tu domicilio o dejarlo en tu bóveda.",
+      "minorDamageNote": "Producto sellado con un detalle menor en la caja; el contenido no se ve afectado. No cambia el precio."
+    },
+    "trend": {
+      "title": "Tendencia de valor",
+      "noChange": "Sin cambios",
+      "collecting": "Recopilando historial de mercado.",
+      "marketRefNote": "Valor de mercado de referencia (TCGCSV), actualizado a diario.",
+      "rangesAria": "Rango de la tendencia",
+      "ranges": {
+        "5d": "5D",
+        "15d": "15D",
+        "1m": "1M",
+        "3m": "3M",
+        "6m": "6M",
+        "1y": "1A",
+        "ytd": "YTD",
+        "all": "Todo"
+      }
+    },
+    "restock": {
+      "title": "Avísame cuando vuelva",
+      "body": "Te escribimos en cuanto este producto vuelva a estar disponible.",
+      "emailLabel": "Correo",
+      "emailPlaceholder": "tucorreo@ejemplo.com",
+      "cta": "Avisarme",
+      "confirmed": "Listo. Te avisaremos por correo cuando vuelva."
+    },
+    "vault": {
+      "emptyTitle": "Aún no tienes sellado en tu bóveda",
+      "emptyBody": "El producto cerrado que compres y dejes en bóveda aparecerá aquí.",
+      "totalValue": "Valor de mercado total",
+      "pendingPrice": "{count, plural, one {# producto sin precio de mercado} other {# productos sin precio de mercado}}",
+      "productColumn": "Producto",
+      "conditionColumn": "Condición",
+      "countColumn": "Cantidad",
+      "marketValueColumn": "Valor de mercado",
+      "countValue": "{count, plural, one {# pieza} other {# piezas}}",
+      "pendingLabel": "Precio pendiente",
+      "valuationNote": "Valuado al valor de mercado de referencia; las piezas sin mercado se excluyen del total."
+    }
   }
 }

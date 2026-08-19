@@ -2262,3 +2262,157 @@ globales**; la UI es cosmética. **SEC-A1 intacto.** Sin regresión en dinero/PI
   (`fixed >= 1`) y fijar cota superior a `fixed` (junto con la decisión `BigInt` de B-3/S-B2). Dueño
   **backend**; endurecer antes de operar con dinero real.
 - **¿Puede ir a `main`?** **SÍ** (ambas fases: 3a y 2).
+
+---
+
+# ANEXO rev v1.6 (2026-08-19) — Work stream «Sellado / Venta de producto cerrado»
+
+> **Rama:** `claude/sellado-producto-cerrado` (HEAD actual). **Modo:** revisión **estática** de
+> código (blue team) + consolidación del pase **PENTEST §"Pase v1.6"** (red team). Sin stack vivo
+> (Docker/Postgres/Redis ausentes) → vectores que exigen runtime = **[PoC pendiente de DAST]**;
+> confirmados por lectura = **[Verificado en código]**. **Foco del PO:** ruta de dinero/autoprecio
+> del sellado + puerta pública del restock por correo. Superficie nueva: `catalog/*` (sellado),
+> `pricing.*`, `common/money.ts`, `vault.service.ts`, `admin-vaults.*`, migración M-28,
+> `settings.constants.ts`.
+
+## S.0 Resumen ejecutivo del stream
+
+La **ruta de dinero/autoprecio del sellado se validó SÓLIDA** y sin regresión. El precio de venta se
+resuelve por un **único** camino server-side (`PricingService.resolveSealedSalePrice` =
+`gateSealedMarketCents` + pura `computeSealedSalePrice`), **compartido** por grid, ficha, catálogo,
+Compra (`orders.salePriceOf`), bulk-publish y valuación de bóveda ⇒ **precio mostrado == precio
+cobrado**. El DTO del cliente **nunca** aporta precio; `listPriceCents`/`sealedSubtype`/`ref` salen de
+BD y los spreads de `ConfigSetting`. El **gate money-safe fail-closed está intacto**: seed
+`sealed_price_source='off'` (`sourceOn = value==='tcgcsv'` ⇒ mercado **inerte**; sin override>0 ⇒
+`PRICE_PENDING`, no se publica), `override<=0` se ignora (nunca se vende gratis/bajo mercado),
+spreads capados `[0,1000]`, `listPriceCents @Max 100_000_000`, y `GET/PUT /admin/pricing/sealed-spreads`
+= `@Roles(super_admin)` **auditado before/after** (no editables por `PUT /admin/settings`). **0
+Críticas / 0 Altas.**
+
+El riesgo real del stream vive en la **puerta pública del restock** (S-1: sin consentimiento/dedup/
+`@@unique` → email-bomb diferido + bloat de BD) y en el **grid público sin cota de paginación en BD**
+(S-2: DoS anónimo). Ambos hoy **atenuados** (S-1 tras flag `sealed_restock_alerts=off`; S-2 vivo pero
+con throttle global por IP). **Consolido los 5 hallazgos del pentester; todos se confirman en código;
+ajusto S-4 a Info y elevo S-7 (userId inerte) a Baja** porque debilita el control anti-abuso de S-1.
+
+| Severidad final (blue team) | # | IDs |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Media | 2 | S-1 (condicionada al flag), S-2 |
+| Baja | 3 | S-3, S-5, **S-7 (elevado desde Info)** |
+| Info/positivo | 3 | **S-4 (bajado desde Baja)**, S-6, S-8 |
+
+## S.1 Tabla consolidada — hallazgos del stream (validados vs. código)
+
+| ID | Hallazgo | Sev. pentester | **Sev. final** | Estado | Rol dueño | Evidencia [Verificado en código] |
+|---|---|---|---|---|---|---|
+| **S-1** | Restock público: correo sin opt-in/consentimiento + sin dedup + sin `@@unique` → email-bomb diferido + bloat | Media (→Alta con flag on) | **Media** hoy / **Alta al encender el flag** | **REMEDIAR-ANTES-DE-FLAG** (bloqueante para encender `sealed_restock_alerts`) | **backend** + **arquitecto** (`@@unique`) + **devops** (mantener flag off) | `sealed-catalog.service.ts:269-331` acepta `email` arbitrario (solo regex), `create` sin buscar previa; migración M-28 `SealedRestockSubscription` sin `@@unique` (solo 3 índices no-únicos); `sealed-restock-notify.service.ts:87-101` envía **1 correo por fila** pendiente |
+| **S-2** | `GET /catalog/sealed` (público) sin `take`/`skip` en BD: carga toda la tabla sellada+joins en memoria por request → DoS | Media | **Media** | **REMEDIAR** (no bloqueante por severidad; cerrar antes de GA/escala) | **backend** | `sealed-catalog.service.ts:47-52` `findMany` sin `take`; `listSealed:168-171` pagina con `.slice()` en memoria; `catalog.controller.ts:72-73` `@Public` **sin `@Throttle` propio** (sus hermanos `value-history`/`featured-set` sí llevan 60/min) |
+| **S-3** | Correo restock: `productName` interpolado en HTML sin `escapeHtml` | Baja | **Baja** | Aceptada (remediar con S-1) | **backend** | `sealed-restock-notify.service.ts:113` `<strong>${productName}</strong>` sin escapar; `productName = card.name` (fuente catálogo/import, no input directo del atacante) |
+| **S-4** | `value-history` sin filtro `ownerType`/`status` → serie de mercado de cualquier pieza sellada por id | Baja | **Info** (bajada) | Aceptada | **backend** | `sealed-catalog.service.ts:223-224` `findFirst({id, productType:'sealed'})` sin `status/ownerType` (vs. `sealedDetail:178-182` que sí). Datos = **precio de mercado TCGCSV público** (no PII, no precio de venta, no dueño) + endpoint **feature-flagged off** ⇒ bajada a Info |
+| **S-5** | Restock: oráculo de temporización residual pese a 202 neutro | Baja | **Baja** | Aceptada | **backend** | `sealed-catalog.service.ts:299-330` ruta asimétrica (anclar Card real ⇒ `findFirst`+`findUnique`+`create`); existencia de sellado ya es en gran parte pública vía grid/ficha |
+| **S-7** | `@CurrentUser('id')` inerte en ruta `@Public` → suscripciones siempre `userId=null` | Info | **Baja** (elevada) | Aceptada (remediar con S-1) | **backend** | `catalog.controller.ts:114` inyecta `userId?` pero `JwtAuthGuard` hace `return true` en `@Public` sin poblar `req.user` ⇒ `userId` siempre `undefined`. **Elevado a Baja**: impide un rate-limit/ownership por-usuario y por tanto **refuerza S-1** (toda suscripción queda anónima) |
+| **S-6** | Feature-flags gateados server-side; micro-leak `FEATURE_DISABLED` vs 404 genérico | Info | **Info** | Aceptada | backend (opc.) | `sealed-catalog.service.ts:220,279` verifican el dial ANTES de tocar datos ⇒ **no bypassable**. Micro-fuga cosmética |
+| **S-8** | Positivo — integridad de precio del sellado + authz sin regresión | Info+ | **Info+** | Confirmado | — | Resolver único server-side + gate fail-closed + spreads capados/auditados + IDOR scoped (ver S.2) |
+
+## S.2 Ruta de dinero / autoprecio del sellado — VERIFICADA sin regresión (blue team)
+
+- **Resolver único server-side (SEC-A1):** `pricing.service.ts:223-236` `resolveSealedSalePrice` =
+  `gateSealedMarketCents(ref, sourceOn)` (`:206-210`) + pura `computeSealedSalePrice`
+  (`money.ts:339-363`). Precedencia `override>0 > mercado×spread(subtype) > mercado×spread(global) >
+  PRICE_PENDING`. El **mismo cuerpo** lo usan grid (`sealed-catalog.service.ts:72`), ficha, catálogo,
+  **checkout** (`orders.service.ts:54-61`), bulk-publish y valuación de bóveda ⇒ **no hay discrepancia
+  mostrado-vs-cobrado**. El cliente solo manda **ids**; ningún precio del DTO entra al cálculo.
+- **Gate money-safe fail-closed INTACTO:** seed `sealed_price_source='off'`
+  (`settings.constants.ts:100`); `sourceOn = value==='tcgcsv'` (`pricing.service.ts:172`) ⇒ con `off`
+  el mercado TCGCSV queda **inerte** y el sellado solo se vende con **override>0**; sin override y sin
+  mercado ⇒ `PRICE_PENDING` (no se publica). `override<=0` se trata como ausente
+  (`money.ts:346-349`) ⇒ nunca se vende gratis ni bajo mercado por captura degenerada.
+- **Diales capados y segregados:** `listPriceCents @Min(0) @Max(100_000_000)` en los 5 DTOs de alta/
+  publicación (`inventory.dto.ts:61,70,113,131,167`); spreads `[0, 1000]` + subtype allow-listed
+  (`settings.constants.ts:243-271`); `GET/PUT /admin/pricing/sealed-spreads` = `@Roles(super_admin)`
+  con auditoría **before/after** (`pricing.controller.ts:78,344-386`); los spreads **NO** son editables
+  por `PUT /admin/settings` (fuera de `SETTING_DTO_MAP`).
+- **Sin doble-venta:** reserva atómica de checkout con `updateMany` guardado por estado vendible +
+  `count===1` (patrón previo, sin regresión).
+- **AuthZ/IDOR del sellado:** `GET /vault/sealed` scoped por `@CurrentUser('id')`;
+  `GET /admin/vaults/:userId/sealed` = `@Roles(vault_operator, super_admin)` con proyección **sin
+  CLABE/RFC/INE** (`admin-vaults.service.ts`). Sin lectura cruzada cliente-a-cliente. El sellado **no**
+  introdujo superficie de money-out.
+
+## S.3 Condiciones de gate (qué bloquea, qué se acepta con registro)
+
+**BLOQUEANTE para encender `sealed_restock_alerts` (S-1) — antes del flip del dial DEBE cerrarse
+TODO lo siguiente:**
+1. **Titularidad/consentimiento del correo** — exigir **double opt-in** (token de confirmación, como
+   el módulo de correo M-17) **o** restringir `email` al de la **sesión autenticada** (no aceptar
+   email arbitrario de terceros). **[backend]**
+2. **`@@unique(email, tcgplayerProductId, cardId, sealedSubtype, sealedCondition)`** en
+   `SealedRestockSubscription` + **dedup** antes del `create` (idempotencia). **[arquitecto** (schema)
+   **+ backend]**
+3. **Cap de correos por víctima/producto** en el job de notificación (colapsar N filas a 1 envío) y
+   escapar HTML del `productName` (**S-3**). **[backend]**
+4. **Ligar la suscripción a un usuario** cuando haya sesión — corregir **S-7** (`@CurrentUser('id')`
+   inerte en ruta `@Public`) para habilitar rate-limit/ownership por-usuario. **[backend]**
+5. **devops:** mantener `sealed_restock_alerts=off` (y `sealed_value_trend=off`) hasta que backend/
+   arquitecto confirmen 1-4; el flip queda gated por esta nota.
+
+**ACEPTADO CON REGISTRO (no bloquea el cierre del stream):**
+- **S-2 (DoS de paginación)** — **abierto y vivo** (el grid es público aunque el autoprecio esté off).
+  No bloquea por severidad (Media, 0 Crit/Alta), pero **backend debe** paginar en BD (`take`/`skip` o
+  cota dura + caché corta) y añadir `@Throttle` por IP al endpoint, **en paridad con sus hermanos**,
+  **antes de GA/operar a escala**. Atenuante actual: throttler global por IP (in-memory/por instancia,
+  débil en multi-instancia sin Redis — ver carryover devops).
+- **S-3, S-4, S-5, S-6, S-7** — deuda de bajo riesgo con disparador (S-3/S-7 se cierran junto con S-1).
+- **Carryover de dependencias:** `@nestjs/core`/`@nestjs/platform-express` **2 moderate**
+  (GHSA-36xv-jgw5-4q75 / CVE-2026-35515, SSE injection) — **no específico del stream**, **no
+  alcanzable** (backend sin SSE; `git grep @Sse|MessageEvent|text/event-stream` = 0). Sigue aceptado
+  con disparador (bump a NestJS 11 en ventana de mantenimiento). **[devops]** No se infla: sin cambio
+  respecto a rev v1.3-v1.5.
+
+## S.4 Banderas para el humano (sellado)
+
+- **No encender `sealed_restock_alerts` en producción** hasta cerrar S-1 (1-4 de §S.3). Es la única
+  condición que **escala a Alta** si se ignora: convierte la plataforma en amplificador de spam a
+  terceros usando su **reputación de envío** (riesgo de blacklist del dominio) + bloat de BD no acotado.
+- **Antes de operar con dinero real** (transversal, ya en §6): **pentest de tercero + bug bounty**;
+  **DAST contra staging** para los vectores [PoC pendiente de DAST] del stream — carga real de S-2,
+  amplificación de S-1 con flag on, y timing de S-5.
+- **Legal/PII:** sin superficie nueva de PII en el sellado (grid/ficha/valuación no exponen datos de
+  dueño; admin-vaults sin CLABE/RFC/INE). El correo de restock guarda `email` de terceros **sin
+  consentimiento verificado** ⇒ cerrar S-1 también por higiene de datos personales antes de operar.
+
+## S.5 DoD de seguridad (CLAUDE.md) — verificación
+
+- **Sin hallazgos Críticos/Altos abiertos:** **CUMPLE.** 0 Crit / 0 Alta en el stream (y en el
+  histórico consolidado). S-1 es Media hoy (fail-closed por flag off); su escalada a Alta es
+  **condicional y prevenida** por el gate de §S.3 (flag off + remediación previa al flip).
+- **Aceptados registrados en este documento:** S-2 (remediar antes de GA), S-3/S-4/S-5/S-6/S-7
+  (deuda con disparador), carryover `@nestjs/core` (aceptado, no alcanzable). Registrados arriba.
+
+## S.6 Ruteo por rol dueño (stream Sellado)
+- **backend:** S-1 (opt-in/dedup/cap), S-2 (paginar en BD + `@Throttle`), S-3 (escapar HTML), S-4
+  (alinear `where` con `sealedDetail`), S-5 (igualar ruta de trabajo), S-7 (userId inerte).
+- **arquitecto:** S-1 (`@@unique` en `SealedRestockSubscription` — cambio de schema/migración).
+- **devops:** mantener `sealed_restock_alerts=off` y `sealed_value_trend=off` hasta cerrar S-1;
+  carryover `@nestjs/core` (bump NestJS 11 + gate `npm audit` en CI); Redis para throttler multi-instancia.
+
+## S.7 VEREDICTO del stream «Sellado»
+
+**VEREDICTO seguridad (revisión estática, blue team): APROBADO-CON-CONDICIONES.**
+
+- **0 Críticos / 0 Altos abiertos** ⇒ **no procede RECHAZO** (CLAUDE.md DoD). El stream **puede
+  cerrar/mergear** con los aceptados registrados en este documento.
+- La **ruta de dinero/autoprecio del sellado** está **verificada sin regresión**: resolver único
+  server-side, gate money-safe fail-closed (`sealed_price_source='off'`), sin inyección de precio por
+  el cliente, spreads capados/auditados/segregados (super_admin), sin doble-venta y sin IDOR nuevo.
+- **CONDICIÓN VINCULANTE (S-1):** `sealed_restock_alerts` **DEBE permanecer `off`** en prod; encender
+  el flag **sin** cerrar antes double opt-in/ownership + `@@unique`+dedup + cap de correos + S-7
+  (§S.3, puntos 1-4) **reabre este veredicto como RECHAZO** (S-1 escala a Alta). devops no flipea el
+  dial sin visto bueno de backend/arquitecto.
+- **CONDICIÓN DE CIERRE PRE-GA (S-2):** no bloquea el merge por severidad, pero backend **debe**
+  paginar en BD + `@Throttle` el grid público **antes de GA/escala**.
+- **Deuda aceptada con disparador:** S-3/S-4/S-5/S-6/S-7 y carryover `@nestjs/core` (no alcanzable).
+- **PENDIENTE (no aprobado a ciegas):** **DAST contra staging** para los vectores runtime del stream
+  (carga real S-2, amplificación S-1 con flag on, timing S-5), en línea con el gate de promoción a prod.

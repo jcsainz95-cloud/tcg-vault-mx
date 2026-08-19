@@ -14,6 +14,7 @@ import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
 import { PriceIngestJobService } from './price-ingest.service';
 import { SealedPriceIngestJobService } from './sealed-price-ingest.service';
+import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
 
 /** Body opcional del disparo de `price-ingest` (excepción a la familia body-vacío, §M10-ops). */
 class PriceIngestDto {
@@ -51,6 +52,7 @@ export class AdminJobsController {
     private readonly catalogPriceSync: CatalogPriceSyncJobService,
     private readonly priceIngest: PriceIngestJobService,
     private readonly sealedPriceIngest: SealedPriceIngestJobService,
+    private readonly sealedRestockNotify: SealedRestockNotifyService,
     private readonly audit: AuditService,
   ) {}
 
@@ -230,6 +232,32 @@ export class AdminJobsController {
         groupId: dto.groupId ?? null,
         enqueued: result.enqueued,
         ...(result.reason ? { reason: result.reason } : {}),
+      },
+    });
+    return result;
+  }
+
+  /**
+   * v1.23-sealed-sales (§4.23h / §M10-ops) — dispara `sealed-restock-notify`: empareja las
+   * suscripciones «avísame cuando vuelva» PENDIENTES con los productos sellados de vuelta a `listed`
+   * y envía correo. FEATURE-FLAGGED por `sealed_restock_alerts` (`off` → no-op, `enqueued:false`).
+   * NO agendado en cron hasta el flip (§4.23h); este disparo manual es la superficie de ops. Res 202.
+   */
+  @Post('sealed-restock-notify')
+  @HttpCode(202)
+  async runSealedRestockNotify(@CurrentUser() user: { id: string; role: Role }) {
+    const result = await this.sealedRestockNotify.run();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.sealed_restock_notify.run',
+      entityType: 'Job',
+      entityId: 'sealed-restock-notify',
+      after: {
+        job: result.job,
+        enqueued: result.enqueued,
+        ...(result.reason ? { reason: result.reason } : {}),
+        ...(result.notified != null ? { notified: result.notified } : {}),
       },
     });
     return result;

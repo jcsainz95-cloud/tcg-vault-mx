@@ -30,6 +30,16 @@ function buildPricing(over: any = {}): PricingService {
     escalatePending: jest.fn().mockResolvedValue(undefined),
     getReferencesBatch: jest.fn(async () => new Map()),
     loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
+    // v1.23-sealed-sales: contexto/ helpers del sellado (default: dial off → sellado solo por override).
+    loadSealedSpreads: jest.fn(async () => ({
+      spreadPctBySubtype: { box: 18, etb: 22, bundle: 25, tin: 30, blister: 35 },
+      fallbackPct: 25,
+      sourceOn: false,
+    })),
+    sealedMarketGradeKeyForItem: jest.fn((item: any) =>
+      item.tcgplayerProductId != null ? `sealed:tcg:${item.tcgplayerProductId}` : null,
+    ),
+    getSealedMarketRef: jest.fn(async () => ({ status: 'pending' })),
     ...over,
   } as unknown as PricingService;
 }
