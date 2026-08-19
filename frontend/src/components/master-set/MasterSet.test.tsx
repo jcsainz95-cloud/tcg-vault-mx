@@ -92,6 +92,26 @@ describe('Master Set · Binder (rejilla PLANA: una tarjeta por impresión + orde
     expect(within(drawer).getByText('3 piezas')).toBeInTheDocument();
   });
 
+  it('INV-2: cada tarjeta de una carta muestra el TOTAL on-hand POR CARTA (cell.totalCount) de forma clara', async () => {
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+
+    // Charizard (#4) tiene 4 piezas on-hand (normal 3 + reverse holo 1) → totalCount = 4. El total
+    // POR CARTA se repite en cada una de sus 3 tarjetas de impresión (N-16, imagen/cabecera compartida),
+    // respondiendo "tengo N de esta carta".
+    const charizardTiles = await screen.findAllByRole('button', { name: /Charizard/ });
+    expect(charizardTiles).toHaveLength(3);
+    charizardTiles.forEach((tile) => {
+      expect(within(tile).getByText('4 en total')).toBeInTheDocument();
+    });
+
+    // Una carta SIN piezas on-hand (totalCount = 0) NO pinta el total (evita ruido de "0 en total").
+    const pikachuTiles = await screen.findAllByRole('button', { name: /Pikachu/ });
+    pikachuTiles.forEach((tile) => {
+      expect(within(tile).queryByText(/en total/)).toBeNull();
+    });
+  });
+
   it('respeta el ORDEN NATURAL del backend (numéricos ascendentes) sin re-ordenar', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
@@ -607,6 +627,41 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
         name: 'Agregar Dual Finish Card (Reverse Holo) a la venta · MX$150.00',
       }),
     ).toBeInTheDocument();
+  });
+
+  it('INV-2: el cotizador (mode="quoter") NUNCA pinta el badge de total on-hand por carta', async () => {
+    // Lock de invariante: el on-hand no aplica al cotizador (QuoterTile no pasa showTotalCount).
+    // Este test evita que un refactor futuro de defaults lo reintroduzca en silencio (aparecería
+    // "0 en total" o similar).
+    mockOneSet();
+    const dualFinishCard: CardDTO = {
+      id: 'c-dual',
+      externalId: 'quoter-1',
+      name: 'Dual Finish Card',
+      number: '1',
+      rarity: 'Rare',
+      supertype: 'Pokémon',
+      subtypes: [],
+      setId: 'set-quoter',
+      setName: 'Quoter Set',
+      imageSmallUrl: '',
+      imageLargeUrl: '',
+      availableFinishes: ['normal', 'reverse_holo'],
+    };
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: [dualFinishCard],
+      page: 1,
+      pageSize: 50,
+      total: 1,
+    });
+    mockDeterministicQuotes();
+
+    await openQuoterSet();
+
+    // Las casillas del cotizador ya cargaron (precio visible)…
+    expect(await screen.findByText('MX$100.00')).toBeInTheDocument();
+    // …pero NO hay badge de total on-hand por carta en ninguna casilla del cotizador.
+    expect(screen.queryByText(/en total/)).toBeNull();
   });
 
   it('una carta con UN solo acabado muestra SOLO una casilla, sin hueco vacío para los demás', async () => {

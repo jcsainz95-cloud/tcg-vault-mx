@@ -371,6 +371,8 @@
     "secretRare": "Secret rare",
     "gap": "Hueco",
     "totalCount": "{count, plural, one {# pieza} other {# piezas}}",
+    "cardTotalCount": "{count, plural, one {# en total} other {# en total}}",
+    "cardTotalCountAria": "Tengo {count, plural, one {# pieza} other {# piezas}} de esta carta en total",
     "finishChipAria": "{finish}: {count} piezas",
     "emptyBinderTitle": "Sin cartas",
     "emptyBinderBody": "Ninguna carta coincide con los filtros aplicados.",
@@ -1255,7 +1257,8 @@
           "fallback": "Fallback"
         },
         "example": "Ejemplo: el % es lo que PAGAS de la referencia. Con 40%, pagas MX$40 por una carta de MX$100.",
-        "saved": "Reglas de buylist guardadas."
+        "saved": "Reglas de buylist guardadas.",
+        "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar."
       },
       "salesRules": {
         "title": "Reglas de precio de VENTA por rareza",
@@ -1281,7 +1284,8 @@
         },
         "pctHint": "Porcentaje: precio de venta = mercado × (1 + %). Ejemplo: 15% deja el precio 15% arriba de mercado (se admite hasta 1000%). Fijo: el monto en MX$ es un piso de venta.",
         "example": "Ejemplo: el % es lo que subes SOBRE el mercado. Con +15%, vendes en MX$115 una carta de MX$100.",
-        "saved": "Reglas de venta guardadas."
+        "saved": "Reglas de venta guardadas.",
+        "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar."
       },
       "sealedSpreads": {
         "title": "Spreads de venta del sellado",
