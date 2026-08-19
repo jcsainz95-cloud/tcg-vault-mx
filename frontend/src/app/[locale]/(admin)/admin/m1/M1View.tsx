@@ -25,6 +25,7 @@ import {
 import type {
   ProductType,
   SealedSubtype,
+  SealedCondition,
   GradingCompany,
   AcquisitionType,
   Finish,
@@ -59,6 +60,8 @@ type M1Tab = 'pieces' | 'masterSet';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
+// v1.23-sealed-sales: condición SIMPLE del sellado, visible al comprador (default `mint`).
+const SEALED_CONDITIONS: SealedCondition[] = ['mint', 'minor_box_damage'];
 const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 // Alta MANUAL: `buylist` NO es una vía de alta manual (es la conversión automática de M5,
 // MovementReason.buylist_convert); solo `aportacion_en_especie` y `compra` se dan de alta aquí.
@@ -84,6 +87,7 @@ export function M1View() {
   const t = useTranslations('admin.m1');
   const tt = useTranslations('admin.m1.table');
   const tSub = useTranslations('status.sealedSubtype');
+  const tCond = useTranslations('status.sealedCondition');
   const tFinish = useTranslations('finish');
   const tInv = useTranslations('status.inventory');
   const tc = useTranslations('common');
@@ -113,6 +117,8 @@ export function M1View() {
   // v1.6-finish: acabado de la copia física; se valida contra card.availableFinishes al alta.
   const [finish, setFinish] = useState<Finish>('normal');
   const [sealedSubtype, setSealedSubtype] = useState<SealedSubtype>('box');
+  // v1.23-sealed-sales: condición del sellado (default `mint`; solo aplica a productType='sealed').
+  const [sealedCondition, setSealedCondition] = useState<SealedCondition>('mint');
   const [gradingCompany, setGradingCompany] = useState<GradingCompany>('PSA');
   const [gradeValue, setGradeValue] = useState('10');
   const [certNumber, setCertNumber] = useState('');
@@ -273,6 +279,7 @@ export function M1View() {
         rawCondition: productType === 'raw' ? 'NM' : undefined,
         finish: productType === 'raw' ? finish : undefined,
         sealedSubtype: productType === 'sealed' ? sealedSubtype : undefined,
+        sealedCondition: productType === 'sealed' ? sealedCondition : undefined,
         gradingCompany: productType === 'graded' ? gradingCompany : undefined,
         gradeValue: productType === 'graded' ? gradeValue : undefined,
         certNumber: productType === 'graded' ? certNumber.trim() : undefined,
@@ -307,6 +314,7 @@ export function M1View() {
         rawCondition: productType === 'raw' ? 'NM' : undefined,
         finish: productType === 'raw' ? finishForCard(card) : undefined,
         sealedSubtype: productType === 'sealed' ? sealedSubtype : undefined,
+        sealedCondition: productType === 'sealed' ? sealedCondition : undefined,
         gradingCompany: productType === 'graded' ? gradingCompany : undefined,
         gradeValue: productType === 'graded' ? gradeValue : undefined,
         certNumber: productType === 'graded' ? certNumber.trim() : undefined,
@@ -935,7 +943,8 @@ export function M1View() {
             </>
           )}
           {productType === 'sealed' && (
-            // Sellado: subtipo + precio manual MXN obligatorio para publicar (§3.6).
+            // Sellado (v1.23): subtipo + condición (default mint, visible al comprador) + precio
+            // manual MXN opcional (override; sin él, el backend deriva mercado×spread — §4.23b).
             <>
               <Select
                 label={t('sealedSubtype')}
@@ -943,12 +952,21 @@ export function M1View() {
                 value={sealedSubtype}
                 onChange={(e) => setSealedSubtype(e.target.value as SealedSubtype)}
               />
+              <div>
+                <Select
+                  label={t('sealedCondition')}
+                  options={SEALED_CONDITIONS.map((c) => ({ value: c, label: tCond(c) }))}
+                  value={sealedCondition}
+                  onChange={(e) => setSealedCondition(e.target.value as SealedCondition)}
+                />
+                <p className="mt-2 font-mono text-xs text-muted">{t('sealedConditionHint')}</p>
+              </div>
               <Input
-                label={t('listPriceRequired')}
+                label={t('listPriceOptional')}
+                hint={t('listPriceOptionalHint')}
                 type="text"
                 inputMode="decimal"
                 prefix="MX$"
-                required
                 value={listPrice}
                 onChange={(e) => setListPrice(e.target.value)}
               />

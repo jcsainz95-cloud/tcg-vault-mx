@@ -58,6 +58,7 @@ export function StorefrontHeader() {
   // al render de servidor— y las pestañas privadas aparecen al montar la sesión.
   const links = [
     { href: '/catalog', label: t('shop') },
+    { href: '/sellado', label: t('sealed') },
     { href: '/buylist', label: t('buylist') },
     ...(authed
       ? [
