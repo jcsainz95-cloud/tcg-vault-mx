@@ -2056,6 +2056,33 @@
 - **Disparador:** si aparecen filas duplicadas por `Finish` en el feed del proveedor. Dirección:
   preferir la fila con `finishAliasVerified` al **deduplicar** (verificada gana sobre supuesta).
 
+### Pase `fix/pokemonpricetracker-404` — deuda del delta (P-7, 2026-08-19, no bloqueante)
+
+> Del fix P0 del adapter de PokemonPriceTracker (endpoints muertos `/api/prices`+`/api/v1/prices`
+> → **API v2** `GET /api/v2/cards?setId=…&fetchAllInSet=true`, envelope raíz `{ data, total, count,
+> limit, offset, hasMore }`, precios por acabado en `tcgplayer.prices`). Verdictos qa + techlead
+> APROBADO-con-deuda. El único ítem es no bloqueante, dueño **backend**. Continúa la numeración
+> `BE-*` (tras BE-71). Detalle del cambio en el propio provider + specs (`price-ingest.provider.spec.ts`
+> y el co-localizado `pokemonpricetracker-bulk.provider.spec.ts`).
+
+### BE-72 · Fallbacks A/B/C de `mapEntry` son un hedge sin verificar en runtime (Baja)
+- **Dónde:** `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts` → `mapEntry`
+  (fuente PRIMARIA `entry.tcgplayer.prices` + fallbacks tolerantes **(A)** `entry.prices` objeto,
+  **(B)** plano `printing`+`marketPrice`, **(C)** listas `prices`/`printings`/`variants`).
+- **Estado actual:** el shape v2 REAL (`tcgplayer.prices` por acabado) está confirmado **solo** por
+  el OpenAPI público del proveedor + múltiples clientes en GitHub; el **egress del sandbox bloquea**
+  la verificación contra la API real. Como red de seguridad, `mapEntry` conserva los tres shapes
+  fallback del adapter anterior. Una vez confirmado el shape real en la 1ª corrida, esos fallbacks
+  son **código muerto** que ensucia el mapeo y puede enmascarar un cambio de contrato futuro
+  (un shape inesperado mapearía por un fallback en vez de fallar visiblemente).
+- **Impacto:** bajo (mantenibilidad; money-safe intacto — los fallbacks también validan acabado y
+  `market>0`). Familia de BE-32 (paginación real por verificar) y BE-33 (moneda/unidad por confirmar):
+  los tres esperan la **misma 1ª corrida en staging**.
+- **Disparador:** **podar los fallbacks A/B/C de `mapEntry` tras confirmar el shape v2 real en la 1ª
+  corrida en staging** (runbook devops, junto al flip de `POKEMONPRICETRACKER_MARKET_FORMAT`, BE-33).
+  Solución: dejar solo la lectura de `tcgplayer.prices`; si el payload no la trae, OMITIR y loguear
+  (que un cambio de contrato falle visible, no que un fallback lo tape).
+
 ---
 
 ## Frontend (dueño: frontend)
