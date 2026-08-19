@@ -13,6 +13,10 @@ export interface PriceIngestTriggerResult {
   jobId?: string;
   scope?: 'set';
   setId?: string;
+  /** N-11 — disparo en segundo plano (fire-and-forget); el front pollea `sync-status`. */
+  background?: boolean;
+  /** N-11 — ya había un barrido en curso (single-flight); no se lanzó otro. */
+  alreadyRunning?: boolean;
 }
 
 /**
@@ -82,6 +86,27 @@ export class PriceIngestJobService {
   }
 
   /**
+   * N-11 — disparo MANUAL del catálogo COMPLETO en segundo plano (fire-and-forget) con barra de
+   * progreso, calcando `catalog-sync.syncAll`. Single-flight vía `PriceIngestService.getSyncStatus`.
+   * Devuelve de INMEDIATO; el barrido corre secuencial (respeta el throttle/daily-stop, secuencial
+   * por naturaleza) y actualiza `sync-status` por set, que el front pollea. NO bloquea el request.
+   * El CRON 2×/día sigue usando `run()` (fan-out BullMQ / secuencial), sin cambios.
+   */
+  async runBackground(): Promise<PriceIngestTriggerResult> {
+    if (this.ingest.getSyncStatus().running) {
+      this.logger.warn('price-ingest ya en curso (background); no se lanza otro (single-flight).');
+      return { job: JOB, enqueued: false, background: true, alreadyRunning: true };
+    }
+    const cur = await this.fx.getCurrent();
+    const fx: FxSnapshot = { rate: cur.rate, bufferPct: cur.bufferPct };
+    // Fire-and-forget: el request NO espera al barrido. Los errores se loguean (no se propagan).
+    void this.ingest.ingestAll(fx).catch((e) => {
+      this.logger.error(`price-ingest background falló: ${(e as Error).message}`);
+    });
+    return { job: JOB, enqueued: true, background: true, alreadyRunning: false };
+  }
+
+  /**
    * Fan-out: encola un `price-ingest-set` por set con jobId determinista por día (single-flight).
    *
    * NOTA single-flight (simétrica a la rama secuencial `run()`+`running`, ver BE-31): en la rama CON
@@ -93,7 +118,11 @@ export class PriceIngestJobService {
    */
   async enqueueAllSets(fx: FxSnapshot): Promise<string> {
     if (!this.queue) throw new Error('price-ingest: no hay cola BullMQ (REDIS_URL ausente).');
-    const ids = await this.ingest.listLocalSetIds();
+    // WS-A fix-ppt: solo se encolan los sets EN SCOPE (modernos + viejos con inventario/rares) cuando
+    // el proveedor es el de PAGA; con el legacy se encolan todos. Evita gastar créditos en sets viejos
+    // de puro bulk. Si un child topa la cuota DIARIA, el `PptApiClient` (singleton del worker) queda
+    // marcado y los children restantes cortan de inmediato sin pegarle al proveedor.
+    const ids = await this.ingest.listSetIdsForIngest();
     const day = new Date().toISOString().slice(0, 10);
     for (const setId of ids) {
       await this.queue.add(

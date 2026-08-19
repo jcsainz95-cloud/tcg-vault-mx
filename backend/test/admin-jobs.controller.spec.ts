@@ -34,6 +34,8 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   } as unknown as CatalogPriceSyncJobService;
   const priceIngest = {
     run: jest.fn().mockResolvedValue({ job: 'price-ingest', enqueued: true, jobId: 'price-ingest-2026-08-17' }),
+    // N-11: sin setId el disparo es fire-and-forget (background); el front pollea sync-status.
+    runBackground: jest.fn().mockResolvedValue({ job: 'price-ingest', enqueued: true, background: true, alreadyRunning: false }),
   } as unknown as PriceIngestJobService;
   const sealedPriceIngest = {
     run: jest.fn().mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true }),
@@ -139,10 +141,12 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   });
 
   // v1.14-price-ingest (WS-A): ingesta masiva. Sin setId → catálogo completo; auditado. TOCA DINERO.
-  it('POST /admin/jobs/price-ingest (sin setId) corre run() y audita jobs.price_ingest.run', async () => {
+  it('POST /admin/jobs/price-ingest (sin setId) → runBackground() (N-11 fire-and-forget) y audita', async () => {
     const res = await ctrl.runPriceIngest({}, user);
-    expect(priceIngest.run).toHaveBeenCalledWith(undefined);
-    expect(res).toEqual({ job: 'price-ingest', enqueued: true, jobId: 'price-ingest-2026-08-17' });
+    // N-11: sin setId NO se bloquea; se lanza el barrido en background.
+    expect(priceIngest.runBackground).toHaveBeenCalled();
+    expect(priceIngest.run).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ job: 'price-ingest', enqueued: true, background: true });
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'jobs.price_ingest.run',

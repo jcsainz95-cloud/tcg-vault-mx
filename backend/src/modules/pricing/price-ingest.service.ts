@@ -1,14 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CardSet, Finish } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PricingService } from './pricing.service';
-import { BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
+import { BulkFetchInput, BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 import { orderFinishes } from '../../common/card-order';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
+import { PptSetMapper } from './ppt-set-mapper.service';
+import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
+
+/** InventoryStatus que NO cuentan como "activo" para el scope parcial (regla del PO: no withdrawn/lost). */
+const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withdrawn', 'lost'];
+
+/** Scope resuelto de un set para la ingesta de PPT (+ cartas permitidas en el caso parcial). */
+interface SetScopeInfo {
+  scope: SetScope;
+  /** cardIds permitidos en el caso `partial` (inventario activo ∪ rares). `null` en full/skip. */
+  allowedCardIds: Set<string> | null;
+}
 
 /** Snapshot de FX cargado UNA vez por corrida (§4.15f), pasado a cada set. */
 export type FxSnapshot = { rate: number; bufferPct: number };
@@ -26,6 +39,42 @@ export interface IngestSetResult {
   unresolved: number;
   /** Entradas omitidas por el adapter (mal formadas) + no resueltas. */
   skipped: number;
+  /**
+   * WS-A fix-ppt — el proveedor de paga agotó la cuota DIARIA en este set (429 daily). El orquestador
+   * debe DETENER el barrido de los sets restantes (no resetea hasta 00:00 UTC). `undefined`/`false`
+   * = la cuota no se agotó.
+   */
+  dailyLimited?: boolean;
+  /** Scope aplicado a este set (`full`/`partial`/`skip`) — observabilidad del reporte. */
+  scope?: SetScope;
+  /** N-11 — presupuesto diario vivo tras este set (para la barra de progreso). */
+  dailyRemaining?: number | null;
+}
+
+/**
+ * N-11 (barra de progreso del sync de precios) — estado OBSERVABLE del barrido en curso (o del
+ * último), en memoria del proceso. Calca `catalog-sync.getSyncStatus`. `GET /admin/pricing/sync-status`
+ * lo expone; el front lo pollea. NO persistido (se pierde al reiniciar, como el de catálogo).
+ */
+export interface PriceSyncStatus {
+  running: boolean;
+  jobId: string | null;
+  /** Sets a procesar en la corrida. */
+  total: number;
+  /** Sets ya intentados (éxito o fallo) — barra honesta done/total. */
+  done: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** Último error del barrido (mensaje), o null. */
+  lastError: string | null;
+  /** Presupuesto diario vivo restante del proveedor de paga, o null. */
+  dailyRemaining: number | null;
+  /** true si el barrido se DETUVO por límite diario (429 daily) → aviso "pausado hasta 00:00 UTC". */
+  dailyLimited: boolean;
+  /** Sets que quedaron pendientes si se detuvo por límite diario. */
+  pending: number;
+  /** Proveedor de la corrida (`pokemonpricetracker`/`pokemontcg_io`). */
+  provider: string | null;
 }
 
 /**
@@ -58,6 +107,29 @@ export interface IngestSetResult {
 export class PriceIngestService {
   private readonly logger = new Logger(PriceIngestService.name);
 
+  /**
+   * N-11 — estado en memoria del barrido de precios (barra de progreso). Calca el patrón de
+   * `catalog-sync`. Se inicializa "vacío/terminado"; lo maneja `ingestAll` (barrido completo).
+   */
+  private syncStatus: PriceSyncStatus = {
+    running: false,
+    jobId: null,
+    total: 0,
+    done: 0,
+    startedAt: null,
+    finishedAt: null,
+    lastError: null,
+    dailyRemaining: null,
+    dailyLimited: false,
+    pending: 0,
+    provider: null,
+  };
+
+  /** GET /admin/pricing/sync-status — progreso del barrido de precios en curso (o del último). */
+  getSyncStatus(): PriceSyncStatus {
+    return { ...this.syncStatus };
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
@@ -67,6 +139,9 @@ export class PriceIngestService {
     // v1.22-1 (§4.22g): tras escribir `pricedFinishesSnapshot` (Señal C), este servicio LLAMA al
     // ÚNICO escritor de `availableFinishes`. NUNCA escribe `availableFinishes` directamente.
     private readonly finishReconciler: FinishReconciler,
+    // WS-A fix-ppt: resuelve `CardSet.pptSetId` (causa raíz #1) y lee los diales de scope/throttle.
+    private readonly pptSetMapper: PptSetMapper,
+    private readonly config: ConfigService,
   ) {}
 
   /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
@@ -118,6 +193,38 @@ export class PriceIngestService {
   }
 
   /**
+   * WS-A fix-ppt — SETS a ingerir en la corrida completa, aplicando el SCOPE del PO cuando el
+   * proveedor es el de PAGA (PokemonPriceTracker): sets modernos (año ≥ umbral) + sets viejos con
+   * cartas en scope (inventario activo ∪ rares). Con el proveedor legacy (pokemontcg_io) NO hay
+   * scope (se devuelven TODOS los sets, como siempre). El orden pone los modernos primero (mayor
+   * valor de mercado) para que, si la cuota diaria se agota a media corrida, lo pendiente sea lo
+   * menos crítico (sets viejos).
+   */
+  async listSetIdsForIngest(): Promise<string[]> {
+    const provider = await this.providerFor();
+    const sets = await this.prisma.cardSet.findMany();
+    if (provider.source !== 'pokemonpricetracker') return sets.map((s) => s.id);
+
+    const modern: string[] = [];
+    const partial: string[] = [];
+    let skipped = 0;
+    for (const set of sets) {
+      if (isModernSet(set)) {
+        modern.push(set.id);
+        continue;
+      }
+      const { scope } = await this.computeScope(set);
+      if (scope === 'partial') partial.push(set.id);
+      else skipped += 1;
+    }
+    this.logger.log(
+      `price-ingest scope (pokemonpricetracker): ${modern.length} sets modernos (≥2020, full) + ` +
+        `${partial.length} viejos con inventario/rares (partial), ${skipped} viejos omitidos (bulk).`,
+    );
+    return [...modern, ...partial];
+  }
+
+  /**
    * Ingesta de UN set por su externalId (`sv8`) o su id interno — para el disparo manual
    * `POST /admin/jobs/price-ingest { setId }` (verificación de esquema en la 1ª corrida, §4.15h).
    */
@@ -129,34 +236,106 @@ export class PriceIngestService {
       this.logger.warn(`price-ingest: set "${setIdOrExternal}" no encontrado (externalId/id); se omite.`);
       return this.emptyResult(setIdOrExternal, null, 'none');
     }
-    return this.ingestForSet(set, fx);
+    // Disparo MANUAL de un set concreto (verificación de esquema, §4.15h): se fuerza el barrido
+    // COMPLETO aunque el scope lo clasificaría como `skip` (el operador lo pidió explícitamente).
+    return this.ingestForSet(set, fx, { manual: true });
   }
 
-  /** Ingesta secuencial y AWAITED de TODO el catálogo (fallback sin Redis, §4.15c). */
-  async ingestAll(fx: FxSnapshot): Promise<{ sets: number; priced: number }> {
-    const ids = await this.listLocalSetIds();
+  /**
+   * Ingesta secuencial y AWAITED del catálogo EN SCOPE (fallback sin Redis, §4.15c). Se DETIENE si el
+   * proveedor de paga agota la cuota DIARIA (429 daily) y reporta cuántos sets quedaron pendientes
+   * (money-safe: no se reintenta hasta 00:00 UTC).
+   */
+  async ingestAll(fx: FxSnapshot): Promise<{ sets: number; priced: number; pending: number; dailyLimited: boolean }> {
+    const provider = await this.providerFor();
+    const ids = await this.listSetIdsForIngest();
+    // N-11: publica el estado observable ANTES de arrancar (barra honesta done/total).
+    const jobId = `price-ingest-${new Date().toISOString().slice(0, 10)}`;
+    this.syncStatus = {
+      running: true,
+      jobId,
+      total: ids.length,
+      done: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      lastError: null,
+      dailyRemaining: null,
+      dailyLimited: false,
+      pending: ids.length,
+      provider: provider.source,
+    };
+
     let priced = 0;
-    for (const id of ids) {
-      const res = await this.ingestSet(id, fx);
-      priced += res.priced;
+    let dailyLimited = false;
+    let processed = 0;
+    try {
+      for (const id of ids) {
+        const res = await this.ingestSet(id, fx);
+        priced += res.priced;
+        processed += 1;
+        // Progreso honesto: done por set intentado; dailyRemaining vivo si el proveedor lo reporta.
+        this.syncStatus.done = processed;
+        this.syncStatus.pending = ids.length - processed;
+        if (res.dailyRemaining != null) this.syncStatus.dailyRemaining = res.dailyRemaining;
+        if (res.dailyLimited) {
+          dailyLimited = true;
+          this.syncStatus.dailyLimited = true;
+          break;
+        }
+      }
+    } catch (e) {
+      this.syncStatus.lastError = (e as Error).message;
+      throw e;
+    } finally {
+      this.syncStatus.running = false;
+      this.syncStatus.finishedAt = new Date().toISOString();
+      this.syncStatus.pending = ids.length - processed;
     }
-    this.logger.log(`price-ingest (secuencial): ${ids.length} sets, ${priced} referencias.`);
-    return { sets: ids.length, priced };
+
+    const pending = ids.length - processed;
+    if (dailyLimited) {
+      this.logger.warn(
+        `price-ingest (secuencial): PARADA por cuota DIARIA agotada tras ${processed}/${ids.length} sets ` +
+          `(${pending} pendientes; reintenta tras 00:00 UTC). ${priced} referencias escritas.`,
+      );
+    } else {
+      this.logger.log(`price-ingest (secuencial): ${processed} sets, ${priced} referencias.`);
+    }
+    return { sets: ids.length, priced, pending, dailyLimited };
   }
 
   // ----------------------------------------------------------------------------
 
-  private async ingestForSet(set: CardSet, fx: FxSnapshot): Promise<IngestSetResult> {
+  private async ingestForSet(
+    set: CardSet,
+    fx: FxSnapshot,
+    opts: { manual?: boolean } = {},
+  ): Promise<IngestSetResult> {
     const provider = await this.providerFor();
-    const result = await provider.fetchPricesForSet({ set });
+    const input = await this.buildFetchInput(provider, set, opts.manual === true);
+    if (input === 'skip') {
+      // Set viejo sin inventario activo ni rares (scope PO): no se pide nada (ahorra créditos).
+      this.logger.log(`price-ingest-set(${set.externalId}, ${provider.source}): scope=skip (viejo sin inventario/rares).`);
+      const empty = this.emptyResult(set.id, set.externalId, provider.source);
+      return { ...empty, scope: 'skip' };
+    }
+    const { fetchInput, scope, allowedCardIds } = input;
+    const result = await provider.fetchPricesForSet(fetchInput);
 
-    // Agrupa las filas VÁLIDAS por cardId RESUELTO (§4.15c/§4.15d).
+    // Agrupa las filas VÁLIDAS por cardId RESUELTO (§4.15c/§4.15d). En scope `partial`, SOLO se
+    // conservan las cartas permitidas (inventario activo ∪ rares) — así, aunque el barrido traiga
+    // el set entero, NO se persiste el bulk de comunes de un set viejo (regla del PO).
     const byCard = new Map<string, Map<Finish, BulkPriceRow>>();
     let unresolved = 0;
+    let outOfScope = 0;
     for (const row of result.rows) {
       const cardId = await this.resolveCardId(row, set);
       if (!cardId) {
         unresolved += 1;
+        continue;
+      }
+      if (allowedCardIds && !allowedCardIds.has(cardId)) {
+        outOfScope += 1;
         continue;
       }
       const finishes = byCard.get(cardId) ?? new Map<Finish, BulkPriceRow>();
@@ -235,9 +414,10 @@ export class PriceIngestService {
     }
 
     this.logger.log(
-      `price-ingest-set(${set.externalId}, ${provider.source}): ${byCard.size} cartas, ` +
-        `${priced} refs, ${unresolved} sin resolver, ${result.skipped} omitidas por el adapter, ` +
-        `${driftPairs.length} finishNotInCatalog.`,
+      `price-ingest-set(${set.externalId}, ${provider.source}, scope=${scope}): ${byCard.size} cartas, ` +
+        `${priced} refs, ${unresolved} sin resolver, ${outOfScope} fuera de scope, ` +
+        `${result.skipped} omitidas por el adapter, ${driftPairs.length} finishNotInCatalog` +
+        `${result.dailyLimited ? ', 429 DAILY (parada)' : ''}.`,
     );
     return {
       setId: set.id,
@@ -246,8 +426,87 @@ export class PriceIngestService {
       cardCount: byCard.size,
       priced,
       unresolved,
-      skipped: result.skipped + unresolved,
+      skipped: result.skipped + unresolved + outOfScope,
+      dailyLimited: result.dailyLimited,
+      scope,
+      dailyRemaining: result.dailyRemaining ?? null,
     };
+  }
+
+  /**
+   * WS-A fix-ppt — arma la entrada de `fetchPricesForSet`. Para el proveedor legacy (pokemontcg_io)
+   * es `{ set }` sin scope. Para el de PAGA (PokemonPriceTracker):
+   *  - Resuelve `pptSetId` (causa raíz #1) vía `PptSetMapper` (una carga de `/api/v2/sets` cacheada).
+   *  - Aplica el SCOPE del PO: modernos → full; viejos → partial (con `allowedCardIds` = inventario ∪
+   *    rares) o skip. `manual` fuerza full (disparo explícito del operador).
+   *  - Pasa `minPrice` (dial) en partial para no traer bulk desde el origen, y `fetchPrintings` (dial).
+   * Devuelve `'skip'` si el set queda fuera de scope.
+   */
+  private async buildFetchInput(
+    provider: BulkPriceProvider,
+    set: CardSet,
+    manual: boolean,
+  ): Promise<'skip' | { fetchInput: BulkFetchInput; scope: SetScope; allowedCardIds: Set<string> | null }> {
+    if (provider.source !== 'pokemonpricetracker') {
+      return { fetchInput: { set }, scope: 'full', allowedCardIds: null };
+    }
+
+    const scopeInfo = manual
+      ? ({ scope: 'full', allowedCardIds: null } as SetScopeInfo)
+      : await this.computeScope(set);
+    if (scopeInfo.scope === 'skip') return 'skip';
+
+    const map = await this.pptSetMapper.resolveForSets([set]);
+    const providerSetId = map.get(set.id) ?? null;
+
+    const fetchInput: BulkFetchInput = {
+      set,
+      providerSetId,
+      // En partial: `minPrice` (unidad del proveedor) para excluir bulk en el origen. Dial opcional;
+      // sin él, el filtro de allowedCardIds igual evita persistir bulk (a costa de más créditos).
+      minPrice: scopeInfo.scope === 'partial' ? this.partialMinPrice() : null,
+      fetchPrintings: this.fetchPrintingsEnabled(),
+    };
+    return { fetchInput, scope: scopeInfo.scope, allowedCardIds: scopeInfo.allowedCardIds };
+  }
+
+  /**
+   * WS-A fix-ppt — SCOPE de un set (regla del PO). Moderno (año ≥ umbral) → full. Viejo → partial si
+   * tiene ≥1 carta con inventario ACTIVO (no withdrawn/lost) ∪ carta RARA; si no, skip. Devuelve los
+   * `cardIds` permitidos para el filtro de persistencia del caso partial.
+   */
+  private async computeScope(set: CardSet): Promise<SetScopeInfo> {
+    if (isModernSet(set)) return { scope: 'full', allowedCardIds: null };
+
+    // Cartas del set con inventario ACTIVO.
+    const invItems = await this.prisma.inventoryItem.findMany({
+      where: { card: { setId: set.id }, status: { notIn: [...INACTIVE_INVENTORY_STATUSES] } },
+      select: { cardId: true },
+      distinct: ['cardId'],
+    });
+    // Cartas PREMIUM/CHASE del set (refinamiento PO: Illustration Rare para arriba + ex/GX/V…;
+    // NO bulk, NO rare normal, NO reverse holo como tier). Ver `isPremiumRarity`.
+    const cards = await this.prisma.card.findMany({
+      where: { setId: set.id },
+      select: { id: true, rarity: true },
+    });
+    const allowed = new Set<string>();
+    for (const it of invItems) allowed.add(it.cardId);
+    for (const c of cards) if (isPremiumRarity(c.rarity)) allowed.add(c.id);
+
+    const scope = classifySet(set, allowed.size);
+    return { scope, allowedCardIds: scope === 'partial' ? allowed : null };
+  }
+
+  /** Dial `POKEMONPRICETRACKER_PARTIAL_MIN_PRICE` (unidad del proveedor); vacío → sin filtro. */
+  private partialMinPrice(): string | null {
+    const raw = this.config.get<string>('POKEMONPRICETRACKER_PARTIAL_MIN_PRICE');
+    return raw && String(raw).trim() !== '' ? String(raw).trim() : null;
+  }
+
+  /** Dial `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` → barrido por impresión (reverse holo). */
+  private fetchPrintingsEnabled(): boolean {
+    return String(this.config.get<string>('POKEMONPRICETRACKER_FETCH_PRINTINGS') ?? '').toLowerCase() === 'true';
   }
 
   /**

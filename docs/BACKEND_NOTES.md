@@ -4285,3 +4285,152 @@ cambio de contrato sin el arquitecto. Queda como **pendiente menor con dueño ba
 que `cardsWithoutFinishSignal` de §4.22a-5, que tampoco se materializó en el dashboard): el techlead
 puede pedir su registro formal en `docs/TECH_DEBT.md`. La query sugerida (cuando se aborde):
 `Card` con `NOT ('reverse_holo' = ANY("catalogFinishes"))` **y** `('reverse_holo' = ANY("availableFinishes"))`.
+
+## 52. WS-A fix-ppt (M-28, 2026-08-19) — PokemonPriceTracker: setId real, throttle 429, scope y reverse holo
+
+**Incidente (producción, confirmado con logs de Railway):** con `PRICE_PROVIDER=pokemonpricetracker`
+activo, el cotizador/inventario mostraba piso por rareza (MX$0.50) o "Precio pendiente" en TODO el
+catálogo. El adapter devolvía `0 entradas crudas → 0 filas mapeadas` en TODOS los sets, con `HTTP 429`
+(114×). La API key del PO ES válida (los `401` eran ruido). Causas, en orden, y su arreglo:
+
+### Causa raíz #1 — `setId` equivocado (el "0 entradas")
+El adapter mandaba `GET /api/v2/cards?setId=<CardSet.externalId>` con el id de pokemontcg.io (`sv8`),
+que **PokemonPriceTracker NO reconoce como set** → 0 cartas. PPT identifica el set por el **GroupId
+numérico de TCGplayer** (`tcgPlayerNumericId`, p. ej. `1407`), el **slug** (`tcgPlayerId`,
+`sv-prismatic-evolutions`) o su id mongo — nunca el externalId de pokemontcg.io.
+
+- **Nueva columna `CardSet.pptSetId String?`** (migración `20260819160000_m28_cardset_ppt_setid`,
+  aditiva, nullable, sin índice). Cachea el setId real de PPT. `null` = aún no mapeado / sin match.
+- **`PptSetMapper`** (`backend/src/modules/pricing/ppt-set-mapper.service.ts`): pide `GET /api/v2/sets`
+  UNA vez por corrida (caché en memoria), empata cada set local por **nombre normalizado** (minúsculas,
+  sin no-alfanuméricos) y desempata por **año de `releaseDate`**; persiste `pptSetId`. Match ambiguo o
+  ausente → `null` y se **loguea** (`… SIN mapeo a PokemonPriceTracker …`). Prefiere GroupId numérico.
+- El provider **jamás** cae al `externalId` si falta `pptSetId`: loguea `motivo=setId no mapeado` y
+  devuelve 0 filas (repetir el externalId reproduciría el bug).
+
+### Causa #2 — SCOPE (no barrer los 174 sets; no agotar 20k créditos/día)
+Regla del PO en `backend/src/modules/pricing/ppt-sync-scope.ts` (+ integración en `PriceIngestService`):
+- **(a) Set con `releaseDate` año ≥ 2020 → `full`** (todas sus cartas).
+- **(b) Set con año < 2020 → `partial`**: SOLO cartas con **InventoryItem activo** (status ≠
+  `withdrawn`/`lost`) **∪** cartas **PREMIUM/CHASE**. En viejos NO se persiste el bulk ni el rare normal.
+- Viejo sin inventario activo ni premium → **`skip`** (no se pide nada).
+- **Umbral de rareza (REFINAMIENTO DEL PO, 2026-08-19 — `isPremiumRarity`):** allow-list EXPLÍCITA de
+  premium/chase, no una deny-list. **INCLUYE** "Illustration Rare para arriba" (Illustration/Special
+  Illustration, Hyper/Rainbow, Gold/Secret) + familia **ex/EX/GX/V/VMAX/VSTAR** (+ Mega, V-UNION) +
+  chase equivalente (Full Art=`Rare Ultra`, Lv.X, Prime, BREAK, LEGEND, Amazing/Radiant, Shiny/Shining,
+  Prism Star). Términos premium (substring normalizado): `holo, ultra, secret, rainbow, gold, hyper,
+  illustration, shiny, shining, amazing, radiant, prime, break, legend, lvx/levelx, prism, mega` + la
+  familia ex/gx/v por PALABRA. **EXCLUYE** `common`, `uncommon`, `rare` normal (no-holo). **Reverse holo
+  NUNCA cuenta como rareza** (es un ACABADO, no un tier; guard `reverse`, y de todos modos el scope solo
+  mira `Card.rarity`, jamás los acabados). **CAVEAT cross-era:** en eras viejas (base/neo/e-card/EX) no
+  existe "Illustration Rare" → el premium es **`Rare Holo`** (por eso `holo` es término premium: Charizard
+  Base = Rare Holo entra) y los EX de esa época. Rareza `null`/desconocida → **NO premium** (excluida): el
+  **InventoryItem activo es la red de seguridad** de cualquier carta que realmente tengamos.
+- El scope se aplica al **seleccionar** los sets (`listSetIdsForIngest`, modernos primero) y al
+  **persistir** (en partial solo se escriben las `allowedCardIds` aunque el barrido traiga el set entero).
+- Disparo manual de un set (`POST /admin/jobs/price-ingest { setId }`) **fuerza full** (verificación).
+
+### Causa #3 — Throttle / 429 (los 114× HTTP 429)
+Nuevo cliente compartido **`PptApiClient`** (`backend/src/modules/pricing/providers/ppt-api.client.ts`),
+usado por el mapper y el bulk provider. Host FIJO (anti-SSRF), key solo en header. Maneja el 429 según
+`limitType` del cuerpo:
+- **`per_minute`** → espera `Retry-After` (header o cuerpo, seg→ms) y **reintenta** (hasta 4×); sin
+  Retry-After, backoff exponencial con jitter determinista.
+- **`daily`** → lanza `PptDailyLimitError` (**PARADA**, no resetea hasta 00:00 UTC) y arma un **candado
+  en memoria** hasta `resetsAt`: toda petición posterior de esa corrida corta SIN pegarle al proveedor
+  (en fan-out, el `PptApiClient` es singleton del worker → los children restantes cortan solos).
+- **Presupuesto:** trackea `X-RateLimit-Daily-Remaining` (`client.dailyRemaining()` /
+  `effectiveRemaining() = remaining − inFlight`) y `metadata.apiCallsConsumed`.
+- El bulk provider propaga `dailyLimited` en `BulkPriceResult`; `ingestAll` **detiene** el barrido y
+  reporta cuántos sets quedaron **pendientes**. Money-safe: ante 429/timeout NO se borran precios.
+
+### Causa #4 — Variantes reverse holo (las 2 casillas por carta)
+La lista v2 trae un solo `prices.market` + `prices.primaryPrinting`. Opcional (dial
+`POKEMONPRICETRACKER_FETCH_PRINTINGS=true`): el provider hace **un barrido por impresión**
+(`printing=Normal` / `Reverse Holofoil` / `Holofoil`) y atribuye cada `market` a su `Finish`, poblando
+reverse holo (alimenta `pricedFinishesSnapshot → FinishReconciler → availableFinishes`). **Costo ≈3×**
+por set (un request por impresión) → por eso va por dial y respeta el scope.
+
+### Causa #5 — Observabilidad
+El resumen por set ahora dice el **MOTIVO** cuando da 0: `setId no mapeado` / `429 daily` /
+`429 per_minute` / `request falló` / `200 sin datos` / `sample-only`, además del ejemplo crudo. Cada
+página OK loguea `dailyRemaining`.
+
+### Shape v2 real (mapeo)
+Se añadió como fuente PRIMARIA `entry.prices = { market, primaryPrinting, low, lastUpdated }`
+(market→finish del primaryPrinting). Se conservan como fallback tolerante los shapes previos
+(`tcgplayer.prices` por acabado, listas de `printings`/`variants`, plano `printing`+`marketPrice`).
+El fail-closed de moneda/unidad (`POKEMONPRICETRACKER_MARKET_FORMAT`) NO cambia (sin formato →
+sample-only, no persiste). PO confirmó `usd_dollars`.
+
+### Env / columnas nuevas y defaults
+| Qué | Tipo | Default | Efecto |
+|---|---|---|---|
+| `CardSet.pptSetId` | columna `String?` | `null` | setId real de PPT (lo puebla el mapper) |
+| `POKEMONPRICETRACKER_MARKET_FORMAT` | env | *(sin default)* | sin él → sample-only; PO: `usd_dollars` |
+| `POKEMONPRICETRACKER_PARTIAL_MIN_PRICE` | env | *(vacío)* | filtro `minPrice` de la API en sets partial (excluir bulk en origen); confirmar la unidad en la 1ª corrida |
+| `POKEMONPRICETRACKER_FETCH_PRINTINGS` | env | `false` | `true` → barrido por impresión (reverse holo, ≈3× costo) |
+
+(Los env viven en `.env.example`, cuya edición es de **devops** — aquí solo se documentan.)
+
+### Qué debe buscar el PO en los logs de la próxima corrida de Railway
+1. `PptSetMapper: /api/v2/sets devolvió N sets (dailyRemaining=…)` y `resueltos X/Y sets nuevos`.
+   Si aparece `… SIN mapeo a PokemonPriceTracker (…)`, esos sets no empataron por nombre/año (revisar).
+2. Por set, en vez del viejo "0 entradas": `PokemonPriceTracker bulk resumen (set sv8): N crudas →
+   M filas […] motivo=ok.` con `M > 0`. Un `motivo=setId no mapeado` señala fallo del match.
+3. `price-ingest scope (pokemonpricetracker): A sets modernos … + B viejos … partial, C omitidos`.
+4. Si se agota la cuota: `429 DAILY … PARADA. resetsAt=…` y `PARADA por cuota DIARIA agotada tras
+   P/Q sets (R pendientes; reintenta tras 00:00 UTC)`.
+5. `dailyRemaining=…` decreciente en las líneas `GET … OK` (presupuesto vivo).
+
+### Tests (sandbox sin egress → todo mockeado)
+`ppt-sync-scope.spec.ts` (scope/rareza), `ppt-set-mapper.service.spec.ts` (match/persistencia/daily),
+`ppt-api.client.spec.ts` (Retry-After, daily-stop, presupuesto, 404), `pokemonpricetracker-bulk.fix-ppt.spec.ts`
+(setId real, shape v2, printings, daily), + scope en `test/price-ingest.service.spec.ts`. Verdes:
+lint, typecheck, build y 1019 unit tests.
+
+## 53. N-11 (2026-08-19) — barra de progreso del sync de precios (`price-ingest` background + `sync-status`)
+
+Junto con el fix de PPT (§52) se implementó N-11: convertir el `price-ingest` de **bloqueante** a
+**segundo plano** (fire-and-forget) con **estado observable**, calcando el patrón que ya existe para el
+catálogo (`catalog-sync.getSyncStatus` + `GET /admin/catalog/sync-status`).
+
+### Backend
+- **Estado en memoria** en `PriceIngestService` (`PriceSyncStatus`), expuesto por `getSyncStatus()`.
+  Lo maneja `ingestAll` (barrido COMPLETO): publica `running/total/startedAt` al arrancar, avanza
+  `done`/`pending` por set, guarda `dailyRemaining` (presupuesto vivo del proveedor) y `dailyLimited`
+  (429 daily), y cierra con `running=false`+`finishedAt` (y `lastError` si reventó). No persistido (se
+  pierde al reiniciar, igual que el de catálogo) y NO llama al proveedor en cada poll.
+- **Disparo no bloqueante:** `PriceIngestJobService.runBackground()` — single-flight vía
+  `getSyncStatus().running`, lanza `ingestAll` fire-and-forget y **devuelve de inmediato**. El endpoint
+  `POST /admin/jobs/price-ingest` **sin `setId`** ahora enruta a `runBackground()` (con `setId` sigue
+  AWAITED para verificación de un set). El **CRON 2×/día NO cambia**: sigue usando `run()` (fan-out
+  BullMQ / secuencial) — solo el disparo MANUAL usa el barrido background con barra.
+- **`dailyRemaining`** se propaga del `PptApiClient` → `BulkPriceResult` → `IngestSetResult` → estado
+  (sin nueva dependencia en el servicio).
+
+### Contrato del endpoint nuevo (reportar al arquitecto para formalizar en API_CONTRACT)
+`GET /admin/pricing/sync-status` — **super_admin**. Responde:
+```jsonc
+{
+  "running": false,
+  "jobId": "price-ingest-2026-08-19",
+  "total": 120, "done": 120, "pending": 0,
+  "startedAt": "2026-08-19T00:00:00.000Z",
+  "finishedAt": "2026-08-19T00:04:12.000Z",
+  "lastError": null,
+  "dailyRemaining": 17777,   // presupuesto diario del proveedor de paga (o null)
+  "dailyLimited": false,     // true = pausado por 429 daily → "retoma 00:00 UTC, N pendientes"
+  "provider": "pokemonpricetracker"
+}
+```
+El front (M2View) lo pollea ~3s mientras `running` y pinta la barra `done/total` REUSANDO el componente
+`SyncProgress` (FE-9, `role="progressbar"`); si `dailyLimited`, muestra el aviso de pausa por límite
+diario con `pending`. El disparo `POST /admin/jobs/price-ingest` responde 202 con
+`{ job, enqueued, background:true, alreadyRunning }`.
+
+### Nota de proceso
+El endpoint nuevo (`GET /admin/pricing/sync-status`) es superficie de contrato → el **arquitecto** debe
+formalizarlo en `docs/API_CONTRACT.md §M2/§M10-ops` (no lo edité: propiedad de otro rol). El frontend
+(M2View + `SyncProgress`) lo implementa un subagente **frontend** (excepción explícita del PO a
+"solo backend") tocando solo `frontend/`.

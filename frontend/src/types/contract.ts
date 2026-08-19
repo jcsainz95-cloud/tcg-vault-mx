@@ -1301,6 +1301,30 @@ export interface CatalogSyncStatusResponse {
   finishedAt: string | null;
 }
 
+// GET /admin/pricing/sync-status — progreso del barrido MASIVO de precios (price-ingest) en curso
+// (o del último). Estado en memoria del proceso (no persistido); para POLLING desde M2 sin llamar
+// al proveedor. Calca CatalogSyncStatusResponse con campos extra del presupuesto diario del
+// proveedor de paga (v1.14-price-ingest / N-11).
+export interface PriceSyncStatusResponse {
+  running: boolean;
+  jobId: string | null;
+  /** sets a procesar en el barrido actual/último. */
+  total: number;
+  /** sets ya intentados (éxito o fallo) → barra de progreso done/total. */
+  done: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lastError: string | null;
+  /** presupuesto diario restante del proveedor de paga (null = sin límite/no aplica). */
+  dailyRemaining: number | null;
+  /** true = pausado por límite diario del proveedor (429 daily); retoma a las 00:00 UTC. */
+  dailyLimited: boolean;
+  /** sets pendientes si el barrido se pausó por límite diario. */
+  pending: number;
+  /** proveedor activo del barrido ('pokemonpricetracker' | 'pokemontcg_io'), o null. */
+  provider: string | null;
+}
+
 // ---- M6: Usuarios / KYC (contrato §M6) ----
 // v1.3.1: `deleted` = cuenta soft-deleted/anonimizada (no puede iniciar sesión).
 export type AdminUserStatus = 'active' | 'blocked' | 'deleted';

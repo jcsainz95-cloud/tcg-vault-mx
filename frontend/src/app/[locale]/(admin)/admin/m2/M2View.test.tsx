@@ -192,6 +192,71 @@ describe('M2View · Catálogo y precios', () => {
     expect(await screen.findByText(/Sincronización completada: 10 set\(s\)/)).toBeInTheDocument();
   });
 
+  // ---- Barra de progreso del barrido MASIVO de PRECIOS (N-11) ----
+  it('pinta la barra de progreso del barrido de precios cuando GET /pricing/sync-status reporta running', async () => {
+    vi.spyOn(api, 'getPriceSyncStatus').mockResolvedValue({
+      running: true,
+      jobId: 'price-ingest-1',
+      total: 12,
+      done: 3,
+      startedAt: '2026-08-19T00:00:00.000Z',
+      finishedAt: null,
+      lastError: null,
+      dailyRemaining: null,
+      dailyLimited: false,
+      pending: 0,
+      provider: 'pokemonpricetracker',
+    });
+    renderWithProviders(<M2View />, 'es');
+    // Progreso honesto done/total + porcentaje (3/12 = 25%), con aviso de segundo plano.
+    expect(await screen.findByText(/Actualizando precios… 3\/12 sets/)).toBeInTheDocument();
+    expect(screen.getByText('25%')).toBeInTheDocument();
+  });
+
+  it('al terminar el barrido de precios (running=false, total>0) muestra "completada"', async () => {
+    vi.spyOn(api, 'getPriceSyncStatus').mockResolvedValue({
+      running: false,
+      jobId: 'price-ingest-1',
+      total: 12,
+      done: 12,
+      startedAt: '2026-08-19T00:00:00.000Z',
+      finishedAt: '2026-08-19T00:10:00.000Z',
+      lastError: null,
+      dailyRemaining: null,
+      dailyLimited: false,
+      pending: 0,
+      provider: 'pokemonpricetracker',
+    });
+    renderWithProviders(<M2View />, 'es');
+    expect(
+      await screen.findByText(/Actualización de precios completada: 12 set\(s\)/),
+    ).toBeInTheDocument();
+  });
+
+  it('muestra el aviso de pausa por límite diario con los sets pendientes y el presupuesto restante', async () => {
+    vi.spyOn(api, 'getPriceSyncStatus').mockResolvedValue({
+      running: false,
+      jobId: 'price-ingest-1',
+      total: 20,
+      done: 8,
+      startedAt: '2026-08-19T00:00:00.000Z',
+      finishedAt: null,
+      lastError: null,
+      dailyRemaining: 0,
+      dailyLimited: true,
+      pending: 12,
+      provider: 'pokemonpricetracker',
+    });
+    renderWithProviders(<M2View />, 'es');
+    // Aviso claro (accesible via role="status") con el número de pendientes.
+    expect(
+      await screen.findByText(/Pausado por límite diario del proveedor/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/12 set\(s\) pendientes/)).toBeInTheDocument();
+    // Presupuesto restante (0 → sigue mostrándose, no es null).
+    expect(screen.getByText(/Presupuesto restante hoy: 0/)).toBeInTheDocument();
+  });
+
   // Devuelve un helper `within` acotado a la <section> cuyo encabezado matchea `name`.
   // Evita ambigüedad entre los editores de buylist (Sección 4) y de venta (Sección 5),
   // que comparten aria-labels ("Guardar", "Modo para {rarity}", "Valor para {rarity}").

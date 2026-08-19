@@ -190,7 +190,9 @@ export class AdminJobsController {
   @Post('price-ingest')
   @HttpCode(202)
   async runPriceIngest(@Body() dto: PriceIngestDto, @CurrentUser() user: { id: string; role: Role }) {
-    const result = await this.priceIngest.run(dto.setId);
+    // N-11: `setId` → ingesta AWAITED de UN set (verificación de esquema). Sin `setId` → barrido del
+    // catálogo COMPLETO en SEGUNDO PLANO (fire-and-forget); el front pollea `GET /admin/pricing/sync-status`.
+    const result = dto.setId ? await this.priceIngest.run(dto.setId) : await this.priceIngest.runBackground();
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

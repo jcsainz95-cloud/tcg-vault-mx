@@ -22,6 +22,7 @@ describe('PricingController — rarity-map envelope', () => {
       audit,
       prisma,
       {} as PriceSyncJobService,
+      {} as any,
     );
     return { controller, prisma, audit };
   }

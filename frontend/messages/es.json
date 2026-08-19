@@ -1176,7 +1176,12 @@
         "trigger": "Actualizar precios ahora",
         "triggerHint": "Encola la ingesta masiva (equivale a la corrida programada); se procesa set por set, en segundo plano.",
         "queued": "Ingesta de precios encolada; se procesa en segundo plano.",
-        "alreadyRunning": "Ya hay una ingesta de precios en curso; no se encoló otra."
+        "alreadyRunning": "Ya hay una ingesta de precios en curso; no se encoló otra.",
+        "sweepRunning": "Actualizando precios… {done}/{total} sets.",
+        "sweepRunningHint": "Corre en segundo plano; puedes seguir trabajando. El avance se actualiza solo.",
+        "sweepDone": "Actualización de precios completada: {total} set(s) procesados.",
+        "dailyLimited": "Pausado por límite diario del proveedor — retoma a las 00:00 UTC. {pending} set(s) pendientes.",
+        "dailyRemaining": "Presupuesto restante hoy: {remaining}."
       },
       "rarityMap": {
         "title": "Rareza → categoría de buylist",
