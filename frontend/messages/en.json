@@ -1175,7 +1175,12 @@
         "trigger": "Refresh prices now",
         "triggerHint": "Queues the bulk ingest (same as the scheduled run); processed set by set, in the background.",
         "queued": "Price ingest queued; processing in the background.",
-        "alreadyRunning": "A price ingest is already running; no second run was queued."
+        "alreadyRunning": "A price ingest is already running; no second run was queued.",
+        "sweepRunning": "Updating prices… {done}/{total} sets.",
+        "sweepRunningHint": "Runs in the background; you can keep working. Progress updates automatically.",
+        "sweepDone": "Price update complete: {total} set(s) processed.",
+        "dailyLimited": "Paused by the provider's daily limit — resumes at 00:00 UTC. {pending} set(s) pending.",
+        "dailyRemaining": "Remaining budget today: {remaining}."
       },
       "rarityMap": {
         "title": "Rarity → buylist category",

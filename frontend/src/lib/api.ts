@@ -93,6 +93,7 @@ import type {
   CatalogBackfillResponse,
   CatalogSyncAllResponse,
   CatalogSyncStatusResponse,
+  PriceSyncStatusResponse,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
   AdminCreatedUserDTO,
@@ -2385,6 +2386,32 @@ export async function getSyncStatus(): Promise<CatalogSyncStatusResponse> {
   }
   // Mock: nunca hay un barrido corriendo (el estado vive en memoria del backend real).
   return delay({ running: false, jobId: null, total: 0, done: 0, startedAt: null, finishedAt: null });
+}
+
+/**
+ * Progreso del barrido MASIVO de precios (contrato GET /admin/pricing/sync-status, `super_admin`,
+ * N-11). Calca getSyncStatus (catálogo) para POLLING desde M2: da done/total en sets y el momento en
+ * que termina, sin llamar al proveedor. Añade el presupuesto diario del proveedor de paga
+ * (`dailyRemaining` / `dailyLimited` / `pending`) para avisar cuando se pausó por límite diario.
+ */
+export async function getPriceSyncStatus(): Promise<PriceSyncStatusResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PriceSyncStatusResponse>('/admin/pricing/sync-status');
+  }
+  // Mock: nunca hay un barrido corriendo (el estado vive en memoria del backend real).
+  return delay({
+    running: false,
+    jobId: null,
+    total: 0,
+    done: 0,
+    startedAt: null,
+    finishedAt: null,
+    lastError: null,
+    dailyRemaining: null,
+    dailyLimited: false,
+    pending: 0,
+    provider: null,
+  });
 }
 
 // ---------- Admin M6 · Usuarios / KYC (contrato §M6) ----------

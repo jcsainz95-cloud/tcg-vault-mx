@@ -12,6 +12,7 @@ import {
   updateFx,
   refreshFx,
   triggerPriceIngest,
+  getPriceSyncStatus,
   getPriceProvider,
   updatePriceProvider,
   getBuylistRarities,
@@ -206,10 +207,24 @@ export function M2View() {
       setProviderDraft(null);
     },
   });
+  // Estado del barrido MASIVO de precios (GET /admin/pricing/sync-status). Calca el patrón del
+  // sync de catálogo: se POLLEA cada 3 s mientras `running` para pintar done/total en vivo y saber
+  // CUÁNDO terminó. No llama al proveedor, así que pollearlo no consume presupuesto diario.
+  const priceSyncStatus = useQuery({
+    queryKey: ['price-sync-status'],
+    queryFn: getPriceSyncStatus,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.running ? 3000 : false),
+  });
+  const priceSweeping = priceSyncStatus.data?.running ?? false;
   const ingestMutation = useMutation({
     mutationFn: () => triggerPriceIngest(),
     // El ingest repuebla PriceReference → puede resolver pendientes; refresca esa cola.
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pending-prices'] }),
+    // Además arranca de inmediato el poll del estado del barrido de precios.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-prices'] });
+      qc.invalidateQueries({ queryKey: ['price-sync-status'] });
+    },
   });
 
   // --- Sección 4: precio de buylist por RAREZA (v1.3.1) ---
@@ -344,6 +359,8 @@ export function M2View() {
   // curso, mantenemos viva la sesión; al terminar, el idle-logout vuelve a la normalidad.
   const catalogBusy =
     isSweeping ||
+    priceSweeping ||
+    ingestMutation.isPending ||
     catalogSyncMutation.isPending ||
     backfillMutation.isPending ||
     syncAllMutation.isPending ||
@@ -419,6 +436,37 @@ export function M2View() {
         )}
         {ingestMutation.isError && (
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(ingestMutation.error)}</Banner>
+        )}
+
+        {/* Aviso de pausa por límite diario del proveedor de paga (retoma a las 00:00 UTC). */}
+        {priceSyncStatus.data?.dailyLimited && (
+          <Banner variant="warning" role="status">
+            {t('priceIngest.dailyLimited', { pending: priceSyncStatus.data.pending })}
+          </Banner>
+        )}
+        {/* Presupuesto diario restante del proveedor, cuando el estado lo reporta. */}
+        {priceSyncStatus.data?.dailyRemaining != null && (
+          <p className="text-xs text-muted">
+            {t('priceIngest.dailyRemaining', { remaining: priceSyncStatus.data.dailyRemaining })}
+          </p>
+        )}
+
+        {/* Barra de progreso del barrido de PRECIOS en curso / recién terminado (poll cada 3 s).
+            Reusa el mismo SyncProgress (role="progressbar" accesible) que el sync de catálogo. */}
+        {priceSyncStatus.data && (priceSyncStatus.data.running || priceSyncStatus.data.total > 0) && (
+          <SyncProgress
+            running={priceSyncStatus.data.running}
+            done={priceSyncStatus.data.done}
+            total={priceSyncStatus.data.total}
+            labels={{
+              running: t('priceIngest.sweepRunning', {
+                done: Math.min(priceSyncStatus.data.done, priceSyncStatus.data.total),
+                total: priceSyncStatus.data.total,
+              }),
+              runningHint: t('priceIngest.sweepRunningHint'),
+              done: t('priceIngest.sweepDone', { total: priceSyncStatus.data.total }),
+            }}
+          />
         )}
       </section>
 
