@@ -2,7 +2,17 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-18 (rev v1.22-variantes-orden).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-19 (rev v1.22-1-señal-ppt).
+>
+> **Changelog v1.22-1-señal-ppt (2026-08-19, rama `fix/available-finishes-source`) — SIN CAMBIO DE CONTRATO (nota de
+> semántica).** Resuelve la pregunta abierta v1.22-1 (ARCHITECTURE §4.22g/§10): con pokemontcg.io caído (502), la señal
+> de acabados también se toma de la fuente de PAGA (PokemonPriceTracker) como **evidencia positiva** (`market>0` vía
+> alias VERIFICADO ⇒ el acabado existe). **`CardDTO.availableFinishes` NO cambia de forma ni de tipo** (`Finish[]`, no
+> vacío, orden `FINISH_ORDER`); cambia solo **cómo se computa server-side**: ahora es la unión materializada de la
+> «opinión del catálogo» (`catalogFinishes`, interna) y la evidencia PPT (`pricedFinishesSnapshot`, interna). **Ninguna
+> de esas dos columnas se expone en DTO.** Todos los lectores del contrato siguen consumiendo `availableFinishes` igual;
+> el guardarraíl SEC-A1 `422 FINISH_NOT_AVAILABLE` sigue validando contra `Card.availableFinishes`. Ningún endpoint,
+> ruta, campo o código de error cambia. Detalle y candados money-safe: ARCHITECTURE §4.22g/§4.22h; migración M-27 (§11).
 >
 > **Changelog v1.22-variantes-orden (2026-08-18) — «Una casilla de imagen por VARIANTE REAL» (requisito del PO,
 > tercera ronda) + orden natural por número. TODO ADITIVO: ningún campo se quita ni cambia de tipo, ningún endpoint
@@ -791,6 +801,12 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 //   * FUENTE ÚNICA = el SYNC DE CATÁLOGO. Se deriva de `tcgplayer.prices` (llaves PRESENTES, con o sin `market`)
 //     ∪ `cardmarket.prices.reverseHolo*` (valor numérico > 0). El price-ingest YA NO escribe este campo: la
 //     ausencia de PRECIO de un acabado NO reduce las variantes (ARCHITECTURE §4.22a; §4.15e derogada).
+//   * v1.22-1 (ARCHITECTURE §4.22g) — SIN CAMBIO DE FORMA: `availableFinishes` pasa a ser una columna DERIVADA =
+//     union(catalogFinishes, pricedFinishesSnapshot) recomputada server-side. Se añade una SEGUNDA fuente de señal:
+//     el proveedor de PAGA (PPT) como EVIDENCIA POSITIVA — `market>0` de un acabado, vía alias VERIFICADO ⇒ ese
+//     acabado EXISTE (resuelve el caso pokemontcg.io caído/502). NO es la conversa prohibida por §4.22a-regla 2:
+//     precio AUSENTE sigue SIN reducir variantes; solo precio PRESENTE (verificado) las AÑADE. Único escritor =
+//     catalog.FinishReconciler. `catalogFinishes`/`pricedFinishesSnapshot` son INTERNAS, no se emiten en ningún DTO.
 //   * ORDEN CANÓNICO GARANTIZADO: normal → reverse_holo → holofoil → first_edition_holofoil. El front NO ordena;
 //     consume el orden del array. De ahí sale "normal a la IZQUIERDA, reverse holo a la DERECHA".
 //   * NUNCA vacío (mínimo ["normal"]) y NUNCA con acabados inventados: es el universo EXACTO de casillas del
