@@ -3959,5 +3959,32 @@ simula 404 `FEATURE_DISABLED`.
 ### Gates (reales, esta rama)
 `npx tsc --noEmit` ✓ · `npx next lint` ✓ (sin warnings) · `npx next build` ✓ (rutas `/[locale]/sellado`
 y `/[locale]/sellado/[inventoryItemId]` generadas) · `npx vitest run` ✓ (52 archivos / 403 tests, sin
-regresiones). No se añadieron tests unitarios nuevos en esta pasada (los flujos de sellado quedan cubiertos
+regresiones). No se añadieron tests unitarios nuevos en esa pasada (los flujos de sellado quedan cubiertos
 por typecheck/build; QA levantará E2E).
+
+### Saneo — tests de componente de sellado (pasada `claude/sellado-producto-cerrado`, aprobada por PO)
+Cierra la brecha de cobertura marcada por QA (los componentes de sellado no tenían vitest dedicado, a
+diferencia de guest-checkout/master-set). **+5 archivos / +25 tests** (total repo: **57 archivos / 428 tests**).
+Mismo patrón que el resto del repo: `renderWithProviders` (NextIntl + TanStack Query), `vi.spyOn(api, …)`
+para forzar carga/vacío/error/feature-flags, fixtures de `lib/mock/fixtures.ts`, `@/i18n/navigation`
+mockeado a `<a>` + `push` espía. No se tocó lógica de producción (ningún test destapó bug).
+
+- `src/app/[locale]/(storefront)/sellado/SealedShopView.test.tsx` (8): grid agrupado + «N disponibles»,
+  call-out mailto `contacto@tcgvaultmx.com`, estados carga/vacío/error (con reintentar), y los tres
+  filtros (presentación/condición/set) verificando el re-fetch filtrado.
+- `src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedDetailView.test.tsx` (5): condición
+  mint vs. «detalle menor» + su nota, selector de cantidad que agrega las N piezas más baratas al
+  carrito (`tcg.cart`), CTA «Ir al carrito» → `/checkout`, nota de destino recibir/bóveda, y grupo
+  agotado (controles deshabilitados, carrito intacto).
+- `src/components/domain/SealedVaultPanel.test.tsx` (4): modo `self` (imagen/condición/cantidad/valor +
+  total + «precio pendiente»), modo `admin` por `userId`, estado vacío y banner de error.
+- `src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedRestockForm.test.tsx` (4): flag ON
+  (CTA gateado por correo válido + confirmación neutra) y OFF (404 `FEATURE_DISABLED` → se oculta limpio),
+  más error genérico que mantiene el formulario.
+- `src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedValueTrend.test.tsx` (4): flag ON
+  (tendencia + selector de rangos con `1M` activo), serie vacía («recopilando historial»), y OFF con
+  404 `FEATURE_DISABLED` / `NOT_FOUND` → contenedor vacío (oculto limpio). El warning de recharts sobre
+  ancho/alto 0 en jsdom es benigno (mismo que en los demás tests de gráfica).
+
+Gates de esta pasada: `npx tsc --noEmit` ✓ · `npx next lint` ✓ (sin warnings) · `npx vitest run` ✓
+(57 archivos / 428 tests, sin regresiones).
