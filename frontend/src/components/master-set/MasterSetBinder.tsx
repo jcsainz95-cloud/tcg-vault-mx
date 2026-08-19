@@ -186,17 +186,6 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
     return [...filtered].sort(compareCardNumber);
   }, [binder.data, finishFilter, pieceFilter, onlySecret, isQuoter, nameFilter]);
 
-  /**
-   * Nº de casillas de la celda MÁS ancha del binder. Todas las celdas usan la misma retícula
-   * interna para que las imágenes midan lo mismo en toda la página (lectura de "binder"): una
-   * carta con una sola variante pinta UNA casilla y deja el resto en BLANCO — nunca una casilla
-   * de relleno (contrato v1.22: |casillas| = |availableFinishes|).
-   */
-  const slotCols = useMemo(
-    () => cells.reduce((max, c) => Math.max(max, c.variants.length), 1),
-    [cells],
-  );
-
   // v1.20: contador del set POR VARIANTE, derivado del binder (suma de expected/covered).
   const variantTotals = useMemo(() => {
     const all = binder.data?.cells ?? [];
@@ -304,17 +293,16 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
           (cells.length === 0 ? (
             <EmptyState title={t('emptyBinderTitle')} body={t('emptyBinderBody')} />
           ) : (
-            <ul className={`grid gap-3 ${gridColsForSlots(slotCols)}`} aria-label={t('binderGridLabel')}>
+            <ul
+              className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+              aria-label={t('binderGridLabel')}
+            >
               {cells.map((cell) => (
                 <li key={cell.cardId}>
                   {isQuoter ? (
-                    <QuoterCell
-                      cell={cell}
-                      slotCols={slotCols}
-                      onAddVariant={(v) => onAddVariant?.(cell, v)}
-                    />
+                    <QuoterCell cell={cell} onAddVariant={(v) => onAddVariant?.(cell, v)} />
                   ) : (
-                    <BinderCell cell={cell} slotCols={slotCols} onOpen={() => onOpenCell(cell)} />
+                    <BinderCell cell={cell} onOpen={() => onOpenCell(cell)} />
                   )}
                 </li>
               ))}
@@ -327,32 +315,13 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
 
 
 /**
- * Ancho de la retícula del binder EN FUNCIÓN de cuántas casillas trae la celda más ancha: una
- * celda de 2 casillas ocupa ~2× de ancho, así que se baja un escalón de columnas por cada
- * casilla extra. Así la IMAGEN de cada casilla conserva un tamaño legible en móvil en vez de
- * encogerse a la mitad (DESIGN_SYSTEM §4.4: 2 col móvil → 5 col xl para una sola imagen).
+ * Imagen ÚNICA de la carta (`cell.imageSmallUrl`) — N-16: el binder muestra cada carta como
+ * CARTA NORMAL (una sola imagen), sin desglosar una casilla por variante. El detalle por acabado
+ * (conteos, huecos, compra de faltantes, alta) vive en el drawer de la celda (CellDrawer), no en
+ * la cuadrícula. pokemontcg.io publica una sola imagen por carta y el contrato NO lleva
+ * `imageByFinish`; una carta totalmente sin piezas va con marco punteado + arte atenuado.
  */
-function gridColsForSlots(slots: number): string {
-  if (slots <= 1) return 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5';
-  if (slots === 2) return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4';
-  if (slots === 3) return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3';
-  return 'grid-cols-1 lg:grid-cols-2';
-}
-
-/** Estilo de la retícula INTERNA de casillas (mismo nº de columnas en todas las celdas). */
-function slotGridStyle(slotCols: number): React.CSSProperties {
-  return { gridTemplateColumns: `repeat(${slotCols}, minmax(0, 1fr))` };
-}
-
-/**
- * UNA CASILLA DE IMAGEN POR VARIANTE (requisito del PO, contrato v1.22).
- *
- * La imagen es la MISMA para todas las variantes de la carta (`cell.imageSmallUrl`):
- * pokemontcg.io publica una sola imagen por carta y el contrato NO lleva `imageByFinish` —
- * diferenciar el acabado es PRESENTACIÓN: cada casilla lleva su etiqueta de acabado y su
- * estado debajo, y la casilla sin pieza va con marco punteado + arte atenuado.
- */
-function VariantImage({
+function CardTileImage({
   imageSmallUrl,
   dimmed,
   dashed,
@@ -384,11 +353,9 @@ function VariantImage({
 
 function BinderCell({
   cell,
-  slotCols,
   onOpen,
 }: {
   cell: MasterSetCardCellDTO;
-  slotCols: number;
   onOpen: () => void;
 }) {
   const t = useTranslations('masterSet');
@@ -408,38 +375,10 @@ function BinderCell({
         isGap ? 'border-dashed border-border-strong bg-surface' : 'border-border bg-surface hover:bg-surface-2'
       }`}
     >
-      {/* UNA casilla de imagen POR VARIANTE REAL, en el orden del array (normal a la izquierda,
-          reverse holo a la derecha). Sin relleno: si la carta trae una variante, una casilla. */}
-      <span className="relative grid gap-2" style={slotGridStyle(slotCols)}>
-        {cell.variants.map((v) => (
-          <span
-            key={v.finish}
-            className="flex flex-col gap-1"
-            aria-label={
-              v.covered
-                ? t('finishChipAria', { finish: tFinish(v.finish), count: v.count })
-                : t('finishGapAria', { finish: tFinish(v.finish) })
-            }
-          >
-            <VariantImage
-              imageSmallUrl={cell.imageSmallUrl}
-              dimmed={!v.covered}
-              dashed={!v.covered}
-            />
-            <span className="font-mono text-[10px] uppercase leading-tight tracking-wide">
-              {tFinish(v.finish)}
-            </span>
-            {v.covered ? (
-              <span className="font-mono text-[10px] uppercase leading-tight tracking-wide">
-                <span className="tabular-nums">×{v.count}</span>
-              </span>
-            ) : (
-              <span className="font-mono text-[10px] uppercase leading-tight tracking-wide text-accent">
-                {t('gap')}
-              </span>
-            )}
-          </span>
-        ))}
+      {/* N-16: UNA sola imagen (carta normal). El desglose por acabado (conteos/huecos/compra)
+          vive en el drawer de la celda, no aquí. */}
+      <span className="relative block">
+        <CardTileImage imageSmallUrl={cell.imageSmallUrl} dimmed={isGap} dashed={isGap} />
         {/* Badge secret rare (solo display) con scrim de tinta (§7.2b). */}
         {cell.isSecretRare && (
           <span className="absolute right-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]">
@@ -481,18 +420,17 @@ function BinderCell({
 }
 
 /**
- * Celda del cotizador (mode="quoter"): el nombre y el número son informativos; cada CASILLA DE
- * IMAGEN es su propia acción — un clic agrega esa combinación (carta, acabado) al carrito de
- * venta con el precio ya cotizado. Una variante SIN precio se SIGUE mostrando (en "precio
- * pendiente"): el universo de casillas sale de `availableFinishes`, nunca de los precios.
+ * Celda del cotizador (mode="quoter") — N-16: CARTA NORMAL (una sola imagen). El nombre y el
+ * número son informativos; debajo de la imagen, un botón POR ACABADO (etiqueta + precio cotizado)
+ * es su propia acción: un clic agrega esa combinación (carta, acabado) al carrito de venta con el
+ * precio ya cotizado. Una variante SIN precio se SIGUE mostrando (en "precio pendiente"): el
+ * universo de acabados sale de `availableFinishes`, nunca de los precios.
  */
 function QuoterCell({
   cell,
-  slotCols,
   onAddVariant,
 }: {
   cell: MasterSetCardCellDTO;
-  slotCols: number;
   onAddVariant: (variant: MasterSetVariantDTO) => void;
 }) {
   const t = useTranslations('masterSet');
@@ -500,7 +438,15 @@ function QuoterCell({
   const locale = useLocale() as AppLocale;
   return (
     <div className="flex w-full flex-col gap-2 border border-border bg-surface p-2">
-      <div className="grid gap-2" style={slotGridStyle(slotCols)}>
+      <CardTileImage imageSmallUrl={cell.imageSmallUrl} />
+      <div className="flex items-baseline justify-between gap-1">
+        <span className="font-mono tabular-nums text-xs text-muted">#{cell.number}</span>
+      </div>
+      <span lang="en" className="line-clamp-1 text-sm">
+        {cell.name}
+      </span>
+      {/* Acción de venta POR ACABADO, en lista bajo la carta (no una imagen duplicada por variante). */}
+      <div className="flex flex-col gap-1">
         {cell.variants.map((v) => {
           const pending = v.quote?.status === 'precio_pendiente';
           const price =
@@ -516,9 +462,8 @@ function QuoterCell({
                 finish: tFinish(v.finish),
                 price: price ?? t('quoterPending'),
               })}
-              className="flex flex-col gap-1 text-left transition-colors hover:opacity-90 focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center justify-between gap-2 border border-border px-2 py-1 text-left transition-colors hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <VariantImage imageSmallUrl={cell.imageSmallUrl} />
               <span className="font-mono text-[10px] uppercase leading-tight tracking-wide">
                 {tFinish(v.finish)}
               </span>
@@ -529,12 +474,6 @@ function QuoterCell({
           );
         })}
       </div>
-      <div className="flex items-baseline justify-between gap-1">
-        <span className="font-mono tabular-nums text-xs text-muted">#{cell.number}</span>
-      </div>
-      <span lang="en" className="line-clamp-1 text-sm">
-        {cell.name}
-      </span>
     </div>
   );
 }

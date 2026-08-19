@@ -165,12 +165,12 @@ function BatchFooter({ batch }: { batch: CaptureBatchState }) {
 }
 
 /**
- * Casillas por acabado (todas las vistas) — v1.22: UNA CASILLA DE IMAGEN POR VARIANTE REAL, en
- * el orden del array (`normal` izquierda → `reverse_holo` derecha), todas con la MISMA imagen de
- * catálogo de la carta (pokemontcg.io publica una sola imagen; el contrato NO lleva imagen por
- * acabado). Cubierta → conteo; faltante → HUECO (marco punteado + arte atenuado). En la vista del
- * cliente (iii) una variante faltante con `buyable` ofrece el CTA de COMPRA (un clic agrega la
- * pieza al carrito del storefront); `buyable=null` → "No disponible" (no clicable).
+ * Detalle por acabado del drawer (todas las vistas) — N-16: la carta se muestra como CARTA NORMAL
+ * (una sola imagen de catálogo), y el desglose por acabado va en una LISTA debajo, sin repetir la
+ * imagen por variante. Cubierta → conteo; faltante → HUECO. En la vista del cliente (iii) una
+ * variante faltante con `buyable` ofrece el CTA de COMPRA (un clic agrega la pieza al carrito del
+ * storefront); `buyable=null` → "No disponible" (no clicable). pokemontcg.io publica una sola
+ * imagen por carta y el contrato NO lleva imagen por acabado.
  */
 function VariantSlots({
   cell,
@@ -185,64 +185,68 @@ function VariantSlots({
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const [addedId, setAddedId] = useState<string | null>(null);
+  const isGap = cell.coveredVariantCount === 0;
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex flex-col gap-3">
       <h3 className="text-h3">{t('variantsTitle')}</h3>
-      <ul
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${Math.max(1, cell.variants.length)}, minmax(0, 1fr))` }}
-      >
-        {cell.variants.map((v) => (
-          <li key={v.finish} className="flex flex-col gap-1">
-            <span
-              className={`block aspect-[5/7] w-full overflow-hidden border bg-surface-2 ${
-                v.covered ? 'border-border' : 'border-dashed border-border-strong'
-              }`}
+      <div className="flex gap-4">
+        {/* UNA imagen de la carta (carta normal), atenuada si no hay ninguna pieza. */}
+        <span
+          className={`block aspect-[5/7] w-24 shrink-0 overflow-hidden border bg-surface-2 ${
+            isGap ? 'border-dashed border-border-strong' : 'border-border'
+          }`}
+        >
+          {cell.imageSmallUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={cell.imageSmallUrl}
+              alt=""
+              aria-hidden
+              loading="lazy"
+              className={`h-full w-full object-contain ${isGap ? 'opacity-30' : ''}`}
+            />
+          ) : null}
+        </span>
+        <ul className="flex min-w-0 flex-1 flex-col gap-2">
+          {cell.variants.map((v) => (
+            <li
+              key={v.finish}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pb-2 last:border-b-0"
             >
-              {cell.imageSmallUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={cell.imageSmallUrl}
-                  alt=""
-                  aria-hidden
-                  loading="lazy"
-                  className={`h-full w-full object-contain ${v.covered ? '' : 'opacity-30'}`}
-                />
-              ) : null}
-            </span>
-            <span className="font-mono text-[10px] uppercase tracking-wide">{tFinish(v.finish)}</span>
-            {v.covered ? (
-              <span className="font-mono tabular-nums text-xs">
-                {t('totalCount', { count: v.count })}
-              </span>
-            ) : (
-              <>
-                <span className="font-mono text-[10px] uppercase tracking-wide text-accent">
-                  {t('gap')}
+              <span className="font-mono text-[10px] uppercase tracking-wide">{tFinish(v.finish)}</span>
+              {v.covered ? (
+                <span className="font-mono tabular-nums text-xs">
+                  {t('totalCount', { count: v.count })}
                 </span>
-                {/* CTA de compra: SOLO vista (iii); el DTO ya omitió `buyable` en scopes admin. */}
-                {mode === 'user_vault_self' &&
-                  (v.buyable ? (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        onBuyMissing?.(v.buyable!.inventoryItemId);
-                        setAddedId(v.buyable!.inventoryItemId);
-                      }}
-                    >
-                      {t('buyCta', { price: formatMoneyCents(v.buyable.salePriceCents, locale) })}
-                    </Button>
-                  ) : (
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
-                      {t('notAvailable')}
-                    </span>
-                  ))}
-              </>
-            )}
-          </li>
-        ))}
-      </ul>
+              ) : (
+                <>
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-accent">
+                    {t('gap')}
+                  </span>
+                  {/* CTA de compra: SOLO vista (iii); el DTO ya omitió `buyable` en scopes admin. */}
+                  {mode === 'user_vault_self' &&
+                    (v.buyable ? (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          onBuyMissing?.(v.buyable!.inventoryItemId);
+                          setAddedId(v.buyable!.inventoryItemId);
+                        }}
+                      >
+                        {t('buyCta', { price: formatMoneyCents(v.buyable.salePriceCents, locale) })}
+                      </Button>
+                    ) : (
+                      <span className="font-mono text-[10px] uppercase tracking-wide text-muted">
+                        {t('notAvailable')}
+                      </span>
+                    ))}
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
       {addedId && (
         <Banner variant="success" role="status">
           {t('buyAdded')}

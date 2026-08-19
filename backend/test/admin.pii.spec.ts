@@ -76,7 +76,13 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
       },
     };
     // v1.8-ronda-c (BE-10): ownedItemRefs usa pricing.gradeKeyFor; se stubbea a una clave fija.
-    const pricing = { gradeKeyFor: jest.fn().mockReturnValue('raw:NM') } as unknown as PricingService;
+    // v1.x-fx-live (BE): ownedItemRefs recalcula el MXN con la FX vigente. Stub sin FX (fxSnapshotSafe
+    // → null) ⇒ liveMxnCents devuelve el priceMxnCents almacenado (congelado), como el modelo previo.
+    const pricing = {
+      gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      fxSnapshotSafe: jest.fn().mockResolvedValue(null),
+      liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
+    } as unknown as PricingService;
     return {
       prisma,
       service: new AdminService(prisma as PrismaService, pricing, pii, {} as any),

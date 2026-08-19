@@ -314,13 +314,17 @@ export class AdminService {
       const key = `${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`;
       if (!latest.has(key)) latest.set(key, r);
     }
+    // v1.x-fx-live: valuación 360° VIVA — recalcula el MXN de referencias de mercado en USD con la FX
+    // vigente (izada UNA vez), en paridad con getReference/getReferencesBatch. Overrides manuales y
+    // precios nativos en MXN quedan congelados (los distingue `liveMxnCents`).
+    const fx = await this.pricing.fxSnapshotSafe();
     return items.map((item) => {
       const gradeKey = this.pricing.gradeKeyFor(item);
       const r = latest.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`);
       const referenceValue: PriceInfo = r
         ? {
             status: 'priced',
-            referenceMxnCents: r.priceMxnCents,
+            referenceMxnCents: this.pricing.liveMxnCents(r, fx),
             source: r.source as PriceInfo['source'],
             capturedDate: r.capturedDate.toISOString().slice(0, 10),
           }

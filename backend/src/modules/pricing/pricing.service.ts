@@ -68,10 +68,56 @@ export class PricingService {
   }
 
   /**
+   * v1.x-fx-live (FX AL VUELO, money-safe) — Snapshot de FX vigente para recalcular referencias de
+   * MERCADO en USD al momento de VALUAR (no al sincronizar). Devuelve `null` si `FxService` falla o
+   * no da una tasa válida (> 0); en ese caso la valuación cae al `priceMxnCents` almacenado (último
+   * válido) — NUNCA se rompe la valuación ni se anula una referencia por un fallo de FX.
+   */
+  async fxSnapshotSafe(): Promise<{ rate: number; bufferPct: number } | null> {
+    try {
+      const fx = await this.fx.getCurrent();
+      if (fx && Number.isFinite(fx.rate) && fx.rate > 0) {
+        return { rate: fx.rate, bufferPct: fx.bufferPct };
+      }
+    } catch (e) {
+      this.logger.warn(
+        `FX getCurrent falló al valuar; se usa priceMxnCents congelado (último válido): ${(e as Error).message}`,
+      );
+    }
+    return null;
+  }
+
+  /**
+   * v1.x-fx-live — Convierte UNA fila `PriceReference` al MXN VIGENTE.
+   *
+   * Regla de distinción "referencia de mercado viva" vs "precio histórico/aceptado":
+   *  - `priceUsdCents != null` y NO es override manual → REFERENCIA DE MERCADO en USD: se recalcula
+   *    con la FX vigente (`fx`) → cambiar `fx_manual_override_rate`/Banxico mueve el precio AL
+   *    INSTANTE, sin re-sync. El `priceMxnCents` almacenado queda solo como fallback money-safe.
+   *  - `isManualOverride=true` (override del admin en MXN, `priceUsdCents=null`) → CONGELADO (el admin
+   *    fijó pesos a mano; no se toca).
+   *  - `priceUsdCents=null` sin override (proveedor nativo en MXN) → CONGELADO (no hay FX que aplicar).
+   *
+   * Money-safe: si `fx` es `null` (fallo de FX) o el recomputo no resulta finito y > 0, cae al
+   * `priceMxnCents` almacenado (invariante `market > 0`; nunca se anula la referencia).
+   */
+  liveMxnCents(
+    ref: { priceMxnCents: number; priceUsdCents: number | null; isManualOverride: boolean },
+    fx: { rate: number; bufferPct: number } | null,
+  ): number {
+    if (fx == null || ref.priceUsdCents == null || ref.isManualOverride) return ref.priceMxnCents;
+    const live = usdToMxnCents(ref.priceUsdCents, fx.rate, fx.bufferPct);
+    return Number.isFinite(live) && live > 0 ? live : ref.priceMxnCents;
+  }
+
+  /**
    * Lee la referencia vigente más reciente (sin filtro de fecha, `capturedDate desc`) para una
    * carta/tipo/grado/ACABADO, en paridad con la valuación del cliente (HoldingDTO).
    * v1.6-finish: `finish` es una columna ortogonal a `gradeKey` (default `normal` para
    * graded/sealed y compatibilidad). Cada acabado tiene su propia PriceReference.
+   *
+   * v1.x-fx-live: si la referencia es de MERCADO en USD, `referenceMxnCents` se RECALCULA con la FX
+   * vigente (`liveMxnCents`), no con el `priceMxnCents` congelado en la ingesta.
    */
   async getReference(
     cardId: string,
@@ -84,9 +130,10 @@ export class PricingService {
       orderBy: { capturedDate: 'desc' },
     });
     if (!ref) return { status: 'pending' };
+    const fx = await this.fxSnapshotSafe();
     return {
       status: 'priced',
-      referenceMxnCents: ref.priceMxnCents,
+      referenceMxnCents: this.liveMxnCents(ref, fx),
       source: ref.source as PriceSourceStr,
       capturedDate: ref.capturedDate.toISOString().slice(0, 10),
     };
@@ -123,16 +170,21 @@ export class PricingService {
         gradeKey: true,
         finish: true,
         priceMxnCents: true,
+        // v1.x-fx-live: necesarios para recalcular el MXN vigente de referencias de mercado en USD.
+        priceUsdCents: true,
+        isManualOverride: true,
         source: true,
         capturedDate: true,
       },
     });
+    // v1.x-fx-live: FX izada UNA vez por request (no por ítem) para el recomputo al vuelo.
+    const fx = await this.fxSnapshotSafe();
     for (const r of rows) {
       const k = keyOf(r);
       if (!wanted.has(k) || map.has(k)) continue; // primera vista = más reciente (orden desc)
       map.set(k, {
         status: 'priced',
-        referenceMxnCents: r.priceMxnCents,
+        referenceMxnCents: this.liveMxnCents(r, fx),
         source: r.source as PriceSourceStr,
         capturedDate: r.capturedDate.toISOString().slice(0, 10),
       });

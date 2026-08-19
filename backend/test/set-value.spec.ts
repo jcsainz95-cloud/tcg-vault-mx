@@ -14,7 +14,13 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 
 function buildService(prisma: any, config: Partial<ConfigService> = {}) {
   const cfg = { get: jest.fn().mockReturnValue(undefined), ...config } as unknown as ConfigService;
-  return new SetValueService(prisma as PrismaService, cfg);
+  // v1.x-fx-live: SetValueService recalcula el MXN "hoy" con la FX vigente. Stub sin FX (fxSnapshotSafe
+  // → null) ⇒ liveMxnCents devuelve el priceMxnCents almacenado (congelado), como en el modelo previo.
+  const pricing = {
+    fxSnapshotSafe: jest.fn().mockResolvedValue(null),
+    liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
+  } as unknown as PricingService;
+  return new SetValueService(prisma as PrismaService, cfg, pricing);
 }
 
 describe('SetValueService.computeSetValue — SEC-A1, batch sin N+1', () => {

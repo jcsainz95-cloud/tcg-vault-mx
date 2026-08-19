@@ -64,17 +64,25 @@ describe('Master Set · Índice (agregados por VARIANTE, v1.20)', () => {
   });
 });
 
-describe('Master Set · Binder (casillas por acabado + orden + huecos + secret rare)', () => {
-  it('pinta una casilla POR ACABADO: cubiertas con conteo y «HUECO» por acabado faltante', async () => {
+describe('Master Set · Binder (carta normal + desglose por acabado en el drawer + orden + huecos)', () => {
+  it('N-16: la celda es una CARTA NORMAL (una imagen + completitud); el desglose por acabado vive en el drawer', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
+    // La celda del grid ya NO desglosa una imagen por variante: Charizard pinta UNA sola imagen…
+    const charizardName = await screen.findByText('Charizard');
+    const charizardCell = charizardName.closest('button')!;
+    expect(charizardCell.querySelectorAll('img')).toHaveLength(1);
+    // …y su contador de completitud por VARIANTES (2 de 3 cubiertas).
+    expect(within(charizardCell).getByText('2/3 casillas')).toBeInTheDocument();
+
     // Charizard (#4): normal:3 y reverse_holo:1 cubiertas; holofoil SIN pieza → HUECO por acabado.
-    expect(document.querySelector('[aria-label="Normal: 3 piezas"]')).toBeTruthy();
-    expect(document.querySelector('[aria-label="Reverse Holo: 1 piezas"]')).toBeTruthy();
-    expect(document.querySelector('[aria-label="Holofoil: hueco"]')).toBeTruthy();
-    // El contador de la celda cuenta VARIANTES (2 de 3 casillas cubiertas).
-    expect(screen.getByText('2/3 casillas')).toBeInTheDocument();
+    // Ese desglose por acabado ahora vive en el DRAWER de la celda, no en la cuadrícula.
+    const drawer = await openCell(/Charizard/);
+    expect(within(drawer).getByText('Casillas por acabado')).toBeInTheDocument();
+    expect(within(drawer).getByText('3 piezas')).toBeInTheDocument(); // normal
+    expect(within(drawer).getByText('1 pieza')).toBeInTheDocument(); // reverse holo
+    expect(within(drawer).getAllByText('Hueco').length).toBeGreaterThan(0); // holofoil sin pieza
   });
 
   it('respeta el ORDEN NATURAL del backend (numéricos ascendentes) sin re-ordenar', async () => {
@@ -176,16 +184,17 @@ describe('Master Set · Alta INMEDIATA al inventario (T3: concluyente y visible)
   });
 });
 
-describe('Master Set · Una casilla de imagen POR VARIANTE (T1, binder de M1 — no solo el cotizador)', () => {
-  it('Zapdos (2 acabados) pinta 2 imágenes; una carta promo de 1 acabado pinta SOLO 1 (nunca relleno)', async () => {
+describe('Master Set · Carta normal en el binder (N-16: sin imagen por variante)', () => {
+  it('una carta con VARIOS acabados pinta UNA sola imagen en la celda (no una por variante)', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
+    // Zapdos tiene 2 acabados, pero la celda (carta normal) pinta UNA sola imagen.
     const zapdos = await screen.findByText('Zapdos');
     const zapdosCell = zapdos.closest('button')!;
-    expect(zapdosCell.querySelectorAll('img')).toHaveLength(2);
+    expect(zapdosCell.querySelectorAll('img')).toHaveLength(1);
 
-    // Set con carta promo de UN solo acabado (Rayquaza Trainer Gallery, sv08 en fixtures).
+    // Set con carta promo de UN solo acabado (Rayquaza Trainer Gallery, sv08 en fixtures): también 1.
     fireEvent.click(await screen.findByRole('button', { name: 'Sets' }));
     fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Surging Sparks' } });
     fireEvent.click(await screen.findByRole('button', { name: /Surging Sparks/ }));
