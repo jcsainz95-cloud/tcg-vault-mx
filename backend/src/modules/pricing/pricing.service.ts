@@ -193,6 +193,42 @@ export class PricingService {
   }
 
   /**
+   * v1.22-2 / N-15 (ARCHITECTURE §4.22a-6) — `hasPricedRef` EN LOTE (sin N+1). Para un conjunto de
+   * cartas, devuelve `Map<cardId, Set<Finish>>` con los acabados que TIENEN una `PriceReference`
+   * vigente RAW `raw:NM` con `priceMxnCents > 0` — el MISMO por-acabado que alimenta
+   * `referenceValue`/quote. Es la entrada `pricedFinishes` de `computeDisplayFinishes`.
+   *
+   * UNA sola query (`WHERE cardId IN (...)` + `productType='raw'` + `gradeKey='raw:NM'` +
+   * `priceMxnCents > 0`, `distinct [cardId, finish]`), en vez de un `getReference` por (carta,acabado).
+   * No aplica FX: solo interesa la EXISTENCIA de precio > 0 (display), no el monto valuado; la
+   * invariante de ingesta es `market > 0`, así que el `priceMxnCents` persistido ya lo refleja.
+   */
+  async getPricedRawFinishesBatch(cardIds: string[]): Promise<Map<string, Set<Finish>>> {
+    const map = new Map<string, Set<Finish>>();
+    const ids = [...new Set(cardIds)];
+    if (ids.length === 0) return map;
+    const rows = await this.prisma.priceReference.findMany({
+      where: {
+        cardId: { in: ids },
+        productType: 'raw',
+        gradeKey: 'raw:NM',
+        priceMxnCents: { gt: 0 },
+      },
+      select: { cardId: true, finish: true },
+      distinct: ['cardId', 'finish'],
+    });
+    for (const r of rows) {
+      let s = map.get(r.cardId);
+      if (!s) {
+        s = new Set<Finish>();
+        map.set(r.cardId, s);
+      }
+      s.add(r.finish);
+    }
+    return map;
+  }
+
+  /**
    * v1.16-master-set (BE-25, pago mínimo) — iza `SALES_PRICE_RULES` + fallback en **1** par de
    * lecturas por request (en vez de 2 lecturas de settings por ítem). Lo usan `bulk-publish` y
    * `fetchSellable` con `computeSalePriceForRarity` (pura) para evitar el N+1 de settings.

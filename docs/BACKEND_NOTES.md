@@ -4704,3 +4704,58 @@ VALOR (ahora vivo para referencias USD). No se editó `docs/API_CONTRACT.md`.
 override/MXN congelados, fallo de FX → fallback, tasa `<=0` → fallback, batch, y sellado mercado×spread
 sobre mercado vivo). Se ajustaron dos mocks existentes (`set-value.spec.ts`, `admin.pii.spec.ts`) para el
 nuevo constructor/superficie de `PricingService`. Sin commit ni push (lo hace el orquestador).
+
+---
+
+## N-15 — `displayFinishes` (supresión de acabado espurio, DISPLAY-only) · rama `claude/pulido-precios-display`
+
+Implementación EXACTA de ARCHITECTURE §4.22a-6 / API_CONTRACT changelog v1.22-2-finish-display. `availableFinishes`
+(whitelist SEC-A1: valida `finish` y deriva el monto) NO cambia; se AÑADE el campo derivado DISPLAY-only
+`displayFinishes: Finish[]` que el front usa para pintar casillas/tarjetas.
+
+### Función pura compartida (UNA sola, sin duplicar)
+`computeDisplayFinishes(rarity, availableFinishes, pricedFinishes)` en `backend/src/common/card-order.ts`
+(zona compartida). Reusa `isPremiumRarity` de `common/money.ts` (NO se redefine la lista de rarezas) y
+`orderFinishes` (FINISH_ORDER). Reglas: premium (`isPremiumRarity===true`) con `pricedFinishes≠∅` ⇒
+`orderFinishes(availableFinishes ∩ priced)`; en cualquier otro caso ⇒ `availableFinishes`. Invariantes
+garantizadas por construcción (el resultado se FILTRA de `availableFinishes`): `⊆ availableFinishes`, nunca
+vacío (salvaguarda anti-cero-casillas: premium totalmente pendiente ⇒ `availableFinishes`), orden FINISH_ORDER.
+SOLO RESTA, jamás AÑADE (un finish priceado fuera de la whitelist no aparece); `isPremiumRarity(null)===false`
+⇒ sin supresión. NO inventa `reverse_holo` por rareza (VAR-1 §9 intacto).
+
+`card-order.ts` pasa a importar `money.ts` — sin ciclo (`money.ts` no importa `card-order.ts`).
+
+### `hasPricedRef` en LOTE (sin N+1)
+Nuevo `PricingService.getPricedRawFinishesBatch(cardIds): Map<cardId, Set<Finish>>` — UNA query
+(`productType='raw'`, `gradeKey='raw:NM'`, `priceMxnCents>0`, `distinct [cardId,finish]`). Es el mismo
+por-acabado que alimenta `referenceValue`/quote. No aplica FX: solo interesa la EXISTENCIA de precio>0 para
+display (el monto valuado no cambia; la invariante de ingesta `market>0` ya se refleja en `priceMxnCents`).
+
+### Exposición en DTOs (aditiva, sin endpoints ni migración)
+- `CardDTO += displayFinishes` — en `toCardDTO(card, pricedFinishes?)` (`catalog.service.ts`). Segundo parámetro
+  OPCIONAL: omitido ⇒ conjunto vacío ⇒ sin supresión money-safe (premium cae a la salvaguarda; no-premium
+  intacto). Los call-sites de catalog/quoter/master-set/vault SIEMPRE lo pasan (batch).
+- `MasterSetCardCellDTO += displayFinishes` y `MasterSetVariantDTO += displayed` (`= finish ∈ displayFinishes`)
+  en `master-set.service.ts` (`binder`). `variants` SIGUE trayendo una entrada por acabado de `availableFinishes`
+  (universo de completitud X/Y = `expected/coveredVariantCount` sobre `availableFinishes`, SIN cambio);
+  `displayed` solo indica cuál PINTA el render plano N-16.
+
+### Call-sites tocados (todos evitan N+1)
+- `catalog.service.ts`: `fetchSellable` (batch por card, threaded a `toListingDTO` vía ctx.pricedFinishes),
+  `getCard` (batch de 1), `searchAllCards` (batch de la página — picker del cotizador).
+- `vault.service.ts`: `holdings`, bóveda sellada y `holdingDetail` (batch antes del loop / batch de 1).
+- `buylist.service.ts`: `adminRejectedItems` (batch de la página).
+- `admin.service.ts`: lista de inventario — REUSA los `refs` YA cargados (deriva el set de acabados raw/`raw:NM`
+  con `priceMxnCents>0` inline, SIN query extra).
+- `master-set.service.ts`: `binder` (batch por cards del set).
+- `sealed-catalog.service.ts` / `pricing/sealed-mapping.service.ts`: sin cambio (sellado siempre `finish=normal`;
+  con el default vacío `displayFinishes = availableFinishes`, no-op deliberado).
+
+### Verificación
+`npx tsc --noEmit` limpio · `npm run lint` limpio · `npm test` **1096 tests / 115 suites en VERDE**.
+Nuevo `test/display-finishes.spec.ts` (9 casos: función pura ex/full-art, common, salvaguarda ∅, rareza null,
+orden FINISH_ORDER, SOLO-resta, default; + binder `displayed` por variante y X/Y intacto). Se ajustaron mocks
+existentes que ahora rozan `getPricedRawFinishesBatch` (`master-set.service`, `master-set.scopes`, `catalog`,
+`buylist-catalog`, `vault.holdings-withdrawal`, `vault-sealed`, `buylist.rejected-items`) y las aserciones
+`toEqual` de `variants` en `master-set.scopes` (ahora incluyen `displayed`). Suites de finish/completitud NO
+cambiaron su semántica (X/Y sigue sobre `availableFinishes`). Sin commit ni push (lo hace el orquestador).

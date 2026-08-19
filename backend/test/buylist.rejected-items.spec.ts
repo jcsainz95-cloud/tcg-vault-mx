@@ -24,7 +24,8 @@ const DAY_MS = 24 * 3600 * 1000;
 function buildService(prisma: any): BuylistService {
   return new BuylistService(
     prisma as unknown as PrismaService,
-    {} as PricingService,
+    // v1.22-2 / N-15: adminRejectedItems deriva displayFinishes de este lote (vacío = sin supresión).
+    { getPricedRawFinishesBatch: jest.fn(async () => new Map()) } as unknown as PricingService,
     {} as SettingsService,
     {} as UsersService,
     pii,

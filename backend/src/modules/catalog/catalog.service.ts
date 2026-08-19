@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { computeSalePriceForRarity, SalesRule } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
-import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET } from '../../common/card-order';
+import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
 
 // Conjuntos de valores válidos de los enums de Prisma. Un filtro público con un valor
 // fuera de estos conjuntos produciría un PrismaClientValidationError (500); en cambio
@@ -14,7 +14,20 @@ const RAW_CONDITIONS = new Set<string>(Object.values(RawCondition));
 const SEALED_SUBTYPES = new Set<string>(Object.values(SealedSubtype));
 const FINISHES = new Set<string>(Object.values(Finish));
 
-export function toCardDTO(card: Card & { set?: CardSet | null }) {
+/**
+ * @param pricedFinishes v1.22-2 / N-15 (§4.22a-6): acabados de ESTA carta con `hasPricedRef`
+ *   (PriceReference raw `raw:NM`, `priceMxnCents > 0`), de `PricingService.getPricedRawFinishesBatch`.
+ *   El llamador lo pasa para computar `displayFinishes` (supresión del acabado ESPURIO en premium de
+ *   una sola impresión). Omitido/`undefined` ⇒ conjunto vacío ⇒ SIN supresión money-safe:
+ *   `displayFinishes = availableFinishes` (una premium sin priced cae a la salvaguarda; una no-premium
+ *   nunca se suprime). Los call-sites de catalog/quoter/master-set/vault SIEMPRE lo pasan (batch, sin N+1).
+ */
+export function toCardDTO(
+  card: Card & { set?: CardSet | null },
+  pricedFinishes?: Iterable<Finish>,
+) {
+  // v1.6-finish: acabados en que existe la carta (lista blanca de validación). [normal] por default.
+  const availableFinishes = (card.availableFinishes ?? ['normal']) as Finish[];
   return {
     id: card.id,
     externalId: card.externalId,
@@ -32,8 +45,10 @@ export function toCardDTO(card: Card & { set?: CardSet | null }) {
     setName: card.set?.name ?? null,
     imageSmallUrl: card.imageSmallUrl,
     imageLargeUrl: card.imageLargeUrl,
-    // v1.6-finish: acabados en que existe la carta (lista blanca de validación). [normal] por default.
-    availableFinishes: (card.availableFinishes ?? ['normal']) as Finish[],
+    availableFinishes,
+    // v1.22-2 / N-15 (§4.22a-6): subconjunto DISPLAY-only (⊆ availableFinishes, orden FINISH_ORDER,
+    // nunca vacío). SOLO gobierna el render; la whitelist SEC-A1 sigue siendo availableFinishes.
+    displayFinishes: computeDisplayFinishes(card.rarity, availableFinishes, pricedFinishes ?? []),
   };
 }
 
@@ -92,6 +107,8 @@ export class CatalogService {
     const salesRules = await this.pricing.loadSalesRules();
     // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (pago mínimo BE-25).
     const sealedSpreads = await this.pricing.loadSealedSpreads();
+    // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
     // Batch de referencias: para el SELLADO la clave es la de MERCADO (`sealed:tcg:<productId>`,
     // finish normal), NO el gradeKey legacy 'sealed'; un sellado no mapeado no aporta clave (sin market).
     const refs = await this.pricing.getReferencesBatch(
@@ -107,7 +124,12 @@ export class CatalogService {
     const out: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[] = [];
     for (const item of items) {
       const reference = this.refFromBatch(refs, item);
-      const dto = await this.toListingDTO(item, { reference, salesRules, sealedSpreads });
+      const dto = await this.toListingDTO(item, {
+        reference,
+        salesRules,
+        sealedSpreads,
+        pricedFinishes: pricedByCard.get(item.cardId),
+      });
       if (dto.sellable && dto.salePriceCents != null) out.push({ item, dto });
     }
     return out;
@@ -138,6 +160,8 @@ export class CatalogService {
       // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
       // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
       sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
+      // v1.22-2 / N-15 (§4.22a-6): acabados priceados de ESTA carta (del lote) para displayFinishes.
+      pricedFinishes?: Iterable<Finish>;
     },
   ) {
     let referenceValue: PriceInfo;
@@ -197,7 +221,7 @@ export class CatalogService {
 
     return {
       inventoryItemId: item.id,
-      card: toCardDTO(item.card),
+      card: toCardDTO(item.card, ctx?.pricedFinishes),
       productType: item.productType,
       rawCondition: item.rawCondition ?? undefined,
       sealedSubtype: item.sealedSubtype ?? undefined,
@@ -326,7 +350,9 @@ export class CatalogService {
     });
     if (!card) throw BusinessException.notFound();
     const rows = await this.fetchSellable(this.publishedWhere({ cardId }));
-    return { card: toCardDTO(card), listings: rows.map((r) => r.dto) };
+    // v1.22-2 / N-15 (§4.22a-6): displayFinishes de la ficha usa los acabados priceados de la carta.
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch([cardId]);
+    return { card: toCardDTO(card, pricedByCard.get(cardId)), listings: rows.map((r) => r.dto) };
   }
 
   async getListing(inventoryItemId: string) {
@@ -375,7 +401,15 @@ export class CatalogService {
       }),
       this.prisma.card.count({ where }),
     ]);
-    return { data: rows.map((c) => toCardDTO(c)), page: params.page, pageSize: params.pageSize, total };
+    // v1.22-2 / N-15 (§4.22a-6): picker del cotizador — acabados priceados EN LOTE (sin N+1) para
+    // displayFinishes; el front pinta una tarjeta por acabado de displayFinishes (oculta el espurio).
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch(rows.map((c) => c.id));
+    return {
+      data: rows.map((c) => toCardDTO(c, pricedByCard.get(c.id))),
+      page: params.page,
+      pageSize: params.pageSize,
+      total,
+    };
   }
 
   /**

@@ -60,6 +60,8 @@ function buildPricing(over: any = {}) {
   return {
     loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
+    // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
+    getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     ...over,
   } as unknown as PricingService;

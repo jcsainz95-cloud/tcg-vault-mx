@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
-import { Prisma, Role } from '@prisma/client';
+import { Finish, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
@@ -310,9 +310,20 @@ export class AdminService {
     });
     // Mapa (cardId|productType|gradeKey|finish) → referencia más reciente (primera vista, orden desc).
     const latest = new Map<string, (typeof refs)[number]>();
+    // v1.22-2 / N-15 (§4.22a-6): acabados priceados (raw `raw:NM`, priceMxnCents>0) por carta para
+    // displayFinishes — DERIVADO de los `refs` YA cargados (sin query extra ni N+1).
+    const pricedByCard = new Map<string, Set<Finish>>();
     for (const r of refs) {
       const key = `${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`;
       if (!latest.has(key)) latest.set(key, r);
+      if (r.productType === 'raw' && r.gradeKey === 'raw:NM' && r.priceMxnCents > 0) {
+        let s = pricedByCard.get(r.cardId);
+        if (!s) {
+          s = new Set<Finish>();
+          pricedByCard.set(r.cardId, s);
+        }
+        s.add(r.finish);
+      }
     }
     // v1.x-fx-live: valuación 360° VIVA — recalcula el MXN de referencias de mercado en USD con la FX
     // vigente (izada UNA vez), en paridad con getReference/getReferencesBatch. Overrides manuales y
@@ -332,7 +343,7 @@ export class AdminService {
       return {
         inventoryItemId: item.id,
         folio: item.folio,
-        card: toCardDTO(item.card),
+        card: toCardDTO(item.card, pricedByCard.get(item.cardId)),
         productType: item.productType,
         finish: item.finish,
         ownershipStatus: item.ownershipStatus,

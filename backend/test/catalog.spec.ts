@@ -16,6 +16,8 @@ function pricing(): PricingService {
     getReference: jest.fn(async (cardId: string) =>
       cardId === 'pending' ? { status: 'pending' } : { status: 'priced', referenceMxnCents: 10000 },
     ),
+    // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
+    getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     // v1.16-master-set (BE-25): fetchSellable iza reglas 1 vez + resuelve referencias en lote.
     loadSalesRules: jest.fn(async () => ({ rules: {}, fallbackPct: 15 })),
     getReferencesBatch: jest.fn(async (items: any[]) => {

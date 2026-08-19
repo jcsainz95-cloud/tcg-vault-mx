@@ -68,6 +68,9 @@ export class VaultService {
       });
     }
 
+    // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
+
     let totalValueMxnCents = 0;
     let pendingPriceCount = 0;
     const data = [];
@@ -100,7 +103,7 @@ export class VaultService {
       data.push({
         inventoryItemId: item.id,
         folio: item.folio,
-        card: toCardDTO(item.card),
+        card: toCardDTO(item.card, pricedByCard.get(item.cardId)),
         productType: item.productType,
         rawCondition: item.rawCondition ?? undefined,
         // v1.6-finish: acabado del holding (HoldingDTO.finish).
@@ -247,6 +250,9 @@ export class VaultService {
     // §4.23a). Antes esta valuación no gateaba por dial (divergía cuando `sealed_price_source=off`).
     const { sourceOn } = await this.pricing.loadSealedSpreads();
 
+    // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
+
     // Agrupa por producto+condición (mismo criterio que §2-S).
     const groups = new Map<string, (InventoryItem & { card: Card & { set?: CardSet | null } })[]>();
     for (const item of items) {
@@ -280,7 +286,7 @@ export class VaultService {
       if (priced) totalValueMxnCents += totalMarketValueMxnCents!;
       else pendingPriceCount += count; // piezas sin mercado EXCLUIDAS del total y CONTADAS (§3)
       return {
-        card: toCardDTO(rep.card),
+        card: toCardDTO(rep.card, pricedByCard.get(rep.cardId)),
         productName: rep.card.name,
         imageUrl: rep.card.imageSmallUrl ?? null,
         sealedSubtype: (rep.sealedSubtype ?? null) as SealedSubtype | null,
@@ -320,10 +326,12 @@ export class VaultService {
       gradeKey,
       item.finish,
     );
+    // v1.22-2 / N-15 (§4.22a-6): displayFinishes del detalle usa los acabados priceados de la carta.
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch([item.cardId]);
     return {
       inventoryItemId: item.id,
       folio: item.folio,
-      card: toCardDTO(item.card),
+      card: toCardDTO(item.card, pricedByCard.get(item.cardId)),
       productType: item.productType,
       rawCondition: item.rawCondition ?? undefined,
       finish: item.finish,
