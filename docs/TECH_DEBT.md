@@ -2263,6 +2263,76 @@
 - **Disparador / dirección de pago (si algún día se toma):** una **única** `computeBreakdown` en el mock que
   acepte `stripeFeeIvaPct` y **espeje `grossUpTotal`**, para tener una sola fórmula replicada en vez de dos.
 
+### Stream `inventario-precios-admin` — deuda de INV-1/INV-2 (2026-08-19, no bloqueante)
+
+> Deuda aceptada del veredicto del **techlead** (gate por-stream) sobre `claude/inventario-precios-admin`
+> (INV-1: editor de reglas money-safe que preserva claves sintéticas; INV-2: total on-hand por carta en el
+> binder de Master Set). Ambos ítems son **dueño frontend**, no bloqueantes, registrados a petición del
+> techlead sin tocar código de producción. La observación de robustez del propio INV-1 (Guardar como no-op
+> silencioso si la tabla cruda falla/carga) **se corrigió en la misma rama** (gate del `disabled` con
+> `!buylistRules.data`/`!salesRules.data` + Banner de reintento) y **no** figura como deuda. Continúa la
+> numeración `F-*` (tras F-11).
+
+### F-12 · `fallbackPct` con doble fuente en M2View (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` — editores de buylist y de venta.
+- **Estado actual:** el `fallbackPct` se lee de la **vista de rarezas** (`rarities.data.fallbackPct` /
+  `salesRarities.data.fallbackPct`) para pintar el input, mientras que la **tabla cruda** (`getBuylistRules`/
+  `getSalesRules`, añadida en INV-1 como base del merge de guardado) **también** trae `fallbackPct`. Hoy ambas
+  fuentes **coinciden** (el backend las deriva del mismo dial), así que no hay divergencia observable.
+- **Impacto:** bajo (mantenibilidad/consistencia). Si en el futuro las dos rutas divirgieran, el valor pintado
+  y el efectivo podrían desalinearse.
+- **Disparador:** próximo toque a los editores de reglas de M2. Solución: leer `fallbackPct` de **una sola
+  fuente** (preferir la tabla cruda, que ya es la base del guardado) y derivar de ahí el input y el merge.
+
+### F-13 · Total on-hand por carta se repite en cada tarjeta de impresión (Baja)
+- **Dónde:** `frontend/src/components/master-set/MasterSetBinder.tsx` — `TileHeader` (badge `cardTotalCount`).
+- **Estado actual:** por la rejilla plana N-16 (una tarjeta por impresión), el total on-hand **por carta**
+  (`cell.totalCount`) se pinta en **cada** tarjeta de esa carta (p. ej. las 3 tarjetas de Charizard muestran
+  las tres «4 en total»). Es intencional (el `TileHeader` es compartido) y está desambiguado por `title`
+  (tooltip «tengo N de esta carta en total»), pero visualmente el mismo dato se repite.
+- **Impacto:** bajo (UX/estética). No es incorrecto; puede leerse como redundante en cartas con muchos acabados.
+- **Disparador:** próxima iteración de UX del binder. Posible mejora: **agrupar visualmente** las impresiones
+  de una misma carta (encabezado por-carta sobre su grupo de tarjetas) y mostrar el total **una sola vez** ahí,
+  en vez de por tarjeta.
+
+> Deuda de INV-3 (indicador «Precio manual» en M1: el override `listPriceCents` ignora las reglas de precio
+> globales). Aprobado por **techlead** con dos observaciones **ya cerradas en la misma rama** (predicado
+> `hasManualPrice` que espeja money.ts H-1 para sellado, y `ManualPriceBadge` compartido con hint accesible
+> focuseable) — no figuran como deuda. Las dos entradas siguientes son menores/aceptadas. Continúa `F-*` (tras F-13).
+
+### F-14 · El badge «Precio manual» + monto vive en la columna «Referencia» de M1 (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` — columna `reference` de la tabla de piezas.
+- **Estado actual:** la columna «Referencia» pinta la **referencia de mercado** (`PriceTag`, input de las reglas)
+  y, cuando la pieza tiene override, además el `ManualPriceBadge` con el **precio de lista manual**. Son dos
+  conceptos distintos (referencia de mercado vs. precio de venta manual) compartiendo una sola columna. Hoy se
+  desambigua por el badge en versalitas + el monto etiquetado, pero conviven en el mismo espacio.
+- **Impacto:** bajo (claridad/semántica). Un operador podría leer el monto del override como si fuera la referencia.
+- **Disparador:** próxima iteración de la tabla M1. Posible mejora: **columna de precio dedicada** (precio de
+  lista efectivo / override) separada de la referencia de mercado.
+
+### F-15 · La combinación `neutral + outline` del `Badge` no está en el status-map del DS (Baja)
+- **Dónde:** `frontend/src/components/domain/ManualPriceBadge.tsx` (y el `Badge` base `neutral`/`outline`).
+- **Estado actual:** el badge «Precio manual» usa `tone="neutral" shape="outline"`, una combinación **válida y
+  sobria** que el componente `Badge` soporta, pero que **no está catalogada** en la tabla de badges de estado del
+  `DESIGN_SYSTEM.md` (§2, mapeo `enum → tono/forma`). No es un estado de negocio del contrato, sino un indicador
+  de UI, por eso no encaja en el status-map tal cual.
+- **Impacto:** bajo (gobernanza del DS). Sin ratificar, otro dev podría dudar de si la combinación es «oficial».
+- **Disparador:** revisión del sistema de badges por **ux-ui**. Acción: que ux-ui **ratifique** (o ajuste) el uso
+  de `neutral + outline` para indicadores de UI no-estado, y lo documente en `DESIGN_SYSTEM.md`.
+
+### F-16 · Badge «Precio manual» en el binder de Master Set — FOLLOW-UP diferido (decisión del PO) (Baja)
+- **Dónde:** `frontend/src/components/master-set/MasterSetBinder.tsx` (casilla por impresión, junto al «N en total»).
+- **Estado actual:** INV-3 pinta el badge «Precio manual» SOLO en M1 (lista «Piezas» + detalle), donde el override
+  es por pieza (`InventoryItemDTO.listPriceCents`, dato ya en contrato). El PO (opción A) decidió publicar así y
+  dejar el master-set como follow-up aparte.
+- **Por qué NO se hizo ahora (regla 9):** el DTO del binder **no trae** señal de override (solo
+  `count`/`covered`/`totalCount`), y una casilla post-N-16 **agrega varias piezas** de la misma (carta, acabado):
+  algunas pueden tener override y otras no → el indicador sería «**alguna** pieza es precio manual», semántica
+  distinta a la de M1. Requiere **cambio de contrato** (p. ej. `anyManualPrice`/conteo de overrides por celda o
+  variante) que pasa por **arquitecto** antes de tocar backend/frontend.
+- **Disparador:** que el PO confirme que quiere el indicador agregado en el binder. Acción: arquitecto define el
+  campo aditivo en `docs/API_CONTRACT.md` §M1 (binder) → backend lo agrega a la agregación → frontend lo pinta.
+
 ### Pase `pulido-precios-display` — deuda del pulido de display de precios (2026-08-19, no bloqueante)
 
 > Del stream `claude/pulido-precios-display` (referencia de mercado viva: `liveMxnCents` re-FX-eado al vuelo

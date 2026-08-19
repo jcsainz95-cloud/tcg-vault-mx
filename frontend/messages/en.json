@@ -371,6 +371,8 @@
     "secretRare": "Secret rare",
     "gap": "Gap",
     "totalCount": "{count, plural, one {# piece} other {# pieces}}",
+    "cardTotalCount": "{count, plural, one {# total} other {# total}}",
+    "cardTotalCountAria": "You have {count, plural, one {# piece} other {# pieces}} of this card in total",
     "finishChipAria": "{finish}: {count} pieces",
     "emptyBinderTitle": "No cards",
     "emptyBinderBody": "No cards match the applied filters.",
@@ -884,6 +886,8 @@
       "folio": "Folio",
       "status": "Status",
       "listPrice": "Sale price",
+      "manualPriceBadge": "Manual price",
+      "manualPriceBadgeHint": "Manually set price; ignores global pricing rules.",
       "reference": "Reference",
       "sealedSubtype": "Sealed subtype",
       "conditionNm": "Condition: Near Mint (NM) fixed",
@@ -1255,7 +1259,8 @@
           "fallback": "Fallback"
         },
         "example": "Example: the % is what you PAY of the reference. At 40%, you pay MX$40 for a MX$100 card.",
-        "saved": "Buylist rules saved."
+        "saved": "Buylist rules saved.",
+        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing."
       },
       "salesRules": {
         "title": "Sale price rules by rarity",
@@ -1281,7 +1286,8 @@
         },
         "pctHint": "Percentage: sale price = market × (1 + %). Example: 15% keeps the price 15% above market (up to 1000% allowed). Fixed: the MX$ amount is a sale floor.",
         "example": "Example: the % is what you add ON TOP of market. At +15%, you sell a MX$100 card for MX$115.",
-        "saved": "Sale rules saved."
+        "saved": "Sale rules saved.",
+        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing."
       },
       "sealedSpreads": {
         "title": "Sealed sale spreads",

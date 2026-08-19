@@ -356,6 +356,95 @@ describe('M1View · Tabla con filtros + paginación (Ola 2)', () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })));
     expect((await screen.findAllByText('INV-P2')).length).toBeGreaterThan(0);
   });
+
+  it('INV-3: una pieza con precio MANUAL (listPriceCents) muestra el badge "Precio manual" + el monto; una sin él, no', async () => {
+    // El override manual de precio GANA sobre las reglas globales → indicador visible del porqué no se mueve.
+    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
+      data: [
+        {
+          id: 'inv-manual',
+          folio: 'INV-MANUAL',
+          card: fakeCard(1),
+          productType: 'raw',
+          rawCondition: 'NM',
+          finish: 'normal',
+          status: 'listed',
+          ownerType: 'platform',
+          referenceValue: { status: 'priced', referenceMxnCents: 100000, capturedDate: '2026-08-13' },
+          listPriceCents: 250000,
+        },
+        {
+          id: 'inv-rule',
+          folio: 'INV-RULE',
+          card: fakeCard(2),
+          productType: 'raw',
+          rawCondition: 'NM',
+          finish: 'normal',
+          status: 'listed',
+          ownerType: 'platform',
+          referenceValue: { status: 'priced', referenceMxnCents: 100000, capturedDate: '2026-08-13' },
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
+    renderWithProviders(<M1View />, 'es');
+
+    // Fila con precio manual: badge sobrio + monto del override (MX$2,500.00) como apoyo.
+    const manualRow = await findFolioRow('INV-MANUAL');
+    expect(within(manualRow).getByText('Precio manual')).toBeInTheDocument();
+    expect(within(manualRow).getByText(/MX\$2,500\.00/)).toBeInTheDocument();
+
+    // Fila con precio por REGLA (sin override): NO lleva el badge.
+    const ruleRow = await findFolioRow('INV-RULE');
+    expect(within(ruleRow).queryByText('Precio manual')).toBeNull();
+  });
+
+  it('INV-3 (H-1): un SELLADO con listPriceCents=0 NO muestra "Precio manual" (0 es degenerado ⇒ mercado×spread); uno >0 sí', async () => {
+    // Espeja money.ts H-1 (v1.24): en sellado un override <= 0 se trata como AUSENTE. Un badge
+    // "Precio manual · MX$0.00" sería FALSO (ese sellado se precia por mercado×spread, no a mano).
+    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
+      data: [
+        {
+          id: 'inv-sealed-zero',
+          folio: 'INV-SZERO',
+          card: fakeCard(1),
+          productType: 'sealed',
+          sealedSubtype: 'box',
+          finish: 'normal',
+          status: 'listed',
+          ownerType: 'platform',
+          referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
+          listPriceCents: 0,
+        },
+        {
+          id: 'inv-sealed-pos',
+          folio: 'INV-SPOS',
+          card: fakeCard(2),
+          productType: 'sealed',
+          sealedSubtype: 'box',
+          finish: 'normal',
+          status: 'listed',
+          ownerType: 'platform',
+          referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
+          listPriceCents: 350000,
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 2,
+    });
+    renderWithProviders(<M1View />, 'es');
+
+    // Sellado con override 0 → NO es precio manual (cae a mercado×spread).
+    const zeroRow = await findFolioRow('INV-SZERO');
+    expect(within(zeroRow).queryByText('Precio manual')).toBeNull();
+
+    // Sellado con override positivo → SÍ es precio manual.
+    const posRow = await findFolioRow('INV-SPOS');
+    expect(within(posRow).getByText('Precio manual')).toBeInTheDocument();
+  });
 });
 
 describe('M1View · Alta manual (enums traducidos + sin buylist)', () => {
@@ -405,6 +494,20 @@ describe('M1View · Detalle por pieza + publicar (Ola 2)', () => {
     const dialog = await openDetail('INV-000101');
     expect(await within(dialog).findByText('Gradeada')).toBeInTheDocument();
     expect(within(dialog).queryByText('graded')).not.toBeInTheDocument();
+  });
+
+  it('INV-3: el detalle de una pieza con precio MANUAL muestra el badge "Precio manual"', async () => {
+    // inv-1001 (INV-000101) trae listPriceCents (override) → badge sobrio en la cabecera del detalle.
+    const dialog = await openDetail('INV-000101');
+    expect(await within(dialog).findByText('Precio manual')).toBeInTheDocument();
+  });
+
+  it('INV-3: el detalle de una pieza SIN precio manual NO muestra el badge', async () => {
+    // inv-1010 (INV-000110) no tiene listPriceCents (precio por regla) → sin badge.
+    const dialog = await openDetail('INV-000110');
+    // Espera a que el detalle cargue (folio visible) antes de afirmar la ausencia.
+    expect((await within(dialog).findAllByText('INV-000110')).length).toBeGreaterThan(0);
+    expect(within(dialog).queryByText('Precio manual')).toBeNull();
   });
 
   it('publicar convierte pesos→centavos (Math.round) y manda PATCH status=listed', async () => {

@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
+import { ManualPriceBadge } from '@/components/domain/ManualPriceBadge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PriceTag } from '@/components/ui/PriceTag';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
@@ -153,6 +154,9 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
                 <span className="tabular text-h3 font-semibold">{item.folio}</span>
                 <StatusBadge domain="inventory" value={item.status} />
                 {item.finish && <FinishBadge finish={item.finish} productType={item.productType} />}
+                {/* INV-3: precio manual (override) — badge sobrio compartido; ignora las reglas globales.
+                    `hasManualPrice` (dentro del componente) espeja el motor: sellado exige override `> 0`. */}
+                <ManualPriceBadge item={item} />
               </div>
               <p className="text-sm">
                 <span lang="en" className="font-medium">{item.card.name}</span>{' '}

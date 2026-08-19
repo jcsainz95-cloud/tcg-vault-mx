@@ -327,6 +327,32 @@ describe('M2View · Catálogo y precios', () => {
     expect(arg.rules['Rare Holo'].mode).toBe('fixed');
   });
 
+  it('INV-1: guardar buylist tras editar Common PRESERVA una regla SINTÉTICA no editada (Holo) que viene de getBuylistRules', async () => {
+    // La tabla CRUDA del servidor tiene la clave sintética "Holo" (NO es Card.rarity → NO aparece
+    // en /rarities). Antes se reconstruía `serverRules` desde la vista de rarezas y el PUT (reemplazo
+    // total) borraba "Holo". Ahora el merge parte de la tabla cruda y la conserva.
+    vi.spyOn(api, 'getBuylistRules').mockResolvedValue({
+      rules: {
+        Common: { mode: 'fixed', value: 50 },
+        Holo: { mode: 'fixed', value: 1000 },
+      },
+      fallbackPct: 40,
+    });
+    const spy = vi.spyOn(api, 'updateBuylistRules').mockResolvedValue({ rules: {}, fallbackPct: 40 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Precio de buylist por rareza/);
+    const valueInput = await s.findByLabelText('Valor para Common');
+    fireEvent.change(valueInput, { target: { value: '1' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const arg = spy.mock.calls[0][0] as { rules: Record<string, { mode: string; value: number }> };
+    // La clave sintética NO editada sobrevive al guardado…
+    expect(arg.rules.Holo).toEqual({ mode: 'fixed', value: 1000 });
+    // …y la rareza editada (Common) se aplica encima (1 peso → 100 centavos).
+    expect(arg.rules.Common).toEqual({ mode: 'fixed', value: 100 });
+  });
+
   // ---- Editor de precio de VENTA por rareza (v1.13-sales-pricing) ----
   it('renderiza el editor de reglas de VENTA con el fallback (sobre mercado) y el hint de markup', async () => {
     renderWithProviders(<M2View />, 'es');
@@ -367,6 +393,57 @@ describe('M2View · Catálogo y precios', () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 250 }));
+  });
+
+  it('INV-1: guardar VENTA tras editar Common PRESERVA la regla SINTÉTICA "Holo" que viene de getSalesRules', async () => {
+    // Seed real de venta: la clave "Holo" es sintética (§4.14b) y NO es Card.rarity → NO llega en
+    // /sales-rarities. El bug: al reconstruir desde la vista de rarezas, el PUT (reemplazo total)
+    // descartaba "Holo" y las cartas holo revertían a fallback / caían a pending. El merge cruda
+    // la conserva.
+    vi.spyOn(api, 'getSalesRules').mockResolvedValue({
+      rules: {
+        Common: { mode: 'fixed', value: 500 },
+        Holo: { mode: 'fixed', value: 1000 },
+      },
+      fallbackPct: 15,
+    });
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const valueInput = await s.findByLabelText('Valor para Common');
+    // 20 pesos → 2000 centavos.
+    fireEvent.change(valueInput, { target: { value: '20' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const arg = spy.mock.calls[0][0] as { rules: Record<string, { mode: string; value: number }> };
+    // La clave sintética "Holo" sobrevive al guardado (no revierte a fallback → no cae a pending)…
+    expect(arg.rules.Holo).toEqual({ mode: 'fixed', value: 1000 });
+    // …y la rareza editada (Common) se aplica encima.
+    expect(arg.rules.Common).toEqual({ mode: 'fixed', value: 2000 });
+  });
+
+  it('INV-1 robustez: si getSalesRules FALLA, Guardar queda DESHABILITADO (no no-op silencioso) y se explica por qué', async () => {
+    // La tabla cruda es la base del merge money-safe; sin ella el guard hacía return silencioso con el
+    // botón habilitado. Ahora el botón se gatea con `!salesRules.data` y se muestra un aviso con reintento.
+    vi.spyOn(api, 'getSalesRules').mockRejectedValue(
+      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
+    );
+    const spy = vi.spyOn(api, 'updateSalesRules');
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+
+    // La vista de rarezas SÍ carga (editor visible), pero la tabla cruda falló → aviso claro.
+    expect(await s.findByText(/No se pudo cargar la tabla de reglas/)).toBeInTheDocument();
+
+    // Editar una rareza deja el borrador "sucio", pero Guardar sigue DESHABILITADO (no guardable).
+    fireEvent.change(await s.findByLabelText('Valor para Common'), { target: { value: '20' } });
+    const save = s.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeDisabled();
+
+    // Un clic no dispara la mutación (nunca es un no-op silencioso: el botón ni siquiera responde).
+    fireEvent.click(save);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   // ---- Ejemplos en línea del % (G3: la semántica del % es OPUESTA entre compra y venta) ----

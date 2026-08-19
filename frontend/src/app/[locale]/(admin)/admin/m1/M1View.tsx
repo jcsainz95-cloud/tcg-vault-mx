@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import {
   Plus,
   Search,
@@ -35,9 +35,10 @@ import type {
   CardDTO,
   BatchInventoryItemInput,
 } from '@/types/contract';
-import type { AppLocale } from '@/i18n/routing';
 import { FINISH_ORDER } from '@/lib/finish';
+import { hasManualPrice } from '@/lib/inventory';
 import { FinishBadge } from '@/components/domain/FinishBadge';
+import { ManualPriceBadge } from '@/components/domain/ManualPriceBadge';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -92,7 +93,6 @@ export function M1View() {
   const tInv = useTranslations('status.inventory');
   const tc = useTranslations('common');
   const tRoot = useTranslations();
-  const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
   // Toasts (P-4): confirmación INEQUÍVOCA de éxito/fallo, visible por encima del modal.
   const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
@@ -378,12 +378,24 @@ export function M1View() {
       key: 'reference',
       header: tt('reference'),
       align: 'right',
-      render: (i) =>
-        i.referenceValue ? (
-          <PriceTag reference={i.referenceValue} mode="reference" />
-        ) : (
-          '—'
-        ),
+      // INV-3: un `listPriceCents` manual GANA sobre las reglas de precio globales (el override manda).
+      // Se marca con un badge SOBRIO (ManualPriceBadge, neutral/outline) + el monto del override, para
+      // entender de un vistazo por qué esta pieza no se mueve al cambiar una regla. `hasManualPrice`
+      // espeja el motor (sellado exige override `> 0`). La referencia de mercado (input de las reglas)
+      // se sigue mostrando cuando existe.
+      render: (i) => {
+        const manual = hasManualPrice(i);
+        return (
+          <div className="flex flex-col items-end gap-1">
+            {i.referenceValue ? (
+              <PriceTag reference={i.referenceValue} mode="reference" />
+            ) : manual ? null : (
+              '—'
+            )}
+            <ManualPriceBadge item={i} showAmount />
+          </div>
+        );
+      },
     },
     {
       key: 'actions',

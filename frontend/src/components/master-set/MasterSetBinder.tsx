@@ -342,13 +342,22 @@ function TileHeader({
   finishLabel,
   dimmed,
   dashed,
+  showTotalCount,
 }: {
   cell: MasterSetCardCellDTO;
   finishLabel: string;
   dimmed?: boolean;
   dashed?: boolean;
+  /**
+   * INV-2: pinta el TOTAL on-hand POR CARTA (`cell.totalCount`, suma de todas las impresiones) como
+   * un badge discreto sobre el arte. Como TileHeader es COMPARTIDO por todas las tarjetas de una misma
+   * carta (N-16: una tarjeta por impresión), la cifra se repite en cada impresión de esa carta y
+   * responde "tengo N de esta carta". El on-hand no aplica al cotizador → allí NO se pasa este flag.
+   */
+  showTotalCount?: boolean;
 }) {
   const t = useTranslations('masterSet');
+  const hasTotal = !!showTotalCount && cell.totalCount > 0;
   return (
     <>
       <span className="relative block">
@@ -361,6 +370,16 @@ function TileHeader({
         {cell.isSecretRare && (
           <span className="absolute right-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]">
             {t('secretRare')}
+          </span>
+        )}
+        {/* INV-2: total on-hand por carta ("tengo N de esta carta") — badge discreto arriba-izquierda,
+            en la esquina opuesta al de secret rare para que ambos convivan. */}
+        {hasTotal && (
+          <span
+            className="absolute left-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono tabular-nums text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]"
+            title={t('cardTotalCountAria', { count: cell.totalCount })}
+          >
+            {t('cardTotalCount', { count: cell.totalCount })}
           </span>
         )}
       </span>
@@ -403,7 +422,7 @@ function BinderTile({
       onClick={onOpen}
       className="flex h-full w-full flex-col text-left transition-colors focus-visible:shadow-focus focus-visible:outline-none"
     >
-      <TileHeader cell={cell} finishLabel={finishLabel} dimmed={isGap} dashed={isGap} />
+      <TileHeader cell={cell} finishLabel={finishLabel} dimmed={isGap} dashed={isGap} showTotalCount />
       <span className="mt-auto pt-2">
         {isGap ? (
           <span className="font-mono text-[10px] uppercase tracking-wide text-accent">{t('gap')}</span>
