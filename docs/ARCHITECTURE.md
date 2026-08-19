@@ -2,7 +2,19 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.22-variantes-orden (MVP, plataforma en producción). Fecha: 2026-08-19. Branch: `fix/available-finishes-source`.
+> Estado: v1.23-sealed-sales (MVP, plataforma en producción). Fecha: 2026-08-19. Branch: `claude/sellado-producto-cerrado`.
+>
+> **Changelog v1.23-sealed-sales (2026-08-19, branch `claude/sellado-producto-cerrado`) — WS «Sellado / Producto cerrado»:
+> el sellado pasa de precio manual a `mercado TCGCSV × spread` (override de respaldo), gana ventana de tienda propia,
+> pestaña «Sellado» en la bóveda y tres diferenciadores cableados-pero-apagados. SOLO VENTA (sin buylist de sellado).**
+> Spec completa en **§4.23**; deltas de schema **M-28** (§11); supuestos **SUP-1…8** (§10); contrato en API_CONTRACT §2-S/§3-S/§M2/§M10.
+> - **Supersede §3.6 y §4.19a** (decisión cerrada del PO): el precio de venta del sellado ya no es manual-único sino
+>   `override > mercado×spread(subtype) > mercado×spread(global) > PRICE_PENDING`; la referencia TCGCSV deja de ser
+>   solo informativa y pasa a ser la base del precio + valor de mercado expuesto. **product-owner reconcilia `PROJECT.md`** (SUP-1).
+> - **Reusa sin reinventar** todo §4.19 (adapter/ingest/curación TCGCSV, `sealedMarketRef`, dial `sealed_price_source`,
+>   gradeKey `sealed:tcg:<productId>`), el checkout/fulfillment/guest-checkout (§4.21), la base de valuación del portafolio
+>   (§3/§4.20c) y el patrón `SetValueService` (§4.12). **Migración M-28 aditiva y nullable** (enum `SealedCondition`, columna
+>   + backfill a `mint`, índice, tabla `SealedRestockSubscription`); cuatro diales `ConfigSetting`.
 >
 > **Changelog v1.22-1-señal-ppt (2026-08-19, branch `fix/available-finishes-source`) — RESUELVE la pregunta abierta v1.22-1
 > (§10) y NORMA la opción (c) money-safe: la señal de acabados también se toma de la fuente de PAGA (PokemonPriceTracker),
@@ -3677,6 +3689,242 @@ que no lo tienen (viola anti-invención).
 
 ---
 
+### 4.23 WS «Sellado / Producto cerrado» — venta de producto cerrado (v1.23-sealed-sales)
+
+> **Objetivo (spec CERRADO por el PO):** convertir el sellado (booster box, ETB, bundle, tin, blister) en una
+> **línea de venta con precio derivado** — `precio de venta = referencia de mercado TCGCSV × spread por presentación`,
+> con **override manual** por pieza — y darle **superficie propia**: una ventana de tienda filtrable por set (solo lo
+> que hay en stock, agrupado con «N disponibles»), una **pestaña «Sellado»** en la bóveda del cliente y en la vista
+> admin de bóveda, y tres diferenciadores **cableados pero apagados** (bóveda-inversión, tendencia de valor, «avísame
+> cuando vuelva»). **Solo VENTA** (plataforma→cliente): NO hay buylist de sellado (call-out mailto en la ventana).
+> **Toca precios (dinero) → triple veredicto.** Aditivo; **UNA migración (M-28, §11)** + cuatro diales `ConfigSetting`.
+> Contrato completo (endpoints, DTOs, diff de esquema) en **API_CONTRACT §2-S / §3-S / §M2 / §M10**.
+
+#### (a) Doctrina y PRECEDENCIA — el modelo de venta del sellado CAMBIA (supersede §3.6 y §4.19a)
+
+Este WS **modifica deliberadamente** dos decisiones previas, por instrucción cerrada del PO. Debe reconciliarse en
+`PROJECT.md` (dueño: product-owner; ver §10 «Supuestos v1.23» — **SUP-1**):
+
+1. **§3.6 / criterio PROJECT «sellado = precio manual del admin en MXN, obligatorio para publicar»** → se **relaja**:
+   el sellado se **auto-preciaba** con `mercado TCGCSV × spread`; el precio manual pasa de *único mecanismo* a
+   *override de respaldo*. El invariante «Compra solo lista lo que tiene precio» **se conserva**: un sellado sin
+   precio resuelto (ni override ni mercado×spread) **no se publica** (money-safe).
+2. **§4.19a «la referencia TCGCSV es estrictamente informativa y NO se expone en la superficie pública»** → se
+   **deroga en parte**: la referencia TCGCSV pasa a ser **la base del precio de venta** del sellado y su valor de
+   mercado **sí se expone** (ficha pública, bóveda). El resto de §4.19 (adapter, ingest, curación, dial
+   `sealed_price_source`, gradeKey `sealed:tcg:<productId>`) se **reusa sin cambios** — este WS es su *consumidor*.
+
+**Precedencia del precio de venta del sellado (money-safe, SEC-A1 — todo server-side):**
+
+```
+override (InventoryItem.listPriceCents)                       ← gana SIEMPRE si está presente
+  > mercado × (1 + spread_de_su_presentación / 100)           ← si hay sealedMarketRef y su SealedSubtype tiene spread
+  > mercado × (1 + spread_global_de_respaldo / 100)           ← si hay sealedMarketRef pero sin spread de presentación
+  > (sin precio) ⇒ PRICE_PENDING ⇒ NO se publica              ← money-safe: sin mercado y sin override, no se vende
+```
+
+- **`sealedMarketRef`** = la `PriceReference(cardId, 'sealed', 'sealed:tcg:<productId>', 'normal')` que ya escribe el
+  job `sealed-price-ingest` (§4.19d), en **MXN centavos** (FX+colchón ya aplicado). **Requiere** `sealed_price_source =
+  tcgcsv` (dial encendido, §4.19e) **y** el item **mapeado** (curación M2, §4.19c). Sin ingest/sin mapeo →
+  `sealedMarketRef = null` → el sellado solo se vende con **override** (comportamiento retro-compatible con hoy).
+- **SEC-A1:** override, subtype y mercado salen de **BD** (`InventoryItem` / `PriceReference`), los spreads de
+  **`ConfigSetting`**; **nada** viene del DTO del cliente. El cliente solo envía `inventoryItemId`.
+- **Congelado en `OrderItem.unitPriceCents`** al checkout → **sin snapshot de regla ni migración** de órdenes
+  (paridad §4.14d; el spread no se snapshotea porque el precio ya se congela).
+
+#### (b) Función pura `computeSealedSalePrice` (`backend/src/common/money.ts`)
+
+Hermana de `computeSalePriceForRarity` (§4.14b), keyeada por **presentación** en vez de rareza+acabado:
+
+```ts
+export interface SealedSpreadResult {
+  salePriceCents: number | null;
+  status: 'priced' | 'pending';
+  source: 'override' | 'subtype_spread' | 'global_spread';
+  appliedSpreadPct: number | null;      // null cuando source='override'
+}
+
+export function computeSealedSalePrice(
+  overrideCents: number | null,              // InventoryItem.listPriceCents (override manual por pieza)
+  sealedSubtype: SealedSubtype | null,       // InventoryItem.sealedSubtype (de BD)
+  marketMxnCents: number | null,             // sealedMarketRef.priceMxnCents (getReference sealed:tcg:<productId>)
+  spreadPctBySubtype: Record<string, number>,// SEALED_SPREAD_PCT_BY_SUBTYPE
+  fallbackPct: number,                       // SEALED_SPREAD_FALLBACK_PCT
+): SealedSpreadResult {
+  if (overrideCents != null) {
+    return { salePriceCents: overrideCents, status: 'priced', source: 'override', appliedSpreadPct: null };
+  }
+  const hasSubtypeSpread = sealedSubtype != null && spreadPctBySubtype[sealedSubtype] != null;
+  const spread = hasSubtypeSpread ? spreadPctBySubtype[sealedSubtype] : fallbackPct;
+  const source = hasSubtypeSpread ? 'subtype_spread' : 'global_spread';
+  if (marketMxnCents == null) {
+    // Sin mercado y sin override → pendiente (no publicable). NUNCA se inventa un precio.
+    return { salePriceCents: null, status: 'pending', source, appliedSpreadPct: spread };
+  }
+  return { salePriceCents: Math.round(marketMxnCents * (1 + spread / 100)),
+           status: 'priced', source, appliedSpreadPct: spread };
+}
+```
+
+- **La condición NO altera el precio derivado** (el spread es por presentación, no por condición). Para **descontar**
+  una caja `minor_box_damage` el admin usa el **override** de esa pieza. (SUP-2, §10 — un multiplicador por condición
+  se puede añadir después sin romper contrato.)
+- **`pct` = markup ARRIBA de mercado** (misma semántica que el `pct` de venta de §4.14, **no** «% de la referencia»
+  del buylist). `value` numérico en `[0, SEALED_SPREAD_PCT_MAX]` (propuesta `1000`, igual que ventas).
+
+#### (c) Config de spreads (diales M2, `ConfigSetting` — estilo M10, editables sin redeploy)
+
+Dos `SettingKey` nuevos (`settings.constants.ts`), **espejo** de `SALES_PRICE_RULES`/`SALES_PRICE_FALLBACK_PCT`
+pero keyeados por `SealedSubtype`:
+
+- `SEALED_SPREAD_PCT_BY_SUBTYPE` (`sealed_spread_pct_by_subtype`): mapa `{ [SealedSubtype]: number }` — markup % por
+  presentación. Validador: cada clave ∈ `{box, etb, bundle, tin, blister}`, cada `value` número en `[0, 1000]`.
+- `SEALED_SPREAD_FALLBACK_PCT` (`sealed_spread_fallback_pct`): markup % global de respaldo (número en `[0, 1000]`),
+  usado cuando la pieza no tiene `sealedSubtype` o su subtype no está en el mapa.
+
+**Seed inicial propuesto (editable en M2; PO confirma los números — SUP-6, §10):**
+```jsonc
+// SEALED_SPREAD_PCT_BY_SUBTYPE  (markup % arriba de mercado, por presentación)
+{ "box": 18, "etb": 22, "bundle": 25, "tin": 30, "blister": 35 }   // ítems chicos → % mayor
+// SEALED_SPREAD_FALLBACK_PCT = 25
+```
+Se editan por **endpoints M2 dedicados** (no por `PUT /admin/settings`, igual que las reglas de venta/buylist):
+`GET/PUT /admin/pricing/sealed-spreads`, **auditados** (`action=pricing.sealed_spreads.update`, before/after).
+
+> **Money-safe (SUP-8):** un spread de `0` vende a mercado sin margen; el validador **permite** `≥ 0` pero el editor
+> M2 debe advertirlo. No se fuerza `> 0` para no bloquear una promo deliberada; PO decide si quiere piso.
+
+#### (d) Aplicación — dónde se resuelve el precio del sellado (2 call-sites, mismo patrón §4.14d)
+
+Nuevo método en `PricingService` (o `PricingService.computeSealedSalePriceForItem(item)`):
+lee `SEALED_SPREAD_PCT_BY_SUBTYPE` + `SEALED_SPREAD_FALLBACK_PCT`, obtiene `sealedMarketRef` con
+`getReference(item.cardId, 'sealed', sealedMarketGradeKey(item.tcgplayerProductId), 'normal')` (o `null` si no
+mapeado) y llama la pura. Se **ramifica por `productType`** en los dos resolvedores de precio existentes:
+
+- `catalog.service.toListingDTO`: `raw|graded` → `computeSalePriceForItem` (§4.14); **`sealed` → `computeSealedSalePrice`**.
+  Un sellado con override o con mercado+spread ⇒ `salePriceCents` resuelto ⇒ `sellable=true`. Sin ninguno ⇒ `pending`
+  ⇒ no vendible (regla «solo se lista lo que tiene precio»).
+- `orders.service.salePriceOf`: idem — para `sealed`, deriva por override/mercado×spread; si `pending` → `422 PRICE_PENDING`.
+- `bulk-publish` (§M1): la rama `sealed` deja de exigir `listPriceCents`; ahora **deriva** por override/mercado×spread.
+  Sellado sin override **y** sin mercado → línea `PRICE_PENDING`, no se publica (money-safe, sin cambio de código de
+  error). Reusa `getReferencesBatch` + iza los spreads **una vez** por request (BE-25).
+
+#### (e) Ventana de tienda del sellado — listado AGREGADO por producto (público)
+
+Superficie propia (`(storefront)/sellado`, front) servida por **endpoints nuevos** (§2-S). El listado agrega las
+**piezas idénticas** en una tarjeta con «N disponibles»; el modelo por-pieza **no cambia** (sigue 1 `InventoryItem`
+por pieza física, unit-based).
+
+- **Clave de agrupación (grupo = «un producto a la venta»):**
+  `mapeado (tcgplayerProductId != null)` → `p:<tcgplayerProductId>:<sealedCondition>` ·
+  `no mapeado` → `c:<cardId>:<sealedSubtype>:<sealedCondition>`. **La condición SEPARA grupos** (una tarjeta `mint` y
+  otra `minor_box_damage` del mismo producto). *(SUP-5: si el mismo producto tiene piezas mapeadas y no mapeadas,
+  aparecerían como dos tarjetas; se mitiga **curando el mapeo**. El front puede coalescer por `cardId+subtype` si se
+  requiere; se recomienda mapear.)*
+- **Alcance:** solo piezas `productType='sealed' AND status='listed' AND ownerType='platform'` con precio resuelto
+  (`sellable=true`). Cada grupo expone: nombre e imagen (imagen **TCGCSV** si mapeado, si no la de catálogo de la
+  `Card`), `sealedSubtype`, `sealedCondition`, `availableCount` (piezas disponibles), `fromPriceCents` (mínimo
+  `salePriceCents` del grupo), `referenceValue: PriceInfo` (valor de mercado TCGCSV, informativo) y
+  `representativeItemId` (la pieza más barata → add-to-cart / ficha).
+- **Sin N+1:** una query de las piezas `sealed listed` de la página + `getReferencesBatch` de sus `sealedMarketRef`
+  + `groupBy` en memoria de la página (patrón `set-value.service`). Filtro por `setId`, `sealedSubtype`, `condition`,
+  `q`; paginado; `sort` `price_asc|price_desc|newest`.
+- **Detalle (ficha):** `GET /catalog/sealed/:inventoryItemId` devuelve el grupo + `listings: ListingDTO[]` (todas las
+  piezas disponibles del mismo grupo, más baratas primero) para que el comprador **elija cantidad** (el carrito es
+  por-pieza: agrega hasta `availableCount` `inventoryItemId`s). Reusa `ListingDTO` (que para sellado ya lleva
+  `referenceValue` = `sealedMarketRef` y `salePriceCents` = derivado/override).
+- **Call-out anti-buylist (mailto, front):** la ventana muestra el texto fijo *«¿Quieres revender tu sellado a TCG
+  Vault MX? Escríbenos a contacto@tcgvaultmx.com con fotos y lo cotizamos.»* — **no** es un endpoint; **no** hay
+  buylist de sellado (fuera de alcance, PROJECT).
+
+#### (f) Destino (envío / bóveda) — reuso TOTAL del checkout existente
+
+**Cero trabajo nuevo de checkout/fulfillment.** Una pieza sellada es un `InventoryItem(productType='sealed')`
+`listed`/`platform`, indistinguible para el carrito, `POST /checkout/quote|session` (customer) y `/checkout/guest/*`
+(invitado). Aplican **igual**: `FulfillmentMode = vault | direct_ship`, `vault` requiere cuenta (invitado →
+`direct_ship`, upsell §4-G), `direct_ship` cobra el envío en el mismo PaymentIntent (`shippingFeeCents`). Sellado a
+bóveda entra con titularidad `pending → settled` como una carta; sellado a envío directo se prepara y despacha por
+`ShipmentRequest`. La disputa de sellado (`condition_sealed`, caja dañada/equivocada) ya existe (§3.6/§7). Lo único
+que el checkout necesita es que `salePriceOf(sealed)` resuelva por (d) — ya cubierto.
+
+#### (g) Pestaña «Sellado» en la bóveda (cliente + admin), agrupada y valuada
+
+La bóveda gana una **segunda pestaña** junto a «Cartas» (el binder master-set, §4.20). Endpoints nuevos que **agregan
+las piezas selladas del usuario** por grupo (mismo criterio de (e)) con conteo y **valor de mercado actual**:
+
+- **Cliente:** `GET /vault/sealed` (`customer`, siempre `userId = el autenticado`).
+- **Admin:** `GET /admin/vaults/:userId/sealed` (`vault_operator+`, módulo `vault`, hermano de §4.20c).
+- **Valuación = misma base del portafolio (§3):** `sealedMarketRef` por pieza vía `getReferencesBatch`; piezas sin
+  mercado (unmapped / sin ingest) se **excluyen** del total y se cuentan en `pendingPriceCount`. Muestra imagen,
+  `sealedCondition`, `count` (y desglose `pending|settled`), `marketValue` por pieza y `totalMarketValueMxnCents`.
+- **Omisiones por scope (regla dura §4.20):** nunca ubicación/costo/folio; `email` del owner solo en la vista admin.
+- **Nota de coexistencia:** las piezas selladas **siguen** apareciendo en `GET /vault/holdings` (por-pieza) y en el
+  binder master-set como `finish=normal` (comportamiento pre-existente §4.20b — **fuera de alcance** cambiarlo). La
+  pestaña «Sellado» es la superficie **dedicada** y agrupada. *(SUP-4: con `sealedMarketRef` ahora poblado, el sellado
+  entra a la valuación del portafolio general; se recomienda incluirlo en el snapshot de tendencia — es una holding
+  más priceada. PO confirma.)*
+
+#### (h) Diferenciadores CABLEADOS pero APAGADOS (feature-flagged; el contrato queda definido)
+
+Dos diales `ConfigSetting` (seed **off**) gobiernan la superficie; el backend puede implementarlos ya, el front llega
+después. Con el flag `off` el endpoint responde `404 FEATURE_DISABLED` (o el front no lo llama).
+
+- **(a) Bóveda para sellado como inversión:** es la pestaña (g) + valuación; el framing «inversión» (rendimiento,
+  costo-base) es **copy del front** sobre datos ya presentes. No requiere contrato extra más allá de (g)/(b).
+- **(b) Tendencia de valor del sellado** (`sealed_value_trend`, off): reusa el **historial de `PriceReference`** que el
+  job `sealed-price-ingest` **ya acumula** por día en `sealed:tcg:<productId>` — **cero fabricación de datos**.
+  `GET /catalog/sealed/:inventoryItemId/value-history` devuelve una serie estilo `SetValueHistoryResponse` (reusa el
+  patrón `SetValueService`, rangos `5d…all`). Fuente: `PriceReference` por `capturedDate` de ese gradeKey. Solo
+  productos **mapeados** tienen serie (los no mapeados no tienen historial de mercado).
+- **(c) «Avísame cuando vuelva»** (`sealed_restock_alerts`, off): alerta por correo para productos **agotados**.
+  `POST /catalog/sealed/restock-subscriptions` (`public` — acepta correo de invitado o de usuario logueado) guarda una
+  `SealedRestockSubscription` (modelo nuevo M-28) keyeada por identidad de producto (`tcgplayerProductId` si mapeado,
+  o `cardId+sealedSubtype`) + `sealedCondition` + `email` (normalizado). Un job cableado (no agendado hasta el flip)
+  detecta cuando un producto de esa identidad vuelve a `status='listed'` y envía correo (reusa el módulo `mail`,
+  §PROJECT). Rate-limit + respuesta neutra (no revela si el producto existe), a la par del reenvío de enlace de
+  invitado (§4-G). *(SUP-5: una página de producto agotado debe ser direccionable para que el front ofrezca la
+  suscripción; con productos mapeados la identidad `tcgplayerProductId` es estable. Detalle de UI = cuando se encienda.)*
+
+#### (i) Deltas de schema Prisma PROPUESTOS (migración M-28, §11) — «ya existe» vs «nuevo»
+
+**Ya existe y se reusa (NO se toca):** `enum ProductType.sealed`, `enum SealedSubtype {box|etb|bundle|tin|blister}`,
+`InventoryItem.productType/sealedSubtype/listPriceCents/tcgplayerProductId/tcgplayerGroupId`,
+`enum PriceSource.tcgcsv`, `PriceReference` (gradeKey `sealed:tcg:<productId>`, `finish='normal'`), el dial
+`sealed_price_source`, `Dispute.type='condition_sealed'`, todo el checkout/fulfillment.
+
+**Nuevo (M-28, aditivo y nullable — `backend/prisma/` es ZONA COMPARTIDA, el orquestador serializa):**
+
+| # | Modelo / campo | Cambio | Nota |
+|---|---|---|---|
+| M-28 | `enum SealedCondition { mint, minor_box_damage }` | Enum nuevo | Condición simple del sellado, **visible al comprador**. `mint` = «Como nueva» · `minor_box_damage` = «Detalle menor en caja». Labels legibles en i18n del front (no en API). |
+| M-28 | `InventoryItem.sealedCondition SealedCondition?` | Columna nueva (nullable) | **App-requerido para `sealed`** (default `mint`); `null` para raw/graded (regla de aplicación, no constraint de BD). **Backfill:** `UPDATE ... SET sealedCondition='mint' WHERE productType='sealed' AND sealedCondition IS NULL`. |
+| M-28 | `InventoryItem @@index([productType, status])` | Índice nuevo (recomendado) | Sirve el grid público del sellado (`productType='sealed' AND status='listed'`) sin barrer la tabla. Complementa los índices existentes. |
+| M-28 | `model SealedRestockSubscription` | Tabla nueva (feature-flagged) | Ver (h)(c). Campos: `id`, `email` (normalizado), `userId String?` (FK opcional `onDelete: SetNull`), `cardId` (FK), `sealedSubtype SealedSubtype?`, `tcgplayerProductId Int?`, `sealedCondition SealedCondition`, `notifiedAt DateTime?`, `createdAt`. Índices: `@@index([tcgplayerProductId, sealedCondition, notifiedAt])`, `@@index([email])`. |
+
+**Sin migración de `PriceReference` ni de `Order`/`OrderItem`** (el precio se congela en `unitPriceCents`, sin snapshot
+de spread). **Config/diales (dato, no esquema):** `sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`
+(§c), `sealed_value_trend`, `sealed_restock_alerts` (§h), sembrados por el seed de settings.
+
+#### (j) Reparto de trabajo (v1.23) y reuso
+
+- **Backend:** (1) `computeSealedSalePrice` + `computeSealedSalePriceForItem`; ramificar los 2 call-sites + bulk-publish
+  (§d); (2) diales de spread + `GET/PUT /admin/pricing/sealed-spreads` (§c, clones de sales-rules); (3) grid público
+  agregado + ficha (§2-S); (4) `GET /vault/sealed` + `GET /admin/vaults/:userId/sealed` (§g); (5) migración M-28;
+  (6) endpoints feature-flagged (§h: value-history del sellado, restock-subscriptions) + su dial; (7) tests: precedencia
+  override>subtype>global>pending, money-safe (sin mercado ni override → no publicable), agrupación/«N disponibles»,
+  condición separa grupos, checkout de sellado vault/direct_ship/guest, valuación de bóveda sellado con pendientes
+  excluidos, SEC-A1 (precio nunca del DTO).
+- **Frontend:** ventana `(storefront)/sellado` (grid filtrable por set + ficha + call-out mailto), pestaña «Sellado»
+  en «Mi bóveda» y en la vista admin de bóveda, editor de spreads en M2 (clon del editor de reglas de venta), captura
+  de `sealedCondition` en el alta M1. (Trabajo de frontend; no del arquitecto.)
+- **Reuso (no se reinventa):** adapter/ingest/curación TCGCSV + `sealedMarketRef` (§4.19); pipeline FX; `PriceReference`
+  (`sealed:tcg:<productId>` + su historial para la tendencia); patrón `ConfigSetting`/endpoints M2 (§4.2/§4.14);
+  `getReferencesBatch` + base de valuación del portafolio (§3/§4.20c); patrón `SetValueService` (§4.12) para la
+  tendencia; checkout/orders/payments/shipments/guest-checkout (§4.21) sin cambios; `Dispute condition_sealed` (§3.6/§7);
+  módulo `mail` para restock.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -3944,6 +4192,33 @@ este documento y con `API_CONTRACT.md`.
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
 
+### Supuestos abiertos (v1.23-sealed-sales — venta de producto cerrado) — confirmar con PO
+
+- **SUP-1 (reconciliar `PROJECT.md` — el más importante):** este WS **supersede** dos decisiones vigentes: «sellado =
+  precio manual del admin» (ahora `mercado TCGCSV × spread`, override de respaldo) y «la referencia TCGCSV es
+  estrictamente informativa / no pública» (ahora base del precio y valor de mercado expuesto). Diseñado según el **spec
+  cerrado del PO**; **product-owner** debe actualizar `PROJECT.md` para que mande sobre el contrato (regla de conflicto).
+- **SUP-2 (condición no altera precio):** el spread es **por presentación**, no por condición; una caja
+  `minor_box_damage` deriva el **mismo** precio que `mint` salvo **override** manual. ¿Se quiere un multiplicador por
+  condición (p. ej. `minor_box_damage = −15%`)? Se puede añadir sin romper contrato. **Decisión propuesta: no** (usar
+  override).
+- **SUP-3 (naturaleza del spread):** el spread es `pct` (markup arriba de mercado) únicamente; no hay `fixed` de spread
+  (el precio fijo se logra con override). Propuesta aceptada salvo objeción del PO.
+- **SUP-4 (sellado en el portafolio general):** con `sealedMarketRef` ahora poblado, el sellado entra a la valuación y
+  a la tendencia del portafolio general. **Propuesta: incluirlo** (es una holding priceada más); el snapshot ya suma
+  `referenceValue` de holdings.
+- **SUP-5 (identidad de grupo / producto agotado):** el grid agrupa por `tcgplayerProductId` (mapeado) o
+  `cardId+subtype` (no mapeado) + condición; piezas mapeadas y no mapeadas del mismo producto podrían mostrarse como
+  dos tarjetas → **mitigación: curar el mapeo**. El restock (agotados) usa `tcgplayerProductId` como identidad estable;
+  una página de producto agotado debe ser direccionable (front, cuando se encienda el flag).
+- **SUP-6 (defaults de spread):** propuesta `{box:18, etb:22, bundle:25, tin:30, blister:35}` y fallback `25` — el PO
+  confirma los porcentajes de negocio.
+- **SUP-7 (rollout money-safe):** para vender sellado por auto-spread hacen falta (1) items **mapeados** (§4.19c) y
+  (2) `sealed_price_source = tcgcsv` **encendido** (§4.19e). Hasta entonces, el **override** manual es la única vía —
+  retro-compatible con hoy, sin bloquear el arranque.
+- **SUP-8 (spread cero):** el validador permite spread `≥ 0` (una promo a mercado es legítima); el editor M2 lo
+  advierte. ¿El PO quiere forzar un piso `> 0`? Propuesta: no forzar.
+
 ### Preguntas abiertas (v1.22-variantes-orden — variantes reales y orden natural)
 
 - **v1.22-1 — ¿Y si el payload remoto no basta? — ✅ RESUELTA (2026-08-19, rama `fix/available-finishes-source`).**
@@ -4204,6 +4479,26 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.23-sealed-sales (nueva — WS «Sellado / Producto cerrado»: venta de producto cerrado)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-28** frente a cualquier otro stream que
+toque el schema. Es **aditiva y nullable** (el único backfill es un `UPDATE` de `sealedCondition` a `mint` para el
+sellado existente). **`PriceReference` NO se toca** (el sellado ya se aloja en `sealed:tcg:<productId>`, §4.19d);
+**`Order`/`OrderItem` NO se tocan** (el precio se congela en `unitPriceCents`, sin snapshot de spread). Ver §4.23i.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-28 | `enum SealedCondition { mint, minor_box_damage }` | Enum nuevo | Create type | Condición simple del sellado, **visible al comprador** (§4.23i). Labels legibles en i18n del front. |
+| M-28 | `InventoryItem.sealedCondition SealedCondition?` | Columna nueva (nullable) | Add column + backfill | App-requerido para `productType='sealed'` (default `mint`); `null` para raw/graded. Backfill: `UPDATE "InventoryItem" SET "sealedCondition"='mint' WHERE "productType"='sealed' AND "sealedCondition" IS NULL`. |
+| M-28 | `InventoryItem @@index([productType, status])` | Índice nuevo (recomendado) | Create index | Sirve el grid público del sellado (`sealed AND listed`) y la agregación de la pestaña «Sellado». |
+| M-28 | `model SealedRestockSubscription` | Tabla nueva (feature-flagged) | Create table | `id`, `email`, `userId String?` (`onDelete: SetNull`), `cardId` (FK), `sealedSubtype SealedSubtype?`, `tcgplayerProductId Int?`, `sealedCondition SealedCondition`, `notifiedAt DateTime?`, `createdAt`. `@@index([tcgplayerProductId, sealedCondition, notifiedAt])`, `@@index([email])`. Solo se puebla con el dial `sealed_restock_alerts` encendido. |
+
+> **Enums de contrato adicionales:** `SealedSpreadSource = override | subtype_spread | global_spread` (fuente del
+> precio resuelto; NO es enum de BD). **Config/diales (dato, no esquema):** `sealed_spread_pct_by_subtype`,
+> `sealed_spread_fallback_pct` (spreads, §4.23c), `sealed_value_trend`, `sealed_restock_alerts` (feature flags, seed
+> **off**, §4.23h). **Sin backfill** de mapeos/precios: el sellado se preciaba tras curar el mapeo (§4.19c) y encender
+> `sealed_price_source` (§4.19e), o con override manual desde el día 1.
 
 ### v1.22-variantes-orden (nueva — orden natural del número persistido)
 

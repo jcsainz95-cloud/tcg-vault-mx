@@ -4,6 +4,12 @@ import { PokemonTcgIoBulkProvider } from '../src/modules/pricing/providers/pokem
 import { PokemonPriceTrackerBulkProvider } from '../src/modules/pricing/providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoClient } from '../src/modules/catalog/pokemontcg-io.client';
 import { normalizeFinishAlias } from '../src/modules/pricing/pricing.types';
+import { PptApiClient } from '../src/modules/pricing/providers/ppt-api.client';
+
+/** WS-A fix-ppt: el provider de paga toma (ConfigService, PptApiClient). Helper DI para los specs. */
+function makeProvider(c: ConfigService): PokemonPriceTrackerBulkProvider {
+  return new PokemonPriceTrackerBulkProvider(c, new PptApiClient(c));
+}
 
 /**
  * WS-A (v1.14-price-ingest, §4.15b/§4.15d) — MAPEO DEFENSIVO (money-safe) de los BulkPriceProvider:
@@ -60,7 +66,7 @@ describe('PokemonTcgIoBulkProvider (legacy) — extrae precios por acabado de tc
       },
     ]);
     const provider = new PokemonTcgIoBulkProvider(client);
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
 
     expect(res.rows).toHaveLength(2);
     expect(res.rows).toEqual(
@@ -80,7 +86,7 @@ describe('PokemonTcgIoBulkProvider (legacy) — extrae precios por acabado de tc
 
   it('carta sin tcgplayer.prices → no produce filas', async () => {
     const provider = new PokemonTcgIoBulkProvider(clientWith([{ id: 'sv8-2', number: '2' }]));
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows).toHaveLength(0);
   });
 });
@@ -110,8 +116,8 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
   it('sin API key → { rows: [] } y NO llama a fetch (money-safe: precios STALE, no se borran)', async () => {
     const fetchSpy = jest.fn();
     global.fetch = fetchSpy as unknown as typeof fetch;
-    const provider = new PokemonPriceTrackerBulkProvider(cfg(undefined, 'usd_dollars'));
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const provider = makeProvider(cfg(undefined, 'usd_dollars'));
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0 });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -123,8 +129,8 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
       json: async () => ({ data: [{ id: 'sv8-1', number: '1', prices: { normal: { market: 1.5 } } }] }),
     }));
     global.fetch = fetchSpy as unknown as typeof fetch;
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key')); // sin formato
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const provider = makeProvider(cfg('test-key')); // sin formato
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
 
     expect(fetchSpy).toHaveBeenCalledTimes(1); // sí hace el fetch (para loguear la muestra)
     expect(res.rows).toHaveLength(0); // pero NO persiste ninguna fila (candado money-safe)
@@ -147,8 +153,8 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
         },
       ],
     });
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars'));
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const provider = makeProvider(cfg('test-key', 'usd_dollars'));
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
 
     expect(res.rows).toEqual(
       expect.arrayContaining([
@@ -168,8 +174,8 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
 
   it('usd_cents: el payload YA da centavos → SIN ×100 (moneda USD)', async () => {
     mockFetchOnce({ data: [{ id: 'sv8-2', number: '2', prices: { normal: { market: 1500 } } }] });
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_cents'));
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const provider = makeProvider(cfg('test-key', 'usd_cents'));
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows).toEqual([
       { externalId: 'sv8-2', setExternalId: 'sv8', number: '2', finish: 'normal', marketCents: 1500, currency: 'USD', finishAliasVerified: true },
     ]);
@@ -183,8 +189,8 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
         { cardId: 'sv8-4', number: '4', finish: 'unknown-thing', market: 99 }, // desconocida → OMITE
       ],
     });
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'mxn_dollars'));
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const provider = makeProvider(cfg('test-key', 'mxn_dollars'));
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
 
     expect(res.rows).toEqual([
       // v1.22-1 (§4.22g candado 2): `variant: 'Reverse Holo'` es un alias SUPUESTO (no el REAL
@@ -197,16 +203,16 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
 
   it('entrada sin variante ni market válido → OMITE (no crea fila basura)', async () => {
     mockFetchOnce({ data: [{ id: 'sv8-9', number: '9' }] });
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars'));
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const provider = makeProvider(cfg('test-key', 'usd_dollars'));
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows).toHaveLength(0);
     expect(res.skipped).toBe(1);
   });
 
   it('fallo HTTP → devuelve lo acumulado sin reventar (precios previos quedan STALE)', async () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })) as unknown as typeof fetch;
-    const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars'));
-    const res = await provider.fetchPricesForSet({ set: SET });
+    const provider = makeProvider(cfg('test-key', 'usd_dollars'));
+    const res = await provider.fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows).toHaveLength(0);
   });
 });
@@ -280,7 +286,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
 
   it('hace GET /api/v2/cards?setId=…&fetchAllInSet=true con Bearer y SIN cuerpo (ya no /api/prices)', async () => {
     const spy = mockPages([{ data: [entry()], total: 1, count: 1, limit: 200, offset: 0, hasMore: false }]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
 
     expect(spy).toHaveBeenCalledTimes(1);
     const url = urlOf(spy, 0);
@@ -329,7 +335,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
         hasMore: false,
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
 
     expect(spy).toHaveBeenCalledTimes(2);
     expect(urlOf(spy, 0)).not.toContain('offset='); // 1er request sin offset
@@ -340,7 +346,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
 
   it('sin objeto `pagination`: página incompleta = última (no bucle infinito)', async () => {
     const spy = mockPages([{ data: [entry()] }]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(spy).toHaveBeenCalledTimes(1);
     expect(res.rows).toHaveLength(1);
   });
@@ -354,11 +360,11 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
     }));
     global.fetch = spy as unknown as typeof fetch;
 
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     // Un solo endpoint v2: ya NO se prueban `/api/prices` ni `/api/v1/prices`.
     expect(spy).toHaveBeenCalledTimes(1);
     expect(urlOf(spy, 0)).toContain('/api/v2/cards?');
-    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false });
+    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false, dailyLimited: false, dailyRemaining: null });
   });
 
   it('mapea los acabados documentados (`printing`) a nuestros Finish canónicos', async () => {
@@ -374,7 +380,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
         pagination: { total: 5, page: 1, limit: 1000 },
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
 
     expect(res.rows.map((r) => [r.finish, r.marketCents])).toEqual([
       ['normal', 100],
@@ -387,7 +393,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
 
   it('acabado AUSENTE con precio válido → OMITE (nunca se atribuye a `normal`)', async () => {
     mockPages([{ data: [entry({ printing: undefined })], pagination: { total: 1, page: 1, limit: 1000 } }]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows).toHaveLength(0);
     expect(res.fetchedRaw).toBe(1); // el request SÍ pasó: la señal de "no mapeó" queda en el log
     expect(res.skipped).toBe(1);
@@ -395,7 +401,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
 
   it('`cardNumber` con el total del set ("104/159") se propaga tal cual para el fallback del ingest', async () => {
     mockPages([{ data: [entry({ cardNumber: '104/159' })], pagination: { total: 1, page: 1, limit: 1000 } }]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows[0].number).toBe('104/159');
     expect(res.rows[0].externalId).toBe('sv8-104');
   });
@@ -407,7 +413,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
         pagination: { total: 2, page: 1, limit: 1000 },
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows).toHaveLength(1);
     expect(res.rows[0].externalId).toBe('sv8-104');
     expect(res.skipped).toBe(1);
@@ -420,7 +426,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
         pagination: { total: 2, page: 1, limit: 1000 },
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows).toHaveLength(0);
     expect(res.skipped).toBe(2);
   });
@@ -434,9 +440,9 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
     }));
     global.fetch = spy as unknown as typeof fetch;
 
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     // v1.22-1 (§4.22g): fallo total → requestOk FALSE ⇒ price-ingest NO tocará ningún snapshot.
-    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false });
+    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false, dailyLimited: false, dailyRemaining: null });
     expect(spy).toHaveBeenCalledTimes(1); // endpoint v2 único: un solo request
   });
 
@@ -457,7 +463,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
         pagination: { total: 1, page: 1, limit: 1000 },
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
+    const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     expect(res.rows.map((r) => [r.finish, r.marketCents])).toEqual([
       ['normal', 150],
       ['reverse_holo', 250],

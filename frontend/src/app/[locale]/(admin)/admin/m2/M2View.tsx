@@ -12,12 +12,15 @@ import {
   updateFx,
   refreshFx,
   triggerPriceIngest,
+  getPriceSyncStatus,
   getPriceProvider,
   updatePriceProvider,
   getBuylistRarities,
   updateBuylistRules,
   getSalesRarities,
   updateSalesRules,
+  getSealedSpreads,
+  updateSealedSpreads,
   getRemoteSets,
   syncCatalog,
   backfillCatalog,
@@ -32,6 +35,7 @@ import type {
   SalesRule,
   SalesRuleMode,
   PriceProvider,
+  SealedSubtype,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents, formatDate } from '@/lib/format';
@@ -52,6 +56,8 @@ const RULE_MODES: BuylistRuleMode[] = ['fixed', 'pct'];
 const SALES_RULE_MODES: SalesRuleMode[] = ['fixed', 'pct'];
 // v1.14-price-ingest: proveedores del dial `priceProvider` (ingesta masiva de precios).
 const PRICE_PROVIDERS: PriceProvider[] = ['pokemontcg_io', 'pokemonpricetracker'];
+// v1.23-sealed-sales: presentaciones del sellado con spread editable (§M2 sealed-spreads).
+const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
 
 /** Convierte pesos (texto) a centavos enteros. */
 function pesosToCents(value: string): number {
@@ -85,20 +91,28 @@ function SyncProgress({
   labels: { running: string; runningHint: string; done: string };
 }) {
   const pct = total > 0 ? Math.min(100, Math.round((Math.min(done, total) / total) * 100)) : 0;
+  const value = running ? pct : 100;
   return (
-    <div
-      className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4"
-      role="status"
-      aria-live="polite"
-    >
+    // FE-9: semántica de progreso REAL (`role="progressbar"` con `aria-value*`) en la propia
+    // barra, en vez de un `role="status"` verboso que re-anunciaba el bloque completo cada ~3 s.
+    // El lector de pantalla anuncia el cambio de `aria-valuenow` de forma nativa y moderada.
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
       <div className="flex items-center justify-between text-sm">
         <span className="font-medium">{running ? labels.running : labels.done}</span>
         {running && <span className="tabular text-muted">{pct}%</span>}
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-border" aria-hidden>
+      <div
+        className="h-2 w-full overflow-hidden rounded-full bg-border"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={value}
+        aria-valuetext={running ? `${labels.running} ${pct}%` : labels.done}
+        aria-label={running ? labels.running : labels.done}
+      >
         <div
           className={`h-full rounded-full transition-all ${running ? 'bg-accent' : 'bg-success'}`}
-          style={{ width: `${running ? pct : 100}%` }}
+          style={{ width: `${value}%` }}
         />
       </div>
       {running && <p className="text-xs text-muted">{labels.runningHint}</p>}
@@ -109,6 +123,7 @@ function SyncProgress({
 export function M2View() {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
+  const tSub = useTranslations('status.sealedSubtype');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const getError = useErrorMessage();
@@ -206,10 +221,24 @@ export function M2View() {
       setProviderDraft(null);
     },
   });
+  // Estado del barrido MASIVO de precios (GET /admin/pricing/sync-status). Calca el patrón del
+  // sync de catálogo: se POLLEA cada 3 s mientras `running` para pintar done/total en vivo y saber
+  // CUÁNDO terminó. No llama al proveedor, así que pollearlo no consume presupuesto diario.
+  const priceSyncStatus = useQuery({
+    queryKey: ['price-sync-status'],
+    queryFn: getPriceSyncStatus,
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.running ? 3000 : false),
+  });
+  const priceSweeping = priceSyncStatus.data?.running ?? false;
   const ingestMutation = useMutation({
     mutationFn: () => triggerPriceIngest(),
     // El ingest repuebla PriceReference → puede resolver pendientes; refresca esa cola.
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pending-prices'] }),
+    // Además arranca de inmediato el poll del estado del barrido de precios.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pending-prices'] });
+      qc.invalidateQueries({ queryKey: ['price-sync-status'] });
+    },
   });
 
   // --- Sección 4: precio de buylist por RAREZA (v1.3.1) ---
@@ -289,6 +318,58 @@ export function M2View() {
     });
   }
 
+  // --- Sección 5b: spreads de VENTA del SELLADO (v1.23-sealed-sales) ---
+  // Clon del editor de venta por rareza, pero keyeado por PRESENTACIÓN (SealedSubtype). El pct es
+  // MARKUP ARRIBA de mercado: salePriceCents = round(mercadoTCGCSV × (1 + spread/100)). Un spread 0%
+  // vende sin margen → se advierte visualmente.
+  const sealedSpreads = useQuery({ queryKey: ['sealed-spreads'], queryFn: getSealedSpreads });
+  // Borrador por subtipo + fallback (texto para permitir edición parcial; se castea al guardar).
+  const [spreadDraft, setSpreadDraft] = useState<Partial<Record<SealedSubtype, string>>>({});
+  const [spreadFallbackDraft, setSpreadFallbackDraft] = useState<string | null>(null);
+  const sealedSpreadsMutation = useMutation({
+    mutationFn: (payload: { spreadPctBySubtype: Partial<Record<SealedSubtype, number>>; fallbackPct: number }) =>
+      updateSealedSpreads(payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sealed-spreads'] });
+      setSpreadDraft({});
+      setSpreadFallbackDraft(null);
+    },
+  });
+
+  const serverSpreadFallback = sealedSpreads.data?.fallbackPct ?? 15;
+  const effectiveSpreadFallback = spreadFallbackDraft ?? String(serverSpreadFallback);
+  // Valor efectivo (texto) de un subtipo: borrador > valor del servidor > fallback efectivo.
+  function effectiveSpread(sub: SealedSubtype): string {
+    if (spreadDraft[sub] != null) return spreadDraft[sub]!;
+    const server = sealedSpreads.data?.spreadPctBySubtype[sub];
+    return server != null ? String(server) : effectiveSpreadFallback;
+  }
+  const spreadsDirty =
+    Object.keys(spreadDraft).length > 0 ||
+    (spreadFallbackDraft != null && spreadFallbackDraft !== String(serverSpreadFallback));
+  // Advertencia money-safe: cualquier spread efectivo (o el fallback) en 0% vende sin margen.
+  const anyZeroSpread =
+    Number(effectiveSpreadFallback) === 0 ||
+    SEALED_SUBTYPES.some((s) => {
+      const server = sealedSpreads.data?.spreadPctBySubtype[s];
+      // Solo cuenta como 0% si el subtipo tiene regla explícita (o borrador) en 0 — no el hueco→fallback.
+      const hasExplicit = spreadDraft[s] != null || server != null;
+      return hasExplicit && Number(effectiveSpread(s)) === 0;
+    });
+
+  function saveSpreads() {
+    if (!sealedSpreads.data) return;
+    // Preserva los subtipos con regla explícita del servidor y aplica el borrador encima.
+    const next: Partial<Record<SealedSubtype, number>> = { ...sealedSpreads.data.spreadPctBySubtype };
+    for (const [sub, val] of Object.entries(spreadDraft)) {
+      next[sub as SealedSubtype] = Number(val) || 0;
+    }
+    sealedSpreadsMutation.mutate({
+      spreadPctBySubtype: next,
+      fallbackPct: Number(effectiveSpreadFallback) || 0,
+    });
+  }
+
   // --- Sección 6: sync de catálogo ---
   // Estado del barrido `sync-all` (GET /admin/catalog/sync-status). Se POLLEA cada 3 s
   // mientras `running` para saber en vivo cuántos sets faltan y CUÁNDO terminó (lo que
@@ -344,6 +425,8 @@ export function M2View() {
   // curso, mantenemos viva la sesión; al terminar, el idle-logout vuelve a la normalidad.
   const catalogBusy =
     isSweeping ||
+    priceSweeping ||
+    ingestMutation.isPending ||
     catalogSyncMutation.isPending ||
     backfillMutation.isPending ||
     syncAllMutation.isPending ||
@@ -419,6 +502,37 @@ export function M2View() {
         )}
         {ingestMutation.isError && (
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(ingestMutation.error)}</Banner>
+        )}
+
+        {/* Aviso de pausa por límite diario del proveedor de paga (retoma a las 00:00 UTC). */}
+        {priceSyncStatus.data?.dailyLimited && (
+          <Banner variant="warning" role="status">
+            {t('priceIngest.dailyLimited', { pending: priceSyncStatus.data.pending })}
+          </Banner>
+        )}
+        {/* Presupuesto diario restante del proveedor, cuando el estado lo reporta. */}
+        {priceSyncStatus.data?.dailyRemaining != null && (
+          <p className="text-xs text-muted">
+            {t('priceIngest.dailyRemaining', { remaining: priceSyncStatus.data.dailyRemaining })}
+          </p>
+        )}
+
+        {/* Barra de progreso del barrido de PRECIOS en curso / recién terminado (poll cada 3 s).
+            Reusa el mismo SyncProgress (role="progressbar" accesible) que el sync de catálogo. */}
+        {priceSyncStatus.data && (priceSyncStatus.data.running || priceSyncStatus.data.total > 0) && (
+          <SyncProgress
+            running={priceSyncStatus.data.running}
+            done={priceSyncStatus.data.done}
+            total={priceSyncStatus.data.total}
+            labels={{
+              running: t('priceIngest.sweepRunning', {
+                done: Math.min(priceSyncStatus.data.done, priceSyncStatus.data.total),
+                total: priceSyncStatus.data.total,
+              }),
+              runningHint: t('priceIngest.sweepRunningHint'),
+              done: t('priceIngest.sweepDone', { total: priceSyncStatus.data.total }),
+            }}
+          />
         )}
       </section>
 
@@ -796,6 +910,112 @@ export function M2View() {
               )}
               {salesRulesMutation.isError && (
                 <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(salesRulesMutation.error)}</Banner>
+              )}
+            </div>
+          )}
+        </QueryState>
+      </section>
+
+      {/* Sección 5b: spreads de VENTA del SELLADO por presentación (v1.23-sealed-sales) */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h2 font-semibold">{t('sealedSpreads.title')}</h2>
+        <p className="text-sm text-muted">{t('sealedSpreads.subtitle')}</p>
+        <p className="text-xs text-muted">{t('sealedSpreads.example')}</p>
+        <QueryState
+          isLoading={sealedSpreads.isLoading}
+          isError={sealedSpreads.isError}
+          error={sealedSpreads.error}
+          onRetry={() => sealedSpreads.refetch()}
+        >
+          {sealedSpreads.data && (
+            <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+              {/* Fallback % (markup arriba de mercado) para presentaciones sin regla explícita */}
+              <div className="flex flex-wrap items-end gap-3 border-b border-border pb-4">
+                <Input
+                  label={t('sealedSpreads.fallbackLabel')}
+                  type="text"
+                  inputMode="decimal"
+                  suffix="%"
+                  className="w-32"
+                  value={effectiveSpreadFallback}
+                  onChange={(e) => setSpreadFallbackDraft(e.target.value.replace(/[^0-9.]/g, ''))}
+                />
+                <p className="text-xs text-muted">{t('sealedSpreads.fallbackHint')}</p>
+              </div>
+
+              <ul className="flex flex-col divide-y divide-border">
+                <li className="hidden gap-3 py-2 text-xs uppercase tracking-wide text-muted md:grid md:grid-cols-[1fr_auto_auto]">
+                  <span>{t('sealedSpreads.subtype')}</span>
+                  <span>{t('sealedSpreads.spread')}</span>
+                  <span />
+                </li>
+                {SEALED_SUBTYPES.map((sub) => {
+                  const value = effectiveSpread(sub);
+                  const isZero = Number(value) === 0;
+                  return (
+                    <li
+                      key={sub}
+                      className="grid grid-cols-2 items-end gap-3 py-3 md:grid-cols-[1fr_auto_auto]"
+                    >
+                      <span className="text-sm font-medium">{tSub(sub)}</span>
+                      <Input
+                        label={t('sealedSpreads.spread')}
+                        aria-label={t('sealedSpreads.spreadFor', { subtype: tSub(sub) })}
+                        type="text"
+                        inputMode="decimal"
+                        suffix="%"
+                        className="w-32"
+                        value={value}
+                        onChange={(e) =>
+                          setSpreadDraft((prev) => ({ ...prev, [sub]: e.target.value.replace(/[^0-9.]/g, '') }))
+                        }
+                      />
+                      {/* Advertencia por-fila: spread 0% = vende sin margen. */}
+                      {isZero ? (
+                        <Badge tone="warning" shape="outline">
+                          {t('sealedSpreads.zeroWarning')}
+                        </Badge>
+                      ) : (
+                        <span />
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <p className="text-xs text-muted">{t('sealedSpreads.prereqHint')}</p>
+
+              {/* Aviso global money-safe si algún spread efectivo queda en 0%. */}
+              {anyZeroSpread && (
+                <Banner variant="warning" role="status">{t('sealedSpreads.zeroBanner')}</Banner>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  disabled={!spreadsDirty}
+                  loading={sealedSpreadsMutation.isPending}
+                  onClick={saveSpreads}
+                >
+                  {tc('save')}
+                </Button>
+                {spreadsDirty && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setSpreadDraft({});
+                      setSpreadFallbackDraft(null);
+                    }}
+                  >
+                    {tc('cancel')}
+                  </Button>
+                )}
+              </div>
+              {sealedSpreadsMutation.isSuccess && (
+                <Banner variant="success" role="status">{t('sealedSpreads.saved')}</Banner>
+              )}
+              {sealedSpreadsMutation.isError && (
+                <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(sealedSpreadsMutation.error)}</Banner>
               )}
             </div>
           )}

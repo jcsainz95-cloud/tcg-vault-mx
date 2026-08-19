@@ -15,6 +15,12 @@ export type RawCondition = 'NM';
 export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
 // v1.1: subtipo opcional del sellado.
 export type SealedSubtype = 'box' | 'etb' | 'bundle' | 'tin' | 'blister';
+// v1.23-sealed-sales: condición SIMPLE del sellado, visible al comprador. Enum de BD
+// (InventoryItem.sealedCondition, default mint). No afecta precio (labels legibles vía i18n).
+export type SealedCondition = 'mint' | 'minor_box_damage';
+// v1.23-sealed-sales: de dónde salió el precio de venta del sellado (derivado server-side por
+// computeSealedSalePrice, NO enum de BD). Se muestra a modo informativo en la ficha.
+export type SealedSpreadSource = 'override' | 'subtype_spread' | 'global_spread';
 // v1.1: proveedor de autenticación del User.
 export type AuthProvider = 'local' | 'google';
 export type GradingCompany = 'PSA' | 'CGC';
@@ -78,7 +84,8 @@ export type SalesRuleMode = 'fixed' | 'pct';
 export type DisputeStatus = 'abierta' | 'en_revision' | 'resuelta_recompra' | 'rechazada';
 // v1.2: tipo de disputa derivado server-side del productType (no lo envía el cliente).
 export type DisputeType = 'condition_raw' | 'condition_sealed';
-export type PriceSource = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual';
+// v1.19: `tcgcsv` = referencia de mercado del SELLADO (TCGCSV, USD→MXN con FX+colchón).
+export type PriceSource = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual' | 'tcgcsv';
 export type KycStatus = 'none' | 'pending' | 'verified' | 'rejected';
 export type AcquisitionType = 'aportacion_en_especie' | 'buylist' | 'compra';
 export type CfdiStatus = 'registrado' | 'no_aplica';
@@ -135,6 +142,10 @@ export interface ListingDTO {
   gradeValue?: string;
   // v1.2: nº de certificado PSA/CGC (verificable en la graduadora). null para raw/sealed.
   certNumber?: string;
+  // v1.23-sealed-sales: condición del sellado (ADITIVO): presente SOLO en productType='sealed'
+  // (mint|minor_box_damage); omitido en raw/graded. Para sellado, referenceValue = valor de
+  // mercado TCGCSV y salePriceCents = override o mercado×spread (ARCHITECTURE §4.23b).
+  sealedCondition?: SealedCondition;
   referenceValue: PriceInfo;
   salePriceCents?: number;
   sellable: boolean;
@@ -920,6 +931,8 @@ export interface BatchInventoryItemInput {
   rawCondition?: RawCondition;
   finish?: Finish;
   sealedSubtype?: SealedSubtype;
+  // v1.23-sealed-sales: condición del sellado (default `mint`; solo productType='sealed').
+  sealedCondition?: SealedCondition;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   certNumber?: string;
@@ -1238,6 +1251,72 @@ export interface SalesRaritiesResponse {
   rarities: SalesRarityRowDTO[];
 }
 
+// ===== v1.23-sealed-sales: sellado / producto cerrado (contrato §2-S, §3, §M1, §M2) =====
+
+// Tarjeta AGREGADA del grid público de sellado (GET /catalog/sealed): agrupa piezas idénticas
+// (mismo producto TCGCSV + misma condición) → "N disponibles". `representativeItemId` = la pieza
+// disponible MÁS BARATA (add-to-cart / key de la ficha). `imageUrl` = imagen TCGCSV si mapeado, si
+// no la de catálogo de la Card. `fromPriceCents` = mínimo salePriceCents del grupo. `referenceValue`
+// = valor de mercado TCGCSV (informativo; puede ser pending si el grupo se vende solo por override).
+export interface SealedGroupDTO {
+  representativeItemId: string;
+  card: CardDTO;
+  productName: string;
+  imageUrl: string | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition;
+  availableCount: number;
+  fromPriceCents: number;
+  priceSource: SealedSpreadSource;
+  referenceValue: PriceInfo;
+  currency: 'MXN';
+}
+export interface SealedGroupListResponse {
+  data: SealedGroupDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+// Ficha del sellado (GET /catalog/sealed/:inventoryItemId): el grupo + TODAS las piezas disponibles
+// del mismo grupo (cada una un ListingDTO, más baratas primero) para elegir cantidad (carrito
+// por-pieza). trendEnabled/restockEnabled reflejan los feature-flags (§M10).
+export interface SealedGroupDetailResponse {
+  group: SealedGroupDTO;
+  listings: ListingDTO[];
+  trendEnabled: boolean;
+  restockEnabled: boolean;
+}
+// Grupo de la pestaña "Sellado" de la bóveda (GET /vault/sealed y admin). `count` = piezas del
+// usuario en bóveda de ese grupo; `ownership` = desglose por titularidad. `marketValue` = valor de
+// mercado ACTUAL por pieza (sealedMarketRef); `totalMarketValueMxnCents` = count × ref (null si
+// pending → se excluye del total y cuenta en pendingPriceCount).
+export interface VaultSealedGroupDTO {
+  card: CardDTO;
+  productName: string;
+  imageUrl: string | null;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition;
+  count: number;
+  ownership: { pending: number; settled: number };
+  marketValue: PriceInfo;
+  totalMarketValueMxnCents: number | null;
+}
+export interface VaultSealedResponse {
+  data: VaultSealedGroupDTO[];
+  totalValueMxnCents: number;
+  pendingPriceCount: number;
+  currency: 'MXN';
+  // Solo en la vista admin (GET /admin/vaults/:userId/sealed); omitido en la del propio cliente.
+  owner?: VaultOwnerRefDTO;
+}
+// Spreads de venta del sellado (GET/PUT /admin/pricing/sealed-spreads). `spreadPctBySubtype` =
+// markup % ARRIBA de mercado por presentación; `fallbackPct` = spread global de respaldo. Semántica
+// de pct = markup sobre mercado (como ventas §4.14). Rango [0, 1000].
+export interface SealedSpreadsDTO {
+  spreadPctBySubtype: Partial<Record<SealedSubtype, number>>;
+  fallbackPct: number;
+}
+
 // GET /admin/pricing/card/:cardId — historial de precios por fecha/fuente.
 // SUPUESTO de shape: el contrato describe "historial de precios por fecha/fuente"
 // sin fijar campos exactos; estos son los mínimos para render (ver FRONTEND_NOTES).
@@ -1299,6 +1378,30 @@ export interface CatalogSyncStatusResponse {
   done: number;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+// GET /admin/pricing/sync-status — progreso del barrido MASIVO de precios (price-ingest) en curso
+// (o del último). Estado en memoria del proceso (no persistido); para POLLING desde M2 sin llamar
+// al proveedor. Calca CatalogSyncStatusResponse con campos extra del presupuesto diario del
+// proveedor de paga (v1.14-price-ingest / N-11).
+export interface PriceSyncStatusResponse {
+  running: boolean;
+  jobId: string | null;
+  /** sets a procesar en el barrido actual/último. */
+  total: number;
+  /** sets ya intentados (éxito o fallo) → barra de progreso done/total. */
+  done: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lastError: string | null;
+  /** presupuesto diario restante del proveedor de paga (null = sin límite/no aplica). */
+  dailyRemaining: number | null;
+  /** true = pausado por límite diario del proveedor (429 daily); retoma a las 00:00 UTC. */
+  dailyLimited: boolean;
+  /** sets pendientes si el barrido se pausó por límite diario. */
+  pending: number;
+  /** proveedor activo del barrido ('pokemonpricetracker' | 'pokemontcg_io'), o null. */
+  provider: string | null;
 }
 
 // ---- M6: Usuarios / KYC (contrato §M6) ----

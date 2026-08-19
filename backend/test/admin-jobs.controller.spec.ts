@@ -9,6 +9,7 @@ import { SetValueSnapshotJobService } from '../src/jobs/set-value-snapshot.servi
 import { CatalogPriceSyncJobService } from '../src/jobs/catalog-price-sync.service';
 import { PriceIngestJobService } from '../src/jobs/price-ingest.service';
 import { SealedPriceIngestJobService } from '../src/jobs/sealed-price-ingest.service';
+import { SealedRestockNotifyService } from '../src/modules/catalog/sealed-restock-notify.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { Role } from '@prisma/client';
 
@@ -34,15 +35,20 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   } as unknown as CatalogPriceSyncJobService;
   const priceIngest = {
     run: jest.fn().mockResolvedValue({ job: 'price-ingest', enqueued: true, jobId: 'price-ingest-2026-08-17' }),
+    // N-11: sin setId el disparo es fire-and-forget (background); el front pollea sync-status.
+    runBackground: jest.fn().mockResolvedValue({ job: 'price-ingest', enqueued: true, background: true, alreadyRunning: false }),
   } as unknown as PriceIngestJobService;
   const sealedPriceIngest = {
     run: jest.fn().mockResolvedValue({ job: 'sealed-price-ingest', enqueued: true }),
   } as unknown as SealedPriceIngestJobService;
+  const sealedRestockNotify = {
+    run: jest.fn().mockResolvedValue({ job: 'sealed-restock-notify', enqueued: false, reason: 'SEALED_RESTOCK_ALERTS_OFF' }),
+  } as unknown as SealedRestockNotifyService;
   const audit = { log: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
   const ctrl = new AdminJobsController(
     snapshot, ine, sweep, dispute, tokens, setPrice, setSnap, catalogPrice, priceIngest,
-    sealedPriceIngest, audit,
+    sealedPriceIngest, sealedRestockNotify, audit,
   );
 
   beforeEach(() => jest.clearAllMocks());
@@ -139,10 +145,12 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
   });
 
   // v1.14-price-ingest (WS-A): ingesta masiva. Sin setId → catálogo completo; auditado. TOCA DINERO.
-  it('POST /admin/jobs/price-ingest (sin setId) corre run() y audita jobs.price_ingest.run', async () => {
+  it('POST /admin/jobs/price-ingest (sin setId) → runBackground() (N-11 fire-and-forget) y audita', async () => {
     const res = await ctrl.runPriceIngest({}, user);
-    expect(priceIngest.run).toHaveBeenCalledWith(undefined);
-    expect(res).toEqual({ job: 'price-ingest', enqueued: true, jobId: 'price-ingest-2026-08-17' });
+    // N-11: sin setId NO se bloquea; se lanza el barrido en background.
+    expect(priceIngest.runBackground).toHaveBeenCalled();
+    expect(priceIngest.run).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ job: 'price-ingest', enqueued: true, background: true });
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'jobs.price_ingest.run',
@@ -217,6 +225,23 @@ describe('AdminJobsController — disparo manual auditado de jobs', () => {
       expect.objectContaining({
         action: 'jobs.sealed_price_ingest.run',
         after: expect.objectContaining({ enqueued: false, reason: 'SEALED_PRICE_SOURCE_OFF' }),
+      }),
+    );
+  });
+
+  it('POST /admin/jobs/sealed-restock-notify con dial off → 202 enqueued:false + reason (auditado)', async () => {
+    const res = await ctrl.runSealedRestockNotify(user);
+    expect(sealedRestockNotify.run).toHaveBeenCalled();
+    expect(res).toEqual({
+      job: 'sealed-restock-notify',
+      enqueued: false,
+      reason: 'SEALED_RESTOCK_ALERTS_OFF',
+    });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'jobs.sealed_restock_notify.run',
+        entityId: 'sealed-restock-notify',
+        after: expect.objectContaining({ enqueued: false, reason: 'SEALED_RESTOCK_ALERTS_OFF' }),
       }),
     );
   });

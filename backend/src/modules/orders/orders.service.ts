@@ -47,6 +47,19 @@ export class OrdersService {
     item: InventoryItem & { card: Card & { set?: CardSet | null } },
   ): Promise<number> {
     if (item.listPriceCents != null && item.listPriceCents > 0) return item.listPriceCents;
+    // v1.23-sealed-sales (§4.23d): el SELLADO deriva por mercado×spread. H-1 (v1.24): resolver ÚNICO
+    // `resolveSealedSalePrice` (mismo cuerpo que catálogo/grid/bulk-publish, incluida la regla
+    // override=0). Sin override>0 y sin mercado → PRICE_PENDING (money-safe, no se vende a precio basura).
+    // SEC-A1: todo server-side.
+    if (item.productType === 'sealed') {
+      const ctx = await this.pricing.loadSealedSpreads();
+      const marketRef = await this.pricing.getSealedMarketRef(item);
+      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, ctx);
+      if (sale.salePriceCents == null) {
+        throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
+      }
+      return sale.salePriceCents;
+    }
     const gradeKey = this.pricing.gradeKeyFor(item);
     // v1.6-finish: precio de venta contra la referencia del ACABADO del item.
     const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);

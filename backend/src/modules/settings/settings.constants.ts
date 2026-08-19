@@ -43,6 +43,17 @@ export const SettingKey = {
   // referencia como en buylist (ver money.ts computeSalePriceForRarity).
   SALES_PRICE_RULES: 'sales_price_rules',
   SALES_PRICE_FALLBACK_PCT: 'sales_price_fallback_pct',
+  // v1.23-sealed-sales (§4.23c): spreads de VENTA del SELLADO por presentación + fallback global.
+  // Espejo de SALES_PRICE_RULES/FALLBACK pero keyeados por SealedSubtype. `pct` = markup ARRIBA de
+  // mercado (NO % de la referencia como en buylist). Editables por endpoints M2 dedicados
+  // (GET/PUT /admin/pricing/sealed-spreads), NO por PUT /admin/settings. money.computeSealedSalePrice.
+  SEALED_SPREAD_PCT_BY_SUBTYPE: 'sealed_spread_pct_by_subtype',
+  SEALED_SPREAD_FALLBACK_PCT: 'sealed_spread_fallback_pct',
+  // v1.23-sealed-sales (§4.23h): feature flags (seed off) de los endpoints §2-S. Con off el
+  // endpoint responde 404 FEATURE_DISABLED. Expuestos en el DTO de M10 (sealedValueTrend/
+  // sealedRestockAlerts) y editables por PUT /admin/settings (a diferencia de los spreads).
+  SEALED_VALUE_TREND: 'sealed_value_trend',
+  SEALED_RESTOCK_ALERTS: 'sealed_restock_alerts',
   // DEPRECADO v1.3.1: `rarity_map` (RARITY_MAP) ya NO lo lee la cotización (reemplazado por
   // BUYLIST_PRICE_RULES). Se conserva como no-op/legacy hasta su retiro; no se siembra en nuevos.
   RARITY_MAP: 'rarity_map',
@@ -79,8 +90,13 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // v1.14-price-ingest (WS-A): SEED `pokemontcg_io` por seguridad (rollout money-safe). El flip a
   // `pokemonpricetracker` lo hace el humano tras verificar el esquema (ARCHITECTURE §4.15h).
   [SettingKey.PRICE_PROVIDER]: 'pokemontcg_io',
-  // v1.19-sealed-tcgcsv (§4.19e): SEED `off` (fail-closed). El flip a `tcgcsv` lo hace el
-  // humano tras la 1ª corrida manual acotada en staging (runbook devops).
+  // v1.19-sealed-tcgcsv (§4.19e / §4.23e / API_CONTRACT §M10): SEED `off` (FAIL-CLOSED, por contrato).
+  // Un seed FRESCO (BD nueva: CI/dev/prod) arranca con el autoprecio del sellado APAGADO — la ingesta
+  // TCGCSV no corre hasta que devops valide el esquema real en staging (§4.23f) y flipee el dial. El
+  // AUTOPRECIO que pidió el PO se enciende EN RUNTIME (no por seed): PUT /admin/settings
+  // { "sealedPriceSource": "tcgcsv" } (super_admin, auditado) tras la validación-en-staging. Ese PUT es
+  // el mecanismo money-safe; rollback = mismo PUT con "off". NO cambiar este seed a `tcgcsv` (violaría el
+  // contrato y removería el candado money-safe del que depende la deuda §BE-44(c) de TECH_DEBT.md).
   [SettingKey.SEALED_PRICE_SOURCE]: 'off',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
@@ -104,6 +120,15 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // Default 15 = iguala EXACTAMENTE el SALES_MARKUP_PCT vigente → preserva el precio de venta actual
   // (market × 1.15) para toda rareza que caiga al fallback. Solo el piso de bulk cambia.
   [SettingKey.SALES_PRICE_FALLBACK_PCT]: 15,
+  // v1.23-sealed-sales (§4.23c, SUP-6): seed confirmado por el PO — markup % arriba de mercado por
+  // presentación (ítems chicos → % mayor) y fallback global 25 para piezas sin subtype o subtype
+  // sin regla. Editables en M2 (GET/PUT /admin/pricing/sealed-spreads).
+  [SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE]: { box: 18, etb: 22, bundle: 25, tin: 30, blister: 35 },
+  [SettingKey.SEALED_SPREAD_FALLBACK_PCT]: 25,
+  // v1.23-sealed-sales (§4.23h): feature flags cableados pero APAGADOS (seed off). El front llega
+  // después; el súper-admin los enciende sin redeploy (PUT /admin/settings).
+  [SettingKey.SEALED_VALUE_TREND]: 'off',
+  [SettingKey.SEALED_RESTOCK_ALERTS]: 'off',
   [SettingKey.RARITY_MAP]: {
     Common: 'comun',
     Uncommon: 'comun',
@@ -210,6 +235,46 @@ export function validateSalesFallbackPct(v: unknown): string | null {
 }
 
 /**
+ * v1.23-sealed-sales (§4.23c): tope del spread de venta del sellado. Mismo criterio que el pct de
+ * venta (markup arriba de mercado): puede superar 100% (una promo/pieza rara), tope 1000% evita typos.
+ * SUP-8: el validador PERMITE `>= 0` (un spread 0 vende a mercado sin margen; el editor M2 lo advierte);
+ * no se fuerza `> 0` para no bloquear una promo deliberada.
+ */
+export const SEALED_SPREAD_PCT_MAX = 1000;
+
+/** Subtipos válidos del sellado (llaves de `sealed_spread_pct_by_subtype`). */
+export const SEALED_SUBTYPE_KEYS = ['box', 'etb', 'bundle', 'tin', 'blister'];
+
+/**
+ * Valida el mapa `sealed_spread_pct_by_subtype`: objeto, cada clave ∈ SEALED_SUBTYPE_KEYS, cada
+ * value número en [0, SEALED_SPREAD_PCT_MAX]. API_CONTRACT §M2 (GET/PUT /admin/pricing/sealed-spreads).
+ */
+export function validateSealedSpreads(v: unknown): string | null {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+    return 'must be an object map { [subtype]: number }';
+  }
+  for (const [subtype, value] of Object.entries(v as Record<string, unknown>)) {
+    if (!SEALED_SUBTYPE_KEYS.includes(subtype)) {
+      return `invalid subtype "${subtype}": must be one of ${SEALED_SUBTYPE_KEYS.join('|')}`;
+    }
+    if (!(isNum(value) && value >= 0 && value <= SEALED_SPREAD_PCT_MAX)) {
+      return `invalid spread for "${subtype}": must be a number in [0, ${SEALED_SPREAD_PCT_MAX}]`;
+    }
+  }
+  return null;
+}
+
+/** Valida el fallback `sealed_spread_fallback_pct` (número en [0, SEALED_SPREAD_PCT_MAX]). */
+export function validateSealedSpreadFallback(v: unknown): string | null {
+  return isNum(v) && v >= 0 && v <= SEALED_SPREAD_PCT_MAX
+    ? null
+    : `must be a number in [0, ${SEALED_SPREAD_PCT_MAX}]`;
+}
+
+/** v1.23-sealed-sales (§4.23h): valores válidos de los feature flags del sellado (on|off). */
+export const FEATURE_FLAG_VALUES = ['on', 'off'];
+
+/**
  * Validadores por dial (fix correctness #2). Cada uno devuelve un mensaje de error o
  * `null` si es válido. Rangos coherentes con la matemática de `money.ts` para que un
  * dial mal escrito NO rompa el checkout (NaN / división por cero / negativos).
@@ -255,6 +320,14 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // v1.13-sales-pricing (§4.14a): reglas de VENTA por rareza + fallback (pct = markup arriba de mercado).
   [SettingKey.SALES_PRICE_RULES]: validateSalesRules,
   [SettingKey.SALES_PRICE_FALLBACK_PCT]: validateSalesFallbackPct,
+  // v1.23-sealed-sales (§4.23c/§4.23h): spreads del sellado (editados por M2, no por PUT settings,
+  // pero se validan igual) + feature flags on|off.
+  [SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE]: validateSealedSpreads,
+  [SettingKey.SEALED_SPREAD_FALLBACK_PCT]: validateSealedSpreadFallback,
+  [SettingKey.SEALED_VALUE_TREND]: (v) =>
+    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
+  [SettingKey.SEALED_RESTOCK_ALERTS]: (v) =>
+    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   [SettingKey.INE_RETENTION_DAYS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (days)'),
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
   [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>
@@ -285,6 +358,10 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   priceProvider: SettingKey.PRICE_PROVIDER,
   // v1.19-sealed-tcgcsv (§M10): dial fail-closed de la referencia de mercado del SELLADO.
   sealedPriceSource: SettingKey.SEALED_PRICE_SOURCE,
+  // v1.23-sealed-sales (§M10): feature flags del sellado. Los SPREADS (sealed_spread_*) NO se
+  // exponen aquí ni se editan por PUT /admin/settings: solo por GET/PUT /admin/pricing/sealed-spreads.
+  sealedValueTrend: SettingKey.SEALED_VALUE_TREND,
+  sealedRestockAlerts: SettingKey.SEALED_RESTOCK_ALERTS,
   // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
   // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,

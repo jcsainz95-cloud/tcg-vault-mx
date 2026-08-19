@@ -57,6 +57,12 @@ import type {
   ProductType,
   RawCondition,
   SealedSubtype,
+  SealedCondition,
+  SealedGroupDTO,
+  SealedGroupListResponse,
+  SealedGroupDetailResponse,
+  VaultSealedResponse,
+  SealedSpreadsDTO,
   Finish,
   GradingCompany,
   AcquisitionType,
@@ -93,6 +99,7 @@ import type {
   CatalogBackfillResponse,
   CatalogSyncAllResponse,
   CatalogSyncStatusResponse,
+  PriceSyncStatusResponse,
   AdminUserSummaryDTO,
   AdminUserDetailDTO,
   AdminCreatedUserDTO,
@@ -345,6 +352,154 @@ export async function getFeaturedSetValueHistory(
     });
   }
   return delay(fx.generateFeaturedSetValueHistory(range));
+}
+
+// ---------- Sellado / producto cerrado (contrato §2-S, §3, §M2, v1.23-sealed-sales) ----------
+export type SealedSort = 'price_asc' | 'price_desc' | 'newest';
+
+export interface SealedFilters {
+  setId?: string;
+  sealedSubtype?: SealedSubtype;
+  condition?: SealedCondition;
+  q?: string;
+  sort?: SealedSort;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Grid AGREGADO del sellado publicado (contrato GET /catalog/sealed, `public`). Agrupa piezas
+ * idénticas (producto TCGCSV + condición) → "N disponibles"; solo grupos con ≥1 pieza vendible.
+ * La condición SEPARA grupos (una tarjeta mint, otra minor_box_damage).
+ */
+export async function getSealedGroups(filters: SealedFilters = {}): Promise<SealedGroupListResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedGroupListResponse>('/catalog/sealed', {
+      query: {
+        setId: filters.setId,
+        sealedSubtype: filters.sealedSubtype,
+        condition: filters.condition,
+        q: filters.q,
+        sort: filters.sort,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
+  }
+  let data = [...fx.mockSealedGroups];
+  if (filters.setId) data = data.filter((g) => g.card.setId === filters.setId);
+  if (filters.sealedSubtype) data = data.filter((g) => g.sealedSubtype === filters.sealedSubtype);
+  if (filters.condition) data = data.filter((g) => g.sealedCondition === filters.condition);
+  if (filters.q) {
+    const q = filters.q.toLowerCase();
+    data = data.filter((g) => g.productName.toLowerCase().includes(q));
+  }
+  if (filters.sort === 'price_asc') data.sort((a, b) => a.fromPriceCents - b.fromPriceCents);
+  if (filters.sort === 'price_desc') data.sort((a, b) => b.fromPriceCents - a.fromPriceCents);
+  return delay({ data, page: 1, pageSize: 20, total: data.length });
+}
+
+/**
+ * Ficha de un producto sellado (contrato GET /catalog/sealed/:inventoryItemId, `public`). Devuelve
+ * el grupo + TODAS las piezas disponibles (ListingDTO, más baratas primero) para elegir cantidad, y
+ * el estado de los feature-flags (trendEnabled/restockEnabled).
+ */
+export async function getSealedGroupDetail(
+  inventoryItemId: string,
+): Promise<SealedGroupDetailResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedGroupDetailResponse>(`/catalog/sealed/${inventoryItemId}`);
+  }
+  try {
+    return await delay(fx.mockSealedGroupDetail(inventoryItemId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Tendencia de valor de mercado del producto sellado (contrato GET
+ * /catalog/sealed/:inventoryItemId/value-history, FEATURE-FLAGGED `sealed_value_trend`). Misma forma
+ * que SetValueHistoryResponse. El endpoint responde `404 FEATURE_DISABLED` si el dial está `off` (o
+ * `404 NOT_FOUND` si la pieza no está mapeada → sin serie): el front oculta la gráfica limpio.
+ */
+export async function getSealedValueHistory(
+  inventoryItemId: string,
+  range: SetValueRange = '1m',
+): Promise<SetValueHistoryResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SetValueHistoryResponse>(
+      `/catalog/sealed/${inventoryItemId}/value-history`,
+      { query: { range } },
+    );
+  }
+  return delay(fx.generateSealedValueHistory(range));
+}
+
+/**
+ * «Avísame cuando vuelva» (contrato POST /catalog/sealed/restock-subscriptions, FEATURE-FLAGGED
+ * `sealed_restock_alerts`). Respuesta NEUTRA (no revela si el producto existe/está agotado). Con el
+ * dial `off` responde `404 FEATURE_DISABLED` y el front oculta el CTA.
+ */
+export interface RestockSubscriptionInput {
+  email: string;
+  tcgplayerProductId?: number;
+  cardId?: string;
+  sealedSubtype?: SealedSubtype;
+  sealedCondition: SealedCondition;
+}
+export async function subscribeSealedRestock(
+  input: RestockSubscriptionInput,
+): Promise<{ subscribed: true }> {
+  if (!config.useMocks) {
+    return apiRequest<{ subscribed: true }>('/catalog/sealed/restock-subscriptions', {
+      method: 'POST',
+      body: input,
+    });
+  }
+  // MOCK: el dial va seed `off` (fail-closed) → el endpoint respondería 404 FEATURE_DISABLED. El
+  // mock lo simula para que el front ejercite el camino "flag apagado" sin backend.
+  throw new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'sealed_restock_alerts is off' });
+}
+
+/** Pestaña "Sellado" de MI bóveda (contrato GET /vault/sealed, `customer`). */
+export async function getVaultSealed(): Promise<VaultSealedResponse> {
+  if (!config.useMocks) return apiRequest<VaultSealedResponse>('/vault/sealed');
+  return delay(fx.mockVaultSealed);
+}
+
+/** Pestaña "Sellado" de la bóveda de UN cliente (contrato GET /admin/vaults/:userId/sealed). */
+export async function getAdminVaultSealed(userId: string): Promise<VaultSealedResponse> {
+  if (!config.useMocks) return apiRequest<VaultSealedResponse>(`/admin/vaults/${userId}/sealed`);
+  return delay(fx.mockAdminVaultSealed(userId));
+}
+
+/** Spreads de VENTA del sellado (contrato GET /admin/pricing/sealed-spreads, `super_admin`). */
+export async function getSealedSpreads(): Promise<SealedSpreadsDTO> {
+  if (!config.useMocks) return apiRequest<SealedSpreadsDTO>('/admin/pricing/sealed-spreads');
+  return delay({
+    spreadPctBySubtype: { ...fx.mockSealedSpreads.spreadPctBySubtype },
+    fallbackPct: fx.mockSealedSpreads.fallbackPct,
+  });
+}
+
+/**
+ * Reemplaza los spreads de venta del sellado y/o el fallback (contrato PUT
+ * /admin/pricing/sealed-spreads). Semántica pct = markup ARRIBA de mercado (como ventas §4.14),
+ * rango [0,1000]. Auditado. `salePriceCents = round(mercadoTCGCSV × (1 + spread/100))`.
+ */
+export async function updateSealedSpreads(input: SealedSpreadsDTO): Promise<SealedSpreadsDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SealedSpreadsDTO>('/admin/pricing/sealed-spreads', {
+      method: 'PUT',
+      body: input,
+    });
+  }
+  fx.setMockSealedSpreads(input.spreadPctBySubtype, input.fallbackPct);
+  return delay({
+    spreadPctBySubtype: { ...fx.mockSealedSpreads.spreadPctBySubtype },
+    fallbackPct: fx.mockSealedSpreads.fallbackPct,
+  });
 }
 
 // ---------- Checkout / órdenes ----------
@@ -1555,6 +1710,8 @@ export interface CreateInventoryItemInput {
   /** v1.6-finish: acabado de la copia física; validado server-side ∈ Card.availableFinishes. */
   finish?: Finish;
   sealedSubtype?: SealedSubtype;
+  /** v1.23-sealed-sales: condición del sellado (default `mint`; solo productType='sealed'). */
+  sealedCondition?: SealedCondition;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   certNumber?: string;
@@ -2385,6 +2542,32 @@ export async function getSyncStatus(): Promise<CatalogSyncStatusResponse> {
   }
   // Mock: nunca hay un barrido corriendo (el estado vive en memoria del backend real).
   return delay({ running: false, jobId: null, total: 0, done: 0, startedAt: null, finishedAt: null });
+}
+
+/**
+ * Progreso del barrido MASIVO de precios (contrato GET /admin/pricing/sync-status, `super_admin`,
+ * N-11). Calca getSyncStatus (catálogo) para POLLING desde M2: da done/total en sets y el momento en
+ * que termina, sin llamar al proveedor. Añade el presupuesto diario del proveedor de paga
+ * (`dailyRemaining` / `dailyLimited` / `pending`) para avisar cuando se pausó por límite diario.
+ */
+export async function getPriceSyncStatus(): Promise<PriceSyncStatusResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PriceSyncStatusResponse>('/admin/pricing/sync-status');
+  }
+  // Mock: nunca hay un barrido corriendo (el estado vive en memoria del backend real).
+  return delay({
+    running: false,
+    jobId: null,
+    total: 0,
+    done: 0,
+    startedAt: null,
+    finishedAt: null,
+    lastError: null,
+    dailyRemaining: null,
+    dailyLimited: false,
+    pending: 0,
+    provider: null,
+  });
 }
 
 // ---------- Admin M6 · Usuarios / KYC (contrato §M6) ----------

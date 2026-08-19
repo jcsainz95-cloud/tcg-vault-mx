@@ -107,6 +107,11 @@ export const ErrorCode = {
   // Disputes
   DISPUTE_WINDOW_CLOSED: 'DISPUTE_WINDOW_CLOSED',
   NOT_RAW: 'NOT_RAW',
+
+  // Sellado / producto cerrado (v1.23-sealed-sales) — endpoints FEATURE-FLAGGED de §2-S.
+  // El dial que gobierna el endpoint (`sealed_value_trend` / `sealed_restock_alerts`) está en `off`.
+  // Se sirve como 404 (el recurso no existe públicamente hasta encender el flag). API_CONTRACT §2-S.
+  FEATURE_DISABLED: 'FEATURE_DISABLED',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -76,6 +76,11 @@ import type {
   BulkPublishResponse,
   BulkPublishLineResult,
   InventoryStatus,
+  SealedSubtype,
+  SealedGroupDTO,
+  SealedGroupDetailResponse,
+  VaultSealedResponse,
+  SealedSpreadsDTO,
 } from '@/types/contract';
 
 const IMG = 'https://images.pokemontcg.io/base1';
@@ -1927,4 +1932,164 @@ export function mockCsv(report: 'pnl' | 'iva' | 'inventory'): string {
     return `metric,valueCents\natReferenceCents,${mockInventoryValue.atReferenceCents}\natCostCents,${mockInventoryValue.atCostCents}\npendingPriceCount,${mockInventoryValue.pendingPriceCount}\n`;
   }
   return `metric,valueCents\nincomeCents,${mockPnl.incomeCents}\nshippingRevenueCents,${mockPnl.shippingRevenueCents}\ncogsCents,${mockPnl.cogsCents}\nstripeFeesCents,${mockPnl.stripeFeesCents}\nshippingCostCents,${mockPnl.shippingCostCents}\nprofitCents,${mockPnl.profitCents}\n`;
+}
+
+// ============================================================================
+// v1.23-sealed-sales: sellado / producto cerrado (contrato §2-S, §3, §M1, §M2).
+// MOCK: pendiente de backend real. Respeta los shapes SealedGroupDTO / VaultSealedResponse /
+// SealedSpreadsDTO del contrato. El grid agrupa piezas idénticas (producto TCGCSV + condición)
+// → "N disponibles"; el precio se resuelve server-side (override > mercado×spread > pending).
+// ============================================================================
+
+const SEALED_BOX = cardById('c-sealed-sv08-box');
+const SEALED_ETB = cardById('c-sealed-sv06-etb');
+
+export const mockSealedGroups: SealedGroupDTO[] = [
+  {
+    representativeItemId: 'inv-1008',
+    card: SEALED_BOX,
+    productName: SEALED_BOX.name,
+    imageUrl: SEALED_BOX.imageSmallUrl,
+    sealedSubtype: 'box',
+    sealedCondition: 'mint',
+    availableCount: 4,
+    fromPriceCents: 320000,
+    priceSource: 'subtype_spread',
+    referenceValue: { status: 'priced', referenceMxnCents: 305000, source: 'tcgcsv', capturedDate: '2026-08-13' },
+    currency: 'MXN',
+  },
+  {
+    representativeItemId: 'inv-1009',
+    card: SEALED_ETB,
+    productName: SEALED_ETB.name,
+    imageUrl: SEALED_ETB.imageSmallUrl,
+    sealedSubtype: 'etb',
+    sealedCondition: 'mint',
+    availableCount: 7,
+    fromPriceCents: 105000,
+    priceSource: 'subtype_spread',
+    referenceValue: { status: 'priced', referenceMxnCents: 98000, source: 'tcgcsv', capturedDate: '2026-08-12' },
+    currency: 'MXN',
+  },
+  {
+    // Grupo "Detalle menor en caja" — se vende por override (sin mercado TCGCSV) → referencia pending.
+    representativeItemId: 'inv-1020',
+    card: SEALED_BOX,
+    productName: SEALED_BOX.name,
+    imageUrl: SEALED_BOX.imageSmallUrl,
+    sealedSubtype: 'box',
+    sealedCondition: 'minor_box_damage',
+    availableCount: 2,
+    fromPriceCents: 298000,
+    priceSource: 'override',
+    referenceValue: { status: 'pending' },
+    currency: 'MXN',
+  },
+];
+
+/** Construye las N piezas (ListingDTO) de un grupo, más baratas primero (para la ficha). */
+function sealedListingsForGroup(group: SealedGroupDTO): ListingDTO[] {
+  return Array.from({ length: group.availableCount }).map((_, i) => ({
+    inventoryItemId: i === 0 ? group.representativeItemId : `${group.representativeItemId}-p${i + 1}`,
+    card: group.card,
+    productType: 'sealed' as const,
+    sealedSubtype: group.sealedSubtype ?? undefined,
+    sealedCondition: group.sealedCondition,
+    finish: 'normal' as const,
+    referenceValue: group.referenceValue,
+    // Precios ascendentes desde fromPriceCents (mock de dispersión de precio dentro del grupo).
+    salePriceCents: group.fromPriceCents + i * 500,
+    sellable: true,
+  }));
+}
+
+/** Ficha de un producto sellado por inventoryItemId (representativo del grupo). */
+export function mockSealedGroupDetail(inventoryItemId: string): SealedGroupDetailResponse {
+  const group =
+    mockSealedGroups.find((g) => g.representativeItemId === inventoryItemId) ??
+    mockSealedGroups.find((g) => sealedListingsForGroup(g).some((l) => l.inventoryItemId === inventoryItemId));
+  if (!group) {
+    throw new ApiFixtureNotFound('Sealed product not found');
+  }
+  return {
+    group,
+    listings: sealedListingsForGroup(group),
+    // Feature-flags (§M10): en el mock la tendencia va ENCENDIDA (hay serie TCGCSV) y el
+    // "avísame cuando vuelva" APAGADO (fail-closed, seed `off`) para ejercitar ambos caminos.
+    trendEnabled: true,
+    restockEnabled: false,
+  };
+}
+
+/** Pestaña "Sellado" de MI bóveda (GET /vault/sealed). El demo u-777 tiene 1 box en bóveda. */
+export const mockVaultSealed: VaultSealedResponse = {
+  data: [
+    {
+      card: SEALED_BOX,
+      productName: SEALED_BOX.name,
+      imageUrl: SEALED_BOX.imageSmallUrl,
+      sealedSubtype: 'box',
+      sealedCondition: 'mint',
+      count: 1,
+      ownership: { pending: 0, settled: 1 },
+      marketValue: { status: 'priced', referenceMxnCents: 305000, source: 'tcgcsv', capturedDate: '2026-08-13' },
+      totalMarketValueMxnCents: 305000,
+    },
+    {
+      card: SEALED_ETB,
+      productName: SEALED_ETB.name,
+      imageUrl: SEALED_ETB.imageSmallUrl,
+      sealedSubtype: 'etb',
+      sealedCondition: 'mint',
+      count: 2,
+      ownership: { pending: 1, settled: 1 },
+      // Sin mercado (no mapeado): se excluye del total y cuenta en pendingPriceCount.
+      marketValue: { status: 'pending' },
+      totalMarketValueMxnCents: null,
+    },
+  ],
+  totalValueMxnCents: 305000,
+  pendingPriceCount: 2,
+  currency: 'MXN',
+};
+
+/** Vista admin de la bóveda sellada de un cliente (GET /admin/vaults/:userId/sealed). */
+export function mockAdminVaultSealed(userId: string): VaultSealedResponse {
+  const u = mockAdminUsers.find((x) => x.id === userId);
+  const owner: VaultOwnerRefDTO = { userId, name: u?.name ?? userId, email: u?.email };
+  if (userId === 'u-777') {
+    return { ...mockVaultSealed, owner };
+  }
+  return { data: [], totalValueMxnCents: 0, pendingPriceCount: 0, currency: 'MXN', owner };
+}
+
+/** Spreads de VENTA del sellado por presentación + fallback (GET/PUT /admin/pricing/sealed-spreads). */
+export const mockSealedSpreads: SealedSpreadsDTO = {
+  spreadPctBySubtype: { box: 12, etb: 15, bundle: 15, tin: 20, blister: 0 },
+  fallbackPct: 15,
+};
+
+export function setMockSealedSpreads(
+  spreadPctBySubtype: Partial<Record<SealedSubtype, number>>,
+  fallbackPct: number,
+): void {
+  mockSealedSpreads.spreadPctBySubtype = { ...spreadPctBySubtype };
+  mockSealedSpreads.fallbackPct = fallbackPct;
+}
+
+/** Tendencia de valor de mercado de un producto sellado (misma forma que SetValueHistoryResponse). */
+export function generateSealedValueHistory(range: SetValueRange): SetValueHistoryResponse {
+  const base = generateFeaturedSetValueHistory(range);
+  // Escala a un rango de "una caja" (~MX$3,050) para que la gráfica se lea como un producto, no un set.
+  const scale = 305000 / 131920000;
+  return {
+    set: { id: 'sealed:tcg:sv08-box', name: SEALED_BOX.name },
+    range: base.range,
+    points: base.points.map((p) => ({
+      date: p.date,
+      valueMxnCents: Math.round(p.valueMxnCents * scale),
+      pricedCardCount: 1,
+    })),
+    change: base.change,
+  };
 }

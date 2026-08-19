@@ -9,7 +9,7 @@
 > humano define al momento de lanzar (no bloquean el desarrollo).
 > **Actualización 2026-08-14**: incorporadas 8 decisiones de alcance aprobadas (raw solo NM +
 > nomenclatura/política, sección "Compra" con inventario propio, rarezas modernas y filtro de set con año,
-> venta de sellado con precio manual, gráfica de tendencia del portafolio, login con Google, sync de
+> venta de sellado con precio manual *(superado por v1.6: precio derivado por spread)*, gráfica de tendencia del portafolio, login con Google, sync de
 > catálogo 2024+ con backfill).
 > **Simplificación v1.2 (2026-08-14, aprobada por el humano)**: el producto **no lleva fotos propias** en
 > ningún lado — se usa la **imagen de catálogo remota de pokemontcg.io**; se elimina la captura de "fotos
@@ -56,6 +56,24 @@
 > "Usuarios y roles", criterios **45–56** y las **preguntas abiertas v1.5** al final. **Quedan dos huecos
 > pendientes** (qué pasa si el correo del invitado **ya tiene cuenta** y el **plazo de expiración** del
 > enlace); el resto del bloque está decidido.
+> **Requisito v1.6 — SELLADO (producto cerrado): SOLO VENTA + precio derivado (2026-08-19, decisiones del
+> humano YA tomadas):** el work stream de **Sellado** cerró un spec que **SUPERSEDE** dos decisiones previas
+> de este documento. (1) **Actualizado: el precio del sellado deja de ser "manual-único" y pasa a DERIVADO
+> por spread sobre precio de mercado; TCGCSV pasa de "solo informativa" a ser la BASE del precio de venta del
+> sellado (vía el mapeo curado existente) — decisión del PO, ago-2026.** La precedencia money-safe es:
+> `override manual > (mercado × spread por presentación) > (mercado × spread global de respaldo) > sin precio
+> ⇒ no se publica (PRICE_PENDING)`. El override manual sigue disponible como **máxima precedencia**. Esto
+> **SOLO aplica al sellado**: para **cartas sueltas (raw/singles) nada cambia** (TCGCSV sigue sin usarse como
+> fuente de su precio). (2) **El sellado es SOLO VENTA** (plataforma→cliente): **no se compra sellado a
+> clientes por la plataforma**; **no hay buylist de sellado**. En la ventana de sellado hay un call-out
+> `mailto` para revender fuera de la app. (3) El sellado gana **condición propia** (default Mint, opción
+> "Detalle menor en caja"; visible al comprador, **no altera el precio**), **destino igual que cartas**
+> (recibir/`direct_ship` o bóveda/`vault`), **pestaña "Sellado"** en bóveda del cliente y en la vista admin,
+> y **entra en la valuación y tendencia del portafolio**. Dos diferenciadores quedan **cableados pero
+> apagados** (feature-flag off): **tendencia de valor del sellado** y **"avísame cuando vuelva" (restock)**.
+> Ver **§K** (nueva), §A, §C, §H, M1/M2/M5, "Fuentes de precio", criterios **2/3e/18** (actualizados) y
+> **57–64** (nuevos), y las **decisiones v1.6** al final. **Este bloque está cerrado y aprobado por el
+> humano**; solo quedan supuestos menores marcados `SUPUESTO (confirmar con PO)`.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -109,7 +127,9 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       **precio de venta fijado**; **NUNCA se muestra "precio pendiente" al comprador**. El estado "precio
       pendiente" vive únicamente en adquisición/buylist/back-office, no en Compra.
 - [ ] **Condición del raw = solo Near Mint (NM)** en todo el marketplace (ver §H): el filtro de condición
-      para raw refleja únicamente NM; el **sellado** no lleva condición ni rareza.
+      para raw refleja únicamente NM; el **sellado** **no lleva rareza**, pero **sí lleva condición propia**
+      *(actualizado v1.6)* — default **Mint**, opción **"Detalle menor en caja"**, visible al comprador y
+      **sin efecto en el precio** (ver §K).
 - [ ] Ficha de carta que distingue **dos valores**: (a) el **valor de referencia/mercado** (la referencia
       del día, es lo que se muestra como "valor de mercado" y se usa para valuar portafolio) y (b) el
       **precio de venta** = **referencia + markup configurable** (dial en M10). El valor de referencia se
@@ -118,16 +138,22 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       - **raw / singles**: TCGPlayer "Market Price" vía **pokemontcg.io**.
       - **gradeadas (PSA/CGC)**: **PokemonPriceTracker** o **PokeTrace** (free tier), con **override
         manual del admin** siempre disponible como respaldo.
-      - **sellado**: **precio manual del admin en MXN** (pokemontcg.io no cubre sellado; sin fuente
-        automática en el MVP; fuente de mercado tipo **PriceCharting = fase 2**).
+      - **sellado** *(actualizado v1.6)*: **precio de venta DERIVADO del precio de mercado de TCGCSV** (vía
+        el mapeo curado existente), con la precedencia money-safe `override manual > (mercado × spread por
+        presentación) > (mercado × spread global de respaldo) > sin precio ⇒ no se publica (PRICE_PENDING)`.
+        TCGCSV es la **base del precio del sellado** (ya no "solo informativa"); el **override manual** sigue
+        siendo la máxima precedencia. Ver §K. *(Supersede la decisión previa "sellado = precio manual".)*
 - [ ] Tipos de producto vendibles: **gradeadas (PSA/CGC)** (el **slab** es la garantía: se muestra
       **empresa + grado + número de certificado**, verificable en la web de la graduadora; se captura
       `certNumber`), **producto sellado** (sets cerrados: booster box, ETB, bundle, tin, blister…) y
       **raw en Near Mint (NM)** (**estándar de condición propio**, sin foto). **La ficha usa la imagen de
       catálogo de pokemontcg.io**; el producto no lleva fotos propias.
-- [ ] **Venta de producto sellado**: se vende en Compra con **precio manual del admin en MXN**, **sin
-      condición ni rareza**; como en Compra solo se lista lo que tiene precio, el admin **fija el precio
-      antes de publicar** el sellado.
+- [ ] **Venta de producto sellado** *(actualizado v1.6, ver §K)*: se vende en Compra con **precio de venta
+      DERIVADO** de la referencia TCGCSV por spread (precedencia `override manual > mercado × spread por
+      presentación > mercado × spread global > PRICE_PENDING`); es **solo venta** (plataforma→cliente, **sin
+      buylist de sellado**); **sin rareza**, pero **con condición propia** (default Mint, opción "Detalle
+      menor en caja"; visible al comprador y **sin efecto en el precio**). Como en Compra solo se lista lo que
+      tiene precio, un sellado en **PRICE_PENDING** (sin override y sin spread aplicable) **no se publica**.
 - [ ] Solo se prician las cartas **que tenemos en bóveda** (no el catálogo completo), con **cache diario**,
       para que los free tier alcancen.
 - [ ] Cartas sin precio en la web de referencia: quedan en estado **"precio pendiente"** en
@@ -181,8 +207,12 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Vista de "Mi bóveda": todas las cartas en custodia del usuario, con su estado de titularidad, **su
       acabado/versión** (Normal, Reverse Holo, Holofoil, 1st Edition; ver §I) y la **imagen de catálogo de
       pokemontcg.io**; con **ordenamiento por set y por valor**.
+- [ ] **Pestaña "Sellado" en "Mi bóveda"** *(v1.6, ver §K)*: el producto cerrado en custodia se lista en su
+      propia pestaña (la vista admin también la gana) y **suma a la valuación y a la tendencia del portafolio**,
+      valuado a su **precio de referencia derivado de TCGCSV** (o su override).
 - [ ] **Valor del portafolio** calculado contra el precio de referencia del **acabado específico** de cada
-      item (TCGPlayer, MXN, refresco diario).
+      item (TCGPlayer, MXN, refresco diario); el **sellado** aporta con su **precio derivado de TCGCSV**
+      (o su override) *(v1.6)*.
 - [ ] **Gráfica de tendencia del valor del portafolio** en "Mi bóveda", **estilo acciones**, con rangos
       **5d / 15d / 1m / 3m / 6m / 1a / YTD / Máx**, que muestra si el portafolio **crece o decrece** en el
       tiempo. (Requisito de producto; el **snapshot diario** que la alimenta lo implementa backend.)
@@ -295,11 +325,13 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
         de costo del portafolio de inventario. La conversión de buylist a inventario (M5) marca el origen como
         `client_purchase` automáticamente.
 - [ ] **M2 — Catálogo y precios**: **sync de precios** de las cartas en bóveda desde las fuentes según tipo
-      (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; **sellado con precio
-      manual del admin en MXN**, sin fuente automática en el MVP), **override manual** de precio siempre
-      disponible, **cache diario**, **tipo de cambio USD→MXN con colchón** configurable, y **editor de precio
-      de buylist por rareza** (una fila por rareza oficial: **regla fijo/% + valor**, ver §E.1; reemplaza la
-      antigua tabla rareza→categoría). **Sync de catálogo** desde la fuente de referencia (pokemontcg.io):
+      (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; **sellado con precio de
+      venta DERIVADO de TCGCSV por spread** *(actualizado v1.6, ver §K)* — precedencia `override manual >
+      mercado × spread por presentación > mercado × spread global > PRICE_PENDING`), **override manual** de
+      precio siempre disponible (máxima precedencia), **editor de spreads del sellado por presentación**
+      (box/etb/bundle/tin/blister + global; ver §K), **cache diario**, **tipo de cambio USD→MXN con colchón**
+      configurable, y **editor de precio de buylist por rareza** (una fila por rareza oficial: **regla fijo/%
+      + valor**, ver §E.1; reemplaza la antigua tabla rareza→categoría). **Sync de catálogo** desde la fuente de referencia (pokemontcg.io):
       por defecto importa **sets de 2024 en adelante** y permite **backfill** de colecciones anteriores por
       **lotes automatizados** + **importación puntual** de sets; captura las **rarezas modernas** (Art/
       Illustration Rare, Special Illustration Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare,
@@ -351,7 +383,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 ### H. Reglas de negocio transversales (aplican a varios módulos)
 - [ ] **Estándar de condición del raw = solo Near Mint (NM)**: en TODO el marketplace (Compra, tienda,
       inventario, filtros, buylist) el raw se opera **únicamente en NM**; se **eliminan** los grados
-      LP/MP/HP/DMG. Gradeadas (PSA/CGC) y sellado **no cambian**. Nomenclatura legible:
+      LP/MP/HP/DMG. Gradeadas (PSA/CGC) conservan su condición por slab; el **sellado** tiene su **propia
+      condición** (default Mint / "Detalle menor en caja", sin efecto en precio; ver §K) *(actualizado
+      v1.6)*. Nomenclatura legible:
       **NM = "Casi nueva (Near Mint)"**, descripción: *"Como nueva; a lo mucho imperfecciones mínimas.
       Bordes limpios y superficie sin rayones notorios."* (la versión en inglés espeja el texto). Este es el
       **estándar de condición propio** de la plataforma (antes solo se mencionaba NM sin definirlo).
@@ -547,6 +581,61 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > ofrece reenvío; enlace de un pedido **no da acceso a otro** (cambiar el identificador no expone nada);
 > un pedido **ya reclamado** no puede vincularse a una segunda cuenta.
 
+### K. Sellado (producto cerrado) — venta con precio derivado (transversal — NUEVO v1.6)
+> **Qué es**: el **producto sellado** (booster box, ETB, bundle, tin, blister…) se consolida aquí con las
+> decisiones cerradas del work stream de Sellado (2026-08-19). **SUPERSEDE** dos decisiones previas del
+> documento: (1) "sellado = precio manual único" → ahora el precio es **derivado por spread**; (2) "TCGCSV
+> solo informativa" → ahora TCGCSV es la **base del precio de venta del sellado** (solo del sellado; para
+> cartas sueltas no cambia nada). No se rediseña aquí el schema ni el proveedor de precios (eso es del
+> arquitecto); aquí solo se fija el requisito de producto.
+
+**Solo venta (no se compra sellado a clientes)**
+- [ ] El sellado es **solo venta** (plataforma→cliente). **No hay buylist de sellado**: la plataforma **no
+      compra** producto cerrado a clientes por la app. El **cotizador y el pipeline de buylist siguen siendo
+      solo para raw (§E)**.
+- [ ] En la **ventana/ficha de sellado** hay un **call-out `mailto`**: *"¿Quieres revender tu sellado a TCG
+      Vault MX? Escríbenos a **contacto@tcgvaultmx.com** con fotos y lo cotizamos."* Es un enlace de correo,
+      **no** un flujo dentro de la app. *(Confirmado por el PO, ago-2026: el call-out de reventa usa
+      `contacto@tcgvaultmx.com` (dominio `tcgvaultmx.com`); las disputas siguen en `soporte@tcgvault.mx`
+      (dominio `tcgvault.mx`). Son propósitos y dominios distintos; ambos son correctos y no se unifican.)*
+
+**Precio de venta derivado (money-safe, server-side)**
+- [ ] El **precio de venta del sellado** se **deriva del precio de mercado de TCGCSV** (vía el **mapeo curado**
+      ya existente entre nuestro producto sellado y el ítem de TCGCSV) con esta **precedencia** estricta:
+      1. **override manual** del admin (máxima precedencia; siempre disponible),
+      2. **mercado × spread por presentación** (spread según box/etb/bundle/tin/blister),
+      3. **mercado × spread global de respaldo** (cuando falta el spread por presentación),
+      4. **sin precio** ⇒ el ítem queda en **PRICE_PENDING** y **NO se publica** en Compra.
+- [ ] **TCGCSV es la BASE del precio del sellado** (deja de ser "solo informativa"). Este cambio **aplica
+      únicamente al sellado**; el precio de **cartas sueltas (raw/singles)** sigue calculándose como hoy
+      (pokemontcg.io/TCGPlayer + markup) y **TCGCSV no se usa como su fuente**.
+- [ ] El precio derivado se **calcula server-side** (no se toma del cliente), consistente con la protección
+      anti-manipulación existente (SEC-A1).
+
+**Spreads configurables por presentación (ConfigSetting)**
+- [ ] Los spreads son **diales configurables** (ConfigSetting, editables sin deploy y auditados en M10),
+      **uno por presentación** más un **global de respaldo**. **Semillas** (editables por el dueño):
+      **box 18%**, **etb 22%**, **bundle 25%**, **tin 30%**, **blister 35%**, **global 25%**.
+
+**Condición del sellado (no altera el precio)**
+- [ ] El sellado tiene **condición propia** (independiente del NM del raw y del slab de gradeadas): **default
+      Mint**, con opción **"Detalle menor en caja"**. Es **visible al comprador** en la ficha/bóveda y **NO
+      altera el precio** (es informativa del estado de la caja). El sellado **no tiene rareza**.
+
+**Destino, bóveda y portafolio**
+- [ ] El **destino del sellado comprado es igual que el de las cartas**: **recibir** (envío directo,
+      `direct_ship`) o **dejar en bóveda** (`vault`). Aplican las mismas reglas de §B/§C/§D (bóveda requiere
+      cuenta; invitado solo envío directo, §J).
+- [ ] La **bóveda del cliente** y la **vista admin** ganan una **pestaña "Sellado"** que lista el producto
+      cerrado en custodia. El sellado **entra en la valuación y en la gráfica de tendencia del portafolio**
+      (§C), valuado contra su precio de referencia derivado (o su override).
+
+**Diferenciadores cableados pero apagados (encender después)**
+- [ ] Dos capacidades quedan **implementadas pero detrás de feature-flag apagado** por defecto, para
+      encenderse más adelante sin nuevo desarrollo: (a) **tendencia de valor del sellado** (histórico/serie
+      del precio del ítem sellado) y (b) **"avísame cuando vuelva" (restock)** — aviso al cliente cuando un
+      sellado agotado vuelve a haber en inventario. En el MVP **no están activas para el usuario final**.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
 - **Order-book / trading instantáneo** (compra/venta digital tipo bolsa dentro de la bóveda).
@@ -564,9 +653,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   (el cliente envía sus datos fiscales); el timbrado automatizado con PAC es fase 2.
 - **Cobro de almacenamiento en bóveda** (derecho genérico declarado en términos, pero no se cobra en MVP).
 - **Envío/venta internacional**: el MVP es **solo nacional (México)**; internacional es fase 2.
-- **PriceCharting**: **no se usa en el MVP** (las fuentes free + override manual cubren singles/gradeadas y
-  el **sellado se pricia manualmente**). Queda como **fuente de mercado del sellado en fase 2** (u opción
-  futura si se decide).
+- **PriceCharting**: **no se usa en el MVP**. Las fuentes free + override manual cubren singles/gradeadas, y
+  el **precio del sellado se deriva de TCGCSV por spread** *(actualizado v1.6, ver §K — supersede el uso
+  previo de PriceCharting como fuente de mercado del sellado)*. PriceCharting queda como **opción futura** si
+  se decide.
 - **Bóveda para invitados** *(v1.5)*: guardar en custodia **requiere cuenta**, por decisión de producto (la
   bóveda es el gancho de registro). No se contempla ninguna variante de "bóveda temporal sin cuenta".
 - **Buylist / venta como invitado** *(v1.5)*: vender cartas a la plataforma sigue exigiendo cuenta (hay
@@ -578,6 +668,13 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   "mis pedidos" sin cuenta ni consulta de pedidos por correo.
 - **Plan de pago de proveedor de precios** (~$9.99/mes): no se contrata en MVP; el `PricingProvider`
   intercambiable permite subir a él más adelante sin tocar el resto del sistema.
+- **Compra/buylist de sellado a clientes** *(v1.6)*: el sellado es **solo venta**; la plataforma **no**
+  compra producto cerrado a clientes por la app (solo el call-out `mailto` para cotizar por fuera). Un
+  buylist de sellado sería fase 2 si se decide.
+- **Tendencia de valor del sellado y "avísame cuando vuelva" (restock) ACTIVOS** *(v1.6)*: quedan
+  **cableados pero apagados** en el MVP (feature-flag off); encenderlos para el usuario final es posterior.
+- **Fuente de mercado del sellado distinta de TCGCSV** *(v1.6)*: en el MVP la base del precio del sellado es
+  **TCGCSV**; PriceCharting u otras fuentes son opción futura, no MVP.
 
 ## Restricciones y preferencias técnicas
 > Registradas como datos/preferencias del humano; el stack y la arquitectura los decide el arquitecto.
@@ -593,9 +690,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   |---|---|---|
   | raw / singles | TCGPlayer "Market Price" vía **pokemontcg.io** | override manual del admin |
   | gradeadas (PSA/CGC) | **PokemonPriceTracker** (free 100/día) o **PokeTrace** (free 250/día) | override manual del admin |
-  | sellado | **precio manual del admin en MXN** (sin fuente automática en el MVP) | fuente de mercado tipo **PriceCharting = fase 2** |
+  | sellado *(actualizado v1.6, §K)* | **precio DERIVADO de TCGCSV** (mercado × spread por presentación) vía mapeo curado | **override manual del admin** (máxima precedencia); sin spread aplicable ⇒ **PRICE_PENDING** (no se publica) |
   - Solo se prician las cartas **en bóveda** (no el catálogo completo) + **cache diario**, para que el free
-    tier alcance. **PriceCharting no se usa en el MVP.**
+    tier alcance. **PriceCharting no se usa en el MVP.** **TCGCSV es fuente de precio SOLO del sellado**; para
+    raw/singles no cambia nada (sigue pokemontcg.io/TCGPlayer).
 - **Valuación de portafolio del usuario**: base en las fuentes anteriores, en **MXN**, **refresco diario**.
 - **Alcance geográfico**: **solo nacional (todo México)** en el MVP; internacional es fase 2.
 - **Plataforma bilingüe ES/EN (i18n)**: toda la **UI/plataforma** (todos los textos de la aplicación) debe
@@ -629,7 +727,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   mostrar el aviso** y debe existir una **página de términos/políticas** con el texto completo.
 - **Correo de evidencia / soporte de disputas**: la evidencia de una disputa de condición se envía por
   **correo a un buzón de soporte** (no hay subida de foto en la app). Correo de contacto:
-  **soporte@tcgvault.mx** *(SUPUESTO: dirección por confirmar por el humano)*. Debe aparecer en términos/FAQ
+  **soporte@tcgvault.mx** *(Confirmado por el PO, ago-2026: disputas sigue en `soporte@tcgvault.mx` (dominio
+  `tcgvault.mx`); es un dominio distinto del `contacto@tcgvaultmx.com` del call-out de reventa y ambos son
+  correctos)*. Debe aparecer en términos/FAQ
   y en el flujo de disputa.
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
   se guarda **cifrada en BD**; el **INE se almacena cifrado en R2 con retención** (`INE_RETENTION_DAYS`,
@@ -644,7 +744,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   puntual. Debe capturar **rarezas modernas** y el **año de lanzamiento del set** para los filtros de Compra.
 - **Sección de compra = "Compra"** (antes "Catálogo"): muestra el **inventario propio publicado** a la venta;
   solo se lista lo que tiene **precio de venta fijado** (nunca "precio pendiente" al comprador).
-- **Precio del sellado**: **manual del admin en MXN** (sin fuente automática en el MVP; PriceCharting = fase 2).
+- **Precio del sellado** *(actualizado v1.6, §K)*: **DERIVADO del precio de mercado de TCGCSV** por spread,
+  con precedencia `override manual > mercado × spread por presentación > mercado × spread global >
+  PRICE_PENDING`. Spreads configurables (ConfigSetting, M10): box 18% / etb 22% / bundle 25% / tin 30% /
+  blister 35% / global 25%. **Solo venta (sin buylist de sellado)**; **condición propia** (default Mint /
+  "Detalle menor en caja") **sin efecto en el precio**. *(Supersede "sellado = precio manual" y "TCGCSV solo
+  informativa" — decisión del PO, ago-2026.)*
 - **Branch de trabajo**: `claude/tcg-cards-marketplace-oijthj`.
 - Stack, base de datos y despliegue: **a decisión del arquitecto** (nada predefinido por el humano).
 
@@ -658,11 +763,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
    Rare, Radiant, etc.), **tipo de producto** (raw, gradeadas, sellado) y **condición**.
 1b. En **Compra** solo aparece inventario con **precio de venta fijado**; **nunca** se muestra "precio
    pendiente" al comprador (ese estado vive solo en adquisición/buylist/back-office).
-2. Una ficha de carta muestra el precio de referencia en MXN (sin IVA) según la fuente que corresponde a
+2. Una ficha muestra el precio de referencia en MXN (sin IVA) según la fuente que corresponde a
    su tipo de producto —pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas (con
-   override manual como respaldo); el **sellado** lleva **precio manual del admin en MXN** (sin fuente
-   automática en el MVP)—, con fecha del último refresco; el refresco (cache diario) ocurre al menos una vez
-   al día y solo cubre las cartas en bóveda.
+   override manual como respaldo); el **sellado** lleva **precio de venta DERIVADO de TCGCSV por spread**
+   *(actualizado v1.6)* con la precedencia `override manual > mercado × spread por presentación > mercado ×
+   spread global > PRICE_PENDING`—, con fecha del último refresco; el refresco (cache diario) ocurre al menos
+   una vez al día y solo cubre las cartas/ítems en bóveda.
 2b. La ficha de Compra muestra la **imagen de catálogo de pokemontcg.io** (remota) y **no muestra fotos
    propias** de la carta; no existe subida de imágenes de producto en ningún flujo del MVP.
 2c. Una carta **gradeada (PSA/CGC)** muestra **empresa + grado + número de certificado** (verificable en la
@@ -683,8 +789,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
    NM"**; una carta recibida que **no es NM** se **rechaza (no se paga)** y se devuelve según plazos (7 días,
    **a costo del usuario**; abandono a 30 días), y una carta **abandonada no-NM NO entra al inventario
    vendible**.
-3e. El **producto sellado** (booster box, ETB, bundle, tin, blister…) se vende en Compra con **precio manual
-   del admin en MXN**, **sin condición ni rareza**, y solo se publica una vez que el admin le fija precio.
+3e. El **producto sellado** (booster box, ETB, bundle, tin, blister…) se vende en Compra con **precio de venta
+   DERIVADO de TCGCSV por spread** *(actualizado v1.6, ver §K y criterios 57–64)*: la precedencia es `override
+   manual > mercado × spread por presentación > mercado × spread global > PRICE_PENDING`, y un ítem en
+   **PRICE_PENDING** (sin override y sin spread aplicable) **no se publica**. El sellado es **solo venta (sin
+   buylist)**, **no lleva rareza**, y **sí lleva condición propia** (default Mint / "Detalle menor en caja",
+   visible y sin efecto en el precio).
 
 **Compra y bóveda**
 4. Un comprador puede pagar con Stripe; el checkout muestra una **línea explícita de costo de
@@ -754,9 +864,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     imagen de catálogo de pokemontcg.io) y, para **gradeadas**, captura **empresa + grado + `certNumber`**.
 18. En M2 se puede sincronizar precios de las cartas en bóveda desde la fuente que corresponde a cada tipo
     (pokemontcg.io para raw/singles; PokemonPriceTracker/PokeTrace para gradeadas; el **sellado** se pricia
-    con **precio manual del admin en MXN**), hacer **override manual** siempre, y configurar el **tipo de
-    cambio USD→MXN con colchón**, el **editor de precio de buylist por rareza** (regla fijo/% + valor, ver
-    §E.1) y el **`PricingProvider`** por tipo de producto.
+    **derivado de TCGCSV por spread** *(actualizado v1.6)*), hacer **override manual** siempre (máxima
+    precedencia), **editar los spreads del sellado por presentación** (box/etb/bundle/tin/blister + global),
+    y configurar el **tipo de cambio USD→MXN con colchón**, el **editor de precio de buylist por rareza**
+    (regla fijo/% + valor, ver §E.1) y el **`PricingProvider`** por tipo de producto.
 19. En M3 una orden refleja los estados `pending/settled/fallida/reembolsada/contracargo` con desglose
     que incluye la **línea de Stripe**, y el súper-admin puede emitir un **reembolso**.
 20. En M4 existe una **lista de picking ordenada por ubicación**.
@@ -894,6 +1005,34 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     correo a soporte** citando su **número de pedido**); no se le exige crear cuenta para ser atendido ni
     compensado.
 
+**Sellado (producto cerrado) — v1.6**
+57. El **precio de venta del sellado** se **deriva de TCGCSV** con la precedencia exacta: **(a)** si hay
+    **override manual**, gana el override; **(b)** si no, **mercado × spread de la presentación**
+    (box/etb/bundle/tin/blister); **(c)** si no hay spread por presentación, **mercado × spread global**;
+    **(d)** si no hay ninguno, el ítem queda en **PRICE_PENDING**. El precio se calcula **server-side** (no
+    se toma del cliente).
+58. Un sellado en **PRICE_PENDING** (sin override y sin spread/mercado aplicable) **no aparece en Compra**;
+    en cuanto adquiere precio (override o spread × mercado) puede publicarse.
+59. El cambio de **base de precio a TCGCSV aplica SOLO al sellado**: el precio de un **raw/single** o de una
+    **gradeada** **no** cambia por esto (siguen sus fuentes actuales), verificable comparando que la fuente
+    de precio de una carta suelta sigue siendo pokemontcg.io/TCGPlayer y no TCGCSV.
+60. El **súper-admin edita en M2** los **spreads del sellado por presentación** (semillas box 18% / etb 22%
+    / bundle 25% / tin 30% / blister 35% / global 25%); el cambio **surte efecto sin redeploy**, queda
+    **auditado** (M10) y **recalcula** el precio derivado de los sellados afectados (salvo los que tengan
+    override).
+61. El **sellado es solo venta**: **no existe** flujo de **buylist de sellado** (ni cotizador ni pipeline);
+    la **ficha/ventana de sellado muestra el call-out `mailto`** para revender (a `contacto@tcgvaultmx.com`),
+    que es un enlace de correo y **no** un flujo dentro de la app.
+62. Un sellado tiene **condición propia** (default **Mint**, opción **"Detalle menor en caja"**) **visible
+    al comprador** en ficha y bóveda; cambiar la condición **no cambia el precio**. El sellado **no expone
+    rareza**.
+63. Al comprar un sellado, el comprador con cuenta puede elegir **recibir** (envío directo) o **dejar en
+    bóveda**; la **bóveda del cliente y la vista admin muestran una pestaña "Sellado"**, y el sellado en
+    bóveda **suma al valor total del portafolio y a su gráfica de tendencia** (§C).
+64. La **tendencia de valor del sellado** y el **"avísame cuando vuelva" (restock)** están **cableados pero
+    apagados** (feature-flag off): **no** son accesibles para el usuario final en el MVP, y **activarlos no
+    requiere nuevo desarrollo** (solo encender el flag).
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Legal — custodia/depositario**: la bóveda implica guardar bienes de terceros. Validar con abogado la
@@ -947,8 +1086,10 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 3. **Almacenamiento en bóveda** → **sin límite explícito** en MVP; solo se declara en términos el derecho
    genérico a cobrar custodia en fase 2.
 4. **Fuentes de precio** → MVP 100% free: pokemontcg.io (raw/singles) + PokemonPriceTracker/PokeTrace
-   (gradeadas y sellado) + override manual; solo se prician cartas en bóveda con cache diario;
-   **PriceCharting fuera del MVP**; `PricingProvider` intercambiable para escalar a plan de pago.
+   (gradeadas) + override manual; solo se prician cartas en bóveda con cache diario;
+   **PriceCharting fuera del MVP**; `PricingProvider` intercambiable para escalar a plan de pago. *(ACTUALIZADO
+   por v1.6 / decisión 34: el **sellado** se pricia **derivado de TCGCSV por spread** —no por
+   PokemonPriceTracker/PokeTrace ni manual—; ver §K. Para raw/singles no cambia nada.)*
 5. **Tarifa de envío** → default **MX$175** (configurable en M10).
 6. **Costo de aportación en especie** → default **70%** (configurable).
 7. **Topes de buylist** → **MX$3,000/solicitud**, **MX$10,000/mes**, **INE sobre el tope** (configurables).
@@ -978,7 +1119,9 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    Illustration Rare, Full Art, Alternate Art, Trainer Gallery, Character Rare, Radiant, etc.) y **tipo**
    (incl. sellado).
 16. **Venta de sellado** en Compra con **precio manual del admin en MXN** (sin condición/rareza; el admin
-   fija precio antes de publicar; PriceCharting = fase 2).
+   fija precio antes de publicar; PriceCharting = fase 2). *(SUPERADO por v1.6 / decisiones 33–39: el precio
+   del sellado es ahora **derivado de TCGCSV por spread**, el sellado **sí tiene condición propia** y es
+   **solo venta**; ver §K.)*
 17. **Gráfica de tendencia del portafolio** en "Mi bóveda" (rangos 5d/15d/1m/3m/6m/1a/YTD/Máx).
 18. **Login con Google** como alternativa a email/contraseña.
 19. **Sync de catálogo** desde la fuente de referencia: por defecto sets **2024+**, con **backfill** por
@@ -1031,6 +1174,23 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 32. **Reclamo post-compra** → al completar la compra se ofrece **crear cuenta con el mismo correo**; al
    hacerlo, el pedido de invitado **pasa al historial** de esa cuenta (una sola vez, sin alterar el pedido).
    Ver §J y criterios 54–56.
+
+**Decisiones v1.6 — sellado (producto cerrado) (2026-08-19, tomadas por el humano; SUPERSEDEN decisiones 4 y 16):**
+33. **Precio del sellado = DERIVADO por spread** (ya no manual-único): precedencia `override manual >
+   (mercado × spread por presentación) > (mercado × spread global de respaldo) > sin precio ⇒ PRICE_PENDING
+   (no se publica)`. **Supersede** la parte de sellado de la decisión 4 ("sellado = precio manual") y la 16.
+34. **TCGCSV = BASE del precio de venta del sellado** (ya no "solo informativa"), vía el **mapeo curado
+   existente**. Aplica **solo al sellado**; para **raw/singles no cambia nada**.
+35. **Spreads configurables por presentación** (ConfigSetting, M10): semillas **box 18% / etb 22% / bundle
+   25% / tin 30% / blister 35% / global 25%** (editables, auditados).
+36. **Sellado = solo venta** (plataforma→cliente): **sin buylist de sellado**; call-out `mailto`
+   (`contacto@tcgvaultmx.com`) para revender fuera de la app.
+37. **Condición del sellado**: default **Mint**, opción **"Detalle menor en caja"**; visible al comprador,
+   **sin efecto en el precio**; el sellado **no lleva rareza**.
+38. **Destino igual que cartas** (recibir/`direct_ship` o bóveda/`vault`), **pestaña "Sellado"** en bóveda
+   del cliente y vista admin, y **entra en la valuación/tendencia del portafolio**.
+39. **Diferenciadores cableados pero apagados** (feature-flag off): **tendencia de valor del sellado** y
+   **"avísame cuando vuelva" (restock)**; se encienden después sin nuevo desarrollo.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,

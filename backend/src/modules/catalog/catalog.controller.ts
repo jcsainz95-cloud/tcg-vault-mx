@@ -1,14 +1,28 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { IsIn, IsInt, IsOptional, IsString } from 'class-validator';
+import { SealedCondition, SealedSubtype } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogService } from './catalog.service';
 import { SetValueService } from './set-value.service';
+import { SealedCatalogService } from './sealed-catalog.service';
+
+/** v1.23-sealed-sales (§2-S): «avísame cuando vuelva». Identidad = productId o cardId(+subtype). */
+class RestockSubscriptionDto {
+  @IsString() email!: string;
+  @IsOptional() @IsInt() tcgplayerProductId?: number;
+  @IsOptional() @IsString() cardId?: string;
+  @IsOptional() @IsIn(['box', 'etb', 'bundle', 'tin', 'blister']) sealedSubtype?: SealedSubtype;
+  @IsIn(['mint', 'minor_box_damage']) sealedCondition!: SealedCondition;
+}
 
 @Controller('catalog')
 export class CatalogController {
   constructor(
     private readonly catalog: CatalogService,
     private readonly setValue: SetValueService,
+    private readonly sealed: SealedCatalogService,
   ) {}
 
   @Public()
@@ -48,6 +62,57 @@ export class CatalogController {
   @Get('facets')
   facets() {
     return this.catalog.facets();
+  }
+
+  // ===== v1.23-sealed-sales (§2-S) — ventana de tienda del PRODUCTO CERRADO =====
+  // NOTA de orden de rutas: `catalog/sealed` va ANTES de `catalog/cards/:cardId` no aplica (prefijos
+  // distintos), pero SÍ importa que `sealed/:inventoryItemId` no colisione con subrutas estáticas.
+
+  // Grid agregado por producto+condición («N disponibles»). Filtros: set, subtipo, condición, q.
+  @Public()
+  @Get('sealed')
+  listSealed(
+    @Query('setId') setId?: string,
+    @Query('sealedSubtype') sealedSubtype?: string,
+    @Query('condition') condition?: string,
+    @Query('q') q?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @Query('sort') sort?: string,
+  ) {
+    return this.sealed.listSealed({
+      setId,
+      sealedSubtype,
+      condition,
+      q,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+      sort,
+    });
+  }
+
+  // Ficha del sellado (grupo + todas las piezas del grupo, más baratas primero) + estado de flags.
+  @Public()
+  @Get('sealed/:inventoryItemId')
+  sealedDetail(@Param('inventoryItemId') id: string) {
+    return this.sealed.sealedDetail(id);
+  }
+
+  // Tendencia de valor del sellado (FEATURE-FLAGGED sealed_value_trend → 404 FEATURE_DISABLED si off).
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Get('sealed/:inventoryItemId/value-history')
+  sealedValueHistory(@Param('inventoryItemId') id: string, @Query('range') range = '1m') {
+    return this.sealed.sealedValueHistory(id, range);
+  }
+
+  // «Avísame cuando vuelva» (FEATURE-FLAGGED sealed_restock_alerts). Respuesta NEUTRA 202 + rate-limit.
+  @Public()
+  @HttpCode(202)
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Post('sealed/restock-subscriptions')
+  subscribeRestock(@Body() dto: RestockSubscriptionDto, @CurrentUser('id') userId?: string) {
+    return this.sealed.subscribeRestock(dto, userId);
   }
 
   @Public()

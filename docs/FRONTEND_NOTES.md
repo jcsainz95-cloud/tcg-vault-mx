@@ -3872,3 +3872,119 @@ error con "Reintentar", nunca mudo).
 ### Gates
 `npm run lint` ✓ · `npx tsc --noEmit` ✓ · `npm run build` ✓ · `npx vitest run` ✓
 (52 archivos / 394 tests, +16 nuevos en la rama).
+
+---
+
+## WS «Sellado / Producto cerrado» (v1.23-sealed-sales) — rama `claude/sellado-producto-cerrado`
+
+Implementa la superficie de front del **producto SELLADO** según contrato §2-S, §3 (`GET /vault/sealed`),
+§M1 (`GET /admin/vaults/:userId/sealed`) y §M2 (`GET/PUT /admin/pricing/sealed-spreads`). **Solo venta**
+(no hay buylist de sellado). Todo el consumo va por los DTOs del contrato; el precio del sellado lo
+resuelve el backend (`override > mercado×spread > PRICE_PENDING`), el front nunca lo calcula.
+
+### Pantallas / componentes creados
+- **`(storefront)/sellado`** (`page.tsx` + `SealedShopView.tsx`): ventana de tienda. UNA cuadrícula
+  filtrable por set / presentación (`sealedSubtype`) / condición (`SealedCondition`) + orden. Muestra
+  SOLO stock (`GET /catalog/sealed`), agrupando piezas idénticas en una tarjeta con **«N disponibles»**,
+  imagen TCGCSV (`imageUrl`, fallback a la de catálogo) y precio «desde» (`fromPriceCents`). Incluye el
+  **call-out mailto anti-buylist** a `contacto@tcgvaultmx.com` (copy del front, no un endpoint). Estados:
+  cargando (skeletons), vacío («aún no hay sellado en stock»), error (QueryState + reintentar).
+- **`(storefront)/sellado/[inventoryItemId]`** (`SealedDetailView.tsx`): ficha. Condición visible al
+  comprador (mint / «Detalle menor en caja»), valor de mercado informativo, **selector de cantidad**
+  (carrito **por-pieza**: agrega las N piezas más baratas del grupo, `listings` ordenados asc) y CTA
+  `accent`. El **destino recibir/bóveda se decide en el checkout existente** (§4/§4-G) — nota explícita,
+  sin duplicar flujo. Reusa `CartAddedToast` y `useCart`.
+- **`SealedValueTrend.tsx`** (feature-flag `sealed_value_trend`): tendencia de valor estilo acciones
+  (`GET .../value-history`), gráfica recharts + delta. **Cableado apagado limpio:** se monta solo si
+  `SealedGroupDetailResponse.trendEnabled`; si el endpoint responde 404 (`FEATURE_DISABLED`/`NOT_FOUND`)
+  el componente se **oculta** (`retry:false`, `isError → null`), nunca error ni curva fabricada.
+- **`SealedRestockForm.tsx`** (feature-flag `sealed_restock_alerts`): «avísame cuando vuelva»
+  (`POST .../restock-subscriptions`). Se monta solo si `restockEnabled`; ante 404 `FEATURE_DISABLED`
+  se oculta. Respuesta **neutra** (mismo mensaje de éxito siempre; no revela existencia del producto).
+- **`components/domain/SealedVaultPanel.tsx`**: pestaña «Sellado» de bóveda, **compartida** entre cliente
+  (`mode="self"` → `GET /vault/sealed`) y admin (`mode="admin"` + `userId` → `GET /admin/vaults/:id/sealed`).
+  Lista con imagen, condición, cantidad y valor de mercado; total valuado a referencia + `pendingPriceCount`
+  (piezas sin mercado marcadas «precio pendiente» y excluidas del total, misma base del portafolio §3).
+
+### Integraciones en vistas existentes (reuso, sin duplicar)
+- `StorefrontHeader`: nueva entrada de nav **«Sellado»** (pública) → `/sellado`.
+- `(storefront)/vault/VaultView`: tercera pestaña **«Sellado»** junto a «Piezas»/«Master set»
+  (`SealedVaultPanel mode="self"`).
+- `(admin)/admin/vaults/VaultsView`: al abrir la bóveda de un cliente, dos pestañas **«Cartas»**
+  (binder master-set existente) / **«Sellado»** (`SealedVaultPanel mode="admin"`).
+- `(admin)/admin/m1/M1View`: captura de **`sealedCondition`** en el alta (individual y por lote), default
+  `mint`; `listPriceCents` pasó a **opcional** (v1.23: el backend auto-precia por mercado×spread; el
+  override manual sigue disponible y gana). Payloads `createInventoryItem` y `batchCreateItems` mandan
+  `sealedCondition` solo para `productType='sealed'`.
+- `(admin)/admin/m2/M2View`: **editor de spreads de venta del sellado** (§M2), clon del editor de venta
+  por rareza pero keyeado por presentación (`SealedSubtype`) + fallback global. Advierte visualmente si
+  un spread queda en **0%** (badge por-fila «Sin margen» + banner global money-safe). `GET/PUT
+  /admin/pricing/sealed-spreads`.
+
+### Contrato / tipos / API
+- `types/contract.ts`: `SealedCondition`, `SealedSpreadSource`, `PriceSource += tcgcsv`, `ListingDTO +=
+  sealedCondition?`, `BatchInventoryItemInput/CreateInventoryItemInput += sealedCondition?`, y DTOs
+  `SealedGroupDTO`, `SealedGroupListResponse`, `SealedGroupDetailResponse`, `VaultSealedGroupDTO`,
+  `VaultSealedResponse`, `SealedSpreadsDTO`.
+- `lib/api.ts`: `getSealedGroups`, `getSealedGroupDetail`, `getSealedValueHistory`,
+  `subscribeSealedRestock`, `getVaultSealed`, `getAdminVaultSealed`, `getSealedSpreads`,
+  `updateSealedSpreads`. Con ramas mock y ramas reales (`apiRequest`).
+- `messages/{es,en}.json`: namespace `sealed.*`, `status.sealedCondition.*`, `nav.sealed`,
+  `vault.tabs.sealed`, `admin.vaults.detailTabs.*`, `admin.m1.sealed*`/`listPriceOptional*`,
+  `admin.m2.sealedSpreads.*`.
+
+### Endpoints consumidos
+`GET /catalog/sealed`, `GET /catalog/sealed/:id`, `GET /catalog/sealed/:id/value-history` (flag),
+`POST /catalog/sealed/restock-subscriptions` (flag), `GET /vault/sealed`,
+`GET /admin/vaults/:userId/sealed`, `GET|PUT /admin/pricing/sealed-spreads`,
+`POST /admin/inventory/items` + `.../batch` (con `sealedCondition`). El checkout se reusa tal cual
+(`POST /checkout/quote|session`, §4/§4-G): el sellado se compra por `inventoryItemId` como cualquier pieza.
+
+### Mocks (pendientes de backend real, en `lib/mock/fixtures.ts`)
+`mockSealedGroups` (3 grupos: box mint, etb mint, box «detalle menor en caja» por override),
+`mockSealedGroupDetail`, `mockVaultSealed` (incluye un grupo sin mercado → pendiente), `mockAdminVaultSealed`,
+`mockSealedSpreads` (blister a 0% para ejercitar la advertencia), `generateSealedValueHistory`. En el mock
+`trendEnabled=true` / `restockEnabled=false` para ejercitar ambos caminos de feature-flag; `subscribeSealedRestock`
+simula 404 `FEATURE_DISABLED`.
+
+### Supuestos y notas para el arquitecto
+- **Filtro de set en `/sellado`:** las opciones del combo de set se derivan de los grupos ya cargados
+  (no hay endpoint de facetas de sellado en el contrato). Con paginación es una aproximación del universo;
+  el `setId` viaja igual al backend. Si se quiere un combo completo, haría falta un `GET /catalog/sealed/facets`
+  (o reutilizar `/catalog/sets`). **No es bloqueo.**
+- **Paginación:** las vistas leen `{page,pageSize,total}` del contrato pero hoy muestran la primera página
+  (los volúmenes de sellado son pequeños); si crece, se añade el control prev/next (patrón existente).
+- Sin bloqueos para el arquitecto: el contrato §2-S/§3/§M1/§M2 fue suficiente.
+
+### Gates (reales, esta rama)
+`npx tsc --noEmit` ✓ · `npx next lint` ✓ (sin warnings) · `npx next build` ✓ (rutas `/[locale]/sellado`
+y `/[locale]/sellado/[inventoryItemId]` generadas) · `npx vitest run` ✓ (52 archivos / 403 tests, sin
+regresiones). No se añadieron tests unitarios nuevos en esa pasada (los flujos de sellado quedan cubiertos
+por typecheck/build; QA levantará E2E).
+
+### Saneo — tests de componente de sellado (pasada `claude/sellado-producto-cerrado`, aprobada por PO)
+Cierra la brecha de cobertura marcada por QA (los componentes de sellado no tenían vitest dedicado, a
+diferencia de guest-checkout/master-set). **+5 archivos / +25 tests** (total repo: **57 archivos / 428 tests**).
+Mismo patrón que el resto del repo: `renderWithProviders` (NextIntl + TanStack Query), `vi.spyOn(api, …)`
+para forzar carga/vacío/error/feature-flags, fixtures de `lib/mock/fixtures.ts`, `@/i18n/navigation`
+mockeado a `<a>` + `push` espía. No se tocó lógica de producción (ningún test destapó bug).
+
+- `src/app/[locale]/(storefront)/sellado/SealedShopView.test.tsx` (8): grid agrupado + «N disponibles»,
+  call-out mailto `contacto@tcgvaultmx.com`, estados carga/vacío/error (con reintentar), y los tres
+  filtros (presentación/condición/set) verificando el re-fetch filtrado.
+- `src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedDetailView.test.tsx` (5): condición
+  mint vs. «detalle menor» + su nota, selector de cantidad que agrega las N piezas más baratas al
+  carrito (`tcg.cart`), CTA «Ir al carrito» → `/checkout`, nota de destino recibir/bóveda, y grupo
+  agotado (controles deshabilitados, carrito intacto).
+- `src/components/domain/SealedVaultPanel.test.tsx` (4): modo `self` (imagen/condición/cantidad/valor +
+  total + «precio pendiente»), modo `admin` por `userId`, estado vacío y banner de error.
+- `src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedRestockForm.test.tsx` (4): flag ON
+  (CTA gateado por correo válido + confirmación neutra) y OFF (404 `FEATURE_DISABLED` → se oculta limpio),
+  más error genérico que mantiene el formulario.
+- `src/app/[locale]/(storefront)/sellado/[inventoryItemId]/SealedValueTrend.test.tsx` (4): flag ON
+  (tendencia + selector de rangos con `1M` activo), serie vacía («recopilando historial»), y OFF con
+  404 `FEATURE_DISABLED` / `NOT_FOUND` → contenedor vacío (oculto limpio). El warning de recharts sobre
+  ancho/alto 0 en jsdom es benigno (mismo que en los demás tests de gráfica).
+
+Gates de esta pasada: `npx tsc --noEmit` ✓ · `npx next lint` ✓ (sin warnings) · `npx vitest run` ✓
+(57 archivos / 428 tests, sin regresiones).

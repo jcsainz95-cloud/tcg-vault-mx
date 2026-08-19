@@ -89,6 +89,20 @@ describe('guest-validation · formulario completo', () => {
       }),
     ).toEqual({});
   });
+
+  // N-3: el teléfono con lada de país +52 / +521 y separadores ya NO revienta en silencio.
+  it.each(['+52 55 4017 0606', '+525540170606', '+521 55 4017 0606', '(55) 4017-0606'])(
+    'acepta el teléfono MX escrito como "%s"',
+    (phone) => {
+      const errors = validateGuestForm({
+        email: 'juan@dominio.com',
+        emailConfirmed: true,
+        acceptedTerms: true,
+        address: { ...VALID_ADDRESS, phone },
+      });
+      expect(errors.phone).toBeUndefined();
+    },
+  );
 });
 
 describe('guest-validation · payload', () => {
@@ -98,5 +112,10 @@ describe('guest-validation · payload', () => {
     expect(payload.phone).toBe('3312345678');
     expect(payload.city).toBe('Guadalajara');
     expect(payload.line2).toBeUndefined();
+  });
+
+  it('N-3: normaliza la lada de país +52/+521 a los 10 dígitos nacionales', () => {
+    expect(toAddressPayload({ ...VALID_ADDRESS, phone: '+52 55 4017 0606' }).phone).toBe('5540170606');
+    expect(toAddressPayload({ ...VALID_ADDRESS, phone: '+521 55 4017 0606' }).phone).toBe('5540170606');
   });
 });

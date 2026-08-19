@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { ShipmentStatus } from '@prisma/client';
+import { Card, CardSet, InventoryItem, Prisma, SealedCondition, SealedSubtype, ShipmentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService } from '../pricing/pricing.service';
+import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
 import { toCardDTO } from '../catalog/catalog.service';
+import { NOT_ON_HAND } from '../inventory/master-set.service';
 
 // v1.17: etapas de un envío ACTIVO (subconjunto expuesto en HoldingDTO.shipmentState).
 // `entregado` no aparece (el item ya es `withdrawn` y sale de holdings) y `cancelado`
@@ -14,6 +15,10 @@ const ACTIVE_SHIPMENT_STAGES: ShipmentStatus[] = [
   ShipmentStatus.guia,
   ShipmentStatus.enviado,
 ];
+
+// v1.23-sealed-sales: filtros válidos de la pestaña «Sellado» (se ignoran silenciosamente si no matchean).
+const SEALED_SUBTYPE_SET = new Set<string>(['box', 'etb', 'bundle', 'tin', 'blister']);
+const SEALED_CONDITION_SET = new Set<string>(['mint', 'minor_box_damage']);
 
 @Injectable()
 export class VaultService {
@@ -200,6 +205,101 @@ export class VaultService {
       default:
         return null;
     }
+  }
+
+  /**
+   * v1.23-sealed-sales (§3 / §4.23g) — pestaña «Sellado» de la bóveda: agrupa las piezas SELLADAS del
+   * usuario en bóveda por producto+condición (mismo criterio que §2-S) con conteo, desglose por
+   * titularidad y VALOR DE MERCADO actual (`sealedMarketRef`). Valuación = misma base del portafolio:
+   * piezas sin mercado (no mapeadas / sin ingest) se EXCLUYEN de `totalValueMxnCents` y cuentan en
+   * `pendingPriceCount`. Lectura pura; SIN datos internos (ubicación/costo/folio). Sin `owner` (lo
+   * añade la vista admin). Sin N+1: 1 query de piezas + 1 lote de referencias + agrupación en memoria.
+   */
+  async sealedTab(userId: string, q: { sealedSubtype?: string; condition?: string; sort?: string }) {
+    const where: Prisma.InventoryItemWhereInput = {
+      ownerType: 'customer',
+      ownerUserId: userId,
+      productType: 'sealed',
+      status: { notIn: NOT_ON_HAND }, // «en bóveda»: mismo filtro que el scope user_vault (§DTOs)
+    };
+    if (q.sealedSubtype && SEALED_SUBTYPE_SET.has(q.sealedSubtype)) {
+      where.sealedSubtype = q.sealedSubtype as SealedSubtype;
+    }
+    if (q.condition && SEALED_CONDITION_SET.has(q.condition)) {
+      where.sealedCondition = q.condition as SealedCondition;
+    }
+
+    const items = (await this.prisma.inventoryItem.findMany({
+      where,
+      include: { card: { include: { set: true } } },
+      orderBy: { createdAt: 'desc' },
+    })) as (InventoryItem & { card: Card & { set?: CardSet | null } })[];
+
+    // Lote de referencias de MERCADO del sellado (`sealed:tcg:<productId>`, finish normal).
+    const refs = await this.pricing.getReferencesBatch(
+      items.flatMap((i) => {
+        const gk = this.pricing.sealedMarketGradeKeyForItem(i);
+        return gk ? [{ cardId: i.cardId, productType: 'sealed' as const, gradeKey: gk, finish: 'normal' as const }] : [];
+      }),
+    );
+    // H-1 (v1.24): el mercado del sellado solo cuenta con el dial ENCENDIDO (`sourceOn`), igual que
+    // catálogo/Compra/grid — para que la VALUACIÓN coincida con ellos (con off el ref TCGCSV es inerte,
+    // §4.23a). Antes esta valuación no gateaba por dial (divergía cuando `sealed_price_source=off`).
+    const { sourceOn } = await this.pricing.loadSealedSpreads();
+
+    // Agrupa por producto+condición (mismo criterio que §2-S).
+    const groups = new Map<string, (InventoryItem & { card: Card & { set?: CardSet | null } })[]>();
+    for (const item of items) {
+      const cond = item.sealedCondition ?? 'mint';
+      const key =
+        item.tcgplayerProductId != null
+          ? `p:${item.tcgplayerProductId}:${cond}`
+          : `c:${item.cardId}:${item.sealedSubtype ?? ''}:${cond}`;
+      const arr = groups.get(key);
+      if (arr) arr.push(item);
+      else groups.set(key, [item]);
+    }
+
+    let totalValueMxnCents = 0;
+    let pendingPriceCount = 0;
+    const rows = [...groups.values()].map((members) => {
+      const rep = members[0];
+      const gk = this.pricing.sealedMarketGradeKeyForItem(rep);
+      const rawRef = gk ? refs.get(`${rep.cardId}|sealed|${gk}|normal`) : undefined;
+      // H-1 (v1.24): gate ÚNICO del mercado (dial + priced). Con off / no mapeado → null → pending.
+      const marketCents = this.pricing.gateSealedMarketCents(rawRef, sourceOn);
+      const priced = marketCents != null;
+      const marketRef: PriceInfo = priced ? rawRef! : { status: 'pending' };
+      const count = members.length;
+      const ownership = { pending: 0, settled: 0 };
+      for (const m of members) {
+        if (m.ownershipStatus === 'settled') ownership.settled += 1;
+        else ownership.pending += 1; // pending (o null) cuenta como pending
+      }
+      const totalMarketValueMxnCents = priced ? count * marketRef.referenceMxnCents! : null;
+      if (priced) totalValueMxnCents += totalMarketValueMxnCents!;
+      else pendingPriceCount += count; // piezas sin mercado EXCLUIDAS del total y CONTADAS (§3)
+      return {
+        card: toCardDTO(rep.card),
+        productName: rep.card.name,
+        imageUrl: rep.card.imageSmallUrl ?? null,
+        sealedSubtype: (rep.sealedSubtype ?? null) as SealedSubtype | null,
+        sealedCondition: (rep.sealedCondition ?? 'mint') as SealedCondition,
+        count,
+        ownership,
+        marketValue: marketRef,
+        totalMarketValueMxnCents,
+      };
+    });
+
+    const sort = q.sort ?? 'value_desc';
+    const byName = (a: { productName: string }, b: { productName: string }) =>
+      a.productName.localeCompare(b.productName);
+    if (sort === 'count_desc') rows.sort((a, b) => b.count - a.count || byName(a, b));
+    else if (sort === 'name_asc') rows.sort(byName);
+    else rows.sort((a, b) => (b.totalMarketValueMxnCents ?? -1) - (a.totalMarketValueMxnCents ?? -1) || byName(a, b));
+
+    return { data: rows, totalValueMxnCents, pendingPriceCount, currency: 'MXN' as const };
   }
 
   async holdingDetail(userId: string, inventoryItemId: string) {

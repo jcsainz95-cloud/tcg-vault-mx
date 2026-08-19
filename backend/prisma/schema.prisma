@@ -71,6 +71,17 @@ enum SealedSubtype {
   blister
 }
 
+// v1.23-sealed-sales (M-28): condición SIMPLE del sellado, visible al comprador.
+// `mint` = «Como nueva» · `minor_box_damage` = «Detalle menor en caja». Labels legibles
+// en i18n del front (no en la API). NO altera el precio derivado (el spread es por
+// presentación, no por condición); para descontar una caja con detalle el admin usa el
+// override por pieza. App-requerido para productType='sealed' (default mint); null para
+// raw/graded (regla de aplicación, no constraint de BD). ARCHITECTURE §4.23i / §11 (M-28).
+enum SealedCondition {
+  mint
+  minor_box_damage
+}
+
 // v1.1 (M-4): proveedor de autenticación del usuario (email/contraseña o Google).
 enum AuthProvider {
   local
@@ -285,6 +296,8 @@ model User {
   portfolioSnapshots PortfolioSnapshot[]
   // v1.5 (M-17): tokens de verificación de correo / reset de contraseña (un solo uso, hash en BD).
   authTokens         AuthToken[]
+  // v1.23-sealed-sales (M-28): suscripciones restock del usuario (FK opcional; onDelete SetNull).
+  sealedRestockSubscriptions SealedRestockSubscription[]
 
   @@index([role])
   @@index([status])
@@ -358,6 +371,14 @@ model CardSet {
   releaseDate  String?
   printedTotal Int?
   ptcgoCode    String?
+  // WS-A fix-ppt (2026-08-19): setId del proveedor de PAGA PokemonPriceTracker (API v2). NO es el
+  // `externalId` de pokemontcg.io (`sv8`): PPT NO reconoce ese id → `/api/v2/cards?setId=sv8` devolvía
+  // `0 entradas` en TODOS los sets (causa raíz del "0 filas mapeadas"). Aquí se cachea el **GroupId
+  // numérico de TCGplayer** (p. ej. "1407") — o el slug (`sv-prismatic-evolutions`) como respaldo — que
+  // el `PptSetMapper` resuelve una vez desde `GET /api/v2/sets` empatando por nombre normalizado +
+  // año de `releaseDate`. `null` = aún no mapeado (o no se encontró match; se loguea). El barrido de
+  // precios de PPT usa ESTE valor como `setId`, jamás el `externalId`.
+  pptSetId     String?
   createdAt    DateTime @default(now())
 
   cards     Card[]
@@ -413,6 +434,8 @@ model Card {
   priceReferences  PriceReference[]
   pendingPrices    PendingPriceEntry[]
   sellRequestItems SellRequestItem[]
+  // v1.23-sealed-sales (M-28): suscripciones «avísame cuando vuelva» ancladas a esta carta.
+  sealedRestockSubscriptions SealedRestockSubscription[]
 
   @@index([setId])
   @@index([name])
@@ -447,6 +470,10 @@ model InventoryItem {
   rawCondition            RawCondition?
   // v1.1 (M-2): subtipo del sellado (solo productType=sealed; nullable en el resto).
   sealedSubtype           SealedSubtype?
+  // v1.23-sealed-sales (M-28): condición SIMPLE del sellado, visible al comprador. App-requerido
+  // para productType='sealed' (default `mint`); null para raw/graded. NO altera el precio (el
+  // spread es por presentación). Separa grupos en el grid del sellado (§2-S). ARCHITECTURE §4.23i.
+  sealedCondition         SealedCondition?
   gradingCompany          GradingCompany?
   gradeValue              String?
   // v1.2 (M-12): nº de certificado PSA/CGC (solo productType=graded; null para raw/sealed).
@@ -500,6 +527,9 @@ model InventoryItem {
   // v1.19-sealed-tcgcsv (M-23): sirve la cola de NO-mapeados (sealed AND productId IS NULL)
   // y el DISTINCT tcgplayerGroupId del ingest sin barrer la tabla. ARCHITECTURE §11.
   @@index([tcgplayerProductId])
+  // v1.23-sealed-sales (M-28): sirve el grid público del sellado (`productType='sealed' AND
+  // status='listed'`) y la agregación de la pestaña «Sellado» sin barrer la tabla. ARCHITECTURE §4.23i.
+  @@index([productType, status])
 }
 
 model InventoryMovement {
@@ -968,4 +998,33 @@ model ProcessedStripeEvent {
   id          String   @id
   type        String
   processedAt DateTime @default(now())
+}
+
+// ============================= SEALED RESTOCK (v1.23-sealed-sales) =============================
+
+// v1.23-sealed-sales (M-28): «Avísame cuando vuelva» — suscripción por correo a la reposición de
+// un producto SELLADO agotado. FEATURE-FLAGGED por el dial `sealed_restock_alerts` (seed off): solo
+// se puebla con el flag encendido. Identidad de producto = `tcgplayerProductId` (mapeado, preferido)
+// o `cardId (+ sealedSubtype)`, más `sealedCondition`. Acepta correo de invitado o de usuario
+// logueado (userId opcional, onDelete SetNull). Un job cableado (`sealed-restock-notify`) empareja
+// suscripciones pendientes (`notifiedAt IS NULL`) cuando el producto vuelve a `listed`, envía correo
+// y marca `notifiedAt`. ARCHITECTURE §4.23h / §11 (M-28) / API_CONTRACT §2-S.
+model SealedRestockSubscription {
+  id                 String          @id @default(uuid())
+  // Correo normalizado (lowercase/trim). No @unique: un correo puede seguir varios productos.
+  email              String
+  userId             String?
+  user               User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  cardId             String
+  card               Card            @relation(fields: [cardId], references: [id])
+  sealedSubtype      SealedSubtype?
+  tcgplayerProductId Int?
+  sealedCondition    SealedCondition
+  notifiedAt         DateTime?
+  createdAt          DateTime        @default(now())
+
+  // Empareja «producto vuelto a listed» → suscripciones pendientes (notifiedAt IS NULL) sin barrer.
+  @@index([tcgplayerProductId, sealedCondition, notifiedAt])
+  @@index([email])
+  @@index([cardId])
 }

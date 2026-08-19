@@ -4285,3 +4285,372 @@ cambio de contrato sin el arquitecto. Queda como **pendiente menor con dueño ba
 que `cardsWithoutFinishSignal` de §4.22a-5, que tampoco se materializó en el dashboard): el techlead
 puede pedir su registro formal en `docs/TECH_DEBT.md`. La query sugerida (cuando se aborde):
 `Card` con `NOT ('reverse_holo' = ANY("catalogFinishes"))` **y** `('reverse_holo' = ANY("availableFinishes"))`.
+
+## 52. WS-A fix-ppt (M-28, 2026-08-19) — PokemonPriceTracker: setId real, throttle 429, scope y reverse holo
+
+**Incidente (producción, confirmado con logs de Railway):** con `PRICE_PROVIDER=pokemonpricetracker`
+activo, el cotizador/inventario mostraba piso por rareza (MX$0.50) o "Precio pendiente" en TODO el
+catálogo. El adapter devolvía `0 entradas crudas → 0 filas mapeadas` en TODOS los sets, con `HTTP 429`
+(114×). La API key del PO ES válida (los `401` eran ruido). Causas, en orden, y su arreglo:
+
+### Causa raíz #1 — `setId` equivocado (el "0 entradas")
+El adapter mandaba `GET /api/v2/cards?setId=<CardSet.externalId>` con el id de pokemontcg.io (`sv8`),
+que **PokemonPriceTracker NO reconoce como set** → 0 cartas. PPT identifica el set por el **GroupId
+numérico de TCGplayer** (`tcgPlayerNumericId`, p. ej. `1407`), el **slug** (`tcgPlayerId`,
+`sv-prismatic-evolutions`) o su id mongo — nunca el externalId de pokemontcg.io.
+
+- **Nueva columna `CardSet.pptSetId String?`** (migración `20260819160000_m28_cardset_ppt_setid`,
+  aditiva, nullable, sin índice). Cachea el setId real de PPT. `null` = aún no mapeado / sin match.
+- **`PptSetMapper`** (`backend/src/modules/pricing/ppt-set-mapper.service.ts`): pide `GET /api/v2/sets`
+  UNA vez por corrida (caché en memoria), empata cada set local por **nombre normalizado** (minúsculas,
+  sin no-alfanuméricos) y desempata por **año de `releaseDate`**; persiste `pptSetId`. Match ambiguo o
+  ausente → `null` y se **loguea** (`… SIN mapeo a PokemonPriceTracker …`). Prefiere GroupId numérico.
+- El provider **jamás** cae al `externalId` si falta `pptSetId`: loguea `motivo=setId no mapeado` y
+  devuelve 0 filas (repetir el externalId reproduciría el bug).
+
+### Causa #2 — SCOPE (no barrer los 174 sets; no agotar 20k créditos/día)
+Regla del PO en `backend/src/modules/pricing/ppt-sync-scope.ts` (+ integración en `PriceIngestService`):
+- **(a) Set con `releaseDate` año ≥ 2020 → `full`** (todas sus cartas).
+- **(b) Set con año < 2020 → `partial`**: SOLO cartas con **InventoryItem activo** (status ≠
+  `withdrawn`/`lost`) **∪** cartas **PREMIUM/CHASE**. En viejos NO se persiste el bulk ni el rare normal.
+- Viejo sin inventario activo ni premium → **`skip`** (no se pide nada).
+- **Umbral de rareza (REFINAMIENTO DEL PO, 2026-08-19 — `isPremiumRarity`):** allow-list EXPLÍCITA de
+  premium/chase, no una deny-list. **INCLUYE** "Illustration Rare para arriba" (Illustration/Special
+  Illustration, Hyper/Rainbow, Gold/Secret) + familia **ex/EX/GX/V/VMAX/VSTAR** (+ Mega, V-UNION) +
+  chase equivalente (Full Art=`Rare Ultra`, Lv.X, Prime, BREAK, LEGEND, Amazing/Radiant, Shiny/Shining,
+  Prism Star). Términos premium (substring normalizado): `holo, ultra, secret, rainbow, gold, hyper,
+  illustration, shiny, shining, amazing, radiant, prime, break, legend, lvx/levelx, prism, mega` + la
+  familia ex/gx/v por PALABRA. **EXCLUYE** `common`, `uncommon`, `rare` normal (no-holo). **Reverse holo
+  NUNCA cuenta como rareza** (es un ACABADO, no un tier; guard `reverse`, y de todos modos el scope solo
+  mira `Card.rarity`, jamás los acabados). **CAVEAT cross-era:** en eras viejas (base/neo/e-card/EX) no
+  existe "Illustration Rare" → el premium es **`Rare Holo`** (por eso `holo` es término premium: Charizard
+  Base = Rare Holo entra) y los EX de esa época. Rareza `null`/desconocida → **NO premium** (excluida): el
+  **InventoryItem activo es la red de seguridad** de cualquier carta que realmente tengamos.
+- El scope se aplica al **seleccionar** los sets (`listSetIdsForIngest`, modernos primero) y al
+  **persistir** (en partial solo se escriben las `allowedCardIds` aunque el barrido traiga el set entero).
+- Disparo manual de un set (`POST /admin/jobs/price-ingest { setId }`) **fuerza full** (verificación).
+
+### Causa #3 — Throttle / 429 (los 114× HTTP 429)
+Nuevo cliente compartido **`PptApiClient`** (`backend/src/modules/pricing/providers/ppt-api.client.ts`),
+usado por el mapper y el bulk provider. Host FIJO (anti-SSRF), key solo en header. Maneja el 429 según
+`limitType` del cuerpo:
+- **`per_minute`** → espera `Retry-After` (header o cuerpo, seg→ms) y **reintenta** (hasta 4×); sin
+  Retry-After, backoff exponencial con jitter determinista.
+- **`daily`** → lanza `PptDailyLimitError` (**PARADA**, no resetea hasta 00:00 UTC) y arma un **candado
+  en memoria** hasta `resetsAt`: toda petición posterior de esa corrida corta SIN pegarle al proveedor
+  (en fan-out, el `PptApiClient` es singleton del worker → los children restantes cortan solos).
+- **Presupuesto:** trackea `X-RateLimit-Daily-Remaining` (`client.dailyRemaining()` /
+  `effectiveRemaining() = remaining − inFlight`) y `metadata.apiCallsConsumed`.
+- El bulk provider propaga `dailyLimited` en `BulkPriceResult`; `ingestAll` **detiene** el barrido y
+  reporta cuántos sets quedaron **pendientes**. Money-safe: ante 429/timeout NO se borran precios.
+
+### Causa #4 — Variantes reverse holo (las 2 casillas por carta)
+La lista v2 trae un solo `prices.market` + `prices.primaryPrinting`. Opcional (dial
+`POKEMONPRICETRACKER_FETCH_PRINTINGS=true`): el provider hace **un barrido por impresión**
+(`printing=Normal` / `Reverse Holofoil` / `Holofoil`) y atribuye cada `market` a su `Finish`, poblando
+reverse holo (alimenta `pricedFinishesSnapshot → FinishReconciler → availableFinishes`). **Costo ≈3×**
+por set (un request por impresión) → por eso va por dial y respeta el scope.
+
+### Causa #5 — Observabilidad
+El resumen por set ahora dice el **MOTIVO** cuando da 0: `setId no mapeado` / `429 daily` /
+`429 per_minute` / `request falló` / `200 sin datos` / `sample-only`, además del ejemplo crudo. Cada
+página OK loguea `dailyRemaining`.
+
+### Shape v2 real (mapeo)
+Se añadió como fuente PRIMARIA `entry.prices = { market, primaryPrinting, low, lastUpdated }`
+(market→finish del primaryPrinting). Se conservan como fallback tolerante los shapes previos
+(`tcgplayer.prices` por acabado, listas de `printings`/`variants`, plano `printing`+`marketPrice`).
+El fail-closed de moneda/unidad (`POKEMONPRICETRACKER_MARKET_FORMAT`) NO cambia (sin formato →
+sample-only, no persiste). PO confirmó `usd_dollars`.
+
+### Env / columnas nuevas y defaults
+| Qué | Tipo | Default | Efecto |
+|---|---|---|---|
+| `CardSet.pptSetId` | columna `String?` | `null` | setId real de PPT (lo puebla el mapper) |
+| `POKEMONPRICETRACKER_MARKET_FORMAT` | env | *(sin default)* | sin él → sample-only; PO: `usd_dollars` |
+| `POKEMONPRICETRACKER_PARTIAL_MIN_PRICE` | env | *(vacío)* | filtro `minPrice` de la API en sets partial (excluir bulk en origen); confirmar la unidad en la 1ª corrida |
+| `POKEMONPRICETRACKER_FETCH_PRINTINGS` | env | `false` | `true` → barrido por impresión (reverse holo, ≈3× costo) |
+
+(Los env viven en `.env.example`, cuya edición es de **devops** — aquí solo se documentan.)
+
+### Qué debe buscar el PO en los logs de la próxima corrida de Railway
+1. `PptSetMapper: /api/v2/sets devolvió N sets (dailyRemaining=…)` y `resueltos X/Y sets nuevos`.
+   Si aparece `… SIN mapeo a PokemonPriceTracker (…)`, esos sets no empataron por nombre/año (revisar).
+2. Por set, en vez del viejo "0 entradas": `PokemonPriceTracker bulk resumen (set sv8): N crudas →
+   M filas […] motivo=ok.` con `M > 0`. Un `motivo=setId no mapeado` señala fallo del match.
+3. `price-ingest scope (pokemonpricetracker): A sets modernos … + B viejos … partial, C omitidos`.
+4. Si se agota la cuota: `429 DAILY … PARADA. resetsAt=…` y `PARADA por cuota DIARIA agotada tras
+   P/Q sets (R pendientes; reintenta tras 00:00 UTC)`.
+5. `dailyRemaining=…` decreciente en las líneas `GET … OK` (presupuesto vivo).
+
+### Tests (sandbox sin egress → todo mockeado)
+`ppt-sync-scope.spec.ts` (scope/rareza), `ppt-set-mapper.service.spec.ts` (match/persistencia/daily),
+`ppt-api.client.spec.ts` (Retry-After, daily-stop, presupuesto, 404), `pokemonpricetracker-bulk.fix-ppt.spec.ts`
+(setId real, shape v2, printings, daily), + scope en `test/price-ingest.service.spec.ts`. Verdes:
+lint, typecheck, build y 1019 unit tests.
+
+## 53. N-11 (2026-08-19) — barra de progreso del sync de precios (`price-ingest` background + `sync-status`)
+
+Junto con el fix de PPT (§52) se implementó N-11: convertir el `price-ingest` de **bloqueante** a
+**segundo plano** (fire-and-forget) con **estado observable**, calcando el patrón que ya existe para el
+catálogo (`catalog-sync.getSyncStatus` + `GET /admin/catalog/sync-status`).
+
+### Backend
+- **Estado en memoria** en `PriceIngestService` (`PriceSyncStatus`), expuesto por `getSyncStatus()`.
+  Lo maneja `ingestAll` (barrido COMPLETO): publica `running/total/startedAt` al arrancar, avanza
+  `done`/`pending` por set, guarda `dailyRemaining` (presupuesto vivo del proveedor) y `dailyLimited`
+  (429 daily), y cierra con `running=false`+`finishedAt` (y `lastError` si reventó). No persistido (se
+  pierde al reiniciar, igual que el de catálogo) y NO llama al proveedor en cada poll.
+- **Disparo no bloqueante:** `PriceIngestJobService.runBackground()` — single-flight vía
+  `getSyncStatus().running`, lanza `ingestAll` fire-and-forget y **devuelve de inmediato**. El endpoint
+  `POST /admin/jobs/price-ingest` **sin `setId`** ahora enruta a `runBackground()` (con `setId` sigue
+  AWAITED para verificación de un set). El **CRON 2×/día NO cambia**: sigue usando `run()` (fan-out
+  BullMQ / secuencial) — solo el disparo MANUAL usa el barrido background con barra.
+- **`dailyRemaining`** se propaga del `PptApiClient` → `BulkPriceResult` → `IngestSetResult` → estado
+  (sin nueva dependencia en el servicio).
+
+### Contrato del endpoint nuevo (reportar al arquitecto para formalizar en API_CONTRACT)
+`GET /admin/pricing/sync-status` — **super_admin**. Responde:
+```jsonc
+{
+  "running": false,
+  "jobId": "price-ingest-2026-08-19",
+  "total": 120, "done": 120, "pending": 0,
+  "startedAt": "2026-08-19T00:00:00.000Z",
+  "finishedAt": "2026-08-19T00:04:12.000Z",
+  "lastError": null,
+  "dailyRemaining": 17777,   // presupuesto diario del proveedor de paga (o null)
+  "dailyLimited": false,     // true = pausado por 429 daily → "retoma 00:00 UTC, N pendientes"
+  "provider": "pokemonpricetracker"
+}
+```
+El front (M2View) lo pollea ~3s mientras `running` y pinta la barra `done/total` REUSANDO el componente
+`SyncProgress` (FE-9, `role="progressbar"`); si `dailyLimited`, muestra el aviso de pausa por límite
+diario con `pending`. El disparo `POST /admin/jobs/price-ingest` responde 202 con
+`{ job, enqueued, background:true, alreadyRunning }`.
+
+### Nota de proceso
+El endpoint nuevo (`GET /admin/pricing/sync-status`) es superficie de contrato → el **arquitecto** debe
+formalizarlo en `docs/API_CONTRACT.md §M2/§M10-ops` (no lo edité: propiedad de otro rol). El frontend
+(M2View + `SyncProgress`) lo implementa un subagente **frontend** (excepción explícita del PO a
+"solo backend") tocando solo `frontend/`.
+## 52. WS «Sellado / Producto cerrado» (v1.23-sealed-sales, M-28, 2026-08-19)
+
+Implementa el contrato §2-S/§3/§M1/§M2/§M10 y ARCHITECTURE §4.23. El sellado pasa de «precio manual
+único» a **línea de venta con precio derivado** (`override > mercado TCGCSV × spread > PRICE_PENDING`),
+con superficie propia (grid + ficha), pestaña «Sellado» en bóveda, y dos diferenciadores
+feature-flagged (tendencia + restock). **Todo aditivo; una migración (M-28); cuatro diales.**
+
+### 52.1 Migración M-28 (`prisma/migrations/20260819130000_m28_sealed_sales/`)
+Aditiva y nullable, con backfill. **NO toca** `PriceReference`/`Order`/`OrderItem`.
+- `enum SealedCondition { mint, minor_box_damage }` — condición SIMPLE visible al comprador (labels en
+  i18n del front). **No altera el precio** (el spread es por presentación); para descontar una caja con
+  detalle el admin usa el **override** de esa pieza.
+- `InventoryItem.sealedCondition SealedCondition?` — app-requerido para `sealed` (default `mint`), null
+  en raw/graded. **Backfill:** `UPDATE ... SET sealedCondition='mint' WHERE productType='sealed'`.
+- `InventoryItem @@index([productType, status])` — sirve el grid del sellado (`sealed AND listed`).
+- `model SealedRestockSubscription` — «avísame cuando vuelva» (feature-flagged; solo se puebla con el
+  flag on). FK `userId` opcional (`onDelete: SetNull`) y `cardId` (RESTRICT).
+
+### 52.2 Cuatro diales (`settings.constants.ts`)
+- `sealed_spread_pct_by_subtype` (seed `{box:18,etb:22,bundle:25,tin:30,blister:35}`) y
+  `sealed_spread_fallback_pct` (seed `25`) — markup % **ARRIBA de mercado** por presentación. **NO se
+  exponen en el DTO de M10 ni se editan por `PUT /admin/settings`**: solo por los endpoints M2
+  dedicados `GET/PUT /admin/pricing/sealed-spreads` (como sales/buylist rules). Validación: subtype ∈
+  {box,etb,bundle,tin,blister}, value/fallback en `[0,1000]`.
+- `sealed_value_trend` y `sealed_restock_alerts` (seed **off** ambos) — feature flags **expuestos** en el
+  DTO de M10 (`sealedValueTrend`/`sealedRestockAlerts`), editables por `PUT /admin/settings`, validados `on|off`.
+El seed los siembra automáticamente (loop `SETTING_DEFAULTS` en `seed.ts`/`seed-e2e.ts`).
+
+### 52.3 Precio del sellado (money-safe, SEC-A1) — función pura + call-sites
+- **`computeSealedSalePrice(overrideCents, sealedSubtype, marketMxnCents, spreadPctBySubtype,
+  fallbackPct)`** (`common/money.ts`): precedencia `override > mercado×spread(subtype) >
+  mercado×spread(global) > pending`. Devuelve `{ salePriceCents, status, source, appliedSpreadPct }`.
+  `source` ∈ `override|subtype_spread|global_spread` (= `SealedSpreadSource` del contrato). **Nunca
+  inventa precio:** sin override y sin mercado → `status:'pending'` (no publicable).
+- **`PricingService`** gana `loadSealedSpreads()` (iza spreads + `sourceOn` = dial `sealedPriceSource===tcgcsv`,
+  una lectura por request), `sealedMarketGradeKeyForItem(item)`, `getSealedMarketRef(item)`,
+  `computeSealedSalePriceForItem(item, marketCents)`.
+- **Gating por dial:** el `sealedMarketRef` solo cuenta como mercado si `sourceOn` (dial `tcgcsv`). Con
+  `off`, el sellado solo se vende con **override** (retro-compatible con hoy; §4.23a). Se aplica en los
+  3 call-sites.
+- **Call-sites ramificados por `productType==='sealed'`** (mismo patrón §4.14d):
+  `catalog.service.toListingDTO` (grid/Compra), `orders.service.salePriceOf` (checkout → `422 PRICE_PENDING`
+  si no resuelve) e `inventory.service.bulkPublish` (§M1; la rama sealed **ya no exige** `listPriceCents`).
+  Todos batchean referencias con la clave de MERCADO `sealed:tcg:<productId>` (un sellado no mapeado no
+  aporta clave). `ListingDTO` gana `sealedCondition?` y para sellado `referenceValue` = `sealedMarketRef`.
+
+### 52.4 Endpoints nuevos
+- **Público (§2-S), `catalog.controller` + `SealedCatalogService`:**
+  - `GET /catalog/sealed` — grid AGREGADO por producto+condición («N disponibles»). Agrupa
+    mapeado→`p:<productId>:<cond>`, no mapeado→`c:<cardId>:<subtype>:<cond>`. La **condición separa
+    grupos**. Solo grupos con ≥1 pieza vendible (precio resuelto). Filtros set/subtype/condición/q,
+    paginado, sort `price_asc|price_desc|newest`. **Sin N+1**: 1 query + `getReferencesBatch` + groupBy.
+  - `GET /catalog/sealed/:inventoryItemId` — ficha: grupo + `listings: ListingDTO[]` (todas las piezas
+    del grupo, más baratas primero) + `trendEnabled`/`restockEnabled`.
+  - `GET /catalog/sealed/:inventoryItemId/value-history` — **feature-flagged** `sealed_value_trend`
+    (`404 FEATURE_DISABLED` si off). Reusa el historial de `PriceReference(sealed:tcg:<productId>)` que
+    el job `sealed-price-ingest` ya acumula (cero fabricación de datos). `404 NOT_FOUND` si pieza
+    inexistente o no mapeada. Rate-limit 60/min.
+  - `POST /catalog/sealed/restock-subscriptions` — **feature-flagged** `sealed_restock_alerts`. Respuesta
+    **neutra `202 {subscribed:true}`** (anti-enumeración), rate-limit 5/min. `422 VALIDATION_ERROR` si
+    correo inválido o sin identidad de producto. Resuelve el `cardId` ancla (explícito o desde un item
+    con ese `productId`); si no ancla a una Card real, 202 neutro sin persistir.
+- **Bóveda (§3/§M1):** `GET /vault/sealed` (`VaultService.sealedTab`, cliente) y
+  `GET /admin/vaults/:userId/sealed` (`AdminVaultsService.sealed`, `vault_operator+`, con `owner`
+  name/email, `404` si usuario inexistente). Agrupan las piezas selladas en bóveda por
+  producto+condición; valúan por `sealedMarketRef`; piezas sin mercado **excluidas** del total y
+  contadas en `pendingPriceCount`. Desglose `ownership {pending, settled}`.
+- **M2 (§M2), `PricingController`:** `GET/PUT /admin/pricing/sealed-spreads` (`super_admin`, **auditado**
+  `pricing.sealed_spreads.update` before/after). PUT parcial; validación estricta → `422`.
+- **Alta admin (§M1):** `sealedCondition?` aceptado en `CreateItemDto`/`BatchInventoryItemInput`/
+  `AdjustmentFoundItemInput`; persistido en `buildItemData` (default `mint`, null en raw/graded);
+  raw/graded rechazan `sealedCondition` en `validateProductShape`.
+- **Job `sealed-restock-notify` (§M10-ops, `SealedRestockNotifyService`):** cableado + disparo manual
+  `POST /admin/jobs/sealed-restock-notify` (auditado). Feature-flagged (`off` → no-op). Empareja
+  suscripciones pendientes con productos de vuelta a `listed` (identidad + condición), envía correo
+  (módulo `mail`, `@Global`), marca `notifiedAt`. **NO agendado en cron** (por §4.23h, «no agendado
+  hasta el flip»); solo disparo manual.
+
+### 52.5 Decisiones / supuestos de implementación
+- **Imagen del grid/bóveda del sellado** = imagen de catálogo de la `Card` (`imageSmallUrl`). El
+  contrato dice «TCGCSV si mapeado», pero **la imagen TCGCSV no se persiste** (el adapter la expone solo
+  en el explorador de curación M2, no en BD); traerla por producto sería un N+1 contra el remoto. Se usa
+  la de catálogo (remota, pokemontcg.io), money-safe y consistente con el resto del producto (§H). Igual
+  con `productName` = `Card.name` (el nombre TCGCSV tampoco se persiste). **Si el arquitecto quiere la
+  imagen/nombre TCGCSV reales, hace falta persistirlos en el mapeo (columna nueva) — decisión suya.**
+- **Valuación de la pestaña «Sellado» NO se gatea por `sealedPriceSource`** (usa el `sealedMarketRef` si
+  existe = «valor de mercado actual»); el gating por dial se aplica solo a la **resolución del precio de
+  venta** (§4.23a). El precio de venta del sellado sí requiere el dial `tcgcsv`.
+- **`GET /vault/holdings` (portafolio general) NO cambia** para el sellado: sigue valuando por el
+  gradeKey legacy `'sealed'` (§3 lo declara fuera de alcance). La pestaña «Sellado» es la superficie
+  dedicada con valuación de mercado. El sellado ya contaba en el portafolio (item de bóveda), así que el
+  criterio «incluir sellado en la valuación» se cumple sin tocar `holdings()`.
+- **`POST /catalog/sealed/restock-subscriptions` es `@Public`** y NO asocia `userId` de una sesión: en
+  una ruta pública el guard JWT se salta y `req.user` queda vacío, así que las suscripciones de usuarios
+  logueados se guardan con `userId=null`. Asociarlo requeriría un guard de auth **opcional** (no cableado
+  hoy). No afecta la respuesta neutra ni el emparejamiento por identidad+correo. **Minor; dueño backend
+  si se quiere el `userId`.**
+
+### 52.6 Cómo correr los tests
+Desde `backend/`: `npm ci` (una vez) → `npx prisma generate` → `npx tsc --noEmit` (typecheck) →
+`npx jest` (unitarios) → `npm run lint`. Los de integración/contrato con DB:
+`npm run test:integration` (corre `prisma migrate deploy` + jest `--runInBand`; requiere Postgres).
+Suites nuevas del sellado: `test/sealed-pricing.spec.ts` (precedencia money-safe de la función pura),
+`test/sealed-catalog.spec.ts` (grid agregado, condición separa grupos, money-safe, feature-flags off →
+404, restock neutro/anti-enumeración), `test/sealed-settings.spec.ts` (validadores + DTO M10),
+`test/vault-sealed.spec.ts` (agregación/valuación de bóveda), `test/sealed-restock-notify.spec.ts` (job).
+**Estado:** typecheck limpio, `1023 tests / 108 suites` en verde, lint limpio (`npx jest` + `npm run lint`).
+
+### 52.7 Bloqueos / discrepancias con el contrato para el arquitecto
+Ninguno bloqueante. Puntos que conviene que el arquitecto confirme (no «arreglé» el contrato):
+1. **Imagen/nombre TCGCSV** del grid/bóveda: implementados con la imagen/nombre de catálogo de la `Card`
+   (ver §52.5). Si se quiere la imagen/nombre reales de TCGCSV, requiere persistirlos (columna en el
+   mapeo M-23) — cambio de esquema/decisión del arquitecto.
+2. **`userId` en restock**: la ruta pública no asocia sesión (§52.5). Si el contrato exige asociar
+   `userId` del usuario logueado, hace falta un guard de auth opcional (no existe hoy).
+
+## 53. Saneo del Sellado (v1.24, pase `sellado-producto-cerrado`, 2026-08-19)
+
+Pase de saneo aprobado por el PO sobre el work stream de Sellado (ya cerrado). Solo `backend/`,
+`docs/BACKEND_NOTES.md`, `docs/TECH_DEBT.md`. Contrato/arquitectura/PROJECT SIN tocar.
+
+### 53.1 Autoprecio del sellado — seed `off` (fail-closed, por contrato); se enciende en RUNTIME
+> **CORRECCIÓN (2026-08-19, hallazgo ALTO del techlead):** un intento previo de este pase cambió el
+> **seed** de `sealed_price_source` de `off` → `tcgcsv`. Eso **violaba** el contrato/arquitectura
+> (§4.19e / §4.23e y API_CONTRACT §M10 mandan **`seed off, fail-closed`**), rompía el runbook de devops
+> y **removía el candado money-safe** del que depende la deuda §BE-44(c) de `TECH_DEBT.md`. **Revertido:**
+> el seed vuelve a **`off`**. El autoprecio que pidió el PO NO se logra por seed sino en runtime (abajo).
+- **Seed:** el dial `sealed_price_source` (`settings.constants.ts` → `SETTING_DEFAULTS`) queda en
+  **`off`** (FAIL-CLOSED). Un **seed fresco** (BD nueva: CI/dev/prod) arranca con el autoprecio del
+  sellado **APAGADO** — así el arranque respeta el checkpoint de validación-en-staging (§4.23f) y NO
+  se salta el candado money-safe.
+- **Cómo se ENCIENDE el autoprecio (runtime, NO seed):** tras validar el esquema TCGCSV con una corrida
+  acotada del `sealed-price-ingest` en staging (§4.23f), un `super_admin` flipea el dial por M10:
+  ```
+  PUT /admin/settings
+  Authorization: Bearer <token super_admin>
+  Content-Type: application/json
+  { "sealedPriceSource": "tcgcsv" }
+  ```
+  (`SettingsController.updateSettings`, `@Roles(super_admin)`, **auditado** `settings.update`
+  before/after). **Ese PUT es el mecanismo money-safe.** **Rollback = mismo PUT con `"off"`.** Aplica
+  igual en staging y prod; en una BD ya sembrada el seed no re-siembra (`SettingsService.get` cae al
+  default de código solo si la fila falta), así que el flip de runtime es el único camino.
+- **Money-safe (independiente del dial):** con el dial en `tcgcsv` (`sourceOn=true`), una pieza sellada
+  **SIN `sealedMarketRef`** mapeado/curado (sin `tcgplayerProductId` → sin clave de mercado
+  `sealed:tcg:<productId>` → `getSealedMarketRef` = `pending`) sigue resolviendo a **`PRICE_PENDING`** y
+  **NO se publica**: `gateSealedMarketCents(undefined, true)=null` →
+  `computeSealedSalePrice(override, subtype, null, …)` → sin override>0 → `status:'pending'`,
+  `salePriceCents:null`. Solo se auto-precian las piezas **curadas** (mapeadas y con `PriceReference`
+  de mercado ingerida por el job `sealed-price-ingest`). Con el dial en `off` (seed) el mercado TCGCSV
+  queda inerte (§4.23a) y todo sellado sin override cae a pending. Cubierto en
+  `test/sealed-price-resolver.spec.ts` («sin market → pending») y `test/sealed-pricing.spec.ts`.
+
+### 53.2 H-1 · Resolver ÚNICO del precio de venta del sellado (Tarea 2, hallazgo techlead — dinero)
+- **Problema:** el gating del precio de venta del sellado (`sourceOn && ref priced && refCents != null`
+  → arma `marketCents` → llama `computeSealedSalePrice`) estaba **copiado y DIVERGIDO** en varios
+  call-sites. Divergencia concreta de dinero: `orders.salePriceOf` trataba el override como
+  `listPriceCents != null && > 0`, mientras la pura y `catalog.toListingDTO` lo trataban como
+  `!= null`. Con un **override degenerado de `0`** centavos, Compra (catálogo) marcaba `sellable=false`
+  pero el checkout resolvía por otra rama → **inconsistencia de dinero** (un sellado no-vendible en el
+  grid podía cobrarse).
+- **Fix — un solo cuerpo en `PricingService`:**
+  - `gateSealedMarketCents(ref, sourceOn)`: gate ÚNICO del mercado (dial encendido + ref priced +
+    `referenceMxnCents != null`) → `number | null`. Con `off` el mercado TCGCSV queda inerte (§4.23a).
+  - `resolveSealedSalePrice(item, ref, ctx)`: gate + pura `computeSealedSalePrice` → `SealedSpreadResult`
+    completo (`{ salePriceCents, source, status, appliedSpreadPct }`).
+- **REGLA ÚNICA DE OVERRIDE (money-safe elegida):** un override se considera **presente solo si
+  `overrideCents > 0`**. Un override **`<= 0`** (0 o negativo) es **input DEGENERADO** → se trata como
+  **AUSENTE**: el precio cae a `mercado×spread` (y a `PRICE_PENDING` si tampoco hay mercado). Elección:
+  **nunca cobrar un sellado gratis ni por debajo de mercado** por un override mal capturado; para
+  descontar una caja con detalle el admin fija un override **positivo** (deliberado), no un 0. La regla
+  vive en la pura `computeSealedSalePrice` (`if (overrideCents != null && overrideCents > 0)`), así que
+  es **idéntica** en todos los consumidores.
+- **Call-sites que ahora consumen el resolver** (mismo precio SIEMPRE, incluido override=0):
+  `catalog.service.toListingDTO` (grid/Compra), `orders.service.salePriceOf` (checkout),
+  `sealed-catalog.service.loadPricedSealed` (grid agregado §2-S) e `inventory.service.bulkPublish`
+  (§M1). La **valuación** de la pestaña «Sellado» (`vault.service.sealedTab`) ahora usa
+  `gateSealedMarketCents` con `sourceOn` — antes **NO gateaba por dial** (divergía con catálogo/grid
+  cuando `sealed_price_source=off`); ahora la valuación **coincide** con las demás superficies.
+- **Nota de alcance:** la dedup de `groupKey` (H-2) NO se hizo (habría requerido tocar mocks de dos
+  suites y no da valor de correctness); se deja como está para no salir de alcance. La regla de override
+  de las **cartas sueltas** (raw/graded) en `orders.salePriceOf` línea 49 (`!= null && > 0`) ya era
+  money-safe y no se tocó (la divergencia raw/catálogo está registrada como **BE-26**).
+
+### 53.3 Archivos tocados (solo `backend/`)
+- `src/modules/settings/settings.constants.ts` — seed `sealed_price_source` = **`off`** (fail-closed,
+  por contrato §M10; el autoprecio se enciende en runtime con el PUT de §53.1, no por seed).
+- `src/common/money.ts` — `computeSealedSalePrice`: override presente ⇔ `> 0` (+ doc).
+- `src/modules/pricing/pricing.service.ts` — `gateSealedMarketCents` + `resolveSealedSalePrice`.
+- `src/modules/catalog/catalog.service.ts`, `src/modules/orders/orders.service.ts`,
+  `src/modules/catalog/sealed-catalog.service.ts`, `src/modules/inventory/inventory.service.ts` —
+  consumen el resolver; imports de `computeSealedSalePrice` retirados donde ya no se usa.
+- `src/modules/vault/vault.service.ts` — valuación gatea por `sourceOn` vía `gateSealedMarketCents`.
+- Tests: `test/sealed-price-resolver.spec.ts` (resolver único + gate + consistencia
+  catálogo/orders/grid para override=0), `test/sealed-pricing.spec.ts` (regla override=0/negativo/1c),
+  mocks de `test/catalog.spec.ts` / `test/sealed-catalog.spec.ts` / `test/vault-sealed.spec.ts`
+  ampliados con los métodos nuevos del `PricingService`.
+
+### 53.4 Corrección del rechazo del techlead + cierre de 2 BAJOS (2026-08-19)
+- **ALTO (revertido):** el seed de `sealed_price_source` vuelve a **`off`** (fail-closed, por contrato
+  §M10 / arquitectura §4.19e·§4.23e). Ver §53.1 corregido: el autoprecio se enciende en runtime con
+  `PUT /admin/settings {"sealedPriceSource":"tcgcsv"}` tras validar en staging (§4.23f); rollback = mismo
+  PUT con `"off"`. Restaurado el candado money-safe del que depende §BE-44(c) de `TECH_DEBT.md`.
+- **BAJO (techlead+QA) — 4º call-site del resolver:** `test/sealed-price-resolver.spec.ts` gana un
+  describe que ejercita `inventory.bulkPublish` como 4º consumidor de `resolveSealedSalePrice`: (a) un
+  sellado SIN mapeo → `PRICE_PENDING`, no publicado; (b) un sellado mapeado + mercado priceado (sin
+  override) → converge al MISMO `EXPECTED` (mercado×spread) que catálogo/Compra/grid, publicado
+  `derived`. Nota: en `bulkPublish` un `listPriceCents=0` almacenado entra por la rama `manual` (precio
+  explícito 0) ANTES del resolver, así que la convergencia del override=0 se prueba en los 3 sitios que
+  sí pasan por el resolver; el 4º se ancla con el caso derivado sin override (mismo `EXPECTED`).
+- **BAJO (techlead) — mocks que reimplementaban la pura:** `test/catalog.spec.ts` y
+  `test/sealed-catalog.spec.ts` ahora **importan y delegan** en la pura real `computeSealedSalePrice`
+  (antes la reescribían a mano → riesgo de divergencia silenciosa). `test/vault-sealed.spec.ts` solo
+  mockea el gate trivial `gateSealedMarketCents` (no la pura); se dejó como está y se corrigió su
+  comentario (referenciaba el seed `tcgcsv` ya revertido → ahora `sourceOn:true` explícito de runtime).
+
+### 53.5 Estado de verificación
+`npx tsc --noEmit` limpio · `npm run lint` limpio · `npx jest` **1036 tests / 109 suites en VERDE**
+(1035 previos + 1 nuevo: el 4º call-site `bulkPublish` en `sealed-price-resolver.spec.ts`). Sin commit
+ni push (por instrucción del pase).
