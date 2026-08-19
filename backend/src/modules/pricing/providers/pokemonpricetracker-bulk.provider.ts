@@ -247,7 +247,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
     this.logSummary({ setExternalId, reason, fetchedRaw, mapped: rows.length, drops, sample });
     // `requestOk` = alguna página respondió OK (incluye sample-only, que devuelve rows:[] → el gate
     // `requestOk && rows>0` del ingest igual lo excluye de tocar snapshots).
-    return { rows, fetchedRaw, skipped, requestOk, dailyLimited };
+    return { rows, fetchedRaw, skipped, requestOk, dailyLimited, dailyRemaining: this.client.dailyRemaining() };
   }
 
   /**
@@ -282,7 +282,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
       `PokemonPriceTracker bulk (por impresión): set ${input.set.externalId}=${providerSetId} → ` +
         `${rows.length} filas de ${PRINTINGS.length} impresiones, ${fetchedRaw} crudas.`,
     );
-    return { rows, fetchedRaw, skipped, requestOk, dailyLimited };
+    return { rows, fetchedRaw, skipped, requestOk, dailyLimited, dailyRemaining: this.client.dailyRemaining() };
   }
 
   /**

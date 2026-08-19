@@ -459,6 +459,36 @@ describe('PriceIngestService — scope PPT (pptSetId + 2020/inventario/rares + d
     expect(res.dailyLimited).toBe(true);
     expect(res.pending).toBe(2); // solo se procesó s1 antes de parar
     expect(provider.fetchPricesForSet).toHaveBeenCalledTimes(1);
+
+    // N-11: el estado observable refleja la PARADA por límite diario.
+    const st = svc.getSyncStatus();
+    expect(st).toMatchObject({ running: false, total: 3, done: 1, pending: 2, dailyLimited: true, provider: 'pokemonpricetracker' });
+    expect(st.finishedAt).not.toBeNull();
+  });
+
+  it('N-11: ingestAll publica progreso honesto (running→done/total, finishedAt, dailyRemaining)', async () => {
+    const sets = [
+      { id: 's1', externalId: 'a', name: 'A', releaseDate: '2024/01/01' },
+      { id: 's2', externalId: 'b', name: 'B', releaseDate: '2024/01/01' },
+    ];
+    const provider = pptProvider([]);
+    (provider.fetchPricesForSet as jest.Mock).mockImplementation(async () => ({
+      rows: [], fetchedRaw: 0, skipped: 0, requestOk: true, dailyLimited: false, dailyRemaining: 17777,
+    }));
+    const prisma = {
+      cardSet: { findMany: jest.fn(async () => sets), findUnique: jest.fn(async ({ where }: any) => sets.find((s) => s.id === where.id)) },
+      card: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null), findFirst: jest.fn(async () => null), update: jest.fn(async () => ({})) },
+    } as any;
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, { persistMarketReference: jest.fn() } as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
+
+    // Antes de arrancar: estado inicial (no corriendo).
+    expect(svc.getSyncStatus().running).toBe(false);
+    await svc.ingestAll(fx);
+    const st = svc.getSyncStatus();
+    expect(st).toMatchObject({ running: false, total: 2, done: 2, pending: 0, dailyLimited: false, dailyRemaining: 17777 });
+    expect(st.startedAt).not.toBeNull();
+    expect(st.finishedAt).not.toBeNull();
+    expect(st.lastError).toBeNull();
   });
 });
 

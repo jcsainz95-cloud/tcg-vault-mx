@@ -178,6 +178,12 @@ export interface BulkPriceResult {
    * previas antes de toparse con el límite). `undefined`/`false` = la cuota diaria no se agotó.
    */
   dailyLimited?: boolean;
+  /**
+   * WS-A fix-ppt (N-11) — presupuesto diario vivo restante (`X-RateLimit-Daily-Remaining` de la
+   * última respuesta), para la barra de progreso del sync. `null`/`undefined` = el proveedor no lo
+   * reportó o no aplica (proveedor legacy).
+   */
+  dailyRemaining?: number | null;
 }
 
 /**

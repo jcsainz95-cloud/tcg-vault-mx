@@ -21,6 +21,8 @@ function build(hasRecentIngest = true) {
     ingestSetByExternalId: jest.fn(async () => ({})),
     ingestAll: jest.fn(async () => ({ sets: 2, priced: 4, pending: 0, dailyLimited: false })),
     hasRecentIngest: jest.fn(async () => hasRecentIngest),
+    // N-11: single-flight del disparo en background lo da el estado en memoria.
+    getSyncStatus: jest.fn(() => ({ running: false })),
   } as unknown as PriceIngestService;
   const job = new PriceIngestJobService(fx, ingest);
   return { job, fx, ingest };
@@ -74,6 +76,33 @@ describe('PriceIngestJobService.run — SIN cola: secuencial AWAITED + single-fl
     const res = await job.run();
 
     expect(res).toEqual({ job: 'price-ingest', enqueued: false });
+    expect((ingest.ingestAll as jest.Mock)).not.toHaveBeenCalled();
+  });
+});
+
+describe('PriceIngestJobService.runBackground — N-11 (fire-and-forget + single-flight)', () => {
+  it('lanza ingestAll en background y DEVUELVE de inmediato (no espera al barrido)', async () => {
+    const { job, ingest, fx } = build();
+    let resolveIngest: () => void = () => undefined;
+    (ingest.ingestAll as jest.Mock).mockImplementation(
+      () => new Promise<void>((r) => { resolveIngest = () => r(); }),
+    );
+
+    const res = await job.runBackground(); // NO debe colgarse esperando ingestAll
+
+    expect(res).toEqual({ job: 'price-ingest', enqueued: true, background: true, alreadyRunning: false });
+    expect((fx.getCurrent as jest.Mock)).toHaveBeenCalledTimes(1);
+    expect((ingest.ingestAll as jest.Mock)).toHaveBeenCalledWith({ rate: 18, bufferPct: 3 });
+    resolveIngest(); // limpia la promesa colgante
+  });
+
+  it('single-flight: si ya hay un barrido corriendo → no lanza otro', async () => {
+    const { job, ingest } = build();
+    (ingest.getSyncStatus as jest.Mock).mockReturnValue({ running: true });
+
+    const res = await job.runBackground();
+
+    expect(res).toEqual({ job: 'price-ingest', enqueued: false, background: true, alreadyRunning: true });
     expect((ingest.ingestAll as jest.Mock)).not.toHaveBeenCalled();
   });
 });

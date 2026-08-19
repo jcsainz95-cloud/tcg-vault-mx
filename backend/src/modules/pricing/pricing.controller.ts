@@ -18,6 +18,8 @@ import { BuylistRule, SalesRule } from '../../common/money';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PriceSyncJobService } from '../../jobs/price-sync.service';
+// N-11: estado en memoria del barrido masivo de precios (barra de progreso del sync).
+import { PriceIngestService } from './price-ingest.service';
 
 class OverrideDto {
   @IsString() cardId!: string;
@@ -73,6 +75,7 @@ export class PricingController {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly priceSync: PriceSyncJobService,
+    private readonly priceIngest: PriceIngestService,
   ) {}
 
   @Post('sync')
@@ -80,6 +83,17 @@ export class PricingController {
     const result = await this.priceSync.enqueue(dto.scope ?? 'all_vault', dto.cardIds);
     await this.audit.log({ actorUserId: userId, action: 'pricing.sync', entityType: 'PriceReference' });
     return result;
+  }
+
+  /**
+   * N-11 — GET /admin/pricing/sync-status: progreso del barrido MASIVO de precios (`price-ingest`)
+   * en curso o del último. Calca `GET /admin/catalog/sync-status`. En memoria del proceso, NO llama
+   * al proveedor en cada poll. El front lo pollea ~3s mientras `running` y pinta la barra done/total;
+   * `dailyLimited` señala "pausado por límite del día (retoma 00:00 UTC), N pendientes".
+   */
+  @Get('sync-status')
+  getSyncStatus() {
+    return this.priceIngest.getSyncStatus();
   }
 
   @Get('pending')

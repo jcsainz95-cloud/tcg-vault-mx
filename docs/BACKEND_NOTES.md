@@ -4312,12 +4312,20 @@ numérico de TCGplayer** (`tcgPlayerNumericId`, p. ej. `1407`), el **slug** (`tc
 Regla del PO en `backend/src/modules/pricing/ppt-sync-scope.ts` (+ integración en `PriceIngestService`):
 - **(a) Set con `releaseDate` año ≥ 2020 → `full`** (todas sus cartas).
 - **(b) Set con año < 2020 → `partial`**: SOLO cartas con **InventoryItem activo** (status ≠
-  `withdrawn`/`lost`) **∪** cartas **RARAS**. En viejos NO se persiste el bulk de comunes.
-- Viejo sin inventario activo ni rares → **`skip`** (no se pide nada).
-- **Umbral de rareza (documentado):** BULK = `common`/`uncommon` (deny-list pequeña y estable);
-  **todo lo demás cuenta como raro** (holo/ultra/secret/illustration/hyper/double/amazing/radiant/
-  promo…). Rareza `null`/desconocida = raro (money-safe: ante duda se incluye). Se eligió deny-list de
-  bulk (no allow-list de rarezas raras) porque pokemontcg.io inventa rarezas nuevas cada set.
+  `withdrawn`/`lost`) **∪** cartas **PREMIUM/CHASE**. En viejos NO se persiste el bulk ni el rare normal.
+- Viejo sin inventario activo ni premium → **`skip`** (no se pide nada).
+- **Umbral de rareza (REFINAMIENTO DEL PO, 2026-08-19 — `isPremiumRarity`):** allow-list EXPLÍCITA de
+  premium/chase, no una deny-list. **INCLUYE** "Illustration Rare para arriba" (Illustration/Special
+  Illustration, Hyper/Rainbow, Gold/Secret) + familia **ex/EX/GX/V/VMAX/VSTAR** (+ Mega, V-UNION) +
+  chase equivalente (Full Art=`Rare Ultra`, Lv.X, Prime, BREAK, LEGEND, Amazing/Radiant, Shiny/Shining,
+  Prism Star). Términos premium (substring normalizado): `holo, ultra, secret, rainbow, gold, hyper,
+  illustration, shiny, shining, amazing, radiant, prime, break, legend, lvx/levelx, prism, mega` + la
+  familia ex/gx/v por PALABRA. **EXCLUYE** `common`, `uncommon`, `rare` normal (no-holo). **Reverse holo
+  NUNCA cuenta como rareza** (es un ACABADO, no un tier; guard `reverse`, y de todos modos el scope solo
+  mira `Card.rarity`, jamás los acabados). **CAVEAT cross-era:** en eras viejas (base/neo/e-card/EX) no
+  existe "Illustration Rare" → el premium es **`Rare Holo`** (por eso `holo` es término premium: Charizard
+  Base = Rare Holo entra) y los EX de esa época. Rareza `null`/desconocida → **NO premium** (excluida): el
+  **InventoryItem activo es la red de seguridad** de cualquier carta que realmente tengamos.
 - El scope se aplica al **seleccionar** los sets (`listSetIdsForIngest`, modernos primero) y al
   **persistir** (en partial solo se escriben las `allowedCardIds` aunque el barrido traiga el set entero).
 - Disparo manual de un set (`POST /admin/jobs/price-ingest { setId }`) **fuerza full** (verificación).
@@ -4380,3 +4388,49 @@ sample-only, no persiste). PO confirmó `usd_dollars`.
 `ppt-api.client.spec.ts` (Retry-After, daily-stop, presupuesto, 404), `pokemonpricetracker-bulk.fix-ppt.spec.ts`
 (setId real, shape v2, printings, daily), + scope en `test/price-ingest.service.spec.ts`. Verdes:
 lint, typecheck, build y 1019 unit tests.
+
+## 53. N-11 (2026-08-19) — barra de progreso del sync de precios (`price-ingest` background + `sync-status`)
+
+Junto con el fix de PPT (§52) se implementó N-11: convertir el `price-ingest` de **bloqueante** a
+**segundo plano** (fire-and-forget) con **estado observable**, calcando el patrón que ya existe para el
+catálogo (`catalog-sync.getSyncStatus` + `GET /admin/catalog/sync-status`).
+
+### Backend
+- **Estado en memoria** en `PriceIngestService` (`PriceSyncStatus`), expuesto por `getSyncStatus()`.
+  Lo maneja `ingestAll` (barrido COMPLETO): publica `running/total/startedAt` al arrancar, avanza
+  `done`/`pending` por set, guarda `dailyRemaining` (presupuesto vivo del proveedor) y `dailyLimited`
+  (429 daily), y cierra con `running=false`+`finishedAt` (y `lastError` si reventó). No persistido (se
+  pierde al reiniciar, igual que el de catálogo) y NO llama al proveedor en cada poll.
+- **Disparo no bloqueante:** `PriceIngestJobService.runBackground()` — single-flight vía
+  `getSyncStatus().running`, lanza `ingestAll` fire-and-forget y **devuelve de inmediato**. El endpoint
+  `POST /admin/jobs/price-ingest` **sin `setId`** ahora enruta a `runBackground()` (con `setId` sigue
+  AWAITED para verificación de un set). El **CRON 2×/día NO cambia**: sigue usando `run()` (fan-out
+  BullMQ / secuencial) — solo el disparo MANUAL usa el barrido background con barra.
+- **`dailyRemaining`** se propaga del `PptApiClient` → `BulkPriceResult` → `IngestSetResult` → estado
+  (sin nueva dependencia en el servicio).
+
+### Contrato del endpoint nuevo (reportar al arquitecto para formalizar en API_CONTRACT)
+`GET /admin/pricing/sync-status` — **super_admin**. Responde:
+```jsonc
+{
+  "running": false,
+  "jobId": "price-ingest-2026-08-19",
+  "total": 120, "done": 120, "pending": 0,
+  "startedAt": "2026-08-19T00:00:00.000Z",
+  "finishedAt": "2026-08-19T00:04:12.000Z",
+  "lastError": null,
+  "dailyRemaining": 17777,   // presupuesto diario del proveedor de paga (o null)
+  "dailyLimited": false,     // true = pausado por 429 daily → "retoma 00:00 UTC, N pendientes"
+  "provider": "pokemonpricetracker"
+}
+```
+El front (M2View) lo pollea ~3s mientras `running` y pinta la barra `done/total` REUSANDO el componente
+`SyncProgress` (FE-9, `role="progressbar"`); si `dailyLimited`, muestra el aviso de pausa por límite
+diario con `pending`. El disparo `POST /admin/jobs/price-ingest` responde 202 con
+`{ job, enqueued, background:true, alreadyRunning }`.
+
+### Nota de proceso
+El endpoint nuevo (`GET /admin/pricing/sync-status`) es superficie de contrato → el **arquitecto** debe
+formalizarlo en `docs/API_CONTRACT.md §M2/§M10-ops` (no lo edité: propiedad de otro rol). El frontend
+(M2View + `SyncProgress`) lo implementa un subagente **frontend** (excepción explícita del PO a
+"solo backend") tocando solo `frontend/`.

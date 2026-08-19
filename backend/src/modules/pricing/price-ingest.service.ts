@@ -11,7 +11,7 @@ import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provide
 import { orderFinishes } from '../../common/card-order';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { PptSetMapper } from './ppt-set-mapper.service';
-import { SetScope, classifySet, isModernSet, isRareRarity } from './ppt-sync-scope';
+import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
 
 /** InventoryStatus que NO cuentan como "activo" para el scope parcial (regla del PO: no withdrawn/lost). */
 const INACTIVE_INVENTORY_STATUSES: ReadonlyArray<'withdrawn' | 'lost'> = ['withdrawn', 'lost'];
@@ -47,6 +47,34 @@ export interface IngestSetResult {
   dailyLimited?: boolean;
   /** Scope aplicado a este set (`full`/`partial`/`skip`) — observabilidad del reporte. */
   scope?: SetScope;
+  /** N-11 — presupuesto diario vivo tras este set (para la barra de progreso). */
+  dailyRemaining?: number | null;
+}
+
+/**
+ * N-11 (barra de progreso del sync de precios) — estado OBSERVABLE del barrido en curso (o del
+ * último), en memoria del proceso. Calca `catalog-sync.getSyncStatus`. `GET /admin/pricing/sync-status`
+ * lo expone; el front lo pollea. NO persistido (se pierde al reiniciar, como el de catálogo).
+ */
+export interface PriceSyncStatus {
+  running: boolean;
+  jobId: string | null;
+  /** Sets a procesar en la corrida. */
+  total: number;
+  /** Sets ya intentados (éxito o fallo) — barra honesta done/total. */
+  done: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** Último error del barrido (mensaje), o null. */
+  lastError: string | null;
+  /** Presupuesto diario vivo restante del proveedor de paga, o null. */
+  dailyRemaining: number | null;
+  /** true si el barrido se DETUVO por límite diario (429 daily) → aviso "pausado hasta 00:00 UTC". */
+  dailyLimited: boolean;
+  /** Sets que quedaron pendientes si se detuvo por límite diario. */
+  pending: number;
+  /** Proveedor de la corrida (`pokemonpricetracker`/`pokemontcg_io`). */
+  provider: string | null;
 }
 
 /**
@@ -78,6 +106,29 @@ export interface IngestSetResult {
 @Injectable()
 export class PriceIngestService {
   private readonly logger = new Logger(PriceIngestService.name);
+
+  /**
+   * N-11 — estado en memoria del barrido de precios (barra de progreso). Calca el patrón de
+   * `catalog-sync`. Se inicializa "vacío/terminado"; lo maneja `ingestAll` (barrido completo).
+   */
+  private syncStatus: PriceSyncStatus = {
+    running: false,
+    jobId: null,
+    total: 0,
+    done: 0,
+    startedAt: null,
+    finishedAt: null,
+    lastError: null,
+    dailyRemaining: null,
+    dailyLimited: false,
+    pending: 0,
+    provider: null,
+  };
+
+  /** GET /admin/pricing/sync-status — progreso del barrido de precios en curso (o del último). */
+  getSyncStatus(): PriceSyncStatus {
+    return { ...this.syncStatus };
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -196,19 +247,51 @@ export class PriceIngestService {
    * (money-safe: no se reintenta hasta 00:00 UTC).
    */
   async ingestAll(fx: FxSnapshot): Promise<{ sets: number; priced: number; pending: number; dailyLimited: boolean }> {
+    const provider = await this.providerFor();
     const ids = await this.listSetIdsForIngest();
+    // N-11: publica el estado observable ANTES de arrancar (barra honesta done/total).
+    const jobId = `price-ingest-${new Date().toISOString().slice(0, 10)}`;
+    this.syncStatus = {
+      running: true,
+      jobId,
+      total: ids.length,
+      done: 0,
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      lastError: null,
+      dailyRemaining: null,
+      dailyLimited: false,
+      pending: ids.length,
+      provider: provider.source,
+    };
+
     let priced = 0;
     let dailyLimited = false;
     let processed = 0;
-    for (const id of ids) {
-      const res = await this.ingestSet(id, fx);
-      priced += res.priced;
-      processed += 1;
-      if (res.dailyLimited) {
-        dailyLimited = true;
-        break;
+    try {
+      for (const id of ids) {
+        const res = await this.ingestSet(id, fx);
+        priced += res.priced;
+        processed += 1;
+        // Progreso honesto: done por set intentado; dailyRemaining vivo si el proveedor lo reporta.
+        this.syncStatus.done = processed;
+        this.syncStatus.pending = ids.length - processed;
+        if (res.dailyRemaining != null) this.syncStatus.dailyRemaining = res.dailyRemaining;
+        if (res.dailyLimited) {
+          dailyLimited = true;
+          this.syncStatus.dailyLimited = true;
+          break;
+        }
       }
+    } catch (e) {
+      this.syncStatus.lastError = (e as Error).message;
+      throw e;
+    } finally {
+      this.syncStatus.running = false;
+      this.syncStatus.finishedAt = new Date().toISOString();
+      this.syncStatus.pending = ids.length - processed;
     }
+
     const pending = ids.length - processed;
     if (dailyLimited) {
       this.logger.warn(
@@ -346,6 +429,7 @@ export class PriceIngestService {
       skipped: result.skipped + unresolved + outOfScope,
       dailyLimited: result.dailyLimited,
       scope,
+      dailyRemaining: result.dailyRemaining ?? null,
     };
   }
 
@@ -400,14 +484,15 @@ export class PriceIngestService {
       select: { cardId: true },
       distinct: ['cardId'],
     });
-    // Cartas RARAS del set (por rarity; el bulk common/uncommon se excluye).
+    // Cartas PREMIUM/CHASE del set (refinamiento PO: Illustration Rare para arriba + ex/GX/V…;
+    // NO bulk, NO rare normal, NO reverse holo como tier). Ver `isPremiumRarity`.
     const cards = await this.prisma.card.findMany({
       where: { setId: set.id },
       select: { id: true, rarity: true },
     });
     const allowed = new Set<string>();
     for (const it of invItems) allowed.add(it.cardId);
-    for (const c of cards) if (isRareRarity(c.rarity)) allowed.add(c.id);
+    for (const c of cards) if (isPremiumRarity(c.rarity)) allowed.add(c.id);
 
     const scope = classifySet(set, allowed.size);
     return { scope, allowedCardIds: scope === 'partial' ? allowed : null };

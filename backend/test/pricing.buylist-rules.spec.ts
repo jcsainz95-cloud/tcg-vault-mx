@@ -36,6 +36,7 @@ function build(opts: {
     audit,
     prisma,
     {} as PriceSyncJobService,
+    {} as any,
   );
   return { controller, prisma, audit, settings };
 }

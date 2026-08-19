@@ -364,7 +364,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
     // Un solo endpoint v2: ya NO se prueban `/api/prices` ni `/api/v1/prices`.
     expect(spy).toHaveBeenCalledTimes(1);
     expect(urlOf(spy, 0)).toContain('/api/v2/cards?');
-    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false, dailyLimited: false });
+    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false, dailyLimited: false, dailyRemaining: null });
   });
 
   it('mapea los acabados documentados (`printing`) a nuestros Finish canónicos', async () => {
@@ -442,7 +442,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', ()
 
     const res = await makeProvider(cfg()).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
     // v1.22-1 (§4.22g): fallo total → requestOk FALSE ⇒ price-ingest NO tocará ningún snapshot.
-    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false, dailyLimited: false });
+    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false, dailyLimited: false, dailyRemaining: null });
     expect(spy).toHaveBeenCalledTimes(1); // endpoint v2 único: un solo request
   });
 

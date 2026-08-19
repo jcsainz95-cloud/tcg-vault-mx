@@ -41,35 +41,71 @@ export function isModernSet(set: Pick<CardSet, 'releaseDate'>): boolean {
 }
 
 /**
- * UMBRAL DE RAREZA — define, de forma EXPLÍCITA y documentada, qué cuenta como carta "rara" (con
- * valor de mercado real) en un set VIEJO, para excluir el bulk de comunes/uncommons. La lista se
- * evalúa sobre `Card.rarity` (string de pokemontcg.io), normalizada a minúsculas.
+ * UMBRAL DE RAREZA (REFINAMIENTO DEL PO, 2026-08-19) — define de forma EXPLÍCITA y documentada qué
+ * cuenta como carta PREMIUM/CHASE (de alto valor) en un set VIEJO. El objetivo es cazar SOLO el chase
+ * de valor, NO el bulk ni el rare normal. Se evalúa sobre `Card.rarity` (string de pokemontcg.io).
  *
- * EXCLUIDAS (bulk que NO se pide en sets viejos): `common`, `uncommon`, y sus variantes de nombre.
- * TODO lo demás (holo rare, ultra rare, secret, illustration/special/hyper rare, amazing, radiant,
- * promo, LEGEND, prime, BREAK, ACE SPEC, trainer gallery, shiny, gold, …) cuenta como RARA. Se toma
- * el criterio INCLUSIVO (raro = no-bulk) en vez de una allow-list cerrada de rarezas raras, porque
- * pokemontcg.io inventa nombres de rareza nuevos cada set: una allow-list cerrada dejaría fuera
- * rarezas nuevas valiosas (falso "bulk"), mientras que la deny-list de bulk es estable y pequeña.
+ * INCLUIR (SOLO premium/chase):
+ *  - "Illustration Rare para arriba": Illustration Rare, Special Illustration Rare, Hyper/Rainbow Rare,
+ *    Gold/Secret Rare.
+ *  - Cartas tipo ex/EX/GX/V/VMAX/VSTAR (+ Mega/M-EX, V-UNION) y equivalentes chase: Full Art
+ *    (pokemontcg.io: "Rare Ultra"), Lv.X, Prime, BREAK, LEGEND, Amazing/Radiant, Shiny/Shining,
+ *    Prism Star.
+ *  - **CAVEAT CROSS-ERA:** en sets MUY viejos (base/neo/e-card/EX era) NO existe "Illustration Rare";
+ *    ahí el premium equivalente es **"Rare Holo"** (p. ej. Charizard Base = Rare Holo) y los "EX" de
+ *    esa época. Por eso `holo` ES un término premium: nunca se excluye por accidente un holo valioso.
+ *
+ * EXCLUIR: `common`, `uncommon`, `rare` normal (no-holo). El **reverse holo NO cuenta como rareza**
+ * (es un ACABADO, no un tier): jamás se incluye una carta de un set viejo solo por tener impresión
+ * reverse holo. `Card.rarity` es la única señal aquí (no los acabados), así que una impresión reverse
+ * holo NUNCA dispara la inclusión; el guard `reverse` es defensivo por si algún dato la trae como rareza.
+ *
+ * `null`/desconocida → NO premium (excluida de rares). Money-safe igual: si TENEMOS la carta
+ * (InventoryItem activo) entra por esa vía sin importar la rareza; solo se descarta lo que NO
+ * tenemos y cuya rareza no reconocemos como premium (no vale el gasto de un crédito a ciegas).
  */
-const BULK_RARITIES = new Set<string>([
-  'common',
-  'uncommon',
-  // Variantes/typos tolerados (normalizados a minúsculas, sin puntuación gestionada abajo).
-  'commoncard',
-  'uncommoncard',
-]);
+const PREMIUM_RARITY_TERMS: ReadonlyArray<string> = [
+  'holo', // Rare Holo (premium en eras viejas: Charizard Base) y todo holo EX/GX/V
+  'ultra', // Rare Ultra (Full Art)
+  'secret', // Rare Secret / Gold Secret
+  'rainbow', // Rare Rainbow (Hyper Rare)
+  'gold', // Gold Rare
+  'hyper', // Hyper Rare
+  'illustration', // Illustration Rare / Special Illustration Rare
+  'shiny', // Rare Shiny / Shiny Rare
+  'shining', // Shining (Shining Charizard, etc.)
+  'amazing', // Amazing Rare
+  'radiant', // Radiant Rare
+  'prime', // Rare Prime
+  'break', // Rare BREAK
+  'legend', // LEGEND
+  'lvx', // Lv.X (normalizado)
+  'levelx', // Level X (alias)
+  'prism', // Prism Star
+  'mega', // Mega (M) EX
+];
+
+/** Rarezas explícitamente NO-premium (bulk + rare normal), normalizadas (minúsculas, sin no-alnum). */
+const NON_PREMIUM_RARITIES = new Set<string>(['common', 'uncommon', 'rare', 'rarenormal']);
+
+/** Familia ex/EX/GX/V/VMAX/VSTAR/V-UNION como PALABRA (evita falsos positivos por substring). */
+const PREMIUM_RARITY_WORDS = /\b(ex|gx|v|vmax|vstar|v-?union|v-?max|v-?star)\b/;
 
 /**
- * ¿La rareza es RARA (no-bulk) según el umbral documentado? `null`/desconocida cuenta como RARA
- * (conservador money-safe: ante duda se INCLUYE — nunca se descarta una carta potencialmente valiosa
- * por no reconocer su rareza; a lo sumo se gasta un crédito de más, jamás se pierde un precio real).
+ * ¿La rareza es PREMIUM/CHASE (incluible en un set viejo) según el umbral documentado del PO?
+ * (Antes se llamaba `isRareRarity` con una deny-list inclusiva; ahora es un allow-list de premium.)
  */
-export function isRareRarity(rarity: string | null | undefined): boolean {
-  if (rarity == null) return true;
-  const key = rarity.toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (key === '') return true;
-  return !BULK_RARITIES.has(key);
+export function isPremiumRarity(rarity: string | null | undefined): boolean {
+  if (rarity == null) return false;
+  const r = rarity.toLowerCase();
+  const norm = r.replace(/[^a-z0-9]/g, '');
+  if (norm === '') return false;
+  // Reverse holo es ACABADO, no tier → nunca incluye por eso (guard defensivo).
+  if (norm.includes('reverse')) return false;
+  // Bulk + rare normal → excluidos.
+  if (NON_PREMIUM_RARITIES.has(norm)) return false;
+  if (PREMIUM_RARITY_TERMS.some((t) => norm.includes(t))) return true;
+  return PREMIUM_RARITY_WORDS.test(r);
 }
 
 /**

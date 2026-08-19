@@ -1,9 +1,9 @@
 import { CardSet } from '@prisma/client';
-import { classifySet, isModernSet, isRareRarity, releaseYear, SCOPE_YEAR_THRESHOLD } from './ppt-sync-scope';
+import { classifySet, isModernSet, isPremiumRarity, releaseYear, SCOPE_YEAR_THRESHOLD } from './ppt-sync-scope';
 
 /**
  * WS-A fix-ppt (causa #2) — SCOPE del PO: sets modernos (año ≥ 2020) → full; viejos → partial
- * (inventario ∪ rares) o skip. Umbral de rareza documentado (bulk = common/uncommon).
+ * (inventario ∪ PREMIUM/chase) o skip. Umbral de rareza premium documentado (refinamiento PO).
  */
 
 function set(releaseDate: string | null): Pick<CardSet, 'releaseDate'> {
@@ -28,36 +28,60 @@ describe('releaseYear / isModernSet', () => {
   });
 });
 
-describe('isRareRarity — umbral de rareza (bulk excluido)', () => {
-  it('common/uncommon (y variantes) = BULK → no raro', () => {
-    for (const r of ['Common', 'common', 'Uncommon', 'UNCOMMON']) {
-      expect(isRareRarity(r)).toBe(false);
+describe('isPremiumRarity — refinamiento PO: SOLO chase/premium (no bulk, no rare normal)', () => {
+  it('EXCLUYE bulk y rare normal (no-holo)', () => {
+    for (const r of ['Common', 'common', 'Uncommon', 'UNCOMMON', 'Rare', 'rare']) {
+      expect(isPremiumRarity(r)).toBe(false);
     }
   });
 
-  it('todo lo demás cuenta como raro (holo/ultra/secret/illustration/promo…)', () => {
+  it('reverse holo NUNCA cuenta como rareza (es un acabado, guard defensivo)', () => {
+    expect(isPremiumRarity('Reverse Holo')).toBe(false);
+    expect(isPremiumRarity('reverse_holo')).toBe(false);
+  });
+
+  it('INCLUYE Illustration Rare para arriba (illustration/hyper/rainbow/gold/secret)', () => {
     for (const r of [
-      'Rare Holo',
-      'Rare Ultra',
-      'Rare Secret',
       'Illustration Rare',
       'Special Illustration Rare',
       'Hyper Rare',
-      'Double Rare',
-      'Amazing Rare',
-      'Radiant Rare',
-      'Promo',
-      'Rare Holo LV.X',
-      'Rare',
+      'Rare Rainbow',
+      'Rare Secret',
+      'Gold Rare',
     ]) {
-      expect(isRareRarity(r)).toBe(true);
+      expect(isPremiumRarity(r)).toBe(true);
     }
   });
 
-  it('rareza null/desconocida = raro (money-safe: ante duda se INCLUYE)', () => {
-    expect(isRareRarity(null)).toBe(true);
-    expect(isRareRarity(undefined)).toBe(true);
-    expect(isRareRarity('')).toBe(true);
+  it('INCLUYE ex/EX/GX/V/VMAX/VSTAR y equivalentes chase (Full Art/Ultra/Lv.X/Prime/Amazing/Radiant/Shiny)', () => {
+    for (const r of [
+      'Rare Holo EX',
+      'Rare Holo GX',
+      'Rare Holo V',
+      'Rare Holo VMAX',
+      'Rare Holo VSTAR',
+      'Rare Ultra', // Full Art
+      'Rare Holo LV.X',
+      'Rare Prime',
+      'Amazing Rare',
+      'Radiant Rare',
+      'Rare Shiny',
+      'Rare BREAK',
+      'LEGEND',
+    ]) {
+      expect(isPremiumRarity(r)).toBe(true);
+    }
+  });
+
+  it('CAVEAT cross-era: "Rare Holo" (Charizard Base) SÍ es premium', () => {
+    expect(isPremiumRarity('Rare Holo')).toBe(true);
+  });
+
+  it('null/desconocida → NO premium (el inventario es la red de seguridad)', () => {
+    expect(isPremiumRarity(null)).toBe(false);
+    expect(isPremiumRarity(undefined)).toBe(false);
+    expect(isPremiumRarity('')).toBe(false);
+    expect(isPremiumRarity('Amazing Holo Rare Nueva 2019')).toBe(true); // contiene holo/amazing
   });
 });
 
