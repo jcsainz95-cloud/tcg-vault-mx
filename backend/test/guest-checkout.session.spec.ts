@@ -6,7 +6,7 @@ import { StripeService } from '../src/modules/payments/stripe.service';
 import { OrderAccessTokenService } from '../src/modules/orders/order-access-token.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
 import { BusinessException } from '../src/common/business.exception';
-import { computeDirectShipBreakdown } from '../src/common/money';
+import { computeCartBreakdown, computeDirectShipBreakdown } from '../src/common/money';
 import {
   GUEST_CHECKOUT_TOKEN_TTL_MIN,
   GUEST_TRACKING_TTL_DAYS,
@@ -260,6 +260,51 @@ describe('GuestCheckoutService.quote', () => {
     expect(res.fulfillmentMode).toBe('direct_ship');
     expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE));
     expect(res.notices).toEqual({ finalSale: true, invoiceByEmail: true, termsRequired: true });
+  });
+
+  describe('v1.21.4-dual-breakdown — segundo desglose "de bóveda" (§4-G.1, N-12)', () => {
+    it('carrito con cartas ⇒ `vaultBreakdown` presente, SIN shippingFeeCents y = computeCartBreakdown', async () => {
+      const { svc } = buildService();
+      const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
+      const expectedVault = computeCartBreakdown(25000, IVA, FEE);
+      // Es EXACTAMENTE el cart breakdown (solo cartas): IVA solo sobre subtotal y total = grossUp(subtotal+iva).
+      expect(res.vaultBreakdown).toEqual(expectedVault);
+      // La señal de shape "destino bóveda" es la AUSENCIA de la línea de envío (ni 0 ni presente).
+      expect(res.vaultBreakdown).not.toHaveProperty('shippingFeeCents');
+      // IVA solo sobre las cartas (no sobre subtotal + envío como en el direct_ship).
+      expect(res.vaultBreakdown.ivaCents).toBe(Math.round((25000 * IVA) / 100));
+      // Total de bóveda = grossUp(subtotal + iva), y NO el total con envío.
+      expect(res.vaultBreakdown.totalCents).toBe(expectedVault.totalCents);
+    });
+
+    it('el `breakdown` direct_ship SIGUE con envío y sus fórmulas (no cambia); vaultBreakdown < breakdown', async () => {
+      const { svc } = buildService();
+      const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING, IVA, FEE));
+      expect(res.breakdown.shippingFeeCents).toBe(SHIPPING);
+      // El destino bóveda ahorra el envío: su total es estrictamente menor.
+      expect(res.vaultBreakdown.totalCents).toBeLessThan(res.breakdown.totalCents);
+    });
+
+    it('carrito 100 % podado ⇒ `vaultBreakdown` en CEROS presente, SIN shippingFeeCents', async () => {
+      const { svc, orders } = buildService();
+      (orders.priceCartForQuote as jest.Mock).mockResolvedValueOnce({
+        items: [],
+        subtotalCents: 0,
+        lines: [],
+        unavailableItems: [{ inventoryItemId: 'vendida', cardName: 'Antique Skull Fossil' }],
+      });
+      const res = await svc.quote({ inventoryItemIds: ['vendida'] } as never);
+      expect(res.vaultBreakdown).toEqual({
+        subtotalCents: 0,
+        ivaCents: 0,
+        ivaRatePct: IVA,
+        processingFeeCents: 0,
+        totalCents: 0,
+        currency: 'MXN',
+      });
+      expect(res.vaultBreakdown).not.toHaveProperty('shippingFeeCents');
+    });
   });
 
   it('es READ-ONLY: no reserva inventario ni crea pedido', async () => {
