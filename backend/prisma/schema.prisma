@@ -385,7 +385,21 @@ model Card {
   // v1.22-variantes-orden (§4.22a): la FUENTE es el SYNC DE CATÁLOGO y SOLO él (tcgplayer.prices
   // por llave presente ∪ cardmarket.prices.reverseHolo* por valor > 0). `price-ingest` NO escribe
   // esta columna (§4.15e derogada). Se almacena SIEMPRE en orden canónico FINISH_ORDER y nunca vacía.
+  // v1.22-1 (M-27, §4.22g): DEJA de escribirse directamente. Pasa a ser una columna DERIVADA y
+  // recomputable = orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']. Su ÚNICO
+  // escritor es `catalog.FinishReconciler.reconcile(cardIds)`. Sigue siendo la lista blanca SEC-A1
+  // y el universo de casillas del binder; su FORMA no cambia (Finish[], no vacía, FINISH_ORDER).
   availableFinishes Finish[] @default([normal])
+  // v1.22-1 (M-27, §4.22g) — INTERNA (no se expone en DTO). «Opinión del catálogo» = Señal A ∪ B
+  // del último payload de pokemontcg.io (lo que devuelve `deriveAvailableFinishes(c)`), persistida
+  // para SOBREVIVIR a un 502 de la fuente. La escribe `catalog-sync.upsertCards` con la semántica
+  // null de §4.22a-4 (null ⇒ conserva; CREATE ⇒ derived ?? ['normal']). Backfill M-27: = availableFinishes.
+  catalogFinishes        Finish[] @default([])
+  // v1.22-1 (M-27, §4.22g) — INTERNA. Señal C = acabados que PPT reportó con market>0 para la carta,
+  // filtrados a ALIAS VERIFICADO (candado 2). La escribe `price-ingest` por REEMPLAZO por carta en
+  // una corrida EXITOSA (money-safe: no se toca ante fallo/0 filas). Alimenta la unión, NO es la
+  // lista blanca (esa es availableFinishes).
+  pricedFinishesSnapshot Finish[] @default([])
   // v1.22-variantes-orden (M-26, §4.22b): claves DERIVADAS de `number` (String) para el ORDEN
   // NATURAL en BD. `number` sigue siendo la fuente de verdad; si divergen, se recalculan de él.
   // Puro numérico → numberSort = entero (clamp 999_999) y numberPrefix = ''. Con prefijo

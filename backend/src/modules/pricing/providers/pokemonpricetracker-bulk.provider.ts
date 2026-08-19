@@ -6,6 +6,7 @@ import {
   BulkPriceResult,
   BulkPriceRow,
   normalizeFinishAlias,
+  normalizeVerifiedFinishAlias,
 } from '../pricing.types';
 
 /**
@@ -215,7 +216,11 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
 
     skipped += drops.notObject + drops.foreignSet + drops.noFinish + drops.noMarket;
     this.logSummary({ setExternalId, requestOk, fetchedRaw, mapped: rows.length, drops, sample, format });
-    return { rows, fetchedRaw, skipped };
+    // v1.22-1 (§4.22g): `requestOk` gobierna el REEMPLAZO money-safe de `pricedFinishesSnapshot` en
+    // `price-ingest`. Es `false` si NINGUNA página respondió (fallo total / sin key) → los snapshots
+    // NO se tocan (no se destruye evidencia por un fallo transitorio). El modo sample-only devuelve
+    // `requestOk:true` pero `rows: []`, y el gate `requestOk && rows>0` igual lo excluye.
+    return { rows, fetchedRaw, skipped, requestOk };
   }
 
   /**
@@ -386,7 +391,19 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
         drops.noMarket += 1;
         return;
       }
-      added.push({ externalId, setExternalId, number, finish, marketCents, currency: format.currency });
+      // v1.22-1 (§4.22g candado 2): el PRECIO usa el alias tolerante (`normalizeFinishAlias`); la
+      // aptitud para la LISTA BLANCA usa el alias VERIFICADO (espejo estricto de TCG_KEY_TO_FINISH).
+      // Un `foil` SUPUESTO persiste su PriceReference pero NO entra a `pricedFinishesSnapshot`.
+      const finishAliasVerified = normalizeVerifiedFinishAlias(rawFinish) !== null;
+      added.push({
+        externalId,
+        setExternalId,
+        number,
+        finish,
+        marketCents,
+        currency: format.currency,
+        finishAliasVerified,
+      });
     };
 
     // (A) / (C): colecciones de precios por acabado dentro de la entrada.

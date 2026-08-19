@@ -34,12 +34,14 @@ export class PokemonTcgIoBulkProvider implements BulkPriceProvider {
     const rows: BulkPriceRow[] = [];
     let fetchedRaw = 0;
     let skipped = 0;
+    let requestOk = false;
 
     let page = 1;
     let totalPages = 1;
     try {
       do {
         const res = await this.client.getCardsBySet(setExternalId, page);
+        requestOk = true;
         const cards = res.data ?? [];
         fetchedRaw += cards.length;
         for (const c of cards) {
@@ -62,7 +64,10 @@ export class PokemonTcgIoBulkProvider implements BulkPriceProvider {
           `Se devuelven ${rows.length} filas acumuladas (precios previos quedan STALE, no se borran).`,
       );
     }
-    return { rows, fetchedRaw, skipped };
+    // v1.22-1 (§4.22g): esta fuente deriva el acabado SOLO de las llaves REALES de tcgplayer.prices
+    // (`TCG_KEY_TO_FINISH`), que son exactamente los alias VERIFICADOS → `finishAliasVerified` de sus
+    // filas es siempre `true` (ver `mapCard`). `requestOk` habilita el reemplazo de snapshots.
+    return { rows, fetchedRaw, skipped, requestOk };
   }
 
   /** Extrae una fila por acabado con `market > 0`; cuenta las llaves omitidas. */
@@ -86,6 +91,9 @@ export class PokemonTcgIoBulkProvider implements BulkPriceProvider {
         finish,
         marketCents: Math.round(market * 100),
         currency: 'USD',
+        // El acabado vino de una llave REAL de tcgplayer.prices (TCG_KEY_TO_FINISH) = alias
+        // VERIFICADO por construcción (§4.22g candado 2): apto para la lista blanca.
+        finishAliasVerified: true,
       });
     }
     return { added, dropped };

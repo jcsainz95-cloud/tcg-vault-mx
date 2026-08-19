@@ -143,12 +143,27 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   const cardIds: Record<string, string> = {};
   const seedCards = async (
     setId: string,
-    cards: readonly { externalId: string; name: string; number: string; rarity: string; availableFinishes: readonly Finish[] }[],
+    cards: readonly {
+      externalId: string;
+      name: string;
+      number: string;
+      rarity: string;
+      availableFinishes: readonly Finish[];
+      // v1.22-1 (§4.22g/§4.22h): columnas de ENTRADA. Si no se declaran, ruta CATÁLOGO
+      // (`catalogFinishes = availableFinishes`, snapshot vacío).
+      catalogFinishes?: readonly Finish[];
+      pricedFinishesSnapshot?: readonly Finish[];
+    }[],
   ) => {
     for (const c of cards) {
       // §4.22e — `availableFinishes` EXPLÍCITO (nunca el @default del schema) y en orden canónico
       // FINISH_ORDER; `numberSort`/`numberPrefix` (M-26) con la MISMA función que usa el sync.
       const parts = deriveNumberParts(c.number);
+      // v1.22-1 (§4.22g): las DOS columnas de entrada COHERENTES con `availableFinishes`. Sin
+      // declarar ⇒ ruta catálogo (catalog = available, snapshot = []); `reverse` declara la ruta
+      // PPT-only (catalog=['normal'], snapshot=['reverse_holo']) para ejercitar el rescate (§4.22h).
+      const catalogFinishes = [...(c.catalogFinishes ?? c.availableFinishes)];
+      const pricedFinishesSnapshot = [...(c.pricedFinishesSnapshot ?? [])];
       const card = await prisma.card.upsert({
         where: { externalId: c.externalId },
         create: {
@@ -164,6 +179,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
           imageSmallUrl: `https://img.e2e.local/${c.externalId}.png`,
           imageLargeUrl: `https://img.e2e.local/${c.externalId}_hires.png`,
           availableFinishes: [...c.availableFinishes],
+          catalogFinishes,
+          pricedFinishesSnapshot,
         },
         // Idempotencia (E2E-1): una 2ª corrida sobre una BD vieja debe CORREGIR las variantes y las
         // claves de orden, no dejarlas como estaban (si no, el bug del PO sobreviviría al re-seed).
@@ -172,6 +189,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
           numberSort: parts.numberSort,
           numberPrefix: parts.prefix,
           availableFinishes: [...c.availableFinishes],
+          catalogFinishes,
+          pricedFinishesSnapshot,
         },
       });
       cardIds[c.externalId] = card.id;

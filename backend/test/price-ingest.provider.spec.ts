@@ -65,12 +65,15 @@ describe('PokemonTcgIoBulkProvider (legacy) — extrae precios por acabado de tc
     expect(res.rows).toHaveLength(2);
     expect(res.rows).toEqual(
       expect.arrayContaining([
-        { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 150, currency: 'USD' },
-        { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'holofoil', marketCents: 1000, currency: 'USD' },
+        // v1.22-1: acabados de llaves REALES de tcgplayer.prices → finishAliasVerified true.
+        { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 150, currency: 'USD', finishAliasVerified: true },
+        { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'holofoil', marketCents: 1000, currency: 'USD', finishAliasVerified: true },
       ]),
     );
     // reverse (market 0) y unlimited (no mapeada) contaron como omitidas.
     expect(res.skipped).toBe(2);
+    // v1.22-1 (§4.22g): corrida exitosa → requestOk true (habilita el reemplazo de snapshots).
+    expect(res.requestOk).toBe(true);
     // Todas las filas son USD (TCGPlayer Market) → el ingest aplicará FX.
     expect(res.rows.every((r) => r.currency === 'USD')).toBe(true);
   });
@@ -149,8 +152,8 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
 
     expect(res.rows).toEqual(
       expect.arrayContaining([
-        { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 150, currency: 'USD' },
-        { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'reverse_holo', marketCents: 200, currency: 'USD' },
+        { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 150, currency: 'USD', finishAliasVerified: true },
+        { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'reverse_holo', marketCents: 200, currency: 'USD', finishAliasVerified: true },
       ]),
     );
     expect(res.rows).toHaveLength(2);
@@ -168,7 +171,7 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
     const provider = new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_cents'));
     const res = await provider.fetchPricesForSet({ set: SET });
     expect(res.rows).toEqual([
-      { externalId: 'sv8-2', setExternalId: 'sv8', number: '2', finish: 'normal', marketCents: 1500, currency: 'USD' },
+      { externalId: 'sv8-2', setExternalId: 'sv8', number: '2', finish: 'normal', marketCents: 1500, currency: 'USD', finishAliasVerified: true },
     ]);
   });
 
@@ -184,7 +187,10 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
     const res = await provider.fetchPricesForSet({ set: SET });
 
     expect(res.rows).toEqual([
-      { externalId: 'sv8-3', setExternalId: 'sv8', number: '3', finish: 'reverse_holo', marketCents: 1234, currency: 'MXN' },
+      // v1.22-1 (§4.22g candado 2): `variant: 'Reverse Holo'` es un alias SUPUESTO (no el REAL
+      // `reverseHolofoil`) → el PRECIO se persiste (finish reverse_holo) pero finishAliasVerified es
+      // FALSE ⇒ NO alimentará `pricedFinishesSnapshot` ni la lista blanca (anti-invención).
+      { externalId: 'sv8-3', setExternalId: 'sv8', number: '3', finish: 'reverse_holo', marketCents: 1234, currency: 'MXN', finishAliasVerified: false },
     ]);
     expect(res.skipped).toBe(1);
   });
@@ -289,6 +295,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices
         finish: 'normal',
         marketCents: 1234,
         currency: 'USD',
+        finishAliasVerified: true,
       },
     ]);
   });
@@ -406,7 +413,8 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices
     global.fetch = spy as unknown as typeof fetch;
 
     const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
-    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0 });
+    // v1.22-1 (§4.22g): fallo total → requestOk FALSE ⇒ price-ingest NO tocará ningún snapshot.
+    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false });
     expect(spy).toHaveBeenCalledTimes(2); // probó ambas rutas candidatas antes de rendirse
   });
 

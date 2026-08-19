@@ -130,6 +130,8 @@ async function main() {
   // schema) y `numberSort`/`numberPrefix` (M-26) con la MISMA función que usa el sync de catálogo.
   // Charizard base1-4 es Rare Holo pura del Base Set original (sin reverse holo/normal real para
   // esta rareza en esa impresión): UNA sola casilla, nunca relleno.
+  // v1.22-1 (§4.22g): se siembran también las DOS columnas de ENTRADA coherentes. Charizard es RUTA
+  // CATÁLOGO puro (catalogFinishes=['holofoil'], snapshot vacío ⇒ availableFinishes=['holofoil']).
   const charizardParts = deriveNumberParts('4');
   await prisma.card.upsert({
     where: { externalId: 'base1-4' },
@@ -146,11 +148,48 @@ async function main() {
       imageSmallUrl: 'https://images.pokemontcg.io/base1/4.png',
       imageLargeUrl: 'https://images.pokemontcg.io/base1/4_hires.png',
       availableFinishes: ['holofoil'],
+      catalogFinishes: ['holofoil'],
+      pricedFinishesSnapshot: [],
     },
     update: {
       numberSort: charizardParts.numberSort,
       numberPrefix: charizardParts.prefix,
       availableFinishes: ['holofoil'],
+      catalogFinishes: ['holofoil'],
+      pricedFinishesSnapshot: [],
+    },
+  });
+
+  // v1.22-1 (§4.22g/§4.22h) — carta de demostración del RESCATE por PPT (el caso del PO con
+  // pokemontcg.io caído): el catálogo solo conoce `normal` (`catalogFinishes=['normal']`) pero PPT
+  // reportó reverse holo con market>0 y alias VERIFICADO (`pricedFinishesSnapshot=['reverse_holo']`)
+  // ⇒ la unión DERIVADA da `availableFinishes=['normal','reverse_holo']` (DOS casillas), sostenida
+  // SOLO por la Señal C. Prueba en el seed de desarrollo que la ruta de la unión funciona.
+  const pidgeyParts = deriveNumberParts('16');
+  await prisma.card.upsert({
+    where: { externalId: 'base1-16' },
+    create: {
+      externalId: 'base1-16',
+      setId: set.id,
+      name: 'Pidgey',
+      number: '16',
+      numberSort: pidgeyParts.numberSort,
+      numberPrefix: pidgeyParts.prefix,
+      rarity: 'Common',
+      supertype: 'Pokémon',
+      subtypes: ['Basic'],
+      imageSmallUrl: 'https://images.pokemontcg.io/base1/16.png',
+      imageLargeUrl: 'https://images.pokemontcg.io/base1/16_hires.png',
+      availableFinishes: ['normal', 'reverse_holo'],
+      catalogFinishes: ['normal'],
+      pricedFinishesSnapshot: ['reverse_holo'],
+    },
+    update: {
+      numberSort: pidgeyParts.numberSort,
+      numberPrefix: pidgeyParts.prefix,
+      availableFinishes: ['normal', 'reverse_holo'],
+      catalogFinishes: ['normal'],
+      pricedFinishesSnapshot: ['reverse_holo'],
     },
   });
 

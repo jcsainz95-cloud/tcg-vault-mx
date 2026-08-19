@@ -146,6 +146,14 @@ export interface BulkPriceRow {
   marketCents: number;
   /** moneda de ORIGEN del market (defensivo; se verifica en la 1ª corrida, §4.15h). */
   currency: 'USD' | 'MXN';
+  /**
+   * v1.22-1 (§4.22g candado 2) — ¿el acabado se mapeó vía un ALIAS VERIFICADO
+   * (`VERIFIED_FINISH_ALIASES`, espejo estricto de `TCG_KEY_TO_FINISH`) y NO uno SUPUESTO?
+   * SOLO las filas con `finishAliasVerified === true` pueden alimentar `pricedFinishesSnapshot`
+   * (Señal C) y por ende la lista blanca SEC-A1. El PRECIO se persiste igual con alias SUPUESTO
+   * (dato inocuo); el flag distingue lo apto para la lista blanca de lo tolerado solo para el precio.
+   */
+  finishAliasVerified: boolean;
 }
 
 export interface BulkPriceResult {
@@ -155,6 +163,14 @@ export interface BulkPriceResult {
   fetchedRaw: number;
   /** Entradas OMITIDAS por el mapeo defensivo del adapter (money-safe). */
   skipped: number;
+  /**
+   * v1.22-1 (§4.22g) — ¿la CORRIDA fue EXITOSA (al menos una página del proveedor respondió OK)?
+   * Gobierna el REEMPLAZO money-safe de `pricedFinishesSnapshot`: solo se tocan snapshots si
+   * `requestOk && rows.length > 0`. Ante fallo total (ninguna página OK), 0 filas o modo
+   * sample-only, NO se toca ningún snapshot (mismo criterio con que hoy no se borran precios ante
+   * un fallo transitorio). Opcional por compat con stubs previos: `undefined` se trata como fallo.
+   */
+  requestOk?: boolean;
 }
 
 /**
@@ -199,6 +215,39 @@ export function normalizeFinishAlias(raw: unknown): Finish | null {
   if (typeof raw !== 'string') return null;
   const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
   return BULK_VARIANT_TO_FINISH[key] ?? null;
+}
+
+/**
+ * v1.22-1 (ARCHITECTURE §4.22g, candado 2) — ESPEJO ESTRICTO de `TCG_KEY_TO_FINISH` (las llaves
+ * REALES de `tcgplayer.prices`), SIN los alias marcados SUPUESTO de `BULK_VARIANT_TO_FINISH`
+ * (`foil`, `holo`, `reverse`, `reverseholo`, `firsteditionholo…`). Las llaves están normalizadas
+ * igual que `normalizeFinishAlias` (minúsculas, sin no-alfanuméricos) para tolerar
+ * `"Reverse Holo"`, `"reverseHolofoil"`, `"reverse_holofoil"`, etc.
+ *
+ * SOLO estos alias VERIFICADOS pueden alimentar `pricedFinishesSnapshot` (Señal C) y por tanto la
+ * lista blanca SEC-A1 `Card.availableFinishes`. Un `foil` SUPUESTO mal mapeado NO grabará un
+ * `holofoil` inexistente permanente en la lista blanca (candado anti-invención). Cuando la 1ª
+ * corrida CONFIRME un alias SUPUESTO (S-C2), se PROMUEVE aquí; hasta entonces solo alimenta el
+ * precio (`PriceReference`), nunca la lista blanca.
+ */
+export const VERIFIED_FINISH_ALIASES: Record<string, Finish> = {
+  normal: 'normal',
+  holofoil: 'holofoil',
+  reverseholofoil: 'reverse_holo',
+  '1steditionholofoil': 'first_edition_holofoil',
+};
+
+/**
+ * v1.22-1 (§4.22g candado 2/3) — Normaliza un `printing`/variante CRUDO del proveedor SOLO si es un
+ * ALIAS VERIFICADO; devuelve `null` para cualquier alias SUPUESTO o desconocido (anti-invención:
+ * NUNCA se atribuye a `normal`, jamás pinta una casilla de relleno). Es MÁS estricto que
+ * `normalizeFinishAlias` (que sigue tolerante para el PRECIO). El llamador fija
+ * `finishAliasVerified = normalizeVerifiedFinishAlias(raw) !== null`.
+ */
+export function normalizeVerifiedFinishAlias(raw: unknown): Finish | null {
+  if (typeof raw !== 'string') return null;
+  const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return VERIFIED_FINISH_ALIASES[key] ?? null;
 }
 
 /**

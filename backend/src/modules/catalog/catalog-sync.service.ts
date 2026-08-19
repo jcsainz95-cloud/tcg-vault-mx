@@ -7,6 +7,7 @@ import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.c
 import { yearFromReleaseDate } from './catalog.service';
 import { deriveAvailableFinishes } from '../pricing/pricing.types';
 import { deriveNumberParts } from '../../common/card-order';
+import { FinishReconciler } from './finish-reconciler.service';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -36,6 +37,9 @@ export class CatalogSyncService {
     private readonly prisma: PrismaService,
     private readonly client: PokemonTcgIoClient,
     private readonly settings: SettingsService,
+    // v1.22-1 (§4.22g): `upsertCards` escribe `catalogFinishes` y DELEGA la escritura de
+    // `availableFinishes` al ÚNICO escritor (FinishReconciler); ya no la escribe inline.
+    private readonly finishReconciler: FinishReconciler,
   ) {}
 
   /**
@@ -340,13 +344,16 @@ export class CatalogSyncService {
    * requeridos ausentes se manejan con gracia (`number` → ''), y una carta sin `id`/`name` (no
    * persistible) se omite con log en vez de reventar el barrido.
    *
-   * v1.22-variantes-orden (§4.22a) — **AUTORIDAD ÚNICA de `Card.availableFinishes`**. `price-ingest`
-   * ya NO escribe esa columna (§4.15e DEROGADA): la ausencia de un PRECIO no prueba la inexistencia
-   * de una impresión. Aquí se deriva de DOS señales del payload remoto (`tcgplayer.prices` por
-   * LLAVE PRESENTE ∪ `cardmarket.prices.reverseHolo*` por VALOR > 0) y:
+   * v1.22-1 (§4.22g) — **AUTORIDAD de `Card.catalogFinishes`** (la «opinión del catálogo»), NO ya de
+   * `availableFinishes` directamente. Esta última pasó a ser una columna DERIVADA cuyo ÚNICO escritor
+   * es `FinishReconciler`. Aquí se deriva `catalogFinishes` de DOS señales del payload remoto
+   * (`tcgplayer.prices` por LLAVE PRESENTE ∪ `cardmarket.prices.reverseHolo*` por VALOR > 0) con la
+   * MISMA semántica null de §4.22a-4:
    *   - CREATE → `derived ?? ['normal']` (conservador: UNA casilla, jamás relleno);
-   *   - UPDATE → la clave se incluye SOLO si `derived !== null`; sin señal se OMITE y se CONSERVA
-   *     lo previo (un payload degradado no puede volver a clobbear a `['normal']`).
+   *   - UPDATE → la clave `catalogFinishes` se incluye SOLO si `derived !== null`; sin señal se OMITE
+   *     y se CONSERVA lo previo (un payload/502 degradado no puede volver a clobbear a `['normal']`).
+   * Tras el lote, LLAMA a `FinishReconciler.reconcile(cardIds)` para que recompute `availableFinishes`
+   * = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` de las cartas tocadas.
    * Además puebla las claves de ORDEN NATURAL `numberSort`/`numberPrefix` (M-26, §4.22b) con
    * `deriveNumberParts` — la MISMA función que espeja el backfill SQL. Ya NO se puebla
    * `PriceReference` (WS-A §4.15g: este sync es SOLO metadata).
@@ -356,6 +363,7 @@ export class CatalogSyncService {
     // §4.22a-5 — observabilidad en vez de adivinanza: cuántas cartas del lote no trajeron NINGUNA
     // señal de acabado. No se rellena nada; la carencia se hace VISIBLE en el log del sync.
     let noFinishSignal = 0;
+    const touchedCardIds: string[] = [];
     for (const c of cards) {
       if (!c?.id || !c?.name) {
         this.logger.warn(
@@ -382,13 +390,15 @@ export class CatalogSyncService {
         imageLargeUrl: c.images?.large ?? null,
       };
       try {
-        await this.prisma.card.upsert({
+        const upserted = await this.prisma.card.upsert({
           where: { externalId: c.id },
-          // CREATE: sin señal → ['normal'] (una casilla, nunca relleno).
-          create: { externalId: c.id, ...data, availableFinishes: derived ?? ['normal'] },
-          // UPDATE: sin señal → se OMITE la clave y se conserva el valor previo (§4.22a-4).
-          update: derived === null ? data : { ...data, availableFinishes: derived },
+          // CREATE: sin señal → catalogFinishes ['normal'] (una casilla, nunca relleno).
+          create: { externalId: c.id, ...data, catalogFinishes: derived ?? ['normal'] },
+          // UPDATE: sin señal → se OMITE la clave `catalogFinishes` y se conserva lo previo (§4.22a-4).
+          update: derived === null ? data : { ...data, catalogFinishes: derived },
+          select: { id: true },
         });
+        touchedCardIds.push(upserted.id);
         count += 1;
       } catch (e) {
         // Una carta mala NO tira el set: se omite y se sigue (importación parcial > 1 carta).
@@ -397,11 +407,14 @@ export class CatalogSyncService {
         );
       }
     }
+    // §4.22g candado 4: `availableFinishes` la escribe SOLO el reconciliador, a partir de las dos
+    // columnas de entrada (`catalogFinishes` recién escrita ∪ `pricedFinishesSnapshot` que dejó PPT).
+    await this.finishReconciler.reconcile(touchedCardIds);
     if (noFinishSignal > 0) {
       this.logger.warn(
         `sync: cardsWithoutFinishSignal=${noFinishSignal}/${cards.length} en el lote del set ` +
           `${localSetId} — payload sin tcgplayer.prices ni cardmarket.reverseHolo* (§4.22a-5). ` +
-          `NO se sobrescribió availableFinishes de esas cartas.`,
+          `NO se sobrescribió catalogFinishes de esas cartas (se conservó lo previo).`,
       );
     }
     return count;
