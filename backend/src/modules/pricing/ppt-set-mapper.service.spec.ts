@@ -5,6 +5,7 @@ import {
   matchSet,
   normalizeSetName,
   pptSetIdOf,
+  setNameCandidates,
 } from './ppt-set-mapper.service';
 import { PptApiClient, PptDailyLimitError } from './providers/ppt-api.client';
 
@@ -38,6 +39,12 @@ describe('pure helpers', () => {
     expect(extractRemoteSets([{ name: 'B' }])).toHaveLength(1);
     expect(extractRemoteSets({ nope: 1 })).toEqual([]);
   });
+
+  it('setNameCandidates incluye el nombre con y sin el prefijo de código de PPT', () => {
+    expect(setNameCandidates('ME05: Pitch Black')).toEqual(['me05pitchblack', 'pitchblack']);
+    expect(setNameCandidates('ME: 30th Celebration')).toEqual(['me30thcelebration', '30thcelebration']);
+    expect(setNameCandidates('Surging Sparks')).toEqual(['surgingsparks']); // sin prefijo → un solo candidato
+  });
 });
 
 describe('matchSet — money-safe', () => {
@@ -59,6 +66,20 @@ describe('matchSet — money-safe', () => {
   it('sin match → null; homónimo sin desempate por año → null (no adivina)', () => {
     expect(matchSet(localSet({ name: 'Inexistente' }), remote)).toBeNull();
     expect(matchSet(localSet({ name: 'Base Set', releaseDate: null }), remote)).toBeNull();
+  });
+
+  it('empata aunque PPT prefije el nombre con su código de colección (bug prod: 0 precios)', () => {
+    const remotePrefixed = [
+      { tcgPlayerNumericId: 24688, name: 'ME05: Pitch Black', releaseDate: '2026/07/17' },
+      { tcgPlayerNumericId: 24722, name: 'ME: 30th Celebration', releaseDate: '2026/06/16' },
+    ];
+    // El catálogo local (pokemontcg.io) lo llama "Pitch Black" sin el prefijo "ME05:".
+    expect(matchSet(localSet({ name: 'Pitch Black', releaseDate: '2026/07/17' }), remotePrefixed)).toBe(
+      '24688',
+    );
+    expect(
+      matchSet(localSet({ name: '30th Celebration', releaseDate: '2026/06/16' }), remotePrefixed),
+    ).toBe('24722');
   });
 });
 
