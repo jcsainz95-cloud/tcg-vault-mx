@@ -228,6 +228,7 @@
       "recipientName": "Nombre de quien recibe",
       "phoneHelp": "Solo lo usa la paquetería para entregar.",
       "errorSummary": "Revisa {count, plural, one {# campo} other {# campos}}.",
+      "formIncomplete": "Revisa los datos marcados arriba (por ejemplo el teléfono) para poder pagar.",
       "acceptTerms": "Acepto los términos y el aviso de privacidad, y entiendo que todas las ventas son finales.",
       "acceptTermsRequired": "Para pagar, acepta los términos.",
       "email": {

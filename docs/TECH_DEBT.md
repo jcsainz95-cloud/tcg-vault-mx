@@ -1279,15 +1279,14 @@
 - **Impacto:** bajo. No bloqueante; posible inconsistencia si uno de los dos cambia y el otro no.
 - **Disparador:** al pulir la vista de buylist. Acción: **consolidar en un solo punto de CTA sin sesión**.
 
-### FE-9 · `SyncProgress` usa `role="status"` en vez de `role="progressbar"`
+### FE-9 · `SyncProgress` usa `role="status"` en vez de `role="progressbar"` — RESUELTO (2026-08-19)
 - **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` (componente `SyncProgress`).
-- **Estado actual:** la barra de progreso del barrido M2 se anuncia con `role="status"` y una alternativa
-  textual (`done/total` en el label) → **aceptable** en a11y. Un `role="progressbar"` **semántico** con
-  `aria-valuenow`/`aria-valuemax`/`aria-valuemin` sería más correcto; además el `aria-live="polite"` anuncia
-  cada ~3s (algo verboso).
-- **Impacto:** bajo. Nota menor de accesibilidad; hay alternativa textual válida, sin bloqueo funcional.
-- **Disparador:** pulido de a11y. Acción: migrar a `progressbar` con los `aria-value*` y moderar la
-  frecuencia/nivel del `aria-live`.
+- **Estado:** **RESUELTO** (solo el componente `SyncProgress`; sin cambio de contrato ni de lógica de sync).
+- **Fix:** la barra ahora expone `role="progressbar"` con `aria-valuemin/max/now` + `aria-valuetext`
+  sobre el elemento de la barra, y se retiró el `role="status"`/`aria-live` del contenedor que
+  re-anunciaba el bloque completo cada ~3 s. El lector de pantalla anuncia el cambio de `aria-valuenow`
+  de forma nativa y menos verbosa. No hay tests que dependieran del `role="status"` y `SyncProgress` no
+  se usa fuera de M2. Deja el componente listo para reutilizarse en la barra de precios (N-11).
 
 ### FE-10 · Barra "completada" persiste tras terminar el barrido (hallazgo QA, par de BE-11)
 - **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` — condición de render `running || total>0`.

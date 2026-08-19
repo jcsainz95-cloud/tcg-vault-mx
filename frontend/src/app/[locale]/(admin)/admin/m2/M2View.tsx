@@ -85,20 +85,28 @@ function SyncProgress({
   labels: { running: string; runningHint: string; done: string };
 }) {
   const pct = total > 0 ? Math.min(100, Math.round((Math.min(done, total) / total) * 100)) : 0;
+  const value = running ? pct : 100;
   return (
-    <div
-      className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4"
-      role="status"
-      aria-live="polite"
-    >
+    // FE-9: semántica de progreso REAL (`role="progressbar"` con `aria-value*`) en la propia
+    // barra, en vez de un `role="status"` verboso que re-anunciaba el bloque completo cada ~3 s.
+    // El lector de pantalla anuncia el cambio de `aria-valuenow` de forma nativa y moderada.
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4">
       <div className="flex items-center justify-between text-sm">
         <span className="font-medium">{running ? labels.running : labels.done}</span>
         {running && <span className="tabular text-muted">{pct}%</span>}
       </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-border" aria-hidden>
+      <div
+        className="h-2 w-full overflow-hidden rounded-full bg-border"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={value}
+        aria-valuetext={running ? `${labels.running} ${pct}%` : labels.done}
+        aria-label={running ? labels.running : labels.done}
+      >
         <div
           className={`h-full rounded-full transition-all ${running ? 'bg-accent' : 'bg-success'}`}
-          style={{ width: `${running ? pct : 100}%` }}
+          style={{ width: `${value}%` }}
         />
       </div>
       {running && <p className="text-xs text-muted">{labels.runningHint}</p>}

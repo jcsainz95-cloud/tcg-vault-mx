@@ -81,6 +81,19 @@ export const EMPTY_GUEST_ADDRESS: GuestAddressInput = {
 };
 
 /**
+ * N-3: normaliza un teléfono MX a sus 10 dígitos nacionales. Acepta lo que la gente
+ * teclea de verdad — `55 4017 0606`, `(55) 4017-0606`, `+52 55 4017 0606`,
+ * `+521 55...` — quitando separadores y la lada de país 52/521. Antes solo pasaba si
+ * quedaban EXACTAMENTE 10 dígitos, así que `+525540170606` (12) reventaba en silencio.
+ */
+export function normalizeMxPhone(raw: string): string {
+  let d = raw.replace(/\D/g, '');
+  if (d.length === 12 && d.startsWith('52')) d = d.slice(2); // +52 55...
+  else if (d.length === 13 && d.startsWith('521')) d = d.slice(3); // +521 55... (móvil legacy)
+  return d;
+}
+
+/**
  * Valida el formulario completo. `postalCode` = ^\d{5}$ y `phone` = 10 dígitos MX,
  * exactamente como el `GuestAddressInput` del contrato §4-G.1 (que exige además
  * `recipientName`, porque un invitado no tiene `User.name`).
@@ -98,7 +111,7 @@ export function validateGuestForm(state: GuestFormState): GuestErrors {
   if (!a.city.trim()) errors.city = 'required';
   if (!a.state.trim()) errors.state = 'required';
   if (!/^\d{5}$/.test(a.postalCode.trim())) errors.postalCode = 'invalid';
-  if (!/^\d{10}$/.test(a.phone.replace(/\D/g, ''))) errors.phone = 'invalid';
+  if (!/^\d{10}$/.test(normalizeMxPhone(a.phone))) errors.phone = 'invalid';
 
   if (!state.acceptedTerms) errors.terms = 'required';
   return errors;
@@ -115,7 +128,7 @@ export function toAddressPayload(address: GuestAddressInput): GuestAddressInput 
     city: address.city.trim(),
     state: address.state.trim(),
     postalCode: address.postalCode.trim(),
-    phone: address.phone.replace(/\D/g, ''),
+    phone: normalizeMxPhone(address.phone),
     country: 'MX',
   };
 }
