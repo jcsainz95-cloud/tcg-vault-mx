@@ -886,6 +886,8 @@
       "folio": "Folio",
       "status": "Estado",
       "listPrice": "Precio venta",
+      "manualPriceBadge": "Precio manual",
+      "manualPriceBadgeHint": "Precio fijado a mano; ignora las reglas de precio globales.",
       "reference": "Referencia",
       "sealedSubtype": "Subtipo de sellado",
       "conditionNm": "Condición: Near Mint (NM) fija",

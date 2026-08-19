@@ -886,6 +886,8 @@
       "folio": "Folio",
       "status": "Status",
       "listPrice": "Sale price",
+      "manualPriceBadge": "Manual price",
+      "manualPriceBadgeHint": "Manually set price; ignores global pricing rules.",
       "reference": "Reference",
       "sealedSubtype": "Sealed subtype",
       "conditionNm": "Condition: Near Mint (NM) fixed",
