@@ -56,9 +56,9 @@ export function StorefrontHeader() {
   // "Mis Órdenes" son áreas privadas y se muestran solo con sesión (authed). Como
   // `authed` depende de `ready`, en SSR/hidratación se pinta el nav público —idéntico
   // al render de servidor— y las pestañas privadas aparecen al montar la sesión.
-  const links = [
-    { href: '/catalog', label: t('shop') },
-    { href: '/sellado', label: t('sealed') },
+  const links: { href: string; label: string; match?: string[] }[] = [
+    // "Tienda" agrupa Cartas sueltas (/catalog) y Producto sellado (/sellado): activa en ambas.
+    { href: '/catalog', label: t('store'), match: ['/catalog', '/sellado'] },
     { href: '/buylist', label: t('buylist') },
     ...(authed
       ? [
@@ -87,7 +87,7 @@ export function StorefrontHeader() {
 
         <nav className="hidden items-center gap-[30px] lg:flex">
           {links.map((l) => {
-            const active = pathname.startsWith(l.href);
+            const active = (l.match ?? [l.href]).some((p) => pathname.startsWith(p));
             return (
               <Link
                 key={l.href}

@@ -32,6 +32,7 @@
   "nav": {
     "catalog": "Shop",
     "shop": "Shop",
+    "store": "Store",
     "buylist": "Sell",
     "vault": "My vault",
     "orders": "My orders",
@@ -45,6 +46,11 @@
     "menu": "Menu",
     "terms": "Terms & policy",
     "sealed": "Sealed"
+  },
+  "storeTabs": {
+    "label": "Store",
+    "singles": "Single cards",
+    "sealed": "Sealed product"
   },
   "home": {
     "heroTitle": "Buy Pokémon cards at real prices and keep them in the vault",

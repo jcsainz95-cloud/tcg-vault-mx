@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
+import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getCatalog, getCatalogFacets, type CatalogFilters, type CatalogSort } from '@/lib/api';
 import type { ListingDTO } from '@/types/contract';
 import { useCart } from '@/lib/cart';
@@ -77,6 +78,7 @@ export function CatalogView() {
 
   return (
     <div>
+      <StoreTabs />
       {/* Encabezado: el título en mincho manda; el orden se alinea a la línea base. */}
       <div className="gutter flex flex-col gap-6 pb-6 pt-10 sm:flex-row sm:items-end sm:justify-between lg:pt-[46px]">
         <div>

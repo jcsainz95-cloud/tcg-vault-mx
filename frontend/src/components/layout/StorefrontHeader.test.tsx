@@ -80,9 +80,10 @@ describe('StorefrontHeader — sesión', () => {
     expect(vender).toHaveAttribute('href', '/buylist');
   });
 
-  it('sin sesión el nav público solo muestra Compra y Vender (oculta bóveda y órdenes)', () => {
+  it('sin sesión el nav público solo muestra Tienda y Vender (oculta bóveda y órdenes)', () => {
     renderWithIntl(<StorefrontHeader />, 'es');
-    expect(screen.getByRole('link', { name: 'Compra' })).toHaveAttribute('href', '/catalog');
+    // "Tienda" agrupa Cartas sueltas + Producto sellado; apunta a /catalog por default.
+    expect(screen.getByRole('link', { name: 'Tienda' })).toHaveAttribute('href', '/catalog');
     expect(screen.getByRole('link', { name: 'Vender' })).toHaveAttribute('href', '/buylist');
     // Áreas privadas: no visibles para el público (P-13).
     expect(screen.queryByRole('link', { name: 'Mi bóveda' })).not.toBeInTheDocument();

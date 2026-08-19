@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
+import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getSealedGroups, type SealedFilters, type SealedSort } from '@/lib/api';
 import type { SealedCondition, SealedGroupDTO, SealedSubtype } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -52,6 +53,7 @@ export function SealedShopView() {
 
   return (
     <div>
+      <StoreTabs />
       {/* Encabezado editorial: título en mincho + subtítulo. */}
       <div className="gutter flex flex-col gap-3 pb-6 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
