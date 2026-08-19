@@ -4,6 +4,15 @@
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
 > Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-19 (rev v1.23-sealed-sales).
 >
+> **Changelog v1.21.4-dual-breakdown (2026-08-19, rama `claude/pulido-checkout`, N-12) — WS «Pulido checkout invitado».
+> TODO ADITIVO: ningún endpoint/DTO existente cambia de forma.** `POST /checkout/guest/quote` (§4-G.1) gana
+> `vaultBreakdown: BreakdownDTO` (SIN `shippingFeeCents`, **siempre presente** en el `200`, incluido el carrito 100 %
+> podado con subtotal 0), ADEMÁS del `breakdown` de envío directo que NO cambia. Permite al front conmutar el resumen
+> «recibir ⇄ bóveda» **al instante** sin refetch por toggle. `vaultBreakdown` = `computeCartBreakdown(subtotal, ivaRatePct,
+> fee)` (IVA solo sobre cartas, gross-up sobre la base menor, sin envío); DEBE venir del backend porque el gross-up de
+> Stripe (`StripeFeeConfig` fija+pct) no se expone al cliente y no es invertible. Zona compartida a serializar:
+> `frontend/src/types/contract.ts` (tipo espejo). Solo afecta el quote; `/checkout/guest/session` sigue con un `breakdown`.
+>
 > **Changelog v1.23-sealed-sales (2026-08-19, rama `claude/sellado-producto-cerrado`) — WS «Sellado / Producto cerrado».
 > TODO ADITIVO: ningún endpoint/DTO existente cambia de forma; se AÑADEN endpoints y campos. Cambia una REGLA de precio
 > (el sellado deja de ser precio-manual-único y pasa a `override > mercado×spread > PRICE_PENDING`). Ver ARCHITECTURE §4.23.**
@@ -1048,6 +1057,13 @@ BulkPublishResponse = { summary: { requested: number, published: number, failedL
 // como línea aparte y NO restarla del subtotal.
 BreakdownDTO = { subtotalCents, ivaCents, ivaRatePct, processingFeeCents, totalCents, currency: "MXN",
                  shippingFeeCents?: number }
+// v1.21.4-dual-breakdown (§4-G.1, N-12) — el QUOTE de invitado (`POST /checkout/guest/quote`) devuelve DOS
+// desgloses en el mismo `200`: `breakdown` (CON `shippingFeeCents` = envío directo, lo que se cobra) y
+// `vaultBreakdown` (SIN `shippingFeeCents` = destino bóveda, informativo/reactivo). `vaultBreakdown` es
+// EXACTAMENTE computeCartBreakdown(subtotal, ivaRatePct, fee): IVA solo sobre cartas, gross-up sobre la base
+// menor, sin línea de envío. Ambos usan el MISMO subtotalCents (Σ cartas válidas tras dedupe+poda). Es SOLO
+// del quote: `POST /checkout/guest/session` (§4-G.2) sigue devolviendo UN solo `breakdown` (direct_ship, lo
+// que se cobra), porque el invitado solo puede PAGAR envío directo (bóveda → 422 VAULT_REQUIRES_ACCOUNT).
 // v1.21.3-quote-prune — ítem de carrito podado por los DOS endpoints de QUOTE (§4 y §4-G.1). SOLO quote:
 // los endpoints de session NO lo usan (siguen estrictos). `cardName` = nombre de la carta si la pieza aún
 // existe en BD (aunque ya no esté disponible); null si el `inventoryItemId` ya no resuelve (pieza borrada).
@@ -1552,12 +1568,15 @@ GuestCheckoutQuoteRequest = { inventoryItemIds: string[], shippingAddress?: Gues
 se cotiza igual y la validación de dirección ocurre en la sesión. `inventoryItemIds`: 1..`GUEST_MAX_ITEMS` (**20**,
 constante de servidor, §4-G.10).
 
-Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**):
+Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**; v1.21.4-dual-breakdown:
+gana `vaultBreakdown`, **siempre presente** — ver abajo):
 ```json
 { "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
   "fulfillmentMode": "direct_ship",
   "breakdown": { "subtotalCents": 25000, "shippingFeeCents": 17500, "ivaCents": 6800,
                  "ivaRatePct": 16, "processingFeeCents": 1900, "totalCents": 51200, "currency": "MXN" },
+  "vaultBreakdown": { "subtotalCents": 25000, "ivaCents": 4000,
+                      "ivaRatePct": 16, "processingFeeCents": 1400, "totalCents": 30400, "currency": "MXN" },
   "unavailableItems": [{ "inventoryItemId": "…", "cardName": "Antique Skull Fossil" }],
   "notices": { "finalSale": true, "invoiceByEmail": true, "termsRequired": true } }
 ```
@@ -1565,6 +1584,47 @@ Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**):
 > **factura CFDI manual por correo** y el enlace a términos desde su i18n (criterio 48b). El **precio de venta es el
 > mismo** que para un usuario con cuenta (mismas reglas de venta por rareza/acabado; comprar como invitado no cambia
 > condiciones comerciales).
+
+**`vaultBreakdown` — desglose reactivo del destino (v1.21.4-dual-breakdown, N-12).** El quote devuelve **DOS
+desgloses en una sola respuesta** para que la UI conmute el resumen **al instante** al alternar el radio de destino
+(«recibir en casa» ⇄ «guardar en bóveda»), **sin refetch por toggle**:
+- `breakdown` (`DirectShipBreakdownDTO`, **CON `shippingFeeCents`**) = el resumen del destino **envío directo**;
+  **no cambia** respecto de v1.21.3 (mismo shape, mismas fórmulas). Es lo que se cobra si el invitado paga sin cuenta.
+- `vaultBreakdown` (`BreakdownDTO`, **SIN `shippingFeeCents`**) = el resumen del destino **bóveda**: **la bóveda no se
+  envía**, así que **se quita la línea de envío** y el IVA/fee/total se recalculan sobre la base menor (solo cartas).
+  Es **exactamente** `computeCartBreakdown(subtotal, ivaRatePct, fee)` (`backend/src/common/money.ts`, ARCHITECTURE §5.1).
+  Fórmulas normativas (idénticas en backend y en el mock del front — el front **no las puede derivar por su cuenta**,
+  ver nota de seguridad abajo):
+  - `subtotalCents = Σ` precio de venta de las cartas válidas (el **mismo** `subtotalCents` que `breakdown`; sin envío).
+  - `ivaCents = round(subtotalCents × ivaRatePct/100)` — IVA **solo sobre cartas** (sin la línea de envío que sí grava en `breakdown`).
+  - `base = subtotalCents + ivaCents`.
+  - `totalCents = grossUp(base)` — mismo gross-up de Stripe (fija + pct, incl. IVA de la comisión) sobre la base menor.
+  - `processingFeeCents = totalCents − base`.
+  - **NO lleva** campo `shippingFeeCents` (ni `0` ni presente): su ausencia es la señal de shape de «destino bóveda».
+
+> **Por qué DOS desgloses y no un parámetro `destination`/`fulfillmentMode` en el request.** El PO pidió reactividad
+> **«al instante»**. Un parámetro de destino en el request forzaría un **round-trip por cada toggle** del radio (latencia
+> + parpadeo + carrera de respuestas fuera de orden). Devolver ambos desgloses en el mismo `200` los deja precomputados:
+> el front pinta uno u otro con un puro cambio de estado local, sin red. El costo es un segundo desglose barato
+> (aritmética pura sobre el mismo subtotal ya calculado), y el `breakdown` de envío directo **no cambia de shape**, así
+> que la respuesta es 100 % aditiva. `fulfillmentMode` en la RESPUESTA sigue siendo `"direct_ship"` (es el único destino
+> que un invitado puede **pagar**; la bóveda exige cuenta, §4-G.2 `422 VAULT_REQUIRES_ACCOUNT`). `vaultBreakdown` es
+> **solo informativo**: le permite al invitado **ver** el ahorro de no pagar envío y es el gancho del upsell de bóveda
+> (§4-G.2 / PROJECT §J), pero **elegir bóveda sigue produciendo el upsell/crear-cuenta, no un cobro**.
+>
+> **Por qué el desglose de bóveda TIENE que venir del backend (no lo puede derivar el front).** El `processingFeeCents`
+> es un **gross-up de la comisión de Stripe** cuya config (`StripeFeeConfig`: **fija + pct**, + IVA de la comisión) **nunca
+> se expone al cliente** — el front solo recibe el `BreakdownDTO` final. Con un solo `total` conocido y **dos incógnitas**
+> (fija y pct) el cálculo **no es invertible**: el front no puede «quitarle el envío» al `breakdown` de envío directo y
+> re-derivar el fee/total de bóveda. Por eso el backend computa `vaultBreakdown` con el `StripeFeeConfig` real (misma
+> `grossUpTotal`) y lo entrega ya hecho. El **mock del front** replica `computeCartBreakdown` con un `StripeFeeConfig` de
+> prueba **solo** para desarrollo offline; en runtime el desglose autoritativo es el del backend.
+
+**Poda / carrito 100 % podado — coherencia de `vaultBreakdown`:** `vaultBreakdown` se calcula sobre los **mismos ítems
+válidos** que `breakdown` (después de dedupe + poda). En el caso **100 % no disponible** (`items: []`), además del
+`breakdown` en CEROS (`shippingFeeCents: 0` incluido), `vaultBreakdown` también va en CEROS con **subtotal 0**
+(`subtotalCents: 0, ivaCents: 0, processingFeeCents: 0, totalCents: 0, ivaRatePct` = dial, `currency: "MXN"`, **sin
+`shippingFeeCents`**). Shape estable: `vaultBreakdown` está **siempre presente** en todo `200`.
 
 **Poda amable (v1.21.3 — MISMA norma que `POST /checkout/quote`, §4, porque comparten la lógica de pricing):**
 - `unavailableItems: UnavailableCartItemDTO[]` **siempre presente**; `[]` cuando todo el carrito resuelve (y en ese
@@ -2088,7 +2148,8 @@ constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (default 17500).
 | `backend/prisma/schema.prisma` | Migración **M-25** | Serializar (regla de zona compartida). |
 | `backend/src/common/money.ts` | Función **nueva** `computeDirectShipBreakdown(subtotal, shippingFee, ivaPct, fee)` | **Aditiva**: `computeCartBreakdown` y `computeShipmentBreakdown` **no se tocan**. |
 | `backend/src/common/error-codes.ts` | **8** códigos nuevos (§0) — `VAULT_REQUIRES_ACCOUNT`, `ALREADY_AUTHENTICATED`, `INVALID_TOKEN`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `ORDER_ALREADY_CLAIMED`, `CLAIM_EMAIL_MISMATCH`, `GUEST_ORDER_TOO_OLD` *(v1.21.1: la v1.21 decía "7" por error de conteo; la lista normativa de §0 siempre fue de 8 y es la que manda)* | Aditiva. |
-| `docs/API_CONTRACT.md` | Esta sección | Ya aplicada, aditiva y localizada. |
+| `frontend/src/types/contract.ts` | **v1.21.4-dual-breakdown (N-12):** el tipo espejo de la respuesta del quote de invitado gana `vaultBreakdown: BreakdownDTO` (siempre presente). `BreakdownDTO` ya existe; NO se le agrega `shippingFeeCents` — `vaultBreakdown` reusa el shape base sin envío. | **Aditiva. SERIALIZAR** (zona compartida `frontend/src/types/`): lo edita el stream de frontend, no el arquitecto. |
+| `docs/API_CONTRACT.md` | Esta sección + §4-G.1 (`vaultBreakdown`) + bloque de DTOs (§0) | Ya aplicada, aditiva y localizada. |
 
 **No se necesita tocar:** `common/decorators/public.decorator.ts` (se usa tal cual), `@nestjs/throttler` (ya
 configurado), y **el módulo `mail` NO se modifica por dentro**: `orders` inyecta el puerto global **`MAIL_PORT`**
