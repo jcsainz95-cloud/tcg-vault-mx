@@ -271,6 +271,27 @@ export function validateSealedSpreadFallback(v: unknown): string | null {
     : `must be a number in [0, ${SEALED_SPREAD_PCT_MAX}]`;
 }
 
+/**
+ * FX-B1: cota SUPERIOR del override manual `fx_manual_override_rate`. El tipo de cambio real
+ * MXN/USD ronda 15-25; 1000 deja ~40-65x de holgura (escenarios extremos) pero ACOTA la valuación:
+ * sin techo, un override absurdo (p.ej. 1e9) desborda la columna `Int priceMxnCents` (~2.1e9) en el
+ * job `price-ingest` (excepción Prisma = DoS). Mismo patrón que SALES_PCT_MAX / SEALED_SPREAD_PCT_MAX.
+ */
+export const MAX_FX_MANUAL_OVERRIDE_RATE = 1000;
+
+/**
+ * FX-B2: validador ÚNICO del dial `fx_manual_override_rate`, compartido por las DOS puertas que lo
+ * escriben (`PUT /admin/settings` vía SETTING_VALIDATORS y `PUT /admin/fx` vía FxController). Regla
+ * unificada: `null` (borra el override) o un tipo de cambio FINITO en `(0, MAX_FX_MANUAL_OVERRIDE_RATE]`.
+ * Fraccional es válido porque la columna `FxRate.rate` es `Decimal(12,6)`. Ambas puertas aplican
+ * EXACTAMENTE este rango; ninguna queda más permisiva que la otra.
+ */
+export function validateFxManualOverrideRate(v: unknown): string | null {
+  return v === null || (isNum(v) && v > 0 && v <= MAX_FX_MANUAL_OVERRIDE_RATE)
+    ? null
+    : `must be null or a number in (0, ${MAX_FX_MANUAL_OVERRIDE_RATE}]`;
+}
+
 /** v1.23-sealed-sales (§4.23h): valores válidos de los feature flags del sellado (on|off). */
 export const FEATURE_FLAG_VALUES = ['on', 'off'];
 
@@ -294,9 +315,9 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.INE_THRESHOLD_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.REPO_CAP_PER_CARD_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.FX_BUFFER_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
-  // override de FX: null (sin override) o un tipo de cambio positivo.
-  [SettingKey.FX_MANUAL_OVERRIDE_RATE]: (v) =>
-    v === null || (isNum(v) && v > 0) ? null : 'must be null or a number > 0',
+  // override de FX: null (sin override) o un tipo de cambio en (0, MAX] (FX-B1/FX-B2, validador
+  // compartido con PUT /admin/fx para que ambas puertas apliquen el mismo rango).
+  [SettingKey.FX_MANUAL_OVERRIDE_RATE]: validateFxManualOverrideRate,
   [SettingKey.PRICING_PROVIDER_RAW]: (v) =>
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
   [SettingKey.PRICING_PROVIDER_GRADED]: (v) =>
