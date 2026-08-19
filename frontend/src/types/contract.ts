@@ -127,6 +127,12 @@ export interface CardDTO {
   // Sigue siendo 1 CardDTO por carta; availableFinishes es un array en el MISMO objeto.
   // Filas históricas / sin re-sync → ["normal"]. Lista blanca contra la que el backend valida `finish`.
   availableFinishes: Finish[];
+  // v1.22-2-finish-display (N-15): acabados que el FRONT debe PINTAR (⊆ availableFinishes, mismo
+  // orden FINISH_ORDER, nunca vacío). Suprime el `normal` ESPURIO de premiums de una sola impresión.
+  // NO cambia la validación ni la derivación de monto (siguen sobre availableFinishes). Opcional en
+  // el TIPO por resiliencia: si un endpoint aún no lo emite, el front usa `availableFinishes` como
+  // fallback (helper `displayFinishesOf` en @/lib/finish). Nunca AÑADE acabados, solo resta.
+  displayFinishes?: Finish[];
 }
 
 export interface ListingDTO {
@@ -803,6 +809,12 @@ export interface MasterSetVariantDTO {
     appliedRule: BuylistRuleApplied;
     referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
   } | null;
+  // v1.22-2-finish-display (N-16): espejo de conveniencia = (finish ∈ displayFinishes de la celda).
+  // Es la variante que el render PLANO pinta (una tarjeta por variante `displayed===true`). Opcional
+  // por resiliencia: si el backend aún no lo emite, el front deriva `finish ∈ displayFinishesOf(cell)`
+  // (helper `isVariantDisplayed` en @/lib/finish). Las variantes con `displayed===false` NO se pintan
+  // pero SÍ cuentan en los contadores de completitud (expected/coveredVariantCount, sobre availableFinishes).
+  displayed?: boolean;
 }
 
 export interface MasterSetIndexResponse {
@@ -844,6 +856,10 @@ export interface MasterSetCardCellDTO {
   rarity?: string;
   imageSmallUrl?: string;
   availableFinishes: Finish[];
+  // v1.22-2-finish-display (N-15/N-16): acabados a PINTAR de esta celda (⊆ availableFinishes, orden
+  // FINISH_ORDER, nunca vacío). El render PLANO expande la celda en UNA tarjeta por cada displayFinish
+  // (equiv. `variants[].displayed===true`). Opcional por resiliencia: fallback a `availableFinishes`.
+  displayFinishes?: Finish[];
   countsByFinish: MasterSetCellCountDTO[];
   totalCount: number;
   isSecretRare: boolean;

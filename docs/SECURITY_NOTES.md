@@ -2416,3 +2416,124 @@ TODO lo siguiente:**
 - **Deuda aceptada con disparador:** S-3/S-4/S-5/S-6/S-7 y carryover `@nestjs/core` (no alcanzable).
 - **PENDIENTE (no aprobado a ciegas):** **DAST contra staging** para los vectores runtime del stream
   (carga real S-2, amplificación S-1 con flag on, timing S-5), en línea con el gate de promoción a prod.
+
+---
+
+# ANEXO 2026-08-19 — Stream `pulido-precios-display` (FX al vuelo + N-15 displayFinishes)
+
+> **Rol:** seguridad (blue team). **Rama:** `claude/pulido-precios-display`. **Insumo:** `docs/PENTEST_NOTES.md`
+> (ronda del stream: 0 Críticos / 0 Altos; 2 Bajos FX-B1/FX-B2, dueño backend). **Modo:** revisión estática
+> de código + ejecución de los tests de seguridad (`fx-override`, `settings.validation`, `fx.buffer`). Sin
+> stack vivo (Docker/Postgres/Redis ausentes) → vectores runtime = **[PoC pendiente de DAST en staging]**.
+> **Blanco autorizado:** staging/local. **Foco pedido:** verificar con lente de seguridad el fix `b3270b3`
+> de backend (FX-B1/FX-B2) y confirmar que N-15 `displayFinishes` no introduce vector de dinero.
+
+## D.0 Resumen del stream
+
+El stream de pulido tocó **dinero** en dos frentes: (1) FX "al vuelo" en el cotizador READ-ONLY (el
+pentester ya verificó que órdenes/buylist congelan snapshot; solo el cotizador usa FX viva) y (2) N-15
+`displayFinishes` (supresión display-only del acabado espurio). El pentester no halló Críticos ni Altos;
+reportó **2 Bajos** (super_admin-only) en el dial `fx_manual_override_rate`. **Backend ya aplicó el fix en
+`b3270b3`.** Verifico ese fix y confirmo los positivos. **0 Críticos / 0 Altos abiertos en el stream.**
+
+| Severidad | # | IDs |
+|---|---|---|
+| Crítica | 0 | — |
+| Alta | 0 | — |
+| Baja | 2 | **FX-B1**, **FX-B2** — ambos **RESUELTOS en `b3270b3`** (verificado en código + tests) |
+| Info/positivo | 4 | I-D1 … I-D4 |
+
+## D.1 FX-B1 (cota superior del override) — **RESUELTO en `b3270b3` · [Verificado en código + tests]**
+- **Hallazgo (pentester):** `fx_manual_override_rate` sin cota superior → un override absurdo (p.ej. `1e9`)
+  inflaba la valuación USD y podía desbordar la columna `Int priceMxnCents` (~2.1e9) en el job `price-ingest`
+  (excepción Prisma = DoS de la ingesta). Explotable **solo** por `super_admin`, por eso Bajo.
+- **Fix verificado:** `backend/src/modules/settings/settings.constants.ts:280` — nueva
+  `MAX_FX_MANUAL_OVERRIDE_RATE = 1000`; `:289-293` helper `validateFxManualOverrideRate` acepta `null` o
+  número **finito** en `(0, 1000]` (rechaza `0`, negativos, `NaN`, `Infinity` y todo lo `> 1000`).
+- **(b) La cota 1000 evita el overflow:** el peor caso legítimo de valuación queda muy por debajo de `2^31`
+  (tipo de cambio real MXN/USD ~15-25; 1000 deja ~40-65x de holgura pero acota el desbordamiento). El vector
+  del pentester (`1e9`) queda cerrado: `validateFxManualOverrideRate(1e9)` → error, no persiste. Mismo patrón
+  que `SALES_PCT_MAX` / `SEALED_SPREAD_PCT_MAX`, ya aprobados.
+- **Tests:** `fx-override-validation.spec.ts` — **12/12 PASS** (ejecutado esta sesión): acepta el techo,
+  rechaza `techo+1` y `1e9`, rechaza `0`/negativos/`NaN`/`Infinity`, el mensaje nombra el rango.
+
+## D.2 FX-B2 (validación asimétrica en dos puertas) — **RESUELTO en `b3270b3` · [Verificado en código + tests]**
+- **Hallazgo (pentester):** el mismo dial se validaba distinto en `/admin/fx` (`@IsInt @Min(1)`) vs
+  `/admin/settings` (`>0`, sin techo) → superficie inconsistente; una puerta más permisiva que la otra.
+- **(a) Ambas puertas aplican AHORA el mismo rango `(0, 1000]`:**
+  - `PUT /admin/settings` → `SettingsService.update` (`settings.service.ts:73`) corre `SETTING_VALIDATORS`;
+    `settings.constants.ts:320` cablea `[FX_MANUAL_OVERRIDE_RATE] = validateFxManualOverrideRate` (el test
+    `expect(gate).toBe(validateFxManualOverrideRate)` lo afirma por identidad de referencia).
+  - `PUT /admin/fx` → `FxController.setManual` (`pricing.controller.ts:432-435`) llama el **mismo** helper
+    `validateFxManualOverrideRate(dto.rate)` antes de escribir; `FxDto.rate` pasó a `@IsOptional @IsNumber`
+    (`:46`) — el rango [min, MAX] lo impone el helper compartido, no el decorador. La puerta ya **no** queda
+    más permisiva (antes `@Min(1)` sin techo; ahora rechaza `>1000` y admite fraccional válido).
+- **Defensa en profundidad (bonus):** `FxController.setManual` → `FxService.setManual` → `settings.update`,
+  que **re-valida** `fxManualOverrideRate` con el mismo `SETTING_VALIDATORS`. Aunque se saltara el check del
+  controller, la escritura del override pasa por el validador una segunda vez. Doble candado en la ruta `/admin/fx`.
+- **(c) Sin regresión money-safe:** override normal (`18`, `18.5`, `20.123456`) y `null` (borra el override)
+  siguen aceptándose (tests `acepta un tipo de cambio realista y fraccional`, `acepta null`); `bufferPct`
+  solo (sin pinnear la tasa) sigue funcionando (`acepta solo bufferPct sin pinnear la tasa`). Fraccional es
+  correcto porque `FxRate.rate` es `Decimal(12,6)`.
+- **(d) Sin otras puertas de escritura del dial sin el helper:** `git grep` de
+  `fxManualOverrideRate|FX_MANUAL_OVERRIDE_RATE|fx_manual_override_rate` → los **únicos** escritores son
+  `SettingsService.update` (vía SETTING_VALIDATORS) y `FxService.setManual` (invocado solo por
+  `FxController.setManual`, ya validado). Ambos controllers son `@Roles(super_admin)`
+  (`pricing.controller.ts:411` FxController, `:84` PricingController) + auditados (`fx.override`).
+- **Tests:** cubierto por los 12 de `fx-override-validation.spec.ts` (incluye los 3 casos de `/admin/fx` que
+  afirman "rechaza sobre el techo SIN escribir" con `setManualSpy not toHaveBeenCalled`).
+
+## D.3 Positivos verificados (confirmo los del pentester)
+- **I-D1 — Degradación segura ante fallo FX:** `fx.service.ts:89-122` `refreshFromBanxico` en fallo/`!ok`/
+  tasa `<=0`/`NaN` cae a `getCurrent()` (override o último `FxRate`), y el fallback duro (`:58`) es una tasa
+  conservadora (18) — nunca 0/NaN. `getCurrent` solo toma el override si `Number(override) > 0` (`:37`). Un
+  fallo de FX **no** rompe el pricing ni fuerza market≤0.
+- **I-D2 — Sin movimiento retroactivo:** órdenes/buylist congelan snapshot; solo el **cotizador READ-ONLY**
+  usa FX viva (verificado por el pentester; sin superficie de escritura de dinero desde el cotizador).
+- **I-D3 — N-15 `displayFinishes` NO es vector de dinero · [Verificado en código]:** `computeDisplayFinishes`
+  (`common/card-order.ts:100-103`) es **display-only**, garantiza `displayFinishes ⊆ availableFinishes`,
+  orden canónico y **nunca vacío** (salvaguarda → `availableFinishes`). La whitelist **SEC-A1** sigue siendo
+  `Card.availableFinishes`: `buylist.service.ts:82-92` (`assertFinishAvailable`) valida el `finish` pedido
+  contra `card.availableFinishes` (NO contra `displayFinishes`) → fuera de la lista `422 FINISH_NOT_AVAILABLE`;
+  el mismo patrón en `inventory.service.ts:177` y money-derivación server-side. Suprimir un acabado del
+  render **no** lo saca de la whitelist de cotización ni permite cotizar un acabado no priceado como si lo
+  fuera. La completitud X/Y del master-set sigue contando sobre `availableFinishes` (universo intacto).
+- **I-D4 — AuthZ super_admin efectiva + auditoría:** `FxController`/`PricingController` = `@Roles(super_admin)`;
+  toda escritura del dial FX / spreads queda en `AuditLog` (`fx.override`, before/after en spreads). Un
+  `vault_operator`/`customer` → 403. Consistente con "el dinero/config solo lo toca super_admin".
+
+## D.4 Pendiente de DAST (heredado del pentester, no ejecutable aquí)
+Sin stack levantable (Docker/Postgres/Redis ausentes). Agendar contra staging autorizado, en línea con el
+gate de promoción a prod (SAST por PR + DAST staging):
+1. **FX al vuelo bajo carga:** confirmar que el cotizador READ-ONLY con FX viva no expone inconsistencia de
+   precio mostrado vs. cobrado (el cobro usa snapshot congelado; el cotizador es informativo).
+2. **Overflow real de `price-ingest`:** con la cota 1000 ya no debería alcanzarse `2^31`; validar en un run
+   real que un override en el techo (1000) no desborda ningún agregado `Int` (enlaza con la deuda S-B2/`Int`
+   32-bit de agregados — **arquitecto**, `BigInt`).
+3. **Carryover de deuda del proyecto (sin cambio):** `@nestjs/core` GHSA-36xv-jgw5-4q75 (SSE injection, **no
+   alcanzable**, backend sin SSE) — devops, bump NestJS 11; S-B2 (`Int` 32-bit agregados) — arquitecto.
+
+## D.5 Deuda de seguridad aceptada / banderas (sin cambio respecto a revs previas)
+- **Aceptada con disparador:** S-M1 (`@nestjs/core` no alcanzable), S-B1 (linking Google a back-office),
+  S-B2 (`Int` 32-bit en agregados de dinero), residuo S-B3 (`contentLength` del presign). Ver §5.
+- **Banderas para el humano (§6, vigentes):** DAST/pentest de tercero + bug bounty **antes de operar con
+  dinero real**; KMS/secret manager en prod; validaciones legales de custodia/PII (INE/CLABE, retención
+  LFPDPPP). El fix de este stream no altera estas banderas.
+
+## D.6 VEREDICTO — stream `pulido-precios-display`
+
+**APROBADO** (revisión de código estático + tests).
+
+- **0 Críticos / 0 Altos abiertos.** Los **2 Bajos** del pentester (FX-B1, FX-B2, super_admin-only) están
+  **RESUELTOS en `b3270b3`** y verificados: (a) ambas puertas (`/admin/settings` y `/admin/fx`) rechazan el
+  valor absurdo con el **mismo** rango `(0, 1000]` vía `validateFxManualOverrideRate`; (b) la cota 1000 cierra
+  el overflow de `Int priceMxnCents`; (c) sin regresión money-safe (override `18`/`20.5` y `null`=borrar
+  siguen OK, `bufferPct`-solo OK); (d) no quedan otras puertas de escritura del dial sin el helper. Tests:
+  `fx-override-validation.spec.ts` **12/12 PASS**; regresión `settings.validation` + `fx.buffer` **26/26 PASS**.
+- **N-15 `displayFinishes` NO introduce vector de dinero:** es supresión display-only; la whitelist SEC-A1
+  sigue siendo `availableFinishes` y el monto se deriva server-side.
+- **Cumple el DoD de seguridad del stream:** sin hallazgos críticos/altos abiertos; los Bajos quedan
+  registrados como resueltos. **No hay bloqueadores de merge.**
+- **PENDIENTE (no aprobado a ciegas), no bloqueante del stream:** la **fase dinámica (DAST contra staging)**
+  sigue condicionada a que devops habilite el entorno (R2/Railway); es requisito del gate de promoción a
+  **producción**, no del merge del stream. Deuda previa del proyecto sin cambio (S-M1/S-B1/S-B2).

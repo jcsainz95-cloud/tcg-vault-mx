@@ -916,13 +916,15 @@ export class BuylistService {
       }),
       this.prisma.sellRequestItem.count({ where }),
     ]);
+    // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch(rows.map((i) => i.cardId));
     const data = rows.map((i) => ({
       id: i.id,
       sellRequestId: i.sellRequestId,
       seller: this.sellerRef(i.sellRequest?.user),
       // T-1 (techlead v1.19): proyección canónica CardDTO (setName/subtypes/availableFinishes),
       // NUNCA la fila Prisma cruda — contrato §11 RejectedSellItemDTO exige card: CardDTO.
-      card: toCardDTO(i.card),
+      card: toCardDTO(i.card, pricedByCard.get(i.cardId)),
       productType: i.productType,
       finish: i.finish ?? 'normal',
       quotedPriceCents: i.quotedPriceCents ?? undefined,

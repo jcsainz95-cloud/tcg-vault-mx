@@ -2262,3 +2262,39 @@
   perseguir un **bug fantasma**. **NO** usar los totales del mock como referencia de fee/total.
 - **Disparador / dirección de pago (si algún día se toma):** una **única** `computeBreakdown` en el mock que
   acepte `stripeFeeIvaPct` y **espeje `grossUpTotal`**, para tener una sola fórmula replicada en vez de dos.
+
+### Pase `pulido-precios-display` — deuda del pulido de display de precios (2026-08-19, no bloqueante)
+
+> Del stream `claude/pulido-precios-display` (referencia de mercado viva: `liveMxnCents` re-FX-eado al vuelo
+> por request). Revisado por **techlead**: APROBADO **con deuda no bloqueante**. Ambos ítems son **dueño
+> backend**, **severidad: no bloqueante** (correctos y money-safe). Registrados a petición del techlead sin
+> tocar código de producción. IDs `D-1`/`D-2` prefijados por este stream para no colisionar con la D1–D5 del
+> pase v1.1 (arriba).
+
+### D-1 · FX al vuelo amplifica un N+1 preexistente en rutas de lectura calientes
+- **Dónde:** `src/modules/pricing/pricing.service.ts` → `getReference` (single, `:133` invoca
+  `fxSnapshotSafe()` en cada llamada); `src/modules/pricing/` `FxService.getCurrent()` **sin cache** hace ~3
+  lecturas a BD (`settings.getNumber(FX_BUFFER_PCT)` + `settings.getRaw(FX_MANUAL_OVERRIDE_RATE)` +
+  `fxRate.findFirst`), agravado por `SettingsService.get` sin cache (`settings.service.ts:22-26`).
+- **Estado actual:** cada `getReference` dispara ~3 queries de FX extra, y `getReference` se llama en **bucles
+  por-ítem** en los caminos calientes: `vault.service.ts:80` (valuación «Mi bóveda»), `buylist.service.ts:185`
+  vía `batchQuote` (el nuevo quoter binder N-16 cotiza cada carta×acabado de un set completo),
+  `admin.service.ts:571/589` e `inventory.service.ts:729`. Es la misma familia que BE-4/D3, ahora amplificada
+  por la pata FX del display vivo. Correctness OK y money-safe.
+- **Impacto:** rendimiento. Se vuelve urgente cuando una bóveda/set grande tenga **cientos de ítems**
+  (latencia y presión de BD).
+- **Disparador:** bóveda/set grande con cientos de ítems, o al endurecer las rutas calientes. Solución (ya
+  existe la primitiva): migrar esos bucles a `getReferencesBatch` — que iza la FX **una sola vez por request**
+  (`pricing.service.ts:181`) — y **batchear** los `card.findUnique` de `batchQuote` con `findMany`+`Map`.
+  Considerar además **cachear `FxService.getCurrent()`** por request/TTL corto.
+
+### D-2 · «referencia de mercado viva» solo es viva en la pata de FX (consistencia de display)
+- **Dónde:** `src/modules/pricing/pricing.service.ts:104-111,136-138` (`liveMxnCents`).
+- **Estado actual:** `liveMxnCents` recalcula el MXN con la **FX vigente**, pero `priceUsdCents` y
+  `capturedDate` siguen siendo los **de la ingesta**. El monto mostrado es «USD del `capturedDate` × FX de
+  hoy». Es la **doctrina correcta** (FX al vuelo, **no** mercado al vuelo) y es money-safe.
+- **Impacto:** nulo funcional; solo **etiqueta de UI**. El riesgo es que el front pinte «precio del
+  {capturedDate}» junto a un monto ya re-FX-eado (confusión de etiqueta USD-fecha vs MXN-hoy).
+- **Disparador:** no requiere cambio de código backend. **Nota para frontend:** no rotular el `liveMxnCents`
+  con la fecha de captura como si fuera el precio de ese día. Solución (front): separar/clarificar la etiqueta
+  (p. ej. «ref. USD del {capturedDate}, MXN al tipo de cambio de hoy»).

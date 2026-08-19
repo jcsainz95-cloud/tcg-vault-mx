@@ -35,8 +35,8 @@ export function CatalogView() {
   const [filters, setFilters] = useState<CatalogFilters>({});
   const [sheetOpen, setSheetOpen] = useState(false);
   // Toast de confirmación al agregar (timestamp del último add; 0 = oculto).
-  // El estado «En el carrito» del botón vive en ListingCard (zona compartida de
-  // otro stream, sin prop para expresarlo): aquí el feedback es el toast.
+  // N-17: además del toast, cada `ListingCard` refleja el estado «En el carrito» (palomita +
+  // botón) derivado del store `cart` (prop `inCart`, sin duplicar el estado del carrito).
   const [addedSignal, setAddedSignal] = useState(0);
   const dismissToast = useCallback(() => setAddedSignal(0), []);
 
@@ -162,7 +162,13 @@ export function CatalogView() {
             ) : (
               <div className="gutter grid grid-cols-2 gap-5 pb-16 pt-9 sm:grid-cols-3 lg:gap-[34px] xl:grid-cols-4">
                 {catalogQuery.data!.data.map((listing) => (
-                  <ListingCard key={listing.inventoryItemId} listing={listing} onAdd={onAdd} />
+                  <ListingCard
+                    key={listing.inventoryItemId}
+                    listing={listing}
+                    onAdd={onAdd}
+                    // N-17: estado "en carrito" DERIVADO del store (useCart), sin duplicarlo.
+                    inCart={cart.ids.includes(listing.inventoryItemId)}
+                  />
                 ))}
               </div>
             )}

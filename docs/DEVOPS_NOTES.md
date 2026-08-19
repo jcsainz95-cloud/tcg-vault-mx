@@ -2379,3 +2379,56 @@ regla de propiedad de archivos). Alcance del cambio, acotado:
 > Nota de honestidad: esto es **causa probable, no verificada en runtime**. La confirmación barata es la
 > línea de log de arriba; la definitiva, una corrida tras el fix. Ninguna palanca de devops (dial, env,
 > cron) puede arreglarlo: el request sale mal formado desde el código.
+
+---
+
+## 24. Force re-sync de catálogo/acabados — dato stale de `availableFinishes` (2026-08-19, stream `claude/pulido-precios-display`)
+
+> **Runbook operativo (no de código).** Documenta cómo forzar el re-procesado del catálogo para repoblar
+> acabados (`availableFinishes` / `catalogFinishes`) cuando una carta aparece con acabados incompletos
+> (p. ej. solo "Normal", sin Reverse Holo). **No es un bug** — es dato heredado que requiere un re-sync
+> **forzado**. Verificado contra el código en esta sesión. Cross-ref: N-15, §18 (metadata/manual sync),
+> §19 (ingest de precios PPT).
+
+### 24.1 Por qué pasa (contexto N-15)
+
+El PO reporta cartas (p. ej. **Tropius**) que aparecen **solo con "Normal"** y **sin Reverse Holo**.
+Diagnóstico **confirmado**:
+
+- **NO es bug de código.** El mapeo `reverseHolofoil → reverse_holo` y la ingesta de su precio son
+  **correctos**.
+- La causa es **dato stale**: cartas/sets **importados antes** del trabajo de acabados conservan el
+  default legacy **`availableFinishes=[normal]`** hasta que se corre un **re-sync FORZADO**.
+- La columna **`catalogFinishes`** (proveniente de pokemontcg.io) **solo se recomputa al forzar**.
+- **"Actualizar precios"** (price ingest PPT, §19) **NO repuebla acabados de catálogo** — es **otra
+  operación** distinta; refresca `PriceReference`, no `availableFinishes`.
+
+### 24.2 Cómo forzar el re-sync (dos vías, ambas ya existentes)
+
+**Vía 1 — UI admin (recomendada para el PO):**
+
+- Panel **M2** → botón **"Re-sincronizar todo (forzar)"** ("Re-sync everything (force)" en EN).
+- Pide **confirmación** (operación **pesada**): reprocesa **TODO** el catálogo, incluidos sets **ya
+  importados**, y repuebla `availableFinishes` / precios por acabado.
+- Corre en **segundo plano**; el progreso se ve en la **barra de estado de catálogo**
+  (`GET /admin/catalog/sync-status`).
+- **Diferénciala** de:
+  - **"Importar sets nuevos"** → `force:false`, operación **ligera** (solo sets nuevos, §18).
+  - **"Actualizar precios"** → ingest PPT (§19), **no toca acabados**.
+
+**Vía 2 — API directa:**
+
+- `POST /admin/catalog/sync-all` con body `{ "force": true }` (o query `?force=true`).
+- **Auth admin** requerida.
+- Progreso: `GET /admin/catalog/sync-status`.
+
+### 24.3 Notas operativas
+
+- **Idempotente y money-safe:** repuebla `availableFinishes` (whitelist **SEC-A1**) desde pokemontcg.io;
+  **no borra dinero** ni `PriceReference` existentes.
+- **Relación con N-15:** la supresión de la casilla `'normal'` espuria (`displayFinishes`, §4.22a-6) es
+  **DISPLAY-only** y **NO sustituye** a este force-sync. El Reverse Holo **real** de las normales aparece
+  **solo tras repoblar acabados** con datos frescos de PPT (o si ya estaban frescos).
+- **Ejecución:** el **PO corre el force-sync por su lado** (UI M2, vía 1) **tras el merge del stream**
+  `claude/pulido-precios-display`. Devops no puede dispararlo desde la sesión (sin credenciales admin ni
+  egress a prod, cf. §23.1).

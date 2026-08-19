@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { RefreshCw, DownloadCloud, Layers, Zap } from 'lucide-react';
@@ -221,6 +221,12 @@ export function M2View() {
       setProviderDraft(null);
     },
   });
+  // N-14: tras disparar el ingest, el barrido tarda un instante en reportar `running:true` en el
+  // backend. Sin esto, el `refetchInterval` (que solo poll-ea cuando YA vio running) se apagaba de
+  // inmediato y la barra no aparecía hasta recargar. `justDispatched` fuerza el poll durante una
+  // ventana de gracia hasta que el barrido asome (o hasta un tope, para no poll-ear infinito).
+  const [justDispatched, setJustDispatched] = useState(false);
+
   // Estado del barrido MASIVO de precios (GET /admin/pricing/sync-status). Calca el patrón del
   // sync de catálogo: se POLLEA cada 3 s mientras `running` para pintar done/total en vivo y saber
   // CUÁNDO terminó. No llama al proveedor, así que pollearlo no consume presupuesto diario.
@@ -228,16 +234,35 @@ export function M2View() {
     queryKey: ['price-sync-status'],
     queryFn: getPriceSyncStatus,
     retry: false,
-    refetchInterval: (query) => (query.state.data?.running ? 3000 : false),
+    // Poll activo si el barrido corre O si acabamos de dispararlo (ventana de gracia hasta que el
+    // backend reporte `running:true`). Al terminar (running:false y sin dispatch reciente) se apaga.
+    refetchInterval: (query) => (query.state.data?.running || justDispatched ? 2000 : false),
   });
   const priceSweeping = priceSyncStatus.data?.running ?? false;
+
+  // Una vez que el barrido está realmente en curso, suelta la bandera de gracia: a partir de ahí el
+  // poll lo gobierna `running` (y se detiene solo al terminar).
+  useEffect(() => {
+    if (justDispatched && priceSyncStatus.data?.running) setJustDispatched(false);
+  }, [justDispatched, priceSyncStatus.data?.running]);
+
+  // Red de seguridad anti-poll-infinito: si tras disparar el barrido nunca asoma `running` (p. ej.
+  // terminó tan rápido que no lo vimos, o el disparo no encoló nada), la gracia caduca sola.
+  useEffect(() => {
+    if (!justDispatched) return;
+    const timer = setTimeout(() => setJustDispatched(false), 30000);
+    return () => clearTimeout(timer);
+  }, [justDispatched]);
+
   const ingestMutation = useMutation({
     mutationFn: () => triggerPriceIngest(),
     // El ingest repuebla PriceReference → puede resolver pendientes; refresca esa cola.
-    // Además arranca de inmediato el poll del estado del barrido de precios.
+    // Además arranca de inmediato el poll del estado del barrido de precios (refetch YA, sin esperar
+    // recarga) y marca `justDispatched` para que el poll no se apague antes de que el barrido asome.
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pending-prices'] });
-      qc.invalidateQueries({ queryKey: ['price-sync-status'] });
+      setJustDispatched(true);
+      void priceSyncStatus.refetch();
     },
   });
 

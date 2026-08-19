@@ -36,6 +36,8 @@ function buildPricing(over: any = {}) {
   return {
     loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
+    // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
+    getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     ...over,
   } as unknown as PricingService;
@@ -101,9 +103,10 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     const c1 = res.cells.find((c) => c.cardId === 'c1')!;
     expect(c1.expectedVariantCount).toBe(2);
     expect(c1.coveredVariantCount).toBe(1);
+    // v1.22-2 / N-15: Common no es premium → displayFinishes = availableFinishes → todo displayed.
     expect(c1.variants).toEqual([
-      { finish: 'normal', count: 2, covered: true },
-      { finish: 'reverse_holo', count: 0, covered: false },
+      { finish: 'normal', count: 2, covered: true, displayed: true },
+      { finish: 'reverse_holo', count: 0, covered: false, displayed: true },
     ]);
   });
 
@@ -113,7 +116,7 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     const c2 = res.cells.find((c) => c.cardId === 'c2')!;
     expect(c2.expectedVariantCount).toBe(1);
     expect(c2.coveredVariantCount).toBe(1);
-    expect(c2.variants).toEqual([{ finish: 'normal', count: 1, covered: true }]);
+    expect(c2.variants).toEqual([{ finish: 'normal', count: 1, covered: true, displayed: true }]);
   });
 
   it('DRIFT: pieza con finish FUERA del universo se ve en countsByFinish pero NO en variants (nunca covered > expected)', async () => {
@@ -129,7 +132,7 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     // …pero fuera del universo: la casilla normal sigue descubierta y holofoil NO es casilla.
     expect(c2.expectedVariantCount).toBe(1);
     expect(c2.coveredVariantCount).toBe(0);
-    expect(c2.variants).toEqual([{ finish: 'normal', count: 0, covered: false }]);
+    expect(c2.variants).toEqual([{ finish: 'normal', count: 0, covered: false, displayed: true }]);
     expect(c2.coveredVariantCount).toBeLessThanOrEqual(c2.expectedVariantCount);
   });
 });

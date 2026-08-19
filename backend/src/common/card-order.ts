@@ -1,4 +1,5 @@
 import { Finish, Prisma } from '@prisma/client';
+import { isPremiumRarity } from './money';
 
 /**
  * card-order.ts (v1.22-variantes-orden) — ORDEN CANÓNICO de cartas y acabados.
@@ -65,6 +66,47 @@ export function unionAvailableFinishes(
 ): Finish[] {
   const merged = orderFinishes([...catalogFinishes, ...pricedFinishesSnapshot]);
   return merged.length > 0 ? merged : ['normal'];
+}
+
+/**
+ * v1.22-2 / N-15 (ARCHITECTURE §4.22a-6) — `displayFinishes`: acabados que el FRONT PINTA como
+ * casillas/tarjetas. Campo DERIVADO de DISPLAY, **separado** de la whitelist SEC-A1
+ * `availableFinishes` (que sigue validando `finish` y derivando el monto server-side). Función PURA,
+ * money-safe: SOLO RESTA acabados espurios, JAMÁS AÑADE (imposible que N-15 invente nada).
+ *
+ *   pricedFinishes := { f ∈ availableFinishes : hasPricedRef(card, f) }
+ *   displayFinishes(card) :=
+ *     if isPremiumRarity(rarity) === true  AND  pricedFinishes ≠ ∅:
+ *          orderFinishes(pricedFinishes)   // premium de 1 impresión: SOLO acabados con market>0
+ *     else:
+ *          availableFinishes               // DEFAULT: sin supresión (comportamiento actual)
+ *
+ * Invariantes GARANTIZADAS por construcción:
+ *  - `displayFinishes ⊆ availableFinishes` (el resultado se FILTRA de `availableFinishes`).
+ *  - NUNCA vacío (≥ 1): la salvaguarda anti-cero-casillas devuelve `availableFinishes` si
+ *    `pricedFinishes = ∅` (premium totalmente pendiente no se suprime — nunca deja una celda sin casillas).
+ *  - Orden canónico `FINISH_ORDER` (se emite `orderFinishes(availableFinishes)`).
+ *
+ * `isPremiumRarity` se REUSA de `common/money.ts` (mismo clasificador chase del buylist Fase 0.1);
+ * `isPremiumRarity(null) === false` ⇒ rareza null/desconocida ⇒ sin supresión. NO se inventa
+ * `reverse_holo` por rareza (VAR-1 §9 intacto): la rareza es SOLO *gate* para ocultar, nunca para añadir.
+ *
+ * @param pricedFinishes conjunto de acabados con `hasPricedRef` (PriceReference raw/`raw:NM`,
+ *   `priceMxnCents > 0`); el mismo por-acabado que resuelve `referenceValue`/quote. Puede incluir
+ *   acabados fuera de `availableFinishes` — la intersección la hace el filtro (subset garantizado).
+ */
+export function computeDisplayFinishes(
+  rarity: string | null,
+  availableFinishes: Finish[] | null | undefined,
+  pricedFinishes: Iterable<Finish>,
+): Finish[] {
+  const ordered = orderFinishes(availableFinishes ?? []);
+  const base: Finish[] = ordered.length > 0 ? ordered : ['normal'];
+  if (!isPremiumRarity(rarity)) return base;
+  const pricedSet = new Set<Finish>(pricedFinishes);
+  const priced = base.filter((f) => pricedSet.has(f));
+  // Salvaguarda anti-cero-casillas: premium sin ningún acabado priceado ⇒ NO se suprime.
+  return priced.length > 0 ? priced : base;
 }
 
 /**

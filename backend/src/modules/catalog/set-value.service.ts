@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { CardSet } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
+import { PricingService } from '../pricing/pricing.service';
 
 /**
  * TD-1 (v1.9-set-chart): REGLA DE VALUACIÓN del set público, fuente única compartida. Fija el
@@ -81,6 +82,7 @@ export class SetValueService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly pricing: PricingService,
   ) {}
 
   /**
@@ -166,8 +168,20 @@ export class SetValueService {
         ...(asOf ? { capturedDate: { lte: asOf } } : {}),
       },
       orderBy: { capturedDate: 'desc' },
-      select: { cardId: true, priceMxnCents: true },
+      // v1.x-fx-live: priceUsdCents + isManualOverride para recalcular el MXN vigente (solo valor "hoy").
+      select: {
+        cardId: true,
+        priceMxnCents: true,
+        priceUsdCents: true,
+        isManualOverride: true,
+      },
     });
+
+    // v1.x-fx-live: el valor "hoy" (sin `asOf`) es una REFERENCIA DE MERCADO VIVA → recalcula el MXN
+    // de referencias en USD con la FX vigente (izada UNA vez). El valor histórico (con `asOf`, que usa
+    // el snapshot diario `set-value-snapshot`) queda CONGELADO: cada día del histórico conserva la FX
+    // con que se ingirió (no se mueve retroactivamente la serie de tendencia).
+    const fx = asOf ? null : await this.pricing.fxSnapshotSafe();
 
     // "Vigente más reciente por carta": primera fila vista por carta (orden capturedDate desc).
     const seen = new Set<string>();
@@ -176,7 +190,7 @@ export class SetValueService {
     for (const r of refs) {
       if (seen.has(r.cardId)) continue;
       seen.add(r.cardId);
-      totalValueMxnCents += r.priceMxnCents;
+      totalValueMxnCents += asOf ? r.priceMxnCents : this.pricing.liveMxnCents(r, fx);
       pricedCardCount += 1;
     }
 
