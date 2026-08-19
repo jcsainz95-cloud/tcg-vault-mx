@@ -56,7 +56,10 @@ function build(items: any[], refs: Map<string, any>) {
       it.tcgplayerProductId != null ? `sealed:tcg:${it.tcgplayerProductId}` : null,
     ),
     getReferencesBatch: jest.fn(async () => refs),
-    // H-1 (v1.24): dial ENCENDIDO por defecto (seed `tcgcsv`) + gate real del mercado.
+    // H-1 (v1.24): dial encendido EN RUNTIME (sourceOn:true) — el SEED del dial es `off` (fail-closed,
+    // por contrato §M10); este test fija sourceOn:true para ejercer la valuación con el mercado activo.
+    // El gate es la misma expresión trivial que el método real `PricingService.gateSealedMarketCents`
+    // (no reimplementa la pura `computeSealedSalePrice`: `sealedTab` valúa por gate del mercado, no por spread).
     loadSealedSpreads: jest.fn(async () => ({
       spreadPctBySubtype: {},
       fallbackPct: 25,

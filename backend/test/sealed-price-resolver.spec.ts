@@ -2,6 +2,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { SealedCatalogService } from '../src/modules/catalog/sealed-catalog.service';
+import { InventoryService } from '../src/modules/inventory/inventory.service';
 
 /**
  * H-1 (v1.24-sealed-dedup) — el gating del precio de VENTA del sellado (gate del mercado por dial +
@@ -161,5 +162,52 @@ describe('H-1 — mismo precio en catálogo, Compra (orders) y grid para overrid
     expect(priced).toHaveLength(1);
     expect(priced[0].salePriceCents).toBe(EXPECTED);
     expect(priced[0].source).toBe('subtype_spread');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4º call-site del resolver ÚNICO: inventory.bulkPublish (§M1). Cierra el gap del
+// test de convergencia (antes cubría 3 de 4 consumidores de resolveSealedSalePrice).
+// Prueba (a) un sellado SIN mapeo (sin market, sin override) → PRICE_PENDING, NO se
+// publica; (b) un sellado mapeado + mercado priceado (sin override) → converge al MISMO
+// EXPECTED (mercado×spread) que catálogo/Compra/grid, publicado como `derived`.
+// ---------------------------------------------------------------------------
+describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único', () => {
+  it('sellado sin mapeo → PRICE_PENDING; sellado mapeado (sin override) → EXPECTED (mismo que los otros 3)', async () => {
+    // (a) sin mapeo: tcgplayerProductId null → sin clave de mercado → sin market → pending.
+    const unmapped = sealedPiece({ id: 'iA', folio: 'INV-00000A', tcgplayerProductId: null, listPriceCents: null });
+    // (b) mapeado (productId 100) + SIN override (listPriceCents null) → mercado×spread.
+    const mapped = sealedPiece({ id: 'iB', folio: 'INV-00000B', tcgplayerProductId: 100, listPriceCents: null });
+
+    const pricingInv = realPricing(); // resolveSealedSalePrice/sealedMarketGradeKeyForItem REALES (puros).
+    jest.spyOn(pricingInv, 'loadSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    jest.spyOn(pricingInv, 'loadSealedSpreads').mockResolvedValue(CTX_ON);
+    jest
+      .spyOn(pricingInv, 'getReferencesBatch')
+      .mockResolvedValue(new Map([['c1|sealed|sealed:tcg:100|normal', PRICED as any]]));
+
+    const prismaInv = {
+      inventoryItem: {
+        findMany: jest.fn(async () => [unmapped, mapped]),
+        updateMany: jest.fn(async () => ({ count: 1 })),
+      },
+    } as any;
+    const inventory = new InventoryService(prismaInv, pricingInv, {} as any);
+
+    const res = await inventory.bulkPublish(
+      { items: [{ inventoryItemId: 'iA' }, { inventoryItemId: 'iB' }] } as any,
+      'admin-1',
+    );
+
+    const lineA = res.results.find((r) => r.inventoryItemId === 'iA')! as any;
+    const lineB = res.results.find((r) => r.inventoryItemId === 'iB')! as any;
+    // (a) sin mapeo → no publicable, PRICE_PENDING (nunca se descarta; entra a la cola).
+    expect(lineA.ok).toBe(false);
+    expect(lineA.error.code).toBe('PRICE_PENDING');
+    // (b) mapeado → publicado y CONVERGE al mismo EXPECTED que catálogo/Compra/grid.
+    expect(lineB.ok).toBe(true);
+    expect(lineB.salePriceCents).toBe(EXPECTED);
+    expect(lineB.priceSource).toBe('derived');
+    expect(res.summary.published).toBe(1);
   });
 });

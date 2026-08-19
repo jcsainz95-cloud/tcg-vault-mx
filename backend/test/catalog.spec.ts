@@ -1,6 +1,7 @@
 import { CatalogService, yearFromReleaseDate } from '../src/modules/catalog/catalog.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
+import { computeSealedSalePrice } from '../src/common/money';
 
 /**
  * v1.1 — "Compra" = inventario PUBLICADO con precio (API_CONTRACT §catalog). El comprador
@@ -42,28 +43,20 @@ function pricing(): PricingService {
       item.tcgplayerProductId != null ? `sealed:tcg:${item.tcgplayerProductId}` : null,
     ),
     getSealedMarketRef: jest.fn(async () => ({ status: 'pending' })),
-    // H-1 (v1.24): resolver ÚNICO del sellado (gate del mercado por dial + pura). Puros → impl real.
+    // H-1 (v1.24): resolver ÚNICO del sellado (gate del mercado por dial + pura). Los mocks
+    // NO reimplementan la lógica: el gate es la misma expresión trivial que el método real y
+    // `resolveSealedSalePrice` DELEGA en la pura real `computeSealedSalePrice` (sin riesgo de
+    // divergencia silenciosa si la pura cambia).
     gateSealedMarketCents: (ref: any, sourceOn: boolean) =>
       sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null,
-    resolveSealedSalePrice: (item: any, ref: any, ctx: any) => {
-      const marketCents =
-        ctx.sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null
-          ? ref.referenceMxnCents
-          : null;
-      const over = item.listPriceCents;
-      if (over != null && over > 0)
-        return { salePriceCents: over, status: 'priced', source: 'override', appliedSpreadPct: null };
-      const hasSub = item.sealedSubtype != null && ctx.spreadPctBySubtype[item.sealedSubtype] != null;
-      const spread = hasSub ? ctx.spreadPctBySubtype[item.sealedSubtype] : ctx.fallbackPct;
-      const source = hasSub ? 'subtype_spread' : 'global_spread';
-      if (marketCents == null) return { salePriceCents: null, status: 'pending', source, appliedSpreadPct: spread };
-      return {
-        salePriceCents: Math.round(marketCents * (1 + spread / 100)),
-        status: 'priced',
-        source,
-        appliedSpreadPct: spread,
-      };
-    },
+    resolveSealedSalePrice: (item: any, ref: any, ctx: any) =>
+      computeSealedSalePrice(
+        item.listPriceCents,
+        item.sealedSubtype,
+        ctx.sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null,
+        ctx.spreadPctBySubtype,
+        ctx.fallbackPct,
+      ),
   } as unknown as PricingService;
 }
 

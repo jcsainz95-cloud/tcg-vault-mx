@@ -2085,10 +2085,13 @@
 
 ### Pase `sellado-producto-cerrado` — saneo del sellado (2026-08-19, no bloqueante)
 
-> Del pase de saneo aprobado por el PO sobre el work stream de Sellado: seed del autoprecio a
-> `tcgcsv` (Tarea 1) + dedup del gating del precio de venta del sellado en un resolver único
-> `PricingService.resolveSealedSalePrice` (H-1, Tarea 2). Deuda aceptada anotada de los reportes de
-> QA/techlead. Todos no bloqueantes, dueño **backend**. Continúan la numeración `BE-*` (tras BE-72).
+> Del pase de saneo aprobado por el PO sobre el work stream de Sellado: dedup del gating del precio de
+> venta del sellado en un resolver único `PricingService.resolveSealedSalePrice` (H-1, Tarea 2). El
+> intento de la Tarea 1 (cambiar el **seed** del autoprecio a `tcgcsv`) fue **RECHAZADO por el techlead**
+> y **revertido**: el seed vuelve a **`off`** (fail-closed, por contrato §M10; el autoprecio se enciende
+> en runtime con `PUT /admin/settings {"sealedPriceSource":"tcgcsv"}` tras validar en staging — ver
+> `BACKEND_NOTES §53.1`), lo que **preserva** la mitigación de §BE-44(c). Deuda aceptada anotada de los
+> reportes de QA/techlead. Todos no bloqueantes, dueño **backend**. Continúan la numeración `BE-*` (tras BE-72).
 
 ### BE-73 · Paginación EN MEMORIA del sellado (`loadPricedSealed` / `vault.sealedTab`) (Media)
 - **Dónde:** `src/modules/catalog/sealed-catalog.service.ts` → `loadPricedSealed` (usado por
