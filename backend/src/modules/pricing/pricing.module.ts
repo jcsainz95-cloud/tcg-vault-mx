@@ -21,6 +21,9 @@ import { SealedPriceIngestService } from './sealed-price-ingest.service';
 import { SealedMappingService } from './sealed-mapping.service';
 import { SealedPricingController } from './sealed-pricing.controller';
 import { SealedPriceIngestJobService } from '../../jobs/sealed-price-ingest.service';
+// v1.22-1 (§4.22g/§4.22h): `price-ingest` escribe `pricedFinishesSnapshot` y LLAMA al ÚNICO escritor
+// de `availableFinishes`. Se importa el módulo del reconciliador (compartido con CatalogModule sin ciclo).
+import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
 
 /**
  * PricingModule — M2. Providers intercambiables, FxService, PricingService y los
@@ -34,6 +37,7 @@ import { SealedPriceIngestJobService } from '../../jobs/sealed-price-ingest.serv
  * aquí para el bulk legacy (instancia propia; NO crea ciclo con CatalogModule).
  */
 @Module({
+  imports: [FinishReconcilerModule],
   providers: [
     PricingService,
     FxService,

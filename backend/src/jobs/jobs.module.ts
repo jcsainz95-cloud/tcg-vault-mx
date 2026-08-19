@@ -3,12 +3,14 @@ import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { IneRetentionJobService } from './ine-retention.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
+import { GuestOrderSweepJobService } from './guest-order-sweep.service';
 import { SchedulerService } from './scheduler.service';
 import { AdminJobsController } from './admin-jobs.controller';
 import { PricingModule } from '../modules/pricing/pricing.module';
 import { UploadsModule } from '../modules/uploads/uploads.module';
 import { VaultModule } from '../modules/vault/vault.module';
 import { CatalogModule } from '../modules/catalog/catalog.module';
+import { OrdersModule } from '../modules/orders/orders.module';
 
 /**
  * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention,
@@ -19,12 +21,15 @@ import { CatalogModule } from '../modules/catalog/catalog.module';
  * solo se activa si hay REDIS_URL (ver scheduler.service).
  */
 @Module({
-  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule],
+  // OrdersModule: `guest-order-sweep` delega en GuestCheckoutService (dueño del ciclo del
+  // pedido de invitado). Sin ciclo: OrdersModule no importa JobsModule.
+  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,
     IneRetentionJobService,
     AuthTokenSweepJobService,
+    GuestOrderSweepJobService,
     SchedulerService,
   ],
   controllers: [AdminJobsController],
@@ -33,6 +38,7 @@ import { CatalogModule } from '../modules/catalog/catalog.module';
     DisputeDeadlineJobService,
     IneRetentionJobService,
     AuthTokenSweepJobService,
+    GuestOrderSweepJobService,
     PricingModule,
   ],
 })

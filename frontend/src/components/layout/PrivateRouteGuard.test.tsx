@@ -44,11 +44,15 @@ describe('PrivateRouteGuard · rutas privadas del storefront (modo real)', () =>
     expect(screen.queryByText('contenido-privado')).not.toBeInTheDocument();
   });
 
-  it('preserva el destino en `next` para cada prefijo privado (/checkout)', async () => {
-    currentPath = '/checkout';
+  // v1.21-guest-checkout: este caso usaba `/checkout`, que dejó de ser privada (criterio 45:
+  // se compra sin cuenta). El destino en `next` se verifica ahora con otro prefijo privado;
+  // que `/checkout` sea PÚBLICA lo ancla
+  // `app/[locale]/(storefront)/checkout/checkout-public-route.test.tsx`.
+  it('preserva el destino en `next` para cada prefijo privado (/shipments)', async () => {
+    currentPath = '/shipments';
     renderGuard();
     await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith({ pathname: '/login', query: { next: '/checkout' } }),
+      expect(replace).toHaveBeenCalledWith({ pathname: '/login', query: { next: '/shipments' } }),
     );
   });
 

@@ -13,11 +13,14 @@ export function AdminTopbar({ onMenu }: { onMenu?: () => void }) {
   const { role, setRole, canSwitchRole } = useRole();
   const router = useRouter();
 
-  // Logout del back-office (P-1): reusa el mismo `logout()` + ruteo al storefront que
-  // StorefrontHeader.onLogout. `logout()` limpia access+refresh+user (WS-B).
+  // Logout del back-office (P-1). `logout()` limpia access+refresh+user (WS-B).
+  // Aterriza DIRECTO en /login con `replace` (no push a `/`): al vaciar la sesión, el guard
+  // del AdminShell dispara igualmente su redirect a /login?next=… y ganaba la carrera, dejando
+  // un flash "Verificando sesión…" y una URL con `next`. Ir directo a /login evita el parpadeo
+  // y el back-button no regresa al back-office ya cerrado.
   async function onLogout() {
     await apiLogout();
-    router.push('/');
+    router.replace('/login');
   }
 
   return (

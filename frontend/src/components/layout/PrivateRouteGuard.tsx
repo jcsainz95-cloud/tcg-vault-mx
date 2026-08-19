@@ -12,7 +12,16 @@ import { config } from '@/lib/config';
  * (StorefrontHeader P-13), pero el acceso directo por URL renderizaba la vista y solo
  * al pegarle al backend salía un banner 401 críptico.
  */
-const PRIVATE_PREFIXES = ['/vault', '/orders', '/shipments', '/checkout'];
+/*
+ * `/checkout` NO está aquí a propósito (v1.21-guest-checkout, autorizado por el orquestador):
+ * PROJECT §J criterio 45 exige que un visitante SIN cuenta llegue al checkout y pague, y el
+ * contrato §4-G hace `@Public()` los endpoints `/checkout/guest/*`. Es requisito de producto,
+ * no una relajación de seguridad: este guard es una conveniencia de CLIENTE y el backend sigue
+ * siendo la autoridad (toda llamada privilegiada responde 401). El flujo con cuenta no cambia.
+ * Si alguien vuelve a meter '/checkout' aquí, rompe el guest checkout: lo ancla el test
+ * `app/[locale]/(storefront)/checkout/checkout-public-route.test.tsx` (modo REAL, no mock).
+ */
+const PRIVATE_PREFIXES = ['/vault', '/orders', '/shipments'];
 
 function isPrivatePath(pathname: string): boolean {
   return PRIVATE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

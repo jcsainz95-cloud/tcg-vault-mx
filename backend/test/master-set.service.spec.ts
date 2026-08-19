@@ -150,11 +150,14 @@ describe('MasterSetService.binder — countsByFinish, orden natural, secret rare
     (prisma.cardSet.findUnique as jest.Mock).mockResolvedValue({
       id: 's1', name: 'Surging Sparks', series: 'SV', releaseDate: '2024/11/08', printedTotal: 191,
     });
+    // v1.22 (§4.22b): el orden natural lo aplica la BD (`orderBy: CARD_ORDER_BY_IN_SET`); el
+    // mock simula la respuesta YA ordenada, con `numberSort`/`numberPrefix` COMO COLUMNAS (M-26) —
+    // el servicio ya NO deriva/ordena en memoria.
     (prisma.card.findMany as jest.Mock).mockResolvedValue([
-      { id: 'c10', number: '10', name: 'B', rarity: 'Common', imageSmallUrl: null, availableFinishes: ['normal', 'reverse_holo'] },
-      { id: 'c2', number: '2', name: 'A', rarity: 'Common', imageSmallUrl: null, availableFinishes: ['normal'] },
-      { id: 'c200', number: '200', name: 'Secret', rarity: 'Secret Rare', imageSmallUrl: null, availableFinishes: ['holofoil'] },
-      { id: 'ctg', number: 'TG12', name: 'Trainer', rarity: 'Trainer Gallery', imageSmallUrl: null, availableFinishes: ['holofoil'] },
+      { id: 'c2', number: '2', numberSort: 2, numberPrefix: '', name: 'A', rarity: 'Common', imageSmallUrl: null, availableFinishes: ['normal'] },
+      { id: 'c10', number: '10', numberSort: 10, numberPrefix: '', name: 'B', rarity: 'Common', imageSmallUrl: null, availableFinishes: ['normal', 'reverse_holo'] },
+      { id: 'c200', number: '200', numberSort: 200, numberPrefix: '', name: 'Secret', rarity: 'Secret Rare', imageSmallUrl: null, availableFinishes: ['holofoil'] },
+      { id: 'ctg', number: 'TG12', numberSort: 1_000_012, numberPrefix: 'TG', name: 'Trainer', rarity: 'Trainer Gallery', imageSmallUrl: null, availableFinishes: ['holofoil'] },
     ]);
     // 2 normales + 1 reverse de c10; 3 normales de c2; c200/ctg sin inventario.
     (prisma.inventoryItem.groupBy as jest.Mock).mockResolvedValue([
@@ -173,8 +176,12 @@ describe('MasterSetService.binder — countsByFinish, orden natural, secret rare
       for (const v of cell.variants) expect('buyable' in v).toBe(false);
     }
 
-    // Orden natural: 2, 10, 200, luego TG12 al final.
+    // Orden natural: 2, 10, 200, luego TG12 al final — servido por el `orderBy` de la BD.
     expect(res.cells.map((c) => c.number)).toEqual(['2', '10', '200', 'TG12']);
+    // v1.22 (§4.22b): `card.findMany` se invoca con el `orderBy` NORMATIVO dentro del set.
+    expect((prisma.card.findMany as jest.Mock).mock.calls[0][0]).toMatchObject({
+      orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }, { number: 'asc' }, { id: 'asc' }],
+    });
 
     const c10 = res.cells.find((c) => c.cardId === 'c10')!;
     expect(c10.totalCount).toBe(3);

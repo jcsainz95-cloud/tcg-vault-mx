@@ -118,6 +118,15 @@ enum OrderStatus {
   chargeback
 }
 
+// v1.21-guest-checkout (M-25): destino del pedido. `vault` = comportamiento actual (la carta
+// entra a la bóveda del comprador con cuenta); `direct_ship` = envío directo a domicilio, única
+// ruta disponible para un pedido de INVITADO (la bóveda exige cuenta, PROJECT §J).
+// API_CONTRACT §4-G.10 / ARCHITECTURE §4.21.
+enum FulfillmentMode {
+  vault
+  direct_ship
+}
+
 enum ShipmentStatus {
   solicitado
   picking
@@ -373,7 +382,31 @@ model Card {
   // `tcgplayer.prices` al importar (ARCHITECTURE §3.7). SIGUE siendo 1 fila por externalId
   // (el @unique NO cambia; esto es un array en la MISMA fila). Filas históricas → [normal]
   // hasta el re-sync. Lista blanca contra la que el backend valida cualquier `finish` (SEC-A1).
+  // v1.22-variantes-orden (§4.22a): la FUENTE es el SYNC DE CATÁLOGO y SOLO él (tcgplayer.prices
+  // por llave presente ∪ cardmarket.prices.reverseHolo* por valor > 0). `price-ingest` NO escribe
+  // esta columna (§4.15e derogada). Se almacena SIEMPRE en orden canónico FINISH_ORDER y nunca vacía.
+  // v1.22-1 (M-27, §4.22g): DEJA de escribirse directamente. Pasa a ser una columna DERIVADA y
+  // recomputable = orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']. Su ÚNICO
+  // escritor es `catalog.FinishReconciler.reconcile(cardIds)`. Sigue siendo la lista blanca SEC-A1
+  // y el universo de casillas del binder; su FORMA no cambia (Finish[], no vacía, FINISH_ORDER).
   availableFinishes Finish[] @default([normal])
+  // v1.22-1 (M-27, §4.22g) — INTERNA (no se expone en DTO). «Opinión del catálogo» = Señal A ∪ B
+  // del último payload de pokemontcg.io (lo que devuelve `deriveAvailableFinishes(c)`), persistida
+  // para SOBREVIVIR a un 502 de la fuente. La escribe `catalog-sync.upsertCards` con la semántica
+  // null de §4.22a-4 (null ⇒ conserva; CREATE ⇒ derived ?? ['normal']). Backfill M-27: = availableFinishes.
+  catalogFinishes        Finish[] @default([])
+  // v1.22-1 (M-27, §4.22g) — INTERNA. Señal C = acabados que PPT reportó con market>0 para la carta,
+  // filtrados a ALIAS VERIFICADO (candado 2). La escribe `price-ingest` por REEMPLAZO por carta en
+  // una corrida EXITOSA (money-safe: no se toca ante fallo/0 filas). Alimenta la unión, NO es la
+  // lista blanca (esa es availableFinishes).
+  pricedFinishesSnapshot Finish[] @default([])
+  // v1.22-variantes-orden (M-26, §4.22b): claves DERIVADAS de `number` (String) para el ORDEN
+  // NATURAL en BD. `number` sigue siendo la fuente de verdad; si divergen, se recalculan de él.
+  // Puro numérico → numberSort = entero (clamp 999_999) y numberPrefix = ''. Con prefijo
+  // alfabético (TG12/SV107) → numberPrefix = las letras y numberSort = 1_000_000 + parte numérica
+  // (promos/subsets al final). El default 1_000_000 deja cualquier fila no backfilleada AL FINAL.
+  numberSort        Int      @default(1000000)
+  numberPrefix      String   @default("")
   createdAt         DateTime @default(now())
 
   inventoryItems   InventoryItem[]
@@ -384,6 +417,8 @@ model Card {
   @@index([setId])
   @@index([name])
   @@index([rarity])
+  // M-26: sirve el ORDER BY del binder y de `GET /buylist/cards` con `setId` (§4.22b).
+  @@index([setId, numberPrefix, numberSort])
 }
 
 // ============================= INVENTORY / VAULT =============================
@@ -582,34 +617,69 @@ model FxRate {
 // ============================= ORDERS =============================
 
 model Order {
-  id                    String      @id @default(uuid())
-  userId                String
-  user                  User        @relation(fields: [userId], references: [id])
-  status                OrderStatus @default(pending)
-  subtotalCents         Int
-  processingFeeCents    Int
-  ivaCents              Int
-  totalCents            Int
-  ivaRatePct            Int         @default(16)
-  stripePaymentIntentId String?     @unique
-  stripeChargeId        String?
-  billingSnapshot       Json?
-  cfdiStatus            CfdiStatus  @default(no_aplica)
-  invoiceRequested      Boolean     @default(false)
+  id                      String          @id @default(uuid())
+  // v1.21-guest-checkout (M-25): NULLABLE para alojar el pedido de INVITADO (sin cuenta).
+  // NO relaja ninguna autorización: la puerta sigue siendo `order.userId !== :sessionUser`
+  // y `null` nunca iguala a un uuid de sesión. Invariante: userId != null OR guestEmail != null.
+  // `onDelete: Restrict` EXPLÍCITO (no el `SetNull` que Prisma pondría por defecto en una relación
+  // opcional): borrar un usuario NO debe huerfanar sus pedidos. Además, con `SetNull` un borrado
+  // duro rompería el CHECK `claimedAt IS NOT NULL => userId IS NOT NULL`. Se conserva así el
+  // comportamiento previo a M-25 (los usuarios se SOFT-borran, M-15).
+  userId                  String?
+  user                    User?           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  // v1.21 (M-25): correo del invitado, normalizado (trim + lowercase) por la aplicación.
+  // `guestEmail != null` <=> el pedido NACIÓ como pedido de invitado (inmutable; sobrevive al reclamo).
+  guestEmail              String?
+  // v1.21 (M-25): número legible `TCG-000123` (secuencia `order_number_seq`). Nullable SOLO por el
+  // backfill de la migración; la aplicación lo escribe SIEMPRE en pedidos nuevos.
+  orderNumber             String?         @unique
+  // v1.21 (M-25): destino del pedido. Default `vault` = comportamiento previo bit a bit.
+  fulfillmentMode         FulfillmentMode @default(vault)
+  // v1.21 (M-25): dirección capturada en línea (el invitado no tiene `Address`). Mismo criterio de
+  // snapshot que ShipmentRequest.addressSnapshot. Obligatoria (app) cuando fulfillmentMode=direct_ship.
+  shippingAddressSnapshot Json?
+  // v1.21 (M-25): envío cobrado DENTRO de esta orden (mismo PaymentIntent). 0 en pedidos a bóveda
+  // => el P&L histórico no cambia. Única fuente del ingreso de envío de un pedido de invitado.
+  shippingFeeCents        Int             @default(0)
+  // v1.21 (M-25): momento del reclamo (conversión a cuenta). claimedAt != null => userId != null.
+  claimedAt               DateTime?
+  // v1.21 (M-25): idioma del correo del invitado (no hay User). order.locale ?? user.locale ?? 'es'.
+  locale                  Locale?
+  // v1.21 (M-25): marca + 4 últimos de la tarjeta, capturados del charge al liquidar. Dato permitido
+  // por PCI-DSS; JAMÁS PAN, BIN ni titular. Alimentan GuestTrackingPaymentDTO (§4-G.3).
+  paymentMethodBrand      String?
+  paymentMethodLast4      String?
+  status                  OrderStatus     @default(pending)
+  subtotalCents           Int
+  processingFeeCents      Int
+  ivaCents                Int
+  totalCents              Int
+  ivaRatePct              Int             @default(16)
+  stripePaymentIntentId   String?         @unique
+  stripeChargeId          String?
+  billingSnapshot         Json?
+  cfdiStatus              CfdiStatus      @default(no_aplica)
+  invoiceRequested        Boolean         @default(false)
   // Fix 4: contracargo con carta ya ENVIADA/ENTREGADA (no se pudo revertir al inventario);
   // requiere gestión manual (pelear el contracargo con la guía de entrega).
-  chargebackNeedsManual Boolean     @default(false)
+  chargebackNeedsManual   Boolean         @default(false)
   // Fix 5: resultado del cierre de la disputa (charge.dispute.closed / funds_reinstated):
   // "won" | "lost". Informativo/auditoría (OrderStatus no cambia: won→settled, lost→chargeback).
-  disputeOutcome        String?
-  createdAt             DateTime    @default(now())
-  settledAt             DateTime?
-  refundedAt            DateTime?
+  disputeOutcome          String?
+  createdAt               DateTime        @default(now())
+  settledAt               DateTime?
+  refundedAt              DateTime?
 
-  items OrderItem[]
+  items            OrderItem[]
+  // v1.21 (M-25): enlaces de seguimiento del pedido de invitado (solo SHA-256 del claro).
+  accessTokens     OrderAccessToken[]
+  // v1.21 (M-25): envíos que fulfillan esta orden (envío directo). Vacío en pedidos a bóveda.
+  shipmentRequests ShipmentRequest[]
 
   @@index([userId])
   @@index([status])
+  // v1.21 (M-25): sirve GET /orders/claimable y el reenvío por (email, orderNumber).
+  @@index([guestEmail])
 }
 
 model OrderItem {
@@ -628,8 +698,17 @@ model OrderItem {
 
 model ShipmentRequest {
   id                    String         @id @default(uuid())
-  userId                String
-  user                  User           @relation(fields: [userId], references: [id])
+  // v1.21-guest-checkout (M-25): NULLABLE. `null` SOLO en el envío directo de un pedido de
+  // invitado (creado por el servidor al liquidar). GET /shipments[...] debe filtrar por
+  // `userId = :sessionUser` de forma POSITIVA para que un envío `userId=null` no aparezca nunca.
+  // `onDelete: Restrict` explícito (ver la misma nota en `Order.userId`).
+  userId                String?
+  user                  User?          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  // v1.21 (M-25): DISCRIMINADOR. `null` = retiro de bóveda (todo lo existente); poblado = envío
+  // directo que fulfilla ese pedido. NO @unique: deja abierta la re-expedición sin migrar.
+  // Invariante de aplicación: a lo más UN envío activo por orden.
+  orderId               String?
+  order                 Order?         @relation(fields: [orderId], references: [id], onDelete: Restrict)
   addressSnapshot       Json
   status                ShipmentStatus @default(solicitado)
   shippingFeeCents      Int
@@ -649,6 +728,8 @@ model ShipmentRequest {
 
   @@index([userId])
   @@index([status])
+  // v1.21 (M-25): join orden->envío de la vista pública de seguimiento.
+  @@index([orderId])
 }
 
 model ShipmentItem {
@@ -852,6 +933,32 @@ model AuthToken {
   createdAt DateTime      @default(now())
 
   @@index([userId, type])
+  @@index([expiresAt])
+}
+
+// v1.21-guest-checkout (M-25): ENLACE DE SEGUIMIENTO del pedido de invitado. El claro (32 bytes
+// aleatorios base64url, 256 bits) viaja SOLO por correo / por la respuesta del checkout a quien
+// acaba de crear el pedido; en BD vive ÚNICAMENTE su SHA-256 (`tokenHash`), así que un dump de BD
+// NO produce enlaces válidos. MULTI-USO (el invitado reabre su enlace): revocable (`revokedAt`),
+// no consumible (no hay `usedAt`) — única diferencia semántica con `AuthToken`, y la razón de no
+// reusar ese modelo (su `userId` es obligatorio y su `consume()` es de un solo uso).
+// TTL 90d, rotación al reenviar, revocación al reclamar. ARCHITECTURE §4.21e / API_CONTRACT §4-G.7.
+model OrderAccessToken {
+  id         String    @id @default(uuid())
+  orderId    String
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // SHA-256 (hex) del token en claro. @unique = lookup por hash del token presentado.
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  // MULTI-USO: revocable, NO consumible. Se revoca al reclamar, al rotar y por soporte.
+  revokedAt  DateTime?
+  // Telemetría de abuso (escritura best-effort).
+  lastUsedAt DateTime?
+  useCount   Int       @default(0)
+  requestIp  String?
+  createdAt  DateTime  @default(now())
+
+  @@index([orderId])
   @@index([expiresAt])
 }
 

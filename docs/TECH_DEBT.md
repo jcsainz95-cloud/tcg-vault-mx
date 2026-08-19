@@ -918,7 +918,7 @@
   las líneas :48/:63 del mismo guard) + test de contrato del guard. **Fix trivial pero fuera de este
   stream**; requiere pasar por los gates de su stream.
 
-### XS-2 · 5 fallos DETERMINISTAS de la suite de integración por rate-limit (login throttle + throttle B-C1) vs harness E2E — bloqueará la E2E completa de release
+### XS-2 · 5 fallos DETERMINISTAS de la suite de integración por rate-limit (login throttle + throttle B-C1) vs harness E2E — **CERRADA (2026-08-18, backend)**
 - **Dónde:** `backend/test/integration/*` corriendo contra el stack levantado: el throttle de login
   (`auth.controller.ts`, familia `@Throttle` anti fuerza-bruta) y el throttle dedicado del cotizador
   batch (B-C1, 12/min — ver BACKEND_NOTES §40) se AGOTAN con la cadencia del harness E2E (todos los
@@ -931,6 +931,14 @@
   del runner SOLO en el perfil E2E. Los límites de producción NO se relajan. Dueño: backend del stream
   correspondiente, coordinado con **devops** (harness/compose) y verificación de **seguridad** (toca
   diales anti fuerza-bruta).
+- **CERRADA (2026-08-18, backend — ver BACKEND_NOTES §46.2):** en vez de un dial de límites (que sí
+  habría podido relajarse por error en un entorno real), el `ThrottlerGuard` se sustituyó por
+  `AppThrottlerGuard`, que **omite el rate-limiting solo si `NODE_ENV === 'test'`**
+  (`src/config/test-env.ts`; no hay env var capaz de apagarlo en staging/prod, con test que lo prueba).
+  Cubre a la vez el throttle de login y el B-C1 del cotizador batch, porque actúa sobre el guard y no
+  sobre la config global. Los límites configurados quedan **intactos** y el 429 real sigue verificado
+  punta a punta en `test/integration/auth-throttle.e2e-spec.ts` (que re-activa el throttler a
+  propósito). Pendiente de que **seguridad** lo valide en su gate de release.
 
 > Deuda aceptada, no bloqueante para el MVP. El cliente compila y pasa lint/typecheck/test/build; todas
 > las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la
@@ -1546,3 +1554,572 @@
   desmontar. Acción (dirección acordada con el techlead): extraer **`AdjustSection` a su propio archivo**
   recibiendo `pieces` por props (la query queda en el padre), y eliminar el estado derivado de `adjustFinish`
   (derivarlo en render con override del usuario, o re-sincronizar con `cell.cardId` por `key`).
+
+### WS «Órdenes y dinero» — guest checkout, frontend (2026-08-18, no bloqueante)
+
+> Hallazgos de **techlead** y **QA** en el cierre del stream «Órdenes y dinero» sobre la parte de
+> **frontend** (checkout de invitado + seguimiento público por token, contrato v1.21/v1.21.1).
+> Ninguno bloquea: el veredicto de código fue **sin hallazgos**; estas dos son deudas de diseño
+> defensivo y de cobertura. Aceptadas como deuda **no bloqueante**, dueño **frontend** (FE-28 con
+> cadencia compartida con QA). Continúan la numeración `FE-*` (tras FE-26).
+
+### FE-27 · La `queryKey` del seguimiento público no incluye el token (aislamiento por caché, no por clave) (Media)
+- **Dónde:** `frontend/src/app/[locale]/pedido/TrackingPageClient.tsx:46` —
+  `useQuery({ queryKey: ['guest-order-track'], queryFn: () => trackGuestOrder(token) })`.
+- **Estado actual:** la clave de caché es **constante** para un recurso que es **por-token**: dos
+  pedidos distintos comparten la misma entrada en el `QueryClient`. Hoy no se manifiesta porque la
+  query se configuró con `gcTime: 0` y `staleTime: 0` (y `retry: false`), así que nunca hay una
+  entrada viva que reutilizar. Es decir: **el aislamiento entre pedidos lo está sosteniendo la
+  configuración de caché, no la identidad del recurso**.
+- **Impacto:** medio. **No hay bug hoy** ni fuga observable —los E2E y los unitarios lo confirman—,
+  pero la protección es **accidental**: cualquier cambio de política de caché (subir `staleTime`,
+  activar `gcTime` por defecto, un `QueryClient` con defaults distintos, o prefetch) convierte esto
+  en una **fuga entre pedidos**: el `GuestOrderTrackingDTO` de un invitado servido a otro. Y es
+  justo la superficie más sensible del stream (criterio 51/52: un token ⇒ un pedido).
+- **Disparador:** al tocar los defaults del `QueryClient`, al añadir prefetch/persistencia de caché,
+  o al permitir cambiar de token sin remontar la página. Acción: **incluir el token en la
+  `queryKey`** —`['guest-order-track', token]`, o un hash/prefijo suyo si se prefiere no dejar el
+  secreto en las devtools de React Query— de modo que el aislamiento sea una propiedad de la clave y
+  no del `gcTime`.
+
+### FE-28 · La E2E del seguimiento público es mock-driven: la superficie del enlace tokenizado no se ejerce contra el stack real (Media)
+- **Dónde:** `frontend/e2e/guest-checkout.spec.ts:144-235` (bloque `seguimiento público · /pedido`:
+  `mock-demo-token`, `mock-expired-token`, `mock-…-checkout-token-expired`), servidos por la rama
+  mock de `trackGuestOrder` / `resendGuestTrackingLink` en `frontend/src/lib/api.ts`. El único caso
+  tagueado `@real` del spec (`comprar como invitado`) **degrada a mock** cuando no hay backend.
+- **Estado actual:** todo el comportamiento de seguridad del enlace que valida el front —token
+  válido, token inválido/expirado con pantalla neutra idéntica, reenvío neutro— se verifica contra
+  **fixtures del propio frontend**, no contra el backend. Los casos negativos comprueban que la UI
+  no ramifica, pero **no** que el backend responda `404/410/429` como el contrato §4-G.3 exige, ni
+  que el DTO real venga sin los campos prohibidos.
+- **Impacto:** medio. **Precedente concreto de este mismo stream:** `/checkout` estaba en
+  `PRIVATE_PREFIXES` de `PrivateRouteGuard`, lo que **rompía el criterio 45/46 en modo REAL**
+  (redirect a `/login`), y **los 60 E2E en modo mock pasaban igual** — porque el guard es inerte con
+  `useMocks`. El verde en mock no dice nada sobre el stack real, y aquí lo que quedaría sin cubrir
+  no es una pantalla cualquiera sino la **puerta sin contraseña** del pedido.
+- **Disparador:** próxima ronda de E2E `@real` / cierre de release. Acción: cubrir contra el backend
+  vivo al menos (a) **token válido** (pedido sembrado por el seed E2E ⇒ la vista pinta su
+  `orderNumber` y su estado) y (b) **token inválido/manipulado** (⇒ pantalla neutra, sin eco del
+  `errorCode`), reusando el patrón `@real` + `E2E_REAL=1` ya existente. Dueño: **frontend** escribe
+  el spec; **QA** fija la cadencia (por stream vs. por release) y siembra el pedido de invitado.
+
+### FE-29 · `numberSort`/`numberPrefix` opcionales en `types/contract.ts` + fallback duplicado `deriveNumberParts` en cliente (Baja, con condición de retiro)
+- **Dónde:** `frontend/src/types/contract.ts` (`CardDTO.numberSort?/numberPrefix?`,
+  `MasterSetCardCellDTO.numberSort?/numberPrefix?`) y `frontend/src/lib/cardOrder.ts`
+  (`deriveNumberParts` + el fallback dentro de `compareCardNumber`/`keysOf`).
+- **Estado actual:** el contrato v1.22 declara ambos campos **requeridos** (columnas de `Card`
+  desde M-26, siempre presentes en el DTO), pero el tipo del frontend los marca `?` a propósito:
+  **tolerancia de despliegue** mientras el re-sync/backfill (`POST /admin/catalog/sync-all
+  {force:true}`, ARCHITECTURE §4.22d) no haya corrido sobre TODAS las filas de producción. Si el
+  campo falta, `cardOrder.ts` deriva la clave equivalente en cliente con la MISMA regla del
+  contrato. Costo: la fórmula del orden natural vive **duplicada** front/back (ya con una
+  divergencia teórica conocida: el `.toUpperCase()` del front, ver BE-65b), y el tipo miente
+  respecto al contrato (dice "opcional" donde la norma dice "siempre").
+- **Impacto:** bajo. El fallback reproduce la misma secuencia para todos los `number` reales del
+  catálogo (prefijos ya en mayúsculas); el riesgo es de deriva futura entre las dos copias de la
+  fórmula, no de comportamiento hoy.
+- **Disparador / CONDICIÓN DE RETIRO:** cuando devops confirme la corrida del
+  `sync-all {force:true}` de §4.22d **en producción** (registro en `docs/DEVOPS_NOTES.md`, gate del
+  paso 4), el rol frontend debe: (1) volver **requeridos** `numberSort`/`numberPrefix` en ambos DTOs
+  de `types/contract.ts`; (2) **borrar** `deriveNumberParts` y el fallback de `keysOf` en
+  `cardOrder.ts` (queda solo el comparador sobre los campos del DTO — elimina la duplicación
+  front/back de la fórmula y de paso el `.toUpperCase()` divergente de BE-65b); (3) ajustar los
+  fixtures/tests que hoy construyen `CardDTO` sin esos campos. Anotada a petición del **techlead**
+  (veredicto del stream v1.22-variantes-orden); la decisión del `?` está documentada en
+  `docs/FRONTEND_NOTES.md` (entrada 2026-08-18 T1/T2/T3, «Nota de tipos»).
+
+### Rama `fix/m1-alta-inventario` — cierre M1 alta (2026-08-18, no bloqueante)
+
+> Deuda **aceptada, no bloqueante** anotada a petición del **techlead** tras el pase de fixes de dinero del
+> alta M1 (FIX 1 gradeadas sin cert compartido, FIX 2 reset de formulario, FIX 3 banner, FIX 4 tests).
+> Dueño **frontend**. Registradas sin implementar en este pase. Continúan la numeración `FE-*` (tras FE-29).
+
+### FE-30 · Extraer el modal de alta de `M1View.tsx` a `<AddItemModal>` + hooks de mutación
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (≈945 líneas: tabla+pestañas+filtros
+  **y** todo el modal de alta simple/masiva con sus dos `useMutation`).
+- **Estado actual:** un solo componente concentra la orquestación de tabla/pestañas/filtros/paginación **y**
+  el formulario de alta (picker de catálogo, lote, gradeada/sellado/raw, los `create`/`batch` mutations,
+  el reset de formulario `resetAddForm`, el manejo de `batchKey`). El archivo es grande y mezcla dos
+  responsabilidades; cada fix del alta obliga a navegar todo el componente.
+- **Impacto:** medio (mantenibilidad). Sin bug; el tamaño eleva el costo de cambios y el riesgo de regresión
+  al tocar el alta (justo la superficie de dinero de este pase).
+- **Disparador:** próximo toque sustancial del alta M1. Acción: extraer `<AddItemModal>` (formulario + lote)
+  con hooks `useInventoryCreate` / `useBatchCreate` que encapsulen las mutaciones + invalidación de
+  `['admin-inventory']`; `M1View` queda como orquestador de tabla+pestañas+filtros.
+
+### FE-31 · Reusar `PerLineErrors` (master-set) para el resultado por-línea del lote de M1
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (~:563-600, render del `batch.data.results`)
+  vs. `frontend/src/components/master-set/PerLineErrors.tsx`.
+- **Estado actual:** M1 **reimplementa** a mano el render del resultado por-línea del lote (folios OK / motivo
+  de fallo por-código con `Check`/`AlertTriangle`), mientras master-set ya tiene `PerLineErrors` para el mismo
+  propósito. Dos presentaciones divergentes de "resultado de lote".
+- **Impacto:** bajo (mantenibilidad/consistencia). Cualquier mejora de presentación de lotes hay que hacerla
+  dos veces.
+- **Disparador:** al unificar la presentación de lotes o al tocar el resultado del alta masiva. Acción: usar
+  `PerLineErrors` (o extraer un componente común) para el detalle por-línea, **sin** acoplar M1 a
+  `MasterSetPanel`. Nota: `capture.ts`/master-set quedaron **fuera de alcance** de este pase (NO TOCAR).
+
+### FE-32 · Unificar la generación de `batchKey` con `localUid('batch')`
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (`ensureBatchKey`, inline con
+  `Date.now().toString(36)` + `Math.random()`) vs. `frontend/src/components/master-set/capture.ts`
+  (`localUid('batch')`, ya usado por `MasterSetPanel`/`CellDrawer`).
+- **Estado actual:** M1 genera su `batchKey` de idempotencia **inline** con su propia fórmula; master-set usa
+  el helper compartido `localUid`. Dos fuentes para la misma noción (clave estable de lote).
+- **Impacto:** bajo. Funciona; es duplicación de un helper ya existente.
+- **Disparador:** al extraer los hooks de alta (FE-30) o al tocar `capture.ts` (hoy en la lista NO TOCAR).
+  Acción: reusar `localUid('batch')`.
+
+### FE-33 · Mostrar el acabado ASIGNADO por línea en el resultado del lote (hoy degrada en silencio)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/M1View.tsx` (`finishForCard`, ~:159-162, y el render
+  del resultado del lote).
+- **Estado actual:** en el alta masiva el acabado elegido se recorta por-carta (`finishForCard`): si la carta
+  no soporta el acabado del formulario, se sustituye por su primer acabado disponible **sin avisar**. El
+  resultado por-línea muestra folio/motivo pero **no** el acabado con que finalmente se creó cada pieza. El
+  acabado afecta la valuación, así que un degradado silencioso puede pasar inadvertido al operador.
+- **Impacto:** bajo/medio (transparencia de captura; el acabado incide en valuación). No corrompe: la pieza se
+  crea con un acabado válido para la carta; solo falta hacerlo visible.
+- **Disparador:** al tocar el resultado del alta masiva. Acción: incluir en cada línea OK el acabado asignado
+  (badge `FinishBadge`), destacando cuando difiere del elegido en el formulario.
+
+### FE-34 · P-1 · Tras logout el guard de `AdminShell` impone `/login?next=/admin/m1` (cosmético)
+- **Dónde:** `frontend/src/components/layout/AdminShell.tsx` (guard de sesión) vs. el `router.replace('/login')`
+  del logout.
+- **Estado actual:** al cerrar sesión, el guard de `AdminShell` **gana la carrera** y redirige a
+  `/login?next=/admin/m1` (con el `?next=`/flash) antes de que el `router.replace('/login')` limpio tome
+  efecto. El usuario acaba en login con un `next` que apunta de vuelta a la ruta admin recién cerrada.
+- **Impacto:** cosmético. No hay fuga (el guard protege igual); solo el query param sobra tras un logout
+  explícito.
+- **Disparador:** aceptado; **no arreglar ahora** salvo que resulte trivial y sin riesgo para el guard.
+  Acción posible: que el logout señale un "logout intencional" para que el guard omita el `?next=` en esa
+  transición.
+
+
+### WS «Órdenes y dinero» — cierre v1.21 guest checkout (2026-08-18, no bloqueante)
+
+> Hallazgos del veredicto del **techlead** sobre el stream «Órdenes y dinero» (guest checkout, contrato
+> v1.21/v1.21.1/v1.21.2). Aceptados como deuda **no bloqueante**, dueño **backend**. Continúan la
+> numeración `BE-*` (tras BE-52).
+>
+> **No están aquí, porque se pagaron en el propio stream:** **T2** (reserva atómica y compensación del
+> PaymentIntent duplicadas y ya divergentes → fuente única `OrdersService.reserveItems` /
+> `attachPaymentIntent`, con la titularidad como parámetro), **T1** (double-sell físico del contracargo con
+> envío vivo, v1.21.2), **D4** (discriminador canónico `Order.fulfillmentMode` con `switch` exhaustivo) y
+> **D6** (`CHECK` de `InventoryItem`, migración M-25b).
+
+### BE-53 · `sendTrackingLink` revoca los enlaces ANTES de saber si el correo salió (Media)
+- **Dónde:** `backend/src/modules/orders/guest-order-mail.service.ts` (`sendTrackingLink`, la llamada a
+  `tokens.issue(..., { rotate: true })` previa a `mail.send`).
+- **Estado actual:** el reenvío **rota primero** (revoca todos los tokens vivos del pedido) y **después**
+  intenta enviar el correo. Si el proveedor falla, el invitado se queda **sin el enlace que tenía** y **sin
+  el nuevo**; y como `POST /orders/guest/resend-link` responde siempre `202` por diseño anti-oráculo
+  (§4-G.4), **no se entera**. Le quedan el reclamo (si tiene cuenta) o soporte.
+- **Impacto:** medio. No hay pérdida de dinero ni de datos y el pedido se prepara y envía igual, pero el
+  comprador puede perder la visibilidad de su pedido justo cuando pidió ayuda. Probabilidad = la de un fallo
+  del proveedor de correo.
+- **Disparador:** al tocar el reenvío o al añadir reintentos de correo. Acción (dirección del techlead):
+  **emitir sin rotar** y revocar los anteriores **solo tras `mail.send` OK** (dos pasos), aceptando una
+  ventana breve de dos enlaces vivos —que es exactamente el patrón ya normado para el settle en §4-G.7a—.
+
+### BE-54 · El listado de M3 devuelve la fila cruda con spread en vez de una allowlist (Media)
+- **Dónde:** `backend/src/modules/orders/admin-orders.controller.ts` (`list()`, el `data.map((o) => ({ ...o,
+  isGuestOrder }))`).
+- **Estado actual:** el listado admin proyecta la fila de `Order` **entera** (spread) y solo añade el flag
+  derivado. Hoy eso incluye `guestEmail` y el `shippingAddressSnapshot` **completo** (dirección con calle y
+  teléfono), que el contrato sí permite en back-office, pero la forma es **denylist implícita**: cualquier
+  columna sensible que se añada mañana a `Order` se expone sola. Contradice el criterio de **allowlist
+  explícita** que este mismo stream defiende en `toTrackingDto` y que `toClientShipment` ya aplica.
+- **Impacto:** medio en riesgo futuro, bajo hoy (endpoint protegido por rol `vault_operator+`).
+- **Disparador:** al añadir columnas a `Order` o al tocar M3. Acción: proyección **por allowlist explícita**
+  (misma disciplina que `toClientShipment`), enumerando los campos que §M3 declara.
+
+### BE-55 · `getOrder('', id, true)`: centinela de string vacío + flag `isAdmin` para saltarse el check de dueño (Media)
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` (`getOrder(userId, orderId, isAdmin)`) y su
+  llamada desde `admin-orders.controller.ts` (`this.orders.getOrder('', id, true)`).
+- **Estado actual:** una sola función sirve a dos autorizaciones distintas; el llamador admin pasa un
+  **centinela `''`** como `userId` y un **flag booleano** que desactiva la comparación de dueño. Con
+  `Order.userId` **ya nullable** (M-25) este es justo el patrón que produce fugas: basta un futuro
+  `if (!isAdmin && order.userId !== userId)` mal editado, o un llamador que pase `''` sin querer, para que
+  la puerta quede abierta. Hoy es correcto (`'' !== uuid` y `null !== ''`), pero la seguridad depende de una
+  coincidencia, no del tipo.
+- **Impacto:** medio (riesgo de autorización latente); ninguno observable hoy.
+- **Disparador:** al tocar el detalle de pedido o al añadir un tercer llamador. Acción (dirección del
+  techlead): **dos métodos separados** —`getForCustomer(userId, orderId)` y `getForAdmin(orderId)`—, sin
+  flags ni centinelas, cada uno con su proyección.
+
+### BE-56 · Discrepancia doc↔código: el barrido T9 solo cubre pedidos de invitado (Baja)
+- **Dónde:** `backend/src/modules/orders/guest-checkout.service.ts` (`sweepStaleGuestOrders`, el `where` con
+  `guestEmail: { not: null }` y `fulfillmentMode: 'direct_ship'`) frente a `docs/ARCHITECTURE.md` §4.21e (T9),
+  que afirma que el barrido «**también** beneficia a los pedidos con cuenta (hoy dependen solo de que Stripe
+  cancele el PI)».
+- **Estado actual:** el filtro excluye a propósito los pedidos de bóveda, así que **hoy esa frase no se
+  cumple**: una reserva de un pedido con cuenta no pagado sigue dependiendo de que Stripe cancele el PI.
+- **Impacto:** bajo. No hay bug en la ruta de invitado (que es la que el job debía cubrir); es una
+  discrepancia de documentación y una mejora no hecha para la ruta con cuenta.
+- **Disparador:** decidir cuál de las dos se alinea. Acción: o ampliar el barrido a `status='pending'` sin
+  filtrar por `guestEmail` (con la ventana de reserva que decida el arquitecto para bóveda), o corregir la
+  frase de §4.21e. **La ampliación toca la ruta con cuenta ⇒ pasa por el arquitecto antes.**
+
+### BE-57 · `RejectAuthenticatedGuard` aplicado por handler y no a nivel de clase (Media)
+- **Dónde:** `backend/src/modules/orders/guest-orders.controller.ts` (`@UseGuards(RejectAuthenticatedGuard)`
+  repetido en `quote` y `session`).
+- **Estado actual:** el invariante §4-G.0-3 («los endpoints `/checkout/guest/*` rechazan una sesión válida
+  con `409 ALREADY_AUTHENTICATED`») depende de que **cada handler nuevo recuerde el decorador**. Un quinto
+  endpoint `/checkout/guest/*` que lo olvide pierde el invariante **en silencio**: no falla ningún test
+  existente ni ningún tipo. El controlador mezcla además las dos familias (`/checkout/guest/*`, que rechaza
+  sesión, y `/orders/guest/*`, que no), por lo que no basta con subir el guard a la clase actual.
+- **Impacto:** medio en riesgo futuro; ninguno hoy (los dos handlers que lo necesitan lo tienen, y hay test
+  que lo verifica).
+- **Disparador:** al añadir cualquier endpoint `/checkout/guest/*`. Acción: **separar en dos controladores**
+  (`GuestCheckoutController` con el guard a **nivel de clase** y `GuestOrdersController` sin él), de modo que
+  el invariante lo dé la **estructura** y no la disciplina.
+
+### BE-58 · Tests de implementación en el spec de contrato del guest checkout (Baja)
+- **Dónde:** `backend/test/guest-checkout.contract.spec.ts`, describe «metadatos de seguridad» (lecturas de
+  `Reflect.getMetadata('THROTTLER:LIMITdefault' | '__guards__')` y comprobación del **orden de declaración**
+  de los métodos de `OrdersController`).
+- **Estado actual:** esos casos afirman **cómo está construido** el código (claves internas de
+  Nest/Throttler, orden de métodos) en vez de **qué hace**. El más peligroso es
+  `expect(guardsOf(proto.track)).not.toContain(...)`: si la clave `'__guards__'` cambia de nombre en una
+  versión de Nest, el helper devuelve `[]` y el aserto **pasa en vacío** — verde sin probar nada. Se
+  escribieron así porque probar el rate-limit real exigiría infra (y el throttler se salta bajo
+  `NODE_ENV=test`).
+- **Impacto:** bajo. Los mismos invariantes están cubiertos por tests de comportamiento (el guard tiene su
+  propia suite; la ruta `claimable` se ejercita por HTTP en la E2E), así que el riesgo es falsa confianza,
+  no un agujero descubierto.
+- **Disparador:** al subir de major de `@nestjs/throttler`/`@nestjs/core`. Acción: sustituir por
+  comportamiento (E2E de `429` con el throttler activo y una llamada real a `/orders/claimable`), o al menos
+  hacer que el helper **falle si la metadata no existe** en vez de devolver vacío.
+
+### BE-59 · `resendQuotaExceeded` cuenta también los tokens que no son reenvíos (Baja)
+- **Dónde:** `backend/src/modules/orders/order-access-token.service.ts` (`resendQuotaExceeded`: `count` de
+  todas las filas `OrderAccessToken` del pedido en 24 h).
+- **Estado actual:** el tope `GUEST_RESEND_MAX_PER_DAY = 5` del contrato (§4-G.4) cuenta **cualquier** fila
+  emitida en 24 h, incluidos el **`checkoutToken`** del checkout y el token del **settle**. El día de la
+  compra esos dos ya consumen cuota ⇒ el invitado dispone de **3 reenvíos reales, no 5**. El contrato dice
+  «contando `OrderAccessToken` emitidos», así que la implementación es literal, pero el efecto observable
+  discrepa de la intención («5 reenvíos»).
+- **Impacto:** bajo. Solo aprieta el límite (nunca lo afloja) y ocurre únicamente el primer día.
+- **Disparador:** si soporte reporta invitados sin reenvíos disponibles. Acción: contar solo emisiones de
+  **reenvío** —distinguibles hoy por su TTL de 90 días frente a los 120 min del checkout, sin columna nueva—
+  o pedir al arquitecto que fije el criterio exacto de conteo en §4-G.4.
+
+### BE-60 · Una fila corrupta de M4 tumba el listado entero (Media)
+- **Dónde:** `backend/src/modules/shipments/shipments.service.ts` — `kindForFulfillment()` lanza
+  (`409 CONFLICT`) y se invoca desde `withAdminKind()` dentro del `.map()` de `adminList()`.
+- **Estado actual:** D4 exige que un `fulfillmentMode` no soportado (o un `vault` con `orderId`,
+  combinación imposible) **rompa visiblemente** en vez de comportarse como envío directo. Correcto
+  en el **detalle** (`adminGet`) y en la máquina de estados. Pero en el **listado** el mismo throw
+  hace que **una sola fila corrupta** devuelva `409` para **toda la cola de M4**: el operador se
+  queda sin listado, sin poder ni siquiera identificar la fila culpable.
+- **Impacto:** medio. Hoy no puede ocurrir (`fulfillmentMode` es NOT NULL con default y el
+  invariante lo sostiene la aplicación), pero el modo de fallo elegido es "apagar la cola" en vez
+  de "señalar la fila", justo en la pantalla operativa de la que depende el trabajo diario.
+- **Disparador:** al añadir un tercer `FulfillmentMode` o ante corrupción de datos. Acción:
+  degradar **por fila** en el listado (`kind: 'unknown'` + `logger.error` con el `shipmentId`),
+  conservando el throw en el detalle y en la transición terminal, donde sí debe frenar.
+
+### BE-61 · El envío del settle se crea incluyendo piezas con anomalía no recuperada (Baja)
+- **Dónde:** `backend/src/modules/payments/payments.service.ts` (`settleDirectShipOrder`: el
+  `shipmentRequest.create` usa **todos** los `order.items`, incluidas las piezas cuya anomalía B3
+  no se pudo recuperar).
+- **Estado actual:** si al liquidar una pieza está comprometida con otro flujo (`shipped`,
+  `in_custody`…), el settle **no se la quita a nadie** (correcto) pero el `ShipmentRequest` que crea
+  **sí la incluye** como `ShipmentItem`. Queda un envío que promete una carta que no está
+  disponible; el operador lo descubre al hacer picking. La anomalía **ya se registra** (`logger.error`
+  + `AuditLog order.settle_inventory_anomaly` con `needsHumanReview: true`).
+- **Impacto:** bajo. El caso solo aparece tras una anomalía ya auditada y con intervención humana
+  pendiente; el pedido pagado necesita **algún** envío, así que crearlo completo es lo menos malo
+  (lo contrario —omitir la línea— escondería la deuda al operador).
+- **Disparador:** al construir la cola de "anomalías de settle" en back-office. Acción: excluir del
+  `ShipmentRequest` las piezas no recuperadas y reflejarlas en esa cola, o marcar la línea del
+  envío como pendiente de confirmación. **Decisión de producto/UX ⇒ pasa por el arquitecto.**
+
+### BE-62 · `sellableStatusFor` usa el cliente NO transaccional dentro de una transacción abierta (Media)
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` — `resolveChargebackInventory` la invoca
+  **dentro** del `$transaction` (rama `recuperada`) y el helper lee por **`this.prisma`**, no por el
+  `tx` de esa transacción.
+- **Estado actual:** inofensivo hoy y verificado por el techlead: `PricingService.getReference` es
+  lectura pura de BD (sin red) y un `SELECT` por otra conexión no se bloquea bajo READ COMMITTED.
+  Pero **contradice la regla que el propio proyecto se escribió** en `shipments.service.ts` —*«la
+  creación del PaymentIntent queda FUERA de la tx a propósito: no bloquear una conexión de DB en una
+  llamada de red»*— y el helper está **a una llamada de proveedor** de reabrir BE-7: basta que
+  mañana la resolución de precio consulte un proveedor externo (el `PricingProvider` es
+  intercambiable por diseño) para tener una llamada de red con una transacción abierta y filas
+  bloqueadas.
+- **Impacto:** medio en riesgo futuro; ninguno observable hoy.
+- **Disparador:** al tocar `sellableStatusFor`, al cambiar de `PricingProvider` o al añadir otra
+  resolución de precio dentro de una transacción. Acción: pasar el `tx` al helper (firma
+  `sellableStatusFor(tx, item)`) y dejar **explícito en su docblock** que no puede hacer I/O externa.
+
+### BE-63 · `catch {}` desnudo en `sellableStatusFor` degrada a `in_stock` en silencio (Baja)
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` (`sellableStatusFor`, el `catch` sin
+  filtro que devuelve `'in_stock'`).
+- **Estado actual:** el `catch` está pensado para `PRICE_PENDING` (una pieza sin precio no se
+  publica), pero atrapa **cualquier** excepción: ahora que corre **dentro de la transacción**, un
+  fallo real de Prisma (conexión, timeout, constraint) se traga y la pieza se degrada a `in_stock`
+  como si el problema fuera de precio. **Es la misma especie que el `continue` mudo del settle que
+  B3 nos enseñó a no dejar pasar**: una rama silenciosa en el camino del inventario que convierte un
+  fallo de infraestructura en una decisión de negocio plausible, y por eso nadie la investiga.
+- **Impacto:** bajo. La dirección del error es conservadora (no publica de más) y el desenlace queda
+  auditado igualmente; lo que se pierde es la señal de que algo falló.
+- **Disparador:** al tocar el helper o al investigar piezas que "aparecen" en `in_stock` sin motivo.
+  Acción: capturar **solo** `BusinessException` con `code === 'PRICE_PENDING'` y dejar propagar el
+  resto (la transacción revertirá, que es lo correcto ante un fallo real).
+
+### BE-64 · La suite de integración dependía del volumen acumulado de la BD compartida — RESUELTA en esta ronda (Baja)
+- **Dónde:** `backend/test/integration/guest-checkout.e2e-spec.ts` (el caso «el envío de invitado
+  aparece en la cola de M4»).
+- **Qué pasaba (hallazgo de QA):** el test buscaba **su** envío en
+  `GET /admin/shipments?kind=guest_direct_ship` **sin paginar**, y ese endpoint sirve `pageSize=20`
+  por defecto. QA lo demostró: **102/104** con la BD acumulada (41 envíos) y **103/104** tras
+  recrearla. CI usa BD efímera, pero el propio spec declara que la suite comparte BD entre
+  ejecuciones, así que en staging **habría empezado a fallar solo** — un flake que se disfraza de
+  regresión y quema tiempo de QA.
+- **Resolución:** la consulta se acota (`status=picking&pageSize=100`), de modo que el aserto
+  depende del **comportamiento** y no del volumen histórico. Verificado corriendo la suite de
+  integración **dos veces seguidas sobre la misma BD acumulada** (40 envíos): 114/115 en ambas
+  pasadas, con el único fallo en `infra-smoke` (MinIO/S3 ausente en el entorno, ajeno).
+- **Se anota igualmente** porque el patrón —*asertar sobre un listado paginado compartido*— puede
+  repetirse en cualquier spec futuro de back-office; la regla es: filtra o busca por id, nunca
+  confíes en que tu fila entra en la primera página.
+- **Recurrencia confirmada y corregida (2026-08-18, WS v1.22):** el mismo patrón latente vivía en
+  `catalog-checkout-webhook.e2e-spec.ts` (buscaba el charizard del seed en `GET /catalog/cards?
+  pageSize=50`) y despertó al acumular la BD compartida >50 piezas listadas del MISMO nombre
+  (`E2E-GST-*` por corrida). Ni siquiera acotar con `q=` bastó (51 listings del mismo charizard).
+  Corregido a la regla: la pieza concreta se pide **por id** (`/catalog/listings/:id`) y el listado
+  se asierta por comportamiento, no por volumen.
+
+### WS «Catálogo y precios» — v1.22 variantes y orden (2026-08-18, no bloqueante; anotado a petición del techlead)
+
+### BE-65 · Casos borde del orden natural: `"23a"`, `number` vacío, y dos divergencias oráculo↔clave persistida (Baja)
+- **Dónde:** `backend/src/common/card-order.ts` (`deriveNumberParts` / `compareByNumber`) y su
+  espejo del front `frontend/src/lib/cardOrder.ts` (dueño frontend para su mitad).
+- **Estado actual:** ARCHITECTURE §4.22b decidió explícitamente NO cambiar la semántica de estos
+  bordes en este WS (parity con el comparador previo): `"23a"` → `prefix="a"`,
+  `numberSort=1_000_023` (cae en el bloque de promos en vez de junto a `"23"`); `number=""` →
+  `prefix=""`, `numberSort=1_000_000` (al final del bloque numérico). Además hay **dos divergencias
+  reales** entre implementaciones del mismo orden:
+  - **(a) `compareByNumber` diverge de la clave persistida para `number=""`:** el comparador decide
+    "promo" por `prefix !== ''` y compara por `num` (no por `numberSort`), así que `""` (prefix `''`,
+    num `0`) se trata como puro-numérico y ordena **PRIMERO** en memoria, mientras que en BD su
+    `numberSort=1_000_000` lo manda **al final del bloque numérico**. `compareByNumber` es hoy solo
+    oráculo de tests y comparador de colecciones ya materializadas, pero un oráculo que diverge del
+    dato que audita es una trampa esperando a su test.
+  - **(b) El fallback del front normaliza el prefijo a MAYÚSCULAS y el backend no:**
+    `frontend/src/lib/cardOrder.ts` hace `.toUpperCase()` del prefijo derivado; el backend
+    (`deriveNumberParts` y el backfill SQL de M-26) conserva las minúsculas. Un `number` con prefijo
+    en minúsculas (`"23a"` → backend `prefix="a"`, front `prefix="A"`) ordenaría distinto al
+    re-ordenar localmente tras filtrar que en la página servida por la BD.
+- **Impacto:** bajo. pokemontcg.io emite los prefijos reales en mayúsculas (`TG`/`GG`/`SV`) y no se
+  han visto `number` vacíos en producción; los bordes son teóricos hoy.
+- **Disparador:** al afinar los casos borde que §4.22b dejó como deuda, o si un sync real trae un
+  `number` con letra minúscula/vacío. Acción: (1) unificar la decisión "¿es promo?" y la comparación
+  sobre `numberSort`+`prefix` (las MISMAS claves persistidas) en `compareByNumber`; (2) decidir UNA
+  normalización de prefijo (recomendado: ninguna, y quitar el `.toUpperCase()` del front — cambio
+  del rol frontend); (3) si se cambia la semántica de `""`/`"23a"`, actualizar `deriveNumberParts`,
+  el backfill de referencia y re-sync — **pasa por el arquitecto** (cambia el orden observable del
+  contrato).
+
+### BE-66 · `availableFinishes ?? ['normal']` no cubre el array VACÍO (Baja)
+- **Dónde:** `backend/src/modules/catalog/catalog.service.ts` (`toCardDTO`) y
+  `backend/src/modules/inventory/master-set.service.ts` (celda del binder): ambos emiten
+  `(card.availableFinishes ?? ['normal'])`.
+- **Estado actual:** Prisma **nunca devuelve `null`** en columnas de lista (devuelve `[]`), así que
+  el `??` solo protege contra un caso que no ocurre; un `[]` legado/corrupto se emitiría **tal
+  cual**, violando el invariante del contrato («el array nunca llega vacío», API_CONTRACT §6 /
+  §4.22c) y dejando una celda del binder con CERO casillas. Hoy es **inalcanzable por código**: el
+  schema tiene `@default([normal])`, `upsertCards` nunca escribe vacío (`derived ?? ['normal']` en
+  CREATE, omisión en UPDATE), los seeds siembran explícito y `expectedFinishes()` del master-set SÍ
+  cubre `length === 0`. El agujero requeriría un UPDATE manual en BD.
+- **Impacto:** bajo (defensa en profundidad, no bug activo).
+- **Disparador:** al tocar `toCardDTO` o el binder. Acción: helper único
+  `presentFinishes(arr: Finish[] | null | undefined): Finish[]` (en `common/card-order.ts`, junto a
+  `orderFinishes`) que cubra `null | undefined | []` → `['normal']`, y usarlo en los tres sitios
+  (`toCardDTO`, binder, `expectedFinishes`) para que el invariante viva en UN lugar.
+
+### BE-67 · Supuestos S1/S2/S3 del payload de pokemontcg.io SIN verificar en vivo — gate de la secuencia §4.22d (Media hasta la 1ª corrida)
+- **Dónde:** `backend/src/modules/pricing/pricing.types.ts` (`deriveAvailableFinishes`) y
+  `backend/src/modules/catalog/pokemontcg-io.client.ts` (`RemoteCard.cardmarket`). Detalle completo:
+  `docs/BACKEND_NOTES.md` §49.6 y ARCHITECTURE §4.22f (tabla S1/S2/S3).
+- **Estado actual:** el proxy del sandbox bloquea `api.pokemontcg.io` (403 en CONNECT), así que la
+  derivación de dos señales se implementó contra el esquema DOCUMENTADO de la API v2, cubierta solo
+  por tests de tabla de verdad sobre payloads fijos. Supuestos: **S1** la llave de `tcgplayer.prices`
+  solo aparece cuando la impresión existe; **S2** `cardmarket.prices.reverseHolo*` viene siempre
+  (señal = valor > 0); **S3** el payload de `GET /v2/cards?q=set.id:*` ya incluye `cardmarket` sin
+  `select=` (cero requests extra).
+- **Impacto:** medio **hasta** la primera corrida real: si S1/S2 fallan, el re-sync de §4.22d
+  repoblará `['normal']` masivamente (el gate del paso 4 lo detecta); si S3 falla, el sync necesita
+  una llamada extra (avisar al arquitecto ANTES: cambia el costo del sync).
+- **Disparador:** la **ejecución de la secuencia §4.22d en Railway/staging** (dueño devops, con
+  backend). Acción: correr `sync` sobre UN set moderno conocido antes del `sync-all {force:true}`,
+  revisar `cardsWithoutFinishSignal` en logs y el `SELECT count(*)... 'reverse_holo' =
+  ANY("availableFinishes")` del gate, registrar el resultado en `docs/DEVOPS_NOTES.md` y cerrar esta
+  entrada (o escalar v1.22-1 al arquitecto si el payload no trae ninguna señal). **Esta entrada
+  existe para que el supuesto no se pierda entre el merge del stream y el deploy.**
+
+### Rama `fix/carrito-pieza-muerta` (v1.21.3-quote-prune) — deuda del veredicto techlead (2026-08-18, no bloqueante)
+
+> Del stream de poda de carrito (quote por ítem). Techlead **APROBADO con condiciones**; el rename
+> `priceCartForOrder`/`priceCartForQuote` (B-4 del review) se aplicó en la propia rama y NO figura
+> aquí. IDs `B-1..B-3` del review de ese stream (no confundir con la serie `BE-*` de arriba).
+
+### B-1 · Dedupe asimétrico quote vs session
+- **Dónde:** `backend/src/modules/orders/orders.service.ts` — `priceCartForQuote` deduplica ids
+  (`new Set`) antes de cotizar; `loadItems` (la ruta estricta de `priceCartForOrder`/sessions) NO:
+  con un id duplicado en el carrito `items.length !== ids.length` y responde `404 NOT_FOUND`.
+- **Dueño:** backend.
+- **Estado actual:** el arquitecto lo está documentando en el contrato como comportamiento vigente
+  (quote dedupe; session estricta rechaza duplicados). No es bug hoy: el front manda ids únicos.
+- **Impacto:** bajo. Asimetría de normalización entre las dos rutas; un cliente que repita un id
+  ve `200` en quote y `404` en session para el mismo carrito.
+- **Disparador:** próximo cambio en `loadItems`/checkout, o si aparece un cliente de API externo.
+  Acción: normalizar los ids en un punto ÚNICO de entrada para ambas rutas.
+
+### B-2 · `QuoteDto` sin `ArrayMaxSize`
+- **Dónde:** `backend/src/modules/orders/dto/orders.dto.ts:11-13` (`QuoteDto.inventoryItemIds`).
+- **Dueño:** backend.
+- **Estado actual:** el DTO de quote de invitado acota a `GUEST_MAX_ITEMS=20` y el de customer NO
+  tiene cota. Desde v1.21.3 la petición se procesa COMPLETA (la poda tolerante ya no corta con el
+  404 temprano que antes actuaba de freno accidental).
+- **Impacto:** superficie de abuso: un autenticado puede cotizar arrays enormes de ids y cargar
+  BD/CPU (una query `IN` gigante + resolución de precio por ítem válido).
+- **Disparador:** fase de seguridad del próximo release — **pedir a pentester/seguridad que lo
+  evalúen**. Acción probable: `@ArrayMaxSize` en `QuoteDto` alineada con una cota de producto.
+
+### B-3 · Regla de venta con gemelo SQL
+- **Dónde:** predicado TS `isSellable` (`backend/src/modules/orders/orders.service.ts`) vs. el
+  `where` literal de `reserveItems` (`ownerType:'platform', status:{in:['listed','in_stock']}`) y la
+  copia en `backend/src/modules/payments/payments.service.ts:218`.
+- **Dueño:** backend.
+- **Estado actual:** deuda HEREDADA (este stream la REDUJO al unificar el predicado TS en un solo
+  cuerpo), pero la regla sigue viviendo también como literales SQL en dos sitios: un cambio en la
+  lista de estados vendibles exige tocar tres lugares coordinados o la regla diverge en silencio.
+- **Impacto:** medio/latente. Es la regla que decide qué pieza puede venderse/reservarse: una
+  divergencia sería double-sell o pieza invendible.
+- **Disparador:** próximo cambio en CUALQUIERA de los tres sitios. Dirección: constante compartida
+  `SELLABLE_STATUSES` (mismo patrón que `inventory.service.ts:74`) consumida por el predicado y por
+  los dos `where`.
+
+### Rama `fix/available-finishes-source` — fix de `availableFinishes` (2026-08-19, no bloqueante; anotado a petición del techlead)
+
+> El techlead **APROBÓ** el fix de la fuente de `availableFinishes` con **deuda NO bloqueante**. Los
+> cuatro ítems de abajo son deuda **menor**, dueño **backend**, registrados sin tocar código en este
+> pase. Continúan la numeración `BE-*` (tras BE-67). Familia de `catalog`/`pricing`
+> (`finish-reconciler`, `price-ingest`).
+
+### BE-68 · Race read-compute-write en `FinishReconciler.reconcile` (Baja)
+- **Dónde:** `backend/src/modules/catalog/finish-reconciler.service.ts:36-55`, invocado desde
+  `backend/src/modules/pricing/price-ingest.service.ts:225` y
+  `backend/src/modules/catalog/catalog-sync.service.ts:412`.
+- **Estado actual:** `reconcile` hace `findMany` → recompute → `update` **SIN transacción ni lock de
+  fila**. Si `catalog-sync` y `price-ingest` corren **concurrentemente** sobre la MISMA carta, un
+  interleaving puede dejar `availableFinishes` **transitoriamente** sin un acabado real (una casilla
+  del binder desaparece hasta la siguiente recomputación).
+- **Impacto:** bajo. NO bloquea: la dirección es **conservadora** (nunca inyecta un acabado fantasma
+  → SEC-A1 intacto) y es **self-healing** por ser recomputable (el siguiente `reconcile` lo corrige).
+- **Disparador:** si ambos writers pueden solaparse sobre el mismo set (multi-instancia o al cablear
+  BullMQ para catálogo/precio). Dirección: envolver el recompute **por carta** en `$transaction` con
+  `SELECT … FOR UPDATE`, o **serializar** ambos jobs sobre el mismo set de cartas.
+- **Nota (arquitecto):** el contrato **§4.22g no aborda la atomicidad entre los dos writers** →
+  candidato a **decisión de arquitectura futura**; el arquitecto debería saberlo.
+
+### BE-69 · Nombre de variable engañoso + `select` sin usar en `price-ingest` (Baja, mantenibilidad)
+- **Dónde:** `backend/src/modules/pricing/price-ingest.service.ts:170-176`.
+- **Estado actual:** la variable local `catalogFinishes` se **puebla desde `r.availableFinishes`** (la
+  lista blanca **derivada**), no de la columna real `catalogFinishes` → el nombre induce a error sobre
+  qué fuente se está usando. Además, `externalId` aparece en el `select` (~línea 174) pero **no se
+  usa** después.
+- **Impacto:** nulo funcional; solo claridad del código (riesgo de que un lector confunda la lista
+  derivada con la columna persistida).
+- **Disparador:** próximo toque de `price-ingest`. Dirección: renombrar la variable a
+  `whitelistByCard`/`knownFinishesByCard` y quitar `externalId` del `select` (o consumirlo si hacía
+  falta).
+
+### BE-70 · Log `finishNotInCatalog` desincronizado con la Señal C (Baja, observabilidad)
+- **Dónde:** `backend/src/modules/pricing/price-ingest.service.ts:192-197,228-235`.
+- **Estado actual:** el drift se compara contra `availableFinishes` **PRE-reconcile**; un alias
+  **VERIFICADO** que la **Señal C** rescata en la MISMA corrida se loguea como drift aunque se esté
+  añadiendo **legítimamente**, y el mensaje sugiere un remedio (`sync --force`/override)
+  **desactualizado**. Es **solo observabilidad** (no afecta el dato escrito).
+- **Impacto:** bajo. Ruido/confusión en logs (falso positivo de drift + remedio obsoleto); no afecta
+  correctness ni dinero.
+- **Disparador:** próximo toque del logging de ingesta. Dirección: comparar contra `catalogFinishes`
+  (columna real) o **loguear post-reconcile**, y actualizar el texto del remedio.
+
+### BE-71 · "Last wins" por acabado duplicado en el snapshot (Baja)
+- **Dónde:** `backend/src/modules/pricing/price-ingest.service.ts:164`.
+- **Estado actual:** si para una carta llegan **dos filas** que mapean al mismo enum `Finish` (una
+  **verificada**, una **supuesta**) y **gana la supuesta**, se **pierde un acabado real** del
+  snapshot. La dirección es **conservadora** (falta una casilla, no sobra) y el caso es **marginal**.
+- **Impacto:** bajo. A lo sumo una casilla del binder que no aparece pese a existir; nunca inyecta un
+  acabado inexistente.
+- **Disparador:** si aparecen filas duplicadas por `Finish` en el feed del proveedor. Dirección:
+  preferir la fila con `finishAliasVerified` al **deduplicar** (verificada gana sobre supuesta).
+
+---
+
+## Frontend (dueño: frontend)
+
+> Deuda aceptada del veredicto del techlead sobre la rama `fix/carrito-pieza-muerta`
+> (v1.21.3-quote-prune, 2026-08-18) + un hallazgo de QA. El único fix de código de ese veredicto
+> (F-2: re-quote tras `ITEM_UNAVAILABLE`/`NOT_FOUND` en session) **ya se corrigió en la misma rama**
+> y no figura aquí. Todos los ítems son no bloqueantes; dueño **frontend**.
+
+### F-1 · Efecto de poda duplicado en CheckoutView/GuestCheckoutView (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/CheckoutView.tsx` y
+  `GuestCheckoutView.tsx` — el mismo par `pushUnavailableNotice(unavailable)` +
+  `prune(unavailable.map(...))` vive copiado en un `useEffect` de cada componente.
+- **Impacto:** bajo (mantenibilidad). Un matiz futuro a la lógica de poda (orden, dedupe, telemetría)
+  hay que aplicarlo dos veces; si se aplica en una sola vista, las dos naturalezas del checkout
+  divergen en silencio.
+- **Disparador:** próximo matiz a la lógica de poda. Acción: extraer un hook
+  `useQuotePrune(unavailableItems)` junto a `unavailable-notice.ts` y consumirlo desde ambas vistas.
+
+### F-3 · Store de módulo con `getServerSnapshot` compartido en `unavailable-notice.ts` (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/unavailable-notice.ts` —
+  `useSyncExternalStore(subscribe, getSnapshot, getSnapshot)` usa la MISMA función para cliente y
+  servidor; la seguridad SSR depende de una invariante **no escrita**: «el array `notice` solo se
+  muta desde efectos de cliente» (si algún día se mutara en render/SSR, el snapshot de servidor
+  dejaría de ser estable).
+- **Impacto:** bajo/latente. Hoy correcto; el riesgo aparece con el próximo colaborador que mute el
+  store fuera de un efecto.
+- **Disparador:** próximo toque al store. Acción: `getServerSnapshot = () => EMPTY` (constante
+  congelada) o documentar la invariante en el docblock del store.
+
+### F-4 · Dos idioms de estado compartido conviven (`useSyncExternalStore` vs `useState`+evento `window`) (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/unavailable-notice.ts`
+  (useSyncExternalStore) vs `frontend/src/lib/cart.ts` y `frontend/src/lib/session.ts`
+  (useState + evento de `window`).
+- **Impacto:** bajo (consistencia/mantenibilidad). Dos patrones para el mismo problema aumentan la
+  carga cognitiva y el riesgo de elegir el equivocado en el siguiente store.
+- **Disparador:** próxima vez que se toquen `cart.ts`/`session.ts`. Acción: converger a
+  `useSyncExternalStore` como idiom único de estado compartido de módulo.
+
+### F-5 · `UnavailableItemsNotice` reimplementa el botón de cierre del Banner (Baja)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/checkout/UnavailableItemsNotice.tsx` (X propia
+  vía `action`) porque el `dismissible` de `frontend/src/components/ui/Banner.tsx` no expone callback
+  de cierre; de paso, el `aria-label="Close"` sin i18n de `Banner.tsx:65` (preexistente).
+- **Impacto:** bajo (duplicación de UI + un aria-label sin traducir en el componente base).
+- **Disparador:** próximo consumidor que necesite un cierre con efecto. Acción: darle a `Banner` un
+  `onDismiss?` (y usar copy i18n en su aria-label); `UnavailableItemsNotice` pasa a usarlo.
+
+### F-6 · JSDoc/mocks desactualizados en `api.ts` tras v1.21.3 (Baja)
+- **Dónde:** `frontend/src/lib/api.ts` — (1) el JSDoc del quote de invitado aún lista
+  `409 ITEM_UNAVAILABLE` como error del quote (desde v1.21.3 los quotes resuelven por ítem y
+  devuelven `200` con `unavailableItems`); (2) la lógica de poda del mock está duplicada en los dos
+  quotes mock; (3) el mock no modela el caso «existe pero fuera de venta» (`cardName` poblado) — los
+  ids ausentes de fixtures siempre salen con `cardName: null`.
+- **Impacto:** bajo (documentación/mocks; no afecta producción). Puede confundir al siguiente
+  desarrollador o dejar sin cobertura de mock un copy real.
+- **Disparador:** próximo toque a los mocks de `api.ts`. Acción: corregir el JSDoc, extraer la poda
+  mock a un helper único y añadir un fixture «fuera de venta» con nombre.
+
+### F-7 · Suite Playwright sin los flujos de poda de piezas muertas (QA) (Media)
+- **Dónde:** `frontend/e2e/checkout.spec.ts` y `frontend/e2e/guest-checkout.spec.ts` — el banner de
+  piezas muertas, el EmptyState por carrito 100 % muerto y la poda del `localStorage` hoy solo están
+  cubiertos en jsdom (`CheckoutUnavailable.test.tsx`), no de punta a punta contra el stack corriendo.
+- **Impacto:** medio para la garantía de release: el flujo crítico nuevo de v1.21.3 (incluido el
+  re-quote F-2) no forma parte del harness E2E que ejecuta QA.
+- **Disparador:** cierre de release (suite E2E completa). Acción: añadir a las dos specs los
+  escenarios de poda (parcial, total y carrera quote→pago) sembrando una pieza que muere entre
+  medias.

@@ -4,6 +4,130 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## Fix M1 · alta de inventario (2026-08-18, branch `fix/m1-alta-inventario`)
+
+Cuatro hallazgos del diagnóstico E2E (stack real, mocks OFF) sobre el ALTA de inventario admin.
+
+### P-4 (BLOQUEANTE, bug de dinero) — el alta SIEMPRE da feedback visible
+**Qué era en realidad:** con el tipo de adquisición **default "aportación en especie"** sobre una
+carta SIN precio de referencia, `POST /admin/inventory/items` responde **422 `PRICE_PENDING`** (no
+crea la pieza; el backend la deja en la cola de precios pendientes — comportamiento money-safe
+intencional). El `Banner` de `create.isError` estaba renderizado al **final del cuerpo scrolleable**
+del modal, fuera del viewport (y≈1242 con viewport 900) → el operador veía "que no pasa nada". El
+caso "compra" (201) sí funcionaba.
+
+**Resuelto (`M1View.tsx`):**
+- **Error anclado ARRIBA (sticky):** el banner de error se movió al inicio del cuerpo del modal en
+  un contenedor `sticky top-0 z-10` con `tabIndex=-1`; al fallar, un `useEffect` hace
+  `scrollIntoView` + `focus()` al banner (a11y: `role="alert"`). Verificado en navegador: el alert
+  queda en `y=114` con viewport 900 (dentro de vista, sin scroll).
+- **Copy del OPERADOR, no de storefront:** el `error.PRICE_PENDING` global dice "…aún no se puede
+  **comprar**" (lenguaje de tienda) y confunde en el alta. Se añadió un override de i18n SOLO-frontend
+  `admin.m1.errorByCode.PRICE_PENDING` ("No se pudo dar de alta: esta carta aún no tiene precio de
+  referencia; se envió a la cola de precios pendientes."). El helper `messageForCode()` prioriza
+  `admin.m1.errorByCode.*` → `error.*` → mensaje real del backend. **No se tocó el `error.*` global**
+  (lo usa el storefront/checkout).
+- **Éxito con TOAST + refresco:** no había infra de toasts → se creó `components/ui/Toast.tsx`
+  (`useToasts()` + `<Toaster>`), toast MÍNIMO reutilizable alineado a DESIGN_SYSTEM (bloque de tinta
+  §7.2b, regla verde/bermellón por variante, mono versalitas, radio 0, portal a `<body>` en `z-[60]`
+  para verse sobre el modal `z-50`, auto-cierre). El alta con éxito dispara un toast con el folio
+  devuelto; se mantiene además el banner de éxito existente e `invalidateQueries(['admin-inventory'])`.
+- No se tocó nada del backend money-safe.
+
+### P-5 (mejora) — alta MASIVA (varias cartas en un envío)
+Modo de **selección múltiple** opcional dentro del MISMO modal (checkbox "Seleccionar varias
+cartas"): las filas del buscador pasan a checkbox, se arma un "carrito" de líneas y el botón primario
+cambia a "Dar de alta N cartas". Reusa el endpoint de lote existente `batchCreateItems({ batchKey,
+items })` (POST /admin/inventory/items/batch), con los mismos parámetros del formulario aplicados a
+todas las cartas; el acabado se recorta **por-carta** (`finishForCard`) a la unión de acabados del
+lote para no mandar un acabado inexistente. Resultado **tolerante por-ítem**: se pinta cada folio
+creado (verde) y cada fallo con su motivo (reusa `messageForCode`), más un toast con el `summary`.
+**Idempotencia** como MasterSetPanel: `batchKey` ESTABLE por sesión (ref), se renueva solo tras un
+envío exitoso; el lote se **vacía siempre** al terminar (aun con fallos parciales) para no reenviar y
+duplicar las líneas ya creadas. El alta de UNA sola carta sigue intacta.
+
+### P-3 (pulido) — `PAGE_SIZE` del buscador del alta 20 → 50
+Baja la fricción de "Cargar más" (un set de 120 cabe en 3 páginas, no 6; el backend topa en 100).
+Verificado en navegador: sigue llegando a **120/120**.
+
+### P-1 (pulido) — logout del back-office sin flash
+`AdminTopbar.onLogout` ahora hace `router.replace('/login')` (antes `push('/')`): evita la carrera
+con el guard del `AdminShell` que dejaba un flash "Verificando sesión…" y una URL `?next=`.
+
+### Verificación en navegador (stack real, mocks OFF)
+Script Playwright ad-hoc (scratchpad) contra `localhost:3000/es`, login `admin@e2e.local`, set de
+prueba `Pitch Black TEST`:
+- (a) aportación en especie → error CLARO anclado arriba (`y=114`, dentro de viewport 900).
+- (b) compra → toast "ALTA REGISTRADA · folio INV-000002" + la pieza aparece en la tabla sin recargar
+  (filas 8→9).
+- (c) alta MASIVA (compra) → resultado por-ítem con 3 folios (INV-000003/004/005), lista refrescada,
+  lote vaciado. Nota: con aportación el endpoint de LOTE **crea** las piezas (pendientes de precio) en
+  vez de rechazarlas por-línea, así que no se reprodujo un fallo por-línea REAL en navegador; el
+  render de fallos por-ítem queda cubierto por unit test (mock PRICE_PENDING).
+- (d) P-3 → "120 de 120 cartas".
+
+### Archivos
+`app/[locale]/(admin)/admin/m1/M1View.tsx` (feedback sticky + toast + alta masiva + PAGE_SIZE 50),
+`components/ui/Toast.tsx` (**nuevo**), `components/layout/AdminTopbar.tsx` (logout→/login),
+`messages/{es,en}.json` (`admin.m1.errorByCode.*`, copy de toast/lote), `M1View.test.tsx` (+toast,
++2 alta masiva, PRICE_PENDING→copy admin, pageSize 50), `AdminTopbar.test.tsx` (replace→/login).
+
+### Comportamiento alta simple vs. por lote (NO hay inconsistencia — aclaración)
+Con adquisición `aportacion_en_especie` sobre carta **sin** precio de referencia, alta simple y por
+lote **coinciden**: ambos **rechazan** la línea (no crean la pieza). Solo cambia la **forma de
+reportarlo**, que es el patrón money-safe normal de cada endpoint:
+- **`POST /admin/inventory/items`** (simple) → **422 `PRICE_PENDING`** de todo el request (no crea).
+- **`POST /admin/inventory/items/batch`** (lote) → **HTTP 200** con esa línea en **`ok:false`
+  `PRICE_PENDING`** (tolerancia por-ítem: no tumba las demás), y **NO** crea la pieza.
+
+Verificado: backend `inventory.service.ts` → `batchCreate` llama `resolveCreation(line)` por línea, que
+lanza `PRICE_PENDING` para aportación sin referencia; el `catch` del lote la marca `ok:false` (no crea).
+QA lo confirmó contra el backend real (lote mixto de 4 líneas aportación, 2 con precio y 2 sin →
+`summary: requested 4, createdItems 2, failedLines 2`; las 2 sin precio salieron `ok:false` PRICE_PENDING
+sin crearse en BD). El front consume ambos tal cual. **No hay solicitud al arquitecto: no existe
+divergencia que resolver.**
+
+### Gates
+`npm run typecheck` ✓ · `npm run lint` ✓ (0 warnings) · `npm run test` ✓ (50 archivos / 384 tests).
+
+### Seguimiento (2026-08-18) — cierre de 2 hallazgos de dinero + 2 menores (post e2df8e0)
+
+Cuatro FIX sobre el mismo alta M1 (solo `frontend/`), aprobado el commit previo por qa+techlead.
+
+- **FIX 1 (dinero — integridad de inventario):** el alta MASIVA aplicaba `gradingCompany/gradeValue/
+  certNumber` del formulario a TODAS las cartas del lote; para gradeadas el `certNumber` es **único por
+  slab**, así que un lote de N gradeadas creaba N piezas con el **mismo certificado** (dato corrupto en
+  inventario de alto valor). Solución mínima: la multi-selección se **deshabilita en `productType==='graded'`**
+  (checkbox `disabled` + nota i18n `admin.m1.gradedNoBulk` es/en explicando el porqué) y al **cambiar a
+  graded estando en modo masivo** se apaga `multiSelect` y se `clearBatch()` (no queda carrito de gradeadas
+  armado). El alta simple de gradeada (con su cert único) sigue intacta. Verificado en navegador: en graded
+  no hay botón "Dar de alta N cartas", solo "Crear item".
+- **FIX 2 (dinero — base de costo/P&L):** abrir "Alta de item" reseteaba la mutación/lote pero **NO** los
+  campos del formulario → la `acq` (que determina costo/origen, M7) se heredaba de la tanda anterior en
+  silencio. Se añadió `resetAddForm()` (acq→`aportacion_en_especie`, productType→`raw`, finish→`normal`,
+  sealedSubtype→`box`, gradingCompany→`PSA`, gradeValue→`10`, certNumber/listPrice→'', pct→`70`, y limpia
+  set/búsqueda/carta/ubicación) invocado en el handler de apertura junto a los `reset()` existentes. **No se
+  cambiaron los defaults iniciales.** Verificado: tras elegir "compra" y reabrir, el alta arranca en
+  "Aportación en especie".
+- **FIX 3 (cosmético):** el banner de error (P-4) repetía el prefijo — `title`="No se pudo dar de alta" y el
+  cuerpo `errorByCode.PRICE_PENDING` **también** empezaba con "No se pudo dar de alta:". Se quitó el prefijo del
+  cuerpo (es: "Esta carta aún no tiene precio de referencia; …"; en equivalente) → título corto + mensaje real,
+  sin redundancia. Solo i18n. Verificado en navegador con 422 real.
+- **FIX 4 (tests):** (a) el test rotulado "replay/idempotencia" solo enviaba UNA vez → **renombrado** a
+  "vaciado tras éxito" y **añadidos dos tests separados**: uno prueba que tras un ÉXITO el `batchKey` se
+  **renueva** (2ª tanda usa otra key), otro que un **reintento tras FALLO reusa** la misma key (idempotencia
+  anti-doble-alta). (b) el test de éxito ahora **asserta la invalidación** de `['admin-inventory']`
+  (spy sobre `QueryClient.prototype.invalidateQueries`). Suite M1: 21 tests verdes.
+
+**Nota de contrato (sin cambios):** el FIX 1 es una restricción de UI de captura, no del contrato — el batch
+endpoint sigue aceptando graded; simplemente el front deja de ofrecer ese camino peligroso. No hay solicitud al
+arquitecto en este pase.
+
+Gates de este pase: `typecheck` ✓ · `lint` ✓ (0 warnings) · `test` ✓ (**50 archivos / 387 tests**).
+Evidencia navegador (stack real, mocks OFF, `admin@e2e.local`, set `Pitch Black TEST`): graded multi
+deshabilitado, reset a "aportación en especie", banner sin repetir copy, y bulk raw con `compra` creando
+folios reales (INV-000019/020) + refresco de la tabla.
+
 ## WS «Inventario y vault» — Master set en TODAS partes (2026-08-17, contrato v1.20-master-set-everywhere)
 
 El binder Master Set deja de ser exclusivo de M1: los componentes se **promueven a
@@ -3245,3 +3369,506 @@ vitrina muestre también el estado «En el carrito» en el botón del card; hoy 
 
 ### Gates
 `npm run lint` ✓ · `npm run typecheck` ✓ · `npm run test` ✓ (44 archivos / 329 tests).
+
+## 2026-08-18 · Guest checkout — comprar sin cuenta (stream «Órdenes y dinero», contrato v1.21-guest-checkout)
+
+> Alcance implementado: **checkout de invitado** en `(storefront)/checkout` + **vista pública de
+> seguimiento** `/[locale]/pedido`. PROJECT §J/§J.1 (criterios 45–56b), contrato **§4-G**,
+> DESIGN_SYSTEM **§15**. NO se tocó `backend/` ni `docs/API_CONTRACT.md`.
+
+### Pantallas y componentes nuevos (todos junto a su ruta, no en `components/` compartidos)
+| Archivo | Qué es |
+|---|---|
+| `checkout/CheckoutView.tsx` (modificado) | Conmutador de las dos naturalezas del checkout **en la misma ruta**: con sesión = flujo de cuenta intacto; sin sesión = `GuestCheckoutView`. |
+| `checkout/GuestCheckoutView.tsx` | Contenedor del flujo de invitado: cotización, gate, formulario, destino, pago, confirmación. |
+| `checkout/CheckoutIdentityGate.tsx` | §15.2 — las tres vías (invitado / iniciar sesión / crear cuenta) inline, con "Cambiar". |
+| `checkout/GuestCheckoutForm.tsx` | §15.3 — contacto (correo + lectura de vuelta), envío MX, destino, términos, resumen de errores. |
+| `checkout/VaultUpsellPanel.tsx` | §15.4 — upsell inline de bóveda (nunca error), con salida en positivo. |
+| `checkout/InlineAuthPanel.tsx` | Login/registro inline **sin navegar** (ver "Por qué no se reusó `AuthForm`"). |
+| `checkout/GuestOrderConfirmation.tsx` | §15.5 — confirmación + reclamo post-compra (`AccountClaimOffer` incluido). |
+| `checkout/guest-validation.ts` | Validación local (correo, erratas de dominio, `GuestAddressInput` del contrato). |
+| `checkout/support-contact.ts` | Correo de soporte para pantallas sin DTO (ver solicitud 1 al arquitecto). |
+| `pedido/page.tsx` + `pedido/layout.tsx` | Ruta pública con **chrome reducido** (logo + LocaleToggle) y `noindex, nofollow` + `referrer: no-referrer`. |
+| `pedido/TrackingPageClient.tsx` | Token del query → **body** del POST + `history.replaceState`; estados loading/neutral/error. |
+| `pedido/PublicOrderTracking.tsx` | §15.6 — vista de datos mínimos (superficie de seguridad). |
+| `pedido/TrackingLinkNeutralState.tsx` | §15.7 — **una sola pantalla** para todos los fallos de token, con reenvío neutro. |
+| `pedido/tracking-status.ts` | Mapa `GuestOrderPublicStatus` → versalita i18n + pasos del stepper (§4-G.5). |
+
+### Endpoints consumidos (tal cual el contrato §4-G; ninguno inventado)
+`POST /checkout/guest/quote` · `POST /checkout/guest/session` · `POST /orders/guest/track` ·
+`POST /orders/guest/resend-link` · `POST /orders/claim` (tras el registro del reclamo).
+`GET /orders/claimable` queda implementada en `lib/api.ts` pero **sin UI en este stream** (el banner
+"tienes N pedidos por reclamar" vive en `/orders`, fuera del alcance acordado).
+
+### Decisiones de implementación que conviene conocer
+- **Criterio 46 por construcción:** el estado del formulario de invitado vive en `GuestCheckoutView`,
+  **por encima** del gate; el carrito sigue en `localStorage`. Cambiar de vía no desmonta nada ni
+  navega, así que ni el carrito ni los datos capturados se pierden (hay test unitario y E2E).
+- **Criterio 48 (upsell, no error):** el radio de bóveda **nunca** está `disabled`/`aria-disabled`;
+  al elegirlo se expande el panel y el botón de pago se bloquea con **texto explicativo**
+  (`aria-describedby`), no mudo. Si el backend devolviera `422 VAULT_REQUIRES_ACCOUNT`, el `catch`
+  **abre el upsell** en lugar de pintar error (doble red: proactiva + reactiva).
+- **Criterios 51/52/53 (superficies de seguridad):** la vista pública pinta **solo** la lista cerrada
+  de §15.6 — en particular **no** se pintan `emailMasked`, `recipientNameMasked` ni
+  `postalCodeMasked` aunque el DTO los traiga. Cualquier rechazo del token (404 / 410 / **429** /
+  cualquier `< 500`) y también "sin token en la URL" caen en la **misma** pantalla neutra, con el
+  mismo texto; solo un 5xx/red muestra el error genérico con reintentar (sin eco de `errorCode`).
+- **Confirmación no adivinable:** se pinta desde el estado de la transacción; el `orderId` solo se usa
+  para `POST /orders/claim` y nunca se muestra ni entra en la URL. El `return_url` de Stripe (3DS con
+  redirección) apunta a `/{locale}/pedido?token=…` con el `trackingToken` que devolvió el checkout
+  (§4-G.2): es la única forma de que el invitado recupere su pedido si el navegador pierde estado.
+  El token **no** se persiste en `localStorage` ni se loguea.
+- **`guestPaid` en `CheckoutView`:** al limpiar el carrito tras pagar, y al crear cuenta desde el
+  reclamo, la vista habría conmutado (carrito vacío / sesión nueva) y habría desmontado la
+  confirmación. Por eso el "ya pagó como invitado" manda sobre ambas condiciones.
+- **Por qué NO se reusó `components/domain/AuthForm`:** navega al terminar
+  (`router.push(destForRole(...))`) y no expone `onSuccess`, así que dentro del checkout expulsaría
+  al usuario de `/checkout` — justo lo que §15.2 prohíbe. `InlineAuthPanel` usa las **mismas**
+  funciones (`login`/`register` de `lib/api`) y el **mismo** `GoogleSignInButton`; no duplica lógica
+  de sesión. Alternativa futura (fuera de este stream, toca zona compartida): añadir `onSuccess?` y
+  un modo compacto a `AuthForm` y hacer que `InlineAuthPanel` lo envuelva.
+- **Barra sticky de pago en móvil (§15.3) NO implementada** a propósito: duplicaría el botón de pago
+  y §15.9 exige que solo uno reciba foco. El `aside` ya queda al final del flujo en móvil. Si ux-ui
+  la quiere, pido que defina el comportamiento de foco.
+
+### Zonas compartidas tocadas (solo adiciones; nada existente cambia de comportamiento)
+- `src/types/contract.ts`: bloque **aditivo** al final con los DTOs de §4-G + `shippingFeeCents?` en
+  `BreakdownDTO` (campo opcional que el contrato v1.21 añade; los shapes previos no cambian).
+- `src/lib/api.ts`: sección **aditiva** al final (6 funciones nuevas + mocks marcados). Solo se tocó
+  la lista de imports de tipos.
+- `src/components/ui/AmountBreakdown.tsx`: renglón de **envío** que se pinta **solo si**
+  `breakdown.shippingFeeCents != null`. En bóveda y retiros el campo no viene ⇒ desglose idéntico al
+  de v1.20 (el test existente del componente sigue verde sin cambios).
+- `messages/{es,en}.json`: claves nuevas `checkout.identity/guest/destination/vaultUpsell/confirmation`,
+  `track.*`, `track.neutral.*` (copy **normativo** de §15.7 literal), `status.tracking.*` y 4 códigos
+  de error. Paridad ES/EN verificada por `i18n-parity.test.ts`.
+- `e2e/checkout.spec.ts`: los casos del checkout **con cuenta** ahora hacen `loginAs` antes (sin
+  sesión esa ruta es, por diseño, el checkout de invitado).
+
+### `/checkout` deja de ser ruta privada (cambio en zona compartida, AUTORIZADO por el orquestador)
+- **`src/components/layout/PrivateRouteGuard.tsx`: se quitó `'/checkout'` de `PRIVATE_PREFIXES`.**
+  Con `/checkout` en la lista, en modo real (`NEXT_PUBLIC_USE_MOCKS=false`) un visitante **sin
+  sesión** era redirigido a `/login?next=/checkout` y los **criterios 45/46 quedaban rotos**. En modo
+  mock el guard es inerte, por eso la suite E2E daba verde igual (verde engañoso).
+- **Por qué NO es una relajación de seguridad:** el criterio 45 exige que un visitante sin cuenta
+  llegue al checkout y pague, y el contrato §4-G hace `@Public()` los endpoints `/checkout/guest/*`;
+  es requisito de producto. El guard es una **conveniencia de cliente** —como dice su propio
+  comentario, el **backend sigue siendo la autoridad**— y `/vault`, `/orders` y `/shipments` siguen
+  guardados; cualquier llamada privilegiada sigue devolviendo `401`. El flujo con cuenta no cambia.
+- **Anclaje de la regresión (modo REAL, no mock):**
+  `app/[locale]/(storefront)/checkout/checkout-public-route.test.tsx` monta el guard con
+  `config.useMocks = false` y verifica que `/checkout` y sus subrutas se montan **sin** redirección,
+  que con sesión se comportan igual, y que `/vault`/`/orders`/`/shipments` **siguen** redirigiendo.
+  Verificado a mano: reintroducir `'/checkout'` en el array pone ese test en rojo (2 casos).
+- **Efecto colateral en un test preexistente:** `components/layout/PrivateRouteGuard.test.tsx` tenía
+  el caso "preserva el destino en `next` … (/checkout)", que afirmaba justo el comportamiento
+  derogado. Se cambió **solo ese caso** a `/shipments` (misma intención, prefijo que sigue siendo
+  privado) con una nota que apunta al test ancla. No se tocó nada más de `components/`.
+
+### Ambigüedades detectadas (reportadas, NO resueltas por mi cuenta)
+1. **Contrato vs. diseño — reenvío de enlace: RESUELTO por arbitraje (v1.21.1 + §15.7 corregida).**
+   Lo que reporté (el formulario de un solo campo de §15.7 chocaba con `{email, orderNumber}` de
+   §4-G.4) lo arbitró el arquitecto a favor del contrato y ux-ui reescribió §15.7 con las **dos
+   vías**. Mi implementación se realineó al texto normativo — ver "Realineación con §15.7" abajo.
+2. **Contrato vs. diseño — teléfono.** §15.3 lo marca **opcional**; `GuestAddressInput` (§4-G.1) lo
+   pide obligatorio (10 dígitos MX). Se implementó **obligatorio** (manda el contrato).
+3. **`recipientName` y `acceptedTerms`** los exige el contrato y el diseño no los describe: se
+   añadieron como campo obligatorio y casilla de aceptación explícita, con copy propio.
+4. **`name` en el registro inline.** §15.4 dice "no se pide nada más" que correo + contraseña, pero
+   `POST /auth/register` (§1) exige `name`. Se pide, **prellenado** con el nombre del destinatario.
+5. **Reclamo inmediato vs. `emailVerified`.** §15.5 dibuja éxito inmediato tras crear la cuenta;
+   §4-G.9 exige `emailVerified` (403). Implementado: se intenta el reclamo y, si responde
+   `EMAIL_NOT_VERIFIED`, se muestra "verifica tu correo y vincúlalo desde tu historial"
+   (`checkout.confirmation.claim.needsVerification`), nunca un error rojo.
+6. **Estados públicos sin copy en §15.6.** El enum de §4-G.5 tiene 9 valores y la tabla de diseño
+   solo 7: añadí `status.tracking.pendingPayment` y `status.tracking.inReview` (neutros, sin nombrar
+   "contracargo").
+
+### Solicitudes al arquitecto (no bloquean; NO edité el contrato)
+1. **Correo de soporte antes de tener el DTO.** `support.evidenceContact` solo existe dentro de
+   `GuestOrderTrackingDTO` (§4-G.3), pero la **confirmación** (§15.5) y el **estado neutro** (§15.7)
+   lo necesitan sin token. Hoy vive centralizado en `checkout/support-contact.ts` con el valor
+   normativo del contrato. Petición: exponerlo en un endpoint/campo público de configuración.
+2. **URL de rastreo de paquetería.** El DTO trae `carrier` + `trackingNumber` pero no un patrón de URL
+   confiable: la guía se pinta como **texto copiable**, no como enlace (misma política que
+   `certNumber`). Si se confirma el patrón, se vuelve enlace.
+3. **`GET /orders/claimable` sin superficie.** Queda lista en `lib/api.ts` para el banner de "pedidos
+   por reclamar" en `/orders`; conviene decidir en qué stream se implementa.
+
+### Mocks (claramente marcados, todos con el shape del contrato)
+`lib/api.ts` — `computeGuestBreakdown` (réplica de `computeDirectShipBreakdown`), envío
+`MOCK_SHIPPING_FEE_CENTS=17500` (el valor real viaja en el `BreakdownDTO`), y para
+`trackGuestOrder`: token con `expired`/`revoked` → 410, token que empieza con `mock` → pedido demo,
+cualquier otro → 404 `INVALID_TOKEN`. `createGuestCheckoutSession` replica
+`422 VAULT_REQUIRES_ACCOUNT` y `422 ADDRESS_NOT_MX`. El backend sigue siendo la autoridad.
+
+### Gates
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓ (49 archivos /
+366 tests) · `npx playwright test` ✓ **60/60** en modo mock (incluye los 9 nuevos de
+`e2e/guest-checkout.spec.ts`, que cubren §J.1: camino feliz, upsell, correo inválido, token
+manipulado vs. expirado con texto idéntico, reenvío neutro con enfriamiento y ES/EN).
+
+
+## 2026-08-18 (2ª ronda) · v1.21.1 — `checkoutToken` de 120 min + §15.7 corregida
+
+### 1. Renombre CONTRACT-BREAKING: `trackingToken` → `checkoutToken` (+ `checkoutTokenExpiresAt`)
+- `types/contract.ts` · `GuestCheckoutSessionResponse`: el campo pasa a **`checkoutToken`** y se
+  añade **`checkoutTokenExpiresAt`** (ISO). Actualizado también el invariante §4-G.0-5 del comentario
+  de cabecera.
+- `lib/api.ts` · `createGuestCheckoutSession`: doc y **mock** al día
+  (`checkoutToken: mock-<orderId>-checkout-token`, `checkoutTokenExpiresAt = ahora + 120 min`). No
+  quedó **ninguna** referencia viva al nombre viejo (solo dos menciones históricas en comentarios,
+  marcadas como "antes `trackingToken`").
+- Consumidor: el `return_url` del 3DS en `GuestCheckoutView` usa `session.checkoutToken`.
+
+### 2. La SEMÁNTICA nueva, reflejada en la UX (§4-G.7a)
+- **El token del checkout vive 120 min y nunca viaja por correo.** El enlace de 90 días lo emite el
+  webhook del settle y llega **solo** por correo. Verificado que la confirmación **no invita a
+  guardar ni marcar como favorito** esa URL: su mensaje es `emailSentTo` ("te enviamos la confirmación
+  y el enlace de seguimiento a {email}"), y no muestra ni ofrece la URL del checkout.
+- **Aviso nuevo `track.temporaryLinkNotice`** en la vista de seguimiento: si `tokenExpiresAt` cae
+  dentro de los 120 min + 10 de holgura (`isShortLivedCheckoutToken`, en `pedido/tracking-status.ts`),
+  se avisa de que ese enlace es temporal y que el duradero llega por correo, con "Reenviar el enlace a
+  mi correo" a la vista. El enlace de 90 días **no** dispara el aviso. Es solo copy: no cambia el
+  acceso, y se apoya en el campo que §15.6 ya destina a eso. El texto dice "en unas horas" (agnóstico
+  al valor exacto, coherente con los 120 min).
+- **Camino de "volver pasadas las 2 h" verificado:** cae en `TrackingLinkNeutralState` y desde ahí el
+  reenvío funciona (vía A con el propio token vencido). Cubierto con E2E dedicada.
+
+### 3. Realineación con `DESIGN_SYSTEM §15.7` (corregida por ux-ui)
+- **Copy normativo literal, ES y EN**, reemplazando el mío: el `body` y —lo importante— el `result`:
+  *"Si **esos datos** corresponden a un pedido, enviamos un enlace nuevo a ese correo…"*. Mi versión
+  anterior condicionaba sobre **el correo** ("si hay un pedido asociado a ese correo"), que enmarca la
+  respuesta como una afirmación sobre esa dirección; la normativa condiciona sobre los datos en
+  conjunto y no insinúa nada. **La vía A usa exactamente la misma frase** (hay test que compara el
+  texto de ambas vías carácter a carácter).
+- **Inventario de claves alineado con §15.11:** `track.neutral.*` = `title`, `body`, `emailLabel`,
+  `submit`, `result`, `cooldown`, `claimAlternative`, `support`, **`noLinkCta`**, **`manualIntro`**,
+  `orderNumberLabel`, `orderNumberHelp`, **`incompleteForm`** (+ `cooldownAnnounce`, exigido por el
+  párrafo de accesibilidad de §15.7). Se retiraron mis nombres propios `noLinkToggle`,
+  `orderNumberRequired` y `emailInvalid`: la validación local usa **una sola** nota normativa
+  (`incompleteForm`), que cubre tanto "falta el dato" como "correo mal formado".
+- **Vía B conforme:** tras *disclosure* (`aria-expanded`/`aria-controls`, cerrado por defecto cuando
+  hay token); **ningún campo por separado habilita el envío** (el botón está `disabled` hasta tener
+  correo válido **y** número de pedido); `<fieldset>` + `<legend>` (= `manualIntro`), labels visibles,
+  `autocomplete="email"` en el correo y **`off`** en el número de pedido; `aria-invalid` +
+  `aria-describedby` a la nota local en los campos que falten (conservando la ayuda del campo de
+  pedido en el `describedby`); foco al primer campo al abrir el disclosure.
+- **Validación 100% local, confirmado:** el número de pedido solo se comprueba "no vacío"; no hay
+  llamada al servidor en `blur`, ni autocompletado, ni comprobación de existencia. La única petición
+  es el `POST /orders/guest/resend-link` al enviar.
+- **Frases prohibidas (lista ampliada) verificadas por test:** el render no contiene
+  "no encontrado", "no existe", "no coinciden", "incorrecto", "no está registrado", "token",
+  "expiró hace N", ni plazos en días.
+
+### Gates de esta ronda
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ (`/[locale]/checkout` y `/[locale]/pedido`
+presentes) · `npx vitest run` ✓ **50 archivos / 373 tests** · `npx playwright test` ✓ **62/62** en modo
+mock (2 E2E nuevas: enlace de checkout vencido → pantalla neutra que sí reenvía, y enlace de 90 días
+sin aviso de temporalidad).
+
+## 2026-08-18 · Cotizador unificado con Master Set (mode="quoter") + fix foco M5
+
+### Tarea 1 — `mode="quoter"` en el binder COMPARTIDO de Master Set
+
+**Qué cambió.** `BuylistView.tsx` (raw) ya NO tiene su propio grid de búsqueda plano: monta
+`<MasterSetPanel mode="quoter" onAddToSellCart={...} />` (mismo componente que M1/bóveda,
+§4.20f). Cada carta muestra sus **casillas por acabado** derivadas de `card.availableFinishes`
+(nunca un chip de texto, nunca una casilla para un acabado que la carta no tiene); clic en una
+casilla agrega esa combinación (carta, acabado) al carrito de VENTA con el precio ya cotizado.
+graded/sealed (sin variantes por acabado — cotizan siempre en `normal`) CONSERVAN el grid plano
+anterior sin cambios, incluida "Filtrar por set"/"Buscar carta" y el bulk multi-selección.
+
+**Sin cambio de contrato.** `mode="quoter"` NO agrega ningún endpoint: compone client-side con
+los MISMOS tres endpoints públicos que ya usaba el cotizador — `GET /buylist/sets`,
+`GET /buylist/cards` (troceado en TODAS sus páginas antes de resolver — ver bug P-4a abajo) y
+`POST /buylist/quote/batch` (troceado en lotes de `BUYLIST_QUOTE_BATCH_MAX`). La lógica vive en
+`fetchQuoterIndex` (`MasterSetIndex.tsx`) y `fetchQuoterBinder` (`MasterSetBinder.tsx`), paralelas
+a `fetchIndex`/`fetchBinder` existentes. `MasterSetVariantDTO.quote` (`types/contract.ts`) es un
+campo ADITIVO documentado como "solo frontend, NO viaja del backend" — no toca `API_CONTRACT.md`.
+
+**Bug de paginación (P-4a, confirmado con Pitch Black · 120 cartas).** Antes el cotizador cortaba
+en 20 cartas sin control. `fetchQuoterBinder` acumula TODAS las páginas de `GET /buylist/cards`
+(pageSize 50) antes de resolver la promesa del binder, así que el set completo se ve de una vez
+— **decisión de diseño, no el patrón "Cargar más" de M1View**: para un set >20 cartas
+multi-acabado esto dispara varias llamadas a `batchQuote` al abrir el set (ej. 120 cartas ×
+2 acabados ≈ 5 llamadas de 50). Es correcto y simple, pero si algún set crece mucho más
+(cientos de cartas) valdría la pena revisar si conviene paginación explícita — anotado, no
+bloqueante.
+
+**Decisiones de producto tomadas sin volver a preguntar (AUTO, a revisar si no convencen):**
+- El multi-selección (bulk) del grid plano **NO existe para raw**: cada casilla del binder ya es
+  su propia acción de un clic: no hace falta un paso de selección previo. Sigue existiendo para
+  graded/sealed (sin tocar).
+- "Filtrar por set" / "Buscar carta" del enunciado se resuelven con los controles PROPIOS de
+  Master Set: `MasterSetIndex` aporta "Buscar set" (elegir un set) y `MasterSetBinder` ahora
+  tiene un "Buscar carta" nuevo (SOLO en `quoter`, nombre/número dentro del set elegido). La
+  etiqueta exacta difiere ("Buscar set" vs "Filtrar por set" del enunciado) pero la función es
+  equivalente; no se duplicaron labels para no fragmentar el sistema de i18n del binder
+  compartido.
+
+**Archivos.** `components/master-set/mode.ts` (+`'quoter'`), `MasterSetIndex.tsx` (fetch +
+oculta completitud/piezas/orden en `quoter`), `MasterSetBinder.tsx` (fetch + `QuoterCell` nueva:
+casillas-botón con precio, "Buscar carta" local, oculta filtros de huecos/secret rare en
+`quoter`), `MasterSetPanel.tsx` (prop `onAddToSellCart`), `types/contract.ts`
+(`MasterSetVariantDTO.quote?`), `(storefront)/buylist/BuylistView.tsx` (monta el panel en raw;
+`CartLine.card` se angostó a `{id,name,number,imageSmallUrl}` — ya no requiere el `CardDTO`
+completo del catálogo).
+
+**Tests.** `MasterSet.test.tsx` +4 (dos acabados → dos casillas independientes; un acabado → sin
+hueco vacío; 120 cartas → todas visibles sin "Cargar más"; clic agrega al carrito con el precio
+correcto de esa combinación). `BuylistView.test.tsx` reescrito: el describe `raw` ahora navega
+por el binder Master Set; graded/sealed quedó en su propio describe con el grid plano y el bulk
+intactos; carrito/KYC/gating/F5/"Mis solicitudes" sin cambios de fondo (mismos textos i18n,
+mismos precios de fixtures — solo cambió CÓMO se llega a tener algo en el carrito).
+
+### Tarea 2 — bug real: el textbox de motivo de rechazo perdía el foco (M5)
+
+**Causa raíz.** `components/ui/Modal.tsx` tenía un solo `useEffect` que hacía
+`ref.current?.focus()` Y registraba el listener de Escape, con `[open, onClose]` como
+dependencias. `onClose` (`closeReject` en `M5View.tsx`) es una función NUEVA en cada render del
+padre (no memoizada) — cada tecleo cambia `rejectReason` → M5View re-renderiza → `onClose` cambia
+de referencia → el efecto se re-dispara → `ref.current?.focus()` vuelve a enfocar el **wrapper**
+del modal, robándole el foco al `<input>` a media escritura.
+
+**Fix.** Se separó en dos efectos: el foco inicial depende SOLO de `open` (se enfoca una vez al
+abrir, nunca en cada re-render); el listener de Escape sigue dependiendo de `[open, onClose]`
+(re-suscribirse ahí es inofensivo, no roba foco). Cambio confinado a `Modal.tsx`; no se tocó
+`M5View.tsx` — el mismo bug existía potencialmente en cualquier otro modal con un `footer` que
+referencia una función inline del padre (p. ej. los otros modales de M5, M1, M6…), así que el fix
+en el componente compartido los corrige a todos de una vez.
+
+**Test.** `M5View.test.tsx` +1 (`userEvent.type` de varias letras seguidas sobre "Motivo del
+rechazo"; falla sin el fix con solo el primer carácter registrado, pasa con el fix).
+
+### Gates
+`npm run lint` ✓ · `npm run typecheck` ✓ · `npm run build` ✓ · `npm run test` ✓
+(45 archivos / 346 tests, incluye los 17 tests preexistentes de `M5View.test.tsx` + 1 nuevo).
+
+## 2026-08-18 · T1/T2/T3 — casillas por variante real, copy de inventario admin, alta concluyente
+
+Tercera ronda sobre el mismo bug (rama `fix/variantes-y-orden-master-set`). El PO pidió, textual:
+«en el master set son dos cartas de cada una: la común a la izquierda y la holo a la derecha» — es
+decir, una casilla de IMAGEN por variante real, no un chip de texto con etiqueta de acabado.
+
+### T1 — Una casilla de imagen por variante (`MasterSetBinder.tsx`, `CellDrawer.tsx`)
+
+**Qué cambió.** `BinderCell` y `QuoterCell` ya NO pintan una sola imagen + chips de texto por
+acabado debajo: pintan **una casilla de imagen por entrada de `cell.variants`**, lado a lado, en
+el orden de `FINISH_ORDER` (normal izquierda, reverse holo derecha, contrato v1.22 — el backend
+garantiza ese orden y que `|casillas| = |availableFinishes| ≥ 1`, nunca relleno). Las N casillas
+de una celda usan la MISMA `cell.imageSmallUrl` (pokemontcg.io no publica arte por acabado; el
+contrato lo deja explícito: NO hay `imageByFinish`). Cada casilla lleva su etiqueta de acabado en
+mono debajo de la imagen y su estado (conteo si `covered`, «HUECO» si no — atenuada + borde
+punteado), así que nunca hay que adivinar cuál casilla es cuál. Una carta con una sola variante
+pinta UNA sola casilla (sin hueco fantasma de relleno). Aplica también a `VariantSlots` en
+`CellDrawer.tsx` ("Casillas por acabado").
+
+**Rejilla responsive.** El binder calcula `slotCols = max(variants.length)` de las celdas
+visibles y baja un escalón de columnas por cada casilla extra (`gridColsForSlots`): 1 casilla →
+`grid-cols-2 sm:3 lg:4 xl:5` (como antes); 2 casillas → `grid-cols-1 sm:2 lg:3 xl:4`; así la
+imagen de cada casilla no se encoge ilegible en móvil cuando el set tiene cartas multi-acabado.
+Todas las celdas comparten el MISMO `slotCols` (vía `style={gridTemplateColumns}`) para que el
+binder se lea como una retícula uniforme aunque cada celda tenga distinto nº de variantes.
+
+**Orden — `@/lib/cardOrder.ts` (nuevo).** Contrato v1.22: `CardDTO`/`MasterSetCardCellDTO` ganan
+`numberSort`/`numberPrefix` (columnas persistidas, M-26) y el `ORDER BY` correcto es
+`(numberPrefix, numberSort, number, id)` — el front NUNCA re-ordena por número tras recibir la
+página, pero SÍ debe reproducir ese orden al filtrar LOCALMENTE (el binder ya filtraba por
+acabado/huecos/secret-rare/nombre en cliente). `compareCardNumber` implementa ese comparador;
+`deriveNumberParts` lo deriva en cliente como red de seguridad si el backend todavía no manda las
+columnas (marcadas `?` en el tipo a propósito — ver nota de tipos abajo). El cotizador
+(`fetchQuoterBinder`, compuesto 100% client-side) también usa estas claves en vez del índice del
+arreglo que usaba antes (`numberSort: idx` quedaba mal para sets con promos intercalados).
+
+**Nota de tipos (decisión de frontend, no de contrato).** `numberSort`/`numberPrefix` se
+declararon `?` opcionales en `types/contract.ts` en vez de requeridos: la norma v1.22 los hace
+normativos, pero mientras el re-sync/backfill (M-26) no haya corrido en TODAS las filas — y para
+no obligar a tocar decenas de fixtures/tests ajenos a este bug en todo el repo — el tipo tolera su
+ausencia y `cardOrder.ts` cae a `deriveNumberParts`. Cuando el campo llega, manda él. No es un
+relajamiento del contrato: es tolerancia de despliegue documentada in situ.
+
+### T2 — Copy de admin: inventario, no carrito (`CellDrawer.tsx`, `MasterSetPanel.tsx`, i18n)
+
+Regla del PO: el carrito NO aplica a admin. Se renombró TODO el copy de M1 que hablaba de
+"carrito" a lenguaje de inventario/alta/lote, en `es.json` y `en.json` (namespace `masterSet`
+únicamente — `catalog.addToCart`/`buylist.cartTitle` son carritos DE VERDAD y no se tocaron):
+
+| Antes (`masterSet.*`) | Ahora |
+|---|---|
+| `quickAddTitle` "Alta rápida al carrito" | `quickIntakeTitle` "Alta rápida al inventario" |
+| `addToCart` "Agregar al carrito" | `addToInventory` "Dar de alta al inventario" (alta INMEDIATA) + `addToBatch` "Agregar al lote" (encola, alta por lote) |
+| `addedToCart` "Agregado al carrito de captura." | `addedToBatch` "Agregada al lote de alta." |
+| `cartTitle`/`cartSummary`/`cartRemove`/`cartSubmit`/`cartClear` | `batchTitle`/`batchSummary`/`batchRemove`/`batchSubmit`/`batchClear` (mismo copy de fondo, "carrito"→"lote") |
+
+`masterSet.buyCta`/`buyAdded` ("Agregar al carrito de compra") NO se tocaron a propósito: es el
+CTA de `user_vault_self` para comprar una pieza faltante — un carrito de COMPRA de verdad, del
+cliente, no de admin.
+
+### T3 — El botón de alta ahora es concluyente y visible
+
+**Diagnóstico (confirmado, no supuesto).** La mutación de alta SÍ funcionaba — el bug no era de
+red ni de lógica de negocio. Era de FLUJO: (1) "Agregar al carrito" solo ENCOLABA la línea; el
+botón que REALMENTE hacía POST (`batchCreateItems`, "Dar de alta N piezas") vivía en
+`MasterSetPanel.tsx`, renderizado DEBAJO de toda la cuadrícula del binder; (2) el modal del
+drawer (`CellDrawer.tsx`) se quedaba abierto tapando la pantalla con el overlay, así que ese
+segundo paso quedaba invisible detrás del overlay y al final de la página — para el operador,
+"presiono y no pasa nada".
+
+**Solución — el lote vive DENTRO del modal, en su pie fijo.**
+- `Modal.tsx`: el diálogo ganó un layout `flex flex-col` con altura acotada
+  (`max-h-[100dvh] sm:max-h-[90vh]`); el `title`/header y el `footer` quedan `shrink-0` (fijos) y
+  el `children` scrollea (`overflow-y-auto`). Antes un drawer largo (muchos campos + piezas +
+  ajuste) desbordaba la ventana y el `footer` quedaba fuera de la vista sin scrollear — exactamente
+  el síntoma que reportó el PO. Cambio en el componente COMPARTIDO: beneficia a todos los modales
+  con `footer` largo (M1/M5/M6…), no solo a éste.
+- `CellDrawer.tsx` gana `BatchFooter`: pinta, DENTRO del `footer` fijo del modal, el desenlace del
+  lote — banner de éxito/error tolerante por-línea (`PerLineErrors`) Y, si hay líneas pendientes,
+  el resumen + botón "Dar de alta N piezas" / "Vaciar lote". El operador ve el resultado SIN
+  cerrar el modal y SIN hacer scroll.
+- `QuickAddSection` ahora ofrece DOS acciones, ninguna ambigua: **"Dar de alta al inventario"**
+  (primaria) — encola la línea Y envía el lote en el MISMO clic (`queueAndSubmit`), para el caso
+  común de una sola carta; **"Agregar al lote"** (secundaria) — solo encola, para seguir
+  capturando varias cartas antes de confirmar (alta por LOTE, P-5 de `PENDIENTES.md`, se
+  conserva). `MasterSetPanel.tsx` expone ambas como `CaptureBatchState` (`capture.ts`), un objeto
+  compartido entre el panel (dueño del `useMutation`/`batchKeyRef`) y el drawer (que solo lo lee y
+  dispara).
+- **Éxito falso corregido.** Antes `QuickAddSection` hacía `setAdded(true)` incluso si
+  `onAddToCart` era `undefined` (nunca ocurría en la práctica porque el padre siempre lo pasaba,
+  pero era una trampa: la UI mentía si algún día faltara el callback). Ahora sin `batch` cableado
+  no hay botones de alta que fingir — la sección no tiene ninguna ruta de "éxito" sin una
+  mutación real detrás.
+- **Error visible corregido.** Antes `submit.isError` pintaba un banner en `MasterSetPanel.tsx`,
+  AL FONDO de la página — con el modal abierto, tapado por el overlay. Ahora, si el drawer está
+  abierto, el error (y el resultado) se pintan en `BatchFooter` (el banner del panel se omite
+  mientras `openCell` esté seteado, para no duplicar el aviso); si el drawer está cerrado, el
+  banner del panel sigue ahí como antes.
+- **Idempotencia intacta.** `queueAndSubmit` reusa la MISMA `batchKeyRef` de la sesión
+  (`ensureBatchKey`) — un reintento por timeout sigue siendo replay idempotente en el backend. El
+  lote viaja como ARGUMENTO de `submit.mutate(lines)` (no se lee `cart` del closure dentro de
+  `mutationFn`), porque React agrupa el `setState` del mismo tick: sin este cambio, la línea recién
+  agregada en el mismo clic de "Dar de alta al inventario" se habría perdido de la primera llamada.
+  `PlatformPiecesSection` (publicar/ajustar) no se tocó — su idempotencia por batchKey ya estaba
+  bien y es independiente de este lote.
+
+**Verificado en navegador (stack real, no mocks) — evidencia:**
+- `UPDATE "Card" SET "availableFinishes"='{normal,reverse_holo}' WHERE name='E2E Reverse Bird'`
+  (luego el backend la sembró así de forma permanente): en `/es/buylist` → «E2E Base Set» y en
+  `/es/admin/m1` → Master Set → «E2E Base Set», «E2E Reverse Bird» (#17) es la ÚNICA carta con
+  DOS casillas de imagen lado a lado (NORMAL izquierda, REVERSE HOLO derecha); las demás 5 cartas
+  muestran UNA sola casilla.
+- Clic en "Dar de alta al inventario" sobre «E2E Charizard» (con precio) → banner
+  "1 piezas creadas · 0 líneas con error." + folio `INV-000001` visible DENTRO del modal, sin
+  cerrarlo; confirmado además contra la API (`GET /admin/inventory/items?cardId=...`) que la
+  pieza existe de verdad (no solo optimista en UI) y que el conteo de la celda subió en vivo.
+  Clic sobre «E2E Reverse Bird» en `reverse_holo` (sin precio de referencia) → banner
+  "0 piezas creadas · 1 líneas con error." + "Esta carta tiene precio pendiente…" — también
+  DENTRO del modal, mismo comportamiento concluyente para el camino de error.
+
+### Archivos
+`components/master-set/MasterSetBinder.tsx` (casillas por variante, `slotCols`, orden local con
+`cardOrder.ts`), `CellDrawer.tsx` (`VariantSlots` con imagen por variante, `BatchFooter`,
+`QuickAddSection` con alta inmediata/por-lote), `MasterSetPanel.tsx` (`CaptureBatchState`,
+`queueAndSubmit`/`submitBatch`/`clearBatch`, banner del panel oculto si el drawer está abierto),
+`capture.ts` (+`CaptureBatchState`), `components/ui/Modal.tsx` (pie fijo + cuerpo scrolleable),
+`lib/cardOrder.ts` (nuevo), `types/contract.ts` (`CardDTO`/`MasterSetCardCellDTO` +=
+`numberSort?`/`numberPrefix?`), `messages/{es,en}.json` (copy de inventario, namespace
+`masterSet`), `MasterSet.test.tsx` (+5: dos tests de T3 alta inmediata éxito/error dentro del
+modal; un test de T1 conteo de imágenes 2 vs 1; tests existentes de "Agregar al carrito" migrados
+a "Agregar al lote").
+
+### Solicitud al arquitecto (pendiente, no bloqueante)
+Ninguna nueva. Sigue vigente la de la ronda anterior: confirmar si al backend le conviene exponer
+`numberSort`/`numberPrefix` como NO opcionales en el DTO ya con M-26 desplegado (el frontend ya
+tolera su ausencia por diseño, así que esto es solo para que el contrato deje de decir "aditivo
+opcional" si en la práctica ya siempre viajan).
+
+### Gates
+`npm run typecheck` ✓ · `npm run lint` ✓ · `npm run test` ✓ (50 archivos / 381 tests).
+
+## Fix de producción — pieza muerta en carrito viejo NO bloquea el checkout (2026-08-18, contrato v1.21.3-quote-prune, rama `fix/carrito-pieza-muerta`)
+
+Los dos quotes (§4 y §4-G.1) ahora resuelven POR ÍTEM y devuelven `200` con
+`unavailableItems: UnavailableCartItemDTO[]` (siempre presente). El front cumple su "deber de
+contrato": **poda del localStorage** los ids muertos antes de llamar a session (que sigue
+estricta, anti double-sell) y muestra un aviso informativo. Además el carrito local gana
+**expiración a 30 días** (nota de frontend del contrato, complementa la poda).
+
+### Formato de storage del carrito (`lib/cart.ts`)
+
+- **v2:** `tcg.cart = { ids: string[], updatedAt: number }` (epoch ms de la última modificación).
+  `add`/`remove`/`prune`/`clear` refrescan `updatedAt`; **leer NO lo refresca** (si leer contara
+  como "tocar", un carrito abierto a diario jamás expiraría distinto… pero tampoco expiraría el
+  aviso de 30 días de un carrito que solo se mira; se decidió que solo MODIFICAR cuenta).
+- **Expiración:** al leer, si `now - updatedAt > 30 días` (estrictamente MÁS de 30 días — a los
+  30 exactos sigue vivo), el carrito se limpia y se persiste vacío.
+- **Migración suave:** el formato v1 era un array JSON plano. Un array plano (o un objeto con
+  `ids` pero sin `updatedAt` numérico) se trata como carrito VÁLIDO y se re-persiste en v2 con
+  `updatedAt = now` en esa misma lectura. **Nunca** se descarta un carrito por cambio de formato;
+  el costo es que un carrito legado "renace" con timestamp fresco una única vez.
+- **`prune(ids: string[])`** nuevo en `useCart`: poda en lote con la misma semántica de storage
+  que `remove` (mismo write + evento), pero **idempotente**: si ningún id sigue en el carrito no
+  escribe ni emite — clave para poder llamarlo desde un efecto sin ciclar la re-cotización.
+
+### Dónde vive el estado del aviso (`(storefront)/checkout/unavailable-notice.ts`)
+
+Mini-store de módulo (`useSyncExternalStore`) y NO estado de componente, por dos razones:
+1. el aviso debe **sobrevivir a la re-cotización** (la poda cambia `cart.ids` → la queryKey
+   cambia → el siguiente fetch trae `unavailableItems: []`); 2. debe sobrevivir al **desmonte de
+   la vista que lo produjo** — si TODO el carrito murió, `CheckoutView` desmonta
+   `GuestCheckoutView` y pinta el EmptyState, y el aviso tiene que seguir junto al carrito vacío.
+Se limpia al cerrarlo (X del banner) o al salir del checkout (cleanup de `CheckoutView`).
+`pushUnavailableNotice` dedupea por `inventoryItemId` (idempotente ante re-fetches).
+
+### Vistas (`CheckoutView.tsx` / `GuestCheckoutView.tsx`)
+
+- Efecto idempotente tras cada quote: `pushUnavailableNotice(unavailableItems)` +
+  `cart.prune(ids)`. Sin ciclo: el fetch posterior a la poda trae `[]` y el efecto es no-op.
+- `UnavailableItemsNotice` (nuevo, carpeta checkout) usa `Banner variant="info"`
+  (`role="status"`, regla fina neutra, tinta muted — informativo, NO bermellón ni `alert`).
+  Copy i18n en `checkout.unavailable.*` (ES/EN): con nombre si `cardName` viene, genérico si es
+  `null`, plural con lista de nombres si son varias. Se renderiza **FUERA de `QueryState`**
+  (bajo el título) para que no desaparezca durante el loading de la re-cotización.
+- **Carrito 100 % muerto:** la poda vacía el carrito → `CheckoutView` pinta el EmptyState
+  existente MÁS el aviso; nunca la pantalla de error genérico ni "Reintentar" (los quotes ya no
+  devuelven `404`/`409` globales). No hay mini-cart lateral en la app (el header solo muestra el
+  contador `useCart().count`), así que no hubo nada más que podar.
+- Mocks (`lib/api.ts`): los dos quotes mock devuelven `unavailableItems` (id ausente de los
+  fixtures ⇒ `cardName: null`) y **breakdown en CEROS** si todo murió (guest incluye
+  `shippingFeeCents: 0`). El caso "existe pero fuera de venta" (`cardName` poblado) no se modela
+  en fixtures; lo cubren los tests de vista con el API mockeado y el backend real.
+
+### F-2 (veredicto techlead, misma rama) — carrera "pieza vendida ENTRE el quote y el pago"
+
+La session sigue estricta (anti double-sell): si la pieza muere DESPUÉS del quote y el usuario
+paga, `createCheckoutSession`/`createGuestCheckoutSession` responde `409 ITEM_UNAVAILABLE` (o
+`404 NOT_FOUND`) y antes eso era un callejón sin salida (solo el mensaje genérico junto al botón).
+Ahora el catch de `pay()` en AMBAS vistas, para esos dos códigos, dispara **`query.refetch()`**:
+el re-quote trae la pieza en `unavailableItems` y la maquinaria ya construida (efecto de poda +
+`UnavailableItemsNotice`) poda el localStorage y avisa sola.
+
+**Decisión de UX:** con el re-quote en marcha, el banner ES el aviso — NO se pinta además el
+`payError` genérico junto al botón (evita el doble mensaje contradictorio "esta carta ya no está
+disponible" + banner "se quitó de tu carrito"). **Respaldo si el refetch falla:** se setea
+`payError` con el mensaje del error original y, además, el quote queda en estado de error, así que
+`QueryState` pinta su aviso con "Reintentar" — nunca una pantalla muda. El manejo de los demás
+códigos NO cambió (`EMAIL_NOT_VERIFIED` → banner de verificación; `VAULT_REQUIRES_ACCOUNT` →
+upsell de bóveda).
+
+### Tests
+
+`lib/cart.test.ts` +8 (migración v1→v2 sin pérdida, expiración >30d, 30d exactos se conserva,
+refresh de timestamp en add/remove/clear, prune en lote e idempotente, `{ids}` sin timestamp).
+`checkout/CheckoutUnavailable.test.tsx` +5 (invitado: 1 muerta con nombre + 2 vivas ⇒ banner con
+nombre, renglones vivos y storage podado; cierre del aviso; invitado todas muertas ⇒ EmptyState +
+aviso plural sin error/reintentar; con cuenta: mismo par de casos, incl. `cardName: null` ⇒ copy
+genérico). Tests preexistentes que asserteaban el array plano de `tcg.cart` se actualizaron al
+formato v2 (`.ids`).
+**F-2:** +3 en `CheckoutUnavailable.test.tsx` (con cuenta y de invitado: session rechaza
+`ITEM_UNAVAILABLE` ⇒ se re-cotiza, banner con nombre, renglón y localStorage podados, sin
+`role=alert` ni modal Stripe; y el caso "el refetch de respaldo también falla" ⇒ QueryState en
+error con "Reintentar", nunca mudo).
+
+### Gates
+`npm run lint` ✓ · `npx tsc --noEmit` ✓ · `npm run build` ✓ · `npx vitest run` ✓
+(52 archivos / 394 tests, +16 nuevos en la rama).

@@ -19,6 +19,8 @@ import type {
   BuylistQuoteResponse,
   BuylistQuoteItemDTO,
   BuylistBatchQuoteResultDTO,
+  MasterSetCardCellDTO,
+  MasterSetVariantDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -39,6 +41,11 @@ import { QueryState } from '@/components/ui/QueryState';
 import { useBuylistSteps } from '@/lib/pipelines';
 import { FINISH_ORDER } from '@/lib/finish';
 import { cn } from '@/lib/cn';
+// v1.21-cotizador-master-set: en `raw` el grid es el binder COMPARTIDO de Master Set
+// (§4.20f, mode="quoter") — casillas de imagen por acabado real de la carta, nunca un chip
+// de texto ni una casilla para un acabado que la carta no tiene. graded/sealed (sin variantes
+// por acabado: cotizan siempre en `normal`) conservan el grid plano existente.
+import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 
@@ -53,6 +60,19 @@ function firstAvailableFinish(card: CardDTO): Finish {
 const quoteMapKey = (cardId: string, finish: Finish) => `${cardId}:${finish}`;
 
 /**
+ * Referencia mínima de carta que necesita el carrito (nombre + id para el submit). `raw`
+ * la puebla desde `MasterSetCardCellDTO` (binder de Master Set, sin los campos de catálogo
+ * que no usa el carrito: setName/rarity/subtypes/…); graded/sealed siguen viniendo del
+ * `CardDTO` completo del picker plano — un `CardDTO` cumple esta forma sin cambios.
+ */
+interface QuoterCardRef {
+  id: string;
+  name: string;
+  number: string;
+  imageSmallUrl?: string;
+}
+
+/**
  * Una línea del carrito de venta. Snapshotea el ESTIMADO de la cotización
  * (`quote`) que se le muestra al usuario; el monto autoritativo lo re-deriva el
  * backend al crear la solicitud (SEC-A1). `quantity` se expande a N entradas de
@@ -64,7 +84,7 @@ const quoteMapKey = (cardId: string, finish: Finish) => `${cardId}:${finish}`;
  */
 interface CartLine {
   id: string;
-  card: CardDTO;
+  card: QuoterCardRef;
   productType: ProductType;
   rawCondition?: RawCondition;
   finish: Finish;
@@ -305,6 +325,35 @@ export function BuylistView() {
     setBulkNotice(null);
   }
 
+  /**
+   * Clic en una casilla del binder Master Set (mode="quoter", raw): la variante YA trae su
+   * cotización resuelta (`variant.quote`, batch client-side de MasterSetBinder) — se agrega
+   * DIRECTO al carrito, mismo patrón que `addFromGrid`. Casillas sin cotización resuelta
+   * quedan deshabilitadas en el binder (nunca deberían disparar este handler).
+   */
+  function addFromMasterSet(cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) {
+    if (!variant.quote) return;
+    const quote: BuylistQuoteResponse = {
+      rarity: variant.quote.rarity ?? '',
+      finish: variant.finish,
+      appliedRule: variant.quote.appliedRule,
+      quote: { status: variant.quote.status, quotedPriceCents: variant.quote.quotedPriceCents, currency: 'MXN' },
+      referencePrice: variant.quote.referencePrice,
+      paymentNotice: 'PAY_AFTER_RECEIPT',
+    };
+    setCart((prev) =>
+      mergeCartLine(prev, {
+        card: { id: cell.cardId, name: cell.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl },
+        productType: 'raw',
+        rawCondition: 'NM',
+        finish: variant.finish,
+        quote,
+      }),
+    );
+    setLastAdded({ name: cell.name, label: tFinish(variant.finish) });
+    setBulkNotice(null);
+  }
+
   function toggleBulk(card: CardDTO) {
     setBulkNotice(null);
     setBulkSelected((prev) => {
@@ -455,43 +504,51 @@ export function BuylistView() {
           </button>
         </div>
 
-        {/* Barra de filtros: set + búsqueda + tipo, con el toggle del carrito al extremo. */}
+        {/* Barra de filtros: set + búsqueda + tipo, con el toggle del carrito al extremo.
+            En `raw` el binder Master Set (mode="quoter") trae SU PROPIO "Buscar set" (índice)
+            y "Buscar carta" (dentro del set elegido) — ver MasterSetIndex/MasterSetBinder;
+            este filtro plano de set+texto queda para graded/sealed (sin variantes por acabado,
+            fuera del modelo de casillas de Master Set). */}
         <div className="gutter flex flex-wrap items-end gap-x-8 gap-y-6 border-b border-border pb-7 pt-6">
-          <div className="w-full sm:w-64">
-            <Select
-              label={t('filterBySet')}
-              placeholder={t('allSets')}
-              options={(sets.data ?? []).map((s) => ({
-                value: s.id,
-                label: s.year ? `${s.name} (${s.year})` : s.name,
-              }))}
-              value={setId}
-              onChange={(e) => {
-                setSetId(e.target.value);
-                // Filtrar por set dispara la búsqueda aunque no haya texto.
-              }}
-            />
-          </div>
-          <div className="flex min-w-[240px] flex-1 items-end gap-4">
-            <div className="min-w-0 flex-1">
-              <Input
-                label={t('searchCards')}
-                placeholder={t('searchPlaceholder')}
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') runSearch();
-                }}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={runSearch}
-              className="shrink-0 pb-3 text-xs font-medium text-accent hover:text-text"
-            >
-              {t('searchAction')}
-            </button>
-          </div>
+          {productType !== 'raw' && (
+            <>
+              <div className="w-full sm:w-64">
+                <Select
+                  label={t('filterBySet')}
+                  placeholder={t('allSets')}
+                  options={(sets.data ?? []).map((s) => ({
+                    value: s.id,
+                    label: s.year ? `${s.name} (${s.year})` : s.name,
+                  }))}
+                  value={setId}
+                  onChange={(e) => {
+                    setSetId(e.target.value);
+                    // Filtrar por set dispara la búsqueda aunque no haya texto.
+                  }}
+                />
+              </div>
+              <div className="flex min-w-[240px] flex-1 items-end gap-4">
+                <div className="min-w-0 flex-1">
+                  <Input
+                    label={t('searchCards')}
+                    placeholder={t('searchPlaceholder')}
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') runSearch();
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={runSearch}
+                  className="shrink-0 pb-3 text-xs font-medium text-accent hover:text-text"
+                >
+                  {t('searchAction')}
+                </button>
+              </div>
+            </>
+          )}
           <div className="w-full sm:w-44">
             <Select
               label={t('selectType')}
@@ -518,7 +575,17 @@ export function BuylistView() {
           {/* El grid de resultados es el protagonista: todo el ancho/alto disponible,
               scroll natural de página (sin caja con scroll interno). */}
           <main className="gutter min-w-0 pb-12 pt-8">
-            {!hasSearch ? (
+            {lastAdded && (
+              <p role="status" className="mb-3 font-mono text-[11px] text-success">
+                {t('addedLine', { name: lastAdded.name, finish: lastAdded.label })}
+              </p>
+            )}
+            {productType === 'raw' ? (
+              // v1.21: binder COMPARTIDO de Master Set — casillas de imagen por acabado real
+              // de la carta (nunca chip de texto/casilla vacía), con "Cargar más" propio para
+              // sets >20 cartas (fetchQuoterBinder en MasterSetBinder.tsx pagina internamente).
+              <MasterSetPanel mode="quoter" onAddToSellCart={addFromMasterSet} />
+            ) : !hasSearch ? (
               <EmptyState title={t('searchHint')} />
             ) : (
               <>
@@ -526,12 +593,6 @@ export function BuylistView() {
                   <p className="eyebrow">{t('searchResults')}</p>
                   <p className="font-mono text-[11px] text-muted">{t('gridEstimateLegend')}</p>
                 </div>
-
-                {lastAdded && (
-                  <p role="status" className="mt-3 font-mono text-[11px] text-success">
-                    {t('addedLine', { name: lastAdded.name, finish: lastAdded.label })}
-                  </p>
-                )}
 
                 {/* Barra de bulk: agrega todas las seleccionadas en un clic (acabado por
                     defecto), reusando las cotizaciones del grid. */}

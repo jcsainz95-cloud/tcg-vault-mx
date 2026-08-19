@@ -27,7 +27,7 @@ fi
 ARGS=(
   fs
   --config "${SEC_DIR}/trivy.yaml"
-  --ignorefile "${SEC_DIR}/.trivyignore"   # excepciones justificadas (node-tar de npm base)
+  --ignorefile "${SEC_DIR}/.trivyignore"   # excepciones justificadas (hoy: ninguna activa)
   --exit-code 1                       # gate: HIGH/CRITICAL => fallo
   --no-progress
 )

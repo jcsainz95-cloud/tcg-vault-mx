@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { computeSalePriceForRarity, SalesRule } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
+import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET } from '../../common/card-order';
 
 // Conjuntos de valores válidos de los enums de Prisma. Un filtro público con un valor
 // fuera de estos conjuntos produciría un PrismaClientValidationError (500); en cambio
@@ -19,6 +20,11 @@ export function toCardDTO(card: Card & { set?: CardSet | null }) {
     externalId: card.externalId,
     name: card.name,
     number: card.number,
+    // v1.22 (M-26, §4.22b): claves persistidas del ORDEN NATURAL. El front las usa SOLO para
+    // re-ordenar localmente tras filtrar, con (numberPrefix asc, numberSort asc, number asc) —
+    // que reproduce EXACTAMENTE el orden del servidor. Nunca con el índice del arreglo.
+    numberSort: card.numberSort,
+    numberPrefix: card.numberPrefix,
     rarity: card.rarity,
     supertype: card.supertype,
     subtypes: (card.subtypes as string[] | null) ?? [],
@@ -322,7 +328,12 @@ export class CatalogService {
       this.prisma.card.findMany({
         where,
         include: { set: true },
-        orderBy: [{ name: 'asc' }, { number: 'asc' }],
+        // ORDEN NORMATIVO v1.22 (API_CONTRACT §6 / ARCHITECTURE §4.22b). Se aplica EN LA BASE DE
+        // DATOS, antes de paginar: ordenar tras el skip/take reordenaría la PÁGINA, no el conjunto
+        // (orden global incorrecto + filas repetidas/saltadas). Con `setId` (binder del cotizador)
+        // el orden es natural puro; sin él, nombre primero. Antes de v1.22 era
+        // `[{name},{number}]` con `number` como String ("10" antes que "2") — defecto ORD-1.
+        orderBy: params.setId ? CARD_ORDER_BY_IN_SET : CARD_ORDER_BY_GLOBAL,
         skip,
         take: params.pageSize,
       }),

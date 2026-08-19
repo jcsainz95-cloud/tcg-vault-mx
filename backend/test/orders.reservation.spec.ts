@@ -37,6 +37,8 @@ describe('OrdersService.createSession — reserva atómica (fix #1)', () => {
       },
       billingProfile: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn() },
       order: { create: jest.fn(async () => ({ id: `order-${Math.random()}` })), update: jest.fn() },
+      // v1.21 (M-25): todo pedido nuevo reserva su número legible de la secuencia Postgres.
+      $queryRawUnsafe: jest.fn(async () => [{ nextval: 1n }]),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const settings: any = {
@@ -121,6 +123,8 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
       },
       billingProfile: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn() },
       order: { create: jest.fn(async () => ({ id: 'order-1' })), update: jest.fn() },
+      // v1.21 (M-25): todo pedido nuevo reserva su número legible de la secuencia Postgres.
+      $queryRawUnsafe: jest.fn(async () => [{ nextval: 1n }]),
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const settings: any = {
@@ -163,5 +167,102 @@ describe('OrdersService.createSession — rollback del PaymentIntent (A2 / BE-7)
     expect(prisma.order.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'failed' } }),
     );
+  });
+});
+
+/**
+ * T2 (techlead, 2026-08-18) — la reserva atómica y la compensación del PaymentIntent vivían
+ * DUPLICADAS en `OrdersService` (bóveda) y `GuestCheckoutService` (envío directo), y las copias ya
+ * habían divergido: la de invitado tenía el guard `ownerType='platform'` y la de bóveda NO,
+ * confiando en el chequeo pre-transaccional de `priceCartForOrder` (ventana TOCTOU).
+ *
+ * Ahora hay una sola implementación (`OrdersService.reserveItems`), con la titularidad como
+ * parámetro. Esta suite fija el comportamiento que NO puede volver a perderse.
+ */
+describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () => {
+  function buildTx() {
+    const calls: { where: any; data: any }[] = [];
+    const tx: any = {
+      inventoryItem: {
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          calls.push({ where, data });
+          // Simula la fila real: solo casa si la pieza es de plataforma y está vendible.
+          const matches =
+            where.ownerType === 'platform' && where.status?.in?.includes('listed');
+          return { count: matches ? 1 : 0 };
+        }),
+      },
+    };
+    const svc = new OrdersService(
+      {} as PrismaService,
+      {} as PricingService,
+      {} as SettingsService,
+      {} as StripeService,
+      {} as CatalogService,
+    );
+    return { svc, tx, calls };
+  }
+
+  const items = [{ id: 'item1', folio: 'INV-000001' }];
+
+  it('SIEMPRE exige `ownerType=platform` (cierra la ventana TOCTOU de la ruta de bóveda)', async () => {
+    const { svc, tx, calls } = buildTx();
+    await svc.reserveItems(tx, items, {
+      ownerType: 'customer',
+      ownerUserId: 'user-1',
+      ownershipStatus: 'pending',
+    });
+    expect(calls[0].where).toEqual({
+      id: 'item1',
+      ownerType: 'platform',
+      status: { in: ['listed', 'in_stock'] },
+    });
+  });
+
+  it('con titularidad (bóveda) escribe ownerType/ownerUserId/ownershipStatus', async () => {
+    const { svc, tx, calls } = buildTx();
+    await svc.reserveItems(tx, items, {
+      ownerType: 'customer',
+      ownerUserId: 'user-1',
+      ownershipStatus: 'pending',
+    });
+    expect(calls[0].data).toEqual({
+      status: 'reserved',
+      ownerType: 'customer',
+      ownerUserId: 'user-1',
+      ownershipStatus: 'pending',
+    });
+  });
+
+  it('con `null` (envío directo) NO escribe titularidad: la pieza sigue siendo de la plataforma', async () => {
+    const { svc, tx, calls } = buildTx();
+    await svc.reserveItems(tx, items, null);
+    expect(calls[0].data).toEqual({ status: 'reserved' });
+    // Invariante §4-G.0-1: un pedido de invitado NUNCA convierte la pieza en bóveda de nadie.
+    expect(calls[0].data).not.toHaveProperty('ownerType');
+    expect(calls[0].data).not.toHaveProperty('ownerUserId');
+    expect(calls[0].data).not.toHaveProperty('ownershipStatus');
+  });
+
+  it('`count !== 1` ⇒ ITEM_UNAVAILABLE con el folio de la pieza (mensaje operable)', async () => {
+    const { svc, tx } = buildTx();
+    tx.inventoryItem.updateMany = jest.fn(async () => ({ count: 0 }));
+    await expect(svc.reserveItems(tx, items, null)).rejects.toMatchObject({
+      code: 'ITEM_UNAVAILABLE',
+      message: expect.stringContaining('INV-000001'),
+    });
+  });
+
+  it('reserva TODAS las piezas del carrito, una por una y de forma atómica', async () => {
+    const { svc, tx, calls } = buildTx();
+    await svc.reserveItems(
+      tx,
+      [
+        { id: 'item1', folio: 'INV-000001' },
+        { id: 'item2', folio: 'INV-000002' },
+      ],
+      null,
+    );
+    expect(calls.map((c) => c.where.id)).toEqual(['item1', 'item2']);
   });
 });

@@ -2,7 +2,144 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.20-master-set-everywhere (MVP, plataforma en producción). Fecha: 2026-08-17. Branch: `claude/git-repo-review-c67xyk`.
+> Estado: v1.22-variantes-orden (MVP, plataforma en producción). Fecha: 2026-08-19. Branch: `fix/available-finishes-source`.
+>
+> **Changelog v1.22-1-señal-ppt (2026-08-19, branch `fix/available-finishes-source`) — RESUELVE la pregunta abierta v1.22-1
+> (§10) y NORMA la opción (c) money-safe: la señal de acabados también se toma de la fuente de PAGA (PokemonPriceTracker),
+> como EVIDENCIA POSITIVA.** Detonante confirmado contra el código: pokemontcg.io devolvió **502** toda la tarde y «Pitch
+> Black» (2026, 120 cartas) quedó **todo en `['normal']`** (§4.22f S1/S2 ciegas) mientras PPT —la fuente de precios ya
+> migrada— SÍ responde con reverse holo. Spec completa en **§4.22g/§4.22h**; v1.22-1 marcada **RESUELTA** en §10; API_CONTRACT
+> v1.22-1 (nota de semántica de `availableFinishes`, sin cambio de forma); **migración M-27** (§11).
+> - **Diseño money-safe (§4.22g), en una línea:** `availableFinishes` deja de ser escrita directamente y pasa a ser
+>   **DERIVADA y recomputable** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` sobre **dos columnas
+>   de entrada persistidas**; `catalog.FinishReconciler` es el **único escritor**; `price-ingest` solo escribe su snapshot
+>   (Señal C, `market>0` vía **alias VERIFICADO**) y llama al reconciliador. **No monótona** (un `sync --force` o la siguiente
+>   corrida PPT REPARAN), **no inventa** (desconocido/SUPUESTO ⇒ se omite, no ensancha SEC-A1), **default `['normal']`**.
+> - **La regla 2 de §4.22a sigue vigente en su núcleo:** precio AUSENTE ≠ variante inexistente ⇒ jamás se REMUEVE por falta
+>   de precio. Lo NUEVO es su CONVERSA: precio PRESENTE vía alias verificado ⇒ la variante EXISTE.
+> - **Toca schema (M-27, dos columnas internas), NO la forma del contrato.** Backend lo implementa; verificación S-C1/S-C2 en
+>   la 1ª corrida (devops/backend). Si S-C1 resulta falso (PPT tampoco separa el set nuevo), cae a (a) override manual del admin.
+>
+> **Changelog v1.22-variantes-orden (2026-08-18) — WS «Catálogo y precios» + «Inventario y vault»: (1) `Card.availableFinishes`
+> deja de estar CONTAMINADO por precios y (2) el orden por número deja de ser lexicográfico en el cotizador. Tercera ronda del
+> mismo bug del PO («en el master set son dos cartas de cada una: la común a la izquierda y la holo a la derecha»).**
+> Ver **§4.22** (spec completa), §3.7 (reescrito), §3.2 (`Card`), §4.15e (**derogado**), §9 (VAR-1…4 / ORD-1 / SEED-1),
+> §11 (**M-26**) y API_CONTRACT v1.22.
+> - **El error de fondo es de AUTORIDAD, no de UI.** `availableFinishes` es **metadata de catálogo** («¿en qué impresiones
+>   existe esta carta?») y hoy se escribe desde la ruta de **precios**: `price-ingest.service.ts:151-172` lo **sobrescribe**
+>   con los acabados que obtuvieron `market > 0`. Una carta con reverse holo **sin precio de reverse holo** queda reducida a
+>   `['normal']` ⇒ el binder pinta **una** casilla. Precio ausente **no** es prueba de que la variante no exista. Se **deroga
+>   §4.15e** (v1.14 había elevado al proveedor de precios a autoridad de variantes).
+> - **Norma nueva (§4.22a), en una línea:** el **sync de catálogo es el ÚNICO escritor** de `availableFinishes`;
+>   **`price-ingest` NO lo escribe nunca** (ni ampliando: un alias mal mapeado inflaría para siempre una lista blanca
+>   SEC-A1 que ninguna autoridad podría limpiar); la derivación combina **`tcgplayer.prices` (llaves presentes, con o sin
+>   `market`) ∪ `cardmarket.prices.reverseHolo*` (valor numérico > 0)**; **sin señal remota → no se sobrescribe** lo
+>   existente (y `['normal']` solo al CREAR). **Cero heurísticas por rareza**: nunca se inventa una variante ⇒ nunca una
+>   casilla de relleno.
+> - **Orden natural PERSISTIDO (§4.22b, M-26):** `searchAllCards` (`GET /buylist/cards`) ordena `[{name},{number}]` sobre un
+>   `number` **String** (`"10" < "2"`) **y pagina** ⇒ ordenar en memoria tras el `skip/take` da un orden **globalmente
+>   incorrecto**. Por eso se **descarta** ordenar en memoria y se añaden **dos columnas derivadas** —`Card.numberSort Int`
+>   y `Card.numberPrefix String`— pobladas en el upsert del sync y por backfill SQL en la migración, con `orderBy` en
+>   Prisma e índice `(setId, numberPrefix, numberSort)`. `deriveNumberParts` (ya existente) pasa de comparador en memoria a
+>   **función de escritura canónica**.
+> - **Contrato (aditivo, sin breaking):** `GET /buylist/cards` gana **garantía de orden NORMATIVA**; `CardDTO` gana
+>   `numberSort` + `numberPrefix` (mata el `numberSort: idx` que el front inventa en `MasterSetBinder.tsx:104`);
+>   `MasterSetCardCellDTO` gana `numberPrefix`. **`MasterSetVariantDTO` NO cambia**: pokemontcg.io publica **una** imagen
+>   por carta, la misma para todas sus variantes ⇒ la casilla de variante usa `imageSmallUrl` de la CELDA. Confirmado.
+> - **Invariante de render (§4.22c):** `|casillas| = |availableFinishes| ≥ 1`, en **orden canónico `FINISH_ORDER`**
+>   (`normal → reverse_holo → holofoil → first_edition_holofoil`) ⇒ «normal a la izquierda, reverse holo a la derecha»
+>   sale del **orden del dato**, no de un `sort` del front. **Prohibido** pintar una casilla que no esté en el array.
+> - **Seeds (§4.22e):** los tres seeds (`seed.ts`, `seed-e2e.ts`, `e2e-fixtures.ts`) **no setean** `availableFinishes` ⇒ todo
+>   cae al `@default([normal])` y el bug **se reproduce en local y staging**. Norma: seedear **explícitamente**, con ≥1 carta
+>   `['normal','reverse_holo']`, ≥1 carta `['normal']` y números `"2" / "10" / "TG01"` para que el E2E pruebe ambas cosas.
+> - **Supuesto declarado (§4.22f):** el proxy del sandbox **bloquea `api.pokemontcg.io` (403 en CONNECT)**, así que el
+>   payload remoto **no se pudo verificar en vivo**. La derivación se diseñó contra el esquema documentado del API v2 y
+>   queda **pendiente de verificación en la 1ª corrida** (devops/backend, gate de despliegue).
+>
+> **Changelog v1.21.3-quote-prune (2026-08-18, branch `fix/carrito-pieza-muerta`) — Nota corta (la spec vive en API_CONTRACT v1.21.3): los DOS quotes
+> del checkout (`POST /checkout/quote` y `POST /checkout/guest/quote`) pasan a resolución POR ÍTEM con poda amable.**
+> Bug de producción: el carrito `localStorage` (lista de `inventoryItemId`, piezas únicas) envejece; una pieza
+> vendida/borrada reventaba TODO el quote (`loadItems` → `404` global en `orders.service.ts:63`, o `409` global si
+> salió de `{listed, in_stock}`) y bloqueaba el checkout completo. Ahora el quote responde `200` con `items` +
+> `breakdown` de los válidos y `unavailableItems` (siempre presente) con los muertos; **SESSION sigue estricta**
+> (`404`/`409` intactos — es el gate duro anti double-sell). Único ajuste aquí: la aserción de quote del **caso v de
+> §4.21h-1** (abajo). El carrito de front gana además expiración a 30 días (dueño: frontend). Sin migración, sin
+> enums, sin cambios en pricing.
+>
+> **Changelog v1.21.2-chargeback-fulfillment (2026-08-18) — Cierre del hallazgo BLOQUEANTE del techlead (T1) + D6 y
+> D4. El hueco era de la NORMA, no de la implementación: §4.21c describía el reverso del contracargo solo en
+> términos del `InventoryItem` y no decía nada del `ShipmentRequest`.** Ver **§4.21c-bis** (nueva), §4.21d, §4.21h,
+> §11 (**M-25b**) y API_CONTRACT §9/§M3/§M4.
+> - **T1 — double-sell físico (bloqueante).** Un contracargo sobre un pedido `direct_ship` con el envío en
+>   `picking`/`guia` re-listaba la pieza **mientras el envío seguía en la cola de picking** ⇒ la misma pieza única
+>   podía venderse a un segundo comprador mientras el operador la metía en la caja. **Norma nueva: el contracargo
+>   NUNCA re-lista automáticamente una pieza con envío vivo.** Envío no terminal ⇒ `ShipmentRequest → cancelado` en
+>   la misma transacción (sale de `pickingList()`) + item **congelado** en `picking` (fuera de venta) +
+>   `chargebackNeedsManual=true`; el desenlace lo confirma un humano
+>   (`POST /admin/orders/:id/chargeback-inventory`: `recuperada | no_recuperada | reexpedir`). Se eleva a invariante:
+>   **una pieza con `ShipmentItem` en un envío no terminal jamás puede estar en `{listed, in_stock}`**. Ganar la
+>   disputa **no** re-expide solo. **Sin enums ni columnas nuevas** (reusa `ShipmentStatus.cancelado`).
+> - **D6 — el `CHECK` que faltaba pasa a NORMATIVO (M-25b):**
+>   `InventoryItem CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)`. Era el único de los cinco
+>   invariantes sin implementar, y es justo el que §4-G.0-1 llama «lo que hace segura la nulabilidad de
+>   `Order.userId`». Tabla de otro stream ⇒ el orquestador serializa.
+> - **D4 — un solo discriminador canónico:** `ShipmentRequest.orderId` responde **solo** "¿de dónde viene el
+>   envío?"; **todo comportamiento** (terminal del item, `kind` del DTO) se decide por **`Order.fulfillmentMode`**,
+>   con `switch` **exhaustivo y ruidoso** (un modo no soportado **lanza**, nunca cae en `direct_ship`).
+> - **§4.21h — el test «contracargo antes/después de enviar» ya estaba pedido y no se escribió**; ahora es condición
+>   de aprobación, desglosado en **8 casos enumerados en la tabla de §4.21h-1** (numeración `i…viii` **canónica y
+>   estable**: los tests de backend ya la citan y **no debe renumerarse**). *(Errata de forma corregida: estaban
+>   redactados como viñeta de prosa dentro del reparto de trabajo — existían pero eran ilocalizables.)*
+> - **Errata `422` → `409`:** §4.21c-bis decía que un `reexpedir` en estado inválido devuelve `422`, contradiciendo a
+>   API_CONTRACT §M3 (`409`). **Manda el contrato y `409` es lo correcto**: el cuerpo es válido y bien formado, el
+>   obstáculo es el **estado del recurso**. Backend ya implementó `409`. **Sin cambio de código.**
+> - **Requisito pendiente registrado (hallazgo de QA):** el desenlace humano **no tiene interfaz humana**
+>   (`chargebackNeedsManual` no se consume en el front). Se añade el filtro `GET /admin/orders?needsManual=true` y se
+>   enruta la UI al WS **«Admin y auditoría»**; **sin ella el flujo de contracargo no es operable** a efectos del DoD
+>   de release (no bloquea el veredicto por-stream de «Órdenes y dinero»).
+>
+> **Changelog v1.21.1-guest-checkout-fixes (2026-08-18) — Correcciones post-implementación (regla 9). SIN migración
+> adicional; M-25 no cambia.** Ver **§4.21e-bis** (nueva), §4.21c y §3.2 (`OrderAccessToken`).
+> - **Las dos vidas del token (lo importante).** La v1.21 pedía enviar por correo "el mismo" token del checkout:
+>   **irrealizable** (solo hay hash en BD ⇒ el claro es irrecuperable — que es la propiedad T5 que queríamos).
+>   Norma: **checkout = 120 min**, **correo = 90 días**; el **settle no rota** (rotar mataría la confirmación
+>   post-3DS), **reenvío y soporte sí**. El solapamiento de dos puertas sin contraseña baja de **90 días a ≤2 h**.
+>   Sin columna nueva: las dos emisiones se distinguen solo por `expiresAt`.
+> - **`details.reason` de la revocación se deriva** (`CLAIMED` | `ROTATED`); se elimina `SUPPORT` — el forense vive
+>   en `AuditLog`, no en el cuerpo de la respuesta.
+> - **`InventoryMovement.reason` del ciclo de invitado:** `settle` (reserved→picking) y `sale` (→shipped,
+>   →delivered); **`withdrawal` prohibido** (es de bóveda). Sin valores nuevos en el enum.
+> - Conteo de códigos de error: **8**, no 7 (API_CONTRACT §0 manda).
+>
+> **Changelog v1.21-guest-checkout (2026-08-18) — WS «Órdenes y dinero»: COMPRAR SIN CUENTA (PROJECT §J, §J.1,
+> criterios 45–56b).** Ver **§4.21** (spec completa: ruta de fulfillment, ciclo de vida de los items, modelo de
+> amenazas del enlace), §3.3 (pointer), §7, §11 (**M-25**) y API_CONTRACT §4-G.
+> - **El hallazgo que da forma al diseño:** hoy **no existe** la elección "envío vs bóveda". Comprar **siempre**
+>   deposita en la bóveda (`createSession` pone `ownerType='customer'` + `ownerUserId`; el webhook lo pasa a
+>   `in_custody/settled`) y el **envío es un flujo posterior COBRADO APARTE** (`ShipmentsService` exige
+>   `ownerUserId === userId`, `settled`, `in_custody` y una `Address` **guardada del usuario**, y crea su **propio**
+>   PaymentIntent). Por eso «envío directo para invitados» **no es aflojar el auth: es una ruta de fulfillment
+>   NUEVA** — `Order.fulfillmentMode = vault | direct_ship`, dirección **capturada en línea** (snapshot en la orden,
+>   el invitado no tiene `Address`) y **envío cobrado en el MISMO PaymentIntent** (el invitado no puede pagar un
+>   segundo PI desde una bóveda que no tiene).
+> - **Ciclo de vida del item sin bóveda:** en `direct_ship` el item **jamás** pasa a `ownerType='customer'`
+>   (no hay `ownerUserId` que poner, y ponerlo `null` rompería la bóveda de todos). Conserva
+>   `platform/null/null` y su ciclo lo lleva `status`: `reserved → picking → shipped → delivered`, estrenando los
+>   tres valores de `InventoryStatus` que v1.17 dejó **sin uso por diseño**. **Sin enum nuevo.** Se eleva a
+>   invariante escrito: **`ownerType='customer'` ⇒ `ownerUserId NOT NULL`**.
+> - **`ShipmentRequest` con dos naturalezas:** `userId` nullable + `orderId?` como **discriminador**. El envío
+>   directo lo **crea el servidor** al liquidar (nace en `picking`, sin PI propio, con montos en `0` para que el
+>   P&L no cuente el envío dos veces: el ingreso vive en `Order.shippingFeeCents`). M4 lo opera igual salvo la
+>   **transición terminal** (`delivered`, no `withdrawn`).
+> - **Token de seguimiento = opaco + hash en BD, NO JWT** (`OrderAccessToken`): 32 bytes `base64url`, solo el
+>   SHA-256 persistido, **multi-uso** (`revokedAt`, no `usedAt`), TTL 90d, rotación al reenviar, tope de edad 365d.
+>   Es el patrón de `AuthToken` (§3.2) con la única diferencia semántica de "revocable pero no consumible".
+> - **Anti-enumeración como propiedad del código, no del copy:** el camino de invitado **nunca** consulta `User`
+>   por correo; el reenvío exige `(email + orderNumber)` y responde `202` siempre; el reclamo exige **correo
+>   verificado** (prueba de titularidad) y es **explícito**, nunca silencioso. El modelo soporta las **tres**
+>   políticas posibles del hueco abierto del PO **sin migración**.
+> - **Migración M-25** (`Order.userId` nullable + 9 columnas, `ShipmentRequest` +2, enum `FulfillmentMode`, modelo
+>   `OrderAccessToken`): **`backend/prisma/` es zona compartida**, el orquestador la serializa.
 >
 > **Changelog v1.20-master-set-everywhere (2026-08-17) — WS «Inventario y vault»: Master set en TODAS partes.**
 > La vista Master Set (v1.16, §4.17, solo M1) se generaliza a un **read model único parametrizado por scope**
@@ -619,8 +756,10 @@ Convención de dinero: **todos los montos son enteros en centavos (`*Cents`) de 
 User 1───* Address
 User 1───1 KycProfile           (CLABE/INE/límites)
 User 1───1 BillingProfile       (CFDI)
-User 1───* Order 1───* OrderItem *───1 InventoryItem
-User 1───* ShipmentRequest 1───* ShipmentItem *───1 InventoryItem
+User 0/1─* Order 1───* OrderItem *───1 InventoryItem      (v1.21: userId NULLABLE = pedido de invitado)
+User 0/1─* ShipmentRequest 1───* ShipmentItem *───1 InventoryItem   (v1.21: userId NULLABLE = envío directo)
+Order 1───* OrderAccessToken        (v1.21: enlace de seguimiento del invitado; solo el SHA-256 en BD)
+Order 0/1─* ShipmentRequest         (v1.21: orderId poblado = envío directo que fulfilla ese pedido)
 User 1───* SellRequest 1───* SellRequestItem 0/1─1 InventoryItem  (al convertir)
 User 1───* Dispute *───1 InventoryItem
 
@@ -676,8 +815,13 @@ PendingPriceEntry (cola de precio pendiente)
 
 #### Card (catálogo, datos en inglés, no se traduce)
 - `id`, `externalId` (pokemontcg.io id), `setId` (FK CardSet), `name` (EN), `number`, `rarity`, `supertype`, `subtypes` (JSONB), `imageSmallUrl`, `imageLargeUrl`, `tcgplayerId?`, `createdAt`.
-- **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta, **derivados de las llaves de `tcgplayer.prices`** al importar (ver mapeo §3.7). **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2).
-- Índices: `(setId)`, `(name)`, `(rarity)`, `externalId` único.
+- **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta. **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2) **y** el **universo de casillas** del binder (§4.20b).
+  - **v1.22 — AUTORIDAD ÚNICA = el sync de CATÁLOGO.** Derivado de `tcgplayer.prices` ∪ `cardmarket.prices.reverseHolo*` (§3.7). **`price-ingest` NO escribe esta columna** (§4.22a deroga §4.15e). Almacenado **siempre en orden canónico `FINISH_ORDER`** y **nunca vacío**.
+  - **v1.22-1 (M-27) — pasa a ser DERIVADA de dos columnas de entrada.** Deja de escribirse directamente por `upsertCards`: es la **unión materializada** `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`, recomputada por el **único escritor** `catalog.FinishReconciler` (§4.22g). Sigue siendo la lista blanca SEC-A1 y el universo de casillas del binder; su **forma no cambia** (todos los lectores la siguen consumiendo igual).
+- **`catalogFinishes Finish[] @default([])` (v1.22-1, M-27):** INTERNA (no se expone en DTO). La «opinión del catálogo» = Señal A ∪ Señal B del último payload de pokemontcg.io (lo que devuelve `deriveAvailableFinishes(c)`), persistida en su propia columna para **sobrevivir a un 502** de la fuente. La escribe `upsertCards` con la semántica null de §4.22a-4 (null ⇒ conserva; CREATE ⇒ `derived ?? ['normal']`). Backfill M-27: `= availableFinishes`.
+- **`pricedFinishesSnapshot Finish[] @default([])` (v1.22-1, M-27):** INTERNA. **Señal C** = acabados que **PPT** reportó con `market>0` para la carta, **filtrados a alias VERIFICADO** (§4.22g candado 2). La escribe `price-ingest` por **REEMPLAZO** por carta vista en una corrida exitosa (money-safe: no se toca ante fallo/0 filas). Alimenta la unión pero **NO** es la lista blanca (esa es `availableFinishes`).
+- **`numberSort Int @default(1000000)` / `numberPrefix String @default("")` (v1.22, MIGRACIÓN M-26):** **claves derivadas** de `number` (que es `String`) para el **orden natural en BD** — `number` puramente numérico → `numberSort` = su entero y `numberPrefix = ''`; con prefijo alfabético (`TG12`, `SV107`) → `numberPrefix` = las letras y `numberSort = 1_000_000 + parte numérica` (promos/subsets al final). Escritas por `upsertCards` con la MISMA función que las backfillea (`deriveNumberParts`, §4.22b). **Derivadas, no autoritativas:** la fuente de verdad sigue siendo `number`; si divergen, se recalculan desde `number`.
+- Índices: `(setId)`, `(name)`, `(rarity)`, **`(setId, numberPrefix, numberSort)` (M-26)**, `externalId` único.
 
 #### VaultLocation (M1 — ubicación jerárquica CAJA/FILA/SLOT)
 - `id`, `zone` (`platform_stock | customer_custody` — **separación física de custodia de clientes**), `box` (CAJA), `row` (FILA), `slot` (SLOT), `label` (derivado, ej. `C03-F02-S15`), `isActive`.
@@ -730,6 +874,14 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - `ivaRatePct` (snapshot del dial, default 16), `stripePaymentIntentId?`, `stripeChargeId?`, `billingSnapshot` (JSONB, datos CFDI al momento), `cfdiStatus` (`registrado | no_aplica` en MVP — sin PAC; `emitido` reservado para fase 2), `invoiceRequested` (bool, default false — el cliente pide factura por correo), `createdAt`, `settledAt?`, `refundedAt?`.
 - **Banderas operativas de disputa/contracargo** (escalares, NO cambian el enum `OrderStatus`): `chargebackNeedsManual` (bool, default false — el contracargo llegó cuando la carta **ya se había enviado/entregado**; requiere pelear la disputa con la guía, sin re-agregar inventario) y `disputeOutcome?` (`won | lost | null` — resultado del cierre de la disputa Stripe: `won→settled`, `lost→chargeback`). Se **exponen solo** en el detalle admin de orden del contrato (`GET /admin/orders/:id`), no en `OrderSummaryDTO` ni en el detalle del cliente.
 - Índices: `(userId)`, `(status)`, `stripePaymentIntentId` único.
+- **Guest checkout (v1.21, MIGRACIÓN M-25):** `userId` pasa a **nullable** (un pedido de invitado no tiene `User`) y
+  se añaden: `guestEmail?` (normalizado, indexado; `!= null` ⇔ el pedido **nació** de invitado, inmutable),
+  `fulfillmentMode` (`vault | direct_ship`, **default `vault`** = comportamiento actual), `shippingAddressSnapshot?`
+  (JSONB — el invitado no tiene `Address`), `shippingFeeCents` (`@default(0)`, envío cobrado **dentro** de esta
+  orden y **única** fuente de ese ingreso para el P&L), `orderNumber?` (`@unique`, `TCG-000123`, secuencia
+  `order_number_seq`), `claimedAt?`, `locale?`, `paymentMethodBrand?`/`paymentMethodLast4?` (marca + 4 últimos del
+  `charge`; **nunca** PAN/BIN/titular). Relaciones nuevas: `accessTokens OrderAccessToken[]`,
+  `shipmentRequests ShipmentRequest[]`. Invariantes y `CHECK` recomendados en §11 (M-25); diseño en §4.21.
 
 #### OrderItem
 - `id`, `orderId`, `inventoryItemId`, `cardSnapshot` (JSONB: nombre/set/número/tipo/condición-grado), `unitPriceCents` (sin IVA, congelado al checkout).
@@ -740,9 +892,34 @@ Núcleo del sistema. Una fila = una carta/producto físico.
 - **Costo** de envío (v1.4-finance, **MIGRACIÓN M-16**): `shippingCostCents` (`Int @default(0)`) = **lo que la plataforma paga a la paquetería** por ese envío (MXN centavos). **Distinto de `shippingFeeCents`** (ingreso ≠ costo). Se **captura en M4 al asignar carrier/guía** (`POST /admin/shipments/:id/tracking`), es **opcional** (default 0 mientras no se conoce) y **editable** después re-invocando el mismo endpoint; validación de aplicación **entero ≥ 0**. Alimenta el P&L de M7 (se resta), acotado por `pickingAt` (§ P&L M7). Filas históricas/sin captura ⇒ 0 (no rompen el P&L).
 - Logística manual: `carrier?`, `trackingNumber?`, `requestedAt`, `pickingAt?`, `shippedAt?`, `deliveredAt?`.
 - Restricción: solo se incluyen items `settled` (ver validación en §3.3).
+- **Guest checkout (v1.21, MIGRACIÓN M-25):** `userId` pasa a **nullable** y se añade **`orderId?`** (FK a `Order`,
+  indexado) como **discriminador de naturaleza**: `orderId == null` ⇒ **retiro de bóveda** (todo lo de arriba, sin
+  cambios); `orderId != null` ⇒ **envío directo** que fulfilla un pedido de invitado, creado **por el servidor** al
+  liquidar el pago, nacido en `picking`, con `stripePaymentIntentId = null` y **montos en `0`** (el envío ya se
+  cobró en la orden — evita el doble conteo en el P&L). La restricción de "solo items `settled`" **no aplica** al
+  envío directo: sus items nunca estuvieron en bóveda (§4.21c). Invariante de aplicación: **a lo más un envío
+  activo por orden** (no se pone `@unique` para no cerrar la re-expedición por pérdida).
 
 #### ShipmentItem
 - `id`, `shipmentRequestId`, `inventoryItemId`.
+
+#### OrderAccessToken (enlace de seguimiento del invitado) — **MIGRACIÓN M-25 (modelo nuevo, v1.21-guest-checkout)**
+- `id`, `orderId` (+FK `onDelete: Cascade`), `tokenHash` (**SHA-256 hex `@unique`** del claro; el claro son 32 bytes
+  aleatorios `base64url` que viajan **solo por correo** y en la respuesta del checkout a quien creó el pedido),
+  `expiresAt`, `revokedAt?`, `lastUsedAt?`, `useCount` (`@default(0)`), `requestIp?`, `createdAt`.
+  Índices: `(orderId)`, `(expiresAt)`.
+- **Mismo patrón que `AuthToken`** (§3.2/§4.11) con **una** diferencia semántica: es **multi-uso** — `usedAt`
+  (consumible) se sustituye por `revokedAt` (revocable). Por eso **no** se reusa `AuthToken`: su `userId` es
+  obligatorio (un invitado no lo tiene) y su `consume()` marca uso único.
+- Reglas (v1.21.1, §4.21e-bis): **dos vidas según origen** — token de **checkout** (respuesta de
+  `POST /checkout/guest/session`) **120 min**, token de **seguimiento** (correo/reenvío/soporte) **90 días**; se
+  distinguen **solo por `expiresAt`** (no hay columna `type`/`purpose`/`reason`). **Rotan** (revocando todos los
+  vivos del pedido) el **reenvío** y el **reenvío de soporte**; el **settle NO rota** (dejaría sin acceso la
+  confirmación post-3DS en curso). El **reclamo revoca todo**. No se emiten tokens para pedidos con más de
+  **365 días**. El motivo de revocación que ve el cliente se **deriva** (`CLAIMED` si `Order.claimedAt != null`,
+  si no `ROTATED`); el detalle de quién rotó vive en `AuditLog`.
+- **No es una credencial de sesión**: no otorga rol, no se acepta en `Authorization` y solo habilita la lectura de
+  **un** pedido con datos mínimos. Modelo de amenazas completo en §4.21e.
 
 #### SellRequest (M5/E — buylist)
 - `id`, `userId`, `status` (`cotizada | recibida | verificacion | aprobada | pagada | rechazada | abandonada`).
@@ -927,6 +1104,13 @@ mismo criterio, evitando el re-envío/re-cobro de un item ya entregado.
 
 Separación física: los items en `ownerType=customer` viven en `VaultLocation.zone=customer_custody`; el stock de la plataforma en `zone=platform_stock`. El movimiento entre zonas queda en `InventoryMovement`.
 
+> **v1.21-guest-checkout — este ciclo describe la ruta `fulfillmentMode='vault'` (la de siempre) y NO cambia.** Un
+> pedido de **invitado** (`fulfillmentMode='direct_ship'`) **no tiene titularidad**: el item conserva
+> `ownerType='platform', ownerUserId=null, ownershipStatus=null` durante todo el ciclo y este lo lleva `status`
+> (`reserved → picking → shipped → delivered`), estrenando los tres valores que el bloque de arriba declara "sin uso
+> por diseño". **Invariante que se eleva a norma con esta versión: `ownerType='customer'` ⇒ `ownerUserId NOT NULL`**
+> (es lo que hace segura la nulabilidad de `Order.userId`). Ciclo completo y reversos en **§4.21c**.
+
 ### 3.4 Protección de PII (cifrado en reposo, blind index, enmascarado, retención)
 
 La PII sensible del proyecto es **CLABE, RFC e imágenes de INE**. Se protege en cuatro capas independientes y acumulativas. Ninguna capa reemplaza a otra: el cifrado protege el dato en la BD, el blind index permite buscar sin descifrar, el enmascarado protege el dato en las respuestas, y la retención limita cuánto tiempo existe la copia más sensible. Las llaves y diales (`PII_ENCRYPTION_KEY`, `PII_HMAC_KEY`, `INE_RETENTION_DAYS`) se declaran en **§8** (ver allí; no se repiten valores aquí).
@@ -1035,10 +1219,27 @@ acabados disponibles viven en `Card.availableFinishes` (array en la misma fila),
 | `1stEditionNormal` | *(no mapeada en el MVP)* | Se ignora al derivar `availableFinishes`. Ver pregunta abierta v1.4-1. |
 | `unlimitedHolofoil` / `unlimited` | *(no mapeada en el MVP)* | Idem. |
 
-- **Derivación de `availableFinishes`:** al importar (`upsertCards`, §4.8), se recorren las **llaves presentes**
-  de `card.tcgplayer.prices`, se mapean con la tabla anterior (descartando las no mapeadas) y el conjunto único
-  resultante se guarda en `Card.availableFinishes`. Si `tcgplayer.prices` está ausente/vacío → `[normal]`
-  (default seguro). El `client` de pokemontcg.io **deja de descartar** `tcgplayer.prices` (§4.8).
+**Orden canónico (`FINISH_ORDER`, NORMATIVO desde v1.22):** `normal → reverse_holo → holofoil →
+first_edition_holofoil`. Es el orden en que se **persiste** `Card.availableFinishes` y en que se **emite** en todo
+DTO que lo exponga. De él sale, sin `sort` en el front, el requisito del PO: **la normal a la izquierda, la reverse
+holo a la derecha**.
+
+- **Derivación de `availableFinishes` (v1.22 — REESCRITA; la regla operativa completa está en §4.22a):** la deriva
+  **solo** el sync de catálogo (`upsertCards`, §4.8) combinando **dos** señales del payload remoto:
+  (1) las **llaves presentes** de `card.tcgplayer.prices` mapeadas con la tabla de arriba — **la llave presente ES la
+  señal**, con `market` o sin él— y (2) `reverse_holo` si algún campo `card.cardmarket.prices.reverseHolo*` trae un
+  **número > 0**. **Sin ninguna señal** → no se sobrescribe lo existente (y `[normal]` solo al **crear**).
+  `price-ingest` **no escribe** este campo (§4.22a; deroga §4.15e). El `client` de pokemontcg.io **deja de descartar**
+  `tcgplayer.prices` (§4.8) y **debe dejar de descartar `cardmarket.prices`** (§4.22a).
+  - ❌ **Prohibido REDUCIR acabados por la AUSENCIA de un precio** (`PriceReference`, `market` faltante): precio ausente
+    ≠ variante inexistente. Este fue el bug de tres rondas (VAR-1). **Este núcleo de la regla 2 sigue vigente.**
+  - ✅ **v1.22-1 (§4.22g) — se admite la CONVERSA money-safe:** el `market > 0` de un acabado en el proveedor de PAGA
+    (PPT), vía **alias VERIFICADO**, es **evidencia positiva** de que ese acabado EXISTE y lo AÑADE (nunca lo quita).
+    Es la **Señal C**; entra por una columna de entrada separada (`pricedFinishesSnapshot`) y `availableFinishes` pasa
+    a ser la unión DERIVADA (recomputable, un solo escritor `catalog.FinishReconciler`). Los alias **SUPUESTO** NO
+    alimentan la lista blanca. Ver §4.22g para los cuatro candados.
+  - ❌ **Prohibida cualquier heurística por rareza** («toda Common tiene reverse holo»): inventaría casillas de relleno,
+    que el PO prohíbe explícitamente.
 - **Alcance por tipo de producto:** el acabado aplica a **raw/singles**. Para `graded`/`sealed` el `finish` es
   siempre `normal` (el slab/sellado no distingue acabado a efectos de precio); el default lo cubre y no cambia el
   comportamiento actual.
@@ -2095,7 +2296,15 @@ Railway** (desde dev el dominio está bloqueado por egress). Por eso **todo** el
 - **Nunca** deriva el precio del cliente ni de un DTO — SEC-A1 intacto: la fuente es el proveedor server-side; `finish` se
   usa como **dimensión de la clave** de `PriceReference`, no como monto.
 
-#### (e) Variantes (#8) — `Card.availableFinishes` derivado del PROVEEDOR
+#### (e) Variantes (#8) — `Card.availableFinishes` derivado del PROVEEDOR — ⛔ **DEROGADO por §4.22a (v1.22)**
+
+> ⛔ **DEROGADO (v1.22-variantes-orden).** Esta subsección elevó al **proveedor de PRECIOS** a autoridad de las
+> **variantes de catálogo**, y ese es el error de diseño que produjo tres rondas del mismo bug del PO: `providerFinishes`
+> solo contiene acabados con `market > 0`, así que una carta con reverse holo **sin precio de reverse holo** se reducía a
+> `['normal']` y el binder pintaba una sola casilla. **Norma vigente: §4.22a** — el sync de catálogo es el **único**
+> escritor de `Card.availableFinishes`; `price-ingest` **no lo escribe** (ni siquiera ampliando). El resto de §4.15
+> (interfaz bulk, job, FX, dial) **sigue vigente sin cambios**: lo único derogado es la escritura de variantes.
+> Se conserva el texto original abajo como registro de la decisión revertida.
 
 Reemplaza la derivación frágil de `tcgplayer.prices` (que en el barrido roto dejaba casi todo en `[normal]`). En el
 `price-ingest-set`, tras agrupar las filas por carta:
@@ -2171,7 +2380,8 @@ Reemplaza la derivación frágil de `tcgplayer.prices` (que en el barrido roto d
   Acepta `setId?` **opcional** (excepción justificada al body-vacío de la familia): un solo set para **verificar el
   esquema** en la 1ª corrida sin barrer el catálogo entero. Ver `API_CONTRACT.md §M10-ops`.
 - **Contrato:** `POST /admin/jobs/price-ingest` (nuevo, §M10-ops); dial `priceProvider` en el DTO de `/admin/settings`
-  (§M10); nota de que `CardDTO.availableFinishes` pasa a **derivarse del proveedor** (mismo shape); `PUT /admin/fx` gana
+  (§M10); ~~nota de que `CardDTO.availableFinishes` pasa a **derivarse del proveedor** (mismo shape)~~ **⛔ derogado por
+  §4.22a: el ingest NO escribe `availableFinishes`**; `PUT /admin/fx` gana
   `rate?` opcional (#13, alternativa). Sin migración de esquema.
 - **Sin migración:** WS-A reusa `PriceReference` (finish en la clave, M-18), `PriceSource.pokemonpricetracker` (ya en el
   enum) y `Card.availableFinishes`. El dial `PRICE_PROVIDER` es una fila de `ConfigSetting` (dato, no esquema).
@@ -2634,10 +2844,12 @@ agregación** y las **omisiones por permiso**. Contrato: `API_CONTRACT.md` Chang
 - **Casilla = variante = `(Card, finish)`** con `finish ∈ Card.availableFinishes`. Una carta en `normal` y
   `reverse_holo` son **2 casillas**; los contadores «X/Y» cuentan **variantes**, no cartas.
 - **Universo esperado — regla explícita:** el catálogo **SÍ declara** los acabados esperados por carta:
-  **`Card.availableFinishes`** (M-18), hoy poblado por el price-ingest v1.14 (variantes reales del proveedor,
-  §4.15e) con bootstrap desde `tcgplayer.prices` y default histórico `["normal"]`. **No se inventa una regla
-  derivada nueva**: es el mismo campo que ya funge de lista blanca SEC-A1 del `finish` en quote/alta. Si el ingest
-  amplía `availableFinishes`, el denominador de completitud crece (correcto: aparecieron variantes de mercado).
+  **`Card.availableFinishes`** (M-18). **No se inventa una regla derivada nueva**: es el mismo campo que ya funge de
+  lista blanca SEC-A1 del `finish` en quote/alta.
+  - **v1.22 (CORRECCIÓN):** la frase «hoy poblado por el price-ingest v1.14 (§4.15e)» queda **derogada**. El campo lo
+    puebla **solo el sync de catálogo** (§3.7 / §4.22a); `price-ingest` **no lo escribe**. Consecuencia directa para
+    este binder: el denominador de completitud ya **no** encoge cuando el proveedor de precios no trae precio de un
+    acabado — deja de haber cartas de dos variantes que se muestran con una sola casilla.
 - **Drift:** una pieza cuyo `finish` ya no esté en `availableFinishes` se muestra en `countsByFinish` (es una pieza
   real) pero **no** cuenta en expected/covered — evita `covered > expected` y deja visible la inconsistencia.
 - **Nota (comportamiento v1.16 conservado):** la cobertura cuenta piezas de **cualquier** `productType` del
@@ -2726,6 +2938,745 @@ promoción; ningún otro stream la toca en paralelo). Reglas:
 
 ---
 
+### 4.21 WS «Órdenes y dinero» — Guest checkout: comprar sin cuenta (v1.21-guest-checkout)
+
+> **PROJECT §J / §J.1 / criterios 45–56b.** Contrato completo (endpoints, DTOs, diff de esquema campo por campo) en
+> **API_CONTRACT §4-G**. Aquí vive el **por qué**: la ruta de fulfillment nueva, el ciclo de vida de los items y el
+> modelo de amenazas del enlace tokenizado.
+
+#### (a) El problema real: hoy no existe «envío vs bóveda»
+
+Lo que parece "quitar el login del checkout" es en realidad **construir una segunda ruta de fulfillment**. Estado
+verificado del código antes de esta versión:
+
+| Pieza | Comportamiento actual | Por qué bloquea al invitado |
+|---|---|---|
+| `OrdersService.createSession` | Reserva cada `InventoryItem` con `status='reserved'`, **`ownerType='customer'`, `ownerUserId=userId`**, `ownershipStatus='pending'` | Necesita un `User`. Un invitado no lo tiene, y `ownerUserId=null` con `ownerType='customer'` rompería la definición de bóveda (holdings, portafolio, snapshots, master set por usuario). |
+| `PaymentsService.onPaymentSucceeded` | Pasa el item a **`status='in_custody'`, `ownershipStatus='settled'`** | Deposita en bóveda. Para un invitado no hay bóveda donde depositar. |
+| `ShipmentsService.create` | Exige `ownerUserId === userId`, `ownershipStatus='settled'`, `status='in_custody'`, una **`Address` guardada del usuario**, y crea **su propio PaymentIntent** con `shippingFeeCents` | Triple bloqueo: sin usuario, sin bóveda y sin dirección guardada. Y el invitado **no puede pagar un segundo PI**: no tiene desde dónde iniciarlo. |
+| `Order.userId` / `ShipmentRequest.userId` | `String` **NOT NULL** con FK a `User` | El cambio de esquema es **inevitable**; este stream es su caso legítimo. |
+
+De ahí las tres decisiones estructurales: **(1)** un modo de fulfillment explícito en la orden, **(2)** dirección
+**capturada en línea** como *snapshot* (no una fila `Address`), **(3)** el envío se cobra **dentro del mismo
+`PaymentIntent`** de la orden. No es una optimización: es la única forma de que el invitado pague una sola vez.
+
+#### (b) Ruta de fulfillment `direct_ship` (nueva) vs `vault` (la de siempre)
+
+```
+                       ┌──────────────── fulfillmentMode ────────────────┐
+                       │                                                 │
+             vault (DEFAULT, requiere cuenta)              direct_ship (invitado, v1.5)
+                       │                                                 │
+ POST /checkout/session (customer)                 POST /checkout/guest/session (public)
+   items → ownerType=customer, ownerUserId,          items → SIGUEN ownerType=platform,
+           ownershipStatus=pending, reserved                 ownerUserId=null, reserved
+   PI = cartas + IVA + fee                           PI = cartas + ENVÍO + IVA + fee   ← una sola vez
+                       │                                                 │
+ webhook succeeded                                  webhook succeeded
+   items → in_custody / settled  (BÓVEDA)             items → picking (siguen de plataforma)
+                       │                              + se CREA ShipmentRequest(orderId, userId=null,
+                       │                                status='picking', montos 0)
+                       │                              + correo con enlace tokenizado (best-effort)
+                       │                                                 │
+ POST /shipments (customer, SEGUNDO PI)             (no aplica: ya está pagado y encolado)
+   ShipmentRequest(userId, addressId guardado)
+                       │                                                 │
+ M4: picking→guia→enviado→entregado                 M4: picking→guia→enviado→entregado (MISMA cola)
+   entregado ⇒ item in_custody → withdrawn            enviado   ⇒ item picking → shipped
+                                                      entregado ⇒ item shipped → delivered
+```
+
+**Por qué el envío del `ShipmentRequest` de invitado va en `0`:** el P&L de M7 suma `ShipmentRequest.shippingFeeCents`
+de los envíos liquidados. Si el envío directo repitiera ahí la tarifa ya cobrada en la orden, **el ingreso se
+contaría dos veces**. El ingreso vive en `Order.shippingFeeCents` (única fuente) y el envío de fulfillment queda en
+`0`; el **costo** real del carrier (`shippingCostCents`) se sigue capturando en M4 igual para los dos tipos, así que
+el lado del costo no cambia. La fórmula corregida de M7 está normada en API_CONTRACT §12.
+
+#### (c) Ciclo de vida de los items en un pedido de invitado
+
+**Decisión de fondo: la titularidad del invitado NO se modela.** Un invitado no tiene bóveda, no tiene portafolio y
+no tiene retiros; modelarle una "titularidad" obligaría a `ownerType='customer'` con `ownerUserId=null`, y ese par
+es exactamente lo que rompería todas las consultas de bóveda existentes (holdings, `PortfolioSnapshot`, master set
+`scope=user_vault`, ficha 360°, `classifyItems`). Se elige lo contrario: **el item sigue siendo de la plataforma
+hasta que sale por la puerta**, y todo el ciclo lo expresa `status`.
+
+```
+listed | in_stock
+   │  POST /checkout/guest/session
+   ▼
+reserved        ownerType=platform · ownerUserId=null · ownershipStatus=null
+   │  payment_intent.succeeded  (Order settled)
+   ▼
+picking         vendida y en preparación (aún físicamente en el almacén)
+   │  M4: PATCH .../status → enviado
+   ▼
+shipped         salió físicamente
+   │  M4: PATCH .../status → entregado   (deliveredAt ancla la ventana de disputa de 7 días)
+   ▼
+delivered       TERMINAL de una venta con envío directo   (NO `withdrawn`)
+
+Reversos:
+  payment_failed | canceled  → reserved → listed              (Order failed; nada que revertir de titularidad)
+  chargeback                 → ver §4.21c-bis (NO basta mirar el item: hay que mirar el ENVÍO)
+```
+
+#### (c-bis) Contracargo de un pedido `direct_ship` — el envío manda (T1, corrección normativa v1.21.2)
+
+**El hueco (real, verificado en código).** La v1.21 describió el reverso del contracargo **solo en términos del
+`InventoryItem`** y no dijo nada del `ShipmentRequest`. Backend implementó lo que decía la norma, y el resultado es
+un **double-sell físico**:
+
+1. `settleDirectShipOrder` crea el envío en **`picking`**.
+2. `onChargeDispute` decide "¿ya salió?" buscando un `ShipmentItem` cuyo envío esté en `enviado|entregado`. Un envío
+   en **`picking`** o **`guia` NO coincide** ⇒ cae en la rama "sigue en bóveda".
+3. Esa rama pone el item en `listed` / `platform` ⇒ **vuelve a ser comprable**.
+4. El `ShipmentRequest` **no se toca** ⇒ sigue en `picking` ⇒ **`pickingList()` lo sigue mostrando al operador**.
+
+Resultado: la **misma pieza única** puede venderse a un segundo comprador **mientras el operador la está metiendo en
+la caja del contracargo**. `ITEM_IN_ANOTHER_SHIPMENT` (SEC-H2) no protege aquí: solo cubre `POST /shipments`, no el
+checkout. En la ruta de bóveda esto era inocuo (una orden liquidada no tenía envío colgando); en `direct_ship`
+**siempre lo tiene por construcción**, así que es un daño colateral directo de la ruta de fulfillment que introdujo
+este stream.
+
+**El invariante que se violaba (y que ahora es norma explícita):**
+> **Una pieza con un `ShipmentItem` en un envío NO terminal jamás puede estar en `{listed, in_stock}`.**
+> Ninguna automatización puede devolver a la venta una pieza cuya ubicación física está comprometida con una
+> operación de fulfillment viva.
+
+**Norma: el contracargo NUNCA re-lista automáticamente una pieza con envío vivo. La congela y la escala a un
+humano.** Tabla normativa por estado del envío en el momento de `charge.dispute.created`:
+
+| Envío del pedido | `ShipmentRequest` | `InventoryItem` | `chargebackNeedsManual` |
+|---|---|---|---|
+| **No existe** (orden `pending`, item `reserved`) o **`cancelado`** | — | `reserved → listed`, `ownerType=platform` (+ movimiento `chargeback_return`) | `false` — cerrado automáticamente, la pieza nunca salió del estante |
+| **`solicitado` \| `picking` \| `guia`** (NO terminal) | **→ `cancelado`**, en la **MISMA transacción** (sale de `pickingList()` de inmediato: ese query filtra `status:'picking'`) | **CONGELADO**: se queda en `picking`. **NO** se re-lista, **NO** cambia `ownerType`. Fuera de venta por construcción (`picking ∉ {listed, in_stock}`) | **`true`** — lo resuelve un humano (abajo) |
+| **`enviado` \| `entregado`** | sin cambio (histórico) | sin cambio (`shipped` / `delivered`) | **`true`** (comportamiento v1.21, sin regresión) |
+
+**Por qué congelar en vez de auto-cancelar-y-re-listar** (que era la otra opción obvia para el caso `picking`):
+- Re-listar es una **acción automática que vuelve a vender**. Dispararla a partir de un evento que significa
+  "algo salió mal con el dinero", y encima mientras hay una caja abierta en la mesa del operador, es precisamente
+  la clase de automatismo que produce pérdidas reales (vender dos veces, enviar al defraudador y tener que
+  compensar al segundo comprador).
+- **Un contracargo no es prueba de nada todavía**: podemos ganar la disputa (`funds_reinstated`), y entonces la
+  venta era legítima y la carta tenía que salir. Liberarla al inventario al primer aviso presume el peor caso y
+  destruye la posibilidad de completar el envío.
+- **`guia` no es lo mismo que `picking`**, y esa diferencia es justo la que una regla automática no puede resolver:
+  con etiqueta generada el paquete suele estar **armado y esperando al mensajero**. La única fuente de verdad sobre
+  dónde está físicamente la carta es **el operador mirando el estante**. Por eso el desenlace es una **confirmación
+  humana**, no una heurística de estados.
+- Se prefiere **una sola regla** ("envío vivo ⇒ congelar") a una regla partida por estado: en dinero e inventario,
+  la uniformidad vale más que ahorrarle un clic al operador en un evento tan raro como un contracargo.
+- **Reusa `ShipmentStatus.cancelado`** (ya existe y ya significa "envío que no se va a ejecutar"): **cero valores
+  de enum nuevos, cero migración**.
+
+**Desenlace humano — `POST /api/v1/admin/orders/:id/chargeback-inventory`** (`vault_operator+`, auditado; contrato
+en API_CONTRACT §M3). Es la pieza que faltaba: sin ella una pieza congelada se queda congelada para siempre.
+Tres desenlaces, todos con `note` obligatoria y todos dejando `chargebackNeedsManual=false`:
+- **`recuperada`** — el operador confirma que tiene la carta ⇒ `picking|shipped → listed` (o `in_stock` si su precio
+  no resuelve), `ownerType=platform`, movimiento **`chargeback_return`**. Vuelve a la venta **con respaldo físico**.
+- **`no_recuperada`** — la carta ya no está (salió, o se entregó al defraudador) ⇒ **sin** movimiento de inventario;
+  el item se queda donde está (`shipped`/`delivered`, terminal de venta). La pérdida queda reflejada en la orden
+  `chargeback` para M7. **No** se marca `lost`/`damaged`: no fue merma de almacén y ensuciaría los reportes de
+  pérdida (mismo cuidado que llevó a usar `delivered` en vez de `withdrawn`).
+- **`reexpedir`** — solo válido si **ganamos la disputa** (la orden volvió a `settled` por
+  `charge.dispute.closed`/`funds_reinstated`) y la pieza sigue congelada ⇒ se crea un `ShipmentRequest` **nuevo**
+  con la misma forma que el del settle (`orderId`, `userId=null`, `status='picking'`, montos en `0`,
+  `addressSnapshot` de `Order.shippingAddressSnapshot`) y el item sigue en `picking`. Cierra el agujero silencioso
+  de "ganamos la disputa pero el envío ya estaba cancelado". Cualquier otro estado ⇒ **`409 CONFLICT`**.
+
+> **Errata corregida en v1.21.2:** este párrafo decía `422` y contradecía a API_CONTRACT §M3, que dice **`409`**.
+> **Manda el contrato** (regla de conflicto) y además `409` es lo correcto: el cuerpo `{outcome:'reexpedir', note}`
+> está **bien formado y es válido** —no hay nada que el cliente pueda corregir en la entrada—; el obstáculo es
+> **100 % el estado del recurso**, que es la definición de `409`. Es además el mismo código que el endpoint ya usa
+> para "orden ya resuelta" (idéntico tipo de obstáculo: partirlos obligaría al front a ramificar dos códigos para
+> pintar un solo mensaje), y respeta la convención del proyecto: **`409` = conflicto de estado**
+> (`ITEM_UNAVAILABLE`, `ITEM_IN_ANOTHER_SHIPMENT`, `ALREADY_AUTHENTICATED`) frente a **`422` = rechazo de la
+> entrada** (`PRICE_PENDING`, `ADDRESS_NOT_MX`, `VAULT_REQUIRES_ACCOUNT`). Backend implementó `409` y reportó sin
+> auto-resolver: correcto. **Ningún cambio de código.**
+
+**Cierre de la disputa (`charge.dispute.closed` / `funds_reinstated`) — precisión v1.21.2:** ganar **NO** re-expide
+automáticamente. La orden vuelve a `settled` (`disputeOutcome='won'`) y **`chargebackNeedsManual` se mantiene en
+`true`** para que el caso siga visible en la cola de M3 hasta que un humano confirme si la carta sigue ahí y pulse
+`reexpedir`. Automatizar la re-expedición volvería a presuponer una realidad física que nadie ha comprobado.
+
+**REQUISITO PENDIENTE — el desenlace humano necesita una interfaz humana (v1.21.2, hallazgo de QA).** Esta norma
+crea deliberadamente un estado que **solo una persona puede cerrar**, pero hoy `chargebackNeedsManual` **no se
+consume en ningún lado del front** (`grep chargebackNeedsManual|chargeback-inventory frontend/src/` ⇒ **cero**; el
+campo ni siquiera está en los tipos del contrato del front). Consecuencia operativa: el operador **no puede ver que
+hay una pieza congelada** salvo llamando a la API a mano, así que en la práctica **la pieza se queda congelada** y
+el inventario se degrada en silencio — exactamente el fallo que el congelamiento pretendía evitar, movido de sitio.
+Se registra como **requisito normativo de la feature, no como defecto de este stream**:
+
+- **Dueño: work stream «Admin y auditoría»** (M3 es suyo; el backend de §4.21c-bis ya está y es de este stream).
+- **Alcance mínimo:** (1) `chargebackNeedsManual` y `disputeOutcome` en los tipos del contrato del front;
+  (2) **cola visible** de "contracargos por resolver" en M3 —para eso se añade el filtro
+  `GET /admin/orders?needsManual=true` (API_CONTRACT §M3)— con badge en el dashboard;
+  (3) formulario del desenlace (`recuperada | no_recuperada | reexpedir`) con **`note` obligatoria** y confirmación
+  explícita, mostrando qué piezas (folio + carta) están congeladas.
+- **Criterio de cierre:** mientras no exista, **el flujo de contracargo de `direct_ship` NO puede declararse
+  operable** en el DoD del proyecto, aunque el backend esté verde. QA debe reflejarlo así en su veredicto de
+  release (no en el veredicto por-stream de «Órdenes y dinero», que sí puede cerrar).
+
+**Motivos de `InventoryMovement` (v1.21.1, normativo — sin valores nuevos en `MovementReason`):** `settle` para
+`reserved → picking` (mismo evento y misma causa que `reserved → in_custody` de la ruta de bóveda; lo que cambia es
+el destino, no el motivo) y **`sale`** para `picking → shipped` y `shipped → delivered` (salida física y cierre de
+la venta). **`withdrawal` queda prohibido** en esta ruta: significa "retiro de la bóveda de un cliente" y ensuciaría
+los reportes de custodia, exactamente el mismo cuidado que llevó a usar `delivered` en vez de `withdrawn`. Las dos
+filas `sale` se distinguen por `fromStatus`/`toStatus`, así que no hace falta un motivo "entregado". La liberación
+de reserva por pago fallido **no** registra movimiento, igual que hoy en la ruta con cuenta (sin asimetría nueva).
+
+Tres consecuencias que se declaran de forma explícita para que nadie las "arregle" después:
+1. **No hace falta ningún valor nuevo en `InventoryStatus`.** `picking | shipped | delivered` estaban **sin uso por
+   diseño** desde v1.17 (el retiro de bóveda no los escribe; §3.3) y sus nombres describen exactamente estos tres
+   momentos. Reusarlos evita tocar un enum transversal — mismo criterio con el que v1.20 hizo que `error_captura`
+   reusara `withdrawn`.
+2. **`delivered` ≠ `withdrawn`.** `withdrawn` significa "salió de la bóveda de un cliente". Un pedido de invitado
+   nunca estuvo en bóveda, así que usar `withdrawn` mentiría en los reportes de custodia. M4 **ramifica** por
+   `ShipmentRequest.orderId != null`.
+3. **Los guardarraíles anti double-sell ya cubren los tres estados nuevos** sin tocarlos: el checkout exige
+   `{listed, in_stock}`, `bulk-publish` devuelve `ITEM_NOT_PUBLISHABLE` fuera de `{in_stock, listed}` y el ajuste
+   de M1 devuelve `ITEM_NOT_ADJUSTABLE` fuera de `{in_stock, listed}`. **Cero cambios en módulos de otros streams.**
+
+**Efecto conocido y aceptado en los conteos de M1:** una pieza `reserved`/`picking` de un pedido de invitado sigue
+siendo `ownerType='platform'` y por tanto cuenta como *on-hand* en el master set de plataforma hasta pasar a
+`shipped`. Es coherente con el criterio físico de ese contador (la carta está en el almacén) y con que `reserved`
+ya contaba; **no** se cambia la regla *on-hand* de §4.17/§4.20 (es de otro work stream).
+
+#### (d) `ShipmentRequest` con dos naturalezas — por qué no se creó un modelo nuevo
+
+Se evaluó crear un `GuestShipment` separado. Se descarta: duplicaría la cola de M4, la lista de picking, la captura
+de guía, la máquina de estados y los reportes, para representar **la misma operación física** (meter cartas en una
+caja y darle una guía). La diferencia real es de **origen y de cobro**, no de operación. Por eso:
+`ShipmentRequest.userId` nullable + `orderId?` como **vínculo** (`orderId == null` ⇔ retiro de bóveda), y M4 opera
+una sola cola. La única bifurcación de comportamiento está en la transición terminal (§c).
+
+**Discriminador canónico — corrección normativa v1.21.2 (D4).** La implementación quedó con **dos** discriminadores
+para el mismo concepto: `payments` decide por `Order.fulfillmentMode === 'direct_ship'` y `shipments` por
+`ShipmentRequest.orderId != null`. Hoy coinciden, pero **no preguntan lo mismo**, y con un tercer modo con envío
+(p. ej. `pickup_in_store`) el segundo lo clasificaría como envío directo **en silencio** — el peor tipo de fallo.
+Norma:
+
+1. **`ShipmentRequest.orderId` responde SOLO a "¿de dónde viene este envío?"**: `null` ⇒ **retiro de bóveda**;
+   poblado ⇒ **fulfillment de una orden**. Ese uso es exhaustivo y correcto para separar las dos colas.
+2. **El COMPORTAMIENTO (transiciones terminales del item, `kind` del DTO, cualquier rama futura) se decide SIEMPRE
+   por `Order.fulfillmentMode`**, resuelto con un join a la orden vinculada. `fulfillmentMode` es el **único
+   discriminador canónico de ruta de fulfillment** de todo el sistema.
+3. Ese `switch` debe ser **exhaustivo y ruidoso**: un `fulfillmentMode` no soportado por M4 **lanza y se loguea**
+   (`500`/alerta), **nunca** cae por default en la rama `direct_ship`. Un modo nuevo debe **romper visiblemente** en
+   el punto exacto donde falta decidir su terminal, no comportarse como otro modo.
+4. `vault` con `orderId != null` es una **combinación imposible** por invariante (un pedido a bóveda no genera
+   `ShipmentRequest` de fulfillment; su retiro nace del cliente y va sin `orderId`): si aparece, es corrupción de
+   datos y debe tratarse como el caso (3), no "arreglarse" silenciosamente.
+
+#### (e) Modelo de amenazas del enlace tokenizado
+
+El enlace **sustituye a una contraseña**: quien lo tiene, ve el pedido. El diseño ataca cada vector por separado.
+
+| # | Amenaza | Mitigación | Residual |
+|---|---|---|---|
+| T1 | **Adivinar/enumerar tokens** | 256 bits de entropía (`randomBytes(32)`), lookup por `SHA-256 @unique` (no hay comparación parcial ni prefijos), rate limit 20/min por IP | Nulo en la práctica (2^256). |
+| T2 | **Enumerar pedidos por id o número** | El token es la **única** llave; la vista pública **no expone el uuid** del pedido y **no existe** endpoint público de búsqueda por número/correo (criterio 52). El `orderNumber` es secuencial pero **no da acceso** (solo sirve, junto al correo, para pedir un reenvío que va al correo del pedido) | Un tercero puede estimar el volumen de ventas a partir de un `orderNumber` que le muestren. Aceptado. |
+| T3 | **Oráculo "¿este correo compró aquí?"** | El reenvío exige `(email + orderNumber)` juntos, responde **`202` siempre** y envía **solo** a `Order.guestEmail`. El checkout **nunca** consulta `User` por correo. `GET /orders/claimable` solo habla del correo **verificado** de quien pregunta | Ninguno conocido. |
+| T4 | **Fuga del token por `Referer` / logs / historial** | Token en el **body de un POST**, no en la ruta; página `noindex` + `Referrer-Policy: no-referrer`; el front borra el token de la URL (`history.replaceState`); prohibido loguear bodies de `/orders/guest/*` | El token pasa por el correo y por la URL inicial. Inevitable en un enlace por correo (mismo modelo que un reset de contraseña). |
+| T5 | **Fuga por dump/backup de BD** | En BD solo vive el **SHA-256**. Un dump **no** produce enlaces utilizables. *(Esta es la razón principal para NO usar un JWT: un JWT robado del correo es igual de malo, pero además la fuga del **secreto de firma** permitiría fabricar tokens para pedidos arbitrarios.)* | Ninguno. |
+| T6 | **Reenvío del correo a un tercero / dispositivo compartido** | `GuestOrderTrackingDTO` de **datos mínimos** (§4-G.3): sin dirección completa, sin correo/teléfono, sin PAN, **sin ninguna acción**. El daño máximo es *ver* qué compró alguien | Aceptado explícitamente por PROJECT §J. |
+| T7 | **Token vivo para siempre** | TTL 90 días, **rotación** al reenviar (solo el último vale), **revocación** al reclamar y por soporte, y tope de edad de la orden (365 días) para emitir nuevos | Ventana de 90 días. Revisable por el humano. |
+| T7b | **Puertas duplicadas por pedido** (v1.21.1) | El claro del token es irrecuperable (solo hay hash), así que el correo del settle lleva **otro** token y durante un rato **coexisten dos**. Se acota haciendo el token de **checkout de vida corta (120 min)** frente al de **correo (90 días)**: pasadas 2 h queda **una sola** puerta duradera. El settle **no rota** (rotar mataría la confirmación post-3DS en curso); reenvío y soporte **sí** rotan y revocan **todos** los vivos | Solapamiento de ≤2 h. La alternativa descartada —dos tokens de 90 días— **duplicaba la exposición durante tres meses** sin beneficio. Ver §4.21e-bis. |
+| T8 | **Escalada del token a acciones** | El token **no** es credencial: no se acepta en `Authorization`, no crea sesión, no otorga rol y solo lo leen los endpoints `/orders/guest/*`. Ninguna mutación acepta token | Ninguno. |
+| T9 | **DoS de inventario con pedidos no pagados** | Rate limit 5/hora por IP, tope de 20 líneas por pedido, y **job de barrido** `guest-order-sweep` que libera reservas de órdenes `pending` con más de `GUEST_ORDER_RESERVATION_TTL_MIN` (60 min) y cancela su PI | Ventana de 60 min de inventario retenido por un atacante. El barrido **también** beneficia a los pedidos con cuenta (hoy dependen solo de que Stripe cancele el PI). |
+| T10 | **Fraude con tarjeta sin historial de usuario** | Fuera del alcance técnico: se cubre con el flujo de contracargo existente (§9 API_CONTRACT). PROJECT deja abierto si el humano quiere un **tope de monto por pedido de invitado** (pregunta v1.5-5) | Exposición comercial conocida; hoy **no** hay tope. |
+
+#### (e-bis) Las dos vidas del token — corrección normativa v1.21.1
+
+La v1.21 pedía algo **irrealizable**: "el mismo token del checkout se envía por correo al liquidar". Con **solo el
+SHA-256 en BD**, el claro **no se puede recuperar** en el webhook — y esa imposibilidad es justamente la propiedad
+de seguridad que se buscaba (T5). Rotar en el settle tampoco era opción: mataría el token que el navegador está
+usando en la confirmación tras el 3DS.
+
+**Norma:** dos emisiones, misma tabla, **sin columna nueva** (se distinguen solo por `expiresAt`):
+- **Token de checkout** — lo devuelve `POST /checkout/guest/session` al comprador, **TTL 120 min**
+  (`GUEST_CHECKOUT_TOKEN_TTL_MIN`). Existe para una sola cosa: sobrevivir al redirect de Stripe y pintar la
+  confirmación/seguimiento inmediato. **Nunca** se envía por correo.
+- **Token de seguimiento** — lo emiten el settle, el reenvío y soporte; **TTL 90 días**; **solo** viaja por correo.
+
+Reglas de rotación (asimétricas a propósito): **el settle NO rota** (excepción acotada, justificada por la UX
+post-3DS y segura porque la puerta que no revoca se apaga sola en 2 h); **el reenvío y el reenvío de soporte SÍ
+rotan**, revocando *todos* los tokens vivos del pedido; **el reclamo revoca todo**. Resultado: el estado estable de
+un pedido es **una única puerta sin contraseña**, con una ventana de solapamiento de como mucho dos horas el día de
+la compra. Si el correo falla, el comprador tiene 2 h de acceso y después el reenvío con `(email + orderNumber)`
+—datos que la confirmación le mostró—, así que no queda sin salida.
+
+**Motivo de revocación (`details.reason`) — se DERIVA, no se persiste.** `order.claimedAt != null` ⇒ `CLAIMED`; en
+otro caso ⇒ `ROTATED`. Se **elimina** el valor `SUPPORT` de la v1.21: era inderivable sin una columna de motivo, y
+no se añade una columna para cambiar un texto de UX. **La trazabilidad no se pierde**: el reenvío de soporte deja
+`AuditLog` (`order.tracking_link.reissue`, con actor y timestamp) y el self-service no, así que el forense
+distingue perfectamente quién rotó. Lo que no distingue es el **cuerpo de la respuesta**, que es copy, no auditoría.
+
+**Por qué opaco y no JWT (decisión, no preferencia):** (i) **revocable** borrando/marcando una fila — un JWT solo
+se revoca con lista negra, que es exactamente la tabla que el opaco ya es; (ii) **no filtra claims** (un JWT lleva
+`orderId` y fechas legibles por cualquiera que lo intercepte); (iii) **no depende de la rotación de un secreto**
+(rotar el secreto invalidaría *todos* los enlaces vivos); (iv) **precedente probado en casa** (`AuthToken`,
+§3.2/§4.11) con el mismo `hashAuthToken`/`randomBytes(32)`. La **única** diferencia semántica que hay que codificar
+es que este token es **multi-uso**: `usedAt` (consumo) se sustituye por `revokedAt` (revocación) y `useCount`/
+`lastUsedAt` (telemetría). No se reusa el modelo `AuthToken` porque su `userId` es obligatorio y su semántica de
+un-solo-uso está cableada en `consume()`.
+
+#### (f) Reclamo: la prueba de titularidad, dicha en voz alta
+
+**¿Basta con verificar el correo? Sí, y además es obligatorio.** Verificar el buzón es *exactamente* la misma
+prueba con la que el invitado recibió su enlace de seguimiento: si alguien controla ese buzón, ya podía ver el
+pedido. No se está bajando el listón, se está igualando. Consecuencias:
+- El reclamo **exige `emailVerified=true`** (`403 EMAIL_NOT_VERIFIED`, guard existente). Sin ese requisito,
+  registrarse con el correo de un tercero bastaría para quedarse su pedido — el agujero clásico de esta feature.
+- El **token NO es prueba alternativa**: se descarta permitir "reclamar con el enlace desde una cuenta con otro
+  correo", porque dejaría que quien intercepte el enlace se apropie del pedido y **bloquee** al comprador legítimo
+  (el reclamo es de una sola vez). El token sirve para *leer*, nunca para *apropiarse*.
+- **Vinculación explícita, nunca silenciosa** (decisión del orquestador sobre el hueco abierto del PO): nadie debe
+  poder inyectar pedidos al historial de un tercero escribiendo su correo en un checkout.
+- **El modelo aguanta las tres políticas sin migración**, que era el requisito: el pedido guarda `guestEmail` y la
+  vinculación es un `UPDATE` posterior sobre `userId`+`claimedAt`. Cambiar a *auto-vínculo al pagar* = poblar esos
+  dos campos en el settle; cambiar a *exigir login* = un check en el checkout. **El punto de decisión queda acotado
+  a un solo lugar** y la política es **revisable por el humano**.
+- **Efectos acotados (criterio 54):** el reclamo **solo** escribe `userId`, `claimedAt`, revoca los tokens y
+  audita. No mueve items a la bóveda, no cambia `fulfillmentMode`, ni precios, ni políticas, ni el estado del
+  pedido. Un pedido ya entregado se reclama igual y queda como pedido cerrado en el historial.
+- **Una sola vez (criterio 55):** `UPDATE ... WHERE id=:id AND userId IS NULL AND guestEmail=:correoVerificado`
+  con `count===1` como ganador. Es el mismo patrón de reserva atómica que ya usa `createSession`; no hace falta
+  bloqueo ni transacción serializable.
+
+**Disputa de un invitado (criterio 56b) — decisión de NO modelar:** se descarta volver `Dispute.userId` nullable en
+esta versión. El invitado abre su disputa **por correo a soporte** citando su `orderNumber` (que es exactamente lo
+que PROJECT §J describe), el súper-admin evalúa y, si procede, ejecuta **reembolso en M3** — endpoint que ya existe,
+ya es money-out, ya es `super_admin` y ya queda auditado. Coste: en v1.5 una disputa de invitado **no deja fila
+`Dispute`**, así que no aparece en la cola de M8 ni en las métricas de disputas. **Deuda propuesta (para que el
+techlead decida si la registra y a quién la enruta): `Dispute.userId` nullable + `orderId` para dar trazabilidad a
+las disputas de invitado en M8.** No es bloqueante del DoD de este stream.
+
+#### (g) Correo: `orders` usa el puerto, no toca el módulo `mail`
+
+`MailModule` es `@Global()` y **exporta `MAIL_PORT`** (`MailPort.send({to,subject,html,text})`), de modo que
+`orders` puede renderizar su **plantilla local** (`backend/src/modules/orders/mail/guest-order.templates.ts`, ES/EN
+por `Order.locale`) y enviarla **sin modificar `mail` por dentro** — exactamente el patrón que `buylist` estrenó en
+v1.18 (§4.18) y que PROJECT declara fuera de alcance ("cambios internos al módulo `mail`"). `MailService` conserva
+sus dos métodos actuales; **no se le añade nada**.
+
+Envío **best-effort post-commit**: su fallo se loguea y **no** revierte el pago ni hace fallar el webhook (un 5xx
+haría que Stripe reintentara un settle ya aplicado). La red de seguridad ante un fallo de correo es triple: el
+`trackingToken` ya devuelto por `POST /checkout/guest/session`, el reenvío self-service y el reenvío de soporte.
+Contenido **prohibido** en el correo: cualquier dato de otro pedido, la dirección completa, datos de pago más allá
+de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
+
+#### (h) Reparto de trabajo (v1.21) y **CASOS DE PRUEBA EXIGIDOS del contracargo (v1.21.2, normativos)**
+
+> **Los 8 casos exigidos viven en la tabla de §4.21h-1, más abajo en esta misma sección** (`§4.21h caso i` …
+> `§4.21h caso viii` es la forma canónica de citarlos; los tests de backend ya usan esa numeración y **no deben
+> cambiarla**). Antes estaban redactados como viñeta de prosa dentro del reparto de trabajo: existían, pero eran
+> ilocalizables — errata de forma corregida en v1.21.2, **sin cambiar la numeración ni la sustancia**.
+
+- **Backend:** (1) migración **M-25** + secuencia `order_number_seq` y backfill; (2)
+  `computeDirectShipBreakdown` en `common/money.ts` (aditivo) y **8** códigos en `common/error-codes.ts`;
+  (3) `GuestCheckoutService` en `modules/orders` (quote/session, `@Public()`, throttle, sin consultar `User`);
+  (4) `OrderAccessTokenService` (emitir/rotar/validar/revocar, espejo de `AuthTokenService` pero multi-uso);
+  (5) rama `direct_ship` en `payments.service` (settle → `picking` + crear `ShipmentRequest` idempotente +
+  `paymentMethodBrand/last4` + correo post-commit); (6) ramificación de la terminal en M4; (7) claim
+  (`/orders/claimable`, `/orders/claim`) con guard de `emailVerified` y update condicional; (8) endpoint admin de
+  reenvío + `AuditLog`; (9) job `guest-order-sweep`; (10) plantilla de correo local; (11) **tests**: DTO público sin
+  ningún campo prohibido, token inválido/expirado/revocado/de otro pedido, reclamo doble, reclamo con correo no
+  verificado, `GET /shipments` no devuelve envíos `userId=null`, contracargo antes/después de enviar, idempotencia
+  del webhook, no doble conteo del envío, **y los 8 casos de §4.21h-1**.
+- **Frontend:** checkout de invitado (3 vías sin perder carrito), doble captura de correo, upsell de bóveda a partir
+  de `422 VAULT_REQUIRES_ACCOUNT`, página `/[locale]/pedido` (token del query → body, `replaceState`, `noindex`),
+  pantalla de enlace expirado con reenvío, confirmación con oferta de cuenta, y banner "tienes N pedidos por
+  reclamar" tras verificar el correo.
+- **QA:** los flujos de PROJECT §J.1 tal cual, incluidos los negativos (correo inválido, dirección no-MX, token
+  manipulado/expirado, token de un pedido que no abre otro, pedido ya reclamado).
+- **Seguridad (fase de release):** el `GuestOrderTrackingDTO` y el oráculo del reenvío son los dos objetivos
+  prioritarios del pentester.
+
+##### §4.21h-1 — Casos de prueba EXIGIDOS del contracargo `direct_ship` (v1.21.2, NORMATIVO)
+
+> **Por qué son condición de aprobación y no una recomendación:** el caso «contracargo antes/después de enviar» ya
+> estaba pedido en el reparto de trabajo de v1.21 y **no se escribió**; sin él, **T1 (double-sell físico) pasó todos
+> los gates**. La numeración `i … viii` es **canónica y estable** — los tests de backend ya la citan
+> (`§4.21h caso v`, `caso vi`, `caso vii`) y **no debe renumerarse**. Cada caso i–iv corresponde 1:1 a una fila de
+> la tabla normativa de **§4.21c-bis**.
+
+| # | Caso | Qué debe verificar (aserciones mínimas) |
+|---|---|---|
+| **i** | Contracargo con envío en **`picking`** | `ShipmentRequest → cancelado`; el item **sigue en `picking`** — **assert explícito de que NO queda en `listed` ni `in_stock`**; `chargebackNeedsManual=true`; **sin** `InventoryMovement` de retorno. |
+| **ii** | Contracargo con envío en **`guia`** | Idéntico a (i). Es su propio caso porque `guia` (etiqueta generada, paquete probablemente armado) fue el estado que más tentó a una regla automática distinta. |
+| **iii** | Contracargo con envío **`enviado`** (o `entregado`) | **Nada** cambia en inventario ni en el envío; `chargebackNeedsManual=true`. |
+| **iv** | Contracargo **sin envío** (orden `pending`, item `reserved`) | `reserved → listed`, `ownerType=platform`, `InventoryMovement reason='chargeback_return'`, `chargebackNeedsManual=false`. **Única fila que autoriza re-listar automáticamente, y solo desde `reserved`.** |
+| **v** | **Regresión del double-sell** (el test que faltaba y que habría atrapado T1) | Partiendo del estado final de (i): `POST /checkout/session` sobre esa pieza devuelve **`409 ITEM_UNAVAILABLE`**, `POST /checkout/guest/session` también, y `GET /admin/shipments/picking-list` **no la incluye**. *(Ajuste v1.21.3-quote-prune, API_CONTRACT §4/§4-G.1: los QUOTES ya no devuelven `409` global — la aserción equivalente es `200` con la pieza en `unavailableItems` y FUERA de `items`/`breakdown`. La pieza sigue invendible: el gate duro anti double-sell es SESSION, que conserva el `409`.)* |
+| **vi** | Desenlaces de `POST /admin/orders/:id/chargeback-inventory` | Los tres (`recuperada`, `no_recuperada`, `reexpedir`) con sus efectos de §4.21c-bis; **`reexpedir` rechazado con `409 CONFLICT`** mientras la orden siga en `chargeback`; repetir un `outcome` ya aplicado ⇒ **`409`** sin duplicar movimientos ni envíos. |
+| **vii** | `charge.dispute.closed` con `won` | La orden vuelve a `settled` con `disputeOutcome='won'` y **`chargebackNeedsManual` SIGUE en `true`**: ganar **no** re-expide solo. |
+| **viii** | Invariante **D4** (discriminador) | Un `ShipmentRequest` con `orderId` cuya orden tenga un `fulfillmentMode` no soportado **lanza y se loguea**; **no** cae por default en la rama `direct_ship`. |
+
+---
+
+### 4.22 WS «Catálogo y precios» + «Inventario y vault» — Variantes reales y orden natural del master set (v1.22-variantes-orden)
+
+> **Requisito del PO, textual:** «Ve cómo en el master set son dos cartas de cada una: la común a la izquierda y la
+> holo a la derecha.» Traducido a norma: **una casilla de imagen por VARIANTE REAL** de la carta —normal a la
+> izquierda, reverse holo a la derecha— y **jamás una casilla de relleno** si la variante no existe. Es la **tercera
+> ronda** del mismo bug: las dos anteriores atacaron el render; la causa está en **el dato** y en **quién lo escribe**.
+
+#### (a) `availableFinishes`: una sola autoridad, y no es la de precios
+
+**Diagnóstico (código verificado el 2026-08-18, hallazgos del orquestador ratificados).**
+
+| # | Dónde | Qué hace hoy | Efecto |
+|---|---|---|---|
+| VAR-1 | `price-ingest.service.ts:151-172` | Tras ingerir precios **sobrescribe** `Card.availableFinishes` con `providerFinishes` = los acabados que obtuvieron **`market > 0`** | **Causa raíz.** Carta con reverse holo **sin precio** de reverse holo ⇒ clobbeada a `['normal']` ⇒ **una** casilla. Agravado por **P-6** (el adapter de paga devuelve 0 filas). |
+| VAR-2 | `catalog-sync.service.ts:355` + `pricing.types.ts:32` | `deriveAvailableFinishes(c.tcgplayer?.prices)`; sin bloque `tcgplayer` en el payload → `['normal']` | Pierde el reverse holo de toda carta que TCGplayer no liste, aunque Cardmarket sí lo publique. |
+| VAR-3 | `seed.ts`, `seed-e2e.ts`, `e2e-fixtures.ts` | **No setean** `availableFinishes` ⇒ `@default([normal])` | El bug **se reproduce en local y staging**, y ningún E2E lo puede atrapar. |
+| VAR-4 | `syncAll` / `backfill` | Solo refrescan `availableFinishes` con `force:true` | Los sets importados antes de v1.6-finish siguen en `['normal']` indefinidamente. |
+
+**El error conceptual, en una frase:** `availableFinishes` responde *«¿en qué impresiones existe esta carta?»* —
+**metadata de catálogo**— y se está escribiendo desde la ruta que responde *«¿cuánto vale hoy?»*. **La ausencia de un
+precio no es prueba de la inexistencia de una impresión.** Además, `availableFinishes` es la **lista blanca SEC-A1**
+del `finish` (§3.7): que la escriba un feed de precios significa que un fallo del feed **restringe** lo que un
+vendedor puede cotizar y **borra** casillas del binder.
+
+**Norma v1.22 (5 reglas, normativas):**
+
+1. **Autoridad única = el sync de catálogo.** `CatalogSyncService.upsertCards` (§4.8) es el **ÚNICO** escritor de
+   `Card.availableFinishes` en todo el sistema.
+2. **`price-ingest` NO escribe `availableFinishes`. Cero escrituras.** Se elimina el bloque
+   `price-ingest.service.ts:167-172` (§4.15e queda derogada).
+   > **Sigue siendo cierto tras v1.22-1 (§4.22g):** `price-ingest` **jamás** escribe `availableFinishes`. Lo que v1.22-1
+   > añade es que `price-ingest` escribe su **propia** columna de entrada `pricedFinishesSnapshot` (Señal C, evidencia
+   > positiva de alias verificado) y **llama** al único escritor `catalog.FinishReconciler`. El argumento de abajo
+   > (monotonía imparable) se resuelve **materializando una unión recomputable**, no acumulando: quitar la fuente quita
+   > el acabado. La regla «un solo escritor de la lista blanca» se **mantiene literalmente**.
+   > **Por qué "cero" y no "solo ampliar" (decisión explícita, se pidió argumentarla).** «Ampliar sin reducir»
+   > parece la opción segura, y **no lo es**: la unión es **monótona creciente y nadie puede limpiarla**. Basta un
+   > alias mal mapeado en `BULK_VARIANT_TO_FINISH` (`foil → holofoil`, `reverse → reverse_holo`, todos marcados
+   > *SUPUESTO — verificar 1ª corrida* en `pricing.types.ts:127-141`) para grabar un acabado **inexistente** que
+   > (i) el catálogo ya no podrá quitar —el ingest lo re-añadiría en la siguiente corrida—, (ii) el binder pintará
+   > como **casilla de relleno** (justo lo que el PO prohíbe) y (iii) **ensancha una lista blanca de seguridad**
+   > (SEC-A1) desde un feed de precios de terceros. Con **cero escrituras**, un `sync --force` **repara** cualquier
+   > estado; con «solo ampliar», no. Un solo escritor también hace el sistema **determinista y diagnosticable**:
+   > ante una discrepancia hay **un** lugar donde mirar.
+   > **Contrapartida aceptada y documentada:** si el proveedor de paga conociera una variante que **ni** TCGplayer
+   > **ni** Cardmarket publican, no se registrará. La falla es **conservadora** (falta una casilla, no sobra una
+   > falsa) y su remedio es **override manual del admin**, no escritura automática (ver `dataHealth`, punto 5).
+3. **Derivación = unión de dos señales del MISMO payload que ya se descarga (cero requests extra).** Firma nueva:
+
+   ```ts
+   // backend/src/modules/pricing/pricing.types.ts  (reemplaza deriveAvailableFinishes(prices))
+   /** null  = el payload remoto NO trae NINGUNA señal de acabado (≠ "solo existe normal"). */
+   export function deriveAvailableFinishes(remote: {
+     tcgplayer?:  { prices?: Record<string, unknown> | null } | null;
+     cardmarket?: { prices?: Record<string, unknown> | null } | null;
+   }): Finish[] | null;
+   ```
+   - **Señal A — `tcgplayer.prices`:** por cada **llave presente** mapeable con la tabla de §3.7 se añade su
+     `Finish`. **La presencia de la llave ES la señal**; `market` puede ser `null`/`0` y la variante **sigue
+     contando**. *(Este es el cambio que arregla «tiene reverse holo pero no tiene precio de reverse holo».)*
+   - **Señal B — `cardmarket.prices.reverseHolo*`:** se añade `reverse_holo` si **alguno** de
+     `reverseHoloSell | reverseHoloLow | reverseHoloTrend | reverseHoloAvg1 | reverseHoloAvg7 | reverseHoloAvg30`
+     es un **número finito > 0**. ⚠️ **Ojo, asimetría deliberada con la señal A:** Cardmarket emite esas llaves
+     **siempre**, con `0`/`null` cuando la impresión no existe ⇒ aquí **la llave NO es señal, el valor sí**. Tratarla
+     como la A inventaría un reverse holo en **todas** las cartas.
+   - **Resultado:** `union(A, B)` ordenada por `FINISH_ORDER`, o **`null`** si A y B están ambas vacías.
+   - Llaves no mapeadas (`1stEditionNormal`, `unlimitedHolofoil`) se siguen ignorando (§3.7). Consecuencia asumida:
+     una carta que **solo** exista en `1stEditionNormal` cae a `['normal']` — **una** casilla, ninguna inventada.
+4. **Comportamiento sin señal remota (regla anti-regresión).** `upsertCards`:
+   - **CREATE** → `availableFinishes = derived ?? ['normal']` (conservador: **una** casilla; nunca relleno).
+   - **UPDATE** → el campo se incluye en el `data` del upsert **solo si `derived !== null`**. Con `derived === null`
+     **se omite la clave** y se **conserva** el valor previo. Un payload remoto parcial/degradado **no puede** volver
+     a clobbear a `['normal']` una carta que ya sabíamos de dos variantes. Cuando **sí** hay señal, el catálogo es
+     autoridad plena y **puede reducir** (es la corrección legítima de un dato erróneo).
+5. **Observabilidad en vez de adivinanza.** Se **prohíbe** cualquier heurística de relleno; a cambio, la carencia se
+   hace **visible**: contador `cardsWithoutFinishSignal` (cartas cuyo último sync devolvió `derived === null`) en el
+   `dataHealth` de M2 (**recomendado, no bloqueante**, backend). El remedio de negocio ante una variante faltante es
+   el **override manual del admin**, nunca una regla automática.
+
+**Consecuencias fuera de este WS (ninguna es breaking):** `PriceReference` **no cambia** — `price-ingest` sigue
+persistiendo el precio de **cualquier** `finish` válido que reporte el proveedor, **incluso si no está** en
+`availableFinishes` (dato inocuo: el quote valida el finish **antes** de leer precio). Esa divergencia se **loguea**
+como `finishNotInCatalog` (evidencia de drift para el dueño), y el binder ya la tolera por §4.20b («drift»).
+
+#### (b) Orden natural del número — columnas PERSISTIDAS (decisión (a); se descarta ordenar en memoria)
+
+**Diagnóstico.** `catalog.service.ts:325` (`searchAllCards`, el que alimenta el binder del cotizador vía
+`GET /buylist/cards`) ordena `orderBy: [{ name:'asc' }, { number:'asc' }]`. `Card.number` es **`String`** ⇒ `"10"`
+antes que `"2"`. `master-set.service.ts:449` **sí** ordena bien, pero **en memoria** con `compareByNumber` +
+`deriveNumberParts` (que ya maneja `TG01`/`SV107` con `PROMO_SORT_BASE`). El front tapa el hueco pisando
+`numberSort: idx` en `MasterSetBinder.tsx:104` — un índice de arreglo, no una clave de orden.
+
+**Decisión: (a) columnas persistidas.** El argumento decisivo es el que señaló el orquestador: **`searchAllCards`
+pagina** (`skip`/`take`). Ordenar en memoria ocurre **después** del `LIMIT`, así que reordenaría **la página**, no el
+conjunto: la página 1 traería las 50 cartas *lexicográficamente* menores y luego las barajaría — orden **global
+incorrecto**, y encima cartas duplicadas/ausentes entre páginas. El orden **debe** estar en el `ORDER BY` de SQL, y
+Prisma no sabe ordenar por expresión ⇒ o `$queryRaw` (pierde tipos, `where` y paginación de Prisma en la ruta pública
+del cotizador) o **columnas derivadas**. Se eligen las columnas: son indexables, reutilizables por todas las vistas y
+convierten el orden en una propiedad del **dato**, no de cada call-site.
+
+- **Esquema (M-26, §11):** `Card.numberSort Int @default(1000000)`, `Card.numberPrefix String @default("")`,
+  índice `@@index([setId, numberPrefix, numberSort])`.
+- **Escritura:** `upsertCards` puebla ambas con `deriveNumberParts(number)` en **create y update**.
+  `deriveNumberParts` (hoy en `master-set.service.ts:161`) se **promueve** a utilidad compartida y pasa de
+  *comparador en memoria* a **función de escritura canónica**; debe **clampear** `num` a `999_999` para no desbordar
+  `Int` con un `number` absurdamente largo (mismo clamp que el backfill SQL).
+- **Lectura — `orderBy` NORMATIVO** (equivale exactamente a `compareByNumber`, porque `''` es el menor string ⇒ las
+  puramente numéricas van primero, y luego se agrupa por prefijo):
+  ```ts
+  // con setId (caso del binder): orden natural puro
+  orderBy: [{ numberPrefix: 'asc' }, { numberSort: 'asc' }, { number: 'asc' }, { id: 'asc' }]
+  // sin setId (búsqueda de texto en varios sets): nombre primero, natural dentro
+  orderBy: [{ name: 'asc' }, { setId: 'asc' }, { numberPrefix: 'asc' }, { numberSort: 'asc' }, { id: 'asc' }]
+  ```
+  El `{ id: 'asc' }` final **no es cosmético**: sin desempate total, dos filas empatadas pueden intercambiarse entre
+  dos consultas paginadas y producir **filas repetidas o saltadas** al cambiar de página.
+- **`master-set.service`:** el binder pasa a ordenar en **BD** con el mismo `orderBy` y a **leer `numberSort` de la
+  columna**; `compareByNumber` se conserva **solo** como oráculo de tests y para colecciones ya materializadas.
+  Prohibido que la clave persistida y la función diverjan: **un** algoritmo, en `deriveNumberParts`.
+- **Casos borde documentados (parity con el comparador actual; NO se cambia la semántica en este WS):** `"23a"` →
+  `prefix="a"`, `numberSort=1_000_023` ⇒ cae en el bloque de promos en vez de junto a `"23"`; `number=""` →
+  `prefix=""`, `numberSort=1_000_000` ⇒ al final del bloque numérico. Afinarlos es **deuda menor** (nueva entrada
+  sugerida en `TECH_DEBT.md`, dueño backend), no parte de este arreglo.
+
+#### (c) Invariante de render: una casilla por variante real
+
+Normativo para **toda** vista de master set (cotizador, binder M1, bóveda admin, «Mi bóveda»):
+
+1. **`|casillas| = |availableFinishes|`**, siempre **≥ 1**.
+2. El **orden de izquierda a derecha** es el del array, que se persiste y se emite en **`FINISH_ORDER`** (§3.7)
+   ⇒ *normal a la izquierda, reverse holo a la derecha*. El front **no ordena** acabados: consume el orden del DTO.
+3. **Prohibido pintar una casilla cuyo `finish` no esté en `availableFinishes`** (nada de placeholder, "hueco de
+   relleno" ni acabado fijo por convención). Si la carta solo tiene `['normal']`, se pinta **una** casilla y la
+   celda queda más angosta — eso es correcto, no un defecto visual a compensar.
+4. **La imagen de la variante es la imagen de la CARTA.** Confirmado: pokemontcg.io v2 publica **un solo**
+   `images.small` / `images.large` por objeto carta; **no existe** imagen por acabado (el reverse holo no tiene arte
+   propia en la fuente). Por eso **`MasterSetVariantDTO` NO gana campo de imagen** y `CardDTO`/`MasterSetCardCellDTO`
+   **no** ganan un mapa `imageByFinish`. La lectura del orquestador es **correcta**; se ratifica como norma para que
+   ninguna ronda futura vuelva a proponerlo. *(Si algún día se quisiera diferenciar visualmente el reverse holo, es
+   un efecto de **presentación** del front —marco/badge/overlay—, no un dato nuevo del contrato.)*
+
+#### (d) Reparación del dato ya existente (prod y staging)
+
+El código corregido **no repara solo** las filas ya escritas: hay cartas con `['normal']` grabado por VAR-1/VAR-2/VAR-4.
+Secuencia de despliegue (**dueño: devops**, con backend):
+
+1. Migración **M-26** (columnas de orden + backfill SQL + índice). No toca `availableFinishes`.
+2. Deploy del backend con (a) `price-ingest` sin escritura de variantes y (b) la derivación de dos señales.
+3. **Re-sync forzado del catálogo:** `POST /api/v1/admin/catalog/sync-all { force: true }` (super_admin) — es el
+   único camino que reprocesa sets ya importados (VAR-4) y el que repuebla `availableFinishes` **y** las nuevas
+   columnas de orden. Verificar con `GET /admin/catalog/sync-status`.
+4. **Verificación (gate):** sobre un set moderno conocido, `SELECT count(*) FROM "Card" WHERE
+   'reverse_holo' = ANY("availableFinishes") AND "setId" = :set` debe ser **> 0** (hoy da 0 en el set afectado); y en
+   el binder, una común moderna debe mostrar **dos** casillas. Si sigue en `['normal']` masivo ⇒ el payload remoto no
+   trae ninguna de las dos señales y se abre la pregunta v1.22-1 (§10) antes de tocar más código.
+
+#### (e) Seeds (norma; la implementa el rol dueño de `backend/prisma/`)
+
+Los seeds **deben setear `availableFinishes` explícitamente** en cada `Card` que crean —nunca depender del
+`@default([normal])`— y el conjunto sembrado debe contener, como mínimo:
+
+- **≥ 1 carta con `['normal','reverse_holo']`** (la que prueba las **dos** casillas del PO);
+- **≥ 1 carta con `['normal']`** (la que prueba que **no** se pinta relleno);
+- números **`"2"`, `"10"` y `"TG01"`** en el mismo set (la carta `"10"` debe salir **después** de `"2"` y `"TG01"`
+  **al final**), y `numberSort`/`numberPrefix` coherentes (sembrados o derivados con `deriveNumberParts`).
+
+Aplica a `backend/prisma/seed.ts`, `backend/prisma/seed-e2e.ts` y las `e2e-fixtures.ts`. Sin esto, **ningún E2E puede
+fallar ante el bug del PO**, que es exactamente por lo que sobrevivió tres rondas.
+
+#### (f) Supuesto abierto y su verificación
+
+⚠️ **No se pudo verificar el payload remoto en vivo:** el proxy del entorno **bloquea `api.pokemontcg.io` (403 en
+CONNECT)**. La derivación de §4.22a-3 está diseñada contra el **esquema documentado de pokemontcg.io v2** y contra el
+código que ya lo consume, con estos supuestos explícitos:
+
+| # | Supuesto | Cómo se verifica | Si resulta falso |
+|---|---|---|---|
+| S1 | `tcgplayer.prices` solo trae la sub-llave de una impresión **cuando esa impresión existe** (la llave es metadata, no un slot fijo) | 1ª corrida: contar cartas con llave `reverseHolofoil` y `market` nulo | Se cae a la señal B; si ninguna sirve, ver pregunta abierta v1.22-1 |
+| S2 | `cardmarket.prices` expone `reverseHolo*` **siempre**, con `0`/`null` cuando no hay reverse holo | 1ª corrida: histograma de `reverseHoloTrend` por set | Si solo aparece cuando existe, la señal B se relaja a "llave presente" (más simple) |
+| S3 | El objeto carta de `GET /v2/cards?q=set.id:*` **ya incluye** `cardmarket` (no hay `select=`) ⇒ **cero requests extra** | Inspeccionar una respuesta cruda en la 1ª corrida | Habría que añadir `select` o una 2ª llamada — **avisar al arquitecto antes** (cambia el coste del sync) |
+
+**Dueño de la verificación: backend, en la primera corrida en Railway**, y **devops** la registra en
+`docs/DEVOPS_NOTES.md`. `PokemonTcgIoClient.RemoteCard` debe **ampliar su interfaz** con
+`cardmarket?: { prices?: Record<string, unknown> | null }` (solo tipos: el JSON ya se descarga completo).
+
+#### Reparto de trabajo (v1.22)
+
+- **Backend (WS «Catálogo y precios»):** (1) `deriveAvailableFinishes` con la firma nueva (2 señales, `null` sin
+  señal) + tests de tabla de verdad; (2) `upsertCards` — omitir la clave en UPDATE cuando `derived === null`, poblar
+  `numberSort`/`numberPrefix`; (3) **eliminar** la escritura de `availableFinishes` en `price-ingest.service.ts`
+  (+ log `finishNotInCatalog`); (4) ampliar `RemoteCard` con `cardmarket`; (5) migración **M-26** con backfill;
+  (6) `searchAllCards` con el `orderBy` normativo (§4.22b) y `CardDTO` con `numberSort`/`numberPrefix`;
+  (7) `master-set.service` ordenando en BD y leyendo `numberSort` de la columna; (8) seeds (§4.22e);
+  (9) opcional recomendado: `cardsWithoutFinishSignal` en `dataHealth`.
+  **Tests obligatorios:** carta con llave `reverseHolofoil` y `market:null` ⇒ `['normal','reverse_holo']`; carta con
+  solo `cardmarket.reverseHoloTrend > 0` ⇒ idem; carta sin ninguna señal en UPDATE ⇒ **conserva** el valor previo;
+  `price-ingest` **no** modifica `Card` (assert sobre el spy de `card.update`); `["2","10","SV107","TG01"]` sale en
+  ese orden **atravesando dos páginas** de `GET /buylist/cards`. *(Errata v1.22.1: esta línea ilustrativa decía
+  `["2","10","TG01","SV107"]`, contradiciendo el `orderBy` normativo de §4.22b — `numberPrefix asc` ⇒ `SV` < `TG`.
+  **Manda la norma**; backend implementó lo correcto y lo anotó en BACKEND_NOTES §49.8. No "arreglar" el orden en la
+  dirección contraria.)*
+- **Frontend:** (1) **eliminar** el `numberSort: idx` de `MasterSetBinder.tsx:104` y usar
+  `(numberPrefix, numberSort, number)` del DTO al re-ordenar tras filtrar localmente; (2) el binder del cotizador
+  pinta **una casilla por entrada de `availableFinishes`**, en el **orden del array** (sin `sort` propio, sin lista
+  fija de acabados), con `imageSmallUrl` de la carta en todas; (3) ninguna casilla de relleno cuando el array trae un
+  solo acabado. **No** requiere cambio de diseño (ux-ui no bloquea este WS).
+- **Devops:** secuencia de §4.22d (migración → deploy → `sync-all {force:true}` → verificación), y registrar en
+  `DEVOPS_NOTES.md` el resultado de S1/S2/S3.
+- **QA:** doble veredicto por stream (**no toca dinero**: no se cambia ninguna regla de precio de buylist ni de venta).
+  E2E mínimo: en el cotizador, una carta con reverse holo muestra **dos** casillas y una sin él **una**; el set se
+  lista `2 → 10 → … → TG01`; el smoke corre contra los seeds de §4.22e.
+
+#### (g) Señal C — evidencia positiva del proveedor de PAGA (PPT), money-safe (v1.22-1 RESUELTA)
+
+**Contexto que cambió el tradeoff.** Cuando se escribió §4.22a-2 («`price-ingest` NO escribe `availableFinishes`,
+cero escrituras»), **pokemontcg.io era la fuente confiable** y la única. Hoy no: pokemontcg.io ha estado devolviendo
+**502** (y para un set 2026 nuevo puede responder sin publicar el reverse holo por separado), mientras la fuente de
+PRECIOS ya migró a **PokemonPriceTracker (PPT)**, API de paga que SÍ responde. Resultado observado (set «Pitch Black»,
+2026, 120 cartas): **las 120 muestran solo `normal`** pese a re-sincronizar — es exactamente el caso de §4.22f S1/S2
+fallando (§4.22d-4). El humano decide (no se re-litiga): tomar la señal de acabados de PPT — **opción (c) de v1.22-1** —
+manteniendo default seguro `['normal']` y **sin inventar** acabados.
+
+**La tensión con la regla 2, resuelta explícitamente.** La regla 2 sigue **vigente en su núcleo money-safe**: precio
+**AUSENTE ≠ variante inexistente** ⇒ jamás se REMUEVE un acabado por falta de precio. Lo que se admite ahora es la
+**conversa, que la regla 2 no cubría**: precio **PRESENTE (`market > 0`) para un acabado, vía un alias VERIFICADO** ⇒
+ese acabado **existe** (evidencia positiva). Se admite bajo cuatro candados que neutralizan los tres argumentos
+originales de la regla 2:
+
+1. **No es monótona-creciente (candado contra el argumento i).** No hay «unión que nadie limpia». `availableFinishes`
+   pasa a ser una **columna DERIVADA que se RECOMPUTA de forma determinista** como unión de **dos entradas persistidas
+   e independientemente recomputables**:
+
+   ```
+   availableFinishes  :=  orderFinishes( catalogFinishes ∪ pricedFinishesSnapshot )   ||  ['normal']
+   ```
+
+   - `Card.catalogFinishes Finish[]` — la unión Señal A ∪ Señal B del **último payload de pokemontcg.io** (lo que hoy
+     devuelve `deriveAvailableFinishes(c)`), con la MISMA semántica anti-regresión de §4.22a-4 (`null` ⇒ se omite y se
+     **conserva** el valor previo; CREATE ⇒ `derived ?? ['normal']`). Es la «opinión del catálogo», ahora persistida en
+     su propia columna para que **sobreviva a un 502 de pokemontcg.io**.
+   - `Card.pricedFinishesSnapshot Finish[]` — **Señal C**: los acabados que **PPT reportó con `market > 0` para esa
+     carta, filtrados a alias VERIFICADO** (ver candado 2). Es un **snapshot que se REEMPLAZA** por carta en cada
+     corrida exitosa de `price-ingest` (no se acumula).
+
+   Como `availableFinishes` es **función pura de esas dos columnas**, **quitar** un acabado de cualquiera de las dos y
+   recomputar lo **elimina**. Un `sync --force` (recomputa `catalogFinishes` desde pokemontcg.io) o la siguiente corrida
+   de PPT que ya no reporte el acabado **REPARAN** el dato. Esto es lo que la regla 2 exigía y «solo ampliar» no daba.
+
+2. **Alias VERIFICADO, no SUPUESTO (candado contra el argumento ii, SEC-A1).** La ruta que alimenta la lista blanca
+   **solo** acepta acabados provenientes de un **alias verificado** = el espejo exacto de `TCG_KEY_TO_FINISH`
+   (`normal`, `reverseHolofoil→reverse_holo`, `holofoil`, `1stEditionHolofoil→first_edition_holofoil`). Los alias
+   marcados **SUPUESTO** en `BULK_VARIANT_TO_FINISH` (`foil→holofoil`, `holo→holofoil`, `reverse→reverse_holo`,
+   `reverseholo→…`, etc.) **NO** entran a `pricedFinishesSnapshot`: pueden seguir alimentando `PriceReference` (un
+   alias de precio es dato inocuo, el quote valida el finish **antes** de leer precio), pero **jamás la lista blanca**
+   hasta que la 1ª corrida los promueva a verificados (S-C2). Así un `foil` mal supuesto **no** graba un `holofoil`
+   inexistente permanente en SEC-A1.
+
+3. **Anti-invención (candado contra pintar relleno).** Si PPT reporta un `printing` desconocido o mal-aliaseado,
+   `normalizeVerifiedFinishAlias` devuelve `null` ⇒ **se OMITE** (nunca se atribuye a `normal`, nunca se pinta una
+   casilla de relleno). La unión está acotada al enum `Finish`. La falla es **conservadora**: falta una casilla, nunca
+   sobra una falsa.
+
+4. **Sigue habiendo UN solo escritor de `availableFinishes` (candado contra el argumento iii + diagnosticabilidad).**
+   `price-ingest` **NO** escribe `availableFinishes` — sigue siendo cierto. Escribe **solo su propia** columna de
+   entrada `pricedFinishesSnapshot` y luego **invoca al reconciliador del módulo `catalog`**. La ESCRITURA de
+   `availableFinishes` ocurre en **exactamente un** método, propiedad de `catalog`
+   (`FinishReconciler.reconcile(cardIds)`), que lee las dos columnas de entrada y recomputa la lista blanca. Ante una
+   discrepancia hay **un** lugar donde mirar; el feed de precios nunca toca la lista blanca directamente.
+
+**Flujo de escritura (normativo).**
+
+```
+pokemontcg.io (cuando responde)                     PPT (paga, responde hoy)
+   catalog-sync.upsertCards                             price-ingest (por set, corrida exitosa)
+     → escribe Card.catalogFinishes                       → escribe Card.pricedFinishesSnapshot (alias VERIFICADO,
+        (null ⇒ conserva; §4.22a-4)                            REEMPLAZO por carta vista con ≥1 fila válida)
+     → llama FinishReconciler.reconcile(cardIds)          → llama FinishReconciler.reconcile(cardIds)
+                         \                                    /
+                          → catalog.FinishReconciler.reconcile(cardIds)   ← ÚNICO escritor de availableFinishes
+                              availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
+```
+
+- **Money-safe ante fallo transitorio de PPT.** `pricedFinishesSnapshot` se reemplaza **solo** para cartas que
+  aparecieron con **≥ 1 fila válida** en una corrida **exitosa** (`requestOk && rows > 0`). Si PPT falla / devuelve 0
+  filas, **no se toca ningún snapshot** (mismo criterio con que hoy no se borran precios: no destruir evidencia por un
+  fallo transitorio). Una carta que PPT deje de devolver por completo mantiene su snapshot previo (stale conservador:
+  falta-una-casilla, no sobra-una-falsa); su limpieza definitiva viene del `sync --force` (recomputa `catalogFinishes`)
+  o del override manual del admin.
+- **Default seguro (idéntico a hoy).** Sin ninguna señal (ni `catalogFinishes` ni `pricedFinishesSnapshot`) ⇒
+  `['normal']`. La regla anti-regresión §4.22a-4 se **traslada** a la escritura de `catalogFinishes`: un payload
+  degradado de pokemontcg.io **no puede** vaciar la base ni volver a clobbear a `['normal']` una carta que ya sabíamos
+  de dos variantes.
+- **Contrato sin cambio de forma.** `CardDTO.availableFinishes` mantiene **exactamente** su shape (`Finish[]`, no
+  vacío, orden `FINISH_ORDER`). `catalogFinishes` y `pricedFinishesSnapshot` son **internas, NO se exponen** en ningún
+  DTO. Todos los lectores existentes (quote, alta de inventario, binder) siguen leyendo `availableFinishes` y quedan
+  correctos **sin tocar ningún call-site de validación** — por eso se **materializa** la unión en la columna en vez de
+  unir en tiempo de lectura.
+
+**Supuestos a verificar en la 1ª corrida (misma disciplina que S1/S2/S3).**
+
+| # | Supuesto | Cómo se verifica | Si resulta falso |
+|---|---|---|---|
+| S-C1 | PPT emite `reverse_holo` como un `printing` DISTINTO con `market > 0` para cartas de un set 2026 nuevo (Pitch Black) | 1ª corrida: contar cartas del set con fila PPT `finish=reverse_holo` (`printing` reconocido) | Si PPT TAMBIÉN colapsa el set nuevo a un solo printing, la opción (c) **no rescata**; cae a **(a) override manual del admin** (remedio permanente, ver abajo). **Avisar al arquitecto.** |
+| S-C2 | Los alias SUPUESTO de `BULK_VARIANT_TO_FINISH` que aparezcan en PPT corresponden de verdad al `Finish` mapeado | 1ª corrida: histograma de `printing` crudos vs. alias; log de `noFinish` con ejemplos | Se **promueven** a verificados los confirmados (se añaden a `VERIFIED_FINISH_ALIASES`) y se **descartan** los que no; hasta entonces NO alimentan la lista blanca (candado 2). |
+
+**Remedio permanente para el residuo (opción (a), siempre disponible).** Si tras (c) una carta/set sigue sin la señal
+(ambas fuentes ciegas — caso S-C1 falso), el remedio es el **override manual del admin** por carta/set (M2), nunca una
+heurística por rareza (§4.22a-5). (a) queda como la salida documentada para el residuo; **NO** se elige (b)
+`CardSet.hasReverseHolo` porque requiere decisión de producto y **arriesga inventar** reverse holo en cartas del set
+que no lo tienen (viola anti-invención).
+
+#### (h) Reparto de trabajo (v1.22-1 / opción c)
+
+- **Schema — migración M-27 (backend, `backend/prisma/schema.prisma` + `backend/prisma/migrations/`):** añade
+  `Card.catalogFinishes Finish[] @default([])` y `Card.pricedFinishesSnapshot Finish[] @default([])`. **Backfill:**
+  `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"` (siembra la base con el valor catálogo ya materializado;
+  `pricedFinishesSnapshot` queda `[]`). No cambia la forma de `availableFinishes`. Es cambio de **zona compartida**
+  (`backend/prisma/`) — un solo stream a la vez (regla de zonas compartidas).
+- **`backend/src/modules/pricing/pricing.types.ts`:** (1) añadir `VERIFIED_FINISH_ALIASES` = espejo estricto de
+  `TCG_KEY_TO_FINISH` (sin los SUPUESTO) y `normalizeVerifiedFinishAlias(raw): Finish | null`; (2) añadir
+  `finishAliasVerified: boolean` a `BulkPriceRow`; (3) `deriveAvailableFinishes` **no cambia** (ahora alimenta
+  `catalogFinishes`).
+- **`backend/src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts`:** al construir cada `BulkPriceRow`,
+  fijar `finishAliasVerified` con `normalizeVerifiedFinishAlias(rawPrinting) !== null`. El `finish` para PRICING sigue
+  saliendo de `normalizeFinishAlias` (tolerante); el flag distingue si ese acabado es apto para la lista blanca.
+- **`backend/src/modules/pricing/price-ingest.service.ts`:** tras agrupar `byCard` en una corrida **exitosa**, por cada
+  carta vista con ≥1 fila válida, calcular `verifiedFinishes = { row.finish : row.finishAliasVerified && marketCents>0 }`,
+  **escribir `Card.pricedFinishesSnapshot`** (REEMPLAZO por carta) y **llamar `FinishReconciler.reconcile(cardIds)`**.
+  **Sigue sin escribir `availableFinishes` directamente** (assert en test). El log `finishNotInCatalog` se conserva.
+- **`backend/src/modules/catalog/` — NUEVO `FinishReconciler` (único escritor de `availableFinishes`):**
+  `reconcile(cardIds: string[])` lee `(catalogFinishes, pricedFinishesSnapshot)` de cada carta y escribe
+  `availableFinishes = orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`. La función pura de unión
+  vive junto a `orderFinishes` (`backend/src/common/card-order.ts`) para reusarse desde seeds sin arrastrar DI.
+- **`backend/src/modules/catalog/catalog-sync.service.ts` (`upsertCards`):** escribir `catalogFinishes` (en lugar de
+  `availableFinishes`) con la MISMA semántica null de §4.22a-4 (CREATE `derived ?? ['normal']`; UPDATE omite la clave si
+  `derived === null`), y **llamar `FinishReconciler.reconcile(cardIds)`** para las cartas del lote. Ya no escribe
+  `availableFinishes` inline.
+- **Seeds (§4.22e, `backend/prisma/seed*.ts` + `e2e-fixtures.ts`):** sembrar las tres columnas coherentemente para que
+  el E2E cubra la ruta de la unión:
+  - carta A: `catalogFinishes=['normal']`, `pricedFinishesSnapshot=['reverse_holo']`, `availableFinishes=['normal','reverse_holo']` — **prueba la ruta PPT-only** (el caso del PO con pokemontcg.io caído);
+  - carta B: `catalogFinishes=['normal','reverse_holo']`, `pricedFinishesSnapshot=[]`, `availableFinishes=['normal','reverse_holo']` — prueba la ruta catálogo;
+  - carta C: las tres vacías/`[]` ⇒ `availableFinishes=['normal']` — prueba que no se pinta relleno.
+- **`dataHealth` (M2, recomendado):** además de `cardsWithoutFinishSignal`, distinguir «rescatadas por PPT»
+  (`catalogFinishes` sin `reverse_holo` pero `availableFinishes` con él) para hacer visible cuánto sostiene la Señal C.
+- **QA / verificación (money-safe, no cambia regla de precio):**
+  - **Reconcile PPT-only:** stub de `BulkPriceProvider` que devuelve `reverse_holo` con `market>0` (alias verificado
+    `reverseHolofoil`) para la carta X con `catalogFinishes=['normal']` ⇒ tras `price-ingest` + reconcile,
+    `Card.availableFinishes = ['normal','reverse_holo']`; **E2E:** el binder pinta **dos** casillas.
+  - **Anti-invención / SEC-A1:** `printing="foil"` (SUPUESTO) con precio ⇒ `PriceReference` se persiste como `holofoil`
+    **pero** `pricedFinishesSnapshot` **NO** incluye `holofoil` y `availableFinishes` no cambia.
+  - **Reparabilidad:** carta con `pricedFinishesSnapshot=['reverse_holo']`; una corrida PPT posterior que devuelve la
+    carta **sin** `reverse_holo` ⇒ snapshot reemplazado ⇒ reconcile lo **quita** de `availableFinishes` (si
+    `catalogFinishes` no lo tenía).
+  - **Default seguro:** `catalogFinishes=[]` y `pricedFinishesSnapshot=[]` ⇒ `availableFinishes=['normal']`.
+  - **Money-safe stale:** corrida PPT que falla (0 filas) ⇒ ningún snapshot se toca (spy), ningún clobber.
+  - **Único escritor:** `price-ingest` nunca llama `card.update({ availableFinishes })` (spy); solo `FinishReconciler`.
+- **Devops:** tras M-27, la secuencia de reparación es (1) deploy; (2) `price-ingest` de los sets afectados con PPT
+  (puebla `pricedFinishesSnapshot` + reconcile) — **esto ya rescata «Pitch Black» sin esperar a pokemontcg.io**;
+  (3) cuando pokemontcg.io recupere, `sync-all {force:true}` refresca `catalogFinishes`. Registrar S-C1/S-C2 en
+  `DEVOPS_NOTES.md`.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -2799,6 +3750,26 @@ processingFeeCents = totalCents − baseCents
 
 Regla de oro: **el dinero que sale solo lo toca el súper-admin**; todo queda en bitácora.
 
+**Invitado (sin cuenta) — v1.21-guest-checkout.** No es un `Role` (no hay fila `User`, no hay JWT, no hay rol que
+escalar): es la **ausencia** de sesión, y su superficie es una lista cerrada de endpoints `@Public()`
+(`POST /checkout/guest/quote|session`, `POST /orders/guest/track|resend-link`). Autorización por acción:
+
+| Acción | Invitado |
+|---|---|
+| Navegar Compra / ver ficha y precios | ✅ (ya era público) |
+| **Comprar con envío directo a domicilio MX** | ✅ (`direct_ship`, envío en el mismo PaymentIntent) |
+| **Guardar en bóveda** | ❌ `422 VAULT_REQUIRES_ACCOUNT` → **upsell de registro**, nunca un error |
+| Ver **su** pedido por enlace tokenizado | ✅ solo lectura, datos mínimos, **un** pedido |
+| Listar/buscar pedidos, ver otro pedido | ❌ no existe endpoint (criterio 52) |
+| Cualquier mutación sobre el pedido (cancelar, cambiar dirección, reembolso, factura) | ❌ ninguna acción disponible con token |
+| Vender (buylist), portafolio, direcciones guardadas, back-office | ❌ exigen cuenta |
+| Abrir disputa por API | ❌ — se atiende **por correo a soporte** citando el `orderNumber` (§4.21f) |
+| Reclamar su pedido | ✅ solo tras **crear cuenta y verificar el correo** (`403 EMAIL_NOT_VERIFIED` si no) |
+
+Dos reglas que cierran el cruce entre mundos: un endpoint `/checkout/guest/*` con **sesión válida** responde
+`409 ALREADY_AUTHENTICATED`, y el `OrderAccessToken` **nunca** se acepta como credencial de sesión (no otorga rol,
+no lo lee ningún guard, no abre ningún endpoint `customer`).
+
 ---
 
 ## 8. Riesgos técnicos y notas para devops
@@ -2844,6 +3815,34 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **VAR-1 (backend, v1.22) — `price-ingest` CLOBBEA `Card.availableFinishes` con los acabados que tuvieron precio.**
+  Estado detectado (`price-ingest.service.ts:151-172`): tras persistir precios, `Card.update({ availableFinishes:
+  providerFinishes })` donde `providerFinishes` solo contiene acabados con `marketCents > 0`. Una carta con reverse
+  holo **sin precio de reverse holo** queda reducida a `['normal']` ⇒ el binder pinta **una** casilla y el vendedor no
+  puede cotizar ese acabado (`422 FINISH_NOT_AVAILABLE`). Combinado con **P-6** (adapter de paga devolviendo 0 filas),
+  explica el bug en producción. **Es la causa raíz de las tres rondas.** **Norma: §4.22a** (autoridad única = catálogo;
+  `price-ingest` **cero escrituras**; §4.15e derogada). **Acción (backend, este stream):** eliminar el bloque y cubrir
+  con un test que asserte que el ingest **no** llama `card.update`.
+- **VAR-2 (backend, v1.22) — la derivación de catálogo ignora Cardmarket.** `catalog-sync.service.ts:355` →
+  `deriveAvailableFinishes(c.tcgplayer?.prices)` (`pricing.types.ts:32`): sin bloque `tcgplayer` en el payload →
+  `['normal']`, y las llaves con `market` nulo no se distinguen de las ausentes. Se pierde el reverse holo de toda
+  carta que TCGplayer no liste aunque `cardmarket.prices.reverseHolo*` lo publique. **Norma: §4.22a-3** (unión de dos
+  señales, `null` cuando no hay ninguna) **y §4.22a-4** (sin señal ⇒ **no** se sobrescribe en UPDATE).
+  **Acción (backend):** nueva firma + ampliar `RemoteCard` con `cardmarket`.
+- **VAR-4 / SEED-1 (backend, v1.22) — el dato ya grabado no se repara solo, y los seeds lo reproducen.**
+  `syncAll`/`backfill` solo refrescan `availableFinishes` con `force:true` ⇒ los sets importados antes de v1.6-finish
+  siguen en `['normal']`; y `seed.ts` / `seed-e2e.ts` / `e2e-fixtures.ts` **no setean** el campo, así que **local y
+  staging nacen con el bug** y **ningún E2E puede fallar ante él**. **Norma: §4.22d** (secuencia de reparación con
+  `sync-all {force:true}`, dueño devops) y **§4.22e** (seeds con ≥1 carta `['normal','reverse_holo']`, ≥1 `['normal']`
+  y números `"2"/"10"/"TG01"`). **Acción:** backend (seeds), devops (re-sync + verificación).
+- **ORD-1 (backend, v1.22) — orden LEXICOGRÁFICO por número en el cotizador.** `catalog.service.ts:325`
+  (`searchAllCards`, que alimenta `GET /buylist/cards`) ordena `[{name:'asc'},{number:'asc'}]` sobre un `number`
+  **String** ⇒ `"10"` antes que `"2"`. `master-set.service.ts:449` sí ordena bien pero **en memoria**, y
+  `searchAllCards` **pagina**, así que copiar ese enfoque daría un orden **globalmente incorrecto** (se ordenaría la
+  página, no el conjunto). Síntoma colateral: el front pisa `numberSort: idx` en `MasterSetBinder.tsx:104`.
+  **Norma: §4.22b** (columnas persistidas `numberSort`/`numberPrefix`, migración **M-26**, `orderBy` normativo con
+  desempate por `id`). **Acción:** backend (migración + `orderBy` + promoción de `deriveNumberParts`), frontend
+  (quitar el `idx` y re-ordenar por `(numberPrefix, numberSort, number)`).
 - **BL-1 (backend, v1.18-buylist-rejects) — monto FANTASMA en `approvedTotalCents` tras approve→reject.** Estado
   detectado (`buylist.service.ts`, `itemDecision` L651 / `recomputeApprovedTotal` L707): la rama `reject` solo fija
   `itemStatus='rechazada'` sin anular `approvedPriceCents`, y el recompute suma TODO `approvedPriceCents != null`
@@ -2944,6 +3943,71 @@ este documento y con `API_CONTRACT.md`.
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.22-variantes-orden — variantes reales y orden natural)
+
+- **v1.22-1 — ¿Y si el payload remoto no basta? — ✅ RESUELTA (2026-08-19, rama `fix/available-finishes-source`).**
+  El caso se materializó: pokemontcg.io devolvió **502** toda la tarde y el set 2026 «Pitch Black» (120 cartas) quedó
+  con **todas** en `['normal']` (§4.22d-4 con S1/S2 ciegas). **Decisión del humano, diseñada money-safe en §4.22g:
+  opción (c) — tomar la señal de acabados de la fuente de PAGA (PPT)**, como **Señal C** de **evidencia positiva**
+  (`market > 0` vía alias VERIFICADO ⇒ el acabado existe). Es money-safe pese a §4.22a-regla 2 porque: (i)
+  `availableFinishes` pasa a ser **derivada y RECOMPUTABLE** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot)
+  || ['normal']` sobre dos columnas de entrada persistidas ⇒ **no monótona, reparable** con `sync --force` / siguiente
+  corrida PPT; (ii) solo **alias VERIFICADO** alimenta la lista blanca (los SUPUESTO quedan fuera hasta S-C2); (iii)
+  **anti-invención** (desconocido ⇒ se omite, nunca relleno); (iv) **un solo escritor** (`catalog.FinishReconciler`);
+  `price-ingest` solo escribe su snapshot y llama al reconciliador. La regla 2 **sigue vigente en su núcleo** (precio
+  AUSENTE ≠ variante inexistente ⇒ nunca se REMUEVE por falta de precio); lo que se admite es su **conversa** (precio
+  PRESENTE ⇒ existe). **Requiere schema (migración M-27, dos columnas internas) — el contrato NO cambia de forma.**
+  Opción **(a)** override manual del admin queda como **remedio permanente del residuo** (caso S-C1 falso, ver §4.22g);
+  **(b)** `CardSet.hasReverseHolo` se **descarta** (decisión de producto + riesgo de inventar). Sigue prohibida toda
+  **heurística por rareza**. **Punto que aún puede necesitar al HUMANO:** solo si la 1ª corrida revela **S-C1 falso**
+  (PPT tampoco separa el reverse holo del set nuevo) — entonces no hay señal automática viable y la decisión de
+  producto es cuánto invertir en el override manual (a) vs. esperar a la fuente. Backend debe **avisar al arquitecto**
+  con el resultado de S-C1/S-C2 antes de dar por cerrado el rescate.
+- **v1.22-2 — Casos borde del orden (`"23a"`, `number` vacío).** §4.22b los deja con la semántica **actual** de
+  `compareByNumber` (bloque de promos / final del bloque numérico). ¿Se afinan? Propuesta del arquitecto: **no en este
+  WS** (es cosmético y arriesga regresiones en el binder M1 ya aprobado); queda como deuda menor con dueño backend.
+- **v1.22-3 — `PriceReference` de un finish fuera de `availableFinishes`.** Se decide **conservarlo** (dato inocuo,
+  evidencia de drift) y solo loguearlo. Alternativa descartada por ahora: no persistirlo. Si el volumen de
+  `finishNotInCatalog` resulta alto en la 1ª corrida, se revisa (dueño: arquitecto, a petición de backend).
+
+### Preguntas abiertas (v1.21-guest-checkout — WS «Órdenes y dinero»)
+
+> Ninguna bloquea el desarrollo: **todas tienen un supuesto implementado** y el modelo está diseñado para que
+> cambiar la respuesta sea un ajuste acotado, **sin migración**.
+
+- **v1.21-1 — Correo del invitado que YA tiene cuenta (la que PROJECT deja abierta, v1.5-1).** Implementado:
+  **no se revela**, la compra procede como invitado y el pedido queda **sin vincular** hasta el **reclamo explícito**
+  del titular con correo **verificado**. Es la única de las tres opciones que **no** reintroduce enumeración de
+  usuarios ni permite ensuciar el historial de un tercero. **Punto de decisión acotado (§4.21f):** el modelo guarda
+  `guestEmail` en el pedido y la vinculación es un `UPDATE` posterior de `userId`+`claimedAt`, así que pasar a
+  *auto-vínculo al pagar* = poblar esos dos campos en el settle, y a *exigir login* = un check en el checkout.
+  **Decisión del orquestador; revisable por el humano.**
+- **v1.21-2 — Vigencia del enlace (PROJECT v1.5-2).** Implementado: **90 días** desde cada emisión, con **tope de
+  edad de la orden de 365 días** para emitir nuevos (si no, el reenvío mantendría la puerta abierta para siempre).
+  Cambiar a 30 días o a "X días tras entregado" es cambiar una constante.
+- **v1.21-3 — Reenvío self-service (PROJECT v1.5-3).** Implementado: **sí**, con respuesta `202` neutra siempre,
+  3/hora por IP, 5/día por pedido, y exigiendo `(email + orderNumber)` juntos cuando no se presenta un token.
+  Existe además el reenvío **de soporte** (endpoint admin auditado). Si el humano prefiere "solo soporte", se
+  desactiva el endpoint público sin tocar nada más.
+- **v1.21-4 — `orderNumber` secuencial y legible.** Se elige `TCG-000123` con secuencia Postgres (patrón `folio`)
+  porque los criterios 45/49/53/56b lo exigen para correos, soporte y disputas. **Filtra el volumen de ventas** a
+  quien vea un número. La alternativa (número aleatorio no correlativo) es igual de barata si al humano le importa
+  esa señal. **No da acceso a nada por sí solo.**
+- **v1.21-5 — Tope comercial por pedido de invitado (PROJECT v1.5-5).** Hoy **no hay tope de monto** (solo el
+  técnico de **20 líneas** por pedido, anti-abuso). Si el humano quiere limitar exposición a contracargos, entra
+  como constante/dial sin cambio de contrato.
+- **v1.21-6 — Disputa de invitado sin fila `Dispute` (§4.21f).** Implementado: correo a soporte + **reembolso en
+  M3**. Coste: no aparece en la cola de M8 ni en métricas de disputas. **Deuda propuesta** (que el techlead enrute
+  si la considera): `Dispute.userId` nullable + `orderId`.
+- **v1.21-7 — Retención de datos del invitado no reclamado (PROJECT v1.5-7, sin supuesto).** El pedido guarda
+  correo, teléfono y dirección de una persona **sin cuenta**, en claro (mismo régimen que `User.email`; el cifrado
+  en reposo de §3.4 está reservado a CLABE/RFC/INE). **Depende de la postura legal**, no de la técnica: cuando el
+  humano fije el plazo, la implementación natural es un job que **anonimiza el snapshot y el `guestEmail`** de
+  pedidos entregados hace más de N días, **conservando** los montos e IVA para M7. Se deja anotado porque afecta
+  también a "solicitud de borrado" (bandera de privacidad de PROJECT).
+- **v1.21-8 — Idioma del correo (PROJECT v1.5-8).** Implementado: `Order.locale` capturado en el checkout, default
+  `es`.
 
 ### Preguntas abiertas (v1.20-master-set-everywhere — WS «Inventario y vault»)
 > No bloquean el diseño (defaults propuestos y **normados en el contrato**); se listan para veto/ajuste del humano.
@@ -3140,6 +4204,101 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.22-variantes-orden (nueva — orden natural del número persistido)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-26**. Es **estrictamente aditiva** (dos
+columnas `NOT NULL` con `DEFAULT`, un backfill `UPDATE` y un índice); **no** hay `DROP`, ni enums, ni cambios de
+nulabilidad, y **no toca `availableFinishes`** (el arreglo de variantes es **solo código** + re-sync, §4.22a/§4.22d).
+Segura para ejecutar con la app corriendo: hasta que el nuevo código despliegue, nadie lee las columnas.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-26 | `Card.numberSort Int @default(1000000)` | **Columna nueva** (`NOT NULL` con default) | Add column + backfill | Clave numérica del orden natural. `1_000_000` = `PROMO_SORT_BASE`: el default deja cualquier fila no backfilleada **al final**, nunca intercalada en falso. |
+| M-26 | `Card.numberPrefix String @default("")` | **Columna nueva** (`NOT NULL` con default) | Add column + backfill | Prefijo alfabético (`""` para números puros ⇒ ordenan **primero**, porque `''` es el menor string). |
+| M-26 | `@@index([setId, numberPrefix, numberSort])` | **Índice nuevo** | Create index | Sirve el `ORDER BY` del binder y de `GET /buylist/cards` **con `setId`** (el caso real de las tres vistas). Sin `setId` (búsqueda de texto global) el orden lo lidera `name`, ya indexado. |
+| M-27 | `Card.catalogFinishes Finish[] @default([])` | **Columna nueva** | Add column + backfill | v1.22-1 (§4.22g). «Opinión del catálogo» (Señal A ∪ B de pokemontcg.io), persistida para sobrevivir a un 502. **Backfill:** `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"`. La escribe `upsertCards`. |
+| M-27 | `Card.pricedFinishesSnapshot Finish[] @default([])` | **Columna nueva** | Add column | v1.22-1 (§4.22g). Señal C: acabados con `market>0` en PPT (alias VERIFICADO). Default `[]`; la puebla `price-ingest` en la 1ª corrida. |
+| M-27 | `Card.availableFinishes` **pasa a DERIVADA** | Semántica (no cambia forma ni tipo) | (sin SQL: recompute en runtime) | Deja de escribirse directamente; la recomputa `catalog.FinishReconciler` = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`. La columna y su índice/uso NO cambian. |
+
+**SQL de M-27** (solo `ADD COLUMN` + un `UPDATE` de backfill; sin índices nuevos):
+
+```sql
+ALTER TABLE "Card" ADD COLUMN "catalogFinishes"        "Finish"[] NOT NULL DEFAULT '{}';
+ALTER TABLE "Card" ADD COLUMN "pricedFinishesSnapshot" "Finish"[] NOT NULL DEFAULT '{}';
+
+-- Siembra la base con el valor catálogo ya materializado; pricedFinishesSnapshot queda vacío.
+UPDATE "Card" SET "catalogFinishes" = "availableFinishes";
+```
+
+**SQL exacto de la migración** (Prisma no expresa el backfill; va en el mismo `migration.sql`, **después** de los
+`ADD COLUMN` y **antes** del `CREATE INDEX`). La fórmula es el espejo 1:1 de `deriveNumberParts` (§4.22b), incluido el
+**clamp a `999_999`** vía `numeric` para no desbordar `Int` con un `number` de muchos dígitos:
+
+```sql
+ALTER TABLE "Card" ADD COLUMN "numberSort"   INTEGER NOT NULL DEFAULT 1000000;
+ALTER TABLE "Card" ADD COLUMN "numberPrefix" TEXT    NOT NULL DEFAULT '';
+
+UPDATE "Card" SET
+  "numberSort" = CASE
+    WHEN "number" ~ '^[0-9]+$'
+      THEN LEAST(("number")::numeric, 999999)::int
+      ELSE 1000000 + LEAST(
+             COALESCE(NULLIF(regexp_replace("number", '\D', '', 'g'), '')::numeric, 0),
+             999999)::int
+  END,
+  "numberPrefix" = CASE
+    WHEN "number" ~ '^[0-9]+$' THEN ''
+    ELSE regexp_replace("number", '[0-9]', '', 'g')
+  END;
+
+CREATE INDEX "Card_setId_numberPrefix_numberSort_idx"
+  ON "Card" ("setId", "numberPrefix", "numberSort");
+```
+
+> **Verificación post-migración (devops):** `SELECT number, "numberPrefix", "numberSort" FROM "Card" WHERE "setId"=:s
+> ORDER BY "numberPrefix","numberSort" LIMIT 20` debe arrancar en `1,2,3,…` (no `1,10,100`) y terminar con los
+> `TG*`/`SV*`. **El backfill no sustituye al re-sync** de §4.22d: este solo arregla el **orden**; las **variantes**
+> requieren `sync-all {force:true}`.
+
+### v1.21-guest-checkout (nueva — WS «Órdenes y dinero»: comprar sin cuenta)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-25** frente a cualquier otro stream. Es la
+migración **menos aditiva** de las recientes: incluye **dos `DROP NOT NULL`** (`Order.userId`,
+`ShipmentRequest.userId`). Aun así es **compatible hacia atrás**: ninguna fila existente cambia de valor, los
+defaults (`vault`, `0`) reproducen el comportamiento actual bit a bit, y los índices `@@index([userId])` **se
+conservan** (un B-tree de Postgres indexa `NULL` y las consultas `where userId = X` lo siguen usando igual). Diff
+campo por campo, con nota de compatibilidad por columna, en **API_CONTRACT §4-G.10**.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-25 | `enum FulfillmentMode` | **Enum nuevo** (`vault \| direct_ship`) | Create enum | Destino del pedido. `vault` = comportamiento actual. |
+| M-25 | `Order.userId` | `String` → **`String?`** (relación a opcional) | **Alter column (DROP NOT NULL)** | Un pedido de invitado no tiene `User`. **No relaja ninguna autorización**: la puerta sigue siendo `order.userId !== :sessionUser`, y `null` nunca iguala a un uuid. El **compilador** de TypeScript señalará cada punto que asumía no-nulo: backend debe resolverlos con decisión explícita, no con `!`. |
+| M-25 | `Order.guestEmail String?` | **Columna nueva** (nullable) + `@@index([guestEmail])` | Add column + index | Correo del invitado, normalizado (trim+lowercase) por la aplicación. `guestEmail != null` ⇔ el pedido **nació** de invitado (inmutable, sobrevive al reclamo). |
+| M-25 | `Order.fulfillmentMode` | **Columna nueva** `FulfillmentMode` **`@default(vault)`** | Add column | El default preserva el comportamiento existente sin backfill. |
+| M-25 | `Order.shippingAddressSnapshot Json?` | **Columna nueva** (nullable) | Add column | Dirección capturada en línea (el invitado no tiene `Address`). Mismo criterio de *snapshot* que `ShipmentRequest.addressSnapshot`. |
+| M-25 | `Order.shippingFeeCents Int @default(0)` | **Columna nueva** | Add column | Envío cobrado **dentro** de la orden. `0` en pedidos a bóveda ⇒ el P&L histórico no cambia. **Única** fuente del ingreso de envío de un pedido de invitado (§4.21b). |
+| M-25 | `Order.orderNumber String? @unique` | **Columna nueva** + **secuencia** `order_number_seq` + **backfill** | Add column + create sequence + data | Número legible `TCG-000123` (criterios 45/49/53/56b). Mismo patrón que `inventory_folio_seq`/`PrismaService.nextFolio`. Nullable solo para permitir el backfill; la aplicación lo escribe siempre. Greenfield ⇒ backfill trivial por `createdAt`. |
+| M-25 | `Order.claimedAt DateTime?` | **Columna nueva** (nullable) | Add column | Momento del reclamo. Con `guestEmail != null`: `null` ⇒ reclamable. |
+| M-25 | `Order.locale Locale?` | **Columna nueva** (nullable) | Add column | Idioma del correo del invitado (no hay `User.locale`). Resolución `order.locale ?? user.locale ?? 'es'`. |
+| M-25 | `Order.paymentMethodBrand String?`, `Order.paymentMethodLast4 String?` | **2 columnas nuevas** (nullable) | Add column | Capturadas del `charge` al liquidar. **Solo** marca + 4 últimos dígitos (permitido por PCI-DSS); jamás PAN/BIN/titular. Alimentan la vista pública. |
+| M-25 | `ShipmentRequest.userId` | `String` → **`String?`** | **Alter column (DROP NOT NULL)** | `null` **solo** en el envío directo creado por el servidor. Riesgo #1 de la migración: `GET /shipments[...]` debe filtrar por `userId = :sessionUser` de forma **positiva** (caso negativo obligatorio de QA). |
+| M-25 | `ShipmentRequest.orderId String?` + FK a `Order` + `@@index([orderId])` | **Columna + índice nuevos** | Add column + FK + index | **Discriminador**: `null` ⇒ retiro de bóveda (todo lo existente); poblado ⇒ envío directo que fulfilla ese pedido. **No `@unique`** (deja abierta la re-expedición sin migrar); invariante de aplicación: a lo más un envío **activo** por orden. |
+| M-25 | `OrderAccessToken` | **Modelo nuevo** (`id` uuid `@id`, `orderId` + FK `onDelete: Cascade`, `tokenHash String @unique`, `expiresAt DateTime`, `revokedAt DateTime?`, `lastUsedAt DateTime?`, `useCount Int @default(0)`, `requestIp String?`, `createdAt`; `@@index([orderId])`, `@@index([expiresAt])`) | Create table | Enlace de seguimiento. **Solo** el SHA-256 del claro. **Multi-uso**: `revokedAt` (revocable) en vez de `usedAt` (consumible) — es la única diferencia semántica con `AuthToken`, y la razón de no reusar ese modelo (su `userId` es obligatorio y su `consume()` es de un solo uso). |
+
+> **`CHECK` en SQL crudo dentro de la migración** (Prisma no los expresa; son baratos y atrapan bugs de
+> aplicación): `userId IS NOT NULL OR guestEmail IS NOT NULL`; `guestEmail IS NOT NULL ⇒ fulfillmentMode='direct_ship'`;
+> `fulfillmentMode='direct_ship' ⇒ shippingAddressSnapshot IS NOT NULL`; `claimedAt IS NOT NULL ⇒ userId IS NOT NULL`.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| **M-25b** | `InventoryItem` — `CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)` | **Constraint nuevo** (SQL crudo) | Add check constraint | **v1.21.2 (D6) — pasa de "recomendado" a NORMATIVO.** Es el invariante que §4-G.0-1 declara literalmente «lo que hace segura la nulabilidad de `Order.userId`», y era el **único** de los cinco que no se implementó. Sin él, un bug futuro que escriba `ownerType='customer'` con `ownerUserId=null` produce una pieza en el limbo: no sale en la bóveda de nadie (todas las consultas filtran por `ownerUserId`), no es vendible (`ownerType≠platform`) y no es ajustable en M1 — una carta desaparecida en silencio. Es una **tabla de otro work stream**: el orquestador serializa. **Precondición de despliegue:** `SELECT count(*) FROM "InventoryItem" WHERE "ownerType"='customer' AND "ownerUserId" IS NULL` debe dar **0** (debe darlo: hoy nada escribe esa combinación); si no, se corrige el dato **antes** de añadir el constraint. |
+> **Enums:** ninguno más — `InventoryStatus` **NO** crece (`picking|shipped|delivered` ya existen sin uso, §4.21c) y
+> `ShipmentStatus` tampoco. **Config/diales:** **ninguno** — los cinco parámetros del guest checkout son
+> **constantes de servidor** (`GUEST_TRACKING_TTL_DAYS=90`, `GUEST_TRACKING_MAX_AGE_DAYS=365`,
+> `GUEST_RESEND_MAX_PER_DAY=5`, `GUEST_MAX_ITEMS=20`, `GUEST_ORDER_RESERVATION_TTL_MIN=60`), mismo precedente que
+> las ventanas 7d/30d del buylist (v1.18); promoverlas a M10 después es no-breaking. La tarifa de envío reusa el
+> dial existente `SHIPPING_FEE_CENTS`. **Sin variables de entorno nuevas** (el enlace se arma con `APP_BASE_URL`).
 
 ### v1.20-master-set-everywhere (nueva — WS «Inventario y vault»: master set en todas partes)
 

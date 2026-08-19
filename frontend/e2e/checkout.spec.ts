@@ -10,6 +10,9 @@ import { loginAs, IS_REAL, MONEY_RE } from './utils/auth';
  */
 test.describe('checkout · desglose y CFDI', () => {
   test('muestra subtotal + procesamiento + IVA 16% + total y aviso CFDI', async ({ page }) => {
+    // v1.21-guest-checkout: SIN sesión, /checkout es ahora el checkout de INVITADO
+    // (criterio 45/46). Este caso cubre el checkout CON cuenta, así que autentica primero.
+    await loginAs(page, 'customer');
     await page.goto('/es/catalog');
     // Agrega la primera carta vendible (Charizard) al carrito.
     await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
@@ -75,6 +78,7 @@ test.describe('checkout · desglose y CFDI', () => {
   });
 
   test('desglose de checkout en inglés', async ({ page }) => {
+    await loginAs(page, 'customer');
     await page.goto('/en/catalog');
     await page.getByRole('button', { name: t('en', 'catalog.addToCart') }).first().click();
     await page.goto('/en/checkout');
@@ -87,6 +91,7 @@ test.describe('checkout · desglose y CFDI', () => {
   });
 
   test('el enlace de términos abre la política de reembolsos (ES)', async ({ page }) => {
+    await loginAs(page, 'customer');
     await page.goto('/es/catalog');
     await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
     await page.goto('/es/checkout');

@@ -9,6 +9,7 @@ import { IneRetentionJobService } from './ine-retention.service';
 import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
 import { AuthTokenSweepJobService } from './auth-token-sweep.service';
+import { GuestOrderSweepJobService } from './guest-order-sweep.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
@@ -16,11 +17,37 @@ import { PriceIngestJobService, PRICE_INGEST_SET_JOB } from './price-ingest.serv
 import { SealedPriceIngestJobService } from './sealed-price-ingest.service';
 import { FxSnapshot } from '../modules/pricing/price-ingest.service';
 import { bullRedisOptions } from './redis-connection.util';
+import { isSchedulerDisabled } from '../config/test-env';
 
 const QUEUE_NAME = 'tcg-daily';
 
 /** Throttle de logs de error de conexión (ioredis reintenta cada ~1-2s; sin esto, spamea). */
 const CONN_ERROR_LOG_INTERVAL_MS = 60_000;
+
+/**
+ * Plazo máximo del apagado (por etapa: wiring en curso, worker, cola). Vencido el plazo se
+ * loggea y se sigue: un job largo en vuelo (p. ej. `price-ingest`) NO puede dejar colgado el
+ * shutdown del proceso — todos los jobs son idempotentes (upsert + jobId dedup) y BullMQ los
+ * recupera como *stalled*. Configurable por env (devops) sin redeploy.
+ */
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
+
+/** `await` acotado: resuelve con el resultado o, vencido el plazo, con `'timeout'`. */
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<'timeout'>((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), ms);
+        // No mantiene vivo el event loop (importante para que jest/Node puedan salir).
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /**
  * SchedulerService (BE-5 / v15-D1) — Cablea TODOS los jobs diarios repetibles con
@@ -57,6 +84,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   setupDone?: Promise<void>;
   private lastConnErrorAt = 0;
   private lastConnErrorMsg = '';
+  /** El módulo ya se está destruyendo: el wiring en curso debe abortar en su próximo punto. */
+  private destroying = false;
 
   constructor(
     private readonly config: ConfigService,
@@ -72,9 +101,23 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly catalogPriceSync: CatalogPriceSyncJobService,
     private readonly priceIngest: PriceIngestJobService,
     private readonly sealedPriceIngest: SealedPriceIngestJobService,
+    // v1.21-guest-checkout (T9): barrido de reservas de pedidos de invitado sin pagar.
+    private readonly guestOrderSweep: GuestOrderSweepJobService,
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // Bajo la suite automatizada el scheduler NO arranca (ver `config/test-env.ts`): cada
+    // harness E2E levanta el AppModule completo y, con Redis real, registraba crons + worker
+    // sobre la cola compartida y el catch-up de `price-ingest` disparaba ingesta REAL contra
+    // pokemontcg.io → `worker.close()` esperaba a ese job y el `afterAll` colgaba (CI run
+    // 32080601928), además de escrituras de fondo no deterministas en la BD de test.
+    // Se puede re-activar con `E2E_ENABLE_SCHEDULER=true`. Fuera de `NODE_ENV=test` no aplica.
+    if (isSchedulerDisabled()) {
+      this.logger.warn(
+        'Scheduler deshabilitado bajo NODE_ENV=test (E2E_ENABLE_SCHEDULER=true para forzarlo).',
+      );
+      return;
+    }
     const url = this.config.get<string>('REDIS_URL');
     if (!url) {
       this.logger.warn(
@@ -122,6 +165,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     await this.queue.add('dispute-deadline', {}, this.repeat('dispute-deadline', '45 7 * * *'));
     await this.queue.add('buylist-sweep', {}, this.repeat('buylist-sweep', '0 8 * * *'));
     await this.queue.add('auth-token-sweep', {}, this.repeat('auth-token-sweep', '15 8 * * *'));
+    // v1.21-guest-checkout (T9, ARCHITECTURE §4.21e): a diferencia del resto de barridos, este
+    // NO es diario — una reserva de invitado sin pagar bloquea PIEZAS ÚNICAS durante
+    // GUEST_ORDER_RESERVATION_TTL_MIN (60 min), así que barre cada 15 min para que el inventario
+    // vuelva a estar vendible poco después de vencer. Cron overridable por env (devops).
+    const guestSweepCron = this.config.get<string>('GUEST_ORDER_SWEEP_CRON') ?? '*/15 * * * *';
+    await this.queue.add('guest-order-sweep', {}, this.repeat('guest-order-sweep', guestSweepCron));
     // v1.14-price-ingest (WS-A, §4.15c/§4.15g): entrega la cola al ingest para el fan-out por set.
     this.priceIngest.setQueue(this.queue);
 
@@ -149,6 +198,15 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     const metadataCron = this.config.get<string>('CATALOG_METADATA_SYNC_CRON') ?? '0 1 * * *';
     await this.queue.add('catalog-metadata-sync', {}, this.repeat('catalog-metadata-sync', metadataCron));
 
+    // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
+    // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
+    // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
+    // a `setupDone` antes de cerrar.
+    if (this.destroying) {
+      this.logger.warn('Scheduler: shutdown en curso durante el wiring; no se crea el worker.');
+      return;
+    }
+
     this.worker = new Worker(
       QUEUE_NAME,
       async (job) => {
@@ -171,6 +229,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
             return this.disputeDeadline.run();
           case 'auth-token-sweep':
             return this.authTokenSweep.run();
+          // v1.21-guest-checkout (T9): libera reservas de pedidos de invitado no pagados.
+          case 'guest-order-sweep':
+            return this.guestOrderSweep.run();
           // WS-A: metadata del catálogo (sets nuevos, force:false) — cadencia ligera diaria.
           case 'catalog-metadata-sync':
             return this.catalogPriceSync.runMetadataImport();
@@ -220,6 +281,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // encola un `price-ingest` INMEDIATO (jobId dedup por día). Así un deploy nuevo puebla
     // el catálogo sin esperar al próximo cron ni a un disparo manual. No-fatal.
     try {
+      if (this.destroying) return;
       await this.priceIngest.catchUpIfStale();
     } catch (err) {
       this.logger.error(
@@ -254,28 +316,59 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.destroying = true;
     this.priceIngest.setQueue(undefined);
-    // Cierres tolerantes: si Redis nunca conectó, `close()`/`quit()` pueden fallar o colgar;
-    // el shutdown no debe depender de un Redis sano.
-    try {
-      await this.worker?.close();
-    } catch (err) {
-      this.logger.warn(`Scheduler: worker.close() falló en shutdown: ${(err as Error).message}`);
+
+    const timeoutMs =
+      Number(this.config.get<string>('SCHEDULER_SHUTDOWN_TIMEOUT_MS')) || DEFAULT_SHUTDOWN_TIMEOUT_MS;
+
+    // 1. Esperar (acotado) al wiring en background: cerrar a medias dejaba cola/worker creados
+    //    DESPUÉS del destroy, es decir, conexiones ioredis vivas que nadie cierra (los "handles
+    //    abiertos" que hacían que jest no saliera).
+    if (this.setupDone) {
+      const r = await withTimeout(
+        this.setupDone.catch(() => undefined),
+        timeoutMs,
+      );
+      if (r === 'timeout') {
+        this.logger.warn('Scheduler: el wiring BullMQ no terminó a tiempo; se cierra igual.');
+      }
     }
-    try {
-      await this.queue?.close();
-    } catch (err) {
-      this.logger.warn(`Scheduler: queue.close() falló en shutdown: ${(err as Error).message}`);
-    }
+
+    // 2. Cierres tolerantes Y ACOTADOS: si Redis nunca conectó, `close()`/`quit()` pueden fallar
+    //    o colgar; y `worker.close()` (sin force) espera a que TERMINE el job en vuelo — un
+    //    `price-ingest` largo dejaba el shutdown colgado. Vencido el plazo se sigue: los jobs son
+    //    idempotentes y BullMQ recupera el abandonado como *stalled*.
+    const bounded = async (label: string, op: () => Promise<unknown>) => {
+      const r = await withTimeout(
+        op().catch((err: Error) => {
+          this.logger.warn(`Scheduler: ${label} falló en shutdown: ${err.message}`);
+        }),
+        timeoutMs,
+      );
+      if (r === 'timeout') {
+        this.logger.warn(
+          `Scheduler: ${label} excedió ${timeoutMs} ms en shutdown; se continúa (el job en ` +
+            `vuelo se recupera como stalled).`,
+        );
+      }
+    };
+    if (this.worker) await bounded('worker.close()', () => this.worker!.close());
+    if (this.queue) await bounded('queue.close()', () => this.queue!.close());
     if (this.connection) {
       // `quit()` manda un comando (se encolaría offline si no hay conexión → colgaría);
       // solo se intenta con la conexión lista, si no, corte duro con `disconnect()`.
       if (this.connection.status === 'ready') {
-        try {
-          await this.connection.quit();
-        } catch {
-          this.connection.disconnect();
-        }
+        // Acotado también: si `quit()` se queda esperando (comandos en vuelo tras un cierre
+        // forzado), se corta duro en vez de colgar el apagado.
+        const outcome = await withTimeout(
+          this.connection
+            .quit()
+            .then(() => 'ok' as const)
+            .catch(() => 'failed' as const),
+          timeoutMs,
+        );
+        if (outcome !== 'ok') this.connection.disconnect();
       } else {
         this.connection.disconnect();
       }

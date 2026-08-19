@@ -3327,3 +3327,961 @@ no cambian de forma; solo ganan campos). No toca dinero saliente.
   `test/inventory.batch.spec.ts` (bulk-publish con guardia atómica + test de carrera count=0).
   `npm run typecheck` 0 errores · `npm run lint` 0 warnings · `npm run build` OK · `npx jest` →
   **76 suites / 572 tests verdes** (+9 sobre §45.6).
+
+---
+
+## 46. Desbloqueo del gate `backend-e2e` + 2 CVEs HIGH de dependencias (2026-08-18)
+
+> Contexto: el release quedó bloqueado con el check suite en rojo (PR #4, runs 32080601928 /
+> 32080601897). Devops cerró gitleaks y el Chromium del E2E de frontend; lo que quedaba era
+> **de backend**: 4 tests de integración en 429 y un `afterAll` colgado, más 2 CVEs HIGH que sí
+> son dependencias reales de la app. Nada de esto tocó el contrato.
+
+### 46.1 `NODE_ENV=test` como ÚNICO relajo, centralizado y auditable (`src/config/test-env.ts`)
+
+Nuevo módulo con tres funciones puras (`isTestEnv`, `isThrottlerDisabled`, `isSchedulerDisabled`).
+**Regla dura:** ambas banderas exigen `NODE_ENV === 'test'` como AND obligatorio; **no existe env
+var capaz de apagar el rate-limiting ni el scheduler en staging/producción**. Las envs
+`E2E_ENABLE_THROTTLER` / `E2E_ENABLE_SCHEDULER` solo sirven para volver a ENCENDER la pieza dentro
+de la propia suite. El candado está testeado (`test/test-env.spec.ts`: en `production`, `staging`,
+`development`, `local` y sin `NODE_ENV` las funciones devuelven `false` aunque se pongan las envs).
+
+### 46.2 Throttler: 4 tests en 429 (`auth-authz.e2e-spec.ts`) — **cierra XS-2**
+
+- **Causa:** `POST /auth/login` está limitado a **5/min por IP** (SEC-C1) y el storage del throttler
+  es in-memory: la suite hace ~10 logins desde 127.0.0.1 dentro del mismo minuto y del mismo proceso
+  (`--runInBand`) → 429 `RATE_LIMITED` determinista, sin bug funcional detrás.
+- **Fix:** `src/common/guards/app-throttler.guard.ts` — `AppThrottlerGuard extends ThrottlerGuard`
+  con `shouldSkip()` que devuelve `true` solo si `isThrottlerDisabled()`. Se cablea en `app.module.ts`
+  en lugar del `ThrottlerGuard` pelado. **A nivel de guard a propósito**: los límites sensibles son
+  `@Throttle(...)` **por handler** (login/register 5/min, refresh 20/min, cotizador batch B-C1 12/min),
+  así que relajar la config global del `ThrottlerModule` no habría servido de nada.
+- **Los límites NO cambian** (global 300/min y todos los `@Throttle` siguen idénticos); en
+  staging/producción —donde corre el DAST— el rate-limiting está intacto.
+- **El control de seguridad sigue verificado punta a punta:** nueva
+  `test/integration/auth-throttle.e2e-spec.ts` re-activa el throttler (`E2E_ENABLE_THROTTLER=true`),
+  martillea `/auth/login` y exige **429 `RATE_LIMITED`** dentro del límite del minuto (y restaura la
+  env en `afterAll` para no contagiar a las demás suites del proceso).
+- Cierra **XS-2** de `docs/TECH_DEBT.md` (incluye el throttle B-C1 del cotizador batch, que caía por
+  lo mismo).
+
+### 46.3 Scheduler BullMQ: `afterAll` colgado 30 s + "Jest did not exit"
+
+- **Causa (confirmada leyendo el wiring, ver limitación en 46.5):** cada harness E2E levanta el
+  `AppModule` completo, así que **cada suite** arrancaba el `SchedulerService` contra el Redis real:
+  crons repetibles + worker sobre la cola compartida `tcg-daily` y, desde el fix de la auditoría de
+  precios (§43), un **catch-up de `price-ingest` al arranque** — que en la BD de E2E siempre se
+  dispara, porque las `PriceReference` del seed sintético son `isManualOverride: true` y
+  `hasRecentIngest()` las ignora. El worker se ponía a ingerir precios REALES contra pokemontcg.io y
+  `worker.close()` (sin `force`) **espera a que termine el job en vuelo** → `h.close()` > 30 s y
+  conexiones ioredis vivas al final del run.
+- **Fix 1 (el que desbloquea CI):** el scheduler **no arranca bajo `NODE_ENV=test`** (log de aviso;
+  `E2E_ENABLE_SCHEDULER=true` lo fuerza). Ninguna spec lo ejercita y sí aportaba indeterminismo,
+  tráfico a una API externa y escrituras de fondo en la BD de test.
+- **Fix 2 (bug REAL de producción, no solo de tests):** `onModuleDestroy` era propenso a colgarse y a
+  dejar handles:
+  - ahora **espera (acotado) a `setupDone`** antes de cerrar — el wiring corre en background desde §43,
+    y si el destroy llegaba antes, la cola/worker se creaban **después** del cierre y nadie los cerraba;
+  - un flag `destroying` aborta el wiring en curso (no se crea el worker si ya se está apagando);
+  - `worker.close()`, `queue.close()` y `connection.quit()` tienen **plazo máximo**
+    (`SCHEDULER_SHUTDOWN_TIMEOUT_MS`, default 10 s): vencido, se loggea y se continúa. Un
+    `price-ingest` largo ya no puede colgar el apagado de un deploy (los jobs son idempotentes —
+    upsert + jobId dedup— y BullMQ recupera el abandonado como *stalled*).
+  - Nota técnica: `Worker.close(force)` de BullMQ **cachea la promesa** en la primera llamada, así que
+    "reintentar con force" no funciona; por eso el plazo + seguir, en vez de un segundo `close(true)`.
+- **Tests:** `test/scheduler.spec.ts` (+3): no arranca bajo `NODE_ENV=test`; un `worker.close()` que
+  nunca resuelve **no** cuelga el destroy (y cola/conexión igual se cierran); un destroy durante el
+  wiring **no** crea el worker.
+
+### 46.4 Ruido de Postgres en los logs de CI (revisado: **no es un bug**)
+
+Las dos violaciones de unicidad del log de Postgres son **esperadas** y las provoca la propia suite:
+`User_email_key (customer@e2e.local)` viene del test que exige **409 `EMAIL_TAKEN`** al registrar un
+email duplicado, y `ProcessedStripeEvent_pkey (evt_e2e_succeeded_fixed)` del test de **idempotencia**
+del webhook (reentregar el mismo `event.id`). En ambos casos el código captura la violación y responde
+lo que el contrato manda; no hay nada que arreglar.
+
+### 46.5 CVEs HIGH: `glob` y `picomatch` (bump REAL, sin ignores de trivy)
+
+| Librería | CVE | Antes | Ahora | De dónde venía |
+|---|---|---|---|---|
+| `glob` | CVE-2025-64756 (command injection) | 10.4.5 | **10.5.0** | `@nestjs/cli` (transitiva) |
+| `picomatch` | CVE-2026-33671 (ReDoS extglob) | 4.0.1 | **4.0.5** | `@nestjs/cli` → `@angular-devkit/core` |
+
+- Se usan **overrides acotados por rango** en `backend/package.json`: `"glob@^10": "^10.5.0"` y
+  `"picomatch@^4": "^4.0.4"`. **A propósito no son overrides globales**: el árbol también tiene
+  `glob@7.2.3` (jest/eslint) y `picomatch@2.3.2` (chokidar/micromatch/jest-util), que **no están
+  afectados** (2.3.2 es justamente una de las versiones parchadas) y a los que empujar a 10.x/4.x
+  rompería APIs incompatibles. `npm ls` confirma que **no queda ninguna versión vulnerable** en el árbol.
+- Se retiró `overrides.tar` por **inefectivo**: `npm ls tar` sale vacío (ningún paquete del árbol
+  depende de `tar`; el `tar` del CVE viejo venía dentro del npm empaquetado en la imagen, que devops ya
+  eliminó del runtime). Un override que no aplica a nada solo da falsa sensación de cobertura. Los
+  demás overrides (`multer`, `qs`, `express`, `body-parser`, `uuid`, `file-type`, `tmp`) **sí** aplican
+  y se conservan.
+- La imagen instala con `npm ci --include=dev` (conserva devDependencies a propósito, ver NOTA de
+  `Dockerfile.backend`), así que el bump del lockfile es lo que llega al `app/node_modules` escaneado.
+
+### 46.6 Verificación ejecutada (2026-08-18)
+
+- `npm ci` limpio + `npm run test:integration` **contra Postgres 16 y Redis reales** (levantados
+  local, sin docker): **6 suites / 47 tests verdes**, sin el aviso "Jest did not exit".
+- `npm test` (unitarios): **86 suites / 701 tests verdes**. `npm run typecheck`, `npm run lint` y
+  `npm run build`: OK.
+- `npm ls glob` / `npm ls picomatch` tras `npm ci`: 10.5.0 y 4.0.5 (`overridden`), resto en versiones
+  no afectadas.
+- **NO verificado en este entorno (sin docker ni trivy):** el escaneo `trivy-image` real y el PUT
+  contra MinIO del `infra-smoke` (se salta con aviso si no hay S3; en CI sí corre). La confirmación
+  final de los 2 CVEs cerrados la da el job `trivy-image` de CI.
+
+---
+
+## 47. P-6 (2026-08-18) — El proveedor de PAGA no escribía ni un precio: el adapter llamaba al endpoint equivocado
+
+**Síntoma:** con `price_provider=pokemonpricetracker`, la key en Railway y
+`POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`, `PriceReference` **no recibía ni una fila** y el
+cotizador mostraba «Precio pendiente» en todo lo que cotiza por regla `pct`. Las cartas con importe
+(MX$1.00 / MX$0.50) son **pisos fijos por rareza** de las reglas de buylist y **enmascaran** el
+problema: no pasan por precio de mercado. Diagnóstico de devops en `DEVOPS_NOTES §23.9` / `P-6`.
+
+### 47.1 Causa: endpoint y forma del request
+
+El adapter hacía `POST /api/v1/cards/bulk-price` con cuerpo `{ set, limit, page }`. Ese endpoint
+**existe**, pero su cuerpo documentado es una **lista explícita** `{ cardIds: ["base1-4", …] }`: no
+acepta un filtro por set. El proveedor respondía 4xx → `throw` → lo capturaba el `catch` money-safe
+→ **0 filas sin borrar nada** (correcto por diseño) → cero referencias de mercado. Eran exactamente
+los tres `SUPUESTO (verificar 1ª corrida)` que el propio adapter dejó anotados.
+
+**Ahora:** el barrido por set usa el endpoint de precios —
+`GET /api/prices?setId=<CardSet.externalId>&limit=&page=` → `{ data, pagination }` — con el mismo
+`Authorization: Bearer`. La paginación se calcula con el objeto `pagination` de la RESPUESTA
+(`totalPages`, o `total`/`limit` **efectivos**, o `hasMore`), no con el heurístico «página
+incompleta»: si el servidor capa el `limit` pedido, la cuenta de páginas sigue saliendo bien. El
+`limit` pedido pasó de 250 a **1000** (el tope que documenta `/api/prices`; el de 100 es del bulk
+por-lista). Cota dura de 40 páginas como anti-bucle, igual que antes.
+
+**El modo por-lista (`{ cardIds }`) NO se implementó:** ningún flujo lo necesita (el ingest siempre
+trabaja set por set) y construirlo desde la BD serían más requests y más frágil para el mismo
+resultado. Queda documentado en el docblock del adapter por si algún día hace falta.
+
+**Ruta no verificada en runtime (honestidad):** el egress del sandbox bloquea el dominio del
+proveedor, así que la fuente sigue siendo su documentación pública. Como la doc alterna entre
+`/api/prices` y `/api/v1/prices` según la página, el adapter **prueba ambas en orden** en el primer
+request, memoriza la que respondió (`resolvedPath`, una sola vez por proceso) y deja en el log cuál
+fue. Un 404/400 de la primera **no** aborta la corrida.
+
+### 47.2 Mapeo (revisado aunque el endpoint fuera la causa)
+
+| Campo del proveedor | Nuestro campo | Nota |
+|---|---|---|
+| `id` / `cardId` | `Card.externalId` | mismo namespace pokemontcg.io (`sv8-104`). Se quitaron `productId`/`_id` de los candidatos: son de otro namespace y jamás resolverían. |
+| `cardNumber` | fallback `(set, number)` | **riesgo real confirmado**: nuestro `Card.number` viene de pokemontcg.io (`"104"`) y el proveedor puede publicar `"104/159"` o `"004"`. Ver 47.3. |
+| `printing` | `Finish` | se lee ahora `printing` **primero** (es el campo documentado), luego `variant`/`finish`/`printingName`/`subTypeName`. Se quitó `condition`: es el estado (NM/LP), no el acabado — leerlo podía atribuir un precio a un acabado inventado. |
+| `marketPrice` | `marketCents` | se lee `marketPrice` primero, luego `market`/`price`. La unidad la sigue fijando `POKEMONPRICETRACKER_MARKET_FORMAT` (fail-closed intacto). |
+| `setId` | — | **nuevo guard money-safe**: si la entrada trae un `setId` distinto al del set que se está ingiriendo, se DESCARTA. Si el filtro del proveedor no se respetara, el fallback `(set, number)` habría atribuido el precio a la carta equivocada. |
+
+Los acabados documentados mapean a nuestros canónicos con el mapa existente: `Normal`→`normal`,
+`Reverse Holofoil`→`reverse_holo`, `Holofoil`→`holofoil`, `1st Edition Holofoil`→
+`first_edition_holofoil`. `Unlimited` (y cualquier otro) **se OMITE**: no tiene enum propio y
+atribuirlo a `normal` cotizaría de más al comprar. **Acabado AUSENTE también se omite** (no se
+asume `normal`) — pero el resumen del log dice cuántas filas cayeron ahí y con qué ejemplo crudo,
+que es lo que permite ampliar el mapa de alias si el proveedor usa otros nombres.
+
+### 47.3 `cardNumber`: variantes de formato (`cardNumberVariants`)
+
+`PriceIngestService.resolveCardId` sigue resolviendo primero por `externalId` y luego por el número
+**EXACTO**. Solo si ambos fallan prueba las formas equivalentes (`pricing.types.cardNumberVariants`):
+`"104/159"` → `"104"` (se corta el total del set) y relleno de ceros en ambos sentidos
+(`"004"`↔`"4"`). Los alfanuméricos (`TG01`, `SV107`) no se tocan. Money-safe: la variante solo se
+acepta si casa con **UNA** carta del set; si casan dos, se omite la fila y se loguea — nunca se
+adivina a qué carta pertenece un precio.
+
+### 47.4 Diagnóstico observable (lo que hay que buscar en los Deploy Logs)
+
+Filtrando `PokemonPriceTracker` en Railway, los dos modos de falla ahora se distinguen sin acceso
+al proveedor:
+
+- **El request falló** → `EL REQUEST FALLÓ para el set <id>: HTTP <status> en <ruta> — cuerpo: <…>`.
+  Trae status **y cuerpo** del error del proveedor (contrato 400 / ruta 404 / auth 401-403 / cuota
+  429). Nunca se loguean la key ni los headers.
+- **El request pasó pero no mapeó** → `El request PASÓ pero NADA mapeó → revisa los nombres de campo
+  contra el ejemplo crudo: {…}`, además del resumen por set:
+  `<N> entradas crudas → <M> filas mapeadas [x sin acabado reconocible, y sin market válido, z de
+  otro set, w no-objeto]`.
+- **Todo bien** → `GET /api/prices OK (set <id>, pág 1): <N> entradas, pagination={…}` + el resumen
+  con `M > 0`, y aguas abajo el de siempre:
+  `price-ingest-set(<set>, pokemonpricetracker): <cartas> cartas, <refs> refs, …`.
+
+### 47.5 Tests
+
+`test/price-ingest.provider.spec.ts` cubre con **fixtures del formato documentado** (no se puede
+llamar al proveedor real desde el sandbox): request GET con `setId`/`Bearer` y sin cuerpo,
+paginación multi-página con `limit` capado por el servidor, respuesta sin `pagination`, caída a la
+ruta alterna ante 404, los cuatro acabados + `Unlimited` omitido, acabado ausente, `cardNumber`
+`"104/159"`, entrada de otro set, `marketPrice<=0` y **4xx → 0 filas sin excepción**.
+`test/price-ingest.service.spec.ts` cubre `cardNumberVariants` y la resolución por variantes
+(exacto primero, ambigua → omitida). Suite backend completa: **86 suites / 718 tests** en verde,
+más `lint` y `typecheck`.
+
+### 47.6 Lo que NO se tocó
+
+Reglas de buylist (`BUYLIST_PRICE_RULES` / `BUYLIST_PRICE_FALLBACK_PCT`), `.github/workflows/`,
+dial `price_provider`, envs y cron: intactos. El candado fail-closed de moneda/unidad y el
+comportamiento money-safe ante error (0 filas, precios previos **stale**, nunca borrados ni
+estimados) siguen exactamente igual. Sin cambios en el contrato de API.
+
+## 48. WS «Órdenes y dinero» — GUEST CHECKOUT (v1.21-guest-checkout, M-25, 2026-08-18)
+
+> Implementa `API_CONTRACT §4-G` completa (§4-G.0–§4-G.11) y `ARCHITECTURE §4.21`.
+> PROJECT §J / §J.1, criterios 45–56b. **Alcance tocado:** `modules/orders`, `modules/payments`,
+> `modules/shipments`, `prisma/` (solo M-25) y dos adiciones en `common/`.
+
+### 48.1 Qué se construyó (mapa rápido para QA / frontend)
+
+| Superficie | Archivo | Nota |
+|---|---|---|
+| `POST /checkout/guest/quote` · `/session` · `POST /orders/guest/track` · `/resend-link` | `orders/guest-orders.controller.ts` | `@Public()` + `@Throttle` EXACTO del contrato (30/min, 5/h, 20/min, 3/h). |
+| Lógica de los 4 endpoints + barrido T9 | `orders/guest-checkout.service.ts` | Incluye el mapeo `Order.status`+envío → `GuestOrderPublicStatus` y el `GuestOrderTrackingDTO`. |
+| Enlace tokenizado (emitir/validar/rotar/revocar/selector) | `orders/order-access-token.service.ts` | Multi-uso, `revokedAt`, solo SHA-256 en BD. **Dos vidas** (checkout 120 min / seguimiento 90 d) por `ttlMs`, sin columna nueva (§4-G.7a). |
+| Correo (plantilla LOCAL, sin tocar `mail/`) | `orders/mail/guest-order.templates.ts` + `orders/guest-order-mail.service.ts` | Inyecta el puerto global `MAIL_PORT`. |
+| Reclamo (`GET /orders/claimable`, `POST /orders/claim`) | `orders/order-claim.service.ts` + rutas en `orders.controller.ts` | `@RequireEmailVerified()`; UPDATE condicional. |
+| Reenvío de soporte (`POST /admin/orders/:id/tracking-link`) + campos M3 | `orders/admin-orders.controller.ts` | Auditado (`order.tracking_link.reissue`), no money-out. |
+| Rechazo de sesión en `/checkout/guest/*` | `orders/guards/reject-authenticated.guard.ts` | `409 ALREADY_AUTHENTICATED`. |
+| Rama `direct_ship` del webhook | `payments/payments.service.ts` (`settleDirectShipOrder`) | items → `picking`, crea `ShipmentRequest`, captura marca/last4, correo post-commit. |
+| Ramificación terminal de M4 + `kind` en la cola | `shipments/shipments.service.ts` | `enviado` ⇒ `picking→shipped`; `entregado` ⇒ `shipped→delivered`. |
+| Helpers de minimización | `orders/guest-privacy.ts` | `maskEmail`, `maskPostalCode`, `maskRecipientName`, `normalizeEmail`. |
+| Constantes de servidor | `orders/guest-checkout.constants.ts` | 90d / 365d / 5 por día / 20 líneas / 60 min. **No son diales de M10.** |
+
+**Zonas compartidas — solo adiciones:** `common/money.ts` gana `computeDirectShipBreakdown()` +
+`DirectShipBreakdownDTO`; `common/error-codes.ts` gana los códigos nuevos. Nada existente se
+modificó ni se reformateó (para no romper el merge de otras sesiones).
+
+### 48.2 Migración M-25 aplicada (diff real)
+
+`backend/prisma/migrations/20260818120000_m25_guest_checkout/migration.sql`. Verificada contra un
+Postgres 16 real: `migrate deploy` + `migrate diff --exit-code` ⇒ **sin drift**.
+
+- **Enum nuevo** `FulfillmentMode { vault | direct_ship }`.
+- **`Order`**: `userId` → nullable; columnas nuevas `guestEmail`, `orderNumber @unique`,
+  `fulfillmentMode @default(vault)`, `shippingAddressSnapshot`, `shippingFeeCents @default(0)`,
+  `claimedAt`, `locale`, `paymentMethodBrand`, `paymentMethodLast4`; índice `@@index([guestEmail])`;
+  relaciones `accessTokens`, `shipmentRequests`.
+- **`ShipmentRequest`**: `userId` → nullable; `orderId?` + FK + `@@index([orderId])`.
+- **Modelo nuevo `OrderAccessToken`** (tal cual §4-G.10).
+- **Secuencia `order_number_seq`** + backfill de `orderNumber` por `createdAt` dentro de la migración.
+- **4 CHECK** de invariantes (probados uno por uno contra Postgres: los tres pedidos mal formados
+  son rechazados y el `UPDATE` que dejaría `claimedAt` sin `userId` también).
+
+**Desviación consciente y necesaria (reportada al arquitecto):** las relaciones `Order.user`,
+`ShipmentRequest.user` y `ShipmentRequest.order` se declaran **`onDelete: Restrict` explícito**. Al
+volver opcional una relación, el default de Prisma pasa a `SET NULL`, y con `SET NULL` un borrado
+duro de usuario **huerfanaría** sus pedidos y **rompería** el CHECK
+`claimedAt IS NOT NULL ⇒ userId IS NOT NULL` (lo reprodujo el E2E). Con `Restrict` se conserva
+exactamente el comportamiento previo a M-25. **La migración NO recrea esas FKs**: quedan como estaban.
+
+### 48.3 Decisiones de implementación que otros roles deben conocer
+
+1. **`orderNumber` se escribe en TODOS los pedidos nuevos**, también en los de bóveda
+   (`POST /checkout/session`). La secuencia se reserva **antes** de la transacción (`nextval` no es
+   transaccional): un hueco es inocuo, un duplicado no. No hay `PrismaService.nextOrderNumber()`
+   porque `src/prisma/` es zona de otro stream: la consulta vive en `OrdersService`.
+2. **El precio del invitado sale de la MISMA función** que el del comprador con cuenta
+   (`OrdersService.priceCartForOrder`, extraída de `quote`/`createSession`). No hay tabla de precios
+   paralela: comprar como invitado no cambia condiciones comerciales (criterio 48b).
+3. **El envío del `ShipmentRequest` de invitado va en `0`** a propósito. El ingreso vive en
+   `Order.shippingFeeCents`. **M7 (módulo `admin`, OTRO work stream) debe corregir su fórmula**
+   según §12; mientras no lo haga, el ingreso de envío de los pedidos de invitado **no aparece** en
+   el P&L (no se duplica, se omite). *No se tocó `admin` por indicación explícita del orquestador.*
+4. **Movimientos de inventario del ciclo de invitado:** `reserved→picking` con `reason='settle'`
+   (mismo disparador que la ruta de bóveda) y `picking→shipped` / `shipped→delivered` con
+   `reason='sale'`. **No se usa `withdrawal`**: significaría "salió de la bóveda de un cliente" y
+   mentiría en los reportes de custodia. *El contrato no fija el `reason`; queda documentado aquí.*
+5. **`GET /shipments` y `/shipments/:id`** ganaron una guardia explícita contra `userId` vacío,
+   además del filtro positivo que ya tenían. Un envío `userId=null` no es de nadie (riesgo #1 de M-25).
+6. **El correo es best-effort post-commit.** Si Resend falla, el pago NO se revierte y el webhook
+   responde 200 (un 5xx haría que Stripe reintentara un settle ya aplicado).
+7. **`RejectAuthenticatedGuard` deja pasar una sesión INVÁLIDA** (token expirado/firma mala/cuenta
+   bloqueada): no hay sesión, luego es un invitado. Solo una sesión **válida** produce `409`.
+8. **El correo se recorta (`trim`) antes de validar** el formato y se pasa a minúsculas al persistir.
+   Un espacio pegado al copiar no puede bloquear una compra legítima.
+
+### 48.4 v1.21.1 — resolución del arquitecto a los dos puntos que backend reportó
+
+> Los dos huecos que backend detectó (regla 9) los resolvió el arquitecto en
+> **`API_CONTRACT §4-G.7a`** / **`ARCHITECTURE §4.21e-bis` + amenaza T7b**. **Sin migración
+> adicional: M-25 no cambia.** Esto es lo que quedó implementado.
+
+**1. Las DOS VIDAS del token (§4-G.7a).** Se retiró el requisito irrealizable ("el mismo token se
+envía por correo al liquidar"): con solo el SHA-256 en BD el claro **no es recuperable**, y esa
+irrecuperabilidad es la propiedad de seguridad **T5**, no un defecto. Ahora hay **dos emisiones en
+la misma tabla, sin columna nueva**, distinguidas **solo por `expiresAt`**:
+
+| | Token de **checkout** | Token de **seguimiento** |
+|---|---|---|
+| Lo emite | `POST /checkout/guest/session` | webhook `payment_intent.succeeded`, reenvío (§4-G.4), soporte (§4-G.9b) |
+| Se entrega | en la **respuesta HTTP** (campo **`checkoutToken`** + `checkoutTokenExpiresAt`) | **solo por correo** |
+| TTL | **120 min** (`GUEST_CHECKOUT_TOKEN_TTL_MIN`) | **90 días** (`GUEST_TRACKING_TTL_DAYS`) |
+| ¿Rota? | n/a (es el primero) | **NO en el settle** · **SÍ en reenvío/soporte** |
+
+- **El campo de la respuesta se renombró `trackingToken` → `checkoutToken`** (+
+  `checkoutTokenExpiresAt`). **Es contract-breaking para frontend**, ya avisado por el orquestador.
+- **El settle NO rota** (excepción acotada: rotar mataría la confirmación post-3DS en curso) y es
+  seguro porque la puerta que sobrevive se apaga sola en 2 h. **Reenvío y soporte SÍ rotan** y
+  revocan *todos* los vivos —incluido cualquier `checkoutToken` residual—. **El reclamo revoca todo.**
+- Resultado: el solapamiento de dos puertas sin contraseña baja de **90 días a ≤2 horas** (T7b).
+- `issue()` acepta `ttlMs`; el default sigue siendo 90 días. **No hay `type` ni `purpose` en la
+  tabla y no hace falta ninguna env nueva.**
+
+**2. `details.reason` del `410 TOKEN_REVOKED`: se ELIMINA `SUPPORT`.** Valores normativos:
+**`CLAIMED | ROTATED`**, derivados de forma literal — `order.claimedAt != null` ⇒ `CLAIMED`, en
+cualquier otro caso ⇒ `ROTATED`. Una rotación de soporte se reporta como `ROTATED` (es lo que el
+usuario necesita leer). **La trazabilidad forense no se pierde y está probada en la E2E:** el
+reenvío de **soporte** escribe `AuditLog` (`order.tracking_link.reissue`, con actor y timestamp) y
+el **self-service no escribe ninguno** — esa asimetría es la que distingue quién rotó.
+
+**3. Selector del reenvío (§4-G.4) — verificado.** `POST /orders/guest/resend-link` con `{token}`
+resuelve el pedido con **`OrderAccessTokenService.orderIdForSelector()`**, que busca **solo por
+`tokenHash`, SIN filtrar por `expiresAt` ni `revokedAt`**. Es el caso normal: se llega desde la
+pantalla de "enlace expirado" (o con un `checkoutToken` de 120 min ya vencido). *Identificar* el
+pedido ≠ *leerlo*: la lectura (§4-G.3) sigue exigiendo un token vigente vía `validate()`.
+Cubierto por tests unitarios (incluido uno que afirma que el `where` de la consulta tiene
+**exactamente** la clave `tokenHash`) y por un caso E2E con un token realmente revocado.
+
+**4. Ratificados sin cambio:** los `InventoryMovement.reason` (`settle` en `reserved→picking`,
+`sale` en `picking→shipped` y `shipped→delivered`, **`withdrawal` prohibido**) y el conteo de
+**8** códigos de error nuevos.
+
+### 48.5 Job `guest-order-sweep` (T9) — CABLEADO (2026-08-18, ronda 2)
+
+`backend/src/jobs/guest-order-sweep.service.ts`, registrado en `JobsModule` y en el
+`SchedulerService`. Sigue el patrón standalone de `auth-token-sweep` / `buylist-sweep`: un `run()`
+sin estado que **delega la regla de negocio** en `GuestCheckoutService.sweepStaleGuestOrders()`
+(el dueño del ciclo del pedido de invitado) para no duplicar lógica en `jobs/`.
+
+- **Qué hace:** libera las piezas (`reserved → listed`) de las órdenes de invitado `pending` con más
+  de `GUEST_ORDER_RESERVATION_TTL_MIN` (**60 min**), marca la orden `failed` y cancela el
+  PaymentIntent (best-effort).
+- **Cadencia: cada 15 minutos, NO diaria** — a diferencia del resto de barridos. Una reserva de
+  invitado sin pagar bloquea **piezas únicas**; con cron diario, una carta abandonada tras el 3DS
+  quedaría invendible hasta el día siguiente.
+- **Cron overridable por env: `GUEST_ORDER_SWEEP_CRON`** (default `*/15 * * * *`).
+  ⚠️ **`.env.example` es de devops: la variable NO se añadió ahí.** Queda reportada al orquestador
+  para que devops la documente/propague (el default ya es sensato, así que no bloquea el deploy).
+  **Es la ÚNICA variable de entorno nueva de todo el guest checkout** (ver §48.5b).
+- **Sin Redis no hay cron** (mismo gating que todos los jobs: `SchedulerService` se desactiva sin
+  `REDIS_URL`). **No se expuso `POST /admin/jobs/guest-order-sweep`**: sería superficie de API nueva
+  y el contrato no la contempla; si ops la quiere, pasa por el arquitecto.
+- **Adición estrictamente localizada en `scheduler.service.ts`** (12 líneas, 0 borradas): import,
+  parámetro de constructor **al final**, un `queue.add` junto a los demás barridos y un `case` en el
+  worker. **No se tocó el bloque de pricing** (hay otra sesión trabajando ahí) ni el log-resumen del
+  arranque, que por eso **no lista** `guest-order-sweep`; es cosmético (el job loguea cada corrida y
+  el worker loguea `completed`) y se puede plegar cuando esa sesión cierre.
+- **Nota menor:** el helper `repeat()` sufija el `jobId` con `-daily`, así que el id en Redis es
+  `guest-order-sweep-daily` pese a correr cada 15 min. Es solo la clave de dedup (invisible para
+  ops); no se modificó el helper para no tocar código compartido.
+
+### 48.5b Handoff a devops — variables y constantes del guest checkout
+
+**Variables de entorno (única lista; todo lo demás son constantes de servidor):**
+
+| Variable | Default | Para qué | Dueño del archivo |
+|---|---|---|---|
+| `GUEST_ORDER_SWEEP_CRON` | `*/15 * * * *` | Cadencia del barrido T9 de reservas de invitado sin pagar. Sin `REDIS_URL` el scheduler está apagado y el job no corre. | devops (`.env.example`) — **no la añadí yo** |
+
+**Constantes de servidor** (`backend/src/modules/orders/guest-checkout.constants.ts`; **NO son
+diales de M10 ni envs**, mismo precedente que las ventanas 7d/30d del buylist):
+
+| Constante | Valor | Nota |
+|---|---|---|
+| `GUEST_TRACKING_TTL_DAYS` | 90 | TTL del enlace que viaja por correo. |
+| `GUEST_CHECKOUT_TOKEN_TTL_MIN` | **120** | v1.21.1 — TTL del `checkoutToken` de la respuesta del checkout. |
+| `GUEST_TRACKING_MAX_AGE_DAYS` | 365 | Tope de edad del pedido para emitir enlaces nuevos. |
+| `GUEST_RESEND_MAX_PER_DAY` | 5 | Tope de enlaces por pedido en 24 h. |
+| `GUEST_MAX_ITEMS` | 20 | Máximo de líneas por pedido de invitado. |
+| `GUEST_ORDER_RESERVATION_TTL_MIN` | 60 | Ventana de reserva que barre el job T9. |
+
+La **tarifa de envío** NO es constante nueva: reusa el dial existente `SHIPPING_FEE_CENTS` (M10).
+Promover cualquiera de estas constantes a `ConfigSetting` más adelante es **no-breaking**.
+
+### 48.7 v1.21.2 — T1 (double-sell del contracargo), D4, D6 y el bloqueante B3 de QA
+
+**T1 — el contracargo NUNCA re-lista una pieza con envío vivo.** `onChargeDispute` ramifica ahora
+por `Order.fulfillmentMode` (switch exhaustivo que **lanza** ante un modo desconocido) y, en
+`direct_ship`, decide **por el estado del envío**:
+
+| Envío al llegar el contracargo | `ShipmentRequest` | `InventoryItem` | `chargebackNeedsManual` |
+|---|---|---|---|
+| no existe / `cancelado` | — | `reserved\|picking → listed` + `chargeback_return` | `false` |
+| `solicitado\|picking\|guia` | **→ `cancelado`** (misma tx) | **CONGELADO** en `picking` | `true` |
+| `enviado\|entregado` | sin cambio | sin cambio | `true` |
+
+- **Desenlace humano nuevo:** `POST /admin/orders/:id/chargeback-inventory`
+  (`recuperada | no_recuperada | reexpedir`, `note` obligatoria, `vault_operator+`, auditado, **no
+  money-out**). Sin él la pieza congelada se quedaba congelada para siempre.
+- **Ganar la disputa NO re-expide.** En `direct_ship` el flag `chargebackNeedsManual` **no se
+  limpia** al cerrar la disputa (ni en `won` ni en `lost`): lo limpia solo el desenlace humano. En
+  `vault` se conserva el comportamiento v1.21 (se limpia). *La extensión al caso `lost` la decidí
+  yo por simetría —el contrato solo norma `won`—: limpiarlo dejaría la pieza congelada fuera de
+  toda cola.*
+- `recuperada` devuelve la pieza a `listed`, o a **`in_stock`** si su precio de venta no resuelve
+  (en Compra nunca se publica una pieza sin precio).
+
+**D4 — discriminador canónico.** `ShipmentRequest.orderId` responde solo "¿de dónde viene?"; el
+**comportamiento** (transición terminal del item y `kind` de §M4) se resuelve leyendo
+`Order.fulfillmentMode`. El switch **lanza** ante un modo no soportado y ante `vault` con
+`orderId != null` (combinación imposible = corrupción de datos), en vez de asumir `direct_ship`.
+
+**D6 — migración M-25b** (`backend/prisma/migrations/20260818160000_m25b_inventory_owner_check/`):
+`InventoryItem CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)`. Es el quinto invariante
+de §4-G.10, el que sostiene la nulabilidad de `Order.userId`. **`InventoryItem` es tabla del stream
+«Inventario y vault» ⇒ el orquestador serializa.**
+> **Precondición verificada contra Postgres real:**
+> `SELECT count(*) FROM "InventoryItem" WHERE "ownerType"='customer' AND "ownerUserId" IS NULL` → **0**
+> (antes de escribir la migración y de nuevo tras correr la suite E2E completa). **devops debe
+> re-ejecutarla en staging/producción antes de aplicar**; si diera > 0, se corrige el dato primero.
+
+**B3 (bloqueante de QA) — carrera barrido↔settle.** El orden estaba invertido: se liberaba el
+inventario y **después** se intentaba cancelar el PaymentIntent, tragándose el fallo con un `warn`.
+Un webhook `succeeded` tardío liquidaba la orden ⇒ **pedido pagado, envío en la cola del operador y
+la misma pieza única otra vez comprable**. Tres arreglos:
+1. **Cancelar el PI primero, liberar solo si quedó `canceled`.** `StripeService.cancelPaymentIntent`
+   devuelve el `status`; si la cancelación falla, se consulta el PI: `canceled` ⇒ se libera
+   (evita reservas atrapadas para siempre); `succeeded`/vivo/desconocido ⇒ **no se libera**.
+2. **El fallo ya no se traga:** es `logger.error` y el pedido **no se barre en esa pasada** (se
+   reintenta en la siguiente). El barrido reporta `swept` y cuántos se saltaron.
+3. **La rama silenciosa del settle es ruidosa:** si una pieza no está `reserved` al liquidar, se
+   **re-congela** en `picking` cuando sigue libre (el pago confirmado manda sobre una reserva
+   liberada) y, si ya está comprometida con otro flujo, **no se le quita a nadie** — en ambos casos
+   `logger.error` + `AuditLog` (`order.settle_inventory_anomaly`, con `needsHumanReview`).
+
+**I2 (QA) — el bloque `payment` nunca había corrido en verde.** `TestStripeService` no sobrescribía
+`getCardDetails`, así que salía a la red real y devolvía `null`. Ahora el doble devuelve una tarjeta
+determinista y la E2E verifica que `paymentMethodBrand/Last4` se persisten al liquidar y que el
+`GuestOrderTrackingDTO` expone `{brand, last4}` y nada más.
+
+**Discrepancia detectada entre documentos (no la resolví yo):** ARCHITECTURE §4.21h (caso vi) pide
+que `reexpedir` sobre una orden aún en `chargeback` devuelva **422**, mientras API_CONTRACT §M3 dice
+**409 CONFLICT** para ese mismo caso. Implementé y testeé **409** (el contrato manda sobre el código
+y §M3 es la especificación del endpoint). Reportado al orquestador.
+
+### 48.8 T1-b + atomicidad del desenlace (ronda de rechazo del techlead)
+
+**T1-b — la rama «envío cancelado» reabría el double-sell.** Mi `else` guardaba
+`status: { in: ['reserved','picking'] }`, ampliando la fila 1 de la tabla normativa (que autoriza
+**solo `reserved → listed`**), y mi docblock documentaba la ampliación como si fuera la norma.
+
+- **Camino automático que lo disparaba:** la idempotencia del webhook es por `event.id`, así que una
+  **segunda** `charge.dispute.created` (reapertura / segunda disputa) **no** se deduplica; encontraba
+  el envío ya `cancelado`, caía en esa rama y re-listaba la pieza **congelada**, además de bajar
+  `chargebackNeedsManual` a `false` — borrando la única señal de que faltaba una decisión humana.
+- **Arreglado:** guardia `status: 'reserved'` exacta; una pieza en `picking` con envío cancelado
+  **se queda congelada** y va al desenlace humano. Docblock corregido para **citar** la tabla, no
+  reinterpretarla, y test reescrito para asertar el congelamiento (antes fijaba el comportamiento
+  ampliado).
+- **`chargebackNeedsManual` es MONÓTONO en el webhook:** solo sube a `true`, nunca baja (se escribe
+  `undefined` cuando no hay nada que elevar). Bajarlo es competencia **exclusiva** de
+  `resolveChargebackInventory`. Hay un test que recorre las cuatro ramas y verifica que el webhook
+  **nunca** escribe `false`.
+
+**Atomicidad del desenlace (mismo archivo, pagado en la misma pasada).**
+`resolveChargebackInventory` leía `chargebackNeedsManual` **fuera** de la transacción y lo escribía
+**dentro**: dos llamadas concurrentes (doble submit; el endpoint no lleva `Idempotency-Key`) pasaban
+ambas, y `reexpedir` creaba **dos `ShipmentRequest`** para la misma orden — rompiendo «a lo más un
+envío activo por orden» (§4-G.10) y duplicando la pieza en `pickingList()`. Ahora **todo** ocurre en
+una transacción y la decisión se **reclama** con `updateMany(where: { chargebackNeedsManual: true })`
++ `count === 1` (el patrón de la casa, el mismo de `reserveItems`). El perdedor recibe `409`, que
+**es** la regla de idempotencia de §M3. Y como la transacción revierte al lanzar, un desenlace
+**rechazado** (p. ej. `reexpedir` sin disputa ganada) **no consume** la decisión: el flag vuelve a
+`true`. Cubierto con un test de dos `reexpedir` concurrentes.
+
+**`GET /admin/orders?needsManual=true` (§M3, aditivo).** Filtro opcional sobre el listado que ya
+existía: sin el parámetro, misma forma de respuesta y mismo comportamiento. Es la **cola de
+contracargos por resolver**; sin ella nadie sabría **cuándo** llamar a `chargeback-inventory` y la
+pieza congelada se quedaría congelada para siempre. **La UI es del WS «Admin y auditoría»**; aquí
+solo está el filtro porque `admin-orders.controller.ts` vive en este módulo.
+
+**Regresión adoptada de QA.** El `TestStripeService` del harness devolvía **siempre** `canceled`, así
+que por sí solo **nunca ejercitaba la rama peligrosa** de B3. Ahora tiene un `cancelOutcome`
+guionizable (`canceled | throws-succeeded | throws-canceled | throws-unknown | requires_capture`) y
+los casos **A1, A3 y C2** de QA viven en la suite E2E del repo, más las variantes «estado distinto de
+canceled» y «PI ya cancelado ⇒ sí libera». También se añadió el caso T1-b contra Postgres real (una
+segunda disputa no descongela la pieza ni baja el flag).
+
+> **Nota de mocks:** dos dobles de `inventoryItem.updateMany` ignoraban la guardia **escalar**
+> (`status: 'reserved'`) y solo honraban la forma `{ in: [...] }`, con lo que dejaban pasar
+> exactamente el bug de T1-b. Corregidos para honrar ambas, como hace Prisma contra la fila real.
+
+### 48.9 Regresión adoptada de QA + cierre del stream (última ronda: solo tests y docs)
+
+**Suite nueva: `backend/test/integration/guest-chargeback.e2e-spec.ts` (11 casos).** Vive aparte de
+`guest-checkout.e2e-spec.ts` porque cuenta otra historia: qué pasa cuando el dinero se da la vuelta.
+Adopta como regresión permanente los hallazgos que QA cubrió y la suite del equipo no:
+
+| Caso | Qué ancla |
+|---|---|
+| Disputa **PERDIDA** | El otro camino al «congelada para siempre»: `lost` **no** limpia `chargebackNeedsManual`, el pedido sigue en `?needsManual=true` y el desenlace humano funciona igual. |
+| **Segunda y tercera** disputa | La idempotencia del webhook es por `event.id`: no filtra una reapertura. La pieza sigue `picking` y el flag en `true`. |
+| **Monotonía** del flag | Un webhook que computa `false` no puede bajar un `true` ya puesto: solo el desenlace humano lo baja. |
+| **Fila 1 legítima** | Ceñir la guardia a `reserved` no rompió el caso que la norma **sí** autoriza (pieza `reserved` sin envío ⇒ `listed` + `chargeback_return` + cierre automático). |
+| Caso **i** | Congelar **no** deja ningún `InventoryMovement` (no pasó nada físico todavía). |
+| Caso **v** por las **tres puertas** | `/checkout/guest/quote`, `/checkout/quote` y `/checkout/session` ⇒ `409 ITEM_UNAVAILABLE`, y la pieza fuera de la `picking-list`. El guardarraíl es el `status`, así que protege a las dos rutas de fulfillment por igual. |
+| **Atomicidad** | Dos `reexpedir` concurrentes ⇒ `[200, 409]` y **un** envío activo; un desenlace rechazado **revierte el claim** y la decisión sigue pendiente. |
+| `no_recuperada` | Cierra sin mover inventario ni marcar merma. |
+| Filtro `?needsManual` | Partición exacta del listado; un valor no reconocido lo deja intacto. |
+| Caso **viii** (D4) | `vault` con `orderId` ⇒ la transición terminal responde `409` y el helper lanza `Unsupported fulfillmentMode`, en vez de asumir envío directo. |
+
+**BE-64 (QA) resuelta en esta ronda — flake latente, no regresión.** El caso «el envío aparece en la
+cola de M4» buscaba su fila en un listado **paginado de 20** sin filtrar, así que empezaba a fallar
+solo cuando la BD compartida acumulaba envíos (QA: 102/104 con 41 envíos, 103/104 tras recrear).
+Ahora la consulta se acota (`status=picking&pageSize=100`). **Verificado corriendo la integración dos
+veces seguidas sobre la misma BD acumulada** (40 envíos): 114/115 en ambas pasadas.
+
+> **Lección del stream, para quien herede esto:** los tres bloqueantes (T1, T1-b, B3) sobrevivieron
+> a los gates por la misma razón —**el instrumento estaba ciego**—, no por falta de tests:
+> dos dobles de `inventoryItem.updateMany` ignoraban la guardia **escalar** (`status: 'reserved'`) y
+> solo honraban `{ in: [...] }`, y `TestStripeService.cancelPaymentIntent` devolvía **siempre**
+> `canceled`. Con esos dos dobles, un test podía pasar en verde afirmando justo lo contrario de lo
+> que hacía el código. Antes de escribir el test de un bug de inventario o de dinero, **comprueba
+> que el doble sabe fallar**.
+
+### 48.6 Cómo probarlo
+
+```bash
+cd backend
+npm test                    # 100 suites / 912 tests (incluye las 14 suites nuevas del guest checkout)
+npm run test:integration    # 8 suites / 115 casos (requiere Postgres; `infra-smoke` exige S3/MinIO)
+npm run lint && npm run typecheck
+# E2E (requiere Postgres real):
+DATABASE_URL=... APP_BASE_URL=http://localhost:3000 npm run test:integration
+```
+
+- **Suites E2E nuevas:** `test/integration/guest-checkout.e2e-spec.ts` (57 casos) y
+  `test/integration/guest-chargeback.e2e-spec.ts` (11 casos, §48.9) — camino feliz de
+  §J.1 completo (comprar → webhook → enlace → guía → enviado → entregado → reclamo) más los flujos
+  negativos (token manipulado, token de otro pedido, reenvío neutro, doble reclamo, aislamiento de
+  `GET /shipments`). Es **idempotente**: usa correos y folios propios por corrida
+  (`E2E-GST-<run>-*`), porque deja `ShipmentItem` de un envío entregado y eso alteraría el
+  contracargo de otra suite si reusara los folios compartidos del seed.
+- **Suites unitarias nuevas:** `money.direct-ship`, `guest-order-token`, `guest-checkout.session`,
+  `guest-checkout.tracking` (minimización + neutralidad + mapeo de estado), `guest-checkout.resend`,
+  `guest-claim`, `payments.guest-settle`, `shipments.guest-direct-ship`, `guest-checkout.contract`,
+  `guest-checkout.guard-sweep-mail`, `guest-order-sweep.job`.
+- **El barrido T9 se probó contra Postgres real** (dos casos en la E2E): una orden de invitado
+  envejecida a 90 min libera su pieza (`listed`, `ownerType=platform`), la orden queda `failed`, el
+  PI se cancela y la carta se puede volver a cotizar; y el barrido **no toca** pedidos recientes ni
+  liquidados.
+
+## 49. WS «Catálogo y precios» + «Inventario y vault» — Variantes reales y orden natural del master set (v1.22-variantes-orden, M-26, 2026-08-18)
+
+Implementa ARCHITECTURE §4.22 / API_CONTRACT v1.22 tal cual las cerró el arquitecto. Es la **tercera
+ronda** del mismo bug del PO («una casilla de imagen por VARIANTE REAL, normal a la izquierda, holo
+reverso a la derecha»): las dos rondas previas atacaron el render; la causa estaba en el dato y en
+quién lo escribía.
+
+### 49.1 Causa raíz y el arreglo (§4.22a)
+
+`Card.availableFinishes` respondía *«¿en qué impresiones existe esta carta?»* (metadata de catálogo)
+pero se escribía desde la ruta que responde *«¿cuánto vale hoy?»* (`price-ingest.service.ts:167-172`,
+VAR-1): tras ingerir precios, **sobrescribía** el campo con los acabados que obtuvieron `market > 0`.
+Una carta con reverse holo **sin precio** de reverse holo quedaba clobbeada a `['normal']` — una sola
+casilla. Agravado por VAR-2 (`catalog-sync` solo miraba `tcgplayer.prices`, ignorando `cardmarket`),
+VAR-3 (los seeds no seteaban el campo, así que el bug era invisible a cualquier E2E) y VAR-4 (los
+sets importados antes de v1.6-finish nunca se refrescaban sin `force:true`).
+
+**Norma aplicada — 5 reglas:**
+1. **Autoridad única = `CatalogSyncService.upsertCards`.** Es el ÚNICO escritor de
+   `Card.availableFinishes` en todo el sistema.
+2. **`price-ingest` no escribe `availableFinishes`. Cero escrituras.** Se eliminó el bloque completo
+   (el `card.update({ data: { availableFinishes } })` en `ingestForSet`), no se "amplió sin reducir":
+   la unión monótona con un alias mal mapeado en `BULK_VARIANT_TO_FINISH` (todavía marcado *SUPUESTO
+   — verificar 1ª corrida*) grabaría un acabado inexistente que el catálogo ya no podría limpiar.
+3. **Derivación = unión de DOS señales del mismo payload** (`backend/src/modules/pricing/pricing.types.ts`,
+   `deriveAvailableFinishes(remote): Finish[] | null`):
+   - **Señal A** — `tcgplayer.prices`: cada **llave presente** (mapeable) añade su `Finish`. La
+     presencia de la llave ES la señal; `market` puede ser `null`/`0`.
+   - **Señal B** — `cardmarket.prices.reverseHolo*` (`reverseHoloSell|Low|Trend|Avg1|Avg7|Avg30`):
+     añade `reverse_holo` si ALGUNO de esos campos es un número **finito > 0**. ⚠️ Asimetría
+     deliberada con la señal A: Cardmarket emite esas llaves SIEMPRE (con `0`/`null` cuando la
+     impresión no existe) ⇒ aquí la llave NO es señal, el VALOR sí. Tratarla como la A inventaría un
+     reverse holo en TODAS las cartas — la casilla de relleno que el PO prohíbe.
+   - Sin ninguna señal → **`null`** (≠ `['normal']`: significa «el payload no dice nada»).
+4. **`upsertCards` (`catalog-sync.service.ts`):**
+   - **CREATE** → `derived ?? ['normal']` (conservador, nunca relleno).
+   - **UPDATE** → la clave `availableFinishes` se **omite del objeto `data`** cuando `derived ===
+     null` (Prisma conserva el valor existente); se incluye y **puede reducir** cuando `derived !==
+     null` (corrección legítima).
+5. **Observabilidad, no adivinanza.** El sync loguea `cardsWithoutFinishSignal=N/M` por lote (WARN) y
+   `price-ingest` loguea `finishNotInCatalog` cuando el proveedor de paga reporta un acabado que
+   `Card.availableFinishes` no declara — el precio **sí** se persiste (el quote valida el finish
+   contra el catálogo antes de leer precio; dato inocuo), el catálogo **no** se toca.
+
+### 49.2 Orden natural persistido — M-26 (§4.22b)
+
+`Card.number` es `String`; el `orderBy: [{name},{number}]` anterior ordenaba `"10"` antes de `"2"`.
+Se descartó ordenar en memoria porque **`searchAllCards` pagina** (`skip`/`take`): ordenar después
+del `LIMIT` reordena la página, no el conjunto (orden global incorrecto + filas repetidas/saltadas
+entre páginas). Se eligieron **columnas persistidas**:
+
+- `Card.numberSort Int @default(1000000)` / `Card.numberPrefix String @default("")` — migración
+  `20260818180000_m26_card_number_order` (aditiva: dos `ADD COLUMN NOT NULL DEFAULT`, un backfill
+  `UPDATE` con el mismo clamp a `999999` vía `numeric` que el código, y `CREATE INDEX
+  "Card_setId_numberPrefix_numberSort_idx" ON "Card"("setId","numberPrefix","numberSort")`). El SQL
+  es copia literal del que especificó el arquitecto en ARCHITECTURE §11.
+- **Un solo algoritmo** en `backend/src/common/card-order.ts` (`deriveNumberParts`,
+  `compareByNumber`, `FINISH_ORDER`, `orderFinishes`, `CARD_ORDER_BY_IN_SET`, `CARD_ORDER_BY_GLOBAL`):
+  lo usan `upsertCards` (escribe las columnas), `CatalogService.searchAllCards`
+  (`GET /buylist/cards`), `MasterSetService.binder` (ordena en BD, ya no en memoria) y los tres
+  seeds. `master-set.service.ts` **re-exporta** estos símbolos por compatibilidad de imports (varios
+  módulos/tests los importaban desde ahí).
+- `orderBy` normativo: con `setId` → `[{numberPrefix},{numberSort},{number},{id}]`; sin `setId` →
+  `[{name},{setId},{numberPrefix},{numberSort},{id}]`. El `{id:'asc'}` final es el desempate total
+  que hace determinista la paginación (sin él, dos filas empatadas pueden intercambiarse entre dos
+  consultas y producir filas repetidas/saltadas al cambiar de página).
+- `MasterSetService.binder`: el `card.findMany` del binder ahora usa `orderBy: CARD_ORDER_BY_IN_SET`
+  y lee `numberSort`/`numberPrefix` de la fila; se eliminó el `.sort(compareByNumber)` + `parts =
+  deriveNumberParts(c.number)` en memoria. `isSecretRare` (heurística de display, BE-36) ahora lee
+  `c.numberPrefix === ''` y `c.numberSort > printedTotal` directo de las columnas — misma semántica
+  para números puros (donde `numberSort` ES el entero).
+- `CardDTO` y `MasterSetCardCellDTO` ganan `numberSort`/`numberPrefix` (aditivo).
+
+### 49.3 Archivos tocados
+
+- **Nuevo** `backend/src/common/card-order.ts` — algoritmo único de orden (números + acabados).
+- `backend/src/modules/pricing/pricing.types.ts` — `deriveAvailableFinishes` reescrita con la firma
+  `(remote) => Finish[] | null`; nuevo `CARDMARKET_REVERSE_HOLO_KEYS` / `FinishSignalSource`.
+- `backend/src/modules/catalog/pokemontcg-io.client.ts` — `RemoteCard.cardmarket?: { prices?:
+  Record<string, unknown> | null }` (solo tipos: el JSON de `GET /v2/cards` ya venía completo sin
+  `select=`, cero requests extra).
+- `backend/src/modules/catalog/catalog-sync.service.ts` — `upsertCards` puebla
+  `numberSort`/`numberPrefix` y aplica la regla CREATE/UPDATE de `availableFinishes`; log
+  `cardsWithoutFinishSignal`.
+- `backend/src/modules/pricing/price-ingest.service.ts` — eliminado el `card.update` de variantes;
+  nueva lectura de solo-consulta del catálogo tocado (`card.findMany({ where: { id: { in: [...] } }
+  })`) para loguear `finishNotInCatalog` cuando hay drift precio↔catálogo.
+- `backend/src/modules/catalog/catalog.service.ts` — `toCardDTO` expone `numberSort`/`numberPrefix`;
+  `searchAllCards` usa `CARD_ORDER_BY_IN_SET`/`CARD_ORDER_BY_GLOBAL` según haya o no `setId`.
+- `backend/src/modules/inventory/master-set.service.ts` — binder ordena en BD, DTO
+  `+= numberPrefix`, re-exporta el orden canónico desde `common/card-order.ts`.
+- `backend/prisma/schema.prisma` + `backend/prisma/migrations/20260818180000_m26_card_number_order/` (M-26).
+- `backend/prisma/seed.ts`, `backend/prisma/seed-e2e.ts`, `backend/prisma/e2e-fixtures.ts` — ver §49.4.
+- Tests: `test/catalog-sync.finish.spec.ts` (tabla de verdad completa, reemplaza la suite v1.6-finish),
+  `test/price-ingest.service.spec.ts` (cero escrituras + `finishNotInCatalog` + mocks de `findMany`
+  ruteados por forma de `where`), `test/master-set.service.spec.ts` (mock ya ordenado + `orderBy`).
+
+### 49.4 Seeds (§4.22e)
+
+`E2E_CARDS`/`E2E_ORDER_CARDS` (`prisma/e2e-fixtures.ts`) ahora declaran `availableFinishes`
+EXPLÍCITO en cada carta (nunca el `@default([normal])` del schema): **`reverse` (E2E Reverse Bird,
+#17) nace en `['normal','reverse_holo']`** — la candidata obvia, antes sembrada en `{normal}` pese a
+su nombre — y el resto en `['normal']` (probando que no se pinta relleno). Se añadió un **segundo
+set sintético**, `E2E_ORDER_SET` (`e2e-order`), dedicado solo al orden natural: cartas `"2"`, `"10"`,
+`"SV107"` y `"TG01"` sembradas fuera de orden (DOS prefijos de promo, para ejercitar la agrupación por
+`numberPrefix`), con el oráculo `E2E_ORDER_EXPECTED_NUMBERS = ['2','10','SV107','TG01']` que consume el
+test de integración de §49.9. Se
+mantuvo separado de `E2E_SET` a propósito — meterle cartas nuevas a `E2E Base Set` cambiaría totales y
+páginas ya cableados en `buylist.e2e-spec.ts`/`vault-shipments.e2e-spec.ts`/etc. `seed-e2e.ts` puebla
+`numberSort`/`numberPrefix` con `deriveNumberParts` (la misma función del sync) tanto en `create`
+como en `update` (idempotencia E2E-1: una 2ª corrida sobre una BD vieja corrige, no conserva, el bug).
+`seed.ts` (dev/local) siembra el Charizard `base1-4` con `availableFinishes: ['holofoil']` (Rare Holo
+pura del Base Set original, sin reverse holo/normal reales para esa impresión) y sus claves de orden.
+
+### 49.5 Verificado contra Postgres local (migrate deploy + reseed + build + server real)
+
+```
+$ npx prisma migrate deploy   # aplica 20260818180000_m26_card_number_order
+$ npm run seed && npm run seed:synthetic
+$ npm run build && node dist/main.js   # :3011
+
+$ curl "http://localhost:3011/api/v1/buylist/cards?setId=<e2e-base>&page=1&pageSize=50"
+# data[].number en orden: 4, 16, 17, 20, 25, 99
+# "E2E Reverse Bird" (#17) → availableFinishes: ["normal","reverse_holo"]
+
+$ for p in 1 2 3; do curl ".../buylist/cards?setId=<e2e-base>&page=$p&pageSize=2"; done
+# page=1 → [4,16]  page=2 → [17,20]  page=3 → [25,99]   (sin huecos ni duplicados)
+
+$ curl "http://localhost:3011/api/v1/buylist/cards?setId=<e2e-order>&page=1&pageSize=50"
+# data[].number en orden: 2, 10, SV107, TG01   (promos al final, agrupados por prefijo SV < TG)
+```
+
+```
+npm run typecheck   # limpio
+npm run lint        # limpio
+npm test            # 100 suites / 940 tests, todo verde
+npm run test:integration   # 8 suites / 115 casos — 114 verdes, 1 falla PRE-EXISTENTE
+                            # y NO relacionada (infra-smoke.e2e-spec.ts, presign de MinIO
+                            # devuelve 403 en vez de [200,204]; confirmado con `git stash`
+                            # que falla igual ANTES de este cambio — es un asunto de
+                            # infraestructura local de MinIO/S3, no de este WS).
+```
+
+### 49.6 Supuesto abierto, sin verificar (bloqueado por el proxy del sandbox)
+
+El proxy de este entorno bloquea `api.pokemontcg.io` (403 en `CONNECT`), así que **no se pudo
+verificar el payload remoto real** de pokemontcg.io v2. La derivación de §49.1 se implementó contra
+el esquema DOCUMENTADO de la API y el código existente que ya lo consumía, con tres supuestos
+explícitos (ARCHITECTURE §4.22f, tabla S1/S2/S3) que quedan **pendientes de la primera corrida real**:
+
+- **S1** — que `tcgplayer.prices` solo trae la sub-llave de una impresión cuando esa impresión
+  existe (i.e. que la llave es metadata real y no un slot fijo siempre presente). Si resulta falso,
+  la señal A degenera y hay que apoyarse más en la señal B.
+- **S2** — que `cardmarket.prices` expone `reverseHolo*` SIEMPRE (con `0`/`null` cuando no aplica).
+  Si en realidad solo aparecen cuando existe la impresión, la señal B se **simplifica** (bastaría con
+  "llave presente", igual que la A) — cambio de código menor, no rompe el contrato.
+- **S3** — que el endpoint `GET /v2/cards?q=set.id:*` YA incluye `cardmarket` en el payload sin
+  `select=` explícito (cero requests extra). Si resulta falso, hace falta un `select=` o una segunda
+  llamada por carta — **avisar al arquitecto antes**, porque cambia el costo del sync.
+
+**Acción recomendada para quien opere el próximo sync en Railway/staging con acceso real a
+pokemontcg.io:** antes de lanzar `sync-all {force:true}` a gran escala, correr `sync` sobre UN set
+moderno conocido (p. ej. `sv8`, Surging Sparks) y verificar en logs (a) cuántas cartas reportan
+`cardsWithoutFinishSignal` (si es masivo, S1/S2 fallaron) y (b) hacer un `SELECT count(*) FROM "Card"
+WHERE 'reverse_holo' = ANY("availableFinishes") AND "setId" = :set` — debe ser **> 0** para un set con
+reverse holos conocidos. Documentar el resultado en `docs/DEVOPS_NOTES.md` (dueño: backend/devops,
+ARCHITECTURE §4.22f).
+
+### 49.7 Re-sync requerido en producción/staging (dueño: devops, con backend)
+
+El código corregido **no repara solo** las filas ya escritas con el bug (`['normal']` grabado por
+VAR-1/VAR-2/VAR-4). Secuencia exacta (ARCHITECTURE §4.22d):
+
+1. Desplegar la migración **M-26** primero (aditiva, seguro con la app corriendo — nadie lee las
+   columnas nuevas hasta que el código nuevo despliegue): `npx prisma migrate deploy`.
+2. Desplegar el backend con este código (price-ingest sin escritura de variantes + derivación de dos
+   señales + `numberSort`/`numberPrefix` poblados por el sync).
+3. **Re-sync forzado del catálogo completo** — es el único camino que reprocesa sets ya importados y
+   repuebla `availableFinishes` **y** las columnas de orden en un solo paso:
+   ```
+   POST /api/v1/admin/catalog/sync-all
+   Authorization: Bearer <token super_admin>
+   Content-Type: application/json
+
+   { "force": true }
+   ```
+   Verificar progreso con `GET /api/v1/admin/catalog/sync-status`.
+4. **Gate de verificación** sobre un set moderno conocido:
+   ```sql
+   SELECT count(*) FROM "Card"
+   WHERE 'reverse_holo' = ANY("availableFinishes") AND "setId" = :set;
+   -- debe ser > 0 (hoy da 0 en el set afectado)
+   ```
+   y en el binder, una común moderna debe mostrar **dos** casillas. Si sigue en `['normal']` masivo,
+   el payload remoto no trae ninguna de las dos señales (S1/S2 de §49.6 fallaron) — abrir la pregunta
+   con el arquitecto antes de tocar más código, NO inventar una heurística de relleno.
+
+No hace falta ningún backfill SQL adicional de `availableFinishes`: la migración M-26 **no la toca**
+(solo aditiva sobre `numberSort`/`numberPrefix`); el arreglo de variantes es enteramente código +
+re-sync, tal como lo especifica ARCHITECTURE §4.22a/§4.22d.
+
+### 49.8 Discrepancias / bloqueos para el arquitecto
+
+**Corrección (2026-08-18, tras el rechazo del techlead):** la primera versión de esta sección
+afirmaba «se implementó tal cual» y era **inexacta**: faltaba uno de los **tests obligatorios** del
+reparto de trabajo de §4.22 — el de **orden paginado** de `GET /buylist/cards` («`["2","10","TG01",
+"SV107"]` sale en ese orden atravesando dos páginas»). Se había verificado a mano con `curl`, pero
+ninguna suite lo anclaba: el oráculo `E2E_ORDER_EXPECTED_NUMBERS` no tenía consumidores, el fixture
+de orden no tenía `SV107` (con un solo prefijo la agrupación por `numberPrefix` no se ejercitaba) y
+`buylist-catalog.spec.ts` no asertaba el `orderBy` (una regresión a `[{name},{number}]` — ORD-1 —
+habría pasado verde). Resuelto en §49.9.
+
+**Nit de doc para el arquitecto (no bloqueante):** la línea «Tests obligatorios» de §4.22 lista el
+orden esperado como `["2","10","TG01","SV107"]`, pero el `orderBy` **normativo** del propio §4.22b
+(`numberPrefix asc` primero) y `compareByNumber` (agrupación «GG → SV → TG») producen
+**`2, 10, SV107, TG01`** — `SV` < `TG` alfabéticamente. El test implementado sigue la norma
+(§4.22b), no la línea ilustrativa. Sería bueno corregir esa línea en ARCHITECTURE para que nadie
+"arregle" el orden en la dirección equivocada.
+
+Fuera de eso, la especificación de §4.22 se implementó sin cambios (incluida la migración M-26
+copiada literal de §11). El único punto abierto es el supuesto S1/S2/S3 de §49.6, que el propio
+arquitecto ya dejó documentado como pendiente de la primera corrida real (no bloqueante).
+
+### 49.9 Test de integración obligatorio del orden paginado (añadido tras veredicto del techlead)
+
+**Suite nueva: `backend/test/integration/buylist-cards-order.e2e-spec.ts`** (contra Postgres real,
+vía la app Nest completa del harness). Consume los oráculos `E2E_ORDER_EXPECTED_NUMBERS` y
+`E2E_SET_EXPECTED_NUMBERS` de `prisma/e2e-fixtures.ts` (antes exportados sin consumidor):
+
+| Caso | Qué ancla |
+|---|---|
+| `pageSize=2` sobre `E2E_ORDER_SET` (4 cartas → 2 páginas) | Orden GLOBAL `2, 10, SV107, TG01` atravesando páginas; sin duplicados (`Set` de ids) ni huecos (`rows.length === total`). Regresión directa de ORD-1. |
+| `pageSize=1` y `pageSize=3` | El mismo orden global con fronteras de página desalineadas (el `{id:'asc'}` final garantiza paginación determinista). |
+| Columnas M-26 expuestas | `numberSort`/`numberPrefix` del DTO coherentes (`SV107` → `{1000107,'SV'}`, `TG01` → `{1000001,'TG'}`) y **`SV107` sale ANTES que `TG01` pese a `numberSort` mayor** — es la agrupación por `numberPrefix`, la razón de ser de la columna (`TG12`/`GG12` colisionan en `numberSort`). |
+| `E2E Base Set` con `pageSize=2` | Páginas 4,16 / 17,20 / 25,99 y `E2E Reverse Bird` con `availableFinishes: ['normal','reverse_holo']` en orden canónico (§4.22c, el requisito del PO); ningún array vacío. |
+
+**Fixture ampliado:** `E2E_ORDER_CARDS` gana `orderShiny` (`SV107`, `Rare Shiny`) — **segundo
+prefijo** de promo, sin el cual la agrupación por `numberPrefix` no quedaba ejercitada por datos
+sembrados. El oráculo pasa a `['2','10','SV107','TG01']`.
+
+**Asserts de `orderBy` en unitarias:** `test/buylist-catalog.spec.ts` ahora asierta que
+`searchAllCards` pasa a Prisma exactamente `CARD_ORDER_BY_IN_SET` (con `setId`) y
+`CARD_ORDER_BY_GLOBAL` (sin él), con el shape literal duplicado en el assert (defensa en
+profundidad: si alguien cambiara la constante Y el call-site a la vez, el literal sigue fallando).
+
+**Hallazgo lateral corregido — recurrencia del patrón BE-64:**
+`catalog-checkout-webhook.e2e-spec.ts` buscaba el charizard del seed en `GET /catalog/cards?
+pageSize=50`; al acumular la BD compartida >50 piezas listadas del MISMO charizard (`E2E-GST-*` que
+dejan las suites de guest checkout por corrida) la pieza cayó fuera de la página y el test empezó a
+fallar solo — exactamente el flake que BE-64 documentó, y acotar con `q=` tampoco bastaba (51
+listings del mismo nombre). Corregido a la regla de la casa: la pieza concreta se pide **por id**
+(`GET /catalog/listings/:id`, mismo `ListingDTO`) y el listado se asierta por comportamiento (toda
+fila publicada es vendible con precio > 0), no por volumen. Recurrencia anotada en la propia entrada
+BE-64 de `TECH_DEBT.md`.
+## 50. v1.21.3-quote-prune (2026-08-18) — poda por ítem en los DOS quotes; session sigue estricta
+
+**Qué cambió (API_CONTRACT §4, §4-G.1; ARCHITECTURE §4.21h-1 caso v ajustado).** El carrito vive en
+`localStorage` como ids de piezas físicas ÚNICAS: al venderse desaparecen, y un solo id muerto
+reventaba el quote completo (`404 NOT_FOUND` / `409 ITEM_UNAVAILABLE` globales) bloqueando el
+checkout. Ahora `POST /checkout/quote` y `POST /checkout/guest/quote` resuelven **por ítem**:
+
+- Los ids que no resuelven (`cardName: null`) o existen pero están fuera de la venta de plataforma
+  (`ownerType != 'platform'` o `status ∉ {listed, in_stock}` ⇒ `cardName` con el nombre) viajan en
+  **`unavailableItems: UnavailableCartItemDTO[]`** con `200`. **Siempre presente**, `[]` si todo
+  resuelve (shape previo intacto en ese caso).
+- `items`/`breakdown` se calculan SOLO con los válidos. **Carrito 100 % muerto ⇒ `200` con
+  `items: []` y breakdown EN CEROS** (sin gross-up: cotizar la nada no puede producir el fee fijo
+  \> 0; `ivaRatePct` conserva el dial). En invitado el cero incluye `shippingFeeCents: 0` y se
+  conservan `fulfillmentMode`/`notices`.
+- `422 PRICE_PENDING` conserva su semántica pero se evalúa **DESPUÉS de la poda**: solo lo dispara
+  un ítem VÁLIDO sin precio. `GUEST_MAX_ITEMS` se valida sobre el array del REQUEST (el DTO, como
+  siempre): podar a vacío es `200`, no `400`.
+- Un id **repetido** en el carrito se dedupe (una pieza única no puede cotizarse dos veces).
+
+**Qué NO cambió (anti-sobrecorrección).** `POST /checkout/session` y `POST /checkout/guest/session`
+siguen ESTRICTOS (`404`/`409` globales) y la reserva atómica está intacta: el gate duro anti
+double-sell es session. El flujo es: quote poda → el front actualiza el carrito (y le pone
+expiración de 30 días, dueño: frontend) → session recibe solo ids vivos.
+
+**Diseño (regla de venta ÚNICA, sin duplicar precios).** En `OrdersService`:
+- `isSellable(item)` — EL predicado de venta (plataforma + `{listed, in_stock}`), un solo cuerpo.
+- `buildLines(items)` — precios server-side vía `salePriceOf` (SEC-A1), un solo cuerpo; conserva
+  `PRICE_PENDING`.
+- `priceCartForOrder` (ESTRICTA, la de las dos sessions — ruta de dinero/reserva) y
+  `priceCartForQuote` (tolerante, la de
+  los dos quotes) **delegan ambas** en esos helpers: solo cambia el TRANSPORTE del fallo
+  (excepción global vs. poda a `unavailableItems`), nunca el criterio. El breakdown en ceros
+  canónico es `OrdersService.zeroCartBreakdown(ivaPct)`; el invitado lo extiende con
+  `shippingFeeCents: 0`.
+
+**Tests.**
+- Unit nueva: `test/orders.quote-prune.spec.ts` (11 casos): mezcla viva+vendida+borrada, pieza de
+  bóveda podada, 100 % muerto en ceros sin gross-up, compat `[]`, dedupe, `PRICE_PENDING`
+  post-poda (y que un muerto sin precio NO lo dispara), y la estrictez intacta de
+  `priceCartForOrder`/`createSession` (`NOT_FOUND`/`ITEM_UNAVAILABLE`, sin crear la Order).
+- `test/guest-checkout.session.spec.ts`: el quote de invitado ahora ancla poda/ceros/shape estable
+  y que session usa la ruta ESTRICTA (nunca la tolerante).
+- Integración actualizada: `catalog-checkout-webhook` (describe nuevo de poda customer + session
+  estricta sin dejar reservas), `guest-checkout.e2e-spec` (poda de invitado, pieza reservada ⇒
+  quote podado + session 409) y `guest-chargeback.e2e-spec` — **caso v ajustado**: los quotes ya no
+  dan `409`; la aserción equivalente es `200` con la pieza en `unavailableItems` y FUERA de
+  `items`/`breakdown`; las DOS sessions siguen en `409` y la pieza fuera de la `picking-list`.
+- Resultado: `npm test` 101 suites / 944 tests en verde; integración 7/8 suites en verde
+  (119/120 — el único rojo es el PUT a MinIO de `infra-smoke`, entorno sin S3, ajeno al cambio);
+  `lint` y `typecheck` limpios.
+
+## 51. v1.22-1 (M-27, 2026-08-19) — `availableFinishes` DERIVADA money-safe: Señal C de PPT + `FinishReconciler`
+
+**Diseño del arquitecto (§4.22g/§4.22h), implementado tal cual.** `Card.availableFinishes` deja de
+escribirse directamente y pasa a ser una **columna DERIVADA y recomputable** de DOS columnas de
+ENTRADA nuevas y persistidas:
+
+```
+availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
+```
+
+- **`catalogFinishes`** — «opinión del catálogo» (Señal A ∪ B de pokemontcg.io, lo que devuelve
+  `deriveAvailableFinishes`). La escribe `catalog-sync.upsertCards` con la semántica null de §4.22a-4
+  (CREATE `derived ?? ['normal']`; UPDATE omite la clave si `derived === null` → conserva lo previo,
+  sobrevive a un 502). **Backfill M-27:** `catalogFinishes := availableFinishes`.
+- **`pricedFinishesSnapshot`** — **Señal C**: acabados que PPT reportó con `market>0` **y alias
+  VERIFICADO**, por carta. La escribe `price-ingest` por **REEMPLAZO por carta en una corrida
+  EXITOSA** (`requestOk && rows>0`); ante fallo/0 filas NO se toca ningún snapshot (stale money-safe).
+- **Único escritor de `availableFinishes` = `catalog.FinishReconciler`** (nuevo). `price-ingest` y
+  `catalog-sync` escriben SU columna de entrada y **llaman** `reconcile(cardIds)`. `price-ingest`
+  sigue haciendo **CERO** escrituras sobre `availableFinishes` (assert de spy en el test).
+
+**Cuatro candados (§4.22g).** (1) No monótona: quitar el acabado de cualquiera de las dos entradas y
+recomputar lo elimina (`sync --force` o la siguiente corrida de PPT REPARAN). (2) Alias VERIFICADO
+(`VERIFIED_FINISH_ALIASES`, espejo estricto de `TCG_KEY_TO_FINISH`, SIN los SUPUESTO): un `foil`
+supuesto persiste su `PriceReference` pero **no** entra a la lista blanca. (3) Anti-invención:
+`normalizeVerifiedFinishAlias` devuelve `null` para lo desconocido → se OMITE, jamás se atribuye a
+`normal`. (4) Un solo método escribe `availableFinishes`.
+
+### 51.1 Archivos tocados (solo `backend/`)
+- `prisma/schema.prisma` — `Card.catalogFinishes Finish[] @default([])` + `Card.pricedFinishesSnapshot Finish[] @default([])`.
+- `prisma/migrations/20260819120000_m27_card_finish_signals/migration.sql` — **M-27**, ADITIVA: dos
+  columnas `NOT NULL DEFAULT ARRAY[]::"Finish"[]` (mismo patrón enum-array que M-18) + backfill
+  `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"`. No toca la forma de `availableFinishes`.
+- `src/common/card-order.ts` — `unionAvailableFinishes(catalog, priced)` (función PURA, sin DI;
+  reusable por reconciler, seeds y tests).
+- `src/modules/catalog/finish-reconciler.service.ts` + `finish-reconciler.module.ts` — **NUEVO**
+  `FinishReconciler` (único escritor; idempotente: no escribe si el valor recomputado ya coincide).
+  Vive en su propio módulo para que `CatalogModule` y `PricingModule` lo compartan **sin `forwardRef`**
+  (solo depende de `PrismaService` @Global).
+- `src/modules/catalog/catalog-sync.service.ts` — `upsertCards` escribe `catalogFinishes` (no
+  `availableFinishes`) y llama `reconcile(cardIds)` del lote.
+- `src/modules/pricing/pricing.types.ts` — `VERIFIED_FINISH_ALIASES` + `normalizeVerifiedFinishAlias`;
+  `finishAliasVerified: boolean` en `BulkPriceRow`; `requestOk?: boolean` en `BulkPriceResult`.
+  `normalizeFinishAlias`/`BULK_VARIANT_TO_FINISH` **intactos** (el PRECIO sigue tolerante).
+- `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts` — fija `finishAliasVerified`
+  por fila y devuelve `requestOk`.
+- `src/modules/pricing/providers/pokemontcg-io-bulk.provider.ts` — `finishAliasVerified: true` (las
+  llaves reales de tcgplayer.prices son verificadas por construcción) + `requestOk`.
+- `src/modules/pricing/price-ingest.service.ts` — en corrida exitosa reemplaza
+  `pricedFinishesSnapshot` (verificados con `market>0`) por carta vista y llama `reconcile`; sigue sin
+  escribir `availableFinishes`.
+- `src/modules/pricing/pricing.module.ts` + `catalog/catalog.module.ts` — importan `FinishReconcilerModule`.
+- Seeds: `prisma/e2e-fixtures.ts` (la carta `reverse` pasa a **PPT-only rescatado**:
+  `catalogFinishes=['normal']`, `snapshot=['reverse_holo']`, mismo `availableFinishes` → cero cambio
+  para las suites de dinero), `prisma/seed-e2e.ts` (`seedCards` siembra las 3 columnas), `prisma/seed.ts`
+  (Charizard ruta catálogo + carta `base1-16 Pidgey` PPT-only de demostración).
+
+### 51.2 Tests (propios) — todos los exigidos por §4.22h
+- `test/finish-reconciler.spec.ts` (**nuevo**): unión pura (rescate/orden/default/recomputable);
+  `FinishReconciler` (RESCATE PPT-only ⇒ `['normal','reverse_holo']`; REPARABILIDAD ⇒ se quita;
+  DEFAULT ⇒ `['normal']`; IDEMPOTENTE ⇒ 0 writes); `normalizeVerifiedFinishAlias` (acepta verificados,
+  rechaza SUPUESTO, espejo de `TCG_KEY_TO_FINISH`).
+- `test/price-ingest.service.spec.ts` (reescrito): escribe `pricedFinishesSnapshot` + reconcile;
+  **ANTI-INVENCIÓN/SEC-A1** (`foil` supuesto: precio sí, snapshot `[]`); **MONEY-SAFE STALE**
+  (`requestOk=false` o 0 filas ⇒ ningún snapshot ni reconcile); **ÚNICO ESCRITOR** (ningún
+  `card.update` toca `availableFinishes`).
+- `test/price-ingest.provider.spec.ts` (actualizado): `finishAliasVerified`/`requestOk` por fila/result;
+  el caso `variant:'Reverse Holo'` (SUPUESTO) queda `finishAliasVerified:false`.
+- `test/catalog-sync.finish.spec.ts` (actualizado): `upsertCards` escribe `catalogFinishes` (no
+  `availableFinishes`), omite la clave sin señal en UPDATE, y llama `reconcile(cardIds)`.
+- `test/catalog-sync.spec.ts` y `test/catalog.remote-sets-fallback.spec.ts`: 4º arg (reconciler mock).
+
+**Evidencia local (sandbox, sin red externa ni Postgres):**
+- `npx prisma generate` OK (schema parsea); `npx prisma validate` solo objeta `DATABASE_URL` ausente
+  (getConfig), no el esquema.
+- `npx tsc --noEmit -p tsconfig.json` → **exit 0** (cubre `src/**`, `prisma/**`, `test/**`).
+- `npx jest` (suite unitaria completa) → **102 suites / 970 tests en verde**.
+- ⚠️ **`prisma migrate deploy` NO se pudo correr aquí**: el sandbox no tiene Postgres ni egress a la
+  BD. La migración es ADITIVA y calca el patrón enum-array validado de M-18 (`"Finish"[] ... ARRAY[]::"Finish"[]`)
+  y el patrón de backfill de M-26. **Devops/QA la aplican con `prisma migrate deploy`** en staging.
+
+### 51.3 Supuestos S-C1/S-C2 (a verificar en la 1ª corrida en Railway — NO verificable en sandbox)
+El egress del sandbox **no alcanza PPT** (dominio bloqueado). El diseño asume:
+- **S-C1:** PPT emite `reverse_holo` como un `printing` DISTINTO con `market>0` para sets 2026 nuevos
+  (Pitch Black). **(a) Qué asumí:** que hay una fila PPT con `printing` reconocible (`Reverse Holofoil`)
+  y `marketPrice>0` por carta con reverse holo. **(b) Comando/log que lo confirma o desmiente:** tras
+  el deploy, `POST /api/v1/admin/jobs/price-ingest { "setId": "<externalId de Pitch Black>" }` (super_admin)
+  y en los Deploy Logs de Railway buscar la línea `PokemonPriceTracker bulk: GET /api/prices OK ...
+  Ejemplo de entrada cruda: {...}` (muestra el `printing` real) y el resumen `... N filas mapeadas`.
+  Verificación SQL: `SELECT count(*) FROM "Card" WHERE 'reverse_holo' = ANY("pricedFinishesSnapshot")
+  AND "setId" = :pitchBlackLocalId;` debe ser **> 0**, y `... = ANY("availableFinishes") ...` también > 0.
+  **(c) Si S-C1 resulta falso** (PPT también colapsa el set nuevo a un solo `printing`): la opción (c)
+  **no rescata**; el remedio permanente es el **override manual del admin por carta/set (opción (a),
+  M2)** — **avisar al arquitecto** (no inventar reverse holo por rareza ni por `CardSet.hasReverseHolo`).
+- **S-C2:** los alias SUPUESTO que aparezcan en PPT corresponden de verdad al `Finish` mapeado.
+  **Verificación:** en los logs, el resumen del provider imprime `N sin acabado reconocible` y un
+  ejemplo crudo; contrastar el histograma de `printing` crudos. Los que se confirmen se **promueven** a
+  `VERIFIED_FINISH_ALIASES` (una línea en `pricing.types.ts`); hasta entonces **solo alimentan el
+  precio**, nunca la lista blanca (candado 2). Mientras tanto la Señal C solo admite los 4 verificados.
+
+### 51.4 `dataHealth` «rescatadas por PPT» — DEFERIDO (no bloqueante, dueño: backend)
+§4.22h lo marca **recomendado**. El contador vive en el **dashboard de admin** (`admin.service.ts`,
+módulo/stream «Admin y auditoría»), cuyo shape lo fija `API_CONTRACT §Dashboard` y lo ancla
+`test/admin.contract-shapes.spec.ts`. Añadir un campo a `dataHealth` toca la **superficie de contrato
+de otro stream**; por eso **no** lo incluí en este cambio para no meterme en zona ajena ni forzar un
+cambio de contrato sin el arquitecto. Queda como **pendiente menor con dueño backend** (misma suerte
+que `cardsWithoutFinishSignal` de §4.22a-5, que tampoco se materializó en el dashboard): el techlead
+puede pedir su registro formal en `docs/TECH_DEBT.md`. La query sugerida (cuando se aborde):
+`Card` con `NOT ('reverse_holo' = ANY("catalogFinishes"))` **y** `('reverse_holo' = ANY("availableFinishes"))`.
