@@ -3013,6 +3013,13 @@ export async function getGuestCheckoutQuote(
     fulfillmentMode: 'direct_ship' as const,
     breakdown:
       items.length === 0 ? zeroBreakdown(true) : computeGuestBreakdown(subtotal, MOCK_SHIPPING_FEE_CENTS),
+    // v1.21.4-dual-breakdown (§4-G.1, N-12): SEGUNDO desglose para el destino BÓVEDA — solo
+    // cartas, SIN envío (IVA solo sobre subtotal, gross-up sobre la base menor). Es EXACTAMENTE
+    // computeCartBreakdown, que aquí es `computeBreakdown(subtotal)` (la réplica local que ya
+    // existe). El backend real lo computa con el StripeFeeConfig real; el front no lo puede
+    // derivar del `breakdown` de envío (fee no invertible), por eso viaja precomputado. Carrito
+    // 100 % podado ⇒ ceros SIN `shippingFeeCents`.
+    vaultBreakdown: items.length === 0 ? zeroBreakdown() : computeBreakdown(subtotal),
     notices: { finalSale: true, invoiceByEmail: true, termsRequired: true },
     unavailableItems,
   });
