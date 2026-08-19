@@ -5,7 +5,10 @@ import { SealedShopView } from './SealedShopView';
 import * as api from '@/lib/api';
 
 // El grid enlaza a la ficha con el Link de next-intl; se mockea a un <a> plano.
+// StoreTabs (sub-pestañas de la Tienda) usa usePathname: hay que exportarlo en el mock.
 vi.mock('@/i18n/navigation', () => ({
+  usePathname: () => '/sellado',
+  useRouter: () => ({ push: vi.fn() }),
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
