@@ -242,6 +242,10 @@ export class VaultService {
         return gk ? [{ cardId: i.cardId, productType: 'sealed' as const, gradeKey: gk, finish: 'normal' as const }] : [];
       }),
     );
+    // H-1 (v1.24): el mercado del sellado solo cuenta con el dial ENCENDIDO (`sourceOn`), igual que
+    // catálogo/Compra/grid — para que la VALUACIÓN coincida con ellos (con off el ref TCGCSV es inerte,
+    // §4.23a). Antes esta valuación no gateaba por dial (divergía cuando `sealed_price_source=off`).
+    const { sourceOn } = await this.pricing.loadSealedSpreads();
 
     // Agrupa por producto+condición (mismo criterio que §2-S).
     const groups = new Map<string, (InventoryItem & { card: Card & { set?: CardSet | null } })[]>();
@@ -261,10 +265,11 @@ export class VaultService {
     const rows = [...groups.values()].map((members) => {
       const rep = members[0];
       const gk = this.pricing.sealedMarketGradeKeyForItem(rep);
-      const marketRef: PriceInfo = (gk ? refs.get(`${rep.cardId}|sealed|${gk}|normal`) : undefined) ?? {
-        status: 'pending',
-      };
-      const priced = marketRef.status === 'priced' && marketRef.referenceMxnCents != null;
+      const rawRef = gk ? refs.get(`${rep.cardId}|sealed|${gk}|normal`) : undefined;
+      // H-1 (v1.24): gate ÚNICO del mercado (dial + priced). Con off / no mapeado → null → pending.
+      const marketCents = this.pricing.gateSealedMarketCents(rawRef, sourceOn);
+      const priced = marketCents != null;
+      const marketRef: PriceInfo = priced ? rawRef! : { status: 'pending' };
       const count = members.length;
       const ownership = { pending: 0, settled: 0 };
       for (const m of members) {

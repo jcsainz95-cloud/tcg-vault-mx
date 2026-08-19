@@ -17,7 +17,6 @@ import { SettingKey } from '../settings/settings.constants';
 import {
   computeAportacionCostCents,
   computeSalePriceForRarity,
-  computeSealedSalePrice,
 } from '../../common/money';
 import {
   BatchCreateInventoryRequest,
@@ -474,18 +473,11 @@ export class InventoryService {
           priceSource = 'manual';
         } else if (item.productType === 'sealed') {
           // v1.23-sealed-sales (§4.23d): el sellado ya NO exige listPriceCents — deriva por
-          // override/mercado×spread. Sin override y sin mercado → PRICE_PENDING (money-safe). SEC-A1.
+          // override/mercado×spread. H-1 (v1.24): resolver ÚNICO (mismo cuerpo que catálogo/Compra/grid,
+          // incluida la regla override=0). Sin override>0 y sin mercado → PRICE_PENDING (money-safe). SEC-A1.
           const gk = this.pricing.sealedMarketGradeKeyForItem(item);
           const ref = gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
-          const marketCents =
-            sealed.sourceOn && ref?.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-          const sale = computeSealedSalePrice(
-            item.listPriceCents,
-            item.sealedSubtype,
-            marketCents,
-            sealed.spreadPctBySubtype,
-            sealed.fallbackPct,
-          );
+          const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
           if (sale.salePriceCents == null) {
             throw BusinessException.validation(
               'PRICE_PENDING',

@@ -66,9 +66,30 @@ describe('computeSealedSalePrice — precedencia override > subtype > global > p
     expect(r.salePriceCents).toBe(118504);
   });
 
-  it('override 0 es un override VÁLIDO (0 != null) y gana', () => {
+  // H-1 (v1.24): REGLA ÚNICA DE OVERRIDE — un override presente ⇔ `> 0`. Un override `<= 0` es
+  // input DEGENERADO y se trata como AUSENTE (cae a mercado×spread; sin mercado → pending). Money-safe:
+  // nunca se cobra un sellado gratis ni por debajo de mercado por un override mal capturado.
+  it('override 0 es DEGENERADO → se ignora, cae a mercado×spread (NO cobra gratis)', () => {
     const r = computeSealedSalePrice(0, 'box', 100000, SPREADS, FALLBACK);
+    expect(r.source).toBe('subtype_spread');
+    expect(r.salePriceCents).toBe(118000); // 100000 × 1.18, NO 0
+  });
+
+  it('override 0 SIN mercado → pending (money-safe, no publicable), NO cobra 0', () => {
+    const r = computeSealedSalePrice(0, 'box', null, SPREADS, FALLBACK);
+    expect(r.status).toBe('pending');
+    expect(r.salePriceCents).toBeNull();
+  });
+
+  it('override NEGATIVO es DEGENERADO → se ignora, cae a mercado×spread', () => {
+    const r = computeSealedSalePrice(-500, 'box', 100000, SPREADS, FALLBACK);
+    expect(r.source).toBe('subtype_spread');
+    expect(r.salePriceCents).toBe(118000);
+  });
+
+  it('override POSITIVO (1 centavo) sí gana (presente ⇔ > 0)', () => {
+    const r = computeSealedSalePrice(1, 'box', 100000, SPREADS, FALLBACK);
     expect(r.source).toBe('override');
-    expect(r.salePriceCents).toBe(0);
+    expect(r.salePriceCents).toBe(1);
   });
 });

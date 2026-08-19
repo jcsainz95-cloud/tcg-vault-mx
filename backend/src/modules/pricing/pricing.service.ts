@@ -197,6 +197,45 @@ export class PricingService {
   }
 
   /**
+   * v1.24-sealed-dedup (H-1) — GATE money-safe del MERCADO del sellado: UNA sola fuente de verdad
+   * para «¿cuánto mercado cuenta?». El `sealedMarketRef` (TCGCSV) solo aporta con el dial ENCENDIDO
+   * (`sourceOn`) y con una fila `priced` (referenceMxnCents no-null). Con el dial `off` el mercado
+   * queda INERTE (§4.23a) y devuelve `null`. Antes este predicado estaba copiado en catálogo, Compra,
+   * grid, bulk-publish y valuación (H-1: 4-5 copias divergentes).
+   */
+  gateSealedMarketCents(ref: PriceInfo | undefined | null, sourceOn: boolean): number | null {
+    return sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null
+      ? ref.referenceMxnCents
+      : null;
+  }
+
+  /**
+   * v1.24-sealed-dedup (H-1) — RESOLVER ÚNICO del precio de VENTA del sellado. Encapsula el gate del
+   * mercado (`gateSealedMarketCents`) + la pura `computeSealedSalePrice` (precedencia override>0 >
+   * mercado×spread(subtype) > mercado×spread(global) > PRICE_PENDING). Devuelve el `SealedSpreadResult`
+   * completo (`{ salePriceCents, source, status, appliedSpreadPct }`).
+   *
+   * Consumidores: catálogo (`toListingDTO`), Compra (`orders.salePriceOf`), grid (`loadPricedSealed`) y
+   * bulk-publish (`inventory`). Un solo cuerpo ⇒ los cuatro coinciden SIEMPRE (incluida la regla de
+   * override=0). SEC-A1: `listPriceCents`/`sealedSubtype`/`ref` salen de BD, los spreads de
+   * ConfigSetting (vía `ctx`, izado una vez por request con `loadSealedSpreads`); nada del DTO del cliente.
+   */
+  resolveSealedSalePrice(
+    item: { listPriceCents: number | null; sealedSubtype: string | null },
+    ref: PriceInfo | undefined | null,
+    ctx: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean },
+  ): SealedSpreadResult {
+    const marketCents = this.gateSealedMarketCents(ref, ctx.sourceOn);
+    return computeSealedSalePrice(
+      item.listPriceCents,
+      item.sealedSubtype,
+      marketCents,
+      ctx.spreadPctBySubtype,
+      ctx.fallbackPct,
+    );
+  }
+
+  /**
    * v1.23-sealed-sales (§4.23d) — precio de VENTA del sellado por presentación (SEC-A1). Lee el
    * contexto de spreads e invoca la pura `computeSealedSalePrice`. `marketMxnCents` = el
    * `sealedMarketRef` YA gateado por el dial (el llamador pasa `null` si `sourceOn=false`).

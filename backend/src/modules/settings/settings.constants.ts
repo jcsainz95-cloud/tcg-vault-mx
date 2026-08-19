@@ -90,9 +90,14 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // v1.14-price-ingest (WS-A): SEED `pokemontcg_io` por seguridad (rollout money-safe). El flip a
   // `pokemonpricetracker` lo hace el humano tras verificar el esquema (ARCHITECTURE §4.15h).
   [SettingKey.PRICE_PROVIDER]: 'pokemontcg_io',
-  // v1.19-sealed-tcgcsv (§4.19e): SEED `off` (fail-closed). El flip a `tcgcsv` lo hace el
-  // humano tras la 1ª corrida manual acotada en staging (runbook devops).
-  [SettingKey.SEALED_PRICE_SOURCE]: 'off',
+  // v1.24-sealed-autoprice (decisión del PO, ago-2026): SEED `tcgcsv` — el AUTOPRECIO del sellado
+  // queda ENCENDIDO por defecto. Money-safe: solo se auto-precian las piezas CURADAS (con
+  // `sealedMarketRef` mapeado = `tcgplayerProductId`); una pieza sellada SIN mapeo sigue cayendo a
+  // PRICE_PENDING y NO se publica (ver PricingService.gateSealedMarketCents / computeSealedSalePrice).
+  // NOTA para devops: en una BD YA SEMBRADA (staging/prod con la fila ConfigSetting `sealed_price_source`
+  // existente) este seed NO re-siembra → hay que flipear el dial en RUNTIME con
+  //   PUT /admin/settings  { "sealedPriceSource": "tcgcsv" }   (super_admin, auditado).
+  [SettingKey.SEALED_PRICE_SOURCE]: 'tcgcsv',
   [SettingKey.INE_RETENTION_DAYS]: 180, // 6 meses por defecto (ajustable por el negocio/legal)
   [SettingKey.CATALOG_SYNC_FROM_DATE]: '2024/01/01', // v1.1: sets de 2024 en adelante
   // v1.3.1 (§E.1): seed que PRESERVA el negocio vigente (Common/Uncommon $0.50 fijo, Reverse

@@ -5,7 +5,7 @@ import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
-import { computeSealedSalePrice, SealedSpreadSource } from '../../common/money';
+import { SealedSpreadSource } from '../../common/money';
 import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { CatalogService, toCardDTO } from './catalog.service';
 
@@ -67,17 +67,9 @@ export class SealedCatalogService {
     for (const item of items) {
       const gk = this.pricing.sealedMarketGradeKeyForItem(item);
       const ref = gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
-      // El mercado solo cuenta con el dial encendido (§4.23a); con off el sellado solo se vende con override.
-      const marketPriced =
-        sealed.sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null;
-      const marketCents = marketPriced ? ref!.referenceMxnCents! : null;
-      const sale = computeSealedSalePrice(
-        item.listPriceCents,
-        item.sealedSubtype,
-        marketCents,
-        sealed.spreadPctBySubtype,
-        sealed.fallbackPct,
-      );
+      // H-1 (v1.24): resolver ÚNICO (gate del mercado por dial + pura). Mismo cuerpo que
+      // catálogo/Compra/bulk-publish, incluida la regla override=0.
+      const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
       // Solo grupos con ≥1 pieza vendible (precio resuelto > 0). Money-safe: sin precio no se lista.
       if (sale.salePriceCents == null || sale.salePriceCents <= 0) continue;
       out.push({ item, salePriceCents: sale.salePriceCents, source: sale.source, marketRef: ref });

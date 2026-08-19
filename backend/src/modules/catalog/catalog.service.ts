@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
-import { computeSalePriceForRarity, computeSealedSalePrice, SalesRule } from '../../common/money';
+import { computeSalePriceForRarity, SalesRule } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET } from '../../common/card-order';
 
@@ -151,17 +151,11 @@ export class CatalogService {
       const marketRef = ctx?.sealedSpreads
         ? ctx.reference // lote: puede venir undefined (sellado no mapeado → sin mercado)
         : await this.pricing.getSealedMarketRef(item);
-      // El mercado solo cuenta con el dial encendido (§4.23a); con off el sellado solo se vende con override.
-      const marketPriced =
-        sealedCtx.sourceOn && marketRef?.status === 'priced' && marketRef.referenceMxnCents != null;
-      const marketCents = marketPriced ? marketRef!.referenceMxnCents! : null;
-      const sale = computeSealedSalePrice(
-        item.listPriceCents,
-        item.sealedSubtype,
-        marketCents,
-        sealedCtx.spreadPctBySubtype,
-        sealedCtx.fallbackPct,
-      );
+      // H-1 (v1.24): resolver ÚNICO (gate del mercado por dial + pura). El mercado solo cuenta con el
+      // dial encendido (§4.23a); con off el sellado solo se vende con override. `referenceValue` =
+      // valor de mercado TCGCSV cuando el gate lo deja pasar, si no `pending`.
+      const marketPriced = this.pricing.gateSealedMarketCents(marketRef, sealedCtx.sourceOn) != null;
+      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, sealedCtx);
       if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
       referenceValue = marketPriced ? marketRef! : { status: 'pending' };
     } else {

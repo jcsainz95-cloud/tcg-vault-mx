@@ -320,15 +320,21 @@ export interface SealedSpreadResult {
 
 /**
  * Precedencia money-safe (SEC-A1, todo server-side — ARCHITECTURE §4.23a):
- *   override (InventoryItem.listPriceCents)           ← gana SIEMPRE si presente
- *     > mercado × (1 + spread_de_su_presentación/100) ← si hay market y su SealedSubtype tiene spread
- *     > mercado × (1 + spread_global/100)             ← si hay market pero sin spread de presentación
- *     > (sin precio) ⇒ PRICE_PENDING ⇒ NO se publica  ← sin mercado y sin override, NUNCA se inventa
+ *   override (InventoryItem.listPriceCents), SI es > 0            ← gana SIEMPRE si presente y positivo
+ *     > mercado × (1 + spread_de_su_presentación/100)             ← si hay market y su SealedSubtype tiene spread
+ *     > mercado × (1 + spread_global/100)                         ← si hay market pero sin spread de presentación
+ *     > (sin precio) ⇒ PRICE_PENDING ⇒ NO se publica              ← sin mercado y sin override, NUNCA se inventa
  *
- * La condición NO altera el precio (el spread es por presentación); para descontar una caja con
- * detalle el admin usa el override de esa pieza. `pct` = markup ARRIBA de mercado (como ventas §4.14,
- * NO «% de la referencia» del buylist). `subtype`/`market`/`override` salen de BD; los spreads de
- * ConfigSetting. Nada viene del DTO del cliente.
+ * REGLA ÚNICA DE OVERRIDE (H-1, v1.24): un override se considera presente SOLO si `overrideCents > 0`.
+ * Un override `<= 0` (0 o negativo) es INPUT DEGENERADO y se trata como AUSENTE — el precio cae a
+ * mercado×spread (y a PRICE_PENDING si tampoco hay mercado). Elección money-safe: nunca se cobra un
+ * sellado GRATIS ni por DEBAJO de mercado por un override mal capturado; para descontar una caja con
+ * detalle el admin fija un override POSITIVO por debajo de mercado (deliberado), no un 0. Esta regla
+ * es la MISMA en catálogo, Compra (orders), grid y bulk-publish (todos vía `resolveSealedSalePrice`).
+ *
+ * La condición NO altera el precio (el spread es por presentación). `pct` = markup ARRIBA de mercado
+ * (como ventas §4.14, NO «% de la referencia» del buylist). `subtype`/`market`/`override` salen de BD;
+ * los spreads de ConfigSetting. Nada viene del DTO del cliente.
  */
 export function computeSealedSalePrice(
   overrideCents: number | null,
@@ -337,7 +343,8 @@ export function computeSealedSalePrice(
   spreadPctBySubtype: Record<string, number>,
   fallbackPct: number,
 ): SealedSpreadResult {
-  if (overrideCents != null) {
+  // H-1: override presente ⇔ > 0 (un 0/negativo es degenerado ⇒ se ignora, cae a mercado×spread).
+  if (overrideCents != null && overrideCents > 0) {
     return { salePriceCents: overrideCents, status: 'priced', source: 'override', appliedSpreadPct: null };
   }
   const hasSubtypeSpread = sealedSubtype != null && spreadPctBySubtype[sealedSubtype] != null;

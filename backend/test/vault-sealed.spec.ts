@@ -56,6 +56,14 @@ function build(items: any[], refs: Map<string, any>) {
       it.tcgplayerProductId != null ? `sealed:tcg:${it.tcgplayerProductId}` : null,
     ),
     getReferencesBatch: jest.fn(async () => refs),
+    // H-1 (v1.24): dial ENCENDIDO por defecto (seed `tcgcsv`) + gate real del mercado.
+    loadSealedSpreads: jest.fn(async () => ({
+      spreadPctBySubtype: {},
+      fallbackPct: 25,
+      sourceOn: true,
+    })),
+    gateSealedMarketCents: (ref: any, sourceOn: boolean) =>
+      sourceOn && ref?.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null,
   } as unknown as PricingService;
   return { prisma, pricing, svc: new VaultService(prisma, pricing) };
 }

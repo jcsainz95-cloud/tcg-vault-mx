@@ -2083,6 +2083,53 @@
   Solución: dejar solo la lectura de `tcgplayer.prices`; si el payload no la trae, OMITIR y loguear
   (que un cambio de contrato falle visible, no que un fallback lo tape).
 
+### Pase `sellado-producto-cerrado` — saneo del sellado (2026-08-19, no bloqueante)
+
+> Del pase de saneo aprobado por el PO sobre el work stream de Sellado: seed del autoprecio a
+> `tcgcsv` (Tarea 1) + dedup del gating del precio de venta del sellado en un resolver único
+> `PricingService.resolveSealedSalePrice` (H-1, Tarea 2). Deuda aceptada anotada de los reportes de
+> QA/techlead. Todos no bloqueantes, dueño **backend**. Continúan la numeración `BE-*` (tras BE-72).
+
+### BE-73 · Paginación EN MEMORIA del sellado (`loadPricedSealed` / `vault.sealedTab`) (Media)
+- **Dónde:** `src/modules/catalog/sealed-catalog.service.ts` → `loadPricedSealed` (usado por
+  `listSealed`/`sealedDetail`) y `src/modules/vault/vault.service.ts` → `sealedTab`.
+- **Estado actual:** ambos cargan **todas** las piezas selladas que matchean el `where` (sin `take`
+  en BD), resuelven precio/valuación pieza por pieza, **agrupan por producto+condición en memoria** y
+  recién entonces paginan (`slice`) u ordenan. Es el patrón `set-value` (agrupación en memoria), correcto
+  para MVP pero que **escala con el inventario sellado**, no con la página pedida.
+- **Impacto:** medio a futuro. Con un catálogo sellado grande, cada request del grid/bóveda materializa
+  el universo de piezas selladas antes de paginar (latencia + memoria). Correctness OK.
+- **Disparador:** cuando el inventario sellado publicado supere ~unos cientos de piezas o la latencia del
+  grid/bóveda moleste. Solución: agrupar/paginar en BD (p. ej. `GROUP BY` por producto+condición con
+  `take`/`skip`) o materializar el agregado por grupo; misma familia perf que BE-4/D3/BE-25.
+
+### BE-74 · Imagen/nombre del grid/bóveda de sellado = los de la `Card`, no los reales de TCGCSV (Baja)
+- **Dónde:** `src/modules/catalog/sealed-catalog.service.ts` → `toGroupDTO` (`productName: item.card.name`,
+  `imageUrl: item.card.imageSmallUrl`) y `src/modules/vault/vault.service.ts` → `sealedTab` (idem).
+- **Estado actual:** el `SealedGroupDTO` (grid, ficha, pestaña bóveda) usa el **nombre y la imagen de la
+  `Card` ancla** (catálogo pokemontcg.io), NO el nombre/imagen reales del producto sellado en TCGCSV — hoy
+  **no se persisten** en el mapeo. Traerlos en vivo sería un **N+1 remoto** contra TCGCSV por producto.
+  Decisión correcta para MVP (sin fotos propias, imagen de catálogo remota).
+- **Impacto:** bajo (cosmético/UX). El comprador ve el nombre/imagen de la carta ancla en vez del arte del
+  booster box/ETB real; el precio y la agrupación son correctos.
+- **Disparador:** **pregunta abierta al arquitecto** — ¿persistir `name`/`imageUrl` de TCGCSV en el mapeo
+  del producto sellado (M-23) durante el ingest? Requiere columna(s) nueva(s) en el modelo del mapeo
+  (schema → pasa por arquitecto, regla 9) para servirlos sin N+1 remoto.
+
+### BE-75 · `userId` siempre `null` en `SealedRestockSubscription` (ruta `@Public`) (Baja)
+- **Dónde:** `src/modules/catalog/sealed-catalog.service.ts` → `subscribeRestock` (persiste
+  `userId: userId ?? null`) + su controlador `@Public` (`POST /catalog/sealed/restock-subscriptions`).
+- **Estado actual:** la suscripción a «avísame cuando vuelva» es un endpoint **público/anónimo**, así que
+  `userId` entra siempre `null`; el emparejamiento de la notificación es **por correo**. Ligar la
+  suscripción a una **cuenta** cuando el usuario está autenticado requiere un **guard de auth OPCIONAL**
+  (leer el usuario si hay sesión, permitir anónimo si no) que **hoy no existe** en el stack. Feature-flag
+  `sealed_restock_alerts` está apagado (seed off), así que la ruta no opera aún.
+- **Impacto:** bajo. Cuando se encienda el restock, la notificación llega por correo igual; solo se pierde
+  la ligadura suscripción→cuenta (no se puede listar «mis avisos» dentro de la sesión).
+- **Disparador:** al **encender** `sealed_restock_alerts` y querer ligar avisos a la cuenta. Solución:
+  guard de auth opcional que popule `userId` cuando haya sesión (sin romper el acceso anónimo ni la
+  respuesta neutra anti-enumeración).
+
 ---
 
 ## Frontend (dueño: frontend)
@@ -2150,3 +2197,42 @@
 - **Disparador:** cierre de release (suite E2E completa). Acción: añadir a las dos specs los
   escenarios de poda (parcial, total y carrera quote→pago) sembrando una pieza que muere entre
   medias.
+
+### Pase `sellado-producto-cerrado` — deuda del sellado (2026-08-19, no bloqueante)
+
+> Deuda aceptada del work stream de Sellado anotada por backend en esta pasada de saneo (frontend NO
+> tocó `TECH_DEBT.md` en este pase, para evitar conflicto de escritura; los ítems son **dueño frontend**
+> y se registran aquí de los reportes de QA/techlead). Continúan la numeración `F-*` (tras F-7).
+
+### F-8 · Facetas de set APROXIMADAS en `SealedShopView` (Media)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)` — `SealedShopView` (vista del grid de sellado).
+- **Estado actual:** las facetas de **set** del filtro de la ventana de sellado se pueblan **de la página
+  ya cargada** (los grupos visibles), no del **universo** de sets con sellado publicado. Con paginación,
+  un set cuyo producto sellado no aparece en la página actual **no se ofrece** como filtro.
+- **Impacto:** medio (UX de descubrimiento). El comprador puede no ver un set como opción de filtro pese a
+  existir sellado de ese set en catálogo.
+- **Disparador:** cuando el catálogo sellado tenga suficientes sets para paginar. Solución: **endpoint de
+  facetas** del sellado (sets con sellado publicado, agregado en BD) — **pasa por el arquitecto** (contrato,
+  regla 9), análogo a las facetas de Compra (`facets`).
+
+### F-9 · Cosmético M2 — placeholder `?? 15` mientras el seed real del fallback global es `25` (Baja)
+- **Dónde:** frontend del editor de spreads del sellado (M2) — el placeholder del fallback global usa
+  `?? 15`.
+- **Estado actual:** el placeholder/valor por defecto mostrado usa `15`, pero el **seed real** del dial
+  `sealed_spread_fallback_pct` es **25** (`SETTING_DEFAULTS`). Solo cosmético: el valor efectivo lo manda
+  el backend; el `?? 15` únicamente pinta un placeholder cuando el campo llega vacío.
+- **Impacto:** bajo (cosmético). Puede confundir al súper-admin al leer `15` como "el default" cuando el
+  fallback vigente es `25`.
+- **Disparador:** próximo toque al editor de spreads M2. Solución: alinear el placeholder a `25` (o
+  derivarlo del valor servido por el backend en vez de hardcodearlo).
+
+### F-10 · `SealedVaultPanel` re-keyea por `card.id-subtype-condition` ignorando `tcgplayerProductId` (Baja)
+- **Dónde:** `frontend` — `SealedVaultPanel` (pestaña «Sellado» de la bóveda) usa como key de React
+  `card.id-subtype-condition`.
+- **Estado actual:** la key de la lista **omite** `tcgplayerProductId`; si una misma `Card` ancla **dos
+  productos sellados distintos** con el **mismo `sealedSubtype` + condición**, sus grupos colisionan en la
+  **misma key React** (posible reconciliación incorrecta / warning de keys duplicadas).
+- **Impacto:** bajo. Requiere el caso raro de dos productos mapeados al mismo Card ancla con idéntico
+  subtype+condición; a lo sumo un render inestable de esas filas.
+- **Disparador:** si aparece un Card ancla con dos productos del mismo subtype+condición. Solución: incluir
+  `tcgplayerProductId` (o el `representativeItemId`, que ya es único por grupo) en la key.
