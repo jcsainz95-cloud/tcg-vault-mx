@@ -32,6 +32,7 @@
   "nav": {
     "catalog": "Compra",
     "shop": "Compra",
+    "store": "Tienda",
     "buylist": "Vender",
     "vault": "Mi bóveda",
     "orders": "Mis órdenes",
@@ -45,6 +46,11 @@
     "menu": "Menú",
     "terms": "Términos y política",
     "sealed": "Sellado"
+  },
+  "storeTabs": {
+    "label": "Tienda",
+    "singles": "Cartas sueltas",
+    "sealed": "Producto sellado"
   },
   "home": {
     "heroTitle": "Compra cartas Pokémon con precio real y guárdalas en la bóveda",
