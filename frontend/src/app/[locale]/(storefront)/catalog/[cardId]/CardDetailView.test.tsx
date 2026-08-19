@@ -80,8 +80,8 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local)', () =>
     expect(screen.getByRole('status')).toHaveTextContent('Agregado al carrito');
     expect(screen.getByRole('link', { name: 'Ver carrito' })).toHaveAttribute('href', '/checkout');
 
-    // Persistió en el carrito local (pieza única deduplicada).
-    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!)).toEqual(['inv-a']);
+    // Persistió en el carrito local (pieza única deduplicada; formato v2 { ids, updatedAt }).
+    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-a']);
   });
 
   it('el segundo clic («En el carrito») no re-agrega: navega al carrito (/checkout)', async () => {
@@ -92,7 +92,7 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local)', () =>
     fireEvent.click(await screen.findByRole('button', { name: 'En el carrito' }));
 
     expect(push).toHaveBeenCalledWith('/checkout');
-    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!)).toEqual(['inv-a']);
+    expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-a']);
   });
 
   it('pieza ya en el carrito al montar → CTA inicial «En el carrito» (sin toast)', async () => {

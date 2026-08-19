@@ -101,6 +101,14 @@ export interface CardDTO {
   externalId: string;
   name: string;
   number: string;
+  // v1.22-variantes-orden: claves de ORDEN NATURAL persistidas en BD (M-26). El servidor ya entrega
+  // `GET /buylist/cards` ordenado por (numberPrefix, numberSort, number, id); el front NUNCA inventa
+  // esta clave (antes se usaba el índice del arreglo) y solo re-ordena localmente tras filtrar con
+  // el comparador de `@/lib/cardOrder`. Opcionales en el TIPO (no en la norma): mientras el re-sync
+  // de M-26 no haya corrido en TODAS las filas, `@/lib/cardOrder` deriva la clave equivalente en
+  // cliente con `deriveNumberParts` para no degradar a orden lexicográfico ("10" antes que "2").
+  numberSort?: number;
+  numberPrefix?: string;
   rarity: string;
   supertype: string;
   subtypes: string[];
@@ -189,6 +197,17 @@ export interface BreakdownDTO {
   processingFeeCents: number;
   totalCents: number;
   currency: 'MXN';
+  /**
+   * v1.21-guest-checkout (ADITIVO, opcional): SOLO presente en un pedido
+   * `fulfillmentMode='direct_ship'` (hoy = pedido de invitado, contrato §4-G), donde el
+   * envío se cobra en el MISMO PaymentIntent que las cartas. Ausente en compras a bóveda
+   * y en retiros (ahí el shape y las fórmulas NO cambian). Con `shippingFeeCents`:
+   *   ivaCents = round((subtotalCents + shippingFeeCents) × ivaRatePct/100)
+   *   totalCents = subtotalCents + shippingFeeCents + ivaCents + processingFeeCents
+   * OJO: es una LÍNEA APARTE; NO se resta del subtotal (asimetría deliberada con §5,
+   * donde en un retiro `subtotalCents` ES la tarifa de envío).
+   */
+  shippingFeeCents?: number;
 }
 
 // ---- Auth / usuarios (contrato §1) ----
@@ -380,9 +399,24 @@ export interface OrderItemPreview {
   unitPriceCents: number;
 }
 
+/**
+ * v1.21.3-quote-prune — ítem de carrito podado por los DOS endpoints de QUOTE (§4 y
+ * §4-G.1). SOLO quote: los endpoints de session NO lo usan (siguen estrictos).
+ * `cardName` = nombre de la carta si la pieza aún existe en BD (aunque ya no esté
+ * disponible); `null` si el `inventoryItemId` ya no resuelve (pieza borrada). El front
+ * lo usa para el aviso «X ya no está disponible y se quitó de tu carrito» y para PODAR
+ * el localStorage antes de llamar a session.
+ */
+export interface UnavailableCartItemDTO {
+  inventoryItemId: string;
+  cardName: string | null;
+}
+
 export interface CheckoutQuoteResponse {
   items: OrderItemPreview[];
   breakdown: BreakdownDTO;
+  /** SIEMPRE presente (v1.21.3); `[]` cuando todo el carrito resuelve. */
+  unavailableItems: UnavailableCartItemDTO[];
 }
 
 export interface CheckoutSessionResponse {
@@ -745,6 +779,19 @@ export interface MasterSetVariantDTO {
   count: number;
   covered: boolean;
   buyable?: { inventoryItemId: string; salePriceCents: number } | null;
+  // SOLO mode="quoter" (frontend, WS-cotizador): NO viaja del backend en ningún endpoint del
+  // contrato — el cotizador compone este campo 100% client-side a partir de POST
+  // /buylist/quote/batch (mismo shape que BuylistQuoteResponse) para reusar el binder de
+  // Master Set como grid de cotización. `covered` en este modo significa "cotización resuelta"
+  // (no "en inventario"); null = la combinación (carta, acabado) no cotizó (NOT_FOUND/
+  // FINISH_NOT_AVAILABLE — no debería ocurrir si `finish` viene de availableFinishes).
+  quote?: {
+    status: 'cotizada' | 'precio_pendiente';
+    quotedPriceCents: number | null;
+    rarity: string | null;
+    appliedRule: BuylistRuleApplied;
+    referencePrice: { status: 'priced' | 'pending'; priceMxnCents?: number };
+  } | null;
 }
 
 export interface MasterSetIndexResponse {
@@ -761,7 +808,12 @@ export interface MasterSetIndexResponse {
 // `number` = Card.number crudo (String, p. ej. "4", "SV107", "TG12"). `numberSort` = CLAVE NUMÉRICA
 // derivada SERVER-SIDE para el orden natural estable — el front NO re-ordena por número, confía en el
 // orden natural del backend (numéricos por valor entero primero; promos/subsets con prefijo alfabético
-// al final). `countsByFinish` = piezas on-hand por acabado (solo acabados con ≥1 pieza); `totalCount` =
+// al final).
+// v1.22-variantes-orden: `numberSort`/`numberPrefix` son COLUMNAS de `Card` (M-26) y el servidor ya
+// ordena por ellas. El front las usa SOLO para re-ordenar localmente tras filtrar, con el comparador
+// (numberPrefix asc, numberSort asc, number asc) — ver `@/lib/cardOrder`. `numberSort` solo NO basta
+// (`TG12` y `GG12` colisionan en el sentinela), por eso la celda gana `numberPrefix`.
+// `countsByFinish` = piezas on-hand por acabado (solo acabados con ≥1 pieza); `totalCount` =
 // suma. `totalCount=0` = HUECO de inventario. `isSecretRare` = heurística SOLO de display (número
 // puramente numérico cuyo entero > printedTotal); los promos/subsets con prefijo NO son secret rare.
 export interface MasterSetCellCountDTO {
@@ -772,7 +824,11 @@ export interface MasterSetCellCountDTO {
 export interface MasterSetCardCellDTO {
   cardId: string;
   number: string;
-  numberSort: number;
+  // Opcionales en el TIPO por la misma razón que en CardDTO (ver arriba): `@/lib/cardOrder` deriva
+  // la clave equivalente en cliente si el backend todavía no las manda.
+  numberSort?: number;
+  /** v1.22 (aditivo): "" = número puramente numérico; "TG"/"SV"/"GG"… = promo/subset (va al final). */
+  numberPrefix?: string;
   name: string;
   rarity?: string;
   imageSmallUrl?: string;
@@ -1462,4 +1518,191 @@ export interface ApiError {
   code: string;
   message: string;
   details?: Record<string, unknown>;
+}
+
+// ============================================================================
+// Guest checkout — comprar sin cuenta (contrato §4-G, v1.21-guest-checkout)
+// ----------------------------------------------------------------------------
+// Superficie ADITIVA: ningún tipo anterior cambia de forma. Los cinco invariantes
+// de §4-G.0 que atan a este front:
+//   1. El invitado NO tiene bóveda (fulfillmentMode siempre 'direct_ship').
+//   3. Un invitado nunca toca un endpoint `customer` (y al revés: con sesión, los
+//      endpoints /checkout/guest/* responden 409 ALREADY_AUTHENTICATED).
+//   5. El ÚNICO token en claro que devuelve la API es el `checkoutToken` de
+//      POST /checkout/guest/session (a quien acaba de crear el pedido). No se
+//      persiste en localStorage ni se loguea (§4-G.2). v1.21.1: es un token de
+//      VIDA CORTA (120 min); el enlace de seguimiento de 90 días llega SOLO por
+//      correo y nunca por una respuesta de API (§4-G.7a).
+// ============================================================================
+
+export type FulfillmentMode = 'vault' | 'direct_ship';
+
+/** Dirección capturada en línea por el invitado (no hay `Address` sin cuenta). §4-G.1 */
+export interface GuestAddressInput {
+  line1: string;
+  line2?: string;
+  neighborhood?: string;
+  city: string;
+  state: string;
+  /** ^\d{5}$ */
+  postalCode: string;
+  /** literal "MX"; cualquier otro valor → 422 ADDRESS_NOT_MX */
+  country: 'MX';
+  /** 10 dígitos MX (contacto de paquetería) */
+  phone: string;
+  /** nombre de quien recibe (el invitado no tiene User.name) */
+  recipientName: string;
+}
+
+/** POST /checkout/guest/quote — read-only, no reserva inventario. §4-G.1 */
+export interface GuestCheckoutQuoteRequest {
+  inventoryItemIds: string[];
+  shippingAddress?: GuestAddressInput;
+}
+
+/** Banderas de aviso; el TEXTO lo pone el front desde i18n (§0 / §4-G.1). */
+export interface GuestCheckoutNotices {
+  finalSale: boolean;
+  invoiceByEmail: boolean;
+  termsRequired: boolean;
+}
+
+export interface GuestCheckoutQuoteResponse {
+  items: { inventoryItemId: string; card: CardDTO; unitPriceCents: number }[];
+  fulfillmentMode: FulfillmentMode;
+  breakdown: BreakdownDTO;
+  notices: GuestCheckoutNotices;
+  /**
+   * SIEMPRE presente (v1.21.3-quote-prune, misma norma que §4). Carrito 100 % no
+   * disponible ⇒ `items: []` + breakdown en CEROS (incl. `shippingFeeCents: 0`),
+   * nunca error.
+   */
+  unavailableItems: UnavailableCartItemDTO[];
+}
+
+/** POST /checkout/guest/session. §4-G.2 */
+export interface GuestCheckoutSessionRequest {
+  inventoryItemIds: string[];
+  /** OBLIGATORIO. El backend lo normaliza (trim + lowercase). */
+  email: string;
+  shippingAddress: GuestAddressInput;
+  locale?: Locale;
+  /** aceptación explícita de ventas finales + aviso de privacidad */
+  acceptedTerms: true;
+  /** si se envía DEBE ser "direct_ship"; "vault" → 422 VAULT_REQUIRES_ACCOUNT (upsell) */
+  fulfillmentMode?: FulfillmentMode;
+}
+
+export interface GuestCheckoutSessionResponse {
+  orderId: string;
+  orderNumber: string;
+  breakdown: BreakdownDTO;
+  /**
+   * v1.21.1 (§4-G.2/§4-G.7a) — antes `trackingToken`. Token de **VIDA CORTA**
+   * (`GUEST_CHECKOUT_TOKEN_TTL_MIN` = **120 minutos**), 43 chars base64url, cuyo único
+   * propósito es sobrevivir al redirect 3DS y pintar la confirmación + el seguimiento
+   * inmediato. **NUNCA se envía por correo**: el enlace duradero (90 días) lo emite el
+   * webhook del settle y viaja SOLO por correo. Secreto de URL: no se persiste en
+   * `localStorage` ni se loguea.
+   */
+  checkoutToken: string;
+  /** ISO — cuándo se apaga el `checkoutToken` (≈ ahora + 120 min). */
+  checkoutTokenExpiresAt: string;
+  stripe: { paymentIntentId: string; clientSecret: string };
+}
+
+/** Estado público derivado (§4-G.5). El texto legible vive en i18n del front. */
+export type GuestOrderPublicStatus =
+  | 'pendiente_pago'
+  | 'pagado'
+  | 'preparando'
+  | 'guia'
+  | 'enviado'
+  | 'entregado'
+  | 'cancelado'
+  | 'reembolsado'
+  | 'en_revision';
+
+export interface GuestTrackingItemDTO {
+  name: string;
+  setName: string;
+  number: string;
+  finish: Finish;
+  productType: ProductType;
+  rawCondition?: RawCondition;
+  sealedSubtype?: SealedSubtype;
+  gradingCompany?: GradingCompany;
+  gradeValue?: string;
+  imageSmallUrl?: string;
+  unitPriceCents: number;
+}
+
+export interface GuestTrackingShippingDTO {
+  city: string;
+  state: string;
+  /** "***45" — SOLO los 2 últimos dígitos del CP (el front ni siquiera lo pinta, §15.6) */
+  postalCodeMasked: string;
+  /** "Juan P." — nombre + inicial (prohibido pintarlo en la vista pública, §15.6) */
+  recipientNameMasked: string;
+  carrier?: string;
+  trackingNumber?: string;
+  shippedAt?: string;
+  deliveredAt?: string;
+}
+
+/** Marca + últimos 4. NADA más (criterio 51). */
+export interface GuestTrackingPaymentDTO {
+  brand?: string;
+  last4?: string;
+}
+
+/**
+ * POST /orders/guest/track (§4-G.3) — el token viaja en el BODY, nunca en la ruta.
+ * Lista CERRADA de campos: cualquier cosa fuera de este shape está prohibida por
+ * contrato (el payload es público; ocultarlo en el front no bastaría).
+ */
+export interface GuestOrderTrackingDTO {
+  orderNumber: string;
+  status: GuestOrderPublicStatus;
+  placedAt: string;
+  paidAt?: string;
+  /** "j***@***.com" — el diseño §15.6 NO lo pinta (dato de contacto). */
+  emailMasked: string;
+  items: GuestTrackingItemDTO[];
+  breakdown: BreakdownDTO;
+  shipping: GuestTrackingShippingDTO;
+  payment?: GuestTrackingPaymentDTO;
+  claim: { available: boolean };
+  support: { evidenceContact: string; disputeWindowDays: number; disputeDeadlineAt?: string };
+  tokenExpiresAt: string;
+}
+
+/** POST /orders/guest/resend-link — unión discriminada; `email` SOLO nunca se acepta (§4-G.4). */
+export type GuestResendLinkRequest =
+  | { token: string }
+  | { email: string; orderNumber: string };
+
+/** SIEMPRE el mismo cuerpo (202), exista o no el pedido/correo/token. */
+export interface GuestResendLinkResponse {
+  status: 'ACCEPTED';
+}
+
+/** GET /orders/claimable — `customer` + emailVerified (§4-G.9). */
+export interface ClaimableOrderDTO {
+  orderId: string;
+  orderNumber: string;
+  status: OrderStatus;
+  totalCents: number;
+  itemCount: number;
+  createdAt: string;
+  settledAt?: string;
+}
+
+/** POST /orders/claim — parcial-tolerante: HTTP 200 con fallos por pedido. */
+export interface ClaimOrdersResponse {
+  claimed: string[];
+  failed: {
+    orderId: string;
+    code: 'ORDER_ALREADY_CLAIMED' | 'CLAIM_EMAIL_MISMATCH' | 'NOT_FOUND';
+  }[];
 }

@@ -1,4 +1,5 @@
 import { Card, CardSet, Finish, PriceSource, ProductType } from '@prisma/client';
+import { orderFinishes } from '../../common/card-order';
 
 // v1.19-sealed-tcgcsv: += 'tcgcsv' (fuente de la referencia de mercado del SELLADO, M-23).
 export type PriceSourceStr = 'pokemontcg_io' | 'pokemonpricetracker' | 'poketrace' | 'manual' | 'tcgcsv';
@@ -26,19 +27,72 @@ export const TCG_KEY_TO_FINISH: Record<string, Finish> = {
 };
 
 /**
- * Deriva los acabados disponibles a partir de las llaves presentes en `tcgplayer.prices`.
- * Descarta las no mapeadas; ausente/vacío → [normal] (default seguro). ARCHITECTURE §3.7/§4.8.
+ * Llaves de `cardmarket.prices` que denotan la existencia de una impresión REVERSE HOLO.
+ * ⚠️ ASIMETRÍA DELIBERADA con `tcgplayer.prices` (ARCHITECTURE §4.22a-3): Cardmarket emite estas
+ * llaves SIEMPRE (con `0`/`null` cuando la impresión no existe) ⇒ aquí la llave NO es señal, **el
+ * valor sí**. Tratarlas como las de TCGplayer inventaría un reverse holo en TODAS las cartas —
+ * justo la «casilla de relleno» que el PO prohíbe.
  */
-export function deriveAvailableFinishes(
-  prices?: Record<string, unknown> | null,
-): Finish[] {
-  if (!prices) return ['normal'];
-  const set = new Set<Finish>();
-  for (const key of Object.keys(prices)) {
-    const finish = TCG_KEY_TO_FINISH[key];
-    if (finish) set.add(finish);
+export const CARDMARKET_REVERSE_HOLO_KEYS = [
+  'reverseHoloSell',
+  'reverseHoloLow',
+  'reverseHoloTrend',
+  'reverseHoloAvg1',
+  'reverseHoloAvg7',
+  'reverseHoloAvg30',
+] as const;
+
+/** Payload remoto mínimo del que se derivan las variantes (subconjunto de `RemoteCard`). */
+export interface FinishSignalSource {
+  tcgplayer?: { prices?: Record<string, unknown> | null } | null;
+  cardmarket?: { prices?: Record<string, unknown> | null } | null;
+}
+
+/**
+ * v1.22-variantes-orden (ARCHITECTURE §3.7 / §4.22a-3) — deriva los acabados en que EXISTE la
+ * carta a partir de DOS señales del MISMO payload que el sync ya descarga (cero requests extra):
+ *
+ *  - **Señal A — `tcgplayer.prices`:** cada LLAVE PRESENTE mapeable (§3.7) añade su `Finish`.
+ *    **La presencia de la llave ES la señal**: `market` puede ser `null`/`0` y la variante SIGUE
+ *    contando. Este es el cambio que arregla «tiene reverse holo pero no tiene precio de reverse
+ *    holo». Llaves no mapeadas (`1stEditionNormal`, `unlimitedHolofoil`) se ignoran.
+ *  - **Señal B — `cardmarket.prices.reverseHolo*`:** añade `reverse_holo` si ALGUNA de esas llaves
+ *    trae un número FINITO > 0 (ver `CARDMARKET_REVERSE_HOLO_KEYS`).
+ *
+ * @returns `union(A, B)` en orden canónico `FINISH_ORDER`, o **`null`** si NINGUNA de las dos
+ * señales existe. `null` ≠ `['normal']`: significa «el payload no dice nada de acabados» y el
+ * llamador debe CONSERVAR lo que ya sabía (§4.22a-4), nunca clobbear a `['normal']`.
+ *
+ * ❌ PROHIBIDO derivar acabados de la existencia de un PRECIO (`PriceReference`, `market > 0`,
+ * respuesta del proveedor de paga): precio ausente ≠ variante inexistente. Ese fue el bug de tres
+ * rondas (VAR-1, §9). ❌ Prohibida cualquier heurística por rareza.
+ */
+export function deriveAvailableFinishes(remote: FinishSignalSource | null | undefined): Finish[] | null {
+  const found = new Set<Finish>();
+
+  // Señal A — la LLAVE presente de tcgplayer.prices es la señal (con o sin `market`).
+  const tcgPrices = remote?.tcgplayer?.prices;
+  if (tcgPrices && typeof tcgPrices === 'object') {
+    for (const key of Object.keys(tcgPrices)) {
+      const finish = TCG_KEY_TO_FINISH[key];
+      if (finish) found.add(finish);
+    }
   }
-  return set.size > 0 ? [...set] : ['normal'];
+
+  // Señal B — en cardmarket la señal es el VALOR (> 0), no la llave (asimetría deliberada).
+  const cmPrices = remote?.cardmarket?.prices;
+  if (cmPrices && typeof cmPrices === 'object') {
+    for (const key of CARDMARKET_REVERSE_HOLO_KEYS) {
+      const raw = (cmPrices as Record<string, unknown>)[key];
+      if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+        found.add('reverse_holo');
+        break;
+      }
+    }
+  }
+
+  if (found.size === 0) return null;
+  return orderFinishes(found);
 }
 
 export interface PriceQuote {
@@ -92,6 +146,14 @@ export interface BulkPriceRow {
   marketCents: number;
   /** moneda de ORIGEN del market (defensivo; se verifica en la 1ª corrida, §4.15h). */
   currency: 'USD' | 'MXN';
+  /**
+   * v1.22-1 (§4.22g candado 2) — ¿el acabado se mapeó vía un ALIAS VERIFICADO
+   * (`VERIFIED_FINISH_ALIASES`, espejo estricto de `TCG_KEY_TO_FINISH`) y NO uno SUPUESTO?
+   * SOLO las filas con `finishAliasVerified === true` pueden alimentar `pricedFinishesSnapshot`
+   * (Señal C) y por ende la lista blanca SEC-A1. El PRECIO se persiste igual con alias SUPUESTO
+   * (dato inocuo); el flag distingue lo apto para la lista blanca de lo tolerado solo para el precio.
+   */
+  finishAliasVerified: boolean;
 }
 
 export interface BulkPriceResult {
@@ -101,6 +163,14 @@ export interface BulkPriceResult {
   fetchedRaw: number;
   /** Entradas OMITIDAS por el mapeo defensivo del adapter (money-safe). */
   skipped: number;
+  /**
+   * v1.22-1 (§4.22g) — ¿la CORRIDA fue EXITOSA (al menos una página del proveedor respondió OK)?
+   * Gobierna el REEMPLAZO money-safe de `pricedFinishesSnapshot`: solo se tocan snapshots si
+   * `requestOk && rows.length > 0`. Ante fallo total (ninguna página OK), 0 filas o modo
+   * sample-only, NO se toca ningún snapshot (mismo criterio con que hoy no se borran precios ante
+   * un fallo transitorio). Opcional por compat con stubs previos: `undefined` se trata como fallo.
+   */
+  requestOk?: boolean;
 }
 
 /**
@@ -145,6 +215,77 @@ export function normalizeFinishAlias(raw: unknown): Finish | null {
   if (typeof raw !== 'string') return null;
   const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
   return BULK_VARIANT_TO_FINISH[key] ?? null;
+}
+
+/**
+ * v1.22-1 (ARCHITECTURE §4.22g, candado 2) — ESPEJO ESTRICTO de `TCG_KEY_TO_FINISH` (las llaves
+ * REALES de `tcgplayer.prices`), SIN los alias marcados SUPUESTO de `BULK_VARIANT_TO_FINISH`
+ * (`foil`, `holo`, `reverse`, `reverseholo`, `firsteditionholo…`). Las llaves están normalizadas
+ * igual que `normalizeFinishAlias` (minúsculas, sin no-alfanuméricos) para tolerar
+ * `"Reverse Holo"`, `"reverseHolofoil"`, `"reverse_holofoil"`, etc.
+ *
+ * SOLO estos alias VERIFICADOS pueden alimentar `pricedFinishesSnapshot` (Señal C) y por tanto la
+ * lista blanca SEC-A1 `Card.availableFinishes`. Un `foil` SUPUESTO mal mapeado NO grabará un
+ * `holofoil` inexistente permanente en la lista blanca (candado anti-invención). Cuando la 1ª
+ * corrida CONFIRME un alias SUPUESTO (S-C2), se PROMUEVE aquí; hasta entonces solo alimenta el
+ * precio (`PriceReference`), nunca la lista blanca.
+ */
+export const VERIFIED_FINISH_ALIASES: Record<string, Finish> = {
+  normal: 'normal',
+  holofoil: 'holofoil',
+  reverseholofoil: 'reverse_holo',
+  '1steditionholofoil': 'first_edition_holofoil',
+};
+
+/**
+ * v1.22-1 (§4.22g candado 2/3) — Normaliza un `printing`/variante CRUDO del proveedor SOLO si es un
+ * ALIAS VERIFICADO; devuelve `null` para cualquier alias SUPUESTO o desconocido (anti-invención:
+ * NUNCA se atribuye a `normal`, jamás pinta una casilla de relleno). Es MÁS estricto que
+ * `normalizeFinishAlias` (que sigue tolerante para el PRECIO). El llamador fija
+ * `finishAliasVerified = normalizeVerifiedFinishAlias(raw) !== null`.
+ */
+export function normalizeVerifiedFinishAlias(raw: unknown): Finish | null {
+  if (typeof raw !== 'string') return null;
+  const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return VERIFIED_FINISH_ALIASES[key] ?? null;
+}
+
+/**
+ * P-6 (2026-08-18) — VARIANTES de formato del número de carta, para el fallback `(set, number)`
+ * de `PriceIngestService.resolveCardId`. `Card.number` viene de pokemontcg.io (`"104"`, `"TG01"`,
+ * `"SV107"`), pero el proveedor de paga publica `cardNumber` y puede darlo con el total del set
+ * (`"104/159"`) o con ceros a la izquierda (`"004"`). Se devuelven las formas EQUIVALENTES del
+ * mismo número, SIN el valor exacto (que el llamador ya probó) y sin inventar cartas nuevas:
+ *
+ *   "104/159" → ["104"]      (se corta el total del set)
+ *   "004"     → ["4", "04"]  (nuestro catálogo pudo guardarlo sin relleno)
+ *   "4"       → ["04", "004"] (o con relleno)
+ *
+ * Money-safe: es solo un conjunto de CANDIDATOS; el llamador exige coincidencia ÚNICA dentro del
+ * set antes de atribuir un precio (si dos cartas casan, se omite en vez de adivinar).
+ */
+export function cardNumberVariants(raw: string): string[] {
+  const exact = raw.trim();
+  if (exact === '') return [];
+  const out = new Set<string>();
+  const seeds = new Set<string>([exact]);
+
+  // `"104/159"` → `"104"` (el proveedor anexa el total del set).
+  const slash = exact.indexOf('/');
+  if (slash > 0) seeds.add(exact.slice(0, slash).trim());
+
+  for (const seed of seeds) {
+    out.add(seed);
+    // Solo se juega con el relleno de ceros en números PUROS (`"004"`), nunca en `"TG01"`/`"SV107"`.
+    if (!/^\d+$/.test(seed)) continue;
+    const bare = String(Number(seed));
+    out.add(bare);
+    if (bare.length <= 2) out.add(bare.padStart(2, '0'));
+    if (bare.length <= 3) out.add(bare.padStart(3, '0'));
+  }
+
+  out.delete(exact);
+  return [...out];
 }
 
 // ============================================================================

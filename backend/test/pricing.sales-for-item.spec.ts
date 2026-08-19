@@ -140,7 +140,7 @@ describe('call-site swap — orders.salePriceOf usa la regla por rareza', () => 
       })),
     } as unknown as PricingService;
     const svc = buildOrders(pricing);
-    const res = await svc.quote('u1', ['i1']);
+    const res = await svc.quote(['i1']);
     expect(res.items[0].unitPriceCents).toBe(500);
   });
 
@@ -153,6 +153,6 @@ describe('call-site swap — orders.salePriceOf usa la regla por rareza', () => 
       })),
     } as unknown as PricingService;
     const svc = buildOrders(pricing);
-    await expect(svc.quote('u1', ['i1'])).rejects.toMatchObject({ code: 'PRICE_PENDING' });
+    await expect(svc.quote(['i1'])).rejects.toMatchObject({ code: 'PRICE_PENDING' });
   });
 });

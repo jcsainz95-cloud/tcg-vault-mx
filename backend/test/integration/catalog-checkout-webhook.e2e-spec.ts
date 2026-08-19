@@ -42,14 +42,28 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
 
   describe('catálogo y pricing', () => {
     it('lista listings y distingue referenceValue del salePrice (markup)', async () => {
-      const res = await h.api('GET', '/catalog/cards?pageSize=50');
-      expect(res.status).toBe(200);
-      const listing = (res.body.data as any[]).find((l) => l.inventoryItemId === itemId.listedCharizard);
-      expect(listing).toBeDefined();
-      expect(listing.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: E2E_CARDS.charizard.refNmCents });
+      // BE-64 (patrón, regla de la casa): NUNCA buscar una fila concreta en un listado paginado de
+      // BD compartida — las suites de guest checkout dejan piezas `E2E-GST-*` listadas del MISMO
+      // charizard por corrida y al acumularse >50 la pieza del seed caía fuera de la página (falló
+      // primero con `?pageSize=50` a secas y luego incluso acotando con `q=`: 51 listings del mismo
+      // nombre). La pieza concreta se pide POR ID (`/catalog/listings/:id`, mismo ListingDTO) y el
+      // listado se asierta por COMPORTAMIENTO (responde y contiene solo vendibles), no por volumen.
+      const byId = await h.api('GET', `/catalog/listings/${itemId.listedCharizard}`);
+      expect(byId.status).toBe(200);
+      expect(byId.body.referenceValue).toMatchObject({ status: 'priced', referenceMxnCents: E2E_CARDS.charizard.refNmCents });
       // salePrice = referencia × (1 + markup); el valor de mercado sigue siendo la referencia.
-      expect(listing.salePriceCents).toBe(computeSalePriceCents(E2E_CARDS.charizard.refNmCents, MARKUP));
-      expect(listing.sellable).toBe(true);
+      expect(byId.body.salePriceCents).toBe(computeSalePriceCents(E2E_CARDS.charizard.refNmCents, MARKUP));
+      expect(byId.body.sellable).toBe(true);
+
+      // El listado de Compra responde y toda fila publicada es vendible con precio resuelto
+      // (invariante «solo se lista lo que tiene precio»), sin depender de qué página cae cada pieza.
+      const list = await h.api('GET', `/catalog/cards?q=${encodeURIComponent(E2E_CARDS.charizard.name)}&pageSize=20`);
+      expect(list.status).toBe(200);
+      expect((list.body.data as any[]).length).toBeGreaterThan(0);
+      for (const l of list.body.data as any[]) {
+        expect(l.sellable).toBe(true);
+        expect(l.salePriceCents).toBeGreaterThan(0);
+      }
     });
 
     it('override manual de listPrice se refleja como salePrice', async () => {
@@ -87,6 +101,9 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       });
       // Coherencia: total = subtotal + IVA + fee; el fee NO lleva IVA.
       expect(expected.totalCents).toBe(expected.subtotalCents + expected.ivaCents + expected.processingFeeCents);
+      // v1.21.3-quote-prune: `unavailableItems` SIEMPRE presente; `[]` cuando todo el carrito
+      // resuelve (compatibilidad: la forma previa no cambia, solo se suma el `[]` aditivo).
+      expect(res.body.unavailableItems).toEqual([]);
     });
 
     it('comprar una carta en precio pendiente devuelve 422 PRICE_PENDING', async () => {
@@ -96,6 +113,99 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       });
       expect(res.status).toBe(422);
       expect(res.body.error.code).toBe('PRICE_PENDING');
+    });
+  });
+
+  describe('v1.21.3-quote-prune — resolución POR ÍTEM en POST /checkout/quote (customer)', () => {
+    const QPR = Date.now().toString(36);
+    let qprSeq = 0;
+
+    /** Pieza propia de esta suite (clona la charizard listada; mismo cardId ⇒ mismo salePrice). */
+    async function clonePiece(over: Record<string, unknown> = {}) {
+      const tpl = await h.prisma.inventoryItem.findUnique({
+        where: { folio: E2E_FOLIOS.listedCharizard },
+      });
+      return h.prisma.inventoryItem.create({
+        data: {
+          folio: `E2E-QPR-${QPR}-${(qprSeq += 1)}`,
+          cardId: tpl!.cardId,
+          productType: 'raw',
+          rawCondition: 'NM',
+          finish: 'normal',
+          ownerType: 'platform',
+          status: 'listed',
+          acquisitionType: 'compra',
+          acquisitionCostCents: 70000,
+          locationId: tpl!.locationId,
+          ...over,
+        },
+      });
+    }
+
+    it('1 vendida (cardName) + 1 id inexistente (null) + 2 vivas ⇒ 200 con 2 cotizadas y 2 podadas', async () => {
+      const viva1 = await clonePiece();
+      const viva2 = await clonePiece();
+      const vendida = await clonePiece({ status: 'shipped' }); // existe pero ya salió de la venta
+      const borrada = `no-existe-${QPR}`; // el id ya no resuelve (pieza borrada)
+
+      const res = await h.api('POST', '/checkout/quote', {
+        token: customerToken,
+        json: { inventoryItemIds: [viva1.id, vendida.id, borrada, viva2.id] },
+      });
+      expect(res.status).toBe(200);
+      expect((res.body.items as any[]).map((i) => i.inventoryItemId).sort()).toEqual(
+        [viva1.id, viva2.id].sort(),
+      );
+      // El breakdown se calcula SOLO con las vivas.
+      const unit = computeSalePriceCents(E2E_CARDS.charizard.refNmCents, MARKUP);
+      expect(res.body.breakdown).toEqual(computeCartBreakdown(unit * 2, IVA, FEE));
+      expect(res.body.unavailableItems).toEqual([
+        { inventoryItemId: vendida.id, cardName: E2E_CARDS.charizard.name },
+        { inventoryItemId: borrada, cardName: null },
+      ]);
+    });
+
+    it('carrito 100 % muerto ⇒ 200 con items: [], unavailableItems poblado y breakdown EN CEROS', async () => {
+      const vendida = await clonePiece({ status: 'shipped' });
+      const res = await h.api('POST', '/checkout/quote', {
+        token: customerToken,
+        json: { inventoryItemIds: [vendida.id, `no-existe-2-${QPR}`] },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.items).toEqual([]);
+      expect(res.body.unavailableItems).toHaveLength(2);
+      // Misma forma, todo en cero (nunca pantalla de error; el front deshabilita "pagar").
+      expect(res.body.breakdown).toEqual({
+        subtotalCents: 0,
+        ivaCents: 0,
+        ivaRatePct: 16,
+        processingFeeCents: 0,
+        totalCents: 0,
+        currency: 'MXN',
+      });
+    });
+
+    it('ANTI-SOBRECORRECCIÓN: POST /checkout/session sigue ESTRICTO (409/404 globales, sin poda)', async () => {
+      const viva = await clonePiece();
+      const vendida = await clonePiece({ status: 'shipped' });
+
+      const conMuerta = await h.api('POST', '/checkout/session', {
+        token: customerToken,
+        json: { inventoryItemIds: [viva.id, vendida.id] },
+      });
+      expect(conMuerta.status).toBe(409);
+      expect(conMuerta.body.error.code).toBe('ITEM_UNAVAILABLE');
+
+      const conBorrada = await h.api('POST', '/checkout/session', {
+        token: customerToken,
+        json: { inventoryItemIds: [viva.id, `no-existe-3-${QPR}`] },
+      });
+      expect(conBorrada.status).toBe(404);
+      expect(conBorrada.body.error.code).toBe('NOT_FOUND');
+
+      // Y el rechazo NO dejó nada reservado: la pieza viva sigue vendible.
+      const inv = await h.prisma.inventoryItem.findUnique({ where: { id: viva.id } });
+      expect(inv!.status).toBe('listed');
     });
   });
 

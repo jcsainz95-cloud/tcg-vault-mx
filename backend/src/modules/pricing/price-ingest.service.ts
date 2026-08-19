@@ -4,9 +4,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PricingService } from './pricing.service';
-import { BulkPriceProvider, BulkPriceRow } from './pricing.types';
+import { BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
+import { orderFinishes } from '../../common/card-order';
+import { FinishReconciler } from '../catalog/finish-reconciler.service';
 
 /** Snapshot de FX cargado UNA vez por corrida (§4.15f), pasado a cada set. */
 export type FxSnapshot = { rate: number; bufferPct: number };
@@ -29,7 +31,20 @@ export interface IngestSetResult {
 /**
  * PriceIngestService — corazón de WS-A (ARCHITECTURE §4.15c). Ingesta MASIVA de precios por SET
  * vía un `BulkPriceProvider` pluggable, con **upsert idempotente** de `PriceReference` por
- * `(cardId, 'raw', 'raw:NM', finish, hoy)` y refresco de `Card.availableFinishes` desde el proveedor.
+ * `(cardId, 'raw', 'raw:NM', finish, hoy)`.
+ *
+ * ⛔ **v1.22-variantes-orden (§4.22a): NUNCA escribe `Card.availableFinishes`.** El refresco directo
+ * de la lista blanca desde el proveedor (§4.15e) quedó DEROGADO — era la causa raíz del bug de tres
+ * rondas del PO (VAR-1, §9): derivar las VARIANTES de la existencia de un PRECIO borraba el reverse
+ * holo de toda carta sin precio de reverse holo.
+ *
+ * ✅ **v1.22-1 (§4.22g): Señal C money-safe.** Lo que este servicio SÍ hace ahora es escribir su
+ * PROPIA columna de entrada `Card.pricedFinishesSnapshot` = los acabados que PPT reportó con
+ * `market>0` y **alias VERIFICADO** (candado 2), por REEMPLAZO por carta en una corrida EXITOSA, y
+ * luego LLAMAR a `FinishReconciler.reconcile(cardIds)` (§4.22g candado 4). El ÚNICO escritor de
+ * `availableFinishes` sigue siendo el reconciliador del módulo `catalog`; aquí seguimos haciendo
+ * CERO escrituras sobre `availableFinishes`. Ante fallo de PPT / 0 filas NO se toca ningún snapshot
+ * (stale money-safe, como hoy no se borran precios). El drift se LOGUEA (`finishNotInCatalog`).
  *
  * - **Provider por dial:** `providerFor()` lee `PRICE_PROVIDER` y elige la implementación.
  * - **Resolución carta↔BD (§4.15d):** externalId (primario) → `(set, number)` (fallback); sin
@@ -37,7 +52,7 @@ export interface IngestSetResult {
  *   necesita la BD y el `BulkPriceRow` trae los identificadores (no un cardId ya resuelto).
  * - **FX una vez por corrida (§4.15f):** el `fx` lo carga el JOB y se pasa a cada `ingestSet`.
  * - **Money-safe:** respeta overrides manuales (vía `PricingService.persistMarketReference`), no
- *   clobbea `availableFinishes` si el proveedor no reporta nada, MXN sin conversión.
+ *   toca `availableFinishes` en ningún caso (§4.22a), MXN sin conversión.
  */
 @Injectable()
 export class PriceIngestService {
@@ -49,6 +64,9 @@ export class PriceIngestService {
     private readonly pricing: PricingService,
     private readonly pptBulk: PokemonPriceTrackerBulkProvider,
     private readonly tcgIoBulk: PokemonTcgIoBulkProvider,
+    // v1.22-1 (§4.22g): tras escribir `pricedFinishesSnapshot` (Señal C), este servicio LLAMA al
+    // ÚNICO escritor de `availableFinishes`. NUNCA escribe `availableFinishes` directamente.
+    private readonly finishReconciler: FinishReconciler,
   ) {}
 
   /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
@@ -147,9 +165,21 @@ export class PriceIngestService {
       byCard.set(cardId, finishes);
     }
 
+    // v1.22 (§4.22a): CATÁLOGO de acabados de las cartas tocadas — se lee SOLO para detectar drift
+    // y LOGUEARLO (`finishNotInCatalog`). NUNCA para escribir `availableFinishes` desde aquí.
+    const catalogFinishes = new Map<string, Finish[]>();
+    if (byCard.size > 0) {
+      const rows = await this.prisma.card.findMany({
+        where: { id: { in: [...byCard.keys()] } },
+        select: { id: true, externalId: true, availableFinishes: true },
+      });
+      for (const r of rows) catalogFinishes.set(r.id, (r.availableFinishes ?? ['normal']) as Finish[]);
+    }
+
     let priced = 0;
+    const driftPairs: string[] = [];
     for (const [cardId, finishes] of byCard) {
-      const providerFinishes: Finish[] = [];
+      const known = catalogFinishes.get(cardId) ?? ['normal'];
       for (const [finish, row] of finishes) {
         // El adapter ya garantizó market > 0; doble-guard money-safe.
         if (row.marketCents <= 0) continue;
@@ -159,22 +189,55 @@ export class PriceIngestService {
           { marketCents: row.marketCents, currency: row.currency, source: provider.source },
           fx,
         );
-        providerFinishes.push(finish);
+        // §4.22a — DRIFT observable: el proveedor reporta un acabado que el CATÁLOGO no declara.
+        // `PriceReference` se persiste igual (dato inocuo: el quote valida el finish contra
+        // `Card.availableFinishes` ANTES de leer precio, SEC-A1), pero queda evidencia para el
+        // dueño. El remedio es un `sync-all {force:true}` o el override manual — jamás escribir
+        // la lista blanca desde un feed de precios.
+        if (!known.includes(finish)) driftPairs.push(`${cardId}:${finish}`);
         priced += 1;
       }
-      // Variantes #8 (§4.15e): el proveedor es AUTORIDAD de availableFinishes. Solo se reemplaza
-      // si reporta ≥1 acabado válido; si no reporta nada se RESPETA lo existente (nunca se clobbea).
-      if (providerFinishes.length > 0) {
+      // ⛔ v1.22-variantes-orden (§4.22a-1/2): NUNCA se escribe `card.update({ availableFinishes })`
+      // aquí (VAR-1, §9). La lista blanca la recompone SOLO el reconciliador (abajo), a partir de
+      // las columnas de entrada. Este bucle solo persiste PRECIOS (tolerante con alias SUPUESTO).
+    }
+
+    // v1.22-1 (§4.22g) — Señal C: REEMPLAZO money-safe de `pricedFinishesSnapshot` + reconcile.
+    // Solo en una corrida EXITOSA con filas (`requestOk && rows>0`): ante fallo total / 0 filas /
+    // modo sample-only NO se toca ningún snapshot (stale conservador). Por cada carta VISTA con ≥1
+    // fila válida, el snapshot se reemplaza por sus acabados con `market>0 && finishAliasVerified`
+    // (vacío si ninguno es verificado ⇒ se limpia lo stale, reparabilidad §4.22g). Luego se llama
+    // al ÚNICO escritor de `availableFinishes`. `price-ingest` JAMÁS escribe `availableFinishes`.
+    if (result.requestOk && result.rows.length > 0 && byCard.size > 0) {
+      const reconcileIds: string[] = [];
+      for (const [cardId, finishes] of byCard) {
+        const verified = orderFinishes(
+          [...finishes.values()]
+            .filter((row) => row.finishAliasVerified && row.marketCents > 0)
+            .map((row) => row.finish),
+        );
         await this.prisma.card.update({
           where: { id: cardId },
-          data: { availableFinishes: [...new Set(providerFinishes)] },
+          data: { pricedFinishesSnapshot: verified },
         });
+        reconcileIds.push(cardId);
       }
+      await this.finishReconciler.reconcile(reconcileIds);
+    }
+
+    if (driftPairs.length > 0) {
+      this.logger.warn(
+        `price-ingest-set(${set.externalId}, ${provider.source}): finishNotInCatalog — ` +
+          `${driftPairs.length} referencia(s) de acabados FUERA de Card.availableFinishes ` +
+          `[${driftPairs.slice(0, 20).join(', ')}${driftPairs.length > 20 ? ', …' : ''}]. ` +
+          `El precio SÍ se persiste; el catálogo NO se modifica (§4.22a).`,
+      );
     }
 
     this.logger.log(
       `price-ingest-set(${set.externalId}, ${provider.source}): ${byCard.size} cartas, ` +
-        `${priced} refs, ${unresolved} sin resolver, ${result.skipped} omitidas por el adapter.`,
+        `${priced} refs, ${unresolved} sin resolver, ${result.skipped} omitidas por el adapter, ` +
+        `${driftPairs.length} finishNotInCatalog.`,
     );
     return {
       setId: set.id,
@@ -190,6 +253,11 @@ export class PriceIngestService {
   /**
    * Resuelve la carta local (§4.15d): externalId (PRIMARIO) → `(set, number)` (FALLBACK).
    * Sin resolución → null (la fila se OMITE en el llamador, no se crea referencia huérfana).
+   *
+   * P-6 (2026-08-18): el fallback tolera las VARIANTES de formato del número del proveedor de
+   * paga (`"104/159"` o `"004"` contra nuestro `"104"`, ver `cardNumberVariants`). El número
+   * EXACTO manda; solo si no casa se prueban las variantes, y únicamente se acepta si casan con
+   * UNA sola carta del set (money-safe: ante ambigüedad se omite en vez de adivinar la carta).
    */
   private async resolveCardId(row: BulkPriceRow, set: CardSet): Promise<string | null> {
     if (row.externalId) {
@@ -206,6 +274,22 @@ export class PriceIngestService {
         select: { id: true },
       });
       if (byNumber) return byNumber.id;
+
+      const variants = cardNumberVariants(row.number);
+      if (variants.length > 0) {
+        const matches = await this.prisma.card.findMany({
+          where: { setId: set.id, number: { in: variants } },
+          select: { id: true },
+          take: 2,
+        });
+        if (matches.length === 1) return matches[0].id;
+        if (matches.length > 1) {
+          this.logger.warn(
+            `price-ingest: el número "${row.number}" del proveedor casa con ${matches.length} cartas ` +
+              `del set ${set.externalId} → se OMITE (no se adivina la carta).`,
+          );
+        }
+      }
     }
     return null;
   }

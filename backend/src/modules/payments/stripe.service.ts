@@ -89,6 +89,59 @@ export class StripeService implements OnModuleInit {
     }
   }
 
+  /**
+   * v1.21-guest-checkout (T9): cancela un PaymentIntent aún no pagado. Lo usa el barrido de
+   * reservas de pedidos de invitado (`guest-order-sweep`) ANTES de liberar el inventario. NO es
+   * money-out (un PI cancelado nunca se capturó).
+   *
+   * **B3 (v1.21.2):** devuelve el `status` resultante en vez de `void`. El barrido lo NECESITA:
+   * liberar la reserva de un PI que sigue vivo es lo que producía «pedido pagado con la carta de
+   * vuelta a la venta». Un PI ya `succeeded` hace que Stripe LANCE — y eso es exactamente la señal
+   * de "no sueltes esta reserva".
+   */
+  async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
+    const pi = await this.stripe.paymentIntents.cancel(paymentIntentId);
+    return { status: pi.status };
+  }
+
+  /**
+   * B3 — estado actual de un PaymentIntent. Solo se usa para DESAMBIGUAR un fallo de cancelación:
+   * «ya estaba cancelado» (seguro liberar la reserva) vs «ya se pagó / se está procesando» (JAMÁS
+   * liberar). Devuelve `null` si no se puede consultar: ante la duda, el barrido no libera.
+   */
+  async getPaymentIntentStatus(paymentIntentId: string): Promise<string | null> {
+    try {
+      const pi = await this.stripe.paymentIntents.retrieve(paymentIntentId);
+      return pi.status;
+    } catch (e) {
+      this.logger.warn(
+        `No se pudo consultar el estado del PaymentIntent ${paymentIntentId}: ${(e as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * v1.21-guest-checkout (§4-G.10): marca + 4 últimos dígitos de la tarjeta con la que se pagó,
+   * leídos del `charge` del PaymentIntent. Es el ÚNICO dato de tarjeta que se persiste (permitido
+   * por PCI-DSS); jamás PAN, BIN ni titular. Best-effort: devuelve `null` si no se puede resolver
+   * (no debe hacer fallar un webhook de pago ya liquidado).
+   */
+  async getCardDetails(paymentIntentId: string): Promise<{ brand: string; last4: string } | null> {
+    try {
+      const pi = await this.stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ['latest_charge'],
+      });
+      const charge = pi.latest_charge as Stripe.Charge | null;
+      const card = charge?.payment_method_details?.card;
+      if (!card?.brand || !card?.last4) return null;
+      return { brand: card.brand, last4: card.last4 };
+    } catch (e) {
+      this.logger.warn(`No se pudieron leer los datos de tarjeta de ${paymentIntentId}: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
   async refund(paymentIntentId: string, idempotencyKey?: string): Promise<string> {
     try {
       const refund = await this.stripe.refunds.create(

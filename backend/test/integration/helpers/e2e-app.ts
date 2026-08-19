@@ -37,6 +37,8 @@ export function webhookSecret(): string {
 @Injectable()
 export class TestStripeService extends StripeService {
   public readonly createdIntents: { id: string; amountCents: number; metadata: Record<string, string> }[] = [];
+  /** PaymentIntents cancelados por el barrido (B3). */
+  public readonly canceledIntents: string[] = [];
 
   constructor(config: ConfigService) {
     super(config);
@@ -54,6 +56,70 @@ export class TestStripeService extends StripeService {
 
   async refund(_paymentIntentId: string, _idempotencyKey?: string): Promise<string> {
     return `re_e2e_${randomUUID().replace(/-/g, '')}`;
+  }
+
+  /**
+   * I2 (QA) — sin este override, `getCardDetails` salía a la RED real con la clave dummy, fallaba y
+   * devolvía `null`: la ruta que persiste `paymentMethodBrand`/`paymentMethodLast4` (§4-G.10) y el
+   * bloque `payment` del `GuestOrderTrackingDTO` (§4-G.3) **nunca corrían en verde**. Devuelve una
+   * tarjeta determinista, como haría Stripe con el charge liquidado.
+   */
+  async getCardDetails(_paymentIntentId: string): Promise<{ brand: string; last4: string } | null> {
+    return { brand: 'visa', last4: '4242' };
+  }
+
+  /**
+   * B3 — el barrido solo libera si el PI queda CANCELADO. El doble por defecto cancela SIEMPRE, así
+   * que por sí solo **nunca ejercita la rama peligrosa** (lo señaló QA). `cancelOutcome` permite
+   * guionizar el comportamiento del Stripe REAL sin parchear la instancia a mano:
+   *  - `'canceled'`            → cancela de verdad (camino feliz).
+   *  - `'throws-succeeded'`   → LANZA como Stripe con un PI ya pagado, y el estado observable es
+   *                              `succeeded` ⇒ la reserva NO se debe soltar.
+   *  - `'throws-canceled'`    → LANZA pero el PI ya estaba cancelado ⇒ sí se puede soltar.
+   *  - `'throws-unknown'`     → LANZA y el estado no se puede consultar ⇒ ante la duda, no soltar.
+   *  - `'requires_capture'`   → responde un estado que NO es `canceled` ⇒ tampoco se suelta.
+   */
+  public cancelOutcome:
+    | 'canceled'
+    | 'throws-succeeded'
+    | 'throws-canceled'
+    | 'throws-unknown'
+    | 'requires_capture' = 'canceled';
+
+  async cancelPaymentIntent(paymentIntentId: string): Promise<{ status: string }> {
+    switch (this.cancelOutcome) {
+      case 'throws-succeeded':
+        throw new Error(
+          'You cannot cancel this PaymentIntent because it has a status of succeeded.',
+        );
+      case 'throws-canceled':
+        throw new Error(
+          'You cannot cancel this PaymentIntent because it has a status of canceled.',
+        );
+      case 'throws-unknown':
+        throw new Error('network down');
+      case 'requires_capture':
+        return { status: 'requires_capture' };
+      case 'canceled':
+      default:
+        this.canceledIntents.push(paymentIntentId);
+        return { status: 'canceled' };
+    }
+  }
+
+  async getPaymentIntentStatus(paymentIntentId: string): Promise<string | null> {
+    switch (this.cancelOutcome) {
+      case 'throws-succeeded':
+        return 'succeeded';
+      case 'throws-canceled':
+        return 'canceled';
+      case 'throws-unknown':
+        return null;
+      default:
+        return this.canceledIntents.includes(paymentIntentId)
+          ? 'canceled'
+          : 'requires_payment_method';
+    }
   }
 }
 

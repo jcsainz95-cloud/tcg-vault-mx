@@ -17,13 +17,16 @@ vi.mock('@/lib/api', () => ({ logout: () => logout() }));
 describe('AdminTopbar · logout (P-1)', () => {
   beforeEach(() => {
     push.mockClear();
+    replace.mockClear();
     logout.mockClear();
   });
 
-  it('el control de logout llama logout() y rutea al storefront', async () => {
+  it('el control de logout llama logout() y rutea directo a /login (sin flash del guard)', async () => {
     renderWithIntl(<AdminTopbar />, 'es');
     fireEvent.click(screen.getByRole('button', { name: /Cerrar sesión/i }));
     await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
-    expect(push).toHaveBeenCalledWith('/');
+    // P-1: replace (no push) a /login → sin parpadeo "Verificando sesión…" ni ?next=.
+    expect(replace).toHaveBeenCalledWith('/login');
+    expect(push).not.toHaveBeenCalled();
   });
 });
