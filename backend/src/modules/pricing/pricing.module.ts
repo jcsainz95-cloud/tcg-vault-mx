@@ -13,6 +13,9 @@ import { FxRefreshJobService } from '../../jobs/fx-refresh.service';
 import { PokemonTcgIoClient } from '../catalog/pokemontcg-io.client';
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
+// WS-A fix-ppt (2026-08-19): cliente HTTP con throttle + resolvedor de `CardSet.pptSetId`.
+import { PptApiClient } from './providers/ppt-api.client';
+import { PptSetMapper } from './ppt-set-mapper.service';
 import { PriceIngestService } from './price-ingest.service';
 import { PriceIngestJobService } from '../../jobs/price-ingest.service';
 // v1.19-sealed-tcgcsv (§4.19): referencia de mercado del SELLADO vía TCGCSV.
@@ -47,6 +50,8 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
     PriceSyncJobService,
     FxRefreshJobService,
     PokemonTcgIoClient,
+    PptApiClient,
+    PptSetMapper,
     PokemonPriceTrackerBulkProvider,
     PokemonTcgIoBulkProvider,
     PriceIngestService,

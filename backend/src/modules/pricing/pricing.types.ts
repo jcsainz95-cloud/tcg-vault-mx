@@ -171,6 +171,13 @@ export interface BulkPriceResult {
    * un fallo transitorio). Opcional por compat con stubs previos: `undefined` se trata como fallo.
    */
   requestOk?: boolean;
+  /**
+   * WS-A fix-ppt (2026-08-19) — el proveedor de PAGA agotó su cuota DIARIA (429 `limitType:daily`).
+   * Es la señal de PARADA: el orquestador debe DETENER el barrido (no reintentar hasta 00:00 UTC) y
+   * reportar los sets pendientes. Independiente de `requestOk` (puede haber traído filas de páginas
+   * previas antes de toparse con el límite). `undefined`/`false` = la cuota diaria no se agotó.
+   */
+  dailyLimited?: boolean;
 }
 
 /**
@@ -180,7 +187,33 @@ export interface BulkPriceResult {
  */
 export interface BulkPriceProvider {
   readonly source: PriceSource;
-  fetchPricesForSet(input: { set: CardSet }): Promise<BulkPriceResult>;
+  fetchPricesForSet(input: BulkFetchInput): Promise<BulkPriceResult>;
+}
+
+/**
+ * Entrada de `fetchPricesForSet`. `set` es lo único obligatorio (compat con el legacy). Los demás
+ * campos los rellena el `PriceIngestService` SOLO para el proveedor de paga (PokemonPriceTracker);
+ * el proveedor legacy (pokemontcg_io) los IGNORA.
+ */
+export interface BulkFetchInput {
+  set: CardSet;
+  /**
+   * WS-A fix-ppt — `setId` REAL de PokemonPriceTracker (GroupId/slug), resuelto por `PptSetMapper` y
+   * cacheado en `CardSet.pptSetId`. PPT lo usa como `setId`; JAMÁS el `externalId` de pokemontcg.io
+   * (esa era la causa raíz del "0 entradas"). `null`/ausente en un set SIN mapeo → PPT no pide nada.
+   */
+  providerSetId?: string | null;
+  /**
+   * WS-A fix-ppt — scope PARCIAL (set < 2020): filtro `minPrice` de la API (en la unidad del
+   * proveedor) para NO traer el bulk de comunes a nivel de origen. Ausente = sin filtro de precio.
+   */
+  minPrice?: string | null;
+  /**
+   * WS-A fix-ppt — traer las VARIANTES por impresión (Normal / Reverse Holofoil / Holofoil) con un
+   * request por impresión (`printing=…`), para poblar reverse holo. Cuesta ≈2-3× por set → solo se
+   * activa por dial. Ausente/false = un solo barrido usando `prices.primaryPrinting`.
+   */
+  fetchPrintings?: boolean;
 }
 
 /**

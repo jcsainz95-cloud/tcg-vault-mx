@@ -14,10 +14,12 @@ const fxCur = { rate: 18, bufferPct: 3, source: 'manual', effectiveDate: '2026-0
 function build(hasRecentIngest = true) {
   const fx = { getCurrent: jest.fn(async () => fxCur) } as unknown as FxService;
   const ingest = {
+    // WS-A fix-ppt: el fan-out ahora encola los sets EN SCOPE (listSetIdsForIngest), no todos.
+    listSetIdsForIngest: jest.fn(async () => ['s1', 's2']),
     listLocalSetIds: jest.fn(async () => ['s1', 's2']),
     ingestSet: jest.fn(async () => ({})),
     ingestSetByExternalId: jest.fn(async () => ({})),
-    ingestAll: jest.fn(async () => ({ sets: 2, priced: 4 })),
+    ingestAll: jest.fn(async () => ({ sets: 2, priced: 4, pending: 0, dailyLimited: false })),
     hasRecentIngest: jest.fn(async () => hasRecentIngest),
   } as unknown as PriceIngestService;
   const job = new PriceIngestJobService(fx, ingest);

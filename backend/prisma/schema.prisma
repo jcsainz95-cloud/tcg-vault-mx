@@ -358,6 +358,14 @@ model CardSet {
   releaseDate  String?
   printedTotal Int?
   ptcgoCode    String?
+  // WS-A fix-ppt (2026-08-19): setId del proveedor de PAGA PokemonPriceTracker (API v2). NO es el
+  // `externalId` de pokemontcg.io (`sv8`): PPT NO reconoce ese id → `/api/v2/cards?setId=sv8` devolvía
+  // `0 entradas` en TODOS los sets (causa raíz del "0 filas mapeadas"). Aquí se cachea el **GroupId
+  // numérico de TCGplayer** (p. ej. "1407") — o el slug (`sv-prismatic-evolutions`) como respaldo — que
+  // el `PptSetMapper` resuelve una vez desde `GET /api/v2/sets` empatando por nombre normalizado +
+  // año de `releaseDate`. `null` = aún no mapeado (o no se encontró match; se loguea). El barrido de
+  // precios de PPT usa ESTE valor como `setId`, jamás el `externalId`.
+  pptSetId     String?
   createdAt    DateTime @default(now())
 
   cards     Card[]

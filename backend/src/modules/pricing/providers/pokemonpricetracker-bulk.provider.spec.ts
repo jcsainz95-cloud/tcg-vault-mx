@@ -2,6 +2,12 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import { CardSet } from '@prisma/client';
 import { PokemonPriceTrackerBulkProvider } from './pokemonpricetracker-bulk.provider';
+import { PptApiClient } from './ppt-api.client';
+
+/** WS-A fix-ppt: el provider ahora toma (ConfigService, PptApiClient con throttle). Helper DI. */
+function makeProvider(c: ConfigService): PokemonPriceTrackerBulkProvider {
+  return new PokemonPriceTrackerBulkProvider(c, new PptApiClient(c));
+}
 
 /**
  * P-7 (2026-08-19) — BUG P0: el adapter pegaba a `/api/prices` y `/api/v1/prices` (endpoints
@@ -78,7 +84,7 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
   // (a) URL correcta + auth ------------------------------------------------------------------
   it('(a) llama a GET https://www.pokemonpricetracker.com/api/v2/cards con setId, fetchAllInSet y Bearer', async () => {
     const spy = mockPages([{ data: [card()], total: 1, count: 1, limit: 200, offset: 0, hasMore: false }]);
-    await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({ set: SET });
+    await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({ set: SET, providerSetId: 'sv8' });
 
     expect(spy).toHaveBeenCalledTimes(1);
     const url = urlOf(spy, 0);
@@ -103,7 +109,7 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
   it('(a2) el externalId va URL-encoded como query param (anti-SSRF; host fijo)', async () => {
     const weirdSet = { id: 'x', externalId: 'sv8 & evil', name: 'x' } as unknown as CardSet;
     const spy = mockPages([{ data: [], total: 0, count: 0, hasMore: false }]);
-    await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({ set: weirdSet });
+    await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({ set: weirdSet, providerSetId: 'sv8 & evil' });
     const url = urlOf(spy, 0);
     expect(url.startsWith('https://www.pokemonpricetracker.com/api/v2/cards?')).toBe(true);
     expect(url).toContain('setId=sv8+%26+evil');
@@ -112,8 +118,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
   // (b) Mapeo de precios y acabados ----------------------------------------------------------
   it('(b) mapea tcgplayer.prices por acabado: holofoil/reverse_holo/normal, market×100, USD, verified', async () => {
     mockPages([{ data: [card()], total: 1, count: 1, hasMore: false }]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
 
     expect(res.requestOk).toBe(true);
@@ -153,8 +160,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
         hasMore: false,
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(res.rows).toEqual([
       { externalId: 'base1-4', setExternalId: 'sv8', number: '4', finish: 'normal', marketCents: 150, currency: 'USD', finishAliasVerified: true },
@@ -166,8 +174,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
     mockPages([
       { data: [card(), card({ id: 'sv7-4', setId: 'sv7' })], total: 2, count: 2, hasMore: false },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(res.rows.every((r) => r.externalId === 'base1-4')).toBe(true);
     expect(res.rows).toHaveLength(3); // solo la carta del set sv8
@@ -183,8 +192,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
       text: async () => 'Not Found',
     })) as unknown as typeof fetch;
 
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
 
     expect(res.rows).toEqual([]);
@@ -202,8 +212,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
   // (d) sample-only --------------------------------------------------------------------------
   it('(d) sin MARKET_FORMAT → sample-only: fetch sí, rows:[] pero requestOk:true (no persiste)', async () => {
     const spy = mockPages([{ data: [card()], total: 1, count: 1, hasMore: false }]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key' /* sin formato */)).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key' /* sin formato */)).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(spy).toHaveBeenCalledTimes(1); // hace el fetch (para loguear la muestra)
     expect(res.rows).toHaveLength(0); // pero NO persiste ninguna fila
@@ -215,8 +226,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
   it('(d2) sin API key → { rows: [] } y NO llama a fetch (precios STALE, no se borran)', async () => {
     const spy = jest.fn();
     global.fetch = spy as unknown as typeof fetch;
-    const res = await new PokemonPriceTrackerBulkProvider(cfg(undefined, 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg(undefined, 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0 });
     expect(spy).not.toHaveBeenCalled();
@@ -242,8 +254,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
         hasMore: false,
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
 
     expect(spy).toHaveBeenCalledTimes(2);
@@ -266,8 +279,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
         offset: 0,
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(spy).toHaveBeenCalledTimes(1); // recibió 1 == total → no pide más
     expect(res.rows.map((r) => r.externalId)).toEqual(['sv8-1']);
@@ -275,8 +289,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
 
   it('(e3) sin metadatos de paginación (fetchAllInSet devolvió todo) → una sola página, sin bucle', async () => {
     const spy = mockPages([{ data: [card()] }]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(spy).toHaveBeenCalledTimes(1);
     expect(res.rows).toHaveLength(3);
@@ -288,8 +303,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
       { data: [card({ id: 'sv8-1', tcgplayer: { prices: { normal: { market: 1 } } } })], pagination: { total: 2, hasMore: true, limit: 1 } },
       { data: [card({ id: 'sv8-2', tcgplayer: { prices: { normal: { market: 2 } } } })], pagination: { total: 2, hasMore: false } },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(spy).toHaveBeenCalledTimes(2);
     expect(res.rows.map((r) => r.externalId)).toEqual(['sv8-1', 'sv8-2']);
@@ -301,8 +317,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
     mockPages([
       { data: [card({ id: 'sv8-2', number: '2', cardNumber: '2', tcgplayer: { prices: { normal: { market: 1500 } } } })], total: 1, count: 1, hasMore: false },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'usd_cents')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'usd_cents')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(res.rows).toEqual([
       { externalId: 'sv8-2', setExternalId: 'sv8', number: '2', finish: 'normal', marketCents: 1500, currency: 'USD', finishAliasVerified: true },
@@ -327,8 +344,9 @@ describe('PokemonPriceTrackerBulkProvider — API v2 (P-7)', () => {
         hasMore: false,
       },
     ]);
-    const res = await new PokemonPriceTrackerBulkProvider(cfg('test-key', 'mxn_dollars')).fetchPricesForSet({
+    const res = await makeProvider(cfg('test-key', 'mxn_dollars')).fetchPricesForSet({
       set: SET,
+      providerSetId: 'sv8',
     });
     expect(res.rows).toEqual([
       { externalId: 'sv8-3', setExternalId: 'sv8', number: '3', finish: 'reverse_holo', marketCents: 1234, currency: 'MXN', finishAliasVerified: false },

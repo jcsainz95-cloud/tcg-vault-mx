@@ -1,13 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CardSet, PriceSource } from '@prisma/client';
+import { Finish, PriceSource } from '@prisma/client';
 import {
+  BulkFetchInput,
   BulkPriceProvider,
   BulkPriceResult,
   BulkPriceRow,
   normalizeFinishAlias,
   normalizeVerifiedFinishAlias,
 } from '../pricing.types';
+import { PptApiClient, PptDailyLimitError, PptHttpError, PptResponse } from './ppt-api.client';
 
 /**
  * Formato de precio del proveedor de paga = **moneda + unidad**, FIJADO EXPLÍCITAMENTE por el
@@ -32,133 +34,99 @@ function parseMarketFormat(raw: unknown): MarketFormat | null {
 }
 
 /**
+ * Impresiones que se piden por separado en modo `fetchPrintings` (WS-A fix-ppt causa #4). Cada una
+ * es un barrido `/cards?setId=X&printing=<label>&fetchAllInSet=true`, y el `market` de la respuesta
+ * se atribuye ENTERO a ESE `finish`. Cubre las dos casillas de la carta (normal + reverse holo) y
+ * el holo. El label es el que espera la API; el finish, nuestro enum.
+ */
+const PRINTINGS: ReadonlyArray<{ label: string; finish: Finish }> = [
+  { label: 'Normal', finish: 'normal' },
+  { label: 'Reverse Holofoil', finish: 'reverse_holo' },
+  { label: 'Holofoil', finish: 'holofoil' },
+];
+
+/**
  * Paginación normalizada del envelope v2 del proveedor. En la API v2 los campos vienen al NIVEL
- * RAÍZ del cuerpo (`{ data, total, count, limit, offset, hasMore }`); se tolera también el shape
- * anidado `{ pagination: { … } }` por robustez. La paginación es por `offset` (no por `page`).
+ * RAÍZ del cuerpo (`{ data, total, count, limit, offset, hasMore }` o dentro de `metadata`); se
+ * tolera también el shape anidado `{ pagination: { … } }`. La paginación es por `offset`.
  */
 interface PageInfo {
-  /** Total de cartas del set (no de la página). */
   total: number | null;
-  /** Cartas devueltas en ESTA página. */
   count: number | null;
-  /** Tamaño de página EFECTIVO que aplicó el servidor. */
   limit: number | null;
-  /** Offset de ESTA página (0-based). */
   offset: number | null;
-  /** ¿Hay más páginas después de esta? (señal directa del proveedor). */
   hasMore: boolean | null;
 }
 
-/** Una página cruda del barrido por set. */
 interface PricesPage {
   entries: unknown[];
   pagination: PageInfo | null;
-  /** URL EXACTA que respondió (host+path+query, SIN credenciales) — observabilidad del log. */
   url: string;
+  dailyRemaining: number | null;
 }
 
 /** Motivos de OMISIÓN del mapeo (diagnóstico: distingue "no mapeó" de "falló el request"). */
 interface DropCounts {
-  /** Entrada que no es un objeto mapeable. */
   notObject: number;
-  /** El proveedor devolvió una carta de OTRO set (el filtro `setId` no se respetó). */
   foreignSet: number;
-  /** Hay precio pero el acabado (`finish`) es desconocido o falta → NUNCA se atribuye a `normal`. */
   noFinish: number;
-  /** El acabado es válido pero el market es inválido (ausente/NaN/<=0). */
   noMarket: number;
 }
 
 const NO_DROPS: DropCounts = { notObject: 0, foreignSet: 0, noFinish: 0, noMarket: 0 };
 
-/**
- * Error HTTP del proveedor con el CUERPO recortado (para distinguir 4xx de contrato de un 5xx).
- * P-7 (2026-08-19): el mensaje incluye la **URL EXACTA** (host+path+query, SIN el header
- * Authorization ni la key) para diagnosticar de un vistazo el 404 sistemático — antes solo decía
- * "HTTP 404" sin decir contra qué endpoint.
- */
-class ProviderHttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly bodySnippet: string,
-    /** URL completa (host+path+query) sin credenciales. */
-    readonly url: string,
-  ) {
-    super(`HTTP ${status} en ${url}${bodySnippet ? ` — cuerpo: ${bodySnippet}` : ''}`);
-    this.name = 'ProviderHttpError';
-  }
-}
+/** Motivo por el que un set devolvió 0 filas (observabilidad, causa #5 del incidente). */
+type ZeroReason =
+  | 'ok'
+  | 'setId no mapeado'
+  | '429 daily'
+  | '429 per_minute'
+  | 'request falló'
+  | '200 sin datos'
+  | 'sample-only';
 
 /**
  * PokemonPriceTrackerBulkProvider — implementación PRIMARIA del `BulkPriceProvider`
- * (WS-A, ARCHITECTURE §4.15b). Barre TODAS las cartas de un set con la **API v2** de precios:
+ * (WS-A, ARCHITECTURE §4.15b). Barre las cartas de un set con la **API v2** de precios.
  *
- *   GET https://www.pokemonpricetracker.com/api/v2/cards?setId=<CardSet.externalId>&fetchAllInSet=true
- *   Authorization: Bearer <POKEMONPRICETRACKER_API_KEY>
- *   Accept: application/json
- *   → { data: [ { id, setId, cardNumber, tcgplayer: { prices: { holofoil: { market }, … } }, … } ],
- *       total, count, limit, offset, hasMore }
+ * **WS-A fix-ppt (2026-08-19) — reescritura tras el incidente de producción** (0 precios todo el día,
+ * 114× HTTP 429). Cuatro cambios sobre la versión anterior:
+ *  1. **setId REAL de PPT** (`input.providerSetId`, cacheado en `CardSet.pptSetId` por `PptSetMapper`)
+ *     en vez del `externalId` de pokemontcg.io — CAUSA RAÍZ del "0 entradas". Sin mapeo → NO se pide
+ *     nada (se loguea `setId no mapeado`), jamás se cae al `externalId` (repetiría el bug).
+ *  2. **Throttle centralizado** en `PptApiClient`: 429 `per_minute` espera Retry-After y reintenta;
+ *     429 `daily` PARA (señal `dailyLimited`), sin reintentar hasta 00:00 UTC.
+ *  3. **Shape real v2**: la LISTA trae un `prices.{market, primaryPrinting}` por carta (un solo
+ *     market + la impresión primaria). Se mapea `market → finish(primaryPrinting)`. Se conservan como
+ *     fallback tolerante los shapes previos (`tcgplayer.prices` por acabado, listas de printings).
+ *  4. **Variantes por impresión** (opcional, `fetchPrintings`): un barrido por `printing=` para poblar
+ *     reverse holo/normal/holofoil por separado (≈2-3× costo).
  *
- * **P-7 (2026-08-19):** BUG P0 — la versión anterior pegaba a `/api/prices` y `/api/v1/prices`
- * (con `?setId=&limit=&page=`). Esos endpoints YA NO EXISTEN → respondían **HTTP 404 sistemático**
- * a cada set, el `catch` money-safe devolvía 0 filas sin borrar nada, y el catálogo se quedó todo
- * el día sin precios. El endpoint REAL y vigente es la **API v2** (`GET /api/v2/cards`), que filtra
- * por el MISMO `setId` estilo pokemontcg.io (`base1`, `sv8`, `ex14`…) y, con `fetchAllInSet=true`,
- * devuelve el set ENTERO (los topes por request no aplican; hasta 200+ cartas). La paginación es
- * por `offset` (envelope al NIVEL RAÍZ: `total`, `count`, `limit`, `offset`, `hasMore`).
- *
- * **P-6 (2026-08-18, DEVOPS_NOTES §23.9):** una versión aún anterior hacía
- * `POST /api/v1/cards/bulk-price` esperando una lista `{ cardIds }` — no aceptaba filtro por set.
- * El barrido por set NO se hace por-lista: no hay flujo que lo necesite (el ingest siempre trabaja
- * set por set) y construir los `cardIds` desde la BD sería más requests y más frágil.
- *
- * RUTA NO VERIFICADA EN RUNTIME: el egress del sandbox de desarrollo bloquea el dominio del
- * proveedor, así que la fuente es su OpenAPI público + clientes reales en GitHub. El shape v2 y el
- * endpoint se validan además en la 1ª corrida acotada en staging (runbook devops).
- *
- * SEGURIDAD:
- *  - **Host FIJO** (`www.pokemonpricetracker.com`, sin parte controlable) → sin SSRF (patrón
- *    `PokemonTcgIoClient`). El cliente NUNCA acepta URLs arbitrarias. El único valor interpolado
- *    es `CardSet.externalId`, y va URL-encoded como query param (`URLSearchParams`).
- *  - La API key se lee SOLO de `process.env.POKEMONPRICETRACKER_API_KEY` (vía ConfigService).
- *    NUNCA se hardcodea, se loguea ni se commitea (repo público). Los logs de diagnóstico jamás
- *    incluyen headers ni la URL con credenciales (la URL logueada solo trae el query, sin token).
- *
- * FAIL-CLOSED de moneda/unidad (WS-A, seguridad Media + qa): el proveedor de paga **NO persiste
- * precios bajo una moneda/unidad ASUMIDA**. El formato lo fija el operador con
- * `POKEMONPRICETRACKER_MARKET_FORMAT` (sin default):
- *  - **Sin formato** → modo **sample-only**: hace el fetch, LOGUEA la muestra cruda (sin key/headers)
- *    y persiste **NADA** (`rows: []`). Así el flip es seguro aunque el humano olvide el runbook.
- *  - **Con formato** → mapea EXACTO: `usd`→ el ingest aplica FX+colchón; `mxn`→ sin conversión;
- *    `*_dollars`→ ×100; `*_cents`→ sin ×100. La moneda de la fila viene del FORMATO (no del payload).
- *
- * MONEY-SAFE (§4.15d): valida `market > 0`, mapea el acabado→`Finish` (desconocida o AUSENTE →
- * OMITE, jamás la atribuye a `normal`), descarta cartas de otro set, y resuelve la carta aguas
- * abajo (PriceIngestService). Sin key / HTTP fail → `{ rows: [] }` + log (precios STALE, no se borran).
+ * SEGURIDAD (sin cambio): host FIJO en `PptApiClient` (anti-SSRF), key solo en el header, jamás en
+ * la URL ni el log. FAIL-CLOSED de moneda/unidad (sin `POKEMONPRICETRACKER_MARKET_FORMAT` → sample-only,
+ * no persiste nada). MONEY-SAFE: valida `market>0`, acabado desconocido/ausente → OMITE (nunca `normal`),
+ * ante 429/timeout NO borra precios.
  */
 @Injectable()
 export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
   readonly source: PriceSource = 'pokemonpricetracker';
   private readonly logger = new Logger(PokemonPriceTrackerBulkProvider.name);
-  /** Host FIJO — no configurable por el usuario (anti-SSRF). */
-  private readonly host = 'https://www.pokemonpricetracker.com';
-  /** Endpoint v2 ÚNICO del barrido por set (P-7). */
-  private readonly pricesPath = '/api/v2/cards';
-  /**
-   * Tamaño de página al paginar por `offset`. Con `fetchAllInSet=true` el proveedor devuelve el set
-   * entero en una sola respuesta (hasta 200+); este `limit` solo aplica si el envelope señala
-   * `hasMore` y hace falta un segundo request.
-   */
+  private readonly cardsPath = '/api/v2/cards';
+  /** Tamaño de página al paginar por `offset` (solo si el envelope señala `hasMore`). */
   private readonly pageLimit = 200;
   /** Cota dura de páginas (anti-bucle si la paginación del proveedor no converge). */
   private readonly maxPages = 40;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly client: PptApiClient,
+  ) {}
 
-  async fetchPricesForSet(input: { set: CardSet }): Promise<BulkPriceResult> {
-    const apiKey = this.config.get<string>('POKEMONPRICETRACKER_API_KEY');
-    if (!apiKey || apiKey === 'CHANGE_ME') {
-      // Sin key → NO revienta y NO escribe (precios quedan stale, money-safe). §4.15b/§4.15h.
+  async fetchPricesForSet(input: BulkFetchInput): Promise<BulkPriceResult> {
+    const providerSetId = input.providerSetId ?? null;
+
+    // Sin key → NO revienta y NO escribe (precios stale, money-safe). §4.15b/§4.15h.
+    if (!this.client.apiKey()) {
       this.logger.warn(
         'PokemonPriceTracker bulk: falta POKEMONPRICETRACKER_API_KEY → no se ingesta ' +
           `(precios STALE, no se borran). Set ${input.set.externalId}.`,
@@ -166,9 +134,40 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
       return { rows: [], fetchedRaw: 0, skipped: 0 };
     }
 
+    // CAUSA RAÍZ #1: sin `pptSetId` NO se pide nada (jamás se cae al externalId, que PPT no reconoce).
+    if (!providerSetId) {
+      this.logSummary({
+        setExternalId: input.set.externalId,
+        reason: 'setId no mapeado',
+        fetchedRaw: 0,
+        mapped: 0,
+        drops: { ...NO_DROPS },
+        sample: null,
+      });
+      return { rows: [], fetchedRaw: 0, skipped: 0 };
+    }
+
     // FAIL-CLOSED: sin formato explícito, el proveedor NO persiste nada (solo muestra el esquema).
     const format = parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_MARKET_FORMAT'));
 
+    // Modo VARIANTES por impresión (opcional): un barrido por impresión, cada market → ese finish.
+    if (input.fetchPrintings && format) {
+      return this.fetchByPrintings(input, providerSetId, format);
+    }
+
+    return this.fetchSingleSweep(input, providerSetId, format, undefined);
+  }
+
+  /**
+   * Barrido ÚNICO del set (modo por defecto): una respuesta lista → `prices.{market, primaryPrinting}`
+   * por carta. Si `forced` viene (modo por-impresión), el `market` se atribuye ENTERO a `forced.finish`.
+   */
+  private async fetchSingleSweep(
+    input: BulkFetchInput,
+    providerSetId: string,
+    format: MarketFormat | null,
+    forced: { label: string; finish: Finish } | undefined,
+  ): Promise<BulkPriceResult> {
     const setExternalId = input.set.externalId;
     const rows: BulkPriceRow[] = [];
     const drops: DropCounts = { ...NO_DROPS };
@@ -176,109 +175,150 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
     let skipped = 0;
     let sample: string | null = null;
     let requestOk = false;
+    let dailyLimited = false;
+    let reason: ZeroReason = 'ok';
 
     try {
-      // Barrido por `offset`: el 1er request va con `setId&fetchAllInSet=true` (sin offset). Si el
-      // envelope señala `hasMore`/`total`, se pagina con `offset=<recibidas>&limit=200` hasta agotar.
       let received = 0;
-      let offset: number | null = null; // null = 1er request (sin params de offset/limit)
+      let offset: number | null = null; // null = 1er request (sin offset/limit)
       for (let page = 0; page < this.maxPages; page++) {
-        const { entries, pagination, url } = await this.fetchPricesPage(apiKey, setExternalId, offset);
+        const { entries, pagination, url, dailyRemaining } = await this.fetchPricesPage(
+          providerSetId,
+          offset,
+          input.minPrice ?? null,
+          forced?.label ?? null,
+        );
         requestOk = true;
-        if (entries.length === 0) break;
+        if (entries.length === 0) {
+          if (page === 0) reason = '200 sin datos';
+          break;
+        }
         received += entries.length;
         fetchedRaw += entries.length;
 
-        // Observabilidad (§4.15b): LOG UN ejemplo de la 1ª entrada cruda para verificar el
-        // esquema real en Railway. NO contiene secretos (solo datos de precio de una carta).
         if (sample == null) {
           sample = truncate(JSON.stringify(entries[0]), 800);
           this.logger.log(
-            `PokemonPriceTracker bulk: GET ${url} OK (set ${setExternalId}, pág ${page + 1}): ` +
-              `${entries.length} entradas, pagination=${JSON.stringify(pagination)}. ` +
-              `Ejemplo de entrada cruda: ${sample}`,
+            `PokemonPriceTracker bulk: GET ${url} OK (set ${setExternalId}=${providerSetId}` +
+              `${forced ? `, printing=${forced.label}` : ''}, pág ${page + 1}): ${entries.length} entradas, ` +
+              `pagination=${JSON.stringify(pagination)}, dailyRemaining=${dailyRemaining ?? 'n/d'}. ` +
+              `Ejemplo crudo: ${sample}`,
           );
         }
 
         if (!format) {
-          // Sample-only: se logueó la muestra; NO se persiste ni una fila (fail-closed money-safe).
-          // Una sola página basta para inspeccionar el esquema y NO quema cuota del proveedor.
           this.logger.warn(
             'PokemonPriceTracker bulk: POKEMONPRICETRACKER_MARKET_FORMAT no configurado → modo ' +
               'SAMPLE-ONLY: se logueó la muestra pero NO se persiste ningún precio. Fija el formato ' +
               '(PO confirmó usd_dollars) tras inspeccionar el log.',
           );
           skipped += entries.length;
+          reason = 'sample-only';
           break;
         }
 
         for (const entry of entries) {
-          const mapped = this.mapEntry(entry, setExternalId, format);
+          const mapped = this.mapEntry(entry, providerSetId, format, forced);
           rows.push(...mapped.added);
           addDrops(drops, mapped.drops);
         }
 
         if (!this.hasMorePages(pagination, received)) break;
-        offset = received; // siguiente página arranca en lo ya recibido.
+        offset = received;
       }
     } catch (e) {
-      // Money-safe: ante fallo/timeout/429 NO borramos precios; devolvemos lo acumulado + log.
-      // Diagnóstico P-7: el mensaje del ProviderHttpError trae status + URL EXACTA + cuerpo (sin
-      // credenciales) → un 404 deja claro contra QUÉ endpoint falló.
-      this.logger.warn(
-        `PokemonPriceTracker bulk: EL REQUEST FALLÓ para el set ${setExternalId}: ` +
-          `${(e as Error).message}. Se devuelven ${rows.length} filas ` +
-          '(precios previos quedan STALE, no se borran).',
-      );
+      if (e instanceof PptDailyLimitError) {
+        dailyLimited = true;
+        reason = '429 daily';
+        this.logger.warn(
+          `PokemonPriceTracker bulk: 429 DAILY en el set ${setExternalId} → PARADA. ${e.message}. ` +
+            `Se devuelven ${rows.length} filas (precios previos STALE, no se borran).`,
+        );
+      } else {
+        reason = e instanceof PptHttpError && e.status === 429 ? '429 per_minute' : 'request falló';
+        this.logger.warn(
+          `PokemonPriceTracker bulk: EL REQUEST FALLÓ para el set ${setExternalId}: ${(e as Error).message}. ` +
+            `Se devuelven ${rows.length} filas (precios previos STALE, no se borran).`,
+        );
+      }
     }
 
     skipped += drops.notObject + drops.foreignSet + drops.noFinish + drops.noMarket;
-    this.logSummary({ setExternalId, requestOk, fetchedRaw, mapped: rows.length, drops, sample, format });
-    // v1.22-1 (§4.22g): `requestOk` gobierna el REEMPLAZO money-safe de `pricedFinishesSnapshot` en
-    // `price-ingest`. Es `false` si NINGUNA página respondió (fallo total / sin key) → los snapshots
-    // NO se tocan (no se destruye evidencia por un fallo transitorio). El modo sample-only devuelve
-    // `requestOk:true` pero `rows: []`, y el gate `requestOk && rows>0` igual lo excluye.
-    return { rows, fetchedRaw, skipped, requestOk };
+    this.logSummary({ setExternalId, reason, fetchedRaw, mapped: rows.length, drops, sample });
+    // `requestOk` = alguna página respondió OK (incluye sample-only, que devuelve rows:[] → el gate
+    // `requestOk && rows>0` del ingest igual lo excluye de tocar snapshots).
+    return { rows, fetchedRaw, skipped, requestOk, dailyLimited };
   }
 
   /**
-   * Diagnóstico observable (P-6): deja SIEMPRE una línea que distingue los dos modos de falla.
-   *  - "EL REQUEST FALLÓ" (arriba, en el catch) → HTTP + URL + cuerpo del error del proveedor.
-   *  - "el request PASÓ pero NADA mapeó" (aquí) → ejemplo de entrada cruda + desglose de omisiones.
+   * Modo VARIANTES: barre el set una vez por cada impresión de `PRINTINGS` y une las filas. Cada
+   * barrido atribuye su `market` al `finish` de esa impresión, así se pueblan las 2 casillas por
+   * carta (normal + reverse holo) que hoy quedan vacías. Costo ≈ nº impresiones × por set.
+   * Money-safe: si una impresión topa el límite diario, se corta y se devuelve lo acumulado.
+   */
+  private async fetchByPrintings(
+    input: BulkFetchInput,
+    providerSetId: string,
+    format: MarketFormat,
+  ): Promise<BulkPriceResult> {
+    const rows: BulkPriceRow[] = [];
+    let fetchedRaw = 0;
+    let skipped = 0;
+    let requestOk = false;
+    let dailyLimited = false;
+
+    for (const printing of PRINTINGS) {
+      const res = await this.fetchSingleSweep(input, providerSetId, format, printing);
+      rows.push(...res.rows);
+      fetchedRaw += res.fetchedRaw;
+      skipped += res.skipped;
+      requestOk = requestOk || Boolean(res.requestOk);
+      if (res.dailyLimited) {
+        dailyLimited = true;
+        break; // cuota diaria agotada → no seguir con más impresiones.
+      }
+    }
+    this.logger.log(
+      `PokemonPriceTracker bulk (por impresión): set ${input.set.externalId}=${providerSetId} → ` +
+        `${rows.length} filas de ${PRINTINGS.length} impresiones, ${fetchedRaw} crudas.`,
+    );
+    return { rows, fetchedRaw, skipped, requestOk, dailyLimited };
+  }
+
+  /**
+   * Diagnóstico observable (causa #5): SIEMPRE deja una línea con el MOTIVO cuando el set da 0 filas
+   * (`429 daily` / `429 per_minute` / `setId no mapeado` / `200 sin datos` / `sample-only` / mapeo
+   * vacío), en vez del genérico "0 entradas" que no decía nada.
    */
   private logSummary(s: {
     setExternalId: string;
-    requestOk: boolean;
+    reason: ZeroReason;
     fetchedRaw: number;
     mapped: number;
     drops: DropCounts;
     sample: string | null;
-    format: MarketFormat | null;
   }): void {
     const breakdown =
-      `${s.drops.noFinish} sin acabado reconocible, ${s.drops.noMarket} sin market válido, ` +
+      `${s.drops.noFinish} sin acabado, ${s.drops.noMarket} sin market, ` +
       `${s.drops.foreignSet} de otro set, ${s.drops.notObject} no-objeto`;
     const head =
-      `PokemonPriceTracker bulk resumen (set ${s.setExternalId}): ` +
-      `${s.fetchedRaw} entradas crudas → ${s.mapped} filas mapeadas [${breakdown}].`;
+      `PokemonPriceTracker bulk resumen (set ${s.setExternalId}): ${s.fetchedRaw} crudas → ` +
+      `${s.mapped} filas [${breakdown}]. motivo=${s.reason}.`;
 
-    if (s.requestOk && s.fetchedRaw > 0 && s.mapped === 0 && s.format) {
-      // El request pasó pero el MAPEO no reconoció nada: el ejemplo crudo dice qué campos vinieron.
+    if (s.mapped === 0 && s.reason !== 'ok') {
       this.logger.warn(
-        `${head} El request PASÓ pero NADA mapeó → revisa los nombres de campo contra el ejemplo ` +
-          `crudo: ${s.sample ?? 'n/d'}`,
+        `${head}${s.reason === 'setId no mapeado' ? ' (empata el set en GET /api/v2/sets)' : ''}` +
+          `${s.sample ? ` Ejemplo crudo: ${s.sample}` : ''}`,
       );
+      return;
+    }
+    if (s.fetchedRaw > 0 && s.mapped === 0) {
+      this.logger.warn(`${head} El request PASÓ pero NADA mapeó → revisa el ejemplo crudo: ${s.sample ?? 'n/d'}`);
       return;
     }
     this.logger.log(head);
   }
 
-  /**
-   * ¿Hay más páginas después de la actual? (§P-7, paginación por `offset`). Prioriza la señal
-   * DIRECTA `hasMore`; si no viene, deriva por `total` vs. lo ya recibido. Sin metadatos de
-   * paginación NO continúa: con `fetchAllInSet=true` el proveedor devuelve el set entero en una
-   * respuesta, así que la ausencia de envelope significa "esto es todo" (anti-bucle).
-   */
   private hasMorePages(pagination: PageInfo | null, received: number): boolean {
     if (!pagination) return false;
     if (pagination.hasMore === true) return true;
@@ -288,46 +328,33 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
   }
 
   /**
-   * GET de UNA página del barrido por set (API v2). `offset === null` → 1er request
-   * (`setId&fetchAllInSet=true`, sin offset/limit); `offset` numérico → página siguiente
-   * (`…&limit=200&offset=<n>`). Lanza `ProviderHttpError` (status + URL + cuerpo) si no responde OK.
+   * GET de UNA página del barrido (API v2, vía `PptApiClient` con throttle). `offset === null` → 1er
+   * request (`setId&fetchAllInSet=true`); `offset` numérico → página siguiente. `minPrice`/`printing`
+   * se añaden si vienen. Propaga `PptDailyLimitError`/`PptHttpError` (el llamador es money-safe).
    */
   private async fetchPricesPage(
-    apiKey: string,
-    setExternalId: string,
+    providerSetId: string,
     offset: number | null,
+    minPrice: string | null,
+    printing: string | null,
   ): Promise<PricesPage> {
-    const qs = new URLSearchParams({
-      setId: setExternalId,
-      fetchAllInSet: 'true',
-    });
+    const query: Record<string, string> = { setId: providerSetId, fetchAllInSet: 'true' };
     if (offset != null) {
-      qs.set('limit', String(this.pageLimit));
-      qs.set('offset', String(offset));
+      query.limit = String(this.pageLimit);
+      query.offset = String(offset);
     }
-    // URL sin credenciales: el token va SOLO en el header Authorization, jamás en el query.
-    const url = `${this.host}${this.pricesPath}?${qs.toString()}`;
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'application/json',
-      },
-    });
-    if (!res.ok) {
-      // Diagnóstico: el CUERPO del error del proveedor dice si es contrato (400), ruta (404),
-      // auth (401/403) o cuota (429). Nunca se loguea la key ni los headers.
-      const body = truncate(await safeText(res), 300);
-      throw new ProviderHttpError(res.status, body, url);
-    }
-    const body: unknown = await res.json();
-    return { entries: this.extractEntries(body), pagination: this.extractPagination(body), url };
+    if (minPrice) query.minPrice = minPrice;
+    if (printing) query.printing = printing;
+
+    const res: PptResponse<unknown> = await this.client.getJson<unknown>(this.cardsPath, query);
+    return {
+      entries: this.extractEntries(res.body),
+      pagination: this.extractPagination(res.body),
+      url: res.url,
+      dailyRemaining: res.dailyRemaining,
+    };
   }
 
-  /**
-   * Extrae el array de entradas del cuerpo (defensivo con el envelope): el formato v2 es
-   * `{ data: [], … }`; se toleran `{ cards: [] }`, `{ results: [] }`, `{ prices: [] }` y un array pelón.
-   */
   private extractEntries(body: unknown): unknown[] {
     if (Array.isArray(body)) return body;
     if (body && typeof body === 'object') {
@@ -339,19 +366,18 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
     return [];
   }
 
-  /**
-   * Normaliza la paginación del envelope v2. En v2 los campos vienen al NIVEL RAÍZ del cuerpo
-   * (`{ data, total, count, limit, offset, hasMore }`); se tolera también el shape anidado
-   * `{ pagination: { … } }` por robustez. Devuelve null si el cuerpo no es un objeto.
-   */
   private extractPagination(body: unknown): PageInfo | null {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
     const root = body as Record<string, unknown>;
+    // v2 real: los contadores viven en `metadata`; se tolera `pagination` y el nivel raíz.
+    const meta = root['metadata'];
     const nested = root['pagination'];
     const p =
-      nested && typeof nested === 'object' && !Array.isArray(nested)
-        ? (nested as Record<string, unknown>)
-        : root;
+      meta && typeof meta === 'object' && !Array.isArray(meta)
+        ? (meta as Record<string, unknown>)
+        : nested && typeof nested === 'object' && !Array.isArray(nested)
+          ? (nested as Record<string, unknown>)
+          : root;
     return {
       total: numberOrNull(p['total'] ?? p['totalCount']),
       count: numberOrNull(p['count']),
@@ -362,35 +388,35 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
   }
 
   /**
-   * Mapea UNA entrada cruda → filas por (carta, acabado), con la MONEDA y UNIDAD del `format`
-   * confirmado por el operador (no del payload). Money-safe: valida y OMITE lo mal formado,
-   * contando el MOTIVO de cada omisión (diagnóstico P-6).
-   *
-   * Fuente PRINCIPAL (shape REAL v2, confirmado): `entry.tcgplayer.prices = { <finishKey>: { market } }`
-   * (idéntico a pokemontcg.io). Se conservan como FALLBACK tolerante los shapes previos:
-   *  (A) `entry.prices = { <printing>: { marketPrice } | <número> }`.
-   *  (B) PLANO: `entry.printing` + `entry.marketPrice`.
-   *  (C) `entry.prices | entry.printings | entry.variants = [ { printing, marketPrice }, … ]`.
+   * Mapea UNA entrada cruda → filas por (carta, acabado), con la MONEDA/UNIDAD de `format`. Money-safe:
+   * valida y OMITE lo mal formado contando el MOTIVO. Fuentes, en orden:
+   *  0. `forced` (modo por-impresión): `market` de nivel carta → `forced.finish`.
+   *  1. **REAL v2 lista**: `entry.prices = { market, primaryPrinting, low, lastUpdated }` (un market +
+   *     la impresión primaria) → `market → finish(primaryPrinting)`.
+   *  2. FALLBACK `entry.tcgplayer.prices = { <finishKey>: { market } }` (mirror pokemontcg.io).
+   *  3. FALLBACK colecciones `entry.prices|printings|variants = [ { printing, marketPrice }, … ]` o
+   *     `entry.prices = { <printing>: { marketPrice } }`, y PLANO `entry.printing`+`entry.marketPrice`.
    */
   private mapEntry(
     entry: unknown,
-    setExternalId: string,
+    providerSetId: string,
     format: MarketFormat,
+    forced: { label: string; finish: Finish } | undefined,
   ): { added: BulkPriceRow[]; drops: Partial<DropCounts> } {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       return { added: [], drops: { notObject: 1 } };
     }
     const e = entry as Record<string, unknown>;
 
-    // El proveedor devuelve `setId` por carta: si el filtro no se respetó y viene otro set, se
-    // DESCARTA (money-safe: el fallback (set, number) del ingest podría casar la carta equivocada).
+    // Descarta cartas de OTRO set si el payload trae un setId por carta que no casa (defensivo; la
+    // API v2 suele traer `setName`, no `setId`, así que normalmente no aplica — el request ya scopeó).
     const entrySetId = firstString(e, ['setId', 'set', 'setCode']);
-    if (entrySetId && entrySetId.toLowerCase() !== setExternalId.toLowerCase()) {
+    if (entrySetId && entrySetId.toLowerCase() !== providerSetId.toLowerCase()) {
       return { added: [], drops: { foreignSet: 1 } };
     }
 
-    // Identificadores de la carta. `id`/`cardId` son del namespace pokemontcg.io (`sv8-1`), igual
-    // que `Card.externalId`; `cardNumber` alimenta el fallback (set, number) del ingest.
+    // Identificadores para la resolución carta↔BD (ingest): `id`/`cardId` (pokemontcg.io style, si
+    // viniera) y `cardNumber` (para el fallback (set, number)).
     const externalId = firstString(e, ['id', 'cardId']);
     const number = firstString(e, ['cardNumber', 'number', 'collectorNumber']);
 
@@ -399,9 +425,6 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
     const push = (rawFinish: unknown, rawMarket: unknown): void => {
       const finish = normalizeFinishAlias(rawFinish);
       if (finish == null) {
-        // Acabado desconocido o AUSENTE → OMITE. Nunca se atribuye a `normal` (money-safe): un
-        // precio de holo escrito como normal cotizaría de más al comprar. El resumen loguea
-        // cuántas cayeron aquí y un ejemplo crudo, para ampliar el mapa de alias si hace falta.
         drops.noFinish += 1;
         return;
       }
@@ -410,13 +433,10 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
         drops.noMarket += 1;
         return;
       }
-      // v1.22-1 (§4.22g candado 2): el PRECIO usa el alias tolerante (`normalizeFinishAlias`); la
-      // aptitud para la LISTA BLANCA usa el alias VERIFICADO (espejo estricto de TCG_KEY_TO_FINISH).
-      // Un `foil` SUPUESTO persiste su PriceReference pero NO entra a `pricedFinishesSnapshot`.
       const finishAliasVerified = normalizeVerifiedFinishAlias(rawFinish) !== null;
       added.push({
         externalId,
-        setExternalId,
+        setExternalId: providerSetId,
         number,
         finish,
         marketCents,
@@ -425,10 +445,23 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
       });
     };
 
-    // FUENTE PRINCIPAL (v2 real): `entry.tcgplayer.prices = { <finishKey>: { market } }`. Se itera
-    // por acabado. `extractMarketNumber` lee `.market` (dólares float con `usd_dollars` → ×100).
-    // OJO money-safe: solo se toma el `market` que cuelga de un ACABADO nombrado; jamás un `market`
-    // suelto de nivel superior sin acabado.
+    // (0) Modo por-impresión: el market de nivel carta es de ESA impresión.
+    if (forced) {
+      push(forced.label, e['prices'] ?? e['market'] ?? e['marketPrice'] ?? e['price']);
+      return { added, drops };
+    }
+
+    // (1) REAL v2 lista: `prices` es un OBJETO con `market` numérico + `primaryPrinting` (string).
+    const prices = e['prices'];
+    if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
+      const pr = prices as Record<string, unknown>;
+      if (typeof pr['market'] === 'number' || typeof pr['marketPrice'] === 'number') {
+        push(pr['primaryPrinting'], pr);
+        return { added, drops };
+      }
+    }
+
+    // (2) FALLBACK mirror pokemontcg.io: `tcgplayer.prices = { <finishKey>: { market } }`.
     const tcgplayer = e['tcgplayer'];
     if (tcgplayer && typeof tcgplayer === 'object' && !Array.isArray(tcgplayer)) {
       const tp = (tcgplayer as Record<string, unknown>)['prices'];
@@ -440,7 +473,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
       }
     }
 
-    // (A) / (C) FALLBACK: colecciones de precios por acabado dentro de la entrada.
+    // (3) FALLBACK colecciones por acabado dentro de la entrada.
     let sawCollection = false;
     for (const key of ['prices', 'printings', 'variants']) {
       const val = e[key];
@@ -464,20 +497,14 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
     }
     if (sawCollection) return { added, drops };
 
-    // (B) PLANO FALLBACK: `printing` + `marketPrice` en la entrada.
+    // (4) PLANO FALLBACK: `printing` + `marketPrice`.
     push(firstString(e, FINISH_KEYS), e['marketPrice'] ?? e['market'] ?? e['price']);
     return { added, drops };
   }
 }
 
-/**
- * Campos donde un shape FALLBACK puede traer el ACABADO. En el shape PRIMARIO v2 el acabado es la
- * CLAVE del objeto `tcgplayer.prices` (`holofoil`, `reverseHolofoil`…), no un campo `printing`;
- * estos nombres solo aplican a los fallbacks tolerantes (B/C) que el adapter conserva.
- */
-const FINISH_KEYS = ['printing', 'variant', 'finish', 'printingName', 'subTypeName'];
+const FINISH_KEYS = ['printing', 'variant', 'finish', 'printingName', 'subTypeName', 'primaryPrinting'];
 
-/** Devuelve el primer valor string no vacío entre `keys`, o null. */
 function firstString(o: Record<string, unknown>, keys: string[]): string | null {
   for (const k of keys) {
     const v = o[k];
@@ -487,7 +514,7 @@ function firstString(o: Record<string, unknown>, keys: string[]): string | null 
   return null;
 }
 
-/** Extrae el número de market crudo (de un número o de `{ market|marketPrice|price }`), sin decidir unidad. */
+/** Extrae el número de market crudo (de un número o de `{ market|marketPrice|price }`), sin unidad. */
 function extractMarketNumber(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (v && typeof v === 'object') {
@@ -500,12 +527,6 @@ function extractMarketNumber(v: unknown): number | null {
   return null;
 }
 
-/**
- * Convierte el market crudo a CENTAVOS enteros (>0) según la UNIDAD confirmada por el operador:
- *  - `dollars` → ×100 (float en unidades monetarias → centavos), como el legacy USD/TCGPlayer.
- *  - `cents`   → sin ×100 (el payload YA da centavos), solo redondea.
- * Devuelve null si el market es inválido (ausente/≤0/NaN) → la fila se OMITE (money-safe).
- */
 function toCents(raw: number | null, unit: 'dollars' | 'cents'): number | null {
   if (raw == null || !Number.isFinite(raw) || raw <= 0) return null;
   const cents = unit === 'cents' ? Math.round(raw) : Math.round(raw * 100);
@@ -524,15 +545,6 @@ function boolOrNull(v: unknown): boolean | null {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
-}
-
-/** Lee el cuerpo de una respuesta de error sin reventar si no es texto legible. */
-async function safeText(res: { text?: () => Promise<string> }): Promise<string> {
-  try {
-    return typeof res.text === 'function' ? await res.text() : '';
-  } catch {
-    return '';
-  }
 }
 
 function addDrops(target: DropCounts, add: Partial<DropCounts>): void {

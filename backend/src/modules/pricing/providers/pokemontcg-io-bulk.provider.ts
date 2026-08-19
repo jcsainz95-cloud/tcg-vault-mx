@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CardSet, PriceSource } from '@prisma/client';
+import { PriceSource } from '@prisma/client';
 import { PokemonTcgIoClient, RemoteCard } from '../../catalog/pokemontcg-io.client';
 import {
+  BulkFetchInput,
   BulkPriceProvider,
   BulkPriceResult,
   BulkPriceRow,
@@ -29,7 +30,7 @@ export class PokemonTcgIoBulkProvider implements BulkPriceProvider {
 
   constructor(private readonly client: PokemonTcgIoClient) {}
 
-  async fetchPricesForSet(input: { set: CardSet }): Promise<BulkPriceResult> {
+  async fetchPricesForSet(input: BulkFetchInput): Promise<BulkPriceResult> {
     const setExternalId = input.set.externalId;
     const rows: BulkPriceRow[] = [];
     let fetchedRaw = 0;

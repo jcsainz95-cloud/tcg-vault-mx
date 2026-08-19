@@ -47,10 +47,24 @@ function reconcilerMock() {
   return { reconcile: jest.fn(async () => 0) };
 }
 
-const SET = { id: 'local-sv8', externalId: 'sv8', name: 'Surging Sparks' };
+// WS-A fix-ppt: releaseDate MODERNO (≥2020) → scope `full` en el provider de paga, sin consultas de
+// inventario/rareza (preserva las aserciones existentes; el scope parcial tiene sus propios tests).
+const SET = { id: 'local-sv8', externalId: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08', pptSetId: '1234' };
 
 function settingsMock(provider: string) {
   return { getString: jest.fn(async () => provider) };
+}
+
+/** WS-A fix-ppt: mock del resolvedor de `pptSetId` (devuelve el ya cacheado del set). */
+function pptMapperMock() {
+  return { resolveForSets: jest.fn(async (sets: Array<{ id: string; pptSetId?: string | null }>) =>
+    new Map(sets.map((s) => [s.id, s.pptSetId ?? '1234'])),
+  ) };
+}
+
+/** WS-A fix-ppt: mock de ConfigService (sin diales de scope/throttle configurados). */
+function configMock() {
+  return { get: jest.fn(() => undefined) };
 }
 
 describe('PriceIngestService.providerFor — el dial PRICE_PROVIDER elige el provider', () => {
@@ -65,6 +79,8 @@ describe('PriceIngestService.providerFor — el dial PRICE_PROVIDER elige el pro
       ppt as any,
       tcg as any,
       reconcilerMock() as any,
+      pptMapperMock() as any,
+      configMock() as any,
     );
   }
 
@@ -113,7 +129,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
     const reconciler = reconcilerMock();
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any, pptMapperMock() as any, configMock() as any);
 
     const res = await svc.ingestSet('local-sv8', fx);
 
@@ -141,7 +157,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
     const reconciler = reconcilerMock();
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any, pptMapperMock() as any, configMock() as any);
 
     await svc.ingestSet('local-sv8', fx);
 
@@ -168,7 +184,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
     const reconciler = reconcilerMock();
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any, pptMapperMock() as any, configMock() as any);
 
     await svc.ingestSet('local-sv8', fx);
 
@@ -182,7 +198,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
     const reconciler = reconcilerMock();
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any, pptMapperMock() as any, configMock() as any);
 
     await svc.ingestSet('local-sv8', fx);
     expect(prisma.card.update).not.toHaveBeenCalled();
@@ -203,7 +219,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
       },
     });
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
 
     await svc.ingestSet('local-sv8', fx);
@@ -224,7 +240,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
     const reconciler = reconcilerMock();
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any, pptMapperMock() as any, configMock() as any);
 
     await svc.ingestSet('local-sv8', fx);
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
@@ -245,7 +261,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
     const reconciler = reconcilerMock();
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any, pptMapperMock() as any, configMock() as any);
 
     const res = await svc.ingestSet('local-sv8', fx);
     expect(pricing.persistMarketReference).not.toHaveBeenCalled();
@@ -260,7 +276,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     ]);
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
 
     await svc.ingestSet('local-sv8', fx);
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
@@ -272,7 +288,7 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     const provider = providerMock('pokemonpricetracker', []);
     const prisma = { cardSet: { findUnique: jest.fn(async () => null) }, card: {} } as any;
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
 
     const res = await svc.ingestSet('missing', fx);
     expect(res.priced).toBe(0);
@@ -295,6 +311,8 @@ describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', (
       {} as any,
       {} as any,
       reconcilerMock() as any,
+      pptMapperMock() as any,
+      configMock() as any,
     );
     return { svc, prisma };
   }
@@ -315,6 +333,132 @@ describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', (
     expected.setUTCHours(0, 0, 0, 0);
     expected.setUTCDate(expected.getUTCDate() - 1);
     expect(since.toISOString()).toBe(expected.toISOString());
+  });
+});
+
+/**
+ * WS-A fix-ppt — SCOPE del PO en el provider de PAGA: resolución de `pptSetId`, sets viejos → partial
+ * (solo inventario ∪ rares) o skip, y PARADA por cuota diaria.
+ */
+describe('PriceIngestService — scope PPT (pptSetId + 2020/inventario/rares + daily stop)', () => {
+  const fx = { rate: 18, bufferPct: 3 };
+
+  /** Provider de paga mock que devuelve filas fijas (+ dailyLimited opcional). */
+  function pptProvider(rows: Array<Record<string, unknown>>, dailyLimited = false) {
+    return {
+      source: 'pokemonpricetracker',
+      fetchPricesForSet: jest.fn(async () => ({
+        rows: rows.map((r) => ({ finishAliasVerified: true, ...r })),
+        fetchedRaw: rows.length,
+        skipped: 0,
+        requestOk: true,
+        dailyLimited,
+      })),
+    };
+  }
+
+  const OLD_SET = { id: 'old-1', externalId: 'base1', name: 'Base Set', releaseDate: '1999/01/09', pptSetId: '99' };
+
+  /** prisma mock con inventario + cartas (rarity) del set viejo, y resolución por (set, number). */
+  function prismaForOldSet(opts: {
+    invCardIds?: string[];
+    cards?: Array<{ id: string; number: string; rarity: string | null }>;
+  }) {
+    const cards = opts.cards ?? [];
+    return {
+      cardSet: { findUnique: jest.fn(async () => OLD_SET), findMany: jest.fn(async () => [OLD_SET]) },
+      inventoryItem: {
+        findMany: jest.fn(async () => (opts.invCardIds ?? []).map((cardId) => ({ cardId }))),
+      },
+      card: {
+        findMany: jest.fn(async ({ where }: any) => {
+          // computeScope pide {setId} → devuelve id+rarity; el drift-read pide {id:{in}} → []
+          if (where?.setId) return cards.map((c) => ({ id: c.id, rarity: c.rarity }));
+          return [];
+        }),
+        findUnique: jest.fn(async () => null),
+        findFirst: jest.fn(async ({ where }: any) => {
+          const c = cards.find((x) => x.number === where.number);
+          return c ? { id: c.id } : null;
+        }),
+        update: jest.fn(async () => ({})),
+      },
+    } as any;
+  }
+
+  it('set VIEJO sin inventario ni rares → scope=skip: NO llama al provider', async () => {
+    const provider = pptProvider([]);
+    const prisma = prismaForOldSet({ invCardIds: [], cards: [{ id: 'c1', number: '1', rarity: 'Common' }] });
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, {} as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
+
+    const res = await svc.ingestSet('old-1', fx);
+    expect(res.scope).toBe('skip');
+    expect(provider.fetchPricesForSet).not.toHaveBeenCalled();
+  });
+
+  it('set VIEJO partial → SOLO persiste cartas permitidas (inventario ∪ rares), filtra el bulk', async () => {
+    // Catálogo: c1 rara, c2 common (bulk), c3 common pero con inventario.
+    const cards = [
+      { id: 'c1', number: '1', rarity: 'Rare Holo' },
+      { id: 'c2', number: '2', rarity: 'Common' },
+      { id: 'c3', number: '3', rarity: 'Common' },
+    ];
+    const prisma = prismaForOldSet({ invCardIds: ['c3'], cards });
+    // El provider (barrido del set) devuelve las 3; el ingest debe descartar c2 (bulk sin inventario).
+    const provider = pptProvider([
+      { externalId: null, setExternalId: '99', number: '1', finish: 'holofoil', marketCents: 500, currency: 'USD' },
+      { externalId: null, setExternalId: '99', number: '2', finish: 'normal', marketCents: 50, currency: 'USD' },
+      { externalId: null, setExternalId: '99', number: '3', finish: 'normal', marketCents: 80, currency: 'USD' },
+    ]);
+    const pricing = { persistMarketReference: jest.fn(async () => {}) };
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
+
+    const res = await svc.ingestSet('old-1', fx);
+    expect(res.scope).toBe('partial');
+    // c1 (rara) y c3 (inventario) SÍ; c2 (bulk) NO.
+    const pricedCards = (pricing.persistMarketReference.mock.calls as any[]).map((c) => c[0]).sort();
+    expect(pricedCards).toEqual(['c1', 'c3']);
+    expect(res.cardCount).toBe(2);
+  });
+
+  it('provider marca dailyLimited → el resultado propaga la señal de PARADA', async () => {
+    const provider = pptProvider([], true);
+    // Set moderno (full) para ir directo al provider sin scope DB.
+    const prisma = {
+      cardSet: { findUnique: jest.fn(async () => ({ ...OLD_SET, releaseDate: '2024/01/01' })) },
+      card: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null), findFirst: jest.fn(async () => null), update: jest.fn(async () => ({})) },
+    } as any;
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, { persistMarketReference: jest.fn() } as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
+
+    const res = await svc.ingestSet('old-1', fx);
+    expect(res.dailyLimited).toBe(true);
+  });
+
+  it('ingestAll DETIENE el barrido al primer set con dailyLimited y reporta pendientes', async () => {
+    const provider = pptProvider([], false);
+    // 3 sets; el 1º agota la cuota → 2 quedan pendientes.
+    const sets = [
+      { id: 's1', externalId: 'a', name: 'A', releaseDate: '2024/01/01' },
+      { id: 's2', externalId: 'b', name: 'B', releaseDate: '2024/01/01' },
+      { id: 's3', externalId: 'c', name: 'C', releaseDate: '2024/01/01' },
+    ];
+    let call = 0;
+    (provider.fetchPricesForSet as jest.Mock).mockImplementation(async () => ({
+      rows: [], fetchedRaw: 0, skipped: 0, requestOk: true, dailyLimited: call++ === 0,
+    }));
+    const prisma = {
+      cardSet: {
+        findMany: jest.fn(async () => sets),
+        findUnique: jest.fn(async ({ where }: any) => sets.find((s) => s.id === where.id)),
+      },
+      card: { findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null), findFirst: jest.fn(async () => null), update: jest.fn(async () => ({})) },
+    } as any;
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, { persistMarketReference: jest.fn() } as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
+
+    const res = await svc.ingestAll(fx);
+    expect(res.dailyLimited).toBe(true);
+    expect(res.pending).toBe(2); // solo se procesó s1 antes de parar
+    expect(provider.fetchPricesForSet).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -414,7 +558,7 @@ describe('PriceIngestService.resolveCardId — fallback por número con formato 
     const provider = providerMock('pokemonpricetracker', [
       { externalId: null, setExternalId: 'sv8', number: '104/159', finish: 'normal', marketCents: 100, currency: 'USD' },
     ]);
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any, pptMapperMock() as any, configMock() as any);
     return { svc, prisma, pricing, variantFindMany };
   }
 

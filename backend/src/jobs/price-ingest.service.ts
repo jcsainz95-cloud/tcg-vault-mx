@@ -93,7 +93,11 @@ export class PriceIngestJobService {
    */
   async enqueueAllSets(fx: FxSnapshot): Promise<string> {
     if (!this.queue) throw new Error('price-ingest: no hay cola BullMQ (REDIS_URL ausente).');
-    const ids = await this.ingest.listLocalSetIds();
+    // WS-A fix-ppt: solo se encolan los sets EN SCOPE (modernos + viejos con inventario/rares) cuando
+    // el proveedor es el de PAGA; con el legacy se encolan todos. Evita gastar créditos en sets viejos
+    // de puro bulk. Si un child topa la cuota DIARIA, el `PptApiClient` (singleton del worker) queda
+    // marcado y los children restantes cortan de inmediato sin pegarle al proveedor.
+    const ids = await this.ingest.listSetIdsForIngest();
     const day = new Date().toISOString().slice(0, 10);
     for (const setId of ids) {
       await this.queue.add(
