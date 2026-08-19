@@ -212,15 +212,17 @@ describe('PokemonPriceTrackerBulkProvider (pago) — mapeo defensivo del payload
 });
 
 /**
- * P-6 (2026-08-18, DEVOPS_NOTES §23.9) — El barrido por set usa el endpoint de PRECIOS
- * (`GET /api/prices?setId=…` → `{ data, pagination }`), NO el `POST /cards/bulk-price` (que espera
- * una lista explícita `{ cardIds }` y respondía 4xx → 0 filas → catálogo sin precios).
+ * P-7 (2026-08-19) — El barrido por set usa la **API v2** (`GET /api/v2/cards?setId=…&fetchAllInSet=true`
+ * → envelope `{ data, total, count, limit, offset, hasMore }`, paginación por `offset`). Los
+ * endpoints `/api/prices` y `/api/v1/prices` (P-6) estaban MUERTOS → 404 sistemático → catálogo sin
+ * precios. La cobertura exhaustiva del shape v2 (tcgplayer.prices, URL, offset, 404) vive en el spec
+ * co-localizado `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.spec.ts`.
  *
- * Como el egress del sandbox bloquea el dominio del proveedor, estos casos van contra FIXTURES del
- * formato documentado: envelope `{ data, pagination }`, paginación multi-página, `cardNumber` con
- * formato distinto al nuestro, acabados variados y error 4xx (que debe dar 0 filas sin romper).
+ * Como el egress del sandbox bloquea el dominio del proveedor, estos casos van contra FIXTURES. Aquí
+ * se conservan además los shapes de FALLBACK tolerante (entrada PLANA `printing`+`marketPrice`,
+ * listas de `printings`, `cardNumber` con formato distinto, error 4xx que debe dar 0 filas sin romper).
  */
-describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices (P-6)', () => {
+describe('PokemonPriceTrackerBulkProvider — barrido por set (API v2, P-7)', () => {
   const originalFetch = global.fetch;
   afterEach(() => {
     global.fetch = originalFetch;
@@ -237,7 +239,11 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices
     } as unknown as ConfigService;
   }
 
-  /** Fila cruda del formato documentado del proveedor (`/api/prices`). */
+  /**
+   * Fila cruda en el shape FALLBACK PLANO (`printing` + `marketPrice` al nivel de la entrada), NO
+   * el shape PRIMARIO v2 (`tcgplayer.prices` por acabado — ese vive en el spec co-localizado). Aquí
+   * ejercita el mapeo defensivo de los fallbacks tolerantes (B/C) que el adapter conserva.
+   */
   function entry(over: Record<string, unknown> = {}) {
     return {
       id: 'sv8-104',
@@ -257,7 +263,7 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices
   /** fetch mockeado: una respuesta OK por llamada, en orden. */
   function mockPages(pages: unknown[]) {
     const spy = jest.fn(async () => {
-      const body = pages.shift() ?? { data: [], pagination: { total: 0, page: 1, limit: 1000 } };
+      const body = pages.shift() ?? { data: [], total: 0, count: 0, limit: 200, offset: 0, hasMore: false };
       return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
     });
     global.fetch = spy as unknown as typeof fetch;
@@ -272,16 +278,20 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices
     return String(callArgs(spy, call)[0]);
   }
 
-  it('hace GET /api/prices?setId=… con Bearer y SIN cuerpo (ya no POST bulk-price)', async () => {
-    const spy = mockPages([{ data: [entry()], pagination: { total: 1, page: 1, limit: 1000 } }]);
+  it('hace GET /api/v2/cards?setId=…&fetchAllInSet=true con Bearer y SIN cuerpo (ya no /api/prices)', async () => {
+    const spy = mockPages([{ data: [entry()], total: 1, count: 1, limit: 200, offset: 0, hasMore: false }]);
     const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
 
     expect(spy).toHaveBeenCalledTimes(1);
     const url = urlOf(spy, 0);
-    expect(url).toContain('https://www.pokemonpricetracker.com/api/prices?');
+    expect(url).toContain('https://www.pokemonpricetracker.com/api/v2/cards?');
     expect(url).toContain('setId=sv8');
-    expect(url).toContain('page=1');
+    expect(url).toContain('fetchAllInSet=true');
+    // Endpoints MUERTOS que causaban el 404: nunca más se tocan.
+    expect(url).not.toContain('/api/prices');
+    expect(url).not.toContain('/api/v1/prices');
     expect(url).not.toContain('bulk-price');
+    expect(url).not.toContain('page=');
     const init = callArgs(spy, 0)[1] as RequestInit;
     expect(init.method).toBe('GET');
     expect(init.body).toBeUndefined();
@@ -300,20 +310,30 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices
     ]);
   });
 
-  it('pagina con el objeto `pagination` de la respuesta (total/limit efectivos del servidor)', async () => {
-    // El servidor capa el limit pedido (1000) a 2 → 3 resultados = 2 páginas.
+  it('pagina por `offset` cuando el envelope v2 señala hasMore (campos al nivel raíz)', async () => {
     const spy = mockPages([
       {
         data: [entry({ id: 'sv8-1', cardNumber: '1' }), entry({ id: 'sv8-2', cardNumber: '2' })],
-        pagination: { total: 3, page: 1, limit: 2 },
+        total: 3,
+        count: 2,
+        limit: 2,
+        offset: 0,
+        hasMore: true,
       },
-      { data: [entry({ id: 'sv8-3', cardNumber: '3' })], pagination: { total: 3, page: 2, limit: 2 } },
+      {
+        data: [entry({ id: 'sv8-3', cardNumber: '3' })],
+        total: 3,
+        count: 1,
+        limit: 2,
+        offset: 2,
+        hasMore: false,
+      },
     ]);
     const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
 
     expect(spy).toHaveBeenCalledTimes(2);
-    expect(urlOf(spy, 0)).toContain('page=1');
-    expect(urlOf(spy, 1)).toContain('page=2');
+    expect(urlOf(spy, 0)).not.toContain('offset='); // 1er request sin offset
+    expect(urlOf(spy, 1)).toContain('offset=2'); // 2º arranca en lo ya recibido
     expect(res.rows.map((r) => r.externalId)).toEqual(['sv8-1', 'sv8-2', 'sv8-3']);
     expect(res.fetchedRaw).toBe(3);
   });
@@ -325,18 +345,20 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices
     expect(res.rows).toHaveLength(1);
   });
 
-  it('si /api/prices responde 404, reintenta en /api/v1/prices y NO aborta la corrida', async () => {
-    const ok = { data: [entry()], pagination: { total: 1, page: 1, limit: 1000 } };
-    const spy = jest
-      .fn()
-      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => 'Not Found', json: async () => ({}) })
-      .mockResolvedValue({ ok: true, status: 200, json: async () => ok, text: async () => '' });
+  it('404 del endpoint v2 → money-safe: 0 filas, NO lanza, sin reintentar rutas muertas', async () => {
+    const spy = jest.fn(async () => ({
+      ok: false,
+      status: 404,
+      text: async () => 'Not Found',
+      json: async () => ({}),
+    }));
     global.fetch = spy as unknown as typeof fetch;
 
     const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
-    expect(urlOf(spy, 0)).toContain('/api/prices?');
-    expect(urlOf(spy, 1)).toContain('/api/v1/prices?');
-    expect(res.rows).toHaveLength(1);
+    // Un solo endpoint v2: ya NO se prueban `/api/prices` ni `/api/v1/prices`.
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(urlOf(spy, 0)).toContain('/api/v2/cards?');
+    expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false });
   });
 
   it('mapea los acabados documentados (`printing`) a nuestros Finish canónicos', async () => {
@@ -403,19 +425,19 @@ describe('PokemonPriceTrackerBulkProvider — barrido por set contra /api/prices
     expect(res.skipped).toBe(2);
   });
 
-  it('4xx del proveedor (el bug P-6) → 0 filas, sin excepción y sin borrar nada', async () => {
+  it('4xx del proveedor → 0 filas, sin excepción y sin borrar nada', async () => {
     const spy = jest.fn(async () => ({
       ok: false,
       status: 400,
       json: async () => ({}),
-      text: async () => '{"error":"cardIds is required"}',
+      text: async () => '{"error":"bad request"}',
     }));
     global.fetch = spy as unknown as typeof fetch;
 
     const res = await new PokemonPriceTrackerBulkProvider(cfg()).fetchPricesForSet({ set: SET });
     // v1.22-1 (§4.22g): fallo total → requestOk FALSE ⇒ price-ingest NO tocará ningún snapshot.
     expect(res).toEqual({ rows: [], fetchedRaw: 0, skipped: 0, requestOk: false });
-    expect(spy).toHaveBeenCalledTimes(2); // probó ambas rutas candidatas antes de rendirse
+    expect(spy).toHaveBeenCalledTimes(1); // endpoint v2 único: un solo request
   });
 
   it('soporta el shape con una lista de printings anidada por carta', async () => {
