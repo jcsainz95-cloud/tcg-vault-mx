@@ -2379,3 +2379,192 @@ regla de propiedad de archivos). Alcance del cambio, acotado:
 > Nota de honestidad: esto es **causa probable, no verificada en runtime**. La confirmación barata es la
 > línea de log de arriba; la definitiva, una corrida tras el fix. Ninguna palanca de devops (dial, env,
 > cron) puede arreglarlo: el request sale mal formado desde el código.
+
+---
+
+## 24. Lag de deploy del fix guest-checkout `v1.21.3-quote-prune` — build desplegado vs `main`, redeploy y verificación en vivo (2026-08-19)
+
+> **Contexto.** El PO reportó que "una pieza muerta en el carrito de invitado revienta el checkout de
+> invitado en `/es/checkout`". El fix `v1.21.3-quote-prune` (commit **`b332029`**, 18-ago) **YA cubre** el
+> flujo de invitado (backend `guest-checkout.service.ts:79` `quote()` tolerante vía `priceCartForQuote` →
+> `unavailableItems`; frontend poda el `localStorage` y pinta `UnavailableItemsNotice`/`EmptyState`).
+> Hipótesis: **lag de despliegue** — staging/prod corre un build **anterior** a `b332029`. **No hay cambio
+> de código de app** (ni backend ni frontend); esto es puramente operación devops.
+>
+> **Evidencia completa de esta investigación:** en el scratchpad de la sesión,
+> `EVIDENCE-guest-quote-prune.md` (git log, logs de proxy/pull, salida de jest).
+
+### 24.1 Cómo se identifica el build desplegado (y por qué hoy es un punto ciego)
+
+**Hallazgo (gap de observabilidad, causa raíz del incidente):** no hay forma **por HTTP** de saber qué
+commit corre. `GET /api/v1/health` (`backend/src/modules/health/health.service.ts`) devuelve
+`{ status, uptime, timestamp, db, redis }` y **no expone `version`/`commit`/`build`**; **no existe** un
+endpoint `/version`. Por tanto, ante un reporte "el fix no está", **no se puede confirmar el build vivo
+desde la app** — exactamente lo que pasó aquí.
+
+Fuentes de verdad **reales** hoy para el commit desplegado (usarlas SIEMPRE ante un reporte de "ya está
+arreglado pero se rompe"):
+
+| Componente | Dónde se ve el commit desplegado |
+|---|---|
+| Backend (Railway) | Railway → proyecto → servicio `backend` → **Deployments**: cada deploy muestra el **SHA de git** de origen y la hora. Compara ese SHA contra `git rev-parse origin/main` (ver aviso de "main local stale" abajo). |
+| Frontend (Vercel) | Vercel → proyecto → **Deployments** (Production): muestra **commit + rama**. El bug del PO es de UI de checkout ⇒ el que importa aquí es el **frontend**. |
+
+**Por qué el pipeline no ayuda a rastrearlo:** `deploy.yml` es `workflow_dispatch`-only y se **salta** sin
+los 6 secrets (§6/§11.D); los deploys reales entran por las **integraciones nativas** Railway/Vercel
+(push-to-deploy de la rama configurada). Es decir, lo que hay en prod llegó por push a la rama de deploy de
+cada plataforma, no por esta cadena — así que el único registro del SHA vivo son los **dashboards**.
+
+**Confirmación del lag (procedimiento, 2 min, [HUMANO/DEVOPS] con acceso a los dashboards):**
+1. `git rev-parse origin/main` → debe contener `b332029`
+   (`git merge-base --is-ancestor b332029 origin/main && echo "b332029 ∈ origin/main"`).
+   **Aviso:** en esta checkout el `HEAD` está **detached en `origin/main`** (`1702877`, que SÍ contiene
+   `b332029`), mientras que la **rama local `main` está STALE** (`d50dff4`, **no** lo contiene). Usa
+   **`origin/main`** (o `HEAD`) como referencia, **nunca** el `main` local, o el chequeo dará un falso
+   negativo. Sanea con `git fetch origin && git branch -f main origin/main`.
+2. Vercel Production Deployment → **¿su commit es anterior a `b332029`** (o de una rama que no lo incluye)?
+   Si sí → **lag confirmado en el frontend** (la UI vieja no poda ni pinta el aviso).
+3. Railway `backend` Deployment → mismo chequeo (aunque el backend viejo tampoco es 500-safe en el quote de
+   invitado hasta `b332029`).
+   → Si cualquiera de 2/3 está por detrás de `b332029`, la causa es **lag de deploy**, no un bug abierto.
+
+> **Estado de esta sesión (honesto):** el commit vivo **NO se pudo leer** desde aquí — prod está
+> **egress-bloqueado por política** (CONNECT 403 a `*.tcgvaultmx.com`) y no hay dashboards en este entorno.
+> El lag queda **consistente pero no confirmado por HTTP**; su confirmación es el procedimiento de arriba
+> contra los dashboards. Ver también §24.4 (recomendación para cerrar el punto ciego).
+
+### 24.2 Reproducción contra el stack — resultado y bloqueo de infra
+
+Objetivo: `docker compose -f docker-compose.staging.yml --profile apps up -d --build` + curls de §24.3.
+
+**BLOQUEO DE INFRA (no de código de app):** en este entorno **no se puede levantar staging**. El daemon
+Docker se arrancó a mano, pero el **pull de las imágenes base falla con `403 Forbidden`** al bajar los blobs
+de `production.cloudfront.docker.com` — **denegación de la política de egress** del sandbox
+(`connect_rejected — gateway answered 403 to CONNECT`, host `production.cloudfront.docker.com:443`). Regla
+del proxy: no enrutar alrededor de un 403; se reporta el host. Tampoco hay Postgres nativo (solo
+`redis-server`). Los `docker-compose*.yml` del repo son correctos; el blocker es el entorno, igual que lo
+ya registrado en §5.1 ("no hay stack levantable en este sandbox").
+
+**Evidencia obtenida (la más fuerte posible sin stack):** las suites unit que codifican EXACTAMENTE los
+tres casos del reporte corren **en verde** (`cd backend && npx jest test/orders.quote-prune.spec.ts
+test/guest-checkout.session.spec.ts` → **31/31 passed**):
+
+- **(a)** quote con 1 muerta (id inexistente **o** despublicada/no-plataforma) + vivas ⇒ **200**, vivas
+  cotizadas, muerta en `unavailableItems` (spec `orders.quote-prune.spec.ts` L70/L88; `unavailableItems`
+  SIEMPRE presente L124).
+- **(b)** quote con TODAS muertas ⇒ **200**, `items: []`, breakdown **en ceros** incl. `shippingFeeCents: 0`,
+  sin 500 (L98; `guest-checkout.service.ts:407` `zeroBreakdown`).
+- **(c)** `createSession` con id muerto ⇒ **409 `ITEM_UNAVAILABLE`** / id inexistente ⇒ **404 `NOT_FOUND`**,
+  `BusinessException` limpia (mapea a 409/404, **nunca 500**), y **NO** crea la `Order`
+  (`guest-checkout.session.spec.ts` L168/L176; `orders.service.ts:73/:131`).
+
+Confirmado por lectura de código: quote invitado tolerante en `guest-checkout.service.ts:79`; session
+estricta (anti double-sell) en `:120` vía `priceCartForOrder`.
+
+### 24.3 Curls de reproducción en vivo (para el runner/host CON Docker o Postgres nativo)
+
+Levantar staging y sembrar (los puertos son los de `docker-compose.staging.yml`: API `3011`):
+
+```bash
+docker compose -f docker-compose.staging.yml --profile apps up -d --build
+curl -sf http://localhost:3011/api/v1/health          # espera 200 {"status":"ok",...}
+./scripts/seed-synthetic.sh                            # = ts-node prisma/seed-e2e.ts (dataset E2E-*)
+API=http://localhost:3011/api/v1
+```
+
+Fixtures relevantes (`backend/prisma/e2e-fixtures.ts`): `E2E-LST-0001` (Charizard listed, VIVO) — para
+matar una pieza, despublícala desde admin (o usa un id inexistente como `E2E-DEAD-9999`). Los ids reales de
+`inventoryItemId` son los uuid de esas piezas; obtenlos del catálogo sembrado:
+`curl -s $API/catalog?...` o directo en la BD. Sustituye `<VIVO>` / `<MUERTO>` abajo.
+
+```bash
+# (a) 1 muerta + 1 viva  → 200, viva cotizada, muerta en unavailableItems
+curl -s -o /dev/null -w "quote_a=%{http_code}\n" -X POST $API/checkout/guest/quote \
+  -H 'content-type: application/json' \
+  -d '{"inventoryItemIds":["<VIVO>","<MUERTO>"]}'          # espera 200
+curl -s -X POST $API/checkout/guest/quote -H 'content-type: application/json' \
+  -d '{"inventoryItemIds":["<VIVO>","<MUERTO>"]}' | jq '{items:(.items|length),unavailableItems}'
+
+# (b) TODAS muertas → 200, items:[], breakdown en ceros (shippingFeeCents:0), sin 500
+curl -s -X POST $API/checkout/guest/quote -H 'content-type: application/json' \
+  -d '{"inventoryItemIds":["<MUERTO>"]}' | jq '{items:(.items|length),breakdown,unavailableItems}'
+
+# (c) session con id muerto → 409/404 LIMPIO (no 500); con solo válidos → crea sesión
+curl -s -o /dev/null -w "session_dead=%{http_code}\n" -X POST $API/checkout/guest/session \
+  -H 'content-type: application/json' -d '{
+    "inventoryItemIds":["<MUERTO>"],"email":"guest@example.com","acceptedTerms":true,
+    "shippingAddress":{"line1":"Calle 1","city":"CDMX","state":"CDMX","postalCode":"01000",
+                       "country":"MX","phone":"5512345678","recipientName":"Invitado"}}'  # espera 409 o 404, NUNCA 500
+curl -s -o /dev/null -w "session_ok=%{http_code}\n" -X POST $API/checkout/guest/session \
+  -H 'content-type: application/json' -d '{
+    "inventoryItemIds":["<VIVO>"],"email":"guest@example.com","acceptedTerms":true,
+    "shippingAddress":{"line1":"Calle 1","city":"CDMX","state":"CDMX","postalCode":"01000",
+                       "country":"MX","phone":"5512345678","recipientName":"Invitado"}}'  # espera 201/200
+```
+
+Criterio de aceptación de la reproducción: `quote_a=200`, `(b)` con `items=0` y `breakdown.shippingFeeCents=0`,
+`session_dead` ∈ {409,404} (**no** 500), `session_ok` crea el pedido.
+
+### 24.4 Redesplegar `main` (que ya incluye `b332029`) a staging → prod, con rollback
+
+**Precondición:** confirmar por §24.1 que el deployment vivo está por detrás de `b332029` (o simplemente
+promover `main`, que es idempotente). **Toma snapshot de la DB de prod ANTES** (regla de oro §7); este fix
+**no** trae migración de schema nueva, pero el snapshot es barato y obligatorio.
+
+**Vía A — integraciones nativas (la que hoy despliega de verdad):**
+1. Asegura que la **rama de deploy** de Railway (servicio `backend`) y de Vercel (Production) es **`main`** y
+   que **`origin/main`** contiene `b332029` (`git merge-base --is-ancestor b332029 origin/main`; **no** uses
+   el `main` local, hoy stale — ver §24.1 aviso).
+2. `git push origin main` (o "Redeploy" del último commit de `main` desde cada dashboard). Railway reconstruye
+   con `Dockerfile.backend` y corre `prisma migrate deploy` al arrancar; Vercel reconstruye el front con
+   `NEXT_PUBLIC_USE_MOCKS=false` (env de Production).
+3. **Frontend primero o backend primero:** aquí da igual (el fix es compatible en ambos sentidos — el backend
+   `b332029` es 200-safe y el front viejo simplemente no poda; el front `b332029` con backend viejo aún
+   recibe el 200 tolerante sólo si el backend ya trae el quote por-ítem). **Recomendado: backend → frontend**,
+   para que cuando el front nuevo empiece a llamar, el backend ya responda el quote tolerante.
+4. Verifica salud: `GET /api/v1/health` = 200; luego corre la **verificación en vivo §24.5**.
+
+**Vía B — pipeline `deploy.yml` (si ya se cargaron los 6 secrets, §11.D):** dispara `deploy.yml`
+(`workflow_dispatch`, `promote_to_prod=true`). Corre staging (Railway+Vercel) → **DAST** → **E2E real** →
+promoción a prod tras aprobación del Environment `production`. Sin los secrets, `secrets-gate` lo salta
+(no falla) y hay que usar la Vía A.
+
+**Rollback (si el redeploy sale mal):**
+| Escenario | Acción |
+|---|---|
+| Front o back nuevos rompen | Dashboard Vercel/Railway → **Deployments → Rollback/Redeploy** al deployment anterior sano (ambas plataformas conservan los previos). Es instantáneo y no toca datos. |
+| Prefieres vía Git | `git revert <sha-del-merge>` + push → las integraciones nativas redepliegan la versión sana. **Nunca** `reset --hard` en `main`. |
+| DB (no aplica a este fix) | `b332029` no añade migración; si aun así algo tocó la DB, restaurar del **snapshot** previo (§7). |
+
+> Nota: este fix **no** requiere rollback de datos ni de dial M10; es 100% código de app ya mergeado.
+
+### 24.5 Verificación EN VIVO para el PO (repro del reporte, extremo a extremo)
+
+Tras redeploy, reproducir el escenario EXACTO del PO en el entorno desplegado (staging primero, luego prod):
+
+1. **Admin:** da de alta / ubica una pieza **publicada** (listed) y agrégala al carrito como **invitado**
+   (sin sesión) en `/es/checkout`.
+2. **Admin:** **despublica** esa misma pieza desde inventario (M1) — o márcala vendida/movida — de modo que
+   quede "muerta" respecto a `{listed, in_stock}` de plataforma.
+3. **Invitado:** vuelve a `/es/checkout` con esa pieza aún en el carrito local.
+   - **Esperado (con el build `b332029`):** el checkout **avisa** con `UnavailableItemsNotice` (o `EmptyState`
+     si el carrito quedó 100% muerto), **poda** el id muerto del `localStorage` y **deja continuar** con las
+     piezas vivas. **NO** pantalla rota / 500.
+   - **Síntoma del bug viejo (build pre-`b332029`):** el checkout **revienta** (el quote lanzaba por la pieza
+     muerta). Si esto persiste **después** del redeploy, entonces NO era lag → reabrir con `backend`/`frontend`.
+4. **Chequeo de red (DevTools):** `POST /api/v1/checkout/guest/quote` responde **200** con `unavailableItems`
+   poblado (no 4xx/5xx). Si el PO quiere el número duro, usa los curls de §24.3 contra el dominio desplegado.
+
+**Definición de "resuelto" para el PO:** el paso 3 **avisa y continúa** (no se rompe) y el quote de red es
+**200**. Si el redeploy no cambia el comportamiento, el problema no era de despliegue.
+
+### 24.6 Recomendación para no repetir el punto ciego (enrutada a `backend`)
+
+La causa de fondo del incidente fue **no poder saber qué build corre**. Recomendación (fuera de rutas
+devops, por eso se **enruta a `backend`**): añadir a `GET /api/v1/health` (o un `GET /api/v1/version`
+público y liviano) un campo **`version`/`commit`** leído de una env `BUILD_COMMIT` (o
+`process.env.RAILWAY_GIT_COMMIT_SHA`, que Railway ya inyecta). Con eso, ante el próximo "ya está arreglado
+pero se rompe", se confirma el build vivo con un solo `curl`, sin depender de los dashboards. **Devops** ya
+puede pasar la env (Railway inyecta `RAILWAY_GIT_COMMIT_SHA` sin config; para staging/local se puede
+exponer un `BUILD_COMMIT` como build-arg del `Dockerfile.backend`); **falta que backend lo lea y lo
+publique** en el payload de health. Registrado como deuda de observabilidad.
