@@ -2000,6 +2000,62 @@
   `SELLABLE_STATUSES` (mismo patrón que `inventory.service.ts:74`) consumida por el predicado y por
   los dos `where`.
 
+### Rama `fix/available-finishes-source` — fix de `availableFinishes` (2026-08-19, no bloqueante; anotado a petición del techlead)
+
+> El techlead **APROBÓ** el fix de la fuente de `availableFinishes` con **deuda NO bloqueante**. Los
+> cuatro ítems de abajo son deuda **menor**, dueño **backend**, registrados sin tocar código en este
+> pase. Continúan la numeración `BE-*` (tras BE-67). Familia de `catalog`/`pricing`
+> (`finish-reconciler`, `price-ingest`).
+
+### BE-68 · Race read-compute-write en `FinishReconciler.reconcile` (Baja)
+- **Dónde:** `backend/src/modules/catalog/finish-reconciler.service.ts:36-55`, invocado desde
+  `backend/src/modules/pricing/price-ingest.service.ts:225` y
+  `backend/src/modules/catalog/catalog-sync.service.ts:412`.
+- **Estado actual:** `reconcile` hace `findMany` → recompute → `update` **SIN transacción ni lock de
+  fila**. Si `catalog-sync` y `price-ingest` corren **concurrentemente** sobre la MISMA carta, un
+  interleaving puede dejar `availableFinishes` **transitoriamente** sin un acabado real (una casilla
+  del binder desaparece hasta la siguiente recomputación).
+- **Impacto:** bajo. NO bloquea: la dirección es **conservadora** (nunca inyecta un acabado fantasma
+  → SEC-A1 intacto) y es **self-healing** por ser recomputable (el siguiente `reconcile` lo corrige).
+- **Disparador:** si ambos writers pueden solaparse sobre el mismo set (multi-instancia o al cablear
+  BullMQ para catálogo/precio). Dirección: envolver el recompute **por carta** en `$transaction` con
+  `SELECT … FOR UPDATE`, o **serializar** ambos jobs sobre el mismo set de cartas.
+- **Nota (arquitecto):** el contrato **§4.22g no aborda la atomicidad entre los dos writers** →
+  candidato a **decisión de arquitectura futura**; el arquitecto debería saberlo.
+
+### BE-69 · Nombre de variable engañoso + `select` sin usar en `price-ingest` (Baja, mantenibilidad)
+- **Dónde:** `backend/src/modules/pricing/price-ingest.service.ts:170-176`.
+- **Estado actual:** la variable local `catalogFinishes` se **puebla desde `r.availableFinishes`** (la
+  lista blanca **derivada**), no de la columna real `catalogFinishes` → el nombre induce a error sobre
+  qué fuente se está usando. Además, `externalId` aparece en el `select` (~línea 174) pero **no se
+  usa** después.
+- **Impacto:** nulo funcional; solo claridad del código (riesgo de que un lector confunda la lista
+  derivada con la columna persistida).
+- **Disparador:** próximo toque de `price-ingest`. Dirección: renombrar la variable a
+  `whitelistByCard`/`knownFinishesByCard` y quitar `externalId` del `select` (o consumirlo si hacía
+  falta).
+
+### BE-70 · Log `finishNotInCatalog` desincronizado con la Señal C (Baja, observabilidad)
+- **Dónde:** `backend/src/modules/pricing/price-ingest.service.ts:192-197,228-235`.
+- **Estado actual:** el drift se compara contra `availableFinishes` **PRE-reconcile**; un alias
+  **VERIFICADO** que la **Señal C** rescata en la MISMA corrida se loguea como drift aunque se esté
+  añadiendo **legítimamente**, y el mensaje sugiere un remedio (`sync --force`/override)
+  **desactualizado**. Es **solo observabilidad** (no afecta el dato escrito).
+- **Impacto:** bajo. Ruido/confusión en logs (falso positivo de drift + remedio obsoleto); no afecta
+  correctness ni dinero.
+- **Disparador:** próximo toque del logging de ingesta. Dirección: comparar contra `catalogFinishes`
+  (columna real) o **loguear post-reconcile**, y actualizar el texto del remedio.
+
+### BE-71 · "Last wins" por acabado duplicado en el snapshot (Baja)
+- **Dónde:** `backend/src/modules/pricing/price-ingest.service.ts:164`.
+- **Estado actual:** si para una carta llegan **dos filas** que mapean al mismo enum `Finish` (una
+  **verificada**, una **supuesta**) y **gana la supuesta**, se **pierde un acabado real** del
+  snapshot. La dirección es **conservadora** (falta una casilla, no sobra) y el caso es **marginal**.
+- **Impacto:** bajo. A lo sumo una casilla del binder que no aparece pese a existir; nunca inyecta un
+  acabado inexistente.
+- **Disparador:** si aparecen filas duplicadas por `Finish` en el feed del proveedor. Dirección:
+  preferir la fila con `finishAliasVerified` al **deduplicar** (verificada gana sobre supuesta).
+
 ---
 
 ## Frontend (dueño: frontend)
