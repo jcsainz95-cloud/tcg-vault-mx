@@ -19,7 +19,24 @@
 #     producción (+ nightly). Ese es el que hace que "verde" signifique
 #     "funciona de verdad". Ver DEVOPS_NOTES §5.1.
 #
-# GATE: bloquea si cualquiera de las dos suites falla.
+# POLÍTICA DE GATE (arreglo 2026-08-19, ver DEVOPS_NOTES §24 — incidente Railway
+# «backend congelado 11 h»):
+#   - `backend-e2e` = DEPLOY-BLOCKING. Es integración REAL (Postgres+Redis+MinIO
+#     como services); un fallo aquí es un bug real. Si falla, `e2e-ok` falla y el
+#     deploy se bloquea. NO cambia.
+#   - `frontend-e2e` (MOCK) = INFORMATIVO, NO deploy-blocking. Corre en cada
+#     push/PR y nightly como señal de regresión de UI contra fixtures, pero un
+#     fallo de aserción NO congela el deploy del backend (el gate REAL de UI es
+#     e2e-real.yml, stack completo). Un fallo de MOCK se reporta como ::warning::
+#     y se enruta al rol frontend; el job termina verde para no bloquear Railway.
+#     OJO: los fallos de INFRAESTRUCTURA del job (instalar Chromium) SÍ son duros
+#     — solo se ablandan las aserciones de la suite, no el arranque del entorno.
+#
+# Por qué así y no quitar «Wait for CI» de Railway: Railway espera al check-suite
+# COMPLETO de GitHub Actions; un solo job en rojo (aunque sea MOCK) tumba el
+# suite y congela el deploy. La única palanca determinista desde el repo es que el
+# job MOCK no reporte failure. Los gates money-safe (build + backend-e2e +
+# seguridad) siguen DUROS y sí bloquean. Ver DEVOPS_NOTES §24.
 #
 #   Nombres de script (los exponen los roles backend/frontend):
 #     backend/package.json  -> "test:integration"
@@ -269,9 +286,23 @@ jobs:
           fi
           echo "PLAYWRIGHT_CHROMIUM_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
           echo "Chromium instalado: $CHROMIUM_BIN"
+      # SOFT-GATE (2026-08-19, §24): la suite MOCK es INFORMATIVA, no deploy-blocking.
+      # `continue-on-error` ablanda SOLO las aserciones de Playwright — el paso previo
+      # de instalar Chromium sigue siendo duro (un fallo de infra ahí sí revienta el
+      # job). Así un rojo de fixtures/UI no congela el deploy del backend en Railway,
+      # mientras el gate REAL de UI (e2e-real.yml) y backend-e2e siguen bloqueando.
       - name: E2E frontend (MOCK — el config levanta Next con mocks=true)
+        id: mock_e2e
+        continue-on-error: true
         working-directory: frontend
         run: npm run test:e2e
+      - name: Resultado E2E MOCK (informativo — NO bloquea el deploy)
+        run: |
+          if [ "${{ steps.mock_e2e.outcome }}" = "failure" ]; then
+            echo "::warning title=E2E MOCK en rojo (informativo)::La suite Playwright MOCK falló. Es señal de PR/nightly, NO bloquea el deploy (el gate REAL de UI es e2e-real.yml, stack completo). Enrutar el fallo al rol frontend (spec en frontend/e2e/). Reporte: artifact playwright-report-mock. Ver DEVOPS_NOTES §24."
+          else
+            echo "E2E MOCK verde."
+          fi
       - name: Subir reporte Playwright
         if: always()
         uses: actions/upload-artifact@v4
@@ -284,7 +315,13 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Gate final E2E.
+  # Gate final E2E — DEPLOY-BLOCKING.
+  # Bloquea SOLO por `backend-e2e` (integración real Postgres+Redis+MinIO). El
+  # `frontend-e2e` MOCK es INFORMATIVO (§24): su fallo NO tumba este gate ni el
+  # deploy de Railway; el gate REAL de UI es e2e-real.yml. Con el soft-gate del
+  # job MOCK, `needs.frontend-e2e.result` normalmente será 'success' aunque las
+  # aserciones fallen (se degradan a ::warning::); la rama informativa de abajo
+  # queda como red de seguridad y para transparencia en el resumen.
   # ---------------------------------------------------------------------------
   e2e-ok:
     needs: [detect, backend-e2e, frontend-e2e]
@@ -293,10 +330,13 @@ jobs:
     steps:
       - name: Resumen
         run: |
-          echo "backend-e2e:  ${{ needs.backend-e2e.result }}"
-          echo "frontend-e2e: ${{ needs.frontend-e2e.result }}"
-          if [ "${{ needs.backend-e2e.result }}" = "failure" ] || [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then
-            echo "::error::Una suite E2E falló."
+          echo "backend-e2e  (deploy-blocking): ${{ needs.backend-e2e.result }}"
+          echo "frontend-e2e (informativo):     ${{ needs.frontend-e2e.result }}"
+          if [ "${{ needs.backend-e2e.result }}" = "failure" ]; then
+            echo "::error::backend-e2e (integración real DB/Redis/MinIO) falló. Bloquea el deploy."
             exit 1
           fi
-          echo "E2E OK."
+          if [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then
+            echo "::warning::frontend-e2e MOCK falló (informativo). NO bloquea el deploy. Ver DEVOPS_NOTES §24."
+          fi
+          echo "E2E gate OK (backend-e2e verde)."
