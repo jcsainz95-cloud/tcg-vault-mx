@@ -7,6 +7,8 @@ import { PricingService } from './pricing.service';
 import { BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
+import { orderFinishes } from '../../common/card-order';
+import { FinishReconciler } from '../catalog/finish-reconciler.service';
 
 /** Snapshot de FX cargado UNA vez por corrida (§4.15f), pasado a cada set. */
 export type FxSnapshot = { rate: number; bufferPct: number };
@@ -31,12 +33,18 @@ export interface IngestSetResult {
  * vía un `BulkPriceProvider` pluggable, con **upsert idempotente** de `PriceReference` por
  * `(cardId, 'raw', 'raw:NM', finish, hoy)`.
  *
- * ⛔ **v1.22-variantes-orden (§4.22a): CERO escrituras sobre `Card`.** El refresco de
- * `Card.availableFinishes` desde el proveedor (§4.15e) queda **DEROGADO** — era la causa raíz del
- * bug de tres rondas del PO (VAR-1, §9): derivar las VARIANTES de la existencia de un PRECIO
- * borraba el reverse holo de toda carta sin precio de reverse holo. La autoridad única es el
- * **sync de catálogo** (`CatalogSyncService.upsertCards`). Aquí solo se LOGUEA el drift
- * (`finishNotInCatalog`).
+ * ⛔ **v1.22-variantes-orden (§4.22a): NUNCA escribe `Card.availableFinishes`.** El refresco directo
+ * de la lista blanca desde el proveedor (§4.15e) quedó DEROGADO — era la causa raíz del bug de tres
+ * rondas del PO (VAR-1, §9): derivar las VARIANTES de la existencia de un PRECIO borraba el reverse
+ * holo de toda carta sin precio de reverse holo.
+ *
+ * ✅ **v1.22-1 (§4.22g): Señal C money-safe.** Lo que este servicio SÍ hace ahora es escribir su
+ * PROPIA columna de entrada `Card.pricedFinishesSnapshot` = los acabados que PPT reportó con
+ * `market>0` y **alias VERIFICADO** (candado 2), por REEMPLAZO por carta en una corrida EXITOSA, y
+ * luego LLAMAR a `FinishReconciler.reconcile(cardIds)` (§4.22g candado 4). El ÚNICO escritor de
+ * `availableFinishes` sigue siendo el reconciliador del módulo `catalog`; aquí seguimos haciendo
+ * CERO escrituras sobre `availableFinishes`. Ante fallo de PPT / 0 filas NO se toca ningún snapshot
+ * (stale money-safe, como hoy no se borran precios). El drift se LOGUEA (`finishNotInCatalog`).
  *
  * - **Provider por dial:** `providerFor()` lee `PRICE_PROVIDER` y elige la implementación.
  * - **Resolución carta↔BD (§4.15d):** externalId (primario) → `(set, number)` (fallback); sin
@@ -56,6 +64,9 @@ export class PriceIngestService {
     private readonly pricing: PricingService,
     private readonly pptBulk: PokemonPriceTrackerBulkProvider,
     private readonly tcgIoBulk: PokemonTcgIoBulkProvider,
+    // v1.22-1 (§4.22g): tras escribir `pricedFinishesSnapshot` (Señal C), este servicio LLAMA al
+    // ÚNICO escritor de `availableFinishes`. NUNCA escribe `availableFinishes` directamente.
+    private readonly finishReconciler: FinishReconciler,
   ) {}
 
   /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
@@ -186,11 +197,32 @@ export class PriceIngestService {
         if (!known.includes(finish)) driftPairs.push(`${cardId}:${finish}`);
         priced += 1;
       }
-      // ⛔ v1.22-variantes-orden (§4.22a-1/2): ELIMINADO el `card.update({ availableFinishes })`
-      // que vivía aquí (VAR-1, §9). El price-ingest hace **CERO escrituras** sobre `Card`: derivar
-      // las VARIANTES de la existencia de un PRECIO clobbeaba a `['normal']` toda carta cuyo
-      // reverse holo no tuviera precio, y ensanchaba/estrechaba una lista blanca de seguridad
-      // (SEC-A1) desde un feed de terceros. Autoridad única = `CatalogSyncService.upsertCards`.
+      // ⛔ v1.22-variantes-orden (§4.22a-1/2): NUNCA se escribe `card.update({ availableFinishes })`
+      // aquí (VAR-1, §9). La lista blanca la recompone SOLO el reconciliador (abajo), a partir de
+      // las columnas de entrada. Este bucle solo persiste PRECIOS (tolerante con alias SUPUESTO).
+    }
+
+    // v1.22-1 (§4.22g) — Señal C: REEMPLAZO money-safe de `pricedFinishesSnapshot` + reconcile.
+    // Solo en una corrida EXITOSA con filas (`requestOk && rows>0`): ante fallo total / 0 filas /
+    // modo sample-only NO se toca ningún snapshot (stale conservador). Por cada carta VISTA con ≥1
+    // fila válida, el snapshot se reemplaza por sus acabados con `market>0 && finishAliasVerified`
+    // (vacío si ninguno es verificado ⇒ se limpia lo stale, reparabilidad §4.22g). Luego se llama
+    // al ÚNICO escritor de `availableFinishes`. `price-ingest` JAMÁS escribe `availableFinishes`.
+    if (result.requestOk && result.rows.length > 0 && byCard.size > 0) {
+      const reconcileIds: string[] = [];
+      for (const [cardId, finishes] of byCard) {
+        const verified = orderFinishes(
+          [...finishes.values()]
+            .filter((row) => row.finishAliasVerified && row.marketCents > 0)
+            .map((row) => row.finish),
+        );
+        await this.prisma.card.update({
+          where: { id: cardId },
+          data: { pricedFinishesSnapshot: verified },
+        });
+        reconcileIds.push(cardId);
+      }
+      await this.finishReconciler.reconcile(reconcileIds);
     }
 
     if (driftPairs.length > 0) {

@@ -121,7 +121,7 @@ describe('deriveAvailableFinishes (§4.22a-3) — tabla de verdad', () => {
   });
 });
 
-describe('CatalogSyncService.upsertCards — autoridad única de availableFinishes (§4.22a-4)', () => {
+describe('CatalogSyncService.upsertCards — autoridad de catalogFinishes + reconcile (§4.22g)', () => {
   function buildPrisma(existingCards: Record<string, { availableFinishes: string[] }> = {}) {
     return {
       cardSet: {
@@ -138,6 +138,11 @@ describe('CatalogSyncService.upsertCards — autoridad única de availableFinish
   }
   function settings(): SettingsService {
     return { getString: jest.fn(async () => '2024/01/01') } as unknown as SettingsService;
+  }
+  // v1.22-1 (§4.22g): `upsertCards` escribe `catalogFinishes` y DELEGA `availableFinishes` al
+  // ÚNICO escritor (FinishReconciler). Aquí se mockea para verificar la delegación.
+  function reconcilerMock() {
+    return { reconcile: jest.fn(async () => 0) };
   }
 
   function remoteCard(
@@ -158,7 +163,7 @@ describe('CatalogSyncService.upsertCards — autoridad única de availableFinish
     };
   }
 
-  it('con señal (tcgplayer): CREATE y UPDATE reciben availableFinishes derivado', async () => {
+  it('con señal (tcgplayer): CREATE y UPDATE reciben catalogFinishes derivado; se reconcilia', async () => {
     const prisma = buildPrisma();
     const client = {
       getCardsBySet: jest.fn(async () => ({
@@ -170,17 +175,23 @@ describe('CatalogSyncService.upsertCards — autoridad única de availableFinish
       })),
       getSets: jest.fn(),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const reconciler = reconcilerMock();
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler as any);
 
     await svc.sync('sv8');
 
     const call = prisma.card.upsert.mock.calls[0][0];
     expect(call.where).toEqual({ externalId: 'sv8-1' });
-    expect(call.create.availableFinishes.slice().sort()).toEqual(['normal', 'reverse_holo'].sort());
-    expect(call.update.availableFinishes.slice().sort()).toEqual(['normal', 'reverse_holo'].sort());
+    // v1.22-1: escribe `catalogFinishes` (NO `availableFinishes` directo — eso lo hace el reconciler).
+    expect(call.create.catalogFinishes.slice().sort()).toEqual(['normal', 'reverse_holo'].sort());
+    expect(call.update.catalogFinishes.slice().sort()).toEqual(['normal', 'reverse_holo'].sort());
+    expect(call.create).not.toHaveProperty('availableFinishes');
+    expect(call.update).not.toHaveProperty('availableFinishes');
     // M-26: numberSort/numberPrefix siempre poblados, con o sin señal de finish.
     expect(call.create).toMatchObject({ numberSort: 1, numberPrefix: '' });
     expect(call.update).toMatchObject({ numberSort: 1, numberPrefix: '' });
+    // Se delegó al ÚNICO escritor de availableFinishes con la carta tocada.
+    expect(reconciler.reconcile).toHaveBeenCalledWith(['sv8-1']);
   });
 
   it('con señal SOLO de cardmarket: deriva reverse_holo aunque tcgplayer no lo liste', async () => {
@@ -200,15 +211,15 @@ describe('CatalogSyncService.upsertCards — autoridad única de availableFinish
       })),
       getSets: jest.fn(),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconcilerMock() as any);
 
     await svc.sync('sv8');
 
     const call = prisma.card.upsert.mock.calls[0][0];
-    expect(call.create.availableFinishes.slice().sort()).toEqual(['normal', 'reverse_holo'].sort());
+    expect(call.create.catalogFinishes.slice().sort()).toEqual(['normal', 'reverse_holo'].sort());
   });
 
-  it('SIN ninguna señal en CREATE ⇒ ["normal"] (conservador, nunca relleno)', async () => {
+  it('SIN ninguna señal en CREATE ⇒ catalogFinishes ["normal"] (conservador, nunca relleno)', async () => {
     const prisma = buildPrisma();
     const client = {
       getCardsBySet: jest.fn(async () => ({
@@ -220,15 +231,15 @@ describe('CatalogSyncService.upsertCards — autoridad única de availableFinish
       })),
       getSets: jest.fn(),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconcilerMock() as any);
 
     await svc.sync('sv8');
 
     const call = prisma.card.upsert.mock.calls[0][0];
-    expect(call.create.availableFinishes).toEqual(['normal']);
+    expect(call.create.catalogFinishes).toEqual(['normal']);
   });
 
-  it('SIN ninguna señal en UPDATE ⇒ la clave se OMITE (nunca clobbea lo que ya sabíamos)', async () => {
+  it('SIN ninguna señal en UPDATE ⇒ la clave catalogFinishes se OMITE (nunca clobbea lo que ya sabíamos)', async () => {
     // Carta que YA sabíamos con 2 variantes: un payload degradado (sin señal) en un re-sync no
     // debe poder volver a reducirla a ['normal'] — justo el bug de tres rondas (VAR-1).
     const prisma = buildPrisma({ 'sv8-4': { availableFinishes: ['normal', 'reverse_holo'] } });
@@ -242,17 +253,19 @@ describe('CatalogSyncService.upsertCards — autoridad única de availableFinish
       })),
       getSets: jest.fn(),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconcilerMock() as any);
 
     await svc.sync('sv8');
 
     const call = prisma.card.upsert.mock.calls[0][0];
+    // Se omite `catalogFinishes` (se conserva lo previo); tampoco se escribe `availableFinishes`.
+    expect(call.update).not.toHaveProperty('catalogFinishes');
     expect(call.update).not.toHaveProperty('availableFinishes');
     // El resto de la metadata SÍ se sigue actualizando (name/number/orden), solo se omite la clave.
     expect(call.update).toMatchObject({ name: 'Card sv8-4', numberSort: 1, numberPrefix: '' });
   });
 
-  it('con señal en UPDATE ⇒ el catálogo SÍ puede reducir (corrección legítima de un dato erróneo)', async () => {
+  it('con señal en UPDATE ⇒ catalogFinishes SÍ puede reducir (corrección legítima de un dato erróneo)', async () => {
     const prisma = buildPrisma({ 'sv8-5': { availableFinishes: ['normal', 'reverse_holo', 'holofoil'] } });
     const client = {
       getCardsBySet: jest.fn(async () => ({
@@ -264,12 +277,12 @@ describe('CatalogSyncService.upsertCards — autoridad única de availableFinish
       })),
       getSets: jest.fn(),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconcilerMock() as any);
 
     await svc.sync('sv8');
 
     const call = prisma.card.upsert.mock.calls[0][0];
-    expect(call.update.availableFinishes).toEqual(['normal']);
+    expect(call.update.catalogFinishes).toEqual(['normal']);
   });
 
   it('M-26: promo con prefijo alfabético (TG12) ⇒ numberSort = PROMO_SORT_BASE + 12, numberPrefix = "TG"', async () => {
@@ -284,7 +297,7 @@ describe('CatalogSyncService.upsertCards — autoridad única de availableFinish
       })),
       getSets: jest.fn(),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconcilerMock() as any);
 
     await svc.sync('sv8');
 

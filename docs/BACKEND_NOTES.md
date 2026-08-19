@@ -4175,3 +4175,113 @@ expiración de 30 días, dueño: frontend) → session recibe solo ids vivos.
 - Resultado: `npm test` 101 suites / 944 tests en verde; integración 7/8 suites en verde
   (119/120 — el único rojo es el PUT a MinIO de `infra-smoke`, entorno sin S3, ajeno al cambio);
   `lint` y `typecheck` limpios.
+
+## 51. v1.22-1 (M-27, 2026-08-19) — `availableFinishes` DERIVADA money-safe: Señal C de PPT + `FinishReconciler`
+
+**Diseño del arquitecto (§4.22g/§4.22h), implementado tal cual.** `Card.availableFinishes` deja de
+escribirse directamente y pasa a ser una **columna DERIVADA y recomputable** de DOS columnas de
+ENTRADA nuevas y persistidas:
+
+```
+availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
+```
+
+- **`catalogFinishes`** — «opinión del catálogo» (Señal A ∪ B de pokemontcg.io, lo que devuelve
+  `deriveAvailableFinishes`). La escribe `catalog-sync.upsertCards` con la semántica null de §4.22a-4
+  (CREATE `derived ?? ['normal']`; UPDATE omite la clave si `derived === null` → conserva lo previo,
+  sobrevive a un 502). **Backfill M-27:** `catalogFinishes := availableFinishes`.
+- **`pricedFinishesSnapshot`** — **Señal C**: acabados que PPT reportó con `market>0` **y alias
+  VERIFICADO**, por carta. La escribe `price-ingest` por **REEMPLAZO por carta en una corrida
+  EXITOSA** (`requestOk && rows>0`); ante fallo/0 filas NO se toca ningún snapshot (stale money-safe).
+- **Único escritor de `availableFinishes` = `catalog.FinishReconciler`** (nuevo). `price-ingest` y
+  `catalog-sync` escriben SU columna de entrada y **llaman** `reconcile(cardIds)`. `price-ingest`
+  sigue haciendo **CERO** escrituras sobre `availableFinishes` (assert de spy en el test).
+
+**Cuatro candados (§4.22g).** (1) No monótona: quitar el acabado de cualquiera de las dos entradas y
+recomputar lo elimina (`sync --force` o la siguiente corrida de PPT REPARAN). (2) Alias VERIFICADO
+(`VERIFIED_FINISH_ALIASES`, espejo estricto de `TCG_KEY_TO_FINISH`, SIN los SUPUESTO): un `foil`
+supuesto persiste su `PriceReference` pero **no** entra a la lista blanca. (3) Anti-invención:
+`normalizeVerifiedFinishAlias` devuelve `null` para lo desconocido → se OMITE, jamás se atribuye a
+`normal`. (4) Un solo método escribe `availableFinishes`.
+
+### 51.1 Archivos tocados (solo `backend/`)
+- `prisma/schema.prisma` — `Card.catalogFinishes Finish[] @default([])` + `Card.pricedFinishesSnapshot Finish[] @default([])`.
+- `prisma/migrations/20260819120000_m27_card_finish_signals/migration.sql` — **M-27**, ADITIVA: dos
+  columnas `NOT NULL DEFAULT ARRAY[]::"Finish"[]` (mismo patrón enum-array que M-18) + backfill
+  `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"`. No toca la forma de `availableFinishes`.
+- `src/common/card-order.ts` — `unionAvailableFinishes(catalog, priced)` (función PURA, sin DI;
+  reusable por reconciler, seeds y tests).
+- `src/modules/catalog/finish-reconciler.service.ts` + `finish-reconciler.module.ts` — **NUEVO**
+  `FinishReconciler` (único escritor; idempotente: no escribe si el valor recomputado ya coincide).
+  Vive en su propio módulo para que `CatalogModule` y `PricingModule` lo compartan **sin `forwardRef`**
+  (solo depende de `PrismaService` @Global).
+- `src/modules/catalog/catalog-sync.service.ts` — `upsertCards` escribe `catalogFinishes` (no
+  `availableFinishes`) y llama `reconcile(cardIds)` del lote.
+- `src/modules/pricing/pricing.types.ts` — `VERIFIED_FINISH_ALIASES` + `normalizeVerifiedFinishAlias`;
+  `finishAliasVerified: boolean` en `BulkPriceRow`; `requestOk?: boolean` en `BulkPriceResult`.
+  `normalizeFinishAlias`/`BULK_VARIANT_TO_FINISH` **intactos** (el PRECIO sigue tolerante).
+- `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts` — fija `finishAliasVerified`
+  por fila y devuelve `requestOk`.
+- `src/modules/pricing/providers/pokemontcg-io-bulk.provider.ts` — `finishAliasVerified: true` (las
+  llaves reales de tcgplayer.prices son verificadas por construcción) + `requestOk`.
+- `src/modules/pricing/price-ingest.service.ts` — en corrida exitosa reemplaza
+  `pricedFinishesSnapshot` (verificados con `market>0`) por carta vista y llama `reconcile`; sigue sin
+  escribir `availableFinishes`.
+- `src/modules/pricing/pricing.module.ts` + `catalog/catalog.module.ts` — importan `FinishReconcilerModule`.
+- Seeds: `prisma/e2e-fixtures.ts` (la carta `reverse` pasa a **PPT-only rescatado**:
+  `catalogFinishes=['normal']`, `snapshot=['reverse_holo']`, mismo `availableFinishes` → cero cambio
+  para las suites de dinero), `prisma/seed-e2e.ts` (`seedCards` siembra las 3 columnas), `prisma/seed.ts`
+  (Charizard ruta catálogo + carta `base1-16 Pidgey` PPT-only de demostración).
+
+### 51.2 Tests (propios) — todos los exigidos por §4.22h
+- `test/finish-reconciler.spec.ts` (**nuevo**): unión pura (rescate/orden/default/recomputable);
+  `FinishReconciler` (RESCATE PPT-only ⇒ `['normal','reverse_holo']`; REPARABILIDAD ⇒ se quita;
+  DEFAULT ⇒ `['normal']`; IDEMPOTENTE ⇒ 0 writes); `normalizeVerifiedFinishAlias` (acepta verificados,
+  rechaza SUPUESTO, espejo de `TCG_KEY_TO_FINISH`).
+- `test/price-ingest.service.spec.ts` (reescrito): escribe `pricedFinishesSnapshot` + reconcile;
+  **ANTI-INVENCIÓN/SEC-A1** (`foil` supuesto: precio sí, snapshot `[]`); **MONEY-SAFE STALE**
+  (`requestOk=false` o 0 filas ⇒ ningún snapshot ni reconcile); **ÚNICO ESCRITOR** (ningún
+  `card.update` toca `availableFinishes`).
+- `test/price-ingest.provider.spec.ts` (actualizado): `finishAliasVerified`/`requestOk` por fila/result;
+  el caso `variant:'Reverse Holo'` (SUPUESTO) queda `finishAliasVerified:false`.
+- `test/catalog-sync.finish.spec.ts` (actualizado): `upsertCards` escribe `catalogFinishes` (no
+  `availableFinishes`), omite la clave sin señal en UPDATE, y llama `reconcile(cardIds)`.
+- `test/catalog-sync.spec.ts` y `test/catalog.remote-sets-fallback.spec.ts`: 4º arg (reconciler mock).
+
+**Evidencia local (sandbox, sin red externa ni Postgres):**
+- `npx prisma generate` OK (schema parsea); `npx prisma validate` solo objeta `DATABASE_URL` ausente
+  (getConfig), no el esquema.
+- `npx tsc --noEmit -p tsconfig.json` → **exit 0** (cubre `src/**`, `prisma/**`, `test/**`).
+- `npx jest` (suite unitaria completa) → **102 suites / 970 tests en verde**.
+- ⚠️ **`prisma migrate deploy` NO se pudo correr aquí**: el sandbox no tiene Postgres ni egress a la
+  BD. La migración es ADITIVA y calca el patrón enum-array validado de M-18 (`"Finish"[] ... ARRAY[]::"Finish"[]`)
+  y el patrón de backfill de M-26. **Devops/QA la aplican con `prisma migrate deploy`** en staging.
+
+### 51.3 Supuestos S-C1/S-C2 (a verificar en la 1ª corrida en Railway — NO verificable en sandbox)
+El egress del sandbox **no alcanza PPT** (dominio bloqueado). El diseño asume:
+- **S-C1:** PPT emite `reverse_holo` como un `printing` DISTINTO con `market>0` para sets 2026 nuevos
+  (Pitch Black). **(a) Qué asumí:** que hay una fila PPT con `printing` reconocible (`Reverse Holofoil`)
+  y `marketPrice>0` por carta con reverse holo. **(b) Comando/log que lo confirma o desmiente:** tras
+  el deploy, `POST /api/v1/admin/jobs/price-ingest { "setId": "<externalId de Pitch Black>" }` (super_admin)
+  y en los Deploy Logs de Railway buscar la línea `PokemonPriceTracker bulk: GET /api/prices OK ...
+  Ejemplo de entrada cruda: {...}` (muestra el `printing` real) y el resumen `... N filas mapeadas`.
+  Verificación SQL: `SELECT count(*) FROM "Card" WHERE 'reverse_holo' = ANY("pricedFinishesSnapshot")
+  AND "setId" = :pitchBlackLocalId;` debe ser **> 0**, y `... = ANY("availableFinishes") ...` también > 0.
+  **(c) Si S-C1 resulta falso** (PPT también colapsa el set nuevo a un solo `printing`): la opción (c)
+  **no rescata**; el remedio permanente es el **override manual del admin por carta/set (opción (a),
+  M2)** — **avisar al arquitecto** (no inventar reverse holo por rareza ni por `CardSet.hasReverseHolo`).
+- **S-C2:** los alias SUPUESTO que aparezcan en PPT corresponden de verdad al `Finish` mapeado.
+  **Verificación:** en los logs, el resumen del provider imprime `N sin acabado reconocible` y un
+  ejemplo crudo; contrastar el histograma de `printing` crudos. Los que se confirmen se **promueven** a
+  `VERIFIED_FINISH_ALIASES` (una línea en `pricing.types.ts`); hasta entonces **solo alimentan el
+  precio**, nunca la lista blanca (candado 2). Mientras tanto la Señal C solo admite los 4 verificados.
+
+### 51.4 `dataHealth` «rescatadas por PPT» — DEFERIDO (no bloqueante, dueño: backend)
+§4.22h lo marca **recomendado**. El contador vive en el **dashboard de admin** (`admin.service.ts`,
+módulo/stream «Admin y auditoría»), cuyo shape lo fija `API_CONTRACT §Dashboard` y lo ancla
+`test/admin.contract-shapes.spec.ts`. Añadir un campo a `dataHealth` toca la **superficie de contrato
+de otro stream**; por eso **no** lo incluí en este cambio para no meterme en zona ajena ni forzar un
+cambio de contrato sin el arquitecto. Queda como **pendiente menor con dueño backend** (misma suerte
+que `cardsWithoutFinishSignal` de §4.22a-5, que tampoco se materializó en el dashboard): el techlead
+puede pedir su registro formal en `docs/TECH_DEBT.md`. La query sugerida (cuando se aborde):
+`Card` con `NOT ('reverse_holo' = ANY("catalogFinishes"))` **y** `('reverse_holo' = ANY("availableFinishes"))`.

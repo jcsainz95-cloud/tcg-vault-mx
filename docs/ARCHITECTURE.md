@@ -2,7 +2,23 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.22-variantes-orden (MVP, plataforma en producción). Fecha: 2026-08-18. Branch: `fix/variantes-y-orden-master-set`.
+> Estado: v1.22-variantes-orden (MVP, plataforma en producción). Fecha: 2026-08-19. Branch: `fix/available-finishes-source`.
+>
+> **Changelog v1.22-1-señal-ppt (2026-08-19, branch `fix/available-finishes-source`) — RESUELVE la pregunta abierta v1.22-1
+> (§10) y NORMA la opción (c) money-safe: la señal de acabados también se toma de la fuente de PAGA (PokemonPriceTracker),
+> como EVIDENCIA POSITIVA.** Detonante confirmado contra el código: pokemontcg.io devolvió **502** toda la tarde y «Pitch
+> Black» (2026, 120 cartas) quedó **todo en `['normal']`** (§4.22f S1/S2 ciegas) mientras PPT —la fuente de precios ya
+> migrada— SÍ responde con reverse holo. Spec completa en **§4.22g/§4.22h**; v1.22-1 marcada **RESUELTA** en §10; API_CONTRACT
+> v1.22-1 (nota de semántica de `availableFinishes`, sin cambio de forma); **migración M-27** (§11).
+> - **Diseño money-safe (§4.22g), en una línea:** `availableFinishes` deja de ser escrita directamente y pasa a ser
+>   **DERIVADA y recomputable** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` sobre **dos columnas
+>   de entrada persistidas**; `catalog.FinishReconciler` es el **único escritor**; `price-ingest` solo escribe su snapshot
+>   (Señal C, `market>0` vía **alias VERIFICADO**) y llama al reconciliador. **No monótona** (un `sync --force` o la siguiente
+>   corrida PPT REPARAN), **no inventa** (desconocido/SUPUESTO ⇒ se omite, no ensancha SEC-A1), **default `['normal']`**.
+> - **La regla 2 de §4.22a sigue vigente en su núcleo:** precio AUSENTE ≠ variante inexistente ⇒ jamás se REMUEVE por falta
+>   de precio. Lo NUEVO es su CONVERSA: precio PRESENTE vía alias verificado ⇒ la variante EXISTE.
+> - **Toca schema (M-27, dos columnas internas), NO la forma del contrato.** Backend lo implementa; verificación S-C1/S-C2 en
+>   la 1ª corrida (devops/backend). Si S-C1 resulta falso (PPT tampoco separa el set nuevo), cae a (a) override manual del admin.
 >
 > **Changelog v1.22-variantes-orden (2026-08-18) — WS «Catálogo y precios» + «Inventario y vault»: (1) `Card.availableFinishes`
 > deja de estar CONTAMINADO por precios y (2) el orden por número deja de ser lexicográfico en el cotizador. Tercera ronda del
@@ -801,6 +817,9 @@ PendingPriceEntry (cola de precio pendiente)
 - `id`, `externalId` (pokemontcg.io id), `setId` (FK CardSet), `name` (EN), `number`, `rarity`, `supertype`, `subtypes` (JSONB), `imageSmallUrl`, `imageLargeUrl`, `tcgplayerId?`, `createdAt`.
 - **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta. **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2) **y** el **universo de casillas** del binder (§4.20b).
   - **v1.22 — AUTORIDAD ÚNICA = el sync de CATÁLOGO.** Derivado de `tcgplayer.prices` ∪ `cardmarket.prices.reverseHolo*` (§3.7). **`price-ingest` NO escribe esta columna** (§4.22a deroga §4.15e). Almacenado **siempre en orden canónico `FINISH_ORDER`** y **nunca vacío**.
+  - **v1.22-1 (M-27) — pasa a ser DERIVADA de dos columnas de entrada.** Deja de escribirse directamente por `upsertCards`: es la **unión materializada** `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`, recomputada por el **único escritor** `catalog.FinishReconciler` (§4.22g). Sigue siendo la lista blanca SEC-A1 y el universo de casillas del binder; su **forma no cambia** (todos los lectores la siguen consumiendo igual).
+- **`catalogFinishes Finish[] @default([])` (v1.22-1, M-27):** INTERNA (no se expone en DTO). La «opinión del catálogo» = Señal A ∪ Señal B del último payload de pokemontcg.io (lo que devuelve `deriveAvailableFinishes(c)`), persistida en su propia columna para **sobrevivir a un 502** de la fuente. La escribe `upsertCards` con la semántica null de §4.22a-4 (null ⇒ conserva; CREATE ⇒ `derived ?? ['normal']`). Backfill M-27: `= availableFinishes`.
+- **`pricedFinishesSnapshot Finish[] @default([])` (v1.22-1, M-27):** INTERNA. **Señal C** = acabados que **PPT** reportó con `market>0` para la carta, **filtrados a alias VERIFICADO** (§4.22g candado 2). La escribe `price-ingest` por **REEMPLAZO** por carta vista en una corrida exitosa (money-safe: no se toca ante fallo/0 filas). Alimenta la unión pero **NO** es la lista blanca (esa es `availableFinishes`).
 - **`numberSort Int @default(1000000)` / `numberPrefix String @default("")` (v1.22, MIGRACIÓN M-26):** **claves derivadas** de `number` (que es `String`) para el **orden natural en BD** — `number` puramente numérico → `numberSort` = su entero y `numberPrefix = ''`; con prefijo alfabético (`TG12`, `SV107`) → `numberPrefix` = las letras y `numberSort = 1_000_000 + parte numérica` (promos/subsets al final). Escritas por `upsertCards` con la MISMA función que las backfillea (`deriveNumberParts`, §4.22b). **Derivadas, no autoritativas:** la fuente de verdad sigue siendo `number`; si divergen, se recalculan desde `number`.
 - Índices: `(setId)`, `(name)`, `(rarity)`, **`(setId, numberPrefix, numberSort)` (M-26)**, `externalId` único.
 
@@ -1212,8 +1231,13 @@ holo a la derecha**.
   **número > 0**. **Sin ninguna señal** → no se sobrescribe lo existente (y `[normal]` solo al **crear**).
   `price-ingest` **no escribe** este campo (§4.22a; deroga §4.15e). El `client` de pokemontcg.io **deja de descartar**
   `tcgplayer.prices` (§4.8) y **debe dejar de descartar `cardmarket.prices`** (§4.22a).
-  - ❌ **Prohibido derivar acabados de la existencia de un PRECIO** (`PriceReference`, `market > 0`, respuesta del
-    proveedor de paga): precio ausente ≠ variante inexistente. Este fue el bug de tres rondas.
+  - ❌ **Prohibido REDUCIR acabados por la AUSENCIA de un precio** (`PriceReference`, `market` faltante): precio ausente
+    ≠ variante inexistente. Este fue el bug de tres rondas (VAR-1). **Este núcleo de la regla 2 sigue vigente.**
+  - ✅ **v1.22-1 (§4.22g) — se admite la CONVERSA money-safe:** el `market > 0` de un acabado en el proveedor de PAGA
+    (PPT), vía **alias VERIFICADO**, es **evidencia positiva** de que ese acabado EXISTE y lo AÑADE (nunca lo quita).
+    Es la **Señal C**; entra por una columna de entrada separada (`pricedFinishesSnapshot`) y `availableFinishes` pasa
+    a ser la unión DERIVADA (recomputable, un solo escritor `catalog.FinishReconciler`). Los alias **SUPUESTO** NO
+    alimentan la lista blanca. Ver §4.22g para los cuatro candados.
   - ❌ **Prohibida cualquier heurística por rareza** («toda Common tiene reverse holo»): inventaría casillas de relleno,
     que el PO prohíbe explícitamente.
 - **Alcance por tipo de producto:** el acabado aplica a **raw/singles**. Para `graded`/`sealed` el `finish` es
@@ -3320,6 +3344,11 @@ vendedor puede cotizar y **borra** casillas del binder.
    `Card.availableFinishes` en todo el sistema.
 2. **`price-ingest` NO escribe `availableFinishes`. Cero escrituras.** Se elimina el bloque
    `price-ingest.service.ts:167-172` (§4.15e queda derogada).
+   > **Sigue siendo cierto tras v1.22-1 (§4.22g):** `price-ingest` **jamás** escribe `availableFinishes`. Lo que v1.22-1
+   > añade es que `price-ingest` escribe su **propia** columna de entrada `pricedFinishesSnapshot` (Señal C, evidencia
+   > positiva de alias verificado) y **llama** al único escritor `catalog.FinishReconciler`. El argumento de abajo
+   > (monotonía imparable) se resuelve **materializando una unión recomputable**, no acumulando: quitar la fuente quita
+   > el acabado. La regla «un solo escritor de la lista blanca» se **mantiene literalmente**.
    > **Por qué "cero" y no "solo ampliar" (decisión explícita, se pidió argumentarla).** «Ampliar sin reducir»
    > parece la opción segura, y **no lo es**: la unión es **monótona creciente y nadie puede limpiarla**. Basta un
    > alias mal mapeado en `BULK_VARIANT_TO_FINISH` (`foil → holofoil`, `reverse → reverse_holo`, todos marcados
@@ -3496,6 +3525,155 @@ código que ya lo consume, con estos supuestos explícitos:
 - **QA:** doble veredicto por stream (**no toca dinero**: no se cambia ninguna regla de precio de buylist ni de venta).
   E2E mínimo: en el cotizador, una carta con reverse holo muestra **dos** casillas y una sin él **una**; el set se
   lista `2 → 10 → … → TG01`; el smoke corre contra los seeds de §4.22e.
+
+#### (g) Señal C — evidencia positiva del proveedor de PAGA (PPT), money-safe (v1.22-1 RESUELTA)
+
+**Contexto que cambió el tradeoff.** Cuando se escribió §4.22a-2 («`price-ingest` NO escribe `availableFinishes`,
+cero escrituras»), **pokemontcg.io era la fuente confiable** y la única. Hoy no: pokemontcg.io ha estado devolviendo
+**502** (y para un set 2026 nuevo puede responder sin publicar el reverse holo por separado), mientras la fuente de
+PRECIOS ya migró a **PokemonPriceTracker (PPT)**, API de paga que SÍ responde. Resultado observado (set «Pitch Black»,
+2026, 120 cartas): **las 120 muestran solo `normal`** pese a re-sincronizar — es exactamente el caso de §4.22f S1/S2
+fallando (§4.22d-4). El humano decide (no se re-litiga): tomar la señal de acabados de PPT — **opción (c) de v1.22-1** —
+manteniendo default seguro `['normal']` y **sin inventar** acabados.
+
+**La tensión con la regla 2, resuelta explícitamente.** La regla 2 sigue **vigente en su núcleo money-safe**: precio
+**AUSENTE ≠ variante inexistente** ⇒ jamás se REMUEVE un acabado por falta de precio. Lo que se admite ahora es la
+**conversa, que la regla 2 no cubría**: precio **PRESENTE (`market > 0`) para un acabado, vía un alias VERIFICADO** ⇒
+ese acabado **existe** (evidencia positiva). Se admite bajo cuatro candados que neutralizan los tres argumentos
+originales de la regla 2:
+
+1. **No es monótona-creciente (candado contra el argumento i).** No hay «unión que nadie limpia». `availableFinishes`
+   pasa a ser una **columna DERIVADA que se RECOMPUTA de forma determinista** como unión de **dos entradas persistidas
+   e independientemente recomputables**:
+
+   ```
+   availableFinishes  :=  orderFinishes( catalogFinishes ∪ pricedFinishesSnapshot )   ||  ['normal']
+   ```
+
+   - `Card.catalogFinishes Finish[]` — la unión Señal A ∪ Señal B del **último payload de pokemontcg.io** (lo que hoy
+     devuelve `deriveAvailableFinishes(c)`), con la MISMA semántica anti-regresión de §4.22a-4 (`null` ⇒ se omite y se
+     **conserva** el valor previo; CREATE ⇒ `derived ?? ['normal']`). Es la «opinión del catálogo», ahora persistida en
+     su propia columna para que **sobreviva a un 502 de pokemontcg.io**.
+   - `Card.pricedFinishesSnapshot Finish[]` — **Señal C**: los acabados que **PPT reportó con `market > 0` para esa
+     carta, filtrados a alias VERIFICADO** (ver candado 2). Es un **snapshot que se REEMPLAZA** por carta en cada
+     corrida exitosa de `price-ingest` (no se acumula).
+
+   Como `availableFinishes` es **función pura de esas dos columnas**, **quitar** un acabado de cualquiera de las dos y
+   recomputar lo **elimina**. Un `sync --force` (recomputa `catalogFinishes` desde pokemontcg.io) o la siguiente corrida
+   de PPT que ya no reporte el acabado **REPARAN** el dato. Esto es lo que la regla 2 exigía y «solo ampliar» no daba.
+
+2. **Alias VERIFICADO, no SUPUESTO (candado contra el argumento ii, SEC-A1).** La ruta que alimenta la lista blanca
+   **solo** acepta acabados provenientes de un **alias verificado** = el espejo exacto de `TCG_KEY_TO_FINISH`
+   (`normal`, `reverseHolofoil→reverse_holo`, `holofoil`, `1stEditionHolofoil→first_edition_holofoil`). Los alias
+   marcados **SUPUESTO** en `BULK_VARIANT_TO_FINISH` (`foil→holofoil`, `holo→holofoil`, `reverse→reverse_holo`,
+   `reverseholo→…`, etc.) **NO** entran a `pricedFinishesSnapshot`: pueden seguir alimentando `PriceReference` (un
+   alias de precio es dato inocuo, el quote valida el finish **antes** de leer precio), pero **jamás la lista blanca**
+   hasta que la 1ª corrida los promueva a verificados (S-C2). Así un `foil` mal supuesto **no** graba un `holofoil`
+   inexistente permanente en SEC-A1.
+
+3. **Anti-invención (candado contra pintar relleno).** Si PPT reporta un `printing` desconocido o mal-aliaseado,
+   `normalizeVerifiedFinishAlias` devuelve `null` ⇒ **se OMITE** (nunca se atribuye a `normal`, nunca se pinta una
+   casilla de relleno). La unión está acotada al enum `Finish`. La falla es **conservadora**: falta una casilla, nunca
+   sobra una falsa.
+
+4. **Sigue habiendo UN solo escritor de `availableFinishes` (candado contra el argumento iii + diagnosticabilidad).**
+   `price-ingest` **NO** escribe `availableFinishes` — sigue siendo cierto. Escribe **solo su propia** columna de
+   entrada `pricedFinishesSnapshot` y luego **invoca al reconciliador del módulo `catalog`**. La ESCRITURA de
+   `availableFinishes` ocurre en **exactamente un** método, propiedad de `catalog`
+   (`FinishReconciler.reconcile(cardIds)`), que lee las dos columnas de entrada y recomputa la lista blanca. Ante una
+   discrepancia hay **un** lugar donde mirar; el feed de precios nunca toca la lista blanca directamente.
+
+**Flujo de escritura (normativo).**
+
+```
+pokemontcg.io (cuando responde)                     PPT (paga, responde hoy)
+   catalog-sync.upsertCards                             price-ingest (por set, corrida exitosa)
+     → escribe Card.catalogFinishes                       → escribe Card.pricedFinishesSnapshot (alias VERIFICADO,
+        (null ⇒ conserva; §4.22a-4)                            REEMPLAZO por carta vista con ≥1 fila válida)
+     → llama FinishReconciler.reconcile(cardIds)          → llama FinishReconciler.reconcile(cardIds)
+                         \                                    /
+                          → catalog.FinishReconciler.reconcile(cardIds)   ← ÚNICO escritor de availableFinishes
+                              availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
+```
+
+- **Money-safe ante fallo transitorio de PPT.** `pricedFinishesSnapshot` se reemplaza **solo** para cartas que
+  aparecieron con **≥ 1 fila válida** en una corrida **exitosa** (`requestOk && rows > 0`). Si PPT falla / devuelve 0
+  filas, **no se toca ningún snapshot** (mismo criterio con que hoy no se borran precios: no destruir evidencia por un
+  fallo transitorio). Una carta que PPT deje de devolver por completo mantiene su snapshot previo (stale conservador:
+  falta-una-casilla, no sobra-una-falsa); su limpieza definitiva viene del `sync --force` (recomputa `catalogFinishes`)
+  o del override manual del admin.
+- **Default seguro (idéntico a hoy).** Sin ninguna señal (ni `catalogFinishes` ni `pricedFinishesSnapshot`) ⇒
+  `['normal']`. La regla anti-regresión §4.22a-4 se **traslada** a la escritura de `catalogFinishes`: un payload
+  degradado de pokemontcg.io **no puede** vaciar la base ni volver a clobbear a `['normal']` una carta que ya sabíamos
+  de dos variantes.
+- **Contrato sin cambio de forma.** `CardDTO.availableFinishes` mantiene **exactamente** su shape (`Finish[]`, no
+  vacío, orden `FINISH_ORDER`). `catalogFinishes` y `pricedFinishesSnapshot` son **internas, NO se exponen** en ningún
+  DTO. Todos los lectores existentes (quote, alta de inventario, binder) siguen leyendo `availableFinishes` y quedan
+  correctos **sin tocar ningún call-site de validación** — por eso se **materializa** la unión en la columna en vez de
+  unir en tiempo de lectura.
+
+**Supuestos a verificar en la 1ª corrida (misma disciplina que S1/S2/S3).**
+
+| # | Supuesto | Cómo se verifica | Si resulta falso |
+|---|---|---|---|
+| S-C1 | PPT emite `reverse_holo` como un `printing` DISTINTO con `market > 0` para cartas de un set 2026 nuevo (Pitch Black) | 1ª corrida: contar cartas del set con fila PPT `finish=reverse_holo` (`printing` reconocido) | Si PPT TAMBIÉN colapsa el set nuevo a un solo printing, la opción (c) **no rescata**; cae a **(a) override manual del admin** (remedio permanente, ver abajo). **Avisar al arquitecto.** |
+| S-C2 | Los alias SUPUESTO de `BULK_VARIANT_TO_FINISH` que aparezcan en PPT corresponden de verdad al `Finish` mapeado | 1ª corrida: histograma de `printing` crudos vs. alias; log de `noFinish` con ejemplos | Se **promueven** a verificados los confirmados (se añaden a `VERIFIED_FINISH_ALIASES`) y se **descartan** los que no; hasta entonces NO alimentan la lista blanca (candado 2). |
+
+**Remedio permanente para el residuo (opción (a), siempre disponible).** Si tras (c) una carta/set sigue sin la señal
+(ambas fuentes ciegas — caso S-C1 falso), el remedio es el **override manual del admin** por carta/set (M2), nunca una
+heurística por rareza (§4.22a-5). (a) queda como la salida documentada para el residuo; **NO** se elige (b)
+`CardSet.hasReverseHolo` porque requiere decisión de producto y **arriesga inventar** reverse holo en cartas del set
+que no lo tienen (viola anti-invención).
+
+#### (h) Reparto de trabajo (v1.22-1 / opción c)
+
+- **Schema — migración M-27 (backend, `backend/prisma/schema.prisma` + `backend/prisma/migrations/`):** añade
+  `Card.catalogFinishes Finish[] @default([])` y `Card.pricedFinishesSnapshot Finish[] @default([])`. **Backfill:**
+  `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"` (siembra la base con el valor catálogo ya materializado;
+  `pricedFinishesSnapshot` queda `[]`). No cambia la forma de `availableFinishes`. Es cambio de **zona compartida**
+  (`backend/prisma/`) — un solo stream a la vez (regla de zonas compartidas).
+- **`backend/src/modules/pricing/pricing.types.ts`:** (1) añadir `VERIFIED_FINISH_ALIASES` = espejo estricto de
+  `TCG_KEY_TO_FINISH` (sin los SUPUESTO) y `normalizeVerifiedFinishAlias(raw): Finish | null`; (2) añadir
+  `finishAliasVerified: boolean` a `BulkPriceRow`; (3) `deriveAvailableFinishes` **no cambia** (ahora alimenta
+  `catalogFinishes`).
+- **`backend/src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts`:** al construir cada `BulkPriceRow`,
+  fijar `finishAliasVerified` con `normalizeVerifiedFinishAlias(rawPrinting) !== null`. El `finish` para PRICING sigue
+  saliendo de `normalizeFinishAlias` (tolerante); el flag distingue si ese acabado es apto para la lista blanca.
+- **`backend/src/modules/pricing/price-ingest.service.ts`:** tras agrupar `byCard` en una corrida **exitosa**, por cada
+  carta vista con ≥1 fila válida, calcular `verifiedFinishes = { row.finish : row.finishAliasVerified && marketCents>0 }`,
+  **escribir `Card.pricedFinishesSnapshot`** (REEMPLAZO por carta) y **llamar `FinishReconciler.reconcile(cardIds)`**.
+  **Sigue sin escribir `availableFinishes` directamente** (assert en test). El log `finishNotInCatalog` se conserva.
+- **`backend/src/modules/catalog/` — NUEVO `FinishReconciler` (único escritor de `availableFinishes`):**
+  `reconcile(cardIds: string[])` lee `(catalogFinishes, pricedFinishesSnapshot)` de cada carta y escribe
+  `availableFinishes = orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`. La función pura de unión
+  vive junto a `orderFinishes` (`backend/src/common/card-order.ts`) para reusarse desde seeds sin arrastrar DI.
+- **`backend/src/modules/catalog/catalog-sync.service.ts` (`upsertCards`):** escribir `catalogFinishes` (en lugar de
+  `availableFinishes`) con la MISMA semántica null de §4.22a-4 (CREATE `derived ?? ['normal']`; UPDATE omite la clave si
+  `derived === null`), y **llamar `FinishReconciler.reconcile(cardIds)`** para las cartas del lote. Ya no escribe
+  `availableFinishes` inline.
+- **Seeds (§4.22e, `backend/prisma/seed*.ts` + `e2e-fixtures.ts`):** sembrar las tres columnas coherentemente para que
+  el E2E cubra la ruta de la unión:
+  - carta A: `catalogFinishes=['normal']`, `pricedFinishesSnapshot=['reverse_holo']`, `availableFinishes=['normal','reverse_holo']` — **prueba la ruta PPT-only** (el caso del PO con pokemontcg.io caído);
+  - carta B: `catalogFinishes=['normal','reverse_holo']`, `pricedFinishesSnapshot=[]`, `availableFinishes=['normal','reverse_holo']` — prueba la ruta catálogo;
+  - carta C: las tres vacías/`[]` ⇒ `availableFinishes=['normal']` — prueba que no se pinta relleno.
+- **`dataHealth` (M2, recomendado):** además de `cardsWithoutFinishSignal`, distinguir «rescatadas por PPT»
+  (`catalogFinishes` sin `reverse_holo` pero `availableFinishes` con él) para hacer visible cuánto sostiene la Señal C.
+- **QA / verificación (money-safe, no cambia regla de precio):**
+  - **Reconcile PPT-only:** stub de `BulkPriceProvider` que devuelve `reverse_holo` con `market>0` (alias verificado
+    `reverseHolofoil`) para la carta X con `catalogFinishes=['normal']` ⇒ tras `price-ingest` + reconcile,
+    `Card.availableFinishes = ['normal','reverse_holo']`; **E2E:** el binder pinta **dos** casillas.
+  - **Anti-invención / SEC-A1:** `printing="foil"` (SUPUESTO) con precio ⇒ `PriceReference` se persiste como `holofoil`
+    **pero** `pricedFinishesSnapshot` **NO** incluye `holofoil` y `availableFinishes` no cambia.
+  - **Reparabilidad:** carta con `pricedFinishesSnapshot=['reverse_holo']`; una corrida PPT posterior que devuelve la
+    carta **sin** `reverse_holo` ⇒ snapshot reemplazado ⇒ reconcile lo **quita** de `availableFinishes` (si
+    `catalogFinishes` no lo tenía).
+  - **Default seguro:** `catalogFinishes=[]` y `pricedFinishesSnapshot=[]` ⇒ `availableFinishes=['normal']`.
+  - **Money-safe stale:** corrida PPT que falla (0 filas) ⇒ ningún snapshot se toca (spy), ningún clobber.
+  - **Único escritor:** `price-ingest` nunca llama `card.update({ availableFinishes })` (spy); solo `FinishReconciler`.
+- **Devops:** tras M-27, la secuencia de reparación es (1) deploy; (2) `price-ingest` de los sets afectados con PPT
+  (puebla `pricedFinishesSnapshot` + reconcile) — **esto ya rescata «Pitch Black» sin esperar a pokemontcg.io**;
+  (3) cuando pokemontcg.io recupere, `sync-all {force:true}` refresca `catalogFinishes`. Registrar S-C1/S-C2 en
+  `DEVOPS_NOTES.md`.
 
 ---
 
@@ -3768,13 +3946,24 @@ este documento y con `API_CONTRACT.md`.
 
 ### Preguntas abiertas (v1.22-variantes-orden — variantes reales y orden natural)
 
-- **v1.22-1 — ¿Y si el payload remoto no basta?** (bloquea solo si S1 y S2 de §4.22f fallan). Si tras el
-  `sync-all {force:true}` un set moderno sigue **sin ninguna** carta con `reverse_holo`, significa que pokemontcg.io
-  no publica la señal para ese set. Opciones, en orden de preferencia del arquitecto: (a) **override manual del
-  admin** por carta/set en M2 (respeta "un solo escritor automático" y no inventa nada); (b) declarar el reverse holo
-  a nivel **set** (`CardSet.hasReverseHolo`, dato editable por el dueño) y aplicarlo a las cartas del set que cumplan
-  la regla del set — **requiere decisión de producto** y migración; (c) tomar la señal de un tercero. **Lo que NO se
-  hará sin decisión explícita del humano: heurísticas por rareza.** Pendiente hasta ver el resultado de §4.22d-4.
+- **v1.22-1 — ¿Y si el payload remoto no basta? — ✅ RESUELTA (2026-08-19, rama `fix/available-finishes-source`).**
+  El caso se materializó: pokemontcg.io devolvió **502** toda la tarde y el set 2026 «Pitch Black» (120 cartas) quedó
+  con **todas** en `['normal']` (§4.22d-4 con S1/S2 ciegas). **Decisión del humano, diseñada money-safe en §4.22g:
+  opción (c) — tomar la señal de acabados de la fuente de PAGA (PPT)**, como **Señal C** de **evidencia positiva**
+  (`market > 0` vía alias VERIFICADO ⇒ el acabado existe). Es money-safe pese a §4.22a-regla 2 porque: (i)
+  `availableFinishes` pasa a ser **derivada y RECOMPUTABLE** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot)
+  || ['normal']` sobre dos columnas de entrada persistidas ⇒ **no monótona, reparable** con `sync --force` / siguiente
+  corrida PPT; (ii) solo **alias VERIFICADO** alimenta la lista blanca (los SUPUESTO quedan fuera hasta S-C2); (iii)
+  **anti-invención** (desconocido ⇒ se omite, nunca relleno); (iv) **un solo escritor** (`catalog.FinishReconciler`);
+  `price-ingest` solo escribe su snapshot y llama al reconciliador. La regla 2 **sigue vigente en su núcleo** (precio
+  AUSENTE ≠ variante inexistente ⇒ nunca se REMUEVE por falta de precio); lo que se admite es su **conversa** (precio
+  PRESENTE ⇒ existe). **Requiere schema (migración M-27, dos columnas internas) — el contrato NO cambia de forma.**
+  Opción **(a)** override manual del admin queda como **remedio permanente del residuo** (caso S-C1 falso, ver §4.22g);
+  **(b)** `CardSet.hasReverseHolo` se **descarta** (decisión de producto + riesgo de inventar). Sigue prohibida toda
+  **heurística por rareza**. **Punto que aún puede necesitar al HUMANO:** solo si la 1ª corrida revela **S-C1 falso**
+  (PPT tampoco separa el reverse holo del set nuevo) — entonces no hay señal automática viable y la decisión de
+  producto es cuánto invertir en el override manual (a) vs. esperar a la fuente. Backend debe **avisar al arquitecto**
+  con el resultado de S-C1/S-C2 antes de dar por cerrado el rescate.
 - **v1.22-2 — Casos borde del orden (`"23a"`, `number` vacío).** §4.22b los deja con la semántica **actual** de
   `compareByNumber` (bloque de promos / final del bloque numérico). ¿Se afinan? Propuesta del arquitecto: **no en este
   WS** (es cosmético y arriesga regresiones en el binder M1 ya aprobado); queda como deuda menor con dueño backend.
@@ -4028,6 +4217,19 @@ Segura para ejecutar con la app corriendo: hasta que el nuevo código despliegue
 | M-26 | `Card.numberSort Int @default(1000000)` | **Columna nueva** (`NOT NULL` con default) | Add column + backfill | Clave numérica del orden natural. `1_000_000` = `PROMO_SORT_BASE`: el default deja cualquier fila no backfilleada **al final**, nunca intercalada en falso. |
 | M-26 | `Card.numberPrefix String @default("")` | **Columna nueva** (`NOT NULL` con default) | Add column + backfill | Prefijo alfabético (`""` para números puros ⇒ ordenan **primero**, porque `''` es el menor string). |
 | M-26 | `@@index([setId, numberPrefix, numberSort])` | **Índice nuevo** | Create index | Sirve el `ORDER BY` del binder y de `GET /buylist/cards` **con `setId`** (el caso real de las tres vistas). Sin `setId` (búsqueda de texto global) el orden lo lidera `name`, ya indexado. |
+| M-27 | `Card.catalogFinishes Finish[] @default([])` | **Columna nueva** | Add column + backfill | v1.22-1 (§4.22g). «Opinión del catálogo» (Señal A ∪ B de pokemontcg.io), persistida para sobrevivir a un 502. **Backfill:** `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"`. La escribe `upsertCards`. |
+| M-27 | `Card.pricedFinishesSnapshot Finish[] @default([])` | **Columna nueva** | Add column | v1.22-1 (§4.22g). Señal C: acabados con `market>0` en PPT (alias VERIFICADO). Default `[]`; la puebla `price-ingest` en la 1ª corrida. |
+| M-27 | `Card.availableFinishes` **pasa a DERIVADA** | Semántica (no cambia forma ni tipo) | (sin SQL: recompute en runtime) | Deja de escribirse directamente; la recomputa `catalog.FinishReconciler` = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`. La columna y su índice/uso NO cambian. |
+
+**SQL de M-27** (solo `ADD COLUMN` + un `UPDATE` de backfill; sin índices nuevos):
+
+```sql
+ALTER TABLE "Card" ADD COLUMN "catalogFinishes"        "Finish"[] NOT NULL DEFAULT '{}';
+ALTER TABLE "Card" ADD COLUMN "pricedFinishesSnapshot" "Finish"[] NOT NULL DEFAULT '{}';
+
+-- Siembra la base con el valor catálogo ya materializado; pricedFinishesSnapshot queda vacío.
+UPDATE "Card" SET "catalogFinishes" = "availableFinishes";
+```
 
 **SQL exacto de la migración** (Prisma no expresa el backfill; va en el mismo `migration.sql`, **después** de los
 `ADD COLUMN` y **antes** del `CREATE INDEX`). La fórmula es el espejo 1:1 de `deriveNumberParts` (§4.22b), incluido el

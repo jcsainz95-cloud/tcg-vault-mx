@@ -11,19 +11,40 @@ import { cardNumberVariants } from '../src/modules/pricing/pricing.types';
  *  - resolución de carta (externalId primario, (set,number) fallback), omite las no resueltas.
  * + PricingService.persistMarketReference generalizado (source + moneda USD/MXN).
  *
- * v1.22-variantes-orden (§4.22a) — CERO ESCRITURAS sobre `Card` desde este servicio.
- * `availableFinishes` DEJA de derivarse/escribirse aquí (§4.15e DEROGADA, VAR-1 §9): la autoridad
- * única es `CatalogSyncService.upsertCards`. En su lugar, este servicio LEE (nunca escribe) el
- * catálogo de acabados de las cartas tocadas para loguear `finishNotInCatalog` cuando el proveedor
- * reporta un acabado que `Card.availableFinishes` no declara (drift observable, dato inocuo: el
- * quote valida el finish contra el catálogo ANTES de leer precio).
+ * v1.22-variantes-orden (§4.22a) — `availableFinishes` DEJA de escribirse aquí: `price-ingest` NUNCA
+ * hace `card.update({ availableFinishes })` (autoridad = catalog).
+ *
+ * v1.22-1 (§4.22g) — Señal C money-safe: en una corrida EXITOSA (`requestOk && rows>0`), por cada
+ * carta vista con ≥1 fila válida se REEMPLAZA `Card.pricedFinishesSnapshot` con sus acabados de
+ * `market>0 && finishAliasVerified`, y se LLAMA a `FinishReconciler.reconcile(cardIds)` (el ÚNICO
+ * escritor de `availableFinishes`). Ante fallo/0 filas NO se toca ningún snapshot (stale money-safe).
  */
 
-function providerMock(source: string, rows: unknown[], skipped = 0) {
+/**
+ * `providerMock` — por defecto `requestOk: true` (corrida exitosa) y `finishAliasVerified: true` en
+ * cada fila (el caso común: acabado de un alias VERIFICADO). Un test puede sobreescribir ambos.
+ */
+function providerMock(
+  source: string,
+  rows: Array<Record<string, unknown>>,
+  opts: { skipped?: number; requestOk?: boolean } = {},
+) {
+  const { skipped = 0, requestOk = true } = opts;
+  const withVerified = rows.map((r) => ({ finishAliasVerified: true, ...r }));
   return {
     source,
-    fetchPricesForSet: jest.fn(async () => ({ rows, fetchedRaw: rows.length + skipped, skipped })),
+    fetchPricesForSet: jest.fn(async () => ({
+      rows: withVerified,
+      fetchedRaw: withVerified.length + skipped,
+      skipped,
+      requestOk,
+    })),
   };
+}
+
+/** Mock del ÚNICO escritor de `availableFinishes` (FinishReconciler). */
+function reconcilerMock() {
+  return { reconcile: jest.fn(async () => 0) };
 }
 
 const SET = { id: 'local-sv8', externalId: 'sv8', name: 'Surging Sparks' };
@@ -43,6 +64,7 @@ describe('PriceIngestService.providerFor — el dial PRICE_PROVIDER elige el pro
       {} as PricingService,
       ppt as any,
       tcg as any,
+      reconcilerMock() as any,
     );
   }
 
@@ -57,7 +79,7 @@ describe('PriceIngestService.providerFor — el dial PRICE_PROVIDER elige el pro
   });
 });
 
-describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishes + resolución', () => {
+describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSnapshot) + reconcile', () => {
   function prismaMock(overrides: Partial<Record<string, unknown>> = {}) {
     return {
       cardSet: { findUnique: jest.fn(async () => SET) },
@@ -67,7 +89,6 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
           where.setId === 'local-sv8' && where.number === '5' ? { id: 'db-5' } : null,
         ),
         // §4.22a — lectura de SOLO LECTURA del catálogo de acabados (drift/`finishNotInCatalog`).
-        // Por default el catálogo NO conoce ningún finish extra → sin drift en estos tests.
         findMany: jest.fn(async () => []),
         update: jest.fn(async () => ({})),
       },
@@ -77,32 +98,98 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
 
   const fx = { rate: 18, bufferPct: 3 };
 
-  it('persiste una referencia por acabado (source+moneda del provider) y NO toca Card (§4.22a)', async () => {
+  /** Filtra los `card.update` que tocan `availableFinishes` (candado: price-ingest JAMÁS lo hace). */
+  function availableFinishesUpdates(prisma: any): unknown[] {
+    return prisma.card.update.mock.calls.filter(
+      ([arg]: [{ data?: Record<string, unknown> }]) => arg?.data && 'availableFinishes' in arg.data,
+    );
+  }
+
+  it('persiste una referencia por acabado; escribe pricedFinishesSnapshot y reconcilia (NO availableFinishes)', async () => {
     const provider = providerMock('pokemonpricetracker', [
       { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 150, currency: 'USD' },
       { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'reverse_holo', marketCents: 200, currency: 'USD' },
     ]);
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    const reconciler = reconcilerMock();
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
 
     const res = await svc.ingestSet('local-sv8', fx);
 
     expect(pricing.persistMarketReference).toHaveBeenCalledTimes(2);
-    // El FX del snapshot fluye tal cual; source y moneda vienen de la fila del provider.
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
       'db-1', 'normal', { marketCents: 150, currency: 'USD', source: 'pokemonpricetracker' }, fx,
     );
-    expect(pricing.persistMarketReference).toHaveBeenCalledWith(
-      'db-1', 'reverse_holo', { marketCents: 200, currency: 'USD', source: 'pokemonpricetracker' }, fx,
-    );
-    // v1.22 (§4.22a) — CERO escrituras sobre `Card`: ni siquiera cuando el proveedor reporta 2
-    // acabados. La autoridad de `availableFinishes` es SOLO el sync de catálogo.
-    expect(prisma.card.update).not.toHaveBeenCalled();
+    // v1.22-1 (§4.22g): snapshot REEMPLAZADO con los acabados verificados con market>0.
+    expect(prisma.card.update).toHaveBeenCalledWith({
+      where: { id: 'db-1' },
+      data: { pricedFinishesSnapshot: ['normal', 'reverse_holo'] },
+    });
+    // CANDADO único escritor: NINGÚN card.update tocó `availableFinishes`.
+    expect(availableFinishesUpdates(prisma)).toHaveLength(0);
+    // Se delegó al ÚNICO escritor con la carta tocada.
+    expect(reconciler.reconcile).toHaveBeenCalledWith(['db-1']);
     expect(res).toMatchObject({ cardCount: 1, priced: 2, unresolved: 0 });
   });
 
-  it('finishNotInCatalog: el proveedor reporta un acabado FUERA de Card.availableFinishes → se LOGUEA, NO se escribe', async () => {
+  it('ANTI-INVENCIÓN/SEC-A1: alias SUPUESTO (foil→holofoil) persiste el PRECIO pero NO entra al snapshot', async () => {
+    // El proveedor mapeó `foil` (SUPUESTO) → holofoil para el PRECIO, con finishAliasVerified=false.
+    const provider = providerMock('pokemonpricetracker', [
+      { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'holofoil', marketCents: 300, currency: 'USD', finishAliasVerified: false },
+    ]);
+    const prisma = prismaMock();
+    const pricing = { persistMarketReference: jest.fn(async () => {}) };
+    const reconciler = reconcilerMock();
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+
+    await svc.ingestSet('local-sv8', fx);
+
+    // El PRECIO sí se persiste (dato inocuo: el quote valida el finish antes de leer precio).
+    expect(pricing.persistMarketReference).toHaveBeenCalledWith(
+      'db-1', 'holofoil', expect.objectContaining({ marketCents: 300 }), fx,
+    );
+    // Pero el snapshot NO incluye holofoil (alias no verificado) → queda VACÍO (nada inventado).
+    expect(prisma.card.update).toHaveBeenCalledWith({
+      where: { id: 'db-1' },
+      data: { pricedFinishesSnapshot: [] },
+    });
+    expect(availableFinishesUpdates(prisma)).toHaveLength(0);
+    expect(reconciler.reconcile).toHaveBeenCalledWith(['db-1']);
+  });
+
+  it('MONEY-SAFE STALE: corrida que FALLA (requestOk=false) ⇒ NO se toca ningún snapshot ni se reconcilia', async () => {
+    // El proveedor devolvió filas parciales pero la corrida no fue exitosa (fallo transitorio).
+    const provider = providerMock(
+      'pokemonpricetracker',
+      [{ externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'reverse_holo', marketCents: 200, currency: 'USD' }],
+      { requestOk: false },
+    );
+    const prisma = prismaMock();
+    const pricing = { persistMarketReference: jest.fn(async () => {}) };
+    const reconciler = reconcilerMock();
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+
+    await svc.ingestSet('local-sv8', fx);
+
+    // El precio se sigue persistiendo (tolerante), pero el snapshot NO se toca (no destruir evidencia).
+    expect(prisma.card.update).not.toHaveBeenCalled();
+    expect(reconciler.reconcile).not.toHaveBeenCalled();
+  });
+
+  it('MONEY-SAFE STALE: corrida exitosa pero 0 filas ⇒ NO se toca ningún snapshot ni se reconcilia', async () => {
+    const provider = providerMock('pokemonpricetracker', [], { requestOk: true });
+    const prisma = prismaMock();
+    const pricing = { persistMarketReference: jest.fn(async () => {}) };
+    const reconciler = reconcilerMock();
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
+
+    await svc.ingestSet('local-sv8', fx);
+    expect(prisma.card.update).not.toHaveBeenCalled();
+    expect(reconciler.reconcile).not.toHaveBeenCalled();
+  });
+
+  it('finishNotInCatalog: el proveedor reporta un acabado FUERA de Card.availableFinishes → se LOGUEA', async () => {
     const provider = providerMock('pokemonpricetracker', [
       { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'holofoil', marketCents: 300, currency: 'USD' },
     ]);
@@ -116,18 +203,16 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
       },
     });
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any);
     const warnSpy = jest.spyOn((svc as any).logger, 'warn').mockImplementation(() => {});
 
     await svc.ingestSet('local-sv8', fx);
 
-    // El PRECIO sí se persiste (dato inocuo: el quote valida el finish antes de leer precio).
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
       'db-1', 'holofoil', expect.objectContaining({ marketCents: 300 }), fx,
     );
-    // El CATÁLOGO no se toca nunca.
-    expect(prisma.card.update).not.toHaveBeenCalled();
-    // La divergencia queda LOGUEADA como finishNotInCatalog.
+    // La divergencia queda LOGUEADA; el CATÁLOGO (availableFinishes) no se toca directamente.
+    expect(availableFinishesUpdates(prisma)).toHaveLength(0);
     expect(warnSpy.mock.calls.some(([msg]) => String(msg).includes('finishNotInCatalog'))).toBe(true);
     warnSpy.mockRestore();
   });
@@ -138,37 +223,35 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
     ]);
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    const reconciler = reconcilerMock();
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
 
     await svc.ingestSet('local-sv8', fx);
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
       'db-5', 'normal', expect.objectContaining({ marketCents: 100 }), fx,
     );
-    expect(prisma.card.update).not.toHaveBeenCalled();
+    expect(prisma.card.update).toHaveBeenCalledWith({
+      where: { id: 'db-5' },
+      data: { pricedFinishesSnapshot: ['normal'] },
+    });
+    expect(reconciler.reconcile).toHaveBeenCalledWith(['db-5']);
+    expect(availableFinishesUpdates(prisma)).toHaveLength(0);
   });
 
-  it('fila que NO resuelve a carta local → se OMITE (no crea referencia huérfana)', async () => {
+  it('fila que NO resuelve a carta local → se OMITE (no crea referencia ni snapshot huérfano)', async () => {
     const provider = providerMock('pokemonpricetracker', [
       { externalId: 'ghost', setExternalId: 'sv8', number: null, finish: 'normal', marketCents: 100, currency: 'USD' },
     ]);
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    const reconciler = reconcilerMock();
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any);
 
     const res = await svc.ingestSet('local-sv8', fx);
     expect(pricing.persistMarketReference).not.toHaveBeenCalled();
     expect(prisma.card.update).not.toHaveBeenCalled();
+    expect(reconciler.reconcile).not.toHaveBeenCalled();
     expect(res.unresolved).toBe(1);
-  });
-
-  it('proveedor sin filas válidas → sigue sin tocar Card (cero escrituras, §4.22a)', async () => {
-    const provider = providerMock('pokemonpricetracker', []);
-    const prisma = prismaMock();
-    const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
-
-    await svc.ingestSet('local-sv8', fx);
-    expect(prisma.card.update).not.toHaveBeenCalled();
   });
 
   it('propaga la moneda MXN de la fila (el ingest no convierte MXN)', async () => {
@@ -177,7 +260,7 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
     ]);
     const prisma = prismaMock();
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any);
 
     await svc.ingestSet('local-sv8', fx);
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
@@ -189,7 +272,7 @@ describe('PriceIngestService.ingestSet — upsert por acabado + availableFinishe
     const provider = providerMock('pokemonpricetracker', []);
     const prisma = { cardSet: { findUnique: jest.fn(async () => null) }, card: {} } as any;
     const pricing = { persistMarketReference: jest.fn(async () => {}) };
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any);
 
     const res = await svc.ingestSet('missing', fx);
     expect(res.priced).toBe(0);
@@ -211,6 +294,7 @@ describe('PriceIngestService.hasRecentIngest — señal del catch-up al boot', (
       {} as PricingService,
       {} as any,
       {} as any,
+      reconcilerMock() as any,
     );
     return { svc, prisma };
   }
@@ -309,7 +393,7 @@ describe('PriceIngestService.resolveCardId — fallback por número con formato 
   const fx = { rate: 18, bufferPct: 3 };
 
   function build(cards: { findFirst: jest.Mock; findMany?: jest.Mock }) {
-    // §4.22a añadió una SEGUNDA consulta `card.findMany` (lectura del catálogo de acabados para
+    // §4.22a añadió una consulta `card.findMany` (lectura del catálogo de acabados para
     // `finishNotInCatalog`), con forma `where.id.in`. Se enruta por forma del `where` para no
     // interferir con la de este describe, que es la del fallback por NÚMERO (`where.number.in`).
     const variantFindMany = cards.findMany ?? jest.fn(async () => []);
@@ -330,7 +414,7 @@ describe('PriceIngestService.resolveCardId — fallback por número con formato 
     const provider = providerMock('pokemonpricetracker', [
       { externalId: null, setExternalId: 'sv8', number: '104/159', finish: 'normal', marketCents: 100, currency: 'USD' },
     ]);
-    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any);
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconcilerMock() as any);
     return { svc, prisma, pricing, variantFindMany };
   }
 
@@ -340,7 +424,6 @@ describe('PriceIngestService.resolveCardId — fallback por número con formato 
 
     const res = await svc.ingestSet('local-sv8', fx);
 
-    // Primero se intentó el número EXACTO; solo al fallar se probaron las variantes.
     expect(prisma.card.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { setId: 'local-sv8', number: '104/159' } }),
     );

@@ -6,6 +6,7 @@ import { AdminCatalogController } from './admin-catalog.controller';
 import { CatalogSyncService } from './catalog-sync.service';
 import { PokemonTcgIoClient } from './pokemontcg-io.client';
 import { PricingModule } from '../pricing/pricing.module';
+import { FinishReconcilerModule } from './finish-reconciler.module';
 import { SetPriceSyncJobService } from '../../jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../../jobs/set-value-snapshot.service';
 import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.service';
@@ -16,7 +17,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
  * SetValueService, por eso viven aquí para evitar ciclos con JobsModule, patrón portfolio-snapshot).
  */
 @Module({
-  imports: [PricingModule], // SettingsModule/AuditModule/PrismaModule/ConfigModule son @Global
+  imports: [PricingModule, FinishReconcilerModule], // SettingsModule/AuditModule/PrismaModule/ConfigModule son @Global
   providers: [
     CatalogService,
     CatalogSyncService,

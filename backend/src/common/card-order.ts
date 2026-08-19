@@ -43,6 +43,31 @@ export function orderFinishes(finishes: Iterable<Finish>): Finish[] {
 }
 
 /**
+ * v1.22-1 (ARCHITECTURE §4.22g) — FUNCIÓN PURA de la UNIÓN money-safe de la que deriva
+ * `Card.availableFinishes`:
+ *
+ *   availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
+ *
+ *  - `catalogFinishes`         — «opinión del catálogo» (pokemontcg.io) persistida (Señal A ∪ B).
+ *  - `pricedFinishesSnapshot`  — Señal C: acabados que PPT reportó con `market>0` y ALIAS VERIFICADO.
+ *
+ * Determinista y RECOMPUTABLE: quitar un acabado de CUALQUIERA de las dos entradas y recomputar lo
+ * ELIMINA (no es monótona-creciente, candado 1 de §4.22g). Nunca vacía: sin ninguna señal ⇒
+ * `['normal']` (default seguro, idéntico a hoy; jamás una casilla de relleno inventada). Vive junto
+ * a `orderFinishes` (sin DI) para reusarse desde el `FinishReconciler`, los seeds y los tests.
+ *
+ * El ÚNICO escritor de `Card.availableFinishes` (`catalog.FinishReconciler`) la usa; `price-ingest`
+ * y `catalog-sync` escriben SU columna de entrada y NUNCA `availableFinishes` directamente.
+ */
+export function unionAvailableFinishes(
+  catalogFinishes: Iterable<Finish>,
+  pricedFinishesSnapshot: Iterable<Finish>,
+): Finish[] {
+  const merged = orderFinishes([...catalogFinishes, ...pricedFinishesSnapshot]);
+  return merged.length > 0 ? merged : ['normal'];
+}
+
+/**
  * ORDEN NATURAL (ARCHITECTURE §4.17a/§4.22b). `Card.number` es String → el orden lexicográfico
  * rompe ("10" < "2"; "TG12" mal ubicado). Deriva las CLAVES PERSISTIDAS (M-26):
  *  - número PURO ("4", "10", "191") → `numberSort` = su entero, `prefix` = '' (ordena PRIMERO,

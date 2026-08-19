@@ -37,6 +37,12 @@ function settings(fromDate = '2024/01/01'): SettingsService {
   return { getString: jest.fn(async () => fromDate) } as unknown as SettingsService;
 }
 
+// v1.22-1 (§4.22g): `upsertCards` delega `availableFinishes` al FinishReconciler. Aquí se mockea
+// (estos tests cubren metadata/idempotencia/sync-all, no la derivación de acabados).
+function reconciler() {
+  return { reconcile: jest.fn(async () => 0) } as any;
+}
+
 // WS-A (v1.14-price-ingest, §4.15g / DEV-5): `catalog-sync` volvió a ser SOLO metadata → ya NO
 // inyecta PricingService/FxService (el pricing lo hace `price-ingest`). El constructor es
 // `(prisma, client, settings)`. Estos tests cubren metadata/idempotencia/sync-all.
@@ -52,7 +58,7 @@ describe('CatalogSyncService — validación anti-inyección del setId', () => {
 
   it('sync con setId inválido → 422 VALIDATION_ERROR y NO llama al cliente remoto', async () => {
     const client = { getCardsBySet: jest.fn(), getSets: jest.fn() } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(buildPrisma() as PrismaService, client, settings());
+    const svc = new CatalogSyncService(buildPrisma() as PrismaService, client, settings(), reconciler());
     await expect(svc.sync('sv8 OR 1=1')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     expect((client as any).getCardsBySet).not.toHaveBeenCalled();
   });
@@ -71,7 +77,7 @@ describe('CatalogSyncService.sync — set puntual, upsert idempotente', () => {
       })),
       getSets: jest.fn(),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
     const res1 = await svc.sync('sv8');
     expect(res1).toMatchObject({ mode: 'single', setsQueued: 1 });
@@ -92,7 +98,7 @@ describe('CatalogSyncService.sync — set puntual, upsert idempotente', () => {
     const client = {
       getCardsBySet: jest.fn(async () => ({ data: [], page: 1, pageSize: 250, count: 0, totalCount: 0 })),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
     const res = await svc.sync('emptyset');
     expect(res.setsQueued).toBe(0);
     expect(prisma.cardSet.upsert).not.toHaveBeenCalled();
@@ -116,7 +122,7 @@ describe('CatalogSyncService.sync — desde fecha (default dial 2024/01/01)', ()
       })),
     } as unknown as PokemonTcgIoClient;
     const st = settings('2024/01/01');
-    const svc = new CatalogSyncService(prisma as PrismaService, client, st);
+    const svc = new CatalogSyncService(prisma as PrismaService, client, st, reconciler());
 
     const res = await svc.sync();
     expect(st.getString).toHaveBeenCalled(); // tomó el default del dial
@@ -128,7 +134,7 @@ describe('CatalogSyncService.sync — desde fecha (default dial 2024/01/01)', ()
 
   it('fromReleaseDate con formato inválido → 422 VALIDATION_ERROR', async () => {
     const client = { getSets: jest.fn() } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(buildPrisma() as PrismaService, client, settings());
+    const svc = new CatalogSyncService(buildPrisma() as PrismaService, client, settings(), reconciler());
     await expect(svc.sync(undefined, '2024-01-01')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 });
@@ -158,7 +164,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
     // sv8 ya está importado con cartas → pendiente solo base1.
     const prisma = prismaWithLocal([{ externalId: 'sv8', count: 5 }]);
     const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
     // El barrido de fondo se difiere (promesa pendiente): demuestra que syncAll NO lo espera.
     let resolveRun!: () => void;
@@ -185,7 +191,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
       { externalId: 'base1', count: 3 },
     ]);
     const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
     const runSpy = jest.spyOn(svc as any, 'runSyncAll').mockResolvedValue(undefined);
 
@@ -202,7 +208,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
       { externalId: 'base1', count: 3 },
     ]);
     const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
     const runSpy = jest.spyOn(svc as any, 'runSyncAll').mockResolvedValue(undefined);
 
@@ -215,7 +221,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
   it('single-flight: una segunda llamada mientras hay barrido en curso no lanza otro', async () => {
     const prisma = prismaWithLocal([]); // nada importado → ambos remotos pendientes
     const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
     let resolveRun!: () => void;
     jest.spyOn(svc as any, 'runSyncAll').mockReturnValue(new Promise<void>((r) => { resolveRun = r; }));
@@ -243,7 +249,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
         totalCount: 1,
       })),
     } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
     await svc.runSyncAll([{ id: 'sv8', name: 'Surging Sparks', releaseDate: '2024/11/08' }]);
 
@@ -263,6 +269,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
       prisma as PrismaService,
       { getSets: jest.fn() } as unknown as PokemonTcgIoClient,
       settings(),
+      reconciler(),
     );
     const importSpy = jest
       .spyOn(svc as any, 'importSet')
@@ -281,7 +288,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
   it('getSyncStatus refleja el progreso: total al lanzar, done por set, running→false al terminar', async () => {
     const prisma = prismaWithLocal([]); // nada importado → ambos remotos pendientes (total 2)
     const client = { getSets: jest.fn(async () => remoteSets) } as unknown as PokemonTcgIoClient;
-    const svc = new CatalogSyncService(prisma as PrismaService, client, settings());
+    const svc = new CatalogSyncService(prisma as PrismaService, client, settings(), reconciler());
 
     // Estado inicial: nunca corrió → running false, total/done 0, sin timestamps.
     expect(svc.getSyncStatus()).toMatchObject({ running: false, total: 0, done: 0, jobId: null });
@@ -311,6 +318,7 @@ describe('CatalogSyncService.syncAll — importar todo el catálogo (no bloquean
       prisma as PrismaService,
       { getSets: jest.fn() } as unknown as PokemonTcgIoClient,
       settings(),
+      reconciler(),
     );
     jest
       .spyOn(svc as any, 'importSet')
