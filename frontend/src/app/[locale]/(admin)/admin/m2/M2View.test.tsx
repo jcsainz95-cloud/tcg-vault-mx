@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { M2View } from './M2View';
 import * as api from '@/lib/api';
@@ -444,6 +445,117 @@ describe('M2View · Catálogo y precios', () => {
     // Un clic no dispara la mutación (nunca es un no-op silencioso: el botón ni siquiera responde).
     fireEvent.click(save);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  // ---- P-1: el input de valor por rareza (VENTA) debe aceptar decimales/tecleo/vaciado ----
+  // Los tests de arriba usan un solo `fireEvent.change('20')` que NO reproduce el bug: el fallo
+  // aparecía tecla-a-tecla (el punto decimal y el vaciado se destruían al re-derivar un número en
+  // cada keystroke). Estos usan `userEvent.type` carácter a carácter.
+  it('P-1: teclear un decimal ("12.50") en Valor para Common lo CONSERVA, habilita Guardar y envía 1250 centavos', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    // Seed: Common = { fixed, 500¢ } → el campo muestra "5" (pesos) al cargar (no un número crudo).
+    expect(input).toHaveValue('5');
+
+    await user.clear(input);
+    await user.type(input, '12.50');
+    // El punto decimal y el cero final SOBREVIVEN al tecleo (el bug los borraba en cada keystroke).
+    expect(input).toHaveValue('12.50');
+
+    const save = s.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // 12.50 pesos → 1250 centavos (no 1250 pesos ni un 100× de sobreprecio).
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 1250 } }),
+      }),
+    );
+  });
+
+  it('P-1: se puede VACIAR el campo de Valor para Common (no fuerza "0") y luego re-teclear', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    await user.clear(input);
+    // El campo queda VACÍO (antes el vaciado se normalizaba a 0 y reaparecía "0").
+    expect(input).toHaveValue('');
+    await user.type(input, '7.25');
+    expect(input).toHaveValue('7.25');
+  });
+
+  it('P-1 money-safe: cambiar el modo (fixed↔pct) NO arrastra el número entre semánticas', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    // Common arranca en fixed 500¢ → "5".
+    expect((await s.findByLabelText('Valor para Common'))).toHaveValue('5');
+    // Al pasar a % NO debe quedar "5" (500¢ no es 500%): el valor se limpia al voltear el modo.
+    await user.selectOptions(s.getByLabelText('Modo para Common'), 'pct');
+    expect(s.getByLabelText('Valor para Common')).toHaveValue('');
+  });
+
+  // ---- S-P1-1 (SECURITY): un valor con MÚLTIPLES PUNTOS o VACÍO no puede colar un MX$0 ----
+  it('S-P1-1: teclear "1.2.3" en Valor para Common deja UN SOLO punto ("1.23") y Guardar NO envía 0', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, '1.2.3');
+    // El 2.º punto se descarta tecla-a-tecla: nunca se forma "1.2.3" (que casteaba a NaN→0).
+    expect(input).toHaveValue('1.23');
+
+    const save = s.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // 1.23 pesos → 123 centavos; jamás 0 (giveaway) por el multi-punto.
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 123 } }),
+      }),
+    );
+    const arg = spy.mock.calls[0][0] as { rules: Record<string, { value: number }> };
+    expect(arg.rules.Common.value).not.toBe(0);
+  });
+
+  it('S-P1-1: VACIAR Valor para Common (regla tocada, vacía) DESHABILITA Guardar → no persiste {fixed,0}', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    await user.clear(input);
+    expect(input).toHaveValue('');
+
+    // La regla quedó "tocada" pero vacía → Guardar bloqueado y se explica por qué (money-safe).
+    const save = s.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeDisabled();
+    expect(s.getByText(/vac[íi]o o inv[áa]lido/i)).toBeInTheDocument();
+
+    // Un clic no dispara la mutación: nunca se persiste {mode:'fixed', value:0}.
+    await user.click(save);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('S-P1-1: un valor mal formado (solo ".") en una regla tocada DESHABILITA Guardar', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, '.');
+    // "." no parsea a número finito → no guardable (Number(".")=NaN, no se persiste como 0).
+    expect(input).toHaveValue('.');
+    expect(s.getByRole('button', { name: 'Guardar' })).toBeDisabled();
   });
 
   // ---- Ejemplos en línea del % (G3: la semántica del % es OPUESTA entre compra y venta) ----

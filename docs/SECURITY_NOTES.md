@@ -2695,3 +2695,81 @@ Tests `buylist.security` 6/6 verdes. Los hallazgos abiertos son **2 Bajos** (LOW
 disparador** y enrutados a **backend/devops**; ninguno bloquea el merge de P-5. **Mínimo para mantener el APROBADO:**
 no ampliar el OR de `q` a columnas sensibles (CLABE/RFC/INE/last4/snapshots) y crear el índice de LOW-A2 antes de
 escalar el volumen de las colas.
+## P-1 · Gate SEGURIDAD (blue-team) — Reglas de precio de VENTA por rareza (M2) — 2026-08-20
+
+**Alcance revisado:** `frontend/.../admin/m2/M2View.tsx` + `M2View.test.tsx` (working tree, rama
+`claude/precios-variantes-masterset`). Ruta backend de guardado/validación: `pricing.controller.ts`
+`putSalesRules` (264–305), `settings.constants.ts` `validateSalesRules`/`isValidSalesRule` (211–230),
+aplicación en `money.ts` `computeSalePriceForRarity` (279–305).
+
+### VEREDICTO: **RECHAZAR** — hay 1 hazard de dinero residual (rutable a frontend).
+
+**Los DOS hazards originales SÍ quedan cerrados (confirmado):**
+- **100× sobreprecio:** el `value` del borrador ahora es TEXTO CRUDO; el cast ocurre solo al guardar.
+  "12.50" → `pesosToCents("12.50")` = `Math.round(12.5*100)` = **1250 centavos exactos** (M2View.tsx:65–68,
+  379). Sin 100×. El decimal sobrevive tecla-a-tecla (value literal, M2View.tsx:957). Test lo cubre.
+- **Corrupción por flip de modo:** al cambiar fixed↔pct el value se resetea a `''` (M2View.tsx:958–962,
+  el `onChange` del `<select>` de modo pone `value: ''`). 500¢ ya no se vuelve 500% ni 15% → $0.15. Test lo cubre.
+
+**Clamps cliente vs servidor:** fixed → `Math.max(0, pesosToCents())` (entero ≥ 0; `pesosToCents` usa
+`Math.round` → siempre entero) ≡ servidor `isInt && >=0` (settings.constants.ts:214). pct →
+`Math.min(1000, Math.max(0, Number()||0))` ≡ `SALES_PCT_MAX=1000` (215). Servidor SIGUE siendo la autoridad
+(`validateSalesRules` en el PUT → 422, controller 275–276). Ni NaN ni fuera-de-rango llegan a persistir.
+
+**Merge money-safe INV-1:** intacto — `rules: { ...salesRules.data.rules, ...draftRules }` (M2View.tsx:383)
+preserva claves no tocadas; solo las rarezas editadas se sobreescriben. Sin secretos/keys en el diff. Sección
+buylist (`ruleDraft`/`setRuleDraft`, líneas 809–827) NO tocada — usa estado separado.
+
+### HALLAZGO (bloqueante) — S-P1-1 · Cero silencioso persiste como precio de VENTA MX$0 (regalo)
+
+Entradas multi-punto ("1.2.3", "12..5") y campo VACÍO se coercionan a **0** al guardar y persisten como
+regla válida-pero-errónea:
+- Sanitizador `replace(/[^0-9.]/g,'')` (M2View.tsx:961) **permite múltiples puntos** → el crudo llega como "1.2.3".
+- En guardado: fixed → `pesosToCents("1.2.3")` → `Number("1.2.3")`=NaN → devuelve **0** (M2View.tsx:67, 379);
+  pct → `Number("1.2.3")||0` → **0** (381). Vacío "" → mismo camino → 0.
+- Servidor NO lo atrapa: `isValidSalesRule` acepta fixed value 0 (entero ≥ 0, settings.constants.ts:214);
+  no hay 422.
+- Impacto: `computeSalePriceForRarity` con fixed value 0 → `{ salePriceCents: 0, status: 'priced' }`
+  (money.ts:291–293) → cartas listadas a **MX$0.00 (regalo)**. Alcanzable por typo ordinario (borrar campo +
+  Guardar, o doble punto). El fix, al dejar el campo vacío en vez de re-normalizar a "0", hace esta ruta MÁS
+  fácil de disparar que el código previo.
+
+**Fix exacto (frontend):** (a) sanitizar el crudo a UN solo punto decimal en el `onChange` (M2View.tsx:961),
+descartando el 2º punto en adelante; y (b) NO coercionar vacío/NaN a 0 en el guardado — omitir el borrador
+vacío o bloquear Guardar con validación cuando una regla tocada quede vacía/NaN, en vez de persistir 0.
+Apoyarse en el 422 del servidor NO basta: 0 es un `fixed` legal, el servidor no puede distinguir el regalo.
+
+---
+
+### RE-GATE (blue-team) — 2026-08-20 — S-P1-1 **RESUELTO** · VEREDICTO: **APROBAR**
+
+El rol frontend aplicó el fix. Re-revisión del working tree (`M2View.tsx`, `M2View.test.tsx`,
+`messages/en.json`, `messages/es.json`). Las tres capas exigidas están presentes y correctas:
+
+1. **Saneo a un solo punto (fuente):** nuevo `sanitizeDecimalInput` (M2View.tsx:75–80) corre en CADA
+   `onChange` del input de valor (M2View.tsx:991). Conserva solo el 1er punto y descarta los siguientes.
+   Traza: `"1.2.3"`→`"1.23"`, `"12..5"`→`"12.5"` (también en pegado). Ningún crudo multi-punto llega al
+   borrador. El sanitizador viejo `replace(/[^0-9.]/g,'')` fue eliminado del onChange.
+2. **Sin cero silencioso al guardar (defensa en profundidad):** `isSaveableRuleValue` (M2View.tsx:86–90)
+   rechaza `""`/`"."`/`"1.2.3"` (NaN) y acepta `"12.50"`/`"0.5"/"5"`. `salesDraftInvalid` (M2View.tsx:391)
+   DESHABILITA Guardar (M2View.tsx:1019) y muestra Banner de advertencia (M2View.tsx:1008–1010). Además el
+   bucle de guardado OMITE (`continue`) toda regla no guardable (M2View.tsx:406) — una regla omitida conserva
+   el valor del servidor en el merge, NUNCA persiste `{fixed,0}`. No existe ruta que persista un 0 silencioso
+   desde vacío/mal formado.
+3. **Hazards originales siguen cerrados:** 100× — el `value` es texto crudo, casteo solo al guardar
+   (`pesosToCents("12.50")`=1250¢); flip de modo resetea `value:''` (M2View.tsx:976). Servidor sigue siendo
+   la autoridad (`validateSalesRules`→422, controller 275). Clamps cliente ≡ servidor (fixed entero ≥0 vía
+   `Math.round`; pct `Math.min(1000,Math.max(0,·))` ≡ `SALES_PCT_MAX=1000`).
+4. **Sin nuevo hazard:** el helper no introduce bypass; valores legítimos siguen guardables. Las claves i18n
+   añadidas (`salesRules.invalidValue` en en/es) son cadenas estáticas sin interpolación — sin inyección i18n.
+   Nota (no bloqueante, fuera de alcance de S-P1-1): un `"0"` tecleado explícitamente sí es guardable como
+   `fixed 0`; es una acción deliberada del admin (no coerción silenciosa), ya era posible y el servidor lo
+   acepta como legal.
+5. **Alcance:** solo archivos frontend; Sección 4 buylist (`ruleDraft`/`setRuleDraft`, estado separado) NO
+   tocada; sin cambios en backend ni secretos. Tests añadidos cubren decimal/vaciado/multi-punto/`.`/Guardar
+   deshabilitado.
+
+**Resolución:** S-P1-1 cerrado. Fix ref: `sanitizeDecimalInput` (M2View.tsx:75–80), `isSaveableRuleValue`
+(86–90), `salesDraftInvalid` (391) + Guardar deshabilitado (1019) + Banner (1008–1010), guarda del bucle
+(406). Gate P-1 (money-touch) **APROBADO** por SEGURIDAD.
+

@@ -1318,7 +1318,8 @@
         "pctHint": "Porcentaje: precio de venta = mercado × (1 + %). Ejemplo: 15% deja el precio 15% arriba de mercado (se admite hasta 1000%). Fijo: el monto en MX$ es un piso de venta.",
         "example": "Ejemplo: el % es lo que subes SOBRE el mercado. Con +15%, vendes en MX$115 una carta de MX$100.",
         "saved": "Reglas de venta guardadas.",
-        "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar."
+        "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar.",
+        "invalidValue": "Hay reglas con el valor vacío o inválido. Corrígelas para poder guardar: un valor vacío o mal formado no se guarda como MX$0 (evita listar cartas gratis por error)."
       },
       "sealedSpreads": {
         "title": "Spreads de venta del sellado",

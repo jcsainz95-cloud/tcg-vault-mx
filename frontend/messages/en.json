@@ -1318,7 +1318,8 @@
         "pctHint": "Percentage: sale price = market × (1 + %). Example: 15% keeps the price 15% above market (up to 1000% allowed). Fixed: the MX$ amount is a sale floor.",
         "example": "Example: the % is what you add ON TOP of market. At +15%, you sell a MX$100 card for MX$115.",
         "saved": "Sale rules saved.",
-        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing."
+        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing.",
+        "invalidValue": "Some rules have an empty or invalid value. Fix them to save: an empty or malformed value is not saved as MX$0 (prevents listing cards for free by mistake)."
       },
       "sealedSpreads": {
         "title": "Sealed sale spreads",
