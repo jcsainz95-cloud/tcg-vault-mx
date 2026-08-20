@@ -111,6 +111,64 @@ export interface PricingProviderInput {
   finish: Finish;
 }
 
+// ============================================================================
+// v1.26 (P-7 ⑤, ARCHITECTURE §4.24e) — fetch FRESCO puntual por carta (on-demand).
+// Los `BulkPriceProvider` de arriba solo hacen barrido POR SET; P-7 necesita traer
+// el precio FRESCO de un puñado de cartas específicas (publicar + repreciar desde
+// el Master Set), acotado por la CUOTA DIARIA del proveedor de paga (nunca un barrido).
+// ============================================================================
+
+/**
+ * Carta a repreciar FRESCA. `tcgplayerId` (poblado en ①, `Card.tcgplayerId`) es el ancla del lookup
+ * puntual del proveedor de paga (PPT). `externalId` (pokemontcg.io) es el ancla del FALLBACK. Las
+ * `finishes` son los acabados a refrescar (universo de la carta o el subconjunto que pide el llamador).
+ */
+export interface FreshCardRef {
+  /** `Card.id` LOCAL — clave para el upsert de `PriceReference` (persistMarketReference). */
+  cardId: string;
+  /** `Card.tcgplayerId` (①) — ancla del lookup puntual PPT; `null` ⇒ el primario no puede pedirla. */
+  tcgplayerId: string | null;
+  /** `Card.externalId` (pokemontcg.io) — ancla del fetch de FALLBACK. */
+  externalId: string;
+  /** Acabados a refrescar (>=1). Cada uno produce a lo sumo una fila `market>0`. */
+  finishes: Finish[];
+}
+
+/**
+ * Fila FRESCA por (carta, acabado). El adapter YA validó money-safe: `marketCents` entero > 0 y
+ * `finish` mapeado a nuestro enum. El llamador la persiste con `persistMarketReference`.
+ */
+export interface FreshCardPriceRow {
+  cardId: string;
+  finish: Finish;
+  /** entero de centavos, > 0 (validado por el adapter). */
+  marketCents: number;
+  /** moneda de ORIGEN (USD → FX+colchón; MXN → sin conversión). */
+  currency: 'USD' | 'MXN';
+  source: PriceSourceStr;
+}
+
+export interface FreshCardPriceResult {
+  /** Filas VÁLIDAS por (carta, acabado). Vacío ⇒ nada fresco (el llamador cae a la ref almacenada). */
+  rows: FreshCardPriceRow[];
+  /** ¿Al menos una petición respondió OK? `false` ante fallo total (money-safe: no borrar precios). */
+  requestOk: boolean;
+  /** El proveedor de PAGA agotó su CUOTA DIARIA (429 daily) → PARADA; el resto se queda pending. */
+  dailyLimited: boolean;
+}
+
+/**
+ * FreshCardPriceProvider — fetch FRESCO puntual por carta (P-7 ⑤). SEPARADO del `BulkPriceProvider`
+ * (barrido por set) y del `PricingProvider` per-carta (bóveda). Implementado por el proveedor de PAGA
+ * (PPT, PRIMARIO, keyeado por `tcgplayerId`, respeta la cuota diaria) y por pokemontcg.io (FALLBACK,
+ * keyeado por `externalId`). Money-safe: NUNCA inventa un precio; una carta sin market válido NO
+ * produce fila (se queda pending). El upsert de `PriceReference` lo hace `PricingService.refreshCardPrices`.
+ */
+export interface FreshCardPriceProvider {
+  readonly source: PriceSourceStr;
+  fetchFreshForCards(cards: FreshCardRef[]): Promise<FreshCardPriceResult>;
+}
+
 /**
  * PricingProvider — Interfaz intercambiable. ARCHITECTURE §4.1.
  * fetchPrice devuelve el precio (USD o MXN) o null si la fuente no lo tiene.

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   AdjustmentReason,
   Card,
@@ -114,6 +114,8 @@ export interface InventoryAdjustmentResponse {
 
 @Injectable()
 export class InventoryService {
+  private readonly logger = new Logger(InventoryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
@@ -425,6 +427,35 @@ export class InventoryService {
       include: { card: true },
     });
     const byId = new Map(items.map((i) => [i.id, i]));
+
+    // v1.26 (P-7 ⑤, §4.24e): REPRECIO FRESCO on-demand ANTES de resolver el precio. Solo para las
+    // líneas RAW cuyo precio se DERIVARÍA (sin override de línea ni de item) — así el fetch fresco no
+    // gasta cuota en piezas con precio manual. Funciona sobre inventario UNPUBLISHED (`in_stock`): el
+    // status de origen no cambia aquí; solo se refresca la `PriceReference` que leerá `getReferencesBatch`.
+    // MONEY-SAFE: un fallo/agotamiento de cuota del reprecio NO tumba la publicación — se cae a la
+    // referencia ALMACENADA (o, si sigue sin precio, al gate ④ que ESCALA a pendiente y NO publica).
+    if (req.repriceFresh) {
+      const freshPairs = req.items
+        .map((line) => ({ line, item: byId.get(line.inventoryItemId) }))
+        .filter(
+          ({ line, item }) =>
+            item != null &&
+            item.productType === 'raw' &&
+            line.listPriceCents == null &&
+            item.listPriceCents == null,
+        )
+        .map(({ item }) => item!);
+      const freshCardIds = [...new Set(freshPairs.map((i) => i.cardId))];
+      const freshFinishes = [...new Set(freshPairs.map((i) => i.finish))];
+      if (freshCardIds.length > 0) {
+        try {
+          await this.pricing.refreshCardPrices(freshCardIds, freshFinishes);
+        } catch (e) {
+          // Nunca inventa ni pone 0: el fallo degrada a la ref almacenada/pending (gate ④).
+          this.logger.warn(`repriceFresh falló (se usa ref almacenada): ${(e as Error).message}`);
+        }
+      }
+    }
 
     // Pago mínimo BE-25: reglas de venta izadas UNA vez + referencias en 1 lote (sin N+1).
     const { rules, fallbackPct } = await this.pricing.loadSalesRules();

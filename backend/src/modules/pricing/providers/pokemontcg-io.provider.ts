@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { ProductType } from '@prisma/client';
 import {
   FINISH_TO_TCG_KEY,
+  FreshCardPriceProvider,
+  FreshCardPriceResult,
+  FreshCardPriceRow,
+  FreshCardRef,
   PriceQuote,
   PricingProvider,
   PricingProviderInput,
@@ -11,9 +15,12 @@ import {
 /**
  * PokemonTcgIoProvider — raw/singles. TCGPlayer "Market Price" vía pokemontcg.io.
  * ARCHITECTURE §4.1. Solo pricea cartas en bóveda (el llamador lo garantiza).
+ *
+ * v1.26 (P-7 ⑤, §4.24e): implementa además `FreshCardPriceProvider` — el FALLBACK del fetch fresco
+ * puntual por carta (keyeado por `externalId`; pokemontcg.io no tiene cuota diaria dura como PPT).
  */
 @Injectable()
-export class PokemonTcgIoProvider implements PricingProvider {
+export class PokemonTcgIoProvider implements PricingProvider, FreshCardPriceProvider {
   readonly source = 'pokemontcg_io' as const;
   private readonly logger = new Logger(PokemonTcgIoProvider.name);
 
@@ -52,5 +59,51 @@ export class PokemonTcgIoProvider implements PricingProvider {
       this.logger.warn(`pokemontcg.io fetch failed for ${externalId}: ${(e as Error).message}`);
       return null;
     }
+  }
+
+  /**
+   * v1.26 (P-7 ⑤, §4.24e) — fetch FRESCO puntual (FALLBACK). Una petición por carta (por `externalId`),
+   * de la que se leen TODOS los acabados pedidos. pokemontcg.io publica en USD → `currency:'USD'`
+   * (el llamador aplica FX+colchón). Money-safe: una carta/acabado sin `market>0` NO produce fila
+   * (se queda pending); un fallo de red no borra nada (`requestOk` refleja si algo respondió OK).
+   * NO tiene cuota diaria dura (rate-limit del free tier) ⇒ `dailyLimited` siempre `false`.
+   */
+  async fetchFreshForCards(cards: FreshCardRef[]): Promise<FreshCardPriceResult> {
+    const apiKey = this.config.get<string>('POKEMONTCG_IO_API_KEY');
+    const rows: FreshCardPriceRow[] = [];
+    let requestOk = false;
+    for (const card of cards) {
+      if (!card.externalId) continue;
+      try {
+        const res = await fetch(`https://api.pokemontcg.io/v2/cards/${card.externalId}`, {
+          headers: apiKey ? { 'X-Api-Key': apiKey } : {},
+        });
+        if (!res.ok) {
+          this.logger.warn(`pokemontcg.io fresh ${card.externalId} -> HTTP ${res.status}`);
+          continue;
+        }
+        requestOk = true;
+        const body = (await res.json()) as {
+          data?: { tcgplayer?: { prices?: Record<string, { market?: number }> } };
+        };
+        const prices = body.data?.tcgplayer?.prices;
+        if (!prices) continue;
+        for (const finish of card.finishes) {
+          const variant = prices[FINISH_TO_TCG_KEY[finish]];
+          if (variant && typeof variant.market === 'number' && variant.market > 0) {
+            rows.push({
+              cardId: card.cardId,
+              finish,
+              marketCents: Math.round(variant.market * 100),
+              currency: 'USD',
+              source: this.source,
+            });
+          }
+        }
+      } catch (e) {
+        this.logger.warn(`pokemontcg.io fresh failed for ${card.externalId}: ${(e as Error).message}`);
+      }
+    }
+    return { rows, requestOk, dailyLimited: false };
   }
 }
