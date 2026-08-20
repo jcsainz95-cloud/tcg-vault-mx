@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   AdjustmentReason,
   Card,
@@ -52,7 +52,15 @@ type BulkPublishLineResult =
       salePriceCents: number;
       priceSource: 'manual' | 'derived';
     }
-  | { index: number; inventoryItemId: string; ok: false; error: { code: string; message: string } };
+  | {
+      index: number;
+      inventoryItemId: string;
+      ok: false;
+      error: { code: string; message: string };
+      // v1.26 (④, §M1): aditivo/opcional. Presente SOLO en la línea que escaló a la cola de
+      // pendientes (PRICE_PENDING); es el id de la `PendingPriceEntry` open para deep-link de UI a M2.
+      pendingPriceEntryId?: string;
+    };
 
 export interface BulkPublishResponse {
   summary: { requested: number; published: number; failedLines: number };
@@ -106,6 +114,8 @@ export interface InventoryAdjustmentResponse {
 
 @Injectable()
 export class InventoryService {
+  private readonly logger = new Logger(InventoryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
@@ -418,6 +428,35 @@ export class InventoryService {
     });
     const byId = new Map(items.map((i) => [i.id, i]));
 
+    // v1.26 (P-7 ⑤, §4.24e): REPRECIO FRESCO on-demand ANTES de resolver el precio. Solo para las
+    // líneas RAW cuyo precio se DERIVARÍA (sin override de línea ni de item) — así el fetch fresco no
+    // gasta cuota en piezas con precio manual. Funciona sobre inventario UNPUBLISHED (`in_stock`): el
+    // status de origen no cambia aquí; solo se refresca la `PriceReference` que leerá `getReferencesBatch`.
+    // MONEY-SAFE: un fallo/agotamiento de cuota del reprecio NO tumba la publicación — se cae a la
+    // referencia ALMACENADA (o, si sigue sin precio, al gate ④ que ESCALA a pendiente y NO publica).
+    if (req.repriceFresh) {
+      const freshPairs = req.items
+        .map((line) => ({ line, item: byId.get(line.inventoryItemId) }))
+        .filter(
+          ({ line, item }) =>
+            item != null &&
+            item.productType === 'raw' &&
+            line.listPriceCents == null &&
+            item.listPriceCents == null,
+        )
+        .map(({ item }) => item!);
+      const freshCardIds = [...new Set(freshPairs.map((i) => i.cardId))];
+      const freshFinishes = [...new Set(freshPairs.map((i) => i.finish))];
+      if (freshCardIds.length > 0) {
+        try {
+          await this.pricing.refreshCardPrices(freshCardIds, freshFinishes);
+        } catch (e) {
+          // Nunca inventa ni pone 0: el fallo degrada a la ref almacenada/pending (gate ④).
+          this.logger.warn(`repriceFresh falló (se usa ref almacenada): ${(e as Error).message}`);
+        }
+      }
+    }
+
     // Pago mínimo BE-25: reglas de venta izadas UNA vez + referencias en 1 lote (sin N+1).
     const { rules, fallbackPct } = await this.pricing.loadSalesRules();
     // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (mismo pago mínimo).
@@ -440,6 +479,8 @@ export class InventoryService {
     for (let index = 0; index < req.items.length; index++) {
       const line = req.items[index];
       const item = byId.get(line.inventoryItemId);
+      // v1.26 (④): id de la entrada pendiente si esta línea escala por priceless (deep-link a M2).
+      let pendingPriceEntryId: string | undefined;
       try {
         if (!item) throw BusinessException.notFound('NOT_FOUND', 'Inventory item not found');
         if (item.ownerType !== 'platform') {
@@ -479,6 +520,19 @@ export class InventoryService {
           const ref = gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
           const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
           if (sale.salePriceCents == null) {
+            // v1.26 (④, §M1): priceless ESCALA a la cola de pendientes (context='inventory') en vez
+            // de caerse en silencio; la pieza NO se publica (sigue en su status de origen). Idempotente
+            // (dedupe por cardId/productType/gradeKey/finish/status='open'). Reusa el gradeKey de MERCADO
+            // ya computado (`gk`); un sellado no mapeado (gk=null) cae al gradeKey estructural del item.
+            const pendingGradeKey = gk ?? this.pricing.gradeKeyFor(item);
+            pendingPriceEntryId = await this.pricing.escalatePending(
+              item.cardId,
+              'sealed',
+              pendingGradeKey,
+              'inventory',
+              undefined,
+              'normal',
+            );
             throw BusinessException.validation(
               'PRICE_PENDING',
               'No resolvable sale price for sealed (no override and no market); not published',
@@ -500,6 +554,18 @@ export class InventoryService {
             fallbackPct,
           );
           if (sale.salePriceCents == null) {
+            // v1.26 (④, §M1): priceless ESCALA a la cola de pendientes (context='inventory') en vez
+            // de caerse en silencio; la pieza NO se publica (sigue en su status de origen). Idempotente
+            // (dedupe por cardId/productType/gradeKey/finish/status='open'). Usa el gradeKey server-side
+            // del item + su acabado, alineado con `getReference`/`manualOverride` (la cola es POR acabado).
+            pendingPriceEntryId = await this.pricing.escalatePending(
+              item.cardId,
+              item.productType,
+              gradeKey,
+              'inventory',
+              undefined,
+              item.finish,
+            );
             throw BusinessException.validation(
               'PRICE_PENDING',
               'No resolvable sale price (pct without market); not published',
@@ -549,6 +615,8 @@ export class InventoryService {
           inventoryItemId: line.inventoryItemId,
           ok: false,
           error: { code: err.code ?? 'VALIDATION_ERROR', message: err.message ?? 'error' },
+          // v1.26 (④): solo presente cuando la línea escaló por priceless (PRICE_PENDING).
+          ...(pendingPriceEntryId ? { pendingPriceEntryId } : {}),
         });
       }
     }

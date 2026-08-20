@@ -414,8 +414,13 @@ function BinderTile({
 }) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
+  const locale = useLocale() as AppLocale;
   const finishLabel = tFinish(variant.finish);
   const isGap = !variant.covered;
+  // P-2: precio de MERCADO por carta (referencia cruda del acabado base). `null`/ausente = pending:
+  // se pinta un affordance discreto ("—" + "precio pendiente"), NUNCA $0 (money-safe, bug P-1).
+  const marketRef = cell.marketReferenceMxnCents;
+  const marketPrice = marketRef != null ? formatMoneyCents(marketRef, locale) : null;
   return (
     <button
       type="button"
@@ -423,6 +428,17 @@ function BinderTile({
       className="flex h-full w-full flex-col text-left transition-colors focus-visible:shadow-focus focus-visible:outline-none"
     >
       <TileHeader cell={cell} finishLabel={finishLabel} dimmed={isGap} dashed={isGap} showTotalCount />
+      {/* P-2: precio de mercado de la carta (subtitulado "Mercado"), o affordance de pendiente. */}
+      <span className="mt-2 flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted">
+        <span>{t('marketLabel')}</span>
+        {marketPrice != null ? (
+          <span className="tabular-nums normal-case tracking-normal text-text">{marketPrice}</span>
+        ) : (
+          <span className="text-accent" title={t('marketPending')}>
+            {t('marketPendingShort')}
+          </span>
+        )}
+      </span>
       <span className="mt-auto pt-2">
         {isGap ? (
           <span className="font-mono text-[10px] uppercase tracking-wide text-accent">{t('gap')}</span>

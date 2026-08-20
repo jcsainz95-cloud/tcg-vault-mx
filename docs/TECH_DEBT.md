@@ -2451,3 +2451,37 @@
 - **Impacto:** menor (fuga de un timestamp interno, no PII, solo al propio dueño de la solicitud).
 - **Disparador:** al endurecer la proyección de las vistas del cliente. Solución: proyectar campos
   explícitos (allow-list) como ya hace `listMine`, en vez del spread.
+
+### Pase `precios-variantes-masterset` — hardening gate-driven (2026-08-20, no bloqueante)
+
+> Del stream `claude/precios-variantes-masterset`. Los hallazgos bloqueantes/cerrados en este mismo pase
+> (SEGURIDAD L1 override `@Min(1)`, L2 timeout+`redirect:'error'` en `PokemonTcgIoProvider.fetchFreshForCards`,
+> TECHLEAD #2 match exacto de nombre en el resolver estructural) **no** figuran como deuda. Lo de abajo es la
+> deuda **no bloqueante** que el techlead pidió anotar (el rol dueño del código la registra). Dueño **backend**;
+> las decisiones marcadas dependen de **devops** (registrar S-D1/2/3) y **arquitecto** (materializar la columna).
+> Referencia: **ARCHITECTURE §4.24a** (supuestos **S-D1/S-D2/S-D3**).
+
+### BE-76 · `structural-finish-resolver`: supuesto S-D3 + fallback por nombre + `groupIdCache` solo en memoria
+- **Dónde:** `backend/src/modules/catalog/structural-finish-resolver.service.ts` → `resolveGroupId` (~:132-186)
+  y el campo `private readonly groupIdCache = new Map<string, number>()` (~:33).
+- **Estado actual:** el resolver del `groupId` TCGCSV de un set descansa en tres piezas frágiles, **todas
+  money-safe hoy** (ambiguo ⇒ `null` ⇒ no se toca ninguna carta):
+  1. **Supuesto S-D3** (§4.24a): `CardSet.pptSetId` numérico **==** `groupId` de TCGCSV (TCGplayer group ==
+     TCGCSV group). Es la ruta preferente (`/^\d+$/`); si el supuesto fuera falso, resolvería al grupo
+     equivocado silenciosamente (no hay verificación cruzada de nombre en la rama numérica).
+  2. **Fallback por nombre** cuando `pptSetId` no es numérico: match contra `listGroups()`, ahora **igualdad
+     exacta preferida** y solo si no hay exacto, substring bidireccional **ÚNICO** (TECHLEAD #2 endureció el
+     loose `includes` original). Sigue siendo heurística de string; un rename upstream lo rompe → `null`.
+  3. **`groupIdCache` solo en memoria del proceso** (per-instance, **no persistido**): cada boot re-resuelve
+     por nombre (o por S-D3). No se comparte entre instancias ni sobrevive a un restart; en multi-instancia
+     cada dyno mantiene su propio mapa.
+- **Impacto:** bajo hoy y **acotado money-safe**: el peor caso de una mala resolución sería tocar
+  `structuralFinishes` del set equivocado, pero el guard de unicidad + `tcgplayerId`/`pptSetId` numérico como
+  anclas preferentes lo mantienen conservador; un fallo de resolución degrada a «no se toca» (falta-una-casilla,
+  nunca sobra-una-falsa). Re-resolver por nombre en cada boot es coste/latencia, no correctness.
+- **Disparador / contingencia:** **si S-D3 se prueba falso** (devops registra S-D1/S-D2/S-D3 tras la 1ª corrida
+  en Railway), materializar la columna **`CardSet.tcgplayerGroupId`** (§4.24a S-D3: «resolver por nombre vía
+  `listGroups()` y cachear en columna, coordinar zona prisma») como fuente persistida del mapeo, sustituyendo el
+  `pptSetId`-numérico y el caché en memoria. **Owners:** **devops** registra S-D1/2/3 tras la primera corrida
+  Railway; el **arquitecto** decide si/ cuándo materializar `tcgplayerGroupId` (toca `schema.prisma` → zona
+  compartida). Mitigación intermedia: verificar el nombre del grupo también en la rama numérica S-D3.

@@ -111,6 +111,64 @@ export interface PricingProviderInput {
   finish: Finish;
 }
 
+// ============================================================================
+// v1.26 (P-7 ⑤, ARCHITECTURE §4.24e) — fetch FRESCO puntual por carta (on-demand).
+// Los `BulkPriceProvider` de arriba solo hacen barrido POR SET; P-7 necesita traer
+// el precio FRESCO de un puñado de cartas específicas (publicar + repreciar desde
+// el Master Set), acotado por la CUOTA DIARIA del proveedor de paga (nunca un barrido).
+// ============================================================================
+
+/**
+ * Carta a repreciar FRESCA. `tcgplayerId` (poblado en ①, `Card.tcgplayerId`) es el ancla del lookup
+ * puntual del proveedor de paga (PPT). `externalId` (pokemontcg.io) es el ancla del FALLBACK. Las
+ * `finishes` son los acabados a refrescar (universo de la carta o el subconjunto que pide el llamador).
+ */
+export interface FreshCardRef {
+  /** `Card.id` LOCAL — clave para el upsert de `PriceReference` (persistMarketReference). */
+  cardId: string;
+  /** `Card.tcgplayerId` (①) — ancla del lookup puntual PPT; `null` ⇒ el primario no puede pedirla. */
+  tcgplayerId: string | null;
+  /** `Card.externalId` (pokemontcg.io) — ancla del fetch de FALLBACK. */
+  externalId: string;
+  /** Acabados a refrescar (>=1). Cada uno produce a lo sumo una fila `market>0`. */
+  finishes: Finish[];
+}
+
+/**
+ * Fila FRESCA por (carta, acabado). El adapter YA validó money-safe: `marketCents` entero > 0 y
+ * `finish` mapeado a nuestro enum. El llamador la persiste con `persistMarketReference`.
+ */
+export interface FreshCardPriceRow {
+  cardId: string;
+  finish: Finish;
+  /** entero de centavos, > 0 (validado por el adapter). */
+  marketCents: number;
+  /** moneda de ORIGEN (USD → FX+colchón; MXN → sin conversión). */
+  currency: 'USD' | 'MXN';
+  source: PriceSourceStr;
+}
+
+export interface FreshCardPriceResult {
+  /** Filas VÁLIDAS por (carta, acabado). Vacío ⇒ nada fresco (el llamador cae a la ref almacenada). */
+  rows: FreshCardPriceRow[];
+  /** ¿Al menos una petición respondió OK? `false` ante fallo total (money-safe: no borrar precios). */
+  requestOk: boolean;
+  /** El proveedor de PAGA agotó su CUOTA DIARIA (429 daily) → PARADA; el resto se queda pending. */
+  dailyLimited: boolean;
+}
+
+/**
+ * FreshCardPriceProvider — fetch FRESCO puntual por carta (P-7 ⑤). SEPARADO del `BulkPriceProvider`
+ * (barrido por set) y del `PricingProvider` per-carta (bóveda). Implementado por el proveedor de PAGA
+ * (PPT, PRIMARIO, keyeado por `tcgplayerId`, respeta la cuota diaria) y por pokemontcg.io (FALLBACK,
+ * keyeado por `externalId`). Money-safe: NUNCA inventa un precio; una carta sin market válido NO
+ * produce fila (se queda pending). El upsert de `PriceReference` lo hace `PricingService.refreshCardPrices`.
+ */
+export interface FreshCardPriceProvider {
+  readonly source: PriceSourceStr;
+  fetchFreshForCards(cards: FreshCardRef[]): Promise<FreshCardPriceResult>;
+}
+
 /**
  * PricingProvider — Interfaz intercambiable. ARCHITECTURE §4.1.
  * fetchPrice devuelve el precio (USD o MXN) o null si la fuente no lo tiene.
@@ -290,6 +348,48 @@ export function normalizeVerifiedFinishAlias(raw: unknown): Finish | null {
 }
 
 /**
+ * v1.26 (ARCHITECTURE §4.24a, paso 4) — mapeo ESTRICTO del `subTypeName` de TCGCSV → `Finish`, la
+ * fuente ESTRUCTURAL autoritativa (espejo de TCGplayer). Llaves normalizadas (minúsculas, sin
+ * no-alfanuméricos) para tolerar `"Reverse Holofoil"`/`"reverse holofoil"`. Es la ÚNICA vía por la
+ * que un `subTypeName` alimenta `Card.structuralFinishes`; un valor DESCONOCIDO/no mapeable devuelve
+ * `null` ⇒ se OMITE (candado anti-invención §4.24a: JAMÁS se atribuye a `normal`, nunca una casilla
+ * de relleno). NO depende de `marketPrice`: la ESTRUCTURA es la presencia de la fila, no su precio.
+ */
+export const TCGCSV_SUBTYPE_TO_FINISH: Record<string, Finish> = {
+  normal: 'normal',
+  holofoil: 'holofoil',
+  reverseholofoil: 'reverse_holo',
+  '1steditionholofoil': 'first_edition_holofoil',
+};
+
+/**
+ * v1.26 (§4.24a, paso 4) — Normaliza UN `subTypeName` crudo de TCGCSV a su `Finish`, o `null` si es
+ * desconocido/no mapeable (se OMITE; nunca se inventa). Estructura ≠ precio: NO mira `marketPrice`.
+ */
+export function tcgcsvSubTypeToFinish(subTypeName: unknown): Finish | null {
+  if (typeof subTypeName !== 'string') return null;
+  const key = subTypeName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return TCGCSV_SUBTYPE_TO_FINISH[key] ?? null;
+}
+
+/**
+ * v1.26 (§4.24a, paso 4) — deriva `structuralFinishes` de UNA carta a partir de los `subTypeName`
+ * que TCGCSV reportó para ella (unidos por número de carta, ver resolver). Mapea cada uno con
+ * `tcgcsvSubTypeToFinish` (OMITE los desconocidos), deduplica y devuelve en orden canónico
+ * `FINISH_ORDER`. NUNCA inventa un acabado ni añade `normal` de relleno; un `subTypeName` con
+ * `marketPrice: null` SIGUE contando (estructura ≠ precio). Puede devolver `[]` (todos desconocidos)
+ * ⇒ el llamador NO escribe (conserva el valor previo; money-safe).
+ */
+export function deriveStructuralFinishes(subTypeNames: Iterable<unknown>): Finish[] {
+  const found = new Set<Finish>();
+  for (const raw of subTypeNames) {
+    const finish = tcgcsvSubTypeToFinish(raw);
+    if (finish) found.add(finish);
+  }
+  return orderFinishes(found);
+}
+
+/**
  * P-6 (2026-08-18) — VARIANTES de formato del número de carta, para el fallback `(set, number)`
  * de `PriceIngestService.resolveCardId`. `Card.number` viene de pokemontcg.io (`"104"`, `"TG01"`,
  * `"SV107"`), pero el proveedor de paga publica `cardNumber` y puede darlo con el total del set
@@ -348,6 +448,28 @@ export interface TcgcsvProductRef {
   name: string;
   cleanName?: string;
   imageUrl?: string;
+}
+
+/**
+ * v1.26 (§4.24a) — Producto de CARTA (single) de un grupo TCGCSV para el resolver estructural.
+ * `number` = `extendedData.Number` (p. ej. `"057/191"`) o `null` si el producto no lo trae (sellado
+ * u otro). El resolver une `subTypeName` por ESTE número de carta, robusto a que una carta se
+ * represente como varias filas bajo un `productId` O como `productId`s separados por impresión.
+ */
+export interface TcgcsvSingleProductRef {
+  productId: number;
+  name: string;
+  number: string | null;
+}
+
+/**
+ * v1.26 (§4.24a) — Fila de PRECIO cruda de TCGCSV que aporta ESTRUCTURA vía su `subTypeName`. El
+ * `marketPrice` puede ser `null` (estructura ≠ precio); el resolver NO lo usa para decidir estructura.
+ */
+export interface TcgcsvPriceRow {
+  productId: number;
+  subTypeName: string | null;
+  marketPrice: number | null;
 }
 
 /**

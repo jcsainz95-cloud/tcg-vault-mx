@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { SettingsService } from '../settings/settings.service';
@@ -8,6 +8,7 @@ import { yearFromReleaseDate } from './catalog.service';
 import { deriveAvailableFinishes } from '../pricing/pricing.types';
 import { deriveNumberParts } from '../../common/card-order';
 import { FinishReconciler } from './finish-reconciler.service';
+import { StructuralFinishResolverService } from './structural-finish-resolver.service';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -40,6 +41,10 @@ export class CatalogSyncService {
     // v1.22-1 (§4.22g): `upsertCards` escribe `catalogFinishes` y DELEGA la escritura de
     // `availableFinishes` al ÚNICO escritor (FinishReconciler); ya no la escribe inline.
     private readonly finishReconciler: FinishReconciler,
+    // v1.26 (§4.24a): resolver de la composición ESTRUCTURAL desde TCGCSV, invocado como paso de
+    // `importSet` (first-import/`--force`). @Optional: los tests unitarios que ejercitan solo el
+    // sync single/metadata pueden construir el servicio sin él (no se invoca en esa ruta).
+    @Optional() private readonly structuralResolver?: StructuralFinishResolverService,
   ) {}
 
   /**
@@ -144,7 +149,8 @@ export class CatalogSyncService {
     const batch = candidates.slice(0, size);
     const imported: { id: string; name: string; releaseDate: string | null; cardCount: number }[] = [];
     for (const s of batch) {
-      const res = await this.importSet(s);
+      // v1.26 (§4.24a): con force se re-resuelve también la composición estructural (repara).
+      const res = await this.importSet(s, { force });
       if (res.imported) {
         imported.push({ id: s.id, name: s.name, releaseDate: s.releaseDate ?? null, cardCount: res.cardCount });
       }
@@ -246,7 +252,7 @@ export class CatalogSyncService {
       finishedAt: null,
     };
     // Fire-and-forget: el request NO espera a que se importen todos los sets.
-    void this.runSyncAll(batch).finally(() => {
+    void this.runSyncAll(batch, force).finally(() => {
       this.syncAllStatus.running = false;
       this.syncAllStatus.finishedAt = new Date().toISOString();
     });
@@ -256,10 +262,10 @@ export class CatalogSyncService {
   }
 
   /** Barrido en segundo plano de `sync-all`: importa cada set secuencialmente (rate-limit). */
-  async runSyncAll(sets: RemoteCardSet[]): Promise<void> {
+  async runSyncAll(sets: RemoteCardSet[], force = false): Promise<void> {
     for (const s of sets) {
       try {
-        await this.importSet(s);
+        await this.importSet(s, { force });
       } catch (e) {
         this.logger.warn(`sync-all: set ${s.id} falló: ${(e as Error).message}`);
       } finally {
@@ -272,10 +278,37 @@ export class CatalogSyncService {
 
   // ---------------- helpers ----------------
 
-  /** Importa un set del que ya tenemos metadata remota (from_date/backfill). */
-  private async importSet(rs: RemoteCardSet): Promise<{ imported: boolean; cardCount: number }> {
+  /**
+   * Importa un set del que ya tenemos metadata remota (from_date/backfill/sync-all).
+   *
+   * v1.26 (§4.24a): tras importar la metadata, RESUELVE la composición ESTRUCTURAL de variantes
+   * desde TCGCSV — GATEADO a **first-import** (el set no tenía cartas antes) o **`--force`**. NO se
+   * corre en cada re-sync de metadata ni en price-ingest. El paso es best-effort: si TCGCSV falla
+   * (egress bloqueado, 502, groupId no resuelto) se LOGUEA y NO se aborta el import (money-safe: las
+   * cartas conservan su `structuralFinishes` seed/previo).
+   */
+  private async importSet(
+    rs: RemoteCardSet,
+    opts: { force?: boolean } = {},
+  ): Promise<{ imported: boolean; cardCount: number }> {
     const localSet = await this.upsertSet(rs);
+    // first-import = el set local no tenía NINGUNA carta antes de este import. Solo se calcula
+    // cuando el resolver está cableado (los tests de sync/metadata lo construyen sin él).
+    const firstImport =
+      this.structuralResolver != null
+        ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
+        : false;
     const cardCount = await this.importCardsForSet(rs.id, localSet.id);
+    if (this.structuralResolver != null && (firstImport || opts.force === true)) {
+      try {
+        await this.structuralResolver.resolveStructuralFinishesForSet(localSet.id);
+      } catch (e) {
+        this.logger.warn(
+          `importSet: resolver estructural TCGCSV falló para ${rs.id} (${(e as Error).message}); ` +
+            `se conserva structuralFinishes seed/previo (money-safe). NO aborta el import.`,
+        );
+      }
+    }
     return { imported: true, cardCount };
   }
 
@@ -377,6 +410,10 @@ export class CatalogSyncService {
       const number = c.number ?? '';
       // M-26 (§4.22b): claves persistidas del orden natural, escritas en create Y update.
       const parts = deriveNumberParts(number);
+      // v1.26 (§4.24a): puebla `Card.tcgplayerId` parseando el `productId` de `tcgplayer.url`
+      // (`.../product/<id>`). Es el ANCLA del join a TCGCSV (resolver estructural) y lo usa P-7. Se
+      // incluye SOLO cuando se pudo parsear (null ⇒ se OMITE la clave: no clobbea un ancla previo).
+      const tcgplayerId = parseTcgplayerProductId(c.tcgplayer?.url);
       const data = {
         setId: localSetId,
         name: c.name,
@@ -388,13 +425,23 @@ export class CatalogSyncService {
         subtypes: c.subtypes ?? undefined,
         imageSmallUrl: c.images?.small ?? null,
         imageLargeUrl: c.images?.large ?? null,
+        ...(tcgplayerId !== null ? { tcgplayerId } : {}),
       };
       try {
         const upserted = await this.prisma.card.upsert({
           where: { externalId: c.id },
-          // CREATE: sin señal → catalogFinishes ['normal'] (una casilla, nunca relleno).
-          create: { externalId: c.id, ...data, catalogFinishes: derived ?? ['normal'] },
+          // CREATE: sin señal → catalogFinishes ['normal'] (una casilla, nunca relleno). v1.26
+          // (§4.24a): SEED de `structuralFinishes` con la MISMA señal (`derived ?? ['normal']`),
+          // para que la carta no quede en blanco antes de que corra el resolver TCGCSV.
+          create: {
+            externalId: c.id,
+            ...data,
+            catalogFinishes: derived ?? ['normal'],
+            structuralFinishes: derived ?? ['normal'],
+          },
           // UPDATE: sin señal → se OMITE la clave `catalogFinishes` y se conserva lo previo (§4.22a-4).
+          // v1.26 (§4.24a): UPDATE **NUNCA** toca `structuralFinishes` (pokemontcg.io no es autoridad
+          // estructural; la autoridad de UPDATE es el resolver TCGCSV de `importSet`).
           update: derived === null ? data : { ...data, catalogFinishes: derived },
           select: { id: true },
         });
@@ -429,4 +476,16 @@ export class CatalogSyncService {
     for (const s of sets) map.set(s.externalId, s._count.cards);
     return map;
   }
+}
+
+/**
+ * v1.26 (§4.24a) — extrae el `productId` de TCGplayer de una `tcgplayer.url` de pokemontcg.io
+ * (`https://www.tcgplayer.com/product/<id>/...` o `.../product/<id>`). Devuelve el id como STRING
+ * (el tipo de `Card.tcgplayerId`) o `null` si la url falta o no calza el patrón. Anti-basura: solo
+ * acepta un id puramente numérico tras `/product/`.
+ */
+export function parseTcgplayerProductId(url: string | null | undefined): string | null {
+  if (typeof url !== 'string') return null;
+  const m = url.match(/\/product\/(\d+)(?:[/?#]|$)/);
+  return m ? m[1] : null;
 }

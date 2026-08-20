@@ -370,6 +370,11 @@
     "filterSecretRares": "Secret rares only",
     "secretRare": "Secret rare",
     "gap": "Gap",
+    "marketLabel": "Market",
+    "marketPending": "Pending price",
+    "marketPendingShort": "—",
+    "publishRepriceHint": "Publishing refreshes each card's market price first, then prices and lists it.",
+    "publishPricePending": "{count, plural, one {# variant} other {# variants}} still had no resolvable price after the refresh and went to the pending price queue (Sales) — {count, plural, one {it was} other {they were}} NOT published.",
     "totalCount": "{count, plural, one {# piece} other {# pieces}}",
     "cardTotalCount": "{count, plural, one {# total} other {# total}}",
     "cardTotalCountAria": "You have {count, plural, one {# piece} other {# pieces}} of this card in total",
@@ -1183,6 +1188,15 @@
         "title": "Pending-price queue",
         "subtitle": "Cards without a reference price, escalated to set manually. The buyer never sees this state.",
         "empty": "No pending prices.",
+        "bucketsLabel": "Pending-price buckets",
+        "buckets": {
+          "venta": "Sales (inventory)",
+          "compra": "Buylist (purchase)"
+        },
+        "ventaEmpty": "No inventory items awaiting a sale price.",
+        "compraEmpty": "No buylist cards awaiting a purchase reference.",
+        "compraNote": "Read-only: the purchase price for buylist cards is set in the buylist module, not here.",
+        "compraLink": "Open buylist admin",
         "card": "Card",
         "type": "Type",
         "gradeKey": "Grade key",
@@ -1191,6 +1205,7 @@
         "overrideTitle": "Manual price override",
         "saveOverride": "Save price",
         "priceLabel": "Reference price (MXN)",
+        "overrideInvalidValue": "Enter a valid price: an empty or malformed value can't be set (prevents publishing the item at MX$0 by a fat-finger).",
         "finish": "Finish"
       },
       "fx": {
@@ -1318,7 +1333,8 @@
         "pctHint": "Percentage: sale price = market × (1 + %). Example: 15% keeps the price 15% above market (up to 1000% allowed). Fixed: the MX$ amount is a sale floor.",
         "example": "Example: the % is what you add ON TOP of market. At +15%, you sell a MX$100 card for MX$115.",
         "saved": "Sale rules saved.",
-        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing."
+        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing.",
+        "invalidValue": "Some rules have an empty or invalid value. Fix them to save: an empty or malformed value is not saved as MX$0 (prevents listing cards for free by mistake)."
       },
       "sealedSpreads": {
         "title": "Sealed sale spreads",

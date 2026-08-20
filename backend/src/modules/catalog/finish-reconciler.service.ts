@@ -9,9 +9,11 @@ import { unionAvailableFinishes } from '../../common/card-order';
  *
  * Lee las DOS columnas de ENTRADA persistidas de las cartas dadas y RECOMPUTA la lista blanca:
  *
- *   availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
+ *   availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']
  *
- *  - `catalogFinishes`         — la escribe `catalog-sync.upsertCards` (Señal A ∪ B de pokemontcg.io).
+ *  - `structuralFinishes`      — v1.26 (§4.24a): afirmación ESTRUCTURAL autoritativa DETECTADA de
+ *    TCGCSV. La escribe el resolver de `catalog-sync.importSet` (first-import/`--force`) y, como seed
+ *    inicial, `upsertCards` en CREATE. ANCLA/REEMPLAZA al viejo `catalogFinishes` (proxy de precio).
  *  - `pricedFinishesSnapshot`  — la escribe `price-ingest` (Señal C: PPT `market>0` + alias VERIFICADO).
  *
  * Ni `price-ingest` ni `catalog-sync` escriben `availableFinishes` directamente: escriben SU columna
@@ -37,7 +39,7 @@ export class FinishReconciler {
       where: { id: { in: ids } },
       select: {
         id: true,
-        catalogFinishes: true,
+        structuralFinishes: true,
         pricedFinishesSnapshot: true,
         availableFinishes: true,
       },
@@ -46,7 +48,7 @@ export class FinishReconciler {
     let changed = 0;
     for (const c of cards) {
       const next = unionAvailableFinishes(
-        c.catalogFinishes as Finish[],
+        c.structuralFinishes as Finish[],
         c.pricedFinishesSnapshot as Finish[],
       );
       if (sameFinishes(next, c.availableFinishes as Finish[])) continue; // idempotente: sin cambio, sin write

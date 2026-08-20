@@ -179,19 +179,28 @@ describe('H-1 — inventory.bulkPublish es el 4º consumidor del resolver único
     // (b) mapeado (productId 100) + SIN override (listPriceCents null) → mercado×spread.
     const mapped = sealedPiece({ id: 'iB', folio: 'INV-00000B', tcgplayerProductId: 100, listPriceCents: null });
 
-    const pricingInv = realPricing(); // resolveSealedSalePrice/sealedMarketGradeKeyForItem REALES (puros).
+    // v1.26 (④): la línea sin precio ESCALA a la cola (escalatePending, dentro de PricingService) →
+    // el prisma COMPARTIDO necesita `pendingPriceEntry` para que la rama priceless devuelva
+    // PRICE_PENDING (no un TypeError). PricingService e InventoryService comparten el MISMO prisma
+    // (como en producción), así que la escalada se ejerce de verdad.
+    const prismaInv = {
+      inventoryItem: {
+        findMany: jest.fn(async () => [unmapped, mapped]),
+        updateMany: jest.fn(async () => ({ count: 1 })),
+      },
+      pendingPriceEntry: {
+        findFirst: jest.fn(async () => null),
+        create: jest.fn(async () => ({ id: 'pend-A' })),
+      },
+    } as any;
+
+    const pricingInv = new PricingService(prismaInv, {} as any, {} as any, {} as any, {} as any, {} as any);
     jest.spyOn(pricingInv, 'loadSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
     jest.spyOn(pricingInv, 'loadSealedSpreads').mockResolvedValue(CTX_ON);
     jest
       .spyOn(pricingInv, 'getReferencesBatch')
       .mockResolvedValue(new Map([['c1|sealed|sealed:tcg:100|normal', PRICED as any]]));
 
-    const prismaInv = {
-      inventoryItem: {
-        findMany: jest.fn(async () => [unmapped, mapped]),
-        updateMany: jest.fn(async () => ({ count: 1 })),
-      },
-    } as any;
     const inventory = new InventoryService(prismaInv, pricingInv, {} as any);
 
     const res = await inventory.bulkPublish(

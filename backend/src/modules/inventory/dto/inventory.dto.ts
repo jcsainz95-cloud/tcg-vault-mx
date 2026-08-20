@@ -2,6 +2,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -139,6 +140,11 @@ export class BulkPublishRequest {
   @ValidateNested({ each: true })
   @Type(() => BulkPublishLineInput)
   items!: BulkPublishLineInput[];
+  // v1.26 (P-7 ⑤, §M1 / §4.24e): refresca la `PriceReference` con un fetch FRESCO on-demand por carta
+  // ANTES de resolver el precio (sobre inventario UNPUBLISHED `in_stock`), para publicar con la
+  // referencia recién traída y NO la almacenada stale. Hereda el gate ④: sin precio tras el refresh →
+  // escala pendiente, NO publica. Money-touching (gate de seguridad posterior); respeta la cuota diaria.
+  @IsOptional() @IsBoolean() repriceFresh?: boolean;
 }
 
 // ===== v1.20-master-set-everywhere (§4.20e) — ajuste por levantamiento físico =====

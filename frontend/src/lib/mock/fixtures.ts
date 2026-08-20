@@ -1186,6 +1186,9 @@ export function mockMasterSetBinder(
         expectedVariantCount: variants.length,
         coveredVariantCount: variants.filter((v) => v.covered).length,
         variants,
+        // P-2 (v1.26): precio de MERCADO por carta (referencia base). `undefined` (p. ej. Zapdos /
+        // promos sin referencia) → null = pending (el front pinta el affordance, nunca $0).
+        marketReferenceMxnCents: mockReferenceForFinish(c.cardId, c.availableFinishes[0] ?? 'normal') ?? null,
       };
     });
 
@@ -1454,7 +1457,15 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
     }
     if (salePriceCents == null) {
       failedLines += 1;
-      return { index, inventoryItemId: line.inventoryItemId, ok: false, error: { code: 'PRICE_PENDING', message: 'price could not be resolved' } };
+      // v1.26 (④): la variante priceless ESCALA a la cola de pendientes; el backend devuelve el id
+      // de la PendingPriceEntry escalada (deep-link a M2). El mock lo simula de forma determinista.
+      return {
+        index,
+        inventoryItemId: line.inventoryItemId,
+        ok: false,
+        error: { code: 'PRICE_PENDING', message: 'price could not be resolved' },
+        pendingPriceEntryId: `ppe-${line.inventoryItemId}`,
+      };
     }
     // in_stock → publica; listed → no-op idempotente (igual devuelve ok:true).
     const wasListed = item.status === 'listed';

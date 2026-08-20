@@ -45,26 +45,34 @@ export function orderFinishes(finishes: Iterable<Finish>): Finish[] {
 
 /**
  * v1.22-1 (ARCHITECTURE §4.22g) — FUNCIÓN PURA de la UNIÓN money-safe de la que deriva
- * `Card.availableFinishes`:
+ * `Card.availableFinishes`.
  *
- *   availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
+ * v1.26 (§4.24a) — la ENTRADA estructural del lado catálogo CAMBIA: `catalogFinishes` era un PROXY
+ * de precio (llaves presentes de `tcgplayer.prices` ∪ `cardmarket.reverseHolo*`) que el PO rechaza.
+ * Se sustituye por `Card.structuralFinishes` —afirmación ESTRUCTURAL autoritativa DETECTADA de
+ * TCGCSV—. La fórmula pasa a:
  *
- *  - `catalogFinishes`         — «opinión del catálogo» (pokemontcg.io) persistida (Señal A ∪ B).
+ *   availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']
+ *
+ *  - `structuralFinishes`      — «¿qué impresiones físicas existen?» (TCGCSV `subTypeName`; seed
+ *    inicial desde pokemontcg.io). Estructura ≠ precio: una impresión sin `PriceReference` sigue
+ *    contando (whitelist la admite ⇒ vendible tras precio), nunca se dropea ni se inventa.
  *  - `pricedFinishesSnapshot`  — Señal C: acabados que PPT reportó con `market>0` y ALIAS VERIFICADO.
+ *    NO añade estructura (VAR-1): solo confirma precio de una impresión ya estructural.
  *
  * Determinista y RECOMPUTABLE: quitar un acabado de CUALQUIERA de las dos entradas y recomputar lo
  * ELIMINA (no es monótona-creciente, candado 1 de §4.22g). Nunca vacía: sin ninguna señal ⇒
  * `['normal']` (default seguro, idéntico a hoy; jamás una casilla de relleno inventada). Vive junto
  * a `orderFinishes` (sin DI) para reusarse desde el `FinishReconciler`, los seeds y los tests.
  *
- * El ÚNICO escritor de `Card.availableFinishes` (`catalog.FinishReconciler`) la usa; `price-ingest`
- * y `catalog-sync` escriben SU columna de entrada y NUNCA `availableFinishes` directamente.
+ * El ÚNICO escritor de `Card.availableFinishes` (`catalog.FinishReconciler`) la usa; `price-ingest`,
+ * `catalog-sync` y el resolver TCGCSV escriben SU columna de entrada y NUNCA `availableFinishes`.
  */
 export function unionAvailableFinishes(
-  catalogFinishes: Iterable<Finish>,
+  structuralFinishes: Iterable<Finish>,
   pricedFinishesSnapshot: Iterable<Finish>,
 ): Finish[] {
-  const merged = orderFinishes([...catalogFinishes, ...pricedFinishesSnapshot]);
+  const merged = orderFinishes([...structuralFinishes, ...pricedFinishesSnapshot]);
   return merged.length > 0 ? merged : ['normal'];
 }
 

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Finish, InventoryStatus, Prisma } from '@prisma/client';
+import { Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -134,6 +134,13 @@ export interface MasterSetCardCellDTO {
   expectedVariantCount: number;
   coveredVariantCount: number;
   variants: MasterSetVariantDTO[];
+  // v1.26 (P-2, §M1 / §4.24d) — precio de MERCADO de la carta = la `PriceReference` CRUDA del
+  // acabado BASE (raw:NM, primer acabado del universo), FX-recomputada al MXN vigente (misma lógica
+  // `liveMxnCents` que valúa la bóveda). NO es el precio de VENTA derivado (referencia × (1+markup));
+  // ese vive en `buyable.salePriceCents` para la vista cliente. `null` cuando la referencia está
+  // `pending`/ausente (no se inventa un 0). ADITIVO/opcional; solo lectura/visual (no toca SEC-A1).
+  // Batched (getReferencesBatch) — sin N+1.
+  marketReferenceMxnCents?: number | null;
 }
 
 export interface MasterSetBinderResponse {
@@ -423,6 +430,21 @@ export class MasterSetService {
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(cardIds);
 
+    // v1.26 (P-2, §4.24d): referencia de MERCADO por carta EN LOTE (sin N+1). La clave es el acabado
+    // BASE de la carta (primer acabado del universo availableFinishes → normal en el caso común, o el
+    // premium en una carta de una sola impresión). raw:NM (la referencia de MERCADO cruda de la
+    // carta). `getReferencesBatch` YA aplica `liveMxnCents` (FX-recompute a MXN vigente). UNA query.
+    const baseFinishOf = (c: (typeof cards)[number]): Finish =>
+      expectedFinishes(c.availableFinishes as Finish[])[0];
+    const marketRefs = await this.pricing.getReferencesBatch(
+      cards.map((c) => ({
+        cardId: c.id,
+        productType: 'raw' as ProductType,
+        gradeKey: 'raw:NM',
+        finish: baseFinishOf(c),
+      })),
+    );
+
     const printedTotal = set.printedTotal ?? null;
     const cells: MasterSetCardCellDTO[] = cards
       .map((c) => {
@@ -446,6 +468,11 @@ export class MasterSetService {
           const count = byFinish.find((x) => x.finish === finish)?.count ?? 0;
           return { finish, count, covered: count > 0, displayed: displaySet.has(finish) };
         });
+        // v1.26 (P-2): precio de MERCADO (referencia cruda del acabado base, ya FX-recomputada a MXN
+        // por getReferencesBatch). null si la referencia está pending/ausente (nunca un 0 inventado).
+        const mref = marketRefs.get(`${c.id}|raw|raw:NM|${universe[0]}`);
+        const marketReferenceMxnCents =
+          mref && mref.status === 'priced' ? (mref.referenceMxnCents ?? null) : null;
         return {
           cardId: c.id,
           number: c.number,
@@ -469,6 +496,7 @@ export class MasterSetService {
           expectedVariantCount: universe.length,
           coveredVariantCount: variants.filter((v) => v.covered).length,
           variants,
+          marketReferenceMxnCents,
         };
       });
 

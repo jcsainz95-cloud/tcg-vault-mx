@@ -135,6 +135,35 @@ describe('Master Set · Binder (rejilla PLANA: una tarjeta por impresión + orde
   });
 });
 
+describe('Master Set · Precio de mercado en el tile (P-2, v1.26)', () => {
+  it('pinta el precio de MERCADO por carta con formato de dinero (marketReferenceMxnCents)', async () => {
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+
+    // Charizard (c-charizard) tiene referencia 4850000 cents → MX$48,500.00 en cada una de sus
+    // tarjetas (el precio de mercado es POR CARTA, se repite en cada impresión).
+    const charizardTiles = await screen.findAllByRole('button', { name: /Charizard/ });
+    charizardTiles.forEach((tile) => {
+      expect(within(tile).getByText('Mercado')).toBeInTheDocument();
+      expect(within(tile).getByText('MX$48,500.00')).toBeInTheDocument();
+    });
+  });
+
+  it('una carta SIN referencia (Zapdos, null) muestra el affordance de pendiente — NUNCA $0', async () => {
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+
+    // Zapdos (c-zapdos) queda sin referencia a propósito → marketReferenceMxnCents = null. El tile
+    // pinta el affordance "—" (precio pendiente), jamás un MX$0.00 inventado (money-safe, bug P-1).
+    const zapdosTiles = await screen.findAllByRole('button', { name: /Zapdos/ });
+    zapdosTiles.forEach((tile) => {
+      expect(within(tile).getByText('Mercado')).toBeInTheDocument();
+      expect(within(tile).getByText('—')).toBeInTheDocument();
+      expect(within(tile).queryByText(/MX\$0\.00/)).toBeNull();
+    });
+  });
+});
+
 describe('Master Set · Carrito de captura por lote (#12, tolerante por-línea)', () => {
   it('acumula una línea y muestra resultado por-línea (ok + error) sin tumbar el resto', async () => {
     // Respuesta de lote con una línea creada y otra fallida (render tolerante).
@@ -262,6 +291,60 @@ describe('Master Set · Publicación masiva (bulk-publish por-línea)', () => {
     fireEvent.click(within(drawer).getByRole('button', { name: /Publicar seleccionadas/ }));
     await waitFor(() => expect(spy).toHaveBeenCalled());
     expect(spy.mock.calls[0][0].items).toEqual([{ inventoryItemId: 'inv-2001' }]);
+  });
+
+  it('P-7: "Publicar" reprecia FRESCO (repriceFresh:true) sobre una pieza in_stock NO publicada', async () => {
+    // El backend refresca el precio por carta en el momento de publicar. La acción debe funcionar
+    // sobre inventario `in_stock` aún NO publicado (INV-000201 / inv-2001 es in_stock publicable).
+    const spy = vi.spyOn(api, 'bulkPublishItems').mockResolvedValue({
+      summary: { requested: 1, published: 1, failedLines: 0 },
+      results: [
+        { index: 0, inventoryItemId: 'inv-2001', ok: true, status: 'listed', salePriceCents: 5000000, priceSource: 'derived' },
+      ],
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+
+    const stockRow = (await within(drawer).findByText('INV-000201')).closest('li')!;
+    fireEvent.click(within(stockRow).getByRole('checkbox'));
+    fireEvent.click(within(drawer).getByRole('button', { name: /Publicar seleccionadas/ }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    // Reprecia fresco Y solo manda la pieza in_stock seleccionada.
+    expect(spy.mock.calls[0][0]).toEqual(expect.objectContaining({ repriceFresh: true }));
+    expect(spy.mock.calls[0][0].items).toEqual([{ inventoryItemId: 'inv-2001' }]);
+    // Éxito pleno → sin aviso de escalada a pendientes.
+    expect(await within(drawer).findByText('1 publicadas · 0 con error.')).toBeInTheDocument();
+  });
+
+  it('P-7 (④): una línea PRICE_PENDING surfacea la escalada a la cola de pendientes (VENTA), NO como éxito', async () => {
+    // El gate ④: tras el reprice, una variante aún sin precio ESCALA a la cola de precios pendientes
+    // y NO se publica. Debe verse un aviso explícito (no un banner de éxito).
+    vi.spyOn(api, 'bulkPublishItems').mockResolvedValue({
+      summary: { requested: 1, published: 0, failedLines: 1 },
+      results: [
+        {
+          index: 0,
+          inventoryItemId: 'inv-2001',
+          ok: false,
+          error: { code: 'PRICE_PENDING', message: 'no ref' },
+          pendingPriceEntryId: 'ppe-1',
+        },
+      ],
+    });
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+    const drawer = await openCell(/Charizard/);
+
+    const stockRow = (await within(drawer).findByText('INV-000201')).closest('li')!;
+    fireEvent.click(within(stockRow).getByRole('checkbox'));
+    fireEvent.click(within(drawer).getByRole('button', { name: /Publicar seleccionadas/ }));
+
+    // Aviso EXPLÍCITO de escalada a la cola de precios pendientes (Venta) — la variante NO se publicó.
+    expect(await within(drawer).findByText(/cola de precios pendientes/)).toBeInTheDocument();
+    // El resumen refleja 0 publicadas · 1 con error (jamás presentado como éxito).
+    expect(within(drawer).getByText('0 publicadas · 1 con error.')).toBeInTheDocument();
   });
 
   it('maneja PRICE_PENDING (in_stock sin referencia) como error por-línea', async () => {

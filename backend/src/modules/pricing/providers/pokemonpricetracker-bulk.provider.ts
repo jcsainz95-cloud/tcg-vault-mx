@@ -6,6 +6,10 @@ import {
   BulkPriceProvider,
   BulkPriceResult,
   BulkPriceRow,
+  FreshCardPriceProvider,
+  FreshCardPriceResult,
+  FreshCardPriceRow,
+  FreshCardRef,
   normalizeFinishAlias,
   normalizeVerifiedFinishAlias,
 } from '../pricing.types';
@@ -108,7 +112,7 @@ type ZeroReason =
  * ante 429/timeout NO borra precios.
  */
 @Injectable()
-export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
+export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, FreshCardPriceProvider {
   readonly source: PriceSource = 'pokemonpricetracker';
   private readonly logger = new Logger(PokemonPriceTrackerBulkProvider.name);
   private readonly cardsPath = '/api/v2/cards';
@@ -116,6 +120,11 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
   private readonly pageLimit = 200;
   /** Cota dura de páginas (anti-bucle si la paginación del proveedor no converge). */
   private readonly maxPages = 40;
+  /**
+   * v1.26 (P-7 ⑤) — cota DURA de cartas por request de fetch fresco (defensa en profundidad; el
+   * llamador `refreshCardPrices` ya capa, pero el proveedor NUNCA barre — respeta la cuota diaria).
+   */
+  private readonly maxFreshCards = 100;
 
   constructor(
     private readonly config: ConfigService,
@@ -283,6 +292,102 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider {
         `${rows.length} filas de ${PRINTINGS.length} impresiones, ${fetchedRaw} crudas.`,
     );
     return { rows, fetchedRaw, skipped, requestOk, dailyLimited, dailyRemaining: this.client.dailyRemaining() };
+  }
+
+  /**
+   * v1.26 (P-7 ⑤, §4.24e) — fetch FRESCO puntual por carta (PRIMARIO). Keyeado por `Card.tcgplayerId`
+   * (poblado en ①), UNA petición por carta a `GET /api/v2/cards?tcgplayerId=<id>` (JAMÁS un barrido).
+   *
+   * CUOTA DIARIA (money-safe): si el cliente ya está `dailyLimited` o topa un 429 daily, PARA de
+   * inmediato (`dailyLimited=true`) y devuelve lo acumulado — el resto de cartas se queda pending (el
+   * llamador cae a la referencia ALMACENADA). FAIL-CLOSED de formato: sin `POKEMONPRICETRACKER_MARKET_FORMAT`
+   * NO persiste nada (sample-only). Una carta sin `tcgplayerId`, sin market válido, o un fallo de red →
+   * NO produce fila (nunca inventa un precio). Cota dura `maxFreshCards` (nunca barre).
+   */
+  async fetchFreshForCards(cards: FreshCardRef[]): Promise<FreshCardPriceResult> {
+    if (!this.client.apiKey()) {
+      this.logger.warn('PPT fresh: falta POKEMONPRICETRACKER_API_KEY → no se repricea (ref STALE).');
+      return { rows: [], requestOk: false, dailyLimited: false };
+    }
+    const format = parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_MARKET_FORMAT'));
+    if (!format) {
+      this.logger.warn('PPT fresh: POKEMONPRICETRACKER_MARKET_FORMAT no configurado → NO se persiste.');
+      return { rows: [], requestOk: false, dailyLimited: false };
+    }
+
+    const rows: FreshCardPriceRow[] = [];
+    let requestOk = false;
+    let dailyLimited = false;
+    const capped = cards.slice(0, this.maxFreshCards);
+    for (const card of capped) {
+      if (!card.tcgplayerId) continue; // sin ancla → el fallback (pokemontcg.io) la intentará.
+      if (this.client.isDailyLimited()) {
+        dailyLimited = true;
+        break;
+      }
+      try {
+        const res: PptResponse<unknown> = await this.client.getJson<unknown>(this.cardsPath, {
+          tcgplayerId: card.tcgplayerId,
+        });
+        requestOk = true;
+        const entries = this.extractEntries(res.body);
+        const wanted = new Set<Finish>(card.finishes);
+        for (const entry of entries) {
+          for (const { finish, marketCents } of this.mapFreshEntry(entry, format)) {
+            if (wanted.has(finish)) {
+              rows.push({ cardId: card.cardId, finish, marketCents, currency: format.currency, source: 'pokemonpricetracker' });
+            }
+          }
+        }
+      } catch (e) {
+        if (e instanceof PptDailyLimitError) {
+          dailyLimited = true;
+          this.logger.warn(`PPT fresh: 429 DAILY en tcgplayerId=${card.tcgplayerId} → PARADA. ${e.message}`);
+          break;
+        }
+        this.logger.warn(
+          `PPT fresh: falló tcgplayerId=${card.tcgplayerId}: ${(e as Error).message} (ref previa STALE, no se borra).`,
+        );
+      }
+    }
+    return { rows, requestOk, dailyLimited };
+  }
+
+  /**
+   * v1.26 (P-7 ⑤) — mapea UNA entrada cruda del lookup por `tcgplayerId` → filas (finish, marketCents),
+   * SIN filtro de set (el request ya scopeó a la carta). Cubre el shape real v2 (`prices.{market,
+   * primaryPrinting}`) y el fallback per-acabado (`tcgplayer.prices = { <finishKey>:{market} }`).
+   * Money-safe: acabado desconocido/market<=0 → OMITE (nunca `normal`, nunca 0).
+   */
+  private mapFreshEntry(entry: unknown, format: MarketFormat): { finish: Finish; marketCents: number }[] {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+    const e = entry as Record<string, unknown>;
+    const out: { finish: Finish; marketCents: number }[] = [];
+    const add = (rawFinish: unknown, rawMarket: unknown): void => {
+      const finish = normalizeFinishAlias(rawFinish);
+      if (finish == null) return;
+      const marketCents = toCents(extractMarketNumber(rawMarket), format.unit);
+      if (marketCents == null) return;
+      out.push({ finish, marketCents });
+    };
+    // (1) real v2: `prices = { market, primaryPrinting }`.
+    const prices = e['prices'];
+    if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
+      const pr = prices as Record<string, unknown>;
+      if (typeof pr['market'] === 'number' || typeof pr['marketPrice'] === 'number') {
+        add(pr['primaryPrinting'], pr);
+        return out;
+      }
+    }
+    // (2) fallback mirror pokemontcg.io: `tcgplayer.prices = { <finishKey>:{market} }`.
+    const tcgplayer = e['tcgplayer'];
+    if (tcgplayer && typeof tcgplayer === 'object' && !Array.isArray(tcgplayer)) {
+      const tp = (tcgplayer as Record<string, unknown>)['prices'];
+      if (tp && typeof tp === 'object' && !Array.isArray(tp)) {
+        for (const [finishKey, priceObj] of Object.entries(tp as Record<string, unknown>)) add(finishKey, priceObj);
+      }
+    }
+    return out;
   }
 
   /**

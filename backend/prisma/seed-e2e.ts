@@ -152,6 +152,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       // v1.22-1 (§4.22g/§4.22h): columnas de ENTRADA. Si no se declaran, ruta CATÁLOGO
       // (`catalogFinishes = availableFinishes`, snapshot vacío).
       catalogFinishes?: readonly Finish[];
+      // v1.26 (§4.24a): entrada ESTRUCTURAL. Sin declarar ⇒ = catalogFinishes.
+      structuralFinishes?: readonly Finish[];
       pricedFinishesSnapshot?: readonly Finish[];
     }[],
   ) => {
@@ -164,6 +166,10 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       // PPT-only (catalog=['normal'], snapshot=['reverse_holo']) para ejercitar el rescate (§4.22h).
       const catalogFinishes = [...(c.catalogFinishes ?? c.availableFinishes)];
       const pricedFinishesSnapshot = [...(c.pricedFinishesSnapshot ?? [])];
+      // v1.26 (§4.24a/§4.22e): entrada ESTRUCTURAL de la unión. Sin declarar ⇒ = catalogFinishes
+      // (misma composición que ya conocía el catálogo); `reverse` mantiene structural=['normal'] y
+      // el reverse_holo lo aporta el snapshot (dos casillas SIN que el precio añada estructura).
+      const structuralFinishes = [...(c.structuralFinishes ?? catalogFinishes)];
       const card = await prisma.card.upsert({
         where: { externalId: c.externalId },
         create: {
@@ -180,6 +186,7 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
           imageLargeUrl: `https://img.e2e.local/${c.externalId}_hires.png`,
           availableFinishes: [...c.availableFinishes],
           catalogFinishes,
+          structuralFinishes,
           pricedFinishesSnapshot,
         },
         // Idempotencia (E2E-1): una 2ª corrida sobre una BD vieja debe CORREGIR las variantes y las
@@ -190,6 +197,7 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
           numberPrefix: parts.prefix,
           availableFinishes: [...c.availableFinishes],
           catalogFinishes,
+          structuralFinishes,
           pricedFinishesSnapshot,
         },
       });

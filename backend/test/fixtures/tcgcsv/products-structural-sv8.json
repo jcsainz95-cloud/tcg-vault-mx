@@ -1,0 +1,64 @@
+{
+  "totalItems": 6,
+  "success": true,
+  "errors": [],
+  "results": [
+    {
+      "productId": 700001,
+      "name": "Test Mon Normal Print - 025/191",
+      "categoryId": 3,
+      "groupId": 23821,
+      "extendedData": [
+        { "name": "Rarity", "displayName": "Rarity", "value": "Common" },
+        { "name": "Number", "displayName": "Number", "value": "025/191" }
+      ]
+    },
+    {
+      "productId": 700002,
+      "name": "Test Mon Reverse Print - 025/191",
+      "categoryId": 3,
+      "groupId": 23821,
+      "extendedData": [
+        { "name": "Rarity", "displayName": "Rarity", "value": "Common" },
+        { "name": "Number", "displayName": "Number", "value": "025/191" }
+      ]
+    },
+    {
+      "productId": 700003,
+      "name": "Bar Mon - 030/191",
+      "categoryId": 3,
+      "groupId": 23821,
+      "extendedData": [
+        { "name": "Rarity", "displayName": "Rarity", "value": "Uncommon" },
+        { "name": "Number", "displayName": "Number", "value": "030/191" }
+      ]
+    },
+    {
+      "productId": 700004,
+      "name": "Baz Mon - 099/191",
+      "categoryId": 3,
+      "groupId": 23821,
+      "extendedData": [
+        { "name": "Rarity", "displayName": "Rarity", "value": "Common" },
+        { "name": "Number", "displayName": "Number", "value": "099/191" }
+      ]
+    },
+    {
+      "productId": 700005,
+      "name": "Qux Mon - 100/191",
+      "categoryId": 3,
+      "groupId": 23821,
+      "extendedData": [
+        { "name": "Rarity", "displayName": "Rarity", "value": "Common" },
+        { "name": "Number", "displayName": "Number", "value": "100/191" }
+      ]
+    },
+    {
+      "productId": 800001,
+      "name": "Test Set Booster Box",
+      "categoryId": 3,
+      "groupId": 23821,
+      "extendedData": [{ "name": "UPC", "displayName": "UPC", "value": "111111111111" }]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Card, Finish, PriceReference, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -9,7 +9,15 @@ import {
   PokeTraceProvider,
   PokemonPriceTrackerProvider,
 } from './providers/graded-sealed.providers';
-import { PricingProvider, PriceSourceStr, buildGradeKey, sealedMarketGradeKey } from './pricing.types';
+import { PokemonPriceTrackerBulkProvider } from './providers/pokemonpricetracker-bulk.provider';
+import {
+  FreshCardPriceProvider,
+  FreshCardRef,
+  PricingProvider,
+  PriceSourceStr,
+  buildGradeKey,
+  sealedMarketGradeKey,
+} from './pricing.types';
 import {
   usdToMxnCents,
   computeSalePriceForRarity,
@@ -33,6 +41,20 @@ export interface PriceInfo {
 }
 
 /**
+ * v1.26 (P-7 ⑤, §4.24e) — resultado de `refreshCardPrices`: qué cartas obtuvieron una referencia
+ * FRESCA (`refreshed`) vs cuáles se quedaron sin precio nuevo (`pending`, caen a la ref almacenada).
+ * `dailyLimited` = el proveedor de PAGA agotó su cuota diaria (parada; el resto queda pending).
+ */
+export interface RefreshCardPricesResult {
+  refreshed: string[];
+  pending: string[];
+  dailyLimited: boolean;
+}
+
+/** v1.26 (P-7 ⑤) — cota DURA de cartas por llamada de reprecio fresco (nunca un barrido). */
+export const MAX_FRESH_REPRICE_CARDS = 50;
+
+/**
  * PricingService — Orquesta el pricing (ARCHITECTURE §4.1):
  * 1. Elige provider por productType (dial M10).
  * 2. Cache diario: revisa PriceReference del día antes de llamar la API.
@@ -52,9 +74,20 @@ export class PricingService {
     tcgIo: PokemonTcgIoProvider,
     ppt: PokemonPriceTrackerProvider,
     poketrace: PokeTraceProvider,
+    // v1.26 (P-7 ⑤): proveedores del fetch FRESCO puntual. PPT PRIMARIO (cuota diaria, por
+    // `tcgplayerId`), pokemontcg.io FALLBACK (por `externalId`, reusa el `tcgIo` ya inyectado).
+    // `@Optional()` para no romper los call-sites que construyen el servicio con los 6 args previos.
+    @Optional() pptBulk?: PokemonPriceTrackerBulkProvider,
   ) {
     this.providers = [tcgIo, ppt, poketrace];
+    // Orden de fetch fresco: PRIMARIO (PPT) → FALLBACK (pokemontcg.io). Se filtran los ausentes.
+    this.freshProviders = ([pptBulk, tcgIo] as (FreshCardPriceProvider | undefined)[]).filter(
+      (p): p is FreshCardPriceProvider => p != null,
+    );
   }
+
+  /** v1.26 (P-7 ⑤) — cadena de fetch fresco (PPT primario → pokemontcg.io fallback). */
+  private readonly freshProviders: FreshCardPriceProvider[];
 
   private async providerFor(productType: ProductType): Promise<PricingProvider | undefined> {
     const key =
@@ -442,14 +475,18 @@ export class PricingService {
     context: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
     refId?: string,
     finish: Finish = 'normal',
-  ): Promise<void> {
+  ): Promise<string> {
+    // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
+    // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
+    // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, status='open')`.
     const open = await this.prisma.pendingPriceEntry.findFirst({
       where: { cardId, productType, gradeKey, finish, status: 'open' },
     });
-    if (open) return;
-    await this.prisma.pendingPriceEntry.create({
+    if (open) return open.id;
+    const created = await this.prisma.pendingPriceEntry.create({
       data: { cardId, productType, gradeKey, finish, context, refId, status: 'open' },
     });
+    return created.id;
   }
 
   /**
@@ -512,6 +549,95 @@ export class PricingService {
       create: { cardId, productType, gradeKey, finish, capturedDate, ...data },
       update: data,
     });
+  }
+
+  /**
+   * v1.26 (P-7 ⑤, ARCHITECTURE §4.24e) — REPRECIO FRESCO on-demand de un puñado de cartas. Orquesta
+   * el fetch FRESCO puntual (proveedor PRIMARIO PPT por `tcgplayerId` → FALLBACK pokemontcg.io por
+   * `externalId`) + el upsert de `PriceReference` (vía `persistMarketReference`, FX del día). Lo usa
+   * `bulkPublish({repriceFresh})` ANTES de resolver el precio, para publicar con una referencia
+   * RECIÉN traída (no la almacenada stale).
+   *
+   * CUOTA (money-safe): CAPA a `MAX_FRESH_REPRICE_CARDS` (nunca barre) y respeta el `dailyLimited`
+   * del proveedor de PAGA (para de pedirle; el fallback igual intenta). FALLA-SEGURO: un error de
+   * proveedor/FX NUNCA propaga ni inventa un precio — la carta se queda `pending` y el llamador cae a
+   * la referencia ALMACENADA (o escala). Solo se persiste una fila con `market > 0`.
+   *
+   * @param cardIds cartas a repreciar (se deduplican y capan).
+   * @param finishes acabados a refrescar; si se omite, se usan los `availableFinishes` de cada carta.
+   * @returns `{ refreshed, pending, dailyLimited }` — refreshed = cartas con ≥1 referencia nueva.
+   */
+  async refreshCardPrices(cardIds: string[], finishes?: Finish[]): Promise<RefreshCardPricesResult> {
+    const uniqueIds = [...new Set(cardIds)];
+    const capped = uniqueIds.slice(0, MAX_FRESH_REPRICE_CARDS);
+    if (capped.length === 0) return { refreshed: [], pending: [], dailyLimited: false };
+
+    const cards = await this.prisma.card.findMany({
+      where: { id: { in: capped } },
+      select: { id: true, externalId: true, tcgplayerId: true, availableFinishes: true },
+    });
+
+    const wantForCard = (avail: Finish[] | null | undefined): Finish[] => {
+      if (finishes && finishes.length > 0) return [...new Set(finishes)];
+      const a = (avail ?? []) as Finish[];
+      return a.length > 0 ? a : ['normal'];
+    };
+    const refs: FreshCardRef[] = cards.map((c) => ({
+      cardId: c.id,
+      tcgplayerId: c.tcgplayerId,
+      externalId: c.externalId,
+      finishes: wantForCard(c.availableFinishes as Finish[]),
+    }));
+
+    // FX del día izado UNA vez (money-safe: si falla, solo se persisten filas MXN; las USD se omiten).
+    let fx: { rate: number; bufferPct: number } | null = null;
+    try {
+      const cur = await this.fx.getCurrent();
+      if (Number.isFinite(cur.rate) && cur.rate > 0) fx = { rate: cur.rate, bufferPct: cur.bufferPct };
+    } catch (e) {
+      this.logger.warn(`refreshCardPrices: FX getCurrent falló → solo se persisten filas MXN. ${(e as Error).message}`);
+    }
+
+    const refreshed = new Set<string>();
+    let dailyLimited = false;
+    // Cartas aún sin referencia fresca (para intentarlas con el siguiente proveedor de la cadena).
+    let pendingRefs = refs;
+
+    for (const provider of this.freshProviders) {
+      if (pendingRefs.length === 0) break;
+      let result;
+      try {
+        result = await provider.fetchFreshForCards(pendingRefs);
+      } catch (e) {
+        // Un proveedor que revienta NO tumba el reprecio (money-safe): se intenta el siguiente.
+        this.logger.warn(`refreshCardPrices: proveedor ${provider.source} falló: ${(e as Error).message}`);
+        continue;
+      }
+      if (result.dailyLimited) dailyLimited = true;
+      for (const row of result.rows) {
+        if (!(row.marketCents > 0)) continue; // money-safe: nunca 0/negativo.
+        if (row.currency === 'USD' && fx == null) continue; // sin FX no se inventa el MXN.
+        try {
+          await this.persistMarketReference(
+            row.cardId,
+            row.finish,
+            { marketCents: row.marketCents, currency: row.currency, source: row.source },
+            fx ?? { rate: 0, bufferPct: 0 }, // fx NO se usa para currency MXN.
+          );
+          refreshed.add(row.cardId);
+        } catch (e) {
+          this.logger.warn(`refreshCardPrices: upsert falló para ${row.cardId}/${row.finish}: ${(e as Error).message}`);
+        }
+      }
+      // Solo se reintentan en el fallback las cartas que NO obtuvieron ninguna referencia fresca.
+      pendingRefs = pendingRefs.filter((r) => !refreshed.has(r.cardId));
+    }
+
+    return {
+      refreshed: [...refreshed],
+      pending: capped.filter((id) => !refreshed.has(id)),
+      dailyLimited,
+    };
   }
 
   /**
@@ -613,9 +739,11 @@ export class PricingService {
    * campos del modelo `PendingPriceEntry` (incluido `finish`, M-19) + `cardName` (conveniencia
    * plana que consume el front) + `card { id, name, number, setName }`.
    */
-  async pendingQueue() {
+  async pendingQueue(context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory') {
+    // P-6 (§M2): filtro opcional por `context` para los dos buckets de M2 (VENTA=`inventory`,
+    // COMPRA=`buylist` read-only). Sin arg → todos los pendientes (back-compat). Shape sin cambios.
     const rows = await this.prisma.pendingPriceEntry.findMany({
-      where: { status: 'open' },
+      where: { status: 'open', ...(context ? { context } : {}) },
       orderBy: { createdAt: 'asc' },
       include: { card: { include: { set: true } } },
     });

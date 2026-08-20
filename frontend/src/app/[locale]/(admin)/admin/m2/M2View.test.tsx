@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { M2View } from './M2View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { mockSettings } from '@/lib/mock/fixtures';
+
+// El `Link` de next-intl (`@/i18n/navigation`) no resuelve bajo vitest; se stubea a un <a>
+// que preserva href/aria-label (enlace del bucket COMPRA al admin de buylist, M5).
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -68,6 +80,125 @@ describe('M2View · Catálogo y precios', () => {
         priceMxnCents: 35000,
       }),
     );
+  });
+
+  // ---- P-6: cola de precio pendiente en DOS BUCKETS (v1.26) ----
+  it('P-6 VENTA (pestaña por defecto) pide context=inventory y renderiza sus pendientes', async () => {
+    const spy = vi.spyOn(api, 'getPendingPrices');
+    renderWithProviders(<M2View />, 'es');
+    // Zapdos es context=inventory (fixture) → visible en VENTA (pestaña activa por defecto).
+    expect((await screen.findAllByText('Zapdos')).length).toBeGreaterThan(0);
+    // El bucket VENTA consulta SOLO context=inventory.
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('inventory'));
+    // Machamp es context=buylist → NO aparece en el bucket VENTA.
+    expect(screen.queryByText('Machamp')).toBeNull();
+  });
+
+  it('P-6 VENTA: "Fijar precio" llama a overridePrice y REFRESCA la cola (refetch context=inventory)', async () => {
+    const override = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    const listSpy = vi.spyOn(api, 'getPendingPrices');
+    renderWithProviders(<M2View />, 'es');
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    fireEvent.change(within(dialog).getByLabelText('Precio de referencia (MXN)'), {
+      target: { value: '350' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar precio' }));
+
+    // La escritura money-touching llama al override existente…
+    await waitFor(() => expect(override).toHaveBeenCalledTimes(1));
+    // …y al cerrarse el pendiente, la cola VENTA se invalida y se vuelve a pedir (context=inventory).
+    const inventoryCalls = () => listSpy.mock.calls.filter((c) => c[0] === 'inventory').length;
+    await waitFor(() => expect(inventoryCalls()).toBeGreaterThanOrEqual(2));
+  });
+
+  // ---- S-L1 (SECURITY): el OVERRIDE (Fijar precio) no puede colar un MX$0 y publicar a $0 ----
+  it('S-L1: teclear "1.2.3" en el override deja UN SOLO punto ("1.23") y NO publica a MX$0 (123 centavos)', async () => {
+    const user = userEvent.setup();
+    const override = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    renderWithProviders(<M2View />, 'es');
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    const input = within(dialog).getByLabelText('Precio de referencia (MXN)') as HTMLInputElement;
+
+    await user.type(input, '1.2.3');
+    // El 2.º punto se descarta tecla-a-tecla: nunca se forma "1.2.3" (que casteaba a NaN→0).
+    expect(input).toHaveValue('1.23');
+
+    const save = within(dialog).getByRole('button', { name: 'Guardar precio' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    // 1.23 pesos → 123 centavos; jamás 0 (ítem publicado gratis) por el multi-punto.
+    await waitFor(() => expect(override).toHaveBeenCalledTimes(1));
+    expect(override).toHaveBeenCalledWith(expect.objectContaining({ priceMxnCents: 123 }));
+    const arg = override.mock.calls[0][0] as { priceMxnCents: number };
+    expect(arg.priceMxnCents).not.toBe(0);
+  });
+
+  it('S-L1: un override mal formado (solo ".") DESHABILITA Fijar precio → no publica a MX$0', async () => {
+    const user = userEvent.setup();
+    const override = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    renderWithProviders(<M2View />, 'es');
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    const input = within(dialog).getByLabelText('Precio de referencia (MXN)') as HTMLInputElement;
+
+    await user.type(input, '.');
+    // "." no parsea a número finito → no fijable (Number(".")=NaN, no se publica como 0).
+    expect(input).toHaveValue('.');
+    const save = within(dialog).getByRole('button', { name: 'Guardar precio' });
+    expect(save).toBeDisabled();
+
+    // Un clic no dispara el override: nunca se publica un ítem a MX$0.
+    await user.click(save);
+    expect(override).not.toHaveBeenCalled();
+  });
+
+  it('S-L1: un override VÁLIDO ("12.50") SÍ se fija como 1250 centavos (no se rompe el flujo legítimo)', async () => {
+    const user = userEvent.setup();
+    const override = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    renderWithProviders(<M2View />, 'es');
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    const input = within(dialog).getByLabelText('Precio de referencia (MXN)') as HTMLInputElement;
+
+    await user.type(input, '12.50');
+    // El punto y el cero final SOBREVIVEN al saneo (solo se descartan puntos EXTRA).
+    expect(input).toHaveValue('12.50');
+
+    const save = within(dialog).getByRole('button', { name: 'Guardar precio' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    // 12.50 pesos → 1250 centavos (no un 100× ni un 0).
+    await waitFor(() => expect(override).toHaveBeenCalledTimes(1));
+    expect(override).toHaveBeenCalledWith(expect.objectContaining({ priceMxnCents: 1250 }));
+  });
+
+  it('P-6 COMPRA pide context=buylist y es READ-ONLY (sin acción de fijar precio) + enlace a M5', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'getPendingPrices');
+    renderWithProviders(<M2View />, 'es');
+
+    await user.click(await screen.findByRole('tab', { name: /Compra/ }));
+    // El bucket COMPRA consulta context=buylist.
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('buylist'));
+    // Machamp (context=buylist) se muestra…
+    expect((await screen.findAllByText('Machamp')).length).toBeGreaterThan(0);
+    // …y es READ-ONLY: no hay botón de fijar precio en el panel de COMPRA.
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).queryByRole('button', { name: 'Fijar precio' })).toBeNull();
+    // Nota + enlace al módulo de buylist (M5), donde SÍ se fija el precio de compra.
+    expect(screen.getByRole('link', { name: /Abrir admin de buylist/ })).toBeInTheDocument();
   });
 
   it('muestra un Banner de error cuando el sync por set (Importar/Re-sincronizar) falla', async () => {
@@ -444,6 +575,117 @@ describe('M2View · Catálogo y precios', () => {
     // Un clic no dispara la mutación (nunca es un no-op silencioso: el botón ni siquiera responde).
     fireEvent.click(save);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  // ---- P-1: el input de valor por rareza (VENTA) debe aceptar decimales/tecleo/vaciado ----
+  // Los tests de arriba usan un solo `fireEvent.change('20')` que NO reproduce el bug: el fallo
+  // aparecía tecla-a-tecla (el punto decimal y el vaciado se destruían al re-derivar un número en
+  // cada keystroke). Estos usan `userEvent.type` carácter a carácter.
+  it('P-1: teclear un decimal ("12.50") en Valor para Common lo CONSERVA, habilita Guardar y envía 1250 centavos', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    // Seed: Common = { fixed, 500¢ } → el campo muestra "5" (pesos) al cargar (no un número crudo).
+    expect(input).toHaveValue('5');
+
+    await user.clear(input);
+    await user.type(input, '12.50');
+    // El punto decimal y el cero final SOBREVIVEN al tecleo (el bug los borraba en cada keystroke).
+    expect(input).toHaveValue('12.50');
+
+    const save = s.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // 12.50 pesos → 1250 centavos (no 1250 pesos ni un 100× de sobreprecio).
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 1250 } }),
+      }),
+    );
+  });
+
+  it('P-1: se puede VACIAR el campo de Valor para Common (no fuerza "0") y luego re-teclear', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    await user.clear(input);
+    // El campo queda VACÍO (antes el vaciado se normalizaba a 0 y reaparecía "0").
+    expect(input).toHaveValue('');
+    await user.type(input, '7.25');
+    expect(input).toHaveValue('7.25');
+  });
+
+  it('P-1 money-safe: cambiar el modo (fixed↔pct) NO arrastra el número entre semánticas', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    // Common arranca en fixed 500¢ → "5".
+    expect((await s.findByLabelText('Valor para Common'))).toHaveValue('5');
+    // Al pasar a % NO debe quedar "5" (500¢ no es 500%): el valor se limpia al voltear el modo.
+    await user.selectOptions(s.getByLabelText('Modo para Common'), 'pct');
+    expect(s.getByLabelText('Valor para Common')).toHaveValue('');
+  });
+
+  // ---- S-P1-1 (SECURITY): un valor con MÚLTIPLES PUNTOS o VACÍO no puede colar un MX$0 ----
+  it('S-P1-1: teclear "1.2.3" en Valor para Common deja UN SOLO punto ("1.23") y Guardar NO envía 0', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, '1.2.3');
+    // El 2.º punto se descarta tecla-a-tecla: nunca se forma "1.2.3" (que casteaba a NaN→0).
+    expect(input).toHaveValue('1.23');
+
+    const save = s.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // 1.23 pesos → 123 centavos; jamás 0 (giveaway) por el multi-punto.
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rules: expect.objectContaining({ Common: { mode: 'fixed', value: 123 } }),
+      }),
+    );
+    const arg = spy.mock.calls[0][0] as { rules: Record<string, { value: number }> };
+    expect(arg.rules.Common.value).not.toBe(0);
+  });
+
+  it('S-P1-1: VACIAR Valor para Common (regla tocada, vacía) DESHABILITA Guardar → no persiste {fixed,0}', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rules: {}, fallbackPct: 15 });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    await user.clear(input);
+    expect(input).toHaveValue('');
+
+    // La regla quedó "tocada" pero vacía → Guardar bloqueado y se explica por qué (money-safe).
+    const save = s.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeDisabled();
+    expect(s.getByText(/vac[íi]o o inv[áa]lido/i)).toBeInTheDocument();
+
+    // Un clic no dispara la mutación: nunca se persiste {mode:'fixed', value:0}.
+    await user.click(save);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('S-P1-1: un valor mal formado (solo ".") en una regla tocada DESHABILITA Guardar', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
+    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, '.');
+    // "." no parsea a número finito → no guardable (Number(".")=NaN, no se persiste como 0).
+    expect(input).toHaveValue('.');
+    expect(s.getByRole('button', { name: 'Guardar' })).toBeDisabled();
   });
 
   // ---- Ejemplos en línea del % (G3: la semántica del % es OPUESTA entre compra y venta) ----
