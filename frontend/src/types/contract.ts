@@ -870,6 +870,11 @@ export interface MasterSetCardCellDTO {
   expectedVariantCount: number;
   coveredVariantCount: number;
   variants: MasterSetVariantDTO[];
+  // v1.26 (P-2, §M1): precio de MERCADO de la carta (PriceReference CRUDA del acabado base, ya
+  // FX-recomputada a MXN cents server-side). NO es el precio de venta (referencia × markup); es el
+  // input de mercado que alimenta las reglas. `null`/ausente = referencia pending o inexistente:
+  // el front pinta un affordance "precio pendiente" (un "—" discreto), NUNCA $0 (money-safe, P-1).
+  marketReferenceMxnCents?: number | null;
 }
 
 export interface MasterSetBinderResponse {
@@ -999,6 +1004,12 @@ export interface BulkPublishLineInput {
 export interface BulkPublishRequest {
   batchKey?: string;
   items: BulkPublishLineInput[];
+  // v1.26 (P-7, §M1): si `true`, ANTES de resolver el precio el backend refresca la PriceReference
+  // con un fetch on-demand por carta (sobre inventario UNPUBLISHED `in_stock`) y luego publica.
+  // Hereda el gate ④: una variante aún sin precio tras el refresh NO se publica — ESCALA a la cola
+  // de precios pendientes (línea `ok:false` code=`PRICE_PENDING`, con `pendingPriceEntryId?`).
+  // Opcional; omitirlo (o `false`) = publicación normal, sin refresco (compat: no afecta llamadas previas).
+  repriceFresh?: boolean;
 }
 
 export type BulkPublishLineResult =
@@ -1015,6 +1026,9 @@ export type BulkPublishLineResult =
       inventoryItemId: string;
       ok: false;
       error: { code: string; message: string };
+      // v1.26 (④, §M1): id de la PendingPriceEntry escalada cuando la línea falla `PRICE_PENDING`
+      // (variante sin precio resoluble tras el reprice). ADITIVO/opcional — deep-link de UI a M2.
+      pendingPriceEntryId?: string;
     };
 
 export interface BulkPublishResponse {

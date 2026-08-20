@@ -1825,6 +1825,12 @@ export async function batchCreateItems(
  * `ITEM_NOT_PUBLISHABLE` (status de origen no publicable) y `PRICE_PENDING` (sin precio
  * resoluble) son errores POR-LÍNEA que no tumban el resto. Publicar una pieza ya `listed`
  * es no-op idempotente (ok:true). El precio se DERIVA server-side salvo override manual.
+ *
+ * v1.26 (P-7): `payload.repriceFresh?` (opcional, default `false` = ausente) pide al backend
+ * REFRESCAR la PriceReference con un fetch on-demand por carta ANTES de precio+publicar (sobre
+ * inventario `in_stock` no publicado). Hereda el gate ④: una variante aún priceless tras el
+ * refresh ESCALA a la cola de precios pendientes (línea `ok:false` code `PRICE_PENDING`, con
+ * `pendingPriceEntryId?`) y NO se publica. Omitirlo deja el comportamiento previo intacto.
  */
 export async function bulkPublishItems(
   payload: BulkPublishRequest,

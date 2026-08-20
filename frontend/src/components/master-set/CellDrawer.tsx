@@ -465,6 +465,11 @@ function PlatformPiecesSection({
       bulkPublishItems({
         batchKey: ensurePublishKey(),
         items: [...selected].map((inventoryItemId) => ({ inventoryItemId })),
+        // P-7: publica REPRECIANDO FRESCO — el backend refresca la PriceReference por carta ANTES
+        // de precio+publicar (funciona sobre piezas `in_stock` aún no publicadas). Hereda el gate
+        // ④: una variante aún sin precio tras el refresh ESCALA a la cola de pendientes (VENTA) y
+        // NO se publica (línea `ok:false` PRICE_PENDING) — se surface abajo, nunca como éxito.
+        repriceFresh: true,
       }),
     onSuccess: () => {
       setSelected(new Set());
@@ -485,6 +490,11 @@ function PlatformPiecesSection({
   }
 
   const publishResults: BulkPublishLineResult[] = publish.data?.results ?? [];
+  // P-7 (gate ④): líneas que ESCALARON a la cola de precios pendientes (VENTA) tras el reprice —
+  // NO se publicaron. Se surface como AVISO explícito (no como éxito), separado del render por-línea.
+  const pricePendingCount = publishResults.filter(
+    (r) => !r.ok && r.error.code === 'PRICE_PENDING',
+  ).length;
 
   // ---- Ajuste por levantamiento físico (contrato §M1 v1.20.1) ----
   const ta = useTranslations('masterSet.adjust');
@@ -605,6 +615,8 @@ function PlatformPiecesSection({
         >
           {t('publishSelected', { count: selected.size })}
         </Button>
+        {/* P-7: se publica REPRECIANDO fresco (fetch de precio por carta en el momento). */}
+        <p className="text-[10px] text-muted">{t('publishRepriceHint')}</p>
 
         {/* Render tolerante por-línea: ITEM_NOT_PUBLISHABLE / PRICE_PENDING no tumban el resto. */}
         {publish.data && (
@@ -615,6 +627,13 @@ function PlatformPiecesSection({
                 failed: publish.data.summary.failedLines,
               })}
             </Banner>
+            {/* P-7 (gate ④): aviso EXPLÍCITO de escalada a la cola de precios pendientes (VENTA).
+                Estas variantes NO se publicaron — se dice claro, no se disfraza de éxito. */}
+            {pricePendingCount > 0 && (
+              <Banner variant="warning" role="status">
+                {t('publishPricePending', { count: pricePendingCount })}
+              </Banner>
+            )}
             <PerLineErrors
               lines={publishResults.map((r) => ({
                 ok: r.ok,
