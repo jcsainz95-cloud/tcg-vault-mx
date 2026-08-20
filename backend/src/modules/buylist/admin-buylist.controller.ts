@@ -3,9 +3,15 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
-import { ItemDecisionDto, PaySpeiDto, RejectedItemsQueryDto } from './dto/buylist.dto';
+import {
+  ItemDecisionDto,
+  PaySpeiDto,
+  RejectedItemsQueryDto,
+  RejectRequestDto,
+} from './dto/buylist.dto';
 
 /**
  * M5 — Buylist admin. vault_operator hasta verificación; super_admin pago SPEI.
@@ -19,19 +25,31 @@ export class AdminBuylistController {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * v1.25-buylist-orders-pagination (§M5): paginación server-side + filtros para la pestaña
+   * «Cerradas». Params NUEVOS (`q`, `from`, `to`, `minCents`, `maxCents`) TODOS opcionales; omitirlos
+   * = comportamiento de HOY. `status` pasa a aceptar CSV (`pagada,rechazada,abandonada`). Validación
+   * (paginación/fecha/monto/`q`) → 400 VALIDATION_ERROR vía `parseAdminListFilters`; token de `status`
+   * inválido → 400 en el servicio (`details.invalidStatus`). `pageSize` default 20 (máx 100).
+   */
   @Get()
   list(
     @Query('status') status?: string,
     @Query('userId') userId?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('minCents') minCents?: string,
+    @Query('maxCents') maxCents?: string,
   ) {
-    return this.buylist.adminList(
-      status,
-      Math.max(1, parseInt(page, 10) || 1),
-      Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
-      userId,
-    );
+    const f = parseAdminListFilters({ page, pageSize, q, from, to, minCents, maxCents });
+    return this.buylist.adminList(status, f.page, f.pageSize, userId, {
+      q: f.q,
+      dateRange: f.dateRange,
+      centsRange: f.centsRange,
+    });
   }
 
   /**
@@ -96,6 +114,36 @@ export class AdminBuylistController {
       entityId: id,
     });
     return res;
+  }
+
+  /**
+   * v1.24-buylist-request-reject (§M5, §4.18g): botón «Rechazar solicitud» — cierre EXPLÍCITO de una
+   * solicitud a terminal `rechazada`+`closedAt`. Roles heredados de la clase (vault_operator/
+   * super_admin); NO es dinero saliente → SIN @MoneyOut. Auditado `action: 'buylist.reject'` (el
+   * `reason?` interno, NO PII, va en `after`). Ruta literal `:id/reject` (POST) sin colisión con las
+   * demás. Cierra SÓLO si todos los ítems ya están `rechazada`; si no → 422; terminal distinto → 409.
+   * Idempotente: ya `rechazada` → 200 sin re-auditar como cambio (`transitioned=false`).
+   */
+  @Post(':id/reject')
+  async reject(
+    @Param('id') id: string,
+    @Body() dto: RejectRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const { request, transitioned } = await this.buylist.rejectRequest(id, dto.reason);
+    // Idempotencia: no se re-audita como cambio si la solicitud ya estaba `rechazada`.
+    if (transitioned) {
+      await this.audit.log({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'buylist.reject',
+        entityType: 'SellRequest',
+        entityId: id,
+        // Motivo interno del cierre a nivel solicitud (NO PII); ausente si no se envió.
+        after: { reason: dto.reason },
+      });
+    }
+    return request;
   }
 
   @Patch('items/:itemId/decision')

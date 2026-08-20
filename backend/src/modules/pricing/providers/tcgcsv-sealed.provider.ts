@@ -7,20 +7,10 @@ import {
   TcgcsvGroupRef,
   TcgcsvProductRef,
 } from '../pricing.types';
-
-/**
- * Payloads crudos de tcgcsv.com (espejo diario estático de TCGplayer, JSON servido como
- * archivos, SIN API key). Todos los endpoints comparten el wrapper `{ results: [...] }`.
- * SUPUESTO a verificar en staging (1ª corrida manual, §4.19f): el formato se calibró con
- * las fixtures de `backend/test/fixtures/tcgcsv/` (el egress a tcgcsv.com está bloqueado
- * en dev); si el esquema real difiere, se ajustan adapter + fixtures.
- */
-interface TcgcsvEnvelope<T> {
-  totalItems?: number;
-  success?: boolean;
-  errors?: unknown[];
-  results?: T[];
-}
+// v1.26 (§4.24a): la seguridad anti-SSRF (host fijo + getJson + assertValidGroupId + categoría
+// Pokémon=3) se EXTRAJO a `TcgcsvHttpClient` para compartirla, sin duplicar, con el cliente de
+// singles (`TcgcsvCatalogClient`). Este provider ahora la HEREDA.
+import { TcgcsvHttpClient } from './tcgcsv-http.client';
 
 interface TcgcsvRawGroup {
   groupId?: number;
@@ -70,43 +60,9 @@ interface TcgcsvRawPrice {
  *  - `lowPrice`/`highPrice` NO se persisten (solo observabilidad/logs).
  */
 @Injectable()
-export class TcgcsvSealedBulkProvider implements SealedBulkPriceProvider {
+export class TcgcsvSealedBulkProvider extends TcgcsvHttpClient implements SealedBulkPriceProvider {
   readonly source: PriceSource = 'tcgcsv';
   private readonly logger = new Logger(TcgcsvSealedBulkProvider.name);
-  /** Host FIJO — no configurable por el usuario (anti-SSRF). */
-  private readonly baseUrl = 'https://tcgcsv.com/tcgplayer';
-  /** Categoría Pokémon en TCGplayer/TCGCSV. CONSTANTE de servidor (nunca del cliente). */
-  private readonly pokemonCategoryId = 3;
-  /** Timeout corto: TCGCSV sirve archivos estáticos; si tarda, algo anda mal. */
-  private readonly timeoutMs = 15_000;
-
-  /** GET al host fijo con timeout + sin redirects + Accept JSON. */
-  private async getJson<T>(path: string): Promise<TcgcsvEnvelope<T>> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
-        headers: { Accept: 'application/json' },
-        redirect: 'error',
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`tcgcsv.com ${path} -> HTTP ${res.status}`);
-      const body = (await res.json()) as TcgcsvEnvelope<T>;
-      if (!body || !Array.isArray(body.results)) {
-        throw new Error(`tcgcsv.com ${path} -> payload inesperado (sin results[])`);
-      }
-      return body;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  /** Valida el groupId como entero positivo ANTES de interpolarlo en el path remoto. */
-  private assertValidGroupId(groupId: number): void {
-    if (!Number.isInteger(groupId) || groupId <= 0) {
-      throw new Error(`tcgcsv: groupId inválido (${String(groupId)}); debe ser entero positivo`);
-    }
-  }
 
   /** Grupos de la categoría Pokémon (explorador de curación M2). Lanza ante fallo remoto. */
   async listGroups(): Promise<TcgcsvGroupRef[]> {

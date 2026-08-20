@@ -13,6 +13,19 @@
 export const BUYLIST_REJECT_RETURN_WINDOW_DAYS = 7;
 export const BUYLIST_REJECT_ABANDON_WINDOW_DAYS = 30;
 
+/**
+ * v1.24-buylist-request-reject (§4.18f/g) — estados TERMINALES de una `SellRequest`: una vez en uno
+ * de ellos la solicitud ya no procesa (dinero salió / se cerró). Fuente ÚNICA del set usado por el
+ * guard «no pisar terminal» de la auto-transición (`maybeAutoRejectRequest`) y del cierre explícito
+ * (`rejectRequest`), evitando duplicar el literal inline en cada `updateMany`/guarda 409.
+ *
+ * NOTA (deuda menor, ver resumen del pase): `src/jobs/ine-retention.service.ts` define su propio
+ * `CLOSED` con este MISMO set; vive en `src/jobs/` (zona en uso por otro stream en este pase), así
+ * que NO se reapunta aquí para no arriesgar regresión cross-stream. Cuando ese archivo se toque,
+ * debe importar esta constante para dejar la familia con fuente única.
+ */
+export const SELL_REQUEST_TERMINAL_STATES = ['pagada', 'rechazada', 'abandonada'] as const;
+
 const DAY_MS = 24 * 3600 * 1000;
 
 /**

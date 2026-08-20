@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { RefreshCw, DownloadCloud, Layers, Zap } from 'lucide-react';
+import { RefreshCw, DownloadCloud, Layers, Zap, ExternalLink } from 'lucide-react';
+import { Link } from '@/i18n/navigation';
+import { cn } from '@/lib/cn';
 import {
   syncPricing,
   getPendingPrices,
@@ -65,6 +67,28 @@ const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'bliste
 function pesosToCents(value: string): number {
   const n = Number(value.replace(/,/g, ''));
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
+/**
+ * S-P1-1 (money-safe): sanea entrada monetaria a dígitos + UN SOLO punto decimal. Un
+ * `replace(/[^0-9.]/g,'')` deja pasar "1.2.3"/"12..5", que luego castean a NaN→0 y listarían
+ * cartas a MX$0. Aquí se conserva solo el PRIMER punto y se descartan los siguientes.
+ */
+function sanitizeDecimalInput(value: string): string {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot === -1) return cleaned;
+  return cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+}
+
+/**
+ * S-P1-1 (money-safe): un valor CRUDO de regla es guardable solo si NO está vacío y parsea a un
+ * número finito. Vacío ("") o mal formado (".", "1.2.3") NO deben guardarse como 0 (regalo).
+ */
+function isSaveableRuleValue(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed === '') return false;
+  return Number.isFinite(Number(trimmed));
 }
 
 /**
@@ -136,8 +160,23 @@ export function M2View() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pending-prices'] }),
   });
 
-  // --- Sección 2: cola de precio pendiente + override ---
-  const pending = useQuery({ queryKey: ['pending-prices'], queryFn: getPendingPrices });
+  // --- Sección 2: cola de precio pendiente en DOS BUCKETS (P-6, v1.26) ---
+  // VENTA = context=inventory (fijable por override → publica el ítem). COMPRA = context=buylist,
+  // vista READ-ONLY (producir el precio de compra on-request es un WRITE del stream buylist,
+  // acoplado a INE/AML — FUERA DE ALCANCE de M2; aquí solo se muestra). Ver contrato §M2.
+  const [bucket, setBucket] = useState<'venta' | 'compra'>('venta');
+  // Cada bucket pide SOLO su contexto y solo cuando su pestaña está activa (calca M6). El override
+  // invalida el prefijo ['pending-prices'] → refresca el bucket VENTA al cerrar el pendiente.
+  const ventaPending = useQuery({
+    queryKey: ['pending-prices', 'inventory'],
+    queryFn: () => getPendingPrices('inventory'),
+    enabled: bucket === 'venta',
+  });
+  const compraPending = useQuery({
+    queryKey: ['pending-prices', 'buylist'],
+    queryFn: () => getPendingPrices('buylist'),
+    enabled: bucket === 'compra',
+  });
   const [overrideTarget, setOverrideTarget] = useState<PendingPriceEntryDTO | null>(null);
   const [overridePriceValue, setOverridePriceValue] = useState('');
   const overrideMutation = useMutation({
@@ -186,6 +225,26 @@ export function M2View() {
           {t('pending.setPrice')}
         </Button>
       ),
+    },
+  ];
+
+  // COMPRA (context=buylist): columnas READ-ONLY (carta/número/acabado). SIN acción de fijar precio:
+  // el precio de compra lo produce el stream buylist (M5), no M2. Ver contrato §M2 / ARCHITECTURE §4.24c.
+  const compraColumns: Column<PendingPriceEntryDTO>[] = [
+    {
+      key: 'card',
+      header: t('pending.card'),
+      render: (e) => (
+        <span lang="en">
+          {e.cardName ?? e.card?.name ?? e.cardId}
+          {e.card?.number ? <span className="tabular text-muted"> #{e.card.number}</span> : null}
+        </span>
+      ),
+    },
+    {
+      key: 'finish',
+      header: t('pending.finish'),
+      render: (e) => <FinishBadge finish={e.finish} productType={e.productType} />,
     },
   ];
 
@@ -325,7 +384,11 @@ export function M2View() {
   // (groupBy(Card.rarity)). El merge del guardado parte de esta base para no perderla en el
   // REEMPLAZO TOTAL del PUT (cartas holo/reverse revertían a fallback y caían a pending).
   const salesRules = useQuery({ queryKey: ['sales-rules'], queryFn: getSalesRules });
-  const [salesRuleDraft, setSalesRuleDraft] = useState<Record<string, SalesRule>>({});
+  // Borrador por rareza: el `value` se guarda como TEXTO CRUDO (igual que salesFallbackDraft /
+  // spreadDraft) para permitir edición parcial/decimal/vaciado ("12.50", "", "12."). Se castea a
+  // número (centavos si fixed, pct si pct) SOLO al guardar en saveSalesRules. Guardar un número
+  // re-derivado en cada tecla rompía el punto decimal y el vaciado ("no puedo picar").
+  const [salesRuleDraft, setSalesRuleDraft] = useState<Record<string, { mode: SalesRuleMode; value: string }>>({});
   const [salesFallbackDraft, setSalesFallbackDraft] = useState<string | null>(null);
   const salesRulesMutation = useMutation({
     mutationFn: (payload: { rules: Record<string, SalesRule>; fallbackPct: number }) =>
@@ -340,22 +403,57 @@ export function M2View() {
 
   const salesServerFallback = salesRarities.data?.fallbackPct ?? 15;
   const salesEffectiveFallback = salesFallbackDraft ?? String(salesServerFallback);
-  function salesEffectiveRule(rarity: string, serverRule: SalesRule, source: 'rule' | 'fallback'): SalesRule {
-    if (salesRuleDraft[rarity]) return salesRuleDraft[rarity];
-    if (source === 'rule') return serverRule;
-    return { mode: 'pct', value: Number(salesEffectiveFallback) || 0 };
+  // Texto crudo a mostrar para una regla del servidor: fixed = pesos (centavos/100), pct = tal cual.
+  function salesRuleToRaw(rule: SalesRule): string {
+    return rule.mode === 'fixed' ? String(rule.value / 100) : String(rule.value);
+  }
+  // Regla efectiva (con `value` en TEXTO CRUDO) por fila: borrador > regla explícita del servidor >
+  // fallback. El input lee este `value` literal (no un número re-derivado) → editable/decimal/vaciable.
+  function salesEffectiveRule(
+    rarity: string,
+    serverRule: SalesRule,
+    source: 'rule' | 'fallback',
+  ): { mode: SalesRuleMode; value: string } {
+    const draft = salesRuleDraft[rarity];
+    if (draft) return draft;
+    if (source === 'rule') return { mode: serverRule.mode, value: salesRuleToRaw(serverRule) };
+    return { mode: 'pct', value: salesEffectiveFallback };
   }
   const salesRulesDirty =
     Object.keys(salesRuleDraft).length > 0 ||
     (salesFallbackDraft != null && salesFallbackDraft !== String(salesServerFallback));
+  // S-P1-1 (money-safe): alguna regla TOCADA tiene valor vacío/mal formado → NO es guardable.
+  // Bloquea Guardar (patrón de validación ya usado en la Sección 5) para que un vacío/NaN nunca
+  // se persista como 0 (fixed 0 = MX$0.00 → carta regalada; el server acepta 0 y no da 422).
+  const salesDraftInvalid = Object.values(salesRuleDraft).some((d) => !isSaveableRuleValue(d.value));
+
+  // S-L1 (money-safe): el override de precio (Fijar precio) publica el ítem a este valor. Un vacío
+  // o mal formado ("1.2.3") castea a NaN→0 vía pesosToCents y publicaría a MX$0. Mismo guard que
+  // salesRules: solo es fijable un valor no vacío que parsea a número finito → si no, se bloquea.
+  const overrideDraftInvalid = !isSaveableRuleValue(overridePriceValue);
 
   function saveSalesRules() {
     // INV-1: money-safe. Base = tabla CRUDA COMPLETA (incluye la clave sintética "Holo" y cualquier
     // rareza fuera del catálogo actual); el borrador se aplica encima. Sin la cruda no guardamos
     // para no borrar claves sintéticas en el REEMPLAZO TOTAL del PUT.
     if (!salesRules.data) return;
+    // Castea el borrador CRUDO a la regla numérica del contrato SOLO aquí (fixed: pesos→centavos;
+    // pct: número). Guarda ligera de rangos del servidor (fixed ≥ 0; pct 0–1000) para no mandar
+    // basura, sin bloquear entrada legítima mientras se teclea.
+    const draftRules: Record<string, SalesRule> = {};
+    for (const [rarity, d] of Object.entries(salesRuleDraft)) {
+      // S-P1-1: defensa en profundidad — jamás persistir una regla vacía/mal formada como 0.
+      // El botón Guardar ya se deshabilita con `salesDraftInvalid`, pero si llegara aquí, se OMITE
+      // (no se envía 0). Casteo a número solo sobre valores ya validados como finitos.
+      if (!isSaveableRuleValue(d.value)) continue;
+      const value =
+        d.mode === 'fixed'
+          ? Math.max(0, pesosToCents(d.value))
+          : Math.min(1000, Math.max(0, Number(d.value) || 0));
+      draftRules[rarity] = { mode: d.mode, value };
+    }
     salesRulesMutation.mutate({
-      rules: { ...salesRules.data.rules, ...salesRuleDraft },
+      rules: { ...salesRules.data.rules, ...draftRules },
       fallbackPct: Number(salesEffectiveFallback) || 0,
     });
   }
@@ -578,24 +676,75 @@ export function M2View() {
         )}
       </section>
 
-      {/* Sección 2: cola de precio pendiente + override */}
+      {/* Sección 2: cola de precio pendiente en DOS BUCKETS (P-6, v1.26) */}
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('pending.title')}</h2>
         <p className="text-sm text-muted">{t('pending.subtitle')}</p>
-        <QueryState
-          isLoading={pending.isLoading}
-          isError={pending.isError}
-          error={pending.error}
-          onRetry={() => pending.refetch()}
-        >
-          {pending.data && pending.data.length > 0 ? (
-            <div className="rounded-lg border border-border bg-surface p-2">
-              <DataTable columns={pendingColumns} rows={pending.data} rowKey={(e) => e.id} />
-            </div>
-          ) : (
-            <EmptyState tone="positive" title={t('pending.empty')} />
-          )}
-        </QueryState>
+
+        {/* Pestañas VENTA / COMPRA (patrón de tabs de M6) */}
+        <div role="tablist" aria-label={t('pending.bucketsLabel')} className="flex flex-wrap gap-1 border-b border-border">
+          {(['venta', 'compra'] as const).map((k) => (
+            <button
+              key={k}
+              role="tab"
+              type="button"
+              aria-selected={bucket === k}
+              onClick={() => setBucket(k)}
+              className={cn(
+                '-mb-px rounded-t-md px-3 py-2 text-sm font-medium',
+                bucket === k ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+              )}
+            >
+              {t(`pending.buckets.${k}`)}
+            </button>
+          ))}
+        </div>
+
+        {/* VENTA (context=inventory): fijable por override → publica el ítem */}
+        {bucket === 'venta' && (
+          <div role="tabpanel">
+            <QueryState
+              isLoading={ventaPending.isLoading}
+              isError={ventaPending.isError}
+              error={ventaPending.error}
+              onRetry={() => ventaPending.refetch()}
+            >
+              {ventaPending.data && ventaPending.data.length > 0 ? (
+                <div className="rounded-lg border border-border bg-surface p-2">
+                  <DataTable columns={pendingColumns} rows={ventaPending.data} rowKey={(e) => e.id} />
+                </div>
+              ) : (
+                <EmptyState tone="positive" title={t('pending.ventaEmpty')} />
+              )}
+            </QueryState>
+          </div>
+        )}
+
+        {/* COMPRA (context=buylist): READ-ONLY. NO hay acción de fijar precio aquí. */}
+        {bucket === 'compra' && (
+          <div role="tabpanel" className="flex flex-col gap-3">
+            <Banner variant="info" role="status">
+              {t('pending.compraNote')}{' '}
+              <Link href="/admin/m5" className="inline-flex items-center gap-1 font-medium underline">
+                {t('pending.compraLink')} <ExternalLink size={14} />
+              </Link>
+            </Banner>
+            <QueryState
+              isLoading={compraPending.isLoading}
+              isError={compraPending.isError}
+              error={compraPending.error}
+              onRetry={() => compraPending.refetch()}
+            >
+              {compraPending.data && compraPending.data.length > 0 ? (
+                <div className="rounded-lg border border-border bg-surface p-2">
+                  <DataTable columns={compraColumns} rows={compraPending.data} rowKey={(e) => e.id} />
+                </div>
+              ) : (
+                <EmptyState tone="positive" title={t('pending.compraEmpty')} />
+              )}
+            </QueryState>
+          </div>
+        )}
       </section>
 
       {/* Sección 3: FX */}
@@ -915,7 +1064,9 @@ export function M2View() {
                         value={rule.mode}
                         onChange={(e) => {
                           const mode = e.target.value as SalesRuleMode;
-                          setSalesRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode, value: rule.value } }));
+                          // Money-safe: NO arrastrar el valor entre semánticas (centavos fijos ↔ %):
+                          // un 500¢ fijo no debe volverse 500%, ni un 15% volverse $0.15. Se limpia.
+                          setSalesRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode, value: '' } }));
                         }}
                       />
                       <Input
@@ -926,12 +1077,13 @@ export function M2View() {
                         prefix={rule.mode === 'fixed' ? 'MX$' : undefined}
                         suffix={rule.mode === 'pct' ? '%' : undefined}
                         className="w-32"
-                        value={rule.mode === 'fixed' ? String(rule.value / 100) : String(rule.value)}
-                        onChange={(e) => {
-                          const raw = e.target.value.replace(/[^0-9.]/g, '');
-                          const value = rule.mode === 'fixed' ? pesosToCents(raw) : Number(raw) || 0;
-                          setSalesRuleDraft((prev) => ({ ...prev, [row.rarity]: { mode: rule.mode, value } }));
-                        }}
+                        value={rule.value}
+                        onChange={(e) =>
+                          setSalesRuleDraft((prev) => ({
+                            ...prev,
+                            [row.rarity]: { mode: rule.mode, value: sanitizeDecimalInput(e.target.value) },
+                          }))
+                        }
                       />
                       <Badge tone={effectiveSource === 'rule' ? 'info' : 'neutral'} shape="outline">
                         {t(`salesRules.sourceLabel.${effectiveSource}`)}
@@ -944,12 +1096,20 @@ export function M2View() {
               {/* Copy clave de VENTA: el pct es markup ARRIBA de mercado; fixed es un piso. */}
               <p className="text-xs text-muted">{t('salesRules.pctHint')}</p>
 
+              {/* S-P1-1 money-safe: explica por qué Guardar está deshabilitado cuando hay un valor
+                  vacío/mal formado (no se persiste como MX$0). */}
+              {salesDraftInvalid && (
+                <Banner variant="warning" role="alert">{t('salesRules.invalidValue')}</Banner>
+              )}
+
               <div className="flex gap-2">
                 <Button
                   variant="secondary"
                   // INV-1 robustez: idéntico gate que buylist — sin la tabla CRUDA (salesRules) el
                   // guard hace return silencioso; gateamos también con `!salesRules.data`.
-                  disabled={!salesRulesDirty || !salesRules.data}
+                  // S-P1-1: además se bloquea si alguna regla tocada tiene valor vacío/mal formado
+                  // (evita persistir 0 = carta regalada; el server acepta 0 y no da 422).
+                  disabled={!salesRulesDirty || !salesRules.data || salesDraftInvalid}
                   loading={salesRulesMutation.isPending}
                   onClick={saveSalesRules}
                 >
@@ -1244,9 +1404,13 @@ export function M2View() {
               {tc('cancel')}
             </Button>
             <Button
-              disabled={overridePriceValue === ''}
+              // S-L1 money-safe: bloquea Fijar precio si el valor está vacío o mal formado, para que
+              // pesosToCents no lo castee a NaN→0 y publique el ítem a MX$0 (mismo gate que salesRules).
+              disabled={overrideDraftInvalid}
               loading={overrideMutation.isPending}
-              onClick={() => overrideTarget && overrideMutation.mutate(overrideTarget)}
+              onClick={() =>
+                overrideTarget && !overrideDraftInvalid && overrideMutation.mutate(overrideTarget)
+              }
             >
               {t('pending.saveOverride')}
             </Button>
@@ -1270,8 +1434,14 @@ export function M2View() {
             inputMode="decimal"
             prefix="MX$"
             value={overridePriceValue}
-            onChange={(e) => setOverridePriceValue(e.target.value)}
+            // S-L1 money-safe: idéntico saneo que salesRules — solo dígitos + UN punto, para que
+            // "1.2.3"/"12..5" no formen un valor que castee a NaN→0 y publique el ítem a MX$0.
+            onChange={(e) => setOverridePriceValue(sanitizeDecimalInput(e.target.value))}
           />
+          {/* S-L1 money-safe: si el valor quedó vacío/mal formado, explica por qué Fijar está bloqueado. */}
+          {overridePriceValue !== '' && overrideDraftInvalid && (
+            <Banner variant="warning" role="alert">{t('pending.overrideInvalidValue')}</Banner>
+          )}
           {overridePriceValue !== '' && (
             <p className="text-xs text-muted">
               = {formatMoneyCents(pesosToCents(overridePriceValue), locale)}

@@ -3,6 +3,7 @@ import { Prisma, Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { OrdersService } from './orders.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from '../payments/stripe.service';
@@ -41,9 +42,18 @@ export class AdminOrdersController {
     @Query('needsManual') needsManual?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    // v1.25-buylist-orders-pagination (§M3, aditivos y opcionales — declarados AL FINAL para no
+    // alterar el orden posicional de los params existentes): `q` (folio/comprador) y rango de MONTO
+    // sobre `totalCents`. `from`/`to` ya existían (rango sobre `createdAt`).
+    @Query('q') q?: string,
+    @Query('minCents') minCents?: string,
+    @Query('maxCents') maxCents?: string,
   ) {
-    const p = Math.max(1, parseInt(page, 10) || 1);
-    const ps = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20));
+    // Validación TRANSVERSAL (paginación/fecha/monto/`q`) → 400 VALIDATION_ERROR (§Convenciones),
+    // mismos nombres/semántica que `GET /admin/buylist`.
+    const f = parseAdminListFilters({ page, pageSize, q, from, to, minCents, maxCents });
+    const p = f.page;
+    const ps = f.pageSize;
     const where: Prisma.OrderWhereInput = {};
     if (status) where.status = status as never;
     if (userId) where.userId = userId;
@@ -54,11 +64,21 @@ export class AdminOrdersController {
     // EXACTAMENTE como estaba (misma forma de respuesta y mismo comportamiento por defecto).
     if (needsManual === 'true') where.chargebackNeedsManual = true;
     if (needsManual === 'false') where.chargebackNeedsManual = false;
-    if (from || to) {
-      where.createdAt = {
-        ...(from ? { gte: new Date(from) } : {}),
-        ...(to ? { lte: new Date(to) } : {}),
-      };
+    if (f.dateRange) where.createdAt = f.dateRange;
+    // v1.25 (§M3): rango de MONTO sobre `totalCents` — total canónico de la orden (gte/lte).
+    if (f.centsRange) where.totalCents = f.centsRange;
+    // v1.25 (§M3): `q` contains case-insensitive OR sobre folio (`orderNumber`), correo de invitado
+    // (`guestEmail`) e identidad del comprador con cuenta (`userId` EXACTO + `user.name`/`user.email`
+    // vía la relación `Order.user`). Cubre invitado (guestEmail) y con cuenta. NO busca datos de pago
+    // (`paymentMethodLast4` queda fuera de alcance). Prisma parametrizado — nunca SQL crudo.
+    if (f.q) {
+      where.OR = [
+        { orderNumber: { contains: f.q, mode: 'insensitive' } },
+        { guestEmail: { contains: f.q, mode: 'insensitive' } },
+        { userId: f.q },
+        { user: { name: { contains: f.q, mode: 'insensitive' } } },
+        { user: { email: { contains: f.q, mode: 'insensitive' } } },
+      ];
     }
     const [data, total] = await Promise.all([
       this.prisma.order.findMany({

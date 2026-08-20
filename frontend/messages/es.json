@@ -370,6 +370,11 @@
     "filterSecretRares": "Solo secret rares",
     "secretRare": "Secret rare",
     "gap": "Hueco",
+    "marketLabel": "Mercado",
+    "marketPending": "Precio pendiente",
+    "marketPendingShort": "—",
+    "publishRepriceHint": "Al publicar se refresca primero el precio de mercado de cada carta, luego se precia y se lista.",
+    "publishPricePending": "{count, plural, one {# variante} other {# variantes}} sigui{count, plural, one {ó} other {eron}} sin precio resoluble tras el refresco y pas{count, plural, one {ó} other {aron}} a la cola de precios pendientes (Venta) — NO se public{count, plural, one {ó} other {aron}}.",
     "totalCount": "{count, plural, one {# pieza} other {# piezas}}",
     "cardTotalCount": "{count, plural, one {# en total} other {# en total}}",
     "cardTotalCountAria": "Tengo {count, plural, one {# pieza} other {# piezas}} de esta carta en total",
@@ -1003,7 +1008,19 @@
       },
       "refundDone": "Reembolso ejecutado para la orden {orderId}.",
       "refundReasonLabel": "Motivo del reembolso",
-      "refundReasonHint": "Obligatorio; queda en bitácora. Solo errores de la plataforma (ventas finales)."
+      "refundReasonHint": "Obligatorio; queda en bitácora. Solo errores de la plataforma (ventas finales).",
+      "searchLabel": "Buscar orden",
+      "searchPlaceholder": "Folio o comprador…",
+      "empty": "No hay órdenes con estos filtros.",
+      "filters": {
+        "dateFrom": "Desde",
+        "dateTo": "Hasta",
+        "minAmount": "Monto mín.",
+        "maxAmount": "Monto máx."
+      },
+      "prev": "Anterior",
+      "next": "Siguiente",
+      "pageInfo": "Página {page} de {totalPages}"
     },
     "m4": {
       "title": "M4 · Retiros / envíos",
@@ -1072,6 +1089,12 @@
       "rejectReasonInvalid": "El motivo debe tener entre 3 y 500 caracteres.",
       "rejectNotifyNote": "Al confirmar se notificará al vendedor por correo con el motivo y sus plazos: devolución en 7 días (a su costo) o abandono a los 30 días.",
       "rejectConfirm": "Rechazar y notificar",
+      "rejectRequest": "Rechazar solicitud",
+      "rejectRequestTitle": "Rechazar solicitud completa",
+      "rejectRequestConsequence": "Se cerrará la solicitud como rechazada. Solo procede cuando todos sus ítems ya están rechazados; no mueve dinero ni envía correos (los avisos por carta ya salieron al rechazar cada ítem).",
+      "rejectRequestReasonLabel": "Motivo interno (opcional)",
+      "rejectRequestReasonHint": "Opcional, hasta 500 caracteres. Queda en bitácora; no se muestra al vendedor.",
+      "rejectRequestConfirm": "Rechazar solicitud",
       "rejected": {
         "intro": "Cartas rechazadas (no-NM) de todas las solicitudes. No se pagan y NUNCA entran al inventario vendible: quedan retenidas hasta su devolución (a costo del vendedor) o abandono.",
         "empty": "No hay cartas rechazadas.",
@@ -1087,6 +1110,18 @@
           "expired": "Plazos vencidos",
           "unknown": "Sin plazos"
         },
+        "prev": "Anterior",
+        "next": "Siguiente",
+        "pageInfo": "Página {page} de {totalPages}"
+      },
+      "filters": {
+        "dateFrom": "Desde",
+        "dateTo": "Hasta",
+        "minAmount": "Monto mín.",
+        "maxAmount": "Monto máx."
+      },
+      "closed": {
+        "empty": "No hay solicitudes cerradas con estos filtros.",
         "prev": "Anterior",
         "next": "Siguiente",
         "pageInfo": "Página {page} de {totalPages}"
@@ -1117,7 +1152,8 @@
         "rejected": "Ítem rechazado.",
         "converted": "Convertido a inventario · folio {folio}.",
         "alreadyConverted": "Este ítem ya estaba convertido a inventario.",
-        "paid": "Pago SPEI registrado; la solicitud quedó pagada."
+        "paid": "Pago SPEI registrado; la solicitud quedó pagada.",
+        "requestRejected": "Solicitud rechazada; quedó cerrada."
       }
     },
     "m8": {
@@ -1152,6 +1188,15 @@
         "title": "Cola de precio pendiente",
         "subtitle": "Cartas sin precio de referencia, escaladas para fijar precio a mano. El comprador nunca ve este estado.",
         "empty": "Sin precios pendientes.",
+        "bucketsLabel": "Buckets de precio pendiente",
+        "buckets": {
+          "venta": "Venta (inventario)",
+          "compra": "Compra (buylist)"
+        },
+        "ventaEmpty": "Sin ítems de inventario a la espera de precio de venta.",
+        "compraEmpty": "Sin cartas de buylist a la espera de referencia de compra.",
+        "compraNote": "Solo lectura: el precio de compra de las cartas de buylist se fija en el módulo de buylist, no aquí.",
+        "compraLink": "Abrir admin de buylist",
         "card": "Carta",
         "type": "Tipo",
         "gradeKey": "Clave de grado",
@@ -1160,6 +1205,7 @@
         "overrideTitle": "Override manual de precio",
         "saveOverride": "Guardar precio",
         "priceLabel": "Precio de referencia (MXN)",
+        "overrideInvalidValue": "Ingresa un precio válido: un valor vacío o mal formado no puede fijarse (evita publicar el ítem a MX$0 por un error de dedo).",
         "finish": "Acabado"
       },
       "fx": {
@@ -1287,7 +1333,8 @@
         "pctHint": "Porcentaje: precio de venta = mercado × (1 + %). Ejemplo: 15% deja el precio 15% arriba de mercado (se admite hasta 1000%). Fijo: el monto en MX$ es un piso de venta.",
         "example": "Ejemplo: el % es lo que subes SOBRE el mercado. Con +15%, vendes en MX$115 una carta de MX$100.",
         "saved": "Reglas de venta guardadas.",
-        "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar."
+        "rulesUnavailable": "No se pudo cargar la tabla de reglas: no se puede guardar sin ella (se perderían reglas). Reintenta antes de editar.",
+        "invalidValue": "Hay reglas con el valor vacío o inválido. Corrígelas para poder guardar: un valor vacío o mal formado no se guarda como MX$0 (evita listar cartas gratis por error)."
       },
       "sealedSpreads": {
         "title": "Spreads de venta del sellado",
@@ -1685,6 +1732,7 @@
     "FINISH_NOT_AVAILABLE": "Ese acabado no está disponible para esta carta.",
     "ITEM_NOT_PUBLISHABLE": "Esta pieza no se puede publicar en su estado actual.",
     "MONEY_OUT_FORBIDDEN": "Solo el súper-admin puede ejecutar movimientos de dinero saliente.",
+    "REQUEST_HAS_NON_REJECTED_ITEMS": "No se puede cerrar: aún quedan ítems sin rechazar. Rechaza todos los ítems de la solicitud antes de cerrarla.",
     "EMAIL_TAKEN": "Ese correo ya está registrado.",
     "INVALID_CREDENTIALS": "Correo o contraseña incorrectos.",
     "USER_BLOCKED": "Tu cuenta está bloqueada.",

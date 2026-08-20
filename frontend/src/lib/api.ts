@@ -92,6 +92,7 @@ import type {
   PriceProvider,
   PriceIngestResponse,
   PendingPriceEntryDTO,
+  PendingPriceContext,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
   PricingSyncResponse,
@@ -1824,6 +1825,12 @@ export async function batchCreateItems(
  * `ITEM_NOT_PUBLISHABLE` (status de origen no publicable) y `PRICE_PENDING` (sin precio
  * resoluble) son errores POR-LÍNEA que no tumban el resto. Publicar una pieza ya `listed`
  * es no-op idempotente (ok:true). El precio se DERIVA server-side salvo override manual.
+ *
+ * v1.26 (P-7): `payload.repriceFresh?` (opcional, default `false` = ausente) pide al backend
+ * REFRESCAR la PriceReference con un fetch on-demand por carta ANTES de precio+publicar (sobre
+ * inventario `in_stock` no publicado). Hereda el gate ④: una variante aún priceless tras el
+ * refresh ESCALA a la cola de precios pendientes (línea `ok:false` code `PRICE_PENDING`, con
+ * `pendingPriceEntryId?`) y NO se publica. Omitirlo deja el comportamiento previo intacto.
  */
 export async function bulkPublishItems(
   payload: BulkPublishRequest,
@@ -1982,13 +1989,75 @@ function mockSellerFor(userId: string): AdminSellerRef {
   return MOCK_SELLERS[userId] ?? { id: userId, name: userId, email: `${userId}@example.mx` };
 }
 
-export async function getAdminBuylist(): Promise<AdminBuylistDTO[]> {
+/**
+ * Filtros server-side de la cola admin de buylist (contrato §M5 · GET /admin/buylist).
+ * v1.25-buylist-orders-pagination: TODOS opcionales y ADITIVOS — omitirlos = comportamiento
+ * de HOY. `status` acepta LISTA CSV (p. ej. `pagada,rechazada,abandonada` para la pestaña
+ * «Cerradas»); `q` (folio/vendedor) sustituye el buscador client-side; `from`/`to` (createdAt),
+ * `minCents`/`maxCents` (sobre `quotedTotalCents`). `pageSize` que pide el front = 25.
+ */
+export interface AdminBuylistFilters {
+  /** v1.25: uno o varios `SellRequestStatus` en CSV (`IN (...)`); un solo valor = como HOY. */
+  status?: string;
+  userId?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+  minCents?: number;
+  maxCents?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Cola admin de buylist paginada (contrato §M5 · GET /admin/buylist → `{ data, page, pageSize,
+ * total }`). v1.25: acepta el objeto de filtros y lo serializa a query string (los vacíos se
+ * omiten en `apiRequest`). Sin args = página 1 con los defaults del server (comportamiento previo,
+ * la vista solo consumía `.data`). El server ordena `createdAt desc` (NORMA v1.18); no re-ordenar.
+ */
+export async function getAdminBuylist(
+  filters: AdminBuylistFilters = {},
+): Promise<Paginated<AdminBuylistDTO>> {
   if (!config.useMocks) {
-    // v1.18-buylist-rejects: el server ya ordena createdAt desc (NORMA); no re-ordenar aquí.
-    const res = await apiRequest<Paginated<AdminBuylistDTO>>('/admin/buylist');
-    return res.data;
+    return apiRequest<Paginated<AdminBuylistDTO>>('/admin/buylist', {
+      query: {
+        status: filters.status,
+        userId: filters.userId,
+        q: filters.q,
+        from: filters.from,
+        to: filters.to,
+        minCents: filters.minCents,
+        maxCents: filters.maxCents,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
   }
-  return delay(fx.mockAdminBuylist.map((r) => ({ ...r, seller: r.seller ?? mockSellerFor(r.userId) })));
+  // MOCK: espeja los filtros server-side v1.25 en memoria.
+  let data = fx.mockAdminBuylist.map((r) => ({ ...r, seller: r.seller ?? mockSellerFor(r.userId) }));
+  if (filters.status) {
+    const set = new Set(filters.status.split(',').map((s) => s.trim()).filter(Boolean));
+    data = data.filter((r) => set.has(r.status));
+  }
+  if (filters.userId) data = data.filter((r) => r.userId === filters.userId);
+  const q = filters.q?.trim().toLowerCase();
+  if (q) {
+    data = data.filter(
+      (r) =>
+        r.id.toLowerCase().includes(q) ||
+        (r.seller?.name.toLowerCase().includes(q) ?? false) ||
+        (r.seller?.email.toLowerCase().includes(q) ?? false),
+    );
+  }
+  // Rango sobre createdAt (comparación por fecha YYYY-MM-DD; el backend real usa gte/lte ISO).
+  if (filters.from) data = data.filter((r) => r.createdAt.slice(0, 10) >= filters.from!);
+  if (filters.to) data = data.filter((r) => r.createdAt.slice(0, 10) <= filters.to!);
+  // Rango sobre quotedTotalCents (contrato v1.25: NO approvedTotalCents — ver §M5).
+  if (filters.minCents != null) data = data.filter((r) => r.quotedTotalCents >= filters.minCents!);
+  if (filters.maxCents != null) data = data.filter((r) => r.quotedTotalCents <= filters.maxCents!);
+  // El ORDEN (`createdAt desc`, NORMA v1.18) lo aplica el server; el mock respeta el orden de los
+  // fixtures (no re-ordena) igual que antes de v1.25.
+  return delay(paginate(data, filters));
 }
 
 // ---- Admin M5 · acciones de buylist (contrato §M5) ----
@@ -2027,6 +2096,58 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
   const req = mockFindBuylistRequest(id);
   req.status = 'verificacion';
   for (const it of req.items) if (it.itemStatus === 'recibida') it.itemStatus = 'verificacion';
+  return delay({ ...req });
+}
+
+/**
+ * Cierre EXPLÍCITO de una solicitud a `rechazada` (contrato §M5 · POST /admin/buylist/:id/reject,
+ * v1.24-buylist-request-reject). Botón «Rechazar solicitud» de M5: cierra el hueco de estado a
+ * nivel solicitud (bug P-4) para las solicitudes ya atoradas en `verificacion` cuyos ítems fueron
+ * rechazados antes del fix. Semántica SEGURA y mínima: `reason` es OPCIONAL (0–500, motivo interno
+ * al AuditLog, NO PII, sin correo); NO mueve dinero ni reevalúa montos.
+ *  - Guard de precondición: cierra SÓLO si TODOS los ítems ya son `rechazada`; si queda algún ítem
+ *    vivo → `422 REQUEST_HAS_NON_REJECTED_ITEMS` (`details.nonRejectedItemStatuses`).
+ *  - Idempotente: solicitud ya `rechazada` → `200` con el estado actual (no re-sella).
+ *  - Otro estado terminal (`pagada`/`abandonada`) → `409 CONFLICT` (no pisa terminal).
+ *
+ * Retorno (hallazgo QA de P-4): la Res 200 es la SOLICITUD actualizada, «mismo shape que
+ * `GET /admin/buylist/:id`» (contrato §M5) — el DETALLE admin con `id`/`userId`/`seller`/`status`/
+ * `items` con sus campos de rechazo. En este front ese detalle SE MODELA con `AdminBuylistDTO`
+ * (idéntico shape que devuelven `receive`/`verify`/`paySpei` y cada fila de `getAdminBuylist`); NO
+ * con el DTO de CLIENTE `SellRequestDTO` (`sellRequestId`/`ineRequired`, sin `seller`), que sería
+ * incorrecto para un endpoint de back-office. Por eso el tipo correcto del detalle es `AdminBuylistDTO`.
+ */
+export async function rejectBuylistRequest(
+  id: string,
+  input: { reason?: string } = {},
+): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/reject`, {
+      method: 'POST',
+      body: input.reason && input.reason.trim() !== '' ? { reason: input.reason.trim() } : {},
+    });
+  }
+  const req = mockFindBuylistRequest(id);
+  // Idempotencia: ya rechazada → no-op (200 con el estado actual).
+  if (req.status === 'rechazada') return delay({ ...req });
+  // No pisar otros estados terminales (contrato: 409 CONFLICT).
+  if (req.status === 'pagada' || req.status === 'abandonada') {
+    throw new ApiClientError(409, {
+      code: 'CONFLICT',
+      message: 'Sell request is already in a terminal state',
+      details: { status: req.status },
+    });
+  }
+  // Guard de precondición: sólo cierra si TODOS los ítems ya están `rechazada`.
+  const nonRejected = req.items.filter((it) => it.itemStatus !== 'rechazada');
+  if (nonRejected.length > 0) {
+    throw new ApiClientError(422, {
+      code: 'REQUEST_HAS_NON_REJECTED_ITEMS',
+      message: 'The sell request still has non-rejected items',
+      details: { nonRejectedItemStatuses: nonRejected.map((it) => it.itemStatus) },
+    });
+  }
+  req.status = 'rechazada';
   return delay({ ...req });
 }
 
@@ -2201,12 +2322,88 @@ export async function paySpeiBuylist(id: string, speiReference: string): Promise
   return delay({ ...req });
 }
 
-export async function getAdminOrders(): Promise<AdminOrderDTO[]> {
+/**
+ * Filtros server-side de la cola admin de órdenes (contrato §M3 · GET /admin/orders).
+ * v1.25-buylist-orders-pagination: en paridad con buylist. `q` (folio `orderNumber` /
+ * comprador — HOY NO existía buscador en M3), `from`/`to` (createdAt), `minCents`/`maxCents`
+ * (sobre `totalCents`, total canónico). `status`, `userId`, `guest`, `needsManual` ya existían.
+ * `pageSize` que pide el front = 25.
+ */
+export interface AdminOrdersFilters {
+  status?: string;
+  userId?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+  minCents?: number;
+  maxCents?: number;
+  guest?: boolean;
+  needsManual?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Cola admin de órdenes paginada (contrato §M3 · GET /admin/orders → `{ data, page, pageSize,
+ * total }`). v1.25: acepta el objeto de filtros y lo serializa a query string (vacíos omitidos).
+ * Sin args = página 1 con defaults del server. Orden `createdAt desc` (recientes primero).
+ */
+export async function getAdminOrders(
+  filters: AdminOrdersFilters = {},
+): Promise<Paginated<AdminOrderDTO>> {
   if (!config.useMocks) {
-    const res = await apiRequest<Paginated<AdminOrderDTO>>('/admin/orders');
-    return res.data;
+    return apiRequest<Paginated<AdminOrderDTO>>('/admin/orders', {
+      query: {
+        status: filters.status,
+        userId: filters.userId,
+        q: filters.q,
+        from: filters.from,
+        to: filters.to,
+        minCents: filters.minCents,
+        maxCents: filters.maxCents,
+        guest: filters.guest === undefined ? undefined : String(filters.guest),
+        needsManual: filters.needsManual === undefined ? undefined : String(filters.needsManual),
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
+    });
   }
-  return delay(fx.mockAdminOrders);
+  // MOCK: espeja los filtros server-side v1.25 en memoria.
+  let data = [...fx.mockAdminOrders];
+  if (filters.status) {
+    const set = new Set(filters.status.split(',').map((s) => s.trim()).filter(Boolean));
+    data = data.filter((o) => set.has(o.status));
+  }
+  if (filters.userId) data = data.filter((o) => o.userId === filters.userId);
+  const q = filters.q?.trim().toLowerCase();
+  if (q) {
+    // Fidelidad con el backend real (contrato §M3): `q` busca sobre `orderNumber` (parcial),
+    // `guestEmail` (parcial), `userId` (EXACTO) y `user.name`/`user.email` (parcial) — NO un
+    // `includes` sobre el UUID de usuario, que daba falsos verdes en tests de UI. El fixture usa
+    // `id` como folio visible de la orden (análogo de `orderNumber`); los demás campos se leen de
+    // forma defensiva por si el fixture/join los aporta.
+    data = data.filter((o) => {
+      const ord = o as AdminOrderDTO & {
+        orderNumber?: string;
+        guestEmail?: string | null;
+        user?: { name?: string; email?: string } | null;
+      };
+      return (
+        (ord.orderNumber ?? ord.id).toLowerCase().includes(q) ||
+        (ord.guestEmail?.toLowerCase().includes(q) ?? false) ||
+        ord.userId?.toLowerCase() === q ||
+        (ord.user?.name?.toLowerCase().includes(q) ?? false) ||
+        (ord.user?.email?.toLowerCase().includes(q) ?? false)
+      );
+    });
+  }
+  if (filters.from) data = data.filter((o) => o.createdAt.slice(0, 10) >= filters.from!);
+  if (filters.to) data = data.filter((o) => o.createdAt.slice(0, 10) <= filters.to!);
+  if (filters.minCents != null) data = data.filter((o) => o.totalCents >= filters.minCents!);
+  if (filters.maxCents != null) data = data.filter((o) => o.totalCents <= filters.maxCents!);
+  // El ORDEN (`createdAt desc`, recientes primero) lo aplica el server; el mock respeta el orden
+  // de los fixtures (no re-ordena).
+  return delay(paginate(data, filters));
 }
 
 /**
@@ -2279,13 +2476,23 @@ export async function syncPricing(input: {
   return delay({ jobId: mockJobId(), queued: fx.mockListings.length });
 }
 
-/** Cola de precio pendiente (contrato GET /admin/pricing/pending). */
-export async function getPendingPrices(): Promise<PendingPriceEntryDTO[]> {
+/**
+ * Cola de precio pendiente (contrato GET /admin/pricing/pending).
+ * v1.26 (P-6, dos buckets): `context?` opcional filtra la cola por origen — `inventory` = VENTA
+ * (fijable por override), `buylist` = COMPRA (READ-ONLY). Omitirlo trae todos (retro-compatible).
+ */
+export async function getPendingPrices(
+  context?: PendingPriceContext,
+): Promise<PendingPriceEntryDTO[]> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ data: PendingPriceEntryDTO[] }>('/admin/pricing/pending');
+    const res = await apiRequest<{ data: PendingPriceEntryDTO[] }>('/admin/pricing/pending', {
+      query: { context },
+    });
     return res.data;
   }
-  return delay(fx.mockPendingPrices);
+  return delay(
+    context ? fx.mockPendingPrices.filter((p) => p.context === context) : fx.mockPendingPrices,
+  );
 }
 
 export interface PricingOverrideInput {

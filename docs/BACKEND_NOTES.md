@@ -4759,3 +4759,179 @@ existentes que ahora rozan `getPricedRawFinishesBatch` (`master-set.service`, `m
 `buylist-catalog`, `vault.holdings-withdrawal`, `vault-sealed`, `buylist.rejected-items`) y las aserciones
 `toEqual` de `variants` en `master-set.scopes` (ahora incluyen `displayed`). Suites de finish/completitud NO
 cambiaron su semántica (X/Y sigue sobre `availableFinishes`). Sin commit ni push (lo hace el orquestador).
+
+## P-4 — Cierre de la SOLICITUD al rechazar ítems (v1.24-buylist-request-reject)
+
+> Bug P-4 (ARCHITECTURE §9): `itemDecision('reject')` sólo tocaba el ÍTEM y nunca re-evaluaba
+> `SellRequest.status` → rechazado el único ítem, la solicitud quedaba atorada en `verificacion`. El
+> contrato v1.24 (API_CONTRACT §M5, ARCHITECTURE §4.18f/g) documenta **dos mecanismos**. Todo en
+> `backend/src/modules/buylist/`. **Sin migración** (`closedAt` ya existe por SEC-D2/M-19).
+
+### (f) Auto-transición — efecto de `itemDecision('reject')`
+- Nuevo helper privado `BuylistService.maybeAutoRejectRequest(sellRequestId)`, invocado en la rama
+  `decision==='reject'` **TRAS `recomputeApprovedTotal` y el correo best-effort** (justo antes del
+  `return`). Determina "todos rechazados" con `sellRequestItem.count({ where: { sellRequestId,
+  itemStatus: { not: 'rechazada' } } })` — si el conteo es `0`, transiciona. **`convertida_inventario`
+  cuenta como ítem VIVO** (no-rechazado) ⇒ una solicitud con convertidos + rechazados **NO** se
+  auto-rechaza.
+- Transición con **guard «no pisar terminal»** vía `sellRequest.updateMany({ where: { id, status:
+  { notIn: ['pagada','rechazada','abandonada'] } }, data: { status:'rechazada', closedAt: new Date() } })`
+  — mismo patrón atómico que `paySpei`. **No** toca montos (BL-1 ya los sacó vía el recompute) **ni**
+  envía correos (el correo por-ítem ya salió). Idempotente: el re-reject v1.18 retorna no-op ANTES de
+  llegar al helper, y el `updateMany` no re-sella una solicitud ya terminal.
+
+### (g) Cierre explícito — `POST /admin/buylist/:id/reject`
+- Endpoint NUEVO en `admin-buylist.controller.ts` (`reject`), ruta literal `:id/reject` (POST, sin
+  colisión). Roles heredados de la clase (`vault_operator`/`super_admin`), **SIN `@MoneyOut`** (no es
+  dinero saliente). Auditado `action: 'buylist.reject'` con `reason?` interno (no PII) en `after`.
+- Método `BuylistService.rejectRequest(id, reason?)` → `{ request, transitioned }` (`request` = shape de
+  `adminGet`, Res 200 del contrato). Guard de precondición: cierra **sólo si TODOS** los ítems ya están
+  `rechazada`; si queda ≥1 vivo → **`422 REQUEST_HAS_NON_REJECTED_ITEMS`** con
+  `details.nonRejectedItemStatuses: SellItemStatus[]` (status vivos, deduplicados). **Idempotente**: ya
+  `rechazada` → `200` con estado actual, `transitioned=false` ⇒ el controller **NO audita** como cambio.
+  Otro terminal (`pagada`/`abandonada`) → **`409 CONFLICT`** con `details.status`. `404` si no existe.
+- Nuevo error code `REQUEST_HAS_NON_REJECTED_ITEMS` en `common/error-codes.ts` (sección Buylist). DTO
+  `RejectRequestDto { reason?: string }` (`@IsOptional @IsString @MaxLength(500)`; body `{}` válido).
+
+### Verificación
+`npx jest buylist` → **137 tests / 17 suites en VERDE**; `npx tsc --noEmit -p tsconfig.json` limpio.
+Nuevo `test/buylist.request-reject.spec.ts` (9 casos: auto-transición al rechazar el último ítem;
+NO-transición con ítem `aprobada`/`convertida_inventario` vivo; no-op idempotente; `rejectRequest`
+éxito/422/idempotente/409 `pagada`/409 `abandonada`/404). Se añadieron stubs `sellRequestItem.count` y
+`sellRequest.updateMany` a los mocks de `buylist.reject.spec.ts` y `buylist.ronda-c.spec.ts` (default
+`count=1` ⇒ no dispara la transición en esos tests item-céntricos). Sin commit ni push (orquestador).
+
+### Endurecimiento post-aprobación (atomicidad intra-método) — no cambia contrato
+
+> QA/techlead/seguridad aprobaron P-4 con hallazgos NO bloqueantes que convergen en una raíz: el
+> chequeo «¿todos los ítems rechazados?» y la escritura del `status` de la solicitud eran awaits
+> secuenciales NO atómicos, aunque ARCHITECTURE §4.18f afirma «mismo transaction boundary» (drift
+> doc↔código). Cierre acotado, espejando patrones YA aprobados del propio servicio. **Sin cambio de
+> contrato ni de firma pública** (`{ request, transitioned }` intacto).
+
+- **Constante única de terminales.** Se extrajo `['pagada','rechazada','abandonada']` a
+  `SELL_REQUEST_TERMINAL_STATES` en `buylist-reject.constants.ts` (fuente única). La reusan
+  `maybeAutoRejectRequest` y `rejectRequest` (incluida la guarda 409 `pagada`/`abandonada`, ahora
+  `includes` porque `rechazada` ya se resolvió como idempotente arriba). **No** se reapuntó el
+  `CLOSED` propio de `src/jobs/ine-retention.service.ts` (mismo set): vive en zona `src/jobs/` de otro
+  stream ⇒ deuda menor anotada (misma política que el `buylist-sweep` inline 7/30).
+- **Atomicidad intra-método.** En AMBOS métodos, «leer conteo/ítems no-rechazados» + «actualizar el
+  `status`» van ahora en UN `$transaction(..., { isolationLevel: Serializable })` (igual que
+  `createRequest`/SEC-A2), usando el cliente `tx`. Esto hace verdadera la afirmación de §4.18f («mismo
+  transaction boundary»).
+- **Verificación de `res.count` en `rejectRequest`** (espejo de `paySpei`). Tras el `updateMany` con
+  guarda de estado, si `count===0` re-lee la solicitud dentro de la tx: si quedó `rechazada` ⇒
+  idempotente (`transitioned:false`, 200, **sin** auditar como cambio); si otro terminal
+  (`pagada`/`abandonada`) ⇒ `409 CONFLICT` con `details.status`. Nunca se reporta `transitioned:true`
+  cuando el update no cambió nada (elimina la entrada de auditoría fantasma que señaló el techlead).
+- **Preservado:** guard «no pisar terminal», `convertida_inventario` = vivo, BL-1, idempotencia v1.18,
+  shape de respuesta = `adminGet`. Se agregó stub `$transaction:(fn)=>fn(tx)` a los mocks de
+  `buylist.request-reject`/`buylist.reject`/`buylist.ronda-c` specs, y dos casos nuevos del count-guard
+  de `rejectRequest` (count:0 + re-lectura `pagada` ⇒ 409; re-lectura `rechazada` ⇒ idempotente).
+- **Verificación real:** `npx jest buylist` → **139 tests / 17 suites en VERDE**;
+  `npx tsc --noEmit -p tsconfig.json` limpio. Sin commit ni push (orquestador).
+
+---
+
+## P-5 — Paginación server-side + filtros en colas admin M5/M3 (v1.25-buylist-orders-pagination)
+
+Contrato ADITIVO del arquitecto (§Convenciones «Filtros de lista admin», §M5, §M3). TODOS los params
+nuevos son OPCIONALES; **omitirlos = comportamiento IDÉNTICO al de hoy** (sin migración de datos).
+Mismos nombres en ambos endpoints: `q`, `from`, `to`, `minCents`, `maxCents`, `page`, `pageSize`.
+
+### Helper transversal
+- **`backend/src/common/admin-list-filters.ts` (NUEVO):** `parseAdminListFilters(raw)` parsea+valida
+  `page`/`pageSize`/`q`/`from`/`to`/`minCents`/`maxCents` y devuelve `{ page, pageSize, q?, dateRange?,
+  centsRange? }` ya normalizados. **Toda entrada inválida → `400 VALIDATION_ERROR`** (`BusinessException.
+  badRequest`, NO el 422 de `.validation`), nunca un clamp silencioso: paginación no numérica / `<1` /
+  `pageSize>100`, fecha no parseable, monto no entero o negativo, `maxCents<minCents`, `q>200` chars.
+  `q` se hace `trim`; vacío/whitespace ⇒ ausente. La construcción del `where` (columnas de monto/fecha,
+  campos del OR de `q`, CSV de `status`) NO vive aquí porque difiere por endpoint — el helper sólo
+  entrega valores validados. Reusado por AMBOS controllers (consistencia A↔B).
+
+### Borde de día en `from`/`to` (v1.25.1 — aclaración de semántica de fecha, aditiva)
+Contrato §Convenciones «Borde de día» + §M5 + §M3. Materializado en un ÚNICO punto —
+`parseDate` de `admin-list-filters.ts` — así que arregla M5, M3 y el caso latente de orders de una vez
+(sin duplicar lógica en los controllers). Reglas:
+- **date-only** (`^\d{4}-\d{2}-\d{2}$`, lo que emite `<input type=date>`) → ancla al **borde del día
+  en UTC**: `from` = `00:00:00.000Z` (inicio), `to` = `23:59:59.999Z` (**fin de día INCLUSIVO**). Así
+  `to=YYYY-MM-DD` incluye todo lo cerrado ese mismo día (antes, tratado como medianoche UTC, excluía
+  casi toda la jornada money-adjacent).
+- **datetime ISO completo** (con hora/offset, p. ej. `2026-08-20T15:00:00Z`) → se usa **TAL CUAL**,
+  sin ajuste (`gte`/`lte` exactos).
+- Detección date-only con match estricto; una date-only inválida (`2026-13-40`) sigue cayendo en el
+  chequeo `NaN` → `400 VALIDATION_ERROR`. **Rango invertido** (`from>to`) NO es error → simplemente
+  devuelve vacío (lo resuelve la BD). El `where.createdAt` resultante sigue siendo `{ gte, lte }` de
+  `Date` — buylist `adminList` y orders `list` lo montan sin cambios.
+
+### A) `GET /api/v1/admin/buylist` (§M5)
+- **`admin-buylist.controller.ts::list`** (`backend/src/modules/buylist/admin-buylist.controller.ts:27`):
+  añade `@Query` `q`, `from`, `to`, `minCents`, `maxCents` (declarados **al final** para no alterar el
+  orden posicional de los params existentes); delega validación a `parseAdminListFilters` y pasa el
+  objeto `{ q, dateRange, centsRange }` al servicio.
+- **`BuylistService.adminList`** (`backend/src/modules/buylist/buylist.service.ts:557`): firma extendida
+  con 5º param opcional `filters?`. Construcción del `where`:
+  - **`status` → CSV → `IN`:** split por coma + trim; **1 token ⇒ escalar `where.status = token`
+    (IDÉNTICO a hoy)**, ≥2 tokens ⇒ `{ in: [...] }` (pestaña «Cerradas» = `pagada,rechazada,abandonada`
+    en una llamada). Token que no sea `SellRequestStatus` válido → `400 VALIDATION_ERROR` con
+    `details.invalidStatus: string[]`. (Escalar en el caso 1-token es deliberado: preserva el
+    `toEqual({status:'cotizada'})` del spec `admin.user-audit` y el shape de respuesta previo.)
+  - **`q` → OR** `contains` `mode:'insensitive'` sobre `SellRequest.id` (folio) + `user.name` +
+    `user.email` (join `user` ya existente). **NO** busca CLABE/RFC/INE ni datos de pago.
+  - **`from`/`to` → `where.createdAt` gte/lte**; **`minCents`/`maxCents` → `where.quotedTotalCents`
+    gte/lte** (snapshot histórico `Int @default(0)`, SIEMPRE presente — NO `approvedTotalCents`, que es
+    nullable y excluiría las rechazadas/abandonadas que dominan «Cerradas»).
+  - `pageSize` default **20 sin cambios** (máx 100); orden `createdAt desc` y respuesta
+    `{ data, page, pageSize, total }` intactos.
+
+### B) `GET /api/v1/admin/orders` (§M3)
+- **`admin-orders.controller.ts::list`** (`backend/src/modules/orders/admin-orders.controller.ts:31`):
+  `where` inline (sin cambio de servicio). Añade `@Query` `q`, `minCents`, `maxCents` **al final**
+  (posiciones 9/10/11) para no romper las llamadas posicionales del spec `admin-orders.needs-manual`.
+  Todo lo existente (`status`/`userId`/`from`/`to`/`guest`/`needsManual`/`page`/`pageSize`) intacto.
+  - **`q` → OR** `contains` `mode:'insensitive'` sobre `orderNumber` + `guestEmail` + `user.name` +
+    `user.email`, **más `userId` EXACTO** (`{ userId: q }`). Cubre invitado (`guestEmail`) y con cuenta
+    (`user.*`/`userId`). Se usa la relación `Order.user` (nullable) como filtro — **sin `include`**
+    extra (Prisma filtra por relación sin traerla). No busca `paymentMethodLast4`.
+  - **`minCents`/`maxCents` → `where.totalCents` gte/lte** (total canónico `Int` de la orden).
+  - `from`/`to` migrados al `dateRange` del helper (misma semántica gte/lte sobre `createdAt`).
+
+### Seguridad
+Todos los filtros **sólo REDUCEN** el conjunto ya autorizado por el guard de rol
+(`vault_operator`/`super_admin`, heredado de la clase) — no habilitan IDOR ni enumeración cruzada, no
+cambian shape ni proyección PII. Todo vía Prisma parametrizado (`contains`/`in`/`equals`), **nunca SQL
+crudo interpolado**. `q` no toca datos cifrados/enmascarados (CLABE/RFC/INE/pago).
+
+### Índice compuesto recomendado — FOLLOW-UP DIFERIDO (coordinación de zona compartida)
+El arquitecto recomendó `@@index([status, createdAt])` en `SellRequest` y `Order`
+(ARCHITECTURE §4.18(h)/§4.21(l)) para las nuevas colas paginadas+filtradas. **NO se escribe aquí:**
+`backend/prisma/schema.prisma` y `backend/prisma/` son **zona compartida** con otro stream en paralelo;
+el índice se posterga a un **pase de schema coordinado**. Los índices existentes
+(`@@index([status])`, `@@index([userId])`, `@@index([guestEmail])`) bastan para el MVP. **Backend deja
+pendiente** añadir los compuestos en ese pase coordinado (no es deuda de diseño — ya está en
+ARCHITECTURE; es una nota de secuenciación por zona compartida).
+
+### Discrepancia menor con el contrato (para el arquitecto)
+- **Paginación inválida → 400 (antes clamp):** el contrato v1.25 pide `page`/`pageSize` no numéricos o
+  `pageSize>100` → `400 VALIDATION_ERROR`. El código PREVIO de ambos listados hacía **clamp** silencioso
+  (`Math.min(100, Math.max(1, …))`). Se alineó a `400` (helper) por fidelidad al contrato y consistencia
+  A↔B. Cambio de comportamiento **sólo para entradas inválidas** (valores válidos, incluido el
+  `pageSize=25` que pide el front, no se ven afectados). Si el arquitecto prefiere mantener el clamp
+  legacy, es un ajuste de una línea en el helper.
+
+### Verificación real
+- `npx jest buylist orders` → **23 suites / 196 tests en VERDE** (incluye los 2 specs nuevos:
+  `test/buylist.admin-list-filters.spec.ts` — 9 casos: status CSV→IN, 1-token escalar, status inválido
+  →400, `q` OR, from/to, minCents/maxCents sobre quotedTotalCents, skip/take, where vacío por defecto,
+  combinación; `test/admin-orders.list-filters.spec.ts` — 9 casos: `q` OR, totalCents, combinación con
+  filtros existentes, default idéntico, from/to, y 4 de validación →400).
+- `npx jest admin.user-audit` → 15/15 VERDE (no se rompió el spec de firma de `adminList`).
+- `npx tsc --noEmit -p tsconfig.json` → **limpio** (sin salida).
+- **v1.25.1 borde de día:** `npx jest buylist orders admin-list` → **24 suites / 208 tests VERDE**.
+  Nuevo spec unitario del helper `test/admin-list-filters.date-boundary.spec.ts` (9 casos: `to`
+  date-only→fin de día inclusivo, `from` date-only→inicio, rango date-only, datetime completo/offset
+  tal cual, `where` sigue `{gte,lte}`, date-only inválida→400, no parseable→400, rango invertido no es
+  error). Más 1 caso de integración en cada spec de listas (`buylist.admin-list-filters` vía controller,
+  `admin-orders.list-filters` vía controller) confirmando que un `to` date-only incluye una fila de esa
+  misma tarde. `tsc --noEmit` limpio.
+- Sin commit ni push (orquestador).

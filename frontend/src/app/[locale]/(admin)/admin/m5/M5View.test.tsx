@@ -352,6 +352,118 @@ describe('M5View · Buylist admin end-to-end', () => {
 });
 
 /**
+ * P-4 (v1.24-buylist-request-reject) · botón «Rechazar solicitud» (POST /admin/buylist/:id/reject).
+ * Cierra la solicitud ATORADA en «Verificando» cuyos ítems ya están todos rechazados.
+ */
+describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const rejectedItem = (id: string) => ({
+    id,
+    card,
+    productType: 'raw' as const,
+    finish: 'holofoil' as const,
+    itemStatus: 'rechazada' as const,
+    rejectionReason: 'no es NM: esquina doblada',
+    rejectedAt: '2026-08-18T00:00:00.000Z',
+  });
+
+  it('la solicitud atorada (verificacion, todos los ítems rechazados) muestra el botón y dispara el cierre', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [
+        {
+          id: 'sr-stuck',
+          userId: 'u-900',
+          seller: { id: 'u-900', name: 'Ana Ríos', email: 'ana.rios@example.mx' },
+          status: 'verificacion',
+          quotedTotalCents: 45000,
+          createdAt: '2026-08-12T00:00:00.000Z',
+          items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
+        },
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    const spy = vi.spyOn(api, 'rejectBuylistRequest').mockResolvedValue({
+      id: 'sr-stuck',
+      userId: 'u-900',
+      status: 'rechazada',
+      quotedTotalCents: 45000,
+      createdAt: '2026-08-12T00:00:00.000Z',
+      items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
+    });
+    renderWithProviders(<M5View />, 'es');
+
+    // El botón a nivel solicitud aparece (etapa por defecto = Verificando).
+    fireEvent.click(await screen.findByRole('button', { name: 'Rechazar solicitud' }));
+
+    // Confirmación destructiva en modal; aún no llama al endpoint.
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar solicitud completa' });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar solicitud' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-stuck', { reason: undefined }));
+    expect(await screen.findByText('Solicitud rechazada; quedó cerrada.')).toBeInTheDocument();
+  });
+
+  it('NO ofrece el botón si queda algún ítem sin rechazar (evita el 422 seguro)', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [
+        {
+          id: 'sr-mixed',
+          userId: 'u-901',
+          status: 'verificacion',
+          quotedTotalCents: 45000,
+          createdAt: '2026-08-12T00:00:00.000Z',
+          items: [
+            rejectedItem('sri-c'),
+            { id: 'sri-d', card, productType: 'raw', finish: 'normal', itemStatus: 'aprobada', approvedPriceCents: 30000 },
+          ],
+        },
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-mixed');
+    expect(screen.queryByRole('button', { name: 'Rechazar solicitud' })).not.toBeInTheDocument();
+  });
+
+  it('el 422 REQUEST_HAS_NON_REJECTED_ITEMS se muestra DENTRO del modal con copy i18n', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [
+        {
+          id: 'sr-stuck',
+          userId: 'u-900',
+          status: 'verificacion',
+          quotedTotalCents: 45000,
+          createdAt: '2026-08-12T00:00:00.000Z',
+          items: [rejectedItem('sri-a')],
+        },
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    vi.spyOn(api, 'rejectBuylistRequest').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'REQUEST_HAS_NON_REJECTED_ITEMS',
+        message: 'The sell request still has non-rejected items',
+        details: { nonRejectedItemStatuses: ['aprobada'] },
+      }),
+    );
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Rechazar solicitud' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar solicitud completa' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar solicitud' }));
+
+    // Copy i18n del código del contrato, no el mensaje crudo del backend.
+    expect(await within(dialog).findByText(/quedan ítems sin rechazar/)).toBeInTheDocument();
+  });
+});
+
+/**
  * Bug reportado: al escribir el motivo de rechazo, CADA carácter sacaba el cursor del campo
  * (había que hacer clic de nuevo para seguir escribiendo). Causa raíz: el `useEffect` de foco
  * de `Modal` (components/ui/Modal.tsx) tenía `onClose` en su arreglo de dependencias — como
@@ -373,5 +485,112 @@ describe('M5View · modal de rechazo (bug de foco al escribir)', () => {
 
     expect(input).toHaveValue('no esta en NM');
     expect(input).toHaveFocus();
+  });
+});
+
+/**
+ * P-5 (v1.25-buylist-orders-pagination) · pestaña «Cerradas» server-side. Deja de traer la lista
+ * completa y filtrar en memoria: pide `getAdminBuylist({ status: 'pagada,rechazada,abandonada',
+ * page, pageSize: 25, q, from, to, minCents, maxCents })` paginado. El buscador global alimenta `q`.
+ */
+describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const closedReq = (id: string, status: 'pagada' | 'rechazada' | 'abandonada') => ({
+    id,
+    userId: 'u-777',
+    seller: { id: 'u-777', name: 'Diana Olvera', email: 'diana.olvera@example.mx' },
+    status,
+    quotedTotalCents: 50200,
+    createdAt: '2026-08-01T00:00:00.000Z',
+    items: [
+      {
+        id: `${id}-i`,
+        card,
+        productType: 'raw' as const,
+        finish: 'normal' as const,
+        itemStatus: status === 'pagada' ? ('pagada' as const) : ('rechazada' as const),
+        quotedPriceCents: 50200,
+      },
+    ],
+  });
+
+  it('al abrir «Cerradas» dispara la query server-side con status CSV y pageSize 25', async () => {
+    const spy = vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [closedReq('sr-c1', 'pagada')],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+
+    fireEvent.click(await screen.findByRole('tab', { name: /Cerradas/ }));
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'pagada,rechazada,abandonada', page: 1, pageSize: 25 }),
+      ),
+    );
+    expect(await screen.findByText('sr-c1')).toBeInTheDocument();
+  });
+
+  it('el buscador global alimenta `q` server-side en «Cerradas»', async () => {
+    const spy = vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [closedReq('sr-c1', 'pagada')],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('tab', { name: /Cerradas/ }));
+    await screen.findByText('sr-c1');
+
+    fireEvent.change(screen.getByLabelText('Buscar solicitud'), { target: { value: 'Diana' } });
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ q: 'Diana', page: 1 })),
+    );
+  });
+
+  it('los filtros de fecha y monto se reflejan en los params server-side', async () => {
+    const spy = vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [closedReq('sr-c1', 'pagada')],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('tab', { name: /Cerradas/ }));
+    await screen.findByText('sr-c1');
+
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2026-08-01' } });
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ from: '2026-08-01' })),
+    );
+
+    // Monto en pesos → centavos (helper pesosToCents): 100 → 10000, 900 → 90000.
+    fireEvent.change(screen.getByLabelText('Monto mín.'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Monto máx.'), { target: { value: '900' } });
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ minCents: 10000, maxCents: 90000 }),
+      ),
+    );
+  });
+
+  it('la paginación cambia de página (page en los params)', async () => {
+    // total 60 con pageSize 25 → 3 páginas: se muestran los controles de paginación.
+    const spy = vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [closedReq('sr-c1', 'pagada')],
+      page: 1,
+      pageSize: 25,
+      total: 60,
+    });
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('tab', { name: /Cerradas/ }));
+    await screen.findByText('sr-c1');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Siguiente' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })));
   });
 });

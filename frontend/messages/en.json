@@ -370,6 +370,11 @@
     "filterSecretRares": "Secret rares only",
     "secretRare": "Secret rare",
     "gap": "Gap",
+    "marketLabel": "Market",
+    "marketPending": "Pending price",
+    "marketPendingShort": "—",
+    "publishRepriceHint": "Publishing refreshes each card's market price first, then prices and lists it.",
+    "publishPricePending": "{count, plural, one {# variant} other {# variants}} still had no resolvable price after the refresh and went to the pending price queue (Sales) — {count, plural, one {it was} other {they were}} NOT published.",
     "totalCount": "{count, plural, one {# piece} other {# pieces}}",
     "cardTotalCount": "{count, plural, one {# total} other {# total}}",
     "cardTotalCountAria": "You have {count, plural, one {# piece} other {# pieces}} of this card in total",
@@ -1003,7 +1008,19 @@
       },
       "refundDone": "Refund executed for order {orderId}.",
       "refundReasonLabel": "Refund reason",
-      "refundReasonHint": "Required; recorded in the audit log. Platform errors only (final sales)."
+      "refundReasonHint": "Required; recorded in the audit log. Platform errors only (final sales).",
+      "searchLabel": "Search order",
+      "searchPlaceholder": "Order # or buyer…",
+      "empty": "No orders match these filters.",
+      "filters": {
+        "dateFrom": "From",
+        "dateTo": "To",
+        "minAmount": "Min amount",
+        "maxAmount": "Max amount"
+      },
+      "prev": "Previous",
+      "next": "Next",
+      "pageInfo": "Page {page} of {totalPages}"
     },
     "m4": {
       "title": "M4 · Withdrawals / shipping",
@@ -1072,6 +1089,12 @@
       "rejectReasonInvalid": "The reason must be between 3 and 500 characters.",
       "rejectNotifyNote": "On confirm the seller will be notified by email with the reason and their deadlines: return within 7 days (at their cost) or abandonment at 30 days.",
       "rejectConfirm": "Reject and notify",
+      "rejectRequest": "Reject request",
+      "rejectRequestTitle": "Reject entire request",
+      "rejectRequestConsequence": "The request will be closed as rejected. This only applies once all of its items are already rejected; it moves no money and sends no emails (per-card notices already went out when each item was rejected).",
+      "rejectRequestReasonLabel": "Internal reason (optional)",
+      "rejectRequestReasonHint": "Optional, up to 500 characters. Kept in the audit log; not shown to the seller.",
+      "rejectRequestConfirm": "Reject request",
       "rejected": {
         "intro": "Rejected (non-NM) cards across all requests. They are not paid and NEVER enter sellable inventory: they are held until returned (at the seller's cost) or abandoned.",
         "empty": "No rejected cards.",
@@ -1087,6 +1110,18 @@
           "expired": "Deadlines expired",
           "unknown": "No deadlines"
         },
+        "prev": "Previous",
+        "next": "Next",
+        "pageInfo": "Page {page} of {totalPages}"
+      },
+      "filters": {
+        "dateFrom": "From",
+        "dateTo": "To",
+        "minAmount": "Min amount",
+        "maxAmount": "Max amount"
+      },
+      "closed": {
+        "empty": "No closed requests match these filters.",
         "prev": "Previous",
         "next": "Next",
         "pageInfo": "Page {page} of {totalPages}"
@@ -1117,7 +1152,8 @@
         "rejected": "Item rejected.",
         "converted": "Converted to inventory · folio {folio}.",
         "alreadyConverted": "This item was already converted to inventory.",
-        "paid": "SPEI payment recorded; the request is now paid."
+        "paid": "SPEI payment recorded; the request is now paid.",
+        "requestRejected": "Request rejected; it is now closed."
       }
     },
     "m8": {
@@ -1152,6 +1188,15 @@
         "title": "Pending-price queue",
         "subtitle": "Cards without a reference price, escalated to set manually. The buyer never sees this state.",
         "empty": "No pending prices.",
+        "bucketsLabel": "Pending-price buckets",
+        "buckets": {
+          "venta": "Sales (inventory)",
+          "compra": "Buylist (purchase)"
+        },
+        "ventaEmpty": "No inventory items awaiting a sale price.",
+        "compraEmpty": "No buylist cards awaiting a purchase reference.",
+        "compraNote": "Read-only: the purchase price for buylist cards is set in the buylist module, not here.",
+        "compraLink": "Open buylist admin",
         "card": "Card",
         "type": "Type",
         "gradeKey": "Grade key",
@@ -1160,6 +1205,7 @@
         "overrideTitle": "Manual price override",
         "saveOverride": "Save price",
         "priceLabel": "Reference price (MXN)",
+        "overrideInvalidValue": "Enter a valid price: an empty or malformed value can't be set (prevents publishing the item at MX$0 by a fat-finger).",
         "finish": "Finish"
       },
       "fx": {
@@ -1287,7 +1333,8 @@
         "pctHint": "Percentage: sale price = market × (1 + %). Example: 15% keeps the price 15% above market (up to 1000% allowed). Fixed: the MX$ amount is a sale floor.",
         "example": "Example: the % is what you add ON TOP of market. At +15%, you sell a MX$100 card for MX$115.",
         "saved": "Sale rules saved.",
-        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing."
+        "rulesUnavailable": "Could not load the rules table: saving is disabled without it (rules would be lost). Retry before editing.",
+        "invalidValue": "Some rules have an empty or invalid value. Fix them to save: an empty or malformed value is not saved as MX$0 (prevents listing cards for free by mistake)."
       },
       "sealedSpreads": {
         "title": "Sealed sale spreads",
@@ -1685,6 +1732,7 @@
     "FINISH_NOT_AVAILABLE": "That finish isn't available for this card.",
     "ITEM_NOT_PUBLISHABLE": "This piece can't be published in its current status.",
     "MONEY_OUT_FORBIDDEN": "Only the super-admin can execute money-out actions.",
+    "REQUEST_HAS_NON_REJECTED_ITEMS": "Cannot close: some items are not rejected yet. Reject every item in the request before closing it.",
     "EMAIL_TAKEN": "That email is already registered.",
     "INVALID_CREDENTIALS": "Wrong email or password.",
     "USER_BLOCKED": "Your account is blocked.",

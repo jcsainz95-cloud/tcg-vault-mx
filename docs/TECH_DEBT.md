@@ -1693,6 +1693,49 @@
   transición.
 
 
+### P-5 (v1.25 paginación+filtros) — deuda del delta frontend (2026-08-20, no bloqueante)
+
+> Hallazgos del **techlead** sobre el delta de P-5 (paginación + filtros server-side de M3 y de la
+> pestaña «Cerradas» de M5). Aceptados como deuda **no bloqueante**, dueño **frontend**. Continúan la
+> numeración `FE-*` (tras FE-34).
+>
+> **No están aquí, porque se pagaron en este mismo pase:** el **debounce** de los inputs de filtro
+> que alimentan la query server-side (hook `useDebouncedValue`, aplicado a `q`/monto de M3 y al
+> buscador global + monto de «Cerradas» de M5) y la **fidelidad del mock de `getAdminOrders`** (el
+> filtro `q` del mock se alineó a los campos del backend real: `orderNumber`/`guestEmail`/`user.name`/
+> `user.email` parciales + `userId` EXACTO, en vez del `includes` sobre el UUID que daba falsos verdes).
+
+### FE-35 · Barra de filtros + paginación + `pesosToCents`/`*_PAGE_SIZE` duplicados entre M3 y M5
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m3/M3View.tsx` y
+  `frontend/src/app/[locale]/(admin)/admin/m5/M5View.tsx`.
+- **Estado actual:** ambas vistas repiten casi idéntico: el bloque de inputs de **filtro** (fecha
+  `from`/`to`, monto min/max con prefijo `MX$`), los **controles de paginación** (botones prev/next +
+  `pageInfo`, cálculo de `totalPages`), el helper **`pesosToCents`** (pesos↔centavos, idéntico byte a
+  byte en las dos), la constante **`*_PAGE_SIZE = 25`** y ahora también el cableado de **debounce** de
+  los inputs de red (`useDebouncedValue` sobre `q`/monto). Cada cambio de patrón (p. ej. un nuevo campo
+  de filtro o ajustar el `resetPage`) hay que hacerlo en dos sitios y es fácil que diverjan.
+- **Impacto:** bajo. Mantenibilidad: duplicación estructural; sin bug funcional. El riesgo es que M3 y
+  M5 se separen sutilmente en un refactor (p. ej. distinta semántica de `resetPage`/debounce).
+- **Disparador:** al añadir un tercer listado admin paginado, o al tocar los filtros de cualquiera de
+  las dos vistas. Acción: extraer un hook `useAdminListFilters` (estado de page/q/from/to/min/max +
+  debounce + `resetPage` + serialización a params) y componentes compartidos `<AdminListFilters>` y
+  `<Pagination>`; centralizar `pesosToCents` (a `@/lib/format` o `@/lib`) y `ADMIN_LIST_PAGE_SIZE`.
+
+### FE-36 · i18n de filtros/paginación duplicada entre `admin.m3` y `admin.m5` (namespace compartido)
+- **Dónde:** `frontend/messages/{es,en}.json` → `admin.m3.filters.{dateFrom,dateTo,minAmount,maxAmount}`
+  + `admin.m3.{prev,next,pageInfo}` y sus gemelas `admin.m5.filters.*` / `admin.m5.closed.{prev,next,
+  pageInfo}`.
+- **Estado actual:** las mismas etiquetas de filtro (Desde/Hasta/Monto mín./Monto máx.) y de paginación
+  (Anterior/Siguiente/«Página X de Y») están **repetidas** bajo los namespaces `admin.m3` y `admin.m5`
+  (y en «Cerradas»/«Rechazadas» de M5 hay más copias del par prev/next/pageInfo). Un cambio de copy hay
+  que replicarlo en cada namespace y locale.
+- **Impacto:** bajo. Mantenibilidad/consistencia de copy; sin efecto funcional.
+- **Disparador:** junto con FE-35 (extracción de `<AdminListFilters>`/`<Pagination>`), o al añadir otro
+  listado admin. Acción: mover las claves comunes a un namespace compartido `admin.filters`
+  (y `admin.pagination`) y consumirlo desde los componentes extraídos, dejando en `admin.m3`/`admin.m5`
+  solo lo específico de cada vista.
+
+
 ### WS «Órdenes y dinero» — cierre v1.21 guest checkout (2026-08-18, no bloqueante)
 
 > Hallazgos del veredicto del **techlead** sobre el stream «Órdenes y dinero» (guest checkout, contrato
@@ -2368,3 +2411,77 @@
 - **Disparador:** no requiere cambio de código backend. **Nota para frontend:** no rotular el `liveMxnCents`
   con la fecha de captura como si fuera el precio de ese día. Solución (front): separar/clarificar la etiqueta
   (p. ej. «ref. USD del {capturedDate}, MXN al tipo de cambio de hoy»).
+
+### Pase `buylist-ordenes` — endurecimiento P-4 (2026-08-20, no bloqueante)
+
+> Del stream `claude/buylist-ordenes` (endurecimiento post-aprobación de P-4: atomicidad intra-método
+> del cierre de solicitud + verificación de `res.count`). Registrado a petición de **techlead/seguridad**.
+> Ítems **dueño backend**, **severidad: no bloqueante**, estado **money-safe**. IDs `P4-D1`/`P4-D2`/`P4-D3`
+> prefijados por este stream para no colisionar.
+
+### P4-D1 · Serialización cross-path de la concurrencia multi-operador (seguridad LOW-1)
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts` → `itemDecision('approve')` vs
+  `itemDecision('reject')`/`maybeAutoRejectRequest`/`rejectRequest` (rutas approve y reject sobre la MISMA
+  solicitud).
+- **Estado actual:** cada método ya es atómico intra-método (count + update en un `$transaction`
+  Serializable). Falta el boundary/locking **compartido entre rutas**: un `approve` concurrente sobre el
+  ÚLTIMO ítem podría, en una ventana estrecha, dejar la solicitud `rechazada` con un ítem `aprobada` vivo.
+- **Impacto:** estado money-safe — **no pagable** (paySpei exige aprobada/verificación + guard de estado),
+  **no vendible** (convertToInventory exige ítem `aprobada`, no la solicitud), **no evade AML**. Solo
+  incoherencia de estado observable en back-office.
+- **Disparador:** antes de habilitar operación concurrente multi-operador sobre la misma solicitud.
+  Mitigación futura: compartir boundary/locking entre las rutas `approve` y `reject` (p. ej. `SELECT … FOR
+  UPDATE`/row-lock de la `SellRequest` o un único tx que abarque decisión de ítem + re-evaluación).
+
+### P4-D2 · `SELL_REQUEST_TERMINAL_STATES` aún duplicado en `ine-retention` (fuente única parcial)
+- **Dónde:** `backend/src/jobs/ine-retention.service.ts:28` (`private static readonly CLOSED = [...]`).
+- **Estado actual:** el set `['pagada','rechazada','abandonada']` ya es fuente única en
+  `buylist-reject.constants.ts` (`SELL_REQUEST_TERMINAL_STATES`), reusada por el módulo `buylist`. El job
+  de retención define su propio `CLOSED` idéntico; **no** se reapuntó porque `src/jobs/` está en uso por
+  otro stream en este pase (evitar regresión cross-stream). Misma política que el `buylist-sweep` 7/30 inline.
+- **Impacto:** nulo funcional; solo duplicación del literal.
+- **Disparador:** al tocar `src/jobs/ine-retention.service.ts` por cualquier motivo, importar
+  `SELL_REQUEST_TERMINAL_STATES` y borrar el `CLOSED` local.
+
+### P4-D3 · `getMine` filtra `closedAt` al cliente dueño vía spread (pre-existente, no de P-4)
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts` → `getMine` (`const { clabeSnapshotEnc, items,
+  ...rest } = req; return { ...rest, … }`).
+- **Estado actual:** el spread `...rest` propaga campos internos como `closedAt` (timestamp de cierre
+  interno; **no PII**) al detalle del cliente dueño. Pre-existente — **no introducido por P-4**.
+- **Impacto:** menor (fuga de un timestamp interno, no PII, solo al propio dueño de la solicitud).
+- **Disparador:** al endurecer la proyección de las vistas del cliente. Solución: proyectar campos
+  explícitos (allow-list) como ya hace `listMine`, en vez del spread.
+
+### Pase `precios-variantes-masterset` — hardening gate-driven (2026-08-20, no bloqueante)
+
+> Del stream `claude/precios-variantes-masterset`. Los hallazgos bloqueantes/cerrados en este mismo pase
+> (SEGURIDAD L1 override `@Min(1)`, L2 timeout+`redirect:'error'` en `PokemonTcgIoProvider.fetchFreshForCards`,
+> TECHLEAD #2 match exacto de nombre en el resolver estructural) **no** figuran como deuda. Lo de abajo es la
+> deuda **no bloqueante** que el techlead pidió anotar (el rol dueño del código la registra). Dueño **backend**;
+> las decisiones marcadas dependen de **devops** (registrar S-D1/2/3) y **arquitecto** (materializar la columna).
+> Referencia: **ARCHITECTURE §4.24a** (supuestos **S-D1/S-D2/S-D3**).
+
+### BE-76 · `structural-finish-resolver`: supuesto S-D3 + fallback por nombre + `groupIdCache` solo en memoria
+- **Dónde:** `backend/src/modules/catalog/structural-finish-resolver.service.ts` → `resolveGroupId` (~:132-186)
+  y el campo `private readonly groupIdCache = new Map<string, number>()` (~:33).
+- **Estado actual:** el resolver del `groupId` TCGCSV de un set descansa en tres piezas frágiles, **todas
+  money-safe hoy** (ambiguo ⇒ `null` ⇒ no se toca ninguna carta):
+  1. **Supuesto S-D3** (§4.24a): `CardSet.pptSetId` numérico **==** `groupId` de TCGCSV (TCGplayer group ==
+     TCGCSV group). Es la ruta preferente (`/^\d+$/`); si el supuesto fuera falso, resolvería al grupo
+     equivocado silenciosamente (no hay verificación cruzada de nombre en la rama numérica).
+  2. **Fallback por nombre** cuando `pptSetId` no es numérico: match contra `listGroups()`, ahora **igualdad
+     exacta preferida** y solo si no hay exacto, substring bidireccional **ÚNICO** (TECHLEAD #2 endureció el
+     loose `includes` original). Sigue siendo heurística de string; un rename upstream lo rompe → `null`.
+  3. **`groupIdCache` solo en memoria del proceso** (per-instance, **no persistido**): cada boot re-resuelve
+     por nombre (o por S-D3). No se comparte entre instancias ni sobrevive a un restart; en multi-instancia
+     cada dyno mantiene su propio mapa.
+- **Impacto:** bajo hoy y **acotado money-safe**: el peor caso de una mala resolución sería tocar
+  `structuralFinishes` del set equivocado, pero el guard de unicidad + `tcgplayerId`/`pptSetId` numérico como
+  anclas preferentes lo mantienen conservador; un fallo de resolución degrada a «no se toca» (falta-una-casilla,
+  nunca sobra-una-falsa). Re-resolver por nombre en cada boot es coste/latencia, no correctness.
+- **Disparador / contingencia:** **si S-D3 se prueba falso** (devops registra S-D1/S-D2/S-D3 tras la 1ª corrida
+  en Railway), materializar la columna **`CardSet.tcgplayerGroupId`** (§4.24a S-D3: «resolver por nombre vía
+  `listGroups()` y cachear en columna, coordinar zona prisma») como fuente persistida del mapeo, sustituyendo el
+  `pptSetId`-numérico y el caché en memoria. **Owners:** **devops** registra S-D1/2/3 tras la primera corrida
+  Railway; el **arquitecto** decide si/ cuándo materializar `tcgplayerGroupId` (toca `schema.prisma` → zona
+  compartida). Mitigación intermedia: verificar el nombre del grupo también en la rama numérica S-D3.

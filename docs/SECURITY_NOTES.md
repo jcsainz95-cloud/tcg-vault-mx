@@ -2537,3 +2537,313 @@ gate de promoción a prod (SAST por PR + DAST staging):
 - **PENDIENTE (no aprobado a ciegas), no bloqueante del stream:** la **fase dinámica (DAST contra staging)**
   sigue condicionada a que devops habilite el entorno (R2/Railway); es requisito del gate de promoción a
   **producción**, no del merge del stream. Deuda previa del proyecto sin cambio (S-M1/S-B1/S-B2).
+
+---
+
+## Anexo 2026-08-20 — Stream `claude/buylist-ordenes` P-4 (cierre de solicitud a `rechazada`)
+
+> Revisión blue-team (solo lectura + tests) del entregable **P-4 (TOCA DINERO — buylist/SPEI)**.
+> Cambio: auto-transición a terminal `rechazada` (`maybeAutoRejectRequest`, efecto de `itemDecision('reject')`)
+> + endpoint nuevo `POST /admin/buylist/:id/reject` (`rejectRequest`). Contrato: API_CONTRACT §M5 v1.24;
+> ARCHITECTURE §4.18(f)(g). Superficie evaluada: dinero/máquina de estados, autz, idempotencia/atomicidad,
+> auditoría, PII. Tests `buylist.security` 6/6 PASS; `buylist.request-reject` cubre f/g (409/422/404/idempotencia).
+
+### Resultado por eje
+- **Máquina de estados / dinero — OK.** Guard «no pisar terminal» correcto en ambos caminos: `updateMany` con
+  `status: { notIn: ['pagada','rechazada','abandonada'] }` (nunca reescribe una `pagada`/`abandonada` ni re-sella
+  una `rechazada`) y, en `rejectRequest`, además guardas explícitas previas (`409 CONFLICT` para `pagada`/
+  `abandonada`, `200` idempotente para `rechazada`). No se puede evadir control de dinero/AML: una solicitud
+  `rechazada` **no** es pagable — `paySpei` exige `status ∈ {aprobada, verificacion}` + `verifiedAt` (línea 1115),
+  así que el cierre no abre ruta de pago. Consistencia de dinero: el cierre solo dispara cuando **cero** ítems
+  quedan no-rechazados; con todos los ítems `rechazada`, BL-1 (`recomputeApprovedTotal` excluye `rechazada`,
+  línea 831-838) deja `approvedTotalCents=null/0` → coherente. Criterio 16: el cierre NO convierte a inventario
+  ni vuelve vendible ninguna carta (efecto único = `status`+`closedAt`); `convertToInventory` sigue siendo acción
+  manual e independiente. `convertida_inventario` correctamente tratado como ítem vivo (no auto-rechaza mixtas).
+- **Autorización — OK.** El endpoint hereda `@Roles(vault_operator, super_admin)` de la clase; guards globales
+  confirmados (`app.module.ts`: `JwtAuthGuard`+`RolesGuard`+`MoneyOutGuard` como `APP_GUARD`). Correcto **sin
+  `@MoneyOut`**: el cierre no mueve dinero saliente. Un cliente/rol menor no alcanza la ruta. IDOR N/A: `:id` sin
+  scoping de propietario es correcto para back-office (paridad con `receive`/`verify`/`paySpei`).
+- **Idempotencia — OK** en el caso nominal (guardas de estado + `updateMany` count-guard heredado del patrón
+  `paySpei`). Ver LOW-1 para el borde concurrente.
+- **Auditoría — OK con matiz.** `action: 'buylist.reject'` registra actor/rol/entidad/`reason` en `after`. El
+  path `transitioned=false` (idempotente / ya `rechazada`) NO re-audita: aceptable — no hay cambio de estado que
+  trazar; no genera hueco de trazabilidad de dinero (el dinero no se movió en ninguna rama de este endpoint).
+- **PII — OK.** `reason` es texto interno del operador (opcional, `@MaxLength(500)`), va solo a `AuditLog.after`,
+  NO se persiste en `SellRequest`, NO se expone al cliente ni a correo (no hay correo en este flujo). La respuesta
+  es `adminGet` → enmascara CLABE (`clabeMasked`), descarta `clabeSnapshotEnc` y el join `User` crudo.
+  `details.nonRejectedItemStatuses` devuelve únicamente valores del enum `SellItemStatus` (sin datos sensibles).
+- **Regresión reject por-ítem — sin hallazgos.** Idempotencia del reject por-ítem intacta; BL-1 preservado.
+
+### Hallazgos (todos Bajos — no bloqueantes)
+- **LOW-1 (Media-baja) — Precondición no atómica con la transición (TOCTOU) · dueño: BACKEND.**
+  En `rejectRequest` y en `maybeAutoRejectRequest` el chequeo «¿quedan ítems vivos?» (`count`/`findMany`) y el
+  `updateMany` son round-trips separados; el count-guard del `updateMany` solo protege la **terminalidad del
+  status**, NO el invariante «todos los ítems rechazados». Un `itemDecision('approve')` concurrente sobre el
+  último ítem (que no cambia el `status` de la solicitud) puede intercalarse y dejar la solicitud en `rechazada`
+  con un ítem `aprobada` vivo y `approvedTotalCents > 0` — estado inconsistente `approvedTotalCents` vs `status`.
+  **Impacto acotado:** NO fuga dinero (una `rechazada` no es pagable por el guard de `paySpei`), NO evade AML, NO
+  vuelve vendible la carta. Es inconsistencia de datos / ruido de auditoría, recuperable. **Mitigación sugerida
+  (backend):** envolver `itemDecision(reject)`+recompute+auto-reject y el `rejectRequest` en `$transaction`
+  (aislamiento serializable, como ya hace `createRequest` SEC-A2), o re-verificar dentro del `where` del
+  `updateMany`. **Deuda aceptada con disparador:** abordar antes de habilitar operación concurrente multi-operador
+  sobre la misma solicitud.
+- **LOW-2 (Baja) — Desalineación doc↔código: «mismo transaction boundary» no implementado · dueño: BACKEND.**
+  ARCHITECTURE §4.18(f) afirma que la re-evaluación corre «en el mismo transaction boundary que el cambio de
+  ítem» para que «un ítem rechazado y una solicitud atorada no puedan coexistir tras un commit exitoso». El código
+  ejecuta `update(item)` → `recomputeApprovedTotal` → `sendItemRejectedMail` → `maybeAutoRejectRequest` como
+  awaits secuenciales SIN `$transaction`. Un fallo/caída entre el update del ítem y `maybeAutoRejectRequest`
+  reproduce exactamente el estado atorado del bug P-4. No es explotable (no hay atacante), pero rompe el
+  invariante documentado. **Acción:** implementar la transacción (converge con LOW-1) o corregir el doc.
+- **LOW-3 / INFO (pre-existente, NO introducido por P-4) — `closedAt` en DTO de cliente · dueño: BACKEND.**
+  `getMine` (buylist.service.ts:525) hace spread `...rest` y expone `closedAt` al cliente dueño de la solicitud.
+  Es un timestamp interno (no PII, no CLABE). Ya se filtraba antes de este diff (`respond('decline')` y `paySpei`
+  ya sellaban `closedAt`); P-4 solo aumenta cuántas solicitudes lo tienen poblado. `listMine` sí proyecta campos
+  explícitos y NO lo incluye. Se registra por completitud; **no es regresión del stream**. Sugerencia: proyectar
+  campos explícitos en `getMine` (paridad con `listMine`) si se quiere ocultar el timestamp.
+
+### Banderas para el humano
+- Requisito de gate money-real ya vigente en este documento (pentest de tercero + DAST/staging antes de operar
+  con dinero real) **sigue aplicando**; P-4 no lo altera.
+
+### VEREDICTO — **APROBADO**
+0 Críticos / 0 Altos abiertos. Los guards de terminalidad, la separación de `@MoneyOut`, la derivación server-side
+de montos (BL-1) y la no-exposición de CLABE/PII están correctos y con tests verdes (`buylist.security` 6/6,
+`buylist.request-reject` cubre f/g). Los **3 Bajos** (LOW-1 TOCTOU, LOW-2 doc↔código, LOW-3 `closedAt` pre-existente)
+se **aceptan como deuda con disparador** y se enrutan a **backend**; ninguno bloquea el merge del stream. Mínimo para
+mantener el APROBADO: no habilitar operación concurrente multi-operador sobre la misma solicitud sin cerrar LOW-1.
+
+---
+
+## Anexo 2026-08-20 — stream `claude/buylist-ordenes` P-5 (superficie de filtros de lista admin, v1.25)
+
+**Rol:** seguridad (blue team). **Alcance FOCALIZADO:** SÓLO los filtros NUEVOS de v1.25 (`q`, `from`, `to`,
+`minCents`, `maxCents`, CSV de `status`, paginación) sobre `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3).
+P-5 es paginación + filtros de **LECTURA** — NO mueve dinero. **No re-audité P-4** (ya aprobado).
+**Archivos revisados:** `backend/src/common/admin-list-filters.ts`;
+`backend/src/modules/buylist/{admin-buylist.controller.ts, buylist.service.ts (adminList)}`;
+`backend/src/modules/orders/admin-orders.controller.ts (list)`;
+`frontend/src/lib/{api.ts, api-client.ts}`; `frontend/.../admin/m5/M5View.tsx`, `.../m3/M3View.tsx`.
+**Tests:** `npx jest buylist.security` → **6/6 verdes**.
+
+### Ejes evaluados
+
+1. **Inyección — OK.** Todos los filtros producen fragmentos `where` de Prisma **parametrizados**
+   (`contains`/`in`/`gte`/`lte`); no hay `$queryRaw` ni interpolación de SQL crudo en toda la superficie.
+   `status` valida cada token del CSV contra `SellRequestStatus` (buylist) → 400 `VALIDATION_ERROR`
+   (`details.invalidStatus`) antes de tocar Prisma. `q` va como parámetro de `LIKE`, no como regex, por lo que
+   **no hay ReDoS**. Límite de longitud de `q` = 200 chars (`ADMIN_LIST_MAX_Q_LENGTH`) → 400 si excede.
+   Frontend serializa vía `URL.searchParams.set` (encoding correcto), sin construcción manual de query string.
+
+2. **Fuga de PII / alcance de `q` — OK.** El OR de `q` busca SÓLO sobre campos NO sensibles:
+   buylist = `SellRequest.id` + `user.name` + `user.email`; orders = `orderNumber` + `guestEmail` + `userId`
+   (exacto) + `user.name` + `user.email`. **NUNCA** sobre CLABE / RFC / INE / snapshot cifrado / `paymentMethodLast4`.
+   La CLABE cifrada no participa en ningún `where` de estos listados y sigue exclusiva del reveal auditado
+   (`@MoneyOut`, super_admin). v1.25 **no añade campos nuevos** a la respuesta de ninguno de los dos listados
+   (el shape es idéntico al de P-4): buylist `adminList` mantiene **proyección explícita** (`id, userId, seller{id,
+   name,email}, status, quotedTotalCents, approvedTotalCents, createdAt, items`) — limpia; orders conserva su
+   spread previo `...o` (ver INFO-1, pre-existente).
+
+3. **IDOR / enumeración — OK.** Ambos endpoints están bajo `@Roles(vault_operator, super_admin)` a nivel de clase.
+   Los filtros (`userId`, `q`, montos, fechas, `status`) **sólo REDUCEN** el conjunto que el rol ya puede listar;
+   ninguno amplía el alcance ni permite alcanzar objetos fuera de la autorización de rol. No hay proyección
+   reducida por rol en estos listados (vault_operator y super_admin ven el mismo shape, por diseño §M3/§M5), así
+   que no existe fuga por diferencial de rol dentro de la superficie de filtros. El filtro por monto/fecha/`q` no
+   habilita ninguna enumeración nueva más allá de lo que el rol ya puede listar sin filtros.
+
+4. **DoS / validación — OK con deuda aceptada.** `parseAdminListFilters` acota `pageSize ≤ 100`
+   (`ADMIN_LIST_MAX_PAGE_SIZE`), exige `page`/`minCents`/`maxCents` enteros (`page ≥ 1`, cents `≥ 0`), fechas
+   ISO-8601 parseables, y `maxCents ≥ minCents` — todo inválido → 400, nunca clamp silencioso. No hay
+   amplificación patológica: el peor caso es un table-scan acotado por `take ≤ 100`. Ver LOW-A2 (índice diferido).
+
+### Hallazgos
+
+- **INFO-1 (Informativo · pre-existente, NO introducido por P-5) — `GET /admin/orders` list hace spread `...o`
+  de la fila completa · dueño: BACKEND.** `admin-orders.controller.ts:97` retorna `data.map((o) => ({ ...o, ... }))`,
+  lo que incluye columnas sensibles de `Order` (`paymentMethodLast4`, `paymentMethodBrand`, `stripePaymentIntentId`,
+  `stripeChargeId`, `billingSnapshot`, `shippingAddressSnapshot`) en cada fila del listado. **Origen: commit `e94a077`
+  (guest checkout, v1.21 / P-4), NO v1.25** — `git log -S` confirma que el spread precede al stream P-5, que sólo
+  añadió filtros y no tocó el shape. Fuera del alcance focalizado y ya cubierto por la aprobación de P-4; se registra
+  por completitud (paralelo a LOW-3 del anexo P-4). **Sugerencia de hardening (no bloqueante):** migrar la list a
+  proyección explícita con `select` (como sí hace `buylist.adminList`) para no exponer snapshots/last4/IDs de Stripe
+  en la cola. **No es regresión de P-5.**
+
+- **LOW-A1 (Baja) — `contains` de Prisma no escapa metacaracteres de `LIKE` (`%`, `_`) · dueño: BACKEND.**
+  Prisma 5.20 no escapa `%`/`_` en `contains`; un `q` con esos caracteres actúa como comodín de `LIKE`
+  (ensancha el match). **Impacto acotado:** sólo altera la semántica de coincidencia DENTRO del conjunto que el
+  rol admin ya puede listar sin filtro — **no evade la autorización de rol ni exfiltra datos fuera de alcance**, y
+  no hay SQLi ni ReDoS. Efecto real: búsqueda más amplia de lo previsto y un scan algo mayor. **Sugerencia:**
+  escapar `%`/`_`/`\` en `q` antes del `contains` si se quiere match literal. **Deuda aceptable para MVP**
+  (superficie admin-only, sin escalamiento de privilegios).
+
+- **LOW-A2 (Baja) — Índice `@@index([status, createdAt])` diferido → riesgo de disponibilidad · dueño: BACKEND/DEVOPS.**
+  Con `orderBy: createdAt desc` + filtros por `status`/rango y sin ese índice, los listados hacen sort/scan
+  secuencial que crece con el volumen. **Aceptable para MVP** (tráfico admin bajo, `take ≤ 100`). **Disparador:**
+  crear el índice (y evaluar índice trigram/`pg_trgm` para las columnas de `contains`) antes de que las colas
+  `SellRequest`/`Order` superen decenas de miles de filas o antes de exponer estos listados a carga sostenida.
+
+- **INFO-2 (Informativo) — Sin validación `from ≤ to` en el rango de fechas.** `admin-list-filters.ts` valida
+  `maxCents ≥ minCents` pero NO exige `to ≥ from`; un rango invertido devuelve conjunto vacío. **No es vuln**
+  (no fuga ni DoS); simple inconsistencia de UX/validación. Opcional alinear con la regla de cents.
+
+### VEREDICTO P-5 — **APROBADO**
+
+0 Críticos / 0 Altos abiertos en la superficie de filtros v1.25. Los cuatro ejes (inyección, PII/alcance de `q`,
+IDOR/enumeración, DoS/validación) están correctos: Prisma parametrizado, `q` sobre campos no sensibles con tope de
+200 chars, filtros que sólo reducen el conjunto autorizado por rol, y validación estricta → 400 con `pageSize ≤ 100`.
+Tests `buylist.security` 6/6 verdes. Los hallazgos abiertos son **2 Bajos** (LOW-A1 comodines de `LIKE`, LOW-A2
+índice diferido) + **2 Informativos** (INFO-1 spread `...o` pre-P-4, INFO-2 `from≤to`), **todos deuda aceptable con
+disparador** y enrutados a **backend/devops**; ninguno bloquea el merge de P-5. **Mínimo para mantener el APROBADO:**
+no ampliar el OR de `q` a columnas sensibles (CLABE/RFC/INE/last4/snapshots) y crear el índice de LOW-A2 antes de
+escalar el volumen de las colas.
+## P-1 · Gate SEGURIDAD (blue-team) — Reglas de precio de VENTA por rareza (M2) — 2026-08-20
+
+**Alcance revisado:** `frontend/.../admin/m2/M2View.tsx` + `M2View.test.tsx` (working tree, rama
+`claude/precios-variantes-masterset`). Ruta backend de guardado/validación: `pricing.controller.ts`
+`putSalesRules` (264–305), `settings.constants.ts` `validateSalesRules`/`isValidSalesRule` (211–230),
+aplicación en `money.ts` `computeSalePriceForRarity` (279–305).
+
+### VEREDICTO: **RECHAZAR** — hay 1 hazard de dinero residual (rutable a frontend).
+
+**Los DOS hazards originales SÍ quedan cerrados (confirmado):**
+- **100× sobreprecio:** el `value` del borrador ahora es TEXTO CRUDO; el cast ocurre solo al guardar.
+  "12.50" → `pesosToCents("12.50")` = `Math.round(12.5*100)` = **1250 centavos exactos** (M2View.tsx:65–68,
+  379). Sin 100×. El decimal sobrevive tecla-a-tecla (value literal, M2View.tsx:957). Test lo cubre.
+- **Corrupción por flip de modo:** al cambiar fixed↔pct el value se resetea a `''` (M2View.tsx:958–962,
+  el `onChange` del `<select>` de modo pone `value: ''`). 500¢ ya no se vuelve 500% ni 15% → $0.15. Test lo cubre.
+
+**Clamps cliente vs servidor:** fixed → `Math.max(0, pesosToCents())` (entero ≥ 0; `pesosToCents` usa
+`Math.round` → siempre entero) ≡ servidor `isInt && >=0` (settings.constants.ts:214). pct →
+`Math.min(1000, Math.max(0, Number()||0))` ≡ `SALES_PCT_MAX=1000` (215). Servidor SIGUE siendo la autoridad
+(`validateSalesRules` en el PUT → 422, controller 275–276). Ni NaN ni fuera-de-rango llegan a persistir.
+
+**Merge money-safe INV-1:** intacto — `rules: { ...salesRules.data.rules, ...draftRules }` (M2View.tsx:383)
+preserva claves no tocadas; solo las rarezas editadas se sobreescriben. Sin secretos/keys en el diff. Sección
+buylist (`ruleDraft`/`setRuleDraft`, líneas 809–827) NO tocada — usa estado separado.
+
+### HALLAZGO (bloqueante) — S-P1-1 · Cero silencioso persiste como precio de VENTA MX$0 (regalo)
+
+Entradas multi-punto ("1.2.3", "12..5") y campo VACÍO se coercionan a **0** al guardar y persisten como
+regla válida-pero-errónea:
+- Sanitizador `replace(/[^0-9.]/g,'')` (M2View.tsx:961) **permite múltiples puntos** → el crudo llega como "1.2.3".
+- En guardado: fixed → `pesosToCents("1.2.3")` → `Number("1.2.3")`=NaN → devuelve **0** (M2View.tsx:67, 379);
+  pct → `Number("1.2.3")||0` → **0** (381). Vacío "" → mismo camino → 0.
+- Servidor NO lo atrapa: `isValidSalesRule` acepta fixed value 0 (entero ≥ 0, settings.constants.ts:214);
+  no hay 422.
+- Impacto: `computeSalePriceForRarity` con fixed value 0 → `{ salePriceCents: 0, status: 'priced' }`
+  (money.ts:291–293) → cartas listadas a **MX$0.00 (regalo)**. Alcanzable por typo ordinario (borrar campo +
+  Guardar, o doble punto). El fix, al dejar el campo vacío en vez de re-normalizar a "0", hace esta ruta MÁS
+  fácil de disparar que el código previo.
+
+**Fix exacto (frontend):** (a) sanitizar el crudo a UN solo punto decimal en el `onChange` (M2View.tsx:961),
+descartando el 2º punto en adelante; y (b) NO coercionar vacío/NaN a 0 en el guardado — omitir el borrador
+vacío o bloquear Guardar con validación cuando una regla tocada quede vacía/NaN, en vez de persistir 0.
+Apoyarse en el 422 del servidor NO basta: 0 es un `fixed` legal, el servidor no puede distinguir el regalo.
+
+---
+
+### RE-GATE (blue-team) — 2026-08-20 — S-P1-1 **RESUELTO** · VEREDICTO: **APROBAR**
+
+El rol frontend aplicó el fix. Re-revisión del working tree (`M2View.tsx`, `M2View.test.tsx`,
+`messages/en.json`, `messages/es.json`). Las tres capas exigidas están presentes y correctas:
+
+1. **Saneo a un solo punto (fuente):** nuevo `sanitizeDecimalInput` (M2View.tsx:75–80) corre en CADA
+   `onChange` del input de valor (M2View.tsx:991). Conserva solo el 1er punto y descarta los siguientes.
+   Traza: `"1.2.3"`→`"1.23"`, `"12..5"`→`"12.5"` (también en pegado). Ningún crudo multi-punto llega al
+   borrador. El sanitizador viejo `replace(/[^0-9.]/g,'')` fue eliminado del onChange.
+2. **Sin cero silencioso al guardar (defensa en profundidad):** `isSaveableRuleValue` (M2View.tsx:86–90)
+   rechaza `""`/`"."`/`"1.2.3"` (NaN) y acepta `"12.50"`/`"0.5"/"5"`. `salesDraftInvalid` (M2View.tsx:391)
+   DESHABILITA Guardar (M2View.tsx:1019) y muestra Banner de advertencia (M2View.tsx:1008–1010). Además el
+   bucle de guardado OMITE (`continue`) toda regla no guardable (M2View.tsx:406) — una regla omitida conserva
+   el valor del servidor en el merge, NUNCA persiste `{fixed,0}`. No existe ruta que persista un 0 silencioso
+   desde vacío/mal formado.
+3. **Hazards originales siguen cerrados:** 100× — el `value` es texto crudo, casteo solo al guardar
+   (`pesosToCents("12.50")`=1250¢); flip de modo resetea `value:''` (M2View.tsx:976). Servidor sigue siendo
+   la autoridad (`validateSalesRules`→422, controller 275). Clamps cliente ≡ servidor (fixed entero ≥0 vía
+   `Math.round`; pct `Math.min(1000,Math.max(0,·))` ≡ `SALES_PCT_MAX=1000`).
+4. **Sin nuevo hazard:** el helper no introduce bypass; valores legítimos siguen guardables. Las claves i18n
+   añadidas (`salesRules.invalidValue` en en/es) son cadenas estáticas sin interpolación — sin inyección i18n.
+   Nota (no bloqueante, fuera de alcance de S-P1-1): un `"0"` tecleado explícitamente sí es guardable como
+   `fixed 0`; es una acción deliberada del admin (no coerción silenciosa), ya era posible y el servidor lo
+   acepta como legal.
+5. **Alcance:** solo archivos frontend; Sección 4 buylist (`ruleDraft`/`setRuleDraft`, estado separado) NO
+   tocada; sin cambios en backend ni secretos. Tests añadidos cubren decimal/vaciado/multi-punto/`.`/Guardar
+   deshabilitado.
+
+**Resolución:** S-P1-1 cerrado. Fix ref: `sanitizeDecimalInput` (M2View.tsx:75–80), `isSaveableRuleValue`
+(86–90), `salesDraftInvalid` (391) + Guardar deshabilitado (1019) + Banner (1008–1010), guarda del bucle
+(406). Gate P-1 (money-touch) **APROBADO** por SEGURIDAD.
+
+
+---
+
+## 2026-08-20 — Gate SEGURIDAD (blue-team): bundle precios-variantes-masterset `4c9219f..HEAD` (v1.26)
+
+Alcance: 4 commits tras el P-1 ya aprobado — TCGCSV variant detection (§4.24a), ④ publish-gated-on-price,
+P-6 cola en 2 buckets, P-2 market-ref en tile M1, P-7 reprice+publish. Diff + servicios backend + contrato
+v1.26 revisados. **VEREDICTO: APPROVE-WITH-CONDITIONS** (2 items low-sev a registrar; ningún money-hazard
+introducido por este bundle).
+
+### Money-safety (los 7 puntos) — verificados
+
+1. **Publish nunca lista a 0/sin precio — CONFIRMADO.** `inventory.service.ts` bulkPublish, ambas ramas
+   (raw ~L554 / sealed ~L520): `sale.salePriceCents == null` → `pricing.escalatePending(...,'inventory',...)`
+   + `throw PRICE_PENDING` (línea `ok:false`, la pieza NO se publica, conserva su status). Idempotente por
+   `(cardId,productType,gradeKey,finish,status='open')`. No hay ruta que publique con precio 0/ausente.
+2. **P-7 `refreshCardPrices` FAIL-CLOSED — CONFIRMADO** (`pricing.service.ts` ~L515). `if (!(row.marketCents
+   > 0)) continue` (nunca 0/negativo); `row.currency==='USD' && fx==null → continue` (sin FX no se inventa
+   MXN); proveedor que revienta → `catch`→`continue` (money-safe, intenta el siguiente); `dailyLimited` del
+   PPT corta el barrido. Cotas: `MAX_FRESH_REPRICE_CARDS=50` (caller) + `maxFreshCards=100` (PPT, defensa en
+   profundidad). Un fallo total deja la carta `pending` → el caller cae a la ref ALMACENADA o al gate ④. El
+   wrapper en bulkPublish (`try/catch`, warn) garantiza que el reprecio NUNCA tumba la publicación.
+3. **P-2 expone la REFERENCIA de mercado cruda, null→"—" no $0 — CONFIRMADO.** `master-set.service.ts`
+   ~L440 usa `getReferencesBatch` (gradeKey `raw:NM`, acabado base) → `liveMxnCents` (recompute FX vigente,
+   la MISMA ruta que valúa la bóveda). Solo `status==='priced'` produce centavos; `pending`/ausente →
+   `marketReferenceMxnCents=null`. La clave de lookup `…|raw:NM|${universe[0]}` coincide con el `finish`
+   consultado (`baseFinishOf = expectedFinishes(...)[0] === universe[0]`), así que un desajuste solo caería
+   a "—" (dirección segura). Front (`MasterSetBinder.tsx`): `null` → `marketPendingShort` ("—"), nunca $0.
+4. **Estructura ≠ precio — CONFIRMADO.** `structural-finish-resolver.service.ts` escribe SOLO
+   `Card.structuralFinishes` (whitelist de qué variantes EXISTEN) y llama `FinishReconciler.reconcile`;
+   grep confirma CERO escrituras a `PriceReference`/`priceMxnCents` en el resolver y en el reconciler. Una
+   fila TCGCSV con `marketPrice:null` sigue aportando estructura; `subTypeName` desconocido se OMITE
+   (`deriveStructuralFinishes`, anti-invención, nunca se atribuye a `normal`). Una carta no joineada conserva
+   su valor previo. Sin `PriceReference`, la variante sigue `pending` (no se fabrica precio).
+5. **`manualOverride` context-agnóstico — evaluado, aceptable.** Comparte `PriceReference` por
+   `(cardId,productType,gradeKey,finish)` entre contextos: un override desde el bucket VENTA escribe la ref
+   `raw:NM` que la valuación de COMPRA/buylist también lee. Es by-design/documentado (una mejor ref de
+   mercado beneficia ambos flujos; no es corrupción). COMPRA es READ-ONLY en nuestro código: el endpoint
+   `pending?context=buylist` solo lee, y no hay NINGUNA escritura nueva a buylist/orders en el diff.
+6. **SSRF/egress y secretos — CONFIRMADO.** `TcgcsvHttpClient` mantiene el patrón anti-SSRF: host FIJO
+   `https://tcgcsv.com/tcgplayer`, `pokemonCategoryId=3` constante, `assertValidGroupId` (entero positivo)
+   antes de interpolar, `redirect:'error'`, timeout 15s, `Accept: application/json`, sin API key.
+   `TcgcsvCatalogClient` hereda todo sin duplicar. P-7: PPT usa API key de env (`client.apiKey()`, NUNCA
+   logueada) + `tcgplayerId` de BD; pokemontcg.io fresh usa host hardcodeado + `externalId` de BD. Ningún
+   host/URL controlado por el usuario; ningún secreto logueado ni hardcodeado (los `logger.warn` emiten
+   status/ids, no claves).
+7. **Authz/audit — CONFIRMADO, sin regresión.** `PricingController` `@Roles(super_admin)` a nivel clase
+   cubre `pending?context=` y `override`. `InventoryController` `@Roles(vault_operator, super_admin)` cubre
+   `bulk-publish` (repriceFresh). El query `?context=` se valida ESTRICTO contra el enum `PendingPriceContext`
+   → 422 si es inválido (sin enumeración/leak). Sin nuevos endpoints sin guard.
+
+**P-1 (S-P1-1) intacto:** `sanitizeDecimalInput` (M2View.tsx) presente y aplicado al input de reglas de
+venta. NINGÚN input de precio TOCADO por este bundle reintroduce el multi-punto/cero-silencioso.
+
+### Condiciones a registrar (low-sev — NO bloquean; ningún money-hazard nuevo de este bundle)
+
+- **L1 (frontend + backend, pre-existente, ELEVADO por P-6) — input de override de la cola VENTA sin
+  saneo decimal.** El input de precio del override de pendientes (`M2View.tsx` ~L1427) usa
+  `onChange={e=>setOverridePriceValue(e.target.value)}` SIN `sanitizeDecimalInput`, y `pesosToCents`
+  (M2View.tsx:67) castea NaN→**0** (`Number("1.2.3")`=NaN). El `OverrideDto` backend acepta
+  `@IsInt() @Min(0)` → **admite 0**. El submit solo bloquea `overridePriceValue===''`. P-6 dirige ahora al
+  operador a ESTE input como la ruta de resolución-y-publicación de los pendientes `context=inventory`, así
+  que un multi-punto por dedo gordo podría fijar una referencia manual de $0 y publicar a $0. No lo introduce
+  textualmente este diff (fuera del alcance estricto `4c9219f..HEAD`), por eso se registra en vez de
+  rechazar. **Fix rutado:** frontend → aplicar `sanitizeDecimalInput` al `onChange` del override (paridad con
+  el input de reglas de venta); backend → endurecer `OverrideDto.priceMxnCents` a `@Min(1)`.
+- **L2 (backend, low) — `PokemonTcgIoProvider.fetchFreshForCards` sin timeout ni `redirect:'error'`.** El
+  `fetch` a `https://api.pokemontcg.io/v2/cards/${externalId}` (host hardcodeado, `externalId` de BD → sin
+  SSRF) carece del `AbortController`/timeout y `redirect:'error'` que sí tiene `TcgcsvHttpClient`; un upstream
+  colgado podría estancar una request de publicación con `repriceFresh`. **Fix rutado:** backend → añadir
+  timeout + `redirect:'error'` (paridad con el cliente TCGCSV).
+
+**Gate SEGURIDAD (money-touch): APPROVE-WITH-CONDITIONS.** Registrar L1/L2; ninguna es hazard de dinero
+introducida por este bundle. — SEGURIDAD (blue-team)
