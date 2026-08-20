@@ -114,6 +114,53 @@ describe('StructuralFinishResolverService.resolveStructuralFinishesForSet (§4.2
     expect(updates.find((u) => u.where.id === 'c-pika')?.data.structuralFinishes).toEqual(['holofoil']);
   });
 
+  it('TECHLEAD #2: match EXACTO de nombre gana sobre un superset por substring ("Base" vs "Base Set 2")', async () => {
+    const { prisma, updates } = prismaMock(
+      { id: 'local-base', name: 'Base', pptSetId: 'base' },
+      [{ id: 'c-pika', number: '57', tcgplayerId: '593245' }],
+    );
+    // "Base" es substring de "Base Set 2"; el loose bidireccional habría dado 2 candidatos ⇒ null.
+    // Con igualdad exacta preferida, gana el groupId 10 ("Base") y NO es ambiguo.
+    const client = clientMock({
+      groups: [
+        { groupId: 10, name: 'Base' },
+        { groupId: 11, name: 'Base Set 2' },
+      ],
+    });
+    const reconciler = { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler;
+    const svc = new StructuralFinishResolverService(prisma, client, reconciler);
+
+    const res = await svc.resolveStructuralFinishesForSet('local-base');
+
+    expect((client.getProducts as jest.Mock)).toHaveBeenCalledWith(10);
+    expect(res?.groupId).toBe(10);
+    expect(updates.find((u) => u.where.id === 'c-pika')?.data.structuralFinishes).toEqual(['holofoil']);
+  });
+
+  it('TECHLEAD #2: substring ambiguo (sin match exacto) sigue ⇒ null, NO escribe (money-safe)', async () => {
+    const { prisma, updates } = prismaMock(
+      { id: 'local-base', name: 'Base', pptSetId: 'base' },
+      [{ id: 'c-pika', number: '57', tcgplayerId: '593245' }],
+    );
+    // Ningún nombre es exactamente "base"; dos supersets contienen "base" ⇒ ambiguo ⇒ null.
+    const client = clientMock({
+      groups: [
+        { groupId: 10, name: 'Base Set' },
+        { groupId: 11, name: 'Base Set 2' },
+      ],
+    });
+    const reconcile = jest.fn(async () => 0);
+    const reconciler = { reconcile } as unknown as FinishReconciler;
+    const svc = new StructuralFinishResolverService(prisma, client, reconciler);
+
+    const res = await svc.resolveStructuralFinishesForSet('local-base');
+
+    expect(res).toBeNull();
+    expect((prisma as any).card.update).not.toHaveBeenCalled();
+    expect(updates).toHaveLength(0);
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+
   it('money-safe: sin match ÚNICO de groupId ⇒ devuelve null, NO toca ninguna carta ni reconcilia', async () => {
     const { prisma, updates } = prismaMock(
       { id: 'local-x', name: 'Ambiguous Set', pptSetId: null },

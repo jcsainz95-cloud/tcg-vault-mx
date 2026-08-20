@@ -144,13 +144,25 @@ export class StructuralFinishResolverService {
       return groupId;
     }
 
-    // Fallback: match por nombre normalizado (único). listGroups puede lanzar → el llamador captura.
+    // Fallback: match por nombre normalizado. listGroups puede lanzar → el llamador captura.
     const groups = await this.tcgcsv.listGroups();
     const target = normalizeName(set.name);
-    const matches = groups.filter((g) => {
-      const gn = normalizeName(g.name);
-      return gn === target || gn.includes(target) || target.includes(gn);
-    });
+    // TECHLEAD #2 — PREFERIR igualdad EXACTA de nombre normalizado: evita que un substring "único"
+    // pero equivocado gane (p. ej. "Base" ⊂ "Base Set 2"). Solo si NO hay match exacto se cae al
+    // comportamiento previo de substring bidireccional ÚNICO (el guard `length === 1` sigue: ambiguo ⇒
+    // null ⇒ no se toca ninguna carta, money-safe).
+    const exact = groups.filter((g) => normalizeName(g.name) === target);
+    if (exact.length === 1) {
+      this.groupIdCache.set(set.id, exact[0].groupId);
+      return exact[0].groupId;
+    }
+    const matches =
+      exact.length === 0
+        ? groups.filter((g) => {
+            const gn = normalizeName(g.name);
+            return gn.includes(target) || target.includes(gn);
+          })
+        : exact; // exact.length > 1 ⇒ ambiguo por nombre exacto ⇒ cae al guard de abajo (null).
     if (matches.length === 1) {
       this.groupIdCache.set(set.id, matches[0].groupId);
       return matches[0].groupId;

@@ -23,6 +23,11 @@ import {
 export class PokemonTcgIoProvider implements PricingProvider, FreshCardPriceProvider {
   readonly source = 'pokemontcg_io' as const;
   private readonly logger = new Logger(PokemonTcgIoProvider.name);
+  /**
+   * SEGURIDAD L2 — timeout corto por petición (paridad con `TcgcsvHttpClient`): un upstream colgado o
+   * que redirige no debe estancar un `repriceFresh`. Se combina con `redirect:'error'` en el fetch.
+   */
+  private readonly timeoutMs = 15_000;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -74,9 +79,15 @@ export class PokemonTcgIoProvider implements PricingProvider, FreshCardPriceProv
     let requestOk = false;
     for (const card of cards) {
       if (!card.externalId) continue;
+      // SEGURIDAD L2 — timeout + `redirect:'error'` por carta (paridad con TcgcsvHttpClient): un upstream
+      // colgado/redirigiendo no estanca el `repriceFresh`. Host fijo (no se cambia).
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
         const res = await fetch(`https://api.pokemontcg.io/v2/cards/${card.externalId}`, {
           headers: apiKey ? { 'X-Api-Key': apiKey } : {},
+          redirect: 'error',
+          signal: controller.signal,
         });
         if (!res.ok) {
           this.logger.warn(`pokemontcg.io fresh ${card.externalId} -> HTTP ${res.status}`);
@@ -102,6 +113,8 @@ export class PokemonTcgIoProvider implements PricingProvider, FreshCardPriceProv
         }
       } catch (e) {
         this.logger.warn(`pokemontcg.io fresh failed for ${card.externalId}: ${(e as Error).message}`);
+      } finally {
+        clearTimeout(timer);
       }
     }
     return { rows, requestOk, dailyLimited: false };

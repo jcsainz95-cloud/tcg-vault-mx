@@ -2773,3 +2773,77 @@ El rol frontend aplicó el fix. Re-revisión del working tree (`M2View.tsx`, `M2
 (86–90), `salesDraftInvalid` (391) + Guardar deshabilitado (1019) + Banner (1008–1010), guarda del bucle
 (406). Gate P-1 (money-touch) **APROBADO** por SEGURIDAD.
 
+
+---
+
+## 2026-08-20 — Gate SEGURIDAD (blue-team): bundle precios-variantes-masterset `4c9219f..HEAD` (v1.26)
+
+Alcance: 4 commits tras el P-1 ya aprobado — TCGCSV variant detection (§4.24a), ④ publish-gated-on-price,
+P-6 cola en 2 buckets, P-2 market-ref en tile M1, P-7 reprice+publish. Diff + servicios backend + contrato
+v1.26 revisados. **VEREDICTO: APPROVE-WITH-CONDITIONS** (2 items low-sev a registrar; ningún money-hazard
+introducido por este bundle).
+
+### Money-safety (los 7 puntos) — verificados
+
+1. **Publish nunca lista a 0/sin precio — CONFIRMADO.** `inventory.service.ts` bulkPublish, ambas ramas
+   (raw ~L554 / sealed ~L520): `sale.salePriceCents == null` → `pricing.escalatePending(...,'inventory',...)`
+   + `throw PRICE_PENDING` (línea `ok:false`, la pieza NO se publica, conserva su status). Idempotente por
+   `(cardId,productType,gradeKey,finish,status='open')`. No hay ruta que publique con precio 0/ausente.
+2. **P-7 `refreshCardPrices` FAIL-CLOSED — CONFIRMADO** (`pricing.service.ts` ~L515). `if (!(row.marketCents
+   > 0)) continue` (nunca 0/negativo); `row.currency==='USD' && fx==null → continue` (sin FX no se inventa
+   MXN); proveedor que revienta → `catch`→`continue` (money-safe, intenta el siguiente); `dailyLimited` del
+   PPT corta el barrido. Cotas: `MAX_FRESH_REPRICE_CARDS=50` (caller) + `maxFreshCards=100` (PPT, defensa en
+   profundidad). Un fallo total deja la carta `pending` → el caller cae a la ref ALMACENADA o al gate ④. El
+   wrapper en bulkPublish (`try/catch`, warn) garantiza que el reprecio NUNCA tumba la publicación.
+3. **P-2 expone la REFERENCIA de mercado cruda, null→"—" no $0 — CONFIRMADO.** `master-set.service.ts`
+   ~L440 usa `getReferencesBatch` (gradeKey `raw:NM`, acabado base) → `liveMxnCents` (recompute FX vigente,
+   la MISMA ruta que valúa la bóveda). Solo `status==='priced'` produce centavos; `pending`/ausente →
+   `marketReferenceMxnCents=null`. La clave de lookup `…|raw:NM|${universe[0]}` coincide con el `finish`
+   consultado (`baseFinishOf = expectedFinishes(...)[0] === universe[0]`), así que un desajuste solo caería
+   a "—" (dirección segura). Front (`MasterSetBinder.tsx`): `null` → `marketPendingShort` ("—"), nunca $0.
+4. **Estructura ≠ precio — CONFIRMADO.** `structural-finish-resolver.service.ts` escribe SOLO
+   `Card.structuralFinishes` (whitelist de qué variantes EXISTEN) y llama `FinishReconciler.reconcile`;
+   grep confirma CERO escrituras a `PriceReference`/`priceMxnCents` en el resolver y en el reconciler. Una
+   fila TCGCSV con `marketPrice:null` sigue aportando estructura; `subTypeName` desconocido se OMITE
+   (`deriveStructuralFinishes`, anti-invención, nunca se atribuye a `normal`). Una carta no joineada conserva
+   su valor previo. Sin `PriceReference`, la variante sigue `pending` (no se fabrica precio).
+5. **`manualOverride` context-agnóstico — evaluado, aceptable.** Comparte `PriceReference` por
+   `(cardId,productType,gradeKey,finish)` entre contextos: un override desde el bucket VENTA escribe la ref
+   `raw:NM` que la valuación de COMPRA/buylist también lee. Es by-design/documentado (una mejor ref de
+   mercado beneficia ambos flujos; no es corrupción). COMPRA es READ-ONLY en nuestro código: el endpoint
+   `pending?context=buylist` solo lee, y no hay NINGUNA escritura nueva a buylist/orders en el diff.
+6. **SSRF/egress y secretos — CONFIRMADO.** `TcgcsvHttpClient` mantiene el patrón anti-SSRF: host FIJO
+   `https://tcgcsv.com/tcgplayer`, `pokemonCategoryId=3` constante, `assertValidGroupId` (entero positivo)
+   antes de interpolar, `redirect:'error'`, timeout 15s, `Accept: application/json`, sin API key.
+   `TcgcsvCatalogClient` hereda todo sin duplicar. P-7: PPT usa API key de env (`client.apiKey()`, NUNCA
+   logueada) + `tcgplayerId` de BD; pokemontcg.io fresh usa host hardcodeado + `externalId` de BD. Ningún
+   host/URL controlado por el usuario; ningún secreto logueado ni hardcodeado (los `logger.warn` emiten
+   status/ids, no claves).
+7. **Authz/audit — CONFIRMADO, sin regresión.** `PricingController` `@Roles(super_admin)` a nivel clase
+   cubre `pending?context=` y `override`. `InventoryController` `@Roles(vault_operator, super_admin)` cubre
+   `bulk-publish` (repriceFresh). El query `?context=` se valida ESTRICTO contra el enum `PendingPriceContext`
+   → 422 si es inválido (sin enumeración/leak). Sin nuevos endpoints sin guard.
+
+**P-1 (S-P1-1) intacto:** `sanitizeDecimalInput` (M2View.tsx) presente y aplicado al input de reglas de
+venta. NINGÚN input de precio TOCADO por este bundle reintroduce el multi-punto/cero-silencioso.
+
+### Condiciones a registrar (low-sev — NO bloquean; ningún money-hazard nuevo de este bundle)
+
+- **L1 (frontend + backend, pre-existente, ELEVADO por P-6) — input de override de la cola VENTA sin
+  saneo decimal.** El input de precio del override de pendientes (`M2View.tsx` ~L1427) usa
+  `onChange={e=>setOverridePriceValue(e.target.value)}` SIN `sanitizeDecimalInput`, y `pesosToCents`
+  (M2View.tsx:67) castea NaN→**0** (`Number("1.2.3")`=NaN). El `OverrideDto` backend acepta
+  `@IsInt() @Min(0)` → **admite 0**. El submit solo bloquea `overridePriceValue===''`. P-6 dirige ahora al
+  operador a ESTE input como la ruta de resolución-y-publicación de los pendientes `context=inventory`, así
+  que un multi-punto por dedo gordo podría fijar una referencia manual de $0 y publicar a $0. No lo introduce
+  textualmente este diff (fuera del alcance estricto `4c9219f..HEAD`), por eso se registra en vez de
+  rechazar. **Fix rutado:** frontend → aplicar `sanitizeDecimalInput` al `onChange` del override (paridad con
+  el input de reglas de venta); backend → endurecer `OverrideDto.priceMxnCents` a `@Min(1)`.
+- **L2 (backend, low) — `PokemonTcgIoProvider.fetchFreshForCards` sin timeout ni `redirect:'error'`.** El
+  `fetch` a `https://api.pokemontcg.io/v2/cards/${externalId}` (host hardcodeado, `externalId` de BD → sin
+  SSRF) carece del `AbortController`/timeout y `redirect:'error'` que sí tiene `TcgcsvHttpClient`; un upstream
+  colgado podría estancar una request de publicación con `repriceFresh`. **Fix rutado:** backend → añadir
+  timeout + `redirect:'error'` (paridad con el cliente TCGCSV).
+
+**Gate SEGURIDAD (money-touch): APPROVE-WITH-CONDITIONS.** Registrar L1/L2; ninguna es hazard de dinero
+introducida por este bundle. — SEGURIDAD (blue-team)

@@ -427,6 +427,11 @@ export function M2View() {
   // se persista como 0 (fixed 0 = MX$0.00 → carta regalada; el server acepta 0 y no da 422).
   const salesDraftInvalid = Object.values(salesRuleDraft).some((d) => !isSaveableRuleValue(d.value));
 
+  // S-L1 (money-safe): el override de precio (Fijar precio) publica el ítem a este valor. Un vacío
+  // o mal formado ("1.2.3") castea a NaN→0 vía pesosToCents y publicaría a MX$0. Mismo guard que
+  // salesRules: solo es fijable un valor no vacío que parsea a número finito → si no, se bloquea.
+  const overrideDraftInvalid = !isSaveableRuleValue(overridePriceValue);
+
   function saveSalesRules() {
     // INV-1: money-safe. Base = tabla CRUDA COMPLETA (incluye la clave sintética "Holo" y cualquier
     // rareza fuera del catálogo actual); el borrador se aplica encima. Sin la cruda no guardamos
@@ -1399,9 +1404,13 @@ export function M2View() {
               {tc('cancel')}
             </Button>
             <Button
-              disabled={overridePriceValue === ''}
+              // S-L1 money-safe: bloquea Fijar precio si el valor está vacío o mal formado, para que
+              // pesosToCents no lo castee a NaN→0 y publique el ítem a MX$0 (mismo gate que salesRules).
+              disabled={overrideDraftInvalid}
               loading={overrideMutation.isPending}
-              onClick={() => overrideTarget && overrideMutation.mutate(overrideTarget)}
+              onClick={() =>
+                overrideTarget && !overrideDraftInvalid && overrideMutation.mutate(overrideTarget)
+              }
             >
               {t('pending.saveOverride')}
             </Button>
@@ -1425,8 +1434,14 @@ export function M2View() {
             inputMode="decimal"
             prefix="MX$"
             value={overridePriceValue}
-            onChange={(e) => setOverridePriceValue(e.target.value)}
+            // S-L1 money-safe: idéntico saneo que salesRules — solo dígitos + UN punto, para que
+            // "1.2.3"/"12..5" no formen un valor que castee a NaN→0 y publique el ítem a MX$0.
+            onChange={(e) => setOverridePriceValue(sanitizeDecimalInput(e.target.value))}
           />
+          {/* S-L1 money-safe: si el valor quedó vacío/mal formado, explica por qué Fijar está bloqueado. */}
+          {overridePriceValue !== '' && overrideDraftInvalid && (
+            <Banner variant="warning" role="alert">{t('pending.overrideInvalidValue')}</Banner>
+          )}
           {overridePriceValue !== '' && (
             <p className="text-xs text-muted">
               = {formatMoneyCents(pesosToCents(overridePriceValue), locale)}

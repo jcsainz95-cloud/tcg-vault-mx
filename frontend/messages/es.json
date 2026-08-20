@@ -1205,6 +1205,7 @@
         "overrideTitle": "Override manual de precio",
         "saveOverride": "Guardar precio",
         "priceLabel": "Precio de referencia (MXN)",
+        "overrideInvalidValue": "Ingresa un precio válido: un valor vacío o mal formado no puede fijarse (evita publicar el ítem a MX$0 por un error de dedo).",
         "finish": "Acabado"
       },
       "fx": {

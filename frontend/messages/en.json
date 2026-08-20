@@ -1205,6 +1205,7 @@
         "overrideTitle": "Manual price override",
         "saveOverride": "Save price",
         "priceLabel": "Reference price (MXN)",
+        "overrideInvalidValue": "Enter a valid price: an empty or malformed value can't be set (prevents publishing the item at MX$0 by a fat-finger).",
         "finish": "Finish"
       },
       "fx": {

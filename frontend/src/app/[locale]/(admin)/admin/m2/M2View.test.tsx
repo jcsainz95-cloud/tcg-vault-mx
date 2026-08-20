@@ -114,6 +114,76 @@ describe('M2View · Catálogo y precios', () => {
     await waitFor(() => expect(inventoryCalls()).toBeGreaterThanOrEqual(2));
   });
 
+  // ---- S-L1 (SECURITY): el OVERRIDE (Fijar precio) no puede colar un MX$0 y publicar a $0 ----
+  it('S-L1: teclear "1.2.3" en el override deja UN SOLO punto ("1.23") y NO publica a MX$0 (123 centavos)', async () => {
+    const user = userEvent.setup();
+    const override = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    renderWithProviders(<M2View />, 'es');
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    const input = within(dialog).getByLabelText('Precio de referencia (MXN)') as HTMLInputElement;
+
+    await user.type(input, '1.2.3');
+    // El 2.º punto se descarta tecla-a-tecla: nunca se forma "1.2.3" (que casteaba a NaN→0).
+    expect(input).toHaveValue('1.23');
+
+    const save = within(dialog).getByRole('button', { name: 'Guardar precio' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    // 1.23 pesos → 123 centavos; jamás 0 (ítem publicado gratis) por el multi-punto.
+    await waitFor(() => expect(override).toHaveBeenCalledTimes(1));
+    expect(override).toHaveBeenCalledWith(expect.objectContaining({ priceMxnCents: 123 }));
+    const arg = override.mock.calls[0][0] as { priceMxnCents: number };
+    expect(arg.priceMxnCents).not.toBe(0);
+  });
+
+  it('S-L1: un override mal formado (solo ".") DESHABILITA Fijar precio → no publica a MX$0', async () => {
+    const user = userEvent.setup();
+    const override = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    renderWithProviders(<M2View />, 'es');
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    const input = within(dialog).getByLabelText('Precio de referencia (MXN)') as HTMLInputElement;
+
+    await user.type(input, '.');
+    // "." no parsea a número finito → no fijable (Number(".")=NaN, no se publica como 0).
+    expect(input).toHaveValue('.');
+    const save = within(dialog).getByRole('button', { name: 'Guardar precio' });
+    expect(save).toBeDisabled();
+
+    // Un clic no dispara el override: nunca se publica un ítem a MX$0.
+    await user.click(save);
+    expect(override).not.toHaveBeenCalled();
+  });
+
+  it('S-L1: un override VÁLIDO ("12.50") SÍ se fija como 1250 centavos (no se rompe el flujo legítimo)', async () => {
+    const user = userEvent.setup();
+    const override = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    renderWithProviders(<M2View />, 'es');
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    const input = within(dialog).getByLabelText('Precio de referencia (MXN)') as HTMLInputElement;
+
+    await user.type(input, '12.50');
+    // El punto y el cero final SOBREVIVEN al saneo (solo se descartan puntos EXTRA).
+    expect(input).toHaveValue('12.50');
+
+    const save = within(dialog).getByRole('button', { name: 'Guardar precio' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    // 12.50 pesos → 1250 centavos (no un 100× ni un 0).
+    await waitFor(() => expect(override).toHaveBeenCalledTimes(1));
+    expect(override).toHaveBeenCalledWith(expect.objectContaining({ priceMxnCents: 1250 }));
+  });
+
   it('P-6 COMPRA pide context=buylist y es READ-ONLY (sin acción de fijar precio) + enlace a M5', async () => {
     const user = userEvent.setup();
     const spy = vi.spyOn(api, 'getPendingPrices');

@@ -31,7 +31,9 @@ class OverrideDto {
   @IsString() cardId!: string;
   @IsString() productType!: ProductType;
   @IsString() gradeKey!: string;
-  @IsInt() @Min(0) priceMxnCents!: number;
+  // SEGURIDAD L1 (dinero): rechaza 0 centavos. Un $0 de override/referencia de mercado NO debe ser
+  // fijable — P-6 enruta al operador a override-and-publish, de modo que un 0 nunca es un precio legítimo.
+  @IsInt() @Min(1) priceMxnCents!: number;
   // v1.6-finish: override por acabado (default normal). Cada acabado tiene su PriceReference.
   @IsOptional() @IsIn(['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'])
   finish?: Finish;
