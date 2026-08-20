@@ -2368,3 +2368,43 @@
 - **Disparador:** no requiere cambio de código backend. **Nota para frontend:** no rotular el `liveMxnCents`
   con la fecha de captura como si fuera el precio de ese día. Solución (front): separar/clarificar la etiqueta
   (p. ej. «ref. USD del {capturedDate}, MXN al tipo de cambio de hoy»).
+
+### Pase `buylist-ordenes` — endurecimiento P-4 (2026-08-20, no bloqueante)
+
+> Del stream `claude/buylist-ordenes` (endurecimiento post-aprobación de P-4: atomicidad intra-método
+> del cierre de solicitud + verificación de `res.count`). Registrado a petición de **techlead/seguridad**.
+> Ítems **dueño backend**, **severidad: no bloqueante**, estado **money-safe**. IDs `P4-D1`/`P4-D2`/`P4-D3`
+> prefijados por este stream para no colisionar.
+
+### P4-D1 · Serialización cross-path de la concurrencia multi-operador (seguridad LOW-1)
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts` → `itemDecision('approve')` vs
+  `itemDecision('reject')`/`maybeAutoRejectRequest`/`rejectRequest` (rutas approve y reject sobre la MISMA
+  solicitud).
+- **Estado actual:** cada método ya es atómico intra-método (count + update en un `$transaction`
+  Serializable). Falta el boundary/locking **compartido entre rutas**: un `approve` concurrente sobre el
+  ÚLTIMO ítem podría, en una ventana estrecha, dejar la solicitud `rechazada` con un ítem `aprobada` vivo.
+- **Impacto:** estado money-safe — **no pagable** (paySpei exige aprobada/verificación + guard de estado),
+  **no vendible** (convertToInventory exige ítem `aprobada`, no la solicitud), **no evade AML**. Solo
+  incoherencia de estado observable en back-office.
+- **Disparador:** antes de habilitar operación concurrente multi-operador sobre la misma solicitud.
+  Mitigación futura: compartir boundary/locking entre las rutas `approve` y `reject` (p. ej. `SELECT … FOR
+  UPDATE`/row-lock de la `SellRequest` o un único tx que abarque decisión de ítem + re-evaluación).
+
+### P4-D2 · `SELL_REQUEST_TERMINAL_STATES` aún duplicado en `ine-retention` (fuente única parcial)
+- **Dónde:** `backend/src/jobs/ine-retention.service.ts:28` (`private static readonly CLOSED = [...]`).
+- **Estado actual:** el set `['pagada','rechazada','abandonada']` ya es fuente única en
+  `buylist-reject.constants.ts` (`SELL_REQUEST_TERMINAL_STATES`), reusada por el módulo `buylist`. El job
+  de retención define su propio `CLOSED` idéntico; **no** se reapuntó porque `src/jobs/` está en uso por
+  otro stream en este pase (evitar regresión cross-stream). Misma política que el `buylist-sweep` 7/30 inline.
+- **Impacto:** nulo funcional; solo duplicación del literal.
+- **Disparador:** al tocar `src/jobs/ine-retention.service.ts` por cualquier motivo, importar
+  `SELL_REQUEST_TERMINAL_STATES` y borrar el `CLOSED` local.
+
+### P4-D3 · `getMine` filtra `closedAt` al cliente dueño vía spread (pre-existente, no de P-4)
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts` → `getMine` (`const { clabeSnapshotEnc, items,
+  ...rest } = req; return { ...rest, … }`).
+- **Estado actual:** el spread `...rest` propaga campos internos como `closedAt` (timestamp de cierre
+  interno; **no PII**) al detalle del cliente dueño. Pre-existente — **no introducido por P-4**.
+- **Impacto:** menor (fuga de un timestamp interno, no PII, solo al propio dueño de la solicitud).
+- **Disparador:** al endurecer la proyección de las vistas del cliente. Solución: proyectar campos
+  explícitos (allow-list) como ya hace `listMine`, en vez del spread.

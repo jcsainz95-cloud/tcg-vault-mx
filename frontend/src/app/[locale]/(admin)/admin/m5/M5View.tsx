@@ -8,6 +8,7 @@ import {
   getAdminRejectedBuylistItems,
   receiveBuylistRequest,
   verifyBuylistRequest,
+  rejectBuylistRequest,
   decideBuylistItem,
   convertBuylistItemToInventory,
   revealBuylistClabe,
@@ -91,6 +92,13 @@ function pesosToCents(value: string): number | null {
 
 /** Estados terminales de item: ya no admiten decisión. */
 const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
+
+/**
+ * Estados terminales de la SOLICITUD (pestaña «Cerradas» = M5_TABS.cerradas): ya no admiten
+ * el cierre explícito «Rechazar solicitud» (contrato §M5 · v1.24: idempotente si ya `rechazada`,
+ * 409 si `pagada`/`abandonada`). La UI simplemente no ofrece el botón sobre estos.
+ */
+const REQUEST_TERMINAL = new Set<SellRequestStatus>(['pagada', 'rechazada', 'abandonada']);
 
 export function M5View() {
   const t = useTranslations('admin.m5');
@@ -209,6 +217,34 @@ export function M5View() {
     setRejectTarget(null);
     setRejectReason('');
     setRejectError(null);
+  }
+
+  // --- Cierre explícito de la solicitud (contrato §M5 · POST /admin/buylist/:id/reject, v1.24) ---
+  // Cierra a `rechazada` una solicitud atorada cuyos ítems YA están todos rechazados (bug P-4).
+  // Confirmación destructiva en modal (DESIGN_SYSTEM §7.6: «rechazar buylist»); `reason` opcional.
+  const [rejectRequestTarget, setRejectRequestTarget] = useState<AdminBuylistDTO | null>(null);
+  const [rejectRequestReason, setRejectRequestReason] = useState('');
+  const [rejectRequestError, setRejectRequestError] = useState<string | null>(null);
+  const rejectRequestMutation = useMutation({
+    mutationFn: (vars: { requestId: string; reason?: string }) =>
+      rejectBuylistRequest(vars.requestId, { reason: vars.reason }),
+    onSuccess: (_d, vars) => {
+      closeRejectRequest();
+      // Tras cerrar, la solicitud cae en la pestaña «Cerradas» (status `rechazada`).
+      ok(vars.requestId, t('feedback.requestRejected'));
+    },
+    // El 422 REQUEST_HAS_NON_REJECTED_ITEMS (quedan ítems vivos) se muestra DENTRO del modal.
+    onError: (e) => setRejectRequestError(getError(e)),
+  });
+  function openRejectRequest(req: AdminBuylistDTO) {
+    setRejectRequestTarget(req);
+    setRejectRequestReason('');
+    setRejectRequestError(null);
+  }
+  function closeRejectRequest() {
+    setRejectRequestTarget(null);
+    setRejectRequestReason('');
+    setRejectRequestError(null);
   }
 
   // --- Conversión a inventario (contrato POST .../convert-to-inventory) ---
@@ -484,6 +520,13 @@ export function M5View() {
           //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.
           const canDecide = req.status === 'recibida' || req.status === 'verificacion';
           const showMoneyOut = req.status === 'verificacion' || req.status === 'aprobada';
+          // «Rechazar solicitud» (v1.24): cierre explícito del hueco de estado (bug P-4). El
+          // endpoint SÓLO cierra si TODOS los ítems ya están `rechazada`; para no ofrecer un
+          // botón que siempre daría 422, se muestra exactamente en esa precondición y nunca
+          // sobre una solicitud ya terminal (`pagada`/`rechazada`/`abandonada`).
+          const allItemsRejected =
+            req.items.length > 0 && req.items.every((it) => it.itemStatus === 'rechazada');
+          const canRejectRequest = !REQUEST_TERMINAL.has(req.status) && allItemsRejected;
           return (
             <div key={req.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -521,7 +564,7 @@ export function M5View() {
 
               <PipelineStepper steps={steps} current={req.status} />
 
-              {/* Acciones a nivel solicitud: recepción física y verificación */}
+              {/* Acciones a nivel solicitud: recepción física, verificación y cierre explícito */}
               <div className="flex flex-wrap gap-2">
                 {req.status === 'cotizada' && (
                   <Button
@@ -541,6 +584,18 @@ export function M5View() {
                     onClick={() => verifyMutation.mutate(req.id)}
                   >
                     {t('verify')}
+                  </Button>
+                )}
+                {/* Cierre explícito «Rechazar solicitud» (v1.24 · POST .../reject): sólo cuando
+                    TODOS los ítems ya están rechazados y la solicitud NO es terminal. Resuelve la
+                    solicitud atorada en «Verificando» del caso reportado por el PO (bug P-4). */}
+                {canRejectRequest && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => openRejectRequest(req)}
+                  >
+                    {t('rejectRequest')}
                   </Button>
                 )}
               </div>
@@ -711,6 +766,60 @@ export function M5View() {
           ))}
       </QueryState>
       )}
+
+      {/* Cierre explícito de la solicitud (v1.24 · POST /admin/buylist/:id/reject). Confirmación
+          destructiva (DESIGN_SYSTEM §7.6: «rechazar buylist»): resumen de consecuencia + motivo
+          OPCIONAL (interno, sin correo) + botón `destructive` a la derecha. No mueve dinero. */}
+      <Modal
+        open={!!rejectRequestTarget}
+        onClose={closeRejectRequest}
+        title={t('rejectRequestTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeRejectRequest}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              loading={rejectRequestMutation.isPending}
+              onClick={() =>
+                rejectRequestTarget &&
+                rejectRequestMutation.mutate({
+                  requestId: rejectRequestTarget.id,
+                  reason: rejectRequestReason.trim() || undefined,
+                })
+              }
+            >
+              {t('rejectRequestConfirm')}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {rejectRequestTarget && (
+            <p className="text-sm text-muted">
+              <span className="tabular font-medium text-text">{rejectRequestTarget.id}</span>
+              {' · '}
+              {sellerLabel(rejectRequestTarget)}
+            </p>
+          )}
+          <p className="text-sm">{t('rejectRequestConsequence')}</p>
+          {/* Motivo OPCIONAL (0–500): interno al AuditLog, NO PII, no se envía correo. */}
+          <Input
+            label={t('rejectRequestReasonLabel')}
+            hint={t('rejectRequestReasonHint')}
+            type="text"
+            maxLength={REJECT_REASON_MAX}
+            value={rejectRequestReason}
+            onChange={(e) => setRejectRequestReason(e.target.value)}
+          />
+          {rejectRequestError && (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+              {rejectRequestError}
+            </Banner>
+          )}
+        </div>
+      </Modal>
 
       {/* Modal de rechazo con motivo obligatorio (v1.18 · decision=reject + reason 3–500).
           El motivo llega al vendedor por CORREO junto con sus plazos (aviso en el copy). */}

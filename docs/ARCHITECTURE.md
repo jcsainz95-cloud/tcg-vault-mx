@@ -2,7 +2,28 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.23-sealed-sales (MVP, plataforma en producción). Fecha: 2026-08-19. Branch: `claude/sellado-producto-cerrado`.
+> Estado: v1.25-buylist-orders-pagination (MVP, plataforma en producción). Fecha: 2026-08-20. Branch: `claude/buylist-ordenes`.
+>
+> **Changelog v1.25-buylist-orders-pagination (2026-08-20, branch `claude/buylist-ordenes`) — WS «Buylist y órdenes»
+> (regla 9, P-5): paginación server-side + filtros para las colas admin M5 (`GET /admin/buylist`) y M3
+> (`GET /admin/orders`).** Problema del PO: la pestaña «Cerradas» de M5 filtra client-side sobre un fetch completo — no
+> escala. Decisión: paginar+filtrar en servidor (NO archivar aparte). **100% aditivo, sin migración de datos.** Diseño en
+> **§4.18(h)** (buylist) y **§4.21(l)** (orders): params comunes `q`/`from`/`to`/`minCents`/`maxCents` (+ `status` CSV en
+> buylist), monto sobre `quotedTotalCents` (M5) / `totalCents` (M3), `pageSize` default 20 sin cambios (front pide 25),
+> orden `createdAt desc`. **Índices RECOMENDADOS** (no migración escrita aquí; `backend/prisma/` es zona compartida): en
+> ambos modelos `@@index([status, createdAt])` + `@@index([createdAt])`; `q` (contains) sin índice B-tree (deuda futura
+> `pg_trgm` si escala). Seguridad: filtros sólo REDUCEN el conjunto autorizado por rol; `q` no busca PII cifrada/pago.
+> **No toca** pricing/catalog/M2/settings/master-set. Contrato en API_CONTRACT §M5/§M3 (v1.25).
+>
+> **Changelog v1.24-buylist-request-reject (2026-08-20, branch `claude/buylist-ordenes`) — WS «Buylist y órdenes»: cierre
+> del hueco de ESTADO A NIVEL SOLICITUD al rechazar ítems (bug P-4).** v1.18 (§4.18) normó el ÍTEM rechazado pero dejó
+> fuera la transición de `SellRequest.status`: `itemDecision(reject)` nunca re-evaluaba la solicitud, así que rechazar el
+> único ítem la dejaba atorada en `verificacion`. Se documentan **dos mecanismos** (§4.18f/g): **(f) auto-transición** a
+> `rechazada` + `closedAt` cuando TODO ítem queda `rechazada` (efecto de `reject` tras el recompute; `convertida_inventario`
+> NO cuenta como rechazado; guard «no pisar terminal»); **(g) cierre explícito** `POST /admin/buylist/:id/reject` (botón
+> M5, `vault_operator+`, auditado) para solicitudes ya atoradas, con guard `422 REQUEST_HAS_NON_REJECTED_ITEMS`, sin
+> mover dinero ni correos. Preserva idempotencia de reject, BL-1 (§9) y SEC-D2 (`closedAt`). **Sin migración.** Contrato
+> en API_CONTRACT §M5 (v1.24). **No toca** pricing/catalog/M2/settings/master-set.
 >
 > **Changelog v1.23-sealed-sales (2026-08-19, branch `claude/sellado-producto-cerrado`) — WS «Sellado / Producto cerrado»:
 > el sellado pasa de precio manual a `mercado TCGCSV × spread` (override de respaldo), gana ventana de tienda propia,
@@ -2661,6 +2682,76 @@ solicitudes) en vez de forzar al front a paginar solicitudes y filtrar ítems. O
 al final); la fase (ventana de devolución / de abandono / abandonada) se deriva en el front comparando `now` con las
 dos fechas. Índice recomendado `@@index([itemStatus])` (parte de M-22) para no barrer la tabla.
 
+> **Ampliación v1.24-buylist-request-reject (2026-08-20, branch `claude/buylist-ordenes`) — ESTADO A NIVEL SOLICITUD al
+> rechazar ítems (bug P-4).** v1.18 (§4.18a–e) normó el ÍTEM rechazado (motivo, plazos, correo, invariante de dinero)
+> pero **dejó fuera la transición de `SellRequest.status`**: `itemDecision(reject)` actualizaba **sólo** el ítem y nunca
+> re-evaluaba la solicitud. El único punto que movía una solicitud a `rechazada` era `respond('decline')` (flujo del
+> CLIENTE ante un ajuste), no el back-office M5. Resultado (P-4): rechazado el único ítem, la solicitud se quedaba
+> atorada en `verificacion`, huérfana. Se documentan **dos mecanismos complementarios** («y/o» del PO). Sin migración
+> (ningún campo nuevo; `closedAt` ya existe por M-19/SEC-D2). Contrato en API_CONTRACT §M5 (v1.24).
+
+**f) Auto-transición de la solicitud (mecanismo principal — efecto de `itemDecision(reject)`).** La re-evaluación del
+estado de la solicitud es un **efecto del propio `reject`, ejecutado TRAS `recomputeApprovedTotal`** (mismo transaction
+boundary que el cambio de ítem, para que un ítem rechazado y una solicitud atorada no puedan coexistir tras un commit
+exitoso). **Regla exacta de agregación:** la solicitud pasa a `status="rechazada"` **sólo si TODO ítem** tiene
+`itemStatus="rechazada"` (equivalentemente: **cero** ítems en estado no-rechazado). Al sellar el estado terminal se fija
+**`closedAt = now()`** (patrón SEC-D2, §4.8/M-19 — la misma ancla que usa `ine-retention`).
+- **Guard «no pisar terminal»:** si la solicitud ya está en un estado terminal (`pagada`/`rechazada`/`abandonada`) la
+  auto-transición es **no-op**. Nunca reescribe una `pagada` (dinero ya salió) ni re-sella una `rechazada`. Combinado
+  con la idempotencia del `reject` por-ítem (§4.18, un `reject` sobre ítem ya `rechazada` es no-op y no re-dispara),
+  la transición es **idempotente end-to-end**.
+- **`convertida_inventario` NO es «rechazado».** Un ítem convertido a inventario es un desenlace **positivo** (se volvió
+  stock vendible), no un rechazo. Por eso la condición es «TODO ítem `rechazada`», **no** «ningún ítem `aprobada`»: si
+  conviven ítems `convertida_inventario` y `rechazada`, la solicitud **no** se auto-rechaza (queda en su estado vivo,
+  típicamente `aprobada`/`pagada` según su flujo de dinero). Esto evita cerrar como «rechazada» una solicitud que en
+  realidad tuvo cartas aceptadas y convertidas. La solicitud «mixta» sigue su curso normal; su cierre lo determina el
+  flujo de dinero (pago SPEI) o el sweep de abandono, no el rechazo de las cartas no-NM.
+
+**g) Cierre explícito — botón «Rechazar solicitud» (`POST /admin/buylist/:id/reject`).** Para las solicitudes **ya
+atoradas** (ítem rechazado **antes** de este fix, que la auto-transición no puede reparar retroactivamente porque nadie
+vuelve a llamar `reject`) el M5 gana un cierre manual. Diseño deliberadamente **estrecho y money-safe**:
+- **Guard de precondición idéntico a la regla (f):** cierra **sólo si TODOS** los ítems ya están `rechazada`. Si queda
+  algún ítem no-rechazado → **`422 REQUEST_HAS_NON_REJECTED_ITEMS`** (`details.nonRejectedItemStatuses`). El botón **no**
+  es un «rechazar todo en cascada»: rechazar cartas es cherry-pick por-ítem (`itemDecision`), con su motivo, plazos y
+  correo. Este endpoint sólo **sella la solicitud** que ya quedó sin ítems vivos.
+- **Efecto único = `status → rechazada` + `closedAt = now()`.** **No** mueve dinero (sin `MoneyOutGuard`; roles
+  `vault_operator`/`super_admin` como el resto de M5 hasta verificación), **no** reevalúa montos por ítem (BL-1 ya
+  garantiza que los ítems rechazados no suman en `approvedTotalCents`; `quotedTotalCents` es snapshot histórico), **no**
+  manda correos (los correos por-ítem ya salieron al rechazar cada carta; añadir uno a nivel solicitud sería redundante
+  y arriesgaría duplicar notificación).
+- **Idempotencia y terminalidad:** solicitud ya `rechazada` → `200` con el estado actual (no re-sella, no re-audita como
+  cambio). Otro estado terminal (`pagada`/`abandonada`) → `409 CONFLICT` (invariante «no pisar terminal»: una `pagada`
+  jamás se reescribe a `rechazada`). Auditado `action: buylist.reject` (actor, solicitud, `reason?` interno sin PII).
+- **Deuda operativa:** el back-log de solicitudes atoradas pre-fix se drena con este botón (uno a uno) o con un script
+  de datos puntual que aplique la misma regla (f); ambos caminos convergen al mismo invariante. Registrar en
+  `docs/TECH_DEBT.md` si se opta por barrido masivo.
+
+**h) Paginación server-side + filtros de la cola M5 (v1.25-buylist-orders-pagination — cierra P-5).** La pestaña
+«Cerradas» del front hoy trae la lista COMPLETA (`getAdminBuylist` sin params) y filtra/agrupa **en memoria** — no
+escala. Decisión del PO: **paginar + filtrar en el servidor** (NO archivar aparte). Diseño en API_CONTRACT §M5 (params
+`q`, `from`, `to`, `minCents`, `maxCents`, `status` CSV, `pageSize`). Decisiones de arquitectura:
+- **`status` CSV → `WHERE status IN (...)`**: la pestaña «Cerradas» = `IN ('pagada','rechazada','abandonada')` en UNA
+  query. Aditivo sobre el parámetro `status` existente (un valor = `IN` de uno; omitido = sin filtro). Se descartó una
+  tabla/estado «archivada» aparte (el PO lo excluyó) y un alias `closed=true` (añade vocabulario sin ganar nada).
+- **Monto sobre `quotedTotalCents`, NO `approvedTotalCents`.** `quotedTotalCents` es `Int @default(0)` (siempre
+  presente, snapshot histórico, estable ante rechazo por-ítem — BL-1); `approvedTotalCents` es nullable y sólo existe
+  tras aprobar/ajustar, así que filtrar por él **excluiría** las `rechazada`/`abandonada` que dominan «Cerradas».
+- **`q` server-side** = `id ILIKE %q%` OR sobre el join `User` ya presente (`name`/`email`). Sustituye 1:1 el filtro
+  client-side de `M5View`. `q` es contains (no prefijo) → sin índice B-tree útil; a escala MVP el barrido sobre el
+  conjunto YA reducido por `status`/`userId`/rango es aceptable. Si crece: `pg_trgm` GIN sobre `User.name`/`email` (no
+  en MVP; deuda anotable). **`q` NO toca CLABE/RFC/INE** (evita oráculo de enumeración sobre PII cifrada/enmascarada).
+- **`pageSize` default 20 sin cambios** (subir el default = ruptura silenciosa de consumidores actuales); el front pide
+  25. Validación de `page`/`pageSize`/fecha/monto/`status`-token → `400 VALIDATION_ERROR` (patrón de la cola
+  `rejected-items`, que ya valida por DTO). Orden `createdAt desc` ya normado (v1.18).
+- **Índices recomendados a backend (NO escribo migración — `backend/prisma/` es zona compartida serializada por el
+  orquestador; esto es recomendación, la valida/aplica el stream backend):**
+  | Modelo | Índice recomendado | Sirve |
+  |---|---|---|
+  | `SellRequest` | `@@index([status, createdAt])` (compuesto) | pestaña «Cerradas» = `status IN (...)` + `ORDER BY createdAt DESC` sin barrer la tabla. Cubre el caso dominante. |
+  | `SellRequest` | `@@index([createdAt])` | rango `from`/`to` y orden cuando NO se filtra por `status`. |
+  | `SellRequest` | `@@index([userId])`, `@@index([status])` | **YA EXISTEN** (no duplicar; el compuesto `[status, createdAt]` puede volver redundante al `[status]` suelto — backend decide si lo sustituye). |
+  | `SellRequest.quotedTotalCents` | — (sin índice) | rango de monto es de baja selectividad y casi siempre acompañado de `status`/fecha ya indexados; se resuelve como filtro post-índice. Añadir sólo si el profiling lo pide. |
+
 ---
 
 ### 4.19 WS «Catálogo y precios» — Referencia de mercado del SELLADO vía TCGCSV (v1.19-sealed-tcgcsv)
@@ -3330,6 +3421,28 @@ de la terminación, y **nunca** un enlace a acciones (cancelar/reembolsar).
 | **vi** | Desenlaces de `POST /admin/orders/:id/chargeback-inventory` | Los tres (`recuperada`, `no_recuperada`, `reexpedir`) con sus efectos de §4.21c-bis; **`reexpedir` rechazado con `409 CONFLICT`** mientras la orden siga en `chargeback`; repetir un `outcome` ya aplicado ⇒ **`409`** sin duplicar movimientos ni envíos. |
 | **vii** | `charge.dispute.closed` con `won` | La orden vuelve a `settled` con `disputeOutcome='won'` y **`chargebackNeedsManual` SIGUE en `true`**: ganar **no** re-expide solo. |
 | **viii** | Invariante **D4** (discriminador) | Un `ShipmentRequest` con `orderId` cuya orden tenga un `fulfillmentMode` no soportado **lanza y se loguea**; **no** cae por default en la rama `direct_ship`. |
+
+**l) Paginación server-side + filtros de la cola M3 (v1.25-buylist-orders-pagination — cierra P-5, paridad con §4.18h).**
+`GET /admin/orders` ya paginaba y filtraba por `status`/`userId`/`from`/`to`/`guest`/`needsManual` con `createdAt desc`;
+le faltaban, para el mismo problema de escala del PO, **búsqueda de texto** y **rango de monto** (API_CONTRACT §M3).
+Decisiones de arquitectura:
+- **Monto sobre `Order.totalCents`** — el **total canónico** de la orden (`Int` no-nullable = `subtotal + processing +
+  IVA + envío`), el mismo campo que ya pinta la columna «total» de `M3View`. No se inventa un total derivado.
+- **`q` server-side** cubre los **dos tipos de comprador**: invitado (sin `User`) por `Order.orderNumber` /
+  `Order.guestEmail`; con cuenta por `Order.userId` exacto y el join `Order.user` (`name`/`email`). Coherente con el `q`
+  de buylist (contains, case-insensitive, OR). `orderNumber` es `@unique` (ya indexado); `guestEmail` ya tiene
+  `@@index`. **`q` NO toca datos de pago** (`paymentMethodLast4`/brand quedan fuera).
+- **`pageSize` default 20 sin cambios**, front pide 25 (misma decisión que §4.18h). Validación → `400 VALIDATION_ERROR`.
+- **Índices recomendados a backend (recomendación, NO migración escrita aquí — zona compartida `backend/prisma/`):**
+  | Modelo | Índice recomendado | Sirve |
+  |---|---|---|
+  | `Order` | `@@index([status, createdAt])` (compuesto) | filtro por `status` + `ORDER BY createdAt DESC` (caso dominante de la cola). |
+  | `Order` | `@@index([createdAt])` | rango `from`/`to` y orden cuando no se filtra por `status`. |
+  | `Order` | `@@index([userId])`, `@@index([status])`, `@@index([guestEmail])`, `orderNumber @unique` | **YA EXISTEN** (no duplicar; el compuesto puede sustituir al `[status]` suelto — backend decide). |
+  | `Order.totalCents` | — (sin índice) | rango de monto de baja selectividad, casi siempre junto a `status`/fecha ya indexados; filtro post-índice. Añadir sólo si el profiling lo pide. |
+- **`q` (contains) sin índice B-tree útil** — mismo criterio que buylist: a escala MVP barre el conjunto ya reducido por
+  los demás filtros; `pg_trgm` GIN sobre `User.name`/`email` (y opcionalmente `guestEmail`) queda como deuda futura si
+  el volumen lo exige, no en este stream.
 
 ---
 
@@ -4186,6 +4299,20 @@ Riesgos técnicos:
   aggregate (defensa en profundidad, §4.18b). **Acción (backend, este stream):** aplicar ambas y cubrir con test la
   secuencia approve→reject. Adicional menor detectado: `adminList` ordena `createdAt asc` — el contrato v1.18 norma
   **desc** (mismo dueño, mismo stream).
+- **P-4 (backend, v1.24-buylist-request-reject) — la SOLICITUD nunca transiciona a `rechazada` al rechazar sus ítems
+  (queda huérfana en `verificacion`).** Estado detectado (`buylist.service.ts`, `itemDecision('reject')`): actualiza
+  **sólo** el ítem (`itemStatus='rechazada'` + `rejectedAt` + `approvedPriceCents=null` + `recomputeApprovedTotal` +
+  correo best-effort) y **nunca re-evalúa `SellRequest.status`**. El único punto que mueve la solicitud a `rechazada`
+  es `respond('decline')` (flujo del CLIENTE ante un ajuste), **no** el back-office M5. Reproducción: el PO rechazó el
+  único ítem de una solicitud → ítem `rechazada` pero solicitud atorada en `verificacion`, sin auto-transición ni botón.
+  **Norma v1.24 (API_CONTRACT §M5; este doc §4.18f/g):** (1) `itemDecision('reject')` gana, **tras el recompute**, la
+  re-evaluación de la solicitud → si TODO ítem es `rechazada`, `SellRequest.status='rechazada'` + `closedAt=now()`, con
+  guard «no pisar terminal» y `convertida_inventario` **NO** contando como rechazado; (2) endpoint nuevo `POST
+  /admin/buylist/:id/reject` (`vault_operator+`, auditado `buylist.reject`) para cerrar solicitudes ya atoradas, con
+  guard `422 REQUEST_HAS_NON_REJECTED_ITEMS`, sin mover dinero ni correos. **Acción (backend, este stream):** implementar
+  ambos dentro del mismo transaction boundary del `reject`, cubrir con test (rechazo del último ítem ⇒ solicitud
+  `rechazada`+`closedAt`; solicitud mixta convertido+rechazado ⇒ NO se auto-rechaza; botón sobre solicitud con ítem
+  vivo ⇒ `422`) y drenar el back-log de solicitudes atoradas pre-fix vía el botón o script puntual con la misma regla.
 - **WD-1 (backend, v1.17) — el `InventoryItem` NUNCA se movía en el ciclo de RETIRO (bóveda "fantasma").** Estado
   detectado: al pagar un retiro, `payments.service` solo avanzaba `ShipmentRequest solicitado→picking` y el
   `InventoryItem` quedaba `ownerType=customer, ownershipStatus=settled, status=in_custody` **para siempre** —incluso

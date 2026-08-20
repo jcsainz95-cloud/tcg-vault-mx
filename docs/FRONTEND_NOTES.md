@@ -4054,3 +4054,27 @@ el resumen «recibir ⇄ bóveda» al instante, SIN refetch (ambos vienen precom
 - Tests: se desambiguaron 2 fallos preexistentes en `GuestCheckoutView.test.tsx` (había DOS selectores de
   destino tras N-9) con `within()` acotando al formulario (`region` «DESTINO») vs. el aside
   (`complementary`); nuevo archivo `GuestCheckoutDestinationBreakdown.test.tsx` (3) cubre la reactividad.
+
+## P-4 · Botón «Rechazar solicitud» en M5 (v1.24-buylist-request-reject, rama `claude/buylist-ordenes`)
+Cierre EXPLÍCITO a nivel solicitud (`POST /admin/buylist/:id/reject`, body `{ reason?: string }`
+opcional): resuelve la solicitud atorada en «Verificando» cuyos ítems ya están todos `rechazada`
+pero la solicitud nunca transicionó (bug reportado por el PO). Consumo del contrato tal cual; no
+mueve dinero ni envía correos.
+- `src/app/[locale]/(admin)/admin/m5/M5View.tsx`: botón `destructive` «Rechazar solicitud» en la fila
+  de acciones a nivel solicitud + modal de confirmación destructiva (DESIGN_SYSTEM §7.6: «rechazar
+  buylist») con motivo OPCIONAL (0–500, interno, sin PII). Regla de visibilidad: se muestra sólo cuando
+  la solicitud NO es terminal (`REQUEST_TERMINAL` = `pagada`/`rechazada`/`abandonada`) **y** TODOS sus
+  ítems ya son `rechazada` (precondición exacta del endpoint → nunca se ofrece un botón que daría 422).
+  Patrón de mutación idéntico al resto (`useMutation` + `ok()/fail()` + `refresh()` que invalida
+  `['admin-buylist']`); tras éxito la solicitud cae en la pestaña «Cerradas». El `422
+  REQUEST_HAS_NON_REJECTED_ITEMS` se muestra DENTRO del modal vía `useErrorMessage`/`getError`.
+- `src/lib/api.ts`: `rejectBuylistRequest(id, { reason? })` (misma firma/patrón que `verifyBuylistRequest`);
+  rama mock espeja el guard (idempotente si ya `rechazada`; `409 CONFLICT` sobre `pagada`/`abandonada`;
+  `422 REQUEST_HAS_NON_REJECTED_ITEMS` con `details.nonRejectedItemStatuses` si queda ítem vivo).
+- i18n (`messages/{es,en}.json`): `admin.m5.rejectRequest` / `rejectRequestTitle` /
+  `rejectRequestConsequence` / `rejectRequestReasonLabel` / `rejectRequestReasonHint` /
+  `rejectRequestConfirm`, `admin.m5.feedback.requestRejected`, y `error.REQUEST_HAS_NON_REJECTED_ITEMS`
+  («quedan ítems sin rechazar»).
+- Tests: `M5View.test.tsx` (+3: aparece y dispara el cierre; se oculta con ítems mixtos; 422 dentro del
+  modal). Gates para archivos tocados: `npx vitest run M5View` ✓ (21/21) · `npx tsc --noEmit` ✓ ·
+  `npx next lint` ✓ (sin warnings).

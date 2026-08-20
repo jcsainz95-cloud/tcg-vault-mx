@@ -2030,6 +2030,51 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
   return delay({ ...req });
 }
 
+/**
+ * Cierre EXPLÍCITO de una solicitud a `rechazada` (contrato §M5 · POST /admin/buylist/:id/reject,
+ * v1.24-buylist-request-reject). Botón «Rechazar solicitud» de M5: cierra el hueco de estado a
+ * nivel solicitud (bug P-4) para las solicitudes ya atoradas en `verificacion` cuyos ítems fueron
+ * rechazados antes del fix. Semántica SEGURA y mínima: `reason` es OPCIONAL (0–500, motivo interno
+ * al AuditLog, NO PII, sin correo); NO mueve dinero ni reevalúa montos.
+ *  - Guard de precondición: cierra SÓLO si TODOS los ítems ya son `rechazada`; si queda algún ítem
+ *    vivo → `422 REQUEST_HAS_NON_REJECTED_ITEMS` (`details.nonRejectedItemStatuses`).
+ *  - Idempotente: solicitud ya `rechazada` → `200` con el estado actual (no re-sella).
+ *  - Otro estado terminal (`pagada`/`abandonada`) → `409 CONFLICT` (no pisa terminal).
+ */
+export async function rejectBuylistRequest(
+  id: string,
+  input: { reason?: string } = {},
+): Promise<AdminBuylistDTO> {
+  if (!config.useMocks) {
+    return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/reject`, {
+      method: 'POST',
+      body: input.reason && input.reason.trim() !== '' ? { reason: input.reason.trim() } : {},
+    });
+  }
+  const req = mockFindBuylistRequest(id);
+  // Idempotencia: ya rechazada → no-op (200 con el estado actual).
+  if (req.status === 'rechazada') return delay({ ...req });
+  // No pisar otros estados terminales (contrato: 409 CONFLICT).
+  if (req.status === 'pagada' || req.status === 'abandonada') {
+    throw new ApiClientError(409, {
+      code: 'CONFLICT',
+      message: 'Sell request is already in a terminal state',
+      details: { status: req.status },
+    });
+  }
+  // Guard de precondición: sólo cierra si TODOS los ítems ya están `rechazada`.
+  const nonRejected = req.items.filter((it) => it.itemStatus !== 'rechazada');
+  if (nonRejected.length > 0) {
+    throw new ApiClientError(422, {
+      code: 'REQUEST_HAS_NON_REJECTED_ITEMS',
+      message: 'The sell request still has non-rejected items',
+      details: { nonRejectedItemStatuses: nonRejected.map((it) => it.itemStatus) },
+    });
+  }
+  req.status = 'rechazada';
+  return delay({ ...req });
+}
+
 /** Plazos del ítem rechazado en la rama MOCK (espeja las constantes 7d/30d del backend). */
 const DAY_MS = 24 * 3600 * 1000;
 function mockRejectDeadlines(rejectedAtIso: string): {

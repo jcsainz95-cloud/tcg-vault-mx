@@ -79,6 +79,12 @@ export const ErrorCode = {
   // B-4 / S-B5: la decisión carta-por-carta aprobó un `approvedPriceCents` por encima de la
   // cota (≤ quoted × factor y ≤ tope AML por solicitud). Defensa de dinero saliente. 422.
   APPROVED_PRICE_CAP_EXCEEDED: 'APPROVED_PRICE_CAP_EXCEEDED',
+  // v1.24-buylist-request-reject: POST /admin/buylist/:id/reject (cierre explícito «Rechazar
+  // solicitud») sobre una solicitud que aún tiene ≥1 ítem NO-rechazado (itemStatus != 'rechazada',
+  // p. ej. aprobada/ajustada/convertida_inventario/verificacion). El botón NO rechaza ítems en
+  // cascada (eso es cherry-pick por-ítem); sólo sella una solicitud ya sin ítems vivos. 422.
+  // `details.nonRejectedItemStatuses: SellItemStatus[]` (los status vivos). API_CONTRACT §0/§M5.
+  REQUEST_HAS_NON_REJECTED_ITEMS: 'REQUEST_HAS_NON_REJECTED_ITEMS',
 
   // Guest checkout (v1.21) — API_CONTRACT §0 / §4-G. Todos ADITIVOS: ningún código previo cambia.
   // El invitado eligió destino bóveda. NO es un error de UI: es la señal del UPSELL (criterio 48),

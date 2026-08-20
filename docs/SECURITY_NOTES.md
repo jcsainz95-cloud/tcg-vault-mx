@@ -2537,3 +2537,77 @@ gate de promoción a prod (SAST por PR + DAST staging):
 - **PENDIENTE (no aprobado a ciegas), no bloqueante del stream:** la **fase dinámica (DAST contra staging)**
   sigue condicionada a que devops habilite el entorno (R2/Railway); es requisito del gate de promoción a
   **producción**, no del merge del stream. Deuda previa del proyecto sin cambio (S-M1/S-B1/S-B2).
+
+---
+
+## Anexo 2026-08-20 — Stream `claude/buylist-ordenes` P-4 (cierre de solicitud a `rechazada`)
+
+> Revisión blue-team (solo lectura + tests) del entregable **P-4 (TOCA DINERO — buylist/SPEI)**.
+> Cambio: auto-transición a terminal `rechazada` (`maybeAutoRejectRequest`, efecto de `itemDecision('reject')`)
+> + endpoint nuevo `POST /admin/buylist/:id/reject` (`rejectRequest`). Contrato: API_CONTRACT §M5 v1.24;
+> ARCHITECTURE §4.18(f)(g). Superficie evaluada: dinero/máquina de estados, autz, idempotencia/atomicidad,
+> auditoría, PII. Tests `buylist.security` 6/6 PASS; `buylist.request-reject` cubre f/g (409/422/404/idempotencia).
+
+### Resultado por eje
+- **Máquina de estados / dinero — OK.** Guard «no pisar terminal» correcto en ambos caminos: `updateMany` con
+  `status: { notIn: ['pagada','rechazada','abandonada'] }` (nunca reescribe una `pagada`/`abandonada` ni re-sella
+  una `rechazada`) y, en `rejectRequest`, además guardas explícitas previas (`409 CONFLICT` para `pagada`/
+  `abandonada`, `200` idempotente para `rechazada`). No se puede evadir control de dinero/AML: una solicitud
+  `rechazada` **no** es pagable — `paySpei` exige `status ∈ {aprobada, verificacion}` + `verifiedAt` (línea 1115),
+  así que el cierre no abre ruta de pago. Consistencia de dinero: el cierre solo dispara cuando **cero** ítems
+  quedan no-rechazados; con todos los ítems `rechazada`, BL-1 (`recomputeApprovedTotal` excluye `rechazada`,
+  línea 831-838) deja `approvedTotalCents=null/0` → coherente. Criterio 16: el cierre NO convierte a inventario
+  ni vuelve vendible ninguna carta (efecto único = `status`+`closedAt`); `convertToInventory` sigue siendo acción
+  manual e independiente. `convertida_inventario` correctamente tratado como ítem vivo (no auto-rechaza mixtas).
+- **Autorización — OK.** El endpoint hereda `@Roles(vault_operator, super_admin)` de la clase; guards globales
+  confirmados (`app.module.ts`: `JwtAuthGuard`+`RolesGuard`+`MoneyOutGuard` como `APP_GUARD`). Correcto **sin
+  `@MoneyOut`**: el cierre no mueve dinero saliente. Un cliente/rol menor no alcanza la ruta. IDOR N/A: `:id` sin
+  scoping de propietario es correcto para back-office (paridad con `receive`/`verify`/`paySpei`).
+- **Idempotencia — OK** en el caso nominal (guardas de estado + `updateMany` count-guard heredado del patrón
+  `paySpei`). Ver LOW-1 para el borde concurrente.
+- **Auditoría — OK con matiz.** `action: 'buylist.reject'` registra actor/rol/entidad/`reason` en `after`. El
+  path `transitioned=false` (idempotente / ya `rechazada`) NO re-audita: aceptable — no hay cambio de estado que
+  trazar; no genera hueco de trazabilidad de dinero (el dinero no se movió en ninguna rama de este endpoint).
+- **PII — OK.** `reason` es texto interno del operador (opcional, `@MaxLength(500)`), va solo a `AuditLog.after`,
+  NO se persiste en `SellRequest`, NO se expone al cliente ni a correo (no hay correo en este flujo). La respuesta
+  es `adminGet` → enmascara CLABE (`clabeMasked`), descarta `clabeSnapshotEnc` y el join `User` crudo.
+  `details.nonRejectedItemStatuses` devuelve únicamente valores del enum `SellItemStatus` (sin datos sensibles).
+- **Regresión reject por-ítem — sin hallazgos.** Idempotencia del reject por-ítem intacta; BL-1 preservado.
+
+### Hallazgos (todos Bajos — no bloqueantes)
+- **LOW-1 (Media-baja) — Precondición no atómica con la transición (TOCTOU) · dueño: BACKEND.**
+  En `rejectRequest` y en `maybeAutoRejectRequest` el chequeo «¿quedan ítems vivos?» (`count`/`findMany`) y el
+  `updateMany` son round-trips separados; el count-guard del `updateMany` solo protege la **terminalidad del
+  status**, NO el invariante «todos los ítems rechazados». Un `itemDecision('approve')` concurrente sobre el
+  último ítem (que no cambia el `status` de la solicitud) puede intercalarse y dejar la solicitud en `rechazada`
+  con un ítem `aprobada` vivo y `approvedTotalCents > 0` — estado inconsistente `approvedTotalCents` vs `status`.
+  **Impacto acotado:** NO fuga dinero (una `rechazada` no es pagable por el guard de `paySpei`), NO evade AML, NO
+  vuelve vendible la carta. Es inconsistencia de datos / ruido de auditoría, recuperable. **Mitigación sugerida
+  (backend):** envolver `itemDecision(reject)`+recompute+auto-reject y el `rejectRequest` en `$transaction`
+  (aislamiento serializable, como ya hace `createRequest` SEC-A2), o re-verificar dentro del `where` del
+  `updateMany`. **Deuda aceptada con disparador:** abordar antes de habilitar operación concurrente multi-operador
+  sobre la misma solicitud.
+- **LOW-2 (Baja) — Desalineación doc↔código: «mismo transaction boundary» no implementado · dueño: BACKEND.**
+  ARCHITECTURE §4.18(f) afirma que la re-evaluación corre «en el mismo transaction boundary que el cambio de
+  ítem» para que «un ítem rechazado y una solicitud atorada no puedan coexistir tras un commit exitoso». El código
+  ejecuta `update(item)` → `recomputeApprovedTotal` → `sendItemRejectedMail` → `maybeAutoRejectRequest` como
+  awaits secuenciales SIN `$transaction`. Un fallo/caída entre el update del ítem y `maybeAutoRejectRequest`
+  reproduce exactamente el estado atorado del bug P-4. No es explotable (no hay atacante), pero rompe el
+  invariante documentado. **Acción:** implementar la transacción (converge con LOW-1) o corregir el doc.
+- **LOW-3 / INFO (pre-existente, NO introducido por P-4) — `closedAt` en DTO de cliente · dueño: BACKEND.**
+  `getMine` (buylist.service.ts:525) hace spread `...rest` y expone `closedAt` al cliente dueño de la solicitud.
+  Es un timestamp interno (no PII, no CLABE). Ya se filtraba antes de este diff (`respond('decline')` y `paySpei`
+  ya sellaban `closedAt`); P-4 solo aumenta cuántas solicitudes lo tienen poblado. `listMine` sí proyecta campos
+  explícitos y NO lo incluye. Se registra por completitud; **no es regresión del stream**. Sugerencia: proyectar
+  campos explícitos en `getMine` (paridad con `listMine`) si se quiere ocultar el timestamp.
+
+### Banderas para el humano
+- Requisito de gate money-real ya vigente en este documento (pentest de tercero + DAST/staging antes de operar
+  con dinero real) **sigue aplicando**; P-4 no lo altera.
+
+### VEREDICTO — **APROBADO**
+0 Críticos / 0 Altos abiertos. Los guards de terminalidad, la separación de `@MoneyOut`, la derivación server-side
+de montos (BL-1) y la no-exposición de CLABE/PII están correctos y con tests verdes (`buylist.security` 6/6,
+`buylist.request-reject` cubre f/g). Los **3 Bajos** (LOW-1 TOCTOU, LOW-2 doc↔código, LOW-3 `closedAt` pre-existente)
+se **aceptan como deuda con disparador** y se enrutan a **backend**; ninguno bloquea el merge del stream. Mínimo para
+mantener el APROBADO: no habilitar operación concurrente multi-operador sobre la misma solicitud sin cerrar LOW-1.

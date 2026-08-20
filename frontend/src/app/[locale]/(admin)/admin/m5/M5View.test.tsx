@@ -352,6 +352,103 @@ describe('M5View · Buylist admin end-to-end', () => {
 });
 
 /**
+ * P-4 (v1.24-buylist-request-reject) · botón «Rechazar solicitud» (POST /admin/buylist/:id/reject).
+ * Cierra la solicitud ATORADA en «Verificando» cuyos ítems ya están todos rechazados.
+ */
+describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const rejectedItem = (id: string) => ({
+    id,
+    card,
+    productType: 'raw' as const,
+    finish: 'holofoil' as const,
+    itemStatus: 'rechazada' as const,
+    rejectionReason: 'no es NM: esquina doblada',
+    rejectedAt: '2026-08-18T00:00:00.000Z',
+  });
+
+  it('la solicitud atorada (verificacion, todos los ítems rechazados) muestra el botón y dispara el cierre', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue([
+      {
+        id: 'sr-stuck',
+        userId: 'u-900',
+        seller: { id: 'u-900', name: 'Ana Ríos', email: 'ana.rios@example.mx' },
+        status: 'verificacion',
+        quotedTotalCents: 45000,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
+      },
+    ]);
+    const spy = vi.spyOn(api, 'rejectBuylistRequest').mockResolvedValue({
+      id: 'sr-stuck',
+      userId: 'u-900',
+      status: 'rechazada',
+      quotedTotalCents: 45000,
+      createdAt: '2026-08-12T00:00:00.000Z',
+      items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
+    });
+    renderWithProviders(<M5View />, 'es');
+
+    // El botón a nivel solicitud aparece (etapa por defecto = Verificando).
+    fireEvent.click(await screen.findByRole('button', { name: 'Rechazar solicitud' }));
+
+    // Confirmación destructiva en modal; aún no llama al endpoint.
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar solicitud completa' });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar solicitud' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-stuck', { reason: undefined }));
+    expect(await screen.findByText('Solicitud rechazada; quedó cerrada.')).toBeInTheDocument();
+  });
+
+  it('NO ofrece el botón si queda algún ítem sin rechazar (evita el 422 seguro)', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue([
+      {
+        id: 'sr-mixed',
+        userId: 'u-901',
+        status: 'verificacion',
+        quotedTotalCents: 45000,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        items: [
+          rejectedItem('sri-c'),
+          { id: 'sri-d', card, productType: 'raw', finish: 'normal', itemStatus: 'aprobada', approvedPriceCents: 30000 },
+        ],
+      },
+    ]);
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-mixed');
+    expect(screen.queryByRole('button', { name: 'Rechazar solicitud' })).not.toBeInTheDocument();
+  });
+
+  it('el 422 REQUEST_HAS_NON_REJECTED_ITEMS se muestra DENTRO del modal con copy i18n', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue([
+      {
+        id: 'sr-stuck',
+        userId: 'u-900',
+        status: 'verificacion',
+        quotedTotalCents: 45000,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        items: [rejectedItem('sri-a')],
+      },
+    ]);
+    vi.spyOn(api, 'rejectBuylistRequest').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'REQUEST_HAS_NON_REJECTED_ITEMS',
+        message: 'The sell request still has non-rejected items',
+        details: { nonRejectedItemStatuses: ['aprobada'] },
+      }),
+    );
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Rechazar solicitud' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar solicitud completa' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar solicitud' }));
+
+    // Copy i18n del código del contrato, no el mensaje crudo del backend.
+    expect(await within(dialog).findByText(/quedan ítems sin rechazar/)).toBeInTheDocument();
+  });
+});
+
+/**
  * Bug reportado: al escribir el motivo de rechazo, CADA carácter sacaba el cursor del campo
  * (había que hacer clic de nuevo para seguir escribiendo). Causa raíz: el `useEffect` de foco
  * de `Modal` (components/ui/Modal.tsx) tenía `onClose` en su arreglo de dependencias — como

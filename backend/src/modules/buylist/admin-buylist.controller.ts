@@ -5,7 +5,12 @@ import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
-import { ItemDecisionDto, PaySpeiDto, RejectedItemsQueryDto } from './dto/buylist.dto';
+import {
+  ItemDecisionDto,
+  PaySpeiDto,
+  RejectedItemsQueryDto,
+  RejectRequestDto,
+} from './dto/buylist.dto';
 
 /**
  * M5 — Buylist admin. vault_operator hasta verificación; super_admin pago SPEI.
@@ -96,6 +101,36 @@ export class AdminBuylistController {
       entityId: id,
     });
     return res;
+  }
+
+  /**
+   * v1.24-buylist-request-reject (§M5, §4.18g): botón «Rechazar solicitud» — cierre EXPLÍCITO de una
+   * solicitud a terminal `rechazada`+`closedAt`. Roles heredados de la clase (vault_operator/
+   * super_admin); NO es dinero saliente → SIN @MoneyOut. Auditado `action: 'buylist.reject'` (el
+   * `reason?` interno, NO PII, va en `after`). Ruta literal `:id/reject` (POST) sin colisión con las
+   * demás. Cierra SÓLO si todos los ítems ya están `rechazada`; si no → 422; terminal distinto → 409.
+   * Idempotente: ya `rechazada` → 200 sin re-auditar como cambio (`transitioned=false`).
+   */
+  @Post(':id/reject')
+  async reject(
+    @Param('id') id: string,
+    @Body() dto: RejectRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const { request, transitioned } = await this.buylist.rejectRequest(id, dto.reason);
+    // Idempotencia: no se re-audita como cambio si la solicitud ya estaba `rechazada`.
+    if (transitioned) {
+      await this.audit.log({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'buylist.reject',
+        entityType: 'SellRequest',
+        entityId: id,
+        // Motivo interno del cierre a nivel solicitud (NO PII); ausente si no se envió.
+        after: { reason: dto.reason },
+      });
+    }
+    return request;
   }
 
   @Patch('items/:itemId/decision')
