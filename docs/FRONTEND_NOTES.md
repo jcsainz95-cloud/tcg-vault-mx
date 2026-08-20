@@ -4078,3 +4078,87 @@ mueve dinero ni envía correos.
 - Tests: `M5View.test.tsx` (+3: aparece y dispara el cierre; se oculta con ítems mixtos; 422 dentro del
   modal). Gates para archivos tocados: `npx vitest run M5View` ✓ (21/21) · `npx tsc --noEmit` ✓ ·
   `npx next lint` ✓ (sin warnings).
+
+## P-5 · Paginación server-side + filtros en M5 «Cerradas» y M3 (v1.25-buylist-orders-pagination, rama `claude/buylist-ordenes`)
+Decisión del PO: **paginar + filtrar en el servidor** (NO archivar). Contrato ADITIVO consumido tal
+cual: params opcionales `q`, `from`, `to`, `minCents`, `maxCents`, `page`, `pageSize` (25/página,
+recientes primero) en `GET /admin/buylist` (§M5, `status` acepta CSV) y `GET /admin/orders` (§M3);
+respuesta `{ data, page, pageSize, total }`. Omitir params = comportamiento de HOY.
+
+**Capa API (`src/lib/api.ts`):**
+- `getAdminBuylist(filters?: AdminBuylistFilters)` y `getAdminOrders(filters?: AdminOrdersFilters)`
+  pasan a **aceptar un objeto de params opcional** y devuelven el envoltorio `Paginated<…>` completo
+  (antes retornaban `AdminBuylistDTO[]`/`AdminOrderDTO[]`; ahora las vistas leen `.data`). Serializan a
+  query string vía `apiRequest` (que ya **omite** `undefined`/`''`, así no se envían params ausentes).
+  `AdminBuylistFilters.status` acepta CSV (`'pagada,rechazada,abandonada'`). Ramas mock espejan los
+  filtros v1.25 en memoria (status CSV → `IN`, `q` sobre folio/vendedor·folio/comprador, `from`/`to`
+  sobre `createdAt`, `minCents`/`maxCents` sobre `quotedTotalCents`·`totalCents`); el **orden**
+  (`createdAt desc`) lo aplica el server, el mock respeta el orden de fixtures (no re-ordena) para no
+  romper los tests que dependen de él.
+- **Hallazgo MENOR QA de P-4 (tipo de `rejectBuylistRequest`):** verificado — el retorno ya es
+  `AdminBuylistDTO`, que **es** el tipo del DETALLE de `GET /admin/buylist/:id` en este front (mismo
+  shape con `id`/`userId`/`seller`/`items`, idéntico a lo que devuelven `receive`/`verify`/`paySpei` y
+  cada fila de `getAdminBuylist`). El DTO de **cliente** `SellRequestDTO` (`sellRequestId`/`ineRequired`,
+  sin `seller`) sería **incorrecto** para un endpoint de back-office. Se dejó el tipo como está y se
+  documentó la alineación en el docstring de la función (no había regresión que corregir).
+
+**M5 «Cerradas» (`M5View.tsx`):** migrada a server-side siguiendo el patrón de «Rechazadas». Query
+dedicada `['admin-buylist-closed', page, q, from, to, min, max]` → `getAdminBuylist({ status:
+'pagada,rechazada,abandonada', page, pageSize: 25, q, from, to, minCents, maxCents })`, `enabled` solo
+al abrir la pestaña. «Cerradas» y «Rechazadas» pasan a ser **botones transversales** aparte de las
+etapas operativas (`M5_OP_TABS` = por_recibir/verificando/por_pagar, que **mantienen** su filtrado
+client-side sobre su fetch). El buscador global existente alimenta `q` server-side cuando la activa es
+«Cerradas»; controles de filtro de fecha (`from`/`to`) y monto (`minCents`/`maxCents` vía `pesosToCents`
+pesos↔centavos) + paginación (prev/next/pageInfo). Conteo de la pestaña = `closedQuery.data.total` (no
+se deriva ya del fetch completo, como «Rechazadas»); las otras pestañas conservan su conteo client-side.
+Lista read-only (etapa terminal, sin acciones): folio + StatusBadge + vendedor (enlace M6) + fecha +
+cotizado/aprobado + resumen de ítems.
+
+**M3 Órdenes (`M3View.tsx`):** UI server-side nueva (antes DataTable sobre TODO, sin buscador). Query
+`['admin-orders', page, q, from, to, min, max]` → `getAdminOrders({ page, pageSize: 25, q, from, to,
+minCents, maxCents })`. Buscador `q` (folio/orderNumber + comprador; `q` server-side cubre usuario/
+comprador por contrato), filtros de fecha y monto (sobre `totalCents`), paginación (prev/next/pageInfo),
+estados carga/error/**vacío** (`EmptyState`). Reusa `Input`/`DataTable`/`Button`. La acción de
+**reembolso** se preserva intacta (invalida `['admin-orders']`, que sigue casando por prefijo).
+
+**i18n (`messages/{es,en}.json`, sin duplicar):** `admin.m5.filters.{dateFrom,dateTo,minAmount,
+maxAmount}` y `admin.m5.closed.{empty,prev,next,pageInfo}`; `admin.m3.{searchLabel,searchPlaceholder,
+empty,prev,next,pageInfo}` y `admin.m3.filters.{dateFrom,dateTo,minAmount,maxAmount}`.
+
+- Tests: `M5View.test.tsx` (+4: «Cerradas» dispara la query con `status` CSV + `pageSize` 25; el
+  buscador global alimenta `q`; filtros fecha/monto en params; paginación cambia de página) y los 3
+  tests de P-4 actualizados al nuevo shape `Paginated`. `M3View.test.tsx` (+3: buscador/fecha/monto en
+  params; paginación; estado vacío). Resultado real: `npx vitest run M5View M3View` → **31/31 ✓** ·
+  `npx tsc --noEmit` → **✓ (exit 0)** · `eslint` de archivos tocados → **✓ (exit 0)**.
+- **Solicitud al arquitecto:** ninguna — el contrato v1.25 cubre todo lo consumido. (Nota menor: si en el
+  futuro se quiere un tipo de detalle distinto del de lista para `GET /admin/buylist/:id` con `closedAt`/
+  `clabeMasked`, hoy no se consumen en el front y `AdminBuylistDTO` basta.)
+
+### P-5 · pulido no bloqueante del techlead (2026-08-20)
+
+Dos hallazgos baratos aplicados sobre el delta P-5 (el resto queda como deuda FE-35/FE-36 en `TECH_DEBT.md`).
+
+- **Debounce de los inputs de filtro (faltaba; era un fetch por pulsación).** Hook nuevo y tipado
+  `frontend/src/hooks/useDebouncedValue.ts` (`useDebouncedValue<T>(value, delayMs = 300)`; `setTimeout` +
+  cleanup). Patrón: el **estado del input se actualiza inmediato** (UX responsiva) y **sólo el valor
+  DEBOUNCED entra al `queryKey`/params** de la query server-side. No existía `useDebounce`/`useDebouncedValue`
+  previo (los `hooks/` sólo tenían `useResendVerification`/`useSellRequirements`), por eso se creó.
+  - **M3 (`M3View.tsx`):** debounce sobre `search` (`q`) y los montos `minPesos`/`maxPesos`; las fechas
+    (`type=date`) siguen inmediatas (cambian de golpe).
+  - **M5 (`M5View.tsx`):** debounce sobre lo que dispara RED de «Cerradas» — el buscador global (`closedQ`)
+    y los montos min/max. El **filtrado client-side de las pestañas operativas** (por_recibir/verificando/
+    por_pagar) **conserva el `search` inmediato** (no toca red), como pedía el techlead.
+- **Fidelidad del mock de `getAdminOrders` (`lib/api.ts`, rama `config.useMocks`).** El filtro `q` del mock
+  hacía `o.id.includes(q) || o.userId.includes(q)`; el backend real busca sobre `orderNumber` +
+  `guestEmail` + `userId` **(exacto)** + `user.name`/`user.email`. Se alineó el mock a esos campos (folio
+  del fixture = `id` como análogo de `orderNumber`, parcial; `guestEmail`/`user.name`/`user.email`
+  parciales y defensivos por si el fixture/join los aporta; `userId` **igualdad exacta**, ya no `includes`)
+  para no dar falsos verdes en tests de UI. La **ruta real no se tocó** (serializa params y delega en el
+  server). El mock de `getAdminBuylist` **ya** filtraba sobre `id` + `seller.name`/`seller.email`
+  (= `user.name`/`user.email` del contrato) → ya fiel, sin cambios.
+- **Semántica de fechas `from`/`to`:** sin cambios en el front — se sigue enviando el date-only tal cual del
+  `<input type=date>`; el ajuste de "fin de día inclusivo" para `to` lo hace el BACKEND en su parseo.
+- **Tests:** las suites usan `waitFor` tras cambiar inputs (polling hasta 1000ms por defecto), que tolera el
+  debounce de ~300ms con timers reales; el único test que verifica sincronía (filtrado client-side operativo
+  de M5, «el buscador filtra por folio/usuario») sigue sobre el valor inmediato, así que no requirió fake
+  timers ni cambios.

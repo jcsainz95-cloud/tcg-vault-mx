@@ -1693,6 +1693,49 @@
   transición.
 
 
+### P-5 (v1.25 paginación+filtros) — deuda del delta frontend (2026-08-20, no bloqueante)
+
+> Hallazgos del **techlead** sobre el delta de P-5 (paginación + filtros server-side de M3 y de la
+> pestaña «Cerradas» de M5). Aceptados como deuda **no bloqueante**, dueño **frontend**. Continúan la
+> numeración `FE-*` (tras FE-34).
+>
+> **No están aquí, porque se pagaron en este mismo pase:** el **debounce** de los inputs de filtro
+> que alimentan la query server-side (hook `useDebouncedValue`, aplicado a `q`/monto de M3 y al
+> buscador global + monto de «Cerradas» de M5) y la **fidelidad del mock de `getAdminOrders`** (el
+> filtro `q` del mock se alineó a los campos del backend real: `orderNumber`/`guestEmail`/`user.name`/
+> `user.email` parciales + `userId` EXACTO, en vez del `includes` sobre el UUID que daba falsos verdes).
+
+### FE-35 · Barra de filtros + paginación + `pesosToCents`/`*_PAGE_SIZE` duplicados entre M3 y M5
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m3/M3View.tsx` y
+  `frontend/src/app/[locale]/(admin)/admin/m5/M5View.tsx`.
+- **Estado actual:** ambas vistas repiten casi idéntico: el bloque de inputs de **filtro** (fecha
+  `from`/`to`, monto min/max con prefijo `MX$`), los **controles de paginación** (botones prev/next +
+  `pageInfo`, cálculo de `totalPages`), el helper **`pesosToCents`** (pesos↔centavos, idéntico byte a
+  byte en las dos), la constante **`*_PAGE_SIZE = 25`** y ahora también el cableado de **debounce** de
+  los inputs de red (`useDebouncedValue` sobre `q`/monto). Cada cambio de patrón (p. ej. un nuevo campo
+  de filtro o ajustar el `resetPage`) hay que hacerlo en dos sitios y es fácil que diverjan.
+- **Impacto:** bajo. Mantenibilidad: duplicación estructural; sin bug funcional. El riesgo es que M3 y
+  M5 se separen sutilmente en un refactor (p. ej. distinta semántica de `resetPage`/debounce).
+- **Disparador:** al añadir un tercer listado admin paginado, o al tocar los filtros de cualquiera de
+  las dos vistas. Acción: extraer un hook `useAdminListFilters` (estado de page/q/from/to/min/max +
+  debounce + `resetPage` + serialización a params) y componentes compartidos `<AdminListFilters>` y
+  `<Pagination>`; centralizar `pesosToCents` (a `@/lib/format` o `@/lib`) y `ADMIN_LIST_PAGE_SIZE`.
+
+### FE-36 · i18n de filtros/paginación duplicada entre `admin.m3` y `admin.m5` (namespace compartido)
+- **Dónde:** `frontend/messages/{es,en}.json` → `admin.m3.filters.{dateFrom,dateTo,minAmount,maxAmount}`
+  + `admin.m3.{prev,next,pageInfo}` y sus gemelas `admin.m5.filters.*` / `admin.m5.closed.{prev,next,
+  pageInfo}`.
+- **Estado actual:** las mismas etiquetas de filtro (Desde/Hasta/Monto mín./Monto máx.) y de paginación
+  (Anterior/Siguiente/«Página X de Y») están **repetidas** bajo los namespaces `admin.m3` y `admin.m5`
+  (y en «Cerradas»/«Rechazadas» de M5 hay más copias del par prev/next/pageInfo). Un cambio de copy hay
+  que replicarlo en cada namespace y locale.
+- **Impacto:** bajo. Mantenibilidad/consistencia de copy; sin efecto funcional.
+- **Disparador:** junto con FE-35 (extracción de `<AdminListFilters>`/`<Pagination>`), o al añadir otro
+  listado admin. Acción: mover las claves comunes a un namespace compartido `admin.filters`
+  (y `admin.pagination`) y consumirlo desde los componentes extraídos, dejando en `admin.m3`/`admin.m5`
+  solo lo específico de cada vista.
+
+
 ### WS «Órdenes y dinero» — cierre v1.21 guest checkout (2026-08-18, no bloqueante)
 
 > Hallazgos del veredicto del **techlead** sobre el stream «Órdenes y dinero» (guest checkout, contrato

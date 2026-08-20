@@ -2611,3 +2611,87 @@ de montos (BL-1) y la no-exposición de CLABE/PII están correctos y con tests v
 `buylist.request-reject` cubre f/g). Los **3 Bajos** (LOW-1 TOCTOU, LOW-2 doc↔código, LOW-3 `closedAt` pre-existente)
 se **aceptan como deuda con disparador** y se enrutan a **backend**; ninguno bloquea el merge del stream. Mínimo para
 mantener el APROBADO: no habilitar operación concurrente multi-operador sobre la misma solicitud sin cerrar LOW-1.
+
+---
+
+## Anexo 2026-08-20 — stream `claude/buylist-ordenes` P-5 (superficie de filtros de lista admin, v1.25)
+
+**Rol:** seguridad (blue team). **Alcance FOCALIZADO:** SÓLO los filtros NUEVOS de v1.25 (`q`, `from`, `to`,
+`minCents`, `maxCents`, CSV de `status`, paginación) sobre `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3).
+P-5 es paginación + filtros de **LECTURA** — NO mueve dinero. **No re-audité P-4** (ya aprobado).
+**Archivos revisados:** `backend/src/common/admin-list-filters.ts`;
+`backend/src/modules/buylist/{admin-buylist.controller.ts, buylist.service.ts (adminList)}`;
+`backend/src/modules/orders/admin-orders.controller.ts (list)`;
+`frontend/src/lib/{api.ts, api-client.ts}`; `frontend/.../admin/m5/M5View.tsx`, `.../m3/M3View.tsx`.
+**Tests:** `npx jest buylist.security` → **6/6 verdes**.
+
+### Ejes evaluados
+
+1. **Inyección — OK.** Todos los filtros producen fragmentos `where` de Prisma **parametrizados**
+   (`contains`/`in`/`gte`/`lte`); no hay `$queryRaw` ni interpolación de SQL crudo en toda la superficie.
+   `status` valida cada token del CSV contra `SellRequestStatus` (buylist) → 400 `VALIDATION_ERROR`
+   (`details.invalidStatus`) antes de tocar Prisma. `q` va como parámetro de `LIKE`, no como regex, por lo que
+   **no hay ReDoS**. Límite de longitud de `q` = 200 chars (`ADMIN_LIST_MAX_Q_LENGTH`) → 400 si excede.
+   Frontend serializa vía `URL.searchParams.set` (encoding correcto), sin construcción manual de query string.
+
+2. **Fuga de PII / alcance de `q` — OK.** El OR de `q` busca SÓLO sobre campos NO sensibles:
+   buylist = `SellRequest.id` + `user.name` + `user.email`; orders = `orderNumber` + `guestEmail` + `userId`
+   (exacto) + `user.name` + `user.email`. **NUNCA** sobre CLABE / RFC / INE / snapshot cifrado / `paymentMethodLast4`.
+   La CLABE cifrada no participa en ningún `where` de estos listados y sigue exclusiva del reveal auditado
+   (`@MoneyOut`, super_admin). v1.25 **no añade campos nuevos** a la respuesta de ninguno de los dos listados
+   (el shape es idéntico al de P-4): buylist `adminList` mantiene **proyección explícita** (`id, userId, seller{id,
+   name,email}, status, quotedTotalCents, approvedTotalCents, createdAt, items`) — limpia; orders conserva su
+   spread previo `...o` (ver INFO-1, pre-existente).
+
+3. **IDOR / enumeración — OK.** Ambos endpoints están bajo `@Roles(vault_operator, super_admin)` a nivel de clase.
+   Los filtros (`userId`, `q`, montos, fechas, `status`) **sólo REDUCEN** el conjunto que el rol ya puede listar;
+   ninguno amplía el alcance ni permite alcanzar objetos fuera de la autorización de rol. No hay proyección
+   reducida por rol en estos listados (vault_operator y super_admin ven el mismo shape, por diseño §M3/§M5), así
+   que no existe fuga por diferencial de rol dentro de la superficie de filtros. El filtro por monto/fecha/`q` no
+   habilita ninguna enumeración nueva más allá de lo que el rol ya puede listar sin filtros.
+
+4. **DoS / validación — OK con deuda aceptada.** `parseAdminListFilters` acota `pageSize ≤ 100`
+   (`ADMIN_LIST_MAX_PAGE_SIZE`), exige `page`/`minCents`/`maxCents` enteros (`page ≥ 1`, cents `≥ 0`), fechas
+   ISO-8601 parseables, y `maxCents ≥ minCents` — todo inválido → 400, nunca clamp silencioso. No hay
+   amplificación patológica: el peor caso es un table-scan acotado por `take ≤ 100`. Ver LOW-A2 (índice diferido).
+
+### Hallazgos
+
+- **INFO-1 (Informativo · pre-existente, NO introducido por P-5) — `GET /admin/orders` list hace spread `...o`
+  de la fila completa · dueño: BACKEND.** `admin-orders.controller.ts:97` retorna `data.map((o) => ({ ...o, ... }))`,
+  lo que incluye columnas sensibles de `Order` (`paymentMethodLast4`, `paymentMethodBrand`, `stripePaymentIntentId`,
+  `stripeChargeId`, `billingSnapshot`, `shippingAddressSnapshot`) en cada fila del listado. **Origen: commit `e94a077`
+  (guest checkout, v1.21 / P-4), NO v1.25** — `git log -S` confirma que el spread precede al stream P-5, que sólo
+  añadió filtros y no tocó el shape. Fuera del alcance focalizado y ya cubierto por la aprobación de P-4; se registra
+  por completitud (paralelo a LOW-3 del anexo P-4). **Sugerencia de hardening (no bloqueante):** migrar la list a
+  proyección explícita con `select` (como sí hace `buylist.adminList`) para no exponer snapshots/last4/IDs de Stripe
+  en la cola. **No es regresión de P-5.**
+
+- **LOW-A1 (Baja) — `contains` de Prisma no escapa metacaracteres de `LIKE` (`%`, `_`) · dueño: BACKEND.**
+  Prisma 5.20 no escapa `%`/`_` en `contains`; un `q` con esos caracteres actúa como comodín de `LIKE`
+  (ensancha el match). **Impacto acotado:** sólo altera la semántica de coincidencia DENTRO del conjunto que el
+  rol admin ya puede listar sin filtro — **no evade la autorización de rol ni exfiltra datos fuera de alcance**, y
+  no hay SQLi ni ReDoS. Efecto real: búsqueda más amplia de lo previsto y un scan algo mayor. **Sugerencia:**
+  escapar `%`/`_`/`\` en `q` antes del `contains` si se quiere match literal. **Deuda aceptable para MVP**
+  (superficie admin-only, sin escalamiento de privilegios).
+
+- **LOW-A2 (Baja) — Índice `@@index([status, createdAt])` diferido → riesgo de disponibilidad · dueño: BACKEND/DEVOPS.**
+  Con `orderBy: createdAt desc` + filtros por `status`/rango y sin ese índice, los listados hacen sort/scan
+  secuencial que crece con el volumen. **Aceptable para MVP** (tráfico admin bajo, `take ≤ 100`). **Disparador:**
+  crear el índice (y evaluar índice trigram/`pg_trgm` para las columnas de `contains`) antes de que las colas
+  `SellRequest`/`Order` superen decenas de miles de filas o antes de exponer estos listados a carga sostenida.
+
+- **INFO-2 (Informativo) — Sin validación `from ≤ to` en el rango de fechas.** `admin-list-filters.ts` valida
+  `maxCents ≥ minCents` pero NO exige `to ≥ from`; un rango invertido devuelve conjunto vacío. **No es vuln**
+  (no fuga ni DoS); simple inconsistencia de UX/validación. Opcional alinear con la regla de cents.
+
+### VEREDICTO P-5 — **APROBADO**
+
+0 Críticos / 0 Altos abiertos en la superficie de filtros v1.25. Los cuatro ejes (inyección, PII/alcance de `q`,
+IDOR/enumeración, DoS/validación) están correctos: Prisma parametrizado, `q` sobre campos no sensibles con tope de
+200 chars, filtros que sólo reducen el conjunto autorizado por rol, y validación estricta → 400 con `pageSize ≤ 100`.
+Tests `buylist.security` 6/6 verdes. Los hallazgos abiertos son **2 Bajos** (LOW-A1 comodines de `LIKE`, LOW-A2
+índice diferido) + **2 Informativos** (INFO-1 spread `...o` pre-P-4, INFO-2 `from≤to`), **todos deuda aceptable con
+disparador** y enrutados a **backend/devops**; ninguno bloquea el merge de P-5. **Mínimo para mantener el APROBADO:**
+no ampliar el OR de `q` a columnas sensibles (CLABE/RFC/INE/last4/snapshots) y crear el índice de LOW-A2 antes de
+escalar el volumen de las colas.

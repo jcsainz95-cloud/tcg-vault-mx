@@ -8,6 +8,7 @@ import {
   ProductType,
   RawCondition,
   SellItemStatus,
+  SellRequestStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -559,11 +560,58 @@ export class BuylistService {
     page: number,
     pageSize: number,
     userId?: string,
+    // v1.25-buylist-orders-pagination (§M5): filtros ya validados por el controller
+    // (parseAdminListFilters → 400 VALIDATION_ERROR). Omitidos = listado como HOY.
+    filters?: {
+      q?: string;
+      dateRange?: { gte?: Date; lte?: Date };
+      centsRange?: { gte?: number; lte?: number };
+    },
   ) {
     const where: Prisma.SellRequestWhereInput = {};
-    if (status) where.status = status as never;
+    // v1.25-buylist-orders-pagination (§M5): `status` pasa a aceptar CSV → `status IN (...)`
+    // (la pestaña «Cerradas» = `pagada,rechazada,abandonada` en UNA llamada). Compat TOTAL: un solo
+    // token se comporta IDÉNTICO a hoy (escalar `where.status = token`, no `{ in: [...] }`); omitirlo
+    // = sin filtro de estado. Cada token debe ser `SellRequestStatus` válido; desconocido → 400
+    // VALIDATION_ERROR con `details.invalidStatus` (nunca SQL crudo — Prisma parametrizado).
+    if (status) {
+      const tokens = status
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      if (tokens.length > 0) {
+        const valid = Object.values(SellRequestStatus) as string[];
+        const invalidStatus = tokens.filter((t) => !valid.includes(t));
+        if (invalidStatus.length > 0) {
+          throw BusinessException.badRequest(
+            'VALIDATION_ERROR',
+            'Invalid status token',
+            { invalidStatus },
+          );
+        }
+        where.status =
+          tokens.length === 1
+            ? (tokens[0] as SellRequestStatus)
+            : { in: tokens as SellRequestStatus[] };
+      }
+    }
     // v1.7-admin-users: filtro opcional por SellRequest.userId (simetría con /admin/orders).
     if (userId) where.userId = userId;
+    // v1.25-buylist-orders-pagination (§M5): `q` contains case-insensitive OR sobre folio
+    // (`SellRequest.id`) + vendedor (`User.name`/`User.email` vía el join `user` ya existente).
+    // NUNCA busca sobre CLABE/RFC/INE ni datos de pago (evita oráculo de enumeración de PII).
+    if (filters?.q) {
+      where.OR = [
+        { id: { contains: filters.q, mode: 'insensitive' } },
+        { user: { name: { contains: filters.q, mode: 'insensitive' } } },
+        { user: { email: { contains: filters.q, mode: 'insensitive' } } },
+      ];
+    }
+    // Rango `createdAt` (gte/lte) y rango de MONTO sobre `quotedTotalCents` (gte/lte) — snapshot
+    // histórico SIEMPRE presente (Int @default(0)); NO `approvedTotalCents` (nullable, excluiría las
+    // rechazadas/abandonadas que dominan «Cerradas»). Ya validados/normalizados por el controller.
+    if (filters?.dateRange) where.createdAt = filters.dateRange;
+    if (filters?.centsRange) where.quotedTotalCents = filters.centsRange;
     // QA-BUG: `include: { items: true }` no traía `card`, y M5View crasheaba al leer
     // `it.card.name`. AdminBuylistDTO.items exige `card: CardDTO`; se incluye y mapea.
     // v1.18-buylist-rejects: orden NORMATIVO `createdAt desc` (más reciente primero; antes `asc`,

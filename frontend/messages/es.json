@@ -1003,7 +1003,19 @@
       },
       "refundDone": "Reembolso ejecutado para la orden {orderId}.",
       "refundReasonLabel": "Motivo del reembolso",
-      "refundReasonHint": "Obligatorio; queda en bitácora. Solo errores de la plataforma (ventas finales)."
+      "refundReasonHint": "Obligatorio; queda en bitácora. Solo errores de la plataforma (ventas finales).",
+      "searchLabel": "Buscar orden",
+      "searchPlaceholder": "Folio o comprador…",
+      "empty": "No hay órdenes con estos filtros.",
+      "filters": {
+        "dateFrom": "Desde",
+        "dateTo": "Hasta",
+        "minAmount": "Monto mín.",
+        "maxAmount": "Monto máx."
+      },
+      "prev": "Anterior",
+      "next": "Siguiente",
+      "pageInfo": "Página {page} de {totalPages}"
     },
     "m4": {
       "title": "M4 · Retiros / envíos",
@@ -1093,6 +1105,18 @@
           "expired": "Plazos vencidos",
           "unknown": "Sin plazos"
         },
+        "prev": "Anterior",
+        "next": "Siguiente",
+        "pageInfo": "Página {page} de {totalPages}"
+      },
+      "filters": {
+        "dateFrom": "Desde",
+        "dateTo": "Hasta",
+        "minAmount": "Monto mín.",
+        "maxAmount": "Monto máx."
+      },
+      "closed": {
+        "empty": "No hay solicitudes cerradas con estos filtros.",
         "prev": "Anterior",
         "next": "Siguiente",
         "pageInfo": "Página {page} de {totalPages}"

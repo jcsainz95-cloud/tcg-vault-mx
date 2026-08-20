@@ -1003,7 +1003,19 @@
       },
       "refundDone": "Refund executed for order {orderId}.",
       "refundReasonLabel": "Refund reason",
-      "refundReasonHint": "Required; recorded in the audit log. Platform errors only (final sales)."
+      "refundReasonHint": "Required; recorded in the audit log. Platform errors only (final sales).",
+      "searchLabel": "Search order",
+      "searchPlaceholder": "Order # or buyer…",
+      "empty": "No orders match these filters.",
+      "filters": {
+        "dateFrom": "From",
+        "dateTo": "To",
+        "minAmount": "Min amount",
+        "maxAmount": "Max amount"
+      },
+      "prev": "Previous",
+      "next": "Next",
+      "pageInfo": "Page {page} of {totalPages}"
     },
     "m4": {
       "title": "M4 · Withdrawals / shipping",
@@ -1093,6 +1105,18 @@
           "expired": "Deadlines expired",
           "unknown": "No deadlines"
         },
+        "prev": "Previous",
+        "next": "Next",
+        "pageInfo": "Page {page} of {totalPages}"
+      },
+      "filters": {
+        "dateFrom": "From",
+        "dateTo": "To",
+        "minAmount": "Min amount",
+        "maxAmount": "Max amount"
+      },
+      "closed": {
+        "empty": "No closed requests match these filters.",
         "prev": "Previous",
         "next": "Next",
         "pageInfo": "Page {page} of {totalPages}"

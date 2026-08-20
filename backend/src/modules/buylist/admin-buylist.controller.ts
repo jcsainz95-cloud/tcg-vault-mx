@@ -3,6 +3,7 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
 import {
@@ -24,19 +25,31 @@ export class AdminBuylistController {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * v1.25-buylist-orders-pagination (§M5): paginación server-side + filtros para la pestaña
+   * «Cerradas». Params NUEVOS (`q`, `from`, `to`, `minCents`, `maxCents`) TODOS opcionales; omitirlos
+   * = comportamiento de HOY. `status` pasa a aceptar CSV (`pagada,rechazada,abandonada`). Validación
+   * (paginación/fecha/monto/`q`) → 400 VALIDATION_ERROR vía `parseAdminListFilters`; token de `status`
+   * inválido → 400 en el servicio (`details.invalidStatus`). `pageSize` default 20 (máx 100).
+   */
   @Get()
   list(
     @Query('status') status?: string,
     @Query('userId') userId?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('minCents') minCents?: string,
+    @Query('maxCents') maxCents?: string,
   ) {
-    return this.buylist.adminList(
-      status,
-      Math.max(1, parseInt(page, 10) || 1),
-      Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
-      userId,
-    );
+    const f = parseAdminListFilters({ page, pageSize, q, from, to, minCents, maxCents });
+    return this.buylist.adminList(status, f.page, f.pageSize, userId, {
+      q: f.q,
+      dateRange: f.dateRange,
+      centsRange: f.centsRange,
+    });
   }
 
   /**
