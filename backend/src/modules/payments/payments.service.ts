@@ -58,7 +58,7 @@ export class PaymentsService {
     try {
       switch (event.type) {
         case 'payment_intent.succeeded':
-          await this.onPaymentSucceeded((event.data.object as Stripe.PaymentIntent).id);
+          await this.onPaymentSucceeded(event.data.object as Stripe.PaymentIntent);
           break;
         case 'payment_intent.payment_failed':
           await this.onPaymentFailed((event.data.object as Stripe.PaymentIntent).id);
@@ -95,13 +95,45 @@ export class PaymentsService {
   }
 
   /** payment_intent.succeeded → Order settled + items settled; o liquida envío → picking. */
-  async onPaymentSucceeded(paymentIntentId: string): Promise<void> {
+  async onPaymentSucceeded(pi: Stripe.PaymentIntent): Promise<void> {
+    const paymentIntentId = pi.id;
     const order = await this.prisma.order.findUnique({
       where: { stripePaymentIntentId: paymentIntentId },
       include: { items: true },
     });
     if (order) {
       if (order.status === 'settled') return;
+      // H1 (money-safety) — DEFENSA EN PROFUNDIDAD antes de liquidar: el monto y la moneda del
+      // PaymentIntent DEBEN coincidir con lo que la orden cobró (`totalCents`, en MXN). Aunque el
+      // PaymentIntent lo crea el servidor (`attachPaymentIntent`, importe derivado del breakdown),
+      // liquidar por un evento cuyo `amount`/`currency` no cuadra abriría un descuadre de dinero.
+      // Stripe manda `currency` en minúsculas. NO se liquida si discrepa; se AUDITA y se retorna
+      // 200 (el marcador de idempotencia queda: un evento que siempre discrepará no debe reintentar).
+      if (pi.amount !== order.totalCents || pi.currency !== 'mxn') {
+        this.logger.error(
+          `H1: descuadre monto/moneda al liquidar el pedido ${order.orderNumber ?? order.id} ` +
+            `(${order.id}): esperado ${order.totalCents} mxn, recibido ${pi.amount} ${pi.currency}. ` +
+            'NO se liquida.',
+        );
+        await this.audit
+          .log({
+            actorUserId: null,
+            actorRole: null,
+            action: 'order.settle_amount_mismatch',
+            entityType: 'Order',
+            entityId: order.id,
+            after: {
+              expectedCents: order.totalCents,
+              receivedCents: pi.amount,
+              expectedCurrency: 'mxn',
+              receivedCurrency: pi.currency,
+            },
+          })
+          .catch((e: unknown) =>
+            this.logger.error(`No se pudo auditar el descuadre de settle: ${(e as Error).message}`),
+          );
+        return;
+      }
       // v1.21-guest-checkout: SEGUNDA RUTA DE FULFILLMENT. Un pedido `direct_ship` NO deposita en
       // bóveda (el invitado no tiene): sus piezas siguen siendo de la plataforma y avanzan por
       // `status` hasta salir por la puerta. ARCHITECTURE §4.21c.

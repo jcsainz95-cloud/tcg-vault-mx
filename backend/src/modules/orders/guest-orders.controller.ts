@@ -1,4 +1,4 @@
-import { Body, Controller, Header, HttpCode, Ip, Post, UseGuards, Headers } from '@nestjs/common';
+import { Body, Controller, Header, HttpCode, Ip, Post, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { GuestCheckoutService } from './guest-checkout.service';
@@ -48,9 +48,10 @@ export class GuestOrdersController {
   session(
     @Body() dto: GuestSessionDto,
     @Ip() ip: string,
-    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.guest.createSession(dto, ip, idempotencyKey);
+    // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
+    // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
+    return this.guest.createSession(dto, ip);
   }
 
   /**

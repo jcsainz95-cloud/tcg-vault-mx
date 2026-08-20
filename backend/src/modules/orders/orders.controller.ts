@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -31,9 +31,10 @@ export class OrdersController {
   session(
     @CurrentUser('id') userId: string,
     @Body() dto: SessionDto,
-    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId, idempotencyKey);
+    // H2 (money-safety): en rutas de dinero el header `Idempotency-Key` del cliente se IGNORA;
+    // la clave se deriva SIEMPRE en el servidor (`pi-order-<id>`, en `attachPaymentIntent`).
+    return this.orders.createSession(userId, dto.inventoryItemIds, dto.billingProfileId);
   }
 
   @Get('orders')

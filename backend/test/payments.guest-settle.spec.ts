@@ -20,6 +20,10 @@ const GUEST_ORDER = {
   ],
 };
 
+// H1: `onPaymentSucceeded` recibe el PaymentIntent completo (monto/moneda para la aserción de
+// defensa en profundidad). Estos casos usan un PI que CUADRA con `GUEST_ORDER.totalCents` (mxn).
+const PI = { id: 'pi_guest_1', amount: 51812, currency: 'mxn' } as any;
+
 function build(opts: { order?: any; itemStatus?: string; existingShipment?: any; card?: any } = {}) {
   const itemState = { status: opts.itemStatus ?? 'reserved', ownerType: 'platform', ownerUserId: null };
   const created: any = { shipments: [], movements: [], orderUpdates: [] };
@@ -91,7 +95,7 @@ function build(opts: { order?: any; itemStatus?: string; existingShipment?: any;
 describe('PaymentsService — settle de un pedido direct_ship', () => {
   it('los items pasan reserved → picking y NUNCA entran a bóveda (invariante §4-G.0-1)', async () => {
     const { svc, tx, itemState } = build();
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(itemState.status).toBe('picking');
     const data = tx.inventoryItem.updateMany.mock.calls[0][0].data;
     expect(data).toEqual({ status: 'picking' });
@@ -104,7 +108,7 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
 
   it('registra el movimiento de inventario reserved → picking', async () => {
     const { svc, created } = build();
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(created.movements[0]).toMatchObject({
       itemId: 'item-1',
       fromStatus: 'reserved',
@@ -115,7 +119,7 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
 
   it('marca la orden settled y captura SOLO marca + últimos 4 de la tarjeta', async () => {
     const { svc, created } = build();
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(created.orderUpdates[0]).toMatchObject({
       status: 'settled',
       paymentMethodBrand: 'visa',
@@ -132,14 +136,14 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
 
   it('si Stripe no devuelve datos de tarjeta, liquida igual (best-effort)', async () => {
     const { svc, created } = build({ card: null });
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(created.orderUpdates[0]).toMatchObject({ status: 'settled' });
     expect(created.orderUpdates[0]).not.toHaveProperty('paymentMethodBrand');
   });
 
   it('CREA el ShipmentRequest de fulfillment: userId=null, orderId, nace en `picking`', async () => {
     const { svc, created } = build();
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(created.shipments).toHaveLength(1);
     expect(created.shipments[0]).toMatchObject({
       userId: null,
@@ -152,7 +156,7 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
 
   it('el envío de fulfillment lleva montos en CERO (el ingreso ya está en Order.shippingFeeCents)', async () => {
     const { svc, created } = build();
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     // ARCHITECTURE §4.21b: si repitiera la tarifa, el P&L de M7 la contaría dos veces.
     expect(created.shipments[0]).toMatchObject({
       shippingFeeCents: 0,
@@ -165,20 +169,20 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
 
   it('es IDEMPOTENTE: una orden ya `settled` no vuelve a tocar nada', async () => {
     const { svc, prisma, created } = build({ order: { ...GUEST_ORDER, status: 'settled' } });
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(created.shipments).toHaveLength(0);
   });
 
   it('no duplica el envío si ya existe uno activo para la orden', async () => {
     const { svc, created } = build({ existingShipment: { id: 'shp-1' } });
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(created.shipments).toHaveLength(0);
   });
 
   it('no re-avanza una pieza que ya está en `picking` (reintento del webhook): no es anomalía', async () => {
     const { svc, created, audit } = build({ itemStatus: 'picking' });
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(created.movements).toHaveLength(0);
     expect(audit.log).not.toHaveBeenCalled();
   });
@@ -189,7 +193,7 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
    */
   it('B3: pieza liberada por el barrido y aún libre ⇒ se RE-CONGELA en `picking` y se audita', async () => {
     const { svc, created, audit, itemState } = build({ itemStatus: 'listed' });
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     // El pago confirmado manda sobre una reserva liberada: la pieza vuelve a estar fuera de venta.
     expect(itemState.status).toBe('picking');
     expect(['listed', 'in_stock']).not.toContain(itemState.status);
@@ -206,7 +210,7 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
 
   it('B3: pieza ya comprometida con otro flujo ⇒ NO se le quita a nadie, pero se escala a humano', async () => {
     const { svc, created, audit, itemState } = build({ itemStatus: 'shipped' });
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(itemState.status).toBe('shipped'); // intacta
     expect(created.movements).toHaveLength(0);
     expect(audit.log).toHaveBeenCalledWith(
@@ -219,14 +223,14 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
 
   it('B3: la anomalía NO impide liquidar el pedido (el invitado pagó) ni crear su envío', async () => {
     const { svc, created } = build({ itemStatus: 'listed' });
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(created.orderUpdates[0]).toMatchObject({ status: 'settled' });
     expect(created.shipments).toHaveLength(1);
   });
 
   it('envía el correo de confirmación con el enlace tokenizado (post-commit)', async () => {
     const { svc, mail } = build();
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(mail.sendConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'order-guest-1',
@@ -242,7 +246,7 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
   it('un fallo del correo NO revierte el pago ni hace fallar el webhook (best-effort)', async () => {
     const { svc, mail, created } = build();
     mail.sendConfirmation.mockRejectedValue(new Error('resend caído'));
-    await expect(svc.onPaymentSucceeded('pi_guest_1')).resolves.toBeUndefined();
+    await expect(svc.onPaymentSucceeded(PI)).resolves.toBeUndefined();
     expect(created.orderUpdates[0]).toMatchObject({ status: 'settled' });
   });
 
@@ -254,7 +258,7 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
       userId: 'user-1',
     };
     const { svc, created, tx } = build({ order: vaultOrder });
-    await svc.onPaymentSucceeded('pi_guest_1');
+    await svc.onPaymentSucceeded(PI);
     expect(created.shipments).toHaveLength(0);
     expect(tx.inventoryItem.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { status: 'in_custody', ownershipStatus: 'settled' } }),
