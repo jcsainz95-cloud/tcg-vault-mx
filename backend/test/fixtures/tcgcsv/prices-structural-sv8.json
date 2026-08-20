@@ -1,0 +1,79 @@
+{
+  "totalItems": 8,
+  "success": true,
+  "errors": [],
+  "results": [
+    {
+      "productId": 700001,
+      "lowPrice": 0.1,
+      "midPrice": 0.2,
+      "highPrice": 1.0,
+      "marketPrice": null,
+      "directLowPrice": null,
+      "subTypeName": "Normal"
+    },
+    {
+      "productId": 700002,
+      "lowPrice": 0.09,
+      "midPrice": 0.25,
+      "highPrice": 4.99,
+      "marketPrice": 0.17,
+      "directLowPrice": 0.12,
+      "subTypeName": "Reverse Holofoil"
+    },
+    {
+      "productId": 700003,
+      "lowPrice": 0.05,
+      "midPrice": 0.1,
+      "highPrice": 0.9,
+      "marketPrice": 0.1,
+      "directLowPrice": 0.08,
+      "subTypeName": "Normal"
+    },
+    {
+      "productId": 700003,
+      "lowPrice": 0.15,
+      "midPrice": 0.25,
+      "highPrice": 1.5,
+      "marketPrice": 0.25,
+      "directLowPrice": 0.2,
+      "subTypeName": "Reverse Holofoil"
+    },
+    {
+      "productId": 700004,
+      "lowPrice": 0.02,
+      "midPrice": 0.05,
+      "highPrice": 0.5,
+      "marketPrice": 0.05,
+      "directLowPrice": 0.03,
+      "subTypeName": "Normal"
+    },
+    {
+      "productId": 700004,
+      "lowPrice": 1.0,
+      "midPrice": 2.0,
+      "highPrice": 9.99,
+      "marketPrice": 2.0,
+      "directLowPrice": 1.5,
+      "subTypeName": "Poké Ball Reverse Holofoil"
+    },
+    {
+      "productId": 700005,
+      "lowPrice": 3.0,
+      "midPrice": 5.0,
+      "highPrice": 19.99,
+      "marketPrice": 5.0,
+      "directLowPrice": 4.0,
+      "subTypeName": "Master Ball Reverse Holofoil"
+    },
+    {
+      "productId": 800001,
+      "lowPrice": 90.0,
+      "midPrice": 100.0,
+      "highPrice": 150.0,
+      "marketPrice": 100.0,
+      "directLowPrice": 95.0,
+      "subTypeName": "Normal"
+    }
+  ]
+}

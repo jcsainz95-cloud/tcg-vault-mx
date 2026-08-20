@@ -52,7 +52,15 @@ type BulkPublishLineResult =
       salePriceCents: number;
       priceSource: 'manual' | 'derived';
     }
-  | { index: number; inventoryItemId: string; ok: false; error: { code: string; message: string } };
+  | {
+      index: number;
+      inventoryItemId: string;
+      ok: false;
+      error: { code: string; message: string };
+      // v1.26 (④, §M1): aditivo/opcional. Presente SOLO en la línea que escaló a la cola de
+      // pendientes (PRICE_PENDING); es el id de la `PendingPriceEntry` open para deep-link de UI a M2.
+      pendingPriceEntryId?: string;
+    };
 
 export interface BulkPublishResponse {
   summary: { requested: number; published: number; failedLines: number };
@@ -440,6 +448,8 @@ export class InventoryService {
     for (let index = 0; index < req.items.length; index++) {
       const line = req.items[index];
       const item = byId.get(line.inventoryItemId);
+      // v1.26 (④): id de la entrada pendiente si esta línea escala por priceless (deep-link a M2).
+      let pendingPriceEntryId: string | undefined;
       try {
         if (!item) throw BusinessException.notFound('NOT_FOUND', 'Inventory item not found');
         if (item.ownerType !== 'platform') {
@@ -479,6 +489,19 @@ export class InventoryService {
           const ref = gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
           const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
           if (sale.salePriceCents == null) {
+            // v1.26 (④, §M1): priceless ESCALA a la cola de pendientes (context='inventory') en vez
+            // de caerse en silencio; la pieza NO se publica (sigue en su status de origen). Idempotente
+            // (dedupe por cardId/productType/gradeKey/finish/status='open'). Reusa el gradeKey de MERCADO
+            // ya computado (`gk`); un sellado no mapeado (gk=null) cae al gradeKey estructural del item.
+            const pendingGradeKey = gk ?? this.pricing.gradeKeyFor(item);
+            pendingPriceEntryId = await this.pricing.escalatePending(
+              item.cardId,
+              'sealed',
+              pendingGradeKey,
+              'inventory',
+              undefined,
+              'normal',
+            );
             throw BusinessException.validation(
               'PRICE_PENDING',
               'No resolvable sale price for sealed (no override and no market); not published',
@@ -500,6 +523,18 @@ export class InventoryService {
             fallbackPct,
           );
           if (sale.salePriceCents == null) {
+            // v1.26 (④, §M1): priceless ESCALA a la cola de pendientes (context='inventory') en vez
+            // de caerse en silencio; la pieza NO se publica (sigue en su status de origen). Idempotente
+            // (dedupe por cardId/productType/gradeKey/finish/status='open'). Usa el gradeKey server-side
+            // del item + su acabado, alineado con `getReference`/`manualOverride` (la cola es POR acabado).
+            pendingPriceEntryId = await this.pricing.escalatePending(
+              item.cardId,
+              item.productType,
+              gradeKey,
+              'inventory',
+              undefined,
+              item.finish,
+            );
             throw BusinessException.validation(
               'PRICE_PENDING',
               'No resolvable sale price (pct without market); not published',
@@ -549,6 +584,8 @@ export class InventoryService {
           inventoryItemId: line.inventoryItemId,
           ok: false,
           error: { code: err.code ?? 'VALIDATION_ERROR', message: err.message ?? 'error' },
+          // v1.26 (④): solo presente cuando la línea escaló por priceless (PRICE_PENDING).
+          ...(pendingPriceEntryId ? { pendingPriceEntryId } : {}),
         });
       }
     }

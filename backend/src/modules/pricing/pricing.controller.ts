@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
-import { Finish, Prisma, ProductType, Role } from '@prisma/client';
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Finish, PendingPriceContext, Prisma, ProductType, Role } from '@prisma/client';
 import { IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -23,6 +23,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PriceSyncJobService } from '../../jobs/price-sync.service';
 // N-11: estado en memoria del barrido masivo de precios (barra de progreso del sync).
 import { PriceIngestService } from './price-ingest.service';
+
+/** P-6 (§M2): valores válidos del query `?context=` de `GET /admin/pricing/pending`. */
+const VALID_PENDING_CONTEXTS: readonly PendingPriceContext[] = Object.values(PendingPriceContext);
 
 class OverrideDto {
   @IsString() cardId!: string;
@@ -111,9 +114,23 @@ export class PricingController {
     return this.priceIngest.getSyncStatus();
   }
 
+  /**
+   * P-6 (§M2): dos buckets. Query param opcional `?context=` — **VENTA** = `context=inventory`;
+   * **COMPRA** = vista READ-ONLY sobre `context=buylist`. Sin `context` → todos (back-compat).
+   * Validación estricta: un valor fuera del enum `PendingPriceContext` → 422 VALIDATION_ERROR
+   * (mismo estilo que el resto del controller). Producir el precio de COMPRA es WRITE del stream
+   * buylist (`itemDecision`) — FUERA DE ALCANCE aquí; este endpoint es solo lectura.
+   */
   @Get('pending')
-  pending() {
-    return this.pricing.pendingQueue();
+  pending(@Query('context') context?: string) {
+    if (context !== undefined && !VALID_PENDING_CONTEXTS.includes(context as PendingPriceContext)) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        `invalid context '${context}'`,
+        { field: 'context', allowed: VALID_PENDING_CONTEXTS },
+      );
+    }
+    return this.pricing.pendingQueue(context as PendingPriceContext | undefined);
   }
 
   @Post('override')

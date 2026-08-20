@@ -149,6 +149,9 @@ async function main() {
       imageLargeUrl: 'https://images.pokemontcg.io/base1/4_hires.png',
       availableFinishes: ['holofoil'],
       catalogFinishes: ['holofoil'],
+      // v1.26 (§4.24a/§4.22e): entrada ESTRUCTURAL (ancla/reemplaza catalogFinishes en la unión).
+      // Charizard es holofoil puro ⇒ una sola casilla, sin normal fantasma.
+      structuralFinishes: ['holofoil'],
       pricedFinishesSnapshot: [],
     },
     update: {
@@ -156,6 +159,7 @@ async function main() {
       numberPrefix: charizardParts.prefix,
       availableFinishes: ['holofoil'],
       catalogFinishes: ['holofoil'],
+      structuralFinishes: ['holofoil'],
       pricedFinishesSnapshot: [],
     },
   });
@@ -182,6 +186,9 @@ async function main() {
       imageLargeUrl: 'https://images.pokemontcg.io/base1/16_hires.png',
       availableFinishes: ['normal', 'reverse_holo'],
       catalogFinishes: ['normal'],
+      // v1.26 (§4.24a): la ESTRUCTURA solo conoce `normal`; PPT aporta el reverse_holo vía el
+      // snapshot ⇒ la unión da DOS casillas SIN que el precio añada estructura (reverse pendiente).
+      structuralFinishes: ['normal'],
       pricedFinishesSnapshot: ['reverse_holo'],
     },
     update: {
@@ -189,6 +196,7 @@ async function main() {
       numberPrefix: pidgeyParts.prefix,
       availableFinishes: ['normal', 'reverse_holo'],
       catalogFinishes: ['normal'],
+      structuralFinishes: ['normal'],
       pricedFinishesSnapshot: ['reverse_holo'],
     },
   });

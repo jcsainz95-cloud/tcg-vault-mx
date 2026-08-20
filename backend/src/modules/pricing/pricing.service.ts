@@ -442,14 +442,18 @@ export class PricingService {
     context: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
     refId?: string,
     finish: Finish = 'normal',
-  ): Promise<void> {
+  ): Promise<string> {
+    // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
+    // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
+    // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, status='open')`.
     const open = await this.prisma.pendingPriceEntry.findFirst({
       where: { cardId, productType, gradeKey, finish, status: 'open' },
     });
-    if (open) return;
-    await this.prisma.pendingPriceEntry.create({
+    if (open) return open.id;
+    const created = await this.prisma.pendingPriceEntry.create({
       data: { cardId, productType, gradeKey, finish, context, refId, status: 'open' },
     });
+    return created.id;
   }
 
   /**
@@ -613,9 +617,11 @@ export class PricingService {
    * campos del modelo `PendingPriceEntry` (incluido `finish`, M-19) + `cardName` (conveniencia
    * plana que consume el front) + `card { id, name, number, setName }`.
    */
-  async pendingQueue() {
+  async pendingQueue(context?: 'catalog' | 'portfolio' | 'buylist' | 'inventory') {
+    // P-6 (§M2): filtro opcional por `context` para los dos buckets de M2 (VENTA=`inventory`,
+    // COMPRA=`buylist` read-only). Sin arg → todos los pendientes (back-compat). Shape sin cambios.
     const rows = await this.prisma.pendingPriceEntry.findMany({
-      where: { status: 'open' },
+      where: { status: 'open', ...(context ? { context } : {}) },
       orderBy: { createdAt: 'asc' },
       include: { card: { include: { set: true } } },
     });

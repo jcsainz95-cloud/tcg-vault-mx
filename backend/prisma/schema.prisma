@@ -421,6 +421,17 @@ model Card {
   // una corrida EXITOSA (money-safe: no se toca ante fallo/0 filas). Alimenta la unión, NO es la
   // lista blanca (esa es availableFinishes).
   pricedFinishesSnapshot Finish[] @default([])
+  // v1.26 (M-29, §4.24a) — INTERNA (no se expone en DTO). Afirmación ESTRUCTURAL AUTORITATIVA:
+  // «¿en qué impresiones físicas se vende esta carta?» DETECTADA de TCGCSV (`subTypeName`), NUNCA
+  // inferida de rareza/era ni de la presencia de una llave de precio. ANCLA/REEMPLAZA a
+  // `catalogFinishes` como entrada del lado catálogo en la unión del reconciliador:
+  //   availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']
+  // La escribe: (i) `catalog-sync.upsertCards` en CREATE como SEED (`derived ?? ['normal']`; UPDATE
+  // NO la toca — pokemontcg.io no es autoridad estructural); (ii) el resolver TCGCSV de `importSet`
+  // (first-import/`--force`) por REEMPLAZO SOLO para cartas joineadas (money-safe: una carta no
+  // joineada conserva su valor previo). Una impresión aquí SIN PriceReference es «pendiente», nunca
+  // dropeada. Backfill M-29: = availableFinishes.
+  structuralFinishes Finish[] @default([])
   // v1.22-variantes-orden (M-26, §4.22b): claves DERIVADAS de `number` (String) para el ORDEN
   // NATURAL en BD. `number` sigue siendo la fuente de verdad; si divergen, se recalculan de él.
   // Puro numérico → numberSort = entero (clamp 999_999) y numberPrefix = ''. Con prefijo

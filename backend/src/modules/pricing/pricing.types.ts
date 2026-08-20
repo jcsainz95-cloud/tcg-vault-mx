@@ -290,6 +290,48 @@ export function normalizeVerifiedFinishAlias(raw: unknown): Finish | null {
 }
 
 /**
+ * v1.26 (ARCHITECTURE §4.24a, paso 4) — mapeo ESTRICTO del `subTypeName` de TCGCSV → `Finish`, la
+ * fuente ESTRUCTURAL autoritativa (espejo de TCGplayer). Llaves normalizadas (minúsculas, sin
+ * no-alfanuméricos) para tolerar `"Reverse Holofoil"`/`"reverse holofoil"`. Es la ÚNICA vía por la
+ * que un `subTypeName` alimenta `Card.structuralFinishes`; un valor DESCONOCIDO/no mapeable devuelve
+ * `null` ⇒ se OMITE (candado anti-invención §4.24a: JAMÁS se atribuye a `normal`, nunca una casilla
+ * de relleno). NO depende de `marketPrice`: la ESTRUCTURA es la presencia de la fila, no su precio.
+ */
+export const TCGCSV_SUBTYPE_TO_FINISH: Record<string, Finish> = {
+  normal: 'normal',
+  holofoil: 'holofoil',
+  reverseholofoil: 'reverse_holo',
+  '1steditionholofoil': 'first_edition_holofoil',
+};
+
+/**
+ * v1.26 (§4.24a, paso 4) — Normaliza UN `subTypeName` crudo de TCGCSV a su `Finish`, o `null` si es
+ * desconocido/no mapeable (se OMITE; nunca se inventa). Estructura ≠ precio: NO mira `marketPrice`.
+ */
+export function tcgcsvSubTypeToFinish(subTypeName: unknown): Finish | null {
+  if (typeof subTypeName !== 'string') return null;
+  const key = subTypeName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return TCGCSV_SUBTYPE_TO_FINISH[key] ?? null;
+}
+
+/**
+ * v1.26 (§4.24a, paso 4) — deriva `structuralFinishes` de UNA carta a partir de los `subTypeName`
+ * que TCGCSV reportó para ella (unidos por número de carta, ver resolver). Mapea cada uno con
+ * `tcgcsvSubTypeToFinish` (OMITE los desconocidos), deduplica y devuelve en orden canónico
+ * `FINISH_ORDER`. NUNCA inventa un acabado ni añade `normal` de relleno; un `subTypeName` con
+ * `marketPrice: null` SIGUE contando (estructura ≠ precio). Puede devolver `[]` (todos desconocidos)
+ * ⇒ el llamador NO escribe (conserva el valor previo; money-safe).
+ */
+export function deriveStructuralFinishes(subTypeNames: Iterable<unknown>): Finish[] {
+  const found = new Set<Finish>();
+  for (const raw of subTypeNames) {
+    const finish = tcgcsvSubTypeToFinish(raw);
+    if (finish) found.add(finish);
+  }
+  return orderFinishes(found);
+}
+
+/**
  * P-6 (2026-08-18) — VARIANTES de formato del número de carta, para el fallback `(set, number)`
  * de `PriceIngestService.resolveCardId`. `Card.number` viene de pokemontcg.io (`"104"`, `"TG01"`,
  * `"SV107"`), pero el proveedor de paga publica `cardNumber` y puede darlo con el total del set
@@ -348,6 +390,28 @@ export interface TcgcsvProductRef {
   name: string;
   cleanName?: string;
   imageUrl?: string;
+}
+
+/**
+ * v1.26 (§4.24a) — Producto de CARTA (single) de un grupo TCGCSV para el resolver estructural.
+ * `number` = `extendedData.Number` (p. ej. `"057/191"`) o `null` si el producto no lo trae (sellado
+ * u otro). El resolver une `subTypeName` por ESTE número de carta, robusto a que una carta se
+ * represente como varias filas bajo un `productId` O como `productId`s separados por impresión.
+ */
+export interface TcgcsvSingleProductRef {
+  productId: number;
+  name: string;
+  number: string | null;
+}
+
+/**
+ * v1.26 (§4.24a) — Fila de PRECIO cruda de TCGCSV que aporta ESTRUCTURA vía su `subTypeName`. El
+ * `marketPrice` puede ser `null` (estructura ≠ precio); el resolver NO lo usa para decidir estructura.
+ */
+export interface TcgcsvPriceRow {
+  productId: number;
+  subTypeName: string | null;
+  marketPrice: number | null;
 }
 
 /**

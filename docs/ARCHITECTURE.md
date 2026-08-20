@@ -2,7 +2,42 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.25-buylist-orders-pagination (MVP, plataforma en producción). Fecha: 2026-08-20. Branch: `claude/buylist-ordenes`.
+> Estado: v1.26-precios-variantes-masterset (MVP, plataforma en producción). Fecha: 2026-08-20. Branch: `claude/precios-variantes-masterset`.
+>
+> **Changelog v1.26-precios-variantes-masterset (2026-08-20, rama `claude/precios-variantes-masterset`) — bundle
+> aprobado por el PO. Cinco piezas, dos batches de commit. Toca dinero (③④⑤) → veredicto de seguridad posterior.**
+> Diseño completo en **§4.24** (spec del bundle) + rework de §3.7 / §4.22a-5 / §4.22g (Señal D estructural) + §9 (VAR-1
+> ratificada). Migración **M-29** (§11), aditiva y nullable. Contrato en API_CONTRACT §M1/§M2 (mismo changelog).
+> - **① Composición de variantes DETECTADA desde TCGCSV (fuente ESTRUCTURAL autoritativa), no por rareza/era ni por
+>   presencia de llave de precio (§4.24a).** Nueva columna `Card.structuralFinishes Finish[] @default([])` = «¿en qué
+>   impresiones físicas se vende esta carta?», derivada de los `subTypeName` distintos de TCGCSV (`Normal`/`Holofoil`/
+>   `Reverse Holofoil` → `normal`/`holofoil`/`reverse_holo`; `1st Edition Holofoil`→`first_edition_holofoil`) unidos
+>   **por carta** (group-by número dentro del set, robusto a 1-productId-multi-fila y a N-productIds). La fórmula del
+>   reconciliador pasa a `availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`
+>   (structuralFinishes **ancla/reemplaza** el proxy-de-precio `catalogFinishes`). Se puebla `Card.tcgplayerId` desde
+>   `tcgplayer.url` en catalog-sync (hoy nadie lo escribe) para el join a TCGCSV. **VAR-1 intacto:** el precio jamás
+>   sobrescribe/encoge la estructura; una impresión estructural sin precio es **«pendiente»**, nunca inventada ni
+>   dropeada. Se computa **una vez por set** en `importSet` (first-import o `--force`), NO en cada price-ingest.
+> - **② ④ PUBLICAR SIEMPRE CON PRECIO (§4.24b).** `bulkPublish` de una variante sin precio hoy lanza `PRICE_PENDING`
+>   por-línea pero **NO escala** → la variante se cae en silencio. Ahora **ESCALA a la cola de pendientes**
+>   (`escalatePending`, `context='inventory'`) y no publica; el admin fija precio (override M2 o `listPriceCents`) y el
+>   re-publish procede. Campo aditivo `pendingPriceEntryId` en `BulkPublishLineResult` para deep-link de UI.
+> - **③ P-6 cola manual de precios de DOS BUCKETS (§4.24c).** Reusa `PendingPriceEntry` + M2 `GET /admin/pricing/pending`,
+>   que gana filtro opcional `context`. **VENTA** = `context='inventory'`; **COMPRA** = vista **read-only** sobre
+>   `context='buylist'` (producir el precio de compra es un WRITE del buylist — FUERA DE ALCANCE). **Invariante
+>   documentado (§4.24c):** `manualOverride` resuelve pendientes **CONTEXT-AGNÓSTICO** (un override de VENTA cierra
+>   también el pendiente de COMPRA de la misma variante). Se **conserva (a) agnóstico** por ahora; añadir un `context`
+>   scope (opción b) es cambio en NUESTRO archivo del que depende el stream buylist ⇒ **requiere serialización con el
+>   stream buylist**, no unilateral.
+> - **④ P-2 precio de mercado en la teja del Master Set (§4.24d).** `MasterSetCardCellDTO` gana campo aditivo opcional
+>   `marketReferenceMxnCents?: number|null` = **referencia de mercado** (`PriceReference` cruda, FX-recompute a MXN vía
+>   `getReferencesBatch`/`liveMxnCents`), NO precio de venta derivado. Semántica declarada: «precio de mercado» del PO
+>   = la referencia ingerida.
+> - **⑤ P-7 publicar + repreciar FRESCO desde el Master Set (§4.24e).** Nuevo método on-demand en `PricingService` +
+>   método de proveedor que trae precio FRESCO de carta(s) puntuales y hace upsert de `PriceReference`; una acción
+>   «publicar (+reprecio fresco)» refresca ANTES de resolver precio, funciona sobre inventario UNPUBLISHED y HEREDA el
+>   gate ④ (sin precio → pendiente, no publica). Aditivo. Cuota/rate del proveedor (PPT) a vigilar. Dinero → gate de
+>   seguridad posterior.
 >
 > **Changelog v1.25-buylist-orders-pagination (2026-08-20, branch `claude/buylist-ordenes`) — WS «Buylist y órdenes»
 > (regla 9, P-5): paginación server-side + filtros para las colas admin M5 (`GET /admin/buylist`) y M3
@@ -1273,6 +1308,12 @@ holo a la derecha**.
     alimentan la lista blanca. Ver §4.22g para los cuatro candados.
   - ❌ **Prohibida cualquier heurística por rareza** («toda Common tiene reverse holo»): inventaría casillas de relleno,
     que el PO prohíbe explícitamente.
+  - ✅ **v1.26 (§4.24a) — la composición se DETECTA de la fuente ESTRUCTURAL autoritativa (TCGCSV), NO de rareza/era
+    NI de la presencia de una llave de precio.** Regla reformulada: *detectar la composición desde la fuente
+    autoritativa TCGCSV; jamás inferir por rareza/era; la ESTRUCTURA es separada del PRECIO; una impresión estructural
+    sin precio es «pendiente» — nunca inventada y nunca dropeada.* La prohibición money→estructura de VAR-1 sigue
+    intacta (el precio jamás añade ni quita una impresión). La estructura entra por `Card.structuralFinishes` (§4.24a),
+    que **ancla/reemplaza** el proxy-de-precio `catalogFinishes` en la unión del reconciliador.
 - **Alcance por tipo de producto:** el acabado aplica a **raw/singles**. Para `graded`/`sealed` el `finish` es
   siempre `normal` (el slab/sellado no distingue acabado a efectos de precio); el default lo cubre y no cambia el
   comportamiento actual.
@@ -3524,6 +3565,12 @@ vendedor puede cotizar y **borra** casillas del binder.
    hace **visible**: contador `cardsWithoutFinishSignal` (cartas cuyo último sync devolvió `derived === null`) en el
    `dataHealth` de M2 (**recomendado, no bloqueante**, backend). El remedio de negocio ante una variante faltante es
    el **override manual del admin**, nunca una regla automática.
+   > **v1.26 (§4.24a) — refuerzo, no derogación.** La prohibición de heurística por rareza SIGUE VIGENTE. Lo que cambia
+   > es la FUENTE de la señal estructural positiva: se **detecta de TCGCSV** (fuente estructural autoritativa: el
+   > `subTypeName` existe aunque `marketPrice` sea `null` ⇒ **estructura ≠ precio**), no de la presencia de una llave
+   > de `tcgplayer.prices`/`cardmarket` (proxy de precio). *Detectar de TCGCSV; jamás inferir por rareza/era; una
+   > impresión estructural sin precio es «pendiente», nunca inventada ni dropeada.* La regla 2 (money→estructura) y la
+   > anti-invención (candado 3, §4.22g) quedan intactas.
 
 6. **§4.22a-6 (v1.22-2 / N-15) — `displayFinishes`: supresión de acabado ESPURIO en premium de una sola impresión
    (DISPLAY, NO whitelist).** *(El PO resolvió N-15 eligiendo la opción MÍNIMA: solo suprimir la casilla `normal`
@@ -3750,6 +3797,14 @@ originales de la regla 2:
    ```
    availableFinishes  :=  orderFinishes( catalogFinishes ∪ pricedFinishesSnapshot )   ||  ['normal']
    ```
+
+   > **⚠️ v1.26 (§4.24a) — la ENTRADA estructural de esta unión CAMBIA.** `catalogFinishes` era un **proxy de precio**
+   > (llaves presentes de `tcgplayer.prices` ∪ `cardmarket.reverseHolo*`). v1.26 introduce `Card.structuralFinishes`
+   > —derivada de la fuente ESTRUCTURAL autoritativa (TCGCSV, `subTypeName`)— que **ancla/reemplaza** a `catalogFinishes`
+   > en la unión: `availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`. Los
+   > cuatro candados de abajo (recomputable, alias verificado, anti-invención, un solo escritor `FinishReconciler`)
+   > **se conservan sin cambio**; solo se sustituye la columna de entrada del lado catálogo. Detalle, seed y semántica
+   > money-safe de la sustitución en **§4.24a**.
 
    - `Card.catalogFinishes Finish[]` — la unión Señal A ∪ Señal B del **último payload de pokemontcg.io** (lo que hoy
      devuelve `deriveAvailableFinishes(c)`), con la MISMA semántica anti-regresión de §4.22a-4 (`null` ⇒ se omite y se
@@ -4123,6 +4178,200 @@ de spread). **Config/diales (dato, no esquema):** `sealed_spread_pct_by_subtype`
 
 ---
 
+### 4.24 WS «Precios, variantes y master set» — estructura autoritativa, publish-con-precio y master set operable (v1.26)
+
+> **Bundle aprobado por el PO (5 piezas).** Extiende, sin re-litigar, la maquinaria de variantes de §4.22/§4.22g. Toca
+> dinero en ④/⑤ (gate de seguridad posterior). Migración **M-29** (§11), aditiva y nullable. Contrato en API_CONTRACT
+> §M1/§M2. **Reparto en dos batches de commit** (ver §4.24f) para que el orquestador los mergee por separado.
+
+#### (a) ① Composición de variantes DETECTADA desde TCGCSV (fuente ESTRUCTURAL autoritativa)
+
+**Problema que quedó abierto (§4.22g S1/S2 y §4.22d-4).** `catalogFinishes` deriva de la **presencia de una llave de
+precio** (`tcgplayer.prices` ∪ `cardmarket.reverseHolo*`): es un **proxy de precio**, no una afirmación estructural.
+Cuando pokemontcg.io colapsa un set nuevo a un solo `printing` (caso «Pitch Black», «Surging Sparks»), la señal se
+pierde. La **fuente estructural autoritativa** es **TCGCSV** (espejo de TCGplayer): sus filas de precio traen
+`subTypeName` (`Normal`/`Holofoil`/`Reverse Holofoil`) que **existe aunque `marketPrice` sea `null`** ⇒ **estructura ≠
+precio**. Evidencia real en la fixture `backend/test/fixtures/tcgcsv/prices-23821.json` (Surging Sparks, sv8): filas
+`subTypeName='Normal'` con `marketPrice: null` (estructura sin precio = «pendiente»); `Pikachu ex 057/191` (rareza DR)
+= **solo `Holofoil`** (premium de una impresión, SIN `normal` fantasma).
+
+**Columna nueva — `Card.structuralFinishes Finish[] @default([])` (M-29).** Es «¿en qué impresiones físicas se vende
+esta carta?» — la afirmación **estructural autoritativa**. **Ancla/reemplaza** a `catalogFinishes` como entrada del
+lado catálogo en la unión del reconciliador:
+
+```
+availableFinishes  :=  orderFinishes( structuralFinishes ∪ pricedFinishesSnapshot )   ||  ['normal']
+```
+
+- `structuralFinishes` — derivada de TCGCSV (ver resolver abajo). La escribe **un solo sitio nuevo** en el módulo
+  `catalog` (paso de `importSet`), **no** `price-ingest`.
+- `pricedFinishesSnapshot` — **sin cambio** (Señal C money-safe de §4.22g: PPT `market>0` + alias VERIFICADO).
+- `catalogFinishes` — **sale de la fórmula** (era el proxy de precio que el PO rechaza). **Se conserva la columna**
+  para: (i) **seed** de `structuralFinishes` en el backfill y en CREATE, (ii) observabilidad (`dataHealth`: «opinión
+  de pokemontcg.io»). Su escritor (`upsertCards`) **no cambia**.
+- **`FinishReconciler` sigue siendo el ÚNICO escritor** de `availableFinishes` (candado 4, §4.22g). Solo se sustituye
+  la columna de entrada del lado catálogo: `reconcile()` lee `(structuralFinishes, pricedFinishesSnapshot)`.
+
+**VAR-1 intacto (money→estructura prohibido).** El precio jamás sobrescribe/encoge la estructura, y la **presencia de
+una llave de precio jamás AÑADE estructura**. Una impresión de `structuralFinishes` **sin** `PriceReference` es
+**«pendiente»** (whitelist la admite ⇒ vendible tras precio; el binder puede ocultarla vía `displayFinishes`/N-15),
+**nunca inventada y nunca dropeada**. La anti-invención (candado 3) se conserva: un `subTypeName` desconocido/no
+mapeable ⇒ se **OMITE** (jamás se atribuye a `normal`).
+
+**Semántica money-safe de la escritura de `structuralFinishes` (espejo de la del snapshot PPT, §4.22g).**
+- **CREATE (`upsertCards`)** → `structuralFinishes = derived ?? ['normal']` (**seed** desde la señal de pokemontcg.io;
+  evita que una carta recién sincronizada quede en blanco antes de que corra el resolver TCGCSV).
+- **UPDATE (`upsertCards`)** → **NO toca `structuralFinishes`** (pokemontcg.io no es autoridad estructural; solo
+  refresca `catalogFinishes`). La autoridad de UPDATE es el **resolver TCGCSV**.
+- **Resolver TCGCSV (`importSet`, first-import o `--force`)** → **REEMPLAZA** `structuralFinishes` por carta **solo**
+  para las cartas que pudo **joinear** a ≥1 producto/fila TCGCSV. Una carta que no joinea (sin `tcgplayerId`, sin match
+  por número) **conserva** su valor previo (stale conservador: falta-una-casilla, nunca sobra-una-falsa). El
+  `sync-all {force:true}` reprocesa y **repara** (unión recomputable, no monótona).
+
+**Poblar `Card.tcgplayerId` (requisito nuevo).** La columna existe (`schema.prisma:401`) pero **nadie la escribe hoy**.
+`upsertCards` la puebla parseando el **`productId`** de `RemoteCard.tcgplayer.url` (formato `.../product/<id>`;
+el cliente `pokemontcg-io.client.ts` ya trae `tcgplayer.url`). Es el ancla del join a TCGCSV (y la usa P-7, §4.24e).
+
+**Resolver `resolveStructuralFinishesForSet(localSetId)` (algoritmo NORMATIVO).** Reusa el **patrón anti-SSRF de host
+fijo** del proveedor sellado existente (`tcgcsv-sealed.provider.ts:77,79`: host `https://tcgcsv.com/tcgplayer`,
+categoría Pokémon `=3` constante de servidor, `groupId` validado como entero positivo, `redirect:'error'`, timeout).
+Se recomienda extraer un `TcgcsvCatalogClient` que comparta ese `getJson`/`assertValidGroupId` (o un provider hermano
+`tcgcsv-singles.provider.ts`), **sin** reinventar la seguridad.
+
+1. **Resolver el `groupId` TCGCSV del set.** Reusar `CardSet.pptSetId` cuando es el **GroupId numérico de TCGplayer**
+   (ya cacheado por `PptSetMapper`, `schema.prisma:381`) — TCGplayer group = TCGCSV group. Si `pptSetId` es un slug/no
+   numérico ⇒ resolver por match de nombre contra `listGroups()` (patrón existente) y **cachearlo**. *(Supuesto S-D3:
+   `pptSetId` numérico == groupId TCGCSV. Verificar en vivo.)*
+2. **Fetch por set (=grupo):** `/{3}/{groupId}/products` (con `extendedData` → `Number` por carta) y
+   `/{3}/{groupId}/prices` (filas `{ productId, subTypeName, marketPrice }`).
+3. **Agrupar por CARTA (candado del open-question).** TCGplayer puede representar las impresiones de una carta como
+   **varias filas bajo UN `productId`** O como **`productId`s SEPARADOS**. El resolver **UNE los `subTypeName` de TODAS
+   las filas que pertenecen a la MISMA CARTA**, agrupando por **número de carta dentro del set** (`extendedData.Number`,
+   p. ej. `"057/191"`): robusto a ambas representaciones. Un `productId` sin fila de precio no aporta señal.
+4. **Mapear `subTypeName → Finish`** (espejo estricto, alias VERIFICADO; desconocido ⇒ OMITE):
+   `Normal→normal`, `Holofoil→holofoil`, `Reverse Holofoil→reverse_holo`, `1st Edition Holofoil→first_edition_holofoil`.
+5. **Join número→`Card`** dentro del set local: por `Card.number` == `extendedData.Number` normalizado, con
+   `Card.tcgplayerId` (== `productId`) como ancla/validación. Escribir `structuralFinishes = orderFinishes(unión)` por
+   carta joineada (reemplazo money-safe del punto anterior) y **llamar `FinishReconciler.reconcile(cardIds)`**.
+
+**⚠️ Verificación en vivo pendiente (el sandbox bloquea `tcgcsv.com` por allowlist de egress).** El adapter se calibra
+contra las fixtures; su confirmación es una corrida **en Railway** (dueño: backend + devops registra en DEVOPS_NOTES):
+
+| # | Supuesto | Cómo se verifica | Si resulta falso |
+|---|---|---|---|
+| S-D1 | TCGplayer/TCGCSV representa las impresiones de una carta como **filas por `subTypeName`** (mismo o distinto `productId`) | 1ª corrida: para un set moderno, histograma de `subTypeName` por número de carta; contar cartas con `Normal`+`Reverse Holofoil` | Si colapsa a un solo printing como pokemontcg.io, ① no rescata ese set; cae a Señal C (PPT) y al override admin (§4.22g remedio (a)). **Avisar al arquitecto.** |
+| S-D2 | El `subTypeName` existe **aunque `marketPrice` sea `null`** (estructura ≠ precio) | 1ª corrida: contar filas `subTypeName≠null` con `marketPrice=null` (la fixture ya lo muestra) | Si `subTypeName` solo aparece con precio, ① degenera en proxy de precio; documentar y volver a §4.22g. |
+| S-D3 | `CardSet.pptSetId` numérico == `groupId` de TCGCSV | 1ª corrida: fetch `/{3}/{pptSetId}/products` y comparar nombres | Resolver el groupId por nombre vía `listGroups()` y cachear (columna `CardSet.tcgplayerGroupId`, coordinar zona prisma). |
+
+#### (b) ② ④ Publicar SIEMPRE con precio: ESCALAR el pendiente en vez de dropear en silencio
+
+**Diagnóstico.** `bulkPublish` (`inventory.service.ts:404-576`) lanza `PRICE_PENDING` por-línea para una variante sin
+precio (raw `:502-507`, sellado `:481-486`) pero **NO** escala a la cola: la variante se cae **en silencio** y nadie
+en M2 sabe que hay que preciarla. Compárese con `createItem` (`:127`) que **sí** escala (`escalatePending`,
+`context='inventory'`).
+
+**Norma v1.26.** En cada rama que hoy lanza `PRICE_PENDING` en `bulkPublish`, **ANTES** de lanzar (o en el `catch` de
+la línea), llamar `pricing.escalatePending(cardId, productType, gradeKey, 'inventory', undefined, finish)` — dedupe por
+`(cardId, productType, gradeKey, finish, status='open')` ya lo hace idempotente (`pricing.service.ts:446-449`). La pieza
+**NO se publica** (sigue en su status de origen `in_stock`); el admin fija precio (override M2 `POST
+/admin/pricing/override`, o `listPriceCents` por-línea en un re-publish) y el re-publish **procede**. **No cambia el
+código de error** (`PRICE_PENDING`), no es breaking.
+
+- **Allowlist de status de origen publicable — DOCUMENTAR en contrato (hoy solo auto-nota `inventory.service.ts:75-76`).**
+  `PUBLISHABLE_ORIGIN_STATUSES = {in_stock, listed}` (anti-double-sell, `:78`). Ya está en API_CONTRACT §M1 (v1.16.1);
+  se **ratifica** junto a la regla nueva «priceless → encolar, no dropear».
+- **DTO aditivo `pendingPriceEntryId?` en `BulkPublishLineResult`** (para deep-link de UI a la entrada de M2). Marcado
+  **aditivo/opcional**: presente solo en la línea que escaló. `escalatePending` hoy devuelve `void` ⇒ para poblarlo hay
+  que devolver el `id` (o releer la entrada open); **si se prefiere no tocar la firma, el campo queda como mejora
+  opcional** y la línea reporta `ok:false, error.code='PRICE_PENDING'` sin el id (retro-compatible).
+
+#### (c) ③ P-6 cola manual de precios de DOS BUCKETS (VENTA / COMPRA)
+
+Reusa **`PendingPriceEntry`** (`schema.prisma:613-632`, enum `context = catalog | portfolio | buylist | inventory`) y
+**M2 `GET /admin/pricing/pending`** (`pricing.controller.ts:114` → `pricing.service.pendingQueue()`:616). **Sin schema
+nuevo, sin endpoint nuevo:** `pendingQueue()` gana un parámetro **opcional `context`** (y el endpoint un query param
+`?context=`), para que M2 sirva dos buckets:
+
+- **VENTA** = `context='inventory'` — inventario (incl. no publicado): ya se escala en `createItem` (`:127`) y **ahora
+  también en `bulkPublish`** (§4.24b).
+- **COMPRA** = vista **READ-ONLY** sobre `context='buylist'` — **solo display**. `context='buylist'` lo escala el
+  stream buylist (`buylist.service.ts:306`).
+
+**CRÍTICO — límite de stream (buylist es OTRO flujo).** Producir el **precio de compra** on-request es un **WRITE del
+buylist** (`itemDecision`, `buylist.service.ts:712-813`, acoplado a un control INE/AML sobre `precio_pendiente`
+`~352-353`) — **FUERA DE ALCANCE de este pass**. Nuestro COMPRA es **display read-only**; jamás escribe una decisión de
+compra ni resuelve un pendiente de buylist desde M2-VENTA.
+
+**Invariante del hazard de tabla compartida (DECIDIDO + documentado).** `manualOverride` (`pricing.service.ts:571-607`)
+resuelve pendientes **CONTEXT-AGNÓSTICO**: su `updateMany` filtra `{cardId, productType, gradeKey, finish, status:'open'}`
+**sin `context`** (`:602-605`) ⇒ un override de **VENTA** cierra **también** el pendiente de **COMPRA** de la misma
+variante (y viceversa). Decisión:
+
+- **(a) Se CONSERVA agnóstico por ahora (recomendado).** Es el comportamiento actual; ambos buckets comparten la misma
+  `PriceReference` por `(cardId, productType, gradeKey, finish)`, así que un precio fijado **es** válido para las dos
+  caras. No hay riesgo de dinero: fijar un precio no mueve dinero saliente; el buylist recomputa su monto por su propia
+  ruta (rareza/regla) al leer la referencia. **Se DOCUMENTA el acoplamiento** para que nadie lo lea como bug.
+- **(b) Alternativa (NO en este pass): añadir un `context` scope al `updateMany` de `manualOverride`.** Sería un cambio
+  en **NUESTRO** archivo (`pricing.service.ts`) del que **depende el stream buylist** (comparte `PendingPriceEntry` y
+  `escalatePending`/resolución). Por eso **REQUIERE serialización/coordinación con el stream buylist** — **no se cambia
+  unilateralmente en este pass**. Solo se justificaría con una razón de money-safety concreta (no la hay hoy).
+
+#### (d) ④ P-2 precio de mercado en la teja del Master Set (M1)
+
+El DTO por celda (`MasterSetCardCellDTO`/`MasterSetVariantDTO`, `master-set.service.ts:70-137`) **no lleva precio** hoy.
+Campo **aditivo opcional**: `MasterSetCardCellDTO.marketReferenceMxnCents?: number | null` (y/o por variante en
+`MasterSetVariantDTO` si el front lo pide por acabado — ver contrato). Se puebla con la infraestructura **ya inyectada**
+del binder (`master-set.service.ts:424` usa `getReferencesBatch`/`getPricedRawFinishesBatch`), FX-recomputado a MXN con
+la misma lógica `liveMxnCents` (`pricing.service.ts:104`, USD→MXN vigente).
+
+**SEMÁNTICA DECIDIDA Y DECLARADA:** «precio de mercado» = **REFERENCIA DE MERCADO** = la `PriceReference` cruda
+ingerida (`referenceMxnCents`), **NO** el precio de venta derivado (`referencia × (1+markup)`). El PO dijo «precio de
+mercado» ⇒ se sirve la **referencia**, no la venta. (El precio de venta ya vive en `buyable.salePriceCents` para la
+vista cliente; la teja admin muestra el **mercado**.) Se **declara** en el DTO y en API_CONTRACT §M1. `null` cuando la
+referencia está `pending` (no se inventa un 0). Es sólo lectura/visual; no toca SEC-A1.
+
+#### (e) ⑤ P-7 publicar + repreciar FRESCO desde el Master Set (M1)
+
+`bulkPublish` ya publica y precia desde la **`PriceReference` almacenada más reciente**. **Brecha:** no existe un fetch
+**on-demand por carta puntual** (los proveedores solo hacen bulk por-set). Contrato v1.26 (aditivo, dinero → gate de
+seguridad posterior):
+
+1. **Proveedor — método de fetch FRESCO puntual.** En la interfaz de proveedor de precios raw (PPT bulk / pokemontcg.io),
+   un método `fetchFreshForCards(cards)` que trae precio **fresco** de carta(s) específicas y **upsert** de
+   `PriceReference` (reusa `persistMarketReference`, `pricing.service.ts:474`, con FX del día). Usa `Card.tcgplayerId`
+   (poblado en ①) para el lookup puntual del proveedor. **Cuota/rate:** PPT tiene **cuota diaria** ⇒ el método es
+   **por-carta acotado** (cap N por request, respeta el `dailyLimited` que ya expone `sync-status`), NUNCA un barrido.
+2. **`PricingService.refreshCardPrices(cardIds, finishes?)` on-demand** que orquesta el proveedor + upsert, con el
+   mismo cache diario/rate-limit del ingest.
+3. **Acción «publicar (+reprecio fresco)» desde master-set.** Refresca la(s) `PriceReference` **ANTES** de resolver el
+   precio, funciona sobre inventario **UNPUBLISHED** (`in_stock`), y **HEREDA el gate ④** (§4.24b): si tras el refresh
+   sigue sin precio → **escala pendiente, NO publica**. Endpoint/flag aditivo (ver API_CONTRACT §M1: flag
+   `repriceFresh?: boolean` en `bulk-publish`, o endpoint hermano `POST .../items/reprice`). Money-touching → gate de
+   seguridad posterior (dinero: fija el precio con el que se lista/vende).
+
+#### (f) Reparto de trabajo y BATCHES DE COMMIT (para el orquestador)
+
+**Dos batches, mergeables por separado.**
+
+- **BATCH «display» (P-2 ④ + P-7 ⑤) — sin migración, aditivo puro, no toca la maquinaria de variantes:**
+  `master-set.service.ts` (campo `marketReferenceMxnCents` + populate), `pricing.service.ts` (`refreshCardPrices`) +
+  método de proveedor, endpoint/flag P-7 en `inventory`/controller, DTOs aditivos en API_CONTRACT §M1. Frontend: teja con
+  precio de mercado + botón «publicar (+reprecio)».
+- **BATCH «variantes + P-6 + ④» (① + ② + ③) — incluye migración M-29 (ZONA COMPARTIDA `backend/prisma/`, el
+  orquestador la serializa):** schema `Card.structuralFinishes` + backfill; `catalog-sync` (poblar `tcgplayerId` +
+  `structuralFinishes` seed + resolver TCGCSV en `importSet`); `FinishReconciler.reconcile` lee `structuralFinishes`;
+  `TcgcsvCatalogClient`/provider (reusa anti-SSRF); `bulkPublish` escalate-on-priceless (②); `pendingQueue(context)` +
+  controller query param (③); seeds §4.22e extendidos con `structuralFinishes`.
+- **Serialización explícita con el stream BUYLIST (§4.24c):** NO tocar `buylist/`; el `manualOverride` context-agnóstico
+  se **deja como (a)**; cualquier opción (b) futura se coordina con buylist. La migración M-29 se serializa como toda
+  zona `backend/prisma/`.
+- **Devops:** tras M-29, secuencia de reparación estructural: (1) deploy; (2) `sync-all {force:true}` (puebla
+  `tcgplayerId` + corre el resolver TCGCSV → `structuralFinishes` → reconcile); (3) registrar S-D1/S-D2/S-D3 en
+  `DEVOPS_NOTES.md`. Verificación (gate): sobre un set moderno, `SELECT count(*) FROM "Card" WHERE 'reverse_holo' =
+  ANY("structuralFinishes") AND "setId"=:set` > 0; el binder pinta dos casillas en una común moderna.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -4269,6 +4518,12 @@ Riesgos técnicos:
   explica el bug en producción. **Es la causa raíz de las tres rondas.** **Norma: §4.22a** (autoridad única = catálogo;
   `price-ingest` **cero escrituras**; §4.15e derogada). **Acción (backend, este stream):** eliminar el bloque y cubrir
   con un test que asserte que el ingest **no** llama `card.update`.
+  > **v1.26 (§4.24a) — VAR-1 RATIFICADA, no derogada.** El bundle v1.26 introduce `Card.structuralFinishes` (estructura
+  > autoritativa desde TCGCSV) y mueve la fórmula del reconciliador a `orderFinishes(structuralFinishes ∪
+  > pricedFinishesSnapshot) || ['normal']`, pero **conserva** el núcleo money-safe de VAR-1: el precio jamás
+  > sobrescribe/encoge la estructura, y la presencia de una llave de precio jamás AÑADE estructura. Una impresión
+  > estructural sin precio es «pendiente», nunca inventada ni dropeada. `FinishReconciler` sigue siendo el único
+  > escritor de `availableFinishes`.
 - **VAR-2 (backend, v1.22) — la derivación de catálogo ignora Cardmarket.** `catalog-sync.service.ts:355` →
   `deriveAvailableFinishes(c.tcgplayer?.prices)` (`pricing.types.ts:32`): sin bloque `tcgplayer` en el payload →
   `['normal']`, y las llaves con `market` nulo no se distinguen de las ausentes. Se pierde el reverse holo de toda
@@ -4691,6 +4946,24 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.26-precios-variantes-masterset (nueva — estructura autoritativa desde TCGCSV)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-29** frente a cualquier otro stream que toque
+el schema. Es **estrictamente aditiva** (una columna array `NOT NULL` con `DEFAULT` vacío + un backfill `UPDATE`);
+**no** hay `DROP`, ni enums, ni cambios de nulabilidad, y **no cambia la forma de `availableFinishes`** (sigue igual
+para todos los lectores). Segura con la app corriendo: hasta que el nuevo código despliegue nadie lee la columna, y su
+único consumidor (`FinishReconciler`) recomputa determinista. `Card.tcgplayerId` **YA existe** (`schema.prisma:401`);
+v1.26 solo **empieza a poblarla** (no es cambio de schema). Ver §4.24a.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-29 | `Card.structuralFinishes Finish[] @default([])` | Columna nueva (array `NOT NULL`, default `[]`) | Add column + backfill | Afirmación ESTRUCTURAL autoritativa (TCGCSV). **Ancla/reemplaza** a `catalogFinishes` en la unión del reconciliador: `availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`. **Backfill:** `UPDATE "Card" SET "structuralFinishes" = "availableFinishes"` (siembra con lo ya materializado; el resolver TCGCSV lo REEMPLAZA por carta joineada en el `sync-all {force:true}`). INTERNA: NO se expone en DTO. |
+| M-29 | `Card.tcgplayerId` (ya existe) | **Sin cambio de schema** — se empieza a POBLAR desde `tcgplayer.url` (`.../product/<id>`) en `upsertCards` | (n/a) | Ancla del join Card↔producto TCGCSV (§4.24a) y del fetch fresco puntual P-7 (§4.24e). |
+
+> **Sin cambios en `PendingPriceEntry`** (P-6 reusa el enum `context` existente, §4.24c) ni en `PriceReference`/`Order`
+> (P-2/P-7 son aditivos de DTO/lógica, §4.24d/e). El `context` de `pendingQueue` y el `pendingPriceEntryId`/
+> `marketReferenceMxnCents`/`repriceFresh` de contrato son **cambios de código y DTO, no de esquema**.
 
 ### v1.23-sealed-sales (nueva — WS «Sellado / Producto cerrado»: venta de producto cerrado)
 

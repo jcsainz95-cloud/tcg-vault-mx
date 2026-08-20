@@ -2,7 +2,35 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-20 (rev v1.25-buylist-orders-pagination).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-20 (rev v1.26-precios-variantes-masterset).
+>
+> **Changelog v1.26-precios-variantes-masterset (2026-08-20, rama `claude/precios-variantes-masterset`) — bundle del PO.
+> Cambios de contrato: §M1 (bulk-publish escalate + `pendingPriceEntryId`; `MasterSetCardCellDTO.marketReferenceMxnCents`;
+> P-7 reprice), §M2 (`pending?context=`). Diseño en ARCHITECTURE §4.24; migración M-29 (§11).**
+> - **④ `POST /admin/inventory/items/bulk-publish` — priceless ESCALA, no dropea (§M1).** Una línea cuya variante no
+>   resuelve precio hoy falla `PRICE_PENDING` y se cae en silencio. Ahora **escala** a la cola de pendientes
+>   (`context='inventory'`, dedupe idempotente) y **no publica**; el admin fija precio (override M2 o `listPriceCents`) y
+>   el re-publish procede. **Mismo código de error** (`PRICE_PENDING`, no breaking). `BulkPublishLineResult` gana
+>   **`pendingPriceEntryId?: string`** (aditivo/opcional) para deep-link de UI a la entrada de M2. La allowlist de status
+>   de origen publicable `{in_stock, listed}` (v1.16.1) se **ratifica**.
+> - **P-2 `MasterSetCardCellDTO.marketReferenceMxnCents?: number | null` (aditivo, §M1).** Precio de **MERCADO**
+>   (referencia `PriceReference` cruda, FX-recompute a MXN vía `getReferencesBatch`/`liveMxnCents`), **NO** precio de
+>   venta derivado. `null` cuando la referencia está `pending`. Semántica declarada: «precio de mercado» del PO = la
+>   referencia ingerida (la teja admin muestra mercado; el precio de venta del cliente vive en `buyable.salePriceCents`).
+> - **P-7 publicar + repreciar FRESCO desde el Master Set (aditivo, §M1).** `bulk-publish` gana flag opcional
+>   **`repriceFresh?: boolean`** (o endpoint hermano `POST .../items/reprice`): refresca la `PriceReference` con un fetch
+>   **on-demand por carta** ANTES de resolver precio, funciona sobre inventario UNPUBLISHED y **hereda el gate ④** (sin
+>   precio tras refresh → escala pendiente, no publica). **Money-touching → gate de seguridad posterior.** Cuota diaria
+>   del proveedor (PPT): cap por request, respeta `dailyLimited` de `sync-status`.
+> - **③ P-6 dos buckets en `GET /admin/pricing/pending` (§M2).** Gana query param opcional **`?context=`**: **VENTA** =
+>   `context=inventory`; **COMPRA** = vista **READ-ONLY** sobre `context=buylist` (producir el precio de compra es WRITE
+>   del buylist — fuera de alcance). **Invariante documentado:** `manualOverride` (`POST /admin/pricing/override`)
+>   resuelve pendientes **context-agnóstico** — un override de VENTA cierra también el pendiente de COMPRA de la misma
+>   variante; se **conserva agnóstico** (opción a); un scope por `context` (opción b) **requiere coordinación con el
+>   stream buylist**, no unilateral.
+> - **① Variantes desde TCGCSV — SIN cambio de forma de contrato.** `CardDTO.availableFinishes`/`displayFinishes`
+>   mantienen su shape; `Card.structuralFinishes` (M-29) es INTERNA (no se expone). Nota en §DTOs. Detalle en
+>   ARCHITECTURE §4.24a.
 >
 > **Changelog v1.25-buylist-orders-pagination (2026-08-20, rama `claude/buylist-ordenes`) — WS «Buylist y órdenes»
 > (regla 9, cambio de contrato P-5): paginación server-side + filtros para las colas admin de M5 (buylist) y M3
@@ -903,6 +931,10 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 //     acabado EXISTE (resuelve el caso pokemontcg.io caído/502). NO es la conversa prohibida por §4.22a-regla 2:
 //     precio AUSENTE sigue SIN reducir variantes; solo precio PRESENTE (verificado) las AÑADE. Único escritor =
 //     catalog.FinishReconciler. `catalogFinishes`/`pricedFinishesSnapshot` son INTERNAS, no se emiten en ningún DTO.
+//   * v1.26 (ARCHITECTURE §4.24a) — SIN CAMBIO DE FORMA: la ENTRADA estructural de la unión pasa de `catalogFinishes`
+//     (proxy de precio) a la nueva `Card.structuralFinishes` (INTERNA, no se emite), derivada de la fuente ESTRUCTURAL
+//     autoritativa TCGCSV (`subTypeName`, que existe aunque no haya precio ⇒ estructura ≠ precio). Fórmula:
+//     availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']. VAR-1 intacto.
 //   * ORDEN CANÓNICO GARANTIZADO: normal → reverse_holo → holofoil → first_edition_holofoil. El front NO ordena;
 //     consume el orden del array. De ahí sale "normal a la IZQUIERDA, reverse holo a la DERECHA".
 //   * NUNCA vacío (mínimo ["normal"]) y NUNCA con acabados inventados: es el universo EXACTO de casillas del
@@ -1012,10 +1044,14 @@ MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: 
 // v1.22-2 (N-15): displayFinishes = subconjunto de availableFinishes que el front RENDERIZA (oculta el acabado
 //   espurio de una premium de una sola impresión). Ver CardDTO. Con N-16 (rejilla plana) el nº de TARJETAS por
 //   carta = |displayFinishes| (una tarjeta por acabado visible), NO |availableFinishes|.
+// v1.26 (P-2, §M1): marketReferenceMxnCents = precio de MERCADO (PriceReference cruda del acabado base, FX-recompute a
+//   MXN vigente); NO es el precio de venta derivado. null cuando la referencia está `pending`. ADITIVO/opcional. La teja
+//   admin del Master Set muestra MERCADO; el precio de venta del cliente vive en `buyable.salePriceCents` (vista cliente).
 MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, numberPrefix: string,
                          name: string, rarity?: string,
                          imageSmallUrl?: string, availableFinishes: Finish[], displayFinishes: Finish[],
-                         countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean }
+                         countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean,
+                         marketReferenceMxnCents?: number | null }
 MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalogCardCount: number,
                             cells: MasterSetCardCellDTO[] }
 // ===== v1.20-master-set-everywhere: contrato ÚNICO por scope + completitud por VARIANTE =====
@@ -1116,11 +1152,17 @@ BatchCreateInventoryResponse = { batchKey: string, idempotentReplay: boolean,
 //   idempotente (ok:true, no re-cobra ni duplica); cualquier otro status (reserved | in_custody | picking | shipped |
 //   delivered | lost | damaged | withdrawn) → 422 ITEM_NOT_PUBLISHABLE por-línea (anti double-sell: una pieza
 //   reservada/vendida/en-custodia/enviada no se re-lista). Distinto de PRICE_PENDING (precio no resuelto).
+// v1.26 (④, §M1): una línea sin precio resoluble ESCALA a la cola de pendientes (context='inventory') y NO publica
+//   (antes se caía en silencio). Mismo error PRICE_PENDING. `pendingPriceEntryId?` = id de la PendingPriceEntry
+//   escalada (ADITIVO/opcional; para deep-link de UI a M2; ausente si el backend no lo devuelve).
+// v1.26 (P-7, §M1): `repriceFresh?` en el request refresca la PriceReference con un fetch on-demand por carta ANTES de
+//   resolver precio (sobre inventario UNPUBLISHED); hereda el gate ④ (sin precio tras refresh → escala pendiente, no
+//   publica). Money-touching → gate de seguridad posterior; respeta la cuota diaria del proveedor.
 BulkPublishLineInput = { inventoryItemId: string, listPriceCents?: number }
-BulkPublishRequest = { batchKey?: string, items: BulkPublishLineInput[] }   // cap items = 200
+BulkPublishRequest = { batchKey?: string, items: BulkPublishLineInput[], repriceFresh?: boolean }   // cap items = 200
 BulkPublishLineResult =
     | { index: number, inventoryItemId: string, ok: true, status: "listed", salePriceCents: number, priceSource: "manual" | "derived" }
-    | { index: number, inventoryItemId: string, ok: false, error: { code: string, message: string } }
+    | { index: number, inventoryItemId: string, ok: false, error: { code: string, message: string }, pendingPriceEntryId?: string }
 BulkPublishResponse = { summary: { requested: number, published: number, failedLines: number }, results: BulkPublishLineResult[] }
 // Desglose del checkout. base = subtotal + iva se recibe íntegro; el fee es gross-up de la comisión Stripe.
 // "SIN IVA" = el fee NO agrega una línea de IVA de PRODUCTO (no se vuelve a gravar la venta). Internamente
@@ -2739,10 +2781,22 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     - **v1.23:** el sellado **ya no exige `listPriceCents`** — se auto-precia por mercado×spread cuando está mapeado y el
       dial `sealedPriceSource=tcgcsv`; el override sigue disponible y gana. Retro-compatible: sin mercado, el override es
       la única vía (idéntico a hoy).
+  - **v1.26 (④, priceless → ESCALA, no dropea):** una línea que falla `PRICE_PENDING` (variante sin precio resoluble)
+    **ESCALA** a la cola de pendientes (`escalatePending`, `context='inventory'`, dedupe idempotente por
+    `(cardId, productType, gradeKey, finish, status='open')`) y **NO** se publica — antes se caía en silencio y M2 no se
+    enteraba. **Mismo código de error** `PRICE_PENDING` (no breaking). La línea puede devolver **`pendingPriceEntryId?`**
+    (aditivo/opcional) para deep-link de UI. Remedio: el admin fija precio (override M2 `POST /admin/pricing/override` o
+    `listPriceCents` por-línea) y el re-publish procede. Paridad con `createItem` (que ya escalaba). Ver ARCHITECTURE §4.24b.
+  - **v1.26 (P-7, `repriceFresh?`):** si `repriceFresh:true`, ANTES de resolver el precio se refresca la `PriceReference`
+    con un fetch **on-demand por carta** del proveedor (upsert de mercado del día), útil para publicar inventario
+    UNPUBLISHED con precio fresco. **Hereda el gate ④**: si tras el refresh sigue sin precio → escala pendiente, no
+    publica. **Money-touching → gate de seguridad posterior.** Cuota diaria del proveedor (PPT): cap por request, respeta
+    `dailyLimited` de `GET /admin/pricing/sync-status`. Alternativa de diseño equivalente: endpoint hermano
+    `POST /admin/inventory/items/reprice`. Ver ARCHITECTURE §4.24e.
   - **Errores por-línea** (item no encontrado `404`/`NOT_FOUND`, no `ownerType=platform`, status no publicable
-    `ITEM_NOT_PUBLISHABLE`, precio pendiente `PRICE_PENDING`) no tumban las demás → HTTP **200**. Re-publicar una pieza
-    ya `listed` es **no-op idempotente** (`ok:true`). Reusa `getReferencesBatch` (1 lote de referencias) e iza
-    `SALES_PRICE_RULES`+fallback **una vez** por request (pago mínimo de **BE-25**).
+    `ITEM_NOT_PUBLISHABLE`, precio pendiente `PRICE_PENDING` —ahora escalado—) no tumban las demás → HTTP **200**.
+    Re-publicar una pieza ya `listed` es **no-op idempotente** (`ok:true`). Reusa `getReferencesBatch` (1 lote de
+    referencias) e iza `SALES_PRICE_RULES`+fallback **una vez** por request (pago mínimo de **BE-25**).
   - Res `200` (`BulkPublishResponse`): `{ summary, results }`. Auditado (`AuditLog action=inventory.bulk_publish`).
 
 #### Master set en todas partes (v1.20-master-set-everywhere) — `vault_operator+`
@@ -2754,6 +2808,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   (`catalogVariantCount`/`distinctVariantsOwned`/`variantCompletionPct` en el índice;
   `variants[]`/`expectedVariantCount`/`coveredVariantCount` por celda). `owner` ausente y `buyable` **omitido**
   (solo existe en la vista (iii) del cliente). Query, orden natural, reglas on-hand y errores: **sin cambios v1.16**.
+  - **v1.26 (P-2, aditivo):** `MasterSetCardCellDTO` gana **`marketReferenceMxnCents?: number | null`** = precio de
+    **MERCADO** (referencia `PriceReference` cruda del acabado base, FX-recompute a MXN vigente vía
+    `getReferencesBatch`/`liveMxnCents`), **NO** el precio de venta derivado. `null` si la referencia está `pending`. Se
+    puebla con la infraestructura ya inyectada del binder (sin N+1). Ver ARCHITECTURE §4.24d.
 - `GET /api/v1/admin/vaults` — **(NUEVO)** lista de clientes **con bóveda** (≥1 pieza en bóveda).
   Query: `?q=` (nombre/email), `?page=1&pageSize=20`, `?sort=` (`value_desc` default | `pieces_desc` | `name_asc`).
   Res `200` (`AdminVaultListResponse`): `{ data: AdminVaultSummaryDTO[], page, pageSize, total }` — por cliente:
@@ -2815,8 +2873,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `POST /api/v1/admin/pricing/sync` — dispara/encola el sync diario (solo bóveda). Req `{ scope?: "all_vault" | "cardIds" , cardIds?: [] }` → `{ jobId, queued: number }`.
 - `GET /api/v1/admin/pricing/pending` — cola de precio pendiente. `{ data: PendingPriceEntry[] }`.
   - **v1.8-ronda-c:** cada `PendingPriceEntry` trae **`finish`** — dos acabados de la misma carta sin precio son **entradas separadas** (antes colapsaban en una).
+  - **v1.26 (P-6, dos buckets) — query param opcional `?context=`** (`catalog | portfolio | buylist | inventory`; omitido = todos, retro-compatible). Habilita los dos buckets de M2: **VENTA** = `?context=inventory` (inventario incl. no publicado; se escala en `createItem` y —v1.26— en `bulk-publish`); **COMPRA** = `?context=buylist`, una vista **READ-ONLY** (solo display). ⚠️ **Producir el precio de compra on-request es un WRITE del buylist (`itemDecision`, acoplado a control INE/AML) — FUERA DE ALCANCE de M2;** COMPRA no escribe decisiones ni resuelve pendientes de buylist. Ver ARCHITECTURE §4.24c.
 - `POST /api/v1/admin/pricing/override` — override manual (respaldo siempre disponible).
   Req: `{ cardId, productType, gradeKey, priceMxnCents, finish? }` → crea `PriceReference` `source=manual` **para ese acabado**, resuelve **solo** el `PendingPriceEntry` de ese `(cardId, productType, gradeKey, finish)`.
+  - **v1.26 — invariante del hazard de tabla compartida (documentado):** la resolución de pendientes es **CONTEXT-AGNÓSTICA** (el `updateMany` filtra por `(cardId, productType, gradeKey, finish, status='open')` **sin `context`**) ⇒ un override desde **VENTA** (`context=inventory`) cierra **también** el pendiente de **COMPRA** (`context=buylist`) de la misma variante, y viceversa. Se **conserva agnóstico (opción a)**: la `PriceReference` es compartida por clave, así que el precio fijado es válido para ambas caras y no mueve dinero. Añadir un `context` scope al `updateMany` (opción b) es cambio en el archivo del stream de precios del que **depende el stream buylist** ⇒ **requiere serialización/coordinación con buylist**, no unilateral. Ver ARCHITECTURE §4.24c.
   - **`finish?` (v1.8-ronda-c, opcional, default `normal`):** `normal | reverse_holo | holofoil | first_edition_holofoil`. Fija/actualiza la `PriceReference` del acabado indicado y resuelve el pendiente de **ese** acabado; el pendiente de otros acabados de la misma carta **permanece abierto**. Omitirlo mantiene el comportamiento previo (`normal`). No debilita SEC-A1 (es un precio de referencia del admin, no un monto de cliente).
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
 - FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate?, bufferPct? }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
