@@ -2537,3 +2537,161 @@ gate de promoción a prod (SAST por PR + DAST staging):
 - **PENDIENTE (no aprobado a ciegas), no bloqueante del stream:** la **fase dinámica (DAST contra staging)**
   sigue condicionada a que devops habilite el entorno (R2/Railway); es requisito del gate de promoción a
   **producción**, no del merge del stream. Deuda previa del proyecto sin cambio (S-M1/S-B1/S-B2).
+
+---
+
+## Anexo 2026-08-20 — Stream `claude/buylist-ordenes` P-4 (cierre de solicitud a `rechazada`)
+
+> Revisión blue-team (solo lectura + tests) del entregable **P-4 (TOCA DINERO — buylist/SPEI)**.
+> Cambio: auto-transición a terminal `rechazada` (`maybeAutoRejectRequest`, efecto de `itemDecision('reject')`)
+> + endpoint nuevo `POST /admin/buylist/:id/reject` (`rejectRequest`). Contrato: API_CONTRACT §M5 v1.24;
+> ARCHITECTURE §4.18(f)(g). Superficie evaluada: dinero/máquina de estados, autz, idempotencia/atomicidad,
+> auditoría, PII. Tests `buylist.security` 6/6 PASS; `buylist.request-reject` cubre f/g (409/422/404/idempotencia).
+
+### Resultado por eje
+- **Máquina de estados / dinero — OK.** Guard «no pisar terminal» correcto en ambos caminos: `updateMany` con
+  `status: { notIn: ['pagada','rechazada','abandonada'] }` (nunca reescribe una `pagada`/`abandonada` ni re-sella
+  una `rechazada`) y, en `rejectRequest`, además guardas explícitas previas (`409 CONFLICT` para `pagada`/
+  `abandonada`, `200` idempotente para `rechazada`). No se puede evadir control de dinero/AML: una solicitud
+  `rechazada` **no** es pagable — `paySpei` exige `status ∈ {aprobada, verificacion}` + `verifiedAt` (línea 1115),
+  así que el cierre no abre ruta de pago. Consistencia de dinero: el cierre solo dispara cuando **cero** ítems
+  quedan no-rechazados; con todos los ítems `rechazada`, BL-1 (`recomputeApprovedTotal` excluye `rechazada`,
+  línea 831-838) deja `approvedTotalCents=null/0` → coherente. Criterio 16: el cierre NO convierte a inventario
+  ni vuelve vendible ninguna carta (efecto único = `status`+`closedAt`); `convertToInventory` sigue siendo acción
+  manual e independiente. `convertida_inventario` correctamente tratado como ítem vivo (no auto-rechaza mixtas).
+- **Autorización — OK.** El endpoint hereda `@Roles(vault_operator, super_admin)` de la clase; guards globales
+  confirmados (`app.module.ts`: `JwtAuthGuard`+`RolesGuard`+`MoneyOutGuard` como `APP_GUARD`). Correcto **sin
+  `@MoneyOut`**: el cierre no mueve dinero saliente. Un cliente/rol menor no alcanza la ruta. IDOR N/A: `:id` sin
+  scoping de propietario es correcto para back-office (paridad con `receive`/`verify`/`paySpei`).
+- **Idempotencia — OK** en el caso nominal (guardas de estado + `updateMany` count-guard heredado del patrón
+  `paySpei`). Ver LOW-1 para el borde concurrente.
+- **Auditoría — OK con matiz.** `action: 'buylist.reject'` registra actor/rol/entidad/`reason` en `after`. El
+  path `transitioned=false` (idempotente / ya `rechazada`) NO re-audita: aceptable — no hay cambio de estado que
+  trazar; no genera hueco de trazabilidad de dinero (el dinero no se movió en ninguna rama de este endpoint).
+- **PII — OK.** `reason` es texto interno del operador (opcional, `@MaxLength(500)`), va solo a `AuditLog.after`,
+  NO se persiste en `SellRequest`, NO se expone al cliente ni a correo (no hay correo en este flujo). La respuesta
+  es `adminGet` → enmascara CLABE (`clabeMasked`), descarta `clabeSnapshotEnc` y el join `User` crudo.
+  `details.nonRejectedItemStatuses` devuelve únicamente valores del enum `SellItemStatus` (sin datos sensibles).
+- **Regresión reject por-ítem — sin hallazgos.** Idempotencia del reject por-ítem intacta; BL-1 preservado.
+
+### Hallazgos (todos Bajos — no bloqueantes)
+- **LOW-1 (Media-baja) — Precondición no atómica con la transición (TOCTOU) · dueño: BACKEND.**
+  En `rejectRequest` y en `maybeAutoRejectRequest` el chequeo «¿quedan ítems vivos?» (`count`/`findMany`) y el
+  `updateMany` son round-trips separados; el count-guard del `updateMany` solo protege la **terminalidad del
+  status**, NO el invariante «todos los ítems rechazados». Un `itemDecision('approve')` concurrente sobre el
+  último ítem (que no cambia el `status` de la solicitud) puede intercalarse y dejar la solicitud en `rechazada`
+  con un ítem `aprobada` vivo y `approvedTotalCents > 0` — estado inconsistente `approvedTotalCents` vs `status`.
+  **Impacto acotado:** NO fuga dinero (una `rechazada` no es pagable por el guard de `paySpei`), NO evade AML, NO
+  vuelve vendible la carta. Es inconsistencia de datos / ruido de auditoría, recuperable. **Mitigación sugerida
+  (backend):** envolver `itemDecision(reject)`+recompute+auto-reject y el `rejectRequest` en `$transaction`
+  (aislamiento serializable, como ya hace `createRequest` SEC-A2), o re-verificar dentro del `where` del
+  `updateMany`. **Deuda aceptada con disparador:** abordar antes de habilitar operación concurrente multi-operador
+  sobre la misma solicitud.
+- **LOW-2 (Baja) — Desalineación doc↔código: «mismo transaction boundary» no implementado · dueño: BACKEND.**
+  ARCHITECTURE §4.18(f) afirma que la re-evaluación corre «en el mismo transaction boundary que el cambio de
+  ítem» para que «un ítem rechazado y una solicitud atorada no puedan coexistir tras un commit exitoso». El código
+  ejecuta `update(item)` → `recomputeApprovedTotal` → `sendItemRejectedMail` → `maybeAutoRejectRequest` como
+  awaits secuenciales SIN `$transaction`. Un fallo/caída entre el update del ítem y `maybeAutoRejectRequest`
+  reproduce exactamente el estado atorado del bug P-4. No es explotable (no hay atacante), pero rompe el
+  invariante documentado. **Acción:** implementar la transacción (converge con LOW-1) o corregir el doc.
+- **LOW-3 / INFO (pre-existente, NO introducido por P-4) — `closedAt` en DTO de cliente · dueño: BACKEND.**
+  `getMine` (buylist.service.ts:525) hace spread `...rest` y expone `closedAt` al cliente dueño de la solicitud.
+  Es un timestamp interno (no PII, no CLABE). Ya se filtraba antes de este diff (`respond('decline')` y `paySpei`
+  ya sellaban `closedAt`); P-4 solo aumenta cuántas solicitudes lo tienen poblado. `listMine` sí proyecta campos
+  explícitos y NO lo incluye. Se registra por completitud; **no es regresión del stream**. Sugerencia: proyectar
+  campos explícitos en `getMine` (paridad con `listMine`) si se quiere ocultar el timestamp.
+
+### Banderas para el humano
+- Requisito de gate money-real ya vigente en este documento (pentest de tercero + DAST/staging antes de operar
+  con dinero real) **sigue aplicando**; P-4 no lo altera.
+
+### VEREDICTO — **APROBADO**
+0 Críticos / 0 Altos abiertos. Los guards de terminalidad, la separación de `@MoneyOut`, la derivación server-side
+de montos (BL-1) y la no-exposición de CLABE/PII están correctos y con tests verdes (`buylist.security` 6/6,
+`buylist.request-reject` cubre f/g). Los **3 Bajos** (LOW-1 TOCTOU, LOW-2 doc↔código, LOW-3 `closedAt` pre-existente)
+se **aceptan como deuda con disparador** y se enrutan a **backend**; ninguno bloquea el merge del stream. Mínimo para
+mantener el APROBADO: no habilitar operación concurrente multi-operador sobre la misma solicitud sin cerrar LOW-1.
+
+---
+
+## Anexo 2026-08-20 — stream `claude/buylist-ordenes` P-5 (superficie de filtros de lista admin, v1.25)
+
+**Rol:** seguridad (blue team). **Alcance FOCALIZADO:** SÓLO los filtros NUEVOS de v1.25 (`q`, `from`, `to`,
+`minCents`, `maxCents`, CSV de `status`, paginación) sobre `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3).
+P-5 es paginación + filtros de **LECTURA** — NO mueve dinero. **No re-audité P-4** (ya aprobado).
+**Archivos revisados:** `backend/src/common/admin-list-filters.ts`;
+`backend/src/modules/buylist/{admin-buylist.controller.ts, buylist.service.ts (adminList)}`;
+`backend/src/modules/orders/admin-orders.controller.ts (list)`;
+`frontend/src/lib/{api.ts, api-client.ts}`; `frontend/.../admin/m5/M5View.tsx`, `.../m3/M3View.tsx`.
+**Tests:** `npx jest buylist.security` → **6/6 verdes**.
+
+### Ejes evaluados
+
+1. **Inyección — OK.** Todos los filtros producen fragmentos `where` de Prisma **parametrizados**
+   (`contains`/`in`/`gte`/`lte`); no hay `$queryRaw` ni interpolación de SQL crudo en toda la superficie.
+   `status` valida cada token del CSV contra `SellRequestStatus` (buylist) → 400 `VALIDATION_ERROR`
+   (`details.invalidStatus`) antes de tocar Prisma. `q` va como parámetro de `LIKE`, no como regex, por lo que
+   **no hay ReDoS**. Límite de longitud de `q` = 200 chars (`ADMIN_LIST_MAX_Q_LENGTH`) → 400 si excede.
+   Frontend serializa vía `URL.searchParams.set` (encoding correcto), sin construcción manual de query string.
+
+2. **Fuga de PII / alcance de `q` — OK.** El OR de `q` busca SÓLO sobre campos NO sensibles:
+   buylist = `SellRequest.id` + `user.name` + `user.email`; orders = `orderNumber` + `guestEmail` + `userId`
+   (exacto) + `user.name` + `user.email`. **NUNCA** sobre CLABE / RFC / INE / snapshot cifrado / `paymentMethodLast4`.
+   La CLABE cifrada no participa en ningún `where` de estos listados y sigue exclusiva del reveal auditado
+   (`@MoneyOut`, super_admin). v1.25 **no añade campos nuevos** a la respuesta de ninguno de los dos listados
+   (el shape es idéntico al de P-4): buylist `adminList` mantiene **proyección explícita** (`id, userId, seller{id,
+   name,email}, status, quotedTotalCents, approvedTotalCents, createdAt, items`) — limpia; orders conserva su
+   spread previo `...o` (ver INFO-1, pre-existente).
+
+3. **IDOR / enumeración — OK.** Ambos endpoints están bajo `@Roles(vault_operator, super_admin)` a nivel de clase.
+   Los filtros (`userId`, `q`, montos, fechas, `status`) **sólo REDUCEN** el conjunto que el rol ya puede listar;
+   ninguno amplía el alcance ni permite alcanzar objetos fuera de la autorización de rol. No hay proyección
+   reducida por rol en estos listados (vault_operator y super_admin ven el mismo shape, por diseño §M3/§M5), así
+   que no existe fuga por diferencial de rol dentro de la superficie de filtros. El filtro por monto/fecha/`q` no
+   habilita ninguna enumeración nueva más allá de lo que el rol ya puede listar sin filtros.
+
+4. **DoS / validación — OK con deuda aceptada.** `parseAdminListFilters` acota `pageSize ≤ 100`
+   (`ADMIN_LIST_MAX_PAGE_SIZE`), exige `page`/`minCents`/`maxCents` enteros (`page ≥ 1`, cents `≥ 0`), fechas
+   ISO-8601 parseables, y `maxCents ≥ minCents` — todo inválido → 400, nunca clamp silencioso. No hay
+   amplificación patológica: el peor caso es un table-scan acotado por `take ≤ 100`. Ver LOW-A2 (índice diferido).
+
+### Hallazgos
+
+- **INFO-1 (Informativo · pre-existente, NO introducido por P-5) — `GET /admin/orders` list hace spread `...o`
+  de la fila completa · dueño: BACKEND.** `admin-orders.controller.ts:97` retorna `data.map((o) => ({ ...o, ... }))`,
+  lo que incluye columnas sensibles de `Order` (`paymentMethodLast4`, `paymentMethodBrand`, `stripePaymentIntentId`,
+  `stripeChargeId`, `billingSnapshot`, `shippingAddressSnapshot`) en cada fila del listado. **Origen: commit `e94a077`
+  (guest checkout, v1.21 / P-4), NO v1.25** — `git log -S` confirma que el spread precede al stream P-5, que sólo
+  añadió filtros y no tocó el shape. Fuera del alcance focalizado y ya cubierto por la aprobación de P-4; se registra
+  por completitud (paralelo a LOW-3 del anexo P-4). **Sugerencia de hardening (no bloqueante):** migrar la list a
+  proyección explícita con `select` (como sí hace `buylist.adminList`) para no exponer snapshots/last4/IDs de Stripe
+  en la cola. **No es regresión de P-5.**
+
+- **LOW-A1 (Baja) — `contains` de Prisma no escapa metacaracteres de `LIKE` (`%`, `_`) · dueño: BACKEND.**
+  Prisma 5.20 no escapa `%`/`_` en `contains`; un `q` con esos caracteres actúa como comodín de `LIKE`
+  (ensancha el match). **Impacto acotado:** sólo altera la semántica de coincidencia DENTRO del conjunto que el
+  rol admin ya puede listar sin filtro — **no evade la autorización de rol ni exfiltra datos fuera de alcance**, y
+  no hay SQLi ni ReDoS. Efecto real: búsqueda más amplia de lo previsto y un scan algo mayor. **Sugerencia:**
+  escapar `%`/`_`/`\` en `q` antes del `contains` si se quiere match literal. **Deuda aceptable para MVP**
+  (superficie admin-only, sin escalamiento de privilegios).
+
+- **LOW-A2 (Baja) — Índice `@@index([status, createdAt])` diferido → riesgo de disponibilidad · dueño: BACKEND/DEVOPS.**
+  Con `orderBy: createdAt desc` + filtros por `status`/rango y sin ese índice, los listados hacen sort/scan
+  secuencial que crece con el volumen. **Aceptable para MVP** (tráfico admin bajo, `take ≤ 100`). **Disparador:**
+  crear el índice (y evaluar índice trigram/`pg_trgm` para las columnas de `contains`) antes de que las colas
+  `SellRequest`/`Order` superen decenas de miles de filas o antes de exponer estos listados a carga sostenida.
+
+- **INFO-2 (Informativo) — Sin validación `from ≤ to` en el rango de fechas.** `admin-list-filters.ts` valida
+  `maxCents ≥ minCents` pero NO exige `to ≥ from`; un rango invertido devuelve conjunto vacío. **No es vuln**
+  (no fuga ni DoS); simple inconsistencia de UX/validación. Opcional alinear con la regla de cents.
+
+### VEREDICTO P-5 — **APROBADO**
+
+0 Críticos / 0 Altos abiertos en la superficie de filtros v1.25. Los cuatro ejes (inyección, PII/alcance de `q`,
+IDOR/enumeración, DoS/validación) están correctos: Prisma parametrizado, `q` sobre campos no sensibles con tope de
+200 chars, filtros que sólo reducen el conjunto autorizado por rol, y validación estricta → 400 con `pageSize ≤ 100`.
+Tests `buylist.security` 6/6 verdes. Los hallazgos abiertos son **2 Bajos** (LOW-A1 comodines de `LIKE`, LOW-A2
+índice diferido) + **2 Informativos** (INFO-1 spread `...o` pre-P-4, INFO-2 `from≤to`), **todos deuda aceptable con
+disparador** y enrutados a **backend/devops**; ninguno bloquea el merge de P-5. **Mínimo para mantener el APROBADO:**
+no ampliar el OR de `q` a columnas sensibles (CLABE/RFC/INE/last4/snapshots) y crear el índice de LOW-A2 antes de
+escalar el volumen de las colas.

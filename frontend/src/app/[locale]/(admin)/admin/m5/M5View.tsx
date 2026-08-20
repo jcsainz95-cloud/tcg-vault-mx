@@ -8,12 +8,14 @@ import {
   getAdminRejectedBuylistItems,
   receiveBuylistRequest,
   verifyBuylistRequest,
+  rejectBuylistRequest,
   decideBuylistItem,
   convertBuylistItemToInventory,
   revealBuylistClabe,
   paySpeiBuylist,
 } from '@/lib/api';
 import { useRole } from '@/lib/role';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
@@ -38,14 +40,22 @@ import { useBuylistSteps } from '@/lib/pipelines';
  * etapa. Cada solicitud aparece en la pestaña de su `status`. La pestaña «Rechazadas»
  * (v1.18) es TRANSVERSAL: no filtra solicitudes, consume su propio endpoint paginado.
  */
-type M5Tab = 'por_recibir' | 'verificando' | 'por_pagar' | 'cerradas';
-type M5TabAll = M5Tab | 'rechazadas';
-const M5_TABS: { key: M5Tab; statuses: SellRequestStatus[] }[] = [
+// Pestañas OPERATIVAS (etapas vivas): siguen su fetch client-side sobre la página actual. Las
+// pestañas TRANSVERSALES «Cerradas» (v1.25) y «Rechazadas» (v1.18) son server-side paginadas.
+type M5OpTab = 'por_recibir' | 'verificando' | 'por_pagar';
+type M5TabAll = M5OpTab | 'cerradas' | 'rechazadas';
+const M5_OP_TABS: { key: M5OpTab; statuses: SellRequestStatus[] }[] = [
   { key: 'por_recibir', statuses: ['cotizada'] },
   { key: 'verificando', statuses: ['recibida', 'verificacion'] },
   { key: 'por_pagar', statuses: ['aprobada'] },
-  { key: 'cerradas', statuses: ['pagada', 'rechazada', 'abandonada'] },
 ];
+/**
+ * Estados terminales que agrupa la pestaña «Cerradas» (v1.25-buylist-orders-pagination). Se pide
+ * server-side como `status=pagada,rechazada,abandonada` (CSV) en UNA llamada paginada.
+ */
+const M5_CLOSED_STATUSES: SellRequestStatus[] = ['pagada', 'rechazada', 'abandonada'];
+const M5_CLOSED_STATUS_CSV = M5_CLOSED_STATUSES.join(',');
+const M5_PAGE_SIZE = 25;
 
 /** Límites del motivo de rechazo (contrato §M5: 3–500 chars; 400 si no cumple). */
 const REJECT_REASON_MIN = 3;
@@ -92,6 +102,13 @@ function pesosToCents(value: string): number | null {
 /** Estados terminales de item: ya no admiten decisión. */
 const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
 
+/**
+ * Estados terminales de la SOLICITUD (pestaña «Cerradas» = M5_CLOSED_STATUSES): ya no admiten
+ * el cierre explícito «Rechazar solicitud» (contrato §M5 · v1.24: idempotente si ya `rechazada`,
+ * 409 si `pagada`/`abandonada`). La UI simplemente no ofrece el botón sobre estos.
+ */
+const REQUEST_TERMINAL = new Set<SellRequestStatus>(['pagada', 'rechazada', 'abandonada']);
+
 export function M5View() {
   const t = useTranslations('admin.m5');
   const tm = useTranslations('admin');
@@ -102,7 +119,8 @@ export function M5View() {
   const { isSuperAdmin } = useRole();
   const qc = useQueryClient();
   const getError = useErrorMessage();
-  const query = useQuery({ queryKey: ['admin-buylist'], queryFn: getAdminBuylist });
+  // Operativas: fetch de la página actual del server (las etapas vivas siguen filtrando en memoria).
+  const query = useQuery({ queryKey: ['admin-buylist'], queryFn: () => getAdminBuylist() });
 
   // Feedback de la última acción, anclado a SU solicitud (éxito o mensaje real del backend).
   const [feedback, setFeedback] = useState<
@@ -211,6 +229,34 @@ export function M5View() {
     setRejectError(null);
   }
 
+  // --- Cierre explícito de la solicitud (contrato §M5 · POST /admin/buylist/:id/reject, v1.24) ---
+  // Cierra a `rechazada` una solicitud atorada cuyos ítems YA están todos rechazados (bug P-4).
+  // Confirmación destructiva en modal (DESIGN_SYSTEM §7.6: «rechazar buylist»); `reason` opcional.
+  const [rejectRequestTarget, setRejectRequestTarget] = useState<AdminBuylistDTO | null>(null);
+  const [rejectRequestReason, setRejectRequestReason] = useState('');
+  const [rejectRequestError, setRejectRequestError] = useState<string | null>(null);
+  const rejectRequestMutation = useMutation({
+    mutationFn: (vars: { requestId: string; reason?: string }) =>
+      rejectBuylistRequest(vars.requestId, { reason: vars.reason }),
+    onSuccess: (_d, vars) => {
+      closeRejectRequest();
+      // Tras cerrar, la solicitud cae en la pestaña «Cerradas» (status `rechazada`).
+      ok(vars.requestId, t('feedback.requestRejected'));
+    },
+    // El 422 REQUEST_HAS_NON_REJECTED_ITEMS (quedan ítems vivos) se muestra DENTRO del modal.
+    onError: (e) => setRejectRequestError(getError(e)),
+  });
+  function openRejectRequest(req: AdminBuylistDTO) {
+    setRejectRequestTarget(req);
+    setRejectRequestReason('');
+    setRejectRequestError(null);
+  }
+  function closeRejectRequest() {
+    setRejectRequestTarget(null);
+    setRejectRequestReason('');
+    setRejectRequestError(null);
+  }
+
   // --- Conversión a inventario (contrato POST .../convert-to-inventory) ---
   const convertMutation = useMutation({
     mutationFn: (vars: { requestId: string; itemId: string }) =>
@@ -265,9 +311,10 @@ export function M5View() {
   // --- Pestañas por etapa + buscador (folio/vendedor) ---
   const [tab, setTab] = useState<M5TabAll | null>(null);
   const [search, setSearch] = useState('');
-  const all = query.data ?? [];
+  const all = query.data?.data ?? [];
   const searchTerm = search.trim().toLowerCase();
   // Buscador global por folio o vendedor —id, nombre o correo— (clave i18n `admin.searchGlobal`).
+  // En las pestañas OPERATIVAS filtra client-side; en «Cerradas» alimenta el `q` server-side.
   const filtered =
     searchTerm === ''
       ? all
@@ -279,13 +326,63 @@ export function M5View() {
             (r.seller?.email.toLowerCase().includes(searchTerm) ?? false),
         );
   const counts = Object.fromEntries(
-    M5_TABS.map((tb) => [tb.key, filtered.filter((r) => tb.statuses.includes(r.status)).length]),
-  ) as Record<M5Tab, number>;
+    M5_OP_TABS.map((tb) => [tb.key, filtered.filter((r) => tb.statuses.includes(r.status)).length]),
+  ) as Record<M5OpTab, number>;
   // Etapa activa: la elegida por el operador o, por defecto, la primera con solicitudes.
-  const firstNonEmpty = M5_TABS.find((tb) => counts[tb.key] > 0)?.key ?? M5_TABS[0].key;
+  const firstNonEmpty = M5_OP_TABS.find((tb) => counts[tb.key] > 0)?.key ?? M5_OP_TABS[0].key;
   const activeTab: M5TabAll = tab ?? firstNonEmpty;
-  const activeStatuses = M5_TABS.find((tb) => tb.key === activeTab)?.statuses ?? [];
+  const activeStatuses = M5_OP_TABS.find((tb) => tb.key === activeTab)?.statuses ?? [];
   const visible = filtered.filter((r) => activeStatuses.includes(r.status));
+
+  // --- Pestaña «Cerradas» (v1.25-buylist-orders-pagination · GET /admin/buylist server-side) ---
+  // Query dedicada y paginada (mismo patrón que «Rechazadas»): pide `status` CSV + filtros
+  // (fecha/monto) + `q` (del buscador global). Solo se pide al abrir la pestaña.
+  const [closedPage, setClosedPage] = useState(1);
+  const [closedFrom, setClosedFrom] = useState('');
+  const [closedTo, setClosedTo] = useState('');
+  const [closedMinPesos, setClosedMinPesos] = useState('');
+  const [closedMaxPesos, setClosedMaxPesos] = useState('');
+  // Debounce (P-5): el filtrado client-side de las pestañas OPERATIVAS sigue usando el `search`
+  // inmediato (arriba), pero lo que alimenta la RED de «Cerradas» (buscador global + montos) sólo
+  // entra por su VALOR DEBOUNCED, para no disparar un fetch por pulsación. Las fechas no se debouncean.
+  const debouncedClosedSearch = useDebouncedValue(search);
+  const debouncedClosedMinPesos = useDebouncedValue(closedMinPesos);
+  const debouncedClosedMaxPesos = useDebouncedValue(closedMaxPesos);
+  const closedMinCents = pesosToCents(debouncedClosedMinPesos);
+  const closedMaxCents = pesosToCents(debouncedClosedMaxPesos);
+  // El buscador global alimenta `q` server-side cuando la pestaña activa es «Cerradas».
+  const closedQ = debouncedClosedSearch.trim() === '' ? undefined : debouncedClosedSearch.trim();
+  const closedFilters = {
+    status: M5_CLOSED_STATUS_CSV,
+    page: closedPage,
+    pageSize: M5_PAGE_SIZE,
+    q: closedQ,
+    from: closedFrom || undefined,
+    to: closedTo || undefined,
+    minCents: closedMinCents ?? undefined,
+    maxCents: closedMaxCents ?? undefined,
+  };
+  const closedQuery = useQuery({
+    queryKey: [
+      'admin-buylist-closed',
+      closedPage,
+      closedQ ?? '',
+      closedFrom,
+      closedTo,
+      closedMinCents ?? '',
+      closedMaxCents ?? '',
+    ],
+    queryFn: () => getAdminBuylist(closedFilters),
+    enabled: activeTab === 'cerradas',
+  });
+  const closedTotalPages =
+    closedQuery.data && closedQuery.data.pageSize > 0
+      ? Math.max(1, Math.ceil(closedQuery.data.total / closedQuery.data.pageSize))
+      : 1;
+  // Cualquier cambio de filtro vuelve a la página 1 (evita quedar en una página inexistente).
+  function resetClosedPage() {
+    setClosedPage(1);
+  }
 
   // --- Pestaña «Rechazadas» (contrato §M5 · GET /admin/buylist/rejected-items) ---
   // Query aparte (transversal a solicitudes), paginada server-side; solo se pide al abrirla.
@@ -321,10 +418,11 @@ export function M5View() {
         />
       </div>
 
-      {/* Pestañas por etapa: cada una muestra el conteo de solicitudes en esa etapa.
-          «Rechazadas» es transversal (endpoint propio); su conteo es el total server-side. */}
+      {/* Pestañas por etapa: cada operativa muestra el conteo de solicitudes en esa etapa.
+          «Cerradas» (v1.25) y «Rechazadas» (v1.18) son transversales, server-side paginadas; su
+          conteo es el `total` del query dedicado (solo tras cargar). */}
       <div role="tablist" aria-label={t('title')} className="flex flex-wrap gap-1 border-b border-border">
-        {M5_TABS.map((tb) => (
+        {M5_OP_TABS.map((tb) => (
           <button
             key={tb.key}
             role="tab"
@@ -340,6 +438,21 @@ export function M5View() {
             <span className="tabular text-xs text-muted">{counts[tb.key]}</span>
           </button>
         ))}
+        <button
+          role="tab"
+          type="button"
+          aria-selected={activeTab === 'cerradas'}
+          onClick={() => setTab('cerradas')}
+          className={cn(
+            '-mb-px flex items-center gap-2 px-3 py-2 text-sm font-medium focus-visible:shadow-focus focus-visible:outline-none',
+            activeTab === 'cerradas' ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+          )}
+        >
+          {t('tabs.cerradas')}
+          {closedQuery.data && (
+            <span className="tabular text-xs text-muted">{closedQuery.data.total}</span>
+          )}
+        </button>
         <button
           role="tab"
           type="button"
@@ -465,6 +578,155 @@ export function M5View() {
             </div>
           )}
         </QueryState>
+      ) : activeTab === 'cerradas' ? (
+        <div className="flex flex-col gap-4">
+          {/* Filtros server-side de «Cerradas» (v1.25). El buscador global de arriba alimenta `q`. */}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-40">
+              <Input
+                label={t('filters.dateFrom')}
+                type="date"
+                value={closedFrom}
+                onChange={(e) => {
+                  setClosedFrom(e.target.value);
+                  resetClosedPage();
+                }}
+              />
+            </div>
+            <div className="w-40">
+              <Input
+                label={t('filters.dateTo')}
+                type="date"
+                value={closedTo}
+                onChange={(e) => {
+                  setClosedTo(e.target.value);
+                  resetClosedPage();
+                }}
+              />
+            </div>
+            <div className="w-32">
+              <Input
+                label={t('filters.minAmount')}
+                type="text"
+                inputMode="decimal"
+                prefix="MX$"
+                value={closedMinPesos}
+                onChange={(e) => {
+                  setClosedMinPesos(e.target.value);
+                  resetClosedPage();
+                }}
+              />
+            </div>
+            <div className="w-32">
+              <Input
+                label={t('filters.maxAmount')}
+                type="text"
+                inputMode="decimal"
+                prefix="MX$"
+                value={closedMaxPesos}
+                onChange={(e) => {
+                  setClosedMaxPesos(e.target.value);
+                  resetClosedPage();
+                }}
+              />
+            </div>
+          </div>
+
+          <QueryState
+            isLoading={closedQuery.isLoading}
+            isError={closedQuery.isError}
+            error={closedQuery.error}
+            onRetry={() => closedQuery.refetch()}
+          >
+            {closedQuery.data &&
+              (closedQuery.data.data.length === 0 ? (
+                <EmptyState title={t('closed.empty')} />
+              ) : (
+                <div className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface px-4">
+                  {closedQuery.data.data.map((req) => (
+                    <div key={req.id} className="flex flex-col gap-2 py-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="tabular text-sm font-medium">{req.id}</span>
+                          <StatusBadge domain="sellRequest" value={req.status} />
+                          <Link
+                            href={{ pathname: '/admin/m6', query: { user: req.userId } }}
+                            title={req.userId}
+                            aria-label={t('sellerLink', { id: req.seller?.name ?? req.userId })}
+                            className="text-xs text-muted underline-offset-2 hover:text-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                          >
+                            {t('seller')}: {sellerLabel(req)}
+                          </Link>
+                          <span className="tabular text-xs text-muted">
+                            {t('created')}: {formatDate(req.createdAt, locale)}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="tabular text-sm">
+                            {t('quoted')}: {formatMoneyCents(req.quotedTotalCents, locale)}
+                          </span>
+                          {req.approvedTotalCents != null && (
+                            <span className="tabular text-sm text-success">
+                              {t('approvedTotal')}: {formatMoneyCents(req.approvedTotalCents, locale)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {/* Resumen read-only de los ítems (etapa terminal: sin acciones). */}
+                      <div className="flex flex-col gap-1">
+                        {req.items.map((it) => (
+                          <div key={it.id} className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                            <span className="font-medium text-text" lang="en">
+                              {it.card.name}
+                            </span>
+                            <FinishBadge finish={it.finish} productType={it.productType} />
+                            <StatusBadge domain="sellItem" value={it.itemStatus} />
+                            <span
+                              className={cn(
+                                'tabular',
+                                it.itemStatus === 'rechazada' && 'line-through',
+                              )}
+                            >
+                              {formatMoneyCents(it.quotedPriceCents ?? 0, locale)}
+                            </span>
+                            {it.approvedPriceCents != null && (
+                              <span className="tabular text-success">
+                                {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            {/* Paginación server-side (page/pageSize/total del contrato v1.25). */}
+            {closedQuery.data && closedTotalPages > 1 && (
+              <div className="mt-4 flex items-center gap-3">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={closedPage <= 1}
+                  onClick={() => setClosedPage((p) => Math.max(1, p - 1))}
+                >
+                  {t('closed.prev')}
+                </Button>
+                <span className="tabular text-xs text-muted">
+                  {t('closed.pageInfo', { page: closedQuery.data.page, totalPages: closedTotalPages })}
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={closedPage >= closedTotalPages}
+                  onClick={() => setClosedPage((p) => p + 1)}
+                >
+                  {t('closed.next')}
+                </Button>
+              </div>
+            )}
+          </QueryState>
+        </div>
       ) : (
       <QueryState
         isLoading={query.isLoading}
@@ -484,6 +746,13 @@ export function M5View() {
           //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.
           const canDecide = req.status === 'recibida' || req.status === 'verificacion';
           const showMoneyOut = req.status === 'verificacion' || req.status === 'aprobada';
+          // «Rechazar solicitud» (v1.24): cierre explícito del hueco de estado (bug P-4). El
+          // endpoint SÓLO cierra si TODOS los ítems ya están `rechazada`; para no ofrecer un
+          // botón que siempre daría 422, se muestra exactamente en esa precondición y nunca
+          // sobre una solicitud ya terminal (`pagada`/`rechazada`/`abandonada`).
+          const allItemsRejected =
+            req.items.length > 0 && req.items.every((it) => it.itemStatus === 'rechazada');
+          const canRejectRequest = !REQUEST_TERMINAL.has(req.status) && allItemsRejected;
           return (
             <div key={req.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -521,7 +790,7 @@ export function M5View() {
 
               <PipelineStepper steps={steps} current={req.status} />
 
-              {/* Acciones a nivel solicitud: recepción física y verificación */}
+              {/* Acciones a nivel solicitud: recepción física, verificación y cierre explícito */}
               <div className="flex flex-wrap gap-2">
                 {req.status === 'cotizada' && (
                   <Button
@@ -541,6 +810,18 @@ export function M5View() {
                     onClick={() => verifyMutation.mutate(req.id)}
                   >
                     {t('verify')}
+                  </Button>
+                )}
+                {/* Cierre explícito «Rechazar solicitud» (v1.24 · POST .../reject): sólo cuando
+                    TODOS los ítems ya están rechazados y la solicitud NO es terminal. Resuelve la
+                    solicitud atorada en «Verificando» del caso reportado por el PO (bug P-4). */}
+                {canRejectRequest && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => openRejectRequest(req)}
+                  >
+                    {t('rejectRequest')}
                   </Button>
                 )}
               </div>
@@ -711,6 +992,60 @@ export function M5View() {
           ))}
       </QueryState>
       )}
+
+      {/* Cierre explícito de la solicitud (v1.24 · POST /admin/buylist/:id/reject). Confirmación
+          destructiva (DESIGN_SYSTEM §7.6: «rechazar buylist»): resumen de consecuencia + motivo
+          OPCIONAL (interno, sin correo) + botón `destructive` a la derecha. No mueve dinero. */}
+      <Modal
+        open={!!rejectRequestTarget}
+        onClose={closeRejectRequest}
+        title={t('rejectRequestTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeRejectRequest}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              loading={rejectRequestMutation.isPending}
+              onClick={() =>
+                rejectRequestTarget &&
+                rejectRequestMutation.mutate({
+                  requestId: rejectRequestTarget.id,
+                  reason: rejectRequestReason.trim() || undefined,
+                })
+              }
+            >
+              {t('rejectRequestConfirm')}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          {rejectRequestTarget && (
+            <p className="text-sm text-muted">
+              <span className="tabular font-medium text-text">{rejectRequestTarget.id}</span>
+              {' · '}
+              {sellerLabel(rejectRequestTarget)}
+            </p>
+          )}
+          <p className="text-sm">{t('rejectRequestConsequence')}</p>
+          {/* Motivo OPCIONAL (0–500): interno al AuditLog, NO PII, no se envía correo. */}
+          <Input
+            label={t('rejectRequestReasonLabel')}
+            hint={t('rejectRequestReasonHint')}
+            type="text"
+            maxLength={REJECT_REASON_MAX}
+            value={rejectRequestReason}
+            onChange={(e) => setRejectRequestReason(e.target.value)}
+          />
+          {rejectRequestError && (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+              {rejectRequestError}
+            </Banner>
+          )}
+        </div>
+      </Modal>
 
       {/* Modal de rechazo con motivo obligatorio (v1.18 · decision=reject + reason 3–500).
           El motivo llega al vendedor por CORREO junto con sus plazos (aviso en el copy). */}

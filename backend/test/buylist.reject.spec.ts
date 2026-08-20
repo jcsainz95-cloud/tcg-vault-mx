@@ -68,14 +68,26 @@ function build(itemOverrides: Record<string, unknown> = {}, mail: MailPort | und
         callOrder.push('aggregate');
         return { _sum: { approvedPriceCents: null }, _count: { approvedPriceCents: 0 } };
       }),
+      // v1.24-buylist-request-reject: la auto-transición cuenta ítems no-rechazados restantes.
+      // Default 1 (≥1 ítem vivo) ⇒ NO auto-rechaza, para que estos tests item-céntricos no
+      // disparen la transición de la solicitud (cubierta en buylist.request-reject.spec.ts).
+      count: jest.fn(async () => 1),
     },
     sellRequest: {
       update: jest.fn(async () => {
         callOrder.push('sellRequest.update');
         return {};
       }),
+      // v1.24-buylist-request-reject: guarda atómica «no pisar terminal» de la auto-transición.
+      updateMany: jest.fn(async () => {
+        callOrder.push('sellRequest.updateMany');
+        return { count: 1 };
+      }),
     },
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
+    // v1.24 (endurecimiento §4.18f): la auto-transición corre count+updateMany en un $transaction
+    // Serializable; el mock ejecuta el callback con `prisma` como `tx` (`$transaction:(fn)=>fn(tx)`).
+    $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
   };
   if (mail) {
     const origSend = mail.send as jest.Mock;

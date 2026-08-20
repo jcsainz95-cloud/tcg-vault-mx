@@ -9,6 +9,7 @@ import {
   IsString,
   Length,
   Max,
+  MaxLength,
   Min,
   ValidateIf,
   ValidateNested,
@@ -123,4 +124,14 @@ export class RejectedItemsQueryDto {
 
 export class PaySpeiDto {
   @IsString() speiReference!: string;
+}
+
+/**
+ * v1.24-buylist-request-reject (§M5): body de `POST /admin/buylist/:id/reject` (botón «Rechazar
+ * solicitud»). `reason` OPCIONAL (0–500 chars) — motivo INTERNO del cierre a nivel solicitud, NO
+ * PII, va al AuditLog (`after`); no se expone al cliente ni a correo (no hay correo en este flujo).
+ * Body vacío `{}` es válido.
+ */
+export class RejectRequestDto {
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }

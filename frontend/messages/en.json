@@ -1003,7 +1003,19 @@
       },
       "refundDone": "Refund executed for order {orderId}.",
       "refundReasonLabel": "Refund reason",
-      "refundReasonHint": "Required; recorded in the audit log. Platform errors only (final sales)."
+      "refundReasonHint": "Required; recorded in the audit log. Platform errors only (final sales).",
+      "searchLabel": "Search order",
+      "searchPlaceholder": "Order # or buyer…",
+      "empty": "No orders match these filters.",
+      "filters": {
+        "dateFrom": "From",
+        "dateTo": "To",
+        "minAmount": "Min amount",
+        "maxAmount": "Max amount"
+      },
+      "prev": "Previous",
+      "next": "Next",
+      "pageInfo": "Page {page} of {totalPages}"
     },
     "m4": {
       "title": "M4 · Withdrawals / shipping",
@@ -1072,6 +1084,12 @@
       "rejectReasonInvalid": "The reason must be between 3 and 500 characters.",
       "rejectNotifyNote": "On confirm the seller will be notified by email with the reason and their deadlines: return within 7 days (at their cost) or abandonment at 30 days.",
       "rejectConfirm": "Reject and notify",
+      "rejectRequest": "Reject request",
+      "rejectRequestTitle": "Reject entire request",
+      "rejectRequestConsequence": "The request will be closed as rejected. This only applies once all of its items are already rejected; it moves no money and sends no emails (per-card notices already went out when each item was rejected).",
+      "rejectRequestReasonLabel": "Internal reason (optional)",
+      "rejectRequestReasonHint": "Optional, up to 500 characters. Kept in the audit log; not shown to the seller.",
+      "rejectRequestConfirm": "Reject request",
       "rejected": {
         "intro": "Rejected (non-NM) cards across all requests. They are not paid and NEVER enter sellable inventory: they are held until returned (at the seller's cost) or abandoned.",
         "empty": "No rejected cards.",
@@ -1087,6 +1105,18 @@
           "expired": "Deadlines expired",
           "unknown": "No deadlines"
         },
+        "prev": "Previous",
+        "next": "Next",
+        "pageInfo": "Page {page} of {totalPages}"
+      },
+      "filters": {
+        "dateFrom": "From",
+        "dateTo": "To",
+        "minAmount": "Min amount",
+        "maxAmount": "Max amount"
+      },
+      "closed": {
+        "empty": "No closed requests match these filters.",
         "prev": "Previous",
         "next": "Next",
         "pageInfo": "Page {page} of {totalPages}"
@@ -1117,7 +1147,8 @@
         "rejected": "Item rejected.",
         "converted": "Converted to inventory · folio {folio}.",
         "alreadyConverted": "This item was already converted to inventory.",
-        "paid": "SPEI payment recorded; the request is now paid."
+        "paid": "SPEI payment recorded; the request is now paid.",
+        "requestRejected": "Request rejected; it is now closed."
       }
     },
     "m8": {
@@ -1685,6 +1716,7 @@
     "FINISH_NOT_AVAILABLE": "That finish isn't available for this card.",
     "ITEM_NOT_PUBLISHABLE": "This piece can't be published in its current status.",
     "MONEY_OUT_FORBIDDEN": "Only the super-admin can execute money-out actions.",
+    "REQUEST_HAS_NON_REJECTED_ITEMS": "Cannot close: some items are not rejected yet. Reject every item in the request before closing it.",
     "EMAIL_TAKEN": "That email is already registered.",
     "INVALID_CREDENTIALS": "Wrong email or password.",
     "USER_BLOCKED": "Your account is blocked.",

@@ -2,7 +2,51 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-19 (rev v1.22-2-finish-display).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-20 (rev v1.25-buylist-orders-pagination).
+>
+> **Changelog v1.25-buylist-orders-pagination (2026-08-20, rama `claude/buylist-ordenes`) — WS «Buylist y órdenes»
+> (regla 9, cambio de contrato P-5): paginación server-side + filtros para las colas admin de M5 (buylist) y M3
+> (órdenes).** Problema del PO: con muchas solicitudes «Cerradas» (M5) y muchas órdenes (M3) hay que scrolear para
+> encontrar una; la pestaña «Cerradas» de M5 filtra **client-side** sobre un fetch COMPLETO (`getAdminBuylist` sin
+> params) — no escala. **Decisión del PO: paginar + filtrar en el servidor (NO archivar aparte).** **100% ADITIVO,
+> sin migración de datos** (los parámetros nuevos son opcionales; omitirlos deja el listado EXACTAMENTE como hoy).
+> Se añaden, con **mismos nombres en ambos endpoints** — `q`, `from`, `to`, `minCents`, `maxCents` (+ `page`,
+> `pageSize` ya existentes):
+> - **`GET /admin/buylist` (§M5):** `q` (folio/vendedor — sustituye el buscador client-side), `from`/`to` (rango sobre
+>   `createdAt`, ISO, gte/lte), `minCents`/`maxCents` (rango sobre **`quotedTotalCents`**), y **`status` pasa a aceptar
+>   CSV** (`status=pagada,rechazada,abandonada` → la pestaña «Cerradas»; un solo valor y la ausencia se comportan como
+>   HOY). Orden `createdAt desc` (ya era norma v1.18).
+> - **`GET /admin/orders` (§M3):** `q` (folio `orderNumber` / comprador), `minCents`/`maxCents` (rango sobre
+>   **`totalCents`**, total canónico de la orden). `status`, `userId`, `from`, `to`, `guest`, `needsManual` ya existían.
+> - **`pageSize`:** default **20 sin cambios** (subir el default rompería en silencio a consumidores que hoy reciben 20);
+>   el front pide `pageSize=25` (sugerencia del PO). Máx **100** sin cambios. Validación: paginación/fecha/monto
+>   inválidos → `400 VALIDATION_ERROR` (§Convenciones). **Índices recomendados en ARCHITECTURE §4.18(h)/§4.21(l) — NO se
+>   escriben migraciones aquí.** Seguridad: los filtros sólo REDUCEN el conjunto ya autorizado por rol; `q` NO busca
+>   sobre CLABE/RFC/INE. Ver §M5, §M3, §Convenciones y ARCHITECTURE §4.18(h)/§4.21(l).**
+>
+> **Changelog v1.24-buylist-request-reject (2026-08-20, rama `claude/buylist-ordenes`) — WS «Buylist y órdenes»: cierre
+> del hueco de ESTADO A NIVEL SOLICITUD al rechazar ítems (bug P-4). Semántica que HOY FALTA: cuando el back-office (M5)
+> rechazaba el ÚLTIMO ítem no-rechazado de una `SellRequest`, la solicitud se quedaba en `verificacion` — huérfana, sin
+> transición a `rechazada` ni automática ni por botón (`respond('decline')` mueve la solicitud, pero es el flujo del
+> CLIENTE ante un ajuste, no el back-office). Se documentan DOS mecanismos («y/o» del PO). ADITIVO: NO cambia el shape de
+> `SellItemDTO` ni la semántica POR-ÍTEM de `reject` (v1.18); un endpoint nuevo. Ver §M5 y ARCHITECTURE §4.18 (f/g).**
+> - **(1) Auto-transición a nivel solicitud (principal) — efecto de `PATCH /admin/buylist/items/:itemId/decision`
+>   `decision:"reject"`:** tras el recompute de `approvedTotalCents`, si **TODOS** los ítems de la solicitud quedan
+>   `itemStatus="rechazada"` (no queda NINGÚN ítem en estado no-rechazado), la `SellRequest` transiciona a
+>   `status="rechazada"` sellando **`closedAt = now()`** (terminal, patrón SEC-D2). **Guard:** no pisa estados terminales
+>   (`pagada`/`rechazada`/`abandonada`) — si ya es terminal, no-op. **Interacción con `convertida_inventario`:** un ítem
+>   `convertida_inventario` **NO cuenta como rechazado** → si conviven ítems convertidos y rechazados, la solicitud **NO**
+>   se auto-rechaza (regla exacta: se auto-rechaza **sólo si TODO ítem** tiene `itemStatus="rechazada"`). Idempotente por
+>   construcción (el `reject` idempotente no re-dispara; una solicitud ya `rechazada` no se re-sella).
+> - **(2) Cierre explícito — botón «Rechazar solicitud» (M5):** endpoint NUEVO `POST /admin/buylist/:id/reject`
+>   (`vault_operator`/`super_admin`, mismo guard que el resto de §M5, auditado `action: buylist.reject`). Semántica SEGURA
+>   y mínima: cierra la solicitud a `rechazada` + `closedAt`. **Guard:** sólo cierra si **TODOS** los ítems ya están
+>   `rechazada`; si queda algún ítem no-rechazado → **`422 REQUEST_HAS_NON_REJECTED_ITEMS`**. **NO** mueve dinero, **NO**
+>   reevalúa montos por ítem, **NO** manda correos. Sirve para cerrar solicitudes ya atoradas (ítem rechazado pre-fix).
+>   **Idempotente:** si ya está `rechazada` → `200` con el estado actual. Errores `404`/`422`/`403`.
+> - **Invariantes preservados:** idempotencia de `reject` (v1.18/§M5), invariante de dinero **BL-1** (un ítem `rechazada`
+>   nunca suma en `approvedTotalCents`; el cierre a nivel solicitud **no** toca montos), y `closedAt` **SEC-D2** (sellado
+>   al entrar a estado terminal, ancla de la retención de INE). Sin migración: no hay columnas nuevas.
 >
 > **Changelog v1.22-2-finish-display (2026-08-19, rama `claude/pulido-precios-display`) — Pulido de derivación/
 > visualización de acabados (N-15 + N-16). ADITIVO: ningún campo se quita ni cambia de tipo; NO se toca ninguna regla
@@ -775,6 +819,7 @@
 - **Dinero:** enteros en **centavos MXN** (`*Cents`). `currency` siempre `"MXN"`. No hay saldo/wallet.
 - **Fechas:** ISO-8601 UTC.
 - **Paginación:** query `?page=1&pageSize=20`; respuesta `{ data: [...], page, pageSize, total }`.
+- **Filtros de lista admin (`q`, `from`, `to`, `minCents`, `maxCents`) — CONVENCIÓN TRANSVERSAL (v1.25-buylist-orders-pagination):** nombres y semántica **idénticos** en `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3), y compatibles con los listados que ya los usaban parcialmente. Todos **opcionales**; omitir todos = listado como antes de v1.25. **`q`:** texto libre, `trim`, **case-insensitive**, contains, OR entre los campos definidos por endpoint; vacío/whitespace = ausente; **máx 200 chars**. **`from`/`to`:** ISO-8601 sobre `createdAt`, **`gte`/`lte`** (rango inclusivo por día; sólo `from` = desde, sólo `to` = hasta). **Semántica de borde de día (v1.25.1 — aclaración de semántica de fecha, aditiva):** un valor **date-only** (`YYYY-MM-DD`, sin componente horario — lo que emite un `<input type=date>`) se interpreta en el **borde del día en UTC**: **`from` = inicio de día (`00:00:00.000Z`)** y **`to` = fin de día INCLUSIVO (`23:59:59.999Z`)**. Un valor con **componente horario** (datetime ISO completo, p. ej. `2026-08-20T14:30:00Z`) se usa **tal cual** (`gte`/`lte` exactos, sin ajuste). Así `to=YYYY-MM-DD` **incluye** todo lo cerrado ese mismo día — sin la omisión silenciosa de tratar `to` date-only como medianoche UTC (que excluiría casi todo el día en una cola money-adjacent). El backend materializa este borde en su **helper de parseo** de fechas (mismo helper para ambos endpoints). Un **rango invertido** (`from` > `to`) simplemente devuelve **vacío** — no es error (no se exige validación `from ≤ to`). **`minCents`/`maxCents`:** enteros **≥ 0** sobre el campo de monto que cada endpoint declara (`quotedTotalCents` en buylist, `totalCents` en orders), `gte`/`lte`. **Validación → `400 VALIDATION_ERROR`** (mismo patrón que la paginación): `page`/`pageSize` no numéricos o `pageSize>100`, fecha no parseable, monto no entero o negativo, `maxCents < minCents`, `q` > 200 chars, o un token de `status` (CSV, §M5) que no sea enum válido (`details.invalidStatus`). **Seguridad:** estos filtros **sólo REDUCEN** el conjunto ya autorizado por rol admin — no habilitan IDOR ni enumeración cruzada, no cambian el shape ni la proyección PII por rol, y `q` **nunca** busca sobre CLABE/RFC/INE/datos de pago.
 - **i18n:** el contrato NO devuelve texto traducido. Devuelve **enums** y **`errorCode`**; el frontend traduce (ES/EN). Datos de catálogo en inglés por diseño.
 - **Errores (shape estándar):**
 ```json
@@ -789,6 +834,7 @@
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
+- **`422 REQUEST_HAS_NON_REJECTED_ITEMS` (v1.24-buylist-request-reject):** en `POST /admin/buylist/:id/reject` (botón «Rechazar solicitud» de M5), la solicitud tiene **al menos un ítem no-rechazado** (`itemStatus != "rechazada"` — p. ej. `aprobada`, `convertida_inventario`, `verificacion`). El cierre explícito es una operación **segura y mínima**: cierra la solicitud **sólo** cuando ya no queda ítem vivo, por lo que rechaza el intento en vez de rechazar ítems en cascada (eso es cherry-pick por-ítem, `PATCH /admin/buylist/items/:itemId/decision`). `details: { nonRejectedItemStatuses: SellItemStatus[] }` (los status vivos encontrados, para que el front explique qué falta cerrar). Distinto de `404 NOT_FOUND` (solicitud inexistente). Ver §M5 y ARCHITECTURE §4.18(g).
 - **Acceso `public` vs `guest` (v1.21):** `public` sigue significando **sin token** (decorador `@Public()` del backend, respetado por `JwtAuthGuard`). Los endpoints de invitado son `public` **por construcción** y además **rechazan** una sesión válida (`409 ALREADY_AUTHENTICATED`): un usuario con cuenta compra por `/checkout/session`, un invitado por `/checkout/guest/session`. **No hay endpoint que sirva a los dos.** Simétricamente, ningún endpoint `customer` acepta un token de seguimiento como credencial: el `OrderAccessToken` **no** es una sesión, no otorga rol y solo lee **un** pedido.
 - **Idempotencia:** endpoints de pago aceptan header `Idempotency-Key`.
 - **PII sensible (CLABE / RFC / INE):** por **defecto se devuelven ENMASCARADOS** en **todas** las respuestas (cliente y back-office, incluido `super_admin`). Formato: CLABE → `****1234` (últimos 4 dígitos), RFC → parcial (ej. `XAX**********`). La **CLABE en claro (18 dígitos) SOLO** se obtiene por el endpoint dedicado `GET /admin/buylist/:id/reveal-clabe` (`super_admin`, money-out, **auditado**). Estos campos viven **cifrados en reposo** (ver ARCHITECTURE §3.4); el contrato nunca expone RFC/CLABE/INE en claro fuera del reveal.
@@ -2940,7 +2986,13 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     TCGCSV, **y** dial `sealedPriceSource=tcgcsv`, §M10). Sin mercado, el sellado solo se vende con override.
 
 ### M3 — Ventas / órdenes (`vault_operator` lectura; `super_admin` reembolso)
-- `GET /api/v1/admin/orders` — query `?status=&userId=&from=&to=&page=`
+- `GET /api/v1/admin/orders` — query `?status=&userId=&q=&from=&to=&minCents=&maxCents=&guest=&needsManual=&page=&pageSize=`
+  - **v1.25-buylist-orders-pagination (§M3, TODOS aditivos y opcionales — omitidos = comportamiento de HOY):** lo que HOY YA soporta (`status`, `userId`, `from`, `to`, `guest`, `needsManual`, `page`, `pageSize`, orden `createdAt desc`, respuesta `{ data, page, pageSize, total }`) **no cambia**. Se añade, en **paridad con `GET /admin/buylist`** (mismos nombres):
+    - **`q?: string` (búsqueda server-side — HOY NO existe buscador de texto en M3):** contains **case-insensitive**, OR entre campos, sobre **folio** (`Order.orderNumber`), **correo de invitado** (`Order.guestEmail`) e **identidad del comprador con cuenta** (`Order.userId` exacto **y** `User.name` / `User.email` vía la relación `Order.user`, para pedidos no-invitado). Cubre los dos tipos de comprador (invitado sin `User` ⇒ `guestEmail`; con cuenta ⇒ nombre/correo/UUID) de forma coherente con el `q` de buylist. Trim; vacío/whitespace = ausente; máx **200** chars (más largo → `400 VALIDATION_ERROR`). `M3View` hoy sólo muestra la columna `userId` sin filtro; este `q` es su buscador server-side.
+    - **`minCents?` / `maxCents?` (rango de MONTO, enteros ≥ 0):** aplican sobre **`totalCents`** — el **total canónico** de la orden en el modelo `Order` (`Int` no-nullable; `subtotalCents + processingFeeCents + ivaCents + envío`), el mismo que ya muestra la columna «total» de `M3View`. `gte minCents`, `lte maxCents`. No negativo / no entero / `maxCents < minCents` → `400 VALIDATION_ERROR`.
+    - **`from?` / `to?`:** ya existían (rango `gte`/`lte` sobre `createdAt`); se listan aquí sólo por completitud de paridad con buylist. **Borde de día (v1.25.1, §Convenciones):** un valor **date-only** (`YYYY-MM-DD`) se ancla al borde del día en UTC — `from` = `00:00:00.000Z`, `to` = fin de día **INCLUSIVO** `23:59:59.999Z` — así `to` **incluye** las órdenes cerradas ese mismo día (buscar una orden por fecha en M3); un datetime ISO completo se usa tal cual.
+    - **`pageSize`:** default **20 SIN CAMBIOS** (misma decisión que §M5 — no romper consumidores actuales); el front pide **`pageSize=25`**. Máx **100**. Paginación inválida → `400 VALIDATION_ERROR`. Orden **`createdAt desc`** (recientes primero) ya vigente.
+    - **Seguridad (documentada; guard del backend):** listado tras rol `vault_operator`/`super_admin`. `q` y los rangos **sólo REDUCEN** el conjunto ya autorizado (sin IDOR/enumeración cruzada nueva; sin cambiar shape ni proyección por rol). `guestEmail` es dato de contacto operativo ya expuesto por rol (mismo criterio que `AdminSellerRef.email`), por eso `q` puede buscarlo; **no** se busca sobre datos de pago (PAN/últimos-4 viven en `paymentMethodLast4`, fuera del alcance de `q`).
   - **`needsManual?=true|false` (v1.21.2, NUEVO, aditivo):** filtra por `Order.chargebackNeedsManual`. Es la **cola
     de "contracargos por resolver"** que alimenta el desenlace humano de `chargeback-inventory` (abajo). Sin este
     filtro no hay forma de que el operador **descubra** que hay piezas congeladas — hoy solo se sabrían llamando a
@@ -3021,9 +3073,16 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   - Nota: `shippingCostCents` es un dato **interno de costo**; **no** se expone al cliente (`GET /shipments/:id` del comprador NO lo incluye).
 
 ### M5 — Buylist (`vault_operator` hasta verificación; `super_admin` pago SPEI)
-- `GET /api/v1/admin/buylist` — cola `?status=&userId=&page=`
+- `GET /api/v1/admin/buylist` — cola `?status=&userId=&q=&from=&to=&minCents=&maxCents=&page=&pageSize=`
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `SellRequest.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección PII por rol (la CLABE sigue enmascarada; en claro solo por `reveal-clabe`).
   - **Orden (v1.18-buylist-rejects, NORMA):** **`createdAt` desc** (solicitud más reciente primero). El código previo ordenaba `asc`; backend lo alinea en este stream. Cada fila ya expone `createdAt`.
+  - **v1.25-buylist-orders-pagination (§M5, TODOS aditivos y opcionales — omitidos = comportamiento de HOY):** el front deja de traer la lista completa y filtrar en memoria; pide server-side la pestaña «Cerradas» paginada + filtrada. Respuesta sin cambios: `{ data, page, pageSize, total }` (mismo `AdminBuylistDTO[]`).
+    - **`status` — pasa a aceptar LISTA CSV (aditivo, la opción más simple):** `status=pagada,rechazada,abandonada` filtra por **cualquiera** de esos estados (`SellRequestStatus IN (...)`). Así la pestaña «Cerradas» (que agrupa `pagada|rechazada|abandonada`) se pide en UNA llamada server-side. **Compat total:** un solo valor (`status=verificacion`) se comporta **idéntico a hoy** (es el caso `IN` de un elemento); **omitir `status` = SIN filtro de estado = HOY.** Cada token debe ser un `SellRequestStatus` válido; token desconocido → `400 VALIDATION_ERROR` (`details.invalidStatus`). Se descartó un parámetro/alias nuevo (`closed=true`): CSV es aditivo sobre un parámetro que ya existe y no añade vocabulario.
+    - **`q?: string` (búsqueda server-side, sustituye el buscador client-side):** contains **case-insensitive** sobre **folio** (`SellRequest.id`) y **vendedor** (`User.name`, `User.email` vía el join que ya existe para `seller`). Semántica OR entre campos (la fila hace match si `q` aparece en cualquiera). Trim; `q` vacío/whitespace = **ausente** (sin filtro). Máx **200** chars (más largo → `400 VALIDATION_ERROR`). Sustituye 1:1 el filtro de `M5View` (`id | userId | seller.name | seller.email`); `userId` como identificador exacto sigue disponible por el parámetro `userId=`.
+    - **`from?` / `to?` (rango de fecha, ISO-8601):** sobre `createdAt`, **`gte`/`lte`** — **misma semántica que `GET /admin/orders`**. **Borde de día (v1.25.1, §Convenciones):** un valor **date-only** (`YYYY-MM-DD`) se ancla al borde del día en UTC — `from` = `00:00:00.000Z`, `to` = fin de día **INCLUSIVO** `23:59:59.999Z` — así `to` **incluye** las solicitudes cerradas ese mismo día (caso de uso del PO en la pestaña «Cerradas»); un datetime ISO completo se usa tal cual. Fecha no parseable → `400 VALIDATION_ERROR`.
+    - **`minCents?` / `maxCents?` (rango de MONTO, enteros ≥ 0):** aplican sobre **`quotedTotalCents`** — `gte minCents`, `lte maxCents`. **Por qué `quotedTotalCents` y NO `approvedTotalCents`:** `quotedTotalCents` es `Int @default(0)` — **siempre existe** para toda solicitud (snapshot histórico de la cotización), mientras que `approvedTotalCents` es **nullable** y sólo se puebla tras aprobar/ajustar; filtrar por él **excluiría** justo las solicitudes `rechazada`/`abandonada` (sin aprobado) que dominan la pestaña «Cerradas», rompiendo el caso de uso del PO. `quotedTotalCents` también es estable (el rechazo por-ítem NO lo recalcula — BL-1). **No** se ofrece filtro por `approvedTotalCents` en esta versión (si el PO lo pide luego, sería un par de params separados, aditivo). No negativo / no entero / `maxCents < minCents` → `400 VALIDATION_ERROR`.
+    - **`pageSize`:** default **20 SIN CAMBIOS** (subirlo cambiaría el tamaño de respuesta de consumidores actuales = ruptura silenciosa); el front pide **`pageSize=25`** (sugerencia del PO). Máx **100** sin cambios. Paginación inválida → `400 VALIDATION_ERROR`.
+    - **Seguridad (documentada; el guard es del backend):** el listado ya está tras rol `vault_operator`/`super_admin`. `q`/`from`/`to`/`minCents`/`maxCents` **sólo REDUCEN** el conjunto que el rol ya puede ver — no hay IDOR ni enumeración cruzada nueva (no saltan el guard, no cambian el shape ni la proyección PII). `q` **NO** busca sobre CLABE/RFC/INE (datos cifrados/enmascarados): evita convertir el buscador en un oráculo de enumeración sobre PII sensible. La CLABE sigue enmascarada; en claro sólo por `reveal-clabe`.
   - **`seller` (v1.18-buylist-rejects, NUEVO):** cada fila gana **`seller: AdminSellerRef = { id, name, email }`** (join a `User`; `seller.id === userId`). `userId` se **conserva** (compat). La UI de M5 muestra **nombre + correo** como identidad primaria y relega el UUID a tooltip/detalle. **PII:** back-office protegido por rol (`vault_operator`/`super_admin`); el **correo del vendedor es dato de contacto operativo — NO es la CLABE** y por tanto **no** requiere enmascarado ni reveal auditado. El régimen de la CLABE **no cambia**.
 - `GET /api/v1/admin/buylist/:id` — detalle con items y estados. La CLABE del vendedor se expone **enmascarada** como `clabeMasked` (`****1234`); **nunca** el snapshot cifrado ni la CLABE en claro. Para pagar, el súper-admin usa `reveal-clabe` (ver abajo).
   - **`seller` (v1.18-buylist-rejects, NUEVO):** el detalle gana el mismo **`seller: AdminSellerRef`** que el listado. Los `items` (`SellItemDTO`, §11) incluyen los campos de rechazo (`rejectionReason`, `rejectedAt`, `returnDeadlineAt`, `abandonDeadlineAt`) cuando aplique.
@@ -3048,6 +3107,17 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   >   el sweep a nivel SOLICITUD no cambia).
   > - **Idempotencia:** `reject` sobre un ítem ya `rechazada` = **no-op** (200 con estado actual; no re-fija
   >   `rejectedAt`, no re-envía correo).
+  > - **Auto-transición de la SOLICITUD (v1.24-buylist-request-reject — cierra P-4):** como **efecto de `reject`, TRAS el
+  >   recompute** de `approvedTotalCents`, se re-evalúa `SellRequest.status`: si **TODOS** los ítems de la solicitud
+  >   quedan `itemStatus="rechazada"` (no queda NINGÚN ítem en estado no-rechazado), la solicitud transiciona a
+  >   `status="rechazada"` sellando **`closedAt = now()`** (terminal, patrón SEC-D2). **Guard:** **no pisa estados
+  >   terminales** (`pagada`/`rechazada`/`abandonada`) — si ya es terminal, no-op silencioso. **`convertida_inventario`
+  >   NO cuenta como rechazado:** un ítem convertido a inventario es un desenlace no-rechazado, así que si conviven ítems
+  >   `convertida_inventario` y `rechazada` la solicitud **NO** se auto-rechaza. **Regla exacta:** se auto-rechaza **sólo
+  >   si TODO ítem** de la solicitud tiene `itemStatus="rechazada"` (∅ ítems no-rechazados). Antes de este fix el
+  >   back-office rechazaba el único ítem y la solicitud se quedaba atorada en `verificacion` (P-4). El cierre a nivel
+  >   solicitud **NO toca montos** (BL-1 ya lo garantiza vía el recompute) **ni envía correos** (el correo por-ítem ya
+  >   salió). Idempotente por construcción (un `reject` no-op no re-dispara; una solicitud ya `rechazada` no se re-sella).
   > - **Correo al vendedor (best-effort, POST-commit):** al transicionar a `rechazada` se envía correo al dueño de la
   >   solicitud (`User.email`, idioma por `User.locale` ES/EN) con: **qué carta** (nombre, set, número), **acabado**,
   >   **motivo** (`reason`) y **opciones con plazos**: devolución antes de `returnDeadlineAt` (a costo del usuario,
@@ -3068,6 +3138,14 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   > abandonada pasa a inventario" aplica a ítems **aprobados** cuya solicitud se abandonó (clic del admin sobre el ítem
   > `aprobada`; deuda BE-3 para automatizarlo), nunca a `rechazada`. Reintento sobre ítem ya convertido sigue siendo
   > idempotente (`alreadyConverted:true`).
+- **`POST /api/v1/admin/buylist/:id/reject` (v1.24-buylist-request-reject, NUEVO)** — `vault_operator`/`super_admin` (mismo guard que el resto de §M5 hasta verificación; **NO** es dinero saliente → sin `MoneyOutGuard`), **auditado** (`action: buylist.reject`). Botón «Rechazar solicitud» de M5: **cierre EXPLÍCITO** de una solicitud a estado terminal `rechazada`. Cubre el caso operativo que la auto-transición no alcanza: solicitudes **ya atoradas** cuyo(s) ítem(es) fueron rechazados **antes** del fix P-4 (o rechazadas por otra vía sin sellar la solicitud).
+  Req: `{ reason?: string }` — `reason` **opcional** (0–500 chars), motivo interno del cierre a nivel solicitud; **NO PII**, va al `AuditLog` (`after`), no se expone al cliente ni al correo (no hay correo en este flujo). Body vacío `{}` es válido.
+  > **Semántica SEGURA y mínima (norma):**
+  > - **Guard de precondición:** cierra **sólo si TODOS** los ítems de la solicitud ya están `itemStatus="rechazada"`. Si queda **algún** ítem no-rechazado (`aprobada`, `ajustada`, `convertida_inventario`, `verificacion`, etc.) → **`422 REQUEST_HAS_NON_REJECTED_ITEMS`** (`details.nonRejectedItemStatuses: SellItemStatus[]`). El botón **no** rechaza ítems en cascada: el rechazo por-ítem es cherry-pick (`PATCH /admin/buylist/items/:itemId/decision`, `decision:"reject"`), y esa ruta ya dispara la auto-transición.
+  > - **Efecto ÚNICO:** `SellRequest.status → rechazada` + **`closedAt = now()`** (terminal, SEC-D2). **NO mueve dinero, NO reevalúa montos por ítem** (`approvedTotalCents`/`quotedTotalCents` intactos; BL-1 ya sacó los montos de los ítems rechazados), **NO manda correos** (los correos por-ítem ya salieron al rechazar cada carta).
+  > - **Idempotencia:** si la solicitud ya está `rechazada` → **`200` con el estado actual** (no re-sella `closedAt`, no re-audita como cambio). Sobre otro estado terminal (`pagada`/`abandonada`) → **`422 REQUEST_HAS_NON_REJECTED_ITEMS`** no aplica; se rechaza el cierre con `409 CONFLICT` (`details.status`) por invariante «no pisar terminal» (una solicitud `pagada` jamás se reescribe a `rechazada`).
+  Res `200`: la `SellRequest` actualizada (mismo shape que `GET /admin/buylist/:id`: `status="rechazada"`, `closedAt` sellado, `seller`, `items` con sus campos de rechazo).
+  Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND` (solicitud inexistente), `422 REQUEST_HAS_NON_REJECTED_ITEMS` (queda ítem vivo), `409 CONFLICT` (solicitud en otro estado terminal `pagada`/`abandonada`).
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. Err `403 MONEY_OUT_FORBIDDEN`. Precondición: `aprobada` + verificada (pago **tras** recepción/verificación).
 
 ### M6 — Usuarios / KYC (`super_admin`; `vault_operator` lectura limitada)

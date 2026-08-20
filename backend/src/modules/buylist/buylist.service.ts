@@ -7,6 +7,8 @@ import {
   Prisma,
   ProductType,
   RawCondition,
+  SellItemStatus,
+  SellRequestStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -20,7 +22,7 @@ import { maskClabe } from '../../common/crypto/pii-mask';
 import { BuylistRule, quoteAcquisitionForFinish } from '../../common/money';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
-import { rejectDeadlines } from './buylist-reject.constants';
+import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
 
 interface QuoteItemInput {
   cardId: string;
@@ -558,11 +560,58 @@ export class BuylistService {
     page: number,
     pageSize: number,
     userId?: string,
+    // v1.25-buylist-orders-pagination (§M5): filtros ya validados por el controller
+    // (parseAdminListFilters → 400 VALIDATION_ERROR). Omitidos = listado como HOY.
+    filters?: {
+      q?: string;
+      dateRange?: { gte?: Date; lte?: Date };
+      centsRange?: { gte?: number; lte?: number };
+    },
   ) {
     const where: Prisma.SellRequestWhereInput = {};
-    if (status) where.status = status as never;
+    // v1.25-buylist-orders-pagination (§M5): `status` pasa a aceptar CSV → `status IN (...)`
+    // (la pestaña «Cerradas» = `pagada,rechazada,abandonada` en UNA llamada). Compat TOTAL: un solo
+    // token se comporta IDÉNTICO a hoy (escalar `where.status = token`, no `{ in: [...] }`); omitirlo
+    // = sin filtro de estado. Cada token debe ser `SellRequestStatus` válido; desconocido → 400
+    // VALIDATION_ERROR con `details.invalidStatus` (nunca SQL crudo — Prisma parametrizado).
+    if (status) {
+      const tokens = status
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      if (tokens.length > 0) {
+        const valid = Object.values(SellRequestStatus) as string[];
+        const invalidStatus = tokens.filter((t) => !valid.includes(t));
+        if (invalidStatus.length > 0) {
+          throw BusinessException.badRequest(
+            'VALIDATION_ERROR',
+            'Invalid status token',
+            { invalidStatus },
+          );
+        }
+        where.status =
+          tokens.length === 1
+            ? (tokens[0] as SellRequestStatus)
+            : { in: tokens as SellRequestStatus[] };
+      }
+    }
     // v1.7-admin-users: filtro opcional por SellRequest.userId (simetría con /admin/orders).
     if (userId) where.userId = userId;
+    // v1.25-buylist-orders-pagination (§M5): `q` contains case-insensitive OR sobre folio
+    // (`SellRequest.id`) + vendedor (`User.name`/`User.email` vía el join `user` ya existente).
+    // NUNCA busca sobre CLABE/RFC/INE ni datos de pago (evita oráculo de enumeración de PII).
+    if (filters?.q) {
+      where.OR = [
+        { id: { contains: filters.q, mode: 'insensitive' } },
+        { user: { name: { contains: filters.q, mode: 'insensitive' } } },
+        { user: { email: { contains: filters.q, mode: 'insensitive' } } },
+      ];
+    }
+    // Rango `createdAt` (gte/lte) y rango de MONTO sobre `quotedTotalCents` (gte/lte) — snapshot
+    // histórico SIEMPRE presente (Int @default(0)); NO `approvedTotalCents` (nullable, excluiría las
+    // rechazadas/abandonadas que dominan «Cerradas»). Ya validados/normalizados por el controller.
+    if (filters?.dateRange) where.createdAt = filters.dateRange;
+    if (filters?.centsRange) where.quotedTotalCents = filters.centsRange;
     // QA-BUG: `include: { items: true }` no traía `card`, y M5View crasheaba al leer
     // `it.card.name`. AdminBuylistDTO.items exige `card: CardDTO`; se incluye y mapea.
     // v1.18-buylist-rejects: orden NORMATIVO `createdAt desc` (más reciente primero; antes `asc`,
@@ -766,6 +815,10 @@ export class BuylistService {
       await this.recomputeApprovedTotal(item.sellRequestId);
       // Correo al vendedor: best-effort POST-commit — su fallo se loggea y NO revierte la decisión.
       await this.sendItemRejectedMail(item, trimmedReason, rejectedAt);
+      // v1.24-buylist-request-reject (§4.18f, P-4): auto-transición de la SOLICITUD como efecto del
+      // reject, TRAS el recompute. Si NO queda ningún ítem no-rechazado, cierra la solicitud a
+      // `rechazada`+`closedAt`. NO toca montos (BL-1 ya lo hizo) NI envía correos.
+      await this.maybeAutoRejectRequest(item.sellRequestId);
       return updated;
     }
     // RB-3: cap AML efectivo = override por-KYC del usuario si existe, si no el dial global.
@@ -838,6 +891,125 @@ export class BuylistService {
       where: { id: sellRequestId },
       data: { approvedTotalCents },
     });
+  }
+
+  /**
+   * v1.24-buylist-request-reject (§4.18f, cierra P-4): re-evalúa el estado de la SOLICITUD tras
+   * rechazar un ítem. Regla EXACTA de agregación: la solicitud pasa a `status='rechazada'` **sólo si
+   * TODO ítem** está `itemStatus='rechazada'` (equivalente: **cero** ítems en estado no-rechazado).
+   * `convertida_inventario` NO cuenta como rechazado (es un desenlace positivo), así que una solicitud
+   * con ítems convertidos + rechazados **NO** se auto-rechaza. Al sellar el terminal fija
+   * `closedAt=now()` (patrón SEC-D2, misma ancla que `paySpei`/`ine-retention`).
+   *
+   * IDEMPOTENTE y money-safe: NO toca montos (BL-1 ya sacó los ítems rechazados de
+   * `approvedTotalCents` vía el recompute) NI envía correos (el correo por-ítem ya salió). Guard «no
+   * pisar terminal»: `updateMany` con guardia de estado (mismo patrón atómico que `paySpei`) — nunca
+   * reescribe una `pagada`/`abandonada` ni re-sella una `rechazada`.
+   */
+  private async maybeAutoRejectRequest(sellRequestId: string): Promise<void> {
+    // v1.24 (endurecimiento §4.18f): el "¿queda algún ítem no-rechazado?" (count) y el "sella la
+    // solicitud a rechazada" (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón
+    // que `createRequest`/SEC-A2), haciendo verdadera la afirmación del doc «mismo transaction
+    // boundary». Sin esto, count y update eran awaits secuenciales no atómicos. Dentro se usa `tx`.
+    await this.prisma.$transaction(
+      async (tx) => {
+        // ¿Queda algún ítem NO-rechazado en la solicitud? (convertida_inventario cuenta como vivo).
+        const nonRejectedCount = await tx.sellRequestItem.count({
+          where: { sellRequestId, itemStatus: { not: 'rechazada' } },
+        });
+        if (nonRejectedCount > 0) return; // aún hay ítems no-rechazados → no se auto-rechaza.
+        // Transición con guardia «no pisar terminal» (patrón updateMany de paySpei). Si la solicitud
+        // ya es terminal (pagada/rechazada/abandonada) el updateMany no matchea → no-op.
+        await tx.sellRequest.updateMany({
+          where: { id: sellRequestId, status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } },
+          data: { status: 'rechazada', closedAt: new Date() },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
+  /**
+   * v1.24-buylist-request-reject (§4.18g): cierre EXPLÍCITO — botón «Rechazar solicitud» de M5
+   * (`POST /admin/buylist/:id/reject`). Sella una solicitud a `rechazada`+`closedAt` SÓLO si TODOS
+   * sus ítems ya están `rechazada`. Diseño deliberadamente ESTRECHO y money-safe: NO rechaza ítems
+   * en cascada (eso es cherry-pick por-ítem con motivo/plazos/correo), NO mueve dinero, NO reevalúa
+   * montos, NO manda correos. Cubre el back-log de solicitudes atoradas pre-fix P-4.
+   *
+   * Precondición: si queda ≥1 ítem no-rechazado → `422 REQUEST_HAS_NON_REJECTED_ITEMS`
+   * (`details.nonRejectedItemStatuses`). Idempotencia: ya `rechazada` → `200` con el estado actual
+   * (no re-sella, `transitioned=false` para que el controller NO audite como cambio). Otro terminal
+   * (`pagada`/`abandonada`) → `409 CONFLICT` (`details.status`, invariante «no pisar terminal»).
+   * `404` si no existe.
+   *
+   * @returns `{ request, transitioned }` — `request` es el shape de `adminGet` (Res 200 del contrato);
+   *   `transitioned` indica si hubo un cambio real de estado (guía la auditoría del controller).
+   */
+  async rejectRequest(id: string, reason?: string): Promise<{ request: unknown; transitioned: boolean }> {
+    const req = await this.prisma.sellRequest.findUnique({ where: { id } });
+    if (!req) throw BusinessException.notFound();
+    // Idempotencia: ya rechazada → 200 con el estado actual, sin re-sellar closedAt ni auditar.
+    if (req.status === 'rechazada') {
+      return { request: await this.adminGet(id), transitioned: false };
+    }
+    // Guard «no pisar terminal»: otro estado terminal (pagada/abandonada) NO se reescribe → 409.
+    // (La `rechazada` ya se resolvió arriba como idempotente, así que aquí el set solo matchea
+    // pagada/abandonada.) Reusa la constante única de terminales en vez del literal inline.
+    if ((SELL_REQUEST_TERMINAL_STATES as readonly string[]).includes(req.status)) {
+      throw BusinessException.conflict(
+        'CONFLICT',
+        'Request is already in a terminal state and cannot be rejected',
+        { status: req.status },
+      );
+    }
+    // v1.24 (endurecimiento §4.18g): el guard de precondición (leer ítems vivos) y el sellado del
+    // estado (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón que
+    // `createRequest`/SEC-A2), para que "todos los ítems rechazados" y "solicitud rechazada" no
+    // puedan divergir tras un commit exitoso. Dentro se usa `tx`.
+    const transitioned = await this.prisma.$transaction(
+      async (tx) => {
+        // Precondición (idéntica a la regla f): cierra SÓLO si TODOS los ítems ya están `rechazada`.
+        // Cualquier ítem vivo (aprobada/ajustada/convertida_inventario/verificacion/…) bloquea el
+        // cierre → 422 con los status vivos encontrados.
+        const liveItems = await tx.sellRequestItem.findMany({
+          where: { sellRequestId: id, itemStatus: { not: 'rechazada' } },
+          select: { itemStatus: true },
+        });
+        if (liveItems.length > 0) {
+          const nonRejectedItemStatuses = Array.from(
+            new Set(liveItems.map((i) => i.itemStatus)),
+          ) as SellItemStatus[];
+          throw BusinessException.validation(
+            'REQUEST_HAS_NON_REJECTED_ITEMS',
+            'Request still has non-rejected items; reject them per-item before closing the request',
+            { nonRejectedItemStatuses },
+          );
+        }
+        // Efecto ÚNICO: status → rechazada + closedAt=now(). Guard atómico «no pisar terminal»
+        // (patrón updateMany de paySpei) por si una transición concurrente ganó la carrera.
+        const res = await tx.sellRequest.updateMany({
+          where: { id, status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } },
+          data: { status: 'rechazada', closedAt: new Date() },
+        });
+        // count===0 ⇒ una transición concurrente cerró la solicitud entre la lectura inicial y el
+        // update (espejo de la verificación de `paySpei`). Re-lee DENTRO de la tx y decide:
+        //  - quedó `rechazada` → idempotente: 200 con estado actual, SIN auditar como cambio.
+        //  - otro terminal (`pagada`/`abandonada`) → 409 CONFLICT. NUNCA reportamos `transitioned:true`
+        //    cuando el update no cambió nada (elimina la entrada de auditoría fantasma).
+        if (res.count === 0) {
+          const current = await tx.sellRequest.findUnique({ where: { id }, select: { status: true } });
+          if (current?.status === 'rechazada') return false;
+          throw BusinessException.conflict(
+            'CONFLICT',
+            'Request is already in a terminal state and cannot be rejected',
+            { status: current?.status },
+          );
+        }
+        return true;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+    return { request: await this.adminGet(id), transitioned };
   }
 
   /**

@@ -40,12 +40,17 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
           _sum: { approvedPriceCents: opts.aggregateSum ?? null },
           _count: { approvedPriceCents: opts.aggregateCount ?? 0 },
         }),
+        // v1.24-buylist-request-reject: la auto-transición cuenta ítems no-rechazados restantes;
+        // default 1 (≥1 vivo) ⇒ NO auto-rechaza en estos tests item-céntricos.
+        count: jest.fn(async () => 1),
       },
       sellRequest: {
         update: jest.fn(async (args: any) => {
           sellRequestUpdates.push(args);
           return {};
         }),
+        // v1.24-buylist-request-reject: guarda atómica «no pisar terminal» de la auto-transición.
+        updateMany: jest.fn(async () => ({ count: 1 })),
       },
       kycProfile: {
         findUnique: jest
@@ -54,6 +59,9 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
             opts.kycOverride === undefined ? null : { capPerRequestCentsOverride: opts.kycOverride },
           ),
       },
+      // v1.24 (endurecimiento §4.18f): la auto-transición del reject corre count+updateMany en un
+      // $transaction Serializable; el mock ejecuta el callback con `prisma` como `tx`.
+      $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
     };
     const svc = new BuylistService(
       prisma as PrismaService,
