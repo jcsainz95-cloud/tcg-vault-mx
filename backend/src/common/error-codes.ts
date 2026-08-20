@@ -52,6 +52,10 @@ export const ErrorCode = {
 
   // Payments / Stripe
   AMOUNT_TOO_LOW: 'AMOUNT_TOO_LOW', // B2: por debajo del mínimo de Stripe MX
+  // MS-2 (BE-27): el importe agregado del pedido (totalCents) no es representable en Int32
+  // (> MAX_CENTS = 2_147_483_647). Un agregado NO se puede clampar en silencio (recortar = subcobro):
+  // se RECHAZA el checkout con 422 en vez de reventar al persistir la Order (excepción Postgres = DoS).
+  AMOUNT_TOO_LARGE: 'AMOUNT_TOO_LARGE',
   CARD_DECLINED: 'CARD_DECLINED', // B1: StripeCardError mapeado a error de negocio legible
   PAYMENT_PROVIDER_UNAVAILABLE: 'PAYMENT_PROVIDER_UNAVAILABLE', // A2: fallo del PI → reintento
 

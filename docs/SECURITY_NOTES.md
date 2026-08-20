@@ -1,5 +1,90 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
 
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
+     PASE money-safety-hardening (rev v1.6) — se antepone; el contenido histórico se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# PASE v1.6 — money-safety-hardening (2026-08-20) · VEREDICTO de seguridad
+
+> **Rol:** seguridad (blue team). Consolido `docs/PENTEST_NOTES.md` (sección «PASE v1.6 — money-safety-hardening») contra el código de la rama `claude/money-safety-hardening` (`git diff main`). Reviso y reporto; **NO corrijo**. Cada hallazgo se enruta a su **rol dueño**.
+> **Modo:** revisión **estática** de código + ejecución de la suite de specs money-safety (8 archivos, **38 tests, todos PASS**). Sin stack vivo (Docker/Postgres ausentes) → vectores que exigen webhook/checkout real = **[PoC-pendiente-de-target — DAST]**; verificados por lectura/tests = **[Verificado en código]**.
+> **Cronología:** el pentester escribió sus notas **ANTES** de la remediación de **MS-2**. He **re-verificado MS-2 en el código y con tests** (no asumido) — ver abajo.
+
+## 0. Resumen ejecutivo del pase
+
+Los **5 endurecimientos de dinero (H1, H2, H3, BE-26, BE-27) CUMPLEN** y quedan **[Verificado en código]** con tests. El único hallazgo **Media** que el pentester dejó abierto en la superficie de esta rama, **MS-2** (overflow de agregados `*Cents` que se persisten en `Order`), **YA FUE REMEDIADO por backend y lo confirmo CERRADO** en dos capas con evidencia y tests.
+
+Tras la remediación de MS-2 **no queda ningún hallazgo Crítico ni Alto ABIERTO** en el alcance de esta rama. Los residuales son **defensa-en-profundidad / cobertura asimétrica** (MS-1 Media out-of-scope, MS-3/MS-4/MS-5 Baja), todos **aceptados como deuda** con dueño y disparador.
+
+**→ VEREDICTO: APROBADO** (con la deuda Media/Baja aceptada y ruteada; ver §5).
+
+| Severidad | # ABIERTO (en alcance de rama) | Estado |
+|---|---|---|
+| **Crítica** | 0 | — |
+| **Alta** | 0 | — |
+| **Media** | 1 | MS-1 (aceptada: fuera de alcance de esta rama, follow-up arquitecto/backend) |
+| **Baja** | 3 | MS-3, MS-4, MS-5 (aceptadas, defensa-en-profundidad) |
+| **Media — CERRADO este pase** | (MS-2) | **remediado + verificado + tests** |
+
+## 1. MS-2 — estado: **CERRADO** (re-verificado en código + tests, no asumido)
+
+**Hallazgo original (pentester, Media):** `clampCents` (BE-27) acotaba el precio **unitario** pero **no** los **agregados** (`totalCents`/`ivaCents`/`processingFeeCents`) que se persisten en `Order.*Cents` (`Int` = Int32). Un agregado > `MAX_CENTS` reventaría al persistir (excepción Postgres = **DoS del checkout**), justo el fallo que BE-27 decía prevenir, movido del unitario al agregado.
+
+**Remediación verificada (backend), dos capas:**
+- **Capa pura (choke point):** `backend/src/common/money.ts:518-534` — `grossUpTotal` **LANZA** `Error('total exceeds MAX_CENTS …')` cuando `total > MAX_CENTS`. Como **todo** breakdown (cart / shipment / direct-ship) deriva su `totalCents` de `grossUpTotal`, y `total >= base >= subtotal` (y `>= iva`, `>= processingFee`), un total representable **garantiza** que **todos** los `*Cents` de la `Order` caben en Int32. **Nunca se clampa el agregado** (recortar = subcobro): se rechaza.
+- **Capa de negocio (fuente única):** `backend/src/modules/orders/orders.service.ts:382-394` — `representableOrThrow()` traduce ese throw a `BusinessException.validation('AMOUNT_TOO_LARGE')` → **422**, y **re-lanza tal cual** cualquier otro `Error` (mala config de fee = 500 legítimo; no lo enmascara). Nuevo código `AMOUNT_TOO_LARGE` en `backend/src/common/error-codes.ts:55`.
+- **Cableado en las DOS rutas que persisten `Order`:**
+  - Bóveda: `orders.service.ts:411` — `createSession` envuelve `computeCartBreakdown` en `representableOrThrow`.
+  - Invitado (direct_ship): `backend/src/modules/orders/guest-checkout.service.ts:443-445` — `breakdownFor` envuelve `computeDirectShipBreakdown` en `orders.representableOrThrow` (fuente única compartida). El `quote` read-only NO entra por esta ruta (no persiste).
+- **Tests (ejecutados, PASS):** `backend/src/common/be27-aggregate-overflow.spec.ts` (grossUpTotal lanza `/MAX_CENTS/` y `/not representable/i`; total legítimo ≤ MAX_CENTS) y `backend/src/modules/orders/be27-aggregate-overflow.spec.ts` (`representableOrThrow` → `AMOUNT_TOO_LARGE`/422; no enmascara otros `Error`).
+
+**Conclusión:** MS-2 **CERRADO**. Baja de «Media abierta» a **remediada**. La observación money-safe del pentester (jamás clampar un agregado en silencio) se respetó: el fix **rechaza**, no recorta.
+
+## 2. Validación de los 5 endurecimientos (defensa)
+
+Todos **[Verificado en código]**; cruce con el hallazgo del pentester = **coincido**.
+
+- **H1 — CUMPLE.** `payments.service.ts:112-136` — antes de liquidar, asevera `pi.amount === order.totalCents && pi.currency === 'mxn'`; mismatch → `logger.error` + `audit.log('order.settle_amount_mismatch')` y **retorna sin liquidar** (200; el marcador de idempotencia queda). El check está **antes** del branch, así que cubre **bóveda** (`:144`) y **direct_ship** (`:140`). Firma del webhook (`constructEvent`) + idempotencia atómica por `event.id` (P2002, `handleEvent:44-95`, con borrado del marcador si el handler lanza) **intactas**. Coincido con el pentester: la ruta de **shipment** (`:171-179`) **no** valida monto/moneda → **MS-4 (Baja, aceptada)**.
+- **H2 — CUMPLE.** `orders.service.ts:342` — `const idem = \`pi-order-${params.orderId}\`` **siempre** server-side; el parámetro `idempotencyKey` fue **eliminado** de `attachPaymentIntent`, de `orders.createSession` y de `guest.createSession`. Los controllers **ya no leen** el header: `orders.controller.ts` y `guest-orders.controller.ts` quitaron `@Headers('idempotency-key')`. El header del cliente se **ignora** por completo en orders/guest.
+- **H3 — CUMPLE.** `orders.service.ts:203-206` — `nextOrderNumber` usa **tagged-template** `$queryRaw\`SELECT nextval('order_number_seq') …\`` (parametrizado); ya no hay `$queryRawUnsafe`. `git grep` de `queryRawUnsafe|executeRawUnsafe` no deja superficie `Unsafe` con entrada de cliente (coincido con MS-6/Info del pentester).
+- **BE-26 — CUMPLE.** `orders.service.ts:58-62` (rama sellado) y `:76-80` (rama rareza) — `salePriceOf` rechaza `salePriceCents == null || <= 0` con `PRICE_PENDING`. Ninguna línea de session puede entrar a $0/negativa. Coincido con MS-7/Info.
+- **BE-27 — CUMPLE.** `settings.constants.ts:175` — `FIXED_CENTS_MAX = 100_000_000` acota `fixed` en `isValidBuylistRule`/`isValidSalesRule` (puerta de config). `money.ts` — `clampCents`/`MAX_CENTS` en los unitarios + el **throw de agregado** de `grossUpTotal` (ver §1). El clamp unitario es red de última instancia; la **señal fuerte** vive en el throw del agregado y en los validadores (coincido con la decisión MS-3).
+
+## 3. Hallazgos priorizados por severidad (ABIERTO, en alcance de rama)
+
+- **Crítica:** ninguno.
+- **Alta:** ninguno.
+- **Media:** ninguno **dentro del alcance de esta rama** que quede sin remediar (MS-2 cerrado). MS-1 es Media pero **fuera de alcance por decisión del orquestador** → va a Deuda aceptada (§4).
+
+## 4. Deuda de seguridad aceptada (no bloqueante) — con dueño y disparador
+
+- **MS-1 (Media) — homólogo de H2/H1 en la ruta de ENVÍO y en el REFUND admin.** `backend/src/modules/shipments/shipments.service.ts:170` (`const idem = idempotencyKey ?? \`pi-shipment-${shipment.id}\``, header propagado desde el controller) y `backend/src/modules/orders/admin-orders.controller.ts:234` (`idempotencyKey ?? \`refund-${order.id}\``) **aún aceptan la idempotency-key del cliente** — la misma clase que H2 cerró en orders/guest, en otra ruta. **Verificado que sigue así** en el código. **FUERA DEL ALCANCE de esta rama por decisión del orquestador.** Severidad Media (no Alta): las keys server-side son `pi-shipment-<id>`/`refund-<order>` con ids CUID no adivinables; el riesgo real es interferencia/colisión con reintentos propios, no robo. En el refund el rol es `super_admin` (`@MoneyOut`, auditado). **Dueño:** arquitecto (follow-up) → backend. **Disparador:** al abrir el work stream de envíos/refund, o antes de operar dinero real, aplicar el patrón H2 (ignorar header, derivar siempre server-side) a ambas rutas.
+- **MS-3 (Baja) — `clampCents` recorta en silencio, sin log/auditoría** (`money.ts:30-32`). Decisión aceptada (Opción A): `money.ts` es módulo **puro** (sin infra), por lo que la señal fuerte de importe fuera de rango vive en (1) los validadores de settings y (2) el **throw del agregado** en `grossUpTotal` (mapeado a `AMOUNT_TOO_LARGE`), ambos visibles y accionables. Con config legítima el clamp unitario no debería dispararse nunca. **Dueño:** backend. **Disparador:** si se quiere telemetría del recorte, emitirla en el caller que persiste (fuera del módulo puro).
+- **MS-4 (Baja) — H1 no cubre la ruta de liquidación de ENVÍO** (`payments.service.ts:171-179`): el bloque de shipment avanza `solicitado → picking` **sin** asertar `pi.amount`/`pi.currency`. **[PoC-pendiente-de-target]** — no explotable sin bypass de la firma (el PI de shipment lo crea el servidor con el monto correcto). **Dueño:** backend. **Disparador:** si se introduce una fuente de eventos menos confiable, o al endurecer envíos, espejar la aserción H1 aquí.
+- **MS-5 (Baja) — `constructEvent` usa `STRIPE_WEBHOOK_SECRET ?? ''`** (`stripe.service.ts:173`): **falla-cerrada** (secret vacío ⇒ `constructEvent` lanza, rechaza toda firma) y `onModuleInit` (`:33-43`) hace **fail-fast** si falta el secret en no-local. No explotable; se registra como fragilidad. **Dueño:** backend/devops. **Disparador:** al tocar la config de Stripe, exigir el secret explícito en vez del fallback a cadena vacía.
+
+> **Nota (carryover histórico, fuera del foco de dinero de esta rama):** siguen abiertas como deuda de revs previas M-1 (2 avisos moderate `@nestjs/core`, devops), B-2/B-1-Google (linking OAuth a back-office, backend), B-4 (`approvedPriceCents` sin cota, backend), B-5 (token en query-string, frontend), S-1..S-7 (stream sellado). Ver secciones históricas abajo. No bloquean este pase.
+
+## 5. Banderas para el humano
+
+- **Antes de operar con dinero real:** ejecutar un **pentest de tercero + DAST en staging autorizado** — los guardarraíles de dinero (reserva atómica anti doble-venta, idempotencia del webhook, firma real de Stripe, H1 con eventos forjados) están **verificados solo en estático**; falta la prueba con firmas reales y carrera de concurrencia. Ver «Pendiente de DAST» en `PENTEST_NOTES.md`.
+- **MS-1 es una brecha de simetría en el camino del dinero saliente** (envíos = usuario normal; refund = super_admin). Aunque aceptada como out-of-scope, **cerrarla antes de dinero real** es recomendable: es la misma clase que H2 ya juzgó digna de fix.
+
+## 6. VEREDICTO
+
+**APROBADO.**
+
+- **MS-2 (única Media abierta en la superficie de esta rama) → CERRADO**, verificado en código y con tests (§1).
+- **0 hallazgos Críticos o Altos ABIERTOS** → no se cumple la condición de RECHAZO.
+- Deuda residual **Media (MS-1, out-of-scope) + Baja (MS-3/MS-4/MS-5)** aceptada, con dueño y disparador anotados (§4).
+- La suite money-safety corre en verde (**38/38 PASS**): H1, H2, H3, BE-26, BE-27 y el fix de MS-2.
+
+**Ruteo por rol dueño (follow-up, no bloqueante):** arquitecto → MS-1 (propagar patrón H2 a shipments/refund); backend → MS-3/MS-4; backend/devops → MS-5; humano → pentest de tercero + DAST antes de dinero real.
+
+---
+
+<!-- ═══════════════════════ FIN PASE v1.6 · debajo: contenido histórico conservado ═══════════════════════ -->
+
 > **Rol:** seguridad (blue team). Reviso la defensa, **valido/consolido** los hallazgos del
 > `pentester` (`docs/PENTEST_NOTES.md`) contra el código y emito el **VEREDICTO**. No corrijo
 > código: cada hallazgo se enruta al **rol dueño**.

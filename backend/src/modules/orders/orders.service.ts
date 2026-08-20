@@ -55,7 +55,9 @@ export class OrdersService {
       const ctx = await this.pricing.loadSealedSpreads();
       const marketRef = await this.pricing.getSealedMarketRef(item);
       const sale = this.pricing.resolveSealedSalePrice(item, marketRef, ctx);
-      if (sale.salePriceCents == null) {
+      // BE-26 (money-safety): un precio de venta <= 0 (p. ej. regla `fixed:0`) NO es vendible. El
+      // catálogo ya exige `> 0` para publicar; se alinea aquí para que ninguna session cobre $0.
+      if (sale.salePriceCents == null || sale.salePriceCents <= 0) {
         throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
       }
       return sale.salePriceCents;
@@ -71,7 +73,9 @@ export class OrdersService {
       { rarity: item.card.rarity, finish: item.finish },
       referenceMxnCents,
     );
-    if (sale.salePriceCents == null) {
+    // BE-26 (money-safety): un precio de venta <= 0 (p. ej. regla `fixed:0`) NO es vendible. Se
+    // rechaza igual que `== null` para que ninguna línea de session entre a $0.
+    if (sale.salePriceCents == null || sale.salePriceCents <= 0) {
       throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no price`);
     }
     return sale.salePriceCents;
@@ -196,9 +200,10 @@ export class OrdersService {
    * implementa aquí —y no en `PrismaService`— porque `src/prisma/` es zona de otro stream.
    */
   async nextOrderNumber(): Promise<string> {
-    const rows = await this.prisma.$queryRawUnsafe<{ nextval: bigint }[]>(
-      "SELECT nextval('order_number_seq') AS nextval",
-    );
+    // H3 (money-safety): `$queryRaw` con tagged template (parametrizado) en vez de `$queryRawUnsafe`.
+    // La sentencia no lleva entradas del cliente, pero se prefiere la puerta segura por defecto
+    // (mismo patrón que `master-set.service.ts`), para no dejar una superficie `Unsafe` viva.
+    const rows = await this.prisma.$queryRaw<{ nextval: bigint }[]>`SELECT nextval('order_number_seq') AS nextval`;
     return `TCG-${String(Number(rows[0].nextval)).padStart(6, '0')}`;
   }
 
@@ -321,8 +326,10 @@ export class OrdersService {
    * falla y persiste `stripePaymentIntentId`. Fuente ÚNICA para las dos rutas (T2): el bloque
    * «crear PI → compensar → persistir» estaba duplicado casi verbatim.
    *
-   * La idempotency-key se deriva en el SERVIDOR (`pi-order-<id>`); el header del cliente es solo
-   * un override, así que un reintento del mismo checkout no crea dos PaymentIntents.
+   * La idempotency-key se deriva SIEMPRE en el SERVIDOR (`pi-order-<id>`). H2 (money-safety): en
+   * RUTAS DE DINERO el header `Idempotency-Key` del cliente se IGNORA por completo — un cliente no
+   * debe poder elegir (ni colisionar) la clave con la que se cobra. La clave server-derivada ya
+   * garantiza que un reintento del mismo checkout no cree dos PaymentIntents.
    * Si Stripe falla TRAS reservar, se libera la reserva y la orden queda `failed`, en vez de dejar
    * piezas únicas atrapadas en `reserved` con una orden `pending` sin PaymentIntent.
    */
@@ -331,9 +338,9 @@ export class OrdersService {
     amountCents: number;
     metadata: Record<string, string>;
     inventoryItemIds: string[];
-    idempotencyKey?: string;
   }): Promise<{ id: string; clientSecret: string }> {
-    const idem = params.idempotencyKey ?? `pi-order-${params.orderId}`;
+    // H2: SIEMPRE la clave del servidor; jamás la del cliente.
+    const idem = `pi-order-${params.orderId}`;
     let pi: { id: string; clientSecret: string };
     try {
       pi = await this.stripe.createPaymentIntent({
@@ -366,6 +373,28 @@ export class OrdersService {
   }
 
   /**
+   * MS-2 (BE-27) — FUENTE ÚNICA del mapeo de overflow de AGREGADOS a error de negocio, para las DOS
+   * rutas que PERSISTEN una `Order` (bóveda y envío directo). Ejecuta el cómputo de un breakdown y, si
+   * `grossUpTotal` lanzó por un `totalCents` no representable en Int32 (> `MAX_CENTS`), lo traduce a
+   * `AMOUNT_TOO_LARGE` (422) en vez de dejar propagar un 500 crudo o —peor— reventar al persistir la
+   * Order (excepción Postgres). Un agregado NUNCA se clampa (recortar = subcobro): se RECHAZA. Cualquier
+   * otro `Error` (p. ej. mala config de fee) se propaga tal cual (es 500 legítimo de servidor).
+   */
+  representableOrThrow<T extends { totalCents: number }>(compute: () => T): T {
+    try {
+      return compute();
+    } catch (e) {
+      if (e instanceof Error && e.message.includes('MAX_CENTS')) {
+        throw BusinessException.validation(
+          'AMOUNT_TOO_LARGE',
+          'Order amount exceeds the maximum representable value; please split the order.',
+        );
+      }
+      throw e;
+    }
+  }
+
+  /**
    * Checkout session: reserva items, crea Order pending y PaymentIntent Stripe.
    * ARCHITECTURE §3.3, §5.1. Concurrencia: reserva con status=reserved (pieza única).
    */
@@ -373,13 +402,14 @@ export class OrdersService {
     userId: string,
     inventoryItemIds: string[],
     billingProfileId: string | undefined,
-    idempotencyKey?: string,
   ) {
     const { items, subtotalCents: subtotal, lines: orderItemsData } =
       await this.priceCartForOrder(inventoryItemIds);
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
-    const breakdown = computeCartBreakdown(subtotal, ivaPct, fee);
+    // MS-2 (BE-27): un agregado no representable en Int32 → 422 AMOUNT_TOO_LARGE (nunca se persiste
+    // un overflow ni se clampa el total). El mapeo es la fuente única `representableOrThrow`.
+    const breakdown = this.representableOrThrow(() => computeCartBreakdown(subtotal, ivaPct, fee));
 
     const billingSnapshot = billingProfileId
       ? await this.prisma.billingProfile.findFirst({ where: { id: billingProfileId, userId } })
@@ -424,7 +454,6 @@ export class OrdersService {
       amountCents: breakdown.totalCents,
       metadata: { orderId: order.id, userId, kind: 'order' },
       inventoryItemIds: orderItemsData.map((oi) => oi.inventoryItemId),
-      idempotencyKey,
     });
 
     return {
