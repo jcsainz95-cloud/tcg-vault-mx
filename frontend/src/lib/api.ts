@@ -92,6 +92,7 @@ import type {
   PriceProvider,
   PriceIngestResponse,
   PendingPriceEntryDTO,
+  PendingPriceContext,
   RemoteSetDTO,
   PriceHistoryEntryDTO,
   PricingSyncResponse,
@@ -2469,13 +2470,23 @@ export async function syncPricing(input: {
   return delay({ jobId: mockJobId(), queued: fx.mockListings.length });
 }
 
-/** Cola de precio pendiente (contrato GET /admin/pricing/pending). */
-export async function getPendingPrices(): Promise<PendingPriceEntryDTO[]> {
+/**
+ * Cola de precio pendiente (contrato GET /admin/pricing/pending).
+ * v1.26 (P-6, dos buckets): `context?` opcional filtra la cola por origen — `inventory` = VENTA
+ * (fijable por override), `buylist` = COMPRA (READ-ONLY). Omitirlo trae todos (retro-compatible).
+ */
+export async function getPendingPrices(
+  context?: PendingPriceContext,
+): Promise<PendingPriceEntryDTO[]> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ data: PendingPriceEntryDTO[] }>('/admin/pricing/pending');
+    const res = await apiRequest<{ data: PendingPriceEntryDTO[] }>('/admin/pricing/pending', {
+      query: { context },
+    });
     return res.data;
   }
-  return delay(fx.mockPendingPrices);
+  return delay(
+    context ? fx.mockPendingPrices.filter((p) => p.context === context) : fx.mockPendingPrices,
+  );
 }
 
 export interface PricingOverrideInput {

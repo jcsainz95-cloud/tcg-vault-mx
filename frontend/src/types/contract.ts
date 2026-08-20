@@ -1192,6 +1192,13 @@ export interface PriceIngestResponse {
 // GET /admin/pricing/pending: cola de precio pendiente (contrato §11 PendingPriceEntry).
 // v1.8-ronda-c (M-19): la cola es POR ACABADO — cada entrada lleva `finish` y el override
 // debe enviarlo para resolver SOLO el pendiente de ese acabado.
+/**
+ * Contexto/origen de un pendiente de precio (contrato §M2, `pending?context=`). v1.26 (P-6):
+ * habilita los dos buckets de M2 — `inventory` = VENTA (fijable por override), `buylist` = COMPRA
+ * (READ-ONLY). `catalog`/`portfolio` son otros orígenes históricos.
+ */
+export type PendingPriceContext = 'catalog' | 'portfolio' | 'buylist' | 'inventory';
+
 export interface PendingPriceEntryDTO {
   id: string;
   cardId: string;
@@ -1199,7 +1206,7 @@ export interface PendingPriceEntryDTO {
   gradeKey: string;
   /** Acabado del pendiente (modelo M-19). El override debe reenviar este mismo finish. */
   finish: Finish;
-  context: 'catalog' | 'portfolio' | 'buylist' | 'inventory';
+  context: PendingPriceContext;
   status: 'open' | 'resolved';
   createdAt: string;
   // Conveniencia del front: nombre de carta para render. El backend puede omitirlo.

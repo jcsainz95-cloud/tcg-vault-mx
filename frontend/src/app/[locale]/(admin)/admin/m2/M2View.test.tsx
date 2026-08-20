@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
@@ -6,6 +7,16 @@ import { M2View } from './M2View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { mockSettings } from '@/lib/mock/fixtures';
+
+// El `Link` de next-intl (`@/i18n/navigation`) no resuelve bajo vitest; se stubea a un <a>
+// que preserva href/aria-label (enlace del bucket COMPRA al admin de buylist, M5).
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -69,6 +80,55 @@ describe('M2View · Catálogo y precios', () => {
         priceMxnCents: 35000,
       }),
     );
+  });
+
+  // ---- P-6: cola de precio pendiente en DOS BUCKETS (v1.26) ----
+  it('P-6 VENTA (pestaña por defecto) pide context=inventory y renderiza sus pendientes', async () => {
+    const spy = vi.spyOn(api, 'getPendingPrices');
+    renderWithProviders(<M2View />, 'es');
+    // Zapdos es context=inventory (fixture) → visible en VENTA (pestaña activa por defecto).
+    expect((await screen.findAllByText('Zapdos')).length).toBeGreaterThan(0);
+    // El bucket VENTA consulta SOLO context=inventory.
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('inventory'));
+    // Machamp es context=buylist → NO aparece en el bucket VENTA.
+    expect(screen.queryByText('Machamp')).toBeNull();
+  });
+
+  it('P-6 VENTA: "Fijar precio" llama a overridePrice y REFRESCA la cola (refetch context=inventory)', async () => {
+    const override = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    const listSpy = vi.spyOn(api, 'getPendingPrices');
+    renderWithProviders(<M2View />, 'es');
+
+    const buttons = await screen.findAllByRole('button', { name: 'Fijar precio' });
+    fireEvent.click(buttons[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Override manual de precio/ });
+    fireEvent.change(within(dialog).getByLabelText('Precio de referencia (MXN)'), {
+      target: { value: '350' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar precio' }));
+
+    // La escritura money-touching llama al override existente…
+    await waitFor(() => expect(override).toHaveBeenCalledTimes(1));
+    // …y al cerrarse el pendiente, la cola VENTA se invalida y se vuelve a pedir (context=inventory).
+    const inventoryCalls = () => listSpy.mock.calls.filter((c) => c[0] === 'inventory').length;
+    await waitFor(() => expect(inventoryCalls()).toBeGreaterThanOrEqual(2));
+  });
+
+  it('P-6 COMPRA pide context=buylist y es READ-ONLY (sin acción de fijar precio) + enlace a M5', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'getPendingPrices');
+    renderWithProviders(<M2View />, 'es');
+
+    await user.click(await screen.findByRole('tab', { name: /Compra/ }));
+    // El bucket COMPRA consulta context=buylist.
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('buylist'));
+    // Machamp (context=buylist) se muestra…
+    expect((await screen.findAllByText('Machamp')).length).toBeGreaterThan(0);
+    // …y es READ-ONLY: no hay botón de fijar precio en el panel de COMPRA.
+    const panel = screen.getByRole('tabpanel');
+    expect(within(panel).queryByRole('button', { name: 'Fijar precio' })).toBeNull();
+    // Nota + enlace al módulo de buylist (M5), donde SÍ se fija el precio de compra.
+    expect(screen.getByRole('link', { name: /Abrir admin de buylist/ })).toBeInTheDocument();
   });
 
   it('muestra un Banner de error cuando el sync por set (Importar/Re-sincronizar) falla', async () => {

@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { RefreshCw, DownloadCloud, Layers, Zap } from 'lucide-react';
+import { RefreshCw, DownloadCloud, Layers, Zap, ExternalLink } from 'lucide-react';
+import { Link } from '@/i18n/navigation';
+import { cn } from '@/lib/cn';
 import {
   syncPricing,
   getPendingPrices,
@@ -158,8 +160,23 @@ export function M2View() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pending-prices'] }),
   });
 
-  // --- Sección 2: cola de precio pendiente + override ---
-  const pending = useQuery({ queryKey: ['pending-prices'], queryFn: getPendingPrices });
+  // --- Sección 2: cola de precio pendiente en DOS BUCKETS (P-6, v1.26) ---
+  // VENTA = context=inventory (fijable por override → publica el ítem). COMPRA = context=buylist,
+  // vista READ-ONLY (producir el precio de compra on-request es un WRITE del stream buylist,
+  // acoplado a INE/AML — FUERA DE ALCANCE de M2; aquí solo se muestra). Ver contrato §M2.
+  const [bucket, setBucket] = useState<'venta' | 'compra'>('venta');
+  // Cada bucket pide SOLO su contexto y solo cuando su pestaña está activa (calca M6). El override
+  // invalida el prefijo ['pending-prices'] → refresca el bucket VENTA al cerrar el pendiente.
+  const ventaPending = useQuery({
+    queryKey: ['pending-prices', 'inventory'],
+    queryFn: () => getPendingPrices('inventory'),
+    enabled: bucket === 'venta',
+  });
+  const compraPending = useQuery({
+    queryKey: ['pending-prices', 'buylist'],
+    queryFn: () => getPendingPrices('buylist'),
+    enabled: bucket === 'compra',
+  });
   const [overrideTarget, setOverrideTarget] = useState<PendingPriceEntryDTO | null>(null);
   const [overridePriceValue, setOverridePriceValue] = useState('');
   const overrideMutation = useMutation({
@@ -208,6 +225,26 @@ export function M2View() {
           {t('pending.setPrice')}
         </Button>
       ),
+    },
+  ];
+
+  // COMPRA (context=buylist): columnas READ-ONLY (carta/número/acabado). SIN acción de fijar precio:
+  // el precio de compra lo produce el stream buylist (M5), no M2. Ver contrato §M2 / ARCHITECTURE §4.24c.
+  const compraColumns: Column<PendingPriceEntryDTO>[] = [
+    {
+      key: 'card',
+      header: t('pending.card'),
+      render: (e) => (
+        <span lang="en">
+          {e.cardName ?? e.card?.name ?? e.cardId}
+          {e.card?.number ? <span className="tabular text-muted"> #{e.card.number}</span> : null}
+        </span>
+      ),
+    },
+    {
+      key: 'finish',
+      header: t('pending.finish'),
+      render: (e) => <FinishBadge finish={e.finish} productType={e.productType} />,
     },
   ];
 
@@ -634,24 +671,75 @@ export function M2View() {
         )}
       </section>
 
-      {/* Sección 2: cola de precio pendiente + override */}
+      {/* Sección 2: cola de precio pendiente en DOS BUCKETS (P-6, v1.26) */}
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('pending.title')}</h2>
         <p className="text-sm text-muted">{t('pending.subtitle')}</p>
-        <QueryState
-          isLoading={pending.isLoading}
-          isError={pending.isError}
-          error={pending.error}
-          onRetry={() => pending.refetch()}
-        >
-          {pending.data && pending.data.length > 0 ? (
-            <div className="rounded-lg border border-border bg-surface p-2">
-              <DataTable columns={pendingColumns} rows={pending.data} rowKey={(e) => e.id} />
-            </div>
-          ) : (
-            <EmptyState tone="positive" title={t('pending.empty')} />
-          )}
-        </QueryState>
+
+        {/* Pestañas VENTA / COMPRA (patrón de tabs de M6) */}
+        <div role="tablist" aria-label={t('pending.bucketsLabel')} className="flex flex-wrap gap-1 border-b border-border">
+          {(['venta', 'compra'] as const).map((k) => (
+            <button
+              key={k}
+              role="tab"
+              type="button"
+              aria-selected={bucket === k}
+              onClick={() => setBucket(k)}
+              className={cn(
+                '-mb-px rounded-t-md px-3 py-2 text-sm font-medium',
+                bucket === k ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+              )}
+            >
+              {t(`pending.buckets.${k}`)}
+            </button>
+          ))}
+        </div>
+
+        {/* VENTA (context=inventory): fijable por override → publica el ítem */}
+        {bucket === 'venta' && (
+          <div role="tabpanel">
+            <QueryState
+              isLoading={ventaPending.isLoading}
+              isError={ventaPending.isError}
+              error={ventaPending.error}
+              onRetry={() => ventaPending.refetch()}
+            >
+              {ventaPending.data && ventaPending.data.length > 0 ? (
+                <div className="rounded-lg border border-border bg-surface p-2">
+                  <DataTable columns={pendingColumns} rows={ventaPending.data} rowKey={(e) => e.id} />
+                </div>
+              ) : (
+                <EmptyState tone="positive" title={t('pending.ventaEmpty')} />
+              )}
+            </QueryState>
+          </div>
+        )}
+
+        {/* COMPRA (context=buylist): READ-ONLY. NO hay acción de fijar precio aquí. */}
+        {bucket === 'compra' && (
+          <div role="tabpanel" className="flex flex-col gap-3">
+            <Banner variant="info" role="status">
+              {t('pending.compraNote')}{' '}
+              <Link href="/admin/m5" className="inline-flex items-center gap-1 font-medium underline">
+                {t('pending.compraLink')} <ExternalLink size={14} />
+              </Link>
+            </Banner>
+            <QueryState
+              isLoading={compraPending.isLoading}
+              isError={compraPending.isError}
+              error={compraPending.error}
+              onRetry={() => compraPending.refetch()}
+            >
+              {compraPending.data && compraPending.data.length > 0 ? (
+                <div className="rounded-lg border border-border bg-surface p-2">
+                  <DataTable columns={compraColumns} rows={compraPending.data} rowKey={(e) => e.id} />
+                </div>
+              ) : (
+                <EmptyState tone="positive" title={t('pending.compraEmpty')} />
+              )}
+            </QueryState>
+          </div>
+        )}
       </section>
 
       {/* Sección 3: FX */}

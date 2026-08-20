@@ -1183,6 +1183,15 @@
         "title": "Pending-price queue",
         "subtitle": "Cards without a reference price, escalated to set manually. The buyer never sees this state.",
         "empty": "No pending prices.",
+        "bucketsLabel": "Pending-price buckets",
+        "buckets": {
+          "venta": "Sales (inventory)",
+          "compra": "Buylist (purchase)"
+        },
+        "ventaEmpty": "No inventory items awaiting a sale price.",
+        "compraEmpty": "No buylist cards awaiting a purchase reference.",
+        "compraNote": "Read-only: the purchase price for buylist cards is set in the buylist module, not here.",
+        "compraLink": "Open buylist admin",
         "card": "Card",
         "type": "Type",
         "gradeKey": "Grade key",

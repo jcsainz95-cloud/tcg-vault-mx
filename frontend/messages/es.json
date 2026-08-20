@@ -1183,6 +1183,15 @@
         "title": "Cola de precio pendiente",
         "subtitle": "Cartas sin precio de referencia, escaladas para fijar precio a mano. El comprador nunca ve este estado.",
         "empty": "Sin precios pendientes.",
+        "bucketsLabel": "Buckets de precio pendiente",
+        "buckets": {
+          "venta": "Venta (inventario)",
+          "compra": "Compra (buylist)"
+        },
+        "ventaEmpty": "Sin ítems de inventario a la espera de precio de venta.",
+        "compraEmpty": "Sin cartas de buylist a la espera de referencia de compra.",
+        "compraNote": "Solo lectura: el precio de compra de las cartas de buylist se fija en el módulo de buylist, no aquí.",
+        "compraLink": "Abrir admin de buylist",
         "card": "Carta",
         "type": "Tipo",
         "gradeKey": "Clave de grado",
