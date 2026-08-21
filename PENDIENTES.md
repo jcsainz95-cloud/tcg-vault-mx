@@ -263,6 +263,29 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 - **Roles:** product-owner (definir alcance con el humano) → arquitecto (contrato de referencias
   por grado) → backend + frontend.
 
+### P-21 · Rebrand: la página pasa a ser **TCG HUNT (.mx)** con logo de mira
+- **Pedido del humano (2026-08-21):** va a comprar el dominio (tcghunt.mx) y quiere rebrandear toda
+  la página a ese nombre con el logo que compartió: una **mira/crosshair** en degradado rojo-vino
+  sobre fondo claro, wordmark "TCG HUNT" + ".mx" en tipografía sans bold.
+- **Acciones del humano (nadie más puede):** comprar el dominio; pasar el archivo del logo en buena
+  resolución (idealmente SVG o PNG grande, y versión para fondo oscuro si existe).
+- **Alcance técnico (cuando arranque):**
+  1. **ux-ui:** actualizar `docs/DESIGN_SYSTEM.md` — nueva identidad (logo, paleta derivada del
+     rojo-vino del logo, favicon, tratamiento del wordmark; revisar contraste/accesibilidad).
+  2. **frontend:** reemplazar marca en topbar/storefront/admin ("TCG VAULT MX" → "TCG HUNT"),
+     logo, favicon/OG images, `<title>`/metadata SEO, textos legales y correos donde se nombre la
+     marca, i18n (`messages/es.json` y `en.json`).
+  3. **backend:** remitente/plantillas de mail y cualquier string de marca en respuestas (p. ej.
+     folios/PDFs si nombran la marca).
+  4. **devops:** dominio nuevo en Vercel (+ DNS), CORS/URLs en Railway, redirects 301 de
+     `tcgvaultmx.com` → `tcghunt.mx` (SEO), variables de entorno con URLs, webhooks de Stripe si
+     referencian dominio, certificados.
+- **Decisiones a confirmar con el humano al arrancar:** ¿el dominio viejo redirige o se apaga? ¿la
+  razón social / textos legales cambian o solo la marca comercial? ¿el repo/infra interna conserva
+  el nombre `tcg-vault-mx` (recomendado: sí, solo cambia la marca visible)?
+- **Cadencia:** es un work stream propio (toca storefront+admin+mails+deploy); conviene hacerlo en
+  una ventana sin otros streams de frontend abiertos para no pisarse.
+
 ---
 
 ## En curso / Hecho (referencia)
