@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Crosshair } from 'lucide-react';
 import {
   getMasterSetBinder,
   getAdminVaultMasterSetBinder,
@@ -31,6 +31,8 @@ import { CardImage } from '@/components/ui/CardImage';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { FINISH_ORDER, displayFinishesOf, displayedVariants } from '@/lib/finish';
+import { FinishBand } from '@/components/domain/FinishMark';
+import { VariantPricingCompact } from './VariantPriceConsole';
 import type { MasterSetViewMode } from './mode';
 
 type PieceFilter = 'all' | 'with' | 'gaps';
@@ -44,6 +46,11 @@ interface Props {
   onOpenCell: (cell: MasterSetCardCellDTO) => void;
   /** Solo modo `quoter`: clic en una casilla de acabado agrega esa combinación al carrito de venta. */
   onAddVariant?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
+  /**
+   * v1.28 (P-17, solo M1): si viene, el clic en una casilla abre el DRILL-DOWN de ESA variante
+   * (VariantDrawer) en lugar del drawer por-carta. El dueño (M1View) monta el panel.
+   */
+  onOpenVariant?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
 }
 
 /**
@@ -159,7 +166,7 @@ function fetchBinder(
  * `availableFinishes`, orden canónico: normal a la izquierda, reverse holo a la derecha); el
  * contador «X/Y» cuenta variantes. Prohibida la casilla de relleno.
  */
-export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVariant }: Props) {
+export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVariant, onOpenVariant }: Props) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
   const isQuoter = mode === 'quoter';
@@ -319,7 +326,13 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                   {isQuoter ? (
                     <QuoterTile cell={cell} variant={variant} onAdd={() => onAddVariant?.(cell, variant)} />
                   ) : (
-                    <BinderTile cell={cell} variant={variant} onOpen={() => onOpenCell(cell)} />
+                    <BinderTile
+                      cell={cell}
+                      variant={variant}
+                      onOpen={() =>
+                        onOpenVariant ? onOpenVariant(cell, variant) : onOpenCell(cell)
+                      }
+                    />
                   )}
                 </li>
               ))}
@@ -427,30 +440,48 @@ function BinderTile({
       ? variant.marketReferenceMxnCents
       : cell.marketReferenceMxnCents; // DEPRECATED v1.27: retirar junto con el campo de celda.
   const marketPrice = marketRef != null ? formatMoneyCents(marketRef, locale) : null;
+  // v1.28 (P-18): con `pricing` (SOLO scope platform) la teja pinta la consola compacta de tres
+  // precios (MERCADO/COMPRA/VENTA con marcador de origen) en lugar del renglón único P-15.
+  const pricing = variant.pricing;
+  const bountyOn = pricing?.bounty?.enabled === true;
   return (
     <button
       type="button"
       onClick={onOpen}
+      aria-haspopup="dialog"
       className="flex h-full w-full flex-col text-left transition-colors focus-visible:shadow-focus focus-visible:outline-none"
     >
+      {/* FinishMark (§16.6): banda superior de 3px — canal de color; el texto lo porta la
+          etiqueta de acabado del TileHeader (doble canal, nunca banda sin texto). */}
+      <FinishBand finish={variant.finish} />
       <TileHeader cell={cell} finishLabel={finishLabel} dimmed={isGap} dashed={isGap} showTotalCount />
-      {/* P-15: precio de mercado de ESTA variante (subtitulado "Mercado"), o affordance de pendiente. */}
-      <span className="mt-2 flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted">
-        <span>{t('marketLabel')}</span>
-        {marketPrice != null ? (
-          <span className="tabular-nums normal-case tracking-normal text-text">{marketPrice}</span>
-        ) : (
-          <span className="text-accent" title={t('marketPending')}>
-            {t('marketPendingShort')}
-          </span>
-        )}
-      </span>
-      <span className="mt-auto pt-2">
+      {pricing ? (
+        <VariantPricingCompact pricing={pricing} marketRefCents={marketRef} />
+      ) : (
+        /* P-15: precio de mercado de ESTA variante (subtitulado "Mercado"), o affordance de pendiente. */
+        <span className="mt-2 flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted">
+          <span>{t('marketLabel')}</span>
+          {marketPrice != null ? (
+            <span className="tabular-nums normal-case tracking-normal text-text">{marketPrice}</span>
+          ) : (
+            <span className="text-accent" title={t('marketPending')}>
+              {t('marketPendingShort')}
+            </span>
+          )}
+        </span>
+      )}
+      <span className="mt-auto flex items-center gap-2 pt-2">
         {isGap ? (
           <span className="font-mono text-[10px] uppercase tracking-wide text-accent">{t('gap')}</span>
         ) : (
           <span className="font-mono tabular-nums text-xs text-text">
             {t('totalCount', { count: variant.count })}
+          </span>
+        )}
+        {/* Badge bounty (P-22, §16.7b): mono bermellón + mira decorativa. */}
+        {bountyOn && (
+          <span className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.06em] text-accent">
+            <Crosshair size={14} aria-hidden /> {t('bountyBadge')}
           </span>
         )}
       </span>

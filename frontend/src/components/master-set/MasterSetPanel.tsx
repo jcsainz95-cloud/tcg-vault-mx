@@ -36,6 +36,13 @@ interface Props {
    * (carta, acabado) al carrito de VENTA del cotizador (BuylistView es dueño del carrito).
    */
   onAddToSellCart?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
+  /**
+   * v1.28 (P-17, solo M1): drill-down POR VARIANTE. Si viene, el clic en una casilla del binder
+   * NO abre el CellDrawer por-carta: delega en el dueño (M1View monta el VariantDrawer). Cuando
+   * el set abierto cambia se notifica con `onSetOpened` (alcance «Solo este set» de publicar-todo).
+   */
+  onOpenVariant?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
+  onSetOpened?: (set: MasterSetSummaryDTO | null) => void;
 }
 
 /**
@@ -44,7 +51,14 @@ interface Props {
  * ajuste por levantamiento físico SOLO se montan en modo `platform` (M1); los modos
  * `user_vault_*` son lectura (y compra de faltantes en la vista del propio cliente).
  */
-export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing, onAddToSellCart }: Props) {
+export function MasterSetPanel({
+  mode = 'platform',
+  userId,
+  onBuyMissing,
+  onAddToSellCart,
+  onOpenVariant,
+  onSetOpened,
+}: Props) {
   const t = useTranslations('masterSet');
   const queryClient = useQueryClient();
   const isPlatform = mode === 'platform';
@@ -165,12 +179,23 @@ export function MasterSetPanel({ mode = 'platform', userId, onBuyMissing, onAddT
           mode={mode}
           userId={userId}
           set={selectedSet}
-          onBack={() => setSelectedSet(null)}
+          onBack={() => {
+            setSelectedSet(null);
+            onSetOpened?.(null);
+          }}
           onOpenCell={(cell) => setOpenCell(cell)}
           onAddVariant={onAddToSellCart}
+          onOpenVariant={onOpenVariant}
         />
       ) : (
-        <MasterSetIndex mode={mode} userId={userId} onOpenSet={(s) => setSelectedSet(s)} />
+        <MasterSetIndex
+          mode={mode}
+          userId={userId}
+          onOpenSet={(s) => {
+            setSelectedSet(s);
+            onSetOpened?.(s);
+          }}
+        />
       )}
 
       {/* Lote de alta al inventario (#12): SOLO M1 (modo platform). El carrito NO aplica a admin:

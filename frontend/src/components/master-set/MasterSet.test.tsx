@@ -166,7 +166,9 @@ describe('Master Set · Precio de mercado POR VARIANTE en el tile (P-15, v1.27)'
     const zapdosTiles = await screen.findAllByRole('button', { name: /Zapdos/ });
     zapdosTiles.forEach((tile) => {
       expect(within(tile).getByText('Mercado')).toBeInTheDocument();
-      expect(within(tile).getByText('—')).toBeInTheDocument();
+      // v1.28 (P-18): la teja platform trae la consola compacta (MERCADO/COMPRA/VENTA) — cada
+      // cara sin precio pinta su propio "—" (puede haber varios), jamás un MX$0.00 inventado.
+      expect(within(tile).getAllByText('—').length).toBeGreaterThan(0);
       expect(within(tile).queryByText(/MX\$0\.00/)).toBeNull();
     });
   });
