@@ -358,6 +358,35 @@ Del lado del humano (cuando pueda):
 - **Roles:** investigación (orquestador delega búsqueda web) + product-owner aterriza con el humano
   → luego arquitecto/backend/frontend cuando esté definido.
 
+### P-24 · Valor total del inventario visible en M1, desglosado: sueltas + ETB/sellado
+- **Pedido del humano (2026-08-21):** en inventario, ver el **valor de mi inventario actual total**,
+  separado en **cartas sueltas** y **ETB/sellado**.
+- **Base existente (verificado):** ya hay valor de inventario en el dashboard admin
+  (`inventoryValueCents`) y en M7 finanzas (a referencia + a costo + conteo de piezas sin precio),
+  pero **sin desglose por tipo de producto** y no visible dentro de M1.
+- **Qué falta:** desglosar el cálculo por `productType` (raw / sealed / graded — el graded conecta
+  con P-20) y pintar el resumen arriba de M1: total + sueltas + sellado (+ PSA cuando exista P-20),
+  a valor de mercado y a costo. Backend: extender el endpoint de valor de inventario con breakdown;
+  frontend: tarjetas de resumen en M1.
+- **Roles:** arquitecto (si cambia contrato del endpoint) → backend + frontend.
+
+### P-25 · Pestaña de inventario de producto SELLADO por set (alta y gestión)
+- **Pregunta del humano (2026-08-21):** "¿necesitamos una pestaña para subir inventario de sellado
+  por set — eso no lo tenemos, o sí?" → **Respuesta: el soporte existe, la pestaña NO.**
+- **Base existente (verificado):** `productType=sealed` completo en el modelo (subtipo ETB/booster
+  box/etc. M-2, condición M-28, mapeo curado a TCGCSV con precio de mercado del sellado M-23, ventas
+  de sellado con suscripción de restock M-28, cola de no-mapeados). El alta hoy es por el formulario
+  clásico de M1 (tipo "sellado") y las piezas quedan mezcladas en la lista general.
+- **Qué falta:** una pestaña **"Sellado"** en M1, organizada **por set** (análoga al Master Set pero
+  de productos sellados del set: ETB, booster box, sobres...): ver qué sellado hay por set con su
+  precio de mercado, **alta rápida** (producto + cantidad + compra/aportación, mismas reglas simples
+  de P-19), bajas y publicar. Incluir acceso a la cola de sellados no-mapeados a TCGCSV (sin mapeo
+  no hay precio de mercado).
+- **Conexión:** P-24 (el desglose de valor usa esto), P-19 (aportación a valor de mercado aplica a
+  ETBs), tracker de precios de ETB del home (en cola desde el handoff).
+- **Roles:** ux-ui (layout de la pestaña) + arquitecto (si falta endpoint por set) → backend +
+  frontend.
+
 ---
 
 ## En curso / Hecho (referencia)
