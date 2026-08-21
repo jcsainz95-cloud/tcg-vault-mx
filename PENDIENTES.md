@@ -51,7 +51,13 @@ humano (ya dado únicamente para el PR #21).
    define, frontend implementa; comparte componente de teja con B, por eso va después.
 5. **P-23 (meta decks):** la investigación puede correr en paralelo (solo lectura/web); la
    implementación espera definición del humano.
-6. **P-21 (rebrand TCG HUNT):** cuando el humano entregue dominio + logo.
+6. **P-21 (rebrand TCG HUNT):** ✅ CERRADO (2026-08-21) con doble veredicto (QA y techlead
+   aprobados; ronda de cierre completada: helper envOr vacío⇒default en correos, runbook §25.6 con
+   paso de buzones i18n + check de razón social, guardia DAST por host, deuda BE/FE/DO-P21
+   registrada). En `main`. Logo SVG v1.7.1 aprobado por el humano; marca migrada completa
+   (frontend+correos); infra preparada (runbook §25.6 en DEVOPS_NOTES). **El switch de dominio lo
+   ejecuta el humano con el runbook, DESPUÉS del release a producción.** Pendiente del humano:
+   razón social para `footer.legalEntity` (check pre-switch).
 
 Del lado del humano (cuando pueda):
 - ✅ HECHO (2026-08-21): `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` verificada en Railway por el
