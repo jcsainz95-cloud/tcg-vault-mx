@@ -184,6 +184,22 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
   de teja del cotizador al del binder de inventario; revisar columnas/densidad de la grilla y el
   espacio del carrito lateral.
 
+### P-17 · M1: quitar (o demotar) la vista "Piezas" y quedarse con Master Set
+- **Observado (2026-08-21):** al humano le gustaría eliminar la vista de lista "Piezas" del inventario
+  y quedarse solo con la visión Master Set.
+- **Recomendación del orquestador (decisión del humano pendiente):** NO eliminarla por completo —
+  la lista de Piezas es la única vista operativa por copia física (folio, ubicación C01-F01-S01,
+  estado en stock/listada, precio manual, detalle por pieza), necesaria para localizar la copia
+  exacta en ventas/envíos/auditorías/disputas. Propuesta alternativa:
+  1. Master Set como pestaña **por defecto** al entrar a M1.
+  2. Piezas deja de ser pestaña hermana y pasa a **drill-down**: clic en una carta/variante del
+     Master Set → panel con sus copias físicas (folios, ubicación, estado, detalle).
+  3. Conservar el buscador por folio como acceso rápido.
+- **Si el humano confirma eliminación total:** primero reubicar folio/ubicación/estado dentro del
+  Master Set; si no, se pierde la operación de piezas individuales.
+- **Roles:** ux-ui (propuesta de layout) + frontend; sin cambio de contrato aparente (los endpoints
+  de items ya existen).
+
 ---
 
 ## En curso / Hecho (referencia)
