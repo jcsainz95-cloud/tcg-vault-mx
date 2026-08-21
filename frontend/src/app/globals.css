@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 /*
- * Dirección 5a — papel, tinta y bermellón.
+ * Dirección 5a — papel, tinta y rojo TCG HUNT (rebrand P-21, DESIGN_SYSTEM §17).
  * Tres familias con trabajos distintos: mincho para títulos (aire y voz editorial),
  * Archivo para la UI, mono para toda cifra, folio y etiqueta. Las variables
- * --font-serif/--font-sans/--font-mono las define next/font en [locale]/layout.tsx
- * (self-hospedadas); aquí solo se consumen.
+ * --font-serif/--font-sans/--font-mono/--font-brand las define next/font en
+ * [locale]/layout.tsx (self-hospedadas); aquí solo se consumen.
  *
  * Tema único claro: el papel ES la marca. No hay paleta .dark ni ThemeToggle.
  */
@@ -31,9 +31,27 @@
   --color-primary-hover: #000000;
   --color-primary-fg: #f4f1ea;
 
-  /* Bermellón: sello de marca. Una sola tinta, usada con avaricia. */
-  --color-accent: #b44b3a;
+  /*
+   * Rojo TCG HUNT: sello de marca (§17.2, sustituye al bermellón #B44B3A, que se
+   * RETIRA — no conviven dos rojos). Una sola tinta, usada con avaricia.
+   * PROHIBIDO sobre tinta #1A1A18 (~2.5:1): ahí va la variante oscura del logo
+   * (--hunt-red-up → --hunt-red-deep).
+   */
+  --color-accent: #b31217;
   --color-accent-fg: #f4f1ea;
+
+  /*
+   * Tokens de MARCA (§17.2) — uso restringido al logo/lockup y piezas de marca.
+   * El degradado --hunt-red→--hunt-wine es la segunda y última excepción de
+   * gradiente del sistema y vive EXCLUSIVAMENTE en el logo (la primera: banda
+   * reverse §16.6, que hereda --color-accent por token).
+   */
+  --hunt-red: #b31217;
+  --hunt-wine: #4a0d0d;
+  --hunt-red-hover: #8f0e12;
+  --hunt-red-up: #f0685f;
+  --hunt-red-deep: #d0362c;
+  --hunt-tint: rgba(179, 18, 23, 0.06);
 
   /*
    * Estados. El diseño no usa rellenos de color: un estado es texto mono
@@ -43,9 +61,10 @@
   /* #4A7345 ≈ 4.86:1 sobre el papel #F4F1EA (AA ≥4.5:1). Antes #4E7A49 = 4.43:1. */
   --color-success: #4a7345;
   --color-success-bg: transparent;
-  --color-warning: #b44b3a;
+  /* warning/danger heredan el rojo TCG HUNT (§17.2): 6.2:1 sobre papel (antes 4.65:1). */
+  --color-warning: #b31217;
   --color-warning-bg: transparent;
-  --color-danger: #b44b3a;
+  --color-danger: #b31217;
   --color-danger-bg: transparent;
   --color-info: #6e695e;
   --color-info-bg: transparent;
@@ -58,7 +77,7 @@
   --color-on-ink-nav: #a39d91;
   --color-on-ink-rule: rgba(244, 241, 234, 0.14);
 
-  --color-focus-ring: #b44b3a;
+  --color-focus-ring: #b31217;
 }
 
 @layer base {
@@ -86,7 +105,7 @@
   input[type='number'] {
     font-variant-numeric: tabular-nums;
   }
-  /* Foco visible en bermellón (DESIGN_SYSTEM §8.2), sin radio. */
+  /* Foco visible en rojo TCG HUNT (DESIGN_SYSTEM §8.2 + §17.2), sin radio. */
   :focus-visible {
     outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;

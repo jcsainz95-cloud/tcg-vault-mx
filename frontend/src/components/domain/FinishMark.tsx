@@ -30,9 +30,11 @@ export function FinishBand({ finish, className }: { finish: Finish; className?: 
   if (finish === 'normal') return null;
   // SB-D8: tokens vivos del sistema con fallback a los hex de DESIGN_SYSTEM §16.6 (mismo
   // criterio que PortfolioTrendChart) — si el tema recalibra, la banda acompaña sin drift.
+  // v1.7 (P-21): la banda reverse hereda el rojo TCG HUNT por token (--color-accent =
+  // #B31217, §17.2); el fallback acompaña al nuevo valor del DS.
   const background =
     finish === 'reverse_holo'
-      ? 'linear-gradient(90deg, var(--color-neutral-warm, #9A6C57) 0%, var(--color-accent, #B44B3A) 100%)'
+      ? 'linear-gradient(90deg, var(--color-neutral-warm, #9A6C57) 0%, var(--color-accent, #B31217) 100%)'
       : 'var(--color-ink, #1A1A18)';
   return (
     <span

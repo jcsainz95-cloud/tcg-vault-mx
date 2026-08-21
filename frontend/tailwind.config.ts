@@ -52,6 +52,9 @@ const config: Config = {
         sans: ['var(--font-sans)', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
         // Mono: toda cifra, folio, estado y etiqueta.
         mono: ['var(--font-mono)', 'ui-monospace', 'Menlo', 'monospace'],
+        // Marca: Montserrat 700, EXCLUSIVA del wordmark/lockup TCG HUNT (§17.1e).
+        // No entra en la escala tipográfica; fallback Archivo (--font-sans).
+        brand: ['var(--font-brand)', 'var(--font-sans)', 'system-ui', 'sans-serif'],
       },
       // Sin sombras: la profundidad la da el aire, no el relieve.
       boxShadow: {

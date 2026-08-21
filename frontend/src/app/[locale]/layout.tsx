@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Archivo, JetBrains_Mono, Zen_Old_Mincho } from 'next/font/google';
+import { Archivo, JetBrains_Mono, Montserrat, Zen_Old_Mincho } from 'next/font/google';
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getTranslations } from 'next-intl/server';
@@ -31,6 +31,14 @@ const mono = JetBrains_Mono({
   display: 'swap',
   variable: '--font-mono',
 });
+// Marca TCG HUNT (§17.1e): Montserrat 700, EXCLUSIVA del wordmark/lockup.
+// Un peso, un uso: no entra en la escala tipográfica de §3.
+const brand = Montserrat({
+  subsets: ['latin'],
+  weight: ['700'],
+  display: 'swap',
+  variable: '--font-brand',
+});
 
 export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));
@@ -43,9 +51,19 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'common' });
+  // §17.4: patrón de título «TCG HUNT — {página}» y og:site_name "TCG HUNT".
+  // La imagen OG (PNG 1200×630 del lockup) queda pendiente de export con la fuente
+  // resuelta (§17.3); el layout vive en public/branding/og-tcg-hunt.svg.
+  const title = `${t('appName')} — ${t('tagline')}`;
   return {
-    title: `${t('appName')} · ${t('tagline')}`,
+    title,
     description: t('tagline'),
+    openGraph: {
+      siteName: t('appName'),
+      title,
+      description: t('tagline'),
+      type: 'website',
+    },
   };
 }
 
@@ -61,7 +79,10 @@ export default async function LocaleLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className={`${serif.variable} ${sans.variable} ${mono.variable}`}>
+    <html
+      lang={locale}
+      className={`${serif.variable} ${sans.variable} ${mono.variable} ${brand.variable}`}
+    >
       <body className="min-h-dvh bg-bg font-sans text-text antialiased">
         <NextIntlClientProvider messages={messages}>
           <Providers>{children}</Providers>
