@@ -17,11 +17,11 @@ describe('FinishMark (§16.6) · doble canal: banda decorativa + etiqueta SIEMPR
     expect(label).toHaveAttribute('aria-label', 'Reverse Holo');
   });
 
-  it('holofoil: banda SÓLIDA tinta + etiqueta "Holo"', () => {
+  it('holofoil: banda SÓLIDA tinta (token vivo + fallback, SB-D8) + etiqueta "Holo"', () => {
     renderWithIntl(<FinishMark finish="holofoil" />, 'es');
     const band = screen.getByTestId('finish-band');
-    // jsdom normaliza el hex a rgb: tinta #1A1A18 = rgb(26, 26, 24).
-    expect(band.getAttribute('style')).toContain('rgb(26, 26, 24)');
+    // SB-D8: token del sistema con fallback al hex del DS (nada de hex hardcodeado a secas).
+    expect(band.getAttribute('style')).toContain('var(--color-ink');
     expect(band.getAttribute('style')).not.toContain('gradient');
     expect(screen.getByText('Holo')).toBeInTheDocument();
   });
