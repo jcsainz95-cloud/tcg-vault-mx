@@ -1,6 +1,118 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
 
 <!-- ════════════════════════════════════════════════════════════════════════════════════════
+     PASE v1.28 — RELEASE (2026-08-21) — se antepone; el contenido histórico se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# PASE v1.28 — RELEASE (Streams A v1.27 + B v1.28/v1.28.1 + P-21 rebrand) · 2026-08-21 · VEREDICTO de seguridad
+
+> **Rol:** seguridad (blue team / AppSec). Consolido `docs/PENTEST_NOTES.md` (sección «PASE v1.28 — RELEASE», 2026-08-21) contra el código de `main` (rama `claude/backend-e2e-payment-fixtures-77mo4t`). Reviso la defensa, valido/refuto cada hallazgo ofensivo con mi propio análisis, y emito veredicto. **NO corrijo código:** cada hallazgo se enruta a su **rol dueño**.
+> **Modo:** revisión **estática** de código (lectura dirigida) + `npm audit --omit=dev` + `git grep` de secretos/patrones + `git ls-files`. Sin stack vivo (Docker daemon ausente, Postgres `:5432` no responde) → los vectores que exigen webhook/checkout/concurrencia real quedan **[PoC-pendiente-de-target — DAST]**; los verificados por lectura = **[Verificado-estático]**.
+> **Alcance del release:** superficie NUEVA — M-30 `variant-controls` (consola de precios compra/venta/bounty), `publish-all` (P-19), bounty P-22, aportación a valor de mercado (P-19), precedencias de precio, rebrand P-21 (`envOr`/`MAIL_FROM`/CORS/guardia DAST por host) + **regresión** de los guardarraíles de dinero (H1/H2/H3, MoneyOutGuard, firma Stripe, KYC/INE cifrado) tras los tres streams.
+
+## 0. Resumen ejecutivo del pase
+
+**La superficie NUEVA de dinero llegó money-safe y bien autorizada. SIN hallazgos Críticos ni Altos.** Cada camino de dinero nuevo (variant-controls, publish-all, bounty) **deriva el precio server-side**, gatea la **escritura** tras `@Roles(super_admin)`, es **idempotente** (guardia `count===1` en `$transaction`) y **auditado**; la precedencia `bounty > override > regla > PRICE_PENDING` **jamás inventa un precio** (devuelve `null`/pending, nunca $0/negativo), y los overrides buy/sell/bounty pasan por `assertCents` (entero, `>0`, `<= MAX_CENTS` Int32) ⇒ sin negativos, overflow ni moneda distinta de MXN. El rebrand P-21 **no abrió superficie** (CORS sigue en allow-list, `envOr` sanea sin interpolar input de usuario, guardia DAST decide por host).
+
+**Consolidación de los 3 hallazgos del pentester (R-1, R-2, R-3): los CONFIRMO todos [Verificado-estático], con la severidad final que el red team asignó.** Ninguno es bloqueante: R-1 es Media de dependencias (carryover, no alcanzable), R-2 y R-3 son Bajas de defensa-en-profundidad **acotadas al rol back-office** (`vault_operator`), sin cash-out, sin overflow de columna, sin fuga de PII. **Ratifico R-3 como aceptación de diseño** (la lectura de estrategia de precios por `vault_operator` es consistente con ARCHITECTURE §4.26b; recomiendo omitir `pricing.buy`/`bounty` para ese rol como endurecimiento no bloqueante).
+
+**Regresión de dinero: sin debilitamiento tras los tres streams.** Verifiqué en código: orden de guards correcto (`app.module.ts:66-70`), MoneyOutGuard global con `@MoneyOut()` en refund/pay-spei/recompra, firma Stripe `constructEvent`, idempotencia por `event.id`, reserva atómica anti doble-venta, KYC/INE AES-256-GCM + HMAC, sin `$queryRawUnsafe` con input de cliente, sin secretos hardcodeados ni `.env` versionado.
+
+**→ VEREDICTO: APROBADO** (0 críticos / 0 altos abiertos; deuda Media/Baja aceptada y ruteada — ver §4/§6).
+
+| Severidad | # ABIERTO (release) | Estado |
+|---|---|---|
+| **Crítica** | 0 | — |
+| **Alta** | 0 | — |
+| **Media** | 1 | R-1 (deps `@nestjs/core`, carryover, no alcanzable — aceptada, dueño devops) |
+| **Baja** | 2 | R-2 (`acquisitionPct` sin `@Max`), R-3 (lectura de estrategia de precios a `vault_operator`) — aceptadas |
+| **Info/positivo** | 8 | R-4 … R-11 (defensas de la superficie nueva, verificadas) |
+
+## 1. Consolidación de hallazgos del pentester — validación independiente
+
+Cada hallazgo cruzado contra el código; coincido con el red team en los tres.
+
+### R-1 (Media) — Deps: 2 `moderate` de `@nestjs/core` (carryover M-1) · **CONFIRMADO · aceptado**
+- **Mi verificación:** corrí `npm audit --omit=dev` en `backend/` (2026-08-21): **2 moderate, 0 high, 0 critical** — `@nestjs/core <=11.1.17` **GHSA-36xv-jgw5-4q75** (Improperly Neutralizes Special Elements / Injection), que arrastra `@nestjs/platform-express`; `fix` = bump mayor a `@nestjs/core@11.2.1` (**breaking**). frontend prod: sin cambios (histórico: 0 vulns).
+- **Alcanzabilidad:** el aviso corresponde a la inyección SSE ya analizada en revs previas; `git grep` histórico de `@Sse|MessageEvent|text/event-stream` en `backend/src` = 0 coincidencias → **el backend no expone SSE → no alcanzable**. Sin cambio en el release.
+- **Decisión:** **aceptado como deuda no bloqueante** (Media por herramienta, efectiva Baja por no-alcanzable). **Dueño: devops.** **Disparador:** próxima ventana de mantenimiento de deps, o **antes** de introducir cualquier endpoint SSE; gate `npm audit` en CI/SAST ya previsto.
+
+### R-2 (Baja) — `acquisitionPct` sin `@Max` en las 3 DTO de alta/ajuste · **CONFIRMADO · aceptado**
+- **Mi verificación (leída):** `backend/src/modules/inventory/dto/inventory.dto.ts` — `CreateItemDto:59`, `BatchInventoryItemInput:113`, `AdjustmentFoundItemInput:187` declaran `@IsOptional() @IsInt() @Min(0) acquisitionPct?` **sin `@Max`**. Contrasta con `listPriceCents` (misma DTO) que sí lleva `@Max(MAX_LIST_PRICE_CENTS)`. Consumo: `inventory.service.ts` → `computeAportacionCostCents` (`common/money.ts` = `clampCents(round(ref*pct/100))`).
+- **Análisis de impacto:** un `pct` gigante satura el costo-base a `MAX_CENTS` (~MX$21.47M) vía `clampCents` — **recorte silencioso, sin log/AuditLog** (misma clase que MS-3 histórico). Alimenta costo/P&L/valuación (StatCards). **No es cash-out** (el costo-base no sale de la caja; el dinero saliente sigue siendo money-out super_admin), **no** desborda columna (clampCents lo contiene en Int32), y requiere **rol back-office** (`vault_operator`). Es variante de B-4 histórico.
+- **Decisión:** **aceptado como deuda no bloqueante (Baja).** **Dueño: backend** (añadir `@Max` razonable — p.ej. `@Max(10000)` = 100.00% con 2 decimales, o el tope de negocio — + emitir alerta/AuditLog al recortar en `computeAportacionCostCents`). **Disparador:** al endurecer el flujo de inventario/aportación, o antes de reportes financieros con datos de escala.
+
+### R-3 (Baja) — El binder scope `platform` expone la CONSOLA de estrategia de precios (buy override + bounty) al `vault_operator` · **CONFIRMADO · aceptado (ratificación de diseño)**
+- **Mi verificación (leída):** `GET /admin/inventory/master-sets/:setId` → `masterSetBinder` (`inventory.controller.ts:74-77`) llama `masterSetService.binder(setId)` **sin scope** → default `{ kind: 'platform' }` (`master-set.service.ts:408`). El controller es `@Roles(Role.vault_operator, Role.super_admin)` (`:45-46`). En scope `platform` el binder adjunta `pricing?` por variante (`master-set.service.ts:472-478`, `includePricing = scope.kind === 'platform'`), que compone `buy.overrideCents/effectiveCents` y el bloque `bounty` vía `composeVariantPricing`. **La ESCRITURA sí está blindada** super_admin-only (`PricingController @Roles(Role.super_admin)`, `pricing.controller.ts:106`); lo que fuga es la **LECTURA** de márgenes de compra/bounty a un rol de bóveda.
+- **Análisis de impacto:** sin PII, sin cash-out, sin escalada de privilegio (el `vault_operator` no puede escribir precios/overrides/bounty). Es exposición de **inteligencia de negocio** (estrategia de compra) a un rol que opera M1/M4/M5-hasta-verificación. Consistente con el diseño del binder platform (ARCHITECTURE §4.26b), pero el principio de mínima exposición sugiere omitir `pricing.buy`/`bounty` para `vault_operator`.
+- **Decisión:** **RATIFICO como aceptable** (Baja, defensa-en-profundidad). No bloquea. **Endurecimiento recomendado (no bloqueante): backend** omite `pricing.buy` y `pricing.bounty` (dejando `sell`/`market` si aplica) cuando el actor es `vault_operator`, o el arquitecto confirma explícitamente que la estrategia de compra es visible para ese rol por diseño. **Disparador:** antes de dar de alta operadores de bóveda que NO deban ver márgenes de compra, o al segregar M1 de la estrategia de pricing.
+
+## 2. Regresión de guardarraíles de dinero/PII — SIN debilitamiento (re-verificado en código)
+
+Verifiqué que los tres streams (A v1.27 + B v1.28/v1.28.1 + P-21) **no** introdujeron regresión en los guardarraíles previos. Coincido con R-11 del pentester.
+
+| Guardarraíl | Evidencia (mi lectura) | Estado |
+|---|---|---|
+| **Orden de guards** | `app.module.ts:66-70` — throttle → JwtAuth → Roles → EmailVerified → **MoneyOut** (global). | OK |
+| **Money-out solo super_admin** | `@MoneyOut()` en `admin-orders.controller.ts:212` (refund), `admin-buylist.controller.ts:80` (pay-spei) y `:197` (reveal/recompra); `MoneyOutGuard` global → rol != super_admin = 403 auditado. | OK |
+| **Firma webhook Stripe** | `stripe.service.ts:172-174` — `constructEvent(payload, signature, secret)`; `onModuleInit` (`:35`) fail-fast si falta `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`. Fallback `?? ''` = falla-cerrada (MS-5 histórico, sin cambio). | OK |
+| **Idempotencia webhook** | Guardia atómica por `event.id` (P2002); borra marcador y re-lanza si el handler falla (histórico I-4, intacto). | OK |
+| **Reserva atómica anti doble-venta** | `reserveItems`/`claimListed` `updateMany` guardado por estado vendible + `count===1`; `publish-all` (`inventory.service.ts`) selecciona solo `platform`+`in_stock`. | OK |
+| **Precio server-side (SEC-A1)** | variant-controls/publish-all/bounty derivan de reglas + referencia de BD; el DTO del cliente aporta solo IDs. `assertCents` (`variant-controls.service.ts:68-76`) rechaza no-entero/`<=0`/`>MAX_CENTS`. | OK |
+| **Bounty count idempotente** | `countBountyAcquisitionsTx` en la MISMA `$transaction` del pago, guardia `count===1`; re-POST/replay ve `pagada` y no re-cuenta (`buylist.service.ts:1287-1388`); filtro B-1 `notIn ['rechazada','abandonada']`. | OK |
+| **KYC/INE cifrado** | `pii-crypto.service.ts` — AES-256-GCM (`createCipheriv`) formato `v1:iv:tag:ct` + blind index HMAC-SHA256; enmascarado por defecto incl. super_admin (histórico I-5). | OK |
+| **Sin inyección SQL** | Sin `$queryRawUnsafe` con input de cliente (único uso = literal de secuencia). Prisma parametriza el resto. | OK |
+
+## 3. Revisión AppSec propia — más allá del red team
+
+Ítems que revisé por mi cuenta (no solo validar al pentester):
+
+- **Manejo de secretos:** `git grep` de patrones `secret|password|api-key|token = "…"` en `backend/src` + `frontend/src` = **sin secretos hardcodeados**. `git ls-files` = **ningún `.env` versionado** (solo `.env.example` de devops). Los secretos se leen por `ConfigService`/`process.env`; `env.validation.ts` (histórico) exige entropía ≥32 en no-local. **OK.**
+- **CORS (rebrand P-21):** `main.ts:15-21` `resolveCorsOrigins()` construye allow-list desde `APP_BASE_URL`, **nunca `origin:true`**, fallback fail-closed a localhost. El rebrand a dos dominios no relajó la política. **OK.**
+- **Superficie de correo del rebrand (`envOr`/`MAIL_FROM`):** `mail/mail-env.util.ts:15-18` — `envOr` hace `trim` y trata vacío/blanco como ausente devolviendo el fallback; **no interpola input de usuario** en el `from`/headers; el envío es por **API JSON de Resend** (sin concatenación SMTP → sin header injection). **OK.**
+- **Guardia DAST por host (rebrand):** `security/scripts/_guard.sh` — `_dast_host_from_url` extrae el host correctamente (quita esquema, **userinfo `##*@`**, path/query/fragment); la exención es por **prefijo del host** `staging.*`, no substring de la URL → `https://tcghunt.mx/staging-x` y `?env=staging` **NO bypasean** el bloqueo de prod. Requiere `ALLOW_PROD_DAST=1` explícito para prod. **OK** (coincido con R-10).
+- **Authz de escritura de la consola de precios:** `PricingController` y `variant-controls` PUT = `@Roles(Role.super_admin)` (`pricing.controller.ts:106,182`) — la estrategia de precios/bounty **solo la escribe super_admin**. La lectura por `vault_operator` (R-3) es la única fuga, ya consolidada. **OK.**
+- **Validación de entrada de la superficie nueva:** DTOs de publish-all/batch con `@IsIn`/`@IsString`/`@ArrayMaxSize(200)`/`@Max(MAX_BATCH_QTY)`; `ValidationPipe({whitelist:true})` global (histórico) → sin mass-assignment. Único hueco de cota: `acquisitionPct` (R-2). **OK salvo R-2.**
+
+## 4. Hallazgos priorizados por severidad (release)
+
+- **Crítica:** ninguno.
+- **Alta:** ninguno.
+- **Media:** ninguno **remediable dentro del alcance de código de este release**. R-1 es Media de dependencias (bump mayor breaking, no alcanzable) → deuda aceptada (§6).
+- **Baja:** R-2 (`acquisitionPct` sin `@Max`, backend), R-3 (lectura de estrategia de precios a `vault_operator`, backend/diseño) → aceptadas (§6).
+
+## 5. Banderas para el humano (antes de operar con dinero real)
+
+- **Pentest de tercero + programa de bug bounty ANTES del go-live con dinero real.** Todo el guardarraíl de dinero de este release (reserva atómica, idempotencia del webhook, firma real de Stripe, H1 con eventos forjados, carrera de dos `pay-spei`, replay de `batchKey` en publish-all) está **verificado solo en estático**. Falta la prueba con firmas reales y concurrencia — ver «Pendiente de DAST en vivo» en `PENTEST_NOTES.md` (pase v1.28).
+- **DAST contra staging autorizado, obligatorio antes de promover a prod** (la guardia por host ya bloquea prod sin `ALLOW_PROD_DAST=1`). Requiere que devops habilite staging (Docker/Postgres/R2) — hoy no levantable localmente.
+- **KMS / secret manager en producción:** `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY`, `JWT_*`, `STRIPE_*` y `S3_*` desde secret manager (no `.env` ni imagen), con rotación; confirmar que ningún secreto aparece en logs/errores.
+- **Validaciones legales de custodia/PII (INE/CLABE):** figura de depositario, contrato de custodia, base legal del tratamiento del INE almacenado (`INE_RETENTION_DAYS`), derecho de supresión frente a los snapshots económicos retenidos (`Order.billingSnapshot`/`SellRequest.clabeSnapshotEnc`, ver histórico rev v1.5 §B.2). Confirmar con abogado/contador.
+
+## 6. Deuda de seguridad aceptada (no bloqueante) — con dueño y disparador
+
+| ID | Deuda | Sev | Impacto | Dueño | Disparador |
+|---|---|---|---|---|---|
+| **R-1** | `@nestjs/core` GHSA-36xv-jgw5-4q75 (2 moderate) sin parchar (fix = major breaking) | Media (efectiva Baja) | Ninguno hoy (backend sin SSE → aviso no alcanzable) | **devops** | Antes de introducir SSE, o en la próxima ventana de mantenimiento de deps; gate `npm audit` en CI. |
+| **R-2** | `acquisitionPct` sin `@Max` (3 DTO) → costo-base saturable con recorte silencioso | Baja | Costo/P&L/valuación inflables por `vault_operator`; no cash-out, no overflow de columna | **backend** | Al endurecer inventario/aportación, o antes de reportes financieros a escala. Añadir `@Max` + alerta al recortar. |
+| **R-3** | Binder platform expone `pricing.buy`/`bounty` (estrategia de compra) a `vault_operator` (lectura) | Baja | Fuga de inteligencia de negocio a rol de bóveda; sin PII/cash-out/escalada | **backend** / diseño | Antes de operadores que NO deban ver márgenes de compra; o ratificar por diseño. |
+
+**Carryover histórico (sigue como deuda de revs previas, no re-abierto por este release):** MS-1 (idempotency-key de cliente en shipments/refund — arquitecto/backend), MS-3/MS-4/MS-5 (clamp silencioso / H1 en shipment / `constructEvent ?? ''` — backend), B-2 (linking Google a back-office — backend), B-5 (token en query-string — frontend), S-1..S-7 (stream sellado — backend/arquitecto/devops), B-3/S-B2 (dinero en `Int` 32-bit — arquitecto). Todos con dueño y disparador en las secciones históricas de abajo. Ninguno Crítico/Alto; ninguno bloquea este release.
+
+## 7. VEREDICTO DE SEGURIDAD DEL RELEASE
+
+**APROBADO.**
+
+- **0 hallazgos Críticos o Altos ABIERTOS** → no se cumple la condición de RECHAZO del DoD.
+- La superficie NUEVA de dinero (variant-controls M-30, publish-all P-19, bounty P-22, aportación a mercado) llegó **money-safe**: precio server-side, escritura super_admin-only, idempotente (`count===1`), auditada, `assertCents` (entero `>0` `<=MAX_CENTS`), precedencia que nunca inventa precio.
+- **Regresión de dinero/PII sin debilitamiento** tras los tres streams (§2): MoneyOutGuard, firma/idempotencia Stripe, reserva atómica, KYC/INE AES-256-GCM, sin inyección, sin secretos hardcodeados.
+- Los 3 hallazgos del pentester (**R-1, R-2, R-3**) **CONFIRMADOS** con mi propio análisis y **aceptados como deuda no bloqueante** con dueño y disparador (§6). R-3 **ratificado** como aceptación de diseño con endurecimiento recomendado.
+- **Mínimo para mantener la aprobación / previo a producción con dinero real:** ejecutar la **fase dinámica (DAST + pentest de tercero) contra staging autorizado** (hoy no levantable) y provisión de secret manager. Nada de eso bloquea el veredicto de código estático de este release.
+
+**Ruteo por rol dueño (follow-up, no bloqueante):** backend → R-2 (`@Max` + alerta), R-3 (omitir `pricing.buy`/`bounty` para `vault_operator` si no es diseño); devops → R-1 (bump NestJS + gate audit), habilitar staging para DAST; humano → pentest de tercero + bug bounty + validaciones legales de custodia/PII antes de dinero real.
+
+---
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
      PASE money-safety-hardening (rev v1.6) — se antepone; el contenido histórico se conserva íntegro abajo.
      ════════════════════════════════════════════════════════════════════════════════════════ -->
 
