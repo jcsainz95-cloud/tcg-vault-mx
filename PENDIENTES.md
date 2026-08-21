@@ -54,8 +54,8 @@ humano (ya dado únicamente para el PR #21).
 6. **P-21 (rebrand TCG HUNT):** cuando el humano entregue dominio + logo.
 
 Del lado del humano (cuando pueda):
-- Verificar/encender en Railway `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` (sin esto, las reverse
-  no tendrán precio propio aunque P-15 esté arreglado).
+- ✅ HECHO (2026-08-21): `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` verificada en Railway por el
+  humano — las reverse tendrán precio propio tras el deploy + re-sync.
 - Re-sync forzado en `/admin/m2` de prod — **esperar al fix de P-13** para hacerlo una sola vez.
 - P-21 (rebrand TCG HUNT): comprar dominio y pasar el logo en buena resolución (SVG/PNG grande).
 
