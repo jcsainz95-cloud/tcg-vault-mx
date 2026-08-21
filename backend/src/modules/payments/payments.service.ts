@@ -106,13 +106,17 @@ export class PaymentsService {
       // H1 (money-safety) — DEFENSA EN PROFUNDIDAD antes de liquidar: el monto y la moneda del
       // PaymentIntent DEBEN coincidir con lo que la orden cobró (`totalCents`, en MXN). Aunque el
       // PaymentIntent lo crea el servidor (`attachPaymentIntent`, importe derivado del breakdown),
-      // liquidar por un evento cuyo `amount`/`currency` no cuadra abriría un descuadre de dinero.
+      // liquidar por un evento cuyo monto/`currency` no cuadra abriría un descuadre de dinero.
+      // Se valida `amount_received` (lo efectivamente CAPTURADO en un PI `succeeded`) con fallback
+      // a `amount` (lo solicitado): con captura parcial, `amount` seguiría cuadrando aunque entrara
+      // menos dinero. El fallback es `??` a propósito: un `amount_received` de 0 NO cae a `amount`.
       // Stripe manda `currency` en minúsculas. NO se liquida si discrepa; se AUDITA y se retorna
       // 200 (el marcador de idempotencia queda: un evento que siempre discrepará no debe reintentar).
-      if (pi.amount !== order.totalCents || pi.currency !== 'mxn') {
+      const receivedCents = pi.amount_received ?? pi.amount;
+      if (receivedCents !== order.totalCents || pi.currency !== 'mxn') {
         this.logger.error(
           `H1: descuadre monto/moneda al liquidar el pedido ${order.orderNumber ?? order.id} ` +
-            `(${order.id}): esperado ${order.totalCents} mxn, recibido ${pi.amount} ${pi.currency}. ` +
+            `(${order.id}): esperado ${order.totalCents} mxn, recibido ${receivedCents} ${pi.currency}. ` +
             'NO se liquida.',
         );
         await this.audit
@@ -124,7 +128,7 @@ export class PaymentsService {
             entityId: order.id,
             after: {
               expectedCents: order.totalCents,
-              receivedCents: pi.amount,
+              receivedCents,
               expectedCurrency: 'mxn',
               receivedCurrency: pi.currency,
             },
