@@ -1,0 +1,16 @@
+{
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "tcgvaultmx.com" }],
+      "destination": "https://www.tcghunt.mx/:path*",
+      "statusCode": 301
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.tcgvaultmx.com" }],
+      "destination": "https://www.tcghunt.mx/:path*",
+      "statusCode": 301
+    }
+  ]
+}
