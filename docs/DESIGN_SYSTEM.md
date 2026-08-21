@@ -54,6 +54,18 @@
 > admin + vitrina pública «Top Bounties» (P-22). §16 es aditiva; introduce **un único elemento gráfico
 > nuevo** (la banda de acabado, §16.6 — incluida la ÚNICA superficie con gradiente permitida del sistema) y
 > **cero tokens nuevos** de color/tipografía.
+>
+> **Añadido v1.7 (P-21 — identidad TCG HUNT) → ver §17.** Rebrand de marca: el sitio pasa a llamarse
+> **TCG HUNT** (dominio `tcghunt.mx`) con **logo de mira/crosshair** en degradado **rojo `#B31217` → vino
+> `#4A0D0D`**, reconstruido en **SVG vectorial** a partir de la referencia de alta resolución del humano
+> (§17.1: lockup completo, solo-mira, glifo micro y variante para fondo oscuro). Cambio de paleta: se
+> **conserva la base editorial papel/tinta** y el **bermellón `#B44B3A` se retira**: el **rojo TCG HUNT
+> `#B31217` asume todos sus roles** (accent, warning, danger, anillo de foco — mismo nombre de tokens,
+> nuevo valor; contraste sobre papel **sube** de 4.65:1 a **6.2:1**, §17.2). El degradado del logo se suma
+> como **segunda y última excepción de gradiente** (junto a la banda reverse §16.6): nunca en superficies
+> ni botones. El badge BOUNTY (§16.7b) adopta el **glifo micro oficial de la mira** en lugar del
+> `crosshair` de lucide. La marca visible cambia; **el nombre interno del repo/proyecto (`tcg-vault-mx`) y
+> las rutas técnicas NO cambian** (§17.4). Wordmark en **Montserrat 700** (`--font-brand`, `next/font`).
 
 ---
 
@@ -2159,6 +2171,10 @@ al pie de la consola:
 **`BOUNTY`** en **bermellón** (versalitas, sin caja §7.2) junto al conteo, con icono `crosshair` de lucide
 16px `aria-hidden` a la izquierda (la mira: guiño al futuro TCG HUNT sin implementar el rebrand — el icono
 es decorativo y removible). El renglón COMPRA de la consola compacta ya muestra `·B` (§16.3a).
+> **Actualización v1.7 (P-21):** con el rebrand, el icono `crosshair` de lucide del badge BOUNTY (aquí y
+> en el `BountyCard` §16.7c) **se sustituye por el glifo micro oficial de la mira TCG HUNT** (`HuntMark`
+> micro, §17.1d) en `currentColor`, mismo tamaño (12–16px) y sigue siendo `aria-hidden`. El color del
+> badge pasa a heredar el nuevo valor de `--color-accent` (`#B31217`, §17.2) sin cambiar de token.
 
 **(c) Vitrina pública `/buylist` — `TopBountiesShelf` + `BountyCard`:** sección **arriba de la página
 Vender, ANTES del selector de set**. Consume `GET /buylist/bounties` (cap 50; se pintan las primeras
@@ -2251,3 +2267,287 @@ largas a probar).
 3. **`FinishMark` es la semilla de P-14 (Stream C):** el cotizador y el storefront deben reutilizar este
    componente tal cual (banda + etiqueta). Cualquier evolución (p. ej. efecto foil animado) se decide en
    Stream C sin romper la tabla de §16.6.
+
+---
+
+## 17. Identidad TCG HUNT (P-21, v1.7)
+
+> **Qué es:** el rebrand de la marca visible. El sitio pasa de "TCG VAULT MX" a **TCG HUNT** (dominio
+> `tcghunt.mx`). **Qué NO es:** un rediseño — la dirección editorial papel/tinta 5a (§1–§16) sigue intacta;
+> cambia el **acento de color** (bermellón → rojo TCG HUNT) y se incorpora el **logo de mira**.
+>
+> **Origen:** reconstrucción vectorial fiel a la **referencia de alta resolución que compartió el humano**
+> (imagen de chat, 2026-08-21): mira/crosshair de dos anillos concéntricos con cruz que sobresale de los
+> anillos (horizontales mucho más largas), punto central anillado, degradado rojo `#B31217` → vino
+> `#4A0D0D` (izquierda→derecha en las horizontales, arriba→abajo en el conjunto), wordmark "TCG HUNT" en
+> sans geométrica bold con el mismo degradado y ".mx" pequeño abajo-derecha, sobre fondo blanco/claro.
+> Cuando el humano suba el PNG original a `frontend/public/branding/`, se coteja el SVG contra él y se
+> ajustan métricas finas (grosores, tracking del wordmark) si hiciera falta — la geometría de esta sección
+> es la fuente de verdad hasta entonces.
+
+### 17.1 El logo — SVG oficial (fuente de verdad vectorial)
+
+Anatomía de la mira (`HuntMark`), común a todas las versiones:
+- **Dos anillos concéntricos** (stroke, sin relleno), proporción de radios ≈ 1 : 0.61.
+- **Cruz** cuyas cuatro líneas **sobresalen** de los anillos: las **horizontales mucho más largas**
+  (sobresalen ~2.7× el radio exterior por lado), las verticales sobresalen ~0.5× radio por lado.
+- **Punto central anillado**: círculo pequeño con **centro hueco** (stroke grueso, el fondo se ve a través).
+- Todos los trazos con **`stroke-linecap="round"`**; sin rellenos, sin sombras (§4.3), radio 0 no aplica
+  (el logo es la única pieza circular legítima del sistema — es un glifo, no un componente UI).
+- **Degradados** (`userSpaceOnUse` para que las cuatro piezas compartan rampa): `huntGradH`
+  (izquierda→derecha, para la línea horizontal) y `huntGradV` (arriba→abajo, para anillos, vertical,
+  punto y wordmark). Stops: `#B31217` (0%) → `#4A0D0D` (100%).
+
+**(a) Versión completa — lockup principal (mira + wordmark), fondo claro.** Composición apilada fiel a
+la referencia: mira arriba con las horizontales extendidas, wordmark debajo, ".mx" abajo-derecha.
+Para el frontend: pegar como componente `<LogoTcgHunt />`; los `id` de gradiente llevan prefijo por
+instancia si se monta más de una vez en la página (evitar `id` duplicados en el DOM).
+
+```svg
+<svg viewBox="0 0 480 300" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="TCG HUNT — tcghunt.mx">
+  <defs>
+    <!-- izquierda → derecha (línea horizontal) -->
+    <linearGradient id="huntGradH" gradientUnits="userSpaceOnUse"
+                    x1="32" y1="0" x2="448" y2="0">
+      <stop offset="0" stop-color="#B31217"/>
+      <stop offset="1" stop-color="#4A0D0D"/>
+    </linearGradient>
+    <!-- arriba → abajo (anillos, vertical, punto y wordmark: "el conjunto") -->
+    <linearGradient id="huntGradV" gradientUnits="userSpaceOnUse"
+                    x1="0" y1="20" x2="0" y2="272">
+      <stop offset="0" stop-color="#B31217"/>
+      <stop offset="1" stop-color="#4A0D0D"/>
+    </linearGradient>
+  </defs>
+
+  <!-- MIRA (centro 240,104) -->
+  <!-- cruz: horizontales mucho más largas que las verticales -->
+  <line x1="32"  y1="104" x2="448" y2="104" stroke="url(#huntGradH)" stroke-width="7" stroke-linecap="round"/>
+  <line x1="240" y1="20"  x2="240" y2="188" stroke="url(#huntGradV)" stroke-width="7" stroke-linecap="round"/>
+  <!-- anillos concéntricos -->
+  <circle cx="240" cy="104" r="56" stroke="url(#huntGradV)" stroke-width="7"/>
+  <circle cx="240" cy="104" r="34" stroke="url(#huntGradV)" stroke-width="6"/>
+  <!-- punto central anillado (centro hueco) -->
+  <circle cx="240" cy="104" r="8"  stroke="url(#huntGradV)" stroke-width="5.5"/>
+
+  <!-- WORDMARK: Montserrat 700 (--font-brand, §17.1e); métricas a cotejar con el PNG original -->
+  <text x="240" y="252" text-anchor="middle"
+        font-family="Montserrat, Archivo, system-ui, sans-serif"
+        font-size="58" font-weight="700" letter-spacing="2"
+        fill="url(#huntGradV)">TCG HUNT</text>
+  <!-- ".mx" pequeño, alineado abajo-derecha del wordmark, vino sólido -->
+  <text x="404" y="252" text-anchor="start"
+        font-family="Montserrat, Archivo, system-ui, sans-serif"
+        font-size="22" font-weight="600" letter-spacing="0.5"
+        fill="#4A0D0D">.mx</text>
+</svg>
+```
+
+**(b) Versión solo-mira (`HuntMark`)** — favicon, avatar, topbar compacto, apple-touch. Cuadrada; las
+horizontales tocan los bordes del lienzo (siguen siendo las más largas):
+
+```svg
+<svg viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="TCG HUNT">
+  <defs>
+    <linearGradient id="huntMarkH" gradientUnits="userSpaceOnUse" x1="2" y1="0" x2="126" y2="0">
+      <stop offset="0" stop-color="#B31217"/><stop offset="1" stop-color="#4A0D0D"/>
+    </linearGradient>
+    <linearGradient id="huntMarkV" gradientUnits="userSpaceOnUse" x1="0" y1="8" x2="0" y2="120">
+      <stop offset="0" stop-color="#B31217"/><stop offset="1" stop-color="#4A0D0D"/>
+    </linearGradient>
+  </defs>
+  <line x1="2"  y1="64" x2="126" y2="64" stroke="url(#huntMarkH)" stroke-width="8" stroke-linecap="round"/>
+  <line x1="64" y1="8"  x2="64" y2="120" stroke="url(#huntMarkV)" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="64" cy="64" r="36" stroke="url(#huntMarkV)" stroke-width="8"/>
+  <circle cx="64" cy="64" r="22" stroke="url(#huntMarkV)" stroke-width="7"/>
+  <circle cx="64" cy="64" r="6"  stroke="url(#huntMarkV)" stroke-width="5.5"/>
+</svg>
+```
+
+**(c) Variante para fondo oscuro (paneles de tinta `#1A1A18`: hero de auth, sidebar admin, footer
+oscuro).** El degradado original NO se usa sobre tinta: el vino `#4A0D0D` es ilegible (~1.4:1) y el rojo
+`#B31217` queda en ~2.5:1 (< 3:1). La variante oscura **aclara la rampa** (`#F0685F` → `#D0362C`, ambos
+≥ 3:1 sobre tinta, §17.2) y pinta el **wordmark en papel sólido** `#F4F1EA` (~15.5:1) — sobre oscuro la
+identidad la porta la mira; el wordmark prioriza legibilidad:
+
+```svg
+<svg viewBox="0 0 480 300" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="TCG HUNT — tcghunt.mx">
+  <defs>
+    <linearGradient id="huntGradHDark" gradientUnits="userSpaceOnUse" x1="32" y1="0" x2="448" y2="0">
+      <stop offset="0" stop-color="#F0685F"/><stop offset="1" stop-color="#D0362C"/>
+    </linearGradient>
+    <linearGradient id="huntGradVDark" gradientUnits="userSpaceOnUse" x1="0" y1="20" x2="0" y2="188">
+      <stop offset="0" stop-color="#F0685F"/><stop offset="1" stop-color="#D0362C"/>
+    </linearGradient>
+  </defs>
+  <line x1="32"  y1="104" x2="448" y2="104" stroke="url(#huntGradHDark)" stroke-width="7" stroke-linecap="round"/>
+  <line x1="240" y1="20"  x2="240" y2="188" stroke="url(#huntGradVDark)" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="240" cy="104" r="56" stroke="url(#huntGradVDark)" stroke-width="7"/>
+  <circle cx="240" cy="104" r="34" stroke="url(#huntGradVDark)" stroke-width="6"/>
+  <circle cx="240" cy="104" r="8"  stroke="url(#huntGradVDark)" stroke-width="5.5"/>
+  <text x="240" y="252" text-anchor="middle"
+        font-family="Montserrat, Archivo, system-ui, sans-serif"
+        font-size="58" font-weight="700" letter-spacing="2" fill="#F4F1EA">TCG HUNT</text>
+  <text x="404" y="252" text-anchor="start"
+        font-family="Montserrat, Archivo, system-ui, sans-serif"
+        font-size="22" font-weight="600" letter-spacing="0.5" fill="#F0685F">.mx</text>
+</svg>
+```
+La solo-mira oscura es la (b) con los stops de `#F0685F` → `#D0362C`.
+
+**(d) Glifo micro (≤ 20px) — `HuntMark` micro.** A 12–16px los dos anillos + punto hueco se empastan.
+Versión simplificada monocroma (`currentColor`, sin gradiente — invisible a ese tamaño): **un anillo +
+cruz sobresaliente + punto sólido**. Es el glifo que usan el badge **BOUNTY** (§16.7b, sustituye al
+`crosshair` de lucide) y cualquier uso inline junto a texto:
+
+```svg
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <line x1="1"  y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <line x1="12" y1="3"  x2="12" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="12" cy="12" r="6.5" stroke="currentColor" stroke-width="2"/>
+  <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>
+</svg>
+```
+
+**(e) Tipografía del wordmark — Montserrat 700 (`--font-brand`).** La referencia usa una sans geométrica
+bold (estilo Montserrat/Poppins); se adopta **Montserrat, peso 700** (Google Font). Carga según la
+convención del proyecto (§3.1 — self-hosted por `next/font/google` en `[locale]/layout.tsx`, subset
+`latin`, sin petición runtime a Google):
+```ts
+const brand = Montserrat({ subsets: ['latin'], weight: ['700'], variable: '--font-brand' });
+// añadir brand.variable a la clase del <html>, junto a --font-serif/--font-sans/--font-mono
+```
+- `--font-brand` es **exclusiva del wordmark/lockup** (componente Logo, header de correo, OG). NO entra
+  en la escala tipográfica de §3: los títulos siguen en Zen Old Mincho y la UI en Archivo. Un peso, un uso.
+- Fallback declarado en el propio SVG: `Montserrat, Archivo, system-ui, sans-serif` (si la variable no
+  está montada, Archivo 700 es visualmente cercana y digna).
+- **SVG fuera del DOM de Next** (favicon `.svg`, OG estático, correos): la fuente NO viaja → esos usos
+  emplean la **solo-mira (b)/(d)** (sin texto) o un **raster exportado** del lockup. Cuando el humano
+  suba el arte original, es deseable una versión del wordmark **convertida a paths** (outline) para usos
+  standalone — anotado en §17.5.
+
+### 17.2 Paleta del rebrand — el rojo TCG HUNT sustituye al bermellón
+
+**Decisión (recomendada por ux-ui, criterio: un solo acento, §2.1):** se **conserva íntegra la base
+editorial** papel/tinta/verde (`#F4F1EA`, `#EFEBE2`, `#1A1A18`, `#6E695E`, `#4E7A49`, `#9A6C57`) y el
+**bermellón `#B44B3A` se retira: NO convive** con el rojo nuevo. Dos rojos cálidos casi iguales en una
+paleta de "un solo acento usado con avaricia" serían ruido sin significado; el rojo TCG HUNT `#B31217`
+**hereda todos los roles** del bermellón (accent, warning, danger, anillo de foco). Ventajas: cero tokens
+semánticos nuevos que aprender, el cambio en frontend es **cambiar valores de CSS variables**, y el
+contraste sobre papel **mejora** (6.2:1 vs 4.65:1). La filosofía de §2 no cambia una coma: solo cambia la
+tinta del sello.
+
+**Tokens que cambian de VALOR (mismo nombre):**
+| Token | Antes (v1.3) | v1.7 |
+|---|---|---|
+| `--color-accent` | `#B44B3A` | **`#B31217`** (rojo TCG HUNT) |
+| `--color-warning` | `#B44B3A` | **`#B31217`** |
+| `--color-danger` | `#B44B3A` | **`#B31217`** |
+| `--color-focus-ring` | `#B44B3A` | **`#B31217`** |
+| `--vermillion` (base) | `#B44B3A` | se renombra **`--hunt-red: #B31217`** (alias `--vermillion` puede quedar apuntando al nuevo valor durante la transición) |
+
+**Tokens NUEVOS de marca (uso restringido al logo y a la marca):**
+```
+--hunt-red:        #B31217   (acento de marca = nuevo valor de --color-accent)
+--hunt-wine:       #4A0D0D   (extremo oscuro del degradado; texto de marca ".mx"; NO es token semántico)
+--hunt-red-hover:  #8F0E12   (hover de botones accent / enlaces en accent; 8.3:1 sobre papel)
+--hunt-red-up:     #F0685F   (extremo claro del degradado en variante oscura)
+--hunt-red-deep:   #D0362C   (extremo oscuro del degradado en variante oscura)
+--hunt-tint:       rgba(179,18,23,0.06)  (único tinte de fondo de marca permitido — ver regla abajo)
+```
+- **`--hunt-tint`** existe SOLO para el fondo del shelf «Top Bounties» (§16.7c) y piezas de marca
+  (OG/correo) si el frontend lo necesita; **no** rompe la regla "sin rellenos de color en estados"
+  (§2.1): los `*-bg` semánticos **siguen `transparent`**. Si no se usa, mejor.
+- **El degradado `#B31217→#4A0D0D` es la SEGUNDA y última excepción de gradiente** del sistema (la
+  primera: banda reverse §16.6). Vive **exclusivamente** en el logo/lockup. Nunca en botones, fondos,
+  textos de UI ni bordes. La banda reverse de §16.6 pasa a `#9A6C57 → var(--color-accent)` (=`#B31217`)
+  — misma regla, hereda el valor por token.
+- **Guiño de marca (§5) actualizado:** la **mira** sustituye al "rayo/holo" como guiño permitido
+  (logotipo, hero, textura sutil en banners de confianza). Mismo límite: nunca compite con la carta.
+- **Semántica sin cambios:** verde = confirmado, rojo = atención (warning y danger se siguen
+  distinguiendo por el **texto en versalitas**, §2.4). El rojo TCG HUNT es más saturado que el bermellón;
+  la regla "usado con avaricia" es aún más importante — no ampliar su superficie de uso.
+
+**Verificación de contraste WCAG AA (se añade a la tabla de §10):**
+| Par | Ratio aprox. | Cumple |
+|---|---|---|
+| Rojo TCG HUNT `#B31217` sobre papel `#F4F1EA` (texto/badge/foco) | ~6.2:1 | AA (mejora vs bermellón 4.65:1) |
+| `#B31217` sobre pozo `#EFEBE2` | ~5.9:1 | AA |
+| Papel `#F4F1EA` sobre `#B31217` (botón accent) | ~6.2:1 | AA |
+| Hover `#8F0E12` sobre papel | ~8.3:1 | AA/AAA |
+| Vino `#4A0D0D` sobre papel (".mx", extremo del degradado) | ~13.8:1 | AA/AAA |
+| Anillo de foco `#B31217` sobre papel / pozo | ~6.2:1 / ~5.9:1 | AA (≥3:1 UI) |
+| `#B31217` sobre tinta `#1A1A18` | ~2.5:1 | ✗ **PROHIBIDO** → usar variante oscura |
+| `#F0685F` sobre tinta (variante oscura, extremo claro) | ~5.7:1 | AA (gráfico/texto grande) |
+| `#D0362C` sobre tinta (variante oscura, extremo oscuro) | ~3.5:1 | AA UI (≥3:1; es trazo de logo, no texto) |
+| Wordmark papel `#F4F1EA` sobre tinta (variante oscura) | ~15.5:1 | AA/AAA |
+- El **degradado claro** del lockup (a) va de 6.2:1 a 13.8:1 sobre papel: **todo el recorrido ≥ AA**,
+  incluido el wordmark (texto grande ≥ 3:1 sobra; también cumple 4.5:1 de texto normal).
+- Ratificación §10: cualquier estado que hoy usa bermellón (PENDIENTE, RECHAZADA, precio pendiente,
+  QUEDAN N…) **sube** de contraste al heredar `#B31217`; no hay regresiones.
+
+### 17.3 Aplicación de marca
+
+| Superficie | Qué va | Detalle |
+|---|---|---|
+| **Topbar storefront** (§7.15) | ≥`md`: lockup horizontal = solo-mira (b) 28px + "TCG HUNT" en `--font-brand` 700, 18–20px, **tinta sólida** `#1A1A18` (a tamaño topbar el wordmark no usa degradado; ver reglas). `<md`: **solo-mira 28px** (área táctil 44px). | El ".mx" NO va en topbar (ruido); vive en lockup completo y footer. Enlace a home con `aria-label="TCG HUNT — inicio"`. |
+| **Topbar/sidebar admin** (panel de tinta) | Solo-mira **variante oscura** 24px + "TCG HUNT" en papel `#F4F1EA` (`--font-brand` 700, 14–16px). | El back-office comparte marca; sin ".mx". |
+| **Favicon** | **Glifo micro (d)** en `#B31217` sólido, fondo transparente (`icon.svg`); PNG 16/32 derivados. **Apple-touch 180px:** solo-mira (b) con degradado sobre fondo papel `#F4F1EA`, margen = 12% del lienzo. | A 16px el gradiente y el doble anillo no leen: micro glifo obligatorio. |
+| **OG image** (1200×630) | Fondo papel `#F4F1EA`; **lockup completo (a)** centrado (~60% del ancho, la horizontal de la mira respirando a ambos lados); abajo-derecha `tcghunt.mx` en mono `JetBrains Mono` 24px `#6E695E`. Nada más — sin fotos, sin cartas, sin degradados de fondo. | Composición estática exportada (el SVG con `<text>` no garantiza la fuente fuera del DOM: exportar a PNG con la fuente resuelta, §17.1e). |
+| **Correos** (§15.8) | Header: lockup completo (a) como **PNG @2x** (~360px de ancho visual) sobre fondo papel, regla inferior 1px `--color-border`. Remitente visible: **"TCG HUNT"**. | El SVG no es fiable en clientes de correo → raster. Alt: `TCG HUNT — tcghunt.mx`. |
+| **Login / auth** (§6.7, hero de tinta) | El hero del panel de tinta usa el **lockup variante oscura (c)**, centrado, ancho ~280–360px. En la columna del formulario (papel) puede repetirse la solo-mira (b) pequeña como sello. | Primera pantalla donde la marca nueva "se estrena": el degradado completo luce aquí. |
+| **Footer legal** (storefront) | `TCG HUNT · tcghunt.mx · © 2026 [RAZÓN SOCIAL PENDIENTE — placeholder]` en mono `text-xs muted` + enlaces legales. | La razón social y si los textos legales cambian está **abierto con el humano** (P-21); el frontend deja la clave i18n `footer.legalEntity` con placeholder. |
+| **Vitrina Top Bounties** (§16.7c) | El chip `☩ BOUNTY` y el badge admin usan el **glifo micro (d)**. El eyebrow `SE BUSCA` + la mira ahora son lenguaje de marca oficial ("cacería"). | Opcional: fondo del shelf en `--hunt-tint` (único uso permitido del tinte). |
+
+**Reglas de uso (qué sí / qué no):**
+- **Tamaños mínimos:** lockup completo **160px** de ancho (por debajo, el ".mx" y el punto anillado se
+  pierden → usar solo-mira); solo-mira (b) **24px**; por debajo de **20px**, siempre el glifo micro (d).
+- **Área de respeto:** alrededor de cualquier versión, espacio libre = **radio del anillo interior** de
+  esa instancia (≈ 0.6× del radio exterior). Nada de texto, bordes ni iconos dentro de esa zona.
+- **Wordmark con degradado** solo a tamaño de marca (cap height ≥ 18px: hero, login, OG, correo). En
+  topbar y tamaños de UI, wordmark en **sólido** (tinta sobre papel; papel sobre tinta).
+- **NO:** recolorear fuera de las variantes definidas (claro/oscuro/micro `currentColor`); no usar el
+  degradado claro sobre fondos oscuros (2.5:1, tabla §17.2) ni el oscuro sobre papel; no montar el logo
+  sobre el **arte de las cartas** (la carta es el héroe, §5); no rotar la mira (la cruz siempre
+  ortogonal); no rellenar los anillos; no añadir sombras/relieve (§4.3); no animar la mira como spinner
+  (se confundiría con un estado de carga, §8.1); no reconstruir el wordmark en Zen Old Mincho ni en
+  Archivo cuando `--font-brand` esté disponible; no estirar/condensar.
+- El logo **no sustituye texto accesible**: donde el lockup sea el único contenido de un enlace, el
+  `aria-label` porta "TCG HUNT" (+ destino). Las versiones decorativas (badge, guiños) van `aria-hidden`.
+
+### 17.4 Copy de transición — cómo se nombra el sitio
+
+- **Nombre de marca:** **"TCG HUNT"** — siempre en mayúsculas, con espacio, sin guion. Nunca "TcgHunt",
+  "Tcg Hunt" ni "TCGHUNT". En prosa ES/EN se usa igual (no se traduce).
+- **Dominio en textos:** **"tcghunt.mx"** en minúsculas (mono cuando aparece como dato: footer, correos).
+  El lockup usa ".mx" como elemento gráfico; en prosa se escribe el dominio completo.
+- **Metadata/SEO:** `<title>` patrón `TCG HUNT — {página}`; `og:site_name: "TCG HUNT"`. Claves i18n
+  nuevas: `brand.name` ("TCG HUNT"), `brand.domain` ("tcghunt.mx"), `footer.legalEntity` (placeholder).
+  Todas las apariciones actuales de "TCG VAULT MX" en `messages/{es,en}.json`, correos y PDFs/folios que
+  nombren la marca migran a "TCG HUNT" (frontend y backend en sus rutas).
+- **"Bóveda" no cambia:** *vault/bóveda* sigue siendo el nombre de la **función** de custodia ("Mi
+  bóveda", `Vault`), no de la marca. El rebrand no renombra la feature.
+- **El nombre interno NO cambia:** el repo/carpeta `tcg-vault-mx`, los paquetes, módulos
+  (`backend/src/modules/vault`), rutas técnicas del contrato y la infra conservan su nombre. El rebrand
+  es de **marca visible** (UI, correos, metadata, dominio), no de código. Renombrar el repo/infra es una
+  decisión aparte del humano (registrada como abierta en `PENDIENTES.md` P-21).
+
+### 17.5 Notas para otros roles (derivadas del diseño, no bloquean)
+
+1. **Cotejo con el PNG original (humano → frontend):** cuando el PNG llegue a
+   `frontend/public/branding/`, comparar lado a lado con §17.1a y ajustar en el SVG solo métricas finas
+   (grosor de trazo, longitud de sobresalientes, tracking). Si difiere la geometría de fondo, ux-ui
+   actualiza esta sección primero.
+2. **Wordmark en paths (deseable):** para favicon/OG/correo conviene una versión del lockup con el
+   texto convertido a **outlines** (sin dependencia de fuente). Puede generarse desde este SVG con la
+   fuente instalada; frontend la guarda junto al componente.
+3. **Razón social / textos legales:** pendiente de confirmación del humano (¿cambia la entidad legal o
+   solo la marca comercial?). Mientras: placeholder `footer.legalEntity`.
+4. **Redirects y dominio** (`tcgvaultmx.com` → `tcghunt.mx`, DNS, CORS, Stripe): alcance de devops según
+   P-21; sin impacto en este documento.
+5. **§10:** la tabla de contraste de §17.2 se considera extensión normativa de §10; al implementarse el
+   cambio de tokens, los pares de bermellón de §10 quedan sustituidos por los de `#B31217` (todos con
+   ratio igual o mejor).
