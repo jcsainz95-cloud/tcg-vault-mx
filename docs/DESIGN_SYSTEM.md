@@ -2652,3 +2652,247 @@ tinta del sello.
 5. **§10:** la tabla de contraste de §17.2 se considera extensión normativa de §10; al implementarse el
    cambio de tokens, los pares de bermellón de §10 quedan sustituidos por los de `#B31217` (todos con
    ratio igual o mejor).
+
+---
+
+## 18. Cotizador v2 — Stream C (P-14 + P-16, v1.8)
+
+> Fuente funcional: `PENDIENTES.md` P-14 y P-16 (pedido del humano, ya decidido). Pantalla:
+> `/buylist` (`BuylistView.tsx`, storefront). Esta sección define SOLO layout y lenguaje visual:
+> **no cambia el contrato** (todo el dato ya existe: `availableFinishes`, `finish` en cada línea,
+> `POST /buylist/quote/batch`, `GET /buylist/bounties`) y **no introduce tokens nuevos**. Reutiliza
+> §16.6 (`FinishMark`), §16.7c (Top Bounties), §17 (identidad TCG HUNT) y §7/§8 (componentes y
+> patrones base).
+
+### 18.0 Principios de esta pantalla
+
+1. **La carta es la protagonista, con el tamaño del binder.** El diagnóstico de P-16 no es "imagen
+   chica": es que el **carrito lateral fijo (360px) le come el ancho a la grilla**. La solución es de
+   layout: el carrito deja de ser columna y pasa a **drawer flotante**; la grilla ocupa el 100% del
+   ancho útil y usa la MISMA densidad que el binder de M1 (donde las cartas "se ven cómodas").
+2. **Un solo lenguaje de variante en toda la app (P-14).** El distintivo Normal vs. Reverse Holo es el
+   `FinishMark` de §16.6 **tal cual está implementado en inventario**
+   (`frontend/src/components/domain/FinishMark.tsx`): banda de 3px + etiqueta mono. El cotizador NO
+   inventa un tratamiento propio (ni fondo tenue, ni chip nuevo): **mismo componente, mismos tokens**.
+   Cualquier evolución futura se hace en ese componente y aplica a admin y storefront a la vez.
+3. **Dinero honesto, igual que siempre:** sin cotización = «Precio pendiente» / «—», **nunca MX$0.00**
+   (§7.3); el monto lo deriva SIEMPRE el servidor (SEC-A1); el total del carrito con líneas pendientes
+   explica lo que no suma.
+
+### 18.1 Anatomía de la página (redistribución P-16)
+
+Orden vertical de `/buylist` (el contenido no cambia; cambia la distribución del ancho):
+
+1. **Header de página** (sin cambios): `h1` serif + subtítulo + nota PAY_AFTER_RECEIPT + enlace guía
+   de envío.
+2. **`TopBountiesShelf`** (§16.7c, sin cambios): arriba, antes del selector de set. Único lugar con
+   `--hunt-tint` permitido.
+3. **Barra de filtros, adelgazada:** al quitar el toggle textual del carrito (`Ocultar/Ver carrito`,
+   sustituido por el FAB §18.4), la barra queda:
+   - En `raw` (default): SOLO el `Select` de tipo de producto — el binder Master Set (mode="quoter")
+     trae su propio «Buscar set» (índice) y, dentro del set, «Buscar carta» + filtro de acabado.
+   - En `graded`/`sealed`: `Select` de set + búsqueda + `Select` de tipo (como hoy).
+4. **Grilla a TODO el ancho** (§18.2): desaparece el `lg:grid-cols-[minmax(0,1fr)_360px]`; `<main>`
+   es la única columna. **Padding inferior `pb-24` mínimo** en `<main>` para que el FAB nunca tape la
+   última fila de tejas.
+5. **Carrito = drawer flotante + FAB** (§18.4): overlay, no columna. El resto de la página (política
+   NM-only, copy de confianza, «Mis solicitudes») no cambia.
+
+**Dentro del set (quoter):** la fila de filtros locales del binder («Buscar carta» + acabado) se
+vuelve **sticky** en `≥ lg` (`top-0`, fondo papel `--color-bg`, `border-b border-border`, `z` por
+debajo del drawer): en sets de 200+ tejas grandes el usuario no debe scrollear de vuelta para
+filtrar. En `< lg` scroll natural (el sticky + teclado móvil estorban más de lo que ayudan).
+
+### 18.2 Grilla y tamaño de teja (breakpoints)
+
+**Regla: paridad exacta con el binder de inventario.** La retícula del quoter usa las mismas clases
+que `MasterSetBinder` (que ya comparte — hoy el problema era solo el ancho disponible):
+
+| Breakpoint | Columnas | Gap | Ancho de teja aprox. (contenedor lleno) |
+|---|---|---|---|
+| base (`< 640`) | 2 | `gap-x-6 gap-y-8` (24/32px) | ~150–170px |
+| `sm ≥ 640` | 3 | idem | ~180–200px |
+| `lg ≥ 1024` | 4 | idem | ~210–230px |
+| `xl ≥ 1280` | 5 | idem | **~205–230px** (objetivo: ≥ 200px) |
+
+- **No se añade columna en `2xl`** (mantener paridad con M1: la teja grande ES el objetivo, no meter
+  más columnas). El grid plano de `graded`/`sealed` **se alinea a esta misma escala** (hoy llega a
+  `2xl:grid-cols-6` con tejas chicas: se retira el `2xl:6` y el `md:4/xl:5` pasa a `lg:4/xl:5`).
+- **Imagen:** `CardImage` (5:7, `object-contain`) a ancho completo de la teja — con la columna del
+  carrito retirada, la imagen crece ~40% de área vs. hoy sin ningún cambio del componente.
+- **Jerarquía dentro de la teja quoter** (de arriba a abajo, ver §18.3): banda `FinishBand` →
+  arte → nombre (serif 15px, `lang="en"`) → `#número · ACABADO` (mono 10px, el acabado en
+  `--color-text`) → **precio estimado como héroe secundario: sube de 13px a `text-[15px]`** mono
+  `tabular-nums` en tinta (NO verde: el verde "pagamos" queda exclusivo del `BountyCard` §16.7c —
+  aquí es un estimado, no una promesa destacada) → botón `Agregar` (`secondary`, `size="sm"`,
+  full-width, anclado abajo con `mt-auto`).
+- **«Cargar más»** del binder quoter: sin cambios (paginación interna hasta completar el set).
+
+### 18.3 Distintivo de variante en la teja del cotizador (P-14)
+
+**La teja del quoter adopta el `FinishMark` de §16.6 EXACTAMENTE como la teja del binder M1** (hoy el
+`QuoterTile` no pinta la banda — esa es la brecha a cerrar):
+
+1. **`FinishBand` arriba de la teja** (primer elemento, encima del arte), idéntica a `BinderTile`:
+   - `normal` → sin banda (borde base).
+   - `reverse_holo` → gradiente 90° `--color-neutral-warm → --color-accent` (`#9A6C57 → #B31217`).
+   - `holofoil` / `first_edition_holofoil` → sólida tinta `#1A1A18`.
+   La banda es decorativa (`aria-hidden`); **nunca banda sin texto**.
+2. **La etiqueta textual** ya existe en el `TileHeader` compartido (`#4 · REVERSE HOLO`, mono 10px
+   versalitas con el acabado en `--color-text`): es el canal portador (§2.4). No se duplica etiqueta:
+   banda (canal color) + renglón del header (canal texto) = el mismo doble canal de §16.6.
+3. **Prohibido** inventar tratamientos alternativos aquí: ni fondo tenue por acabado (rompería
+   «sin rellenos de color en estados», §2.1), ni efecto foil animado, ni recolorear el arte. Si algún
+   día se aprueba un efecto foil, se decide en `FinishMark` y aplica a TODAS las superficies (§16.11.3).
+4. `aria-label` del botón `Agregar` (ya existente) sigue portando el acabado legible localizado:
+   `Agregar Pikachu ex, reverse holo, MX$ 45.00`.
+5. En `graded`/`sealed` no hay banda (cotizan siempre `normal` → §16.6: sin banda), coherente sin
+   casos especiales.
+
+### 18.4 Carrito flotante: `SellCartFab` + `SellCartDrawer` (P-16)
+
+**El carrito deja de ser columna.** Contenido interno del carrito (requisitos de venta, líneas,
+total, CTAs, «Vaciar») **sin cambios funcionales**; solo cambia el contenedor y las líneas ganan el
+`FinishMark` (§18.5).
+
+**(a) `SellCartFab` — disparador flotante:**
+- `position: fixed`, esquina inferior derecha: `right: 20px; bottom: calc(20px +
+  env(safe-area-inset-bottom))`. **56×56px** (≥ 44px táctil, §8.2), **radio 0** (§4.2), **sin
+  sombra** (§4.3): fondo **tinta** `--color-ink`, icono `shopping-cart` de lucide 20px en papel
+  `--color-on-ink` (contraste ~15:1), `border: 1px solid var(--color-border-strong)`.
+- **Contador:** badge cuadrado sobrepuesto en la esquina superior derecha del FAB (min 20×20px),
+  fondo `--color-accent` `#B31217`, cifra mono `tabular-nums` 11px en papel (6.2:1, AA §17.2); cap
+  visual `99+`. Con carrito vacío el badge **se omite** (el FAB permanece: da acceso al panel de
+  requisitos de venta).
+- **Accesibilidad:** es un `<button>` con `aria-haspopup="dialog"`, `aria-expanded`, y `aria-label`
+  dinámico: `Carrito de venta, 3 cartas` / `Carrito de venta, vacío` (el badge numérico es
+  `aria-hidden`; la cifra viaja en el label). Foco visible obligatorio (anillo `--color-focus-ring`).
+- **Feedback al agregar:** SIN animación (una mira/pulso animado se confunde con carga, §17.3). El
+  contador cambia y el renglón `role="status"` existente (`addedLine`: «Agregada: … · Reverse Holo»)
+  anuncia a lectores de pantalla. Agregar desde la grilla **NO abre el drawer** (no interrumpe el
+  flujo de seguir cotizando); la excepción existente del CTA de `BountyCard` (intención explícita de
+  vender ESA carta) sí lo abre, como hoy.
+
+**(b) `SellCartDrawer` — el contenedor:**
+- `≥ lg`: **sheet lateral derecho de 400px** (min 360 / max 440), alto completo, fondo papel,
+  `border-l border-border-strong`, **overlay de tinta** (mismo scrim del Modal §7.6) sobre el resto;
+  la grilla queda visible detrás (contexto). `< lg`: **bottom sheet** a casi pantalla completa
+  (~92vh), mismo patrón del `VariantDrawer` §16.4.
+- **Semántica de diálogo completa:** `role="dialog"`, `aria-modal="true"`,
+  `aria-label="Carrito de venta (N)"`, **focus trap**, `Esc` cierra, clic en overlay cierra, botón
+  cerrar (44px) arriba a la derecha; al cerrar, **el foco regresa al FAB**. Orden de tabulación
+  interno: cerrar → requisitos → líneas → total → CTA enviar → vaciar.
+- **Contenido (orden vertical, igual que hoy):** encabezado eyebrow `CARRITO DE VENTA` + conteo →
+  `SellRequirementsPanel` → líneas (§18.5) → total estimado (+ nota de pendientes + nota de vigencia)
+  → CTA `Enviar solicitud (N)` (accent) o CTAs de login/registro sin sesión → `Vaciar carrito`.
+- Al **enviar con éxito**: el drawer se cierra, el `role="status"` de confirmación existente se
+  muestra en página y el FAB vuelve a estado vacío.
+- El drawer va **por encima** de la barra sticky de filtros y del FAB (z-index); nunca dos overlays a
+  la vez (abrir el modal de solicitud cierra el drawer o se apila según el patrón de `Modal` actual —
+  a criterio de frontend, pero solo un focus trap activo).
+
+### 18.5 Distintivo de variante en las líneas del carrito (P-14)
+
+Cada línea del carrito debe decir **de un vistazo** qué variante es, no solo con texto perdido en la
+metadata:
+
+- En la fila de metadata de la línea (`Estimado: MX$ 45.00 · ... · ×2`), el acabado en texto plano se
+  sustituye por **`<FinishMark finish={l.finish} />`** (banda 3px + etiqueta mono `REVERSE`/`HOLO`/
+  `NORMAL`, §16.6) alineado a la línea base de la fila. Es el MISMO componente compartido; cero
+  markup nuevo. `normal` renderiza solo la etiqueta muted (sin banda), por lo que el ojo detecta las
+  reverse/holo por la banda de color al escanear la lista.
+- El `aria-label`/`title` del `FinishMark` ya porta el nombre legible localizado («reverse holo»).
+- **Mismo tratamiento en el resumen del modal de solicitud** (la lista «qué cartas, cuánto» previa a
+  confirmar): cada renglón usa `FinishMark` en lugar del texto `· Reverse Holo`. La decisión de venta
+  se confirma viendo la variante con el mismo lenguaje con que se eligió.
+- Recordatorio de identidad de línea (sin cambios): (cardId + productType + finish) — dos acabados de
+  la misma carta son dos líneas, y ahora se distinguen visualmente entre sí.
+
+### 18.6 Estados (obligatorios, §8.1)
+
+| Estado | Tratamiento |
+|---|---|
+| **Cargando grilla** | Skeletons con la MISMA retícula final (§18.2): tejas 5:7 (imagen + 2 líneas + botón), 8–10 piezas. Sin spinners de página. |
+| **Cargando estimados** (batch) | La teja se pinta completa con el precio en `…` muted y `Agregar` deshabilitado (como hoy); nunca bloquear la grilla entera por el batch. |
+| **Sin set elegido** (raw) | El índice de sets del binder (ya existente) ES el estado inicial — no hay estado vacío artificial. |
+| **Sin resultados** (búsqueda local o graded/sealed) | `EmptyState` (§8.1) con el copy existente. |
+| **Precio pendiente** | Cifra `Precio pendiente` en accent en la teja (nunca `MX$ 0.00`); en carrito/total, el patrón honesto existente («—»/nota de pendientes). Ratifica §7.3. |
+| **Error del batch de estimados** | Aviso inline con `Reintentar` sobre la grilla (patrón actual); las tejas quedan con `Agregar` deshabilitado, la grilla no se tumba. |
+| **Error de carga de la grilla** | `QueryState` con reintento (patrón actual). |
+| **Carrito vacío** | Drawer abre con `SellRequirementsPanel` + copy `cartEmpty` (el drawer vacío es útil: dice qué necesitas para vender). FAB sin badge. |
+
+### 18.7 Coherencia de marca TCG HUNT (§17)
+
+- **Cero tokens nuevos:** todo el rojo de esta pantalla es `--color-accent` (`#B31217`) heredado por
+  token; la banda reverse ya lo hereda (§17.2). El FAB usa tinta/papel (la marca "usa el rojo con
+  avaricia": el rojo queda para el badge contador, estados de atención y el badge BOUNTY).
+- **Top Bounties** conserva su lenguaje (§16.7c + §17.3): chip `☩ BOUNTY` con `HuntMarkMicro`,
+  precio «Pagamos» en verde, fondo `--hunt-tint` opcional. La grilla del cotizador NO adopta el
+  tinte ni el glifo de mira: la jerarquía es shelf (cacería, destacado) > grilla (catálogo neutro).
+- **Sin gradientes nuevos:** las dos únicas excepciones siguen siendo la banda reverse (§16.6) y el
+  logo (§17.2). El FAB, el drawer y las tejas no llevan degradado.
+
+### 18.8 Accesibilidad (además de §8.2)
+
+- **Contraste (pares ya verificados, sin pares nuevos):** banda reverse sobre papel ≥ 4.0:1 (≥ 3:1
+  UI, §16.6); accent `#B31217` sobre papel 6.2:1; FAB tinta/papel ~15:1; badge contador
+  papel-sobre-accent 6.2:1 (§17.2). Nada que re-verificar en §10.
+- **Targets:** FAB 56px; cerrar drawer 44px; steppers de cantidad del carrito conservan sus targets;
+  el botón `Agregar` de la teja es full-width (≥ 44px de alto con `size="sm"` + padding — verificar
+  en implementación; si `sm` queda < 44px de alto en táctil, subir a `min-h-[44px]`).
+- **Aria del drawer:** ver §18.4b (dialog + trap + Esc + retorno de foco al FAB). El FAB anuncia
+  estado por `aria-label` + `aria-expanded`; las adiciones se anuncian por el `role="status"`
+  existente (no por el badge).
+- **Doble canal de variante en TODA superficie:** nunca banda sin etiqueta (teja, carrito, resumen).
+  El color jamás es el único diferenciador entre Normal y Reverse (§2.4, §16.6).
+- **Orden de foco de la página:** header → bounties → filtros → grilla (tejas en orden de lectura) →
+  secciones de confianza → «Mis solicitudes». El FAB, al ser `fixed` al final del DOM, debe quedar
+  en el flujo de tabulación DESPUÉS del contenido principal o inmediatamente tras la barra de
+  filtros — elegir UNA posición de DOM y mantenerla; no `tabindex` positivos.
+
+### 18.9 Componentes: qué se comparte con inventario y qué es nuevo (para NO duplicar)
+
+**Se REUTILIZAN tal cual (cero forks, cero copias):**
+
+| Componente | Ruta | Uso en cotizador |
+|---|---|---|
+| `FinishMark` / `FinishBand` | `components/domain/FinishMark.tsx` | Banda en `QuoterTile` (§18.3) + marca en líneas de carrito y resumen del modal (§18.5). **El componente NO se toca.** |
+| `MasterSetPanel` / `MasterSetBinder` (mode="quoter") + `TileHeader` | `components/master-set/` | La grilla misma; ya compartidos con M1. El cambio de §18.3 (añadir `FinishBand` al `QuoterTile`) vive DENTRO de `MasterSetBinder.tsx`, beneficiando solo al modo quoter (el `BinderTile` ya la tiene). |
+| `CardImage` | `components/ui/CardImage.tsx` | Arte 5:7 de la teja (crece sola con la teja). |
+| `TopBountiesShelf` / `BountyCard` | `components/domain/TopBountiesShelf.tsx` | Sin cambios (§16.7c). |
+| `SellRequirementsPanel`, `BuylistKycForm`, `Button`, `Modal`, `EmptyState`, `QueryState`, `Skeleton`, `Input`, `Select` | varios | Sin cambios. |
+| `HuntMarkMicro` | `components/domain/LogoTcgHunt.tsx` | Solo donde ya está (badge BOUNTY). |
+
+**NUEVO en Stream C (frontend los crea):**
+
+| Componente | Qué es |
+|---|---|
+| `SellCartFab` | Botón flotante fijo con contador (§18.4a). |
+| `SellCartDrawer` | Contenedor drawer/bottom-sheet del carrito (§18.4b) — **envuelve** el contenido actual del `<aside>`, no lo reescribe. |
+
+**Se MODIFICAN (sin cambiar su API pública):** `QuoterTile` (añade `FinishBand` + precio a 15px),
+`BuylistView` (layout de una columna + monta FAB/drawer + `FinishMark` en líneas/resumen), grid plano
+de graded/sealed (densidad §18.2). **Nada de esto toca contrato ni backend.**
+
+### 18.10 i18n — claves nuevas (propiedad de frontend)
+
+- `buylist.cartFab.{ariaWithCount,ariaEmpty}` — «Carrito de venta, {count} cartas» / «…, vacío».
+- `buylist.cartDrawer.{ariaLabel,close}`.
+- Se retiran del uso `buylist.cartHide` / `buylist.cartShow` (el toggle textual desaparece).
+- Todo lo demás (etiquetas `finish.*` de §16.10, `quoterPending`, `addedLine`, copys del carrito) se
+  reutiliza sin cambios. Recordatorio §9.4: `Carrito de venta, 3 cartas` en ES es la cadena larga del
+  `aria-label`; no trunca nada visible (es aria).
+
+### 18.11 Notas para otros roles (no bloquean el diseño)
+
+1. **Sin solicitudes de contrato:** P-14/P-16 son 100% visuales/layout; ningún dato nuevo. (La nota
+   §16.11.2 — precarga del cotizador desde `BountyCard` — ya quedó resuelta en Stream B vía el quote
+   directo al carrito.)
+2. **Bounty en la teja del quoter (deseable, NO requerido):** hoy la grilla del cotizador no sabe si
+   una variante es bounty (el dato público vive solo en `GET /buylist/bounties`). Si algún día el
+   quote público expone `source:"bounty"`, la teja podría ganar el badge `☩ BOUNTY` (§16.7b) y el
+   precio en verde. Se registra como idea para product-owner/arquitecto; el diseño actual NO lo asume.
+3. **QA visual sugerido:** verificar en 1280px (xl) que la teja quede ≥ 200px de ancho con el drawer
+   cerrado, y que el FAB no tape la última fila (padding §18.1.4); smoke E2E de los flujos tocados:
+   agregar desde teja → badge del FAB incrementa → drawer muestra la línea con su `FinishMark` →
+   enviar solicitud sigue funcionando igual.
