@@ -5,6 +5,32 @@
  * Toda cantidad es un entero de centavos MXN. No se usan floats para persistir dinero.
  */
 
+/**
+ * BE-27 (money-safety): techo Int32 de Postgres. Toda columna `*Cents` persistible es `Int`, cuyo
+ * máximo es 2_147_483_647. Un importe calculado por encima (p. ej. `pct × market` con un market/rate
+ * enorme, o un `fixed` grande que se coló) desbordaría la columna y lanzaría al persistir (excepción
+ * Prisma = DoS). `clampCents` ACOTA el valor FINAL ya calculado a [?, MAX_CENTS] SIN cambiar la
+ * matemática ni el redondeo previos; `null` se respeta tal cual (pendiente, no se clava a 0).
+ */
+export const MAX_CENTS = 2_147_483_647;
+
+/**
+ * Acota un importe UNITARIO en centavos al techo Int32 (BE-27). No toca el redondeo; solo la cota
+ * superior.
+ *
+ * MS-3 (decisión, Opción A): esta función se queda PURA a propósito — `money.ts` es "sin dependencias
+ * de infra", así que NO lleva logging. La SEÑAL FUERTE de un importe fuera de rango vive en dos lugares
+ * visibles y accionables: (1) los validadores de settings rechazan `fixed > FIXED_CENTS_MAX` en la
+ * puerta de configuración, y (2) `grossUpTotal` **LANZA** cuando el AGREGADO excede `MAX_CENTS`
+ * (mapeado a `AMOUNT_TOO_LARGE`). Con config legítima este clamp unitario NO debería dispararse nunca;
+ * es una red de última instancia para que un unitario aberrante no desborde por sí solo antes de que el
+ * agregado lo delate. Si en el futuro se quiere telemetría del recorte, la emite el caller que persiste
+ * (fuera de este módulo puro), no `clampCents`.
+ */
+export function clampCents(n: number): number {
+  return n > MAX_CENTS ? MAX_CENTS : n;
+}
+
 export interface StripeFeeConfig {
   /** Tarifa porcentual de Stripe como fracción (ej. 0.036 = 3.6%). */
   stripePct: number;
@@ -28,14 +54,14 @@ export interface StripeFeeConfig {
  * El "valor de mercado" mostrado sigue siendo la referencia; esto es el precio cobrado.
  */
 export function computeSalePriceCents(referenceMxnCents: number, salesMarkupPct: number): number {
-  return Math.round(referenceMxnCents * (1 + salesMarkupPct / 100));
+  return clampCents(Math.round(referenceMxnCents * (1 + salesMarkupPct / 100)));
 }
 
 /**
  * Costo de aportación en especie = round(referencia × pct/100). PROJECT criterio 28.
  */
 export function computeAportacionCostCents(referenceMxnCents: number, aportacionPct: number): number {
-  return Math.round(referenceMxnCents * (aportacionPct / 100));
+  return clampCents(Math.round(referenceMxnCents * (aportacionPct / 100)));
 }
 
 /**
@@ -78,14 +104,15 @@ export function quoteAcquisition(
   const ruleSource: 'rule' | 'fallback' = explicit ? 'rule' : 'fallback';
 
   if (rule.mode === 'fixed') {
-    return { quotedPriceCents: rule.value, status: 'cotizada', appliedRule: rule, ruleSource };
+    // BE-27: clamp final (no-op para un fixed ya validado <= FIXED_CENTS_MAX; defensivo si se coló).
+    return { quotedPriceCents: clampCents(rule.value), status: 'cotizada', appliedRule: rule, ruleSource };
   }
   // pct
   if (referenceMxnCents == null) {
     return { quotedPriceCents: null, status: 'precio_pendiente', appliedRule: rule, ruleSource };
   }
   return {
-    quotedPriceCents: Math.round((referenceMxnCents * rule.value) / 100),
+    quotedPriceCents: clampCents(Math.round((referenceMxnCents * rule.value) / 100)),
     status: 'cotizada',
     appliedRule: rule,
     ruleSource,
@@ -204,13 +231,14 @@ function applyRule(
   referenceMxnCents: number | null,
 ): AcquisitionQuote {
   if (rule.mode === 'fixed') {
-    return { quotedPriceCents: rule.value, status: 'cotizada', appliedRule: rule, ruleSource };
+    // BE-27: clamp final (no-op para un fixed ya validado <= FIXED_CENTS_MAX; defensivo si se coló).
+    return { quotedPriceCents: clampCents(rule.value), status: 'cotizada', appliedRule: rule, ruleSource };
   }
   if (referenceMxnCents == null) {
     return { quotedPriceCents: null, status: 'precio_pendiente', appliedRule: rule, ruleSource };
   }
   return {
-    quotedPriceCents: Math.round((referenceMxnCents * rule.value) / 100),
+    quotedPriceCents: clampCents(Math.round((referenceMxnCents * rule.value) / 100)),
     status: 'cotizada',
     appliedRule: rule,
     ruleSource,
@@ -290,14 +318,15 @@ export function computeSalePriceForRarity(
 
   if (rule.mode === 'fixed') {
     // PISO fijo en centavos; NO depende de la referencia → siempre 'priced'.
-    return { salePriceCents: rule.value, status: 'priced', appliedRule: rule, ruleSource };
+    // BE-27: clamp final (no-op para un fixed ya validado <= FIXED_CENTS_MAX; defensivo si se coló).
+    return { salePriceCents: clampCents(rule.value), status: 'priced', appliedRule: rule, ruleSource };
   }
   // pct = MARKUP ARRIBA DE MERCADO (DISTINTO de buylist, que es ref × value/100).
   if (referenceMxnCents == null) {
     return { salePriceCents: null, status: 'pending', appliedRule: rule, ruleSource };
   }
   return {
-    salePriceCents: Math.round(referenceMxnCents * (1 + rule.value / 100)),
+    salePriceCents: clampCents(Math.round(referenceMxnCents * (1 + rule.value / 100))),
     status: 'priced',
     appliedRule: rule,
     ruleSource,
@@ -345,7 +374,8 @@ export function computeSealedSalePrice(
 ): SealedSpreadResult {
   // H-1: override presente ⇔ > 0 (un 0/negativo es degenerado ⇒ se ignora, cae a mercado×spread).
   if (overrideCents != null && overrideCents > 0) {
-    return { salePriceCents: overrideCents, status: 'priced', source: 'override', appliedSpreadPct: null };
+    // BE-27: clamp final del override (persistible en `*Cents`, Int32).
+    return { salePriceCents: clampCents(overrideCents), status: 'priced', source: 'override', appliedSpreadPct: null };
   }
   const hasSubtypeSpread = sealedSubtype != null && spreadPctBySubtype[sealedSubtype] != null;
   const spread = hasSubtypeSpread ? spreadPctBySubtype[sealedSubtype as string] : fallbackPct;
@@ -355,7 +385,7 @@ export function computeSealedSalePrice(
     return { salePriceCents: null, status: 'pending', source, appliedSpreadPct: spread };
   }
   return {
-    salePriceCents: Math.round(marketMxnCents * (1 + spread / 100)),
+    salePriceCents: clampCents(Math.round(marketMxnCents * (1 + spread / 100))),
     status: 'priced',
     source,
     appliedSpreadPct: spread,
@@ -475,6 +505,15 @@ export function computeDirectShipBreakdown(
  * C1: la deducción real de Stripe es `(1 + ivaFee) × (pct × total + fija)`. Resolviendo
  * `total − (1+ivaFee)(pct·total + fija) = base`:
  *   total = ceil((base + (1+ivaFee)·fija) / (1 − (1+ivaFee)·pct)).
+ *
+ * MS-2 (BE-27): CHOKE POINT del overflow de AGREGADOS. Todo breakdown (cart/shipment/direct-ship)
+ * deriva su `totalCents` aquí, y `total >= base >= subtotal` (y `>= iva`, `>= processingFee`), así
+ * que un total representable garantiza que TODOS los `*Cents` persistidos en `Order` caben en Int32.
+ * Un agregado NO se puede CLAMPAR en silencio (recortar el total = subcobro): si excede `MAX_CENTS`
+ * se **LANZA** (mismo patrón de `throw` de las guardias de fee de arriba) en vez de reventar al
+ * persistir la Order (excepción Postgres = DoS del checkout). El caller de negocio (orders/checkout)
+ * lo traduce a `AMOUNT_TOO_LARGE` (422). El clamp UNITARIO de `clampCents` es red de última instancia
+ * aparte; el agregado es la señal fuerte y visible (ver nota MS-3 en `clampCents`).
  */
 export function grossUpTotal(baseCents: number, fee: StripeFeeConfig): number {
   const ivaMul = 1 + fee.stripeFeeIvaPct;
@@ -486,10 +525,15 @@ export function grossUpTotal(baseCents: number, fee: StripeFeeConfig): number {
     throw new Error('effective stripe pct (stripePct × (1 + stripeFeeIvaPct)) must be in [0, 1)');
   }
   const effectiveFixed = fee.stripeFixedCents * ivaMul;
-  return Math.ceil((baseCents + effectiveFixed) / (1 - effectivePct));
+  const total = Math.ceil((baseCents + effectiveFixed) / (1 - effectivePct));
+  // MS-2: agregado no representable en Int32 → se RECHAZA (nunca se clampa: recortar = subcobro).
+  if (total > MAX_CENTS) {
+    throw new Error('total exceeds MAX_CENTS (Int32) — order amount not representable');
+  }
+  return total;
 }
 
 /** Precio MXN desde USD con FX + colchón. ARCHITECTURE §3.2 FxRate. */
 export function usdToMxnCents(priceUsdCents: number, rate: number, bufferPct: number): number {
-  return Math.round(priceUsdCents * rate * (1 + bufferPct / 100));
+  return clampCents(Math.round(priceUsdCents * rate * (1 + bufferPct / 100)));
 }

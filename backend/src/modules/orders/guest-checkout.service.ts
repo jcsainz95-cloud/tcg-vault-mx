@@ -113,7 +113,7 @@ export class GuestCheckoutService {
    * `direct_ship`, snapshot de dirección) y UN SOLO PaymentIntent por el total (cartas + envío +
    * IVA + fee). Devuelve el `checkoutToken` (vida corta, §4-G.7a) a quien acaba de crear el pedido.
    */
-  async createSession(dto: GuestSessionDto, requestIp?: string | null, idempotencyKey?: string) {
+  async createSession(dto: GuestSessionDto, requestIp?: string | null) {
     // Destino bóveda ⇒ UPSELL, no error (criterio 48). El front NUNCA lo pinta como error.
     if (dto.fulfillmentMode === 'vault') {
       throw BusinessException.validation(
@@ -168,7 +168,6 @@ export class GuestCheckoutService {
       amountCents: breakdown.totalCents,
       metadata: { orderId: order.id, kind: 'order', guest: 'true' },
       inventoryItemIds: lines.map((l) => l.inventoryItemId),
-      idempotencyKey,
     });
 
     // §4-G.0-5: ÚNICA respuesta de API con un token en claro. Quien llama ES quien creó el pedido,
@@ -441,7 +440,12 @@ export class GuestCheckoutService {
     const shippingFeeCents = await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS);
     const ivaPct = await this.settings.getNumber(SettingKey.IVA_PCT);
     const fee = await this.settings.getStripeFee();
-    return computeDirectShipBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee);
+    // MS-2 (BE-27): el pedido de invitado también PERSISTE una Order; un agregado no representable en
+    // Int32 → 422 AMOUNT_TOO_LARGE vía la fuente única `orders.representableOrThrow` (no se persiste
+    // overflow ni se clampa el total). El `quote` (read-only) NO usa esta ruta.
+    return this.orders.representableOrThrow(() =>
+      computeDirectShipBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
+    );
   }
 
   /**

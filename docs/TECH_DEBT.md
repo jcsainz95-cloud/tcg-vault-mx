@@ -13,6 +13,18 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+### MSH-1 · Homólogo de H2/H1 no propagado a rutas de dinero hermanas (money-safety-hardening, 2026-08-20)
+- **Dueño:** arquitecto decide alcance → **backend** ejecuta (misma clase que H2, ruta distinta). **Severidad:** Media (aceptada, out-of-scope de la rama `claude/money-safety-hardening`).
+- **Deuda:** el endurecimiento H2 (ignorar `Idempotency-Key` del cliente en rutas de dinero) y H1 (aseverar monto/moneda al liquidar) se aplicaron a `orders`/`guest`, pero **no** a las rutas gemelas: `shipments.service.ts:170` aún hace `idempotencyKey ?? pi-shipment-<id>` (el header del cliente llega a Stripe) y `admin-orders.controller.ts:234` (refund `@MoneyOut`) acepta la key del cliente como override; además la rama `shipment` de `payments.service.ts onPaymentSucceeded` (~:171) liquida `solicitado→picking` **sin** aseverar monto/moneda (MS-4).
+- **Impacto:** superficie residual de la misma clase de riesgo que H1/H2, en el módulo `shipments`/refund (fuera del work stream de `orders/payments/money`). No explotable para robo sin forjar la firma de Stripe; el refund es admin-gated y auditado.
+- **Disparador:** **antes de operar con dinero real.** El fix es idéntico y trivial (forzar clave server-side; añadir la aserción monto/moneda en la rama shipment). Requiere decisión del arquitecto por tocar otro módulo/stream. Ref: `docs/PENTEST_NOTES.md` (MS-1/MS-4) y `docs/SECURITY_NOTES.md` (pase money-safety-hardening).
+
+### MSH-2 · Telemetría del clamp unitario y secreto del webhook (money-safety-hardening, 2026-08-20)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). El vector de DoS por overflow del **agregado** `Order.totalCents` (MS-2, Media) **ya está corregido** con throw en `grossUpTotal` → `AMOUNT_TOO_LARGE` (422) y tests; no figura como deuda abierta.
+- **Deuda residual:** (a) **MS-3** — `clampCents` (`common/money.ts`) recorta el precio *unitario* en silencio (sin log/audit), a diferencia de H1; se dejó puro a propósito (el módulo es «sin dependencias de infra») y la señal fuerte vive en el throw del agregado + los validadores `FIXED_CENTS_MAX`. (b) **MS-5** — `constructEvent` usa `SECRET ?? ''` (fail-closed, con fail-fast en prod, pero frágil).
+- **Impacto:** bajo; con config legítima el clamp unitario no debería dispararse. Si se disparara, no deja rastro (posible bug aguas arriba enmascarado).
+- **Disparador:** si aparece un `AMOUNT_TOO_LARGE` en producción o se endurece la observabilidad de dinero, emitir señal (warn/audit) desde el caller que persiste cuando `clampCents` realmente recorte; y endurecer el manejo del secreto del webhook. Ref: `docs/SECURITY_NOTES.md` (MS-3/MS-5).
+
 ### CI-1 · CI en rojo por tests env-sensibles (REDIS_URL) — RESUELTO (2026-08-16)
 - **Dueño:** backend. **Estado:** **RESUELTO** (solo cambio de tests; producción intacta).
 - **Síntoma:** el job `backend` del workflow **CI** estaba en rojo en **toda la historia** del repo

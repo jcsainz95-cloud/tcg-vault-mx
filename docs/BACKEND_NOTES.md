@@ -4935,3 +4935,50 @@ ARCHITECTURE; es una nota de secuenciación por zona compartida).
   `admin-orders.list-filters` vía controller) confirmando que un `to` date-only incluye una fila de esa
   misma tarde. `tsc --noEmit` limpio.
 - Sin commit ni push (orquestador).
+
+## P-7 — Gate `backend-e2e` en verde: fixtures del webhook `payment_intent.succeeded` + H1 lee `amount_received` (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+### Qué estaba roto
+37 tests e2e en rojo: los fixtures de webhook `payment_intent.succeeded` mandaban
+`data.object = { id, object: 'payment_intent' }` SIN `amount` ni `currency`. El guard H1
+(`payments.service.ts`, defensa en profundidad antes de liquidar) comparaba contra
+`order.totalCents`/`'mxn'`, recibía `undefined undefined`, NO liquidaba → la orden quedaba
+`pending`, no se creaba el `ShipmentRequest` y el helper `paidOrder` de `guest-chargeback`
+explotaba en cascada (`Cannot read properties of null (reading 'id')`). El guard hizo
+EXACTAMENTE su trabajo: los fixtures eran los rotos, no el guard.
+
+### Decisión de diseño: H1 valida `amount_received` (capturado) con fallback a `amount`
+```ts
+const receivedCents = pi.amount_received ?? pi.amount;
+if (receivedCents !== order.totalCents || pi.currency !== 'mxn') { /* NO liquida + audita */ }
+```
+Razón: en Stripe real, para un PaymentIntent `succeeded`, `amount` es lo SOLICITADO y
+`amount_received` lo efectivamente CAPTURADO. Con captura parcial (`amount_to_capture <
+amount`) el PI emite `succeeded` con `amount` intacto: validar `amount` liquidaría una orden
+por la que entró menos dinero. Validar lo capturado es la semántica correcta de un guard
+money-safety. Detalles deliberados:
+- Fallback `??` (no `||`): un `amount_received === 0` NO cae a `amount` (0 capturado no
+  liquida). El fallback solo cubre payloads sin el campo (mocks/eventos slim), manteniendo
+  compatibilidad con los specs unitarios existentes que solo mandan `amount`.
+- El log H1 y el AuditLog `order.settle_amount_mismatch` reportan `receivedCents` (el valor
+  que el guard comparó), no `pi.amount` crudo.
+- Unitarios nuevos en `src/modules/payments/h1-settle-amount.spec.ts`: captura parcial con
+  `amount` cuadrando → NO liquida; `amount_received` cuadrando con `amount` raro → liquida;
+  `amount_received: 0` → NO liquida.
+
+### Fixtures e2e (todos los `payment_intent.succeeded` de `test/integration/`)
+Ahora mandan `amount`, `amount_received` y `currency: 'mxn'` con el **total REAL** de la
+orden creada en cada test (nada hardcodeado):
+- `catalog-checkout-webhook.e2e-spec.ts` — `orderTotalCents` leído de la Order en BD tras crear la sesión.
+- `guest-checkout.e2e-spec.ts` — `res.body.breakdown.totalCents` de la sesión de invitado
+  (variable de suite + retorno `totalCents` en `makeStaleGuestOrder`).
+- `guest-chargeback.e2e-spec.ts` — `pendingOrder()` ahora retorna `totalCents` del breakdown; `paidOrder()` lo usa.
+- `vault-shipments.e2e-spec.ts` — pago de un ENVÍO (no hay Order, H1 no aplica ahí), pero el
+  fixture manda el `totalCents` del `ShipmentRequest` por realismo/futuro-proofing.
+
+### Verificación real (local, replicando CI: Postgres 16 + Redis + migrate deploy + seed sintético)
+- `npm run test:integration` → **9 suites / 124 tests VERDE** (incluye las 4 afectadas).
+  Nota: sin `S3_ENDPOINT` local el smoke de MinIO firmaba contra AWS real vía proxy (403);
+  con las `S3_*` de CI apuntando a `localhost:9000` el spec se salta solo, como está diseñado.
+- `npm test` (unit) → **137 suites / 1259 tests VERDE**. `npm run typecheck` limpio.
+- `npm run lint` → 0 errores (1 warning preexistente en `buylist.service.ts`, ajeno a este cambio).

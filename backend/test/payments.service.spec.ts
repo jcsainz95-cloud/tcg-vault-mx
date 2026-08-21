@@ -5,6 +5,13 @@ import { StripeService } from '../src/modules/payments/stripe.service';
 import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 
+/**
+ * H1: `onPaymentSucceeded` recibe el PaymentIntent completo. Helper para construir uno que CUADRE
+ * (monto/moneda) con la orden que se va a liquidar; la aserción de defensa en profundidad exige
+ * `pi.amount === order.totalCents` y `pi.currency === 'mxn'`.
+ */
+const piOf = (id: string, amount = 0) => ({ id, amount, currency: 'mxn' } as any);
+
 /** Error P2002 (unique violation) tal como lo lanza Prisma. */
 function uniqueViolation(): Prisma.PrismaClientKnownRequestError {
   return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -75,9 +82,10 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
       fulfillmentMode: 'vault',
       status: 'pending',
+      totalCents: 100000,
       items: [{ inventoryItemId: 'item1' }],
     });
-    await payments.onPaymentSucceeded('pi_1');
+    await payments.onPaymentSucceeded(piOf('pi_1', 100000));
     const tx = prisma._tx;
     expect(tx.order.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'o1' }, data: expect.objectContaining({ status: 'settled' }) }),
@@ -108,12 +116,13 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
       fulfillmentMode: 'vault',
       status: 'pending',
+      totalCents: 100000,
       items: [{ inventoryItemId: 'item1' }],
     });
     const evt = {
       id: 'evt_dup',
       type: 'payment_intent.succeeded',
-      data: { object: { id: 'pi_1' } },
+      data: { object: { id: 'pi_1', amount: 100000, currency: 'mxn' } },
     } as any;
     const spy = jest.spyOn(payments, 'onPaymentSucceeded');
 
@@ -132,7 +141,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
     const evt = {
       id: 'evt_fail',
       type: 'payment_intent.succeeded',
-      data: { object: { id: 'pi_1' } },
+      data: { object: { id: 'pi_1', amount: 100000, currency: 'mxn' } },
     } as any;
 
     await expect(payments.handleEvent(evt)).rejects.toThrow('DB down');
@@ -147,6 +156,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
       // columna es NOT NULL con default `vault`, así que el fixture lo hace explícito.
       fulfillmentMode: 'vault',
       status: 'pending',
+      totalCents: 100000,
       items: [{ inventoryItemId: 'item1' }],
     });
     await payments.handleEvent(evt);
@@ -158,7 +168,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
 
   it('already-settled order is not re-processed', async () => {
     prisma.order.findUnique.mockResolvedValue({ id: 'o1', fulfillmentMode: 'vault', status: 'settled', items: [] });
-    await payments.onPaymentSucceeded('pi_1');
+    await payments.onPaymentSucceeded(piOf('pi_1'));
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
@@ -295,7 +305,7 @@ describe('PaymentsService — titularidad pending→settled y contracargo', () =
   it('payment for a shipment advances solicitado → picking', async () => {
     prisma.order.findUnique.mockResolvedValue(null);
     prisma.shipmentRequest.findUnique.mockResolvedValue({ id: 's1', status: 'solicitado' });
-    await payments.onPaymentSucceeded('pi_ship');
+    await payments.onPaymentSucceeded(piOf('pi_ship'));
     expect(prisma.shipmentRequest.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 's1' }, data: expect.objectContaining({ status: 'picking' }) }),
     );

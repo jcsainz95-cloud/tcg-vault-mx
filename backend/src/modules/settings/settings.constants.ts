@@ -166,13 +166,23 @@ function isNum(v: unknown): v is number {
 }
 
 /**
+ * BE-27 (money-safety): COTA SUPERIOR compartida del `value` de una regla `fixed` (centavos MXN).
+ * `= MX$1,000,000` en centavos. Sin techo, un `fixed` absurdo (p. ej. 1e12) desbordaría las columnas
+ * `*Cents` que son `Int` en Postgres (máx 2_147_483_647 = ~MX$21.4M): al persistir el importe cotizado
+ * lanzaría (excepción Prisma = DoS del checkout/cotización). MX$1M deja holgura de sobra para cualquier
+ * pieza real y queda MUY por debajo del techo Int32. Mismo patrón que SALES_PCT_MAX / MAX_FX_MANUAL_OVERRIDE_RATE.
+ */
+export const FIXED_CENTS_MAX = 100_000_000;
+
+/**
  * v1.3.1 (§E.1): valida UNA regla de precio de buylist `{ mode, value }`.
- * fixed → value entero ≥ 0 (centavos MXN). pct → value número en [0, 100].
+ * fixed → value entero en [0, FIXED_CENTS_MAX] (centavos MXN). pct → value número en [0, 100].
  */
 export function isValidBuylistRule(v: unknown): boolean {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
   const r = v as { mode?: unknown; value?: unknown };
-  if (r.mode === 'fixed') return isInt(r.value) && r.value >= 0;
+  // BE-27: fixed acotado arriba por FIXED_CENTS_MAX (evita overflow Int32 al persistir `*Cents`).
+  if (r.mode === 'fixed') return isInt(r.value) && r.value >= 0 && r.value <= FIXED_CENTS_MAX;
   if (r.mode === 'pct') return isNum(r.value) && r.value >= 0 && r.value <= 100;
   return false;
 }
@@ -184,7 +194,7 @@ export function validateBuylistRules(v: unknown): string | null {
   }
   for (const [rarity, rule] of Object.entries(v as Record<string, unknown>)) {
     if (!isValidBuylistRule(rule)) {
-      return `invalid rule for rarity "${rarity}": fixed→integer>=0 (cents), pct→number in [0,100]`;
+      return `invalid rule for rarity "${rarity}": fixed→integer in [0,${FIXED_CENTS_MAX}] (cents), pct→number in [0,100]`;
     }
   }
   return null;
@@ -211,7 +221,8 @@ export const SALES_PCT_MAX = 1000;
 export function isValidSalesRule(v: unknown): boolean {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
   const r = v as { mode?: unknown; value?: unknown };
-  if (r.mode === 'fixed') return isInt(r.value) && r.value >= 0;
+  // BE-27: fixed acotado arriba por FIXED_CENTS_MAX (evita overflow Int32 al persistir `*Cents`).
+  if (r.mode === 'fixed') return isInt(r.value) && r.value >= 0 && r.value <= FIXED_CENTS_MAX;
   if (r.mode === 'pct') return isNum(r.value) && r.value >= 0 && r.value <= SALES_PCT_MAX;
   return false;
 }
@@ -223,7 +234,7 @@ export function validateSalesRules(v: unknown): string | null {
   }
   for (const [rarity, rule] of Object.entries(v as Record<string, unknown>)) {
     if (!isValidSalesRule(rule)) {
-      return `invalid rule for rarity "${rarity}": fixed→integer>=0 (cents), pct→number in [0,${SALES_PCT_MAX}]`;
+      return `invalid rule for rarity "${rarity}": fixed→integer in [0,${FIXED_CENTS_MAX}] (cents), pct→number in [0,${SALES_PCT_MAX}]`;
     }
   }
   return null;

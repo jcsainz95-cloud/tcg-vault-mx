@@ -2,7 +2,35 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-20 (rev v1.26-precios-variantes-masterset).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.27-stream-a-catalogo-precios).
+>
+> **Changelog v1.27-stream-a-catalogo-precios (2026-08-22, Stream A «Catálogo y precios», P-13 + P-15 + P-12 de
+> `PENDIENTES.md`). Spec completa en ARCHITECTURE §4.25. SIN migración de schema (las columnas ya existen, M-27/M-29);
+> el paso de despliegue es un RE-SYNC forzado (ver P-13 abajo). Toca la lista blanca de dinero SEC-A1 (composición de
+> `availableFinishes`) → gate de seguridad por release como siempre.**
+> - **P-13 — semántica nueva de `availableFinishes`: el precio CONFIRMA, nunca AÑADE (sin cambio de shape).**
+>   La fórmula v1.26 (`structuralFinishes ∪ pricedFinishesSnapshot`) metía **variantes fantasma**: el barrido por
+>   impresión de PPT atribuía `normal` CON precio a cartas que solo existen en Holofoil (ex/secret rares) y la unión
+>   lo promovía a casilla. Fórmula nueva (ARCHITECTURE §4.25a):
+>   `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`.
+>   El snapshot de precio **SALE de la composición** (queda como observabilidad/confirmación); una carta legacy sin
+>   resolver TCGCSV cae a `['normal']` (fallback conservador; se repara con el re-sync forzado post-deploy:
+>   `sync-all {force:true}` o `sync {setId, force:true}` por set). `CardDTO.availableFinishes` /
+>   `displayFinishes` / `MasterSetVariantDTO` **no cambian de forma**; solo cambia cómo se computa server-side.
+>   SEC-A1 (`422 FINISH_NOT_AVAILABLE`) sigue validando contra `availableFinishes`.
+> - **P-15 — precio de mercado POR VARIANTE en el Master Set (aditivo, §M1/§DTOs).** `MasterSetVariantDTO` gana
+>   **`marketReferenceMxnCents?: number | null`** (+ **`capturedDate?: string | null`** opcional) = la referencia
+>   `PriceReference` de **ESE acabado** (`raw`, `raw:NM`, `finish` de la variante), FX-recompute a MXN — Normal y
+>   Reverse Holo dejan de mostrar el mismo número. El batch `getReferencesBatch` se expande a (carta × acabado del
+>   universo), sigue siendo UNA query. **`MasterSetCardCellDTO.marketReferenceMxnCents` queda DEPRECADO** (se
+>   conserva UNA versión como espejo del acabado base; retiro en la siguiente rev de contrato — el front debe migrar
+>   a leer la variante YA en este stream).
+> - **P-12 — sync completo de UN set (aditivo, §M2).** `POST /admin/catalog/sync` gana **`force?: boolean = false`**:
+>   con `force:true` corre también el **resolver estructural TCGCSV** para los sets procesados (antes solo corría en
+>   first-import o `sync-all {force:true}`). **Flujo recomendado del admin por set:** `sync {setId, force:true}` +
+>   `POST /admin/jobs/price-ingest {setId}` (ya existente; barre el set completo, bypass del scope <2020). Se corrigen
+>   los textos stale que decían que `sync-all`/`catalog-price-sync` «repuebla precios»: desde v1.14 (WS-A §4.15g) el
+>   sync de catálogo es SOLO metadata+estructura; los precios viven exclusivamente en `price-ingest`.
 >
 > **Changelog v1.26-precios-variantes-masterset (2026-08-20, rama `claude/precios-variantes-masterset`) — bundle del PO.
 > Cambios de contrato: §M1 (bulk-publish escalate + `pendingPriceEntryId`; `MasterSetCardCellDTO.marketReferenceMxnCents`;
@@ -1047,11 +1075,16 @@ MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: 
 // v1.26 (P-2, §M1): marketReferenceMxnCents = precio de MERCADO (PriceReference cruda del acabado base, FX-recompute a
 //   MXN vigente); NO es el precio de venta derivado. null cuando la referencia está `pending`. ADITIVO/opcional. La teja
 //   admin del Master Set muestra MERCADO; el precio de venta del cliente vive en `buyable.salePriceCents` (vista cliente).
+// v1.27 (P-15): ⚠️ el `marketReferenceMxnCents` de la CELDA queda **DEPRECADO** — el precio de mercado se mueve al
+//   nivel VARIANTE (`MasterSetVariantDTO.marketReferenceMxnCents`, abajo): la referencia del acabado BASE pintada
+//   igual en todas las variantes era el bug P-15 (Normal y Reverse mostraban lo mismo). El campo de celda se CONSERVA
+//   UNA versión como espejo de la variante del acabado base (= `variants[0].marketReferenceMxnCents`) para no romper
+//   lectores rezagados; el front NO debe leerlo más (lee la variante). Retiro planificado en la siguiente rev.
 MasterSetCardCellDTO = { cardId: string, number: string, numberSort: number, numberPrefix: string,
                          name: string, rarity?: string,
                          imageSmallUrl?: string, availableFinishes: Finish[], displayFinishes: Finish[],
                          countsByFinish: { finish: Finish, count: number }[], totalCount: number, isSecretRare: boolean,
-                         marketReferenceMxnCents?: number | null }
+                         marketReferenceMxnCents?: number | null /* DEPRECADO v1.27: usar variants[].marketReferenceMxnCents */ }
 MasterSetBinderResponse = { set: SetRefDTO, printedTotal: number | null, catalogCardCount: number,
                             cells: MasterSetCardCellDTO[] }
 // ===== v1.20-master-set-everywhere: contrato ÚNICO por scope + completitud por VARIANTE =====
@@ -1068,6 +1101,9 @@ VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 // Variante = (carta, acabado). El UNIVERSO esperado por carta = Card.availableFinishes (campo YA existente del
 // catálogo; v1.22: fuente ÚNICA = sync de catálogo — tcgplayer.prices ∪ cardmarket.reverseHolo*; el price-ingest
 // YA NO lo escribe. Filas históricas/sin datos → ["normal"]).
+// v1.27 (P-13): la composición cambia OTRA vez (sin cambio de shape): universo = `structuralFinishes` (TCGCSV,
+// autoritativo) cuando no está vacío; el precio CONFIRMA, nunca AÑADE (adiós variantes fantasma). Legacy sin
+// resolver TCGCSV → ["normal"] hasta el re-sync forzado. Ver ARCHITECTURE §4.25a.
 // `variants` trae EXACTAMENTE una entrada por acabado de availableFinishes (orden canónico FINISH_ORDER:
 // normal → reverse_holo → holofoil → first_edition_holofoil), ni una más ni una menos.
 // v1.22 — SIN CAMBIO DE SHAPE, y es una decisión, no un olvido: la variante NO lleva imagen propia. pokemontcg.io
@@ -1084,7 +1120,19 @@ VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 //   coveredVariantCount/expectedVariantCount cuentan sobre availableFinishes). El front que pinta la REJILLA PLANA
 //   (N-16) renderiza UNA tarjeta por variante con `displayed===true`; las variantes `displayed===false` (acabado
 //   espurio suprimido) NO se pintan pero SIGUEN contando para completitud y buyable. Whitelist SEC-A1 sin cambio.
+// v1.27 (P-15, ADITIVO): la variante gana su PROPIO precio de mercado — `marketReferenceMxnCents` = la
+//   `PriceReference` vigente de (cardId, 'raw', 'raw:NM', ESTE finish), FX-recompute a MXN server-side
+//   (`getReferencesBatch`/`liveMxnCents`, batch expandido a carta × acabado del universo; sigue siendo UNA query,
+//   sin N+1). `null` cuando la referencia está `pending`/ausente (NUNCA un 0 inventado; el front pinta "—").
+//   NO es el precio de venta derivado (ese vive en `buyable.salePriceCents`, solo vista (iii) cliente).
+//   `capturedDate` (opcional) = `PriceReference.capturedDate` (ISO, fecha de la última ingesta) de ESA fila;
+//   presente solo cuando `marketReferenceMxnCents != null`; el front lo trata como decoración de frescura y
+//   tolera su ausencia. Aplica en los 3 scopes del binder (M1 plataforma, bóveda admin, "Mi bóveda") — misma
+//   agregación, solo lectura, no toca SEC-A1.
+//   ⚠️ Prerrequisito de DATOS (no de contrato): sin `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` en prod el
+//   proveedor emite UNA fila por carta (impresión primaria) y las reverse no tendrán referencia propia → "—".
 MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean, displayed: boolean,
+                        marketReferenceMxnCents?: number | null, capturedDate?: string | null,
                         buyable?: { inventoryItemId: string, salePriceCents: number } | null }
 // EXTENSIONES v1.20 (ADITIVAS — los campos v1.16 no cambian; notación `+=` = campos que se AÑADEN al DTO):
 // Índice: catalogVariantCount = Σ |availableFinishes| de las cartas del set; distinctVariantsOwned = variantes del
@@ -2812,6 +2860,13 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     **MERCADO** (referencia `PriceReference` cruda del acabado base, FX-recompute a MXN vigente vía
     `getReferencesBatch`/`liveMxnCents`), **NO** el precio de venta derivado. `null` si la referencia está `pending`. Se
     puebla con la infraestructura ya inyectada del binder (sin N+1). Ver ARCHITECTURE §4.24d.
+  - **v1.27 (P-15, aditivo):** el precio de mercado baja al **nivel VARIANTE** — `MasterSetVariantDTO` gana
+    **`marketReferenceMxnCents?: number | null`** (+ `capturedDate?: string | null`) con la referencia de **ESE**
+    acabado (`raw`, `raw:NM`, `finish` de la variante): Normal y Reverse Holo muestran cada una SU mercado, en los
+    **3 scopes** del binder (M1, bóveda admin, "Mi bóveda"). El backend expande el batch de `getReferencesBatch` a
+    **(carta × acabado del universo `availableFinishes`)** — el batch ya acepta lista, sigue siendo UNA query, sin
+    N+1. El campo de **CELDA** queda **DEPRECADO** (espejo de la variante del acabado base durante UNA versión; el
+    front migra a leer la variante en este mismo stream; retiro en la siguiente rev). Ver ARCHITECTURE §4.25b.
 - `GET /api/v1/admin/vaults` — **(NUEVO)** lista de clientes **con bóveda** (≥1 pieza en bóveda).
   Query: `?q=` (nombre/email), `?page=1&pageSize=20`, `?sort=` (`value_desc` default | `pieces_desc` | `name_asc`).
   Res `200` (`AdminVaultListResponse`): `{ data: AdminVaultSummaryDTO[], page, pageSize, total }` — por cliente:
@@ -2952,10 +3007,24 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
 - `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
   Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number }] }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
 - `POST /api/v1/admin/catalog/sync` — importa/actualiza cartas.
-  Req: `{ setId?: string, fromReleaseDate?: string }`.
+  Req: `{ setId?: string, fromReleaseDate?: string, force?: boolean = false }`.
   - `setId` (opcional) → importa ese set puntual. **Debe cumplir `^[a-z0-9]+(-[a-z0-9]+)*$`** (anti-inyección en `q=set.id:`); si no, `422 VALIDATION_ERROR`.
   - sin `setId` → importa sets con `releaseDate >= fromReleaseDate`. **Default `fromReleaseDate` = dial `catalog_sync_from_date` (`"2024/01/01"`)**, editable sin redeploy vía `GET/PUT /admin/settings` (`catalogSyncFromDate`, §M10). Formato `yyyy/MM/dd`.
-  Res `202`: `{ jobId, setsQueued: number, mode: "single" | "from_date" }`.
+  - **`force` (v1.27 / P-12, opcional, default `false`, aditivo):** con `true`, para **cada set procesado por la
+    llamada** se corre además el **resolver estructural TCGCSV** (`resolveStructuralFinishesForSet`, ARCHITECTURE
+    §4.24a) aunque el set NO sea first-import — misma semántica que el `force` de `sync-all` (cierra la asimetría:
+    antes el resolver solo corría en first-import o en `sync-all {force:true}`, y el botón por set NUNCA refrescaba
+    variantes). El resolver sigue siendo **best-effort** (si TCGCSV falla se loguea y NO aborta el import,
+    money-safe). Uso recomendado: **por set** (`{setId, force:true}`); con modo `from_date` también se honra, pero
+    ojo al volumen (un fetch TCGCSV por set del rango). Retrocompatible: omitir `force` deja el comportamiento
+    EXACTO de hoy. Auditado con `force` en el detalle.
+  - **⚠️ Este endpoint NO toca precios** (desde v1.14 / WS-A §4.15g el pricing vive SOLO en `price-ingest`).
+    **Flujo recomendado del admin para «sincronizar un set completo» (v1.27):** (1) `POST /admin/catalog/sync
+    { setId, force: true }` → metadata + todas las cartas + variantes estructurales TCGCSV del set; (2) `POST
+    /admin/jobs/price-ingest { setId }` (§M10-ops, ya existente) → precios del set **completo** (el sync manual por
+    set hace bypass del scope de sets <2020 de `ppt-sync-scope`). El frontend encadena ambos desde la acción por
+    fila de M2; el copy NO debe decir que el sync de cartas «repuebla precios».
+  Res `202`: `{ jobId, setsQueued: number, mode: "single" | "from_date" }` (shape sin cambios).
 - `POST /api/v1/admin/catalog/backfill` — importa el **siguiente lote de sets más antiguos aún no importados** (colecciones previas a la frontera). Repetible.
   Req: `{ batchSize?: number = 10, untilYear?: number }`.
   Res `200`: `{ imported: [{ id, name, releaseDate, cardCount }], newBoundary: string, remaining: number }`. `newBoundary` = `releaseDate` del set más antiguo ya importado tras el lote; `remaining` = sets aún sin importar. Se repite hasta `remaining=0` (o hasta `untilYear`).
@@ -2963,11 +3032,17 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
   Req: `{ force?: boolean = false }` (sin otros campos; ignora `catalog_sync_from_date`).
     - **`force` (v1.6-finish, opcional, default `false`, admin-only):** controla si se reprocesan los sets **ya importados**.
       - `false` (default): **comportamiento actual** — se **saltan** los sets ya importados; solo se encolan los sets remotos aún no presentes.
-      - `true`: **no filtra** por sets ya importados — se encolan **TODOS** los sets (incluidos los ya importados) para **repoblar** `Card.availableFinishes` y los precios por acabado tras la **migración M-18** (v1.6-finish). Usar tras el deploy que requiere RE-SYNC (ver Changelog v1.6-finish, criterio 24).
+      - `true`: **no filtra** por sets ya importados — se encolan **TODOS** los sets (incluidos los ya importados) para **repoblar** `Card.availableFinishes` ~~y los precios por acabado~~ tras la **migración M-18** (v1.6-finish). Usar tras el deploy que requiere RE-SYNC (ver Changelog v1.6-finish, criterio 24). **⛔ Corrección v1.27:** desde v1.14 (WS-A §4.15g) este endpoint **NO repuebla precios** — solo metadata, cartas y (con `force`) variantes estructurales TCGCSV + reconcile; los precios se ingieren únicamente vía `price-ingest` (§M10-ops).
     - **Retrocompatible:** omitir `force` (o enviar `false`) preserva el contrato y la semántica previos; ningún consumidor existente se rompe. El campo es aditivo y opcional.
   Res `202`: `{ jobId: string, setsQueued: number, remaining: number }` (`setsQueued` = sets encolados en esta llamada; `remaining` = sets remotos aún no importados tras encolar; con `force=true`, `remaining` puede ser `0` aunque se hayan encolado todos los sets). Idempotente: los sets ya importados se re-upsertean sin duplicar. Auditado (`action: catalog.sync_all`, con `force` registrado en el detalle).
   > **Alternativa sin endpoint nuevo:** el mismo resultado se logra con `POST /admin/catalog/sync` pasando un `fromReleaseDate` muy antiguo (p. ej. `"1998/01/01"`) **más** `POST /admin/catalog/backfill` repetido hasta `remaining=0`. `sync-all` existe para hacerlo explícito y **seguro contra timeouts** en catálogos grandes. Backend decide si `sync-all` es un wrapper que encola lo mismo que `backfill` en lote completo.
   > **Uso en Fase 1 (v1.12-catalog-pricing, ARCHITECTURE §4.13):** este endpoint **cubre 1.3 y 1.4 sin variantes nuevas** — (1.4, frontend) botón **"Importar sets nuevos"** en M2 = `sync-all {force:false}` (solo sets no importados) + polling `sync-status` + refrescar `remote-sets`; (1.3, disparo manual del refresco de precios) = `sync-all {force:true}` (re-sync completo que repuebla `PriceReference` por acabado). El job automático `catalog-price-sync` 2×/día ejecuta internamente la misma lógica de `force:true`.
+  > **⛔ Corrección v1.27 al párrafo anterior (la mitad 1.3 quedó STALE desde v1.14/WS-A §4.15g):** `sync-all` **ya NO
+  > repuebla `PriceReference`** — el refresco de precios es EXCLUSIVO de `price-ingest` (§M10-ops; global o `{setId}`).
+  > `sync-all {force:true}` hoy sirve para: re-upsert de metadata/cartas + **reparación estructural de variantes**
+  > (resolver TCGCSV + reconcile, §4.24a/§4.25a) — es el paso de despliegue del re-sync forzado post-P-13. La mitad
+  > 1.4 ("Importar sets nuevos") sigue vigente tal cual. El copy de frontend en M2 debe reflejarlo (`es.json` decía
+  > "repuebla precios": mentira desde v1.14; corregir en este stream).
 - `GET /api/v1/admin/catalog/sync-status` — **(v1.10-sync-status, NUEVO)** devuelve el **progreso** del barrido `sync-all` **en curso** (o del **último** ejecutado) → permite a M2 **pollear** (cada ~3s mientras `running`) y saber **cuándo** terminó (antes `sync-all` era fire-and-forget "a ciegas"). **Read-only**, **NO auditado** (es de polling), **NO llama a pokemontcg.io** (lee estado **en memoria del proceso**; **no** consume rate-limit ni la cola BullMQ). **Admin-only** (`super_admin`, hereda de `@Roles(Role.super_admin)` del controller). El shape corresponde **exactamente** a `CatalogSyncStatusResponse` (`frontend/src/types/contract.ts`).
   Res `200` (`CatalogSyncStatusResponse`):
   ```json
@@ -3376,10 +3451,15 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > - **`price-ingest`** *(v1.14-price-ingest, WS-A — NUEVO, el pricing PRIMARIO):* dispara la **ingesta masiva de precios**
 >   vía el proveedor de paga seleccionado por el dial `priceProvider` (§M10). Encola un **fan-out BullMQ de un job por
 >   set** (`price-ingest-set`) que hace **upsert idempotente** de `PriceReference` por `(cardId, 'raw', 'raw:NM', finish,
->   hoy)` y refresca `Card.availableFinishes` desde el proveedor. **Reanudable** (cola en Redis), aísla fallos por set,
->   respeta `isManualOverride`. **Excepción a la forma de la familia:** acepta **`setId?`** opcional en el body (`POST
->   /admin/jobs/price-ingest { "setId": "sv8" }`) para ingestar **un solo set** — pensado para **verificar el esquema del
->   proveedor** en la 1ª corrida (v1.14-1) sin barrer todo el catálogo; omitirlo ingesta **todo** el catálogo. Res `202`:
+>   hoy)` ~~y refresca `Card.availableFinishes` desde el proveedor~~ *(⛔ derogado por v1.22/§4.22a: `price-ingest`
+>   NO escribe `availableFinishes`; escribe su columna interna `pricedFinishesSnapshot`, que desde **v1.27/P-13**
+>   además YA NO compone la lista blanca — solo confirma/observa, ver ARCHITECTURE §4.25a)*. **Reanudable** (cola en
+>   Redis), aísla fallos por set, respeta `isManualOverride`. **Excepción a la forma de la familia:** acepta **`setId?`**
+>   opcional en el body (`POST /admin/jobs/price-ingest { "setId": "sv8" }`) para ingestar **un solo set** — pensado para
+>   **verificar el esquema del proveedor** en la 1ª corrida (v1.14-1) sin barrer todo el catálogo; omitirlo ingesta
+>   **todo** el catálogo. **v1.27 (P-12):** con `setId` el barrido es del set **COMPLETO** (bypass del scope <2020 de
+>   `ppt-sync-scope`) y es la **2ª mitad del flujo recomendado por set** de §M2: `catalog/sync {setId, force:true}` +
+>   `jobs/price-ingest {setId}` (la UI de M2 lo encadena por fila). Res `202`:
 >   `{ job: "price-ingest", enqueued: boolean, jobId?: string }` (o `{ ..., scope: "set", setId }` si se pasó `setId`).
 >   **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto. Reemplaza a `catalog-price-sync` en el rol
 >   de pricing (abajo).
@@ -3397,8 +3477,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 >   informativo — es la **base del precio de venta del sellado** (`mercado × spread`, ARCHITECTURE §4.23b); por eso su
 >   corrida es prerequisito para auto-preciar el sellado (con el dial `sealedPriceSource=tcgcsv`).
 > - **`catalog-price-sync`** *(v1.12.1, tarea 1.3 — **DEPRECADO en su rol de pricing por WS-A**):* dispara el **re-sync
->   completo del catálogo** (`force:true`) que **repuebla `PriceReference` por `(card, finish)`** reusando
->   `tcgplayer.prices` (FX del día). Es el **disparo manual** del refresco 2×/día (06:00 y 18:00 CDMX). **Equivale**
+>   completo del catálogo** (`force:true`) ~~que **repuebla `PriceReference` por `(card, finish)`** reusando
+>   `tcgplayer.prices` (FX del día)~~ *(⛔ v1.27: ese re-poblado de precios ya NO ocurre — §4.15g)*. Es el **disparo manual** del refresco 2×/día (06:00 y 18:00 CDMX). **Equivale**
 >   a `POST /admin/catalog/sync-all {force:true}` (§M2); ambos conviven (este es el disparador de ops "por job",
 >   `sync-all` es el de catálogo). **Toca dinero** (mueve precios de referencia) → sujeto a triple veredicto. **v1.14:**
 >   su rol de **pricing** lo asume `price-ingest` (arriba, mucho más barato); se **conserva** solo para **import de

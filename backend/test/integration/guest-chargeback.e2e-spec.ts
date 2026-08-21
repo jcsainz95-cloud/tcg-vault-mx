@@ -80,7 +80,13 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
       },
     });
     expect(res.status).toBe(201);
-    return { orderId: res.body.orderId as string, itemId: item.id, piId: res.body.stripe.paymentIntentId as string };
+    return {
+      orderId: res.body.orderId as string,
+      itemId: item.id,
+      piId: res.body.stripe.paymentIntentId as string,
+      // H1: el webhook de settle debe CUADRAR monto/moneda con la orden (totalCents real).
+      totalCents: res.body.breakdown.totalCents as number,
+    };
   }
 
   /** Pedido de invitado LIQUIDADO (pieza `picking`, envío de fulfillment en `picking`). */
@@ -88,7 +94,15 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
     const o = await pendingOrder(sfx);
     const wh = await h.sendStripeWebhook({
       type: 'payment_intent.succeeded',
-      data: { object: { id: o.piId, object: 'payment_intent' } },
+      data: {
+        object: {
+          id: o.piId,
+          object: 'payment_intent',
+          amount: o.totalCents,
+          amount_received: o.totalCents,
+          currency: 'mxn',
+        },
+      },
     });
     expect(wh.status).toBe(200);
     const shipment = await h.prisma.shipmentRequest.findFirst({ where: { orderId: o.orderId } });
