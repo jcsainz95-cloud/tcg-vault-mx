@@ -2,7 +2,16 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-21 (rev v1.28-stream-b-inventario-master-set).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-21 (rev v1.28.1-stream-b-precision).
+>
+> **Changelog v1.28.1 (2026-08-21, pase corto de precisión — hallazgos de los gates del Stream B; sin endpoints
+> nuevos):** (1) **§M2 `variant-controls` / conteo de bounty:** `bountyAcquiredQty` cuenta SOLO ítems
+> `ruleSource="bounty"` con `itemStatus ≠ 'rechazada'` (alineado con BL-1; corrige la frase que contaba todo
+> snapshot bounty). (2) **§M1 publish-all:** semántica de `summary.selected` = snapshot de candidatas
+> seleccionadas server-side. (3) **§M1 sealed-sets:** `SealedInventoryGroupDTO` gana `imageSmallUrl?` (aditivo);
+> inferencia normativa del `tcgplayerProductId` en la aportación de sellado (1 exacto entre hermanos mapeados o
+> `PRICE_PENDING`; sin herencia de mapeo; decisión de fondo = SB-D5 en TECH_DEBT); la vista de la cola
+> `sealed/unmapped` es del frontend de M2 (pendiente menor post-stream).
 >
 > **Changelog v1.28-stream-b-inventario-master-set (2026-08-21, Stream B «Inventario Master Set», P-19 + P-18 +
 > P-17 + P-24 + P-25 + P-20 + P-22 de `PENDIENTES.md` — decisiones de producto YA tomadas por el humano). Spec
@@ -3061,7 +3070,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   - Res `200` (`PublishAllResponse`): `{ batchKey?, idempotentReplay: boolean,
     summary: { selected, published, alreadyListed, pendingPrice, failed },
     failures: { inventoryItemId, folio, error: { code, message }, pendingPriceEntryId? }[] /* CAPADO a 200 */ }`
-    — el remanente de pendientes se opera por `GET /admin/pricing/pending?context=inventory`.
+    — el remanente de pendientes se opera por `GET /admin/pricing/pending?context=inventory`. **`selected`
+    (v1.28.1):** snapshot del total de piezas candidatas **seleccionadas server-side** por el filtro al momento de
+    la ejecución; los demás contadores reparten el destino por-pieza de esa selección.
   - Err `400 VALIDATION_ERROR` (filtros inválidos), `403`. **Toca dinero** (expone piezas a la venta) → gate de
     seguridad por release.
 - `GET /api/v1/admin/inventory/sealed-sets` — **(NUEVO, P-25)** índice de la pestaña «Sellado»: sets con ≥1 pieza
@@ -3074,9 +3085,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `GET /api/v1/admin/inventory/sealed-sets/:setId` — **(NUEVO, P-25)** detalle por set: grupos de producto sellado
   (identidad §4.23: `(cardId ancla, sealedSubtype, tcgplayerProductId, sealedCondition)`).
   Res `200`: `{ set: SetRefDTO, groups: SealedInventoryGroupDTO[] }` con
-  `SealedInventoryGroupDTO = { cardId, productName /* Card.name ancla */, sealedSubtype: SealedSubtype | null,
-  sealedCondition: SealedCondition, tcgplayerProductId: number | null, mapped: boolean,
-  counts: { inStock, listed, other }, sealedMarketRef?: PriceInfo, totalCostCents: number | null }`.
+  `SealedInventoryGroupDTO = { cardId, productName /* Card.name ancla */, imageSmallUrl?: string | null
+  /* v1.28.1, aditivo: imagen de la carta ancla (teja DESIGN §16.8); null honesto */,
+  sealedSubtype: SealedSubtype | null, sealedCondition: SealedCondition, tcgplayerProductId: number | null,
+  mapped: boolean, counts: { inStock, listed, other }, sealedMarketRef?: PriceInfo,
+  totalCostCents: number | null }`.
   Alta rápida/bajas/publicar = mismas reglas P-19 (aportación de sellado valúa por `sealedMarketRef` — ver nota
   normativa abajo); publicar por grupo = `bulk-publish` de sus folios o `publish-all {setId, productType:"sealed"}`;
   drill-down a folios = `items?cardId=&productType=sealed`. Err `404 NOT_FOUND`.
@@ -3085,8 +3098,15 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     (clave `sealed:tcg:<productId>`, gateada por el dial `sealedPriceSource`, resolver H-1 §4.23) — **no** por el
     gradeKey legacy `'sealed'` (que jamás tiene filas ⇒ todo caía a `PRICE_PENDING` aunque el mercado exista).
     Sin mapeo o dial `off` ⇒ `422 PRICE_PENDING` por línea, como siempre.
+    - **Inferencia del `tcgplayerProductId` (NORMATIVO v1.28.1):** el alta no captura productId; el server lo
+      infiere de los **hermanos ya mapeados del grupo `(cardId, sealedSubtype)`**. Exactamente UN productId entre
+      ellos ⇒ se usa para valuar; cero o varios ⇒ `422 PRICE_PENDING` por línea (ambigüedad = sin precio, jamás
+      adivinar). La pieza nueva **NO hereda el mapeo** (la curación sigue en M2). Decisión de fondo (productId en
+      el DTO del alta vs. entidad de producto sellado) abierta como **SB-D5** en `docs/TECH_DEBT.md`.
   - La **cola de no-mapeados** se enlaza desde la pestaña pero sigue siendo `GET /admin/pricing/sealed/unmapped`
     (§M2, **`super_admin`**); para `vault_operator` el grupo no mapeado se muestra como «sin precio de mercado».
+    **Dueño de la vista (v1.28.1):** la pantalla que consume esa cola pertenece al **frontend de M2** (precios),
+    no a la pestaña Sellado de M1 (que solo enlaza); pendiente menor post-stream, no bloquea el cierre de B.
 - `GET /api/v1/admin/inventory/graded` — **(NUEVO, P-20)** pestaña «Gradeadas»: inventario PSA/CGC **separado** de
   sueltas, agregado por `(cardId, gradingCompany, gradeValue)`. Query `?q=&page=&pageSize=`.
   Res `200`: `{ data: GradedInventoryGroupDTO[], page, pageSize, total }` con
@@ -3144,7 +3164,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `PendingPriceEntry` (un override de venta/compra no es una referencia; la cola de pendientes sigue siendo del
     mercado — a diferencia de `pricing/override`).
   - **Efectos colaterales normativos:** el conteo del bounty (`bountyAcquiredQty`) lo incrementa el PAGO de M5
-    (SPEI) en su misma transacción, por cada `SellRequestItem` con snapshot `ruleSource="bounty"` de esa clave; al
+    (SPEI) en su misma transacción, por cada `SellRequestItem` con snapshot `ruleSource="bounty"` de esa clave
+    **cuyo `itemStatus` NO sea `rechazada`** (v1.28.1, alineado con BL-1: un ítem rechazado del cherry-pick no se
+    compra ni se paga ⇒ jamás cuenta para el bounty ni dispara el auto-apagado — ARCHITECTURE §4.26e); al
     llegar a `targetQty` ⇒ `enabled=false` + `completedAt` + `AuditLog action=bounty.completed` (auto-apagado).
     Apagar/editar un bounty NO re-precia solicitudes ya cotizadas (montos snapshoteados, doctrina vigente).
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.

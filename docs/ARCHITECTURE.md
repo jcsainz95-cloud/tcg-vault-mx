@@ -2,7 +2,16 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.28-stream-b-inventario-master-set (MVP, plataforma en producción). Fecha: 2026-08-21. Stream B «Inventario Master Set» (P-19 + P-18 + P-17 + P-24 + P-25 + P-20 + P-22 de `PENDIENTES.md`).
+> Estado: v1.28.1-stream-b-precision (MVP, plataforma en producción). Fecha: 2026-08-21. Stream B «Inventario Master Set» (P-19 + P-18 + P-17 + P-24 + P-25 + P-20 + P-22 de `PENDIENTES.md`).
+>
+> **Changelog v1.28.1 (2026-08-21, pase corto de precisión — hallazgos de los gates del Stream B; sin schema, sin
+> endpoints nuevos):** (1) **B-1 resuelto:** §4.26e alineado con §4.26a y BL-1 — `bountyAcquiredQty` cuenta SOLO
+> ítems `ruleSource='bounty'` con `itemStatus ≠ 'rechazada'` (los rechazados del cherry-pick no se compran y jamás
+> avanzan el contador); eco corregido en API_CONTRACT §M2. (2) Ratificaciones aditivas en §4.26c/g: semántica de
+> `summary.selected` de publish-all (snapshot de candidatas server-side); inferencia del `tcgplayerProductId` en la
+> aportación de sellado (exactamente 1 productId entre hermanos mapeados del grupo o `PRICE_PENDING`; sin herencia
+> de mapeo — decisión de fondo abierta como SB-D5 en TECH_DEBT); `SealedInventoryGroupDTO.imageSmallUrl?`
+> (aditivo); la vista de la cola `sealed/unmapped` pertenece al frontend de M2 (pendiente menor post-stream).
 >
 > **Changelog v1.28-stream-b-inventario-master-set (2026-08-21, Stream B «Inventario Master Set») — spec completa
 > en §4.26; contrato en API_CONTRACT (Changelog v1.28). CON migración de schema: M-30 (§11, tabla nueva
@@ -4742,7 +4751,9 @@ nuevo):** SOLO **cantidad** + **adquisición**, con DOS caminos:
   la precedencia (b); `PRICE_PENDING` **escala** a la cola ④ §4.24b y NO publica; `listed` = no-op) — **tolerante
   por-ítem**, jamás revienta el lote.
 - Res: resumen `{ selected, published, alreadyListed, pendingPrice, failed }` + detalle de fallos **capado a 200
-  líneas** (el remanente se opera por la cola de pendientes M2 `?context=inventory`). Sin cap de selección
+  líneas** — `selected` (v1.28.1, ratificado tal como lo implementó backend) = **snapshot del total de piezas
+  candidatas seleccionadas server-side** por el filtro al momento de la ejecución; los demás contadores
+  (`published`/`alreadyListed`/`pendingPrice`/`failed`) reparten el destino por-pieza de ESA selección (el remanente se opera por la cola de pendientes M2 `?context=inventory`). Sin cap de selección
   (server-side por chunks — a diferencia de `bulk-publish`, que exige la lista y capa 200). Idempotencia por
   `batchKey` (`InventoryBatch kind='publish_all'`, replay devuelve el resultado guardado). Auditado
   (`inventory.publish_all`). El «publicar piezas de esta carta» existente no cambia.
@@ -4761,9 +4772,12 @@ nuevo):** SOLO **cantidad** + **adquisición**, con DOS caminos:
 - **Edición:** mismos writes de (b) (`bounty` en `variant-controls`); el front muestra el **premium vs. regla**
   (`bountyPriceCents − suggested`). Validaciones en (a) (`BOUNTY_BELOW_RULE`, precio siempre explícito).
 - **Conteo y auto-apagado (money-safe, transaccional):** cuando una `SellRequest` transiciona a **`pagada`** (pago
-  SPEI M5, `super_admin`), por cada ítem cuyo snapshot `ruleSource='bounty'` se incrementa
-  `bountyAcquiredQty` **en la MISMA transacción del pago** (por la clave `(cardId, productType, gradeKey,
-  finish)` del ítem). Si `bountyTargetQty != null` y `acquired ≥ target` ⇒ `bountyEnabled=false` +
+  SPEI M5, `super_admin`), por cada ítem cuyo snapshot es `ruleSource='bounty'` **Y cuyo `itemStatus` NO es
+  `rechazada`** se incrementa `bountyAcquiredQty` **en la MISMA transacción del pago** (por la clave `(cardId,
+  productType, gradeKey, finish)` del ítem). **Precisión v1.28.1 (alineada con (a) y con BL-1 §9):**
+  `bountyAcquiredQty` cuenta piezas realmente COMPRADAS — un ítem `rechazada` del cherry-pick no se paga (BL-1 lo
+  saca del dinero: `approvedPriceCents=null`, fuera de `approvedTotalCents`), así que JAMÁS avanza el contador ni
+  puede auto-apagar un bounty. Si `bountyTargetQty != null` y `acquired ≥ target` ⇒ `bountyEnabled=false` +
   `bountyCompletedAt=now()` + `AuditLog action=bounty.completed` (el aviso de M1 sale de `completedAt`). Sin
   objetivo ⇒ solo contador, nunca auto-off. Apagar un bounty **no** re-precia solicitudes ya cotizadas (el monto
   quedó snapshoteado en el ítem, como toda cotización — doctrina vigente).
@@ -4802,9 +4816,23 @@ es la de §4.23 — `(cardId ancla, sealedSubtype, tcgplayerProductId, sealedCon
   `sealedMarketRef` (resolver H-1; requiere mapeo + dial `sealedPriceSource=tcgcsv`) — hoy `createItem` valuaría
   contra el gradeKey legacy `'sealed'`, que jamás tiene filas ⇒ todo caía a `PRICE_PENDING` aunque el mercado
   exista. Sin mercado (no mapeado / dial off) ⇒ `422 PRICE_PENDING` por línea, como siempre.
+  - **Resolución del `tcgplayerProductId` en el alta (NORMATIVO v1.28.1, ratifica lo implementado):** el alta
+    rápida NO captura productId; el server lo **infiere de los hermanos YA MAPEADOS del grupo
+    `(cardId, sealedSubtype)`**. Si los hermanos mapeados resuelven a **exactamente UN** productId, se usa ese
+    para valuar; **cero o más de uno** ⇒ `422 PRICE_PENDING` por línea (ambigüedad = sin precio honesto, jamás
+    adivinar). La pieza nueva **NO hereda el mapeo** (nace sin `tcgplayerProductId`): la curación del mapeo sigue
+    siendo exclusiva de M2 (`sealed/unmapped`). La decisión de fondo —capturar el productId en el DTO del alta
+    vs. modelar una entidad de producto sellado— queda **abierta como SB-D5 en `docs/TECH_DEBT.md`** (la anota
+    backend a petición del techlead).
 - **Cola de no-mapeados:** acceso directo desde la pestaña a la vista servida por
   `GET /admin/pricing/sealed/unmapped` (M2). Ese endpoint y la curación del mapeo **siguen `super_admin`** — el
   acceso se muestra solo a ese rol; para `vault_operator` el grupo aparece como «sin precio de mercado».
+  **Dueño de la vista (decisión v1.28.1):** la pantalla que consume esa cola **pertenece al frontend de M2**
+  (módulo de precios), NO a la pestaña Sellado de M1 — la pestaña solo ENLAZA. Queda como **pendiente menor
+  post-stream** del frontend (no bloquea el cierre del Stream B).
+- **`SealedInventoryGroupDTO` (aditivo v1.28.1):** gana `imageSmallUrl?: string | null` — imagen de la carta
+  ancla del grupo, para la teja de DESIGN §16.8 (`null` honesto si el ancla no tiene imagen). Shape en API_CONTRACT
+  §M1; backend lo implementa en ronda futura o al cierre del stream.
 
 #### (h) P-20 — gradeadas (PSA) separadas, con valor por carta+grado
 
