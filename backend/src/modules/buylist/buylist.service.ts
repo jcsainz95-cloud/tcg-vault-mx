@@ -267,6 +267,53 @@ export class BuylistService {
   }
 
   /**
+   * v1.28 (P-22, §4.26e / API_CONTRACT §6) — GET /buylist/bounties: vitrina pública «Top
+   * Bounties» de la página Vender. READ-ONLY ESTRICTO (doctrina v1.12 de endpoints anónimos: no
+   * persiste, no escala pendientes, no mueve dinero). Solo bounties ACTIVOS
+   * (`bountyEnabled=true` + `bountyPriceCents>0` — la regla de presencia money-safe H-1) y solo
+   * `productType=raw` (defensa en profundidad: el write ya lo impone; la vitrina es de sueltas).
+   * Orden `bountyPriceCents desc`, cap 50, sin paginación ni query params. Un bounty
+   * completado/apagado DESAPARECE de la lista (quien ya cotizó conserva su monto snapshoteado).
+   */
+  async publicBounties(): Promise<{
+    data: {
+      cardId: string;
+      name: string;
+      number: string;
+      setName: string;
+      imageSmallUrl?: string;
+      rarity?: string;
+      finish: Finish;
+      bountyPriceCents: number;
+      targetQty: number | null;
+      remainingQty: number | null;
+    }[];
+  }> {
+    const rows = await this.prisma.variantPriceOverride.findMany({
+      where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
+      // Desempate estable por edición más reciente (el contrato solo norma el precio desc).
+      orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
+      take: 50,
+      include: { card: { include: { set: true } } },
+    });
+    const data = rows.map((r) => ({
+      cardId: r.cardId,
+      name: r.card.name,
+      number: r.card.number,
+      setName: r.card.set.name,
+      ...(r.card.imageSmallUrl ? { imageSmallUrl: r.card.imageSmallUrl } : {}),
+      ...(r.card.rarity ? { rarity: r.card.rarity } : {}),
+      finish: r.finish,
+      bountyPriceCents: r.bountyPriceCents as number,
+      targetQty: r.bountyTargetQty,
+      // Dato motivacional, no compromiso contractual: target − acquired con PISO 0; null sin objetivo.
+      remainingQty:
+        r.bountyTargetQty != null ? Math.max(0, r.bountyTargetQty - r.bountyAcquiredQty) : null,
+    }));
+    return { data };
+  }
+
+  /**
    * Crea la solicitud de venta. Valida topes (solicitud/mes), INE sobre tope y
    * CLABE a nombre propio. API_CONTRACT §6, PROJECT criterio 14.
    */
@@ -1235,6 +1282,12 @@ export class BuylistService {
   /**
    * Pago SPEI manual (super_admin, money-out). Precondición: aprobada + verificada.
    * API_CONTRACT §M5, PROJECT criterio 26.
+   *
+   * v1.28 (P-22, §4.26e): la transición a `pagada` y el CONTEO de bounty
+   * (`bountyAcquiredQty` por cada ítem con snapshot `ruleSource='bounty'`, con auto-apagado al
+   * alcanzar `bountyTargetQty`) corren en la MISMA transacción — o se paga Y se cuenta, o nada.
+   * Idempotente ante replays: el conteo solo corre en la llamada que HACE la transición
+   * (updateMany count===1); un re-POST/replay ve `pagada` y devuelve el estado sin re-contar.
    */
   async paySpei(id: string, speiReference: string, paidBy: string) {
     const req = await this.prisma.sellRequest.findUnique({ where: { id } });
@@ -1252,13 +1305,19 @@ export class BuylistService {
     }
     // SEC-M5: transición atómica con guardia de estado (patrón count===1). El
     // `updateMany` solo prospera si la solicitud sigue en un estado pagable; dos
-    // llamadas concurrentes → solo una hace la transición a `pagada`.
-    const res = await this.prisma.sellRequest.updateMany({
-      where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
-      // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
-      data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
+    // llamadas concurrentes → solo una hace la transición a `pagada` (y solo esa CUENTA bounty).
+    const paid = await this.prisma.$transaction(async (tx) => {
+      const res = await tx.sellRequest.updateMany({
+        where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
+        // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
+        data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
+      });
+      if (res.count !== 1) return null;
+      // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
+      await this.countBountyAcquisitionsTx(tx, id, paidBy);
+      return tx.sellRequest.findUnique({ where: { id } });
     });
-    if (res.count !== 1) {
+    if (!paid) {
       const current = await this.prisma.sellRequest.findUnique({ where: { id } });
       if (current?.status === 'pagada') return current;
       throw BusinessException.validation(
@@ -1266,6 +1325,95 @@ export class BuylistService {
         'Payment allowed only after receipt/verification and approval',
       );
     }
-    return this.prisma.sellRequest.findUnique({ where: { id } });
+    return paid;
+  }
+
+  /**
+   * v1.28 (P-22, §4.26e) — conteo TRANSACCIONAL de bounty al pagar: por cada `SellRequestItem`
+   * de la solicitud con snapshot `ruleSource='bounty'` se incrementa `bountyAcquiredQty` de SU
+   * fila M-30 (clave `(cardId, productType, gradeKey, finish)` del ítem — misma derivación que la
+   * cotización). Reglas money-safe:
+   *  - el incremento aplica AUNQUE el bounty ya esté apagado (la pieza SE COMPRÓ bajo bounty; el
+   *    monto quedó snapshoteado — apagar no borra ni congela el contador);
+   *  - fila M-30 desaparecida (borrada sin historia) ⇒ no hay contador que llevar: se omite SIN
+   *    tumbar el pago (updateMany count=0);
+   *  - AUTO-APAGADO: si el bounty sigue activo, tiene `bountyTargetQty` y `acquired ≥ target` ⇒
+   *    `bountyEnabled=false` + `bountyCompletedAt=now()` + `AuditLog action=bounty.completed`
+   *    (el aviso de M1 sale de `completedAt`). Sin objetivo ⇒ solo contador, nunca auto-off.
+   * Corre DENTRO de la transacción del pago (el caller garantiza que solo la llamada que hizo la
+   * transición llega aquí ⇒ idempotente ante replays).
+   */
+  private async countBountyAcquisitionsTx(
+    tx: Prisma.TransactionClient,
+    sellRequestId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    const bountyItems = await tx.sellRequestItem.findMany({
+      where: { sellRequestId, ruleSource: 'bounty' },
+      select: { cardId: true, productType: true, rawCondition: true, finish: true },
+    });
+    if (bountyItems.length === 0) return;
+    // Agrupa por clave M-30: UNA actualización por variante (+n piezas), sin N+1 por pieza.
+    const byKey = new Map<
+      string,
+      { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; qty: number }
+    >();
+    for (const it of bountyItems) {
+      const gradeKey = this.pricing.gradeKeyFor({
+        productType: it.productType,
+        rawCondition: it.rawCondition,
+      });
+      const finish = (it.finish ?? 'normal') as Finish;
+      const key = `${it.cardId}|${it.productType}|${gradeKey}|${finish}`;
+      const prev = byKey.get(key);
+      if (prev) prev.qty += 1;
+      else byKey.set(key, { cardId: it.cardId, productType: it.productType, gradeKey, finish, qty: 1 });
+    }
+    for (const g of byKey.values()) {
+      const uniqueKey = {
+        cardId: g.cardId,
+        productType: g.productType,
+        gradeKey: g.gradeKey,
+        finish: g.finish,
+      };
+      const res = await tx.variantPriceOverride.updateMany({
+        where: uniqueKey,
+        data: { bountyAcquiredQty: { increment: g.qty } },
+      });
+      if (res.count === 0) continue; // fila borrada: nada que contar, el pago NO se cae
+      const row = await tx.variantPriceOverride.findUnique({
+        where: { cardId_productType_gradeKey_finish: uniqueKey },
+      });
+      if (
+        row &&
+        row.bountyEnabled &&
+        row.bountyTargetQty != null &&
+        row.bountyAcquiredQty >= row.bountyTargetQty
+      ) {
+        await tx.variantPriceOverride.update({
+          where: { id: row.id },
+          data: { bountyEnabled: false, bountyCompletedAt: new Date() },
+        });
+        // Auditoría del auto-apagado, en la MISMA tx del pago (sin PII; patrón AuditLog directo
+        // porque AuditService escribe fuera de la transacción).
+        await tx.auditLog.create({
+          data: {
+            actorUserId,
+            action: 'bounty.completed',
+            entityType: 'VariantPriceOverride',
+            entityId: row.id,
+            after: {
+              cardId: g.cardId,
+              productType: g.productType,
+              gradeKey: g.gradeKey,
+              finish: g.finish,
+              acquiredQty: row.bountyAcquiredQty,
+              targetQty: row.bountyTargetQty,
+              sellRequestId,
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
   }
 }

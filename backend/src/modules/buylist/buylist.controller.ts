@@ -37,6 +37,16 @@ export class BuylistController {
     return this.buylist.batchQuote(dto.items);
   }
 
+  // v1.28 (P-22, §6): vitrina pública «Top Bounties» — bounties ACTIVOS, orden precio desc, cap
+  // 50, sin query params. READ-ONLY estricto (doctrina v1.12 de anónimos: no persiste, no escala
+  // pendientes, no mueve dinero). Mismo rate-limit dedicado que el quote por-carta (60/min).
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Get('bounties')
+  bounties() {
+    return this.buylist.publicBounties();
+  }
+
   // v1.5: vender (crear SellRequest) es acción sensible → requiere emailVerified. El cotizador
   // público `POST /buylist/quote` (arriba) queda abierto (es anónimo, no se bloquea).
   @Roles(Role.customer, Role.vault_operator, Role.super_admin)

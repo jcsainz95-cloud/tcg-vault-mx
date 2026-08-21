@@ -235,6 +235,10 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
           .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      // v1.28 (P-22): el pago corre en $transaction (conteo de bounty en la misma tx); sin ítems
+      // bounty el conteo es no-op.
+      sellRequestItem: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
