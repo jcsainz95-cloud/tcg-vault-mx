@@ -131,7 +131,9 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     fireEvent.change(screen.getByLabelText('Buscar set'), { target: { value: 'Surging Sparks' } });
     fireEvent.click(await screen.findByRole('button', { name: /Surging Sparks/ }));
 
-    await screen.findByText('Pikachu ex');
+    // v1.28 (P-22): "Pikachu ex" también aparece en la vitrina Top Bounties de arriba, así que
+    // se espera directo a la CASILLA agregable del binder (no al primer texto que coincida).
+    await screen.findByRole('button', { name: /^Agregar Pikachu ex \(Holofoil\)/ });
     const shownFinishes = ['Normal', 'Reverse Holo', 'Holofoil'].filter((f) =>
       screen.queryByRole('button', { name: new RegExp(`^Agregar Pikachu ex \\(${f}\\)`) }),
     );
