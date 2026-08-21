@@ -75,6 +75,14 @@ export interface MasterSetVariantDTO {
   // cell.displayFinishes`. Las variantes `displayed=false` (acabado espurio suprimido) NO se pintan
   // pero SIGUEN contando para completitud (X/Y) y buyable (universo = availableFinishes, intacto).
   displayed: boolean;
+  // v1.27 (P-15, §4.25b / §DTOs) — precio de MERCADO de ESTE acabado: la `PriceReference` vigente
+  // de (cardId, 'raw', 'raw:NM', finish), FX-recomputada a MXN (`liveMxnCents` vía
+  // `getReferencesBatch`). `null` = pending/ausente (jamás un 0 inventado; el front pinta «—»).
+  // NO es el precio de venta derivado (ese vive en `buyable.salePriceCents`, solo vista cliente).
+  marketReferenceMxnCents?: number | null;
+  // v1.27 (P-15) — `PriceReference.capturedDate` (ISO yyyy-MM-dd) de ESA fila; decoración de
+  // frescura, presente SOLO cuando hay precio (`marketReferenceMxnCents != null`).
+  capturedDate?: string | null;
   buyable?: { inventoryItemId: string; salePriceCents: number } | null;
 }
 
@@ -140,6 +148,10 @@ export interface MasterSetCardCellDTO {
   // ese vive en `buyable.salePriceCents` para la vista cliente. `null` cuando la referencia está
   // `pending`/ausente (no se inventa un 0). ADITIVO/opcional; solo lectura/visual (no toca SEC-A1).
   // Batched (getReferencesBatch) — sin N+1.
+  // ⚠️ v1.27 (P-15, §4.25b): DEPRECADO — el precio de mercado vive ahora en la VARIANTE
+  // (`variants[].marketReferenceMxnCents`). Este campo se conserva UNA versión como ESPEJO de la
+  // variante del acabado base (`= variants[0].marketReferenceMxnCents`, costo cero: mismo batch)
+  // para lectores rezagados; retiro en la siguiente rev de contrato.
   marketReferenceMxnCents?: number | null;
 }
 
@@ -430,19 +442,20 @@ export class MasterSetService {
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(cardIds);
 
-    // v1.26 (P-2, §4.24d): referencia de MERCADO por carta EN LOTE (sin N+1). La clave es el acabado
-    // BASE de la carta (primer acabado del universo availableFinishes → normal en el caso común, o el
-    // premium en una carta de una sola impresión). raw:NM (la referencia de MERCADO cruda de la
-    // carta). `getReferencesBatch` YA aplica `liveMxnCents` (FX-recompute a MXN vigente). UNA query.
-    const baseFinishOf = (c: (typeof cards)[number]): Finish =>
-      expectedFinishes(c.availableFinishes as Finish[])[0];
+    // v1.27 (P-15, §4.25b): referencia de MERCADO POR VARIANTE en lote (sin N+1). El lote se expande
+    // de (1 clave por carta, acabado base — v1.26) a (carta × acabado del universo expectedFinishes):
+    // `getReferencesBatch` ya acepta lista y sigue siendo UNA query. raw:NM = la referencia de
+    // MERCADO cruda; `getReferencesBatch` YA aplica `liveMxnCents` (FX-recompute a MXN vigente) y
+    // devuelve `capturedDate` (decoración de frescura).
     const marketRefs = await this.pricing.getReferencesBatch(
-      cards.map((c) => ({
-        cardId: c.id,
-        productType: 'raw' as ProductType,
-        gradeKey: 'raw:NM',
-        finish: baseFinishOf(c),
-      })),
+      cards.flatMap((c) =>
+        expectedFinishes(c.availableFinishes as Finish[]).map((finish) => ({
+          cardId: c.id,
+          productType: 'raw' as ProductType,
+          gradeKey: 'raw:NM',
+          finish,
+        })),
+      ),
     );
 
     const printedTotal = set.printedTotal ?? null;
@@ -464,15 +477,28 @@ export class MasterSetService {
           pricedByCard.get(c.id) ?? [],
         );
         const displaySet = new Set<Finish>(displayFinishes);
+        // v1.27 (P-15): cada variante lleva SU propia referencia de mercado (clave por finish del
+        // lote expandido). null = pending/ausente (nunca un 0 inventado); `capturedDate` solo con precio.
         const variants: MasterSetVariantDTO[] = universe.map((finish) => {
           const count = byFinish.find((x) => x.finish === finish)?.count ?? 0;
-          return { finish, count, covered: count > 0, displayed: displaySet.has(finish) };
+          const mref = marketRefs.get(`${c.id}|raw|raw:NM|${finish}`);
+          const marketReferenceMxnCents =
+            mref && mref.status === 'priced' ? (mref.referenceMxnCents ?? null) : null;
+          return {
+            finish,
+            count,
+            covered: count > 0,
+            displayed: displaySet.has(finish),
+            marketReferenceMxnCents,
+            ...(marketReferenceMxnCents != null && mref?.capturedDate != null
+              ? { capturedDate: mref.capturedDate }
+              : {}),
+          };
         });
-        // v1.26 (P-2): precio de MERCADO (referencia cruda del acabado base, ya FX-recomputada a MXN
-        // por getReferencesBatch). null si la referencia está pending/ausente (nunca un 0 inventado).
-        const mref = marketRefs.get(`${c.id}|raw|raw:NM|${universe[0]}`);
-        const marketReferenceMxnCents =
-          mref && mref.status === 'priced' ? (mref.referenceMxnCents ?? null) : null;
+        // v1.27 (P-15): el campo de CELDA queda DEPRECADO — se emite como ESPEJO de la variante del
+        // acabado base (`variants[0]` = universe[0]), costo cero (mismo batch). Retiro en la
+        // siguiente rev de contrato; el front debe leer la variante.
+        const marketReferenceMxnCents = variants[0]?.marketReferenceMxnCents ?? null;
         return {
           cardId: c.id,
           number: c.number,

@@ -104,9 +104,10 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     expect(c1.expectedVariantCount).toBe(2);
     expect(c1.coveredVariantCount).toBe(1);
     // v1.22-2 / N-15: Common no es premium → displayFinishes = availableFinishes → todo displayed.
+    // v1.27 (P-15): la variante lleva su marketReferenceMxnCents (null honesto sin referencia).
     expect(c1.variants).toEqual([
-      { finish: 'normal', count: 2, covered: true, displayed: true },
-      { finish: 'reverse_holo', count: 0, covered: false, displayed: true },
+      { finish: 'normal', count: 2, covered: true, displayed: true, marketReferenceMxnCents: null },
+      { finish: 'reverse_holo', count: 0, covered: false, displayed: true, marketReferenceMxnCents: null },
     ]);
   });
 
@@ -116,7 +117,9 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     const c2 = res.cells.find((c) => c.cardId === 'c2')!;
     expect(c2.expectedVariantCount).toBe(1);
     expect(c2.coveredVariantCount).toBe(1);
-    expect(c2.variants).toEqual([{ finish: 'normal', count: 1, covered: true, displayed: true }]);
+    expect(c2.variants).toEqual([
+      { finish: 'normal', count: 1, covered: true, displayed: true, marketReferenceMxnCents: null },
+    ]);
   });
 
   it('DRIFT: pieza con finish FUERA del universo se ve en countsByFinish pero NO en variants (nunca covered > expected)', async () => {
@@ -132,7 +135,9 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     // …pero fuera del universo: la casilla normal sigue descubierta y holofoil NO es casilla.
     expect(c2.expectedVariantCount).toBe(1);
     expect(c2.coveredVariantCount).toBe(0);
-    expect(c2.variants).toEqual([{ finish: 'normal', count: 0, covered: false, displayed: true }]);
+    expect(c2.variants).toEqual([
+      { finish: 'normal', count: 0, covered: false, displayed: true, marketReferenceMxnCents: null },
+    ]);
     expect(c2.coveredVariantCount).toBeLessThanOrEqual(c2.expectedVariantCount);
   });
 });
