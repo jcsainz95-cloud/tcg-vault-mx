@@ -5358,3 +5358,38 @@ inconsistente en el controller).
   existentes de paySpei actualizados de mock, cero regresiones).
 - `npm run test:integration` (con `S3_ENDPOINT=http://127.0.0.1:9000` para el skip documentado de
   MinIO) → **9 suites / 124 tests VERDE**.
+
+## Ronda de corrección gate Stream B v1.28 — B-1 conteo de bounty excluye rechazadas (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+Correcciones del veredicto del techlead (RECHAZÓ acotado) + menores de QA sobre el gate del Stream B.
+
+### B-1 (BLOQUEANTE) — `countBountyAcquisitionsTx` contaba piezas rechazadas
+- **Bug:** el `findMany` de ítems bounty al pagar (`buylist.service.ts`, dentro de la tx de `paySpei`)
+  filtraba solo `ruleSource='bounty'`, SIN excluir `itemStatus='rechazada'`. Con **cherry-pick**
+  (solicitud pagada con mezcla aceptadas/rechazadas), las rechazadas — que NO se compran ni suman en
+  `approvedTotalCents` (invariante BL-1) — inflaban `bountyAcquiredQty`, podían **auto-apagar el
+  bounty antes de tiempo** y auditar `bounty.completed` **en falso**.
+- **Fix:** mismo filtro que BL-1 (`itemStatus: { not: 'rechazada' }`) en el where del conteo.
+  Semántica normativa ratificada por el orquestador: §4.26a — `bountyAcquiredQty` mide «piezas
+  COMPRADAS vía buylist PAGADA bajo bounty» (el arquitecto alinea en paralelo la frase ambigua de
+  §4.26e). Docblock del método actualizado con la regla.
+- **Test nuevo:** `test/buylist.bounties.spec.ts` → caso cherry-pick (2 aprobadas + 3 rechazadas bajo
+  bounty, target 4, acquired 1): solo cuentan las 2 compradas (1+2=3 < 4 ⇒ **NO** auto-off, cero
+  `bounty.completed`); además asserta el where con el filtro BL-1. El harness del spec ahora honra
+  ambos filtros del where real.
+
+### Menores del mismo pase
+- `pricing.service.ts` (`loadBuylistRules`): el docblock afirmaba en falso que
+  `BuylistService.buylistRules()` delegaba ahí. Corregido: son DOS lecturas paralelas de la misma
+  config (no-delegación justificada; cuerpo normativo = matemática de `money.ts`). Deuda **SB-D2**.
+- `buylist.service.ts` `rejectRequest(id, reason?)`: se eliminó el parámetro `reason` sin uso
+  (warning de lint preexistente, MENOR-3 de QA). El `reason` del body sigue llegando a la auditoría
+  vía el controller (`admin-buylist.controller.ts` lo pone en `after`); el servicio nunca lo usó.
+- `docs/TECH_DEBT.md`: nueva sección **Stream B v1.28** con SB-D1..SB-D6 y SB-D9 (SB-D7/D8 son de
+  frontend y las registra su dueño).
+
+### Verificación (local; Postgres 16 + Redis reales)
+- `npm run typecheck` → limpio. `npm run lint` → **0 warnings** (el preexistente de `reason` quedó
+  eliminado). `npm test` → **148 suites / 1387 tests VERDE** (+1: cherry-pick B-1).
+- `npm run test:integration` (setup §8, `S3_ENDPOINT=http://127.0.0.1:9000`) → **9 suites / 124
+  tests VERDE**.

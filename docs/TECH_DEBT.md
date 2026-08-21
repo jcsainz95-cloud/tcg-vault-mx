@@ -2616,3 +2616,107 @@
   mutaciones (espejo de `onSweepLaunched`), y derivar la fase del propio estado de la mutación
   (`variables`/`error`) o resetear `fullSyncPhase` en un punto único del ciclo (p. ej. en `onMutate`),
   dejando UNA fuente de verdad.
+
+### Stream B v1.28 (P-17..P-25) — deuda del veredicto techlead del gate (2026-08-21, no bloqueante)
+
+> Deuda anotada del veredicto del **techlead** sobre el gate del Stream B (rama
+> `claude/backend-e2e-payment-fixtures-77mo4t`, v1.28: M1 reorganizado P-17, consola de tres precios
+> P-18, alta rápida P-19, publicar-todo, Top Bounties P-22, sellado/gradeadas P-25/P-20). El ítem
+> BLOQUEANTE del rechazo acotado (B-1/IMPORTANTE-1: `countBountyAcquisitionsTx` contaba piezas
+> `rechazada` hacia `bountyAcquiredQty` — cherry-pick inflaba el contador, podía auto-apagar el
+> bounty antes de tiempo y auditar `bounty.completed` en falso) **se corrigió en esta misma rama**
+> (mismo filtro que la invariante BL-1, con test del caso cherry-pick) y NO figura como deuda. Lo de
+> abajo es la deuda NO bloqueante que el techlead pidió registrar. Dueño **backend** salvo donde se
+> anota (arquitecto). IDs `SB-D*` con la numeración del veredicto (mismo formato que `SA-D*`;
+> SB-D7/SB-D8 son de frontend y las registra su dueño en su propio pase).
+
+### SB-D1 · `publish-all` síncrono sin cota; `InventoryBatch` se persiste al final (Media)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:811` (`publishAll`) y el registro del
+  `InventoryBatch` al cierre del método; endpoint `POST /admin/inventory/publish-all`
+  (`inventory.controller.ts:160`).
+- **Estado actual:** la publicación masiva corre **dentro del request HTTP** sin cota de selección
+  (§4.26c: chunks server-side, pero el total puede ser todo el inventario) y el `InventoryBatch` que
+  registra el resultado se persiste **al final** del recorrido. Si el request agota el timeout, el
+  trabajo por-pieza ya commiteado es **piece-safe** (re-lanzar re-procesa idempotente), pero el diálogo
+  del operador queda colgado y un re-lanzamiento **re-recorre TODO** desde cero.
+- **Impacto:** medio: latencia/timeout del botón de M1 con inventarios grandes; sin corrupción de
+  datos (idempotente por pieza), solo UX de operación y re-trabajo.
+- **Disparador:** timeouts reales del publicar-todo, o al cablear BullMQ para estos barridos (misma
+  familia que **D1/BE-11/SA-D3**). Dirección: mover a job con `jobId` consultable (progreso
+  persistido) o, como mínimo, cap por set/filtro con paginación de reanudación.
+
+### SB-D2 · `buylistRules()` y `loadBuylistRules()` — mismo cuerpo duplicado, no-delegación justificada (Baja)
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts:261` (`buylistRules`) vs
+  `backend/src/modules/pricing/pricing.service.ts:319` (`loadBuylistRules`).
+- **Estado actual:** dos lecturas **paralelas** de la MISMA config (`BUYLIST_PRICE_RULES` +
+  `BUYLIST_PRICE_FALLBACK_PCT`), con cuerpo idéntico. La no-delegación es **decisión justificada**
+  (no acoplar `buylist`→`pricing` por un read de settings); el cuerpo normativo de la semántica de
+  precio es la matemática compartida en `common/money.ts`. El docblock de `loadBuylistRules` que
+  afirmaba (en falso) que `buylistRules()` delegaba ahí **ya se corrigió** en este pase.
+- **Impacto:** bajo (mantenibilidad): si cambia el formato del dial hay que tocar dos lectores — hoy
+  ambos leen las mismas `SettingKey`, así que cambian juntos por construcción.
+- **Disparador:** próximo toque a cualquiera de los dos specs de reglas de compra. Dirección: unificar
+  en una sola fuente (helper compartido o delegación explícita) cuando se toquen esos archivos.
+
+### SB-D3 · Clave de variante `${cardId}|${productType}|${gradeKey}|${finish}` construida a mano en ≥6 sitios (Baja)
+- **Dónde:** `pricing.service.ts:192,280,308`, `buylist.service.ts:170,397,1374`,
+  `catalog.service.ts:150,164`, `admin.service.ts:317,334,612`, `master-set.service.ts:637,645`,
+  `inventory.service.ts:744`, `admin-vaults.service.ts:121` (todos en `backend/src/modules/`).
+- **Estado actual:** la clave compuesta de la variante M-30 (y de los maps de `PriceReference` batch)
+  se interpola a mano con el mismo template literal en ≥6 módulos. Un typo/reordenación en un solo
+  sitio produce un **miss silencioso** del map (fila no encontrada ⇒ sin override/sin referencia).
+- **Impacto:** bajo hoy (los sitios son idénticos y con tests); riesgo latente de divergencia
+  silenciosa en refactors.
+- **Disparador:** próximo toque a M-30 (`VariantPriceOverride`). Dirección: exportar un
+  `variantKey({cardId, productType, gradeKey, finish})` único (p. ej. junto a los tipos de pricing) y
+  reapuntar los call-sites.
+
+### SB-D4 · `resolveSealedAportacionMarket` consulta hermanos+spreads+referencia POR LÍNEA del lote (Media)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:262` (call-site en el alta por lote)
+  → `:307` (`resolveSealedAportacionMarket`).
+- **Estado actual:** en el alta de aportación con líneas selladas, CADA línea dispara su propia ronda
+  de queries (hermanos mapeados con `tcgplayerProductId`, spreads de presentación, referencia de
+  mercado) — rompe la doctrina **BE-25** de izar la config/lecturas UNA vez por request.
+- **Impacto:** medio: N+1 sobre la ruta de captura admin al crecer los lotes con sellado; correctness
+  OK.
+- **Disparador:** lotes grandes de sellado o próximo toque al alta. Dirección: izar hermanos + spreads
+  + referencias al **inicio del lote** (batch por `cardId IN (...)` + map en memoria), mismo patrón
+  que `getReferencesBatch`.
+
+### SB-D5 · Inferencia de `tcgplayerProductId` por hermanos = parche a hueco de modelo (Media, backend+arquitecto)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:298-322` (inferencia del productId
+  del GRUPO desde piezas hermanas ya mapeadas).
+- **Estado actual:** no existe una **entidad de producto sellado** en el modelo; el
+  `tcgplayerProductId` de una nueva pieza sellada se **infiere** de sus hermanos (`distinct` de piezas
+  ya mapeadas de la misma agrupación). Si no hay hermanos mapeados o hay más de un candidato, la
+  inferencia degrada (sin productId ⇒ sin mercado). Es un parche funcional a un hueco de modelado.
+- **Impacto:** medio (mantenibilidad + calidad de datos): la fuente de verdad del mapeo vive
+  implícita en las piezas, no en el catálogo.
+- **Disparador:** próximo toque al modelo de sellado. **Decisión del arquitecto:** `productId`
+  explícito en el DTO del alta vs **entidad de producto sellado** en `schema.prisma` (zona
+  compartida, regla 9).
+
+### SB-D6 · `VariantControlsService.update`: read-modify-write + delete/upsert fuera de transacción (Baja)
+- **Dónde:** `backend/src/modules/pricing/variant-controls.service.ts:115-157` (`update`: `findUnique`
+  de la fila vigente → merge en memoria → `delete`/`upsert`, sin `$transaction`).
+- **Estado actual:** dos `PUT` concurrentes sobre la MISMA variante pueden leer la misma fila vigente
+  y pisarse el merge (last-writer-wins de campos que el otro no tocó), o carrera delete-vs-upsert.
+  Solo panel admin (M2), operación en serie en la práctica; misma familia TOCTOU que BE-2/BE-22.
+- **Impacto:** bajo: requiere dos admins editando la misma variante a la vez; el peor caso es un
+  override pisado (recuperable re-aplicando; auditado con before/after).
+- **Disparador:** próximo toque a variant-controls o al habilitar multi-operador concurrente.
+  Dirección: envolver lectura+merge+persistencia en un `$transaction` (o `updateMany` con guardias).
+
+### SB-D9 · `toListingDTO` con dos caminos paralelos de resolución de precio (ctx lote vs single) (Media)
+- **Dónde:** `backend/src/modules/catalog/catalog.service.ts:229-250` (`toListingDTO`: rama
+  `ctx?.salesRules` → `computeSalePriceForRarity` pura con override del batch, vs rama sin ctx →
+  `pricing.getVariantOverride` + `pricing.computeSalePriceForItem` por ítem).
+- **Estado actual:** la MISMA resolución de precio de venta (regla por rareza + override de variante)
+  vive en dos caminos que deben mantenerse equivalentes a mano. Hoy convergen en la matemática de
+  `money.ts`, pero un cambio que toque solo una rama (p. ej. un guard nuevo del override) divergiría
+  en silencio entre listados (con ctx) y ficha single (sin ctx).
+- **Impacto:** medio (mantenibilidad de ruta de dinero-display): riesgo de precios distintos para la
+  misma pieza según el camino de lectura.
+- **Disparador:** próximo toque a la ficha/listado del catálogo. Dirección: exigir un
+  **PricingContext único** (construirlo siempre — de 1 elemento en el caso single) y borrar la rama
+  sin ctx.
