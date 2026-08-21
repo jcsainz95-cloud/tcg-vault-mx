@@ -5221,3 +5221,140 @@ inconsistente en el controller).
 - P-22 solo necesita: endpoint público `GET /buylist/bounties` (leer filas `bountyEnabled` con
   `bountyPriceCents desc`, cap 50) + conteo/auto-off en el pago M5 — el snapshot
   `ruleSource='bounty'` en `SellRequestItem` ya se persiste desde esta fase.
+
+## Stream B v1.28 — FASES 2-4: P-19/P-17 + P-22 + P-24/P-25/P-20 (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+> Spec: ARCHITECTURE **§4.26 (c–h, j)** · contrato **v1.28** (§M1 Stream B, §6 bounties, §M7
+> breakdown). Cierra el alcance backend del stream (la Fase 1 M-30+P-18 está arriba). **SIN
+> migraciones nuevas** (lock §4.26i respetado: el schema quedó cerrado en Fase 1).
+
+### FASE 2 — P-19 `publish-all` + P-17 filtros de drill-down + fix aportación de sellado
+- **`POST /admin/inventory/publish-all`** (`inventory.service.ts::publishAll` + controller):
+  selección SERVER-SIDE (`ownerType=platform` + `status=in_stock` ± `setId`/`productType`,
+  `setId` inexistente ⇒ 400 filtro inválido), SIN cap de selección — snapshot de ids procesado
+  por chunks de 100 (iterar por snapshot y no re-consultando `in_stock` garantiza terminación:
+  una PRICE_PENDING sigue `in_stock`). Res `{ batchKey?, idempotentReplay, summary
+  { selected, published, alreadyListed, pendingPrice, failed }, failures[] }` con detalle
+  **capado a 200** (constantes `PUBLISH_ALL_CHUNK_SIZE`/`PUBLISH_ALL_FAILURES_CAP`).
+  - **Pipeline por-pieza EXTRAÍDO y COMPARTIDO con `bulkPublish`** (el contrato exige pipeline
+    IDÉNTICO ⇒ un solo cuerpo): `assertPublishableGuards` (platform + allowlist WS-E + cert de
+    graded), `resolvePublishSalePrice` (manual > [sealed H-1 | sellOverride M-30 > regla] >
+    PRICE_PENDING que ESCALA ④ y no publica) y `claimListed` (updateMany atómico BE-45
+    anti-double-sell). `bulkPublish` quedó reescrito sobre los mismos helpers — cero divergencia
+    posible; regresión cubierta por las suites previas (verdes sin cambios).
+  - Idempotencia: `InventoryBatch kind='publish_all'` (String, sin migración). Replay ⇒ resultado
+    guardado + `idempotentReplay:true`; un `batchKey` de OTRO kind ⇒ **409 CONFLICT** (no se
+    "replay-ea" un shape ajeno — decisión dentro del margen, `bulkPublish` legacy no lo valida).
+    El resultado se persiste POST-proceso (patrón bulkPublish); carrera P2002 ⇒ devuelve el del
+    ganador (piece-safe: `claimListed` impide doble publish aunque ambas corran).
+  - `alreadyListed` cuenta piezas que se volvieron `listed` entre selección y proceso
+    (concurrencia/chunk repetido): no-op sin escritura. Auditoría `inventory.publish_all`
+    (filtros + summary) en el controller.
+- **P-17:** `GET /admin/inventory/items` gana `finish?`/`productType?` — validados contra los
+  enums EN EL CONTROLLER (`400 VALIDATION_ERROR` con `allowed`), el servicio solo reduce el
+  `where`. Sirve `?cardId=&finish=` (drill-down de variante) y `?cardId=&productType=sealed|graded`
+  (pestañas P-25/P-20).
+- **Fix normativo §4.26g — la APORTACIÓN de sellado valúa por `sealedMarketRef`:**
+  `resolveCreation` ramifica: sealed+aportación → `resolveSealedAportacionMarket` — infiere el
+  `tcgplayerProductId` del GRUPO desde sus **hermanos ya mapeados** con el mismo
+  `(cardId, sealedSubtype)` (la MISMA identidad que `applyToSiblings` del mapeo M2; el item que
+  nace aún no tiene mapeo — la curación es posterior y sigue siendo EXCLUSIVA del endpoint M2:
+  la pieza nueva **NO hereda** el productId). Money-safe: exactamente UN productId ⇒ valúa con su
+  referencia **gateada por el dial** (`gateSealedMarketCents`, H-1); CERO hermanos o ≥2 productIds
+  (ambigüedad) ⇒ sin mercado ⇒ `422 PRICE_PENDING` por línea (escalado con la clave de mercado si
+  se conocía; estructural `'sealed'` si no). Raw/graded intactos. `locationId` opcional verificado
+  con test (alta sin ubicación + movimiento sin `toLocationId`).
+
+### FASE 3 — P-22 bounty público + conteo transaccional
+- **`GET /buylist/bounties`** (`BuylistService.publicBounties`, ruta `@Public()` + throttle
+  dedicado 60/min como el quote por-carta): filas `bountyEnabled=true AND bountyPriceCents>0 AND
+  productType='raw'` (defensa en profundidad; el write ya impone raw), `orderBy bountyPriceCents
+  desc` (+ desempate `updatedAt desc`, dentro del margen), `take 50`, sin query params.
+  `remainingQty = max(0, target − acquired)` (`null` sin objetivo); `imageSmallUrl`/`rarity` se
+  OMITEN si la carta no los tiene. READ-ONLY estricto (no persiste ni escala).
+- **Conteo al pagar (`paySpei`)**: la transición `→pagada` (updateMany con guardia count===1) y
+  `countBountyAcquisitionsTx` corren ahora en **UNA `$transaction`** — o se paga Y se cuenta, o
+  nada. Por cada ítem con snapshot `ruleSource='bounty'` se incrementa `bountyAcquiredQty` de su
+  fila M-30 (clave derivada con `gradeKeyFor` + finish, AGRUPADA: una actualización por variante,
+  `increment: n`). Auto-apagado: `enabled && target!=null && acquired ≥ target` ⇒
+  `bountyEnabled=false` + `bountyCompletedAt` + `AuditLog action=bounty.completed`
+  (`tx.auditLog.create` directo — AuditService escribe fuera de la tx). Reglas money-safe:
+  el contador sube AUNQUE el bounty ya esté apagado (la pieza se compró bajo bounty; el monto
+  quedó snapshoteado); fila M-30 borrada ⇒ `updateMany count=0` ⇒ se omite SIN tumbar el pago.
+  **Idempotente ante replays**: solo cuenta la llamada que HIZO la transición (replay/carrera
+  perdida ven `pagada` y no re-cuentan) — cubierto por test.
+- Mocks de `paySpei` en 2 specs existentes (`buylist.ronda-c`, `buylist.security`) ganaron
+  `$transaction` + `sellRequestItem.findMany` (patrón "mock gana el método nuevo, default no-op").
+
+### FASE 4 — P-24 breakdown + P-25 sealed-sets + P-20 graded
+- **P-24 (`admin.service.ts::inventoryValue`)**: gana `breakdown { raw, sealed, graded }` con
+  `{ atReferenceCents, atCostCents, pieceCount, pendingPriceCount }`; **top-level = Σ del
+  breakdown** (invariante del contrato, cubierto por test; el dashboard sigue espejando el
+  top-level). Cambios de valuación DOCUMENTADOS:
+  - el sellado pasa a valuar por **`sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23,
+    norma §4.26f) con **fallback al gradeKey legacy `'sealed'`** (= el comportamiento previo:
+    override manual de mercado preexistente no pierde su valuación; estrictamente ≥ información
+    que antes). La valuación P-24/P-25 usa la referencia SIN el gate del dial (es informativa,
+    paridad con el `sealedMarketRef` de v1.19); el dial solo gatea DINERO (venta H-1 y la
+    aportación de Fase 2).
+  - el N+1 anotado en `getReferencesBatch` («deuda diferida… inventoryValue») queda cerrado: UN
+    lote por request.
+  - CSV `report=inventory`: cabecera previa + `raw_*`,`sealed_*`,`graded_*` (4 columnas por
+    bucket) AL FINAL.
+- **P-25 (`inventory/sealed-graded.service.ts`, NUEVO)**: `GET /admin/inventory/sealed-sets`
+  (índice: groupBy `[cardId, productId, status]` + cartas→set + sets con `?q=` + UN lote de refs;
+  `marketValueMxnCents` = Σ ref×piezas CON mercado, `null` si ninguna; `unmappedCount` = piezas
+  SIN mercado — no mapeadas O mapeadas sin ingest, como norma el contrato; `unmappedTotal` =
+  espejo EXACTO de la cola M2 `sealed AND productId IS NULL` sobre todo el inventario; orden
+  `releaseDate desc` como el índice Master Set) y `GET .../sealed-sets/:setId` (grupos por
+  identidad §4.23 `(cardId, subtype, productId, condition)` con `counts {inStock, listed, other}`,
+  `mapped`, `sealedMarketRef` solo `priced`, `totalCostCents` `null` sin capturas; 404 set
+  inexistente). **Alcance de pestaña = plataforma on-hand (`NOT_ON_HAND` del Master Set — fuente
+  única)**; `other` captura `reserved`/tránsitos.
+- **P-20 (mismo servicio)**: `GET /admin/inventory/graded` — groupBy `(cardId, gradingCompany,
+  gradeValue)` (+ `?q=` por nombre de carta), referencia POR GRADO en lote con la clave
+  `(cardId,'graded','graded:<company>:<grade>','normal')` (la que fija el override manual M2 —
+  vía normativa v1.28), `capturedDate` solo con precio, costo agregado `null` sin capturas, orden
+  carta asc + grado DESC numérico (PSA 10 antes que 9), paginación en memoria. **Verificado** que
+  la consola P-18 ya soporta graded sell/buy y que bounty en graded sigue 422 (tests de Fase 1).
+- Wiring: `SealedGradedInventoryService` registrado/exportado en `InventoryModule`; rutas en
+  `InventoryController` (heredan `vault_operator+`), inyección como 4º parámetro opcional para no
+  romper constructores de tests legacy.
+
+### Decisiones dentro del margen (para arquitecto/techlead)
+1. `publish-all`: batchKey de otro `kind` ⇒ 409 (no replay de shape ajeno); persistencia del
+   resultado POST-proceso con P2002⇒replay del ganador (piece-safe por `claimListed`).
+2. Aportación de sellado: inferencia del productId por HERMANOS mapeados `(cardId, sealedSubtype)`
+   (identidad de `applyToSiblings`); ambigüedad ⇒ PRICE_PENDING; la pieza nueva NO hereda mapeo.
+   Si el arquitecto prefiere otra vía (p. ej. `tcgplayerProductId` en el DTO del alta), es cambio
+   de contrato — se solicita, no se improvisa.
+3. P-24: fallback legacy `'sealed'` en la valuación del sellado (no pierde overrides manuales
+   pre-v1.19); referencia informativa SIN gate de dial (el dial gatea dinero, no reportes).
+4. Pestañas P-25/P-20: alcance "on-hand" = `NOT_ON_HAND` (consistente con Master Set/M1);
+   `unmappedCount` cuenta también "mapeada sin ingest" (texto normativo «piezas sin mercado»).
+5. Bounties: desempate `updatedAt desc` tras el precio (orden estable; el contrato solo norma
+   `bountyPriceCents desc`).
+
+### Tests nuevos (todos verdes)
+- `test/inventory.publish-all.spec.ts` — tolerante/money-safe (mix publicadas+pendientes+
+  fallidas; no persiste precio derivado; sellOverride vuelve publicable), filtros server-side,
+  idempotencia (replay sin re-proceso; kind ajeno 409), alreadyListed por concurrencia, cap 200.
+- `test/inventory.items-filters.spec.ts` — filtros P-17 en servicio + validación 400 del controller.
+- `test/inventory.sealed-aportacion.spec.ts` — valuación por sealedMarketRef (dial on/off, sin
+  mapeo, ambigüedad, sin ingest, no-herencia del mapeo), alta sin `locationId`, regresión raw 100 %.
+- `test/buylist.bounties.spec.ts` — vitrina pública (filtros/orden/cap/mapeo/remainingQty piso 0)
+  y conteo del pago (agrupado por clave, auto-off + audit, sin target solo contador, apagado sigue
+  contando, fila borrada no tumba, idempotencia ante replay/carrera, dentro del boundary de la tx).
+- `test/admin.inventory-value-breakdown.spec.ts` — breakdown suma = top-level, sealed por
+  mercado/legacy/pendiente, lote único, CSV espejo.
+- `test/inventory.sealed-graded-tabs.spec.ts` — sealed-sets índice (agrega bien, q, unmapped,
+  valor null honesto, unmappedTotal) y detalle (identidad §4.23, mapped, 404), graded separado
+  (referencia por grado, orden, q, paginación).
+
+### Verificación (local; Postgres 16 + Redis reales, `tcg_e2e` con M-30 aplicada)
+- `npm run typecheck` → limpio.
+- `npm run lint` → 0 errores (mismo warning preexistente en `buylist.service.ts`, ajeno).
+- `npm test` → **148 suites / 1386 tests VERDE** (142/1338 previos + 6 suites nuevas; 2 specs
+  existentes de paySpei actualizados de mock, cero regresiones).
+- `npm run test:integration` (con `S3_ENDPOINT=http://127.0.0.1:9000` para el skip documentado de
+  MinIO) → **9 suites / 124 tests VERDE**.
