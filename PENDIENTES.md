@@ -176,13 +176,19 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
   Railway, el proveedor emite UNA fila por carta (impresión primaria) y las reverse no tienen
   referencia propia → aun con el fix saldrían "—". Verificar el dial en prod.
 
-### P-16 · Cotizador: cartas del mismo tamaño que en inventario
-- **Observado (2026-08-21):** en inventario las cartas se ven grandes y cómodas; en el cotizador se
-  ven más chicas. El humano quiere el mismo tamaño de imagen y redistribuir el layout del cotizador
-  para desplegarlas más grandes.
-- **Qué falta:** (ux-ui propone la redistribución de la página, frontend implementa) igualar el tamaño
-  de teja del cotizador al del binder de inventario; revisar columnas/densidad de la grilla y el
-  espacio del carrito lateral.
+### P-16 · Cotizador: rediseñar el despliegue de cartas — grandes como en inventario y con el distintivo de variante
+- **Observado (2026-08-21, afinado por el humano):** no es solo agrandar la imagen: hay que
+  **repensar cómo se despliegan las cartas en el cotizador** para poder ponerlas del tamaño del
+  binder de inventario (ahí se ven cómodas). Implica redistribuir la página completa: la grilla
+  (columnas/densidad), el buscador/filtros y el espacio que hoy come el carrito lateral (p. ej.
+  carrito colapsable o flotante para regalarle ancho a la grilla).
+- **Además (mismo pendiente):** el **distintivo visual de variante de P-14** (Normal vs Reverse
+  Holo — color tenue/badge) debe **replicarse aquí en el cotizador** con el mismo formato que en
+  inventario: que al cotizar se distinga de un vistazo qué casilla es la reverse, no solo por la
+  etiqueta de texto.
+- **Roles:** ux-ui (redistribución del layout del cotizador + reutilizar el tratamiento de variante
+  definido en P-14, mismo lenguaje visual en admin y storefront) → frontend implementa. Hacerlo
+  JUNTO con P-14 para que el distintivo nazca compartido (componente común de teja), no duplicado.
 
 ### P-17 · M1: quitar (o demotar) la vista "Piezas" y quedarse con Master Set
 - **Observado (2026-08-21):** al humano le gustaría eliminar la vista de lista "Piezas" del inventario
