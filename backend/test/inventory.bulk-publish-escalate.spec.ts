@@ -69,6 +69,8 @@ function buildHarness() {
       }),
     },
     inventoryBatch: { findUnique: jest.fn(async () => null), create: jest.fn() },
+    // v1.28 (P-18): sin filas M-30 por default (comportamiento previo).
+    variantPriceOverride: { findMany: jest.fn(async () => []) },
     priceReference: {
       upsert: jest.fn(async () => ({ id: `ref-${++refSeq}` })),
     },

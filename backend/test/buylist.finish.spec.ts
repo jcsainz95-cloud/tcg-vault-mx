@@ -50,6 +50,9 @@ function svcWith(opts: {
         : { status: 'priced', referenceMxnCents: opts.referenceMxnCents },
     ),
     escalatePending: jest.fn(),
+    // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+    getVariantOverridesBatch: jest.fn(async () => new Map()),
+    getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;
   const settings = {
     getRaw: jest.fn().mockResolvedValue(opts.rules ?? SEED),
@@ -188,6 +191,9 @@ describe('BuylistService.createRequest — snapshot del acabado + rechazo', () =
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
       escalatePending: jest.fn(),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
     const settings = {
       getRaw: jest.fn().mockResolvedValue(SEED),
@@ -220,6 +226,9 @@ describe('BuylistService.createRequest — snapshot del acabado + rechazo', () =
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
       escalatePending: jest.fn(),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
     const settings = {
       getRaw: jest.fn().mockResolvedValue(SEED),

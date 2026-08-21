@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype } from '@prisma/client';
+import { Card, CardSet, Finish, InventoryItem, Prisma, ProductType, RawCondition, SealedSubtype, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { computeSalePriceForRarity, SalesRule } from '../../common/money';
@@ -121,6 +121,20 @@ export class CatalogService {
       }),
     );
 
+    // v1.28 (P-18, §4.26b): controles por variante (M-30) EN LOTE — solo para piezas raw/graded que
+    // DERIVAN su precio (sin `listPriceCents` manual, que sigue ganando; el sellado conserva su
+    // cadena H-1 intacta). UNA query por request, misma clave que el lote de referencias.
+    const variantOverrides = await this.pricing.getVariantOverridesBatch(
+      items
+        .filter((i) => i.productType !== 'sealed' && i.listPriceCents == null)
+        .map((i) => ({
+          cardId: i.cardId,
+          productType: i.productType,
+          gradeKey: this.pricing.gradeKeyFor(i),
+          finish: i.finish,
+        })),
+    );
+
     const out: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[] = [];
     for (const item of items) {
       const reference = this.refFromBatch(refs, item);
@@ -129,6 +143,12 @@ export class CatalogService {
         salesRules,
         sealedSpreads,
         pricedFinishes: pricedByCard.get(item.cardId),
+        variantOverride:
+          item.productType === 'sealed'
+            ? null
+            : variantOverrides.get(
+                `${item.cardId}|${item.productType}|${this.pricing.gradeKeyFor(item)}|${item.finish}`,
+              ) ?? null,
       });
       if (dto.sellable && dto.salePriceCents != null) out.push({ item, dto });
     }
@@ -162,6 +182,9 @@ export class CatalogService {
       sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
       // v1.22-2 / N-15 (§4.22a-6): acabados priceados de ESTA carta (del lote) para displayFinishes.
       pricedFinishes?: Iterable<Finish>;
+      // v1.28 (P-18, §4.26b): fila M-30 de la variante (del lote de `fetchSellable`; `null` = sin
+      // fila). Su presencia va atada a `salesRules` (batch); en uso single se resuelve aquí mismo.
+      variantOverride?: VariantPriceOverride | null;
     },
   ) {
     let referenceValue: PriceInfo;
@@ -190,16 +213,27 @@ export class CatalogService {
         (await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
 
       if (item.listPriceCents != null) {
-        // Override manual → gana siempre (precio directo sin regla).
+        // Override manual POR PIEZA → gana siempre (precio directo sin regla; intención más
+        // específica — v1.28 §4.26b: gana también sobre el sellOverride de la variante).
         salePriceCents = item.listPriceCents;
       } else {
         // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity,
         // acabado de InventoryItem.finish). Con regla `fixed` una bulk SIN market obtiene piso (sellable);
         // con `pct` sin market → pending (sin precio, no vendible), igual que antes.
+        // v1.28 (P-18, §4.26b): sellOverride de la VARIANTE (M-30) pisa la regla — resuelto en
+        // LECTURA, por eso surte efecto inmediato en toda pieza publicada sin manual.
         const referenceMxnCents =
           referenceValue.status === 'priced' ? (referenceValue.referenceMxnCents ?? null) : null;
         // BE-25: si viene el contexto pre-cargado usa la función pura (sin leer settings por ítem);
-        // si no, delega al servicio (que iza reglas por sí mismo).
+        // si no, delega al servicio (que iza reglas por sí mismo) y resuelve el override single.
+        const variantOverride = ctx?.salesRules
+          ? (ctx.variantOverride ?? null)
+          : await this.pricing.getVariantOverride(
+              item.cardId,
+              item.productType,
+              this.pricing.gradeKeyFor(item),
+              item.finish,
+            );
         const sale = ctx?.salesRules
           ? computeSalePriceForRarity(
               item.card.rarity,
@@ -207,10 +241,12 @@ export class CatalogService {
               referenceMxnCents,
               ctx.salesRules.rules,
               ctx.salesRules.fallbackPct,
+              variantOverride,
             )
           : await this.pricing.computeSalePriceForItem(
               { rarity: item.card.rarity, finish: item.finish },
               referenceMxnCents,
+              variantOverride,
             );
         if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
       }

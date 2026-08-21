@@ -39,6 +39,8 @@ function makePrisma(item: any) {
     },
     // Sin PriceReference: el item Common resuelve por regla `fixed` (piso, no depende de market).
     priceReference: { findFirst: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+    // v1.28 (P-18): sin filas M-30 por default (comportamiento previo).
+    variantPriceOverride: { findMany: jest.fn(async () => []) },
     inventoryItem: { findMany: jest.fn(async () => [item]) },
   } as unknown as PrismaService;
   return { prisma, configStore };

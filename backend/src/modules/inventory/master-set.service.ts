@@ -4,6 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { computeSalePriceForRarity } from '../../common/money';
+// v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
+import { VariantPricingDTO, composeVariantPricing } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
 
 /**
@@ -83,6 +85,13 @@ export interface MasterSetVariantDTO {
   // v1.27 (P-15) — `PriceReference.capturedDate` (ISO yyyy-MM-dd) de ESA fila; decoración de
   // frescura, presente SOLO cuando hay precio (`marketReferenceMxnCents != null`).
   capturedDate?: string | null;
+  // v1.28 (P-18, §4.26b / §DTOs) — la CONSOLA de precios de la variante (compra/venta: sugerido
+  // por regla, override vigente, efectivo resuelto + fuente; bounty P-22). Presente SOLO en scope
+  // `platform` (M1): en `user_vault` y «Mi bóveda» se OMITE SIEMPRE (la estrategia de compra/bounty
+  // no se filtra al cliente — regla dura, misma familia que la omisión de costos/folios).
+  // Sugeridos/efectivos en lote (reglas izadas una vez + getReferencesBatch +
+  // getVariantOverridesBatch; sin N+1). `null` = no resoluble (money-safe, nunca 0 inventado).
+  pricing?: VariantPricingDTO;
   buyable?: { inventoryItemId: string; salePriceCents: number } | null;
 }
 
@@ -447,16 +456,26 @@ export class MasterSetService {
     // `getReferencesBatch` ya acepta lista y sigue siendo UNA query. raw:NM = la referencia de
     // MERCADO cruda; `getReferencesBatch` YA aplica `liveMxnCents` (FX-recompute a MXN vigente) y
     // devuelve `capturedDate` (decoración de frescura).
-    const marketRefs = await this.pricing.getReferencesBatch(
-      cards.flatMap((c) =>
-        expectedFinishes(c.availableFinishes as Finish[]).map((finish) => ({
-          cardId: c.id,
-          productType: 'raw' as ProductType,
-          gradeKey: 'raw:NM',
-          finish,
-        })),
-      ),
+    const universeKeys = cards.flatMap((c) =>
+      expectedFinishes(c.availableFinishes as Finish[]).map((finish) => ({
+        cardId: c.id,
+        productType: 'raw' as ProductType,
+        gradeKey: 'raw:NM',
+        finish,
+      })),
     );
+    const marketRefs = await this.pricing.getReferencesBatch(universeKeys);
+
+    // v1.28 (P-18, §4.26b): la CONSOLA `pricing?` por variante — SOLO scope `platform` (M1). Reglas
+    // de compra/venta izadas UNA vez + overrides M-30 en UNA query (mismo lote del universo); la
+    // referencia reusa `marketRefs` (mismo batch). En scopes de cliente NO se computa ni viaja.
+    const includePricing = scope.kind === 'platform';
+    const pricingRules = includePricing
+      ? { buy: await this.pricing.loadBuylistRules(), sell: await this.pricing.loadSalesRules() }
+      : null;
+    const variantOverrides = includePricing
+      ? await this.pricing.getVariantOverridesBatch(universeKeys)
+      : new Map<string, never>();
 
     const printedTotal = set.printedTotal ?? null;
     const cells: MasterSetCardCellDTO[] = cards
@@ -492,6 +511,18 @@ export class MasterSetService {
             marketReferenceMxnCents,
             ...(marketReferenceMxnCents != null && mref?.capturedDate != null
               ? { capturedDate: mref.capturedDate }
+              : {}),
+            // v1.28 (P-18): consola de tres precios — SOLO scope platform (regla dura §4.26b).
+            ...(pricingRules
+              ? {
+                  pricing: composeVariantPricing(
+                    c.rarity,
+                    finish,
+                    marketReferenceMxnCents,
+                    pricingRules,
+                    variantOverrides.get(`${c.id}|raw|raw:NM|${finish}`) ?? null,
+                  ),
+                }
               : {}),
           };
         });
@@ -584,21 +615,23 @@ export class MasterSetService {
     if (candidates.length === 0) return map;
 
     const { rules, fallbackPct } = await this.pricing.loadSalesRules();
-    const refs = await this.pricing.getReferencesBatch(
-      candidates
-        .filter((i) => i.listPriceCents == null)
-        .map((i) => ({
-          cardId: i.cardId,
-          productType: i.productType,
-          gradeKey: this.pricing.gradeKeyFor(i),
-          finish: i.finish,
-        })),
-    );
+    const derivableKeys = candidates
+      .filter((i) => i.listPriceCents == null)
+      .map((i) => ({
+        cardId: i.cardId,
+        productType: i.productType,
+        gradeKey: this.pricing.gradeKeyFor(i),
+        finish: i.finish,
+      }));
+    const refs = await this.pricing.getReferencesBatch(derivableKeys);
+    // v1.28 (P-18, §4.26b): el `buyable` del binder cobra EXACTAMENTE lo que el storefront —
+    // sellOverride de la variante (M-30) pisa la regla (mismo resolver único; lote sin N+1).
+    const variantOverrides = await this.pricing.getVariantOverridesBatch(derivableKeys);
 
     for (const item of candidates) {
       let salePriceCents: number | null;
       if (item.listPriceCents != null) {
-        salePriceCents = item.listPriceCents; // override manual gana siempre (§4.9)
+        salePriceCents = item.listPriceCents; // override manual POR PIEZA gana siempre (§4.9/§4.26b)
       } else {
         const gradeKey = this.pricing.gradeKeyFor(item);
         const ref = refs.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`);
@@ -609,6 +642,7 @@ export class MasterSetService {
           refCents,
           rules,
           fallbackPct,
+          variantOverrides.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`) ?? null,
         ).salePriceCents;
       }
       // Sin precio resoluble (>0) → no comprable (paridad con `sellable` de la ficha §4.9).

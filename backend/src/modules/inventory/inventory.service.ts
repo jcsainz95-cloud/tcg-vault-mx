@@ -473,6 +473,12 @@ export class InventoryService {
         return [{ cardId: i.cardId, productType: i.productType, gradeKey: this.pricing.gradeKeyFor(i), finish: i.finish }];
       });
     const refs = await this.pricing.getReferencesBatch(derivable);
+    // v1.28 (P-18, §4.26b): controles por variante (M-30) EN LOTE para las líneas raw/graded que
+    // DERIVAN precio (el sellado conserva su cadena H-1; el listPriceCents manual sigue ganando).
+    // Precedencia de publicación: listPriceCents > sellOverride > regla > PRICE_PENDING (escala ④).
+    const variantOverrides = await this.pricing.getVariantOverridesBatch(
+      derivable.filter((d) => d.productType !== 'sealed'),
+    );
 
     const results: BulkPublishLineResult[] = [];
     let published = 0;
@@ -542,6 +548,8 @@ export class InventoryService {
           priceSource = 'derived';
         } else {
           // Derivado server-side (SEC-A1): rareza de Card.rarity, acabado de InventoryItem.finish.
+          // v1.28 (P-18): el sellOverride de la variante (M-30) pisa la regla — misma precedencia
+          // que storefront/checkout (resolver único; publicar NO persiste el precio derivado).
           const gradeKey = this.pricing.gradeKeyFor(item);
           const ref = refs.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`);
           const refCents =
@@ -552,6 +560,7 @@ export class InventoryService {
             refCents,
             rules,
             fallbackPct,
+            variantOverrides.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`) ?? null,
           );
           if (sale.salePriceCents == null) {
             // v1.26 (④, §M1): priceless ESCALA a la cola de pendientes (context='inventory') en vez

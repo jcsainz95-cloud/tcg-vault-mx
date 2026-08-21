@@ -29,9 +29,14 @@ function buildPricing(refs: Map<string, PriceInfo>) {
   return {
     pricing: {
       loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
+      // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
+      loadBuylistRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 40 }),
       getReferencesBatch,
       getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService,
     getReferencesBatch,
   };

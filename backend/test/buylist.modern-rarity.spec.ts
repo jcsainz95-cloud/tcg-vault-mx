@@ -41,6 +41,9 @@ function svcWith(
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
     ),
     escalatePending,
+    // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+    getVariantOverridesBatch: jest.fn(async () => new Map()),
+    getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;
   const settings = {
     getRaw: jest.fn().mockResolvedValue(rules),

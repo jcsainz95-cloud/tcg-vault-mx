@@ -93,6 +93,9 @@ describe('call-site swap — toListingDTO usa la regla por rareza (piso fixed si
       computeSalePriceForItem: jest.fn(async () => ({
         salePriceCents: 500, status: 'priced', appliedRule: { mode: 'fixed', value: 500 }, ruleSource: 'rule',
       })),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
     const svc = new CatalogService({} as PrismaService, pricing);
     const dto = await svc.toListingDTO(itemOf() as any);
@@ -109,6 +112,9 @@ describe('call-site swap — toListingDTO usa la regla por rareza (piso fixed si
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
       computeSalePriceForItem: jest.fn(),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
     const svc = new CatalogService({} as PrismaService, pricing);
     const dto = await svc.toListingDTO(itemOf({ listPriceCents: 99999 }) as any);
@@ -138,6 +144,9 @@ describe('call-site swap — orders.salePriceOf usa la regla por rareza', () => 
       computeSalePriceForItem: jest.fn(async () => ({
         salePriceCents: 500, status: 'priced', appliedRule: { mode: 'fixed', value: 500 }, ruleSource: 'rule',
       })),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
     const svc = buildOrders(pricing);
     const res = await svc.quote(['i1']);
@@ -151,6 +160,9 @@ describe('call-site swap — orders.salePriceOf usa la regla por rareza', () => 
       computeSalePriceForItem: jest.fn(async () => ({
         salePriceCents: null, status: 'pending', appliedRule: { mode: 'pct', value: 15 }, ruleSource: 'fallback',
       })),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
     const svc = buildOrders(pricing);
     await expect(svc.quote(['i1'])).rejects.toMatchObject({ code: 'PRICE_PENDING' });
