@@ -5104,3 +5104,120 @@ inconsistente en el controller).
   VERDE**; el re-seed idempotente CORRIGIÓ la fila vieja del fixture en la BD compartida
   (verificado en Postgres: `e2e-reverse` ⇒ `structural={normal,reverse_holo}`,
   `available={normal,reverse_holo}`, snapshot `{reverse_holo}` decorativo).
+
+## Stream B v1.28 — FASE 1: M-30 `VariantPriceOverride` + P-18 consola de tres precios (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+> Spec: ARCHITECTURE **§4.26** (a, b, i, j) · contrato **v1.28** (§M2 `variant-controls`, §6 quote,
+> §DTOs `VariantPricingDTO`/`MasterSetVariantDTO.pricing?`). Alcance de la fase (orden §4.26j):
+> **M-30 → P-18**. P-19/P-17/P-22 (vitrina+conteo)/P-24/P-25/P-20 vienen en fases siguientes.
+> Toca DINERO en las dos direcciones → gate de seguridad por release.
+
+### M-30 — migración `20260821172210_m30_variant_price_override`
+- Generada con el tooling del repo (`prisma migrate dev --create-only` + anotación + apply), NO a
+  mano. **Aditiva pura**: una tabla nueva + relación en `Card`; cero cambios a tablas existentes.
+  Nace vacía ⇒ sin filas el comportamiento es EXACTAMENTE el previo (regresión cubierta por tests).
+- Modelo tal como §4.26a: `@@unique[cardId, productType, gradeKey, finish]` (espejo de
+  `PriceReference` menos `capturedDate`), `@@index[bountyEnabled]`, campos sell/buy override +
+  bounty (enabled/price/target/acquired/completedAt) + `updatedBy` (patrón AuditLog sin FK dura).
+
+### P-18 — resolver ÚNICO por cara (dónde vive cada cosa)
+- **`common/money.ts` (lock §4.26i, cambios ADITIVOS):**
+  - `quoteAcquisitionForFinish(..., controls?)` — COMPRA: `bounty > override > regla > precio_pendiente`.
+    Bounty/override actúan como `fixed` (siempre `cotizada`, no dependen de la referencia).
+    `AcquisitionRuleSource = 'bounty'|'override'|'rule'|'fallback'` (tipo nuevo, aditivo).
+  - `computeSalePriceForRarity(..., controls?)` — VENTA: `sellOverride > regla > pending`. El paso 1
+    (`listPriceCents` POR PIEZA) lo aplican los CALLERS antes, como siempre (intacto).
+  - **Regla de presencia money-safe (doctrina H-1):** un monto de control `<= 0` es input degenerado
+    ⇒ se trata como AUSENTE (jamás se ofrece/cobra $0 por dato corrupto). El write lo rechaza (422).
+- **`pricing.service.ts`:** `getVariantOverridesBatch` (UNA query por request, patrón
+  `getReferencesBatch`, mapa por `cardId|productType|gradeKey|finish`), `getVariantOverride`
+  (single, delega en el batch), `loadBuylistRules` (espejo de `loadSalesRules`, para
+  consola/binder) y `computeSalePriceForItem(..., controls?)`.
+- **`pricing/variant-pricing.ts` (NUEVO):** `composeVariantPricing` — composer PURO del
+  `VariantPricingDTO` (sugerido=regla sola; efectivo=precedencia completa; `source='pending'`
+  cuando nada resuelve; bloque `bounty` SOLO si existe fila). Lo comparten la respuesta del PUT y
+  el binder — un solo cuerpo, cero duplicación.
+- **`pricing/variant-controls.service.ts` (NUEVO) + `PUT /admin/pricing/variant-controls/:cardId/:finish`**
+  (PricingController, hereda `@Roles(super_admin)`):
+  - Validación MANUAL (el body distingue OMITIDO=no tocar de `null`=limpiar, cosa que
+    class-validator no expresa; DTO con `@Allow()` para sobrevivir al whitelist del pipe global).
+    Códigos del contrato: `VALIDATION_ERROR` (sealed/gradeKey/centavos/targetQty),
+    `FINISH_NOT_AVAILABLE` (SEC-A1 contra `Card.availableFinishes`), `BOUNTY_PRICE_REQUIRED`,
+    `BOUNTY_BELOW_RULE` (regla `<` estricta; sugerido `pending` ⇒ se acepta), `404 NOT_FOUND`.
+  - Upsert parcial sobre la clave única; **fila con todo vacío se BORRA** (equivalente observable a
+    «sin fila») SALVO que tenga historia de bounty (`acquiredQty>0`/`completedAt`) — «apagar no
+    borra el contador». AUDITADO `pricing.variant_controls` con before/after. NO toca
+    `PriceReference` ni resuelve `PendingPriceEntry` (el mercado es otra perilla).
+  - Respuesta = estado RESUELTO tras el write (`VariantControlsResponse` con el mismo
+    `VariantPricingDTO` del binder).
+- **Bounty en esta fase:** persistencia + validaciones + precedencia en el resolver de compra (los
+  3 consumidores del quote ya lo honran y `createRequest` snapshotea `ruleSource='bounty'`, lo que
+  deja listo el conteo del pago M5). La vitrina `GET /buylist/bounties` y el conteo/auto-off
+  transaccional son **P-22 (fase siguiente)**.
+
+### Integración en los puntos de resolución (consumidores §4.26b — todos migrados)
+- **COMPRA** (`buylist.service.ts`): `publicQuote` (single), `batchQuote` y `createRequest`
+  (overrides EN LOTE, una query por request) pasan la fila M-30 a `quoteCardForFinish` →
+  `quoteAcquisitionForFinish`. `appliedRule.source` gana `"bounty"|"override"` (quote, batch y
+  `SellItemDTO.appliedRule`); `createRequest` snapshotea `ruleSource` con esos valores. Topes de
+  buylist SIN cambio (aplican igual a montos bounty). La clave del lookup usa `gradeKeyFor` +
+  finish default `normal` — paridad exacta con la clave de la referencia.
+- **VENTA** (resuelta en LECTURA ⇒ efecto inmediato, nada que re-publicar):
+  - `catalog.fetchSellable`/`toListingDTO` (batch por lote + fallback single);
+  - `orders.salePriceOf` (checkout auth + guest — cobra EXACTO lo que publica el storefront);
+  - `inventory.bulkPublish` (rama derivada raw/graded; overrides en lote);
+  - `master-set.resolveBuyables` (el `buyable` del binder = precio del storefront).
+  En TODOS: `listPriceCents` por pieza sigue ganando; sellado conserva su cadena H-1 intacta
+  (P-18 NO aplica a `sealed`); BE-26 sigue (efectivo `<=0` ⇒ no vendible).
+- **Binder (M1):** `MasterSetVariantDTO.pricing?` SOLO scope `platform` — en `user_vault`/«Mi
+  bóveda» ni se computa ni viaja (ni siquiera se consulta la tabla M-30 ni las reglas de compra:
+  cubierto por test). Lotes izados una vez (buy+sell rules + overrides + refs) — sin N+1.
+
+### Decisiones dentro del margen de la spec (documentadas para el arquitecto/techlead)
+1. **`gradeKey` raw = `raw:NM` estricto** en el PUT (422 otro valor): `RawCondition` solo tiene NM
+   (§3.5) y es el canónico de `buildGradeKey`; evita filas huérfanas imposibles de resolver.
+2. **Re-encender un bounty limpia `bountyCompletedAt`** (re-armado ≠ completado; el aviso de M1
+   sale de `completedAt`) y CONSERVA `bountyAcquiredQty` (doctrina «apagar no borra el contador»).
+3. **`bounty` no-null sobre `productType=graded` → 422** (estricto; `bounty:null` sí se acepta en
+   graded porque no habilita nada). Sell/buy overrides en graded SÍ aplican (misma tabla).
+4. **`buylistRules()` de BuylistService NO delega** en `loadBuylistRules` (mismas SettingKey, misma
+   forma): delegar rompía ~10 specs que configuran reglas vía `settings.getRaw` — churn sin valor.
+   El «un solo núcleo» normativo es la MATEMÁTICA (`quoteAcquisitionForFinish`), que sí es única.
+5. **Cap BE-27 en el write** (`> MAX_CENTS` ⇒ 422) además del clamp de lectura: una fila Int32
+   jamás se persiste desbordada.
+
+### Tests nuevos (todos verdes) + mocks actualizados
+- `test/money.variant-controls.spec.ts` — precedencias puras de las DOS caras (empates, ausencias,
+  degenerados <=0, clamp BE-27, no-contaminación buy↔sell, regresión sin controls).
+- `test/pricing.variant-controls.spec.ts` — endpoint/servicio: validaciones del contrato, PATCH
+  parcial (omitido≠null), borrado de fila vacía (y NO-borrado con historia de bounty), auditoría
+  before/after, respuesta resuelta, `composeVariantPricing`.
+- `test/pricing.variant-overrides-batch.spec.ts` — lote M-30: una query, filtro wanted-set (el
+  producto cartesiano de los IN no cuela filas), single delega en batch.
+- `test/buylist.variant-overrides.spec.ts` — quote/batch/createRequest: override pisa regla, bounty
+  pisa override, snapshot `ruleSource`, lote sin N+1, cotiza sin referencia sin escalar pendientes,
+  topes intactos, regresión.
+- `test/sell-override.propagation.spec.ts` — propagación de venta a catálogo (single+batch),
+  checkout, bulk-publish, binder (`pricing?` platform-only + omisión en user_vault + buyable).
+- Mocks de `PricingService` en 18 specs existentes ganaron los métodos nuevos con default «sin
+  filas» (= comportamiento previo); 3 aserciones de `master-set.scopes` ganaron `pricing:
+  expect.any(Object)` (scope platform ahora lo trae por contrato).
+
+### Verificación (local; Postgres 16 + Redis reales, migrate deploy + seed sintético)
+- `npm run typecheck` → limpio.
+- `npm run lint` → 0 errores (1 warning preexistente en `buylist.service.ts`, ajeno).
+- `npm test` (unit) → **142 suites / 1338 tests VERDE**.
+- `npm run test:integration` (con `migrate deploy` aplicando M-30 sobre la BD local) → **9 suites /
+  124 tests VERDE**. Nota entorno: el smoke de MinIO exige un endpoint S3 REALMENTE inaccesible
+  para tomar su vía de skip; en este sandbox el proxy de salida contesta 403 a endpoints
+  inexistentes, así que se fijó `S3_ENDPOINT=http://127.0.0.1:9000` (sin MinIO ⇒ ECONNREFUSED ⇒
+  skip documentado). Preexistente, ajeno a esta fase (verificado también sobre el commit base).
+
+### Qué queda listo para la FASE 2 (P-19 + P-17)
+- El **prellenado del alta rápida** (`pricing.buy.effectiveCents`) ya viaja en el binder (P-18
+  aterrizado ⇒ P-19 conecta el efectivo directo, sin regla provisional).
+- `publish-all` (P-19) reusa la precedencia v1.28 ya integrada en la rama derivada de
+  `bulkPublish` (mismo cuerpo `computeSalePriceForRarity + getVariantOverridesBatch`).
+- P-22 solo necesita: endpoint público `GET /buylist/bounties` (leer filas `bountyEnabled` con
+  `bountyPriceCents desc`, cap 50) + conteo/auto-off en el pago M5 — el snapshot
+  `ruleSource='bounty'` en `SellRequestItem` ya se persiste desde esta fase.
