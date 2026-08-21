@@ -66,6 +66,21 @@
 > ni botones. El badge BOUNTY (§16.7b) adopta el **glifo micro oficial de la mira** en lugar del
 > `crosshair` de lucide. La marca visible cambia; **el nombre interno del repo/proyecto (`tcg-vault-mx`) y
 > las rutas técnicas NO cambian** (§17.4). Wordmark en **Montserrat 700** (`--font-brand`, `next/font`).
+>
+> **Corrección v1.7.1 (fidelidad del logo — cotejo del humano contra el original) → §17.1 reescrita.**
+> La reconstrucción v1.7 simplificaba de más: el original es una **retícula de mira de rifle (scope
+> reticle)**, no una cruz corrida sobre círculos. Cambios: (1) la **cruz es SEGMENTADA** — cuatro líneas
+> independientes que atraviesan los anillos por **huecos** y **nunca pisan nada**; todas terminan dentro
+> del anillo interior dejando **espacio libre antes del punto central**; la horizontal **izquierda es la
+> más larga** y la vertical **superior sobresale más que la inferior**. (2) Los **anillos se dibujan como
+> 4 arcos** con **gap angular en los 4 cardinales** (~12° exterior, ~20° interior) por donde pasan las
+> líneas. (3) El **punto central hueco queda aislado** — nada lo toca. (4) El **wordmark ahora es
+> dominante**: casi tan ancho como las horizontales de la mira, con ".mx" alineado al borde derecho del
+> wordmark. (5) El degradado del conjunto pasa a **diagonal** `#B31217` (arriba/izquierda) → `#4A0D0D`
+> (abajo/derecha), con el wordmark en **vino casi plano** (rampa corta `#6E1013→#4A0D0D`). Las 4
+> variantes (lockup, solo-mira, oscura, micro) se corrigen; el **glifo micro** conserva la cruz
+> segmentada pero **omite los huecos de los anillos** (no leen a 16–20px, §17.1d). Se ajustan tamaños
+> mínimos y reglas de uso derivadas (§17.3): solo-mira mínimo **28px** (antes 24px).
 
 ---
 
@@ -2277,92 +2292,141 @@ largas a probar).
 > cambia el **acento de color** (bermellón → rojo TCG HUNT) y se incorpora el **logo de mira**.
 >
 > **Origen:** reconstrucción vectorial fiel a la **referencia de alta resolución que compartió el humano**
-> (imagen de chat, 2026-08-21): mira/crosshair de dos anillos concéntricos con cruz que sobresale de los
-> anillos (horizontales mucho más largas), punto central anillado, degradado rojo `#B31217` → vino
-> `#4A0D0D` (izquierda→derecha en las horizontales, arriba→abajo en el conjunto), wordmark "TCG HUNT" en
-> sans geométrica bold con el mismo degradado y ".mx" pequeño abajo-derecha, sobre fondo blanco/claro.
-> Cuando el humano suba el PNG original a `frontend/public/branding/`, se coteja el SVG contra él y se
-> ajustan métricas finas (grosores, tracking del wordmark) si hiciera falta — la geometría de esta sección
-> es la fuente de verdad hasta entonces.
+> (imagen de chat, 2026-08-21; **cotejada por el humano el mismo día → corrección v1.7.1**): una
+> **retícula de mira de rifle (scope reticle)** — dos anillos concéntricos **con huecos en los 4
+> cardinales**, cruz **segmentada** en cuatro líneas independientes que atraviesan esos huecos y terminan
+> antes del punto central (la izquierda mucho más larga; la superior sobresale más que la inferior),
+> **punto central anillado aislado**, degradado rojo `#B31217` (arriba/izquierda) → vino `#4A0D0D`
+> (abajo/derecha) en diagonal sobre el conjunto, wordmark "TCG HUNT" **ancho y dominante** en sans
+> geométrica bold en vino casi plano, y ".mx" pequeño alineado al borde derecho del wordmark, sobre fondo
+> blanco/claro. Cuando el humano suba el PNG original a `frontend/public/branding/`, se coteja el SVG
+> contra él y se ajustan métricas finas (grosores, gaps angulares, tracking del wordmark) si hiciera
+> falta — la geometría de esta sección es la fuente de verdad hasta entonces.
 
 ### 17.1 El logo — SVG oficial (fuente de verdad vectorial)
 
-Anatomía de la mira (`HuntMark`), común a todas las versiones:
-- **Dos anillos concéntricos** (stroke, sin relleno), proporción de radios ≈ 1 : 0.61.
-- **Cruz** cuyas cuatro líneas **sobresalen** de los anillos: las **horizontales mucho más largas**
-  (sobresalen ~2.7× el radio exterior por lado), las verticales sobresalen ~0.5× radio por lado.
-- **Punto central anillado**: círculo pequeño con **centro hueco** (stroke grueso, el fondo se ve a través).
-- Todos los trazos con **`stroke-linecap="round"`**; sin rellenos, sin sombras (§4.3), radio 0 no aplica
-  (el logo es la única pieza circular legítima del sistema — es un glifo, no un componente UI).
-- **Degradados** (`userSpaceOnUse` para que las cuatro piezas compartan rampa): `huntGradH`
-  (izquierda→derecha, para la línea horizontal) y `huntGradV` (arriba→abajo, para anillos, vertical,
-  punto y wordmark). Stops: `#B31217` (0%) → `#4A0D0D` (100%).
+Anatomía de la retícula (`HuntMark`), común a todas las versiones — es una **mira de rifle (scope
+reticle)**, y la regla de oro es que **ningún trazo pisa a otro**:
+- **Dos anillos concéntricos** (stroke, sin relleno), proporción de radios ≈ 1 : 0.61, grosor de stroke
+  aproximadamente igual entre ambos. Cada anillo se dibuja como **4 arcos** (`path` con arcos, no
+  `circle`) dejando un **hueco (gap) centrado en cada punto cardinal** por donde pasa la cruz: gap
+  angular **~12° en el anillo exterior** y **~20° en el interior** (más ángulo a menos radio para que el
+  claro visual sea parejo y la línea pase con aire). Los arcos van con **cap plano (butt, el default)**:
+  si llevaran `round` invadirían el hueco y tocarían la línea.
+- **Cruz SEGMENTADA en cuatro líneas independientes** — nunca una línea corrida:
+  - **Vertical superior:** baja desde muy arriba (sobresale mucho del anillo exterior), atraviesa ambos
+    anillos por sus huecos y **termina dentro del anillo interior**, dejando un espacio claro antes del
+    punto central.
+  - **Vertical inferior:** empieza debajo del punto central (mismo espacio), atraviesa ambos huecos y
+    sobresale por debajo del anillo exterior — **proyección externa más corta que la superior**.
+  - **Horizontales: DOS segmentos.** El **izquierdo es el más largo** de los cuatro (viene desde muy
+    lejos), atraviesa los huecos y termina antes del punto central; el **derecho** empieza después del
+    punto central, atraviesa los huecos y se extiende lejos a la derecha (algo menos que el izquierdo).
+  - Los **ocho extremos** de los cuatro segmentos con **`stroke-linecap="round"`**.
+- **Punto central anillado AISLADO**: círculo pequeño con **centro hueco** (stroke grueso, el fondo se
+  ve a través). Nada lo toca — hay aire entre el punto y los cuatro finales de línea.
+- Sin rellenos, sin sombras (§4.3); radio 0 no aplica (el logo es la única pieza circular legítima del
+  sistema — es un glifo, no un componente UI).
+- **Degradados** (`userSpaceOnUse` para que todas las piezas compartan rampa): `huntGrad` **diagonal**
+  arriba/izquierda → abajo/derecha para toda la retícula (stops `#B31217` 0% → `#4A0D0D` 100%), y
+  `huntGradWm` para el wordmark: **rampa corta de vino** `#6E1013` → `#4A0D0D` (en el original el texto
+  se ve vino oscuro casi plano con leve gradiente).
 
-**(a) Versión completa — lockup principal (mira + wordmark), fondo claro.** Composición apilada fiel a
-la referencia: mira arriba con las horizontales extendidas, wordmark debajo, ".mx" abajo-derecha.
-Para el frontend: pegar como componente `<LogoTcgHunt />`; los `id` de gradiente llevan prefijo por
-instancia si se monta más de una vez en la página (evitar `id` duplicados en el DOM).
+**(a) Versión completa — lockup principal (retícula + wordmark), fondo claro.** Composición apilada
+fiel a la referencia: retícula arriba (segmento horizontal izquierdo el más largo), **wordmark ancho y
+dominante** debajo — ocupa casi todo el ancho de las horizontales —, ".mx" alineado al borde derecho
+del wordmark. Para el frontend: pegar como componente `<LogoTcgHunt />`; los `id` de gradiente llevan
+prefijo por instancia si se monta más de una vez en la página (evitar `id` duplicados en el DOM).
+Geometría de referencia: centro de retícula `(240,112)`, anillo exterior `r=56` (gap 12°/cardinal),
+interior `r=34` (gap 20°/cardinal), claro alrededor del punto central = **18px** desde el centro por
+los cuatro lados.
 
 ```svg
-<svg viewBox="0 0 480 300" fill="none" xmlns="http://www.w3.org/2000/svg"
+<svg viewBox="0 0 480 330" fill="none" xmlns="http://www.w3.org/2000/svg"
      role="img" aria-label="TCG HUNT — tcghunt.mx">
   <defs>
-    <!-- izquierda → derecha (línea horizontal) -->
-    <linearGradient id="huntGradH" gradientUnits="userSpaceOnUse"
-                    x1="32" y1="0" x2="448" y2="0">
+    <!-- degradado del conjunto: rojo arriba/izquierda → vino abajo/derecha (diagonal) -->
+    <linearGradient id="huntGrad" gradientUnits="userSpaceOnUse"
+                    x1="10" y1="8" x2="452" y2="198">
       <stop offset="0" stop-color="#B31217"/>
       <stop offset="1" stop-color="#4A0D0D"/>
     </linearGradient>
-    <!-- arriba → abajo (anillos, vertical, punto y wordmark: "el conjunto") -->
-    <linearGradient id="huntGradV" gradientUnits="userSpaceOnUse"
-                    x1="0" y1="20" x2="0" y2="272">
-      <stop offset="0" stop-color="#B31217"/>
+    <!-- wordmark: vino oscuro casi plano, leve gradiente -->
+    <linearGradient id="huntGradWm" gradientUnits="userSpaceOnUse"
+                    x1="0" y1="232" x2="0" y2="290">
+      <stop offset="0" stop-color="#6E1013"/>
       <stop offset="1" stop-color="#4A0D0D"/>
     </linearGradient>
   </defs>
 
-  <!-- MIRA (centro 240,104) -->
-  <!-- cruz: horizontales mucho más largas que las verticales -->
-  <line x1="32"  y1="104" x2="448" y2="104" stroke="url(#huntGradH)" stroke-width="7" stroke-linecap="round"/>
-  <line x1="240" y1="20"  x2="240" y2="188" stroke="url(#huntGradV)" stroke-width="7" stroke-linecap="round"/>
-  <!-- anillos concéntricos -->
-  <circle cx="240" cy="104" r="56" stroke="url(#huntGradV)" stroke-width="7"/>
-  <circle cx="240" cy="104" r="34" stroke="url(#huntGradV)" stroke-width="6"/>
-  <!-- punto central anillado (centro hueco) -->
-  <circle cx="240" cy="104" r="8"  stroke="url(#huntGradV)" stroke-width="5.5"/>
+  <!-- RETÍCULA (centro 240,112) — cruz SEGMENTADA: nada pisa nada -->
+  <!-- horizontal izquierda (la más larga): termina 18px antes del centro -->
+  <line x1="10"  y1="112" x2="222" y2="112" stroke="url(#huntGrad)" stroke-width="7" stroke-linecap="round"/>
+  <!-- horizontal derecha: empieza 18px después del centro -->
+  <line x1="258" y1="112" x2="452" y2="112" stroke="url(#huntGrad)" stroke-width="7" stroke-linecap="round"/>
+  <!-- vertical superior: sobresale mucho por arriba, termina dentro del anillo interior -->
+  <line x1="240" y1="8"   x2="240" y2="94"  stroke="url(#huntGrad)" stroke-width="7" stroke-linecap="round"/>
+  <!-- vertical inferior: más corta en proyección externa -->
+  <line x1="240" y1="130" x2="240" y2="198" stroke="url(#huntGrad)" stroke-width="7" stroke-linecap="round"/>
 
-  <!-- WORDMARK: Montserrat 700 (--font-brand, §17.1e); métricas a cotejar con el PNG original -->
-  <text x="240" y="252" text-anchor="middle"
+  <!-- anillo exterior r=56: 4 arcos, gap de 12° centrado en cada cardinal (cap plano) -->
+  <path d="M295.69 117.85 A56 56 0 0 1 245.85 167.69" stroke="url(#huntGrad)" stroke-width="7"/>
+  <path d="M234.15 167.69 A56 56 0 0 1 184.31 117.85" stroke="url(#huntGrad)" stroke-width="7"/>
+  <path d="M184.31 106.15 A56 56 0 0 1 234.15 56.31"  stroke="url(#huntGrad)" stroke-width="7"/>
+  <path d="M245.85 56.31  A56 56 0 0 1 295.69 106.15" stroke="url(#huntGrad)" stroke-width="7"/>
+
+  <!-- anillo interior r=34: 4 arcos, gap de 20° centrado en cada cardinal (cap plano) -->
+  <path d="M273.48 117.90 A34 34 0 0 1 245.90 145.48" stroke="url(#huntGrad)" stroke-width="6.5"/>
+  <path d="M234.10 145.48 A34 34 0 0 1 206.52 117.90" stroke="url(#huntGrad)" stroke-width="6.5"/>
+  <path d="M206.52 106.10 A34 34 0 0 1 234.10 78.52"  stroke="url(#huntGrad)" stroke-width="6.5"/>
+  <path d="M245.90 78.52  A34 34 0 0 1 273.48 106.10" stroke="url(#huntGrad)" stroke-width="6.5"/>
+
+  <!-- punto central anillado (centro hueco) — AISLADO, nada lo toca -->
+  <circle cx="240" cy="112" r="8" stroke="url(#huntGrad)" stroke-width="5.5"/>
+
+  <!-- WORDMARK dominante: Montserrat 700 (--font-brand, §17.1e), casi el ancho de las horizontales -->
+  <text x="240" y="278" text-anchor="middle"
         font-family="Montserrat, Archivo, system-ui, sans-serif"
-        font-size="58" font-weight="700" letter-spacing="2"
-        fill="url(#huntGradV)">TCG HUNT</text>
-  <!-- ".mx" pequeño, alineado abajo-derecha del wordmark, vino sólido -->
-  <text x="404" y="252" text-anchor="start"
+        font-size="66" font-weight="700" letter-spacing="9"
+        fill="url(#huntGradWm)">TCG HUNT</text>
+  <!-- ".mx" abajo-derecha, alineado al borde derecho del wordmark, vino sólido -->
+  <text x="452" y="312" text-anchor="end"
         font-family="Montserrat, Archivo, system-ui, sans-serif"
-        font-size="22" font-weight="600" letter-spacing="0.5"
+        font-size="24" font-weight="600" letter-spacing="0.5"
         fill="#4A0D0D">.mx</text>
 </svg>
 ```
 
-**(b) Versión solo-mira (`HuntMark`)** — favicon, avatar, topbar compacto, apple-touch. Cuadrada; las
-horizontales tocan los bordes del lienzo (siguen siendo las más largas):
+**(b) Versión solo-mira (`HuntMark`)** — avatar, topbar compacto, apple-touch. Cuadrada; misma
+gramática de retícula (cruz segmentada + anillos con huecos + punto aislado); en lienzo cuadrado las
+horizontales no pueden ser dramáticamente más largas, pero la izquierda sigue siendo la mayor y la
+vertical superior sobresale más que la inferior:
 
 ```svg
 <svg viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg"
      role="img" aria-label="TCG HUNT">
   <defs>
-    <linearGradient id="huntMarkH" gradientUnits="userSpaceOnUse" x1="2" y1="0" x2="126" y2="0">
-      <stop offset="0" stop-color="#B31217"/><stop offset="1" stop-color="#4A0D0D"/>
-    </linearGradient>
-    <linearGradient id="huntMarkV" gradientUnits="userSpaceOnUse" x1="0" y1="8" x2="0" y2="120">
+    <linearGradient id="huntMarkGrad" gradientUnits="userSpaceOnUse" x1="1" y1="2" x2="124" y2="122">
       <stop offset="0" stop-color="#B31217"/><stop offset="1" stop-color="#4A0D0D"/>
     </linearGradient>
   </defs>
-  <line x1="2"  y1="64" x2="126" y2="64" stroke="url(#huntMarkH)" stroke-width="8" stroke-linecap="round"/>
-  <line x1="64" y1="8"  x2="64" y2="120" stroke="url(#huntMarkV)" stroke-width="8" stroke-linecap="round"/>
-  <circle cx="64" cy="64" r="36" stroke="url(#huntMarkV)" stroke-width="8"/>
-  <circle cx="64" cy="64" r="22" stroke="url(#huntMarkV)" stroke-width="7"/>
-  <circle cx="64" cy="64" r="6"  stroke="url(#huntMarkV)" stroke-width="5.5"/>
+  <!-- cruz segmentada (centro 64,64; claro de 12px alrededor del punto) -->
+  <line x1="1"  y1="64" x2="52" y2="64"  stroke="url(#huntMarkGrad)" stroke-width="8" stroke-linecap="round"/>
+  <line x1="76" y1="64" x2="124" y2="64" stroke="url(#huntMarkGrad)" stroke-width="8" stroke-linecap="round"/>
+  <line x1="64" y1="2"  x2="64" y2="52"  stroke="url(#huntMarkGrad)" stroke-width="8" stroke-linecap="round"/>
+  <line x1="64" y1="76" x2="64" y2="122" stroke="url(#huntMarkGrad)" stroke-width="8" stroke-linecap="round"/>
+  <!-- anillo exterior r=36: 4 arcos, gap 16°/cardinal -->
+  <path d="M99.65 69.01 A36 36 0 0 1 69.01 99.65" stroke="url(#huntMarkGrad)" stroke-width="8"/>
+  <path d="M58.99 99.65 A36 36 0 0 1 28.35 69.01" stroke="url(#huntMarkGrad)" stroke-width="8"/>
+  <path d="M28.35 58.99 A36 36 0 0 1 58.99 28.35" stroke="url(#huntMarkGrad)" stroke-width="8"/>
+  <path d="M69.01 28.35 A36 36 0 0 1 99.65 58.99" stroke="url(#huntMarkGrad)" stroke-width="8"/>
+  <!-- anillo interior r=22: 4 arcos, gap 28°/cardinal -->
+  <path d="M85.35 69.32 A22 22 0 0 1 69.32 85.35" stroke="url(#huntMarkGrad)" stroke-width="7"/>
+  <path d="M58.68 85.35 A22 22 0 0 1 42.65 69.32" stroke="url(#huntMarkGrad)" stroke-width="7"/>
+  <path d="M42.65 58.68 A22 22 0 0 1 58.68 42.65" stroke="url(#huntMarkGrad)" stroke-width="7"/>
+  <path d="M69.32 42.65 A22 22 0 0 1 85.35 58.68" stroke="url(#huntMarkGrad)" stroke-width="7"/>
+  <!-- punto central anillado, aislado -->
+  <circle cx="64" cy="64" r="5" stroke="url(#huntMarkGrad)" stroke-width="4.5"/>
 </svg>
 ```
 
@@ -2373,42 +2437,59 @@ oscuro).** El degradado original NO se usa sobre tinta: el vino `#4A0D0D` es ile
 identidad la porta la mira; el wordmark prioriza legibilidad:
 
 ```svg
-<svg viewBox="0 0 480 300" fill="none" xmlns="http://www.w3.org/2000/svg"
+<svg viewBox="0 0 480 330" fill="none" xmlns="http://www.w3.org/2000/svg"
      role="img" aria-label="TCG HUNT — tcghunt.mx">
   <defs>
-    <linearGradient id="huntGradHDark" gradientUnits="userSpaceOnUse" x1="32" y1="0" x2="448" y2="0">
-      <stop offset="0" stop-color="#F0685F"/><stop offset="1" stop-color="#D0362C"/>
-    </linearGradient>
-    <linearGradient id="huntGradVDark" gradientUnits="userSpaceOnUse" x1="0" y1="20" x2="0" y2="188">
+    <linearGradient id="huntGradDark" gradientUnits="userSpaceOnUse" x1="10" y1="8" x2="452" y2="198">
       <stop offset="0" stop-color="#F0685F"/><stop offset="1" stop-color="#D0362C"/>
     </linearGradient>
   </defs>
-  <line x1="32"  y1="104" x2="448" y2="104" stroke="url(#huntGradHDark)" stroke-width="7" stroke-linecap="round"/>
-  <line x1="240" y1="20"  x2="240" y2="188" stroke="url(#huntGradVDark)" stroke-width="7" stroke-linecap="round"/>
-  <circle cx="240" cy="104" r="56" stroke="url(#huntGradVDark)" stroke-width="7"/>
-  <circle cx="240" cy="104" r="34" stroke="url(#huntGradVDark)" stroke-width="6"/>
-  <circle cx="240" cy="104" r="8"  stroke="url(#huntGradVDark)" stroke-width="5.5"/>
-  <text x="240" y="252" text-anchor="middle"
+  <!-- misma geometría que (a): cruz segmentada + anillos con huecos + punto aislado -->
+  <line x1="10"  y1="112" x2="222" y2="112" stroke="url(#huntGradDark)" stroke-width="7" stroke-linecap="round"/>
+  <line x1="258" y1="112" x2="452" y2="112" stroke="url(#huntGradDark)" stroke-width="7" stroke-linecap="round"/>
+  <line x1="240" y1="8"   x2="240" y2="94"  stroke="url(#huntGradDark)" stroke-width="7" stroke-linecap="round"/>
+  <line x1="240" y1="130" x2="240" y2="198" stroke="url(#huntGradDark)" stroke-width="7" stroke-linecap="round"/>
+  <path d="M295.69 117.85 A56 56 0 0 1 245.85 167.69" stroke="url(#huntGradDark)" stroke-width="7"/>
+  <path d="M234.15 167.69 A56 56 0 0 1 184.31 117.85" stroke="url(#huntGradDark)" stroke-width="7"/>
+  <path d="M184.31 106.15 A56 56 0 0 1 234.15 56.31"  stroke="url(#huntGradDark)" stroke-width="7"/>
+  <path d="M245.85 56.31  A56 56 0 0 1 295.69 106.15" stroke="url(#huntGradDark)" stroke-width="7"/>
+  <path d="M273.48 117.90 A34 34 0 0 1 245.90 145.48" stroke="url(#huntGradDark)" stroke-width="6.5"/>
+  <path d="M234.10 145.48 A34 34 0 0 1 206.52 117.90" stroke="url(#huntGradDark)" stroke-width="6.5"/>
+  <path d="M206.52 106.10 A34 34 0 0 1 234.10 78.52"  stroke="url(#huntGradDark)" stroke-width="6.5"/>
+  <path d="M245.90 78.52  A34 34 0 0 1 273.48 106.10" stroke="url(#huntGradDark)" stroke-width="6.5"/>
+  <circle cx="240" cy="112" r="8" stroke="url(#huntGradDark)" stroke-width="5.5"/>
+  <!-- wordmark en papel sólido (sobre tinta la identidad la porta la retícula) -->
+  <text x="240" y="278" text-anchor="middle"
         font-family="Montserrat, Archivo, system-ui, sans-serif"
-        font-size="58" font-weight="700" letter-spacing="2" fill="#F4F1EA">TCG HUNT</text>
-  <text x="404" y="252" text-anchor="start"
+        font-size="66" font-weight="700" letter-spacing="9" fill="#F4F1EA">TCG HUNT</text>
+  <text x="452" y="312" text-anchor="end"
         font-family="Montserrat, Archivo, system-ui, sans-serif"
-        font-size="22" font-weight="600" letter-spacing="0.5" fill="#F0685F">.mx</text>
+        font-size="24" font-weight="600" letter-spacing="0.5" fill="#F0685F">.mx</text>
 </svg>
 ```
-La solo-mira oscura es la (b) con los stops de `#F0685F` → `#D0362C`.
+La solo-mira oscura es la (b) con los stops de `#F0685F` → `#D0362C` (misma geometría segmentada).
 
-**(d) Glifo micro (≤ 20px) — `HuntMark` micro.** A 12–16px los dos anillos + punto hueco se empastan.
-Versión simplificada monocroma (`currentColor`, sin gradiente — invisible a ese tamaño): **un anillo +
-cruz sobresaliente + punto sólido**. Es el glifo que usan el badge **BOUNTY** (§16.7b, sustituye al
-`crosshair` de lucide) y cualquier uso inline junto a texto:
+**(d) Glifo micro (< 28px, v1.7.1) — `HuntMark` micro.** A 12–16px los dos anillos + punto hueco se
+empastan y por debajo de ~28px los huecos de los anillos ya no se leen.
+Versión simplificada monocroma (`currentColor`, sin gradiente — invisible a ese tamaño): **un solo
+anillo + cruz SEGMENTADA + punto sólido**. **Simplificación explícita:** el micro **omite los huecos
+del anillo** (un gap de 12–20° a 16px mide < 1px y no se lee; el anillo va cerrado y las líneas lo
+cruzan en el mismo color, donde el solape es invisible), pero **conserva la cruz segmentada y el punto
+aislado** — esa interrupción alrededor del centro sí lee a 16px y es la firma de la retícula. Es el
+glifo que usan el badge **BOUNTY** (§16.7b, sustituye al `crosshair` de lucide) y cualquier uso inline
+junto a texto:
 
 ```svg
 <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <line x1="1"  y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-  <line x1="12" y1="3"  x2="12" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <!-- cruz segmentada: 4 segmentos, claro de 4px alrededor del punto; inferior más corta -->
+  <line x1="0.75" y1="12" x2="8"  y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <line x1="16"  y1="12" x2="23.25" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <line x1="12"  y1="1"  x2="12" y2="8"  stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <line x1="12"  y1="16" x2="12" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <!-- anillo único CERRADO (simplificación micro: sin gaps) -->
   <circle cx="12" cy="12" r="6.5" stroke="currentColor" stroke-width="2"/>
-  <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>
+  <!-- punto sólido aislado -->
+  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>
 </svg>
 ```
 
@@ -2453,6 +2534,7 @@ tinta del sello.
 ```
 --hunt-red:        #B31217   (acento de marca = nuevo valor de --color-accent)
 --hunt-wine:       #4A0D0D   (extremo oscuro del degradado; texto de marca ".mx"; NO es token semántico)
+--hunt-wine-up:    #6E1013   (extremo claro de la rampa corta del wordmark, §17.1a; solo marca)
 --hunt-red-hover:  #8F0E12   (hover de botones accent / enlaces en accent; 8.3:1 sobre papel)
 --hunt-red-up:     #F0685F   (extremo claro del degradado en variante oscura)
 --hunt-red-deep:   #D0362C   (extremo oscuro del degradado en variante oscura)
@@ -2479,13 +2561,15 @@ tinta del sello.
 | Papel `#F4F1EA` sobre `#B31217` (botón accent) | ~6.2:1 | AA |
 | Hover `#8F0E12` sobre papel | ~8.3:1 | AA/AAA |
 | Vino `#4A0D0D` sobre papel (".mx", extremo del degradado) | ~13.8:1 | AA/AAA |
+| Vino claro `#6E1013` sobre papel (extremo claro del wordmark, §17.1a) | ~10.6:1 | AA/AAA |
 | Anillo de foco `#B31217` sobre papel / pozo | ~6.2:1 / ~5.9:1 | AA (≥3:1 UI) |
 | `#B31217` sobre tinta `#1A1A18` | ~2.5:1 | ✗ **PROHIBIDO** → usar variante oscura |
 | `#F0685F` sobre tinta (variante oscura, extremo claro) | ~5.7:1 | AA (gráfico/texto grande) |
 | `#D0362C` sobre tinta (variante oscura, extremo oscuro) | ~3.5:1 | AA UI (≥3:1; es trazo de logo, no texto) |
 | Wordmark papel `#F4F1EA` sobre tinta (variante oscura) | ~15.5:1 | AA/AAA |
-- El **degradado claro** del lockup (a) va de 6.2:1 a 13.8:1 sobre papel: **todo el recorrido ≥ AA**,
-  incluido el wordmark (texto grande ≥ 3:1 sobra; también cumple 4.5:1 de texto normal).
+- El **degradado claro** del lockup (a): la retícula (diagonal `#B31217→#4A0D0D`) va de 6.2:1 a 13.8:1
+  sobre papel y el wordmark (rampa corta `#6E1013→#4A0D0D`) de ~10.6:1 a 13.8:1 — **todo el recorrido
+  ≥ AA** (texto grande ≥ 3:1 sobra; también cumple 4.5:1 de texto normal).
 - Ratificación §10: cualquier estado que hoy usa bermellón (PENDIENTE, RECHAZADA, precio pendiente,
   QUEDAN N…) **sube** de contraste al heredar `#B31217`; no hay regresiones.
 
@@ -2494,7 +2578,7 @@ tinta del sello.
 | Superficie | Qué va | Detalle |
 |---|---|---|
 | **Topbar storefront** (§7.15) | ≥`md`: lockup horizontal = solo-mira (b) 28px + "TCG HUNT" en `--font-brand` 700, 18–20px, **tinta sólida** `#1A1A18` (a tamaño topbar el wordmark no usa degradado; ver reglas). `<md`: **solo-mira 28px** (área táctil 44px). | El ".mx" NO va en topbar (ruido); vive en lockup completo y footer. Enlace a home con `aria-label="TCG HUNT — inicio"`. |
-| **Topbar/sidebar admin** (panel de tinta) | Solo-mira **variante oscura** 24px + "TCG HUNT" en papel `#F4F1EA` (`--font-brand` 700, 14–16px). | El back-office comparte marca; sin ".mx". |
+| **Topbar/sidebar admin** (panel de tinta) | Solo-mira **variante oscura** 28px + "TCG HUNT" en papel `#F4F1EA` (`--font-brand` 700, 14–16px). | El back-office comparte marca; sin ".mx". *(v1.7.1: sube de 24→28px — por debajo de 28px los huecos de los anillos no leen, ver tamaños mínimos.)* |
 | **Favicon** | **Glifo micro (d)** en `#B31217` sólido, fondo transparente (`icon.svg`); PNG 16/32 derivados. **Apple-touch 180px:** solo-mira (b) con degradado sobre fondo papel `#F4F1EA`, margen = 12% del lienzo. | A 16px el gradiente y el doble anillo no leen: micro glifo obligatorio. |
 | **OG image** (1200×630) | Fondo papel `#F4F1EA`; **lockup completo (a)** centrado (~60% del ancho, la horizontal de la mira respirando a ambos lados); abajo-derecha `tcghunt.mx` en mono `JetBrains Mono` 24px `#6E695E`. Nada más — sin fotos, sin cartas, sin degradados de fondo. | Composición estática exportada (el SVG con `<text>` no garantiza la fuente fuera del DOM: exportar a PNG con la fuente resuelta, §17.1e). |
 | **Correos** (§15.8) | Header: lockup completo (a) como **PNG @2x** (~360px de ancho visual) sobre fondo papel, regla inferior 1px `--color-border`. Remitente visible: **"TCG HUNT"**. | El SVG no es fiable en clientes de correo → raster. Alt: `TCG HUNT — tcghunt.mx`. |
@@ -2503,16 +2587,22 @@ tinta del sello.
 | **Vitrina Top Bounties** (§16.7c) | El chip `☩ BOUNTY` y el badge admin usan el **glifo micro (d)**. El eyebrow `SE BUSCA` + la mira ahora son lenguaje de marca oficial ("cacería"). | Opcional: fondo del shelf en `--hunt-tint` (único uso permitido del tinte). |
 
 **Reglas de uso (qué sí / qué no):**
-- **Tamaños mínimos:** lockup completo **160px** de ancho (por debajo, el ".mx" y el punto anillado se
-  pierden → usar solo-mira); solo-mira (b) **24px**; por debajo de **20px**, siempre el glifo micro (d).
+- **Tamaños mínimos (v1.7.1):** lockup completo **160px** de ancho (por debajo, el ".mx", los huecos de
+  los anillos y el punto anillado se pierden → usar solo-mira); solo-mira (b) **28px** (por debajo, los
+  gaps de 16°/28° miden < 1px y la retícula se lee como anillos cerrados — se pierde la firma); por
+  debajo de **28px**, siempre el glifo micro (d), que ya trae esa simplificación hecha.
 - **Área de respeto:** alrededor de cualquier versión, espacio libre = **radio del anillo interior** de
-  esa instancia (≈ 0.6× del radio exterior). Nada de texto, bordes ni iconos dentro de esa zona.
+  esa instancia (≈ 0.6× del radio exterior). La zona se mide desde el **bounding box completo**, es
+  decir **incluyendo las líneas sobresalientes** de la cruz (la superior y la izquierda sobresalen más).
+  Nada de texto, bordes ni iconos dentro de esa zona.
 - **Wordmark con degradado** solo a tamaño de marca (cap height ≥ 18px: hero, login, OG, correo). En
   topbar y tamaños de UI, wordmark en **sólido** (tinta sobre papel; papel sobre tinta).
 - **NO:** recolorear fuera de las variantes definidas (claro/oscuro/micro `currentColor`); no usar el
   degradado claro sobre fondos oscuros (2.5:1, tabla §17.2) ni el oscuro sobre papel; no montar el logo
   sobre el **arte de las cartas** (la carta es el héroe, §5); no rotar la mira (la cruz siempre
-  ortogonal); no rellenar los anillos; no añadir sombras/relieve (§4.3); no animar la mira como spinner
+  ortogonal); no rellenar los anillos; **no cerrar los huecos de los anillos ni unir los segmentos de la
+  cruz en una línea corrida** (salvo la simplificación de anillo del glifo micro, §17.1d — la cruz
+  segmentada no se une NUNCA, en ningún tamaño); no añadir sombras/relieve (§4.3); no animar la mira como spinner
   (se confundiría con un estado de carga, §8.1); no reconstruir el wordmark en Zen Old Mincho ni en
   Archivo cuando `--font-brand` esté disponible; no estirar/condensar.
 - El logo **no sustituye texto accesible**: donde el lockup sea el único contenido de un enlace, el
@@ -2539,8 +2629,9 @@ tinta del sello.
 
 1. **Cotejo con el PNG original (humano → frontend):** cuando el PNG llegue a
    `frontend/public/branding/`, comparar lado a lado con §17.1a y ajustar en el SVG solo métricas finas
-   (grosor de trazo, longitud de sobresalientes, tracking). Si difiere la geometría de fondo, ux-ui
-   actualiza esta sección primero.
+   (grosor de trazo, longitud de sobresalientes, **gaps angulares de los anillos**, claro alrededor del
+   punto, tracking). Si difiere la geometría de fondo, ux-ui actualiza esta sección primero. *(v1.7.1:
+   primer cotejo del humano ya aplicado — cruz segmentada, anillos con huecos, wordmark dominante.)*
 2. **Wordmark en paths (deseable):** para favicon/OG/correo conviene una versión del lockup con el
    texto convertido a **outlines** (sin dependencia de fuente). Puede generarse desde este SVG con la
    fuente instalada; frontend la guarda junto al componente.
