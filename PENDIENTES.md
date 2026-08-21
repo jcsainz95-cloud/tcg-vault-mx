@@ -46,9 +46,16 @@ humano (ya dado únicamente para el PR #21).
    **Pendientes post-stream (no bloqueantes):** triage de los 13 E2E preexistentes ANTES de la
    suite E2E completa de release (frontend); `imageSmallUrl` en SealedInventoryGroupDTO (backend);
    vista frontend de la cola sealed/unmapped en M2 (frontend); nit docblock catalog-sync (SA-D1).
-4. **Stream C · UX cotizador:** 🔄 EN CURSO (sesión de continuación, 2026-08-21). P-14 (distintivo
-   de variante) + P-16 (rediseño cotizador) — ux-ui define, frontend implementa; comparte componente
-   de teja con B (reusar FinishMark §16.6), por eso va después.
+4. **Stream C · UX cotizador:** ✅ CERRADO (2026-08-21) con doble veredicto (QA aprobado; techlead
+   aprobado con deuda anotada tras una ronda: TL-C1 sticky bajo el header vía `--app-header-h`,
+   TL-C2 guard de foco del drawer, TL-C3 extracción FE-13 — BuylistView 1253→787 líneas). En `main`.
+   Incluye: P-16 (cotizador v2: grilla a paridad del binder 2→5 col, carrito lateral → SellCartDrawer
+   + SellCartFab con contador, spec §18 v1.8–v1.8.2) y P-14 (FinishBand/FinishMark de §16.6 reusados
+   tal cual en teja, carrito y resumen — mismo lenguaje visual que inventario). Sin cambio de
+   contrato. Deuda SC-D1..SC-D6 registrada (D2 resuelta: los 8 E2E muertos de buylist migrados a
+   flujos vivos → buylist.spec 12/12 y master-set 2/2; el triage de 13 E2E preexistentes quedó
+   prácticamente saldado — solo vigilar SC-D5, smoke @real sin ruta raw). FE-13 RESUELTA.
+   **Llega a producción con el siguiente release** (gates de release + "publica" del humano).
 5. **P-23 (meta decks):** la investigación puede correr en paralelo (solo lectura/web); la
    implementación espera definición del humano.
 6. **P-21 (rebrand TCG HUNT):** ✅ CERRADO (2026-08-21) con doble veredicto (QA y techlead
