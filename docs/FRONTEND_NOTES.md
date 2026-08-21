@@ -4200,3 +4200,147 @@ Implementación frontend de la spec **v1.27-stream-a** (`API_CONTRACT.md` Change
     corte de cadena en fallo de fase 1.
 - **Resultado de checks:** `tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **438/438 ✓** (suite completa).
 - **Solicitud al arquitecto:** ninguna — el contrato v1.27 cubre todo lo consumido.
+
+## Stream B «Inventario M1 operable» (v1.28 · P-17/P-18/P-19/P-20/P-22/P-24/P-25) — rama `claude/backend-e2e-payment-fixtures-77mo4t` (2026-08-21)
+
+Frontend completo del Stream B según `ARCHITECTURE.md §4.26` (a–j), `API_CONTRACT.md` v1.28 y
+`DESIGN_SYSTEM.md §16`. Implementado CONTRA EL CONTRATO con mocks (`src/lib/mock/fixtures.ts`,
+sección v1.28) mientras el backend aterriza sus fases; en modo real (`NEXT_PUBLIC_USE_MOCKS=false`)
+todas las llamadas golpean los endpoints v1.28 tal cual el contrato.
+
+### P-17 · M1 reorganizado (`admin/m1/M1View.tsx`)
+- Pestañas **Master Set (default) · Sellado · Gradeadas**; la pestaña «Piezas» desaparece y sus
+  capacidades (folio, estado, precio manual por pieza, detalle/historial, publicar/despublicar,
+  merma) viven ÍNTEGRAS en el **drill-down por variante** (`VariantDrawer.tsx`): sheet lateral
+  480px con header (mini + `RAW · NM · <ACABADO>` + FinishMark), CTA fijo «Alta rápida», sección
+  «Precios» colapsable (abierta para super_admin) y «Piezas (N)» con selección múltiple
+  (`bulk-publish` con `repriceFresh`), copiar folio/cert, edición inline de `listPriceCents`
+  (PATCH) y merma (`POST /admin/inventory/adjustments`, nota obligatoria, modal destructivo).
+- **Pestaña activa en la URL** (`?tab=`) vía `history.replaceState` (sin `next/navigation`:
+  evita re-montar la vista y simplifica los tests).
+- **Buscador por folio persistente** en el header (las 3 pestañas): resuelve con
+  `GET /admin/inventory/items?q=` y abre el drawer de la variante dueña con la fila resaltada;
+  folio inexistente = mensaje inline (`admin.inventory.folioSearch.notFound`), no toast.
+- El alta masiva P-5 se conserva SIN cambios como **«Alta por lote»** (extraída a
+  `AddItemModal.tsx`, mismo namespace i18n `admin.m1.*`, misma batchKey idempotente y error
+  anclado P-4). El botón «Ubicaciones» se conservó en la toolbar (§16.1 no lo menciona, pero
+  «no se pierde ninguna acción» — gestor de ubicaciones sigue siendo necesario para mover piezas).
+- `MasterSetPanel`/`MasterSetBinder` (zona compartida, lock Stream B) ganan `onOpenVariant` y
+  `onSetOpened` OPCIONALES: sin ellos el comportamiento previo (CellDrawer por carta) queda
+  intacto — cotizador, Mi bóveda y bóvedas admin no cambian.
+
+### P-18 · Consola de tres precios (`components/master-set/VariantPriceConsole.tsx`)
+- **Compacto en la teja** (`VariantPricingCompact`, solo si `variant.pricing` viene — es decir
+  solo scope `platform`): MERCADO/COMPRA/VENTA mono con sufijos `·M` (override) y `·B` (bounty,
+  bermellón), `—` para pendiente (nunca $0), `aria-label` por renglón. Sustituye al renglón único
+  P-15 en M1; en bóvedas de cliente (sin `pricing`) el renglón P-15 sigue.
+- **Consola completa en el drawer**: sugerido/override/efectivo + fuente en versalitas
+  (REGLA/MANUAL/BOUNTY/PENDIENTE), UN submit para ambas caras
+  (`PUT /admin/pricing/variant-controls/:cardId/:finish` — vacío = null explícito = limpiar),
+  «Restablecer a regla» por cara (PUT solo con esa cara en null), validación `> 0`, error de
+  servidor anclado (P-4), «Fijar mercado» inline cuando la referencia está pendiente (reusa
+  `POST /admin/pricing/override`). Edición solo super_admin (front esconde; guard impone);
+  vault_operator ve texto plano.
+- **Bounty (P-22a)** en la misma consola (solo raw + super_admin): switch con estado textual,
+  precio explícito (error espejo `BOUNTY_PRICE_REQUIRED`), premium vs regla, objetivo opcional
+  con barra de progreso, `BOUNTY COMPLETADO · fecha`, copy de apagado con historial. El error
+  `BOUNTY_BELOW_RULE` interpola el sugerido vigente.
+
+### P-19 · Alta rápida (`admin/m1/QuickAdd.tsx`) + Publicar todo (`PublishAllDialog.tsx`)
+- QuickAdd: SOLO stepper de cantidad + tarjetas-radio **Comprar** (input prellenado con
+  `pricing.buy.effectiveCents`, editable, helper según fuente; vacío si no hay sugerido) /
+  **Aportación** (valor de mercado mostrado, NO editable, `acquisitionPct: 100` explícito;
+  referencia nula ⇒ tarjeta deshabilitada con pill `PRECIO PENDIENTE` — y el 422 `PRICE_PENDING`
+  del server queda como respaldo anclado sticky `role=alert`, lección P-4). Sin acabado (viene de
+  la casilla), sin ubicación. batchKey por intento (rota tras éxito; retry de red = replay).
+- La MISMA `QuickAddSection` la usa la pestaña Sellado con `sealedMarketRef` como referencia.
+- «Publicar todo…»: modal con alcance (todo / solo este set / solo sellado) + notas de dinero,
+  `POST /admin/inventory/publish-all` con batchKey idempotente, y **resultado honesto de 4
+  renglones** (publicadas / ya listadas / sin precio→link a `/admin/m2?context=inventory` /
+  fallidas con detalle por folio, nota de capado a 200 y nota de replay). Sin dry-run (no existe
+  en contrato §16.11.1).
+
+### P-24 / P-25 / P-20
+- `InventoryValueCards.tsx`: 4 StatCards del breakdown de `GET /admin/finance/inventory-value`;
+  costo en segunda línea y «N piezas sin precio» como enlace a M2 (exclusión visible). SOLO
+  super_admin: para vault_operator la fila se OMITE por completo. `breakdown` es opcional en el
+  tipo espejo (resiliencia mientras el backend lo aterriza: sin él solo se pinta el total).
+- `SealedTab.tsx`: índice `GET /admin/inventory/sealed-sets` (DataTable con piezas/listadas/
+  valor/badge `N SIN MAPEO`) → detalle por set con grupos §4.23 (pills subtipo+condición, conteos,
+  `sealedMarketRef` o `SIN PRECIO DE MERCADO`, costo super_admin) con Alta rápida / Ver piezas
+  (drawer `productType=sealed`, SIN consola P-18) / Publicar (bulk de folios in_stock del grupo,
+  identidad recortada en cliente). Enlace «Cola de no mapeados (N)» solo super_admin.
+- `GradedTab.tsx`: `GET /admin/inventory/graded` agregado por carta×empresa×grado, chip de grado
+  estilo GradedCertChip SIN cert, valor por grado manual con sufijo `·M` o `SIN VALOR` +
+  «Fijar valor…» inline (`POST /admin/pricing/override` con `productType:"graded"` y
+  `gradeKey:"graded:<company>:<grade>"`). `AddGradedModal.tsx`: empresa+grado+cert+precio de
+  compra → `POST /admin/inventory/items` (qty 1); accesible desde la pestaña y desde el
+  VariantDrawer («Agregar gradeada…»). Drill-down muestra `certNumber` completo copiable.
+
+### §16.6 FinishMark + P-22 Top Bounties
+- `components/domain/FinishMark.tsx` (compartido; el Stream C lo reusa tal cual): `FinishBand`
+  (3px, aria-hidden; reverse = ÚNICO gradiente permitido `#9A6C57→#B44B3A`; holos = tinta;
+  normal = sin banda) + etiqueta mono `NORMAL/REVERSE/HOLO/1ED HOLO` (claves
+  `finish.{normal,reverse,holo,firstEdHolo}`, no localizadas; `aria-label` legible sí). La banda
+  se aplica en las tejas del binder (todas las vistas del binder) y en `BountyCard`; la etiqueta
+  del acabado que ya pintaba el tile cubre el canal de texto.
+- `components/domain/TopBountiesShelf.tsx` + `BountyCard`: sección «SE BUSCA / Top Bounties»
+  ARRIBA de `/buylist` (antes del selector de set), `GET /buylist/bounties`, primeras 12, scroll
+  horizontal móvil / grid 4-col lg. Chip `☩ BOUNTY` sobre scrim de tinta, precio héroe en verde
+  («Pagamos»), `QUEDAN N` solo con objetivo real; vacía o en error NO se renderiza. CTA
+  **«Cotizar esta carta»**: cotiza esa (carta, acabado) server-side vía `POST /buylist/quote/batch`
+  (SEC-A1 — nunca el monto del card) y la agrega al carrito de venta con el carrito abierto
+  (= «cotizador precargado» de §16.11.2, resuelto sin estado por URL).
+- Badge `BOUNTY` (mono bermellón + crosshair decorativo) en la teja del binder cuando
+  `pricing.bounty.enabled`.
+
+### Zona compartida (lock §4.26i) y tipos espejo
+- `types/contract.ts`: `VariantPricingDTO`/`VariantControls*`, `PublishAll*`, `SealedSet*`,
+  `GradedInventory*`, `InventoryValueBucketDTO`+`breakdown?`, `PublicBounty*`;
+  `MasterSetVariantDTO.pricing?`; `BatchInventoryItemInput.acquisitionCostCents` (documentado por
+  v1.28 §M1) e `InventoryItemDTO.sealedCondition` (espejo v1.23 que faltaba, lo usa la identidad
+  de grupo sellado). `lib/api.ts`: `putVariantControls`, `publishAllInventory`,
+  `getSealedInventorySets/Set`, `getGradedInventory`, `getPublicBounties`, filtros
+  `finish`/`productType` en `getAdminInventory`, `acquisitionCostCents` en el alta. Las ramas
+  mock replican validaciones del contrato (422 `BOUNTY_PRICE_REQUIRED`/`BOUNTY_BELOW_RULE`/
+  `FINISH_NOT_AVAILABLE`, PRICE_PENDING por línea, idempotencia por batchKey).
+
+### i18n y tests
+- Claves §16.10 en `es`/`en` (paridad verificada por `i18n-parity.test.ts`):
+  `admin.inventory.*`, `admin.pricing.console.*` (fuente `source.manual` para override, según
+  spec), `admin.quickAdd.*`, `admin.publishAll.*`, `admin.drawer.*`, `admin.bounty.*`,
+  `buylist.bounties.*`, `finish.{reverse,holo,firstEdHolo}`, `error.BOUNTY_*`,
+  `masterSet.bountyBadge`.
+- Vitest: 512 pruebas verdes (66 archivos). Nuevas: `FinishMark.test` (doble canal),
+  `VariantPriceConsole.test` (compacto ·M/·B/—, guardar ambas caras, restablecer=null,
+  validaciones, bounty, lectura operador), `QuickAdd.test` (prellenado, aportación pct 100,
+  bloqueo PRECIO PENDIENTE, 422 anclado), `PublishAllDialog.test` (resultado honesto, replay,
+  fallos por folio), `TopBountiesShelf.test` (oculta vacía/error, QUEDAN N honesto),
+  `VariantDrawer.test` (piezas por variante, bulk-publish honesto, PATCH precio, certs).
+  `M1View.test` REESCRITO al layout P-17 conservando la cobertura del alta P-5/P-4 (trigger
+  «Alta por lote») y moviendo detalle/merma al drawer. `MasterSet.test` y `BuylistView.test`
+  ajustados mínimamente (el «—» ahora aparece por cara; «Pikachu ex» también vive en la vitrina).
+- Playwright: `e2e/inventory-stream-b.spec.ts` (folio→drill-down, pestañas Sellado/Gradeadas,
+  Top Bounties) + `e2e/admin.spec.ts` actualizado a P-17 — verdes en modo mock. **Nota QA:**
+  hay 12 fallos E2E PRE-EXISTENTES en la rama (verificado contra un worktree de HEAD sin mis
+  cambios): `buylist.spec.ts` (8: describen el grid plano raw pre-v1.21 — el raw hoy es el binder
+  quoter y no monta «Buscar carta»), `master-set.spec.ts:88` (asume 2 imágenes por celda,
+  pre-N-16), `catalog.spec.ts:11`, `i18n-locale.spec.ts:10` y `guest-checkout.spec.ts:67/80`.
+  No los toqué (drift previo, no es del stream); quedan para su dueño/QA.
+
+### Desviaciones conscientes y solicitudes al arquitecto
+1. **Kebab por fila → iconos directos** en el drawer (§16.4.4): no existe componente Menu en el
+   DS; mismas 3 acciones (detalle/publicar·despublicar/merma) como icon-buttons con `aria-label`.
+   «Agregar gradeada…» vive como acción secundaria DEL DRAWER (a un clic de la teja) en vez de
+   kebab en la teja (la teja es un solo botón; anidar menús rompería la semántica).
+2. **Cola de no-mapeados**: el enlace apunta a `/admin/m2` (la vista dedicada
+   `GET /admin/pricing/sealed/unmapped` no existe aún en el frontend de M2 — es del stream de
+   precios). *Solicitud:* confirmar dueño de esa vista.
+3. **`SealedInventoryGroupDTO` sin imagen**: §16.8 pide «imagen ancla» pero el DTO no trae
+   `imageSmallUrl`; se pinta placeholder (icono Package). *Solicitud al arquitecto:* campo
+   `imageSmallUrl?` aditivo en el DTO del grupo si se quiere la imagen real.
+4. **Dry-run de publish-all**: no existe en contrato; la confirmación describe alcance/reglas y
+   la honestidad va en el resultado (ya registrado en §16.11.1).
+5. **`summary.selected` de publish-all**: el contrato no fija si incluye las ya-listadas; el
+   front solo pinta los 4 renglones del diseño (no usa `selected`), así que cualquier semántica
+   backend es compatible.
