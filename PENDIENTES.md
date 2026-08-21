@@ -315,6 +315,13 @@ Del lado del humano (cuando pueda):
   sobre fondo claro, wordmark "TCG HUNT" + ".mx" en tipografía sans bold.
 - **Acciones del humano (nadie más puede):** comprar el dominio; pasar el archivo del logo en buena
   resolución (idealmente SVG o PNG grande, y versión para fondo oscuro si existe).
+- **Logo recibido como referencia (2026-08-21):** el humano compartió la versión de alta resolución
+  en el chat — mira/crosshair con degradado rojo (#b31217 aprox.) → vino oscuro (#4a0d0d aprox.),
+  cruz que sobresale de dos anillos concéntricos, punto central anillado; wordmark "TCG HUNT" en
+  sans geométrica bold con el mismo degradado y ".mx" pequeño abajo-derecha; fondo blanco. Llegó
+  como imagen de chat (no como archivo): al arrancar P-21, **ux-ui reconstruye el logo en SVG
+  vectorial** fiel a esa referencia (favicon/topbar/OG) y el humano sube el PNG original al repo
+  (`frontend/public/branding/`) para cotejo y usos raster.
 - **Alcance técnico (cuando arranque):**
   1. **ux-ui:** actualizar `docs/DESIGN_SYSTEM.md` — nueva identidad (logo, paleta derivada del
      rojo-vino del logo, favicon, tratamiento del wordmark; revisar contraste/accesibilidad).
