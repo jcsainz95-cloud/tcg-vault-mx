@@ -2581,3 +2581,38 @@
 - **Disparador:** próximo toque al controller de catálogo (si cambia la superficie del contrato §M2,
   pasa por el arquitecto). Dirección: unificar a UNA convención (body tipado en las tres rutas, o
   `parseForce` en las tres).
+
+### SA-D4 · `MasterSetVariantDTO.capturedDate` se emite y nadie lo consume (Baja, dueño frontend)
+- **Dónde:** cadena completa del campo: backend lo puebla
+  (`backend/src/modules/inventory/master-set.service.ts:493-495`, solo cuando hay precio), el mock lo
+  genera (`frontend/src/lib/mock/fixtures.ts:1069`), `frontend/src/types/contract.ts:827` lo tipa
+  («decoración de frescura; el front tolera su ausencia») — y **ningún componente lo pinta**:
+  `MasterSetBinder.tsx` solo lee `marketReferenceMxnCents`.
+- **Estado actual:** campo del contrato v1.27 (P-15) transportado de punta a punta pero **write-only
+  en la UI**. El patrón para renderizarlo ya existe: `frontend/src/components/ui/PriceTag.tsx:49`
+  fecha la referencia en modo `reference` con `formatDate(reference.capturedDate, locale)`.
+- **Impacto:** bajo (UX/mantenibilidad): el usuario del binder no ve la frescura del precio de cada
+  variante pese a que el dato viaja; un campo transportado-y-nunca-leído invita a retirarlo por error
+  en un refactor de contrato («nadie lo usa») cuando la intención era consumirlo.
+- **Disparador:** próximo toque al binder Master Set. Dirección: renderizar `capturedDate` como
+  frescura del precio en la variante (reutilizando el patrón de `PriceTag.tsx:49`) **o** anotar
+  explícitamente en `contract.ts`/`MasterSetBinder.tsx` que el campo queda reservado para la ficha de
+  detalle (documentar la no-lectura intencional).
+
+### SA-D7 · M2: `onSuccess` de ingest duplicado y `fullSyncPhase` como estado paralelo (Baja, dueño frontend)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` — `onSuccess` de
+  `fullSyncMutation` (~:582-588) vs `onSuccess` de `ingestMutation` (~:323-327); y el `useState`
+  `fullSyncPhase` (~:569).
+- **Estado actual:** (a) los dos `onSuccess` duplican literalmente la misma secuencia
+  (`invalidateQueries(['pending-prices'])` + `setJustDispatched(true)` + `priceSyncStatus.refetch()`);
+  el patrón correcto ya existe extraído para el otro flujo (`onSweepLaunched` ~:543-546) — falta el
+  análogo `onIngestLaunched`. (b) `fullSyncPhase` es un `useState` **paralelo** al estado de la
+  mutación (dos fuentes de verdad sobre el mismo ciclo de vida); en error NO se limpia a propósito
+  (el banner reporta en qué fase falló), pero queda **pegado** hasta el siguiente disparo.
+- **Impacto:** bajo (mantenibilidad): un cambio futuro a la mecánica post-ingest (p. ej. invalidar
+  otra query) hay que aplicarlo en dos sitios o los flujos divergen en silencio — misma clase que
+  SA-D5; el estado paralelo complica razonar sobre el banner tras un error.
+- **Disparador:** próximo toque a M2View. Dirección: extraer `onIngestLaunched` consumido por ambas
+  mutaciones (espejo de `onSweepLaunched`), y derivar la fase del propio estado de la mutación
+  (`variables`/`error`) o resetear `fullSyncPhase` en un punto único del ciclo (p. ej. en `onMutate`),
+  dejando UNA fuente de verdad.
