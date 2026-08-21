@@ -4436,3 +4436,35 @@ i18n: `common.appName` = «TCG HUNT», nuevas `brand.name/domain/homeAria` y `fo
 
 Verificación: `tsc --noEmit` limpio; lint limpio; vitest 526/526 (520 previos + 6 del logo);
 Playwright `inventory-stream-b.spec.ts` + `admin.spec.ts` 13/13.
+
+## P-21 — Ventana del switch de dominio: cambios LISTOS-PERO-NO-DESPLEGADOS (2026-08-21)
+
+Preparados en la rama de trabajo los DOS cambios de la ventana del switch a `tcghunt.mx`
+(fuente: `docs/DEVOPS_NOTES.md` §25.6-B y §25.7). **NO se mergean a `main`/`production`
+todavía**: se activan solo en la ventana coordinada por devops/humano.
+
+1. **`frontend/vercel.json` (NUEVO)** — redirects 301 del dominio viejo al nuevo, copiados
+   literal de §25.7: `tcgvaultmx.com` y `www.tcgvaultmx.com` → `https://www.tcghunt.mx`,
+   `source: "/:path*"` (preserva path; la query la reenvía Vercel sola), `has: host` por
+   dominio viejo, `statusCode: 301` (NO `permanent: true`, que emite 308). No había
+   `vercel.json` previo (confirmado: producción usa config de dashboard con Root Directory
+   `frontend/`, §25.6-A/§11.A), así que no rompe config existente.
+   - **Qué lo activa:** mergear/deployar este archivo **enciende el 301 en producción de
+     inmediato** (§25.7). Alternativa excluyente: el "Redirect to" del dashboard (§25.2) —
+     usar UNO solo, no ambos. Rollback: revert de este commit o quitar el redirect del dashboard.
+
+2. **Buzones visibles en i18n** — `messages/es.json` y `messages/en.json`, 4 ocurrencias por
+   idioma: `facturacion@` (`checkout.cfdiNotice`, `checkout.cfdiReminder`), `soporte@`
+   (`terminos.questionsBody`) y `contacto@` (`sellado.body`), de `@tcgvaultmx.com` a
+   `@tcghunt.mx` (mismos usuarios). **NO tocados:** `footer.legalEntity` (placeholder por
+   decisión del humano), ni emails de fixtures/tests ni constantes de código
+   (`SUPPORT_CONTACT_FALLBACK`, `SEALED_BUYLIST_EMAIL`, `evidenceContact` de fixtures/`api.ts`):
+   esos van por su propio handoff P-21 (§25.8) y dependen de que los buzones nuevos ya reciban.
+   - **Qué lo activa:** merge+deploy del frontend en la ventana (§25.6-B paso 3). Hay un breve
+     desfase aceptado (backend devuelve `@tcghunt.mx` antes de que el frontend lo muestre) que
+     cierra al deployar este cambio.
+
+Verificación de esta entrega: `tsc --noEmit` limpio; lint limpio; vitest 526/526; los 3 JSON
+válidos (`JSON.parse`). Ningún test asserta las cadenas i18n modificadas (los E2E de checkout
+leen `cfdiNotice` vía `t()` dinámicamente; los vitest que asertan `soporte@/contacto@` viejos
+leen constantes de código/fixtures fuera de alcance de esta tarea, sin cambios).
