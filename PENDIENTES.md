@@ -238,10 +238,13 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 - **Forma objetivo del alta rápida:** picas la casilla de la variante → pides **cantidad** y
   **precio al que compramos** (prellenado con el sugerido de la regla, editable = el override de
   P-18) → alta. Un paso, sin conceptos financieros intermedios.
-- **A definir (product-owner/arquitecto):** qué pasa con el tipo de adquisición en el modelo — ¿se
-  elimina del flujo y queda un default interno ("compra") o desaparece del contrato? Ojo: el 422
-  `PRICE_PENDING` de "aportación en especie" era el origen de P-4; al simplificar, revisar que el
-  camino único no herede ese tropiezo. Las bajas (venta/merma) deben quedar igual de simples.
+- **Decisión del humano (2026-08-21) sobre la adquisición:** quedan DOS caminos simples:
+  1. **Compra** — capturas el precio al que compraste (prellenado con el sugerido, editable).
+  2. **Aportación** — un botón, SIN porcentaje: la entrada se registra automáticamente **a valor de
+     mercado** del momento. Aplica igual para cartas sueltas y para sellado (ETBs).
+  Si la carta/producto no tiene referencia de mercado al aportar, no inventar valor: mismo
+  comportamiento money-safe de siempre (queda pendiente de precio y se avisa claro — sin heredar el
+  tropiezo silencioso que causó P-4). Las bajas (venta/merma) deben quedar igual de simples.
 - **Roles:** product-owner (aterrizar el flujo simple) → arquitecto si cambia contrato → backend +
   frontend.
 
