@@ -5,6 +5,29 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 
 ---
 
+## Plan aprobado 2026-08-21 (arranque: 2026-08-22 10:00)
+
+Decisiones del humano (vía preguntas de diagnóstico):
+
+1. **Tarea #1 del handoff** (fixtures `backend-e2e`): SÍ arranca primero. Con los tres gates verdes
+   (ci-ok + sast-ok + backend-e2e), **esto cuenta como el "publica"**: se mergea PR #21
+   (main→production) → dispara Railway + Vercel.
+2. **Primer stream de pendientes:** Catálogo y precios — **P-13 + P-15 + P-12** (arquitecto primero
+   por los cambios de contrato; luego backend/frontend en paralelo; gates por stream).
+3. **P-17 decidido:** demotar Piezas a **drill-down** — Master Set como vista por defecto; las
+   piezas se ven al hacer clic en una carta/variante; buscador por folio se conserva.
+4. **P-18 decidido:** los overrides **SÍ pisan lo que ve el cliente** — el de venta fija el precio
+   publicado en tienda, el de compra fija la oferta del cotizador público. Precedencia:
+   override manual > regla sugerida > sin precio (money-safe).
+
+Del lado del humano (cuando pueda):
+- Verificar/encender en Railway `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` (sin esto, las reverse
+  no tendrán precio propio aunque P-15 esté arreglado).
+- Re-sync forzado en `/admin/m2` de prod — **esperar al fix de P-13** para hacerlo una sola vez.
+- P-21 (rebrand TCG HUNT): comprar dominio y pasar el logo en buena resolución (SVG/PNG grande).
+
+---
+
 ## Abiertos
 
 ### ~~P-1 · Botón de "Cerrar sesión" en admin~~ ✅ HECHO (rama `fix/m1-alta-inventario`)
