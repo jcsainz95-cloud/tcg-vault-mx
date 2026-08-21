@@ -2906,16 +2906,17 @@
   `openBaseSet`/`addFromBinder`, mismos fixtures). `addFirstSellableCard` (@real) descubre por graded y
   clica la primera fila **habilitada** (una carta holofoil-only no cotiza graded en mock →
   FINISH_NOT_AVAILABLE por-ítem, fila deshabilitada sin tumbar el grid). Estado final verificado en
-  mock: **12 passed / 0 failed** (antes 4/8). Pendiente anotado: el flujo @real contra staging valida
-  ahora la ruta graded (no la raw); si el seed real no cotiza graded, ajustar el seed o el descubridor.
+  mock: **12 passed / 0 failed** (antes 4/8). El pendiente que dejó esta migración (el smoke `@real`
+  ya no cubre la ruta raw contra staging) se extrajo como ítem abierto propio: ver **SC-D5**.
 
 ### SC-D3 · Re-render de la grilla completa del quoter en cada interacción del carrito (Baja-Media)
 - **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` (`addFromMasterSet`) y
   `frontend/src/components/master-set/MasterSetBinder.tsx` (`QuoterTile`/`BinderTile` sin `memo`).
-- **Estado actual:** **parcialmente pagada** en la ronda TL-C3: `addFromMasterSet` ya es `useCallback`
-  sobre handlers estables de `useSellCart` (identidad estable entre renders → `MasterSetPanel` no
-  recibe prop nueva por render). Falta la otra mitad: las tejas (`QuoterTile`/`BinderTile`) no están
-  memorizadas, así que un estado que sí cambie arriba re-renderiza las N tejas del set.
+- **Estado actual:** **preparada (handler estable); sin efecto de perf hasta memoizar las tejas
+  (QuoterTile/BinderTile)**. En la ronda TL-C3 `addFromMasterSet` quedó como `useCallback` sobre
+  handlers estables de `useSellCart` — pero es un paso *preparatorio*: no hay `memo(` en
+  `frontend/src/components/master-set/` (verificado por techlead), así que hoy NO evita ningún
+  re-render; cualquier estado que cambie arriba sigue re-renderizando las N tejas del set.
 - **Impacto:** bajo-medio (solo perf percibida en sets grandes; sin bug funcional).
 - **Disparador:** **lag al teclear cantidades en un set grande** (200+ tejas). Acción: `React.memo` en
   `QuoterTile`/`BinderTile` (sus props ya son estables tras esta ronda) y perfilar antes/después.
@@ -2930,3 +2931,30 @@
 - **Disparador:** **la próxima rama por modo** que se necesite. Dirección: objeto de **capacidades por
   modo** (`{ sticky, completion, secretFilter, pieceFilter, nameFilter, addToCart, … }` derivado de
   `MasterSetViewMode` en `mode.ts`) y que el JSX pregunte por capacidad, no por modo.
+
+### SC-D5 · El smoke `@real vender` ya no valida la ruta raw contra staging (extraído de SC-D2)
+- **Dónde:** `frontend/e2e/buylist.spec.ts` → `addFirstSellableCard` (flujo `@real`). Dueño: **frontend**.
+- **Estado actual:** tras la migración de SC-D2, el descubridor del smoke `@real` selecciona **graded**
+  y clica la primera fila habilitada del grid plano. En consecuencia, contra staging **ya no se valida
+  la ruta raw** (binder Master Set) — que es la ruta **principal del producto desde v1.21**. La
+  cobertura raw existe solo en mock (helpers `openBaseSet`/`addFromBinder`); el E2E real ejercita
+  únicamente la ruta graded.
+- **Impacto:** hueco de cobertura E2E real en el flujo crítico de venta: una regresión que solo se
+  manifieste en la ruta raw contra el stack real pasaría el smoke en verde.
+- **Disparador:** **antes del cierre de release / cuando el seed real cotice el binder.** Acción:
+  extender el descubridor `@real` (o añadir un caso) que cotice por el binder raw contra staging; si el
+  seed real no cotiza raw, ajustar el seed (coordinar con backend/devops) o el descubridor. Ref: SC-D2.
+
+### SC-D6 · Regla de dinero «pendiente ≠ MX$0.00» duplicada en 3 archivos de la ruta buylist (Media)
+- **Dónde:** `frontend/src/app/[locale]/(storefront)/buylist/` — la lógica de presentación de un monto
+  pendiente vive copiada en 3 archivos: `SellCartContents.tsx:107-121`, `BuylistView.tsx:735-753` y
+  `MyRequestsSection.tsx:121-139`; además la condición del total (`totalEstimatedCents === 0 &&
+  pendingCardCount > 0`) es **copia exacta** en 2 sitios: `SellCartContents.tsx:211` y
+  `BuylistView.tsx:747`. Dueño: **frontend**.
+- **Impacto:** medio — es un **invariante de dinero visible**: si se cambia el criterio de «cuándo un
+  monto es pendiente» (o su formato) en un sitio y no en los otros, el usuario ve un **total mentiroso**
+  (p. ej. MX$0.00 donde debería decir «pendiente») según la pantalla en la que esté.
+- **Disparador:** **el próximo toque a cómo se muestra un monto pendiente.** Dirección: extraer un
+  `<QuotedAmount>`/`formatQuoted` compartido en la propia carpeta de la ruta (no en `components/`
+  globales: es zona compartida y el uso es local a buylist), y que los 3 archivos lo consuman —
+  incluida la condición del total, definida una sola vez.
