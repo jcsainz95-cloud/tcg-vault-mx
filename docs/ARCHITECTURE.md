@@ -37,6 +37,7 @@
 >   `Reverse Holofoil` → `normal`/`holofoil`/`reverse_holo`; `1st Edition Holofoil`→`first_edition_holofoil`) unidos
 >   **por carta** (group-by número dentro del set, robusto a 1-productId-multi-fila y a N-productIds). La fórmula del
 >   reconciliador pasa a `availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`
+>   **(⛔ v1.27: esta unión quedó DEROGADA por P-13 — el precio confirma, nunca añade; fórmula vigente en §4.25a)**
 >   (structuralFinishes **ancla/reemplaza** el proxy-de-precio `catalogFinishes`). Se puebla `Card.tcgplayerId` desde
 >   `tcgplayer.url` en catalog-sync (hoy nadie lo escribe) para el join a TCGCSV. **VAR-1 intacto:** el precio jamás
 >   sobrescribe/encoge la estructura; una impresión estructural sin precio es **«pendiente»**, nunca inventada ni
@@ -102,7 +103,8 @@
 > migrada— SÍ responde con reverse holo. Spec completa en **§4.22g/§4.22h**; v1.22-1 marcada **RESUELTA** en §10; API_CONTRACT
 > v1.22-1 (nota de semántica de `availableFinishes`, sin cambio de forma); **migración M-27** (§11).
 > - **Diseño money-safe (§4.22g), en una línea:** `availableFinishes` deja de ser escrita directamente y pasa a ser
->   **DERIVADA y recomputable** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` sobre **dos columnas
+>   **DERIVADA y recomputable** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` **(⛔ fórmula
+>   superada: v1.26 sustituyó la entrada estructural y v1.27 DEROGÓ la unión — §4.25a)** sobre **dos columnas
 >   de entrada persistidas**; `catalog.FinishReconciler` es el **único escritor**; `price-ingest` solo escribe su snapshot
 >   (Señal C, `market>0` vía **alias VERIFICADO**) y llama al reconciliador. **No monótona** (un `sync --force` o la siguiente
 >   corrida PPT REPARAN), **no inventa** (desconocido/SUPUESTO ⇒ se omite, no ensancha SEC-A1), **default `['normal']`**.
@@ -908,9 +910,9 @@ PendingPriceEntry (cola de precio pendiente)
 - `id`, `externalId` (pokemontcg.io id), `setId` (FK CardSet), `name` (EN), `number`, `rarity`, `supertype`, `subtypes` (JSONB), `imageSmallUrl`, `imageLargeUrl`, `tcgplayerId?`, `createdAt`.
 - **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta. **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2) **y** el **universo de casillas** del binder (§4.20b).
   - **v1.22 — AUTORIDAD ÚNICA = el sync de CATÁLOGO.** Derivado de `tcgplayer.prices` ∪ `cardmarket.prices.reverseHolo*` (§3.7). **`price-ingest` NO escribe esta columna** (§4.22a deroga §4.15e). Almacenado **siempre en orden canónico `FINISH_ORDER`** y **nunca vacío**.
-  - **v1.22-1 (M-27) — pasa a ser DERIVADA de dos columnas de entrada.** Deja de escribirse directamente por `upsertCards`: es la **unión materializada** `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`, recomputada por el **único escritor** `catalog.FinishReconciler` (§4.22g). Sigue siendo la lista blanca SEC-A1 y el universo de casillas del binder; su **forma no cambia** (todos los lectores la siguen consumiendo igual).
-  - **v1.26 (M-29, §4.24a):** la entrada del lado catálogo pasa a ser `structuralFinishes` (TCGCSV): `orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`.
-  - **v1.27 (P-13, §4.25a) — la UNIÓN se DEROGA: el precio CONFIRMA, nunca AÑADE.** Fórmula vigente: `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`. `pricedFinishesSnapshot` deja de componer (queda como observabilidad). Mismo escritor único (`FinishReconciler`), misma forma, mismas garantías (nunca vacío, orden canónico).
+  - **v1.22-1 (M-27) — pasa a ser DERIVADA (⛔ fórmula superada; lo que persiste es el escritor único y la forma).** Deja de escribirse directamente por `upsertCards`: la recomputa el **único escritor** `catalog.FinishReconciler` (§4.22g). ~~Unión materializada `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ **⛔ v1.27**: esa unión quedó derogada (ver abajo). Sigue siendo la lista blanca SEC-A1 y el universo de casillas del binder; su **forma no cambia** (todos los lectores la siguen consumiendo igual).
+  - **v1.26 (M-29, §4.24a) — ⛔ v1.27:** la entrada del lado catálogo pasó a ser `structuralFinishes` (TCGCSV), pero su fórmula ~~`orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ quedó **derogada en v1.27** (la unión era el vector de las variantes fantasma). Lo que persiste de v1.26 es la columna `structuralFinishes` y el resolver TCGCSV.
+  - **v1.27 (P-13, §4.25a) — FÓRMULA VIGENTE. La UNIÓN se DEROGA: el precio CONFIRMA, nunca AÑADE.** `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']` — helper `composeAvailableFinishes(structuralFinishes)` en `backend/src/common/card-order.ts` (§4.25a-1), fallback `['normal']`. `pricedFinishesSnapshot` **NO compone** (queda como observabilidad/confirmación). Mismo escritor único (`FinishReconciler`), misma forma, mismas garantías (nunca vacío, orden canónico).
 - **`catalogFinishes Finish[] @default([])` (v1.22-1, M-27):** INTERNA (no se expone en DTO). La «opinión del catálogo» = Señal A ∪ Señal B del último payload de pokemontcg.io (lo que devuelve `deriveAvailableFinishes(c)`), persistida en su propia columna para **sobrevivir a un 502** de la fuente. La escribe `upsertCards` con la semántica null de §4.22a-4 (null ⇒ conserva; CREATE ⇒ `derived ?? ['normal']`). Backfill M-27: `= availableFinishes`.
 - **`pricedFinishesSnapshot Finish[] @default([])` (v1.22-1, M-27):** INTERNA. **Señal C** = acabados que **PPT** reportó con `market>0` para la carta, **filtrados a alias VERIFICADO** (§4.22g candado 2). La escribe `price-ingest` por **REEMPLAZO** por carta vista en una corrida exitosa (money-safe: no se toca ante fallo/0 filas). ~~Alimenta la unión~~ **v1.27 (P-13): YA NO alimenta la composición de `availableFinishes`** — es solo confirmación/observabilidad (§4.25a); además las filas del barrido por-impresión (`fetchPrintings`, finish atribuido por etiqueta de request) **NO** deben escribirla (§4.25a-2). **NO** es la lista blanca (esa es `availableFinishes`).
 - **`numberSort Int @default(1000000)` / `numberPrefix String @default("")` (v1.22, MIGRACIÓN M-26):** **claves derivadas** de `number` (que es `String`) para el **orden natural en BD** — `number` puramente numérico → `numberSort` = su entero y `numberPrefix = ''`; con prefijo alfabético (`TG12`, `SV107`) → `numberPrefix` = las letras y `numberSort = 1_000_000 + parte numérica` (promos/subsets al final). Escritas por `upsertCards` con la MISMA función que las backfillea (`deriveNumberParts`, §4.22b). **Derivadas, no autoritativas:** la fuente de verdad sigue siendo `number`; si divergen, se recalculan desde `number`.
@@ -1326,11 +1328,11 @@ holo a la derecha**.
   `tcgplayer.prices` (§4.8) y **debe dejar de descartar `cardmarket.prices`** (§4.22a).
   - ❌ **Prohibido REDUCIR acabados por la AUSENCIA de un precio** (`PriceReference`, `market` faltante): precio ausente
     ≠ variante inexistente. Este fue el bug de tres rondas (VAR-1). **Este núcleo de la regla 2 sigue vigente.**
-  - ✅ **v1.22-1 (§4.22g) — se admite la CONVERSA money-safe:** el `market > 0` de un acabado en el proveedor de PAGA
-    (PPT), vía **alias VERIFICADO**, es **evidencia positiva** de que ese acabado EXISTE y lo AÑADE (nunca lo quita).
-    Es la **Señal C**; entra por una columna de entrada separada (`pricedFinishesSnapshot`) y `availableFinishes` pasa
-    a ser la unión DERIVADA (recomputable, un solo escritor `catalog.FinishReconciler`). Los alias **SUPUESTO** NO
-    alimentan la lista blanca. Ver §4.22g para los cuatro candados.
+  - ⛔ **v1.22-1 (§4.22g) — la CONVERSA money-safe queda DEROGADA en v1.27 (§4.25a): el precio CONFIRMA, nunca
+    AÑADE.** ~~El `market > 0` vía alias VERIFICADO (Señal C, `pricedFinishesSnapshot`) AÑADÍA el acabado a la unión
+    derivada~~ — esa unión resultó ser el vector de las variantes fantasma (P-13). El snapshot se **conserva** como
+    observabilidad/confirmación, pero **ya no compone** `availableFinishes`. Siguen vigentes de v1.22-1: el escritor
+    único `catalog.FinishReconciler` y que los alias **SUPUESTO** jamás tocan la lista blanca (candados de §4.22g).
   - ❌ **Prohibida cualquier heurística por rareza** («toda Common tiene reverse holo»): inventaría casillas de relleno,
     que el PO prohíbe explícitamente.
   - ✅ **v1.26 (§4.24a) — la composición se DETECTA de la fuente ESTRUCTURAL autoritativa (TCGCSV), NO de rareza/era
@@ -1338,7 +1340,13 @@ holo a la derecha**.
     autoritativa TCGCSV; jamás inferir por rareza/era; la ESTRUCTURA es separada del PRECIO; una impresión estructural
     sin precio es «pendiente» — nunca inventada y nunca dropeada.* La prohibición money→estructura de VAR-1 sigue
     intacta (el precio jamás añade ni quita una impresión). La estructura entra por `Card.structuralFinishes` (§4.24a),
-    que **ancla/reemplaza** el proxy-de-precio `catalogFinishes` en la unión del reconciliador.
+    que **ancla/reemplaza** el proxy-de-precio `catalogFinishes` ~~en la unión del reconciliador~~ (⛔ v1.27: la unión
+    quedó derogada; ver bullet siguiente).
+  - ✅ **v1.27 (P-13, §4.25a) — FÓRMULA VIGENTE de la composición: el precio CONFIRMA, nunca AÑADE.**
+    `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']` — helper
+    `composeAvailableFinishes(structuralFinishes)` en `card-order.ts`, fallback `['normal']`. `pricedFinishesSnapshot`
+    **NO compone** (solo observabilidad/confirmación de precio de una impresión ya estructural). Escritor único
+    `FinishReconciler` sin cambio.
 - **Alcance por tipo de producto:** el acabado aplica a **raw/singles**. Para `graded`/`sealed` el `finish` es
   siempre `normal` (el slab/sellado no distingue acabado a efectos de precio); el default lo cubre y no cambia el
   comportamiento actual.
@@ -3546,7 +3554,8 @@ vendedor puede cotizar y **borra** casillas del binder.
    > añade es que `price-ingest` escribe su **propia** columna de entrada `pricedFinishesSnapshot` (Señal C, evidencia
    > positiva de alias verificado) y **llama** al único escritor `catalog.FinishReconciler`. El argumento de abajo
    > (monotonía imparable) se resuelve **materializando una unión recomputable**, no acumulando: quitar la fuente quita
-   > el acabado. La regla «un solo escritor de la lista blanca» se **mantiene literalmente**.
+   > el acabado (⛔ v1.27: la unión quedó derogada — el snapshot ya NO compone `availableFinishes`, solo confirma;
+   > §4.25a). La regla «un solo escritor de la lista blanca» se **mantiene literalmente**.
    > **Por qué "cero" y no "solo ampliar" (decisión explícita, se pidió argumentarla).** «Ampliar sin reducir»
    > parece la opción segura, y **no lo es**: la unión es **monótona creciente y nadie puede limpiarla**. Basta un
    > alias mal mapeado en `BULK_VARIANT_TO_FINISH` (`foil → holofoil`, `reverse → reverse_holo`, todos marcados
@@ -3842,6 +3851,12 @@ originales de la regla 2:
    > **se conservan sin cambio**; solo se sustituye la columna de entrada del lado catálogo. Detalle, seed y semántica
    > money-safe de la sustitución en **§4.24a**.
 
+   > **⛔ v1.27 (P-13, §4.25a) — la UNIÓN de arriba queda DEROGADA (también en su forma v1.26): el precio CONFIRMA,
+   > nunca AÑADE.** Fórmula vigente: `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes)
+   > : ['normal']` (`composeAvailableFinishes`, `card-order.ts`). `pricedFinishesSnapshot` **sale de la composición**
+   > (queda como observabilidad/confirmación). Los cuatro candados y el escritor único siguen vigentes; toda mención
+   > a «la unión» en el resto de este §4.22g debe leerse como histórica. Ver **§4.25a**.
+
    - `Card.catalogFinishes Finish[]` — la unión Señal A ∪ Señal B del **último payload de pokemontcg.io** (lo que hoy
      devuelve `deriveAvailableFinishes(c)`), con la MISMA semántica anti-regresión de §4.22a-4 (`null` ⇒ se omite y se
      **conserva** el valor previo; CREATE ⇒ `derived ?? ['normal']`). Es la «opinión del catálogo», ahora persistida en
@@ -3888,6 +3903,11 @@ pokemontcg.io (cuando responde)                     PPT (paga, responde hoy)
                               availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
 ```
 
+> **⛔ v1.27 (P-13, §4.25a):** la última línea del diagrama (la unión) está **derogada** — el reconciliador vigente
+> computa `composeAvailableFinishes(structuralFinishes)` con fallback `['normal']`; el snapshot NO compone. El resto
+> del flujo (quién escribe qué columna, quién invoca al reconciliador) sigue vigente, con la excepción v1.27 de que
+> las filas `forced` de `fetchPrintings` NO escriben el snapshot (§4.25a-2).
+
 - **Money-safe ante fallo transitorio de PPT.** `pricedFinishesSnapshot` se reemplaza **solo** para cartas que
   aparecieron con **≥ 1 fila válida** en una corrida **exitosa** (`requestOk && rows > 0`). Si PPT falla / devuelve 0
   filas, **no se toca ningún snapshot** (mismo criterio con que hoy no se borran precios: no destruir evidencia por un
@@ -3927,6 +3947,11 @@ prohibida (precio ausente ⇒ quitar del universo de dinero) y —clave— **no*
 DERIVAR o INVENTAR una (en particular jamás un `reverse_holo`).
 
 #### (h) Reparto de trabajo (v1.22-1 / opción c)
+
+> **⛔ v1.27 (P-13, §4.25a) — sección HISTÓRICA en lo que toca a la fórmula.** Este reparto se implementó tal cual en
+> v1.22-1, pero la fórmula de `reconcile()` y las **expectativas de seeds** de abajo (carta A: snapshot ⇒ casilla)
+> asumen la unión, hoy derogada. Con la fórmula vigente (`composeAvailableFinishes(structuralFinishes)`), el snapshot
+> NO produce casillas; los seeds/fixtures se realinean según **§4.25a** (trabajo del stream v1.27, §4.25d).
 
 - **Schema — migración M-27 (backend, `backend/prisma/schema.prisma` + `backend/prisma/migrations/`):** añade
   `Card.catalogFinishes Finish[] @default([])` y `Card.pricedFinishesSnapshot Finish[] @default([])`. **Backfill:**
@@ -4418,7 +4443,8 @@ seguridad posterior):
 
 > Tres arreglos del plan aprobado 2026-08-21 (`PENDIENTES.md`). **SIN migración de schema** (M-27/M-29 ya existen);
 > el paso de despliegue es un **re-sync forzado** (§4.25a-4). Contrato: API_CONTRACT Changelog v1.27. Backend y
-> frontend implementan contra esta sección; los tres cambios caben en UN batch de commit (no tocan `prisma/`).
+> frontend implementan contra esta sección; los tres cambios caben en UN batch de commit (sin migración de schema:
+> `schema.prisma`/migrations no se tocan; los seeds/fixtures de `prisma/` SÍ se ajustan — ver reparto en (d)).
 
 #### (a) P-13 — composición de `availableFinishes`: el precio CONFIRMA, nunca AÑADE
 
@@ -4531,7 +4557,16 @@ tampoco tocaba precios (correcto desde §4.15g, pero la UI y el copy sugerían l
   `FinishReconciler` + `card-order.ts` (P-13.1) + exclusión de filas `forced` del snapshot (P-13.2) + tests
   (`catalog-sync.structural.spec` y unitarios del reconciler: ex ⇒ una casilla aunque haya `normal` CON precio;
   legacy vacío ⇒ `['normal']`); (b) expansión del batch por variante + DTO (P-15) + espejo deprecado en celda;
-  (c) `force` en `sync` por set (P-12). Sin `prisma/`, sin zona compartida de backend.
+  (c) `force` en `sync` por set (P-12). **Zonas compartidas — precisión (corrige la redacción anterior, que causó
+  fricción):**
+  - **`backend/src/common/` — el lock lo tiene ESTE stream para P-13.1:** la fórmula nueva vive en
+    `backend/src/common/card-order.ts` (sustituir `unionAvailableFinishes` por `composeAvailableFinishes`, junto a la
+    doctrina VAR-1 ya escrita ahí). Es zona compartida y este stream SÍ la toca — el orquestador ya la serializó a
+    favor del Stream A; ningún otro stream toca `common/` mientras dure.
+  - **`backend/prisma/` — SIN migración de schema, pero los DATOS del stream sí se tocan:** el candado de CLAUDE.md
+    aplica al **schema** (`schema.prisma` + `migrations/` — NO se tocan: M-27/M-29 ya existen). `prisma/seed*.ts` y
+    `e2e-fixtures.ts` son **datos/fixtures del stream** y SÍ pueden (y deben) tocarse para alinear las expectativas a
+    la fórmula v1.27 (las de §4.22h — carta A con casilla nacida del snapshot — quedaron superadas; ver banner ⛔ ahí).
 - **frontend** (`(admin)` M1/M2 + componentes del binder): (a) teja de variante lee SU
   `marketReferenceMxnCents` (y deja de leer el de celda — migrar TODOS los lectores, incluido `contract.ts` espejo,
   zona compartida `frontend/src/types/` serializada dentro del stream); (b) acción por fila en M2 «sincronizar set
@@ -4691,11 +4726,16 @@ Riesgos técnicos:
   `price-ingest` **cero escrituras**; §4.15e derogada). **Acción (backend, este stream):** eliminar el bloque y cubrir
   con un test que asserte que el ingest **no** llama `card.update`.
   > **v1.26 (§4.24a) — VAR-1 RATIFICADA, no derogada.** El bundle v1.26 introduce `Card.structuralFinishes` (estructura
-  > autoritativa desde TCGCSV) y mueve la fórmula del reconciliador a `orderFinishes(structuralFinishes ∪
-  > pricedFinishesSnapshot) || ['normal']`, pero **conserva** el núcleo money-safe de VAR-1: el precio jamás
-  > sobrescribe/encoge la estructura, y la presencia de una llave de precio jamás AÑADE estructura. Una impresión
-  > estructural sin precio es «pendiente», nunca inventada ni dropeada. `FinishReconciler` sigue siendo el único
-  > escritor de `availableFinishes`.
+  > autoritativa desde TCGCSV) y movió la fórmula del reconciliador a ~~`orderFinishes(structuralFinishes ∪
+  > pricedFinishesSnapshot) || ['normal']`~~ (⛔ v1.27: unión derogada, ver abajo), conservando el núcleo money-safe
+  > de VAR-1: el precio jamás sobrescribe/encoge la estructura. `FinishReconciler` sigue siendo el único escritor de
+  > `availableFinishes`.
+  > **v1.27 (§4.25a) — VAR-1 COMPLETADA tal como quedó implementada: «el precio CONFIRMA, nunca AÑADE».** El
+  > invariante vigente cubre las DOS direcciones money↔estructura: el precio jamás **quita** una impresión (núcleo
+  > original) y el precio jamás **añade** una (la unión v1.26 violaba esta mitad: el snapshot con precio entraba como
+  > casilla ⇒ variantes fantasma). Fórmula implementada: `availableFinishes := composeAvailableFinishes(structuralFinishes)`
+  > con fallback `['normal']`; `pricedFinishesSnapshot` es solo confirmación/observabilidad. Una impresión estructural
+  > sin precio es «pendiente», nunca inventada ni dropeada.
 - **VAR-2 (backend, v1.22) — la derivación de catálogo ignora Cardmarket.** `catalog-sync.service.ts:355` →
   `deriveAvailableFinishes(c.tcgplayer?.prices)` (`pricing.types.ts:32`): sin bloque `tcgplayer` en el payload →
   `['normal']`, y las llaves con `market` nulo no se distinguen de las ausentes. Se pierde el reverse holo de toda
@@ -4864,7 +4904,9 @@ este documento y con `API_CONTRACT.md`.
   El caso se materializó: pokemontcg.io devolvió **502** toda la tarde y el set 2026 «Pitch Black» (120 cartas) quedó
   con **todas** en `['normal']` (§4.22d-4 con S1/S2 ciegas). **Decisión del humano, diseñada money-safe en §4.22g:
   opción (c) — tomar la señal de acabados de la fuente de PAGA (PPT)**, como **Señal C** de **evidencia positiva**
-  (`market > 0` vía alias VERIFICADO ⇒ el acabado existe). Es money-safe pese a §4.22a-regla 2 porque: (i)
+  (`market > 0` vía alias VERIFICADO ⇒ el acabado existe). **(⛔ v1.27, §4.25a: la Señal C ya NO compone
+  `availableFinishes` — la unión quedó derogada, el precio confirma, nunca añade; esta resolución queda como registro
+  histórico de v1.22-1.)** Es money-safe pese a §4.22a-regla 2 porque: (i)
   `availableFinishes` pasa a ser **derivada y RECOMPUTABLE** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot)
   || ['normal']` sobre dos columnas de entrada persistidas ⇒ **no monótona, reparable** con `sync --force` / siguiente
   corrida PPT; (ii) solo **alias VERIFICADO** alimenta la lista blanca (los SUPUESTO quedan fuera hasta S-C2); (iii)
@@ -5130,7 +5172,7 @@ v1.26 solo **empieza a poblarla** (no es cambio de schema). Ver §4.24a.
 
 | # | Modelo / campo | Cambio | Tipo migración | Nota |
 |---|---|---|---|---|
-| M-29 | `Card.structuralFinishes Finish[] @default([])` | Columna nueva (array `NOT NULL`, default `[]`) | Add column + backfill | Afirmación ESTRUCTURAL autoritativa (TCGCSV). **Ancla/reemplaza** a `catalogFinishes` en la unión del reconciliador: `availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`. **Backfill:** `UPDATE "Card" SET "structuralFinishes" = "availableFinishes"` (siembra con lo ya materializado; el resolver TCGCSV lo REEMPLAZA por carta joineada en el `sync-all {force:true}`). INTERNA: NO se expone en DTO. |
+| M-29 | `Card.structuralFinishes Finish[] @default([])` | Columna nueva (array `NOT NULL`, default `[]`) | Add column + backfill | Afirmación ESTRUCTURAL autoritativa (TCGCSV). **Ancla/reemplaza** a `catalogFinishes` como entrada del reconciliador. ~~`availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ **(⛔ v1.27: unión derogada; fórmula vigente `composeAvailableFinishes(structuralFinishes)` con fallback `['normal']`, §4.25a — el snapshot no compone)**. **Backfill:** `UPDATE "Card" SET "structuralFinishes" = "availableFinishes"` (siembra con lo ya materializado; el resolver TCGCSV lo REEMPLAZA por carta joineada en el `sync-all {force:true}`). INTERNA: NO se expone en DTO. |
 | M-29 | `Card.tcgplayerId` (ya existe) | **Sin cambio de schema** — se empieza a POBLAR desde `tcgplayer.url` (`.../product/<id>`) en `upsertCards` | (n/a) | Ancla del join Card↔producto TCGCSV (§4.24a) y del fetch fresco puntual P-7 (§4.24e). |
 
 > **Sin cambios en `PendingPriceEntry`** (P-6 reusa el enum `context` existente, §4.24c) ni en `PriceReference`/`Order`
@@ -5171,7 +5213,7 @@ Segura para ejecutar con la app corriendo: hasta que el nuevo código despliegue
 | M-26 | `@@index([setId, numberPrefix, numberSort])` | **Índice nuevo** | Create index | Sirve el `ORDER BY` del binder y de `GET /buylist/cards` **con `setId`** (el caso real de las tres vistas). Sin `setId` (búsqueda de texto global) el orden lo lidera `name`, ya indexado. |
 | M-27 | `Card.catalogFinishes Finish[] @default([])` | **Columna nueva** | Add column + backfill | v1.22-1 (§4.22g). «Opinión del catálogo» (Señal A ∪ B de pokemontcg.io), persistida para sobrevivir a un 502. **Backfill:** `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"`. La escribe `upsertCards`. |
 | M-27 | `Card.pricedFinishesSnapshot Finish[] @default([])` | **Columna nueva** | Add column | v1.22-1 (§4.22g). Señal C: acabados con `market>0` en PPT (alias VERIFICADO). Default `[]`; la puebla `price-ingest` en la 1ª corrida. |
-| M-27 | `Card.availableFinishes` **pasa a DERIVADA** | Semántica (no cambia forma ni tipo) | (sin SQL: recompute en runtime) | Deja de escribirse directamente; la recomputa `catalog.FinishReconciler` = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`. La columna y su índice/uso NO cambian. |
+| M-27 | `Card.availableFinishes` **pasa a DERIVADA** | Semántica (no cambia forma ni tipo) | (sin SQL: recompute en runtime) | Deja de escribirse directamente; la recomputa `catalog.FinishReconciler` = ~~`orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ **(⛔ fórmula superada: v1.26 sustituyó la entrada, v1.27 derogó la unión — vigente `composeAvailableFinishes(structuralFinishes)`, §4.25a)**. La columna y su índice/uso NO cambian. |
 
 **SQL de M-27** (solo `ADD COLUMN` + un `UPDATE` de backfill; sin índices nuevos):
 

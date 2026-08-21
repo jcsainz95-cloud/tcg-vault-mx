@@ -961,8 +961,12 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 //     catalog.FinishReconciler. `catalogFinishes`/`pricedFinishesSnapshot` son INTERNAS, no se emiten en ningún DTO.
 //   * v1.26 (ARCHITECTURE §4.24a) — SIN CAMBIO DE FORMA: la ENTRADA estructural de la unión pasa de `catalogFinishes`
 //     (proxy de precio) a la nueva `Card.structuralFinishes` (INTERNA, no se emite), derivada de la fuente ESTRUCTURAL
-//     autoritativa TCGCSV (`subTypeName`, que existe aunque no haya precio ⇒ estructura ≠ precio). Fórmula:
-//     availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']. VAR-1 intacto.
+//     autoritativa TCGCSV (`subTypeName`, que existe aunque no haya precio ⇒ estructura ≠ precio).
+//     ⛔ v1.27: la fórmula de UNIÓN `orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']` quedó
+//     DEROGADA (era el vector de las variantes fantasma).
+//   * v1.27 (P-13, ARCHITECTURE §4.25a) — SIN CAMBIO DE FORMA. FÓRMULA VIGENTE: el precio CONFIRMA, nunca AÑADE.
+//     availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']
+//     (composeAvailableFinishes; el snapshot de precio NO compone — solo observabilidad). VAR-1 completo intacto.
 //   * ORDEN CANÓNICO GARANTIZADO: normal → reverse_holo → holofoil → first_edition_holofoil. El front NO ordena;
 //     consume el orden del array. De ahí sale "normal a la IZQUIERDA, reverse holo a la DERECHA".
 //   * NUNCA vacío (mínimo ["normal"]) y NUNCA con acabados inventados: es el universo EXACTO de casillas del
