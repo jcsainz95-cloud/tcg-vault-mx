@@ -42,22 +42,22 @@ export const E2E_ORDER_SET = {
  * casillas: normal a la izquierda, reverse holo a la derecha) y el resto UNA (['normal'] → una
  * casilla, jamás relleno). El orden del array es el canónico `FINISH_ORDER`.
  *
- * v1.22-1 (§4.22g/§4.22h) — se siembran también las DOS columnas de ENTRADA de las que DERIVA
- * `availableFinishes` (`catalogFinishes`, `pricedFinishesSnapshot`), de forma COHERENTE
- * (`availableFinishes == orderFinishes(catalog ∪ priced) || ['normal']`). Cuando no se declaran,
- * el seed usa `catalogFinishes = availableFinishes` y `pricedFinishesSnapshot = []` (ruta catálogo).
- * `reverse` se declara a propósito como el CASO DEL PO **rescatado por PPT** con pokemontcg.io caído:
- * `catalogFinishes=['normal']` + `pricedFinishesSnapshot=['reverse_holo']` ⇒ mismo
- * `availableFinishes=['normal','reverse_holo']` (dos casillas) pero sostenido SOLO por la Señal C.
- * Esto ejercita el rescate SIN cambiar ningún total/página de las suites de dinero (el valor final
- * de `availableFinishes` es idéntico al de antes). El caso «catálogo con dos variantes» lo cubre
- * `orderTwo` de `E2E_ORDER_CARDS`.
+ * v1.27 (P-13, §4.25a) — se siembran también las columnas de ENTRADA de forma COHERENTE con la
+ * fórmula VIGENTE del reconciliador: `availableFinishes == composeAvailableFinishes(structuralFinishes)`
+ * (la unión con `pricedFinishesSnapshot` quedó DEROGADA: el precio CONFIRMA, nunca AÑADE). Cuando no
+ * se declaran, el seed usa `structuralFinishes = catalogFinishes = availableFinishes` y snapshot
+ * vacío. `reverse` es el caso de DOS casillas post-v1.27: TCGCSV resolvió AMBAS impresiones
+ * (`structuralFinishes=['normal','reverse_holo']`) y PPT confirma el reverse con precio
+ * (`pricedFinishesSnapshot=['reverse_holo']`, observabilidad; ya no compone). Su `catalogFinishes`
+ * queda en `['normal']` a propósito: es la señal débil write-only que nadie lee en producción —
+ * la estructura manda. Un reconcile sobre estos fixtures es un NO-OP (dato consistente); ningún
+ * total/página de las suites de dinero cambia (`availableFinishes` final idéntico al de antes).
  */
 export const E2E_CARDS = {
   charizard: { externalId: 'e2e-charizard', name: 'E2E Charizard', number: '4', rarity: 'Rare Holo', refNmCents: 100000, availableFinishes: ['normal'] }, // ex_plus, ref 1000.00
   common: { externalId: 'e2e-common', name: 'E2E Pidgey', number: '16', rarity: 'Common', refNmCents: 5000, availableFinishes: ['normal'] }, // comun
-  // PPT-ONLY (§4.22g): el catálogo solo conoce `normal`; el reverse holo lo sostiene la Señal C.
-  reverse: { externalId: 'e2e-reverse', name: 'E2E Reverse Bird', number: '17', rarity: 'Reverse Holo', refNmCents: 3000, availableFinishes: ['normal', 'reverse_holo'], catalogFinishes: ['normal'], pricedFinishesSnapshot: ['reverse_holo'] }, // reverse_holo — DOS casillas (§4.22c), rescatado por PPT
+  // DOS casillas ESTRUCTURALES (§4.25a): TCGCSV resolvió ambas; PPT confirma el reverse con precio (snapshot = observabilidad).
+  reverse: { externalId: 'e2e-reverse', name: 'E2E Reverse Bird', number: '17', rarity: 'Reverse Holo', refNmCents: 3000, availableFinishes: ['normal', 'reverse_holo'], catalogFinishes: ['normal'], structuralFinishes: ['normal', 'reverse_holo'], pricedFinishesSnapshot: ['reverse_holo'] }, // reverse_holo — DOS casillas (§4.22c), sostenidas por la ESTRUCTURA
   graded: { externalId: 'e2e-graded', name: 'E2E Graded Star', number: '20', rarity: 'Rare Holo', refPsa10Cents: 500000, availableFinishes: ['normal'] }, // graded PSA10
   highvalue: { externalId: 'e2e-highvalue', name: 'E2E High Value', number: '25', rarity: 'Rare Holo', refNmCents: 750000, availableFinishes: ['normal'] }, // ex_plus, quote 0.4×=300000 = umbral INE
   nopref: { externalId: 'e2e-nopref', name: 'E2E No Price', number: '99', rarity: 'Rare Secret', availableFinishes: ['normal'] }, // ex_plus SIN referencia → precio pendiente

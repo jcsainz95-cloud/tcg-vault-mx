@@ -414,16 +414,19 @@ export class CatalogSyncService {
    * requeridos ausentes se manejan con gracia (`number` → ''), y una carta sin `id`/`name` (no
    * persistible) se omite con log en vez de reventar el barrido.
    *
-   * v1.22-1 (§4.22g) — **AUTORIDAD de `Card.catalogFinishes`** (la «opinión del catálogo»), NO ya de
-   * `availableFinishes` directamente. Esta última pasó a ser una columna DERIVADA cuyo ÚNICO escritor
-   * es `FinishReconciler`. Aquí se deriva `catalogFinishes` de DOS señales del payload remoto
-   * (`tcgplayer.prices` por LLAVE PRESENTE ∪ `cardmarket.prices.reverseHolo*` por VALOR > 0) con la
-   * MISMA semántica null de §4.22a-4:
+   * v1.22-1 (§4.22g) → v1.27 (P-13, §4.25a) — aquí se deriva **`Card.catalogFinishes`** (la «opinión
+   * del catálogo» pokemontcg.io), hoy una columna WRITE-ONLY de señal DÉBIL: desde v1.26 NO alimenta
+   * al reconciliador (su entrada es `structuralFinishes`, del resolver TCGCSV) y nadie la lee en
+   * producción — se conserva como observabilidad/registro de lo que opinó el payload remoto.
+   * `availableFinishes` sigue siendo DERIVADA con ÚNICO escritor `FinishReconciler`. La derivación de
+   * `catalogFinishes` usa DOS señales del payload remoto (`tcgplayer.prices` por LLAVE PRESENTE ∪
+   * `cardmarket.prices.reverseHolo*` por VALOR > 0) con la MISMA semántica null de §4.22a-4:
    *   - CREATE → `derived ?? ['normal']` (conservador: UNA casilla, jamás relleno);
    *   - UPDATE → la clave `catalogFinishes` se incluye SOLO si `derived !== null`; sin señal se OMITE
    *     y se CONSERVA lo previo (un payload/502 degradado no puede volver a clobbear a `['normal']`).
-   * Tras el lote, LLAMA a `FinishReconciler.reconcile(cardIds)` para que recompute `availableFinishes`
-   * = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` de las cartas tocadas.
+   * Tras el lote, LLAMA a `FinishReconciler.reconcile(cardIds)` para que recompute
+   * `availableFinishes = composeAvailableFinishes(structuralFinishes)` de las cartas tocadas
+   * (§4.25a: el precio confirma, nunca añade; ni `catalogFinishes` ni el snapshot componen).
    * Además puebla las claves de ORDEN NATURAL `numberSort`/`numberPrefix` (M-26, §4.22b) con
    * `deriveNumberParts` — la MISMA función que espeja el backfill SQL. Ya NO se puebla
    * `PriceReference` (WS-A §4.15g: este sync es SOLO metadata).
@@ -491,8 +494,9 @@ export class CatalogSyncService {
         );
       }
     }
-    // §4.22g candado 4: `availableFinishes` la escribe SOLO el reconciliador, a partir de las dos
-    // columnas de entrada (`catalogFinishes` recién escrita ∪ `pricedFinishesSnapshot` que dejó PPT).
+    // §4.22g candado 4 + v1.27 §4.25a: `availableFinishes` la escribe SOLO el reconciliador, con
+    // `composeAvailableFinishes(structuralFinishes)` — ni `catalogFinishes` (write-only) ni el
+    // snapshot componen; aquí solo se garantiza que las cartas tocadas queden recompuestas.
     await this.finishReconciler.reconcile(touchedCardIds);
     if (noFinishSignal > 0) {
       this.logger.warn(
