@@ -17,7 +17,9 @@ const pii = new PiiCryptoService(new ConfigService({}));
  *  2) Conteo al PAGAR (paySpei): `bountyAcquiredQty` se incrementa por cada ítem con snapshot
  *     `ruleSource='bounty'` EN LA MISMA transacción del pago; auto-apagado al alcanzar
  *     `bountyTargetQty` (`enabled=false` + `completedAt` + AuditLog `bounty.completed`);
- *     idempotente ante replays (solo cuenta la llamada que HIZO la transición).
+ *     idempotente ante replays (solo cuenta la llamada que HIZO la transición). B-1: los ítems
+ *     `itemStatus='rechazada'` (cherry-pick) NO cuentan — §4.26a mide piezas COMPRADAS bajo
+ *     bounty, mismo filtro que la invariante BL-1 de `approvedTotalCents`.
  */
 
 const svcOf = (prisma: any) =>
@@ -129,8 +131,11 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       sellRequestItem: {
+        // Honra el where REAL del servicio: ruleSource='bounty' + itemStatus≠'rechazada' (B-1).
         findMany: jest.fn(async ({ where }: any) =>
-          opts.items.filter((i) => i.ruleSource === where.ruleSource),
+          opts.items.filter(
+            (i) => i.ruleSource === where.ruleSource && i.itemStatus !== where.itemStatus?.not,
+          ),
         ),
       },
       variantPriceOverride: {
@@ -166,6 +171,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
     rawCondition: 'NM',
     finish: 'holofoil',
     ruleSource: 'bounty',
+    itemStatus: 'aprobada',
     ...over,
   });
   const m30Row = (over: any = {}) => ({
@@ -194,6 +200,32 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
     // Sin auto-off (2 < 5): sigue encendido y sin auditoría de completado.
     expect(h.overrideRows[0].bountyEnabled).toBe(true);
     expect(h.auditRows).toHaveLength(0);
+  });
+
+  it('B-1 cherry-pick: los ítems RECHAZADOS bajo bounty NO cuentan y NO disparan el auto-off', async () => {
+    // Solicitud pagada con mezcla: 2 aprobadas + 3 rechazadas, TODAS con snapshot bounty.
+    // Target 4, acquired 1: sin el filtro BL-1 contaría +5 (1+5=6 ≥ 4 → auto-off + audit EN FALSO);
+    // con el filtro cuenta SOLO las 2 compradas (1+2=3 < 4 → bounty sigue vivo, cero auditoría).
+    const h = buildHarness({
+      items: [
+        bountyItem(),
+        bountyItem(),
+        bountyItem({ itemStatus: 'rechazada' }),
+        bountyItem({ itemStatus: 'rechazada' }),
+        bountyItem({ itemStatus: 'rechazada' }),
+      ],
+      overrideRows: [m30Row({ bountyTargetQty: 4, bountyAcquiredQty: 1 })],
+    });
+    await h.svc.paySpei('sr', 'SPEI-1', 'admin');
+    // El where del servicio lleva el filtro BL-1 (misma semántica que approvedTotalCents).
+    expect(h.prisma.sellRequestItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ ruleSource: 'bounty', itemStatus: { not: 'rechazada' } }),
+      }),
+    );
+    expect(h.overrideRows[0]).toMatchObject({ bountyEnabled: true, bountyAcquiredQty: 3 });
+    expect(h.overrideRows[0].bountyCompletedAt).toBeNull();
+    expect(h.auditRows).toHaveLength(0); // sin bounty.completed en falso
   });
 
   it('AUTO-APAGADO al alcanzar target: enabled=false + completedAt + AuditLog bounty.completed', async () => {

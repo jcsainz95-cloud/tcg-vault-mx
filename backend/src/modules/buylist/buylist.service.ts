@@ -1333,6 +1333,12 @@ export class BuylistService {
    * de la solicitud con snapshot `ruleSource='bounty'` se incrementa `bountyAcquiredQty` de SU
    * fila M-30 (clave `(cardId, productType, gradeKey, finish)` del ítem — misma derivación que la
    * cotización). Reglas money-safe:
+   *  - B-1 (mismo filtro que la invariante BL-1 de `recomputeApprovedTotal`): los ítems
+   *    `itemStatus='rechazada'` se EXCLUYEN del conteo — con cherry-pick esas piezas NO se compran
+   *    ni suman en `approvedTotalCents`, así que tampoco cuentan hacia el bounty (§4.26a: el campo
+   *    mide «piezas COMPRADAS vía buylist PAGADA bajo bounty»). Sin este filtro, las rechazadas
+   *    inflarían el contador, podrían auto-apagar el bounty antes de tiempo y auditarían
+   *    `bounty.completed` en falso;
    *  - el incremento aplica AUNQUE el bounty ya esté apagado (la pieza SE COMPRÓ bajo bounty; el
    *    monto quedó snapshoteado — apagar no borra ni congela el contador);
    *  - fila M-30 desaparecida (borrada sin historia) ⇒ no hay contador que llevar: se omite SIN
@@ -1349,7 +1355,8 @@ export class BuylistService {
     actorUserId: string,
   ): Promise<void> {
     const bountyItems = await tx.sellRequestItem.findMany({
-      where: { sellRequestId, ruleSource: 'bounty' },
+      // B-1: mismo filtro que BL-1 — un ítem rechazado NO se compró, así que NO cuenta bounty.
+      where: { sellRequestId, ruleSource: 'bounty', itemStatus: { not: 'rechazada' } },
       select: { cardId: true, productType: true, rawCondition: true, finish: true },
     });
     if (bountyItems.length === 0) return;
