@@ -745,11 +745,11 @@
   constantes 7d/30d de los plazos del ítem rechazado viven en
   `src/modules/buylist/buylist-reject.constants.ts`; `src/jobs/buylist-sweep.service.ts` (zona de otro
   agente en este pase) conserva sus 7/30 inline — al tocar el sweep, importar esas constantes (fuente única).
-- **Ampliación (v1.19, techlead):** el correo de soporte `soporte@tcgvaultmx.com` está **hardcodeado** en
-  `buylist-mail.templates.ts:19` (`SUPPORT_EMAIL`), mientras `src/modules/disputes/disputes.constants.ts:10`
-  lee el MISMO buzón de la env `DISPUTE_EVIDENCE_CONTACT` (con ese fallback) — **dos fuentes de verdad** para
-  el mismo dato de contacto: un cambio del buzón vía env NO se reflejaría en el correo de rechazo de buylist.
-  Unificar (leer la misma fuente/env) cuando se absorba la plantilla en `mail/` (mismo disparador de abajo).
+- **Ampliación (v1.19, techlead) — RESUELTA en P-21:** el correo de soporte ya NO está hardcodeado:
+  `buylist-mail.templates.ts` lee `SUPPORT_EMAIL` con cascada a `DISPUTE_EVIDENCE_CONTACT` (la MISMA env que
+  `disputes.constants.ts`) y default histórico, vía `envOr` (ronda de cierre P-21: env vacía/blanca cae al
+  default). Un cambio del buzón vía env SÍ se refleja en el correo de rechazo. Queda solo el residuo menor de
+  que el **literal default** está duplicado en 3 archivos — trackeado como **BE-P21-2** (abajo).
 - **Impacto:** bajo. Mantenibilidad (divergencia potencial de branding/escape entre plantillas) y, sin
   reintentos, un correo de rechazo puede perderse si el proveedor falla (el vendedor igual ve motivo y plazos
   en la app, `GET /buylist/requests/:id`).
@@ -2766,3 +2766,37 @@
   **mover este bucle al servidor** en la misma pasada (un solo submit con progreso persistido) y borrar
   el troceo en cliente. Ref: `docs/FRONTEND_NOTES.md` (Ronda de corrección Stream B, M-2) y tests en
   `SealedTab.test.tsx` (paginado+troceo, reuse de batchKey en reintento).
+
+### Ronda de cierre P-21 (rebrand/correo) — deuda del veredicto techlead del gate (2026-08-21, no bloqueante)
+
+### BE-P21-1 · `BRAND` declarado 3 veces + literales de marca inline en el correo de restock (Baja)
+- **Dónde:** `backend/src/modules/mail/mail.templates.ts:31`, `backend/src/modules/buylist/buylist-mail.templates.ts:25`
+  y `backend/src/modules/orders/mail/guest-order.templates.ts:20` declaran cada uno `const BRAND = 'TCG HUNT'`;
+  además `backend/src/modules/catalog/sealed-restock-notify.service.ts:111-115` lleva 4 literales `TCG HUNT`
+  **inline** (texto/HTML del correo de reposición), sin constante.
+- **Estado actual:** la marca visible del rebrand P-21 vive en 4 sitios independientes; un futuro ajuste de
+  marca exige tocar los 4 a mano (la duplicación de plantillas es la deuda aceptada BE-43 — misma raíz:
+  `mail/` es de otro stream y las plantillas locales no comparten helpers).
+- **Impacto:** bajo (mantenibilidad/branding): divergencia silenciosa posible entre correos si un rebrand
+  futuro olvida un sitio.
+- **Disparador/dirección:** cuando `backend/src/common/` quede libre (zona compartida serializada), extraer
+  `common/brand.constants.ts` (fuente única de `BRAND`) e importarla en los 4 sitios; **se acumula con BE-43**
+  (absorción de plantillas en `mail/` — mismo pase). Owner: **backend**. Prioridad: **baja**.
+
+### BE-P21-2 · Default `'soporte@tcgvaultmx.com'` duplicado como literal en 3 archivos + dos idiomas de config (Baja)
+- **Dónde:** `backend/src/modules/disputes/disputes.constants.ts:13` (aprox.),
+  `backend/src/modules/orders/guest-checkout.constants.ts` (`SUPPORT_EVIDENCE_CONTACT`) y
+  `backend/src/modules/buylist/buylist-mail.templates.ts` (`SUPPORT_EMAIL`): los tres leen la MISMA env
+  `DISPUTE_EVIDENCE_CONTACT` (buylist con cascada previa por `SUPPORT_EMAIL`) vía `envOr`, pero el **default
+  literal** `'soporte@tcgvaultmx.com'` está repetido en los 3.
+- **Estado actual:** tras la ronda de cierre P-21 el comportamiento es correcto (env vacía/blanca cae al
+  default, helper único `mail/mail-env.util.ts` con tests), pero quedan dos residuos: (a) el literal default
+  duplicado → **divergencia silenciosa posible** si alguien cambia solo uno; (b) conviven **dos idiomas de
+  configuración**: estas constantes leen `process.env` a **import-time**, mientras el idioma del proyecto es
+  `ConfigService` inyectado (como hace `mail.module.ts`) — las constantes no ven cambios de env post-import y
+  esquivan la validación central de env.
+- **Impacto:** bajo (correctness OK hoy; riesgo de divergencia del buzón y de sorpresa en tests/entornos que
+  muten env después del import).
+- **Disparador/dirección:** al absorber las plantillas en `mail/` (BE-43) o al liberar `common/`: extraer el
+  default a una constante única (junto a `BRAND`, BE-P21-1) y migrar la lectura a `ConfigService` (o a un
+  provider del módulo `mail`) para alinear el idioma de config. Owner: **backend**. Prioridad: **baja**.

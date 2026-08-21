@@ -5444,3 +5444,37 @@ porque el default no cambió).
 - `npm test` → **148 suites / 1387 tests VERDE**.
 - `npm run test:integration` (setup §8, `S3_ENDPOINT=http://127.0.0.1:9000`) → **9 suites /
   124 tests VERDE**.
+
+## Ronda de cierre P-21 · Robustez de env vacía en lecturas de correo (`envOr`) (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+> Condición pre-switch del techlead sobre el gate P-21: las 4 lecturas de env de correo usaban
+> `??`, que NO cubre cadena vacía. Con `MAIL_FROM=` (definida pero vacía) el `from` quedaba `''`
+> y **Resend rechazaría TODO envío**; con `DISPUTE_EVIDENCE_CONTACT=` vacía la API exponía
+> `evidenceContact: ""`.
+
+### Qué cambió
+- **Helper único `modules/mail/mail-env.util.ts` → `envOr(value, fallback)`**: trata
+  vacío/solo-blancos como ausente y devuelve el valor saneado (trim) cuando sí hay contenido.
+  **Decisión de ubicación:** vive en `modules/mail/` y NO en `src/common/` a propósito —
+  `common/` es zona compartida serializada entre streams y los 4 consumidores son de correo y ya
+  dependen de `mail/`. Promoverlo a `common/` cuando quede libre es NO-BREAKING (TECH_DEBT
+  BE-P21-2, junto con `BRAND` → BE-P21-1).
+- **Aplicado en los 4 sitios:** `mail/mail.module.ts` (MAIL_FROM → default histórico),
+  `disputes/disputes.constants.ts` y `orders/guest-checkout.constants.ts`
+  (`DISPUTE_EVIDENCE_CONTACT` → `soporte@tcgvaultmx.com`) y `buylist/buylist-mail.templates.ts`
+  (cascada `SUPPORT_EMAIL` → `DISPUTE_EVIDENCE_CONTACT` → histórico, saltando vacíos en cada
+  eslabón). Comportamiento con env ausente o con valor real: **idéntico al de antes**; solo
+  cambia el caso patológico env-definida-pero-vacía/blanca.
+- **Tests `mail-env.util.spec.ts` (10):** helper puro (ausente/vacía/blancos → default; valor →
+  se usa, con trim), los 3 consumidores import-time re-evaluados con `jest.isolateModules`
+  (incluida la cascada del buylist) y la factory de `MailModule` vía metadata + ConfigService
+  stub (`MAIL_FROM` vacía/blanca → default; con valor → lo usa).
+- **TECH_DEBT:** nueva sección "Ronda de cierre P-21" (BE-P21-1 marca `BRAND` x3 + literales del
+  restock; BE-P21-2 default literal duplicado x3 + dos idiomas de config process.env vs
+  ConfigService) y corregida la ampliación obsoleta de BE-43 (el buzón ya NO está hardcodeado).
+
+### Gates (local, Postgres 16 + Redis reales + s3rver en 127.0.0.1:9000 → smoke S3 con PUT real)
+- `npm run typecheck` → limpio · `npm run lint` → 0 warnings.
+- `npm test` → **149 suites / 1397 tests VERDE**.
+- `npm run test:integration` (setup §8) → **9 suites / 124 tests VERDE** (incl. `infra-smoke`
+  con S3 real).
