@@ -1041,7 +1041,7 @@ export class BuylistService {
    * @returns `{ request, transitioned }` — `request` es el shape de `adminGet` (Res 200 del contrato);
    *   `transitioned` indica si hubo un cambio real de estado (guía la auditoría del controller).
    */
-  async rejectRequest(id: string, reason?: string): Promise<{ request: unknown; transitioned: boolean }> {
+  async rejectRequest(id: string): Promise<{ request: unknown; transitioned: boolean }> {
     const req = await this.prisma.sellRequest.findUnique({ where: { id } });
     if (!req) throw BusinessException.notFound();
     // Idempotencia: ya rechazada → 200 con el estado actual, sin re-sellar closedAt ni auditar.

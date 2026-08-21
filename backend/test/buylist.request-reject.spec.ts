@@ -190,7 +190,8 @@ function buildForRejectRequest(opts: {
 describe('rejectRequest — cierre explícito (regla g)', () => {
   it('éxito: todos los ítems ya rechazados ⇒ sella `rechazada`+`closedAt`, transitioned=true', async () => {
     const { svc, prisma } = buildForRejectRequest({ status: 'verificacion', liveItems: [] });
-    const res = await svc.rejectRequest('sr-1', 'cierre manual back-office');
+    // El `reason` del body es material de auditoría del controller — el servicio ya no lo recibe.
+    const res = await svc.rejectRequest('sr-1');
     expect(res.transitioned).toBe(true);
     expect(prisma.sellRequest.updateMany).toHaveBeenCalledWith({
       where: { id: 'sr-1', status: { notIn: ['pagada', 'rechazada', 'abandonada'] } },
