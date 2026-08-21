@@ -5007,11 +5007,12 @@ re-sync forzado único (§4.25a-4) + `POKEMONPRICETRACKER_FETCH_PRINTINGS=true`.
   observabilidad). El reconcile SÍ corre igual para esas cartas (idempotente; además repara
   `availableFinishes` stale con la fórmula nueva en cada price-ingest, incluso antes del re-sync).
   El modo LISTA (`primaryPrinting`) sigue alimentando el snapshot como hasta ahora.
-- **Nota para QA/devops (datos e2e):** el fixture `e2e-fixtures.ts › reverse` sigue sembrando
-  `availableFinishes=['normal','reverse_holo']` sostenido por snapshot (escenario v1.22). El seed
-  escribe `availableFinishes` explícito y ningún flujo e2e reconcilia esas cartas, así que la suite
-  sigue verde; si algún día un e2e dispara reconcile sobre ese fixture, hay que declararle
-  `structuralFinishes: ['normal','reverse_holo']`. No se tocó `prisma/` en este stream (§4.25d).
+- **Nota para QA/devops (datos e2e) — RESUELTA (2026-08-21, pase techlead-gate):** el fixture
+  `e2e-fixtures.ts › reverse` ya declara `structuralFinishes: ['normal','reverse_holo']` (y el seed
+  de desarrollo `seed.ts › Pidgey base1-16` igual): los seeds quedaron CONSISTENTES con
+  `composeAvailableFinishes` y un reconcile sobre ellos es NO-OP (no colapsa casillas). El snapshot
+  `['reverse_holo']` se conserva como decoración/observabilidad (el precio confirma el reverse).
+  Detalle en §«Pase techlead-gate Stream A» más abajo. Sigue sin tocarse el schema de `prisma/`.
 
 ### P-15 — mercado por VARIANTE en el Master Set (§4.25b)
 - **`inventory/master-set.service.ts`:** `MasterSetVariantDTO += marketReferenceMxnCents?: number|null`
@@ -5055,3 +5056,51 @@ re-sync forzado único (§4.25a-4) + `POKEMONPRICETRACKER_FETCH_PRINTINGS=true`.
 - `npm run lint` → 0 errores (1 warning preexistente en `buylist.service.ts`, ajeno).
 - `npm test` (unit) → **137 suites / 1267 tests VERDE**.
 - `npm run test:integration` → **9 suites / 124 tests VERDE** (los 124 del gate backend-e2e intactos).
+
+## Pase techlead-gate Stream A v1.27 — seeds consistentes post-P-13 + comentarios normativos (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+Correcciones acotadas a los DOS ítems MAYORES del veredicto del techlead sobre el Stream A (el
+diseño de P-13/P-15/P-12 quedó aprobado; aquí NO se cambió ninguna lógica de producción — solo
+datos de seed y comentarios).
+
+### Ítem #1 — seeds con estado imposible post-v1.27 (corregido)
+- **`prisma/seed.ts` (Pidgey `base1-16`):** pasaba `structuralFinishes: ['normal']` +
+  `pricedFinishesSnapshot: ['reverse_holo']` + `availableFinishes: ['normal','reverse_holo']` —
+  inconsistente con `composeAvailableFinishes` (el primer reconcile lo colapsaba a UNA casilla).
+  Ahora `structuralFinishes: ['normal','reverse_holo']` (la forma post-v1.27 de tener dos casillas:
+  TCGCSV resolvió ambas impresiones); el snapshot `['reverse_holo']` queda como
+  decoración/observabilidad (el precio CONFIRMA el reverse) y el docblock ilustra «la estructura
+  manda, el precio confirma» en vez del rescate derogado.
+- **`prisma/e2e-fixtures.ts` (`E2E_CARDS.reverse`):** mismo arreglo — declara
+  `structuralFinishes: ['normal','reverse_holo']`; docblock del «rescate por PPT» reescrito a la
+  doctrina §4.25a. `catalogFinishes: ['normal']` se conserva a propósito (señal débil write-only que
+  nadie lee en producción). `availableFinishes` final IDÉNTICO ⇒ ningún total/página de las suites
+  de dinero cambia.
+- **`prisma/seed-e2e.ts`:** comentarios de `seedCards` actualizados a la fórmula vigente (la
+  mecánica `structuralFinishes ?? catalogFinishes` ya soportaba la declaración; solo cambió el dato
+  del fixture y el texto).
+- **Mínimo normativo §4.22e confirmado:** el seed de desarrollo conserva ≥1 carta de DOS casillas
+  (Pidgey, ahora estructural) y ≥1 de UNA casilla (Charizard holofoil puro); el sintético igual
+  (`reverse` dos casillas / resto una; `orderTwo` cubre el caso en `E2E_ORDER_SET`).
+
+### Ítem #2 — comentarios normativos derogados en `catalog-sync.service.ts` (corregido)
+- Docblock de `upsertCards`: `Card.catalogFinishes` ya NO se titula «AUTORIDAD» — es una columna
+  write-only de señal débil (nadie la lee en producción); la fórmula del reconcile citada pasó de la
+  derogada `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` a la real
+  `composeAvailableFinishes(structuralFinishes)` (v1.27 §4.25a).
+- Comentario previo al `reconcile(touchedCardIds)`: misma corrección de fórmula.
+
+### Deuda registrada (docs/TECH_DEBT.md, sección «Stream A v1.27 … veredicto techlead»)
+`SA-D2` (Alta: `getReferencesBatch` sin acotar histórico, amplificado por P-15 — enlazada a
+BE-20/BE-35, disparador de BE-35 actualizado), `SA-D1` (Media: `catalogFinishes` write-only, retiro
+decide arquitecto), `SA-D3` (Media: escrituras secuenciales por carta bajo request síncrono, P-12 +
+202 síncrono), `SA-D5` (Baja: gate estructural duplicado), `SA-D6` (Baja: convención de `force`
+inconsistente en el controller).
+
+### Verificación (local, replicando CI)
+- `npm run typecheck` → limpio. `npm run lint` → 0 errores (1 warning preexistente ajeno).
+- `npm test` → **137 suites / 1267 tests VERDE**.
+- `npm run test:integration` (Postgres 16 + Redis locales + S3_* de CI) → **9 suites / 124 tests
+  VERDE**; el re-seed idempotente CORRIGIÓ la fila vieja del fixture en la BD compartida
+  (verificado en Postgres: `e2e-reverse` ⇒ `structural={normal,reverse_holo}`,
+  `available={normal,reverse_holo}`, snapshot `{reverse_holo}` decorativo).

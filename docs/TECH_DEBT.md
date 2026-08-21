@@ -621,6 +621,10 @@
   caps de lote sin revisar la forma del query.
 - **Disparador (aceptado):** si se aumenta el cap de lote (>200) o aparece latencia en `bulk-publish`/
   `fetchSellable`, reescribir a un `IN` sobre claves compuestas o a tuplas `(cardId, finish)` acotadas.
+  **Actualización 2026-08-21 (Stream A v1.27):** el binder Master Set (P-15) pasó el lote a
+  carta×acabado SIN cap de 50 (un set completo por request) y la consulta además carga TODO el
+  histórico sin acotar `capturedDate` — ver **SA-D2** (Alta), que absorbe/adelanta este disparador:
+  pagar ambos juntos (acotar fecha o `DISTINCT ON` + revisar la forma cartesiana del `WHERE`).
 
 ### BE-36 · `isSecretRare = numberSort > printedTotal` marca TODOS los promos TG/GG/SV — RESUELTA (2026-08-17)
 - **Dónde:** `src/modules/inventory/master-set.service.ts` (`MasterSetCardCellDTO.isSecretRare`).
@@ -2497,3 +2501,83 @@
   `pptSetId`-numérico y el caché en memoria. **Owners:** **devops** registra S-D1/2/3 tras la primera corrida
   Railway; el **arquitecto** decide si/ cuándo materializar `tcgplayerGroupId` (toca `schema.prisma` → zona
   compartida). Mitigación intermedia: verificar el nombre del grupo también en la rama numérica S-D3.
+
+### Stream A v1.27 (P-13/P-15/P-12) — deuda del veredicto techlead del gate (2026-08-21, no bloqueante)
+
+> Deuda anotada del veredicto del **techlead** sobre el gate del Stream A (rama
+> `claude/backend-e2e-payment-fixtures-77mo4t`, P-13 variantes fantasma + P-15 mercado por variante +
+> P-12 force en sync por set). Los DOS ítems MAYORES del rechazo (seeds con estado imposible
+> post-v1.27 en `seed.ts`/`e2e-fixtures.ts`/`seed-e2e.ts`, y comentarios normativos derogados en
+> `catalog-sync.service.ts`) **se corrigieron en esta misma rama** y NO figuran como deuda. Lo de
+> abajo es la deuda NO bloqueante que el techlead pidió registrar. Dueño **backend** salvo donde se
+> anota (arquitecto). IDs `SA-D*` con la numeración del veredicto del techlead (prefijo `SA-` para no
+> colisionar con la D1–D5 del pase v1.1 ni la D-1/D-2 de `pulido-precios-display`).
+
+### SA-D2 · `getReferencesBatch` carga TODO el histórico de `PriceReference` y deduplica en memoria (Alta)
+- **Dónde:** `src/modules/pricing/pricing.service.ts:192-224` (`getReferencesBatch`).
+- **Estado actual:** el `findMany` NO acota `capturedDate`: trae TODAS las filas históricas que
+  matcheen las dimensiones (`orderBy capturedDate desc`) y se queda con la PRIMERA vista por clave
+  **en memoria** (descarta el resto). **P-15 multiplicó el lote** a carta×acabado (binder Master Set:
+  un set completo por request, sin cap de 50). Con la ingesta acumulando ~11-15M filas/año
+  (**BE-20**), a un año de operación un set de 300 cartas × ~2 acabados × ~365 capturas ⇒ **~200k
+  filas transferidas y descartadas POR REQUEST de binder**.
+- **Impacto:** alto a futuro: latencia y presión de BD/red en la ruta caliente del binder (y demás
+  consumidores del batch), empeorando linealmente con el histórico. Correctness OK (la dedup elige
+  bien la más reciente).
+- **Disparador:** **antes de que `PriceReference` acumule meses de histórico a escala** — mismo reloj
+  que **BE-20** (poda/retención); pagar junto con **BE-35** (forma cartesiana del `WHERE`, cuyo
+  disparador se actualizó para apuntar aquí). Dirección: acotar el `findMany` con
+  `capturedDate >= hoy − N días` (la referencia vigente es reciente por construcción de la ingesta
+  2×/día) **o** `DISTINCT ON (cardId, productType, gradeKey, finish) … ORDER BY capturedDate DESC`
+  vía SQL, devolviendo UNA fila por clave desde la BD.
+
+### SA-D1 · `Card.catalogFinishes` es write-only desde v1.26 (Media — decisión de retiro: arquitecto)
+- **Dónde:** columna `Card.catalogFinishes` (`prisma/schema.prisma`); único escritor
+  `catalog-sync.service.ts` → `upsertCards`; **ningún lector en producción**.
+- **Estado actual:** desde v1.26 el reconciliador compone `availableFinishes` SOLO de
+  `structuralFinishes` (resolver TCGCSV); `catalogFinishes` se sigue escribiendo (señal débil
+  derivada del payload de pokemontcg.io) pero nadie la lee en código de producción — quedó como
+  observabilidad/registro. El docblock de `upsertCards` ya lo dice explícitamente (corregido en este
+  mismo pase: antes aún la titulaba «AUTORIDAD»).
+- **Impacto:** medio-bajo (mantenibilidad/confusión): una columna con nombre de autoridad que ya no
+  manda invita a re-conectarla por error en un refactor futuro.
+- **Disparador:** próxima revisión de schema. **La decisión de retirarla (drop de columna) pasa por
+  el arquitecto** (`prisma/schema.prisma` es zona compartida); aquí solo se registra la deuda.
+
+### SA-D3 · Escrituras secuenciales por carta bajo request síncrono (Media)
+- **Dónde:** `src/modules/catalog/finish-reconciler.service.ts:65` (`card.update` en bucle),
+  `src/modules/pricing/price-ingest.service.ts:370` (`persistMarketReference` por fila) y `:411`
+  (`card.update` del snapshot por carta).
+- **Estado actual:** los tres caminos escriben UNA fila por round-trip a Postgres, en serie. **P-12
+  lo pone detrás de un botón de M2** (`POST /admin/catalog/sync {setId, force:true}`): resolver
+  estructural + reconcile de un set de ~300 cartas ⇒ **~300 round-trips dentro del request HTTP**; y
+  el `202 {jobId}` de ese sync sigue siendo síncrono en realidad (D1 del pase v1.1: no hay cola
+  detrás del jobId).
+- **Impacto:** medio: latencia del request admin, con riesgo de timeout en sets grandes o instancias
+  lejos de la BD. Correctness OK (upserts/updates idempotentes; re-lanzar repara).
+- **Disparador:** timeouts reales del botón de M2, o al cablear BullMQ para catálogo (familia
+  D1/BE-11/BE-21). Dirección: batchear las escrituras (`updateMany` agrupado por valor recomputado,
+  `$transaction` por lotes, `createMany` para referencias) y/o mover el trabajo a un job real con
+  `jobId` consultable.
+
+### SA-D5 · Gate estructural `firstImport || force` duplicado en las dos rutas de import (Baja)
+- **Dónde:** `src/modules/catalog/catalog-sync.service.ts:305-312` (`importSet`) vs `:334-342`
+  (`importSetByExternalId`).
+- **Estado actual:** el cálculo de `firstImport` (resolver cableado + count de cartas del set == 0) y
+  el gate `firstImport || force` están copiados en ambas rutas (P-12 los dejó en paridad a propósito,
+  pero por duplicación literal).
+- **Impacto:** bajo (mantenibilidad): un matiz futuro al gate hay que aplicarlo dos veces o las rutas
+  divergen en silencio — justo la asimetría que P-12 vino a cerrar.
+- **Disparador:** próximo toque a `catalog-sync`. Dirección: extraer un helper privado (p. ej.
+  `shouldRunStructuralResolver(localSetId, force)`) consumido por ambas rutas.
+
+### SA-D6 · `force` solo-body en `sync` vs body-o-query (`parseForce`) en `sync-all`/`backfill` (Baja)
+- **Dónde:** `src/modules/catalog/admin-catalog.controller.ts` — `POST /admin/catalog/sync` lee
+  `force` SOLO del body (`SyncDto`, `dto.force ?? false`), mientras `sync-all` y `backfill` aceptan
+  body O query vía el helper `parseForce(bodyForce, queryForce)`.
+- **Estado actual:** dos convenciones de entrada para el MISMO flag en el MISMO controller.
+- **Impacto:** bajo (consistencia/DX de operación): un operador que use `?force=true` en `sync` verá
+  el flag ignorado en silencio (y el audit registrará `force:false`).
+- **Disparador:** próximo toque al controller de catálogo (si cambia la superficie del contrato §M2,
+  pasa por el arquitecto). Dirección: unificar a UNA convención (body tipado en las tres rutas, o
+  `parseForce` en las tres).
