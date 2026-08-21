@@ -2,7 +2,30 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.26-precios-variantes-masterset (MVP, plataforma en producción). Fecha: 2026-08-20. Branch: `claude/precios-variantes-masterset`.
+> Estado: v1.27-stream-a-catalogo-precios (MVP, plataforma en producción). Fecha: 2026-08-22. Stream A «Catálogo y precios» (P-13 + P-15 + P-12 de `PENDIENTES.md`).
+>
+> **Changelog v1.27-stream-a-catalogo-precios (2026-08-22, Stream A «Catálogo y precios») — tres arreglos del plan
+> aprobado 2026-08-21: P-13 (variantes fantasma), P-15 (mercado por variante), P-12 (sync completo por set). Spec
+> completa en §4.25; contrato en API_CONTRACT (Changelog v1.27). SIN migración de schema (M-27/M-29 ya existen);
+> paso de despliegue = RE-SYNC forzado (§4.25a-4). Toca la lista blanca SEC-A1 → gate de seguridad por release.**
+> - **P-13 — «el precio CONFIRMA, nunca AÑADE» (§4.25a; DEROGA la unión de §4.24a/§4.22g en la composición).**
+>   La fórmula `structuralFinishes ∪ pricedFinishesSnapshot` era el vector de las variantes fantasma (ex con
+>   `Normal`, secret rares duplicadas): el barrido por-impresión de PPT (`fetchPrintings`) atribuye el finish por la
+>   **etiqueta del request**, no por dato de la carta, y la unión promovía ese `normal` CON precio a casilla — algo
+>   que el propio comentario VAR-1 de `card-order.ts` ya prohibía. Fórmula nueva:
+>   `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`.
+>   `pricedFinishesSnapshot` **sale de la composición** (queda como observabilidad/confirmación); `fetchPrintings`
+>   sigue sirviendo para **PRECIOS por impresión** (P-15 lo necesita) pero jamás como evidencia estructural.
+>   Fallback legacy (structural vacío) = `['normal']` — conservador, trade-off documentado en §4.25a-3; se repara
+>   con el re-sync forzado post-deploy.
+> - **P-15 — precio de mercado POR VARIANTE en el binder Master Set (§4.25b).** `MasterSetVariantDTO` gana
+>   `marketReferenceMxnCents?: number|null` (+ `capturedDate?`) = la `PriceReference` de ESE acabado; el batch
+>   `getReferencesBatch` se expande a (carta × acabado del universo) — sigue UNA query. El campo de CELDA v1.26
+>   queda **DEPRECADO** (espejo del acabado base UNA versión; retiro en la siguiente rev).
+> - **P-12 — sync completo de UN set (§4.25c).** `POST /admin/catalog/sync` gana `force?: boolean`: corre el
+>   resolver estructural TCGCSV también en el sync por set (cierra la asimetría de `importSet`). Flujo admin
+>   recomendado por set: `sync {setId, force:true}` + `POST /admin/jobs/price-ingest {setId}`. Textos stale de
+>   «sync-all repuebla precios» corregidos en el contrato (§4.15g manda desde v1.14).
 >
 > **Changelog v1.26-precios-variantes-masterset (2026-08-20, rama `claude/precios-variantes-masterset`) — bundle
 > aprobado por el PO. Cinco piezas, dos batches de commit. Toca dinero (③④⑤) → veredicto de seguridad posterior.**
@@ -886,8 +909,10 @@ PendingPriceEntry (cola de precio pendiente)
 - **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta. **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2) **y** el **universo de casillas** del binder (§4.20b).
   - **v1.22 — AUTORIDAD ÚNICA = el sync de CATÁLOGO.** Derivado de `tcgplayer.prices` ∪ `cardmarket.prices.reverseHolo*` (§3.7). **`price-ingest` NO escribe esta columna** (§4.22a deroga §4.15e). Almacenado **siempre en orden canónico `FINISH_ORDER`** y **nunca vacío**.
   - **v1.22-1 (M-27) — pasa a ser DERIVADA de dos columnas de entrada.** Deja de escribirse directamente por `upsertCards`: es la **unión materializada** `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`, recomputada por el **único escritor** `catalog.FinishReconciler` (§4.22g). Sigue siendo la lista blanca SEC-A1 y el universo de casillas del binder; su **forma no cambia** (todos los lectores la siguen consumiendo igual).
+  - **v1.26 (M-29, §4.24a):** la entrada del lado catálogo pasa a ser `structuralFinishes` (TCGCSV): `orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`.
+  - **v1.27 (P-13, §4.25a) — la UNIÓN se DEROGA: el precio CONFIRMA, nunca AÑADE.** Fórmula vigente: `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`. `pricedFinishesSnapshot` deja de componer (queda como observabilidad). Mismo escritor único (`FinishReconciler`), misma forma, mismas garantías (nunca vacío, orden canónico).
 - **`catalogFinishes Finish[] @default([])` (v1.22-1, M-27):** INTERNA (no se expone en DTO). La «opinión del catálogo» = Señal A ∪ Señal B del último payload de pokemontcg.io (lo que devuelve `deriveAvailableFinishes(c)`), persistida en su propia columna para **sobrevivir a un 502** de la fuente. La escribe `upsertCards` con la semántica null de §4.22a-4 (null ⇒ conserva; CREATE ⇒ `derived ?? ['normal']`). Backfill M-27: `= availableFinishes`.
-- **`pricedFinishesSnapshot Finish[] @default([])` (v1.22-1, M-27):** INTERNA. **Señal C** = acabados que **PPT** reportó con `market>0` para la carta, **filtrados a alias VERIFICADO** (§4.22g candado 2). La escribe `price-ingest` por **REEMPLAZO** por carta vista en una corrida exitosa (money-safe: no se toca ante fallo/0 filas). Alimenta la unión pero **NO** es la lista blanca (esa es `availableFinishes`).
+- **`pricedFinishesSnapshot Finish[] @default([])` (v1.22-1, M-27):** INTERNA. **Señal C** = acabados que **PPT** reportó con `market>0` para la carta, **filtrados a alias VERIFICADO** (§4.22g candado 2). La escribe `price-ingest` por **REEMPLAZO** por carta vista en una corrida exitosa (money-safe: no se toca ante fallo/0 filas). ~~Alimenta la unión~~ **v1.27 (P-13): YA NO alimenta la composición de `availableFinishes`** — es solo confirmación/observabilidad (§4.25a); además las filas del barrido por-impresión (`fetchPrintings`, finish atribuido por etiqueta de request) **NO** deben escribirla (§4.25a-2). **NO** es la lista blanca (esa es `availableFinishes`).
 - **`numberSort Int @default(1000000)` / `numberPrefix String @default("")` (v1.22, MIGRACIÓN M-26):** **claves derivadas** de `number` (que es `String`) para el **orden natural en BD** — `number` puramente numérico → `numberSort` = su entero y `numberPrefix = ''`; con prefijo alfabético (`TG12`, `SV107`) → `numberPrefix` = las letras y `numberSort = 1_000_000 + parte numérica` (promos/subsets al final). Escritas por `upsertCards` con la MISMA función que las backfillea (`deriveNumberParts`, §4.22b). **Derivadas, no autoritativas:** la fuente de verdad sigue siendo `number`; si divergen, se recalculan desde `number`.
 - Índices: `(setId)`, `(name)`, `(rarity)`, **`(setId, numberPrefix, numberSort)` (M-26)**, `externalId` único.
 
@@ -3571,6 +3596,11 @@ vendedor puede cotizar y **borra** casillas del binder.
    > de `tcgplayer.prices`/`cardmarket` (proxy de precio). *Detectar de TCGCSV; jamás inferir por rareza/era; una
    > impresión estructural sin precio es «pendiente», nunca inventada ni dropeada.* La regla 2 (money→estructura) y la
    > anti-invención (candado 3, §4.22g) quedan intactas.
+   > **v1.27 (P-13, §4.25a) — cierre definitivo del vector money→estructura.** Con `structuralFinishes` poblado, la
+   > composición es `availableFinishes = orderFinishes(structuralFinishes)` a secas: **ninguna señal de precio (ni
+   > Señal C/snapshot PPT, ni llaves de `tcgplayer.prices`) añade jamás una casilla**. VAR-1 pasa de mitigado a
+   > estructuralmente imposible en la población resuelta por TCGCSV. Fallback legacy (structural vacío) = `['normal']`
+   > (ver §4.25a-3, trade-off y ruta de migración).
 
 6. **§4.22a-6 (v1.22-2 / N-15) — `displayFinishes`: supresión de acabado ESPURIO en premium de una sola impresión
    (DISPLAY, NO whitelist).** *(El PO resolvió N-15 eligiendo la opción MÍNIMA: solo suprimir la casilla `normal`
@@ -3583,6 +3613,12 @@ vendedor puede cotizar y **borra** casillas del binder.
    ese acabado entra a `catalogFinishes` → `availableFinishes` y el binder pinta una casilla `Normal` para una carta
    que **en realidad solo existe** en Holofoil (ex/full-art). N-15 elimina esa casilla espuria **sin** tocar la
    whitelist ni el vector de dinero.
+
+   > **v1.27 (P-13) — alcance de N-15 tras la regla «confirma, no añade» (§4.25a).** N-15 solo oculta acabados **SIN
+   > precio**, así que NUNCA salvó el caso P-13 (el `normal` fantasma de `fetchPrintings` venía CON precio). Ese caso
+   > lo cierra ahora la composición misma: con `structuralFinishes` poblado, el fantasma ni siquiera entra a
+   > `availableFinishes`. N-15 **se conserva tal cual** como cinturón para la población **legacy/fallback**
+   > (structural vacío → `['normal']`) y para cualquier residuo pre-re-sync; sigue siendo solo-display, solo-resta.
 
    **Mecanismo — campo DERIVADO de DISPLAY, separado de la whitelist (decisión del arquitecto).** Se expone un
    campo derivado nuevo `displayFinishes: Finish[]` (subconjunto de `availableFinishes`, mismo orden `FINISH_ORDER`)
@@ -4203,6 +4239,12 @@ lado catálogo en la unión del reconciliador:
 availableFinishes  :=  orderFinishes( structuralFinishes ∪ pricedFinishesSnapshot )   ||  ['normal']
 ```
 
+> **⛔ v1.27 (P-13, §4.25a) — esta fórmula queda DEROGADA en su término de UNIÓN.** La unión resultó ser el vector de
+> las variantes fantasma (el `normal` CON precio que atribuye `fetchPrintings` por etiqueta de request entraba como
+> casilla). La fórmula vigente es `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) :
+> ['normal']` — **el snapshot de precio CONFIRMA, nunca AÑADE**. Todo lo demás de esta sección (columna
+> `structuralFinishes`, resolver TCGCSV, semántica de escritura, S-D1..3) sigue vigente. Ver §4.25a.
+
 - `structuralFinishes` — derivada de TCGCSV (ver resolver abajo). La escribe **un solo sitio nuevo** en el módulo
   `catalog` (paso de `importSet`), **no** `price-ingest`.
 - `pricedFinishesSnapshot` — **sin cambio** (Señal C money-safe de §4.22g: PPT `market>0` + alias VERIFICADO).
@@ -4320,7 +4362,9 @@ variante (y viceversa). Decisión:
 
 El DTO por celda (`MasterSetCardCellDTO`/`MasterSetVariantDTO`, `master-set.service.ts:70-137`) **no lleva precio** hoy.
 Campo **aditivo opcional**: `MasterSetCardCellDTO.marketReferenceMxnCents?: number | null` (y/o por variante en
-`MasterSetVariantDTO` si el front lo pide por acabado — ver contrato). Se puebla con la infraestructura **ya inyectada**
+`MasterSetVariantDTO` si el front lo pide por acabado — ver contrato). **v1.27 (P-15, §4.25b): la pregunta quedó
+resuelta — el precio de mercado vive POR VARIANTE (`MasterSetVariantDTO.marketReferenceMxnCents`); el campo de celda
+queda DEPRECADO (espejo del acabado base, una versión).** Se puebla con la infraestructura **ya inyectada**
 del binder (`master-set.service.ts:424` usa `getReferencesBatch`/`getPricedRawFinishesBatch`), FX-recomputado a MXN con
 la misma lógica `liveMxnCents` (`pricing.service.ts:104`, USD→MXN vigente).
 
@@ -4369,6 +4413,134 @@ seguridad posterior):
   `tcgplayerId` + corre el resolver TCGCSV → `structuralFinishes` → reconcile); (3) registrar S-D1/S-D2/S-D3 en
   `DEVOPS_NOTES.md`. Verificación (gate): sobre un set moderno, `SELECT count(*) FROM "Card" WHERE 'reverse_holo' =
   ANY("structuralFinishes") AND "setId"=:set` > 0; el binder pinta dos casillas en una común moderna.
+
+### 4.25 Stream A «Catálogo y precios» (v1.27) — variantes fantasma (P-13), mercado por variante (P-15), sync por set (P-12)
+
+> Tres arreglos del plan aprobado 2026-08-21 (`PENDIENTES.md`). **SIN migración de schema** (M-27/M-29 ya existen);
+> el paso de despliegue es un **re-sync forzado** (§4.25a-4). Contrato: API_CONTRACT Changelog v1.27. Backend y
+> frontend implementan contra esta sección; los tres cambios caben en UN batch de commit (no tocan `prisma/`).
+
+#### (a) P-13 — composición de `availableFinishes`: el precio CONFIRMA, nunca AÑADE
+
+**Diagnóstico (por qué la unión de §4.24a era el bug).** `unionAvailableFinishes` (`card-order.ts:71-77`) hace
+`structuralFinishes ∪ pricedFinishesSnapshot`, pero el **comentario VAR-1 del propio archivo** (`:60-61`) declara que
+el snapshot «NO añade estructura: solo confirma precio de una impresión ya estructural» — el código nunca implementó
+su propia doctrina. Dos fuentes de precio metían variantes inexistentes: **(1)** el barrido por-impresión de PPT
+(`fetchPrintings`, `pokemonpricetracker-bulk.provider.ts:46-50, 554-556`) atribuye el finish por la **etiqueta del
+request** (`printing=Normal`), no por dato de la carta ⇒ si PPT devuelve una ex en el barrido `Normal`, se le pega un
+`normal` CON precio (causa principal: N-15 no lo salva porque solo oculta acabados SIN precio); **(2)** el seed de
+pokemontcg.io en CREATE (sub-llave `normal` presente con `market:null`, o default `['normal']`). Resultado observado:
+ex con Normal+Holofoil (misma imagen), hasta 3 variantes, secret rares duplicadas.
+
+**1. Regla nueva (NORMATIVA).** La composición deja de ser unión:
+
+```
+availableFinishes :=
+  structuralFinishes ≠ ∅ :  orderFinishes(structuralFinishes)   // TCGCSV es LA autoridad; el precio solo confirma
+  structuralFinishes = ∅ :  ['normal']                          // fallback legacy (sin resolver TCGCSV) — ver (3)
+```
+
+- `pricedFinishesSnapshot` **SALE de la composición**. Se **conserva la columna** con dos usos: (i) observabilidad
+  (`dataHealth` / log `pricedNotStructural = snapshot ∖ structuralFinishes`, evidencia de drift proveedor↔estructura
+  para el dueño de datos); (ii) confirmación «esta impresión estructural tiene precio» (decoración, jamás
+  composición). `FinishReconciler` **sigue siendo el único escritor** de `availableFinishes` (candado 4, §4.22g);
+  solo cambia su fórmula. Firma sugerida (sustituye a `unionAvailableFinishes` en `card-order.ts`, junto a su
+  doctrina ya escrita): `composeAvailableFinishes(structuralFinishes: Finish[]): Finish[]`.
+- Sigue **nunca vacía**, orden canónico `FINISH_ORDER`, recomputable y NO monótona (recomputar con una entrada menor
+  ELIMINA — así se limpian los fantasmas ya materializados).
+- Un `PriceReference` de un finish fuera de `availableFinishes` sigue siendo **inerte** (el quote valida el finish
+  ANTES de leer precio) y se loguea como `finishNotInCatalog` — sin cambio.
+
+**2. `fetchPrintings` — precios sí, estructura jamás (NORMATIVO).** El barrido por impresión **se conserva para
+PRECIOS**: es exactamente lo que produce la `PriceReference` propia de la reverse (prerequisito de datos de P-15).
+Pero el finish atribuido por **etiqueta de request NO es evidencia estructural**: las filas del modo forzado
+(`forced`, `:554-556`) **NO deben escribirse en `pricedFinishesSnapshot`** ni marcarse como alias-VERIFICADO a efectos
+de la Señal C (hoy `finishAliasVerified` se computa sobre la propia etiqueta ⇒ se auto-verifica). Es defensa en
+profundidad: aunque el snapshot ya no compone, no debe quedar envenenado (se usa para observabilidad y podría
+re-leerse en el futuro). El modo lista (`primaryPrinting` del dato de la carta) sí puede seguir alimentando el
+snapshot como hasta ahora.
+
+**3. Fallback `structuralFinishes = ∅` — DECISIÓN: `['normal']` (opción b).** Alternativas evaluadas:
+- *(a) usar `pricedFinishesSnapshot` filtrado como fallback:* conservaría dos casillas en cartas legacy con reverse
+  priceado, pero **re-abre el vector precio→estructura exactamente en la población no resuelta** (la misma donde
+  nacen los fantasmas: sin estructura contra qué intersectar, el snapshot «filtrado» es el snapshot a secas, y el
+  `normal` de etiqueta de `fetchPrintings` volvería a ser casilla). Rechazada.
+- *(b) `['normal']` (ELEGIDA):* VAR-1-limpia y conservadora — mejor «falta una casilla» que «sobra una falsa»; y
+  **fail-closed para dinero**: cotizar/dar de alta un reverse real de una carta legacy da `422 FINISH_NOT_AVAILABLE`
+  hasta el re-sync (nunca un precio sobre una variante no declarada). Las piezas físicas ya capturadas con un finish
+  fuera del universo **no se pierden**: quedan visibles como drift en `countsByFinish` (§4.20b), solo no cuentan en
+  expected/covered.
+- **Trade-off aceptado:** entre el deploy y el re-sync, una carta legacy re-reconciliada puede colapsar a una casilla
+  (regresión transitoria, se anota abajo). El remedio permanente del residuo (carta que TCGCSV nunca resuelve) sigue
+  siendo el **override manual del admin** (§4.22g remedio (a)) — jamás una heurística.
+
+**4. Ruta de migración (paso de despliegue, dueño devops/humano).** (1) deploy del fix; (2) **re-sync forzado UNA
+sola vez**: `POST /admin/catalog/sync-all {force:true}` (o por set con P-12: `sync {setId, force:true}`) — el
+resolver TCGCSV puebla `structuralFinishes` y el reconcile recomputa con la fórmula nueva, eliminando los fantasmas
+ya grabados; (3) verificación: una ex moderna queda con `['holofoil']` (una casilla), una común moderna con
+`['normal','reverse_holo']` (dos). `PENDIENTES.md` ya instruye al humano esperar este fix para re-sincronizar prod
+una sola vez. **Ordenar el re-sync ANTES de correr price-ingest masivo** minimiza la ventana de la regresión
+transitoria del punto 3.
+
+#### (b) P-15 — precio de mercado POR VARIANTE en el Master Set
+
+**Bug de lectura, no de datos:** `PriceReference` YA es por variante (`finish` en la clave única), pero el binder
+(`master-set.service.ts:437-446`) pedía UNA referencia por carta con el acabado BASE (`availableFinishes[0]`) y la
+exponía a nivel **celda**; la teja por variante pintaba ese dato de celda ⇒ Normal y Reverse mostraban lo mismo. Era
+el único consumidor de precios que no propagaba el finish (buylist sí lo pasa).
+
+- **DTO (contrato §M1/§DTOs v1.27):** `MasterSetVariantDTO += marketReferenceMxnCents?: number | null` y
+  `capturedDate?: string | null` (fecha de captura de la `PriceReference`, decoración de frescura; presente solo con
+  precio). Semántica idéntica a la v1.26 de celda pero por acabado: referencia CRUDA `(cardId,'raw','raw:NM',finish)`
+  FX-recomputada a MXN (`liveMxnCents`); `null` = pending/ausente (jamás un 0 inventado). Aplica a los 3 scopes del
+  binder. NO toca SEC-A1 (lectura pura).
+- **Backend (sin N+1):** expandir el lote de `getReferencesBatch` de (1 clave por carta) a **(carta × acabado del
+  universo `expectedFinishes(availableFinishes)`)** — el batch ya acepta lista; sigue UNA query. Poblar cada
+  `MasterSetVariantDTO` con su clave `${cardId}|raw|raw:NM|${finish}`. Si `getReferencesBatch` no devuelve hoy
+  `capturedDate`, extender su retorno (lee `PriceReference`, que la tiene).
+- **Campo de CELDA `MasterSetCardCellDTO.marketReferenceMxnCents` — DECISIÓN: DEPRECADO una versión, no eliminado.**
+  El backend lo sigue emitiendo como **espejo de la variante del acabado base** (`= variants[0].marketReferenceMxnCents`,
+  costo cero: ya está en el batch) para no romper lectores rezagados (el shape del binder lo consumen 3 vistas +
+  el modo quoter client-side). El **frontend migra TODOS sus lectores a la variante en este mismo stream**; el retiro
+  del campo va en la siguiente rev de contrato.
+- **Prerequisito de DATOS (no de código):** `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` en Railway — sin él el
+  proveedor emite una fila por carta (impresión primaria) y las reverse quedan «—» aunque el DTO sea correcto
+  (pendiente del humano en `PENDIENTES.md`). No bloquea el merge: el contrato define `null` honesto para ese caso.
+
+#### (c) P-12 — sync completo de UN set (cartas + variantes + precios)
+
+**Asimetría cerrada:** el resolver estructural TCGCSV solo corría en first-import o `sync-all {force:true}`
+(`catalog-sync.service.ts:290-313`) ⇒ el botón por set de M2 re-traía cartas pero jamás refrescaba variantes, y
+tampoco tocaba precios (correcto desde §4.15g, pero la UI y el copy sugerían lo contrario).
+
+- **Contrato (§M2 v1.27):** `POST /admin/catalog/sync` gana `force?: boolean = false`. Con `force:true`, `importSet`
+  corre `resolveStructuralFinishesForSet` para **cada set procesado por la llamada** (single o from_date), misma
+  semántica y mismo best-effort/money-safe que hoy (fallo TCGCSV ⇒ log, conserva previo, no aborta). Implementación:
+  propagar `opts.force` desde el controller hasta `importSet` (el gate `firstImport || opts.force` ya existe).
+- **Flujo recomendado del admin por set (documentado en contrato):** (1) `sync {setId, force:true}` → metadata +
+  cartas + variantes; (2) `POST /admin/jobs/price-ingest {setId}` (ya existe; barrido del set COMPLETO, bypass del
+  scope <2020 de `ppt-sync-scope`). El **frontend** añade la acción por fila en M2 que encadena ambos
+  (`triggerPriceIngest({setId})` ya existe en `api.ts` y nadie lo llama) y **corrige el copy** de `es.json:1269`
+  («repuebla precios» es falso desde v1.14).
+- **Textos stale corregidos en el contrato** (§M2 sync-all «repuebla PriceReference», §M10-ops `price-ingest`
+  «refresca availableFinishes», `catalog-price-sync`): marcados ⛔ con la referencia a §4.15g/§4.22a/§4.25a.
+
+#### (d) Reparto de trabajo (para el orquestador)
+
+- **backend** (`catalog` + `pricing` + `inventory/master-set` — módulos del stream): (a) fórmula nueva del
+  `FinishReconciler` + `card-order.ts` (P-13.1) + exclusión de filas `forced` del snapshot (P-13.2) + tests
+  (`catalog-sync.structural.spec` y unitarios del reconciler: ex ⇒ una casilla aunque haya `normal` CON precio;
+  legacy vacío ⇒ `['normal']`); (b) expansión del batch por variante + DTO (P-15) + espejo deprecado en celda;
+  (c) `force` en `sync` por set (P-12). Sin `prisma/`, sin zona compartida de backend.
+- **frontend** (`(admin)` M1/M2 + componentes del binder): (a) teja de variante lee SU
+  `marketReferenceMxnCents` (y deja de leer el de celda — migrar TODOS los lectores, incluido `contract.ts` espejo,
+  zona compartida `frontend/src/types/` serializada dentro del stream); (b) acción por fila en M2 «sincronizar set
+  completo» que encadena sync force + price-ingest y muestra resultado honesto; (c) copy de `es.json` corregido.
+- **devops/humano (post-merge):** re-sync forzado único (§4.25a-4) + verificar
+  `POKEMONPRICETRACKER_FETCH_PRINTINGS=true`.
+- **qa (gate por stream):** unitarios + contrato + smoke E2E de: binder muestra mercado distinto por variante (o «—»
+  honesto), ex sin casilla `Normal` tras re-sync local, sync por set con force refresca variantes, price-ingest por
+  set puebla precios.
 
 ---
 
