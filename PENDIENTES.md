@@ -331,7 +331,25 @@ Del lado del humano (cuando pueda):
 - **Roles:** product-owner (definir alcance con el humano) → arquitecto (contrato de referencias
   por grado) → backend + frontend.
 
-### P-21 · Rebrand: la página pasa a ser **TCG HUNT (.mx)** con logo de mira
+### P-21 · ✅ COMPLETO — la página es **TCG HUNT** y el switch de dominio se ejecutó (2026-08-21)
+- **Rebrand en producción** (release v1.28, commit `5772dbd`): marca, logo, correos.
+- **Switch de dominio EJECUTADO por el humano con el runbook §25:** DNS apex `tcghunt.mx` en
+  Vercel (Valid), CORS Railway (`APP_BASE_URL` reordenado, nuevos primero), R2 CORS, Google OAuth,
+  Resend Verified, Email Routing con 3 buzones probados, `MAIL_FROM`/`DISPUTE_EVIDENCE_CONTACT` a
+  `@tcghunt.mx`, y redirects **308** `tcgvaultmx.com` + `www.tcgvaultmx.com` → `tcghunt.mx` vía
+  dashboard de Vercel (el método recomendado; NO se usó el `vercel.json`). Verificado por el humano:
+  redirect, login Google, INE, compra, correo desde `no-reply@tcghunt.mx`. Dominio viejo se conserva
+  ≥12 meses.
+- **PENDIENTE menor (no bloqueante):** desplegar el cambio i18n de buzones del sitio a `@tcghunt.mx`
+  (commit `9e6bbed` en la rama) — desfase aceptado porque ambos buzones reciben; sale con el próximo
+  release ordenado (junto con Stream C, tras su fase de seguridad). El `vercel.json` (commit
+  `3658e77`) quedó OBSOLETO (apuntaba a www.tcghunt.mx que no existe; el redirect se hizo por
+  dashboard) — descartar/no mergear.
+- **PENDIENTE del humano:** razón social real para `footer.legalEntity` (hoy placeholder, por su
+  decisión de publicar sin ello).
+
+<!-- histórico del pendiente original abajo -->
+### P-21 (histórico) · Rebrand: la página pasa a ser **TCG HUNT (.mx)** con logo de mira
 - **Pedido del humano (2026-08-21):** va a comprar el dominio (tcghunt.mx) y quiere rebrandear toda
   la página a ese nombre con el logo que compartió: una **mira/crosshair** en degradado rojo-vino
   sobre fondo claro, wordmark "TCG HUNT" + ".mx" en tipografía sans bold.
