@@ -99,6 +99,23 @@ describe('PokemonPriceTrackerBulkProvider — fix-ppt', () => {
       ['reverse_holo', 200],
       ['holofoil', 300],
     ]);
+    // v1.27 (P-13.2, §4.25a-2): el finish del modo forzado viene de la ETIQUETA del request, NO del
+    // dato de la carta ⇒ NUNCA alias-verificado (antes se auto-verificaba contra la propia etiqueta)
+    // y marcado `forcedPrinting` para que el ingest lo EXCLUYA de `pricedFinishesSnapshot`.
+    for (const row of res.rows) {
+      expect(row.finishAliasVerified).toBe(false);
+      expect(row.forcedPrinting).toBe(true);
+    }
+  });
+
+  it('(3b) modo LISTA (sin fetchPrintings): las filas NO llevan forcedPrinting y SÍ pueden verificarse', async () => {
+    mockPages([
+      { data: [{ id: 'sv8-1', cardNumber: '1', prices: { market: 2, primaryPrinting: 'Reverse Holofoil' } }], metadata: { total: 1, hasMore: false } },
+    ]);
+    const res = await make().fetchPricesForSet({ set: SET, providerSetId: '1407' });
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0].finishAliasVerified).toBe(true); // primaryPrinting ES dato de la carta
+    expect(res.rows[0].forcedPrinting).toBeUndefined(); // el modo lista sigue alimentando el snapshot
   });
 
   it('(4) 429 daily → dailyLimited:true (señal de PARADA), 0 filas, no revienta', async () => {

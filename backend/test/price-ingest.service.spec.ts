@@ -174,6 +174,53 @@ describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSna
     expect(reconciler.reconcile).toHaveBeenCalledWith(['db-1']);
   });
 
+  it('v1.27 P-13.2: filas FORZADAS (fetchPrintings, finish por etiqueta) ⇒ NO tocan el snapshot pero SÍ se reconcilia y el precio SÍ se persiste', async () => {
+    // Corrida en modo por-impresión: TODAS las filas llevan forcedPrinting=true y alias NO verificado.
+    const provider = providerMock('pokemonpricetracker', [
+      { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 100, currency: 'USD', finishAliasVerified: false, forcedPrinting: true },
+      { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'reverse_holo', marketCents: 200, currency: 'USD', finishAliasVerified: false, forcedPrinting: true },
+    ]);
+    const prisma = prismaMock();
+    const pricing = { persistMarketReference: jest.fn(async () => {}) };
+    const reconciler = reconcilerMock();
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any, pptMapperMock() as any, configMock() as any);
+
+    await svc.ingestSet('local-sv8', fx);
+
+    // PRECIOS sí (es el prerequisito de datos de P-15: la reverse gana su PriceReference propia)…
+    expect(pricing.persistMarketReference).toHaveBeenCalledTimes(2);
+    expect(pricing.persistMarketReference).toHaveBeenCalledWith(
+      'db-1', 'reverse_holo', expect.objectContaining({ marketCents: 200 }), fx,
+    );
+    // …pero el snapshot NO se toca (ni se reemplaza ni se limpia: la etiqueta no es evidencia).
+    expect(prisma.card.update).not.toHaveBeenCalled();
+    // El reconcile SÍ corre (idempotente; repara availableFinishes stale con la fórmula §4.25a).
+    expect(reconciler.reconcile).toHaveBeenCalledWith(['db-1']);
+    expect(availableFinishesUpdates(prisma)).toHaveLength(0);
+  });
+
+  it('v1.27 P-13.2: mezcla lista+forzada ⇒ el snapshot se computa SOLO con la evidencia del modo lista', async () => {
+    const provider = providerMock('pokemonpricetracker', [
+      // fila de modo LISTA (primaryPrinting, verificada) — SÍ es evidencia:
+      { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'holofoil', marketCents: 300, currency: 'USD' },
+      // fila FORZADA — precio sí, evidencia no:
+      { externalId: 'sv8-1', setExternalId: 'sv8', number: '1', finish: 'normal', marketCents: 100, currency: 'USD', finishAliasVerified: false, forcedPrinting: true },
+    ]);
+    const prisma = prismaMock();
+    const pricing = { persistMarketReference: jest.fn(async () => {}) };
+    const reconciler = reconcilerMock();
+    const svc = new PriceIngestService(prisma, settingsMock('pokemonpricetracker') as any, pricing as any, provider as any, {} as any, reconciler as any, pptMapperMock() as any, configMock() as any);
+
+    await svc.ingestSet('local-sv8', fx);
+
+    // El snapshot SOLO trae el acabado del modo lista (holofoil), jamás el `normal` de etiqueta.
+    expect(prisma.card.update).toHaveBeenCalledWith({
+      where: { id: 'db-1' },
+      data: { pricedFinishesSnapshot: ['holofoil'] },
+    });
+    expect(reconciler.reconcile).toHaveBeenCalledWith(['db-1']);
+  });
+
   it('MONEY-SAFE STALE: corrida que FALLA (requestOk=false) ⇒ NO se toca ningún snapshot ni se reconcilia', async () => {
     // El proveedor devolvió filas parciales pero la corrida no fue exitosa (fallo transitorio).
     const provider = providerMock(

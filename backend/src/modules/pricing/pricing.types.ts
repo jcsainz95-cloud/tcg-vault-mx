@@ -210,8 +210,20 @@ export interface BulkPriceRow {
    * SOLO las filas con `finishAliasVerified === true` pueden alimentar `pricedFinishesSnapshot`
    * (Señal C) y por ende la lista blanca SEC-A1. El PRECIO se persiste igual con alias SUPUESTO
    * (dato inocuo); el flag distingue lo apto para la lista blanca de lo tolerado solo para el precio.
+   *
+   * v1.27 (P-13.2, §4.25a-2): las filas del modo `fetchPrintings` FORZADO llevan SIEMPRE `false`
+   * (el finish viene de la ETIQUETA del request, no de dato de la carta ⇒ no puede auto-verificarse).
    */
   finishAliasVerified: boolean;
+  /**
+   * v1.27 (P-13.2, §4.25a-2) — `true` si el `finish` fue atribuido por la ETIQUETA del request del
+   * modo por-impresión (`fetchPrintings`/`printing=…`), NO por dato de la carta. Estas filas SIRVEN
+   * para PRECIOS (es exactamente lo que produce la `PriceReference` propia de la reverse, P-15) pero
+   * **jamás son evidencia estructural**: el ingest NO las escribe en `pricedFinishesSnapshot`
+   * (defensa en profundidad: aunque el snapshot ya no compone, no debe quedar envenenado).
+   * Ausente/`false` = fila del modo lista (primaryPrinting/llave por-acabado del dato de la carta).
+   */
+  forcedPrinting?: boolean;
 }
 
 export interface BulkPriceResult {

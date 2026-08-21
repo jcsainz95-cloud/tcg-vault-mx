@@ -95,6 +95,11 @@ export interface PriceSyncStatus {
  * CERO escrituras sobre `availableFinishes`. Ante fallo de PPT / 0 filas NO se toca ningún snapshot
  * (stale money-safe, como hoy no se borran precios). El drift se LOGUEA (`finishNotInCatalog`).
  *
+ * ✅ **v1.27 (P-13, §4.25a): el snapshot ya NO compone `availableFinishes`** (el precio CONFIRMA,
+ * nunca AÑADE; la lista blanca sale SOLO de `structuralFinishes`). El snapshot se conserva como
+ * observabilidad/confirmación, y las filas del modo FORZADO (`fetchPrintings`, finish por etiqueta
+ * de request) quedan EXCLUIDAS de él (§4.25a-2): sirven para precios, jamás como evidencia.
+ *
  * - **Provider por dial:** `providerFor()` lee `PRICE_PROVIDER` y elige la implementación.
  * - **Resolución carta↔BD (§4.15d):** externalId (primario) → `(set, number)` (fallback); sin
  *   resolución → se OMITE (no crea `PriceReference` huérfana). Vive AQUÍ (no en el adapter) porque
@@ -387,18 +392,27 @@ export class PriceIngestService {
     // fila válida, el snapshot se reemplaza por sus acabados con `market>0 && finishAliasVerified`
     // (vacío si ninguno es verificado ⇒ se limpia lo stale, reparabilidad §4.22g). Luego se llama
     // al ÚNICO escritor de `availableFinishes`. `price-ingest` JAMÁS escribe `availableFinishes`.
+    //
+    // v1.27 (P-13.2, §4.25a-2): las filas del modo FORZADO (`forcedPrinting`, finish por etiqueta
+    // de request) NO son evidencia — se EXCLUYEN del snapshot. Si TODAS las filas de una carta son
+    // forzadas (corrida `fetchPrintings`), su snapshot se CONSERVA tal cual (ni se escribe ni se
+    // limpia: una corrida por-impresión no aporta ni retira evidencia del modo lista). El reconcile
+    // SÍ corre igual: es idempotente y repara availableFinishes stale con la fórmula §4.25a.
     if (result.requestOk && result.rows.length > 0 && byCard.size > 0) {
       const reconcileIds: string[] = [];
       for (const [cardId, finishes] of byCard) {
-        const verified = orderFinishes(
-          [...finishes.values()]
-            .filter((row) => row.finishAliasVerified && row.marketCents > 0)
-            .map((row) => row.finish),
-        );
-        await this.prisma.card.update({
-          where: { id: cardId },
-          data: { pricedFinishesSnapshot: verified },
-        });
+        const evidence = [...finishes.values()].filter((row) => row.forcedPrinting !== true);
+        if (evidence.length > 0) {
+          const verified = orderFinishes(
+            evidence
+              .filter((row) => row.finishAliasVerified && row.marketCents > 0)
+              .map((row) => row.finish),
+          );
+          await this.prisma.card.update({
+            where: { id: cardId },
+            data: { pricedFinishesSnapshot: verified },
+          });
+        }
         reconcileIds.push(cardId);
       }
       await this.finishReconciler.reconcile(reconcileIds);

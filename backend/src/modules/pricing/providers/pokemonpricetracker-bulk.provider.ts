@@ -527,7 +527,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
 
     const added: BulkPriceRow[] = [];
     const drops: DropCounts = { ...NO_DROPS };
-    const push = (rawFinish: unknown, rawMarket: unknown): void => {
+    const push = (rawFinish: unknown, rawMarket: unknown, opts: { forcedPrinting?: boolean } = {}): void => {
       const finish = normalizeFinishAlias(rawFinish);
       if (finish == null) {
         drops.noFinish += 1;
@@ -538,7 +538,12 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         drops.noMarket += 1;
         return;
       }
-      const finishAliasVerified = normalizeVerifiedFinishAlias(rawFinish) !== null;
+      // v1.27 (P-13.2, §4.25a-2): en el modo FORZADO el finish viene de la ETIQUETA del request, no
+      // de dato de la carta ⇒ NO puede auto-verificarse como alias (antes `finishAliasVerified` se
+      // computaba sobre la propia etiqueta y siempre daba true). La fila sirve para PRECIOS, jamás
+      // como evidencia estructural (`forcedPrinting: true` → el ingest la excluye del snapshot).
+      const forcedPrinting = opts.forcedPrinting === true;
+      const finishAliasVerified = !forcedPrinting && normalizeVerifiedFinishAlias(rawFinish) !== null;
       added.push({
         externalId,
         setExternalId: providerSetId,
@@ -547,12 +552,15 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         marketCents,
         currency: format.currency,
         finishAliasVerified,
+        ...(forcedPrinting ? { forcedPrinting } : {}),
       });
     };
 
-    // (0) Modo por-impresión: el market de nivel carta es de ESA impresión.
+    // (0) Modo por-impresión: el market de nivel carta es de ESA impresión (etiqueta del request).
     if (forced) {
-      push(forced.label, e['prices'] ?? e['market'] ?? e['marketPrice'] ?? e['price']);
+      push(forced.label, e['prices'] ?? e['market'] ?? e['marketPrice'] ?? e['price'], {
+        forcedPrinting: true,
+      });
       return { added, drops };
     }
 
