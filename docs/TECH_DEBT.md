@@ -2800,3 +2800,51 @@
 - **Disparador/dirección:** al absorber las plantillas en `mail/` (BE-43) o al liberar `common/`: extraer el
   default a una constante única (junto a `BRAND`, BE-P21-1) y migrar la lectura a `ConfigService` (o a un
   provider del módulo `mail`) para alinear el idioma de config. Owner: **backend**. Prioridad: **baja**.
+
+### FE-P21-1 · Geometría del logo copiada en 3 sitios (componente + OG + favicon), sin guardia contra drift (Media)
+- **Dónde:** `frontend/src/components/domain/LogoTcgHunt.tsx:162-180` (fuente de verdad viva: cruz
+  segmentada, arcos y punto central del mark), `frontend/public/branding/og-tcg-hunt.svg:21-36` (copia
+  literal de esa geometría; además el asset OG **no está referenciado** en el metadata de ningún layout)
+  y `frontend/src/app/icon.svg:5-10` (copia de la variante micro).
+- **Estado actual:** la triplicación es legítima —los assets estáticos (OG/favicon) no pueden importar un
+  componente React— pero no hay nada que detecte divergencia entre las tres copias. Y la divergencia YA
+  está agendada: el cotejo pendiente con el PNG original del humano ajustará números en el TSX, y el OG
+  (hoy invisible por no estar cableado) quedaría con la geometría vieja sin que nadie lo note.
+- **Impacto:** medio (branding): tres copias sin guardia + un ajuste planificado sobre solo una de ellas
+  = drift silencioso casi garantizado en OG y favicon.
+- **Disparador/dirección:** en la misma pasada del cotejo con el PNG (ese es el disparador): o (a)
+  drift-guard — test que compare los números de geometría de los SVG estáticos contra el render del
+  componente (`renderToStaticMarkup` de las variantes mark/micro) y falle si divergen, o (b) script que
+  **genere** `og-tcg-hunt.svg` e `icon.svg` desde el componente (los estáticos dejan de ser fuente).
+  Cablear entonces el OG en metadata (ver FE-P21-3). Owner: **frontend**. Prioridad: **media**.
+
+### FE-P21-2 · Tokens `--hunt-*` declarados pero casi no consumidos; los hex viven duplicados en STOPS del logo (Baja)
+- **Dónde:** `frontend/src/app/globals.css:49-55` declara `--hunt-red`, `--hunt-wine`, `--hunt-wine-up`,
+  `--hunt-red-hover`, `--hunt-red-up`, `--hunt-red-deep`, `--hunt-tint`; de esos solo `--hunt-red-hover`
+  se consume. Los mismos hex están duplicados a mano en `LogoTcgHunt.tsx:38-43` (objeto `STOPS` de los
+  gradientes del mark/wordmark).
+- **Estado actual:** dos sedes de la paleta hunt sin conexión: cambiar `--hunt-red` en CSS **no cambia el
+  logo**, y los tokens restantes son código muerto que sugiere una fuente de verdad que no lo es.
+- **Impacto:** bajo (mantenibilidad/DS): riesgo de divergencia de paleta en un ajuste de color futuro y
+  tokens fantasma que confunden al que llegue después.
+- **Disparador/dirección:** elegir UNA de dos (no ambas): (a) el componente consume los tokens vía
+  `style`/`var(--hunt-*)` en los stops y CSS queda como sede única, o (b) se retiran los tokens no usados
+  de `globals.css` y el DS declara `STOPS` del componente como sede única de la paleta del logo. Hacerlo
+  junto al cotejo del PNG (FE-P21-1), que ya tocará esos hex. Owner: **frontend** (si toca `DESIGN_SYSTEM.md`,
+  coordina ux-ui). Prioridad: **baja**.
+
+### FE-P21-3 · Marca duplicada en i18n, patrón de título copiado a mano y metadata sin `metadataBase`/OG url (Baja)
+- **Dónde:** `frontend/messages/es.json` y `frontend/messages/en.json` duplican `"TCG HUNT"` en
+  `common.appName` y `common.brand.name` (metadata consume una clave y la UI la otra); el patrón de
+  título `TCG HUNT — {página}` está copiado a mano en 2 layouts (`frontend/src/app/[locale]/layout.tsx`
+  y `frontend/src/app/[locale]/(storefront)/layout.tsx`) en vez de usar `title: { default, template }`
+  del layout raíz; y falta `metadataBase` + `openGraph.url` en el metadata.
+- **Estado actual:** renombrar la marca exige tocar 4 claves i18n + 2 layouts; sin `metadataBase` las URLs
+  relativas de OG no resuelven a absolutas, y sin `openGraph.url` no hay señal canónica.
+- **Impacto:** bajo hoy (los textos coinciden), pero `metadataBase`/`openGraph.url` se vuelven necesarios
+  en cuanto aterrice el OG PNG (FE-P21-1) y como señal canónica en la migración de dominio con 301.
+- **Disparador/dirección:** cuando aterrice el OG PNG o arranque la migración con 301, lo primero que
+  llegue: unificar la marca en una sola clave i18n (la otra referencia o desaparece), mover el patrón de
+  título a `title: { default, template }` del layout raíz (los layouts hijos solo declaran su segmento) y
+  añadir `metadataBase` + `openGraph.url` (dominio canónico desde env). Owner: **frontend**. Prioridad:
+  **baja**.
