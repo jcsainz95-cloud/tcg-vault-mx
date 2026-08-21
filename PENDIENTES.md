@@ -199,6 +199,27 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
   Master Set; si no, se pierde la operación de piezas individuales.
 - **Roles:** ux-ui (propuesta de layout) + frontend; sin cambio de contrato aparente (los endpoints
   de items ya existen).
+- **Nota del humano (2026-08-21):** el sistema de bóveda **físico** (ubicaciones, etc.) lo va a
+  definir él después — no preocuparse por eso al decidir esta vista.
+
+### P-18 · Master Set como consola de precios: mercado + compra + venta, con sugerido y override
+- **Pedido del humano (2026-08-21):** en el Master Set, cada carta (por variante) debe mostrar y
+  permitir gestionar TRES precios:
+  1. **Precio de mercado** — la referencia (ya cubierto por P-15: por variante).
+  2. **Precio al que compramos** — con **valor sugerido** calculado por la regla que ya traemos
+     (reglas de buylist por rareza/acabado sobre la referencia de mercado) y **override manual**.
+  3. **Precio al que vendemos** — con **valor sugerido** por regla y **override manual**.
+- **Base existente:** la regla de compra ya existe (`BUYLIST_PRICE_RULES` / cotización por
+  rareza+acabado en `buylist.service.ts`); hay "precio manual" por pieza en inventario. Verificar al
+  arrancar si existe regla de precio de VENTA o hay que definirla (product-owner/arquitecto).
+- **A definir (arquitecto, cambia contrato):** dónde vive el override — ¿a nivel carta+variante
+  (nuevo, en Master Set) o por pieza (el precio manual actual)? ¿El override de venta pisa el precio
+  listado en storefront? ¿El de compra pisa la cotización del buylist público? Definir precedencia:
+  override manual > regla sugerida > sin precio (money-safe, nunca inventar).
+- **Roles:** arquitecto (contrato/semántica) → backend (persistencia de overrides + cálculo de
+  sugeridos por variante) + frontend (edición inline en la teja del Master Set) en paralelo.
+- **Depende de:** P-15 (precio de mercado por variante) y se beneficia de P-13 (sin variantes
+  fantasma, para no sugerir precios de versiones inexistentes).
 
 ---
 
