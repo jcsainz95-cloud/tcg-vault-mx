@@ -4322,7 +4322,7 @@ todas las llamadas golpean los endpoints v1.28 tal cual el contrato.
   ajustados mínimamente (el «—» ahora aparece por cara; «Pikachu ex» también vive en la vitrina).
 - Playwright: `e2e/inventory-stream-b.spec.ts` (folio→drill-down, pestañas Sellado/Gradeadas,
   Top Bounties) + `e2e/admin.spec.ts` actualizado a P-17 — verdes en modo mock. **Nota QA:**
-  hay 12 fallos E2E PRE-EXISTENTES en la rama (verificado contra un worktree de HEAD sin mis
+  hay 13 fallos E2E PRE-EXISTENTES en la rama (verificado contra un worktree de HEAD sin mis
   cambios): `buylist.spec.ts` (8: describen el grid plano raw pre-v1.21 — el raw hoy es el binder
   quoter y no monta «Buscar carta»), `master-set.spec.ts:88` (asume 2 imágenes por celda,
   pre-N-16), `catalog.spec.ts:11`, `i18n-locale.spec.ts:10` y `guest-checkout.spec.ts:67/80`.
@@ -4344,3 +4344,44 @@ todas las llamadas golpean los endpoints v1.28 tal cual el contrato.
 5. **`summary.selected` de publish-all**: el contrato no fija si incluye las ya-listadas; el
    front solo pinta los 4 renglones del diseño (no usa `selected`), así que cualquier semántica
    backend es compatible.
+
+## Ronda de corrección Stream B (gate techlead, 2026-08-21)
+
+Rechazo acotado del techlead sobre M1/consola; los tres MAYORES y los menores quedan corregidos:
+
+- **M-1 (consola stale tras guardar):** `VariantPriceConsole` ahora mantiene el pricing
+  RESUELTO en estado local — sembrado por el prop y actualizado con
+  `VariantControlsResponse.pricing` de cada write (efectivo/fuente/bounty nuevos sin reabrir;
+  también re-siembra los inputs y el estado del bounty). El drawer ya no descarta la respuesta:
+  pasa `onChanged` para refrescar agregados del binder. Tests en `VariantPriceConsole.test`
+  («M-1: tras guardar…») y `VariantDrawer.test`.
+- **M-2 («Publicar grupo» sellado truncaba a 100):** el mutation pagina server-side hasta
+  agotar la carta (pageSize máx 100 del contrato) y trocea el bulk-publish al cap de 200 líneas
+  con sufijo determinista por trozo (`<key>-0`, `<key>-1`, …) sobre una clave base en `useRef`
+  REAL (el objeto literal por render que rompía la idempotencia quedó eliminado); la clave solo
+  se limpia al éxito, así el reintento replayea idempotente. El toast reporta el agregado real.
+  En el drawer, la lista de piezas declara el truncado con el conteo real
+  (`admin.drawer.truncated`: «Mostrando {shown} de {total}…»). Tests nuevos en
+  `SealedTab.test.tsx` (paginado+troceo, reuse de batchKey en reintento, grupo sin elegibles).
+- **M-3 («Fijar mercado» fallaba en silencio y fabricaba respuesta):** `fixMarket` ahora
+  comparte el banner de error ANCLADO del patrón P-4 (mismo `errorRef` que `save`), y su éxito
+  dispara `onChanged()` (refetch real del dueño) en vez de fabricar un
+  `VariantControlsResponse` falso para reusar `onSaved`. `onSaved(res)` queda reservado al
+  payload íntegro del PUT variant-controls. Se endureció además el botón «Fijar» (exige monto
+  > 0, no solo no-vacío). Tests del caso de error y del éxito (onChanged sí, onSaved no).
+- **Menor `gradeKey`:** `VariantPriceConsoleProps` es ahora una unión discriminada —
+  `productType='graded'` EXIGE `gradeKey` a nivel de tipo (fuera el default mágico
+  `graded:PSA:10`); raw usa la clave canónica del contrato `raw:NM`. El drawer solo monta la
+  consola graded cuando hay `gradeInfo`.
+- **MENOR-1 QA:** `BuylistRuleApplied.source` ampliado a `"rule"|"fallback"|"bounty"|"override"`
+  (contrato v1.28 §6; ningún consumidor hacía switch exhaustivo — cambio aditivo seguro).
+- **MENOR-2 QA:** la nota de E2E preexistentes decía «12»; son 13 (corregido arriba).
+- **SB-D8:** `FinishBand` deja los hex hardcodeados y usa tokens vivos con fallback
+  (`var(--color-neutral-warm|--color-accent|--color-ink, <hex del DS §16.6>)`), mismo criterio
+  que `PortfolioTrendChart`, antes de que el Stream C esparza el patrón.
+
+Deuda pendiente de registrar en `docs/TECH_DEBT.md` cuando el backend suelte el archivo (esta
+ronda no lo toca): (1) heading «Piezas (N)» del drawer cuenta las filas RECORTADAS en cliente,
+no el total server-side cuando hay truncado (el indicador nuevo lo mitiga); (2) el troceo >200
+del publish de grupo no es transaccional entre trozos (un fallo intermedio publica parcial; el
+reintento con la misma clave lo repara por replay).
