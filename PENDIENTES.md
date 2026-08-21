@@ -28,8 +28,15 @@ humano (ya dado únicamente para el PR #21).
 1. **Tarea #1** — ✅ HECHA (2026-08-21): fixtures e2e corregidos + H1 endurecido a `amount_received`
    (captura parcial NO liquida); 124 tests integración + 1259 unitarios verdes; gates ci-ok +
    sast-ok + backend-e2e verdes; **PR #21 mergeado a producción** (`d606669`, Railway + Vercel).
-2. **Stream A · Catálogo y precios:** P-13 (variantes fantasma) + P-15 (mercado por variante) +
-   P-12 (sync por set). Arquitecto primero.
+2. **Stream A · Catálogo y precios:** ✅ CERRADO (2026-08-21) con doble veredicto (QA aprobado;
+   techlead aprobado tras una ronda de correcciones en seeds/comentarios). En `main`. Incluye:
+   P-13 (composeAvailableFinishes — el precio confirma, nunca añade), P-15 (mercado POR variante
+   en el binder, celda deprecada como espejo), P-12 (force en sync por set + botón "Sync completo"
+   en M2). Deuda registrada: SA-D1..D7 en TECH_DEBT.md (SA-D2 alta). Nit pendiente para el próximo
+   toque de backend a catalog-sync: docblock de clase (~:29-31) aún dice "AUTORIDAD ÚNICA" (colgado
+   de SA-D1). **Llega a PRODUCCIÓN con el siguiente release** (gates de release: E2E completa +
+   fase de seguridad + "publica" del humano); tras ese deploy: re-sync forzado único en /admin/m2
+   y verificar POKEMONPRICETRACKER_FETCH_PRINTINGS=true en Railway.
 3. **Stream B · Inventario Master Set:** P-19 (alta simple + publicar todo) + P-18 (tres precios +
    overrides) + P-17 (Piezas→drill-down) + P-24 (valor desglosado) + P-25 (pestaña sellado) +
    P-20 (PSA) + P-22 (Top Bounties, tras P-18).
