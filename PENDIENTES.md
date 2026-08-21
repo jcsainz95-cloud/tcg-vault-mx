@@ -37,9 +37,16 @@ humano (ya dado únicamente para el PR #21).
    de SA-D1). **Llega a PRODUCCIÓN con el siguiente release** (gates de release: E2E completa +
    fase de seguridad + "publica" del humano); tras ese deploy: re-sync forzado único en /admin/m2
    y verificar POKEMONPRICETRACKER_FETCH_PRINTINGS=true en Railway.
-3. **Stream B · Inventario Master Set:** P-19 (alta simple + publicar todo) + P-18 (tres precios +
-   overrides) + P-17 (Piezas→drill-down) + P-24 (valor desglosado) + P-25 (pestaña sellado) +
-   P-20 (PSA) + P-22 (Top Bounties, tras P-18).
+3. **Stream B · Inventario Master Set:** ✅ CERRADO (2026-08-21) con doble veredicto (QA aprobado;
+   techlead aprobado tras una ronda: B-1 conteo bounty con rechazadas —bug de dinero cazado por el
+   gate— + M-1/M-2/M-3 de frontend, todos corregidos con test). En `main`. Incluye: P-17 pestañas +
+   drill-down, P-18 consola de tres precios con overrides que pisan storefront/buylist (M-30),
+   P-19 alta rápida Compra/Aportación + publish-all idempotente, P-20 Gradeadas, P-22 Top Bounties
+   con conteo transaccional y auto-off, P-24 valor desglosado, P-25 pestaña Sellado por set.
+   Contrato v1.28/v1.28.1. Deuda SB-D1..D10 registrada (D8 resuelta).
+   **Pendientes post-stream (no bloqueantes):** triage de los 13 E2E preexistentes ANTES de la
+   suite E2E completa de release (frontend); `imageSmallUrl` en SealedInventoryGroupDTO (backend);
+   vista frontend de la cola sealed/unmapped en M2 (frontend); nit docblock catalog-sync (SA-D1).
 4. **Stream C · UX cotizador:** P-14 (distintivo de variante) + P-16 (rediseño cotizador) — ux-ui
    define, frontend implementa; comparte componente de teja con B, por eso va después.
 5. **P-23 (meta decks):** la investigación puede correr en paralelo (solo lectura/web); la
