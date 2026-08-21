@@ -100,6 +100,12 @@
 > retícula final** de §18.6 se generalizan a **todos los modos del binder** (quoter, inventario M1
 > §16 y bóvedas): retícula compartida, un solo código de carga, y el skeleton honesto es mejor
 > patrón que el spinner en cualquier modo. Sin cambios visuales nuevos ni tokens nuevos.
+>
+> **Corrección v1.8.2 (2026-08-21, cierre Stream C — TL-C1) → §4.5 nueva, §18.1.** Se formaliza la
+> variable de layout **`--app-header-h`** (altura real del header sticky, expuesta por cada shell y
+> consumida por componentes compartidos con elementos sticky, fallback `0px`), nacida en la ronda de
+> corrección TL-C1 y hasta ahora documentada solo en FRONTEND_NOTES. Regla derivada: **no se
+> hardcodean alturas de header en componentes compartidos.** Sin tokens visuales nuevos.
 
 ---
 
@@ -390,6 +396,27 @@ xl  ≥ 1280px   (desktop)
 - **Catálogo grid:** 2 col (móvil) → 3 (sm) → 4 (lg) → 5 (xl).
 - **Back-office:** sidebar de módulos fijo desde `lg`; en `< lg` colapsa a barra inferior/《drawer》.
 - **Dashboard de KPIs:** 1 col (móvil) → 2 (sm) → 4 (lg). Las 8 tarjetas caben en 2 filas de 4 en desktop.
+
+### 4.5 Variable de layout `--app-header-h` — contrato shell ↔ componentes compartidos (v1.8.2)
+
+Los shells de la app tienen headers sticky de **altura variable** (padding responsivo, wrap del
+menú, banner ocasional). Cualquier componente compartido que necesite un elemento sticky propio
+debe anclarse **debajo del header real**, sin conocer al shell que lo hospeda. El mecanismo es una
+única variable CSS, ya vigente desde la corrección TL-C1 del Stream C:
+
+| | Regla |
+|---|---|
+| **Nombre** | `--app-header-h` (px). Es un **contrato de layout**, no un token visual: no se mapea en `tailwind.config`, se consume con arbitrary value. |
+| **Quién la define** | **Cada shell/layout con header sticky**, y solo él. Hoy: `StorefrontHeader` mide su altura real (`ResizeObserver`) y la expone en su **padre inmediato** (el wrapper del layout del storefront), limpiándola al desmontar. Si el `AdminShell` (u otro shell futuro) necesita un sticky análogo debajo de su header, expone **esta misma variable con este mismo nombre** en su propio wrapper — no inventa otra. |
+| **Quién la consume** | **Componentes compartidos con elementos sticky** que viven bajo un shell. Hoy: la barra de filtros del `MasterSetBinder` (modo quoter, §18.1) con `lg:top-[var(--app-header-h,0px)]`. |
+| **Fallback** | **`0px` siempre** (`var(--app-header-h, 0px)`): en un shell sin header sticky —o que no la defina— el elemento se pega arriba y nada se rompe. |
+| **Prohibición** | **NUNCA se hardcodea la altura de un header en un componente compartido** (nada de `top-[72px]` ni equivalentes): la altura real es responsiva y propiedad del shell. Un `top-0` en un sticky compartido bajo header también es un bug (queda tapado, TL-C1). |
+
+> **Nota futura (no se diseña aquí):** el **scrim de overlays** (`rgba(26,26,24,.55)` de Modal y
+> `SellCartDrawer`) hoy vive hardcodeado por componente; la deuda **SC-D1** (TECH_DEBT) propone
+> unificarlo como token **`bg-scrim`** al consolidar el shell de diálogo. Es el compañero natural de
+> este mismo viaje de unificación shell ↔ compartidos; cuando ese trabajo se agende, ux-ui definirá
+> el token aquí (nombre a coordinar: `--color-scrim` → `bg-scrim`).
 
 ---
 
@@ -2708,9 +2735,12 @@ Orden vertical de `/buylist` (el contenido no cambia; cambia la distribución de
    NM-only, copy de confianza, «Mis solicitudes») no cambia.
 
 **Dentro del set (quoter):** la fila de filtros locales del binder («Buscar carta» + acabado) se
-vuelve **sticky** en `≥ lg` (`top-0`, fondo papel `--color-bg`, `border-b border-border`, `z` por
-debajo del drawer): en sets de 200+ tejas grandes el usuario no debe scrollear de vuelta para
-filtrar. En `< lg` scroll natural (el sticky + teclado móvil estorban más de lo que ayudan).
+vuelve **sticky** en `≥ lg` (fondo papel `--color-bg`, `border-b border-border`, `z` por debajo del
+drawer): en sets de 200+ tejas grandes el usuario no debe scrollear de vuelta para filtrar. En
+`< lg` scroll natural (el sticky + teclado móvil estorban más de lo que ayudan).
+**Offset (corrección v1.8.2, TL-C1):** NO `top-0` — el `StorefrontHeader` es sticky opaco y lo
+taparía. La barra se ancla con `lg:top-[var(--app-header-h,0px)]`, la variable de layout que el
+shell expone con su altura real (contrato y reglas en **§4.5**; alturas hardcodeadas prohibidas).
 
 ### 18.2 Grilla y tamaño de teja (breakpoints)
 
