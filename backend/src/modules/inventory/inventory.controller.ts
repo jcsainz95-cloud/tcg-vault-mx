@@ -16,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { InventoryService } from './inventory.service';
 import { MasterSetService } from './master-set.service';
+import { SealedGradedInventoryService } from './sealed-graded.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import {
@@ -48,6 +49,9 @@ export class InventoryController {
     private readonly inventory: InventoryService,
     private readonly masterSetService: MasterSetService,
     private readonly audit: AuditService,
+    // v1.28 (P-25/P-20): read models de las pestañas Sellado/Gradeadas. @Optional-less: lo provee
+    // el módulo; los tests unitarios del controller que no lo ejercitan pasan un stub vacío.
+    private readonly sealedGraded?: SealedGradedInventoryService,
   ) {}
 
   // ===== v1.16-master-set (§4.17) — Master Set + inventario a escala (vault_operator+) =====
@@ -70,6 +74,39 @@ export class InventoryController {
   @Get('inventory/master-sets/:setId')
   masterSetBinder(@Param('setId') setId: string) {
     return this.masterSetService.binder(setId);
+  }
+
+  // ===== v1.28 (P-25/P-20, §4.26g/h) — pestañas «Sellado» (por set) y «Gradeadas» =====
+
+  @Get('inventory/sealed-sets')
+  sealedSets(
+    @Query('q') q?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    return this.sealedGraded!.sealedSetsIndex({
+      q,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+    });
+  }
+
+  @Get('inventory/sealed-sets/:setId')
+  sealedSetDetail(@Param('setId') setId: string) {
+    return this.sealedGraded!.sealedSetDetail(setId);
+  }
+
+  @Get('inventory/graded')
+  graded(
+    @Query('q') q?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    return this.sealedGraded!.gradedIndex({
+      q,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+    });
   }
 
   @Post('inventory/items/batch')
