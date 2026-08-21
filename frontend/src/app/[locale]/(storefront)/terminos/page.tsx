@@ -12,8 +12,9 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'legal' });
   const tc = await getTranslations({ locale, namespace: 'common' });
+  // Patrón de título §17.4: «TCG HUNT — {página}».
   return {
-    title: `${t('title')} · ${tc('appName')}`,
+    title: `${tc('appName')} — ${t('title')}`,
     description: t('refundBody'),
   };
 }

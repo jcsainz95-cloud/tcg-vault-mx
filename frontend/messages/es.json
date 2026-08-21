@@ -1,7 +1,15 @@
 {
   "common": {
-    "appName": "TCG Vault MX",
+    "appName": "TCG HUNT",
     "tagline": "Marketplace de cartas Pokémon con bóveda",
+    "brand": {
+      "name": "TCG HUNT",
+      "domain": "tcghunt.mx",
+      "homeAria": "TCG HUNT — inicio"
+    },
+    "footer": {
+      "legalEntity": "[Razón social pendiente]"
+    },
     "loading": "Cargando…",
     "retry": "Reintentar",
     "cancel": "Cancelar",
@@ -686,7 +694,7 @@
   },
   "legal": {
     "title": "Términos y política",
-    "intro": "Estos términos aplican a todas las compras y a la bóveda de cartas en TCG Vault MX.",
+    "intro": "Estos términos aplican a todas las compras y a la bóveda de cartas en TCG HUNT.",
     "scopeNote": "La política aplica a todo tipo de producto: cartas raw, selladas y gradeadas.",
     "refundTitle": "Reembolsos y ventas finales",
     "refundBody": "Todas las ventas son finales. Una vez que compras una carta, la venta no admite reembolso ni cancelación.",
@@ -2106,7 +2114,7 @@
       "minor_box_damage": "Detalle menor en caja"
     },
     "buylistCallout": {
-      "title": "¿Quieres revender tu sellado a TCG Vault MX?",
+      "title": "¿Quieres revender tu sellado a TCG HUNT?",
       "body": "Escríbenos a contacto@tcgvaultmx.com con fotos y lo cotizamos.",
       "cta": "Escríbenos"
     },

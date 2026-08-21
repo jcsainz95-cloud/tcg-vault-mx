@@ -1,7 +1,15 @@
 {
   "common": {
-    "appName": "TCG Vault MX",
+    "appName": "TCG HUNT",
     "tagline": "Pokémon card marketplace with custody",
+    "brand": {
+      "name": "TCG HUNT",
+      "domain": "tcghunt.mx",
+      "homeAria": "TCG HUNT — home"
+    },
+    "footer": {
+      "legalEntity": "[Legal entity pending]"
+    },
     "loading": "Loading…",
     "retry": "Retry",
     "cancel": "Cancel",
@@ -686,7 +694,7 @@
   },
   "legal": {
     "title": "Terms & policy",
-    "intro": "These terms apply to every purchase and to card custody at TCG Vault MX.",
+    "intro": "These terms apply to every purchase and to card custody at TCG HUNT.",
     "scopeNote": "The policy applies to every product type: raw, sealed and graded cards.",
     "refundTitle": "Refunds and final sales",
     "refundBody": "All sales are final. Once you buy a card, the sale is not eligible for a refund or cancellation.",
@@ -2106,7 +2114,7 @@
       "minor_box_damage": "Minor box damage"
     },
     "buylistCallout": {
-      "title": "Want to sell your sealed product to TCG Vault MX?",
+      "title": "Want to sell your sealed product to TCG HUNT?",
       "body": "Email us at contacto@tcgvaultmx.com with photos and we will quote it.",
       "cta": "Email us"
     },
