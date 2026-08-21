@@ -96,13 +96,21 @@ export class CatalogSyncService {
     return { data, degraded: false, source: 'remote' as const };
   }
 
-  /** POST /admin/catalog/sync — importa/actualiza cartas (set puntual o desde fecha). */
-  async sync(setId?: string, fromReleaseDate?: string) {
+  /**
+   * POST /admin/catalog/sync — importa/actualiza cartas (set puntual o desde fecha).
+   *
+   * v1.27 (P-12, §4.25c): gana `force` (default `false`). Con `force:true` se corre TAMBIÉN el
+   * resolver estructural TCGCSV para CADA set procesado por la llamada (single o from_date), aunque
+   * el set no sea first-import — misma semántica y mismo best-effort/money-safe que el `force` de
+   * `sync-all` (cierra la asimetría: el botón por set de M2 nunca refrescaba variantes). Auditado
+   * con `force` en el detalle por el controller.
+   */
+  async sync(setId?: string, fromReleaseDate?: string, force = false) {
     if (setId != null) {
       if (!SET_ID_PATTERN.test(setId)) {
         throw BusinessException.validation('VALIDATION_ERROR', 'Invalid setId format');
       }
-      const res = await this.importSetByExternalId(setId);
+      const res = await this.importSetByExternalId(setId, { force });
       return {
         jobId: `catalog-sync-${Date.now()}`,
         setsQueued: res.imported ? 1 : 0,
@@ -119,7 +127,7 @@ export class CatalogSyncService {
     const toImport = remote.filter((s) => (s.releaseDate ?? '') >= from);
     let setsQueued = 0;
     for (const s of toImport) {
-      const res = await this.importSet(s);
+      const res = await this.importSet(s, { force });
       if (res.imported) setsQueued += 1;
     }
     return { jobId: `catalog-sync-${Date.now()}`, setsQueued, mode: 'from_date' as const };
@@ -299,29 +307,58 @@ export class CatalogSyncService {
         ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
         : false;
     const cardCount = await this.importCardsForSet(rs.id, localSet.id);
-    if (this.structuralResolver != null && (firstImport || opts.force === true)) {
-      try {
-        await this.structuralResolver.resolveStructuralFinishesForSet(localSet.id);
-      } catch (e) {
-        this.logger.warn(
-          `importSet: resolver estructural TCGCSV falló para ${rs.id} (${(e as Error).message}); ` +
-            `se conserva structuralFinishes seed/previo (money-safe). NO aborta el import.`,
-        );
-      }
+    if (firstImport || opts.force === true) {
+      await this.runStructuralResolver(localSet.id, rs.id);
     }
     return { imported: true, cardCount };
   }
 
-  /** Importa un set puntual por externalId (sync single); deriva la metadata de las cartas. */
-  private async importSetByExternalId(setId: string): Promise<{ imported: boolean; cardCount: number }> {
+  /**
+   * Importa un set puntual por externalId (sync single); deriva la metadata de las cartas.
+   *
+   * v1.27 (P-12, §4.25c): MISMO gate estructural que `importSet` (`firstImport || force`) — antes
+   * esta ruta (el botón por set de M2) JAMÁS corría el resolver TCGCSV y las variantes quedaban
+   * stale. Best-effort/money-safe idéntico (fallo TCGCSV ⇒ log, conserva previo, no aborta).
+   */
+  private async importSetByExternalId(
+    setId: string,
+    opts: { force?: boolean } = {},
+  ): Promise<{ imported: boolean; cardCount: number }> {
     const first = await this.client.getCardsBySet(setId, 1);
     if (!first.data || first.data.length === 0) {
       return { imported: false, cardCount: 0 };
     }
     const localSet = await this.upsertSet(first.data[0].set);
+    // first-import = el set local no tenía NINGUNA carta antes de este import (mismo criterio que
+    // `importSet`); solo se calcula cuando el resolver está cableado (tests de metadata sin él).
+    const firstImport =
+      this.structuralResolver != null
+        ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
+        : false;
     let cardCount = await this.upsertCards(first.data, localSet.id);
     cardCount += await this.importRemainingPages(setId, localSet.id, first);
+    if (firstImport || opts.force === true) {
+      await this.runStructuralResolver(localSet.id, setId);
+    }
     return { imported: true, cardCount };
+  }
+
+  /**
+   * v1.26/§4.24a + v1.27/P-12 — corre el resolver estructural TCGCSV para un set, BEST-EFFORT y
+   * money-safe: si TCGCSV falla (egress bloqueado, 502, groupId no resuelto) se LOGUEA y NO se
+   * aborta el import (las cartas conservan su `structuralFinishes` seed/previo). No-op si el
+   * resolver no está cableado (`@Optional`, tests de metadata).
+   */
+  private async runStructuralResolver(localSetId: string, setExternalId: string): Promise<void> {
+    if (this.structuralResolver == null) return;
+    try {
+      await this.structuralResolver.resolveStructuralFinishesForSet(localSetId);
+    } catch (e) {
+      this.logger.warn(
+        `importSet: resolver estructural TCGCSV falló para ${setExternalId} (${(e as Error).message}); ` +
+          `se conserva structuralFinishes seed/previo (money-safe). NO aborta el import.`,
+      );
+    }
   }
 
   private async importCardsForSet(setExternalId: string, localSetId: string): Promise<number> {
