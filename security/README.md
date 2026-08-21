@@ -104,6 +104,12 @@ que exportes `ALLOW_PROD_DAST=1`, que solo debe usarse **dentro de la ventana de
 una prueba puntual autorizada por escrito** (procedimiento completo en
 `docs/DEVOPS_NOTES.md` › Runbook de seguridad).
 
+Dominios que la guardia reconoce como **producción** (P-21, rebrand):
+`tcgvaultmx.com` (dominio viejo — sigue contando como prod mientras viva el
+redirect 301) y `tcghunt.mx` (dominio nuevo), además del placeholder histórico
+`tudominio.com`. Un `TARGET_URL` que contenga `staging` (p. ej.
+`staging.tcghunt.mx`) NO dispara la guardia.
+
 ---
 
 ## Gates (resumen)

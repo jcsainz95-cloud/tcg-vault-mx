@@ -20,7 +20,11 @@ ROOT_DIR="$(cd "${SEC_DIR}/.." && pwd)"
 
 : "${TARGET_URL:?Define TARGET_URL (ej. https://staging.tudominio.com)}"
 
-if [[ "${TARGET_URL}" == *"tudominio.com"* && "${TARGET_URL}" != *"staging"* ]]; then
+# P-21 (rebrand): la guardia reconoce los dominios REALES de producción — el viejo
+# `tcgvaultmx.com` (sigue vivo mientras dure el redirect 301) y el nuevo `tcghunt.mx` —
+# además del placeholder histórico `tudominio.com`. Un subdominio `staging.` no la dispara.
+if [[ "${TARGET_URL}" == *"tudominio.com"* || "${TARGET_URL}" == *"tcgvaultmx.com"* || "${TARGET_URL}" == *"tcghunt.mx"* ]] \
+   && [[ "${TARGET_URL}" != *"staging"* ]]; then
   if [[ "${ALLOW_PROD_DAST:-0}" != "1" ]]; then
     echo "✗ Full scan (ACTIVO) contra lo que parece producción está bloqueado."
     echo "  Requiere autorización escrita + ventana + ALLOW_PROD_DAST=1."

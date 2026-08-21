@@ -582,6 +582,8 @@ Validaciones estáticas corridas (reales):
          "AllowedHeaders": ["content-type"],
          "MaxAgeSeconds": 3600 }]
       ```
+      > **P-21 (rebrand `tcghunt.mx`):** este JSON quedó SUPERSEDIDO — la versión vigente (con los
+      > orígenes nuevos + viejos) está en **§25.5**; usar esa a partir del rebrand.
       > **Troubleshooting — la subida del INE falla con "no se pueden cargar":** verificar
       > (a) que el **CORS del bucket** tenga el **origen real** del front (los dos de arriba; el PUT
       > presignado va del navegador directo a R2, así que el origen debe estar allow-listeado), y
@@ -867,6 +869,9 @@ Cambios de infraestructura hechos por devops para los hallazgos que le tocan. Lo
      "AllowedHeaders": ["content-type"],
      "MaxAgeSeconds": 3600 }]
   ```
+
+  > **P-21 (rebrand `tcghunt.mx`):** JSON supersedido — la versión vigente con los orígenes
+  > nuevos + viejos está en **§25.5**.
 
 - **Local/staging (MinIO):** `createbuckets` deja el bucket **100% privado** (`mc anonymous set none`).
   v1.2.1: **ya no** se publica el prefijo de catálogo (`inventory_photo`) — no hay `mc anonymous set
@@ -2432,3 +2437,229 @@ Diagnóstico **confirmado**:
 - **Ejecución:** el **PO corre el force-sync por su lado** (UI M2, vía 1) **tras el merge del stream**
   `claude/pulido-precios-display`. Devops no puede dispararlo desde la sesión (sin credenciales admin ni
   egress a prod, cf. §23.1).
+
+---
+
+## 25. P-21 — Rebrand a `tcghunt.mx`: infra, redirects 301 y runbook del switch (2026-08-21)
+
+> **Contexto:** el humano YA compró `tcghunt.mx` (PENDIENTES P-21). Hoy producción sirve en
+> `tcgvaultmx.com` (frontend en **Vercel**, canónico `www.tcgvaultmx.com`; apex redirige a `www`;
+> DNS en **Cloudflare, DNS only/nube gris** — HANDOFF §3). El backend vive en **Railway** con su
+> **propio dominio** `tcg-vault-mx-production.up.railway.app` (§23.2) — el rebrand **no** lo toca.
+> **Todo lo de esta sección es ADITIVO**: nada de lo pre-configurable rompe el entorno actual;
+> el switch real (paso 25.6-B) lo ejecuta el humano en una ventana, con rollback definido.
+> El **nombre interno NO cambia** (repo/servicios siguen `tcg-vault-mx`, DESIGN_SYSTEM §17.4).
+
+### 25.1 Inventario — dónde vivía el dominio viejo en rutas de infra (grep `tcgvaultmx`, 2026-08-21)
+
+| Dónde (archivo:línea al día del grep) | Qué es | Acción |
+|---|---|---|
+| `.env.example` — `APP_BASE_URL` (comentario, ~l.73), `DISPUTE_EVIDENCE_CONTACT` (~l.193), `TARGET_URL` DAST (~l.511) | Comentarios/placeholder con dominio viejo; faltaba documentar `RESEND_API_KEY`/`MAIL_FROM` | **ACTUALIZADO hoy**: lista objetivo de `APP_BASE_URL` con `tcghunt.mx`, bloque nuevo de correo Resend/`MAIL_FROM`, notas P-21 en disputa y DAST |
+| `security/scripts/dast-zap-baseline.sh:26`, `dast-zap-full.sh:23`, `dast-nuclei.sh:22`, `dast-extra.sh:29` | Guardia anti-prod: solo reconocía el placeholder `tudominio.com` — **ninguno de los dos dominios reales disparaba la guardia** | **ACTUALIZADO hoy**: la guardia reconoce `tcgvaultmx.com` **y** `tcghunt.mx` como producción (verificado: exit 2 sin `ALLOW_PROD_DAST=1`; `staging.*` pasa) |
+| `security/README.md:100` (Guardia anti-producción) | Documentación de la guardia | **ACTUALIZADO hoy**: lista los dominios reales |
+| `.github/workflows/*` (ci, e2e, e2e-real, deploy, security-*) | **CERO referencias hardcodeadas** al dominio: los targets van por secrets `STAGING_BASE_URL`/`PROD_BASE_URL` | Sin cambio de archivo; el día del switch se actualiza el **GitHub Secret** `PROD_BASE_URL` (§25.6-B) |
+| `docker-compose.yml:183`, `docker-compose.staging.yml:176` | Comentario: default backend `soporte@tcgvaultmx.com` | Sin cambio: sigue siendo verdad hasta que **backend** cambie su default (P-21); entonces devops actualiza el comentario |
+| `docs/DEVOPS_NOTES.md` §4 (~l.167), §11.B (~l.580, ~l.865), §11.D (~l.630), §23.1 (~l.2093) | Runbooks históricos con el dominio viejo | Se conservan como histórico; esta §25 es la fuente de verdad del rebrand |
+| Dashboards (no repo): Railway `APP_BASE_URL`, `MAIL_FROM`, `DISPUTE_EVIDENCE_CONTACT`; R2 CORS del bucket `tcg-kyc-ine`; Google OAuth origins; Resend dominio; Cloudflare Email Routing; GH Secret `PROD_BASE_URL`; Stripe branding | Valores vivos con el dominio/buzones viejos (HANDOFF §3) | Runbook §25.6 (pre-switch aditivo + ventana) |
+| **Fuera de rutas devops** (inventario informativo, NO lo toca devops): `backend/src/modules/mail/mail.module.ts` (default `no-reply@tcgvaultmx.com`), `disputes.constants.ts`, `buylist-mail.templates.ts`, `guest-checkout.constants.ts` (buzones hardcodeados), `frontend/messages/{es,en}.json` y componentes con `contacto@/soporte@/facturacion@tcgvaultmx.com` | Marca/buzones en código | **Handoff P-21 a backend y frontend** (ya en alcance de PENDIENTES P-21 y DESIGN_SYSTEM §17.4) |
+
+### 25.2 Redirects 301 — dónde se implementan (decisión)
+
+El dominio viejo y el nuevo apuntan **al mismo proyecto de Vercel**; los 301 se hacen en Vercel.
+Hay dos mecanismos válidos — **usar UNO, no ambos a la vez** (para poder razonar el rollback):
+
+1. **Dashboard de Vercel (recomendado para la ventana del switch):** Proyecto → Settings → Domains →
+   en `tcgvaultmx.com` y `www.tcgvaultmx.com` elegir **"Redirect to"** → `www.tcghunt.mx` con **status 301**.
+   Preserva path y query string. Ventajas: sin deploy, reversible al instante (quitar el redirect),
+   independiente del código. Desventaja: no queda versionado en el repo.
+2. **`frontend/vercel.json` (versionado):** el Root Directory del proyecto Vercel es `frontend/`
+   (§11.A), así que el archivo de config vive en **`frontend/vercel.json`** → es **ruta del rol
+   frontend**, devops NO lo escribe. Contenido exacto en §25.7 (handoff). OJO: en cuanto ese archivo
+   se mergee y despliegue, el 301 queda ACTIVO — se mergea **en la ventana del switch**, no antes.
+
+**Mapa de redirects (convención actual www-canónico, HANDOFF §3):**
+
+| Origen | Destino | Código |
+|---|---|---|
+| `tcgvaultmx.com/*` (path+query) | `https://www.tcghunt.mx/*` | 301 |
+| `www.tcgvaultmx.com/*` (path+query) | `https://www.tcghunt.mx/*` | 301 |
+| `tcghunt.mx/*` (apex nuevo) | `https://www.tcghunt.mx/*` | redirect apex→primario de Vercel (permanente; se configura al marcar `www.tcghunt.mx` como **primary**, igual que hoy con el viejo) |
+
+Requisito para que el 301 del viejo funcione: los dominios viejos **siguen asignados** al proyecto
+Vercel y su DNS **sigue apuntando** a Vercel. No se apagan: se conservan **≥ 12 meses** (SEO,
+enlaces en correos ya enviados). `tcg-vault-mx.vercel.app` se deja como está (dominio técnico).
+
+### 25.3 Stripe — qué cambia y qué NO (verificado en repo, honesto)
+
+- **Webhook: NO cambia.** El endpoint es `POST /api/v1/webhooks/stripe` (raw body preservado en
+  `backend/src/main.ts:35`; controller `backend/src/modules/payments/webhooks.controller.ts`) y lo
+  sirve el **backend en Railway con su propio dominio** (`tcg-vault-mx-production.up.railway.app`,
+  confirmado en runtime §23.2). En el repo/HANDOFF **no hay** ningún `api.tcgvaultmx.com` (el DNS del
+  viejo solo tiene `www` + apex → Vercel, HANDOFF §3): el webhook **no** está detrás del dominio web
+  y el rebrand no lo toca. **[HUMANO — verificación de 1 minuto]:** Stripe Dashboard → Developers →
+  Webhooks → confirmar que el host del endpoint es `…up.railway.app`. Si (contra lo que dice el repo)
+  fuera un dominio custom bajo `tcgvaultmx.com`, habría que crear endpoint nuevo + rotar
+  `STRIPE_WEBHOOK_SECRET` en Railway — reportarlo antes del switch.
+- **`return_url` del checkout: cambia solo.** El backend lo arma con el **primer origen** de
+  `APP_BASE_URL`; al reordenar la lista el día del switch (§25.6-B) los retornos de Stripe caen en
+  `www.tcghunt.mx` sin tocar Stripe.
+- **Branding del dashboard (no verificable desde el repo):** nombre público del negocio, statement
+  descriptor y URL en recibos pueden decir "TCG VAULT MX" → **[HUMANO]** revisarlos en Stripe →
+  Settings → Business/Branding durante la ventana. No bloquea nada técnico.
+
+### 25.4 DNS del dominio nuevo — registros a crear **[HUMANO]**
+
+Recomendación: gestionar la zona de `tcghunt.mx` en **Cloudflare** como el dominio viejo
+(consistencia + **Email Routing** para los buzones + registros de Resend en el mismo panel).
+Todos los registros hacia Vercel en modo **DNS only (nube gris)** — igual que hoy (HANDOFF §3).
+
+| Registro | Nombre | Valor | Para |
+|---|---|---|---|
+| A | `tcghunt.mx` (apex) | `76.76.21.21` *(usar el valor EXACTO que muestre Vercel al añadir el dominio)* | Vercel |
+| CNAME | `www` | `cname.vercel-dns.com` *(ídem: copiar lo que indique Vercel)* | Vercel |
+| TXT + CNAMEs | los que indique **Resend** al añadir `tcghunt.mx` | SPF/DKIM | remitente `no-reply@tcghunt.mx` |
+| MX/TXT | los que configura **Cloudflare Email Routing** al activarlo | recepción | buzones `soporte@`, `contacto@`, `facturacion@tcghunt.mx` → reenvío al Gmail (como hoy, HANDOFF §3) |
+
+**Certificados: automáticos.** Vercel emite y renueva TLS (Let's Encrypt) al validar el dominio;
+no hay nada que comprar ni cargar. Única condición: el registro en Cloudflare debe quedar **DNS
+only** (con proxy naranja la validación/renovación de Vercel se rompe — misma regla que ya se
+aplica al dominio viejo). Railway no cambia de dominio → su TLS tampoco.
+
+### 25.5 Variables por plataforma — nombres REALES y valores objetivo
+
+**Railway → servicio `backend` → environment `production`** (HANDOFF §3 para los valores de hoy):
+
+| Var (nombre real) | Hoy | Pre-switch (aditivo, seguro YA) | Día del switch |
+|---|---|---|---|
+| `APP_BASE_URL` | `https://tcg-vault-mx.vercel.app,https://www.tcgvaultmx.com,https://tcgvaultmx.com` | **añadir al FINAL** `,https://www.tcghunt.mx,https://tcghunt.mx` (CORS acepta el dominio nuevo; los links siguen saliendo con el viejo porque el 1º no cambió) | reordenar: `https://www.tcghunt.mx,https://tcghunt.mx,https://www.tcgvaultmx.com,https://tcgvaultmx.com,https://tcg-vault-mx.vercel.app` |
+| `MAIL_FROM` | sin fijar (default de código `no-reply@tcgvaultmx.com`) | NO tocar | `TCG HUNT <no-reply@tcghunt.mx>` — **SOLO si Resend ya muestra `tcghunt.mx` Verified** |
+| `DISPUTE_EVIDENCE_CONTACT` | `soporte@tcgvaultmx.com` | NO tocar | `soporte@tcghunt.mx` — **SOLO si el buzón nuevo ya recibe** (probar con un correo real) |
+
+> Guardar variables en Railway redeploya el backend (aceptable: arranque idempotente, §11.F).
+> No existe `FRONTEND_URL` ni `CORS_ORIGIN` en este backend: **la variable real es `APP_BASE_URL`**
+> (lista separada por comas; allow-list CORS en `main.ts` + el 1º origen arma links de correos y
+> `return_url` — verificado en `backend/src/main.ts` y `auth.service.ts`).
+
+**Vercel → proyecto frontend:** `NEXT_PUBLIC_API_BASE_URL` **NO cambia** (apunta al dominio Railway
+del backend, ajeno al rebrand); el resto de `NEXT_PUBLIC_*` tampoco referencia el dominio web. Si el
+stream frontend de P-21 introduce una var de sitio (p. ej. para metadata/OG absolutas), recordar que
+`NEXT_PUBLIC_*` **se hornea en build** → cargarla en Vercel exige **redeploy** (HANDOFF §3).
+
+**GitHub Secrets:** `PROD_BASE_URL` → `https://www.tcghunt.mx` (día del switch; lo usa `deploy.yml`
+si se reactiva el CD por Actions, §16.4). `STAGING_BASE_URL` sin cambio (staging no tiene dominio).
+
+**Cloudflare R2 — CORS del bucket `tcg-kyc-ine`** (presigned PUT/GET del INE van del navegador a R2:
+el origen del front DEBE estar allow-listeado, §11.B). JSON completo pre-switch (aditivo, pegar tal
+cual; conserva los viejos mientras viva el redirect):
+
+```json
+[{ "AllowedOrigins": ["https://www.tcghunt.mx","https://tcghunt.mx",
+                      "https://www.tcgvaultmx.com","https://tcgvaultmx.com"],
+   "AllowedMethods": ["PUT","GET"],
+   "AllowedHeaders": ["content-type"],
+   "MaxAgeSeconds": 3600 }]
+```
+
+**Google OAuth (login con Google):** Google Cloud Console → el OAuth Client ID de
+`GOOGLE_CLIENT_ID`/`NEXT_PUBLIC_GOOGLE_CLIENT_ID` → **Authorized JavaScript origins**: añadir
+`https://www.tcghunt.mx` y `https://tcghunt.mx` (conservar los viejos). El Client ID no cambia.
+
+### 25.6 Runbook de la ventana de cambio
+
+**A) PRE-SWITCH — se puede hacer DESDE YA, nada visible cambia** *(todo aditivo)*:
+
+1. **[HUMANO]** Crear la zona DNS de `tcghunt.mx` (Cloudflare recomendado) + registros §25.4.
+2. **[HUMANO]** Vercel → Domains: añadir `tcghunt.mx` y `www.tcghunt.mx`; marcar `www.tcghunt.mx`
+   como **primary** (apex redirige a www, misma convención que hoy). Esperar cert **Valid**.
+   *Efecto:* la app actual (marca vieja) ya responde también en el dominio nuevo — aceptable
+   pre-lanzamiento; si molesta, este paso puede moverse al inicio de la ventana B.
+3. **[HUMANO]** Railway: `APP_BASE_URL` con los dominios nuevos **al final** (§25.5) — sin esto, el
+   frontend servido en `tcghunt.mx` fallaría por CORS al llamar al backend.
+4. **[HUMANO]** R2: pegar el JSON de CORS de §25.5.
+5. **[HUMANO]** Google OAuth: añadir los origins nuevos.
+6. **[HUMANO]** Resend: añadir `tcghunt.mx` y verificar SPF/DKIM (NO cambiar `MAIL_FROM` aún).
+7. **[HUMANO]** Cloudflare Email Routing en `tcghunt.mx`: `soporte@`, `contacto@`, `facturacion@`
+   → reenvío al Gmail; mandar un correo de prueba a cada uno.
+8. **[ORQUESTADOR/ROLES]** Mergear los streams de código del rebrand (frontend marca/metadata +
+   backend correos) con sus gates (QA+techlead; seguridad por release) — prerequisito del switch.
+
+**B) VENTANA DEL SWITCH — en este orden** *(30–60 min, con el humano en los dashboards)*:
+
+1. Smoke previo en `https://www.tcghunt.mx`: home con marca TCG HUNT, login (email y Google),
+   una compra Stripe en test si hay staging — si algo falla, ABORTAR (nada se ha roto aún).
+2. Railway: **reordenar** `APP_BASE_URL` (nuevo primero) + fijar `MAIL_FROM` y
+   `DISPUTE_EVIDENCE_CONTACT` (solo con sus precondiciones de §25.5 cumplidas). Esperar redeploy
+   *Active* y `GET /api/v1/health` = 200.
+3. Activar los **301**: mecanismo 1 (dashboard) **o** mergear/deployar `frontend/vercel.json`
+   (§25.7) — uno solo.
+4. GitHub Secret `PROD_BASE_URL=https://www.tcghunt.mx`.
+5. **Verificación** (desde cualquier máquina con egress):
+   ```bash
+   curl -sI "https://www.tcgvaultmx.com/es/comprar?foo=1" | grep -i -e '^HTTP' -e '^location'
+   # esperado: HTTP/2 301  +  location: https://www.tcghunt.mx/es/comprar?foo=1  (path+query intactos)
+   curl -sI "https://tcgvaultmx.com/en/vender"            # → 301 a https://www.tcghunt.mx/en/vender
+   curl -sI "https://tcghunt.mx/"                          # → redirect permanente a https://www.tcghunt.mx/
+   curl -sI "https://www.tcghunt.mx/" | head -1            # → HTTP/2 200
+   ```
+   Y funcional: login Google en el dominio nuevo; subir una INE de prueba (CORS R2); compra test →
+   `return_url` cae en `www.tcghunt.mx`; llega el correo de verificación **desde
+   `no-reply@tcghunt.mx`** (y no va a spam: SPF/DKIM verdes en Resend).
+6. Post-switch (no bloquea): Search Console — alta de `tcghunt.mx` + herramienta **Cambio de
+   dirección** desde la propiedad vieja; re-emitir sitemap (rol frontend si es archivo).
+
+**C) ROLLBACK** *(cada paso es independiente y reversible)*:
+
+- Vercel: quitar el "Redirect to" de los dominios viejos (o revert del commit de `vercel.json` +
+  redeploy) → el dominio viejo vuelve a servir la app al instante.
+- Railway: restaurar el orden viejo de `APP_BASE_URL`; borrar `MAIL_FROM` (cae al default de código)
+  y devolver `DISPUTE_EVIDENCE_CONTACT=soporte@tcgvaultmx.com`.
+- GitHub Secret `PROD_BASE_URL` al valor anterior.
+- DNS: **nada que revertir** (el dominio viejo nunca dejó de apuntar a Vercel; el nuevo puede
+  quedarse configurado sin daño).
+- Lo aditivo de pre-switch (CORS R2, OAuth origins, Resend, buzones) puede quedarse: no rompe nada.
+
+### 25.7 Handoff EXACTO a FRONTEND — `frontend/vercel.json` (devops NO lo escribe)
+
+Crear **`frontend/vercel.json`** (el Root Directory del proyecto Vercel es `frontend/`, §11.A) con
+exactamente esto:
+
+```json
+{
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "tcgvaultmx.com" }],
+      "destination": "https://www.tcghunt.mx/:path*",
+      "statusCode": 301
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.tcgvaultmx.com" }],
+      "destination": "https://www.tcghunt.mx/:path*",
+      "statusCode": 301
+    }
+  ]
+}
+```
+
+Notas para frontend (importantes):
+- **`statusCode: 301` y NO `permanent: true`** — `permanent: true` emite **308**, y P-21 pide 301.
+- La **query string se preserva sola** (Vercel la reenvía si el destino no define la suya); el path
+  lo preserva `/:path*` (matchea también la raíz `/`).
+- El filtro `has: host` hace que las reglas **solo** apliquen al dominio viejo: mergear este archivo
+  **activa el 301 en producción en cuanto se despliegue** → coordinar el merge con la ventana
+  §25.6-B (no mergear antes), y NO usarlo a la vez que el redirect del dashboard (§25.2).
+- `next.config.mjs` no se toca para esto (los redirects de Next no ven el `Host` de dominios
+  Vercel-level tan limpio como `vercel.json`, y este archivo mantiene la config de plataforma junta).
+
+### 25.8 Fuera de alcance devops (enrutado a sus roles — P-21)
+
+- **backend:** default `DEFAULT_MAIL_FROM`, buzones hardcodeados (`disputes.constants.ts`,
+  `buylist-mail.templates.ts`, `guest-checkout.constants.ts`), plantillas de correo con la marca.
+- **frontend:** `frontend/vercel.json` (§25.7), i18n `messages/{es,en}.json`
+  (`contacto@/soporte@/facturacion@`), marca/metadata/OG, `SUPPORT_CONTACT_FALLBACK`,
+  `SEALED_BUYLIST_EMAIL`.
+- **ux-ui:** ya entregado (DESIGN_SYSTEM §17).
+- **humano:** todos los pasos `[HUMANO]` de §25.4–§25.6 (DNS, Vercel, Railway, R2, OAuth, Resend,
+  Email Routing, Stripe branding, Search Console) — nadie más tiene acceso a esos dashboards
+  (cf. §23.1: la sesión no tiene tokens ni egress a prod).
