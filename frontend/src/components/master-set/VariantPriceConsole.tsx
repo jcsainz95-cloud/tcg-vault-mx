@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { putVariantControls, overridePrice } from '@/lib/api';
@@ -171,31 +171,43 @@ function parsePesos(v: string): number | null | undefined {
   return Math.round(n * 100);
 }
 
-export interface VariantPriceConsoleProps {
+interface VariantPriceConsoleBaseProps {
   cardId: string;
   finish: Finish;
-  productType?: 'raw' | 'graded';
-  gradeKey?: string;
+  /** Estado INICIAL de la consola (la consola lo mantiene vivo con la respuesta del write). */
   pricing: VariantPricingDTO;
   marketRefCents: number | null | undefined;
   marketCapturedDate?: string | null;
-  /** Estado resuelto tras el write (refrescar binder/panel). */
+  /** Estado resuelto tras el write PUT variant-controls (payload íntegro del contrato). */
   onSaved?: (res: VariantControlsResponse) => void;
+  /** Algo cambió server-side (override guardado, mercado fijado): el dueño de la vista refetchea. */
+  onChanged?: () => void;
   /** Aviso efímero (toast del dueño de la vista); fallback: banner inline. */
   onToast?: (msg: string) => void;
 }
 
-export function VariantPriceConsole({
-  cardId,
-  finish,
-  productType = 'raw',
-  gradeKey,
-  pricing,
-  marketRefCents,
-  marketCapturedDate,
-  onSaved,
-  onToast,
-}: VariantPriceConsoleProps) {
+/**
+ * `gradeKey` es una CLAVE DE DINERO: con `productType='graded'` el tipo lo exige (no hay
+ * default mágico tipo "PSA 10"); en raw es opcional y la clave canónica del contrato es `raw:NM`.
+ */
+export type VariantPriceConsoleProps = VariantPriceConsoleBaseProps &
+  ({ productType?: 'raw'; gradeKey?: string } | { productType: 'graded'; gradeKey: string });
+
+export function VariantPriceConsole(props: VariantPriceConsoleProps) {
+  const {
+    cardId,
+    finish,
+    gradeKey,
+    marketRefCents,
+    marketCapturedDate,
+    onSaved,
+    onChanged,
+    onToast,
+  } = props;
+  const productType = props.productType ?? 'raw';
+  // Clave para POST /admin/pricing/override: en graded viene garantizada por el tipo;
+  // en raw la clave canónica del contrato es `raw:NM` (no es un default inventado).
+  const marketGradeKey: string = props.productType === 'graded' ? props.gradeKey : gradeKey ?? 'raw:NM';
   const t = useTranslations('admin.pricing.console');
   const tb = useTranslations('admin.bounty');
   const tRoot = useTranslations();
@@ -204,6 +216,13 @@ export function VariantPriceConsole({
   const errorRef = useRef<HTMLDivElement>(null);
 
   const money = (c: number) => formatMoneyCents(c, locale);
+
+  // M-1: el pricing RESUELTO vive en estado local — sembrado por el prop y actualizado con
+  // `VariantControlsResponse.pricing` de cada write. Tras guardar un override, Efectivo/FUENTE/
+  // bounty pintan el estado NUEVO sin reabrir (el prop capturado al abrir se queda atrás hasta
+  // que el refetch del dueño lo reemplace, y entonces el efecto re-siembra).
+  const [pricing, setPricing] = useState(props.pricing);
+  useEffect(() => setPricing(props.pricing), [props.pricing]);
 
   const [buyInput, setBuyInput] = useState(
     pricing.buy.overrideCents != null ? String(pricing.buy.overrideCents / 100) : '',
@@ -253,11 +272,18 @@ export function VariantPriceConsole({
       const msg = removed && !('bounty' in req) ? t('overrideRemoved') : t('saved');
       if (onToast) onToast(msg);
       else setInlineOk(msg);
+      // M-1: la consola pinta el estado RESUELTO de la respuesta (efectivo/fuente/bounty nuevos).
+      setPricing(res.pricing);
       setBuyInput(res.pricing.buy.overrideCents != null ? String(res.pricing.buy.overrideCents / 100) : '');
       setSellInput(
         res.pricing.sell.overrideCents != null ? String(res.pricing.sell.overrideCents / 100) : '',
       );
+      const b = res.pricing.bounty ?? null;
+      setBountyOn(b?.enabled ?? false);
+      setBountyPrice(b?.priceCents != null ? String(b.priceCents / 100) : '');
+      setBountyTarget(b?.targetQty != null ? String(b.targetQty) : '');
       onSaved?.(res);
+      onChanged?.();
     },
     onError: () => {
       errorRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
@@ -265,18 +291,27 @@ export function VariantPriceConsole({
     },
   });
 
+  // M-3: "Fijar mercado" escribe una PriceReference real (POST /admin/pricing/override).
+  // El éxito NO fabrica un VariantControlsResponse (ese endpoint no lo devuelve): avisa y
+  // dispara `onChanged` para que el dueño de la vista refetchee el estado real.
   const fixMarket = useMutation({
     mutationFn: () =>
       overridePrice({
         cardId,
         productType,
-        gradeKey: gradeKey ?? (productType === 'graded' ? 'graded:PSA:10' : 'raw:NM'),
+        gradeKey: marketGradeKey,
         finish: productType === 'raw' ? finish : undefined,
         priceMxnCents: Math.round(Number(marketInput) * 100),
       }),
     onSuccess: () => {
-      setInlineOk(t('marketFixed'));
-      onSaved?.({ cardId, productType, gradeKey: gradeKey ?? 'raw:NM', finish, pricing });
+      const msg = t('marketFixed');
+      if (onToast) onToast(msg);
+      else setInlineOk(msg);
+      onChanged?.();
+    },
+    onError: () => {
+      errorRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+      errorRef.current?.focus();
     },
   });
 
@@ -345,11 +380,11 @@ export function VariantPriceConsole({
 
   return (
     <section className="flex flex-col gap-4" aria-label={t('title')}>
-      {/* Error del servidor ANCLADO arriba de la sección (patrón P-4). */}
-      {save.isError && (
+      {/* Error del servidor ANCLADO arriba de la sección (patrón P-4) — guardar Y fijar mercado. */}
+      {(save.isError || fixMarket.isError) && (
         <div ref={errorRef} tabIndex={-1} className="outline-none">
           <Banner variant="danger" role="alert">
-            {serverErrorMessage(save.error)}
+            {serverErrorMessage(save.isError ? save.error : fixMarket.error)}
           </Banner>
         </div>
       )}
@@ -386,7 +421,7 @@ export function VariantPriceConsole({
                   size="sm"
                   variant="secondary"
                   loading={fixMarket.isPending}
-                  disabled={fixMarket.isPending || parsePesos(marketInput) == null}
+                  disabled={fixMarket.isPending || !((parsePesos(marketInput) ?? 0) > 0)}
                   onClick={() => fixMarket.mutate()}
                 >
                   {t('fixMarketCta')}

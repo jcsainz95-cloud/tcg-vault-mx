@@ -1821,6 +1821,7 @@
       "expand": "Mostrar",
       "pieceOverridesVariant": "El precio por pieza gana sobre el precio de la variante.",
       "noPieces": "Sin piezas de esta variante.",
+      "truncated": "Mostrando {shown} de {total} piezas de esta carta (lista truncada).",
       "folioCopied": "Folio copiado",
       "copyFolio": "Copiar folio",
       "copyCert": "Copiar certificado",

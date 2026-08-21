@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { VariantPriceConsole, VariantPricingCompact } from './VariantPriceConsole';
 import * as api from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
 import type { VariantPricingDTO } from '@/types/contract';
 
 // Rol controlable (edición SOLO super_admin; vault_operator lee).
@@ -174,6 +175,81 @@ describe('VariantPriceConsole (§16.3b) · edición super_admin', () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy.mock.calls[0][2].bounty).toEqual({ enabled: true, priceCents: 250_000, targetQty: null });
+  });
+
+  it('M-1: tras guardar, Efectivo/FUENTE pintan el estado NUEVO de la respuesta sin reabrir', async () => {
+    vi.spyOn(api, 'putVariantControls').mockResolvedValue({
+      cardId: 'c-charizard',
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'normal',
+      pricing: overriddenPricing,
+    });
+    renderWithProviders(
+      <VariantPriceConsole cardId="c-charizard" finish="normal" pricing={basePricing} marketRefCents={125_000} />,
+      'es',
+    );
+
+    // Antes del write ambas caras resuelven por regla: no hay override que retirar.
+    expect(screen.queryByRole('button', { name: 'Restablecer a regla' })).toBeNull();
+
+    fireEvent.change(screen.getAllByLabelText('Override')[0], { target: { value: '950' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar precios' }));
+
+    // La consola adopta el pricing RESUELTO de la respuesta (no el prop capturado al abrir):
+    // fuente Manual en ambas caras, efectivos nuevos y «Restablecer a regla» disponible — SIN reabrir.
+    expect(await screen.findAllByRole('button', { name: 'Restablecer a regla' })).toHaveLength(2);
+    expect(screen.getAllByText('Manual').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('MX$1,800.00')).toBeInTheDocument(); // venta efectiva del response
+  });
+
+  it('M-3: si «Fijar mercado» falla, hay banner de error anclado (nada de éxito silencioso)', async () => {
+    vi.spyOn(api, 'overridePrice').mockRejectedValue(
+      new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'invalid price' }),
+    );
+    renderWithProviders(
+      <VariantPriceConsole cardId="c-charizard" finish="normal" pricing={basePricing} marketRefCents={null} />,
+      'es',
+    );
+
+    fireEvent.change(screen.getByLabelText('Fijar mercado (MXN)'), { target: { value: '1250' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Fijar' }));
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('Referencia de mercado fijada.')).toBeNull();
+  });
+
+  it('M-3: el éxito de «Fijar mercado» dispara onChanged (refetch real) y NO fabrica un onSaved', async () => {
+    const spy = vi.spyOn(api, 'overridePrice').mockResolvedValue({ ok: true });
+    const onSaved = vi.fn();
+    const onChanged = vi.fn();
+    renderWithProviders(
+      <VariantPriceConsole
+        cardId="c-charizard"
+        finish="normal"
+        pricing={basePricing}
+        marketRefCents={null}
+        onSaved={onSaved}
+        onChanged={onChanged}
+      />,
+      'es',
+    );
+
+    fireEvent.change(screen.getByLabelText('Fijar mercado (MXN)'), { target: { value: '1250' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Fijar' }));
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    // onSaved queda reservado para el payload REAL del PUT variant-controls.
+    expect(onSaved).not.toHaveBeenCalled();
+    // raw usa la clave canónica del contrato (no un default mágico de graded).
+    expect(spy).toHaveBeenCalledWith({
+      cardId: 'c-charizard',
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'normal',
+      priceMxnCents: 125_000,
+    });
+    expect(await screen.findByText('Referencia de mercado fijada.')).toBeInTheDocument();
   });
 
   it('vault_operator: lectura sí, edición no (sin inputs ni guardar)', () => {

@@ -14,7 +14,6 @@ import type {
   Finish,
   InventoryItemDTO,
   ProductType,
-  VariantControlsResponse,
   VariantPricingDTO,
   VaultLocationDTO,
   SealedCondition,
@@ -270,32 +269,41 @@ export function VariantDrawer(props: VariantDrawerProps) {
                     {pricesOpen ? t('collapse') : t('expand')}
                   </span>
                 </button>
-                {pricesOpen && (
-                  <VariantPriceConsole
-                    cardId={cardId}
-                    finish={productType === 'raw' ? finish : 'normal'}
-                    productType={productType === 'raw' ? 'raw' : 'graded'}
-                    gradeKey={
-                      props.gradeInfo
-                        ? `graded:${props.gradeInfo.gradingCompany}:${props.gradeInfo.gradeValue}`
-                        : undefined
-                    }
-                    pricing={pricing}
-                    marketRefCents={marketRefCents}
-                    marketCapturedDate={marketCapturedDate}
-                    onToast={onToast}
-                    onSaved={(res: VariantControlsResponse) => {
-                      void res;
-                      onChanged?.();
-                    }}
-                  />
-                )}
+                {/* M-1: la consola mantiene su pricing resuelto; aquí solo refrescamos agregados.
+                    gradeKey es clave de dinero: en graded lo exige el tipo (sin default mágico). */}
+                {pricesOpen &&
+                  (productType === 'raw' ? (
+                    <VariantPriceConsole
+                      cardId={cardId}
+                      finish={finish}
+                      productType="raw"
+                      pricing={pricing}
+                      marketRefCents={marketRefCents}
+                      marketCapturedDate={marketCapturedDate}
+                      onToast={onToast}
+                      onChanged={onChanged}
+                    />
+                  ) : props.gradeInfo ? (
+                    <VariantPriceConsole
+                      cardId={cardId}
+                      finish="normal"
+                      productType="graded"
+                      gradeKey={`graded:${props.gradeInfo.gradingCompany}:${props.gradeInfo.gradeValue}`}
+                      pricing={pricing}
+                      marketRefCents={marketRefCents}
+                      marketCapturedDate={marketCapturedDate}
+                      onToast={onToast}
+                      onChanged={onChanged}
+                    />
+                  ) : null)}
               </section>
             )}
 
             <PiecesSection
               rows={rows}
               query={pieces}
+              fetchedCount={pieces.data?.data.length ?? 0}
+              totalCount={pieces.data?.total ?? 0}
               highlighted={highlighted}
               variantHasOverride={variantHasOverride}
               showCert={productType === 'graded'}
@@ -320,6 +328,8 @@ export function VariantDrawer(props: VariantDrawerProps) {
 function PiecesSection({
   rows,
   query,
+  fetchedCount,
+  totalCount,
   highlighted,
   variantHasOverride,
   showCert,
@@ -329,6 +339,9 @@ function PiecesSection({
 }: {
   rows: InventoryItemDTO[];
   query: { isLoading: boolean; isError: boolean; error: unknown; refetch: () => unknown; data: unknown };
+  /** Piezas que el servidor devolvió vs. total real — honestidad del truncado (M-2). */
+  fetchedCount: number;
+  totalCount: number;
   highlighted: string[];
   variantHasOverride: boolean;
   showCert: boolean;
@@ -392,6 +405,14 @@ function PiecesSection({
   return (
     <section className="flex flex-col gap-3 border-t border-border pt-4" aria-label={t('pieces', { count: rows.length })}>
       <h3 className="text-h3">{t('pieces', { count: rows.length })}</h3>
+
+      {/* M-2: el endpoint capea a 100 (pageSize máx del contrato) — el truncado se DICE, no se
+          esconde (la lista no es todo lo que hay para esta carta). */}
+      {totalCount > fetchedCount && (
+        <p className="text-xs text-muted" role="status">
+          {t('truncated', { shown: fetchedCount, total: totalCount })}
+        </p>
+      )}
 
       {/* Nota única: el precio POR PIEZA gana sobre el precio de la variante. */}
       {variantHasOverride && rows.length > 0 && (

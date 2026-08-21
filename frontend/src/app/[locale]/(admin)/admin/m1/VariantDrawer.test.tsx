@@ -119,6 +119,58 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
     expect(screen.queryByRole('heading', { name: 'Precios' })).toBeNull();
   });
 
+  it('M-1: guardar un override en la consola pinta el estado nuevo SIN reabrir y refresca agregados', async () => {
+    const pricing = {
+      buy: { suggestedCents: 87_500, overrideCents: null, effectiveCents: 87_500, source: 'rule' as const },
+      sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'rule' as const },
+    };
+    vi.spyOn(api, 'putVariantControls').mockResolvedValue({
+      cardId: 'c-charizard',
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'normal',
+      pricing: {
+        buy: { suggestedCents: 87_500, overrideCents: 95_000, effectiveCents: 95_000, source: 'override' },
+        sell: { suggestedCents: 169_000, overrideCents: null, effectiveCents: 169_000, source: 'rule' },
+      },
+    });
+    const onChanged = vi.fn();
+    renderDrawer({ pricing, marketRefCents: 125_000, onChanged });
+
+    fireEvent.change((await screen.findAllByLabelText('Override'))[0], { target: { value: '950' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar precios' }));
+
+    // Efectivo/FUENTE del response, visibles al instante (antes quedaba el prop capturado al abrir).
+    expect(await screen.findByRole('button', { name: 'Restablecer a regla' })).toBeInTheDocument();
+    expect(screen.getAllByText('Manual').length).toBeGreaterThanOrEqual(1);
+    // Y el drawer avisa al dueño para refrescar el binder (respuesta ya no se descarta).
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it('M-2: si el servidor capea la lista (100 de N), el truncado SE DICE con el conteo real', async () => {
+    const fxm = await import('@/lib/mock/fixtures');
+    const rows = fxm.mockInventory.filter(
+      (i) =>
+        i.card.id === 'c-charizard' &&
+        (i.finish ?? 'normal') === 'normal' &&
+        i.productType === 'raw' &&
+        i.ownerType === 'platform',
+    );
+    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
+      data: rows,
+      page: 1,
+      pageSize: 100,
+      total: 137,
+    });
+    renderDrawer();
+
+    expect(
+      await screen.findByText(
+        `Mostrando ${rows.length} de 137 piezas de esta carta (lista truncada).`,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('gradeadas: las filas muestran el certNumber completo (copiable)', async () => {
     renderDrawer({
       productType: 'graded',
