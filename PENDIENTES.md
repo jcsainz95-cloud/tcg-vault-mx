@@ -25,7 +25,9 @@ corre EN SERIE (comparten zonas compartidas: contrato, `MasterSetBinder`, precio
 gates (qa + techlead) y merge a `main` al cerrar. Promoción a producción solo con "publica" del
 humano (ya dado únicamente para el PR #21).
 
-1. **Tarea #1** — fixtures `backend-e2e` → gates verdes → merge PR #21 a producción.
+1. **Tarea #1** — ✅ HECHA (2026-08-21): fixtures e2e corregidos + H1 endurecido a `amount_received`
+   (captura parcial NO liquida); 124 tests integración + 1259 unitarios verdes; gates ci-ok +
+   sast-ok + backend-e2e verdes; **PR #21 mergeado a producción** (`d606669`, Railway + Vercel).
 2. **Stream A · Catálogo y precios:** P-13 (variantes fantasma) + P-15 (mercado por variante) +
    P-12 (sync por set). Arquitecto primero.
 3. **Stream B · Inventario Master Set:** P-19 (alta simple + publicar todo) + P-18 (tres precios +
