@@ -27,7 +27,8 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-const BRAND = 'TCG Vault MX';
+// P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4 — mayúsculas, con espacio).
+const BRAND = 'TCG HUNT';
 
 function layout(title: string, bodyHtml: string): string {
   return [

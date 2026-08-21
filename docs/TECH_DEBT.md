@@ -621,6 +621,10 @@
   caps de lote sin revisar la forma del query.
 - **Disparador (aceptado):** si se aumenta el cap de lote (>200) o aparece latencia en `bulk-publish`/
   `fetchSellable`, reescribir a un `IN` sobre claves compuestas o a tuplas `(cardId, finish)` acotadas.
+  **Actualización 2026-08-21 (Stream A v1.27):** el binder Master Set (P-15) pasó el lote a
+  carta×acabado SIN cap de 50 (un set completo por request) y la consulta además carga TODO el
+  histórico sin acotar `capturedDate` — ver **SA-D2** (Alta), que absorbe/adelanta este disparador:
+  pagar ambos juntos (acotar fecha o `DISTINCT ON` + revisar la forma cartesiana del `WHERE`).
 
 ### BE-36 · `isSecretRare = numberSort > printedTotal` marca TODOS los promos TG/GG/SV — RESUELTA (2026-08-17)
 - **Dónde:** `src/modules/inventory/master-set.service.ts` (`MasterSetCardCellDTO.isSecretRare`).
@@ -741,11 +745,11 @@
   constantes 7d/30d de los plazos del ítem rechazado viven en
   `src/modules/buylist/buylist-reject.constants.ts`; `src/jobs/buylist-sweep.service.ts` (zona de otro
   agente en este pase) conserva sus 7/30 inline — al tocar el sweep, importar esas constantes (fuente única).
-- **Ampliación (v1.19, techlead):** el correo de soporte `soporte@tcgvaultmx.com` está **hardcodeado** en
-  `buylist-mail.templates.ts:19` (`SUPPORT_EMAIL`), mientras `src/modules/disputes/disputes.constants.ts:10`
-  lee el MISMO buzón de la env `DISPUTE_EVIDENCE_CONTACT` (con ese fallback) — **dos fuentes de verdad** para
-  el mismo dato de contacto: un cambio del buzón vía env NO se reflejaría en el correo de rechazo de buylist.
-  Unificar (leer la misma fuente/env) cuando se absorba la plantilla en `mail/` (mismo disparador de abajo).
+- **Ampliación (v1.19, techlead) — RESUELTA en P-21:** el correo de soporte ya NO está hardcodeado:
+  `buylist-mail.templates.ts` lee `SUPPORT_EMAIL` con cascada a `DISPUTE_EVIDENCE_CONTACT` (la MISMA env que
+  `disputes.constants.ts`) y default histórico, vía `envOr` (ronda de cierre P-21: env vacía/blanca cae al
+  default). Un cambio del buzón vía env SÍ se refleja en el correo de rechazo. Queda solo el residuo menor de
+  que el **literal default** está duplicado en 3 archivos — trackeado como **BE-P21-2** (abajo).
 - **Impacto:** bajo. Mantenibilidad (divergencia potencial de branding/escape entre plantillas) y, sin
   reintentos, un correo de rechazo puede perderse si el proveedor falla (el vendedor igual ve motivo y plazos
   en la app, `GET /buylist/requests/:id`).
@@ -2497,3 +2501,368 @@
   `pptSetId`-numérico y el caché en memoria. **Owners:** **devops** registra S-D1/2/3 tras la primera corrida
   Railway; el **arquitecto** decide si/ cuándo materializar `tcgplayerGroupId` (toca `schema.prisma` → zona
   compartida). Mitigación intermedia: verificar el nombre del grupo también en la rama numérica S-D3.
+
+### Stream A v1.27 (P-13/P-15/P-12) — deuda del veredicto techlead del gate (2026-08-21, no bloqueante)
+
+> Deuda anotada del veredicto del **techlead** sobre el gate del Stream A (rama
+> `claude/backend-e2e-payment-fixtures-77mo4t`, P-13 variantes fantasma + P-15 mercado por variante +
+> P-12 force en sync por set). Los DOS ítems MAYORES del rechazo (seeds con estado imposible
+> post-v1.27 en `seed.ts`/`e2e-fixtures.ts`/`seed-e2e.ts`, y comentarios normativos derogados en
+> `catalog-sync.service.ts`) **se corrigieron en esta misma rama** y NO figuran como deuda. Lo de
+> abajo es la deuda NO bloqueante que el techlead pidió registrar. Dueño **backend** salvo donde se
+> anota (arquitecto). IDs `SA-D*` con la numeración del veredicto del techlead (prefijo `SA-` para no
+> colisionar con la D1–D5 del pase v1.1 ni la D-1/D-2 de `pulido-precios-display`).
+
+### SA-D2 · `getReferencesBatch` carga TODO el histórico de `PriceReference` y deduplica en memoria (Alta)
+- **Dónde:** `src/modules/pricing/pricing.service.ts:192-224` (`getReferencesBatch`).
+- **Estado actual:** el `findMany` NO acota `capturedDate`: trae TODAS las filas históricas que
+  matcheen las dimensiones (`orderBy capturedDate desc`) y se queda con la PRIMERA vista por clave
+  **en memoria** (descarta el resto). **P-15 multiplicó el lote** a carta×acabado (binder Master Set:
+  un set completo por request, sin cap de 50). Con la ingesta acumulando ~11-15M filas/año
+  (**BE-20**), a un año de operación un set de 300 cartas × ~2 acabados × ~365 capturas ⇒ **~200k
+  filas transferidas y descartadas POR REQUEST de binder**.
+- **Impacto:** alto a futuro: latencia y presión de BD/red en la ruta caliente del binder (y demás
+  consumidores del batch), empeorando linealmente con el histórico. Correctness OK (la dedup elige
+  bien la más reciente).
+- **Disparador:** **antes de que `PriceReference` acumule meses de histórico a escala** — mismo reloj
+  que **BE-20** (poda/retención); pagar junto con **BE-35** (forma cartesiana del `WHERE`, cuyo
+  disparador se actualizó para apuntar aquí). Dirección: acotar el `findMany` con
+  `capturedDate >= hoy − N días` (la referencia vigente es reciente por construcción de la ingesta
+  2×/día) **o** `DISTINCT ON (cardId, productType, gradeKey, finish) … ORDER BY capturedDate DESC`
+  vía SQL, devolviendo UNA fila por clave desde la BD.
+
+### SA-D1 · `Card.catalogFinishes` es write-only desde v1.26 (Media — decisión de retiro: arquitecto)
+- **Dónde:** columna `Card.catalogFinishes` (`prisma/schema.prisma`); único escritor
+  `catalog-sync.service.ts` → `upsertCards`; **ningún lector en producción**.
+- **Estado actual:** desde v1.26 el reconciliador compone `availableFinishes` SOLO de
+  `structuralFinishes` (resolver TCGCSV); `catalogFinishes` se sigue escribiendo (señal débil
+  derivada del payload de pokemontcg.io) pero nadie la lee en código de producción — quedó como
+  observabilidad/registro. El docblock de `upsertCards` ya lo dice explícitamente (corregido en este
+  mismo pase: antes aún la titulaba «AUTORIDAD»).
+- **Impacto:** medio-bajo (mantenibilidad/confusión): una columna con nombre de autoridad que ya no
+  manda invita a re-conectarla por error en un refactor futuro.
+- **Disparador:** próxima revisión de schema. **La decisión de retirarla (drop de columna) pasa por
+  el arquitecto** (`prisma/schema.prisma` es zona compartida); aquí solo se registra la deuda.
+
+### SA-D3 · Escrituras secuenciales por carta bajo request síncrono (Media)
+- **Dónde:** `src/modules/catalog/finish-reconciler.service.ts:65` (`card.update` en bucle),
+  `src/modules/pricing/price-ingest.service.ts:370` (`persistMarketReference` por fila) y `:411`
+  (`card.update` del snapshot por carta).
+- **Estado actual:** los tres caminos escriben UNA fila por round-trip a Postgres, en serie. **P-12
+  lo pone detrás de un botón de M2** (`POST /admin/catalog/sync {setId, force:true}`): resolver
+  estructural + reconcile de un set de ~300 cartas ⇒ **~300 round-trips dentro del request HTTP**; y
+  el `202 {jobId}` de ese sync sigue siendo síncrono en realidad (D1 del pase v1.1: no hay cola
+  detrás del jobId).
+- **Impacto:** medio: latencia del request admin, con riesgo de timeout en sets grandes o instancias
+  lejos de la BD. Correctness OK (upserts/updates idempotentes; re-lanzar repara).
+- **Disparador:** timeouts reales del botón de M2, o al cablear BullMQ para catálogo (familia
+  D1/BE-11/BE-21). Dirección: batchear las escrituras (`updateMany` agrupado por valor recomputado,
+  `$transaction` por lotes, `createMany` para referencias) y/o mover el trabajo a un job real con
+  `jobId` consultable.
+
+### SA-D5 · Gate estructural `firstImport || force` duplicado en las dos rutas de import (Baja)
+- **Dónde:** `src/modules/catalog/catalog-sync.service.ts:305-312` (`importSet`) vs `:334-342`
+  (`importSetByExternalId`).
+- **Estado actual:** el cálculo de `firstImport` (resolver cableado + count de cartas del set == 0) y
+  el gate `firstImport || force` están copiados en ambas rutas (P-12 los dejó en paridad a propósito,
+  pero por duplicación literal).
+- **Impacto:** bajo (mantenibilidad): un matiz futuro al gate hay que aplicarlo dos veces o las rutas
+  divergen en silencio — justo la asimetría que P-12 vino a cerrar.
+- **Disparador:** próximo toque a `catalog-sync`. Dirección: extraer un helper privado (p. ej.
+  `shouldRunStructuralResolver(localSetId, force)`) consumido por ambas rutas.
+
+### SA-D6 · `force` solo-body en `sync` vs body-o-query (`parseForce`) en `sync-all`/`backfill` (Baja)
+- **Dónde:** `src/modules/catalog/admin-catalog.controller.ts` — `POST /admin/catalog/sync` lee
+  `force` SOLO del body (`SyncDto`, `dto.force ?? false`), mientras `sync-all` y `backfill` aceptan
+  body O query vía el helper `parseForce(bodyForce, queryForce)`.
+- **Estado actual:** dos convenciones de entrada para el MISMO flag en el MISMO controller.
+- **Impacto:** bajo (consistencia/DX de operación): un operador que use `?force=true` en `sync` verá
+  el flag ignorado en silencio (y el audit registrará `force:false`).
+- **Disparador:** próximo toque al controller de catálogo (si cambia la superficie del contrato §M2,
+  pasa por el arquitecto). Dirección: unificar a UNA convención (body tipado en las tres rutas, o
+  `parseForce` en las tres).
+
+### SA-D4 · `MasterSetVariantDTO.capturedDate` se emite y nadie lo consume (Baja, dueño frontend)
+- **Dónde:** cadena completa del campo: backend lo puebla
+  (`backend/src/modules/inventory/master-set.service.ts:493-495`, solo cuando hay precio), el mock lo
+  genera (`frontend/src/lib/mock/fixtures.ts:1069`), `frontend/src/types/contract.ts:827` lo tipa
+  («decoración de frescura; el front tolera su ausencia») — y **ningún componente lo pinta**:
+  `MasterSetBinder.tsx` solo lee `marketReferenceMxnCents`.
+- **Estado actual:** campo del contrato v1.27 (P-15) transportado de punta a punta pero **write-only
+  en la UI**. El patrón para renderizarlo ya existe: `frontend/src/components/ui/PriceTag.tsx:49`
+  fecha la referencia en modo `reference` con `formatDate(reference.capturedDate, locale)`.
+- **Impacto:** bajo (UX/mantenibilidad): el usuario del binder no ve la frescura del precio de cada
+  variante pese a que el dato viaja; un campo transportado-y-nunca-leído invita a retirarlo por error
+  en un refactor de contrato («nadie lo usa») cuando la intención era consumirlo.
+- **Disparador:** próximo toque al binder Master Set. Dirección: renderizar `capturedDate` como
+  frescura del precio en la variante (reutilizando el patrón de `PriceTag.tsx:49`) **o** anotar
+  explícitamente en `contract.ts`/`MasterSetBinder.tsx` que el campo queda reservado para la ficha de
+  detalle (documentar la no-lectura intencional).
+
+### SA-D7 · M2: `onSuccess` de ingest duplicado y `fullSyncPhase` como estado paralelo (Baja, dueño frontend)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` — `onSuccess` de
+  `fullSyncMutation` (~:582-588) vs `onSuccess` de `ingestMutation` (~:323-327); y el `useState`
+  `fullSyncPhase` (~:569).
+- **Estado actual:** (a) los dos `onSuccess` duplican literalmente la misma secuencia
+  (`invalidateQueries(['pending-prices'])` + `setJustDispatched(true)` + `priceSyncStatus.refetch()`);
+  el patrón correcto ya existe extraído para el otro flujo (`onSweepLaunched` ~:543-546) — falta el
+  análogo `onIngestLaunched`. (b) `fullSyncPhase` es un `useState` **paralelo** al estado de la
+  mutación (dos fuentes de verdad sobre el mismo ciclo de vida); en error NO se limpia a propósito
+  (el banner reporta en qué fase falló), pero queda **pegado** hasta el siguiente disparo.
+- **Impacto:** bajo (mantenibilidad): un cambio futuro a la mecánica post-ingest (p. ej. invalidar
+  otra query) hay que aplicarlo en dos sitios o los flujos divergen en silencio — misma clase que
+  SA-D5; el estado paralelo complica razonar sobre el banner tras un error.
+- **Disparador:** próximo toque a M2View. Dirección: extraer `onIngestLaunched` consumido por ambas
+  mutaciones (espejo de `onSweepLaunched`), y derivar la fase del propio estado de la mutación
+  (`variables`/`error`) o resetear `fullSyncPhase` en un punto único del ciclo (p. ej. en `onMutate`),
+  dejando UNA fuente de verdad.
+
+### Stream B v1.28 (P-17..P-25) — deuda del veredicto techlead del gate (2026-08-21, no bloqueante)
+
+> Deuda anotada del veredicto del **techlead** sobre el gate del Stream B (rama
+> `claude/backend-e2e-payment-fixtures-77mo4t`, v1.28: M1 reorganizado P-17, consola de tres precios
+> P-18, alta rápida P-19, publicar-todo, Top Bounties P-22, sellado/gradeadas P-25/P-20). El ítem
+> BLOQUEANTE del rechazo acotado (B-1/IMPORTANTE-1: `countBountyAcquisitionsTx` contaba piezas
+> `rechazada` hacia `bountyAcquiredQty` — cherry-pick inflaba el contador, podía auto-apagar el
+> bounty antes de tiempo y auditar `bounty.completed` en falso) **se corrigió en esta misma rama**
+> (mismo filtro que la invariante BL-1, con test del caso cherry-pick) y NO figura como deuda. Lo de
+> abajo es la deuda NO bloqueante que el techlead pidió registrar. Dueño **backend** salvo donde se
+> anota (arquitecto). IDs `SB-D*` con la numeración del veredicto (mismo formato que `SA-D*`;
+> SB-D7/SB-D8 son de frontend y las registra su dueño en su propio pase).
+
+### SB-D1 · `publish-all` síncrono sin cota; `InventoryBatch` se persiste al final (Media)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:811` (`publishAll`) y el registro del
+  `InventoryBatch` al cierre del método; endpoint `POST /admin/inventory/publish-all`
+  (`inventory.controller.ts:160`).
+- **Estado actual:** la publicación masiva corre **dentro del request HTTP** sin cota de selección
+  (§4.26c: chunks server-side, pero el total puede ser todo el inventario) y el `InventoryBatch` que
+  registra el resultado se persiste **al final** del recorrido. Si el request agota el timeout, el
+  trabajo por-pieza ya commiteado es **piece-safe** (re-lanzar re-procesa idempotente), pero el diálogo
+  del operador queda colgado y un re-lanzamiento **re-recorre TODO** desde cero.
+- **Impacto:** medio: latencia/timeout del botón de M1 con inventarios grandes; sin corrupción de
+  datos (idempotente por pieza), solo UX de operación y re-trabajo.
+- **Disparador:** timeouts reales del publicar-todo, o al cablear BullMQ para estos barridos (misma
+  familia que **D1/BE-11/SA-D3**). Dirección: mover a job con `jobId` consultable (progreso
+  persistido) o, como mínimo, cap por set/filtro con paginación de reanudación.
+
+### SB-D2 · `buylistRules()` y `loadBuylistRules()` — mismo cuerpo duplicado, no-delegación justificada (Baja)
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts:261` (`buylistRules`) vs
+  `backend/src/modules/pricing/pricing.service.ts:319` (`loadBuylistRules`).
+- **Estado actual:** dos lecturas **paralelas** de la MISMA config (`BUYLIST_PRICE_RULES` +
+  `BUYLIST_PRICE_FALLBACK_PCT`), con cuerpo idéntico. La no-delegación es **decisión justificada**
+  (no acoplar `buylist`→`pricing` por un read de settings); el cuerpo normativo de la semántica de
+  precio es la matemática compartida en `common/money.ts`. El docblock de `loadBuylistRules` que
+  afirmaba (en falso) que `buylistRules()` delegaba ahí **ya se corrigió** en este pase.
+- **Impacto:** bajo (mantenibilidad): si cambia el formato del dial hay que tocar dos lectores — hoy
+  ambos leen las mismas `SettingKey`, así que cambian juntos por construcción.
+- **Disparador:** próximo toque a cualquiera de los dos specs de reglas de compra. Dirección: unificar
+  en una sola fuente (helper compartido o delegación explícita) cuando se toquen esos archivos.
+
+### SB-D3 · Clave de variante `${cardId}|${productType}|${gradeKey}|${finish}` construida a mano en ≥6 sitios (Baja)
+- **Dónde:** `pricing.service.ts:192,280,308`, `buylist.service.ts:170,397,1374`,
+  `catalog.service.ts:150,164`, `admin.service.ts:317,334,612`, `master-set.service.ts:637,645`,
+  `inventory.service.ts:744`, `admin-vaults.service.ts:121` (todos en `backend/src/modules/`).
+- **Estado actual:** la clave compuesta de la variante M-30 (y de los maps de `PriceReference` batch)
+  se interpola a mano con el mismo template literal en ≥6 módulos. Un typo/reordenación en un solo
+  sitio produce un **miss silencioso** del map (fila no encontrada ⇒ sin override/sin referencia).
+- **Impacto:** bajo hoy (los sitios son idénticos y con tests); riesgo latente de divergencia
+  silenciosa en refactors.
+- **Disparador:** próximo toque a M-30 (`VariantPriceOverride`). Dirección: exportar un
+  `variantKey({cardId, productType, gradeKey, finish})` único (p. ej. junto a los tipos de pricing) y
+  reapuntar los call-sites.
+
+### SB-D4 · `resolveSealedAportacionMarket` consulta hermanos+spreads+referencia POR LÍNEA del lote (Media)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:262` (call-site en el alta por lote)
+  → `:307` (`resolveSealedAportacionMarket`).
+- **Estado actual:** en el alta de aportación con líneas selladas, CADA línea dispara su propia ronda
+  de queries (hermanos mapeados con `tcgplayerProductId`, spreads de presentación, referencia de
+  mercado) — rompe la doctrina **BE-25** de izar la config/lecturas UNA vez por request.
+- **Impacto:** medio: N+1 sobre la ruta de captura admin al crecer los lotes con sellado; correctness
+  OK.
+- **Disparador:** lotes grandes de sellado o próximo toque al alta. Dirección: izar hermanos + spreads
+  + referencias al **inicio del lote** (batch por `cardId IN (...)` + map en memoria), mismo patrón
+  que `getReferencesBatch`.
+
+### SB-D5 · Inferencia de `tcgplayerProductId` por hermanos = parche a hueco de modelo (Media, backend+arquitecto)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts:298-322` (inferencia del productId
+  del GRUPO desde piezas hermanas ya mapeadas).
+- **Estado actual:** no existe una **entidad de producto sellado** en el modelo; el
+  `tcgplayerProductId` de una nueva pieza sellada se **infiere** de sus hermanos (`distinct` de piezas
+  ya mapeadas de la misma agrupación). Si no hay hermanos mapeados o hay más de un candidato, la
+  inferencia degrada (sin productId ⇒ sin mercado). Es un parche funcional a un hueco de modelado.
+- **Impacto:** medio (mantenibilidad + calidad de datos): la fuente de verdad del mapeo vive
+  implícita en las piezas, no en el catálogo.
+- **Disparador:** próximo toque al modelo de sellado. **Decisión del arquitecto:** `productId`
+  explícito en el DTO del alta vs **entidad de producto sellado** en `schema.prisma` (zona
+  compartida, regla 9).
+
+### SB-D6 · `VariantControlsService.update`: read-modify-write + delete/upsert fuera de transacción (Baja)
+- **Dónde:** `backend/src/modules/pricing/variant-controls.service.ts:115-157` (`update`: `findUnique`
+  de la fila vigente → merge en memoria → `delete`/`upsert`, sin `$transaction`).
+- **Estado actual:** dos `PUT` concurrentes sobre la MISMA variante pueden leer la misma fila vigente
+  y pisarse el merge (last-writer-wins de campos que el otro no tocó), o carrera delete-vs-upsert.
+  Solo panel admin (M2), operación en serie en la práctica; misma familia TOCTOU que BE-2/BE-22.
+- **Impacto:** bajo: requiere dos admins editando la misma variante a la vez; el peor caso es un
+  override pisado (recuperable re-aplicando; auditado con before/after).
+- **Disparador:** próximo toque a variant-controls o al habilitar multi-operador concurrente.
+  Dirección: envolver lectura+merge+persistencia en un `$transaction` (o `updateMany` con guardias).
+
+### SB-D7 · Recorte de identidad de grupo de sellado en cliente; falta filtro de identidad en el contrato (Media, frontend + arquitecto)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/SealedTab.tsx:192-226` (publicar-grupo pagina
+  server-side hasta agotar la carta) y
+  `frontend/src/app/[locale]/(admin)/admin/m1/VariantDrawer.tsx:118,342,409-413` (lista de piezas del
+  drawer, capeada a `pageSize` máx 100 del contrato); consumidor de `GET /admin/inventory/items`.
+- **Estado actual:** el contrato no ofrece filtros de **identidad de grupo** de sellado
+  (`sealedSubtype`/`sealedCondition`/`gradingCompany`/`gradeValue`) en `GET /admin/inventory/items`, así
+  que el cliente trae páginas por carta y **recorta la identidad en memoria**. **Mitigado** en la ronda
+  de corrección del gate (2026-08-21): el mutation de «Publicar grupo» **pagina hasta agotar** la carta
+  (ya no trunca a 100) y la lista de piezas del drawer **declara el truncado** con el conteo real
+  (`admin.drawer.truncated`: «Mostrando {shown} de {total}…»). La vía de fondo sigue pendiente.
+  Nota adicional: el heading **«Piezas (N)»** del drawer cuenta las filas **recortadas** en cliente, no
+  el total server-side cuando hay truncado (el indicador nuevo lo deja declarado al operador).
+- **Impacto:** medio: sobre-lectura (páginas de más por carta) y conteo del heading no-total bajo
+  truncado; correctness del publicar-grupo OK tras la mitigación (recorre todas las páginas).
+- **Disparador:** próximo toque al contrato de M1/inventario. **Solicitud al arquitecto:** filtros de
+  identidad `sealedSubtype`/`sealedCondition`/`gradingCompany`/`gradeValue` en
+  `GET /admin/inventory/items` (y de paso un `total` filtrado utilizable por el heading), para que el
+  servidor filtre el grupo y el cliente deje de recortar. Ref: `docs/FRONTEND_NOTES.md` (Ronda de
+  corrección Stream B, M-2).
+
+### SB-D8 · `FinishMark`/`FinishBand` con hex del DS hardcodeados — RESUELTA (ronda de corrección, 2026-08-21)
+- **Dónde:** `frontend/src/components/domain/FinishMark.tsx` (compartido; el Stream C lo reusa tal cual).
+- **Estado:** **RESUELTA** en la misma ronda del gate (commit `e0fbff1`). `FinishBand` dejó los hex
+  hardcodeados del DS §16.6 y usa **tokens vivos con fallback**
+  (`var(--color-neutral-warm|--color-accent|--color-ink, <hex del DS §16.6>)`), mismo criterio que
+  `PortfolioTrendChart`, aplicado ANTES de que el Stream C esparza el patrón. Cubierto por
+  `FinishMark.test.tsx`. Registrada aquí para trazabilidad del veredicto techlead; ya no es deuda.
+
+### SB-D9 · `toListingDTO` con dos caminos paralelos de resolución de precio (ctx lote vs single) (Media)
+- **Dónde:** `backend/src/modules/catalog/catalog.service.ts:229-250` (`toListingDTO`: rama
+  `ctx?.salesRules` → `computeSalePriceForRarity` pura con override del batch, vs rama sin ctx →
+  `pricing.getVariantOverride` + `pricing.computeSalePriceForItem` por ítem).
+- **Estado actual:** la MISMA resolución de precio de venta (regla por rareza + override de variante)
+  vive en dos caminos que deben mantenerse equivalentes a mano. Hoy convergen en la matemática de
+  `money.ts`, pero un cambio que toque solo una rama (p. ej. un guard nuevo del override) divergiría
+  en silencio entre listados (con ctx) y ficha single (sin ctx).
+- **Impacto:** medio (mantenibilidad de ruta de dinero-display): riesgo de precios distintos para la
+  misma pieza según el camino de lectura.
+- **Disparador:** próximo toque a la ficha/listado del catálogo. Dirección: exigir un
+  **PricingContext único** (construirlo siempre — de 1 elemento en el caso single) y borrar la rama
+  sin ctx.
+
+### SB-D10 · Troceo >200 del publicar-grupo de sellado no es transaccional entre trozos (Baja, frontend)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/SealedTab.tsx:219-226` — el bulk-publish capea
+  200 líneas por request (contrato §M1), así que grupos grandes se publican en trozos secuenciales con
+  `batchKey` de sufijo **determinista** por trozo (`<key>-0`, `<key>-1`, …) sobre una clave base en
+  `useRef` que solo rota tras éxito.
+- **Estado actual:** los trozos son requests independientes: un fallo intermedio (red/timeout/5xx) deja
+  el grupo **parcialmente publicado**. Es **reparable por replay**: la clave base no se limpia hasta el
+  éxito total, así el reintento reenvía los MISMOS `batchKey` por trozo — los trozos ya aplicados
+  replayean idempotentes server-side y solo los pendientes ejecutan trabajo real. El toast reporta el
+  agregado real de lo procesado.
+- **Impacto:** bajo: ventana de publicación parcial visible hasta que el operador reintenta; sin
+  duplicados ni corrupción (idempotencia por trozo). Aceptada.
+- **Disparador:** si SB-D1 (publish-all → job server-side con `jobId` consultable) se convierte en job,
+  **mover este bucle al servidor** en la misma pasada (un solo submit con progreso persistido) y borrar
+  el troceo en cliente. Ref: `docs/FRONTEND_NOTES.md` (Ronda de corrección Stream B, M-2) y tests en
+  `SealedTab.test.tsx` (paginado+troceo, reuse de batchKey en reintento).
+
+### Ronda de cierre P-21 (rebrand/correo) — deuda del veredicto techlead del gate (2026-08-21, no bloqueante)
+
+### BE-P21-1 · `BRAND` declarado 3 veces + literales de marca inline en el correo de restock (Baja)
+- **Dónde:** `backend/src/modules/mail/mail.templates.ts:31`, `backend/src/modules/buylist/buylist-mail.templates.ts:25`
+  y `backend/src/modules/orders/mail/guest-order.templates.ts:20` declaran cada uno `const BRAND = 'TCG HUNT'`;
+  además `backend/src/modules/catalog/sealed-restock-notify.service.ts:111-115` lleva 4 literales `TCG HUNT`
+  **inline** (texto/HTML del correo de reposición), sin constante.
+- **Estado actual:** la marca visible del rebrand P-21 vive en 4 sitios independientes; un futuro ajuste de
+  marca exige tocar los 4 a mano (la duplicación de plantillas es la deuda aceptada BE-43 — misma raíz:
+  `mail/` es de otro stream y las plantillas locales no comparten helpers).
+- **Impacto:** bajo (mantenibilidad/branding): divergencia silenciosa posible entre correos si un rebrand
+  futuro olvida un sitio.
+- **Disparador/dirección:** cuando `backend/src/common/` quede libre (zona compartida serializada), extraer
+  `common/brand.constants.ts` (fuente única de `BRAND`) e importarla en los 4 sitios; **se acumula con BE-43**
+  (absorción de plantillas en `mail/` — mismo pase). Owner: **backend**. Prioridad: **baja**.
+
+### BE-P21-2 · Default `'soporte@tcgvaultmx.com'` duplicado como literal en 3 archivos + dos idiomas de config (Baja)
+- **Dónde:** `backend/src/modules/disputes/disputes.constants.ts:13` (aprox.),
+  `backend/src/modules/orders/guest-checkout.constants.ts` (`SUPPORT_EVIDENCE_CONTACT`) y
+  `backend/src/modules/buylist/buylist-mail.templates.ts` (`SUPPORT_EMAIL`): los tres leen la MISMA env
+  `DISPUTE_EVIDENCE_CONTACT` (buylist con cascada previa por `SUPPORT_EMAIL`) vía `envOr`, pero el **default
+  literal** `'soporte@tcgvaultmx.com'` está repetido en los 3.
+- **Estado actual:** tras la ronda de cierre P-21 el comportamiento es correcto (env vacía/blanca cae al
+  default, helper único `mail/mail-env.util.ts` con tests), pero quedan dos residuos: (a) el literal default
+  duplicado → **divergencia silenciosa posible** si alguien cambia solo uno; (b) conviven **dos idiomas de
+  configuración**: estas constantes leen `process.env` a **import-time**, mientras el idioma del proyecto es
+  `ConfigService` inyectado (como hace `mail.module.ts`) — las constantes no ven cambios de env post-import y
+  esquivan la validación central de env.
+- **Impacto:** bajo (correctness OK hoy; riesgo de divergencia del buzón y de sorpresa en tests/entornos que
+  muten env después del import).
+- **Disparador/dirección:** al absorber las plantillas en `mail/` (BE-43) o al liberar `common/`: extraer el
+  default a una constante única (junto a `BRAND`, BE-P21-1) y migrar la lectura a `ConfigService` (o a un
+  provider del módulo `mail`) para alinear el idioma de config. Owner: **backend**. Prioridad: **baja**.
+
+### FE-P21-1 · Geometría del logo copiada en 3 sitios (componente + OG + favicon), sin guardia contra drift (Media)
+- **Dónde:** `frontend/src/components/domain/LogoTcgHunt.tsx:162-180` (fuente de verdad viva: cruz
+  segmentada, arcos y punto central del mark), `frontend/public/branding/og-tcg-hunt.svg:21-36` (copia
+  literal de esa geometría; además el asset OG **no está referenciado** en el metadata de ningún layout)
+  y `frontend/src/app/icon.svg:5-10` (copia de la variante micro).
+- **Estado actual:** la triplicación es legítima —los assets estáticos (OG/favicon) no pueden importar un
+  componente React— pero no hay nada que detecte divergencia entre las tres copias. Y la divergencia YA
+  está agendada: el cotejo pendiente con el PNG original del humano ajustará números en el TSX, y el OG
+  (hoy invisible por no estar cableado) quedaría con la geometría vieja sin que nadie lo note.
+- **Impacto:** medio (branding): tres copias sin guardia + un ajuste planificado sobre solo una de ellas
+  = drift silencioso casi garantizado en OG y favicon.
+- **Disparador/dirección:** en la misma pasada del cotejo con el PNG (ese es el disparador): o (a)
+  drift-guard — test que compare los números de geometría de los SVG estáticos contra el render del
+  componente (`renderToStaticMarkup` de las variantes mark/micro) y falle si divergen, o (b) script que
+  **genere** `og-tcg-hunt.svg` e `icon.svg` desde el componente (los estáticos dejan de ser fuente).
+  Cablear entonces el OG en metadata (ver FE-P21-3). Owner: **frontend**. Prioridad: **media**.
+
+### FE-P21-2 · Tokens `--hunt-*` declarados pero casi no consumidos; los hex viven duplicados en STOPS del logo (Baja)
+- **Dónde:** `frontend/src/app/globals.css:49-55` declara `--hunt-red`, `--hunt-wine`, `--hunt-wine-up`,
+  `--hunt-red-hover`, `--hunt-red-up`, `--hunt-red-deep`, `--hunt-tint`; de esos solo `--hunt-red-hover`
+  se consume. Los mismos hex están duplicados a mano en `LogoTcgHunt.tsx:38-43` (objeto `STOPS` de los
+  gradientes del mark/wordmark).
+- **Estado actual:** dos sedes de la paleta hunt sin conexión: cambiar `--hunt-red` en CSS **no cambia el
+  logo**, y los tokens restantes son código muerto que sugiere una fuente de verdad que no lo es.
+- **Impacto:** bajo (mantenibilidad/DS): riesgo de divergencia de paleta en un ajuste de color futuro y
+  tokens fantasma que confunden al que llegue después.
+- **Disparador/dirección:** elegir UNA de dos (no ambas): (a) el componente consume los tokens vía
+  `style`/`var(--hunt-*)` en los stops y CSS queda como sede única, o (b) se retiran los tokens no usados
+  de `globals.css` y el DS declara `STOPS` del componente como sede única de la paleta del logo. Hacerlo
+  junto al cotejo del PNG (FE-P21-1), que ya tocará esos hex. Owner: **frontend** (si toca `DESIGN_SYSTEM.md`,
+  coordina ux-ui). Prioridad: **baja**.
+
+### FE-P21-3 · Marca duplicada en i18n, patrón de título copiado a mano y metadata sin `metadataBase`/OG url (Baja)
+- **Dónde:** `frontend/messages/es.json` y `frontend/messages/en.json` duplican `"TCG HUNT"` en
+  `common.appName` y `common.brand.name` (metadata consume una clave y la UI la otra); el patrón de
+  título `TCG HUNT — {página}` está copiado a mano en 2 layouts (`frontend/src/app/[locale]/layout.tsx`
+  y `frontend/src/app/[locale]/(storefront)/layout.tsx`) en vez de usar `title: { default, template }`
+  del layout raíz; y falta `metadataBase` + `openGraph.url` en el metadata.
+- **Estado actual:** renombrar la marca exige tocar 4 claves i18n + 2 layouts; sin `metadataBase` las URLs
+  relativas de OG no resuelven a absolutas, y sin `openGraph.url` no hay señal canónica.
+- **Impacto:** bajo hoy (los textos coinciden), pero `metadataBase`/`openGraph.url` se vuelven necesarios
+  en cuanto aterrice el OG PNG (FE-P21-1) y como señal canónica en la migración de dominio con 301.
+- **Disparador/dirección:** cuando aterrice el OG PNG o arranque la migración con 301, lo primero que
+  llegue: unificar la marca en una sola clave i18n (la otra referencia o desaparece), mover el patrón de
+  título a `title: { default, template }` del layout raíz (los layouts hijos solo declaran su segmento) y
+  añadir `metadataBase` + `openGraph.url` (dominio canónico desde env). Owner: **frontend**. Prioridad:
+  **baja**.
+
+### DO-P21-1 · Guardia anti-prod del DAST: predicado duplicado ×4 y exención de staging por substring — RESUELTA (ronda de cierre P-21, 2026-08-21)
+- **Dónde:** `security/scripts/dast-zap-baseline.sh`, `dast-zap-full.sh`, `dast-nuclei.sh` y
+  `dast-extra.sh` — cada uno llevaba su copia inline de la guardia anti-producción, y la exención de
+  staging comparaba **substring sobre la URL completa** (`*"staging"*`): una URL de producción con
+  "staging" en el path/query/userinfo (p. ej. `https://tcghunt.mx/staging-x`) bypaseaba la guardia y
+  permitía DAST intrusivo contra prod sin `ALLOW_PROD_DAST=1`.
+- **Estado:** **RESUELTA** en la misma ronda del gate (commit `fbcb8fb`). Las dos partes del hallazgo:
+  (a) el predicado duplicado ×4 se extrajo a **`security/scripts/_guard.sh`** (`dast_prod_guard` +
+  `_dast_host_from_url`), sourceado **obligatorio** por los 4 scripts (si falta, abortan por `set -e`;
+  los 5 archivos viajan juntos en `security/scripts/`); (b) la exención se endureció a comparar el
+  **HOST** de `TARGET_URL` (sin esquema/userinfo/puerto/path/query, en minúsculas): producción =
+  (sub)dominio de `tcgvaultmx.com`/`tcghunt.mx`/`tudominio.com`, exime solo un host con prefijo
+  `staging.`. Verificado en ejecución (9 casos de bloqueo con exit 2 —incluido el bypass viejo—,
+  staging/localhost pasan, `ALLOW_PROD_DAST=1` levanta); comportamiento documentado en
+  `security/README.md` › «Guardia anti-producción». Registrada aquí para trazabilidad del veredicto
+  techlead (mismo criterio que SB-D8); **no queda deuda viva** de este hallazgo. Owner: **devops**.
+  Prioridad original: **baja**.

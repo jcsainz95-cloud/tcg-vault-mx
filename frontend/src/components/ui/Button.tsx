@@ -15,15 +15,16 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 /*
  * Dirección 5a: el botón es un rectángulo de tinta o una regla, nunca una pastilla
- * con sombra. La etiqueta va en versalitas muy espaciadas; el bermellón se reserva
- * para el compromiso final (pagar, enviar solicitud).
+ * con sombra. La etiqueta va en versalitas muy espaciadas; el rojo TCG HUNT
+ * (--color-accent, §17.2) se reserva para el compromiso final (pagar, enviar
+ * solicitud). Hover de accent/destructive: --hunt-red-hover (#8F0E12, 8.3:1).
  */
 const variants: Record<Variant, string> = {
   primary: 'bg-primary text-primary-fg hover:bg-primary-hover',
   secondary: 'border border-text text-text hover:bg-text hover:text-primary-fg',
   ghost: 'text-text hover:text-accent',
-  destructive: 'bg-accent text-accent-fg hover:brightness-95',
-  accent: 'bg-accent text-accent-fg hover:brightness-95',
+  destructive: 'bg-accent text-accent-fg hover:bg-[color:var(--hunt-red-hover)]',
+  accent: 'bg-accent text-accent-fg hover:bg-[color:var(--hunt-red-hover)]',
   link: 'text-accent border-b border-accent px-0 pb-1 hover:text-text hover:border-text',
 };
 

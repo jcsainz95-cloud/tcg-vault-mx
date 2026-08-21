@@ -2,7 +2,46 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.27-stream-a-catalogo-precios (MVP, plataforma en producción). Fecha: 2026-08-22. Stream A «Catálogo y precios» (P-13 + P-15 + P-12 de `PENDIENTES.md`).
+> Estado: v1.28.1-stream-b-precision (MVP, plataforma en producción). Fecha: 2026-08-21. Stream B «Inventario Master Set» (P-19 + P-18 + P-17 + P-24 + P-25 + P-20 + P-22 de `PENDIENTES.md`).
+>
+> **Changelog v1.28.1 (2026-08-21, pase corto de precisión — hallazgos de los gates del Stream B; sin schema, sin
+> endpoints nuevos):** (1) **B-1 resuelto:** §4.26e alineado con §4.26a y BL-1 — `bountyAcquiredQty` cuenta SOLO
+> ítems `ruleSource='bounty'` con `itemStatus ≠ 'rechazada'` (los rechazados del cherry-pick no se compran y jamás
+> avanzan el contador); eco corregido en API_CONTRACT §M2. (2) Ratificaciones aditivas en §4.26c/g: semántica de
+> `summary.selected` de publish-all (snapshot de candidatas server-side); inferencia del `tcgplayerProductId` en la
+> aportación de sellado (exactamente 1 productId entre hermanos mapeados del grupo o `PRICE_PENDING`; sin herencia
+> de mapeo — decisión de fondo abierta como SB-D5 en TECH_DEBT); `SealedInventoryGroupDTO.imageSmallUrl?`
+> (aditivo); la vista de la cola `sealed/unmapped` pertenece al frontend de M2 (pendiente menor post-stream).
+>
+> **Changelog v1.28-stream-b-inventario-master-set (2026-08-21, Stream B «Inventario Master Set») — spec completa
+> en §4.26; contrato en API_CONTRACT (Changelog v1.28). CON migración de schema: M-30 (§11, tabla nueva
+> `VariantPriceOverride`, aditiva pura). Toca DINERO en ambas direcciones (precio publicado de venta + oferta
+> pública de compra) → gate de seguridad por release. Decisiones de producto YA tomadas por el humano en
+> `PENDIENTES.md` (plan aprobado 2026-08-21).**
+> - **P-18 — consola de TRES precios por carta+variante (§4.26a/b).** Mercado (P-15) + compra + venta, cada uno
+>   con sugerido por regla y override manual persistido en `VariantPriceOverride` (M-30). **Los overrides PISAN lo
+>   que ve el cliente.** Precedencias normativas: COMPRA `bounty > override > regla > sin precio`; VENTA
+>   `listPriceCents (pieza) > sellOverride (variante) > regla > PRICE_PENDING`. Sellado intacto (H-1). Un solo
+>   resolver por cara; consumidores enumerados en §4.26b.
+> - **P-19 — alta rápida simple + publicar todo (§4.26c).** Solo cantidad + adquisición: «Compra» (precio
+>   capturado, prellenado con el sugerido) o «Aportación» (un botón, sin %, valuada a mercado = `acquisitionPct
+>   100`; sin referencia ⇒ `PRICE_PENDING` visible por línea — no repetir P-4). Sin dropdown de acabado, sin
+>   ubicación (`locationId` opcional en contrato). NUEVO `POST /admin/inventory/publish-all` (tolerante por-ítem,
+>   escala pendientes ④, idempotente por `batchKey`).
+> - **P-17 — Piezas → drill-down (§4.26d).** M1 abre en Master Set; las copias físicas se ven por clic en
+>   carta/variante. Contrato: `GET /admin/inventory/items` gana `finish?` y `productType?` (aditivos); folio con
+>   `q=` se conserva.
+> - **P-22 — Top Bounties (§4.26e).** Flag + precio premium (+ objetivo opcional con auto-apagado transaccional al
+>   pagarse la N-ésima) en la misma tabla/consola de P-18; endpoint público `GET /buylist/bounties` para la
+>   sección arriba de `/buylist`. `bounty ≥ sugerido` (`BOUNTY_BELOW_RULE`).
+> - **P-24 — valor desglosado (§4.26f).** `GET /admin/finance/inventory-value` gana `breakdown { raw, sealed,
+>   graded }` (aditivo; top-level intacto); tarjetas en M1 solo `super_admin`.
+> - **P-25 — pestaña «Sellado» POR SET (§4.26g).** NUEVOS `GET /admin/inventory/sealed-sets[/:setId]`; alta
+>   rápida con reglas P-19; **fix backend**: la aportación de sellado valúa por `sealedMarketRef` (H-1), no por el
+>   gradeKey legacy `'sealed'`.
+> - **P-20 — gradeadas separadas (§4.26h).** Pestaña «Gradeadas» + `GET /admin/inventory/graded`; el valor por
+>   carta+grado es MANUAL vía el override de mercado existente (`gradeKey graded:PSA:10`) — sin proveedor de
+>   precios por grado en este stream (no verificado; doctrina P-6).
 >
 > **Changelog v1.27-stream-a-catalogo-precios (2026-08-22, Stream A «Catálogo y precios») — tres arreglos del plan
 > aprobado 2026-08-21: P-13 (variantes fantasma), P-15 (mercado por variante), P-12 (sync completo por set). Spec
@@ -37,6 +76,7 @@
 >   `Reverse Holofoil` → `normal`/`holofoil`/`reverse_holo`; `1st Edition Holofoil`→`first_edition_holofoil`) unidos
 >   **por carta** (group-by número dentro del set, robusto a 1-productId-multi-fila y a N-productIds). La fórmula del
 >   reconciliador pasa a `availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`
+>   **(⛔ v1.27: esta unión quedó DEROGADA por P-13 — el precio confirma, nunca añade; fórmula vigente en §4.25a)**
 >   (structuralFinishes **ancla/reemplaza** el proxy-de-precio `catalogFinishes`). Se puebla `Card.tcgplayerId` desde
 >   `tcgplayer.url` en catalog-sync (hoy nadie lo escribe) para el join a TCGCSV. **VAR-1 intacto:** el precio jamás
 >   sobrescribe/encoge la estructura; una impresión estructural sin precio es **«pendiente»**, nunca inventada ni
@@ -102,7 +142,8 @@
 > migrada— SÍ responde con reverse holo. Spec completa en **§4.22g/§4.22h**; v1.22-1 marcada **RESUELTA** en §10; API_CONTRACT
 > v1.22-1 (nota de semántica de `availableFinishes`, sin cambio de forma); **migración M-27** (§11).
 > - **Diseño money-safe (§4.22g), en una línea:** `availableFinishes` deja de ser escrita directamente y pasa a ser
->   **DERIVADA y recomputable** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` sobre **dos columnas
+>   **DERIVADA y recomputable** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` **(⛔ fórmula
+>   superada: v1.26 sustituyó la entrada estructural y v1.27 DEROGÓ la unión — §4.25a)** sobre **dos columnas
 >   de entrada persistidas**; `catalog.FinishReconciler` es el **único escritor**; `price-ingest` solo escribe su snapshot
 >   (Señal C, `market>0` vía **alias VERIFICADO**) y llama al reconciliador. **No monótona** (un `sync --force` o la siguiente
 >   corrida PPT REPARAN), **no inventa** (desconocido/SUPUESTO ⇒ se omite, no ensancha SEC-A1), **default `['normal']`**.
@@ -908,9 +949,9 @@ PendingPriceEntry (cola de precio pendiente)
 - `id`, `externalId` (pokemontcg.io id), `setId` (FK CardSet), `name` (EN), `number`, `rarity`, `supertype`, `subtypes` (JSONB), `imageSmallUrl`, `imageLargeUrl`, `tcgplayerId?`, `createdAt`.
 - **`availableFinishes Finish[] @default([normal])` (v1.6-finish, MIGRACIÓN M-18):** acabados en que existe esta carta. **Sigue siendo 1 fila por `externalId`** — el `@unique` de `externalId` NO cambia; `availableFinishes` es un array en la MISMA fila (no se crea una fila por acabado). Default seguro `[normal]` para filas históricas hasta el re-sync. Es la **lista blanca** contra la que el backend valida cualquier `finish` recibido (SEC-A1, §4.2) **y** el **universo de casillas** del binder (§4.20b).
   - **v1.22 — AUTORIDAD ÚNICA = el sync de CATÁLOGO.** Derivado de `tcgplayer.prices` ∪ `cardmarket.prices.reverseHolo*` (§3.7). **`price-ingest` NO escribe esta columna** (§4.22a deroga §4.15e). Almacenado **siempre en orden canónico `FINISH_ORDER`** y **nunca vacío**.
-  - **v1.22-1 (M-27) — pasa a ser DERIVADA de dos columnas de entrada.** Deja de escribirse directamente por `upsertCards`: es la **unión materializada** `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`, recomputada por el **único escritor** `catalog.FinishReconciler` (§4.22g). Sigue siendo la lista blanca SEC-A1 y el universo de casillas del binder; su **forma no cambia** (todos los lectores la siguen consumiendo igual).
-  - **v1.26 (M-29, §4.24a):** la entrada del lado catálogo pasa a ser `structuralFinishes` (TCGCSV): `orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`.
-  - **v1.27 (P-13, §4.25a) — la UNIÓN se DEROGA: el precio CONFIRMA, nunca AÑADE.** Fórmula vigente: `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`. `pricedFinishesSnapshot` deja de componer (queda como observabilidad). Mismo escritor único (`FinishReconciler`), misma forma, mismas garantías (nunca vacío, orden canónico).
+  - **v1.22-1 (M-27) — pasa a ser DERIVADA (⛔ fórmula superada; lo que persiste es el escritor único y la forma).** Deja de escribirse directamente por `upsertCards`: la recomputa el **único escritor** `catalog.FinishReconciler` (§4.22g). ~~Unión materializada `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ **⛔ v1.27**: esa unión quedó derogada (ver abajo). Sigue siendo la lista blanca SEC-A1 y el universo de casillas del binder; su **forma no cambia** (todos los lectores la siguen consumiendo igual).
+  - **v1.26 (M-29, §4.24a) — ⛔ v1.27:** la entrada del lado catálogo pasó a ser `structuralFinishes` (TCGCSV), pero su fórmula ~~`orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ quedó **derogada en v1.27** (la unión era el vector de las variantes fantasma). Lo que persiste de v1.26 es la columna `structuralFinishes` y el resolver TCGCSV.
+  - **v1.27 (P-13, §4.25a) — FÓRMULA VIGENTE. La UNIÓN se DEROGA: el precio CONFIRMA, nunca AÑADE.** `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']` — helper `composeAvailableFinishes(structuralFinishes)` en `backend/src/common/card-order.ts` (§4.25a-1), fallback `['normal']`. `pricedFinishesSnapshot` **NO compone** (queda como observabilidad/confirmación). Mismo escritor único (`FinishReconciler`), misma forma, mismas garantías (nunca vacío, orden canónico).
 - **`catalogFinishes Finish[] @default([])` (v1.22-1, M-27):** INTERNA (no se expone en DTO). La «opinión del catálogo» = Señal A ∪ Señal B del último payload de pokemontcg.io (lo que devuelve `deriveAvailableFinishes(c)`), persistida en su propia columna para **sobrevivir a un 502** de la fuente. La escribe `upsertCards` con la semántica null de §4.22a-4 (null ⇒ conserva; CREATE ⇒ `derived ?? ['normal']`). Backfill M-27: `= availableFinishes`.
 - **`pricedFinishesSnapshot Finish[] @default([])` (v1.22-1, M-27):** INTERNA. **Señal C** = acabados que **PPT** reportó con `market>0` para la carta, **filtrados a alias VERIFICADO** (§4.22g candado 2). La escribe `price-ingest` por **REEMPLAZO** por carta vista en una corrida exitosa (money-safe: no se toca ante fallo/0 filas). ~~Alimenta la unión~~ **v1.27 (P-13): YA NO alimenta la composición de `availableFinishes`** — es solo confirmación/observabilidad (§4.25a); además las filas del barrido por-impresión (`fetchPrintings`, finish atribuido por etiqueta de request) **NO** deben escribirla (§4.25a-2). **NO** es la lista blanca (esa es `availableFinishes`).
 - **`numberSort Int @default(1000000)` / `numberPrefix String @default("")` (v1.22, MIGRACIÓN M-26):** **claves derivadas** de `number` (que es `String`) para el **orden natural en BD** — `number` puramente numérico → `numberSort` = su entero y `numberPrefix = ''`; con prefijo alfabético (`TG12`, `SV107`) → `numberPrefix` = las letras y `numberSort = 1_000_000 + parte numérica` (promos/subsets al final). Escritas por `upsertCards` con la MISMA función que las backfillea (`deriveNumberParts`, §4.22b). **Derivadas, no autoritativas:** la fuente de verdad sigue siendo `number`; si divergen, se recalculan desde `number`.
@@ -1326,11 +1367,11 @@ holo a la derecha**.
   `tcgplayer.prices` (§4.8) y **debe dejar de descartar `cardmarket.prices`** (§4.22a).
   - ❌ **Prohibido REDUCIR acabados por la AUSENCIA de un precio** (`PriceReference`, `market` faltante): precio ausente
     ≠ variante inexistente. Este fue el bug de tres rondas (VAR-1). **Este núcleo de la regla 2 sigue vigente.**
-  - ✅ **v1.22-1 (§4.22g) — se admite la CONVERSA money-safe:** el `market > 0` de un acabado en el proveedor de PAGA
-    (PPT), vía **alias VERIFICADO**, es **evidencia positiva** de que ese acabado EXISTE y lo AÑADE (nunca lo quita).
-    Es la **Señal C**; entra por una columna de entrada separada (`pricedFinishesSnapshot`) y `availableFinishes` pasa
-    a ser la unión DERIVADA (recomputable, un solo escritor `catalog.FinishReconciler`). Los alias **SUPUESTO** NO
-    alimentan la lista blanca. Ver §4.22g para los cuatro candados.
+  - ⛔ **v1.22-1 (§4.22g) — la CONVERSA money-safe queda DEROGADA en v1.27 (§4.25a): el precio CONFIRMA, nunca
+    AÑADE.** ~~El `market > 0` vía alias VERIFICADO (Señal C, `pricedFinishesSnapshot`) AÑADÍA el acabado a la unión
+    derivada~~ — esa unión resultó ser el vector de las variantes fantasma (P-13). El snapshot se **conserva** como
+    observabilidad/confirmación, pero **ya no compone** `availableFinishes`. Siguen vigentes de v1.22-1: el escritor
+    único `catalog.FinishReconciler` y que los alias **SUPUESTO** jamás tocan la lista blanca (candados de §4.22g).
   - ❌ **Prohibida cualquier heurística por rareza** («toda Common tiene reverse holo»): inventaría casillas de relleno,
     que el PO prohíbe explícitamente.
   - ✅ **v1.26 (§4.24a) — la composición se DETECTA de la fuente ESTRUCTURAL autoritativa (TCGCSV), NO de rareza/era
@@ -1338,7 +1379,13 @@ holo a la derecha**.
     autoritativa TCGCSV; jamás inferir por rareza/era; la ESTRUCTURA es separada del PRECIO; una impresión estructural
     sin precio es «pendiente» — nunca inventada y nunca dropeada.* La prohibición money→estructura de VAR-1 sigue
     intacta (el precio jamás añade ni quita una impresión). La estructura entra por `Card.structuralFinishes` (§4.24a),
-    que **ancla/reemplaza** el proxy-de-precio `catalogFinishes` en la unión del reconciliador.
+    que **ancla/reemplaza** el proxy-de-precio `catalogFinishes` ~~en la unión del reconciliador~~ (⛔ v1.27: la unión
+    quedó derogada; ver bullet siguiente).
+  - ✅ **v1.27 (P-13, §4.25a) — FÓRMULA VIGENTE de la composición: el precio CONFIRMA, nunca AÑADE.**
+    `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']` — helper
+    `composeAvailableFinishes(structuralFinishes)` en `card-order.ts`, fallback `['normal']`. `pricedFinishesSnapshot`
+    **NO compone** (solo observabilidad/confirmación de precio de una impresión ya estructural). Escritor único
+    `FinishReconciler` sin cambio.
 - **Alcance por tipo de producto:** el acabado aplica a **raw/singles**. Para `graded`/`sealed` el `finish` es
   siempre `normal` (el slab/sellado no distingue acabado a efectos de precio); el default lo cubre y no cambia el
   comportamiento actual.
@@ -3546,7 +3593,8 @@ vendedor puede cotizar y **borra** casillas del binder.
    > añade es que `price-ingest` escribe su **propia** columna de entrada `pricedFinishesSnapshot` (Señal C, evidencia
    > positiva de alias verificado) y **llama** al único escritor `catalog.FinishReconciler`. El argumento de abajo
    > (monotonía imparable) se resuelve **materializando una unión recomputable**, no acumulando: quitar la fuente quita
-   > el acabado. La regla «un solo escritor de la lista blanca» se **mantiene literalmente**.
+   > el acabado (⛔ v1.27: la unión quedó derogada — el snapshot ya NO compone `availableFinishes`, solo confirma;
+   > §4.25a). La regla «un solo escritor de la lista blanca» se **mantiene literalmente**.
    > **Por qué "cero" y no "solo ampliar" (decisión explícita, se pidió argumentarla).** «Ampliar sin reducir»
    > parece la opción segura, y **no lo es**: la unión es **monótona creciente y nadie puede limpiarla**. Basta un
    > alias mal mapeado en `BULK_VARIANT_TO_FINISH` (`foil → holofoil`, `reverse → reverse_holo`, todos marcados
@@ -3842,6 +3890,12 @@ originales de la regla 2:
    > **se conservan sin cambio**; solo se sustituye la columna de entrada del lado catálogo. Detalle, seed y semántica
    > money-safe de la sustitución en **§4.24a**.
 
+   > **⛔ v1.27 (P-13, §4.25a) — la UNIÓN de arriba queda DEROGADA (también en su forma v1.26): el precio CONFIRMA,
+   > nunca AÑADE.** Fórmula vigente: `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes)
+   > : ['normal']` (`composeAvailableFinishes`, `card-order.ts`). `pricedFinishesSnapshot` **sale de la composición**
+   > (queda como observabilidad/confirmación). Los cuatro candados y el escritor único siguen vigentes; toda mención
+   > a «la unión» en el resto de este §4.22g debe leerse como histórica. Ver **§4.25a**.
+
    - `Card.catalogFinishes Finish[]` — la unión Señal A ∪ Señal B del **último payload de pokemontcg.io** (lo que hoy
      devuelve `deriveAvailableFinishes(c)`), con la MISMA semántica anti-regresión de §4.22a-4 (`null` ⇒ se omite y se
      **conserva** el valor previo; CREATE ⇒ `derived ?? ['normal']`). Es la «opinión del catálogo», ahora persistida en
@@ -3888,6 +3942,11 @@ pokemontcg.io (cuando responde)                     PPT (paga, responde hoy)
                               availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
 ```
 
+> **⛔ v1.27 (P-13, §4.25a):** la última línea del diagrama (la unión) está **derogada** — el reconciliador vigente
+> computa `composeAvailableFinishes(structuralFinishes)` con fallback `['normal']`; el snapshot NO compone. El resto
+> del flujo (quién escribe qué columna, quién invoca al reconciliador) sigue vigente, con la excepción v1.27 de que
+> las filas `forced` de `fetchPrintings` NO escriben el snapshot (§4.25a-2).
+
 - **Money-safe ante fallo transitorio de PPT.** `pricedFinishesSnapshot` se reemplaza **solo** para cartas que
   aparecieron con **≥ 1 fila válida** en una corrida **exitosa** (`requestOk && rows > 0`). Si PPT falla / devuelve 0
   filas, **no se toca ningún snapshot** (mismo criterio con que hoy no se borran precios: no destruir evidencia por un
@@ -3927,6 +3986,11 @@ prohibida (precio ausente ⇒ quitar del universo de dinero) y —clave— **no*
 DERIVAR o INVENTAR una (en particular jamás un `reverse_holo`).
 
 #### (h) Reparto de trabajo (v1.22-1 / opción c)
+
+> **⛔ v1.27 (P-13, §4.25a) — sección HISTÓRICA en lo que toca a la fórmula.** Este reparto se implementó tal cual en
+> v1.22-1, pero la fórmula de `reconcile()` y las **expectativas de seeds** de abajo (carta A: snapshot ⇒ casilla)
+> asumen la unión, hoy derogada. Con la fórmula vigente (`composeAvailableFinishes(structuralFinishes)`), el snapshot
+> NO produce casillas; los seeds/fixtures se realinean según **§4.25a** (trabajo del stream v1.27, §4.25d).
 
 - **Schema — migración M-27 (backend, `backend/prisma/schema.prisma` + `backend/prisma/migrations/`):** añade
   `Card.catalogFinishes Finish[] @default([])` y `Card.pricedFinishesSnapshot Finish[] @default([])`. **Backfill:**
@@ -4418,7 +4482,8 @@ seguridad posterior):
 
 > Tres arreglos del plan aprobado 2026-08-21 (`PENDIENTES.md`). **SIN migración de schema** (M-27/M-29 ya existen);
 > el paso de despliegue es un **re-sync forzado** (§4.25a-4). Contrato: API_CONTRACT Changelog v1.27. Backend y
-> frontend implementan contra esta sección; los tres cambios caben en UN batch de commit (no tocan `prisma/`).
+> frontend implementan contra esta sección; los tres cambios caben en UN batch de commit (sin migración de schema:
+> `schema.prisma`/migrations no se tocan; los seeds/fixtures de `prisma/` SÍ se ajustan — ver reparto en (d)).
 
 #### (a) P-13 — composición de `availableFinishes`: el precio CONFIRMA, nunca AÑADE
 
@@ -4531,7 +4596,16 @@ tampoco tocaba precios (correcto desde §4.15g, pero la UI y el copy sugerían l
   `FinishReconciler` + `card-order.ts` (P-13.1) + exclusión de filas `forced` del snapshot (P-13.2) + tests
   (`catalog-sync.structural.spec` y unitarios del reconciler: ex ⇒ una casilla aunque haya `normal` CON precio;
   legacy vacío ⇒ `['normal']`); (b) expansión del batch por variante + DTO (P-15) + espejo deprecado en celda;
-  (c) `force` en `sync` por set (P-12). Sin `prisma/`, sin zona compartida de backend.
+  (c) `force` en `sync` por set (P-12). **Zonas compartidas — precisión (corrige la redacción anterior, que causó
+  fricción):**
+  - **`backend/src/common/` — el lock lo tiene ESTE stream para P-13.1:** la fórmula nueva vive en
+    `backend/src/common/card-order.ts` (sustituir `unionAvailableFinishes` por `composeAvailableFinishes`, junto a la
+    doctrina VAR-1 ya escrita ahí). Es zona compartida y este stream SÍ la toca — el orquestador ya la serializó a
+    favor del Stream A; ningún otro stream toca `common/` mientras dure.
+  - **`backend/prisma/` — SIN migración de schema, pero los DATOS del stream sí se tocan:** el candado de CLAUDE.md
+    aplica al **schema** (`schema.prisma` + `migrations/` — NO se tocan: M-27/M-29 ya existen). `prisma/seed*.ts` y
+    `e2e-fixtures.ts` son **datos/fixtures del stream** y SÍ pueden (y deben) tocarse para alinear las expectativas a
+    la fórmula v1.27 (las de §4.22h — carta A con casilla nacida del snapshot — quedaron superadas; ver banner ⛔ ahí).
 - **frontend** (`(admin)` M1/M2 + componentes del binder): (a) teja de variante lee SU
   `marketReferenceMxnCents` (y deja de leer el de celda — migrar TODOS los lectores, incluido `contract.ts` espejo,
   zona compartida `frontend/src/types/` serializada dentro del stream); (b) acción por fila en M2 «sincronizar set
@@ -4541,6 +4615,283 @@ tampoco tocaba precios (correcto desde §4.15g, pero la UI y el copy sugerían l
 - **qa (gate por stream):** unitarios + contrato + smoke E2E de: binder muestra mercado distinto por variante (o «—»
   honesto), ex sin casilla `Normal` tras re-sync local, sync por set con force refresca variantes, price-ingest por
   set puebla precios.
+
+### 4.26 Stream B «Inventario Master Set» (v1.28) — alta simple + publicar todo (P-19), consola de tres precios (P-18), Piezas→drill-down (P-17), valor desglosado (P-24), pestaña Sellado (P-25), gradeadas PSA (P-20) y Top Bounties (P-22)
+
+> Plan aprobado 2026-08-21 (`PENDIENTES.md`): **las decisiones de producto YA están tomadas por el humano** — esta
+> sección las convierte en norma, no las re-abre. **CON migración de schema: M-30** (§11; UNA tabla nueva
+> `VariantPriceOverride`, estrictamente aditiva — cero cambios a tablas existentes). Contrato: API_CONTRACT
+> Changelog v1.28. **Toca DINERO en las dos direcciones** (el override de venta fija el precio publicado del
+> storefront; el de compra y el bounty fijan la oferta del cotizador público de buylist) → gate de seguridad por
+> release. Reparto de trabajo y locks en (i); orden interno en (j).
+
+#### (a) M-30 — `VariantPriceOverride`: dónde persisten los controles por carta+variante
+
+**Motivación.** P-18/P-20/P-22 necesitan persistir POR (carta, variante): (1) override de VENTA, (2) override de
+COMPRA y (3) el bounty. Hoy no existe NADA a ese nivel: el «precio manual» existente es **por PIEZA**
+(`InventoryItem.listPriceCents`) y el override de M2 (`POST /admin/pricing/override`) escribe una `PriceReference`
+`isManualOverride` — es decir, pisa el **MERCADO** (la referencia), no la oferta de compra ni el precio de venta.
+Son **tres perillas distintas y las tres se conservan** (precedencias en (b)); ninguna reusa a otra porque mezclan
+semánticas de dinero diferentes (referencia informativa vs. precio operativo comprometido).
+
+**Modelo (schema.prisma — backend implementa; migración M-30, aditiva pura):**
+
+```prisma
+model VariantPriceOverride {
+  id                String      @id @default(uuid())
+  cardId            String
+  card              Card        @relation(fields: [cardId], references: [id])
+  productType       ProductType @default(raw)      // raw | graded (P-20). sealed NO usa esta tabla (ver (g)).
+  gradeKey          String      @default("raw:NM") // canónico de buildGradeKey: "raw:NM" | "graded:PSA:10" …
+  finish            Finish      @default(normal)   // graded → normal (el acabado no aplica; paridad PriceReference)
+  sellOverrideCents Int?        // precio de VENTA manual → PISA el storefront (b). null = sin override
+  buyOverrideCents  Int?        // precio de COMPRA manual → PISA el cotizador público (b). null = sin override
+  bountyEnabled     Boolean     @default(false)    // P-22
+  bountyPriceCents  Int?        // requerido si bountyEnabled — SIEMPRE explícito, jamás calculado
+  bountyTargetQty   Int?        // "necesito N"; null = sin objetivo (no se auto-apaga)
+  bountyAcquiredQty Int         @default(0)        // piezas compradas vía buylist PAGADA bajo bounty (ver (e))
+  bountyCompletedAt DateTime?
+  updatedBy         String?     // actorUserId (patrón AuditLog, sin FK dura)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@unique([cardId, productType, gradeKey, finish])
+  @@index([bountyEnabled])
+}
+```
+
+- **Nivel elegido: carta+variante (+grado vía `gradeKey`), NO por pieza.** Es la consola del Master Set: el
+  operador piensa «esta carta en reverse vale X», no «el folio INV-000123 vale X». El por-pieza
+  (`listPriceCents`) se conserva como intención MÁS específica y gana para ESA pieza (b). La clave única espeja la
+  de `PriceReference` (menos `capturedDate`): una fila VIGENTE por variante, upsert, sin serie temporal (la
+  auditoría del cambio va por `AuditLog`, no por filas históricas).
+- **Validaciones (server-side; `422 VALIDATION_ERROR` salvo código propio):** centavos **enteros > 0**;
+  `bountyEnabled=true` ⇒ `bountyPriceCents > 0` (**`BOUNTY_PRICE_REQUIRED`**); `bountyPriceCents ≥` **sugerido de
+  compra por regla del momento** cuando el sugerido resuelve (**`BOUNTY_BELOW_RULE`** — si no es más que la regla,
+  no es bounty); si el sugerido está `pending` se ACEPTA (el bounty es precio explícito — es exactamente el caso
+  donde más se necesita); `bountyTargetQty ≥ 1`; **bounty SOLO en `productType=raw`** (la vitrina pública
+  `GET /buylist/bounties` es de sueltas; un bounty graded invisible sería incoherente — los overrides sell/buy en
+  graded SÍ aplican); `productType ∈ {raw, graded}` (**sealed → `422`**); para `raw`,
+  `finish ∈ Card.availableFinishes` (SEC-A1); para `graded`, `finish=normal` y `gradeKey` con forma
+  `graded:<company>:<grade>`.
+
+#### (b) P-18 — la consola de TRES precios y las precedencias NORMATIVAS (money-safe)
+
+El Master Set muestra, por (carta, variante): **mercado** (P-15, ya en el binder v1.27), **compra** y **venta**,
+cada uno con **sugerido por regla** + **override manual**. Decisión del humano ratificada: **los overrides SÍ pisan
+lo que ve el cliente.**
+
+**COMPRA — lo que ofrece el cotizador público `/buylist` (y `createRequest`):**
+```
+effectiveBuyCents :=
+  1. bountyEnabled && bountyPriceCents > 0   → bountyPriceCents                  (source = "bounty")
+  2. buyOverrideCents != null                → buyOverrideCents                  (source = "override")
+  3. BUYLIST_PRICE_RULES / fallback (hoy)    → fixed | pct × referencia(acabado) (source = "rule" | "fallback")
+  4. pct sin referencia                      → precio_pendiente (null)           (money-safe: JAMÁS inventar)
+```
+- Bounty y override actúan como `fixed`: **no dependen de la referencia** ⇒ siempre `cotizada`.
+- **Un solo núcleo** (prohibido duplicar cuerpo): `quoteCardForFinish`/`quoteAcquisitionForFinish` ganan el
+  contexto de overrides; consumidores que DEBEN pasar por él: `publicQuote`, `batchQuote`, `createRequest`
+  (snapshotea `ruleSource` con los valores nuevos `"bounty" | "override"` — habilita el conteo (e)) y el nuevo
+  `GET /buylist/bounties`. Overrides leídos **EN LOTE** (una query por request, mapa por clave
+  `cardId|productType|gradeKey|finish`) — sin N+1, patrón `getReferencesBatch`.
+- Los topes de buylist (por solicitud/mes, INE) **no cambian** y aplican igual sobre montos bounty.
+
+**VENTA — storefront, checkout (auth + guest), publish (raw|graded):**
+```
+salePriceCents :=
+  1. item.listPriceCents (manual POR PIEZA)  → gana (intención más específica; comportamiento actual intacto)
+  2. sellOverrideCents (carta+variante)      → fija el precio PUBLICADO en storefront
+  3. SALES_PRICE_RULES / fallback (hoy)      → derivado por rareza+acabado
+  4. no resoluble                            → PRICE_PENDING (no vendible / no publicable / escala ④)
+```
+- **Sellado NO cambia:** `listPriceCents > mercado×spread > PRICE_PENDING` (resolver H-1, §4.23). P-18 **no aplica
+  a `sealed`** (su override de producto es fase futura; hoy el override por pieza cubre el caso).
+- **Por qué surte efecto inmediato:** publicar NO persiste el precio derivado (`listPriceCents` solo se escribe
+  con override explícito) — el precio del storefront se **resuelve en lectura**, así que el override de variante
+  aplica al instante a toda pieza publicada sin manual, y quitarlo regresa a la regla. Nada que re-publicar.
+- **Un solo resolver:** `PricingService` (envoltura de `computeSalePriceForItem` + batch
+  `getVariantOverridesBatch`). Consumidores que DEBEN migrar: `catalog.fetchSellable`/`toListingDTO`,
+  `orders.salePriceOf` (checkout auth + guest), `inventory.bulk-publish` y el nuevo `publish-all`, y los
+  sugeridos/efectivos del binder. **BE-26 sigue:** efectivo `<= 0` ⇒ no vendible.
+
+**Relación con el override de MERCADO (M2):** `POST /admin/pricing/override` sigue siendo el remedio de la
+**referencia** (alimenta reglas `pct`, valuaciones P-24, aportaciones) — no fija venta/compra por sí mismo. Las
+tres perillas conviven sin ambigüedad: mercado (referencia) / compra (oferta) / venta (precio publicado).
+
+**Dónde se lee y dónde se escribe:** la consola vive en la teja del Master Set (M1), pero el WRITE es
+**`super_admin`** (precios = M2, tabla §7): `PUT /admin/pricing/variant-controls/:cardId/:finish` (contrato §M2
+v1.28). La lectura viaja en el binder: `MasterSetVariantDTO.pricing?: VariantPricingDTO` — **SOLO scope
+`platform`** (jamás en bóvedas de cliente ni «Mi bóveda»: la estrategia de compra/bounty no se filtra al cliente;
+el precio de venta efectivo ya les llega por `buyable`/storefront). `vault_operator` VE la consola (lectura);
+solo `super_admin` edita (el front esconde la edición; el guard lo impone).
+
+#### (c) P-19 — alta rápida, bajas simples y PUBLICAR TODO
+
+**Alta rápida desde la casilla de variante (front reusa `POST /admin/inventory/items/batch` — sin endpoint
+nuevo):** SOLO **cantidad** + **adquisición**, con DOS caminos:
+- **«Compra»**: línea `{ cardId, finish: <el de la casilla>, qty, acquisitionType: "compra",
+  acquisitionCostCents: <capturado> }` — el campo se **prellena** con `pricing.buy.effectiveCents` del binder
+  (sugerido de regla u override/bounty vigente) y es **editable**. `acquisitionCostCents` ya existe en el DTO.
+- **«Aportación»**: un botón, **sin %** — línea `{ ..., acquisitionType: "aportacion_en_especie",
+  acquisitionPct: 100 }` ⇒ el server valúa **costo = referencia de mercado del momento × 100 %** (mecánica
+  existente con pct=100). **Sin referencia ⇒ `422 PRICE_PENDING` POR LÍNEA** (lote tolerante P-5) y el front lo
+  muestra **anclado y claro** (lección P-4: ni crear a ciegas ni fallar en silencio). El dial `aportacionPct`
+  (70) **NO cambia**: sigue siendo el default del formulario clásico; el alta rápida manda `100` explícito.
+- **Sin dropdown de acabado** (viene de la casilla picada; SEC-A1 lo valida igual) y **sin ubicación**:
+  `locationId` pasa a **opcional en el contrato** (el DTO backend ya lo trataba opcional; la bóveda física la
+  definirá el humano después — nota P-17). Aplica igual al sellado (g).
+- **Bajas igual de simples:** merma vía `POST /admin/inventory/adjustments` (`perdida|danada|error_captura`, ya
+  existe §4.20e) accesible desde el drill-down (d); la **VENTA solo sale por checkout/M3** (se ratifica: sin venta
+  manual desde el binder).
+
+**Publicar todo — endpoint NUEVO `POST /admin/inventory/publish-all` (contrato §M1 v1.28):**
+- Req `{ batchKey?, setId?, productType? }` → selección **server-side** de piezas `ownerType=platform` +
+  `status=in_stock` (± filtros). Pipeline por-pieza **IDÉNTICO** a `bulk-publish` (precio server-side SEC-A1 con
+  la precedencia (b); `PRICE_PENDING` **escala** a la cola ④ §4.24b y NO publica; `listed` = no-op) — **tolerante
+  por-ítem**, jamás revienta el lote.
+- Res: resumen `{ selected, published, alreadyListed, pendingPrice, failed }` + detalle de fallos **capado a 200
+  líneas** — `selected` (v1.28.1, ratificado tal como lo implementó backend) = **snapshot del total de piezas
+  candidatas seleccionadas server-side** por el filtro al momento de la ejecución; los demás contadores
+  (`published`/`alreadyListed`/`pendingPrice`/`failed`) reparten el destino por-pieza de ESA selección (el remanente se opera por la cola de pendientes M2 `?context=inventory`). Sin cap de selección
+  (server-side por chunks — a diferencia de `bulk-publish`, que exige la lista y capa 200). Idempotencia por
+  `batchKey` (`InventoryBatch kind='publish_all'`, replay devuelve el resultado guardado). Auditado
+  (`inventory.publish_all`). El «publicar piezas de esta carta» existente no cambia.
+
+#### (d) P-17 — Piezas deja de ser pestaña: drill-down del Master Set
+
+- M1 **abre en Master Set por defecto**. Clic en carta/variante → **panel drill-down** con las copias físicas de
+  ESA variante: folio, estado, precio manual por pieza, detalle/historial y acciones existentes (publicar piezas,
+  mark, ajuste). El buscador por **folio** se conserva como acceso rápido (`q=` ya lo sirve).
+- **Contrato (lo ÚNICO que faltaba, aditivo):** `GET /admin/inventory/items` gana los query params **`finish?`** y
+  **`productType?`** — el drill-down es `?cardId=&finish=&productType=raw`. `cardId`, `status`, `q`, `page` ya
+  existían; ningún endpoint nuevo. (El `productType` sirve también los drill-downs de (g) sellado y (h) gradeadas.)
+
+#### (e) P-22 — Top Bounties
+
+- **Edición:** mismos writes de (b) (`bounty` en `variant-controls`); el front muestra el **premium vs. regla**
+  (`bountyPriceCents − suggested`). Validaciones en (a) (`BOUNTY_BELOW_RULE`, precio siempre explícito).
+- **Conteo y auto-apagado (money-safe, transaccional):** cuando una `SellRequest` transiciona a **`pagada`** (pago
+  SPEI M5, `super_admin`), por cada ítem cuyo snapshot es `ruleSource='bounty'` **Y cuyo `itemStatus` NO es
+  `rechazada`** se incrementa `bountyAcquiredQty` **en la MISMA transacción del pago** (por la clave `(cardId,
+  productType, gradeKey, finish)` del ítem). **Precisión v1.28.1 (alineada con (a) y con BL-1 §9):**
+  `bountyAcquiredQty` cuenta piezas realmente COMPRADAS — un ítem `rechazada` del cherry-pick no se paga (BL-1 lo
+  saca del dinero: `approvedPriceCents=null`, fuera de `approvedTotalCents`), así que JAMÁS avanza el contador ni
+  puede auto-apagar un bounty. Si `bountyTargetQty != null` y `acquired ≥ target` ⇒ `bountyEnabled=false` +
+  `bountyCompletedAt=now()` + `AuditLog action=bounty.completed` (el aviso de M1 sale de `completedAt`). Sin
+  objetivo ⇒ solo contador, nunca auto-off. Apagar un bounty **no** re-precia solicitudes ya cotizadas (el monto
+  quedó snapshoteado en el ítem, como toda cotización — doctrina vigente).
+- **Público:** `GET /buylist/bounties` (contrato §6) — bounties **activos**, orden `bountyPriceCents desc`, cap
+  50, **read-only** (no escribe pendientes — doctrina v1.12 de endpoints anónimos), throttle público. La sección
+  «Top Bounties» va **arriba** de `/buylist`, antes de elegir set. Expone `remainingQty` (`target − acquired`,
+  `null` sin objetivo) — dato motivacional, no compromiso contractual de compra.
+
+#### (f) P-24 — valor del inventario, desglosado por tipo, visible en M1
+
+- **Extensión ADITIVA de `GET /admin/finance/inventory-value` (M7)** — NO endpoint nuevo (decisión: el cálculo ya
+  existe ahí y en el dashboard; duplicarlo crearía una tercera cifra que conciliar). Gana
+  `breakdown: { raw, sealed, graded }`, cada bucket `{ atReferenceCents, atCostCents, pieceCount,
+  pendingPriceCount }` con la MISMA base de valuación actual (referencia del acabado por pieza; sellado por
+  `sealedMarketRef`; sin precio ⇒ excluido del total y contado en `pendingPriceCount`). Los campos top-level **no
+  cambian** (= Σ del breakdown). El CSV `inventory` gana columnas espejo. El `inventoryValueCents` del dashboard
+  queda como espejo del top-level (sin cambio).
+- **En M1:** tarjetas de resumen arriba (total + raw + sellado + PSA, a mercado y a costo + conteo sin precio).
+  **Guard:** el endpoint sigue `super_admin` (§7: finanzas) ⇒ las tarjetas solo se muestran a `super_admin`; para
+  `vault_operator` el front las omite (coherente con el enmascaramiento del dashboard; sin fuga por API).
+
+#### (g) P-25 — pestaña «Sellado» de M1, organizada POR SET
+
+Dos endpoints nuevos (`vault_operator+`, contrato §M1 v1.28), análogos al par índice/binder del Master Set pero
+agregando **PIEZAS selladas** (no catálogo: no existe catálogo de productos sellados por set; la identidad de grupo
+es la de §4.23 — `(cardId ancla, sealedSubtype, tcgplayerProductId, sealedCondition)`):
+- **`GET /admin/inventory/sealed-sets`** — índice: sets con ≥1 pieza sellada de plataforma; por set
+  `{ pieceCount, listedCount, unmappedCount, marketValueMxnCents | null }` + `unmappedTotal` global (badge de la
+  cola). Sin N+1 (una agregación + `getReferencesBatch`).
+- **`GET /admin/inventory/sealed-sets/:setId`** — grupos del set: identidad, conteos por status
+  (`in_stock`/`listed`/otros), `sealedMarketRef` (batch, clave `sealed:tcg:<productId>`; `null` si no mapeado o
+  sin ingest), `mapped`, costo agregado. El drill-down a folios usa (d): `items?cardId=&productType=sealed`.
+- **Alta rápida / bajas / publicar:** mismas reglas de (c) (producto + cantidad + compra/aportación; merma por
+  ajuste; publicar por grupo = `bulk-publish` de los folios o `publish-all {setId, productType:"sealed"}`).
+- **⚠ Corrección requerida (backend, dinero):** la valuación de la **APORTACIÓN de sellado** debe rutear por
+  `sealedMarketRef` (resolver H-1; requiere mapeo + dial `sealedPriceSource=tcgcsv`) — hoy `createItem` valuaría
+  contra el gradeKey legacy `'sealed'`, que jamás tiene filas ⇒ todo caía a `PRICE_PENDING` aunque el mercado
+  exista. Sin mercado (no mapeado / dial off) ⇒ `422 PRICE_PENDING` por línea, como siempre.
+  - **Resolución del `tcgplayerProductId` en el alta (NORMATIVO v1.28.1, ratifica lo implementado):** el alta
+    rápida NO captura productId; el server lo **infiere de los hermanos YA MAPEADOS del grupo
+    `(cardId, sealedSubtype)`**. Si los hermanos mapeados resuelven a **exactamente UN** productId, se usa ese
+    para valuar; **cero o más de uno** ⇒ `422 PRICE_PENDING` por línea (ambigüedad = sin precio honesto, jamás
+    adivinar). La pieza nueva **NO hereda el mapeo** (nace sin `tcgplayerProductId`): la curación del mapeo sigue
+    siendo exclusiva de M2 (`sealed/unmapped`). La decisión de fondo —capturar el productId en el DTO del alta
+    vs. modelar una entidad de producto sellado— queda **abierta como SB-D5 en `docs/TECH_DEBT.md`** (la anota
+    backend a petición del techlead).
+- **Cola de no-mapeados:** acceso directo desde la pestaña a la vista servida por
+  `GET /admin/pricing/sealed/unmapped` (M2). Ese endpoint y la curación del mapeo **siguen `super_admin`** — el
+  acceso se muestra solo a ese rol; para `vault_operator` el grupo aparece como «sin precio de mercado».
+  **Dueño de la vista (decisión v1.28.1):** la pantalla que consume esa cola **pertenece al frontend de M2**
+  (módulo de precios), NO a la pestaña Sellado de M1 — la pestaña solo ENLAZA. Queda como **pendiente menor
+  post-stream** del frontend (no bloquea el cierre del Stream B).
+- **`SealedInventoryGroupDTO` (aditivo v1.28.1):** gana `imageSmallUrl?: string | null` — imagen de la carta
+  ancla del grupo, para la teja de DESIGN §16.8 (`null` honesto si el ancla no tiene imagen). Shape en API_CONTRACT
+  §M1; backend lo implementa en ronda futura o al cierre del stream.
+
+#### (h) P-20 — gradeadas (PSA) separadas, con valor por carta+grado
+
+- **Referencia por grado — DECISIÓN: manual en este stream.** No está verificado que el proveedor de paga exponga
+  precios por grado (no se especula — doctrina P-6: no construir sobre esquemas no confirmados). El valor de
+  mercado por carta+grado se fija con el **override de MERCADO existente** (`POST /admin/pricing/override` con
+  `productType:"graded"`, `gradeKey:"graded:PSA:10"`, `finish` omitido) ⇒ `PriceReference isManualOverride`, que
+  alimenta la valuación (f) y cualquier regla `pct`. Los overrides de venta/compra P-18 aplican con
+  `productType=graded` (misma tabla (a)). Si mañana un proveedor da precios por grado, entra por `price-ingest`
+  **sin cambiar contrato**.
+- **Vista — DECISIÓN: pestaña propia «Gradeadas» en M1** (coherente con (g); NO filtro del Master Set: el binder
+  es completitud por variante **raw** y meter grados rompería el universo X/Y de §4.20). Endpoint nuevo
+  **`GET /admin/inventory/graded`** (`vault_operator+`): lista agregada por `(cardId, gradingCompany,
+  gradeValue)` con conteo, valor de mercado por grado (`PriceReference` graded — típicamente manual; `null`
+  honesto si no hay) y costo agregado; drill-down a certs/folios vía (d) `items?cardId=&productType=graded`.
+- **Alta de una PSA:** formulario corto (grado + cert + precio de compra) — reusa `POST /admin/inventory/items`
+  (graded fuerza qty 1, `certNumber` requerido para publicar, reglas vigentes v1.2); lanzable desde la pestaña o
+  como acción secundaria de la teja del Master Set («Agregar gradeada»).
+
+#### (i) Reparto de trabajo y LOCKS de zonas compartidas (lección de la fricción D8: explícito, no implícito)
+
+| Zona compartida | ¿La toca este stream? | Lock |
+|---|---|---|
+| `backend/prisma/schema.prisma` + `migrations/` | **SÍ — M-30** (tabla nueva + relación en `Card`) | **Stream B** (backend implementa; el orquestador serializa frente a cualquier otro stream que toque schema) |
+| `backend/src/common/money.ts` | **SÍ** — `quoteAcquisitionForFinish`/`computeSalePriceForRarity` ganan parámetro opcional de override (aditivo, default = comportamiento actual) | **Stream B** |
+| `backend/src/modules/catalog/catalog.service.ts` y `backend/src/modules/orders/orders.service.ts` | **SÍ, quirúrgicamente** — SOLO el punto de resolución de precio de venta (pasar el contexto de overrides al resolver (b)); nada más de esos módulos | **Prestados a Stream B** durante el stream (son módulos de otros streams; nadie más los toca a la vez) |
+| `docs/API_CONTRACT.md` | SÍ (v1.28) | arquitecto (ya hecho) |
+| `frontend/src/types/contract.ts` + `frontend/src/lib/api.ts` | SÍ (espejos de DTO/cliente) | **Stream B** (Stream C no arranca su frontend sobre estos archivos hasta el merge de B) |
+| `frontend/src/components/` (teja compartida) | NO se rediseña aquí — P-14/P-16 son del Stream C; B solo AÑADE la consola/bounty dentro de la teja admin actual | C conserva el rediseño; ux-ui define el lenguaje una vez para no duplicar |
+
+- **backend** (módulos del stream: `inventory`, `pricing`, `buylist`, `admin` + los dos préstamos de arriba):
+  (0) migración M-30; (1) resolvers de precedencia (venta+compra) + `getVariantOverridesBatch` + endpoints
+  `variant-controls` + validaciones bounty; (2) `publish-all` + filtros `finish`/`productType` en items +
+  `locationId` opcional + fix valuación aportación sellado (g); (3) `sealed-sets` + `graded`; (4) breakdown de
+  `inventory-value`; (5) conteo/auto-off de bounty en el pago M5 + `GET /buylist/bounties`; (6) `pricing?` en el
+  binder (batch de sugeridos con reglas izadas una vez). Tests: precedencias (bounty>override>regla;
+  listPrice>sellOverride>regla; sealed intacto), aportación 100 % (con y sin referencia), publish-all tolerante +
+  idempotente, auto-off transaccional del bounty, `pricing` ausente en scopes de cliente.
+- **frontend** (`(admin)/admin/m1` + `(storefront)` buylist): pestañas M1 (Master Set default | Sellado |
+  Gradeadas), alta rápida simplificada (dos botones), drill-down de piezas, tarjetas de valor (solo super_admin),
+  consola de 3 precios en la teja (edición solo super_admin), sección Top Bounties en `/buylist` + badge bounty,
+  publicar-todo con resultado honesto por-pieza.
+- **ux-ui:** layout de M1 (pestañas + drill-down + tarjetas + consola en la teja) y la sección/teja Top Bounties.
+  El distintivo visual por variante (P-14) es del Stream C — B no lo espera, pero ux-ui define el lenguaje del
+  badge bounty compatible con esa teja futura.
+- **qa (gate por stream, smoke E2E):** alta rápida compra y aportación (esta última con y sin referencia — aviso
+  claro, no silencio); override de venta pisa el precio del storefront y quitarlo regresa a la regla; override de
+  compra y bounty pisan el cotizador público (precedencia bounty>override); Top Bounties visible en `/buylist`;
+  publish-all publica lo preciable y reporta lo pendiente; drill-down por variante; tarjetas de valor cuadran con
+  M7; sellado por set con alta/publicación; PSA con valor manual visible.
+
+#### (j) Orden interno sugerido (dependencias reales, no ceremonia)
+
+1. **M-30** primero (bloquea P-18/P-22; zona compartida serializada).
+2. **P-18 (núcleo de resolvers + consola)** y **P-19/P-17** en paralelo (P-19/P-17 solo dependen de M-30 para el
+   prellenado del sugerido — pueden arrancar con la regla sola y conectar el efectivo al aterrizar P-18).
+3. **P-22** tras P-18 (misma tabla, mismo resolver de compra, misma consola).
+4. **P-24, P-25, P-20** en paralelo entre sí (lecturas + endpoints propios; P-25 reusa las reglas de alta de P-19).
+5. Integración frontend completa + gates (qa + techlead) del stream.
 
 ---
 
@@ -4691,11 +5042,16 @@ Riesgos técnicos:
   `price-ingest` **cero escrituras**; §4.15e derogada). **Acción (backend, este stream):** eliminar el bloque y cubrir
   con un test que asserte que el ingest **no** llama `card.update`.
   > **v1.26 (§4.24a) — VAR-1 RATIFICADA, no derogada.** El bundle v1.26 introduce `Card.structuralFinishes` (estructura
-  > autoritativa desde TCGCSV) y mueve la fórmula del reconciliador a `orderFinishes(structuralFinishes ∪
-  > pricedFinishesSnapshot) || ['normal']`, pero **conserva** el núcleo money-safe de VAR-1: el precio jamás
-  > sobrescribe/encoge la estructura, y la presencia de una llave de precio jamás AÑADE estructura. Una impresión
-  > estructural sin precio es «pendiente», nunca inventada ni dropeada. `FinishReconciler` sigue siendo el único
-  > escritor de `availableFinishes`.
+  > autoritativa desde TCGCSV) y movió la fórmula del reconciliador a ~~`orderFinishes(structuralFinishes ∪
+  > pricedFinishesSnapshot) || ['normal']`~~ (⛔ v1.27: unión derogada, ver abajo), conservando el núcleo money-safe
+  > de VAR-1: el precio jamás sobrescribe/encoge la estructura. `FinishReconciler` sigue siendo el único escritor de
+  > `availableFinishes`.
+  > **v1.27 (§4.25a) — VAR-1 COMPLETADA tal como quedó implementada: «el precio CONFIRMA, nunca AÑADE».** El
+  > invariante vigente cubre las DOS direcciones money↔estructura: el precio jamás **quita** una impresión (núcleo
+  > original) y el precio jamás **añade** una (la unión v1.26 violaba esta mitad: el snapshot con precio entraba como
+  > casilla ⇒ variantes fantasma). Fórmula implementada: `availableFinishes := composeAvailableFinishes(structuralFinishes)`
+  > con fallback `['normal']`; `pricedFinishesSnapshot` es solo confirmación/observabilidad. Una impresión estructural
+  > sin precio es «pendiente», nunca inventada ni dropeada.
 - **VAR-2 (backend, v1.22) — la derivación de catálogo ignora Cardmarket.** `catalog-sync.service.ts:355` →
   `deriveAvailableFinishes(c.tcgplayer?.prices)` (`pricing.types.ts:32`): sin bloque `tcgplayer` en el payload →
   `['normal']`, y las llaves con `market` nulo no se distinguen de las ausentes. Se pierde el reverse holo de toda
@@ -4864,7 +5220,9 @@ este documento y con `API_CONTRACT.md`.
   El caso se materializó: pokemontcg.io devolvió **502** toda la tarde y el set 2026 «Pitch Black» (120 cartas) quedó
   con **todas** en `['normal']` (§4.22d-4 con S1/S2 ciegas). **Decisión del humano, diseñada money-safe en §4.22g:
   opción (c) — tomar la señal de acabados de la fuente de PAGA (PPT)**, como **Señal C** de **evidencia positiva**
-  (`market > 0` vía alias VERIFICADO ⇒ el acabado existe). Es money-safe pese a §4.22a-regla 2 porque: (i)
+  (`market > 0` vía alias VERIFICADO ⇒ el acabado existe). **(⛔ v1.27, §4.25a: la Señal C ya NO compone
+  `availableFinishes` — la unión quedó derogada, el precio confirma, nunca añade; esta resolución queda como registro
+  histórico de v1.22-1.)** Es money-safe pese a §4.22a-regla 2 porque: (i)
   `availableFinishes` pasa a ser **derivada y RECOMPUTABLE** = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot)
   || ['normal']` sobre dos columnas de entrada persistidas ⇒ **no monótona, reparable** con `sync --force` / siguiente
   corrida PPT; (ii) solo **alias VERIFICADO** alimenta la lista blanca (los SUPUESTO quedan fuera hasta S-C2); (iii)
@@ -5119,6 +5477,24 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
 
+### v1.28-stream-b-inventario-master-set (nueva — M-30: overrides y bounty por carta+variante)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-30** frente a cualquier otro stream que
+toque el schema. Es **aditiva pura**: UNA tabla nueva (`VariantPriceOverride`) + la relación inversa en `Card`
+(`variantPriceOverrides VariantPriceOverride[]`); **cero cambios a tablas/enums existentes, sin backfill** (la
+tabla nace vacía; sin filas = comportamiento actual intacto). Segura con la app corriendo. Spec en §4.26a.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-30 | `model VariantPriceOverride` | Tabla nueva | Create table | Campos: `id`, `cardId` (FK), `productType ProductType @default(raw)` (solo `raw|graded` — regla de aplicación), `gradeKey String @default("raw:NM")` (canónico `buildGradeKey`), `finish Finish @default(normal)`, `sellOverrideCents Int?`, `buyOverrideCents Int?`, `bountyEnabled Boolean @default(false)`, `bountyPriceCents Int?`, `bountyTargetQty Int?`, `bountyAcquiredQty Int @default(0)`, `bountyCompletedAt DateTime?`, `updatedBy String?` (sin FK dura, patrón AuditLog), `createdAt`, `updatedAt`. **`@@unique([cardId, productType, gradeKey, finish])`** (una fila VIGENTE por variante; upsert, sin serie temporal), `@@index([bountyEnabled])` (sirve `GET /buylist/bounties`). |
+| M-30 | `Card.variantPriceOverrides` | Relación inversa nueva | (misma migración) | Solo navegación Prisma; sin columna física adicional en `Card`. |
+
+> **Sin cambios en `InventoryItem`** (`listPriceCents` por pieza se conserva y GANA sobre el override de variante,
+> §4.26b), **ni en `PriceReference`** (el override de MERCADO de M2 sigue siendo `isManualOverride`, perilla
+> distinta), **ni en `SellRequestItem`** (`ruleSource` ya es String: gana los valores `"bounty" | "override"` sin
+> migración — cambio de dato, no de esquema). El conteo `bountyAcquiredQty` se incrementa en la transacción del
+> pago M5 (§4.26e).
+
 ### v1.26-precios-variantes-masterset (nueva — estructura autoritativa desde TCGCSV)
 
 ⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-29** frente a cualquier otro stream que toque
@@ -5130,7 +5506,7 @@ v1.26 solo **empieza a poblarla** (no es cambio de schema). Ver §4.24a.
 
 | # | Modelo / campo | Cambio | Tipo migración | Nota |
 |---|---|---|---|---|
-| M-29 | `Card.structuralFinishes Finish[] @default([])` | Columna nueva (array `NOT NULL`, default `[]`) | Add column + backfill | Afirmación ESTRUCTURAL autoritativa (TCGCSV). **Ancla/reemplaza** a `catalogFinishes` en la unión del reconciliador: `availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`. **Backfill:** `UPDATE "Card" SET "structuralFinishes" = "availableFinishes"` (siembra con lo ya materializado; el resolver TCGCSV lo REEMPLAZA por carta joineada en el `sync-all {force:true}`). INTERNA: NO se expone en DTO. |
+| M-29 | `Card.structuralFinishes Finish[] @default([])` | Columna nueva (array `NOT NULL`, default `[]`) | Add column + backfill | Afirmación ESTRUCTURAL autoritativa (TCGCSV). **Ancla/reemplaza** a `catalogFinishes` como entrada del reconciliador. ~~`availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ **(⛔ v1.27: unión derogada; fórmula vigente `composeAvailableFinishes(structuralFinishes)` con fallback `['normal']`, §4.25a — el snapshot no compone)**. **Backfill:** `UPDATE "Card" SET "structuralFinishes" = "availableFinishes"` (siembra con lo ya materializado; el resolver TCGCSV lo REEMPLAZA por carta joineada en el `sync-all {force:true}`). INTERNA: NO se expone en DTO. |
 | M-29 | `Card.tcgplayerId` (ya existe) | **Sin cambio de schema** — se empieza a POBLAR desde `tcgplayer.url` (`.../product/<id>`) en `upsertCards` | (n/a) | Ancla del join Card↔producto TCGCSV (§4.24a) y del fetch fresco puntual P-7 (§4.24e). |
 
 > **Sin cambios en `PendingPriceEntry`** (P-6 reusa el enum `context` existente, §4.24c) ni en `PriceReference`/`Order`
@@ -5171,7 +5547,7 @@ Segura para ejecutar con la app corriendo: hasta que el nuevo código despliegue
 | M-26 | `@@index([setId, numberPrefix, numberSort])` | **Índice nuevo** | Create index | Sirve el `ORDER BY` del binder y de `GET /buylist/cards` **con `setId`** (el caso real de las tres vistas). Sin `setId` (búsqueda de texto global) el orden lo lidera `name`, ya indexado. |
 | M-27 | `Card.catalogFinishes Finish[] @default([])` | **Columna nueva** | Add column + backfill | v1.22-1 (§4.22g). «Opinión del catálogo» (Señal A ∪ B de pokemontcg.io), persistida para sobrevivir a un 502. **Backfill:** `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"`. La escribe `upsertCards`. |
 | M-27 | `Card.pricedFinishesSnapshot Finish[] @default([])` | **Columna nueva** | Add column | v1.22-1 (§4.22g). Señal C: acabados con `market>0` en PPT (alias VERIFICADO). Default `[]`; la puebla `price-ingest` en la 1ª corrida. |
-| M-27 | `Card.availableFinishes` **pasa a DERIVADA** | Semántica (no cambia forma ni tipo) | (sin SQL: recompute en runtime) | Deja de escribirse directamente; la recomputa `catalog.FinishReconciler` = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`. La columna y su índice/uso NO cambian. |
+| M-27 | `Card.availableFinishes` **pasa a DERIVADA** | Semántica (no cambia forma ni tipo) | (sin SQL: recompute en runtime) | Deja de escribirse directamente; la recomputa `catalog.FinishReconciler` = ~~`orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ **(⛔ fórmula superada: v1.26 sustituyó la entrada, v1.27 derogó la unión — vigente `composeAvailableFinishes(structuralFinishes)`, §4.25a)**. La columna y su índice/uso NO cambian. |
 
 **SQL de M-27** (solo `ADD COLUMN` + un `UPDATE` de backfill; sin índices nuevos):
 

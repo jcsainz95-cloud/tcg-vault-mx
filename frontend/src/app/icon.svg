@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Favicon TCG HUNT: glifo micro (DESIGN_SYSTEM §17.1d v1.7.1) en #B31217 sólido
+       sobre fondo transparente (§17.3). Anillo cerrado (los gaps no leen a 16px)
+       pero cruz SEGMENTADA + punto aislado: la firma de la retícula. -->
+  <line x1="0.75" y1="12" x2="8" y2="12" stroke="#B31217" stroke-width="2" stroke-linecap="round"/>
+  <line x1="16" y1="12" x2="23.25" y2="12" stroke="#B31217" stroke-width="2" stroke-linecap="round"/>
+  <line x1="12" y1="1" x2="12" y2="8" stroke="#B31217" stroke-width="2" stroke-linecap="round"/>
+  <line x1="12" y1="16" x2="12" y2="22" stroke="#B31217" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="12" cy="12" r="6.5" stroke="#B31217" stroke-width="2"/>
+  <circle cx="12" cy="12" r="1.6" fill="#B31217"/>
+</svg>

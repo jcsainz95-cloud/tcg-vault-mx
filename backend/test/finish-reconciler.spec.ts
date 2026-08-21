@@ -1,6 +1,6 @@
 import { FinishReconciler } from '../src/modules/catalog/finish-reconciler.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { unionAvailableFinishes } from '../src/common/card-order';
+import { composeAvailableFinishes } from '../src/common/card-order';
 import {
   normalizeVerifiedFinishAlias,
   VERIFIED_FINISH_ALIASES,
@@ -8,46 +8,46 @@ import {
 } from '../src/modules/pricing/pricing.types';
 
 /**
- * v1.22-1 (ARCHITECTURE §4.22g/§4.22h) — la lista blanca `Card.availableFinishes` pasa a DERIVAR de
- * DOS columnas de entrada persistidas. v1.26 (§4.24a): la entrada del lado catálogo pasa de
- * `catalogFinishes` (proxy de precio) a `structuralFinishes` (estructura autoritativa de TCGCSV):
+ * v1.27 (P-13, ARCHITECTURE §4.25a) — la lista blanca `Card.availableFinishes` deriva SOLO de la
+ * columna ESTRUCTURAL (la unión con `pricedFinishesSnapshot` de §4.24a queda DEROGADA — era el
+ * vector de las variantes fantasma). Fórmula vigente:
  *
- *   availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']
+ *   availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']
  *
- * Estas pruebas cubren: (1) la FUNCIÓN PURA de la unión; (2) el ÚNICO escritor `FinishReconciler`
- * (rescate PPT-only, reparabilidad, default seguro, idempotencia); (3) el candado del ALIAS
- * VERIFICADO que separa la Señal C de los alias SUPUESTO (anti-invención / SEC-A1).
+ * El snapshot de precio queda como OBSERVABILIDAD (log `pricedNotStructural`), jamás compone.
+ * Estas pruebas cubren: (1) la FUNCIÓN PURA de la composición; (2) el ÚNICO escritor
+ * `FinishReconciler` (el precio confirma/nunca añade, reparabilidad de fantasmas, fallback legacy,
+ * idempotencia, observabilidad); (3) el candado del ALIAS VERIFICADO (anti-invención / SEC-A1).
  */
 
-describe('unionAvailableFinishes (§4.24a) — función pura, recomputable y money-safe', () => {
-  it('RESCATE: estructural ["normal"] ∪ snapshot ["reverse_holo"] ⇒ ["normal","reverse_holo"]', () => {
-    expect(unionAvailableFinishes(['normal'], ['reverse_holo'])).toEqual(['normal', 'reverse_holo']);
+describe('composeAvailableFinishes (§4.25a) — función pura: el precio CONFIRMA, nunca AÑADE', () => {
+  it('estructural manda: ["holofoil"] ⇒ ["holofoil"] (el snapshot ya NO participa)', () => {
+    expect(composeAvailableFinishes(['holofoil'])).toEqual(['holofoil']);
   });
 
   it('emite SIEMPRE en orden canónico FINISH_ORDER y deduplica (no importa el orden de entrada)', () => {
-    expect(unionAvailableFinishes(['reverse_holo'], ['normal', 'reverse_holo'])).toEqual([
+    expect(composeAvailableFinishes(['reverse_holo', 'normal', 'reverse_holo'])).toEqual([
       'normal',
       'reverse_holo',
     ]);
-    expect(unionAvailableFinishes(['holofoil', 'normal'], ['first_edition_holofoil'])).toEqual([
+    expect(composeAvailableFinishes(['first_edition_holofoil', 'holofoil', 'normal'])).toEqual([
       'normal',
       'holofoil',
       'first_edition_holofoil',
     ]);
   });
 
-  it('DEFAULT SEGURO: sin ninguna señal (ambas vacías) ⇒ ["normal"] (nunca vacía, jamás relleno)', () => {
-    expect(unionAvailableFinishes([], [])).toEqual(['normal']);
+  it('FALLBACK LEGACY (§4.25a-3): estructural vacío ⇒ ["normal"] (conservador, nunca vacío, jamás relleno)', () => {
+    expect(composeAvailableFinishes([])).toEqual(['normal']);
   });
 
-  it('es RECOMPUTABLE (no monótona): quitar el acabado de las dos entradas lo ELIMINA', () => {
-    // Antes: catálogo ['normal'] + snapshot ['reverse_holo'] = ['normal','reverse_holo'].
-    // El snapshot deja de reportar reverse_holo → recomputar lo quita.
-    expect(unionAvailableFinishes(['normal'], [])).toEqual(['normal']);
+  it('es RECOMPUTABLE (no monótona): quitar un acabado de structural lo ELIMINA al recomputar', () => {
+    expect(composeAvailableFinishes(['normal', 'reverse_holo'])).toEqual(['normal', 'reverse_holo']);
+    expect(composeAvailableFinishes(['reverse_holo'])).toEqual(['reverse_holo']);
   });
 });
 
-describe('FinishReconciler — ÚNICO escritor de Card.availableFinishes (§4.24a / §4.22g candado 4)', () => {
+describe('FinishReconciler — ÚNICO escritor de Card.availableFinishes (§4.25a / §4.22g candado 4)', () => {
   function prismaMock(cards: Array<{ id: string; structuralFinishes: string[]; pricedFinishesSnapshot: string[]; availableFinishes: string[] }>) {
     return {
       card: {
@@ -57,21 +57,23 @@ describe('FinishReconciler — ÚNICO escritor de Card.availableFinishes (§4.24
     } as unknown as PrismaService;
   }
 
-  it('RESCATE PPT-only: structural=["normal"], snapshot=["reverse_holo"], stale=["normal"] ⇒ escribe ["normal","reverse_holo"]', async () => {
+  it('P-13 caso PO: ex holofoil-única CON `normal` priceado en el snapshot ⇒ UNA casilla ["holofoil"] (el fantasma stale se ELIMINA)', async () => {
+    // El barrido `printing=Normal` de PPT le pegó un `normal` CON precio a una ex; la unión v1.26 lo
+    // había materializado como casilla. La fórmula v1.27 recomputa SOLO desde structural y lo limpia.
     const prisma = prismaMock([
-      { id: 'db-x', structuralFinishes: ['normal'], pricedFinishesSnapshot: ['reverse_holo'], availableFinishes: ['normal'] },
+      { id: 'db-ex', structuralFinishes: ['holofoil'], pricedFinishesSnapshot: ['normal', 'holofoil'], availableFinishes: ['normal', 'holofoil'] },
     ]);
-    const changed = await new FinishReconciler(prisma).reconcile(['db-x']);
+    const changed = await new FinishReconciler(prisma).reconcile(['db-ex']);
     expect((prisma as any).card.update).toHaveBeenCalledWith({
-      where: { id: 'db-x' },
-      data: { availableFinishes: ['normal', 'reverse_holo'] },
+      where: { id: 'db-ex' },
+      data: { availableFinishes: ['holofoil'] },
     });
     expect(changed).toBe(1);
   });
 
-  it('REPARABILIDAD: si PPT deja de reportar el acabado (snapshot vacío) ⇒ se QUITA de availableFinishes', async () => {
+  it('el precio YA NO rescata: structural=["normal"], snapshot=["reverse_holo"], stale=["normal","reverse_holo"] ⇒ escribe ["normal"] (confirma, no añade)', async () => {
     const prisma = prismaMock([
-      { id: 'db-x', structuralFinishes: ['normal'], pricedFinishesSnapshot: [], availableFinishes: ['normal', 'reverse_holo'] },
+      { id: 'db-x', structuralFinishes: ['normal'], pricedFinishesSnapshot: ['reverse_holo'], availableFinishes: ['normal', 'reverse_holo'] },
     ]);
     await new FinishReconciler(prisma).reconcile(['db-x']);
     expect((prisma as any).card.update).toHaveBeenCalledWith({
@@ -80,35 +82,41 @@ describe('FinishReconciler — ÚNICO escritor de Card.availableFinishes (§4.24
     });
   });
 
-  it('VAR-1: structural=["holofoil"] + snapshot ESPURIO=["normal"] ⇒ el precio NO añade estructura (["normal","holofoil"] NO se materializa como whitelist inventada)', async () => {
-    // §4.24a: el snapshot de precio SOLO confirma precio de una impresión ya estructural. Si por un
-    // alias espurio PPT reportara `normal` en una carta holofoil-única, la unión lo tomaría (la
-    // whitelist es unión de ambas), PERO el candado real está aguas arriba: `pricedFinishesSnapshot`
-    // solo admite alias VERIFICADO y estructura solo entra por TCGCSV. Aquí probamos la mecánica pura:
-    // structural manda la composición; el snapshot no puede QUITAR ni ENCOGER structural.
+  it('FALLBACK LEGACY (§4.25a-3): structural vacío ⇒ availableFinishes = ["normal"] aunque el snapshot traiga acabados', async () => {
+    // Población sin resolver TCGCSV: NO se usa el snapshot como fallback (re-abriría el vector
+    // precio→estructura justo donde nacen los fantasmas). Conservador: mejor falta que sobra.
     const prisma = prismaMock([
-      { id: 'db-x', structuralFinishes: ['holofoil'], pricedFinishesSnapshot: [], availableFinishes: ['holofoil'] },
+      { id: 'db-legacy', structuralFinishes: [], pricedFinishesSnapshot: ['normal', 'reverse_holo'], availableFinishes: ['normal', 'reverse_holo'] },
     ]);
-    const changed = await new FinishReconciler(prisma).reconcile(['db-x']);
-    // structural ['holofoil'] ∪ snapshot [] = ['holofoil'] — SIN normal fantasma (idempotente).
-    expect((prisma as any).card.update).not.toHaveBeenCalled();
+    await new FinishReconciler(prisma).reconcile(['db-legacy']);
+    expect((prisma as any).card.update).toHaveBeenCalledWith({
+      where: { id: 'db-legacy' },
+      data: { availableFinishes: ['normal'] },
+    });
+  });
+
+  it('OBSERVABILIDAD (§4.25a-1): snapshot ∖ structural ≠ ∅ ⇒ log `pricedNotStructural` (sin tocar la whitelist)', async () => {
+    const prisma = prismaMock([
+      { id: 'db-ex', structuralFinishes: ['holofoil'], pricedFinishesSnapshot: ['normal', 'holofoil'], availableFinishes: ['holofoil'] },
+    ]);
+    const reconciler = new FinishReconciler(prisma);
+    const warnSpy = jest.spyOn((reconciler as any).logger, 'warn').mockImplementation(() => {});
+
+    const changed = await reconciler.reconcile(['db-ex']);
+
+    // Idempotente (la whitelist ya está limpia) pero el drift queda LOGUEADO con el par carta:finish.
     expect(changed).toBe(0);
-  });
-
-  it('DEFAULT SEGURO: ambas columnas vacías ⇒ availableFinishes = ["normal"]', async () => {
-    const prisma = prismaMock([
-      { id: 'db-x', structuralFinishes: [], pricedFinishesSnapshot: [], availableFinishes: ['holofoil'] },
-    ]);
-    await new FinishReconciler(prisma).reconcile(['db-x']);
-    expect((prisma as any).card.update).toHaveBeenCalledWith({
-      where: { id: 'db-x' },
-      data: { availableFinishes: ['normal'] },
-    });
+    expect((prisma as any).card.update).not.toHaveBeenCalled();
+    const logged = warnSpy.mock.calls.map(([m]) => String(m)).join('\n');
+    expect(logged).toContain('pricedNotStructural');
+    expect(logged).toContain('db-ex:normal');
+    expect(logged).not.toContain('db-ex:holofoil'); // holofoil SÍ es estructural: no es drift
+    warnSpy.mockRestore();
   });
 
   it('IDEMPOTENTE: si el valor recomputado ya coincide, NO escribe (cero writes)', async () => {
     const prisma = prismaMock([
-      { id: 'db-x', structuralFinishes: ['normal'], pricedFinishesSnapshot: ['reverse_holo'], availableFinishes: ['normal', 'reverse_holo'] },
+      { id: 'db-x', structuralFinishes: ['normal', 'reverse_holo'], pricedFinishesSnapshot: ['normal'], availableFinishes: ['normal', 'reverse_holo'] },
     ]);
     const changed = await new FinishReconciler(prisma).reconcile(['db-x']);
     expect((prisma as any).card.update).not.toHaveBeenCalled();

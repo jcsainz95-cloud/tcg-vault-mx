@@ -1,4 +1,5 @@
 import { Finish } from '@prisma/client';
+import { envOr } from '../mail/mail-env.util';
 import { MailMessage } from '../mail/mail.port';
 
 /**
@@ -16,8 +17,16 @@ import { MailMessage } from '../mail/mail.port';
 
 type Locale = 'es' | 'en';
 
-const SUPPORT_EMAIL = 'soporte@tcgvaultmx.com';
-const BRAND = 'TCG Vault MX';
+// P-21 (rebrand): overridable por env sin redeploy (mismo patrón que `disputes.constants.ts`).
+// Cae en cascada a `DISPUTE_EVIDENCE_CONTACT` (mismo buzón de soporte) y al valor histórico como
+// default para no romper nada mientras devops no cree el buzón @tcghunt.mx. P-21 cierre: `envOr`
+// (no `??`) — env definida pero vacía/blanca sigue la cascada hasta el default.
+const SUPPORT_EMAIL = envOr(
+  process.env.SUPPORT_EMAIL,
+  envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcgvaultmx.com'),
+);
+// P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4).
+const BRAND = 'TCG HUNT';
 
 function normalizeLocale(locale?: string | null): Locale {
   return locale === 'en' ? 'en' : 'es';

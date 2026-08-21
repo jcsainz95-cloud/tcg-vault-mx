@@ -35,11 +35,16 @@ function buildPrisma(over: any = {}) {
 function buildPricing(over: any = {}) {
   return {
     loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
+    // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
+    loadBuylistRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 40 }),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
     // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     ...over,
+    // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+    getVariantOverridesBatch: jest.fn(async () => new Map()),
+    getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;
 }
 
@@ -104,9 +109,11 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     expect(c1.expectedVariantCount).toBe(2);
     expect(c1.coveredVariantCount).toBe(1);
     // v1.22-2 / N-15: Common no es premium → displayFinishes = availableFinishes → todo displayed.
+    // v1.27 (P-15): la variante lleva su marketReferenceMxnCents (null honesto sin referencia).
+    // v1.28 (P-18): scope platform ⇒ cada variante lleva su consola `pricing` (shape probado aparte).
     expect(c1.variants).toEqual([
-      { finish: 'normal', count: 2, covered: true, displayed: true },
-      { finish: 'reverse_holo', count: 0, covered: false, displayed: true },
+      { finish: 'normal', count: 2, covered: true, displayed: true, marketReferenceMxnCents: null, pricing: expect.any(Object) },
+      { finish: 'reverse_holo', count: 0, covered: false, displayed: true, marketReferenceMxnCents: null, pricing: expect.any(Object) },
     ]);
   });
 
@@ -116,7 +123,9 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     const c2 = res.cells.find((c) => c.cardId === 'c2')!;
     expect(c2.expectedVariantCount).toBe(1);
     expect(c2.coveredVariantCount).toBe(1);
-    expect(c2.variants).toEqual([{ finish: 'normal', count: 1, covered: true, displayed: true }]);
+    expect(c2.variants).toEqual([
+      { finish: 'normal', count: 1, covered: true, displayed: true, marketReferenceMxnCents: null, pricing: expect.any(Object) },
+    ]);
   });
 
   it('DRIFT: pieza con finish FUERA del universo se ve en countsByFinish pero NO en variants (nunca covered > expected)', async () => {
@@ -132,7 +141,9 @@ describe('binder — variants[] por celda: cobertura, drift y contadores (§4.20
     // …pero fuera del universo: la casilla normal sigue descubierta y holofoil NO es casilla.
     expect(c2.expectedVariantCount).toBe(1);
     expect(c2.coveredVariantCount).toBe(0);
-    expect(c2.variants).toEqual([{ finish: 'normal', count: 0, covered: false, displayed: true }]);
+    expect(c2.variants).toEqual([
+      { finish: 'normal', count: 0, covered: false, displayed: true, marketReferenceMxnCents: null, pricing: expect.any(Object) },
+    ]);
     expect(c2.coveredVariantCount).toBeLessThanOrEqual(c2.expectedVariantCount);
   });
 });

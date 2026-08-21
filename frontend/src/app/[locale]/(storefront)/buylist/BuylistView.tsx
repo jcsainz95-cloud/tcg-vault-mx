@@ -21,6 +21,7 @@ import type {
   BuylistBatchQuoteResultDTO,
   MasterSetCardCellDTO,
   MasterSetVariantDTO,
+  PublicBountyDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -46,6 +47,8 @@ import { cn } from '@/lib/cn';
 // de texto ni una casilla para un acabado que la carta no tiene. graded/sealed (sin variantes
 // por acabado: cotizan siempre en `normal`) conservan el grid plano existente.
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
+// v1.28 (P-22): vitrina «Top Bounties» arriba de la página Vender, antes del selector de set.
+import { TopBountiesShelf } from '@/components/domain/TopBountiesShelf';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 
@@ -354,6 +357,42 @@ export function BuylistView() {
     setBulkNotice(null);
   }
 
+  /**
+   * v1.28 (P-22) · CTA «Cotizar esta carta» de un BountyCard: cotiza ESA (carta, acabado)
+   * server-side (SEC-A1 — el monto autoritativo lo deriva el quote, no el card de la vitrina)
+   * y la agrega al carrito de venta con el cotizador en `raw` y el carrito abierto. Si el
+   * quote falla, no agrega nada (el flujo normal del cotizador sigue disponible).
+   */
+  const bountyQuote = useMutation({
+    mutationFn: async (b: PublicBountyDTO) => {
+      const res = await batchQuote([
+        { cardId: b.cardId, productType: 'raw', rawCondition: 'NM', finish: b.finish },
+      ]);
+      return { bounty: b, result: res.results[0] };
+    },
+    onSuccess: ({ bounty, result }) => {
+      if (!result?.ok) return;
+      setProductType('raw');
+      setCart((prev) =>
+        mergeCartLine(prev, {
+          card: {
+            id: bounty.cardId,
+            name: bounty.name,
+            number: bounty.number,
+            imageSmallUrl: bounty.imageSmallUrl,
+          },
+          productType: 'raw',
+          rawCondition: 'NM',
+          finish: result.finish,
+          quote: batchResultToQuote(result),
+        }),
+      );
+      setCartOpen(true);
+      setLastAdded({ name: bounty.name, label: tFinish(bounty.finish) });
+      setBulkNotice(null);
+    },
+  });
+
   function toggleBulk(card: CardDTO) {
     setBulkNotice(null);
     setBulkSelected((prev) => {
@@ -503,6 +542,10 @@ export function BuylistView() {
             {t('shippingGuideLink')}
           </button>
         </div>
+
+        {/* v1.28 (P-22): Top Bounties ARRIBA, antes del selector de set. Se oculta sola si
+            no hay bounties activos o el endpoint falla (vitrina, no bloquea la venta). */}
+        <TopBountiesShelf onQuote={(b) => bountyQuote.mutate(b)} />
 
         {/* Barra de filtros: set + búsqueda + tipo, con el toggle del carrito al extremo.
             En `raw` el binder Master Set (mode="quoter") trae SU PROPIO "Buscar set" (índice)

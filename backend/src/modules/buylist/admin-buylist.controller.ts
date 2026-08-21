@@ -130,7 +130,8 @@ export class AdminBuylistController {
     @Body() dto: RejectRequestDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const { request, transitioned } = await this.buylist.rejectRequest(id, dto.reason);
+    // `dto.reason` es SOLO material de auditoría (abajo): el servicio no lo persiste ni lo usa.
+    const { request, transitioned } = await this.buylist.rejectRequest(id);
     // Idempotencia: no se re-audita como cambio si la solicitud ya estaba `rechazada`.
     if (transitioned) {
       await this.audit.log({

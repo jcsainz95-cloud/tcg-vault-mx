@@ -69,9 +69,19 @@ export class OrdersService {
     // v1.13-sales-pricing (§4.14d): precio de venta por RAREZA (SEC-A1: rareza de Card.rarity, acabado
     // de InventoryItem.finish). Con `fixed` devuelve el PISO aunque no haya market; con `pct` y sin
     // referencia → 'pending' → PRICE_PENDING (se conserva el comportamiento previo).
+    // v1.28 (P-18, §4.26b): el sellOverride de la VARIANTE (M-30) pisa la regla — checkout (auth +
+    // guest) cobra EXACTAMENTE el mismo precio que publica el storefront (mismo resolver único).
+    // El listPriceCents POR PIEZA ya ganó arriba (paso 1 de la precedencia, intacto).
+    const variantOverride = await this.pricing.getVariantOverride(
+      item.cardId,
+      item.productType,
+      gradeKey,
+      item.finish,
+    );
     const sale = await this.pricing.computeSalePriceForItem(
       { rarity: item.card.rarity, finish: item.finish },
       referenceMxnCents,
+      variantOverride,
     );
     // BE-26 (money-safety): un precio de venta <= 0 (p. ej. regla `fixed:0`) NO es vendible. Se
     // rechaza igual que `== null` para que ninguna línea de session entre a $0.

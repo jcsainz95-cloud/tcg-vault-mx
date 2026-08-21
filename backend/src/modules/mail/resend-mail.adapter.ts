@@ -4,7 +4,8 @@ import { MailMessage, MailPort } from './mail.port';
 
 /**
  * ResendMailAdapter — envía por Resend (POST https://api.resend.com/emails) con RESEND_API_KEY.
- * Remitente = MAIL_FROM (default `no-reply@tcgvaultmx.com`). Se usa en no-local (staging+prod),
+ * Remitente = MAIL_FROM (default `no-reply@tcgvaultmx.com`; tras el rebrand P-21 devops fija
+ * `MAIL_FROM="TCG HUNT <no-reply@tcghunt.mx>"`). Se usa en no-local (staging+prod),
  * donde RESEND_API_KEY es requerida (env.validation). ARCHITECTURE §4.11.
  */
 export class ResendMailAdapter implements MailPort {

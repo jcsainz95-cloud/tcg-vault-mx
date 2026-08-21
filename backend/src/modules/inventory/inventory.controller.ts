@@ -16,6 +16,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { InventoryService } from './inventory.service';
 import { MasterSetService } from './master-set.service';
+import { SealedGradedInventoryService } from './sealed-graded.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import {
@@ -26,8 +27,17 @@ import {
   InventoryAdjustmentRequestDto,
   MarkItemDto,
   MoveItemDto,
+  PublishAllRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
+import { Finish, ProductType } from '@prisma/client';
+
+/**
+ * v1.28 (P-17, §M1): valores válidos de los filtros aditivos de `GET /admin/inventory/items`.
+ * Un valor fuera del enum → 400 VALIDATION_ERROR (contrato); omitido = comportamiento actual.
+ */
+const FINISH_FILTER_VALUES: readonly string[] = Object.values(Finish);
+const PRODUCT_TYPE_FILTER_VALUES: readonly string[] = Object.values(ProductType);
 
 /**
  * M1 — Inventario y bóveda. vault_operator + super_admin. API_CONTRACT §M1.
@@ -39,6 +49,9 @@ export class InventoryController {
     private readonly inventory: InventoryService,
     private readonly masterSetService: MasterSetService,
     private readonly audit: AuditService,
+    // v1.28 (P-25/P-20): read models de las pestañas Sellado/Gradeadas. @Optional-less: lo provee
+    // el módulo; los tests unitarios del controller que no lo ejercitan pasan un stub vacío.
+    private readonly sealedGraded?: SealedGradedInventoryService,
   ) {}
 
   // ===== v1.16-master-set (§4.17) — Master Set + inventario a escala (vault_operator+) =====
@@ -61,6 +74,39 @@ export class InventoryController {
   @Get('inventory/master-sets/:setId')
   masterSetBinder(@Param('setId') setId: string) {
     return this.masterSetService.binder(setId);
+  }
+
+  // ===== v1.28 (P-25/P-20, §4.26g/h) — pestañas «Sellado» (por set) y «Gradeadas» =====
+
+  @Get('inventory/sealed-sets')
+  sealedSets(
+    @Query('q') q?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    return this.sealedGraded!.sealedSetsIndex({
+      q,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+    });
+  }
+
+  @Get('inventory/sealed-sets/:setId')
+  sealedSetDetail(@Param('setId') setId: string) {
+    return this.sealedGraded!.sealedSetDetail(setId);
+  }
+
+  @Get('inventory/graded')
+  graded(
+    @Query('q') q?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    return this.sealedGraded!.gradedIndex({
+      q,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+    });
   }
 
   @Post('inventory/items/batch')
@@ -101,6 +147,35 @@ export class InventoryController {
       entityType: 'InventoryBatch',
       entityId: dto.batchKey,
       after: { batchKey: dto.batchKey, summary: res.summary },
+    });
+    return res;
+  }
+
+  /**
+   * v1.28 (P-19, §4.26c) — POST /admin/inventory/publish-all: publicar TODO (o un filtro) de golpe.
+   * Selección server-side sin cap; tolerante por-ítem; idempotente por `batchKey`. AUDITADO
+   * (`inventory.publish_all` con filtros + resumen). Toca dinero (expone piezas a la venta) →
+   * gate de seguridad por release.
+   */
+  @Post('inventory/publish-all')
+  @HttpCode(200)
+  async publishAll(
+    @Body() dto: PublishAllRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.inventory.publishAll(dto, user.id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.publish_all',
+      entityType: 'InventoryBatch',
+      entityId: dto.batchKey,
+      after: {
+        batchKey: dto.batchKey,
+        filters: { setId: dto.setId, productType: dto.productType },
+        idempotentReplay: res.idempotentReplay,
+        summary: res.summary,
+      },
     });
     return res;
   }
@@ -167,9 +242,26 @@ export class InventoryController {
     @Query('locationId') locationId?: string,
     @Query('zone') zone?: string,
     @Query('q') q?: string,
+    // v1.28 (P-17, §4.26d): filtros ADITIVOS del drill-down (`?cardId=&finish=&productType=`).
+    @Query('finish') finish?: string,
+    @Query('productType') productType?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
+    // Contrato §M1 v1.28: validados contra sus enums → 400 VALIDATION_ERROR si inválidos.
+    if (finish != null && !FINISH_FILTER_VALUES.includes(finish)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', `invalid finish '${finish}'`, {
+        finish,
+        allowed: FINISH_FILTER_VALUES,
+      });
+    }
+    if (productType != null && !PRODUCT_TYPE_FILTER_VALUES.includes(productType)) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `invalid productType '${productType}'`,
+        { productType, allowed: PRODUCT_TYPE_FILTER_VALUES },
+      );
+    }
     return this.inventory.listItems({
       status,
       cardId,
@@ -177,6 +269,8 @@ export class InventoryController {
       locationId,
       zone,
       q,
+      finish: finish as Finish | undefined,
+      productType: productType as ProductType | undefined,
       page: Math.max(1, parseInt(page, 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });

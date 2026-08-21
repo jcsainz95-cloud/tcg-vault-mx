@@ -38,13 +38,31 @@ test.describe('admin · dashboard', () => {
 });
 
 test.describe('admin · M1 inventario', () => {
-  test('alta de item es SIN foto propia (imagen de catálogo) y captura certNumber de gradeada', async ({
+  test('P-17: M1 abre en Master Set con pestañas Sellado/Gradeadas y SIN pestaña Piezas', async ({
     page,
   }) => {
     await page.goto('/es/admin/m1');
     await expect(page.getByRole('heading', { name: t('es', 'admin.m1.title') })).toBeVisible();
 
-    await page.getByRole('button', { name: t('es', 'admin.m1.newItem') }).click();
+    await expect(page.getByRole('tab', { name: t('es', 'admin.inventory.tabs.masterSet') })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(page.getByRole('tab', { name: t('es', 'admin.inventory.tabs.sealed') })).toBeVisible();
+    await expect(page.getByRole('tab', { name: t('es', 'admin.inventory.tabs.graded') })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Piezas' })).toHaveCount(0);
+    // Buscador por folio persistente (abre el drill-down de la variante dueña).
+    await expect(page.getByLabel(t('es', 'admin.inventory.folioSearch.label'))).toBeVisible();
+  });
+
+  test('alta por LOTE es SIN foto propia (imagen de catálogo) y captura certNumber de gradeada', async ({
+    page,
+  }) => {
+    await page.goto('/es/admin/m1');
+    await expect(page.getByRole('heading', { name: t('es', 'admin.m1.title') })).toBeVisible();
+
+    // P-17: el alta masiva (P-5) vive en la toolbar como «Alta por lote».
+    await page.getByRole('button', { name: t('es', 'admin.inventory.batchAddCta') }).first().click();
     // v1.2: sin uploader de foto de producto; aviso de imagen de catálogo remota.
     await expect(page.getByText(t('es', 'admin.m1.noPhotoNotice'))).toBeVisible();
 

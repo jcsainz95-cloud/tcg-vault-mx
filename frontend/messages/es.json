@@ -1,7 +1,15 @@
 {
   "common": {
-    "appName": "TCG Vault MX",
+    "appName": "TCG HUNT",
     "tagline": "Marketplace de cartas Pokémon con bóveda",
+    "brand": {
+      "name": "TCG HUNT",
+      "domain": "tcghunt.mx",
+      "homeAria": "TCG HUNT — inicio"
+    },
+    "footer": {
+      "legalEntity": "[Razón social pendiente]"
+    },
     "loading": "Cargando…",
     "retry": "Reintentar",
     "cancel": "Cancelar",
@@ -435,7 +443,8 @@
       "submit": "Registrar ajuste",
       "success": "Ajuste registrado ({folios}).",
       "noteError": "La nota es obligatoria para este motivo."
-    }
+    },
+    "bountyBadge": "Bounty"
   },
   "portfolio": {
     "trend": {
@@ -623,6 +632,15 @@
       "accept": "Aceptar ajuste",
       "decline": "Rechazar",
       "error": "No se pudo registrar tu respuesta. Intenta de nuevo."
+    },
+    "bounties": {
+      "eyebrow": "Se busca",
+      "title": "Top Bounties",
+      "subtitle": "Estas cartas las pagamos mejor. El pago se realiza después de recibir y verificar tu carta.",
+      "wePay": "Pagamos",
+      "remaining": "Quedan {count}",
+      "cta": "Cotizar esta carta",
+      "badge": "Bounty"
     }
   },
   "finish": {
@@ -630,7 +648,10 @@
     "normal": "Normal",
     "reverse_holo": "Reverse Holo",
     "holofoil": "Holofoil",
-    "first_edition_holofoil": "1st Edition"
+    "first_edition_holofoil": "1st Edition",
+    "reverse": "Reverse",
+    "holo": "Holo",
+    "firstEdHolo": "1ed Holo"
   },
   "ine": {
     "front": "INE (anverso)",
@@ -673,7 +694,7 @@
   },
   "legal": {
     "title": "Términos y política",
-    "intro": "Estos términos aplican a todas las compras y a la bóveda de cartas en TCG Vault MX.",
+    "intro": "Estos términos aplican a todas las compras y a la bóveda de cartas en TCG HUNT.",
     "scopeNote": "La política aplica a todo tipo de producto: cartas raw, selladas y gradeadas.",
     "refundTitle": "Reembolsos y ventas finales",
     "refundBody": "Todas las ventas son finales. Una vez que compras una carta, la venta no admite reembolso ni cancelación.",
@@ -1266,7 +1287,16 @@
         "resync": "Re-sincronizar",
         "backfill": "Backfill (siguiente lote)",
         "syncAll": "Importar sets nuevos",
-        "syncAllHint": "«Importar sets nuevos» trae los sets recién salidos que aún no están importados (operación ligera); el sistema además lo hace solo 2 veces al día. «Re-sincronizar todo (forzar)» reprocesa TODO el catálogo y repuebla precios (operación pesada).",
+        "syncAllHint": "«Importar sets nuevos» trae los sets recién salidos que aún no están importados (operación ligera); el sistema además lo hace solo 2 veces al día. «Re-sincronizar todo (forzar)» reprocesa TODO el catálogo: metadata, cartas y variantes/acabados (operación pesada). NO repuebla precios: esos se actualizan con «Actualizar precios ahora» o con el «Sync completo» por set.",
+        "fullSync": "Sync completo",
+        "fullSyncAria": "Sync completo de {name}: cartas, variantes y precios",
+        "fullSyncHint": "Por set: «Importar»/«Re-sincronizar» solo trae metadata y cartas (no refresca variantes ni toca precios). «Sync completo» encadena dos fases: primero cartas + variantes/acabados del set y después los precios de ese set completo.",
+        "fullSyncPhaseCatalog": "Sync completo de {name} — fase 1/2: sincronizando cartas y variantes…",
+        "fullSyncPhasePrices": "Sync completo de {name} — cartas y variantes listas · fase 2/2: encolando precios del set…",
+        "fullSyncDone": "Sync completo de {name}: cartas y variantes actualizadas; precios del set encolados (corren en segundo plano — el avance se ve en la barra de «Actualizar precios»).",
+        "fullSyncPricesAlreadyRunning": "Sync completo de {name}: cartas y variantes actualizadas, pero ya había un barrido de precios en curso y los precios de este set NO se encolaron. Cuando termine, dispara «Actualizar precios ahora» o repite el sync completo.",
+        "fullSyncCatalogError": "Sync completo de {name}: falló la fase de cartas/variantes; NO se encolaron precios.",
+        "fullSyncPricesError": "Sync completo de {name}: cartas y variantes actualizadas, pero falló el encolado de precios. Reintenta con «Actualizar precios ahora».",
         "syncHint": "Importar, re-sincronizar y backfill se ejecutan de forma síncrona: pueden tardar y el resultado aparece al terminar. No cierres esta pantalla.",
         "syncRunning": "Sincronizando con pokemontcg.io… esto puede tardar unos segundos.",
         "syncDone": "Sync encolado: {count} set(s) (job {jobId}).",
@@ -1279,7 +1309,7 @@
         "sweepRunningHint": "Corre en segundo plano; puedes seguir trabajando. El avance y la lista se actualizan solos.",
         "sweepDone": "Sincronización completada: {total} set(s) procesados.",
         "syncAllForceConfirmTitle": "Re-sincronizar todo el catálogo (forzar)",
-        "syncAllForceConfirmBody": "Esto reprocesa TODO el catálogo, incluidos los sets ya importados, para repoblar acabados y precios. Es una operación pesada que puede tardar bastante. ¿Continuar?",
+        "syncAllForceConfirmBody": "Esto reprocesa TODO el catálogo, incluidos los sets ya importados, para repoblar metadata, cartas y variantes/acabados. NO repuebla precios (usa «Actualizar precios ahora» o el «Sync completo» por set). Es una operación pesada que puede tardar bastante. ¿Continuar?",
         "syncAllForceConfirmCta": "Sí, re-sincronizar todo"
       },
       "buylistRules": {
@@ -1614,6 +1644,229 @@
         "cards": "Cartas",
         "sealed": "Sellado"
       }
+    },
+    "inventory": {
+      "tabs": {
+        "masterSet": "Master Set",
+        "sealed": "Sellado",
+        "graded": "Gradeadas"
+      },
+      "folioSearch": {
+        "label": "Buscar por folio",
+        "placeholder": "Buscar folio (INV-000123)",
+        "cta": "Buscar folio",
+        "notFound": "No existe una pieza con ese folio."
+      },
+      "value": {
+        "total": "Valor total",
+        "raw": "Sueltas",
+        "sealed": "Sellado",
+        "graded": "Gradeadas",
+        "cost": "Costo: {amount}",
+        "pendingCount": "{count} piezas sin precio",
+        "loadError": "No se pudo cargar",
+        "retry": "Reintentar"
+      },
+      "publishAllCta": "Publicar todo…",
+      "batchAddCta": "Alta por lote",
+      "sealedTab": {
+        "search": "Buscar set",
+        "searchPlaceholder": "Nombre del set",
+        "colSet": "Set",
+        "colPieces": "Piezas",
+        "colListed": "Listadas",
+        "colValue": "Valor de mercado",
+        "unmappedBadge": "{count} sin mapeo",
+        "unmappedQueue": "Cola de no mapeados ({count})",
+        "emptyTitle": "Sin producto sellado en inventario.",
+        "emptyBody": "El alta por lote admite tipo sellado.",
+        "emptyCta": "Alta por lote",
+        "backToSets": "Volver a sets",
+        "sealedPill": "Sellado",
+        "groupCounts": "{inStock} en stock · {listed} listadas",
+        "groupCost": "Costo: {amount}",
+        "noMarket": "Sin precio de mercado",
+        "quickAdd": "Alta rápida",
+        "viewPieces": "Ver piezas",
+        "publishGroup": "Publicar",
+        "publishGroupResult": "{published} publicadas · {failed} con error.",
+        "publishGroupNone": "Sin piezas en stock que publicar."
+      },
+      "gradedTab": {
+        "search": "Buscar carta",
+        "searchPlaceholder": "Nombre de la carta",
+        "colCard": "Carta",
+        "colGrade": "Grado",
+        "colPieces": "Piezas",
+        "colValue": "Valor de mercado",
+        "colCost": "Costo",
+        "noValue": "Sin valor",
+        "manualValueTitle": "Valor fijado manualmente",
+        "fixValue": "Fijar valor…",
+        "fixValueLabel": "Valor de mercado (MXN)",
+        "fixValueHelper": "Fija el valor de mercado de esta carta en este grado (p. ej. lo que se vende una PSA 10). Alimenta la valuación del inventario.",
+        "fixValueSave": "Guardar",
+        "fixValueCancel": "Cancelar",
+        "valueFixed": "Valor de mercado por grado guardado.",
+        "addGraded": "Agregar gradeada",
+        "emptyTitle": "Sin cartas gradeadas en inventario.",
+        "emptyBody": "Cada slab se da de alta una por una con su certificado."
+      },
+      "addGraded": {
+        "title": "Agregar gradeada",
+        "cardLabel": "Carta",
+        "searchCard": "Buscar carta",
+        "company": "Gradeadora",
+        "grade": "Grado",
+        "cert": "Número de certificado",
+        "certHint": "Obligatorio para publicar la gradeada.",
+        "certRequired": "Captura el número de certificado.",
+        "price": "Precio de compra (MXN)",
+        "cta": "Dar de alta al inventario",
+        "success": "Gradeada dada de alta · folio {folio}."
+      }
+    },
+    "pricing": {
+      "console": {
+        "title": "Precios",
+        "market": "Mercado",
+        "buy": "Compra",
+        "sell": "Venta",
+        "buyLong": "Compra",
+        "sellLong": "Venta",
+        "suggested": "Sugerido (regla)",
+        "override": "Override",
+        "effective": "Efectivo",
+        "source": {
+          "rule": "Regla",
+          "manual": "Manual",
+          "bounty": "Bounty",
+          "pending": "Pendiente"
+        },
+        "resetToRule": "Restablecer a regla",
+        "save": "Guardar precios",
+        "saved": "Precios de la variante guardados.",
+        "overrideRemoved": "Override retirado — vuelve a regir la regla.",
+        "pisaNota": "Los cambios pisan lo que ve el cliente · queda en bitácora.",
+        "pendingShort": "—",
+        "pendingTitle": "Precio pendiente — sin referencia de mercado",
+        "manualTitle": "Precio manual — pisa la regla",
+        "bountyActiveTitle": "Bounty activo",
+        "rowAria": "{label}: {value}",
+        "rowAriaSource": "{label}: {value}, {source}",
+        "mustBePositive": "El precio debe ser mayor a cero.",
+        "suggestedByRule": "Sugerido por regla",
+        "fixMarket": "Fijar mercado (MXN)",
+        "fixMarketCta": "Fijar",
+        "marketFixed": "Referencia de mercado fijada."
+      }
+    },
+    "quickAdd": {
+      "title": "Alta rápida",
+      "qty": "Cantidad",
+      "qtyMinus": "Restar uno",
+      "qtyPlus": "Sumar uno",
+      "acqLabel": "Adquisición",
+      "buy": {
+        "label": "Comprar",
+        "sublabel": "Pagamos por pieza:",
+        "priceLabel": "Precio pagado (MXN)",
+        "priceRequired": "Captura un precio mayor a cero.",
+        "helper": {
+          "rule": "Sugerido por regla",
+          "manual": "Precio manual activo",
+          "bounty": "Precio bounty activo",
+          "none": "Sin sugerido — captura el precio pagado."
+        }
+      },
+      "contrib": {
+        "label": "Aportación",
+        "sublabel": "Se registra a valor de mercado:",
+        "pendingPill": "Precio pendiente",
+        "pendingBlocked": "Sin valor de mercado — fija primero el precio de esta variante.",
+        "pendingBlockedAdmin": "Sin valor de mercado — fíjalo en la sección Precios y vuelve a intentar."
+      },
+      "cta": "Dar de alta al inventario",
+      "loading": "Dando de alta…",
+      "successOne": "Pieza dada de alta · {folio}.",
+      "successSummary": "{count} piezas dadas de alta · {first} a {last}.",
+      "pricePendingError": "No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.",
+      "partialSummary": "{created} creadas · {failed} rechazadas.",
+      "replay": "Reintento idempotente (no se duplicó)."
+    },
+    "publishAll": {
+      "title": "Publicar todo el inventario",
+      "body": "Se publicarán todas las piezas en stock que tengan precio resoluble.",
+      "scopeLabel": "Alcance",
+      "scope": {
+        "all": "Todo el inventario",
+        "set": "Solo este set ({name})",
+        "sealed": "Solo sellado"
+      },
+      "pendingNote": "Las piezas sin precio NO se publican: quedan en la cola de precios pendientes.",
+      "moneyNote": "Expone piezas a la venta · queda en bitácora.",
+      "cta": "Publicar todo",
+      "cancel": "Cancelar",
+      "close": "Entendido",
+      "result": {
+        "published": "Publicadas",
+        "alreadyListed": "Ya estaban listadas",
+        "pendingPrice": "Sin precio",
+        "failed": "Fallidas",
+        "seePending": "Ver pendientes de precio",
+        "capped": "Se muestran las primeras 200 — el resto está en la cola de pendientes.",
+        "replay": "Resultado de la corrida anterior (reintento idempotente).",
+        "failuresTitle": "Detalle de fallos"
+      }
+    },
+    "drawer": {
+      "close": "Cerrar",
+      "pieces": "Piezas ({count})",
+      "addQuick": "Alta rápida",
+      "addGraded": "Agregar gradeada…",
+      "prices": "Precios",
+      "collapse": "Ocultar",
+      "expand": "Mostrar",
+      "pieceOverridesVariant": "El precio por pieza gana sobre el precio de la variante.",
+      "noPieces": "Sin piezas de esta variante.",
+      "truncated": "Mostrando {shown} de {total} piezas de esta carta (lista truncada).",
+      "folioCopied": "Folio copiado",
+      "copyFolio": "Copiar folio",
+      "copyCert": "Copiar certificado",
+      "certCopied": "Certificado copiado",
+      "selectPiece": "Seleccionar {folio}",
+      "editPrice": "Editar precio de {folio}",
+      "editPriceLabel": "Precio (MXN)",
+      "priceMustBePositive": "El precio debe ser mayor a cero.",
+      "viewDetail": "Ver detalle de {folio}",
+      "viewDetailTitle": "Ver detalle",
+      "publish": "Publicar {folio}",
+      "publishTitle": "Publicar",
+      "unpublish": "Despublicar {folio}",
+      "unpublishTitle": "Despublicar",
+      "markLoss": "Merma de {folio}",
+      "markLossTitle": "Merma…",
+      "publishSelection": "Publicar selección ({count})",
+      "publishResult": "{published} publicadas · {failed} con error.",
+      "loss": {
+        "title": "Merma de {folio}",
+        "body": "La pieza sale del inventario por ajuste. La nota es obligatoria y queda en bitácora.",
+        "confirm": "Registrar merma"
+      }
+    },
+    "bounty": {
+      "toggle": "Marcar como bounty",
+      "stateOn": "Activo",
+      "stateOff": "Apagado",
+      "price": "Precio bounty (MXN)",
+      "premium": "Premium sobre la regla: +{amount} (+{pct}%)",
+      "noSuggested": "Sin sugerido de regla — el bounty es el precio explícito.",
+      "targetQty": "Cantidad objetivo (opcional)",
+      "targetHelper": "Al completarse, el bounty se apaga solo.",
+      "progress": "{acquired} de {target} conseguidas",
+      "completed": "Bounty completado · {date}",
+      "offWithHistory": "Bounty apagado · {count} conseguidas",
+      "badge": "Bounty"
     }
   },
   "locale": {
@@ -1751,7 +2004,9 @@
     "ALREADY_AUTHENTICATED": "Ya tienes una sesión iniciada: continúa con tu cuenta.",
     "PAYMENT_PROVIDER_UNAVAILABLE": "No pudimos contactar al procesador de pago. Inténtalo de nuevo en unos minutos.",
     "ORDER_ALREADY_CLAIMED": "No fue posible vincular este pedido.",
-    "CLAIM_EMAIL_MISMATCH": "No fue posible vincular este pedido."
+    "CLAIM_EMAIL_MISMATCH": "No fue posible vincular este pedido.",
+    "BOUNTY_PRICE_REQUIRED": "El bounty necesita un precio explícito.",
+    "BOUNTY_BELOW_RULE": "El precio bounty debe ser mayor o igual al sugerido por regla ({suggested})."
   },
   "payment": {
     "title": "Pago",
@@ -1859,7 +2114,7 @@
       "minor_box_damage": "Detalle menor en caja"
     },
     "buylistCallout": {
-      "title": "¿Quieres revender tu sellado a TCG Vault MX?",
+      "title": "¿Quieres revender tu sellado a TCG HUNT?",
       "body": "Escríbenos a contacto@tcgvaultmx.com con fotos y lo cotizamos.",
       "cta": "Escríbenos"
     },

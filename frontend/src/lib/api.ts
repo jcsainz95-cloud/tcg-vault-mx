@@ -128,6 +128,15 @@ import type {
   AdminVaultListResponse,
   InventoryAdjustmentRequest,
   InventoryAdjustmentResponse,
+  // v1.28 Stream B (P-17/18/19/20/22/24/25): inventario M1 operable.
+  VariantControlsRequest,
+  VariantControlsResponse,
+  PublishAllRequest,
+  PublishAllResponse,
+  SealedSetsResponse,
+  SealedSetDetailResponse,
+  GradedInventoryResponse,
+  PublicBountiesResponse,
   // v1.21-guest-checkout (contrato §4-G) — sección aditiva al final del archivo.
   GuestAddressInput,
   GuestCheckoutQuoteResponse,
@@ -1540,6 +1549,10 @@ export interface AdminInventoryFilters {
   locationId?: string;
   cardId?: string;
   ownerType?: 'platform' | 'customer';
+  // v1.28 (P-17, ADITIVOS): con cardId+finish sirven el drill-down de copias por variante desde
+  // el Master Set; con cardId+productType=sealed|graded, los drill-downs de esas pestañas.
+  finish?: Finish;
+  productType?: ProductType;
   page?: number;
   pageSize?: number;
 }
@@ -1562,6 +1575,8 @@ export async function getAdminInventory(
         locationId: filters.locationId,
         cardId: filters.cardId,
         ownerType: filters.ownerType,
+        finish: filters.finish,
+        productType: filters.productType,
         page: filters.page,
         pageSize: filters.pageSize,
       },
@@ -1577,6 +1592,9 @@ export async function getAdminInventory(
   if (filters.locationId) data = data.filter((i) => i.location?.id === filters.locationId);
   if (filters.cardId) data = data.filter((i) => i.card.id === filters.cardId);
   if (filters.ownerType) data = data.filter((i) => i.ownerType === filters.ownerType);
+  // v1.28 (P-17): filtros del drill-down por variante / pestañas Sellado y Gradeadas.
+  if (filters.finish) data = data.filter((i) => (i.finish ?? 'normal') === filters.finish);
+  if (filters.productType) data = data.filter((i) => i.productType === filters.productType);
   return delay(paginate(data, filters));
 }
 
@@ -1719,6 +1737,8 @@ export interface CreateInventoryItemInput {
   locationId?: string;
   acquisitionType: AcquisitionType;
   acquisitionPct?: number;
+  // v1.28 (P-19): costo capturado para acquisitionType="compra" (documentado en el contrato).
+  acquisitionCostCents?: number;
   listPriceCents?: number;
 }
 
@@ -1842,6 +1862,143 @@ export async function bulkPublishItems(
     });
   }
   return delay(fx.mockBulkPublish(payload));
+}
+
+// ============================================================================
+// v1.28 Stream B (§M1/§M2/§6): inventario M1 operable — consola de precios,
+// publicar-todo, pestañas Sellado/Gradeadas y Top Bounties.
+// ============================================================================
+
+/**
+ * Consola de precios por (carta, variante[, grado]) (contrato §M2 v1.28 ·
+ * PUT /admin/pricing/variant-controls/:cardId/:finish, `super_admin`, auditado).
+ * Upsert de VariantPriceOverride (M-30): `sellOverrideCents` PISA el precio publicado del
+ * storefront; `buyOverrideCents`/bounty PISAN la oferta del cotizador público. Campos omitidos
+ * no se tocan; `null` explícito LIMPIA (la cara vuelve a su regla al instante).
+ */
+export async function putVariantControls(
+  cardId: string,
+  finish: Finish,
+  req: VariantControlsRequest,
+): Promise<VariantControlsResponse> {
+  if (!config.useMocks) {
+    return apiRequest<VariantControlsResponse>(
+      `/admin/pricing/variant-controls/${cardId}/${finish}`,
+      { method: 'PUT', body: req },
+    );
+  }
+  // MOCK: replica las validaciones server-side del contrato (422 con código propio).
+  const card = fx.mockCards.find((c) => c.id === cardId);
+  if (!card) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'card not found' });
+  const productType = req.productType ?? 'raw';
+  if (productType === 'raw' && !card.availableFinishes.includes(finish)) {
+    throw new ApiClientError(422, {
+      code: 'FINISH_NOT_AVAILABLE',
+      message: 'finish not in availableFinishes',
+    });
+  }
+  const positiveOrNull = (v: number | null | undefined) => v == null || (Number.isInteger(v) && v > 0);
+  if (!positiveOrNull(req.sellOverrideCents) || !positiveOrNull(req.buyOverrideCents)) {
+    throw new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'cents must be > 0' });
+  }
+  if (req.bounty && req.bounty.enabled) {
+    if (productType !== 'raw') {
+      throw new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'bounty is raw-only' });
+    }
+    if (req.bounty.priceCents == null || req.bounty.priceCents <= 0) {
+      throw new ApiClientError(422, {
+        code: 'BOUNTY_PRICE_REQUIRED',
+        message: 'bounty requires explicit price',
+      });
+    }
+    const suggested = fx.mockSuggestedBuyCents(cardId, finish);
+    if (suggested != null && req.bounty.priceCents < suggested) {
+      throw new ApiClientError(422, {
+        code: 'BOUNTY_BELOW_RULE',
+        message: 'bounty price below rule suggestion',
+        details: { suggestedCents: suggested },
+      });
+    }
+    if (req.bounty.targetQty != null && req.bounty.targetQty < 1) {
+      throw new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'targetQty must be >= 1' });
+    }
+  }
+  return delay(fx.mockUpsertVariantControls(cardId, finish, req));
+}
+
+/**
+ * Publicar TODO el inventario (o un filtro) de golpe (contrato §M1 v1.28 ·
+ * POST /admin/inventory/publish-all, `vault_operator+`). Selección server-side (sin cap),
+ * pipeline por-pieza idéntico a bulk-publish, tolerante por-ítem; `PRICE_PENDING` escala a la
+ * cola (context=inventory) y NO publica. Idempotente por `batchKey` (replay = resultado guardado).
+ */
+export async function publishAllInventory(payload: PublishAllRequest): Promise<PublishAllResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PublishAllResponse>('/admin/inventory/publish-all', {
+      method: 'POST',
+      body: payload,
+    });
+  }
+  return delay(fx.mockPublishAll(payload));
+}
+
+/**
+ * Índice de la pestaña «Sellado» (contrato §M1 v1.28 · GET /admin/inventory/sealed-sets,
+ * `vault_operator+`): sets con ≥1 pieza sellada de plataforma + `unmappedTotal` global.
+ */
+export async function getSealedInventorySets(
+  params: { q?: string; page?: number; pageSize?: number } = {},
+): Promise<SealedSetsResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedSetsResponse>('/admin/inventory/sealed-sets', {
+      query: { q: params.q, page: params.page, pageSize: params.pageSize },
+    });
+  }
+  return delay(fx.mockSealedSets(params));
+}
+
+/**
+ * Detalle por set de la pestaña «Sellado» (contrato §M1 v1.28 ·
+ * GET /admin/inventory/sealed-sets/:setId): grupos por identidad §4.23 con conteos,
+ * `sealedMarketRef` y costo agregado.
+ */
+export async function getSealedInventorySet(setId: string): Promise<SealedSetDetailResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedSetDetailResponse>(`/admin/inventory/sealed-sets/${setId}`);
+  }
+  try {
+    return await delay(fx.mockSealedSetDetail(setId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Pestaña «Gradeadas» (contrato §M1 v1.28 · GET /admin/inventory/graded, `vault_operator+`):
+ * inventario PSA/CGC agregado por (carta, empresa, grado) con valor de mercado por grado
+ * (típicamente MANUAL, fijado con POST /admin/pricing/override productType="graded").
+ */
+export async function getGradedInventory(
+  params: { q?: string; page?: number; pageSize?: number } = {},
+): Promise<GradedInventoryResponse> {
+  if (!config.useMocks) {
+    return apiRequest<GradedInventoryResponse>('/admin/inventory/graded', {
+      query: { q: params.q, page: params.page, pageSize: params.pageSize },
+    });
+  }
+  return delay(fx.mockGradedInventory(params));
+}
+
+/**
+ * «Top Bounties» de la página Vender (contrato §6 v1.28 · GET /buylist/bounties, público,
+ * READ-ONLY): bounties activos, orden precio desc, cap 50. Errores NO bloquean el flujo de
+ * venta (la vitrina se oculta).
+ */
+export async function getPublicBounties(): Promise<PublicBountiesResponse> {
+  if (!config.useMocks) {
+    return apiRequest<PublicBountiesResponse>('/buylist/bounties');
+  }
+  return delay(fx.mockPublicBounties());
 }
 
 // ---------- Master set en todas partes (v1.20) · admin vaults + ajustes ----------
@@ -2519,6 +2676,12 @@ export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: 
     (p) => p.cardId === input.cardId && p.gradeKey === input.gradeKey && p.finish === finish,
   );
   if (entry) fx.resolveMockPending(entry.id);
+  // v1.28 (P-20): con productType="graded" + gradeKey "graded:<company>:<grade>" es la vía
+  // NORMATIVA para fijar el valor de mercado por carta+grado (pestaña Gradeadas de M1).
+  if (input.productType === 'graded') {
+    const m = input.gradeKey.match(/^graded:([^:]+):(.+)$/);
+    if (m) fx.setMockGradedMarketRef(input.cardId, m[1], m[2], input.priceMxnCents);
+  }
   return delay({ ok: true });
 }
 
@@ -2678,10 +2841,17 @@ export async function getRemoteSets(): Promise<RemoteSetDTO[]> {
   return delay(fx.mockRemoteSets);
 }
 
-/** Importa/actualiza cartas de catálogo (contrato POST /admin/catalog/sync). */
+/**
+ * Importa/actualiza cartas de catálogo (contrato POST /admin/catalog/sync).
+ * v1.27 (P-12): `force:true` corre además el resolver estructural TCGCSV para cada set procesado
+ * (refresca variantes/availableFinishes aunque el set ya esté importado; best-effort, money-safe).
+ * ⚠️ Este endpoint NO toca precios (§4.15g): para el «sync completo» de un set se encadena
+ * `syncCatalog({ setId, force: true })` + `triggerPriceIngest({ setId })` (acción por fila de M2).
+ */
 export async function syncCatalog(input: {
   setId?: string;
   fromReleaseDate?: string;
+  force?: boolean;
 } = {}): Promise<CatalogSyncResponse> {
   if (!config.useMocks) {
     return apiRequest<CatalogSyncResponse>('/admin/catalog/sync', { method: 'POST', body: input });

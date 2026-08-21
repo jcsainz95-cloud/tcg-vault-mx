@@ -38,6 +38,7 @@ function build(opts: {
     prisma,
     {} as PriceSyncJobService,
     {} as any,
+    {} as any, // v1.28: VariantControlsService (no usado en estos tests)
   );
   return { controller, prisma, audit, settings };
 }

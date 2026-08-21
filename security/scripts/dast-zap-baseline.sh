@@ -22,15 +22,10 @@ ROOT_DIR="$(cd "${SEC_DIR}/.." && pwd)"
 
 : "${TARGET_URL:?Define TARGET_URL (ej. https://staging.tudominio.com)}"
 
-# Guardia: no permitir apuntar a prod salvo confirmación explícita.
-if [[ "${TARGET_URL}" == *"tudominio.com"* && "${TARGET_URL}" != *"staging"* ]]; then
-  if [[ "${ALLOW_PROD_DAST:-0}" != "1" ]]; then
-    echo "✗ TARGET_URL parece producción. El DAST contra prod requiere autorización."
-    echo "  Sigue el runbook 'prueba puntual autorizada' (docs/DEVOPS_NOTES.md) y"
-    echo "  exporta ALLOW_PROD_DAST=1 solo dentro de la ventana autorizada."
-    exit 2
-  fi
-fi
+# Guardia anti-producción compartida (P-21 cierre): decide por HOST, no por
+# substring de la URL — ver security/scripts/_guard.sh. Source obligatorio.
+source "${SCRIPT_DIR}/_guard.sh"
+dast_prod_guard "${TARGET_URL}"
 
 REPORT_DIR="${ROOT_DIR}/security/reports"
 mkdir -p "${REPORT_DIR}"

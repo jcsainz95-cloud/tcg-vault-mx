@@ -7,6 +7,7 @@ import {
   MovementReason,
   Prisma,
   ProductType,
+  VariantPriceOverride,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -15,6 +16,7 @@ import { sealedMarketGradeKey } from '../pricing/pricing.types';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import {
+  SalesRule,
   computeAportacionCostCents,
   computeSalePriceForRarity,
 } from '../../common/money';
@@ -27,6 +29,7 @@ import {
   InventoryAdjustmentRequestDto,
   MarkItemDto,
   MoveItemDto,
+  PublishAllRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
 
@@ -66,6 +69,61 @@ export interface BulkPublishResponse {
   summary: { requested: number; published: number; failedLines: number };
   results: BulkPublishLineResult[];
 }
+
+// ===== v1.28 (P-19, §4.26c) — publicar TODO =====
+
+/** Detalle de un fallo de `publish-all` (API_CONTRACT §M1 — capado a 200 líneas). */
+export interface PublishAllFailure {
+  inventoryItemId: string;
+  folio: string;
+  error: { code: string; message: string };
+  /** Presente SOLO cuando la línea escaló por priceless (④): deep-link a la cola M2. */
+  pendingPriceEntryId?: string;
+}
+
+export interface PublishAllResponse {
+  batchKey?: string;
+  idempotentReplay: boolean;
+  summary: {
+    selected: number;
+    published: number;
+    alreadyListed: number;
+    pendingPrice: number;
+    failed: number;
+  };
+  failures: PublishAllFailure[];
+}
+
+/** Tamaño del chunk server-side de `publish-all` (§4.26c: sin cap de SELECCIÓN, proceso acotado). */
+export const PUBLISH_ALL_CHUNK_SIZE = 100;
+/** Cap del DETALLE de fallos en la respuesta (el remanente se opera por la cola M2 `?context=inventory`). */
+export const PUBLISH_ALL_FAILURES_CAP = 200;
+
+/**
+ * Contexto de precio de publicación izado UNA VEZ por request/chunk (pago mínimo BE-25):
+ * reglas de venta + spreads de sellado + referencias y overrides M-30 EN LOTE. Lo comparten
+ * `bulkPublish` y `publishAll` — el pipeline por-pieza es IDÉNTICO por contrato (§4.26c).
+ */
+interface PublishPricingCtx {
+  rules: Record<string, SalesRule>;
+  fallbackPct: number;
+  sealed: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
+  refs: Map<string, PriceInfo>;
+  variantOverrides: Map<string, VariantPriceOverride>;
+}
+
+/** Pieza publicable (fila InventoryItem + su carta), como la consumen los pipelines de publish. */
+type PublishableItem = Prisma.InventoryItemGetPayload<{ include: { card: true } }>;
+
+/**
+ * Resultado de la resolución de precio de publicación de UNA pieza:
+ *  - `ok:true` → precio resuelto (manual por pieza o derivado con la precedencia v1.28).
+ *  - `ok:false` → PRICE_PENDING: la variante NO tiene precio resoluble; YA se escaló a la cola
+ *    (④, idempotente) y la pieza NO debe publicarse (money-safe: jamás se lista sin precio).
+ */
+type PublishPriceResolution =
+  | { ok: true; salePriceCents: number; priceSource: 'manual' | 'derived' }
+  | { ok: false; message: string; pendingPriceEntryId?: string };
 
 /**
  * [MONEY · WS-E] Allowlist de status de ORIGEN seguros para publicar a `listed`.
@@ -193,15 +251,30 @@ export class InventoryService {
 
     if (dto.acquisitionType === 'aportacion_en_especie') {
       const pct = dto.acquisitionPct ?? (await this.settings.getNumber(SettingKey.APORTACION_PCT));
-      // v1.6-finish: costo contra la referencia del ACABADO alta.
-      const ref = await this.pricing.getReference(dto.cardId, dto.productType, gradeKey, finish);
-      if (ref.status !== 'priced' || ref.referenceMxnCents == null) {
+      let referenceCents: number | null;
+      let pendingGradeKey = gradeKey;
+      if (dto.productType === 'sealed') {
+        // v1.28 (fix normativo §4.26g / contrato §M1 P-25): la APORTACIÓN de sellado valúa por
+        // `sealedMarketRef` (resolver H-1: mapeo del grupo + dial `sealedPriceSource=tcgcsv`) —
+        // NO por el gradeKey legacy 'sealed' (jamás tiene filas de mercado ⇒ todo caía a
+        // PRICE_PENDING aunque el mercado exista). Sin mapeo/dial off/sin ingest ⇒ PRICE_PENDING
+        // por línea, como siempre (money-safe: jamás se inventa el costo).
+        const sealedRef = await this.resolveSealedAportacionMarket(dto);
+        referenceCents = sealedRef.marketCents;
+        pendingGradeKey = sealedRef.pendingGradeKey;
+      } else {
+        // v1.6-finish: costo contra la referencia del ACABADO alta.
+        const ref = await this.pricing.getReference(dto.cardId, dto.productType, gradeKey, finish);
+        referenceCents =
+          ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
+      }
+      if (referenceCents == null) {
         // Tier 0 FIX: propaga el `finish` resuelto a la cola. Antes se omitía y el pendiente
         // quedaba en `normal` aunque el alta fuera holofoil (M-19: la cola es POR acabado).
         await this.pricing.escalatePending(
           dto.cardId,
           dto.productType,
-          gradeKey,
+          pendingGradeKey,
           'inventory',
           undefined,
           finish,
@@ -212,11 +285,53 @@ export class InventoryService {
         );
       }
       acquisitionPct = pct;
-      acquisitionCostCents = computeAportacionCostCents(ref.referenceMxnCents, pct);
+      acquisitionCostCents = computeAportacionCostCents(referenceCents, pct);
     }
 
     const sealedNeedsEscalate = dto.productType === 'sealed' && dto.listPriceCents == null;
     return { card, finish, gradeKey, acquisitionCostCents, acquisitionPct, sealedNeedsEscalate };
+  }
+
+  /**
+   * v1.28 (P-19/P-25, fix normativo §4.26g) — mercado del SELLADO para valuar una APORTACIÓN.
+   * El item que nace aún NO tiene mapeo M-23 (la curación es posterior, por el endpoint M2), así
+   * que el `tcgplayerProductId` del GRUPO se infiere de sus HERMANOS: piezas selladas ya mapeadas
+   * con el MISMO `(cardId, sealedSubtype)` — la MISMA identidad que usa `applyToSiblings` del
+   * mapeo (sealed-mapping.service). Money-safe:
+   *  - exactamente UN productId mapeado en el grupo → se valúa con SU `sealedMarketRef`, gateado
+   *    por el dial `sealedPriceSource` (H-1 §4.23: dial off ⇒ mercado INERTE ⇒ sin valuación);
+   *  - CERO hermanos mapeados o ≥2 productIds distintos (ambigüedad: no se adivina con dinero) →
+   *    sin mercado ⇒ el caller escala PRICE_PENDING con el gradeKey estructural legacy `'sealed'`.
+   * NO escribe el mapeo en la pieza nueva (la curación sigue siendo exclusiva del endpoint M2).
+   */
+  private async resolveSealedAportacionMarket(dto: {
+    cardId: string;
+    sealedSubtype?: string | null;
+  }): Promise<{ marketCents: number | null; pendingGradeKey: string }> {
+    const structuralGradeKey = 'sealed';
+    const mappedSiblings = await this.prisma.inventoryItem.findMany({
+      where: {
+        productType: 'sealed',
+        cardId: dto.cardId,
+        sealedSubtype: (dto.sealedSubtype ?? null) as never,
+        tcgplayerProductId: { not: null },
+      },
+      select: { tcgplayerProductId: true },
+      distinct: ['tcgplayerProductId'],
+    });
+    const productIds = [...new Set(mappedSiblings.map((s) => s.tcgplayerProductId as number))];
+    if (productIds.length !== 1) {
+      return { marketCents: null, pendingGradeKey: structuralGradeKey };
+    }
+    const marketGradeKey = sealedMarketGradeKey(productIds[0]);
+    const { sourceOn } = await this.pricing.loadSealedSpreads();
+    const ref = await this.pricing.getReference(dto.cardId, 'sealed', marketGradeKey, 'normal');
+    // Gate H-1 único (dial + fila priced). Mapeado pero sin mercado/dial off ⇒ el pendiente se
+    // escala con la clave de MERCADO (paridad con bulk-publish ④).
+    return {
+      marketCents: this.pricing.gateSealedMarketCents(ref, sourceOn),
+      pendingGradeKey: marketGradeKey,
+    };
   }
 
   /** Data de creación de un InventoryItem (compartida por alta single/lote). */
@@ -457,22 +572,10 @@ export class InventoryService {
       }
     }
 
-    // Pago mínimo BE-25: reglas de venta izadas UNA vez + referencias en 1 lote (sin N+1).
-    const { rules, fallbackPct } = await this.pricing.loadSalesRules();
-    // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (mismo pago mínimo).
-    const sealed = await this.pricing.loadSealedSpreads();
-    // Para el SELLADO derivable la clave del lote es la de MERCADO (`sealed:tcg:<productId>`, finish
-    // normal); un sellado no mapeado no aporta clave (sin market → solo override, ya filtrado abajo).
-    const derivable = items
-      .filter((i) => i.listPriceCents == null)
-      .flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
-        if (i.productType === 'sealed') {
-          const gk = this.pricing.sealedMarketGradeKeyForItem(i);
-          return gk ? [{ cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }] : [];
-        }
-        return [{ cardId: i.cardId, productType: i.productType, gradeKey: this.pricing.gradeKeyFor(i), finish: i.finish }];
-      });
-    const refs = await this.pricing.getReferencesBatch(derivable);
+    // Pago mínimo BE-25: reglas de venta + spreads izados UNA vez; referencias y overrides M-30 en
+    // lote (sin N+1). El pipeline por-pieza vive en los helpers compartidos con `publishAll`
+    // (§4.26c: pipeline IDÉNTICO — un solo cuerpo, prohibido duplicarlo).
+    const ctx = await this.loadPublishPricingCtx(items);
 
     const results: BulkPublishLineResult[] = [];
     let published = 0;
@@ -483,130 +586,23 @@ export class InventoryService {
       let pendingPriceEntryId: string | undefined;
       try {
         if (!item) throw BusinessException.notFound('NOT_FOUND', 'Inventory item not found');
-        if (item.ownerType !== 'platform') {
-          throw BusinessException.validation('VALIDATION_ERROR', 'item is not platform inventory');
-        }
-        // [MONEY · WS-E] Guarda por status de ORIGEN (anti-double-sell). SOLO {in_stock, listed}
-        // son seguras: publicar una reserved/in_custody/lost/damaged/... a `listed` la re-abriría a
-        // un segundo checkout → dos clientes por una pieza. Ver PUBLISHABLE_ORIGIN_STATUSES.
-        if (!PUBLISHABLE_ORIGIN_STATUSES.includes(item.status)) {
-          throw BusinessException.validation(
-            'ITEM_NOT_PUBLISHABLE',
-            `item status '${item.status}' cannot be published`,
-            { status: item.status },
-          );
-        }
-        if (
-          item.productType === 'graded' &&
-          (!item.certNumber || item.certNumber.trim() === '')
-        ) {
-          throw BusinessException.validation(
-            'VALIDATION_ERROR',
-            'graded items require certNumber to be published',
-          );
+        this.assertPublishableGuards(item);
+
+        const resolved = await this.resolvePublishSalePrice(item, line.listPriceCents ?? null, ctx);
+        if (!resolved.ok) {
+          pendingPriceEntryId = resolved.pendingPriceEntryId;
+          throw BusinessException.validation('PRICE_PENDING', resolved.message);
         }
 
-        let salePriceCents: number;
-        let priceSource: 'manual' | 'derived';
-        const manual = line.listPriceCents ?? item.listPriceCents;
-        if (manual != null) {
-          salePriceCents = manual;
-          priceSource = 'manual';
-        } else if (item.productType === 'sealed') {
-          // v1.23-sealed-sales (§4.23d): el sellado ya NO exige listPriceCents — deriva por
-          // override/mercado×spread. H-1 (v1.24): resolver ÚNICO (mismo cuerpo que catálogo/Compra/grid,
-          // incluida la regla override=0). Sin override>0 y sin mercado → PRICE_PENDING (money-safe). SEC-A1.
-          const gk = this.pricing.sealedMarketGradeKeyForItem(item);
-          const ref = gk ? refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
-          const sale = this.pricing.resolveSealedSalePrice(item, ref, sealed);
-          if (sale.salePriceCents == null) {
-            // v1.26 (④, §M1): priceless ESCALA a la cola de pendientes (context='inventory') en vez
-            // de caerse en silencio; la pieza NO se publica (sigue en su status de origen). Idempotente
-            // (dedupe por cardId/productType/gradeKey/finish/status='open'). Reusa el gradeKey de MERCADO
-            // ya computado (`gk`); un sellado no mapeado (gk=null) cae al gradeKey estructural del item.
-            const pendingGradeKey = gk ?? this.pricing.gradeKeyFor(item);
-            pendingPriceEntryId = await this.pricing.escalatePending(
-              item.cardId,
-              'sealed',
-              pendingGradeKey,
-              'inventory',
-              undefined,
-              'normal',
-            );
-            throw BusinessException.validation(
-              'PRICE_PENDING',
-              'No resolvable sale price for sealed (no override and no market); not published',
-            );
-          }
-          salePriceCents = sale.salePriceCents;
-          priceSource = 'derived';
-        } else {
-          // Derivado server-side (SEC-A1): rareza de Card.rarity, acabado de InventoryItem.finish.
-          const gradeKey = this.pricing.gradeKeyFor(item);
-          const ref = refs.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`);
-          const refCents =
-            ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-          const sale = computeSalePriceForRarity(
-            item.card.rarity,
-            item.finish,
-            refCents,
-            rules,
-            fallbackPct,
-          );
-          if (sale.salePriceCents == null) {
-            // v1.26 (④, §M1): priceless ESCALA a la cola de pendientes (context='inventory') en vez
-            // de caerse en silencio; la pieza NO se publica (sigue en su status de origen). Idempotente
-            // (dedupe por cardId/productType/gradeKey/finish/status='open'). Usa el gradeKey server-side
-            // del item + su acabado, alineado con `getReference`/`manualOverride` (la cola es POR acabado).
-            pendingPriceEntryId = await this.pricing.escalatePending(
-              item.cardId,
-              item.productType,
-              gradeKey,
-              'inventory',
-              undefined,
-              item.finish,
-            );
-            throw BusinessException.validation(
-              'PRICE_PENDING',
-              'No resolvable sale price (pct without market); not published',
-            );
-          }
-          salePriceCents = sale.salePriceCents;
-          priceSource = 'derived';
-        }
-
-        // status → listed. Re-publicar una `listed` = no-op idempotente. Persiste el override manual.
-        // [BE-45] Guardia ATÓMICA de status (par del ajuste): el paso a `listed` es CONDICIONAL al
-        // allowlist en el MISMO UPDATE (updateMany + count). El check en memoria de arriba valida
-        // el snapshot leído; esta condición cierra el TOCTOU: si entre lectura y escritura la pieza
-        // salió de {in_stock, listed} (p. ej. un checkout la reservó), count=0 → ITEM_NOT_PUBLISHABLE
-        // por-línea y NO se re-abre a un segundo comprador (anti double-sell).
-        const claimed = await this.prisma.inventoryItem.updateMany({
-          where: {
-            id: item.id,
-            ownerType: 'platform',
-            status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
-          },
-          data: {
-            status: 'listed',
-            ...(line.listPriceCents != null ? { listPriceCents: line.listPriceCents } : {}),
-          },
-        });
-        if (claimed.count !== 1) {
-          throw BusinessException.validation(
-            'ITEM_NOT_PUBLISHABLE',
-            'item can no longer be published (concurrent status transition)',
-            { status: item.status },
-          );
-        }
+        await this.claimListed(item, line.listPriceCents);
         published++;
         results.push({
           index,
           inventoryItemId: line.inventoryItemId,
           ok: true,
           status: 'listed',
-          salePriceCents,
-          priceSource,
+          salePriceCents: resolved.salePriceCents,
+          priceSource: resolved.priceSource,
         });
       } catch (e) {
         const err = e as BusinessException;
@@ -639,6 +635,320 @@ export class InventoryService {
           resultJson: response as unknown as Prisma.InputJsonValue,
         },
       });
+    }
+    return response;
+  }
+
+  // ============ v1.28 (P-19, §4.26c) — pipeline de publicación COMPARTIDO + publish-all ============
+
+  /**
+   * Iza el contexto de precio de publicación (pago mínimo BE-25): reglas de venta + spreads del
+   * sellado + referencias y overrides M-30 EN LOTE para las piezas que DERIVAN precio. Para el
+   * SELLADO derivable la clave del lote es la de MERCADO (`sealed:tcg:<productId>`, finish normal);
+   * un sellado no mapeado no aporta clave (sin market → solo override). Los overrides M-30 solo
+   * aplican a raw/graded (el sellado conserva su cadena H-1, §4.26b).
+   */
+  private async loadPublishPricingCtx(
+    items: PublishableItem[],
+    base?: Pick<PublishPricingCtx, 'rules' | 'fallbackPct' | 'sealed'>,
+  ): Promise<PublishPricingCtx> {
+    const { rules, fallbackPct } = base ?? (await this.pricing.loadSalesRules());
+    const sealed = base?.sealed ?? (await this.pricing.loadSealedSpreads());
+    const derivable = items
+      .filter((i) => i.listPriceCents == null)
+      .flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
+        if (i.productType === 'sealed') {
+          const gk = this.pricing.sealedMarketGradeKeyForItem(i);
+          return gk ? [{ cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }] : [];
+        }
+        return [{ cardId: i.cardId, productType: i.productType, gradeKey: this.pricing.gradeKeyFor(i), finish: i.finish }];
+      });
+    const refs = await this.pricing.getReferencesBatch(derivable);
+    const variantOverrides = await this.pricing.getVariantOverridesBatch(
+      derivable.filter((d) => d.productType !== 'sealed'),
+    );
+    return { rules, fallbackPct, sealed, refs, variantOverrides };
+  }
+
+  /**
+   * Guards por-pieza compartidos por `bulkPublish` y `publishAll` (pipeline IDÉNTICO §4.26c):
+   *  - solo inventario de PLATAFORMA;
+   *  - [MONEY · WS-E] status de ORIGEN ∈ {in_stock, listed} (anti-double-sell: publicar una
+   *    reserved/in_custody/lost/... la re-abriría a un segundo checkout);
+   *  - gradeada exige `certNumber` para publicarse (v1.2/M-12).
+   */
+  private assertPublishableGuards(item: PublishableItem): void {
+    if (item.ownerType !== 'platform') {
+      throw BusinessException.validation('VALIDATION_ERROR', 'item is not platform inventory');
+    }
+    if (!PUBLISHABLE_ORIGIN_STATUSES.includes(item.status)) {
+      throw BusinessException.validation(
+        'ITEM_NOT_PUBLISHABLE',
+        `item status '${item.status}' cannot be published`,
+        { status: item.status },
+      );
+    }
+    if (item.productType === 'graded' && (!item.certNumber || item.certNumber.trim() === '')) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'graded items require certNumber to be published',
+      );
+    }
+  }
+
+  /**
+   * Precio de publicación de UNA pieza — precedencia NORMATIVA v1.28 (§4.26b/§4.26c):
+   * `listPriceCents (línea o pieza) > [sealed: H-1 override/mercado×spread | raw/graded:
+   * sellOverride M-30 > regla por rareza+acabado] > PRICE_PENDING`.
+   * Priceless ⇒ ESCALA a la cola (④ v1.26, `context='inventory'`, dedupe idempotente) y devuelve
+   * `ok:false` (la pieza NO se publica; money-safe, jamás se lista sin precio). SEC-A1: todo sale
+   * de BD/settings, nada del DTO del cliente (el `lineListPrice` es el override manual del admin).
+   */
+  private async resolvePublishSalePrice(
+    item: PublishableItem,
+    lineListPriceCents: number | null,
+    ctx: PublishPricingCtx,
+  ): Promise<PublishPriceResolution> {
+    const manual = lineListPriceCents ?? item.listPriceCents;
+    if (manual != null) {
+      return { ok: true, salePriceCents: manual, priceSource: 'manual' };
+    }
+    if (item.productType === 'sealed') {
+      // v1.23-sealed-sales (§4.23d): el sellado deriva por override/mercado×spread (resolver ÚNICO
+      // H-1, mismo cuerpo que catálogo/Compra/grid). Sin override>0 y sin mercado → PRICE_PENDING.
+      const gk = this.pricing.sealedMarketGradeKeyForItem(item);
+      const ref = gk ? ctx.refs.get(`${item.cardId}|sealed|${gk}|normal`) : undefined;
+      const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed);
+      if (sale.salePriceCents == null) {
+        // ④: escala con el gradeKey de MERCADO; sellado no mapeado cae al gradeKey estructural.
+        const pendingGradeKey = gk ?? this.pricing.gradeKeyFor(item);
+        const pendingPriceEntryId = await this.pricing.escalatePending(
+          item.cardId,
+          'sealed',
+          pendingGradeKey,
+          'inventory',
+          undefined,
+          'normal',
+        );
+        return {
+          ok: false,
+          message: 'No resolvable sale price for sealed (no override and no market); not published',
+          pendingPriceEntryId,
+        };
+      }
+      return { ok: true, salePriceCents: sale.salePriceCents, priceSource: 'derived' };
+    }
+    // raw/graded — derivado server-side (SEC-A1): rareza de Card.rarity, acabado del item; el
+    // sellOverride de la variante (M-30) pisa la regla (misma precedencia que storefront/checkout).
+    const gradeKey = this.pricing.gradeKeyFor(item);
+    const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
+    const ref = ctx.refs.get(key);
+    const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+    const sale = computeSalePriceForRarity(
+      item.card.rarity,
+      item.finish,
+      refCents,
+      ctx.rules,
+      ctx.fallbackPct,
+      ctx.variantOverrides.get(key) ?? null,
+    );
+    if (sale.salePriceCents == null) {
+      // ④: escala con el gradeKey server-side + acabado del item (la cola es POR acabado, M-19).
+      const pendingPriceEntryId = await this.pricing.escalatePending(
+        item.cardId,
+        item.productType,
+        gradeKey,
+        'inventory',
+        undefined,
+        item.finish,
+      );
+      return {
+        ok: false,
+        message: 'No resolvable sale price (pct without market); not published',
+        pendingPriceEntryId,
+      };
+    }
+    return { ok: true, salePriceCents: sale.salePriceCents, priceSource: 'derived' };
+  }
+
+  /**
+   * Transición ATÓMICA a `listed` ([BE-45], compartida): el paso es CONDICIONAL al allowlist en el
+   * MISMO UPDATE (updateMany + count). Cierra el TOCTOU: si entre lectura y escritura la pieza salió
+   * de {in_stock, listed} (p. ej. un checkout la reservó), count=0 → ITEM_NOT_PUBLISHABLE y NO se
+   * re-abre a un segundo comprador (anti double-sell). Persiste el override manual POR LÍNEA si vino.
+   */
+  private async claimListed(item: PublishableItem, lineListPriceCents?: number): Promise<void> {
+    const claimed = await this.prisma.inventoryItem.updateMany({
+      where: {
+        id: item.id,
+        ownerType: 'platform',
+        status: { in: [...PUBLISHABLE_ORIGIN_STATUSES] },
+      },
+      data: {
+        status: 'listed',
+        ...(lineListPriceCents != null ? { listPriceCents: lineListPriceCents } : {}),
+      },
+    });
+    if (claimed.count !== 1) {
+      throw BusinessException.validation(
+        'ITEM_NOT_PUBLISHABLE',
+        'item can no longer be published (concurrent status transition)',
+        { status: item.status },
+      );
+    }
+  }
+
+  /**
+   * v1.28 (P-19, §4.26c) — POST /admin/inventory/publish-all: publicar TODO el inventario (o un
+   * filtro) de golpe. Selección SERVER-SIDE (`ownerType=platform` + `status=in_stock` ± `setId`/
+   * `productType`), SIN cap de selección (proceso por chunks); pipeline por-pieza IDÉNTICO a
+   * `bulk-publish` (helpers compartidos): precio server-side SEC-A1 con la precedencia v1.28,
+   * PRICE_PENDING escala (④) y NO publica, `listed` = no-op idempotente. **Tolerante por-ítem: el
+   * lote JAMÁS revienta completo.** Idempotencia por `batchKey` (`InventoryBatch kind='publish_all'`;
+   * replay ⇒ resultado guardado + `idempotentReplay:true`). La auditoría (`inventory.publish_all`)
+   * la escribe el controller.
+   */
+  async publishAll(req: PublishAllRequestDto, actorUserId: string): Promise<PublishAllResponse> {
+    // Replay idempotente por batchKey. Un batchKey ya usado por OTRO tipo de lote no se "replay-ea"
+    // con un shape ajeno: 409 (la key identifica UN lote concreto).
+    if (req.batchKey) {
+      const existing = await this.prisma.inventoryBatch.findUnique({ where: { id: req.batchKey } });
+      if (existing) {
+        if (existing.kind !== 'publish_all') {
+          throw BusinessException.conflict(
+            'CONFLICT',
+            'batchKey already used by a different batch kind',
+            { kind: existing.kind },
+          );
+        }
+        const stored = existing.resultJson as unknown as PublishAllResponse;
+        return { ...stored, idempotentReplay: true };
+      }
+    }
+    // Filtros inválidos → 400 VALIDATION_ERROR (contrato §M1). `productType` ya lo valida el DTO.
+    if (req.setId) {
+      const set = await this.prisma.cardSet.findUnique({
+        where: { id: req.setId },
+        select: { id: true },
+      });
+      if (!set) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', 'setId does not match any CardSet', {
+          setId: req.setId,
+        });
+      }
+    }
+
+    // Selección server-side: SNAPSHOT de ids (solo ids — sin cap). Iterar por snapshot (y no
+    // re-consultando `in_stock`) garantiza terminación: una pieza PRICE_PENDING queda `in_stock`
+    // y no debe re-seleccionarse en un loop infinito.
+    const selectedIds = (
+      await this.prisma.inventoryItem.findMany({
+        where: {
+          ownerType: 'platform',
+          status: 'in_stock',
+          ...(req.productType ? { productType: req.productType } : {}),
+          ...(req.setId ? { card: { setId: req.setId } } : {}),
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      })
+    ).map((r) => r.id);
+
+    // Reglas/spreads izados UNA vez por corrida; referencias/overrides en lote POR CHUNK
+    // (memoria acotada; sigue sin N+1 por pieza).
+    const { rules, fallbackPct } = await this.pricing.loadSalesRules();
+    const sealed = await this.pricing.loadSealedSpreads();
+
+    const summary = {
+      selected: selectedIds.length,
+      published: 0,
+      alreadyListed: 0,
+      pendingPrice: 0,
+      failed: 0,
+    };
+    const failures: PublishAllFailure[] = [];
+    const pushFailure = (f: PublishAllFailure) => {
+      // Detalle CAPADO a 200 (contrato §M1): el remanente se opera por la cola M2 `?context=inventory`.
+      if (failures.length < PUBLISH_ALL_FAILURES_CAP) failures.push(f);
+    };
+
+    for (let i = 0; i < selectedIds.length; i += PUBLISH_ALL_CHUNK_SIZE) {
+      const chunkIds = selectedIds.slice(i, i + PUBLISH_ALL_CHUNK_SIZE);
+      const items = await this.prisma.inventoryItem.findMany({
+        where: { id: { in: chunkIds } },
+        include: { card: true },
+      });
+      const ctx = await this.loadPublishPricingCtx(items, { rules, fallbackPct, sealed });
+      for (const item of items) {
+        try {
+          // `listed` = no-op idempotente (la selección fue `in_stock`; solo llega aquí por una
+          // transición concurrente o un chunk repetido — no re-cobra, no cambia precio).
+          if (item.status === 'listed') {
+            summary.alreadyListed++;
+            continue;
+          }
+          this.assertPublishableGuards(item);
+          const resolved = await this.resolvePublishSalePrice(item, null, ctx);
+          if (!resolved.ok) {
+            summary.pendingPrice++;
+            pushFailure({
+              inventoryItemId: item.id,
+              folio: item.folio,
+              error: { code: 'PRICE_PENDING', message: resolved.message },
+              ...(resolved.pendingPriceEntryId
+                ? { pendingPriceEntryId: resolved.pendingPriceEntryId }
+                : {}),
+            });
+            continue;
+          }
+          await this.claimListed(item);
+          summary.published++;
+        } catch (e) {
+          // Tolerante por-ítem: NINGÚN fallo individual tumba el lote.
+          const err = e as BusinessException;
+          summary.failed++;
+          pushFailure({
+            inventoryItemId: item.id,
+            folio: item.folio,
+            error: { code: err.code ?? 'VALIDATION_ERROR', message: err.message ?? 'error' },
+          });
+        }
+      }
+    }
+
+    const response: PublishAllResponse = {
+      ...(req.batchKey ? { batchKey: req.batchKey } : {}),
+      idempotentReplay: false,
+      summary,
+      failures,
+    };
+    if (req.batchKey) {
+      try {
+        await this.prisma.inventoryBatch.create({
+          data: {
+            id: req.batchKey,
+            actorUserId,
+            kind: 'publish_all',
+            requested: summary.selected,
+            createdItems: summary.published,
+            failedLines: summary.pendingPrice + summary.failed,
+            resultJson: response as unknown as Prisma.InputJsonValue,
+          },
+        });
+      } catch (e) {
+        // P2002 = otra corrida ganó la carrera por este batchKey → devuelve SU resultado (replay).
+        // Piece-safe aunque ambas corrieran: la guardia atómica de `claimListed` impide doble publish.
+        if ((e as { code?: string })?.code === 'P2002') {
+          const claimed = await this.prisma.inventoryBatch.findUnique({
+            where: { id: req.batchKey },
+          });
+          if (claimed && claimed.kind === 'publish_all') {
+            const stored = claimed.resultJson as unknown as PublishAllResponse;
+            return { ...stored, idempotentReplay: true };
+          }
+        }
+        throw e;
+      }
     }
     return response;
   }
@@ -720,6 +1030,13 @@ export class InventoryService {
     locationId?: string;
     zone?: string;
     q?: string;
+    // v1.28 (P-17, §4.26d): filtros ADITIVOS del drill-down por casilla (validados contra sus
+    // enums por el controller → 400 VALIDATION_ERROR; omitidos = comportamiento actual). Con
+    // `cardId+finish` sirven las copias físicas de una variante del Master Set; con
+    // `cardId+productType=sealed|graded`, los drill-downs de las pestañas Sellado (P-25) y
+    // Gradeadas (P-20). Solo REDUCEN el conjunto ya autorizado por rol.
+    finish?: Finish;
+    productType?: ProductType;
     page: number;
     pageSize: number;
   }) {
@@ -729,6 +1046,8 @@ export class InventoryService {
     if (q.ownerType) where.ownerType = q.ownerType as never;
     if (q.locationId) where.locationId = q.locationId;
     if (q.zone) where.location = { zone: q.zone as never };
+    if (q.finish) where.finish = q.finish;
+    if (q.productType) where.productType = q.productType;
     if (q.q) where.OR = [{ folio: { contains: q.q, mode: 'insensitive' } }];
     const [rows, total] = await Promise.all([
       this.prisma.inventoryItem.findMany({

@@ -161,14 +161,16 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       // §4.22e — `availableFinishes` EXPLÍCITO (nunca el @default del schema) y en orden canónico
       // FINISH_ORDER; `numberSort`/`numberPrefix` (M-26) con la MISMA función que usa el sync.
       const parts = deriveNumberParts(c.number);
-      // v1.22-1 (§4.22g): las DOS columnas de entrada COHERENTES con `availableFinishes`. Sin
-      // declarar ⇒ ruta catálogo (catalog = available, snapshot = []); `reverse` declara la ruta
-      // PPT-only (catalog=['normal'], snapshot=['reverse_holo']) para ejercitar el rescate (§4.22h).
+      // Columnas de entrada COHERENTES con `availableFinishes`. Sin declarar ⇒ catalog = available,
+      // snapshot = []. v1.27: `catalogFinishes` es señal DÉBIL write-only (nadie la lee en
+      // producción); se siembra solo por realismo del dato persistido.
       const catalogFinishes = [...(c.catalogFinishes ?? c.availableFinishes)];
       const pricedFinishesSnapshot = [...(c.pricedFinishesSnapshot ?? [])];
-      // v1.26 (§4.24a/§4.22e): entrada ESTRUCTURAL de la unión. Sin declarar ⇒ = catalogFinishes
-      // (misma composición que ya conocía el catálogo); `reverse` mantiene structural=['normal'] y
-      // el reverse_holo lo aporta el snapshot (dos casillas SIN que el precio añada estructura).
+      // v1.27 (P-13, §4.25a): la ESTRUCTURA es la ÚNICA entrada del reconciliador
+      // (`availableFinishes = composeAvailableFinishes(structuralFinishes)`). Sin declarar ⇒
+      // = catalogFinishes; `reverse` declara AMBAS impresiones estructurales y el snapshot solo
+      // CONFIRMA el reverse con precio (observabilidad, jamás compone) — un reconcile sobre los
+      // fixtures es NO-OP, no colapsa casillas.
       const structuralFinishes = [...(c.structuralFinishes ?? catalogFinishes)];
       const card = await prisma.card.upsert({
         where: { externalId: c.externalId },

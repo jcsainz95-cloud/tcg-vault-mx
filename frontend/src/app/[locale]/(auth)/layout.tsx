@@ -1,6 +1,7 @@
 import { useTranslations } from 'next-intl';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
 import { Link } from '@/i18n/navigation';
+import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 
 /**
  * 6g — El formulario deja de ser una tarjeta flotante sobre un fondo vacío.
@@ -19,15 +20,21 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1fr_620px]">
       <aside className="flex items-center justify-between gap-6 bg-ink p-6 lg:flex-col lg:items-stretch lg:justify-between lg:gap-10 lg:p-11">
-        <Link href="/" className="flex items-center gap-3">
-          <span aria-hidden className="block h-[22px] w-[22px] shrink-0 bg-accent" />
-          <span className="font-serif text-lg font-medium uppercase leading-none tracking-wordmark text-on-ink">
-            {t('appName')}
+        {/* Marca sobre tinta (§17.3 v1.7.1): solo-mira variante oscura 28px (mínimo —
+            por debajo los gaps no leen) + wordmark en papel (--font-brand). El
+            degradado claro está PROHIBIDO sobre tinta (§17.2). */}
+        <Link href="/" aria-label={t('brand.homeAria')} className="flex items-center gap-3">
+          <LogoTcgHunt variant="mark-dark" size={28} decorative />
+          <span className="font-brand text-[17px] font-bold uppercase leading-none tracking-[0.04em] text-on-ink">
+            {t('brand.name')}
           </span>
         </Link>
 
         <div className="hidden lg:block">
-          <p className="max-w-[420px] font-serif text-[34px] leading-[1.35] text-on-ink">
+          {/* Hero de auth (§17.3): el lockup completo en variante oscura — la primera
+              pantalla donde el degradado del rebrand "se estrena". */}
+          <LogoTcgHunt variant="lockup-dark" className="w-full max-w-[340px]" />
+          <p className="mt-10 max-w-[420px] font-serif text-[34px] leading-[1.35] text-on-ink">
             {tv('trustBanner')}
           </p>
           <p className="mt-7 font-mono text-[11px] uppercase leading-none tracking-eyebrow text-on-ink-muted">

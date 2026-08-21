@@ -5,6 +5,15 @@
  *
  * SUPUESTO/placeholder por confirmar por el humano (PROJECT.md › Restricciones técnicas).
  * Overridable por env `DISPUTE_EVIDENCE_CONTACT` sin redeploy de código.
+ * P-21 (rebrand): el default conserva el buzón histórico; cuando exista `soporte@tcghunt.mx`,
+ * devops fija la env (misma env que consume `orders/guest-checkout.constants.ts` y, en cascada,
+ * `buylist-mail.templates.ts`).
+ * P-21 cierre: `envOr` (no `??`) — env definida pero vacía/blanca cae al default (evita exponer
+ * `evidenceContact: ""` en la API).
  */
-export const DISPUTE_EVIDENCE_CONTACT =
-  process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvaultmx.com';
+import { envOr } from '../mail/mail-env.util';
+
+export const DISPUTE_EVIDENCE_CONTACT = envOr(
+  process.env.DISPUTE_EVIDENCE_CONTACT,
+  'soporte@tcgvaultmx.com',
+);

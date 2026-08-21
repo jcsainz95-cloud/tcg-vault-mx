@@ -55,6 +55,9 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       // Common/normal usa regla FIJA, no depende de la referencia.
       getReference: jest.fn().mockResolvedValue({ status: 'pending' }),
       escalatePending: jest.fn().mockResolvedValue(undefined),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
   }
 
@@ -202,6 +205,9 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
           : { status: 'pending' },
       ),
       escalatePending,
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService;
     const svc = new BuylistService(
       prisma as PrismaService,

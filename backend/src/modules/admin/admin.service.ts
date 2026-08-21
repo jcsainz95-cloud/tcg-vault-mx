@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
-import { Finish, Prisma, Role } from '@prisma/client';
+import { Finish, Prisma, ProductType, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
@@ -556,26 +556,98 @@ export class AdminService {
     };
   }
 
+  /**
+   * v1.28 (P-24, §4.26f / API_CONTRACT §M7, ADITIVO) — el valor del inventario gana
+   * `breakdown { raw, sealed, graded }` (cada bucket `{ atReferenceCents, atCostCents,
+   * pieceCount, pendingPriceCount }`). Los campos top-level = Σ del breakdown (invariante del
+   * contrato; el `inventoryValueCents` del dashboard sigue siendo espejo del top-level).
+   *
+   * Valuación por pieza (money-safe: sin precio ⇒ EXCLUIDA del total y contada en
+   * `pendingPriceCount` — nunca un 0 inventado):
+   *  - raw/graded → referencia vigente del `(cardId, productType, gradeKey, finish)` del item
+   *    (graded típicamente el override de MERCADO manual por grado, §M2 P-20);
+   *  - sealed → **`sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23; norma §4.26f) con
+   *    FALLBACK al gradeKey legacy `'sealed'` (override manual de mercado preexistente) para no
+   *    perder valuaciones capturadas antes de v1.19 — antes se valuaba SOLO por el legacy.
+   * Rendimiento: referencias en UN lote (`getReferencesBatch`, cierra la deuda N+1 anotada en
+   * ese método), no una query por pieza.
+   */
   async inventoryValue() {
     const items = await this.prisma.inventoryItem.findMany({
       where: { ownerType: 'platform', status: { in: ['in_stock', 'listed', 'reserved'] } },
-      include: { card: true },
+      select: {
+        cardId: true,
+        productType: true,
+        finish: true,
+        rawCondition: true,
+        gradingCompany: true,
+        gradeValue: true,
+        acquisitionCostCents: true,
+        tcgplayerProductId: true,
+      },
     });
-    let atReferenceCents = 0;
-    let atCostCents = 0;
-    let pendingPriceCount = 0;
+    // Claves de valuación por pieza (para sealed mapeado entran AMBAS: mercado + legacy fallback).
+    const keys: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] = [];
     for (const item of items) {
-      atCostCents += item.acquisitionCostCents ?? 0;
-      const gradeKey = this.pricing.gradeKeyFor(item);
-      // v1.6-finish: valúa contra la referencia del ACABADO del item.
-      const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
-      if (ref.status === 'priced' && ref.referenceMxnCents != null) {
-        atReferenceCents += ref.referenceMxnCents;
+      if (item.productType === 'sealed') {
+        const gk = this.pricing.sealedMarketGradeKeyForItem(item);
+        if (gk) keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' });
+        keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: 'sealed', finish: 'normal' });
       } else {
-        pendingPriceCount += 1;
+        keys.push({
+          cardId: item.cardId,
+          productType: item.productType,
+          gradeKey: this.pricing.gradeKeyFor(item),
+          finish: item.finish,
+        });
       }
     }
-    return { atReferenceCents, atCostCents, pendingPriceCount };
+    const refs = keys.length ? await this.pricing.getReferencesBatch(keys) : new Map<string, PriceInfo>();
+    const refCentsOf = (
+      cardId: string,
+      productType: string,
+      gradeKey: string,
+      finish: string,
+    ): number | null => {
+      const ref = refs.get(`${cardId}|${productType}|${gradeKey}|${finish}`);
+      return ref && ref.status === 'priced' && ref.referenceMxnCents != null
+        ? ref.referenceMxnCents
+        : null;
+    };
+
+    const emptyBucket = () => ({
+      atReferenceCents: 0,
+      atCostCents: 0,
+      pieceCount: 0,
+      pendingPriceCount: 0,
+    });
+    const breakdown = { raw: emptyBucket(), sealed: emptyBucket(), graded: emptyBucket() };
+    for (const item of items) {
+      const bucket = breakdown[item.productType];
+      bucket.pieceCount += 1;
+      bucket.atCostCents += item.acquisitionCostCents ?? 0;
+      let cents: number | null;
+      if (item.productType === 'sealed') {
+        const gk = this.pricing.sealedMarketGradeKeyForItem(item);
+        cents =
+          (gk ? refCentsOf(item.cardId, 'sealed', gk, 'normal') : null) ??
+          refCentsOf(item.cardId, 'sealed', 'sealed', 'normal');
+      } else {
+        // v1.6-finish: valúa contra la referencia del ACABADO del item.
+        cents = refCentsOf(item.cardId, item.productType, this.pricing.gradeKeyFor(item), item.finish);
+      }
+      if (cents != null) bucket.atReferenceCents += cents;
+      else bucket.pendingPriceCount += 1;
+    }
+
+    // Top-level = Σ del breakdown (shape previo intacto; el breakdown es ADITIVO).
+    const buckets = [breakdown.raw, breakdown.sealed, breakdown.graded];
+    return {
+      atReferenceCents: buckets.reduce((s, b) => s + b.atReferenceCents, 0),
+      atCostCents: buckets.reduce((s, b) => s + b.atCostCents, 0),
+      pendingPriceCount: buckets.reduce((s, b) => s + b.pendingPriceCount, 0),
+      breakdown,
+    };
   }
 
   async custodyValue() {
@@ -617,9 +689,20 @@ export class AdminService {
       const rows = iva.byOrder.map((o) => `${o.orderId},${o.ivaCents},${o.status}`).join('\n');
       return `orderId,ivaCents,status\n${rows}\n`;
     }
-    // inventory
+    // inventory — v1.28 (P-24): columnas espejo del breakdown, ADITIVAS AL FINAL de la cabecera
+    // (contrato §M7: `raw_… , sealed_… , graded_…`); las tres primeras columnas no cambian.
     const inv = await this.inventoryValue();
-    return `atReferenceCents,atCostCents,pendingPriceCount\n${inv.atReferenceCents},${inv.atCostCents},${inv.pendingPriceCount}\n`;
+    const bucketCols = (b: {
+      atReferenceCents: number;
+      atCostCents: number;
+      pieceCount: number;
+      pendingPriceCount: number;
+    }) => `${b.atReferenceCents},${b.atCostCents},${b.pieceCount},${b.pendingPriceCount}`;
+    const bucketHeader = (p: string) =>
+      `${p}_atReferenceCents,${p}_atCostCents,${p}_pieceCount,${p}_pendingPriceCount`;
+    const header = `atReferenceCents,atCostCents,pendingPriceCount,${bucketHeader('raw')},${bucketHeader('sealed')},${bucketHeader('graded')}`;
+    const row = `${inv.atReferenceCents},${inv.atCostCents},${inv.pendingPriceCount},${bucketCols(inv.breakdown.raw)},${bucketCols(inv.breakdown.sealed)},${bucketCols(inv.breakdown.graded)}`;
+    return `${header}\n${row}\n`;
   }
 
   // ---------------- M9 Reports ----------------

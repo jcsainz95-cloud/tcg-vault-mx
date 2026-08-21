@@ -96,13 +96,21 @@ export class CatalogSyncService {
     return { data, degraded: false, source: 'remote' as const };
   }
 
-  /** POST /admin/catalog/sync — importa/actualiza cartas (set puntual o desde fecha). */
-  async sync(setId?: string, fromReleaseDate?: string) {
+  /**
+   * POST /admin/catalog/sync — importa/actualiza cartas (set puntual o desde fecha).
+   *
+   * v1.27 (P-12, §4.25c): gana `force` (default `false`). Con `force:true` se corre TAMBIÉN el
+   * resolver estructural TCGCSV para CADA set procesado por la llamada (single o from_date), aunque
+   * el set no sea first-import — misma semántica y mismo best-effort/money-safe que el `force` de
+   * `sync-all` (cierra la asimetría: el botón por set de M2 nunca refrescaba variantes). Auditado
+   * con `force` en el detalle por el controller.
+   */
+  async sync(setId?: string, fromReleaseDate?: string, force = false) {
     if (setId != null) {
       if (!SET_ID_PATTERN.test(setId)) {
         throw BusinessException.validation('VALIDATION_ERROR', 'Invalid setId format');
       }
-      const res = await this.importSetByExternalId(setId);
+      const res = await this.importSetByExternalId(setId, { force });
       return {
         jobId: `catalog-sync-${Date.now()}`,
         setsQueued: res.imported ? 1 : 0,
@@ -119,7 +127,7 @@ export class CatalogSyncService {
     const toImport = remote.filter((s) => (s.releaseDate ?? '') >= from);
     let setsQueued = 0;
     for (const s of toImport) {
-      const res = await this.importSet(s);
+      const res = await this.importSet(s, { force });
       if (res.imported) setsQueued += 1;
     }
     return { jobId: `catalog-sync-${Date.now()}`, setsQueued, mode: 'from_date' as const };
@@ -299,29 +307,58 @@ export class CatalogSyncService {
         ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
         : false;
     const cardCount = await this.importCardsForSet(rs.id, localSet.id);
-    if (this.structuralResolver != null && (firstImport || opts.force === true)) {
-      try {
-        await this.structuralResolver.resolveStructuralFinishesForSet(localSet.id);
-      } catch (e) {
-        this.logger.warn(
-          `importSet: resolver estructural TCGCSV falló para ${rs.id} (${(e as Error).message}); ` +
-            `se conserva structuralFinishes seed/previo (money-safe). NO aborta el import.`,
-        );
-      }
+    if (firstImport || opts.force === true) {
+      await this.runStructuralResolver(localSet.id, rs.id);
     }
     return { imported: true, cardCount };
   }
 
-  /** Importa un set puntual por externalId (sync single); deriva la metadata de las cartas. */
-  private async importSetByExternalId(setId: string): Promise<{ imported: boolean; cardCount: number }> {
+  /**
+   * Importa un set puntual por externalId (sync single); deriva la metadata de las cartas.
+   *
+   * v1.27 (P-12, §4.25c): MISMO gate estructural que `importSet` (`firstImport || force`) — antes
+   * esta ruta (el botón por set de M2) JAMÁS corría el resolver TCGCSV y las variantes quedaban
+   * stale. Best-effort/money-safe idéntico (fallo TCGCSV ⇒ log, conserva previo, no aborta).
+   */
+  private async importSetByExternalId(
+    setId: string,
+    opts: { force?: boolean } = {},
+  ): Promise<{ imported: boolean; cardCount: number }> {
     const first = await this.client.getCardsBySet(setId, 1);
     if (!first.data || first.data.length === 0) {
       return { imported: false, cardCount: 0 };
     }
     const localSet = await this.upsertSet(first.data[0].set);
+    // first-import = el set local no tenía NINGUNA carta antes de este import (mismo criterio que
+    // `importSet`); solo se calcula cuando el resolver está cableado (tests de metadata sin él).
+    const firstImport =
+      this.structuralResolver != null
+        ? (await this.prisma.card.count({ where: { setId: localSet.id } })) === 0
+        : false;
     let cardCount = await this.upsertCards(first.data, localSet.id);
     cardCount += await this.importRemainingPages(setId, localSet.id, first);
+    if (firstImport || opts.force === true) {
+      await this.runStructuralResolver(localSet.id, setId);
+    }
     return { imported: true, cardCount };
+  }
+
+  /**
+   * v1.26/§4.24a + v1.27/P-12 — corre el resolver estructural TCGCSV para un set, BEST-EFFORT y
+   * money-safe: si TCGCSV falla (egress bloqueado, 502, groupId no resuelto) se LOGUEA y NO se
+   * aborta el import (las cartas conservan su `structuralFinishes` seed/previo). No-op si el
+   * resolver no está cableado (`@Optional`, tests de metadata).
+   */
+  private async runStructuralResolver(localSetId: string, setExternalId: string): Promise<void> {
+    if (this.structuralResolver == null) return;
+    try {
+      await this.structuralResolver.resolveStructuralFinishesForSet(localSetId);
+    } catch (e) {
+      this.logger.warn(
+        `importSet: resolver estructural TCGCSV falló para ${setExternalId} (${(e as Error).message}); ` +
+          `se conserva structuralFinishes seed/previo (money-safe). NO aborta el import.`,
+      );
+    }
   }
 
   private async importCardsForSet(setExternalId: string, localSetId: string): Promise<number> {
@@ -377,16 +414,19 @@ export class CatalogSyncService {
    * requeridos ausentes se manejan con gracia (`number` → ''), y una carta sin `id`/`name` (no
    * persistible) se omite con log en vez de reventar el barrido.
    *
-   * v1.22-1 (§4.22g) — **AUTORIDAD de `Card.catalogFinishes`** (la «opinión del catálogo»), NO ya de
-   * `availableFinishes` directamente. Esta última pasó a ser una columna DERIVADA cuyo ÚNICO escritor
-   * es `FinishReconciler`. Aquí se deriva `catalogFinishes` de DOS señales del payload remoto
-   * (`tcgplayer.prices` por LLAVE PRESENTE ∪ `cardmarket.prices.reverseHolo*` por VALOR > 0) con la
-   * MISMA semántica null de §4.22a-4:
+   * v1.22-1 (§4.22g) → v1.27 (P-13, §4.25a) — aquí se deriva **`Card.catalogFinishes`** (la «opinión
+   * del catálogo» pokemontcg.io), hoy una columna WRITE-ONLY de señal DÉBIL: desde v1.26 NO alimenta
+   * al reconciliador (su entrada es `structuralFinishes`, del resolver TCGCSV) y nadie la lee en
+   * producción — se conserva como observabilidad/registro de lo que opinó el payload remoto.
+   * `availableFinishes` sigue siendo DERIVADA con ÚNICO escritor `FinishReconciler`. La derivación de
+   * `catalogFinishes` usa DOS señales del payload remoto (`tcgplayer.prices` por LLAVE PRESENTE ∪
+   * `cardmarket.prices.reverseHolo*` por VALOR > 0) con la MISMA semántica null de §4.22a-4:
    *   - CREATE → `derived ?? ['normal']` (conservador: UNA casilla, jamás relleno);
    *   - UPDATE → la clave `catalogFinishes` se incluye SOLO si `derived !== null`; sin señal se OMITE
    *     y se CONSERVA lo previo (un payload/502 degradado no puede volver a clobbear a `['normal']`).
-   * Tras el lote, LLAMA a `FinishReconciler.reconcile(cardIds)` para que recompute `availableFinishes`
-   * = `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` de las cartas tocadas.
+   * Tras el lote, LLAMA a `FinishReconciler.reconcile(cardIds)` para que recompute
+   * `availableFinishes = composeAvailableFinishes(structuralFinishes)` de las cartas tocadas
+   * (§4.25a: el precio confirma, nunca añade; ni `catalogFinishes` ni el snapshot componen).
    * Además puebla las claves de ORDEN NATURAL `numberSort`/`numberPrefix` (M-26, §4.22b) con
    * `deriveNumberParts` — la MISMA función que espeja el backfill SQL. Ya NO se puebla
    * `PriceReference` (WS-A §4.15g: este sync es SOLO metadata).
@@ -454,8 +494,9 @@ export class CatalogSyncService {
         );
       }
     }
-    // §4.22g candado 4: `availableFinishes` la escribe SOLO el reconciliador, a partir de las dos
-    // columnas de entrada (`catalogFinishes` recién escrita ∪ `pricedFinishesSnapshot` que dejó PPT).
+    // §4.22g candado 4 + v1.27 §4.25a: `availableFinishes` la escribe SOLO el reconciliador, con
+    // `composeAvailableFinishes(structuralFinishes)` — ni `catalogFinishes` (write-only) ni el
+    // snapshot componen; aquí solo se garantiza que las cartas tocadas queden recompuestas.
     await this.finishReconciler.reconcile(touchedCardIds);
     if (noFinishSignal > 0) {
       this.logger.warn(

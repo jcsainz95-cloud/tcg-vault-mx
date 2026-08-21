@@ -4982,3 +4982,499 @@ orden creada en cada test (nada hardcodeado):
   con las `S3_*` de CI apuntando a `localhost:9000` el spec se salta solo, como está diseñado.
 - `npm test` (unit) → **137 suites / 1259 tests VERDE**. `npm run typecheck` limpio.
 - `npm run lint` → 0 errores (1 warning preexistente en `buylist.service.ts`, ajeno a este cambio).
+
+## Stream A v1.27 — P-13 variantes fantasma + P-15 mercado por variante + P-12 force en sync por set (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+Implementación backend de ARCHITECTURE §4.25 / API_CONTRACT Changelog v1.27. **SIN cambios de
+schema ni de `prisma/`** (M-27/M-29 ya existían). Paso de despliegue pendiente (devops/humano):
+re-sync forzado único (§4.25a-4) + `POKEMONPRICETRACKER_FETCH_PRINTINGS=true`.
+
+### P-13 — «el precio CONFIRMA, nunca AÑADE» (§4.25a)
+- **`common/card-order.ts`:** `unionAvailableFinishes(structural, snapshot)` ELIMINADA y sustituida
+  por `composeAvailableFinishes(structural)` = `structural ≠ ∅ ? orderFinishes(structural) : ['normal']`.
+  Nadie más la importaba (verificado con grep); los seeds no la usan.
+- **`catalog/finish-reconciler.service.ts`** (sigue siendo el ÚNICO escritor): usa la fórmula nueva.
+  `pricedFinishesSnapshot` se sigue LEYENDO pero solo para observabilidad: log **`pricedNotStructural`**
+  (= snapshot ∖ structural, pares `cardId:finish`, cap a 20 en el mensaje) — evidencia de drift
+  proveedor↔estructura, jamás compone.
+- **P-13.2 — filas forzadas de `fetchPrintings`:** `BulkPriceRow` gana `forcedPrinting?: boolean`
+  (`pricing.types.ts`). El provider PPT marca las filas del modo por-impresión con
+  `forcedPrinting: true` y `finishAliasVerified: false` (antes se auto-verificaba contra la propia
+  etiqueta del request). En `price-ingest`, las filas forzadas se EXCLUYEN del cómputo del snapshot;
+  si TODAS las filas de una carta son forzadas (corrida fetchPrintings pura), **su snapshot NO se
+  escribe** (ni se limpia: una corrida por-impresión no aporta ni retira evidencia del modo lista —
+  decisión dentro del margen de §4.25a-2, conserva el valor previo del modo lista como
+  observabilidad). El reconcile SÍ corre igual para esas cartas (idempotente; además repara
+  `availableFinishes` stale con la fórmula nueva en cada price-ingest, incluso antes del re-sync).
+  El modo LISTA (`primaryPrinting`) sigue alimentando el snapshot como hasta ahora.
+- **Nota para QA/devops (datos e2e) — RESUELTA (2026-08-21, pase techlead-gate):** el fixture
+  `e2e-fixtures.ts › reverse` ya declara `structuralFinishes: ['normal','reverse_holo']` (y el seed
+  de desarrollo `seed.ts › Pidgey base1-16` igual): los seeds quedaron CONSISTENTES con
+  `composeAvailableFinishes` y un reconcile sobre ellos es NO-OP (no colapsa casillas). El snapshot
+  `['reverse_holo']` se conserva como decoración/observabilidad (el precio confirma el reverse).
+  Detalle en §«Pase techlead-gate Stream A» más abajo. Sigue sin tocarse el schema de `prisma/`.
+
+### P-15 — mercado por VARIANTE en el Master Set (§4.25b)
+- **`inventory/master-set.service.ts`:** `MasterSetVariantDTO += marketReferenceMxnCents?: number|null`
+  y `capturedDate?: string|null` (presente SOLO con precio). El lote de `getReferencesBatch` se
+  expandió de (1 clave por carta, acabado base) a **(carta × acabado de `expectedFinishes`)** —
+  sigue UNA query (el batch ya aceptaba lista). `getReferencesBatch` YA devolvía `capturedDate` en
+  `PriceInfo` → **no hizo falta tocar `pricing.service.ts`**.
+- Campo de CELDA `MasterSetCardCellDTO.marketReferenceMxnCents`: DEPRECADO, emitido como espejo
+  exacto de `variants[0].marketReferenceMxnCents` (costo cero, mismo batch). Retiro en la siguiente
+  rev de contrato.
+- Aplica a los 3 scopes del binder (misma agregación); `resolveBuyables` (2ª llamada al batch, solo
+  vista cliente) queda intacto.
+
+### P-12 — `force` en `POST /admin/catalog/sync` (§4.25c)
+- **`admin-catalog.controller.ts`:** `SyncDto += force?: boolean` (default `false`); se registra
+  `force` en el detalle de auditoría de `catalog.sync`.
+- **`catalog-sync.service.ts`:** `sync(setId?, fromReleaseDate?, force=false)`. Modo single:
+  `importSetByExternalId` gana el MISMO gate `firstImport || force` que `importSet` (antes esta ruta
+  JAMÁS corría el resolver, ni siquiera en first-import — asimetría cerrada con paridad completa).
+  Modo from_date: propaga `force` a `importSet` (gate ya existente). El paso resolver se extrajo al
+  helper `runStructuralResolver(localSetId, externalId)` (best-effort: fallo TCGCSV ⇒ log warn,
+  conserva previo, NO aborta el import; no-op si el resolver `@Optional` no está cableado).
+
+### Tests (nuevos/actualizados)
+- `test/finish-reconciler.spec.ts` — reescrito a la fórmula §4.25a: ex holofoil con `normal`
+  priceado ⇒ UNA casilla (el fantasma stale se elimina); el precio ya no rescata; legacy vacío ⇒
+  `['normal']` aunque el snapshot traiga acabados; log `pricedNotStructural`; idempotencia.
+- `src/modules/pricing/providers/pokemonpricetracker-bulk.fix-ppt.spec.ts` — filas forzadas:
+  `finishAliasVerified=false` + `forcedPrinting=true`; modo lista sin `forcedPrinting`.
+- `test/price-ingest.service.spec.ts` — corrida forzada pura: precios sí / snapshot intacto /
+  reconcile sí; mezcla lista+forzada: snapshot SOLO con la evidencia del modo lista.
+- `test/master-set.market-reference.spec.ts` — reescrito: mercado por variante (Normal ≠ Reverse),
+  `capturedDate` solo con precio, espejo de celda = `variants[0]`, lote carta×acabado en UNA llamada.
+- `test/master-set.scopes.spec.ts` — 3 aserciones `variants` actualizadas (+`marketReferenceMxnCents: null`).
+- `test/catalog-sync.structural.spec.ts` — sigue verde SIN cambios en sus casos previos; describe
+  nuevo P-12: force corre resolver aunque no sea first-import; sin force no; first-import sí;
+  best-effort ante fallo TCGCSV.
+
+### Verificación real (local, replicando CI: Postgres 16 + Redis + migrate deploy + seed sintético + S3_* de CI)
+- `npm run typecheck` → limpio.
+- `npm run lint` → 0 errores (1 warning preexistente en `buylist.service.ts`, ajeno).
+- `npm test` (unit) → **137 suites / 1267 tests VERDE**.
+- `npm run test:integration` → **9 suites / 124 tests VERDE** (los 124 del gate backend-e2e intactos).
+
+## Pase techlead-gate Stream A v1.27 — seeds consistentes post-P-13 + comentarios normativos (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+Correcciones acotadas a los DOS ítems MAYORES del veredicto del techlead sobre el Stream A (el
+diseño de P-13/P-15/P-12 quedó aprobado; aquí NO se cambió ninguna lógica de producción — solo
+datos de seed y comentarios).
+
+### Ítem #1 — seeds con estado imposible post-v1.27 (corregido)
+- **`prisma/seed.ts` (Pidgey `base1-16`):** pasaba `structuralFinishes: ['normal']` +
+  `pricedFinishesSnapshot: ['reverse_holo']` + `availableFinishes: ['normal','reverse_holo']` —
+  inconsistente con `composeAvailableFinishes` (el primer reconcile lo colapsaba a UNA casilla).
+  Ahora `structuralFinishes: ['normal','reverse_holo']` (la forma post-v1.27 de tener dos casillas:
+  TCGCSV resolvió ambas impresiones); el snapshot `['reverse_holo']` queda como
+  decoración/observabilidad (el precio CONFIRMA el reverse) y el docblock ilustra «la estructura
+  manda, el precio confirma» en vez del rescate derogado.
+- **`prisma/e2e-fixtures.ts` (`E2E_CARDS.reverse`):** mismo arreglo — declara
+  `structuralFinishes: ['normal','reverse_holo']`; docblock del «rescate por PPT» reescrito a la
+  doctrina §4.25a. `catalogFinishes: ['normal']` se conserva a propósito (señal débil write-only que
+  nadie lee en producción). `availableFinishes` final IDÉNTICO ⇒ ningún total/página de las suites
+  de dinero cambia.
+- **`prisma/seed-e2e.ts`:** comentarios de `seedCards` actualizados a la fórmula vigente (la
+  mecánica `structuralFinishes ?? catalogFinishes` ya soportaba la declaración; solo cambió el dato
+  del fixture y el texto).
+- **Mínimo normativo §4.22e confirmado:** el seed de desarrollo conserva ≥1 carta de DOS casillas
+  (Pidgey, ahora estructural) y ≥1 de UNA casilla (Charizard holofoil puro); el sintético igual
+  (`reverse` dos casillas / resto una; `orderTwo` cubre el caso en `E2E_ORDER_SET`).
+
+### Ítem #2 — comentarios normativos derogados en `catalog-sync.service.ts` (corregido)
+- Docblock de `upsertCards`: `Card.catalogFinishes` ya NO se titula «AUTORIDAD» — es una columna
+  write-only de señal débil (nadie la lee en producción); la fórmula del reconcile citada pasó de la
+  derogada `orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']` a la real
+  `composeAvailableFinishes(structuralFinishes)` (v1.27 §4.25a).
+- Comentario previo al `reconcile(touchedCardIds)`: misma corrección de fórmula.
+
+### Deuda registrada (docs/TECH_DEBT.md, sección «Stream A v1.27 … veredicto techlead»)
+`SA-D2` (Alta: `getReferencesBatch` sin acotar histórico, amplificado por P-15 — enlazada a
+BE-20/BE-35, disparador de BE-35 actualizado), `SA-D1` (Media: `catalogFinishes` write-only, retiro
+decide arquitecto), `SA-D3` (Media: escrituras secuenciales por carta bajo request síncrono, P-12 +
+202 síncrono), `SA-D5` (Baja: gate estructural duplicado), `SA-D6` (Baja: convención de `force`
+inconsistente en el controller).
+
+### Verificación (local, replicando CI)
+- `npm run typecheck` → limpio. `npm run lint` → 0 errores (1 warning preexistente ajeno).
+- `npm test` → **137 suites / 1267 tests VERDE**.
+- `npm run test:integration` (Postgres 16 + Redis locales + S3_* de CI) → **9 suites / 124 tests
+  VERDE**; el re-seed idempotente CORRIGIÓ la fila vieja del fixture en la BD compartida
+  (verificado en Postgres: `e2e-reverse` ⇒ `structural={normal,reverse_holo}`,
+  `available={normal,reverse_holo}`, snapshot `{reverse_holo}` decorativo).
+
+## Stream B v1.28 — FASE 1: M-30 `VariantPriceOverride` + P-18 consola de tres precios (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+> Spec: ARCHITECTURE **§4.26** (a, b, i, j) · contrato **v1.28** (§M2 `variant-controls`, §6 quote,
+> §DTOs `VariantPricingDTO`/`MasterSetVariantDTO.pricing?`). Alcance de la fase (orden §4.26j):
+> **M-30 → P-18**. P-19/P-17/P-22 (vitrina+conteo)/P-24/P-25/P-20 vienen en fases siguientes.
+> Toca DINERO en las dos direcciones → gate de seguridad por release.
+
+### M-30 — migración `20260821172210_m30_variant_price_override`
+- Generada con el tooling del repo (`prisma migrate dev --create-only` + anotación + apply), NO a
+  mano. **Aditiva pura**: una tabla nueva + relación en `Card`; cero cambios a tablas existentes.
+  Nace vacía ⇒ sin filas el comportamiento es EXACTAMENTE el previo (regresión cubierta por tests).
+- Modelo tal como §4.26a: `@@unique[cardId, productType, gradeKey, finish]` (espejo de
+  `PriceReference` menos `capturedDate`), `@@index[bountyEnabled]`, campos sell/buy override +
+  bounty (enabled/price/target/acquired/completedAt) + `updatedBy` (patrón AuditLog sin FK dura).
+
+### P-18 — resolver ÚNICO por cara (dónde vive cada cosa)
+- **`common/money.ts` (lock §4.26i, cambios ADITIVOS):**
+  - `quoteAcquisitionForFinish(..., controls?)` — COMPRA: `bounty > override > regla > precio_pendiente`.
+    Bounty/override actúan como `fixed` (siempre `cotizada`, no dependen de la referencia).
+    `AcquisitionRuleSource = 'bounty'|'override'|'rule'|'fallback'` (tipo nuevo, aditivo).
+  - `computeSalePriceForRarity(..., controls?)` — VENTA: `sellOverride > regla > pending`. El paso 1
+    (`listPriceCents` POR PIEZA) lo aplican los CALLERS antes, como siempre (intacto).
+  - **Regla de presencia money-safe (doctrina H-1):** un monto de control `<= 0` es input degenerado
+    ⇒ se trata como AUSENTE (jamás se ofrece/cobra $0 por dato corrupto). El write lo rechaza (422).
+- **`pricing.service.ts`:** `getVariantOverridesBatch` (UNA query por request, patrón
+  `getReferencesBatch`, mapa por `cardId|productType|gradeKey|finish`), `getVariantOverride`
+  (single, delega en el batch), `loadBuylistRules` (espejo de `loadSalesRules`, para
+  consola/binder) y `computeSalePriceForItem(..., controls?)`.
+- **`pricing/variant-pricing.ts` (NUEVO):** `composeVariantPricing` — composer PURO del
+  `VariantPricingDTO` (sugerido=regla sola; efectivo=precedencia completa; `source='pending'`
+  cuando nada resuelve; bloque `bounty` SOLO si existe fila). Lo comparten la respuesta del PUT y
+  el binder — un solo cuerpo, cero duplicación.
+- **`pricing/variant-controls.service.ts` (NUEVO) + `PUT /admin/pricing/variant-controls/:cardId/:finish`**
+  (PricingController, hereda `@Roles(super_admin)`):
+  - Validación MANUAL (el body distingue OMITIDO=no tocar de `null`=limpiar, cosa que
+    class-validator no expresa; DTO con `@Allow()` para sobrevivir al whitelist del pipe global).
+    Códigos del contrato: `VALIDATION_ERROR` (sealed/gradeKey/centavos/targetQty),
+    `FINISH_NOT_AVAILABLE` (SEC-A1 contra `Card.availableFinishes`), `BOUNTY_PRICE_REQUIRED`,
+    `BOUNTY_BELOW_RULE` (regla `<` estricta; sugerido `pending` ⇒ se acepta), `404 NOT_FOUND`.
+  - Upsert parcial sobre la clave única; **fila con todo vacío se BORRA** (equivalente observable a
+    «sin fila») SALVO que tenga historia de bounty (`acquiredQty>0`/`completedAt`) — «apagar no
+    borra el contador». AUDITADO `pricing.variant_controls` con before/after. NO toca
+    `PriceReference` ni resuelve `PendingPriceEntry` (el mercado es otra perilla).
+  - Respuesta = estado RESUELTO tras el write (`VariantControlsResponse` con el mismo
+    `VariantPricingDTO` del binder).
+- **Bounty en esta fase:** persistencia + validaciones + precedencia en el resolver de compra (los
+  3 consumidores del quote ya lo honran y `createRequest` snapshotea `ruleSource='bounty'`, lo que
+  deja listo el conteo del pago M5). La vitrina `GET /buylist/bounties` y el conteo/auto-off
+  transaccional son **P-22 (fase siguiente)**.
+
+### Integración en los puntos de resolución (consumidores §4.26b — todos migrados)
+- **COMPRA** (`buylist.service.ts`): `publicQuote` (single), `batchQuote` y `createRequest`
+  (overrides EN LOTE, una query por request) pasan la fila M-30 a `quoteCardForFinish` →
+  `quoteAcquisitionForFinish`. `appliedRule.source` gana `"bounty"|"override"` (quote, batch y
+  `SellItemDTO.appliedRule`); `createRequest` snapshotea `ruleSource` con esos valores. Topes de
+  buylist SIN cambio (aplican igual a montos bounty). La clave del lookup usa `gradeKeyFor` +
+  finish default `normal` — paridad exacta con la clave de la referencia.
+- **VENTA** (resuelta en LECTURA ⇒ efecto inmediato, nada que re-publicar):
+  - `catalog.fetchSellable`/`toListingDTO` (batch por lote + fallback single);
+  - `orders.salePriceOf` (checkout auth + guest — cobra EXACTO lo que publica el storefront);
+  - `inventory.bulkPublish` (rama derivada raw/graded; overrides en lote);
+  - `master-set.resolveBuyables` (el `buyable` del binder = precio del storefront).
+  En TODOS: `listPriceCents` por pieza sigue ganando; sellado conserva su cadena H-1 intacta
+  (P-18 NO aplica a `sealed`); BE-26 sigue (efectivo `<=0` ⇒ no vendible).
+- **Binder (M1):** `MasterSetVariantDTO.pricing?` SOLO scope `platform` — en `user_vault`/«Mi
+  bóveda» ni se computa ni viaja (ni siquiera se consulta la tabla M-30 ni las reglas de compra:
+  cubierto por test). Lotes izados una vez (buy+sell rules + overrides + refs) — sin N+1.
+
+### Decisiones dentro del margen de la spec (documentadas para el arquitecto/techlead)
+1. **`gradeKey` raw = `raw:NM` estricto** en el PUT (422 otro valor): `RawCondition` solo tiene NM
+   (§3.5) y es el canónico de `buildGradeKey`; evita filas huérfanas imposibles de resolver.
+2. **Re-encender un bounty limpia `bountyCompletedAt`** (re-armado ≠ completado; el aviso de M1
+   sale de `completedAt`) y CONSERVA `bountyAcquiredQty` (doctrina «apagar no borra el contador»).
+3. **`bounty` no-null sobre `productType=graded` → 422** (estricto; `bounty:null` sí se acepta en
+   graded porque no habilita nada). Sell/buy overrides en graded SÍ aplican (misma tabla).
+4. **`buylistRules()` de BuylistService NO delega** en `loadBuylistRules` (mismas SettingKey, misma
+   forma): delegar rompía ~10 specs que configuran reglas vía `settings.getRaw` — churn sin valor.
+   El «un solo núcleo» normativo es la MATEMÁTICA (`quoteAcquisitionForFinish`), que sí es única.
+5. **Cap BE-27 en el write** (`> MAX_CENTS` ⇒ 422) además del clamp de lectura: una fila Int32
+   jamás se persiste desbordada.
+
+### Tests nuevos (todos verdes) + mocks actualizados
+- `test/money.variant-controls.spec.ts` — precedencias puras de las DOS caras (empates, ausencias,
+  degenerados <=0, clamp BE-27, no-contaminación buy↔sell, regresión sin controls).
+- `test/pricing.variant-controls.spec.ts` — endpoint/servicio: validaciones del contrato, PATCH
+  parcial (omitido≠null), borrado de fila vacía (y NO-borrado con historia de bounty), auditoría
+  before/after, respuesta resuelta, `composeVariantPricing`.
+- `test/pricing.variant-overrides-batch.spec.ts` — lote M-30: una query, filtro wanted-set (el
+  producto cartesiano de los IN no cuela filas), single delega en batch.
+- `test/buylist.variant-overrides.spec.ts` — quote/batch/createRequest: override pisa regla, bounty
+  pisa override, snapshot `ruleSource`, lote sin N+1, cotiza sin referencia sin escalar pendientes,
+  topes intactos, regresión.
+- `test/sell-override.propagation.spec.ts` — propagación de venta a catálogo (single+batch),
+  checkout, bulk-publish, binder (`pricing?` platform-only + omisión en user_vault + buyable).
+- Mocks de `PricingService` en 18 specs existentes ganaron los métodos nuevos con default «sin
+  filas» (= comportamiento previo); 3 aserciones de `master-set.scopes` ganaron `pricing:
+  expect.any(Object)` (scope platform ahora lo trae por contrato).
+
+### Verificación (local; Postgres 16 + Redis reales, migrate deploy + seed sintético)
+- `npm run typecheck` → limpio.
+- `npm run lint` → 0 errores (1 warning preexistente en `buylist.service.ts`, ajeno).
+- `npm test` (unit) → **142 suites / 1338 tests VERDE**.
+- `npm run test:integration` (con `migrate deploy` aplicando M-30 sobre la BD local) → **9 suites /
+  124 tests VERDE**. Nota entorno: el smoke de MinIO exige un endpoint S3 REALMENTE inaccesible
+  para tomar su vía de skip; en este sandbox el proxy de salida contesta 403 a endpoints
+  inexistentes, así que se fijó `S3_ENDPOINT=http://127.0.0.1:9000` (sin MinIO ⇒ ECONNREFUSED ⇒
+  skip documentado). Preexistente, ajeno a esta fase (verificado también sobre el commit base).
+
+### Qué queda listo para la FASE 2 (P-19 + P-17)
+- El **prellenado del alta rápida** (`pricing.buy.effectiveCents`) ya viaja en el binder (P-18
+  aterrizado ⇒ P-19 conecta el efectivo directo, sin regla provisional).
+- `publish-all` (P-19) reusa la precedencia v1.28 ya integrada en la rama derivada de
+  `bulkPublish` (mismo cuerpo `computeSalePriceForRarity + getVariantOverridesBatch`).
+- P-22 solo necesita: endpoint público `GET /buylist/bounties` (leer filas `bountyEnabled` con
+  `bountyPriceCents desc`, cap 50) + conteo/auto-off en el pago M5 — el snapshot
+  `ruleSource='bounty'` en `SellRequestItem` ya se persiste desde esta fase.
+
+## Stream B v1.28 — FASES 2-4: P-19/P-17 + P-22 + P-24/P-25/P-20 (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+> Spec: ARCHITECTURE **§4.26 (c–h, j)** · contrato **v1.28** (§M1 Stream B, §6 bounties, §M7
+> breakdown). Cierra el alcance backend del stream (la Fase 1 M-30+P-18 está arriba). **SIN
+> migraciones nuevas** (lock §4.26i respetado: el schema quedó cerrado en Fase 1).
+
+### FASE 2 — P-19 `publish-all` + P-17 filtros de drill-down + fix aportación de sellado
+- **`POST /admin/inventory/publish-all`** (`inventory.service.ts::publishAll` + controller):
+  selección SERVER-SIDE (`ownerType=platform` + `status=in_stock` ± `setId`/`productType`,
+  `setId` inexistente ⇒ 400 filtro inválido), SIN cap de selección — snapshot de ids procesado
+  por chunks de 100 (iterar por snapshot y no re-consultando `in_stock` garantiza terminación:
+  una PRICE_PENDING sigue `in_stock`). Res `{ batchKey?, idempotentReplay, summary
+  { selected, published, alreadyListed, pendingPrice, failed }, failures[] }` con detalle
+  **capado a 200** (constantes `PUBLISH_ALL_CHUNK_SIZE`/`PUBLISH_ALL_FAILURES_CAP`).
+  - **Pipeline por-pieza EXTRAÍDO y COMPARTIDO con `bulkPublish`** (el contrato exige pipeline
+    IDÉNTICO ⇒ un solo cuerpo): `assertPublishableGuards` (platform + allowlist WS-E + cert de
+    graded), `resolvePublishSalePrice` (manual > [sealed H-1 | sellOverride M-30 > regla] >
+    PRICE_PENDING que ESCALA ④ y no publica) y `claimListed` (updateMany atómico BE-45
+    anti-double-sell). `bulkPublish` quedó reescrito sobre los mismos helpers — cero divergencia
+    posible; regresión cubierta por las suites previas (verdes sin cambios).
+  - Idempotencia: `InventoryBatch kind='publish_all'` (String, sin migración). Replay ⇒ resultado
+    guardado + `idempotentReplay:true`; un `batchKey` de OTRO kind ⇒ **409 CONFLICT** (no se
+    "replay-ea" un shape ajeno — decisión dentro del margen, `bulkPublish` legacy no lo valida).
+    El resultado se persiste POST-proceso (patrón bulkPublish); carrera P2002 ⇒ devuelve el del
+    ganador (piece-safe: `claimListed` impide doble publish aunque ambas corran).
+  - `alreadyListed` cuenta piezas que se volvieron `listed` entre selección y proceso
+    (concurrencia/chunk repetido): no-op sin escritura. Auditoría `inventory.publish_all`
+    (filtros + summary) en el controller.
+- **P-17:** `GET /admin/inventory/items` gana `finish?`/`productType?` — validados contra los
+  enums EN EL CONTROLLER (`400 VALIDATION_ERROR` con `allowed`), el servicio solo reduce el
+  `where`. Sirve `?cardId=&finish=` (drill-down de variante) y `?cardId=&productType=sealed|graded`
+  (pestañas P-25/P-20).
+- **Fix normativo §4.26g — la APORTACIÓN de sellado valúa por `sealedMarketRef`:**
+  `resolveCreation` ramifica: sealed+aportación → `resolveSealedAportacionMarket` — infiere el
+  `tcgplayerProductId` del GRUPO desde sus **hermanos ya mapeados** con el mismo
+  `(cardId, sealedSubtype)` (la MISMA identidad que `applyToSiblings` del mapeo M2; el item que
+  nace aún no tiene mapeo — la curación es posterior y sigue siendo EXCLUSIVA del endpoint M2:
+  la pieza nueva **NO hereda** el productId). Money-safe: exactamente UN productId ⇒ valúa con su
+  referencia **gateada por el dial** (`gateSealedMarketCents`, H-1); CERO hermanos o ≥2 productIds
+  (ambigüedad) ⇒ sin mercado ⇒ `422 PRICE_PENDING` por línea (escalado con la clave de mercado si
+  se conocía; estructural `'sealed'` si no). Raw/graded intactos. `locationId` opcional verificado
+  con test (alta sin ubicación + movimiento sin `toLocationId`).
+
+### FASE 3 — P-22 bounty público + conteo transaccional
+- **`GET /buylist/bounties`** (`BuylistService.publicBounties`, ruta `@Public()` + throttle
+  dedicado 60/min como el quote por-carta): filas `bountyEnabled=true AND bountyPriceCents>0 AND
+  productType='raw'` (defensa en profundidad; el write ya impone raw), `orderBy bountyPriceCents
+  desc` (+ desempate `updatedAt desc`, dentro del margen), `take 50`, sin query params.
+  `remainingQty = max(0, target − acquired)` (`null` sin objetivo); `imageSmallUrl`/`rarity` se
+  OMITEN si la carta no los tiene. READ-ONLY estricto (no persiste ni escala).
+- **Conteo al pagar (`paySpei`)**: la transición `→pagada` (updateMany con guardia count===1) y
+  `countBountyAcquisitionsTx` corren ahora en **UNA `$transaction`** — o se paga Y se cuenta, o
+  nada. Por cada ítem con snapshot `ruleSource='bounty'` se incrementa `bountyAcquiredQty` de su
+  fila M-30 (clave derivada con `gradeKeyFor` + finish, AGRUPADA: una actualización por variante,
+  `increment: n`). Auto-apagado: `enabled && target!=null && acquired ≥ target` ⇒
+  `bountyEnabled=false` + `bountyCompletedAt` + `AuditLog action=bounty.completed`
+  (`tx.auditLog.create` directo — AuditService escribe fuera de la tx). Reglas money-safe:
+  el contador sube AUNQUE el bounty ya esté apagado (la pieza se compró bajo bounty; el monto
+  quedó snapshoteado); fila M-30 borrada ⇒ `updateMany count=0` ⇒ se omite SIN tumbar el pago.
+  **Idempotente ante replays**: solo cuenta la llamada que HIZO la transición (replay/carrera
+  perdida ven `pagada` y no re-cuentan) — cubierto por test.
+- Mocks de `paySpei` en 2 specs existentes (`buylist.ronda-c`, `buylist.security`) ganaron
+  `$transaction` + `sellRequestItem.findMany` (patrón "mock gana el método nuevo, default no-op").
+
+### FASE 4 — P-24 breakdown + P-25 sealed-sets + P-20 graded
+- **P-24 (`admin.service.ts::inventoryValue`)**: gana `breakdown { raw, sealed, graded }` con
+  `{ atReferenceCents, atCostCents, pieceCount, pendingPriceCount }`; **top-level = Σ del
+  breakdown** (invariante del contrato, cubierto por test; el dashboard sigue espejando el
+  top-level). Cambios de valuación DOCUMENTADOS:
+  - el sellado pasa a valuar por **`sealedMarketRef`** (`sealed:tcg:<productId>` del mapeo M-23,
+    norma §4.26f) con **fallback al gradeKey legacy `'sealed'`** (= el comportamiento previo:
+    override manual de mercado preexistente no pierde su valuación; estrictamente ≥ información
+    que antes). La valuación P-24/P-25 usa la referencia SIN el gate del dial (es informativa,
+    paridad con el `sealedMarketRef` de v1.19); el dial solo gatea DINERO (venta H-1 y la
+    aportación de Fase 2).
+  - el N+1 anotado en `getReferencesBatch` («deuda diferida… inventoryValue») queda cerrado: UN
+    lote por request.
+  - CSV `report=inventory`: cabecera previa + `raw_*`,`sealed_*`,`graded_*` (4 columnas por
+    bucket) AL FINAL.
+- **P-25 (`inventory/sealed-graded.service.ts`, NUEVO)**: `GET /admin/inventory/sealed-sets`
+  (índice: groupBy `[cardId, productId, status]` + cartas→set + sets con `?q=` + UN lote de refs;
+  `marketValueMxnCents` = Σ ref×piezas CON mercado, `null` si ninguna; `unmappedCount` = piezas
+  SIN mercado — no mapeadas O mapeadas sin ingest, como norma el contrato; `unmappedTotal` =
+  espejo EXACTO de la cola M2 `sealed AND productId IS NULL` sobre todo el inventario; orden
+  `releaseDate desc` como el índice Master Set) y `GET .../sealed-sets/:setId` (grupos por
+  identidad §4.23 `(cardId, subtype, productId, condition)` con `counts {inStock, listed, other}`,
+  `mapped`, `sealedMarketRef` solo `priced`, `totalCostCents` `null` sin capturas; 404 set
+  inexistente). **Alcance de pestaña = plataforma on-hand (`NOT_ON_HAND` del Master Set — fuente
+  única)**; `other` captura `reserved`/tránsitos.
+- **P-20 (mismo servicio)**: `GET /admin/inventory/graded` — groupBy `(cardId, gradingCompany,
+  gradeValue)` (+ `?q=` por nombre de carta), referencia POR GRADO en lote con la clave
+  `(cardId,'graded','graded:<company>:<grade>','normal')` (la que fija el override manual M2 —
+  vía normativa v1.28), `capturedDate` solo con precio, costo agregado `null` sin capturas, orden
+  carta asc + grado DESC numérico (PSA 10 antes que 9), paginación en memoria. **Verificado** que
+  la consola P-18 ya soporta graded sell/buy y que bounty en graded sigue 422 (tests de Fase 1).
+- Wiring: `SealedGradedInventoryService` registrado/exportado en `InventoryModule`; rutas en
+  `InventoryController` (heredan `vault_operator+`), inyección como 4º parámetro opcional para no
+  romper constructores de tests legacy.
+
+### Decisiones dentro del margen (para arquitecto/techlead)
+1. `publish-all`: batchKey de otro `kind` ⇒ 409 (no replay de shape ajeno); persistencia del
+   resultado POST-proceso con P2002⇒replay del ganador (piece-safe por `claimListed`).
+2. Aportación de sellado: inferencia del productId por HERMANOS mapeados `(cardId, sealedSubtype)`
+   (identidad de `applyToSiblings`); ambigüedad ⇒ PRICE_PENDING; la pieza nueva NO hereda mapeo.
+   Si el arquitecto prefiere otra vía (p. ej. `tcgplayerProductId` en el DTO del alta), es cambio
+   de contrato — se solicita, no se improvisa.
+3. P-24: fallback legacy `'sealed'` en la valuación del sellado (no pierde overrides manuales
+   pre-v1.19); referencia informativa SIN gate de dial (el dial gatea dinero, no reportes).
+4. Pestañas P-25/P-20: alcance "on-hand" = `NOT_ON_HAND` (consistente con Master Set/M1);
+   `unmappedCount` cuenta también "mapeada sin ingest" (texto normativo «piezas sin mercado»).
+5. Bounties: desempate `updatedAt desc` tras el precio (orden estable; el contrato solo norma
+   `bountyPriceCents desc`).
+
+### Tests nuevos (todos verdes)
+- `test/inventory.publish-all.spec.ts` — tolerante/money-safe (mix publicadas+pendientes+
+  fallidas; no persiste precio derivado; sellOverride vuelve publicable), filtros server-side,
+  idempotencia (replay sin re-proceso; kind ajeno 409), alreadyListed por concurrencia, cap 200.
+- `test/inventory.items-filters.spec.ts` — filtros P-17 en servicio + validación 400 del controller.
+- `test/inventory.sealed-aportacion.spec.ts` — valuación por sealedMarketRef (dial on/off, sin
+  mapeo, ambigüedad, sin ingest, no-herencia del mapeo), alta sin `locationId`, regresión raw 100 %.
+- `test/buylist.bounties.spec.ts` — vitrina pública (filtros/orden/cap/mapeo/remainingQty piso 0)
+  y conteo del pago (agrupado por clave, auto-off + audit, sin target solo contador, apagado sigue
+  contando, fila borrada no tumba, idempotencia ante replay/carrera, dentro del boundary de la tx).
+- `test/admin.inventory-value-breakdown.spec.ts` — breakdown suma = top-level, sealed por
+  mercado/legacy/pendiente, lote único, CSV espejo.
+- `test/inventory.sealed-graded-tabs.spec.ts` — sealed-sets índice (agrega bien, q, unmapped,
+  valor null honesto, unmappedTotal) y detalle (identidad §4.23, mapped, 404), graded separado
+  (referencia por grado, orden, q, paginación).
+
+### Verificación (local; Postgres 16 + Redis reales, `tcg_e2e` con M-30 aplicada)
+- `npm run typecheck` → limpio.
+- `npm run lint` → 0 errores (mismo warning preexistente en `buylist.service.ts`, ajeno).
+- `npm test` → **148 suites / 1386 tests VERDE** (142/1338 previos + 6 suites nuevas; 2 specs
+  existentes de paySpei actualizados de mock, cero regresiones).
+- `npm run test:integration` (con `S3_ENDPOINT=http://127.0.0.1:9000` para el skip documentado de
+  MinIO) → **9 suites / 124 tests VERDE**.
+
+## Ronda de corrección gate Stream B v1.28 — B-1 conteo de bounty excluye rechazadas (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+Correcciones del veredicto del techlead (RECHAZÓ acotado) + menores de QA sobre el gate del Stream B.
+
+### B-1 (BLOQUEANTE) — `countBountyAcquisitionsTx` contaba piezas rechazadas
+- **Bug:** el `findMany` de ítems bounty al pagar (`buylist.service.ts`, dentro de la tx de `paySpei`)
+  filtraba solo `ruleSource='bounty'`, SIN excluir `itemStatus='rechazada'`. Con **cherry-pick**
+  (solicitud pagada con mezcla aceptadas/rechazadas), las rechazadas — que NO se compran ni suman en
+  `approvedTotalCents` (invariante BL-1) — inflaban `bountyAcquiredQty`, podían **auto-apagar el
+  bounty antes de tiempo** y auditar `bounty.completed` **en falso**.
+- **Fix:** mismo filtro que BL-1 (`itemStatus: { not: 'rechazada' }`) en el where del conteo.
+  Semántica normativa ratificada por el orquestador: §4.26a — `bountyAcquiredQty` mide «piezas
+  COMPRADAS vía buylist PAGADA bajo bounty» (el arquitecto alinea en paralelo la frase ambigua de
+  §4.26e). Docblock del método actualizado con la regla.
+- **Test nuevo:** `test/buylist.bounties.spec.ts` → caso cherry-pick (2 aprobadas + 3 rechazadas bajo
+  bounty, target 4, acquired 1): solo cuentan las 2 compradas (1+2=3 < 4 ⇒ **NO** auto-off, cero
+  `bounty.completed`); además asserta el where con el filtro BL-1. El harness del spec ahora honra
+  ambos filtros del where real.
+
+### Menores del mismo pase
+- `pricing.service.ts` (`loadBuylistRules`): el docblock afirmaba en falso que
+  `BuylistService.buylistRules()` delegaba ahí. Corregido: son DOS lecturas paralelas de la misma
+  config (no-delegación justificada; cuerpo normativo = matemática de `money.ts`). Deuda **SB-D2**.
+- `buylist.service.ts` `rejectRequest(id, reason?)`: se eliminó el parámetro `reason` sin uso
+  (warning de lint preexistente, MENOR-3 de QA). El `reason` del body sigue llegando a la auditoría
+  vía el controller (`admin-buylist.controller.ts` lo pone en `after`); el servicio nunca lo usó.
+- `docs/TECH_DEBT.md`: nueva sección **Stream B v1.28** con SB-D1..SB-D6 y SB-D9 (SB-D7/D8 son de
+  frontend y las registra su dueño).
+
+### Verificación (local; Postgres 16 + Redis reales)
+- `npm run typecheck` → limpio. `npm run lint` → **0 warnings** (el preexistente de `reason` quedó
+  eliminado). `npm test` → **148 suites / 1387 tests VERDE** (+1: cherry-pick B-1).
+- `npm run test:integration` (setup §8, `S3_ENDPOINT=http://127.0.0.1:9000`) → **9 suites / 124
+  tests VERDE**.
+
+## P-21 · Rebrand a TCG HUNT — lado servidor (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+> Fuente: `docs/DESIGN_SYSTEM.md` §17 (marca visible "TCG HUNT", con espacio; dominio `tcghunt.mx`
+> en prosa; **rutas técnicas / nombres de módulos / prefijo de folios `TCG-` NO cambian**, §17.4).
+
+### Qué cambió (solo strings visibles al usuario)
+- **`modules/mail/mail.templates.ts`** — `BRAND = 'TCG HUNT'` (header/footer y cuerpo de los
+  correos de verificación de email y reset de contraseña, ES/EN).
+- **`modules/orders/mail/guest-order.templates.ts`** — `BRAND = 'TCG HUNT'` (asuntos
+  `TCG HUNT — Confirmación de tu pedido …` / `— Enlace de seguimiento …` y layout). El copy
+  "tu bóveda"/"your vault" NO cambia: es el nombre de la función de custodia, no de la marca (§17.4).
+- **`modules/buylist/buylist-mail.templates.ts`** — `BRAND = 'TCG HUNT'` (correo de rechazo de ítem).
+- **`modules/catalog/sealed-restock-notify.service.ts`** — correo bilingüe de reposición de sellado:
+  "…disponible en TCG HUNT" / "…back in stock at TCG HUNT" (4 strings).
+
+### Correos de contacto/remitente → quedan en env (NO se cambió el valor efectivo)
+El buzón `@tcghunt.mx` todavía no existe y el dominio de Resend verificado sigue siendo el viejo,
+así que **ningún default de código cambió de valor**; solo se movieron a config los que estaban
+hardcodeados (mismo patrón que `disputes.constants.ts`):
+- `modules/orders/guest-checkout.constants.ts` → `SUPPORT_EVIDENCE_CONTACT` ahora lee
+  `process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvaultmx.com'` (misma env que disputes: el
+  propio comentario del código declara que exponen el mismo valor).
+- `modules/buylist/buylist-mail.templates.ts` → `SUPPORT_EMAIL` lee
+  `process.env.SUPPORT_EMAIL ?? process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvaultmx.com'`.
+- No hay URLs web absolutas del dominio viejo hardcodeadas en `src/` (los links de correo ya salen
+  de `APP_BASE_URL`); las apariciones restantes de `tcgvaultmx.com` son defaults de buzón (arriba)
+  y valores de fixture en tests (no asserts de marca).
+
+### Para **devops** (cuando existan dominio de correo + buzón; NO edité `.env.example`)
+- `MAIL_FROM="TCG HUNT <no-reply@tcghunt.mx>"` — remitente visible "TCG HUNT" (DESIGN_SYSTEM
+  §17.3). El default de código conserva `no-reply@tcgvaultmx.com` a propósito (buzón verificado
+  en Resend hoy). Requiere verificar `tcghunt.mx` en Resend antes de flipear.
+- `DISPUTE_EVIDENCE_CONTACT=soporte@tcghunt.mx` — flipea de golpe los TRES puntos de contacto
+  (disputes §7, guest checkout 56b y el correo de rechazo del buylist).
+- `SUPPORT_EMAIL` (opcional, nueva) — solo si algún día el contacto del buylist debe divergir del
+  de disputas; si no se fija, cae en cascada a `DISPUTE_EVIDENCE_CONTACT`.
+- `APP_BASE_URL` — ya existente (links de correos): apuntarla al dominio nuevo cuando el front
+  viva en `tcghunt.mx` (redirects `tcgvaultmx.com` → `tcghunt.mx` = alcance devops, P-21).
+
+### Qué NO se tocó (a propósito)
+Prefijo de folios `TCG-000123`; nombres técnicos (`tcg-vault-mx`, módulo `vault`, rol
+`vault_operator`, bucket `tcg-photos`, package `tcg-marketplace-backend`); lógica de dinero;
+tests (ninguno asserta la marca vieja; los que assertan `soporte@tcgvaultmx.com` siguen en verde
+porque el default no cambió).
+
+### Gates (local, Postgres 16 + Redis reales; sin MinIO en esta sesión → smoke S3 se salta con aviso)
+- `npm run typecheck` → limpio · `npm run lint` → 0 warnings.
+- `npm test` → **148 suites / 1387 tests VERDE**.
+- `npm run test:integration` (setup §8, `S3_ENDPOINT=http://127.0.0.1:9000`) → **9 suites /
+  124 tests VERDE**.
+
+## Ronda de cierre P-21 · Robustez de env vacía en lecturas de correo (`envOr`) (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+> Condición pre-switch del techlead sobre el gate P-21: las 4 lecturas de env de correo usaban
+> `??`, que NO cubre cadena vacía. Con `MAIL_FROM=` (definida pero vacía) el `from` quedaba `''`
+> y **Resend rechazaría TODO envío**; con `DISPUTE_EVIDENCE_CONTACT=` vacía la API exponía
+> `evidenceContact: ""`.
+
+### Qué cambió
+- **Helper único `modules/mail/mail-env.util.ts` → `envOr(value, fallback)`**: trata
+  vacío/solo-blancos como ausente y devuelve el valor saneado (trim) cuando sí hay contenido.
+  **Decisión de ubicación:** vive en `modules/mail/` y NO en `src/common/` a propósito —
+  `common/` es zona compartida serializada entre streams y los 4 consumidores son de correo y ya
+  dependen de `mail/`. Promoverlo a `common/` cuando quede libre es NO-BREAKING (TECH_DEBT
+  BE-P21-2, junto con `BRAND` → BE-P21-1).
+- **Aplicado en los 4 sitios:** `mail/mail.module.ts` (MAIL_FROM → default histórico),
+  `disputes/disputes.constants.ts` y `orders/guest-checkout.constants.ts`
+  (`DISPUTE_EVIDENCE_CONTACT` → `soporte@tcgvaultmx.com`) y `buylist/buylist-mail.templates.ts`
+  (cascada `SUPPORT_EMAIL` → `DISPUTE_EVIDENCE_CONTACT` → histórico, saltando vacíos en cada
+  eslabón). Comportamiento con env ausente o con valor real: **idéntico al de antes**; solo
+  cambia el caso patológico env-definida-pero-vacía/blanca.
+- **Tests `mail-env.util.spec.ts` (10):** helper puro (ausente/vacía/blancos → default; valor →
+  se usa, con trim), los 3 consumidores import-time re-evaluados con `jest.isolateModules`
+  (incluida la cascada del buylist) y la factory de `MailModule` vía metadata + ConfigService
+  stub (`MAIL_FROM` vacía/blanca → default; con valor → lo usa).
+- **TECH_DEBT:** nueva sección "Ronda de cierre P-21" (BE-P21-1 marca `BRAND` x3 + literales del
+  restock; BE-P21-2 default literal duplicado x3 + dos idiomas de config process.env vs
+  ConfigService) y corregida la ampliación obsoleta de BE-43 (el buzón ya NO está hardcodeado).
+
+### Gates (local, Postgres 16 + Redis reales + s3rver en 127.0.0.1:9000 → smoke S3 con PUT real)
+- `npm run typecheck` → limpio · `npm run lint` → 0 warnings.
+- `npm test` → **149 suites / 1397 tests VERDE**.
+- `npm run test:integration` (setup §8) → **9 suites / 124 tests VERDE** (incl. `infra-smoke`
+  con S3 real).

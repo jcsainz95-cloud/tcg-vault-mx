@@ -164,11 +164,14 @@ async function main() {
     },
   });
 
-  // v1.22-1 (§4.22g/§4.22h) — carta de demostración del RESCATE por PPT (el caso del PO con
-  // pokemontcg.io caído): el catálogo solo conoce `normal` (`catalogFinishes=['normal']`) pero PPT
-  // reportó reverse holo con market>0 y alias VERIFICADO (`pricedFinishesSnapshot=['reverse_holo']`)
-  // ⇒ la unión DERIVADA da `availableFinishes=['normal','reverse_holo']` (DOS casillas), sostenida
-  // SOLO por la Señal C. Prueba en el seed de desarrollo que la ruta de la unión funciona.
+  // v1.27 (P-13, §4.25a) — carta de demostración de DOS casillas post-v1.27: la ESTRUCTURA manda,
+  // el precio CONFIRMA. TCGCSV resolvió AMBAS impresiones (`structuralFinishes=['normal',
+  // 'reverse_holo']`) y PPT confirma el reverse con market>0 (`pricedFinishesSnapshot=
+  // ['reverse_holo']`, decoración/observabilidad: desde v1.27 el snapshot ya NO compone). El
+  // reconcile deriva `availableFinishes = composeAvailableFinishes(structural)` ⇒ DOS casillas
+  // sostenidas SOLO por la estructura — el «rescate» por unión con la Señal C quedó DEROGADO.
+  // Junto con Charizard (holofoil puro, UNA casilla) el seed cumple el mínimo normativo §4.22e:
+  // ≥1 carta de dos casillas y ≥1 de una casilla, y ambas sobreviven un reconcile sin colapsar.
   const pidgeyParts = deriveNumberParts('16');
   await prisma.card.upsert({
     where: { externalId: 'base1-16' },
@@ -185,10 +188,12 @@ async function main() {
       imageSmallUrl: 'https://images.pokemontcg.io/base1/16.png',
       imageLargeUrl: 'https://images.pokemontcg.io/base1/16_hires.png',
       availableFinishes: ['normal', 'reverse_holo'],
+      // `catalogFinishes` queda en `['normal']` a propósito: señal DÉBIL write-only de
+      // pokemontcg.io que nadie lee en producción (ilustra que NO manda; ver docblock arriba).
       catalogFinishes: ['normal'],
-      // v1.26 (§4.24a): la ESTRUCTURA solo conoce `normal`; PPT aporta el reverse_holo vía el
-      // snapshot ⇒ la unión da DOS casillas SIN que el precio añada estructura (reverse pendiente).
-      structuralFinishes: ['normal'],
+      // v1.27 (§4.25a): la ESTRUCTURA declara AMBAS impresiones (TCGCSV las resolvió) — única
+      // entrada del reconciliador; el snapshot solo CONFIRMA el reverse (observabilidad).
+      structuralFinishes: ['normal', 'reverse_holo'],
       pricedFinishesSnapshot: ['reverse_holo'],
     },
     update: {
@@ -196,7 +201,7 @@ async function main() {
       numberPrefix: pidgeyParts.prefix,
       availableFinishes: ['normal', 'reverse_holo'],
       catalogFinishes: ['normal'],
-      structuralFinishes: ['normal'],
+      structuralFinishes: ['normal', 'reverse_holo'],
       pricedFinishesSnapshot: ['reverse_holo'],
     },
   });

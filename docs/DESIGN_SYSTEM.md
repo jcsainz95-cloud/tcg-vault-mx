@@ -45,6 +45,42 @@
 > confirmación con **reclamo post-compra** y **vista pública de seguimiento por enlace tokenizado** con
 > **estado neutro** de token inválido/expirado. **No introduce tokens nuevos** de color/tipografía ni
 > cambia ninguna sección previa: §15 es aditiva y reutiliza los componentes existentes.
+>
+> **Añadido v1.6 (Stream B — Inventario M1 operable) → ver §16.** M1 reorganizado en pestañas
+> **Master Set (default) · Sellado · Gradeadas** con «Piezas» demovida a **drill-down** (P-17), tarjetas de
+> valor del inventario (P-24), **consola de tres precios** mercado/compra/venta en la teja de variante
+> (P-18), **alta rápida** de dos caminos Compra/Aportación + «Publicar todo» (P-19), **distintivo visual de
+> acabado** `FinishMark` (adelanto de P-14, lenguaje compartido con Stream C) y la teja/badge **Bounty**
+> admin + vitrina pública «Top Bounties» (P-22). §16 es aditiva; introduce **un único elemento gráfico
+> nuevo** (la banda de acabado, §16.6 — incluida la ÚNICA superficie con gradiente permitida del sistema) y
+> **cero tokens nuevos** de color/tipografía.
+>
+> **Añadido v1.7 (P-21 — identidad TCG HUNT) → ver §17.** Rebrand de marca: el sitio pasa a llamarse
+> **TCG HUNT** (dominio `tcghunt.mx`) con **logo de mira/crosshair** en degradado **rojo `#B31217` → vino
+> `#4A0D0D`**, reconstruido en **SVG vectorial** a partir de la referencia de alta resolución del humano
+> (§17.1: lockup completo, solo-mira, glifo micro y variante para fondo oscuro). Cambio de paleta: se
+> **conserva la base editorial papel/tinta** y el **bermellón `#B44B3A` se retira**: el **rojo TCG HUNT
+> `#B31217` asume todos sus roles** (accent, warning, danger, anillo de foco — mismo nombre de tokens,
+> nuevo valor; contraste sobre papel **sube** de 4.65:1 a **6.2:1**, §17.2). El degradado del logo se suma
+> como **segunda y última excepción de gradiente** (junto a la banda reverse §16.6): nunca en superficies
+> ni botones. El badge BOUNTY (§16.7b) adopta el **glifo micro oficial de la mira** en lugar del
+> `crosshair` de lucide. La marca visible cambia; **el nombre interno del repo/proyecto (`tcg-vault-mx`) y
+> las rutas técnicas NO cambian** (§17.4). Wordmark en **Montserrat 700** (`--font-brand`, `next/font`).
+>
+> **Corrección v1.7.1 (fidelidad del logo — cotejo del humano contra el original) → §17.1 reescrita.**
+> La reconstrucción v1.7 simplificaba de más: el original es una **retícula de mira de rifle (scope
+> reticle)**, no una cruz corrida sobre círculos. Cambios: (1) la **cruz es SEGMENTADA** — cuatro líneas
+> independientes que atraviesan los anillos por **huecos** y **nunca pisan nada**; todas terminan dentro
+> del anillo interior dejando **espacio libre antes del punto central**; la horizontal **izquierda es la
+> más larga** y la vertical **superior sobresale más que la inferior**. (2) Los **anillos se dibujan como
+> 4 arcos** con **gap angular en los 4 cardinales** (~12° exterior, ~20° interior) por donde pasan las
+> líneas. (3) El **punto central hueco queda aislado** — nada lo toca. (4) El **wordmark ahora es
+> dominante**: casi tan ancho como las horizontales de la mira, con ".mx" alineado al borde derecho del
+> wordmark. (5) El degradado del conjunto pasa a **diagonal** `#B31217` (arriba/izquierda) → `#4A0D0D`
+> (abajo/derecha), con el wordmark en **vino casi plano** (rampa corta `#6E1013→#4A0D0D`). Las 4
+> variantes (lockup, solo-mira, oscura, micro) se corrigen; el **glifo micro** conserva la cruz
+> segmentada pero **omite los huecos de los anillos** (no leen a 16–20px, §17.1d). Se ajustan tamaños
+> mínimos y reglas de uso derivadas (§17.3): solo-mira mínimo **28px** (antes 24px).
 
 ---
 
@@ -1889,3 +1925,720 @@ No bloquean el diseño; el contrato aún **no** cubre guest checkout (§J es nue
    que sirve para cualquiera de las dos resoluciones que elija el humano.
 9. **`evidenceContact`**: la vista pública y la confirmación toman el correo de soporte del contrato (§7.11),
    nunca hardcodeado; sigue pendiente de confirmación del humano el valor definitivo.
+
+---
+
+## 16. Inventario M1 operable — Stream B (v1.6): pestañas, drill-down, consola de precios, alta rápida, acabados y bounties
+
+> Fuente funcional: `ARCHITECTURE.md §4.26` (a–j) y `API_CONTRACT.md` v1.28. Las decisiones de producto ya
+> están tomadas por el humano (P-17/18/19/20/22/24/25 en `PENDIENTES.md`); esta sección define SOLO el cómo
+> se ve y se opera. Reutiliza tokens, tipografía y componentes existentes (§2–§8). Roles: `vault_operator`
+> opera inventario; **precios y valor son de `super_admin`** (el front esconde, el guard impone — §16.2, §16.3).
+
+### 16.0 Principios de esta pantalla
+
+1. **El binder es el hub.** Todo lo operable de una variante (piezas, precios, alta, bounty) vive a UN clic
+   de su casilla, en un mismo panel lateral. No hay pestaña "Piezas": la pieza física es un detalle de la
+   variante, no una vista hermana.
+2. **Dinero honesto siempre:** sin precio = «—» + estado explícito, nunca `$0` (§7.3). Todo resultado de
+   lote es por-ítem (lección P-4/P-5): éxito con folios, fallo anclado con causa.
+3. **Un lenguaje de acabado para toda la app:** el `FinishMark` (§16.6) nace aquí pero se define para ser
+   idéntico en el cotizador público (Stream C, P-14/P-16) y en bóvedas. Admin y storefront no divergen.
+
+### 16.1 Layout de M1 reorganizado (P-17)
+
+Estructura vertical de la página `/admin/inventory` (gutter y grid §4.4):
+
+1. **Header de módulo:** `h1` "Inventario" (serif) + a la derecha el **buscador por folio persistente**:
+   `Input` mono, ancho 260px desktop (full-width bajo el título en `< md`), placeholder
+   `Buscar folio (INV-000123)` con icono lupa. Está SIEMPRE visible en las tres pestañas.
+   - Al enviar un folio válido: abre directamente el **drill-down** (§16.4) de la variante dueña de esa
+     pieza, con la fila de la pieza resaltada (`surface-2`) y enfocada. Folio inexistente: mensaje inline
+     bajo el input, `text-xs danger`: `No existe una pieza con ese folio.` (no toast).
+2. **Tarjetas de valor (P-24, §16.2)** — solo `super_admin`; para `vault_operator` la fila se **omite por
+   completo** (sin candados ni placeholders; coherente con el contrato, que no le sirve el dato).
+3. **Toolbar de acciones:** derecha, botones `secondary`: `Publicar todo…` (§16.5c) y `Alta por lote`
+   (abre el modal de alta masiva existente P-5, sin cambios). Izquierda: **Tabs** (§6.6):
+   - **`Master Set`** (default al entrar) · **`Sellado`** (§16.8) · **`Gradeadas`** (§16.9).
+   - La pestaña activa se refleja en la URL (`?tab=`) para volver del drill-down sin perder contexto.
+4. **Contenido de la pestaña.** Master Set = el índice de sets + binder existente (v1.27), con las tejas de
+   variante extendidas según §16.3/§16.6/§16.7.
+
+**Qué desaparece:** la pestaña/vista de lista "Piezas". Sus capacidades (folio, estado, precio manual,
+detalle, publicar, merma) se reubican ÍNTEGRAS en el drill-down (§16.4). No se pierde ninguna acción.
+
+### 16.2 Tarjetas de valor del inventario (P-24) — `InventoryValueCards`
+
+Consumen `GET /admin/finance/inventory-value` (breakdown v1.28). **Cuatro `StatCard`** (§7.8) en fila
+(1 col móvil → 2 `sm` → 4 `lg`), en este orden con estas etiquetas (eyebrow mono uppercase):
+
+| Card | Etiqueta | Cifra principal | Fuente |
+|---|---|---|---|
+| 1 | `VALOR TOTAL` | `atReferenceCents` top-level | total |
+| 2 | `SUELTAS` | `breakdown.raw.atReferenceCents` | raw |
+| 3 | `SELLADO` | `breakdown.sealed.atReferenceCents` | sealed |
+| 4 | `GRADEADAS` | `breakdown.graded.atReferenceCents` | graded |
+
+Anatomía por card: eyebrow → cifra a **mercado** (`text-h2` mono `tabular-nums`, `MX$ 128,450.00`) →
+segunda línea `text-xs muted`: `Costo: MX$ 84,120.00` (`atCostCents`) → tercera línea SOLO si
+`pendingPriceCount > 0`: `12 piezas sin precio` en `text-xs` **warning** (bermellón), que es enlace a la
+cola de pendientes de M2 (`/admin/m2?context=inventory`). Con `pendingPriceCount = 0` la línea se omite.
+- Estados: loading = skeleton de cifra; error = mini-banner "No se pudo cargar" + Reintentar; cero = `MX$ 0.00`
+  legítimo (inventario vacío no es error).
+- Regla de confianza: las piezas sin precio están EXCLUIDAS del total (así lo calcula el backend); la
+  tercera línea existe justo para que esa exclusión sea visible, nunca silenciosa.
+
+### 16.3 Consola de tres precios en la teja de variante (P-18) — `VariantPriceConsole`
+
+Consume `MasterSetVariantDTO.pricing` (solo scope `platform`; si `pricing` no viene, la consola no se
+renderiza — bóvedas de cliente jamás la ven). **Patrón elegido: compacto de solo-lectura en la teja +
+edición completa en el panel drill-down.** La teja informa de un vistazo; el write (que es `super_admin` y
+auditado) vive en el panel, donde hay espacio para sugerido/override/validación.
+
+**(a) Bloque compacto en la teja** — bajo la fila de conteo de la casilla, TRES renglones mono
+(`text-[11px]`, `tabular-nums`, cifras alineadas a la derecha, etiquetas `uppercase tracking-[0.06em]`
+en `--color-text-muted`):
+
+```
+MERCADO   MX$ 1,250.00
+COMPRA      MX$ 875.00 ·M
+VENTA     MX$ 1,690.00
+```
+
+- `MERCADO` = `marketReferenceMxnCents` (P-15, ya en el binder). `COMPRA`/`VENTA` = `effectiveCents`.
+- **Marcador de origen** (sufijo mono de 2 caracteres tras la cifra, con `title` + `aria-label`):
+  - *(sin sufijo)* → `source: "rule" | "fallback"` (el caso normal no grita).
+  - **`·M`** en tinta, peso 500 → `source: "override"` (`title`/`aria-label`: `Precio manual — pisa la regla`).
+  - **`·B`** en **bermellón**, peso 500 → `source: "bounty"` (solo cara COMPRA; `title`: `Bounty activo`).
+- **Sin precio:** la cifra es `—` (em dash, muted) y el renglón gana `title`/`aria-label`
+  `Precio pendiente — sin referencia de mercado`. Nunca `$0` (§7.3). Si `source:"pending"` en COMPRA o
+  VENTA la causa casi siempre es MERCADO en `—`: no se repite el aviso tres veces, basta el `—`.
+- El bloque completo es `aria-hidden` NO: cada renglón lleva `aria-label` legible
+  (`Precio de compra: 875 pesos, precio manual`). No hay edición inline en la teja (objetivo táctil y
+  guardas de dinero viven en el panel).
+
+**(b) Consola completa en el panel drill-down** (§16.4, sección "Precios") — tabla de 3 filas × 3 columnas:
+
+| | Sugerido (regla) | Override | Efectivo |
+|---|---|---|---|
+| Mercado | — (no aplica) | *(acción "Fijar mercado" M2, solo graded/pendientes)* | `MX$ 1,250.00 · 20 ago 2026` |
+| Compra | `MX$ 875.00` | input editable | `MX$ 875.00` + fuente |
+| Venta | `MX$ 1,690.00` | input editable | `MX$ 1,690.00` + fuente |
+
+- **Fuente del efectivo** como texto mono en versalitas junto a la cifra: `REGLA` / `MANUAL` / `BOUNTY` /
+  `PENDIENTE` (este último en bermellón outline, §7.3). El color acompaña, el texto porta (§2.4).
+- **Edición (solo `super_admin`;** para `vault_operator` los inputs se renderizan como texto plano
+  — lectura sí, edición no): inputs de dinero con prefijo `MX$` (§6.2), `inputmode="decimal"`,
+  vacío = sin override. Acciones: `Guardar precios` (`primary`, un solo submit para ambas caras vía
+  `PUT /admin/pricing/variant-controls/:cardId/:finish`) y por campo un enlace
+  `Restablecer a regla` (envía `null` explícito → limpia el override; visible solo si hay override).
+- **Validación inline** (`aria-invalid` + mensaje §6.2): monto `≤ 0` → `El precio debe ser mayor a cero.`;
+  error de servidor se pinta anclado arriba de la sección (patrón P-4).
+- **Indicador de override activo:** cuando `overrideCents != null`, el label del campo gana el badge mono
+  `MANUAL` en tinta y el sugerido se muestra tachado NO — se muestra como referencia:
+  `Sugerido por regla: MX$ 875.00` en `text-xs muted` bajo el input. Quitar el override devuelve la cara a
+  la regla al instante (así resuelve el backend; no hay que re-publicar — se puede decir en un toast:
+  `Override retirado — vuelve a regir la regla.`).
+- **Bounty** vive en esta misma consola: ver §16.7a.
+- Guardado exitoso: toast `Precios de la variante guardados.` + refresh del binder. La consola muestra
+  siempre la nota al pie `text-xs muted`: `Los cambios pisan lo que ve el cliente · queda en bitácora.`
+  (misma familia de §7.6 dinero).
+
+### 16.4 Drill-down de piezas (P-17) — `VariantDrawer`
+
+**Disparador:** clic (o Enter) en la **casilla de variante** del binder. La casilla es un botón real
+(`aria-haspopup="dialog"`, foco visible §8.2). Estado seleccionado de la casilla mientras el panel está
+abierto: borde `--color-border-strong` + fondo `surface-2`.
+
+**Contenedor:** panel lateral derecho (sheet) de **480px** en `≥ lg`; en `< lg`, bottom sheet a pantalla
+casi completa (radio 0, overlay de tinta, focus trap, `Esc` cierra — §7.6). El binder queda visible detrás
+en desktop (contexto espacial de "abrí esta casilla").
+
+**Anatomía (orden vertical):**
+1. **Header:** miniatura 56×78 de la carta + nombre (EN, `lang="en"`) + renglón `ListingSpec` (§7.2b)
+   `RAW · NM · REVERSE HOLO` + `FinishMark` (§16.6) + botón cerrar (44px).
+2. **CTA primario `Alta rápida`** — siempre visible bajo el header (no se scrollea): abre la sección de
+   alta (§16.5) inline dentro del panel. Si la variante tiene **0 piezas**, el panel abre directamente con
+   la sección de alta desplegada (estado vacío = invitación a dar de alta).
+3. **Sección «Precios»** — la consola completa (§16.3b), colapsable (abierta por defecto para
+   `super_admin`, colapsada para `vault_operator`).
+4. **Sección «Piezas (N)»** — lista de copias físicas: `GET /admin/inventory/items?cardId=&finish=&productType=raw`
+   (paginada). Cada fila (variante compacta §7.1, alto 48px):
+   - **Folio** mono (`INV-000123`) — clic copia al portapapeles (toast `Folio copiado`).
+   - **Estado** badge (§2.4): `EN STOCK` / `LISTADA` / `RESERVADA` / `PERDIDA`… texto versalitas.
+   - **Precio manual por pieza** (`listPriceCents`): cifra mono o `—`; acción `Editar precio` (lápiz,
+     `aria-label`) — inline input con las mismas validaciones §16.3b. Nota fija cuando hay override de
+     variante: `El precio por pieza gana sobre el precio de la variante.` (`text-xs muted`, una sola vez
+     como encabezado de columna con icono info).
+   - **Menú de acciones por fila** (kebab, 44px): `Ver detalle` (historial/movimientos), `Publicar` /
+     `Despublicar`, `Merma…` (abre confirmación destructiva §7.6 → `POST /admin/inventory/adjustments`,
+     motivos `perdida | danada | error_captura`, nota obligatoria).
+   - **Selección múltiple** (checkboxes) + barra de acciones de lote al pie: `Publicar selección (n)`
+     (el "publicar piezas de esta carta" existente, sin cambios de contrato).
+5. **Estados:** loading = 3 filas skeleton; error = banner danger + Reintentar; vacío = texto
+   `Sin piezas de esta variante.` + el CTA de alta ya presente.
+
+**La VENTA no existe aquí** (ratificado §4.26c): ninguna acción "vender" en el panel; solo checkout/M3.
+Las bajas son merma por ajuste.
+
+### 16.5 Alta rápida simplificada (P-19) — `QuickAddSection`
+
+Vive dentro del `VariantDrawer` (§16.4.2). **Sin dropdown de acabado, sin ubicación, sin porcentaje:**
+la variante viene de la casilla picada; el resto se eliminó por decisión del humano.
+
+**(a) Formulario — exactamente tres controles:**
+1. **Cantidad:** stepper `− [ 3 ] +` (botones 44px, input `inputmode="numeric"`, default 1, mín 1).
+   Para gradeadas no aplica (el alta de PSA es otro flujo, §16.9).
+2. **Adquisición:** dos tarjetas-radio grandes (una fila en desktop, apiladas en móvil; borde
+   `--color-border`, seleccionada = borde `strong` + fondo `surface-2` + radio marcado):
+   - **`Comprar`** — sublabel `Pagamos por pieza:` + input de dinero **prellenado** con
+     `pricing.buy.effectiveCents` (editable, prefijo `MX$`). Helper `text-xs muted` bajo el input según la
+     fuente: `Sugerido por regla` / `Precio manual activo` / `Precio bounty activo`. Si el efectivo es
+     `null`, el input abre vacío con helper `Sin sugerido — captura el precio pagado.` (la compra con
+     precio capturado SIEMPRE es válida).
+   - **`Aportación`** — sublabel `Se registra a valor de mercado:` + la cifra **mostrada, no editable**:
+     `MX$ 1,250.00` (mono). **Sin porcentaje visible en ninguna parte.**
+     - Si `marketReferenceMxnCents == null`: la tarjeta se muestra **deshabilitada** (opacidad 45%, no
+       recibe selección) con el pill `PRECIO PENDIENTE` (warning outline) y el texto
+       `Sin valor de mercado — fija primero el precio de esta variante.` (para `super_admin`, con enlace a
+       "Fijar mercado" de la consola §16.3b). Se preempta el error conocido; el servidor sigue siendo la
+       autoridad (b).
+3. **CTA:** botón `primary` full-width **`Dar de alta al inventario`** (mismo verbo ya ratificado), estado
+   `loading` con label `Dando de alta…`, bloquea doble envío (`batchKey` idempotente por intento).
+
+**(b) Resultado por-ítem (lote tolerante, lección P-4/P-5):** la respuesta de
+`POST /admin/inventory/items/batch` se pinta DENTRO del panel, nunca solo un toast:
+- **Éxito total:** banner `success` arriba de la sección: `3 piezas dadas de alta · INV-000201 a INV-000203`
+  + la lista de piezas (§16.4.4) se refresca con las filas nuevas resaltadas 3s (`surface-2`).
+- **Fallo (total o parcial):** banner `danger` **anclado arriba del panel, sticky, `role="alert"`,**
+  con `scrollIntoView` + foco (patrón P-4 ratificado). Copy para `PRICE_PENDING`:
+  `No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.`
+  En lote mixto, el banner resume `2 creadas · 1 rechazada` y debajo lista cada línea fallida con su causa
+  traducida. Jamás silencio, jamás crear a ciegas.
+
+**(c) «Publicar todo» — `PublishAllDialog`** (toolbar §16.1.3, disparador `secondary`):
+1. **Confirmación (modal §7.6, verbo explícito):** título `Publicar todo el inventario`; cuerpo:
+   `Se publicarán todas las piezas en stock que tengan precio resoluble.` + selector de alcance
+   (Select §6.3): `Todo el inventario` (default) / `Solo este set` (el set abierto, si hay) /
+   `Solo sellado` — mapea a `{ setId?, productType? }`. Nota fija `text-xs muted`:
+   `Las piezas sin precio NO se publican: quedan en la cola de precios pendientes.` y la nota de dinero
+   `Expone piezas a la venta · queda en bitácora.` Botones: `secondary` `Cancelar` / `primary`
+   `Publicar todo`. *(No hay conteo previo: el contrato no tiene dry-run — ver §16.11; la honestidad va en
+   el resultado, no en una estimación inventada.)*
+2. **Resultado (el modal muta a resumen, no toast):** cuatro renglones mono `tabular-nums`:
+   ```
+   Publicadas          128
+   Ya estaban listadas  40
+   Sin precio           12   → Ver pendientes de precio
+   Fallidas              0
+   ```
+   `Sin precio` > 0 pinta la cifra en **bermellón** y el enlace lleva a la cola M2
+   (`/admin/m2?context=inventory`). `Fallidas` > 0 despliega el detalle por folio con causa (capado a 200
+   por contrato; si se capó: `Se muestran las primeras 200 — el resto está en la cola de pendientes.`).
+   Cierre con `secondary` `Entendido`. Reintento con el mismo `batchKey` = replay idempotente (el front
+   muestra el resultado guardado con nota `Resultado de la corrida anterior (reintento idempotente).`).
+
+### 16.6 Distintivo visual de acabado (adelanto P-14) — `FinishMark`
+
+**Problema:** la imagen de catálogo es idéntica entre variantes; el acabado debe distinguirse de un
+vistazo. **Solución: banda superior de 3px + etiqueta mono SIEMPRE visible** (doble canal: el color/banda
+es redundante, el texto porta — regla §2.4). Se define UNA vez y se usa igual en el binder M1, el
+cotizador (Stream C), bóvedas y storefront.
+
+| `finish` | Banda (3px, borde superior de la casilla/teja) | Etiqueta mono (`text-[10px] uppercase tracking-[0.18em]`) |
+|---|---|---|
+| `normal` | **Sin banda** (el borde base `--color-border` de 1px) | `NORMAL` en `--color-text-muted` |
+| `reverse_holo` | **Gradiente lineal 90°** `#9A6C57 → #B44B3A` (neutral-warm → bermellón) | `REVERSE` en `--color-text` |
+| `holofoil` | **Sólida tinta** `#1A1A18` | `HOLO` en `--color-text` |
+| `first_edition_holofoil` | Sólida tinta `#1A1A18` | `1ED HOLO` en `--color-text` |
+
+- La banda de reverse es **la única superficie con gradiente permitida en todo el sistema** (guiño foil,
+  §5 "guiño de marca"): dos tonos cálidos de la propia paleta, 3px, decorativa (`aria-hidden`). No es un
+  "degradado arcoíris" (§1.3) ni un token nuevo.
+- **Accesibilidad:** la banda es decorativa; el significado lo porta la **etiqueta**, presente SIEMPRE
+  (nunca banda sin texto), + `aria-label` de la casilla: `Pikachu ex, reverse holo, 3 piezas`. Contraste de
+  la banda sobre papel: tinta ~15:1, neutral-warm ~4.0:1, bermellón ~4.6:1 — todas ≥ 3:1 (componente UI,
+  §10). Las etiquetas usan tinta/muted (AA de texto).
+- **Dónde:** en toda teja/casilla que represente UNA variante (binder M1, cotizador, drill-down header,
+  Top Bounties). En fichas de detalle basta el `ListingSpec` (§7.2b); la banda es para retículas.
+- La etiqueta NO se traduce distinto por locale (`REVERSE`/`HOLO` son términos del hobby); el `aria-label`
+  sí se localiza (`reverse holo` / `holofoil` legibles).
+
+### 16.7 Bounty (P-22) — consola admin + vitrina pública «Top Bounties»
+
+**(a) Edición en la consola (dentro de §16.3b, solo `super_admin`, solo variantes raw):** bloque «Bounty»
+al pie de la consola:
+- **Switch** (§6.4) `Marcar como bounty` con etiqueta de estado textual. Al activarlo se despliegan:
+  - `Precio bounty` (input dinero, requerido): helper dinámico
+    `Premium sobre la regla: +MX$ 125.00 (+14%)` (`bountyPriceCents − suggestedCents`; si el sugerido está
+    pendiente: `Sin sugerido de regla — el bounty es el precio explícito.`).
+  - `Cantidad objetivo (opcional)` (numérico ≥ 1), helper: `Al completarse, el bounty se apaga solo.`
+  - Progreso cuando hay objetivo: barra fina + texto mono `2 de 3 conseguidas`.
+- **Validaciones inline** (espejo del contrato): sin precio → `El bounty necesita un precio explícito.`
+  (`BOUNTY_PRICE_REQUIRED`); precio < sugerido → `El precio bounty debe ser mayor o igual al sugerido por
+  regla (MX$ 875.00).` (`BOUNTY_BELOW_RULE`).
+- **Bounty completado** (`completedAt != null`): línea de estado `BOUNTY COMPLETADO · 21 ago 2026` en verde
+  (versalitas) — informativa, no bloquea reactivar.
+- Apagar el bounty (`enabled:false`) NO borra el contador; el copy del switch apagado con historial:
+  `Bounty apagado · 2 conseguidas`.
+
+**(b) Badge en la teja admin:** cuando `bounty.enabled`, la casilla del binder gana el badge mono
+**`BOUNTY`** en **bermellón** (versalitas, sin caja §7.2) junto al conteo, con icono `crosshair` de lucide
+16px `aria-hidden` a la izquierda (la mira: guiño al futuro TCG HUNT sin implementar el rebrand — el icono
+es decorativo y removible). El renglón COMPRA de la consola compacta ya muestra `·B` (§16.3a).
+> **Actualización v1.7 (P-21):** con el rebrand, el icono `crosshair` de lucide del badge BOUNTY (aquí y
+> en el `BountyCard` §16.7c) **se sustituye por el glifo micro oficial de la mira TCG HUNT** (`HuntMark`
+> micro, §17.1d) en `currentColor`, mismo tamaño (12–16px) y sigue siendo `aria-hidden`. El color del
+> badge pasa a heredar el nuevo valor de `--color-accent` (`#B31217`, §17.2) sin cambiar de token.
+
+**(c) Vitrina pública `/buylist` — `TopBountiesShelf` + `BountyCard`:** sección **arriba de la página
+Vender, ANTES del selector de set**. Consume `GET /buylist/bounties` (cap 50; se pintan las primeras
+8–12, fila con scroll horizontal en móvil / grid 4-col `lg`).
+- **Encabezado de sección:** eyebrow mono `SE BUSCA` + `h2` serif `Top Bounties` + subtítulo `text-sm muted`:
+  `Estas cartas las pagamos mejor. El pago se realiza después de recibir y verificar tu carta.` (la segunda
+  frase mantiene el mensaje PAY_AFTER_RECEIPT de §7.5 — un precio alto no cambia la regla de confianza).
+- **`BountyCard`** (variante del `CardTile` §7.1): imagen 5:7 con **chip de scrim de tinta** (§7.2b) en la
+  esquina superior-izquierda: `☩ BOUNTY` (crosshair 12px `aria-hidden` + texto papel sobre tinta ~15:1);
+  banda `FinishMark` del acabado; nombre EN; set·número; y el precio como héroe:
+  - Etiqueta `text-xs muted` `Pagamos` + cifra `text-lg semibold tabular-nums` `MX$ 2,500.00` en **verde**
+    (`--color-success` — dinero que TE pagamos, coherente con la semántica "positivo").
+  - Si `remainingQty != null`: renglón mono `text-[11px]` en bermellón `QUEDAN 2` (motivacional; con
+    `remainingQty` null se omite — nunca inventar escasez).
+  - CTA `secondary` `Cotizar esta carta` → lleva al cotizador con la carta/variante precargada.
+- Estados: skeleton (3 cards); **si no hay bounties activos la sección NO se renderiza** (nunca un shelf
+  vacío en la home de Vender); error = se oculta la sección (es vitrina, no bloquea el flujo de venta).
+- **En admin nada de esto cambia la cola:** el flujo de venta sigue siendo el normal (cotiza → solicitud →
+  recepción → verificación → pago SPEI); el card no promete compra garantizada — por eso el copy es
+  `Pagamos MX$…` + `QUEDAN N`, sin "reservado/garantizado".
+
+### 16.8 Pestaña «Sellado» (P-25) — por set
+
+Análoga al Master Set pero de **piezas selladas** (no hay catálogo de sellado): índice → detalle por set.
+- **Índice** (`GET /admin/inventory/sealed-sets`): `DataTable` (§7.7) con columnas: Set (nombre + código),
+  `Piezas` (`pieceCount`), `Listadas` (`listedCount`), `Valor de mercado` (`marketValueMxnCents` mono o
+  `—`), y badge `N SIN MAPEO` (warning outline) cuando `unmappedCount > 0`. Buscador `q` arriba.
+  Arriba a la derecha, SOLO `super_admin`: enlace `Cola de no mapeados (N)` (usa `unmappedTotal`) → vista
+  M2 `sealed/unmapped`. Para `vault_operator` el enlace no existe; sus grupos sin mapeo se leen como
+  `SIN PRECIO DE MERCADO`.
+- **Detalle de set** (`GET /admin/inventory/sealed-sets/:setId`): lista de **grupos** (fila 56px):
+  imagen ancla (`object-contain` sobre pozo, §7.1b) + `productName` + pills `Sellado` + subtipo (`ETB`,
+  `Booster Box`… §7.1b) + condición (`MINT` / `DAÑO MENOR DE CAJA` versalitas §2.4) + conteos mono
+  `3 en stock · 1 listada` + `sealedMarketRef` (cifra o `SIN PRECIO DE MERCADO` warning outline si
+  `mapped=false`) + costo agregado (`super_admin`).
+- **Acciones por grupo:** `Alta rápida` (MISMO `QuickAddSection` §16.5 — cantidad + Comprar/Aportación; la
+  aportación usa `sealedMarketRef` como valor mostrado y su ausencia deshabilita la tarjeta igual que en
+  §16.5a2), `Ver piezas` (drill-down §16.4 con `productType=sealed`; sin consola de precios P-18 — el
+  sellado conserva su cadena H-1, solo precio manual por pieza), `Publicar` (bulk de sus folios).
+- Estado vacío de la pestaña: `Sin producto sellado en inventario.` + CTA `Alta por lote` (el alta clásica
+  admite tipo sellado).
+
+### 16.9 Pestaña «Gradeadas» (P-20) — por carta + grado
+
+Consume `GET /admin/inventory/graded` (agregado por carta × empresa × grado).
+- **Lista** (`DataTable`, fila 56px): miniatura + nombre/set/número + **`GradedCertChip`-estilo de grado**
+  `PSA 10` (accent §7.2c, SIN cert — el cert es de la pieza, no del grupo) + `Piezas` (count) +
+  `Valor de mercado` + `Costo` (`super_admin`).
+- **Valor de mercado por grado es MANUAL en este stream** (decisión v1.28): cifra mono con sufijo `·M`
+  cuando existe (`title`: `Valor fijado manualmente`); sin valor → `SIN VALOR` (warning outline) y — solo
+  `super_admin` — acción `Fijar valor…`: mini-form inline (input dinero + `Guardar`) que llama al override
+  de mercado existente (`POST /admin/pricing/override`, `productType:"graded"`). Copy del helper:
+  `Fija el valor de mercado de esta carta en este grado (p. ej. lo que se vende una PSA 10). Alimenta la
+  valuación del inventario.`
+- **Drill-down** por grupo (§16.4 con `productType=graded`): filas de pieza muestran además el
+  **`certNumber`** completo (mono, copiable — §7.2c). Sin stepper de cantidad en alta (slab = pieza única).
+- **CTA de pestaña `Agregar gradeada`** (también accesible como acción secundaria de la teja del Master
+  Set, menú kebab `Agregar gradeada…`): formulario corto en modal — Empresa (Select: PSA/CGC/…), Grado,
+  `Número de certificado` (mono, requerido para publicar), `Precio de compra` (dinero) → un solo
+  `POST /admin/inventory/items` (qty 1 forzado). Resultado con folio, patrón §16.5b.
+- Estado vacío: `Sin cartas gradeadas en inventario.` + CTA `Agregar gradeada`.
+
+### 16.10 i18n — claves nuevas (propiedad de frontend)
+
+- `admin.inventory.tabs.{masterSet,sealed,graded}` · `admin.inventory.folioSearch.{placeholder,notFound}`
+- `admin.inventory.value.{total,raw,sealed,graded,cost,pendingCount}`
+- `admin.pricing.console.{market,buy,sell,suggested,override,effective,source.rule,source.manual,source.bounty,source.pending,resetToRule,save,saved,overrideRemoved,pisaNota}`
+- `admin.quickAdd.{title,qty,buy.label,buy.sublabel,buy.helper.rule,buy.helper.manual,buy.helper.bounty,buy.helper.none,contrib.label,contrib.sublabel,contrib.pendingBlocked,cta,loading,successSummary,pricePendingError,partialSummary}`
+- `admin.publishAll.{title,body,scope.all,scope.set,scope.sealed,pendingNote,moneyNote,cta,result.published,result.alreadyListed,result.pendingPrice,result.failed,result.seePending,result.capped,result.replay,close}`
+- `admin.drawer.{pieces,addQuick,pieceOverridesVariant,noPieces,folioCopied,editPrice,markLoss}`
+- `admin.bounty.{toggle,price,premium,noSuggested,targetQty,targetHelper,progress,completed,offWithHistory,badge}`
+- `buylist.bounties.{eyebrow,title,subtitle,wePay,remaining,cta}`
+- `finish.{normal,reverse,holo,firstEdHolo}` (etiquetas del `FinishMark` — compartidas con Stream C)
+- Errores nuevos: `error.BOUNTY_PRICE_REQUIRED`, `error.BOUNTY_BELOW_RULE` (con el copy de §16.7a).
+
+Reglas: dinero con `Intl` + `tabular-nums` (§9.3); folios/certs en mono sin traducir; contenedores
+dimensionados para ES (§9.4 — `Dar de alta al inventario` y `Publicar todo el inventario` son las cadenas
+largas a probar).
+
+### 16.11 Notas para el arquitecto / product-owner (no bloquean el diseño)
+
+1. **Dry-run de `publish-all` (deseable, no requerido):** el pedido original de P-19 habla de una
+   confirmación con "cuántas se publicarán / cuántas quedarán pendientes". El contrato v1.28 no tiene
+   preview, así que el diseño pone la honestidad en el RESULTADO (§16.5c2) y la confirmación describe
+   alcance y reglas. Si el humano quiere el conteo ANTES de ejecutar, se necesitaría un parámetro
+   `dryRun:true` (misma selección, cero escrituras). Petición registrada, no asumida.
+2. **`BountyCard` → cotizador precargado:** el CTA `Cotizar esta carta` asume que el cotizador acepta
+   precarga de carta+finish por URL/estado. Si no existe, el CTA cae al set de la carta (degradación
+   aceptable); confirmar con frontend/Stream C.
+3. **`FinishMark` es la semilla de P-14 (Stream C):** el cotizador y el storefront deben reutilizar este
+   componente tal cual (banda + etiqueta). Cualquier evolución (p. ej. efecto foil animado) se decide en
+   Stream C sin romper la tabla de §16.6.
+
+---
+
+## 17. Identidad TCG HUNT (P-21, v1.7)
+
+> **Qué es:** el rebrand de la marca visible. El sitio pasa de "TCG VAULT MX" a **TCG HUNT** (dominio
+> `tcghunt.mx`). **Qué NO es:** un rediseño — la dirección editorial papel/tinta 5a (§1–§16) sigue intacta;
+> cambia el **acento de color** (bermellón → rojo TCG HUNT) y se incorpora el **logo de mira**.
+>
+> **Origen:** reconstrucción vectorial fiel a la **referencia de alta resolución que compartió el humano**
+> (imagen de chat, 2026-08-21; **cotejada por el humano el mismo día → corrección v1.7.1**): una
+> **retícula de mira de rifle (scope reticle)** — dos anillos concéntricos **con huecos en los 4
+> cardinales**, cruz **segmentada** en cuatro líneas independientes que atraviesan esos huecos y terminan
+> antes del punto central (la izquierda mucho más larga; la superior sobresale más que la inferior),
+> **punto central anillado aislado**, degradado rojo `#B31217` (arriba/izquierda) → vino `#4A0D0D`
+> (abajo/derecha) en diagonal sobre el conjunto, wordmark "TCG HUNT" **ancho y dominante** en sans
+> geométrica bold en vino casi plano, y ".mx" pequeño alineado al borde derecho del wordmark, sobre fondo
+> blanco/claro. Cuando el humano suba el PNG original a `frontend/public/branding/`, se coteja el SVG
+> contra él y se ajustan métricas finas (grosores, gaps angulares, tracking del wordmark) si hiciera
+> falta — la geometría de esta sección es la fuente de verdad hasta entonces.
+
+### 17.1 El logo — SVG oficial (fuente de verdad vectorial)
+
+Anatomía de la retícula (`HuntMark`), común a todas las versiones — es una **mira de rifle (scope
+reticle)**, y la regla de oro es que **ningún trazo pisa a otro**:
+- **Dos anillos concéntricos** (stroke, sin relleno), proporción de radios ≈ 1 : 0.61, grosor de stroke
+  aproximadamente igual entre ambos. Cada anillo se dibuja como **4 arcos** (`path` con arcos, no
+  `circle`) dejando un **hueco (gap) centrado en cada punto cardinal** por donde pasa la cruz: gap
+  angular **~12° en el anillo exterior** y **~20° en el interior** (más ángulo a menos radio para que el
+  claro visual sea parejo y la línea pase con aire). Los arcos van con **cap plano (butt, el default)**:
+  si llevaran `round` invadirían el hueco y tocarían la línea.
+- **Cruz SEGMENTADA en cuatro líneas independientes** — nunca una línea corrida:
+  - **Vertical superior:** baja desde muy arriba (sobresale mucho del anillo exterior), atraviesa ambos
+    anillos por sus huecos y **termina dentro del anillo interior**, dejando un espacio claro antes del
+    punto central.
+  - **Vertical inferior:** empieza debajo del punto central (mismo espacio), atraviesa ambos huecos y
+    sobresale por debajo del anillo exterior — **proyección externa más corta que la superior**.
+  - **Horizontales: DOS segmentos.** El **izquierdo es el más largo** de los cuatro (viene desde muy
+    lejos), atraviesa los huecos y termina antes del punto central; el **derecho** empieza después del
+    punto central, atraviesa los huecos y se extiende lejos a la derecha (algo menos que el izquierdo).
+  - Los **ocho extremos** de los cuatro segmentos con **`stroke-linecap="round"`**.
+- **Punto central anillado AISLADO**: círculo pequeño con **centro hueco** (stroke grueso, el fondo se
+  ve a través). Nada lo toca — hay aire entre el punto y los cuatro finales de línea.
+- Sin rellenos, sin sombras (§4.3); radio 0 no aplica (el logo es la única pieza circular legítima del
+  sistema — es un glifo, no un componente UI).
+- **Degradados** (`userSpaceOnUse` para que todas las piezas compartan rampa): `huntGrad` **diagonal**
+  arriba/izquierda → abajo/derecha para toda la retícula (stops `#B31217` 0% → `#4A0D0D` 100%), y
+  `huntGradWm` para el wordmark: **rampa corta de vino** `#6E1013` → `#4A0D0D` (en el original el texto
+  se ve vino oscuro casi plano con leve gradiente).
+
+**(a) Versión completa — lockup principal (retícula + wordmark), fondo claro.** Composición apilada
+fiel a la referencia: retícula arriba (segmento horizontal izquierdo el más largo), **wordmark ancho y
+dominante** debajo — ocupa casi todo el ancho de las horizontales —, ".mx" alineado al borde derecho
+del wordmark. Para el frontend: pegar como componente `<LogoTcgHunt />`; los `id` de gradiente llevan
+prefijo por instancia si se monta más de una vez en la página (evitar `id` duplicados en el DOM).
+Geometría de referencia: centro de retícula `(240,112)`, anillo exterior `r=56` (gap 12°/cardinal),
+interior `r=34` (gap 20°/cardinal), claro alrededor del punto central = **18px** desde el centro por
+los cuatro lados.
+
+```svg
+<svg viewBox="0 0 480 330" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="TCG HUNT — tcghunt.mx">
+  <defs>
+    <!-- degradado del conjunto: rojo arriba/izquierda → vino abajo/derecha (diagonal) -->
+    <linearGradient id="huntGrad" gradientUnits="userSpaceOnUse"
+                    x1="10" y1="8" x2="452" y2="198">
+      <stop offset="0" stop-color="#B31217"/>
+      <stop offset="1" stop-color="#4A0D0D"/>
+    </linearGradient>
+    <!-- wordmark: vino oscuro casi plano, leve gradiente -->
+    <linearGradient id="huntGradWm" gradientUnits="userSpaceOnUse"
+                    x1="0" y1="232" x2="0" y2="290">
+      <stop offset="0" stop-color="#6E1013"/>
+      <stop offset="1" stop-color="#4A0D0D"/>
+    </linearGradient>
+  </defs>
+
+  <!-- RETÍCULA (centro 240,112) — cruz SEGMENTADA: nada pisa nada -->
+  <!-- horizontal izquierda (la más larga): termina 18px antes del centro -->
+  <line x1="10"  y1="112" x2="222" y2="112" stroke="url(#huntGrad)" stroke-width="7" stroke-linecap="round"/>
+  <!-- horizontal derecha: empieza 18px después del centro -->
+  <line x1="258" y1="112" x2="452" y2="112" stroke="url(#huntGrad)" stroke-width="7" stroke-linecap="round"/>
+  <!-- vertical superior: sobresale mucho por arriba, termina dentro del anillo interior -->
+  <line x1="240" y1="8"   x2="240" y2="94"  stroke="url(#huntGrad)" stroke-width="7" stroke-linecap="round"/>
+  <!-- vertical inferior: más corta en proyección externa -->
+  <line x1="240" y1="130" x2="240" y2="198" stroke="url(#huntGrad)" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- anillo exterior r=56: 4 arcos, gap de 12° centrado en cada cardinal (cap plano) -->
+  <path d="M295.69 117.85 A56 56 0 0 1 245.85 167.69" stroke="url(#huntGrad)" stroke-width="7"/>
+  <path d="M234.15 167.69 A56 56 0 0 1 184.31 117.85" stroke="url(#huntGrad)" stroke-width="7"/>
+  <path d="M184.31 106.15 A56 56 0 0 1 234.15 56.31"  stroke="url(#huntGrad)" stroke-width="7"/>
+  <path d="M245.85 56.31  A56 56 0 0 1 295.69 106.15" stroke="url(#huntGrad)" stroke-width="7"/>
+
+  <!-- anillo interior r=34: 4 arcos, gap de 20° centrado en cada cardinal (cap plano) -->
+  <path d="M273.48 117.90 A34 34 0 0 1 245.90 145.48" stroke="url(#huntGrad)" stroke-width="6.5"/>
+  <path d="M234.10 145.48 A34 34 0 0 1 206.52 117.90" stroke="url(#huntGrad)" stroke-width="6.5"/>
+  <path d="M206.52 106.10 A34 34 0 0 1 234.10 78.52"  stroke="url(#huntGrad)" stroke-width="6.5"/>
+  <path d="M245.90 78.52  A34 34 0 0 1 273.48 106.10" stroke="url(#huntGrad)" stroke-width="6.5"/>
+
+  <!-- punto central anillado (centro hueco) — AISLADO, nada lo toca -->
+  <circle cx="240" cy="112" r="8" stroke="url(#huntGrad)" stroke-width="5.5"/>
+
+  <!-- WORDMARK dominante: Montserrat 700 (--font-brand, §17.1e), casi el ancho de las horizontales -->
+  <text x="240" y="278" text-anchor="middle"
+        font-family="Montserrat, Archivo, system-ui, sans-serif"
+        font-size="66" font-weight="700" letter-spacing="9"
+        fill="url(#huntGradWm)">TCG HUNT</text>
+  <!-- ".mx" abajo-derecha, alineado al borde derecho del wordmark, vino sólido -->
+  <text x="452" y="312" text-anchor="end"
+        font-family="Montserrat, Archivo, system-ui, sans-serif"
+        font-size="24" font-weight="600" letter-spacing="0.5"
+        fill="#4A0D0D">.mx</text>
+</svg>
+```
+
+**(b) Versión solo-mira (`HuntMark`)** — avatar, topbar compacto, apple-touch. Cuadrada; misma
+gramática de retícula (cruz segmentada + anillos con huecos + punto aislado); en lienzo cuadrado las
+horizontales no pueden ser dramáticamente más largas, pero la izquierda sigue siendo la mayor y la
+vertical superior sobresale más que la inferior:
+
+```svg
+<svg viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="TCG HUNT">
+  <defs>
+    <linearGradient id="huntMarkGrad" gradientUnits="userSpaceOnUse" x1="1" y1="2" x2="124" y2="122">
+      <stop offset="0" stop-color="#B31217"/><stop offset="1" stop-color="#4A0D0D"/>
+    </linearGradient>
+  </defs>
+  <!-- cruz segmentada (centro 64,64; claro de 12px alrededor del punto) -->
+  <line x1="1"  y1="64" x2="52" y2="64"  stroke="url(#huntMarkGrad)" stroke-width="8" stroke-linecap="round"/>
+  <line x1="76" y1="64" x2="124" y2="64" stroke="url(#huntMarkGrad)" stroke-width="8" stroke-linecap="round"/>
+  <line x1="64" y1="2"  x2="64" y2="52"  stroke="url(#huntMarkGrad)" stroke-width="8" stroke-linecap="round"/>
+  <line x1="64" y1="76" x2="64" y2="122" stroke="url(#huntMarkGrad)" stroke-width="8" stroke-linecap="round"/>
+  <!-- anillo exterior r=36: 4 arcos, gap 16°/cardinal -->
+  <path d="M99.65 69.01 A36 36 0 0 1 69.01 99.65" stroke="url(#huntMarkGrad)" stroke-width="8"/>
+  <path d="M58.99 99.65 A36 36 0 0 1 28.35 69.01" stroke="url(#huntMarkGrad)" stroke-width="8"/>
+  <path d="M28.35 58.99 A36 36 0 0 1 58.99 28.35" stroke="url(#huntMarkGrad)" stroke-width="8"/>
+  <path d="M69.01 28.35 A36 36 0 0 1 99.65 58.99" stroke="url(#huntMarkGrad)" stroke-width="8"/>
+  <!-- anillo interior r=22: 4 arcos, gap 28°/cardinal -->
+  <path d="M85.35 69.32 A22 22 0 0 1 69.32 85.35" stroke="url(#huntMarkGrad)" stroke-width="7"/>
+  <path d="M58.68 85.35 A22 22 0 0 1 42.65 69.32" stroke="url(#huntMarkGrad)" stroke-width="7"/>
+  <path d="M42.65 58.68 A22 22 0 0 1 58.68 42.65" stroke="url(#huntMarkGrad)" stroke-width="7"/>
+  <path d="M69.32 42.65 A22 22 0 0 1 85.35 58.68" stroke="url(#huntMarkGrad)" stroke-width="7"/>
+  <!-- punto central anillado, aislado -->
+  <circle cx="64" cy="64" r="5" stroke="url(#huntMarkGrad)" stroke-width="4.5"/>
+</svg>
+```
+
+**(c) Variante para fondo oscuro (paneles de tinta `#1A1A18`: hero de auth, sidebar admin, footer
+oscuro).** El degradado original NO se usa sobre tinta: el vino `#4A0D0D` es ilegible (~1.4:1) y el rojo
+`#B31217` queda en ~2.5:1 (< 3:1). La variante oscura **aclara la rampa** (`#F0685F` → `#D0362C`, ambos
+≥ 3:1 sobre tinta, §17.2) y pinta el **wordmark en papel sólido** `#F4F1EA` (~15.5:1) — sobre oscuro la
+identidad la porta la mira; el wordmark prioriza legibilidad:
+
+```svg
+<svg viewBox="0 0 480 330" fill="none" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="TCG HUNT — tcghunt.mx">
+  <defs>
+    <linearGradient id="huntGradDark" gradientUnits="userSpaceOnUse" x1="10" y1="8" x2="452" y2="198">
+      <stop offset="0" stop-color="#F0685F"/><stop offset="1" stop-color="#D0362C"/>
+    </linearGradient>
+  </defs>
+  <!-- misma geometría que (a): cruz segmentada + anillos con huecos + punto aislado -->
+  <line x1="10"  y1="112" x2="222" y2="112" stroke="url(#huntGradDark)" stroke-width="7" stroke-linecap="round"/>
+  <line x1="258" y1="112" x2="452" y2="112" stroke="url(#huntGradDark)" stroke-width="7" stroke-linecap="round"/>
+  <line x1="240" y1="8"   x2="240" y2="94"  stroke="url(#huntGradDark)" stroke-width="7" stroke-linecap="round"/>
+  <line x1="240" y1="130" x2="240" y2="198" stroke="url(#huntGradDark)" stroke-width="7" stroke-linecap="round"/>
+  <path d="M295.69 117.85 A56 56 0 0 1 245.85 167.69" stroke="url(#huntGradDark)" stroke-width="7"/>
+  <path d="M234.15 167.69 A56 56 0 0 1 184.31 117.85" stroke="url(#huntGradDark)" stroke-width="7"/>
+  <path d="M184.31 106.15 A56 56 0 0 1 234.15 56.31"  stroke="url(#huntGradDark)" stroke-width="7"/>
+  <path d="M245.85 56.31  A56 56 0 0 1 295.69 106.15" stroke="url(#huntGradDark)" stroke-width="7"/>
+  <path d="M273.48 117.90 A34 34 0 0 1 245.90 145.48" stroke="url(#huntGradDark)" stroke-width="6.5"/>
+  <path d="M234.10 145.48 A34 34 0 0 1 206.52 117.90" stroke="url(#huntGradDark)" stroke-width="6.5"/>
+  <path d="M206.52 106.10 A34 34 0 0 1 234.10 78.52"  stroke="url(#huntGradDark)" stroke-width="6.5"/>
+  <path d="M245.90 78.52  A34 34 0 0 1 273.48 106.10" stroke="url(#huntGradDark)" stroke-width="6.5"/>
+  <circle cx="240" cy="112" r="8" stroke="url(#huntGradDark)" stroke-width="5.5"/>
+  <!-- wordmark en papel sólido (sobre tinta la identidad la porta la retícula) -->
+  <text x="240" y="278" text-anchor="middle"
+        font-family="Montserrat, Archivo, system-ui, sans-serif"
+        font-size="66" font-weight="700" letter-spacing="9" fill="#F4F1EA">TCG HUNT</text>
+  <text x="452" y="312" text-anchor="end"
+        font-family="Montserrat, Archivo, system-ui, sans-serif"
+        font-size="24" font-weight="600" letter-spacing="0.5" fill="#F0685F">.mx</text>
+</svg>
+```
+La solo-mira oscura es la (b) con los stops de `#F0685F` → `#D0362C` (misma geometría segmentada).
+
+**(d) Glifo micro (< 28px, v1.7.1) — `HuntMark` micro.** A 12–16px los dos anillos + punto hueco se
+empastan y por debajo de ~28px los huecos de los anillos ya no se leen.
+Versión simplificada monocroma (`currentColor`, sin gradiente — invisible a ese tamaño): **un solo
+anillo + cruz SEGMENTADA + punto sólido**. **Simplificación explícita:** el micro **omite los huecos
+del anillo** (un gap de 12–20° a 16px mide < 1px y no se lee; el anillo va cerrado y las líneas lo
+cruzan en el mismo color, donde el solape es invisible), pero **conserva la cruz segmentada y el punto
+aislado** — esa interrupción alrededor del centro sí lee a 16px y es la firma de la retícula. Es el
+glifo que usan el badge **BOUNTY** (§16.7b, sustituye al `crosshair` de lucide) y cualquier uso inline
+junto a texto:
+
+```svg
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <!-- cruz segmentada: 4 segmentos, claro de 4px alrededor del punto; inferior más corta -->
+  <line x1="0.75" y1="12" x2="8"  y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <line x1="16"  y1="12" x2="23.25" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <line x1="12"  y1="1"  x2="12" y2="8"  stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <line x1="12"  y1="16" x2="12" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <!-- anillo único CERRADO (simplificación micro: sin gaps) -->
+  <circle cx="12" cy="12" r="6.5" stroke="currentColor" stroke-width="2"/>
+  <!-- punto sólido aislado -->
+  <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>
+</svg>
+```
+
+**(e) Tipografía del wordmark — Montserrat 700 (`--font-brand`).** La referencia usa una sans geométrica
+bold (estilo Montserrat/Poppins); se adopta **Montserrat, peso 700** (Google Font). Carga según la
+convención del proyecto (§3.1 — self-hosted por `next/font/google` en `[locale]/layout.tsx`, subset
+`latin`, sin petición runtime a Google):
+```ts
+const brand = Montserrat({ subsets: ['latin'], weight: ['700'], variable: '--font-brand' });
+// añadir brand.variable a la clase del <html>, junto a --font-serif/--font-sans/--font-mono
+```
+- `--font-brand` es **exclusiva del wordmark/lockup** (componente Logo, header de correo, OG). NO entra
+  en la escala tipográfica de §3: los títulos siguen en Zen Old Mincho y la UI en Archivo. Un peso, un uso.
+- Fallback declarado en el propio SVG: `Montserrat, Archivo, system-ui, sans-serif` (si la variable no
+  está montada, Archivo 700 es visualmente cercana y digna).
+- **SVG fuera del DOM de Next** (favicon `.svg`, OG estático, correos): la fuente NO viaja → esos usos
+  emplean la **solo-mira (b)/(d)** (sin texto) o un **raster exportado** del lockup. Cuando el humano
+  suba el arte original, es deseable una versión del wordmark **convertida a paths** (outline) para usos
+  standalone — anotado en §17.5.
+
+### 17.2 Paleta del rebrand — el rojo TCG HUNT sustituye al bermellón
+
+**Decisión (recomendada por ux-ui, criterio: un solo acento, §2.1):** se **conserva íntegra la base
+editorial** papel/tinta/verde (`#F4F1EA`, `#EFEBE2`, `#1A1A18`, `#6E695E`, `#4E7A49`, `#9A6C57`) y el
+**bermellón `#B44B3A` se retira: NO convive** con el rojo nuevo. Dos rojos cálidos casi iguales en una
+paleta de "un solo acento usado con avaricia" serían ruido sin significado; el rojo TCG HUNT `#B31217`
+**hereda todos los roles** del bermellón (accent, warning, danger, anillo de foco). Ventajas: cero tokens
+semánticos nuevos que aprender, el cambio en frontend es **cambiar valores de CSS variables**, y el
+contraste sobre papel **mejora** (6.2:1 vs 4.65:1). La filosofía de §2 no cambia una coma: solo cambia la
+tinta del sello.
+
+**Tokens que cambian de VALOR (mismo nombre):**
+| Token | Antes (v1.3) | v1.7 |
+|---|---|---|
+| `--color-accent` | `#B44B3A` | **`#B31217`** (rojo TCG HUNT) |
+| `--color-warning` | `#B44B3A` | **`#B31217`** |
+| `--color-danger` | `#B44B3A` | **`#B31217`** |
+| `--color-focus-ring` | `#B44B3A` | **`#B31217`** |
+| `--vermillion` (base) | `#B44B3A` | se renombra **`--hunt-red: #B31217`** (alias `--vermillion` puede quedar apuntando al nuevo valor durante la transición) |
+
+**Tokens NUEVOS de marca (uso restringido al logo y a la marca):**
+```
+--hunt-red:        #B31217   (acento de marca = nuevo valor de --color-accent)
+--hunt-wine:       #4A0D0D   (extremo oscuro del degradado; texto de marca ".mx"; NO es token semántico)
+--hunt-wine-up:    #6E1013   (extremo claro de la rampa corta del wordmark, §17.1a; solo marca)
+--hunt-red-hover:  #8F0E12   (hover de botones accent / enlaces en accent; 8.3:1 sobre papel)
+--hunt-red-up:     #F0685F   (extremo claro del degradado en variante oscura)
+--hunt-red-deep:   #D0362C   (extremo oscuro del degradado en variante oscura)
+--hunt-tint:       rgba(179,18,23,0.06)  (único tinte de fondo de marca permitido — ver regla abajo)
+```
+- **`--hunt-tint`** existe SOLO para el fondo del shelf «Top Bounties» (§16.7c) y piezas de marca
+  (OG/correo) si el frontend lo necesita; **no** rompe la regla "sin rellenos de color en estados"
+  (§2.1): los `*-bg` semánticos **siguen `transparent`**. Si no se usa, mejor.
+- **El degradado `#B31217→#4A0D0D` es la SEGUNDA y última excepción de gradiente** del sistema (la
+  primera: banda reverse §16.6). Vive **exclusivamente** en el logo/lockup. Nunca en botones, fondos,
+  textos de UI ni bordes. La banda reverse de §16.6 pasa a `#9A6C57 → var(--color-accent)` (=`#B31217`)
+  — misma regla, hereda el valor por token.
+- **Guiño de marca (§5) actualizado:** la **mira** sustituye al "rayo/holo" como guiño permitido
+  (logotipo, hero, textura sutil en banners de confianza). Mismo límite: nunca compite con la carta.
+- **Semántica sin cambios:** verde = confirmado, rojo = atención (warning y danger se siguen
+  distinguiendo por el **texto en versalitas**, §2.4). El rojo TCG HUNT es más saturado que el bermellón;
+  la regla "usado con avaricia" es aún más importante — no ampliar su superficie de uso.
+
+**Verificación de contraste WCAG AA (se añade a la tabla de §10):**
+| Par | Ratio aprox. | Cumple |
+|---|---|---|
+| Rojo TCG HUNT `#B31217` sobre papel `#F4F1EA` (texto/badge/foco) | ~6.2:1 | AA (mejora vs bermellón 4.65:1) |
+| `#B31217` sobre pozo `#EFEBE2` | ~5.9:1 | AA |
+| Papel `#F4F1EA` sobre `#B31217` (botón accent) | ~6.2:1 | AA |
+| Hover `#8F0E12` sobre papel | ~8.3:1 | AA/AAA |
+| Vino `#4A0D0D` sobre papel (".mx", extremo del degradado) | ~13.8:1 | AA/AAA |
+| Vino claro `#6E1013` sobre papel (extremo claro del wordmark, §17.1a) | ~10.6:1 | AA/AAA |
+| Anillo de foco `#B31217` sobre papel / pozo | ~6.2:1 / ~5.9:1 | AA (≥3:1 UI) |
+| `#B31217` sobre tinta `#1A1A18` | ~2.5:1 | ✗ **PROHIBIDO** → usar variante oscura |
+| `#F0685F` sobre tinta (variante oscura, extremo claro) | ~5.7:1 | AA (gráfico/texto grande) |
+| `#D0362C` sobre tinta (variante oscura, extremo oscuro) | ~3.5:1 | AA UI (≥3:1; es trazo de logo, no texto) |
+| Wordmark papel `#F4F1EA` sobre tinta (variante oscura) | ~15.5:1 | AA/AAA |
+- El **degradado claro** del lockup (a): la retícula (diagonal `#B31217→#4A0D0D`) va de 6.2:1 a 13.8:1
+  sobre papel y el wordmark (rampa corta `#6E1013→#4A0D0D`) de ~10.6:1 a 13.8:1 — **todo el recorrido
+  ≥ AA** (texto grande ≥ 3:1 sobra; también cumple 4.5:1 de texto normal).
+- Ratificación §10: cualquier estado que hoy usa bermellón (PENDIENTE, RECHAZADA, precio pendiente,
+  QUEDAN N…) **sube** de contraste al heredar `#B31217`; no hay regresiones.
+
+### 17.3 Aplicación de marca
+
+| Superficie | Qué va | Detalle |
+|---|---|---|
+| **Topbar storefront** (§7.15) | ≥`md`: lockup horizontal = solo-mira (b) 28px + "TCG HUNT" en `--font-brand` 700, 18–20px, **tinta sólida** `#1A1A18` (a tamaño topbar el wordmark no usa degradado; ver reglas). `<md`: **solo-mira 28px** (área táctil 44px). | El ".mx" NO va en topbar (ruido); vive en lockup completo y footer. Enlace a home con `aria-label="TCG HUNT — inicio"`. |
+| **Topbar/sidebar admin** (panel de tinta) | Solo-mira **variante oscura** 28px + "TCG HUNT" en papel `#F4F1EA` (`--font-brand` 700, 14–16px). | El back-office comparte marca; sin ".mx". *(v1.7.1: sube de 24→28px — por debajo de 28px los huecos de los anillos no leen, ver tamaños mínimos.)* |
+| **Favicon** | **Glifo micro (d)** en `#B31217` sólido, fondo transparente (`icon.svg`); PNG 16/32 derivados. **Apple-touch 180px:** solo-mira (b) con degradado sobre fondo papel `#F4F1EA`, margen = 12% del lienzo. | A 16px el gradiente y el doble anillo no leen: micro glifo obligatorio. |
+| **OG image** (1200×630) | Fondo papel `#F4F1EA`; **lockup completo (a)** centrado (~60% del ancho, la horizontal de la mira respirando a ambos lados); abajo-derecha `tcghunt.mx` en mono `JetBrains Mono` 24px `#6E695E`. Nada más — sin fotos, sin cartas, sin degradados de fondo. | Composición estática exportada (el SVG con `<text>` no garantiza la fuente fuera del DOM: exportar a PNG con la fuente resuelta, §17.1e). |
+| **Correos** (§15.8) | Header: lockup completo (a) como **PNG @2x** (~360px de ancho visual) sobre fondo papel, regla inferior 1px `--color-border`. Remitente visible: **"TCG HUNT"**. | El SVG no es fiable en clientes de correo → raster. Alt: `TCG HUNT — tcghunt.mx`. |
+| **Login / auth** (§6.7, hero de tinta) | El hero del panel de tinta usa el **lockup variante oscura (c)**, centrado, ancho ~280–360px. En la columna del formulario (papel) puede repetirse la solo-mira (b) pequeña como sello. | Primera pantalla donde la marca nueva "se estrena": el degradado completo luce aquí. |
+| **Footer legal** (storefront) | `TCG HUNT · tcghunt.mx · © 2026 [RAZÓN SOCIAL PENDIENTE — placeholder]` en mono `text-xs muted` + enlaces legales. | La razón social y si los textos legales cambian está **abierto con el humano** (P-21); el frontend deja la clave i18n `footer.legalEntity` con placeholder. |
+| **Vitrina Top Bounties** (§16.7c) | El chip `☩ BOUNTY` y el badge admin usan el **glifo micro (d)**. El eyebrow `SE BUSCA` + la mira ahora son lenguaje de marca oficial ("cacería"). | Opcional: fondo del shelf en `--hunt-tint` (único uso permitido del tinte). |
+
+**Reglas de uso (qué sí / qué no):**
+- **Tamaños mínimos (v1.7.1):** lockup completo **160px** de ancho (por debajo, el ".mx", los huecos de
+  los anillos y el punto anillado se pierden → usar solo-mira); solo-mira (b) **28px** (por debajo, los
+  gaps de 16°/28° miden < 1px y la retícula se lee como anillos cerrados — se pierde la firma); por
+  debajo de **28px**, siempre el glifo micro (d), que ya trae esa simplificación hecha.
+- **Área de respeto:** alrededor de cualquier versión, espacio libre = **radio del anillo interior** de
+  esa instancia (≈ 0.6× del radio exterior). La zona se mide desde el **bounding box completo**, es
+  decir **incluyendo las líneas sobresalientes** de la cruz (la superior y la izquierda sobresalen más).
+  Nada de texto, bordes ni iconos dentro de esa zona.
+- **Wordmark con degradado** solo a tamaño de marca (cap height ≥ 18px: hero, login, OG, correo). En
+  topbar y tamaños de UI, wordmark en **sólido** (tinta sobre papel; papel sobre tinta).
+- **NO:** recolorear fuera de las variantes definidas (claro/oscuro/micro `currentColor`); no usar el
+  degradado claro sobre fondos oscuros (2.5:1, tabla §17.2) ni el oscuro sobre papel; no montar el logo
+  sobre el **arte de las cartas** (la carta es el héroe, §5); no rotar la mira (la cruz siempre
+  ortogonal); no rellenar los anillos; **no cerrar los huecos de los anillos ni unir los segmentos de la
+  cruz en una línea corrida** (salvo la simplificación de anillo del glifo micro, §17.1d — la cruz
+  segmentada no se une NUNCA, en ningún tamaño); no añadir sombras/relieve (§4.3); no animar la mira como spinner
+  (se confundiría con un estado de carga, §8.1); no reconstruir el wordmark en Zen Old Mincho ni en
+  Archivo cuando `--font-brand` esté disponible; no estirar/condensar.
+- El logo **no sustituye texto accesible**: donde el lockup sea el único contenido de un enlace, el
+  `aria-label` porta "TCG HUNT" (+ destino). Las versiones decorativas (badge, guiños) van `aria-hidden`.
+
+### 17.4 Copy de transición — cómo se nombra el sitio
+
+- **Nombre de marca:** **"TCG HUNT"** — siempre en mayúsculas, con espacio, sin guion. Nunca "TcgHunt",
+  "Tcg Hunt" ni "TCGHUNT". En prosa ES/EN se usa igual (no se traduce).
+- **Dominio en textos:** **"tcghunt.mx"** en minúsculas (mono cuando aparece como dato: footer, correos).
+  El lockup usa ".mx" como elemento gráfico; en prosa se escribe el dominio completo.
+- **Metadata/SEO:** `<title>` patrón `TCG HUNT — {página}`; `og:site_name: "TCG HUNT"`. Claves i18n
+  nuevas: `brand.name` ("TCG HUNT"), `brand.domain` ("tcghunt.mx"), `footer.legalEntity` (placeholder).
+  Todas las apariciones actuales de "TCG VAULT MX" en `messages/{es,en}.json`, correos y PDFs/folios que
+  nombren la marca migran a "TCG HUNT" (frontend y backend en sus rutas).
+- **"Bóveda" no cambia:** *vault/bóveda* sigue siendo el nombre de la **función** de custodia ("Mi
+  bóveda", `Vault`), no de la marca. El rebrand no renombra la feature.
+- **El nombre interno NO cambia:** el repo/carpeta `tcg-vault-mx`, los paquetes, módulos
+  (`backend/src/modules/vault`), rutas técnicas del contrato y la infra conservan su nombre. El rebrand
+  es de **marca visible** (UI, correos, metadata, dominio), no de código. Renombrar el repo/infra es una
+  decisión aparte del humano (registrada como abierta en `PENDIENTES.md` P-21).
+
+### 17.5 Notas para otros roles (derivadas del diseño, no bloquean)
+
+1. **Cotejo con el PNG original (humano → frontend):** cuando el PNG llegue a
+   `frontend/public/branding/`, comparar lado a lado con §17.1a y ajustar en el SVG solo métricas finas
+   (grosor de trazo, longitud de sobresalientes, **gaps angulares de los anillos**, claro alrededor del
+   punto, tracking). Si difiere la geometría de fondo, ux-ui actualiza esta sección primero. *(v1.7.1:
+   primer cotejo del humano ya aplicado — cruz segmentada, anillos con huecos, wordmark dominante.)*
+2. **Wordmark en paths (deseable):** para favicon/OG/correo conviene una versión del lockup con el
+   texto convertido a **outlines** (sin dependencia de fuente). Puede generarse desde este SVG con la
+   fuente instalada; frontend la guarda junto al componente.
+3. **Razón social / textos legales:** pendiente de confirmación del humano (¿cambia la entidad legal o
+   solo la marca comercial?). Mientras: placeholder `footer.legalEntity`.
+4. **Redirects y dominio** (`tcgvaultmx.com` → `tcghunt.mx`, DNS, CORS, Stripe): alcance de devops según
+   P-21; sin impacto en este documento.
+5. **§10:** la tabla de contraste de §17.2 se considera extensión normativa de §10; al implementarse el
+   cambio de tokens, los pares de bermellón de §10 quedan sustituidos por los de `#B31217` (todos con
+   ratio igual o mejor).

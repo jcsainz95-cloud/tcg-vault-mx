@@ -59,11 +59,16 @@ function buildPrisma(over: any = {}) {
 function buildPricing(over: any = {}) {
   return {
     loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
+    // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
+    loadBuylistRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 40 }),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
     // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     ...over,
+    // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+    getVariantOverridesBatch: jest.fn(async () => new Map()),
+    getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;
 }
 

@@ -56,6 +56,8 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
       gradeKeyFor: jest.fn(() => 'NM'),
       getReference: jest.fn(async () => ({ status: 'pending', referenceMxnCents: null })),
       computeSalePriceForItem: jest.fn(async () => ({ salePriceCents: null, status: 'pending' })),
+      // v1.28 (P-18): sin fila M-30 por default (comportamiento previo).
+      getVariantOverride: jest.fn(async () => null),
     };
     const svc = new OrdersService(
       prisma as PrismaService,

@@ -9,6 +9,12 @@ import { AuditService } from '../audit/audit.service';
 class SyncDto {
   @IsOptional() @IsString() setId?: string;
   @IsOptional() @IsString() fromReleaseDate?: string;
+  /**
+   * v1.27 (P-12, API_CONTRACT §M2 / ARCHITECTURE §4.25c) — con `true`, corre TAMBIÉN el resolver
+   * estructural TCGCSV para cada set procesado (variantes), no solo en first-import. Aditivo,
+   * default `false` (comportamiento previo exacto). Uso recomendado: `{ setId, force: true }`.
+   */
+  @IsOptional() @IsBoolean() force?: boolean;
 }
 
 class BackfillDto {
@@ -64,13 +70,16 @@ export class AdminCatalogController {
   @Post('sync')
   @HttpCode(202)
   async doSync(@Body() dto: SyncDto, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.sync.sync(dto.setId, dto.fromReleaseDate);
+    // v1.27 (P-12): `force` propagado hasta importSet/importSetByExternalId (resolver estructural
+    // TCGCSV por set) y registrado en el detalle de auditoría.
+    const force = dto.force ?? false;
+    const res = await this.sync.sync(dto.setId, dto.fromReleaseDate, force);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: 'catalog.sync',
       entityType: 'CardSet',
-      after: { setId: dto.setId ?? null, mode: res.mode, setsQueued: res.setsQueued },
+      after: { setId: dto.setId ?? null, mode: res.mode, setsQueued: res.setsQueued, force },
     });
     return res;
   }

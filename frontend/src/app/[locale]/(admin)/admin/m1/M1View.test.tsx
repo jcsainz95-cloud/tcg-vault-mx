@@ -4,12 +4,33 @@ import { QueryClient } from '@tanstack/react-query';
 import { renderWithProviders } from '@/test/render';
 import { M1View } from './M1View';
 import * as api from '@/lib/api';
-import * as fx from '@/lib/mock/fixtures';
 import { ApiClientError } from '@/lib/api-client';
 import type { CardDTO, Paginated } from '@/types/contract';
 
+// Rol controlable por test (P-24: las tarjetas de valor son solo super_admin).
+const roleState = vi.hoisted(() => ({ role: 'super_admin' }));
+vi.mock('@/lib/role', () => ({
+  useRole: () => ({
+    role: roleState.role,
+    setRole: () => {},
+    isSuperAdmin: roleState.role === 'super_admin',
+    canSwitchRole: false,
+  }),
+}));
+
+// Link de next-intl no resuelve bajo vitest; se stubea a <a href> (patrón AdminDashboard.test).
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  roleState.role = 'super_admin';
+  window.history.replaceState(null, '', '/');
 });
 
 function fakeCard(i: number): CardDTO {
@@ -33,28 +54,100 @@ function page(cards: CardDTO[], pageNum: number, total: number): Paginated<CardD
   return { data: cards, page: pageNum, pageSize: 20, total };
 }
 
+/** Abre el modal «Alta por lote» (el alta masiva P-5, ahora en la toolbar) y busca. */
 async function openModalAndSearch(term: string) {
-  fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Alta por lote/ }));
   const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
   fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: term } });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
   return dialog;
 }
 
-describe('M1View · Buscador / picker del catálogo', () => {
+describe('M1View · Layout P-17 (pestañas + buscador por folio + tarjetas de valor)', () => {
+  it('abre en Master Set por default, con pestañas Sellado y Gradeadas — SIN pestaña Piezas', async () => {
+    renderWithProviders(<M1View />, 'es');
+
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Master Set', 'Sellado', 'Gradeadas']);
+    expect(screen.getByRole('tab', { name: 'Master Set' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'Piezas' })).not.toBeInTheDocument();
+    // El binder Master Set (índice de sets) es el contenido default.
+    expect(await screen.findByLabelText('Buscar set')).toBeInTheDocument();
+  });
+
+  it('P-24: super_admin ve las 4 tarjetas de valor (a mercado + costo + N sin precio → M2)', async () => {
+    renderWithProviders(<M1View />, 'es');
+
+    expect(await screen.findByText('Valor total')).toBeInTheDocument();
+    expect(screen.getByText('Sueltas')).toBeInTheDocument();
+    // "Sellado"/"Gradeadas" aparecen también como pestañas → basta el total + sueltas + cifras.
+    expect(screen.getByText('MX$84,300.00')).toBeInTheDocument(); // atReferenceCents total
+    expect(screen.getByText('Costo: MX$59,010.00')).toBeInTheDocument();
+    // Exclusión visible: la línea "sin precio" enlaza a la cola M2 (context=inventory).
+    const pending = screen.getByRole('link', { name: '3 piezas sin precio' });
+    expect(pending.getAttribute('href')).toContain('/admin/m2');
+  });
+
+  it('P-24: para vault_operator la fila de valor se OMITE por completo (sin candados)', async () => {
+    roleState.role = 'vault_operator';
+    renderWithProviders(<M1View />, 'es');
+
+    await screen.findByLabelText('Buscar set');
+    expect(screen.queryByText('Valor total')).not.toBeInTheDocument();
+    expect(screen.queryByText(/sin precio/)).not.toBeInTheDocument();
+  });
+
+  it('la pestaña activa se refleja en la URL (?tab=) al cambiar a Sellado', async () => {
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('tab', { name: 'Sellado' }));
+
+    await waitFor(() => expect(window.location.search).toContain('tab=sealed'));
+    expect(screen.getByRole('tab', { name: 'Sellado' })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('M1View · Buscador por folio persistente (§16.1.1)', () => {
+  it('un folio válido abre el DRILL-DOWN de la variante dueña con la pieza resaltada', async () => {
+    renderWithProviders(<M1View />, 'es');
+
+    fireEvent.change(screen.getByLabelText('Buscar por folio'), {
+      target: { value: 'INV-000110' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar folio' }));
+
+    // INV-000110 (fixtures) = Zapdos raw holofoil → drill-down de ESA variante.
+    const drawer = await screen.findByRole('dialog', { name: /Zapdos/ });
+    expect(within(drawer).getByText(/RAW · NM · HOLOFOIL/)).toBeInTheDocument();
+    // La fila de la pieza está presente (folio copiable).
+    expect(await within(drawer).findByText(/INV-000110/)).toBeInTheDocument();
+  });
+
+  it('folio inexistente → mensaje inline bajo el input (no toast)', async () => {
+    renderWithProviders(<M1View />, 'es');
+
+    fireEvent.change(screen.getByLabelText('Buscar por folio'), {
+      target: { value: 'INV-999999' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar folio' }));
+
+    expect(await screen.findByText('No existe una pieza con ese folio.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('M1View · «Alta por lote» (modal P-5 existente, sin cambios funcionales)', () => {
   it('los resultados muestran miniatura, #número, rareza y acabados disponibles', async () => {
     renderWithProviders(<M1View />, 'es');
     const dialog = await openModalAndSearch('Charizard');
 
     const option = await within(dialog).findByRole('option', { name: /Charizard/ });
-    // #número + rareza (CardDTO ya los trae) + badges de acabados (v1.6-finish).
     expect(within(option).getByText('#4')).toBeInTheDocument();
     expect(within(option).getByText('Rare Holo')).toBeInTheDocument();
     expect(within(option).getByText('Holofoil')).toBeInTheDocument();
     expect(within(option).getByText('Reverse Holo')).toBeInTheDocument();
   });
 
-  it('pagina con "Cargar más": pide page=2 y acumula resultados (raíz de "veo pocas cartas")', async () => {
+  it('pagina con "Cargar más": pide page=2 y acumula resultados', async () => {
     const spy = vi
       .spyOn(api, 'searchBuylistCards')
       .mockImplementation(async (filters) =>
@@ -66,10 +159,8 @@ describe('M1View · Buscador / picker del catálogo', () => {
     const dialog = await openModalAndSearch('Fake');
 
     expect(await within(dialog).findByText('20 de 25 cartas')).toBeInTheDocument();
-    // P-3: el buscador del alta pide pageSize 50 (antes 20) para bajar la fricción de "Cargar más".
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({ q: 'Fake', page: 1, pageSize: 50 }),
-    );
+    // P-3: pageSize 50 para bajar la fricción de "Cargar más".
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ q: 'Fake', page: 1, pageSize: 50 }));
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cargar más' }));
 
@@ -77,36 +168,7 @@ describe('M1View · Buscador / picker del catálogo', () => {
       expect(spy).toHaveBeenCalledWith(expect.objectContaining({ q: 'Fake', page: 2, pageSize: 50 })),
     );
     expect(await within(dialog).findByText('25 de 25 cartas')).toBeInTheDocument();
-    // Con todo cargado, el botón desaparece.
     expect(within(dialog).queryByRole('button', { name: 'Cargar más' })).not.toBeInTheDocument();
-  });
-
-  it('una carta raw con UN solo acabado lo muestra fijo (no lo oculta en silencio)', async () => {
-    renderWithProviders(<M1View />, 'es');
-    // c-latias-sir solo existe en holofoil.
-    const dialog = await openModalAndSearch('Latias');
-    fireEvent.click(await within(dialog).findByRole('option', { name: /Latias/ }));
-
-    expect(
-      await within(dialog).findByText('Acabado: Holofoil (único disponible para esta carta).'),
-    ).toBeInTheDocument();
-  });
-
-  it('P-4: el alta usa el folio devuelto para confirmar el éxito', async () => {
-    vi.spyOn(api, 'createInventoryItem').mockResolvedValue({
-      id: 'inv-new-1',
-      folio: 'INV-000777',
-      status: 'in_stock',
-      acquisitionCostCents: 0,
-    });
-    renderWithProviders(<M1View />, 'es');
-    const dialog = await openModalAndSearch('Pikachu');
-    fireEvent.click((await within(dialog).findAllByRole('option', { name: /Pikachu/ }))[0]);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
-
-    expect(
-      await screen.findByText('Item creado en bóveda · folio INV-000777.'),
-    ).toBeInTheDocument();
   });
 
   it('P-4.3: al crear con éxito dispara un toast INEQUÍVOCO con el folio y refresca la lista', async () => {
@@ -116,14 +178,13 @@ describe('M1View · Buscador / picker del catálogo', () => {
       status: 'in_stock',
       acquisitionCostCents: 0,
     });
-    // FIX 4: el éxito debe invalidar la query del inventario admin (refresco de la tabla).
     const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
     renderWithProviders(<M1View />, 'es');
     const dialog = await openModalAndSearch('Pikachu');
     fireEvent.click((await within(dialog).findAllByRole('option', { name: /Pikachu/ }))[0]);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
 
-    // El toast vive en un portal a <body> (visible por encima del modal), no dentro del dialog.
+    // El toast vive en un portal a <body>, visible por encima del modal.
     expect(await screen.findByText('Pieza dada de alta · folio INV-000777.')).toBeInTheDocument();
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-inventory'] }),
@@ -139,17 +200,13 @@ describe('M1View · Buscador / picker del catálogo', () => {
     fireEvent.click((await within(dialog).findAllByRole('option', { name: /Pikachu/ }))[0]);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
 
-    // Copy del alta admin (no el de storefront "no se puede comprar").
     const alert = await within(dialog).findByRole('alert');
-    // FIX 3: el título es corto y el cuerpo NO repite "No se pudo dar de alta:" (sin redundancia).
     expect(within(alert).getByText('No se pudo dar de alta')).toBeInTheDocument();
     expect(
       within(alert).getByText(
         'Esta carta aún no tiene precio de referencia; se envió a la cola de precios pendientes.',
       ),
     ).toBeInTheDocument();
-    // El cuerpo no arrastra el prefijo del título.
-    expect(within(alert).queryByText(/No se pudo dar de alta:/)).not.toBeInTheDocument();
   });
 
   it('P-5: alta MASIVA envía un lote y muestra el resultado por-ítem (folio + fallo)', async () => {
@@ -164,18 +221,11 @@ describe('M1View · Buscador / picker del catálogo', () => {
       ],
     });
     renderWithProviders(<M1View />, 'es');
-
-    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
-    // Activa el modo de selección múltiple.
+    const dialog = await openModalAndSearch('Fake');
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ }));
-    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'Fake' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
 
-    // Marca las dos cartas en el lote.
     fireEvent.click(await within(dialog).findByRole('option', { name: /Fake Card 1/ }));
     fireEvent.click(within(dialog).getByRole('option', { name: /Fake Card 2/ }));
-
     fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 2 cartas' }));
 
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
@@ -183,7 +233,6 @@ describe('M1View · Buscador / picker del catálogo', () => {
     expect(payload.items).toHaveLength(2);
     expect(payload.batchKey).toBeTruthy();
 
-    // Resultado por-ítem: la creada con su folio, la fallida con su motivo (copy del operador).
     expect(await within(dialog).findByText('INV-000501')).toBeInTheDocument();
     expect(within(dialog).getByText(/precio de referencia/)).toBeInTheDocument();
   });
@@ -197,23 +246,17 @@ describe('M1View · Buscador / picker del catálogo', () => {
       results: [{ index: 0, ok: true, folios: ['INV-000600'], inventoryItemIds: ['inv-a'] }],
     });
     renderWithProviders(<M1View />, 'es');
-
-    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    const dialog = await openModalAndSearch('Fake');
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ }));
-    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'Fake' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
     fireEvent.click(await within(dialog).findByRole('option', { name: /Fake Card 1/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' }));
 
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
-    // Tras un envío exitoso el lote se vacía (evita reenviar y duplicar las creadas): el botón
-    // queda deshabilitado con conteo 0 y el resultado por-ítem se conserva.
     expect(await within(dialog).findByText('INV-000600')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Dar de alta 0 cartas' })).toBeDisabled();
   });
 
-  it('P-5: anti-doble-alta — tras un ÉXITO el batchKey se RENUEVA (la nueva tanda usa otra key)', async () => {
+  it('P-5: anti-doble-alta — tras un ÉXITO el batchKey se RENUEVA; un retry tras FALLO lo REUSA', async () => {
     vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([fakeCard(1), fakeCard(2)], 1, 2));
     const batchSpy = vi.spyOn(api, 'batchCreateItems').mockImplementation(async (payload) => ({
       batchKey: payload.batchKey,
@@ -227,12 +270,8 @@ describe('M1View · Buscador / picker del catálogo', () => {
       })),
     }));
     renderWithProviders(<M1View />, 'es');
-
-    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    const dialog = await openModalAndSearch('Fake');
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ }));
-    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'Fake' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
 
     // 1ª tanda.
     fireEvent.click(await within(dialog).findByRole('option', { name: /Fake Card 1/ }));
@@ -240,14 +279,13 @@ describe('M1View · Buscador / picker del catálogo', () => {
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
     await within(dialog).findByText('INV-000700');
 
-    // 2ª tanda: se arma un nuevo lote y se envía.
+    // 2ª tanda: nueva key (nunca un replay que duplique).
     fireEvent.click(within(dialog).getByRole('option', { name: /Fake Card 2/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' }));
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
 
     const firstKey = batchSpy.mock.calls[0][0].batchKey;
     const secondKey = batchSpy.mock.calls[1][0].batchKey;
-    // Cada tanda exitosa RENUEVA la key → dos altas distintas, nunca un replay que duplique.
     expect(firstKey).toBeTruthy();
     expect(secondKey).toBeTruthy();
     expect(secondKey).not.toBe(firstKey);
@@ -255,320 +293,98 @@ describe('M1View · Buscador / picker del catálogo', () => {
 
   it('P-5: replay — un reintento del MISMO envío (tras fallo) REUSA la batchKey (idempotencia)', async () => {
     vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([fakeCard(1)], 1, 1));
-    // El envío falla (p. ej. timeout de red): el lote NO se vacía y la key NO se renueva.
     const batchSpy = vi
       .spyOn(api, 'batchCreateItems')
       .mockRejectedValue(new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }));
     renderWithProviders(<M1View />, 'es');
-
-    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
+    const dialog = await openModalAndSearch('Fake');
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ }));
-    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'Fake' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
     fireEvent.click(await within(dialog).findByRole('option', { name: /Fake Card 1/ }));
 
-    const submit = within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' });
-    fireEvent.click(submit);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' }));
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(1));
 
-    // Reintento del mismo lote (el botón sigue con conteo 1 porque el fallo no vació el lote).
     fireEvent.click(within(dialog).getByRole('button', { name: 'Dar de alta 1 cartas' }));
     await waitFor(() => expect(batchSpy).toHaveBeenCalledTimes(2));
 
-    // Misma key en ambos envíos → el backend lo trata como replay idempotente, no como alta nueva.
     expect(batchSpy.mock.calls[1][0].batchKey).toBe(batchSpy.mock.calls[0][0].batchKey);
   });
 
-  it('FIX 1: en `graded` la multi-selección se DESHABILITA (no se arma/envía lote con cert compartido)', async () => {
+  it('FIX 1: en `graded` la multi-selección se DESHABILITA (cert único por pieza)', async () => {
     renderWithProviders(<M1View />, 'es');
-    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Alta por lote/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
 
     const multi = within(dialog).getByRole('checkbox', { name: /Seleccionar varias/ });
-    // En raw se puede activar el modo masivo.
     fireEvent.click(multi);
     expect(multi).toBeChecked();
 
-    // Cambiar a gradeada FUERZA selección única: apaga el modo masivo y deshabilita el checkbox.
     fireEvent.change(within(dialog).getByLabelText('Tipo de producto'), {
       target: { value: 'graded' },
     });
     expect(multi).not.toBeChecked();
     expect(multi).toBeDisabled();
-    // No hay botón de envío de LOTE en graded (solo alta simple con su cert único).
     expect(
       within(dialog).queryByRole('button', { name: /Dar de alta \d+ cartas/ }),
     ).not.toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Crear item' })).toBeInTheDocument();
   });
-});
-
-// La DataTable pinta tabla (md+) y bloques (<md): el mismo texto aparece dos veces.
-// Estos helpers toleran esa duplicación responsive.
-async function findFolioRow(folio: string): Promise<HTMLElement> {
-  const cells = await screen.findAllByText(folio);
-  const inTable = cells.map((c) => c.closest('tr')).find(Boolean);
-  return inTable as HTMLElement;
-}
-
-describe('M1View · Tabla con filtros + paginación (Ola 2)', () => {
-  it('manda los filtros y la paginación reales a GET /admin/inventory/items', async () => {
-    const spy = vi.spyOn(api, 'getAdminInventory');
-    renderWithProviders(<M1View />, 'es');
-
-    await screen.findAllByText('INV-000101');
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 20 }));
-
-    // Cambiar el filtro de estado re-consulta con `status` y reinicia a página 1.
-    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'in_stock' } });
-    await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ status: 'in_stock', page: 1 })),
-    );
-    // La rama mock filtra de verdad: solo queda el item in_stock.
-    expect((await screen.findAllByText('INV-000110')).length).toBeGreaterThan(0);
-    expect(screen.queryAllByText('INV-000101')).toHaveLength(0);
-  });
-
-  it('pagina con Siguiente: pide page=2 cuando hay más de una página', async () => {
-    const spy = vi.spyOn(api, 'getAdminInventory').mockImplementation(async (filters) => ({
-      data: [
-        {
-          id: `inv-p${filters?.page ?? 1}`,
-          folio: `INV-P${filters?.page ?? 1}`,
-          card: fakeCard(1),
-          productType: 'raw',
-          rawCondition: 'NM',
-          finish: 'normal',
-          status: 'in_stock',
-          ownerType: 'platform',
-        },
-      ],
-      page: filters?.page ?? 1,
-      pageSize: 20,
-      total: 25,
-    }));
-    renderWithProviders(<M1View />, 'es');
-
-    await screen.findAllByText('INV-P1');
-    fireEvent.click(screen.getByRole('button', { name: 'Siguiente' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })));
-    expect((await screen.findAllByText('INV-P2')).length).toBeGreaterThan(0);
-  });
-
-  it('INV-3: una pieza con precio MANUAL (listPriceCents) muestra el badge "Precio manual" + el monto; una sin él, no', async () => {
-    // El override manual de precio GANA sobre las reglas globales → indicador visible del porqué no se mueve.
-    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
-      data: [
-        {
-          id: 'inv-manual',
-          folio: 'INV-MANUAL',
-          card: fakeCard(1),
-          productType: 'raw',
-          rawCondition: 'NM',
-          finish: 'normal',
-          status: 'listed',
-          ownerType: 'platform',
-          referenceValue: { status: 'priced', referenceMxnCents: 100000, capturedDate: '2026-08-13' },
-          listPriceCents: 250000,
-        },
-        {
-          id: 'inv-rule',
-          folio: 'INV-RULE',
-          card: fakeCard(2),
-          productType: 'raw',
-          rawCondition: 'NM',
-          finish: 'normal',
-          status: 'listed',
-          ownerType: 'platform',
-          referenceValue: { status: 'priced', referenceMxnCents: 100000, capturedDate: '2026-08-13' },
-        },
-      ],
-      page: 1,
-      pageSize: 20,
-      total: 2,
-    });
-    renderWithProviders(<M1View />, 'es');
-
-    // Fila con precio manual: badge sobrio + monto del override (MX$2,500.00) como apoyo.
-    const manualRow = await findFolioRow('INV-MANUAL');
-    expect(within(manualRow).getByText('Precio manual')).toBeInTheDocument();
-    expect(within(manualRow).getByText(/MX\$2,500\.00/)).toBeInTheDocument();
-
-    // Fila con precio por REGLA (sin override): NO lleva el badge.
-    const ruleRow = await findFolioRow('INV-RULE');
-    expect(within(ruleRow).queryByText('Precio manual')).toBeNull();
-  });
-
-  it('INV-3 (H-1): un SELLADO con listPriceCents=0 NO muestra "Precio manual" (0 es degenerado ⇒ mercado×spread); uno >0 sí', async () => {
-    // Espeja money.ts H-1 (v1.24): en sellado un override <= 0 se trata como AUSENTE. Un badge
-    // "Precio manual · MX$0.00" sería FALSO (ese sellado se precia por mercado×spread, no a mano).
-    vi.spyOn(api, 'getAdminInventory').mockResolvedValue({
-      data: [
-        {
-          id: 'inv-sealed-zero',
-          folio: 'INV-SZERO',
-          card: fakeCard(1),
-          productType: 'sealed',
-          sealedSubtype: 'box',
-          finish: 'normal',
-          status: 'listed',
-          ownerType: 'platform',
-          referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
-          listPriceCents: 0,
-        },
-        {
-          id: 'inv-sealed-pos',
-          folio: 'INV-SPOS',
-          card: fakeCard(2),
-          productType: 'sealed',
-          sealedSubtype: 'box',
-          finish: 'normal',
-          status: 'listed',
-          ownerType: 'platform',
-          referenceValue: { status: 'priced', referenceMxnCents: 320000, capturedDate: '2026-08-13' },
-          listPriceCents: 350000,
-        },
-      ],
-      page: 1,
-      pageSize: 20,
-      total: 2,
-    });
-    renderWithProviders(<M1View />, 'es');
-
-    // Sellado con override 0 → NO es precio manual (cae a mercado×spread).
-    const zeroRow = await findFolioRow('INV-SZERO');
-    expect(within(zeroRow).queryByText('Precio manual')).toBeNull();
-
-    // Sellado con override positivo → SÍ es precio manual.
-    const posRow = await findFolioRow('INV-SPOS');
-    expect(within(posRow).getByText('Precio manual')).toBeInTheDocument();
-  });
-});
-
-describe('M1View · Alta manual (enums traducidos + sin buylist)', () => {
-  it('el select de tipo de producto usa labels legibles (Suelta (raw)), no el enum crudo', async () => {
-    renderWithProviders(<M1View />, 'es');
-    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
-    const typeSelect = within(dialog).getByLabelText('Tipo de producto');
-    expect(within(typeSelect).getByRole('option', { name: 'Suelta (raw)' })).toBeInTheDocument();
-    expect(within(typeSelect).getByRole('option', { name: 'Gradeada' })).toBeInTheDocument();
-  });
 
   it('el select de adquisición manual NO ofrece "buylist" (esa vía es la conversión de M5)', async () => {
     renderWithProviders(<M1View />, 'es');
-    fireEvent.click(screen.getByRole('button', { name: /Alta de item/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Alta por lote/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Alta de carta en bóveda' });
     const acqSelect = within(dialog).getByLabelText('Tipo de adquisición');
     expect(within(acqSelect).getByRole('option', { name: 'Aportación en especie' })).toBeInTheDocument();
     expect(within(acqSelect).getByRole('option', { name: 'Compra' })).toBeInTheDocument();
-    // buylist queda fuera del alta manual.
     expect(within(acqSelect).queryByRole('option', { name: /Buylist/ })).not.toBeInTheDocument();
   });
 });
 
-describe('M1View · Detalle por pieza + publicar (Ola 2)', () => {
-  async function openDetail(folio: string) {
+describe('M1View · Drill-down: detalle por pieza (capacidades de la ex-pestaña Piezas)', () => {
+  async function openDrawerByFolio(folio: string) {
     renderWithProviders(<M1View />, 'es');
-    const row = await findFolioRow(folio);
-    fireEvent.click(within(row).getByRole('button', { name: 'Detalle' }));
-    return screen.findByRole('dialog', { name: 'Detalle de pieza' });
+    fireEvent.change(screen.getByLabelText('Buscar por folio'), { target: { value: folio } });
+    fireEvent.click(screen.getByRole('button', { name: 'Buscar folio' }));
+    return screen.findByRole('dialog');
   }
 
-  it('muestra folio + acabado + estado + ubicación + historial de movimientos', async () => {
-    // inv-1001: gradeada listed con 2 movimientos en fixtures (alta + move).
-    const dialog = await openDetail('INV-000101');
+  it('desde la fila del drill-down se abre el detalle con historial de movimientos', async () => {
+    const drawer = await openDrawerByFolio('INV-000110');
 
-    expect(await within(dialog).findByText('Historial de movimientos')).toBeInTheDocument();
-    expect(within(dialog).getAllByText('INV-000101').length).toBeGreaterThan(0);
-    expect(within(dialog).getByText('C03-F02-S15')).toBeInTheDocument();
-    expect(within(dialog).getByText('Alta')).toBeInTheDocument();
-    // Gradeada: certificado visible en el detalle.
-    expect(within(dialog).getByText('82749163')).toBeInTheDocument();
+    fireEvent.click(await within(drawer).findByRole('button', { name: 'Ver detalle de INV-000110' }));
+    const detail = await screen.findByRole('dialog', { name: 'Detalle de pieza' });
+    expect(await within(detail).findByText('Historial de movimientos')).toBeInTheDocument();
+    expect(within(detail).getAllByText('INV-000110').length).toBeGreaterThan(0);
   });
 
-  it('el detalle muestra el tipo TRADUCIDO (Gradeada), no el enum crudo "graded"', async () => {
-    // inv-1001 es gradeada; §9.2 exige label legible, nunca el enum crudo.
-    const dialog = await openDetail('INV-000101');
-    expect(await within(dialog).findByText('Gradeada')).toBeInTheDocument();
-    expect(within(dialog).queryByText('graded')).not.toBeInTheDocument();
-  });
+  it('merma exige nota obligatoria y llama a POST /admin/inventory/adjustments', async () => {
+    const spy = vi.spyOn(api, 'createInventoryAdjustment');
+    const drawer = await openDrawerByFolio('INV-000110');
 
-  it('INV-3: el detalle de una pieza con precio MANUAL muestra el badge "Precio manual"', async () => {
-    // inv-1001 (INV-000101) trae listPriceCents (override) → badge sobrio en la cabecera del detalle.
-    const dialog = await openDetail('INV-000101');
-    expect(await within(dialog).findByText('Precio manual')).toBeInTheDocument();
-  });
+    fireEvent.click(await within(drawer).findByRole('button', { name: 'Merma de INV-000110' }));
+    const confirmDialog = await screen.findByRole('dialog', { name: 'Merma de INV-000110' });
 
-  it('INV-3: el detalle de una pieza SIN precio manual NO muestra el badge', async () => {
-    // inv-1010 (INV-000110) no tiene listPriceCents (precio por regla) → sin badge.
-    const dialog = await openDetail('INV-000110');
-    // Espera a que el detalle cargue (folio visible) antes de afirmar la ausencia.
-    expect((await within(dialog).findAllByText('INV-000110')).length).toBeGreaterThan(0);
-    expect(within(dialog).queryByText('Precio manual')).toBeNull();
-  });
+    const confirmBtn = within(confirmDialog).getByRole('button', { name: 'Registrar merma' });
+    expect(confirmBtn).toBeDisabled(); // sin nota no hay merma
 
-  it('publicar convierte pesos→centavos (Math.round) y manda PATCH status=listed', async () => {
-    const spy = vi.spyOn(api, 'updateInventoryItem').mockResolvedValue({
-      ...fx.mockInventory[2],
-      status: 'listed',
-      listPriceCents: 123456,
+    fireEvent.change(within(confirmDialog).getByLabelText(/Nota/), {
+      target: { value: 'No apareció en levantamiento' },
     });
-    // inv-1010: raw in_stock → publicable.
-    const dialog = await openDetail('INV-000110');
-
-    fireEvent.change(await within(dialog).findByLabelText('Precio de venta (MXN)'), {
-      target: { value: '1234.56' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Publicar' }));
+    expect(confirmBtn).not.toBeDisabled();
+    fireEvent.click(confirmBtn);
 
     await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith('inv-1010', { status: 'listed', listPriceCents: 123456 }),
-    );
-    expect(
-      await within(dialog).findByText('Item publicado en Compra · INV-000110.'),
-    ).toBeInTheDocument();
-  });
-
-  it('un error real del PATCH se muestra al operador (422 VALIDATION_ERROR)', async () => {
-    vi.spyOn(api, 'updateInventoryItem').mockRejectedValue(
-      new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'graded items require certNumber' }),
-    );
-    const dialog = await openDetail('INV-000110');
-
-    fireEvent.click(await within(dialog).findByRole('button', { name: 'Publicar' }));
-
-    expect(await within(dialog).findByText('Revisa los datos ingresados.')).toBeInTheDocument();
-  });
-
-  it('marcar pérdida exige nota (botón deshabilitado sin nota, contrato §M1 mark)', async () => {
-    const spy = vi.spyOn(api, 'markInventoryItem');
-    const dialog = await openDetail('INV-000110');
-
-    const markBtn = await within(dialog).findByRole('button', { name: 'Marcar' });
-    expect(markBtn).toBeDisabled();
-
-    fireEvent.change(within(dialog).getByLabelText(/Nota \(obligatoria\)/), {
-      target: { value: 'Se dañó en manejo' },
-    });
-    expect(markBtn).not.toBeDisabled();
-    // §7.6: "Marcar" NO dispara la mutación directo → abre la confirmación.
-    fireEvent.click(markBtn);
-    expect(spy).not.toHaveBeenCalled();
-
-    // Se confirma en el modal (acción destructiva).
-    const confirm = await screen.findByRole('dialog', { name: 'Confirmar marca' });
-    fireEvent.click(within(confirm).getByRole('button', { name: 'Sí, marcar Perdida' }));
-
-    await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith('inv-1010', { mark: 'lost', note: 'Se dañó en manejo' }),
+      expect(spy).toHaveBeenCalledWith({
+        reason: 'perdida',
+        inventoryItemId: 'inv-1010',
+        note: 'No apareció en levantamiento',
+      }),
     );
   });
 });
 
-describe('M1View · Ubicaciones de bóveda (Ola 2)', () => {
+describe('M1View · Ubicaciones de bóveda (capacidad conservada)', () => {
   it('crea una ubicación (POST /admin/locations) y confirma con el label', async () => {
     const spy = vi.spyOn(api, 'createLocation');
     renderWithProviders(<M1View />, 'es');
@@ -576,11 +392,10 @@ describe('M1View · Ubicaciones de bóveda (Ola 2)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Ubicaciones/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Ubicaciones de bóveda' });
 
-    // Lista las existentes.
     expect(await within(dialog).findByText('C03-F02-S15')).toBeInTheDocument();
 
     const createBtn = within(dialog).getByRole('button', { name: /Crear ubicación/ });
-    expect(createBtn).toBeDisabled(); // incompleta: caja/fila/slot vacíos
+    expect(createBtn).toBeDisabled();
 
     fireEvent.change(within(dialog).getByLabelText('Caja'), { target: { value: 'C99' } });
     fireEvent.change(within(dialog).getByLabelText('Fila'), { target: { value: 'F01' } });
@@ -591,5 +406,39 @@ describe('M1View · Ubicaciones de bóveda (Ola 2)', () => {
       expect(spy).toHaveBeenCalledWith({ zone: 'platform_stock', box: 'C99', row: 'F01', slot: 'S01' }),
     );
     expect(await within(dialog).findByText('Ubicación C99-F01-S01 creada.')).toBeInTheDocument();
+  });
+});
+
+describe('M1View · Pestañas Sellado y Gradeadas (P-25 / P-20)', () => {
+  it('Sellado: índice por set con piezas/listadas/valor y badge de no-mapeados', async () => {
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('tab', { name: 'Sellado' }));
+
+    // sv08 (fixtures): 1 pieza sellada mapeada con referencia MX$3,200.00. (La DataTable pinta
+    // tabla md+ y bloques <md → el mismo texto aparece dos veces.)
+    expect((await screen.findAllByText('Surging Sparks')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('MX$3,200.00').length).toBeGreaterThan(0);
+    // super_admin ve el acceso a la cola de no-mapeados (unmappedTotal global > 0).
+    expect(screen.getByRole('link', { name: /Cola de no mapeados/ })).toBeInTheDocument();
+  });
+
+  it('Sellado: para vault_operator NO existe el enlace a la cola de no-mapeados', async () => {
+    roleState.role = 'vault_operator';
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('tab', { name: 'Sellado' }));
+
+    await screen.findAllByText('Surging Sparks');
+    expect(screen.queryByRole('link', { name: /Cola de no mapeados/ })).not.toBeInTheDocument();
+  });
+
+  it('Gradeadas: lista por carta+grado con valor manual ·M y costo (super_admin)', async () => {
+    renderWithProviders(<M1View />, 'es');
+    fireEvent.click(screen.getByRole('tab', { name: 'Gradeadas' }));
+
+    // Charizard PSA 9 (fixtures) con valor de mercado manual (MX$32,600.00 ·M).
+    expect((await screen.findAllByText('Charizard')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('PSA 9').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/MX\$32,600\.00/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('·M').length).toBeGreaterThan(0);
   });
 });

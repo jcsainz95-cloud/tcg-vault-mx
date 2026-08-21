@@ -9,6 +9,7 @@ import {
   RawCondition,
   SellItemStatus,
   SellRequestStatus,
+  VariantPriceOverride,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -19,7 +20,7 @@ import { SettingKey } from '../settings/settings.constants';
 import { UsersService, isValidClabe } from '../users/users.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe } from '../../common/crypto/pii-mask';
-import { BuylistRule, quoteAcquisitionForFinish } from '../../common/money';
+import { AcquisitionRuleSource, BuylistRule, quoteAcquisitionForFinish } from '../../common/money';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
 import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
@@ -40,7 +41,10 @@ interface QuoteItemInput {
 export interface BuylistQuotePayload {
   rarity: string | null;
   finish: Finish;
-  appliedRule: { mode: BuylistRuleMode; value: number; source: 'rule' | 'fallback' };
+  // v1.28 (P-18/P-22, §6): `source` gana "bounty" | "override" (ADITIVO; el front DEBE tolerarlos)
+  // cuando el control por variante (M-30) pisó la regla. Aplica a quote, quote/batch y al snapshot
+  // `ruleSource` de createRequest (habilita el conteo de bounty al pagar, fase P-22).
+  appliedRule: { mode: BuylistRuleMode; value: number; source: AcquisitionRuleSource };
   quote: { status: 'cotizada' | 'precio_pendiente'; quotedPriceCents: number | null; currency: 'MXN' };
   referencePrice: { status: 'priced'; priceMxnCents: number } | { status: 'pending' };
   paymentNotice: 'PAY_AFTER_RECEIPT';
@@ -94,6 +98,26 @@ export class BuylistService {
     return f;
   }
 
+  /**
+   * v1.28 (P-18/P-22, §4.26b) — clave del control por variante (M-30) de un ítem de cotización.
+   * MISMA derivación que la referencia (`gradeKeyFor` + finish default `normal`): paridad exacta
+   * con la clave única de la tabla. Se usa para leer los overrides EN LOTE (una query por request,
+   * patrón `getReferencesBatch` — sin N+1).
+   */
+  private overrideKeyOf(it: QuoteItemInput): {
+    cardId: string;
+    productType: ProductType;
+    gradeKey: string;
+    finish: Finish;
+  } {
+    return {
+      cardId: it.cardId,
+      productType: it.productType,
+      gradeKey: this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition }),
+      finish: it.finish ?? 'normal',
+    };
+  }
+
   /** Cotizador público (stateless). API_CONTRACT §6 (v1.6-finish: por RAREZA + ACABADO). */
   async publicQuote(
     cardId: string,
@@ -103,7 +127,16 @@ export class BuylistService {
   ): Promise<BuylistQuotePayload> {
     // Carga la tabla de reglas UNA vez y delega en el núcleo compartido (mismo que usa el batch).
     const { rules, fallbackPct } = await this.buylistRules();
-    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, rules, fallbackPct);
+    // v1.28 (P-18): control por variante (bounty/override pisan la regla, §4.26b). Un solo ítem ⇒
+    // lectura single (misma vía batch de una clave).
+    const key = this.overrideKeyOf({ cardId, productType, rawCondition, finish });
+    const override = await this.pricing.getVariantOverride(
+      key.cardId,
+      key.productType,
+      key.gradeKey,
+      key.finish,
+    );
+    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, rules, fallbackPct, override);
   }
 
   /**
@@ -120,10 +153,13 @@ export class BuylistService {
    */
   async batchQuote(items: QuoteItemInput[]): Promise<{ results: BuylistBatchQuoteResult[] }> {
     const { rules, fallbackPct } = await this.buylistRules();
+    // v1.28 (P-18): overrides por variante leídos EN LOTE (UNA query por request, §4.26b — sin N+1).
+    const overrides = await this.pricing.getVariantOverridesBatch(items.map((it) => this.overrideKeyOf(it)));
     const results: BuylistBatchQuoteResult[] = [];
     for (let index = 0; index < items.length; index++) {
       const it = items[index];
       try {
+        const k = this.overrideKeyOf(it);
         const payload = await this.quoteCardForFinish(
           it.cardId,
           it.productType,
@@ -131,6 +167,7 @@ export class BuylistService {
           it.finish,
           rules,
           fallbackPct,
+          overrides.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) ?? null,
         );
         results.push({ index, cardId: it.cardId, ok: true, ...payload });
       } catch (e) {
@@ -177,6 +214,9 @@ export class BuylistService {
     finish: Finish | undefined,
     rules: Record<string, BuylistRule>,
     fallbackPct: number,
+    // v1.28 (P-18/P-22, §4.26b): fila M-30 de la variante, pre-cargada por el caller (single o en
+    // lote). `null`/omitida = sin control ⇒ cadena de reglas de SIEMPRE, sin cambio.
+    override?: VariantPriceOverride | null,
   ): Promise<BuylistQuotePayload> {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
@@ -188,7 +228,8 @@ export class BuylistService {
     const referenceMxnCents =
       ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
     // SEC-A1: rareza + acabado derivados server-side (Card.rarity, finish validado), no del cliente.
-    const quote = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct);
+    // v1.28: precedencia NORMATIVA bounty > override > regla > pendiente (un solo cuerpo, money.ts).
+    const quote = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct, override);
     return {
       rarity: card.rarity ?? null,
       finish: f,
@@ -214,6 +255,8 @@ export class BuylistService {
    * Lee la tabla de precio de buylist por rareza (dial M2) + el fallback %.
    * BUYLIST_PRICE_RULES = `{ [rarity]: { mode, value } }`; BUYLIST_PRICE_FALLBACK_PCT = número.
    * v1.3.1 reemplaza el antiguo `rarity_map` (deprecado, ya no se lee en la ruta de cotización).
+   * v1.28: `PricingService.loadBuylistRules()` lee las MISMAS claves para la consola/binder — si
+   * cambia el formato del dial, cambian juntos (misma SettingKey, misma forma).
    */
   async buylistRules(): Promise<{ rules: Record<string, BuylistRule>; fallbackPct: number }> {
     const raw = (await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES)) as
@@ -221,6 +264,53 @@ export class BuylistService {
       | null;
     const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
     return { rules: raw ?? {}, fallbackPct };
+  }
+
+  /**
+   * v1.28 (P-22, §4.26e / API_CONTRACT §6) — GET /buylist/bounties: vitrina pública «Top
+   * Bounties» de la página Vender. READ-ONLY ESTRICTO (doctrina v1.12 de endpoints anónimos: no
+   * persiste, no escala pendientes, no mueve dinero). Solo bounties ACTIVOS
+   * (`bountyEnabled=true` + `bountyPriceCents>0` — la regla de presencia money-safe H-1) y solo
+   * `productType=raw` (defensa en profundidad: el write ya lo impone; la vitrina es de sueltas).
+   * Orden `bountyPriceCents desc`, cap 50, sin paginación ni query params. Un bounty
+   * completado/apagado DESAPARECE de la lista (quien ya cotizó conserva su monto snapshoteado).
+   */
+  async publicBounties(): Promise<{
+    data: {
+      cardId: string;
+      name: string;
+      number: string;
+      setName: string;
+      imageSmallUrl?: string;
+      rarity?: string;
+      finish: Finish;
+      bountyPriceCents: number;
+      targetQty: number | null;
+      remainingQty: number | null;
+    }[];
+  }> {
+    const rows = await this.prisma.variantPriceOverride.findMany({
+      where: { bountyEnabled: true, bountyPriceCents: { gt: 0 }, productType: 'raw' },
+      // Desempate estable por edición más reciente (el contrato solo norma el precio desc).
+      orderBy: [{ bountyPriceCents: 'desc' }, { updatedAt: 'desc' }],
+      take: 50,
+      include: { card: { include: { set: true } } },
+    });
+    const data = rows.map((r) => ({
+      cardId: r.cardId,
+      name: r.card.name,
+      number: r.card.number,
+      setName: r.card.set.name,
+      ...(r.card.imageSmallUrl ? { imageSmallUrl: r.card.imageSmallUrl } : {}),
+      ...(r.card.rarity ? { rarity: r.card.rarity } : {}),
+      finish: r.finish,
+      bountyPriceCents: r.bountyPriceCents as number,
+      targetQty: r.bountyTargetQty,
+      // Dato motivacional, no compromiso contractual: target − acquired con PISO 0; null sin objetivo.
+      remainingQty:
+        r.bountyTargetQty != null ? Math.max(0, r.bountyTargetQty - r.bountyAcquiredQty) : null,
+    }));
+    return { data };
   }
 
   /**
@@ -277,6 +367,9 @@ export class BuylistService {
     // tabla BUYLIST_PRICE_RULES (dial M2). Así un DTO malicioso no puede inflar `quotedTotalCents`.
     // Se snapshotea la regla aplicada (rarity/ruleMode/ruleValue/ruleSource) para auditoría.
     const { rules, fallbackPct } = await this.buylistRules();
+    // v1.28 (P-18/P-22, §4.26b): overrides por variante EN LOTE (una query por request). El snapshot
+    // `ruleSource` gana los valores "bounty" | "override" — habilita el conteo de bounty al pagar (P-22).
+    const overrides = await this.pricing.getVariantOverridesBatch(items.map((it) => this.overrideKeyOf(it)));
     const itemsData: {
       cardId: string;
       productType: ProductType;
@@ -300,7 +393,9 @@ export class BuylistService {
       const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey, f);
       const referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-      const q = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct);
+      // v1.28 (P-18): mismo núcleo único de precedencia que quote/batch (bounty > override > regla).
+      const override = overrides.get(`${it.cardId}|${it.productType}|${gradeKey}|${f}`) ?? null;
+      const q = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct, override);
       if (q.status === 'precio_pendiente') {
         // v1.8-ronda-c: escala el pendiente del ACABADO cotizado (cola por acabado, M-19).
         await this.pricing.escalatePending(it.cardId, it.productType, gradeKey, 'buylist', undefined, f);
@@ -482,7 +577,8 @@ export class BuylistService {
       rarity: i.rarity ?? undefined,
       appliedRule:
         i.ruleMode != null && i.ruleValue != null
-          ? { mode: i.ruleMode, value: i.ruleValue, source: (i.ruleSource ?? 'rule') as 'rule' | 'fallback' }
+          ? // v1.28 (P-18/P-22): `source` puede ser además "bounty" | "override" (snapshot M-30).
+            { mode: i.ruleMode, value: i.ruleValue, source: (i.ruleSource ?? 'rule') as AcquisitionRuleSource }
           : undefined,
       quotedPriceCents: i.quotedPriceCents ?? undefined,
       approvedPriceCents: i.approvedPriceCents ?? undefined,
@@ -945,7 +1041,7 @@ export class BuylistService {
    * @returns `{ request, transitioned }` — `request` es el shape de `adminGet` (Res 200 del contrato);
    *   `transitioned` indica si hubo un cambio real de estado (guía la auditoría del controller).
    */
-  async rejectRequest(id: string, reason?: string): Promise<{ request: unknown; transitioned: boolean }> {
+  async rejectRequest(id: string): Promise<{ request: unknown; transitioned: boolean }> {
     const req = await this.prisma.sellRequest.findUnique({ where: { id } });
     if (!req) throw BusinessException.notFound();
     // Idempotencia: ya rechazada → 200 con el estado actual, sin re-sellar closedAt ni auditar.
@@ -1186,6 +1282,12 @@ export class BuylistService {
   /**
    * Pago SPEI manual (super_admin, money-out). Precondición: aprobada + verificada.
    * API_CONTRACT §M5, PROJECT criterio 26.
+   *
+   * v1.28 (P-22, §4.26e): la transición a `pagada` y el CONTEO de bounty
+   * (`bountyAcquiredQty` por cada ítem con snapshot `ruleSource='bounty'`, con auto-apagado al
+   * alcanzar `bountyTargetQty`) corren en la MISMA transacción — o se paga Y se cuenta, o nada.
+   * Idempotente ante replays: el conteo solo corre en la llamada que HACE la transición
+   * (updateMany count===1); un re-POST/replay ve `pagada` y devuelve el estado sin re-contar.
    */
   async paySpei(id: string, speiReference: string, paidBy: string) {
     const req = await this.prisma.sellRequest.findUnique({ where: { id } });
@@ -1203,13 +1305,19 @@ export class BuylistService {
     }
     // SEC-M5: transición atómica con guardia de estado (patrón count===1). El
     // `updateMany` solo prospera si la solicitud sigue en un estado pagable; dos
-    // llamadas concurrentes → solo una hace la transición a `pagada`.
-    const res = await this.prisma.sellRequest.updateMany({
-      where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
-      // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
-      data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
+    // llamadas concurrentes → solo una hace la transición a `pagada` (y solo esa CUENTA bounty).
+    const paid = await this.prisma.$transaction(async (tx) => {
+      const res = await tx.sellRequest.updateMany({
+        where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
+        // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
+        data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
+      });
+      if (res.count !== 1) return null;
+      // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
+      await this.countBountyAcquisitionsTx(tx, id, paidBy);
+      return tx.sellRequest.findUnique({ where: { id } });
     });
-    if (res.count !== 1) {
+    if (!paid) {
       const current = await this.prisma.sellRequest.findUnique({ where: { id } });
       if (current?.status === 'pagada') return current;
       throw BusinessException.validation(
@@ -1217,6 +1325,102 @@ export class BuylistService {
         'Payment allowed only after receipt/verification and approval',
       );
     }
-    return this.prisma.sellRequest.findUnique({ where: { id } });
+    return paid;
+  }
+
+  /**
+   * v1.28 (P-22, §4.26e) — conteo TRANSACCIONAL de bounty al pagar: por cada `SellRequestItem`
+   * de la solicitud con snapshot `ruleSource='bounty'` se incrementa `bountyAcquiredQty` de SU
+   * fila M-30 (clave `(cardId, productType, gradeKey, finish)` del ítem — misma derivación que la
+   * cotización). Reglas money-safe:
+   *  - B-1 (mismo filtro que la invariante BL-1 de `recomputeApprovedTotal`): los ítems
+   *    `itemStatus='rechazada'` se EXCLUYEN del conteo — con cherry-pick esas piezas NO se compran
+   *    ni suman en `approvedTotalCents`, así que tampoco cuentan hacia el bounty (§4.26a: el campo
+   *    mide «piezas COMPRADAS vía buylist PAGADA bajo bounty»). Sin este filtro, las rechazadas
+   *    inflarían el contador, podrían auto-apagar el bounty antes de tiempo y auditarían
+   *    `bounty.completed` en falso;
+   *  - el incremento aplica AUNQUE el bounty ya esté apagado (la pieza SE COMPRÓ bajo bounty; el
+   *    monto quedó snapshoteado — apagar no borra ni congela el contador);
+   *  - fila M-30 desaparecida (borrada sin historia) ⇒ no hay contador que llevar: se omite SIN
+   *    tumbar el pago (updateMany count=0);
+   *  - AUTO-APAGADO: si el bounty sigue activo, tiene `bountyTargetQty` y `acquired ≥ target` ⇒
+   *    `bountyEnabled=false` + `bountyCompletedAt=now()` + `AuditLog action=bounty.completed`
+   *    (el aviso de M1 sale de `completedAt`). Sin objetivo ⇒ solo contador, nunca auto-off.
+   * Corre DENTRO de la transacción del pago (el caller garantiza que solo la llamada que hizo la
+   * transición llega aquí ⇒ idempotente ante replays).
+   */
+  private async countBountyAcquisitionsTx(
+    tx: Prisma.TransactionClient,
+    sellRequestId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    const bountyItems = await tx.sellRequestItem.findMany({
+      // B-1: mismo filtro que BL-1 — un ítem rechazado NO se compró, así que NO cuenta bounty.
+      where: { sellRequestId, ruleSource: 'bounty', itemStatus: { not: 'rechazada' } },
+      select: { cardId: true, productType: true, rawCondition: true, finish: true },
+    });
+    if (bountyItems.length === 0) return;
+    // Agrupa por clave M-30: UNA actualización por variante (+n piezas), sin N+1 por pieza.
+    const byKey = new Map<
+      string,
+      { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; qty: number }
+    >();
+    for (const it of bountyItems) {
+      const gradeKey = this.pricing.gradeKeyFor({
+        productType: it.productType,
+        rawCondition: it.rawCondition,
+      });
+      const finish = (it.finish ?? 'normal') as Finish;
+      const key = `${it.cardId}|${it.productType}|${gradeKey}|${finish}`;
+      const prev = byKey.get(key);
+      if (prev) prev.qty += 1;
+      else byKey.set(key, { cardId: it.cardId, productType: it.productType, gradeKey, finish, qty: 1 });
+    }
+    for (const g of byKey.values()) {
+      const uniqueKey = {
+        cardId: g.cardId,
+        productType: g.productType,
+        gradeKey: g.gradeKey,
+        finish: g.finish,
+      };
+      const res = await tx.variantPriceOverride.updateMany({
+        where: uniqueKey,
+        data: { bountyAcquiredQty: { increment: g.qty } },
+      });
+      if (res.count === 0) continue; // fila borrada: nada que contar, el pago NO se cae
+      const row = await tx.variantPriceOverride.findUnique({
+        where: { cardId_productType_gradeKey_finish: uniqueKey },
+      });
+      if (
+        row &&
+        row.bountyEnabled &&
+        row.bountyTargetQty != null &&
+        row.bountyAcquiredQty >= row.bountyTargetQty
+      ) {
+        await tx.variantPriceOverride.update({
+          where: { id: row.id },
+          data: { bountyEnabled: false, bountyCompletedAt: new Date() },
+        });
+        // Auditoría del auto-apagado, en la MISMA tx del pago (sin PII; patrón AuditLog directo
+        // porque AuditService escribe fuera de la transacción).
+        await tx.auditLog.create({
+          data: {
+            actorUserId,
+            action: 'bounty.completed',
+            entityType: 'VariantPriceOverride',
+            entityId: row.id,
+            after: {
+              cardId: g.cardId,
+              productType: g.productType,
+              gradeKey: g.gradeKey,
+              finish: g.finish,
+              acquiredQty: row.bountyAcquiredQty,
+              targetQty: row.bountyTargetQty,
+              sellRequestId,
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }
   }
 }

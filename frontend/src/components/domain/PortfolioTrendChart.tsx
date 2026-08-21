@@ -16,8 +16,9 @@ const RANGES: PortfolioRange[] = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'a
 
 type TrendColors = { up: string; down: string; flat: string; muted: string };
 // Fallbacks alineados a los tokens vivos de globals.css para no driftear en el
-// primer paint (up = --color-success #4a7345, ya ajustado al fix de contraste AA).
-const LIGHT: TrendColors = { up: '#4a7345', down: '#B44B3A', flat: '#6E695E', muted: '#6E695E' };
+// primer paint (up = --color-success #4a7345, ya ajustado al fix de contraste AA;
+// down = --color-danger #B31217, rojo TCG HUNT del rebrand §17.2).
+const LIGHT: TrendColors = { up: '#4a7345', down: '#B31217', flat: '#6E695E', muted: '#6E695E' };
 
 /** Lee los tokens de color resueltos tras montar en cliente. */
 function useTrendColors(): TrendColors {

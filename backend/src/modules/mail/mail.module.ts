@@ -1,10 +1,15 @@
 import { Global, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { envOr } from './mail-env.util';
 import { MAIL_PORT, MailPort } from './mail.port';
 import { MailService } from './mail.service';
 import { ResendMailAdapter } from './resend-mail.adapter';
 import { NoopMailAdapter } from './noop-mail.adapter';
 
+// P-21 (rebrand): el remitente REAL viene de la env `MAIL_FROM` (devops). Este default de código
+// conserva el buzón histórico verificado en Resend para no romper envíos si la env no está; cuando
+// devops verifique el dominio nuevo debe fijar `MAIL_FROM="TCG HUNT <no-reply@tcghunt.mx>"`
+// (remitente visible "TCG HUNT", DESIGN_SYSTEM §17.3).
 const DEFAULT_MAIL_FROM = 'no-reply@tcgvaultmx.com';
 
 /**
@@ -22,7 +27,9 @@ const DEFAULT_MAIL_FROM = 'no-reply@tcgvaultmx.com';
       useFactory: (config: ConfigService): MailPort => {
         const logger = new Logger('MailModule');
         const apiKey = config.get<string>('RESEND_API_KEY');
-        const from = config.get<string>('MAIL_FROM') ?? DEFAULT_MAIL_FROM;
+        // P-21 cierre: `envOr` (no `??`) — con `MAIL_FROM=` vacía/blanca cae al default
+        // (un from `''` haría que Resend rechazara TODO envío).
+        const from = envOr(config.get<string>('MAIL_FROM'), DEFAULT_MAIL_FROM);
         if (apiKey) {
           logger.log(`Correo: ResendMailAdapter (from=${from}).`);
           return new ResendMailAdapter(apiKey, from);

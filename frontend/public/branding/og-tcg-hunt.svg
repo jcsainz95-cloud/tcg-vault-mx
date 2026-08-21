@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none" role="img" aria-label="TCG HUNT — tcghunt.mx">
+  <!--
+    Plantilla OG 1200×630 (DESIGN_SYSTEM §17.3, geometría v1.7.1): fondo papel,
+    lockup completo (§17.1a) centrado a ~60% del ancho, «tcghunt.mx» abajo-derecha
+    en JetBrains Mono 24 #6E695E.
+    PENDIENTE (§17.1e): exportar a PNG con Montserrat/JetBrains Mono RESUELTAS (el
+    <text> de un SVG fuera del DOM no garantiza la fuente). Hasta entonces la
+    metadata no referencia imagen OG.
+  -->
+  <rect width="1200" height="630" fill="#F4F1EA"/>
+  <g transform="translate(240 67.5) scale(1.5)">
+    <defs>
+      <linearGradient id="ogHuntGrad" gradientUnits="userSpaceOnUse" x1="10" y1="8" x2="452" y2="198">
+        <stop offset="0" stop-color="#B31217"/><stop offset="1" stop-color="#4A0D0D"/>
+      </linearGradient>
+      <linearGradient id="ogHuntGradWm" gradientUnits="userSpaceOnUse" x1="0" y1="232" x2="0" y2="290">
+        <stop offset="0" stop-color="#6E1013"/><stop offset="1" stop-color="#4A0D0D"/>
+      </linearGradient>
+    </defs>
+    <!-- retícula (centro 240,112): cruz segmentada, anillos con gaps, punto aislado -->
+    <line x1="10" y1="112" x2="222" y2="112" stroke="url(#ogHuntGrad)" stroke-width="7" stroke-linecap="round"/>
+    <line x1="258" y1="112" x2="452" y2="112" stroke="url(#ogHuntGrad)" stroke-width="7" stroke-linecap="round"/>
+    <line x1="240" y1="8" x2="240" y2="94" stroke="url(#ogHuntGrad)" stroke-width="7" stroke-linecap="round"/>
+    <line x1="240" y1="130" x2="240" y2="198" stroke="url(#ogHuntGrad)" stroke-width="7" stroke-linecap="round"/>
+    <path d="M295.69 117.85 A56 56 0 0 1 245.85 167.69" stroke="url(#ogHuntGrad)" stroke-width="7"/>
+    <path d="M234.15 167.69 A56 56 0 0 1 184.31 117.85" stroke="url(#ogHuntGrad)" stroke-width="7"/>
+    <path d="M184.31 106.15 A56 56 0 0 1 234.15 56.31" stroke="url(#ogHuntGrad)" stroke-width="7"/>
+    <path d="M245.85 56.31 A56 56 0 0 1 295.69 106.15" stroke="url(#ogHuntGrad)" stroke-width="7"/>
+    <path d="M273.48 117.90 A34 34 0 0 1 245.90 145.48" stroke="url(#ogHuntGrad)" stroke-width="6.5"/>
+    <path d="M234.10 145.48 A34 34 0 0 1 206.52 117.90" stroke="url(#ogHuntGrad)" stroke-width="6.5"/>
+    <path d="M206.52 106.10 A34 34 0 0 1 234.10 78.52" stroke="url(#ogHuntGrad)" stroke-width="6.5"/>
+    <path d="M245.90 78.52 A34 34 0 0 1 273.48 106.10" stroke="url(#ogHuntGrad)" stroke-width="6.5"/>
+    <circle cx="240" cy="112" r="8" stroke="url(#ogHuntGrad)" stroke-width="5.5"/>
+    <!-- wordmark dominante (Montserrat 700) + .mx al borde derecho -->
+    <text x="240" y="278" text-anchor="middle" font-family="Montserrat, Archivo, system-ui, sans-serif" font-size="66" font-weight="700" letter-spacing="9" fill="url(#ogHuntGradWm)">TCG HUNT</text>
+    <text x="452" y="312" text-anchor="end" font-family="Montserrat, Archivo, system-ui, sans-serif" font-size="24" font-weight="600" letter-spacing="0.5" fill="#4A0D0D">.mx</text>
+  </g>
+  <text x="1140" y="586" text-anchor="end" font-family="'JetBrains Mono', ui-monospace, Menlo, monospace" font-size="24" fill="#6E695E">tcghunt.mx</text>
+</svg>

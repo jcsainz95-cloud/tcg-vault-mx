@@ -25,21 +25,43 @@ corre EN SERIE (comparten zonas compartidas: contrato, `MasterSetBinder`, precio
 gates (qa + techlead) y merge a `main` al cerrar. Promoción a producción solo con "publica" del
 humano (ya dado únicamente para el PR #21).
 
-1. **Tarea #1** — fixtures `backend-e2e` → gates verdes → merge PR #21 a producción.
-2. **Stream A · Catálogo y precios:** P-13 (variantes fantasma) + P-15 (mercado por variante) +
-   P-12 (sync por set). Arquitecto primero.
-3. **Stream B · Inventario Master Set:** P-19 (alta simple + publicar todo) + P-18 (tres precios +
-   overrides) + P-17 (Piezas→drill-down) + P-24 (valor desglosado) + P-25 (pestaña sellado) +
-   P-20 (PSA) + P-22 (Top Bounties, tras P-18).
+1. **Tarea #1** — ✅ HECHA (2026-08-21): fixtures e2e corregidos + H1 endurecido a `amount_received`
+   (captura parcial NO liquida); 124 tests integración + 1259 unitarios verdes; gates ci-ok +
+   sast-ok + backend-e2e verdes; **PR #21 mergeado a producción** (`d606669`, Railway + Vercel).
+2. **Stream A · Catálogo y precios:** ✅ CERRADO (2026-08-21) con doble veredicto (QA aprobado;
+   techlead aprobado tras una ronda de correcciones en seeds/comentarios). En `main`. Incluye:
+   P-13 (composeAvailableFinishes — el precio confirma, nunca añade), P-15 (mercado POR variante
+   en el binder, celda deprecada como espejo), P-12 (force en sync por set + botón "Sync completo"
+   en M2). Deuda registrada: SA-D1..D7 en TECH_DEBT.md (SA-D2 alta). Nit pendiente para el próximo
+   toque de backend a catalog-sync: docblock de clase (~:29-31) aún dice "AUTORIDAD ÚNICA" (colgado
+   de SA-D1). **Llega a PRODUCCIÓN con el siguiente release** (gates de release: E2E completa +
+   fase de seguridad + "publica" del humano); tras ese deploy: re-sync forzado único en /admin/m2
+   y verificar POKEMONPRICETRACKER_FETCH_PRINTINGS=true en Railway.
+3. **Stream B · Inventario Master Set:** ✅ CERRADO (2026-08-21) con doble veredicto (QA aprobado;
+   techlead aprobado tras una ronda: B-1 conteo bounty con rechazadas —bug de dinero cazado por el
+   gate— + M-1/M-2/M-3 de frontend, todos corregidos con test). En `main`. Incluye: P-17 pestañas +
+   drill-down, P-18 consola de tres precios con overrides que pisan storefront/buylist (M-30),
+   P-19 alta rápida Compra/Aportación + publish-all idempotente, P-20 Gradeadas, P-22 Top Bounties
+   con conteo transaccional y auto-off, P-24 valor desglosado, P-25 pestaña Sellado por set.
+   Contrato v1.28/v1.28.1. Deuda SB-D1..D10 registrada (D8 resuelta).
+   **Pendientes post-stream (no bloqueantes):** triage de los 13 E2E preexistentes ANTES de la
+   suite E2E completa de release (frontend); `imageSmallUrl` en SealedInventoryGroupDTO (backend);
+   vista frontend de la cola sealed/unmapped en M2 (frontend); nit docblock catalog-sync (SA-D1).
 4. **Stream C · UX cotizador:** P-14 (distintivo de variante) + P-16 (rediseño cotizador) — ux-ui
    define, frontend implementa; comparte componente de teja con B, por eso va después.
 5. **P-23 (meta decks):** la investigación puede correr en paralelo (solo lectura/web); la
    implementación espera definición del humano.
-6. **P-21 (rebrand TCG HUNT):** cuando el humano entregue dominio + logo.
+6. **P-21 (rebrand TCG HUNT):** ✅ CERRADO (2026-08-21) con doble veredicto (QA y techlead
+   aprobados; ronda de cierre completada: helper envOr vacío⇒default en correos, runbook §25.6 con
+   paso de buzones i18n + check de razón social, guardia DAST por host, deuda BE/FE/DO-P21
+   registrada). En `main`. Logo SVG v1.7.1 aprobado por el humano; marca migrada completa
+   (frontend+correos); infra preparada (runbook §25.6 en DEVOPS_NOTES). **El switch de dominio lo
+   ejecuta el humano con el runbook, DESPUÉS del release a producción.** Pendiente del humano:
+   razón social para `footer.legalEntity` (check pre-switch).
 
 Del lado del humano (cuando pueda):
-- Verificar/encender en Railway `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` (sin esto, las reverse
-  no tendrán precio propio aunque P-15 esté arreglado).
+- ✅ HECHO (2026-08-21): `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` verificada en Railway por el
+  humano — las reverse tendrán precio propio tras el deploy + re-sync.
 - Re-sync forzado en `/admin/m2` de prod — **esperar al fix de P-13** para hacerlo una sola vez.
 - P-21 (rebrand TCG HUNT): comprar dominio y pasar el logo en buena resolución (SVG/PNG grande).
 
@@ -313,8 +335,12 @@ Del lado del humano (cuando pueda):
 - **Pedido del humano (2026-08-21):** va a comprar el dominio (tcghunt.mx) y quiere rebrandear toda
   la página a ese nombre con el logo que compartió: una **mira/crosshair** en degradado rojo-vino
   sobre fondo claro, wordmark "TCG HUNT" + ".mx" en tipografía sans bold.
-- **Acciones del humano (nadie más puede):** comprar el dominio; pasar el archivo del logo en buena
-  resolución (idealmente SVG o PNG grande, y versión para fondo oscuro si existe).
+- **Acciones del humano (nadie más puede):** ✅ dominio COMPRADO (confirmado 2026-08-21). Pendiente
+  de su lado: subir el PNG original del logo al repo cuando arranque el stream, y conectar el
+  dominio en Vercel/DNS cuando devops se lo pida (requiere acceso a su cuenta del registrar).
+- **✅ LOGO APROBADO por el humano (2026-08-21):** la reconstrucción SVG v1.7.1 (retícula con cruz
+  segmentada, anillos con gaps, wordmark dominante — DESIGN_SYSTEM §17.1) quedó validada contra el
+  original. Es la versión canónica para todo el rebrand.
 - **Logo recibido como referencia (2026-08-21):** el humano compartió la versión de alta resolución
   en el chat — mira/crosshair con degradado rojo (#b31217 aprox.) → vino oscuro (#4a0d0d aprox.),
   cruz que sobresale de dos anillos concéntricos, punto central anillado; wordmark "TCG HUNT" en

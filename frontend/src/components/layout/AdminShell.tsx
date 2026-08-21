@@ -8,6 +8,7 @@ import { useSession } from '@/lib/session';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { config } from '@/lib/config';
 import type { Role } from '@/types/contract';
+import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminTopbar } from './AdminTopbar';
 
@@ -89,12 +90,15 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 }
 
 function SidebarBrand({ onClose }: { onClose?: () => void }) {
-  const t = useTranslations('admin');
+  const tc = useTranslations('common');
+  // Marca en el sidebar de tinta (§17.3 v1.7.1): solo-mira variante oscura 28px (por
+  // debajo los gaps de los anillos no leen) + "TCG HUNT" en papel (--font-brand 700).
+  // El "Back-office" (shellTitle) vive en el AdminTopbar.
   return (
     <div className="flex h-16 items-center gap-2.5 border-b border-on-ink-rule px-[22px]">
-      <span aria-hidden className="block h-[18px] w-[18px] shrink-0 bg-accent" />
-      <span className="text-[13px] font-medium uppercase tracking-label text-on-ink">
-        {t('shellTitle')}
+      <LogoTcgHunt variant="mark-dark" size={28} decorative />
+      <span className="font-brand text-[15px] font-bold uppercase tracking-[0.04em] text-on-ink">
+        {tc('brand.name')}
       </span>
       {onClose && (
         <button onClick={onClose} aria-label="Close" className="ml-auto p-1 text-on-ink-nav">

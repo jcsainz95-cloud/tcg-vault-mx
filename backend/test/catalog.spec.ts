@@ -59,6 +59,9 @@ function pricing(): PricingService {
         ctx.spreadPctBySubtype,
         ctx.fallbackPct,
       ),
+    // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+    getVariantOverridesBatch: jest.fn(async () => new Map()),
+    getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;
 }
 

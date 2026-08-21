@@ -135,32 +135,79 @@ describe('Master Set · Binder (rejilla PLANA: una tarjeta por impresión + orde
   });
 });
 
-describe('Master Set · Precio de mercado en el tile (P-2, v1.26)', () => {
-  it('pinta el precio de MERCADO por carta con formato de dinero (marketReferenceMxnCents)', async () => {
+describe('Master Set · Precio de mercado POR VARIANTE en el tile (P-15, v1.27)', () => {
+  it('cada tarjeta pinta el mercado de SU variante — Normal, Reverse y Holofoil con precios DISTINTOS', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
-    // Charizard (c-charizard) tiene referencia 4850000 cents → MX$48,500.00 en cada una de sus
-    // tarjetas (el precio de mercado es POR CARTA, se repite en cada impresión).
+    // Charizard (c-charizard): las fixtures derivan una PriceReference POR ACABADO (base 4850000
+    // cents en normal; reverse ×1.25; holofoil ×1.6). El bug P-15 era pintar el precio del acabado
+    // BASE (campo de celda) en TODAS las tarjetas; ahora cada tarjeta lee SU variante.
     const charizardTiles = await screen.findAllByRole('button', { name: /Charizard/ });
-    charizardTiles.forEach((tile) => {
-      expect(within(tile).getByText('Mercado')).toBeInTheDocument();
-      expect(within(tile).getByText('MX$48,500.00')).toBeInTheDocument();
-    });
+    const normalTile = charizardTiles.find((t) => /·\s*Normal/.test(t.textContent ?? ''))!;
+    const reverseTile = charizardTiles.find((t) => /Reverse Holo/.test(t.textContent ?? ''))!;
+    const holoTile = charizardTiles.find((t) => /·\s*Holofoil/.test(t.textContent ?? ''))!;
+    expect(within(normalTile).getByText('Mercado')).toBeInTheDocument();
+    expect(within(normalTile).getByText('MX$48,500.00')).toBeInTheDocument();
+    expect(within(reverseTile).getByText('MX$60,625.00')).toBeInTheDocument();
+    expect(within(holoTile).getByText('MX$77,600.00')).toBeInTheDocument();
+    // Y el precio del acabado base NO se repite en las otras variantes (el bug P-15 exacto).
+    expect(within(reverseTile).queryByText('MX$48,500.00')).toBeNull();
+    expect(within(holoTile).queryByText('MX$48,500.00')).toBeNull();
   });
 
-  it('una carta SIN referencia (Zapdos, null) muestra el affordance de pendiente — NUNCA $0', async () => {
+  it('una variante SIN referencia (Zapdos, null) muestra el affordance de pendiente — NUNCA $0', async () => {
     renderWithProviders(<MasterSetPanel />, 'es');
     await openBaseSetBinder();
 
-    // Zapdos (c-zapdos) queda sin referencia a propósito → marketReferenceMxnCents = null. El tile
-    // pinta el affordance "—" (precio pendiente), jamás un MX$0.00 inventado (money-safe, bug P-1).
+    // Zapdos (c-zapdos) queda sin referencia a propósito → marketReferenceMxnCents = null en TODAS
+    // sus variantes. El tile pinta el affordance "—" (precio pendiente), jamás un MX$0.00 inventado
+    // (money-safe, bug P-1); null explícito de variante NO cae al fallback de celda.
     const zapdosTiles = await screen.findAllByRole('button', { name: /Zapdos/ });
     zapdosTiles.forEach((tile) => {
       expect(within(tile).getByText('Mercado')).toBeInTheDocument();
-      expect(within(tile).getByText('—')).toBeInTheDocument();
+      // v1.28 (P-18): la teja platform trae la consola compacta (MERCADO/COMPRA/VENTA) — cada
+      // cara sin precio pinta su propio "—" (puede haber varios), jamás un MX$0.00 inventado.
+      expect(within(tile).getAllByText('—').length).toBeGreaterThan(0);
       expect(within(tile).queryByText(/MX\$0\.00/)).toBeNull();
     });
+  });
+
+  it('retrocompat de deploy: variante SIN el campo (backend rezagado) cae al campo de CELDA deprecado', async () => {
+    // Backend pre-v1.27: la variante no trae marketReferenceMxnCents (undefined, no null) y el
+    // dato vive solo en el campo de celda. El tile debe seguir pintando ese valor durante la
+    // ventana de deploy; el fallback se retira junto con el campo de celda (siguiente rev).
+    vi.spyOn(api, 'getMasterSetBinder').mockResolvedValue({
+      set: { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999-01-09' },
+      printedTotal: 102,
+      catalogCardCount: 1,
+      scope: 'platform',
+      cells: [
+        {
+          cardId: 'c-legacy',
+          number: '2',
+          name: 'Legacy Reader',
+          rarity: 'Rare',
+          imageSmallUrl: '',
+          availableFinishes: ['normal'],
+          displayFinishes: ['normal'],
+          countsByFinish: [],
+          totalCount: 0,
+          isSecretRare: false,
+          expectedVariantCount: 1,
+          coveredVariantCount: 0,
+          variants: [{ finish: 'normal', count: 0, covered: false, displayed: true }],
+          marketReferenceMxnCents: 123400, // DEPRECADO v1.27: espejo de celda del backend rezagado.
+        },
+      ],
+    });
+
+    renderWithProviders(<MasterSetPanel />, 'es');
+    await openBaseSetBinder();
+
+    const tile = (await screen.findAllByRole('button', { name: /Legacy Reader/ }))[0];
+    expect(within(tile).getByText('Mercado')).toBeInTheDocument();
+    expect(within(tile).getByText('MX$1,234.00')).toBeInTheDocument();
   });
 });
 

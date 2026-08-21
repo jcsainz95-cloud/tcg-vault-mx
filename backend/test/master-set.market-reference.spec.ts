@@ -3,11 +3,14 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
 
 /**
- * v1.26 (P-2 ④, §M1 / §4.24d) — PRECIO DE MERCADO en la teja del Master Set (M1):
- *  - una celda con referencia PRICED expone `marketReferenceMxnCents` (referencia CRUDA del acabado
- *    base, ya FX-recomputada a MXN por `getReferencesBatch` — NO el precio de venta derivado);
- *  - una celda con referencia PENDING/ausente expone `null` (nunca un 0 inventado);
- *  - SIN N+1: las referencias se traen en UN solo lote (`getReferencesBatch` llamado 1 vez).
+ * v1.26 (P-2 ④, §M1 / §4.24d) + v1.27 (P-15, §4.25b) — PRECIO DE MERCADO en el Master Set:
+ *  - v1.27: cada VARIANTE expone SU `marketReferenceMxnCents` (la `PriceReference` de ESE acabado,
+ *    ya FX-recomputada a MXN por `getReferencesBatch`) + `capturedDate` (solo con precio) — Normal
+ *    y Reverse dejan de mostrar el mismo número;
+ *  - una variante con referencia PENDING/ausente expone `null` (nunca un 0 inventado);
+ *  - el campo de CELDA queda DEPRECADO como ESPEJO de la variante del acabado base (`variants[0]`);
+ *  - SIN N+1: el lote se expande a (carta × acabado del universo) pero sigue UNA llamada
+ *    (`getReferencesBatch` invocado 1 vez).
  */
 
 function buildPrisma(over: any = {}) {
@@ -26,22 +29,27 @@ function buildPricing(refs: Map<string, PriceInfo>) {
   return {
     pricing: {
       loadSalesRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 15 }),
+      // v1.28 (P-18): reglas de compra para la consola `pricing?` del binder (scope platform).
+      loadBuylistRules: jest.fn().mockResolvedValue({ rules: {}, fallbackPct: 40 }),
       getReferencesBatch,
       getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
+      getVariantOverridesBatch: jest.fn(async () => new Map()),
+      getVariantOverride: jest.fn(async () => null),
     } as unknown as PricingService,
     getReferencesBatch,
   };
 }
 
-describe('MasterSetService.binder — marketReferenceMxnCents (P-2 ④)', () => {
+describe('MasterSetService.binder — mercado por VARIANTE (P-15) + espejo de celda deprecado (P-2)', () => {
   const setup = (refs: Map<string, PriceInfo>) => {
     const prisma = buildPrisma();
     (prisma.cardSet.findUnique as jest.Mock).mockResolvedValue({
       id: 's1', name: 'Surging Sparks', series: 'SV', releaseDate: '2024/11/08', printedTotal: 191,
     });
     (prisma.card.findMany as jest.Mock).mockResolvedValue([
-      // carta con precio (acabado base = normal)
+      // carta con dos variantes (acabado base = normal)
       { id: 'cPriced', number: '1', numberSort: 1, numberPrefix: '', name: 'A', rarity: 'Common', imageSmallUrl: null, availableFinishes: ['normal', 'reverse_holo'] },
       // carta sin precio (referencia pending/ausente)
       { id: 'cPending', number: '2', numberSort: 2, numberPrefix: '', name: 'B', rarity: 'Common', imageSmallUrl: null, availableFinishes: ['normal'] },
@@ -53,18 +61,48 @@ describe('MasterSetService.binder — marketReferenceMxnCents (P-2 ④)', () => 
     return { svc: new MasterSetService(prisma, pricing), prisma, getReferencesBatch };
   };
 
-  it('celda priced → marketReferenceMxnCents = referencia MXN vigente; pending/ausente → null', async () => {
-    // getReferencesBatch YA aplica liveMxnCents (FX-recompute); el mock devuelve el MXN vigente.
+  it('P-15: cada variante lleva SU precio de mercado (Normal ≠ Reverse) + capturedDate solo con precio', async () => {
     const refs = new Map<string, PriceInfo>([
-      ['cPriced|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 34500 }],
-      // 'cPending|raw|raw:NM|normal' ausente → pending
+      ['cPriced|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 34500, capturedDate: '2026-08-21' }],
+      ['cPriced|raw|raw:NM|reverse_holo', { status: 'priced', referenceMxnCents: 78000, capturedDate: '2026-08-20' }],
       ['cHolo|raw|raw:NM|holofoil', { status: 'priced', referenceMxnCents: 990000 }],
     ]);
     const { svc } = setup(refs);
     const res = await svc.binder('s1');
 
     const priced = res.cells.find((c) => c.cardId === 'cPriced')!;
-    expect(priced.marketReferenceMxnCents).toBe(34500);
+    const vNormal = priced.variants.find((v) => v.finish === 'normal')!;
+    const vReverse = priced.variants.find((v) => v.finish === 'reverse_holo')!;
+    // Cada acabado su propia referencia: Normal y Reverse YA NO muestran el mismo número (bug P-15).
+    expect(vNormal.marketReferenceMxnCents).toBe(34500);
+    expect(vNormal.capturedDate).toBe('2026-08-21');
+    expect(vReverse.marketReferenceMxnCents).toBe(78000);
+    expect(vReverse.capturedDate).toBe('2026-08-20');
+
+    // Variante pending/ausente → null honesto y SIN capturedDate (decoración solo con precio).
+    const pending = res.cells.find((c) => c.cardId === 'cPending')!;
+    const vPending = pending.variants.find((v) => v.finish === 'normal')!;
+    expect(vPending.marketReferenceMxnCents).toBeNull();
+    expect('capturedDate' in vPending).toBe(false);
+
+    // Premium de 1 impresión: la variante holofoil trae su referencia (sin capturedDate del batch ⇒ ausente).
+    const holo = res.cells.find((c) => c.cardId === 'cHolo')!;
+    expect(holo.variants[0].marketReferenceMxnCents).toBe(990000);
+    expect('capturedDate' in holo.variants[0]).toBe(false);
+  });
+
+  it('P-15: el campo de CELDA (deprecado) es el ESPEJO exacto de variants[0] (acabado base)', async () => {
+    const refs = new Map<string, PriceInfo>([
+      ['cPriced|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 34500 }],
+      ['cPriced|raw|raw:NM|reverse_holo', { status: 'priced', referenceMxnCents: 78000 }],
+      ['cHolo|raw|raw:NM|holofoil', { status: 'priced', referenceMxnCents: 990000 }],
+    ]);
+    const { svc } = setup(refs);
+    const res = await svc.binder('s1');
+
+    const priced = res.cells.find((c) => c.cardId === 'cPriced')!;
+    expect(priced.marketReferenceMxnCents).toBe(34500); // base = normal, NO el reverse
+    expect(priced.marketReferenceMxnCents).toBe(priced.variants[0].marketReferenceMxnCents);
 
     const pending = res.cells.find((c) => c.cardId === 'cPending')!;
     expect(pending.marketReferenceMxnCents).toBeNull();
@@ -82,19 +120,21 @@ describe('MasterSetService.binder — marketReferenceMxnCents (P-2 ④)', () => 
     const res = await svc.binder('s1');
     const priced = res.cells.find((c) => c.cardId === 'cPriced')!;
     // Exactamente la referencia (10000), NUNCA referencia × (1 + markup).
+    expect(priced.variants[0].marketReferenceMxnCents).toBe(10000);
     expect(priced.marketReferenceMxnCents).toBe(10000);
   });
 
-  it('SIN N+1: getReferencesBatch se invoca UNA sola vez para TODA la teja (lote)', async () => {
+  it('SIN N+1: getReferencesBatch se invoca UNA sola vez con el lote (carta × acabado del universo)', async () => {
     const { svc, getReferencesBatch } = setup(new Map());
     await svc.binder('s1');
     expect(getReferencesBatch).toHaveBeenCalledTimes(1);
-    // Y con exactamente una entrada por carta (acabado base), no una por variante.
+    // v1.27: una entrada por VARIANTE del universo (2 + 1 + 1 = 4), no una por carta.
     const arg = getReferencesBatch.mock.calls[0][0] as any[];
-    expect(arg).toHaveLength(3);
+    expect(arg).toHaveLength(4);
     expect(arg).toEqual(
       expect.arrayContaining([
         { cardId: 'cPriced', productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' },
+        { cardId: 'cPriced', productType: 'raw', gradeKey: 'raw:NM', finish: 'reverse_holo' },
         { cardId: 'cPending', productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' },
         { cardId: 'cHolo', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil' },
       ]),
