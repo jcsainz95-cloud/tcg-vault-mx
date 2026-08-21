@@ -1027,9 +1027,29 @@ function cheapestListedFor(cardId: string, finish: Finish): { inventoryItemId: s
   return { inventoryItemId: best.inventoryItemId, salePriceCents: best.salePriceCents! };
 }
 
+/**
+ * P-15 (v1.27): referencia de mercado POR VARIANTE (carta+acabado) para el binder mock. El
+ * backend guarda UNA PriceReference por acabado; aquí se deriva un precio DISTINTO por acabado
+ * a partir de la base por carta (premium de reverse/holo) para que la UI demuestre el fix P-15
+ * (Normal ≠ Reverse, nunca el mismo precio pintado en todas las variantes). Cartas sin base
+ * (Zapdos) → null en TODOS los acabados = pending honesto ("—").
+ */
+const MOCK_VARIANT_REF_FACTOR: Record<Finish, number> = {
+  normal: 1,
+  reverse_holo: 1.25,
+  holofoil: 1.6,
+  first_edition_holofoil: 2.5,
+};
+export function mockMarketReferenceForVariant(cardId: string, finish: Finish): number | null {
+  const base = mockReferenceByCardId[cardId];
+  if (base == null) return null;
+  return Math.round(base * (MOCK_VARIANT_REF_FACTOR[finish] ?? 1));
+}
+
 // Variantes de una celda: EXACTAMENTE una entrada por acabado de availableFinishes (orden del
 // enum Finish). Piezas con finish FUERA del universo (drift) se ven en countsByFinish pero NO
 // cuentan en expected/covered. `buyable` SOLO scope cliente y SOLO cuando covered=false.
+// P-15 (v1.27): cada variante trae SU marketReferenceMxnCents (+ capturedDate solo con precio).
 function variantsForCell(
   cardId: string,
   availableFinishes: Finish[],
@@ -1039,7 +1059,15 @@ function variantsForCell(
   return FINISH_DISPLAY_ORDER.filter((f) => availableFinishes.includes(f)).map((finish) => {
     const count = counts.find((c) => c.finish === finish)?.count ?? 0;
     const covered = count > 0;
-    const variant: MasterSetVariantDTO = { finish, count, covered };
+    const marketReferenceMxnCents = mockMarketReferenceForVariant(cardId, finish);
+    const variant: MasterSetVariantDTO = {
+      finish,
+      count,
+      covered,
+      marketReferenceMxnCents,
+      // Contrato v1.27: capturedDate presente SOLO cuando hay precio (decoración de frescura).
+      ...(marketReferenceMxnCents != null ? { capturedDate: '2026-08-13' } : {}),
+    };
     if (includeBuyable && !covered) variant.buyable = cheapestListedFor(cardId, finish);
     return variant;
   });
@@ -1186,9 +1214,10 @@ export function mockMasterSetBinder(
         expectedVariantCount: variants.length,
         coveredVariantCount: variants.filter((v) => v.covered).length,
         variants,
-        // P-2 (v1.26): precio de MERCADO por carta (referencia base). `undefined` (p. ej. Zapdos /
-        // promos sin referencia) → null = pending (el front pinta el affordance, nunca $0).
-        marketReferenceMxnCents: mockReferenceForFinish(c.cardId, c.availableFinishes[0] ?? 'normal') ?? null,
+        // DEPRECATED v1.27 (P-15): el campo de celda se conserva UNA versión como espejo de la
+        // variante del acabado base (= variants[0].marketReferenceMxnCents), igual que el backend,
+        // para lectores rezagados. El front ya NO lo lee (lee la variante); retiro en la próxima rev.
+        marketReferenceMxnCents: variants[0]?.marketReferenceMxnCents ?? null,
       };
     });
 

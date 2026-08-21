@@ -417,9 +417,15 @@ function BinderTile({
   const locale = useLocale() as AppLocale;
   const finishLabel = tFinish(variant.finish);
   const isGap = !variant.covered;
-  // P-2: precio de MERCADO por carta (referencia cruda del acabado base). `null`/ausente = pending:
-  // se pinta un affordance discreto ("—" + "precio pendiente"), NUNCA $0 (money-safe, bug P-1).
-  const marketRef = cell.marketReferenceMxnCents;
+  // P-15 (v1.27): precio de MERCADO POR VARIANTE — cada tarjeta lee la referencia de SU acabado
+  // (`variant.marketReferenceMxnCents`), no la de la celda (el bug P-15: Normal y Reverse pintaban
+  // el mismo precio del acabado base). Fallback TEMPORAL al campo de celda DEPRECADO solo cuando la
+  // variante NO trae el campo (`undefined` = backend rezagado durante el deploy); `null` explícito
+  // de la variante = pending honesto → "—". NUNCA $0 inventado (money-safe, bug P-1).
+  const marketRef =
+    variant.marketReferenceMxnCents !== undefined
+      ? variant.marketReferenceMxnCents
+      : cell.marketReferenceMxnCents; // DEPRECATED v1.27: retirar junto con el campo de celda.
   const marketPrice = marketRef != null ? formatMoneyCents(marketRef, locale) : null;
   return (
     <button
@@ -428,7 +434,7 @@ function BinderTile({
       className="flex h-full w-full flex-col text-left transition-colors focus-visible:shadow-focus focus-visible:outline-none"
     >
       <TileHeader cell={cell} finishLabel={finishLabel} dimmed={isGap} dashed={isGap} showTotalCount />
-      {/* P-2: precio de mercado de la carta (subtitulado "Mercado"), o affordance de pendiente. */}
+      {/* P-15: precio de mercado de ESTA variante (subtitulado "Mercado"), o affordance de pendiente. */}
       <span className="mt-2 flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted">
         <span>{t('marketLabel')}</span>
         {marketPrice != null ? (

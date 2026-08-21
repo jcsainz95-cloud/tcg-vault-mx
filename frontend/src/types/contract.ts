@@ -815,6 +815,16 @@ export interface MasterSetVariantDTO {
   // (helper `isVariantDisplayed` en @/lib/finish). Las variantes con `displayed===false` NO se pintan
   // pero SÍ cuentan en los contadores de completitud (expected/coveredVariantCount, sobre availableFinishes).
   displayed?: boolean;
+  // v1.27 (P-15, ADITIVO): precio de MERCADO PROPIO de la variante — PriceReference vigente de
+  // (cardId, 'raw', 'raw:NM', ESTE finish), FX-recomputada a MXN cents server-side. NO es el
+  // precio de venta derivado (ese vive en `buyable.salePriceCents`, solo vista (iii) cliente).
+  // `null` = referencia pending/ausente (NUNCA un 0 inventado; el front pinta "—").
+  // `undefined` = backend rezagado que aún no emite el campo → fallback TEMPORAL al campo de
+  // celda deprecado (retrocompatibilidad durante el deploy; se retira con el campo de celda).
+  marketReferenceMxnCents?: number | null;
+  // v1.27 (P-15): fecha de captura (ISO) de la PriceReference de ESTA variante — decoración de
+  // frescura; presente solo cuando marketReferenceMxnCents != null. El front tolera su ausencia.
+  capturedDate?: string | null;
 }
 
 export interface MasterSetIndexResponse {
@@ -874,6 +884,11 @@ export interface MasterSetCardCellDTO {
   // FX-recomputada a MXN cents server-side). NO es el precio de venta (referencia × markup); es el
   // input de mercado que alimenta las reglas. `null`/ausente = referencia pending o inexistente:
   // el front pinta un affordance "precio pendiente" (un "—" discreto), NUNCA $0 (money-safe, P-1).
+  // ⚠️ DEPRECATED v1.27 (P-15): el precio de mercado se movió al nivel VARIANTE
+  // (`variants[].marketReferenceMxnCents`). El backend lo conserva UNA versión como espejo de la
+  // variante del acabado base (= variants[0].marketReferenceMxnCents) para lectores rezagados;
+  // el front NO debe leerlo más salvo como fallback temporal cuando la variante no trae el campo.
+  // Se retira en la siguiente rev de contrato.
   marketReferenceMxnCents?: number | null;
 }
 

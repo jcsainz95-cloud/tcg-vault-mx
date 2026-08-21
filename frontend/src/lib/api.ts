@@ -2678,10 +2678,17 @@ export async function getRemoteSets(): Promise<RemoteSetDTO[]> {
   return delay(fx.mockRemoteSets);
 }
 
-/** Importa/actualiza cartas de catálogo (contrato POST /admin/catalog/sync). */
+/**
+ * Importa/actualiza cartas de catálogo (contrato POST /admin/catalog/sync).
+ * v1.27 (P-12): `force:true` corre además el resolver estructural TCGCSV para cada set procesado
+ * (refresca variantes/availableFinishes aunque el set ya esté importado; best-effort, money-safe).
+ * ⚠️ Este endpoint NO toca precios (§4.15g): para el «sync completo» de un set se encadena
+ * `syncCatalog({ setId, force: true })` + `triggerPriceIngest({ setId })` (acción por fila de M2).
+ */
 export async function syncCatalog(input: {
   setId?: string;
   fromReleaseDate?: string;
+  force?: boolean;
 } = {}): Promise<CatalogSyncResponse> {
   if (!config.useMocks) {
     return apiRequest<CatalogSyncResponse>('/admin/catalog/sync', { method: 'POST', body: input });

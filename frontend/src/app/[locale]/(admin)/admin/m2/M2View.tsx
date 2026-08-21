@@ -550,13 +550,44 @@ export function M2View() {
     mutationFn: () => syncAllCatalog(),
     onSuccess: onSweepLaunched,
   });
-  // v1.6-finish: re-sync FORZADO (contrato §M2, `force=true`): reprocesa TODO el
-  // catálogo (incluidos sets ya importados) para repoblar availableFinishes/precios
-  // por acabado tras M-18. Es operación pesada → confirmación previa (modal).
+  // v1.6-finish: re-sync FORZADO (contrato §M2, `force=true`): reprocesa TODO el catálogo
+  // (incluidos sets ya importados) para repoblar metadata, cartas y variantes estructurales
+  // (availableFinishes vía resolver TCGCSV + reconcile). ⛔ v1.27: NO repuebla precios (desde
+  // v1.14/§4.15g el pricing vive SOLO en price-ingest). Operación pesada → confirmación (modal).
   const [forceConfirmOpen, setForceConfirmOpen] = useState(false);
   const syncAllForceMutation = useMutation({
     mutationFn: () => syncAllCatalog({ force: true }),
     onSuccess: onSweepLaunched,
+  });
+
+  // --- P-12 (v1.27): «Sync completo» POR SET = cartas + variantes → precios ---
+  // Encadena las DOS fases del flujo recomendado del contrato (§M2 v1.27): (1) POST
+  // /admin/catalog/sync { setId, force:true } → metadata + cartas + variantes estructurales
+  // TCGCSV del set; (2) POST /admin/jobs/price-ingest { setId } → precios del set COMPLETO
+  // (bypass del scope <2020 de ppt-sync-scope). Feedback HONESTO por fase: se reporta qué fase
+  // corre, cuál falló y si el ingest NO encoló (single-flight) — nunca un "202 cosmético".
+  const [fullSyncPhase, setFullSyncPhase] = useState<'catalog' | 'prices' | null>(null);
+  const fullSyncMutation = useMutation({
+    mutationFn: async (set: RemoteSetDTO) => {
+      setFullSyncPhase('catalog');
+      const catalog = await syncCatalog({ setId: set.id, force: true });
+      // Fase 1 OK: refresca la tabla (imported/cardCount) sin esperar la fase 2.
+      qc.invalidateQueries({ queryKey: ['remote-sets'] });
+      setFullSyncPhase('prices');
+      const ingest = await triggerPriceIngest({ setId: set.id });
+      return { catalog, ingest };
+    },
+    onSuccess: (data) => {
+      setFullSyncPhase(null);
+      if (data.ingest.enqueued) {
+        // El ingest repuebla PriceReference → puede resolver pendientes; además arranca YA el
+        // poll del barrido de precios (misma mecánica N-14 que el disparo global de arriba).
+        qc.invalidateQueries({ queryKey: ['pending-prices'] });
+        setJustDispatched(true);
+        void priceSyncStatus.refetch();
+      }
+    },
+    // En error NO se limpia fullSyncPhase: el banner reporta EN QUÉ fase falló (catalog|prices).
   });
 
   // El operador mira el barrido de catálogo (o espera un backfill/sync por set, que son
@@ -570,7 +601,8 @@ export function M2View() {
     catalogSyncMutation.isPending ||
     backfillMutation.isPending ||
     syncAllMutation.isPending ||
-    syncAllForceMutation.isPending;
+    syncAllForceMutation.isPending ||
+    fullSyncMutation.isPending;
   useKeepSessionAlive(catalogBusy);
 
   const setColumns: Column<RemoteSetDTO>[] = [
@@ -603,16 +635,37 @@ export function M2View() {
       key: 'actions',
       header: '',
       align: 'right',
-      render: (s) => (
-        <Button
-          size="sm"
-          variant="secondary"
-          loading={catalogSyncMutation.isPending && catalogSyncMutation.variables === s.id}
-          onClick={() => catalogSyncMutation.mutate(s.id)}
-        >
-          {s.imported ? t('catalog.resync') : t('catalog.import')}
-        </Button>
-      ),
+      // P-12 (v1.27): DOS acciones por fila. «Importar/Re-sincronizar» = solo cartas (metadata +
+      // cartas; NO refresca variantes ni toca precios). «Sync completo» = cartas + variantes
+      // estructurales (sync force) y DESPUÉS los precios del set (price-ingest por set).
+      // Se serializan entre sí (una operación por-set a la vez) para no encimar requests largos.
+      render: (s) => {
+        const rowFullSyncing = fullSyncMutation.isPending && fullSyncMutation.variables?.id === s.id;
+        const rowSyncing = catalogSyncMutation.isPending && catalogSyncMutation.variables === s.id;
+        return (
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={rowSyncing}
+              disabled={fullSyncMutation.isPending || (catalogSyncMutation.isPending && !rowSyncing)}
+              onClick={() => catalogSyncMutation.mutate(s.id)}
+            >
+              {s.imported ? t('catalog.resync') : t('catalog.import')}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={rowFullSyncing}
+              disabled={catalogSyncMutation.isPending || (fullSyncMutation.isPending && !rowFullSyncing)}
+              aria-label={t('catalog.fullSyncAria', { name: s.name })}
+              onClick={() => fullSyncMutation.mutate(s)}
+            >
+              <Zap size={14} /> {t('catalog.fullSync')}
+            </Button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -1306,11 +1359,41 @@ export function M2View() {
           </Button>
         </div>
         {/* Diferencia ligera vs. pesada: "Importar sets nuevos" (force:false) trae solo los
-            sets recién salidos aún no importados; "Re-sincronizar todo (forzar)" repuebla precios. */}
+            sets recién salidos aún no importados; "Re-sincronizar todo (forzar)" reprocesa
+            cartas + variantes estructurales (⛔ v1.27: NO repuebla precios — §4.15g). */}
         <p className="text-xs text-muted">{t('catalog.syncAllHint')}</p>
+        {/* P-12: qué hace cada acción por fila (cartas vs. sync completo cartas+precios). */}
+        <p className="text-xs text-muted">{t('catalog.fullSyncHint')}</p>
         {/* Feedback del sync por set (Importar / Re-sincronizar) */}
         {catalogSyncMutation.isPending && (
           <Banner variant="info" role="status">{t('catalog.syncRunning')}</Banner>
+        )}
+        {/* P-12: feedback HONESTO por fase del «Sync completo» por set (cartas → precios). */}
+        {fullSyncMutation.isPending && (
+          <Banner variant="info" role="status">
+            {fullSyncPhase === 'prices'
+              ? t('catalog.fullSyncPhasePrices', { name: fullSyncMutation.variables?.name ?? '' })
+              : t('catalog.fullSyncPhaseCatalog', { name: fullSyncMutation.variables?.name ?? '' })}
+          </Banner>
+        )}
+        {fullSyncMutation.isSuccess &&
+          (fullSyncMutation.data.ingest.enqueued ? (
+            <Banner variant="success" role="status">
+              {t('catalog.fullSyncDone', { name: fullSyncMutation.variables?.name ?? '' })}
+            </Banner>
+          ) : (
+            // single-flight del price-ingest: la fase de precios NO encoló — se dice tal cual.
+            <Banner variant="warning" role="status">
+              {t('catalog.fullSyncPricesAlreadyRunning', { name: fullSyncMutation.variables?.name ?? '' })}
+            </Banner>
+          ))}
+        {fullSyncMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+            {fullSyncPhase === 'prices'
+              ? t('catalog.fullSyncPricesError', { name: fullSyncMutation.variables?.name ?? '' })
+              : t('catalog.fullSyncCatalogError', { name: fullSyncMutation.variables?.name ?? '' })}{' '}
+            {getError(fullSyncMutation.error)}
+          </Banner>
         )}
         {catalogSyncMutation.isSuccess && (
           <Banner variant="success" role="status">

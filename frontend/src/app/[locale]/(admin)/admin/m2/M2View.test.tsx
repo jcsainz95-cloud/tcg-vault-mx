@@ -814,3 +814,72 @@ describe('M2View · Catálogo y precios', () => {
     ).toBeInTheDocument();
   });
 });
+
+/**
+ * P-12 (v1.27): la acción por fila «Sync completo» encadena el flujo recomendado del contrato
+ * (§M2 v1.27): (1) POST /admin/catalog/sync {setId, force:true} → cartas + variantes TCGCSV;
+ * (2) POST /admin/jobs/price-ingest {setId} → precios del set completo. El feedback es HONESTO
+ * por fase (nunca un "202 cosmético"): éxito solo si el ingest encoló; single-flight y fallos
+ * de cada fase se dicen tal cual.
+ */
+describe('M2 · «Sync completo» por set (P-12, v1.27)', () => {
+  it('encadena syncCatalog({setId, force:true}) → triggerPriceIngest({setId}) y reporta el éxito de AMBAS fases', async () => {
+    const syncSpy = vi.spyOn(api, 'syncCatalog').mockResolvedValue({
+      jobId: 'j-cat-1',
+      setsQueued: 1,
+      mode: 'single',
+    });
+    const ingestSpy = vi.spyOn(api, 'triggerPriceIngest').mockResolvedValue({
+      job: 'price-ingest',
+      enqueued: true,
+      jobId: 'j-pi-1',
+      scope: 'set',
+      setId: 'sv08',
+    });
+
+    renderWithProviders(<M2View />, 'es');
+
+    // Fila de Surging Sparks (sv08, primer set del mock de remote-sets). El DataTable pinta la
+    // fila dos veces (tabla desktop + tarjeta móvil) → se toma el primer botón.
+    const [btn] = await screen.findAllByRole('button', { name: /Sync completo de Surging Sparks/ });
+    fireEvent.click(btn);
+
+    // Fase 1: sync de catálogo POR SET con force (refresca variantes estructurales TCGCSV).
+    await waitFor(() => expect(syncSpy).toHaveBeenCalledWith({ setId: 'sv08', force: true }));
+    // Fase 2: ingest de precios de ESE set, DESPUÉS de la fase 1.
+    await waitFor(() => expect(ingestSpy).toHaveBeenCalledWith({ setId: 'sv08' }));
+    expect(syncSpy.mock.invocationCallOrder[0]).toBeLessThan(ingestSpy.mock.invocationCallOrder[0]);
+
+    // Éxito HONESTO: solo se declara cuando el ingest sí encoló.
+    expect(
+      await screen.findByText(/Sync completo de Surging Sparks: cartas y variantes actualizadas; precios del set encolados/),
+    ).toBeInTheDocument();
+  });
+
+  it('single-flight del ingest (enqueued:false) → aviso de que los precios NO se encolaron, no un éxito', async () => {
+    vi.spyOn(api, 'syncCatalog').mockResolvedValue({ jobId: 'j-cat-2', setsQueued: 1, mode: 'single' });
+    vi.spyOn(api, 'triggerPriceIngest').mockResolvedValue({ job: 'price-ingest', enqueued: false });
+
+    renderWithProviders(<M2View />, 'es');
+    fireEvent.click((await screen.findAllByRole('button', { name: /Sync completo de Surging Sparks/ }))[0]);
+
+    // La fase de cartas SÍ corrió, pero el ingest no encoló (ya había un barrido): se dice tal cual.
+    expect(await screen.findByText(/los precios de este set NO se encolaron/)).toBeInTheDocument();
+    expect(screen.queryByText(/precios del set encolados/)).toBeNull();
+  });
+
+  it('si la fase de cartas FALLA, se reporta esa fase y NO se dispara el ingest de precios', async () => {
+    vi.spyOn(api, 'syncCatalog').mockRejectedValue(
+      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
+    );
+    const ingestSpy = vi.spyOn(api, 'triggerPriceIngest');
+
+    renderWithProviders(<M2View />, 'es');
+    fireEvent.click((await screen.findAllByRole('button', { name: /Sync completo de Surging Sparks/ }))[0]);
+
+    expect(
+      await screen.findByText(/Sync completo de Surging Sparks: falló la fase de cartas\/variantes; NO se encolaron precios\./),
+    ).toBeInTheDocument();
+    expect(ingestSpy).not.toHaveBeenCalled();
+  });
+});
