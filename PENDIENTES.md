@@ -108,6 +108,82 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 - **NO tocar:** las reglas de buylist (`BUYLIST_PRICE_RULES` / fallback) están como el PO las quiere —
   el problema es la referencia de mercado que alimenta la regla, no la regla.
 
+### P-12 · Sync de UN set específico (cartas + precios) desde el botón junto al set
+- **Observado (2026-08-21):** los sets recientes ya cargan bien, pero los viejos solo traen algunas
+  cartas; re-sincronizar TODO cada vez es poco práctico. Pregunta del humano: ¿el botón junto a cada
+  set ya trae cartas **y** precios?
+- **Diagnóstico:** el botón por set ("Importar"/"Re-sincronizar", `M2View.tsx:602-616`) llama
+  `POST /admin/catalog/sync {setId}` y **solo** trae metadata + todas las cartas del set desde
+  pokemontcg.io (`catalog-sync.service.ts:316-325`). **NO toca precios** (desde WS-A §4.15g el pricing
+  vive solo en `price-ingest`) y **NO refresca variantes estructurales TCGCSV** (el
+  `StructuralFinishResolver` solo corre en first-import o `sync-all {force:true}` — asimetría en
+  `catalog-sync.service.ts:290-313`).
+- **Lo bueno:** el backend YA tiene `POST /admin/jobs/price-ingest {setId}` (barrido completo del set,
+  bypass del scope <2020, `admin-jobs.controller.ts:192-207`) y el cliente `triggerPriceIngest({setId})`
+  ya existe en `api.ts:2574` — **nadie lo llama con setId desde la UI**.
+- **Qué falta:** (backend) aceptar `force` en la ruta por set para refrescar variantes TCGCSV de un solo
+  set; (frontend) botón/acción por fila que encadene sync de cartas + price-ingest del set. Además el
+  copy de `es.json:1269` miente ("repuebla precios" ya no es cierto) — corregirlo.
+- **Nota precios sets viejos:** por diseño (`ppt-sync-scope.ts`), sets <2020 solo ingieren precios de
+  cartas con inventario o rareza premium (cuota del proveedor). El sync manual por set SÍ fuerza el
+  set completo.
+
+### P-13 · Variantes fantasma: ex con "Normal", secret rares duplicadas, hasta 3 versiones
+- **Observado (2026-08-21):** las cartas ex aparecen con Normal + Holofoil (misma imagen) cuando solo
+  existe UNA versión; en algunos casos 3 variantes; secret rares con 2 cuando solo hay 1. Pregunta:
+  ¿levantamos bien o adivinamos?
+- **Diagnóstico:** NO adivinamos por rareza — la capa estructural TCGCSV es fiel (una ex sale
+  `['holofoil']`, test en `catalog-sync.structural.spec.ts:78-95`). El bug es que `availableFinishes`
+  es la **UNIÓN** estructura ∪ precio (`card-order.ts:71-77`) y dos fuentes de precio meten variantes
+  inexistentes:
+  1. **Barrido `fetchPrintings` de PPT** (`pokemonpricetracker-bulk.provider.ts:46-50, 554-556`): el
+     finish se atribuye por la **etiqueta del request** (`printing=Normal`), no por el dato de la carta
+     → si PPT devuelve la ex en ese barrido, se le pega un `normal` CON precio. Causa principal.
+  2. **Seed de pokemontcg.io en CREATE** (`catalog-sync.service.ts:436-441`): sub-llave `normal`
+     presente (aunque `market:null`) o default `['normal']` si no hay dato.
+  La mitigación N-15 (`computeDisplayFinishes`) no salva este caso: solo oculta acabados SIN precio, y
+  el `normal` fantasma de PPT viene con precio. Además `card-order.ts:60-61` documenta una
+  intersección que el código no implementa (hace unión).
+- **Fix propuesto (backend + arquitecto):** (a) `pricedFinishesSnapshot` debe **intersectar** con
+  `structuralFinishes`, no unir (alinear código con su propio comentario); (b) revisar/apagar la
+  atribución de finish por etiqueta de request en `fetchPrintings`; (c) tras el fix, re-sync forzado
+  para limpiar seeds heredados.
+
+### P-14 · Diferenciador visual entre variantes (misma imagen en el cajón)
+- **Observado (2026-08-21):** ahora que salen las dos variantes, la imagen es idéntica y no se
+  distingue Normal de Reverse Holo de un vistazo. Propuesta del humano: un diferenciador en el cajón
+  de la carta (color tenue distinto, etc.).
+- **Confirmado:** hay UNA sola imagen por carta compartida por todas las variantes (sin campo de imagen
+  por finish; `MasterSetBinder.tsx:337, 365`); hoy solo cambia la etiqueta de texto.
+- **Qué falta:** (ux-ui define, frontend implementa) tratamiento visual por acabado en la teja del
+  binder/cotizador/inventario — p.ej. borde/fondo tenue por finish, badge de color, o efecto foil
+  sutil para reverse/holo. Aplica a cotizador, M1 y bóvedas.
+
+### P-15 · Precio de mercado en inventario NO distingue variante (buylist sí)
+- **Observado (2026-08-21):** en inventario el precio "Mercado" es idéntico para Normal y Reverse Holo;
+  en compra/buylist sí difieren. Pregunta: ¿referenciamos dos listas?
+- **Diagnóstico:** NO hay dos listas — ambos leen la misma `PriceReference` (que SÍ es por variante:
+  `finish` en la clave única, `schema.prisma:620`). Es un **bug de lectura del binder Master Set**:
+  `master-set.service.ts:437-445` pide UNA referencia por carta con el acabado BASE
+  (`availableFinishes[0]`) y la expone a nivel **celda**, y la teja por variante pinta ese dato de
+  celda (`MasterSetBinder.tsx:422`) → Normal y Reverse muestran lo mismo. El buylist sí pasa el finish
+  real (`buylist.service.ts:184-187`). Es el ÚNICO consumidor de precios del backend que no propaga el
+  finish.
+- **Fix propuesto:** mover `marketReferenceMxnCents` de `MasterSetCardCellDTO` a `MasterSetVariantDTO`
+  y expandir el batch por (carta × acabado) — **cambio de contrato ⇒ pasa por arquitecto (regla 9)**;
+  luego backend + frontend.
+- **Ojo (posible causa concurrente):** si `POKEMONPRICETRACKER_FETCH_PRINTINGS` no está en `true` en
+  Railway, el proveedor emite UNA fila por carta (impresión primaria) y las reverse no tienen
+  referencia propia → aun con el fix saldrían "—". Verificar el dial en prod.
+
+### P-16 · Cotizador: cartas del mismo tamaño que en inventario
+- **Observado (2026-08-21):** en inventario las cartas se ven grandes y cómodas; en el cotizador se
+  ven más chicas. El humano quiere el mismo tamaño de imagen y redistribuir el layout del cotizador
+  para desplegarlas más grandes.
+- **Qué falta:** (ux-ui propone la redistribución de la página, frontend implementa) igualar el tamaño
+  de teja del cotizador al del binder de inventario; revisar columnas/densidad de la grilla y el
+  espacio del carrito lateral.
+
 ---
 
 ## En curso / Hecho (referencia)
