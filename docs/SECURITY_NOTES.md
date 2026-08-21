@@ -3044,3 +3044,138 @@ venta. NINGÚN input de precio TOCADO por este bundle reintroduce el multi-punto
 
 **Gate SEGURIDAD (money-touch): APPROVE-WITH-CONDITIONS.** Registrar L1/L2; ninguna es hazard de dinero
 introducida por este bundle. — SEGURIDAD (blue-team)
+
+---
+
+# PASE Stream C (cotizador v2, P-14+P-16) + buzones i18n — VEREDICTO BLUE TEAM · 2026-08-21
+
+> **Rol:** seguridad (blue team / AppSec). **Alcance:** DELTA `git diff origin/production..HEAD`
+> (rama `release/stream-c-mailboxes`). **Modo:** revisión estática de código (sin stack vivo:
+> Docker/Postgres ausentes). **Insumo primario:** pase «PASE Stream C» del pentester en
+> `docs/PENTEST_NOTES.md` (0C/0A/0M/0B, 3 Info). Este pase consolida solo el DELTA nuevo; el
+> release v1.28 (Streams A+B+rebrand P-21) ya tiene veredicto APROBADO más arriba en este mismo
+> archivo y SEC-A1 se apoya en esa revisión previa.
+
+## 0. Confirmación del alcance (verificado por mí, no asumido)
+
+`git diff --name-only origin/production..HEAD` → **21 archivos, 100% frontend + docs**. Cero
+cambios en `backend/`, `backend/prisma/` (schema) y `docs/API_CONTRACT.md`
+(`git diff --name-only … | grep -E '^(backend/|docs/API_CONTRACT|docs/ARCHITECTURE)'` → **NONE**).
+Corolario de seguridad: **ningún guard, DTO, ruta, migración ni contrato de dinero cambió en este
+delta**. La superficie server-side (autenticación, autorización, MoneyOutGuard, firma Stripe,
+idempotencia, cifrado PII, re-cotización de buylist) es **byte-idéntica** a la ya aprobada en
+v1.28. Toda la revisión de este delta es, por tanto, de **frontend**: integridad del payload,
+XSS y gating de cliente.
+
+## 1. Integridad del dinero — CONFIRMADO limpio (coincido con el pentester)
+
+- **El carrito no manda precios.** Verifiqué `useSellCart.ts:123-135`: `requestItems` se construye
+  con **exactamente** `{ cardId, productType, rawCondition, finish }` por ítem — no hay campo de
+  monto/categoría/precio. El tipo destino `BuylistRequestItem` (`BuylistKycForm.tsx:26-31`, archivo
+  **NO tocado** por el delta) tampoco tiene campo de dinero. El comentario del propio código lo
+  documenta: *"NO se envían precios ni categorías (SEC-A1: el backend re-deriva el monto)"*.
+- **El estimado es solo display.** `totalEstimatedCents` (`useSellCart.ts:109-112`) suma
+  `quote.quote.quotedPriceCents ?? 0` únicamente para mostrarlo; nunca se serializa al submit.
+  Las líneas `precio_pendiente` NO aportan al total y se explican aparte (`:113-119`), sin
+  MX$0.00 silencioso. `SellCartContents.tsx:225` marca el total como ESTIMADO en la UI.
+- **Cantidad saneada en el borde.** `setQuantity` (`useSellCart.ts:80-83`):
+  `Number.isFinite(q) ? Math.max(1, Math.floor(q)) : 1` → sin cantidades negativas/fraccionarias/NaN.
+- **Sin estado persistido manipulable.** El carrito vive en `useState` (`:68`); la única aparición
+  de `localStorage` en el módulo es `window.localStorage.clear()` en un archivo **de test**
+  (`BuylistView.test.tsx:48`), no en runtime. No hay superficie de tampering por storage.
+
+**Veredicto integridad de dinero:** el delta **no crea** ninguna frontera de confianza nueva ni
+debilita la existente. Inyectar `cardId`/`finish`/`quantity` arbitrarios en el carrito es inocuo:
+la elegibilidad y el monto se resuelven server-side (batchQuote → `NOT_FOUND` /
+`FINISH_NOT_AVAILABLE`; `POST /buylist/requests` re-cotiza). **Coincido con Info-1 del pentester.**
+
+## 2. SEC-A1 sigue vigente — CONFIRMADO
+
+SEC-A1 (el backend re-cotiza y decide INE/tope server-side) es la garantía sobre la que descansa
+la limpieza de este delta. La verifiqué por **ausencia de cambio**: el diff no toca
+`backend/src/modules/buylist/` (confirmado: `git diff --stat … -- backend/src/modules/buylist/`
+→ vacío), ni `orders`/`payments`, ni el schema, ni el contrato. Los endpoints consumidos
+(`POST /buylist/quote/batch`, `POST /buylist/requests`, `GET /buylist/requests`, `.../respond`)
+ya existían y pasaron el gate de seguridad en v1.28 (ver secciones previas: I-3 SEC-A1, tope
+mensual en `$transaction` Serializable, `quoteAcquisition` derivando de la rareza real). **SEC-A1
+no fue modificado y permanece en vigor.**
+
+## 3. XSS en los componentes nuevos — CONFIRMADO sin hallazgo
+
+- Grep `dangerouslySetInnerHTML|innerHTML|eval\(|new Function|document.write` sobre todo el módulo
+  buylist y los componentes nuevos (`SellCartDrawer`, `SellCartFab`, `SellCartContents`,
+  `MyRequestsSection`, `StorefrontHeader`) → **0 coincidencias en runtime**.
+- `StorefrontHeader.tsx:65`: `--app-header-h` se escribe con `${el.offsetHeight}px` — un **número**
+  del layout, no dato de usuario. Los `href` de navegación (`:79-87`) vienen de un **arreglo
+  estático** de literales, no de input. **Coincido con Info-2.**
+- Todo dato de catálogo (nombre, número, rareza, folio) se renderiza como **children JSX**
+  (auto-escapado por React). Sin sink de HTML crudo.
+
+## 4. Autorización en cliente (gating P-11) — CONFIRMADO sin regresión
+
+- `SellCartContents.tsx:228-244`: sin sesión (`sellReq.ready && !sellReq.isAuthenticated`) el botón
+  de envío se **sustituye** por CTAs de login/registro; no hay `onSubmit` disponible.
+- `SellCartContents.tsx:247-255`: con sesión, el botón está `disabled` si
+  `cart.length === 0 || !sellReq.canSubmit`; correo no verificado → `sellReq.emailBlocked` deshabilita
+  y explica el motivo (`:256-264`).
+- `MyRequestsSection.tsx:37,41`: la query `GET /buylist/requests` corre con
+  `enabled: ready && isAuthenticated` — no se consulta sin sesión.
+- Insisto en el matiz correcto: este gating es **UX**; el bloqueo real es server-side
+  (`EmailVerifiedGuard` + `JwtAuthGuard` desde BD, I-2 de v1.5). El delta **no altera** ese guard.
+  **Coincido: sin regresión.**
+
+## 5. Buzones i18n @tcghunt.mx — CONFIRMADO sin superficie
+
+`messages/{es,en}.json` (18 líneas cada uno): solo literales `@tcgvaultmx.com → @tcghunt.mx` +
+renombrado de claves de carrito. Strings estáticos; ninguno interpola dato de usuario → sin
+inyección. El cambio de dominio de correo **no toca** el envío server-side (Resend por API JSON,
+sin SMTP header injection — R-9/v1.28). **Info-3 (higiene):** la existencia y monitoreo de los
+buzones @tcghunt.mx (Email Routing + prueba real) fue **confirmada por el humano el 2026-08-21**.
+
+## 6. Consolidación de hallazgos del pentester (Stream C)
+
+| ID | Severidad | Descripción | Ubicación | Estado / Dueño |
+|---|---|---|---|---|
+| Info-1 | Info | cardId/finish/quantity arbitrarios en carrito son inocuos: elegibilidad y monto server-side (batchQuote / requests re-cotiza) | `useSellCart.ts:123-135` | Frontera correcta (SEC-A1). **Sin acción.** Aceptado. |
+| Info-2 | Info | `--app-header-h` desde `offsetHeight` (número); nav `href` de arreglo estático | `StorefrontHeader.tsx:65,79-87` | Sin superficie. **Sin acción.** Aceptado. |
+| Info-3 | Info | Higiene: confirmar buzones @tcghunt.mx existen y monitoreados | `messages/{es,en}.json` | **HECHO por el humano** (2026-08-21). Cerrado. |
+
+Ningún hallazgo del delta requiere ruteo a un rol dueño para corrección: los 3 Info son
+frontera-correcta o higiene ya resuelta. **No hay falsos positivos que refutar ni severidades que
+corregir al alza** — mi revisión independiente confirma el conteo del pentester (0/0/0/0, 3 Info).
+
+## 7. Deuda de seguridad heredada (NO introducida por este delta — solo recordatorio de estado)
+
+Las Medias/Bajas de releases previos siguen abiertas y **fuera del alcance de este delta**
+(no las toca ni las agrava), ya registradas y aceptadas arriba: **R-1** (2 moderate `@nestjs/core`
+GHSA-36xv-jgw5-4q75 → devops, bump a NestJS 11), **B-2** (linking Google a cuentas privilegiadas),
+**B-3** (columnas de dinero en `Int32`), **MS-1/MS-2** (idempotency-key en shipments/refund;
+agregados sin `clampCents`), **R-2/R-3** (cotas de `acquisitionPct`; lectura de estrategia por
+`vault_operator`). Ninguna es Crítica/Alta → ninguna bloquea. Disparador de re-priorización:
+cuando se agende la ventana de DAST en staging autorizado y el bump mayor de NestJS.
+
+## 8. Banderas para el humano
+
+- **Pre-dinero-real (recordatorio, no bloqueante de este delta):** antes de operar con dinero real
+  a escala, ejecutar la batería **DAST en staging autorizado** que el pentester dejó pendiente
+  (concurrencia de reserva atómica, firma Stripe con eventos reales, rate-limit efectivo
+  multi-instancia con Redis) y considerar **pentest de tercero + bug bounty**. No es del alcance
+  del cotizador v2, pero es la condición de madurez para el flujo de dinero completo.
+- **PII/custodia (recordatorio):** validaciones legales de custodia de bienes y manejo de INE/CLABE
+  (retención, AML SPEI) siguen siendo bandera legal del humano; este delta no las toca.
+
+## 9. VEREDICTO DE SEGURIDAD del delta Stream C — **APROBADO**
+
+**0 Críticos · 0 Altos · 0 Medios · 0 Bajos · 3 Info** (frontera-correcta / higiene resuelta).
+Umbral DoD (sin Críticos/Altos abiertos) **CUMPLIDO**. Confirmo, por revisión estática independiente,
+las cuatro garantías del delta: (1) el carrito de venta envía solo
+`{cardId, productType, rawCondition, finish}` sin precios; (2) **SEC-A1 intacto** (backend re-cotiza
+y decide INE/tope — no está en el diff); (3) **cero XSS** en los componentes nuevos; (4) gating P-11
+sin regresión (bloqueo real server-side). El diff es 100% frontend/docs y **no debilita ningún guard
+de dinero**.
+
+**Mínimo para mantener el APROBADO:** no introducir en el frontend ninguna vía que envíe montos al
+backend por las rutas de buylist (mantener el payload sin precios); cualquier cambio futuro a
+`backend/src/modules/buylist/`, `orders`, `payments` o al contrato re-abre el gate server-side.
+
+— SEGURIDAD (blue team / AppSec), 2026-08-21
