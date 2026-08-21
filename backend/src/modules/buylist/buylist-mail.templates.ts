@@ -1,4 +1,5 @@
 import { Finish } from '@prisma/client';
+import { envOr } from '../mail/mail-env.util';
 import { MailMessage } from '../mail/mail.port';
 
 /**
@@ -18,9 +19,12 @@ type Locale = 'es' | 'en';
 
 // P-21 (rebrand): overridable por env sin redeploy (mismo patrón que `disputes.constants.ts`).
 // Cae en cascada a `DISPUTE_EVIDENCE_CONTACT` (mismo buzón de soporte) y al valor histórico como
-// default para no romper nada mientras devops no cree el buzón @tcghunt.mx.
-const SUPPORT_EMAIL =
-  process.env.SUPPORT_EMAIL ?? process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvaultmx.com';
+// default para no romper nada mientras devops no cree el buzón @tcghunt.mx. P-21 cierre: `envOr`
+// (no `??`) — env definida pero vacía/blanca sigue la cascada hasta el default.
+const SUPPORT_EMAIL = envOr(
+  process.env.SUPPORT_EMAIL,
+  envOr(process.env.DISPUTE_EVIDENCE_CONTACT, 'soporte@tcgvaultmx.com'),
+);
 // P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4).
 const BRAND = 'TCG HUNT';
 
