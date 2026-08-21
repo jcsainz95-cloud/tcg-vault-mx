@@ -4162,3 +4162,41 @@ Dos hallazgos baratos aplicados sobre el delta P-5 (el resto queda como deuda FE
   debounce de ~300ms con timers reales; el único test que verifica sincronía (filtrado client-side operativo
   de M5, «el buscador filtra por folio/usuario») sigue sobre el valor inmediato, así que no requirió fake
   timers ni cambios.
+
+### Stream A v1.27 · P-15 (mercado por variante) + P-12 (sync completo por set) — 2026-08-21
+
+Implementación frontend de la spec **v1.27-stream-a** (`API_CONTRACT.md` Changelog v1.27, `ARCHITECTURE.md` §4.25b/§4.25c). Sin backend vivo: validado con types + fixtures + tests de componente.
+
+- **P-15 — precio de mercado POR VARIANTE en el binder Master Set.**
+  - `types/contract.ts`: `MasterSetVariantDTO += marketReferenceMxnCents?: number | null` y
+    `capturedDate?: string | null` (decoración de frescura, presente solo con precio). El campo de
+    CELDA `MasterSetCardCellDTO.marketReferenceMxnCents` queda comentado **DEPRECATED v1.27**
+    (espejo de `variants[0]`, retiro en la siguiente rev).
+  - `MasterSetBinder.tsx` (`BinderTile`): lee `variant.marketReferenceMxnCents`. Semántica del
+    fallback: `undefined` (backend rezagado que aún no emite el campo) → cae al campo de celda
+    deprecado (retrocompat SOLO durante la ventana de deploy); `null` explícito → "—" honesto
+    (pending, NUNCA $0). Ese era el único lector del campo de celda en `src/` (verificado por grep).
+  - Fixtures (`lib/mock/fixtures.ts`): helper nuevo `mockMarketReferenceForVariant(cardId, finish)`
+    que deriva precios DISTINTOS por acabado (base ×1 / reverse ×1.25 / holo ×1.6 / 1ª ed ×2.5) para
+    demostrar el fix; `variantsForCell` puebla variante + capturedDate; la celda emite el espejo
+    deprecado `variants[0]` (igual que el backend). NOTA mock-only: `mockReferenceForFinish` (quote
+    de buylist/valuación) sigue plano por carta para no tocar los tests del cotizador — divergencia
+    solo de fixtures, sin efecto de contrato.
+  - Tests (`MasterSet.test.tsx`): Normal ≠ Reverse ≠ Holofoil con montos distintos; null → "—"
+    (money-safe); test explícito de retrocompat (variante sin campo → lee celda).
+- **P-12 — «Sync completo» por set en M2.**
+  - `lib/api.ts`: `syncCatalog` acepta y manda `force?: boolean` (body pass-through).
+  - `M2View.tsx`: segundo botón por fila («Sync completo», aria-label con el nombre del set) que
+    encadena `syncCatalog({setId, force:true})` → al éxito `triggerPriceIngest({setId})`. Feedback
+    HONESTO por fase (banner fase 1/2 y 2/2, éxito solo si el ingest encoló, warning explícito si el
+    single-flight NO encoló, error diferenciado por fase; el ingest NO se dispara si falla la fase de
+    cartas). Reusa la mecánica N-14 (`justDispatched` + poll de `price-sync-status`) y entra en
+    `catalogBusy` (keep-alive). Las dos acciones por-set se serializan entre sí.
+  - Copy corregido (es/en): `catalog.syncAllHint` y `syncAllForceConfirmBody` ya NO dicen que el
+    re-sync forzado «repuebla precios» (falso desde v1.14/§4.15g) — dicen metadata + cartas +
+    variantes/acabados y apuntan a «Actualizar precios ahora» / «Sync completo». Llaves nuevas
+    `admin.m2.catalog.fullSync*` en ambos locales.
+  - Test nuevo `M2View.test.tsx`: encadenamiento con orden verificado, single-flight honesto y
+    corte de cadena en fallo de fase 1.
+- **Resultado de checks:** `tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **438/438 ✓** (suite completa).
+- **Solicitud al arquitecto:** ninguna — el contrato v1.27 cubre todo lo consumido.
