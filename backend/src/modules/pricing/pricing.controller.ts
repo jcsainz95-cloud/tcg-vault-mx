@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, ProductType, Role } from '@prisma/client';
-import { IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
+import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
@@ -23,6 +23,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PriceSyncJobService } from '../../jobs/price-sync.service';
 // N-11: estado en memoria del barrido masivo de precios (barra de progreso del sync).
 import { PriceIngestService } from './price-ingest.service';
+// v1.28 (P-18/P-22): consola de precios por variante (M-30) — validación/upsert/auditoría.
+import { VariantControlsService } from './variant-controls.service';
 
 /** P-6 (§M2): valores válidos del query `?context=` de `GET /admin/pricing/pending`. */
 const VALID_PENDING_CONTEXTS: readonly PendingPriceContext[] = Object.values(PendingPriceContext);
@@ -83,6 +85,21 @@ class SyncDto {
 }
 
 /**
+ * v1.28 (P-18/P-22, §M2) — body de PUT /admin/pricing/variant-controls/:cardId/:finish.
+ * `@Allow()` (whitelist sin validar aquí): la validación es MANUAL en `VariantControlsService`
+ * porque el contrato distingue OMITIDO (no tocar) de `null` (limpiar) — semántica que los
+ * decoradores de class-validator no expresan — y los errores deben salir 422 con códigos propios
+ * (VALIDATION_ERROR / FINISH_NOT_AVAILABLE / BOUNTY_PRICE_REQUIRED / BOUNTY_BELOW_RULE).
+ */
+class VariantControlsDto {
+  @Allow() productType?: unknown;
+  @Allow() gradeKey?: unknown;
+  @Allow() sellOverrideCents?: unknown;
+  @Allow() buyOverrideCents?: unknown;
+  @Allow() bounty?: unknown;
+}
+
+/**
  * M2 — Catálogo y precios (super_admin). API_CONTRACT §M2.
  */
 @Controller('admin/pricing')
@@ -96,6 +113,7 @@ export class PricingController {
     private readonly prisma: PrismaService,
     private readonly priceSync: PriceSyncJobService,
     private readonly priceIngest: PriceIngestService,
+    private readonly variantControls: VariantControlsService,
   ) {}
 
   @Post('sync')
@@ -152,6 +170,23 @@ export class PricingController {
       after: { priceMxnCents: dto.priceMxnCents, finish: dto.finish ?? 'normal' },
     });
     return ref;
+  }
+
+  /**
+   * v1.28 (P-18/P-22, §M2 / ARCHITECTURE §4.26a-b) — upsert de los CONTROLES de precio por
+   * (carta, variante[, grado]): override de VENTA (pisa el storefront), override de COMPRA (pisa el
+   * cotizador público) y bounty (P-22). `super_admin` (hereda el @Roles del controller: precios =
+   * M2, §7) y AUDITADO (before/after) dentro del servicio. Campo omitido no se toca; `null` limpia.
+   * NO toca PriceReference ni resuelve PendingPriceEntry (el mercado es otra perilla).
+   */
+  @Put('variant-controls/:cardId/:finish')
+  putVariantControls(
+    @Param('cardId') cardId: string,
+    @Param('finish') finish: string,
+    @Body() dto: VariantControlsDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.variantControls.update(cardId, finish, dto, userId);
   }
 
   @Get('card/:cardId')

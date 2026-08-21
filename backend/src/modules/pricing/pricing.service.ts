@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Card, Finish, PriceReference, ProductType } from '@prisma/client';
+import { Card, Finish, PriceReference, ProductType, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -22,9 +22,11 @@ import {
   usdToMxnCents,
   computeSalePriceForRarity,
   computeSealedSalePrice,
+  BuylistRule,
   SalePriceResult,
   SalesRule,
   SealedSpreadResult,
+  VariantPriceControls,
 } from '../../common/money';
 
 function today(): Date {
@@ -259,6 +261,64 @@ export class PricingService {
       s.add(r.finish);
     }
     return map;
+  }
+
+  /**
+   * v1.28 (P-18/M-30, ARCHITECTURE §4.26b) — controles por variante (`VariantPriceOverride`) EN
+   * LOTE: UNA query por request (patrón `getReferencesBatch`, sin N+1). Devuelve
+   * `Map<'cardId|productType|gradeKey|finish', VariantPriceOverride>`; clave ausente = SIN fila =
+   * comportamiento actual (cadena de reglas). La clave espeja la única de la tabla (M-30).
+   * Consumidores: buylist (quote/batch/createRequest), catálogo `fetchSellable`, bulk-publish,
+   * binder (`pricing?`/buyable) y la propia consola `variant-controls`.
+   */
+  async getVariantOverridesBatch(
+    items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Map<string, VariantPriceOverride>> {
+    const map = new Map<string, VariantPriceOverride>();
+    if (items.length === 0) return map;
+    const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
+      `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
+    const wanted = new Set(items.map(keyOf));
+    const rows = await this.prisma.variantPriceOverride.findMany({
+      where: {
+        cardId: { in: [...new Set(items.map((i) => i.cardId))] },
+        productType: { in: [...new Set(items.map((i) => i.productType))] },
+        gradeKey: { in: [...new Set(items.map((i) => i.gradeKey))] },
+        finish: { in: [...new Set(items.map((i) => i.finish))] },
+      },
+    });
+    for (const r of rows) {
+      const k = keyOf(r);
+      if (wanted.has(k)) map.set(k, r); // fila única por clave (unique M-30): sin dedupe adicional
+    }
+    return map;
+  }
+
+  /**
+   * v1.28 (P-18) — control por variante de UN item (uso single; los flujos de lote usan
+   * `getVariantOverridesBatch`). `null` = sin fila (cadena de reglas de siempre).
+   */
+  async getVariantOverride(
+    cardId: string,
+    productType: ProductType,
+    gradeKey: string,
+    finish: Finish,
+  ): Promise<VariantPriceOverride | null> {
+    const map = await this.getVariantOverridesBatch([{ cardId, productType, gradeKey, finish }]);
+    return map.get(`${cardId}|${productType}|${gradeKey}|${finish}`) ?? null;
+  }
+
+  /**
+   * v1.28 (P-18) — iza `BUYLIST_PRICE_RULES` + fallback UNA vez por request (espejo de
+   * `loadSalesRules`). Fuente ÚNICA del read de config de compra: `BuylistService.buylistRules()`
+   * delega aquí (mismas claves de settings, cero duplicación de semántica).
+   */
+  async loadBuylistRules(): Promise<{ rules: Record<string, BuylistRule>; fallbackPct: number }> {
+    const rules =
+      ((await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES)) as Record<string, BuylistRule> | null) ??
+      {};
+    const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
+    return { rules, fallbackPct };
   }
 
   /**
@@ -788,13 +848,17 @@ export class PricingService {
    *   cliente. `referenceMxnCents` es la `PriceReference` del ACABADO del item (getReference(...,finish)).
    * - Con una regla `fixed`, una carta bulk SIN market obtiene precio de venta (piso) → puede ser
    *   sellable. Con `pct` sin market → `pending` (sin precio; igual que hoy).
+   * - v1.28 (P-18, §4.26b): `controls` opcional = fila M-30 de la variante (sellOverride pisa la
+   *   regla; omitido/null = comportamiento actual). El paso 1 (`listPriceCents` por pieza) lo
+   *   aplican los callers ANTES, como siempre.
    */
   async computeSalePriceForItem(
     item: { rarity: string | null; finish: Finish },
     referenceMxnCents: number | null,
+    controls?: VariantPriceControls | null,
   ): Promise<SalePriceResult> {
     const { rules, fallbackPct } = await this.loadSalesRules();
-    return computeSalePriceForRarity(item.rarity, item.finish, referenceMxnCents, rules, fallbackPct);
+    return computeSalePriceForRarity(item.rarity, item.finish, referenceMxnCents, rules, fallbackPct, controls);
   }
 
   gradeKeyFor(item: {

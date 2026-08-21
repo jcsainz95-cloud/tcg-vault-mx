@@ -76,13 +76,39 @@ export interface BuylistRule {
   value: number;
 }
 
+/**
+ * v1.28 (P-18/P-22, ARCHITECTURE §4.26b) — fuente del peldaño que GANÓ la cotización de compra.
+ * ADITIVO: se añaden `bounty` (bounty activo, paga el premium) y `override` (buyOverrideCents de
+ * `VariantPriceOverride`, M-30) a los dos valores previos. El front DEBE tolerarlos (contrato §6).
+ */
+export type AcquisitionRuleSource = 'bounty' | 'override' | 'rule' | 'fallback';
+
+/**
+ * v1.28 (P-18/P-22, §4.26a/M-30) — contexto de CONTROLES por variante para los resolvers de
+ * precedencia. Es la proyección relevante de una fila `VariantPriceOverride` (o `null`/omitido =
+ * SIN fila ⇒ comportamiento actual intacto, cadena de reglas de siempre).
+ *
+ * REGLA money-safe de presencia (misma doctrina H-1 del sellado): un override/bounty se considera
+ * PRESENTE solo si su monto es `> 0`. Un `<= 0` es input degenerado (las validaciones del write lo
+ * rechazan; si se coló, se trata como AUSENTE — jamás se cobra/ofrece $0 por un dato corrupto).
+ */
+export interface VariantPriceControls {
+  sellOverrideCents?: number | null;
+  buyOverrideCents?: number | null;
+  bountyEnabled?: boolean;
+  bountyPriceCents?: number | null;
+}
+
 export interface AcquisitionQuote {
   quotedPriceCents: number | null;
   status: 'cotizada' | 'precio_pendiente';
-  /** Regla efectivamente aplicada (explícita o fallback). */
+  /** Regla efectivamente aplicada (explícita o fallback; bounty/override ⇒ fixed sintética). */
   appliedRule: BuylistRule;
-  /** "rule" = fila explícita en BUYLIST_PRICE_RULES; "fallback" = BUYLIST_PRICE_FALLBACK_PCT. */
-  ruleSource: 'rule' | 'fallback';
+  /**
+   * "rule" = fila explícita en BUYLIST_PRICE_RULES; "fallback" = BUYLIST_PRICE_FALLBACK_PCT.
+   * v1.28: además "bounty" | "override" cuando el control por variante (M-30) ganó la precedencia.
+   */
+  ruleSource: AcquisitionRuleSource;
 }
 
 /**
@@ -227,7 +253,7 @@ export function ruleKeyCandidates(rarity: string | null, finish: Finish): string
 /** Aplica una regla ya resuelta (misma lógica que quoteAcquisition §4.2). */
 function applyRule(
   rule: BuylistRule,
-  ruleSource: 'rule' | 'fallback',
+  ruleSource: AcquisitionRuleSource,
   referenceMxnCents: number | null,
 ): AcquisitionQuote {
   if (rule.mode === 'fixed') {
@@ -251,6 +277,16 @@ function applyRule(
  * (`getReference(..., finish)`). Para `first_edition_holofoil`, esa referencia es la de la
  * llave `1stEditionHolofoil`. SEC-A1: rarity/finish derivados server-side y finish validado
  * contra card.availableFinishes por el caller ANTES de cotizar.
+ *
+ * v1.28 (P-18/P-22, §4.26b) — GANA el parámetro opcional `controls` (fila M-30 de la variante;
+ * omitido/null = comportamiento actual intacto). Precedencia NORMATIVA de COMPRA (money-safe):
+ *   1. bountyEnabled && bountyPriceCents > 0 → bountyPriceCents      (source = "bounty")
+ *   2. buyOverrideCents > 0                  → buyOverrideCents      (source = "override")
+ *   3. BUYLIST_PRICE_RULES / fallback (hoy)  → fixed | pct × ref     (source = "rule" | "fallback")
+ *   4. pct sin referencia                    → precio_pendiente/null (JAMÁS inventar)
+ * Bounty y override actúan como `fixed`: NO dependen de la referencia ⇒ siempre 'cotizada'.
+ * Este es el ÚNICO cuerpo de la precedencia de compra: publicQuote, batchQuote, createRequest y
+ * (P-22) /buylist/bounties DEBEN pasar por aquí — prohibido duplicarlo.
  */
 export function quoteAcquisitionForFinish(
   rarity: string | null,
@@ -258,7 +294,17 @@ export function quoteAcquisitionForFinish(
   referenceMxnCentsForFinish: number | null,
   rules: Record<string, BuylistRule>,
   fallbackPct: number,
+  controls?: VariantPriceControls | null,
 ): AcquisitionQuote {
+  // 1. Bounty activo (precio SIEMPRE explícito > 0; un <= 0 degenerado se trata como ausente).
+  if (controls?.bountyEnabled && controls.bountyPriceCents != null && controls.bountyPriceCents > 0) {
+    return applyRule({ mode: 'fixed', value: controls.bountyPriceCents }, 'bounty', referenceMxnCentsForFinish);
+  }
+  // 2. Override manual de compra de la variante (misma regla de presencia > 0).
+  if (controls?.buyOverrideCents != null && controls.buyOverrideCents > 0) {
+    return applyRule({ mode: 'fixed', value: controls.buyOverrideCents }, 'override', referenceMxnCentsForFinish);
+  }
+  // 3./4. Cadena de reglas de SIEMPRE (sin control por variante, nada cambia).
   const candidates = ruleKeyCandidates(rarity, finish);
   const hitKey = candidates.find((k) => rules[k] != null);
   const rule: BuylistRule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };
@@ -277,13 +323,24 @@ export interface SalesRule {
   value: number;
 }
 
+/**
+ * v1.28 (P-18, §4.26b) — fuente del peldaño que GANÓ el precio de venta derivado. ADITIVO:
+ * `override` = sellOverrideCents de la variante (M-30). El paso 1 de la precedencia de VENTA
+ * (`InventoryItem.listPriceCents`, POR PIEZA) NO pasa por aquí: lo aplican los callers ANTES
+ * (comportamiento actual intacto — la intención más específica gana).
+ */
+export type SaleRuleSource = 'override' | 'rule' | 'fallback';
+
 export interface SalePriceResult {
   salePriceCents: number | null;
   status: 'priced' | 'pending';
-  /** Regla efectivamente aplicada (explícita o fallback). */
+  /** Regla efectivamente aplicada (explícita o fallback; override ⇒ fixed sintética). */
   appliedRule: SalesRule;
-  /** "rule" = fila explícita en SALES_PRICE_RULES; "fallback" = SALES_PRICE_FALLBACK_PCT. */
-  ruleSource: 'rule' | 'fallback';
+  /**
+   * "rule" = fila explícita en SALES_PRICE_RULES; "fallback" = SALES_PRICE_FALLBACK_PCT.
+   * v1.28: además "override" cuando el sellOverride por variante (M-30) ganó la precedencia.
+   */
+  ruleSource: SaleRuleSource;
 }
 
 /**
@@ -303,6 +360,15 @@ export interface SalePriceResult {
  * dato es idéntica; solo cambia la fórmula del pct.
  *
  * SEC-A1: rarity de `Card.rarity` (BD), finish de `InventoryItem.finish` (BD); nunca del cliente.
+ *
+ * v1.28 (P-18, §4.26b) — GANA el parámetro opcional `controls` (fila M-30 de la variante; omitido/
+ * null = comportamiento actual intacto). Precedencia NORMATIVA de VENTA (money-safe):
+ *   1. item.listPriceCents (POR PIEZA)  → la aplican los CALLERS antes de llamar aquí (intacto)
+ *   2. sellOverrideCents > 0 (variante) → fija el precio publicado    (ruleSource = "override")
+ *   3. SALES_PRICE_RULES / fallback     → derivado por rareza+acabado (ruleSource = "rule"|"fallback")
+ *   4. no resoluble                     → 'pending' / null            (PRICE_PENDING, jamás inventar)
+ * El override actúa como `fixed`: NO depende del mercado ⇒ siempre 'priced'. Un sellOverride <= 0
+ * es input degenerado y se trata como AUSENTE (misma regla H-1; BE-26 en los callers remata).
  */
 export function computeSalePriceForRarity(
   rarity: string | null,
@@ -310,7 +376,17 @@ export function computeSalePriceForRarity(
   referenceMxnCents: number | null,
   rules: Record<string, SalesRule>,
   fallbackPct: number,
+  controls?: VariantPriceControls | null,
 ): SalePriceResult {
+  // 2. Override de venta de la variante (M-30): fixed sintético, siempre 'priced'.
+  if (controls?.sellOverrideCents != null && controls.sellOverrideCents > 0) {
+    return {
+      salePriceCents: clampCents(controls.sellOverrideCents),
+      status: 'priced',
+      appliedRule: { mode: 'fixed', value: controls.sellOverrideCents },
+      ruleSource: 'override',
+    };
+  }
   const candidates = ruleKeyCandidates(rarity, finish); // REUSA §4.2.1 (gate premium)
   const hitKey = candidates.find((k) => rules[k] != null);
   const rule: SalesRule = hitKey ? rules[hitKey] : { mode: 'pct', value: fallbackPct };

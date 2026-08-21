@@ -34,6 +34,14 @@ export const ErrorCode = {
   // v1.6-finish: el `finish` enviado no está en Card.availableFinishes (SEC-A1). 422.
   // Afecta POST /buylist/quote, POST /buylist/requests, POST /admin/inventory/items.
   FINISH_NOT_AVAILABLE: 'FINISH_NOT_AVAILABLE',
+  // v1.28 (P-18/P-22, §M2 variant-controls): bounty con `enabled:true` sin `priceCents > 0`
+  // (efectivo tras el merge con la fila existente). El bounty es SIEMPRE precio explícito,
+  // jamás calculado. 422.
+  BOUNTY_PRICE_REQUIRED: 'BOUNTY_PRICE_REQUIRED',
+  // v1.28 (P-18/P-22): `bounty.priceCents` por DEBAJO del sugerido de compra por regla del
+  // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
+  // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
+  BOUNTY_BELOW_RULE: 'BOUNTY_BELOW_RULE',
 
   // Checkout / orders
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',

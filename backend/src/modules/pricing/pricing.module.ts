@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PricingService } from './pricing.service';
+// v1.28 (P-18/P-22, §4.26): consola de controles de precio por variante (M-30).
+import { VariantControlsService } from './variant-controls.service';
 import { FxService } from './fx.service';
 import { PricingController, FxController } from './pricing.controller';
 import { PokemonTcgIoProvider } from './providers/pokemontcg-io.provider';
@@ -43,6 +45,7 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
   imports: [FinishReconcilerModule],
   providers: [
     PricingService,
+    VariantControlsService,
     FxService,
     PokemonTcgIoProvider,
     PokemonPriceTrackerProvider,
