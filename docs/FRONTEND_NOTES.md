@@ -4385,3 +4385,54 @@ ronda no lo toca): (1) heading «Piezas (N)» del drawer cuenta las filas RECORT
 no el total server-side cuando hay truncado (el indicador nuevo lo mitiga); (2) el troceo >200
 del publish de grupo no es transaccional entre trozos (un fallo intermedio publica parcial; el
 reintento con la misma clave lo repara por replay).
+
+## P-21 · Rebrand TCG HUNT (DESIGN_SYSTEM §17 v1.7/v1.7.1) — rama `claude/backend-e2e-payment-fixtures-77mo4t` (2026-08-21)
+
+La marca visible pasa de «TCG VAULT MX» a **TCG HUNT** (tcghunt.mx). Sin rediseño: la dirección
+papel/tinta 5a queda intacta; cambia el acento y entra el logo de mira.
+
+**Tokens (§17.2):** `--color-accent/warning/danger/focus-ring` cambian de VALOR (`#B44B3A` →
+`#B31217`, bermellón retirado — mismo nombre de token, cero migración de consumidores). Nuevos
+`--hunt-*` (red, wine, wine-up, red-hover, red-up, red-deep, tint) de uso restringido a marca.
+`FinishBand` (banda reverse) y `PortfolioTrendChart` heredan por token — solo se alinearon sus
+FALLBACKS hex al DS. Botones accent/destructive: hover pasa de `brightness-95` a
+`--hunt-red-hover` (#8F0E12, 8.3:1).
+
+**Fuente de marca (§17.1e):** Montserrat 700 vía `next/font/google` como `--font-brand` en
+`[locale]/layout.tsx` (self-hosted, junto a serif/sans/mono); clase `font-brand` en tailwind con
+fallback `var(--font-sans)` (Archivo). Exclusiva del wordmark: no entra en la escala de §3.
+
+**`<LogoTcgHunt />`** (`components/domain/LogoTcgHunt.tsx`, geometría v1.7.1 — retícula con cruz
+segmentada, anillos en 4 arcos con gaps cardinales, punto aislado, wordmark dominante):
+variantes `lockup` / `lockup-dark` / `mark` / `mark-dark` / `micro` (+ export `HuntMarkMicro`).
+Ids de gradiente por instancia con `useId` saneado (varios montajes sin ids duplicados).
+`decorative` → `aria-hidden` (el enlace porta `brand.homeAria`). En el DOM el SVG usa
+`var(--font-brand), Montserrat, Archivo…` (el nombre de familia de next/font va hasheado: la
+variable es la única referencia fiable).
+
+**Dónde quedó la marca:** topbar storefront (≥lg mira 28 + wordmark tinta; <lg solo mira 28,
+táctil 44px), sidebar admin (mark-dark 28 + wordmark papel; «Back-office» sigue en el
+AdminTopbar), login/auth (lockup-dark en el hero de tinta + mark-dark en cabecera), `/pedido`
+(mark 28 + wordmark tinta), footer legal («TCG HUNT · tcghunt.mx · © 2026 [razón social]» con
+`footer.legalEntity` placeholder), metadata (`TCG HUNT — {página}`, `og:site_name`), favicon
+(`app/icon.svg` + `icon.png` 32 glifo micro; `apple-icon.png` 180 solo-mira sobre papel, margen
+12%), badge BOUNTY del shelf y del binder (glifo micro oficial en vez del crosshair de lucide).
+i18n: `common.appName` = «TCG HUNT», nuevas `brand.name/domain/homeAria` y `footer.legalEntity`;
+`legal.intro` y `sellado.buylistCallout.title` renombrados (es/en).
+
+**Pendientes / decisiones:**
+- **OG image PNG 1200×630:** el layout está listo en `public/branding/og-tcg-hunt.svg`, pero el
+  export a PNG exige la fuente RESUELTA (Montserrat no está instalada en este entorno; un SVG
+  con `<text>` fuera del DOM no la garantiza, §17.1e). Hasta el export, `openGraph` va sin
+  `images`. Ruta sugerida: exportar cuando llegue el arte original o generar el raster en CI.
+- **Cotejo con el PNG original del humano** (§17.5.1): cuando lo suba a
+  `frontend/public/branding/`, comparar métricas finas y sacar wordmark en paths (outline).
+- **Correos `@tcgvaultmx.com` NO tocados** (soporte/facturación/contacto en i18n, fixtures y
+  fallback del contrato): son buzones operativos reales; migrarlos a `@tcghunt.mx` requiere el
+  dominio de correo (devops/humano) y el fallback `evidenceContact` viene del contrato
+  (arquitecto). Igual los nombres de archivo CSV `tcgvault_*` de M7/M9 (artefacto técnico,
+  §17.4: el nombre interno no cambia).
+- Los E2E preexistentes que asertaban copy de marca vía `t()` siguen verdes (leen messages).
+
+Verificación: `tsc --noEmit` limpio; lint limpio; vitest 526/526 (520 previos + 6 del logo);
+Playwright `inventory-stream-b.spec.ts` + `admin.spec.ts` 13/13.
