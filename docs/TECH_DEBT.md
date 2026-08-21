@@ -2707,6 +2707,35 @@
 - **Disparador:** próximo toque a variant-controls o al habilitar multi-operador concurrente.
   Dirección: envolver lectura+merge+persistencia en un `$transaction` (o `updateMany` con guardias).
 
+### SB-D7 · Recorte de identidad de grupo de sellado en cliente; falta filtro de identidad en el contrato (Media, frontend + arquitecto)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/SealedTab.tsx:192-226` (publicar-grupo pagina
+  server-side hasta agotar la carta) y
+  `frontend/src/app/[locale]/(admin)/admin/m1/VariantDrawer.tsx:118,342,409-413` (lista de piezas del
+  drawer, capeada a `pageSize` máx 100 del contrato); consumidor de `GET /admin/inventory/items`.
+- **Estado actual:** el contrato no ofrece filtros de **identidad de grupo** de sellado
+  (`sealedSubtype`/`sealedCondition`/`gradingCompany`/`gradeValue`) en `GET /admin/inventory/items`, así
+  que el cliente trae páginas por carta y **recorta la identidad en memoria**. **Mitigado** en la ronda
+  de corrección del gate (2026-08-21): el mutation de «Publicar grupo» **pagina hasta agotar** la carta
+  (ya no trunca a 100) y la lista de piezas del drawer **declara el truncado** con el conteo real
+  (`admin.drawer.truncated`: «Mostrando {shown} de {total}…»). La vía de fondo sigue pendiente.
+  Nota adicional: el heading **«Piezas (N)»** del drawer cuenta las filas **recortadas** en cliente, no
+  el total server-side cuando hay truncado (el indicador nuevo lo deja declarado al operador).
+- **Impacto:** medio: sobre-lectura (páginas de más por carta) y conteo del heading no-total bajo
+  truncado; correctness del publicar-grupo OK tras la mitigación (recorre todas las páginas).
+- **Disparador:** próximo toque al contrato de M1/inventario. **Solicitud al arquitecto:** filtros de
+  identidad `sealedSubtype`/`sealedCondition`/`gradingCompany`/`gradeValue` en
+  `GET /admin/inventory/items` (y de paso un `total` filtrado utilizable por el heading), para que el
+  servidor filtre el grupo y el cliente deje de recortar. Ref: `docs/FRONTEND_NOTES.md` (Ronda de
+  corrección Stream B, M-2).
+
+### SB-D8 · `FinishMark`/`FinishBand` con hex del DS hardcodeados — RESUELTA (ronda de corrección, 2026-08-21)
+- **Dónde:** `frontend/src/components/domain/FinishMark.tsx` (compartido; el Stream C lo reusa tal cual).
+- **Estado:** **RESUELTA** en la misma ronda del gate (commit `e0fbff1`). `FinishBand` dejó los hex
+  hardcodeados del DS §16.6 y usa **tokens vivos con fallback**
+  (`var(--color-neutral-warm|--color-accent|--color-ink, <hex del DS §16.6>)`), mismo criterio que
+  `PortfolioTrendChart`, aplicado ANTES de que el Stream C esparza el patrón. Cubierto por
+  `FinishMark.test.tsx`. Registrada aquí para trazabilidad del veredicto techlead; ya no es deuda.
+
 ### SB-D9 · `toListingDTO` con dos caminos paralelos de resolución de precio (ctx lote vs single) (Media)
 - **Dónde:** `backend/src/modules/catalog/catalog.service.ts:229-250` (`toListingDTO`: rama
   `ctx?.salesRules` → `computeSalePriceForRarity` pura con override del batch, vs rama sin ctx →
@@ -2720,3 +2749,20 @@
 - **Disparador:** próximo toque a la ficha/listado del catálogo. Dirección: exigir un
   **PricingContext único** (construirlo siempre — de 1 elemento en el caso single) y borrar la rama
   sin ctx.
+
+### SB-D10 · Troceo >200 del publicar-grupo de sellado no es transaccional entre trozos (Baja, frontend)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m1/SealedTab.tsx:219-226` — el bulk-publish capea
+  200 líneas por request (contrato §M1), así que grupos grandes se publican en trozos secuenciales con
+  `batchKey` de sufijo **determinista** por trozo (`<key>-0`, `<key>-1`, …) sobre una clave base en
+  `useRef` que solo rota tras éxito.
+- **Estado actual:** los trozos son requests independientes: un fallo intermedio (red/timeout/5xx) deja
+  el grupo **parcialmente publicado**. Es **reparable por replay**: la clave base no se limpia hasta el
+  éxito total, así el reintento reenvía los MISMOS `batchKey` por trozo — los trozos ya aplicados
+  replayean idempotentes server-side y solo los pendientes ejecutan trabajo real. El toast reporta el
+  agregado real de lo procesado.
+- **Impacto:** bajo: ventana de publicación parcial visible hasta que el operador reintenta; sin
+  duplicados ni corrupción (idempotencia por trozo). Aceptada.
+- **Disparador:** si SB-D1 (publish-all → job server-side con `jobId` consultable) se convierte en job,
+  **mover este bucle al servidor** en la misma pasada (un solo submit con progreso persistido) y borrar
+  el troceo en cliente. Ref: `docs/FRONTEND_NOTES.md` (Ronda de corrección Stream B, M-2) y tests en
+  `SealedTab.test.tsx` (paginado+troceo, reuse de batchKey en reintento).
