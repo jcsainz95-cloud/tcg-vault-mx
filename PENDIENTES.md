@@ -229,6 +229,12 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
   3. **Fuera el campo de ubicación** — no se necesita (la bóveda física la definirá él después,
      ver nota en P-17).
   4. El alcance del inventario es: **altas, bajas y precios de la carta** — nada más.
+  5. **(añadido 2026-08-21) Publicar inventario: total o por piezas.** Además del "Publicar piezas
+     de esta carta" que ya existe en el modal (selección por folio), falta poder **publicar TODO el
+     inventario de golpe** (o todo lo de un set/filtro) sin ir carta por carta. Mantener la guarda
+     existente: publicar sigue gateado a que la pieza tenga precio (refresca mercado → precia → lista);
+     un "publicar todo" debe reportar por-pieza qué se publicó y qué quedó pendiente por falta de
+     precio, sin reventar el lote completo (mismo patrón tolerante que el alta masiva P-5).
 - **Forma objetivo del alta rápida:** picas la casilla de la variante → pides **cantidad** y
   **precio al que compramos** (prellenado con el sugerido de la regla, editable = el override de
   P-18) → alta. Un paso, sin conceptos financieros intermedios.
