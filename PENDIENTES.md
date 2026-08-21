@@ -315,6 +315,27 @@ Del lado del humano (cuando pueda):
 - **Cadencia:** es un work stream propio (toca storefront+admin+mails+deploy); conviene hacerlo en
   una ventana sin otros streams de frontend abiertos para no pisarse.
 
+### P-22 · "Top Bounties" en Vender: cartas que empujamos a la compra con precio atractivo
+- **Pedido del humano (2026-08-21):** en la página de **Vender** (buylist), un apartado **hasta
+  arriba** llamado "Top Bounties", visible **antes de elegir set**, con las cartas que él necesita
+  por posición y por las que paga un **precio de compra más atractivo** que la regla normal.
+- **Gestión desde inventario:** en el Master Set, por carta (y variante), poder **marcarla como
+  bounty** y **mejorar su precio de compra** — es decir, el toggle + precio bounty viven en la misma
+  consola de precios de P-18.
+- **Sugerencias del orquestador (a validar con product-owner al arrancar):**
+  1. **Cantidad objetivo opcional** por bounty ("necesito 3"): al completarse las piezas compradas,
+     el bounty se apaga solo (o avisa) — evita seguir pagando premium cuando ya se llenó la posición.
+  2. El precio bounty debe ser **≥ al sugerido por regla** (si no, no es bounty); mostrar en admin
+     cuánto premium se está pagando vs. la regla.
+  3. Precedencia de compra: **bounty > override manual > regla > sin precio** (money-safe: el bounty
+     siempre con precio explícito, nunca calculado a ciegas).
+  4. En el storefront, badge/tratamiento visual destacado (se conecta con el rebrand P-21 — "bounty"
+     y la marca "TCG HUNT" con su mira se prestan al mismo lenguaje de cacería 🎯).
+- **Alcance:** arquitecto (contrato: flag bounty + precio + cantidad objetivo en carta/variante;
+  endpoint público de top bounties) → backend (persistencia + integración con cotización del
+  buylist) + frontend (sección Top Bounties en Vender + edición en Master Set) → qa/techlead.
+- **Depende de:** P-18 (misma consola de precios y misma precedencia de overrides).
+
 ---
 
 ## En curso / Hecho (referencia)
