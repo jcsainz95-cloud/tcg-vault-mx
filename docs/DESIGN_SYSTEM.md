@@ -45,6 +45,15 @@
 > confirmación con **reclamo post-compra** y **vista pública de seguimiento por enlace tokenizado** con
 > **estado neutro** de token inválido/expirado. **No introduce tokens nuevos** de color/tipografía ni
 > cambia ninguna sección previa: §15 es aditiva y reutiliza los componentes existentes.
+>
+> **Añadido v1.6 (Stream B — Inventario M1 operable) → ver §16.** M1 reorganizado en pestañas
+> **Master Set (default) · Sellado · Gradeadas** con «Piezas» demovida a **drill-down** (P-17), tarjetas de
+> valor del inventario (P-24), **consola de tres precios** mercado/compra/venta en la teja de variante
+> (P-18), **alta rápida** de dos caminos Compra/Aportación + «Publicar todo» (P-19), **distintivo visual de
+> acabado** `FinishMark` (adelanto de P-14, lenguaje compartido con Stream C) y la teja/badge **Bounty**
+> admin + vitrina pública «Top Bounties» (P-22). §16 es aditiva; introduce **un único elemento gráfico
+> nuevo** (la banda de acabado, §16.6 — incluida la ÚNICA superficie con gradiente permitida del sistema) y
+> **cero tokens nuevos** de color/tipografía.
 
 ---
 
@@ -1889,3 +1898,356 @@ No bloquean el diseño; el contrato aún **no** cubre guest checkout (§J es nue
    que sirve para cualquiera de las dos resoluciones que elija el humano.
 9. **`evidenceContact`**: la vista pública y la confirmación toman el correo de soporte del contrato (§7.11),
    nunca hardcodeado; sigue pendiente de confirmación del humano el valor definitivo.
+
+---
+
+## 16. Inventario M1 operable — Stream B (v1.6): pestañas, drill-down, consola de precios, alta rápida, acabados y bounties
+
+> Fuente funcional: `ARCHITECTURE.md §4.26` (a–j) y `API_CONTRACT.md` v1.28. Las decisiones de producto ya
+> están tomadas por el humano (P-17/18/19/20/22/24/25 en `PENDIENTES.md`); esta sección define SOLO el cómo
+> se ve y se opera. Reutiliza tokens, tipografía y componentes existentes (§2–§8). Roles: `vault_operator`
+> opera inventario; **precios y valor son de `super_admin`** (el front esconde, el guard impone — §16.2, §16.3).
+
+### 16.0 Principios de esta pantalla
+
+1. **El binder es el hub.** Todo lo operable de una variante (piezas, precios, alta, bounty) vive a UN clic
+   de su casilla, en un mismo panel lateral. No hay pestaña "Piezas": la pieza física es un detalle de la
+   variante, no una vista hermana.
+2. **Dinero honesto siempre:** sin precio = «—» + estado explícito, nunca `$0` (§7.3). Todo resultado de
+   lote es por-ítem (lección P-4/P-5): éxito con folios, fallo anclado con causa.
+3. **Un lenguaje de acabado para toda la app:** el `FinishMark` (§16.6) nace aquí pero se define para ser
+   idéntico en el cotizador público (Stream C, P-14/P-16) y en bóvedas. Admin y storefront no divergen.
+
+### 16.1 Layout de M1 reorganizado (P-17)
+
+Estructura vertical de la página `/admin/inventory` (gutter y grid §4.4):
+
+1. **Header de módulo:** `h1` "Inventario" (serif) + a la derecha el **buscador por folio persistente**:
+   `Input` mono, ancho 260px desktop (full-width bajo el título en `< md`), placeholder
+   `Buscar folio (INV-000123)` con icono lupa. Está SIEMPRE visible en las tres pestañas.
+   - Al enviar un folio válido: abre directamente el **drill-down** (§16.4) de la variante dueña de esa
+     pieza, con la fila de la pieza resaltada (`surface-2`) y enfocada. Folio inexistente: mensaje inline
+     bajo el input, `text-xs danger`: `No existe una pieza con ese folio.` (no toast).
+2. **Tarjetas de valor (P-24, §16.2)** — solo `super_admin`; para `vault_operator` la fila se **omite por
+   completo** (sin candados ni placeholders; coherente con el contrato, que no le sirve el dato).
+3. **Toolbar de acciones:** derecha, botones `secondary`: `Publicar todo…` (§16.5c) y `Alta por lote`
+   (abre el modal de alta masiva existente P-5, sin cambios). Izquierda: **Tabs** (§6.6):
+   - **`Master Set`** (default al entrar) · **`Sellado`** (§16.8) · **`Gradeadas`** (§16.9).
+   - La pestaña activa se refleja en la URL (`?tab=`) para volver del drill-down sin perder contexto.
+4. **Contenido de la pestaña.** Master Set = el índice de sets + binder existente (v1.27), con las tejas de
+   variante extendidas según §16.3/§16.6/§16.7.
+
+**Qué desaparece:** la pestaña/vista de lista "Piezas". Sus capacidades (folio, estado, precio manual,
+detalle, publicar, merma) se reubican ÍNTEGRAS en el drill-down (§16.4). No se pierde ninguna acción.
+
+### 16.2 Tarjetas de valor del inventario (P-24) — `InventoryValueCards`
+
+Consumen `GET /admin/finance/inventory-value` (breakdown v1.28). **Cuatro `StatCard`** (§7.8) en fila
+(1 col móvil → 2 `sm` → 4 `lg`), en este orden con estas etiquetas (eyebrow mono uppercase):
+
+| Card | Etiqueta | Cifra principal | Fuente |
+|---|---|---|---|
+| 1 | `VALOR TOTAL` | `atReferenceCents` top-level | total |
+| 2 | `SUELTAS` | `breakdown.raw.atReferenceCents` | raw |
+| 3 | `SELLADO` | `breakdown.sealed.atReferenceCents` | sealed |
+| 4 | `GRADEADAS` | `breakdown.graded.atReferenceCents` | graded |
+
+Anatomía por card: eyebrow → cifra a **mercado** (`text-h2` mono `tabular-nums`, `MX$ 128,450.00`) →
+segunda línea `text-xs muted`: `Costo: MX$ 84,120.00` (`atCostCents`) → tercera línea SOLO si
+`pendingPriceCount > 0`: `12 piezas sin precio` en `text-xs` **warning** (bermellón), que es enlace a la
+cola de pendientes de M2 (`/admin/m2?context=inventory`). Con `pendingPriceCount = 0` la línea se omite.
+- Estados: loading = skeleton de cifra; error = mini-banner "No se pudo cargar" + Reintentar; cero = `MX$ 0.00`
+  legítimo (inventario vacío no es error).
+- Regla de confianza: las piezas sin precio están EXCLUIDAS del total (así lo calcula el backend); la
+  tercera línea existe justo para que esa exclusión sea visible, nunca silenciosa.
+
+### 16.3 Consola de tres precios en la teja de variante (P-18) — `VariantPriceConsole`
+
+Consume `MasterSetVariantDTO.pricing` (solo scope `platform`; si `pricing` no viene, la consola no se
+renderiza — bóvedas de cliente jamás la ven). **Patrón elegido: compacto de solo-lectura en la teja +
+edición completa en el panel drill-down.** La teja informa de un vistazo; el write (que es `super_admin` y
+auditado) vive en el panel, donde hay espacio para sugerido/override/validación.
+
+**(a) Bloque compacto en la teja** — bajo la fila de conteo de la casilla, TRES renglones mono
+(`text-[11px]`, `tabular-nums`, cifras alineadas a la derecha, etiquetas `uppercase tracking-[0.06em]`
+en `--color-text-muted`):
+
+```
+MERCADO   MX$ 1,250.00
+COMPRA      MX$ 875.00 ·M
+VENTA     MX$ 1,690.00
+```
+
+- `MERCADO` = `marketReferenceMxnCents` (P-15, ya en el binder). `COMPRA`/`VENTA` = `effectiveCents`.
+- **Marcador de origen** (sufijo mono de 2 caracteres tras la cifra, con `title` + `aria-label`):
+  - *(sin sufijo)* → `source: "rule" | "fallback"` (el caso normal no grita).
+  - **`·M`** en tinta, peso 500 → `source: "override"` (`title`/`aria-label`: `Precio manual — pisa la regla`).
+  - **`·B`** en **bermellón**, peso 500 → `source: "bounty"` (solo cara COMPRA; `title`: `Bounty activo`).
+- **Sin precio:** la cifra es `—` (em dash, muted) y el renglón gana `title`/`aria-label`
+  `Precio pendiente — sin referencia de mercado`. Nunca `$0` (§7.3). Si `source:"pending"` en COMPRA o
+  VENTA la causa casi siempre es MERCADO en `—`: no se repite el aviso tres veces, basta el `—`.
+- El bloque completo es `aria-hidden` NO: cada renglón lleva `aria-label` legible
+  (`Precio de compra: 875 pesos, precio manual`). No hay edición inline en la teja (objetivo táctil y
+  guardas de dinero viven en el panel).
+
+**(b) Consola completa en el panel drill-down** (§16.4, sección "Precios") — tabla de 3 filas × 3 columnas:
+
+| | Sugerido (regla) | Override | Efectivo |
+|---|---|---|---|
+| Mercado | — (no aplica) | *(acción "Fijar mercado" M2, solo graded/pendientes)* | `MX$ 1,250.00 · 20 ago 2026` |
+| Compra | `MX$ 875.00` | input editable | `MX$ 875.00` + fuente |
+| Venta | `MX$ 1,690.00` | input editable | `MX$ 1,690.00` + fuente |
+
+- **Fuente del efectivo** como texto mono en versalitas junto a la cifra: `REGLA` / `MANUAL` / `BOUNTY` /
+  `PENDIENTE` (este último en bermellón outline, §7.3). El color acompaña, el texto porta (§2.4).
+- **Edición (solo `super_admin`;** para `vault_operator` los inputs se renderizan como texto plano
+  — lectura sí, edición no): inputs de dinero con prefijo `MX$` (§6.2), `inputmode="decimal"`,
+  vacío = sin override. Acciones: `Guardar precios` (`primary`, un solo submit para ambas caras vía
+  `PUT /admin/pricing/variant-controls/:cardId/:finish`) y por campo un enlace
+  `Restablecer a regla` (envía `null` explícito → limpia el override; visible solo si hay override).
+- **Validación inline** (`aria-invalid` + mensaje §6.2): monto `≤ 0` → `El precio debe ser mayor a cero.`;
+  error de servidor se pinta anclado arriba de la sección (patrón P-4).
+- **Indicador de override activo:** cuando `overrideCents != null`, el label del campo gana el badge mono
+  `MANUAL` en tinta y el sugerido se muestra tachado NO — se muestra como referencia:
+  `Sugerido por regla: MX$ 875.00` en `text-xs muted` bajo el input. Quitar el override devuelve la cara a
+  la regla al instante (así resuelve el backend; no hay que re-publicar — se puede decir en un toast:
+  `Override retirado — vuelve a regir la regla.`).
+- **Bounty** vive en esta misma consola: ver §16.7a.
+- Guardado exitoso: toast `Precios de la variante guardados.` + refresh del binder. La consola muestra
+  siempre la nota al pie `text-xs muted`: `Los cambios pisan lo que ve el cliente · queda en bitácora.`
+  (misma familia de §7.6 dinero).
+
+### 16.4 Drill-down de piezas (P-17) — `VariantDrawer`
+
+**Disparador:** clic (o Enter) en la **casilla de variante** del binder. La casilla es un botón real
+(`aria-haspopup="dialog"`, foco visible §8.2). Estado seleccionado de la casilla mientras el panel está
+abierto: borde `--color-border-strong` + fondo `surface-2`.
+
+**Contenedor:** panel lateral derecho (sheet) de **480px** en `≥ lg`; en `< lg`, bottom sheet a pantalla
+casi completa (radio 0, overlay de tinta, focus trap, `Esc` cierra — §7.6). El binder queda visible detrás
+en desktop (contexto espacial de "abrí esta casilla").
+
+**Anatomía (orden vertical):**
+1. **Header:** miniatura 56×78 de la carta + nombre (EN, `lang="en"`) + renglón `ListingSpec` (§7.2b)
+   `RAW · NM · REVERSE HOLO` + `FinishMark` (§16.6) + botón cerrar (44px).
+2. **CTA primario `Alta rápida`** — siempre visible bajo el header (no se scrollea): abre la sección de
+   alta (§16.5) inline dentro del panel. Si la variante tiene **0 piezas**, el panel abre directamente con
+   la sección de alta desplegada (estado vacío = invitación a dar de alta).
+3. **Sección «Precios»** — la consola completa (§16.3b), colapsable (abierta por defecto para
+   `super_admin`, colapsada para `vault_operator`).
+4. **Sección «Piezas (N)»** — lista de copias físicas: `GET /admin/inventory/items?cardId=&finish=&productType=raw`
+   (paginada). Cada fila (variante compacta §7.1, alto 48px):
+   - **Folio** mono (`INV-000123`) — clic copia al portapapeles (toast `Folio copiado`).
+   - **Estado** badge (§2.4): `EN STOCK` / `LISTADA` / `RESERVADA` / `PERDIDA`… texto versalitas.
+   - **Precio manual por pieza** (`listPriceCents`): cifra mono o `—`; acción `Editar precio` (lápiz,
+     `aria-label`) — inline input con las mismas validaciones §16.3b. Nota fija cuando hay override de
+     variante: `El precio por pieza gana sobre el precio de la variante.` (`text-xs muted`, una sola vez
+     como encabezado de columna con icono info).
+   - **Menú de acciones por fila** (kebab, 44px): `Ver detalle` (historial/movimientos), `Publicar` /
+     `Despublicar`, `Merma…` (abre confirmación destructiva §7.6 → `POST /admin/inventory/adjustments`,
+     motivos `perdida | danada | error_captura`, nota obligatoria).
+   - **Selección múltiple** (checkboxes) + barra de acciones de lote al pie: `Publicar selección (n)`
+     (el "publicar piezas de esta carta" existente, sin cambios de contrato).
+5. **Estados:** loading = 3 filas skeleton; error = banner danger + Reintentar; vacío = texto
+   `Sin piezas de esta variante.` + el CTA de alta ya presente.
+
+**La VENTA no existe aquí** (ratificado §4.26c): ninguna acción "vender" en el panel; solo checkout/M3.
+Las bajas son merma por ajuste.
+
+### 16.5 Alta rápida simplificada (P-19) — `QuickAddSection`
+
+Vive dentro del `VariantDrawer` (§16.4.2). **Sin dropdown de acabado, sin ubicación, sin porcentaje:**
+la variante viene de la casilla picada; el resto se eliminó por decisión del humano.
+
+**(a) Formulario — exactamente tres controles:**
+1. **Cantidad:** stepper `− [ 3 ] +` (botones 44px, input `inputmode="numeric"`, default 1, mín 1).
+   Para gradeadas no aplica (el alta de PSA es otro flujo, §16.9).
+2. **Adquisición:** dos tarjetas-radio grandes (una fila en desktop, apiladas en móvil; borde
+   `--color-border`, seleccionada = borde `strong` + fondo `surface-2` + radio marcado):
+   - **`Comprar`** — sublabel `Pagamos por pieza:` + input de dinero **prellenado** con
+     `pricing.buy.effectiveCents` (editable, prefijo `MX$`). Helper `text-xs muted` bajo el input según la
+     fuente: `Sugerido por regla` / `Precio manual activo` / `Precio bounty activo`. Si el efectivo es
+     `null`, el input abre vacío con helper `Sin sugerido — captura el precio pagado.` (la compra con
+     precio capturado SIEMPRE es válida).
+   - **`Aportación`** — sublabel `Se registra a valor de mercado:` + la cifra **mostrada, no editable**:
+     `MX$ 1,250.00` (mono). **Sin porcentaje visible en ninguna parte.**
+     - Si `marketReferenceMxnCents == null`: la tarjeta se muestra **deshabilitada** (opacidad 45%, no
+       recibe selección) con el pill `PRECIO PENDIENTE` (warning outline) y el texto
+       `Sin valor de mercado — fija primero el precio de esta variante.` (para `super_admin`, con enlace a
+       "Fijar mercado" de la consola §16.3b). Se preempta el error conocido; el servidor sigue siendo la
+       autoridad (b).
+3. **CTA:** botón `primary` full-width **`Dar de alta al inventario`** (mismo verbo ya ratificado), estado
+   `loading` con label `Dando de alta…`, bloquea doble envío (`batchKey` idempotente por intento).
+
+**(b) Resultado por-ítem (lote tolerante, lección P-4/P-5):** la respuesta de
+`POST /admin/inventory/items/batch` se pinta DENTRO del panel, nunca solo un toast:
+- **Éxito total:** banner `success` arriba de la sección: `3 piezas dadas de alta · INV-000201 a INV-000203`
+  + la lista de piezas (§16.4.4) se refresca con las filas nuevas resaltadas 3s (`surface-2`).
+- **Fallo (total o parcial):** banner `danger` **anclado arriba del panel, sticky, `role="alert"`,**
+  con `scrollIntoView` + foco (patrón P-4 ratificado). Copy para `PRICE_PENDING`:
+  `No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.`
+  En lote mixto, el banner resume `2 creadas · 1 rechazada` y debajo lista cada línea fallida con su causa
+  traducida. Jamás silencio, jamás crear a ciegas.
+
+**(c) «Publicar todo» — `PublishAllDialog`** (toolbar §16.1.3, disparador `secondary`):
+1. **Confirmación (modal §7.6, verbo explícito):** título `Publicar todo el inventario`; cuerpo:
+   `Se publicarán todas las piezas en stock que tengan precio resoluble.` + selector de alcance
+   (Select §6.3): `Todo el inventario` (default) / `Solo este set` (el set abierto, si hay) /
+   `Solo sellado` — mapea a `{ setId?, productType? }`. Nota fija `text-xs muted`:
+   `Las piezas sin precio NO se publican: quedan en la cola de precios pendientes.` y la nota de dinero
+   `Expone piezas a la venta · queda en bitácora.` Botones: `secondary` `Cancelar` / `primary`
+   `Publicar todo`. *(No hay conteo previo: el contrato no tiene dry-run — ver §16.11; la honestidad va en
+   el resultado, no en una estimación inventada.)*
+2. **Resultado (el modal muta a resumen, no toast):** cuatro renglones mono `tabular-nums`:
+   ```
+   Publicadas          128
+   Ya estaban listadas  40
+   Sin precio           12   → Ver pendientes de precio
+   Fallidas              0
+   ```
+   `Sin precio` > 0 pinta la cifra en **bermellón** y el enlace lleva a la cola M2
+   (`/admin/m2?context=inventory`). `Fallidas` > 0 despliega el detalle por folio con causa (capado a 200
+   por contrato; si se capó: `Se muestran las primeras 200 — el resto está en la cola de pendientes.`).
+   Cierre con `secondary` `Entendido`. Reintento con el mismo `batchKey` = replay idempotente (el front
+   muestra el resultado guardado con nota `Resultado de la corrida anterior (reintento idempotente).`).
+
+### 16.6 Distintivo visual de acabado (adelanto P-14) — `FinishMark`
+
+**Problema:** la imagen de catálogo es idéntica entre variantes; el acabado debe distinguirse de un
+vistazo. **Solución: banda superior de 3px + etiqueta mono SIEMPRE visible** (doble canal: el color/banda
+es redundante, el texto porta — regla §2.4). Se define UNA vez y se usa igual en el binder M1, el
+cotizador (Stream C), bóvedas y storefront.
+
+| `finish` | Banda (3px, borde superior de la casilla/teja) | Etiqueta mono (`text-[10px] uppercase tracking-[0.18em]`) |
+|---|---|---|
+| `normal` | **Sin banda** (el borde base `--color-border` de 1px) | `NORMAL` en `--color-text-muted` |
+| `reverse_holo` | **Gradiente lineal 90°** `#9A6C57 → #B44B3A` (neutral-warm → bermellón) | `REVERSE` en `--color-text` |
+| `holofoil` | **Sólida tinta** `#1A1A18` | `HOLO` en `--color-text` |
+| `first_edition_holofoil` | Sólida tinta `#1A1A18` | `1ED HOLO` en `--color-text` |
+
+- La banda de reverse es **la única superficie con gradiente permitida en todo el sistema** (guiño foil,
+  §5 "guiño de marca"): dos tonos cálidos de la propia paleta, 3px, decorativa (`aria-hidden`). No es un
+  "degradado arcoíris" (§1.3) ni un token nuevo.
+- **Accesibilidad:** la banda es decorativa; el significado lo porta la **etiqueta**, presente SIEMPRE
+  (nunca banda sin texto), + `aria-label` de la casilla: `Pikachu ex, reverse holo, 3 piezas`. Contraste de
+  la banda sobre papel: tinta ~15:1, neutral-warm ~4.0:1, bermellón ~4.6:1 — todas ≥ 3:1 (componente UI,
+  §10). Las etiquetas usan tinta/muted (AA de texto).
+- **Dónde:** en toda teja/casilla que represente UNA variante (binder M1, cotizador, drill-down header,
+  Top Bounties). En fichas de detalle basta el `ListingSpec` (§7.2b); la banda es para retículas.
+- La etiqueta NO se traduce distinto por locale (`REVERSE`/`HOLO` son términos del hobby); el `aria-label`
+  sí se localiza (`reverse holo` / `holofoil` legibles).
+
+### 16.7 Bounty (P-22) — consola admin + vitrina pública «Top Bounties»
+
+**(a) Edición en la consola (dentro de §16.3b, solo `super_admin`, solo variantes raw):** bloque «Bounty»
+al pie de la consola:
+- **Switch** (§6.4) `Marcar como bounty` con etiqueta de estado textual. Al activarlo se despliegan:
+  - `Precio bounty` (input dinero, requerido): helper dinámico
+    `Premium sobre la regla: +MX$ 125.00 (+14%)` (`bountyPriceCents − suggestedCents`; si el sugerido está
+    pendiente: `Sin sugerido de regla — el bounty es el precio explícito.`).
+  - `Cantidad objetivo (opcional)` (numérico ≥ 1), helper: `Al completarse, el bounty se apaga solo.`
+  - Progreso cuando hay objetivo: barra fina + texto mono `2 de 3 conseguidas`.
+- **Validaciones inline** (espejo del contrato): sin precio → `El bounty necesita un precio explícito.`
+  (`BOUNTY_PRICE_REQUIRED`); precio < sugerido → `El precio bounty debe ser mayor o igual al sugerido por
+  regla (MX$ 875.00).` (`BOUNTY_BELOW_RULE`).
+- **Bounty completado** (`completedAt != null`): línea de estado `BOUNTY COMPLETADO · 21 ago 2026` en verde
+  (versalitas) — informativa, no bloquea reactivar.
+- Apagar el bounty (`enabled:false`) NO borra el contador; el copy del switch apagado con historial:
+  `Bounty apagado · 2 conseguidas`.
+
+**(b) Badge en la teja admin:** cuando `bounty.enabled`, la casilla del binder gana el badge mono
+**`BOUNTY`** en **bermellón** (versalitas, sin caja §7.2) junto al conteo, con icono `crosshair` de lucide
+16px `aria-hidden` a la izquierda (la mira: guiño al futuro TCG HUNT sin implementar el rebrand — el icono
+es decorativo y removible). El renglón COMPRA de la consola compacta ya muestra `·B` (§16.3a).
+
+**(c) Vitrina pública `/buylist` — `TopBountiesShelf` + `BountyCard`:** sección **arriba de la página
+Vender, ANTES del selector de set**. Consume `GET /buylist/bounties` (cap 50; se pintan las primeras
+8–12, fila con scroll horizontal en móvil / grid 4-col `lg`).
+- **Encabezado de sección:** eyebrow mono `SE BUSCA` + `h2` serif `Top Bounties` + subtítulo `text-sm muted`:
+  `Estas cartas las pagamos mejor. El pago se realiza después de recibir y verificar tu carta.` (la segunda
+  frase mantiene el mensaje PAY_AFTER_RECEIPT de §7.5 — un precio alto no cambia la regla de confianza).
+- **`BountyCard`** (variante del `CardTile` §7.1): imagen 5:7 con **chip de scrim de tinta** (§7.2b) en la
+  esquina superior-izquierda: `☩ BOUNTY` (crosshair 12px `aria-hidden` + texto papel sobre tinta ~15:1);
+  banda `FinishMark` del acabado; nombre EN; set·número; y el precio como héroe:
+  - Etiqueta `text-xs muted` `Pagamos` + cifra `text-lg semibold tabular-nums` `MX$ 2,500.00` en **verde**
+    (`--color-success` — dinero que TE pagamos, coherente con la semántica "positivo").
+  - Si `remainingQty != null`: renglón mono `text-[11px]` en bermellón `QUEDAN 2` (motivacional; con
+    `remainingQty` null se omite — nunca inventar escasez).
+  - CTA `secondary` `Cotizar esta carta` → lleva al cotizador con la carta/variante precargada.
+- Estados: skeleton (3 cards); **si no hay bounties activos la sección NO se renderiza** (nunca un shelf
+  vacío en la home de Vender); error = se oculta la sección (es vitrina, no bloquea el flujo de venta).
+- **En admin nada de esto cambia la cola:** el flujo de venta sigue siendo el normal (cotiza → solicitud →
+  recepción → verificación → pago SPEI); el card no promete compra garantizada — por eso el copy es
+  `Pagamos MX$…` + `QUEDAN N`, sin "reservado/garantizado".
+
+### 16.8 Pestaña «Sellado» (P-25) — por set
+
+Análoga al Master Set pero de **piezas selladas** (no hay catálogo de sellado): índice → detalle por set.
+- **Índice** (`GET /admin/inventory/sealed-sets`): `DataTable` (§7.7) con columnas: Set (nombre + código),
+  `Piezas` (`pieceCount`), `Listadas` (`listedCount`), `Valor de mercado` (`marketValueMxnCents` mono o
+  `—`), y badge `N SIN MAPEO` (warning outline) cuando `unmappedCount > 0`. Buscador `q` arriba.
+  Arriba a la derecha, SOLO `super_admin`: enlace `Cola de no mapeados (N)` (usa `unmappedTotal`) → vista
+  M2 `sealed/unmapped`. Para `vault_operator` el enlace no existe; sus grupos sin mapeo se leen como
+  `SIN PRECIO DE MERCADO`.
+- **Detalle de set** (`GET /admin/inventory/sealed-sets/:setId`): lista de **grupos** (fila 56px):
+  imagen ancla (`object-contain` sobre pozo, §7.1b) + `productName` + pills `Sellado` + subtipo (`ETB`,
+  `Booster Box`… §7.1b) + condición (`MINT` / `DAÑO MENOR DE CAJA` versalitas §2.4) + conteos mono
+  `3 en stock · 1 listada` + `sealedMarketRef` (cifra o `SIN PRECIO DE MERCADO` warning outline si
+  `mapped=false`) + costo agregado (`super_admin`).
+- **Acciones por grupo:** `Alta rápida` (MISMO `QuickAddSection` §16.5 — cantidad + Comprar/Aportación; la
+  aportación usa `sealedMarketRef` como valor mostrado y su ausencia deshabilita la tarjeta igual que en
+  §16.5a2), `Ver piezas` (drill-down §16.4 con `productType=sealed`; sin consola de precios P-18 — el
+  sellado conserva su cadena H-1, solo precio manual por pieza), `Publicar` (bulk de sus folios).
+- Estado vacío de la pestaña: `Sin producto sellado en inventario.` + CTA `Alta por lote` (el alta clásica
+  admite tipo sellado).
+
+### 16.9 Pestaña «Gradeadas» (P-20) — por carta + grado
+
+Consume `GET /admin/inventory/graded` (agregado por carta × empresa × grado).
+- **Lista** (`DataTable`, fila 56px): miniatura + nombre/set/número + **`GradedCertChip`-estilo de grado**
+  `PSA 10` (accent §7.2c, SIN cert — el cert es de la pieza, no del grupo) + `Piezas` (count) +
+  `Valor de mercado` + `Costo` (`super_admin`).
+- **Valor de mercado por grado es MANUAL en este stream** (decisión v1.28): cifra mono con sufijo `·M`
+  cuando existe (`title`: `Valor fijado manualmente`); sin valor → `SIN VALOR` (warning outline) y — solo
+  `super_admin` — acción `Fijar valor…`: mini-form inline (input dinero + `Guardar`) que llama al override
+  de mercado existente (`POST /admin/pricing/override`, `productType:"graded"`). Copy del helper:
+  `Fija el valor de mercado de esta carta en este grado (p. ej. lo que se vende una PSA 10). Alimenta la
+  valuación del inventario.`
+- **Drill-down** por grupo (§16.4 con `productType=graded`): filas de pieza muestran además el
+  **`certNumber`** completo (mono, copiable — §7.2c). Sin stepper de cantidad en alta (slab = pieza única).
+- **CTA de pestaña `Agregar gradeada`** (también accesible como acción secundaria de la teja del Master
+  Set, menú kebab `Agregar gradeada…`): formulario corto en modal — Empresa (Select: PSA/CGC/…), Grado,
+  `Número de certificado` (mono, requerido para publicar), `Precio de compra` (dinero) → un solo
+  `POST /admin/inventory/items` (qty 1 forzado). Resultado con folio, patrón §16.5b.
+- Estado vacío: `Sin cartas gradeadas en inventario.` + CTA `Agregar gradeada`.
+
+### 16.10 i18n — claves nuevas (propiedad de frontend)
+
+- `admin.inventory.tabs.{masterSet,sealed,graded}` · `admin.inventory.folioSearch.{placeholder,notFound}`
+- `admin.inventory.value.{total,raw,sealed,graded,cost,pendingCount}`
+- `admin.pricing.console.{market,buy,sell,suggested,override,effective,source.rule,source.manual,source.bounty,source.pending,resetToRule,save,saved,overrideRemoved,pisaNota}`
+- `admin.quickAdd.{title,qty,buy.label,buy.sublabel,buy.helper.rule,buy.helper.manual,buy.helper.bounty,buy.helper.none,contrib.label,contrib.sublabel,contrib.pendingBlocked,cta,loading,successSummary,pricePendingError,partialSummary}`
+- `admin.publishAll.{title,body,scope.all,scope.set,scope.sealed,pendingNote,moneyNote,cta,result.published,result.alreadyListed,result.pendingPrice,result.failed,result.seePending,result.capped,result.replay,close}`
+- `admin.drawer.{pieces,addQuick,pieceOverridesVariant,noPieces,folioCopied,editPrice,markLoss}`
+- `admin.bounty.{toggle,price,premium,noSuggested,targetQty,targetHelper,progress,completed,offWithHistory,badge}`
+- `buylist.bounties.{eyebrow,title,subtitle,wePay,remaining,cta}`
+- `finish.{normal,reverse,holo,firstEdHolo}` (etiquetas del `FinishMark` — compartidas con Stream C)
+- Errores nuevos: `error.BOUNTY_PRICE_REQUIRED`, `error.BOUNTY_BELOW_RULE` (con el copy de §16.7a).
+
+Reglas: dinero con `Intl` + `tabular-nums` (§9.3); folios/certs en mono sin traducir; contenedores
+dimensionados para ES (§9.4 — `Dar de alta al inventario` y `Publicar todo el inventario` son las cadenas
+largas a probar).
+
+### 16.11 Notas para el arquitecto / product-owner (no bloquean el diseño)
+
+1. **Dry-run de `publish-all` (deseable, no requerido):** el pedido original de P-19 habla de una
+   confirmación con "cuántas se publicarán / cuántas quedarán pendientes". El contrato v1.28 no tiene
+   preview, así que el diseño pone la honestidad en el RESULTADO (§16.5c2) y la confirmación describe
+   alcance y reglas. Si el humano quiere el conteo ANTES de ejecutar, se necesitaría un parámetro
+   `dryRun:true` (misma selección, cero escrituras). Petición registrada, no asumida.
+2. **`BountyCard` → cotizador precargado:** el CTA `Cotizar esta carta` asume que el cotizador acepta
+   precarga de carta+finish por URL/estado. Si no existe, el CTA cae al set de la carta (degradación
+   aceptable); confirmar con frontend/Stream C.
+3. **`FinishMark` es la semilla de P-14 (Stream C):** el cotizador y el storefront deben reutilizar este
+   componente tal cual (banda + etiqueta). Cualquier evolución (p. ej. efecto foil animado) se decide en
+   Stream C sin romper la tabla de §16.6.
