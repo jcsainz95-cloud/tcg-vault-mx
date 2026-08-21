@@ -44,36 +44,40 @@ export function orderFinishes(finishes: Iterable<Finish>): Finish[] {
 }
 
 /**
- * v1.22-1 (ARCHITECTURE §4.22g) — FUNCIÓN PURA de la UNIÓN money-safe de la que deriva
- * `Card.availableFinishes`.
+ * v1.27 (P-13, ARCHITECTURE §4.25a) — FUNCIÓN PURA de la COMPOSICIÓN de la que deriva
+ * `Card.availableFinishes`. **El precio CONFIRMA, nunca AÑADE.**
  *
- * v1.26 (§4.24a) — la ENTRADA estructural del lado catálogo CAMBIA: `catalogFinishes` era un PROXY
- * de precio (llaves presentes de `tcgplayer.prices` ∪ `cardmarket.reverseHolo*`) que el PO rechaza.
- * Se sustituye por `Card.structuralFinishes` —afirmación ESTRUCTURAL autoritativa DETECTADA de
- * TCGCSV—. La fórmula pasa a:
+ * Historia: v1.22/§4.22g introdujo la unión `structural ∪ pricedFinishesSnapshot`; v1.26/§4.24a
+ * cambió la entrada estructural a `Card.structuralFinishes` (TCGCSV autoritativo). La UNIÓN quedó
+ * **DEROGADA en v1.27**: era el vector de las variantes fantasma — el barrido por-impresión de PPT
+ * (`fetchPrintings`) atribuye el finish por la ETIQUETA del request (no por dato de la carta) y la
+ * unión promovía ese `normal` CON precio a casilla, contra la doctrina VAR-1 que este mismo archivo
+ * ya declaraba. Fórmula vigente (§4.25a-1, NORMATIVA):
  *
- *   availableFinishes := orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']
+ *   availableFinishes :=
+ *     structuralFinishes ≠ ∅ :  orderFinishes(structuralFinishes)  // TCGCSV es LA autoridad
+ *     structuralFinishes = ∅ :  ['normal']                         // fallback legacy (§4.25a-3)
  *
- *  - `structuralFinishes`      — «¿qué impresiones físicas existen?» (TCGCSV `subTypeName`; seed
- *    inicial desde pokemontcg.io). Estructura ≠ precio: una impresión sin `PriceReference` sigue
+ *  - `structuralFinishes` — «¿qué impresiones físicas existen?» (TCGCSV `subTypeName`; seed inicial
+ *    desde pokemontcg.io en CREATE). Estructura ≠ precio: una impresión sin `PriceReference` sigue
  *    contando (whitelist la admite ⇒ vendible tras precio), nunca se dropea ni se inventa.
- *  - `pricedFinishesSnapshot`  — Señal C: acabados que PPT reportó con `market>0` y ALIAS VERIFICADO.
- *    NO añade estructura (VAR-1): solo confirma precio de una impresión ya estructural.
+ *  - `pricedFinishesSnapshot` — **SALE de la composición**. Se conserva la columna solo como
+ *    observabilidad/confirmación (log `pricedNotStructural` en el reconciliador); jamás compone.
  *
- * Determinista y RECOMPUTABLE: quitar un acabado de CUALQUIERA de las dos entradas y recomputar lo
- * ELIMINA (no es monótona-creciente, candado 1 de §4.22g). Nunca vacía: sin ninguna señal ⇒
- * `['normal']` (default seguro, idéntico a hoy; jamás una casilla de relleno inventada). Vive junto
- * a `orderFinishes` (sin DI) para reusarse desde el `FinishReconciler`, los seeds y los tests.
+ * Fallback `['normal']` (opción b de §4.25a-3, ELEGIDA): conservador y fail-closed para dinero —
+ * mejor «falta una casilla» que «sobra una falsa»; una carta legacy sin resolver TCGCSV da
+ * `422 FINISH_NOT_AVAILABLE` al cotizar un acabado no declarado, hasta el re-sync forzado.
+ *
+ * Determinista y RECOMPUTABLE: quitar un acabado de `structuralFinishes` y recomputar lo ELIMINA
+ * (no es monótona-creciente — así se limpian los fantasmas ya materializados). Nunca vacía. Vive
+ * junto a `orderFinishes` (sin DI) para reusarse desde el `FinishReconciler`, los seeds y los tests.
  *
  * El ÚNICO escritor de `Card.availableFinishes` (`catalog.FinishReconciler`) la usa; `price-ingest`,
  * `catalog-sync` y el resolver TCGCSV escriben SU columna de entrada y NUNCA `availableFinishes`.
  */
-export function unionAvailableFinishes(
-  structuralFinishes: Iterable<Finish>,
-  pricedFinishesSnapshot: Iterable<Finish>,
-): Finish[] {
-  const merged = orderFinishes([...structuralFinishes, ...pricedFinishesSnapshot]);
-  return merged.length > 0 ? merged : ['normal'];
+export function composeAvailableFinishes(structuralFinishes: Iterable<Finish>): Finish[] {
+  const ordered = orderFinishes(structuralFinishes);
+  return ordered.length > 0 ? ordered : ['normal'];
 }
 
 /**
