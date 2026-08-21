@@ -2569,19 +2569,31 @@ cual; conserva los viejos mientras viva el redirect):
 **A) PRE-SWITCH — se puede hacer DESDE YA, nada visible cambia** *(todo aditivo)*:
 
 1. **[HUMANO]** Crear la zona DNS de `tcghunt.mx` (Cloudflare recomendado) + registros §25.4.
-2. **[HUMANO]** Vercel → Domains: añadir `tcghunt.mx` y `www.tcghunt.mx`; marcar `www.tcghunt.mx`
+2. **[HUMANO] Razón social del footer — ANTES de apuntar el dominio.** Hoy el footer sale con
+   placeholder (`footer.legalEntity` = `[Razón social pendiente]` / `[Legal entity pending]` en
+   `frontend/messages/{es,en}.json`). Entregar la razón social real al rol **frontend** (el archivo
+   es suyo) y verificar que el cambio está mergeado y desplegado en prod **antes del paso 3**: al
+   añadir el dominio en Vercel, la app queda visible en `tcghunt.mx` tal como esté — no debe
+   estrenarse el dominio con un placeholder legal en el footer.
+3. **[HUMANO]** Vercel → Domains: añadir `tcghunt.mx` y `www.tcghunt.mx`; marcar `www.tcghunt.mx`
    como **primary** (apex redirige a www, misma convención que hoy). Esperar cert **Valid**.
    *Efecto:* la app actual (marca vieja) ya responde también en el dominio nuevo — aceptable
    pre-lanzamiento; si molesta, este paso puede moverse al inicio de la ventana B.
-3. **[HUMANO]** Railway: `APP_BASE_URL` con los dominios nuevos **al final** (§25.5) — sin esto, el
+4. **[HUMANO]** Railway: `APP_BASE_URL` con los dominios nuevos **al final** (§25.5) — sin esto, el
    frontend servido en `tcghunt.mx` fallaría por CORS al llamar al backend.
-4. **[HUMANO]** R2: pegar el JSON de CORS de §25.5.
-5. **[HUMANO]** Google OAuth: añadir los origins nuevos.
-6. **[HUMANO]** Resend: añadir `tcghunt.mx` y verificar SPF/DKIM (NO cambiar `MAIL_FROM` aún).
-7. **[HUMANO]** Cloudflare Email Routing en `tcghunt.mx`: `soporte@`, `contacto@`, `facturacion@`
-   → reenvío al Gmail; mandar un correo de prueba a cada uno.
-8. **[ORQUESTADOR/ROLES]** Mergear los streams de código del rebrand (frontend marca/metadata +
+5. **[HUMANO]** R2: pegar el JSON de CORS de §25.5.
+6. **[HUMANO]** Google OAuth: añadir los origins nuevos.
+7. **[HUMANO]** Resend: añadir `tcghunt.mx` y verificar SPF/DKIM (NO cambiar `MAIL_FROM` aún).
+8. **[HUMANO]** Cloudflare Email Routing en `tcghunt.mx`: `soporte@`, `contacto@`, `facturacion@`
+   → reenvío al Gmail; mandar un correo de prueba REAL a cada uno y confirmar que llega (esta
+   prueba es la precondición del paso B.2 —`DISPUTE_EVIDENCE_CONTACT`— y del paso B.3 —buzones
+   en el frontend).
+9. **[ORQUESTADOR/ROLES]** Mergear los streams de código del rebrand (frontend marca/metadata +
    backend correos) con sus gates (QA+techlead; seguridad por release) — prerequisito del switch.
+   **EXCEPCIONES (se mergean/deployan EN la ventana B, no antes):** `frontend/vercel.json` (§25.7,
+   activa el 301 al deployarse) y el cambio de buzones `@tcghunt.mx` en el i18n del frontend
+   (`frontend/messages/{es,en}.json`: `contacto@`, `soporte@`, `facturacion@` — paso B.3), para
+   que el frontend no muestre buzones nuevos mientras el backend siga respondiendo los viejos.
 
 **B) VENTANA DEL SWITCH — en este orden** *(30–60 min, con el humano en los dashboards)*:
 
@@ -2590,10 +2602,23 @@ cual; conserva los viejos mientras viva el redirect):
 2. Railway: **reordenar** `APP_BASE_URL` (nuevo primero) + fijar `MAIL_FROM` y
    `DISPUTE_EVIDENCE_CONTACT` (solo con sus precondiciones de §25.5 cumplidas). Esperar redeploy
    *Active* y `GET /api/v1/health` = 200.
-3. Activar los **301**: mecanismo 1 (dashboard) **o** mergear/deployar `frontend/vercel.json`
+3. **Merge+deploy del frontend con los buzones `@tcghunt.mx` en i18n** (`frontend/messages/
+   {es,en}.json`: `contacto@`, `soporte@`, `facturacion@` — rol frontend; carve-out de A.9).
+   **Precondición:** los buzones nuevos ya reciben — Email Routing activo y probado con correo
+   real (paso A.8). Se ejecuta **inmediatamente después del paso 2** para minimizar el desfase
+   backend/frontend.
+   **Ventana de desfase ACEPTADA (declarada):** entre el redeploy de Railway (paso 2) y que el
+   deploy de Vercel de este paso quede *Ready* hay un lapso — objetivo ≤ 15 min, presupuesto
+   máximo 60 min (la duración de la ventana B) — en el que el backend ya responde/envía
+   `soporte@tcghunt.mx` mientras el frontend aún muestra `@tcgvaultmx.com`. Se acepta porque
+   **ambos juegos de buzones reciben a la vez**: los nuevos quedaron probados en A.8 y los viejos
+   siguen enrutando ≥ 12 meses (§25.2) — ningún correo de usuario se pierde, gane quien gane la
+   carrera. Si el deploy de Vercel falla, aplicar el rollback C (restaurar `MAIL_FROM`/
+   `DISPUTE_EVIDENCE_CONTACT` en Railway) para volver a un estado coherente en minutos.
+4. Activar los **301**: mecanismo 1 (dashboard) **o** mergear/deployar `frontend/vercel.json`
    (§25.7) — uno solo.
-4. GitHub Secret `PROD_BASE_URL=https://www.tcghunt.mx`.
-5. **Verificación** (desde cualquier máquina con egress):
+5. GitHub Secret `PROD_BASE_URL=https://www.tcghunt.mx`.
+6. **Verificación** (desde cualquier máquina con egress):
    ```bash
    curl -sI "https://www.tcgvaultmx.com/es/comprar?foo=1" | grep -i -e '^HTTP' -e '^location'
    # esperado: HTTP/2 301  +  location: https://www.tcghunt.mx/es/comprar?foo=1  (path+query intactos)
@@ -2603,8 +2628,10 @@ cual; conserva los viejos mientras viva el redirect):
    ```
    Y funcional: login Google en el dominio nuevo; subir una INE de prueba (CORS R2); compra test →
    `return_url` cae en `www.tcghunt.mx`; llega el correo de verificación **desde
-   `no-reply@tcghunt.mx`** (y no va a spam: SPF/DKIM verdes en Resend).
-6. Post-switch (no bloquea): Search Console — alta de `tcghunt.mx` + herramienta **Cambio de
+   `no-reply@tcghunt.mx`** (y no va a spam: SPF/DKIM verdes en Resend). Coherencia de buzones
+   (cierra el desfase del paso 3): el frontend ya muestra `@tcghunt.mx` (footer, aviso CFDI,
+   términos) y el flujo de disputa devuelve `soporte@tcghunt.mx` — mismo buzón en ambos lados.
+7. Post-switch (no bloquea): Search Console — alta de `tcghunt.mx` + herramienta **Cambio de
    dirección** desde la propiedad vieja; re-emitir sitemap (rol frontend si es archivo).
 
 **C) ROLLBACK** *(cada paso es independiente y reversible)*:
@@ -2613,6 +2640,10 @@ cual; conserva los viejos mientras viva el redirect):
   redeploy) → el dominio viejo vuelve a servir la app al instante.
 - Railway: restaurar el orden viejo de `APP_BASE_URL`; borrar `MAIL_FROM` (cae al default de código)
   y devolver `DISPUTE_EVIDENCE_CONTACT=soporte@tcgvaultmx.com`.
+- Buzones del frontend (paso B.3): revert del commit de i18n + redeploy en Vercel (rol frontend).
+  Si el rollback es solo del lado backend/Railway, puede aceptarse dejar el frontend con
+  `@tcghunt.mx` temporalmente: esos buzones ya reciben (A.8), aplica la misma lógica de la
+  ventana de desfase declarada en B.3.
 - GitHub Secret `PROD_BASE_URL` al valor anterior.
 - DNS: **nada que revertir** (el dominio viejo nunca dejó de apuntar a Vercel; el nuevo puede
   quedarse configurado sin daño).
