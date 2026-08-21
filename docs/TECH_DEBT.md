@@ -2848,3 +2848,21 @@
   título a `title: { default, template }` del layout raíz (los layouts hijos solo declaran su segmento) y
   añadir `metadataBase` + `openGraph.url` (dominio canónico desde env). Owner: **frontend**. Prioridad:
   **baja**.
+
+### DO-P21-1 · Guardia anti-prod del DAST: predicado duplicado ×4 y exención de staging por substring — RESUELTA (ronda de cierre P-21, 2026-08-21)
+- **Dónde:** `security/scripts/dast-zap-baseline.sh`, `dast-zap-full.sh`, `dast-nuclei.sh` y
+  `dast-extra.sh` — cada uno llevaba su copia inline de la guardia anti-producción, y la exención de
+  staging comparaba **substring sobre la URL completa** (`*"staging"*`): una URL de producción con
+  "staging" en el path/query/userinfo (p. ej. `https://tcghunt.mx/staging-x`) bypaseaba la guardia y
+  permitía DAST intrusivo contra prod sin `ALLOW_PROD_DAST=1`.
+- **Estado:** **RESUELTA** en la misma ronda del gate (commit `fbcb8fb`). Las dos partes del hallazgo:
+  (a) el predicado duplicado ×4 se extrajo a **`security/scripts/_guard.sh`** (`dast_prod_guard` +
+  `_dast_host_from_url`), sourceado **obligatorio** por los 4 scripts (si falta, abortan por `set -e`;
+  los 5 archivos viajan juntos en `security/scripts/`); (b) la exención se endureció a comparar el
+  **HOST** de `TARGET_URL` (sin esquema/userinfo/puerto/path/query, en minúsculas): producción =
+  (sub)dominio de `tcgvaultmx.com`/`tcghunt.mx`/`tudominio.com`, exime solo un host con prefijo
+  `staging.`. Verificado en ejecución (9 casos de bloqueo con exit 2 —incluido el bypass viejo—,
+  staging/localhost pasan, `ALLOW_PROD_DAST=1` levanta); comportamiento documentado en
+  `security/README.md` › «Guardia anti-producción». Registrada aquí para trazabilidad del veredicto
+  techlead (mismo criterio que SB-D8); **no queda deuda viva** de este hallazgo. Owner: **devops**.
+  Prioridad original: **baja**.
