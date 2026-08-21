@@ -81,6 +81,16 @@
 > variantes (lockup, solo-mira, oscura, micro) se corrigen; el **glifo micro** conserva la cruz
 > segmentada pero **omite los huecos de los anillos** (no leen a 16–20px, §17.1d). Se ajustan tamaños
 > mínimos y reglas de uso derivadas (§17.3): solo-mira mínimo **28px** (antes 24px).
+>
+> **Añadido v1.8 (Stream C — Cotizador v2, P-14 + P-16) → ver §18.** El cotizador público (`/buylist`)
+> se redistribuye para que las cartas se vean **grandes como en el binder de inventario**: el **carrito
+> lateral fijo de 360px desaparece** y se convierte en **drawer flotante** (sheet lateral en desktop /
+> bottom sheet en móvil) disparado por un **FAB con contador**; la grilla recupera todo el ancho y
+> adopta **exactamente la densidad del binder M1** (2→3→4→5 columnas). El **distintivo de variante**
+> (P-14) se replica en el cotizador **reutilizando el `FinishMark`/`FinishBand` de §16.6 tal cual**
+> (mismo componente, mismos tokens): banda de 3px en la teja del cotizador y marca banda+etiqueta en
+> cada línea del carrito y del resumen de envío. §18 es aditiva: **cero tokens nuevos**, cero elementos
+> gráficos nuevos (la banda ya existía) y **sin cambio de contrato** (los datos ya existen).
 
 ---
 
