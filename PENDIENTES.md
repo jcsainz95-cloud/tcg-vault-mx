@@ -332,6 +332,9 @@ Del lado del humano (cuando pueda):
 - **Acciones del humano (nadie más puede):** ✅ dominio COMPRADO (confirmado 2026-08-21). Pendiente
   de su lado: subir el PNG original del logo al repo cuando arranque el stream, y conectar el
   dominio en Vercel/DNS cuando devops se lo pida (requiere acceso a su cuenta del registrar).
+- **✅ LOGO APROBADO por el humano (2026-08-21):** la reconstrucción SVG v1.7.1 (retícula con cruz
+  segmentada, anillos con gaps, wordmark dominante — DESIGN_SYSTEM §17.1) quedó validada contra el
+  original. Es la versión canónica para todo el rebrand.
 - **Logo recibido como referencia (2026-08-21):** el humano compartió la versión de alta resolución
   en el chat — mira/crosshair con degradado rojo (#b31217 aprox.) → vino oscuro (#4a0d0d aprox.),
   cruz que sobresale de dos anillos concéntricos, punto central anillado; wordmark "TCG HUNT" en
