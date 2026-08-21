@@ -381,6 +381,27 @@ Del lado del humano (cuando pueda):
   completar decks meta — comprar lo que el deck necesita).
 - **Roles:** investigación (orquestador delega búsqueda web) + product-owner aterriza con el humano
   → luego arquitecto/backend/frontend cuando esté definido.
+- **✅ INVESTIGACIÓN HECHA (2026-08-22).** Hallazgos clave para la definición de producto:
+  - **Meta Estándar actual (post-rotación abr-2026):** #1 Dragapult ex/Dusknoir (~$200-275 USD, el
+    caro), Clefairy Box (campeón NAIC, $80-150), Slowking ($60-120), Mega Lucario ex ($80-150),
+    Gholdengo ex ($80-140), y budget: Crustle ($25-40) y Team Rocket's Mewtwo ($50-90). Dato de
+    marketing: un mexicano quedó top-8 de NAIC 2026 con Dragapult.
+  - **Variantes:** a los jugadores de torneo NO les importa la versión — juegan la impresión más
+    barata legal. Riesgo real: reverse holo combadas (warping) = "cartas marcadas". Regla para
+    bundles: no-holo más barata en NM; nunca 1-2 reverse sueltas entre copias idénticas. La
+    garantía "torneo-legal, sin cartas combadas" es diferenciador.
+  - **Pricing benchmark:** eBay/tiendas dedicadas venden $65-160 USD con tiers y premium implícito
+    del ~10-25% sobre la suma de singles; incluyen energías básicas (costo ~0) y en tiers altos
+    sleeves/deck box. Recomendación: suma de singles propios + premium 8-15% con desglose
+    transparente "vs comprarlo suelto"; nunca con descuento. En MercadoLibre MX nadie serio ofrece
+    meta decks NM garantizados → hueco de mercado claro.
+  - **Catálogo sugerido:** 5-6 decks (2-3 tier-1, 1-2 budget <$1,000 MXN como gancho, 1 "deck del
+    mes"). Modelar como kit/BOM sobre `inventory` con stock de las ~60 cartas verificado antes de
+    mostrar "disponible".
+  - **Timing:** ⚠ Worlds 2026 es el 28-30 de agosto — lanzar el apartado DESPUÉS, con el meta
+    post-Worlds. Cadencia: revisión mensual (Limitless), refresh por set (~trimestral) y overhaul
+    en la rotación de abril (aviso desde enero; Dragapult, el #1, probablemente rota en abr-2027 —
+    etiquetar "legal hasta..." y descuento de salida).
 
 ### P-24 · Valor total del inventario visible en M1, desglosado: sueltas + ETB/sellado
 - **Pedido del humano (2026-08-21):** en inventario, ver el **valor de mi inventario actual total**,
