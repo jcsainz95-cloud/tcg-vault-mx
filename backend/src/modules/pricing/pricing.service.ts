@@ -310,8 +310,11 @@ export class PricingService {
 
   /**
    * v1.28 (P-18) — iza `BUYLIST_PRICE_RULES` + fallback UNA vez por request (espejo de
-   * `loadSalesRules`). Fuente ÚNICA del read de config de compra: `BuylistService.buylistRules()`
-   * delega aquí (mismas claves de settings, cero duplicación de semántica).
+   * `loadSalesRules`), para consola/binder. OJO: `BuylistService.buylistRules()` NO delega aquí —
+   * son DOS lecturas paralelas de la MISMA config (mismas SettingKey, misma forma; decisión
+   * justificada para no acoplar módulos, registrada como deuda SB-D2). El cuerpo normativo de la
+   * semántica de precio es la matemática compartida en `money.ts`; si cambia el formato del dial,
+   * ambos reads cambian juntos.
    */
   async loadBuylistRules(): Promise<{ rules: Record<string, BuylistRule>; fallbackPct: number }> {
     const rules =
