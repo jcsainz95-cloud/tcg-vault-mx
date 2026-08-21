@@ -336,6 +336,28 @@ Del lado del humano (cuando pueda):
   buylist) + frontend (sección Top Bounties en Vender + edición en Master Set) → qa/techlead.
 - **Depende de:** P-18 (misma consola de precios y misma precedencia de overrides).
 
+### P-23 · Vender "meta decks" completos armados con nuestras cartas sueltas (POR DEFINIR)
+- **Idea del humano (2026-08-21, aún por aterrizar):** un apartado en la tienda tipo **"Compra tu
+  deck"** (término del sector: *meta decks* / decks competitivos *ready-to-play*): identificar los
+  **decks meta del mes**, publicarlos como **bundle completo** y armarlos con nuestras propias
+  cartas sueltas del inventario — una vía para vender bundles en vez de solo singles.
+- **Investigación previa (primer paso, ANTES de diseñar nada):**
+  1. Qué juega la comunidad competitiva: cuáles son los **arquetipos meta actuales** del formato
+     (Estándar) y cómo rotan mes a mes — fuentes tipo resultados de torneos/Limitless.
+  2. **Con qué variantes juega la gente**: si al jugador competitivo le da igual Normal vs Reverse
+     (juega la más barata) o hay preferencias — define con qué copias armamos el bundle.
+  3. Cómo lo hacen otras tiendas (precio del deck vs. suma de singles: ¿descuento por bundle o
+     premium por conveniencia?).
+- **Preguntas de producto a definir con el humano (product-owner):** ¿el deck se publica solo si
+  el inventario puede surtir la lista completa (60 cartas) o se permite "parcial"? ¿el precio es
+  suma de singles con ajuste, o precio fijo por arquetipo? ¿incluye energías básicas/fundas?
+  ¿se actualiza la lista cuando rota el meta?
+- **Dependencias:** necesita inventario profundo de sueltas y precios sanos (P-13/P-15/P-18
+  primero); se conecta con P-22 (los bounties pueden apuntar justo a las cartas que faltan para
+  completar decks meta — comprar lo que el deck necesita).
+- **Roles:** investigación (orquestador delega búsqueda web) + product-owner aterriza con el humano
+  → luego arquitecto/backend/frontend cuando esté definido.
+
 ---
 
 ## En curso / Hecho (referencia)
