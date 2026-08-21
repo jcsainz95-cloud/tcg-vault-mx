@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link, usePathname, useRouter } from '@/i18n/navigation';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
@@ -50,6 +50,28 @@ export function StorefrontHeader() {
   const displayName = user?.name || user?.email || '';
   const { count } = useCart();
 
+  // TL-C1: expone la ALTURA REAL del header como var CSS `--app-header-h` en el contenedor
+  // del layout del storefront (el padre inmediato del header). Los sticky de las vistas
+  // (p. ej. la barra de filtros del binder en modo quoter, §18.1) se anclan DEBAJO del
+  // header con `lg:top-[var(--app-header-h,0px)]` en lugar de un `top-[72px]` hardcodeado.
+  // ResizeObserver cubre los cambios de altura reales (py-4 ↔ lg:py-[22px], wrap del
+  // contenido, menú móvil abierto); el fallback `0px` de la var cubre los layouts que no
+  // la definen (el binder no-quoter no activa el sticky, así que basta con esto).
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const host = el.parentElement ?? document.documentElement;
+    const update = () => host.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
+    update();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    ro?.observe(el);
+    return () => {
+      ro?.disconnect();
+      host.style.removeProperty('--app-header-h');
+    };
+  }, []);
+
   // Nav por sesión (P-13): el público solo ve "Compra" y "Vender". "Mi Bóveda" y
   // "Mis Órdenes" son áreas privadas y se muestran solo con sesión (authed). Como
   // `authed` depende de `ready`, en SSR/hidratación se pinta el nav público —idéntico
@@ -74,7 +96,7 @@ export function StorefrontHeader() {
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-bg">
+    <header ref={headerRef} className="sticky top-0 z-40 border-b border-border bg-bg">
       <div className="mx-auto flex max-w-7xl items-center gap-10 px-5 py-4 sm:px-6 lg:px-8 lg:py-[22px]">
         {/* <lg: SOLO la mira 28px (§17.3), con área táctil de 44px. */}
         <Link

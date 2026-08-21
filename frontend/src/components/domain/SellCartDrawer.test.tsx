@@ -73,6 +73,52 @@ describe('SellCartDrawer (§18.4b) · drawer flotante del carrito', () => {
     expect(lastBtn).toHaveFocus();
   });
 
+  it('TL-C2: si el foco escapa FUERA del panel con el diálogo abierto, el guard de focusin lo reencauza al panel', () => {
+    render(
+      <>
+        <button type="button">Fuera del diálogo</button>
+        <SellCartDrawer open onClose={vi.fn()} {...BASE}>
+          <p>contenido</p>
+        </SellCartDrawer>
+      </>,
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveFocus();
+
+    // Un focus fuera del panel (p. ej. Tab escapado desde <body> hacia detrás del scrim,
+    // o focus programático) dispara focusin a nivel document → se devuelve al panel.
+    screen.getByRole('button', { name: 'Fuera del diálogo' }).focus();
+    expect(dialog).toHaveFocus();
+  });
+
+  it('TL-C2: al DESMONTARSE el elemento enfocado (quitar la última línea), el foco no cae a <body>: vuelve al panel', () => {
+    // Reproduce el bug: el trap vivía solo en onKeyDown del panel; al desmontar el botón
+    // enfocado el foco caía a <body> y Tab se escapaba detrás del scrim con el diálogo abierto.
+    function Harness() {
+      const [hasLine, setHasLine] = useState(true);
+      return (
+        <SellCartDrawer open onClose={vi.fn()} {...BASE}>
+          {hasLine ? (
+            <button type="button" onClick={() => setHasLine(false)}>
+              Quitar
+            </button>
+          ) : (
+            <p>Tu carrito está vacío.</p>
+          )}
+        </SellCartDrawer>
+      );
+    }
+    render(<Harness />);
+    const remove = screen.getByRole('button', { name: 'Quitar' });
+    remove.focus();
+    expect(remove).toHaveFocus();
+
+    fireEvent.click(remove);
+    expect(screen.queryByRole('button', { name: 'Quitar' })).not.toBeInTheDocument();
+    // El foco quedó DENTRO del diálogo (en el panel), no en <body>.
+    expect(screen.getByRole('dialog')).toHaveFocus();
+  });
+
   it('al cerrar, el foco REGRESA al elemento de returnFocusRef (el FAB)', () => {
     function Harness() {
       const fabRef = useRef<HTMLButtonElement>(null);

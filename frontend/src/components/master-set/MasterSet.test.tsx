@@ -907,4 +907,38 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     expect(variantArg.finish).toBe('reverse_holo');
     expect(variantArg.quote?.quotedPriceCents).toBe(15000);
   });
+
+  it('TL-C1: la barra sticky de filtros del quoter se ancla BAJO el header (var --app-header-h, no top-0 ni px hardcodeado)', async () => {
+    // jsdom no pinta sticky: se asserta el contrato de clases — el offset viene de la var
+    // CSS `--app-header-h` (altura REAL del header del layout, expuesta por StorefrontHeader)
+    // con fallback 0px. Un `lg:top-0` dejaría la barra escondida detrás del header opaco
+    // (sticky top-0 z-40, ~72px); un `top-[72px]` hardcodearía el shell en un compartido.
+    mockOneSet();
+    const card: CardDTO = {
+      id: 'c-sticky',
+      externalId: 'quoter-sticky',
+      name: 'Sticky Card',
+      number: '1',
+      rarity: 'Common',
+      supertype: 'Pokémon',
+      subtypes: [],
+      setId: 'set-quoter',
+      setName: 'Quoter Set',
+      imageSmallUrl: '',
+      imageLargeUrl: '',
+      availableFinishes: ['normal'],
+    };
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({ data: [card], page: 1, pageSize: 50, total: 1 });
+    mockDeterministicQuotes();
+
+    const { container } = renderWithProviders(<MasterSetPanel mode="quoter" />, 'es');
+    fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Quoter' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Quoter Set/ }));
+    await screen.findByLabelText('Buscar carta');
+
+    const stickyBar = container.querySelector('[class*="lg:sticky"]');
+    expect(stickyBar).not.toBeNull();
+    expect(stickyBar!.className).toContain('lg:top-[var(--app-header-h,0px)]');
+    expect(stickyBar!.className).not.toContain('lg:top-0');
+  });
 });

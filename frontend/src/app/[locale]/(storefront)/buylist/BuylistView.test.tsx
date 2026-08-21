@@ -337,6 +337,39 @@ describe('BuylistView · carrito de venta', () => {
     ).toBeInTheDocument();
   });
 
+  it('TL-C2: quitar la ÚNICA línea con el foco en «Quitar» deja el foco DENTRO del diálogo (el trap no se desengancha)', async () => {
+    // Regresión del hallazgo: al desmontarse el botón enfocado, el foco caía a <body> y Tab
+    // se escapaba detrás del scrim con el drawer abierto (el trap vivía solo en onKeyDown).
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    const remove = screen.getByRole('button', { name: 'Quitar' });
+    remove.focus();
+    fireEvent.click(remove);
+
+    const dialog = screen.getByRole('dialog', { name: 'Carrito de venta (0)' });
+    expect(
+      screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.'),
+    ).toBeInTheDocument();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it('TL-C2: «Vaciar carrito» con el foco en el botón también deja el foco DENTRO del diálogo', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    const clear = screen.getByRole('button', { name: /Vaciar carrito/ });
+    clear.focus();
+    fireEvent.click(clear);
+
+    const dialog = screen.getByRole('dialog', { name: 'Carrito de venta (0)' });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
   it('vaciar el carrito lo deja vacío', async () => {
     asVerifiedCustomer();
     renderWithProviders(<BuylistView />, 'es');

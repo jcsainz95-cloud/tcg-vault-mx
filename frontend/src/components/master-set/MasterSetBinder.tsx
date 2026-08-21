@@ -264,11 +264,15 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
           ≥lg (§18.1, P-16): en sets de 200+ tejas grandes el usuario no debe scrollear de
           vuelta para filtrar. Fondo papel + regla inferior; z-10 por debajo del drawer del
           carrito (z-50) y del FAB (z-40). En <lg scroll natural (sticky + teclado móvil
-          estorban más de lo que ayudan). */}
+          estorban más de lo que ayudan).
+          TL-C1: el offset sale de `--app-header-h` (altura REAL del header sticky del
+          layout, expuesta por StorefrontHeader) con fallback 0px — nunca un top-[72px]
+          hardcodeado aquí: este componente es compartido y no sabe qué shell lo monta. */}
       <div
         className={cn(
           'flex flex-wrap items-end gap-3',
-          isQuoter && 'lg:sticky lg:top-0 lg:z-10 lg:border-b lg:border-border lg:bg-bg lg:pb-3',
+          isQuoter &&
+            'lg:sticky lg:top-[var(--app-header-h,0px)] lg:z-10 lg:border-b lg:border-border lg:bg-bg lg:pb-3',
         )}
       >
         {/* "Buscar carta" (quoter): nombre/número DENTRO de este set. */}

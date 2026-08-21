@@ -65,6 +65,34 @@ export function SellCartDrawer({
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // TL-C2 · Guard de `focusin` a nivel document mientras el diálogo está abierto: si el
+  // foco aterriza FUERA del panel (p. ej. Tab desde <body> tras perder el foco, o un focus
+  // programático detrás del scrim), se reencauza al panel. El trap de `onKeyDown` solo ve
+  // los Tab originados DENTRO del panel; este guard cubre las fugas que aquel no ve.
+  useEffect(() => {
+    if (!open) return;
+    function onFocusIn(e: FocusEvent) {
+      const panel = panelRef.current;
+      if (!panel || (e.target instanceof Node && panel.contains(e.target))) return;
+      panel.focus();
+    }
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, [open]);
+
+  // TL-C2 · Pérdida de foco por DESMONTE: al quitar la última línea o vaciar el carrito,
+  // React desmonta el botón enfocado y el foco cae a <body> SIN disparar ningún evento de
+  // foco (spec: no hay blur/focusin al remover el nodo activo). Se re-verifica tras CADA
+  // commit mientras el diálogo está abierto y, si el foco quedó fuera, se devuelve al panel.
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    const active = document.activeElement;
+    if (panel && (!active || active === document.body || !panel.contains(active))) {
+      panel.focus();
+    }
+  });
+
   /** Focus trap: Tab/Shift+Tab ciclan dentro del panel (un solo trap activo, §18.4b). */
   function trapFocus(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== 'Tab' || !panelRef.current) return;

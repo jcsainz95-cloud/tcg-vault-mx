@@ -4517,3 +4517,83 @@ cambio de contrato (§18.11.1): todo el dato ya existía.
 
 Gates: `lint` ✓ · `typecheck` ✓ · `vitest` **536/536** (70 archivos; 526 previos + 9 nuevos de
 FAB/drawer + 1 neto en BuylistView) · `next build` ✓.
+
+## Stream C · Ronda de corrección del gate (TL-C1/C2/C3 + SC-D2) — 2026-08-21
+
+QA aprobó; techlead rechazó con tres hallazgos mayores, cerrados en esta ronda (sin cambio de
+contrato, todo en `frontend/`):
+
+### TL-C1 · Sticky del binder tapado por el header del storefront
+- **Bug:** la barra de filtros del quoter (`MasterSetBinder`, modo quoter) era `lg:sticky lg:top-0
+  z-10`, pero `StorefrontHeader` es `sticky top-0 z-40` opaco (~72px) → la barra quedaba escondida
+  detrás del header al scrollear.
+- **Fix (indicación del techlead):** el offset sale de la **altura real** del header vía var CSS por
+  layout. `StorefrontHeader` mide su propio alto (`ResizeObserver`, cubre `py-4 ↔ lg:py-[22px]`, wrap
+  y menú móvil) y expone `--app-header-h` en su **padre inmediato** (el wrapper del layout del
+  storefront; se limpia al desmontar). El binder usa `lg:top-[var(--app-header-h,0px)]` — fallback
+  `0px` para shells que no la definan (en modos no-quoter el sticky no se activa; si el binder
+  necesitara sticky bajo el AdminShell, ese shell expondría su propia var). **Nada de `top-[72px]`
+  hardcodeado en el componente compartido.**
+- **Tests (jsdom no pinta sticky → se asserta el mecanismo):** `StorefrontHeader.test.tsx` (la var
+  queda en px en el contenedor y se limpia al desmontar) y `MasterSet.test.tsx` (la barra del quoter
+  lleva `lg:top-[var(--app-header-h,0px)]` y NO `lg:top-0`).
+
+### TL-C2 · El focus trap del drawer se desenganchaba al desmontarse el elemento enfocado
+- **Bug:** el trap vivía solo en `onKeyDown` del panel; al pulsar «Quitar» en la última línea o
+  «Vaciar carrito», React desmonta el botón enfocado, el foco cae a `<body>` (sin evento — la spec no
+  dispara blur/focus al remover el nodo activo) y Tab se escapaba detrás del scrim con el diálogo
+  abierto.
+- **Fix (opción b del techlead, `SellCartDrawer.tsx`):** dos guards mientras `open`:
+  (1) **`focusin` a nivel `document`** — si el foco aterriza fuera del panel (Tab escapado desde
+  `<body>`, focus programático), se reenfoca el panel; (2) **re-verificación tras cada commit**
+  (efecto sin deps) — cubre la caída silenciosa a `<body>` por desmonte, que no emite `focusin`. El
+  trap de Tab interno queda igual. Ambos guards se desactivan con el drawer cerrado y son inocuos en
+  el cierre (el ref del panel ya es null cuando el retorno de foco al FAB dispara `focusin`).
+- **Tests de regresión (obligatorio del techlead):** `BuylistView.test.tsx` — enfocar «Quitar» de la
+  única línea → click → el foco queda DENTRO del diálogo (ídem «Vaciar carrito»);
+  `SellCartDrawer.test.tsx` — focusin fuera → reenfoque, y desmonte del hijo enfocado → foco al panel.
+
+### TL-C3 · Extracción FE-13 de BuylistView (compromiso «sin tercer aplazamiento»)
+- Extracción **mecánica, sin cambio de comportamiento**, por la costura trazada por el techlead, a la
+  misma carpeta de la ruta (no a zonas compartidas):
+  - **`useSellCart.ts`** (151 líneas): `CartLine`/`QuoterCardRef`/`mergeCartLine` + cantidades +
+    `expandedLines` + totales derivados (`totalEstimatedCents`, `pendingCardCount`, `cartCount`,
+    `requestItems`). Handlers estables (`useCallback` + setState funcional).
+  - **`SellCartContents.tsx`** (274 líneas): el bloque entre `<SellCartDrawer>` y `</SellCartDrawer>`
+    (requisitos → líneas → total → CTA → vaciar), con `QuoteRow` y `ruleText`. Recibe `cart`, `sellReq`
+    y handlers; el submit lo delega al dueño (cerrar drawer + abrir modal, §18.4b).
+  - **`MyRequestsSection.tsx`** (206 líneas): "Mis solicitudes" + respuesta al ajuste (F5). Dueña de su
+    query `['sell-requests']` (la MISMA key que invalida BuylistView al crear solicitud) y de
+    `respondSellRequest`.
+  - `BuylistView.tsx`: 1253 → **787 líneas** (orquestador: filtros, grid graded/sealed, bulk, binder
+    quoter, bounty, modal de solicitud). MasterSetBinder, flujo bulk y gating KYC **sin tocar** (solo
+    movidos de sitio donde la costura lo exigía).
+- **Red de seguridad:** los 41 tests conductuales de `BuylistView.test.tsx` pasan idénticos antes y
+  después de la extracción (verificado en dos corridas: post-extracción 86/86 de las 4 suites tocadas;
+  final 92/92 con los 6 tests nuevos de TL-C1/TL-C2).
+- **Nits pagados al pasar:** `<div>` sin función alrededor de `SellRequirementsPanel` eliminado;
+  indentación del bloque movido normalizada (consecuencia de la extracción); `expandedLines` se PODA al
+  quitar una línea y se resetea al vaciar (antes acumulaba entradas huérfanas).
+- **SC-D3 parcial:** `addFromMasterSet` ahora es `useCallback` sobre los handlers estables del hook
+  (identidad estable hacia `MasterSetPanel`); el `memo` de tiles queda como deuda SC-D3 con disparador
+  «lag al teclear cantidades en set grande».
+
+### SC-D2 · E2E `buylist.spec.ts`: 8 tests muertos migrados (0 rojos de reposo)
+- Los 8 casos que asumían el grid plano en raw (pre-v1.21) se migraron sin inventar cobertura falsa:
+  grid plano/bulk → **graded** (helpers `selectGraded`/`searchFor`/`addGradedCard`); acabados
+  raw/pendiente/KYC → **binder quoter** (`openBaseSet`/`addFromBinder`, fixtures Base Set). El smoke
+  `@real vender` descubre por graded y clica la primera fila **habilitada** (fixtures holofoil-only no
+  cotizan graded en mock → fila deshabilitada por-ítem, correcta). **Estado final en mock: 12 passed /
+  0 failed** (antes 8 failed / 4 passed). `master-set.spec.ts` re-verificado: 2 passed (el fallo :88
+  reportado en el gate ya no reproduce). Pendiente anotado en TECH_DEBT SC-D2: en real, el smoke de
+  vender valida ahora la ruta graded.
+
+### Deuda registrada (docs/TECH_DEBT.md)
+- **FE-13 → RESUELTA** (esta ronda). Nuevas: **SC-D1** (cuarto shell de diálogo a mano + scrim en
+  cuarta copia — NO se implementó el primitivo en este stream, por indicación del techlead), **SC-D2**
+  (resuelta, con pendiente @real anotado), **SC-D3** (memo de tiles, parcialmente pagada), **SC-D4**
+  (~10 ramas por modo en MasterSetBinder → objeto de capacidades cuando llegue la próxima rama).
+
+Gates de la ronda: `lint` ✓ · `typecheck` ✓ · `vitest` **542/542** (70 archivos; 536 previos + 6
+nuevos: 2 BuylistView TL-C2, 2 SellCartDrawer TL-C2, 1 StorefrontHeader TL-C1, 1 MasterSet TL-C1) ·
+`next build` ✓ · Playwright `buylist.spec.ts` en mock **12/12** ✓.
