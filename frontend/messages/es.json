@@ -206,7 +206,7 @@
       "many": "{count} piezas de tu carrito ya no están disponibles y se quitaron.",
       "dismiss": "Cerrar aviso"
     },
-    "cfdiNotice": "Para solicitar factura (CFDI), envía un correo con tus datos fiscales a facturacion@tcgvaultmx.com tras el pago.",
+    "cfdiNotice": "Para solicitar factura (CFDI), envía un correo con tus datos fiscales a facturacion@tcghunt.mx tras el pago.",
     "finalSaleNotice": "Todas las ventas son finales. Sin reembolsos salvo carta dañada o equivocada.",
     "viewTerms": "Ver términos",
     "afterPayment": "Al pagar, tus cartas entran a tu bóveda con titularidad pendiente hasta que el pago se liquide.",
@@ -297,7 +297,7 @@
       "emailSentTo": "Te enviamos la confirmación y el enlace de seguimiento a {email}.",
       "wrongEmail": "¿No es tu correo? Escríbenos a {contact} citando tu número de pedido.",
       "keepShopping": "Seguir comprando",
-      "cfdiReminder": "Para solicitar factura (CFDI) envía tus datos fiscales a facturacion@tcgvaultmx.com citando el pedido {orderNumber}.",
+      "cfdiReminder": "Para solicitar factura (CFDI) envía tus datos fiscales a facturacion@tcghunt.mx citando el pedido {orderNumber}.",
       "claim": {
         "eyebrow": "CREA TU CUENTA",
         "title": "Guarda este pedido en tu cuenta",
@@ -705,7 +705,7 @@
     "disputeWindowNote": "El plazo de 7 días empieza a correr el día en que se entrega el envío, no en la fecha de compra ni de pago.",
     "disputeOutcome": "Si la disputa procede, te compensamos por el daño o el error y conservas la carta: no hay devolución del producto.",
     "questionsTitle": "Dudas",
-    "questionsBody": "Para cualquier aclaración sobre estos términos, escríbenos a soporte@tcgvaultmx.com."
+    "questionsBody": "Para cualquier aclaración sobre estos términos, escríbenos a soporte@tcghunt.mx."
   },
   "dispute": {
     "evidenceTitle": "Envía tu evidencia por correo",
@@ -2115,7 +2115,7 @@
     },
     "buylistCallout": {
       "title": "¿Quieres revender tu sellado a TCG HUNT?",
-      "body": "Escríbenos a contacto@tcgvaultmx.com con fotos y lo cotizamos.",
+      "body": "Escríbenos a contacto@tcghunt.mx con fotos y lo cotizamos.",
       "cta": "Escríbenos"
     },
     "detail": {

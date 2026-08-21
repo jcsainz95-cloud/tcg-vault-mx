@@ -206,7 +206,7 @@
       "many": "{count} items in your cart are no longer available and were removed.",
       "dismiss": "Dismiss notice"
     },
-    "cfdiNotice": "To request an invoice (CFDI), email your tax data to facturacion@tcgvaultmx.com after payment.",
+    "cfdiNotice": "To request an invoice (CFDI), email your tax data to facturacion@tcghunt.mx after payment.",
     "finalSaleNotice": "All sales are final. No refunds except for a damaged or wrong card.",
     "viewTerms": "View terms",
     "afterPayment": "On payment, your cards enter your vault with pending ownership until the payment settles.",
@@ -297,7 +297,7 @@
       "emailSentTo": "We sent your confirmation and tracking link to {email}.",
       "wrongEmail": "Not your email? Write to us at {contact} quoting your order number.",
       "keepShopping": "Keep shopping",
-      "cfdiReminder": "To request an invoice (CFDI) send your tax details to facturacion@tcgvaultmx.com quoting order {orderNumber}.",
+      "cfdiReminder": "To request an invoice (CFDI) send your tax details to facturacion@tcghunt.mx quoting order {orderNumber}.",
       "claim": {
         "eyebrow": "CREATE YOUR ACCOUNT",
         "title": "Save this order to your account",
@@ -705,7 +705,7 @@
     "disputeWindowNote": "The 7-day window starts on the day the shipment is delivered, not on the purchase or payment date.",
     "disputeOutcome": "If the dispute is upheld, we compensate you for the damage or error and you keep the card: there is no product return.",
     "questionsTitle": "Questions",
-    "questionsBody": "For any clarification about these terms, email us at soporte@tcgvaultmx.com."
+    "questionsBody": "For any clarification about these terms, email us at soporte@tcghunt.mx."
   },
   "dispute": {
     "evidenceTitle": "Send your evidence by email",
@@ -2115,7 +2115,7 @@
     },
     "buylistCallout": {
       "title": "Want to sell your sealed product to TCG HUNT?",
-      "body": "Email us at contacto@tcgvaultmx.com with photos and we will quote it.",
+      "body": "Email us at contacto@tcghunt.mx with photos and we will quote it.",
       "cta": "Email us"
     },
     "detail": {
