@@ -564,10 +564,12 @@ export interface BuylistRule {
 }
 // v1.3.1: regla resuelta para la carta al cotizar. source="rule" (fila explícita de
 // BUYLIST_PRICE_RULES) o "fallback" (BUYLIST_PRICE_FALLBACK_PCT).
+// v1.28 §6: gana "bounty" (bounty activo ganó la oferta) y "override" (buy-override de la
+// consola M-30) — aditivo, el front DEBE tolerarlos.
 export interface BuylistRuleApplied {
   mode: BuylistRuleMode;
   value: number;
-  source: 'rule' | 'fallback';
+  source: 'rule' | 'fallback' | 'bounty' | 'override';
 }
 
 // v1.3.1: POST /buylist/quote — expone `rarity` + `appliedRule` en vez de `category`.
