@@ -221,6 +221,39 @@ Lista viva de cosas que el humano va observando en el producto. Se van moviendo 
 - **Depende de:** P-15 (precio de mercado por variante) y se beneficia de P-13 (sin variantes
   fantasma, para no sugerir precios de versiones inexistentes).
 
+### P-19 · Simplificar el "Alta rápida al inventario" del Master Set
+- **Pedido del humano (2026-08-21, viendo el modal de alta rápida):**
+  1. **Fuera "Aportación en especie" y su %** — el concepto no se entiende; hacerlo más simple.
+  2. **Fuera el dropdown de acabado/versión** — ya se picó la casilla de la variante (Normal o
+     Reverse Holo); el acabado viene dado por la casilla, no se vuelve a preguntar.
+  3. **Fuera el campo de ubicación** — no se necesita (la bóveda física la definirá él después,
+     ver nota en P-17).
+  4. El alcance del inventario es: **altas, bajas y precios de la carta** — nada más.
+- **Forma objetivo del alta rápida:** picas la casilla de la variante → pides **cantidad** y
+  **precio al que compramos** (prellenado con el sugerido de la regla, editable = el override de
+  P-18) → alta. Un paso, sin conceptos financieros intermedios.
+- **A definir (product-owner/arquitecto):** qué pasa con el tipo de adquisición en el modelo — ¿se
+  elimina del flujo y queda un default interno ("compra") o desaparece del contrato? Ojo: el 422
+  `PRICE_PENDING` de "aportación en especie" era el origen de P-4; al simplificar, revisar que el
+  camino único no herede ese tropiezo. Las bajas (venta/merma) deben quedar igual de simples.
+- **Roles:** product-owner (aterrizar el flujo simple) → arquitecto si cambia contrato → backend +
+  frontend.
+
+### P-20 · Inventario separado para cartas gradeadas (PSA) con sus valores de mercado
+- **Pedido del humano (2026-08-21):** además de las sueltas, poder guardar si tenemos **PSA** de
+  esas cartas, en un inventario **separado**, con **sus valores de mercado** (el precio de una
+  PSA 10 no es el de la carta suelta).
+- **Base existente:** el modelo ya distingue `productType` raw/graded y `gradeKey` (los slabs con
+  cert único ya existen en el alta clásica); falta la vista/gestión separada y la referencia de
+  mercado por grado.
+- **Qué falta:** (a) vista de inventario PSA separada de sueltas (¿pestaña propia o filtro del
+  Master Set con badge de grado?); (b) precio de mercado por carta+grado — verificar si el
+  proveedor de precios da precios de gradeadas (PSA 10/9...) o si el valor será manual (override
+  de P-18 aplicado a gradeadas); (c) alta rápida de una PSA desde el Master Set (grado + cert +
+  precio de compra).
+- **Roles:** product-owner (definir alcance con el humano) → arquitecto (contrato de referencias
+  por grado) → backend + frontend.
+
 ---
 
 ## En curso / Hecho (referencia)
