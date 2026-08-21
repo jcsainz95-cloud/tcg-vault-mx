@@ -68,6 +68,8 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
   let orderNumber: string;
   let checkoutToken: string;
   let paymentIntentId: string;
+  // H1: el webhook de settle debe CUADRAR monto/moneda con la orden (totalCents real del pedido).
+  let orderTotalCents: number;
   let shipmentId: string;
   // Segundo pedido de invitado (mismo flujo, otro comprador): sirve para probar aislamiento
   // entre pedidos y la ROTACIÓN del enlace sin tocar el pedido del camino feliz.
@@ -230,6 +232,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       orderNumber = res.body.orderNumber;
       checkoutToken = res.body.checkoutToken;
       paymentIntentId = res.body.stripe.paymentIntentId;
+      orderTotalCents = res.body.breakdown.totalCents;
 
       expect(orderNumber).toMatch(/^TCG-\d{6}$/);
       expect(checkoutToken).toHaveLength(43); // 32 bytes base64url
@@ -296,7 +299,16 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     it('webhook `payment_intent.succeeded`: la orden liquida y la pieza pasa a `picking` (NO a bóveda)', async () => {
       const res = await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
-        data: { object: { id: paymentIntentId, object: 'payment_intent' } },
+        // H1: como en Stripe real, el PI trae monto capturado y moneda; deben cuadrar con la orden.
+        data: {
+          object: {
+            id: paymentIntentId,
+            object: 'payment_intent',
+            amount: orderTotalCents,
+            amount_received: orderTotalCents,
+            currency: 'mxn',
+          },
+        },
       });
       expect(res.status).toBe(200);
 
@@ -345,7 +357,15 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     it('el webhook es idempotente (reintento de Stripe no duplica envío ni movimientos)', async () => {
       await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
-        data: { object: { id: paymentIntentId, object: 'payment_intent' } },
+        data: {
+          object: {
+            id: paymentIntentId,
+            object: 'payment_intent',
+            amount: orderTotalCents,
+            amount_received: orderTotalCents,
+            currency: 'mxn',
+          },
+        },
       });
       const shipments = await h.prisma.shipmentRequest.findMany({ where: { orderId } });
       expect(shipments).toHaveLength(1);
@@ -718,6 +738,8 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       orderId: session.body.orderId as string,
       itemId: item.id,
       piId: session.body.stripe.paymentIntentId as string,
+      // H1: el webhook de settle debe CUADRAR monto/moneda con la orden (totalCents real).
+      totalCents: session.body.breakdown.totalCents as number,
     };
   }
 
@@ -761,7 +783,15 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       // Y el webhook tardío liquida con la pieza donde debe estar: `picking`, no `listed`.
       const wh = await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
-        data: { object: { id: session.body.stripe.paymentIntentId, object: 'payment_intent' } },
+        data: {
+          object: {
+            id: session.body.stripe.paymentIntentId,
+            object: 'payment_intent',
+            amount: session.body.breakdown.totalCents,
+            amount_received: session.body.breakdown.totalCents,
+            currency: 'mxn',
+          },
+        },
       });
       expect(wh.status).toBe(200);
       const order = await h.prisma.order.findUnique({ where: { id: session.body.orderId } });
@@ -810,14 +840,22 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
 
     /** C2 (QA) — la pieza ya está en manos de otro flujo: no se le quita a nadie. */
     it('C2: pieza comprometida con OTRO flujo al liquidar ⇒ no se le roba, se audita sin recuperar', async () => {
-      const { itemId, orderId: staleId, piId } = await makeStaleGuestOrder('C2');
+      const { itemId, orderId: staleId, piId, totalCents } = await makeStaleGuestOrder('C2');
       await h.prisma.inventoryItem.update({
         where: { id: itemId },
         data: { status: 'in_custody', ownerType: 'platform' },
       });
       const wh = await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
-        data: { object: { id: piId, object: 'payment_intent' } },
+        data: {
+          object: {
+            id: piId,
+            object: 'payment_intent',
+            amount: totalCents,
+            amount_received: totalCents,
+            currency: 'mxn',
+          },
+        },
       });
       expect(wh.status).toBe(200);
       const item = await h.prisma.inventoryItem.findUnique({ where: { id: itemId } });
@@ -856,7 +894,15 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
 
       const wh = await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
-        data: { object: { id: session.body.stripe.paymentIntentId, object: 'payment_intent' } },
+        data: {
+          object: {
+            id: session.body.stripe.paymentIntentId,
+            object: 'payment_intent',
+            amount: session.body.breakdown.totalCents,
+            amount_received: session.body.breakdown.totalCents,
+            currency: 'mxn',
+          },
+        },
       });
       expect(wh.status).toBe(200);
 
@@ -893,7 +939,15 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       cbPiId = session.body.stripe.paymentIntentId;
       await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
-        data: { object: { id: session.body.stripe.paymentIntentId, object: 'payment_intent' } },
+        data: {
+          object: {
+            id: session.body.stripe.paymentIntentId,
+            object: 'payment_intent',
+            amount: session.body.breakdown.totalCents,
+            amount_received: session.body.breakdown.totalCents,
+            currency: 'mxn',
+          },
+        },
       });
       const shipment = await h.prisma.shipmentRequest.findFirst({ where: { orderId: cbOrderId } });
       cbShipmentId = shipment!.id;

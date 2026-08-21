@@ -229,6 +229,8 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
   describe('webhook payment_intent.succeeded → titularidad settled', () => {
     let orderId: string;
     let paymentIntentId: string;
+    // H1: el webhook debe CUADRAR monto/moneda con la orden o el guard NO liquida.
+    let orderTotalCents: number;
     const eventId = 'evt_e2e_succeeded_fixed';
 
     it('crea la sesión de checkout (reserva + Order pending + PaymentIntent)', async () => {
@@ -242,6 +244,7 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       paymentIntentId = res.body.stripe.paymentIntentId;
       const order = await h.prisma.order.findUnique({ where: { id: orderId } });
       expect(order!.status).toBe('pending');
+      orderTotalCents = order!.totalCents;
       const inv = await h.prisma.inventoryItem.findUnique({ where: { id: itemId.listedCharizard } });
       expect(inv!.status).toBe('reserved');
       expect(inv!.ownershipStatus).toBe('pending');
@@ -252,7 +255,16 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       const res = await h.sendStripeWebhook({
         id: eventId,
         type: 'payment_intent.succeeded',
-        data: { object: { id: paymentIntentId, object: 'payment_intent' } },
+        // H1: como en Stripe real, el PI trae monto capturado y moneda; deben cuadrar con la orden.
+        data: {
+          object: {
+            id: paymentIntentId,
+            object: 'payment_intent',
+            amount: orderTotalCents,
+            amount_received: orderTotalCents,
+            currency: 'mxn',
+          },
+        },
       });
       expect(res.status).toBe(200);
       expect(res.body.received).toBe(true);
@@ -271,7 +283,15 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       const res = await h.sendStripeWebhook({
         id: eventId,
         type: 'payment_intent.succeeded',
-        data: { object: { id: paymentIntentId, object: 'payment_intent' } },
+        data: {
+          object: {
+            id: paymentIntentId,
+            object: 'payment_intent',
+            amount: orderTotalCents,
+            amount_received: orderTotalCents,
+            currency: 'mxn',
+          },
+        },
       });
       expect(res.status).toBe(200);
       const settleMovements = await h.prisma.inventoryMovement.count({

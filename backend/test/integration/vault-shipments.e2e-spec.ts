@@ -177,10 +177,20 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
     });
 
     it('avanza solicitado→picking→guia→enviado→entregado y retira el item de la bóveda', async () => {
-      // Pago liquidado → picking (webhook, sin tocar el item).
+      // Pago liquidado → picking (webhook, sin tocar el item). Como en Stripe real, el PI
+      // trae monto capturado y moneda (aquí, el total del envío que se está pagando).
+      const sr = await h.prisma.shipmentRequest.findUnique({ where: { id: shipmentId } });
       const wh = await h.sendStripeWebhook({
         type: 'payment_intent.succeeded',
-        data: { object: { id: paymentIntentId } },
+        data: {
+          object: {
+            id: paymentIntentId,
+            object: 'payment_intent',
+            amount: sr!.totalCents,
+            amount_received: sr!.totalCents,
+            currency: 'mxn',
+          },
+        },
       });
       expect(wh.status).toBe(200);
       let shipment = await h.prisma.shipmentRequest.findUnique({ where: { id: shipmentId } });
