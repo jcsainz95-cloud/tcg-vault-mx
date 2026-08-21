@@ -28,10 +28,12 @@ import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { CardImage } from '@/components/ui/CardImage';
+import { CardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { FINISH_ORDER, displayFinishesOf, displayedVariants } from '@/lib/finish';
 import { FinishBand } from '@/components/domain/FinishMark';
+import { cn } from '@/lib/cn';
 import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 import { VariantPricingCompact } from './VariantPriceConsole';
 import type { MasterSetViewMode } from './mode';
@@ -258,8 +260,17 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
         </p>
       )}
 
-      {/* Filtros LOCALES (no vuelven a pegarle al backend). */}
-      <div className="flex flex-wrap items-end gap-3">
+      {/* Filtros LOCALES (no vuelven a pegarle al backend). En quoter se vuelven STICKY en
+          ≥lg (§18.1, P-16): en sets de 200+ tejas grandes el usuario no debe scrollear de
+          vuelta para filtrar. Fondo papel + regla inferior; z-10 por debajo del drawer del
+          carrito (z-50) y del FAB (z-40). En <lg scroll natural (sticky + teclado móvil
+          estorban más de lo que ayudan). */}
+      <div
+        className={cn(
+          'flex flex-wrap items-end gap-3',
+          isQuoter && 'lg:sticky lg:top-0 lg:z-10 lg:border-b lg:border-border lg:bg-bg lg:pb-3',
+        )}
+      >
         {/* "Buscar carta" (quoter): nombre/número DENTRO de este set. */}
         {isQuoter && (
           <Input
@@ -313,6 +324,15 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
         isError={binder.isError}
         error={binder.error}
         onRetry={() => binder.refetch()}
+        /* §18.6: skeletons con la MISMA retícula final (teja 5:7 + 2 líneas + botón),
+           sin spinner de página. Misma escala de columnas que el grid real. */
+        loading={
+          <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {Array.from({ length: 10 }, (_, i) => (
+              <CardSkeleton key={i} />
+            ))}
+          </div>
+        }
       >
         {binder.data &&
           (tiles.length === 0 ? (
@@ -515,8 +535,14 @@ function QuoterTile({
     variant.quote?.quotedPriceCents != null ? formatMoneyCents(variant.quote.quotedPriceCents, locale) : null;
   return (
     <div className="flex h-full flex-col">
+      {/* P-14 (§18.3): el quoter adopta el FinishMark/FinishBand de §16.6 EXACTAMENTE como
+          BinderTile — banda de 3px (canal color, decorativa); el texto lo porta la etiqueta
+          de acabado del TileHeader (doble canal, nunca banda sin texto). */}
+      <FinishBand finish={variant.finish} />
+      {/* §18.2: precio estimado como héroe secundario (15px, mono, TINTA — el verde
+          «Pagamos» queda exclusivo del BountyCard §16.7c: esto es estimado, no promesa). */}
       <TileHeader cell={cell} finishLabel={finishLabel} />
-      <p className="mt-2 font-mono tabular-nums text-[13px] text-text">
+      <p className="mt-2 font-mono tabular-nums text-[15px] text-text">
         {pending ? (
           <span className="text-accent">{t('quoterPending')}</span>
         ) : (

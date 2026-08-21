@@ -600,8 +600,14 @@
     "rulePct": "{pct}% of reference",
     "cartTitle": "Sell cart",
     "cartCount": "{count} card(s)",
-    "cartShow": "Show cart ({count})",
-    "cartHide": "Hide cart",
+    "cartFab": {
+      "ariaWithCount": "Sell cart, {count} card(s)",
+      "ariaEmpty": "Sell cart, empty"
+    },
+    "cartDrawer": {
+      "ariaLabel": "Sell cart ({count})",
+      "close": "Close cart"
+    },
     "lineDetailShow": "Estimate details",
     "lineDetailHide": "Hide details",
     "cartEmpty": "Your cart is empty. Pick a card from the catalog to add it.",

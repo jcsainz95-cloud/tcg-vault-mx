@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import {
@@ -39,6 +39,7 @@ import { useSellRequirements } from '@/hooks/useSellRequirements';
 import { Link } from '@/i18n/navigation';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
+import { CardSkeleton } from '@/components/ui/Skeleton';
 import { useBuylistSteps } from '@/lib/pipelines';
 import { FINISH_ORDER } from '@/lib/finish';
 import { cn } from '@/lib/cn';
@@ -49,6 +50,11 @@ import { cn } from '@/lib/cn';
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 // v1.28 (P-22): vitrina «Top Bounties» arriba de la página Vender, antes del selector de set.
 import { TopBountiesShelf } from '@/components/domain/TopBountiesShelf';
+// v1.29 Stream C (P-16, §18.4): el carrito deja de ser columna lateral — FAB + drawer flotante.
+import { SellCartFab } from '@/components/domain/SellCartFab';
+import { SellCartDrawer } from '@/components/domain/SellCartDrawer';
+// v1.29 Stream C (P-14, §18.5): las líneas del carrito y del resumen usan el FinishMark compartido.
+import { FinishMark } from '@/components/domain/FinishMark';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 
@@ -213,9 +219,13 @@ export function BuylistView() {
   const [requestOpen, setRequestOpen] = useState(false);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
-  // --- Carrito de venta: varias cartas en UNA sola solicitud; columna colapsable ---
+  // --- Carrito de venta: varias cartas en UNA sola solicitud. P-16 (§18.4): vive en un
+  // DRAWER flotante disparado por el FAB (cerrado por defecto; agregar desde la grilla NO
+  // lo abre — solo el CTA de bounty, intención explícita de vender ESA carta). Al cerrar,
+  // el foco regresa al FAB (returnFocusRef). ---
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [cartOpen, setCartOpen] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const fabRef = useRef<HTMLButtonElement>(null);
   const [expandedLines, setExpandedLines] = useState<Record<string, boolean>>({});
   const [lastAdded, setLastAdded] = useState<{ name: string; label: string } | null>(null);
 
@@ -387,7 +397,8 @@ export function BuylistView() {
           quote: batchResultToQuote(result),
         }),
       );
-      setCartOpen(true);
+      // Excepción de §18.4a: el CTA de bounty SÍ abre el drawer (intención explícita).
+      setDrawerOpen(true);
       setLastAdded({ name: bounty.name, label: tFinish(bounty.finish) });
       setBulkNotice(null);
     },
@@ -547,11 +558,12 @@ export function BuylistView() {
             no hay bounties activos o el endpoint falla (vitrina, no bloquea la venta). */}
         <TopBountiesShelf onQuote={(b) => bountyQuote.mutate(b)} />
 
-        {/* Barra de filtros: set + búsqueda + tipo, con el toggle del carrito al extremo.
-            En `raw` el binder Master Set (mode="quoter") trae SU PROPIO "Buscar set" (índice)
-            y "Buscar carta" (dentro del set elegido) — ver MasterSetIndex/MasterSetBinder;
-            este filtro plano de set+texto queda para graded/sealed (sin variantes por acabado,
-            fuera del modelo de casillas de Master Set). */}
+        {/* Barra de filtros ADELGAZADA (P-16, §18.1.3): el toggle textual del carrito
+            desaparece (lo sustituye el FAB §18.4). En `raw` el binder Master Set
+            (mode="quoter") trae SU PROPIO "Buscar set" (índice) y "Buscar carta" (dentro
+            del set elegido) — ver MasterSetIndex/MasterSetBinder; este filtro plano de
+            set+texto queda para graded/sealed (sin variantes por acabado, fuera del modelo
+            de casillas de Master Set). */}
         <div className="gutter flex flex-wrap items-end gap-x-8 gap-y-6 border-b border-border pb-7 pt-6">
           {productType !== 'raw' && (
             <>
@@ -604,20 +616,11 @@ export function BuylistView() {
               }}
             />
           </div>
-          <button
-            type="button"
-            aria-expanded={cartOpen}
-            onClick={() => setCartOpen((v) => !v)}
-            className="ml-auto pb-3 font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
-          >
-            {cartOpen ? t('cartHide') : t('cartShow', { count: cartCount })}
-          </button>
         </div>
 
-        <div className={cn('grid', cartOpen && 'lg:grid-cols-[minmax(0,1fr)_360px]')}>
-          {/* El grid de resultados es el protagonista: todo el ancho/alto disponible,
-              scroll natural de página (sin caja con scroll interno). */}
-          <main className="gutter min-w-0 pb-12 pt-8">
+        {/* P-16 (§18.1.4): la grilla es la única columna, a TODO el ancho. `pb-24` para que
+            el FAB fijo nunca tape la última fila de tejas. */}
+        <main className="gutter min-w-0 pb-24 pt-8">
             {lastAdded && (
               <p role="status" className="mb-3 font-mono text-[11px] text-success">
                 {t('addedLine', { name: lastAdded.name, finish: lastAdded.label })}
@@ -695,6 +698,14 @@ export function BuylistView() {
                     isError={cardsResult.isError}
                     error={cardsResult.error}
                     onRetry={() => cardsResult.refetch()}
+                    /* §18.6: skeletons con la MISMA retícula final; sin spinner de página. */
+                    loading={
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                        {Array.from({ length: 10 }, (_, i) => (
+                          <CardSkeleton key={i} />
+                        ))}
+                      </div>
+                    }
                   >
                     {cardsResult.data &&
                       (cardsResult.data.data.length === 0 ? (
@@ -702,7 +713,10 @@ export function BuylistView() {
                       ) : (
                         <ul
                           aria-label={t('searchResults')}
-                          className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6"
+                          /* §18.2: el grid plano de graded/sealed se ALINEA a la escala del
+                             binder M1 (2→3→4→5); se retira el 2xl:6 y md:4/xl:5 pasa a
+                             lg:4/xl:5 — la teja grande ES el objetivo, no meter columnas. */
+                          className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
                         >
                           {cardsResult.data.data.map((card) => (
                             <li key={card.id} className="relative min-w-0">
@@ -764,21 +778,26 @@ export function BuylistView() {
                 </div>
               </>
             )}
-          </main>
+        </main>
 
-          {/* Carrito de venta: columna lateral colapsable (el grid manda). */}
-          {cartOpen && (
-            <aside className="gutter min-w-0 self-start border-t border-border pb-11 pt-8 lg:sticky lg:top-0 lg:border-l lg:border-t-0">
-              <div className="flex items-center justify-between">
-                <h2 className="eyebrow">{t('cartTitle')}</h2>
-                {cartCount > 0 && <span className="eyebrow">{t('cartCount', { count: cartCount })}</span>}
-              </div>
-
-              {/* Requisitos de cuenta SIEMPRE visibles (aun con carrito vacío): el usuario
-                  sabe QUÉ le falta antes de llenar todo (sesión / correo / CLABE / INE). */}
-              <div className="mt-5">
-                <SellRequirementsPanel req={sellReq} />
-              </div>
+        {/* Carrito de venta = DRAWER flotante (P-16, §18.4b): el contenido del antiguo
+            <aside> va tal cual dentro del drawer (el drawer solo es el contenedor). El
+            encabezado (eyebrow + conteo + cerrar) lo pinta el propio drawer. */}
+        <SellCartDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          ariaLabel={t('cartDrawer.ariaLabel', { count: cartCount })}
+          title={t('cartTitle')}
+          countLabel={cartCount > 0 ? t('cartCount', { count: cartCount }) : null}
+          closeLabel={t('cartDrawer.close')}
+          returnFocusRef={fabRef}
+        >
+          {/* Requisitos de cuenta SIEMPRE visibles (aun con carrito vacío — §18.6: el
+              drawer vacío es útil): el usuario sabe QUÉ le falta antes de llenar todo
+              (sesión / correo / CLABE / INE). */}
+          <div>
+            <SellRequirementsPanel req={sellReq} />
+          </div>
 
               {cart.length === 0 ? (
                 <p className="mt-5 text-[13px] leading-[1.7] text-muted">{t('cartEmpty')}</p>
@@ -804,17 +823,21 @@ export function BuylistView() {
                               )}
                             </span>
                           </div>
-                          <p className="mt-1 font-mono text-[10px] text-muted">
-                            <span className="text-muted">{t('cartItemEstimate')}: </span>
+                          <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-[10px] text-muted">
+                            <span className="text-muted">{t('cartItemEstimate')}:</span>
                             {pending ? (
                               <span className="text-accent">{t('linePending')}</span>
                             ) : (
                               <span className="tabular">{formatMoneyCents(unitCents, locale)}</span>
                             )}
-                            {' · '}
-                            <span lang="en">{tFinish(l.finish)}</span>
-                            {' · ×'}
-                            <span className="tabular">{l.quantity}</span>
+                            <span aria-hidden>·</span>
+                            {/* P-14 (§18.5): FinishMark compartido (banda 3px + etiqueta mono)
+                                en vez del texto plano del acabado — mismo lenguaje que la teja. */}
+                            <FinishMark finish={l.finish} className="translate-y-[1px]" />
+                            <span aria-hidden>·</span>
+                            <span>
+                              ×<span className="tabular">{l.quantity}</span>
+                            </span>
                           </p>
                           <div className="mt-2 flex items-center gap-4">
                             <div className="flex items-center gap-2">
@@ -939,6 +962,9 @@ export function BuylistView() {
                         aria-describedby={sellReq.emailBlocked ? 'sell-blocked-reason' : undefined}
                         onClick={() => {
                           setCreatedId(null);
+                          // Un solo focus trap activo (§18.4b): abrir el modal de solicitud
+                          // cierra el drawer (el resumen del modal repite las líneas).
+                          setDrawerOpen(false);
                           setRequestOpen(true);
                         }}
                       >
@@ -960,9 +986,7 @@ export function BuylistView() {
                   </Button>
                 </>
               )}
-            </aside>
-          )}
-        </div>
+        </SellCartDrawer>
 
         {/* Política NM-only (PROJECT §E/H, AC 3d) + copy de confianza (EDITABLE): quién paga
             el envío, tiempos de verificación/pago SPEI y vigencia (ver FRONTEND_NOTES). */}
@@ -1135,6 +1159,11 @@ export function BuylistView() {
             )}
           </div>
         </section>
+
+        {/* FAB del carrito (§18.4a): fijo abajo-derecha, en el flujo de tabulación DESPUÉS
+            del contenido principal (§18.8, sin tabindex positivos). Siempre presente (vacío
+            da acceso a los requisitos de venta); el badge se omite con carrito vacío. */}
+        <SellCartFab ref={fabRef} count={cartCount} open={drawerOpen} onClick={() => setDrawerOpen(true)} />
       </div>
 
       <Modal open={guideOpen} onClose={() => setGuideOpen(false)} title={t('shippingGuideLink')}>
@@ -1157,11 +1186,16 @@ export function BuylistView() {
                       key={l.id}
                       className="flex items-baseline justify-between gap-3 border-b border-border py-2 text-sm"
                     >
-                      <span className="min-w-0 truncate text-text">
-                        <span lang="en">{l.card.name}</span>
-                        <span className="ml-2 font-mono text-[10px] text-muted">
-                          ×{l.quantity} · {tFinish(l.finish)}
+                      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-text">
+                        <span lang="en" className="min-w-0 truncate">
+                          {l.card.name}
                         </span>
+                        <span className="font-mono text-[10px] text-muted">
+                          ×{l.quantity}
+                        </span>
+                        {/* P-14 (§18.5): mismo FinishMark que en el carrito — la decisión de
+                            venta se confirma viendo la variante con el mismo lenguaje. */}
+                        <FinishMark finish={l.finish} className="translate-y-[1px]" />
                       </span>
                       <span className="tabular shrink-0">
                         {pending ? (

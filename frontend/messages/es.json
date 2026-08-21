@@ -600,8 +600,14 @@
     "rulePct": "{pct}% de referencia",
     "cartTitle": "Carrito de venta",
     "cartCount": "{count} carta(s)",
-    "cartShow": "Mostrar carrito ({count})",
-    "cartHide": "Ocultar carrito",
+    "cartFab": {
+      "ariaWithCount": "Carrito de venta, {count} carta(s)",
+      "ariaEmpty": "Carrito de venta, vacío"
+    },
+    "cartDrawer": {
+      "ariaLabel": "Carrito de venta ({count})",
+      "close": "Cerrar carrito"
+    },
     "lineDetailShow": "Detalle del estimado",
     "lineDetailHide": "Ocultar detalle",
     "cartEmpty": "Tu carrito está vacío. Elige una carta del catálogo para agregarla.",

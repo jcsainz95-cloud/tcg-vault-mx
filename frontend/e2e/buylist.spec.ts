@@ -9,6 +9,11 @@ import { loginAs, MONEY_RE } from './utils/auth';
  * acabado agrega DIRECTO al carrito (ya no existe el panel "COTIZACIÓN" ni botón
  * "Cotizar"). La transparencia vive en el detalle expandible de cada línea del carrito.
  * "Mis solicitudes" sin sesión muestra una invitación neutra, nunca error.
+ *
+ * Cotizador v2 (Stream C, P-16 — DESIGN_SYSTEM §18.4): el carrito YA NO es columna
+ * lateral; vive en un DRAWER flotante disparado por el FAB (`sell-cart-fab`). Agregar
+ * desde la grilla NO abre el drawer — los asserts sobre líneas/total/CTA de enviar deben
+ * abrirlo primero con `openCart(page)`.
  */
 
 /** Busca una carta por texto en la barra de filtros. */
@@ -23,6 +28,11 @@ async function addCard(page: Page, term: string, finish = 'Normal') {
   await page
     .getByRole('button', { name: t('es', 'buylist.addFinishAria', { name: term, finish }) })
     .click();
+}
+
+/** Abre el DRAWER del carrito con el FAB (P-16, §18.4): el carrito ya no es columna lateral. */
+async function openCart(page: Page) {
+  await page.getByTestId('sell-cart-fab').click();
 }
 
 /**
@@ -73,8 +83,10 @@ test.describe('buylist · grid protagonista (cotización directa al carrito)', (
     await page.goto('/es/buylist');
     await addCard(page, 'Charizard');
 
-    // La línea entra directo al carrito con su estimado y el total.
+    // La línea entra directo al carrito (anuncio en página); el drawer NO se abre solo —
+    // el contador del FAB sube y el carrito se revisa abriéndolo (P-16, §18.4a).
     await expect(page.getByText(t('es', 'buylist.addedLine', { name: 'Charizard', finish: 'Normal' }))).toBeVisible();
+    await openCart(page);
     await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
 
     // Transparencia: el detalle expandible trae valor de referencia + regla aplicada.
@@ -93,7 +105,8 @@ test.describe('buylist · grid protagonista (cotización directa al carrito)', (
       })
       .click();
 
-    // Dos líneas en el carrito (dos botones "Quitar").
+    // Dos líneas en el carrito (dos botones "Quitar") — dentro del drawer (P-16).
+    await openCart(page);
     await expect(page.getByRole('button', { name: t('es', 'buylist.removeLine') })).toHaveCount(2);
   });
 
@@ -106,6 +119,7 @@ test.describe('buylist · grid protagonista (cotización directa al carrito)', (
     await page.getByRole('button', { name: t('es', 'buylist.bulkAddCta', { count: 2 }) }).click();
 
     await expect(page.getByText(t('es', 'buylist.bulkAdded', { count: 2 }))).toBeVisible();
+    await openCart(page);
     await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
   });
 
@@ -114,6 +128,7 @@ test.describe('buylist · grid protagonista (cotización directa al carrito)', (
     await page.goto('/es/buylist');
     await addCard(page, 'Charizard');
     await addCard(page, 'Pikachu');
+    await openCart(page);
 
     await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
     await expect(page.getByText(t('es', 'buylist.estimateNote'))).toBeVisible();
@@ -136,7 +151,8 @@ test.describe('buylist · grid protagonista (cotización directa al carrito)', (
     await page
       .getByRole('button', { name: t('es', 'buylist.addFinishAria', { name: 'Zapdos', finish: 'Normal' }) })
       .click();
-    // El detalle expandible explica el pendiente (el monto final lo fija la plataforma).
+    // El detalle expandible (en el drawer) explica el pendiente (el monto lo fija la plataforma).
+    await openCart(page);
     await page.getByRole('button', { name: t('es', 'buylist.lineDetailShow') }).click();
     await expect(page.getByText(t('es', 'buylist.pricePendingNotice'))).toBeVisible();
   });
@@ -164,6 +180,46 @@ test.describe('buylist · grid protagonista (cotización directa al carrito)', (
   });
 });
 
+test.describe('buylist · cotizador v2: FAB + drawer del carrito (Stream C, P-14/P-16 — §18.11.3)', () => {
+  test('smoke: agregar desde la teja → badge del FAB sube → drawer con FinishMark → cerrar regresa el foco', async ({
+    page,
+  }) => {
+    await page.goto('/es/buylist');
+
+    // Binder quoter (raw, default): elegir Base Set desde su propio índice «Buscar set».
+    await page.getByLabel(t('es', 'masterSet.searchSet')).fill('Base');
+    await page.getByRole('button', { name: /Base Set/ }).first().click();
+
+    // Teja de la variante Reverse Holo: banda de acabado (P-14, §18.3) + botón Agregar
+    // propio (Playwright espera a que el batch de estimados lo habilite).
+    await page
+      .getByRole('button', { name: /^Agregar Charizard \(Reverse Holo\) a la venta/ })
+      .click();
+
+    // §18.4a: el contador del FAB sube (aria-label) SIN abrir el drawer.
+    const fab = page.getByTestId('sell-cart-fab');
+    await expect(fab).toHaveAttribute(
+      'aria-label',
+      t('es', 'buylist.cartFab.ariaWithCount', { count: 1 }),
+    );
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    // Abrir el drawer: la línea trae su FinishMark (banda reverse + etiqueta mono) y el total.
+    await openCart(page);
+    const drawer = page.getByRole('dialog', {
+      name: t('es', 'buylist.cartDrawer.ariaLabel', { count: 1 }),
+    });
+    await expect(drawer.getByTestId('finish-band')).toHaveAttribute('data-finish', 'reverse_holo');
+    await expect(drawer.getByText('Reverse', { exact: true })).toBeVisible();
+    await expect(drawer.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
+
+    // Cerrar (botón 44px): el diálogo desaparece y el foco REGRESA al FAB (§18.4b).
+    await drawer.getByRole('button', { name: t('es', 'buylist.cartDrawer.close') }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(fab).toBeFocused();
+  });
+});
+
 test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () => {
   test('el paso de solicitud muestra RESUMEN + CLABE + INE (anverso/reverso) con aviso de privacidad', async ({
     page,
@@ -174,7 +230,9 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     await page.goto('/es/buylist');
     // Charizard tiene referencia → su fila trae estimado y el clic la agrega al carrito.
     await addCard(page, 'Charizard');
-    // Enviar el carrito abre el resumen + KYC/CLABE una sola vez.
+    // Enviar desde el DRAWER del carrito (P-16) abre el resumen + KYC/CLABE una sola vez
+    // (abrir el modal cierra el drawer: un solo focus trap activo, §18.4b).
+    await openCart(page);
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
 
     const dialog = page.getByRole('dialog');
@@ -206,7 +264,8 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     // El clic en la fila de acabado agrega DIRECTO al carrito (auto-espera al estimado).
     await addFirstSellableCard(page);
 
-    // Estructura: el carrito suma un total ESTIMADO (no un monto exacto de fixture).
+    // Estructura: el carrito (drawer, P-16) suma un total ESTIMADO (no un monto de fixture).
+    await openCart(page);
     await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
 
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
