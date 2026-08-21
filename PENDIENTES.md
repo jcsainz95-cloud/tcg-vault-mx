@@ -322,8 +322,9 @@ Del lado del humano (cuando pueda):
 - **Pedido del humano (2026-08-21):** va a comprar el dominio (tcghunt.mx) y quiere rebrandear toda
   la página a ese nombre con el logo que compartió: una **mira/crosshair** en degradado rojo-vino
   sobre fondo claro, wordmark "TCG HUNT" + ".mx" en tipografía sans bold.
-- **Acciones del humano (nadie más puede):** comprar el dominio; pasar el archivo del logo en buena
-  resolución (idealmente SVG o PNG grande, y versión para fondo oscuro si existe).
+- **Acciones del humano (nadie más puede):** ✅ dominio COMPRADO (confirmado 2026-08-21). Pendiente
+  de su lado: subir el PNG original del logo al repo cuando arranque el stream, y conectar el
+  dominio en Vercel/DNS cuando devops se lo pida (requiere acceso a su cuenta del registrar).
 - **Logo recibido como referencia (2026-08-21):** el humano compartió la versión de alta resolución
   en el chat — mira/crosshair con degradado rojo (#b31217 aprox.) → vino oscuro (#4a0d0d aprox.),
   cruz que sobresale de dos anillos concéntricos, punto central anillado; wordmark "TCG HUNT" en
