@@ -4982,3 +4982,76 @@ orden creada en cada test (nada hardcodeado):
   con las `S3_*` de CI apuntando a `localhost:9000` el spec se salta solo, como está diseñado.
 - `npm test` (unit) → **137 suites / 1259 tests VERDE**. `npm run typecheck` limpio.
 - `npm run lint` → 0 errores (1 warning preexistente en `buylist.service.ts`, ajeno a este cambio).
+
+## Stream A v1.27 — P-13 variantes fantasma + P-15 mercado por variante + P-12 force en sync por set (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+Implementación backend de ARCHITECTURE §4.25 / API_CONTRACT Changelog v1.27. **SIN cambios de
+schema ni de `prisma/`** (M-27/M-29 ya existían). Paso de despliegue pendiente (devops/humano):
+re-sync forzado único (§4.25a-4) + `POKEMONPRICETRACKER_FETCH_PRINTINGS=true`.
+
+### P-13 — «el precio CONFIRMA, nunca AÑADE» (§4.25a)
+- **`common/card-order.ts`:** `unionAvailableFinishes(structural, snapshot)` ELIMINADA y sustituida
+  por `composeAvailableFinishes(structural)` = `structural ≠ ∅ ? orderFinishes(structural) : ['normal']`.
+  Nadie más la importaba (verificado con grep); los seeds no la usan.
+- **`catalog/finish-reconciler.service.ts`** (sigue siendo el ÚNICO escritor): usa la fórmula nueva.
+  `pricedFinishesSnapshot` se sigue LEYENDO pero solo para observabilidad: log **`pricedNotStructural`**
+  (= snapshot ∖ structural, pares `cardId:finish`, cap a 20 en el mensaje) — evidencia de drift
+  proveedor↔estructura, jamás compone.
+- **P-13.2 — filas forzadas de `fetchPrintings`:** `BulkPriceRow` gana `forcedPrinting?: boolean`
+  (`pricing.types.ts`). El provider PPT marca las filas del modo por-impresión con
+  `forcedPrinting: true` y `finishAliasVerified: false` (antes se auto-verificaba contra la propia
+  etiqueta del request). En `price-ingest`, las filas forzadas se EXCLUYEN del cómputo del snapshot;
+  si TODAS las filas de una carta son forzadas (corrida fetchPrintings pura), **su snapshot NO se
+  escribe** (ni se limpia: una corrida por-impresión no aporta ni retira evidencia del modo lista —
+  decisión dentro del margen de §4.25a-2, conserva el valor previo del modo lista como
+  observabilidad). El reconcile SÍ corre igual para esas cartas (idempotente; además repara
+  `availableFinishes` stale con la fórmula nueva en cada price-ingest, incluso antes del re-sync).
+  El modo LISTA (`primaryPrinting`) sigue alimentando el snapshot como hasta ahora.
+- **Nota para QA/devops (datos e2e):** el fixture `e2e-fixtures.ts › reverse` sigue sembrando
+  `availableFinishes=['normal','reverse_holo']` sostenido por snapshot (escenario v1.22). El seed
+  escribe `availableFinishes` explícito y ningún flujo e2e reconcilia esas cartas, así que la suite
+  sigue verde; si algún día un e2e dispara reconcile sobre ese fixture, hay que declararle
+  `structuralFinishes: ['normal','reverse_holo']`. No se tocó `prisma/` en este stream (§4.25d).
+
+### P-15 — mercado por VARIANTE en el Master Set (§4.25b)
+- **`inventory/master-set.service.ts`:** `MasterSetVariantDTO += marketReferenceMxnCents?: number|null`
+  y `capturedDate?: string|null` (presente SOLO con precio). El lote de `getReferencesBatch` se
+  expandió de (1 clave por carta, acabado base) a **(carta × acabado de `expectedFinishes`)** —
+  sigue UNA query (el batch ya aceptaba lista). `getReferencesBatch` YA devolvía `capturedDate` en
+  `PriceInfo` → **no hizo falta tocar `pricing.service.ts`**.
+- Campo de CELDA `MasterSetCardCellDTO.marketReferenceMxnCents`: DEPRECADO, emitido como espejo
+  exacto de `variants[0].marketReferenceMxnCents` (costo cero, mismo batch). Retiro en la siguiente
+  rev de contrato.
+- Aplica a los 3 scopes del binder (misma agregación); `resolveBuyables` (2ª llamada al batch, solo
+  vista cliente) queda intacto.
+
+### P-12 — `force` en `POST /admin/catalog/sync` (§4.25c)
+- **`admin-catalog.controller.ts`:** `SyncDto += force?: boolean` (default `false`); se registra
+  `force` en el detalle de auditoría de `catalog.sync`.
+- **`catalog-sync.service.ts`:** `sync(setId?, fromReleaseDate?, force=false)`. Modo single:
+  `importSetByExternalId` gana el MISMO gate `firstImport || force` que `importSet` (antes esta ruta
+  JAMÁS corría el resolver, ni siquiera en first-import — asimetría cerrada con paridad completa).
+  Modo from_date: propaga `force` a `importSet` (gate ya existente). El paso resolver se extrajo al
+  helper `runStructuralResolver(localSetId, externalId)` (best-effort: fallo TCGCSV ⇒ log warn,
+  conserva previo, NO aborta el import; no-op si el resolver `@Optional` no está cableado).
+
+### Tests (nuevos/actualizados)
+- `test/finish-reconciler.spec.ts` — reescrito a la fórmula §4.25a: ex holofoil con `normal`
+  priceado ⇒ UNA casilla (el fantasma stale se elimina); el precio ya no rescata; legacy vacío ⇒
+  `['normal']` aunque el snapshot traiga acabados; log `pricedNotStructural`; idempotencia.
+- `src/modules/pricing/providers/pokemonpricetracker-bulk.fix-ppt.spec.ts` — filas forzadas:
+  `finishAliasVerified=false` + `forcedPrinting=true`; modo lista sin `forcedPrinting`.
+- `test/price-ingest.service.spec.ts` — corrida forzada pura: precios sí / snapshot intacto /
+  reconcile sí; mezcla lista+forzada: snapshot SOLO con la evidencia del modo lista.
+- `test/master-set.market-reference.spec.ts` — reescrito: mercado por variante (Normal ≠ Reverse),
+  `capturedDate` solo con precio, espejo de celda = `variants[0]`, lote carta×acabado en UNA llamada.
+- `test/master-set.scopes.spec.ts` — 3 aserciones `variants` actualizadas (+`marketReferenceMxnCents: null`).
+- `test/catalog-sync.structural.spec.ts` — sigue verde SIN cambios en sus casos previos; describe
+  nuevo P-12: force corre resolver aunque no sea first-import; sin force no; first-import sí;
+  best-effort ante fallo TCGCSV.
+
+### Verificación real (local, replicando CI: Postgres 16 + Redis + migrate deploy + seed sintético + S3_* de CI)
+- `npm run typecheck` → limpio.
+- `npm run lint` → 0 errores (1 warning preexistente en `buylist.service.ts`, ajeno).
+- `npm test` (unit) → **137 suites / 1267 tests VERDE**.
+- `npm run test:integration` → **9 suites / 124 tests VERDE** (los 124 del gate backend-e2e intactos).
