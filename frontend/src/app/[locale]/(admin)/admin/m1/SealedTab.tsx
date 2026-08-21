@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft, Package } from 'lucide-react';
@@ -10,7 +10,11 @@ import {
   getAdminInventory,
   bulkPublishItems,
 } from '@/lib/api';
-import type { SealedInventoryGroupDTO, SealedSetSummaryDTO } from '@/types/contract';
+import type {
+  InventoryItemDTO,
+  SealedInventoryGroupDTO,
+  SealedSetSummaryDTO,
+} from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { useRole } from '@/lib/role';
@@ -179,35 +183,58 @@ function SealedSetDetail({
   });
 
   // Publicar por grupo = bulk-publish de sus folios in_stock (identidad recortada en cliente).
-  const publishKeyRef = { current: null as string | null };
+  // M-2 (fix): batchKey ESTABLE por sesión de publicación — useRef REAL (un objeto literal se
+  // recrea por render y la idempotencia prometida no existe). Solo se limpia al ÉXITO; el
+  // reintento tras error reusa la clave y el backend replayea idempotente.
+  const publishKeyRef = useRef<string | null>(null);
   const publishGroup = useMutation({
     mutationFn: async (group: SealedInventoryGroupDTO) => {
-      const items = await getAdminInventory({
-        cardId: group.cardId,
-        productType: 'sealed',
-        ownerType: 'platform',
-        pageSize: 100,
-      });
-      const ids = items.data
+      // M-2 (fix): pagina server-side hasta AGOTAR la carta (pageSize máx 100 del contrato).
+      // Antes se pedía UNA página de 100 y se publicaba el subconjunto reportándolo como el
+      // grupo completo — dinero deshonesto.
+      const all: InventoryItemDTO[] = [];
+      let page = 1;
+      for (;;) {
+        const res = await getAdminInventory({
+          cardId: group.cardId,
+          productType: 'sealed',
+          ownerType: 'platform',
+          page,
+          pageSize: 100,
+        });
+        all.push(...res.data);
+        if (res.data.length === 0 || all.length >= res.total) break;
+        page += 1;
+      }
+      const ids = all
         .filter(
           (i) =>
             i.status === 'in_stock' &&
             (i.sealedSubtype ?? null) === group.sealedSubtype &&
             (i.sealedCondition ?? 'mint') === group.sealedCondition,
         )
-        .map((i) => ({ inventoryItemId: i.id }));
+        .map((i) => i.id);
       if (ids.length === 0) return null;
       if (publishKeyRef.current === null) publishKeyRef.current = localUid('pubsealed');
-      return bulkPublishItems({ batchKey: publishKeyRef.current, items: ids });
+      // bulk-publish capea 200 líneas por request (contrato §M1): trozos con sufijo
+      // DETERMINISTA sobre la misma clave base para conservar la idempotencia por trozo.
+      let published = 0;
+      let failedLines = 0;
+      for (let i = 0; i < ids.length; i += 200) {
+        const res = await bulkPublishItems({
+          batchKey: `${publishKeyRef.current}-${i / 200}`,
+          items: ids.slice(i, i + 200).map((inventoryItemId) => ({ inventoryItemId })),
+        });
+        published += res.summary.published;
+        failedLines += res.summary.failedLines;
+      }
+      return { published, failedLines };
     },
     onSuccess: (res) => {
       publishKeyRef.current = null;
       if (res) {
         onToast?.(
-          t('publishGroupResult', {
-            published: res.summary.published,
-            failed: res.summary.failedLines,
-          }),
+          t('publishGroupResult', { published: res.published, failed: res.failedLines }),
         );
       } else {
         onToast?.(t('publishGroupNone'));
