@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { ChevronLeft, Crosshair } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import {
   getMasterSetBinder,
   getAdminVaultMasterSetBinder,
@@ -32,6 +32,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { FINISH_ORDER, displayFinishesOf, displayedVariants } from '@/lib/finish';
 import { FinishBand } from '@/components/domain/FinishMark';
+import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 import { VariantPricingCompact } from './VariantPriceConsole';
 import type { MasterSetViewMode } from './mode';
 
@@ -478,10 +479,11 @@ function BinderTile({
             {t('totalCount', { count: variant.count })}
           </span>
         )}
-        {/* Badge bounty (P-22, §16.7b): mono bermellón + mira decorativa. */}
+        {/* Badge bounty (P-22, §16.7b): mono en accent + glifo micro oficial de la
+            mira TCG HUNT (§17.1d, sustituye al crosshair de lucide). */}
         {bountyOn && (
           <span className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.06em] text-accent">
-            <Crosshair size={14} aria-hidden /> {t('bountyBadge')}
+            <HuntMarkMicro size={14} /> {t('bountyBadge')}
           </span>
         )}
       </span>

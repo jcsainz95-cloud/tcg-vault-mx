@@ -8,23 +8,20 @@ import { useSession } from '@/lib/session';
 import { useCart } from '@/lib/cart';
 import { logout as apiLogout } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 
-/** Marca: sello bermellón cuadrado + logotipo en mincho muy espaciado. */
-function Wordmark({ size = 'md' }: { size?: 'sm' | 'md' }) {
+/**
+ * Marca TCG HUNT en topbar (§17.3): solo-mira 28px + wordmark en `--font-brand` 700,
+ * TINTA SÓLIDA (a tamaño de UI el wordmark no lleva degradado; el ".mx" no va en
+ * topbar). El texto accesible lo porta el enlace contenedor (`brand.homeAria`).
+ */
+function Wordmark() {
   const tc = useTranslations('common');
   return (
     <span className="flex items-center gap-3">
-      <span
-        aria-hidden
-        className={cn('block shrink-0 bg-accent', size === 'md' ? 'h-[22px] w-[22px]' : 'h-[18px] w-[18px]')}
-      />
-      <span
-        className={cn(
-          'font-serif font-medium uppercase leading-none tracking-wordmark text-text',
-          size === 'md' ? 'text-lg' : 'text-[15px]',
-        )}
-      >
-        {tc('appName')}
+      <LogoTcgHunt variant="mark" size={28} decorative />
+      <span className="font-brand text-[19px] font-bold uppercase leading-none tracking-[0.04em] text-text">
+        {tc('brand.name')}
       </span>
     </span>
   );
@@ -42,6 +39,7 @@ function RuleMenuIcon({ open }: { open: boolean }) {
 
 export function StorefrontHeader() {
   const t = useTranslations('nav');
+  const tc = useTranslations('common');
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -78,10 +76,15 @@ export function StorefrontHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-bg">
       <div className="mx-auto flex max-w-7xl items-center gap-10 px-5 py-4 sm:px-6 lg:px-8 lg:py-[22px]">
-        <Link href="/" className="lg:hidden">
-          <Wordmark size="sm" />
+        {/* <lg: SOLO la mira 28px (§17.3), con área táctil de 44px. */}
+        <Link
+          href="/"
+          aria-label={tc('brand.homeAria')}
+          className="-ml-2 flex h-11 w-11 items-center justify-center lg:hidden"
+        >
+          <LogoTcgHunt variant="mark" size={28} decorative />
         </Link>
-        <Link href="/" className="hidden lg:block">
+        <Link href="/" aria-label={tc('brand.homeAria')} className="hidden lg:block">
           <Wordmark />
         </Link>
 

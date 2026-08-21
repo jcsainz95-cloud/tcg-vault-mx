@@ -47,10 +47,14 @@ function SkipLink() {
 function Footer() {
   const t = useTranslations('common');
   const tn = useTranslations('nav');
+  // Footer legal (§17.3): «TCG HUNT · tcghunt.mx · © 2026 [razón social]» en mono.
+  // El dominio va SIEMPRE en minúsculas (§17.4) — se exceptúa del uppercase del bloque.
+  // La razón social está abierta con el humano (P-21): placeholder `footer.legalEntity`.
   return (
     <div className="flex flex-col gap-3 font-mono text-[11px] uppercase tracking-label text-muted sm:flex-row sm:items-center sm:justify-between">
       <p>
-        {t('appName')} · {t('tagline')} · MXN
+        {t('brand.name')} · <span className="normal-case">{t('brand.domain')}</span> · © 2026{' '}
+        {t('footer.legalEntity')}
       </p>
       <Link href="/terminos" className="text-text hover:text-accent">
         {tn('terms')}

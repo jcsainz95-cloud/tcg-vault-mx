@@ -2,7 +2,6 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { Crosshair } from 'lucide-react';
 import { getPublicBounties } from '@/lib/api';
 import type { PublicBountyDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -10,6 +9,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { FinishBand } from '@/components/domain/FinishMark';
+import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 
 /**
  * «Top Bounties» — P-22 (DESIGN_SYSTEM §16.7c). Vitrina pública ARRIBA de /buylist, antes del
@@ -97,7 +97,8 @@ export function BountyCard({
         )}
         {/* Chip con scrim de tinta (§7.2b): texto papel sobre tinta (~15:1). */}
         <span className="absolute left-1 top-1 flex items-center gap-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--color-on-ink)]">
-          <Crosshair size={12} aria-hidden /> {t('badge')}
+          {/* Glifo micro oficial de la mira (§16.7b armonizado con §17.1d). */}
+          <HuntMarkMicro size={12} /> {t('badge')}
         </span>
       </div>
       <p lang="en" className="mt-2.5 line-clamp-2 font-serif text-[15px] leading-tight text-text">
