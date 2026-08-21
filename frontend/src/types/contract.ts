@@ -687,6 +687,8 @@ export interface InventoryItemDTO {
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
+  // v1.23-sealed-sales: condición del sellado (mint|minor_box_damage); solo productType='sealed'.
+  sealedCondition?: SealedCondition;
   // v1.6-finish: acabado de la copia física (M1). graded/sealed → "normal".
   finish?: Finish;
   gradingCompany?: GradingCompany;
@@ -825,6 +827,63 @@ export interface MasterSetVariantDTO {
   // v1.27 (P-15): fecha de captura (ISO) de la PriceReference de ESTA variante — decoración de
   // frescura; presente solo cuando marketReferenceMxnCents != null. El front tolera su ausencia.
   capturedDate?: string | null;
+  // v1.28 (P-18, ADITIVO): CONSOLA de precios de la variante (compra/venta: sugerido por regla,
+  // override vigente, efectivo resuelto + fuente; bounty P-22). Presente SOLO en scope `platform`
+  // (M1) — en `user_vault` y «Mi bóveda» se OMITE SIEMPRE (la estrategia de compra/bounty no se
+  // filtra al cliente). `null` en cifras = no resoluble (money-safe, nunca 0 inventado).
+  pricing?: VariantPricingDTO;
+}
+
+// ===== v1.28 Stream B (P-18/P-22): consola de tres precios por (carta, variante) =====
+// `suggestedCents` = lo que da la regla HOY (buylist/sales rules sobre la referencia del acabado);
+// `overrideCents` = override manual persistido (VariantPriceOverride, M-30); `effectiveCents` =
+// precio RESUELTO con la precedencia normativa (ARCHITECTURE §4.26b); `source` = qué peldaño ganó.
+export interface VariantPriceFaceDTO<TSource extends string> {
+  suggestedCents: number | null;
+  overrideCents: number | null;
+  effectiveCents: number | null;
+  source: TSource;
+}
+
+export type VariantBuySource = 'bounty' | 'override' | 'rule' | 'fallback' | 'pending';
+export type VariantSellSource = 'override' | 'rule' | 'fallback' | 'pending';
+
+// Estado del bounty (P-22) para la edición en consola. Viene solo si existe fila M-30.
+export interface VariantBountyDTO {
+  enabled: boolean;
+  priceCents: number | null;
+  targetQty: number | null;
+  acquiredQty: number;
+  completedAt: string | null;
+}
+
+export interface VariantPricingDTO {
+  buy: VariantPriceFaceDTO<VariantBuySource>;
+  sell: VariantPriceFaceDTO<VariantSellSource>;
+  bounty?: VariantBountyDTO | null;
+}
+
+// PUT /admin/pricing/variant-controls/:cardId/:finish (super_admin, auditado). Campos omitidos NO
+// se tocan; `null` explícito LIMPIA (quitar un override regresa la cara a su regla; `bounty:null`
+// o `enabled:false` apaga el bounty sin borrar el contador). Errores propios: 422
+// BOUNTY_PRICE_REQUIRED (enabled sin priceCents>0), 422 BOUNTY_BELOW_RULE (priceCents < sugerido
+// de compra cuando este resuelve), 422 FINISH_NOT_AVAILABLE, 422 VALIDATION_ERROR (sealed /
+// bounty en graded / centavos <= 0).
+export interface VariantControlsRequest {
+  productType?: 'raw' | 'graded';
+  gradeKey?: string;
+  sellOverrideCents?: number | null;
+  buyOverrideCents?: number | null;
+  bounty?: { enabled: boolean; priceCents?: number; targetQty?: number | null } | null;
+}
+
+export interface VariantControlsResponse {
+  cardId: string;
+  productType: 'raw' | 'graded';
+  gradeKey: string;
+  finish: Finish;
+  // Estado RESUELTO tras el write — mismo DTO que lee el binder.
+  pricing: VariantPricingDTO;
 }
 
 export interface MasterSetIndexResponse {
@@ -902,6 +961,123 @@ export interface MasterSetBinderResponse {
   owner?: VaultOwnerRefDTO;
 }
 
+// ===== v1.28 Stream B (P-19): POST /admin/inventory/publish-all =====
+// Publica TODO lo `in_stock` de plataforma (± setId/productType) con selección server-side (sin
+// cap) y pipeline por-pieza IDÉNTICO a bulk-publish (precio server-side SEC-A1, precedencia
+// listPrice > sellOverride > regla; sellado por H-1). Una pieza sin precio resoluble ESCALA a la
+// cola (context='inventory') y NO se publica; `listed` = no-op idempotente. Tolerante por-ítem.
+export interface PublishAllRequest {
+  batchKey?: string;
+  setId?: string;
+  productType?: ProductType;
+}
+
+export interface PublishAllFailureDTO {
+  inventoryItemId: string;
+  folio: string;
+  error: { code: string; message: string };
+  // Deep-link a la cola M2 cuando la línea escaló a pendiente de precio (opcional).
+  pendingPriceEntryId?: string;
+}
+
+export interface PublishAllResponse {
+  batchKey?: string;
+  idempotentReplay: boolean;
+  summary: {
+    selected: number;
+    published: number;
+    alreadyListed: number;
+    pendingPrice: number;
+    failed: number;
+  };
+  // CAPADO a 200 líneas — el remanente se opera por GET /admin/pricing/pending?context=inventory.
+  failures: PublishAllFailureDTO[];
+}
+
+// ===== v1.28 Stream B (P-25): pestaña «Sellado» POR SET =====
+// GET /admin/inventory/sealed-sets — índice: sets con ≥1 pieza sellada de plataforma.
+// `marketValueMxnCents` = Σ sealedMarketRef de piezas mapeadas (null si ninguna valuable — nunca
+// 0 inventado); las sin mercado cuentan en `unmappedCount`. `unmappedTotal` = global (badge cola).
+export interface SealedSetSummaryDTO {
+  set: SetRefDTO;
+  pieceCount: number;
+  listedCount: number;
+  unmappedCount: number;
+  marketValueMxnCents: number | null;
+}
+
+export interface SealedSetsResponse {
+  data: SealedSetSummaryDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+  unmappedTotal: number;
+}
+
+// GET /admin/inventory/sealed-sets/:setId — grupos del set (identidad §4.23:
+// cardId ancla + sealedSubtype + tcgplayerProductId + sealedCondition).
+export interface SealedInventoryGroupDTO {
+  cardId: string;
+  /** Card.name del ancla (nombre del producto). */
+  productName: string;
+  sealedSubtype: SealedSubtype | null;
+  sealedCondition: SealedCondition;
+  tcgplayerProductId: number | null;
+  mapped: boolean;
+  counts: { inStock: number; listed: number; other: number };
+  sealedMarketRef?: PriceInfo;
+  /** Costo agregado (solo lo pinta el front para super_admin). */
+  totalCostCents: number | null;
+}
+
+export interface SealedSetDetailResponse {
+  set: SetRefDTO;
+  groups: SealedInventoryGroupDTO[];
+}
+
+// ===== v1.28 Stream B (P-20): pestaña «Gradeadas» =====
+// GET /admin/inventory/graded — agregado por (cardId, gradingCompany, gradeValue).
+// `marketReferenceMxnCents` = PriceReference de (cardId,'graded','graded:<company>:<grade>',
+// 'normal'), típicamente MANUAL (override de mercado M2); `null` honesto si no hay.
+export interface GradedInventoryGroupDTO {
+  cardId: string;
+  card: { name: string; number: string; setName: string; imageSmallUrl?: string };
+  gradingCompany: GradingCompany;
+  gradeValue: string;
+  count: number;
+  marketReferenceMxnCents: number | null;
+  capturedDate?: string | null;
+  totalCostCents: number | null;
+}
+
+export interface GradedInventoryResponse {
+  data: GradedInventoryGroupDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+// ===== v1.28 Stream B (P-22): GET /buylist/bounties (público, read-only) =====
+// Bounties ACTIVOS orden bountyPriceCents desc, cap 50 (vitrina, sin paginación).
+// `remainingQty` = targetQty − acquiredQty (piso 0; null sin objetivo) — dato motivacional, no
+// compromiso contractual de compra (el flujo de venta sigue siendo el normal).
+export interface PublicBountyDTO {
+  cardId: string;
+  name: string;
+  number: string;
+  setName: string;
+  imageSmallUrl?: string;
+  rarity?: string;
+  finish: Finish;
+  bountyPriceCents: number;
+  targetQty: number | null;
+  remainingQty: number | null;
+}
+
+export interface PublicBountiesResponse {
+  data: PublicBountyDTO[];
+}
+
 // ===== v1.20: lista de clientes con bóveda (GET /admin/vaults, `vault_operator+`) =====
 // totalValueMxnCents usa la MISMA base de valuación del portafolio (§3): referencia vigente del
 // ACABADO de cada pieza; piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.
@@ -972,9 +1148,13 @@ export interface BatchInventoryItemInput {
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   certNumber?: string;
+  // v1.28 (P-19): `locationId` es OPCIONAL en el contrato (una pieza puede nacer sin ubicación).
   locationId?: string;
   acquisitionType: AcquisitionType;
   acquisitionPct?: number;
+  // v1.28 (P-19): costo capturado para acquisitionType="compra" — el campo del camino «Comprar»
+  // del alta rápida (prellenado con pricing.buy.effectiveCents, editable).
+  acquisitionCostCents?: number;
   listPriceCents?: number;
   qty?: number;
 }
@@ -1627,10 +1807,26 @@ export interface PnlDTO {
 }
 
 // GET /admin/finance/inventory-value → valor de inventario (a referencia y a costo) + pendientes.
+// v1.28 (P-24, ADITIVO): `breakdown { raw, sealed, graded }` con la MISMA base de valuación por
+// pieza; piezas sin precio se EXCLUYEN de atReferenceCents y cuentan en pendingPriceCount (nunca
+// 0 inventado). Los campos top-level NO cambian (= Σ del breakdown). Opcional en el TIPO por
+// resiliencia mientras el backend aterriza la extensión (las tarjetas por tipo se omiten sin él).
+export interface InventoryValueBucketDTO {
+  atReferenceCents: number;
+  atCostCents: number;
+  pieceCount: number;
+  pendingPriceCount: number;
+}
+
 export interface InventoryValueDTO {
   atReferenceCents: number;
   atCostCents: number;
   pendingPriceCount: number;
+  breakdown?: {
+    raw: InventoryValueBucketDTO;
+    sealed: InventoryValueBucketDTO;
+    graded: InventoryValueBucketDTO;
+  };
 }
 
 // GET /admin/finance/custody-value → valor en custodia de clientes.

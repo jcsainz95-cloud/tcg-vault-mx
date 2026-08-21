@@ -761,6 +761,23 @@ export const mockInventory: InventoryItemDTO[] = [
     listPriceCents: 320000,
     acquisitionType: 'compra',
   },
+  // v1.28 (P-25): pieza sellada SIN mapeo TCGCSV (sv06 ETB) → alimenta el badge "N SIN MAPEO",
+  // el `unmappedTotal` de la cola y el caso "SIN PRECIO DE MERCADO" del detalle por set.
+  {
+    id: 'inv-1009',
+    folio: 'INV-000109',
+    card: cardById('c-sealed-sv06-etb'),
+    productType: 'sealed',
+    sealedSubtype: 'etb',
+    sealedCondition: 'mint',
+    finish: 'normal',
+    status: 'in_stock',
+    ownerType: 'platform',
+    location: { id: 'loc-2', label: 'C03-F02-S16', zone: 'platform_stock' },
+    referenceValue: { status: 'pending' },
+    acquisitionType: 'compra',
+    acquisitionCostCents: 180000,
+  },
   {
     id: 'inv-1010',
     folio: 'INV-000110',
@@ -1055,6 +1072,7 @@ function variantsForCell(
   availableFinishes: Finish[],
   counts: MasterSetCellCountDTO[],
   includeBuyable: boolean,
+  includePricing = false,
 ): MasterSetVariantDTO[] {
   return FINISH_DISPLAY_ORDER.filter((f) => availableFinishes.includes(f)).map((finish) => {
     const count = counts.find((c) => c.finish === finish)?.count ?? 0;
@@ -1067,6 +1085,8 @@ function variantsForCell(
       marketReferenceMxnCents,
       // Contrato v1.27: capturedDate presente SOLO cuando hay precio (decoración de frescura).
       ...(marketReferenceMxnCents != null ? { capturedDate: '2026-08-13' } : {}),
+      // v1.28 (P-18): consola de precios SOLO en scope platform (jamás en bóvedas de cliente).
+      ...(includePricing ? { pricing: mockVariantPricing(cardId, finish) } : {}),
     };
     if (includeBuyable && !covered) variant.buyable = cheapestListedFor(cardId, finish);
     return variant;
@@ -1204,7 +1224,13 @@ export function mockMasterSetBinder(
   const cells: MasterSetCardCellDTO[] = [...catalogCells, ...promoCells]
     .sort((a, b) => compareNatural(a.number, b.number))
     .map((c) => {
-      const variants = variantsForCell(c.cardId, c.availableFinishes, c.countsByFinish, includeBuyable);
+      const variants = variantsForCell(
+        c.cardId,
+        c.availableFinishes,
+        c.countsByFinish,
+        includeBuyable,
+        scope.kind === 'platform',
+      );
       return {
         ...c,
         numberSort: numberSortKey(c.number),
@@ -1931,10 +1957,16 @@ export const mockPnl: PnlDTO = {
   profitCents: 1_250_000 + 52_500 - 640_000 - 48_300 - 31_800,
 };
 
+// v1.28 (P-24): breakdown por tipo — campos top-level = Σ del breakdown (invariante del contrato).
 export const mockInventoryValue: InventoryValueDTO = {
   atReferenceCents: 8_430_000,
   atCostCents: 5_901_000,
   pendingPriceCount: 3,
+  breakdown: {
+    raw: { atReferenceCents: 4_850_000, atCostCents: 3_395_000, pieceCount: 3, pendingPriceCount: 2 },
+    sealed: { atReferenceCents: 320_000, atCostCents: 256_000, pieceCount: 1, pendingPriceCount: 1 },
+    graded: { atReferenceCents: 3_260_000, atCostCents: 2_250_000, pieceCount: 1, pendingPriceCount: 0 },
+  },
 };
 
 export const mockCustodyValue: CustodyValueDTO = {
@@ -2115,6 +2147,450 @@ export function setMockSealedSpreads(
 ): void {
   mockSealedSpreads.spreadPctBySubtype = { ...spreadPctBySubtype };
   mockSealedSpreads.fallbackPct = fallbackPct;
+}
+
+// ============================================================================
+// v1.28 Stream B (P-17/P-18/P-19/P-20/P-22/P-24/P-25) — Inventario M1 operable.
+// MOCK: pendiente de backend real. Respeta los shapes del contrato v1.28:
+// VariantPricingDTO / VariantControls / PublishAll / SealedSets / GradedInventory / Bounties.
+// ============================================================================
+
+/** Fila mock de VariantPriceOverride (M-30), clave (cardId|productType|gradeKey|finish). */
+export interface MockVariantControlsRow {
+  sellOverrideCents: number | null;
+  buyOverrideCents: number | null;
+  bountyEnabled: boolean;
+  bountyPriceCents: number | null;
+  bountyTargetQty: number | null;
+  bountyAcquiredQty: number;
+  bountyCompletedAt: string | null;
+}
+
+export const variantControlsKey = (
+  cardId: string,
+  productType: 'raw' | 'graded',
+  gradeKey: string,
+  finish: Finish,
+) => `${cardId}|${productType}|${gradeKey}|${finish}`;
+
+/** Store en memoria de controles por variante. Seed: un bounty activo (vitrina Top Bounties). */
+export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>([
+  [
+    variantControlsKey('c-pikachu-ir', 'raw', 'raw:NM', 'holofoil'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: true,
+      bountyPriceCents: 250_000,
+      bountyTargetQty: 3,
+      bountyAcquiredQty: 1,
+      bountyCompletedAt: null,
+    },
+  ],
+  [
+    variantControlsKey('c-latias-sir', 'raw', 'raw:NM', 'holofoil'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: true,
+      bountyPriceCents: 480_000,
+      bountyTargetQty: null,
+      bountyAcquiredQty: 0,
+      bountyCompletedAt: null,
+    },
+  ],
+]);
+
+/** Sugerido de COMPRA por regla (buylist rules sobre la referencia del acabado). */
+function suggestedBuyFor(
+  cardId: string,
+  finish: Finish,
+): { cents: number | null; source: 'rule' | 'fallback' } {
+  const card = mockCards.find((c) => c.id === cardId);
+  if (!card) return { cents: null, source: 'fallback' };
+  const { rule, source } = resolveBuylistRuleForFinish(card.rarity || '', finish);
+  if (rule.mode === 'fixed') return { cents: rule.value, source };
+  const ref = mockMarketReferenceForVariant(cardId, finish);
+  return { cents: ref != null ? Math.round((ref * rule.value) / 100) : null, source };
+}
+
+/** Sugerido de VENTA por regla (sales rules: fixed=piso; pct=markup sobre mercado). */
+function suggestedSellFor(
+  cardId: string,
+  finish: Finish,
+): { cents: number | null; source: 'rule' | 'fallback' } {
+  const card = mockCards.find((c) => c.id === cardId);
+  if (!card) return { cents: null, source: 'fallback' };
+  const { rule, source } = resolveSalesRule(card.rarity || '');
+  const ref = mockMarketReferenceForVariant(cardId, finish);
+  if (rule.mode === 'fixed') return { cents: ref != null ? Math.max(ref, rule.value) : rule.value, source };
+  return { cents: ref != null ? Math.round(ref * (1 + rule.value / 100)) : null, source };
+}
+
+/**
+ * VariantPricingDTO resuelto con la precedencia normativa (ARCHITECTURE §4.26b):
+ * COMPRA bounty > override > regla > pending · VENTA override > regla > pending.
+ * `bounty` viene SOLO si existe fila de controles (paridad con el contrato).
+ */
+export function mockVariantPricing(
+  cardId: string,
+  finish: Finish,
+  productType: 'raw' | 'graded' = 'raw',
+  gradeKey = 'raw:NM',
+): import('@/types/contract').VariantPricingDTO {
+  const row = mockVariantControlsStore.get(variantControlsKey(cardId, productType, gradeKey, finish));
+  const buySuggested = suggestedBuyFor(cardId, finish);
+  const sellSuggested = suggestedSellFor(cardId, finish);
+
+  const buy: import('@/types/contract').VariantPricingDTO['buy'] = (() => {
+    if (row?.bountyEnabled && row.bountyPriceCents != null && row.bountyPriceCents > 0) {
+      return {
+        suggestedCents: buySuggested.cents,
+        overrideCents: row.buyOverrideCents,
+        effectiveCents: row.bountyPriceCents,
+        source: 'bounty' as const,
+      };
+    }
+    if (row?.buyOverrideCents != null) {
+      return {
+        suggestedCents: buySuggested.cents,
+        overrideCents: row.buyOverrideCents,
+        effectiveCents: row.buyOverrideCents,
+        source: 'override' as const,
+      };
+    }
+    return {
+      suggestedCents: buySuggested.cents,
+      overrideCents: null,
+      effectiveCents: buySuggested.cents,
+      source: buySuggested.cents != null ? buySuggested.source : ('pending' as const),
+    };
+  })();
+
+  const sell: import('@/types/contract').VariantPricingDTO['sell'] = (() => {
+    if (row?.sellOverrideCents != null) {
+      return {
+        suggestedCents: sellSuggested.cents,
+        overrideCents: row.sellOverrideCents,
+        effectiveCents: row.sellOverrideCents,
+        source: 'override' as const,
+      };
+    }
+    return {
+      suggestedCents: sellSuggested.cents,
+      overrideCents: null,
+      effectiveCents: sellSuggested.cents,
+      source: sellSuggested.cents != null ? sellSuggested.source : ('pending' as const),
+    };
+  })();
+
+  return {
+    buy,
+    sell,
+    ...(row
+      ? {
+          bounty: {
+            enabled: row.bountyEnabled,
+            priceCents: row.bountyPriceCents,
+            targetQty: row.bountyTargetQty,
+            acquiredQty: row.bountyAcquiredQty,
+            completedAt: row.bountyCompletedAt,
+          },
+        }
+      : {}),
+  };
+}
+
+/** Upsert mock de controles (PUT variant-controls) — las validaciones viven en lib/api.ts. */
+export function mockUpsertVariantControls(
+  cardId: string,
+  finish: Finish,
+  req: import('@/types/contract').VariantControlsRequest,
+): import('@/types/contract').VariantControlsResponse {
+  const productType = req.productType ?? 'raw';
+  const gradeKey = req.gradeKey ?? (productType === 'graded' ? 'graded:PSA:10' : 'raw:NM');
+  const key = variantControlsKey(cardId, productType, gradeKey, finish);
+  const row: MockVariantControlsRow = mockVariantControlsStore.get(key) ?? {
+    sellOverrideCents: null,
+    buyOverrideCents: null,
+    bountyEnabled: false,
+    bountyPriceCents: null,
+    bountyTargetQty: null,
+    bountyAcquiredQty: 0,
+    bountyCompletedAt: null,
+  };
+  // Campos omitidos NO se tocan; `null` explícito LIMPIA (contrato v1.28).
+  if ('sellOverrideCents' in req) row.sellOverrideCents = req.sellOverrideCents ?? null;
+  if ('buyOverrideCents' in req) row.buyOverrideCents = req.buyOverrideCents ?? null;
+  if ('bounty' in req) {
+    if (req.bounty === null) {
+      row.bountyEnabled = false; // apagar NO borra el contador.
+    } else if (req.bounty) {
+      row.bountyEnabled = req.bounty.enabled;
+      if (req.bounty.priceCents !== undefined) row.bountyPriceCents = req.bounty.priceCents;
+      if (req.bounty.targetQty !== undefined) row.bountyTargetQty = req.bounty.targetQty;
+    }
+  }
+  mockVariantControlsStore.set(key, row);
+  return { cardId, productType, gradeKey, finish, pricing: mockVariantPricing(cardId, finish, productType, gradeKey) };
+}
+
+/** Sugerido de compra por regla (expuesto para las validaciones BOUNTY_BELOW_RULE de lib/api.ts). */
+export function mockSuggestedBuyCents(cardId: string, finish: Finish): number | null {
+  return suggestedBuyFor(cardId, finish).cents;
+}
+
+/** GET /buylist/bounties — bounties ACTIVOS, orden precio desc, cap 50 (solo raw NM). */
+export function mockPublicBounties(): import('@/types/contract').PublicBountiesResponse {
+  const data: import('@/types/contract').PublicBountyDTO[] = [];
+  for (const [key, row] of mockVariantControlsStore) {
+    if (!row.bountyEnabled || row.bountyPriceCents == null || row.bountyPriceCents <= 0) continue;
+    const [cardId, productType, , finish] = key.split('|');
+    if (productType !== 'raw') continue;
+    const card = mockCards.find((c) => c.id === cardId);
+    if (!card) continue;
+    const remaining =
+      row.bountyTargetQty != null ? Math.max(0, row.bountyTargetQty - row.bountyAcquiredQty) : null;
+    data.push({
+      cardId: card.id,
+      name: card.name,
+      number: card.number,
+      setName: card.setName,
+      imageSmallUrl: card.imageSmallUrl,
+      rarity: card.rarity || undefined,
+      finish: finish as Finish,
+      bountyPriceCents: row.bountyPriceCents,
+      targetQty: row.bountyTargetQty,
+      remainingQty: remaining,
+    });
+  }
+  data.sort((a, b) => b.bountyPriceCents - a.bountyPriceCents);
+  return { data: data.slice(0, 50) };
+}
+
+// ---- P-19: publicar todo (POST /admin/inventory/publish-all) ----
+const publishAllStore = new Map<string, import('@/types/contract').PublishAllResponse>();
+
+export function mockPublishAll(
+  req: import('@/types/contract').PublishAllRequest,
+): import('@/types/contract').PublishAllResponse {
+  if (req.batchKey) {
+    const prior = publishAllStore.get(req.batchKey);
+    if (prior) return { ...prior, idempotentReplay: true };
+  }
+  // Selección server-side: platform + in_stock (± setId / productType).
+  const selectedItems = mockInventory.filter(
+    (i) =>
+      i.ownerType === 'platform' &&
+      i.status === 'in_stock' &&
+      (!req.setId || i.card.setId === req.setId) &&
+      (!req.productType || i.productType === req.productType),
+  );
+  const alreadyListed = mockInventory.filter(
+    (i) =>
+      i.ownerType === 'platform' &&
+      i.status === 'listed' &&
+      (!req.setId || i.card.setId === req.setId) &&
+      (!req.productType || i.productType === req.productType),
+  ).length;
+  let published = 0;
+  let pendingPrice = 0;
+  let failed = 0;
+  const failures: import('@/types/contract').PublishAllFailureDTO[] = [];
+  for (const item of selectedItems) {
+    // Pipeline por-pieza idéntico a bulk-publish (mock): resuelve precio o escala pendiente.
+    const res = mockBulkPublish({ items: [{ inventoryItemId: item.id }] }).results[0];
+    if (res.ok) {
+      published += 1;
+    } else if (res.error.code === 'PRICE_PENDING') {
+      pendingPrice += 1;
+      if (failures.length < 200) {
+        failures.push({
+          inventoryItemId: item.id,
+          folio: item.folio,
+          error: res.error,
+          pendingPriceEntryId: res.pendingPriceEntryId,
+        });
+      }
+    } else {
+      failed += 1;
+      if (failures.length < 200) {
+        failures.push({ inventoryItemId: item.id, folio: item.folio, error: res.error });
+      }
+    }
+  }
+  const out: import('@/types/contract').PublishAllResponse = {
+    batchKey: req.batchKey,
+    idempotentReplay: false,
+    summary: {
+      selected: selectedItems.length + alreadyListed,
+      published,
+      alreadyListed,
+      pendingPrice,
+      failed,
+    },
+    failures,
+  };
+  if (req.batchKey) publishAllStore.set(req.batchKey, out);
+  return out;
+}
+
+// ---- P-25: pestaña «Sellado» por set ----
+/** Piezas selladas de plataforma agrupadas por set (índice) y por identidad §4.23 (detalle). */
+function sealedPlatformPieces(): InventoryItemDTO[] {
+  return mockInventory.filter((i) => i.ownerType === 'platform' && i.productType === 'sealed');
+}
+
+/** Mapeo TCGCSV mock: cardId ancla → productId (null = no mapeado, cae a la cola). */
+const MOCK_SEALED_MAPPING: Record<string, number | null> = {
+  'c-sealed-sv08-box': 23966,
+  'c-sealed-sv06-etb': null,
+};
+
+export function mockSealedSets(params: {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}): import('@/types/contract').SealedSetsResponse {
+  const pageSize = params.pageSize ?? 20;
+  const page = params.page ?? 1;
+  const pieces = sealedPlatformPieces();
+  const bySet = new Map<string, InventoryItemDTO[]>();
+  for (const p of pieces) {
+    const arr = bySet.get(p.card.setId) ?? [];
+    arr.push(p);
+    bySet.set(p.card.setId, arr);
+  }
+  let data = [...bySet.entries()].map(([setId, items]) => {
+    const set = mockSets.find((s) => s.id === setId);
+    const mapped = items.filter((i) => MOCK_SEALED_MAPPING[i.card.id] != null);
+    const unmapped = items.length - mapped.length;
+    const marketValue = mapped.reduce(
+      (sum, i) => sum + (i.referenceValue?.referenceMxnCents ?? 0),
+      0,
+    );
+    return {
+      set: { id: setId, name: set?.name ?? setId, series: set?.series, releaseDate: set?.releaseDate },
+      pieceCount: items.length,
+      listedCount: items.filter((i) => i.status === 'listed').length,
+      unmappedCount: unmapped,
+      marketValueMxnCents: mapped.length > 0 ? marketValue : null,
+    };
+  });
+  if (params.q) {
+    const q = params.q.toLowerCase();
+    data = data.filter((s) => s.set.name.toLowerCase().includes(q));
+  }
+  const unmappedTotal = pieces.filter((i) => MOCK_SEALED_MAPPING[i.card.id] == null).length;
+  const total = data.length;
+  const start = (page - 1) * pageSize;
+  return { data: data.slice(start, start + pageSize), page, pageSize, total, unmappedTotal };
+}
+
+export function mockSealedSetDetail(setId: string): import('@/types/contract').SealedSetDetailResponse {
+  const set = mockSets.find((s) => s.id === setId);
+  if (!set) throw new ApiFixtureNotFound(`CardSet ${setId} not found`);
+  const pieces = sealedPlatformPieces().filter((i) => i.card.setId === setId);
+  // Identidad de grupo §4.23: (cardId ancla, sealedSubtype, tcgplayerProductId, sealedCondition).
+  const byGroup = new Map<string, InventoryItemDTO[]>();
+  for (const p of pieces) {
+    const key = `${p.card.id}|${p.sealedSubtype ?? ''}|${p.sealedCondition ?? 'mint'}`;
+    const arr = byGroup.get(key) ?? [];
+    arr.push(p);
+    byGroup.set(key, arr);
+  }
+  const groups = [...byGroup.values()].map((items) => {
+    const first = items[0];
+    const productId = MOCK_SEALED_MAPPING[first.card.id] ?? null;
+    const mapped = productId != null;
+    const costs = items
+      .map((i) => i.acquisitionCostCents)
+      .filter((c): c is number => c != null);
+    return {
+      cardId: first.card.id,
+      productName: first.card.name,
+      sealedSubtype: first.sealedSubtype ?? null,
+      sealedCondition: first.sealedCondition ?? ('mint' as const),
+      tcgplayerProductId: productId,
+      mapped,
+      counts: {
+        inStock: items.filter((i) => i.status === 'in_stock').length,
+        listed: items.filter((i) => i.status === 'listed').length,
+        other: items.filter((i) => i.status !== 'in_stock' && i.status !== 'listed').length,
+      },
+      ...(mapped && first.referenceValue ? { sealedMarketRef: first.referenceValue } : {}),
+      totalCostCents: costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null,
+    };
+  });
+  return {
+    set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate },
+    groups,
+  };
+}
+
+// ---- P-20: pestaña «Gradeadas» ----
+/** Valor de mercado por carta+grado (PriceReference graded, típicamente MANUAL vía override M2). */
+export const mockGradedMarketRefs = new Map<string, { cents: number; capturedDate: string }>([
+  ['c-charizard|PSA|9', { cents: 3_260_000, capturedDate: '2026-08-13' }],
+]);
+
+export function setMockGradedMarketRef(
+  cardId: string,
+  company: string,
+  grade: string,
+  cents: number,
+): void {
+  mockGradedMarketRefs.set(`${cardId}|${company}|${grade}`, {
+    cents,
+    capturedDate: new Date().toISOString().slice(0, 10),
+  });
+}
+
+export function mockGradedInventory(params: {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}): import('@/types/contract').GradedInventoryResponse {
+  const pageSize = params.pageSize ?? 20;
+  const page = params.page ?? 1;
+  const pieces = mockInventory.filter(
+    (i) => i.ownerType === 'platform' && i.productType === 'graded',
+  );
+  const byGroup = new Map<string, InventoryItemDTO[]>();
+  for (const p of pieces) {
+    const key = `${p.card.id}|${p.gradingCompany ?? ''}|${p.gradeValue ?? ''}`;
+    const arr = byGroup.get(key) ?? [];
+    arr.push(p);
+    byGroup.set(key, arr);
+  }
+  let data = [...byGroup.values()].map((items) => {
+    const first = items[0];
+    const refKey = `${first.card.id}|${first.gradingCompany}|${first.gradeValue}`;
+    const ref = mockGradedMarketRefs.get(refKey);
+    const costs = items.map((i) => i.acquisitionCostCents).filter((c): c is number => c != null);
+    return {
+      cardId: first.card.id,
+      card: {
+        name: first.card.name,
+        number: first.card.number,
+        setName: first.card.setName,
+        imageSmallUrl: first.card.imageSmallUrl,
+      },
+      gradingCompany: first.gradingCompany!,
+      gradeValue: first.gradeValue ?? '',
+      count: items.length,
+      marketReferenceMxnCents: ref?.cents ?? null,
+      ...(ref ? { capturedDate: ref.capturedDate } : {}),
+      totalCostCents: costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null,
+    };
+  });
+  if (params.q) {
+    const q = params.q.toLowerCase();
+    data = data.filter((g) => g.card.name.toLowerCase().includes(q));
+  }
+  const total = data.length;
+  const start = (page - 1) * pageSize;
+  return { data: data.slice(start, start + pageSize), page, pageSize, total };
 }
 
 /** Tendencia de valor de mercado de un producto sellado (misma forma que SetValueHistoryResponse). */
