@@ -44,8 +44,13 @@ export const GUEST_ORDER_RESERVATION_TTL_MIN = 60;
 /** Ventana de disputa de condición (PROJECT §H): 7 días desde la ENTREGA. */
 export const GUEST_DISPUTE_WINDOW_DAYS = 7;
 
-/** Canal de evidencia de disputa (criterio 56b). Mismo valor que expone §7 para clientes. */
-export const SUPPORT_EVIDENCE_CONTACT = 'soporte@tcgvaultmx.com';
+/**
+ * Canal de evidencia de disputa (criterio 56b). Mismo valor que expone §7 para clientes: lee la
+ * MISMA env `DISPUTE_EVIDENCE_CONTACT` que `disputes.constants.ts` (P-21: overridable sin
+ * redeploy; default = valor histórico hasta que devops cree el buzón @tcghunt.mx).
+ */
+export const SUPPORT_EVIDENCE_CONTACT =
+  process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvaultmx.com';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 

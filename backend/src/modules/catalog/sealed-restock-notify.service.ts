@@ -106,12 +106,13 @@ export class SealedRestockNotifyService {
   /** Correo bilingüe mínimo de reposición (recipiente puede ser invitado; sin locale de User). */
   private async sendRestockEmail(email: string, productName: string): Promise<void> {
     const subject = `¡Volvió a existencia! · Back in stock: ${productName}`;
+    // P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4).
     const text =
-      `El producto "${productName}" que seguías volvió a estar disponible en TCG Vault MX.\n` +
-      `The product "${productName}" you were watching is back in stock at TCG Vault MX.`;
+      `El producto "${productName}" que seguías volvió a estar disponible en TCG HUNT.\n` +
+      `The product "${productName}" you were watching is back in stock at TCG HUNT.`;
     const html =
-      `<p>El producto <strong>${productName}</strong> que seguías volvió a estar disponible en TCG Vault MX.</p>` +
-      `<p>The product <strong>${productName}</strong> you were watching is back in stock at TCG Vault MX.</p>`;
+      `<p>El producto <strong>${productName}</strong> que seguías volvió a estar disponible en TCG HUNT.</p>` +
+      `<p>The product <strong>${productName}</strong> you were watching is back in stock at TCG HUNT.</p>`;
     await this.mail.send({ to: email, subject, text, html });
   }
 }

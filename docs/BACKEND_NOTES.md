@@ -5393,3 +5393,54 @@ Correcciones del veredicto del techlead (RECHAZÓ acotado) + menores de QA sobre
   eliminado). `npm test` → **148 suites / 1387 tests VERDE** (+1: cherry-pick B-1).
 - `npm run test:integration` (setup §8, `S3_ENDPOINT=http://127.0.0.1:9000`) → **9 suites / 124
   tests VERDE**.
+
+## P-21 · Rebrand a TCG HUNT — lado servidor (rama `claude/backend-e2e-payment-fixtures-77mo4t`, 2026-08-21)
+
+> Fuente: `docs/DESIGN_SYSTEM.md` §17 (marca visible "TCG HUNT", con espacio; dominio `tcghunt.mx`
+> en prosa; **rutas técnicas / nombres de módulos / prefijo de folios `TCG-` NO cambian**, §17.4).
+
+### Qué cambió (solo strings visibles al usuario)
+- **`modules/mail/mail.templates.ts`** — `BRAND = 'TCG HUNT'` (header/footer y cuerpo de los
+  correos de verificación de email y reset de contraseña, ES/EN).
+- **`modules/orders/mail/guest-order.templates.ts`** — `BRAND = 'TCG HUNT'` (asuntos
+  `TCG HUNT — Confirmación de tu pedido …` / `— Enlace de seguimiento …` y layout). El copy
+  "tu bóveda"/"your vault" NO cambia: es el nombre de la función de custodia, no de la marca (§17.4).
+- **`modules/buylist/buylist-mail.templates.ts`** — `BRAND = 'TCG HUNT'` (correo de rechazo de ítem).
+- **`modules/catalog/sealed-restock-notify.service.ts`** — correo bilingüe de reposición de sellado:
+  "…disponible en TCG HUNT" / "…back in stock at TCG HUNT" (4 strings).
+
+### Correos de contacto/remitente → quedan en env (NO se cambió el valor efectivo)
+El buzón `@tcghunt.mx` todavía no existe y el dominio de Resend verificado sigue siendo el viejo,
+así que **ningún default de código cambió de valor**; solo se movieron a config los que estaban
+hardcodeados (mismo patrón que `disputes.constants.ts`):
+- `modules/orders/guest-checkout.constants.ts` → `SUPPORT_EVIDENCE_CONTACT` ahora lee
+  `process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvaultmx.com'` (misma env que disputes: el
+  propio comentario del código declara que exponen el mismo valor).
+- `modules/buylist/buylist-mail.templates.ts` → `SUPPORT_EMAIL` lee
+  `process.env.SUPPORT_EMAIL ?? process.env.DISPUTE_EVIDENCE_CONTACT ?? 'soporte@tcgvaultmx.com'`.
+- No hay URLs web absolutas del dominio viejo hardcodeadas en `src/` (los links de correo ya salen
+  de `APP_BASE_URL`); las apariciones restantes de `tcgvaultmx.com` son defaults de buzón (arriba)
+  y valores de fixture en tests (no asserts de marca).
+
+### Para **devops** (cuando existan dominio de correo + buzón; NO edité `.env.example`)
+- `MAIL_FROM="TCG HUNT <no-reply@tcghunt.mx>"` — remitente visible "TCG HUNT" (DESIGN_SYSTEM
+  §17.3). El default de código conserva `no-reply@tcgvaultmx.com` a propósito (buzón verificado
+  en Resend hoy). Requiere verificar `tcghunt.mx` en Resend antes de flipear.
+- `DISPUTE_EVIDENCE_CONTACT=soporte@tcghunt.mx` — flipea de golpe los TRES puntos de contacto
+  (disputes §7, guest checkout 56b y el correo de rechazo del buylist).
+- `SUPPORT_EMAIL` (opcional, nueva) — solo si algún día el contacto del buylist debe divergir del
+  de disputas; si no se fija, cae en cascada a `DISPUTE_EVIDENCE_CONTACT`.
+- `APP_BASE_URL` — ya existente (links de correos): apuntarla al dominio nuevo cuando el front
+  viva en `tcghunt.mx` (redirects `tcgvaultmx.com` → `tcghunt.mx` = alcance devops, P-21).
+
+### Qué NO se tocó (a propósito)
+Prefijo de folios `TCG-000123`; nombres técnicos (`tcg-vault-mx`, módulo `vault`, rol
+`vault_operator`, bucket `tcg-photos`, package `tcg-marketplace-backend`); lógica de dinero;
+tests (ninguno asserta la marca vieja; los que assertan `soporte@tcgvaultmx.com` siguen en verde
+porque el default no cambió).
+
+### Gates (local, Postgres 16 + Redis reales; sin MinIO en esta sesión → smoke S3 se salta con aviso)
+- `npm run typecheck` → limpio · `npm run lint` → 0 warnings.
+- `npm test` → **148 suites / 1387 tests VERDE**.
+- `npm run test:integration` (setup §8, `S3_ENDPOINT=http://127.0.0.1:9000`) → **9 suites /
+  124 tests VERDE**.

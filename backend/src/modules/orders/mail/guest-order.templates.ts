@@ -15,7 +15,9 @@ import { MailMessage } from '../../mail/mail.port';
 
 type Locale = 'es' | 'en';
 
-const BRAND = 'TCG Vault MX';
+// P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4). "Bóveda"/"vault" en el copy es
+// el nombre de la FUNCIÓN de custodia, no de la marca: no cambia.
+const BRAND = 'TCG HUNT';
 
 function normalizeLocale(locale?: string | null): Locale {
   return locale === 'en' ? 'en' : 'es';
