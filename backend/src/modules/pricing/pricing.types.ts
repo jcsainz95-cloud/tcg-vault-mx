@@ -526,7 +526,8 @@ export interface SealedBulkPriceProvider {
  * Motivo: el legacy `buildGradeKey → 'sealed'` colisionaría en el unique de PriceReference
  * cuando DOS productos sellados distintos (ETB y booster box del mismo set) están anclados a
  * la MISMA Card. `buildGradeKey` NO cambia: `'sealed'` sigue siendo el gradeKey del override
- * MANUAL del admin y del costo de aportación (flujos intactos).
+ * MANUAL del admin. (v1.28 §4.26g: el costo de APORTACIÓN de sellado dejó de valuar por el
+ * legacy 'sealed' — ahora rutea por esta clave de mercado vía el resolver H-1.)
  */
 export function sealedMarketGradeKey(tcgplayerProductId: number): string {
   return `sealed:tcg:${tcgplayerProductId}`;

@@ -26,8 +26,17 @@ import {
   InventoryAdjustmentRequestDto,
   MarkItemDto,
   MoveItemDto,
+  PublishAllRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
+import { Finish, ProductType } from '@prisma/client';
+
+/**
+ * v1.28 (P-17, §M1): valores válidos de los filtros aditivos de `GET /admin/inventory/items`.
+ * Un valor fuera del enum → 400 VALIDATION_ERROR (contrato); omitido = comportamiento actual.
+ */
+const FINISH_FILTER_VALUES: readonly string[] = Object.values(Finish);
+const PRODUCT_TYPE_FILTER_VALUES: readonly string[] = Object.values(ProductType);
 
 /**
  * M1 — Inventario y bóveda. vault_operator + super_admin. API_CONTRACT §M1.
@@ -105,6 +114,35 @@ export class InventoryController {
     return res;
   }
 
+  /**
+   * v1.28 (P-19, §4.26c) — POST /admin/inventory/publish-all: publicar TODO (o un filtro) de golpe.
+   * Selección server-side sin cap; tolerante por-ítem; idempotente por `batchKey`. AUDITADO
+   * (`inventory.publish_all` con filtros + resumen). Toca dinero (expone piezas a la venta) →
+   * gate de seguridad por release.
+   */
+  @Post('inventory/publish-all')
+  @HttpCode(200)
+  async publishAll(
+    @Body() dto: PublishAllRequestDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.inventory.publishAll(dto, user.id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'inventory.publish_all',
+      entityType: 'InventoryBatch',
+      entityId: dto.batchKey,
+      after: {
+        batchKey: dto.batchKey,
+        filters: { setId: dto.setId, productType: dto.productType },
+        idempotentReplay: res.idempotentReplay,
+        summary: res.summary,
+      },
+    });
+    return res;
+  }
+
   // ===== v1.20-master-set-everywhere (§4.20e) — ajuste por levantamiento físico =====
 
   /**
@@ -167,9 +205,26 @@ export class InventoryController {
     @Query('locationId') locationId?: string,
     @Query('zone') zone?: string,
     @Query('q') q?: string,
+    // v1.28 (P-17, §4.26d): filtros ADITIVOS del drill-down (`?cardId=&finish=&productType=`).
+    @Query('finish') finish?: string,
+    @Query('productType') productType?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
+    // Contrato §M1 v1.28: validados contra sus enums → 400 VALIDATION_ERROR si inválidos.
+    if (finish != null && !FINISH_FILTER_VALUES.includes(finish)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', `invalid finish '${finish}'`, {
+        finish,
+        allowed: FINISH_FILTER_VALUES,
+      });
+    }
+    if (productType != null && !PRODUCT_TYPE_FILTER_VALUES.includes(productType)) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `invalid productType '${productType}'`,
+        { productType, allowed: PRODUCT_TYPE_FILTER_VALUES },
+      );
+    }
     return this.inventory.listItems({
       status,
       cardId,
@@ -177,6 +232,8 @@ export class InventoryController {
       locationId,
       zone,
       q,
+      finish: finish as Finish | undefined,
+      productType: productType as ProductType | undefined,
       page: Math.max(1, parseInt(page, 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });

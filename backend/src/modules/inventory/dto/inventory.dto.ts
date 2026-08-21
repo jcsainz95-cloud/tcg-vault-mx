@@ -147,6 +147,21 @@ export class BulkPublishRequest {
   @IsOptional() @IsBoolean() repriceFresh?: boolean;
 }
 
+// ===== v1.28 (P-19, §4.26c) — publicar TODO (POST /admin/inventory/publish-all) =====
+
+/**
+ * PublishAllRequest (API_CONTRACT §M1 v1.28). Selección SERVER-SIDE (piezas `ownerType=platform` +
+ * `status=in_stock` ± filtros) — a diferencia de `bulk-publish` NO recibe lista de ids ni capa la
+ * selección (procesa por chunks). `productType` se valida contra el enum (400 VALIDATION_ERROR);
+ * `setId` = id LOCAL del CardSet (inexistente → 400, filtro inválido). `batchKey` = idempotencia
+ * vía `InventoryBatch` (`kind='publish_all'`; replay ⇒ resultado guardado + `idempotentReplay`).
+ */
+export class PublishAllRequestDto {
+  @IsOptional() @IsString() batchKey?: string;
+  @IsOptional() @IsString() setId?: string;
+  @IsOptional() @IsIn(['graded', 'sealed', 'raw']) productType?: ProductType;
+}
+
 // ===== v1.20-master-set-everywhere (§4.20e) — ajuste por levantamiento físico =====
 
 /**
