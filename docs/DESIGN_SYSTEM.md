@@ -91,6 +91,15 @@
 > (mismo componente, mismos tokens): banda de 3px en la teja del cotizador y marca banda+etiqueta en
 > cada línea del carrito y del resumen de envío. §18 es aditiva: **cero tokens nuevos**, cero elementos
 > gráficos nuevos (la banda ya existía) y **sin cambio de contrato** (los datos ya existen).
+>
+> **Ratificación v1.8.1 (2026-08-21, QA Stream C) → §18.4a, §18.6, §18.10.** Dos desviaciones
+> conscientes de la implementación se adoptan como spec: (1) **QA-C1** — el `aria-label` del FAB usa
+> el formato **`{count} carta(s)`** en lugar del plural natural ICU («3 cartas»), por consistencia
+> con la convención i18n del catálogo (sin ICU); exigir ICU habría implicado cambiar la convención
+> del proyecto por una cadena solo-aria — desproporcionado. (2) **QA-C2** — los **skeletons con la
+> retícula final** de §18.6 se generalizan a **todos los modos del binder** (quoter, inventario M1
+> §16 y bóvedas): retícula compartida, un solo código de carga, y el skeleton honesto es mejor
+> patrón que el spinner en cualquier modo. Sin cambios visuales nuevos ni tokens nuevos.
 
 ---
 
@@ -2765,8 +2774,13 @@ total, CTAs, «Vaciar») **sin cambios funcionales**; solo cambia el contenedor 
   visual `99+`. Con carrito vacío el badge **se omite** (el FAB permanece: da acceso al panel de
   requisitos de venta).
 - **Accesibilidad:** es un `<button>` con `aria-haspopup="dialog"`, `aria-expanded`, y `aria-label`
-  dinámico: `Carrito de venta, 3 cartas` / `Carrito de venta, vacío` (el badge numérico es
+  dinámico: `Carrito de venta, {count} carta(s)` / `Carrito de venta, vacío` (el badge numérico es
   `aria-hidden`; la cifra viaja en el label). Foco visible obligatorio (anillo `--color-focus-ring`).
+  > **Ratificado v1.8.1 (2026-08-21, QA-C1):** el formato es **`carta(s)`**, NO el plural natural
+  > ICU («3 cartas») que ejemplificaba v1.8. Motivo: el catálogo i18n del proyecto no usa plural
+  > ICU (el helper de E2E no lo resuelve y `cartCount` ya usa este estilo); exigir ICU solo para
+  > esta cadena —que además es aria, invisible en pantalla— sería desproporcionado. Un lector de
+  > pantalla lee «tres carta ese» o similar de forma perfectamente comprensible.
 - **Feedback al agregar:** SIN animación (una mira/pulso animado se confunde con carga, §17.3). El
   contador cambia y el renglón `role="status"` existente (`addedLine`: «Agregada: … · Reverse Holo»)
   anuncia a lectores de pantalla. Agregar desde la grilla **NO abre el drawer** (no interrumpe el
@@ -2812,7 +2826,7 @@ metadata:
 
 | Estado | Tratamiento |
 |---|---|
-| **Cargando grilla** | Skeletons con la MISMA retícula final (§18.2): tejas 5:7 (imagen + 2 líneas + botón), 8–10 piezas. Sin spinners de página. |
+| **Cargando grilla** | Skeletons con la MISMA retícula final (§18.2): tejas 5:7 (imagen + 2 líneas + botón), 8–10 piezas. Sin spinners de página. **Ratificado v1.8.1 (2026-08-21, QA-C2):** este skeleton aplica a **TODOS los modos del binder** (quoter, inventario M1 §16 y bóvedas), no solo al quoter: la retícula es compartida, el skeleton honesto con el layout final es mejor patrón que un spinner en cualquiera de los modos, y mantener un solo código de carga evita divergencias. Ningún modo del binder usa spinner de página. |
 | **Cargando estimados** (batch) | La teja se pinta completa con el precio en `…` muted y `Agregar` deshabilitado (como hoy); nunca bloquear la grilla entera por el batch. |
 | **Sin set elegido** (raw) | El índice de sets del binder (ya existente) ES el estado inicial — no hay estado vacío artificial. |
 | **Sin resultados** (búsqueda local o graded/sealed) | `EmptyState` (§8.1) con el copy existente. |
@@ -2876,12 +2890,13 @@ de graded/sealed (densidad §18.2). **Nada de esto toca contrato ni backend.**
 
 ### 18.10 i18n — claves nuevas (propiedad de frontend)
 
-- `buylist.cartFab.{ariaWithCount,ariaEmpty}` — «Carrito de venta, {count} cartas» / «…, vacío».
+- `buylist.cartFab.{ariaWithCount,ariaEmpty}` — «Carrito de venta, {count} carta(s)» / «…, vacío»
+  (formato `carta(s)` ratificado v1.8.1, ver §18.4a: convención del catálogo sin plural ICU).
 - `buylist.cartDrawer.{ariaLabel,close}`.
 - Se retiran del uso `buylist.cartHide` / `buylist.cartShow` (el toggle textual desaparece).
 - Todo lo demás (etiquetas `finish.*` de §16.10, `quoterPending`, `addedLine`, copys del carrito) se
-  reutiliza sin cambios. Recordatorio §9.4: `Carrito de venta, 3 cartas` en ES es la cadena larga del
-  `aria-label`; no trunca nada visible (es aria).
+  reutiliza sin cambios. Recordatorio §9.4: `Carrito de venta, {count} carta(s)` en ES es la cadena
+  larga del `aria-label`; no trunca nada visible (es aria).
 
 ### 18.11 Notas para otros roles (no bloquean el diseño)
 
