@@ -34,9 +34,8 @@ humano (ya dado únicamente para el PR #21).
    en el binder, celda deprecada como espejo), P-12 (force en sync por set + botón "Sync completo"
    en M2). Deuda registrada: SA-D1..D7 en TECH_DEBT.md (SA-D2 alta). Nit pendiente para el próximo
    toque de backend a catalog-sync: docblock de clase (~:29-31) aún dice "AUTORIDAD ÚNICA" (colgado
-   de SA-D1). **Llega a PRODUCCIÓN con el siguiente release** (gates de release: E2E completa +
-   fase de seguridad + "publica" del humano); tras ese deploy: re-sync forzado único en /admin/m2
-   y verificar POKEMONPRICETRACKER_FETCH_PRINTINGS=true en Railway.
+   de SA-D1). **✅ En PRODUCCIÓN desde el release v1.28 (2026-08-21)**; post-deploy: re-sync
+   forzado único en /admin/m2 (pendiente del humano; FETCH_PRINTINGS ya verificada en Railway).
 3. **Stream B · Inventario Master Set:** ✅ CERRADO (2026-08-21) con doble veredicto (QA aprobado;
    techlead aprobado tras una ronda: B-1 conteo bounty con rechazadas —bug de dinero cazado por el
    gate— + M-1/M-2/M-3 de frontend, todos corregidos con test). En `main`. Incluye: P-17 pestañas +
@@ -47,8 +46,9 @@ humano (ya dado únicamente para el PR #21).
    **Pendientes post-stream (no bloqueantes):** triage de los 13 E2E preexistentes ANTES de la
    suite E2E completa de release (frontend); `imageSmallUrl` en SealedInventoryGroupDTO (backend);
    vista frontend de la cola sealed/unmapped en M2 (frontend); nit docblock catalog-sync (SA-D1).
-4. **Stream C · UX cotizador:** P-14 (distintivo de variante) + P-16 (rediseño cotizador) — ux-ui
-   define, frontend implementa; comparte componente de teja con B, por eso va después.
+4. **Stream C · UX cotizador:** 🔄 EN CURSO (sesión de continuación, 2026-08-21). P-14 (distintivo
+   de variante) + P-16 (rediseño cotizador) — ux-ui define, frontend implementa; comparte componente
+   de teja con B (reusar FinishMark §16.6), por eso va después.
 5. **P-23 (meta decks):** la investigación puede correr en paralelo (solo lectura/web); la
    implementación espera definición del humano.
 6. **P-21 (rebrand TCG HUNT):** ✅ CERRADO (2026-08-21) con doble veredicto (QA y techlead
@@ -59,7 +59,19 @@ humano (ya dado únicamente para el PR #21).
    ejecuta el humano con el runbook, DESPUÉS del release a producción.** Pendiente del humano:
    razón social para `footer.legalEntity` (check pre-switch).
 
+**✅ RELEASE v1.28 EN PRODUCCIÓN (2026-08-21 20:49 UTC).** Promoción `main`→`production` (merge
+`5772dbd`) con los tres gates verdes en `production` (CI + SAST + E2E, runs 374/375) y los tres
+veredictos de release aprobados (QA E2E completa + pentester `69e760d` + seguridad `0e86af4`).
+Vercel desplegó (Ready) y Railway corrió la migración M-30 (VariantPriceOverride). Incluye Streams
+A + B + rebrand P-21. Hallazgos aceptados del release: R-1/R-2/R-3 (pentest, con dueño) y L1/L2
+(seguridad, rutados a frontend/backend) — no bloqueantes, registrados.
+
 Del lado del humano (cuando pueda):
+- **YA DESBLOQUEADO (post-deploy v1.28):** re-sync forzado único en `/admin/m2` de prod (botón
+  "Re-sincronizar todo (forzar)") — el fix P-13 ya está en producción y `FETCH_PRINTINGS=true`
+  verificada; correrlo UNA vez limpia variantes fantasma y da precio propio a las reverse.
+- **YA DESBLOQUEADO:** switch de dominio a tcghunt.mx con el runbook `DEVOPS_NOTES §25.6` (falta
+  de tu lado: razón social para `footer.legalEntity`).
 - ✅ HECHO (2026-08-21): `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` verificada en Railway por el
   humano — las reverse tendrán precio propio tras el deploy + re-sync.
 - Re-sync forzado en `/admin/m2` de prod — **esperar al fix de P-13** para hacerlo una sola vez.
