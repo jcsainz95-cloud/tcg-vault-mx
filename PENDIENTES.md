@@ -20,6 +20,23 @@ Decisiones del humano (vía preguntas de diagnóstico):
    publicado en tienda, el de compra fija la oferta del cotizador público. Precedencia:
    override manual > regla sugerida > sin precio (money-safe).
 
+**Orden de work streams (cierre 2026-08-21, "lanza los workstreams ordenados"):** esta sesión los
+corre EN SERIE (comparten zonas compartidas: contrato, `MasterSetBinder`, precios), cada uno con sus
+gates (qa + techlead) y merge a `main` al cerrar. Promoción a producción solo con "publica" del
+humano (ya dado únicamente para el PR #21).
+
+1. **Tarea #1** — fixtures `backend-e2e` → gates verdes → merge PR #21 a producción.
+2. **Stream A · Catálogo y precios:** P-13 (variantes fantasma) + P-15 (mercado por variante) +
+   P-12 (sync por set). Arquitecto primero.
+3. **Stream B · Inventario Master Set:** P-19 (alta simple + publicar todo) + P-18 (tres precios +
+   overrides) + P-17 (Piezas→drill-down) + P-24 (valor desglosado) + P-25 (pestaña sellado) +
+   P-20 (PSA) + P-22 (Top Bounties, tras P-18).
+4. **Stream C · UX cotizador:** P-14 (distintivo de variante) + P-16 (rediseño cotizador) — ux-ui
+   define, frontend implementa; comparte componente de teja con B, por eso va después.
+5. **P-23 (meta decks):** la investigación puede correr en paralelo (solo lectura/web); la
+   implementación espera definición del humano.
+6. **P-21 (rebrand TCG HUNT):** cuando el humano entregue dominio + logo.
+
 Del lado del humano (cuando pueda):
 - Verificar/encender en Railway `POKEMONPRICETRACKER_FETCH_PRINTINGS=true` (sin esto, las reverse
   no tendrán precio propio aunque P-15 esté arreglado).
