@@ -447,6 +447,8 @@ model Card {
   sellRequestItems SellRequestItem[]
   // v1.23-sealed-sales (M-28): suscripciones «avísame cuando vuelva» ancladas a esta carta.
   sealedRestockSubscriptions SealedRestockSubscription[]
+  // v1.28 (M-30, §4.26a): controles de precio por (carta, variante[, grado]) — consola P-18/P-22.
+  variantPriceOverrides VariantPriceOverride[]
 
   @@index([setId])
   @@index([name])
@@ -596,6 +598,36 @@ model InventoryBatch {
 }
 
 // ============================= PRICING / FX =============================
+
+// v1.28 (M-30, ARCHITECTURE §4.26a) — Controles de precio POR (carta, variante[, grado]): override
+// de VENTA (pisa el storefront para piezas sin `listPriceCents` manual), override de COMPRA (pisa
+// el cotizador público de buylist) y el bounty P-22 (precio premium explícito + objetivo opcional).
+// Es la TERCERA perilla de dinero, distinta de la referencia de MERCADO (`PriceReference
+// isManualOverride`, informativa) y del precio manual POR PIEZA (`InventoryItem.listPriceCents`,
+// que GANA para esa pieza). Precedencias normativas en §4.26b. Una fila VIGENTE por variante
+// (upsert; sin serie temporal — la auditoría del cambio va por AuditLog). La clave única espeja la
+// de PriceReference menos `capturedDate`. `sealed` NO usa esta tabla (§4.26g: su cadena H-1 sigue).
+model VariantPriceOverride {
+  id                String      @id @default(uuid())
+  cardId            String
+  card              Card        @relation(fields: [cardId], references: [id])
+  productType       ProductType @default(raw) // raw | graded (P-20). sealed NO usa esta tabla (§4.26g).
+  gradeKey          String      @default("raw:NM") // canónico de buildGradeKey: "raw:NM" | "graded:PSA:10" …
+  finish            Finish      @default(normal) // graded → normal (el acabado no aplica; paridad PriceReference)
+  sellOverrideCents Int? // precio de VENTA manual → PISA el storefront (§4.26b). null = sin override
+  buyOverrideCents  Int? // precio de COMPRA manual → PISA el cotizador público (§4.26b). null = sin override
+  bountyEnabled     Boolean     @default(false) // P-22
+  bountyPriceCents  Int? // requerido si bountyEnabled — SIEMPRE explícito, jamás calculado
+  bountyTargetQty   Int? // "necesito N"; null = sin objetivo (no se auto-apaga)
+  bountyAcquiredQty Int         @default(0) // piezas compradas vía buylist PAGADA bajo bounty (§4.26e)
+  bountyCompletedAt DateTime?
+  updatedBy         String? // actorUserId (patrón AuditLog, sin FK dura)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@unique([cardId, productType, gradeKey, finish])
+  @@index([bountyEnabled])
+}
 
 model PriceReference {
   id               String      @id @default(uuid())
