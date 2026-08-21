@@ -99,16 +99,25 @@ TARGET_URL=https://staging.tudominio.com ./security/scripts/dast-extra.sh ffuf
 
 ### Guardia anti-producción
 
-Los scripts DAST detectan si `TARGET_URL` parece producción y **abortan** salvo
-que exportes `ALLOW_PROD_DAST=1`, que solo debe usarse **dentro de la ventana de
-una prueba puntual autorizada por escrito** (procedimiento completo en
-`docs/DEVOPS_NOTES.md` › Runbook de seguridad).
+Los scripts DAST detectan si `TARGET_URL` apunta a producción y **abortan con
+exit 2** salvo que exportes `ALLOW_PROD_DAST=1`, que solo debe usarse **dentro
+de la ventana de una prueba puntual autorizada por escrito** (procedimiento
+completo en `docs/DEVOPS_NOTES.md` › Runbook de seguridad).
 
-Dominios que la guardia reconoce como **producción** (P-21, rebrand):
-`tcgvaultmx.com` (dominio viejo — sigue contando como prod mientras viva el
-redirect 301) y `tcghunt.mx` (dominio nuevo), además del placeholder histórico
-`tudominio.com`. Un `TARGET_URL` que contenga `staging` (p. ej.
-`staging.tcghunt.mx`) NO dispara la guardia.
+La guardia vive en **`security/scripts/_guard.sh`** (predicado único,
+`dast_prod_guard`, sourceado por los 4 scripts `dast-*.sh`; el source es
+obligatorio — si falta el archivo, el script aborta). Decide por **HOST**, no
+por substring de la URL (P-21 cierre: antes `https://tcghunt.mx/staging-x`
+bypaseaba la guardia por el "staging" del path; ya no):
+
+- **Producción** = el host es (o es subdominio de) `tcgvaultmx.com` (dominio
+  viejo — sigue contando como prod mientras viva el redirect 301), `tcghunt.mx`
+  (dominio nuevo) o el placeholder histórico `tudominio.com`.
+- **Exención de staging** = el **host** empieza con `staging.` (p. ej.
+  `staging.tcghunt.mx`). Un "staging" en el path, la query o el userinfo
+  NO exime.
+- Hosts ajenos a esos dominios (`localhost`, hosts de compose como `backend`,
+  previews) no disparan la guardia.
 
 ---
 

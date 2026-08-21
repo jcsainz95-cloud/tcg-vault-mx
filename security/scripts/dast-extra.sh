@@ -26,16 +26,11 @@ ROOT_DIR="$(cd "${SEC_DIR}/.." && pwd)"
 TOOL="${1:-help}"
 : "${TARGET_URL:?Define TARGET_URL}"
 
-# P-21 (rebrand): la guardia reconoce los dominios REALES de producción — el viejo
-# `tcgvaultmx.com` (sigue vivo mientras dure el redirect 301) y el nuevo `tcghunt.mx` —
-# además del placeholder histórico `tudominio.com`. Un subdominio `staging.` no la dispara.
-if [[ "${TARGET_URL}" == *"tudominio.com"* || "${TARGET_URL}" == *"tcgvaultmx.com"* || "${TARGET_URL}" == *"tcghunt.mx"* ]] \
-   && [[ "${TARGET_URL}" != *"staging"* ]]; then
-  if [[ "${ALLOW_PROD_DAST:-0}" != "1" ]]; then
-    echo "✗ Herramienta intrusiva contra lo que parece prod. Requiere autorización + ALLOW_PROD_DAST=1."
-    exit 2
-  fi
-fi
+# Guardia anti-producción compartida (P-21 cierre): decide por HOST, no por
+# substring de la URL — ver security/scripts/_guard.sh. Source obligatorio.
+# Estas herramientas son INTRUSIVAS: contra prod solo con ventana autorizada.
+source "${SCRIPT_DIR}/_guard.sh"
+dast_prod_guard "${TARGET_URL}"
 
 REPORT_DIR="${ROOT_DIR}/security/reports"
 mkdir -p "${REPORT_DIR}"
