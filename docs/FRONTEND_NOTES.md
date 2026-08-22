@@ -5299,8 +5299,8 @@ nombre + Cerrar sesión. P-28 (ocultar carrito de compra en /buylist) y `--app-h
   encargo). Opción menos invasiva elegida y documentada; si se quiere transferencia real, el
   dueño del módulo buylist puede aceptar un query param (p. ej. `?add=cardId:finish,…`).
 - Los links «filtrados» (`/catalog?setId=…`, `/catalog?productType=graded`) llevan el query
-  param, pero `CatalogView` HOY no inicializa filtros desde la URL: aterrizan en el catálogo sin
-  filtro. Seguimiento para el dueño del módulo catálogo (leer searchParams al montar).
+  param y `CatalogView` YA los inicializa desde la URL (`parseUrlFilters`, cerrado en este mismo
+  stream por el módulo catálogo): los deep-links del home aterrizan filtrados.
 - Tejas destacadas usan `CardImage` (aspecto 5:7) también para la teja grande (el artboard
   sugiere 4:5): el arte de las cartas es 5:7 nativo y recortarlo mentiría.
 - El eyebrow de gradeadas dice «PSA · CGC» (el artboard decía «PSA · BGS · CGC»; BGS no existe

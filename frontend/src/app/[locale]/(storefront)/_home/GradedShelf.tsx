@@ -14,9 +14,8 @@ import { Button } from '@/components/ui/Button';
  * «Cartas gradeadas» (makeover 1a §6): 4 tejas con chip de grado (empresa + valor) y
  * número de certificado REALES del listing. Vitrina: vacía ⇒ no se renderiza.
  *
- * El link «Ver todas las gradeadas» lleva ?productType=graded: /catalog aún no
- * inicializa filtros desde la URL (CatalogView, módulo catálogo) — queda documentado
- * en FRONTEND_NOTES como seguimiento para el dueño de ese módulo.
+ * El link «Ver todas las gradeadas» lleva ?productType=graded: CatalogView inicializa
+ * sus filtros desde la URL (parseUrlFilters), así que el deep-link aterriza filtrado.
  */
 export function GradedShelf() {
   const t = useTranslations('home');
