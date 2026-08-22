@@ -47,6 +47,97 @@
 `jest` **151 suites / 1415 tests verdes** (1414 previos + 1 nuevo). No se despliega (lo coordina el
 orquestador).
 
+## 0-quater. BUG M-33 — el índice único VIEJO de 5 campos de `PriceReference` sobrevivió a M-31 (fix en prod)
+
+> Rama `fix/variant-composition-regression`. Migración **correctiva** de 1 línea + cierre de brecha de
+> test. Money-safe (solo dropea un índice redundante e incompatible; ninguna fila se toca). Solo
+> `backend/`. **No modifica el contrato ni el schema** (el `@@unique` ya era el de 6 campos desde M-31).
+
+**Síntoma en prod (evidencia dura, log Railway, resolver TCGCSV en `me5`/Pitch Black):**
+```
+importSet: resolver estructural TCGCSV falló para me5 (
+Invalid `prisma.priceReference.upsert()` invocation:
+Unique constraint failed on the fields: (`cardId`,`productType`,`gradeKey`,`finish`,`capturedDate`)
+)
+```
+Consecuencia en cadena: el upsert de precio por variante reventaba → el resolver abortaba → **NO se creaba
+`CardProduct`** (el reconciler logueaba "N cartas sin CardProduct (legacy) conservaron su availableFinishes
+previo") → el `normal` fantasma persistía y no se encolaban precios. (No abortaba el import completo: el
+resolver es best-effort/money-safe.)
+
+**Causa raíz (confirmada por lectura de las migraciones):**
+- El `@@unique` de `PriceReference` cambió de **5 → 6 campos** en M-31 (añadió `cardProductId`, §4.27b):
+  `@@unique([cardId, productType, gradeKey, finish, capturedDate, cardProductId])` (schema `:707`).
+- El índice de 6 campos SÍ se creó bien en M-31 (`PriceReference_variant_capturedDate_key`, `NULLS NOT
+  DISTINCT`, migración M-31 líneas 86-88).
+- **PERO** M-31 intentó dropear el índice VIEJO de 5 campos con un **nombre MAL TRUNCADO**:
+  `DROP INDEX IF EXISTS "PriceReference_cardId_productType_gradeKey_finish_capturedDa_key";` (M-31 `:79`).
+  Ese nombre **no existe**. El índice REAL lo creó **M-18** (`20260816160000_m18_finish/migration.sql:25`)
+  con el nombre que Prisma trunca a 63 chars:
+  **`PriceReference_cardId_productType_gradeKey_finish_capturedD_key`** — `capturedD`, **no** `capturedDa`
+  (Prisma corta en `capturedD` para caber en 63; M-31 escribió `capturedDa`, 64 chars, que nunca fue el
+  nombre real). Al no coincidir, el `DROP INDEX IF EXISTS` fue un **no-op silencioso**: el viejo de 5
+  campos SOBREVIVIÓ y coexistió con el de 6.
+- El viejo de 5 campos bloquea a DOS `CardProduct` de la MISMA carta que comparten
+  `(cardId, productType, gradeKey, finish, capturedDate)` con distinto `cardProductId` — justo el caso
+  `set_base` + `deck_exclusive`, o dos variantes del mismo finish. El segundo `INSERT` del upsert chocaba.
+
+**El `where` del upsert YA era correcto** (no requirió cambio): `card-product-resolver.service.ts:158-183`
+usa la clave compuesta de **6 campos**
+`cardId_productType_gradeKey_finish_capturedDate_cardProductId`. El fallo era en el CREATE contra el
+constraint de BD viejo, no en la clave de la app.
+
+**Fix — migración correctiva `20260822140000_m33_drop_old_pricereference_unique/migration.sql`:**
+```sql
+DROP INDEX IF EXISTS "PriceReference_cardId_productType_gradeKey_finish_capturedD_key";
+```
+Idempotente (`IF EXISTS`). Deja SOLO la unicidad de 6 campos, que es estrictamente suficiente contra
+duplicados reales (para `cardProductId=NULL` el índice `NULLS NOT DISTINCT` se comporta como antes de M-31;
+para SINGLES el `cardProductId` es el ancla exacta). **Rollback** documentado en el encabezado de la
+migración: recrear el índice viejo REINTRODUCE el bug (es incompatible con el modelo N-productos-por-carta);
+solo revertir junto con un rollback total de M-31.
+
+**Otros `@@unique` que M-31/M-32 tocaron — revisados, SIN riesgo latente del mismo patrón:**
+- **`VariantPriceOverride`** (M-30, `@@unique([cardId, productType, gradeKey, finish])`): tabla **nueva**,
+  índice creado fresco; no había índice viejo que dropear. Sin riesgo.
+- **`SellRequestItem.cardProductId`** y **`PendingPriceEntry.cardProductId`** (M-32): son columnas nuevas
+  que entran a una clave **LÓGICA de dedupe a nivel de aplicación**, NO a un `@@unique` de BD (ninguna de
+  las dos tablas tiene un `@@unique` que incluya `cardProductId`; `PendingPriceEntry` solo tiene
+  `@@index([status])`, `SellRequestItem` no tiene `@@unique` de dedupe por producto). No cambió ningún
+  índice único de BD ⇒ sin riesgo. (El `unique_source_sell_request_item` es sobre
+  `InventoryItem.sourceSellRequestItemId`, no relacionado.)
+- Conclusión: **solo** `PriceReference` sufrió el "aditiva sin drop efectivo". La migración M-33 dropea ese
+  único índice; NO toca ningún constraint que no cambió.
+
+**Brecha de test cerrada (por qué los unitarios no lo cacharon):** los tests de
+`card-product-resolver.spec.ts` usan **Prisma MOCKEADO** — el mock nunca aplica constraints de BD, así que
+la colisión del índice era invisible. Dos frentes:
+- **(a) Unitario nuevo** en `backend/test/card-product-resolver.spec.ts` — «REGRESIÓN M-33: dos productos
+  de la MISMA carta con el MISMO finish ⇒ 2 upserts con la CLAVE de 6 campos (distinto cardProductId), sin
+  colisión lógica». Fija que el código usa la clave de 6 campos (`...capturedDate_cardProductId`) y NUNCA
+  la vieja de 5; blinda contra un futuro cambio del `where`.
+- **(b) Integración (Postgres REAL)** nuevo:
+  `backend/test/integration/price-reference-variant-unique.e2e-spec.ts` — inserta DOS `PriceReference` de
+  la misma carta con el MISMO 5-tuple y distinto `cardProductId` y verifica que AMBAS persisten (con el
+  índice viejo vivo, la segunda reventaría con P2002). Incluye idempotencia por la clave de 6 campos y el
+  `NULLS NOT DISTINCT` (vía SQL crudo, porque el cliente tipado de Prisma no permite apuntar
+  `cardProductId=NULL` en un compound-unique). **PENDIENTE CI:** este spec corre bajo
+  `npm run test:integration` (`test/integration/*.e2e-spec.ts`, requiere Postgres con `prisma migrate
+  deploy`), que **no** corre en el `jest` unitario. Debe cablearse/ejecutarse en el job E2E de CI para que
+  este tipo de regresión de constraint se cache automáticamente. Es la lección: **un cambio de `@@unique`
+  necesita un test de integración con Postgres real, no basta el mock.**
+
+**Nota de proceso (para el arquitecto/techlead):** el patrón "migración aditiva que NO dropea el índice
+viejo" es peligroso cuando el nombre del índice a dropear se escribe a mano y Prisma lo trunca a 63 chars.
+Recomendación: cuando una migración cambie un `@@unique`, generar el nombre a dropear con
+`prisma migrate diff` (o copiarlo verbatim de la migración que lo creó) en vez de teclearlo.
+
+**Gates (números reales, M-33):** `tsc --noEmit` OK · `eslint` OK · `nest build` OK ·
+`jest` **151 suites / 1416 tests verdes** (1415 previos + 1 nuevo unitario de regresión). El spec de
+integración con Postgres real (`price-reference-variant-unique.e2e-spec.ts`) NO corre en el `jest`
+unitario — pendiente de ejecutarse en el job E2E de CI (`npm run test:integration`). No se despliega (lo
+coordina el orquestador).
+
 ## 0-bis. v1.30-buylist-quote-por-producto — LÍNEA de buylist por `productId` (M-32)
 
 > Implementa ARCHITECTURE §4.29 y el Changelog v1.30 de API_CONTRACT. Rama
