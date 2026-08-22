@@ -74,20 +74,24 @@
 > Ver **§K** (nueva), §A, §C, §H, M1/M2/M5, "Fuentes de precio", criterios **2/3e/18** (actualizados) y
 > **57–64** (nuevos), y las **decisiones v1.6** al final. **Este bloque está cerrado y aprobado por el
 > humano**; solo quedan supuestos menores marcados `SUPUESTO (confirmar con PO)`.
-> **Requisito v1.7 — P-26 · SELLADO COMO PRODUCTO DE PRIMERA CLASE (2026-08-22, BORRADOR — pendiente de
-> aprobación del humano):** hoy el sellado es una **capa delgada sobre el modelo card-first** — un ítem
+> **Requisito v1.7.1 — P-26 · SELLADO COMO PRODUCTO DE PRIMERA CLASE (2026-08-22, DECISIONES RESUELTAS —
+> listo para arquitecto):** hoy el sellado es una **capa delgada sobre el modelo card-first** — un ítem
 > sellado se **ancla a una carta** (`cardId`) y su nombre visible es el **nombre de esa carta ancla**
 > (`SealedInventoryGroupDTO` del contrato). Eso produce fichas confusas ("[nombre de una carta] · ETB"),
 > subtipos incompletos (no existe **UPC**), precio de mercado dependiente de un **mapeo manual sin pantalla en
 > el admin** y una actualización de precios **atada al ingest lento de singles**. P-26 convierte el sellado en
-> **producto de primera clase**: **nombre e imagen propios**, **subtipos completos** (ETB, Booster Box, **UPC**,
-> Bundle, Tin, Blister + espacio para premium/special collection), **actualización de precios como carga
-> SEPARADA y corta** de las cartas sueltas (⭐ prioritario del humano), **alta/publicación sencillas** (espíritu
-> P-19) y **precio de mercado operable desde el admin** (no solo API). **NO reabre §K/v1.6** (solo venta,
-> precio derivado por spread, condición propia, destino, portafolio, flags): cambia la **identidad y el
-> catálogo** del sellado y la **mecánica de actualización de precios**, no el modelo de precio ni las reglas
-> comerciales. Ver **§L** (nueva) y las **Decisiones abiertas — P-26 (v1.7)** al final. **Este bloque es
-> BORRADOR con supuestos marcados y tiene decisiones abiertas pendientes de respuesta del humano.**
+> **producto de primera clase**, con estas decisiones ya tomadas por el humano (v1.7.1): (1) **catálogo de
+> sellado ingerido desde TCGCSV** — nombre, imagen, `tcgplayerProductId` y precio de mercado salen de TCGCSV;
+> el operador elige de esa lista (no captura manual de nombre/imagen); (2) el sellado vive en su **propio
+> catálogo/módulo de admin** (análogo al master set pero de productos sellados), no como pestaña colgada del
+> inventario de cartas; (3) **se empieza limpio** — no se migra el sellado viejo anclado a cartas (P-26 solo
+> cubre el alta nueva con el modelo nuevo); (4) **seis subtipos definitivos**: ETB, Booster Box, UPC, Bundle,
+> Tin, Blister; (5) ⭐ **actualización de precios de sellado como carga SEPARADA y corta** de las cartas
+> sueltas — job propio del sellado, disparable bajo demanda desde el admin. Además: **alta/publicación
+> sencillas** (espíritu P-19) y **precio de mercado operable desde el admin** (no solo API). **NO reabre
+> §K/v1.6** (solo venta, precio derivado por spread, condición propia, destino, portafolio, flags): cambia la
+> **identidad y el catálogo** del sellado y la **mecánica de actualización de precios**, no el modelo de precio
+> ni las reglas comerciales. Ver **§L** (nueva) y las **Decisiones resueltas — P-26 (v1.7.1)** al final.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -650,7 +654,7 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       del precio del ítem sellado) y (b) **"avísame cuando vuelva" (restock)** — aviso al cliente cuando un
       sellado agotado vuelve a haber en inventario. En el MVP **no están activas para el usuario final**.
 
-### L. P-26 · Sellado como producto de primera clase (transversal — NUEVO v1.7, BORRADOR)
+### L. P-26 · Sellado como producto de primera clase (transversal — NUEVO v1.7.1, DECISIONES RESUELTAS)
 > **Estado del problema (verificado en código, v1.28).** El sellado es hoy una **capa delgada sobre el modelo
 > card-first**: un ítem sellado se **ancla a una carta** (`cardId`) y su nombre visible (`productName`) es el
 > **nombre de esa carta ancla** (`SealedInventoryGroupDTO`, contrato). Consecuencias que el humano ya sufrió:
@@ -667,6 +671,16 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > corta** de las cartas sueltas, **alta y publicación sencillas** y **precio de mercado operable desde el
 > admin**.
 >
+> **Decisiones del humano ya tomadas (v1.7.1), definitivas para el arquitecto:** (1) **el catálogo de sellado
+> se ingiere desde TCGCSV** — nombre, imagen, `tcgplayerProductId` y precio de mercado salen de TCGCSV; el
+> operador **elige de esa lista** (no hay captura manual de nombre/imagen); (2) el sellado tiene su **propio
+> catálogo/módulo en el admin** (análogo al master set pero de productos sellados), **no** una pestaña colgada
+> del inventario de cartas; (3) **se empieza limpio**: **no** se migra el sellado viejo anclado a cartas (se
+> descarta o recaptura con el modelo nuevo); (4) **seis subtipos definitivos**: **ETB, Booster Box, UPC,
+> Bundle, Tin, Blister**; (5) ⭐ **la actualización de precios de sellado es un job propio y corto**, separado
+> del ingest de singles, disparable bajo demanda desde el admin. Ver «Decisiones resueltas — P-26 (v1.7.1)» al
+> final del documento.
+>
 > **Relación con §K (v1.6) — NO se reabre.** Siguen vigentes: sellado **solo venta** (sin buylist), **precio de
 > venta derivado por spread** (precedencia `override > mercado×spread por presentación > mercado×spread global >
 > PRICE_PENDING`), **condición propia** (Mint / "Detalle menor en caja", sin efecto en precio), **destino**
@@ -676,50 +690,54 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > reglas comerciales de §K.**
 >
 > **No** se diseña aquí schema, módulo ni proveedor (eso es del arquitecto); aquí se fija el requisito de
-> producto y se listan las **decisiones abiertas** que el humano debe resolver antes de arquitectura.
+> producto con las **decisiones del humano ya resueltas** (v1.7.1). El arquitecto materializa el módulo/catálogo
+> propio de sellado, el schema y el mapeo a TCGCSV.
 
 **Identidad propia del producto sellado**
 - [ ] **CA-P26-1** — Un producto sellado tiene **nombre propio** e **imagen propia**, **independientes de
-      cualquier carta**. En Compra, bóveda y back-office se muestra con **su** nombre (p. ej. "Surging Sparks
-      Elite Trainer Box") y **su** imagen de producto, **nunca** como "[nombre de una carta] · ETB".
-- [ ] **CA-P26-2** — El alta de un producto sellado **no requiere anclarlo a una carta** (`cardId`): el
-      operador lo identifica por su **producto real** (colección/edición + presentación), no eligiendo una
-      carta del set.
-- [ ] **CA-P26-3** — El sellado se identifica por su **edición/producto** (p. ej. "Surging Sparks") y su
-      **presentación/subtipo** (ETB, UPC, etc.). *(SUPUESTO: la identidad de negocio de un producto sellado es
-      la combinación edición + subtipo; la llave técnica la define el arquitecto. Confirmar si un mismo producto
-      puede tener variantes que hoy no distinguimos.)*
+      cualquier carta**, tomados del **catálogo ingerido desde TCGCSV** (nombre e imagen del producto sellado).
+      En Compra, bóveda y back-office se muestra con **su** nombre (p. ej. "Surging Sparks Elite Trainer Box") y
+      **su** imagen de producto, **nunca** como "[nombre de una carta] · ETB".
+- [ ] **CA-P26-2** — El alta de un producto sellado **no requiere anclarlo a una carta** (`cardId`) ni teclear
+      su nombre/imagen: el operador **elige el producto de la lista ingerida desde TCGCSV** (busca la edición +
+      presentación y lo selecciona). No hay captura manual de nombre ni de imagen.
+- [ ] **CA-P26-3** — La identidad del producto sellado proviene del **ítem de TCGCSV** (nombre, imagen y
+      `tcgplayerProductId`), que ya trae asociada su **edición/producto** (p. ej. "Surging Sparks") y su
+      **presentación/subtipo** (ETB, UPC, etc.). El sistema ingiere ese catálogo y el operador da de alta contra
+      él. *(La llave técnica y el modelo de datos los define el arquitecto.)*
 
 **Subtipos completos**
-- [ ] **CA-P26-4** — Los subtipos cubren **al menos**: **Booster Box**, **Elite Trainer Box (ETB)**, **Ultra
-      Premium Collection (UPC)**, **Booster Bundle**, **Tin** y **Blister**. Se **agrega UPC** (hoy inexistente)
-      y se **preserva** lo ya soportado (box/etb/bundle/tin/blister).
-- [ ] **CA-P26-5** — El modelo deja **espacio para "premium/special collection"** como subtipo(s) adicionales.
-      *(SUPUESTO: se añade un subtipo genérico "Special/Premium Collection"; el humano decide si quiere subtipos
-      separados —p. ej. "Premium Collection", "Special Collection", "Collection Box"— o uno solo que agrupe. Ver
-      decisiones abiertas.)*
-- [ ] **CA-P26-6** — Cada subtipo tiene un **spread de precio configurable** (coherente con §K). Los subtipos
-      nuevos (UPC, premium/special) reciben una **semilla de spread**; a falta de ella aplica el **spread global
-      de respaldo**. *(SUPUESTO: semilla propuesta UPC 20%, premium/special 25%; confirmar.)*
+- [ ] **CA-P26-4** — Los subtipos son **exactamente estos seis**: **Booster Box**, **Elite Trainer Box (ETB)**,
+      **Ultra Premium Collection (UPC)**, **Bundle** (Booster Bundle), **Tin** y **Blister**. Se **agrega UPC**
+      (hoy inexistente) y se **preserva** lo ya soportado (box/etb/bundle/tin/blister).
+- [ ] **CA-P26-5** — La lista de subtipos queda **cerrada en esos seis** para P-26. **Premium/Special
+      Collection** y **booster pack suelto** quedan **explícitamente fuera de alcance** de esta versión
+      (ampliables después sin bloquear P-26); el modelo no necesita contemplarlos ahora.
+- [ ] **CA-P26-6** — Cada subtipo tiene un **spread de precio configurable** (coherente con §K). El subtipo
+      nuevo **UPC** recibe una **semilla de spread** (**UPC 20%**, ajustable por el dueño en ConfigSetting); a
+      falta de spread por presentación aplica el **spread global de respaldo**. Los demás mantienen sus semillas
+      §K (box 18% / etb 22% / bundle 25% / tin 30% / blister 35% / global 25%).
 
 **Actualización de precios de sellado como carga SEPARADA (⭐ prioritario del humano)**
-- [ ] **CA-P26-7** — Refrescar los precios de mercado del sellado es un **proceso independiente** del
-      price-ingest de singles: correrlo **no** dispara el barrido de miles de cartas por set.
+- [ ] **CA-P26-7** — Refrescar los precios de mercado del sellado es un **job propio del sellado**,
+      **independiente** del price-ingest de singles: correrlo **no** dispara el barrido de miles de cartas por
+      set. El precio de mercado del sellado proviene de **TCGCSV** (misma fuente que el catálogo ingerido, §K).
 - [ ] **CA-P26-8** — El job de precios de sellado abarca **solo los productos sellados** (decenas de productos,
-      no miles de cartas) y completa **mucho más rápido** que el ingest de singles. *(SUPUESTO: "corto" = del
-      orden de segundos a lo sumo pocos minutos para el universo de sellado del MVP; el arquitecto fija el
-      objetivo técnico. Confirmar que es aceptable.)*
+      no miles de cartas) y completa **mucho más rápido** que el ingest de singles. *(El arquitecto fija el
+      objetivo técnico de tiempo; para el universo de sellado del MVP se espera del orden de segundos a pocos
+      minutos.)*
 - [ ] **CA-P26-9** — El operador puede **disparar el refresco de precios de sellado bajo demanda** desde el
-      admin (botón/acción), sin correr el ingest de singles y sin esperar la ventana diaria.
+      admin (botón/acción), sin correr el ingest de singles y sin esperar la ventana diaria. La **corrida
+      programada propia del sellado** (p. ej. diaria) queda como **mejora futura**, no requerida en P-26.
 - [ ] **CA-P26-10** — El resultado del refresco es visible: por cada producto sellado se ve su **precio de
       mercado actualizado** y **cuándo** se actualizó; los que no obtuvieron precio quedan marcados
       (**PRICE_PENDING**, coherente con §K) y **no se publican**.
 
 **Alta y publicación sencillas (hereda el espíritu de P-19)**
-- [ ] **CA-P26-11** — El alta rápida de sellado registra existencias con su **origen**. *(SUPUESTO: el sellado
-      se da de alta como inventario propio del negocio, con origen `owner_contribution` o una compra de
-      aprovisionamiento; **nunca** `client_purchase`, porque no hay buylist de sellado (§K). Confirmar el/los
-      orígenes válidos y cómo se calcula el costo del sellado.)*
+- [ ] **CA-P26-11** — El alta rápida de sellado registra existencias con su **origen**, que es **aportación del
+      dueño** (`owner_contribution`) o una **compra de aprovisionamiento**; **nunca** `client_purchase` (no hay
+      buylist de sellado, §K). *(La base de costo por origen para P&L/M7 la afina el humano/arquitecto; default:
+      aportación = referencia × % vigente, aprovisionamiento = costo real capturado.)*
 - [ ] **CA-P26-12** — Existe un **"publicar todo" (publish-all)** para sellado: los productos con **precio
       resuelto** (override o spread) se publican en Compra en una acción, replicando la conveniencia del
       publish-all de P-19; los que quedan en PRICE_PENDING **no** se publican.
@@ -729,9 +747,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 **Precio de mercado del sellado operable desde el admin (no solo API)**
 - [ ] **CA-P26-14** — El operador puede **obtener/actualizar el precio de mercado de un producto sellado desde
       la UI del admin** (pantalla en M1/M2), **sin usar la API** directamente.
-- [ ] **CA-P26-15** — El **mapeo del producto sellado a su fuente de precio de mercado** (hoy
-      `tcgplayerProductId` → TCGCSV) tiene **pantalla en el admin**: el operador puede **buscar, asignar,
-      corregir y ver** el mapeo desde la UI. Hoy ese mapeo solo existe por API; P-26 exige exponerlo en pantalla.
+- [ ] **CA-P26-15** — Como el catálogo se **ingiere desde TCGCSV**, el **mapeo a la fuente de precio**
+      (`tcgplayerProductId` → TCGCSV) queda **resuelto de origen** al seleccionar el producto (no se teclea a
+      mano). Aun así, ese mapeo tiene **pantalla en el admin** para **ver y corregir** el vínculo desde la UI si
+      hiciera falta. Hoy ese mapeo solo existe por API; P-26 exige exponerlo en pantalla.
 - [ ] **CA-P26-16** — Un producto sellado **sin mapeo ni override** queda en **PRICE_PENDING** y **no se
       publica**; el admin ve claramente **cuáles** están sin mapear para atenderlos (coherente con el
       `unmappedTotal` ya existente).
@@ -740,15 +759,20 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 
 **Fuera de alcance de P-26 (explícito)**
 - **No** se reabren las decisiones comerciales de §K/v1.6 (solo venta, precio derivado por spread, condición
-  propia, destino, portafolio, flags de tendencia/restock). P-26 es **identidad + catálogo + carga de precios +
-  UI de admin**.
+  propia, destino, portafolio, flags de tendencia/restock). P-26 es **identidad + catálogo (ingerido de TCGCSV)
+  + carga de precios separada + UI de admin**.
 - **No** se introduce **buylist de sellado** (sigue fuera; §K).
-- **No** se suben **fotos propias del ejemplar físico**: la "imagen propia" es la **imagen del producto** (de
-  catálogo/fuente de sellado), no una foto de la caja concreta, coherente con "sin fotos propias" (§H).
-  *(SUPUESTO: la imagen propia del sellado proviene del catálogo/fuente de sellado, no de subida manual de
-  archivos; permitir subir una imagen propia reabriría el alcance de object storage — ver decisiones abiertas.)*
-- **No** se decide aquí el **stack, el schema ni si el sellado se separa en módulo/catálogo propio**: es una
-  **decisión abierta** que el arquitecto resuelve tras la respuesta del humano (ver abajo).
+- **No** entran los subtipos **Premium/Special Collection** ni **booster pack suelto**: quedan fuera de esta
+  versión, ampliables después sin bloquear P-26 (ver CA-P26-5).
+- **No** se **suben imágenes propias** del producto sellado: la imagen viene del **catálogo ingerido desde
+  TCGCSV** (decisión del humano). No se reabre object storage/subida de archivos para producto (hoy acotado solo
+  al INE del buylist; §H).
+- **No** se **migra el sellado viejo** anclado a cartas: se **empieza limpio** (el sellado viejo se descarta o
+  se recaptura con el modelo nuevo). P-26 cubre **solo el alta nueva** con el modelo de primera clase; no hay
+  re-presentación automática de lo viejo.
+- **No** se decide aquí el **stack ni el schema**: eso es del arquitecto. La ubicación **sí** está decidida por
+  el humano (el sellado tiene su **propio catálogo/módulo de admin**, no una pestaña del inventario de cartas);
+  el arquitecto materializa cómo se implementa.
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
@@ -789,6 +813,14 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   **cableados pero apagados** en el MVP (feature-flag off); encenderlos para el usuario final es posterior.
 - **Fuente de mercado del sellado distinta de TCGCSV** *(v1.6)*: en el MVP la base del precio del sellado es
   **TCGCSV**; PriceCharting u otras fuentes son opción futura, no MVP.
+- **Subtipos de sellado Premium/Special Collection y booster pack suelto** *(v1.7.1, P-26)*: fuera de esta
+  versión; los seis subtipos de MVP son ETB, Booster Box, UPC, Bundle, Tin, Blister. Ampliables después.
+- **Captura manual de nombre/imagen y subida de imágenes propias de sellado** *(v1.7.1, P-26)*: el catálogo de
+  sellado se **ingiere desde TCGCSV** (nombre + imagen); no hay captura manual ni subida de archivos de producto.
+- **Migración del sellado viejo anclado a cartas** *(v1.7.1, P-26)*: se **empieza limpio**; el sellado viejo se
+  descarta o recaptura con el modelo nuevo. P-26 solo cubre el alta nueva.
+- **Corrida programada propia del refresco de precios de sellado** *(v1.7.1, P-26)*: en el MVP el refresco es
+  **bajo demanda** desde el admin; la corrida programada separada del sellado es mejora futura.
 
 ## Restricciones y preferencias técnicas
 > Registradas como datos/preferencias del humano; el stack y la arquitectura los decide el arquitecto.
@@ -1387,42 +1419,35 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 8. **Idioma del correo de seguimiento**: se asume que el correo sale en el **idioma que el invitado tenía
    activo** en la interfaz al comprar (ES por default). ¿De acuerdo?
 
-## Decisiones abiertas — sellado como producto de primera clase (P-26, v1.7)
-> §L está redactada como **BORRADOR** con supuestos razonables para no bloquear. Antes de pasar al arquitecto,
-> el humano debe resolver los siguientes puntos (los tres primeros son los que más condicionan el diseño).
-1. **Origen del catálogo de sellado (nombre + imagen propios) — la más importante**: ¿de dónde salen el
-   **nombre y la imagen propios** de cada producto sellado? Opciones: (a) **ingestar un catálogo de sellado
-   desde TCGCSV** (que ya es la fuente del precio de mercado del sellado, §K) y usar de ahí nombre e imagen —
-   automatiza el alta pero depende de la cobertura/calidad de TCGCSV; (b) **captura manual del operador**
-   (nombre + URL de imagen) al dar de alta — más control, más trabajo manual; (c) **híbrido**: ingesta desde
-   TCGCSV con posibilidad de override manual. ¿Cuál prefieres?
-2. **¿El sellado sigue viviendo en el inventario/M1, o merece su propio catálogo/módulo?** Hoy vive como capa
-   sobre el inventario card-first. ¿Quieres que el sellado tenga su **propio catálogo de productos** (como las
-   cartas tienen el suyo) separado del inventario, o que siga siendo parte de M1 (inventario) con identidad
-   propia? *(Esto lo decide finalmente el arquitecto, pero tu preferencia de producto orienta el diseño.)*
-3. **Migración de los sellados ya cargados (anclados a cartas)**: hoy existen ítems sellados anclados a un
-   `cardId`. ¿Qué hacemos con ellos? Opciones: (a) **migrarlos** a productos sellados de primera clase
-   (mapeando su carta-ancla + subtipo a un producto propio, con revisión manual de nombre/imagen); (b) **dar de
-   baja y recapturar** desde cero; (c) **coexistencia temporal** (los viejos siguen anclados hasta agotarse,
-   los nuevos son de primera clase). ¿Cuál prefieres? ¿Cuántos ítems sellados hay hoy (para dimensionar la
-   migración)?
-4. **Subtipos definitivos y granularidad de "premium/special collection"**: ¿la lista final es exactamente
-   Booster Box, ETB, UPC, Booster Bundle, Tin, Blister + un genérico "Special/Premium Collection", o quieres
-   subtipos separados (Premium Collection, Special Collection, Collection Box, mini-tin, etc.)? Dilo y los
-   fijamos.
-5. **Semillas de spread para los subtipos nuevos**: para UPC y premium/special, ¿qué **spread** quieres de
-   semilla? (Supuesto actual: UPC 20%, premium/special 25%; el resto quedan como §K: box 18% / etb 22% / bundle
-   25% / tin 30% / blister 35% / global 25%.)
-6. **Disparo y cadencia del refresco de precios de sellado**: además del **botón bajo demanda** (CA-P26-9),
-   ¿quieres que el sellado tenga su **propia corrida programada** (p. ej. diaria, separada de la de singles), o
-   solo refresco manual? ¿Refresca **todos** los sellados mapeados o solo los que tienes en stock/publicados?
-7. **Origen y costo del sellado en inventario**: como no hay buylist de sellado, ¿el sellado se da de alta solo
-   como **aportación del dueño** (costo = referencia × %, hoy 70%) o también como **compra de aprovisionamiento**
-   con costo real capturado? ¿Qué base de costo quieres para P&L (M7)?
-8. **Imagen propia — ¿permitir subir archivo?**: el supuesto es que la imagen propia viene del catálogo/fuente
-   (sin subida de archivos, coherente con "sin fotos propias" §H). Si en algún caso quieres **subir una imagen
-   propia** cuando la fuente no la trae, eso **reabre object storage** para producto (hoy acotado solo al INE).
-   ¿Confirmas "sin subida" o quieres esa excepción?
-9. **Alcance de publicación de P-26**: ¿P-26 debe re-mostrar en Compra el sellado ya existente con su nueva
-   identidad (nombre/imagen propios) como parte de este trabajo, o basta con que el **alta nueva** use el modelo
-   de primera clase y la re-presentación de lo viejo dependa de la migración (pregunta 3)?
+## Decisiones resueltas — sellado como producto de primera clase (P-26, v1.7.1)
+> El humano **resolvió** las decisiones que condicionaban el diseño. §L queda **cerrada y sin ambigüedad**,
+> **lista para el arquitecto**. Las decisiones definitivas son:
+1. **Origen del catálogo de sellado (nombre + imagen propios) — RESUELTA:** **ingestar desde TCGCSV**. El
+   sistema baja el catálogo de productos sellados (nombre, imagen, `tcgplayerProductId`, precio de mercado)
+   desde TCGCSV y el operador **elige de esa lista**. **No** hay captura manual de nombre/imagen. Esto además
+   habilita el requisito ⭐ del refresco de precios (decisión 5). *(→ CA-P26-1/2/3.)*
+2. **Ubicación — RESUELTA:** el sellado tiene su **propio catálogo/módulo en el admin** (análogo al master set
+   pero de productos sellados), **no** una pestaña colgada del inventario de cartas. La materialización técnica
+   (módulo/tablas) la define el arquitecto.
+3. **Migración del sellado viejo — RESUELTA:** **empezar limpio**. Hay poco/nada de sellado viejo; **no** se
+   migra. El sellado viejo anclado a cartas se descarta o se recaptura con el modelo nuevo. P-26 cubre **solo el
+   alta nueva** con el modelo de primera clase (resuelve también la antigua pregunta de "alcance de publicación":
+   no hay re-presentación automática de lo viejo). *(→ Fuera de alcance de P-26.)*
+4. **Subtipos definitivos — RESUELTA:** **seis** — **ETB, Booster Box, UPC, Bundle, Tin, Blister**. **No** se
+   incluyen "premium/special collection" ni "booster pack suelto" en esta versión (quedan fuera de alcance,
+   ampliables después). *(→ CA-P26-4/5.)*
+5. **⭐ Refresco de precios de sellado como carga SEPARADA — RESUELTA (prioritaria):** al ingerir el catálogo
+   desde TCGCSV, el precio de mercado del sellado se refresca con un **job propio del sellado** (solo los
+   productos sellados —decenas—, no el barrido de singles), **disparable bajo demanda** desde el admin y
+   **opcionalmente programado** más adelante. *(→ CA-P26-7/8/9/10.)*
+>
+> **Decisiones menores (defaults sensatos, ajustables por el humano después):**
+6. **Semilla de spread del subtipo nuevo UPC:** **20%** (ajustable en ConfigSetting). El resto se mantiene §K
+   (box 18% / etb 22% / bundle 25% / tin 30% / blister 35% / global 25%). Premium/special ya no aplica (fuera de
+   alcance). *(→ CA-P26-6.)*
+7. **Cadencia del refresco:** **botón bajo demanda** ahora (requerido); **corrida programada** propia del
+   sellado como **mejora futura** (no requerida en P-26). *(→ CA-P26-9.)*
+8. **Origen/costo del sellado en inventario:** **aportación del dueño** (`owner_contribution`) o **compra de
+   aprovisionamiento**; **nunca** `client_purchase` (no hay buylist de sellado). *(→ CA-P26-11.)*
+9. **Imagen propia:** proviene del catálogo ingerido desde TCGCSV (decisión 1); **no** se reabre subida de
+   archivos/object storage para producto. *(→ Fuera de alcance de P-26.)*
