@@ -42,16 +42,16 @@ export const E2E_ORDER_SET = {
  * casillas: normal a la izquierda, reverse holo a la derecha) y el resto UNA (['normal'] → una
  * casilla, jamás relleno). El orden del array es el canónico `FINISH_ORDER`.
  *
- * v1.27 (P-13, §4.25a) — se siembran también las columnas de ENTRADA de forma COHERENTE con la
- * fórmula VIGENTE del reconciliador: `availableFinishes == composeAvailableFinishes(structuralFinishes)`
- * (la unión con `pricedFinishesSnapshot` quedó DEROGADA: el precio CONFIRMA, nunca AÑADE). Cuando no
- * se declaran, el seed usa `structuralFinishes = catalogFinishes = availableFinishes` y snapshot
- * vacío. `reverse` es el caso de DOS casillas post-v1.27: TCGCSV resolvió AMBAS impresiones
+ * v1.27.1 (P-13-fix, §4.25e) — se siembran también las columnas de ENTRADA de forma COHERENTE con la
+ * fórmula VIGENTE del reconciliador: `availableFinishes == composeAvailableFinishes(structuralFinishes,
+ * pricedFinishesSnapshot, rarity)` (la unión VUELVE — recupera el reverse del común — y se filtra
+ * `normal` solo si la rareza es premium). Cuando no se declaran, el seed usa `structuralFinishes =
+ * catalogFinishes = availableFinishes` y snapshot vacío. `reverse` es el caso de DOS casillas:
+ * rareza Reverse Holo (NO premium) ⇒ la unión no se filtra; TCGCSV resolvió AMBAS impresiones
  * (`structuralFinishes=['normal','reverse_holo']`) y PPT confirma el reverse con precio
- * (`pricedFinishesSnapshot=['reverse_holo']`, observabilidad; ya no compone). Su `catalogFinishes`
- * queda en `['normal']` a propósito: es la señal débil write-only que nadie lee en producción —
- * la estructura manda. Un reconcile sobre estos fixtures es un NO-OP (dato consistente); ningún
- * total/página de las suites de dinero cambia (`availableFinishes` final idéntico al de antes).
+ * (`pricedFinishesSnapshot=['reverse_holo']`). Su `catalogFinishes` queda en `['normal']` a propósito:
+ * es la señal débil write-only que nadie lee en producción — la estructura manda. Un reconcile sobre
+ * estos fixtures es un NO-OP (dato consistente); ningún total/página de las suites de dinero cambia.
  */
 export const E2E_CARDS = {
   charizard: { externalId: 'e2e-charizard', name: 'E2E Charizard', number: '4', rarity: 'Rare Holo', refNmCents: 100000, availableFinishes: ['normal'] }, // ex_plus, ref 1000.00

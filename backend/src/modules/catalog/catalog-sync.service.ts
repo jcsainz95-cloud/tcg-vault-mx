@@ -425,8 +425,9 @@ export class CatalogSyncService {
    *   - UPDATE → la clave `catalogFinishes` se incluye SOLO si `derived !== null`; sin señal se OMITE
    *     y se CONSERVA lo previo (un payload/502 degradado no puede volver a clobbear a `['normal']`).
    * Tras el lote, LLAMA a `FinishReconciler.reconcile(cardIds)` para que recompute
-   * `availableFinishes = composeAvailableFinishes(structuralFinishes)` de las cartas tocadas
-   * (§4.25a: el precio confirma, nunca añade; ni `catalogFinishes` ni el snapshot componen).
+   * `availableFinishes = composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`
+   * de las cartas tocadas (§4.25e: la unión vuelve y se filtra `normal` si la rareza es premium;
+   * `catalogFinishes` write-only no compone).
    * Además puebla las claves de ORDEN NATURAL `numberSort`/`numberPrefix` (M-26, §4.22b) con
    * `deriveNumberParts` — la MISMA función que espeja el backfill SQL. Ya NO se puebla
    * `PriceReference` (WS-A §4.15g: este sync es SOLO metadata).
@@ -494,9 +495,10 @@ export class CatalogSyncService {
         );
       }
     }
-    // §4.22g candado 4 + v1.27 §4.25a: `availableFinishes` la escribe SOLO el reconciliador, con
-    // `composeAvailableFinishes(structuralFinishes)` — ni `catalogFinishes` (write-only) ni el
-    // snapshot componen; aquí solo se garantiza que las cartas tocadas queden recompuestas.
+    // §4.22g candado 4 + v1.27.1 §4.25e: `availableFinishes` la escribe SOLO el reconciliador, con
+    // `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)` — la unión
+    // vuelve, `normal` se filtra si la rareza es premium; `catalogFinishes` (write-only) no compone.
+    // Aquí solo se garantiza que las cartas tocadas queden recompuestas.
     await this.finishReconciler.reconcile(touchedCardIds);
     if (noFinishSignal > 0) {
       this.logger.warn(

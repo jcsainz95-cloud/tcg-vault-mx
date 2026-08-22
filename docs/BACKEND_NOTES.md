@@ -5478,3 +5478,57 @@ porque el default no cambió).
 - `npm test` → **149 suites / 1397 tests VERDE**.
 - `npm run test:integration` (setup §8) → **9 suites / 124 tests VERDE** (incl. `infra-smoke`
   con S3 real).
+
+## v1.27.1 — P-13-fix: REGRESIÓN de composición de variantes (§4.25e, rama `fix/variant-composition-regression`, 2026-08-22)
+
+> Spec: ARCHITECTURE **§4.25e** (regla vigente, deroga §4.25a-1). Regresión en prod (set Pitch Black):
+> tras el re-sync con la fórmula «solo structural» de P-13, los COMUNES perdieron su `reverse_holo` y
+> las ex conservaron un `normal` fantasma. SIN migración de schema; SIN cambio de forma de contrato
+> (`CardDTO.availableFinishes` sigue `Finish[]`). Toca la lista blanca SEC-A1 → gate de seguridad por
+> release. **Paso de despliegue (devops/humano):** re-sync forzado único (§4.25a-4) para recomputar prod.
+
+### Regla vigente (deroga la «solo structural» de §4.25a-1)
+```
+availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot)
+                                    − { normal | isPremiumRarity(rarity) } ) || ['normal']
+```
+1. **UNIÓN** `structural ∪ snapshot` (vuelve): recupera el `reverse_holo` legítimo del común, que en
+   sets recién salidos SOLO trae el proveedor de precios (`pricedFinishesSnapshot`, Señal C), no TCGCSV.
+2. **RESTA `normal` si `isPremiumRarity(rarity)`**: una premium (ex/Double Rare, Ultra/Secret/Illustration/
+   Hyper/Rainbow/Gold Rare, V/VMAX/VSTAR/ex/GX…) NUNCA existe en `normal` ⇒ es fantasma venga del
+   snapshot envenenado, del `structuralFinishes` STALE de M-29 o del seed. Filtro **estructural por
+   rareza**, en la composición misma — NO por precio (NO es N-15/`computeDisplayFinishes`).
+3. `orderFinishes` (dedup + `FINISH_ORDER`) + fallback `|| ['normal']` si la resta deja vacío.
+
+### Cambios (SOLO `backend/` + este doc; lock de `common/` de este stream)
+- **`src/common/card-order.ts`** — `composeAvailableFinishes` pasa de 1 arg a **3**:
+  `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`. **Reusa
+  `isPremiumRarity` de `common/money.ts`** (mismo clasificador chase, sin redefinir patrones).
+  `isPremiumRarity(null) === false` ⇒ rareza null/desconocida NO filtra `normal` (fail-safe conservador).
+- **`src/modules/catalog/finish-reconciler.service.ts`** (ÚNICO escritor, candado 4 §4.22g) — el
+  `findMany` ahora **selecciona `rarity`**; la fórmula recibe `(structural, priced, c.rarity)`. El
+  snapshot **vuelve a componer** (antes P-13 lo excluía). Log `pricedNotStructural` (drift
+  proveedor↔estructura) **conservado**. Idempotencia, dedup de ids y NO-monotonía intactas.
+- **Callers de `composeAvailableFinishes`:** el ÚNICO caller de producción es `FinishReconciler`
+  (actualizado). Los seeds/fixtures no la invocan (solo describen su resultado en comentarios).
+  Comentarios normativos alineados a §4.25e en `catalog-sync.service.ts`, `prisma/seed.ts`,
+  `prisma/seed-e2e.ts`, `prisma/e2e-fixtures.ts` (SIN cambio de datos: los valores sembrados ya eran
+  NO-OP bajo la fórmula nueva — Pidgey Común da 2 casillas, Charizard `Rare Holo` da `['holofoil']`).
+
+### Tests
+- **`test/finish-reconciler.spec.ts`** reescrito a §4.25e:
+  - Unit `card-order`: los **6 worked examples** con datos reales de Pitch Black — Tropius/Grubbin
+    Common → `[normal, reverse_holo]`; Lurantis/Mega Delphox ex (Double Rare) → `[holofoil]`; energía
+    básica común → `[normal]`; secret rare holo puro (snapshot envenenado) → `[holofoil]`; premium con
+    struct/snap vacíos → `['normal']` fallback. + orden canónico/dedup, fail-safe rareza null, no-monotonía.
+  - Spec `FinishReconciler`: común RECUPERA su reverse del snapshot; ex PIERDE el `normal` stale;
+    secret rare nunca `normal`; fallback premium vacío ⇒ `['normal']`; el `select` LEE `rarity` +
+    snapshot; observabilidad `pricedNotStructural`; idempotencia; fast-path lista vacía.
+- Las aserciones que asumían «solo structural» de P-13 quedaron actualizadas a la regla nueva (el
+  común AHORA da 2 casillas, no 1; la ex sigue en `[holofoil]` pero por rareza-filtra-normal).
+
+### Gates (local, Postgres 16 + Redis reales + s3rver en 127.0.0.1:9000 → smoke S3 con PUT real)
+- `npm run typecheck` → limpio · `npm run lint` → 0 warnings.
+- `npm test` → **149 suites / 1405 tests VERDE**.
+- `npm run test:integration` (setup §8, `E2E_STRICT_INFRA=true`) → **9 suites / 124 tests VERDE**
+  (incl. `infra-smoke` con S3 real).
