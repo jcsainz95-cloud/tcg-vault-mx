@@ -101,7 +101,11 @@ export function CatalogView() {
     queryFn: () => getCatalog(filters),
   });
 
-  const activeChips = useMemo(() => buildChips(filters), [filters]);
+  const activeChips = useMemo(
+    // Las facetas dan el nombre legible del set para el chip (QA-1).
+    () => buildChips(filters, facetsQuery.data?.sets),
+    [filters, facetsQuery.data?.sets],
+  );
   const hasFilters = activeChips.length > 0;
   const total = catalogQuery.data?.total ?? 0;
   const page = filters.page ?? 1;
@@ -328,13 +332,24 @@ interface Chip {
   remove: (f: CatalogFilters) => CatalogFilters;
 }
 
-function buildChips(filters: CatalogFilters): Chip[] {
+/**
+ * Etiqueta de los chips de precio: pesos enteros sin decimales y, si el límite
+ * trae centavos (p. ej. llegó por URL), con los dos decimales — nunca se
+ * redondea un límite a otro valor (QA-2).
+ */
+function pesosLabel(cents: number): string {
+  return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
+}
+
+function buildChips(filters: CatalogFilters, sets?: { id: string; name: string }[]): Chip[] {
   const chips: Chip[] = [];
   if (filters.q) {
     chips.push({ key: 'q', label: `"${filters.q}"`, remove: (f) => ({ ...f, q: undefined }) });
   }
   if (filters.setId) {
-    chips.push({ key: 'set', label: filters.setId, lang: 'en', remove: (f) => ({ ...f, setId: undefined }) });
+    // Nombre del set desde las facetas ya cargadas; fallback al id si aún no llegan (QA-1).
+    const setName = sets?.find((s) => s.id === filters.setId)?.name ?? filters.setId;
+    chips.push({ key: 'set', label: setName, lang: 'en', remove: (f) => ({ ...f, setId: undefined }) });
   }
   for (const r of filters.rarity ?? []) {
     chips.push({
@@ -359,10 +374,10 @@ function buildChips(filters: CatalogFilters): Chip[] {
     chips.push({ key: 'finish', label: filters.finish, remove: (f) => ({ ...f, finish: undefined }) });
   }
   if (filters.minPriceCents != null) {
-    chips.push({ key: 'min', label: `≥ MX$${Math.round(filters.minPriceCents / 100)}`, remove: (f) => ({ ...f, minPriceCents: undefined }) });
+    chips.push({ key: 'min', label: `≥ MX$${pesosLabel(filters.minPriceCents)}`, remove: (f) => ({ ...f, minPriceCents: undefined }) });
   }
   if (filters.maxPriceCents != null) {
-    chips.push({ key: 'max', label: `≤ MX$${Math.round(filters.maxPriceCents / 100)}`, remove: (f) => ({ ...f, maxPriceCents: undefined }) });
+    chips.push({ key: 'max', label: `≤ MX$${pesosLabel(filters.maxPriceCents)}`, remove: (f) => ({ ...f, maxPriceCents: undefined }) });
   }
   return chips;
 }

@@ -59,8 +59,9 @@ describe('CatalogView · filtros iniciales desde la URL (enlaces del Home)', () 
     urlParams.current = new URLSearchParams('setId=base1&productType=graded');
     renderWithProviders(<CatalogView />, 'es');
 
-    // Chips removibles de los dos filtros que vinieron en la URL.
-    expect(await screen.findByRole('button', { name: /base1/ })).toBeInTheDocument();
+    // Chips removibles de los dos filtros que vinieron en la URL. El chip de set
+    // muestra el NOMBRE desde las facetas (QA-1), no el id crudo.
+    expect(await screen.findByRole('button', { name: /Base Set/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /graded/ })).toBeInTheDocument();
   });
 
