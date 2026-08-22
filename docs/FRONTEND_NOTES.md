@@ -4,6 +4,55 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## v1.30 (§4.29 / M-32) · Cotizar/vender un producto SEPARADO como línea propia por `productId` (2026-08-22, branch `fix/variant-composition-regression`)
+
+Cierra el hueco que quedó tras v1.29 (§4.27): la **presentación** de productos separados
+(`separateProducts: CardProductDTO[]`, `kind ∈ {deck_exclusive, promo}`) ya existía (`SeparateProductTile`),
+pero la **línea de buylist** se identificaba solo por `(cardId, finish)` y no podía apuntar a un
+`productId` → un Deck Exclusive/promo no era cotizable ni agregable como su propia línea. El
+arquitecto cerró el contrato (v1.30, `productId?` aditivo) y aquí se cableó el FRONT.
+
+- **Tipos (`types/contract.ts`, aditivos):** `productId?: number` en `BuylistQuoteItemDTO` (entrada
+  del quote por-carta y del batch), en `BuylistQuoteResponse`/`BuylistQuotePayload` (eco) y en
+  `SellItemDTO` (snapshot). `BuylistBatchQuoteResultDTO.error.code` gana `PRODUCT_NOT_FOUND` y
+  `PRODUCT_CARD_MISMATCH`. `CreateSellRequestInput.items[]` y `BuylistRequestItem` ganan `productId?`.
+  Todo opcional/retrocompatible: una línea sin `productId` = set_base, comportamiento v1.29 intacto.
+- **Cotizador (`MasterSetBinder.tsx`, `mode="quoter"`):** `fetchQuoterBinder` ahora cotiza DOS clases
+  de línea en el mismo `POST /buylist/quote/batch`: el set_base por `(carta, acabado)` y CADA producto
+  separado por `(carta, productId, acabado)`. Como el `index` del batch no basta para correlacionar
+  (base holofoil y producto holofoil de la misma carta comparten cardId+finish), se lleva un arreglo
+  PARALELO de llaves con el `productId` incluido. Las cotizaciones de productos separados se guardan en
+  un mapa client-only `separateProductQuotes` (por `${cardId}:${productId}:${finish}`) anexado a la
+  respuesta del binder — misma doctrina que `variants[].quote` (no viaja del backend).
+- **`SeparateProductTile`:** en modos de inventario/bóveda sigue siendo PRESENTACIÓN (precio de
+  mercado propio, «—» sin precio). En `quoter` es COTIZABLE: pinta el ESTIMADO de buylist propio del
+  producto (server-side por su `productId`) + botón «Agregar» que lo manda al carrito como su LÍNEA
+  PROPIA. Money-safe: sin cotización OK el botón queda inhábil (nunca $0); una línea `precio_pendiente`
+  SÍ es agregable (el backend fija su monto al recibir, como el set_base).
+- **Carrito (`useSellCart.ts`):** la llave de dedup gana `productId` → `(cardId, productType, finish,
+  productId ?? base)`. Dos líneas con el mismo `(cardId, finish)` y distinto `productId` son DISTINTAS
+  (NO se fusionan); `requestItems` propaga el `productId` a `POST /buylist/requests`. El nombre de la
+  línea de un producto separado es el del PRODUCTO (p. ej. «Charizard (Deck Exclusive)»).
+- **Errores del contrato:** `PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH` se muestran como error de
+  LÍNEA legible en la teja (i18n `masterSet.separateProductErrorCode.*` + catálogo `error.*`), sin
+  romper el lote (en batch es error por-ítem; la carta base sigue cotizando).
+- **i18n:** nuevas cadenas en `messages/{es,en}.json` (`masterSet.separateProductAddAria`,
+  `separateProductError`, `separateProductErrorCode.*`; `error.PRODUCT_NOT_FOUND`,
+  `error.PRODUCT_CARD_MISMATCH`). Sin texto hardcodeado.
+- **Mocks (`lib/api.ts` + `lib/mock/fixtures.ts`):** `searchBuylistCards` ecoa `separateProducts` en
+  `CardDTO`; `resolveSeparateProduct(cardId, productId)` distingue ok/mismatch/not_found; el batch y el
+  quote por-carta cotizan el producto por su precio propio (pct sin referencia ⇒ `precio_pendiente`,
+  nunca 0). Matiz preservado: el **batch** valida el acabado base ∈ `availableFinishes`; el **quote
+  por-carta** no lo hacía (retrocompat de mock) — se conserva con un flag. La whitelist del PRODUCTO
+  (`CardProduct.finishes`) SIEMPRE se valida (contrato §4.29).
+- **Componentes COMPARTIDOS tocados** (`components/master-set/`, `lib/`, `hooks`-adyacentes): serializar
+  el merge con cualquier otro stream que toque esas zonas.
+- **Gates:** `tsc` limpio, `eslint .` limpio, `next build` ✓ compiled. Tests: **553 pasando** (548
+  previos + 5 nuevos; se actualizó 1 test v1.29 de presentación a la semántica cotizable v1.30).
+- **Sin bloqueos de contrato:** el shape v1.30 alcanzó para todo el flujo del front. El **carrito de
+  storefront (compra)** NO necesita `productId` (se identifica por `inventoryItemId`, §4.29e) — fuera
+  de alcance por diseño.
+
 ## Pulido precios/display (2026-08-19, branch `claude/pulido-precios-display`)
 
 Tres tareas independientes de pulido de UI/UX.

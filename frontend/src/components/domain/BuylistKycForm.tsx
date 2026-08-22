@@ -28,6 +28,8 @@ export interface BuylistRequestItem {
   productType: ProductType;
   rawCondition?: RawCondition;
   finish?: Finish;
+  // v1.30 (§4.29): productId de un PRODUCTO SEPARADO (deck_exclusive/promo). Ausente = set_base.
+  productId?: number;
 }
 
 export interface BuylistKycFormProps {

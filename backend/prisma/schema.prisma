@@ -720,6 +720,11 @@ model PendingPriceEntry {
   // entradas SEPARADAS. Antes se colapsaban en una y el override de un acabado cerraba el pendiente
   // de los demás. Default seguro `normal` para filas legacy (sin backfill). ARCHITECTURE §3.2/§4.1.
   finish             Finish              @default(normal)
+  // v1.30 (M-32, §4.29d): productId TCGplayer (== SellRequestItem.cardProductId) cuando la entrada
+  // corresponde a un producto SEPARADO. Entra a la clave LÓGICA de dedupe de la cola (junto a
+  // cardId/productType/gradeKey/finish): resolver el precio del set_base NO cierra la del Deck
+  // Exclusive (money-safe, misma doctrina que `finish` en M-19). `null` = base (retrocompatible).
+  cardProductId      Int?
   context            PendingPriceContext
   refId              String?
   status             PendingPriceStatus  @default(open)
@@ -917,6 +922,14 @@ model SellRequestItem {
   // contra card.availableFinishes al crear). Determina la regla y la referencia usadas
   // (ARCHITECTURE §4.2.1). Al convertir a inventario (M5), se PROPAGA a InventoryItem.finish.
   finish             Finish           @default(normal)
+  // v1.30 (M-32, §4.29d): snapshot del `tcgplayerProductId` (== CardProductDTO.productId de
+  // `separateProducts`) cuando la LÍNEA es un producto SEPARADO (deck_exclusive/promo). Es el mismo
+  // eje que M-31 metió en `PriceReference.cardProductId`; entra a la clave LÓGICA de la línea, de modo
+  // que dos ítems con el mismo (cardId, finish) pero distinto productId son DISTINTOS (no se funden).
+  // Se PROPAGA al InventoryItem al convertir (M5): la pieza queda ligada a ESE producto, no al set_base.
+  // `null` = línea de set_base (retrocompatible; filas < M-32 quedan en null). Análogo a como M-19 añadió
+  // `finish`. Es el productId TCGplayer (Int), NO el UUID interno CardProduct.id.
+  cardProductId      Int?
   // v1.3.1 (M-14): la cotización ya NO usa `category` (BuylistCategory). Se snapshotea la
   // REGLA POR RAREZA aplicada (auditoría). `category` queda NULLABLE/legacy (retención de
   // filas históricas); nada nuevo lo escribe. Ver ARCHITECTURE §3.2/§4.2.

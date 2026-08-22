@@ -20,7 +20,13 @@ export class BuylistController {
   @Post('quote')
   @HttpCode(200)
   quote(@Body() dto: PublicQuoteDto) {
-    return this.buylist.publicQuote(dto.cardId, dto.productType, dto.rawCondition, dto.finish);
+    return this.buylist.publicQuote(
+      dto.cardId,
+      dto.productType,
+      dto.rawCondition,
+      dto.finish,
+      dto.productId,
+    );
   }
 
   // v1.15 (§4.16b): batch quote — cotiza N cartas en 1 request (mata el fan-out FE-12). Público y

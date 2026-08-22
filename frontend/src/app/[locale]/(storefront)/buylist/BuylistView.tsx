@@ -7,6 +7,7 @@ import { batchQuote, BUYLIST_QUOTE_BATCH_MAX, listBuylistSets, searchBuylistCard
 import type {
   ProductType,
   CardDTO,
+  CardProductDTO,
   RawCondition,
   Finish,
   BuylistQuoteResponse,
@@ -302,6 +303,28 @@ export function BuylistView() {
   );
 
   /**
+   * v1.30 (§4.29) · Clic en «Agregar» de un PRODUCTO SEPARADO (deck_exclusive/promo) del binder:
+   * lo agrega al carrito como LÍNEA PROPIA por su `productId` (precio propio, cotizado server-side).
+   * Dos líneas con el mismo (cardId, finish) y distinto productId son DISTINTAS (dedup por productId
+   * en useSellCart). El nombre de la línea es el del PRODUCTO (p. ej. «Charizard (Deck Exclusive)»).
+   */
+  const addFromMasterSetProduct = useCallback(
+    (cell: MasterSetCardCellDTO, product: CardProductDTO, finish: Finish, quote: BuylistQuoteResponse) => {
+      addLine({
+        card: { id: cell.cardId, name: product.name, number: cell.number, imageSmallUrl: cell.imageSmallUrl },
+        productType: 'raw',
+        rawCondition: 'NM',
+        finish,
+        productId: quote.productId ?? product.productId,
+        quote,
+      });
+      setLastAdded({ name: product.name, label: tFinish(finish) });
+      setBulkNotice(null);
+    },
+    [addLine, tFinish],
+  );
+
+  /**
    * v1.28 (P-22) · CTA «Cotizar esta carta» de un BountyCard: cotiza ESA (carta, acabado)
    * server-side (SEC-A1 — el monto autoritativo lo deriva el quote, no el card de la vitrina)
    * y la agrega al carrito de venta con el cotizador en `raw` y el carrito abierto. Si el
@@ -488,7 +511,11 @@ export function BuylistView() {
               // v1.21: binder COMPARTIDO de Master Set — casillas de imagen por acabado real
               // de la carta (nunca chip de texto/casilla vacía), con "Cargar más" propio para
               // sets >20 cartas (fetchQuoterBinder en MasterSetBinder.tsx pagina internamente).
-              <MasterSetPanel mode="quoter" onAddToSellCart={addFromMasterSet} />
+              <MasterSetPanel
+                mode="quoter"
+                onAddToSellCart={addFromMasterSet}
+                onAddProductToSellCart={addFromMasterSetProduct}
+              />
             ) : !hasSearch ? (
               <EmptyState title={t('searchHint')} />
             ) : (

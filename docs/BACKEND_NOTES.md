@@ -4,6 +4,75 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-bis. v1.30-buylist-quote-por-producto — LÍNEA de buylist por `productId` (M-32)
+
+> Implementa ARCHITECTURE §4.29 y el Changelog v1.30 de API_CONTRACT. Rama
+> `fix/variant-composition-regression`. Todo ADITIVO/retrocompatible/money-safe; NO se dropea nada. Cierra
+> el hueco de que el quote/carrito de buylist solo se identificaban por `(cardId, finish)` y no podían
+> cotizar/vender un `CardProduct` SEPARADO (deck_exclusive/promo) como línea propia con su precio.
+
+**Qué cambió (resumen para otros roles):**
+- **`productId?: number` OPCIONAL/ADITIVO** en la línea de buylist — es el **TCGplayer productId**
+  (`== CardProduct.tcgplayerProductId`, el MISMO que el front recibe en `CardProductDTO.productId` /
+  `separateProducts`), **no** el UUID interno. Añadido a la ENTRADA de `POST /buylist/quote`
+  (`PublicQuoteDto`), `POST /buylist/quote/batch` (`BuylistQuoteItemDto`) y `POST /buylist/requests`
+  (`RequestItemDto`), y como ECO en `BuylistQuotePayload` (quote/batch) y `SellItemDTO`
+  (`itemDTO`). Validación DTO: `@IsInt() @Min(1)` (entero positivo).
+- **Resolución (§4.29b, `buylist.service.ts`):**
+  - **SIN `productId`** → rama SET_BASE **idéntica a v1.29** (whitelist `Card.availableFinishes`,
+    referencia por `(cardId, raw, raw:NM, finish)` vía `getReference`, override M-30 como hoy). Cero
+    cambios de comportamiento; los 1408 tests previos siguen verdes.
+  - **CON `productId`** → la línea es ESE `CardProduct`: whitelist de acabado = **`CardProduct.finishes`**
+    (`assertFinishForProduct`; un solo acabado + `finish` omitido ⇒ default; >1 ⇒ `finish` OBLIGATORIO,
+    falta/no-pertenece ⇒ `FINISH_NOT_AVAILABLE`); referencia leída por **ese `cardProductId`** vía el
+    método nuevo `PricingService.getReferenceByCardProduct` (filtra `PriceReference.cardProductId`, precio
+    propio del producto de M-31). La **rareza NO cambia de fuente** (sigue saliendo de `Card.rarity`).
+- **Money-safe / validación (§4.29c):**
+  - `productId` inexistente ⇒ **`PRODUCT_NOT_FOUND`**; `productId` que NO cuelga del `cardId` ⇒
+    **`PRODUCT_CARD_MISMATCH`** (rechazo validado, NUNCA fusión silenciosa con la carta de set). Ambos
+    son **422** en `/quote` por-carta y `/requests`; **`ok:false` por-ítem** en `/quote/batch` (no tumban
+    el lote — se añadieron al set de códigos degradables del `catch`). Nuevos códigos en
+    `common/error-codes.ts`.
+  - Producto sin precio ⇒ `precio_pendiente` / `quotedPriceCents=null` / «—», **jamás 0** (misma
+    invariante H1/H2/H3). Regla `fixed` siempre cotiza; `pct` sin referencia del producto cae en pendiente.
+  - **Override M-30 (bounty/variant) NO aplica a la rama `productId`** (se pasa `null`): su clave
+    `(cardId, productType, gradeKey, finish)` NO tiene `cardProductId`, así que mapea a la variante
+    set_base; aplicarlo al producto separado sería fusión de precios. Decisión money-safe conservadora —
+    **si el PO/arquitecto quiere bounties por producto separado, requiere extender la clave de M-30**
+    (fuera de alcance de M-32). Anotado como salvedad abajo.
+- **Unicidad de línea (§4.29d):** la llave lógica gana `productId` → `(cardId, finish, productId ?? base)`.
+  Dos líneas con mismo `(cardId, finish)` y distinto `productId` son **DISTINTAS** (no se deduplican).
+  En batch la correlación sigue siendo el `index`.
+- **Persistencia (migración M-32, ADITIVA):**
+  - `SellRequestItem.cardProductId Int?` — snapshot del `tcgplayerProductId` cotizado (`null` = set_base).
+  - `PendingPriceEntry.cardProductId Int?` — entra a la **clave lógica de dedupe** de la cola de precio
+    pendiente: `escalatePending` ahora incluye `cardProductId` en el `findFirst`/`create`, de modo que
+    resolver el set_base NO cierra la del Deck Exclusive (money-safe). Param opcional al final con default
+    `null` ⇒ los ~8 llamadores previos quedan intactos.
+  - Migración: `prisma/migrations/20260822130000_m32_sell_item_card_product_id/migration.sql` (dos
+    `ADD COLUMN INTEGER` nullable, SIN backfill). **NO aplicada contra prod** (no había `DATABASE_URL` en
+    el entorno). `prisma generate` corrido OK.
+
+**Fuera de alcance (confirmado con §4.29e y el changelog M-32):**
+- El **carrito de storefront** NO cambia (se identifica por `inventoryItemId`).
+- **No** se propaga `cardProductId` al `InventoryItem` al convertir (M5). El campo existente
+  `InventoryItem.tcgplayerProductId` tiene **semántica de SELLADO** (mapeo curado TCGCSV, emparejado con
+  `tcgplayerGroupId`); reutilizarlo para un single de producto separado lo sobrecargaría y podría afectar
+  las colas de mapeo de sellado. El changelog M-32 marca esta propagación como **decisión opcional del
+  backend**; se **difiere** (no la exige el contrato). La valuación de un single de producto separado en
+  bóveda/storefront (§4.29e menciona `PriceReference.cardProductId` de la pieza) queda como **gap
+  preexistente de M-31 fuera del alcance de M-32** (M-32 es solo la LÍNEA de buylist). **Salvedad para
+  arquitecto** si se quiere cerrar ese eje.
+
+**Tests (`test/buylist.product-line.spec.ts`, 13 casos, todos verdes):** quote por-carta y batch CON/SIN
+`productId`; default de finish con un solo acabado; `FINISH_NOT_AVAILABLE` (>1 acabado sin finish y finish
+fuera de lista); `PRODUCT_NOT_FOUND`; `PRODUCT_CARD_MISMATCH` (sin caer al set_base); producto sin precio →
+pendiente; **unicidad** (dos líneas mismo `(cardId, finish)` distinto `productId` → precios distintos);
+`createRequest` persiste `cardProductId` + escala pendiente CON `cardProductId`; retrocompat (sin `productId`
+no resuelve producto ni snapshotea). Suite completa: **150 suites / 1408 tests verdes**.
+
+---
+
 ## 0. v1.29-tcgcsv-productos-por-variante — «1 carta ↔ N productos» + rareza canónica (M-31)
 
 > Implementa ARCHITECTURE §4.27 / §4.28 y el Changelog v1.29 de API_CONTRACT. Rama

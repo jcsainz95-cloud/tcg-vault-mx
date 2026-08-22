@@ -37,6 +37,10 @@ interface QuoteItemInput {
   rawCondition?: RawCondition;
   // v1.6-finish: acabado del item (default normal), validado contra card.availableFinishes.
   finish?: Finish;
+  // v1.30 (§4.29): productId TCGplayer OPCIONAL (== CardProduct.tcgplayerProductId, el de
+  // `separateProducts`). Presente ⇒ la línea es ESE producto separado (deck_exclusive/promo): whitelist
+  // de acabado = CardProduct.finishes, referencia por su cardProductId. Ausente ⇒ set_base (v1.29).
+  productId?: number;
   // v1.3.1: el cliente ya NO envía `category`. La regla se deriva server-side de Card.rarity.
 }
 
@@ -47,6 +51,9 @@ interface QuoteItemInput {
 export interface BuylistQuotePayload {
   rarity: string | null;
   finish: Finish;
+  // v1.30 (§4.29a): eco del productId cotizado (snapshot). Ausente ⇒ línea de set_base. La rareza sigue
+  // saliendo de la carta; solo el ancla de la línea cambia.
+  productId?: number;
   // v1.28 (P-18/P-22, §6): `source` gana "bounty" | "override" (ADITIVO; el front DEBE tolerarlos)
   // cuando el control por variante (M-30) pisó la regla. Aplica a quote, quote/batch y al snapshot
   // `ruleSource` de createRequest (habilita el conteo de bounty al pagar, fase P-22).
@@ -67,7 +74,12 @@ export type BuylistBatchQuoteResult =
       index: number;
       cardId: string;
       ok: false;
-      error: { code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE'; message: string };
+      // v1.30 (§4.29c): `code` gana PRODUCT_NOT_FOUND (productId inexistente) y PRODUCT_CARD_MISMATCH
+      // (productId que no cuelga del cardId) — errores POR-ÍTEM (no tumban el lote).
+      error: {
+        code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+        message: string;
+      };
     };
 
 @Injectable()
@@ -105,6 +117,57 @@ export class BuylistService {
   }
 
   /**
+   * v1.30 (§4.29b) — Resuelve el `CardProduct` de una línea con `productId` y lo valida money-safe:
+   *  - inexistente ⇒ `PRODUCT_NOT_FOUND` (422 / batch ok:false).
+   *  - existe pero NO cuelga del `cardId` enviado ⇒ `PRODUCT_CARD_MISMATCH` — RECHAZO validado, NUNCA
+   *    fusión silenciosa con la carta de set (un productId de otra carta no se reinterpreta).
+   * El productId de entrada es el TCGplayer `tcgplayerProductId` (== CardProductDTO.productId), NO el
+   * UUID interno.
+   */
+  private async resolveCardProductForCard(
+    cardId: string,
+    productId: number,
+  ): Promise<{ id: string; finishes: Finish[] }> {
+    const cp = await this.pricing.findCardProductByTcgId(productId);
+    if (!cp) {
+      throw BusinessException.validation('PRODUCT_NOT_FOUND', 'Product not found', { productId });
+    }
+    if (cp.cardId !== cardId) {
+      throw BusinessException.validation(
+        'PRODUCT_CARD_MISMATCH',
+        'Product does not belong to the given card',
+        { productId, cardId },
+      );
+    }
+    return { id: cp.id, finishes: (cp.finishes ?? []) as Finish[] };
+  }
+
+  /**
+   * v1.30 (§4.29b) — Whitelist de acabado de un producto SEPARADO (contra `CardProduct.finishes`, NO
+   * `Card.availableFinishes`). Si se OMITE `finish` y el producto tiene un solo acabado ⇒ se default-ea;
+   * con >1 acabado ⇒ `finish` es OBLIGATORIO. Falta o fuera de la lista ⇒ `FINISH_NOT_AVAILABLE`. El
+   * producto ya define su(s) acabado(s); el cliente no puede inventar uno.
+   */
+  private assertFinishForProduct(finishes: Finish[], finish?: Finish): Finish {
+    if (finish == null) {
+      if (finishes.length === 1) return finishes[0];
+      throw BusinessException.validation(
+        'FINISH_NOT_AVAILABLE',
+        'Finish is required for this product',
+        { finish: null, availableFinishes: finishes },
+      );
+    }
+    if (!finishes.includes(finish)) {
+      throw BusinessException.validation(
+        'FINISH_NOT_AVAILABLE',
+        `Finish '${finish}' is not available for this product`,
+        { finish, availableFinishes: finishes },
+      );
+    }
+    return finish;
+  }
+
+  /**
    * v1.28 (P-18/P-22, §4.26b) — clave del control por variante (M-30) de un ítem de cotización.
    * MISMA derivación que la referencia (`gradeKeyFor` + finish default `normal`): paridad exacta
    * con la clave única de la tabla. Se usa para leer los overrides EN LOTE (una query por request,
@@ -130,11 +193,14 @@ export class BuylistService {
     productType: ProductType,
     rawCondition?: RawCondition,
     finish?: Finish,
+    // v1.30 (§4.29): productId TCGplayer OPCIONAL. Presente ⇒ la línea es ESE CardProduct separado.
+    productId?: number,
   ): Promise<BuylistQuotePayload> {
     // Carga la tabla de reglas UNA vez y delega en el núcleo compartido (mismo que usa el batch).
     const { rules, fallbackPct } = await this.buylistRules();
     // v1.28 (P-18): control por variante (bounty/override pisan la regla, §4.26b). Un solo ítem ⇒
-    // lectura single (misma vía batch de una clave).
+    // lectura single (misma vía batch de una clave). v1.30: el override (M-30, clave sin cardProductId)
+    // aplica SOLO a la línea de set_base; en la rama `productId` se IGNORA (ver quoteCardForFinish).
     const key = this.overrideKeyOf({ cardId, productType, rawCondition, finish });
     const override = await this.pricing.getVariantOverride(
       key.cardId,
@@ -142,7 +208,16 @@ export class BuylistService {
       key.gradeKey,
       key.finish,
     );
-    return this.quoteCardForFinish(cardId, productType, rawCondition, finish, rules, fallbackPct, override);
+    return this.quoteCardForFinish(
+      cardId,
+      productType,
+      rawCondition,
+      finish,
+      rules,
+      fallbackPct,
+      override,
+      productId,
+    );
   }
 
   /**
@@ -174,6 +249,7 @@ export class BuylistService {
           rules,
           fallbackPct,
           overrides.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) ?? null,
+          it.productId,
         );
         results.push({ index, cardId: it.cardId, ok: true, ...payload });
       } catch (e) {
@@ -181,7 +257,11 @@ export class BuylistService {
         // 404/422) se degradan a `ok:false`; cualquier otro error (p. ej. fallo de infra) se propaga.
         if (
           e instanceof BusinessException &&
-          (e.code === 'NOT_FOUND' || e.code === 'FINISH_NOT_AVAILABLE')
+          (e.code === 'NOT_FOUND' ||
+            e.code === 'FINISH_NOT_AVAILABLE' ||
+            // v1.30 (§4.29c): errores del producto separado también degradan a ok:false por-ítem.
+            e.code === 'PRODUCT_NOT_FOUND' ||
+            e.code === 'PRODUCT_CARD_MISMATCH')
         ) {
           const body = e.getResponse() as { message?: string };
           results.push({
@@ -189,7 +269,11 @@ export class BuylistService {
             cardId: it.cardId,
             ok: false,
             error: {
-              code: e.code,
+              code: e.code as
+                | 'NOT_FOUND'
+                | 'FINISH_NOT_AVAILABLE'
+                | 'PRODUCT_NOT_FOUND'
+                | 'PRODUCT_CARD_MISMATCH',
               message: typeof body?.message === 'string' ? body.message : e.code,
             },
           });
@@ -223,22 +307,52 @@ export class BuylistService {
     // v1.28 (P-18/P-22, §4.26b): fila M-30 de la variante, pre-cargada por el caller (single o en
     // lote). `null`/omitida = sin control ⇒ cadena de reglas de SIEMPRE, sin cambio.
     override?: VariantPriceOverride | null,
+    // v1.30 (§4.29): productId TCGplayer. Presente ⇒ la línea es ESE CardProduct separado.
+    productId?: number,
   ): Promise<BuylistQuotePayload> {
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
-    // SEC-A1: el acabado se valida contra los acabados REALES de la carta antes de cotizar.
-    const f = this.assertFinishAvailable(card, finish);
     const gradeKey = this.pricing.gradeKeyFor({ productType, rawCondition });
-    // v1.6-finish: la referencia del `pct` es la del ACABADO cotizado.
-    const ref = await this.pricing.getReference(cardId, productType, gradeKey, f);
-    const referenceMxnCents =
-      ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
+
+    let f: Finish;
+    let referenceMxnCents: number | null;
+    let effectiveOverride: VariantPriceOverride | null | undefined = override;
+    if (productId != null) {
+      // v1.30 (§4.29b): rama PRODUCTO SEPARADO. La identidad de la línea es ESE CardProduct: whitelist de
+      // acabado = CardProduct.finishes (NO Card.availableFinishes); la referencia se lee filtrada por su
+      // cardProductId (precio propio del producto). El override M-30 (clave sin cardProductId) NO aplica
+      // aquí: mapea a la variante set_base, no a este producto — aplicarlo sería fusión de precios
+      // (money-safe: se IGNORA). La rareza NO cambia de fuente (sale de la carta).
+      const cp = await this.resolveCardProductForCard(cardId, productId);
+      f = this.assertFinishForProduct(cp.finishes, finish);
+      const ref = await this.pricing.getReferenceByCardProduct(cp.id, productType, gradeKey, f);
+      referenceMxnCents =
+        ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
+      effectiveOverride = null;
+    } else {
+      // Rama SET_BASE (comportamiento v1.29 idéntico).
+      // SEC-A1: el acabado se valida contra los acabados REALES de la carta antes de cotizar.
+      f = this.assertFinishAvailable(card, finish);
+      // v1.6-finish: la referencia del `pct` es la del ACABADO cotizado.
+      const ref = await this.pricing.getReference(cardId, productType, gradeKey, f);
+      referenceMxnCents =
+        ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
+    }
     // SEC-A1: rareza + acabado derivados server-side (Card.rarity, finish validado), no del cliente.
     // v1.28: precedencia NORMATIVA bounty > override > regla > pendiente (un solo cuerpo, money.ts).
-    const quote = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct, override);
+    const quote = quoteAcquisitionForFinish(
+      card.rarity,
+      f,
+      referenceMxnCents,
+      rules,
+      fallbackPct,
+      effectiveOverride,
+    );
     return {
       rarity: card.rarity ?? null,
       finish: f,
+      // v1.30: eco del productId cotizado (ausente en la rama set_base).
+      ...(productId != null ? { productId } : {}),
       appliedRule: {
         mode: quote.appliedRule.mode,
         value: quote.appliedRule.value,
@@ -383,6 +497,8 @@ export class BuylistService {
       productType: ProductType;
       rawCondition?: RawCondition;
       finish: Finish;
+      // v1.30 (§4.29d): snapshot del productId TCGplayer cuando la línea es un producto separado.
+      cardProductId?: number;
       rarity: string | null;
       ruleMode: BuylistRuleMode;
       ruleValue: number;
@@ -394,19 +510,44 @@ export class BuylistService {
     for (const it of items) {
       const card = await this.prisma.card.findUnique({ where: { id: it.cardId } });
       if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
-      // SEC-A1: valida el acabado contra los acabados REALES de la carta (422 si no).
-      const f = this.assertFinishAvailable(card, it.finish);
       const gradeKey = this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition });
-      // v1.6-finish: referencia del ACABADO cotizado.
-      const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey, f);
-      const referenceMxnCents =
-        ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-      // v1.28 (P-18): mismo núcleo único de precedencia que quote/batch (bounty > override > regla).
-      const override = overrides.get(`${it.cardId}|${it.productType}|${gradeKey}|${f}`) ?? null;
+
+      let f: Finish;
+      let referenceMxnCents: number | null;
+      let override: VariantPriceOverride | null;
+      if (it.productId != null) {
+        // v1.30 (§4.29b): línea de PRODUCTO SEPARADO. Whitelist por CardProduct.finishes; referencia por
+        // su cardProductId; override M-30 NO aplica (money-safe, mismo criterio que el quote).
+        const cp = await this.resolveCardProductForCard(it.cardId, it.productId);
+        f = this.assertFinishForProduct(cp.finishes, it.finish);
+        const ref = await this.pricing.getReferenceByCardProduct(cp.id, it.productType, gradeKey, f);
+        referenceMxnCents =
+          ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
+        override = null;
+      } else {
+        // SEC-A1: valida el acabado contra los acabados REALES de la carta (422 si no).
+        f = this.assertFinishAvailable(card, it.finish);
+        // v1.6-finish: referencia del ACABADO cotizado.
+        const ref = await this.pricing.getReference(it.cardId, it.productType, gradeKey, f);
+        referenceMxnCents =
+          ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
+        // v1.28 (P-18): mismo núcleo único de precedencia que quote/batch (bounty > override > regla).
+        override = overrides.get(`${it.cardId}|${it.productType}|${gradeKey}|${f}`) ?? null;
+      }
       const q = quoteAcquisitionForFinish(card.rarity, f, referenceMxnCents, rules, fallbackPct, override);
       if (q.status === 'precio_pendiente') {
         // v1.8-ronda-c: escala el pendiente del ACABADO cotizado (cola por acabado, M-19).
-        await this.pricing.escalatePending(it.cardId, it.productType, gradeKey, 'buylist', undefined, f);
+        // v1.30 (§4.29d): con productId, la entrada lleva su cardProductId a la clave lógica de la cola —
+        // resolver el set_base NO cierra la del producto separado (money-safe).
+        await this.pricing.escalatePending(
+          it.cardId,
+          it.productType,
+          gradeKey,
+          'buylist',
+          undefined,
+          f,
+          it.productId ?? null,
+        );
       }
       quotedTotalCents += q.quotedPriceCents ?? 0;
       itemsData.push({
@@ -414,6 +555,7 @@ export class BuylistService {
         productType: it.productType,
         rawCondition: it.rawCondition,
         finish: f,
+        ...(it.productId != null ? { cardProductId: it.productId } : {}),
         rarity: card.rarity ?? null,
         ruleMode: q.appliedRule.mode,
         ruleValue: q.appliedRule.value,
@@ -550,6 +692,8 @@ export class BuylistService {
     productType: ProductType;
     rawCondition: RawCondition | null;
     finish?: Finish | null;
+    // v1.30 (§4.29): snapshot del productId TCGplayer (null = línea de set_base).
+    cardProductId?: number | null;
     rarity?: string | null;
     ruleMode?: BuylistRuleMode | null;
     ruleValue?: number | null;
@@ -582,6 +726,8 @@ export class BuylistService {
       rawCondition: i.rawCondition ?? undefined,
       // v1.6-finish: acabado snapshoteado en la cotización/solicitud.
       finish: i.finish ?? 'normal',
+      // v1.30 (§4.29): eco del productId cotizado (omitido si la línea es de set_base).
+      ...(i.cardProductId != null ? { productId: i.cardProductId } : {}),
       rarity: i.rarity ?? undefined,
       appliedRule:
         i.ruleMode != null && i.ruleValue != null

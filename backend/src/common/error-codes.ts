@@ -34,6 +34,13 @@ export const ErrorCode = {
   // v1.6-finish: el `finish` enviado no está en Card.availableFinishes (SEC-A1). 422.
   // Afecta POST /buylist/quote, POST /buylist/requests, POST /admin/inventory/items.
   FINISH_NOT_AVAILABLE: 'FINISH_NOT_AVAILABLE',
+  // v1.30 (§4.29c): la LÍNEA de buylist trae un `productId` (CardProduct separado) que NO existe. 422
+  // (quote por-carta / requests) o `ok:false` por-ítem (quote/batch). Afecta POST /buylist/quote[/batch]
+  // y POST /buylist/requests.
+  PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
+  // v1.30 (§4.29c): el `productId` existe pero NO cuelga del `cardId` de la línea — rechazo validado,
+  // NUNCA fusión silenciosa con la carta de set. Mismos endpoints/forma que PRODUCT_NOT_FOUND.
+  PRODUCT_CARD_MISMATCH: 'PRODUCT_CARD_MISMATCH',
   // v1.28 (P-18/P-22, §M2 variant-controls): bounty con `enabled:true` sin `priceCents > 0`
   // (efectivo tras el merge con la fila existente). El bounty es SIEMPRE precio explícito,
   // jamás calculado. 422.

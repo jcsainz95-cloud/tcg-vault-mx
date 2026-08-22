@@ -433,6 +433,14 @@
       "other": "Otro"
     },
     "separateProductAria": "{name} ({kind}, {finish}) · {price}",
+    "separateProductAddAria": "Agregar {name} ({kind}, {finish}) a la venta · {price}",
+    "separateProductError": "No disponible",
+    "separateProductErrorCode": {
+      "PRODUCT_NOT_FOUND": "Este producto ya no existe en el catálogo.",
+      "PRODUCT_CARD_MISMATCH": "Este producto no corresponde a esta carta.",
+      "FINISH_NOT_AVAILABLE": "Ese acabado no está disponible para este producto.",
+      "NOT_FOUND": "No encontramos esta carta."
+    },
     "adjust": {
       "title": "Ajuste por levantamiento físico",
       "reasonLabel": "Motivo",
@@ -2016,6 +2024,8 @@
     "CLABE_NOT_OWN_NAME": "La CLABE debe estar a tu nombre.",
     "CLABE_INVALID": "La CLABE no es válida.",
     "FINISH_NOT_AVAILABLE": "Ese acabado no está disponible para esta carta.",
+    "PRODUCT_NOT_FOUND": "Ese producto ya no existe en el catálogo.",
+    "PRODUCT_CARD_MISMATCH": "Ese producto no corresponde a esta carta.",
     "ITEM_NOT_PUBLISHABLE": "Esta pieza no se puede publicar en su estado actual.",
     "MONEY_OUT_FORBIDDEN": "Solo el súper-admin puede ejecutar movimientos de dinero saliente.",
     "REQUEST_HAS_NON_REJECTED_ITEMS": "No se puede cerrar: aún quedan ítems sin rechazar. Rechaza todos los ítems de la solicitud antes de cerrarla.",

@@ -9,6 +9,9 @@ import type {
   MasterSetCardCellDTO,
   MasterSetSummaryDTO,
   MasterSetVariantDTO,
+  CardProductDTO,
+  Finish,
+  BuylistQuoteResponse,
   BatchInventoryItemInput,
   BatchInventoryLineResult,
 } from '@/types/contract';
@@ -37,6 +40,17 @@ interface Props {
    */
   onAddToSellCart?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
   /**
+   * v1.30 (§4.29), solo `quoter`: clic en «Agregar» de un PRODUCTO SEPARADO (deck_exclusive/promo)
+   * lo agrega al carrito de VENTA como LÍNEA PROPIA por su `productId` (precio propio, no fusionado
+   * con la carta base). `quote` = cotización resuelta server-side (eco del productId).
+   */
+  onAddProductToSellCart?: (
+    cell: MasterSetCardCellDTO,
+    product: CardProductDTO,
+    finish: Finish,
+    quote: BuylistQuoteResponse,
+  ) => void;
+  /**
    * v1.28 (P-17, solo M1): drill-down POR VARIANTE. Si viene, el clic en una casilla del binder
    * NO abre el CellDrawer por-carta: delega en el dueño (M1View monta el VariantDrawer). Cuando
    * el set abierto cambia se notifica con `onSetOpened` (alcance «Solo este set» de publicar-todo).
@@ -56,6 +70,7 @@ export function MasterSetPanel({
   userId,
   onBuyMissing,
   onAddToSellCart,
+  onAddProductToSellCart,
   onOpenVariant,
   onSetOpened,
 }: Props) {
@@ -185,6 +200,7 @@ export function MasterSetPanel({
           }}
           onOpenCell={(cell) => setOpenCell(cell)}
           onAddVariant={onAddToSellCart}
+          onAddProduct={onAddProductToSellCart}
           onOpenVariant={onOpenVariant}
         />
       ) : (

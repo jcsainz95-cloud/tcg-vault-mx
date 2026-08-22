@@ -584,6 +584,9 @@ export interface BuylistRuleApplied {
 export interface BuylistQuoteResponse {
   rarity: string;
   finish: Finish;
+  // v1.30 (§4.29): eco del `productId` (TCGplayer) cuando se cotizó un PRODUCTO SEPARADO
+  // (deck_exclusive/promo, `separateProducts`). Ausente ⇒ línea de set_base (comportamiento v1.29).
+  productId?: number;
   appliedRule: BuylistRuleApplied;
   quote: {
     status: 'cotizada' | 'precio_pendiente';
@@ -602,6 +605,11 @@ export interface BuylistQuoteItemDTO {
   productType: ProductType;
   rawCondition?: RawCondition;
   finish?: Finish;
+  // v1.30 (§4.29, ADITIVO): el TCGplayer `productId` (== `CardProduct.tcgplayerProductId`, el MISMO
+  // que `CardProductDTO.productId` de `separateProducts`) cuando la línea es un PRODUCTO SEPARADO
+  // (deck_exclusive/promo). Presente ⇒ la línea es ESE producto (acabado ∈ `CardProduct.finishes`,
+  // referencia por ese `cardProductId`, precio PROPIO). Ausente ⇒ set_base por (cardId, finish).
+  productId?: number;
 }
 
 // Payload de éxito por ítem = MISMO shape que la respuesta de POST /buylist/quote por-carta.
@@ -609,6 +617,8 @@ export interface BuylistQuoteItemDTO {
 export interface BuylistQuotePayload {
   rarity: string | null;
   finish: Finish;
+  // v1.30 (§4.29): eco del `productId` cotizado (snapshot). Ausente ⇒ línea de set_base.
+  productId?: number;
   appliedRule: BuylistRuleApplied;
   quote: {
     status: 'cotizada' | 'precio_pendiente';
@@ -621,14 +631,19 @@ export interface BuylistQuotePayload {
 
 // Resultado por ítem: ok:true trae la cotización; ok:false trae el error de ESE ítem (NO tumba el
 // lote → HTTP 200). `index` = posición 0-based en el request items[] (llave de correlación robusta
-// ante cardId+finish repetidos); `cardId` se ecoa. Errores por-ítem: NOT_FOUND | FINISH_NOT_AVAILABLE.
+// ante cardId+finish+productId repetidos); `cardId` se ecoa. Errores por-ítem: NOT_FOUND |
+// FINISH_NOT_AVAILABLE | PRODUCT_NOT_FOUND (v1.30: productId inexistente) | PRODUCT_CARD_MISMATCH
+// (v1.30: productId no cuelga del cardId → rechazo validado, NUNCA fusión silenciosa con el set_base).
 export type BuylistBatchQuoteResultDTO =
   | ({ index: number; cardId: string; ok: true } & BuylistQuotePayload)
   | {
       index: number;
       cardId: string;
       ok: false;
-      error: { code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE'; message: string };
+      error: {
+        code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+        message: string;
+      };
     };
 
 export interface BuylistBatchQuoteResponse {
@@ -645,6 +660,10 @@ export interface SellItemDTO {
   // v1.6-finish: snapshot del acabado aplicado en la cotización/solicitud. Determina la
   // regla y la referencia usadas; se propaga al InventoryItem al convertir (M5).
   finish: Finish;
+  // v1.30 (§4.29): snapshot del TCGplayer `productId` cuando el ítem es un PRODUCTO SEPARADO
+  // (deck_exclusive/promo). Se propaga al InventoryItem al convertir (M5, ligado a ESE producto,
+  // no al set_base). Ausente/null ⇒ línea de set_base (comportamiento actual, retrocompatible).
+  productId?: number;
   rarity?: string;
   appliedRule?: BuylistRuleApplied;
   quotedPriceCents?: number;

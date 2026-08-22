@@ -433,6 +433,14 @@
       "other": "Other"
     },
     "separateProductAria": "{name} ({kind}, {finish}) · {price}",
+    "separateProductAddAria": "Add {name} ({kind}, {finish}) to the sale · {price}",
+    "separateProductError": "Not available",
+    "separateProductErrorCode": {
+      "PRODUCT_NOT_FOUND": "This product no longer exists in the catalog.",
+      "PRODUCT_CARD_MISMATCH": "This product doesn't belong to this card.",
+      "FINISH_NOT_AVAILABLE": "That finish isn't available for this product.",
+      "NOT_FOUND": "We couldn't find this card."
+    },
     "adjust": {
       "title": "Physical count adjustment",
       "reasonLabel": "Reason",
@@ -2016,6 +2024,8 @@
     "CLABE_NOT_OWN_NAME": "The CLABE must be in your name.",
     "CLABE_INVALID": "The CLABE is not valid.",
     "FINISH_NOT_AVAILABLE": "That finish isn't available for this card.",
+    "PRODUCT_NOT_FOUND": "That product no longer exists in the catalog.",
+    "PRODUCT_CARD_MISMATCH": "That product doesn't belong to this card.",
     "ITEM_NOT_PUBLISHABLE": "This piece can't be published in its current status.",
     "MONEY_OUT_FORBIDDEN": "Only the super-admin can execute money-out actions.",
     "REQUEST_HAS_NON_REJECTED_ITEMS": "Cannot close: some items are not rejected yet. Reject every item in the request before closing it.",

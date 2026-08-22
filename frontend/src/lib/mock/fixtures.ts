@@ -941,6 +941,32 @@ const MASTER_SET_SEPARATE_PRODUCTS: Record<string, CardProductDTO[]> = {
   ],
 };
 
+/** Productos SEPARADOS (deck_exclusive/promo) de una carta por su cardId (v1.29). */
+export function mockSeparateProductsForCard(cardId: string): CardProductDTO[] | undefined {
+  return MASTER_SET_SEPARATE_PRODUCTS[cardId];
+}
+
+/**
+ * v1.30 (§4.29): resuelve un `productId` de TCGplayer contra los productos SEPARADOS del mock.
+ * - `ok`: el productId cuelga de ESTA carta → devuelve el CardProduct (para precio/acabado).
+ * - `mismatch`: el productId existe pero cuelga de OTRA carta → PRODUCT_CARD_MISMATCH (jamás
+ *   fusión silenciosa con el set_base del cardId enviado).
+ * - `not_found`: el productId no existe en ningún producto separado → PRODUCT_NOT_FOUND.
+ */
+export type SeparateProductResolution =
+  | { status: 'ok'; product: CardProductDTO }
+  | { status: 'mismatch' }
+  | { status: 'not_found' };
+
+export function resolveSeparateProduct(cardId: string, productId: number): SeparateProductResolution {
+  const onCard = (MASTER_SET_SEPARATE_PRODUCTS[cardId] ?? []).find((p) => p.productId === productId);
+  if (onCard) return { status: 'ok', product: onCard };
+  const existsElsewhere = Object.values(MASTER_SET_SEPARATE_PRODUCTS).some((list) =>
+    list.some((p) => p.productId === productId),
+  );
+  return existsElsewhere ? { status: 'mismatch' } : { status: 'not_found' };
+}
+
 // on-hand = pieza de PLATAFORMA que sigue en bóveda (contrato §M1: status NOT IN
 // withdrawn/shipped/delivered/lost/damaged). reserved/in_custody/picking SÍ son on-hand.
 const OFF_HAND: InventoryStatus[] = ['withdrawn', 'shipped', 'delivered', 'lost', 'damaged'];

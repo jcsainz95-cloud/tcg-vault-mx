@@ -1,5 +1,5 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Card, CardProductKind, Finish, PriceReference, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
+import { Card, CardProduct, CardProductKind, Finish, PriceReference, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -246,6 +246,42 @@ export class PricingService {
     // `capturedDate desc` basta para elegir la vigente.
     const ref = await this.prisma.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, ...BASE_CARD_REF_WHERE },
+      orderBy: { capturedDate: 'desc' },
+    });
+    if (!ref) return { status: 'pending' };
+    const fx = await this.fxSnapshotSafe();
+    return {
+      status: 'priced',
+      referenceMxnCents: this.liveMxnCents(ref, fx),
+      source: ref.source as PriceSourceStr,
+      capturedDate: ref.capturedDate.toISOString().slice(0, 10),
+    };
+  }
+
+  /**
+   * v1.30 (M-32, §4.29) — Resuelve un `CardProduct` por su `tcgplayerProductId` (== el productId que
+   * el front recibió en `CardProductDTO.productId`/`separateProducts`, NO el UUID interno). Lectura pura:
+   * devuelve la fila o `null` (el caller decide el error PRODUCT_NOT_FOUND / valida que cuelgue del
+   * cardId → PRODUCT_CARD_MISMATCH). Reusa el `@unique tcgplayerProductId` de M-31 (§4.27b).
+   */
+  async findCardProductByTcgId(tcgplayerProductId: number): Promise<CardProduct | null> {
+    return this.prisma.cardProduct.findUnique({ where: { tcgplayerProductId } });
+  }
+
+  /**
+   * v1.30 (M-32, §4.29b) — Referencia de mercado de un producto SEPARADO: `PriceReference` filtrada por
+   * ESE `cardProductId` (UUID interno de M-31), no por (cardId, finish) del set_base. Su precio propio
+   * (source `tcgcsv_singles` primario, override/PPT si aplica). Sin fila ⇒ `pending` («—», nunca 0,
+   * misma invariante H1/H2/H3). FX recalculada al vuelo como en `getReference`.
+   */
+  async getReferenceByCardProduct(
+    cardProductInternalId: string,
+    productType: ProductType,
+    gradeKey: string,
+    finish: Finish = 'normal',
+  ): Promise<PriceInfo> {
+    const ref = await this.prisma.priceReference.findFirst({
+      where: { cardProductId: cardProductInternalId, productType, gradeKey, finish },
       orderBy: { capturedDate: 'desc' },
     });
     if (!ref) return { status: 'pending' };
@@ -685,16 +721,21 @@ export class PricingService {
     context: 'catalog' | 'portfolio' | 'buylist' | 'inventory',
     refId?: string,
     finish: Finish = 'normal',
+    // v1.30 (M-32, §4.29d): productId TCGplayer cuando la línea es un producto SEPARADO. Entra a la
+    // clave LÓGICA de dedupe — una entrada de deck_exclusive/promo NO se resuelve al fijar el precio del
+    // set_base (money-safe). `null` (default) = base; deja intactos todos los llamadores previos.
+    cardProductId: number | null = null,
   ): Promise<string> {
     // v1.26 (④): devuelve el id de la entrada open (creada o preexistente) para que el llamador
     // (bulkPublish) pueble `pendingPriceEntryId` en la línea PRICE_PENDING (deep-link de UI a M2).
-    // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, status='open')`.
+    // Sigue siendo idempotente: dedupe por `(cardId, productType, gradeKey, finish, cardProductId,
+    // status='open')` — v1.30 añade `cardProductId` a la clave (§4.29d).
     const open = await this.prisma.pendingPriceEntry.findFirst({
-      where: { cardId, productType, gradeKey, finish, status: 'open' },
+      where: { cardId, productType, gradeKey, finish, cardProductId, status: 'open' },
     });
     if (open) return open.id;
     const created = await this.prisma.pendingPriceEntry.create({
-      data: { cardId, productType, gradeKey, finish, context, refId, status: 'open' },
+      data: { cardId, productType, gradeKey, finish, cardProductId, context, refId, status: 'open' },
     });
     return created.id;
   }

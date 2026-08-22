@@ -14,6 +14,7 @@ import {
 } from '@/lib/api';
 import type {
   BuylistQuoteItemDTO,
+  BuylistQuoteResponse,
   BuylistBatchQuoteResultDTO,
   CardProductDTO,
   Finish,
@@ -55,7 +56,22 @@ type BinderTileItem =
       product: CardProductDTO;
       finish: Finish;
       priceCents: number | null;
+      // v1.30 (§4.29, SOLO quoter): cotización de buylist de ESTE producto separado por su
+      // `productId` (composición client-side, como variant.quote). `ok:false` ⇒ error por-línea
+      // (PRODUCT_NOT_FOUND / PRODUCT_CARD_MISMATCH); undefined en modos no-quoter (presentación).
+      quoteResult?: BuylistBatchQuoteResultDTO;
     };
+
+/**
+ * v1.30 (§4.29): el quoter compone las cotizaciones de los productos SEPARADOS (por `productId`)
+ * 100% client-side, igual que `variant.quote`. Se guardan en un mapa por `${cardId}:${productId}:${finish}`
+ * anexado a la respuesta del binder (campo client-only, NO viaja del backend en ningún endpoint).
+ */
+interface QuoterBinderResponse extends MasterSetBinderResponse {
+  separateProductQuotes?: Record<string, BuylistBatchQuoteResultDTO>;
+}
+const separateQuoteKey = (cardId: string, productId: number, finish: Finish) =>
+  `${cardId}:${productId}:${finish}`;
 
 interface Props {
   mode: MasterSetViewMode;
@@ -66,6 +82,18 @@ interface Props {
   onOpenCell: (cell: MasterSetCardCellDTO) => void;
   /** Solo modo `quoter`: clic en una casilla de acabado agrega esa combinación al carrito de venta. */
   onAddVariant?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
+  /**
+   * v1.30 (§4.29) · Solo modo `quoter`: clic en «Agregar» de un PRODUCTO SEPARADO
+   * (deck_exclusive/promo) agrega ESE producto al carrito de venta como LÍNEA PROPIA por su
+   * `productId` (precio propio, no fusionado con la carta base). `quote` es la cotización ya
+   * resuelta server-side (eco de `productId`).
+   */
+  onAddProduct?: (
+    cell: MasterSetCardCellDTO,
+    product: CardProductDTO,
+    finish: Finish,
+    quote: BuylistQuoteResponse,
+  ) => void;
   /**
    * v1.28 (P-17, solo M1): si viene, el clic en una casilla abre el DRILL-DOWN de ESA variante
    * (VariantDrawer) en lugar del drawer por-carta. El dueño (M1View) monta el panel.
@@ -82,7 +110,7 @@ interface Props {
  * variante trae su cotización (`variants[].quote`, v. types/contract.ts) resuelta con
  * `POST /buylist/quote/batch` en TROCEADO de ≤`BUYLIST_QUOTE_BATCH_MAX` ítems.
  */
-async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<MasterSetBinderResponse> {
+async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<QuoterBinderResponse> {
   const PAGE_SIZE = 50;
   const cards: import('@/types/contract').CardDTO[] = [];
   let page = 1;
@@ -94,22 +122,46 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<MasterSetBin
     page += 1;
   }
 
-  const items: BuylistQuoteItemDTO[] = cards.flatMap((c) =>
-    FINISH_ORDER.filter((f) => c.availableFinishes.includes(f)).map((f) => ({
-      cardId: c.id,
-      productType: 'raw' as const,
-      rawCondition: 'NM' as const,
-      finish: f,
-    })),
-  );
+  // v1.30 (§4.29): el lote incluye DOS clases de línea — el set_base por (carta, acabado) y CADA
+  // producto SEPARADO por (carta, productId, acabado). El `index` del batch no basta para
+  // correlacionar (base holofoil y producto holofoil de la MISMA carta comparten cardId+finish), así
+  // que se lleva un arreglo PARALELO de llaves con el productId incluido.
+  const items: BuylistQuoteItemDTO[] = [];
+  const keys: string[] = [];
+  for (const c of cards) {
+    for (const f of FINISH_ORDER.filter((ff) => c.availableFinishes.includes(ff))) {
+      items.push({ cardId: c.id, productType: 'raw', rawCondition: 'NM', finish: f });
+      keys.push(`${c.id}:${f}`);
+    }
+    for (const p of c.separateProducts ?? []) {
+      for (const f of FINISH_ORDER.filter((ff) => p.finishes.includes(ff))) {
+        items.push({ cardId: c.id, productType: 'raw', rawCondition: 'NM', finish: f, productId: p.productId });
+        keys.push(separateQuoteKey(c.id, p.productId, f));
+      }
+    }
+  }
   const quoteByKey = new Map<string, BuylistBatchQuoteResultDTO>();
   for (let i = 0; i < items.length; i += BUYLIST_QUOTE_BATCH_MAX) {
     const chunk = items.slice(i, i + BUYLIST_QUOTE_BATCH_MAX);
+    const chunkKeys = keys.slice(i, i + BUYLIST_QUOTE_BATCH_MAX);
     const res = await batchQuote(chunk);
     res.results.forEach((r) => {
-      const requested = chunk[r.index];
-      if (requested) quoteByKey.set(`${requested.cardId}:${requested.finish}`, r);
+      const key = chunkKeys[r.index];
+      if (key) quoteByKey.set(key, r);
     });
+  }
+
+  // Mapa de cotizaciones de productos separados por (cardId:productId:finish) para el render de sus
+  // tejas (precio propio + botón Agregar / error por-línea). Money-safe: sin precio ⇒ precio_pendiente.
+  const separateProductQuotes: Record<string, BuylistBatchQuoteResultDTO> = {};
+  for (const c of cards) {
+    for (const p of c.separateProducts ?? []) {
+      for (const f of FINISH_ORDER.filter((ff) => p.finishes.includes(ff))) {
+        const key = separateQuoteKey(c.id, p.productId, f);
+        const r = quoteByKey.get(key);
+        if (r) separateProductQuotes[key] = r;
+      }
+    }
   }
 
   const cells: MasterSetCardCellDTO[] = cards.map((c) => {
@@ -167,6 +219,7 @@ async function fetchQuoterBinder(set: MasterSetSummaryDTO): Promise<MasterSetBin
     catalogCardCount: cells.length,
     cells,
     scope: 'platform',
+    separateProductQuotes,
   };
 }
 
@@ -175,7 +228,7 @@ function fetchBinder(
   mode: MasterSetViewMode,
   userId: string | undefined,
   set: MasterSetSummaryDTO,
-): Promise<MasterSetBinderResponse> {
+): Promise<QuoterBinderResponse> {
   if (mode === 'quoter') return fetchQuoterBinder(set);
   if (mode === 'user_vault_self') return getVaultMasterSetBinder(set.setId);
   if (mode === 'user_vault_admin') return getAdminVaultMasterSetBinder(userId ?? '', set.setId);
@@ -191,7 +244,7 @@ function fetchBinder(
  * `availableFinishes`, orden canónico: normal a la izquierda, reverse holo a la derecha); el
  * contador «X/Y» cuenta variantes. Prohibida la casilla de relleno.
  */
-export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVariant, onOpenVariant }: Props) {
+export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVariant, onAddProduct, onOpenVariant }: Props) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
   const isQuoter = mode === 'quoter';
@@ -212,6 +265,8 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
   // `displayFinish`, orden FINISH_ORDER) y el resultado es un flujo plano de `{cell, variant}`.
   const tiles = useMemo(() => {
     const all = binder.data?.cells ?? [];
+    // v1.30 (§4.29, solo quoter): cotizaciones de productos separados por (cardId:productId:finish).
+    const quoteMap = binder.data?.separateProductQuotes;
     const name = nameFilter.trim().toLowerCase();
     // El orden de CARTAS lo da el backend (SQL, antes de paginar); al filtrar en cliente se REPRODUCE
     // con las claves del DTO (numberPrefix, numberSort, number) — contrato v1.22. Dentro de una carta,
@@ -242,7 +297,10 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
           if (finishFilter && finish !== finishFilter) continue;
           const priceCents =
             product.prices.find((p) => p.finish === finish)?.marketReferenceMxnCents ?? null;
-          out.push({ kind: 'product', cell, product, finish, priceCents });
+          // v1.30 (§4.29, solo quoter): adjunta la cotización de buylist del producto (por productId)
+          // para que su teja pinte el estimado propio + botón Agregar / error por-línea.
+          const quoteResult = quoteMap?.[separateQuoteKey(cell.cardId, product.productId, finish)];
+          out.push({ kind: 'product', cell, product, finish, priceCents, quoteResult });
         }
       }
     }
@@ -393,6 +451,13 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                       product={tile.product}
                       finish={tile.finish}
                       priceCents={tile.priceCents}
+                      isQuoter={isQuoter}
+                      quoteResult={tile.quoteResult}
+                      onAdd={
+                        onAddProduct
+                          ? (quote) => onAddProduct(tile.cell, tile.product, tile.finish, quote)
+                          : undefined
+                      }
                     />
                   </li>
                 ) : (
@@ -628,32 +693,49 @@ function QuoterTile({
 }
 
 /**
- * v1.29 (§4.27) — teja de un PRODUCTO SEPARADO (Deck Exclusive/promo) de la carta. Es un producto
- * vendible PROPIO con su propio `productId` y su propio precio por acabado: NO se fusiona en la
- * carta base ni cuenta para la completitud del set. Comparte la imagen de la carta pero se rotula
- * con su tipo de producto (Deck Exclusive / Promo). Money-safe: precio ausente → "—" (nunca $0).
+ * v1.29 (§4.27) / v1.30 (§4.29) — teja de un PRODUCTO SEPARADO (Deck Exclusive/promo) de la carta.
+ * Es un producto vendible PROPIO con su propio `productId` y su propio precio por acabado: NO se
+ * fusiona en la carta base ni cuenta para la completitud del set. Comparte la imagen de la carta
+ * pero se rotula con su tipo de producto (Deck Exclusive / Promo). Money-safe: precio ausente → "—"
+ * (nunca $0).
  *
- * Es de PRESENTACIÓN (no cotizable/agregable in-situ): el contrato del cotizador/carrito está
- * keyeado por (cardId, finish), no por `productId`, así que un producto separado no puede cotizarse
- * ni agregarse como línea distinta con el contrato v1.29 (ver salvedad reportada al arquitecto).
+ * - Modos de INVENTARIO (M1 / bóveda): PRESENTACIÓN — pinta el precio de MERCADO propio del producto.
+ * - Modo COTIZADOR (`isQuoter`): v1.30 (§4.29) el producto es COTIZABLE como línea propia — pinta el
+ *   ESTIMADO de buylist (cotizado server-side por `productId`) y un botón «Agregar» que lo manda al
+ *   carrito de venta como su propia línea. Errores del contrato (`PRODUCT_NOT_FOUND`,
+ *   `PRODUCT_CARD_MISMATCH`, `FINISH_NOT_AVAILABLE`) se muestran por-línea sin romper el binder.
  */
 function SeparateProductTile({
   cell,
   product,
   finish,
   priceCents,
+  isQuoter,
+  quoteResult,
+  onAdd,
 }: {
   cell: MasterSetCardCellDTO;
   product: CardProductDTO;
   finish: Finish;
   priceCents: number | null;
+  isQuoter?: boolean;
+  quoteResult?: BuylistBatchQuoteResultDTO;
+  onAdd?: (quote: BuylistQuoteResponse) => void;
 }) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const finishLabel = tFinish(finish);
   const kindLabel = t(`productKind.${product.kind}`);
-  const price = priceCents != null ? formatMoneyCents(priceCents, locale) : null;
+  const marketPrice = priceCents != null ? formatMoneyCents(priceCents, locale) : null;
+
+  // v1.30 (§4.29): en el cotizador el ESTIMADO de buylist manda (cotizado server-side por productId).
+  const quoteOk = quoteResult?.ok ? quoteResult : null;
+  const quoteError = quoteResult && !quoteResult.ok ? quoteResult.error.code : null;
+  const pending = quoteOk?.quote.status === 'precio_pendiente';
+  const quotedPrice =
+    quoteOk?.quote.quotedPriceCents != null ? formatMoneyCents(quoteOk.quote.quotedPriceCents, locale) : null;
+
   return (
     <div
       className="flex h-full flex-col"
@@ -661,7 +743,7 @@ function SeparateProductTile({
         name: product.name,
         kind: kindLabel,
         finish: finishLabel,
-        price: price ?? t('marketPending'),
+        price: marketPrice ?? t('marketPending'),
       })}
     >
       {/* FinishBand (§16.6): banda superior de 3px — canal de color; el texto lo porta la etiqueta. */}
@@ -683,17 +765,69 @@ function SeparateProductTile({
         <span aria-hidden> · </span>
         <span className="text-text">{finishLabel}</span>
       </p>
-      {/* Precio de mercado PROPIO del producto (money-safe: "—" cuando no hay precio, nunca $0). */}
-      <span className="mt-2 flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted">
-        <span>{t('marketLabel')}</span>
-        {price != null ? (
-          <span className="tabular-nums normal-case tracking-normal text-text">{price}</span>
-        ) : (
-          <span className="text-accent" title={t('marketPending')}>
-            {t('marketPendingShort')}
-          </span>
-        )}
-      </span>
+
+      {isQuoter ? (
+        // COTIZADOR (§4.29): estimado de buylist PROPIO del producto + botón Agregar / error por-línea.
+        <>
+          <p className="mt-2 font-mono tabular-nums text-[15px] text-text">
+            {quoteError ? (
+              <span className="text-accent">{t('separateProductError')}</span>
+            ) : pending ? (
+              <span className="text-accent">{t('quoterPending')}</span>
+            ) : (
+              quotedPrice ?? <span className="text-accent">{t('quoterUnavailable')}</span>
+            )}
+          </p>
+          {/* Error legible del contrato (productId inexistente / no cuelga del cardId) — no rompe el lote. */}
+          {quoteError && (
+            <p role="alert" className="mt-1 font-mono text-[10px] leading-snug text-accent">
+              {t(`separateProductErrorCode.${quoteError}`)}
+            </p>
+          )}
+          <div className="mt-auto pt-2.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full"
+              // Money-safe: sin cotización OK no se puede agregar como línea pagable (nunca $0). Una
+              // línea en precio_pendiente SÍ es agregable (el backend fija su monto al recibir).
+              disabled={!quoteOk || !onAdd}
+              onClick={() => {
+                if (!quoteOk || !onAdd) return;
+                onAdd({
+                  rarity: quoteOk.rarity ?? '',
+                  finish: quoteOk.finish,
+                  productId: quoteOk.productId ?? product.productId,
+                  appliedRule: quoteOk.appliedRule,
+                  quote: quoteOk.quote,
+                  referencePrice: quoteOk.referencePrice,
+                  paymentNotice: 'PAY_AFTER_RECEIPT',
+                });
+              }}
+              aria-label={t('separateProductAddAria', {
+                name: product.name,
+                kind: kindLabel,
+                finish: finishLabel,
+                price: quotedPrice ?? t('quoterPending'),
+              })}
+            >
+              {t('quoterAdd')}
+            </Button>
+          </div>
+        </>
+      ) : (
+        // INVENTARIO/BÓVEDA: presentación del precio de MERCADO propio (money-safe: "—" sin precio).
+        <span className="mt-2 flex items-baseline gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted">
+          <span>{t('marketLabel')}</span>
+          {marketPrice != null ? (
+            <span className="tabular-nums normal-case tracking-normal text-text">{marketPrice}</span>
+          ) : (
+            <span className="text-accent" title={t('marketPending')}>
+              {t('marketPendingShort')}
+            </span>
+          )}
+        </span>
+      )}
     </div>
   );
 }

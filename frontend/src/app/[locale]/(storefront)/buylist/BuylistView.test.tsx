@@ -911,3 +911,91 @@ describe('BuylistView · v1.15 CLABE/INE en archivo', () => {
     expect(screen.queryByText('INE (anverso)')).not.toBeInTheDocument();
   });
 });
+
+/**
+ * v1.30 (§4.29): productos SEPARADOS (deck_exclusive/promo) cotizables como LÍNEA PROPIA por
+ * `productId`. Charizard (base1) trae en fixtures un Deck Exclusive holofoil (productId 90001).
+ * El binder del cotizador lo pinta como su propia teja con botón «Agregar».
+ */
+describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () => {
+  /** Agrega un producto separado clicando su botón «Agregar» en el binder del cotizador. */
+  async function addSeparateProduct(re: RegExp) {
+    await openBaseSet();
+    const btn = await screen.findByRole('button', { name: re });
+    await waitFor(() => expect(btn).toBeEnabled());
+    fireEvent.click(btn);
+  }
+
+  const DECK_EXCLUSIVE_RE = /^Agregar Charizard \(Deck Exclusive\) \(Deck Exclusive, Holofoil\) a la venta/;
+
+  it('agregar un producto separado manda su productId a POST /buylist/requests', async () => {
+    asVerifiedCustomer();
+    const spy = vi.spyOn(api, 'createSellRequest');
+    renderWithProviders(<BuylistView />, 'es');
+    await addSeparateProduct(DECK_EXCLUSIVE_RE);
+    openCart();
+
+    // La línea del carrito usa el NOMBRE del producto (no el de la carta base).
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Charizard (Deck Exclusive)')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    fireEvent.change(await screen.findByLabelText(/CLABE/), {
+      target: { value: '002010077777777771' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const items = spy.mock.calls[0][0].items;
+    expect(items).toHaveLength(1);
+    expect(items[0].cardId).toBe('c-charizard');
+    expect(items[0].productId).toBe(90001);
+  });
+
+  it('dos líneas con el mismo (cardId, finish) pero distinto productId son DISTINTAS (no se fusionan)', async () => {
+    asVerifiedCustomer();
+    const spy = vi.spyOn(api, 'createSellRequest');
+    renderWithProviders(<BuylistView />, 'es');
+    // Set_base Charizard holofoil (sin productId) + Deck Exclusive holofoil (productId 90001).
+    await addCard('Charizard', 'Holofoil');
+    await addSeparateProduct(DECK_EXCLUSIVE_RE);
+    openCart();
+
+    // NO se fusionan en una sola línea con ×2: son DOS líneas → dos piezas.
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (2)' }));
+    fireEvent.change(await screen.findByLabelText(/CLABE/), {
+      target: { value: '002010077777777771' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const items = spy.mock.calls[0][0].items;
+    expect(items).toHaveLength(2);
+    // Una línea es el set_base (sin productId) y la otra el producto separado (productId 90001).
+    expect(items.filter((i) => i.productId == null)).toHaveLength(1);
+    expect(items.filter((i) => i.productId === 90001)).toHaveLength(1);
+    // Ambas comparten (cardId, finish) — la distinción es SOLO el productId.
+    expect(items.every((i) => i.cardId === 'c-charizard' && i.finish === 'holofoil')).toBe(true);
+  });
+
+  it('una carta base (sin productId) sigue viajando SIN productId (retrocompatible)', async () => {
+    asVerifiedCustomer();
+    const spy = vi.spyOn(api, 'createSellRequest');
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    fireEvent.change(await screen.findByLabelText(/CLABE/), {
+      target: { value: '002010077777777771' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const items = spy.mock.calls[0][0].items;
+    expect(items).toHaveLength(1);
+    expect(items[0].productId).toBeUndefined();
+  });
+});

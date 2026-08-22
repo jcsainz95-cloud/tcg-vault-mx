@@ -976,6 +976,13 @@ export async function searchBuylistCards(
     );
   }
   if (filters.rarity) data = data.filter((c) => c.rarity === filters.rarity);
+  // v1.29/v1.30 (§4.27/§4.29): GET /buylist/cards ecoa los productos SEPARADOS de la carta en
+  // `CardDTO.separateProducts`; el cotizador (fetchQuoterBinder) los propaga a la celda y los
+  // cotiza como líneas propias por `productId`. El mock los adjunta desde las fixtures.
+  data = data.map((c) => {
+    const sep = fx.mockSeparateProductsForCard(c.id);
+    return sep ? { ...c, separateProducts: sep } : c;
+  });
   return delay(paginate(data, filters));
 }
 
@@ -985,61 +992,109 @@ export interface BuylistQuoteInput {
   rawCondition?: RawCondition;
   /** v1.6-finish: acabado a cotizar; default `normal`. Debe pertenecer a card.availableFinishes. */
   finish?: Finish;
+  /**
+   * v1.30 (§4.29, ADITIVO): TCGplayer `productId` de un PRODUCTO SEPARADO (deck_exclusive/promo,
+   * `separateProducts`). Presente ⇒ la línea es ESE producto (acabado ∈ `CardProduct.finishes`,
+   * referencia/precio PROPIOS por ese productId). Ausente ⇒ set_base por (cardId, finish).
+   */
+  productId?: number;
 }
 
 /**
- * MOCK v1.3.1/v1.6-finish: resuelve el payload de una cotización por REGLA (fixed MX$ / pct % de
- * la referencia + fallback), donde el ACABADO selecciona la regla y la referencia. El backend
- * deriva la rareza + acabado server-side (SEC-A1); aquí lo replicamos para la demo. Compartido por
- * el quote por-carta (getBuylistQuote) y el quote en lote (batchQuote) para que ambos coincidan.
+ * MOCK v1.3.1/v1.6-finish/v1.30: aplica la REGLA de buylist (fixed MX$ / pct % de la referencia +
+ * fallback) sobre una (rareza, acabado, referencia) YA resueltas. El backend deriva rareza+acabado
+ * server-side (SEC-A1); aquí lo replicamos para la demo. `productId` (§4.29) se ECOA cuando la línea
+ * es un producto separado (deck_exclusive/promo). Money-safe: pct sin referencia ⇒ precio_pendiente
+ * (jamás 0). Compartido por el quote por-carta, el batch y la creación de solicitud.
  */
-function mockQuotePayload(input: BuylistQuoteInput): BuylistQuoteResponse {
-  const card = fx.mockCards.find((c) => c.id === input.cardId);
-  const rarity = card?.rarity ?? '';
-  const finish: Finish = input.finish ?? 'normal';
+function mockRuleQuote(
+  rarity: string,
+  finish: Finish,
+  refCents: number | null,
+  productId?: number,
+): BuylistQuoteResponse {
   const { rule, source } = fx.resolveBuylistRuleForFinish(rarity, finish);
   const appliedRule = { mode: rule.mode, value: rule.value, source };
-  // Referencia de mercado por carta+acabado (Zapdos = null → precio pendiente de adquisición).
-  const refCents = fx.mockReferenceForFinish(input.cardId, finish);
   const referencePrice: BuylistQuoteResponse['referencePrice'] =
     refCents != null ? { status: 'priced', priceMxnCents: refCents } : { status: 'pending' };
+  const base = {
+    rarity,
+    finish,
+    ...(productId != null ? { productId } : {}),
+    appliedRule,
+    paymentNotice: 'PAY_AFTER_RECEIPT' as const,
+  };
   if (rule.mode === 'fixed') {
     // Fijo: NO depende de la referencia → siempre cotiza.
-    return {
-      rarity,
-      finish,
-      appliedRule,
-      quote: { status: 'cotizada', quotedPriceCents: rule.value, currency: 'MXN' },
-      referencePrice,
-      paymentNotice: 'PAY_AFTER_RECEIPT',
-    };
+    return { ...base, quote: { status: 'cotizada', quotedPriceCents: rule.value, currency: 'MXN' }, referencePrice };
   }
-  // Porcentaje: si falta referencia del acabado → precio pendiente.
+  // Porcentaje: si falta referencia (del acabado o del producto separado) → precio pendiente.
   if (refCents == null) {
     return {
-      rarity,
-      finish,
-      appliedRule,
+      ...base,
       quote: { status: 'precio_pendiente', quotedPriceCents: null, currency: 'MXN' },
       referencePrice: { status: 'pending' },
-      paymentNotice: 'PAY_AFTER_RECEIPT',
     };
   }
   return {
-    rarity,
-    finish,
-    appliedRule,
+    ...base,
     quote: { status: 'cotizada', quotedPriceCents: Math.round((refCents * rule.value) / 100), currency: 'MXN' },
     referencePrice,
-    paymentNotice: 'PAY_AFTER_RECEIPT',
   };
+}
+
+/** Códigos de error POR-ÍTEM del contrato (§6/§4.29) que el mock puede emitir. */
+type MockQuoteItemError = 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+
+/**
+ * MOCK v1.30 (§4.29): resuelve UN ítem de cotización (carta BASE o PRODUCTO SEPARADO por
+ * `productId`) al shape del contrato. Con `productId`: valida el acabado contra
+ * `CardProduct.finishes` (default-ea al único acabado si se omite) y lee el precio PROPIO del
+ * producto (money-safe: sin referencia ⇒ precio_pendiente, nunca 0); `productId` inexistente ⇒
+ * PRODUCT_NOT_FOUND; que NO cuelgue del cardId ⇒ PRODUCT_CARD_MISMATCH (jamás fusión con el
+ * set_base). Sin `productId`: comportamiento v1.29 (set_base por (cardId, finish)).
+ */
+function mockResolveQuoteItem(
+  item: { cardId: string; finish?: Finish; productId?: number },
+  // El batch valida el acabado base ∈ availableFinishes (SEC-A1, por-ítem); el quote por-carta NO lo
+  // hacía (retrocompat de mock) — se preserva ese matiz con este flag. La whitelist del PRODUCTO
+  // separado (CardProduct.finishes) SIEMPRE se valida (contrato §4.29, ambos endpoints).
+  opts: { validateBaseFinish?: boolean } = {},
+): { ok: true; payload: BuylistQuoteResponse } | { ok: false; code: MockQuoteItemError } {
+  const card = fx.mockCards.find((c) => c.id === item.cardId);
+  if (!card) return { ok: false, code: 'NOT_FOUND' };
+  const rarity = card.rarity ?? '';
+
+  if (item.productId != null) {
+    const res = fx.resolveSeparateProduct(item.cardId, item.productId);
+    if (res.status === 'not_found') return { ok: false, code: 'PRODUCT_NOT_FOUND' };
+    if (res.status === 'mismatch') return { ok: false, code: 'PRODUCT_CARD_MISMATCH' };
+    const product = res.product;
+    // §4.29b: acabado omitido con UN solo acabado ⇒ se default-ea a ese; con >1 es obligatorio.
+    const finish: Finish = item.finish ?? (product.finishes.length === 1 ? product.finishes[0] : 'normal');
+    if (!product.finishes.includes(finish)) return { ok: false, code: 'FINISH_NOT_AVAILABLE' };
+    const refCents = product.prices.find((p) => p.finish === finish)?.marketReferenceMxnCents ?? null;
+    return { ok: true, payload: mockRuleQuote(rarity, finish, refCents, item.productId) };
+  }
+
+  const finish: Finish = item.finish ?? 'normal';
+  if (opts.validateBaseFinish && !card.availableFinishes.includes(finish)) {
+    return { ok: false, code: 'FINISH_NOT_AVAILABLE' };
+  }
+  const refCents = fx.mockReferenceForFinish(item.cardId, finish) ?? null;
+  return { ok: true, payload: mockRuleQuote(rarity, finish, refCents) };
 }
 
 export async function getBuylistQuote(input: BuylistQuoteInput): Promise<BuylistQuoteResponse> {
   if (!config.useMocks) {
     return apiRequest<BuylistQuoteResponse>('/buylist/quote', { method: 'POST', body: input });
   }
-  return delay(mockQuotePayload(input));
+  const res = mockResolveQuoteItem(input);
+  if (!res.ok) {
+    // Por-carta el error es HTTP (404 NOT_FOUND; 422 el resto, incl. PRODUCT_* de §4.29).
+    throw new ApiClientError(res.code === 'NOT_FOUND' ? 404 : 422, { code: res.code, message: res.code });
+  }
+  return delay(res.payload);
 }
 
 /** Cap de ítems por request de POST /buylist/quote/batch (contrato §6 · BUYLIST_QUOTE_BATCH_MAX). */
@@ -1049,8 +1104,10 @@ export const BUYLIST_QUOTE_BATCH_MAX = 50;
  * Cotización en LOTE (contrato §6 · POST /buylist/quote/batch, v1.15, `public`, READ-ONLY). Cotiza
  * N cartas en 1 request (mata el fan-out FE-12: antes N cartas = N POST /buylist/quote). NO crea
  * solicitud, NO mueve dinero, NO persiste. TOLERANTE A ERRORES POR-ÍTEM: una carta inválida sale
- * `ok:false` (NOT_FOUND / FINISH_NOT_AVAILABLE) y NO tumba las demás (HTTP global 200). Cap 50 ítems
- * (vacío/sobre-cap → 400 VALIDATION_ERROR). Reusa la misma resolución de monto que el quote por-carta.
+ * `ok:false` (NOT_FOUND / FINISH_NOT_AVAILABLE / v1.30 §4.29: PRODUCT_NOT_FOUND / PRODUCT_CARD_MISMATCH)
+ * y NO tumba las demás (HTTP global 200). Cap 50 ítems (vacío/sobre-cap → 400 VALIDATION_ERROR).
+ * Reusa la misma resolución de monto que el quote por-carta; con `productId` cotiza el producto
+ * SEPARADO como línea propia (su acabado/referencia/precio), no el set_base.
  */
 export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistBatchQuoteResponse> {
   if (!config.useMocks) {
@@ -1066,23 +1123,21 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
       message: `items must be between 1 and ${BUYLIST_QUOTE_BATCH_MAX}`,
     });
   }
+  // Mensajes EN de fallback por código (el front los traduce por `error.code`; SEC-A1).
+  const errorMessage: Record<MockQuoteItemError, string> = {
+    NOT_FOUND: 'Card not found',
+    FINISH_NOT_AVAILABLE: 'Finish is not available for this card',
+    PRODUCT_NOT_FOUND: 'Product not found',
+    PRODUCT_CARD_MISMATCH: 'Product does not belong to this card',
+  };
   const results: BuylistBatchQuoteResultDTO[] = items.map((item, index) => {
-    const card = fx.mockCards.find((c) => c.id === item.cardId);
-    if (!card) {
-      // Carta inexistente → error de ESE ítem (equivale al 404 del endpoint por-carta).
-      return { index, cardId: item.cardId, ok: false, error: { code: 'NOT_FOUND', message: 'Card not found' } };
+    // v1.30 (§4.29): resuelve base O producto separado por-ítem; errores por-ítem NO tumban el lote.
+    // El batch SÍ valida el acabado base ∈ availableFinishes (SEC-A1, como antes).
+    const res = mockResolveQuoteItem(item, { validateBaseFinish: true });
+    if (!res.ok) {
+      return { index, cardId: item.cardId, ok: false, error: { code: res.code, message: errorMessage[res.code] } };
     }
-    const finish: Finish = item.finish ?? 'normal';
-    if (!card.availableFinishes.includes(finish)) {
-      // Acabado fuera de availableFinishes → error de ESE ítem (SEC-A1; equivale al 422 por-carta).
-      return {
-        index,
-        cardId: item.cardId,
-        ok: false,
-        error: { code: 'FINISH_NOT_AVAILABLE', message: `Finish '${finish}' is not available for this card` },
-      };
-    }
-    return { index, cardId: item.cardId, ok: true, ...mockQuotePayload(item) };
+    return { index, cardId: item.cardId, ok: true, ...res.payload };
   });
   return delay({ results });
 }
@@ -1105,6 +1160,9 @@ export interface CreateSellRequestInput {
     productType: ProductType;
     rawCondition?: RawCondition;
     finish?: Finish;
+    // v1.30 (§4.29): TCGplayer `productId` cuando el ítem es un PRODUCTO SEPARADO
+    // (deck_exclusive/promo). Se snapshotea en SellRequestItem.cardProductId server-side.
+    productId?: number;
   }[];
   /**
    * CLABE destino en claro (18 dígitos). v1.15: OPCIONAL. Si se OMITE, el backend hace fallback
@@ -1130,23 +1188,25 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // de cliente: el contrato ya soporta el shape directo.
     return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
   }
-  // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO). El monto se
-  // resuelve por la REGLA de la rareza (v1.3.1), igual que el cotizador.
+  // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO). El monto se resuelve por
+  // la REGLA de la rareza (v1.3.1), igual que el cotizador; v1.30 (§4.29): con `productId` la línea
+  // se cotiza contra el PRODUCTO SEPARADO (su acabado/referencia/precio) y se snapshotea el productId.
   const items: SellRequestDTO['items'] = input.items.map((it, i) => {
     const card = fx.mockCards.find((c) => c.id === it.cardId) ?? fx.mockCards[0];
-    const finish: Finish = it.finish ?? 'normal';
-    const ref = fx.mockReferenceForFinish(it.cardId, finish);
-    const { rule, source } = fx.resolveBuylistRuleForFinish(card.rarity, finish);
-    const quoted =
-      rule.mode === 'fixed' ? rule.value : ref != null ? Math.round((ref * rule.value) / 100) : undefined;
+    const res = mockResolveQuoteItem(it);
+    const payload = res.ok ? res.payload : null;
+    const finish: Finish = payload?.finish ?? it.finish ?? 'normal';
+    const quoted = payload?.quote.quotedPriceCents ?? undefined;
     return {
       id: `sri-new-${i}`,
       card,
       productType: it.productType,
       rawCondition: it.rawCondition,
       finish,
+      // v1.30 (§4.29): snapshot del productId cuando la línea es un producto separado.
+      ...(it.productId != null ? { productId: it.productId } : {}),
       rarity: card.rarity,
-      appliedRule: { mode: rule.mode, value: rule.value, source },
+      appliedRule: payload?.appliedRule ?? { mode: 'pct', value: 40, source: 'fallback' },
       quotedPriceCents: quoted,
       itemStatus: quoted == null ? 'precio_pendiente' : 'cotizada',
     };
