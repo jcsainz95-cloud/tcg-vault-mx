@@ -14,10 +14,14 @@ CREATE TYPE "CardProductKind" AS ENUM ('set_base', 'deck_exclusive', 'promo', 'o
 --    (sellado). NO se usa dentro de esta migración (evita el conflicto de "unsafe use of new value").
 ALTER TYPE "PriceSource" ADD VALUE IF NOT EXISTS 'tcgcsv_singles';
 
--- 3) Columna nueva `Card.rarityCanonical` (nullable). El BACKEND corre `normalizeRarity` sobre las
---    filas existentes (data-migration `m31-backfill.ts`); aquí se SIEMBRA con el `rarity` CRUDO como
---    valor money-safe transitorio (el lookup de reglas normaliza AMBOS lados, §4.28c) para que ningún
---    consumidor quede en null antes de que corra el normalizador / el re-sync por set.
+-- 3) Columna nueva `Card.rarityCanonical` (nullable). Aquí se SIEMBRA con el `rarity` CRUDO como valor
+--    money-safe transitorio (el lookup de reglas normaliza AMBOS lados en runtime, §4.28c) para que
+--    ningún consumidor quede en null. NO existe data-migration aparte: el valor CANÓNICO real lo puebla
+--    el RE-SYNC FORZADO por set (`sync {setId, force:true}` → `upsertCards` escribe
+--    `rarityCanonical = normalizeRarity(rarity)`), que ADEMÁS es obligatorio para poblar `CardProduct`.
+--    Consecuencia conocida hasta ese re-sync: el `groupBy(['rarityCanonical','rarity'])` del admin
+--    agrupa las filas pre-M31 por el string CRUDO. El PRICING no se ve afectado (re-normaliza ambos
+--    lados). Ver `docs/TECH_DEBT.md` (M-31: re-sync forzado total requerido para el release).
 ALTER TABLE "Card" ADD COLUMN "rarityCanonical" TEXT;
 UPDATE "Card" SET "rarityCanonical" = "rarity" WHERE "rarity" IS NOT NULL;
 

@@ -3032,3 +3032,67 @@
   decisión — fallback = «nunca emitir whitelist vacía» (materializa una casilla mínima recomputable); rama
   `null` = «sin rareza no hay evidencia para borrar un `normal` posiblemente legítimo» — de modo que quede
   explícito que no compiten (aplican a fases distintas de la composición).
+
+### Fix `fix/variant-composition-regression` — cierre M-31/M-32 (v1.29/v1.30, 2026-08-22, no bloqueante)
+
+> Del gate techlead del stream M-31/M-32 («1 carta ↔ N productos TCGplayer» por `productId` exacto +
+> rareza canónica, §4.27/§4.28/§4.29). Veredicto **APROBADO con deuda**. Los 3 hallazgos MAYOR
+> (desempate no determinista en `getReference`; comentarios obsoletos que describían heurísticas
+> retiradas; migración que prometía un backfill inexistente) **ya se cerraron** en esta rama y NO
+> figuran como deuda. Lo de abajo es la deuda NO bloqueante aceptada. Con v1.29 quedan **superseded**
+> los ítems `VC-D2/VC-D3/VC-D4` (describen la heurística `composeAvailableFinishes`/`isPremiumRarity`/N-15,
+> DEROGADA: la whitelist hoy se deriva EXACTA de `CardProduct.finishes` sin filtro premium — ver
+> `finish-reconciler.service.ts`); se conservan como registro histórico.
+
+### VC-D5 · Columnas muertas aún escritas (`structuralFinishes`/`catalogFinishes`/`pricedFinishesSnapshot`) (Baja, backend)
+- **Dónde:** `backend/prisma/schema.prisma` (`Card`), aún escritas por `catalog-sync.service.ts` (`upsertCards`) y `price-ingest.service.ts` (snapshot). Ya **NO se leen** para componer (v1.29, §4.27c: el `FinishReconciler` deriva de `CardProduct.finishes`).
+- **Estado:** columnas WRITE-ONLY. La migración M-31 las conserva a propósito para **reversibilidad** del deploy (el resolver viejo aún las encontraría si hay que revertir).
+- **Impacto:** nulo funcional; ruido de esquema + escrituras inútiles.
+- **Disparador:** **una vez validado M-31 en prod.** Dirección: migración POSTERIOR que dropee las 3 columnas y retire su escritura de `upsertCards`/`price-ingest`. Cambio de schema ⇒ **coordinar arquitecto** (zona compartida `prisma/`).
+
+### VC-D6 · `cardProductId` sobrecargado: `String?` FK (cuid) vs `Int?` snapshot (productId) (Baja, backend)
+- **Dónde:** `PriceReference.cardProductId` = `String?` FK a `CardProduct.id` (UUID/cuid interno); pero `SellRequestItem.cardProductId` y `PendingPriceEntry.cardProductId` = `Int?` = el `tcgplayerProductId` (productId TCGplayer crudo), NO el UUID interno.
+- **Estado:** mismo NOMBRE de columna con DOS significados/tipos distintos (FK interna vs snapshot del id externo). Documentado en los comentarios del schema, pero el nombre invita a confundirlos.
+- **Impacto:** bajo/latente; riesgo de que un dev cruce un `Int` productId con la FK `String` o viceversa (no compila por tipo, pero confunde en queries manuales/joins mentales).
+- **Disparador:** **próximo toque de `SellRequestItem`/`PendingPriceEntry`.** Dirección: renombrar los `Int?` a `tcgplayerProductId` (o `productIdSnapshot`) para desambiguar del FK interno. Cambio de schema ⇒ **coordinar arquitecto**.
+
+### VC-D7 · `displayFinishes` redundante (`== availableFinishes`) — retiro de contrato pendiente (Baja, backend/frontend)
+- **Dónde:** `computeDisplayFinishes` (`backend/src/common/card-order.ts`) es hoy un **shim PURO** (`displayFinishes := availableFinishes`, sin N-15). Se sigue emitiendo en los DTO (`catalog.service.ts`, `master-set.service.ts`) solo por el contrato del front.
+- **Impacto:** nulo funcional; campo duplicado en el payload.
+- **Disparador:** cuando el **frontend** deje de leer `displayFinishes`. Dirección: retirar el campo del contrato (**arquitecto** en `API_CONTRACT.md`) y del DTO, y borrar el shim. Follow-up de front; hasta entonces se conserva por compatibilidad.
+
+### VC-D8 · `NULLS NOT DISTINCT` fija PostgreSQL ≥ 15 como requisito de deploy (Media, backend/devops)
+- **Dónde:** migración M-31 (`20260822120000_..._rarity_canonical/migration.sql`), índice `PriceReference_variant_capturedDate_key ... NULLS NOT DISTINCT`.
+- **Estado:** la unicidad de la clave de precio con `cardProductId = NULL` (graded/sealed/fallback) depende de `NULLS NOT DISTINCT`, sintaxis **solo PG 15+**. En un motor < 15 la migración falla.
+- **Impacto:** medio operativo: pin de versión de infra no negociable. Si staging/prod corriera < 15, rompería el deploy o (peor) permitiría duplicados si se sustituyera por índice normal sin invariante de app.
+- **Disparador:** **antes del primer deploy y en cualquier cambio de motor.** Dirección: **devops** fija/documenta PG ≥ 15 en el entorno; si algún día hay que soportar < 15, sustituir por índice normal + invariante de upsert a nivel de aplicación (ya anticipado en el comentario de la migración). Ref: `docs/DEVOPS_NOTES.md`.
+
+### VC-D9 · El override M-30 no cubre la rama `productId` (producto separado) (Baja, backend)
+- **Dónde:** lógica de override manual de precio (M-30) sobre `PriceReference`.
+- **Estado:** el override manual opera sobre la referencia de la carta de set (`cardProductId = null`); la rama de PRODUCTO SEPARADO (`cardProductId` no nulo: deck_exclusive/promo) NO tiene override manual. **Money-safe** por construcción: sin override, el precio del producto separado cae a su referencia de mercado o a `pending` («—», nunca 0).
+- **Impacto:** bajo; el admin no puede fijar a mano el precio de un producto separado (solo mercado). Sin riesgo de dinero mal calculado.
+- **Disparador:** si negocio pide override manual por productId. Dirección: extender el override a la clave `(…, cardProductId)`. **Coordinar arquitecto** (contrato del override).
+
+### VC-D10 · `cardProductId` no se propaga a `InventoryItem` al convertir (Baja, backend)
+- **Dónde:** conversión de una entrada/sell request a `InventoryItem`.
+- **Estado:** el `cardProductId` (productId del producto separado) que viaja en `SellRequestItem`/`PendingPriceEntry` NO se propaga al `InventoryItem` resultante; el ítem queda anclado solo a `(cardId, finish)` como antes de M-31/M-32.
+- **Impacto:** bajo hoy; la valuación del inventario del producto separado no distingue por productId al nivel del ítem (usa la ruta de carta base). Latente si se quiere valuar/reportar inventario por producto separado.
+- **Disparador:** cuando el inventario necesite discriminar por producto separado. Dirección: añadir `cardProductId` a `InventoryItem` y propagarlo en la conversión. Cambio de schema ⇒ **coordinar arquitecto**.
+
+### VC-D11 · R-1: hermanos por `groupId` sin verificación por egress (Media, backend/arquitecto)
+- **Dónde:** resolución de productos hermanos (mismo `groupId` TCGCSV) en el resolver de M-31.
+- **Estado:** los productos hermanos bajo un `groupId` se agrupan sin una verificación independiente por **egress** (segunda señal que confirme que pertenecen a la misma carta/juego). Se confía en el `groupId` de la fuente.
+- **Impacto:** medio/latente; una anomalía de la fuente (dos cartas distintas bajo un mismo groupId) podría fundir productos que no corresponden. Acotado hoy por el `@unique tcgplayerProductId` y la lectura EXACTA por productId.
+- **Disparador:** al endurecer el resolver o si aparece drift de agrupación en la fuente. Dirección: añadir verificación cruzada (egress/segunda señal) antes de agrupar por `groupId`. **Enrutar al arquitecto** (doctrina del resolver §4.27).
+
+### VC-D12 · R-5: rareza nueva entra `unmapped` → fallback pct hasta añadirla al catálogo (Media, backend)
+- **Dónde:** `normalizeRarity` / catálogo de rarezas canónicas + reglas por rareza (buylist/sales).
+- **Estado:** una rareza NUEVA que aún no está en el catálogo de mapeo entra como `unmapped` y cae al **fallback por porcentaje** de las reglas de precio hasta que se la añada explícitamente. Money-safe (usa el pct genérico), pero no aplica la regla fina de esa rareza.
+- **Impacto:** medio; precios de compra/venta de la rareza nueva usan el % genérico (no el afinado) hasta la actualización del catálogo.
+- **Disparador:** cada vez que TCGplayer introduce una rareza nueva. Dirección: proceso/alerta que detecte `unmapped` y lo enrute a añadir la rareza al catálogo canónico + su regla. Observabilidad ya existe vía el lookup; falta la señal proactiva.
+
+### VC-D13 · M-31 REQUIERE re-sync forzado TOTAL para poblar `CardProduct` + `rarityCanonical` (Media, backend/devops — requisito de release)
+- **Dónde:** migración M-31 (siembra transitoria) + `catalog-sync.service.ts` (`upsertCards` escribe `rarityCanonical = normalizeRarity(rarity)` y el resolver `--force` puebla `CardProduct`).
+- **Estado (honesto, cierra MAYOR-2):** la migración M-31 **NO** trae data-migration aparte (el `m31-backfill.ts` que un comentario previo prometía **no existe**; el comentario ya se corrigió). La columna `rarityCanonical` se SIEMBRA con el `rarity` **crudo** como valor money-safe transitorio; el valor CANÓNICO real y las filas de `CardProduct` los puebla el **RE-SYNC FORZADO por set** (`sync {setId, force:true}`), que de todos modos es **obligatorio** para poblar `CardProduct`.
+- **Impacto:** hasta ejecutar el re-sync forzado TOTAL, el `groupBy(['rarityCanonical','rarity'])` del admin (`pricing.controller.ts`) agrupa las filas **pre-M31 por el string CRUDO** (no el canónico). El **PRICING no se ve afectado** (el lookup re-normaliza AMBOS lados). Sin riesgo de dinero; solo agrupación de reportes admin hasta el re-sync.
+- **Disparador:** **release de M-31/M-32.** Acción requerida: correr un **re-sync forzado total** (todos los sets) como paso del release, ANTES de considerar poblado el catálogo canónico. No hay runbook de release dentro de `backend/`; **devops** debe cablear este paso en el procedimiento de deploy (`docs/DEVOPS_NOTES.md`). Consistencia verificada: comentario de la migración ↔ realidad ↔ esta entrada.

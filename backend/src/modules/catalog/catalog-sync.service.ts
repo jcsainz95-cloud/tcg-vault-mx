@@ -426,9 +426,12 @@ export class CatalogSyncService {
    *   - UPDATE → la clave `catalogFinishes` se incluye SOLO si `derived !== null`; sin señal se OMITE
    *     y se CONSERVA lo previo (un payload/502 degradado no puede volver a clobbear a `['normal']`).
    * Tras el lote, LLAMA a `FinishReconciler.reconcile(cardIds)` para que recompute
-   * `availableFinishes = composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`
-   * de las cartas tocadas (§4.25e: la unión vuelve y se filtra `normal` si la rareza es premium;
-   * `catalogFinishes` write-only no compone).
+   * `availableFinishes` de las cartas tocadas. v1.29 (§4.27c) DEROGÓ la heurística
+   * `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`: el reconciliador YA
+   * NO une señales ni filtra `normal` por rareza premium. La lista blanca se DERIVA DIRECTO de la unión
+   * de `CardProduct.finishes` (kinds `set_base`/`other`) por productId exacto, `|| ['normal']`. Las
+   * columnas `structuralFinishes`/`catalogFinishes`/`pricedFinishesSnapshot` quedan MUERTAS (write-only,
+   * nadie las lee para componer).
    * Además puebla las claves de ORDEN NATURAL `numberSort`/`numberPrefix` (M-26, §4.22b) con
    * `deriveNumberParts` — la MISMA función que espeja el backfill SQL. Ya NO se puebla
    * `PriceReference` (WS-A §4.15g: este sync es SOLO metadata).
@@ -500,9 +503,10 @@ export class CatalogSyncService {
         );
       }
     }
-    // §4.22g candado 4 + v1.27.1 §4.25e: `availableFinishes` la escribe SOLO el reconciliador, con
-    // `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)` — la unión
-    // vuelve, `normal` se filtra si la rareza es premium; `catalogFinishes` (write-only) no compone.
+    // v1.29 (§4.27c): `availableFinishes` la escribe SOLO el reconciliador, DERIVÁNDOLA de la unión de
+    // `CardProduct.finishes` (kinds set_base/other, por productId exacto) — SIN unir señales y SIN
+    // filtrar `normal` por rareza premium (la vieja `composeAvailableFinishes` quedó derogada;
+    // `catalogFinishes`/`structuralFinishes`/`pricedFinishesSnapshot` son columnas muertas write-only).
     // Aquí solo se garantiza que las cartas tocadas queden recompuestas.
     await this.finishReconciler.reconcile(touchedCardIds);
     if (noFinishSignal > 0) {

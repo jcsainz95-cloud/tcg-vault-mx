@@ -49,7 +49,10 @@ const BASE_CARD_REF_WHERE: Prisma.PriceReferenceWhereInput = {
   ],
 };
 
-/** Columnas mínimas que necesita la valuación (incl. `source` para la precedencia §4.27f). */
+/**
+ * Columnas mínimas que necesita la valuación (incl. `source` para la precedencia §4.27f y
+ * `cardProductId` para el desempate DETERMINISTA money-safe de M-31, ver `isBetterRef`).
+ */
 const PRICE_REF_SELECT = {
   cardId: true,
   productType: true,
@@ -60,7 +63,17 @@ const PRICE_REF_SELECT = {
   isManualOverride: true,
   source: true,
   capturedDate: true,
+  cardProductId: true,
 } as const;
+
+/**
+ * Cota de candidatas a leer para el desempate por-clave (M-31, MAYOR-3). Por
+ * `(cardId, productType, gradeKey, finish, capturedDate)` dentro de `BASE_CARD_REF_WHERE` las filas
+ * solo difieren en `cardProductId` (null | set_base | other): un puñado por día. Bajo
+ * `orderBy capturedDate desc`, TODAS las filas del día más reciente (las únicas que pueden ganar)
+ * caen en el bloque inicial; 32 es una cota holgadísima que las cubre sin traer el histórico entero.
+ */
+const SAME_DAY_REF_CANDIDATES = 32;
 
 type RefRow = {
   priceMxnCents: number;
@@ -68,6 +81,7 @@ type RefRow = {
   isManualOverride: boolean;
   source: string;
   capturedDate: Date;
+  cardProductId: string | null;
 };
 
 /**
@@ -90,12 +104,34 @@ function sourceRank(source: string, isManualOverride: boolean): number {
   }
 }
 
-/** ¿`a` es MEJOR referencia que `b`? Más reciente primero; a igual fecha, mejor precedencia de fuente. */
+/**
+ * ¿`a` es MEJOR referencia que `b`? Precedencia TOTALMENTE DETERMINISTA (money-safe, M-31 MAYOR-3):
+ *   1. `capturedDate` más reciente.
+ *   2. A igual día, mejor precedencia de FUENTE (override > tcgcsv_singles > … , `sourceRank`).
+ *   3. A igual día y fuente, la fila de la VARIANTE RESUELTA (`cardProductId` no nulo, escrita por el
+ *      resolver de singles) gana sobre la genérica `cardProductId=null` del price-ingest (NULLS LAST).
+ *   4. Último criterio: orden lexicográfico del `cardProductId` (cuid), para que la elección sea
+ *      ESTABLE y REPRODUCIBLE ante un import forzado (`sync {force:true}`), no «cualquiera de las dos».
+ */
 function isBetterRef(a: RefRow, b: RefRow): boolean {
   const at = a.capturedDate.getTime();
   const bt = b.capturedDate.getTime();
   if (at !== bt) return at > bt;
-  return sourceRank(a.source, a.isManualOverride) < sourceRank(b.source, b.isManualOverride);
+  const ar = sourceRank(a.source, a.isManualOverride);
+  const br = sourceRank(b.source, b.isManualOverride);
+  if (ar !== br) return ar < br;
+  const acp = a.cardProductId;
+  const bcp = b.cardProductId;
+  if ((acp == null) !== (bcp == null)) return acp != null; // NULLS LAST: la variante resuelta gana.
+  if (acp != null && bcp != null && acp !== bcp) return acp < bcp;
+  return false;
+}
+
+/** Reduce un conjunto de candidatas a la MEJOR según `isBetterRef` (desempate determinista). */
+function pickBestRef<T extends RefRow>(rows: T[]): T | null {
+  let best: T | null = null;
+  for (const r of rows) if (best == null || isBetterRef(r, best)) best = r;
+  return best;
 }
 
 export interface PriceInfo {
@@ -241,13 +277,19 @@ export class PricingService {
   ): Promise<PriceInfo> {
     // v1.29 (M-31, §4.27f): la referencia de la CARTA DE SET considera SOLO filas del set_base/other
     // (o legacy `cardProductId=null`); NUNCA una fila de deck_exclusive/promo (ese precio vive en su
-    // producto separado). Por diseño (§4.27f) PPT solo escribe si NO hay tcgcsv_singles fresca de la
-    // variante, así que a igualdad de día no coexisten fuentes distintas del mismo (carta, acabado);
-    // `capturedDate desc` basta para elegir la vigente.
-    const ref = await this.prisma.priceReference.findFirst({
+    // producto separado).
+    // M-31 MAYOR-3 (money-safe): el price-ingest diario escribe una fila `cardProductId=null` y el
+    // resolver de singles escribe otra `cardProductId=<set_base>` el MISMO día; ambas pueden coexistir
+    // (p. ej. un `sync {force:true}`). `capturedDate desc` a secas es NO determinista para ese empate,
+    // así que NO se toma «la primera del orden»: se leen las candidatas del día y se elige la mejor con
+    // `isBetterRef` (fuente → cardProductId NULLS LAST → cuid), estable y reproducible.
+    const rows = await this.prisma.priceReference.findMany({
       where: { cardId, productType, gradeKey, finish, ...BASE_CARD_REF_WHERE },
-      orderBy: { capturedDate: 'desc' },
+      orderBy: [{ capturedDate: 'desc' }, { cardProductId: { sort: 'asc', nulls: 'last' } }],
+      select: PRICE_REF_SELECT,
+      take: SAME_DAY_REF_CANDIDATES,
     });
+    const ref = pickBestRef(rows);
     if (!ref) return { status: 'pending' };
     const fx = await this.fxSnapshotSafe();
     return {
@@ -280,10 +322,16 @@ export class PricingService {
     gradeKey: string,
     finish: Finish = 'normal',
   ): Promise<PriceInfo> {
-    const ref = await this.prisma.priceReference.findFirst({
+    // M-31 MAYOR-3 (money-safe): mismo desempate DETERMINISTA que `getReference`. Aquí todas las filas
+    // comparten `cardProductId`, así que el empate que importa es a igual día por FUENTE (p. ej. un
+    // override manual vs tcgcsv_singles del mismo día): se elige con `isBetterRef`, no «la primera».
+    const rows = await this.prisma.priceReference.findMany({
       where: { cardProductId: cardProductInternalId, productType, gradeKey, finish },
       orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT,
+      take: SAME_DAY_REF_CANDIDATES,
     });
+    const ref = pickBestRef(rows);
     if (!ref) return { status: 'pending' };
     const fx = await this.fxSnapshotSafe();
     return {
@@ -405,7 +453,7 @@ export class PricingService {
     const refs = await this.prisma.priceReference.findMany({
       where: { cardProductId: { in: productIds }, productType: 'raw', gradeKey: 'raw:NM' },
       orderBy: { capturedDate: 'desc' },
-      select: { ...PRICE_REF_SELECT, cardProductId: true },
+      select: PRICE_REF_SELECT, // incluye `cardProductId` (M-31 MAYOR-3).
     });
     // Mejor fila por (cardProductId, finish) según precedencia §4.27f.
     const bestByPf = new Map<string, RefRow>();

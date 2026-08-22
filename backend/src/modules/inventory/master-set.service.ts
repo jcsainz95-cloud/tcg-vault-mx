@@ -505,9 +505,12 @@ export class MasterSetService {
         // v1.20 — universo de variantes esperado (histórico → ['normal']). El drift (piezas con
         // finish FUERA del universo) queda visible en countsByFinish pero no en variants/covered.
         const universe = expectedFinishes(c.availableFinishes as Finish[]);
-        // v1.22-2 / N-15 (§4.22a-6): displayFinishes ⊆ availableFinishes (oculta el espurio de una
-        // premium de 1 impresión); `displayed` marca por variante si el front la PINTA. La completitud
-        // (expected/covered) SIGUE contando sobre el universo `availableFinishes`, sin cambio.
+        // v1.29 (§4.27c): la supresión heurística N-15 quedó DEROGADA. `computeDisplayFinishes` es hoy
+        // un shim PURO (`displayFinishes := availableFinishes`, sin filtrar por rareza/premium): ya no
+        // hay casilla espuria que ocultar porque `availableFinishes` se deriva EXACTO de CardProduct.
+        // Se conserva la llamada solo por el contrato del DTO (retiro del campo pendiente en front).
+        // `displayed` marca por variante si el front la PINTA; la completitud (expected/covered) cuenta
+        // sobre el universo `availableFinishes`, sin cambio.
         const displayFinishes = computeDisplayFinishes(
           c.rarity,
           c.availableFinishes as Finish[],
