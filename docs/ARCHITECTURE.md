@@ -5911,6 +5911,106 @@ desactivar o extender el mapa **no ejecuta ninguna escritura** de datos.
 
 ---
 
+### 4.32 Alta dedicada de producto SELLADO con imagen de API (v1.36-sealed-alta, P-35, NORMATIVO)
+
+> **Problema:** en M1 → pestaña **Sellado**, el modal de alta reutiliza el **buscador de CARTAS** (singles). Al elegir
+> set + Tipo=Sellado, los resultados siguen siendo **singles**, no **productos sellados** (ETB, booster box, blíster),
+> y el operador termina anclando una caja a un single arbitrario. **Causa raíz:** no existe un listado de productos
+> sellados de un set; el sellado no es entidad de catálogo (§4.19c: es `InventoryItem(sealed)` **anclado a una `Card`**
+> + `tcgplayerProductId`). **Fuente de sellado ya disponible:** el proxy TCGCSV curado en M-23 (`groups/:groupId/products`,
+> con `imageUrl`); pokemontcg.io **no** tiene sellado. Este cambio añade un flujo dedicado que **reusa** ese proxy y el
+> alta por lote existente; **sin** entidad nueva. **Alcance acotado: alta + listado; NO** re-llaveo de identidad del
+> sellado (ver §4.32d, diferido).
+
+#### 4.32a Endpoint de listado — `GET /admin/inventory/sealed-catalog?setId=` (`vault_operator+`)
+
+Lista los productos **sellados** de un set desde TCGCSV, cada uno con `tcgplayerProductId`, `name`, `sealedSubtype`
+inferido, **`imageUrl` de la API** y `marketRef` (informativo, money-safe). Contrato en API_CONTRACT §M1 +
+`SealedCatalogProductDTO`/`SealedCatalogResponse`. Reglas:
+
+- **Reusa el `TcgcsvClient` server-side** (proxy read-only, host fijo `tcgcsv.com`, categoría Pokémon=3, anti-SSRF)
+  que ya sirve `/admin/pricing/sealed/tcgcsv/groups/:groupId/products` (§4.19b). El navegador nunca habla con
+  tcgcsv.com. **Diferencia de autorización:** ese explorador es `super_admin` (curación M2); ESTE es `vault_operator+`
+  (alta M1). Se acepta porque el listado es solo lectura de catálogo (no mueve dinero); ver §4.32c.
+- **`marketRef` (money-safe):** por producto, `marketPrice` del grupo TCGCSV → `usdToMxnCents(market, rate, bufferPct)`
+  (FX+colchón, `FxService.getCurrent()` una vez por request). **Sin precio en la fuente ⇒ `null` (pendiente/«—»),
+  NUNCA `0`.** Es una SUGERENCIA junto al alta; NO es una `PriceReference` comprometida (la referencia real la escribe
+  el job `sealed-price-ingest`, §4.19d, tras el alta mapeada). **Sin N+1:** una llamada de productos + una de precios
+  por grupo, join en memoria.
+- El listado NO depende del dial `sealed_price_source` (curar/explorar funciona con el dial `off`, §4.19c); `marketRef`
+  es informativo, no comprometido.
+
+#### 4.32b Resolución set → grupo TCGCSV, y ancla representativa
+
+- **Grupo (precedencia):** `groupId` explícito de la query (bootstrap manual) > **`CardSet.tcgcsvGroupId`** (delta
+  M-37, curado) > `SELECT DISTINCT tcgplayerGroupId` de los `InventoryItem` `sealed` **ya mapeados** del set (dato
+  M-23). Exactamente uno ⇒ se usa; cero ⇒ `groupResolved:false` + `data:[]`; varios ⇒ `CardSet.tcgcsvGroupId` si
+  existe, si no `groupResolved:false` (ambigüedad = no se adivina, money-safe/dato-safe). El fallback por hermanos
+  evita el huevo-y-gallina cuando `tcgcsvGroupId` aún es `null` pero el set ya tuvo un sellado curado.
+- **Ancla (`anchorCardId`):** Card **representativa** del set = la de menor `(numberPrefix, numberSort)` (primera del
+  set en orden natural; determinista). El sellado se ancla a ella **solo** para satisfacer `InventoryItem.cardId`
+  (NOT NULL) y como fallback de nombre/imagen. El **display real** del sellado sale de `sealedImageUrl`/
+  `sealedProductName` (deltas M-37). La identidad de grupo del sellado sigue siendo §4.23:
+  `(cardId ancla, sealedSubtype, tcgplayerProductId, sealedCondition)` — dos productos del mismo set anclados a la
+  misma Card **no** colisionan (los distingue el `tcgplayerProductId`). El operador **nunca** elige un single como
+  ancla (raíz del defecto P-35 eliminada).
+
+#### 4.32c Alta — reusa `items/batch`, nace MAPEADA (dinero server-side)
+
+El alta reusa `POST /admin/inventory/items/batch` (§M1); el `BatchInventoryItemInput` gana 4 campos aditivos (solo
+`sealed`): `tcgplayerProductId?`/`tcgplayerGroupId?` (mapeo, se fijan juntos), `sealedImageUrl?`/`sealedProductName?`
+(display). Reglas normativas:
+
+- **Nace mapeada:** al crear la pieza se pueblan las columnas M-23 (ya existentes). Efecto: `sealedMarketRef` resuelve
+  de inmediato por `sealed:tcg:<productId>` (§4.23) y la **aportación de sellado** valúa por ese mercado (H-1), **no**
+  por el gradeKey legacy `'sealed'` (que jamás tiene filas). Sin mercado/override ⇒ `422 PRICE_PENDING` por línea
+  (lote tolerante), como hoy. Esto **cierra la fricción P-35**: no hay que ir a M2 a curar el mapeo antes de valuar.
+- **Money-safe (SEC-A1):** costo de aportación = `mercado × pct` server-side; venta se deriva en `bulk-publish`
+  (override > mercado×spread > PRICE_PENDING). El cliente **no** manda montos; solo `productId`/`groupId` (de la lista
+  que el server sirvió) + `qty` + tipo de adquisición.
+- **`sealedImageUrl`/`sealedProductName` VALIDADOS server-side** contra el host allowlist de imágenes TCGplayer/TCGCSV
+  (p. ej. `*.tcgplayer.com` / `tcgcsv.com`) antes de persistir (anti stored-XSS / URL arbitraria inyectada). Inválidos/
+  omitidos ⇒ `null` (fallback a la `Card` ancla). El backend PUEDE, alternativamente, re-derivarlos del `productId` vía
+  `TcgcsvClient` al alta (evita confiar en el input) — decisión de implementación; el contrato exige solo que el valor
+  persistido sea de host confiable.
+- **Autorización — nota para pentester/seguridad:** un `vault_operator` fija el mapeo TCGCSV al alta (hoy la curación
+  es `super_admin`). Ampliación deliberada y acotada: `productId` proviene del listado servido, valuación server-side,
+  alta **auditada** (`AuditLog action=inventory.batch_create` con el mapeo + `batchKey`). No es dinero saliente
+  (`MoneyOutGuard` no aplica). Revisar en la fase de seguridad por si conviene exigir `super_admin` para poblar el
+  mapeo o dejar la curación fina en M2.
+- **Display en las superficies de sellado:** `SealedGroupDTO`/`VaultSealedGroupDTO`/`SealedInventoryGroupDTO` resuelven
+  `imageUrl`/`productName` desde `sealedImageUrl`/`sealedProductName` cuando existen (⇒ muestran la **caja**), con
+  fallback a la `Card` ancla cuando son `null` (piezas legacy). Ninguna forma de DTO cambia.
+
+#### 4.32d Diferido — entidad `SealedProduct` de catálogo (SB-D5, NO en este cambio)
+
+La cura de raíz sería una entidad `SealedProduct` (llaveada por `tcgplayerProductId`: `name`/`imageUrl`/`sealedSubtype`/
+`setId` propios) con `InventoryItem.sealedProductId` en vez de anclar a una `Card`. Elimina el ancla-a-single y da un
+catálogo de sellado navegable. **Fuera de alcance de P-35** (es una tercera taxonomía con sync/curación propios que
+toca M-23/M-25/M-26/M-28 y el pricing). Se registra como **SB-D5** en `docs/TECH_DEBT.md` (backend, no bloqueante).
+Los deltas M-37 son el **puente mínimo** money-safe hasta entonces.
+
+#### Reparto de trabajo (v1.36, P-35)
+- **Backend** (stream «Inventario y vault»): (1) migración M-37 (3 columnas nullable, zona compartida `prisma/`
+  serializada); (2) `GET /admin/inventory/sealed-catalog` (resolución de grupo §4.32b + reuso del `TcgcsvClient` +
+  enriquecido `marketRef` con FX, sin N+1); (3) extender el alta (`items/batch` y singular) para poblar mapeo +
+  `sealedImageUrl`/`sealedProductName` validados por host; (4) valuación de aportación de sellado por `sealedMarketRef`
+  (fix H-1 si no estaba ya); (5) que los DTOs de display del sellado prefieran los campos nuevos. Tests: listado
+  devuelve sellado (no singles) con `imageUrl` y `marketRef` (pending⇒null, nunca 0); alta nace mapeada y valúa;
+  `groupResolved:false` cuando no hay grupo; host allowlist rechaza URL fuera de TCGplayer/TCGCSV; idempotencia por
+  `batchKey`.
+- **Frontend** (`(admin)` inventario / captura): reemplazar en el modal de alta de la pestaña Sellado el buscador de
+  CARTAS por el **listado de productos sellados** (`sealed-catalog`), tejas con **imagen de API** + subtipo + `marketRef`
+  («—» cuando null); el operador elige producto + cantidad + compra/aportación (reglas P-19) y envía `items/batch` con
+  el `anchorCardId`/`productId`/`groupId`/`imageUrl`/`name` que el listado ya trae + `batchKey`. Si `groupResolved:false`,
+  ofrecer fijar el grupo (link a M2 o input de `groupId`).
+- **ux-ui**: especificar la teja del producto sellado en el modal de alta (imagen de API, subtipo, `marketRef`/«—»),
+  el estado «grupo no resuelto» y el selector cantidad + compra/aportación. Reusa el sistema de tejas §16.8.
+- **QA/techlead**: doble veredicto por stream. No es dinero saliente, pero **toca valuación** (aportación) → la fase de
+  seguridad revisa la ampliación de autorización del mapeo (§4.32c) y el host allowlist de imágenes.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -6497,6 +6597,26 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.36-sealed-alta (nueva — M-37: alta dedicada de sellado con imagen de API, P-35)
+
+⚠️ **`backend/prisma/` es ZONA COMPARTIDA:** el orquestador serializa **M-37** frente a cualquier otro stream que toque
+el schema. Es **aditiva pura** (tres columnas nuevas nullable; sin tablas, sin enums, sin `DROP`, sin backfill):
+filas viejas quedan con las tres en `null` (retrocompatible; el display cae a la `Card` ancla y la resolución de grupo
+cae al fallback por hermanos mapeados). Segura con la app corriendo. Las columnas de **mapeo** que el alta puebla
+(`InventoryItem.tcgplayerProductId`/`tcgplayerGroupId`) **ya existen** (M-23). Spec en §4.32.
+
+| # | Modelo / campo | Cambio | Tipo migración | Nota |
+|---|---|---|---|---|
+| M-37 | `CardSet.tcgcsvGroupId Int?` | Columna nueva nullable | Add column | Grupo TCGCSV curado por set. Resuelve `GET /admin/inventory/sealed-catalog` (set → productos sellados de la API). `null` ⇒ fallback: `DISTINCT tcgplayerGroupId` de items sellados ya mapeados del set (§4.32b). Solo lectura de catálogo; jamás fija precio. |
+| M-37 | `InventoryItem.sealedImageUrl String?` | Columna nueva nullable | Add column | URL de imagen del producto sellado **desde la API** (TCGCSV/TCGplayer), capturada al alta. Solo `productType='sealed'` (regla de aplicación). Display-only, money-safe. `null` ⇒ fallback a la imagen de catálogo de la `Card` ancla. Arregla que el sellado muestre la **caja** y no el single ancla en Compra/bóveda/M1. |
+| M-37 | `InventoryItem.sealedProductName String?` | Columna nueva nullable | Add column | Nombre del producto sellado desde la API (TCGCSV `name`/`cleanName`). Solo `productType='sealed'`. Display-only. `null` ⇒ fallback a `Card.name` (ancla). |
+
+> **Sin cambios** en enums ni en las columnas de mapeo (M-23 ya las deja listas): el alta P-35 solo las **puebla**.
+> El refactor mayor —una **entidad `SealedProduct` de catálogo** llaveada por `tcgplayerProductId` (nombre/imagen/
+> subtipo/setId propios, con `InventoryItem.sealedProductId`)— queda **DIFERIDO** y se documenta como **SB-D5** en
+> `docs/TECH_DEBT.md` (§4.32d): resolvería de raíz el ancla-a-single, pero es una tercera taxonomía con sync propio
+> que toca M-23/M-25/M-26/M-28; **fuera de alcance** de este cambio.
 
 ### v1.30-buylist-quote-por-producto (nueva — M-32: línea de buylist por `productId`)
 
