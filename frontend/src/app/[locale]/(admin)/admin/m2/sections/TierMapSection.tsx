@@ -79,7 +79,7 @@ export function TierMapSection() {
         </div>
         <p className="text-sm text-muted">{tt('subtitle')}</p>
         {/* Invariante money-safe: una rareza premium NO puede ir a un tier de compra fija. */}
-        <Banner variant="info" role="note">{tt('invariantNote')}</Banner>
+        <Banner variant="info" role="status">{tt('invariantNote')}</Banner>
 
         {unifyMutation.isSuccess && (
           <Banner variant="success" role="status">

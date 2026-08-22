@@ -13,11 +13,14 @@ import {
  * v1.13-sales-pricing (§4.14a) — seed y validadores de las reglas de VENTA por rareza.
  */
 describe('sales pricing settings — seed (§4.14a)', () => {
-  it('v1.29 (§4.28d): SALES_PRICE_RULES siembra en DOS EJES (Common/Uncommon por rareza; Holo/Reverse por acabado)', () => {
+  it('v1.37 (§4.33e, M-38): SALES_PRICE_RULES siembra por TIERS (T0/T1 pisos fijos; T2/T3/T4 pct 15; Holo/Reverse por acabado)', () => {
     expect(SETTING_DEFAULTS[SettingKey.SALES_PRICE_RULES]).toEqual({
-      rarityRules: {
-        Common: { mode: 'fixed', value: 500 },
-        Uncommon: { mode: 'fixed', value: 1000 },
+      tierRules: {
+        T0: { mode: 'fixed', value: 500 },
+        T1: { mode: 'fixed', value: 1000 },
+        T2: { mode: 'pct', value: 15 },
+        T3: { mode: 'pct', value: 15 },
+        T4: { mode: 'pct', value: 15 },
       },
       finishRules: {
         holofoil: { mode: 'fixed', value: 1000 },

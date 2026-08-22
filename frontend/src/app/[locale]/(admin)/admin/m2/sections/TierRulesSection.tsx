@@ -146,7 +146,7 @@ export function TierRulesSection() {
       <h2 className="text-h2 font-semibold">{tt('title')}</h2>
       <p className="text-sm text-muted">{tt('subtitle')}</p>
       {/* Invariante money-safe visible: premium → compra en %. */}
-      <Banner variant="info" role="note">{tt('invariantNote')}</Banner>
+      <Banner variant="info" role="status">{tt('invariantNote')}</Banner>
 
       <QueryState
         isLoading={tiers.isLoading}
