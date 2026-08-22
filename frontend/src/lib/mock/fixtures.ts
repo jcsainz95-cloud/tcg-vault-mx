@@ -46,6 +46,10 @@ import type {
   SalesRule,
   SalesRaritiesResponse,
   SalesPriceRuleSet,
+  TierId,
+  TieredRuleSet,
+  UpdateTiersRequest,
+  TierMapResponse,
   RemoteSetDTO,
   RefreshVariantsAllResponse,
   RefreshVariantsStatusResponse,
@@ -2163,6 +2167,131 @@ export function mockSalesRarities(): SalesRaritiesResponse {
   return { fallbackPct: mockSalesFallbackPct, rarities };
 }
 
+// ==== M2: PRICING POR TIERS (v1.37-pricing-tiers, contrato §M2, P-34) ====
+// Seed que reproduce el negocio vigente (defaults v1.9 LOCKED): 5 tiers T0–T4, compra/venta por
+// tier, eje acabado y fallbacks. Un mapa rareza canónica → tier COMPARTIDO por compra y venta. El
+// mock preserva el invariante money-safe (premium → tier de compra `pct`, nunca `fixed`).
+export const MOCK_TIER_META: { id: TierId; name: string; premium: boolean }[] = [
+  { id: 'T0', name: 'Bulk', premium: false },
+  { id: 'T1', name: 'Uncommon / Reverse', premium: false },
+  { id: 'T2', name: 'Rare / Holo', premium: false },
+  { id: 'T3', name: 'Premium / Chase', premium: true },
+  { id: 'T4', name: 'Ultra / Grail', premium: true },
+];
+let mockTierBuy: Record<TierId, BuylistRule> = {
+  T0: { mode: 'fixed', value: 50 },
+  T1: { mode: 'fixed', value: 150 },
+  T2: { mode: 'pct', value: 25 },
+  T3: { mode: 'pct', value: 40 },
+  T4: { mode: 'pct', value: 40 },
+};
+let mockTierSell: Record<TierId, SalesRule> = {
+  T0: { mode: 'fixed', value: 500 },
+  T1: { mode: 'fixed', value: 1000 },
+  T2: { mode: 'pct', value: 15 },
+  T3: { mode: 'pct', value: 15 },
+  T4: { mode: 'pct', value: 15 },
+};
+let mockTierFinishBuy: Partial<Record<Finish, BuylistRule>> = {
+  reverse_holo: { mode: 'fixed', value: 150 },
+};
+let mockTierFinishSell: Partial<Record<Finish, SalesRule>> = {
+  reverse_holo: { mode: 'fixed', value: 1500 },
+};
+const mockTierFallback = { buy: 40, sell: 15 };
+// Mapa rareza canónica → tier (Opción B, editable por el dueño). Premium (T3/T4) solo caen en tiers
+// de compra `pct`; Common/Uncommon/Reverse/Rare/Holo en tiers de compra fija/`pct` bajo.
+let mockTierMap: Record<string, TierId> = {
+  Common: 'T0',
+  Uncommon: 'T1',
+  'Reverse Holo': 'T1',
+  'Rare Holo': 'T2',
+  'Holo Rare': 'T2',
+  'Illustration Rare': 'T3',
+  'Special Illustration Rare': 'T3',
+  'Ultra Rare': 'T4',
+};
+// Rarezas premium del catálogo canónico (mock): chase/ultra. Common/Uncommon/Reverse/Rare/Holo NO
+// son premium (pueden caer en tiers de compra fija sin violar el invariante).
+const MOCK_PREMIUM_RARITIES = new Set([
+  'Illustration Rare',
+  'Special Illustration Rare',
+  'Ultra Rare',
+  'Hyper Rare',
+  'Mega Hyper Rare',
+  'Secret Rare',
+  'Rare Secret',
+  'Rare Rainbow',
+  'Rare ACE',
+  'Amazing Rare',
+  'Black White Rare',
+  'Mega Attack Rare',
+]);
+function isMockPremiumRarity(rarity: string): boolean {
+  return MOCK_PREMIUM_RARITIES.has(rarity);
+}
+function tierRarityCounts(): Record<TierId, number> {
+  const counts: Record<TierId, number> = { T0: 0, T1: 0, T2: 0, T3: 0, T4: 0 };
+  for (const tid of Object.values(mockTierMap)) counts[tid] += 1;
+  return counts;
+}
+export function getMockTieredRuleSet(): TieredRuleSet {
+  const counts = tierRarityCounts();
+  return {
+    tiers: MOCK_TIER_META.map((m) => ({
+      id: m.id,
+      name: m.name,
+      premium: m.premium,
+      buy: mockTierBuy[m.id],
+      sell: mockTierSell[m.id],
+      rarityCount: counts[m.id],
+    })),
+    finishRules: { buy: mockTierFinishBuy, sell: mockTierFinishSell },
+    fallbackPct: { ...mockTierFallback },
+  };
+}
+export function setMockTieredRuleSet(input: UpdateTiersRequest): TieredRuleSet {
+  for (const t of input.tiers) {
+    mockTierBuy[t.id] = t.buy;
+    mockTierSell[t.id] = t.sell;
+  }
+  if (input.finishRules?.buy) mockTierFinishBuy = input.finishRules.buy;
+  if (input.finishRules?.sell) mockTierFinishSell = input.finishRules.sell;
+  if (input.fallbackPct?.buy != null) mockTierFallback.buy = input.fallbackPct.buy;
+  if (input.fallbackPct?.sell != null) mockTierFallback.sell = input.fallbackPct.sell;
+  return getMockTieredRuleSet();
+}
+export function getMockTierMap(): TierMapResponse {
+  const counts = new Map<string, number>();
+  for (const c of mockCards) {
+    if (!c.rarity) continue; // el sellado no lleva rareza
+    counts.set(c.rarity, (counts.get(c.rarity) ?? 0) + 1);
+  }
+  // Incluir rarezas con asignación explícita aunque no estén en el catálogo mock.
+  for (const r of Object.keys(mockTierMap)) if (!counts.has(r)) counts.set(r, 0);
+  const rarities = [...counts.entries()]
+    .map(([canonical, cardCount]) => {
+      const tierId = mockTierMap[canonical] ?? null;
+      return {
+        canonical,
+        premium: isMockPremiumRarity(canonical),
+        mapped: true,
+        cardCount,
+        tierId,
+        source: (tierId ? 'map' : 'fallback') as 'map' | 'fallback',
+      };
+    })
+    .sort((a, b) => b.cardCount - a.cardCount);
+  return {
+    tiers: MOCK_TIER_META.map((m) => ({ id: m.id, name: m.name, premium: m.premium })),
+    rarities,
+  };
+}
+export function setMockTierMap(assignments: Record<string, TierId>): TierMapResponse {
+  for (const [k, v] of Object.entries(assignments)) mockTierMap[k] = v;
+  return getMockTierMap();
+}
+
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */
 export const mockRemoteSets: RemoteSetDTO[] = [
   { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', printedTotal: 191, imported: true, cardCount: 191 },
@@ -2975,6 +3104,100 @@ export function mockSealedSetDetail(setId: string): import('@/types/contract').S
   return {
     set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate },
     groups,
+  };
+}
+
+// ---- P-35: alta dedicada de sellado — catálogo de PRODUCTOS sellados por set ----
+// MOCK: catálogo de producto sellado por set (fuente TCGCSV). Money-safe: `marketRef=null` cuando la
+// fuente no trae precio (NUNCA 0). Sets sin grupo TCGCSV resuelto ⇒ groupResolved:false + data:[].
+const MOCK_SEALED_CATALOG: Record<
+  string,
+  { tcgcsvGroupId: number; anchorCardId: string; products: import('@/types/contract').SealedCatalogProductDTO[] }
+> = {
+  sv08: {
+    tcgcsvGroupId: 23966,
+    anchorCardId: 'c-sealed-sv08-box',
+    products: [
+      {
+        tcgplayerProductId: 590411,
+        name: 'Surging Sparks Elite Trainer Box',
+        cleanName: 'Surging Sparks Elite Trainer Box',
+        sealedSubtype: 'etb',
+        imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590411_in_1000x1000.jpg',
+        marketRef: { status: 'priced', referenceMxnCents: 125_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+      },
+      {
+        tcgplayerProductId: 590412,
+        name: 'Surging Sparks Booster Box',
+        cleanName: 'Surging Sparks Booster Box',
+        sealedSubtype: 'box',
+        imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590412_in_1000x1000.jpg',
+        marketRef: { status: 'priced', referenceMxnCents: 320_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+      },
+      {
+        // Sin precio en la fuente ⇒ marketRef null (money-safe): seleccionable, pero sin aportación.
+        tcgplayerProductId: 590413,
+        name: 'Surging Sparks Booster Bundle',
+        cleanName: 'Surging Sparks Booster Bundle',
+        sealedSubtype: 'bundle',
+        imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590413_in_1000x1000.jpg',
+        marketRef: null,
+      },
+      {
+        // Sin subtipo inferible ⇒ el operador lo elige en el paso 2.
+        tcgplayerProductId: 590414,
+        name: 'Surging Sparks Collection',
+        cleanName: 'Surging Sparks Collection',
+        sealedSubtype: null,
+        imageUrl: null,
+        marketRef: null,
+      },
+    ],
+  },
+  sv06: {
+    tcgcsvGroupId: 23821,
+    anchorCardId: 'c-sealed-sv06-etb',
+    products: [
+      {
+        tcgplayerProductId: 570123,
+        name: 'Twilight Masquerade Elite Trainer Box',
+        cleanName: 'Twilight Masquerade Elite Trainer Box',
+        sealedSubtype: 'etb',
+        imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/570123_in_1000x1000.jpg',
+        marketRef: { status: 'priced', referenceMxnCents: 110_000, source: 'tcgcsv', capturedDate: '2026-08-19' },
+      },
+    ],
+  },
+};
+
+export function mockSealedCatalog(params: {
+  setId: string;
+  groupId?: number;
+  q?: string;
+}): import('@/types/contract').SealedCatalogResponse {
+  const set = mockSets.find((s) => s.id === params.setId);
+  if (!set) throw new ApiFixtureNotFound(`CardSet ${params.setId} not found`);
+  // MOCK: `base1` simula la fuente TCGCSV caída (502 UPSTREAM_ERROR) para ejercer el camino de respaldo.
+  if (params.setId === 'base1') {
+    throw new ApiFixtureError(502, 'UPSTREAM_ERROR', 'TCGCSV upstream not available');
+  }
+  const setRef = { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate };
+  const entry = MOCK_SEALED_CATALOG[params.setId];
+  // Sin grupo resuelto (set sin sellado ni mapeo): vacío LEGÍTIMO, no error.
+  if (!entry) {
+    return { set: setRef, tcgcsvGroupId: params.groupId ?? null, groupResolved: params.groupId != null, anchorCardId: `c-anchor-${set.id}`, data: [] };
+  }
+  let products = entry.products;
+  if (params.q) {
+    const q = params.q.toLowerCase();
+    products = products.filter((p) => (p.cleanName ?? p.name).toLowerCase().includes(q));
+  }
+  return {
+    set: setRef,
+    tcgcsvGroupId: entry.tcgcsvGroupId,
+    groupResolved: true,
+    anchorCardId: entry.anchorCardId,
+    data: products,
   };
 }
 

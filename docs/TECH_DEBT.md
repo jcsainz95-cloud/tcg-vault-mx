@@ -111,21 +111,21 @@
 - **Disparador:** al crecer el inventario (o ante presión de memoria en el export), paginar/streamear la
   consulta y escribir el workbook por chunks.
 
-##### H7 · El filtro `setId` del export no se valida (devuelve export vacío en silencio)
-- **Dueño:** backend. **Severidad:** Baja (aceptada).
-- **Deuda:** el filtro `setId` del export **no se valida**: un `setId` inexistente devuelve un **export vacío
-  en silencio**, inconsistente con `publishAll`/bulk-ops que responden **400** ante un `setId` desconocido.
-  Rutas: `inventory.controller.ts` (~271-296) / `inventory.service.ts`.
-- **No-bloqueante:** **no corrompe datos**; solo produce una **UX inconsistente** (silencio vs. 400).
-- **Disparador:** al alinear la validación de filtros del export, validar `setId` y responder 400 ante
-  valores desconocidos (paridad con `publishAll`/bulk-ops).
+##### H7 · El filtro `setId` del export no se valida (devuelve export vacío en silencio) — RESUELTO (2026-08-22, v1.36 P-35)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Estado:** **RESUELTO**.
+- **Deuda (histórica):** el filtro `setId` del export **no se validaba**: un `setId` inexistente devolvía un
+  **export vacío en silencio**, inconsistente con `publishAll`/bulk-ops que responden **400** ante un `setId`
+  desconocido. Rutas: `inventory.controller.ts` / `inventory.service.ts`.
+- **Fix:** `exportInventoryXlsx` valida el `setId` contra `CardSet` ANTES de consultar; un id desconocido →
+  **`400 VALIDATION_ERROR`** (paridad con `publishAll`/bulk-ops), sin llegar a barrer el inventario. Tests:
+  `test/inventory.export-xlsx.spec.ts` («H7 · setId inexistente → 400» + «setId existente aplica el filtro»).
 
-##### H8 · `workbook.creator = 'TCG HUNT'` — marca obsoleta en la metadata del `.xlsx`
-- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** trivial (una línea).
-- **Deuda:** `workbook.creator = 'TCG HUNT'` graba una **marca obsoleta** en la metadata del `.xlsx`; la
-  marca vigente es la del proyecto actual. Ruta: `inventory.service.ts` (~1739).
-- **No-bloqueante:** **cosmético**; no afecta datos ni comportamiento.
-- **Disparador:** pagar en el próximo toque del módulo (cambio de una sola línea).
+##### H8 · `workbook.creator = 'TCG HUNT'` — marca obsoleta en la metadata del `.xlsx` — RESUELTO (2026-08-22, v1.36 P-35)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Estado:** **RESUELTO**.
+- **Deuda (histórica):** `workbook.creator = 'TCG HUNT'` grababa una **marca obsoleta** en la metadata del
+  `.xlsx`. Ruta: `inventory.service.ts`.
+- **Fix:** `workbook.creator = 'TCG Vault MX'` (marca **vigente** del proyecto, PROJECT.md «Nombre comercial /
+  marca: TCG Vault MX»). Test: `test/inventory.export-xlsx.spec.ts` («H8 · workbook.creator = TCG Vault MX»).
 
 #### QA-BR1 (hallazgo MENOR de QA) · el test de bulk-remove no ejercita el rollback real del claim
 - **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test).
@@ -2811,18 +2811,26 @@
   familia que **D1/BE-11/SA-D3**). Dirección: mover a job con `jobId` consultable (progreso
   persistido) o, como mínimo, cap por set/filtro con paginación de reanudación.
 
-### SB-D2 · `buylistRules()` y `loadBuylistRules()` — mismo cuerpo duplicado, no-delegación justificada (Baja)
-- **Dónde:** `backend/src/modules/buylist/buylist.service.ts:261` (`buylistRules`) vs
-  `backend/src/modules/pricing/pricing.service.ts:319` (`loadBuylistRules`).
-- **Estado actual:** dos lecturas **paralelas** de la MISMA config (`BUYLIST_PRICE_RULES` +
+### SB-D2 · Lecturas paralelas de config de reglas de compra/venta (`buylistRules()` / `loadBuylistRules()` / `loadSalesRules()`) — guard de parseo casi-duplicado (Baja) — **PROMOVIDA por H6/P-34 (2026-08-22): tercer read + disparador cumplido**
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts` (`buylistRules()`) vs
+  `backend/src/modules/pricing/pricing.service.ts` (`loadBuylistRules()` **y** `loadSalesRules()`).
+- **Estado actual:** originalmente dos lecturas **paralelas** de la MISMA config (`BUYLIST_PRICE_RULES` +
   `BUYLIST_PRICE_FALLBACK_PCT`), con cuerpo idéntico. La no-delegación es **decisión justificada**
   (no acoplar `buylist`→`pricing` por un read de settings); el cuerpo normativo de la semántica de
   precio es la matemática compartida en `common/money.ts`. El docblock de `loadBuylistRules` que
-  afirmaba (en falso) que `buylistRules()` delegaba ahí **ya se corrigió** en este pase.
-- **Impacto:** bajo (mantenibilidad): si cambia el formato del dial hay que tocar dos lectores — hoy
-  ambos leen las mismas `SettingKey`, así que cambian juntos por construcción.
-- **Disparador:** próximo toque a cualquiera de los dos specs de reglas de compra. Dirección: unificar
-  en una sola fuente (helper compartido o delegación explícita) cuando se toquen esos archivos.
+  afirmaba (en falso) que `buylistRules()` delegaba ahí **ya se corrigió** en un pase anterior.
+- **Actualización 2026-08-22 (H6, cluster P-34, pricing por tiers):** con la migración a tiers hay ya
+  **TRES** lecturas de `PRICING_TIER_MAP` por separado —`buylist.service.buylistRules()`,
+  `pricing.service.loadBuylistRules()` y `pricing.service.loadSalesRules()`— cada una con un **guard
+  de parseo casi-duplicado** del tier map. El **disparador de SB-D2** («próximo toque a cualquiera de
+  los dos specs de reglas de compra») **ya se cumplió** con el toque de tiers. Esta entrada absorbe H6
+  (no se crea entrada separada); dueño **backend**.
+- **Impacto:** bajo (mantenibilidad): si cambia el formato del dial/tier hay que tocar tres lectores —
+  hoy los tres leen las mismas `SettingKey`, así que cambian juntos por construcción. **No hay
+  divergencia hoy**, solo superficie de riesgo acumulada.
+- **Disparador:** cumplido (toque de tiers). Dirección: **unificar en un loader único compartido** del
+  `PRICING_TIER_MAP` (helper con el guard de parseo una sola vez) que consuman los tres call-sites,
+  en vez de tres guards casi-duplicados. No bloquea (sin divergencia de comportamiento).
 
 ### SB-D3 · Clave de variante `${cardId}|${productType}|${gradeKey}|${finish}` construida a mano en ≥6 sitios (Baja)
 - **Dónde:** `pricing.service.ts:192,280,308`, `buylist.service.ts:170,397,1374`,
@@ -2861,6 +2869,46 @@
 - **Disparador:** próximo toque al modelo de sellado. **Decisión del arquitecto:** `productId`
   explícito en el DTO del alta vs **entidad de producto sellado** en `schema.prisma` (zona
   compartida, regla 9).
+- **Actualización 2026-08-22 (v1.36 P-35, M-37):** el arquitecto eligió — para P-35 — el **`productId`
+  explícito en el DTO del alta** (la pieza NACE MAPEADA: `BatchInventoryItemInput.tcgplayerProductId`+
+  `tcgplayerGroupId`), como **puente mínimo** money-safe. Efecto: cuando el alta trae el mapeo, la
+  valuación de aportación de sellado ya **NO** depende de la inferencia por hermanos (usa el productId
+  directo, `inventory.service.ts` `resolveSealedAportacionMarket(bornMappedProductId)`); la inferencia
+  por hermanos **sigue viva** solo para altas de sellado SIN mapeo (compatibilidad). La **entidad
+  `SealedProduct` de catálogo** (cura de raíz del ancla-a-single) queda **DIFERIDA** explícitamente
+  (ARCHITECTURE §4.32d): NO se hizo en este cambio. SB-D5 **permanece abierta** (Media).
+
+### H9 · Ancla-a-single (P-35) expone sellado en la ficha del single — MITIGADA por guardarraíl `productType` (ligada a SB-D5) (backend + arquitecto)
+- **Dueño:** backend (guardarraíl) + **arquitecto** (ubicación final del filtro). **Severidad:** Media.
+  **Estado:** **MITIGADA** (guardarraíl interino landeado); **cura de raíz pendiente en SB-D5**.
+- **Síntoma concreto (hallazgo techlead H9, cluster P-35):** P-35 ancla TODO el sellado de un set a la
+  carta single de menor `(numberPrefix, numberSort)` (misma `cardId`), y determinista. Las consultas de
+  SINGLES del storefront (`CatalogService.getCard` ficha y `listCards` listado) hacían
+  `fetchSellable(publishedWhere(...))` **sin filtro de `productType`**, así que la ficha pública
+  `GET /catalog/cards/:anchorCardId` **mezclaba cajas selladas** entre los "ejemplares" del single; y
+  como el front toma `listings[0]` (orden `createdAt desc`) como `primary`, una **caja recién dada de
+  alta** podía **renderizar la ficha del single como si fuera sellado**. No es money-unsafe (no toca
+  precios ni valuación), pero es una **incorrección visible en tienda** que P-35 volvió determinista.
+- **Guardarraíl INTERINO (landeado):** `CatalogService.singlesPublishedWhere(...)` añade
+  `AND: [{ productType: { not: 'sealed' } }]` a la vista pública de singles (`getCard`, `listCards`).
+  Solo raw/graded cuentan como ejemplares de un single; el sellado ya tiene su propio catálogo público
+  `GET /catalog/sealed` (`SealedCatalogService`, `productType='sealed'`). Se aplica como cláusula `AND`
+  aparte para **no pisar** un filtro `productType` explícito del where. Money-safe: solo ACOTA la
+  lectura. Ruta: `backend/src/modules/catalog/catalog.service.ts`. Tests:
+  `backend/test/catalog.spec.ts` («H9 / SB-D5 — la vista de SINGLES excluye el sellado»: `listCards` y
+  `getCard` no exponen el `sealed`, y el MISMO `sealed` SÍ aparece en `GET /catalog/sealed`).
+- **Discrepancia con el contrato (para el arquitecto):** `docs/API_CONTRACT.md` §2 aún declara
+  `productType: raw | graded | sealed` como filtro válido de `GET /catalog/cards` (línea ~1817) y
+  `GET /catalog/facets` sigue exponiendo `"sealed"` en `productTypes`/`sealedSubtypes` (línea ~1834).
+  El guardarraíl **no tocó `facets`** (el contrato manda: no se altera `API_CONTRACT.md`), por lo que
+  `GET /catalog/cards?productType=sealed` ahora devuelve **vacío** aunque facets lo anuncie. La
+  **ubicación/forma final del filtro** (¿retirar sellado de facets del singles? ¿ruta separada?) es
+  **decisión del arquitecto** (regla 9), junto con la cura de raíz.
+- **Cura de raíz — pendiente en SB-D5:** la entidad de catálogo **`SealedProduct`** propia (que elimina
+  el ancla-a-single y da al sellado su identidad de producto) sigue **DIFERIDA** en **SB-D5**. Al
+  materializarla, este guardarraíl `productType` se vuelve innecesario (o se re-ubica según el arquitecto).
+- **Disparador:** al abordar SB-D5 (entidad `SealedProduct`) o al reconciliar el contrato de
+  `/catalog/cards`/`/catalog/facets` respecto del sellado.
 
 ### SB-D6 · `VariantControlsService.update`: read-modify-write + delete/upsert fuera de transacción (Baja)
 - **Dónde:** `backend/src/modules/pricing/variant-controls.service.ts:115-157` (`update`: `findUnique`
@@ -3398,3 +3446,62 @@
 - **Impacto:** bajo (override frágil de clases en un consumidor).
 - **Remedio:** agregar `size?: 'sm' | 'md'` al componente y retirar el override.
 - **Disparador:** cuando aparezca la próxima variante de tamaño del distintivo.
+### Cluster P-34 (pricing por tiers) — deuda del veredicto techlead (2026-08-22, no bloqueante)
+
+> Deuda NO bloqueante que el techlead re-enumeró en el **Cluster P-34** (migración de pricing a
+> **tiers**). Dueño **backend** salvo H8 (recordatorio operativo para **devops**). El acoplamiento del
+> tercer read del `PRICING_TIER_MAP` (**H6**) NO se registra como entrada nueva: **actualiza SB-D2**
+> (ver arriba, «Actualización 2026-08-22 (H6…)»), que ya cubre las lecturas paralelas de reglas de
+> compra/venta. Ninguno de estos ítems tiene riesgo de dinero: todos los callers de producción ya
+> pasan por la ruta segura (tier map); lo que queda es complejidad/endurecimiento preventivo.
+
+### H3 · `toPriceRuleSet` ramifica en 3 shapes (tiered / dos-ejes v1.29 / plano legacy v1.3.1) (Baja, backend)
+- **Dónde:** `backend/src/common/money.ts` → `toPriceRuleSet`.
+- **Estado actual:** compat **on-read**: `toPriceRuleSet` acepta y normaliza TRES formas de config —
+  (1) **tiered** (la vigente), (2) **dos-ejes v1.29** y (3) **plano legacy v1.3.1**. La rama plana
+  legacy ya **no debería existir** en datos productivos.
+- **Impacto:** bajo (mantenibilidad): tres ramas de parseo que hay que mantener y razonar; sin riesgo
+  de dinero — todos los callers de producción pasan `tierMap`, así que la ruta viva es la tiered.
+- **No bloquea:** la complejidad es acumulada, no un defecto de correctness; el dinero se calcula por
+  la rama tiered.
+- **Disparador:** una vez **confirmado que ningún `ConfigSetting` productivo trae el shape viejo**,
+  **cerrar la rama plana legacy** (y evaluar además retirar la de dos-ejes v1.29). Dirección: auditar
+  los `ConfigSetting` de precio en prod → si solo hay tiered, eliminar la(s) rama(s) muerta(s) de
+  `toPriceRuleSet`.
+
+### H4 · Seed `DEFAULT_SETTINGS` sin validación de invariante premium→pct en runtime (Baja, backend)
+- **Dónde:** `backend/src/modules/settings/settings.constants.ts` (`DEFAULT_SETTINGS`).
+- **Estado actual:** el seed `DEFAULT_SETTINGS` **no** se valida en runtime contra el invariante
+  premium→pct; hoy el seed **cumple** el invariante, pero nada lo afirma automáticamente.
+- **Impacto:** bajo; es un **guard contra ediciones futuras** del seed que pudieran violar el
+  invariante sin que ningún test lo detecte.
+- **No bloquea:** el seed actual cumple el invariante; la falta es de red de seguridad, no de
+  correctness hoy.
+- **Disparador:** próximo toque del seed. Dirección: añadir un **unit test** que afirme
+  `premiumFixedOffenders(seedMap, seedBuyTiers) === []` sobre el seed `DEFAULT_SETTINGS`.
+
+### H5 · `premiumByPattern` incompleto (falta `mega`/`blackwhite`) — clase R-5 money-losing latente (Media, backend)
+- **Dónde:** `backend/src/common/rarity-catalog.ts` → `premiumByPattern`.
+- **Estado actual:** `premiumByPattern` (rarity-catalog) **no incluye** el patrón `mega`/`blackwhite`.
+  Los 3 casos de hoy están cubiertos por **alias explícitos + seed**, así que hoy no hay fuga. Pero una
+  futura variante string tipo `"Mega X"` **no-alias** caería a `premium:false` → **bin holo barato**
+  (money-losing: se cotizaría/valuaría como no-premium una rareza premium).
+- **Impacto:** medio/latente (**clase R-5 money-losing**): la fuga solo se materializa ante una rareza
+  premium NUEVA no cubierta por alias; los casos actuales están cerrados.
+- **No bloquea:** los casos actuales están cubiertos por alias + seed; el endurecimiento es preventivo.
+- **Disparador:** al aparecer una variante premium por string no cubierta por alias (o al ampliar el
+  catálogo de rarezas). Dirección: **endurecer el patrón** `premiumByPattern` para reconocer
+  `mega`/`blackwhite` (y en general no depender solo de alias para clasificar premium).
+
+### H8 · Backfill `POST /admin/catalog/unify-rarities` debe correr post-deploy — divergencia cosmética hasta entonces (Baja, operativa — recordatorio para runbook de **devops**)
+- **Dónde:** operativa/runbook (no es código de `backend/`). Endpoint: `POST /admin/catalog/unify-rarities`.
+- **Estado actual:** hasta correr el backfill `unify-rarities` **post-deploy**, el editor admin puede
+  pintar una rareza premium como **unmapped/fallback** aunque la **cotización la resuelva bien**. La
+  divergencia es **SOLO cosmética** (editor admin) — la **money-safety NO depende del backfill** (el
+  lookup re-normaliza y cotiza correcto).
+- **Impacto:** bajo y cosmético (visualización en el editor admin); sin efecto en dinero/valuación.
+- **No bloquea:** money-safe por construcción; solo pulido de presentación admin post-deploy.
+- **Disparador / acción:** **devops** debe **documentar en el runbook de deploy** que el backfill
+  `POST /admin/catalog/unify-rarities` corre **tras el deploy** (para eliminar la divergencia cosmética
+  del editor). Recordatorio enrutado a `docs/DEVOPS_NOTES.md`; el backend solo lo anota aquí (no toca
+  runbook ni CI, que son de devops).

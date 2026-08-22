@@ -64,6 +64,16 @@ export const ErrorCode = {
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
   BOUNTY_BELOW_RULE: 'BOUNTY_BELOW_RULE',
+  // v1.37 (pricing por tiers, P-34, §4.33d): en PUT /admin/pricing/tier-map o PUT /admin/pricing/tiers,
+  // la edición dejaría una rareza `premium:true` (catálogo canónico, §4.28e) resolviendo en un tier cuya
+  // regla de COMPRA es `fixed` (con el seed: T0/T1). Guardarraíl money-safe: una chase jamás cotiza al bin
+  // fijo barato de bulk, aunque el dueño edite el mapa. Se valida sobre el producto (tiers × mapa) completo,
+  // por eso lo emiten AMBOS PUT. `details.offending: [{ rarity, tierId }]`. El eje de VENTA no lo dispara. 422.
+  PREMIUM_RARITY_FIXED_TIER: 'PREMIUM_RARITY_FIXED_TIER',
+  // v1.37 (pricing por tiers, P-34): en PUT /admin/pricing/tier-map, una key de `assignments` NO es una
+  // rareza canónica del catálogo (§4.28c). Money-safe: el mapa solo asigna tiers a rarezas conocidas; una
+  // key desconocida se rechaza en vez de crear una entrada muerta. Distinto de VALIDATION_ERROR. 422.
+  UNKNOWN_RARITY: 'UNKNOWN_RARITY',
 
   // Checkout / orders
   ITEM_UNAVAILABLE: 'ITEM_UNAVAILABLE',

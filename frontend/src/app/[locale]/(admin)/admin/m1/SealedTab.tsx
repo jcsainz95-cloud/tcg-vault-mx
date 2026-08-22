@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft, Package } from 'lucide-react';
 import {
@@ -27,6 +27,7 @@ import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { Link } from '@/i18n/navigation';
 import { localUid } from '@/components/master-set/capture';
 import { QuickAddSection } from './QuickAdd';
+import { SealedAddFlow } from './SealedAddFlow';
 
 /**
  * Pestaña «Sellado» — P-25 (DESIGN_SYSTEM §16.8). Índice por set → detalle con GRUPOS de
@@ -38,30 +39,57 @@ import { QuickAddSection } from './QuickAdd';
 export interface SealedTabProps {
   onOpenGroup: (setId: string, group: SealedInventoryGroupDTO) => void;
   onToast?: (msg: string) => void;
-  /** Dispara «Alta por lote» (el alta clásica admite tipo sellado). */
-  onOpenBatchAdd?: () => void;
 }
 
-export function SealedTab({ onOpenGroup, onToast, onOpenBatchAdd }: SealedTabProps) {
+export function SealedTab({ onOpenGroup, onToast }: SealedTabProps) {
   const t = useTranslations('admin.inventory.sealedTab');
+  const tAdd = useTranslations('admin.sealedAdd');
   const locale = useLocale() as AppLocale;
+  const queryClient = useQueryClient();
   const { isSuperAdmin } = useRole();
   const [q, setQ] = useState('');
   const [openSet, setOpenSet] = useState<SealedSetSummaryDTO | null>(null);
+  // P-35 (§16.8a): estado del flujo dedicado de alta de sellado. `presetSet` precarga el set cuando
+  // se dispara desde el detalle («Agregar otra presentación»), saltando el selector.
+  const [addFlow, setAddFlow] = useState<{ open: boolean; presetSet: { id: string; name: string } | null }>({
+    open: false,
+    presetSet: null,
+  });
 
   const sets = useQuery({
     queryKey: ['sealed-sets', q],
     queryFn: () => getSealedInventorySets({ q: q.trim() || undefined }),
   });
 
+  function refreshAfterAdd() {
+    void queryClient.invalidateQueries({ queryKey: ['sealed-sets'] });
+    void queryClient.invalidateQueries({ queryKey: ['sealed-set-detail'] });
+  }
+
+  const flow = addFlow.open ? (
+    <SealedAddFlow
+      open
+      presetSet={addFlow.presetSet}
+      onClose={() => setAddFlow({ open: false, presetSet: null })}
+      onToast={onToast}
+      onCreated={refreshAfterAdd}
+    />
+  ) : null;
+
   if (openSet) {
     return (
-      <SealedSetDetail
-        summary={openSet}
-        onBack={() => setOpenSet(null)}
-        onOpenGroup={onOpenGroup}
-        onToast={onToast}
-      />
+      <>
+        <SealedSetDetail
+          summary={openSet}
+          onBack={() => setOpenSet(null)}
+          onOpenGroup={onOpenGroup}
+          onToast={onToast}
+          onAddPresentation={() =>
+            setAddFlow({ open: true, presetSet: { id: openSet.set.id, name: openSet.set.name } })
+          }
+        />
+        {flow}
+      </>
     );
   }
 
@@ -117,15 +145,22 @@ export function SealedTab({ onOpenGroup, onToast, onOpenBatchAdd }: SealedTabPro
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        {/* Cola de no-mapeados: curación super_admin (M2). vault_operator no ve el enlace. */}
-        {isSuperAdmin && sets.data && sets.data.unmappedTotal > 0 && (
-          <Link
-            href="/admin/m2"
-            className="border-b border-accent pb-1 text-xs text-accent hover:text-text"
-          >
-            {t('unmappedQueue', { count: sets.data.unmappedTotal })}
-          </Link>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Cola de no-mapeados: curación super_admin (M2). vault_operator no ve el enlace. */}
+          {isSuperAdmin && sets.data && sets.data.unmappedTotal > 0 && (
+            <Link
+              href="/admin/m2"
+              className="border-b border-accent pb-1 text-xs text-accent hover:text-text"
+            >
+              {t('unmappedQueue', { count: sets.data.unmappedTotal })}
+            </Link>
+          )}
+          {/* P-35 (§16.8a): camino PRINCIPAL de alta de sellado — el flujo dedicado, NO el buscador
+              de cartas. Siempre visible, no depende de que exista inventario. */}
+          <Button onClick={() => setAddFlow({ open: true, presetSet: null })}>
+            {tAdd('cta')}
+          </Button>
+        </div>
       </div>
       <QueryState
         isLoading={sets.isLoading}
@@ -137,19 +172,18 @@ export function SealedTab({ onOpenGroup, onToast, onOpenBatchAdd }: SealedTabPro
           (sets.data.data.length === 0 ? (
             <EmptyState
               title={t('emptyTitle')}
-              body={t('emptyBody')}
+              body={tAdd('emptyBody')}
               action={
-                onOpenBatchAdd ? (
-                  <Button variant="secondary" onClick={onOpenBatchAdd}>
-                    {t('emptyCta')}
-                  </Button>
-                ) : undefined
+                <Button onClick={() => setAddFlow({ open: true, presetSet: null })}>
+                  {tAdd('cta')}
+                </Button>
               }
             />
           ) : (
             <DataTable columns={columns} rows={sets.data.data} rowKey={(s) => s.set.id} />
           ))}
       </QueryState>
+      {flow}
     </div>
   );
 }
@@ -163,13 +197,16 @@ function SealedSetDetail({
   onBack,
   onOpenGroup,
   onToast,
+  onAddPresentation,
 }: {
   summary: SealedSetSummaryDTO;
   onBack: () => void;
   onOpenGroup: (setId: string, group: SealedInventoryGroupDTO) => void;
   onToast?: (msg: string) => void;
+  onAddPresentation?: () => void;
 }) {
   const t = useTranslations('admin.inventory.sealedTab');
+  const tAdd = useTranslations('admin.sealedAdd');
   const tSub = useTranslations('status.sealedSubtype');
   const tCond = useTranslations('status.sealedCondition');
   const locale = useLocale() as AppLocale;
@@ -248,13 +285,18 @@ function SealedSetDetail({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" size="sm" onClick={onBack} aria-label={t('backToSets')}>
           <ChevronLeft size={18} /> {t('backToSets')}
         </Button>
         <h2 lang="en" className="text-h2">
           {summary.set.name}
         </h2>
+        {onAddPresentation && (
+          <Button size="sm" className="ml-auto" onClick={onAddPresentation}>
+            {tAdd('addAnother')}
+          </Button>
+        )}
       </div>
       <QueryState
         isLoading={detail.isLoading}

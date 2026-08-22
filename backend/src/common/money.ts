@@ -8,6 +8,7 @@
 // canónico (pure, sin infra) — money.ts las CONSUME (no duplica regex). El lookup de reglas normaliza
 // AMBOS lados (rareza y key) para empatar 1:1 con la forma canónica del ingest.
 import { isPremiumCanonicalRarity, normalizeRarity } from './rarity-catalog';
+import type { TierId } from './pricing-tiers';
 
 /**
  * BE-27 (money-safety): techo Int32 de Postgres. Toda columna `*Cents` persistible es `Int`, cuyo
@@ -247,6 +248,62 @@ export function isPriceRuleSet(v: unknown): v is PriceRuleSet<BuylistRule | Sale
   );
 }
 
+// ============================================================================
+// v1.37 (§4.33, P-34) — PRICING POR TIERS. El eje RAREZA de `PriceRuleSet` se re-expresa como «una regla
+// por TIER» (5 peldaños T0–T4, `common/pricing-tiers.ts`) + un MAPA rareza canónica → tier. `finishRules`
+// y `fallbackPct` NO cambian (eje acabado intacto, §4.28d). La ÚNICA función pura nueva DERIVA el
+// `PriceRuleSet` de siempre a partir de (tiers × mapa) y se lo pasa al resolver EXISTENTE sin tocarlo:
+// así la precedencia, el gate premium (§4.2.1) y el manejo money-safe quedan VERBATIM.
+// ============================================================================
+
+/**
+ * §4.33b — reglas de precio expresadas por TIER (persistido en `BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES`
+ * tras el reshape M-38). `tierRules` (5 entradas, keyeadas por `TierId`) reemplaza el `rarityRules` de
+ * `PriceRuleSet`; `finishRules` y `fallbackPct` son IDÉNTICOS a §4.28d (el eje acabado NO se tieriza).
+ */
+export interface TieredRuleSet<R extends BuylistRule | SalesRule = BuylistRule> {
+  tierRules: Partial<Record<TierId, R>>;
+  finishRules: Partial<Record<Finish, R>>;
+  fallbackPct: number;
+}
+
+/** ¿El objeto es un `TieredRuleSet` (tiene `tierRules`) y no un `PriceRuleSet`/mapa plano legacy? */
+export function isTieredRuleSet(v: unknown): v is TieredRuleSet<BuylistRule | SalesRule> {
+  return (
+    v != null &&
+    typeof v === 'object' &&
+    !Array.isArray(v) &&
+    'tierRules' in (v as object) &&
+    (v as { tierRules?: unknown }).tierRules != null &&
+    typeof (v as { tierRules: unknown }).tierRules === 'object'
+  );
+}
+
+/**
+ * §4.33c — función pura ÚNICA que DERIVA el `PriceRuleSet` efectivo de siempre a partir de (tiers × mapa).
+ * Cada rareza mapeada hereda `rarityRules[canonical] = tierRules[map[canonical]]`; `finishRules`/`fallbackPct`
+ * pasan verbatim. El resultado se le entrega a `resolveTwoAxisRule`/`quoteAcquisitionForFinish`/
+ * `computeSalePriceForRarity` SIN cambiarlos. Money-safe: una rareza ausente del mapa (o mapeada a un tier
+ * sin regla) NO produce entrada en `rarityRules` ⇒ cae al `fallbackPct` (nunca $0 ni bin fijo). Una rareza
+ * premium mapeada a un tier `pct` produce un `rarityRules[canonical]` `pct` ⇒ el gate premium (§4.2.1) la
+ * resuelve por su regla, jamás por el bin de acabado — exactamente como hoy.
+ */
+export function buildEffectiveRuleSet<R extends BuylistRule | SalesRule>(
+  tiered: TieredRuleSet<R>,
+  tierMap: Record<string, TierId>,
+): PriceRuleSet<R> {
+  const rarityRules: Record<string, R> = {};
+  for (const [canonical, tierId] of Object.entries(tierMap)) {
+    const rule = tiered.tierRules[tierId];
+    if (rule != null) rarityRules[canonical] = rule;
+  }
+  return {
+    rarityRules,
+    finishRules: tiered.finishRules ?? {},
+    fallbackPct: tiered.fallbackPct,
+  };
+}
+
 /** Normaliza para el lookup case/espacio-insensible (empate 1:1 con la forma canónica del ingest). */
 function normRuleKey(raw: string): string {
   return raw.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
@@ -262,7 +319,18 @@ function normRuleKey(raw: string): string {
 export function toPriceRuleSet<R extends BuylistRule | SalesRule>(
   raw: unknown,
   fallbackPct: number,
+  // v1.37 (§4.33c) — COMPAT ON-READ de AMBOS shapes: si `raw` es un `TieredRuleSet` (post-M-38), se
+  // DERIVA el `PriceRuleSet` efectivo con `buildEffectiveRuleSet(tiered, tierMap)`. Si el `tierMap` no se
+  // pasa (caller aún no izó el mapa), se aplica un mapa VACÍO ⇒ `rarityRules = {}` ⇒ toda rareza cae al
+  // `fallbackPct` (money-safe: nunca $0 ni bin fijo; `finishRules` se conservan). Si `raw` es el shape
+  // `{ rarityRules, ... }` (pre-M-38) o el mapa plano legacy, el `tierMap` se IGNORA (comportamiento §4.28d).
+  tierMap?: Record<string, TierId>,
 ): PriceRuleSet<R> {
+  if (isTieredRuleSet(raw)) {
+    const tiered = raw as TieredRuleSet<R>;
+    const fp = typeof tiered.fallbackPct === 'number' ? tiered.fallbackPct : fallbackPct;
+    return buildEffectiveRuleSet<R>({ ...tiered, fallbackPct: fp }, tierMap ?? {});
+  }
   if (isPriceRuleSet(raw)) {
     const rs = raw as PriceRuleSet<R>;
     return {

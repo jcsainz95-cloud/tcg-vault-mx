@@ -27,6 +27,7 @@ import {
   toPriceRuleSet,
   quoteAcquisitionForFinish,
 } from '../../common/money';
+import { TierId } from '../../common/pricing-tiers';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
 import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
@@ -380,10 +381,18 @@ export class BuylistService {
    */
   async buylistRules(): Promise<{ rules: PriceRuleSet<BuylistRule>; fallbackPct: number }> {
     const fallbackPct = await this.settings.getNumber(SettingKey.BUYLIST_PRICE_FALLBACK_PCT);
-    // v1.29 (§4.28d): `PriceRuleSet` de DOS EJES (migra el legacy plano on-read).
+    // v1.37 (§4.33c): iza también PRICING_TIER_MAP y DERIVA el `PriceRuleSet` efectivo si el setting trae
+    // el shape por tiers (post-M-38); compat on-read con `{ rarityRules, ... }`/plano (§4.28d) sin el mapa.
+    // Money-safe: rareza sin tier ⇒ sin entrada ⇒ fallback pct (nunca $0 ni bin fijo).
+    const rawTierMap = await this.settings.getRaw(SettingKey.PRICING_TIER_MAP);
+    const tierMap =
+      rawTierMap != null && typeof rawTierMap === 'object' && !Array.isArray(rawTierMap)
+        ? (rawTierMap as Record<string, TierId>)
+        : {};
     const rules = toPriceRuleSet<BuylistRule>(
       await this.settings.getRaw(SettingKey.BUYLIST_PRICE_RULES),
       fallbackPct,
+      tierMap,
     );
     return { rules, fallbackPct };
   }

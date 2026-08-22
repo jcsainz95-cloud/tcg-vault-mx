@@ -1131,6 +1131,34 @@ export interface SealedSetDetailResponse {
   groups: SealedInventoryGroupDTO[];
 }
 
+// ===== v1.36 (P-35): alta dedicada de sellado — catálogo de PRODUCTOS sellados de un set =====
+// GET /admin/inventory/sealed-catalog?setId=&groupId?=&q= (vault_operator+). Un producto SELLADO del
+// catálogo TCGCSV de un set (ETB / booster box / bundle / tin / blister), NO un single. `tcgplayerProductId`
+// = clave de emparejamiento TCGplayer (== la que el alta reenvía al batch). `sealedSubtype` = INFERIDO por
+// heurística de nombre (null si no se pudo inferir → el operador lo elige en el alta). `imageUrl` = imagen del
+// producto DESDE LA API (TCGCSV); null si no trae. `marketRef` = valor de mercado INFORMATIVO; MONEY-SAFE:
+// sin precio en la fuente ⇒ marketRef=null (pendiente / «—»), NUNCA 0. NO fija venta ni costo.
+export interface SealedCatalogProductDTO {
+  tcgplayerProductId: number;
+  name: string;
+  cleanName?: string;
+  sealedSubtype: SealedSubtype | null;
+  imageUrl: string | null;
+  marketRef: PriceInfo | null;
+}
+
+// Respuesta de GET /admin/inventory/sealed-catalog. `set` = el set consultado; `tcgcsvGroupId` = grupo
+// resuelto (null si no se pudo); `groupResolved=false` ⇒ data:[] y el front ofrece el camino de respaldo.
+// `anchorCardId` = Card REPRESENTATIVA del set que el alta reenvía como `cardId` (el operador NUNCA elige
+// un single como ancla del sellado).
+export interface SealedCatalogResponse {
+  set: SetRefDTO;
+  tcgcsvGroupId: number | null;
+  groupResolved: boolean;
+  anchorCardId: string;
+  data: SealedCatalogProductDTO[];
+}
+
 // ===== v1.28 Stream B (P-20): pestaña «Gradeadas» =====
 // GET /admin/inventory/graded — agregado por (cardId, gradingCompany, gradeValue).
 // `marketReferenceMxnCents` = PriceReference de (cardId,'graded','graded:<company>:<grade>',
@@ -1287,6 +1315,17 @@ export interface BatchInventoryItemInput {
   acquisitionCostCents?: number;
   listPriceCents?: number;
   qty?: number;
+  // v1.36 (P-35): 4 campos ADITIVOS solo para productType='sealed' (ignorados en raw/graded).
+  // `tcgplayerProductId` + `tcgplayerGroupId` se fijan JUNTOS (uno sin el otro → 422): la pieza
+  // NACE MAPEADA (pobla InventoryItem.tcgplayerProductId/GroupId, columnas M-23) ⇒ sealedMarketRef
+  // y valuación de aportación resuelven sin curación M2. Vienen del SealedCatalogProductDTO elegido.
+  tcgplayerProductId?: number;
+  tcgplayerGroupId?: number;
+  // Imagen/nombre del producto sellado desde la API TCGCSV. El backend los VALIDA contra el host
+  // allowlist antes de persistir (anti stored-XSS); inválidos/omitidos ⇒ null (fallback a la Card
+  // ancla). Display-only, money-safe (jamás fijan precio).
+  sealedImageUrl?: string;
+  sealedProductName?: string;
 }
 
 // cap items = 200. También acepta header `Idempotency-Key` (equivalente a `batchKey`).
@@ -1625,6 +1664,75 @@ export interface SalesRarityRowDTO {
 export interface SalesRaritiesResponse {
   fallbackPct: number;
   rarities: SalesRarityRowDTO[];
+}
+
+// ==== M2: PRICING POR TIERS (v1.37-pricing-tiers, contrato §M2, P-34) ====
+// El editor pasa de «una regla por CADA rareza canónica» (~30) a «una regla por TIER» (5 tiers
+// T0–T4) + un mapa rareza canónica → tier COMPARTIDO por COMPRA (buylist) y VENTA. La naturaleza de
+// la regla (`fixed` MX$ centavos / `pct`), la precedencia money-safe y el eje `finish` NO cambian:
+// los tiers solo re-expresan el eje rareza de `PriceRuleSet`. Único cambio intencional: T2 Rare/Holo
+// pasa a `pct` de compra. `buy` reusa la forma de `BuylistRule` (pct = % de la referencia); `sell`
+// la de `SalesRule` (pct = markup ARRIBA de mercado).
+export type TierId = 'T0' | 'T1' | 'T2' | 'T3' | 'T4';
+
+// Fila de un tier: `name`/`premium` = taxonomía LOCKED (no editable, viene del backend);
+// `rarityCount` = nº de rarezas canónicas mapeadas a ese tier (informativo).
+export interface TierRuleDTO {
+  id: TierId;
+  name: string;
+  premium: boolean;
+  buy: BuylistRule;
+  sell: SalesRule;
+  rarityCount: number;
+}
+// GET/PUT /admin/pricing/tiers → los 5 tiers + eje acabado (finishRules) + fallbacks, por eje.
+export interface TieredRuleSet {
+  tiers: TierRuleDTO[];
+  finishRules: {
+    buy: Partial<Record<Finish, BuylistRule>>;
+    sell: Partial<Record<Finish, SalesRule>>;
+  };
+  fallbackPct: { buy: number; sell: number };
+}
+// PUT /admin/pricing/tiers request. Deben venir las 5 filas; `name`/`premium` se ignoran (LOCKED).
+export interface UpdateTiersRequest {
+  tiers: { id: TierId; buy: BuylistRule; sell: SalesRule }[];
+  finishRules?: {
+    buy?: Partial<Record<Finish, BuylistRule>>;
+    sell?: Partial<Record<Finish, SalesRule>>;
+  };
+  fallbackPct?: { buy?: number; sell?: number };
+}
+
+// GET /admin/pricing/tier-map → el mapa rareza canónica → tier unido al catálogo canónico.
+export interface TierMapTierDTO {
+  id: TierId;
+  name: string;
+  premium: boolean;
+}
+// `tierId:null` + `source:'fallback'` = rareza del catálogo SIN entrada en el mapa ⇒ cotiza por el
+// fallback pct (money-safe, nunca $0/bin fijo). `mapped=false` = rareza aún sin forma canónica.
+export interface TierMapRowDTO {
+  canonical: string;
+  premium: boolean;
+  mapped: boolean;
+  cardCount: number;
+  tierId: TierId | null;
+  source: 'map' | 'fallback';
+}
+export interface TierMapResponse {
+  tiers: TierMapTierDTO[];
+  rarities: TierMapRowDTO[];
+}
+// PUT /admin/pricing/tier-map request: patch PARCIAL (solo las rarezas a reasignar).
+export interface UpdateTierMapRequest {
+  assignments: Record<string, TierId>;
+}
+// `details` del 422 PREMIUM_RARITY_FIXED_TIER: los pares (rareza premium, tier de compra `fixed`)
+// infractores, para marcarlos en el editor. El invariante money-safe: una rareza premium no puede
+// caer en un tier cuya regla de COMPRA sea `fixed` (bin fijo → regalaría cartas caras).
+export interface PremiumRarityFixedTierDetails {
+  offending: { rarity: string; tierId: string }[];
 }
 
 // ===== v1.23-sealed-sales: sellado / producto cerrado (contrato §2-S, §3, §M1, §M2) =====

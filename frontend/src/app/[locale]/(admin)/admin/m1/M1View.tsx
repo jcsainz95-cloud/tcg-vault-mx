@@ -328,7 +328,6 @@ export function M1View() {
         <SealedTab
           onOpenGroup={openSealedGroup}
           onToast={(msg) => pushToast({ variant: 'success', title: tInv('tabs.sealed'), message: msg })}
-          onOpenBatchAdd={() => setAddOpen(true)}
         />
       )}
       {tab === 'graded' && (
