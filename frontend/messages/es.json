@@ -1318,6 +1318,17 @@
         "fullSyncPricesAlreadyRunning": "Sync completo de {name}: cartas y variantes actualizadas, pero ya había un barrido de precios en curso y los precios de este set NO se encolaron. Cuando termine, dispara «Actualizar precios ahora» o repite el sync completo.",
         "fullSyncCatalogError": "Sync completo de {name}: falló la fase de cartas/variantes; NO se encolaron precios.",
         "fullSyncPricesError": "Sync completo de {name}: cartas y variantes actualizadas, pero falló el encolado de precios. Reintenta con «Actualizar precios ahora».",
+        "refreshVariants": "Variantes + precios (solo TCGCSV)",
+        "refreshVariantsAria": "Refrescar variantes y precios de {name} usando solo TCGCSV",
+        "refreshVariantsHint": "«Variantes + precios (solo TCGCSV)» refresca las variantes/acabados y los precios de un set YA importado usando únicamente TCGCSV: NO re-importa cartas ni depende de pokemontcg.io. Úsalo para arreglar variantes o precios faltantes de un set cuando pokemontcg.io no está disponible.",
+        "refreshVariantsNeedsImport": "Primero importa el set (necesita estar en la base de datos).",
+        "refreshVariantsRunning": "Refrescando variantes y precios de {name} desde TCGCSV… no re-importa cartas ni usa pokemontcg.io. Esto puede tardar unos segundos.",
+        "refreshVariantsSummary": "{cards} carta(s) procesadas · {products} producto(s)/variante(s) actualizados · {prices} precio(s) actualizados.",
+        "refreshVariantsDone": "Variantes + precios de {name} refrescados desde TCGCSV.",
+        "refreshVariantsPartial": "Variantes + precios de {name} refrescados desde TCGCSV (resultado parcial).",
+        "refreshVariantsUnreachable": "TCGCSV no respondió por completo, así que el refresco quedó parcial; reintenta cuando TCGCSV esté disponible.",
+        "refreshVariantsPending": "{pending} producto(s) quedaron sin precio y siguen en la cola de pendientes.",
+        "refreshVariantsError": "No se pudieron refrescar las variantes y precios de {name} desde TCGCSV.",
         "syncHint": "Importar, re-sincronizar y backfill se ejecutan de forma síncrona: pueden tardar y el resultado aparece al terminar. No cierres esta pantalla.",
         "syncRunning": "Sincronizando con pokemontcg.io… esto puede tardar unos segundos.",
         "syncDone": "Sync encolado: {count} set(s) (job {jobId}).",
@@ -2049,7 +2060,9 @@
     "ORDER_ALREADY_CLAIMED": "No fue posible vincular este pedido.",
     "CLAIM_EMAIL_MISMATCH": "No fue posible vincular este pedido.",
     "BOUNTY_PRICE_REQUIRED": "El bounty necesita un precio explícito.",
-    "BOUNTY_BELOW_RULE": "El precio bounty debe ser mayor o igual al sugerido por regla ({suggested})."
+    "BOUNTY_BELOW_RULE": "El precio bounty debe ser mayor o igual al sugerido por regla ({suggested}).",
+    "SET_NOT_IMPORTED": "Ese set aún no está importado; impórtalo antes de refrescar sus variantes.",
+    "UPSTREAM_ERROR": "TCGCSV no está disponible en este momento. Inténtalo de nuevo en unos minutos."
   },
   "payment": {
     "title": "Pago",

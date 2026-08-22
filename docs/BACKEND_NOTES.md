@@ -4,6 +4,106 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-bis. M-34 — `POST /admin/catalog/refresh-variants`: refrescar variantes + precios de un set YA importado SOLO desde TCGCSV (sin pokemontcg.io)
+
+> Rama `fix/variant-composition-regression`. Endpoint admin NUEVO, aditivo, **money-safe**. Solo
+> `backend/`. Desacopla el refresco de variantes/precios (TCGCSV) del re-fetch de cartas
+> (pokemontcg.io), para poder **reparar el `normal` fantasma de un set que YA está en BD aunque
+> pokemontcg.io esté caído (502)**.
+
+**Motivo.** El "Sync completo" (`POST /admin/catalog/sync {setId, force:true}`) encadena el
+re-fetch de metadata de cartas desde **pokemontcg.io** con el resolver estructural de
+variantes/precios desde **TCGCSV**. Durante el outage actual de pokemontcg.io (502), ese
+encadenamiento **bloquea** arreglar la composición de un set que ya tenemos importado. Este camino
+NO toca pokemontcg.io: opera sobre las `Card` existentes en BD y solo habla con TCGCSV.
+
+### Firma exacta (pendiente de formalizar en `API_CONTRACT.md` por el arquitecto)
+- **Ruta:** `POST /api/v1/admin/catalog/refresh-variants`
+- **Auth/rol:** `@Roles(super_admin)` (mismo guard que el resto de `AdminCatalogController`). Auditado
+  (`AuditLog action=catalog.refresh_variants`, entityType `CardSet`, con los contadores + `force`).
+- **HTTP de éxito:** `200`.
+- **Body:**
+  ```jsonc
+  {
+    "setId": "me05",   // REQUERIDO. externalId del set (id pokemontcg.io, p. ej. "me05"). string.
+    "force": false     // OPCIONAL, default false. Aceptado por simetría con /sync (ver nota).
+  }
+  ```
+- **Respuesta 200 (resumen informativo):**
+  ```jsonc
+  {
+    "ok": true,
+    "setId": "me05",
+    "cardsProcessed": 42,        // # de Card locales del set (universo procesado)
+    "cardProductsUpserted": 40,  // CardProduct upserteados (productos TCGCSV unidos por productId)
+    "pricesUpserted": 55,        // PriceReference (tcgcsv_singles) escritos (marketPrice>0)
+    "pending": 7,                // variantes (producto×acabado) SIN precio ⇒ «—»/PRICE_PENDING (jamás 0)
+    "tcgcsvReachable": true
+  }
+  ```
+- **Errores:**
+  - `422 VALIDATION_ERROR` — `setId` con formato inválido (no calza `SET_ID_PATTERN`). Antes de tocar BD/red.
+  - `409 SET_NOT_IMPORTED` — el set NO existe en BD, o existe pero **sin cartas**. Mensaje accionable:
+    "impórtalo primero con `POST /admin/catalog/sync`; este camino NO llama a pokemontcg.io". **No** se
+    intenta importar. **Se usa 409 (no 404) a propósito:** el frontend trata `404/405` como "endpoint no
+    desplegado" (`isEndpointMissing`), así que un `SET_NOT_IMPORTED` real con 404 se confundiría con
+    "endpoint faltante". 409 (Conflict: no se puede refrescar porque el set no está importado) deja
+    backend+frontend alineados.
+  - `502 UPSTREAM_ERROR` — TCGCSV no responde (401/403/5xx/red/parse). Mensaje accionable
+    "Fuente TCGCSV no disponible; reintenta en unos minutos (...)". **NO** un 500 crudo. Money-safe: el
+    resolver hace TODO el fetch (products+prices / listGroups) ANTES de cualquier escritura, así que un
+    fallo remoto NO escribe ni borra nada (se conserva lo previo).
+  - `500 INTERNAL` — solo si el `CardProductResolverService` no estuviera cableado (no ocurre en prod;
+    el `@Optional` es únicamente para los tests unitarios de metadata).
+
+> **Nota sobre `force`.** Este camino ES, por definición, un refresco forzado de variantes: SIEMPRE
+> re-resuelve por completo (no hay gate de first-import como en `/sync`). Por eso `force` hoy **no
+> altera** el comportamiento; se acepta por simetría con `/sync` y para el mismo botón del front, y
+> queda registrado en auditoría. Si a futuro se quiere un modo "solo si stale", el flag ya está listo.
+
+### Servicios REUSADOS (no se duplicó lógica)
+- **`CardProductResolverService.resolveCardProductsForSet(localSetId)`** — EL MISMO resolver del sync
+  (§4.27d). Ya operaba sobre las `Card` existentes en BD (`card.findMany({where:{setId}})`) y **solo**
+  usa TCGCSV: no hubo que extraer nada. Hace los 3 pasos: (1) upsert `CardProduct` por `productId`
+  EXACTO (jamás funde por número ⇒ `normal` fantasma imposible), (2) `FinishReconciler.reconcile(...)`
+  recomputa `Card.availableFinishes`, (3) `PriceReference` por variante (`source=tcgcsv_singles`, FX
+  Banxico, money-safe).
+- **`FinishReconciler`** y el **ingest de precio por variante** (M-31): invocados dentro del resolver;
+  sin cambios.
+- **Cambio aditivo mínimo en el resolver:** su retorno gana un campo `pricesPending` (cuenta las
+  variantes con `marketPrice` null/≤0 que ya se OMITÍAN por money-safe). No altera comportamiento; solo
+  expone al resumen el `pending`. Todos los tests previos del resolver siguen verdes.
+
+### Confirmación: NO llama a pokemontcg.io
+- El método `CatalogSyncService.refreshVariants(setId, force)` no invoca ningún método de
+  `PokemonTcgIoClient`. Su único upstream es TCGCSV (vía el resolver).
+- **Test que lo blinda:** `backend/test/catalog-refresh-variants.spec.ts` espía **todos** los métodos
+  del `PokemonTcgIoClient` (`getSets`, `getCardsBySet`) y verifica en CADA caso (éxito, SET_NOT_IMPORTED,
+  UPSTREAM_ERROR, pending, groupId no resuelto, validación) que **no se invocan**.
+
+### Guard de degradado TCGCSV
+- Nuevo helper privado `withTcgcsvGuard<T>()` en `catalog-sync.service.ts` — HERMANO del
+  `withUpstreamGuard` existente (que es para pokemontcg.io). Remapea fallo NO-Business a
+  `BusinessException(UPSTREAM_ERROR, 502, "Fuente TCGCSV no disponible...")`; preserva una
+  `BusinessException` ya formada (`SET_NOT_IMPORTED`, `VALIDATION_ERROR`).
+
+**⚠️ PENDIENTE PARA EL ARQUITECTO — formalizar 2 códigos + el endpoint en el contrato.**
+- Añadir `UPSTREAM_ERROR` (ya pendiente, ver §0-ter) **y `SET_NOT_IMPORTED`** a `ErrorCode` en
+  `common/error-codes.ts`, y quitar los casts `as ErrorCodeType` (mismo patrón vigente). No bloquea.
+- Formalizar `POST /admin/catalog/refresh-variants` (ruta/body/respuesta/errores de arriba) en
+  `API_CONTRACT.md` §M2 para que **frontend** lo consuma. Backend NO toca `API_CONTRACT.md` (regla 9).
+
+**Archivos tocados (solo `backend/`):**
+- `src/modules/catalog/catalog-sync.service.ts` — método `refreshVariants` + guard `withTcgcsvGuard`
+  + const `SET_NOT_IMPORTED`.
+- `src/modules/catalog/admin-catalog.controller.ts` — endpoint `refresh-variants` + `RefreshVariantsDto`.
+- `src/modules/catalog/card-product-resolver.service.ts` — retorno aditivo `pricesPending`.
+- `test/catalog-refresh-variants.spec.ts` — 7 tests nuevos.
+
+**Gates (números reales, esta rama):** `tsc --noEmit` OK · `eslint` OK · `nest build` OK ·
+`jest` **152 suites / 1423 tests verdes** (1416 previos + 7 nuevos). No se despliega (lo coordina el
+orquestador).
+
 ## 0-ter. fix/variant-composition-regression — robustez del sync por-set ante fallos de fuentes externas
 
 > Rama `fix/variant-composition-regression`. Dos arreglos de **bajo riesgo**, reversibles y

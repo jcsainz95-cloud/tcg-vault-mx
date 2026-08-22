@@ -4,6 +4,44 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## P-13 · «Refrescar variantes + precios (solo TCGCSV)» por set en M2 (2026-08-22, branch `fix/variant-composition-regression`)
+
+Tercera acción por-fila en el **Sync de catálogo** de M2 que refresca variantes/acabados y precios
+de un set **ya importado** usando **SOLO TCGCSV**, sin pokemontcg.io. Motivación: hoy el «Sync
+completo» encadena cartas (pokemontcg.io) + variantes/precios (TCGCSV), así que una caída de
+pokemontcg.io **bloquea** arreglar el "fantasma" (variantes/precios faltantes) de un set ya en BD.
+Esta acción desacopla ese arreglo del proveedor caído.
+
+- **Contrato consumido (nuevo endpoint del backend):** `POST /admin/catalog/refresh-variants`, body
+  `{ setId, force? }`. Respuesta **síncrona** `{ ok, setId, cardsProcessed, cardProductsUpserted,
+  pricesUpserted, pending, tcgcsvReachable }` (NO es un job encolado: devuelve un resumen del trabajo).
+  Errores del contrato: `SET_NOT_IMPORTED` (409, set no está en BD) y `UPSTREAM_ERROR` (502, TCGCSV
+  no disponible). Tipado como `RefreshVariantsResponse` en `types/contract.ts`.
+- **Wire (`lib/api.ts`):** `refreshVariants({ setId, force? })` → `apiRequest` POST; `force` solo se
+  incluye en el body cuando es `true` (body mínimo por defecto). **Mock** con el shape del contrato:
+  simula un refresh con `pending=1` (un producto sin precio) para ejercitar el reflejo money-safe
+  honesto (no todo queda con precio).
+- **UI (`M2View.tsx`):** botón `secondary` «Variantes + precios (solo TCGCSV)» (icono `RefreshCw`) en
+  la columna de acciones por set, junto a «Importar/Re-sincronizar» y «Sync completo». Se **deshabilita
+  para sets no importados** (evita el `SET_NOT_IMPORTED` obvio; explica el porqué en `title`) y se
+  **serializa** con las otras dos operaciones por-set (una a la vez). El feedback es un **resumen
+  honesto**: banner `success` si todo quedó con precio, `warning` («resultado parcial») si
+  `tcgcsvReachable=false` o `pending>0`, con el conteo real de pendientes y el aviso de reintento. La
+  mutación invalida `remote-sets` y `pending-prices`, y se suma a `catalogBusy` (keep-alive de sesión).
+- **Texto claro:** el hint y el copy dejan explícito que **NO** re-importa cartas ni depende de
+  pokemontcg.io (diferencia clave frente al «Sync completo»).
+- **i18n:** nuevas claves en `messages/{es,en}.json` (`admin.m2.catalog.refreshVariants*`) y códigos de
+  error legibles `error.SET_NOT_IMPORTED` / `error.UPSTREAM_ERROR`. Sin texto hardcodeado.
+- **Tests (`M2View.test.tsx`, +6):** dispara `refreshVariants({setId})`; render del resumen; reflejo
+  money-safe de `pending>0` y de `tcgcsvReachable=false`; render legible de `UPSTREAM_ERROR` (sin
+  romper la pantalla) y de `SET_NOT_IMPORTED`; botón deshabilitado para set no importado.
+- **Gates:** `tsc` limpio · `eslint` limpio · `next build` OK · suite **559 verde** (553 previos + 6).
+- **Alineación con el contrato:** el shape se implementó exactamente como lo especificó el orquestador
+  (backend en construcción). **Solicitud pendiente al arquitecto:** documentar formalmente
+  `POST /admin/catalog/refresh-variants` + `RefreshVariantsResponse` y los códigos `SET_NOT_IMPORTED` /
+  `UPSTREAM_ERROR` en `docs/API_CONTRACT.md`. Si backend ajusta el nombre del endpoint/campos o el
+  status de los errores, realinear `refreshVariants` en `lib/api.ts` y los tipos.
+
 ## v1.30 (§4.29 / M-32) · Cotizar/vender un producto SEPARADO como línea propia por `productId` (2026-08-22, branch `fix/variant-composition-regression`)
 
 Cierra el hueco que quedó tras v1.29 (§4.27): la **presentación** de productos separados

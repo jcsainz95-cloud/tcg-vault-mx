@@ -47,6 +47,11 @@ export class CardProductResolverService {
     joined: number;
     products: number;
     pricesWritten: number;
+    // M-34 (aditivo): variantes (producto×acabado) DECLARADAS por estructura pero SIN precio de
+    // mercado (`marketPrice` null/≤0) ⇒ celda «—»/PRICE_PENDING (money-safe, jamás 0). Lo expone
+    // el nuevo camino `refresh-variants` en su resumen (`pending`). No altera el comportamiento
+    // previo del resolver (solo se cuenta lo que ya se OMITÍA por money-safe).
+    pricesPending: number;
     unjoined: number;
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
@@ -68,7 +73,7 @@ export class CardProductResolverService {
         `card-product: grupo ${groupId} (set ${set.name}) no produjo ningún producto con acabado ` +
           `mapeable. No se toca ningún CardProduct (money-safe).`,
       );
-      return { groupId, joined: 0, products: 0, pricesWritten: 0, unjoined: 0 };
+      return { groupId, joined: 0, products: 0, pricesWritten: 0, pricesPending: 0, unjoined: 0 };
     }
 
     const localCards = await this.prisma.card.findMany({
@@ -92,6 +97,7 @@ export class CardProductResolverService {
     let joined = 0;
     let unjoined = 0;
     let pricesWritten = 0;
+    let pricesPending = 0;
 
     for (const dp of derived) {
       // Join por productId EXACTO (ancla tcgplayerId del set_base). Sin ancla → número normalizado
@@ -125,9 +131,15 @@ export class CardProductResolverService {
       // Precio POR VARIANTE (§4.27e): marketPrice de ESA variante → MXN Banxico. Ausente/≤0 ⇒ NO se
       // escribe fila (estructura ≠ precio): la celda queda «—»/null + PRICE_PENDING, jamás 0 inventado.
       for (const pf of dp.pricesByFinish) {
-        if (pf.marketPrice == null || pf.marketPrice <= 0) continue;
+        if (pf.marketPrice == null || pf.marketPrice <= 0) {
+          pricesPending += 1; // estructura sin precio ⇒ «—»/PRICE_PENDING (money-safe, jamás 0)
+          continue;
+        }
         const marketUsdCents = Math.round(pf.marketPrice * 100);
-        if (marketUsdCents <= 0) continue;
+        if (marketUsdCents <= 0) {
+          pricesPending += 1;
+          continue;
+        }
         await this.upsertVariantPrice(owner.id, cardProduct.id, pf.finish, marketUsdCents, fxSnap);
         pricesWritten += 1;
       }
@@ -138,7 +150,7 @@ export class CardProductResolverService {
       `card-product: set ${set.name} (grupo ${groupId}) — products=${derived.length}, joined=${joined}, ` +
         `pricesWritten=${pricesWritten}, unjoined=${unjoined} (conservan su valor previo, money-safe).`,
     );
-    return { groupId, joined, products: derived.length, pricesWritten, unjoined };
+    return { groupId, joined, products: derived.length, pricesWritten, pricesPending, unjoined };
   }
 
   /**

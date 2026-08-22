@@ -934,3 +934,121 @@ describe('M2 · «Sync completo» por set (P-12, v1.27)', () => {
     expect(ingestSpy).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * P-13: la acción por fila «Variantes + precios (solo TCGCSV)» refresca variantes/acabados y
+ * precios de un set YA importado usando SOLO TCGCSV (POST /admin/catalog/refresh-variants). NO
+ * re-importa cartas ni depende de pokemontcg.io, de modo que una caída de pokemontcg.io no bloquee
+ * arreglar el "fantasma" de un set. El feedback es un resumen HONESTO (money-safe) y los errores
+ * del contrato (SET_NOT_IMPORTED, UPSTREAM_ERROR) se muestran legibles sin romper la pantalla.
+ */
+describe('M2 · «Refrescar variantes + precios (solo TCGCSV)» por set (P-13)', () => {
+  it('dispara refreshVariants({setId}) y muestra el resumen (cartas / productos / precios)', async () => {
+    const spy = vi.spyOn(api, 'refreshVariants').mockResolvedValue({
+      ok: true,
+      setId: 'sv08',
+      cardsProcessed: 191,
+      cardProductsUpserted: 260,
+      pricesUpserted: 260,
+      pending: 0,
+      tcgcsvReachable: true,
+    });
+    renderWithProviders(<M2View />, 'es');
+    const [btn] = await screen.findAllByRole('button', {
+      name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
+    });
+    fireEvent.click(btn);
+
+    // Solo TCGCSV: llama al endpoint con el setId, SIN encadenar syncCatalog ni pokemontcg.io.
+    await waitFor(() => expect(spy).toHaveBeenCalledWith({ setId: 'sv08' }));
+    // Resumen honesto de lo procesado.
+    expect(
+      await screen.findByText(/191 carta\(s\) procesadas · 260 producto\(s\)\/variante\(s\) actualizados · 260 precio\(s\) actualizados\./),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/refrescados desde TCGCSV/)).toBeInTheDocument();
+  });
+
+  it('money-safe: si quedan productos sin precio (pending>0) lo refleja honesto (warning), no "todo listo"', async () => {
+    vi.spyOn(api, 'refreshVariants').mockResolvedValue({
+      ok: true,
+      setId: 'sv08',
+      cardsProcessed: 191,
+      cardProductsUpserted: 260,
+      pricesUpserted: 258,
+      pending: 2,
+      tcgcsvReachable: true,
+    });
+    renderWithProviders(<M2View />, 'es');
+    fireEvent.click(
+      (await screen.findAllByRole('button', {
+        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
+      }))[0],
+    );
+
+    // Resultado PARCIAL + conteo real de pendientes (no se inventa que todo quedó con precio).
+    expect(await screen.findByText(/resultado parcial/)).toBeInTheDocument();
+    expect(screen.getByText(/2 producto\(s\) quedaron sin precio/)).toBeInTheDocument();
+  });
+
+  it('money-safe: si TCGCSV no fue alcanzable del todo (tcgcsvReachable=false) avisa resultado parcial', async () => {
+    vi.spyOn(api, 'refreshVariants').mockResolvedValue({
+      ok: true,
+      setId: 'sv08',
+      cardsProcessed: 100,
+      cardProductsUpserted: 120,
+      pricesUpserted: 90,
+      pending: 30,
+      tcgcsvReachable: false,
+    });
+    renderWithProviders(<M2View />, 'es');
+    fireEvent.click(
+      (await screen.findAllByRole('button', {
+        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
+      }))[0],
+    );
+
+    expect(await screen.findByText(/TCGCSV no respondió por completo/)).toBeInTheDocument();
+  });
+
+  it('UPSTREAM_ERROR (502, TCGCSV caído) se muestra legible y NO rompe la pantalla', async () => {
+    vi.spyOn(api, 'refreshVariants').mockRejectedValue(
+      new ApiClientError(502, { code: 'UPSTREAM_ERROR', message: 'tcgcsv down' }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    fireEvent.click(
+      (await screen.findAllByRole('button', {
+        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
+      }))[0],
+    );
+
+    // Copy legible del contrato (error.UPSTREAM_ERROR) + banner de alerta; la vista sigue viva.
+    expect(await screen.findByText(/TCGCSV no está disponible en este momento/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /Catálogo y precios/ })).toBeInTheDocument();
+  });
+
+  it('SET_NOT_IMPORTED se muestra legible (set no está en BD)', async () => {
+    vi.spyOn(api, 'refreshVariants').mockRejectedValue(
+      new ApiClientError(409, { code: 'SET_NOT_IMPORTED', message: 'not imported' }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    // Surging Sparks está importado (botón habilitado); el backend igual puede responder SET_NOT_IMPORTED.
+    fireEvent.click(
+      (await screen.findAllByRole('button', {
+        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
+      }))[0],
+    );
+
+    expect(
+      await screen.findByText(/Ese set aún no está importado; impórtalo antes de refrescar sus variantes\./),
+    ).toBeInTheDocument();
+  });
+
+  it('el botón está DESHABILITADO para un set no importado (evita el SET_NOT_IMPORTED obvio)', async () => {
+    renderWithProviders(<M2View />, 'es');
+    // Temporal Forces (sv05) NO está importado en el mock → la acción TCGCSV queda deshabilitada.
+    const [btn] = await screen.findAllByRole('button', {
+      name: /Refrescar variantes y precios de Temporal Forces usando solo TCGCSV/,
+    });
+    expect(btn).toBeDisabled();
+  });
+});

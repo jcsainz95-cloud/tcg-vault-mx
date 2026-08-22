@@ -29,6 +29,7 @@ import {
   syncCatalog,
   backfillCatalog,
   syncAllCatalog,
+  refreshVariants,
   getSyncStatus,
 } from '@/lib/api';
 import type {
@@ -635,6 +636,21 @@ export function M2View() {
     // En error NO se limpia fullSyncPhase: el banner reporta EN QUÉ fase falló (catalog|prices).
   });
 
+  // --- P-13: «Refrescar variantes + precios» POR SET usando SOLO TCGCSV (sin pokemontcg.io) ---
+  // Endpoint SÍNCRONO POST /admin/catalog/refresh-variants { setId }: repuebla variantes/acabados y
+  // precios de un set YA importado desde TCGCSV, SIN re-importar cartas ni depender de pokemontcg.io.
+  // Existe para desbloquear el arreglo del "fantasma" de un set (variantes/precios faltantes) cuando
+  // pokemontcg.io está caído — algo que el «Sync completo» (cartas pokemontcg.io + TCGCSV) no permite.
+  // Devuelve un RESUMEN honesto (cards procesadas, productos, precios, pendientes) que se pinta tal cual.
+  const refreshVariantsMutation = useMutation({
+    mutationFn: (set: RemoteSetDTO) => refreshVariants({ setId: set.id }),
+    onSuccess: () => {
+      // Repuebla variantes + PriceReference → puede resolver/mover pendientes y cambia el conteo del set.
+      qc.invalidateQueries({ queryKey: ['remote-sets'] });
+      qc.invalidateQueries({ queryKey: ['pending-prices'] });
+    },
+  });
+
   // El operador mira el barrido de catálogo (o espera un backfill/sync por set, que son
   // requests síncronos largos) SIN interactuar → sin esto, el auto-logout por inactividad
   // (5 min) lo sacaría a mitad de la operación. Mientras haya una operación de catálogo en
@@ -647,7 +663,8 @@ export function M2View() {
     backfillMutation.isPending ||
     syncAllMutation.isPending ||
     syncAllForceMutation.isPending ||
-    fullSyncMutation.isPending;
+    fullSyncMutation.isPending ||
+    refreshVariantsMutation.isPending;
   useKeepSessionAlive(catalogBusy);
 
   const setColumns: Column<RemoteSetDTO>[] = [
@@ -687,13 +704,20 @@ export function M2View() {
       render: (s) => {
         const rowFullSyncing = fullSyncMutation.isPending && fullSyncMutation.variables?.id === s.id;
         const rowSyncing = catalogSyncMutation.isPending && catalogSyncMutation.variables === s.id;
+        const rowRefreshing =
+          refreshVariantsMutation.isPending && refreshVariantsMutation.variables?.id === s.id;
+        // Serialización de las operaciones por-set (una a la vez): cualquiera bloquea a las demás.
+        const otherPerSetPending =
+          (catalogSyncMutation.isPending && !rowSyncing) ||
+          (fullSyncMutation.isPending && !rowFullSyncing) ||
+          (refreshVariantsMutation.isPending && !rowRefreshing);
         return (
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               size="sm"
               variant="secondary"
               loading={rowSyncing}
-              disabled={fullSyncMutation.isPending || (catalogSyncMutation.isPending && !rowSyncing)}
+              disabled={otherPerSetPending || refreshVariantsMutation.isPending || fullSyncMutation.isPending}
               onClick={() => catalogSyncMutation.mutate(s.id)}
             >
               {s.imported ? t('catalog.resync') : t('catalog.import')}
@@ -702,11 +726,29 @@ export function M2View() {
               size="sm"
               variant="secondary"
               loading={rowFullSyncing}
-              disabled={catalogSyncMutation.isPending || (fullSyncMutation.isPending && !rowFullSyncing)}
+              disabled={otherPerSetPending || catalogSyncMutation.isPending || refreshVariantsMutation.isPending}
               aria-label={t('catalog.fullSyncAria', { name: s.name })}
               onClick={() => fullSyncMutation.mutate(s)}
             >
               <Zap size={14} /> {t('catalog.fullSync')}
+            </Button>
+            {/* P-13: solo TCGCSV. Requiere el set YA importado en BD (si no, el backend responde
+                SET_NOT_IMPORTED) → se deshabilita para sets no importados con explicación en title. */}
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={rowRefreshing}
+              disabled={
+                !s.imported ||
+                otherPerSetPending ||
+                catalogSyncMutation.isPending ||
+                fullSyncMutation.isPending
+              }
+              aria-label={t('catalog.refreshVariantsAria', { name: s.name })}
+              title={!s.imported ? t('catalog.refreshVariantsNeedsImport') : undefined}
+              onClick={() => refreshVariantsMutation.mutate(s)}
+            >
+              <RefreshCw size={14} /> {t('catalog.refreshVariants')}
             </Button>
           </div>
         );
@@ -1554,6 +1596,8 @@ export function M2View() {
         <p className="text-xs text-muted">{t('catalog.syncAllHint')}</p>
         {/* P-12: qué hace cada acción por fila (cartas vs. sync completo cartas+precios). */}
         <p className="text-xs text-muted">{t('catalog.fullSyncHint')}</p>
+        {/* P-13: la tercera acción por fila (solo TCGCSV) — NO re-importa cartas ni usa pokemontcg.io. */}
+        <p className="text-xs text-muted">{t('catalog.refreshVariantsHint')}</p>
         {/* Feedback del sync por set (Importar / Re-sincronizar) */}
         {catalogSyncMutation.isPending && (
           <Banner variant="info" role="status">{t('catalog.syncRunning')}</Banner>
@@ -1583,6 +1627,43 @@ export function M2View() {
               ? t('catalog.fullSyncPricesError', { name: fullSyncMutation.variables?.name ?? '' })
               : t('catalog.fullSyncCatalogError', { name: fullSyncMutation.variables?.name ?? '' })}{' '}
             {getError(fullSyncMutation.error)}
+          </Banner>
+        )}
+        {/* P-13: feedback del «Refrescar variantes + precios (solo TCGCSV)» por set. */}
+        {refreshVariantsMutation.isPending && (
+          <Banner variant="info" role="status">
+            {t('catalog.refreshVariantsRunning', { name: refreshVariantsMutation.variables?.name ?? '' })}
+          </Banner>
+        )}
+        {refreshVariantsMutation.isSuccess &&
+          (() => {
+            const r = refreshVariantsMutation.data;
+            const name = refreshVariantsMutation.variables?.name ?? '';
+            // Resumen money-safe HONESTO: si TCGCSV no fue alcanzable del todo, o si quedaron
+            // productos sin precio (pending>0), se avisa en tono warning y NO se dice "todo listo".
+            const partial = !r.tcgcsvReachable || r.pending > 0;
+            const summary = t('catalog.refreshVariantsSummary', {
+              cards: r.cardsProcessed,
+              products: r.cardProductsUpserted,
+              prices: r.pricesUpserted,
+            });
+            return (
+              <Banner variant={partial ? 'warning' : 'success'} role="status">
+                <span className="font-medium">
+                  {partial
+                    ? t('catalog.refreshVariantsPartial', { name })
+                    : t('catalog.refreshVariantsDone', { name })}
+                </span>{' '}
+                {summary}
+                {!r.tcgcsvReachable && ' ' + t('catalog.refreshVariantsUnreachable')}
+                {r.pending > 0 && ' ' + t('catalog.refreshVariantsPending', { pending: r.pending })}
+              </Banner>
+            );
+          })()}
+        {refreshVariantsMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>
+            {t('catalog.refreshVariantsError', { name: refreshVariantsMutation.variables?.name ?? '' })}{' '}
+            {getError(refreshVariantsMutation.error)}
           </Banner>
         )}
         {catalogSyncMutation.isSuccess && (

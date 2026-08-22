@@ -2,11 +2,16 @@
 
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
-> Estado: v1.30-buylist-quote-por-producto (MVP, plataforma en producción). Fecha: 2026-08-22. La línea de
-> cotización/venta del buylist gana `productId?` OPCIONAL para apuntar a un `CardProduct` separado (Deck Exclusive/
-> promo) con su propio precio, sin fusionarse con la carta de set. ADITIVO/retrocompatible; reusa M-31 para leer
-> precios; migración aditiva menor **M-32** (§11). Spec normativa en §4.29. **Base previa:** v1.29 (rework de
-> composición y precio de variantes de singles: **1 carta ↔ N productos TCGplayer** por `productId` EXACTO, TCGCSV
+> Estado: v1.31-eval-tcgcsv-fuente-unica (MVP, plataforma en producción). Fecha: 2026-08-22. **EVALUACIÓN EN PAPEL
+> (ADR, no implementación):** ¿conviene retirar pokemontcg.io y usar **TCGCSV como fuente ÚNICA del catálogo de cartas**
+> (identidad + metadata + imágenes), no solo de estructura/precio? Veredicto en §4.30: **HÍBRIDO — no hacer el
+> big-bang de re-llaveo**; conservar pokemontcg.io como columna de identidad/metadata/imagen y seguir moviendo la
+> dependencia OPERATIVA a TCGCSV vía el «paso 1» ya en curso (P-12 §4.25c). Esta rev SOLO añade §4.30 (evaluación);
+> NO cambia contrato, schema ni ningún §4.x normativo previo. **Base previa:** v1.30-buylist-quote-por-producto: la
+> línea de cotización/venta del buylist gana `productId?` OPCIONAL para apuntar a un `CardProduct` separado (Deck
+> Exclusive/promo) con su propio precio, sin fusionarse con la carta de set. ADITIVO/retrocompatible; reusa M-31 para
+> leer precios; migración aditiva menor **M-32** (§11). Spec normativa en §4.29. **Base previa a esa:** v1.29 (rework
+> de composición y precio de variantes de singles: **1 carta ↔ N productos TCGplayer** por `productId` EXACTO, TCGCSV
 > fuente ÚNICA de estructura + precio por variante, PPT en fallback; §4.27; migración **M-31**, §11).
 >
 > **Changelog v1.29-tcgcsv-productos-por-variante (2026-08-22, arquitecto — DISEÑO EN PAPEL, backend implementa):**
@@ -5595,6 +5600,167 @@ interno `CardProduct.id`. Se añade en (ver API_CONTRACT §DTOs y §M5):
   se identifica por `inventoryItemId` (pieza física), que YA es un producto concreto; su precio de venta se resuelve
   por el `PriceReference.cardProductId` de la pieza (M-31), sin tocar el contrato de checkout. `MasterSetVariantDTO`,
   `separateProducts` y la valuación de bóveda tampoco cambian de forma (v1.29 ya los cubre).
+
+---
+
+### 4.30 EVALUACIÓN (ADR en papel) — ¿TCGCSV como fuente ÚNICA del catálogo (identidad + metadata + imágenes)? (v1.31)
+
+> **Propósito.** El dueño quiere evaluar **cortar pokemontcg.io** y depender de UNA sola fuente ajena (TCGCSV, espejo
+> diario de TCGplayer) para TODO el catálogo: qué cartas existen, su nombre/número/rareza, su metadata y sus imágenes —
+> no solo estructura de variantes y precio (que ya se toman de TCGCSV desde M-31, §4.27). Motivación legítima: las
+> caídas de pokemontcg.io nos preocupan y tener menos fuentes ajenas simplifica. Esto es una **evaluación de
+> viabilidad**, no un cambio implementable: no toca contrato, schema ni código. **Enmarque de dos pasos:**
+> - **Paso 1 (táctico, YA en curso — NO es esta evaluación):** refrescar variantes+precios de un set existente SOLO
+>   desde TCGCSV, sin pokemontcg.io. Ya está cableado: `POST /admin/catalog/sync {setId, force:true}` corre
+>   `CardProductResolverService.resolveCardProductsForSet` (`catalog-sync.service.ts:117-143,384-394`;
+>   `card-product-resolver.service.ts:45-142`). Reduce la dependencia **operativa** de pokemontcg.io sin migrar el
+>   catálogo. **Se recomienda continuarlo.**
+> - **Paso 2 (grande — ESTA evaluación):** hacer de TCGCSV la fuente de **identidad + metadata + imágenes** del
+>   catálogo y **cortar pokemontcg.io del todo**. Es un proyecto, no un switch. Veredicto abajo: **NO recomendado como
+>   big-bang; sí un híbrido acotado.**
+
+#### (a) Qué provee CADA fuente, campo por campo (con evidencia)
+
+Hoy pokemontcg.io es el CATÁLOGO (identidad + metadata + imagen) y TCGCSV es ESTRUCTURA+PRECIO. El shape remoto de
+pokemontcg.io está en `RemoteCard` (`pokemontcg-io.client.ts:23-41`); lo que de ahí se persiste en `Card` está en
+`upsertCards` (`catalog-sync.service.ts:470-551`, escribe `name, number, numberSort/Prefix, rarity, rarityCanonical,
+supertype, subtypes, imageSmallUrl, imageLargeUrl, tcgplayerId`). El payload de producto de TCGCSV está en las
+fixtures `backend/test/fixtures/tcgcsv/products-23821.json` (campos `productId, name, cleanName, imageUrl, groupId,
+url, modifiedOn, presaleInfo.releasedOn, extendedData[]`) y su endpoint de precios en `prices-structural-sv8.json`
+(`{productId, subTypeName, marketPrice}`). `extendedData` observado por carta: `Rarity` (valor **abreviado**, p. ej.
+`"DR"`), `Number` (`"057/191"`), `Card Type` (`"Pokemon"`), `HP`.
+
+| Campo de `Card` / ficha | Hoy (pokemontcg.io) | Con TCGCSV como única fuente | Veredicto |
+|---|---|---|---|
+| **Identidad (`externalId`)** | `id` de pokemontcg.io (`@unique`), 1 fila = 1 carta impresa | `productId` de TCGplayer, pero **1 productId ≠ 1 carta** (ver (b)/(c)) | **Se PIERDE la identidad limpia** |
+| **name** | `c.name` («Pikachu ex») | `product.name` («Pikachu ex - 057/191») o `cleanName` («Pikachu ex 057191») | **Se DEGRADA** (hay que limpiar el sufijo de número; `cleanName` pierde el `/`) |
+| **number** | `c.number` («057/191» ó «57») | `extendedData.Number` («057/191»); `normalizeCardNumber` ya lo tolera | **Se CONSERVA** |
+| **rarity (taxonomía)** | Rareza **oficial de Pokémon** en texto pleno («Double Rare», «Special Illustration Rare») | **Convención TCGplayer, a menudo ABREVIADA** («DR») y a veces **AUSENTE** (`Alolan Exeggutor ex` en la fixture no trae `Rarity`) | **Se DEGRADA FUERTE** — rompe el empate 1:1 con M-31 (ver (d)) |
+| **supertype** | `c.supertype` («Pokémon/Trainer/Energy») | `extendedData."Card Type"` («Pokemon») — aproxima, no idéntico | **Se DEGRADA parcial** |
+| **subtypes** | `c.subtypes[]` («Stage 2», «ex», «Tera») | **No lo provee TCGCSV** | **Se PIERDE** (hoy sí se guarda) |
+| **imagen** | `images.small/large` = **scan oficial de la carta**, alta resolución | `imageUrl` = `tcgplayer-cdn.tcgplayer.com/product/<id>_200w.jpg` = **foto de producto de TCGplayer, 200px**, hotlink | **Se DEGRADA FUERTE** (resolución + licencia/hotlink, ver (e)) |
+| **HP / ataques / tipo(energía) / debilidad / retiro / artista / flavor / #Pokédex / evolución** | pokemontcg.io los expone (`RemoteCard` solo tipa un subconjunto) | `HP` sí (en `extendedData`); el **resto NO** existe en TCGCSV | **Neutro HOY** (ver nota) — **se PIERDE a futuro** |
+| **finishes/variantes por carta** | derivadas de `tcgplayer.prices` (señal débil, histórica) | `subTypeName` por `productId` (autoritativo) | **Ya se toma de TCGCSV (M-31); MEJORA** |
+| **precio por variante** | `tcgplayer.prices[llave].market` (se descartaba pre-M-31) | `marketPrice` por `subTypeName` | **Ya se toma de TCGCSV (M-31)** |
+| **release date / año de set** | `set.releaseDate` (alimenta filtro de año, `yearFromReleaseDate`) | `groups.publishedOn` + `product.presaleInfo.releasedOn` | **Se CONSERVA** |
+
+> **Nota de honestidad sobre «lo que se pierde».** La ficha de la tienda HOY solo usa **name, number, rarity, set,
+> imagen y finish** (PROJECT.md §A; `Card` no persiste ataques/artista/flavor/tipo). Por eso, cortar pokemontcg.io **no
+> degrada la ficha ACTUAL** salvo en **imagen** y en **taxonomía de rareza**. Lo demás (HP, ataques, artista, flavor…)
+> «se pierde» solo en el sentido de que **nunca se podría añadir** después sin re-conectar una fuente de metadata rica.
+> Si el producto quisiera enriquecer la ficha en fase 2 (tipo, ataques, artista), TCGCSV **no** puede alimentarla.
+
+#### (b) Re-llaveo de identidad: impacto y riesgo
+
+Hoy `Card.externalId = id` de pokemontcg.io (`schema.prisma:407`, `@unique`) y es la **clave de upsert** del sync
+(`catalog-sync.service.ts:511`). Dato clave para el riesgo: **todas las referencias a una carta apuntan a `Card.id`
+(UUID interno), NO a `externalId`** — `InventoryItem.cardId` (`schema.prisma:528`), `PriceReference`,
+`SellRequestItem`, `PendingPriceEntry`, `VariantPriceOverride`, `CardProduct.cardId`. Por eso:
+
+- **Lo barato:** cambiar la *clave de upsert* del sync de `externalId` (pokemontcg.io) a un identificador derivado de
+  TCGCSV **no obliga** a reescribir todas las FK: siguen colgando del `Card.id` UUID, que no cambia.
+- **Lo caro y RIESGOSO — «¿cuál producto es la carta?»:** TCGCSV **no tiene el concepto de "carta"**, tiene
+  **productos** (`productId`). El modelo actual (M-31, §4.27b) resuelve esto **apoyándose en pokemontcg.io como espina
+  de identidad**: la `Card` = carta de pokemontcg.io, y los N `CardProduct` (por `productId`) cuelgan de ella. **Cortar
+  pokemontcg.io quita esa espina** y obliga a **derivar la carta canónica desde los productos** — que es justo el
+  problema del `normal` fantasma que M-31 combatió (§4.27, changelog v1.29): el par `(groupId, número)` **NO es único
+  por carta** (caso confirmado 084/084: `set_base` 704841 **+** `deck_exclusive` 707029 comparten número). Agrupar por
+  `(grupo, número)` volvería a **fundir** el Deck Exclusive con la carta de set. No hay en TCGCSV una llave limpia que
+  diga «estos 2 productos son la MISMA carta y estos otros 2 son cartas distintas» sin heurística de nombre/kind — la
+  misma clase de heurística que el PO ordenó **retirar** en v1.29.
+- **Migración de datos:** re-llavear el catálogo entero es una migración **sobre datos vivos que tocan dinero**
+  (`PriceReference`, valuación de bóveda, snapshots de portafolio, líneas de buylist con `cardProductId`). Si el
+  agrupamiento canónico cambia, hay que **re-mapear inventario/órdenes/vault** a las nuevas filas `Card`, y decidir qué
+  pasa con cartas que pokemontcg.io tenía y TCGCSV no lista igual (promos sueltas, numeraciones alternas). **Tamaño:
+  grande; riesgo: alto (money-touching, zona compartida `prisma/` + contrato).** No es reversible con un flag.
+
+#### (c) Construir «cartas» desde «productos»: casos ambiguos
+
+Derivar la lista canónica de cartas desde los productos comerciales de TCGCSV reusaría el binder de M-31, pero al ser
+la ÚNICA fuente aparecen ambigüedades que hoy pokemontcg.io resuelve:
+
+- **Sellado** (`booster box`, `ETB`, `bundle`, `sleeved pack`…): productos SIN `extendedData.Number` — hay que
+  excluirlos de «cartas» (ya se detecta por ausencia de `Number` y por `classifyCardProductKind`, `tcgcsv-singles.provider.ts:139-145`). Manejable.
+- **Deck Exclusives / promos con el MISMO número que una carta de set:** ¿son «la misma carta en otra impresión» o
+  «una carta distinta»? M-31 los trata como `CardProduct` **separados bajo una carta ancla de pokemontcg.io**. Sin esa
+  ancla, el agrupamiento es una decisión de negocio ambigua, product-por-producto.
+- **Rareza abreviada/ausente:** un producto sin `Rarity` en `extendedData` no tiene rareza → sin pokemontcg.io no hay
+  de dónde tomarla → cae a `precio_pendiente`/fallback en el buylist (ver (d)).
+- **Jumbo / Staff / League / Prerelease:** hoy `classifyCardProductKind`→`promo`; como fuente única habría que decidir
+  si son «cartas del catálogo» o ruido.
+
+#### (d) Rareza: choque con el catálogo canónico de M-31
+
+M-31 (§4.28) construyó `CANONICAL_RARITIES` (`common/rarity-catalog.ts`) con **aliases derivados de las formas
+NORMALIZADAS de pokemontcg.io**; `normalizeRarity(raw)` alimenta `Card.rarityCanonical`, que es lo que el admin edita
+y lo que el buylist usa para elegir la regla de precio (§4.28d). TCGCSV entrega la rareza en **convención TCGplayer,
+frecuentemente abreviada** (`"DR"`, `"SIR"`, `"ACE"`…) y a veces **vacía**. Cortar pokemontcg.io **rompe el empate
+1:1**: habría que construir y mantener un **nuevo mapa de alias TCGplayer-código → canónico** (p. ej. `"DR"`→«Double
+Rare»), y las cartas sin `Rarity` quedarían sin regla → caen al **fallback pct** en silencio (misma clase de bug que
+§4.28 combatió). Esto es trabajo nuevo, frágil (los códigos de TCGplayer cambian por set) y **money-touching** (rareza
+mal mapeada = pago de buylist equivocado).
+
+#### (e) Cobertura, frescura e imágenes
+
+- **Frescura de sets nuevos:** TCGCSV/TCGplayer suele **listar productos en preventa**, a veces **antes** que
+  pokemontcg.io publique la data oficial de las cartas — a favor de TCGCSV para estructura+precio. **Pero** en preventa
+  el `extendedData` puede venir **incompleto** (sin `Number`, sin `Rarity`, con `presaleInfo.isPresale=true`): bueno
+  para «hay producto y precio», malo para «identidad de carta estable».
+- **Imágenes (licencia/calidad):** `imageUrl` es `tcgplayer-cdn.tcgplayer.com/product/<id>_200w.jpg` — **200px, foto
+  de producto** (no scan de carta), **hotlinkeada** a la CDN de TCGplayer. Riesgos: (1) **calidad** muy inferior a la
+  ficha actual (scan oficial hi-res); (2) **licencia/ToS** — hotlinkear imágenes de producto de TCGplayer en un
+  marketplace comercial propio es una zona gris legal; (3) **disponibilidad** — protección anti-hotlink o cambio de
+  ruta de CDN nos rompe TODAS las imágenes. pokemontcg.io también es tercero, pero sus imágenes son scans pensados para
+  catálogo. Migrar a imágenes de TCGplayer probablemente exigiría **proxy/caché propio** (contradice PROJECT.md v1.2
+  «sin object storage salvo INE»).
+- **Taxonomía de rareza:** ya cubierto en (d) — TCGplayer ≠ taxonomía oficial; no empata con M-31 sin capa de traducción nueva.
+
+#### (f) ¿Se puede cortar pokemontcg.io sin degradar la ficha? Dónde vive HOY la dependencia
+
+Punto central para el veredicto: **pokemontcg.io es una dependencia de TIEMPO DE IMPORTACIÓN, no de runtime.** El
+storefront, el checkout, la valuación de portafolio y el pricing **corren contra la BD local + TCGCSV**, no llaman a
+pokemontcg.io. pokemontcg.io se toca SOLO en el sync de catálogo/metadata (M2, §4.8), que es idempotente, corre pocas
+veces y **ya degrada con gracia**: `remoteSets()` cae a sets locales si la fuente falla (`catalog-sync.service.ts:67-89`)
+y `withUpstreamGuard` remapea un 5xx crudo a un `502 UPSTREAM_ERROR` accionable en vez de tumbar el sync
+(`catalog-sync.service.ts:371-382`). **Es decir: una caída de pokemontcg.io NO bloquea la tienda ni el dinero HOY** —
+bloquea, a lo sumo, **importar un set nuevo** hasta que la fuente vuelva. El dolor real es acotado.
+
+#### (g) Estrategia recomendada — HÍBRIDO, no big-bang
+
+1. **Conservar pokemontcg.io como columna de identidad + metadata + imagen del catálogo.** Es barato (import-time,
+   raro, ya degradado con gracia) y aporta lo que TCGCSV no puede: identidad limpia 1-carta-1-fila, rareza en taxonomía
+   oficial (que M-31 ya alinea) e imágenes de catálogo.
+2. **Seguir moviendo la dependencia OPERATIVA a TCGCSV (paso 1, ya en curso).** Estructura+precio de variantes por set
+   desde TCGCSV es lo correcto y ya está (M-31 + P-12 §4.25c). Ahí es donde vive el valor de negocio (dinero) y ya no
+   depende de pokemontcg.io.
+3. **(Opcional, aditivo, bajo riesgo) TCGCSV como FALLBACK de enriquecimiento** cuando pokemontcg.io no tenga un set o
+   esté caído: usar `product.name/cleanName` + `imageUrl` + `extendedData.Rarity` para NO dejar la carta en blanco,
+   marcándola como «metadata degradada». Esto captura ~90% del beneficio de «menos dependencia de fuentes ajenas» a ~5%
+   del costo, sin re-llavear ni migrar. **Requiere** la capa de traducción de rareza de (d) y una decisión de imagen de (e).
+4. **NO re-llavear identidad a `productId`** salvo evento existencial (que pokemontcg.io CIERRE). Si eso ocurre, el plan
+   de migración queda esbozado aquí: derivar carta canónica por `(groupId, número, kind=set_base)`, tratar
+   deck_exclusive/promo como cartas propias, construir alias de rareza TCGplayer→canónico, resolver imagen vía
+   proxy/caché, y correr una migración money-safe con QA E2E + fase de seguridad (toca `prisma/` y contrato).
+
+#### (h) Veredicto
+
+**Recomendación: HÍBRIDO — NO hacer el big-bang de cortar pokemontcg.io.** Razones, en orden de peso:
+
+- **El beneficio buscado (resiliencia a caídas) ya está casi resuelto:** pokemontcg.io es import-time y degrada con
+  gracia; no bloquea tienda ni dinero. El costo de eliminarlo compra poco.
+- **TCGCSV no da identidad de carta limpia:** producto ≠ carta; derivar la carta canónica **reintroduce el fantasma**
+  que M-31 acaba de erradicar, con heurística que el PO ya mandó retirar.
+- **Degrada rareza (rompe el empate 1:1 de M-31, money-touching) e imagen (200px + hotlink + licencia).**
+- **La migración es grande y de alto riesgo:** re-llaveo sobre datos vivos que tocan dinero (PriceReference, bóveda,
+  buylist), zona compartida (`prisma/` + contrato), no reversible con flag. Multi-semana, multi-rol (backend + QA E2E +
+  seguridad). **No es un switch.**
+- **Qué se conserva al cortar:** number, release/año, y (ya hoy) estructura+precio. **Qué se pierde:** identidad limpia,
+  taxonomía de rareza oficial, imagen de catálogo hi-res, subtypes, y la puerta a enriquecer la ficha en fase 2.
+
+**Acción concreta recomendada:** continuar el **paso 1** (TCGCSV única fuente de estructura+precio por set, ya en
+curso); **no** abrir el paso 2 como big-bang; si se quiere reducir aún más la dependencia, hacer el **híbrido aditivo
+(g.3)** como stream pequeño de «Catálogo y precios» (fallback de metadata/imagen), que **sí** pasaría por arquitecto
+antes por tocar zona compartida. Reservar el re-llaveo total solo para el escenario en que pokemontcg.io deje de existir.
 
 ---
 
