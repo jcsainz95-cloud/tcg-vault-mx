@@ -4,6 +4,60 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §23 · P-30 (publicación única agrupada con stock) — storefront «Compra» al shape AGRUPADO (2026-08-22, contrato v1.38-grouped-listings)
+
+**Qué se hizo:** casar el catálogo del rediseño (que consumía `ListingDTO` por-copia) con el shape
+**AGRUPADO** de v1.38 (`GroupedListingDTO`). **Solo se cambió la fuente de datos y el cableado — el look del
+rediseño queda intacto** (mismas tejas, retícula, tipografía, ficha 6b).
+
+**Tipos (`src/types/contract.ts`):** añadidos `GroupedListingDTO`, `GroupedListingListResponse`,
+`GroupedListingDetailResponse` alineados EXACTO a v1.38 (`representativeInventoryItemId`, `stockCount`,
+`salePriceCents` único del grupo = mínimo/«desde», `gradeKey`, `referenceValue`; productType ∈ {raw, graded},
+NUNCA sealed — H9). `ListingDTO` se conserva (lo usan `units[]` y el re-quote por-pieza). Sin `certNumber` a
+nivel de grupo: es POR SLAB y vive en `units[]`.
+
+**API (`src/lib/api.ts`):**
+- `getCatalog` → `GroupedListingListResponse` (`GET /catalog/cards`). La rama mock **agrupa** las piezas por
+  `(cardId, productType, gradeKey, finish)` y aplica precio/orden sobre el grupo. `total` = nº de grupos.
+- `getCardDetail` → `GroupedListingDetailResponse` (`{ card, listings: GroupedListingDTO[], units: ListingDTO[] }`).
+- `getListing` (`GET /catalog/listings/:inventoryItemId`, re-quote por pieza) **sin cambio** (contrato v1.38).
+
+**Mocks (`src/lib/mock/fixtures.ts`):** helpers `gradeKeyOf`, `unitMatchesGroup`, `groupMockListings`,
+`mockGroupedDetail`. Se añadieron 2 copias físicas más de **Blastoise raw NM normal** (`inv-1002b/-1002c`)
+para que el grupo tenga `stockCount=3` y ejerza el badge «N en stock» y el add-to-cart por N `units` distintos.
+
+**Componentes adaptados (visual preservado):**
+- `catalog/CatalogView.tsx`: una teja por **grupo**; `key`/`inCart`/add-to-cart por
+  `representativeInventoryItemId`.
+- `catalog/CatalogTile.tsx`: renderiza un `GroupedListingDTO`; precio «desde» = `salePriceCents`; badge de
+  stock REAL vía `StockBadge` + `stockVariantFromCount(stockCount)` (Último / N en stock / Agotado —
+  reutiliza la variante existente, **no** se tocó `StockBadge` ni se añadió prop `size`, MK-D9 sigue como
+  deuda registrada). Add-to-cart → `representativeInventoryItemId`.
+- `catalog/[cardId]/CardDetailView.tsx`: la grilla de «Ejemplares disponibles» son los **grupos**
+  (`listings`); el add-to-cart va por **`units[]` cheapest-first**: «Comprar» agrega la pieza más barata del
+  grupo aún NO en el carrito, y clics sucesivos suben hasta `stockCount` (el CTA cambia a «En el carrito» solo
+  cuando TODAS las piezas del grupo están en el carrito). El `certNumber` de graded se lee del **slab
+  representativo** (`units`), no del grupo. Re-quote por pieza sin cambio.
+
+**Consumidores colaterales de `getCatalog` (home) reconciliados al shape agrupado, visual intacto salvo lo
+forzado por el contrato:**
+- `_home/FeaturedCarousel.tsx`: tipos → `GroupedListingDTO`, keys/badge por grupo.
+- `_home/GradedShelf.tsx`: keys/badge por grupo. **Cambio visual forzado:** se retiró la línea de
+  `certNumber` de la teja porque el cert es POR SLAB (`units[]`) y **no** viaja en `GroupedListingDTO` — la
+  vitrina agrupada no tiene esa pieza. El chip de grado (empresa + valor) se conserva. *(No es solicitud de
+  contrato: es el diseño money-safe correcto — el cert se verifica en la ficha, sobre el slab concreto.)*
+
+**Money-safe:** `salePriceCents` del grupo es el mínimo/«desde»; el cobro real se re-cotiza por
+`inventoryItemId` en checkout (ya estaba así). Sin precio → «pendiente»/«—», nunca $0. Los grupos AGOTADOS no
+llegan del backend (`stockCount≥1`); la variante «Agotado» del badge queda disponible por si el front la
+necesita defensivamente.
+
+**Tests:** `CatalogView.test.tsx` (grupo colapsa 3 copias en 1 teja + badge «3 en stock»),
+`CardDetailView.test.tsx` (reescrito al shape `{card,listings,units}`: add-to-cart por `units` cheapest-first,
+multi-stock hasta agotar, CTA por grupo, agotado defensivo), y `api.test.ts` (assertions al shape agrupado).
+**Verde:** `vitest run` (585 tests), `tsc --noEmit`, `next build`. **Sin solicitudes al arquitecto** (el
+contrato v1.38 cubre todo lo necesario).
+
 ## §22 · P-29 (baja rápida de inventario) + P-31 (exportar inventario a Excel) — M1 admin (2026-08-22, branch `fix/variant-composition-regression`)
 
 ### P-29 · Baja rápida en el drawer del Master Set (simétrica al alta rápida)

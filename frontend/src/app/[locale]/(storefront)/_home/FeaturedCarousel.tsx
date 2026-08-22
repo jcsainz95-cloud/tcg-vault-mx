@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getCatalog } from '@/lib/api';
-import type { ListingDTO } from '@/types/contract';
+import type { GroupedListingDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
@@ -12,20 +12,20 @@ import { CardImage } from '@/components/ui/CardImage';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { QueryState } from '@/components/ui/QueryState';
 import { Shelf } from '../_shared/Shelf';
-import { StockBadge } from '../_shared/StockBadge';
+import { StockBadge, stockVariantFromCount } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { cn } from '@/lib/cn';
 
 const FEATURED = 8;
 
 /** Renglón mono de la teja: set · #num (+ empresa/grado si es gradeada). */
-function tileMeta(l: ListingDTO): string {
+function tileMeta(l: GroupedListingDTO): string {
   const base = `${l.card.setName} · #${l.card.number}`;
   return l.gradingCompany ? `${base} · ${l.gradingCompany} ${l.gradeValue ?? ''}`.trim() : base;
 }
 
 /** Precio de la teja: SIEMPRE formateado del server; sin precio ⇒ "pendiente", nunca $0. */
-function TilePrice({ l, locale, big = false }: { l: ListingDTO; locale: AppLocale; big?: boolean }) {
+function TilePrice({ l, locale, big = false }: { l: GroupedListingDTO; locale: AppLocale; big?: boolean }) {
   if (l.salePriceCents == null) {
     return <PendingPriceLabel className="mt-3 block" />;
   }
@@ -45,8 +45,8 @@ function TilePrice({ l, locale, big = false }: { l: ListingDTO; locale: AppLocal
  * «Piezas destacadas del catálogo» (makeover 1a §4): carrusel horizontal con las piezas
  * más caras del inventario publicado (el backend ordena por salePriceCents server-side).
  * Primera teja grande, resto numeradas en mono rojo (numeración decorativa, aria-hidden
- * §20.3). Modelo actual: 1 publicación = 1 copia física ⇒ el badge honesto de cada teja
- * es «Queda 1» (StockBadge `unique`; no existe stock agregado por carta en /catalog/cards).
+ * §20.3). v1.38-grouped-listings (P-30): la fuente (GET /catalog/cards) es AGRUPADA, así que
+ * cada teja es un `GroupedListingDTO` con `stockCount` real (badge Último / N en stock).
  */
 export function FeaturedCarousel() {
   const t = useTranslations('home');
@@ -57,7 +57,7 @@ export function FeaturedCarousel() {
     queryKey: ['catalog', { home: true, sort: 'price_desc' }],
     queryFn: () => getCatalog({ sort: 'price_desc', pageSize: FEATURED }),
   });
-  const featured = (catalog.data?.data ?? []).filter((l) => l.sellable);
+  const featured = catalog.data?.data ?? [];
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [canPrev, setCanPrev] = useState(false);
@@ -147,7 +147,7 @@ export function FeaturedCarousel() {
               {featured.map((l, i) =>
                 i === 0 ? (
                   <Link
-                    key={l.inventoryItemId}
+                    key={l.representativeInventoryItemId}
                     href={`/catalog/${l.card.id}`}
                     className="w-[236px] shrink-0 snap-start lg:w-[400px]"
                   >
@@ -163,13 +163,13 @@ export function FeaturedCarousel() {
                       </div>
                       <div className="shrink-0 lg:text-right">
                         <TilePrice l={l} locale={locale} big />
-                        <StockBadge variant="unique" className="mt-1.5" />
+                        <StockBadge variant={stockVariantFromCount(l.stockCount)} count={l.stockCount} className="mt-1.5" />
                       </div>
                     </div>
                   </Link>
                 ) : (
                   <Link
-                    key={l.inventoryItemId}
+                    key={l.representativeInventoryItemId}
                     href={`/catalog/${l.card.id}`}
                     className="w-[160px] shrink-0 snap-start lg:w-[268px]"
                   >
@@ -187,7 +187,7 @@ export function FeaturedCarousel() {
                       {tileMeta(l)}
                     </p>
                     <TilePrice l={l} locale={locale} />
-                    <StockBadge variant="unique" className="mt-1.5" />
+                    <StockBadge variant={stockVariantFromCount(l.stockCount)} count={l.stockCount} className="mt-1.5" />
                   </Link>
                 ),
               )}

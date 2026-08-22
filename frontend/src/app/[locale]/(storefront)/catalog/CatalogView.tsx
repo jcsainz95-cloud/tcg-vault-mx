@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import type { ReadonlyURLSearchParams } from 'next/navigation';
 import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getCatalog, getCatalogFacets, type CatalogFilters, type CatalogSort } from '@/lib/api';
-import type { Finish, ListingDTO, SealedSubtype } from '@/types/contract';
+import type { Finish, GroupedListingDTO, SealedSubtype } from '@/types/contract';
 import { FINISH_ORDER } from '@/lib/finish';
 import { useCart } from '@/lib/cart';
 import { useRouter } from '@/i18n/navigation';
@@ -134,8 +134,10 @@ export function CatalogView() {
     Math.ceil(total / (catalogQuery.data?.pageSize ?? DEFAULT_PAGE_SIZE)),
   );
 
-  function onAdd(listing: ListingDTO) {
-    cart.add(listing.inventoryItemId);
+  // v1.38-grouped-listings (P-30): la teja es un GRUPO; el add-to-cart de 1 usa la pieza más barata
+  // (representativeInventoryItemId). El carrito sigue siendo por-pieza (deduplicado por id).
+  function onAdd(group: GroupedListingDTO) {
+    cart.add(group.representativeInventoryItemId);
     setAddedSignal(Date.now());
   }
 
@@ -282,11 +284,12 @@ export function CatalogView() {
                 <div className="gutter grid grid-cols-2 gap-x-4 gap-y-8 pb-10 pt-8 sm:grid-cols-3 lg:gap-x-7 xl:grid-cols-4">
                   {catalogQuery.data!.data.map((listing) => (
                     <CatalogTile
-                      key={listing.inventoryItemId}
+                      key={listing.representativeInventoryItemId}
                       listing={listing}
                       onAdd={onAdd}
-                      // N-17: estado «en carrito» DERIVADO del store (useCart), sin duplicarlo.
-                      inCart={cart.ids.includes(listing.inventoryItemId)}
+                      // N-17: estado «en carrito» DERIVADO del store (useCart), sin duplicarlo. El grupo
+                      // se refleja «en carrito» cuando su pieza representativa (la más barata) ya está.
+                      inCart={cart.ids.includes(listing.representativeInventoryItemId)}
                     />
                   ))}
                 </div>

@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
 import { getCardDetail } from '@/lib/api';
-import type { CardDTO, ListingDTO } from '@/types/contract';
+import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatDate, formatMoneyCents } from '@/lib/format';
 import { useCart } from '@/lib/cart';
@@ -14,11 +14,28 @@ import { CartAddedToast } from '../CartAddedToast';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
 import { PendingPriceLabel } from '../../_shared/PendingPriceLabel';
+import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
 import { CertNumberField } from '@/components/ui/CertNumberField';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
+
+/**
+ * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
+ * Match por la clave del grupo (productType, finish, grado/condición) — el ListingDTO por-pieza
+ * no trae `gradeKey`, así que se compara por sus campos equivalentes.
+ */
+function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
+  if (u.productType !== g.productType || u.finish !== g.finish) return false;
+  if (g.productType === 'graded')
+    return u.gradingCompany === g.gradingCompany && u.gradeValue === g.gradeValue;
+  return (u.rawCondition ?? 'NM') === (g.rawCondition ?? 'NM');
+}
+
+const byPriceThenId = (a: ListingDTO, b: ListingDTO) =>
+  (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0) ||
+  a.inventoryItemId.localeCompare(b.inventoryItemId);
 
 export function CardDetailView({ cardId }: { cardId: string }) {
   const cart = useCart();
@@ -51,15 +68,16 @@ export function CardDetailView({ cardId }: { cardId: string }) {
         <>
           <Detail
             card={query.data.card}
-            listings={query.data.listings}
+            groups={query.data.listings}
+            units={query.data.units}
             tab={tab}
             setTab={setTab}
             // Sin riesgo de mismatch SSR: useCart inicia `ids=[]` y lo puebla
             // desde localStorage en un useEffect (post-hidratación), así que el
             // estado «en el carrito» solo se pinta tras montar.
             cartIds={cart.ids}
-            onAdd={(l) => {
-              cart.add(l.inventoryItemId);
+            onAdd={(u) => {
+              cart.add(u.inventoryItemId);
               setAddedSignal(Date.now());
             }}
           />
@@ -94,29 +112,41 @@ function Fact({
 /**
  * 6b — La carta ocupa media pantalla contra papel; a la derecha, la ficha en dos
  * columnas de datos, la explicación de referencia vs. venta como nota al margen y
- * los ejemplares disponibles como renglones de catálogo, no como tarjetas.
+ * las variantes disponibles como renglones de catálogo, no como tarjetas.
+ *
+ * v1.38-grouped-listings (P-30): los renglones «Ejemplares disponibles» son ahora los
+ * GRUPOS (`GroupedListingDTO`), una publicación por (variante, condición) con `stockCount`. El
+ * add-to-cart resuelve la pieza física más barata del grupo aún NO en el carrito (`units[]`,
+ * cheapest-first): clics sucesivos suben hasta `stockCount`. El `certNumber` es POR SLAB → se
+ * lee de la pieza representativa del grupo (units), no del grupo.
  */
 function Detail({
   card,
-  listings,
+  groups,
+  units,
   tab,
   setTab,
   cartIds,
   onAdd,
 }: {
   card: CardDTO;
-  listings: ListingDTO[];
+  groups: GroupedListingDTO[];
+  units: ListingDTO[];
   tab: 'description' | 'condition';
   setTab: (v: 'description' | 'condition') => void;
   cartIds: string[];
-  onAdd: (l: ListingDTO) => void;
+  onAdd: (u: ListingDTO) => void;
 }) {
   const t = useTranslations('card');
   const tcat = useTranslations('catalog');
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
-  const primary = listings[0];
+  const primary = groups[0];
+
+  // Índice de piezas por id (para leer el slab/cert de la pieza representativa de un grupo).
+  const unitById = useMemo(() => new Map(units.map((u) => [u.inventoryItemId, u])), [units]);
+  const primaryUnit = primary ? unitById.get(primary.representativeInventoryItemId) : undefined;
 
   // La ficha ya no tiene pestaña "Fotos" (v1.2): imagen de catálogo remota, sin fotos propias.
   const tabs = [
@@ -160,7 +190,7 @@ function Detail({
 
           {primary && (
             <>
-              {/* Ficha en dos columnas: precio de venta contra valor de mercado. */}
+              {/* Ficha en dos columnas: precio de venta «desde» contra valor de mercado. */}
               <div className="mt-9 grid border-t border-border sm:grid-cols-2">
                 <Fact
                   label={tcat('salePrice')}
@@ -193,11 +223,7 @@ function Detail({
                       {`${primary.gradingCompany ?? ''} ${primary.gradeValue ?? ''}`.trim()}
                     </span>
                   ) : (
-                    <span className="text-base text-text">
-                      {primary.productType === 'raw'
-                        ? tcat('condition.nm.label')
-                        : t('productType.sealed')}
-                    </span>
+                    <span className="text-base text-text">{tcat('condition.nm.label')}</span>
                   )}
                 </Fact>
                 <Fact label={tFinish('label')} className="sm:border-l sm:pl-7">
@@ -205,10 +231,10 @@ function Detail({
                 </Fact>
               </div>
 
-              {/* Gradeada: certificado verificable (§7.2c) — texto copiable, sin inventar URL */}
-              {primary.productType === 'graded' && primary.certNumber && (
+              {/* Gradeada: certificado verificable (§7.2c) del SLAB representativo — por pieza (units) */}
+              {primary.productType === 'graded' && primaryUnit?.certNumber && (
                 <div className="mt-6">
-                  <CertNumberField certNumber={primary.certNumber} />
+                  <CertNumberField certNumber={primaryUnit.certNumber} />
                 </div>
               )}
             </>
@@ -216,43 +242,45 @@ function Detail({
 
           <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">{t('referenceExplainer')}</p>
 
-          {/* Ejemplares disponibles: renglones de catálogo, no tarjetas. */}
+          {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. */}
           <h2 className="mt-10 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>
           <div className="mt-4 border-t border-border">
-            {listings.map((l) => (
-              <div
-                key={l.inventoryItemId}
-                className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4"
-              >
-                <div className="min-w-0">
-                  {/* v1.6-finish: cada ejemplar puede diferir en acabado (listings separados). */}
-                  <ListingSpec
-                    productType={l.productType}
-                    rawCondition={l.rawCondition}
-                    sealedSubtype={l.sealedSubtype}
-                    finish={l.finish}
-                    gradingCompany={l.gradingCompany}
-                    gradeValue={l.gradeValue}
-                    certNumber={l.certNumber}
-                    className={l.sellable ? undefined : 'text-muted'}
-                  />
-                  <div className="mt-2">
-                    {l.salePriceCents != null ? (
-                      <span className="tabular text-[17px] font-medium leading-none text-text">
-                        {formatMoneyCents(l.salePriceCents, locale)}
-                      </span>
-                    ) : (
-                      <PendingPriceLabel hint className="text-[11px] leading-normal tracking-[0.06em]" />
-                    )}
+            {groups.map((g) => {
+              // Piezas físicas del grupo, cheapest-first, y el slab representativo para el cert.
+              const groupUnits = units.filter((u) => unitMatchesGroup(u, g)).sort(byPriceThenId);
+              const repUnit = unitById.get(g.representativeInventoryItemId) ?? groupUnits[0];
+              return (
+                <div
+                  key={g.representativeInventoryItemId}
+                  className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4"
+                >
+                  <div className="min-w-0">
+                    {/* v1.6-finish: cada variante (acabado/condición) es un grupo separado. El cert
+                        del slab representativo viaja por pieza (units), no por grupo. */}
+                    <ListingSpec
+                      productType={g.productType}
+                      rawCondition={g.rawCondition}
+                      finish={g.finish}
+                      gradingCompany={g.gradingCompany}
+                      gradeValue={g.gradeValue}
+                      certNumber={repUnit?.certNumber}
+                    />
+                    <div className="mt-2 flex items-baseline gap-3">
+                      {g.salePriceCents != null ? (
+                        <span className="tabular text-[17px] font-medium leading-none text-text">
+                          {formatMoneyCents(g.salePriceCents, locale)}
+                        </span>
+                      ) : (
+                        <PendingPriceLabel hint className="text-[11px] leading-normal tracking-[0.06em]" />
+                      )}
+                      {/* Stock REAL del grupo (§20.6): Último / N en stock (agotado no llega del backend). */}
+                      <StockBadge variant={stockVariantFromCount(g.stockCount)} count={g.stockCount} />
+                    </div>
                   </div>
+                  <InstanceCta groupUnits={groupUnits} cartIds={cartIds} onAdd={onAdd} />
                 </div>
-                <InstanceCta
-                  listing={l}
-                  inCart={cartIds.includes(l.inventoryItemId)}
-                  onAdd={onAdd}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
@@ -284,14 +312,7 @@ function Detail({
             </p>
           )}
           {tab === 'condition' &&
-            (primary?.productType === 'raw' ? (
-              <div className="flex flex-col gap-2">
-                <p className="font-medium text-text">
-                  {t('condition')}: {tcat('condition.nm.label')}
-                </p>
-                <p>{tcat('condition.nm.desc')}</p>
-              </div>
-            ) : primary?.productType === 'graded' ? (
+            (primary?.productType === 'graded' ? (
               // Gradeada: el slab (empresa+grado+cert) es la garantía; sin foto (§7.2c).
               <div className="flex flex-col gap-3">
                 <p className="font-medium text-text">
@@ -300,12 +321,15 @@ function Detail({
                     grade: primary.gradeValue ?? '',
                   })}
                 </p>
-                {primary.certNumber && <CertNumberField certNumber={primary.certNumber} />}
+                {primaryUnit?.certNumber && <CertNumberField certNumber={primaryUnit.certNumber} />}
               </div>
             ) : (
-              <p>
-                {t('condition')}: {primary?.sealedSubtype ?? '—'}
-              </p>
+              <div className="flex flex-col gap-2">
+                <p className="font-medium text-text">
+                  {t('condition')}: {tcat('condition.nm.label')}
+                </p>
+                <p>{tcat('condition.nm.desc')}</p>
+              </div>
             ))}
         </div>
       </div>
@@ -314,27 +338,33 @@ function Detail({
 }
 
 /**
- * CTA por ejemplar con estado «En el carrito».
+ * CTA por GRUPO con estado «En el carrito».
  *
- * Vive aquí (y no en `ListingCard`) a propósito: `frontend/src/components/` es
- * zona compartida de otro stream y las props actuales de `ListingCard` no
- * expresan este estado. El carrito es pieza única deduplicada (useCart), así
- * que el segundo clic no re-agrega: lleva al carrito (/checkout, la misma ruta
- * del badge del StorefrontHeader).
+ * v1.38-grouped-listings (P-30): el add-to-cart es por-pieza (units[]) aunque la fila sea un
+ * grupo. «Comprar» agrega la pieza más barata del grupo aún NO en el carrito; clics sucesivos
+ * suben hasta `stockCount`. Cuando TODAS las piezas del grupo están en el carrito, el CTA cambia
+ * a «En el carrito» y el segundo clic no re-agrega: lleva al carrito (/checkout).
+ *
+ * Vive aquí (y no en `ListingCard`) a propósito: `frontend/src/components/` es zona compartida de
+ * otro stream y las props actuales de `ListingCard` no expresan este estado.
  */
 function InstanceCta({
-  listing,
-  inCart,
+  groupUnits,
+  cartIds,
   onAdd,
 }: {
-  listing: ListingDTO;
-  inCart: boolean;
-  onAdd: (l: ListingDTO) => void;
+  groupUnits: ListingDTO[];
+  cartIds: string[];
+  onAdd: (u: ListingDTO) => void;
 }) {
   const tcat = useTranslations('catalog');
   const router = useRouter();
 
-  if (!listing.sellable) {
+  const sellableUnits = groupUnits.filter((u) => u.sellable);
+  const nextUnit = sellableUnits.find((u) => !cartIds.includes(u.inventoryItemId));
+  const allInCart = sellableUnits.length > 0 && !nextUnit;
+
+  if (sellableUnits.length === 0) {
     return (
       <Button variant="secondary" size="sm" disabled>
         {tcat('notForSale')}
@@ -342,7 +372,7 @@ function InstanceCta({
     );
   }
 
-  if (inCart) {
+  if (allInCart) {
     return (
       <Button variant="secondary" size="sm" onClick={() => router.push('/checkout')}>
         {/* Check decorativo (§7.4): el texto es el portador del estado. */}
@@ -353,7 +383,7 @@ function InstanceCta({
   }
 
   return (
-    <Button variant="primary" size="sm" onClick={() => onAdd(listing)}>
+    <Button variant="primary" size="sm" onClick={() => onAdd(nextUnit!)}>
       {tcat('buyNow')}
     </Button>
   );

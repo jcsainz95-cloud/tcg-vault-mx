@@ -50,6 +50,23 @@ describe('CatalogView · toast de confirmación al agregar', () => {
 });
 
 /**
+ * v1.38-grouped-listings (P-30): la vitrina se construye contra el shape AGRUPADO
+ * (`GroupedListingDTO`): UNA teja por (carta, variante, condición), no una por copia
+ * física. El badge muestra el `stockCount` REAL del grupo.
+ */
+describe('CatalogView · una teja por grupo con stock real (v1.38)', () => {
+  it('colapsa las 3 copias del mismo Blastoise raw NM en UNA teja con «3 en stock»', async () => {
+    renderWithProviders(<CatalogView />, 'es');
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+
+    // Las tres piezas físicas (inv-1002 / -1002b / -1002c) comparten variante ⇒ UNA sola teja.
+    expect(screen.getAllByText('Blastoise')).toHaveLength(1);
+    // El distintivo de stock refleja el conteo agregado REAL del grupo, no «Queda 1».
+    expect(screen.getByText('3 en stock')).toBeInTheDocument();
+  });
+});
+
+/**
  * Los enlaces del Home llegan con query (?setId=<id>, ?productType=graded):
  * la vista inicializa sus filtros desde la URL al montar y los pinta como
  * chips removibles (mismo estado que si se hubieran elegido en el panel).

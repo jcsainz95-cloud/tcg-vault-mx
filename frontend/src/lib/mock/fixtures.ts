@@ -91,6 +91,8 @@ import type {
   SealedSubtype,
   SealedGroupDTO,
   SealedGroupDetailResponse,
+  GroupedListingDTO,
+  GroupedListingDetailResponse,
   VaultSealedResponse,
   SealedSpreadsDTO,
 } from '@/types/contract';
@@ -351,6 +353,30 @@ export const mockListings: ListingDTO[] = [
     salePriceCents: 140800,
     sellable: true,
   },
+  // v1.38-grouped-listings (P-30): dos copias FÍSICAS más del MISMO Blastoise raw NM normal.
+  // Comparten K = (c-blastoise, raw, raw:NM, normal) con inv-1002 ⇒ el catálogo AGRUPA las tres en
+  // UNA sola publicación (stockCount=3), no tres filas. El add-to-cart sigue por-pieza (units[]).
+  {
+    inventoryItemId: 'inv-1002b',
+    card: cardById('c-blastoise'),
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish: 'normal',
+    referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+    salePriceCents: 140800,
+    sellable: true,
+  },
+  {
+    inventoryItemId: 'inv-1002c',
+    card: cardById('c-blastoise'),
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish: 'normal',
+    referenceValue: { status: 'priced', referenceMxnCents: 128000, source: 'pokemontcg_io', capturedDate: '2026-08-13' },
+    // Precio manual por pieza distinto (§4.26b): el grupo muestra el más barato «desde».
+    salePriceCents: 145000,
+    sellable: true,
+  },
   {
     inventoryItemId: 'inv-1003',
     card: cardById('c-pikachu'),
@@ -426,6 +452,73 @@ export const mockListings: ListingDTO[] = [
     sellable: true,
   },
 ];
+
+// ===== v1.38-grouped-listings (P-30): agrupación de SINGLES para GET /catalog/cards* =====
+// gradeKey canónico (== gradeKeyFor del backend): "raw:NM" | "graded:PSA:9". Encapsula condición/grado.
+export function gradeKeyOf(l: ListingDTO): string {
+  if (l.productType === 'graded') return `graded:${l.gradingCompany ?? ''}:${l.gradeValue ?? ''}`;
+  return `raw:${l.rawCondition ?? 'NM'}`;
+}
+
+/** ¿la pieza (unit) pertenece al grupo? Match por K sin gradeKey en el DTO por-pieza. */
+export function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
+  if (u.productType !== g.productType || u.finish !== g.finish) return false;
+  if (g.productType === 'graded') return u.gradingCompany === g.gradingCompany && u.gradeValue === g.gradeValue;
+  return (u.rawCondition ?? 'NM') === (g.rawCondition ?? 'NM');
+}
+
+/**
+ * Agrupa piezas SINGLES vendibles en publicaciones únicas (K = cardId, productType, gradeKey, finish).
+ * Money-safe: excluye no-vendibles, sin precio y sellado (H9). salePriceCents del grupo = MÍNIMO;
+ * representativeInventoryItemId = la pieza más barata. stockCount = nº de piezas del grupo.
+ */
+export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
+  const singles = items.filter(
+    (l) => l.sellable && l.salePriceCents != null && (l.productType === 'raw' || l.productType === 'graded'),
+  );
+  const map = new Map<string, ListingDTO[]>();
+  for (const l of singles) {
+    const key = [l.card.id, l.productType, gradeKeyOf(l), l.finish].join('|');
+    const bucket = map.get(key);
+    if (bucket) bucket.push(l);
+    else map.set(key, [l]);
+  }
+  const groups: GroupedListingDTO[] = [];
+  for (const bucket of map.values()) {
+    const sorted = [...bucket].sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
+    const rep = sorted[0];
+    groups.push({
+      representativeInventoryItemId: rep.inventoryItemId,
+      card: rep.card,
+      productType: rep.productType as 'raw' | 'graded',
+      finish: rep.finish,
+      rawCondition: rep.rawCondition,
+      gradeKey: gradeKeyOf(rep),
+      gradingCompany: rep.gradingCompany,
+      gradeValue: rep.gradeValue,
+      stockCount: sorted.length,
+      salePriceCents: rep.salePriceCents!,
+      referenceValue: rep.referenceValue,
+      currency: 'MXN',
+    });
+  }
+  return groups;
+}
+
+/** Ficha agrupada de una carta (GET /catalog/cards/:cardId): grupos + units por-pieza (cheapest-first). */
+export function mockGroupedDetail(cardId: string): GroupedListingDetailResponse {
+  const cardUnits = mockListings.filter(
+    (l) =>
+      l.card.id === cardId &&
+      l.sellable &&
+      l.salePriceCents != null &&
+      (l.productType === 'raw' || l.productType === 'graded'),
+  );
+  const card = cardUnits[0]?.card ?? mockCards.find((c) => c.id === cardId);
+  if (!card) throw new ApiFixtureNotFound('Card not found');
+  const units = [...cardUnits].sort((a, b) => (a.salePriceCents ?? 0) - (b.salePriceCents ?? 0));
+  return { card, listings: groupMockListings(cardUnits), units };
+}
 
 /** Facetas dinámicas de Compra (contrato GET /catalog/facets) — sobre lo publicado. */
 export const mockFacets: CatalogFacetsDTO = {
