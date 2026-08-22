@@ -5,26 +5,26 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
 
 ---
 
+## Listo en `main` — esperando «publica» (NO en producción aún)
+
+Doble veredicto por-stream aprobado; mergeado a `main` (Cluster 1 `8edf046`, Cluster 2 `f41ef56`).
+Se despliega a producción solo cuando el humano diga **«publica»**.
+
+- **P-28** · Los dos carritos no concuerdan en «Vender» → el botón de carrito de **tienda** se oculta
+  dentro del flujo de Vender (`/buylist`), en desktop y móvil.
+- **P-29** · Baja rápida de inventario → «baja rápida» de N piezas de un golpe desde el drawer del
+  Master Set (`note` obligatoria + motivo enum), selección server-side, guarda atómica, rastro triple,
+  idempotencia por `batchKey`. Money-safe (solo transiciona status).
+- **P-31** · Exportar inventario a Excel → botón en M1, `.xlsx` (una fila por folio, solo dinero
+  almacenado, celda vacía nunca 0).
+- **P-32** · Valor del «set destacado» en el home → Σ de referencias de mercado de las cartas base
+  (excluye deck_exclusive/promo), % con baseline de cobertura; muere el +157,463%.
+- **P-33** · Quitar el selector de «proveedor de respaldo» de Ingesta de precios → retirado del panel
+  M2; PPT queda fijo como respaldo en la precedencia del backend.
+
+---
+
 ## Abiertos
-
-### P-28 · Los dos carritos no concuerdan en «Vender»
-- **Observado por el humano (2026-08-22):** en `/buylist` (Vender), el header dice **«CARRITO 1»** y
-  el botón flotante abajo muestra **«5»** — dos contadores que no coinciden.
-- **Hipótesis (confirmar en código al arrancar):** son **dos carritos distintos** — el del header es
-  el de **compra (tienda)** y el flotante es el de **venta (cotizador/buylist)**; coexisten en la
-  misma pantalla y confunden.
-- **A decidir al arreglar:** ¿ocultar el carrito de tienda dentro del flujo de Vender, o etiquetarlos
-  claro (Comprar vs Vender)? Si en cambio resultan ser el MISMO carrito descontado, es un bug de
-  estado compartido a sincronizar.
-- **Roles:** frontend (diagnóstico del estado del carrito) → ux-ui si hay decisión de presentación.
-
-### P-29 · Baja rápida de inventario (falta el equivalente a «Alta rápida» para restar)
-- **Observado por el humano (2026-08-22):** no hay forma **rápida** de **reducir** la cantidad cuando
-  tienes menos piezas. Existe «Alta Rápida» para sumar, pero para bajar hay que ir **pieza por pieza**.
-- **Qué falta:** una **baja rápida** desde el drawer del Master Set (p. ej. «−cantidad» o dar de baja
-  N piezas de un golpe), con la misma simplicidad del alta. Refinamiento de P-19.
-- **Roles:** frontend (+ backend si falta endpoint de baja por cantidad); money-safe (baja no inventa
-  precios).
 
 ### P-30 · Publicación ÚNICA por carta (con stock), no una publicación por cada copia
 - **Observado por el humano (2026-08-22):** al publicar, cada copia física genera una **publicación
