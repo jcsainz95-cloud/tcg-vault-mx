@@ -7,18 +7,22 @@ import { composeAvailableFinishes } from '../../common/card-order';
  * FinishReconciler (v1.22-1, ARCHITECTURE §4.22g candado 4) — ÚNICO ESCRITOR de
  * `Card.availableFinishes` en todo el sistema.
  *
- * v1.27 (P-13, §4.25a) — la UNIÓN con `pricedFinishesSnapshot` queda DEROGADA: **el precio
- * CONFIRMA, nunca AÑADE**. La fórmula vigente es:
+ * v1.27.1 (P-13-fix, §4.25e) — la UNIÓN con `pricedFinishesSnapshot` VUELVE (la fórmula «solo
+ * structural» de §4.25a-1 causó una regresión en prod), pero se filtra `normal` cuando la rareza es
+ * premium. La fórmula vigente es:
  *
- *   availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']
+ *   availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot)
+ *                                       − { normal | isPremiumRarity(rarity) } ) || ['normal']
  *
  *  - `structuralFinishes`      — v1.26 (§4.24a): afirmación ESTRUCTURAL autoritativa DETECTADA de
  *    TCGCSV. La escribe el resolver de `catalog-sync.importSet` (first-import/`--force`, y desde
  *    v1.27/P-12 también `sync {setId, force:true}`) y, como seed inicial, `upsertCards` en CREATE.
- *  - `pricedFinishesSnapshot`  — la sigue escribiendo `price-ingest` (Señal C) pero **ya no
- *    compone**: aquí solo se LEE para OBSERVABILIDAD — el log `pricedNotStructural`
- *    (= snapshot ∖ structuralFinishes) deja evidencia del drift proveedor↔estructura para el
- *    dueño de datos, sin tocar la lista blanca.
+ *  - `pricedFinishesSnapshot`  — la sigue escribiendo `price-ingest` (Señal C) y **vuelve a componer**
+ *    (§4.25e): recupera el reverse holo legítimo del común que en sets nuevos solo trae el proveedor.
+ *    Además se LEE para OBSERVABILIDAD — el log `pricedNotStructural` (= snapshot ∖ structuralFinishes)
+ *    deja evidencia del drift proveedor↔estructura para el dueño de datos.
+ *  - `rarity`                  — v1.27.1 (§4.25e): entra al `select` y se pasa a la fórmula. Es el
+ *    GATE del filtro estructural de `normal` (premium ⇒ el `normal` es fantasma, se quita).
  *
  * Ni `price-ingest` ni `catalog-sync` escriben `availableFinishes` directamente: escriben SU columna
  * de entrada y LLAMAN a `reconcile(cardIds)`. Ante una discrepancia hay UN solo lugar donde mirar,
@@ -44,6 +48,7 @@ export class FinishReconciler {
       where: { id: { in: ids } },
       select: {
         id: true,
+        rarity: true,
         structuralFinishes: true,
         pricedFinishesSnapshot: true,
         availableFinishes: true,
@@ -54,13 +59,15 @@ export class FinishReconciler {
     const pricedNotStructural: string[] = [];
     for (const c of cards) {
       const structural = c.structuralFinishes as Finish[];
-      // v1.27 (P-13, §4.25a): observabilidad del drift — el snapshot trae un finish NO estructural.
-      // Se LOGUEA, jamás se compone (el precio no es evidencia estructural).
+      const priced = c.pricedFinishesSnapshot as Finish[];
+      // v1.27.1 (P-13-fix, §4.25e): observabilidad del drift — el snapshot trae un finish NO
+      // estructural. Se LOGUEA (útil para el dueño de datos aunque el snapshot ahora SÍ componga).
       const structuralSet = new Set<Finish>(structural);
-      for (const f of c.pricedFinishesSnapshot as Finish[]) {
+      for (const f of priced) {
         if (!structuralSet.has(f)) pricedNotStructural.push(`${c.id}:${f}`);
       }
-      const next = composeAvailableFinishes(structural);
+      // §4.25e: la unión vuelve (structural ∪ snapshot) menos `normal` si la rareza es premium.
+      const next = composeAvailableFinishes(structural, priced, c.rarity);
       if (sameFinishes(next, c.availableFinishes as Finish[])) continue; // idempotente: sin cambio, sin write
       await this.prisma.card.update({ where: { id: c.id }, data: { availableFinishes: next } });
       changed += 1;
