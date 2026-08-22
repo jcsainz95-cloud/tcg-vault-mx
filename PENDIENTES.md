@@ -72,6 +72,20 @@ Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a
   tier + contrato del editor, cambia el shape de reglas) → backend + frontend. Evoluciona P-18 + el
   catálogo canónico (M-31). **Grande**: sesión propia con diseño primero.
 
+### P-35 · Alta de producto SELLADO clara/simple, con imagen de API (no buscador de cartas)
+- **Observado por el humano (2026-08-22):** en M1 → pestaña **Sellado**, el modal «Alta de carta en
+  bóveda» **reutiliza el buscador de CARTAS**: al elegir Pitch Black + Tipo=Sellado, los RESULTADOS
+  siguen mostrando **singles** (Tropius, Grubbin, Fomantis…) en vez de **productos sellados** (ETB,
+  booster box, blíster). Confuso — no hay una forma clara de subir producto cerrado.
+- **Qué falta:** un flujo **dedicado** de alta de sellado en la pestaña Sellado — listar los
+  **PRODUCTOS SELLADOS del set** (ETB/booster box/blíster…), NO singles; rápido, claro y simple; y que
+  **jale la imagen del producto desde una API** (TCGCSV/TCGplayer, ya mapeado M-23; pokemontcg.io no
+  tiene sellado). Reglas simples de P-19 (cantidad + compra/aportación).
+- **Relación:** P-25 dejó la pestaña Sellado, pero el **alta** sigue pasando por el modal de cartas.
+  Money-safe: sellado sin precio de mercado (no mapeado a TCGCSV) → pendiente, nunca 0.
+- **Roles:** ux-ui (flujo de alta de sellado) → backend (listar productos sellados del set + su imagen
+  de API) + frontend. Módulo Inventario/sellado.
+
 ### Pendiente del humano · Razón social para el footer
 - El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
   social para `footer.legalEntity` (check del rebrand P-21). Solo dato del humano; el cableado ya está.
