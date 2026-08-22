@@ -50,20 +50,29 @@
 >   `gradeKey:"graded:PSA:10"` (sin proveedor por grado en este stream). Overrides P-18 aplican con
 >   `productType=graded`.
 >
+> **Changelog v1.27.1-fix-variant-composition-regression (2026-08-22, rama `fix/variant-composition-regression`) —
+> corrige la regresión en prod de la fórmula «solo structural» de P-13. SIN cambio de shape de contrato: ningún DTO,
+> endpoint ni error cambia de forma; SOLO cambia la SEMÁNTICA de cómo se compone `Card.availableFinishes` server-side.
+> Spec en ARCHITECTURE §4.25e.**
+> - `availableFinishes` vuelve a incluir el `pricedFinishesSnapshot` en su unión (recupera el reverse holo de los
+>   comunes que solo trae el proveedor de precios) pero filtra `normal` en rareza premium (elimina el fantasma de
+>   ex/secret rares). Fórmula: `orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot) − { normal |
+>   isPremiumRarity(rarity) } ) || ['normal']`. Los lectores del contrato (`CardDTO.availableFinishes`/`displayFinishes`,
+>   `MasterSetVariantDTO`) no cambian; solo mejora su CONTENIDO. SEC-A1 (`422 FINISH_NOT_AVAILABLE`) intacto.
+>
 > **Changelog v1.27-stream-a-catalogo-precios (2026-08-22, Stream A «Catálogo y precios», P-13 + P-15 + P-12 de
 > `PENDIENTES.md`). Spec completa en ARCHITECTURE §4.25. SIN migración de schema (las columnas ya existen, M-27/M-29);
 > el paso de despliegue es un RE-SYNC forzado (ver P-13 abajo). Toca la lista blanca de dinero SEC-A1 (composición de
 > `availableFinishes`) → gate de seguridad por release como siempre.**
-> - **P-13 — semántica nueva de `availableFinishes`: el precio CONFIRMA, nunca AÑADE (sin cambio de shape).**
->   La fórmula v1.26 (`structuralFinishes ∪ pricedFinishesSnapshot`) metía **variantes fantasma**: el barrido por
->   impresión de PPT atribuía `normal` CON precio a cartas que solo existen en Holofoil (ex/secret rares) y la unión
->   lo promovía a casilla. Fórmula nueva (ARCHITECTURE §4.25a):
->   `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`.
->   El snapshot de precio **SALE de la composición** (queda como observabilidad/confirmación); una carta legacy sin
->   resolver TCGCSV cae a `['normal']` (fallback conservador; se repara con el re-sync forzado post-deploy:
->   `sync-all {force:true}` o `sync {setId, force:true}` por set). `CardDTO.availableFinishes` /
->   `displayFinishes` / `MasterSetVariantDTO` **no cambian de forma**; solo cambia cómo se computa server-side.
->   SEC-A1 (`422 FINISH_NOT_AVAILABLE`) sigue validando contra `availableFinishes`.
+> - **P-13 — semántica nueva de `availableFinishes`: la composición cambia server-side (sin cambio de shape).**
+>   ⛔ La primera versión de P-13 (fórmula «solo structural», `availableFinishes := structuralFinishes ≠ ∅ ?
+>   orderFinishes(structuralFinishes) : ['normal']`) causó una REGRESIÓN en prod y quedó **DEROGADA 2026-08-22** (ver
+>   changelog v1.27.1 abajo). **Fórmula VIGENTE (ARCHITECTURE §4.25e):**
+>   `availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot) − { normal | isPremiumRarity(rarity) } ) || ['normal']`.
+>   La unión vuelve (recupera el reverse holo legítimo de los comunes, que en sets nuevos solo trae el proveedor de
+>   precios) pero se filtra `normal` en rareza premium (mata el fantasma de las ex/secret rares — filtro estructural por
+>   rareza). `CardDTO.availableFinishes` / `displayFinishes` / `MasterSetVariantDTO` **no cambian de forma**; solo cambia
+>   cómo se computa server-side. SEC-A1 (`422 FINISH_NOT_AVAILABLE`) sigue validando contra `availableFinishes`.
 > - **P-15 — precio de mercado POR VARIANTE en el Master Set (aditivo, §M1/§DTOs).** `MasterSetVariantDTO` gana
 >   **`marketReferenceMxnCents?: number | null`** (+ **`capturedDate?: string | null`** opcional) = la referencia
 >   `PriceReference` de **ESE acabado** (`raw`, `raw:NM`, `finish` de la variante), FX-recompute a MXN — Normal y
@@ -1010,9 +1019,12 @@ PriceInfo    = { status: "priced" | "pending", referenceMxnCents?: number, sourc
 //     autoritativa TCGCSV (`subTypeName`, que existe aunque no haya precio ⇒ estructura ≠ precio).
 //     ⛔ v1.27: la fórmula de UNIÓN `orderFinishes(structuralFinishes ∪ pricedFinishesSnapshot) || ['normal']` quedó
 //     DEROGADA (era el vector de las variantes fantasma).
-//   * v1.27 (P-13, ARCHITECTURE §4.25a) — SIN CAMBIO DE FORMA. FÓRMULA VIGENTE: el precio CONFIRMA, nunca AÑADE.
-//     availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']
-//     (composeAvailableFinishes; el snapshot de precio NO compone — solo observabilidad). VAR-1 completo intacto.
+//   * ⛔ v1.27 (P-13, §4.25a-1) — «solo structural» DEROGADA 2026-08-22 (regresión: los comunes perdieron el reverse
+//     holo que solo trae el proveedor de precios). NO usar `availableFinishes := structuralFinishes ≠ ∅ ? … : ['normal']`.
+//   * v1.27.1 (P-13-fix, ARCHITECTURE §4.25e) — SIN CAMBIO DE FORMA. FÓRMULA VIGENTE: la unión vuelve, el fantasma no.
+//     availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot) − { normal | isPremiumRarity(rarity) } ) || ['normal']
+//     (composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity); reusa isPremiumRarity de money.ts).
+//     La unión recupera el reverse del común; el filtro premium mata el `normal` fantasma de ex/secret rares. VAR-1 intacto.
 //   * ORDEN CANÓNICO GARANTIZADO: normal → reverse_holo → holofoil → first_edition_holofoil. El front NO ordena;
 //     consume el orden del array. De ahí sale "normal a la IZQUIERDA, reverse holo a la DERECHA".
 //   * NUNCA vacío (mínimo ["normal"]) y NUNCA con acabados inventados: es el universo EXACTO de casillas del
@@ -1151,9 +1163,10 @@ VaultOwnerRefDTO = { userId: string, name: string, email?: string }
 // Variante = (carta, acabado). El UNIVERSO esperado por carta = Card.availableFinishes (campo YA existente del
 // catálogo; v1.22: fuente ÚNICA = sync de catálogo — tcgplayer.prices ∪ cardmarket.reverseHolo*; el price-ingest
 // YA NO lo escribe. Filas históricas/sin datos → ["normal"]).
-// v1.27 (P-13): la composición cambia OTRA vez (sin cambio de shape): universo = `structuralFinishes` (TCGCSV,
-// autoritativo) cuando no está vacío; el precio CONFIRMA, nunca AÑADE (adiós variantes fantasma). Legacy sin
-// resolver TCGCSV → ["normal"] hasta el re-sync forzado. Ver ARCHITECTURE §4.25a.
+// v1.27.1 (P-13-fix, sin cambio de shape): universo = orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot)
+// − { normal si rareza premium } ) || ["normal"]. La unión recupera el reverse holo de los comunes (que en sets nuevos
+// solo trae el proveedor de precios) y el filtro premium mata el `normal` fantasma de ex/secret rares. (⛔ la fórmula
+// «solo structural» de la primera P-13 quedó derogada 2026-08-22 por regresión.) Ver ARCHITECTURE §4.25e.
 // `variants` trae EXACTAMENTE una entrada por acabado de availableFinishes (orden canónico FINISH_ORDER:
 // normal → reverse_holo → holofoil → first_edition_holofoil), ni una más ni una menos.
 // v1.22 — SIN CAMBIO DE SHAPE, y es una decisión, no un olvido: la variante NO lleva imagen propia. pokemontcg.io
