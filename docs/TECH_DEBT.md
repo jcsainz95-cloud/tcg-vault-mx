@@ -2811,18 +2811,26 @@
   familia que **D1/BE-11/SA-D3**). Dirección: mover a job con `jobId` consultable (progreso
   persistido) o, como mínimo, cap por set/filtro con paginación de reanudación.
 
-### SB-D2 · `buylistRules()` y `loadBuylistRules()` — mismo cuerpo duplicado, no-delegación justificada (Baja)
-- **Dónde:** `backend/src/modules/buylist/buylist.service.ts:261` (`buylistRules`) vs
-  `backend/src/modules/pricing/pricing.service.ts:319` (`loadBuylistRules`).
-- **Estado actual:** dos lecturas **paralelas** de la MISMA config (`BUYLIST_PRICE_RULES` +
+### SB-D2 · Lecturas paralelas de config de reglas de compra/venta (`buylistRules()` / `loadBuylistRules()` / `loadSalesRules()`) — guard de parseo casi-duplicado (Baja) — **PROMOVIDA por H6/P-34 (2026-08-22): tercer read + disparador cumplido**
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts` (`buylistRules()`) vs
+  `backend/src/modules/pricing/pricing.service.ts` (`loadBuylistRules()` **y** `loadSalesRules()`).
+- **Estado actual:** originalmente dos lecturas **paralelas** de la MISMA config (`BUYLIST_PRICE_RULES` +
   `BUYLIST_PRICE_FALLBACK_PCT`), con cuerpo idéntico. La no-delegación es **decisión justificada**
   (no acoplar `buylist`→`pricing` por un read de settings); el cuerpo normativo de la semántica de
   precio es la matemática compartida en `common/money.ts`. El docblock de `loadBuylistRules` que
-  afirmaba (en falso) que `buylistRules()` delegaba ahí **ya se corrigió** en este pase.
-- **Impacto:** bajo (mantenibilidad): si cambia el formato del dial hay que tocar dos lectores — hoy
-  ambos leen las mismas `SettingKey`, así que cambian juntos por construcción.
-- **Disparador:** próximo toque a cualquiera de los dos specs de reglas de compra. Dirección: unificar
-  en una sola fuente (helper compartido o delegación explícita) cuando se toquen esos archivos.
+  afirmaba (en falso) que `buylistRules()` delegaba ahí **ya se corrigió** en un pase anterior.
+- **Actualización 2026-08-22 (H6, cluster P-34, pricing por tiers):** con la migración a tiers hay ya
+  **TRES** lecturas de `PRICING_TIER_MAP` por separado —`buylist.service.buylistRules()`,
+  `pricing.service.loadBuylistRules()` y `pricing.service.loadSalesRules()`— cada una con un **guard
+  de parseo casi-duplicado** del tier map. El **disparador de SB-D2** («próximo toque a cualquiera de
+  los dos specs de reglas de compra») **ya se cumplió** con el toque de tiers. Esta entrada absorbe H6
+  (no se crea entrada separada); dueño **backend**.
+- **Impacto:** bajo (mantenibilidad): si cambia el formato del dial/tier hay que tocar tres lectores —
+  hoy los tres leen las mismas `SettingKey`, así que cambian juntos por construcción. **No hay
+  divergencia hoy**, solo superficie de riesgo acumulada.
+- **Disparador:** cumplido (toque de tiers). Dirección: **unificar en un loader único compartido** del
+  `PRICING_TIER_MAP` (helper con el guard de parseo una sola vez) que consuman los tres call-sites,
+  en vez de tres guards casi-duplicados. No bloquea (sin divergencia de comportamiento).
 
 ### SB-D3 · Clave de variante `${cardId}|${productType}|${gradeKey}|${finish}` construida a mano en ≥6 sitios (Baja)
 - **Dónde:** `pricing.service.ts:192,280,308`, `buylist.service.ts:170,397,1374`,
@@ -3347,3 +3355,63 @@
 - **Deuda:** las cuatro repiten el mismo núcleo —resolver qué grupos están activos según los `externalId` presentes, incluido el chequeo `<2 partes`— con pequeñas variaciones de forma de salida.
 - **Impacto:** mantenibilidad; cuatro sitios a tocar si cambia la regla de activación. Sin riesgo de comportamiento hoy (los tests cubren cada uno).
 - **Disparador:** al próximo cambio de la regla de agrupación. Dirección: extraer un helper compartido `resolveActiveGroups(presentExternalIds)` en la config y que los cuatro lo consuman. No urgente.
+
+### Cluster P-34 (pricing por tiers) — deuda del veredicto techlead (2026-08-22, no bloqueante)
+
+> Deuda NO bloqueante que el techlead re-enumeró en el **Cluster P-34** (migración de pricing a
+> **tiers**). Dueño **backend** salvo H8 (recordatorio operativo para **devops**). El acoplamiento del
+> tercer read del `PRICING_TIER_MAP` (**H6**) NO se registra como entrada nueva: **actualiza SB-D2**
+> (ver arriba, «Actualización 2026-08-22 (H6…)»), que ya cubre las lecturas paralelas de reglas de
+> compra/venta. Ninguno de estos ítems tiene riesgo de dinero: todos los callers de producción ya
+> pasan por la ruta segura (tier map); lo que queda es complejidad/endurecimiento preventivo.
+
+### H3 · `toPriceRuleSet` ramifica en 3 shapes (tiered / dos-ejes v1.29 / plano legacy v1.3.1) (Baja, backend)
+- **Dónde:** `backend/src/common/money.ts` → `toPriceRuleSet`.
+- **Estado actual:** compat **on-read**: `toPriceRuleSet` acepta y normaliza TRES formas de config —
+  (1) **tiered** (la vigente), (2) **dos-ejes v1.29** y (3) **plano legacy v1.3.1**. La rama plana
+  legacy ya **no debería existir** en datos productivos.
+- **Impacto:** bajo (mantenibilidad): tres ramas de parseo que hay que mantener y razonar; sin riesgo
+  de dinero — todos los callers de producción pasan `tierMap`, así que la ruta viva es la tiered.
+- **No bloquea:** la complejidad es acumulada, no un defecto de correctness; el dinero se calcula por
+  la rama tiered.
+- **Disparador:** una vez **confirmado que ningún `ConfigSetting` productivo trae el shape viejo**,
+  **cerrar la rama plana legacy** (y evaluar además retirar la de dos-ejes v1.29). Dirección: auditar
+  los `ConfigSetting` de precio en prod → si solo hay tiered, eliminar la(s) rama(s) muerta(s) de
+  `toPriceRuleSet`.
+
+### H4 · Seed `DEFAULT_SETTINGS` sin validación de invariante premium→pct en runtime (Baja, backend)
+- **Dónde:** `backend/src/modules/settings/settings.constants.ts` (`DEFAULT_SETTINGS`).
+- **Estado actual:** el seed `DEFAULT_SETTINGS` **no** se valida en runtime contra el invariante
+  premium→pct; hoy el seed **cumple** el invariante, pero nada lo afirma automáticamente.
+- **Impacto:** bajo; es un **guard contra ediciones futuras** del seed que pudieran violar el
+  invariante sin que ningún test lo detecte.
+- **No bloquea:** el seed actual cumple el invariante; la falta es de red de seguridad, no de
+  correctness hoy.
+- **Disparador:** próximo toque del seed. Dirección: añadir un **unit test** que afirme
+  `premiumFixedOffenders(seedMap, seedBuyTiers) === []` sobre el seed `DEFAULT_SETTINGS`.
+
+### H5 · `premiumByPattern` incompleto (falta `mega`/`blackwhite`) — clase R-5 money-losing latente (Media, backend)
+- **Dónde:** `backend/src/common/rarity-catalog.ts` → `premiumByPattern`.
+- **Estado actual:** `premiumByPattern` (rarity-catalog) **no incluye** el patrón `mega`/`blackwhite`.
+  Los 3 casos de hoy están cubiertos por **alias explícitos + seed**, así que hoy no hay fuga. Pero una
+  futura variante string tipo `"Mega X"` **no-alias** caería a `premium:false` → **bin holo barato**
+  (money-losing: se cotizaría/valuaría como no-premium una rareza premium).
+- **Impacto:** medio/latente (**clase R-5 money-losing**): la fuga solo se materializa ante una rareza
+  premium NUEVA no cubierta por alias; los casos actuales están cerrados.
+- **No bloquea:** los casos actuales están cubiertos por alias + seed; el endurecimiento es preventivo.
+- **Disparador:** al aparecer una variante premium por string no cubierta por alias (o al ampliar el
+  catálogo de rarezas). Dirección: **endurecer el patrón** `premiumByPattern` para reconocer
+  `mega`/`blackwhite` (y en general no depender solo de alias para clasificar premium).
+
+### H8 · Backfill `POST /admin/catalog/unify-rarities` debe correr post-deploy — divergencia cosmética hasta entonces (Baja, operativa — recordatorio para runbook de **devops**)
+- **Dónde:** operativa/runbook (no es código de `backend/`). Endpoint: `POST /admin/catalog/unify-rarities`.
+- **Estado actual:** hasta correr el backfill `unify-rarities` **post-deploy**, el editor admin puede
+  pintar una rareza premium como **unmapped/fallback** aunque la **cotización la resuelva bien**. La
+  divergencia es **SOLO cosmética** (editor admin) — la **money-safety NO depende del backfill** (el
+  lookup re-normaliza y cotiza correcto).
+- **Impacto:** bajo y cosmético (visualización en el editor admin); sin efecto en dinero/valuación.
+- **No bloquea:** money-safe por construcción; solo pulido de presentación admin post-deploy.
+- **Disparador / acción:** **devops** debe **documentar en el runbook de deploy** que el backfill
+  `POST /admin/catalog/unify-rarities` corre **tras el deploy** (para eliminar la divergencia cosmética
+  del editor). Recordatorio enrutado a `docs/DEVOPS_NOTES.md`; el backend solo lo anota aquí (no toca
+  runbook ni CI, que son de devops).

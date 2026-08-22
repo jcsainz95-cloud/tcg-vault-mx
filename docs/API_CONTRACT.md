@@ -2,7 +2,15 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.37-pricing-tiers).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.37.1-tiers-example-fix).
+>
+> **Changelog v1.37.1-tiers-example-fix (2026-08-22, arquitecto — CORRECCIÓN DE EJEMPLO, NO NORMATIVO. P-34,
+> DEUDA-tiers-2 / H7):** QA/techlead detectaron que el **ejemplo JSON ilustrativo** de `GET /admin/pricing/tiers`
+> mostraba `finishRules.sell = { reverse_holo: fixed 1500 }` (valor 1500 y **omitía** `holofoil`), contradiciendo el
+> seed real / NORMA §4.33e («las de hoy, SIN cambio»). Se alinea SOLO el ejemplo a
+> `finishRules.sell = { holofoil: fixed 1000, reverse_holo: fixed 1000 }` (el backend ya implementó lo normativo).
+> **Sin cambio de norma §4.33e ni de shape**; `finishRules.buy` del ejemplo (`reverse_holo: fixed 150`) ya reflejaba
+> el seed de buylist y queda igual. Verificado: no hay otros ejemplos del contrato con el mismo desfase.
 >
 > **Changelog v1.37-pricing-tiers (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-34,
 > PROJECT §M v1.9 LOCKED, ARCHITECTURE §4.33):** el editor de precios de M2 pasa de «una fila por CADA rareza
@@ -3718,7 +3726,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
       { "id":"T4", "name":"Ultra / Grail",       "premium":true,  "buy":{"mode":"pct","value":40},    "sell":{"mode":"pct","value":15},     "rarityCount":4 }
     ],
     "finishRules": { "buy":  { "reverse_holo":{"mode":"fixed","value":150} },
-                     "sell": { "reverse_holo":{"mode":"fixed","value":1500} } },
+                     "sell": { "holofoil":{"mode":"fixed","value":1000}, "reverse_holo":{"mode":"fixed","value":1000} } },
     "fallbackPct": { "buy": 40, "sell": 15 } }
   ```
   - `id`/`name`/`premium` = taxonomía **LOCKED** (`common/pricing-tiers.ts`); NO editables. `rarityCount` = nº de

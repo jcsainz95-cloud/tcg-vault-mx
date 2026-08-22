@@ -4,6 +4,118 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-P34. Pricing por TIERS (2026-08-22, v1.37-pricing-tiers, M-38)
+
+> Stream «Catálogo y precios». Implementa el changelog **v1.37-pricing-tiers** del contrato (§M2 «Pricing
+> por TIERS») y ARCHITECTURE **§4.33 + M-38**. Cambios **MONEY-SAFE**; la naturaleza de la regla
+> (`fixed`/`pct`), la precedencia (§4.26b) y el eje `finish` (§4.28d) **NO cambian**. **Único cambio de
+> comportamiento intencional: T2 (Rare/Rare Holo) baja de fallback 40% → `pct` 25% (LOCKED).** Gate
+> backend: **161 suites / 1540 tests verde** (incluye los nuevos). **Sin DDL** (migración de datos/seed).
+
+### Taxonomía LOCKED — `common/pricing-tiers.ts` (NUEVO, zona compartida)
+`PRICING_TIERS` = 5 tiers `T0–T4` `{ id, name, premium }` (T0/T1/T2 no-premium; T3/T4 premium). Es una
+constante **cerrada y versionada** (como `rarity-catalog.ts`): el dueño NO crea/borra tiers, solo edita
+los VALORES de cada tier y el MAPA rareza→tier. Helpers `TIER_IDS`, `isTierId`, `getTier`.
+
+### Indirección money-safe — `common/money.ts` (aditivo; el resolver NO se tocó)
+- `TieredRuleSet<R> { tierRules: Partial<Record<TierId,R>>, finishRules, fallbackPct }` — reemplaza el eje
+  `rarityRules` de `PriceRuleSet` por `tierRules` (5 entradas). `finishRules`/`fallbackPct` idénticos.
+- **`buildEffectiveRuleSet(tiered, tierMap)`** (función pura ÚNICA nueva) DERIVA el `PriceRuleSet` de
+  siempre: `rarityRules[canonical] = tierRules[map[canonical]]`, y se lo pasa VERBATIM a
+  `resolveTwoAxisRule` / `quoteAcquisitionForFinish` / `computeSalePriceForRarity`. El gate premium
+  (§4.2.1) y la precedencia quedan intactos.
+- **Compat on-read (ambos shapes conviven, sin ventana ciega):** `toPriceRuleSet(raw, fallbackPct,
+  tierMap?)` gana un 3er parámetro opcional. Si `raw` es un `TieredRuleSet` (post-M-38) DERIVA el efectivo
+  con `buildEffectiveRuleSet`; si es `{ rarityRules, ... }`/plano (pre-M-38) sigue igual (§4.28d, ignora el
+  mapa). Si el shape es tiered pero el caller NO izó el mapa ⇒ `rarityRules={}` ⇒ **todo cae al fallback
+  pct** (money-safe, nunca $0; `finishRules` se conservan). `isTieredRuleSet` distingue el shape.
+
+### Cableado de los READ POINTS (izan el mapa + derivan el efectivo, patrón BE-25)
+Los tres puntos que leen las reglas ahora también leen `PRICING_TIER_MAP` y pasan el mapa a
+`toPriceRuleSet`. Ningún consumidor aguas abajo cambió (todos reciben el `PriceRuleSet` efectivo de
+siempre): `catalog.service`, `inventory.service`, `master-set.service`, `variant-controls.service` heredan
+el fix sin tocarse.
+- `pricing.service.loadBuylistRules()` / `loadSalesRules()` — + `loadTierMap()` (nuevo helper).
+- `pricing.controller.readBuylistRuleSet()` / `readSalesRuleSet()` — + `readTierMap()`.
+- `buylist.service.buylistRules()` — iza el mapa inline (ruta de COMPRA pública/batch/createRequest).
+  **Nota de scope:** este archivo es de `modules/buylist/` (mismo stream, no el `catalog.service.ts`
+  vetado). Se tocó SOLO `buylistRules()` porque, sin izar el mapa, el seed tiered le llegaría como mapa
+  plano corrupto = bug de dinero en la cotización de compra. Cambio mínimo y necesario (money-safety).
+
+### Endpoints M2 (`super_admin`, auditados) — `pricing.controller.ts`
+- **`GET /admin/pricing/tiers`** — 5 tiers `{ id,name,premium,buy,sell,rarityCount }` + `finishRules{buy,
+  sell}` + `fallbackPct{buy,sell}`. `rarityCount` = nº de rarezas del mapa en ese tier.
+- **`PUT /admin/pricing/tiers`** — reemplaza los VALORES de las 5 reglas (buy y sell) + eje acabado +
+  fallbacks. Exige las 5 filas `T0..T4`; `name`/`premium` se ignoran (LOCKED). Valida
+  mode/value/rango (buy pct [0,100], sell pct [0,1000], fixed entero cents ≥ 0). **Invariante** (abajo).
+  Persiste `BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES` (tiered) + dials de fallback. Audita
+  `pricing.tiers.update` (before/after). Cambiar un tier repricia todas sus rarezas (criterio 74).
+- **`GET /admin/pricing/tier-map`** — `{ tiers:[{id,name,premium}], rarities:[{ canonical, premium, mapped,
+  cardCount, tierId|null, source:'map'|'fallback' }] }`, ordenado por `cardCount` desc. `tierId:null` ⇒
+  rareza del catálogo sin mapear ⇒ fallback pct.
+- **`PUT /admin/pricing/tier-map`** — patch **parcial** `{ assignments: { [canonical]: TierId } }`. Normaliza
+  cada key a su canónica (`normalizeRarity`) y la exige mapeada en el catálogo (§4.28c) ⇒ si no,
+  **`422 UNKNOWN_RARITY`** (`details.rarity`). `TierId ∉ {T0..T4}` ⇒ `422 VALIDATION_ERROR`. Fusiona con el
+  mapa vigente. **Invariante** (abajo). Audita `pricing.tier_map.update`.
+- **RETIRADOS:** `PUT /admin/pricing/buylist-rules` y `PUT /admin/pricing/sales-rules` (superseded). Los
+  `GET` se conservan y ahora devuelven el `PriceRuleSet` **EFECTIVO** (derivado de tiers×mapa).
+  `GET /admin/pricing/rarities` (+ `/sales-rarities`) ganan `tierId` + `source:'map'|'fallback'`; su `rule`
+  refleja la regla RESUELTA vía tier. (`source` pasó de `'rule'|'fallback'` a `'map'|'fallback'` — basado
+  en presencia de tier, coherente con `tier-map`; el front debe tolerar `'map'`.)
+
+### Invariante money-safe (§4.33d) — `422 PREMIUM_RARITY_FIXED_TIER`
+`premiumFixedOffenders(tierMap, buyTierRules)`: toda rareza `isPremiumCanonicalRarity(canonical)===true`
+mapeada a un tier cuya regla de **COMPRA** es `fixed` es infractora. Se valida sobre el **producto
+completo** (tiers × mapa), por eso lo emiten **ambos** PUT: el de `/tiers` con las reglas NUEVAS × el mapa
+vigente; el de `/tier-map` con el mapa RESULTANTE × las reglas de compra vigentes. `details.offending:
+[{ rarity, tierId }]`. Un tier de compra SIN regla (undefined) NO es infractor (cae al fallback pct). **El
+eje de VENTA no entra** (un `fixed` de venta es un piso, no un bin de compra). Códigos nuevos añadidos al
+enum central `common/error-codes.ts`.
+
+### Persistencia / seed (M-38, `settings.constants.ts` — reshape de DATO, sin DDL)
+- Nuevo `SettingKey.PRICING_TIER_MAP` (`pricing_tier_map`) + su default (mapa M.2 LOCKED + `Mega Rare`/
+  `Black White Rare` → T3) + validador `validateTierMap` (forma + `TierId`; la existencia de la rareza la
+  valida el PUT). NO se expone en `SETTING_DTO_MAP` (no editable por PUT /admin/settings).
+- RESHAPE de `BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES` de `{ rarityRules,... }` a `{ tierRules, finishRules
+  }`. **Seed COMPRA:** T0 fixed $0.50, T1 fixed $1.50, **T2 pct 25% (CAMBIO LOCKED)**, T3/T4 pct 40%,
+  fallback 40%. **Seed VENTA:** T0 fixed $5, T1 fixed $10 (= pisos vigentes de Common/Uncommon), T2/T3/T4
+  pct 15 (= fallback de venta vigente), fallback 15. `finishRules` (buy `reverse_holo` fixed 150; sell
+  `holofoil`/`reverse_holo` fixed 1000) = **las de hoy, SIN cambio** (§4.33e).
+- `validateBuylistRules`/`validateSalesRules` ahora aceptan **3 shapes**: tiered (`tierRules`), dos ejes
+  (`rarityRules`, compat pre-M-38) y mapa plano legacy. `validateTieredRuleSet` valida el nuevo shape.
+
+### rarity-catalog.ts (+1 alias, +2 canónicas premium — cierra 3 `unmapped` money-losing, §4.33e)
+- Alias `megahyperrare` → `Hyper Rare` (ya premium) → T4.
+- Canónica `Mega Rare` (aliases `megaattackrare`, `megarare`, premium) → T3. `MEGA_ATTACK_RARE` (snake) lo
+  colapsa `normKey`.
+- Canónica `Black White Rare` (alias `blackwhiterare`, premium) → T3.
+- **Efecto (fix de dinero):** las 3 dejan de cotizar al bin de acabado holo barato de bulk; con
+  `premium:true` el gate §4.2.1 las resuelve por su propia regla (T3/T4 pct), verificado en tests.
+
+### Backfill `Card.rarityCanonical` + barrido de otras `unmapped` — OPERATIVO, sin código nuevo
+- El backfill de las 3 rarezas crudas se hace corriendo el endpoint **ya existente**
+  `POST /admin/catalog/unify-rarities` post-deploy: re-deriva `rarityCanonical = normalizeRarity(rarity)`
+  para todas las cartas con el catálogo YA extendido ⇒ `MEGA_ATTACK_RARE`/`Black White Rare`/`Mega Hyper
+  Rare` pasan de pass-through `unmapped` a su canónica premium. **No toqué `catalog/` (otro stream corre
+  ahí en paralelo);** el endpoint ya implementa la política. Money-safe: solo reescribe `rarityCanonical`.
+- **Barrido de otras `unmapped` (§4.33g):** es AUTOMÁTICO por diseño — una rareza sin entrada en
+  `PRICING_TIER_MAP` no cae a ningún tier fijo: resuelve por `fallbackPct` (40% compra), nunca $0 ni bin
+  fijo. La política «premium por patrón nunca cae a T0/T1» se cumple sola (los tiers T0/T1 solo se asignan
+  por el mapa explícito, y `premiumByPattern` mantiene el verdicto premium para el gate §4.2.1).
+
+### Deuda descubierta (para que el orquestador la enrute — NO escribí TECH_DEBT.md)
+- **DEV-tiers-1 (bandera para PO, ya en §4.33g):** el mapa LOCKED sube **Uncommon** de compra $0.50→$1.50
+  (T1). Es cambio de negocio (no money-safety), reversible sin código (bajar T1 o reasignar Uncommon→T0).
+- **DEUDA-tiers-2 (doc, contrato):** el ejemplo JSON del `GET /admin/pricing/tiers` en el contrato (línea
+  ~3721) muestra `finishRules.sell.reverse_holo = 1500`, pero §4.33e manda «finishRules = las de hoy, SIN
+  cambio» (hoy sell `reverse_holo` = **1000**, y además existe `holofoil` = 1000 que el ejemplo omite).
+  Implementé lo NORMATIVO (§4.33e: preservar las de hoy). El «1500»/ausencia de `holofoil` del ejemplo es
+  ilustrativo; conviene que el arquitecto alinee el ejemplo del contrato para que QA no lo lea como seed.
+- **DEUDA-tiers-3 (acoplamiento, heredada SB-D2):** `buylist.service.buylistRules()` y
+  `pricing.service.loadBuylistRules()` leen las MISMAS 3 claves por separado (2 lecturas paralelas). Con
+  los tiers son ahora 3 claves cada uno (reglas + fallback + mapa). Sigue siendo la deuda SB-D2 ya
+  registrada; no la agravé, solo la extendí a `PRICING_TIER_MAP`.
+
 ## 0-P35. Alta dedicada de producto SELLADO con imagen de API (2026-08-22, v1.36-sealed-alta)
 
 > Stream «Inventario y vault». Implementa el changelog **v1.36-sealed-alta** del contrato (§M1 +
