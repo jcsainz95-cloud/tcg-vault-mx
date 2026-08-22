@@ -1671,6 +1671,26 @@ export interface CatalogSyncAllResponse {
   remaining: number;
 }
 
+// POST /admin/catalog/refresh-variants — refresca variantes + precios de UN set existente usando
+// SOLO TCGCSV (sin pokemontcg.io). No re-importa cartas: opera sobre las cartas ya en BD. Es
+// SÍNCRONO y devuelve un resumen del trabajo (no un job encolado), de modo que una caída de
+// pokemontcg.io no bloquee arreglar el "fantasma" (variantes/precios faltantes) de un set importado.
+// Errores: SET_NOT_IMPORTED (el set no está en BD) · UPSTREAM_ERROR (502, TCGCSV no disponible).
+export interface RefreshVariantsResponse {
+  ok: boolean;
+  setId: string;
+  /** cartas del set procesadas (ya presentes en BD; no se importan cartas nuevas). */
+  cardsProcessed: number;
+  /** productos de carta (variantes/acabados) insertados o actualizados desde TCGCSV. */
+  cardProductsUpserted: number;
+  /** precios de referencia insertados o actualizados desde TCGCSV. */
+  pricesUpserted: number;
+  /** productos que quedaron SIN precio (TCGCSV no lo trajo) → siguen en la cola de pendientes. */
+  pending: number;
+  /** false = TCGCSV no respondió de forma completa durante el refresh (resultado parcial honesto). */
+  tcgcsvReachable: boolean;
+}
+
 // GET /admin/catalog/sync-status — progreso del barrido `sync-all` en curso (o del último).
 // Estado en memoria del proceso (no persistido); para POLLING desde M2 sin llamar a pokemontcg.io.
 export interface CatalogSyncStatusResponse {

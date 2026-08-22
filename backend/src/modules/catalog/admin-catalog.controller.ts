@@ -17,6 +17,15 @@ class SyncDto {
   @IsOptional() @IsBoolean() force?: boolean;
 }
 
+/**
+ * M-34 — body de `POST /admin/catalog/refresh-variants`. `setId` es el externalId del set
+ * (pokemontcg.io id, p. ej. `me05`), REQUERIDO. `force` opcional (simetría con `/sync`).
+ */
+class RefreshVariantsDto {
+  @IsString() setId!: string;
+  @IsOptional() @IsBoolean() force?: boolean;
+}
+
 class BackfillDto {
   @IsOptional() @IsInt() @Min(1) batchSize?: number;
   @IsOptional() @IsInt() untilYear?: number;
@@ -92,6 +101,38 @@ export class AdminCatalogController {
    * reprocesa TODOS los sets remotos (incluidos los ya poblados) para refrescar
    * `availableFinishes`/precios por acabado. La firma sigue siendo compatible (force opcional).
    */
+  /**
+   * M-34 — POST /admin/catalog/refresh-variants — refresca VARIANTES (finishes) + precio por
+   * variante de un set YA IMPORTADO usando SOLO TCGCSV (NUNCA pokemontcg.io). Síncrono (opera sobre
+   * las Card existentes de UN set), 200 con resumen. Auditado (`catalog.refresh_variants`). Ver
+   * `CatalogSyncService.refreshVariants` y docs/BACKEND_NOTES.md para el contrato completo.
+   */
+  @Post('refresh-variants')
+  @HttpCode(200)
+  async refreshVariants(
+    @Body() dto: RefreshVariantsDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const force = dto.force ?? false;
+    const res = await this.sync.refreshVariants(dto.setId, force);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'catalog.refresh_variants',
+      entityType: 'CardSet',
+      after: {
+        setId: res.setId,
+        cardsProcessed: res.cardsProcessed,
+        cardProductsUpserted: res.cardProductsUpserted,
+        pricesUpserted: res.pricesUpserted,
+        pending: res.pending,
+        tcgcsvReachable: res.tcgcsvReachable,
+        force,
+      },
+    });
+    return res;
+  }
+
   @Post('sync-all')
   @HttpCode(202)
   async syncAll(

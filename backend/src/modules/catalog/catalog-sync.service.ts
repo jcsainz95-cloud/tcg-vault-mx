@@ -21,6 +21,17 @@ export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
  * formalizarlo en `ErrorCode` es un follow-up del arquitecto (ver docs/BACKEND_NOTES.md).
  */
 const UPSTREAM_ERROR = 'UPSTREAM_ERROR' as ErrorCodeType;
+/**
+ * M-34 — `SET_NOT_IMPORTED` (409 Conflict): el `refresh-variants` recibió un set que NO está en BD (o
+ * sin cartas). Este camino NUNCA importa desde pokemontcg.io, así que no puede "traerlo": exige que el
+ * set ya exista. Se usa **409 (no 404)** a propósito: el frontend trata 404/405 como "endpoint no
+ * desplegado" (`isEndpointMissing`), así que un `SET_NOT_IMPORTED` real con 404 se confundiría con
+ * "endpoint faltante". 409 es defendible (conflicto: no se puede refrescar porque el set no está
+ * importado) y deja backend+frontend alineados. Mismo patrón de tipado por cast que `UPSTREAM_ERROR`
+ * (no está aún en `common/error-codes.ts`, zona compartida de otro stream); formalizarlo en `ErrorCode`
+ * + `API_CONTRACT.md` es follow-up del arquitecto (ver docs/BACKEND_NOTES.md).
+ */
+const SET_NOT_IMPORTED = 'SET_NOT_IMPORTED' as ErrorCodeType;
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
 
@@ -140,6 +151,127 @@ export class CatalogSyncService {
       if (res.imported) setsQueued += 1;
     }
     return { jobId: `catalog-sync-${Date.now()}`, setsQueued, mode: 'from_date' as const };
+  }
+
+  /**
+   * POST /admin/catalog/refresh-variants (M-34) — refresca VARIANTES (finishes) + PRECIO POR
+   * VARIANTE de un set **YA IMPORTADO** usando **SOLO TCGCSV**. NUNCA llama a pokemontcg.io.
+   *
+   * Motivo (regresión de composición): el "Sync completo" encadena el re-fetch de cartas
+   * (pokemontcg.io) con el resolver de variantes/precios (TCGCSV); cuando pokemontcg.io está caído
+   * (502), no se puede reparar el `normal` fantasma de un set que YA tenemos en BD. Este camino
+   * ROMPE ese acoplamiento: opera sobre las `Card` existentes (no trae payload nuevo) y solo habla
+   * con TCGCSV.
+   *
+   * Pasos (reusa el MISMO `CardProductResolverService` del sync, §4.27d):
+   *   1. resuelve `CardProduct` por productId EXACTO desde TCGCSV (jamás funde por número);
+   *   2. reconcilia `Card.availableFinishes` desde `CardProduct` (`FinishReconciler`);
+   *   3. ingiere precio por variante (`tcgcsv_singles`, FX Banxico, money-safe: sin precio ⇒
+   *      PRICE_PENDING/«—», jamás 0).
+   *
+   * Errores:
+   *   - set no en BD (o sin cartas) ⇒ `SET_NOT_IMPORTED` (404) accionable — NO se intenta importar.
+   *   - TCGCSV caído (401/403/5xx/red/parse) ⇒ `UPSTREAM_ERROR` (502) accionable, money-safe
+   *     (el resolver hace TODO el fetch ANTES de cualquier escritura ⇒ un fallo remoto no borra ni
+   *     escribe nada; se conserva lo previo). Nunca un 500 crudo.
+   *
+   * `force` se acepta por SIMETRÍA con `/sync` (y para el mismo botón del front). Este camino ES,
+   * por definición, un refresco forzado de variantes: SIEMPRE re-resuelve por completo, así que
+   * `force` no altera el comportamiento hoy (queda registrado en auditoría).
+   */
+  async refreshVariants(
+    setId: string,
+    force = false,
+  ): Promise<{
+    ok: boolean;
+    setId: string;
+    cardsProcessed: number;
+    cardProductsUpserted: number;
+    pricesUpserted: number;
+    pending: number;
+    tcgcsvReachable: boolean;
+  }> {
+    void force; // aceptado por simetría con /sync; este camino siempre re-resuelve (ver doc arriba)
+    if (!SET_ID_PATTERN.test(setId)) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid setId format');
+    }
+    // El set DEBE existir en BD y tener cartas: este camino NO importa desde pokemontcg.io.
+    const localSet = await this.prisma.cardSet.findUnique({
+      where: { externalId: setId },
+      select: { id: true, _count: { select: { cards: true } } },
+    });
+    if (!localSet || localSet._count.cards === 0) {
+      // 409 (no 404) a propósito: el front trata 404/405 como "endpoint no desplegado"
+      // (`isEndpointMissing`); un SET_NOT_IMPORTED real con 404 se confundiría con eso.
+      throw new BusinessException(
+        SET_NOT_IMPORTED,
+        HttpStatus.CONFLICT,
+        `El set "${setId}" no está importado en BD (sin cartas). Impórtalo primero con ` +
+          `POST /admin/catalog/sync; este camino NO llama a pokemontcg.io.`,
+      );
+    }
+    if (this.cardProductResolver == null) {
+      // No debería pasar en prod (el resolver está cableado en CatalogModule). @Optional es solo
+      // para los tests de metadata que construyen el sync sin él.
+      throw new BusinessException(
+        'INTERNAL' as ErrorCodeType,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        'CardProductResolver no está cableado; no se puede refrescar variantes.',
+      );
+    }
+
+    // TODO el fetch a TCGCSV ocurre DENTRO del resolver ANTES de cualquier escritura (Promise.all de
+    // products+prices / listGroups). Un fallo remoto sube como excepción ⇒ el guard lo remapea a 502
+    // UPSTREAM_ERROR y NADA se escribió (money-safe). Nunca un 500 crudo.
+    const result = await this.withTcgcsvGuard(() =>
+      this.cardProductResolver!.resolveCardProductsForSet(localSet.id),
+    );
+
+    const cardsProcessed = localSet._count.cards;
+    if (result == null) {
+      // TCGCSV respondió, pero no se resolvió un groupId ÚNICO ⇒ no se tocó nada (money-safe).
+      this.logger.warn(
+        `refresh-variants: set ${setId} sin groupId TCGCSV ÚNICO; no se tocó ningún CardProduct.`,
+      );
+      return {
+        ok: true,
+        setId,
+        cardsProcessed,
+        cardProductsUpserted: 0,
+        pricesUpserted: 0,
+        pending: 0,
+        tcgcsvReachable: true,
+      };
+    }
+    return {
+      ok: true,
+      setId,
+      cardsProcessed,
+      cardProductsUpserted: result.joined,
+      pricesUpserted: result.pricesWritten,
+      pending: result.pricesPending,
+      tcgcsvReachable: true,
+    };
+  }
+
+  /**
+   * M-34 — degradado elegante del fallo upstream de **TCGCSV** (hermano de `withUpstreamGuard`, que
+   * es para pokemontcg.io). Un fallo remoto/parse (401/403/5xx/red) se remapea a un **502
+   * BAD_GATEWAY** accionable (`UPSTREAM_ERROR`, mismo patrón del explorador de sellado), NO un 500
+   * crudo. Una `BusinessException` ya formada (p. ej. `SET_NOT_IMPORTED`, `VALIDATION_ERROR`) se
+   * PRESERVA. Money-safe: el resolver hace todo el fetch antes de escribir ⇒ nada se tocó.
+   */
+  private async withTcgcsvGuard<T>(op: () => Promise<T>): Promise<T> {
+    try {
+      return await op();
+    } catch (e) {
+      if (e instanceof BusinessException) throw e;
+      throw new BusinessException(
+        UPSTREAM_ERROR,
+        HttpStatus.BAD_GATEWAY,
+        `Fuente TCGCSV no disponible; reintenta en unos minutos (${(e as Error).message})`,
+      );
+    }
   }
 
   /**

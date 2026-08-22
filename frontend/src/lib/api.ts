@@ -99,6 +99,7 @@ import type {
   CatalogSyncResponse,
   CatalogBackfillResponse,
   CatalogSyncAllResponse,
+  RefreshVariantsResponse,
   CatalogSyncStatusResponse,
   PriceSyncStatusResponse,
   AdminUserSummaryDTO,
@@ -2971,6 +2972,43 @@ export async function syncAllCatalog(
     ? fx.mockRemoteSets.length
     : fx.mockRemoteSets.filter((s) => !s.imported).length;
   return delay({ jobId: mockJobId(), setsQueued: sets, remaining: 0 });
+}
+
+/**
+ * Refresca variantes + precios de UN set existente usando SOLO TCGCSV, sin pokemontcg.io
+ * (contrato POST /admin/catalog/refresh-variants { setId, force? }). NO re-importa cartas: opera
+ * sobre las cartas ya en BD. Es SÍNCRONO y devuelve un resumen del trabajo (cartas procesadas,
+ * productos/variantes upsertados, precios encolados, pendientes sin precio, alcance de TCGCSV),
+ * para poder arreglar el "fantasma" de un set ya importado aunque pokemontcg.io esté caído.
+ * Errores del contrato: `SET_NOT_IMPORTED` (el set no está en BD) · `UPSTREAM_ERROR` (502, TCGCSV
+ * no disponible). El llamador los muestra legibles (i18n) sin romper la pantalla.
+ */
+export async function refreshVariants(input: {
+  setId: string;
+  force?: boolean;
+}): Promise<RefreshVariantsResponse> {
+  if (!config.useMocks) {
+    // `force` solo se manda cuando es true (retrocompatible: body mínimo por defecto).
+    const body = input.force ? { setId: input.setId, force: true } : { setId: input.setId };
+    return apiRequest<RefreshVariantsResponse>('/admin/catalog/refresh-variants', {
+      method: 'POST',
+      body,
+    });
+  }
+  // MOCK (shape del contrato): simula un refresh del set con un producto sin precio (pending=1)
+  // para ejercitar el reflejo money-safe honesto (no todo queda con precio).
+  const set = fx.mockRemoteSets.find((s) => s.id === input.setId);
+  const cards = set?.cardCount ?? 0;
+  const products = Math.round(cards * 1.4);
+  return delay({
+    ok: true,
+    setId: input.setId,
+    cardsProcessed: cards,
+    cardProductsUpserted: products,
+    pricesUpserted: Math.max(0, products - 1),
+    pending: cards > 0 ? 1 : 0,
+    tcgcsvReachable: true,
+  });
 }
 
 /**

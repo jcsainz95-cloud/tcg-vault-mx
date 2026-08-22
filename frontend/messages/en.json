@@ -1318,6 +1318,17 @@
         "fullSyncPricesAlreadyRunning": "Full sync of {name}: cards and variants updated, but a price sweep was already running and this set's prices were NOT queued. Once it finishes, trigger \"Update prices now\" or repeat the full sync.",
         "fullSyncCatalogError": "Full sync of {name}: the cards/variants phase failed; no prices were queued.",
         "fullSyncPricesError": "Full sync of {name}: cards and variants updated, but queueing prices failed. Retry with \"Update prices now\".",
+        "refreshVariants": "Variants + prices (TCGCSV only)",
+        "refreshVariantsAria": "Refresh variants and prices for {name} using TCGCSV only",
+        "refreshVariantsHint": "\"Variants + prices (TCGCSV only)\" refreshes an ALREADY imported set's variants/finishes and prices using TCGCSV alone: it does NOT re-import cards and does NOT depend on pokemontcg.io. Use it to fix a set's missing variants or prices when pokemontcg.io is unavailable.",
+        "refreshVariantsNeedsImport": "Import the set first (it must exist in the database).",
+        "refreshVariantsRunning": "Refreshing {name}'s variants and prices from TCGCSV… it does not re-import cards or use pokemontcg.io. This may take a few seconds.",
+        "refreshVariantsSummary": "{cards} card(s) processed · {products} product(s)/variant(s) updated · {prices} price(s) updated.",
+        "refreshVariantsDone": "{name}'s variants + prices refreshed from TCGCSV.",
+        "refreshVariantsPartial": "{name}'s variants + prices refreshed from TCGCSV (partial result).",
+        "refreshVariantsUnreachable": "TCGCSV did not respond fully, so the refresh is partial; retry when TCGCSV is available.",
+        "refreshVariantsPending": "{pending} product(s) were left without a price and remain in the pending queue.",
+        "refreshVariantsError": "Could not refresh {name}'s variants and prices from TCGCSV.",
         "syncHint": "Import, resync and backfill run synchronously: they may take a while and the result appears when they finish. Don't leave this screen.",
         "syncRunning": "Syncing with pokemontcg.io… this may take a few seconds.",
         "syncDone": "Sync queued: {count} set(s) (job {jobId}).",
@@ -2049,7 +2060,9 @@
     "ORDER_ALREADY_CLAIMED": "We couldn't link this order.",
     "CLAIM_EMAIL_MISMATCH": "We couldn't link this order.",
     "BOUNTY_PRICE_REQUIRED": "A bounty needs an explicit price.",
-    "BOUNTY_BELOW_RULE": "The bounty price must be greater than or equal to the rule suggestion ({suggested})."
+    "BOUNTY_BELOW_RULE": "The bounty price must be greater than or equal to the rule suggestion ({suggested}).",
+    "SET_NOT_IMPORTED": "That set is not imported yet; import it before refreshing its variants.",
+    "UPSTREAM_ERROR": "TCGCSV is unavailable right now. Please try again in a few minutes."
   },
   "payment": {
     "title": "Payment",
