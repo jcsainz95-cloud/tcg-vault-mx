@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import type { ErrorCodeType } from '../../common/error-codes';
+import { ErrorCode } from '../../common/error-codes';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.client';
@@ -14,24 +14,6 @@ import { CardProductResolverService } from './card-product-resolver.service';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-/**
- * `UPSTREAM_ERROR` (502) es el MISMO patrón vigente del explorador de sellado
- * (`sealed-pricing.controller.ts`): está en el contrato (§M2) pero aún no en
- * `common/error-codes.ts` (zona compartida serializada a otro stream). Se tipa aquí por cast;
- * formalizarlo en `ErrorCode` es un follow-up del arquitecto (ver docs/BACKEND_NOTES.md).
- */
-const UPSTREAM_ERROR = 'UPSTREAM_ERROR' as ErrorCodeType;
-/**
- * M-34 — `SET_NOT_IMPORTED` (409 Conflict): el `refresh-variants` recibió un set que NO está en BD (o
- * sin cartas). Este camino NUNCA importa desde pokemontcg.io, así que no puede "traerlo": exige que el
- * set ya exista. Se usa **409 (no 404)** a propósito: el frontend trata 404/405 como "endpoint no
- * desplegado" (`isEndpointMissing`), así que un `SET_NOT_IMPORTED` real con 404 se confundiría con
- * "endpoint faltante". 409 es defendible (conflicto: no se puede refrescar porque el set no está
- * importado) y deja backend+frontend alineados. Mismo patrón de tipado por cast que `UPSTREAM_ERROR`
- * (no está aún en `common/error-codes.ts`, zona compartida de otro stream); formalizarlo en `ErrorCode`
- * + `API_CONTRACT.md` es follow-up del arquitecto (ver docs/BACKEND_NOTES.md).
- */
-const SET_NOT_IMPORTED = 'SET_NOT_IMPORTED' as ErrorCodeType;
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
 
@@ -289,7 +271,7 @@ export class CatalogSyncService {
       // 409 (no 404) a propósito: el front trata 404/405 como "endpoint no desplegado"
       // (`isEndpointMissing`); un SET_NOT_IMPORTED real con 404 se confundiría con eso.
       throw new BusinessException(
-        SET_NOT_IMPORTED,
+        ErrorCode.SET_NOT_IMPORTED,
         HttpStatus.CONFLICT,
         `El set "${setId}" no está importado en BD (sin cartas). Impórtalo primero con ` +
           `POST /admin/catalog/sync; este camino NO llama a pokemontcg.io.`,
@@ -299,7 +281,7 @@ export class CatalogSyncService {
       // No debería pasar en prod (el resolver está cableado en CatalogModule). @Optional es solo
       // para los tests de metadata que construyen el sync sin él.
       throw new BusinessException(
-        'INTERNAL' as ErrorCodeType,
+        ErrorCode.INTERNAL,
         HttpStatus.INTERNAL_SERVER_ERROR,
         'CardProductResolver no está cableado; no se puede refrescar variantes.',
       );
@@ -352,7 +334,7 @@ export class CatalogSyncService {
     } catch (e) {
       if (e instanceof BusinessException) throw e;
       throw new BusinessException(
-        UPSTREAM_ERROR,
+        ErrorCode.UPSTREAM_ERROR,
         HttpStatus.BAD_GATEWAY,
         `Fuente TCGCSV no disponible; reintenta en unos minutos (${(e as Error).message})`,
       );
@@ -681,7 +663,7 @@ export class CatalogSyncService {
         summary.pending += res.pending;
       } catch (e) {
         const code =
-          e instanceof BusinessException ? String(e.code) : ('UPSTREAM_ERROR' as string);
+          e instanceof BusinessException ? String(e.code) : String(ErrorCode.UPSTREAM_ERROR);
         summary.setsFailed += 1;
         summary.failures.push({
           setId,
@@ -788,7 +770,7 @@ export class CatalogSyncService {
     } catch (e) {
       if (e instanceof BusinessException) throw e;
       throw new BusinessException(
-        UPSTREAM_ERROR,
+        ErrorCode.UPSTREAM_ERROR,
         HttpStatus.BAD_GATEWAY,
         `Fuente pokemontcg.io no disponible (HTTP 5xx); reintenta en unos minutos (${(e as Error).message})`,
       );

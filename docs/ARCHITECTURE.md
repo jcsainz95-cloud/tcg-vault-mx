@@ -5764,6 +5764,153 @@ antes por tocar zona compartida. Reservar el re-llaveo total solo para el escena
 
 ---
 
+### 4.31 Sets multi-parte / Master Set combinado — presentación no destructiva, money-safe (v1.33-master-set-multipart, P-27, NORMATIVO)
+
+> **Requisito:** PROJECT §L, criterios **65–72**, decisiones **D1–D5**. Un set multi-parte que pokemontcg.io publica
+> como **≥2 set-ids** (principal + subset(s) con id propio) se presenta como **UN master set combinado** (Celebrations
+> `cel25` + Classic Collection `cel25c` = **50**), con separador/etiqueta por subset. **Alcance: SOLO presentación.**
+
+#### 4.31a Dónde vive el mapa — RECOMENDACIÓN: constante curada, NO columna de schema
+
+**Decisión: el mapa padre→subset vive en una constante curada de código** en la zona compartida
+`backend/src/config/master-set-groups.ts` (owner del cambio: quien tenga reservada la zona compartida `backend/src/config/`).
+**No** se añade columna a `CardSet` ni tabla `SetGroup`.
+
+```ts
+// backend/src/config/master-set-groups.ts (ILUSTRATIVO — el shape/campos los fija backend)
+// Claves = pokemontcg.io externalId (estables y humanos: "cel25"), NO el UUID local del CardSet
+// (que varía por entorno). El servicio resuelve externalId → CardSet.id local por join.
+export interface MasterSetGroup {
+  primary: string;                 // externalId del set principal (nombre del master = su name)
+  subsets: { externalId: string; label: string; order: number }[]; // N subsets, en orden de bloque
+}
+export const MASTER_SET_GROUPS: MasterSetGroup[] = [
+  // CONFIRMADO (caso testigo, criterios 65–67):
+  { primary: 'cel25', subsets: [{ externalId: 'cel25c', label: 'Classic Collection', order: 1 }] },
+  // CANDIDATOS — SUJETOS A VALIDACIÓN por backend contra el catálogo REAL antes de activar (no shippear a ciegas):
+  // Shiny Vault con id propio. Verificar el externalId exacto del principal y del subset en pokemontcg.io/local.
+  // { primary: 'swsh45', subsets: [{ externalId: 'swsh45sv', label: 'Shiny Vault', order: 1 }] }, // Shining Fates — VALIDAR
+  // { primary: 'sm115',  subsets: [{ externalId: 'sma',      label: 'Shiny Vault', order: 1 }] }, // Hidden Fates — VALIDAR
+];
+```
+
+**Por qué constante y no schema (evaluación):**
+
+| Opción | Cumple CA-69 (añadir par sin tocar código de presentación) | Migración de datos | Riesgo money-safe | Veredicto |
+|---|---|---|---|---|
+| **Constante curada `config/` (elegida)** | Sí — se añade una línea al array; ninguna vista cambia | **Ninguna** | Nulo por construcción: es solo lectura de presentación, jamás toca precio/inventario/bóveda | **RECOMENDADA** |
+| Columna `CardSet.parentSetId` (aditiva/opcional) | Sí | Requiere migración en zona compartida `prisma/` + backfill del par | Bajo pero **re-llavea metadata de identidad** del set (contradice D2: no re-mapear) | Rechazada para MVP |
+| Tabla `SetGroup` | Sí | Migración + modelo + seed | Añade superficie mutable adyacente a datos de catálogo | Rechazada para MVP (over-engineering) |
+
+**Alternativa futura documentada (no MVP):** si se quisiera editar el mapa **sin deploy**, migrar a un `ConfigSetting`
+(M10, editable/auditado) **conservando la misma regla dura**: sigue siendo presentación, nunca fuente de verdad. No se
+hace ahora porque el mapa es curado y debe validarse contra el catálogo real (los `externalId` deben existir); una
+constante validada al boot es lo más simple que cumple. **Auto-detección de pares queda FUERA de alcance** (PROJECT
+§Fuera de alcance): el mapa es explícito.
+
+**Validación al boot (backend):** al arrancar (o en un test), resolver cada `externalId` del mapa contra `CardSet`
+local; si un `primary`/`subset` mapeado no está importado, **log de warning** (no crash) — es el caso borde CA-71.
+Helpers en el config: `groupForPrimaryExternalId(id)`, `parentExternalIdOf(subsetExternalId)`, `partExternalIds(primary)`.
+
+#### 4.31b Cómo el master-set combina padre+subset (fan-in en el read model compartido)
+
+El binder actual está llaveado por **un** `setId` local (`master-set.service.ts:420-431`, `where: { setId }`) y las
+cartas se consultan `Card WHERE setId` (`:430`). El **fan-in** se aplica **solo en `MasterSetService`** (el read model
+único de §4.20, que ya sirve M1, admin-bóveda-cliente y «Mi bóveda» — todos heredan el combinado sin código extra):
+
+1. **Resolver partes.** En `binder(setId, …)`: cargar el `CardSet` (`:425`), tomar su `externalId`, buscar grupo en
+   el mapa. Si `setId` es el **principal** de un grupo → `partSetIds = [principalLocalId, …subsetLocalIds presentes]`
+   (resueltos por join `CardSet.externalId IN (…)`, solo los importados). Si no está en ningún grupo → comportamiento
+   actual (una sola parte), 100% retrocompatible.
+2. **Cartas de todas las partes.** Cambiar `where: { setId }` por `where: { setId: { in: partSetIds } }` (`:431`). Cada
+   `Card` sigue llaveada a su `setId` real (`cel25` o `cel25c`); **no se re-llavea nada**. La agregación de piezas
+   (`groupBy [cardId, finish]`, `:451-455`) y `scopeWhere` **no cambian**: filtran por `cardId`, que pertenece a su set
+   real → money-safe intacto (los guards H1/H2/H3 y `master-set.service.ts:82-84` no se tocan).
+3. **Orden (D4):** bloque del **principal primero**, luego cada subset en el `order` del mapa; **dentro** de cada bloque
+   el orden natural existente (`numberPrefix, numberSort`, §4.22). Se ordena por `(partOrder, CARD_ORDER_BY_IN_SET)`.
+4. **Etiqueta/separador (D4, CA-66):** cada celda gana `partSetId` (su set real) y `partLabel`; el binder gana `parts[]`
+   (una entrada por parte, con `name`/`label`/`isPrimary`/`order`/`catalogCardCount`). El front agrupa las celdas por
+   `partSetId` y pinta el encabezado con `label` ("Classic Collection"). El master conserva el **nombre del principal**
+   (`set` = SetRefDTO del principal). Ver contrato §DTOs.
+5. **Conteos = suma de partes (D5, CA-67):** en el binder, `catalogCardCount`/`printedTotal` = **Σ de las partes**; en
+   el índice, `catalogCardCount`/`catalogVariantCount`/`distinctCardsOwned`/`distinctVariantsOwned`/`totalPieces` se
+   suman sobre todas las partes y `completionPct`/`variantCompletionPct` se recomputan sobre esos totales → Celebrations
+   = 50 esperadas.
+6. **Pedir por el id del principal; normalizar el subset.** El endpoint recibe `:setId` = id local. Si `:setId` es un
+   **subset** de un grupo → se normaliza a su principal y se devuelve el master combinado (`set` = principal +
+   `canonicalSetId` = id local del principal, para que el front actualice la URL). Así un enlace a `cel25c` **no** muestra
+   un binder roto de 25. Esto solo afecta a la **presentación**; toda operación por set-id real en otros endpoints es intacta.
+
+#### 4.31c Índice de master sets — plegado del subset (`GET /admin/inventory/master-sets` y vault)
+
+En el índice, los set-ids **subset** de un grupo **no** aparecen como filas propias: se **pliegan** en la fila del
+principal, cuyos agregados se computan sobre `partSetIds`. La consulta fija sin N+1 (§4.17a) se conserva: las
+agregaciones (`Card.groupBy`, la agregación raw de `InventoryItem⋈Card`, la de `Σ|availableFinishes|`) ya operan por
+`setId ∈ ANY($ids)`; basta **agrupar sus resultados por el `setId` canónico** (principal) usando el mapa antes de armar
+las filas, y **excluir** los subset como filas top-level. `MasterSetSummaryDTO` gana `partSetIds?` (los subset plegados;
+presente solo en masters combinados) para que el front muestre el conteo de 50 y una marca de "combinado".
+
+#### 4.31d Alcance transversal (qué vistas consumen el combinado)
+
+- **M1 — Inventario / Master Set** (`GET /admin/inventory/master-sets[/:setId]`, `vault_operator+`): binder e índice
+  con fan-in. Drill-down a piezas (P-17) **no cambia**: cada pieza sigue ligada a su `Card`/set real.
+- **Bóveda del cliente** (`GET /vault/master-sets[/:setId]`, `customer`) y **admin viendo bóveda de un cliente**
+  (`GET /admin/vaults/:userId/master-sets[/:setId]`, `vault_operator+`): **heredan** el fan-in por usar el mismo
+  `MasterSetService` (scope `user_vault`). `buyable` sigue resolviéndose por `(cardId, finish)` — no depende del grupo.
+  **La valuación del portafolio no cambia** (cada carta se valúa con la `PriceReference` de su acabado/su set-id real).
+- **Storefront (Compra)**:
+  - `GET /catalog/sets` (dropdown de set) **pliega** el subset en el principal → Celebrations aparece **una** vez; la
+    entrada gana `partSetIds?`.
+  - `GET /catalog/cards?setId=<principal>` **expande** a `setId IN partSetIds` cuando el id es el principal de un grupo
+    (aditivo; solo afecta a sets mapeados) para que el filtro por el set combinado liste inventario de todas las partes.
+    Se respeta la **Regla de Compra**: solo se lista inventario **con precio**; agrupar no publica cartas sin precio.
+  - Gráfica pública de valor de set (`GET /catalog/sets/:id/value-history`, `/catalog/featured-set/value-history`):
+    para un master combinado **suma** las partes (agrega los `SetValueSnapshot` de `partSetIds`). **Aditivo/derivado**;
+    si una parte aún no tiene snapshots, se suma lo presente sin romper.
+- **Sync de catálogo (M2)** *(§4.8)*: **no cambia** — sigue importando `cel25` y `cel25c` como entidades reales. La
+  agrupación es capa de presentación sobre el mapa; añadir un par **no** re-llavea ni re-importa.
+- **Rutas de escritura y dinero — NO consultan el mapa:** alta/lote (`/items/batch`), publicación
+  (`/bulk-publish`), ajustes (`/adjustments`), órdenes/checkout (M3), pricing/sync, buylist. Operan por set-id/`cardId`
+  reales. El mapa es **solo lectura de presentación** (CA-72).
+
+#### 4.31e Money-safe (regla dura, verificable — CA-68/CA-72)
+
+El mapa **nunca es fuente de verdad**. Toca exclusivamente los read models de presentación (índice/binder/facet/`cards`).
+Cada celda/variante/pieza sigue llaveada a su `cardId`→`setId` real; `scopeWhere` y las agregaciones filtran por `cardId`.
+**Verificación (CA-68):** el precio de referencia, el `folio`, la ubicación y la titularidad de una carta de `cel25c` son
+**idénticos** antes y después de activar el grupo (comparación directa contra `GET /admin/inventory/items`). Activar,
+desactivar o extender el mapa **no ejecuta ninguna escritura** de datos.
+
+#### 4.31f Casos borde (CA-70/71)
+
+- **N subsets (CA-70):** `subsets[]` admite varios; el fan-in y la suma cubren todas las partes mapeadas. Orden de
+  bloques por `order`.
+- **Subset sin su principal (CA-71):** si el `primary` del grupo **no** está importado, el subset **no** se pliega —
+  se muestra como su propio set (comportamiento actual) hasta que exista el principal. Si el principal está importado
+  pero **falta** algún subset, el master muestra solo las partes presentes y suma sobre ellas (no revienta; la
+  validación al boot de §4.31a ya dejó el warning). En ningún caso hay 500.
+- **Colisión de numeración entre partes:** no hay colisión de identidad (cada carta conserva su `cardId`/set real). El
+  separador por `partSetId` desambigua dos "#20" (uno por parte); el orden por bloque los mantiene separados.
+
+#### Reparto de trabajo (v1.33, P-27)
+- **Backend** (stream «Inventario y vault» + tocar zona compartida `backend/src/config/`): (1) crear
+  `config/master-set-groups.ts` (mapa + helpers + validación al boot); (2) fan-in en `MasterSetService.binder()`/`index()`
+  (partes, orden por bloque, suma de conteos, normalización de subset→principal); (3) storefront: plegado en
+  `GET /catalog/sets` + expansión de `setId` en `GET /catalog/cards` (coordinar con stream «Catálogo y precios» si toca
+  su módulo — es zona compartida, pasa por arquitecto ya hecho aquí); (4) (opcional/derivado) suma de partes en la
+  gráfica de valor de set. Tests: Celebrations = 50 esperadas (índice y binder); celdas de `cel25c` con `partSetId`/
+  `partLabel`; pedir `/master-sets/cel25c` normaliza a `cel25` con `canonicalSetId`; CA-68 (precio/folio/titularidad de
+  una `cel25c` idénticos con y sin grupo); CA-71 (subset sin principal no revienta); N subsets suma todas.
+- **Frontend**: (1) binder de master set agrupa celdas por `partSetId` y pinta separador con `partLabel`; nombre del
+  master = `set.name`; conteo "cubiertas/esperadas · %" sobre los agregados de variante (ya = 50); (2) si el DTO trae
+  `canonicalSetId`, actualizar la URL; (3) dropdown de set de Compra muestra la entrada combinada una vez. Reusa los
+  componentes compartidos `components/master-set/` (§4.20f) — solo añade el render de separador por parte.
+- **QA/techlead**: doble veredicto por stream (no toca dinero saliente; el mapa es solo lectura). E2E: abrir Celebrations
+  en M1 y en «Mi bóveda» y ver 50 cartas en un binder con el bloque "Classic Collection" etiquetado; confirmar (money-safe)
+  que una carta de `cel25c` conserva precio/folio/titularidad.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.

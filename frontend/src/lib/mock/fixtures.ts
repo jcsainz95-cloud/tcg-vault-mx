@@ -67,6 +67,7 @@ import type {
   MasterSetCardCellDTO,
   MasterSetCellCountDTO,
   MasterSetBinderResponse,
+  SetPartDTO,
   MasterSetVariantDTO,
   VaultOwnerRefDTO,
   AdminVaultSummaryDTO,
@@ -102,9 +103,108 @@ export const mockSets: CardSetDTO[] = [
   { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024 },
   { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024 },
   { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023 },
+  // v1.33-master-set-multipart (P-27): Celebrations es un master COMBINADO — principal `cel25`
+  // (25 cartas) + subset `cel25c` "Classic Collection" (25 cartas) = 50. Ambos se importan como sets
+  // REALES (el mapa es solo presentación); la numeración COLISIONA entre partes a propósito (dos "#1",
+  // §4.31f) para ejercer el separador por bloque.
+  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021 },
+  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021 },
   { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020 },
   { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999 },
 ].map((s) => ({ ...s, year: yearOf(s.releaseDate) }));
+
+// ===== v1.33-master-set-multipart (P-27, §4.31a): mapa curado padre→subset (SOLO presentación) =====
+// Espeja `backend/src/config/master-set-groups.ts`. NUNCA es fuente de verdad: cada Card/pieza conserva
+// su set-id real; el mapa solo alimenta los read models de PRESENTACIÓN (binder/índice/dropdown).
+export interface MasterSetGroup {
+  primary: string;
+  label: string;
+  subsets: { setId: string; label: string; order: number }[];
+}
+export const MASTER_SET_GROUPS: MasterSetGroup[] = [
+  {
+    primary: 'cel25',
+    label: 'Celebrations',
+    subsets: [{ setId: 'cel25c', label: 'Classic Collection', order: 1 }],
+  },
+];
+
+const isImportedSet = (setId: string) => mockSets.some((s) => s.id === setId);
+
+/** Grupo cuyo PRINCIPAL es `setId` (y está importado); undefined si `setId` no es principal de un grupo. */
+export function masterGroupOfPrimary(setId: string): MasterSetGroup | undefined {
+  return MASTER_SET_GROUPS.find((g) => g.primary === setId);
+}
+/** Si `setId` es un SUBSET de un grupo, devuelve {group, subset}; undefined si no. */
+export function masterGroupOfSubset(setId: string):
+  | { group: MasterSetGroup; subset: { setId: string; label: string; order: number } }
+  | undefined {
+  for (const g of MASTER_SET_GROUPS) {
+    const subset = g.subsets.find((s) => s.setId === setId);
+    if (subset) return { group: g, subset };
+  }
+  return undefined;
+}
+/**
+ * Set-ids REALES que agrupa `setId` como master combinado (principal + subsets IMPORTADOS), en orden de
+ * bloque. Devuelve undefined cuando `setId` NO es un principal con ≥1 subset importado (set de una sola
+ * parte → comportamiento previo intacto). CA-71: si el subset no está importado, no se incluye.
+ */
+export function masterPartSetIds(setId: string): string[] | undefined {
+  const g = masterGroupOfPrimary(setId);
+  if (!g) return undefined;
+  const importedSubsets = g.subsets.filter((s) => isImportedSet(s.setId));
+  if (importedSubsets.length === 0) return undefined;
+  return [g.primary, ...importedSubsets.sort((a, b) => a.order - b.order).map((s) => s.setId)];
+}
+/**
+ * Normaliza un `:setId` a su PRINCIPAL cuando es un subset de un grupo cuyo principal está importado
+ * (CA-71: si el principal NO está importado, el subset se queda como su propio set). Devuelve el id
+ * canónico y si hubo normalización (para exponer `canonicalSetId`).
+ */
+export function normalizeMasterSetId(setId: string): { canonicalId: string; normalized: boolean } {
+  const sub = masterGroupOfSubset(setId);
+  if (sub && isImportedSet(sub.group.primary)) {
+    return { canonicalId: sub.group.primary, normalized: true };
+  }
+  return { canonicalId: setId, normalized: false };
+}
+/** Expansión de `GET /buylist/cards`/`GET /catalog/cards`: `setId IN partSetIds` si es master combinado. */
+export function expandSetIdFilter(setId: string): string[] {
+  return masterPartSetIds(setId) ?? [setId];
+}
+/** Etiqueta del bloque de un set-id dentro de un master combinado (principal → su nombre; subset → label). */
+function partLabelOf(partSetId: string, group: MasterSetGroup): string {
+  if (partSetId === group.primary) return group.label;
+  return group.subsets.find((s) => s.setId === partSetId)?.label ?? partSetId;
+}
+
+/**
+ * v1.33 (P-27, §4.31d): pliega un listado de sets para los dropdowns (`GET /catalog/sets`,
+ * `GET /buylist/sets`): un subset de un master combinado se COLAPSA en la fila del principal
+ * (Celebrations aparece UNA sola vez) y esa entrada gana `partSetIds`. CA-71: si el principal no está
+ * en el listado, el subset se conserva como su propia entrada. Un set normal pasa sin cambio.
+ */
+export function foldSetsForDropdown(sets: CardSetDTO[]): CardSetDTO[] {
+  const present = new Set(sets.map((s) => s.id));
+  const droppedSubsets = new Set<string>();
+  const partsByPrimary = new Map<string, string[]>();
+  for (const g of MASTER_SET_GROUPS) {
+    if (!present.has(g.primary)) continue; // CA-71
+    const importedSubsets = g.subsets
+      .filter((su) => present.has(su.setId))
+      .sort((a, b) => a.order - b.order);
+    if (importedSubsets.length === 0) continue;
+    for (const su of importedSubsets) droppedSubsets.add(su.setId);
+    partsByPrimary.set(g.primary, [g.primary, ...importedSubsets.map((s) => s.setId)]);
+  }
+  return sets
+    .filter((s) => !droppedSubsets.has(s.id))
+    .map((s) => {
+      const partSetIds = partsByPrimary.get(s.id);
+      return partSetIds ? { ...s, partSetIds } : s;
+    });
+}
 
 function card(
   id: string,
@@ -166,7 +266,37 @@ export const mockCards: CardDTO[] = ([
   // Productos sellados (sin rareza ni condición; nombre = producto).
   card('c-sealed-sv08-box', 'Surging Sparks Booster Box', '', '', 'sv08', 'Surging Sparks', 'Sealed', [], SV),
   card('c-sealed-sv06-etb', 'Twilight Masquerade ETB', '', '', 'sv06', 'Twilight Masquerade', 'Sealed', [], SV),
-] as CardDTO[]).map((c) => ({ ...c, availableFinishes: CARD_FINISHES[c.id] ?? ['normal'] }));
+] as CardDTO[]).map((c) => ({ ...c, availableFinishes: CARD_FINISHES[c.id] ?? ['normal'] }))
+  // v1.33-master-set-multipart (P-27): 25 cartas por parte de Celebrations (holofoil-only, como el
+  // set real). Se generan para que el binder COMBINADO muestre 50 y ejerza la colisión de numeración.
+  .concat(celebrationsCards());
+
+/**
+ * v1.33-master-set-multipart (P-27): genera las cartas de las DOS partes de Celebrations.
+ * Cada parte tiene 25 cartas holofoil numeradas "1".."25" (la numeración COLISIONA entre partes a
+ * propósito: dos "#1" que el separador por bloque desambigua, §4.31f). Suman 50 = el master combinado.
+ */
+function celebrationsCards(): CardDTO[] {
+  const CEL = 'https://images.pokemontcg.io/cel25';
+  const mk = (setId: string, setName: string, n: number): CardDTO => ({
+    id: `c-${setId}-${n}`,
+    externalId: `${setId}-${n}`,
+    name: `${setName} #${n}`,
+    number: String(n),
+    rarity: 'Holo Rare',
+    supertype: 'Pokémon',
+    subtypes: ['Basic'],
+    setId,
+    setName,
+    imageSmallUrl: `${CEL}/${n}.png`,
+    imageLargeUrl: `${CEL}/${n}_hires.png`,
+    availableFinishes: ['holofoil'],
+  });
+  return [
+    ...Array.from({ length: 25 }, (_, i) => mk('cel25', 'Celebrations', i + 1)),
+    ...Array.from({ length: 25 }, (_, i) => mk('cel25c', 'Classic Collection', i + 1)),
+  ];
+}
 
 const cardById = (id: string) => mockCards.find((c) => c.id === id)!;
 
@@ -911,6 +1041,9 @@ const SET_PRINTED_TOTAL: Record<string, number> = {
   sv1: 198,
   sv06: 167,
   sv08: 191,
+  // v1.33 (P-27): cada parte de Celebrations imprime 25; el binder COMBINADO reporta Σ = 50.
+  cel25: 25,
+  cel25c: 25,
 };
 
 // Celdas promo/subset SINTÉTICAS por set (prefijo alfabético). Existen SOLO en la vista
@@ -1208,6 +1341,42 @@ export function mockMasterSetIndex(
     };
   });
 
+  // v1.33 (P-27, §4.31c): PLIEGA los subset en la fila del principal — suma todos los agregados sobre
+  // las partes, recomputa completitud (→ 50) y excluye el subset como fila propia. CA-71: si el
+  // principal NO está importado, el subset se queda como su propia fila (no se pliega). Se hace ANTES
+  // del filtro user_vault/q/sort para que la fila combinada (una sola) fluya por el resto del pipeline.
+  const bySetId = new Map(summaries.map((s) => [s.setId, s]));
+  for (const g of MASTER_SET_GROUPS) {
+    const primary = bySetId.get(g.primary);
+    if (!primary) continue; // CA-71: principal no importado → el subset no se pliega.
+    const importedSubsets = g.subsets
+      .filter((su) => bySetId.has(su.setId))
+      .sort((a, b) => a.order - b.order);
+    if (importedSubsets.length === 0) continue;
+    for (const su of importedSubsets) {
+      const sub = bySetId.get(su.setId)!;
+      primary.catalogCardCount += sub.catalogCardCount;
+      primary.catalogVariantCount += sub.catalogVariantCount;
+      primary.distinctCardsOwned += sub.distinctCardsOwned;
+      primary.distinctVariantsOwned += sub.distinctVariantsOwned;
+      primary.totalPieces += sub.totalPieces;
+      if (primary.printedTotal != null && sub.printedTotal != null) {
+        primary.printedTotal += sub.printedTotal;
+      }
+      bySetId.delete(su.setId);
+    }
+    primary.completionPct =
+      primary.catalogCardCount === 0
+        ? null
+        : Math.round((primary.distinctCardsOwned / primary.catalogCardCount) * 1000) / 10;
+    primary.variantCompletionPct =
+      primary.catalogVariantCount === 0
+        ? null
+        : Math.round((primary.distinctVariantsOwned / primary.catalogVariantCount) * 1000) / 10;
+    primary.partSetIds = [g.primary, ...importedSubsets.map((s) => s.setId)];
+  }
+  summaries = summaries.filter((s) => bySetId.has(s.setId));
+
   // En scope user_vault el índice devuelve SOLO los sets con ≥1 pieza del usuario (contrato §3).
   if (scope.kind === 'user_vault') summaries = summaries.filter((s) => s.totalPieces > 0);
 
@@ -1240,70 +1409,103 @@ export function mockMasterSetIndex(
  * expected/coveredVariantCount, scope/owner, y buyable SOLO en la vista (iii).
  */
 export function mockMasterSetBinder(
-  setId: string,
+  requestedSetId: string,
   scope: MockMasterSetScope = { kind: 'platform' },
 ): MasterSetBinderResponse {
+  // v1.33 (P-27, §4.31b.6): normaliza un subset a su principal (canonicalSetId) antes de resolver.
+  const { canonicalId, normalized } = normalizeMasterSetId(requestedSetId);
+  const setId = canonicalId;
   const set = mockSets.find((s) => s.id === setId);
   if (!set) {
-    throw new ApiFixtureNotFound(`CardSet ${setId} not found`);
+    throw new ApiFixtureNotFound(`CardSet ${requestedSetId} not found`);
   }
-  const printedTotal = SET_PRINTED_TOTAL[setId] ?? null;
   const pieces = piecesOfScope(scope);
   const includeBuyable = scope.kind === 'user_vault' && scope.includeBuyable === true;
 
-  const catalogCells = numberedCardsOfSet(setId).map((c) => {
-    const { counts, total } = countsByFinishFor(c.id, pieces);
-    return {
-      cardId: c.id,
-      number: c.number,
-      name: c.name,
-      rarity: c.rarity || undefined,
-      imageSmallUrl: c.imageSmallUrl,
-      availableFinishes: c.availableFinishes,
-      countsByFinish: counts,
-      totalCount: total,
-    };
-  });
-  const promoCells = (MASTER_SET_PROMO_CELLS[setId] ?? []).map((p) => ({
-    cardId: p.cardId,
-    number: p.number,
-    name: p.name,
-    rarity: p.rarity || undefined,
-    imageSmallUrl: `${IMG}/${p.number}.png`,
-    availableFinishes: ['holofoil'] as Finish[],
-    countsByFinish: [] as MasterSetCellCountDTO[],
-    totalCount: 0,
-  }));
+  // v1.33 (P-27, §4.31b.1): resuelve las PARTES. Un master combinado hace fan-in sobre partSetIds
+  // (principal + subsets importados); un set normal es una sola parte (comportamiento previo intacto).
+  const group = masterGroupOfPrimary(setId);
+  const partSetIds = masterPartSetIds(setId); // undefined si es de una sola parte
+  const isCombined = partSetIds != null && group != null;
+  const orderedPartIds = partSetIds ?? [setId];
 
-  const cells: MasterSetCardCellDTO[] = [...catalogCells, ...promoCells]
-    .sort((a, b) => compareNatural(a.number, b.number))
-    .map((c) => {
-      const variants = variantsForCell(
-        c.cardId,
-        c.availableFinishes,
-        c.countsByFinish,
-        includeBuyable,
-        scope.kind === 'platform',
-      );
+  // Construye las celdas de UNA parte (fan-in por su set-id real; cada celda conserva su identidad).
+  const cellsForPart = (partSetId: string): MasterSetCardCellDTO[] => {
+    const partPrinted = SET_PRINTED_TOTAL[partSetId] ?? null;
+    const catalogCells = numberedCardsOfSet(partSetId).map((c) => {
+      const { counts, total } = countsByFinishFor(c.id, pieces);
       return {
-        ...c,
-        numberSort: numberSortKey(c.number),
-        // isSecretRare (v1.16.1): SOLO números puramente numéricos cuyo entero > printedTotal.
-        isSecretRare:
-          printedTotal != null && isPureNumber(c.number) && parseInt(c.number, 10) > printedTotal,
-        expectedVariantCount: variants.length,
-        coveredVariantCount: variants.filter((v) => v.covered).length,
-        variants,
-        // v1.29 (§4.27): productos vendibles SEPARADOS de esta carta (Deck Exclusives/promo).
-        ...(MASTER_SET_SEPARATE_PRODUCTS[c.cardId]
-          ? { separateProducts: MASTER_SET_SEPARATE_PRODUCTS[c.cardId] }
-          : {}),
-        // DEPRECATED v1.27 (P-15): el campo de celda se conserva UNA versión como espejo de la
-        // variante del acabado base (= variants[0].marketReferenceMxnCents), igual que el backend,
-        // para lectores rezagados. El front ya NO lo lee (lee la variante); retiro en la próxima rev.
-        marketReferenceMxnCents: variants[0]?.marketReferenceMxnCents ?? null,
+        cardId: c.id,
+        number: c.number,
+        name: c.name,
+        rarity: c.rarity || undefined,
+        imageSmallUrl: c.imageSmallUrl,
+        availableFinishes: c.availableFinishes,
+        countsByFinish: counts,
+        totalCount: total,
       };
     });
+    const promoCells = (MASTER_SET_PROMO_CELLS[partSetId] ?? []).map((p) => ({
+      cardId: p.cardId,
+      number: p.number,
+      name: p.name,
+      rarity: p.rarity || undefined,
+      imageSmallUrl: `${IMG}/${p.number}.png`,
+      availableFinishes: ['holofoil'] as Finish[],
+      countsByFinish: [] as MasterSetCellCountDTO[],
+      totalCount: 0,
+    }));
+    // Orden natural DENTRO del bloque (el orden de bloques lo da la concatenación por parte).
+    return [...catalogCells, ...promoCells]
+      .sort((a, b) => compareNatural(a.number, b.number))
+      .map((c) => {
+        const variants = variantsForCell(
+          c.cardId,
+          c.availableFinishes,
+          c.countsByFinish,
+          includeBuyable,
+          scope.kind === 'platform',
+        );
+        return {
+          ...c,
+          numberSort: numberSortKey(c.number),
+          isSecretRare:
+            partPrinted != null && isPureNumber(c.number) && parseInt(c.number, 10) > partPrinted,
+          expectedVariantCount: variants.length,
+          coveredVariantCount: variants.filter((v) => v.covered).length,
+          variants,
+          ...(MASTER_SET_SEPARATE_PRODUCTS[c.cardId]
+            ? { separateProducts: MASTER_SET_SEPARATE_PRODUCTS[c.cardId] }
+            : {}),
+          marketReferenceMxnCents: variants[0]?.marketReferenceMxnCents ?? null,
+          // v1.33 (P-27, §4.31b.4): en un master combinado cada celda se etiqueta con su parte REAL.
+          ...(isCombined ? { partSetId, partLabel: partLabelOf(partSetId, group!) } : {}),
+        };
+      });
+  };
+
+  // Bloque del PRINCIPAL primero, luego cada subset en orden de parte (§4.31b.3).
+  const cells: MasterSetCardCellDTO[] = orderedPartIds.flatMap(cellsForPart);
+
+  // v1.33 (P-27, §4.31b.5): conteos = Σ de las partes.
+  const printedTotal = isCombined
+    ? orderedPartIds.reduce<number | null>((sum, id) => {
+        const pt = SET_PRINTED_TOTAL[id];
+        return sum == null || pt == null ? null : sum + pt;
+      }, 0)
+    : SET_PRINTED_TOTAL[setId] ?? null;
+
+  // v1.33 (P-27, §DTOs): `parts` solo en masters combinados; una entrada por parte, en orden de bloque.
+  const parts: SetPartDTO[] | undefined = isCombined
+    ? orderedPartIds.map((id, idx) => ({
+        setId: id,
+        name: mockSets.find((s) => s.id === id)?.name ?? id,
+        label: partLabelOf(id, group!),
+        isPrimary: id === group!.primary,
+        order: idx,
+        catalogCardCount: numberedCardsOfSet(id).length + (MASTER_SET_PROMO_CELLS[id]?.length ?? 0),
+      }))
+    : undefined;
 
   return {
     set: { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate },
@@ -1312,6 +1514,9 @@ export function mockMasterSetBinder(
     cells,
     scope: scope.kind,
     ...(scope.kind === 'user_vault' ? { owner: scope.owner } : {}),
+    ...(parts ? { parts } : {}),
+    // canonicalSetId SOLO cuando se pidió por un subset y se normalizó al principal (§4.31b.6).
+    ...(normalized ? { canonicalSetId: setId } : {}),
   };
 }
 

@@ -270,7 +270,9 @@ export async function getSets(): Promise<CardSetDTO[]> {
     const res = await apiRequest<{ data: CardSetDTO[] }>('/catalog/sets');
     return res.data;
   }
-  return delay(fx.mockSets);
+  // v1.33 (P-27, §4.31d): el backend pliega el subset de un master combinado en el principal
+  // (Celebrations una vez, con `partSetIds`). El mock reproduce ese plegado para el dropdown de Compra.
+  return delay(fx.foldSetsForDropdown(fx.mockSets));
 }
 
 export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
@@ -939,7 +941,9 @@ export async function listBuylistSets(): Promise<CardSetDTO[]> {
     const res = await apiRequest<{ data: CardSetDTO[] }>('/buylist/sets');
     return res.data;
   }
-  return delay(fx.mockSets);
+  // v1.33 (P-27, §4.31d): el subset de un master combinado se pliega en el principal (una entrada
+  // combinada única en el dropdown del cotizador); esa entrada trae `partSetIds` para expandir el filtro.
+  return delay(fx.foldSetsForDropdown(fx.mockSets));
 }
 
 export interface BuylistCardsFilters {
@@ -971,7 +975,12 @@ export async function searchBuylistCards(
   }
   // MOCK: busca sobre todo el catálogo (mockCards), no solo la vitrina de Compra.
   let data = [...fx.mockCards];
-  if (filters.setId) data = data.filter((c) => c.setId === filters.setId);
+  // v1.33 (P-27, §4.31d): pedir por el principal de un master combinado EXPANDE a `setId IN partSetIds`
+  // (Celebrations lista las cartas de cel25 + cel25c); un set normal filtra por su único id.
+  if (filters.setId) {
+    const ids = new Set(fx.expandSetIdFilter(filters.setId));
+    data = data.filter((c) => ids.has(c.setId));
+  }
   if (filters.q) {
     const q = filters.q.toLowerCase();
     data = data.filter(

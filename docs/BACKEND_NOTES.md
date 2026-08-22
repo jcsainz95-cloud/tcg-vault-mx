@@ -4,6 +4,101 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-P27. Master set combinado (sets multi-parte) — P-27 (2026-08-22, `fix/variant-composition-regression`)
+
+> Solo `backend/`. Cambios **ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE**. Implementa ARCHITECTURE §4.31
+> + API_CONTRACT v1.33-master-set-multipart. Gate: **1450/1450** verde (1434 previos + 16 nuevos).
+> El **frontend de P-27 va aparte** (binder agrupado por `partSetId`, dropdown combinado, URL canónica).
+
+**Qué resuelve.** Un set multi-parte que pokemontcg.io publica como ≥2 set-ids (principal + subset con
+id propio) se mostraba como dos sets → Celebrations aparecía con **25** cartas siendo **50**. Ahora se
+presenta como **UN master set combinado** (cel25 + cel25c), **SOLO en la vista**: cada carta conserva
+su set-id real; precio/inventario/bóveda **no cambian a nivel de dato**.
+
+**(1) Mapa curado `backend/src/config/master-set-groups.ts`.** Constante llaveada por `externalId` de
+pokemontcg.io (NO columna de schema, NO tabla, NO migración). Estructura soporta **N subsets** por
+principal. Helpers puros (leen el array en vivo, sin índices pre-construidos → testeables con fixtures):
+`groupForPrimaryExternalId`, `parentExternalIdOf`, `subsetMetaOf`, `partExternalIds`, `isMappedExternalId`,
+`allMappedExternalIds`.
+- **ACTIVADO:** `cel25` → `cel25c` (label "Classic Collection"), confirmado (criterios 65–67).
+- **COMENTADOS como candidatos** (NO activados — sin DB aquí para validar los `externalId` reales):
+  Shining Fates `swsh45`→`swsh45sv` y Hidden Fates `sm115`→`sma`, con nota "VALIDAR contra catálogo real
+  antes de activar". Para activar: descomentar la línea; la validación al boot avisará si no está importado.
+- **Validación al boot:** `MasterSetService.onModuleInit()` resuelve cada `externalId` mapeado contra
+  `CardSet` y **loguea WARNING** por los no importados (CA-71). Defensivo (try/catch): si la BD no está
+  al arrancar (smoke de DI con Prisma mockeado) no revienta.
+
+**(2) Fan-in en `MasterSetService` (read model ÚNICO §4.20 — M1, bóveda y admin-bóveda lo heredan).**
+Método privado `resolveMasterSet(set)`: por el `externalId` decide si el set es principal/subset de un
+grupo y devuelve las partes importadas en orden de bloque, o `null` (set normal → comportamiento v1.20
+intacto). UNA query extra (`CardSet WHERE externalId IN partes`).
+- `binder()`: `Card WHERE setId IN partSetIds`; orden por bloque (principal `order 0` primero, luego cada
+  subset por su `order`; **estable** → preserva el orden natural intra-bloque). `set` = principal;
+  `catalogCardCount`/`printedTotal` = **Σ de las partes** (Celebrations = 50); cada celda gana
+  `partSetId`/`partLabel`; el binder gana `parts[]` (con `catalogCardCount` por parte). Pedir el binder de
+  un **subset** (`cel25c`) **normaliza al principal** y devuelve `canonicalSetId`.
+- `index()`: `foldCombinedMasterSets()` pliega los subset en la fila del principal (agregados SUMADos
+  sobre las partes; `completionPct`/`variantCompletionPct` recomputados), quita las filas de subset y
+  añade `partSetIds`. El pliegue corre **antes** del filtro `totalPieces>0` de bóveda (un subset con
+  piezas cuenta aunque el principal tenga 0). Sin N+1: reagrupa resultados de las agregaciones fijas ya
+  existentes.
+
+**(3) Storefront `catalog.service.ts` (aditivo).**
+- `GET /catalog/sets` + `/facets`: `foldStorefrontSets()` pliega el subset en el principal (Celebrations
+  una vez) + `partSetIds?`. Si el principal no tiene inventario publicado pero sí está importado, se trae
+  por `externalId` para nombrar la entrada. CA-71: principal no importado → no se pliega.
+- `GET /catalog/cards?setId=<principal>`: `expandSetIdFilter()` expande a `setId IN partSetIds` (solo
+  cuando el id es el principal de un grupo con ≥2 partes importadas). Respeta la **Regla de Compra**
+  (`fetchSellable` sigue listando solo lo `sellable`; agrupar NO publica cartas sin precio).
+
+**(4) MONEY-SAFE DURO (verificado).** El mapa se importa en **exactamente 2 read models** de
+presentación: `master-set.service.ts` (binder/index) y `catalog.service.ts` (listCards/facets/listSets).
+**NINGUNA ruta de escritura/dinero lo consulta:** alta por lote, bulk-publish, adjustments, órdenes/
+checkout, pricing/sync, buylist. En particular el **cotizador de buylist** (`searchAllCards` /
+`listSetsWithImportedCards`) **NO** usa el mapa → sigue llaveado al set REAL. `scopeWhere` y las
+agregaciones filtran por `cardId` (llaveado a su set real): el `groupBy` de piezas del binder usa
+`cardId IN [...]` + `scopeWhere` intactos. No hay re-llaveado, migración, enum nuevo ni escrituras.
+Verificable: precio/folio/titularidad de una carta `cel25c` idénticos con y sin grupo (CA-68/CA-72).
+
+**Tests (16 nuevos).** `test/master-set.multipart.spec.ts` (11): helpers del mapa (cel25 activo,
+candidatos NO activos); binder Celebrations = 50 en un master; `partSetId`/`partLabel` + orden de bloque;
+subset→principal con `canonicalSetId`; CA-68 (piezas de `cel25c` llaveadas a `cardId`, `groupBy` por
+`cardId`+`scopeWhere` real); CA-70 (N subsets, grupo-fixture temporal); CA-71 (subset sin principal /
+principal sin subset → set normal, sin 500); index pliega con Σ de conteos + `partSetIds`.
+`test/catalog.multipart.spec.ts` (5): `listSets`/`facets` pliegan (+`partSetIds`, principal traído si
+falta); `listCards` expande `setId` del principal; set normal sin expansión. Los grupos-fixture se
+limpian en `afterEach`.
+
+**Bloqueos/discrepancias con el contrato:** ninguno. El diseño del arquitecto era implementable tal cual.
+
+## 0-quater. Pago de deuda techlead TD-2 / TD-3 (2026-08-22, `fix/variant-composition-regression`)
+
+> Solo `backend/`. Sin cambio de comportamiento (los casts eran solo de tipo); gate 1434/1434 verde.
+
+**TD-2 — códigos de error formalizados en el enum central.** `UPSTREAM_ERROR` (502) y
+`SET_NOT_IMPORTED` (409) — normativos en el contrato desde v1.31/v1.32 (§Convenciones/Errores) — se
+emitían por **cast** `as ErrorCodeType` fuera de la fuente única de verdad. Ahora están en el enum
+`ErrorCode` de `backend/src/common/error-codes.ts` (sección Catalog/pricing) y **se retiraron todos los
+casts**:
+> - `modules/catalog/catalog-sync.service.ts`: se eliminaron las consts locales `UPSTREAM_ERROR`/
+>   `SET_NOT_IMPORTED` (creadas por cast). Ahora usan `ErrorCode.*`: `refreshVariants` (SET_NOT_IMPORTED
+>   409, e `INTERNAL` del resolver no cableado), `withTcgcsvGuard`/`withUpstreamGuard` (UPSTREAM_ERROR
+>   502), y el fallback de `runRefreshVariantsAll` (`String(ErrorCode.UPSTREAM_ERROR)`).
+> - `modules/pricing/sealed-pricing.controller.ts`: `groups`/`products` (proxy TCGCSV) usan
+>   `ErrorCode.UPSTREAM_ERROR`; se eliminó la const local por cast.
+>
+> Mapeo HTTP intacto: 502 para UPSTREAM_ERROR, 409 para SET_NOT_IMPORTED. Verificado: `grep 'as
+> ErrorCodeType' backend/src/` → 0 resultados.
+
+**TD-3 — migración de limpieza `rarity_map` (M-36).** Tras retirar el setting `RARITY_MAP`, quedaban
+filas `ConfigSetting key='rarity_map'` inertes. Se añadió la migración de datos
+`prisma/migrations/20260822150000_m36_cleanup_rarity_map_setting/` con
+`DELETE FROM "ConfigSetting" WHERE "key" = 'rarity_map';`. **Idempotente** (0 filas si no existen;
+no-op en greenfield) y **aditiva/segura** (solo borra config muerta; NO toca schema, dinero, precios ni
+inventario). **NO aplicada contra prod** desde el entorno de trabajo (no hay DB aquí); la aplica devops
+en el `migrate deploy`. **Rollback:** no se restaura — era config muerta sin lectura viva; si se
+necesitara una tabla rareza→precio se usa el setting vigente `buylist_price_rules`.
+
 ## 0-ter. `POST /admin/catalog/unify-rarities` — backfill LOCAL de `rarityCanonical` (money-safe, sin pokemontcg.io)
 
 > Rama `fix/variant-composition-regression`. Endpoint admin NUEVO, aditivo, **money-safe**. Solo

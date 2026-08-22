@@ -202,6 +202,17 @@ export function MasterSetPanel({
           onAddVariant={onAddToSellCart}
           onAddProduct={onAddProductToSellCart}
           onOpenVariant={onOpenVariant}
+          onCanonicalResolved={(canonical) => {
+            // v1.33 (P-27, §4.31b.6): el binder se abrió por un subset y el backend lo normalizó a su
+            // principal. Canoniza la selección (id + nombre del master) para que la vista/estado —y
+            // cualquier URL derivada de `selectedSet`— apunte al set combinado, no al subset.
+            setSelectedSet((prev) =>
+              prev && prev.setId !== canonical.setId
+                ? { ...prev, setId: canonical.setId, name: canonical.name }
+                : prev,
+            );
+            onSetOpened?.({ ...selectedSet!, setId: canonical.setId, name: canonical.name });
+          }}
         />
       ) : (
         <MasterSetIndex

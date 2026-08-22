@@ -74,6 +74,19 @@
 > Ver **§K** (nueva), §A, §C, §H, M1/M2/M5, "Fuentes de precio", criterios **2/3e/18** (actualizados) y
 > **57–64** (nuevos), y las **decisiones v1.6** al final. **Este bloque está cerrado y aprobado por el
 > humano**; solo quedan supuestos menores marcados `SUPUESTO (confirmar con PO)`.
+> **Requisito v1.7 — SETS MULTI-PARTE / MASTER SET COMBINADO (2026-08-22, BORRADOR del product-owner, EN
+> REVISIÓN por el humano — P-27):** un set de aniversario/especial que en pokemontcg.io vive como **dos
+> set-ids** (el principal + su subset con id propio, p. ej. **Celebrations** `cel25` + **Classic Collection**
+> `cel25c`) se muestra hoy como **dos sets separados**, así que Celebrations aparece con **25 cartas cuando
+> son 50**. No falta data (ambas partes están importadas); es **modelo/presentación**. Se decide (defaults del
+> PO, marcados para aprobación del humano): mostrar el set multi-parte como **UN master set combinado** (padre
+> + subset en el mismo binder, con separador/etiqueta para la parte del subset), de forma **NO destructiva**
+> (cada carta CONSERVA su set-id de origen; **precio, inventario y bóveda no cambian a nivel de dato** — solo
+> la **vista** agrupa), gobernada por un **mapa padre→subset explícito y extensible** que arranca con
+> Celebrations y cubre el patrón (Shiny Vault con id propio: Shining Fates `swsh45sv`, Hidden Fates `sma`,
+> etc.). Ver **§L** (nueva), §A, §C, §F/M1–M2, criterios **65–72** y las **preguntas abiertas v1.7** al final.
+> **Alcance acotado: SOLO presentación/agrupación del master set; FUERA de alcance re-llavear identidad o
+> mover precios/inventario.** Los defaults no bloquean el arranque si el humano los autoriza.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -636,6 +649,81 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       del precio del ítem sellado) y (b) **"avísame cuando vuelva" (restock)** — aviso al cliente cuando un
       sellado agotado vuelve a haber en inventario. En el MVP **no están activas para el usuario final**.
 
+### L. Sets multi-parte / Master Set combinado (transversal — NUEVO v1.7, P-27)
+> **Qué es**: algunos sets de Pokémon —típicamente ediciones de aniversario o especiales— se publican en
+> pokemontcg.io como **dos (o más) set-ids distintos**: un **set principal** y uno o varios **subsets con id
+> propio**. El caso testigo es **Celebrations (25 aniversario)**: principal **`cel25`** (25 cartas) + la
+> **Classic Collection `cel25c`** (25 cartas, reprints tipo Charizard Base Set) = **50 cartas** que el
+> coleccionista percibe como **un solo set**. Hoy nuestro catálogo los importa como **dos sets separados**, así
+> que Celebrations muestra **25 y no 50**. El problema **no es de datos** (ambas partes están importadas) sino
+> de **modelo/presentación**: no existe relación padre↔subset ni agrupación de display. Nuestro código actual
+> solo maneja subsets que son un **prefijo dentro del mismo set-id** (Trainer Gallery/Galarian Gallery/etc.),
+> **no** subsets que son un **set-id independiente**.
+> **Es un patrón, no un caso único**: afecta a varios sets (Celebrations Classic Collection; "Shiny Vault"
+> con id propio como Shining Fates `swsh45sv` o Hidden Fates `sma`; etc.). Por eso se resuelve con un **modelo
+> general** (mapa padre→subset), no con un parche para Celebrations.
+> **Alcance de esta feature**: **SOLO presentación/agrupación** del master set en las vistas (storefront,
+> inventario/Master Set de M1, bóveda). **NO** re-llavea la identidad de las cartas ni mueve precios,
+> inventario o bóveda. No se diseña aquí el schema ni el contrato (eso es del arquitecto); aquí solo se fija el
+> requisito de producto.
+
+**Decisiones-por-defecto del PO (marcadas para aprobación del humano)**
+- [ ] **(D1) Un set multi-parte se muestra como UN solo master set combinado** *(SUPUESTO — confirmar con el
+      humano)*: el set principal y su(s) subset(s) se presentan **juntos en el mismo binder**. Para Celebrations
+      esto significa **50 cartas en un solo binder** (`cel25` + `cel25c`), no dos sets de 25. Alternativa que el
+      humano puede preferir: **sets separados pero enlazados** (cada uno con su binder, con un vínculo visible
+      "ver Classic Collection"). El default es **combinado**.
+- [ ] **(D2) NO destructivo — cada carta conserva su set-id de origen** *(SUPUESTO — confirmar con el humano)*:
+      la agrupación es **solo de vista**. Cada carta sigue perteneciendo a su set-id real (`cel25` o `cel25c`);
+      **el precio de referencia, el inventario y la bóveda no cambian a nivel de dato** — no se re-llavea, no se
+      re-mapea, no se mueve dinero. **Money-safe por diseño**: la vista de master set **agrupa**, nunca reescribe
+      la identidad ni la valuación de la carta.
+- [ ] **(D3) Mapa padre→subset explícito y extensible** *(SUPUESTO — confirmar con el humano)*: la relación se
+      declara en un **mapa/tabla de pares padre→subset** que **arranca con Celebrations** (`cel25` → `cel25c`) e
+      **identifica el patrón** para Shiny Vault y similares (candidatos a validar: Shining Fates `swsh45` →
+      `swsh45sv`; Hidden Fates `sm115` → `sma`). Debe ser **fácil añadir nuevos pares** sin tocar código de
+      presentación. *(SUPUESTO: los pares concretos más allá de Celebrations los confirma el humano/arquitecto
+      contra el catálogo real; el default entrega Celebrations funcionando y el mecanismo listo para el resto.
+      Ver preguntas abiertas v1.7.)*
+- [ ] **(D4) Nombre del master set = el del principal; el subset se etiqueta** *(SUPUESTO — confirmar con el
+      humano)*: el set combinado se llama como el **principal** ("Celebrations"); las cartas del subset se
+      muestran **agrupadas y etiquetadas** (p. ej. **"Classic Collection"**) con un **separador/encabezado
+      visual** dentro del binder, para que el coleccionista distinga la parte del subset sin perder que todo es
+      "Celebrations".
+- [ ] **(D5) Completitud/"esperadas" del master set = suma de las partes** *(SUPUESTO — confirmar con el
+      humano)*: el conteo de **cartas esperadas** y el porcentaje de completitud del master set se calculan
+      sobre **la suma de ambas partes** (Celebrations = **50**), de modo que "cubiertas/esperadas · %" refleje
+      las 50, no 25.
+
+**Presencia transversal de la agrupación**
+- [ ] **Storefront (Compra)** *(§A)*: el filtro/navegación por set y la vista de set del master reflejan el set
+      combinado (Celebrations = 50); las cartas del subset aparecen agrupadas y etiquetadas. Se respeta la
+      **Regla de Compra**: solo se lista inventario con precio; la agrupación **no** publica cartas sin precio.
+- [ ] **Inventario / Master Set (M1)** *(§F)*: la vista Master Set del back-office agrupa padre + subset en un
+      binder con separador, y el conteo "cubiertas/esperadas · %" se calcula sobre las 50. El drill-down a piezas
+      físicas (folio, ubicación, estado; P-17) **no cambia**: cada pieza sigue ligada a su carta de catálogo real.
+- [ ] **Bóveda y portafolio del cliente** *(§C)*: si el cliente tiene cartas de ambas partes, se muestran bajo
+      el mismo master set; **la valuación del portafolio no cambia** (cada carta se sigue valuando con el precio
+      de referencia de su acabado/su set-id real; §I). La agrupación es de presentación, no de cálculo.
+- [ ] **Sync de catálogo (M2)** *(§F)*: el sync sigue importando cada set-id como hoy (`cel25` y `cel25c` como
+      entidades reales); la **agrupación se aplica en la capa de presentación** a partir del mapa padre→subset.
+      Añadir un par nuevo al mapa **no** requiere re-llavear ni re-importar cartas.
+
+**Casos borde (a cubrir explícitamente)**
+- [ ] **Subset importado sin su principal**: si existe `cel25c` pero **no** `cel25` (o viceversa), el master set
+      **no revienta**: se muestra lo que haya. *(SUPUESTO: se muestra la(s) parte(s) presente(s) bajo el nombre
+      del principal si el principal está definido en el mapa; si falta la parte principal, el subset se muestra
+      como su propio set —comportamiento actual— hasta que su principal exista. Confirmar con el humano.)*
+- [ ] **Set con más de 2 partes**: el mapa padre→subset debe admitir **un principal con varios subsets** (N
+      partes), no solo pares 1:1. El conteo de completitud suma **todas** las partes mapeadas.
+- [ ] **Carta que existe en ambas partes / colisión de numeración**: como cada carta conserva su set-id de
+      origen (D2), **no hay colisión de identidad**; dentro del binder combinado el separador por subset evita
+      ambigüedad de numeración (dos cartas "#20" pueden coexistir, una por parte). *(SUPUESTO: el orden dentro del
+      binder es principal primero, luego cada subset en su bloque etiquetado; confirmar con el humano.)*
+- [ ] **Inventario/precio de una carta del subset**: sigue operando por su **set-id real** (`cel25c`); publicar,
+      priciar, comprar/vender o retirar esa carta **no depende** de la agrupación de master set (money-safe: la
+      vista nunca es la fuente de verdad del inventario ni del precio).
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
 - **Order-book / trading instantáneo** (compra/venta digital tipo bolsa dentro de la bóveda).
@@ -675,6 +763,14 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
   **cableados pero apagados** en el MVP (feature-flag off); encenderlos para el usuario final es posterior.
 - **Fuente de mercado del sellado distinta de TCGCSV** *(v1.6)*: en el MVP la base del precio del sellado es
   **TCGCSV**; PriceCharting u otras fuentes son opción futura, no MVP.
+- **Re-llavear la identidad de las cartas de sets multi-parte** *(v1.7, §L)*: **fuera de alcance**. La
+  agrupación de master set es **solo presentación**; cada carta conserva su set-id de origen (`cel25` /
+  `cel25c`). No se fusionan set-ids, no se reasignan cartas a un set "sintético", no se re-importa el catálogo
+  y **no se mueven precio, inventario ni bóveda** a otra llave. Cualquier consolidación de identidad a nivel de
+  dato (un solo set-id real para las 50) sería un cambio de modelo posterior, no este MVP.
+- **Auto-detección de pares padre→subset** *(v1.7, §L)*: en el MVP el mapa padre→subset es **curado/explícito**
+  (se declara y se extiende a mano). Inferir automáticamente qué set-ids son subset de cuál (por naming, fecha
+  o heurística) queda fuera de alcance.
 
 ## Restricciones y preferencias técnicas
 > Registradas como datos/preferencias del humano; el stack y la arquitectura los decide el arquitecto.
@@ -1033,6 +1129,30 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     apagados** (feature-flag off): **no** son accesibles para el usuario final en el MVP, y **activarlos no
     requiere nuevo desarrollo** (solo encender el flag).
 
+**Sets multi-parte / Master Set combinado — v1.7 (P-27)**
+65. **Celebrations se muestra como un solo master set de 50 cartas** en un **único binder**: las 25 de `cel25`
+    (principal) y las 25 de `cel25c` (Classic Collection) aparecen juntas; no hay dos sets separados de 25.
+66. Las cartas de la **Classic Collection** aparecen **agrupadas y etiquetadas** (p. ej. "Classic Collection")
+    con un **separador/encabezado visual** dentro del binder; el master set conserva el **nombre del principal**
+    ("Celebrations").
+67. El conteo de **completitud del master set es sobre la suma de las partes**: "cubiertas / esperadas · %"
+    muestra **esperadas = 50** para Celebrations (no 25), tanto en storefront como en el Master Set de M1.
+68. **No destructivo, money-safe**: cada carta **conserva su set-id de origen** (`cel25` / `cel25c`); el
+    **precio de referencia, el inventario y la bóveda de cualquier carta no cambian** por la agrupación —
+    verificable comparando que el precio, el folio y la titularidad de una carta de `cel25c` son idénticos
+    antes y después de activar el master set combinado. La agrupación **nunca** reescribe identidad ni valuación.
+69. La relación padre→subset vive en un **mapa explícito y extensible**: agregar un nuevo par (p. ej. Shiny
+    Vault de Shining Fates o Hidden Fates) **no requiere tocar código de presentación** ni re-importar el
+    catálogo; basta declarar el par y las vistas lo agrupan.
+70. **Caso borde — más de 2 partes**: un principal con **N subsets** se agrupa correctamente en un solo master
+    set y su completitud suma **todas** las partes mapeadas.
+71. **Caso borde — subset sin su principal**: si solo está importada una de las partes, la vista **no falla**:
+    muestra la(s) parte(s) presente(s) sin romper el conteo *(comportamiento exacto sujeto a confirmación del
+    humano — ver preguntas abiertas v1.7)*.
+72. **Operación por set-id real intacta**: publicar, priciar, comprar/vender, retirar o mover al inventario una
+    carta del subset sigue operando por su **set-id real** (`cel25c`) y **no depende** de la vista de master
+    set; la agrupación es solo de presentación y nunca es la fuente de verdad del inventario o del precio.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Legal — custodia/depositario**: la bóveda implica guardar bienes de terceros. Validar con abogado la
@@ -1272,3 +1392,27 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    propuesto porque depende de la postura legal/fiscal.)
 8. **Idioma del correo de seguimiento**: se asume que el correo sale en el **idioma que el invitado tenía
    activo** en la interfaz al comprar (ES por default). ¿De acuerdo?
+
+## Preguntas abiertas — sets multi-parte / Master Set combinado (v1.7, P-27)
+> Todas tienen un **default sensato** ya redactado en §L (marcado `SUPUESTO`), así que **no bloquean** el
+> arranque; lo que sigue es lo que conviene que el humano confirme o ajuste.
+1. **Combinado vs. separados-enlazados (la principal)**: el default es **UN master set combinado** (Celebrations
+   = 50 en un binder, con separador para Classic Collection). ¿Lo confirmas, o prefieres **sets separados pero
+   enlazados** (dos binders con vínculo "ver Classic Collection")?
+2. **Etiqueta y separación del subset**: el default etiqueta el bloque del subset como **"Classic Collection"**
+   con un separador visual, y ordena **principal primero, subset después**. ¿Te sirve ese texto y ese orden, o
+   prefieres otra etiqueta/orden (p. ej. intercalar por número)?
+3. **Qué pares entran al mapa en el MVP**: el default entrega **Celebrations** (`cel25`→`cel25c`) funcionando y
+   el mecanismo listo. Para el patrón "Shiny Vault", ¿confirmas que quieres agrupar también **Shining Fates**
+   (`swsh45`→`swsh45sv`) y **Hidden Fates** (`sm115`→`sma`) en este MVP, o los dejamos declarados para después?
+   ¿Hay otros sets multi-parte que ya te consten (p. ej. subsets de promos/galerías con id propio)?
+4. **Subset sin su principal**: el default es mostrar la parte presente bajo el nombre del principal si el
+   principal está en el mapa; si falta la parte principal, el subset se muestra como su propio set hasta que su
+   principal exista. ¿De acuerdo, o prefieres ocultar el subset hasta tener ambas partes?
+5. **Completitud sobre 50 (o sobre lo importado)**: el default fija **esperadas = suma de las partes del mapa**
+   (50 para Celebrations) aunque falte importar alguna carta. ¿Quieres que "esperadas" sea siempre el total
+   oficial del set combinado, o el total efectivamente importado?
+6. **Consolidación futura de identidad (fuera de este MVP)**: hoy es **solo presentación** y cada carta conserva
+   su set-id real (money-safe). ¿Confirmas que **no** quieres, ni ahora ni pronto, fusionar los set-ids en una
+   sola llave real (lo que implicaría re-llavear precio/inventario/bóveda)? Si algún día lo quieres, es un
+   cambio de modelo aparte.

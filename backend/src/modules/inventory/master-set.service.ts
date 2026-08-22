@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
@@ -7,6 +7,16 @@ import { computeSalePriceForRarity } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
 import { VariantPricingDTO, composeVariantPricing } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
+// v1.33 (P-27, §4.31): mapa curado padre→subset del MASTER SET COMBINADO. SOLO lectura de
+// presentación (money-safe): resuelve `externalId`→`CardSet.id` local por join; nunca fuente de verdad.
+import {
+  allMappedExternalIds,
+  groupForPrimaryExternalId,
+  MASTER_SET_GROUPS,
+  parentExternalIdOf,
+  partExternalIds,
+  subsetMetaOf,
+} from '../../config/master-set-groups';
 
 /**
  * MasterSetService (v1.16-master-set §4.17a · v1.20-master-set-everywhere §4.20a) — read model
@@ -110,6 +120,11 @@ export interface MasterSetSummaryDTO {
   catalogVariantCount: number;
   distinctVariantsOwned: number;
   variantCompletionPct: number | null;
+  // v1.33 (P-27, §4.31c): master set combinado. Los subset de un grupo se PLIEGAN en la fila del
+  // principal y TODOS los agregados de arriba se SUMAN sobre `partSetIds` (los set-ids REALES
+  // plegados: principal + subsets importados). Presente SOLO en masters combinados (≥2 partes);
+  // un set normal lo OMITE. ADITIVO/opcional. Money-safe: solo lectura de presentación.
+  partSetIds?: string[];
 }
 
 export interface MasterSetIndexResponse {
@@ -127,6 +142,22 @@ export interface SetRefDTO {
   name: string;
   series?: string;
   releaseDate?: string;
+}
+
+/**
+ * v1.33 (P-27, §4.31b / §DTOs) — una parte de un master set combinado (principal o subset). El binder
+ * de un master combinado trae `parts[]` (una entrada por parte importada, en orden de bloque) para que
+ * el front pinte el desglose/separador. `catalogCardCount` = nº de `Card` de ESE set-id real.
+ */
+export interface SetPartDTO {
+  setId: string;
+  name: string;
+  /** Etiqueta del separador del bloque. En el principal = su propio `name`; en un subset = su `label`. */
+  label?: string;
+  isPrimary: boolean;
+  /** Orden de bloque: principal = 0; subsets por su `order` (1, 2, …). */
+  order: number;
+  catalogCardCount: number;
 }
 
 export interface MasterSetCardCellDTO {
@@ -167,6 +198,12 @@ export interface MasterSetCardCellDTO {
   // Los `set_base` ya están en `variants`; estos NO fusionan sus acabados con la carta de set (§4.27e).
   // Ausente/[] cuando la carta no tiene productos separados (el caso común).
   separateProducts?: CardProductDTO[];
+  // v1.33 (P-27, §4.31b / §DTOs) — master set combinado: a qué PARTE REAL pertenece la celda (su
+  // `CardSet` local) y la etiqueta del bloque. Presentes SOLO en un master combinado (cuando el binder
+  // trae `parts`); el front agrupa las celdas por `partSetId` y pinta el separador con `partLabel`. En
+  // un set normal se OMITEN. NO cambian la identidad: `cardId` sigue llaveado a su set real (money-safe).
+  partSetId?: string;
+  partLabel?: string;
 }
 
 /** v1.29 (§4.27i) — un producto TCGplayer vendible/cotizable aparte bajo la carta. */
@@ -186,6 +223,14 @@ export interface MasterSetBinderResponse {
   // v1.20 — scope + dueño (solo user_vault; email solo vista admin).
   scope: MasterSetQueryScope['kind'];
   owner?: VaultOwnerRefDTO;
+  // v1.33 (P-27, §4.31b / §DTOs) — master set combinado. `set` = SetRefDTO del PRINCIPAL (nombre del
+  // master); `catalogCardCount`/`printedTotal` = Σ de TODAS las partes (Celebrations = 50). `parts`
+  // presente SOLO en un master combinado (≥2 partes): una entrada por parte, orden de bloque
+  // (principal primero). `canonicalSetId` presente SOLO cuando el `:setId` pedido era un SUBSET y se
+  // normalizó a su principal (el front actualiza la URL; evita el binder roto de 25). Un set normal
+  // omite ambos. Money-safe: cada celda/pieza conserva su set-id real.
+  parts?: SetPartDTO[];
+  canonicalSetId?: string;
 }
 
 /** Deriva el año del set desde `releaseDate` (`yyyy/MM/dd` de pokemontcg.io). */
@@ -205,12 +250,135 @@ export function expectedFinishes(available: Finish[] | null | undefined): Finish
   return FINISH_ORDER.filter((f) => arr.includes(f));
 }
 
+/**
+ * v1.33 (P-27, §4.31b) — resultado de resolver las partes de un master set combinado. `null` en el
+ * llamador = set normal (comportamiento v1.20 intacto). Las partes vienen en ORDEN DE BLOQUE
+ * (principal primero, order 0; luego cada subset por su `order`). Todas son set-ids LOCALES REALES
+ * ya resueltos por join (solo las importadas). Money-safe: es SOLO metadata de presentación.
+ */
+interface ResolvedMasterSet {
+  /** El `CardSet` PRINCIPAL (nombra al master, provee el `SetRefDTO`). */
+  primary: { id: string; name: string; series: string | null; releaseDate: string | null; printedTotal: number | null };
+  /** Partes importadas en orden de bloque (incluye el principal). Siempre ≥2 (si fuera 1 → null). */
+  parts: { setId: string; name: string; label: string; isPrimary: boolean; order: number; printedTotal: number | null }[];
+  /** Set-ids locales reales de las partes, en orden de bloque. */
+  partSetIds: string[];
+  /** Presente SOLO si el `:setId` pedido era un SUBSET y se normalizó a su principal (el front actualiza URL). */
+  canonicalSetId?: string;
+}
+
 @Injectable()
-export class MasterSetService {
+export class MasterSetService implements OnModuleInit {
+  private readonly logger = new Logger(MasterSetService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
   ) {}
+
+  /**
+   * v1.33 (P-27, §4.31a) — validación al BOOT del mapa curado: resuelve cada `externalId` mapeado
+   * contra `CardSet` local y LOGUEA WARNING por cada uno NO importado (caso borde CA-71). NUNCA
+   * revienta: es solo un aviso de higiene del mapa (un subset sin su principal se degrada a set normal
+   * en runtime). Defensivo: si la BD no está disponible al arrancar (tests de DI con Prisma mockeado),
+   * se ignora en silencio. Money-safe: solo lectura, ninguna escritura.
+   */
+  async onModuleInit(): Promise<void> {
+    const externalIds = allMappedExternalIds();
+    if (externalIds.length === 0) return;
+    try {
+      const present = await this.prisma.cardSet.findMany({
+        where: { externalId: { in: externalIds } },
+        select: { externalId: true },
+      });
+      const found = new Set(present.map((s) => s.externalId));
+      const missing = externalIds.filter((id) => !found.has(id));
+      if (missing.length > 0) {
+        this.logger.warn(
+          `[master-set-groups] externalId(s) mapeados pero NO importados: ${missing.join(', ')}. ` +
+            `Esas partes NO se combinan hasta importarse (CA-71). Revisa config/master-set-groups.ts.`,
+        );
+      }
+    } catch {
+      // BD no disponible en el arranque (p. ej. smoke de DI con Prisma mockeado): validación diferida.
+    }
+  }
+
+  /**
+   * v1.33 (P-27, §4.31b) — resuelve si `set` (por su `externalId`) forma parte de un master COMBINADO
+   * y, de ser así, devuelve sus partes importadas en orden de bloque. Devuelve `null` cuando NO hay
+   * combinación (set normal, o subset cuyo principal no está importado, o principal cuyos subsets no
+   * están importados → una sola parte): el llamador conserva el comportamiento v1.20. SOLO lectura;
+   * jamás toca precio/inventario/bóveda. UNA query (`CardSet WHERE externalId IN partes`).
+   */
+  private async resolveMasterSet(set: {
+    id: string;
+    externalId: string;
+  }): Promise<ResolvedMasterSet | null> {
+    // ¿El set pedido es el PRINCIPAL de un grupo, o un SUBSET (que normalizamos a su principal)?
+    let primaryExternalId: string | undefined;
+    let requestedIsSubset = false;
+    if (groupForPrimaryExternalId(set.externalId)) {
+      primaryExternalId = set.externalId;
+    } else {
+      const parent = parentExternalIdOf(set.externalId);
+      if (parent) {
+        primaryExternalId = parent;
+        requestedIsSubset = true;
+      }
+    }
+    if (!primaryExternalId) return null; // set normal → sin combinación.
+
+    // Resolver externalId → CardSet local de TODAS las partes del grupo (solo las importadas).
+    const partExt = partExternalIds(primaryExternalId); // [principal, ...subsets] en orden de bloque
+    const cardSets = await this.prisma.cardSet.findMany({
+      where: { externalId: { in: partExt } },
+      select: { id: true, externalId: true, name: true, series: true, releaseDate: true, printedTotal: true },
+    });
+    const byExternal = new Map(cardSets.map((s) => [s.externalId, s]));
+
+    const primary = byExternal.get(primaryExternalId);
+    // CA-71: principal NO importado → no se pliega (el subset se muestra como su propio set normal).
+    if (!primary) return null;
+
+    // Partes en orden de bloque: principal (order 0) + cada subset importado por su `order`.
+    const parts: ResolvedMasterSet['parts'] = [
+      {
+        setId: primary.id,
+        name: primary.name,
+        label: primary.name, // en el principal la etiqueta = su propio nombre (§DTOs).
+        isPrimary: true,
+        order: 0,
+        printedTotal: primary.printedTotal,
+      },
+    ];
+    for (const ext of partExt) {
+      if (ext === primaryExternalId) continue;
+      const cs = byExternal.get(ext);
+      if (!cs) continue; // subset no importado → se omite (suma sobre las partes presentes, §4.31f).
+      const meta = subsetMetaOf(ext);
+      parts.push({
+        setId: cs.id,
+        name: cs.name,
+        label: meta?.label ?? cs.name,
+        isPrimary: false,
+        order: meta?.order ?? 1,
+        printedTotal: cs.printedTotal,
+      });
+    }
+    parts.sort((a, b) => a.order - b.order);
+
+    // Combinado = ≥2 partes. Si solo está el principal (sin subsets importados) → set normal (null).
+    if (parts.length < 2) return null;
+
+    return {
+      primary,
+      parts,
+      partSetIds: parts.map((p) => p.setId),
+      // Normalización del subset: si pedimos por el id del subset, exponemos el id del principal.
+      ...(requestedIsSubset && set.id !== primary.id ? { canonicalSetId: primary.id } : {}),
+    };
+  }
 
   /**
    * Índice de sets con resumen agregado, por SCOPE. SIN N+1: 4 queries fijas (sets q-filtrados +
@@ -229,9 +397,11 @@ export class MasterSetService {
 
     const sets = await this.prisma.cardSet.findMany({
       where: q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {},
-      select: { id: true, name: true, series: true, releaseDate: true, printedTotal: true },
+      // v1.33 (P-27): `externalId` para plegar subsets→principal por el mapa curado (§4.31c).
+      select: { id: true, externalId: true, name: true, series: true, releaseDate: true, printedTotal: true },
     });
     const setIds = sets.map((s) => s.id);
+    const externalBySetId = new Map(sets.map((s) => [s.id, s.externalId]));
 
     const grouped = setIds.length
       ? await this.prisma.card.groupBy({
@@ -274,6 +444,12 @@ export class MasterSetService {
       };
     });
 
+    // v1.33 (P-27, §4.31c): PLEGADO del master set combinado. Los subset de un grupo se funden en la
+    // fila del principal (agregados SUMADos sobre las partes; completitud recomputada) y desaparecen
+    // como filas propias. Va ANTES del filtro user_vault para que un subset con piezas cuente en el
+    // principal aunque el principal tenga 0. Money-safe: solo re-agrupa lecturas ya calculadas.
+    rows = this.foldCombinedMasterSets(rows, externalBySetId);
+
     // Vista de bóveda: solo sets con ≥1 pieza del usuario (el catálogo entero como índice es ruido;
     // la completitud contra el catálogo se ve al abrir el binder de un set, §4.20a).
     if (scope.kind === 'user_vault') rows = rows.filter((r) => r.totalPieces > 0);
@@ -307,6 +483,64 @@ export class MasterSetService {
       return [...rows].sort((a, b) => b.totalPieces - a.totalPieces || byRelease(a, b));
     }
     return [...rows].sort(byRelease); // release_desc (default)
+  }
+
+  /**
+   * v1.33 (P-27, §4.31c) — PLIEGA los subset de cada master combinado en la fila de su principal:
+   * suma los agregados sobre las partes (cada carta pertenece a UN solo set → sin solapamiento, la
+   * suma es exacta), recomputa completitud y quita las filas de subset. La fila del principal conserva
+   * su `setId`/`name`/`releaseDate` (nombre del master) y gana `partSetIds`. CA-71: si el principal no
+   * está en `rows` (no importado / fuera del filtro `q`) NO se pliega. Puro/sin queries; money-safe.
+   */
+  private foldCombinedMasterSets(
+    rows: MasterSetSummaryDTO[],
+    externalBySetId: Map<string, string>,
+  ): MasterSetSummaryDTO[] {
+    if (MASTER_SET_GROUPS.length === 0) return rows;
+    const rowByExternal = new Map<string, MasterSetSummaryDTO>();
+    for (const r of rows) {
+      const ext = externalBySetId.get(r.setId);
+      if (ext) rowByExternal.set(ext, r);
+    }
+    const sum = (parts: MasterSetSummaryDTO[], pick: (r: MasterSetSummaryDTO) => number) =>
+      parts.reduce((acc, r) => acc + pick(r), 0);
+    const removedSetIds = new Set<string>();
+    for (const g of MASTER_SET_GROUPS) {
+      const primaryRow = rowByExternal.get(g.primary);
+      if (!primaryRow) continue; // CA-71: principal ausente → no se pliega (subset queda como su set).
+      const subsetRows = g.subsets
+        .map((s) => rowByExternal.get(s.externalId))
+        .filter((r): r is MasterSetSummaryDTO => Boolean(r));
+      if (subsetRows.length === 0) continue; // solo el principal presente → set normal (sin pliegue).
+      const partRows = [primaryRow, ...subsetRows];
+      const catalogCardCount = sum(partRows, (r) => r.catalogCardCount);
+      const catalogVariantCount = sum(partRows, (r) => r.catalogVariantCount);
+      const distinctCardsOwned = sum(partRows, (r) => r.distinctCardsOwned);
+      const distinctVariantsOwned = sum(partRows, (r) => r.distinctVariantsOwned);
+      const totalPieces = sum(partRows, (r) => r.totalPieces);
+      const printedTotal = partRows.reduce<number | undefined>(
+        (acc, r) => (r.printedTotal == null ? acc : (acc ?? 0) + r.printedTotal),
+        undefined,
+      );
+      // Muta la fila del principal (in-place): sus agregados pasan a ser Σ de las partes.
+      primaryRow.catalogCardCount = catalogCardCount;
+      primaryRow.catalogVariantCount = catalogVariantCount;
+      primaryRow.distinctCardsOwned = distinctCardsOwned;
+      primaryRow.distinctVariantsOwned = distinctVariantsOwned;
+      primaryRow.totalPieces = totalPieces;
+      primaryRow.printedTotal = printedTotal;
+      primaryRow.completionPct =
+        catalogCardCount === 0
+          ? null
+          : Math.round((distinctCardsOwned / catalogCardCount) * 10000) / 100;
+      primaryRow.variantCompletionPct =
+        catalogVariantCount === 0
+          ? null
+          : Math.round((distinctVariantsOwned / catalogVariantCount) * 10000) / 100;
+      primaryRow.partSetIds = partRows.map((r) => r.setId);
+      for (const s of subsetRows) removedSetIds.add(s.setId);
+    }
+    return removedSetIds.size ? rows.filter((r) => !removedSetIds.has(r.setId)) : rows;
   }
 
   /**
@@ -427,10 +661,24 @@ export class MasterSetService {
 
     const owner = await this.resolveOwner(scope, opts);
 
+    // v1.33 (P-27, §4.31b): FAN-IN del master set combinado. `resolveMasterSet` devuelve las partes
+    // importadas (principal + subsets) en orden de bloque, o `null` para un set normal (v1.20 intacto).
+    // El fan-in vive SOLO aquí (read model único §4.20): M1, bóveda del cliente y admin-bóveda lo
+    // heredan sin código extra. Money-safe: cada `Card` conserva su `setId` real; el `groupBy` de
+    // piezas y `scopeWhere` siguen filtrando por `cardId` (nada re-llaveado).
+    const combined = await this.resolveMasterSet(set);
+    const partSetIds = combined ? combined.partSetIds : [setId];
+    // Mapa parte → { order de bloque, label } para etiquetar cada celda y ordenar por bloque.
+    const partInfo = new Map<string, { order: number; label: string }>(
+      combined ? combined.parts.map((p) => [p.setId, { order: p.order, label: p.label }]) : [],
+    );
+
     const cards = await this.prisma.card.findMany({
-      where: { setId },
+      // v1.33 (P-27): `setId IN partSetIds` (una sola parte para un set normal → idéntico a v1.20).
+      where: { setId: { in: partSetIds } },
       select: {
         id: true,
+        setId: true,
         number: true,
         name: true,
         rarity: true,
@@ -445,6 +693,15 @@ export class MasterSetService {
       // `.sort(compareByNumber)` en memoria. UN solo algoritmo, una sola fuente del orden.
       orderBy: CARD_ORDER_BY_IN_SET,
     });
+    // v1.33 (P-27, §4.31b, D4): orden por BLOQUE — principal primero, luego cada subset en su `order`;
+    // DENTRO del bloque el orden natural ya viene de la BD. `Array.sort` es estable → preserva el
+    // orden intra-bloque. No-op para un set normal (una sola parte, order 0). El separador por
+    // `partSetId` desambigua dos "#20" de partes distintas (§4.31f).
+    if (combined) {
+      cards.sort(
+        (a, b) => (partInfo.get(a.setId)?.order ?? 0) - (partInfo.get(b.setId)?.order ?? 0),
+      );
+    }
     const cardIds = cards.map((c) => c.id);
 
     const grouped = cardIds.length
@@ -495,7 +752,14 @@ export class MasterSetService {
       ? await this.pricing.getVariantOverridesBatch(universeKeys)
       : new Map<string, never>();
 
-    const printedTotal = set.printedTotal ?? null;
+    // v1.33 (P-27, §4.31b, D5/CA-67): `printedTotal` = Σ de las partes en un master combinado
+    // (Celebrations 25 + 25 = 50); en un set normal = su propio `printedTotal` (v1.20 intacto).
+    const printedTotal = combined
+      ? combined.parts.reduce<number | null>(
+          (acc, p) => (p.printedTotal == null ? acc : (acc ?? 0) + p.printedTotal),
+          null,
+        )
+      : (set.printedTotal ?? null);
     const cells: MasterSetCardCellDTO[] = cards
       .map((c) => {
         const byFinish = (countsByCard.get(c.id) ?? []).sort((a, b) =>
@@ -591,6 +855,11 @@ export class MasterSetService {
                 })),
               }
             : {}),
+          // v1.33 (P-27, §4.31b): a qué PARTE real pertenece la celda + etiqueta del bloque. SOLO en un
+          // master combinado; el front agrupa por `partSetId` y pinta el separador con `partLabel`.
+          ...(combined
+            ? { partSetId: c.setId, partLabel: partInfo.get(c.setId)?.label }
+            : {}),
         };
       });
 
@@ -611,18 +880,35 @@ export class MasterSetService {
       }
     }
 
+    // v1.33 (P-27, §4.31b, D4): en un master combinado `set` = el PRINCIPAL (nombre del master); en un
+    // set normal = el propio set (v1.20 intacto). `catalogCardCount` = cards.length ya es Σ de partes.
+    const setRef = combined ? combined.primary : set;
+    const partsDTO: SetPartDTO[] | undefined = combined
+      ? combined.parts.map((p) => ({
+          setId: p.setId,
+          name: p.name,
+          label: p.label,
+          isPrimary: p.isPrimary,
+          order: p.order,
+          catalogCardCount: cards.filter((c) => c.setId === p.setId).length,
+        }))
+      : undefined;
+
     return {
       set: {
-        id: set.id,
-        name: set.name,
-        series: set.series ?? undefined,
-        releaseDate: set.releaseDate ?? undefined,
+        id: setRef.id,
+        name: setRef.name,
+        series: setRef.series ?? undefined,
+        releaseDate: setRef.releaseDate ?? undefined,
       },
       printedTotal,
       catalogCardCount: cards.length,
       cells,
       scope: scope.kind,
       ...(owner ? { owner } : {}),
+      // v1.33 (P-27, §4.31b): master set combinado — desglose de partes + normalización del subset.
+      ...(partsDTO ? { parts: partsDTO } : {}),
+      ...(combined?.canonicalSetId ? { canonicalSetId: combined.canonicalSetId } : {}),
     };
   }
 

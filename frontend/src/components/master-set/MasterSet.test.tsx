@@ -1161,3 +1161,108 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     expect(stickyBar!.className).not.toContain('lg:top-0');
   });
 });
+
+/**
+ * v1.33-master-set-multipart (P-27, §4.31): un set multi-parte (Celebrations `cel25` + Classic
+ * Collection `cel25c` = 50) se presenta como UN master combinado — cells fan-in de ambas partes,
+ * separador/etiqueta por bloque, conteos = Σ (50), plegado en índice/dropdown, y normalización de
+ * un subset a su principal vía `canonicalSetId`. Aditivo: un set de una sola parte NO cambia.
+ */
+describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
+  async function openCelebrations() {
+    fireEvent.change(await screen.findByLabelText('Buscar set'), {
+      target: { value: 'Celebrations' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /Celebrations/ }));
+    await screen.findByRole('heading', { level: 2, name: 'Celebrations' });
+  }
+
+  it('el binder COMBINADO muestra las 50 (Σ de partes) con separador/etiqueta por bloque (principal primero, luego el subset)', async () => {
+    const { container } = renderWithProviders(<MasterSetPanel />, 'es');
+    await openCelebrations();
+
+    // Encabezado de completitud = universo COMBINADO por variante = 50 (cada carta 1 acabado × 50).
+    expect(await screen.findByText('0/50 variantes · 0%')).toBeInTheDocument();
+
+    // Dos SEPARADORES de bloque: el del principal (etiqueta = nombre del master) y el del subset.
+    const principalSep = await screen.findByRole('heading', { level: 3, name: 'Celebrations' });
+    const subsetSep = screen.getByRole('heading', { level: 3, name: 'Classic Collection' });
+    expect(principalSep).toBeInTheDocument();
+    expect(subsetSep).toBeInTheDocument();
+    // Cada separador etiqueta su parte REAL (money-safe: cardId sigue llaveado a su set).
+    expect(principalSep.getAttribute('data-part-set-id')).toBe('cel25');
+    expect(subsetSep.getAttribute('data-part-set-id')).toBe('cel25c');
+    // El bloque del principal va ANTES que el del subset en el DOM (orden de bloque §4.31b.3).
+    const seps = container.querySelectorAll('[data-part-set-id]');
+    expect(Array.from(seps).map((s) => s.getAttribute('data-part-set-id'))).toEqual([
+      'cel25',
+      'cel25c',
+    ]);
+
+    // Colisión de numeración entre partes: hay DOS "#1" (uno por bloque), desambiguados por el separador.
+    expect(screen.getAllByText('#1')).toHaveLength(2);
+    // Y una carta de cada parte, cada una bajo su nombre de bloque (texto exacto: "#1" ≠ "#10").
+    expect(screen.getByText('Celebrations #1')).toBeInTheDocument();
+    expect(screen.getByText('Classic Collection #1')).toBeInTheDocument();
+  });
+
+  it('un set de UNA sola parte (Base Set) NO pinta separadores de bloque (render idéntico a hoy)', async () => {
+    const { container } = renderWithProviders(<MasterSetPanel />, 'es');
+    fireEvent.change(await screen.findByLabelText('Buscar set'), { target: { value: 'Base' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Base Set/ }));
+    await screen.findByRole('heading', { level: 2, name: 'Base Set' });
+    await screen.findAllByText('#2'); // binder cargado
+
+    // Sin `parts` ⇒ una sola sección sin encabezado de bloque (ningún separador con data-part-set-id).
+    expect(container.querySelector('[data-part-set-id]')).toBeNull();
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
+  });
+
+  it('el índice/dropdown pliega el subset: Celebrations aparece UNA vez (marcada "Combinado") y Classic Collection NO como fila suelta', async () => {
+    renderWithProviders(<MasterSetPanel />, 'es');
+
+    // El master combinado aparece una sola vez, marcado "Combinado", con las 50 esperadas.
+    const celButtons = await screen.findAllByRole('button', { name: /^Celebrations/ });
+    expect(celButtons).toHaveLength(1);
+    expect(within(celButtons[0]).getByText('Combinado')).toBeInTheDocument();
+    expect(within(celButtons[0]).getByText('0/50 variantes · 0%')).toBeInTheDocument();
+
+    // El subset NO aparece como set suelto duplicado en el índice.
+    expect(screen.queryByRole('button', { name: /Classic Collection/ })).toBeNull();
+  });
+
+  it('navegación por canonicalSetId: abrir el binder de un SUBSET (cel25c) normaliza al principal y muestra "Celebrations"', async () => {
+    // Simula un deep-link/entrada rezagada que abre el binder por el SUBSET. El índice ya lo pliega,
+    // así que se fuerza una fila del subset para ejercer la normalización servidor→canonicalSetId.
+    vi.spyOn(api, 'getMasterSets').mockResolvedValue({
+      data: [
+        {
+          setId: 'cel25c',
+          name: 'Classic Collection',
+          series: 'Sword & Shield',
+          year: 2021,
+          catalogCardCount: 25,
+          distinctCardsOwned: 0,
+          completionPct: 0,
+          totalPieces: 0,
+          catalogVariantCount: 25,
+          distinctVariantsOwned: 0,
+          variantCompletionPct: 0,
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+      scope: 'platform',
+    });
+
+    renderWithProviders(<MasterSetPanel />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: /Classic Collection/ }));
+
+    // El binder pidió por cel25c pero el backend lo normalizó a su principal: el título es "Celebrations"
+    // (no el binder roto de 25) y trae las 50 combinadas con sus dos separadores de bloque.
+    expect(await screen.findByRole('heading', { level: 2, name: 'Celebrations' })).toBeInTheDocument();
+    expect(await screen.findByText('0/50 variantes · 0%')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Classic Collection' })).toBeInTheDocument();
+  });
+});

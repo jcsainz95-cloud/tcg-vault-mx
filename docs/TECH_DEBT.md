@@ -1385,17 +1385,16 @@
 > **frontend**. Registrado a petición del techlead sin tocar código de producción. Continúa la numeración
 > `FE-*` (tras FE-12/13).
 
-### FE-14 · Duplicación del editor buylist/venta en `M2View.tsx` (techlead)
+### FE-14 · Duplicación del editor buylist/venta en `M2View.tsx` (techlead) — **RESUELTA (2026-08-22, `fix/variant-composition-regression`, junto con TD-1)**
 - **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` — secciones 4 (reglas de compra) y 5
-  (reglas de venta).
-- **Estado actual:** las dos secciones son **clones ~1:1** (estado `ruleDraft`/`salesRuleDraft`,
-  `effectiveRule`, `saveRules`, flags `*Dirty`, ~75 líneas JSX cada una). Diferencias mínimas: fallback
-  default (40 vs 15), copy `pctHint` de venta, y tope pct (100 vs 1000, hoy solo en el validador backend).
-- **Impacto:** bajo. **Aceptable con 2 instancias**; el costo aparece al abrir una 3ª variante o al editar
-  ambos a la vez (cambio en dos sitios, riesgo de divergencia).
-- **Disparador:** **al agregar otra tabla-por-rareza o al tocar ambos editores.** Acción: extraer un
-  componente parametrizado `RarityRulesEditor` (por query/mutation/namespace i18n/fallback). Pagar **antes**
-  de una 3ª variante.
+  (reglas de venta) → ahora `m2/sections/BuylistRulesSection.tsx`, `SalesRulesSection.tsx` y el compartido
+  `RuleAxisEditor.tsx`.
+- **Estado actual:** ~~las dos secciones son **clones ~1:1**~~ **RESUELTA.** La estructura común de los dos ejes
+  (rareza canónica + acabado, fallback, save/cancel, banners) vive una sola vez en `<RuleAxisEditor>`
+  presentacional; las diferencias reales (modelo numérico vs texto crudo, preservar vs limpiar valor al
+  cambiar de modo, validación S-P1-1 de venta, fallback default 40 vs 15, copy `pctHint`, tope pct) se
+  parametrizan desde cada sección vía props/view-models de fila. Sin cambio de comportamiento; 568/568 tests
+  verdes. Ver TD-1 y `docs/FRONTEND_NOTES.md`.
 
 ### Limpieza WS-B (auto-refresh de token) — deuda del delta (2026-08-17, no bloqueante)
 
@@ -3150,20 +3149,50 @@
 > de `e2e-fixtures.ts:35` (afirmaba mapeo vía `RARITY_MAP`, ya retirado) **queda resuelto en este
 > mismo commit** (ahora describe `normalizeRarity` + `BUYLIST_PRICE_RULES`) y NO figura como deuda.
 
-### TD-1 · `M2View.tsx` es un monolito (~2.236 líneas, ~20 hooks, editores inline clonados) (MAYOR, frontend)
-- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx`.
-- **Estado:** un solo componente de ~2.236 líneas con ~20 hooks y varios editores inline. Los editores de reglas **buylist** y **venta** son clones 1:1 del mismo patrón dos-ejes (rareza canónica + acabado).
-- **Impacto:** mantenibilidad; cualquier cambio en un editor debe replicarse a mano en su clon (riesgo de drift), y el archivo es difícil de razonar/testear por su tamaño.
-- **Disparador:** próxima feature que toque cualquiera de esos editores. Dirección: extraer secciones (`PendingQueueSection`, `FxSection`, `BuylistRulesSection`, `SalesRulesSection`, `SealedSpreadsSection`, `CatalogSyncSection`) y un `<RuleAxisEditor mode="buylist|sales">` único que colapse los dos clones. Follow-up del **frontend**.
+### TD-1 · `M2View.tsx` es un monolito (~2.236 líneas, ~20 hooks, editores inline clonados) (MAYOR, frontend) — **RESUELTA (2026-08-22, `fix/variant-composition-regression`)**
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx` + nueva subcarpeta `frontend/src/app/[locale]/(admin)/admin/m2/sections/`.
+- **Estado:** ~~un solo componente de ~2.236 líneas con ~20 hooks y varios editores inline. Los editores de reglas **buylist** y **venta** son clones 1:1 del mismo patrón dos-ejes (rareza canónica + acabado).~~ **RESUELTA** (refactor PURO, cero cambio de comportamiento/UX). `M2View.tsx` quedó como **orquestador de 56 líneas** (antes 2.235). Se extrajeron a `m2/sections/`: `PriceIngestSection` (Sección 1), `PendingQueueSection` (+ modal override), `FxSection`, `PriceProviderSection` (selector de proveedor §3b), `BuylistRulesSection` (+ «Unificar rarezas» anclado §19.5 y su modal), `SalesRulesSection`, `SealedSpreadsSection`, `CatalogSyncSection` (los 3 grupos Datos/Catálogo/Avanzado + tabla de sets + modales force/refresh-all), y helpers/constantes/`SyncProgress`/`RowMoreMenu` en `shared.tsx`. La **duplicación buylist↔venta se colapsó** en un único `<RuleAxisEditor>` presentacional (estructura de los dos ejes); la lógica de modelo que DIFIERE (buylist numérico + preserva valor al cambiar de modo; venta texto crudo + limpia valor + validación S-P1-1) queda en cada sección vía view-models de fila → comportamiento EXACTO. El estado acoplado precio↔catálogo (`justDispatched`, `priceSyncStatus`, `catalogBusy`/`batchBusy`, keep-alive, invalidaciones) se centralizó en el hook `useCatalogSync` consumido por `PriceIngestSection` y `CatalogSyncSection`; el orden DOM se conserva idéntico.
+- **Verificación (gates):** `tsc --noEmit` OK, `next lint` sin warnings/errores, `next build` OK, **`vitest run` 568/568 verdes** (M2View.test.tsx 67/67), sin modificar los tests. Detalle en `docs/FRONTEND_NOTES.md`.
+- **Nota:** cubre también la duplicación descrita en **FE-14** (editores buylist/venta) — el `RuleAxisEditor` compartido la elimina.
 
-### TD-2 · Formalizar `unify-rarities` en contrato + `UPSTREAM_ERROR`/`SET_NOT_IMPORTED` en el enum central (MENOR, arquitecto)
-- **Dónde:** `docs/API_CONTRACT.md` (endpoint `unify-rarities`, cerrándose ahora) y `backend/src/common/error-codes.ts`.
-- **Estado:** `unify-rarities` aún no está documentado en el contrato pese a estar operativo; y los códigos `UPSTREAM_ERROR` / `SET_NOT_IMPORTED` se emiten hoy por **cast** (`as ErrorCodeType`) en vez de estar en el enum central de códigos de error.
-- **Impacto:** bajo; el cast evade la fuente única de verdad de los códigos (riesgo de typo silencioso) y el contrato queda desalineado con lo implementado.
-- **Disparador:** cierre de `unify-rarities`. Dirección: el **arquitecto** formaliza el endpoint en `API_CONTRACT.md` y añade `UPSTREAM_ERROR`/`SET_NOT_IMPORTED` al enum central; una vez en el enum, el backend retira los casts. Cambio de contrato/enum ⇒ **arquitecto** primero (zona compartida).
+### TD-2 · Formalizar `unify-rarities` en contrato + `UPSTREAM_ERROR`/`SET_NOT_IMPORTED` en el enum central (MENOR, arquitecto) — **RESUELTO (2026-08-22, `fix/variant-composition-regression`)**
+- **Dónde:** `docs/API_CONTRACT.md` (§Convenciones/Errores, v1.31/v1.32) y `backend/src/common/error-codes.ts`.
+- **Estado:** ~~`unify-rarities` aún no está documentado en el contrato pese a estar operativo; y los códigos `UPSTREAM_ERROR` / `SET_NOT_IMPORTED` se emiten hoy por **cast** (`as ErrorCodeType`) en vez de estar en el enum central de códigos de error.~~ **RESUELTO.** El arquitecto formalizó ambos códigos como normativos en el contrato (v1.31/v1.32). El **backend** los añadió al enum central `ErrorCode` (`common/error-codes.ts`, sección Catalog/pricing) y **retiró todos los casts `as ErrorCodeType`** que los usaban: `catalog-sync.service.ts` (consts `UPSTREAM_ERROR`/`SET_NOT_IMPORTED` eliminadas; guards `withTcgcsvGuard`/`withUpstreamGuard`, `refreshVariants` SET_NOT_IMPORTED e `INTERNAL`, y el fallback de `runRefreshVariantsAll` ahora usan `ErrorCode.*`) y `sealed-pricing.controller.ts` (`groups`/`products` ahora usan `ErrorCode.UPSTREAM_ERROR`). Mapeo de status HTTP intacto (502 UPSTREAM_ERROR / 409 SET_NOT_IMPORTED); sin cambio de comportamiento. Gate: 1434/1434 tests verdes, `tsc`/lint/build OK. No quedan casts `as ErrorCodeType` en `backend/src/`.
+- **Impacto:** cerrado; el cast que evadía la fuente única de verdad de los códigos ya no existe.
 
-### TD-3 · Filas `ConfigSetting key='rarity_map'` quedan inertes en BD sin migración de limpieza (MENOR, backend)
-- **Dónde:** tabla `ConfigSetting`, filas con `key='rarity_map'` (residuo del `RARITY_MAP` retirado). Contexto en `docs/BACKEND_NOTES.md`.
-- **Estado:** el `RARITY_MAP` fue retirado del código (buylist usa `BUYLIST_PRICE_RULES` + catálogo canónico), pero las filas `rarity_map` en `ConfigSetting` **no** se borraron con una migración de limpieza. Quedan **inertes** (nadie las lee). Aceptado — ver `BACKEND_NOTES`.
-- **Impacto:** nulo funcional; solo ruido de datos en BD.
-- **Disparador:** limpieza **opcional** cuando se toque una migración de settings. Dirección: `DELETE` de las filas `key='rarity_map'` dentro de esa migración. Follow-up del **backend**.
+### TD-3 · Filas `ConfigSetting key='rarity_map'` quedan inertes en BD sin migración de limpieza (MENOR, backend) — **RESUELTO (2026-08-22, `fix/variant-composition-regression`)**
+- **Dónde:** tabla `ConfigSetting`, filas con `key='rarity_map'` (residuo del `RARITY_MAP` retirado). Migración: `backend/prisma/migrations/20260822150000_m36_cleanup_rarity_map_setting/`.
+- **Estado:** ~~el `RARITY_MAP` fue retirado del código pero las filas `rarity_map` en `ConfigSetting` no se borraron.~~ **RESUELTO.** Se añadió la migración de datos **M-36** (`DELETE FROM "ConfigSetting" WHERE "key" = 'rarity_map';`), idempotente (0 filas afectadas si no existen; no-op en greenfield) y segura/aditiva (solo borra config muerta; NO toca schema, dinero, precios ni inventario). NO se aplicó contra prod desde aquí (no hay DB en el entorno de trabajo); la aplica devops en el deploy. Gate: `prisma format`/`generate` OK, 1434/1434 tests verdes.
+- **Impacto:** cerrado; el residuo de datos se limpia con el próximo `migrate deploy`.
+- **Rollback:** NO se restaura — era config muerta sin lectura viva (documentado en la cabecera de la migración). Si se necesitara una tabla rareza→precio, se usa el setting vigente `buylist_price_rules`.
+
+### Cierre P-27 (sets multi-parte / master set combinado) — deuda del veredicto techlead (2026-08-22, `fix/variant-composition-regression`, no bloqueante)
+
+> Veredicto techlead de P-27 **aprobado**. **M1** (export muerto `isMappedExternalId` en
+> `master-set-groups.ts`) **queda RESUELTA** en este mismo cierre: grep confirmó cero consumidores en
+> módulos y tests, se **eliminó** la función. **M3** (mutación in-place de arrays en un par de folds) es
+> cosmético y no se registra. Los siguientes cuatro ítems quedan como deuda MENOR aceptada.
+
+### P27-D1 · El mapa `master-set-groups` es constante de código (añadir un par requiere deploy) (MENOR, backend)
+- **Dónde:** `backend/src/config/master-set-groups.ts` (`MASTER_SET_GROUPS`).
+- **Deuda:** el mapa padre→subset es una constante curada en código. Añadir/quitar un par de master set combinado requiere **deploy + validación contra el catálogo real** (no es editable en caliente).
+- **Impacto:** bajo; el catálogo de pares hoy es diminuto (solo Celebrations confirmado). Money-safe por diseño: el mapa es SOLO PRESENTACIÓN, nunca fuente de verdad (ARCHITECTURE §4.31e).
+- **Disparador:** cuando el catálogo de pares **crezca** (varios sets multi-parte). Ruta futura: migrar a `ConfigSetting` (M10) editable-sin-deploy **conservando la regla «nunca fuente de verdad»** (invariante ya documentada en ARCHITECTURE §4.31a). No urgente.
+
+### P27-D2 · El cotizador de buylist NO combina sets multi-parte (incoherencia de superficie) (MENOR, backend/frontend)
+- **Dónde:** `backend/src/modules/catalog/catalog.service.ts` → `listSetsWithImportedCards` y `searchAllCards` (rutas `/buylist/sets` y `/buylist/cards`).
+- **Deuda:** esas dos rutas **no** aplican `foldStorefrontSets`/`expandSetIdFilter`, así que el cotizador de buylist muestra Celebrations como **dos sets de 25** (`cel25` + `cel25c`) mientras storefront/M1/bóveda lo pliegan a **un master de 50**.
+- **Impacto:** cosmético/UX; **money-safe** — el cotizador cotiza por `cardId` real (cada carta conserva su `setId` real), no por el set combinado. Está **fuera del alcance de §L** (centrada en storefront/M1/bóveda), por eso no era gate.
+- **Disparador:** cuando se quiera coherencia de presentación end-to-end. Dirección: exponer el mismo plegado/expansión (`foldStorefrontSets`/`expandSetIdFilter`) también en `/buylist/sets` y `/buylist/cards`. Requiere alinear frontend del cotizador.
+
+### P27-D3 · Validar los `externalId` reales de los pares Shiny Vault contra el catálogo (MENOR, backend)
+- **Dónde:** `backend/src/config/master-set-groups.ts` (candidatos COMENTADOS).
+- **Deuda:** dos candidatos «Shiny Vault con id propio» quedan comentados a la espera de validar sus `externalId` EXACTOS contra el catálogo REAL antes de activar (no se shippea a ciegas — ARCHITECTURE §4.31a): Shining Fates (`swsh45` → subset `swsh45sv`) y Hidden Fates (`sm115` → subset `sma`).
+- **Impacto:** nulo hoy (líneas inertes/comentadas); sin descomentar, esos sets simplemente no se pliegan.
+- **Disparador:** validar los `externalId` reales de ambos pares contra el catálogo importado e ir **descomentando** las líneas correspondientes (la validación al boot §4.31a avisa si el `externalId` mapeado no está importado). No urgente.
+
+### P27-M2 · Cuatro implementaciones del «resolver grupos activos según externalId presentes» repiten el núcleo (MENOR/refactor, backend)
+- **Dónde:** `resolveMasterSet`, `foldCombinedMasterSets`, `foldStorefrontSets` y `expandSetIdFilter` (config/servicio de master sets).
+- **Deuda:** las cuatro repiten el mismo núcleo —resolver qué grupos están activos según los `externalId` presentes, incluido el chequeo `<2 partes`— con pequeñas variaciones de forma de salida.
+- **Impacto:** mantenibilidad; cuatro sitios a tocar si cambia la regla de activación. Sin riesgo de comportamiento hoy (los tests cubren cada uno).
+- **Disparador:** al próximo cambio de la regla de agrupación. Dirección: extraer un helper compartido `resolveActiveGroups(presentExternalIds)` en la config y que los cuatro lo consuman. No urgente.

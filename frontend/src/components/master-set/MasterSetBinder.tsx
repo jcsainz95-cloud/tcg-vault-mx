@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronLeft } from 'lucide-react';
@@ -22,6 +22,7 @@ import type {
   MasterSetCardCellDTO,
   MasterSetSummaryDTO,
   MasterSetVariantDTO,
+  SetPartDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -99,6 +100,12 @@ interface Props {
    * (VariantDrawer) en lugar del drawer por-carta. El dueño (M1View) monta el panel.
    */
   onOpenVariant?: (cell: MasterSetCardCellDTO, variant: MasterSetVariantDTO) => void;
+  /**
+   * v1.33 (P-27, §4.31b.6): cuando el binder se pidió por un SUBSET de un master combinado, el backend
+   * lo normaliza a su principal y devuelve `canonicalSetId`. El binder lo notifica para que el dueño
+   * actualice la selección/URL al set canónico (evita el binder roto de 25 al abrir un subset).
+   */
+  onCanonicalResolved?: (canonical: { setId: string; name: string }) => void;
 }
 
 /**
@@ -244,7 +251,7 @@ function fetchBinder(
  * `availableFinishes`, orden canónico: normal a la izquierda, reverse holo a la derecha); el
  * contador «X/Y» cuenta variantes. Prohibida la casilla de relleno.
  */
-export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVariant, onAddProduct, onOpenVariant }: Props) {
+export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVariant, onAddProduct, onOpenVariant, onCanonicalResolved }: Props) {
   const t = useTranslations('masterSet');
   const tFinish = useTranslations('finish');
   const isQuoter = mode === 'quoter';
@@ -263,6 +270,13 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
   // N-16 REJILLA PLANA: el grid ya NO es una casilla por carta con sub-acabados, sino UNA TARJETA
   // por impresión (carta+acabado). Se expande cada celda con `displayedVariants` (una entrada por
   // `displayFinish`, orden FINISH_ORDER) y el resultado es un flujo plano de `{cell, variant}`.
+  // v1.33 (P-27): orden de bloque de un master combinado (partSetId → order del `parts`).
+  const partOrder = useMemo(() => {
+    const m = new Map<string, number>();
+    (binder.data?.parts ?? []).forEach((p) => m.set(p.setId, p.order));
+    return m;
+  }, [binder.data]);
+
   const tiles = useMemo(() => {
     const all = binder.data?.cells ?? [];
     // v1.30 (§4.29, solo quoter): cotizaciones de productos separados por (cardId:productId:finish).
@@ -276,7 +290,18 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
       if (name && !c.name.toLowerCase().includes(name) && !c.number.toLowerCase().includes(name)) return false;
       return true;
     };
-    const sortedCells = [...all.filter(cellMatches)].sort(compareCardNumber);
+    // v1.33 (P-27, §4.31b.3): en un master combinado se ordena por (parte, orden natural) para que los
+    // bloques NO se intercalen al re-ordenar en cliente (la colisión de numeración entre partes queda
+    // separada por bloque). En un set normal (sin `parts`) es el orden natural de siempre.
+    const byPartThenNumber = (a: MasterSetCardCellDTO, b: MasterSetCardCellDTO) => {
+      if (partOrder.size > 0) {
+        const oa = partOrder.get(a.partSetId ?? '') ?? 0;
+        const ob = partOrder.get(b.partSetId ?? '') ?? 0;
+        if (oa !== ob) return oa - ob;
+      }
+      return compareCardNumber(a, b);
+    };
+    const sortedCells = [...all.filter(cellMatches)].sort(byPartThenNumber);
     const out: BinderTileItem[] = [];
     for (const cell of sortedCells) {
       for (const variant of displayedVariants(cell)) {
@@ -305,7 +330,17 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
       }
     }
     return out;
-  }, [binder.data, finishFilter, pieceFilter, onlySecret, isQuoter, nameFilter]);
+  }, [binder.data, partOrder, finishFilter, pieceFilter, onlySecret, isQuoter, nameFilter]);
+
+  // v1.33 (P-27, §4.31b.4): agrupa las tejas por PARTE para pintar el separador/etiqueta por bloque.
+  // Un set de una sola parte (sin `parts`) es UNA sección sin encabezado (render idéntico a hoy).
+  const sections = useMemo(() => {
+    const parts = binder.data?.parts;
+    if (!parts || parts.length === 0) return [{ part: null as SetPartDTO | null, tiles }];
+    return parts
+      .map((part) => ({ part, tiles: tiles.filter((tl) => tl.cell.partSetId === part.setId) }))
+      .filter((sec) => sec.tiles.length > 0);
+  }, [binder.data, tiles]);
 
   // v1.20: contador del set POR VARIANTE, derivado del binder (suma de expected/covered).
   const variantTotals = useMemo(() => {
@@ -318,6 +353,21 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
 
   const owner = binder.data?.owner;
 
+  // v1.33 (P-27, §4.31b.6): si el binder se pidió por un subset, el backend normaliza al principal y
+  // devuelve `canonicalSetId`; notifica al dueño para canonizar la selección/URL (no más binder de 25).
+  const canonicalSetId = binder.data?.canonicalSetId;
+  const canonicalName = binder.data?.set.name;
+  useEffect(() => {
+    if (canonicalSetId && canonicalSetId !== set.setId) {
+      onCanonicalResolved?.({ setId: canonicalSetId, name: canonicalName ?? set.name });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canonicalSetId, set.setId]);
+
+  // Título del master: el NOMBRE del principal (SetRefDTO de la respuesta) manda sobre el del prop,
+  // así abrir un subset ya muestra "Celebrations" y no la etiqueta del subset.
+  const title = canonicalName ?? set.name;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -326,7 +376,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
             <ChevronLeft size={18} /> {t('backToIndex')}
           </Button>
           <h2 lang="en" className="text-h2">
-            {set.name}
+            {title}
           </h2>
         </div>
         {binder.data && !isQuoter && (
@@ -436,57 +486,97 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
           (tiles.length === 0 ? (
             <EmptyState title={t('emptyBinderTitle')} body={t('emptyBinderBody')} />
           ) : (
-            <ul
-              className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
-              aria-label={t('binderGridLabel')}
-            >
-              {tiles.map((tile) =>
-                tile.kind === 'product' ? (
-                  <li
-                    key={`${tile.cell.cardId}:sp:${tile.product.productId}:${tile.finish}`}
-                    className="min-w-0"
-                  >
-                    <SeparateProductTile
-                      cell={tile.cell}
-                      product={tile.product}
-                      finish={tile.finish}
-                      priceCents={tile.priceCents}
-                      isQuoter={isQuoter}
-                      quoteResult={tile.quoteResult}
-                      onAdd={
-                        onAddProduct
-                          ? (quote) => onAddProduct(tile.cell, tile.product, tile.finish, quote)
-                          : undefined
-                      }
-                    />
-                  </li>
-                ) : (
-                  <li key={`${tile.cell.cardId}:${tile.variant.finish}`} className="min-w-0">
-                    {isQuoter ? (
-                      <QuoterTile
-                        cell={tile.cell}
-                        variant={tile.variant}
-                        onAdd={() => onAddVariant?.(tile.cell, tile.variant)}
-                      />
+            /* v1.33 (P-27): un master combinado se pinta como bloques (principal primero, luego cada
+               subset etiquetado); un set de una sola parte es UNA sección sin encabezado (idéntico a hoy). */
+            sections.map((section) => (
+              <div key={section.part?.setId ?? '__single__'} className="flex flex-col gap-4">
+                {section.part && (
+                  <PartSeparator part={section.part} tileCount={section.tiles.length} />
+                )}
+                <ul
+                  className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+                  aria-label={
+                    section.part
+                      ? t('partGridLabel', { part: section.part.label ?? section.part.name })
+                      : t('binderGridLabel')
+                  }
+                >
+                  {section.tiles.map((tile) =>
+                    tile.kind === 'product' ? (
+                      <li
+                        key={`${tile.cell.cardId}:sp:${tile.product.productId}:${tile.finish}`}
+                        className="min-w-0"
+                      >
+                        <SeparateProductTile
+                          cell={tile.cell}
+                          product={tile.product}
+                          finish={tile.finish}
+                          priceCents={tile.priceCents}
+                          isQuoter={isQuoter}
+                          quoteResult={tile.quoteResult}
+                          onAdd={
+                            onAddProduct
+                              ? (quote) => onAddProduct(tile.cell, tile.product, tile.finish, quote)
+                              : undefined
+                          }
+                        />
+                      </li>
                     ) : (
-                      <BinderTile
-                        cell={tile.cell}
-                        variant={tile.variant}
-                        onOpen={() =>
-                          onOpenVariant ? onOpenVariant(tile.cell, tile.variant) : onOpenCell(tile.cell)
-                        }
-                      />
-                    )}
-                  </li>
-                ),
-              )}
-            </ul>
+                      <li key={`${tile.cell.cardId}:${tile.variant.finish}`} className="min-w-0">
+                        {isQuoter ? (
+                          <QuoterTile
+                            cell={tile.cell}
+                            variant={tile.variant}
+                            onAdd={() => onAddVariant?.(tile.cell, tile.variant)}
+                          />
+                        ) : (
+                          <BinderTile
+                            cell={tile.cell}
+                            variant={tile.variant}
+                            onOpen={() =>
+                              onOpenVariant
+                                ? onOpenVariant(tile.cell, tile.variant)
+                                : onOpenCell(tile.cell)
+                            }
+                          />
+                        )}
+                      </li>
+                    ),
+                  )}
+                </ul>
+              </div>
+            ))
           ))}
       </QueryState>
     </div>
   );
 }
 
+
+/**
+ * v1.33 (P-27, §4.31b.4): separador/etiqueta de un BLOQUE de un master combinado. Sobre papel, un
+ * único canal visual: etiqueta mono en versalitas + la regla del sistema (§2.2, `--rule`, el único
+ * separador permitido) + el subtotal de cartas del bloque. El bloque del principal lleva el nombre del
+ * master ("Celebrations"); cada subset lleva su etiqueta ("Classic Collection").
+ */
+function PartSeparator({ part, tileCount }: { part: SetPartDTO; tileCount: number }) {
+  const t = useTranslations('masterSet');
+  return (
+    <div className="flex items-center gap-3">
+      <h3
+        lang="en"
+        className="font-mono text-xs uppercase tracking-wide text-muted"
+        data-part-set-id={part.setId}
+      >
+        {part.label ?? part.name}
+      </h3>
+      <span className="h-px flex-1 bg-border" aria-hidden />
+      <span className="font-mono tabular-nums text-[10px] uppercase tracking-wide text-muted">
+        {t('partCardCount', { count: part.catalogCardCount })}
+      </span>
+    </div>
+  );
+}
 
 /**
  * Cabecera COMPARTIDA de una tarjeta de impresión (N-16): arte de catálogo + nombre (serif) +
