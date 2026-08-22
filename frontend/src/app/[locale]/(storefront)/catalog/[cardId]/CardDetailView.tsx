@@ -13,6 +13,7 @@ import { Link, useRouter } from '@/i18n/navigation';
 import { CartAddedToast } from '../CartAddedToast';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
+import { PendingPriceLabel } from '../../_shared/PendingPriceLabel';
 import { CertNumberField } from '@/components/ui/CertNumberField';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
@@ -114,7 +115,6 @@ function Detail({
   const tcat = useTranslations('catalog');
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
-  const tprice = useTranslations('price');
   const locale = useLocale() as AppLocale;
   const primary = listings[0];
 
@@ -172,9 +172,7 @@ function Detail({
                     </span>
                   ) : (
                     // Sin precio: «precio pendiente» honesto, jamás MX$0.00 (§7.3).
-                    <span className="font-mono text-[13px] uppercase leading-none tracking-[0.06em] text-accent">
-                      {tprice('pendingLabel')}
-                    </span>
+                    <PendingPriceLabel className="text-[13px] tracking-[0.06em]" />
                   )}
                 </Fact>
                 <Fact
@@ -244,9 +242,7 @@ function Detail({
                         {formatMoneyCents(l.salePriceCents, locale)}
                       </span>
                     ) : (
-                      <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
-                        {tprice('pendingLabel')} · {tprice('pendingHint')}
-                      </span>
+                      <PendingPriceLabel hint className="text-[11px] leading-normal tracking-[0.06em]" />
                     )}
                   </div>
                 </div>

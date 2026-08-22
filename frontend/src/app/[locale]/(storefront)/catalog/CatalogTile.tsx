@@ -8,6 +8,8 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
+import { StockBadge } from '../_shared/StockBadge';
+import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { cn } from '@/lib/cn';
 
 export interface CatalogTileProps {
@@ -32,7 +34,6 @@ export interface CatalogTileProps {
  */
 export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
   const t = useTranslations('catalog');
-  const tprice = useTranslations('price');
   const locale = useLocale() as AppLocale;
   const router = useRouter();
   const { card } = listing;
@@ -76,17 +77,11 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
           {formatMoneyCents(listing.salePriceCents, locale)}
         </p>
       ) : (
-        <p className="mt-2.5 font-mono text-[10px] uppercase leading-none tracking-[0.1em] text-accent">
-          {tprice('pendingLabel')}
-        </p>
+        <PendingPriceLabel className="mt-2.5 block" />
       )}
 
-      {/* Distintivo de stock literal: 1 publicación = 1 copia física. */}
-      {listing.sellable && (
-        <p className="mt-2 font-mono text-[9px] uppercase leading-none tracking-[0.12em] text-accent sm:text-[10px]">
-          {t('lastOne')}
-        </p>
-      )}
+      {/* Distintivo de stock literal («Queda 1», §20.6): 1 publicación = 1 copia física. */}
+      {listing.sellable && <StockBadge variant="unique" className="mt-2" />}
 
       {/* mt-auto alinea el CTA abajo cuando las tejas de la fila difieren de altura */}
       <div className="mt-auto pt-3">

@@ -30,18 +30,19 @@ export function StoreTabs() {
     { key: 'graded', href: '/catalog?type=graded', label: t('graded'), active: inCatalog && graded },
   ];
 
+  // R4 (a11y): esto es NAVEGACIÓN entre rutas, no un tab-panel ARIA — sin
+  // role="tablist"/"tab" ni aria-selected (prometerían panel controlado y
+  // navegación por flechas). Un <nav> etiquetado + aria-current="page" en el
+  // link activo dice exactamente lo que es. El aspecto visual (§20.1) no cambia.
   return (
-    <div
+    <nav
       className="gutter flex gap-6 overflow-x-auto border-b border-border-strong sm:gap-8"
-      role="tablist"
       aria-label={t('label')}
     >
       {tabs.map((tab) => (
         <Link
           key={tab.key}
           href={tab.href}
-          role="tab"
-          aria-selected={tab.active}
           aria-current={tab.active ? 'page' : undefined}
           className={cn(
             'whitespace-nowrap pb-3 text-[11px] font-medium uppercase tracking-label transition-colors sm:text-xs',
@@ -53,6 +54,6 @@ export function StoreTabs() {
           {tab.label}
         </Link>
       ))}
-    </div>
+    </nav>
   );
 }

@@ -5398,3 +5398,80 @@ actualizados: `CatalogView.test` (nuevo nombre del CTA + mock `next/navigation`)
 - Facetas/filtro de **grado** en Compra: `GET /catalog/facets` con `grades: [{ company, value }]` y
   `GET /catalog/cards?gradingCompany=&gradeValue=` (o similar) para poder pintar el bloque «Grado»
   del artboard 2a con datos reales.
+
+---
+
+## Pase de refactors del makeover 1a — R1–R5 del veredicto techlead (2026-08-22, rama `claude/frontend-redesign-320uai`)
+
+Refactor PURO dentro de `(storefront)/` + `messages/` (única excepción autorizada: R4 en
+`components/domain/StoreTabs.tsx`). Nuevos compartidos del stream en `(storefront)/_shared/`
+(NO en `frontend/src/components/` — zona compartida de otro stream).
+
+### R1 · `_shared/StockBadge.tsx` — distintivo de stock único (§20.6)
+- API semántica `variant: 'unique' | 'count' | 'lastUnit' | 'soldOut'` + helper
+  `stockVariantFromCount(count)` para los sitios con conteo agregado real (sellado).
+- **Colores canónicos decididos POR LA TABLA del DS §20.6** (ante la duda, manda el DS):
+  `unique` («Queda 1») = **accent**; `count` («N en stock») = **success**; `lastUnit` («Último») =
+  **muted** (la implementación previa de `sellado/StockBadge` lo pintaba accent — corregido);
+  `soldOut` («Agotado») = muted. Mono 10px (9px móvil), uppercase, tracking 0.12em.
+- Sustituye las 4 implementaciones (sellado/StockBadge — **eliminado**, SealedShelf inline,
+  FeaturedCarousel/GradedShelf `home.lastOne`, CatalogTile `catalog.lastOne`) y también se usa en
+  `SealedDetailView`. Namespace i18n único **`stock.*`** (`lastOne`, `inStock`, `lastUnit`,
+  `soldOut`, ES+EN — §20.16). Claves borradas tras grep de uso cero: `home.lastOne`,
+  `home.sealed.inStock`, `home.sealed.last`, `catalog.lastOne`, `sealed.inStock`, `sealed.lastOne`,
+  `sealed.soldOut`. La semántica ambigua de `lastOne` («Queda 1» vs «Último») quedó partida en dos
+  claves distintas (`stock.lastOne` / `stock.lastUnit`).
+
+### R2 · `_shared/PendingPriceLabel.tsx` — señal única de precio pendiente
+- Color canónico **accent** (§16.4 «texto mono rojo PENDIENTE» + §20.13 «aviso mono rojo, nunca $0»);
+  los dos sitios del home que lo pintaban muted quedaron alineados.
+- Una sola clave: **`price.pendingLabel`** (ya era la fuente de catálogo/ficha); `home.pricePending`
+  **borrada**. Prop `hint` añade `price.pendingHint` (fila de ejemplares de la ficha). Usado en los
+  5 sitios: CatalogTile, CardDetailView (Fact + fila de ejemplar), FeaturedCarousel (TilePrice),
+  GradedShelf. `components/ui/PriceTag.tsx` NO se tocó (zona compartida): consolidación final
+  anotada en TECH_DEBT (MK-D7).
+
+### R3 · Estantes del home sin duplicación
+- **Errores:** los tres bloques de error a mano (FeaturedCarousel/SealedShelf/GradedShelf) ahora usan
+  `components/ui/QueryState` (solo import, como CatalogView/SealedShopView). Detalle de composición:
+  el wrapper `<div className={isError ? 'gutter pb-12' : undefined}>` aporta el gutter SOLO en la
+  rama de error, para no alterar la pista de scroll del carrusel ni duplicar gutter en las grillas.
+- **`_shared/Shelf.tsx`:** encabezado de estante único (H2 serif 22/29 + link muted + variantes
+  `kicker`/`subtitle`/`actions`); consumido por FeaturedCarousel (flechas como `actions`),
+  SealedShelf, GradedShelf y BountyBoard.
+- **`_shared/EditorialLink.tsx`:** micropatrón §20.0 (variant `accent` = subrayado rojo + tinta,
+  hover subrayado a tinta; `muted` = terciario sin subrayado). Renderiza `Link` con `href` o
+  `<button>` con `onClick`. Usado en: `page.tsx` (link bóveda; CTA sellado del hero con overrides
+  responsivos móviles vía `className`+twMerge), `HomeQuoter` («Continuar mi cotización»),
+  `BuylistView` (guía de envío — la variante divergida `text-accent`/minúsculas se normalizó al
+  canon) y dentro de `Shelf` (los «Ver todo…» muted).
+
+### R4 · StoreTabs sin ARIA de tabs (excepción autorizada, solo ese cambio)
+- `components/domain/StoreTabs.tsx`: fuera `role="tablist"/"tab"` y `aria-selected` (prometían un
+  tab-panel controlado con navegación por flechas que no existe); ahora es
+  `<nav aria-label={t('storeTabs.label')}>` + `aria-current="page"` en el link activo. Visual §20.1
+  intacto. Nada más se tocó en ese archivo.
+
+### R5 · Catálogo: debounce + `keepPreviousData`
+- El input de búsqueda pasa a estado inmediato propio (`searchTerm`) y solo su valor **debounced**
+  (`useDebouncedValue`, 300 ms — patrón P-5) entra a `filters.q`/queryKey: cero fetch por pulsación.
+  Sincronización: chip «✕»/limpiar y `?q=` de URL escriben de vuelta al input; cambios de
+  orden/facetas NO lo pisan (guard por comparación de `q`). El reset de página viaja con el término
+  debounced (cambio real de `q` ⇒ `page: undefined`).
+- `catalogQuery` con `placeholderData: keepPreviousData`: paginar/filtrar ya no desmonta la grilla
+  (skeleton solo en el primer fetch).
+
+### D-menores corregidos de paso (D3/D7)
+- **D3:** `Paginator` movido a `_shared/Paginator.tsx` (era genérico) y **`SealedShopView` ahora
+  pagina** (§20.12): `page` en filtros (los 4 selects resetean página), total de páginas del
+  `total/pageSize` del contrato, ancla de scroll en la barra de resultados, oculto con una página.
+- **D7:** © del footer con año dinámico (`layout.tsx`); numeración del carrusel `aria-hidden`
+  (§20.3); `BountyBoard` con semántica de tabla (`role="table"/row/columnheader/cell"` — alternativa
+  válida de §20.7 conservando la retícula responsiva); chips removibles con
+  `aria-label` de acción (`catalog.removeFilter`, ES+EN); literal `BUYLIST` → `buylist.verticalLabel`
+  (uppercase vía clase, §20.15). Lo NO corregido quedó en TECH_DEBT (MK-D7): `<img>` crudo de
+  SealedShelf, HomeQuoter sin cancelación/combobox ARIA, header de /checkout sin simplificar.
+
+### Gates locales
+`tsc --noEmit` ✓ · `next lint` ✓ (sin warnings) · `vitest run` **589/589** ✓ (sin tocar tests: los
+textos visibles no cambiaron salvo el color/semántica ya descritos) · `next build` ✓.

@@ -8,7 +8,7 @@ import type { CardDTO, Finish } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import { Link } from '@/i18n/navigation';
+import { EditorialLink } from '../_shared/EditorialLink';
 import { cn } from '@/lib/cn';
 
 /**
@@ -277,12 +277,9 @@ export function HomeQuoterPanel({
           </div>
         )}
 
-        <Link
-          href="/buylist"
-          className="mt-6 inline-block border-b border-accent pb-1.5 text-[11px] font-medium uppercase tracking-label text-text"
-        >
+        <EditorialLink href="/buylist" className="mt-6 inline-block">
           {t('quoter.continue')}
-        </Link>
+        </EditorialLink>
       </div>
 
       {withTrust && (

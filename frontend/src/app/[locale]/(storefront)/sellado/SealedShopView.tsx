@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { StoreTabs } from '@/components/domain/StoreTabs';
@@ -14,9 +14,12 @@ import { Select } from '@/components/ui/Select';
 import { CardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
-import { StockBadge } from './StockBadge';
+import { StockBadge, stockVariantFromCount } from '../_shared/StockBadge';
+import { Paginator } from '../_shared/Paginator';
 
 const SORTS: SealedSort[] = ['newest', 'price_asc', 'price_desc'];
+/** pageSize del contrato (§2, default del backend); fallback del total de páginas. */
+const DEFAULT_PAGE_SIZE = 20;
 const SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
 const CONDITIONS: SealedCondition[] = ['mint', 'minor_box_damage'];
 
@@ -51,6 +54,17 @@ export function SealedShopView() {
   });
 
   const total = query.data?.total ?? 0;
+  // Paginación sobria (§20.12, D3): mismo Paginator compartido del catálogo.
+  const page = filters.page ?? 1;
+  const totalPages = Math.max(1, Math.ceil(total / (query.data?.pageSize ?? DEFAULT_PAGE_SIZE)));
+  // Ancla del scroll al paginar: la barra de resultados, no el tope de la página.
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  function goToPage(p: number) {
+    setFilters((f) => ({ ...f, page: p <= 1 ? undefined : p }));
+    // jsdom no implementa scrollIntoView; el guard evita romper los tests.
+    resultsRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }
 
   // Sets presentes en los grupos cargados (para poblar el filtro sin un endpoint extra). Con
   // paginación es una aproximación del universo; el filtro `setId` viaja igual al backend.
@@ -93,7 +107,7 @@ export function SealedShopView() {
         <Select
           label={t('filters.set')}
           value={filters.setId ?? ''}
-          onChange={(e) => setFilters((f) => ({ ...f, setId: e.target.value || undefined }))}
+          onChange={(e) => setFilters((f) => ({ ...f, setId: e.target.value || undefined, page: undefined }))}
           options={[
             { value: '', label: t('filters.allSets') },
             ...presentSets.map((s) => ({ value: s.id, label: s.name })),
@@ -103,7 +117,7 @@ export function SealedShopView() {
           label={t('filters.subtype')}
           value={filters.sealedSubtype ?? ''}
           onChange={(e) =>
-            setFilters((f) => ({ ...f, sealedSubtype: (e.target.value || undefined) as SealedSubtype | undefined }))
+            setFilters((f) => ({ ...f, sealedSubtype: (e.target.value || undefined) as SealedSubtype | undefined, page: undefined }))
           }
           options={[
             { value: '', label: t('filters.allSubtypes') },
@@ -114,7 +128,7 @@ export function SealedShopView() {
           label={t('filters.condition')}
           value={filters.condition ?? ''}
           onChange={(e) =>
-            setFilters((f) => ({ ...f, condition: (e.target.value || undefined) as SealedCondition | undefined }))
+            setFilters((f) => ({ ...f, condition: (e.target.value || undefined) as SealedCondition | undefined, page: undefined }))
           }
           options={[
             { value: '', label: t('filters.allConditions') },
@@ -126,11 +140,11 @@ export function SealedShopView() {
           value={filters.sort ?? ''}
           placeholder="—"
           options={SORTS.map((s) => ({ value: s, label: t(`sort.${s}`) }))}
-          onChange={(e) => setFilters((f) => ({ ...f, sort: (e.target.value || undefined) as SealedSort }))}
+          onChange={(e) => setFilters((f) => ({ ...f, sort: (e.target.value || undefined) as SealedSort, page: undefined }))}
         />
       </div>
 
-      <div className="gutter flex items-center gap-3 border-b border-border py-4">
+      <div ref={resultsRef} className="gutter flex items-center gap-3 border-b border-border py-4">
         <p className="tabular font-mono text-[11px] text-muted">{t('resultsCount', { count: total })}</p>
       </div>
 
@@ -151,13 +165,21 @@ export function SealedShopView() {
           <EmptyState title={t('emptyTitle')} body={t('emptyBody')} />
         ) : (
           /* Banda de sellado sobre pozo (home 1a): tejas horizontales en retícula. */
-          <div className="border-b border-border bg-surface-2">
-            <div className="gutter grid gap-x-8 gap-y-7 py-9 sm:grid-cols-2 xl:grid-cols-3">
-              {query.data!.data.map((group) => (
-                <SealedGroupTile key={`${group.representativeItemId}-${group.sealedCondition}`} group={group} />
-              ))}
+          <>
+            <div className="border-b border-border bg-surface-2">
+              <div className="gutter grid gap-x-8 gap-y-7 py-9 sm:grid-cols-2 xl:grid-cols-3">
+                {query.data!.data.map((group) => (
+                  <SealedGroupTile key={`${group.representativeItemId}-${group.sealedCondition}`} group={group} />
+                ))}
+              </div>
             </div>
-          </div>
+            {/* Con una sola página el Paginator no se renderiza (§20.12). */}
+            {totalPages > 1 && (
+              <div className="py-10">
+                <Paginator page={page} totalPages={totalPages} onPage={goToPage} />
+              </div>
+            )}
+          </>
         )}
       </QueryState>
     </div>
@@ -204,7 +226,11 @@ function SealedGroupTile({ group }: { group: SealedGroupDTO }) {
         <p className="mt-1.5 font-mono text-[10px] leading-none text-muted">
           {t('fromPrice')} · {t('withoutIva')}
         </p>
-        <StockBadge count={group.availableCount} className="mt-2" />
+        <StockBadge
+          variant={stockVariantFromCount(group.availableCount)}
+          count={group.availableCount}
+          className="mt-2"
+        />
       </div>
     </Link>
   );

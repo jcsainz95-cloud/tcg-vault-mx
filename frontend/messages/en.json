@@ -63,6 +63,12 @@
     "sealed": "Sealed product",
     "graded": "Graded"
   },
+  "stock": {
+    "lastOne": "Only 1 left",
+    "inStock": "{count} in stock",
+    "lastUnit": "Last one",
+    "soldOut": "Sold out"
+  },
   "home": {
     "heroKicker": "Pokémon cards · Mexico",
     "heroTitle": "Buy Pokémon cards at real prices and keep them in the vault",
@@ -99,13 +105,9 @@
     "viewAllCatalog": "View the full catalog",
     "carouselPrev": "Previous",
     "carouselNext": "Next",
-    "lastOne": "Only 1 left",
-    "pricePending": "Price pending",
     "sealed": {
       "title": "Sealed product",
-      "viewAll": "View all sealed",
-      "inStock": "{count} in stock",
-      "last": "Last one"
+      "viewAll": "View all sealed"
     },
     "graded": {
       "title": "Graded cards",
@@ -159,7 +161,6 @@
     "emptyBody": "Try other filters or clear the search.",
     "addToCart": "Add to cart",
     "addToCartShort": "Add",
-    "lastOne": "Only 1 left",
     "pagination": {
       "label": "Pagination",
       "prev": "Previous page",
@@ -178,7 +179,8 @@
         "label": "Near Mint (NM)",
         "desc": "Like new; at most minimal imperfections. Clean edges and a surface free of notable scratches."
       }
-    }
+    },
+    "removeFilter": "Remove filter {label}"
   },
   "shop": {
     "filtersTitle": "Filters",
@@ -621,6 +623,7 @@
     "cancelado": "Cancelled"
   },
   "buylist": {
+    "verticalLabel": "Buylist",
     "title": "Sell my cards",
     "subtitle": "We quote your list at today's market value. You ship, we authenticate and pay you by SPEI.",
     "selectType": "Product type",
@@ -2278,9 +2281,6 @@
     "subtitle": "Factory-sealed product: boxes, ETBs, bundles and more. Sale only.",
     "badge": "Sealed",
     "available": "{count, plural, =0 {Sold out} one {# available} other {# available}}",
-    "inStock": "{count} in stock",
-    "lastOne": "Last one",
-    "soldOut": "Sold out",
     "fromPrice": "From",
     "withoutIva": "without VAT",
     "resultsCount": "{count, plural, =0 {No products} one {# product} other {# products}}",

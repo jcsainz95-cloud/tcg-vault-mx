@@ -63,6 +63,12 @@
     "sealed": "Producto sellado",
     "graded": "Gradeadas"
   },
+  "stock": {
+    "lastOne": "Queda 1",
+    "inStock": "{count} en stock",
+    "lastUnit": "Último",
+    "soldOut": "Agotado"
+  },
   "home": {
     "heroKicker": "Cartas Pokémon · México",
     "heroTitle": "Compra cartas Pokémon con precio real y guárdalas en la bóveda",
@@ -99,13 +105,9 @@
     "viewAllCatalog": "Ver todo el catálogo",
     "carouselPrev": "Anterior",
     "carouselNext": "Siguiente",
-    "lastOne": "Queda 1",
-    "pricePending": "Precio pendiente",
     "sealed": {
       "title": "Producto sellado",
-      "viewAll": "Ver todo el sellado",
-      "inStock": "{count} en stock",
-      "last": "Último"
+      "viewAll": "Ver todo el sellado"
     },
     "graded": {
       "title": "Cartas gradeadas",
@@ -163,7 +165,6 @@
     "inCart": "En el carrito",
     "addedToCart": "Agregado al carrito",
     "viewCart": "Ver carrito",
-    "lastOne": "Queda 1",
     "pagination": {
       "label": "Paginación",
       "prev": "Página anterior",
@@ -178,7 +179,8 @@
         "label": "Casi nueva (NM)",
         "desc": "Como nueva; a lo mucho imperfecciones mínimas. Bordes limpios y superficie sin rayones notorios."
       }
-    }
+    },
+    "removeFilter": "Quitar filtro {label}"
   },
   "shop": {
     "filtersTitle": "Filtros",
@@ -621,6 +623,7 @@
     "cancelado": "Cancelado"
   },
   "buylist": {
+    "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
     "subtitle": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y te pagamos por SPEI.",
     "selectType": "Tipo de producto",
@@ -2278,9 +2281,6 @@
     "subtitle": "Producto cerrado de fábrica: cajas, ETB, bundles y más. Solo venta.",
     "badge": "Sellado",
     "available": "{count, plural, =0 {Agotado} one {# disponible} other {# disponibles}}",
-    "inStock": "{count} en stock",
-    "lastOne": "Último",
-    "soldOut": "Agotado",
     "fromPrice": "Desde",
     "withoutIva": "sin IVA",
     "resultsCount": "{count, plural, =0 {Sin productos} one {# producto} other {# productos}}",

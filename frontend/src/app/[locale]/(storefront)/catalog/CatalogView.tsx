@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import type { ReadonlyURLSearchParams } from 'next/navigation';
@@ -18,9 +18,10 @@ import { Modal } from '@/components/ui/Modal';
 import { CardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { CartAddedToast } from './CartAddedToast';
 import { CatalogTile } from './CatalogTile';
-import { Paginator } from './Paginator';
+import { Paginator } from '../_shared/Paginator';
 
 const SORTS: CatalogSort[] = ['newest', 'price_asc', 'price_desc'];
 /** pageSize del contrato (§2, default del backend); solo para el fallback del total de páginas. */
@@ -52,6 +53,16 @@ export function CatalogView() {
 
   // Los filtros se inicializan desde la URL (enlaces del Home: ?setId=, ?productType=…).
   const [filters, setFilters] = useState<CatalogFilters>(() => parseUrlFilters(searchParams));
+  // R5: el input de búsqueda es estado propio INMEDIATO (UX responsiva) y solo su
+  // valor DEBOUNCED entra a los filtros/queryKey — sin un fetch por pulsación
+  // (mismo patrón P-5 de useDebouncedValue que HomeQuoter/M3).
+  const [searchTerm, setSearchTerm] = useState<string>(() => parseUrlFilters(searchParams).q ?? '');
+  const debouncedTerm = useDebouncedValue(searchTerm, 300);
+  useEffect(() => {
+    const q = debouncedTerm.trim() ? debouncedTerm : undefined;
+    // Cambio real de término ⇒ cambia el universo del resultado: resetea página.
+    setFilters((f) => ((f.q ?? '') === (q ?? '') ? f : { ...f, q, page: undefined }));
+  }, [debouncedTerm]);
   const [sheetOpen, setSheetOpen] = useState(false);
   // Toast de confirmación al agregar (timestamp del último add; 0 = oculto).
   // N-17: además del toast, cada teja refleja «En el carrito» derivado del store.
@@ -71,6 +82,8 @@ export function CatalogView() {
     if (prevUrlKey.current === urlKey) return;
     prevUrlKey.current = urlKey;
     const fromUrl = parseUrlFilters(searchParams);
+    // Un q que llega por URL también debe reflejarse en el input (fuente inmediata).
+    if (fromUrl.q != null) setSearchTerm(fromUrl.q);
     setFilters((f) => {
       const next: CatalogFilters = { ...f, ...fromUrl, page: undefined };
       if (!gradedTab && f.productType === 'graded' && fromUrl.productType == null)
@@ -88,17 +101,24 @@ export function CatalogView() {
    */
   const updateFilters = useCallback(
     (next: CatalogFilters) => {
+      // Si el caller cambió `q` explícitamente (chip «✕», limpiar filtros), el input
+      // se sincroniza; si `q` viene igual (cambio de orden/facetas), el input no se
+      // toca para no pisar un término aún sin debouncear.
+      if ((next.q ?? '') !== (filters.q ?? '')) setSearchTerm(next.q ?? '');
       setFilters({ ...next, page: undefined });
       if (gradedTab && next.productType !== 'graded') router.replace('/catalog');
       else if (!gradedTab && next.productType === 'graded') router.replace('/catalog?type=graded');
     },
-    [gradedTab, router],
+    [filters.q, gradedTab, router],
   );
 
   const facetsQuery = useQuery({ queryKey: ['facets'], queryFn: getCatalogFacets });
   const catalogQuery = useQuery({
     queryKey: ['catalog', filters],
     queryFn: () => getCatalog(filters),
+    // R5: paginar/filtrar no desmonta la grilla — se sigue mostrando la página
+    // anterior mientras llega la nueva (isLoading solo en el primer fetch).
+    placeholderData: keepPreviousData,
   });
 
   const activeChips = useMemo(
@@ -140,8 +160,9 @@ export function CatalogView() {
       type="search"
       aria-label={t('searchPlaceholder')}
       placeholder={t('searchPlaceholder')}
-      value={filters.q ?? ''}
-      onChange={(e) => updateFilters({ ...filters, q: e.target.value || undefined })}
+      value={searchTerm}
+      // R5: solo actualiza el estado inmediato; el fetch lo dispara el valor debounced.
+      onChange={(e) => setSearchTerm(e.target.value)}
       className="w-full border-b border-border-strong bg-transparent pb-2.5 text-[13px] text-text outline-none placeholder:text-muted focus:border-text focus-visible:shadow-focus"
     />
   );
@@ -211,6 +232,8 @@ export function CatalogView() {
                     key={chip.key}
                     type="button"
                     onClick={() => updateFilters(chip.remove(filters))}
+                    // D7: el nombre accesible dice la ACCIÓN (quitar), no solo el valor.
+                    aria-label={t('removeFilter', { label: chip.label })}
                     className="inline-flex items-center gap-1.5 border border-border-strong px-2.5 py-2 font-mono text-xs text-text hover:border-text"
                   >
                     <span lang={chip.lang}>{chip.label}</span>

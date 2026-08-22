@@ -11,10 +11,12 @@ export interface PaginatorProps {
 }
 
 /**
- * Paginador sobrio del catálogo (artboard 2a): flechas cuadradas de 38px con
- * borde de regla y el conteo «página / total» en mono tabular. La flecha
- * habilitada lleva borde de tinta; la deshabilitada baja de opacidad.
- * Sincronizado con los filtros: el padre resetea `page` en cada cambio.
+ * Paginador sobrio del storefront (§20.12; artboard 2a): flechas cuadradas de
+ * 38px con borde de regla y el conteo «página / total» en mono tabular. La
+ * flecha habilitada lleva borde de tinta; la deshabilitada baja de opacidad.
+ * Con una sola página no se renderiza. Sincronizado con los filtros: el padre
+ * resetea `page` en cada cambio. Vivía en `catalog/`; se movió a `_shared/`
+ * para que Sellado pagine con el mismo patrón (deuda D3 del pase de refactors).
  */
 export function Paginator({ page, totalPages, onPage }: PaginatorProps) {
   const t = useTranslations('catalog.pagination');

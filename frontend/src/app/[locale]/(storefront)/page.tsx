@@ -6,6 +6,7 @@ import { getCatalogFacets, getHoldings } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Link } from '@/i18n/navigation';
 import { PortfolioGlance } from '@/components/domain/PortfolioTrendChart';
+import { EditorialLink } from './_shared/EditorialLink';
 import { useHomeQuoter, HomeQuoterPanel } from './_home/HomeQuoter';
 import { FeaturedCarousel } from './_home/FeaturedCarousel';
 import { SealedShelf } from './_home/SealedShelf';
@@ -61,12 +62,9 @@ export default function HomePage() {
               <PortfolioGlance fallbackCents={holdings.data?.portfolio.totalValueMxnCents} />
             </div>
           </div>
-          <Link
-            href="/vault"
-            className="shrink-0 self-start border-b border-accent pb-1.5 text-[11px] font-medium uppercase tracking-label text-text sm:self-end"
-          >
+          <EditorialLink href="/vault" className="shrink-0 self-start sm:self-end">
             {t('vaultLink')}
-          </Link>
+          </EditorialLink>
         </div>
       )}
 
@@ -87,12 +85,13 @@ export default function HomePage() {
             >
               {t('ctaShop')}
             </Link>
-            <Link
+            {/* Móvil: botón outline a ancho completo; sm+: link editorial subrayado (§20.2). */}
+            <EditorialLink
               href="/sellado"
-              className="inline-flex h-[54px] items-center justify-center border border-text px-8 text-[11px] font-medium uppercase tracking-label text-text sm:h-auto sm:border-0 sm:border-b sm:border-accent sm:px-0 sm:py-1.5"
+              className="inline-flex h-[54px] items-center justify-center border border-text px-8 pb-0 sm:h-auto sm:border-0 sm:border-b sm:border-accent sm:px-0 sm:pb-1.5 sm:pt-1.5 sm:hover:border-text"
             >
               {t('ctaSealed')}
-            </Link>
+            </EditorialLink>
           </div>
           {/* Chips de sets reales; sin dato razonable, no se pintan (honestidad). */}
           {heroSets.length > 0 && (

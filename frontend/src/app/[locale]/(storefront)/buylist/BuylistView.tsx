@@ -49,6 +49,7 @@ import { FinishMark } from '@/components/domain/FinishMark';
 import { useSellCart } from './useSellCart';
 import { SellCartContents } from './SellCartContents';
 import { MyRequestsSection } from './MyRequestsSection';
+import { EditorialLink } from '../_shared/EditorialLink';
 
 const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
 
@@ -411,10 +412,11 @@ export function BuylistView() {
 
   return (
     <div className="grid lg:grid-cols-[40px_1fr]">
-      {/* Etiqueta vertical al margen: marca la sección sin recurrir a un color de fondo. */}
+      {/* Etiqueta vertical al margen: marca la sección sin recurrir a un color de fondo.
+          Decorativa (aria-hidden); el uppercase lo pone la clase, no el string (§20.15). */}
       <div className="hidden justify-center border-r border-border py-9 lg:flex">
-        <span aria-hidden className="vertical-label text-xs text-muted">
-          BUYLIST
+        <span aria-hidden className="vertical-label text-xs uppercase text-muted">
+          {t('verticalLabel')}
         </span>
       </div>
 
@@ -426,13 +428,10 @@ export function BuylistView() {
           <p className="rule-note mt-5 max-w-[640px] text-[13px] leading-[1.7] text-muted">
             {t('payAfterReceipt')}
           </p>
-          <button
-            type="button"
-            onClick={() => setGuideOpen(true)}
-            className="mt-5 border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
-          >
+          {/* R3: link editorial canónico (§20.0) — era la variante divergida a mano. */}
+          <EditorialLink onClick={() => setGuideOpen(true)} className="mt-5">
             {t('shippingGuideLink')}
-          </button>
+          </EditorialLink>
         </div>
 
         {/* v1.28 (P-22): Top Bounties ARRIBA, antes del selector de set. Se oculta sola si
