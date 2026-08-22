@@ -3522,7 +3522,7 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
     },
     payment: { brand: 'visa', last4: '4242' },
     claim: { available: true },
-    support: { evidenceContact: 'soporte@tcgvaultmx.com', disputeWindowDays: 7 },
+    support: { evidenceContact: 'soporte@tcghunt.mx', disputeWindowDays: 7 },
     tokenExpiresAt: '2026-11-14T18:20:00.000Z',
   });
 }

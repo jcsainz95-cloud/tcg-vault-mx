@@ -20,8 +20,15 @@ const SORTS: SealedSort[] = ['newest', 'price_asc', 'price_desc'];
 const SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
 const CONDITIONS: SealedCondition[] = ['mint', 'minor_box_damage'];
 
-/** Dirección de contacto anti-buylist del sellado (copy del front, no un endpoint). */
-const SEALED_BUYLIST_EMAIL = 'contacto@tcgvaultmx.com';
+/**
+ * Extrae la dirección de contacto anti-buylist del propio copy i18n (`sealed.buylistCallout.body`)
+ * para que el texto que lee el usuario y el `mailto:` del botón NO puedan divergir: el buzón vive
+ * en una sola fuente (el string traducido). Si el copy no trae un correo, se cae a un fallback seguro.
+ */
+const SEALED_BUYLIST_FALLBACK_EMAIL = 'contacto@tcghunt.mx';
+function extractEmail(text: string): string {
+  return text.match(/[\w.+-]+@[\w.-]+\.\w+/)?.[0] ?? SEALED_BUYLIST_FALLBACK_EMAIL;
+}
 
 /**
  * Ventana de tienda del producto SELLADO (contrato §2-S · GET /catalog/sealed).
@@ -68,7 +75,7 @@ export function SealedShopView() {
             <p className="mt-1 text-[13px] leading-relaxed text-muted">{t('buylistCallout.body')}</p>
           </div>
           <a
-            href={`mailto:${SEALED_BUYLIST_EMAIL}`}
+            href={`mailto:${extractEmail(t('buylistCallout.body'))}`}
             className="mt-2 inline-flex min-h-[44px] shrink-0 items-center self-start border border-text px-5 text-[11px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg sm:self-auto"
           >
             {t('buylistCallout.cta')}
