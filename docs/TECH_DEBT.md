@@ -111,21 +111,21 @@
 - **Disparador:** al crecer el inventario (o ante presión de memoria en el export), paginar/streamear la
   consulta y escribir el workbook por chunks.
 
-##### H7 · El filtro `setId` del export no se valida (devuelve export vacío en silencio)
-- **Dueño:** backend. **Severidad:** Baja (aceptada).
-- **Deuda:** el filtro `setId` del export **no se valida**: un `setId` inexistente devuelve un **export vacío
-  en silencio**, inconsistente con `publishAll`/bulk-ops que responden **400** ante un `setId` desconocido.
-  Rutas: `inventory.controller.ts` (~271-296) / `inventory.service.ts`.
-- **No-bloqueante:** **no corrompe datos**; solo produce una **UX inconsistente** (silencio vs. 400).
-- **Disparador:** al alinear la validación de filtros del export, validar `setId` y responder 400 ante
-  valores desconocidos (paridad con `publishAll`/bulk-ops).
+##### H7 · El filtro `setId` del export no se valida (devuelve export vacío en silencio) — RESUELTO (2026-08-22, v1.36 P-35)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Estado:** **RESUELTO**.
+- **Deuda (histórica):** el filtro `setId` del export **no se validaba**: un `setId` inexistente devolvía un
+  **export vacío en silencio**, inconsistente con `publishAll`/bulk-ops que responden **400** ante un `setId`
+  desconocido. Rutas: `inventory.controller.ts` / `inventory.service.ts`.
+- **Fix:** `exportInventoryXlsx` valida el `setId` contra `CardSet` ANTES de consultar; un id desconocido →
+  **`400 VALIDATION_ERROR`** (paridad con `publishAll`/bulk-ops), sin llegar a barrer el inventario. Tests:
+  `test/inventory.export-xlsx.spec.ts` («H7 · setId inexistente → 400» + «setId existente aplica el filtro»).
 
-##### H8 · `workbook.creator = 'TCG HUNT'` — marca obsoleta en la metadata del `.xlsx`
-- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** trivial (una línea).
-- **Deuda:** `workbook.creator = 'TCG HUNT'` graba una **marca obsoleta** en la metadata del `.xlsx`; la
-  marca vigente es la del proyecto actual. Ruta: `inventory.service.ts` (~1739).
-- **No-bloqueante:** **cosmético**; no afecta datos ni comportamiento.
-- **Disparador:** pagar en el próximo toque del módulo (cambio de una sola línea).
+##### H8 · `workbook.creator = 'TCG HUNT'` — marca obsoleta en la metadata del `.xlsx` — RESUELTO (2026-08-22, v1.36 P-35)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Estado:** **RESUELTO**.
+- **Deuda (histórica):** `workbook.creator = 'TCG HUNT'` grababa una **marca obsoleta** en la metadata del
+  `.xlsx`. Ruta: `inventory.service.ts`.
+- **Fix:** `workbook.creator = 'TCG Vault MX'` (marca **vigente** del proyecto, PROJECT.md «Nombre comercial /
+  marca: TCG Vault MX»). Test: `test/inventory.export-xlsx.spec.ts` («H8 · workbook.creator = TCG Vault MX»).
 
 #### QA-BR1 (hallazgo MENOR de QA) · el test de bulk-remove no ejercita el rollback real del claim
 - **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test).
@@ -2861,6 +2861,46 @@
 - **Disparador:** próximo toque al modelo de sellado. **Decisión del arquitecto:** `productId`
   explícito en el DTO del alta vs **entidad de producto sellado** en `schema.prisma` (zona
   compartida, regla 9).
+- **Actualización 2026-08-22 (v1.36 P-35, M-37):** el arquitecto eligió — para P-35 — el **`productId`
+  explícito en el DTO del alta** (la pieza NACE MAPEADA: `BatchInventoryItemInput.tcgplayerProductId`+
+  `tcgplayerGroupId`), como **puente mínimo** money-safe. Efecto: cuando el alta trae el mapeo, la
+  valuación de aportación de sellado ya **NO** depende de la inferencia por hermanos (usa el productId
+  directo, `inventory.service.ts` `resolveSealedAportacionMarket(bornMappedProductId)`); la inferencia
+  por hermanos **sigue viva** solo para altas de sellado SIN mapeo (compatibilidad). La **entidad
+  `SealedProduct` de catálogo** (cura de raíz del ancla-a-single) queda **DIFERIDA** explícitamente
+  (ARCHITECTURE §4.32d): NO se hizo en este cambio. SB-D5 **permanece abierta** (Media).
+
+### H9 · Ancla-a-single (P-35) expone sellado en la ficha del single — MITIGADA por guardarraíl `productType` (ligada a SB-D5) (backend + arquitecto)
+- **Dueño:** backend (guardarraíl) + **arquitecto** (ubicación final del filtro). **Severidad:** Media.
+  **Estado:** **MITIGADA** (guardarraíl interino landeado); **cura de raíz pendiente en SB-D5**.
+- **Síntoma concreto (hallazgo techlead H9, cluster P-35):** P-35 ancla TODO el sellado de un set a la
+  carta single de menor `(numberPrefix, numberSort)` (misma `cardId`), y determinista. Las consultas de
+  SINGLES del storefront (`CatalogService.getCard` ficha y `listCards` listado) hacían
+  `fetchSellable(publishedWhere(...))` **sin filtro de `productType`**, así que la ficha pública
+  `GET /catalog/cards/:anchorCardId` **mezclaba cajas selladas** entre los "ejemplares" del single; y
+  como el front toma `listings[0]` (orden `createdAt desc`) como `primary`, una **caja recién dada de
+  alta** podía **renderizar la ficha del single como si fuera sellado**. No es money-unsafe (no toca
+  precios ni valuación), pero es una **incorrección visible en tienda** que P-35 volvió determinista.
+- **Guardarraíl INTERINO (landeado):** `CatalogService.singlesPublishedWhere(...)` añade
+  `AND: [{ productType: { not: 'sealed' } }]` a la vista pública de singles (`getCard`, `listCards`).
+  Solo raw/graded cuentan como ejemplares de un single; el sellado ya tiene su propio catálogo público
+  `GET /catalog/sealed` (`SealedCatalogService`, `productType='sealed'`). Se aplica como cláusula `AND`
+  aparte para **no pisar** un filtro `productType` explícito del where. Money-safe: solo ACOTA la
+  lectura. Ruta: `backend/src/modules/catalog/catalog.service.ts`. Tests:
+  `backend/test/catalog.spec.ts` («H9 / SB-D5 — la vista de SINGLES excluye el sellado»: `listCards` y
+  `getCard` no exponen el `sealed`, y el MISMO `sealed` SÍ aparece en `GET /catalog/sealed`).
+- **Discrepancia con el contrato (para el arquitecto):** `docs/API_CONTRACT.md` §2 aún declara
+  `productType: raw | graded | sealed` como filtro válido de `GET /catalog/cards` (línea ~1817) y
+  `GET /catalog/facets` sigue exponiendo `"sealed"` en `productTypes`/`sealedSubtypes` (línea ~1834).
+  El guardarraíl **no tocó `facets`** (el contrato manda: no se altera `API_CONTRACT.md`), por lo que
+  `GET /catalog/cards?productType=sealed` ahora devuelve **vacío** aunque facets lo anuncie. La
+  **ubicación/forma final del filtro** (¿retirar sellado de facets del singles? ¿ruta separada?) es
+  **decisión del arquitecto** (regla 9), junto con la cura de raíz.
+- **Cura de raíz — pendiente en SB-D5:** la entidad de catálogo **`SealedProduct`** propia (que elimina
+  el ancla-a-single y da al sellado su identidad de producto) sigue **DIFERIDA** en **SB-D5**. Al
+  materializarla, este guardarraíl `productType` se vuelve innecesario (o se re-ubica según el arquitecto).
+- **Disparador:** al abordar SB-D5 (entidad `SealedProduct`) o al reconciliar el contrato de
+  `/catalog/cards`/`/catalog/facets` respecto del sellado.
 
 ### SB-D6 · `VariantControlsService.update`: read-modify-write + delete/upsert fuera de transacción (Baja)
 - **Dónde:** `backend/src/modules/pricing/variant-controls.service.ts:115-157` (`update`: `findUnique`

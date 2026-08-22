@@ -92,6 +92,29 @@ export class CatalogService {
   }
 
   /**
+   * H9 / SB-D5 — WHERE de la vista pública de SINGLES: publicado (`publishedWhere`) + guardarraíl
+   * INTERINO que EXCLUYE el sellado. P-35 ancla TODO el sellado de un set a la carta single de menor
+   * `(numberPrefix, numberSort)`; sin este filtro la ficha/listado de ese single mezcla cajas selladas
+   * entre sus "ejemplares" (y como el front toma `listings[0]` por `createdAt desc` como primary, una caja
+   * recién dada de alta puede renderizar la ficha del single como si fuera sellado). Solo raw/graded
+   * cuentan como ejemplares de un single; el sellado tiene su propio catálogo público
+   * (`GET /catalog/sealed`, SealedCatalogService).
+   *
+   * Se añade como cláusula `AND` aparte para NO pisar un filtro `productType` explícito ya presente en el
+   * where (que sigue exacto). Money-safe: solo ACOTA la lectura (no toca precios ni valuación; sin precio
+   * sigue → pendiente/`—`, nunca 0). Cura de raíz (entidad `SealedProduct` propia) diferida en SB-D5 —
+   * ver `docs/TECH_DEBT.md` (H9). La ubicación FINAL del filtro la decide el arquitecto: el contrato aún
+   * expone sellado en `GET /catalog/facets` y en el filtro `?productType=sealed` de `GET /catalog/cards`.
+   */
+  private singlesPublishedWhere(extra: Prisma.InventoryItemWhereInput = {}): Prisma.InventoryItemWhereInput {
+    const where = this.publishedWhere(extra);
+    const guard: Prisma.InventoryItemWhereInput = { productType: { not: 'sealed' } };
+    const prev = where.AND;
+    where.AND = Array.isArray(prev) ? [...prev, guard] : prev ? [prev, guard] : [guard];
+    return where;
+  }
+
+  /**
    * Trae items publicados que efectivamente son comprables (precio resoluble).
    *
    * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza `SALES_PRICE_RULES`+fallback **una vez** por
@@ -417,7 +440,8 @@ export class CatalogService {
     if (q.q) cardWhere.name = { contains: q.q, mode: 'insensitive' };
     if (Object.keys(cardWhere).length) extra.card = cardWhere;
 
-    let rows = await this.fetchSellable(this.publishedWhere(extra));
+    // H9 / SB-D5: la vista de SINGLES excluye el sellado (guardarraíl interino) — ver singlesPublishedWhere.
+    let rows = await this.fetchSellable(this.singlesPublishedWhere(extra));
 
     // Rango de precio sobre el PRECIO DE VENTA (que puede derivar de la referencia).
     if (q.minPriceCents != null) rows = rows.filter((r) => (r.dto.salePriceCents ?? 0) >= q.minPriceCents!);
@@ -501,7 +525,8 @@ export class CatalogService {
       include: { set: true },
     });
     if (!card) throw BusinessException.notFound();
-    const rows = await this.fetchSellable(this.publishedWhere({ cardId }));
+    // H9 / SB-D5: la ficha del single excluye el sellado (P-35 lo ancla a esta carta) — guardarraíl interino.
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId }));
     // v1.22-2 / N-15 (§4.22a-6): displayFinishes de la ficha usa los acabados priceados de la carta.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch([cardId]);
     return { card: toCardDTO(card, pricedByCard.get(cardId)), listings: rows.map((r) => r.dto) };
