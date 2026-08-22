@@ -130,6 +130,52 @@ describe('CardProductResolverService.resolveCardProductsForSet (§4.27d)', () =>
     expect(setBase.finishes).not.toContain('normal');
   });
 
+  it('REGRESIÓN M-33: dos productos de la MISMA carta con el MISMO finish ⇒ 2 upserts con la CLAVE de 6 campos (distinto cardProductId), sin colisión lógica', async () => {
+    // Reproduce exactamente el caso que estallaba en prod (log Railway me5): dos CardProduct de la
+    // misma carta exponiendo el MISMO Finish (holofoil). Con la clave VIEJA de 5 campos (cardId,
+    // productType, gradeKey, finish, capturedDate) ambos upserts apuntarían al MISMO renglón y el
+    // segundo CREATE chocaría contra el índice único viejo. Con la clave de 6 campos (incluye
+    // cardProductId) son renglones DISTINTOS. Este test fija que el código usa la clave de 6 campos.
+    const products: TcgcsvSingleProductRef[] = [
+      { productId: 704841, name: 'Voltaic Lightning Energy - 084/084', number: '084/084' },
+      { productId: 707029, name: 'Voltaic Lightning Energy - Deck Exclusives', number: '084/084' },
+    ];
+    const prices: TcgcsvPriceRow[] = [
+      { productId: 704841, subTypeName: 'Holofoil', marketPrice: 0.5 },
+      { productId: 707029, subTypeName: 'Holofoil', marketPrice: 1.25 }, // MISMO finish, otro producto
+    ];
+    const { prisma, priceUpserts } = prismaMock(
+      { id: 'local-me05', name: 'Pitch Black', pptSetId: '24688' },
+      [{ id: 'c-energy', number: '084', tcgplayerId: '704841' }],
+    );
+    const svc = new CardProductResolverService(
+      prisma,
+      clientMock({ products, prices }),
+      { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler,
+      fxMock(),
+    );
+
+    await svc.resolveCardProductsForSet('local-me05');
+
+    // Dos upserts, ambos holofoil, misma carta — pero DISTINTO cardProductId en la clave de 6 campos.
+    expect(priceUpserts).toHaveLength(2);
+    for (const u of priceUpserts) {
+      const key = u.where.cardId_productType_gradeKey_finish_capturedDate_cardProductId;
+      // La CLAVE es la de 6 campos (no la vieja de 5): la propiedad existe y trae cardProductId.
+      expect(key).toBeDefined();
+      expect(key.finish).toBe('holofoil');
+      expect(key.cardId).toBe('c-energy');
+      expect(key.cardProductId).toBeDefined();
+      // Blindaje anti-regresión: NUNCA debe usarse la clave vieja de 5 campos.
+      expect(u.where).not.toHaveProperty('cardId_productType_gradeKey_finish_capturedDate');
+    }
+    const cardProductIds = priceUpserts.map(
+      (u) => u.where.cardId_productType_gradeKey_finish_capturedDate_cardProductId.cardProductId,
+    );
+    // Los dos productos generan claves DISTINTAS (difieren SOLO por cardProductId) ⇒ sin colisión.
+    expect(new Set(cardProductIds).size).toBe(2);
+  });
+
   it('sin groupId ÚNICO ⇒ null, NO toca CardProduct ni reconcilia (money-safe)', async () => {
     const { prisma } = prismaMock({ id: 'local-x', name: 'Ambiguous', pptSetId: null }, [{ id: 'c1', number: '1', tcgplayerId: null }]);
     const reconcile = jest.fn(async () => 0);

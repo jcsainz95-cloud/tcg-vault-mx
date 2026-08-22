@@ -1,0 +1,35 @@
+-- M-33 (fix/variant-composition-regression) — CULMINACIÓN de M-31: dropea el índice único VIEJO de 5
+-- campos de `PriceReference` que quedó VIVO en prod.
+--
+-- CAUSA RAÍZ (evidencia dura, log de Railway, resolver TCGCSV en me5/Pitch Black):
+--   Invalid `prisma.priceReference.upsert()` invocation:
+--   Unique constraint failed on the fields: (`cardId`,`productType`,`gradeKey`,`finish`,`capturedDate`)
+--
+-- M-31 REEMPLAZÓ el `@@unique` de PriceReference de 5 → 6 campos (añadió `cardProductId`, §4.27b) y en su
+-- migración INTENTÓ dropear el viejo con:
+--   DROP INDEX IF EXISTS "PriceReference_cardId_productType_gradeKey_finish_capturedDa_key";
+-- pero ese NOMBRE ES INCORRECTO. El índice REAL lo creó M-18 (20260816160000_m18_finish, línea 25) con el
+-- nombre truncado por Prisma a 63 chars: `PriceReference_cardId_productType_gradeKey_finish_capturedD_key`
+-- (`capturedD`, no `capturedDa`). Al no coincidir el nombre, el `IF EXISTS` de M-31 fue un NO-OP SILENCIOSO:
+-- el viejo índice de 5 campos SOBREVIVIÓ y coexiste con el nuevo de 6. Ese viejo bloquea a DOS productos de
+-- la MISMA carta que comparten (cardId, productType, gradeKey, finish, capturedDate) con distinto
+-- `cardProductId` (justo set_base + deck_exclusive, o dos variantes del mismo finish) ⇒ el upsert del
+-- resolver estalla en el CREATE ⇒ NO se crea `CardProduct` ⇒ el `normal` fantasma persiste y no se encolan
+-- precios. El `where` del upsert YA usa la clave de 6 campos; el choque era contra el constraint de BD.
+--
+-- Este DROP deja SOLO la unicidad de 6 campos (`PriceReference_variant_capturedDate_key`, creada en M-31
+-- líneas 86-88), que es ESTRICTAMENTE SUFICIENTE para evitar duplicados reales: para cardProductId=NULL
+-- (graded/sealed/fallback) el índice NULLS NOT DISTINCT se comporta «como hoy» (un renglón por
+-- carta/productType/gradeKey/finish/día); para SINGLES el productId es el ancla exacta.
+--
+-- IDEMPOTENTE (`IF EXISTS`): en una BD greenfield (donde M-31 sí "reemplazó" porque el índice nunca existió
+-- con ese nombre erróneo… en realidad tampoco: el viejo existía con el nombre correcto y NO se dropeó) el
+-- DROP simplemente elimina el índice de 5 campos que aún esté presente; si ya no está, no hace nada.
+--
+-- ROLLBACK (documentado, NO recomendado): recrear el índice viejo de 5 campos —
+--   CREATE UNIQUE INDEX "PriceReference_cardId_productType_gradeKey_finish_capturedD_key"
+--     ON "PriceReference"("cardId","productType","gradeKey","finish","capturedDate");
+-- REINTRODUCE el bug: es INCOMPATIBLE con el modelo N-productos-por-carta de M-31 (dos CardProduct de la
+-- misma carta con el mismo finish colisionarían de nuevo). Solo revertir junto con un rollback total de M-31.
+
+DROP INDEX IF EXISTS "PriceReference_cardId_productType_gradeKey_finish_capturedD_key";
