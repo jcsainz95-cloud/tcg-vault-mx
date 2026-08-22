@@ -407,6 +407,61 @@ export class CatalogService {
     return [...entries, ...added].filter((e) => !removed.has(e.id));
   }
 
+  /**
+   * v1.38-grouped-listings (P-30, ARCHITECTURE §4.9a) — AGRUPA en LECTURA las piezas vendibles
+   * (raw/graded) en publicaciones ÚNICAS por `K = (cardId, productType, gradeKey, finish)`
+   * (`gradeKey = gradeKeyFor(item)`, canónico: `raw:NM` | `graded:PSA:10` | …). Reduce en memoria sobre
+   * el set `sellable` que `fetchSellable` YA cargó (mismo coste que el listado por-pieza; sin query ni
+   * columna nueva). Por construcción todas las piezas de una `K` comparten `salePriceCents` y
+   * `referenceValue` (misma regla/override de variante + misma `PriceReference`).
+   *
+   * Money-safe: `fetchSellable` ya descartó las piezas sin precio resoluble (`dto.sellable ∧
+   * salePriceCents != null`), así que TODO grupo devuelto tiene `stockCount = members.length ≥ 1` (VIVO)
+   * y `salePriceCents = mínimo del grupo` = el del representante (pieza vendible más barata). Un grupo
+   * AGOTADO (stockCount 0) no existe en `rows` ⇒ no se emite (desaparece de Compra). El `certNumber` es
+   * POR SLAB ⇒ NO va a nivel de grupo (se expone por pieza en `units[]` de la ficha).
+   */
+  private buildGroups(
+    rows: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[],
+  ) {
+    const groups = new Map<string, typeof rows>();
+    for (const r of rows) {
+      const k = `${r.item.cardId}|${r.item.productType}|${this.pricing.gradeKeyFor(r.item)}|${r.item.finish}`;
+      const arr = groups.get(k);
+      if (arr) arr.push(r);
+      else groups.set(k, [r]);
+    }
+    return [...groups.values()].map((members) => {
+      // Representante = pieza vendible MÁS BARATA (el precio del grupo = su salePriceCents = mínimo).
+      const cheapest = [...members].sort(
+        (a, b) => (a.dto.salePriceCents ?? 0) - (b.dto.salePriceCents ?? 0),
+      )[0];
+      const item = cheapest.item;
+      const salePriceCents = cheapest.dto.salePriceCents!; // garantizado por fetchSellable (nunca null aquí)
+      const dto = {
+        representativeInventoryItemId: item.id,
+        card: cheapest.dto.card,
+        productType: item.productType as 'raw' | 'graded',
+        finish: item.finish,
+        // rawCondition SOLO en raw; gradingCompany/gradeValue SOLO en graded (identidad de GRADO del grupo).
+        rawCondition: item.rawCondition ?? undefined,
+        gradeKey: this.pricing.gradeKeyFor(item),
+        gradingCompany: item.gradingCompany ?? undefined,
+        gradeValue: item.gradeValue ?? undefined,
+        stockCount: members.length,
+        salePriceCents,
+        referenceValue: cheapest.dto.referenceValue, // único por K (misma PriceReference), informativo.
+        currency: 'MXN' as const,
+      };
+      return {
+        dto,
+        salePriceCents,
+        // 'newest' del grupo = la pieza más nueva (createdAt desc) — contrato §2 GET /catalog/cards.
+        newestAt: Math.max(...members.map((m) => m.item.createdAt.getTime())),
+      };
+    });
+  }
+
   async listCards(q: {
     q?: string;
     setId?: string;
@@ -441,22 +496,25 @@ export class CatalogService {
     if (Object.keys(cardWhere).length) extra.card = cardWhere;
 
     // H9 / SB-D5: la vista de SINGLES excluye el sellado (guardarraíl interino) — ver singlesPublishedWhere.
-    let rows = await this.fetchSellable(this.singlesPublishedWhere(extra));
+    const rows = await this.fetchSellable(this.singlesPublishedWhere(extra));
 
-    // Rango de precio sobre el PRECIO DE VENTA (que puede derivar de la referencia).
-    if (q.minPriceCents != null) rows = rows.filter((r) => (r.dto.salePriceCents ?? 0) >= q.minPriceCents!);
-    if (q.maxPriceCents != null) rows = rows.filter((r) => (r.dto.salePriceCents ?? 0) <= q.maxPriceCents!);
+    // v1.38-grouped-listings (P-30, §4.9a): AGRUPA en lectura por K=(cardId,productType,gradeKey,finish).
+    // `total` = nº de GRUPOS (publicaciones únicas), no de piezas. Todo grupo emitido tiene stockCount≥1.
+    let groups = this.buildGroups(rows);
 
-    if (q.sort === 'price_asc') {
-      rows.sort((a, b) => (a.dto.salePriceCents ?? 0) - (b.dto.salePriceCents ?? 0));
-    } else if (q.sort === 'price_desc') {
-      rows.sort((a, b) => (b.dto.salePriceCents ?? 0) - (a.dto.salePriceCents ?? 0));
-    }
-    // 'newest' (default) ya viene por createdAt desc del fetch.
+    // Rango de precio sobre el salePriceCents del GRUPO (contrato §2): el mínimo del grupo (= el del
+    // representante). En el caso normal todas las piezas comparten precio, así que equivale a filtrar por
+    // pieza; ante un listPriceCents manual divergente, el grupo se conserva/descarta por su precio único.
+    if (q.minPriceCents != null) groups = groups.filter((g) => g.salePriceCents >= q.minPriceCents!);
+    if (q.maxPriceCents != null) groups = groups.filter((g) => g.salePriceCents <= q.maxPriceCents!);
 
-    const total = rows.length;
+    if (q.sort === 'price_asc') groups.sort((a, b) => a.salePriceCents - b.salePriceCents);
+    else if (q.sort === 'price_desc') groups.sort((a, b) => b.salePriceCents - a.salePriceCents);
+    else groups.sort((a, b) => b.newestAt - a.newestAt); // 'newest' (default): pieza más nueva del grupo.
+
+    const total = groups.length;
     const start = (q.page - 1) * q.pageSize;
-    const data = rows.slice(start, start + q.pageSize).map((r) => r.dto);
+    const data = groups.slice(start, start + q.pageSize).map((g) => g.dto);
     return { data, page: q.page, pageSize: q.pageSize, total };
   }
 
@@ -529,7 +587,17 @@ export class CatalogService {
     const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId }));
     // v1.22-2 / N-15 (§4.22a-6): displayFinishes de la ficha usa los acabados priceados de la carta.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch([cardId]);
-    return { card: toCardDTO(card, pricedByCard.get(cardId)), listings: rows.map((r) => r.dto) };
+    // v1.38-grouped-listings (P-30, §4.9a): `listings` = publicaciones AGRUPADAS (una por
+    // (productType,gradeKey,finish) con stockCount≥1), cheapest-first — es la grilla de la ficha.
+    const listings = this.buildGroups(rows)
+      .sort((a, b) => a.salePriceCents - b.salePriceCents)
+      .map((g) => g.dto);
+    // `units` = TODAS las piezas vendibles POR-PIEZA (cheapest-first) para el add-to-cart por
+    // inventoryItemId (el carrito sigue por-pieza, §4-G) y para exponer el certNumber de cada slab.
+    const units = [...rows]
+      .sort((a, b) => (a.dto.salePriceCents ?? 0) - (b.dto.salePriceCents ?? 0))
+      .map((r) => r.dto);
+    return { card: toCardDTO(card, pricedByCard.get(cardId)), listings, units };
   }
 
   async getListing(inventoryItemId: string) {

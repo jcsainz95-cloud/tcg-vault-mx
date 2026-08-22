@@ -4,6 +4,65 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-P30. Publicación ÚNICA por carta con STOCK — singles agrupados (2026-08-22, v1.38-grouped-listings)
+
+> Stream «Catálogo y precios». Implementa el changelog **v1.38-grouped-listings** del contrato (§DTOs
+> `GroupedListingDTO`/`GroupedListingListResponse`/`GroupedListingDetailResponse`; §2 `GET /catalog/cards`
+> y §`GET /catalog/cards/:cardId`) y ARCHITECTURE **§4.9a**. **Cambio de SHAPE breaking** de `/catalog/cards*`
+> (antes: un `ListingDTO` por copia física; ahora: publicaciones agrupadas por carta/variante/condición con
+> `stockCount`). **SIN migración de schema** (agregación en LECTURA). Solo `backend/`. Gate backend: **161
+> suites / 1545 tests verde**, typecheck limpio.
+
+### Qué cambió en `catalog.service.ts` (único archivo de lógica tocado)
+- **`buildGroups(rows)` (NUEVO, privado)** — reduce en memoria el set `sellable` que `fetchSellable` YA
+  carga, agrupando por **`K = (cardId, productType, gradeKey, finish)`** con `gradeKey = pricing.gradeKeyFor(item)`
+  (canónico `raw:NM` | `graded:PSA:10` | …). Devuelve `{ dto: GroupedListingDTO, salePriceCents, newestAt }[]`
+  para que el caller filtre/ordene/pagine por GRUPO. Coste idéntico al listado por-pieza previo (que también
+  cargaba todo y paginaba en memoria); mismo patrón que `SealedCatalogService` (sellado).
+- **`listCards`** — tras `fetchSellable(singlesPublishedWhere(extra))` llama `buildGroups`. El rango de precio
+  (`minPriceCents`/`maxPriceCents`) filtra ahora sobre el **`salePriceCents` del GRUPO** (contrato §2), no por
+  pieza; `sort` ordena por grupo (`price_asc/price_desc` por `salePriceCents`; `newest`/default por la pieza
+  más nueva del grupo, `createdAt` desc). **`total` = nº de GRUPOS** (publicaciones únicas), no de piezas.
+- **`getCard`** — devuelve `{ card, listings: GroupedListingDTO[], units: ListingDTO[] }`. `listings` =
+  grupos vendibles de la carta (cheapest-first) = la grilla de la ficha. `units` = TODAS las piezas vendibles
+  **por-pieza** (`ListingDTO[]`, cheapest-first) para el **add-to-cart por `inventoryItemId`** (el carrito
+  sigue por-pieza, §4-G) y para exponer el `certNumber` de cada slab en graded.
+- **NO tocados:** `fetchSellable`/`toListingDTO` (siguen por pieza, base de la agrupación), `facets`,
+  `getListing` (`GET /catalog/listings/:inventoryItemId` = re-quote por pieza, SIN cambio), `singlesPublishedWhere`
+  (**H9** intacto: singles excluyen `productType='sealed'`), `/catalog/sealed*` (su propio catálogo agrupado).
+
+### Money-safe del `stockCount` (invariante «vivo»)
+`stockCount = nº de piezas VENDIBLES del grupo`. Como `fetchSellable` ya descartó toda pieza sin precio
+resoluble (`dto.sellable ∧ salePriceCents != null`, Regla de Compra §4.9), **una pieza sin precio NO cuenta
+ni entra** (nunca $0), y todo grupo emitido tiene **`stockCount ≥ 1` (VIVO)**. Un grupo AGOTADO (`stockCount=0`)
+**no existe en `rows` ⇒ no se emite** (desaparece de Compra). No hay campo `status` de publicación ni columna
+`stockCount`: el stock se **recomputa en cada lectura** (cero doble-escritura/drift). `salePriceCents` del grupo
+= **mínimo** de sus piezas = el del `representativeInventoryItemId` (pieza vendible más barata); en el caso
+normal todas comparten precio (misma K ⇒ misma regla/override + misma `PriceReference`), la única divergencia
+posible es un `listPriceCents` manual por pieza (§4.26b) ⇒ el grupo muestra el más barato primero. `certNumber`
+es POR SLAB ⇒ NO va al grupo, se expone en `units[]`.
+
+### Sin migración — CONFIRMADO
+El grupo es una **vista derivada en lectura** (reduce en memoria). No se añade columna ni tabla; `gradeKey`
+se deriva en app (`gradeKeyFor`), no en SQL. El índice existente `@@index([cardId, finish, status])` (M-21)
+cubre la ficha. No hubo cambios en `prisma/schema.prisma` ni nueva migración. (ARCHITECTURE §4.9a lo ratifica.)
+
+### Tests (backend) — al shape agrupado
+- `test/catalog.spec.ts`: nuevo describe **«publicación ÚNICA por carta/variante/condición con STOCK (P-30)»**
+  — 3 copias de misma K ⇒ 1 grupo `stockCount=3` precio=mínimo/representante; **money-safe** (pieza sin precio
+  no cuenta; grupo agotado desaparece); K distinta (raw vs graded) ⇒ grupos separados; `getCard` `listings`
+  (grupos) vs `units` (por-pieza cheapest-first para add-to-cart). Los tests previos de `listCards`/H9/getCard
+  migrados a `representativeInventoryItemId`/`stockCount`.
+- `test/integration/catalog-checkout-webhook.e2e-spec.ts`: el aserto del listado de Compra migró de
+  `l.sellable` a `l.stockCount≥1 ∧ salePriceCents>0 ∧ representativeInventoryItemId`.
+
+### Pendiente de coordinación (NO backend)
+El **render del storefront** (`frontend/`, carril del rediseño) consume el shape viejo de `/catalog/cards*`
+y **quedó pendiente**: esto es un cambio **breaking** intencional coordinado con la sesión de rediseño (no lo
+arregla backend). Frontend debe pintar la grilla contra `data`/`listings` (`GroupedListingDTO`, badge «N
+disponibles» = `stockCount`, add-to-cart con `representativeInventoryItemId`) y la ficha contra `listings`
+(grupos) + `units` (add-to-cart por-pieza / `certNumber`).
+
 ## 0-P34. Pricing por TIERS (2026-08-22, v1.37-pricing-tiers, M-38)
 
 > Stream «Catálogo y precios». Implementa el changelog **v1.37-pricing-tiers** del contrato (§M2 «Pricing

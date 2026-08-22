@@ -123,12 +123,14 @@ describe('CatalogService.listCards — regla dura de "Compra"', () => {
 
     expect(captured.ownerType).toBe('platform');
     expect(captured.status).toBe('listed');
-    // El item sin precio resoluble queda fuera del listado.
+    // v1.38-grouped-listings (P-30): el item sin precio resoluble ni cuenta ni entra (money-safe).
+    // El listado es AGRUPADO: 1 grupo (la pieza 'ok'), representante = 'ok', stockCount = 1.
     expect(res.data).toHaveLength(1);
-    expect(res.data[0].inventoryItemId).toBe('ok');
-    expect(res.data[0].sellable).toBe(true);
+    expect(res.data[0].representativeInventoryItemId).toBe('ok');
+    expect(res.data[0].stockCount).toBe(1);
     expect(res.data[0].salePriceCents).toBe(11500);
-    expect(res.total).toBe(1);
+    expect(res.data[0].currency).toBe('MXN');
+    expect(res.total).toBe(1); // total = nº de GRUPOS.
   });
 
   it('propaga filtros de tipo/sealedSubtype al where y aplica rango de precio', async () => {
@@ -154,6 +156,104 @@ describe('CatalogService.listCards — regla dura de "Compra"', () => {
     expect(captured.sealedSubtype).toBe('etb');
     expect(res.data).toHaveLength(0);
     expect(res.total).toBe(0);
+  });
+});
+
+/**
+ * v1.38-grouped-listings (P-30, ARCHITECTURE §4.9a) — GET /catalog/cards* devuelve publicaciones
+ * AGRUPADAS por K=(cardId, productType, gradeKey, finish) con stockCount, no una fila por copia física.
+ */
+describe('CatalogService — publicación ÚNICA por carta/variante/condición con STOCK (P-30)', () => {
+  function prismaWith(items: any[]): any {
+    return {
+      card: { findUnique: jest.fn(async ({ where }: any) => items.find((i) => i.cardId === where.id)?.card ?? null) },
+      inventoryItem: { findMany: jest.fn(async () => items) },
+    };
+  }
+
+  it('listCards: 3 copias de la MISMA K colapsan en 1 grupo con stockCount=3 y precio = mínimo', async () => {
+    // Tres Tropius raw NM normal (misma K); precios manuales divergentes → el grupo muestra el más barato.
+    const items = [
+      itemOf({ id: 't1', listPriceCents: 15000 }),
+      itemOf({ id: 't2', listPriceCents: 12000 }),
+      itemOf({ id: 't3', listPriceCents: 18000 }),
+    ];
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const res = await svc.listCards({ page: 1, pageSize: 20 });
+
+    expect(res.data).toHaveLength(1);
+    expect(res.total).toBe(1); // total = nº de GRUPOS, no de piezas (antes salían 3 filas).
+    const g = res.data[0];
+    expect(g.stockCount).toBe(3);
+    expect(g.salePriceCents).toBe(12000); // mínimo del grupo…
+    expect(g.representativeInventoryItemId).toBe('t2'); // …= la pieza vendible más barata.
+    expect(g.productType).toBe('raw');
+    expect(g.rawCondition).toBe('NM');
+    expect(g.gradeKey).toBe('raw:NM');
+  });
+
+  it('money-safe: una pieza SIN precio no cuenta ni entra al stock del grupo (nunca $0)', async () => {
+    // Misma K (cardId 'pending' → referencia pending). A: precio manual → vendible; B: sin precio → fuera.
+    const items = [
+      itemOf({ id: 'A', cardId: 'pending', card: cardOf({ id: 'pending' }), listPriceCents: 11500 }),
+      itemOf({ id: 'B', cardId: 'pending', card: cardOf({ id: 'pending' }), listPriceCents: null }),
+    ];
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const res = await svc.listCards({ page: 1, pageSize: 20 });
+
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].stockCount).toBe(1); // B (sin precio) NO cuenta.
+    expect(res.data[0].representativeInventoryItemId).toBe('A');
+    expect(res.data[0].salePriceCents).toBe(11500);
+  });
+
+  it('money-safe: grupo AGOTADO (todas las piezas sin precio) DESAPARECE de Compra', async () => {
+    const items = [itemOf({ id: 'x', cardId: 'pending', card: cardOf({ id: 'pending' }), listPriceCents: null })];
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const res = await svc.listCards({ page: 1, pageSize: 20 });
+
+    expect(res.data).toHaveLength(0); // stockCount=0 ⇒ no se emite fila.
+    expect(res.total).toBe(0);
+  });
+
+  it('listCards: distinta K (raw vs graded) ⇒ grupos SEPARADOS', async () => {
+    const p = pricing();
+    (p as any).gradeKeyFor = jest.fn((it: any) =>
+      it.productType === 'graded' ? `graded:${it.gradingCompany}:${it.gradeValue}` : 'raw:NM',
+    );
+    const items = [
+      itemOf({ id: 'r1', productType: 'raw', listPriceCents: 12000 }),
+      itemOf({ id: 'g1', productType: 'graded', rawCondition: null, gradingCompany: 'PSA', gradeValue: '10', listPriceCents: 90000 }),
+    ];
+    const svc = new CatalogService(prismaWith(items) as PrismaService, p);
+    const res = await svc.listCards({ page: 1, pageSize: 20 });
+
+    expect(res.data).toHaveLength(2);
+    const graded = res.data.find((d) => d.productType === 'graded')!;
+    expect(graded.gradeKey).toBe('graded:PSA:10');
+    expect(graded.gradingCompany).toBe('PSA');
+    expect(graded.gradeValue).toBe('10');
+    expect(graded.rawCondition).toBeUndefined(); // rawCondition SOLO en raw.
+    expect(graded.stockCount).toBe(1);
+  });
+
+  it('getCard: `listings` son grupos y `units` son TODAS las piezas por-pieza (add-to-cart cheapest-first)', async () => {
+    // Dos copias raw NM de la MISMA carta (misma K): 1 grupo stockCount=2, 2 units con inventoryItemId distinto.
+    const items = [
+      itemOf({ id: 'u-caro', listPriceCents: 15000 }),
+      itemOf({ id: 'u-barato', listPriceCents: 12000 }),
+    ];
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const { listings, units } = await svc.getCard('c1');
+
+    // Grilla de la ficha = grupos.
+    expect(listings).toHaveLength(1);
+    expect(listings[0].stockCount).toBe(2);
+    expect(listings[0].salePriceCents).toBe(12000);
+    expect(listings[0].representativeInventoryItemId).toBe('u-barato');
+    // `units` = por-pieza, cheapest-first, para agregar inventoryItemId DISTINTOS al carrito.
+    expect(units.map((u) => u.inventoryItemId)).toEqual(['u-barato', 'u-caro']);
+    expect(units.every((u) => u.sellable)).toBe(true);
   });
 });
 
@@ -255,8 +355,10 @@ describe('H9 / SB-D5 — la vista de SINGLES excluye el sellado (P-35 ancla-a-si
     const svc = new CatalogService(prisma as PrismaService, pricing());
     const res = await svc.listCards({ page: 1, pageSize: 20 });
 
-    expect(res.data.map((d) => d.inventoryItemId)).toEqual(['raw1']);
-    expect(res.data.every((d) => d.productType !== 'sealed')).toBe(true);
+    // v1.38-grouped-listings: el listado son GRUPOS → representativeInventoryItemId. El single raw sobrevive
+    // como su propio grupo; el sellado ni siquiera entra (H9 lo excluye del where de singles).
+    expect(res.data.map((d) => d.representativeInventoryItemId)).toEqual(['raw1']);
+    expect(res.data.every((d) => (d.productType as string) !== 'sealed')).toBe(true);
     // El guardarraíl viaja en el WHERE (AND con productType != sealed), no solo en el filtrado en memoria.
     const where = prisma.inventoryItem.findMany.mock.calls[0][0].where;
     expect(where.AND).toEqual(expect.arrayContaining([{ productType: { not: 'sealed' } }]));
@@ -268,8 +370,9 @@ describe('H9 / SB-D5 — la vista de SINGLES excluye el sellado (P-35 ancla-a-si
     const { listings } = await svc.getCard('anchor');
 
     // Sin guardarraíl, `sealedBox` (createdAt más nuevo) sería listings[0] y pintaría la ficha como sellado.
-    expect(listings.map((l) => l.inventoryItemId)).toEqual(['raw1']);
-    expect(listings.some((l) => l.productType === 'sealed')).toBe(false);
+    // v1.38-grouped-listings: `listings` son grupos (GroupedListingDTO) → representativeInventoryItemId.
+    expect(listings.map((l) => l.representativeInventoryItemId)).toEqual(['raw1']);
+    expect(listings.some((l) => (l.productType as string) === 'sealed')).toBe(false);
   });
 
   it('el MISMO sellado SÍ aparece en GET /catalog/sealed (catálogo de sellado, servicio aparte)', async () => {
