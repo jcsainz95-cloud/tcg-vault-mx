@@ -5160,3 +5160,118 @@ porque los mocks omitían `note` (lo enmascaraban). El contrato subió a v1.35 y
   «CTA deshabilitado sin nota» y de «reintento del mismo submit reusa la batchKey». Suite **586/586** ✓,
   `tsc --noEmit` ✓, `next build` ✓.
 - **Money-safe:** la baja solo transiciona `status`; no toca precios (garantía del backend, inalterada).
+
+---
+
+## P-35 — Alta dedicada de producto SELLADO (`SealedAddFlow`, contrato v1.36-sealed-alta, §16.8a)
+
+**Problema corregido:** la pestaña «Sellado» caía en `AddItemModal` (buscador de CARTAS sobre singles),
+etiquetando un single como «sellado» (money-unsafe, sin mapeo TCGCSV). Ahora el alta de sellado es un flujo
+dedicado que elige un PRODUCTO sellado real.
+
+**Componentes nuevos (todos en `frontend/src/app/[locale]/(admin)/admin/m1/`, sin tocar storefront ni la capa
+visual compartida `frontend/src/components/`):**
+- `SealedAddFlow.tsx` — asistente modal ancho de 2 pasos (stepper mono `PASO 1/2 DE 2`, `Esc` cierra, foco
+  inicial). Modal ancho LOCAL a M1 (`max-w-3xl`); no se reescribió el `Modal` compartido (es `max-w-md`).
+  Paso 0 selector de set (Combobox con año, `listBuylistSets`; se salta con `presetSet`) → Paso 1 grid →
+  Paso 2 `QuickAddSection` (P-19) + subtipo/condición. Camino de respaldo honesto (fuente 502 o vacío
+  legítimo): mini-form manual con banner `info` de excepción → nace SIN mapeo (`PRICE_PENDING` visible).
+- `SealedProductGrid.tsx` (`SealedProductGrid` + `SealedProductTile` + `SealedProductGridSkeleton`) — grid
+  `role="listbox"` con `option`s navegables (flechas + Home/End), foco visible, `aria-selected`, `aria-label`
+  por teja. Imagen `aspect-[5/7] object-contain` sobre pozo con fallback textual mono (nunca un roto).
+  Money-safe por teja: precio `MERCADO` o pill **`SIN PRECIO DE MERCADO`** (nunca `MX$ 0.00`).
+
+**Contrato consumido:** `GET /admin/inventory/sealed-catalog?setId=&groupId?=&q=` → `SealedCatalogResponse`
+(`getSealedCatalog` en `lib/api.ts`, con mock `mockSealedCatalog`). El alta reusa
+`POST /admin/inventory/items/batch` con `batchKey` idempotente por operación; cada línea envía
+`{ cardId:<anchorCardId>, productType:'sealed', sealedSubtype, sealedCondition, finish:'normal',
+tcgplayerProductId, tcgplayerGroupId, sealedImageUrl, sealedProductName, qty, acquisition* }`. La pieza NACE
+MAPEADA (productId+groupId JUNTOS) ⇒ la aportación valúa en el acto (`marketRef` null ⇒ tarjeta Aportación
+deshabilitada, heredado de QuickAddSection §16.5a2).
+
+**Cambios en `contract.ts`:** `BatchInventoryItemInput` gana `tcgplayerProductId/tcgplayerGroupId/
+sealedImageUrl/sealedProductName` (v1.36); nuevos `SealedCatalogProductDTO` y `SealedCatalogResponse`.
+`QuickAddTarget` gana los 4 campos aditivos de sellado (se reenvían al batch solo si productId+groupId están).
+
+**Retirado:** `AddItemModal` ya NO ofrece `productType='sealed'` (`PRODUCT_TYPES = ['raw','graded']`); se
+eliminó su rama de subtipo/condición/listPrice. La pestaña Sellado y su estado vacío ahora abren
+`SealedAddFlow` (CTA `Agregar sellado`), no `AddItemModal`. `Agregar otra presentación` en el detalle de set
+abre el flujo con el set precargado.
+
+**i18n:** `admin.sealedAdd.*` (es/en) según §16.10; el paso 2 reusa `admin.quickAdd.*` y
+`status.sealedSubtype.*`/`status.sealedCondition.*`.
+
+**Tests:** `SealedAddFlow.test.tsx` (grid + money-safe pill; aportación deshabilitada sin mercado; envío del
+alta con identidad TCGCSV + cardId ancla; 502 con banner/retry/respaldo; vacío legítimo + respaldo sin mapeo).
+Suite **591/591** ✓, `tsc --noEmit` ✓, `next lint` ✓, `next build` ✓.
+
+**Solicitud al arquitecto (no bloqueante):** el camino de respaldo en el caso **502 UPSTREAM_ERROR** no tiene
+`anchorCardId` (el cuerpo de error no lo trae), así que la captura manual solo puede anclarse en respuestas
+`200` (incluido `groupResolved:false`). Si se quiere permitir captura manual anclada aun con la fuente caída,
+el contrato tendría que exponer el `anchorCardId` del set por otra vía (p. ej. incluirlo en el 502 o un
+endpoint ligero de ancla por `setId`). Mientras tanto, el 502 ofrece **Reintentar** + el respaldo, y el
+respaldo con ancla queda operativo en el vacío legítimo (`200`).
+
+---
+
+## P-34 · Editor de PRICING POR TIERS (M2, v1.37-pricing-tiers)
+
+**Alcance tocado:** SOLO `frontend/src/app/[locale]/(admin)/admin/m2/` + `types/contract.ts` +
+`lib/api.ts` + `lib/mock/fixtures.ts` + `messages/{es,en}.json` + este doc. **NO** se tocó `(storefront)/`
+ni `frontend/src/components/` (capa visual compartida bajo rediseño por otra sesión). Los componentes
+visuales que necesité son **locales a M2** (`RuleCell` en `TierRulesSection`, badges/banners de conflicto);
+solo se **importan** (lectura) los primitivos ya existentes de `@/components/ui/*`.
+
+**Qué reemplaza:** el editor de ~30 reglas por rareza (`BuylistRulesSection` + `SalesRulesSection` +
+`RuleAxisEditor`) fue **eliminado** y sustituido por dos secciones nuevas. El contrato v1.37 retira los
+`PUT /admin/pricing/buylist-rules` y `/sales-rules`; el eje rareza ya no se edita por rareza suelta.
+
+**Componentes creados (locales a M2):**
+- `sections/TierRulesSection.tsx` — Sección 4. **5 filas por tier** (T0 Bulk, T1 Uncommon/Reverse, T2
+  Rare/Holo, T3 Premium/Chase, T4 Ultra/Grail), cada fila con su regla de **COMPRA** y de **VENTA**
+  (fijo MX$ / %). Eje **acabado** (`reverse_holo`/`holofoil`/`first_edition_holofoil`, buy+sell) y
+  **fallbacks** por eje. Invariante visible: en tiers premium (T3/T4) el modo `fijo` de COMPRA está
+  **bloqueado** (solo `%`) porque un bin fijo regalaría cartas caras. Consume `GET/PUT
+  /admin/pricing/tiers`.
+- `sections/TierMapSection.tsx` — Sección 5. **Asignador rareza canónica → tier**: un dropdown de tier
+  por rareza (patch parcial: solo las cambiadas). Consume `GET/PUT /admin/pricing/tier-map`. Hospeda
+  «Unificar rarezas» (§19.5), reubicado desde la difunta `BuylistRulesSection` (mismas keys i18n
+  `admin.m2.unifyRarities`).
+- `sections/tier-shared.tsx` — helpers locales: `TIER_ORDER`, `ruleToRaw`, `premiumFixedOffenders`
+  (extrae `details.offending` del 422).
+
+**Money-safe (UI):** el valor de regla se edita como **texto crudo** y se castea SOLO al guardar
+(`sanitizeDecimalInput` + `isSaveableRuleValue` + `pesosToCents`, reusados de `sections/shared.tsx`); un
+vacío/NaN **nunca** se persiste como MX$0 (Guardar se deshabilita y se explica por qué). buy `pct`
+topado en `[0,100]`, sell `pct` (markup) en `[0,1000]`. Una rareza **sin tier** se marca como
+**«Fallback (pendiente)»** con el dropdown vacío (no inventa un tier ni un $0); copy explícito de que un
+`pct` sin referencia de mercado deja el precio **pendiente**, nunca $0.
+
+**Manejo de 422:**
+- `PREMIUM_RARITY_FIXED_TIER` (emitido por AMBOS PUT): banner de error que **lista los pares
+  infractores** `(rareza premium → tierId)` desde `details.offending`; en el asignador la fila
+  infractora recibe además un badge «En conflicto».
+- `UNKNOWN_RARITY` (PUT /tier-map): mensaje claro vía catálogo i18n (`error.UNKNOWN_RARITY`).
+
+**Cambios en `contract.ts` (alineado a v1.37):** `TierId`, `TierRuleDTO`, **`TieredRuleSet`**,
+`UpdateTiersRequest`, `TierMapTierDTO`, `TierMapRowDTO`, `TierMapResponse`, `UpdateTierMapRequest`,
+`PremiumRarityFixedTierDetails`.
+
+**Cambios en `lib/api.ts`:** `getPricingTiers`, `updatePricingTiers`, `getPricingTierMap`,
+`updatePricingTierMap` (con ramas mock ↔ `apiRequest` reales). Mocks money-safe en `lib/mock/fixtures.ts`
+(seed que reproduce los defaults v1.9 LOCKED y preserva el invariante premium→`pct`).
+
+**i18n:** `admin.m2.tierRules.*` y `admin.m2.tierMap.*` (es/en) + `error.PREMIUM_RARITY_FIXED_TIER` /
+`error.UNKNOWN_RARITY`.
+
+**Tests añadidos** (`M2View.test.tsx`, describe «Editor de precios por TIER (P-34, v1.37)»): render de
+las 5 filas, guardar COMPRA de T0 (centavos), invariante premium→% (T3 sin opción `fijo`), money-safe
+(vaciar → Guardar off), 422 PREMIUM_RARITY_FIXED_TIER en `/tiers`, asignar Common→T2 en `/tier-map`, 422
+PREMIUM_RARITY_FIXED_TIER y UNKNOWN_RARITY en `/tier-map`, y money-safe del fallback pendiente. Se
+retiraron los tests de los editores por rareza eliminados.
+
+**Verde:** `tsc --noEmit` ✓, `vitest run` **72 archivos / 580 tests** ✓, `next build` ✓.
+
+**Solicitud al arquitecto:** ninguna — el contrato v1.37-pricing-tiers cubre los 4 endpoints, los shapes
+(`TieredRuleSet`, `TierMapRowDTO`) y ambos 422 con `details.offending`. No se necesitaron mocks fuera de
+contrato ni campos nuevos.

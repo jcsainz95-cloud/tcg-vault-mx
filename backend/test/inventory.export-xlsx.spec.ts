@@ -54,7 +54,12 @@ const ITEM = (over: any = {}) => ({
   ...over,
 });
 
-function buildPrisma(items: any[], overrides: any[] = []) {
+/**
+ * `existingSetIds`: por defecto (`null`) TODO `setId` se considera EXISTENTE (preserva los tests que
+ * pasan un `setId` de filtro sin montar catálogo). Con un array, solo esos ids existen — el resto
+ * hace que `cardSet.findUnique` devuelva `null` (H7: filtro `setId` desconocido → 400).
+ */
+function buildPrisma(items: any[], overrides: any[] = [], existingSetIds: string[] | null = null) {
   let lastFindWhere: any = null;
   const prisma: any = {
     inventoryItem: {
@@ -65,6 +70,12 @@ function buildPrisma(items: any[], overrides: any[] = []) {
     },
     variantPriceOverride: {
       findMany: jest.fn(async () => overrides),
+    },
+    // H7 (v1.36): el export valida el filtro `setId` contra CardSet antes de consultar.
+    cardSet: {
+      findUnique: jest.fn(async ({ where }: any) =>
+        existingSetIds == null || existingSetIds.includes(where.id) ? { id: where.id } : null,
+      ),
     },
     __lastFindWhere: () => lastFindWhere,
   };
@@ -161,6 +172,36 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
       productType: 'sealed',
       card: { setId: 'set-9' },
     });
+  });
+
+  // H7 (deuda saldada, v1.36): antes un `setId` inexistente devolvía export VACÍO en silencio.
+  it('H7 · setId inexistente → 400 VALIDATION_ERROR (no export vacío en silencio)', async () => {
+    const prisma = buildPrisma([ITEM()], [], ['set-real']); // solo 'set-real' existe
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    await expect(svc.exportInventoryXlsx({ setId: 'set-fantasma' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      status: 400,
+    });
+    // No llegó a consultar el inventario (falla temprano, paridad con publishAll/bulk-ops).
+    expect(prisma.inventoryItem.findMany).not.toHaveBeenCalled();
+  });
+
+  it('H7 · setId EXISTENTE aplica el filtro y exporta normal', async () => {
+    const prisma = buildPrisma([ITEM()], [], ['set-real']);
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    const ws = await loadSheet(await svc.exportInventoryXlsx({ setId: 'set-real' }));
+    expect(ws.rowCount).toBe(2); // encabezado + 1 pieza
+    expect(prisma.__lastFindWhere()).toMatchObject({ card: { setId: 'set-real' } });
+  });
+
+  // H8 (deuda saldada, v1.36): metadata del .xlsx con la marca VIGENTE del proyecto.
+  it('H8 · workbook.creator = «TCG Vault MX» (marca vigente, no «TCG HUNT»)', async () => {
+    const prisma = buildPrisma([ITEM()]);
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load((await svc.exportInventoryXlsx({})) as unknown as ExcelJS.Buffer);
+    expect(wb.creator).toBe('TCG Vault MX');
+    expect(wb.creator).not.toBe('TCG HUNT');
   });
 
   it('graded: condición legible = empresa + grado; sellado usa clave de mercado por productId', async () => {

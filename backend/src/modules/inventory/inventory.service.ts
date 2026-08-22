@@ -35,6 +35,19 @@ import {
   PublishAllRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
+import { sanitizeSealedImageUrl } from './sealed-image-host';
+
+/**
+ * v1.36-sealed-alta (M-37, P-35) — proyección de los 4 campos aditivos del alta de SELLADO, ya
+ * RESUELTOS y VALIDADOS server-side (mapeo TCGCSV «se fijan juntos» + imagen validada por host).
+ * Todo `null` para raw/graded (los campos se ignoran) y para sellado sin mapeo / URL inválida.
+ */
+interface SealedItemMapping {
+  tcgplayerProductId: number | null;
+  tcgplayerGroupId: number | null;
+  sealedImageUrl: string | null;
+  sealedProductName: string | null;
+}
 
 /** Resultado por línea del alta por lote (API_CONTRACT §DTOs — BatchInventoryLineResult). */
 type BatchLineResult =
@@ -282,12 +295,18 @@ export class InventoryService {
     acquisitionCostCents: number | null;
     acquisitionPct: number | null;
     sealedNeedsEscalate: boolean;
+    sealedMapping: SealedItemMapping;
   }> {
     const card = await this.prisma.card.findUnique({ where: { id: dto.cardId } });
     if (!card) throw BusinessException.notFound('NOT_FOUND', 'Card not found');
 
     // v1.1: validación por tipo de producto (excluye sellado de la lógica NM/rareza/grade).
     this.validateProductShape(dto);
+
+    // v1.36-sealed-alta (M-37, P-35): los 4 campos aditivos (mapeo TCGCSV + imagen/nombre de API) se
+    // resuelven aquí (validación «se fijan juntos» + sanitización de la URL contra el host allowlist).
+    // Se IGNORAN en raw/graded. Con mapeo presente, la pieza NACE MAPEADA (§4.32c).
+    const sealedMapping = this.resolveSealedMapping(dto);
 
     // v1.6-finish: el acabado aplica a raw/singles; graded/sealed = normal siempre (ARCHITECTURE §3.7).
     // Para raw se valida contra card.availableFinishes (SEC-A1); fuera de la lista → 422.
@@ -308,7 +327,13 @@ export class InventoryService {
         // NO por el gradeKey legacy 'sealed' (jamás tiene filas de mercado ⇒ todo caía a
         // PRICE_PENDING aunque el mercado exista). Sin mapeo/dial off/sin ingest ⇒ PRICE_PENDING
         // por línea, como siempre (money-safe: jamás se inventa el costo).
-        const sealedRef = await this.resolveSealedAportacionMarket(dto);
+        // v1.36 (P-35): si la pieza NACE MAPEADA (productId en el DTO, del listado que el server
+        // sirvió), se valúa por ESE productId DIRECTO — sin inferir de hermanos (§4.32c). Sin mapeo
+        // explícito se conserva la inferencia por hermanos ya mapeados (comportamiento previo).
+        const sealedRef = await this.resolveSealedAportacionMarket(
+          dto,
+          sealedMapping.tcgplayerProductId,
+        );
         referenceCents = sealedRef.marketCents;
         pendingGradeKey = sealedRef.pendingGradeKey;
       } else {
@@ -338,7 +363,52 @@ export class InventoryService {
     }
 
     const sealedNeedsEscalate = dto.productType === 'sealed' && dto.listPriceCents == null;
-    return { card, finish, gradeKey, acquisitionCostCents, acquisitionPct, sealedNeedsEscalate };
+    return {
+      card,
+      finish,
+      gradeKey,
+      acquisitionCostCents,
+      acquisitionPct,
+      sealedNeedsEscalate,
+      sealedMapping,
+    };
+  }
+
+  /**
+   * v1.36-sealed-alta (M-37, P-35, §4.32c) — resuelve los 4 campos aditivos del alta de SELLADO.
+   * Se IGNORAN por completo en raw/graded (devuelve todo `null`). Reglas normativas:
+   *  - `tcgplayerProductId`+`tcgplayerGroupId` se fijan JUNTOS: uno sin el otro → 422 VALIDATION_ERROR
+   *    (por-línea en el lote). Ambos presentes ⇒ la pieza NACE MAPEADA (pobla las columnas M-23).
+   *  - `sealedImageUrl` se VALIDA server-side contra el host allowlist de imágenes TCGplayer/TCGCSV
+   *    (anti stored-XSS / URL arbitraria); inválido/omitido ⇒ `null` (el display cae a la `Card` ancla).
+   *  - `sealedProductName` se persiste tal cual (texto); vacío/omitido ⇒ `null`.
+   * Money-safe: estos campos son display/identidad; jamás fijan precio.
+   */
+  private resolveSealedMapping(dto: CreateItemDto | BatchInventoryItemInput): SealedItemMapping {
+    if (dto.productType !== 'sealed') {
+      return {
+        tcgplayerProductId: null,
+        tcgplayerGroupId: null,
+        sealedImageUrl: null,
+        sealedProductName: null,
+      };
+    }
+    const productId = dto.tcgplayerProductId ?? null;
+    const groupId = dto.tcgplayerGroupId ?? null;
+    // Se fijan JUNTOS (la pieza «nace mapeada» solo con AMBOS): XOR ⇒ 422 VALIDATION_ERROR.
+    if ((productId == null) !== (groupId == null)) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'tcgplayerProductId and tcgplayerGroupId must be provided together for sealed items',
+      );
+    }
+    const name = dto.sealedProductName?.trim();
+    return {
+      tcgplayerProductId: productId,
+      tcgplayerGroupId: groupId,
+      sealedImageUrl: sanitizeSealedImageUrl(dto.sealedImageUrl),
+      sealedProductName: name != null && name !== '' ? name : null,
+    };
   }
 
   /**
@@ -353,26 +423,38 @@ export class InventoryService {
    *    sin mercado ⇒ el caller escala PRICE_PENDING con el gradeKey estructural legacy `'sealed'`.
    * NO escribe el mapeo en la pieza nueva (la curación sigue siendo exclusiva del endpoint M2).
    */
-  private async resolveSealedAportacionMarket(dto: {
-    cardId: string;
-    sealedSubtype?: string | null;
-  }): Promise<{ marketCents: number | null; pendingGradeKey: string }> {
+  private async resolveSealedAportacionMarket(
+    dto: {
+      cardId: string;
+      sealedSubtype?: string | null;
+    },
+    // v1.36 (P-35, §4.32c): productId con el que la pieza NACE MAPEADA (del listado que sirvió el
+    // server). Presente ⇒ se valúa por ESE productId DIRECTO (sin inferir de hermanos). Ausente ⇒
+    // se conserva la inferencia por hermanos ya mapeados (comportamiento previo, v1.28 §4.26g).
+    bornMappedProductId?: number | null,
+  ): Promise<{ marketCents: number | null; pendingGradeKey: string }> {
     const structuralGradeKey = 'sealed';
-    const mappedSiblings = await this.prisma.inventoryItem.findMany({
-      where: {
-        productType: 'sealed',
-        cardId: dto.cardId,
-        sealedSubtype: (dto.sealedSubtype ?? null) as never,
-        tcgplayerProductId: { not: null },
-      },
-      select: { tcgplayerProductId: true },
-      distinct: ['tcgplayerProductId'],
-    });
-    const productIds = [...new Set(mappedSiblings.map((s) => s.tcgplayerProductId as number))];
-    if (productIds.length !== 1) {
-      return { marketCents: null, pendingGradeKey: structuralGradeKey };
+    let productId: number;
+    if (bornMappedProductId != null) {
+      productId = bornMappedProductId;
+    } else {
+      const mappedSiblings = await this.prisma.inventoryItem.findMany({
+        where: {
+          productType: 'sealed',
+          cardId: dto.cardId,
+          sealedSubtype: (dto.sealedSubtype ?? null) as never,
+          tcgplayerProductId: { not: null },
+        },
+        select: { tcgplayerProductId: true },
+        distinct: ['tcgplayerProductId'],
+      });
+      const productIds = [...new Set(mappedSiblings.map((s) => s.tcgplayerProductId as number))];
+      if (productIds.length !== 1) {
+        return { marketCents: null, pendingGradeKey: structuralGradeKey };
+      }
+      productId = productIds[0];
     }
-    const marketGradeKey = sealedMarketGradeKey(productIds[0]);
+    const marketGradeKey = sealedMarketGradeKey(productId);
     const { sourceOn } = await this.pricing.loadSealedSpreads();
     const ref = await this.pricing.getReference(dto.cardId, 'sealed', marketGradeKey, 'normal');
     // Gate H-1 único (dial + fila priced). Mapeado pero sin mercado/dial off ⇒ el pendiente se
@@ -386,7 +468,13 @@ export class InventoryService {
   /** Data de creación de un InventoryItem (compartida por alta single/lote). */
   private buildItemData(
     dto: CreateItemDto | BatchInventoryItemInput,
-    r: { finish: Finish; acquisitionCostCents: number | null; acquisitionPct: number | null },
+    r: {
+      finish: Finish;
+      acquisitionCostCents: number | null;
+      acquisitionPct: number | null;
+      // v1.36 (P-35): mapeo TCGCSV + imagen/nombre de API ya resueltos/validados (null en raw/graded).
+      sealedMapping: SealedItemMapping;
+    },
     folio: string,
   ): Prisma.InventoryItemUncheckedCreateInput {
     return {
@@ -412,6 +500,13 @@ export class InventoryService {
       acquisitionCostCents: r.acquisitionCostCents,
       sourceSellRequestItemId:
         'sourceSellRequestItemId' in dto ? dto.sourceSellRequestItemId : undefined,
+      // v1.36-sealed-alta (M-37, P-35): la pieza NACE MAPEADA (columnas M-23 ya existentes) + imagen/
+      // nombre de API (deltas M-37). `resolveSealedMapping` ya devolvió null para raw/graded (se
+      // ignoran) y para sellado sin mapeo/URL inválida. Display-only, money-safe.
+      tcgplayerProductId: r.sealedMapping.tcgplayerProductId,
+      tcgplayerGroupId: r.sealedMapping.tcgplayerGroupId,
+      sealedImageUrl: r.sealedMapping.sealedImageUrl,
+      sealedProductName: r.sealedMapping.sealedProductName,
     };
   }
 
@@ -1700,7 +1795,21 @@ export class InventoryService {
   }): Promise<Buffer> {
     const where: Prisma.InventoryItemWhereInput = { ownerType: 'platform' };
     if (filters.productType) where.productType = filters.productType;
-    if (filters.setId) where.card = { setId: filters.setId };
+    if (filters.setId) {
+      // H7 (deuda saldada, v1.36): validar el filtro `setId` — un id inexistente devolvía un export
+      // VACÍO en silencio (UX inconsistente con publishAll/bulk-ops, que responden 400). Ahora un
+      // `setId` desconocido → 400 VALIDATION_ERROR (paridad de validación de filtros).
+      const set = await this.prisma.cardSet.findUnique({
+        where: { id: filters.setId },
+        select: { id: true },
+      });
+      if (!set) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', `unknown setId '${filters.setId}'`, {
+          setId: filters.setId,
+        });
+      }
+      where.card = { setId: filters.setId };
+    }
 
     const items = await this.prisma.inventoryItem.findMany({
       where,
@@ -1736,7 +1845,9 @@ export class InventoryService {
     }
 
     const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'TCG HUNT';
+    // H8 (deuda saldada, v1.36): marca VIGENTE del proyecto (PROJECT.md «Nombre comercial / marca:
+    // TCG Vault MX»); reemplaza la marca obsoleta 'TCG HUNT' en la metadata del .xlsx.
+    workbook.creator = 'TCG Vault MX';
     workbook.created = new Date();
     const sheet = workbook.addWorksheet('Inventario');
     sheet.columns = INVENTORY_EXPORT_COLUMNS.map((c) => ({

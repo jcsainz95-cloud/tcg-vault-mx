@@ -395,6 +395,11 @@ model CardSet {
   // año de `releaseDate`. `null` = aún no mapeado (o no se encontró match; se loguea). El barrido de
   // precios de PPT usa ESTE valor como `setId`, jamás el `externalId`.
   pptSetId     String?
+  // v1.36-sealed-alta (M-37, P-35, §4.32b): grupo TCGCSV CURADO por set. Resuelve el listado de
+  // productos sellados de `GET /admin/inventory/sealed-catalog` (set → productos de la API). `null`
+  // ⇒ fallback: `DISTINCT tcgplayerGroupId` de los items sellados YA mapeados del set. Solo lectura
+  // de catálogo (resuelve el proxy); JAMÁS fija precio (money-safe). ARCHITECTURE §11 (M-37).
+  tcgcsvGroupId Int?
   createdAt    DateTime @default(now())
 
   cards     Card[]
@@ -567,6 +572,14 @@ model InventoryItem {
   // se persiste porque el endpoint de precios de TCGCSV es POR GRUPO.
   tcgplayerProductId      Int?
   tcgplayerGroupId        Int?
+  // v1.36-sealed-alta (M-37, P-35, §4.32c): imagen/nombre del producto sellado DESDE LA API
+  // (TCGCSV/TCGplayer), capturados al alta y VALIDADOS server-side contra el host allowlist de
+  // imágenes de TCGplayer/TCGCSV (anti stored-XSS / URL arbitraria). Solo aplican a
+  // productType='sealed' (regla de APLICACIÓN, no constraint de BD). Display-only, money-safe
+  // (jamás fijan precio). `null` ⇒ el display cae a la imagen/nombre de la `Card` ancla — arregla
+  // que el sellado muestre la CAJA y no el single ancla en Compra/bóveda/M1. ARCHITECTURE §11 (M-37).
+  sealedImageUrl          String?
+  sealedProductName       String?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 

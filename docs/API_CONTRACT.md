@@ -2,7 +2,84 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.35-inventory-bulk-remove-idempotency).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.37.1-tiers-example-fix).
+>
+> **Changelog v1.37.1-tiers-example-fix (2026-08-22, arquitecto — CORRECCIÓN DE EJEMPLO, NO NORMATIVO. P-34,
+> DEUDA-tiers-2 / H7):** QA/techlead detectaron que el **ejemplo JSON ilustrativo** de `GET /admin/pricing/tiers`
+> mostraba `finishRules.sell = { reverse_holo: fixed 1500 }` (valor 1500 y **omitía** `holofoil`), contradiciendo el
+> seed real / NORMA §4.33e («las de hoy, SIN cambio»). Se alinea SOLO el ejemplo a
+> `finishRules.sell = { holofoil: fixed 1000, reverse_holo: fixed 1000 }` (el backend ya implementó lo normativo).
+> **Sin cambio de norma §4.33e ni de shape**; `finishRules.buy` del ejemplo (`reverse_holo: fixed 150`) ya reflejaba
+> el seed de buylist y queda igual. Verificado: no hay otros ejemplos del contrato con el mismo desfase.
+>
+> **Changelog v1.37-pricing-tiers (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-34,
+> PROJECT §M v1.9 LOCKED, ARCHITECTURE §4.33):** el editor de precios de M2 pasa de «una fila por CADA rareza
+> canónica» (~30) a «una fila por `tier`» (**5 tiers T0–T4**) + un **mapa rareza canónica → tier** compartido por
+> compra y venta. Cambios **MONEY-SAFE**; la naturaleza de la regla (`fixed`/`pct`), la precedencia y el eje `finish`
+> **no cambian** (los tiers solo re-expresan el eje rareza de `PriceRuleSet`, §4.28d). **Único cambio intencional:
+> T2 (Rare/Holo) → `pct` 25%.**
+> - **`GET /admin/pricing/tiers` (NUEVO, `super_admin`, §M2) — lee los 5 tiers con su regla de COMPRA y VENTA + el eje
+>   acabado (`finishRules`) + fallbacks.** Res `{ tiers: TierRuleDTO[5], finishRules:{ buy, sell }, fallbackPct:{ buy,
+>   sell } }`. Cada `TierRuleDTO = { id:'T0'..'T4', name, premium, buy: Rule, sell: Rule, rarityCount }`. `name`/
+>   `premium` son taxonomía LOCKED (`common/pricing-tiers.ts`), NO editables. Read-only, no muta.
+> - **`PUT /admin/pricing/tiers` (NUEVO, `super_admin`) — reemplaza los VALORES de las 5 reglas (buy y sell) + eje
+>   acabado + fallbacks.** Req `{ tiers:[{id, buy, sell}], finishRules?:{buy?,sell?}, fallbackPct?:{buy?,sell?} }`.
+>   `name`/`premium` se ignoran si vienen. Valida el **invariante de refinamiento** (§4.33d) contra el mapa vigente:
+>   un tier con reglas de compra `fixed` no puede tener rareza premium mapeada ⇒ `422 PREMIUM_RARITY_FIXED_TIER`.
+>   Cambiar la regla de un tier **repricia todas** sus rarezas (criterio 74). **Auditado**, sin redeploy.
+> - **`GET /admin/pricing/tier-map` (NUEVO, `super_admin`) — el mapa rareza canónica → tier**, unido al catálogo.
+>   Res `{ tiers:[{id,name,premium}], rarities: TierMapRowDTO[] }`; cada fila `{ canonical, premium, mapped, cardCount,
+>   tierId|null, source:'map'|'fallback' }`. `tierId:null` = rareza del catálogo sin mapear ⇒ cae al fallback pct.
+> - **`PUT /admin/pricing/tier-map` (NUEVO, `super_admin`) — reasigna rarezas a tiers** (Opción B, editable por el
+>   dueño). Req `{ assignments: { [canonical]: TierId } }` (patch parcial). Valida el **invariante de refinamiento**
+>   (una rareza premium a un tier de compra `fixed` ⇒ `422 PREMIUM_RARITY_FIXED_TIER`, con los pares infractores) y
+>   que `TierId ∈ {T0..T4}` (`422 VALIDATION_ERROR`). **Auditado**, sin redeploy.
+> - **DEPRECADOS/superseded:** `GET/PUT /admin/pricing/buylist-rules` y `/sales-rules` (mapa plano rareza→regla, §4.28d)
+>   quedan **superseded por `/tiers` + `/tier-map`**. Los `GET` pueden mantenerse como lectura del `PriceRuleSet`
+>   **efectivo** (derivado de tiers×mapa, §4.33c) durante la transición; los `PUT` se **retiran**. `GET
+>   /admin/pricing/rarities` (+ `/sales-rarities`) ganan `tierId` + `source` y su `rule` refleja la regla RESUELTA vía
+>   tier (retrocompatibles).
+> - **Persistencia (migración M-38 — DATA/seed, SIN DDL) — para backend:** NO hay cambio de schema Prisma. Nuevo
+>   `SettingKey` `PRICING_TIER_MAP` (`pricing_tier_map`, mapa compartido); RESHAPE de `BUYLIST_PRICE_RULES`/
+>   `SALES_PRICE_RULES` de `{ rarityRules, ... }` a `{ tierRules, finishRules, fallbackPct }`; nueva constante
+>   `common/pricing-tiers.ts`; +2 canónicas premium y +1 alias en `common/rarity-catalog.ts` (cierre de las `unmapped`
+>   Mega Hyper Rare→T4, `MEGA_ATTACK_RARE`/Black White Rare→T3); backfill de `Card.rarityCanonical` de esas rarezas.
+>   Ver ARCHITECTURE §4.33 + §11 (M-38). **Nota T2/Uncommon:** T2 baja de 40%→25% (LOCKED); el mapa sube **Uncommon**
+>   de compra $0.50→$1.50 (T1) — bandera para PO (DEV-tiers-1, §4.33g), reversible sin código.
+>
+> **Changelog v1.36-sealed-alta (2026-08-22, arquitecto — DISEÑO EN PAPEL; backend/frontend implementan. P-35,
+> PROJECT §K/§F-M1, decisión v1.6 «Sellado»):** cambios **ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE**. Resuelve el
+> defecto de M1 → pestaña **Sellado**: el modal de alta reutiliza el **buscador de CARTAS** (singles) y, al elegir
+> set + Tipo=Sellado, sigue mostrando singles en vez de **productos sellados** (ETB, booster box, blíster). Se añade
+> un flujo DEDICADO que **lista los productos sellados del set con su imagen de API** (TCGCSV/TCGplayer, mapeo
+> M-23) y un alta que **nace mapeada** (valuación inmediata, sin curación M2 aparte). Ver ARCHITECTURE §4.32.
+> - **`GET /admin/inventory/sealed-catalog` (NUEVO, `vault_operator+`, §M1) — listar productos SELLADOS de un set,
+>   NO singles.** Query `?setId=<localSetId>` (requerido) `&groupId?` (override) `&q?`. Resuelve el set → **grupo
+>   TCGCSV** (precedencia: `groupId` explícito > `CardSet.tcgcsvGroupId` > `DISTINCT tcgplayerGroupId` de hermanos
+>   sellados ya mapeados del set) y reusa el **proxy read-only server-side** existente (host fijo anti-SSRF, misma
+>   familia que `/admin/pricing/sealed/tcgcsv/groups/:groupId/products`). Devuelve `SealedCatalogProductDTO[]`: cada
+>   producto con `tcgplayerProductId`, `name`, `sealedSubtype` inferido (heurística de nombre; `null` si no se
+>   infiere → el operador elige), **`imageUrl` de la API** y **`marketRef: PriceInfo | null`** (informativo; sin
+>   precio en TCGCSV ⇒ **`null` = pendiente/`—`, NUNCA `0`**). Grupo no resoluble ⇒ `200` con `data:[]` +
+>   `groupResolved:false` (el front ofrece fijar el grupo). Err `404 NOT_FOUND` (set), `502 UPSTREAM_ERROR` (TCGCSV).
+> - **Alta de inventario sellado — SIN endpoint nuevo: reusa `POST /admin/inventory/items/batch`.** El
+>   `BatchInventoryItemInput` (y el singular `POST /admin/inventory/items`) gana 4 campos ADITIVOS/opcionales, SOLO
+>   `productType='sealed'`: `tcgplayerProductId?`, `tcgplayerGroupId?` (se fijan **juntos**; la pieza **nace mapeada**
+>   → `sealedMarketRef` y valuación de aportación funcionan sin curación M2 aparte), `sealedImageUrl?` y
+>   `sealedProductName?` (imagen/nombre de la API del sellado, **validados server-side** contra el host allowlist de
+>   imágenes TCGplayer/TCGCSV; `null`/omitidos ⇒ fallback a la `Card` ancla). `qty` + `batchKey` = **MISMA
+>   idempotencia** que hoy (`InventoryBatch` M-21, `kind='create'`). Aportación de sellado valúa por `sealedMarketRef`
+>   (H-1, §4.23), no por el gradeKey legacy `'sealed'`; sin mercado ⇒ `422 PRICE_PENDING` por línea.
+> - **Deltas de schema (migración M-37, ADITIVA, money-safe) — para backend:** `CardSet.tcgcsvGroupId Int?` (grupo
+>   TCGCSV curado por set; resuelve el listado; `null` ⇒ fallback por hermanos mapeados) + `InventoryItem.sealedImageUrl
+>   String?` y `InventoryItem.sealedProductName String?` (imagen/nombre del producto sellado desde la API; display-only,
+>   arreglan que el sellado muestre la **caja** y no el single ancla en Compra/bóveda/M1). Las columnas de mapeo
+>   (`InventoryItem.tcgplayerProductId/tcgplayerGroupId`) **ya existen** (M-23): el alta solo las **puebla**. Ver
+>   ARCHITECTURE §4.32 + §11 (M-37). El refactor mayor (entidad `SealedProduct` de catálogo, llaveada por productId)
+>   queda **DIFERIDO** y documentado (SB-D5 / §4.32d): NO se hace en este cambio.
+> - **DTOs de display del sellado prefieren los campos nuevos:** `SealedGroupDTO`/`VaultSealedGroupDTO`/
+>   `SealedInventoryGroupDTO` resuelven `imageUrl`/`productName` desde `sealedImageUrl`/`sealedProductName` cuando
+>   existen, y caen a la `Card` ancla cuando son `null` (retrocompatible; ninguna forma de DTO cambia).
 >
 > **Changelog v1.35-inventory-bulk-remove-idempotency (2026-08-22, arquitecto — PRECISIÓN enrutada por QA/techlead
 > (hallazgo MAYOR, Cluster 2); cambios ADITIVOS, RETROCOMPATIBLES y MONEY-SAFE):** dos aclaraciones sobre
@@ -1095,6 +1172,17 @@
 - **`422 ITEM_NOT_IN_CUSTODY` (v1.17.1):** en `POST /shipments`, se intenta retirar un item cuyo `status` **no es `in_custody`** — típicamente ya `withdrawn` (retiro entregado, terminal), o cualquier otro estado no custodiable. **Guardarraíl anti doble-retiro/doble-cobro:** un item ya entregado (`withdrawn`) **NO** es re-elegible para un nuevo retiro aunque conserve `ownershipStatus='settled'` (histórico). Comparte criterio con el flag de lectura `HoldingDTO.withdrawable` (§3): read y write usan la **misma** regla de elegibilidad. Distinto de `422 ITEM_NOT_SETTLED` (aún `pending`, no liquidado) y de `409 ITEM_IN_ANOTHER_SHIPMENT` (ya tiene envío activo). Ver §5 y ARCHITECTURE §3.3.
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
+- **`422 PREMIUM_RARITY_FIXED_TIER` (v1.37, pricing por tiers, P-34):** en `PUT /admin/pricing/tier-map` o `PUT
+  /admin/pricing/tiers`, la edición dejaría una rareza `premium:true` (catálogo canónico, §4.28e) resolviendo en un tier
+  cuya regla de **COMPRA** es `fixed` (con el seed: T0/T1). **Guardarraíl money-safe (refinamiento estricto, ARCHITECTURE
+  §4.33d):** una carta chase jamás puede cotizar al bin fijo barato de bulk, **aunque el dueño edite el mapa**. El
+  invariante se valida sobre el producto (tiers × mapa) completo, por eso lo emiten **ambos** PUT. `details: { offending:
+  [{ rarity: string, tierId: string }] }` (los pares infractores, para que el front los marque). El eje de VENTA no lo
+  dispara (un `fixed` de venta es un piso, no un bin de compra). Ya en el enum central `common/error-codes.ts`.
+- **`422 UNKNOWN_RARITY` (v1.37, pricing por tiers, P-34):** en `PUT /admin/pricing/tier-map`, una key de `assignments`
+  **no** es una rareza canónica del catálogo (§4.28c). Money-safe: el mapa solo asigna tiers a rarezas conocidas; una key
+  desconocida se rechaza en vez de crear una entrada muerta. Distinto de `422 VALIDATION_ERROR` (`TierId` fuera de
+  `{T0..T4}` o body mal formado). Ver §M2 «Pricing por TIERS».
 - **Códigos nuevos del guest checkout (v1.21 — detalle en §4-G):** `422 VAULT_REQUIRES_ACCOUNT` (el invitado eligió destino bóveda; **es un upsell, no un error de UI** — `details.upsell=true`), `409 ALREADY_AUTHENTICATED` (se llamó un endpoint `/checkout/guest/*` con una sesión válida), `404 INVALID_TOKEN` y `410 TOKEN_EXPIRED` / `410 TOKEN_REVOKED` (enlace de seguimiento), `409 ORDER_ALREADY_CLAIMED` (pedido ya vinculado a una cuenta), `403 CLAIM_EMAIL_MISMATCH` (el correo verificado de la sesión no es el del pedido), `422 GUEST_ORDER_TOO_OLD` (reenvío de enlace sobre un pedido fuera del tope de edad).
 - **Códigos nuevos del sellado (v1.23-sealed-sales):** `404 FEATURE_DISABLED` (endpoint feature-flagged con el dial en `off`: tendencia de sellado / restock — §2-S). Reusa códigos existentes: `422 VALIDATION_ERROR` (`sealedCondition` en raw/graded; spread fuera de `[0,1000]`; restock sin identidad de producto), `422 PRICE_PENDING` (sellado sin override y sin `sealedMarketRef` al publicar/comprar), `429 RATE_LIMITED` (restock). No introduce códigos de negocio nuevos más allá de `FEATURE_DISABLED`.
 - **`502 UPSTREAM_ERROR` (transversal; formalizado v1.31):** una **fuente externa** de datos no está disponible o
@@ -1483,11 +1571,21 @@ InventoryAdjustmentResponse = { adjustmentIds: string[], reason: AdjustmentReaso
 // Una línea = una intención de alta; `qty` (default 1) es un ATAJO que el backend expande a N InventoryItem
 // (N piezas físicas, N folios) para bulk raw/sellado. graded → qty forzado a 1 (cada slab es único por certNumber;
 // qty>1 en graded → 422 VALIDATION_ERROR). Los demás campos = MISMOS que POST /admin/inventory/items.
+// v1.36 (P-35): 4 campos ADITIVOS SOLO para productType='sealed' (ignorados/─ raw/graded).
+//   tcgplayerProductId? + tcgplayerGroupId? = mapeo TCGCSV; se fijan JUNTOS (uno sin el otro → 422 VALIDATION_ERROR).
+//     Presentes ⇒ la pieza NACE MAPEADA (pobla InventoryItem.tcgplayerProductId/GroupId, columnas M-23 ya existentes)
+//     → sealedMarketRef y valuación de aportación resuelven sin curación M2 aparte. Ausentes ⇒ nace sin mapeo (cola
+//     de curación M2 como hoy). Vienen del SealedCatalogProductDTO que el operador eligió (productId de TCGplayer).
+//   sealedImageUrl? + sealedProductName? = imagen/nombre del producto sellado desde la API (TCGCSV). El backend los
+//     VALIDA contra el host allowlist de imágenes TCGplayer/TCGCSV antes de persistir (anti stored-XSS/URL arbitraria);
+//     inválidos/omitidos ⇒ null (fallback a la Card ancla). Display-only, money-safe (jamás fijan precio). Deltas M-37.
 BatchInventoryItemInput = { cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish,
                             sealedSubtype?: SealedSubtype, sealedCondition?: SealedCondition, // v1.23: default mint (solo sealed)
                             gradingCompany?: GradingCompany, gradeValue?: string,
                             certNumber?: string, locationId?: string, acquisitionType: AcquisitionType,
-                            acquisitionPct?: number, listPriceCents?: number, qty?: number }
+                            acquisitionPct?: number, listPriceCents?: number, qty?: number,
+                            tcgplayerProductId?: number, tcgplayerGroupId?: number,  // v1.36 (P-35) — nace mapeada
+                            sealedImageUrl?: string, sealedProductName?: string }     // v1.36 (P-35) — imagen/nombre API
 BatchCreateInventoryRequest = { batchKey: string, items: BatchInventoryItemInput[] }   // cap items = 200
 // Resultado por línea: ok:true crea qty piezas (devuelve sus folios); ok:false trae el error de ESA línea
 // (NO tumba las demás → HTTP 200). `index` = posición 0-based en items[].
@@ -1596,6 +1694,22 @@ VaultSealedResponse = { data: VaultSealedGroupDTO[], totalValueMxnCents: number,
 // mercado por presentación; `fallbackPct` = spread global de respaldo (sin subtype o subtype sin regla). Semántica de
 // pct = markup sobre mercado (como ventas §4.14, NO "% de la referencia" del buylist). Rango [0, 1000].
 SealedSpreadsDTO = { spreadPctBySubtype: { [subtype in SealedSubtype]?: number }, fallbackPct: number }
+// ===== v1.36 (P-35): alta dedicada de sellado — listar productos sellados de un set desde la API =====
+// Un producto SELLADO del catálogo TCGCSV de un set (ETB / booster box / bundle / tin / blister), NO un single.
+// `tcgplayerProductId` = clave de emparejamiento TCGplayer (== la que el alta reenvía al batch). `sealedSubtype` =
+// INFERIDO por heurística de nombre (null si no se pudo inferir → el operador lo elige en el alta). `imageUrl` =
+// imagen del producto DESDE LA API (TCGCSV/TCGplayer); null si el producto no trae imagen. `marketRef` = valor de
+// mercado INFORMATIVO (USD→MXN con FX+colchón) leído del precio TCGCSV del producto; MONEY-SAFE: sin precio en la
+// fuente ⇒ marketRef=null (pendiente / "—"), NUNCA 0. NO fija venta ni costo (eso se deriva al alta/publish, §M1).
+SealedCatalogProductDTO = { tcgplayerProductId: number, name: string, cleanName?: string,
+                            sealedSubtype: SealedSubtype | null, imageUrl: string | null,
+                            marketRef: PriceInfo | null }
+// Respuesta de GET /admin/inventory/sealed-catalog. `set` = el set consultado; `tcgcsvGroupId` = grupo resuelto
+// (null si no se pudo resolver); `groupResolved=false` ⇒ data:[] y el front ofrece fijar el grupo (mapear un item o
+// setear CardSet.tcgcsvGroupId). `anchorCardId` = Card REPRESENTATIVA del set (menor (numberPrefix, numberSort);
+// §4.32b) que el alta reenvía como `cardId` — el operador NUNCA elige un single como ancla del sellado.
+SealedCatalogResponse = { set: SetRefDTO, tcgcsvGroupId: number | null, groupResolved: boolean,
+                          anchorCardId: string, data: SealedCatalogProductDTO[] }
 ```
 
 ---
@@ -3416,6 +3530,50 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     (§M2, **`super_admin`**); para `vault_operator` el grupo no mapeado se muestra como «sin precio de mercado».
     **Dueño de la vista (v1.28.1):** la pantalla que consume esa cola pertenece al **frontend de M2** (precios),
     no a la pestaña Sellado de M1 (que solo enlaza); pendiente menor post-stream, no bloquea el cierre de B.
+- `GET /api/v1/admin/inventory/sealed-catalog` — **(NUEVO, P-35)** listar los **productos SELLADOS de un set** (ETB,
+  booster box, bundle, tin, blíster) para el **alta dedicada** de la pestaña «Sellado» — **NO singles**. Reemplaza la
+  reutilización del buscador de CARTAS en el modal de alta (defecto P-35). `vault_operator+`.
+  Query: `?setId=<id LOCAL de CardSet>` (**requerido**) `&groupId?=<int>` (override manual del grupo TCGCSV, para
+  bootstrap de un set aún sin sellado ni `tcgcsvGroupId`) `&q?` (filtro por nombre).
+  - **Resolución set → grupo TCGCSV (precedencia normativa, §4.32b):** `groupId` explícito de la query > **`CardSet.tcgcsvGroupId`**
+    (delta M-37) > `SELECT DISTINCT tcgplayerGroupId` de los `InventoryItem` `sealed` **ya mapeados** del set (dato
+    curado M-23). Exactamente un grupo ⇒ se usa; **cero ⇒ `groupResolved:false`** y `data:[]` (el front ofrece fijar
+    el grupo); varios distintos ⇒ se toma el de `CardSet.tcgcsvGroupId` si existe, si no `groupResolved:false`
+    (ambigüedad, no se adivina).
+  - **Fuente de los productos = proxy read-only server-side** (host fijo `tcgcsv.com`, categoría Pokémon=3, anti-SSRF
+    centralizado; **misma familia** que `/admin/pricing/sealed/tcgcsv/groups/:groupId/products`, §M2). El navegador
+    NUNCA habla con tcgcsv.com. Filtra singles por heurística de `extendedData` (§4.19b). `sealedSubtype` se **infiere**
+    del nombre (`ETB`→`etb`, `Booster Box`→`box`, …; `null` si no se infiere → el operador lo elige al dar de alta).
+  - **`marketRef` (money-safe, INFORMATIVO):** por producto, precio de mercado leído del grupo TCGCSV (USD→MXN con
+    FX+colchón), como sugerencia junto al alta. **Sin precio en la fuente ⇒ `marketRef=null` (pendiente / «—»),
+    JAMÁS `0`.** NO fija venta ni costo; la valuación real se deriva al alta (aportación) / `bulk-publish` (venta).
+  - **`anchorCardId`:** Card **representativa** del set (menor `(numberPrefix, numberSort)`, §4.32b) que el front
+    **reenvía como `cardId`** en el alta. El sellado se ancla a esa Card SOLO para satisfacer `InventoryItem.cardId`
+    (NOT NULL) y como fallback de nombre/imagen; el **display real** sale de `sealedImageUrl`/`sealedProductName`
+    (deltas M-37). El operador **nunca** elige un single como ancla (raíz del defecto P-35).
+  - Res `200` (`SealedCatalogResponse`): `{ set, tcgcsvGroupId, groupResolved, anchorCardId, data: SealedCatalogProductDTO[] }`.
+  - Err `404 NOT_FOUND` (set inexistente), `400 VALIDATION_ERROR` (`setId` ausente / `groupId` no entero positivo),
+    `502 UPSTREAM_ERROR` (TCGCSV no responde / payload inválido — no afecta nada local). **Sin N+1** (una llamada de
+    productos + una de precios del grupo).
+- **Alta de inventario SELLADO (P-35) — SIN endpoint nuevo:** el front reusa **`POST /admin/inventory/items/batch`**
+  (o el singular `POST /admin/inventory/items`) con líneas `sealed`. Desde `SealedCatalogProductDTO` + `anchorCardId`,
+  cada línea = `{ cardId: <anchorCardId>, productType:"sealed", sealedSubtype:<elegido/inferido>, sealedCondition?,
+  finish:"normal", qty, acquisitionType, acquisitionCostCents?/acquisitionPct?, tcgplayerProductId:<productId>,
+  tcgplayerGroupId:<grupo resuelto>, sealedImageUrl?:<imageUrl>, sealedProductName?:<name> }`. Reglas normativas:
+  - **Nace mapeada:** `tcgplayerProductId`+`tcgplayerGroupId` (columnas M-23, ya existentes) se pueblan al crear ⇒
+    `sealedMarketRef` y la **aportación de sellado** valúan de inmediato por `sealed:tcg:<productId>` (H-1, §4.23),
+    **no** por el gradeKey legacy `'sealed'`. Sin mercado ni override ⇒ `422 PRICE_PENDING` **por línea** (lote
+    tolerante), igual que hoy. `applyToSiblings`/curación M2 siguen disponibles pero ya **no** son requisito para el
+    primer alta de un producto.
+  - **Imagen/nombre de API:** `sealedImageUrl`/`sealedProductName` (deltas M-37) se persisten **validados server-side**
+    contra el host allowlist de imágenes TCGplayer/TCGCSV (anti stored-XSS / URL arbitraria); inválidos/omitidos ⇒
+    `null` y el display cae a la `Card` ancla. Money-safe (display-only, jamás fijan precio).
+  - **Idempotencia:** `batchKey` (`InventoryBatch` M-21, `kind='create'`) — **misma** que hoy; el front DEBE enviarlo
+    (anti doble-submit). Publicar a la venta sigue siendo `bulk-publish`/`publish-all {setId, productType:"sealed"}`.
+  - **⚠ Autorización (para la fase de seguridad):** que un `vault_operator` fije el mapeo TCGCSV al alta (hoy la
+    curación de mapeo es `super_admin` en M2) es una AMPLIACIÓN deliberada: el `productId` proviene de la lista que el
+    servidor sirvió (TCGCSV), la valuación sigue derivándose server-side (SEC-A1) y el alta queda **auditada**
+    (`AuditLog action=inventory.batch_create`, con el mapeo). Revisar en pentester/seguridad. Ver ARCHITECTURE §4.32c.
 - `GET /api/v1/admin/inventory/graded` — **(NUEVO, P-20)** pestaña «Gradeadas»: inventario PSA/CGC **separado** de
   sueltas, agregado por `(cardId, gradingCompany, gradeValue)`. Query `?q=&page=&pageSize=`.
   Res `200`: `{ data: GradedInventoryGroupDTO[], page, pageSize, total }` con
@@ -3548,8 +3706,79 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 - `GET /api/v1/admin/pricing/card/:cardId` — historial de precios por fecha/fuente.
 - FX: `GET /api/v1/admin/fx` → `{ rate, bufferPct, source: FxSource, effectiveDate }` (automático diario desde **Banxico SIE** + colchón). `PUT /api/v1/admin/fx` — Req `{ rate?, bufferPct? }` → fija **override manual** (`source=manual`, prioridad sobre el automático del día). `POST /api/v1/admin/fx/refresh` — fuerza el fetch a Banxico.
   - **`rate?` opcional (v1.14-price-ingest, #13):** si se **omite** `rate`, la llamada actualiza **solo** el colchón (`bufferPct`) y **NO** pinnea el override manual de tasa (`fx_manual_override_rate`) → la tasa **automática de Banxico sigue activa**. Antes exigía ambos, así que subir solo el colchón congelaba la tasa sin querer. El colchón **aplica en cada ingest de precios** (USD→MXN con FX+buffer, ARCHITECTURE §4.15f). **Vía recomendada sin cambiar este endpoint:** editar el colchón por `PUT /admin/settings { fxBufferPct }` (parcial, ya soportado). **Nota para frontend (M2):** exponer un guardado del colchón independiente del `rate`.
-#### Precio de buylist por RAREZA (v1.3.1 — NUEVO backend; editor M2)
-> Reemplaza `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
+#### Pricing por TIERS (v1.37 — NUEVO; editor M2, `super_admin`) — SUPERSEDE el editor por rareza
+> **P-34, PROJECT §M v1.9 LOCKED, ARCHITECTURE §4.33.** El editor pasa de «una fila por CADA rareza canónica» (~30) a
+> «una fila por `tier`» (**5 tiers T0–T4**) + un **mapa rareza canónica → tier** compartido por compra y venta. La
+> naturaleza de la regla (`fixed` MX$ centavos / `pct`), la precedencia money-safe y el **eje `finish`** (`finishRules`)
+> **no cambian**: los tiers solo re-expresan el **eje rareza** de `PriceRuleSet` (§4.28d). Toda edición se **audita**
+> (M10) y **surte efecto sin redeploy**. `Rule = { mode:'fixed'|'pct', value:number }` (buy `pct`=% de la referencia;
+> sell `pct`=markup arriba de mercado, §4.14b).
+
+- `GET /api/v1/admin/pricing/tiers` — **(NUEVO)** lee los 5 tiers (regla de COMPRA y VENTA), el eje acabado y los
+  fallbacks. Read-only.
+  Res `200`:
+  ```json
+  { "tiers": [
+      { "id":"T0", "name":"Bulk",               "premium":false, "buy":{"mode":"fixed","value":50},  "sell":{"mode":"fixed","value":500},  "rarityCount":1 },
+      { "id":"T1", "name":"Uncommon / Reverse",  "premium":false, "buy":{"mode":"fixed","value":150}, "sell":{"mode":"fixed","value":1000}, "rarityCount":3 },
+      { "id":"T2", "name":"Rare / Holo",         "premium":false, "buy":{"mode":"pct","value":25},    "sell":{"mode":"pct","value":15},     "rarityCount":2 },
+      { "id":"T3", "name":"Premium / Chase",     "premium":true,  "buy":{"mode":"pct","value":40},    "sell":{"mode":"pct","value":15},     "rarityCount":19 },
+      { "id":"T4", "name":"Ultra / Grail",       "premium":true,  "buy":{"mode":"pct","value":40},    "sell":{"mode":"pct","value":15},     "rarityCount":4 }
+    ],
+    "finishRules": { "buy":  { "reverse_holo":{"mode":"fixed","value":150} },
+                     "sell": { "holofoil":{"mode":"fixed","value":1000}, "reverse_holo":{"mode":"fixed","value":1000} } },
+    "fallbackPct": { "buy": 40, "sell": 15 } }
+  ```
+  - `id`/`name`/`premium` = taxonomía **LOCKED** (`common/pricing-tiers.ts`); NO editables. `rarityCount` = nº de
+    rarezas canónicas mapeadas a ese tier (informativo). `finishRules` keyeadas por el enum `Finish` (§4.28d), eje
+    ACABADO **sin cambio**; `buy`/`sell` separan los dos juegos de valores. Valores de venta = reproducen el markup
+    vigente (backend confirma los pisos exactos de T0/T1, ARCHITECTURE §4.33e).
+- `PUT /api/v1/admin/pricing/tiers` — **(NUEVO)** reemplaza los VALORES de las 5 reglas (buy y sell), el eje acabado y
+  los fallbacks.
+  Req: `{ tiers: [{ id: TierId, buy: Rule, sell: Rule }], finishRules?: { buy?, sell? }, fallbackPct?: { buy?, sell? } }`.
+  - **`name`/`premium` se ignoran** si vienen (taxonomía LOCKED). Deben venir las 5 filas (`T0..T4`).
+  - **Validación:** `mode ∈ {fixed, pct}`; `fixed` → `value` **entero ≥ 0** (centavos); buy `pct` → `value` en `[0,100]`;
+    sell `pct` → `value` en `[0,1000]` (markup, puede >100%, `SALES_PCT_MAX`); `fallbackPct` en su rango respectivo.
+  - **Invariante de refinamiento (money-safe, §4.33d):** se valida contra el **mapa vigente**. Poner la regla de
+    **COMPRA** de un tier en `fixed` cuando ese tier tiene alguna rareza `premium:true` mapeada ⇒ **rechazo**. (El eje
+    de VENTA no entra al invariante: un `fixed` de venta es un piso, no un bin de compra.)
+  - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.tiers.update`, before/after). **Sin
+    redeploy.** Cambiar la regla de un tier **repricia todas** las rarezas mapeadas a él (criterio 74).
+  - Err `422 VALIDATION_ERROR` (modo/valor/rango/filas); `422 PREMIUM_RARITY_FIXED_TIER` (una rareza premium quedaría en
+    un tier de compra `fixed`; el body lista los pares `(rarity, tierId)` infractores).
+- `GET /api/v1/admin/pricing/tier-map` — **(NUEVO)** el **mapa rareza canónica → tier**, unido al catálogo canónico
+  (§4.28c) para poblar el editor de asignación. Muestra rarezas mapeadas y rarezas del catálogo aún sin mapear.
+  Res `200`:
+  ```json
+  { "tiers": [ { "id":"T0","name":"Bulk","premium":false }, { "id":"T4","name":"Ultra / Grail","premium":true } ],
+    "rarities": [
+      { "canonical":"Common",            "premium":false, "mapped":true, "cardCount":5326, "tierId":"T0", "source":"map" },
+      { "canonical":"Rare Holo",         "premium":false, "mapped":true, "cardCount":1617, "tierId":"T2", "source":"map" },
+      { "canonical":"Illustration Rare", "premium":true,  "mapped":true, "cardCount":87,   "tierId":"T3", "source":"map" },
+      { "canonical":"Some New Rarity",   "premium":true,  "mapped":false,"cardCount":3,    "tierId":null, "source":"fallback" }
+    ] }
+  ```
+  - `premium` = del catálogo canónico (§4.28e, DATO). `mapped=false` = rareza `unmapped` (sin entrada en el catálogo
+    canónico). `tierId:null` + `source:"fallback"` = rareza del catálogo **sin entrada en `PRICING_TIER_MAP`** ⇒ cotiza
+    por el **tier por defecto = `pct` de fallback** (money-safe, nunca $0/bin fijo). Ordenado por `cardCount` desc.
+- `PUT /api/v1/admin/pricing/tier-map` — **(NUEVO)** reasigna rarezas a tiers (Opción B, editable por el dueño).
+  Req: `{ assignments: { [canonical: string]: TierId } }` (patch **parcial**: solo las rarezas a cambiar).
+  - **Validación:** `TierId ∈ {T0,T1,T2,T3,T4}` (`422 VALIDATION_ERROR`). Cada `canonical` debe ser una key canónica del
+    catálogo (§4.28); una key desconocida ⇒ `422 UNKNOWN_RARITY`.
+  - **Invariante de refinamiento (money-safe, §4.33d):** una rareza con `premium:true` no puede asignarse a un tier cuya
+    regla de **COMPRA** sea `fixed` (con el seed: no puede caer en T0/T1) ⇒ **rechazo** con los pares infractores.
+  - Res `200`: mismo shape que `GET /admin/pricing/tier-map`. **Auditado** (`AuditLog action=pricing.tier_map.update`,
+    before/after). **Sin redeploy.** Err `422 VALIDATION_ERROR`, `422 UNKNOWN_RARITY`, `422 PREMIUM_RARITY_FIXED_TIER`.
+- **SUPERSEDED por los tiers:** `GET/PUT /api/v1/admin/pricing/buylist-rules` y `/sales-rules` (mapa plano rareza→regla,
+  §4.28d). Los **`PUT` se retiran** (el eje rareza ya no se edita por rareza suelta, sino por tier). Los **`GET` pueden
+  conservarse** como lectura del `PriceRuleSet` **efectivo** derivado de `tiers × tier-map` (§4.33c) durante la
+  transición, o retirarse. `GET /admin/pricing/rarities` (+ `/sales-rarities`) **se conservan** y ganan `tierId` +
+  `source:'map'|'fallback'`; su `rule` refleja la regla **RESUELTA vía tier** (retrocompatible). El editor nuevo consume
+  `/tiers` + `/tier-map`.
+
+#### Precio de buylist por RAREZA (v1.3.1 — DEPRECADO por §4.33/v1.37; ver «Pricing por TIERS» arriba)
+> **DEPRECADO (v1.37):** superseded por el editor por `tier` (arriba). Se conserva para procedencia. Reemplazó
+> `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
 > referencia)** + un **fallback %** para rarezas sin regla. Toda edición se **audita** (M10). Ver ARCHITECTURE §4.2.
 
 - `GET /api/v1/admin/pricing/rarities` — **(NUEVO)** lista las **rarezas CANÓNICAS del catálogo sincronizado**

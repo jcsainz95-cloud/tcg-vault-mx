@@ -87,6 +87,25 @@
 > etc.). Ver **§L** (nueva), §A, §C, §F/M1–M2, criterios **65–72** y las **preguntas abiertas v1.7** al final.
 > **Alcance acotado: SOLO presentación/agrupación del master set; FUERA de alcance re-llavear identidad o
 > mover precios/inventario.** Los defaults no bloquean el arranque si el humano los autoriza.
+> **Requisito v1.9 — PRICING POR TIERS (2026-08-22, DECISIONES DEL HUMANO YA TOMADAS — LOCKED, P-34;
+> supersede el borrador v1.8):** el editor de precios pasa de pedir **una regla por CADA rareza canónica**
+> (~30 tras el sync: Common 5326, Uncommon 4888, Rare 2562, Rare Holo 1617, … hasta Rare ACE, Amazing Rare,
+> Mega Hyper Rare) a **una regla por `tier`**, con un **mapa rareza canónica → tier**. Decisiones cerradas del
+> humano: **(1) 5 tiers** — **T0 Bulk, T1 Uncommon/Reverse, T2 Rare/Holo, T3 Premium/Chase, T4 Ultra/Grail**.
+> **(2) T2 Rare/Holo = PORCENTAJE bajo del mercado** (default **25%**, ajustable), **NO fijo** — esto **CAMBIA
+> el comportamiento vigente** (antes Rare/Rare Holo caían al bin fijo de bulk) y es un **cambio intencional**;
+> money-safe: un `pct` sin referencia de mercado → **precio pendiente, nunca $0** (igual que los demás tiers
+> `pct`). **(3) Rarezas «SIN MAPEAR» → premium** (cierra el bug money-losing): **Mega Hyper Rare** (alias de
+> **Hyper Rare**) → **T4**; **`MEGA_ATTACK_RARE`** → nueva canónica premium → **T3**; **Black White Rare** →
+> nueva canónica premium → **T3**. **(4) Los tiers aplican a AMBOS ejes de dinero: COMPRA (buylist) y VENTA**
+> (un mismo mapa rareza→tier, dos juegos de valores). **(5)** Resto de defaults como se propusieron (T0
+> **$0.50** fijo, T1 **$1.50** fijo, T3 **40%**, T4 **40%**; el eje **acabado/`finish`** sigue siendo eje
+> aparte; el **mapa rareza→tier es EDITABLE por el dueño** desde M2). Ver **§M** (finalizada), §E.1, §I, M2,
+> criterios **73–78** y las **Decisiones (v1.9, P-34)** al final. **Alcance acotado: SOLO la TAXONOMÍA de
+> precios (agrupar rarezas en tiers y cerrar el catálogo); el schema y el contrato del editor los diseña el
+> arquitecto; NO cambia la matemática fijo/% ni la precedencia money-safe de compra/venta más allá del cambio
+> intencional de T2 a `pct`.** **Bloque LOCKED — listo para el arquitecto.** Los defaults reproducen el
+> comportamiento vigente salvo el cambio intencional de T2.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -276,6 +295,9 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       (Ver soporte AML en "Riesgos y banderas para el humano".)
 
 ### E.1 Precio de buylist por rareza (configurable desde admin) — NUEVO (v1.3)
+> **Superseded por §M (v1.9, LOCKED):** el editor pasa de «una regla por **rareza**» a «una regla por **tier**»
+> con un mapa rareza→tier (compra y venta). Lo de abajo describe la mecánica `fixed`/`pct` y money-safe que
+> **sigue vigente** (el `tier` solo decide qué regla aplica a qué rareza); para la taxonomía final ver §M.
 > Reemplaza el esquema de **3 categorías internas hardcodeadas** (común / reverse holo / EX+) por una
 > **tabla de precio por rareza** editable desde el back-office. Objetivo del humano: (1) usar las **rarezas
 > oficiales de Pokémon** (las que trae pokemontcg.io) en vez de 3 categorías internas, y (2) que el **monto a
@@ -724,6 +746,136 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       priciar, comprar/vender o retirar esa carta **no depende** de la agrupación de master set (money-safe: la
       vista nunca es la fuente de verdad del inventario ni del precio).
 
+### M. Pricing por tiers — agrupar rarezas en peldaños (transversal — v1.9, P-34, LOCKED)
+> **Qué es**: reemplazar «**una regla por cada rareza**» por «**una regla por cada `tier`**» y un **mapa
+> rareza canónica → tier**. Hoy el editor de M2 (§E.1) muestra una fila por cada rareza distinta del catálogo
+> sincronizado (~30 tras el sync); el dueño tiene que configurar 30 reglas. Con tiers configura **5** y cada
+> rareza «hereda» la regla de su tier. **Por qué**: para el dueño es más fácil pricear pensando en 5 familias
+> de valor («bulk», «uncommon/reverse», «rare/holo», «chase», «grail») que en 30 nombres de rareza.
+> **Estado**: **decisiones del humano tomadas y cerradas (LOCKED)** — el número de tiers, sus valores, el mapa,
+> el cierre de las rarezas sin mapear y el alcance compra+venta están fijados (ver **Decisiones (v1.9, P-34)**
+> al final). **Qué NO cambia** (crítico, money-safe): la **naturaleza de una regla sigue siendo `fixed` (MX$) o
+> `pct` (% de la referencia de mercado)** exactamente como §E.1; el `tier` solo dice **qué regla aplica a qué
+> rareza**. La **precedencia de compra** (bounty > override > regla/tier > fallback) y la de **venta**
+> (override por pieza > override variante > regla/tier > fallback) **no se tocan**; el **eje de acabado**
+> (`finish`: normal/reverse_holo/holofoil/1st-ed) **sigue siendo un eje aparte** (ver §I). **Único cambio
+> intencional de comportamiento**: **T2 (Rare/Holo) pasa de bin fijo a `pct` bajo de mercado** (ver M.1).
+> **Alcance de esta feature**: la **taxonomía** (definir los tiers y el mapa) + el **editor** de M2. **No** se
+> diseña aquí el schema ni el contrato del editor (eso es del arquitecto tras esta aprobación); aquí se fija el
+> requisito de producto y el mapa aprobado por el humano.
+
+**M.1 — Tiers de precio (LOCKED: 5 tiers, valores por defecto fijados por el humano)**
+> **5 tiers (T0–T4)**, aprobados por el humano. Los tiers no-premium **T0–T1** agrupan lo que hoy es
+> `premium:false` de bin fijo (bulk); **T2** agrupa Rare/Rare Holo pero **ya no es bin fijo: es `pct` bajo de
+> mercado** (cambio intencional, ver abajo); los premium **T3–T4** son % de mercado. Así **ninguna rareza
+> premium/chase puede caer nunca a un bin fijo barato** (se preserva el fix de dinero de Fase 0.1). Salvo T2,
+> los **valores por defecto reproducen el comportamiento actual** (bulk fijo $0.50/$1.50, chase 40%); el
+> humano puede cambiar cada valor sin tocar código.
+
+| Tier | Nombre | `premium` | Regla por defecto (COMPRA/buylist) | Racional |
+|---|---|---|---|---|
+| **T0** | **Bulk** | no | **FIJO MX$0.50** | Cartas de relleno; no vale la pena mirar mercado. Preserva Common $0.50. |
+| **T1** | **Uncommon / Reverse** | no | **FIJO MX$1.50** | Uncommon y reverse/promo de bajo valor. Preserva Reverse Holo $1.50. |
+| **T2** | **Rare / Holo** | no | **PORCENTAJE 25% del mercado** *(default bajo, ajustable)* | **LOCKED — cambio intencional**: Rare y Rare Holo dejan de cotizar al **bin fijo** y pasan a un **`pct` bajo** para no infravalorar cartas de banda intermedia. Money-safe: sin referencia de mercado ⇒ **precio pendiente, nunca $0** (igual que T3/T4). |
+| **T3** | **Premium / Chase** | sí | **PORCENTAJE 40% del mercado** | El grueso de las chase (ex/V/GX/Ultra/Illustration…). Preserva el 40% vigente. |
+| **T4** | **Ultra / Grail** | sí | **PORCENTAJE 40% del mercado** | La cima (Special Illustration, Hyper, Secret, Gold). **LOCKED en 40%** (igual que T3); queda como tier propio por si el dueño luego quiere diferenciarlo sin tocar código. |
+
+> **Cambio intencional de comportamiento (T2)**: antes de v1.9, Rare y Rare Holo eran `premium:false` y
+> cotizaban al **bin fijo de bulk**. A partir de v1.9 el humano decidió que **T2 use `pct` bajo (default 25%)**.
+> Esto **NO** es un bug ni una regresión: es una decisión de negocio para que la banda intermedia se pague a
+> mercado. La money-safety se mantiene: si el `pct` de T2 no tiene referencia de mercado, la carta cae en
+> **«precio pendiente»** (nunca $0, nunca bin fijo).
+> **Alcance compra + venta (LOCKED)**: la misma taxonomía de tiers aplica a **AMBOS** la tabla de **COMPRA**
+> (buylist, `pct` = «% de la referencia») y la de **VENTA** (`computeSalePriceForRarity`, §A/M2, donde `pct` =
+> «markup ARRIBA de mercado»). Es **un** mapa rareza→tier compartido con **dos juegos de valores por tier**
+> (compra vs. venta). Los valores por defecto de venta los define el arquitecto/backend reproduciendo el
+> markup vigente por rareza; el eje de tiers no cambia esa matemática.
+
+**M.2 — Mapa rareza canónica → tier (LOCKED; TODAS las canónicas de `common/rarity-catalog.ts`, v1.29)**
+> Cubre las **26 rarezas canónicas** hoy en el catálogo. El `premium` mostrado es el DATO vigente del catálogo;
+> el tier respeta ese `premium` (no-premium ⇒ T0–T2, premium ⇒ T3–T4). **El mapa es EDITABLE por el dueño**
+> desde M2 (decisión del humano): el dueño puede reasignar una rareza a otro tier sin tocar código; el seed
+> arranca con este mapa. La money-safety no depende de que el dueño no se equivoque: el invariante de
+> refinamiento estricto (ninguna `premium:true` en un tier de bin fijo) se valida server-side (ver M.4).
+
+| Rareza canónica | `premium` (hoy) | Tier propuesto |
+|---|---|---|
+| Common | no | **T0 Bulk** |
+| Uncommon | no | **T1 Uncommon/Reverse** |
+| Reverse Holo | no | **T1 Uncommon/Reverse** |
+| Promo | no | **T1 Uncommon/Reverse** *(default; los promos varían, el dueño puede reasignar en M2)* |
+| Rare | no | **T2 Rare/Holo** |
+| Rare Holo | no | **T2 Rare/Holo** |
+| Double Rare | sí | **T3 Premium/Chase** |
+| Ultra Rare | sí | **T3 Premium/Chase** |
+| Illustration Rare | sí | **T3 Premium/Chase** |
+| Rare Holo EX | sí | **T3 Premium/Chase** |
+| Rare Holo GX | sí | **T3 Premium/Chase** |
+| Rare Holo V | sí | **T3 Premium/Chase** |
+| Rare Holo VMAX | sí | **T3 Premium/Chase** |
+| Rare Holo VSTAR | sí | **T3 Premium/Chase** |
+| Rare Holo LV.X | sí | **T3 Premium/Chase** |
+| Rare Prime | sí | **T3 Premium/Chase** |
+| Rare BREAK | sí | **T3 Premium/Chase** |
+| LEGEND | sí | **T3 Premium/Chase** |
+| Amazing Rare | sí | **T3 Premium/Chase** |
+| Radiant Rare | sí | **T3 Premium/Chase** |
+| Shiny Rare | sí | **T3 Premium/Chase** |
+| Trainer Gallery Rare Holo | sí | **T3 Premium/Chase** |
+| Rare ACE | sí | **T3 Premium/Chase** *(default; el dueño puede subirla a T4 en M2 si quiere pagar más)* |
+| Special Illustration Rare | sí | **T4 Ultra/Grail** |
+| Hyper Rare | sí | **T4 Ultra/Grail** |
+| Secret Rare | sí | **T4 Ultra/Grail** |
+| Gold Rare | sí | **T4 Ultra/Grail** |
+
+**M.3 — Cierre de las rarezas «SIN MAPEAR» (unmapped) — LOCKED (corrección de dinero)**
+> Hoy estas caen como `unmapped` (pass-through Title-case) y su tier lo decide `premiumByPattern` (red por
+> patrón). **Dos de ellas son money-LOSING hoy** porque el patrón NO las reconoce como premium y las manda al
+> bin fijo barato de bulk. El humano **cerró los tres casos** (añadir alias/canónica + tier premium); esto es
+> una **corrección de dinero**: dejan de cotizar al bin de bulk.
+
+| Rareza cruda (SIN MAPEAR) | Verdicto `premiumByPattern` HOY | Riesgo hoy | Decisión LOCKED: canónica → tier |
+|---|---|---|---|
+| **Mega Hyper Rare** | **premium=sí** (contiene «hyper») | OK (cae a fallback %) | **alias de Hyper Rare** → **T4 Ultra/Grail** |
+| **`MEGA_ATTACK_RARE`** (valor crudo, snake_case) | **premium=NO** (sin substring ni token v/ex/gx) | **⚠ money-losing**: hoy cotiza al **bin fijo de bulk** | **nueva canónica premium** (p. ej. «Mega Rare») → **T3 Premium/Chase**. **Corrige el bug**: deja de cotizar al bin de bulk. También se **normaliza el valor crudo** (viene en snake_case sin pasar por normalize). |
+| **Black White Rare** | **premium=NO** (sin match) | **⚠ money-losing**: hoy cotiza al **bin fijo de bulk** | **nueva canónica premium** «Black White Rare» → **T3 Premium/Chase**. **Corrige el bug**: deja de cotizar al bin de bulk. |
+
+> **Política de cierre (LOCKED)**: estos tres casos quedan fijados. **Puede haber más** rarezas `unmapped` en
+> el catálogo real; el **barrido definitivo** (recorrer TODAS las rarezas distintas presentes tras el sync y
+> asignarles canónica+tier) lo ejecuta el arquitecto/backend contra los datos reales al implementar, aplicando
+> esta misma política (una `unmapped` premium por patrón nunca cae a T0–T2 de bin fijo; ver M.4). Esto **no es
+> un hueco de producto** que bloquee al arquitecto: es una tarea de implementación con la política ya fijada.
+
+**M.4 — Money-safe (invariante que NO cambia)**
+- [ ] **Rareza sin tier explícito → tier por defecto = regla `pct` de fallback** (`BUYLIST_PRICE_FALLBACK_PCT`,
+      default 40% del mercado), **NUNCA $0 y NUNCA el bin fijo de bulk**. Una rareza nueva de un set futuro
+      entra `unmapped` y cotiza por el fallback % hasta que se le asigne tier (mismo comportamiento predecible y
+      auditable que hoy, R-5).
+- [ ] **Refinamiento estricto de `premium`**: el mapa rareza→tier debe respetar el `premium` del catálogo
+      canónico —ninguna rareza `premium:true` puede mapear a un tier de bin fijo—, para preservar el fix de
+      Fase 0.1 (una chase jamás cotiza al bin barato de bulk). **Nota v1.9**: con T2 ahora en `pct`, los únicos
+      tiers de **bin fijo** son **T0 y T1**; T2–T4 son `pct`. El invariante aplica igual (una `premium:true`
+      nunca puede caer en T0/T1). Este invariante se valida server-side aunque el mapa sea editable por el dueño.
+- [ ] **`pct` sin referencia de mercado → «precio pendiente»** (se escala al dueño), igual que §E.1; jamás se
+      inventa ni se descarta el precio. **Aplica explícitamente a T2 (Rare/Holo)**, que a partir de v1.9 es
+      `pct`: una Rare/Rare Holo sin precio de mercado del acabado queda **pendiente, nunca $0**.
+- [ ] **Derivación server-side (SEC-A1) intacta**: el tier se resuelve en backend desde la **rareza real** de la
+      carta (`Card.rarityCanonical`) y el acabado validado, nunca del DTO del cliente. Aplica a **compra y
+      venta** por igual (el mismo mapa rareza→tier alimenta ambos ejes de dinero).
+
+**M.5 — Editor (M2) y presencia (LOCKED)**
+- [ ] **Editor por tier en M2** *(§E.1, evoluciona)*: la tabla de M2 pasa de «una fila por rareza» a «una fila
+      por **tier**» (tier → regla `fixed/%` + valor), **para compra Y para venta** (dos juegos de valores por
+      tier, un solo mapa). Editable **sin deploy** y **auditado** (M10).
+- [ ] **Mapa rareza→tier EDITABLE por el dueño** (decisión del humano, Opción B): además de editar la regla de
+      cada tier, el dueño puede **reasignar una rareza a otro tier** desde M2. El backend valida el invariante
+      de refinamiento estricto (M.4) en cada cambio, de modo que una edición no pueda mandar una rareza premium
+      a un tier de bin fijo. Todo cambio queda **auditado** (M10).
+- [ ] **Compatibilidad / migración**: el seed de tiers y del mapa **reproduce el comportamiento vigente para
+      T0/T1/T3/T4** (bulk fijo $0.50/$1.50, chase 40%); **T2 arranca en `pct` 25%** (cambio intencional, NO
+      preserva el bin fijo anterior). Las reglas por-rareza actuales se migran a su tier; las tres rarezas
+      `unmapped` (M.3) se seedan a su canónica+tier premium.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
 - **Order-book / trading instantáneo** (compra/venta digital tipo bolsa dentro de la bóveda).
@@ -1153,6 +1305,38 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
     carta del subset sigue operando por su **set-id real** (`cel25c`) y **no depende** de la vista de master
     set; la agrupación es solo de presentación y nunca es la fuente de verdad del inventario o del precio.
 
+**Pricing por tiers — v1.9 (P-34, LOCKED)**
+73. El editor de precios de M2 gestiona **una regla por `tier`** (**5 tiers**: T0 Bulk, T1 Uncommon/Reverse, T2
+    Rare/Holo, T3 Premium/Chase, T4 Ultra/Grail), no una por rareza: al abrir el editor tras un sync con ~30
+    rarezas, el dueño configura **5 reglas** (una por tier) y **cada rareza hereda la regla de su tier**, sin
+    tener que llenar 30 filas. El editor gestiona los tiers **tanto para compra (buylist) como para venta** (dos
+    juegos de valores, un mismo mapa rareza→tier).
+74. Existe un **mapa rareza canónica → tier** que cubre **todas** las rarezas canónicas del catálogo, **editable
+    por el dueño** desde M2 (puede reasignar una rareza a otro tier). Cambiar la regla de un tier **repricia
+    todas** las rarezas mapeadas a ese tier (verificable: subir el % del tier «Chase» cambia la cotización de
+    todas sus rarezas a la vez).
+75. **Refinamiento estricto de `premium` (money-safe)**: ninguna rareza `premium:true` del catálogo mapea a un
+    tier de **bin fijo** (a partir de v1.9 solo **T0 y T1** son bin fijo; T2–T4 son `pct`); toda chase resuelve
+    por un tier de **% de mercado** o por el fallback %. Verificable: una Illustration/Ultra/Double Rare (y las
+    ex/V/GX) **nunca** cotiza a un bin fijo. El invariante se valida **aunque el dueño edite el mapa** (una
+    reasignación que mandaría una rareza premium a T0/T1 es rechazada).
+76. **Rarezas «SIN MAPEAR» cerradas (corrección de dinero)**: **Mega Hyper Rare** queda como **alias de Hyper
+    Rare → T4**; **`MEGA_ATTACK_RARE`** y **Black White Rare** quedan como **nuevas canónicas premium → T3** (y
+    cualquier otra `unmapped` detectada en el catálogo real se cierra con la misma política). En particular
+    **`MEGA_ATTACK_RARE`** y **Black White Rare** —que hoy el patrón trata como no-premium— **dejan de cotizar
+    al bin fijo de bulk** (fix de dinero verificable: antes bin fijo barato, después `pct` premium).
+77. **Money-safe — `pct` sin referencia**: cualquier tier `pct` (T2, T3, T4) o el **fallback** sin precio de
+    mercado del acabado deja la carta en **«precio pendiente»** y la escala al dueño — **nunca $0, nunca bin
+    fijo**. Verificable en particular para **T2 (Rare/Holo)**: una Rare sin market price queda pendiente, no en
+    $0. Una rareza **sin tier asignado** (nueva tras un sync) cotiza por el **tier por defecto = `pct` de
+    fallback** con la misma regla.
+78. **Comportamiento preservado salvo el cambio intencional de T2**: con el **seed por defecto**, la cotización
+    de una carta de **T0/T1/T3/T4** es **idéntica** a la de antes de introducir tiers (bulk $0.50/$1.50 fijo,
+    chase 40%); **T2 (Rare/Rare Holo) cambia a propósito** de bin fijo a **`pct` 25% del mercado** (verificable:
+    una Rare/Rare Holo que antes cotizaba al bin fijo ahora cotiza al 25% de su referencia, y sin referencia cae
+    en «precio pendiente»). La derivación del monto sigue siendo **server-side** desde la rareza real (SEC-A1),
+    en compra y en venta.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Legal — custodia/depositario**: la bóveda implica guardar bienes de terceros. Validar con abogado la
@@ -1416,3 +1600,34 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    su set-id real (money-safe). ¿Confirmas que **no** quieres, ni ahora ni pronto, fusionar los set-ids en una
    sola llave real (lo que implicaría re-llavear precio/inventario/bóveda)? Si algún día lo quieres, es un
    cambio de modelo aparte.
+
+## Decisiones (v1.9, P-34) — pricing por tiers (LOCKED)
+> El humano respondió las preguntas abiertas del borrador v1.8. Estas decisiones quedan **cerradas** y son la
+> entrada para el arquitecto (schema + contrato del editor). Ninguna bloquea el arranque.
+1. **Número de tiers → 5** (LOCKED): T0 Bulk, T1 Uncommon/Reverse, T2 Rare/Holo, T3 Premium/Chase, T4
+   Ultra/Grail. Define el editor de M2 (5 filas de reglas por eje).
+2. **Nombres de los tiers → los propuestos** (LOCKED): «Bulk / Uncommon-Reverse / Rare-Holo / Premium-Chase /
+   Ultra-Grail».
+3. **T2 (Rare / Holo) → PORCENTAJE bajo del mercado** (LOCKED): default **25%**, ajustable sin código. **NO
+   fijo.** Es un **cambio intencional** de comportamiento (antes Rare/Rare Holo caían al bin fijo de bulk).
+   Money-safe: `pct` sin referencia de mercado ⇒ **precio pendiente, nunca $0** (igual que T3/T4).
+4. **Rarezas SIN MAPEAR → premium** (LOCKED, corrección de dinero): **Mega Hyper Rare → alias de Hyper Rare →
+   T4**; **`MEGA_ATTACK_RARE` → nueva canónica premium → T3**; **Black White Rare → nueva canónica premium →
+   T3**. `MEGA_ATTACK_RARE` y Black White Rare eran **money-losing** (el patrón las trataba como no-premium y
+   cotizaban al bin fijo de bulk): con esto dejan de hacerlo. El **barrido de otras `unmapped`** del catálogo
+   real es tarea de implementación (arquitecto/backend) con esta misma política; no es un hueco de producto.
+5. **Eje acabado (`finish`) → sigue siendo eje aparte** (LOCKED): los tiers son para el eje **rareza**; el eje
+   **acabado** (normal/reverse_holo/holofoil/1st-ed) no se «tieriza» y queda como está (§I).
+6. **Tiers en compra Y venta** (LOCKED): un **mismo mapa rareza→tier** alimenta la tabla de **compra (buylist)**
+   y la de **venta** (`computeSalePriceForRarity`), con **dos juegos de valores por tier** (en compra `pct` = %
+   de la referencia; en venta `pct` = markup arriba de mercado).
+7. **Mapa rareza→tier → EDITABLE por el dueño** (LOCKED, Opción B): además de editar la regla de cada tier, el
+   dueño puede **reasignar una rareza a otro tier** desde M2. El backend valida el invariante de refinamiento
+   estricto (M.4) en cada edición; todo cambio queda auditado (M10).
+8. **T4 (Ultra/Grail) → 40%** (LOCKED): igual que T3 por ahora; queda como tier propio para poder subirlo luego
+   sin código si el dueño quiere pagar más por Special Illustration/Hyper/Secret/Gold.
+
+**Abierto (no bloquea al arquitecto):** ninguna decisión de producto queda pendiente. Lo único que resta es
+**operativo/de implementación**: (a) el **barrido completo de rarezas `unmapped`** contra el catálogo real
+(punto 4) y (b) los **valores por defecto de venta por tier** que reproduzcan el markup vigente (los fija
+backend/arquitecto al implementar, sin decisión de producto adicional).

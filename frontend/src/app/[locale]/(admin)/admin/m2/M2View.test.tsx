@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { M2View } from './M2View';
 import * as api from '@/lib/api';
+import * as fx from '@/lib/mock/fixtures';
 import { ApiClientError } from '@/lib/api-client';
 
 // El `Link` de next-intl (`@/i18n/navigation`) no resuelve bajo vitest; se stubea a un <a>
@@ -394,369 +395,6 @@ describe('M2View · Catálogo y precios', () => {
     expect(screen.getByText(/Presupuesto restante hoy: 0/)).toBeInTheDocument();
   });
 
-  // Devuelve un helper `within` acotado a la <section> cuyo encabezado matchea `name`.
-  // Evita ambigüedad entre los editores de buylist (Sección 4) y de venta (Sección 5),
-  // que comparten aria-labels ("Guardar", "Modo para {rarity}", "Valor para {rarity}").
-  async function sectionFor(name: RegExp) {
-    const heading = await screen.findByRole('heading', { name });
-    const section = heading.closest('section');
-    if (!section) throw new Error('section not found');
-    return within(section);
-  }
-
-  // ---- Editor de precio de buylist por rareza (v1.3.1) ----
-  it('renderiza el editor de reglas por rareza con el fallback y las rarezas del catálogo', async () => {
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza/);
-    // Fallback editable y una rareza fija del seed (Common).
-    expect(await s.findByLabelText('Fallback (%)')).toBeInTheDocument();
-    expect((await s.findAllByText('Common')).length).toBeGreaterThan(0);
-  });
-
-  it('editar el valor de una regla fija (Common) y guardar envía updateBuylistRules en el eje rarityRules (centavos)', async () => {
-    const spy = vi
-      .spyOn(api, 'updateBuylistRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 40 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
-    const valueInput = await s.findByLabelText('Valor para Common');
-    // 1 peso → 100 centavos.
-    fireEvent.change(valueInput, { target: { value: '1' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    // v1.29 dos ejes: la rareza va en `rarityRules`, no en un mapa plano `rules`.
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fallbackPct: 40,
-        rarityRules: expect.objectContaining({ Common: { mode: 'fixed', value: 100 } }),
-      }),
-    );
-    expect(await screen.findByText('Reglas de buylist guardadas.')).toBeInTheDocument();
-  });
-
-  it('editar el fallback % y guardar envía el nuevo fallbackPct', async () => {
-    const spy = vi
-      .spyOn(api, 'updateBuylistRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 55 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
-    const fallback = await s.findByLabelText('Fallback (%)');
-    fireEvent.change(fallback, { target: { value: '55' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 55 }));
-  });
-
-  it('cambiar el modo de una rareza en fallback a fijo la promueve a regla explícita del eje rarityRules', async () => {
-    const spy = vi
-      .spyOn(api, 'updateBuylistRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 40 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
-    // Rare Holo no tiene regla explícita (fallback pct); cambiar su modo a fijo.
-    const modeSelect = await s.findByLabelText('Modo para Rare Holo');
-    fireEvent.change(modeSelect, { target: { value: 'fixed' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as { rarityRules: Record<string, { mode: string }> };
-    expect(arg.rarityRules['Rare Holo'].mode).toBe('fixed');
-  });
-
-  // ---- v1.29 dos ejes: reglas por ACABADO (retira el parche INV-1) ----
-  it('DOS EJES: editar una regla de ACABADO (Reverse Holo) la guarda en finishRules, SIN tocar rarityRules', async () => {
-    // El eje de acabado reemplaza la vieja key sintética "Reverse Holo" del mapa plano (INV-1).
-    // El seed del mock trae finishRules.reverse_holo = { fixed, 150 } → el campo muestra "1.5".
-    const spy = vi
-      .spyOn(api, 'updateBuylistRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 40 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
-    const finishInput = (await s.findByLabelText('Valor del acabado Reverse Holo')) as HTMLInputElement;
-    // 2 pesos → 200 centavos, en el eje de ACABADO.
-    fireEvent.change(finishInput, { target: { value: '2' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as {
-      rarityRules: Record<string, unknown>;
-      finishRules: Record<string, { mode: string; value: number }>;
-    };
-    // La regla del acabado va en el EJE finishRules (keyeado por el enum Finish)…
-    expect(arg.finishRules.reverse_holo).toEqual({ mode: 'fixed', value: 200 });
-    // …y NO se cuela como una "rareza" en el eje de rareza (limpieza que motiva retirar INV-1).
-    expect(arg.rarityRules['Reverse Holo']).toBeUndefined();
-    expect(arg.rarityRules.reverse_holo).toBeUndefined();
-  });
-
-  it('DOS EJES: guardar tras editar SOLO la rareza Common PRESERVA la regla de acabado del servidor (finishRules)', async () => {
-    // El merge parte del PriceRuleSet del servidor (ambos ejes): editar un eje no borra el otro.
-    // Ya no hay que rescatar a mano una key sintética (INV-1 retirado).
-    vi.spyOn(api, 'getBuylistRules').mockResolvedValue({
-      rarityRules: { Common: { mode: 'fixed', value: 50 } },
-      finishRules: { holofoil: { mode: 'fixed', value: 1000 } },
-      fallbackPct: 40,
-    });
-    const spy = vi
-      .spyOn(api, 'updateBuylistRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 40 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza y acabado/);
-    const valueInput = await s.findByLabelText('Valor para Common');
-    fireEvent.change(valueInput, { target: { value: '1' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as {
-      rarityRules: Record<string, { mode: string; value: number }>;
-      finishRules: Record<string, { mode: string; value: number }>;
-    };
-    // La regla de ACABADO del servidor sobrevive al guardado (no revierte a fallback → no cae a pending)…
-    expect(arg.finishRules.holofoil).toEqual({ mode: 'fixed', value: 1000 });
-    // …y la rareza editada (Common) se aplica en su propio eje (1 peso → 100 centavos).
-    expect(arg.rarityRules.Common).toEqual({ mode: 'fixed', value: 100 });
-  });
-
-  // ---- Editor de precio de VENTA por rareza (v1.13-sales-pricing) ----
-  it('renderiza el editor de reglas de VENTA con el fallback (sobre mercado) y el hint de markup', async () => {
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    // El fallback de venta se rotula como markup "sobre mercado" (distinto del de buylist).
-    expect(await s.findByLabelText('Fallback (% sobre mercado)')).toBeInTheDocument();
-    // El hint deja claro que el pct es markup arriba de mercado (precio = mercado × (1 + %)).
-    expect(s.getByText(/precio de venta = mercado × \(1 \+ %\)/)).toBeInTheDocument();
-  });
-
-  it('editar el valor de una regla fija de venta (Common) y guardar envía updateSalesRules en el eje rarityRules (centavos)', async () => {
-    const spy = vi
-      .spyOn(api, 'updateSalesRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    const valueInput = await s.findByLabelText('Valor para Common');
-    // 20 pesos → 2000 centavos.
-    fireEvent.change(valueInput, { target: { value: '20' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        fallbackPct: 15,
-        rarityRules: expect.objectContaining({ Common: { mode: 'fixed', value: 2000 } }),
-      }),
-    );
-    expect(await screen.findByText('Reglas de venta guardadas.')).toBeInTheDocument();
-  });
-
-  it('editar el fallback de venta acepta pct > 100 (markup sin tope en 100) y lo envía', async () => {
-    const spy = vi
-      .spyOn(api, 'updateSalesRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 250 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    const fallback = await s.findByLabelText('Fallback (% sobre mercado)');
-    // 250% de markup: válido en venta (el validador permite hasta 1000).
-    fireEvent.change(fallback, { target: { value: '250' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ fallbackPct: 250 }));
-  });
-
-  it('DOS EJES VENTA: guardar tras editar Common PRESERVA la regla de ACABADO del servidor (finishRules)', async () => {
-    // v1.29: la vieja key sintética "Holo" (INV-1) se separa en el eje de ACABADO (finishRules).
-    // El merge parte del PriceRuleSet del servidor (ambos ejes) → editar la rareza no borra el acabado.
-    vi.spyOn(api, 'getSalesRules').mockResolvedValue({
-      rarityRules: { Common: { mode: 'fixed', value: 500 } },
-      finishRules: { holofoil: { mode: 'fixed', value: 1000 } },
-      fallbackPct: 15,
-    });
-    const spy = vi
-      .spyOn(api, 'updateSalesRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    const valueInput = await s.findByLabelText('Valor para Common');
-    // 20 pesos → 2000 centavos.
-    fireEvent.change(valueInput, { target: { value: '20' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as {
-      rarityRules: Record<string, { mode: string; value: number }>;
-      finishRules: Record<string, { mode: string; value: number }>;
-    };
-    // La regla de ACABADO del servidor sobrevive (no revierte a fallback → no cae a pending)…
-    expect(arg.finishRules.holofoil).toEqual({ mode: 'fixed', value: 1000 });
-    // …y la rareza editada (Common) se aplica en su propio eje.
-    expect(arg.rarityRules.Common).toEqual({ mode: 'fixed', value: 2000 });
-  });
-
-  it('DOS EJES VENTA: editar el ACABADO Reverse Holo lo guarda en finishRules (markup sobre mercado)', async () => {
-    const spy = vi
-      .spyOn(api, 'updateSalesRules')
-      .mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    // El eje de acabado usa el mismo control fixed/pct; el seed trae reverse_holo fixed 1000 → "10".
-    const finishInput = (await s.findByLabelText('Valor del acabado Reverse Holo')) as HTMLInputElement;
-    fireEvent.change(finishInput, { target: { value: '25' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    const arg = spy.mock.calls[0][0] as { finishRules: Record<string, { mode: string; value: number }> };
-    // 25 pesos → 2500 centavos, en el eje de ACABADO (no en rareza).
-    expect(arg.finishRules.reverse_holo).toEqual({ mode: 'fixed', value: 2500 });
-  });
-
-  it('INV-1 robustez: si getSalesRules FALLA, Guardar queda DESHABILITADO (no no-op silencioso) y se explica por qué', async () => {
-    // La tabla cruda es la base del merge money-safe; sin ella el guard hacía return silencioso con el
-    // botón habilitado. Ahora el botón se gatea con `!salesRules.data` y se muestra un aviso con reintento.
-    vi.spyOn(api, 'getSalesRules').mockRejectedValue(
-      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
-    );
-    const spy = vi.spyOn(api, 'updateSalesRules');
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-
-    // La vista de rarezas SÍ carga (editor visible), pero la tabla cruda falló → aviso claro.
-    expect(await s.findByText(/No se pudo cargar la tabla de reglas/)).toBeInTheDocument();
-
-    // Editar una rareza deja el borrador "sucio", pero Guardar sigue DESHABILITADO (no guardable).
-    fireEvent.change(await s.findByLabelText('Valor para Common'), { target: { value: '20' } });
-    const save = s.getByRole('button', { name: 'Guardar' });
-    expect(save).toBeDisabled();
-
-    // Un clic no dispara la mutación (nunca es un no-op silencioso: el botón ni siquiera responde).
-    fireEvent.click(save);
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  // ---- P-1: el input de valor por rareza (VENTA) debe aceptar decimales/tecleo/vaciado ----
-  // Los tests de arriba usan un solo `fireEvent.change('20')` que NO reproduce el bug: el fallo
-  // aparecía tecla-a-tecla (el punto decimal y el vaciado se destruían al re-derivar un número en
-  // cada keystroke). Estos usan `userEvent.type` carácter a carácter.
-  it('P-1: teclear un decimal ("12.50") en Valor para Common lo CONSERVA, habilita Guardar y envía 1250 centavos', async () => {
-    const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
-    // Seed: Common = { fixed, 500¢ } → el campo muestra "5" (pesos) al cargar (no un número crudo).
-    expect(input).toHaveValue('5');
-
-    await user.clear(input);
-    await user.type(input, '12.50');
-    // El punto decimal y el cero final SOBREVIVEN al tecleo (el bug los borraba en cada keystroke).
-    expect(input).toHaveValue('12.50');
-
-    const save = s.getByRole('button', { name: 'Guardar' });
-    expect(save).toBeEnabled();
-    await user.click(save);
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    // 12.50 pesos → 1250 centavos (no 1250 pesos ni un 100× de sobreprecio).
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        rarityRules: expect.objectContaining({ Common: { mode: 'fixed', value: 1250 } }),
-      }),
-    );
-  });
-
-  it('P-1: se puede VACIAR el campo de Valor para Common (no fuerza "0") y luego re-teclear', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
-    await user.clear(input);
-    // El campo queda VACÍO (antes el vaciado se normalizaba a 0 y reaparecía "0").
-    expect(input).toHaveValue('');
-    await user.type(input, '7.25');
-    expect(input).toHaveValue('7.25');
-  });
-
-  it('P-1 money-safe: cambiar el modo (fixed↔pct) NO arrastra el número entre semánticas', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    // Common arranca en fixed 500¢ → "5".
-    expect((await s.findByLabelText('Valor para Common'))).toHaveValue('5');
-    // Al pasar a % NO debe quedar "5" (500¢ no es 500%): el valor se limpia al voltear el modo.
-    await user.selectOptions(s.getByLabelText('Modo para Common'), 'pct');
-    expect(s.getByLabelText('Valor para Common')).toHaveValue('');
-  });
-
-  // ---- S-P1-1 (SECURITY): un valor con MÚLTIPLES PUNTOS o VACÍO no puede colar un MX$0 ----
-  it('S-P1-1: teclear "1.2.3" en Valor para Common deja UN SOLO punto ("1.23") y Guardar NO envía 0', async () => {
-    const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
-    await user.clear(input);
-    await user.type(input, '1.2.3');
-    // El 2.º punto se descarta tecla-a-tecla: nunca se forma "1.2.3" (que casteaba a NaN→0).
-    expect(input).toHaveValue('1.23');
-
-    const save = s.getByRole('button', { name: 'Guardar' });
-    expect(save).toBeEnabled();
-    await user.click(save);
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    // 1.23 pesos → 123 centavos; jamás 0 (giveaway) por el multi-punto.
-    expect(spy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        rarityRules: expect.objectContaining({ Common: { mode: 'fixed', value: 123 } }),
-      }),
-    );
-    const arg = spy.mock.calls[0][0] as { rarityRules: Record<string, { value: number }> };
-    expect(arg.rarityRules.Common.value).not.toBe(0);
-  });
-
-  it('S-P1-1: VACIAR Valor para Common (regla tocada, vacía) DESHABILITA Guardar → no persiste {fixed,0}', async () => {
-    const user = userEvent.setup();
-    const spy = vi.spyOn(api, 'updateSalesRules').mockResolvedValue({ rarityRules: {}, finishRules: {}, fallbackPct: 15 });
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
-    await user.clear(input);
-    expect(input).toHaveValue('');
-
-    // La regla quedó "tocada" pero vacía → Guardar bloqueado y se explica por qué (money-safe).
-    const save = s.getByRole('button', { name: 'Guardar' });
-    expect(save).toBeDisabled();
-    expect(s.getByText(/vac[íi]o o inv[áa]lido/i)).toBeInTheDocument();
-
-    // Un clic no dispara la mutación: nunca se persiste {mode:'fixed', value:0}.
-    await user.click(save);
-    expect(spy).not.toHaveBeenCalled();
-  });
-
-  it('S-P1-1: un valor mal formado (solo ".") en una regla tocada DESHABILITA Guardar', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    const input = (await s.findByLabelText('Valor para Common')) as HTMLInputElement;
-    await user.clear(input);
-    await user.type(input, '.');
-    // "." no parsea a número finito → no guardable (Number(".")=NaN, no se persiste como 0).
-    expect(input).toHaveValue('.');
-    expect(s.getByRole('button', { name: 'Guardar' })).toBeDisabled();
-  });
-
-  // ---- Ejemplos en línea del % (G3: la semántica del % es OPUESTA entre compra y venta) ----
-  it('la tabla de buylist muestra un ejemplo textual del % (pagas MX$40 por MX$100)', async () => {
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Precio de buylist por rareza/);
-    expect(await s.findByText(/pagas MX\$40 por una carta de MX\$100/)).toBeInTheDocument();
-  });
-
-  it('la tabla de venta muestra un ejemplo textual del % (vendes en MX$115 una de MX$100)', async () => {
-    renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Reglas de precio de VENTA por rareza/);
-    expect(await s.findByText(/vendes en MX\$115 una carta de MX\$100/)).toBeInTheDocument();
-  });
 
   // ---- FX · guardar SOLO el colchón (#13, v1.14-price-ingest) ----
   it('guardar solo el colchón (buffer) llama a updateFx SIN rate y muestra el mensaje claro', async () => {
@@ -992,27 +630,6 @@ describe('M2 · «Unificar rarezas» (§19.5)', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('tras el éxito invalida las rarezas del editor (se vuelven a pedir para recomponerse)', async () => {
-    vi.spyOn(api, 'unifyRarities').mockResolvedValue({ ...okResponse, unmapped: [] });
-    const raritiesSpy = vi.spyOn(api, 'getBuylistRarities');
-    renderWithProviders(<M2View />, 'es');
-
-    // Espera a que el editor de rarezas TERMINE su carga inicial (una rareza del seed visible): si
-    // se invalidara con el fetch inicial aún en vuelo, React Query lo deduplicaría y no re-pediría.
-    expect((await screen.findAllByText('Common')).length).toBeGreaterThan(0);
-    const before = raritiesSpy.mock.calls.length;
-
-    fireEvent.click(screen.getByRole('button', { name: /Unificar rarezas/ }));
-    fireEvent.click(
-      within(await screen.findByRole('dialog', { name: /Unificar rarezas del catálogo/ })).getByRole(
-        'button',
-        { name: /Unificar rarezas/ },
-      ),
-    );
-
-    // El éxito invalida ['buylist-rarities'] → el editor vuelve a pedir las rarezas (recompone sin duplicados).
-    await waitFor(() => expect(raritiesSpy.mock.calls.length).toBeGreaterThan(before));
-  });
 });
 
 /**
@@ -1316,5 +933,173 @@ describe('M2 · «Refrescar variantes + precios de TODO (solo TCGCSV)» batch (R
     expect(await screen.findByText(/No se pudo refrescar el catálogo completo desde TCGCSV\./)).toBeInTheDocument();
     // La vista sigue viva (el encabezado M2 sigue presente).
     expect(screen.getByRole('heading', { level: 1, name: /Catálogo y precios/ })).toBeInTheDocument();
+  });
+});
+
+
+/**
+ * P-34 (v1.37-pricing-tiers): editor de precios por TIER. SUPERSEDE el editor de ~30 reglas por
+ * rareza. Sección 4 = 5 filas por tier (compra + venta); Sección 5 = asignador rareza → tier. Se
+ * verifica: guardar tiers, invariante premium→% visible, asignar el mapa y el manejo de los 422
+ * (PREMIUM_RARITY_FIXED_TIER con pares infractores y UNKNOWN_RARITY).
+ */
+describe('M2 · Editor de precios por TIER (P-34, v1.37)', () => {
+  async function sectionFor(name: RegExp) {
+    const heading = await screen.findByRole('heading', { name });
+    const section = heading.closest('section');
+    if (!section) throw new Error('section not found');
+    return within(section);
+  }
+  const TIERS_RE = /Precios por tier/;
+  const MAP_RE = /Asignación de rarezas a tiers/;
+
+  it('renderiza las 5 filas de tiers T0–T4 con su nombre y el badge premium', async () => {
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(TIERS_RE);
+    for (const name of ['Bulk', 'Uncommon / Reverse', 'Rare / Holo', 'Premium / Chase', 'Ultra / Grail']) {
+      expect((await s.findAllByText(name)).length).toBeGreaterThan(0);
+    }
+    // T3/T4 son premium: al menos dos badges «Premium» dentro del editor de tiers.
+    expect(s.getAllByText('Premium').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('guardar tras editar la COMPRA de T0 (fijo) envía updatePricingTiers con los centavos correctos', async () => {
+    const spy = vi.spyOn(api, 'updatePricingTiers').mockResolvedValue(fx.getMockTieredRuleSet());
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(TIERS_RE);
+    // Seed T0 buy = fixed 50¢ → el campo muestra "0.5" (pesos). 1 peso → 100 centavos.
+    const input = (await s.findByLabelText('Valor de compra de Bulk')) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '1' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const arg = spy.mock.calls[0][0] as { tiers: { id: string; buy: { mode: string; value: number } }[] };
+    expect(arg.tiers).toHaveLength(5);
+    const t0 = arg.tiers.find((x) => x.id === 'T0')!;
+    expect(t0.buy).toEqual({ mode: 'fixed', value: 100 });
+    expect(await screen.findByText('Reglas por tier guardadas.')).toBeInTheDocument();
+  });
+
+  it('invariante visible: en un tier PREMIUM (T3) la COMPRA no ofrece el modo «fijo» (solo %)', async () => {
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(TIERS_RE);
+    const buyMode = (await s.findByLabelText('Modo de compra de Premium / Chase')) as HTMLSelectElement;
+    // El modo «fijo» está retirado (bin fijo regalaría cartas premium); solo queda «Porcentaje».
+    expect(within(buyMode).queryByRole('option', { name: 'Fijo (MX$)' })).toBeNull();
+    expect(within(buyMode).getAllByRole('option')).toHaveLength(1);
+    // La VENTA del mismo tier sí ofrece ambos modos (un fijo de venta es un piso, no un bin de compra).
+    const sellMode = (await s.findByLabelText('Modo de venta de Premium / Chase')) as HTMLSelectElement;
+    expect(within(sellMode).getAllByRole('option')).toHaveLength(2);
+  });
+
+  it('money-safe: vaciar el valor de compra de T0 DESHABILITA Guardar (no persiste MX$0)', async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, 'updatePricingTiers');
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(TIERS_RE);
+    const input = (await s.findByLabelText('Valor de compra de Bulk')) as HTMLInputElement;
+    await user.clear(input);
+    expect(input).toHaveValue('');
+    const save = s.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeDisabled();
+    expect(s.getByText(/vac[íi]o o inv[áa]lido/i)).toBeInTheDocument();
+    await user.click(save);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('maneja el 422 PREMIUM_RARITY_FIXED_TIER de PUT /tiers mostrando los pares infractores', async () => {
+    vi.spyOn(api, 'updatePricingTiers').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'PREMIUM_RARITY_FIXED_TIER',
+        message: 'premium on fixed',
+        details: { offending: [{ rarity: 'Ultra Rare', tierId: 'T0' }] },
+      }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(TIERS_RE);
+    // Editar la VENTA de T0 (permitido) para ensuciar el borrador y poder guardar.
+    fireEvent.change(await s.findByLabelText('Valor de venta de Bulk'), { target: { value: '9' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    expect(
+      await s.findByText(/rareza premium en tier de compra fija/i),
+    ).toBeInTheDocument();
+    expect(s.getByText('Ultra Rare')).toBeInTheDocument();
+    expect(s.getByText(/Ultra Rare/).textContent).toContain('Ultra Rare');
+  });
+
+  // ---- Asignador rareza → tier (mapa compartido compra/venta) ----
+  it('renderiza el asignador con las rarezas del catálogo y un dropdown de tier por fila', async () => {
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(MAP_RE);
+    expect((await s.findAllByText('Common')).length).toBeGreaterThan(0);
+    // El dropdown de Common existe y arranca en su tier del seed (T0).
+    const sel = (await s.findByLabelText('Tier para Common')) as HTMLSelectElement;
+    expect(sel.value).toBe('T0');
+  });
+
+  it('asignar Common → T2 y guardar envía updatePricingTierMap con el patch parcial', async () => {
+    const spy = vi.spyOn(api, 'updatePricingTierMap').mockResolvedValue(fx.getMockTierMap());
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(MAP_RE);
+    fireEvent.change(await s.findByLabelText('Tier para Common'), { target: { value: 'T2' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledWith({ assignments: { Common: 'T2' } });
+    expect(await screen.findByText('Mapa de rarezas guardado.')).toBeInTheDocument();
+  });
+
+  it('maneja el 422 PREMIUM_RARITY_FIXED_TIER de PUT /tier-map listando los pares infractores', async () => {
+    vi.spyOn(api, 'updatePricingTierMap').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'PREMIUM_RARITY_FIXED_TIER',
+        message: 'premium on fixed',
+        details: { offending: [{ rarity: 'Ultra Rare', tierId: 'T1' }] },
+      }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(MAP_RE);
+    fireEvent.change(await s.findByLabelText('Tier para Common'), { target: { value: 'T2' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    expect(await s.findByText(/rareza premium en tier de compra fija/i)).toBeInTheDocument();
+    // El par infractor Ultra Rare → T1 se lista para que el dueño lo corrija.
+    const items = s.getAllByText('Ultra Rare');
+    expect(items.length).toBeGreaterThan(0);
+  });
+
+  it('maneja el 422 UNKNOWN_RARITY de PUT /tier-map con un mensaje claro', async () => {
+    vi.spyOn(api, 'updatePricingTierMap').mockRejectedValue(
+      new ApiClientError(422, { code: 'UNKNOWN_RARITY', message: 'unknown' }),
+    );
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(MAP_RE);
+    fireEvent.change(await s.findByLabelText('Tier para Common'), { target: { value: 'T2' } });
+    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
+
+    expect(await s.findByText(/Rareza desconocida/i)).toBeInTheDocument();
+  });
+
+  it('money-safe: una rareza sin tier se muestra como fallback (pendiente), nunca a MX$0', async () => {
+    vi.spyOn(api, 'getPricingTierMap').mockResolvedValue({
+      tiers: [
+        { id: 'T0', name: 'Bulk', premium: false },
+        { id: 'T1', name: 'Uncommon / Reverse', premium: false },
+        { id: 'T2', name: 'Rare / Holo', premium: false },
+        { id: 'T3', name: 'Premium / Chase', premium: true },
+        { id: 'T4', name: 'Ultra / Grail', premium: true },
+      ],
+      rarities: [
+        { canonical: 'Galaxy Foil', premium: false, mapped: true, cardCount: 3, tierId: null, source: 'fallback' },
+      ],
+    });
+    renderWithProviders(<M2View />, 'es');
+    const s = await sectionFor(MAP_RE);
+    expect(await s.findByText('Galaxy Foil')).toBeInTheDocument();
+    // Sin tier asignado → origen fallback (pendiente) y dropdown vacío (no inventa un tier).
+    expect(s.getByText('Fallback (pendiente)')).toBeInTheDocument();
+    const sel = (await s.findByLabelText('Tier para Galaxy Foil')) as HTMLSelectElement;
+    expect(sel.value).toBe('');
   });
 });

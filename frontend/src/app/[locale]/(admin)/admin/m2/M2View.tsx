@@ -5,8 +5,8 @@ import { useCatalogSync } from './sections/useCatalogSync';
 import { PriceIngestSection } from './sections/PriceIngestSection';
 import { PendingQueueSection } from './sections/PendingQueueSection';
 import { FxSection } from './sections/FxSection';
-import { BuylistRulesSection } from './sections/BuylistRulesSection';
-import { SalesRulesSection } from './sections/SalesRulesSection';
+import { TierRulesSection } from './sections/TierRulesSection';
+import { TierMapSection } from './sections/TierMapSection';
 import { SealedSpreadsSection } from './sections/SealedSpreadsSection';
 import { CatalogSyncSection } from './sections/CatalogSyncSection';
 
@@ -40,11 +40,13 @@ export function M2View() {
           humano — TCGCSV sigue primario y PPT queda fijo como respaldo en el backend, sin
           control en UI. La ingesta a mano vive en la Sección 1 (PriceIngestSection). */}
 
-      {/* Sección 4 · precio de buylist en DOS EJES + «Unificar rarezas» (v1.29, §4.28d) */}
-      <BuylistRulesSection />
+      {/* Sección 4 · precios por TIER (5 tiers T0–T4, compra + venta) — v1.37-pricing-tiers (P-34).
+          SUPERSEDE el editor de ~30 reglas por rareza (Buylist/Sales por rareza). */}
+      <TierRulesSection />
 
-      {/* Sección 5 · precio de VENTA por RAREZA + ACABADO (v1.13-sales-pricing) */}
-      <SalesRulesSection />
+      {/* Sección 5 · asignador rareza canónica → tier (mapa compartido compra/venta) + «Unificar
+          rarezas» (§19.5) — v1.37-pricing-tiers (P-34). */}
+      <TierMapSection />
 
       {/* Sección 5b · spreads de VENTA del SELLADO por presentación (v1.23-sealed-sales) */}
       <SealedSpreadsSection />

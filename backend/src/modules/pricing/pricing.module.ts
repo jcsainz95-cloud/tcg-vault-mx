@@ -76,6 +76,10 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
     PriceIngestJobService,
     SealedPriceIngestService,
     SealedPriceIngestJobService,
+    // v1.36-sealed-alta (M-37, P-35): el proxy read-only de TCGCSV lo REUSA el alta dedicada de
+    // sellado de M1 (`SealedCatalogAdminService`, stream «Inventario y vault») sin duplicar el
+    // cliente anti-SSRF. Solo lectura de catálogo; la curación de mapeo sigue en M2.
+    TcgcsvSealedBulkProvider,
   ],
 })
 export class PricingModule {}
