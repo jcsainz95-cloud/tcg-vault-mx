@@ -17,6 +17,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { InventoryService } from './inventory.service';
 import { MasterSetService } from './master-set.service';
 import { SealedGradedInventoryService } from './sealed-graded.service';
+import { SealedCatalogAdminService } from './sealed-catalog-admin.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import {
@@ -53,6 +54,8 @@ export class InventoryController {
     // v1.28 (P-25/P-20): read models de las pestañas Sellado/Gradeadas. @Optional-less: lo provee
     // el módulo; los tests unitarios del controller que no lo ejercitan pasan un stub vacío.
     private readonly sealedGraded?: SealedGradedInventoryService,
+    // v1.36-sealed-alta (M-37, P-35): listado de productos sellados del set para el alta dedicada.
+    private readonly sealedCatalog?: SealedCatalogAdminService,
   ) {}
 
   // ===== v1.16-master-set (§4.17) — Master Set + inventario a escala (vault_operator+) =====
@@ -108,6 +111,32 @@ export class InventoryController {
       page: Math.max(1, parseInt(page, 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });
+  }
+
+  /**
+   * v1.36-sealed-alta (M-37, P-35, §4.32a) — GET /admin/inventory/sealed-catalog?setId=&groupId?=&q?=
+   * Lista los PRODUCTOS SELLADOS de un set desde TCGCSV (ETB, booster box, bundle, tin, blíster) —
+   * NO singles — para el alta dedicada de la pestaña «Sellado». `vault_operator+`. Reusa el proxy
+   * read-only server-side de M2 (host fijo anti-SSRF). Money-safe: `marketRef` informativo (sin precio
+   * ⇒ null, nunca 0). Err: 400 (setId ausente / groupId no entero positivo), 404 (set), 502 (TCGCSV).
+   */
+  @Get('inventory/sealed-catalog')
+  async sealedCatalogList(
+    @Query('setId') setId?: string,
+    @Query('groupId') groupIdRaw?: string,
+    @Query('q') q?: string,
+  ) {
+    if (!setId || setId.trim() === '') {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'setId is required');
+    }
+    let groupId: number | undefined;
+    if (groupIdRaw != null && groupIdRaw !== '') {
+      if (!/^\d+$/.test(groupIdRaw) || parseInt(groupIdRaw, 10) <= 0) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', 'groupId must be a positive integer');
+      }
+      groupId = parseInt(groupIdRaw, 10);
+    }
+    return this.sealedCatalog!.sealedCatalog({ setId, groupId, q });
   }
 
   @Post('inventory/items/batch')

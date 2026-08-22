@@ -2978,6 +2978,100 @@ export function mockSealedSetDetail(setId: string): import('@/types/contract').S
   };
 }
 
+// ---- P-35: alta dedicada de sellado — catálogo de PRODUCTOS sellados por set ----
+// MOCK: catálogo de producto sellado por set (fuente TCGCSV). Money-safe: `marketRef=null` cuando la
+// fuente no trae precio (NUNCA 0). Sets sin grupo TCGCSV resuelto ⇒ groupResolved:false + data:[].
+const MOCK_SEALED_CATALOG: Record<
+  string,
+  { tcgcsvGroupId: number; anchorCardId: string; products: import('@/types/contract').SealedCatalogProductDTO[] }
+> = {
+  sv08: {
+    tcgcsvGroupId: 23966,
+    anchorCardId: 'c-sealed-sv08-box',
+    products: [
+      {
+        tcgplayerProductId: 590411,
+        name: 'Surging Sparks Elite Trainer Box',
+        cleanName: 'Surging Sparks Elite Trainer Box',
+        sealedSubtype: 'etb',
+        imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590411_in_1000x1000.jpg',
+        marketRef: { status: 'priced', referenceMxnCents: 125_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+      },
+      {
+        tcgplayerProductId: 590412,
+        name: 'Surging Sparks Booster Box',
+        cleanName: 'Surging Sparks Booster Box',
+        sealedSubtype: 'box',
+        imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590412_in_1000x1000.jpg',
+        marketRef: { status: 'priced', referenceMxnCents: 320_000, source: 'tcgcsv', capturedDate: '2026-08-20' },
+      },
+      {
+        // Sin precio en la fuente ⇒ marketRef null (money-safe): seleccionable, pero sin aportación.
+        tcgplayerProductId: 590413,
+        name: 'Surging Sparks Booster Bundle',
+        cleanName: 'Surging Sparks Booster Bundle',
+        sealedSubtype: 'bundle',
+        imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/590413_in_1000x1000.jpg',
+        marketRef: null,
+      },
+      {
+        // Sin subtipo inferible ⇒ el operador lo elige en el paso 2.
+        tcgplayerProductId: 590414,
+        name: 'Surging Sparks Collection',
+        cleanName: 'Surging Sparks Collection',
+        sealedSubtype: null,
+        imageUrl: null,
+        marketRef: null,
+      },
+    ],
+  },
+  sv06: {
+    tcgcsvGroupId: 23821,
+    anchorCardId: 'c-sealed-sv06-etb',
+    products: [
+      {
+        tcgplayerProductId: 570123,
+        name: 'Twilight Masquerade Elite Trainer Box',
+        cleanName: 'Twilight Masquerade Elite Trainer Box',
+        sealedSubtype: 'etb',
+        imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/570123_in_1000x1000.jpg',
+        marketRef: { status: 'priced', referenceMxnCents: 110_000, source: 'tcgcsv', capturedDate: '2026-08-19' },
+      },
+    ],
+  },
+};
+
+export function mockSealedCatalog(params: {
+  setId: string;
+  groupId?: number;
+  q?: string;
+}): import('@/types/contract').SealedCatalogResponse {
+  const set = mockSets.find((s) => s.id === params.setId);
+  if (!set) throw new ApiFixtureNotFound(`CardSet ${params.setId} not found`);
+  // MOCK: `base1` simula la fuente TCGCSV caída (502 UPSTREAM_ERROR) para ejercer el camino de respaldo.
+  if (params.setId === 'base1') {
+    throw new ApiFixtureError(502, 'UPSTREAM_ERROR', 'TCGCSV upstream not available');
+  }
+  const setRef = { id: set.id, name: set.name, series: set.series, releaseDate: set.releaseDate };
+  const entry = MOCK_SEALED_CATALOG[params.setId];
+  // Sin grupo resuelto (set sin sellado ni mapeo): vacío LEGÍTIMO, no error.
+  if (!entry) {
+    return { set: setRef, tcgcsvGroupId: params.groupId ?? null, groupResolved: params.groupId != null, anchorCardId: `c-anchor-${set.id}`, data: [] };
+  }
+  let products = entry.products;
+  if (params.q) {
+    const q = params.q.toLowerCase();
+    products = products.filter((p) => (p.cleanName ?? p.name).toLowerCase().includes(q));
+  }
+  return {
+    set: setRef,
+    tcgcsvGroupId: entry.tcgcsvGroupId,
+    groupResolved: true,
+    anchorCardId: entry.anchorCardId,
+    data: products,
+  };
+}
+
 // ---- P-20: pestaña «Gradeadas» ----
 /** Valor de mercado por carta+grado (PriceReference graded, típicamente MANUAL vía override M2). */
 export const mockGradedMarketRefs = new Map<string, { cents: number; capturedDate: string }>([

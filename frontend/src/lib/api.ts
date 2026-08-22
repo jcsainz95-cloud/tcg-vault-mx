@@ -141,6 +141,7 @@ import type {
   PublishAllResponse,
   SealedSetsResponse,
   SealedSetDetailResponse,
+  SealedCatalogResponse,
   GradedInventoryResponse,
   PublicBountiesResponse,
   // v1.21-guest-checkout (contrato §4-G) — sección aditiva al final del archivo.
@@ -2043,6 +2044,31 @@ export async function getSealedInventorySet(setId: string): Promise<SealedSetDet
   }
   try {
     return await delay(fx.mockSealedSetDetail(setId));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * Catálogo de PRODUCTOS SELLADOS de un set para el alta dedicada (contrato §M1 v1.36 ·
+ * GET /admin/inventory/sealed-catalog, `vault_operator+`): lista los productos sellados (ETB,
+ * booster box, bundle, tin, blíster) del set desde la fuente TCGCSV — NO singles. Reemplaza la
+ * reutilización del buscador de CARTAS (defecto P-35). Money-safe: `marketRef=null` (nunca 0) si
+ * la fuente no trae precio. `groupResolved=false` ⇒ data:[] y el front ofrece el camino de respaldo.
+ * Puede fallar con 502 UPSTREAM_ERROR si la fuente TCGCSV no responde.
+ */
+export async function getSealedCatalog(params: {
+  setId: string;
+  groupId?: number;
+  q?: string;
+}): Promise<SealedCatalogResponse> {
+  if (!config.useMocks) {
+    return apiRequest<SealedCatalogResponse>('/admin/inventory/sealed-catalog', {
+      query: { setId: params.setId, groupId: params.groupId, q: params.q },
+    });
+  }
+  try {
+    return await delay(fx.mockSealedCatalog(params));
   } catch (e) {
     throw translateFixtureError(e);
   }

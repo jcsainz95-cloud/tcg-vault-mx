@@ -205,7 +205,9 @@ describe('aportación de SELLADO — valuación por sealedMarketRef (fix §4.26g
       capturedDate: new Date('2026-08-21'),
     });
     await h.svc.createItem(sealedAportacion(), 'op-1');
-    expect(h.created[0].tcgplayerProductId).toBeUndefined();
+    // v1.36: el alta escribe la columna de mapeo explícitamente; SIN mapeo en el DTO nace `null`
+    // (unmapped), no hereda el productId del hermano (la curación por hermanos es solo para VALUAR).
+    expect(h.created[0].tcgplayerProductId).toBeNull();
   });
 });
 

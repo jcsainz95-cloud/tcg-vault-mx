@@ -13,8 +13,6 @@ import {
 } from '@/lib/api';
 import type {
   ProductType,
-  SealedSubtype,
-  SealedCondition,
   GradingCompany,
   AcquisitionType,
   Finish,
@@ -30,9 +28,9 @@ import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
 import { ApiClientError } from '@/lib/api-client';
 
-const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
-const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
-const SEALED_CONDITIONS: SealedCondition[] = ['mint', 'minor_box_damage'];
+// P-35 (§16.8a): el sellado ya NO se da de alta por el buscador de cartas — vive en el flujo
+// dedicado `SealedAddFlow`. El alta por lote clásica conserva solo raw/graded.
+const PRODUCT_TYPES: ProductType[] = ['raw', 'graded'];
 const GRADING_COMPANIES: GradingCompany[] = ['PSA', 'CGC'];
 // Alta MANUAL: `buylist` NO es una vía de alta manual (es la conversión automática de M5).
 const ACQ: AcquisitionType[] = ['aportacion_en_especie', 'compra'];
@@ -54,8 +52,6 @@ export interface AddItemModalProps {
  */
 export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
   const t = useTranslations('admin.m1');
-  const tSub = useTranslations('status.sealedSubtype');
-  const tCond = useTranslations('status.sealedCondition');
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
   const tRoot = useTranslations();
@@ -68,12 +64,9 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
   const [selectedCard, setSelectedCard] = useState<CardDTO | null>(null);
   const [productType, setProductType] = useState<ProductType>('raw');
   const [finish, setFinish] = useState<Finish>('normal');
-  const [sealedSubtype, setSealedSubtype] = useState<SealedSubtype>('box');
-  const [sealedCondition, setSealedCondition] = useState<SealedCondition>('mint');
   const [gradingCompany, setGradingCompany] = useState<GradingCompany>('PSA');
   const [gradeValue, setGradeValue] = useState('10');
   const [certNumber, setCertNumber] = useState('');
-  const [listPrice, setListPrice] = useState('');
   const [acq, setAcq] = useState<AcquisitionType>('aportacion_en_especie');
   const [pct, setPct] = useState('70');
   const [locationId, setLocationId] = useState<string>('');
@@ -177,16 +170,12 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         productType,
         rawCondition: productType === 'raw' ? 'NM' : undefined,
         finish: productType === 'raw' ? finish : undefined,
-        sealedSubtype: productType === 'sealed' ? sealedSubtype : undefined,
-        sealedCondition: productType === 'sealed' ? sealedCondition : undefined,
         gradingCompany: productType === 'graded' ? gradingCompany : undefined,
         gradeValue: productType === 'graded' ? gradeValue : undefined,
         certNumber: productType === 'graded' ? certNumber.trim() : undefined,
         locationId: locationId || undefined,
         acquisitionType: acq,
         acquisitionPct: acq === 'aportacion_en_especie' ? Number(pct) : undefined,
-        listPriceCents:
-          productType === 'sealed' && listPrice ? Math.round(Number(listPrice) * 100) : undefined,
       }),
     onSuccess: (data) => {
       setSelectedCard(null);
@@ -209,16 +198,12 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         productType,
         rawCondition: productType === 'raw' ? 'NM' : undefined,
         finish: productType === 'raw' ? finishForCard(card) : undefined,
-        sealedSubtype: productType === 'sealed' ? sealedSubtype : undefined,
-        sealedCondition: productType === 'sealed' ? sealedCondition : undefined,
         gradingCompany: productType === 'graded' ? gradingCompany : undefined,
         gradeValue: productType === 'graded' ? gradeValue : undefined,
         certNumber: productType === 'graded' ? certNumber.trim() : undefined,
         locationId: locationId || undefined,
         acquisitionType: acq,
         acquisitionPct: acq === 'aportacion_en_especie' ? Number(pct) : undefined,
-        listPriceCents:
-          productType === 'sealed' && listPrice ? Math.round(Number(listPrice) * 100) : undefined,
         qty: 1,
       }));
       return batchCreateItems({ batchKey: ensureBatchKey(), items });
@@ -608,34 +593,6 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
               value={certNumber}
               onChange={(e) => setCertNumber(e.target.value)}
               error={gradedCertMissing ? t('certNumberError') : undefined}
-            />
-          </>
-        )}
-        {productType === 'sealed' && (
-          <>
-            <Select
-              label={t('sealedSubtype')}
-              options={SEALED_SUBTYPES.map((s) => ({ value: s, label: tSub(s) }))}
-              value={sealedSubtype}
-              onChange={(e) => setSealedSubtype(e.target.value as SealedSubtype)}
-            />
-            <div>
-              <Select
-                label={t('sealedCondition')}
-                options={SEALED_CONDITIONS.map((c) => ({ value: c, label: tCond(c) }))}
-                value={sealedCondition}
-                onChange={(e) => setSealedCondition(e.target.value as SealedCondition)}
-              />
-              <p className="mt-2 font-mono text-xs text-muted">{t('sealedConditionHint')}</p>
-            </div>
-            <Input
-              label={t('listPriceOptional')}
-              hint={t('listPriceOptionalHint')}
-              type="text"
-              inputMode="decimal"
-              prefix="MX$"
-              value={listPrice}
-              onChange={(e) => setListPrice(e.target.value)}
             />
           </>
         )}

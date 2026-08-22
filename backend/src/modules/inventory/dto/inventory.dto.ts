@@ -62,6 +62,15 @@ export class CreateItemDto {
   // v1.1: precio manual MXN. Obligatorio para PUBLICAR el sellado (sin él no aparece en Compra).
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsString() sourceSellRequestItemId?: string;
+  // v1.36-sealed-alta (M-37, P-35): 4 campos ADITIVOS SOLO para productType='sealed' (ignorados en
+  // raw/graded). `tcgplayerProductId`+`tcgplayerGroupId` = mapeo TCGCSV; se fijan JUNTOS (uno sin el
+  // otro → 422 VALIDATION_ERROR en el servicio); presentes ⇒ la pieza NACE MAPEADA (valúa la
+  // aportación de inmediato por `sealed:tcg:<productId>`). `sealedImageUrl`/`sealedProductName` =
+  // imagen/nombre de la API; el servicio VALIDA la imagen contra el host allowlist antes de persistir.
+  @IsOptional() @IsInt() @Min(1) tcgplayerProductId?: number;
+  @IsOptional() @IsInt() @Min(1) tcgplayerGroupId?: number;
+  @IsOptional() @IsString() sealedImageUrl?: string;
+  @IsOptional() @IsString() sealedProductName?: string;
 }
 
 export class UpdateItemDto {
@@ -114,6 +123,12 @@ export class BatchInventoryItemInput {
   @IsOptional() @IsInt() @Min(0) acquisitionPct?: number;
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_BATCH_QTY) qty?: number;
+  // v1.36-sealed-alta (M-37, P-35): 4 campos ADITIVOS SOLO para productType='sealed' (ignorados en
+  // raw/graded). Ver notas en CreateItemDto. Vienen del SealedCatalogProductDTO que el operador eligió.
+  @IsOptional() @IsInt() @Min(1) tcgplayerProductId?: number;
+  @IsOptional() @IsInt() @Min(1) tcgplayerGroupId?: number;
+  @IsOptional() @IsString() sealedImageUrl?: string;
+  @IsOptional() @IsString() sealedProductName?: string;
 }
 
 export class BatchCreateInventoryRequest {

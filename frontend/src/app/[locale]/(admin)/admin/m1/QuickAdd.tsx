@@ -36,6 +36,13 @@ export interface QuickAddTarget {
   finish: Finish;
   sealedSubtype?: SealedSubtype | null;
   sealedCondition?: SealedCondition;
+  // v1.36 (P-35): identidad de producto TCGCSV para que el sellado NAZCA MAPEADO (alta dedicada
+  // §16.8a). Se fijan JUNTOS; ausentes ⇒ la pieza nace sin mapeo (comportamiento previo). Los
+  // campos de imagen/nombre son display-only (validados server-side).
+  tcgplayerProductId?: number;
+  tcgplayerGroupId?: number;
+  sealedImageUrl?: string | null;
+  sealedProductName?: string | null;
 }
 
 export interface QuickAddProps {
@@ -102,6 +109,15 @@ export function QuickAddSection({
           : {
               ...(target.sealedSubtype ? { sealedSubtype: target.sealedSubtype } : {}),
               ...(target.sealedCondition ? { sealedCondition: target.sealedCondition } : {}),
+              // v1.36 (P-35): nace MAPEADA — productId + groupId se envían JUNTOS.
+              ...(target.tcgplayerProductId != null && target.tcgplayerGroupId != null
+                ? {
+                    tcgplayerProductId: target.tcgplayerProductId,
+                    tcgplayerGroupId: target.tcgplayerGroupId,
+                  }
+                : {}),
+              ...(target.sealedImageUrl ? { sealedImageUrl: target.sealedImageUrl } : {}),
+              ...(target.sealedProductName ? { sealedProductName: target.sealedProductName } : {}),
             }),
         qty: qtyNum,
         ...(path === 'compra'
