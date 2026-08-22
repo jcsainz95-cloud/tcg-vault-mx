@@ -4,6 +4,64 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §21 · P-28 (dos carritos en «Vender») + P-33 (retiro del selector de proveedor de respaldo) (2026-08-22, branch `fix/variant-composition-regression`)
+
+### P-28 · Los dos carritos de «Vender» ya no compiten
+
+**Diagnóstico (leído del código):** son **dos carritos DISTINTOS**, no un mismo carrito desincronizado.
+- **Header «CARRITO N»** = carrito de **COMPRA/tienda** (`useCart` en `src/lib/cart.ts`, persistido en
+  `localStorage` `tcg.cart` por `inventoryItemId`; el botón enlaza a `/checkout`). Pintado por
+  `StorefrontHeader.tsx`, etiqueta `nav.cart` = «Carrito».
+- **FAB flotante «M»** = carrito de **VENTA/cotización** (`useSellCart` en
+  `(storefront)/buylist/useSellCart.ts`, render `SellCartFab` + `SellCartDrawer` desde `BuylistView.tsx`).
+  Su `aria-label` ya decía «Carrito de venta».
+
+Coexisten en `/buylist` con contadores independientes (compra=1, venta=5) → se lee como un mismo carrito
+descuadrado. **No hay bug de estado**: cada uno es su propia fuente y ambos son correctos por separado.
+
+**Arreglo (mínimo, sin tokens nuevos, money-safe — solo UI):** en el flujo de venta se deja **UN SOLO
+carrito en pantalla**. `StorefrontHeader.tsx` deriva `onSellFlow = pathname.startsWith('/buylist')` (el
+header ya usa `usePathname` de `@/i18n/navigation`, locale-stripped) y **oculta el botón de carrito de
+compra** (desktop **y** menú móvil) en esa ruta. El carrito de compra no se pierde: vive en `localStorage`
+y reaparece en el resto de la tienda. Así «CARRITO 1» ya no compite con el «5» del cotizador; el único
+carrito visible en Vender es el FAB de venta. (Se evaluó relabelar globalmente el carrito de compra, pero
+el nav ya tiene «Compra» y «Vender»; ocultar en la ruta de venta es lo más limpio y no cambia copy global
+que es propiedad de ux-ui.)
+- **Tests:** `StorefrontHeader.test.tsx` — mock de `usePathname` vuelto **mutable** (`mockPathname`); dos
+  casos nuevos: fuera de venta (`/catalog`) el carrito de compra aparece con `href=/checkout`; en `/buylist`
+  el link «Carrito» **no** está en el DOM.
+
+### P-33 · Retiro del selector de «proveedor de respaldo» de Ingesta de precios (M2)
+
+Decisión del humano: **quitar** el `Select` de «Proveedor de respaldo (fallback)» del panel M2. La ingesta
+a mano («Actualizar precios ahora», `PriceIngestSection` / Sección 1) **se queda**. TCGCSV sigue primario y
+PPT queda fijo como respaldo **en el backend**, sin control en UI. **NO se tocó la precedencia del backend**
+(solo la UI).
+
+- **Sección 3b eliminada entera:** el archivo `sections/PriceProviderSection.tsx` era 100% el control del
+  dial (fila fija «Fuente primaria TCGCSV» + `Select` de respaldo + línea de precedencia). Se **borró** el
+  archivo y su import/render en `M2View.tsx`.
+- **Wrappers de API huérfanos retirados** de `src/lib/api.ts`: `getPriceProvider`/`updatePriceProvider` y el
+  import del tipo `PriceProvider` (solo los usaba esa sección). El tipo `PriceProvider` y el campo
+  `SettingsDTO.priceProvider` **se conservan** en `contract.ts` (el setting sigue existiendo en el backend,
+  solo deja de exponerse en el front).
+- **`PRICE_PROVIDERS`** (const del dial) retirado de `sections/shared.tsx` junto con su import de tipo.
+- **i18n:** se quitaron las claves huérfanas del grupo `admin.m2.priceIngest` (`title`, `subtitle`,
+  `primarySource*`, `fallbackLabel`, `providerOptions`, `fallbackHint`, `precedenceHint`, `providerSaved`)
+  en `es.json` y `en.json`. Se conservan las claves de la ingesta a mano (`trigger`, `triggerHint`,
+  `queued`, `alreadyRunning`, `sweep*`, `daily*`) que usa `PriceIngestSection`.
+- **La línea informativa «FUENTE PRIMARIA TCGCSV → respaldo PPT» se retiró** (no se dejó como texto
+  estático): la ingesta ya se explica en la Sección 1 y sin control asociado la línea sobraba.
+- **Tests:** `M2View.test.tsx` — el test del selector se reemplazó por un **regression test P-33** que
+  asevera que ni el `Select` «Proveedor de respaldo (fallback)» ni el encabezado/precedencia de la sección
+  aparecen ya en el DOM (y que «Actualizar precios ahora» sigue). Import de `mockSettings` retirado (quedó
+  huérfano).
+
+> **Nota al arquitecto (no bloqueante):** el DESIGN_SYSTEM §19.7 aún describe el «reencuadre del selector de
+> proveedor de respaldo» como parte del panel M2. Con P-33 ese control desaparece de la UI (el setting sigue
+> en backend, fijo en PPT). Conviene que ux-ui actualice §19.7 para reflejar que la fuente/respaldo ya no
+> tiene control en pantalla. No cambia el contrato (`SettingsDTO.priceProvider` intacto).
+
 ## §20 · Master Set combinado multi-parte (P-27, v1.33) (2026-08-22, branch `fix/variant-composition-regression`)
 
 Implementa la parte FRONTEND de P-27 contra el contrato **v1.33-master-set-multipart** y ARCHITECTURE

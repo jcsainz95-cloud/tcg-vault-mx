@@ -42,7 +42,7 @@ function today(): Date {
  * filas legacy/fallback (`cardProductId=null`: PPT, pokemontcg.io, manual, sellado) y las del producto
  * `set_base`/`other`; EXCLUYE las de `deck_exclusive`/`promo` (su precio vive en su producto separado).
  */
-const BASE_CARD_REF_WHERE: Prisma.PriceReferenceWhereInput = {
+export const BASE_CARD_REF_WHERE: Prisma.PriceReferenceWhereInput = {
   OR: [
     { cardProductId: null },
     { cardProduct: { kind: { in: [CardProductKind.set_base, CardProductKind.other] } } },
@@ -75,7 +75,7 @@ const PRICE_REF_SELECT = {
  */
 const SAME_DAY_REF_CANDIDATES = 32;
 
-type RefRow = {
+export type RefRow = {
   priceMxnCents: number;
   priceUsdCents: number | null;
   isManualOverride: boolean;
@@ -113,7 +113,7 @@ function sourceRank(source: string, isManualOverride: boolean): number {
  *   4. Último criterio: orden lexicográfico del `cardProductId` (cuid), para que la elección sea
  *      ESTABLE y REPRODUCIBLE ante un import forzado (`sync {force:true}`), no «cualquiera de las dos».
  */
-function isBetterRef(a: RefRow, b: RefRow): boolean {
+export function isBetterRef(a: RefRow, b: RefRow): boolean {
   const at = a.capturedDate.getTime();
   const bt = b.capturedDate.getTime();
   if (at !== bt) return at > bt;
@@ -128,7 +128,7 @@ function isBetterRef(a: RefRow, b: RefRow): boolean {
 }
 
 /** Reduce un conjunto de candidatas a la MEJOR según `isBetterRef` (desempate determinista). */
-function pickBestRef<T extends RefRow>(rows: T[]): T | null {
+export function pickBestRef<T extends RefRow>(rows: T[]): T | null {
   let best: T | null = null;
   for (const r of rows) if (best == null || isBetterRef(r, best)) best = r;
   return best;

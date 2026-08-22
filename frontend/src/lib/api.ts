@@ -89,7 +89,6 @@ import type {
   IneUploadKeys,
   KycInfoDTO,
   FxDTO,
-  PriceProvider,
   PriceIngestResponse,
   PendingPriceEntryDTO,
   PendingPriceContext,
@@ -2832,23 +2831,10 @@ export async function triggerPriceIngest(
 }
 
 /**
- * Lee el dial `priceProvider` (proveedor de la ingesta masiva de precios) reusando el endpoint
- * de settings existente (contrato §M10 · GET /admin/settings, v1.14-price-ingest). Devuelve
- * `undefined` si el backend aún no lo expone.
+ * P-33: `getPriceProvider`/`updatePriceProvider` (dial del proveedor de respaldo) se retiraron
+ * junto con su UI (PriceProviderSection). El setting `priceProvider` sigue existiendo en el
+ * backend (SettingsDTO.priceProvider) con PPT fijo como respaldo, sin control desde el frontend.
  */
-export async function getPriceProvider(): Promise<PriceProvider | undefined> {
-  const settings = await getSettings();
-  return settings.priceProvider;
-}
-
-/**
- * Actualiza el dial `priceProvider` vía PUT PARCIAL de settings (contrato §M10 ·
- * PUT /admin/settings { priceProvider }, v1.14-price-ingest). Sin redeploy; auditado
- * (`settings.update`). Palanca de rollback del proveedor de ingest.
- */
-export async function updatePriceProvider(priceProvider: PriceProvider): Promise<SettingsDTO> {
-  return updateSettings({ priceProvider });
-}
 
 /**
  * Rarezas distintas del catálogo sincronizado UNIDAS a las reglas de buylist, para

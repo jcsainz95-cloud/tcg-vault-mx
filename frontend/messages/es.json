@@ -1293,19 +1293,6 @@
         "savedBufferOnly": "Colchón actualizado; se conservó la tasa vigente."
       },
       "priceIngest": {
-        "title": "Ingesta masiva de precios",
-        "subtitle": "Refresca los precios de TODO el catálogo por lotes (un job por set) desde el proveedor seleccionado. Es la vía principal de precios; corre 1–2 veces al día y también puedes dispararla a mano.",
-        "primarySourceLabel": "Fuente primaria",
-        "primarySourceValue": "TCGCSV",
-        "primarySourceHint": "Siempre se intenta primero.",
-        "fallbackLabel": "Proveedor de respaldo (fallback)",
-        "providerOptions": {
-          "pokemontcg_io": "pokemontcg.io",
-          "pokemonpricetracker": "PokemonPriceTracker"
-        },
-        "fallbackHint": "TCGCSV es la fuente primaria y siempre se usa primero; este proveedor solo cubre lo que TCGCSV no tenga (p. ej. gradeadas o cartas sin precio en TCGCSV).",
-        "precedenceHint": "Precedencia: TCGCSV (primario) → respaldo: {fallback} → override manual (máxima).",
-        "providerSaved": "Proveedor de respaldo actualizado.",
         "trigger": "Actualizar precios ahora",
         "triggerHint": "Encola la ingesta masiva (equivale a la corrida programada); se procesa set por set, en segundo plano.",
         "queued": "Ingesta de precios encolada; se procesa en segundo plano.",

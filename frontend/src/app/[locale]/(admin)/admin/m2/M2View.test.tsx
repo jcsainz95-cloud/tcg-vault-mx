@@ -6,7 +6,6 @@ import { renderWithProviders } from '@/test/render';
 import { M2View } from './M2View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import { mockSettings } from '@/lib/mock/fixtures';
 
 // El `Link` de next-intl (`@/i18n/navigation`) no resuelve bajo vitest; se stubea a un <a>
 // que preserva href/aria-label (enlace del bucket COMPRA al admin de buylist, M5).
@@ -789,25 +788,15 @@ describe('M2View · Catálogo y precios', () => {
     ).toBeInTheDocument();
   });
 
-  // ---- Proveedor de precios + ingesta masiva (v1.14-price-ingest) ----
-  it('§19.7: el selector se reencuadra como «respaldo (fallback)» con TCGCSV como primaria fija', async () => {
-    const spy = vi.spyOn(api, 'updatePriceProvider').mockResolvedValue(mockSettings);
+  // ---- P-33: el selector de «proveedor de respaldo» se RETIRÓ del panel ----
+  it('P-33: ya NO aparece el selector de proveedor de respaldo (fallback) ni su bloque', async () => {
     renderWithProviders(<M2View />, 'es');
-    const s = await sectionFor(/Ingesta masiva de precios/);
-    // Fila fija de FUENTE PRIMARIA no editable + línea de precedencia (cargan con el dial async).
-    expect(await s.findByText('Fuente primaria')).toBeInTheDocument();
-    expect(s.getAllByText('TCGCSV').length).toBeGreaterThan(0);
-    expect(s.getByText(/Precedencia: TCGCSV \(primario\)/)).toBeInTheDocument();
-    // El Select ahora es «Proveedor de respaldo (fallback)» (ya no «Proveedor de precios»).
-    expect(s.queryByLabelText('Proveedor de precios')).toBeNull();
-    const select = await s.findByLabelText('Proveedor de respaldo (fallback)');
-    fireEvent.change(select, { target: { value: 'pokemonpricetracker' } });
-    fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
-
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    // Sin cambio de contrato: el dial y sus valores no cambian.
-    expect(spy).toHaveBeenCalledWith('pokemonpricetracker');
-    expect(await screen.findByText('Proveedor de respaldo actualizado.')).toBeInTheDocument();
+    // El botón de ingesta a mano sigue: garantiza que M2 montó por completo antes de aseverar ausencias.
+    expect(await screen.findByRole('button', { name: /Actualizar precios ahora/ })).toBeInTheDocument();
+    // El Select del proveedor de respaldo y su sección ya no existen en el DOM.
+    expect(screen.queryByLabelText('Proveedor de respaldo (fallback)')).toBeNull();
+    expect(screen.queryByRole('heading', { name: /Ingesta masiva de precios/ })).toBeNull();
+    expect(screen.queryByText(/Precedencia: TCGCSV \(primario\)/)).toBeNull();
   });
 
   it('el botón "Actualizar precios ahora" dispara triggerPriceIngest y muestra el feedback de encolado', async () => {

@@ -1293,19 +1293,6 @@
         "savedBufferOnly": "Buffer updated; kept the current rate."
       },
       "priceIngest": {
-        "title": "Bulk price ingest",
-        "subtitle": "Refreshes prices for the WHOLE catalog in batches (one job per set) from the selected provider. It's the primary pricing path; it runs 1–2 times a day and you can also trigger it manually.",
-        "primarySourceLabel": "Primary source",
-        "primarySourceValue": "TCGCSV",
-        "primarySourceHint": "Always tried first.",
-        "fallbackLabel": "Fallback price provider",
-        "providerOptions": {
-          "pokemontcg_io": "pokemontcg.io",
-          "pokemonpricetracker": "PokemonPriceTracker"
-        },
-        "fallbackHint": "TCGCSV is the primary source and is always tried first; this provider only covers what TCGCSV lacks (e.g. graded cards or cards without a TCGCSV price).",
-        "precedenceHint": "Precedence: TCGCSV (primary) → fallback: {fallback} → manual override (highest).",
-        "providerSaved": "Fallback provider updated.",
         "trigger": "Refresh prices now",
         "triggerHint": "Queues the bulk ingest (same as the scheduled run); processed set by set, in the background.",
         "queued": "Price ingest queued; processing in the background.",

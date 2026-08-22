@@ -6233,3 +6233,66 @@ availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapsh
   sus tests unitarios.
 - **Gates:** `npm run typecheck` limpio · `npm run lint` 0 warnings · `npm test` → **149 suites / 1406 tests
   VERDE** (el test único de observabilidad se dividió en dos sub-casos camino-feliz/anomalía: 1405 → 1406).
+
+## P-32 · Valor del «set destacado» del home mal (regresión M-31) (rama `fix/variant-composition-regression`, 2026-08-22)
+> El hero mostraba «Pitch Black · Valor de mercado» ≈ **MX$15,756.32 con +157,463%** — absurdo. Fix
+> **solo cálculo, SIN cambio de contrato**: el shape de `SetValueHistoryResponse` (set/range/points/change)
+> es idéntico; solo cambia CÓMO se computan `points[].valueMxnCents` y `change`.
+
+### De dónde salía el número mal (dos bugs, ambos regresión de M-31 «1 carta ↔ N productos»)
+- **(A) Valor inflado — `SetValueService.computeSetValue` no filtraba por producto.** M-31 metió
+  `PriceReference.cardProductId` y su `@@unique` ahora incluye ese eje: una misma `Card` puede tener VARIAS
+  filas `raw:NM:normal` el mismo día — la del `set_base` **y** las de `deck_exclusive`/`promo` (productos
+  VENDIBLES SEPARADOS con su propio precio; su valor NO es «la carta de set»). `computeSetValue` seguía con
+  la query pre-M-31: `findMany` por `cardId/productType/gradeKey/finish` **sin** `BASE_CARD_REF_WHERE`, y
+  dedupe «la primera por `capturedDate desc`». Resultado: por carta podía colarse el precio de un producto
+  ajeno (Deck Exclusive de alto valor / ancla de sellado), inflando la Σ. M-31 **sí** blindó `getReference`
+  y `getReferencesBatch` con `BASE_CARD_REF_WHERE` + desempate `isBetterRef`, pero **omitió esta ruta**
+  (`computeSetValue` precede a M-31, último commit `be858cb`; el diff de M-31 nunca la tocó).
+- **(B) % irreal — base semilla en `valueHistory`.** El `change.pct` comparaba `points[0]` contra el último
+  punto sin mirar cobertura. Cuando la serie apenas se sembraba (día 1 con **1** carta priceada ≈ MX$10) y
+  luego el set entero, `first!==0` ⇒ pct = (last−first)/first·100 = **cifra astronómica** (el +157,463%).
+
+### Fix exacto (archivo:línea)
+- **`backend/src/modules/pricing/pricing.service.ts`:** se EXPORTAN los helpers money-safe de M-31 para
+  reusarlos (antes module-private): `BASE_CARD_REF_WHERE` (L45), `RefRow` (L78), `isBetterRef` (L116),
+  `pickBestRef` (L131). Sin cambio de lógica; solo visibilidad.
+- **`backend/src/modules/catalog/set-value.service.ts` › `computeSetValue` (L~150-225):** la query añade
+  `...BASE_CARD_REF_WHERE` (excluye `deck_exclusive`/`promo`; incluye `set_base`/`other` y el legacy
+  `cardProductId=null`), selecciona `source/capturedDate/cardProductId`, ordena
+  `[capturedDate desc, cardProductId nulls last]` y elige la MEJOR ref **por carta** con `isBetterRef`
+  (fecha → fuente → variante resuelta → cuid), **no** «la primera vista». Mismo criterio que el resto de la
+  valuación (§4.27f) ⇒ escritura (`set-price-sync`) y lectura no divergen.
+- **`backend/src/modules/catalog/set-value.service.ts` › `valueHistory` (L~232-264) + const
+  `MIN_BASE_COVERAGE_FRACTION=0.5`:** la base del `%` es el snapshot MÁS ANTIGUO del rango con `valor>0` y
+  `pricedCardCount >= ceil(0.5 × pricedCardCount del último punto)`. Si no existe (solo el último punto tiene
+  cobertura real, p. ej. serie recién sembrada) ⇒ `change` = `{ absMxnCents:0, pct:null, direction:'flat' }`
+  (**«sin cambio» honesto, nunca una cifra absurda**). El caso `first===0` queda cubierto por `valor>0`.
+
+### Money-safe: cómo se tratan las cartas sin precio en la Σ
+- Una carta **sin `PriceReference` base** vigente **NO entra** al total y **NO cuenta como 0**: se refleja en
+  `pricedCardCount < totalCardCount` (cobertura honesta), nunca inventa ni deflacta. Sin ninguna carta
+  priceada ⇒ `totalValueMxnCents=0`, y el hero degrada a «—»/vacío (el front ya distingue `points` vacío).
+- La base del `%` es de **VALOR** (`valueMxnCents>0`), no de conteo; el `MIN_BASE_COVERAGE_FRACTION` solo
+  descarta snapshots-semilla para que el `%` compare canastas comparables, sin tocar la Σ.
+
+### Contrato
+- **NO se tocó** `docs/API_CONTRACT.md` ni el shape de respuesta. Mismo `SetValueHistoryResponse`. No fue
+  necesario pasar por el arquitecto (solo corrección de cálculo). El job `set-price-sync` sigue preciando el
+  set destacado con `SET_VALUE_RULE` (raw/raw:NM/normal) vía `syncCardPrice` (`cardProductId=null`), que la
+  lectura ya acepta por el brazo `cardProductId:null` de `BASE_CARD_REF_WHERE`.
+
+### Tests (`backend/test/set-value.spec.ts`)
+- Nuevo: `computeSetValue` con `set_base` (tcgcsv_singles) vs genérica (pokemontcg.io) el mismo día ⇒ gana el
+  `set_base` por precedencia de fuente (no la genérica ni una suma); y aserción de que el `where` lleva
+  `BASE_CARD_REF_WHERE.OR` (excluye deck_exclusive/promo).
+- Nuevo: serie con snapshot SEMILLA (1/180 priceadas, MX$10) + set completo ⇒ `pct` razonable (5.04%, base =
+  el punto comparable), `< 100%`, **jamás** el +157,463%.
+- Ajustado: el viejo caso «primer valor 0 → direction up» ahora es «base semilla ⇒ sin cambio (flat/null)»
+  (la semántica corregida: un semilla no es base válida).
+- Ajustados los mocks de `priceReference.findMany` para incluir `capturedDate/source/cardProductId` (los
+  insumos del nuevo desempate); helper `ref()` con defaults seguros.
+
+### Gates (local)
+- `npx tsc --noEmit` limpio · `npx eslint` (archivos tocados) 0 warnings · `npx nest build` exit 0 ·
+  `npx jest` → **155 suites / 1452 tests VERDE** (set-value: 21/21).

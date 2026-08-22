@@ -6,7 +6,6 @@ import { cn } from '@/lib/cn';
 import type {
   BuylistRuleMode,
   SalesRuleMode,
-  PriceProvider,
   SealedSubtype,
   Finish,
 } from '@/types/contract';
@@ -14,8 +13,7 @@ import { ApiClientError } from '@/lib/api-client';
 
 export const RULE_MODES: BuylistRuleMode[] = ['fixed', 'pct'];
 export const SALES_RULE_MODES: SalesRuleMode[] = ['fixed', 'pct'];
-// v1.14-price-ingest: proveedores del dial `priceProvider` (ingesta masiva de precios).
-export const PRICE_PROVIDERS: PriceProvider[] = ['pokemontcg_io', 'pokemonpricetracker'];
+// P-33: `PRICE_PROVIDERS` (dial del proveedor de respaldo) se retiró junto con PriceProviderSection.
 // v1.23-sealed-sales: presentaciones del sellado con spread editable (§M2 sealed-spreads).
 export const SEALED_SUBTYPES: SealedSubtype[] = ['box', 'etb', 'bundle', 'tin', 'blister'];
 // v1.29 (§4.28d): acabados que tienen su PROPIO eje de regla (finishRules). `normal` NO lleva

@@ -3,7 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { CardSet } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { PricingService } from '../pricing/pricing.service';
+import {
+  PricingService,
+  BASE_CARD_REF_WHERE,
+  isBetterRef,
+  RefRow,
+} from '../pricing/pricing.service';
 
 /**
  * TD-1 (v1.9-set-chart): REGLA DE VALUACIÓN del set público, fuente única compartida. Fija el
@@ -22,6 +27,14 @@ export const SET_VALUE_RULE = {
 /** Rangos de la gráfica (mismo conjunto que la de portafolio). API_CONTRACT §DTOs base (SetValueRange). */
 export type SetValueRange = '5d' | '15d' | '1m' | '3m' | '6m' | '1y' | 'ytd' | 'all';
 const RANGES: SetValueRange[] = ['5d', '15d', '1m', '3m', '6m', '1y', 'ytd', 'all'];
+
+/**
+ * P-32 — cobertura mínima (fracción del `pricedCardCount` del último punto) que debe tener un
+ * snapshot para ser BASE válida del % de cambio. Descarta los snapshots SEMILLA (la serie recién
+ * empezaba a preciarse) que producían un % irreal. `0.5` = al menos la mitad de las cartas priceadas
+ * hoy también lo estaban en la base; por debajo, se considera que no hay base comparable ⇒ sin cambio.
+ */
+const MIN_BASE_COVERAGE_FRACTION = 0.5;
 
 /** API_CONTRACT §DTOs base — SetValuePointDTO. */
 export interface SetValuePointDTO {
@@ -140,12 +153,21 @@ export class SetValueService {
 
   /**
    * Valor agregado del set en una fecha (ARCHITECTURE §4.12a, SEC-A1). 100% server-side desde
-   * PriceReference real. Para cada Card del set toma la referencia vigente MÁS RECIENTE con
+   * PriceReference real. Para cada Card del set toma la referencia vigente MÁS RECIENTE de su
+   * PRECIO DE CARTA DE SET (`set_base`/`other` o el legacy/fallback `cardProductId=null`), con
    * productType='raw', gradeKey='raw:NM', finish='normal' y capturedDate <= `asOf` (si se pasa).
    * Cartas sin precio se EXCLUYEN del total (no se inventa precio) pero se cuentan en el total del set.
    *
-   * Sin N+1: 2 queries fijas (cartas del set + sus PriceReference en lote); el "más reciente por
-   * carta" se resuelve en memoria aprovechando `orderBy capturedDate desc`. NO genera PendingPriceEntry.
+   * P-32 (regresión M-31): antes esta suma NO filtraba por producto y dedupeaba «la primera por
+   * fecha». Tras M-31 una misma Card puede tener VARIAS PriceReference raw:NM:normal el mismo día —
+   * una por `cardProductId` (el `set_base` y, si existen, `deck_exclusive`/`promo`, cuyo precio vive en
+   * su producto SEPARADO y NO en la carta de set). Sin filtro, la Σ podía tomar el precio de un producto
+   * ajeno (Deck Exclusive/ETB) e inflar el valor. El fix reusa el MISMO criterio money-safe que el resto
+   * de la valuación (M-31 MAYOR-3): `BASE_CARD_REF_WHERE` (excluye deck_exclusive/promo) + desempate
+   * DETERMINISTA `isBetterRef` (fecha → fuente → variante resuelta → cuid), no «la primera del orden».
+   *
+   * Sin N+1: 2 queries fijas (cartas del set + sus PriceReference en lote); la mejor por carta se
+   * resuelve en memoria. NO genera PendingPriceEntry.
    */
   async computeSetValue(setId: string, asOf?: Date): Promise<SetValueAggregate> {
     const cards = await this.prisma.card.findMany({
@@ -166,14 +188,24 @@ export class SetValueService {
         gradeKey: SET_VALUE_RULE.gradeKey,
         finish: SET_VALUE_RULE.finish,
         ...(asOf ? { capturedDate: { lte: asOf } } : {}),
+        // P-32: SOLO el precio de la carta de set (set_base/other o legacy cardProductId=null);
+        // EXCLUYE deck_exclusive/promo (su precio vive en su producto separado). Mismo filtro que
+        // `getReference`/`getReferencesBatch` (M-31 §4.27f) para que ESCRITURA y LECTURA no diverjan.
+        ...BASE_CARD_REF_WHERE,
       },
-      orderBy: { capturedDate: 'desc' },
+      // Mejor candidata primero: día más reciente y, a igual día, la variante resuelta antes que la
+      // genérica (NULLS LAST). El desempate fino lo cierra `isBetterRef` en memoria.
+      orderBy: [{ capturedDate: 'desc' }, { cardProductId: { sort: 'asc', nulls: 'last' } }],
       // v1.x-fx-live: priceUsdCents + isManualOverride para recalcular el MXN vigente (solo valor "hoy").
+      // source + capturedDate + cardProductId: insumos del desempate determinista `isBetterRef` (M-31).
       select: {
         cardId: true,
         priceMxnCents: true,
         priceUsdCents: true,
         isManualOverride: true,
+        source: true,
+        capturedDate: true,
+        cardProductId: true,
       },
     });
 
@@ -183,13 +215,16 @@ export class SetValueService {
     // con que se ingirió (no se mueve retroactivamente la serie de tendencia).
     const fx = asOf ? null : await this.pricing.fxSnapshotSafe();
 
-    // "Vigente más reciente por carta": primera fila vista por carta (orden capturedDate desc).
-    const seen = new Set<string>();
+    // P-32: MEJOR referencia por carta con el desempate determinista money-safe (M-31 MAYOR-3), no
+    // «la primera vista». Una carta sin ref base queda fuera (—/vacío honesto; nunca cuenta como 0).
+    const bestByCard = new Map<string, RefRow>();
+    for (const r of refs) {
+      const cur = bestByCard.get(r.cardId);
+      if (cur == null || isBetterRef(r, cur)) bestByCard.set(r.cardId, r);
+    }
     let totalValueMxnCents = 0;
     let pricedCardCount = 0;
-    for (const r of refs) {
-      if (seen.has(r.cardId)) continue;
-      seen.add(r.cardId);
+    for (const r of bestByCard.values()) {
       totalValueMxnCents += asOf ? r.priceMxnCents : this.pricing.liveMxnCents(r, fx);
       pricedCardCount += 1;
     }
@@ -219,18 +254,30 @@ export class SetValueService {
       pricedCardCount: s.pricedCardCount,
     }));
 
+    const flat: SetValueChange = { absMxnCents: 0, pct: null, direction: 'flat' };
     if (points.length === 0) {
-      return {
-        range: normalizedRange,
-        points,
-        change: { absMxnCents: 0, pct: null, direction: 'flat' },
-      };
+      return { range: normalizedRange, points, change: flat };
     }
 
-    const first = points[0].valueMxnCents;
-    const last = points[points.length - 1].valueMxnCents;
-    const absMxnCents = last - first;
-    const pct = first === 0 ? null : Math.round((absMxnCents / first) * 10000) / 100;
+    // P-32: el % del valor del set solo es HONESTO entre snapshots que valúan una canasta COMPARABLE.
+    // Un snapshot SEMILLA (pocas cartas priceadas mientras la serie apenas se llenaba) NO es base
+    // válida: compararlo contra uno ya completo producía el +157,463% reportado (base ≈ MX$10 con 1
+    // carta vs. un set entero). La base es el snapshot MÁS ANTIGUO del rango con cobertura comparable
+    // al último punto (`pricedCardCount >= la mitad`) y valor > 0. Si no existe (solo el último punto
+    // tiene cobertura real), NO hay base válida → «sin cambio» (0 / pct null / flat), nunca una cifra
+    // absurda. Nota: la base es de VALOR, no de conteo — una carta sin precio nunca cuenta como 0.
+    const last = points[points.length - 1];
+    const minBaseCoverage = Math.ceil(last.pricedCardCount * MIN_BASE_COVERAGE_FRACTION);
+    const baseline = points.find(
+      (p) => p.valueMxnCents > 0 && p.pricedCardCount >= minBaseCoverage,
+    );
+    if (!baseline || baseline === last) {
+      return { range: normalizedRange, points, change: flat };
+    }
+
+    const first = baseline.valueMxnCents;
+    const absMxnCents = last.valueMxnCents - first;
+    const pct = Math.round((absMxnCents / first) * 10000) / 100;
     const direction: SetValueChange['direction'] =
       absMxnCents > 0 ? 'up' : absMxnCents < 0 ? 'down' : 'flat';
     return { range: normalizedRange, points, change: { absMxnCents, pct, direction } };
