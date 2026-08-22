@@ -5169,7 +5169,7 @@ porque los mocks omitían `note` (lo enmascaraban). El contrato subió a v1.35 y
 > rediseño a la capa visual: la plomería de datos (`lib/api.ts`, `lib/mock/`, `types/contract.ts`)
 > la está tocando en paralelo la sesión de features admin (P-34/P-35). Estos dos arreglos requerían
 > tocarla, así que se revirtieron del árbol y quedaron **preservados como parche**
-> (`frontend/patches/streamD-orders-honestidad.patch`, en esta misma rama; `git apply` limpio verificado) para reaplicar
+> (hallazgo QA: el parche no viaja en el repo para no cruzar la frontera de plomería; quedó enrutado al orquestador de Pendientes y el trabajo está descrito íntegro abajo para rehacerlo cuando P-34/P-35 liberen `lib/api.ts`) para reaplicar
 > cuando esa sesión libere la plomería. Pendiente resultante: el botón «Solicitar factura» sigue
 > siendo estado local (falso) y `/orders` sigue sin paginación — el endpoint
 > `POST /orders/:orderId/request-invoice` existe en contrato y backend; solo falta el cliente.
