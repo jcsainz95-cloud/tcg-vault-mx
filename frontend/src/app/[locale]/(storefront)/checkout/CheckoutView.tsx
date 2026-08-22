@@ -199,8 +199,10 @@ export function CheckoutView() {
 
   return (
     <div>
-      <div className="gutter pb-6 pt-10 lg:pt-[46px]">
+      {/* Artboard «Carrito y pago»: título + promesa de bóveda bajo el hero. */}
+      <div className="gutter pb-7 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
+        <p className="mt-3.5 max-w-[560px] text-[15px] leading-[1.7] text-muted">{t('subtitle')}</p>
       </div>
 
       {/* Aviso informativo de poda (v1.21.3), FUERA de QueryState: sobrevive al estado
@@ -216,35 +218,54 @@ export function CheckoutView() {
         {query.data && (
           <div className="grid border-t border-border lg:grid-cols-[1fr_420px]">
             <div className="gutter border-b border-border pb-14 pt-4 lg:border-b-0 lg:border-r">
+              {/* Líneas del carrito (artboard): miniatura grande, nombre en serif,
+                  meta en mono, «Quitar» bajo la meta y el precio tabular a la derecha. */}
               {query.data.items.map((item) => (
                 <div
                   key={item.inventoryItemId}
-                  className="flex items-center gap-5 border-b border-border py-4"
+                  className="flex items-start gap-4 border-b border-border py-5 sm:gap-5"
                 >
-                  <div className="w-14 shrink-0">
+                  <div className="w-16 shrink-0 sm:w-[92px]">
                     <CardImage src={item.card.imageSmallUrl} alt={item.card.name} className="p-1" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-serif text-[17px] font-medium leading-tight text-text" lang="en">
+                    <p className="truncate font-serif text-[17px] leading-tight text-text sm:text-[19px]" lang="en">
                       {item.card.name}
                     </p>
                     <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en">
                       {item.card.setName} · #{item.card.number}
+                      {item.productType === 'raw' && item.rawCondition ? ` · ${item.rawCondition}` : ''}
                     </p>
+                    <button
+                      type="button"
+                      aria-label={t('removeItem')}
+                      onClick={() => cart.remove(item.inventoryItemId)}
+                      className="mt-3.5 font-mono text-[11px] text-muted hover:text-accent"
+                    >
+                      {t('removeItem')}
+                    </button>
                   </div>
-                  <span className="tabular text-[17px] font-medium text-text">
+                  <span className="tabular shrink-0 text-right text-[17px] font-medium text-text sm:text-[19px]">
                     {formatMoneyCents(item.unitPriceCents, locale)}
                   </span>
-                  <button
-                    type="button"
-                    aria-label={t('removeItem')}
-                    onClick={() => cart.remove(item.inventoryItemId)}
-                    className="shrink-0 pl-3 font-mono text-[11px] text-muted hover:text-accent"
-                  >
-                    {t('removeItem')}
-                  </button>
                 </div>
               ))}
+
+              {/* Artboard: recordatorio del valor de la bóveda ANTES de los avisos legales. */}
+              <div className="mt-6 border-t border-border-strong pt-6">
+                <p className="eyebrow">{t('vaultKeepEyebrow')}</p>
+                <ul className="mt-4 max-w-[620px]">
+                  <li className="border-t border-border py-3 text-sm leading-[1.7] text-text">
+                    {t('vaultUpsell.benefit.oneShipmentPlain')}
+                  </li>
+                  <li className="border-t border-border py-3 text-sm leading-[1.7] text-text">
+                    {t('vaultUpsell.benefit.portfolio')}
+                  </li>
+                  <li className="border-y border-border py-3 text-sm leading-[1.7] text-text">
+                    {t('vaultUpsell.benefit.custody')}
+                  </li>
+                </ul>
+              </div>
 
               {/* Los tres avisos del contrato, como notas al margen. */}
               <p className="rule-note mt-8 max-w-[620px] text-[13px] leading-[1.7] text-muted">
@@ -262,7 +283,8 @@ export function CheckoutView() {
             </div>
 
             <aside className="gutter h-fit pb-14 pt-8 lg:px-10">
-              <h2 className="eyebrow">{t('summary')}</h2>
+              {/* Artboard: cabecera «Resumen» con regla fuerte de cierre. */}
+              <h2 className="eyebrow border-b border-border-strong pb-4 text-text">{t('summary')}</h2>
               <div className="mt-5">
                 <AmountBreakdown breakdown={query.data.breakdown} variant="purchase" />
               </div>
@@ -288,7 +310,13 @@ export function CheckoutView() {
                 </p>
               )}
 
-              <Button variant="accent" loading={creating} onClick={pay} className="mt-7 w-full">
+              {/* Compromiso final en rojo TCG HUNT, bloque de 54px (artboard). */}
+              <Button
+                variant="accent"
+                loading={creating}
+                onClick={pay}
+                className="mt-7 min-h-[54px] w-full tracking-eyebrow"
+              >
                 {creating
                   ? t('preparing')
                   : t('pay', { amount: formatMoneyCents(query.data.breakdown.totalCents, locale) })}

@@ -13,6 +13,7 @@ import { Link, useRouter } from '@/i18n/navigation';
 import { CartAddedToast } from '../CartAddedToast';
 import { CardImage } from '@/components/ui/CardImage';
 import { ListingSpec } from '@/components/domain/ListingSpec';
+import { PendingPriceLabel } from '../../_shared/PendingPriceLabel';
 import { CertNumberField } from '@/components/ui/CertNumberField';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
@@ -114,7 +115,6 @@ function Detail({
   const tcat = useTranslations('catalog');
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
-  const tprice = useTranslations('price');
   const locale = useLocale() as AppLocale;
   const primary = listings[0];
 
@@ -162,12 +162,18 @@ function Detail({
             <>
               {/* Ficha en dos columnas: precio de venta contra valor de mercado. */}
               <div className="mt-9 grid border-t border-border sm:grid-cols-2">
-                <Fact label={tcat('salePrice')} note={tc('withoutIva')}>
-                  <span className="tabular text-3xl font-medium leading-none text-text">
-                    {primary.salePriceCents != null
-                      ? formatMoneyCents(primary.salePriceCents, locale)
-                      : tcat('notForSale')}
-                  </span>
+                <Fact
+                  label={tcat('salePrice')}
+                  note={primary.salePriceCents != null ? tc('withoutIva') : undefined}
+                >
+                  {primary.salePriceCents != null ? (
+                    <span className="tabular text-3xl font-medium leading-none text-text">
+                      {formatMoneyCents(primary.salePriceCents, locale)}
+                    </span>
+                  ) : (
+                    // Sin precio: «precio pendiente» honesto, jamás MX$0.00 (§7.3).
+                    <PendingPriceLabel className="text-[13px] tracking-[0.06em]" />
+                  )}
                 </Fact>
                 <Fact
                   label={tcat('marketValue')}
@@ -181,13 +187,18 @@ function Detail({
                   </span>
                 </Fact>
                 <Fact label={t('condition')}>
-                  <span className="text-base text-text">
-                    {primary.productType === 'raw'
-                      ? tcat('condition.nm.label')
-                      : primary.productType === 'graded'
-                        ? `${primary.gradingCompany ?? ''} ${primary.gradeValue ?? ''}`.trim()
+                  {primary.productType === 'graded' ? (
+                    // Chip de grado (artboard Ficha): borde de tinta, mono «PSA 9».
+                    <span className="inline-flex items-center border border-text px-2.5 py-1.5 font-mono text-[13px] leading-none tracking-[0.06em] text-text">
+                      {`${primary.gradingCompany ?? ''} ${primary.gradeValue ?? ''}`.trim()}
+                    </span>
+                  ) : (
+                    <span className="text-base text-text">
+                      {primary.productType === 'raw'
+                        ? tcat('condition.nm.label')
                         : t('productType.sealed')}
-                  </span>
+                    </span>
+                  )}
                 </Fact>
                 <Fact label={tFinish('label')} className="sm:border-l sm:pl-7">
                   <span className="text-base text-text">{tFinish(primary.finish)}</span>
@@ -231,9 +242,7 @@ function Detail({
                         {formatMoneyCents(l.salePriceCents, locale)}
                       </span>
                     ) : (
-                      <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
-                        {tprice('pendingLabel')} · {tprice('pendingHint')}
-                      </span>
+                      <PendingPriceLabel hint className="text-[11px] leading-normal tracking-[0.06em]" />
                     )}
                   </div>
                 </div>

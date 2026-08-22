@@ -5163,6 +5163,318 @@ porque los mocks omitían `note` (lo enmascaraban). El contrato subió a v1.35 y
 
 ---
 
+## Órdenes storefront — «Solicitar factura» cableado real + paginación en /orders (rama claude/frontend-redesign-320uai)
+
+> **⚠️ REVERTIDO (2026-08-22, coordinación de streams):** el orquestador acotó la frontera del
+> rediseño a la capa visual: la plomería de datos (`lib/api.ts`, `lib/mock/`, `types/contract.ts`)
+> la está tocando en paralelo la sesión de features admin (P-34/P-35). Estos dos arreglos requerían
+> tocarla, así que se revirtieron del árbol y quedaron **preservados como parche**
+> (hallazgo QA: el parche no viaja en el repo para no cruzar la frontera de plomería; quedó enrutado al orquestador de Pendientes y el trabajo está descrito íntegro abajo para rehacerlo cuando P-34/P-35 liberen `lib/api.ts`) para reaplicar
+> cuando esa sesión libere la plomería. Pendiente resultante: el botón «Solicitar factura» sigue
+> siendo estado local (falso) y `/orders` sigue sin paginación — el endpoint
+> `POST /orders/:orderId/request-invoice` existe en contrato y backend; solo falta el cliente.
+> Lo de abajo documenta el trabajo del parche.
+
+Dos arreglos quirúrgicos en `(storefront)/orders` (sin rediseño):
+
+- **«Solicitar factura» dejó de ser un botón falso.** `OrderDetailView.tsx` ya no hace
+  `setRequested(true)` local: llama `requestOrderInvoice(orderId)` (nueva función en `lib/api.ts`,
+  contrato §4 · `POST /orders/:orderId/request-invoice`, req `{}`, res
+  `{ orderId, invoiceRequested: true, instructions: "SEND_FISCAL_DATA_BY_EMAIL" }`).
+  Estados reales: `loading` (spinner del Button), error visible (`Banner danger` +
+  `orders.invoiceError`) y éxito **persistente**: `onSuccess` escribe `invoiceRequested: true` en la
+  caché de la query `['order', orderId]`, así el render usa SIEMPRE `query.data.invoiceRequested`
+  (misma fuente que reporta el backend en un refetch). Éxito muestra `orders.invoiceRequested` en
+  mono + el aviso CFDI existente. Tipo espejo `RequestInvoiceResponse` en `types/contract.ts`.
+  Rama mock: muta `fx.mockOrderDetail.invoiceRequested = true` (persistencia igual al backend real).
+- **Paginación en `/orders`.** `getOrders(page = 1)` ahora manda `?page=` (el backend pagina a 20;
+  `GET /orders → { data, page, pageSize, total }`) y la rama mock usa el helper `paginate`.
+  `OrdersView.tsx`: estado `page` en query key + `placeholderData: keepPreviousData` (sin flash de
+  vacío) y paginador sobrio papel/tinta: número de página en mono tabular (`orders.pageInfo`) y
+  flechas cuadradas 36×36 con borde 1px sin radius (lucide ArrowLeft/Right), deshabilitadas en los
+  extremos con el mismo tratamiento apagado del Button del sistema. Solo se pinta con `totalPages > 1`.
+- **i18n:** solo namespace `orders.*` en `es.json`/`en.json` (`invoiceError`, `pagination`,
+  `pageInfo`, `prevPage`, `nextPage`).
+- Gates: `tsc --noEmit` ✓ · `next lint` ✓.
+
+---
+
+## Makeover 1a «Conservadora» · Vender (buylist) + Carrito y pago (checkout) + Mi bóveda (rama claude/frontend-redesign-320uai, 2026-08-22)
+
+Restyling según el artboard «TCGHunt Comprar y Vender» (dirección papel/tinta/rojo #B31217). Solo piel y
+copy; cero cambios de lógica de dinero (SEC-A1 intacto: `batchQuote` y `BreakdownDTO` server-side).
+
+**Vender (`/buylist`):**
+- Hero con el nuevo lenguaje: «Vender mis cartas» + subtítulo + rule-note de PAY_AFTER_RECEIPT
+  («primero autenticamos, luego transferimos») + enlace «Guía de envío seguro» (keys `buylist.*`).
+- `SafeShippingGuide` reescrita al lenguaje editorial: retícula 01–04 (numeral mono rojo, regla superior),
+  sin iconos ni cajas; prop `columns` (2 = modal, 4 = inline). Ahora vive DOS veces: modal del hero y
+  sección inline al pie de la página (artboard 630–657). Copy de pasos actualizado en `safeShipping.*`
+  (funda blanda / top loader / sobre o caja rígida / guía con seguro).
+- Carrito de venta (drawer, se conserva FAB+drawer de §18.4): título «Tu lista», total estimado como
+  cifra héroe mono 26px con etiqueta en versalitas, nota del estimado como rule-note roja, CTA
+  «Enviar solicitud» en **tinta (primary, 54px)** — el rojo queda reservado al pago del checkout —,
+  «Vaciar la lista» como texto mono centrado y pie mono en versalitas `cartFooterNote` (SPEI 2–3 días
+  hábiles: se conserva la política real, no el «24–48 h» placeholder del artboard).
+- `SellRequirementsPanel`: título «Requisitos para cobrar» (checklist ✓/—/! sin cambios).
+- «Mis solicitudes»: el bloque de respuesta al ajuste (F5) deja la caja `bg-accent/5` y pasa a
+  rule-note (sin rellenos de color, DESIGN §2.1). Funcionalidad intacta.
+
+**Carrito y pago (`/checkout`, con cuenta e invitado):**
+- Título «Tu carrito» + subtítulo de bóveda (`checkout.subtitle`).
+- Líneas con miniatura grande (92px desktop / 64px móvil), nombre serif 19px, meta mono
+  (set · #número · NM en raw con cuenta), «Quitar» bajo la meta y precio tabular 19px a la derecha.
+- Bloque «Guardar en mi bóveda» (flujo con cuenta) reusa los benefits del upsell
+  (`checkout.vaultUpsell.benefit.*`) como lista con reglas; eyebrow nuevo `checkout.vaultKeepEyebrow`.
+- Resumen: cabecera «Resumen» con regla fuerte; botón «Pagar {monto}» sigue **accent (rojo)** y crece
+  a 54px. Sin tocar `AmountBreakdown` (componente compartido, fuera del alcance de este stream).
+- Estados EMAIL_NOT_VERIFIED / ITEM_UNAVAILABLE (poda + aviso) y todo el flujo invitado/upsell/claim
+  se conservan sin cambio de comportamiento.
+
+**Mi bóveda (`/vault`):**
+- «Mis piezas» pasa de renglones-tabla a **tejas** (retícula del binder 2→3→4→5): imagen 5:7, nombre
+  serif, `ListingSpec` mono, folio, fila valor+estado sobre regla y CTA «Retirar» por teja (Link
+  bordeado si `withdrawable`; Button disabled con hint accesible si no — misma lógica v1.17;
+  `WithdrawalBadge` manda sobre el badge de titularidad cuando hay envío activo).
+- Sin precio de referencia la teja dice «Pendiente» en mono rojo (nunca MX$0.00 ni «—»); key nueva
+  `vault.valuePending`. Lenguaje «piezas» (setCount/pendingPrice/onlySettled actualizado a «piezas
+  liquidadas y sin envío activo»). Encabezado de sección `vault.myPieces` + `vault.piecesLegend`.
+- Pestañas Piezas/Master set/Sellado, portafolio (`PortfolioTrendChart`, ya tokenizado — sin cambios),
+  «Valor por set» y filtros se conservan.
+
+**No implementado / desviaciones conscientes:**
+- «Queda 1 / N en stock» por línea del carrito (artboard): `OrderItemPreview` no trae disponibilidad —
+  pedido al arquitecto (no se inventan datos).
+- Copy de la vitrina Top Bounties («Buscamos estas cartas» / «Te pagamos» / «Top bounties») NO se
+  cambió: `TopBountiesShelf.test.tsx` (fuera del alcance de archivos de este encargo) asserta el copy
+  vigente; la vitrina ya cumple visualmente el artboard (banda, chip, precio verde, QUEDAN N, CTA).
+- El carrito de venta sigue como FAB+drawer (spec §18.4 ratificada) en vez de la columna fija de 420px
+  del artboard; el drawer adopta el lenguaje del artboard.
+- Tests: `BuylistView.test.tsx` actualizado a los nuevos copys («Vaciar la lista», «Requisitos para
+  cobrar»). Suite tocada 103/103 ✓ · `tsc --noEmit` ✓ · `next lint` ✓.
+
+---
+
+## Makeover home 1a «Conservadora» (rama claude/frontend-redesign-320uai)
+
+**Alcance:** home del storefront (`(storefront)/page.tsx` + componentes nuevos en
+`(storefront)/_home/`), `StorefrontHeader`, footer del storefront (`(storefront)/layout.tsx`) y
+claves i18n `home.*` / `nav.*`.
+
+**Estructura nueva del home (orden del artboard 1a):**
+1. Banda de portafolio (solo sesión iniciada): `PortfolioGlance` conservado del home anterior,
+   ahora como banda propia bajo el header con link «Ver mi bóveda». El diseño 1a no la dibuja;
+   se conserva por valor para el usuario recurrente.
+2. Hero 2 columnas (1fr/392px): kicker mono, H1 serif 50px, CTA negro «Ver el catálogo» + link
+   rojo «Producto sellado» (→ /sellado), chips «Sets buscados» con sets REALES de
+   `GET /catalog/facets` (si no hay sets, no se pintan).
+3. Mini-cotizador (`_home/HomeQuoter.tsx`): búsqueda `searchBuylistCards` (debounce 300 ms) +
+   cotización POR EL SERVER con `getBuylistQuote` (SEC-A1: jamás se calcula un monto en cliente;
+   sin referencia ⇒ línea «Pendiente», nunca $0; el total solo suma centavos cotizados por el
+   server). El estado se IZA a la página (`useHomeQuoter`) porque el panel se pinta dos veces:
+   columna del hero (lg) y sección propia (móvil), compartiendo líneas.
+4. «Piezas destacadas» (`_home/FeaturedCarousel.tsx`): `getCatalog({sort:'price_desc'})`, primera
+   teja grande + resto numeradas en mono rojo, flechas cuadradas funcionales (scroll + estado
+   disabled real por posición). Badge «Queda 1» literal: en el modelo actual 1 publicación = 1
+   copia; NO se muestra stock agregado por carta (no existe en el contrato de /catalog/cards).
+5. «Producto sellado» (`_home/SealedShelf.tsx`): `getSealedGroups()` — aquí el stock agregado SÍ
+   es real (`availableCount`): «N en stock» / «Último».
+6. «Cartas gradeadas» (`_home/GradedShelf.tsx`): `getCatalog({productType:'graded'})` con chip
+   empresa+grado y `certNumber` reales.
+7. «Lo que más buscamos hoy» (`_home/BountyBoard.tsx`): condicional — solo si
+   `getPublicBounties()` trae elementos (error/vacío ⇒ la sección no existe, regla de
+   TopBountiesShelf). Columna «Condición» pinta la constante honesta «NM» (la buylist solo
+   compra NM; el DTO de bounty no trae condición por fila).
+8. «Cómo funciona la bóveda»: 3 pasos estáticos i18n. 9. Banda de tinta con único botón rojo
+   «Cotizar mi lista». 10. Footer mono una línea (padding 26px del artboard).
+
+**Header:** nav del artboard «Comprar / Vender / Mi cuenta» (activo = border-bottom rojo, ya
+existente). Anónimo: «Mi cuenta» → /login (sustituye el link suelto «Iniciar sesión»); con
+sesión se conservan las pestañas privadas (Mi bóveda / Mis órdenes / Mis retiros) y el bloque
+nombre + Cerrar sesión. P-28 (ocultar carrito de compra en /buylist) y `--app-header-h` intactos.
+
+**Decisiones / desviaciones conscientes:**
+- «Continuar mi cotización» SOLO navega a /buylist sin transferir las líneas: llevarlas al
+  `useSellCart` de `BuylistView` exigiría tocar el módulo buylist (fuera de los archivos de este
+  encargo). Opción menos invasiva elegida y documentada; si se quiere transferencia real, el
+  dueño del módulo buylist puede aceptar un query param (p. ej. `?add=cardId:finish,…`).
+- Los links «filtrados» (`/catalog?setId=…`, `/catalog?productType=graded`) llevan el query
+  param y `CatalogView` YA los inicializa desde la URL (`parseUrlFilters`, cerrado en este mismo
+  stream por el módulo catálogo): los deep-links del home aterrizan filtrados.
+- Tejas destacadas usan `CardImage` (aspecto 5:7) también para la teja grande (el artboard
+  sugiere 4:5): el arte de las cartas es 5:7 nativo y recortarlo mentiría.
+- El eyebrow de gradeadas dice «PSA · CGC» (el artboard decía «PSA · BGS · CGC»; BGS no existe
+  en `GradingCompany` del contrato).
+- `FeaturedSetGlance` (§7.18, gráfica pública del set destacado en la rama anónima) SALE de la
+  home: su lugar lo ocupa el cotizador. El componente y sus claves `home.featuredSet.*` se
+  conservan (los usa su propio test); si UX lo da de baja, retirar ambos.
+- El panel «Valor por set» del home anterior también sale (sigue viviendo en /vault).
+- i18n: claves nuevas bajo `home.quoter/sealed/graded/bounties/how`, `home.heroKicker`,
+  `home.setsWanted`, `home.trustPayout`, `home.lastOne`, `home.pricePending`,
+  `home.carouselPrev/Next`, `home.vaultLink`, `home.featuredTitleShort`; `nav.buy`,
+  `nav.myAccount`; valores actualizados: `home.ctaShop` («Ver el catálogo»), `home.sellCta`
+  («Cotizar mi lista»). Paridad ES/EN verificada.
+- Tests: `page.test.tsx` reescrito (hero + doble panel de cotizador + añadir carta cotiza contra
+  el mock del server); `StorefrontHeader.test.tsx` actualizado a «Comprar / Mi cuenta».
+
+---
+
+## Makeover 1a «Conservadora» — Comprar / Ficha de carta / Sellado (rama claude/frontend-redesign-320uai)
+
+Aplicación de los artboards aprobados «2a Comprar» y «Ficha de carta» (Claude Design, papel/tinta/rojo
+`#B31217`) a la vitrina de compra, la ficha y la tienda de sellado. Cero tokens nuevos: todo se compone
+con `--color-*`/`--hunt-*`, las tres familias (`--font-serif/sans/mono`) y las reglas 1px del sistema.
+
+### Comprar (`catalog/CatalogView.tsx` + nuevos `CatalogTile.tsx` y `Paginator.tsx`)
+- **Encabezado del artboard:** eyebrow `Catálogo · MXN sin IVA` + h1 mincho «Comprar» + conteo mono
+  tabular «N piezas disponibles» (total real de la query filtrada) a la línea base.
+- **Pestañas de la Tienda (StoreTabs):** ganan la tercera pestaña **Gradeadas**, que NO es ruta nueva:
+  es `/catalog?type=graded`. `CatalogView` lee el parámetro con `useSearchParams` y lo sincroniza en
+  ambos sentidos con `filters.productType` (cambiar el tipo desde el panel/chips hace `router.replace`
+  para que la pestaña no mienta). Las páginas `/catalog`, `/compra` y `/sellado` ganan `<Suspense>`
+  (requisito de `useSearchParams` en Next 15).
+- **Filtros iniciales desde la URL (enlaces del Home):** `parseUrlFilters` inicializa el estado al
+  montar desde la query — `?setId=<id>`, `?productType=raw|graded|sealed` (y el alias `?type=graded`
+  de la pestaña), más los triviales `q`, `finish`, `sealedSubtype`, `rarity` (CSV) y `sort`; los enums
+  se validan contra sus listas y un valor inválido se ignora. Un efecto keyed por
+  `searchParams.toString()` MERGEA los filtros de la URL en navegaciones posteriores (pestañas,
+  back/forward) sin borrar lo elegido en el panel. `StoreTabs` marca Gradeadas activa también con
+  `?productType=graded`. Sin cambios de contrato ni de `lib/api.ts`.
+- **Teja propia de la vista (`CatalogTile`)**: arte 5:7, nombre en mincho, `set · #número` mono muted,
+  renglón `ListingSpec` (se conserva por §7.2b y por el e2e que verifica el tooltip NM), precio tabular
+  en sans y **«Queda 1» rojo literal** (1 publicación = 1 copia física; no se inventa stock agregado).
+  CTA «Añadir al carrito» (móvil «Añadir» vía spans responsivos + `aria-label` estable); en carrito →
+  «En el carrito» y el segundo clic navega a `/checkout`. NO se tocó `ListingCard` (zona compartida);
+  la teja vive en `catalog/` y es propiedad de esta vista. Sin precio jamás pinta `$0`: cae al
+  `price.pendingLabel` (defensivo; Compra solo lista con precio).
+- **Paginación (hueco real cerrado):** `Paginator` sobrio (flechas cuadradas 38px con borde + `p / N`
+  mono tabular). `filters.page` viaja en `getCatalog` (el backend pagina a 20); **cualquier cambio de
+  filtro/orden/búsqueda resetea la página** (`updateFilters`). Nota: la rama MOCK de `getCatalog`
+  ignora `page` y devuelve todo (`lib/api.ts` es zona compartida; no se tocó) — con mocks el paginador
+  casi siempre queda en `1 / 1`. Contra backend real funciona completo.
+- Filtros: mismo panel (9 filtros + facetas), reordenado según artboard (Set primero) y con reglas de
+  sección a 0.32 (`border-border-strong`); encabezado FILTROS + «Limpiar» rojo; en móvil el botón
+  Filtros muestra el conteo activo en rojo.
+
+### Ficha de carta (`catalog/[cardId]/CardDetailView.tsx`)
+- Ya seguía la retícula del artboard; se ajustó: **chip de grado** (borde tinta, mono «PSA 9») en la
+  celda Condición para gradeadas; **precio de venta ausente → «Precio pendiente»** rojo mono (antes
+  decía «No disponible»); `card.backToCatalog` pasa a «Volver al catálogo».
+- **`CertNumberField` restilizado** (el diseño lo exige): etiqueta eyebrow + renglón con borde 0.32,
+  número mono tabular y «Copiar» rojo mono a la derecha. Afecta también a M8 (admin) — mismo lenguaje.
+
+### Sellado (`sellado/SealedShopView.tsx`, `SealedDetailView.tsx`, nuevo `StockBadge.tsx`)
+- La cuadrícula 5:7 se sustituye por la **banda sobre pozo (`bg-surface-2`) con tejas horizontales**
+  del home 1a: miniatura cuadrada 88px (object-contain, sin recorte), nombre mincho, renglón mono
+  set·presentación(+condición), precio «Desde · sin IVA» tabular y **`StockBadge` con cantidades
+  reales del endpoint**: «N en stock» verde / «Último» rojo / «Agotado» muted. Toda la teja enlaza a
+  la ficha. La ficha de sellado usa el mismo `StockBadge`; los bloques tras feature-flags
+  (`trendEnabled`/`restockEnabled`, 404 `FEATURE_DISABLED`) ya degradaban limpio y no se tocaron.
+- i18n nuevos (namespaces ya usados por estas vistas): `storeTabs.graded`, `catalog.eyebrow`,
+  `catalog.piecesAvailable`, `catalog.lastOne`, `catalog.addToCartShort`, `catalog.pagination.*`,
+  `sealed.inStock`, `sealed.lastOne`, `sealed.soldOut`; y cambios de valor: `catalog.title`
+  («Comprar»), `catalog.addToCart` («Añadir al carrito»), `catalog.resultsCount` (resultados),
+  `card.backToCatalog`. ES+EN.
+
+### Desviaciones conscientes del artboard
+- **Filtro «Grado» del sidebar (chips PSA 10/PSA 9/…):** el contrato de `/catalog/facets` no expone
+  facetas de grado ni `getCatalog` filtra por grado — no se pintó (pintarlo sin backend sería mentir).
+  Solicitud al arquitecto anotada abajo. La pestaña «Gradeadas» cubre el corte grueso.
+- **«Solo con stock»:** no existe en el contrato y la vitrina ya lista solo inventario publicado con
+  precio — el toggle sería un no-op; se omite.
+- **«2/4/6 en stock» verdes del artboard 2a:** placeholders del diseño; en el modelo real cada
+  listing de cartas es una copia única, así que TODAS las tejas vendibles pintan «Queda 1» (los
+  agregados con stock real viven en /sellado, donde sí se pintan).
+- **Orden como `Select` con etiqueta** (no el rectángulo «Precio ↓» del artboard): se reusa el Select
+  del sistema por a11y/consistencia; mismo lugar (barra de resultados).
+- CTA de teja a 44px de alto (artboard: 42px) por el objetivo táctil mínimo del DS (§6.1).
+
+### Gates locales
+`tsc --noEmit` ✓ · `next lint` ✓ · `vitest run` **587/587** ✓ · `next build` ✓. Tests propios
+actualizados: `CatalogView.test` (nuevo nombre del CTA + mock `next/navigation`), `SealedShopView.test`
+(«N en stock» + mock `next/navigation`).
+
+### Solicitud al arquitecto (no bloqueante)
+- Facetas/filtro de **grado** en Compra: `GET /catalog/facets` con `grades: [{ company, value }]` y
+  `GET /catalog/cards?gradingCompany=&gradeValue=` (o similar) para poder pintar el bloque «Grado»
+  del artboard 2a con datos reales.
+
+---
+
+## Pase de refactors del makeover 1a — R1–R5 del veredicto techlead (2026-08-22, rama `claude/frontend-redesign-320uai`)
+
+Refactor PURO dentro de `(storefront)/` + `messages/` (única excepción autorizada: R4 en
+`components/domain/StoreTabs.tsx`). Nuevos compartidos del stream en `(storefront)/_shared/`
+(NO en `frontend/src/components/` — zona compartida de otro stream).
+
+### R1 · `_shared/StockBadge.tsx` — distintivo de stock único (§20.6)
+- API semántica `variant: 'unique' | 'count' | 'lastUnit' | 'soldOut'` + helper
+  `stockVariantFromCount(count)` para los sitios con conteo agregado real (sellado).
+- **Colores canónicos decididos POR LA TABLA del DS §20.6** (ante la duda, manda el DS):
+  `unique` («Queda 1») = **accent**; `count` («N en stock») = **success**; `lastUnit` («Último») =
+  **muted** (la implementación previa de `sellado/StockBadge` lo pintaba accent — corregido);
+  `soldOut` («Agotado») = muted. Mono 10px (9px móvil), uppercase, tracking 0.12em.
+- Sustituye las 4 implementaciones (sellado/StockBadge — **eliminado**, SealedShelf inline,
+  FeaturedCarousel/GradedShelf `home.lastOne`, CatalogTile `catalog.lastOne`) y también se usa en
+  `SealedDetailView`. Namespace i18n único **`stock.*`** (`lastOne`, `inStock`, `lastUnit`,
+  `soldOut`, ES+EN — §20.16). Claves borradas tras grep de uso cero: `home.lastOne`,
+  `home.sealed.inStock`, `home.sealed.last`, `catalog.lastOne`, `sealed.inStock`, `sealed.lastOne`,
+  `sealed.soldOut`. La semántica ambigua de `lastOne` («Queda 1» vs «Último») quedó partida en dos
+  claves distintas (`stock.lastOne` / `stock.lastUnit`).
+
+### R2 · `_shared/PendingPriceLabel.tsx` — señal única de precio pendiente
+- Color canónico **accent** (§16.4 «texto mono rojo PENDIENTE» + §20.13 «aviso mono rojo, nunca $0»);
+  los dos sitios del home que lo pintaban muted quedaron alineados.
+- Una sola clave: **`price.pendingLabel`** (ya era la fuente de catálogo/ficha); `home.pricePending`
+  **borrada**. Prop `hint` añade `price.pendingHint` (fila de ejemplares de la ficha). Usado en los
+  5 sitios: CatalogTile, CardDetailView (Fact + fila de ejemplar), FeaturedCarousel (TilePrice),
+  GradedShelf. `components/ui/PriceTag.tsx` NO se tocó (zona compartida): consolidación final
+  anotada en TECH_DEBT (MK-D7).
+
+### R3 · Estantes del home sin duplicación
+- **Errores:** los tres bloques de error a mano (FeaturedCarousel/SealedShelf/GradedShelf) ahora usan
+  `components/ui/QueryState` (solo import, como CatalogView/SealedShopView). Detalle de composición:
+  el wrapper `<div className={isError ? 'gutter pb-12' : undefined}>` aporta el gutter SOLO en la
+  rama de error, para no alterar la pista de scroll del carrusel ni duplicar gutter en las grillas.
+- **`_shared/Shelf.tsx`:** encabezado de estante único (H2 serif 22/29 + link muted + variantes
+  `kicker`/`subtitle`/`actions`); consumido por FeaturedCarousel (flechas como `actions`),
+  SealedShelf, GradedShelf y BountyBoard.
+- **`_shared/EditorialLink.tsx`:** micropatrón §20.0 (variant `accent` = subrayado rojo + tinta,
+  hover subrayado a tinta; `muted` = terciario sin subrayado). Renderiza `Link` con `href` o
+  `<button>` con `onClick`. Usado en: `page.tsx` (link bóveda; CTA sellado del hero con overrides
+  responsivos móviles vía `className`+twMerge), `HomeQuoter` («Continuar mi cotización»),
+  `BuylistView` (guía de envío — la variante divergida `text-accent`/minúsculas se normalizó al
+  canon) y dentro de `Shelf` (los «Ver todo…» muted).
+
+### R4 · StoreTabs sin ARIA de tabs (excepción autorizada, solo ese cambio)
+- `components/domain/StoreTabs.tsx`: fuera `role="tablist"/"tab"` y `aria-selected` (prometían un
+  tab-panel controlado con navegación por flechas que no existe); ahora es
+  `<nav aria-label={t('storeTabs.label')}>` + `aria-current="page"` en el link activo. Visual §20.1
+  intacto. Nada más se tocó en ese archivo.
+
+### R5 · Catálogo: debounce + `keepPreviousData`
+- El input de búsqueda pasa a estado inmediato propio (`searchTerm`) y solo su valor **debounced**
+  (`useDebouncedValue`, 300 ms — patrón P-5) entra a `filters.q`/queryKey: cero fetch por pulsación.
+  Sincronización: chip «✕»/limpiar y `?q=` de URL escriben de vuelta al input; cambios de
+  orden/facetas NO lo pisan (guard por comparación de `q`). El reset de página viaja con el término
+  debounced (cambio real de `q` ⇒ `page: undefined`).
+- `catalogQuery` con `placeholderData: keepPreviousData`: paginar/filtrar ya no desmonta la grilla
+  (skeleton solo en el primer fetch).
+
+### D-menores corregidos de paso (D3/D7)
+- **D3:** `Paginator` movido a `_shared/Paginator.tsx` (era genérico) y **`SealedShopView` ahora
+  pagina** (§20.12): `page` en filtros (los 4 selects resetean página), total de páginas del
+  `total/pageSize` del contrato, ancla de scroll en la barra de resultados, oculto con una página.
+- **D7:** © del footer con año dinámico (`layout.tsx`); numeración del carrusel `aria-hidden`
+  (§20.3); `BountyBoard` con semántica de tabla (`role="table"/row/columnheader/cell"` — alternativa
+  válida de §20.7 conservando la retícula responsiva); chips removibles con
+  `aria-label` de acción (`catalog.removeFilter`, ES+EN); literal `BUYLIST` → `buylist.verticalLabel`
+  (uppercase vía clase, §20.15). Lo NO corregido quedó en TECH_DEBT (MK-D7): `<img>` crudo de
+  SealedShelf, HomeQuoter sin cancelación/combobox ARIA, header de /checkout sin simplificar.
+
+### Gates locales
+`tsc --noEmit` ✓ · `next lint` ✓ (sin warnings) · `vitest run` **589/589** ✓ (sin tocar tests: los
+textos visibles no cambiaron salvo el color/semántica ya descritos) · `next build` ✓.
 ## P-35 — Alta dedicada de producto SELLADO (`SealedAddFlow`, contrato v1.36-sealed-alta, §16.8a)
 
 **Problema corregido:** la pestaña «Sellado» caía en `AddItemModal` (buscador de CARTAS sobre singles),

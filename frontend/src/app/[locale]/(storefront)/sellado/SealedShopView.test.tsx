@@ -8,12 +8,17 @@ import * as api from '@/lib/api';
 // StoreTabs (sub-pestañas de la Tienda) usa usePathname: hay que exportarlo en el mock.
 vi.mock('@/i18n/navigation', () => ({
   usePathname: () => '/sellado',
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
     </a>
   ),
+}));
+
+// StoreTabs lee ?type=graded con useSearchParams (pestaña Gradeadas).
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 const BOX = 'Surging Sparks Booster Box';
@@ -31,10 +36,10 @@ describe('SealedShopView · grid y conteos', () => {
     expect(await screen.findAllByText(BOX)).not.toHaveLength(0);
     expect(screen.getByText(ETB)).toBeInTheDocument();
 
-    // «N disponibles» por grupo (box mint = 4, etb = 7, box minor = 2).
-    expect(screen.getByText('4 disponibles')).toBeInTheDocument();
-    expect(screen.getByText('7 disponibles')).toBeInTheDocument();
-    expect(screen.getByText('2 disponibles')).toBeInTheDocument();
+    // Distintivo de stock real por grupo (box mint = 4, etb = 7, box minor = 2).
+    expect(screen.getByText('4 en stock')).toBeInTheDocument();
+    expect(screen.getByText('7 en stock')).toBeInTheDocument();
+    expect(screen.getByText('2 en stock')).toBeInTheDocument();
 
     // Conteo total de resultados = 3 grupos.
     expect(screen.getByText('3 productos')).toBeInTheDocument();

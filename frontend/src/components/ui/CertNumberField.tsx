@@ -28,21 +28,25 @@ export function CertNumberField({ certNumber }: CertNumberFieldProps) {
     }
   }
 
+  // Artboard «Ficha de carta» (dirección 1a): etiqueta eyebrow arriba y un
+  // renglón con borde de regla; el número en mono tabular y «Copiar» en rojo.
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
+    <div>
       <span className="eyebrow">{t('certLabel')}</span>
-      <span className="tabular font-mono text-text" data-testid="cert-number">
-        #{certNumber}
-      </span>
-      <button
-        type="button"
-        onClick={copy}
-        className="inline-flex min-h-[32px] items-center gap-1 border border-border-strong px-2.5 text-xs font-medium text-text hover:border-text"
-        aria-label={t('certCopy')}
-      >
-        {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
-        {copied ? t('certCopied') : t('certCopy')}
-      </button>
+      <div className="mt-2.5 flex items-center gap-3.5 border border-border-strong px-3.5 py-3">
+        <span className="tabular font-mono text-[13px] tracking-[0.06em] text-text" data-testid="cert-number">
+          #{certNumber}
+        </span>
+        <button
+          type="button"
+          onClick={copy}
+          className="ml-auto inline-flex min-h-[32px] items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-accent hover:text-text"
+          aria-label={t('certCopy')}
+        >
+          {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+          {copied ? t('certCopied') : t('certCopy')}
+        </button>
+      </div>
     </div>
   );
 }

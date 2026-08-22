@@ -3410,6 +3410,96 @@
 - **Impacto:** mantenibilidad; cuatro sitios a tocar si cambia la regla de activación. Sin riesgo de comportamiento hoy (los tests cubren cada uno).
 - **Disparador:** al próximo cambio de la regla de agrupación. Dirección: extraer un helper compartido `resolveActiveGroups(presentExternalIds)` en la config y que los cuatro lo consuman. No urgente.
 
+### Makeover 1a storefront (2026-08-22) — pase de refactors R1–R5 (rama `claude/frontend-redesign-320uai`, dueño: frontend salvo indicado)
+
+> Registro pedido por el techlead junto al pase acotado de refactors del makeover 1a. Los refactors
+> obligatorios **R1–R5 quedaron ejecutados en esta misma rama** (StockBadge/PendingPriceLabel/Shelf/
+> EditorialLink únicos en `(storefront)/_shared/`, StoreTabs como `<nav>`+`aria-current`, debounce +
+> `keepPreviousData` en el catálogo) y NO figuran aquí. De los D-menores (D7), quedaron **corregidos
+> de paso**: año dinámico del footer, numeración del carrusel `aria-hidden`, semántica de tabla del
+> BountyBoard (`role="table"/row/columnheader/cell`), aria-label de quitar en chips de filtro,
+> `BUYLIST` literal → `buylist.verticalLabel`, y **D3** (Paginator movido a `_shared/` y paginación
+> real en `SealedShopView`). Lo de abajo es la deuda que QUEDA abierta.
+
+#### MK-D1 · Seis tejas de producto conviven con una `ListingCard` canónica muerta (Media, frontend)
+- **Dónde:** `CatalogTile`, teja grande/chica del `FeaturedCarousel`, teja de `GradedShelf`, teja de
+  `SealedShelf` (home), `SealedGroupTile` (sellado) — todas en `(storefront)/` — frente a
+  `frontend/src/components/domain/ListingCard.tsx` (canónica previa al makeover, hoy sin consumidor
+  del storefront).
+- **Impacto:** medio (mantenibilidad): la anatomía de teja (imagen + serif + renglón mono + precio +
+  distintivo) vive N veces; un matiz del DS hay que replicarlo. Se mitigó en este pase unificando
+  distintivo de stock y precio-pendiente, pero la teja completa sigue multiplicada.
+- **Disparador:** cuando el orquestador **serialice la zona compartida `frontend/src/components/`**
+  para este stream: consolidar una teja canónica ahí (o retirar `ListingCard` si se decide que la
+  teja vive por vista) — la decisión de dónde vive pasa por techlead/orquestador.
+
+#### MK-D2 · Huérfanos `FeaturedSetGlance` + claves `home.trustAuth/trustPrice/ctaBuylist/vaultLabel/featuredSet.*` (Baja, frontend + ux-ui)
+- **Dónde:** `frontend/src/components/domain/PortfolioTrendChart.tsx` (`FeaturedSetGlance`, retirado
+  de la home por el makeover; solo lo referencia su test) y claves i18n `home.trustAuth`,
+  `home.trustPrice`, `home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*` (ES+EN) sin consumidor
+  de vista.
+- **Impacto:** bajo (código/copys muertos). `FeaturedSetGlance` está en zona compartida
+  `components/domain/` — su baja no puede ejecutarla este stream unilateralmente.
+- **Disparador:** decidir la **baja con ux-ui** (¿regresa el glance en alguna vista o se retira
+  §7.18?); al retirarlo, borrar componente + test + claves en el stream que tenga la zona compartida.
+
+#### MK-D4 · Chips de filtro del catálogo con etiquetas sin traducir (`productType`, acabado) (Baja, frontend)
+- **Dónde:** `catalog/CatalogView.tsx` → `buildChips`: el chip de `productType` pinta el valor crudo
+  del enum (`raw`/`graded`/`sealed`), y el de `finish` la etiqueta cruda (la localizada vive en el
+  panel de filtros). El nombre de set (QA-1) y los límites de precio (QA-2) ya se corrigieron.
+- **Impacto:** bajo (copy en inglés técnico en chips ES). El valor es correcto; solo falta la
+  etiqueta localizada (los catálogos i18n `finish.*` y tipos ya existen).
+- **Disparador:** próximo toque a `buildChips`; mapear a `t('finish.*')` / etiqueta de tipo.
+
+#### MK-D5 · Doble fuente de verdad de filtros del catálogo (URL vs estado) (Media, frontend)
+- **Dónde:** `catalog/CatalogView.tsx`: los filtros viven en `useState` y se MERGEAN desde la URL
+  (efecto sobre `urlKey` + `parseUrlFilters`), y solo `type=graded` se refleja de vuelta con
+  `router.replace`. El resto de filtros no viaja a la URL (no hay deep-link/back-forward completo), y
+  la sincronización bidireccional parcial es frágil (R5 añadió además el término debounced como
+  tercera pieza a coordinar).
+- **Impacto:** medio (UX de compartir/atrás-adelante + complejidad accidental creciente).
+- **Disparador:** a medio plazo, próximo trabajo mayor sobre el catálogo: hacer la **URL la fuente
+  única** (estado derivado de `searchParams`, cambios vía `router.replace` con scroll preservado).
+
+#### MK-D6 · `BuylistView` sigue siendo un monolito (~820 líneas) (Media, frontend)
+- **Dónde:** `buylist/BuylistView.tsx` (~821 líneas) pese a las extracciones previas (TL-C3:
+  `useSellCart`, `SellCartContents`, `MyRequestsSection`).
+- **Impacto:** medio (mantenibilidad; mismo patrón que el resuelto TD-1/M2View a menor escala).
+- **Disparador:** próximo trabajo sobre el módulo Vender. **Siguiente extracción acordada:** barra de
+  filtros (set/búsqueda por tipo) + grid de resultados a componentes propios de `buylist/`.
+
+#### MK-D7 · Menores restantes del veredicto (Baja, frontend)
+- **`SealedShelf` (home) usa `<img>` crudo** en vez de `CardImage` (thumb cuadrado con
+  `object-contain` propio); `CardImage` es compartido y hoy impone su proporción — alinear cuando se
+  toque la zona compartida (misma ventana que MK-D1).
+- **`HomeQuoter`:** `getBuylistQuote` con `.then/.catch` sin cancelación (una respuesta tardía puede
+  aterrizar tras quitar la línea; el guard por `key` mitiga duplicados, no estados zombis) y el
+  typeahead **sin patrón combobox ARIA** (`role="combobox"`/`listbox`/`aria-activedescendant`,
+  navegación con flechas). Disparador: próximo toque al cotizador del hero — migrar a
+  `useMutation`/AbortController y al combobox accesible (§6 del DS).
+- **Header de `/checkout` sin simplificar** según §20.1 («marca + rótulo mono PAGO SEGURO · MXN SIN
+  IVA, sin nav»): `StorefrontHeader` es zona compartida (`components/layout/`) — aplicar cuando se
+  serialice esa zona.
+- **`PriceTag` compartido (`components/ui/PriceTag.tsx`):** la señal «precio pendiente» canónica del
+  storefront quedó en `(storefront)/_shared/PendingPriceLabel.tsx` (R2, color accent §16.4/§20.13);
+  la **consolidación final va en `PriceTag`** (que hoy pinta su propia variante) cuando se serialice
+  la zona compartida — mismo disparador que MK-D1.
+
+#### MK-D8 · `CatalogView` sin test de regresión del debounce/reset de página (Baja, frontend)
+- **Dónde:** `catalog/CatalogView.tsx` — la interacción debounce de búsqueda (300 ms, R5) + reset de
+  página no tiene test de regresión. **Borde conocido:** pulsar «Limpiar filtros» dentro de la
+  ventana de 300 ms no limpia el input de búsqueda y el término pendiente entra como filtro después.
+- **Impacto:** bajo (borde de UX poco frecuente; sin test, una regresión pasaría inadvertida).
+- **Remedio:** limpiar `searchTerm` cuando el caller pasa filtros vacíos + test de regresión del
+  debounce/reset.
+- **Disparador:** próximo toque al catálogo.
+
+#### MK-D9 · `StockBadge` sin prop `size` (Baja, frontend)
+- **Dónde:** `(storefront)/_shared/StockBadge.tsx` — no expone tamaño; `SealedDetailView` pelea con
+  las clases responsivas vía `className`.
+- **Impacto:** bajo (override frágil de clases en un consumidor).
+- **Remedio:** agregar `size?: 'sm' | 'md'` al componente y retirar el override.
+- **Disparador:** cuando aparezca la próxima variante de tamaño del distintivo.
 ### Cluster P-34 (pricing por tiers) — deuda del veredicto techlead (2026-08-22, no bloqueante)
 
 > Deuda NO bloqueante que el techlead re-enumeró en el **Cluster P-34** (migración de pricing a
