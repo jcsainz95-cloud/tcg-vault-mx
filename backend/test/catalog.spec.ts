@@ -255,6 +255,80 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
     expect(units.map((u) => u.inventoryItemId)).toEqual(['u-barato', 'u-caro']);
     expect(units.every((u) => u.sellable)).toBe(true);
   });
+
+  // H4 (P-30) — REGRESIÓN: precio de grupo con `listPriceCents` manual DIVERGENTE en la MISMA K
+  // (§4.26b: el manual por-pieza gana siempre). El grupo publica el MÍNIMO como representante (piso),
+  // pero la ficha expone AMBAS piezas en `units[]` (cheapest-first) para el add-to-cart por
+  // inventoryItemId. Money-safe: el precio del grupo es un PISO informativo; el cobro real se
+  // re-cotiza por pieza (cada `unit` lleva su propio salePriceCents exacto).
+  it('H4 · precio de grupo con `listPriceCents` divergente en la misma K: grupo = mínimo, `units[]` completo cheapest-first', async () => {
+    // Dos piezas de la MISMA K (raw NM normal, misma carta) con precio manual divergente: 18000 vs 9900.
+    const items = [
+      itemOf({ id: 'div-caro', listPriceCents: 18000, createdAt: new Date('2026-08-05') }),
+      itemOf({ id: 'div-barato', listPriceCents: 9900, createdAt: new Date('2026-08-02') }),
+    ];
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+
+    // (a) Listado de Compra: 1 grupo, representante = la pieza más barata, precio del grupo = mínimo.
+    const list = await svc.listCards({ page: 1, pageSize: 20 });
+    expect(list.data).toHaveLength(1);
+    expect(list.total).toBe(1);
+    expect(list.data[0].stockCount).toBe(2);
+    expect(list.data[0].salePriceCents).toBe(9900); // mínimo = piso «desde».
+    expect(list.data[0].representativeInventoryItemId).toBe('div-barato');
+
+    // (b) Ficha: `listings` (grupo) muestra el mínimo; `units[]` trae AMBAS piezas cheapest-first,
+    // cada una con su salePriceCents EXACTO por-pieza (no el del grupo) para el cobro re-cotizado.
+    const { listings, units } = await svc.getCard('c1');
+    expect(listings).toHaveLength(1);
+    expect(listings[0].salePriceCents).toBe(9900);
+    expect(listings[0].stockCount).toBe(2);
+    expect(units.map((u) => u.inventoryItemId)).toEqual(['div-barato', 'div-caro']);
+    expect(units.map((u) => u.salePriceCents)).toEqual([9900, 18000]); // precio EXACTO por pieza, divergente.
+    expect(units.every((u) => u.sellable)).toBe(true);
+  });
+
+  // H4 (P-30) — REGRESIÓN: sort + paginación sobre GRUPOS. Con varios grupos y un `pageSize` que
+  // cruza página, `price_asc`/`price_desc` ordenan por el precio del grupo, `total` = nº de grupos, y
+  // recorriendo todas las páginas ningún grupo se repite ni se salta (cobertura exacta del conjunto).
+  it('H4 · sort + paginación sobre grupos: price_asc/desc correctos, total = nº de grupos, sin repetir ni saltar', async () => {
+    // Cinco grupos distintos (cardId distinto ⇒ K distinta), cada uno con 1 pieza y precio manual único.
+    const specs = [
+      { cardId: 'ca', price: 5000 },
+      { cardId: 'cb', price: 12000 },
+      { cardId: 'cc', price: 8000 },
+      { cardId: 'cd', price: 20000 },
+      { cardId: 'ce', price: 15000 },
+    ];
+    const items = specs.map((s) =>
+      itemOf({ id: `it-${s.cardId}`, cardId: s.cardId, listPriceCents: s.price, card: cardOf({ id: s.cardId }) }),
+    );
+    const svc = new CatalogService(prismaWith(items) as PrismaService, pricing());
+    const ascExpected = [5000, 8000, 12000, 15000, 20000];
+
+    // price_asc, pageSize=2 (cruza 3 páginas: 2 + 2 + 1). Recolecta todas las páginas.
+    const seen: string[] = [];
+    const collected: number[] = [];
+    for (const page of [1, 2, 3]) {
+      const res = await svc.listCards({ page, pageSize: 2, sort: 'price_asc' });
+      expect(res.total).toBe(5); // total = nº de GRUPOS en todas las páginas.
+      expect(res.data.length).toBe(page === 3 ? 1 : 2);
+      for (const g of res.data) {
+        seen.push(g.representativeInventoryItemId);
+        collected.push(g.salePriceCents);
+      }
+    }
+    // Orden global ascendente correcto a través de las páginas.
+    expect(collected).toEqual(ascExpected);
+    // Ningún grupo repetido ni saltado: los 5 representantes distintos aparecen exactamente una vez.
+    expect(new Set(seen).size).toBe(5);
+    expect([...seen].sort()).toEqual(specs.map((s) => `it-${s.cardId}`).sort());
+
+    // price_desc: mismo conjunto, orden inverso; una sola página grande para el orden global.
+    const desc = await svc.listCards({ page: 1, pageSize: 10, sort: 'price_desc' });
+    expect(desc.total).toBe(5);
+    expect(desc.data.map((g) => g.salePriceCents)).toEqual([...ascExpected].reverse());
+  });
 });
 
 describe('CatalogService.facets — facetas dinámicas sobre inventario publicado', () => {

@@ -136,6 +136,60 @@
 - **Disparador:** asegurar que el **e2e con BD real** ejercite el rollback del claim tras `INSUFFICIENT_STOCK`
   (que el `batchKey` no quede quemado tras el fallo transaccional real).
 
+### Deuda del pase P-30 grouped-listings (v1.38, cluster «Catálogo y precios» — hallazgos techlead, no bloqueante, aceptada)
+
+> Pase `v1.38-grouped-listings` (2026-08-22): agrupación en LECTURA de las publicaciones de Compra por
+> `K = (cardId, productType, gradeKey, finish)` (ARCHITECTURE §4.9a). Gate: **QA APROBADO + techlead
+> APROBADO CON DEUDA**. Los cuatro hallazgos H1–H4 del techlead se registran aquí. Ninguno es de dinero:
+> el cobro real se re-cotiza siempre por `inventoryItemId` (el precio del grupo es un PISO informativo).
+
+#### H1 · `GroupedListingDTO.salePriceCents` colisiona en nombre y diverge de la semántica «desde» del sellado (toca contrato → arquitecto)
+- **Dueño:** backend (**solicita al arquitecto** — el fix toca `docs/API_CONTRACT.md`, zona compartida, regla 9). **Severidad:** Baja (aceptada). **Estado:** **PENDIENTE-DE-ARQUITECTO**.
+- **Deuda:** `GroupedListingDTO.salePriceCents` (precio del grupo = **mínimo** del grupo, un PISO «desde»)
+  **colisiona en nombre** con `ListingDTO.salePriceCents`, que es el precio **EXACTO por-pieza**, y **diverge**
+  del homólogo `SealedGroupDTO.fromPriceCents`, que sí nombra la semántica «desde». Un consumidor del contrato
+  puede leer el precio del grupo como si fuera exacto. Rutas: `backend/src/modules/catalog/catalog.service.ts`
+  (DTO de `buildGroups`) + `docs/API_CONTRACT.md` §DTOs.
+- **Toca contrato → solicitud al arquitecto (regla 9):** alinear nombre/semántica del campo (p. ej.
+  `fromPriceCents` como en el sellado, o un nombre que marque el PISO). **Backend NO ejecuta el rename por su
+  cuenta** — la decisión del nombre/forma del DTO es del arquitecto; esta entrada queda como solicitud abierta.
+- **No-bloqueante (money-safe):** no hay fuga de dinero — el cobro real se **re-cotiza por `inventoryItemId`**
+  en checkout; el precio del grupo es solo un piso de presentación. El defecto es de **consistencia
+  transversal** del contrato, no de corrección monetaria.
+- **Disparador:** cuando el arquitecto alinee el naming de precios de grupo en el contrato; backend renombra
+  el campo del DTO de `buildGroups` en el mismo pase.
+
+#### H2 · La clave `K = (cardId|productType|gradeKey|finish)` está hand-rolled en 3 sitios (riesgo de drift)
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
+- **Deuda:** la clave `K` = `${cardId}|${productType}|${gradeKey}|${finish}` está **escrita a mano en 3
+  sitios** de `catalog.service.ts`: `~L177` (`variantOverride` en `fetchSellable`), `~L191` (`refFromBatch`) y
+  `~L429` (`buildGroups`). Si la definición de `K` cambia (orden de campos, separador, componentes), hay que
+  tocar los 3 en sincronía o se produce **drift silencioso** (un grupo llaveado distinto de su override/ref).
+  Ruta: `backend/src/modules/catalog/catalog.service.ts`.
+- **No-bloqueante:** las 3 copias son **idénticas y correctas hoy**; el riesgo es de **evolución futura**.
+- **Disparador:** al próximo cambio de la forma de `K`, extraer un helper único `variantKey(item)` en
+  `pricing`/`common` y hacer que los 3 sitios lo consuman.
+
+#### H3 · Duplicación del andamiaje agrupar→ordenar→paginar y de `validateEnum` entre `CatalogService` y `SealedCatalogService`
+- **Dueño:** backend. **Severidad:** Baja (aceptada). **Valor:** mayor a mediano plazo.
+- **Deuda:** el andamiaje **agrupar → ordenar → paginar** sobre grupos, y el helper `validateEnum`, están
+  **duplicados** entre `CatalogService` y `SealedCatalogService` (`validateEnum` aparece **verbatim** en
+  ambos). Un cambio de semántica obliga a tocar los dos servicios en sincronía. Rutas:
+  `backend/src/modules/catalog/catalog.service.ts` + `backend/src/modules/catalog/sealed-catalog.service.ts`.
+- **No-bloqueante:** las copias son **correctas y uniformes hoy**; el riesgo es de **divergencia futura**.
+- **Disparador:** al próximo cambio del andamiaje, extraer `sortAndPaginateGroups` / `groupBy` genéricos y
+  mover `validateEnum` a `common/`, y hacer que ambos servicios los consuman.
+
+#### H4 · Faltaban 2 tests de regresión de grupos (precio divergente + sort/paginación) — RESUELTO (2026-08-22)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, cobertura de test). **Estado:** **RESUELTO**.
+- **Deuda (histórica):** faltaban 2 tests de regresión sobre la agrupación de `buildGroups`: (a) grupo con
+  `listPriceCents` manual **divergente** en la misma `K` (el grupo muestra el mínimo como representante y
+  **todas** las piezas aparecen en `units[]`, cheapest-first) y (b) **sort + paginación** sobre grupos
+  (`price_asc`/`price_desc`, `total = nº de grupos`, sin repetir ni saltar grupos entre páginas).
+- **Fix:** añadidos en `backend/test/catalog.spec.ts` — «H4 · precio de grupo con `listPriceCents` divergente
+  en la misma K» (grupo = mínimo, `units[]` completo cheapest-first) y «H4 · sort + paginación sobre grupos»
+  (price_asc/desc correctos, `total` = nº de grupos, cobertura completa sin duplicados entre páginas).
+
 ### CI-1 · CI en rojo por tests env-sensibles (REDIS_URL) — RESUELTO (2026-08-16)
 - **Dueño:** backend. **Estado:** **RESUELTO** (solo cambio de tests; producción intacta).
 - **Síntoma:** el job `backend` del workflow **CI** estaba en rojo en **toda la historia** del repo
