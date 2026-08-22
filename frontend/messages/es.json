@@ -1216,15 +1216,35 @@
         "title": "Actualizar precios",
         "subtitle": "Refresca los precios de referencia de todo el catálogo. Es la acción principal de este módulo; corre 1–2 veces al día y también puedes dispararla a mano aquí."
       },
-      "advancedOps": {
-        "title": "Operaciones avanzadas de catálogo / sync",
-        "subtitle": "Herramientas de mantenimiento del catálogo y de sync: úsalas solo cuando haga falta importar sets nuevos, reprocesar todo o resolver precios pendientes a mano."
+      "groups": {
+        "data": {
+          "eyebrow": "Datos",
+          "title": "Datos (rápido · TCGCSV)",
+          "subtitle": "Refrescan variantes, acabados y precios desde TCGCSV. Funcionan siempre, aunque la fuente de catálogo (pokemontcg.io) esté caída. Es lo que necesitas para reparar variantes o precios faltantes de un set ya importado."
+        },
+        "catalog": {
+          "eyebrow": "Catálogo",
+          "title": "Catálogo (cartas nuevas · usa fuente de catálogo)",
+          "subtitle": "Único camino para crear cartas nuevas: importa sets y cartas desde la fuente de catálogo (pokemontcg.io).",
+          "sourceWarning": "Estas acciones traen cartas nuevas desde la fuente de catálogo (pokemontcg.io). Si la fuente está caída o limitada, pueden fallar o no traer nada — usa el grupo Datos para refrescar variantes y precios mientras tanto.",
+          "sourceDownReroute": "pokemontcg.io no respondió; los precios y variantes que sí puedes actualizar están en el grupo Datos, más arriba."
+        },
+        "advanced": {
+          "eyebrow": "Avanzado",
+          "summary": "Avanzado — operaciones pesadas (re-sincronización completa)",
+          "subtitle": "Rara vez necesarias: reprocesan todo el catálogo o encadenan cartas + precios de un set. Pesadas y dependientes de pokemontcg.io."
+        }
       },
-      "sync": {
-        "title": "Sync de precios (bóveda)",
-        "subtitle": "Refresca el precio de referencia de las cartas en bóveda desde la fuente según tipo. Cache diario.",
-        "launch": "Lanzar sync de precios",
-        "queued": "Sync encolado: {count} cartas (job {jobId})."
+      "unifyRarities": {
+        "button": "Unificar rarezas",
+        "hint": "Agrupa las rarezas fragmentadas del catálogo en su forma canónica. Acción única, no cambia precios.",
+        "confirmTitle": "Unificar rarezas del catálogo",
+        "confirmBody": "Reasigna la rareza canónica de todas las cartas para colapsar duplicados y variantes de escritura en una sola rareza. Es una operación local de una sola pasada: no consulta fuentes externas y NO modifica ningún precio ni regla. Después, el editor de reglas por rareza mostrará una fila por rareza real, sin duplicados.",
+        "confirmCta": "Unificar rarezas",
+        "running": "Unificando…",
+        "done": "Rarezas unificadas. El editor ya refleja las rarezas canónicas.",
+        "summary": "{updated} de {processed} carta(s) actualizadas · {distinct} rareza(s) canónica(s) distintas.",
+        "unmappedTitle": "{count} rareza(s) cruda(s) sin mapear (añádelas al catálogo canónico para darles regla propia):"
       },
       "pending": {
         "title": "Cola de precio pendiente",
@@ -1272,13 +1292,17 @@
       "priceIngest": {
         "title": "Ingesta masiva de precios",
         "subtitle": "Refresca los precios de TODO el catálogo por lotes (un job por set) desde el proveedor seleccionado. Es la vía principal de precios; corre 1–2 veces al día y también puedes dispararla a mano.",
-        "providerLabel": "Proveedor de precios",
+        "primarySourceLabel": "Fuente primaria",
+        "primarySourceValue": "TCGCSV",
+        "primarySourceHint": "Siempre se intenta primero.",
+        "fallbackLabel": "Proveedor de respaldo (fallback)",
         "providerOptions": {
           "pokemontcg_io": "pokemontcg.io",
           "pokemonpricetracker": "PokemonPriceTracker"
         },
-        "providerHint": "Cambia la fuente de precios sin redeploy. Palanca de reversa: si el proveedor de paga falla, vuelve a pokemontcg.io al instante.",
-        "providerSaved": "Proveedor de precios actualizado.",
+        "fallbackHint": "TCGCSV es la fuente primaria y siempre se usa primero; este proveedor solo cubre lo que TCGCSV no tenga (p. ej. gradeadas o cartas sin precio en TCGCSV).",
+        "precedenceHint": "Precedencia: TCGCSV (primario) → respaldo: {fallback} → override manual (máxima).",
+        "providerSaved": "Proveedor de respaldo actualizado.",
         "trigger": "Actualizar precios ahora",
         "triggerHint": "Encola la ingesta masiva (equivale a la corrida programada); se procesa set por set, en segundo plano.",
         "queued": "Ingesta de precios encolada; se procesa en segundo plano.",
@@ -1289,12 +1313,6 @@
         "dailyLimited": "Pausado por límite diario del proveedor — retoma a las 00:00 UTC. {pending} set(s) pendientes.",
         "dailyRemaining": "Presupuesto restante hoy: {remaining}."
       },
-      "rarityMap": {
-        "title": "Rareza → categoría de buylist",
-        "subtitle": "Deriva la categoría de cotización desde la rareza de pokemontcg.io. Default ex_plus para rarezas no listadas.",
-        "category": "Categoría",
-        "saved": "Mapa de rareza guardado."
-      },
       "catalog": {
         "title": "Sync de catálogo (pokemontcg.io)",
         "subtitle": "Importa sets y cartas del catálogo de referencia. Por defecto sets 2024+; backfill de colecciones anteriores por lotes.",
@@ -1304,12 +1322,18 @@
         "yes": "Sí",
         "no": "No",
         "cardCount": "Cartas",
+        "setsEmpty": "Aún no hay sets. Usa «Importar sets nuevos» (grupo Catálogo) como primer paso.",
+        "busyReason": "Espera a que termine el barrido en curso.",
         "import": "Importar",
         "resync": "Re-sincronizar",
         "backfill": "Backfill (siguiente lote)",
         "syncAll": "Importar sets nuevos",
         "syncAllHint": "«Importar sets nuevos» trae los sets recién salidos que aún no están importados (operación ligera); el sistema además lo hace solo 2 veces al día. «Re-sincronizar todo (forzar)» reprocesa TODO el catálogo: metadata, cartas y variantes/acabados (operación pesada). NO repuebla precios: esos se actualizan con «Actualizar precios ahora» o con el «Sync completo» por set.",
         "fullSync": "Sync completo",
+        "fullSyncMenuItem": "Sync completo (cartas + precios)",
+        "rowMoreAria": "Más acciones para {name}",
+        "refreshVariantsShort": "Variantes + precios",
+        "refreshVariantsAllShort": "Refrescar variantes + precios (todo)",
         "fullSyncAria": "Sync completo de {name}: cartas, variantes y precios",
         "fullSyncHint": "Por set: «Importar»/«Re-sincronizar» solo trae metadata y cartas (no refresca variantes ni toca precios). «Sync completo» encadena dos fases: primero cartas + variantes/acabados del set y después los precios de ese set completo.",
         "fullSyncPhaseCatalog": "Sync completo de {name} — fase 1/2: sincronizando cartas y variantes…",

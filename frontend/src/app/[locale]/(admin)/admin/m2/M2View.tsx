@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { RefreshCw, DownloadCloud, Layers, Zap, ExternalLink } from 'lucide-react';
+import { RefreshCw, DownloadCloud, Layers, Zap, ExternalLink, MoreHorizontal, Wand2 } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 import {
-  syncPricing,
+  unifyRarities,
   getPendingPrices,
   overridePrice,
   getFx,
@@ -154,6 +154,78 @@ function SyncProgress({
   );
 }
 
+/**
+ * §19.4 / §19.9: menú «Más ▾» por-fila que esconde la acción AVANZADA H («Sync completo») fuera del
+ * renglón principal para no invitarla por default. Accesible: disparador `aria-haspopup="menu"` +
+ * `aria-expanded`; el panel es `role="menu"` con `menuitem`s; `Esc` cierra y devuelve el foco al
+ * disparador; un clic fuera también cierra. El icono del kebab es el ÚNICO icono con `aria-label`.
+ */
+function RowMoreMenu({
+  triggerLabel,
+  disabled,
+  children,
+}: {
+  triggerLabel: string;
+  disabled?: boolean;
+  children: (close: () => void) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const close = () => setOpen(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (!menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onClick);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onClick);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={triggerLabel}
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'inline-flex min-h-[44px] items-center justify-center px-2 text-text transition-colors hover:text-accent sm:min-h-0 sm:py-2',
+          'disabled:cursor-not-allowed disabled:text-muted',
+        )}
+      >
+        <MoreHorizontal size={18} aria-hidden />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="absolute right-0 z-10 mt-1 flex min-w-[12rem] flex-col rounded-lg border border-border bg-surface p-1 shadow-md"
+        >
+          {children(close)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function M2View() {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
@@ -163,10 +235,19 @@ export function M2View() {
   const qc = useQueryClient();
   const getError = useErrorMessage();
 
-  // --- Sección 1: sync de precios de bóveda ---
-  const syncMutation = useMutation({
-    mutationFn: () => syncPricing({ scope: 'all_vault' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pending-prices'] }),
+  // --- §19.5: «Unificar rarezas» — anclado al editor de reglas por rareza (Sección 4/5) ---
+  // Backfill LOCAL de `Card.rarityCanonical` (money-safe, sin fuentes externas): colapsa duplicados y
+  // variantes de escritura para que el editor muestre UNA fila por rareza real. Al éxito invalida las
+  // queries del editor (rarezas + reglas de compra y venta) para recomponer la lista sin duplicados.
+  const [unifyConfirmOpen, setUnifyConfirmOpen] = useState(false);
+  const unifyMutation = useMutation({
+    mutationFn: () => unifyRarities(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['buylist-rarities'] });
+      qc.invalidateQueries({ queryKey: ['sales-rarities'] });
+      qc.invalidateQueries({ queryKey: ['buylist-rules'] });
+      qc.invalidateQueries({ queryKey: ['sales-rules'] });
+    },
   });
 
   // --- Sección 2: cola de precio pendiente en DOS BUCKETS (P-6, v1.26) ---
@@ -771,45 +852,25 @@ export function M2View() {
       key: 'actions',
       header: '',
       align: 'right',
-      // P-12 (v1.27): DOS acciones por fila. «Importar/Re-sincronizar» = solo cartas (metadata +
-      // cartas; NO refresca variantes ni toca precios). «Sync completo» = cartas + variantes
-      // estructurales (sync force) y DESPUÉS los precios del set (price-ingest por set).
-      // Se serializan entre sí (una operación por-set a la vez) para no encimar requests largos.
+      // §19.4: jerarquía por-fila = I (primaria · Datos/TCGCSV) → G (secundaria · Catálogo) → H
+      // (overflow AVANZADO en el menú «Más ▾»). I refresca variantes+precios solo-TCGCSV (reparación
+      // segura, no depende de pokemontcg.io). G importa/re-sincroniza cartas (pokemontcg.io). H
+      // encadena cartas + precios del set (pesado, roto sin pokemontcg.io) → escondido en el menú.
+      // Se serializan entre sí (una operación por-set a la vez) y con el batch global (RV-ALL).
       render: (s) => {
         const rowFullSyncing = fullSyncMutation.isPending && fullSyncMutation.variables?.id === s.id;
         const rowSyncing = catalogSyncMutation.isPending && catalogSyncMutation.variables === s.id;
         const rowRefreshing =
           refreshVariantsMutation.isPending && refreshVariantsMutation.variables?.id === s.id;
-        // Serialización de las operaciones por-set (una a la vez): cualquiera bloquea a las demás.
-        // El batch global «Refrescar variantes + precios de TODO» también las bloquea (RV-ALL).
         const otherPerSetPending =
           (catalogSyncMutation.isPending && !rowSyncing) ||
           (fullSyncMutation.isPending && !rowFullSyncing) ||
           (refreshVariantsMutation.isPending && !rowRefreshing) ||
           batchBusy;
         return (
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={rowSyncing}
-              disabled={otherPerSetPending || refreshVariantsMutation.isPending || fullSyncMutation.isPending}
-              onClick={() => catalogSyncMutation.mutate(s.id)}
-            >
-              {s.imported ? t('catalog.resync') : t('catalog.import')}
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={rowFullSyncing}
-              disabled={otherPerSetPending || catalogSyncMutation.isPending || refreshVariantsMutation.isPending}
-              aria-label={t('catalog.fullSyncAria', { name: s.name })}
-              onClick={() => fullSyncMutation.mutate(s)}
-            >
-              <Zap size={14} /> {t('catalog.fullSync')}
-            </Button>
-            {/* P-13: solo TCGCSV. Requiere el set YA importado en BD (si no, el backend responde
-                SET_NOT_IMPORTED) → se deshabilita para sets no importados con explicación en title. */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* I — PRIMARIA (Datos · solo TCGCSV). Requiere el set YA importado (si no, el backend
+                responde SET_NOT_IMPORTED) → deshabilitada con el motivo en title + aria-describedby. */}
             <Button
               size="sm"
               variant="secondary"
@@ -821,11 +882,44 @@ export function M2View() {
                 fullSyncMutation.isPending
               }
               aria-label={t('catalog.refreshVariantsAria', { name: s.name })}
+              aria-describedby={!s.imported ? 'm2-reason-needs-import' : undefined}
               title={!s.imported ? t('catalog.refreshVariantsNeedsImport') : undefined}
               onClick={() => refreshVariantsMutation.mutate(s)}
             >
-              <RefreshCw size={14} /> {t('catalog.refreshVariants')}
+              <RefreshCw size={14} aria-hidden /> {t('catalog.refreshVariantsShort')}
             </Button>
+            {/* G — SECUNDARIA (Catálogo · pokemontcg.io): importa/re-sincroniza cartas. */}
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={rowSyncing}
+              disabled={otherPerSetPending || refreshVariantsMutation.isPending || fullSyncMutation.isPending}
+              onClick={() => catalogSyncMutation.mutate(s.id)}
+            >
+              {s.imported ? t('catalog.resync') : t('catalog.import')}
+            </Button>
+            {/* H — AVANZADA en overflow: «Sync completo» (cartas + precios del set). */}
+            <RowMoreMenu
+              triggerLabel={t('catalog.rowMoreAria', { name: s.name })}
+              disabled={
+                otherPerSetPending || catalogSyncMutation.isPending || refreshVariantsMutation.isPending
+              }
+            >
+              {(closeMenu) => (
+                <button
+                  type="button"
+                  role="menuitem"
+                  aria-label={t('catalog.fullSyncAria', { name: s.name })}
+                  className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-text hover:bg-border/40"
+                  onClick={() => {
+                    closeMenu();
+                    fullSyncMutation.mutate(s);
+                  }}
+                >
+                  <Zap size={14} aria-hidden /> {t('catalog.fullSyncMenuItem')}
+                </button>
+              )}
+            </RowMoreMenu>
           </div>
         );
       },
@@ -1060,9 +1154,20 @@ export function M2View() {
             onRetry={() => priceProvider.refetch()}
           >
             <div className="flex flex-col gap-2">
+              {/* §19.7: fila FIJA no editable de la fuente PRIMARIA (TCGCSV manda, no aparece en el
+                  Select). Deja claro que el dial de abajo solo elige el RESPALDO/fallback. */}
+              <div className="flex flex-wrap items-baseline gap-2 border-b border-border pb-3">
+                <span className="font-mono text-xs uppercase tracking-[0.18em] text-muted">
+                  {t('priceIngest.primarySourceLabel')}
+                </span>
+                <span className="font-mono text-sm font-semibold text-text">
+                  {t('priceIngest.primarySourceValue')}
+                </span>
+                <span className="text-xs text-muted">{t('priceIngest.primarySourceHint')}</span>
+              </div>
               <div className="flex flex-wrap items-end gap-3">
                 <Select
-                  label={t('priceIngest.providerLabel')}
+                  label={t('priceIngest.fallbackLabel')}
                   className="w-64"
                   options={PRICE_PROVIDERS.map((p) => ({
                     value: p,
@@ -1080,7 +1185,13 @@ export function M2View() {
                   {tc('save')}
                 </Button>
               </div>
-              <p className="text-xs text-muted">{t('priceIngest.providerHint')}</p>
+              <p className="text-xs text-muted">{t('priceIngest.fallbackHint')}</p>
+              {/* Línea de precedencia money-safe (§19.7): primario → respaldo → override manual. */}
+              <p className="text-xs text-muted">
+                {t('priceIngest.precedenceHint', {
+                  fallback: t(`priceIngest.providerOptions.${providerValue}`),
+                })}
+              </p>
               {providerMutation.isSuccess && (
                 <Banner variant="success" role="status">{t('priceIngest.providerSaved')}</Banner>
               )}
@@ -1094,8 +1205,52 @@ export function M2View() {
 
       {/* Sección 4: precio de buylist en DOS EJES — rareza canónica + acabado (v1.29, §4.28d) */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('buylistRules.title')}</h2>
+        {/* §19.5: «Unificar rarezas» se ancla AQUÍ (junto al editor por rareza), no en Datos: el
+            «por qué» solo se entiende mirando la lista fragmentada de rarezas que este botón limpia. */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 className="text-h2 font-semibold">{t('buylistRules.title')}</h2>
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={unifyMutation.isPending}
+              onClick={() => setUnifyConfirmOpen(true)}
+            >
+              <Wand2 size={14} aria-hidden /> {t('unifyRarities.button')}
+            </Button>
+            <p className="max-w-xs text-right text-xs text-muted">{t('unifyRarities.hint')}</p>
+          </div>
+        </div>
         <p className="text-sm text-muted">{t('buylistRules.subtitle')}</p>
+        {/* Resumen HONESTO de la unificación: cuántas actualizó + rarezas `unmapped` accionables. */}
+        {unifyMutation.isSuccess && (
+          <Banner variant="success" role="status">
+            <span className="font-medium">{t('unifyRarities.done')}</span>{' '}
+            {t('unifyRarities.summary', {
+              updated: unifyMutation.data.cardsUpdated,
+              processed: unifyMutation.data.cardsProcessed,
+              distinct: unifyMutation.data.distinctCanonical,
+            })}
+            {unifyMutation.data.unmapped.length > 0 && (
+              <div className="mt-2 flex flex-col gap-1">
+                <p className="font-medium">
+                  {t('unifyRarities.unmappedTitle', { count: unifyMutation.data.unmapped.length })}
+                </p>
+                <ul className="list-disc pl-5">
+                  {unifyMutation.data.unmapped.map((u) => (
+                    <li key={u.raw}>
+                      <span lang="en" className="font-medium">{u.raw}</span>{' '}
+                      <span className="tabular text-muted">({u.count})</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Banner>
+        )}
+        {unifyMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(unifyMutation.error)}</Banner>
+        )}
         {/* G3: ejemplo en línea del % — en buylist el % es lo que PAGAS de la referencia
             (semántica OPUESTA a la de venta, por eso el ejemplo textual). */}
         <p className="text-xs text-muted">{t('buylistRules.example')}</p>
@@ -1620,117 +1775,123 @@ export function M2View() {
         </QueryState>
       </section>
 
-      {/* Operaciones avanzadas de catálogo / sync (G3): de-enfatizadas bajo un encabezado
-          claro; el operador rara vez las necesita frente a "Actualizar precios" (arriba). */}
-      <section className="flex flex-col gap-2 border-t border-border pt-8">
-        <h2 className="text-h2 font-semibold">{t('advancedOps.title')}</h2>
-        <p className="text-sm text-muted">{t('advancedOps.subtitle')}</p>
-      </section>
+      {/* Motivos de deshabilitado (§19.9): descritos por aria-describedby, no solo por color/title. */}
+      <span id="m2-reason-needs-import" className="sr-only">{t('catalog.refreshVariantsNeedsImport')}</span>
+      <span id="m2-reason-busy" className="sr-only">{t('catalog.busyReason')}</span>
 
-      {/* Sync de precios de bóveda (operación avanzada; botón secundario) */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('sync.title')}</h2>
-        <p className="text-sm text-muted">{t('sync.subtitle')}</p>
-        <div>
-          <Button variant="secondary" loading={syncMutation.isPending} onClick={() => syncMutation.mutate()}>
-            <RefreshCw size={18} /> {t('sync.launch')}
-          </Button>
+      {/* ═══ GRUPO 1 · DATOS (rápido · TCGCSV) — §19.2 ═══
+          Máximo peso tras A: repuebla variantes/acabados + precios desde TCGCSV, FUNCIONAN SIEMPRE
+          aunque pokemontcg.io esté caída. F es global; I es la acción PRIMARIA por-fila (en la tabla). */}
+      <section
+        role="group"
+        aria-labelledby="m2-group-data"
+        className="flex flex-col gap-3 border-t border-border pt-8"
+      >
+        <div className="flex flex-col gap-1">
+          <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted">{t('groups.data.eyebrow')}</p>
+          <h2 id="m2-group-data" className="text-h2 font-semibold">{t('groups.data.title')}</h2>
+          <p className="text-sm text-muted">{t('groups.data.subtitle')}</p>
         </div>
-        {syncMutation.isSuccess && (
-          <Banner variant="success" role="status">
-            {t('sync.queued', { count: syncMutation.data.queued, jobId: syncMutation.data.jobId })}
-          </Banner>
-        )}
-        {syncMutation.isError && (
-          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncMutation.error)}</Banner>
-        )}
-      </section>
-
-      {/* Sección 6: sync de catálogo */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold">{t('catalog.title')}</h2>
-        <p className="text-sm text-muted">{t('catalog.subtitle')}</p>
-        <p className="text-xs text-muted">{t('catalog.syncHint')}</p>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            loading={backfillMutation.isPending}
-            disabled={batchBusy}
-            onClick={() => backfillMutation.mutate()}
-          >
-            <DownloadCloud size={18} /> {t('catalog.backfill')}
-          </Button>
-          <Button
-            variant="secondary"
-            loading={syncAllMutation.isPending}
-            disabled={batchBusy}
-            onClick={() => syncAllMutation.mutate()}
-          >
-            <Layers size={18} /> {t('catalog.syncAll')}
-          </Button>
-          <Button
-            variant="secondary"
-            loading={syncAllForceMutation.isPending}
-            disabled={batchBusy}
-            onClick={() => setForceConfirmOpen(true)}
-          >
-            <RefreshCw size={18} /> {t('catalog.syncAllForce')}
-          </Button>
-          {/* RV-ALL: batch global — refresca variantes/acabados + precios de TODO el catálogo importado
-              usando SOLO TCGCSV (NO re-importa cartas, NO usa pokemontcg.io). Async: el POST arranca y
-              el progreso/resumen se leen por su STATUS PROPIO. Masivo → confirmación. Se serializa con
-              las demás operaciones de catálogo (se deshabilita si OTRA está en curso). */}
+        {/* F global — «Refrescar variantes + precios (todo)», solo TCGCSV. Masivo → confirmación. El
+            «(solo TCGCSV)» ya no va en el botón: lo dice el subtítulo del grupo (§19.2). */}
+        <div>
           <Button
             variant="secondary"
             loading={batchBusy}
             disabled={catalogBusy && !batchBusy}
+            aria-describedby={catalogBusy && !batchBusy ? 'm2-reason-busy' : undefined}
+            title={catalogBusy && !batchBusy ? t('catalog.busyReason') : undefined}
             onClick={() => setRefreshAllConfirmOpen(true)}
           >
-            <RefreshCw size={18} /> {t('catalog.refreshVariantsAll')}
+            <RefreshCw size={18} aria-hidden /> {t('catalog.refreshVariantsAllShort')}
           </Button>
         </div>
-        {/* Diferencia ligera vs. pesada: "Importar sets nuevos" (force:false) trae solo los
-            sets recién salidos aún no importados; "Re-sincronizar todo (forzar)" reprocesa
-            cartas + variantes estructurales (⛔ v1.27: NO repuebla precios — §4.15g). */}
-        <p className="text-xs text-muted">{t('catalog.syncAllHint')}</p>
-        {/* P-12: qué hace cada acción por fila (cartas vs. sync completo cartas+precios). */}
-        <p className="text-xs text-muted">{t('catalog.fullSyncHint')}</p>
-        {/* P-13: la tercera acción por fila (solo TCGCSV) — NO re-importa cartas ni usa pokemontcg.io. */}
-        <p className="text-xs text-muted">{t('catalog.refreshVariantsHint')}</p>
-        {/* RV-ALL: el batch global (solo TCGCSV) — mismo trabajo sobre TODO el catálogo importado. */}
-        <p className="text-xs text-muted">{t('catalog.refreshVariantsAllHint')}</p>
-        {/* Feedback del sync por set (Importar / Re-sincronizar) */}
-        {catalogSyncMutation.isPending && (
-          <Banner variant="info" role="status">{t('catalog.syncRunning')}</Banner>
+        {/* RV-ALL: banner "corriendo" + barra de progreso (poll del STATUS PROPIO) + resumen agregado. */}
+        {batchBusy && (
+          <Banner variant="info" role="status">{t('catalog.refreshVariantsAllRunning')}</Banner>
         )}
-        {/* P-12: feedback HONESTO por fase del «Sync completo» por set (cartas → precios). */}
-        {fullSyncMutation.isPending && (
-          <Banner variant="info" role="status">
-            {fullSyncPhase === 'prices'
-              ? t('catalog.fullSyncPhasePrices', { name: fullSyncMutation.variables?.name ?? '' })
-              : t('catalog.fullSyncPhaseCatalog', { name: fullSyncMutation.variables?.name ?? '' })}
-          </Banner>
-        )}
-        {fullSyncMutation.isSuccess &&
-          (fullSyncMutation.data.ingest.enqueued ? (
-            <Banner variant="success" role="status">
-              {t('catalog.fullSyncDone', { name: fullSyncMutation.variables?.name ?? '' })}
-            </Banner>
-          ) : (
-            // single-flight del price-ingest: la fase de precios NO encoló — se dice tal cual.
-            <Banner variant="warning" role="status">
-              {t('catalog.fullSyncPricesAlreadyRunning', { name: fullSyncMutation.variables?.name ?? '' })}
-            </Banner>
-          ))}
-        {fullSyncMutation.isError && (
+        {refreshVariantsStatus.data &&
+          (refreshVariantsStatus.data.running || refreshVariantsStatus.data.total > 0) && (
+            <SyncProgress
+              running={refreshVariantsStatus.data.running}
+              done={refreshVariantsStatus.data.done}
+              total={refreshVariantsStatus.data.total}
+              labels={{
+                running: t('catalog.refreshVariantsAllSweepRunning', {
+                  done: Math.min(refreshVariantsStatus.data.done, refreshVariantsStatus.data.total),
+                  total: refreshVariantsStatus.data.total,
+                }),
+                runningHint: t('catalog.refreshVariantsAllSweepRunningHint'),
+                done: t('catalog.refreshVariantsAllSweepDone', { total: refreshVariantsStatus.data.total }),
+              }}
+            />
+          )}
+        {!batchRunning &&
+          refreshVariantsStatus.data?.summary &&
+          (() => {
+            const r = refreshVariantsStatus.data!.summary!;
+            const partial = r.setsFailed > 0 || r.pending > 0;
+            return (
+              <Banner variant={partial ? 'warning' : 'success'} role="status">
+                <span className="font-medium">
+                  {partial
+                    ? t('catalog.refreshVariantsAllPartial')
+                    : t('catalog.refreshVariantsAllDone')}
+                </span>{' '}
+                {t('catalog.refreshVariantsAllSummary', {
+                  setsOk: r.setsOk,
+                  setsTotal: r.setsTotal,
+                  products: r.cardProductsUpserted,
+                  prices: r.pricesUpserted,
+                })}
+                {r.pending > 0 && ' ' + t('catalog.refreshVariantsAllPending', { pending: r.pending })}
+                {r.failures.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    <p className="font-medium">
+                      {t('catalog.refreshVariantsAllFailuresTitle', { count: r.setsFailed })}
+                    </p>
+                    <ul className="list-disc pl-5">
+                      {r.failures.map((f) => {
+                        const name = remoteSets.data?.find((s) => s.id === f.setId)?.name ?? f.setId;
+                        return (
+                          <li key={f.setId}>
+                            <span lang="en" className="font-medium">{name}</span>{' '}
+                            <span className="tabular text-muted">({f.setId})</span> —{' '}
+                            {f.message || f.code}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </Banner>
+            );
+          })()}
+        {refreshVariantsAllMutation.isError && (
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-            {fullSyncPhase === 'prices'
-              ? t('catalog.fullSyncPricesError', { name: fullSyncMutation.variables?.name ?? '' })
-              : t('catalog.fullSyncCatalogError', { name: fullSyncMutation.variables?.name ?? '' })}{' '}
-            {getError(fullSyncMutation.error)}
+            {t('catalog.refreshVariantsAllError')} {getError(refreshVariantsAllMutation.error)}
           </Banner>
         )}
-        {/* P-13: feedback del «Refrescar variantes + precios (solo TCGCSV)» por set. */}
+
+        {/* Tabla de sets ÚNICA (§19.1), anclada al grupo Datos: su acción por-fila PRIMARIA es I. */}
+        <QueryState
+          isLoading={remoteSets.isLoading}
+          isError={remoteSets.isError}
+          error={remoteSets.error}
+          onRetry={() => remoteSets.refetch()}
+        >
+          {remoteSets.data &&
+            (remoteSets.data.length > 0 ? (
+              <div className="rounded-lg border border-border bg-surface p-2">
+                <DataTable columns={setColumns} rows={remoteSets.data} rowKey={(s) => s.id} />
+              </div>
+            ) : (
+              <EmptyState title={t('catalog.setsEmpty')} />
+            ))}
+        </QueryState>
+
+        {/* Feedback de las acciones POR-FILA disparadas desde la tabla (visibles junto a ella): I
+            (solo TCGCSV) y H (Sync completo, aunque su disparador viva en el menú «Más»). */}
         {refreshVariantsMutation.isPending && (
           <Banner variant="info" role="status">
             {t('catalog.refreshVariantsRunning', { name: refreshVariantsMutation.variables?.name ?? '' })}
@@ -1740,8 +1901,6 @@ export function M2View() {
           (() => {
             const r = refreshVariantsMutation.data;
             const name = refreshVariantsMutation.variables?.name ?? '';
-            // Resumen money-safe HONESTO: si TCGCSV no fue alcanzable del todo, o si quedaron
-            // productos sin precio (pending>0), se avisa en tono warning y NO se dice "todo listo".
             const partial = !r.tcgcsvReachable || r.pending > 0;
             const summary = t('catalog.refreshVariantsSummary', {
               cards: r.cardsProcessed,
@@ -1767,132 +1926,74 @@ export function M2View() {
             {getError(refreshVariantsMutation.error)}
           </Banner>
         )}
-        {/* RV-ALL: feedback del batch global «Refrescar variantes + precios de TODO (solo TCGCSV)».
-            El POST solo arranca (202); el progreso y el resumen vienen del STATUS PROPIO (poll). */}
-        {batchBusy && (
-          <Banner variant="info" role="status">{t('catalog.refreshVariantsAllRunning')}</Banner>
+        {/* H (Sync completo): feedback HONESTO por fase (cartas → precios), junto a la tabla. */}
+        {fullSyncMutation.isPending && (
+          <Banner variant="info" role="status">
+            {fullSyncPhase === 'prices'
+              ? t('catalog.fullSyncPhasePrices', { name: fullSyncMutation.variables?.name ?? '' })
+              : t('catalog.fullSyncPhaseCatalog', { name: fullSyncMutation.variables?.name ?? '' })}
+          </Banner>
         )}
-        {/* Barra de progreso done/total del batch (poll de refresh-variants-status). Reusa el mismo
-            SyncProgress accesible que sync-all / precios, con labels propios del batch. */}
-        {refreshVariantsStatus.data &&
-          (refreshVariantsStatus.data.running || refreshVariantsStatus.data.total > 0) && (
-            <SyncProgress
-              running={refreshVariantsStatus.data.running}
-              done={refreshVariantsStatus.data.done}
-              total={refreshVariantsStatus.data.total}
-              labels={{
-                running: t('catalog.refreshVariantsAllSweepRunning', {
-                  done: Math.min(refreshVariantsStatus.data.done, refreshVariantsStatus.data.total),
-                  total: refreshVariantsStatus.data.total,
-                }),
-                runningHint: t('catalog.refreshVariantsAllSweepRunningHint'),
-                done: t('catalog.refreshVariantsAllSweepDone', { total: refreshVariantsStatus.data.total }),
-              }}
-            />
-          )}
-        {/* Resumen AGREGADO honesto al terminar (del `summary` del status, no del POST). Solo cuando el
-            batch NO corre y hay summary. Money-safe: setsFailed>0 o pending>0 → warning (no "todo listo"). */}
-        {!batchRunning &&
-          refreshVariantsStatus.data?.summary &&
-          (() => {
-            const r = refreshVariantsStatus.data!.summary!;
-            const partial = r.setsFailed > 0 || r.pending > 0;
-            return (
-              <Banner variant={partial ? 'warning' : 'success'} role="status">
-                <span className="font-medium">
-                  {partial
-                    ? t('catalog.refreshVariantsAllPartial')
-                    : t('catalog.refreshVariantsAllDone')}
-                </span>{' '}
-                {t('catalog.refreshVariantsAllSummary', {
-                  setsOk: r.setsOk,
-                  setsTotal: r.setsTotal,
-                  products: r.cardProductsUpserted,
-                  prices: r.pricesUpserted,
-                })}
-                {r.pending > 0 && ' ' + t('catalog.refreshVariantsAllPending', { pending: r.pending })}
-                {/* Lista honesta de sets fallidos (setId + motivo legible), sin tumbar el resto. */}
-                {r.failures.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-1">
-                    <p className="font-medium">
-                      {t('catalog.refreshVariantsAllFailuresTitle', { count: r.setsFailed })}
-                    </p>
-                    <ul className="list-disc pl-5">
-                      {r.failures.map((f) => {
-                        const name = remoteSets.data?.find((s) => s.id === f.setId)?.name ?? f.setId;
-                        return (
-                          <li key={f.setId}>
-                            <span lang="en" className="font-medium">{name}</span>{' '}
-                            <span className="tabular text-muted">({f.setId})</span> —{' '}
-                            {f.message || f.code}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
-              </Banner>
-            );
-          })()}
-        {/* Fallo al ARRANCAR el batch (POST !=202). El barrido en sí reporta sus fallos por-set en
-            `summary.failures`; esto cubre solo el arranque. */}
-        {refreshVariantsAllMutation.isError && (
+        {fullSyncMutation.isSuccess &&
+          (fullSyncMutation.data.ingest.enqueued ? (
+            <Banner variant="success" role="status">
+              {t('catalog.fullSyncDone', { name: fullSyncMutation.variables?.name ?? '' })}
+            </Banner>
+          ) : (
+            <Banner variant="warning" role="status">
+              {t('catalog.fullSyncPricesAlreadyRunning', { name: fullSyncMutation.variables?.name ?? '' })}
+            </Banner>
+          ))}
+        {fullSyncMutation.isError && (
           <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-            {t('catalog.refreshVariantsAllError')} {getError(refreshVariantsAllMutation.error)}
+            {fullSyncPhase === 'prices'
+              ? t('catalog.fullSyncPricesError', { name: fullSyncMutation.variables?.name ?? '' })
+              : t('catalog.fullSyncCatalogError', { name: fullSyncMutation.variables?.name ?? '' })}{' '}
+            {getError(fullSyncMutation.error)}
           </Banner>
         )}
-        {catalogSyncMutation.isSuccess && (
-          <Banner variant="success" role="status">
-            {t('catalog.syncDone', {
-              count: catalogSyncMutation.data.setsQueued,
-              jobId: catalogSyncMutation.data.jobId,
-            })}
-          </Banner>
-        )}
-        {catalogSyncMutation.isError && (
-          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(catalogSyncMutation.error)}</Banner>
-        )}
-        {backfillMutation.isSuccess && (
-          <Banner variant="success" role="status">
-            {t('catalog.backfillDone', {
-              count: backfillMutation.data.imported.length,
-              remaining: backfillMutation.data.remaining,
-            })}
-          </Banner>
-        )}
-        {backfillMutation.isError && (
-          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(backfillMutation.error)}</Banner>
-        )}
-        {/* Barrido lanzado: NO decimos "listo" (corre en segundo plano). Si setsQueued=0 y
-            no hay barrido corriendo, significa que ya estaba todo importado (o single-flight). */}
-        {syncAllMutation.isSuccess && !isSweeping && (
-          <Banner variant="info" role="status">
-            {syncAllMutation.data.setsQueued > 0
-              ? t('catalog.syncAllQueued', { count: syncAllMutation.data.setsQueued })
-              : t('catalog.syncAllNothing')}
-          </Banner>
-        )}
-        {syncAllMutation.isError &&
-          (isEndpointMissing(syncAllMutation.error) ? (
-            <Banner variant="warning" role="status">{t('catalog.syncAllUnavailable')}</Banner>
-          ) : (
-            <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllMutation.error)}</Banner>
-          ))}
-        {syncAllForceMutation.isSuccess && !isSweeping && (
-          <Banner variant="info" role="status">
-            {syncAllForceMutation.data.setsQueued > 0
-              ? t('catalog.syncAllQueued', { count: syncAllForceMutation.data.setsQueued })
-              : t('catalog.syncAllNothing')}
-          </Banner>
-        )}
-        {syncAllForceMutation.isError &&
-          (isEndpointMissing(syncAllForceMutation.error) ? (
-            <Banner variant="warning" role="status">{t('catalog.syncAllUnavailable')}</Banner>
-          ) : (
-            <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllForceMutation.error)}</Banner>
-          ))}
+      </section>
 
-        {/* Estado del barrido en curso / recién terminado (GET /sync-status, poll cada 3 s). */}
+      {/* ═══ GRUPO 2 · CATÁLOGO (cartas nuevas · usa fuente de catálogo) — §19.3 ═══
+          Único camino para CREAR cartas nuevas (importa desde pokemontcg.io) → se de-enfatiza y se
+          marca su dependencia externa con un banner persistente. D y C son globales; G es por-fila. */}
+      <section
+        role="group"
+        aria-labelledby="m2-group-catalog"
+        className="flex flex-col gap-3 border-t border-border pt-8"
+      >
+        <div className="flex flex-col gap-1">
+          <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted">{t('groups.catalog.eyebrow')}</p>
+          <h2 id="m2-group-catalog" className="text-h2 font-semibold">{t('groups.catalog.title')}</h2>
+          <p className="text-sm text-muted">{t('groups.catalog.subtitle')}</p>
+        </div>
+        {/* Aviso de dependencia PERSISTENTE (§19.3): no es un error, es contexto (role=status). */}
+        <Banner variant="info" role="status">{t('groups.catalog.sourceWarning')}</Banner>
+        <div className="flex flex-wrap gap-2">
+          {/* D — Importar sets nuevos (pokemontcg.io, incremental, sin confirmación). */}
+          <Button
+            variant="secondary"
+            loading={syncAllMutation.isPending}
+            disabled={batchBusy}
+            aria-describedby={batchBusy ? 'm2-reason-busy' : undefined}
+            title={batchBusy ? t('catalog.busyReason') : undefined}
+            onClick={() => syncAllMutation.mutate()}
+          >
+            <Layers size={18} aria-hidden /> {t('catalog.syncAll')}
+          </Button>
+          {/* C — Backfill (siguiente lote, incremental). */}
+          <Button
+            variant="secondary"
+            loading={backfillMutation.isPending}
+            disabled={batchBusy}
+            aria-describedby={batchBusy ? 'm2-reason-busy' : undefined}
+            title={batchBusy ? t('catalog.busyReason') : undefined}
+            onClick={() => backfillMutation.mutate()}
+          >
+            <DownloadCloud size={18} aria-hidden /> {t('catalog.backfill')}
+          </Button>
+        </div>
+        {/* Barra de progreso del barrido de catálogo (sync-all / force), poll cada 3 s. */}
         {syncStatus.data && (syncStatus.data.running || syncStatus.data.total > 0) && (
           <SyncProgress
             running={syncStatus.data.running}
@@ -1908,19 +2009,117 @@ export function M2View() {
             }}
           />
         )}
-        <QueryState
-          isLoading={remoteSets.isLoading}
-          isError={remoteSets.isError}
-          error={remoteSets.error}
-          onRetry={() => remoteSets.refetch()}
-        >
-          {remoteSets.data && (
-            <div className="rounded-lg border border-border bg-surface p-2">
-              <DataTable columns={setColumns} rows={remoteSets.data} rowKey={(s) => s.id} />
-            </div>
-          )}
-        </QueryState>
+        {/* G (Importar / Re-sincronizar por-fila): feedback. */}
+        {catalogSyncMutation.isPending && (
+          <Banner variant="info" role="status">{t('catalog.syncRunning')}</Banner>
+        )}
+        {catalogSyncMutation.isSuccess && (
+          <Banner variant="success" role="status">
+            {t('catalog.syncDone', {
+              count: catalogSyncMutation.data.setsQueued,
+              jobId: catalogSyncMutation.data.jobId,
+            })}
+          </Banner>
+        )}
+        {catalogSyncMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(catalogSyncMutation.error)}</Banner>
+        )}
+        {/* D — feedback (barrido encolado / nada por importar). */}
+        {syncAllMutation.isSuccess && !isSweeping && (
+          <Banner variant="info" role="status">
+            {syncAllMutation.data.setsQueued > 0
+              ? t('catalog.syncAllQueued', { count: syncAllMutation.data.setsQueued })
+              : t('catalog.syncAllNothing')}
+          </Banner>
+        )}
+        {/* Degradación ante fuente caída (§19.3): 404/405 → warning que REENCAMINA a Datos. */}
+        {syncAllMutation.isError &&
+          (isEndpointMissing(syncAllMutation.error) ? (
+            <Banner variant="warning" role="status">
+              {t('catalog.syncAllUnavailable')} {t('groups.catalog.sourceDownReroute')}
+            </Banner>
+          ) : (
+            <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllMutation.error)}</Banner>
+          ))}
+        {/* C — feedback. */}
+        {backfillMutation.isSuccess && (
+          <Banner variant="success" role="status">
+            {t('catalog.backfillDone', {
+              count: backfillMutation.data.imported.length,
+              remaining: backfillMutation.data.remaining,
+            })}
+          </Banner>
+        )}
+        {backfillMutation.isError && (
+          <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(backfillMutation.error)}</Banner>
+        )}
       </section>
+
+      {/* ═══ GRUPO 3 · AVANZADO — §19.1/§19.9 ═══
+          Colapsable NATIVO (<details>) plegado por defecto: operaciones pesadas y raras (E global;
+          H vive en el menú «Más» por-fila). No invita a usarlas por default. */}
+      <details className="group border-t border-border pt-8">
+        <summary className="cursor-pointer text-h2 font-semibold marker:text-muted">
+          {t('groups.advanced.summary')}
+        </summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <p className="text-sm text-muted">{t('groups.advanced.subtitle')}</p>
+          {/* E — Re-sincronizar todo (forzar): pesada → confirmación obligatoria. */}
+          <div>
+            <Button
+              variant="secondary"
+              loading={syncAllForceMutation.isPending}
+              disabled={batchBusy}
+              aria-describedby={batchBusy ? 'm2-reason-busy' : undefined}
+              title={batchBusy ? t('catalog.busyReason') : undefined}
+              onClick={() => setForceConfirmOpen(true)}
+            >
+              <RefreshCw size={18} aria-hidden /> {t('catalog.syncAllForce')}
+            </Button>
+          </div>
+          {syncAllForceMutation.isSuccess && !isSweeping && (
+            <Banner variant="info" role="status">
+              {syncAllForceMutation.data.setsQueued > 0
+                ? t('catalog.syncAllQueued', { count: syncAllForceMutation.data.setsQueued })
+                : t('catalog.syncAllNothing')}
+            </Banner>
+          )}
+          {syncAllForceMutation.isError &&
+            (isEndpointMissing(syncAllForceMutation.error) ? (
+              <Banner variant="warning" role="status">
+                {t('catalog.syncAllUnavailable')} {t('groups.catalog.sourceDownReroute')}
+              </Banner>
+            ) : (
+              <Banner variant="danger" role="alert" title={tc('errorTitle')}>{getError(syncAllForceMutation.error)}</Banner>
+            ))}
+        </div>
+      </details>
+
+      {/* §19.5: confirmación one-shot money-safe de «Unificar rarezas» (muta rarityCanonical de TODO
+          el catálogo, aunque no toca precios ni reglas → se confirma para dejar claro el alcance). */}
+      <Modal
+        open={unifyConfirmOpen}
+        onClose={() => setUnifyConfirmOpen(false)}
+        title={t('unifyRarities.confirmTitle')}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setUnifyConfirmOpen(false)}>
+              {tc('cancel')}
+            </Button>
+            <Button
+              loading={unifyMutation.isPending}
+              onClick={() => {
+                setUnifyConfirmOpen(false);
+                unifyMutation.mutate();
+              }}
+            >
+              {t('unifyRarities.confirmCta')}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted">{t('unifyRarities.confirmBody')}</p>
+      </Modal>
 
       {/* Modal de override manual de precio */}
       <Modal

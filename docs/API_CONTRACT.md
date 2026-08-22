@@ -2,7 +2,23 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.31-refresh-variants-tcgcsv).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-22 (rev v1.32-unify-rarities).
+>
+> **Changelog v1.32-unify-rarities (2026-08-22, arquitecto — FORMALIZACIÓN de lo YA implementado; cierra dos
+> hallazgos de QA sobre el contrato, DoD «docs al día»):** cambios **ADITIVOS y RETROCOMPATIBLES**, money-safe.
+> - **Formaliza `POST /admin/catalog/unify-rarities`** (backend ya lo implementó; `BACKEND_NOTES.md` §0-ter) en la
+>   familia de backfill de §M2, enmarcado en ARCHITECTURE §4.28 (catálogo canónico de rarezas). `@Roles(super_admin)`,
+>   **síncrono 200**, sin body relevante. Res: `{ ok, cardsProcessed, cardsUpdated, distinctCanonical, unmapped:[{ raw,
+>   canonical, count }] }`. Semántica: **backfill idempotente** que reescribe `Card.rarityCanonical = normalizeRarity(
+>   rarity)` desde la columna **LOCAL** `rarity` (sin pokemontcg.io **ni** TCGCSV), **money-safe** (única columna
+>   escrita = `rarityCanonical`; NO toca `PriceReference`/precios/composición). `unmapped` = rarezas crudas sin entrada
+>   en `CANONICAL_RARITIES` (para saber cuáles añadir al catálogo canónico). Ver §M2.
+> - **`GET/PUT /admin/pricing/rarity-map` → RETIRADOS** (antes «DEPRECADOS… se conservan hasta su retiro»): el código
+>   ya los **retiró** junto con el setting `RARITY_MAP` (`BACKEND_NOTES.md` §0-quater). Reemplazados por
+>   `BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES` (§4.28d) + el catálogo canónico (§4.28c) y su endpoint `rarities`. Ver §M2/pricing.
+> - **Follow-up de backend (recordatorio, no bloquea, zona compartida):** `UPSTREAM_ERROR` y `SET_NOT_IMPORTED` viven
+>   hoy por cast `as ErrorCodeType`; falta añadirlos al enum central `common/error-codes.ts` y quitar los casts (tarea
+>   de backend en su turno de zona compartida). El contrato ya los declara normativos (§Errores).
 >
 > **Changelog v1.31-refresh-variants-tcgcsv (2026-08-22, arquitecto — FORMALIZACIÓN de lo YA implementado;
 > cierra incumplimiento de DoD «docs al día» reportado por QA):** cambios **ADITIVOS y RETROCOMPATIBLES**,
@@ -3372,10 +3388,13 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **rareza canónica**; `finishRules` keyeadas por el enum **`Finish`**. El seed migra las keys `Holo`/`Reverse Holo`
   > a `finishRules[holofoil]`/`finishRules[reverse_holo]` y canonicaliza las demás; reproduce EXACTAMENTE el negocio
   > vigente. La validación de `Rule` (`mode ∈ {fixed,pct}`, rangos) no cambia. **Auditado**, sin redeploy.
-- **DEPRECADOS (v1.3.1):** `GET/PUT /api/v1/admin/pricing/rarity-map` — la cotización ya **no** los usa; se
-  conservan como no-op/legacy hasta su retiro (v1.29 confirma el retiro: el normalizador `rawRarity→canonical` de
-  §4.28c sustituye su rol; `RARITY_MAP` sale con el catálogo canónico en producción). El editor nuevo consume
-  `rarities` + `buylist-rules`.
+- **RETIRADOS (v1.32; deprecados desde v1.3.1):** `GET/PUT /api/v1/admin/pricing/rarity-map` **ya no existen** — el
+  código los **retiró** junto con el setting `RARITY_MAP` (backend, rama `fix/variant-composition-regression`,
+  `BACKEND_NOTES.md` §0-quater). Fueron **reemplazados** por `BUYLIST_PRICE_RULES` / `SALES_PRICE_RULES` (reglas en dos
+  ejes §4.28d) + el **catálogo canónico de rarezas** (§4.28c, normalizador `rawRarity→canonical`) y su endpoint de
+  lectura `GET /admin/pricing/rarities` (+ `sales-rarities`). El editor nuevo consume `rarities` + `buylist-rules`.
+  Filas `ConfigSetting key='rarity_map'` que existan en BD quedan huérfanas e inertes (nadie las lee); no requieren
+  migración y los deploys nuevos ya no las siembran.
 
 #### Precio de VENTA por RAREZA (v1.13-sales-pricing — NUEVO backend; editor M2)
 > **Análogo al de buylist** (arriba), pero para el **precio de VENTA** (lo que se cobra en Compra/checkout).
@@ -3564,6 +3583,45 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
   > **Límite conocido (DEV-1):** el estado vive **en memoria del proceso** (no persistido). Si el proceso se reinicia a
   > mitad del barrido, el estado se **pierde** (vuelve a `running:false`) y hay que re-llamar. Mismo límite que
   > `sync-status` — ver Desviación **DEV-1** en ARCHITECTURE §9.
+
+#### Backfill LOCAL de `rarityCanonical` (v1.32 — NUEVO, `super_admin`) — normaliza rarezas sin upstream, money-safe
+> **Contexto (ARCHITECTURE §4.28 — catálogo canónico de rarezas).** La migración **M-31** sembró
+> `Card.rarityCanonical = rarity` **CRUDO** (sin normalizar), de modo que el `groupBy(['rarityCanonical','rarity'])`
+> que alimenta los editores de reglas (`GET /admin/pricing/rarities` y `/sales-rarities`) mostraba la **misma** rareza
+> **fragmentada/duplicada** (`rare holo`, `Rare Holo`, `RARE HOLO` como filas separadas). Este endpoint es el
+> **backfill idempotente** que reescribe `Card.rarityCanonical = normalizeRarity(rarity)` a partir de la columna
+> **LOCAL** `rarity`. Hermano de la familia de reparación de arriba, pero **puramente local**: **NUNCA** llama a
+> pokemontcg.io **ni** a TCGCSV. **El dinero no se toca** — el pricing ya re-normaliza la rareza al cotizar
+> (`money.ts`); lo roto era **solo** la UX del agrupado en el editor.
+> **Money-safe (garantía dura):** la **única** columna que escribe es `Card.rarityCanonical`. **NO** toca
+> `PriceReference`, precios, `PendingPriceEntry` ni la composición de variantes/acabados; ningún monto cambia.
+
+- `POST /api/v1/admin/catalog/unify-rarities` — **(M2, `super_admin`, síncrono `200`)** recorre TODAS las `Card` con
+  `rarity != null` y reescribe `rarityCanonical = normalizeRarity(rarity)` (función **PURA** de
+  `common/rarity-catalog.ts`, catálogo `CANONICAL_RARITIES`). **Síncrono e idempotente** (no fire-and-forget): emite
+  **un `updateMany` por rareza cruda divergente** (no un UPDATE por carta); en la 2ª corrida no hay filas divergentes
+  ⇒ **0 writes, 0 updates**. **Auditado** (`AuditLog action=catalog.unify_rarities`, `entityType='Card'`, con los
+  contadores).
+  Req: **sin body relevante** (sin parámetros).
+  Res `200`:
+  ```jsonc
+  {
+    "ok": true,
+    "cardsProcessed": 12000,   // # de Card con rarity != null (universo recorrido)
+    "cardsUpdated": 3400,      // # de Card cuyo rarityCanonical DIFERÍA y se corrigió (0 en 2ª corrida)
+    "distinctCanonical": 21,   // # de rarezas canónicas DISTINTAS resultantes
+    "unmapped": [              // rarezas cuya forma CRUDA no tiene entrada en CANONICAL_RARITIES
+      { "raw": "Galaxy Foil", "canonical": "Galaxy Foil", "count": 40 }
+    ]
+  }
+  ```
+  - **`unmapped`** = rarezas crudas **sin** entrada en el catálogo canónico (`CANONICAL_RARITIES`); `canonical` es el
+    pass-through Title-case. Sirve para que el operador sepa qué rarezas **añadir** a `rarity-catalog.ts` (§4.28). Es
+    money-safe: una rareza sin entrada canónica **cae al fallback pct** (predecible y auditable, **nunca 0**), así que
+    su ausencia no rompe precios — solo la deja fuera de las reglas explícitas hasta que se agregue.
+  - Sin errores de negocio propios (no depende de fuentes externas). Guardas de rol/auth estándar (`super_admin`).
+  - **Relación con la familia de arriba:** aquella (`refresh-variants*`) repara **variantes + precios** desde **TCGCSV**;
+    esta repara **solo la rareza canónica** desde columna **LOCAL**. Ninguna llama a pokemontcg.io.
 
 Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_API_KEY`; rate-limit vía cola BullMQ; `Card.rarity` se persiste como **String libre** (taxonomía abierta, captura rarezas modernas).
 

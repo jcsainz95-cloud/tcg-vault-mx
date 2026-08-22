@@ -3143,3 +3143,27 @@
 - **Estado (honesto, cierra MAYOR-2):** la migración M-31 **NO** trae data-migration aparte (el `m31-backfill.ts` que un comentario previo prometía **no existe**; el comentario ya se corrigió). La columna `rarityCanonical` se SIEMBRA con el `rarity` **crudo** como valor money-safe transitorio; el valor CANÓNICO real y las filas de `CardProduct` los puebla el **RE-SYNC FORZADO por set** (`sync {setId, force:true}`), que de todos modos es **obligatorio** para poblar `CardProduct`.
 - **Impacto:** hasta ejecutar el re-sync forzado TOTAL, el `groupBy(['rarityCanonical','rarity'])` del admin (`pricing.controller.ts`) agrupa las filas **pre-M31 por el string CRUDO** (no el canónico). El **PRICING no se ve afectado** (el lookup re-normaliza AMBOS lados). Sin riesgo de dinero; solo agrupación de reportes admin hasta el re-sync.
 - **Disparador:** **release de M-31/M-32.** Acción requerida: correr un **re-sync forzado total** (todos los sets) como paso del release, ANTES de considerar poblado el catálogo canónico. No hay runbook de release dentro de `backend/`; **devops** debe cablear este paso en el procedimiento de deploy (`docs/DEVOPS_NOTES.md`). Consistencia verificada: comentario de la migración ↔ realidad ↔ esta entrada.
+
+### Ronda de limpieza `fix/variant-composition-regression` — deuda del veredicto techlead (2026-08-22, no bloqueante)
+
+> Dos hallazgos MENOR + un MAYOR de mantenibilidad del pase de limpieza. El comentario engañoso
+> de `e2e-fixtures.ts:35` (afirmaba mapeo vía `RARITY_MAP`, ya retirado) **queda resuelto en este
+> mismo commit** (ahora describe `normalizeRarity` + `BUYLIST_PRICE_RULES`) y NO figura como deuda.
+
+### TD-1 · `M2View.tsx` es un monolito (~2.236 líneas, ~20 hooks, editores inline clonados) (MAYOR, frontend)
+- **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m2/M2View.tsx`.
+- **Estado:** un solo componente de ~2.236 líneas con ~20 hooks y varios editores inline. Los editores de reglas **buylist** y **venta** son clones 1:1 del mismo patrón dos-ejes (rareza canónica + acabado).
+- **Impacto:** mantenibilidad; cualquier cambio en un editor debe replicarse a mano en su clon (riesgo de drift), y el archivo es difícil de razonar/testear por su tamaño.
+- **Disparador:** próxima feature que toque cualquiera de esos editores. Dirección: extraer secciones (`PendingQueueSection`, `FxSection`, `BuylistRulesSection`, `SalesRulesSection`, `SealedSpreadsSection`, `CatalogSyncSection`) y un `<RuleAxisEditor mode="buylist|sales">` único que colapse los dos clones. Follow-up del **frontend**.
+
+### TD-2 · Formalizar `unify-rarities` en contrato + `UPSTREAM_ERROR`/`SET_NOT_IMPORTED` en el enum central (MENOR, arquitecto)
+- **Dónde:** `docs/API_CONTRACT.md` (endpoint `unify-rarities`, cerrándose ahora) y `backend/src/common/error-codes.ts`.
+- **Estado:** `unify-rarities` aún no está documentado en el contrato pese a estar operativo; y los códigos `UPSTREAM_ERROR` / `SET_NOT_IMPORTED` se emiten hoy por **cast** (`as ErrorCodeType`) en vez de estar en el enum central de códigos de error.
+- **Impacto:** bajo; el cast evade la fuente única de verdad de los códigos (riesgo de typo silencioso) y el contrato queda desalineado con lo implementado.
+- **Disparador:** cierre de `unify-rarities`. Dirección: el **arquitecto** formaliza el endpoint en `API_CONTRACT.md` y añade `UPSTREAM_ERROR`/`SET_NOT_IMPORTED` al enum central; una vez en el enum, el backend retira los casts. Cambio de contrato/enum ⇒ **arquitecto** primero (zona compartida).
+
+### TD-3 · Filas `ConfigSetting key='rarity_map'` quedan inertes en BD sin migración de limpieza (MENOR, backend)
+- **Dónde:** tabla `ConfigSetting`, filas con `key='rarity_map'` (residuo del `RARITY_MAP` retirado). Contexto en `docs/BACKEND_NOTES.md`.
+- **Estado:** el `RARITY_MAP` fue retirado del código (buylist usa `BUYLIST_PRICE_RULES` + catálogo canónico), pero las filas `rarity_map` en `ConfigSetting` **no** se borraron con una migración de limpieza. Quedan **inertes** (nadie las lee). Aceptado — ver `BACKEND_NOTES`.
+- **Impacto:** nulo funcional; solo ruido de datos en BD.
+- **Disparador:** limpieza **opcional** cuando se toque una migración de settings. Dirección: `DELETE` de las filas `key='rarity_map'` dentro de esa migración. Follow-up del **backend**.

@@ -23,10 +23,14 @@ beforeEach(() => {
 });
 
 describe('M2View · Catálogo y precios', () => {
-  it('muestra las secciones de sync, FX, rareza y catálogo', async () => {
+  it('muestra los TRES grupos de operaciones (§19), FX y la cola pendiente', async () => {
     renderWithProviders(<M2View />, 'es');
     expect(screen.getByRole('heading', { level: 1, name: /Catálogo y precios/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Sync de precios/ })).toBeInTheDocument();
+    // §19.1: los tres grupos reemplazan las viejas secciones «Operaciones avanzadas» + «Sync de bóveda».
+    expect(screen.getByRole('heading', { name: /Datos \(rápido · TCGCSV\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Catálogo \(cartas nuevas/ })).toBeInTheDocument();
+    // «Avanzado» es un <summary> plegado por defecto.
+    expect(screen.getByText(/Avanzado — operaciones pesadas/)).toBeInTheDocument();
     // FX carga async desde el mock.
     expect(await screen.findByText('18.4200')).toBeInTheDocument();
   });
@@ -36,10 +40,13 @@ describe('M2View · Catálogo y precios', () => {
     expect((await screen.findAllByText('Zapdos')).length).toBeGreaterThan(0);
   });
 
-  it('lanza el sync de precios y muestra el resultado encolado', async () => {
+  // §19.6: la sección legacy «Sync de precios (bóveda)» (B) se RETIRÓ del panel.
+  it('§19.6: el panel ya NO muestra el sync de precios de bóveda (B) ni el mapa de rarezas', () => {
     renderWithProviders(<M2View />, 'es');
-    fireEvent.click(screen.getByRole('button', { name: /Lanzar sync de precios/ }));
-    expect(await screen.findByText(/Sync encolado/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Lanzar sync de precios/ })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /Sync de precios \(bóveda\)/ })).toBeNull();
+    // rarity-map muerto: su editor tampoco aparece.
+    expect(screen.queryByText(/Rareza → categoría de buylist/)).toBeNull();
   });
 
   it('lista los sets remotos con estado imported/cardCount', async () => {
@@ -783,17 +790,24 @@ describe('M2View · Catálogo y precios', () => {
   });
 
   // ---- Proveedor de precios + ingesta masiva (v1.14-price-ingest) ----
-  it('el selector de proveedor de precios guarda el dial (updatePriceProvider)', async () => {
+  it('§19.7: el selector se reencuadra como «respaldo (fallback)» con TCGCSV como primaria fija', async () => {
     const spy = vi.spyOn(api, 'updatePriceProvider').mockResolvedValue(mockSettings);
     renderWithProviders(<M2View />, 'es');
     const s = await sectionFor(/Ingesta masiva de precios/);
-    const select = await s.findByLabelText('Proveedor de precios');
+    // Fila fija de FUENTE PRIMARIA no editable + línea de precedencia (cargan con el dial async).
+    expect(await s.findByText('Fuente primaria')).toBeInTheDocument();
+    expect(s.getAllByText('TCGCSV').length).toBeGreaterThan(0);
+    expect(s.getByText(/Precedencia: TCGCSV \(primario\)/)).toBeInTheDocument();
+    // El Select ahora es «Proveedor de respaldo (fallback)» (ya no «Proveedor de precios»).
+    expect(s.queryByLabelText('Proveedor de precios')).toBeNull();
+    const select = await s.findByLabelText('Proveedor de respaldo (fallback)');
     fireEvent.change(select, { target: { value: 'pokemonpricetracker' } });
     fireEvent.click(s.getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // Sin cambio de contrato: el dial y sus valores no cambian.
     expect(spy).toHaveBeenCalledWith('pokemonpricetracker');
-    expect(await screen.findByText('Proveedor de precios actualizado.')).toBeInTheDocument();
+    expect(await screen.findByText('Proveedor de respaldo actualizado.')).toBeInTheDocument();
   });
 
   it('el botón "Actualizar precios ahora" dispara triggerPriceIngest y muestra el feedback de encolado', async () => {
@@ -874,6 +888,14 @@ describe('M2View · Catálogo y precios', () => {
  * de cada fase se dicen tal cual.
  */
 describe('M2 · «Sync completo» por set (P-12, v1.27)', () => {
+  // §19.4: H («Sync completo») ya no es un botón del renglón; vive en el menú overflow «Más ▾» por-fila.
+  // El helper abre ese menú (DataTable pinta la fila 2 veces → se toma el primero) y pica el menuitem.
+  async function triggerFullSync() {
+    const [more] = await screen.findAllByRole('button', { name: /Más acciones para Surging Sparks/ });
+    fireEvent.click(more);
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Sync completo de Surging Sparks/ }));
+  }
+
   it('encadena syncCatalog({setId, force:true}) → triggerPriceIngest({setId}) y reporta el éxito de AMBAS fases', async () => {
     const syncSpy = vi.spyOn(api, 'syncCatalog').mockResolvedValue({
       jobId: 'j-cat-1',
@@ -890,10 +912,8 @@ describe('M2 · «Sync completo» por set (P-12, v1.27)', () => {
 
     renderWithProviders(<M2View />, 'es');
 
-    // Fila de Surging Sparks (sv08, primer set del mock de remote-sets). El DataTable pinta la
-    // fila dos veces (tabla desktop + tarjeta móvil) → se toma el primer botón.
-    const [btn] = await screen.findAllByRole('button', { name: /Sync completo de Surging Sparks/ });
-    fireEvent.click(btn);
+    // Fila de Surging Sparks (sv08, primer set del mock de remote-sets): abre «Más» y pica «Sync completo».
+    await triggerFullSync();
 
     // Fase 1: sync de catálogo POR SET con force (refresca variantes estructurales TCGCSV).
     await waitFor(() => expect(syncSpy).toHaveBeenCalledWith({ setId: 'sv08', force: true }));
@@ -912,7 +932,7 @@ describe('M2 · «Sync completo» por set (P-12, v1.27)', () => {
     vi.spyOn(api, 'triggerPriceIngest').mockResolvedValue({ job: 'price-ingest', enqueued: false });
 
     renderWithProviders(<M2View />, 'es');
-    fireEvent.click((await screen.findAllByRole('button', { name: /Sync completo de Surging Sparks/ }))[0]);
+    await triggerFullSync();
 
     // La fase de cartas SÍ corrió, pero el ingest no encoló (ya había un barrido): se dice tal cual.
     expect(await screen.findByText(/los precios de este set NO se encolaron/)).toBeInTheDocument();
@@ -926,12 +946,110 @@ describe('M2 · «Sync completo» por set (P-12, v1.27)', () => {
     const ingestSpy = vi.spyOn(api, 'triggerPriceIngest');
 
     renderWithProviders(<M2View />, 'es');
-    fireEvent.click((await screen.findAllByRole('button', { name: /Sync completo de Surging Sparks/ }))[0]);
+    await triggerFullSync();
 
     expect(
       await screen.findByText(/Sync completo de Surging Sparks: falló la fase de cartas\/variantes; NO se encolaron precios\./),
     ).toBeInTheDocument();
     expect(ingestSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * §19.5: «Unificar rarezas» — anclado al editor de reglas por rareza (NO en Datos). Confirmación
+ * one-shot money-safe; dispara POST /admin/catalog/unify-rarities (backfill LOCAL de rarityCanonical);
+ * muestra un resumen HONESTO (cuántas actualizó + rarezas `unmapped` accionables) y recompone el
+ * editor invalidando sus queries de rarezas.
+ */
+describe('M2 · «Unificar rarezas» (§19.5)', () => {
+  const okResponse = {
+    ok: true as const,
+    cardsProcessed: 12000,
+    cardsUpdated: 3400,
+    distinctCanonical: 21,
+    unmapped: [{ raw: 'Galaxy Foil', canonical: 'Galaxy Foil', count: 40 }],
+  };
+
+  it('confirma y dispara unifyRarities, mostrando el resumen honesto + la lista de unmapped', async () => {
+    const spy = vi.spyOn(api, 'unifyRarities').mockResolvedValue(okResponse);
+    renderWithProviders(<M2View />, 'es');
+
+    // El botón vive junto al editor de reglas por rareza (Sección 4), no en el grupo Datos.
+    fireEvent.click(await screen.findByRole('button', { name: /Unificar rarezas/ }));
+    // Picar NO llama de inmediato: abre la confirmación one-shot.
+    const dialog = await screen.findByRole('dialog', { name: /Unificar rarezas del catálogo/ });
+    expect(spy).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /Unificar rarezas/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    // Endpoint sin parámetros (backfill local money-safe).
+    expect(spy).toHaveBeenCalledWith();
+
+    // Resumen honesto: éxito + cuántas actualizó + lista de rarezas sin mapear (accionable).
+    expect(await screen.findByText(/Rarezas unificadas/)).toBeInTheDocument();
+    expect(screen.getByText(/3400 de 12000 carta\(s\) actualizadas/)).toBeInTheDocument();
+    expect(screen.getByText(/sin mapear/)).toBeInTheDocument();
+    expect(screen.getByText('Galaxy Foil')).toBeInTheDocument();
+  });
+
+  it('cancelar la confirmación no llama al endpoint (money-safe)', async () => {
+    const spy = vi.spyOn(api, 'unifyRarities');
+    renderWithProviders(<M2View />, 'es');
+
+    fireEvent.click(await screen.findByRole('button', { name: /Unificar rarezas/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Unificar rarezas del catálogo/ });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Cancelar/ }));
+
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('tras el éxito invalida las rarezas del editor (se vuelven a pedir para recomponerse)', async () => {
+    vi.spyOn(api, 'unifyRarities').mockResolvedValue({ ...okResponse, unmapped: [] });
+    const raritiesSpy = vi.spyOn(api, 'getBuylistRarities');
+    renderWithProviders(<M2View />, 'es');
+
+    // Espera a que el editor de rarezas TERMINE su carga inicial (una rareza del seed visible): si
+    // se invalidara con el fetch inicial aún en vuelo, React Query lo deduplicaría y no re-pediría.
+    expect((await screen.findAllByText('Common')).length).toBeGreaterThan(0);
+    const before = raritiesSpy.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: /Unificar rarezas/ }));
+    fireEvent.click(
+      within(await screen.findByRole('dialog', { name: /Unificar rarezas del catálogo/ })).getByRole(
+        'button',
+        { name: /Unificar rarezas/ },
+      ),
+    );
+
+    // El éxito invalida ['buylist-rarities'] → el editor vuelve a pedir las rarezas (recompone sin duplicados).
+    await waitFor(() => expect(raritiesSpy.mock.calls.length).toBeGreaterThan(before));
+  });
+});
+
+/**
+ * §19.4: la acción por-fila H («Sync completo») está ESCONDIDA en un menú overflow «Más ▾» accesible
+ * (aria-haspopup="menu"), no en el renglón principal; I (Variantes + precios) y G (Importar/Re-sync)
+ * siguen como botones directos con I primero.
+ */
+describe('M2 · jerarquía por-fila (§19.4)', () => {
+  it('I y G son botones directos; H («Sync completo») solo aparece al abrir el menú «Más»', async () => {
+    renderWithProviders(<M2View />, 'es');
+    // I: acción primaria por-fila (aria-label estable). G: importar/re-sincronizar.
+    expect(
+      (await screen.findAllByRole('button', {
+        name: /Refrescar variantes y precios de Surging Sparks usando solo TCGCSV/,
+      })).length,
+    ).toBeGreaterThan(0);
+    // H NO está en el renglón: no hay un botón/menuitem «Sync completo» hasta abrir el menú.
+    expect(screen.queryByRole('menuitem', { name: /Sync completo de Surging Sparks/ })).toBeNull();
+
+    const [more] = await screen.findAllByRole('button', { name: /Más acciones para Surging Sparks/ });
+    expect(more).toHaveAttribute('aria-haspopup', 'menu');
+    fireEvent.click(more);
+    // Al abrir, H aparece como menuitem con su label completo.
+    expect(
+      await screen.findByRole('menuitem', { name: /Sync completo de Surging Sparks/ }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -1101,7 +1219,7 @@ describe('M2 · «Refrescar variantes + precios de TODO (solo TCGCSV)» batch (R
 
     // Picar el botón NO llama de inmediato: abre el modal de confirmación (operación masiva).
     fireEvent.click(
-      await screen.findByRole('button', { name: /Refrescar variantes \+ precios de TODO \(solo TCGCSV\)/ }),
+      await screen.findByRole('button', { name: /Refrescar variantes \+ precios \(todo\)/ }),
     );
     expect(
       await screen.findByRole('dialog', {
@@ -1146,7 +1264,7 @@ describe('M2 · «Refrescar variantes + precios de TODO (solo TCGCSV)» batch (R
     renderWithProviders(<M2View />, 'es');
 
     fireEvent.click(
-      await screen.findByRole('button', { name: /Refrescar variantes \+ precios de TODO \(solo TCGCSV\)/ }),
+      await screen.findByRole('button', { name: /Refrescar variantes \+ precios \(todo\)/ }),
     );
     const dialog = await screen.findByRole('dialog', {
       name: /Refrescar variantes \+ precios de TODO el catálogo \(solo TCGCSV\)/,
@@ -1180,7 +1298,7 @@ describe('M2 · «Refrescar variantes + precios de TODO (solo TCGCSV)» batch (R
     renderWithProviders(<M2View />, 'es');
 
     fireEvent.click(
-      await screen.findByRole('button', { name: /Refrescar variantes \+ precios de TODO \(solo TCGCSV\)/ }),
+      await screen.findByRole('button', { name: /Refrescar variantes \+ precios \(todo\)/ }),
     );
     fireEvent.click(await screen.findByRole('button', { name: /Sí, refrescar todo el catálogo/ }));
 
@@ -1202,7 +1320,7 @@ describe('M2 · «Refrescar variantes + precios de TODO (solo TCGCSV)» batch (R
     renderWithProviders(<M2View />, 'es');
 
     fireEvent.click(
-      await screen.findByRole('button', { name: /Refrescar variantes \+ precios de TODO \(solo TCGCSV\)/ }),
+      await screen.findByRole('button', { name: /Refrescar variantes \+ precios \(todo\)/ }),
     );
     fireEvent.click(await screen.findByRole('button', { name: /Sí, refrescar todo el catálogo/ }));
 

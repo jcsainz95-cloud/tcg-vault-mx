@@ -40,7 +40,6 @@ import type {
   KycInfoDTO,
   FxDTO,
   PendingPriceEntryDTO,
-  RarityMapEntryDTO,
   BuylistRule,
   BuylistRaritiesResponse,
   PriceRuleSet,
@@ -1727,20 +1726,6 @@ export let mockPendingPrices: PendingPriceEntryDTO[] = [
 ];
 export function resolveMockPending(id: string) {
   mockPendingPrices = mockPendingPrices.filter((p) => p.id !== id);
-}
-
-/** Tabla rareza→categoría del buylist (DEPRECADO v1.3.1; legacy). */
-export let mockRarityMap: RarityMapEntryDTO[] = [
-  { rarity: 'Common', category: 'comun' },
-  { rarity: 'Uncommon', category: 'comun' },
-  { rarity: 'Reverse Holo', category: 'reverse_holo' },
-  { rarity: 'Rare Holo', category: 'ex_plus' },
-  { rarity: 'Ultra Rare', category: 'ex_plus' },
-  { rarity: 'Illustration Rare', category: 'ex_plus' },
-  { rarity: 'Special Illustration Rare', category: 'ex_plus' },
-];
-export function setMockRarityMap(entries: RarityMapEntryDTO[]) {
-  mockRarityMap = entries;
 }
 
 /**

@@ -8,7 +8,7 @@ import { PokemonTcgIoClient, RemoteCard, RemoteCardSet } from './pokemontcg-io.c
 import { yearFromReleaseDate } from './catalog.service';
 import { deriveAvailableFinishes } from '../pricing/pricing.types';
 import { deriveNumberParts } from '../../common/card-order';
-import { normalizeRarity } from '../../common/rarity-catalog';
+import { normalizeRarity, isRarityMapped } from '../../common/rarity-catalog';
 import { FinishReconciler } from './finish-reconciler.service';
 import { CardProductResolverService } from './card-product-resolver.service';
 
@@ -66,6 +66,89 @@ export class CatalogSyncService {
     // sync single/metadata pueden construir el servicio sin él (no se invoca en esa ruta).
     @Optional() private readonly cardProductResolver?: CardProductResolverService,
   ) {}
+
+  /**
+   * POST /admin/catalog/unify-rarities — backfill LOCAL de `Card.rarityCanonical` (§4.28c). Re-deriva
+   * `rarityCanonical = normalizeRarity(rarity)` para TODA carta con `rarity != null`. Cierra la
+   * regresión de la migración M-31 (sembró `rarityCanonical = rarity` CRUDO), que fragmentaba el
+   * agrupado `groupBy(['rarityCanonical'])` del editor de reglas.
+   *
+   * Money-safe: NUNCA llama a pokemontcg.io ni a TCGCSV (es un UPDATE derivado de la columna LOCAL
+   * `rarity`); NO toca `PriceReference`, precios, ni composición de variantes — SOLO reescribe
+   * `rarityCanonical`. El pricing ya re-normaliza al vuelo (money.ts), así que los montos no cambian:
+   * esto solo repara la UX del editor.
+   *
+   * Síncrono e idempotente: agrega el estado por `groupBy(['rarity','rarityCanonical'])` (el universo
+   * de rarezas distintas es de decenas), escribe SOLO las rarezas crudas con al menos una fila
+   * divergente y en la segunda corrida no hace ningún UPDATE. `unmapped` lista las rarezas cuya forma
+   * cruda NO tiene entrada en el catálogo canónico (`CANONICAL_RARITIES`) → candidatas a añadir.
+   */
+  async unifyRarities(): Promise<{
+    ok: boolean;
+    cardsProcessed: number;
+    cardsUpdated: number;
+    distinctCanonical: number;
+    unmapped: { raw: string; canonical: string; count: number }[];
+  }> {
+    const groups = await this.prisma.card.groupBy({
+      by: ['rarity', 'rarityCanonical'],
+      where: { rarity: { not: null } },
+      _count: { _all: true },
+    });
+
+    let cardsProcessed = 0;
+    let cardsUpdated = 0;
+    const canonicalSet = new Set<string>();
+    // raw → { canonical, count, needsUpdate }: agrega los conteos por rareza cruda y marca si alguna
+    // fila difiere del canónico esperado (para escribir SOLO donde haga falta).
+    const byRaw = new Map<string, { canonical: string; count: number; needsUpdate: boolean }>();
+    const unmappedByRaw = new Map<string, { canonical: string; count: number }>();
+
+    for (const g of groups) {
+      const raw = g.rarity;
+      if (raw == null) continue; // filtrado por el where, defensivo
+      const count = g._count._all;
+      cardsProcessed += count;
+      // `rarity` no vacía ⇒ normalizeRarity nunca devuelve null; el guard es defensivo.
+      const canonical = normalizeRarity(raw);
+      if (canonical == null) continue;
+      canonicalSet.add(canonical);
+
+      const acc = byRaw.get(raw) ?? { canonical, count: 0, needsUpdate: false };
+      acc.count += count;
+      if (g.rarityCanonical !== canonical) {
+        acc.needsUpdate = true;
+        cardsUpdated += count;
+      }
+      byRaw.set(raw, acc);
+
+      if (!isRarityMapped(raw)) {
+        const u = unmappedByRaw.get(raw) ?? { canonical, count: 0 };
+        u.count += count;
+        unmappedByRaw.set(raw, u);
+      }
+    }
+
+    // Escribe SOLO las rarezas crudas divergentes. El `NOT` filtra las filas ya correctas (e incluye
+    // las de `rarityCanonical = null`); NO toca ninguna otra columna → money-safe.
+    for (const [raw, info] of byRaw) {
+      if (!info.needsUpdate) continue;
+      await this.prisma.card.updateMany({
+        where: { rarity: raw, NOT: { rarityCanonical: info.canonical } },
+        data: { rarityCanonical: info.canonical },
+      });
+    }
+
+    const unmapped = [...unmappedByRaw.entries()]
+      .map(([raw, u]) => ({ raw, canonical: u.canonical, count: u.count }))
+      .sort((a, b) => b.count - a.count);
+
+    this.logger.log(
+      `unify-rarities: ${cardsProcessed} cartas, ${cardsUpdated} actualizadas, ` +
+        `${canonicalSet.size} canónicas distintas, ${unmapped.length} rarezas unmapped.`,
+    );
+    return { ok: true, cardsProcessed, cardsUpdated, distinctCanonical: canonicalSet.size, unmapped };
+  }
 
   /**
    * GET /admin/catalog/remote-sets — lista remota + estado local (imported/cardCount).

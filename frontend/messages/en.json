@@ -1216,15 +1216,35 @@
         "title": "Update prices",
         "subtitle": "Refresh reference prices across the whole catalog. This is the module's primary action; it runs 1–2 times a day and you can also trigger it by hand here."
       },
-      "advancedOps": {
-        "title": "Advanced catalog / sync operations",
-        "subtitle": "Catalog maintenance and sync tools: use them only when you need to import new sets, reprocess everything, or set pending prices by hand."
+      "groups": {
+        "data": {
+          "eyebrow": "Data",
+          "title": "Data (fast · TCGCSV)",
+          "subtitle": "Refresh variants, finishes and prices from TCGCSV. Always work, even if the catalog source (pokemontcg.io) is down. This is what you need to fix missing variants or prices on an already imported set."
+        },
+        "catalog": {
+          "eyebrow": "Catalog",
+          "title": "Catalog (new cards · uses catalog source)",
+          "subtitle": "The only way to create new cards: import sets and cards from the catalog source (pokemontcg.io).",
+          "sourceWarning": "These actions import new cards from the catalog source (pokemontcg.io). If the source is down or rate limited, they may fail or import nothing — use the Data group to refresh variants and prices in the meantime.",
+          "sourceDownReroute": "pokemontcg.io did not respond; the prices and variants you can still update are in the Data group, above."
+        },
+        "advanced": {
+          "eyebrow": "Advanced",
+          "summary": "Advanced — heavy operations (full re-sync)",
+          "subtitle": "Rarely needed: they reprocess the whole catalog or chain a set's cards + prices. Heavy and dependent on pokemontcg.io."
+        }
       },
-      "sync": {
-        "title": "Price sync (vault)",
-        "subtitle": "Refresh the reference price of vault cards from the source per type. Daily cache.",
-        "launch": "Launch price sync",
-        "queued": "Sync queued: {count} cards (job {jobId})."
+      "unifyRarities": {
+        "button": "Merge rarities",
+        "hint": "Groups fragmented catalog rarities into their canonical form. One-time action, does not change prices.",
+        "confirmTitle": "Merge catalog rarities",
+        "confirmBody": "Reassigns the canonical rarity of every card to collapse duplicates and spelling variants into a single rarity. This is a local one-shot operation: it queries no external source and changes NO price or rule. Afterwards the per-rarity rules editor shows one row per real rarity, without duplicates.",
+        "confirmCta": "Merge rarities",
+        "running": "Merging…",
+        "done": "Rarities merged. The editor now reflects canonical rarities.",
+        "summary": "{updated} of {processed} card(s) updated · {distinct} distinct canonical rarit(y/ies).",
+        "unmappedTitle": "{count} raw rarit(y/ies) unmapped (add them to the canonical catalog to give them their own rule):"
       },
       "pending": {
         "title": "Pending-price queue",
@@ -1272,13 +1292,17 @@
       "priceIngest": {
         "title": "Bulk price ingest",
         "subtitle": "Refreshes prices for the WHOLE catalog in batches (one job per set) from the selected provider. It's the primary pricing path; it runs 1–2 times a day and you can also trigger it manually.",
-        "providerLabel": "Price provider",
+        "primarySourceLabel": "Primary source",
+        "primarySourceValue": "TCGCSV",
+        "primarySourceHint": "Always tried first.",
+        "fallbackLabel": "Fallback price provider",
         "providerOptions": {
           "pokemontcg_io": "pokemontcg.io",
           "pokemonpricetracker": "PokemonPriceTracker"
         },
-        "providerHint": "Change the price source without a redeploy. Rollback lever: if the paid provider fails, switch back to pokemontcg.io instantly.",
-        "providerSaved": "Price provider updated.",
+        "fallbackHint": "TCGCSV is the primary source and is always tried first; this provider only covers what TCGCSV lacks (e.g. graded cards or cards without a TCGCSV price).",
+        "precedenceHint": "Precedence: TCGCSV (primary) → fallback: {fallback} → manual override (highest).",
+        "providerSaved": "Fallback provider updated.",
         "trigger": "Refresh prices now",
         "triggerHint": "Queues the bulk ingest (same as the scheduled run); processed set by set, in the background.",
         "queued": "Price ingest queued; processing in the background.",
@@ -1289,12 +1313,6 @@
         "dailyLimited": "Paused by the provider's daily limit — resumes at 00:00 UTC. {pending} set(s) pending.",
         "dailyRemaining": "Remaining budget today: {remaining}."
       },
-      "rarityMap": {
-        "title": "Rarity → buylist category",
-        "subtitle": "Derives the quote category from the pokemontcg.io rarity. Default ex_plus for unlisted rarities.",
-        "category": "Category",
-        "saved": "Rarity map saved."
-      },
       "catalog": {
         "title": "Catalog sync (pokemontcg.io)",
         "subtitle": "Import sets and cards from the reference catalog. Default sets 2024+; backfill older collections in batches.",
@@ -1304,12 +1322,18 @@
         "yes": "Yes",
         "no": "No",
         "cardCount": "Cards",
+        "setsEmpty": "No sets yet. Use \"Import new sets\" (Catalog group) as the first step.",
+        "busyReason": "Wait for the running sweep to finish.",
         "import": "Import",
         "resync": "Re-sync",
         "backfill": "Backfill (next batch)",
         "syncAll": "Import new sets",
         "syncAllHint": "\"Import new sets\" brings newly released sets that aren't imported yet (light operation); the system also does this automatically twice a day. \"Re-sync everything (force)\" reprocesses the ENTIRE catalog: metadata, cards and variants/finishes (heavy operation). It does NOT repopulate prices: use \"Update prices now\" or the per-set \"Full sync\" for that.",
         "fullSync": "Full sync",
+        "fullSyncMenuItem": "Full sync (cards + prices)",
+        "rowMoreAria": "More actions for {name}",
+        "refreshVariantsShort": "Variants + prices",
+        "refreshVariantsAllShort": "Refresh variants + prices (all)",
         "fullSyncAria": "Full sync of {name}: cards, variants and prices",
         "fullSyncHint": "Per set: \"Import\"/\"Re-sync\" only brings metadata and cards (it doesn't refresh variants or touch prices). \"Full sync\" chains two phases: first the set's cards + variants/finishes, then the prices for that entire set.",
         "fullSyncPhaseCatalog": "Full sync of {name} — phase 1/2: syncing cards and variants…",

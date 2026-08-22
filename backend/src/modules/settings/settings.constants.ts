@@ -54,9 +54,6 @@ export const SettingKey = {
   // sealedRestockAlerts) y editables por PUT /admin/settings (a diferencia de los spreads).
   SEALED_VALUE_TREND: 'sealed_value_trend',
   SEALED_RESTOCK_ALERTS: 'sealed_restock_alerts',
-  // DEPRECADO v1.3.1: `rarity_map` (RARITY_MAP) ya NO lo lee la cotización (reemplazado por
-  // BUYLIST_PRICE_RULES). Se conserva como no-op/legacy hasta su retiro; no se siembra en nuevos.
-  RARITY_MAP: 'rarity_map',
   // Retención de INE (días desde el cierre/pago de la solicitud) antes de purgar imágenes.
   // Dial interno (LFPDPPP): NO se expone en el DTO de M10 hasta que el arquitecto lo
   // formalice en el contrato (ver docs/BACKEND_NOTES.md).
@@ -139,19 +136,6 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // después; el súper-admin los enciende sin redeploy (PUT /admin/settings).
   [SettingKey.SEALED_VALUE_TREND]: 'off',
   [SettingKey.SEALED_RESTOCK_ALERTS]: 'off',
-  [SettingKey.RARITY_MAP]: {
-    Common: 'comun',
-    Uncommon: 'comun',
-    'Rare': 'comun',
-    'Reverse Holo': 'reverse_holo',
-    'Rare Holo': 'ex_plus',
-    'Rare Holo EX': 'ex_plus',
-    'Rare Holo GX': 'ex_plus',
-    'Rare Holo V': 'ex_plus',
-    'Rare Holo VMAX': 'ex_plus',
-    'Rare Ultra': 'ex_plus',
-    'Rare Secret': 'ex_plus',
-  },
 };
 
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
@@ -400,8 +384,6 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
     typeof v === 'string' && SEALED_PRICE_SOURCE_VALUES.includes(v)
       ? null
       : `must be one of ${SEALED_PRICE_SOURCE_VALUES.join('|')}`,
-  [SettingKey.RARITY_MAP]: (v) =>
-    v !== null && typeof v === 'object' && !Array.isArray(v) ? null : 'must be an object map',
   [SettingKey.BUYLIST_PRICE_RULES]: validateBuylistRules,
   [SettingKey.BUYLIST_PRICE_FALLBACK_PCT]: validateFallbackPct,
   // v1.13-sales-pricing (§4.14a): reglas de VENTA por rareza + fallback (pct = markup arriba de mercado).

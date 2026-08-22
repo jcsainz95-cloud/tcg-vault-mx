@@ -4,6 +4,75 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0-ter. `POST /admin/catalog/unify-rarities` — backfill LOCAL de `rarityCanonical` (money-safe, sin pokemontcg.io)
+
+> Rama `fix/variant-composition-regression`. Endpoint admin NUEVO, aditivo, **money-safe**. Solo
+> `backend/`. Repara la **regresión de la migración M-31**, que sembró `Card.rarityCanonical = rarity`
+> CRUDO (sin normalizar). Con eso, el `groupBy(['rarityCanonical','rarity'])` del editor de reglas
+> (`GET /admin/pricing/rarities` y `/sales-rarities`) mostraba rarezas **fragmentadas/duplicadas** (ej.
+> `rare holo`, `Rare Holo`, `RARE HOLO` como filas separadas). El **dinero está a salvo** (el pricing
+> re-normaliza al vuelo en `money.ts`); lo roto era SOLO la UX del editor.
+
+**Qué hace.** Recorre TODAS las `Card` con `rarity != null` y reescribe
+`rarityCanonical = normalizeRarity(rarity)` (función PURA de `common/rarity-catalog.ts`). Es un UPDATE
+derivado de la columna **LOCAL** `rarity`: **NUNCA** llama a pokemontcg.io ni a TCGCSV.
+
+**Money-safe (garantías).** NO toca `PriceReference`, precios, `PendingPriceEntry`, ni la composición
+de variantes/acabados. La ÚNICA columna que escribe es `Card.rarityCanonical`. Como el pricing ya
+re-normaliza la rareza al cotizar, ningún monto cambia: esto solo arregla el agrupado del editor.
+
+**Síncrono e idempotente.** Elegí **síncrono (200)** en vez del patrón fire-and-forget+status: es un
+UPDATE de UNA columna y el universo de rarezas DISTINTAS es de decenas, así que agrego el estado con
+un solo `groupBy(['rarity','rarityCanonical'])` y emito **un `updateMany` por rareza cruda divergente**
+(no un UPDATE por carta). En la segunda corrida no hay filas divergentes ⇒ **0 writes, 0 updates**.
+
+### Firma exacta (pendiente de formalizar en `API_CONTRACT.md` por el arquitecto)
+- **Ruta:** `POST /api/v1/admin/catalog/unify-rarities`
+- **Auth/rol:** `@Roles(super_admin)` (hereda el guard de `AdminCatalogController`). Auditado
+  (`AuditLog action=catalog.unify_rarities`, `entityType='Card'`, con `cardsProcessed`, `cardsUpdated`,
+  `distinctCanonical`, `unmappedCount`).
+- **HTTP de éxito:** `200`. **Body:** vacío (sin parámetros).
+- **Respuesta 200 (resumen):**
+  ```jsonc
+  {
+    "ok": true,
+    "cardsProcessed": 12000,   // # de Card con rarity != null (universo recorrido)
+    "cardsUpdated": 3400,      // # de Card cuyo rarityCanonical DIFERÍA y se corrigió (0 en 2ª corrida)
+    "distinctCanonical": 21,   // # de rarezas canónicas DISTINTAS resultantes
+    "unmapped": [              // rarezas cuya forma cruda NO tiene entrada en CANONICAL_RARITIES
+      { "raw": "Galaxy Foil", "canonical": "Galaxy Foil", "count": 40 }
+      // ↑ el operador ve qué rarezas nuevas convendría AÑADIR al catálogo canónico (rarity-catalog.ts).
+      //   `canonical` es el pass-through Title-case (money-safe: cae al fallback pct, predecible).
+    ]
+  }
+  ```
+- **Implementación:** `CatalogSyncService.unifyRarities()` + `AdminCatalogController.unifyRarities()`.
+- **Tests:** `backend/test/catalog-unify-rarities.spec.ts` (5 casos): cruda→canónica escribe solo donde
+  difiere; idempotencia (0 updates, 0 writes); `unmapped`; money-safe (no llama a pokemontcg.io, solo
+  `card.updateMany` de `rarityCanonical`); `distinctCanonical`.
+
+## 0-quater. Limpieza: retiro de endpoints muertos / redundantes (rama `fix/variant-composition-regression`)
+
+- **RETIRADO — `GET/PUT /admin/pricing/rarity-map` (MUERTO).** Deprecado desde v1.3.1 (la cotización ya
+  NO lo leía; lo reemplazó `BUYLIST_PRICE_RULES` + el catálogo canónico §4.28c). Verifiqué que **nada
+  lo consume**: el front NO tiene wrapper (`frontend/src/types/contract.ts:1478` es solo un comentario
+  de tipo, sin llamada). Retirado:
+  - `PricingController.getRarityMap` / `putRarityMap` + el DTO `RarityMapDto` (`pricing.controller.ts`).
+  - El setting huérfano `SettingKey.RARITY_MAP` (`rarity_map`) y sus entradas en `SETTING_DEFAULTS` y
+    `SETTING_VALIDATORS` (`settings.constants.ts`). Único consumidor previo = los endpoints retirados.
+  - El test obsoleto `backend/test/pricing.rarity-map.spec.ts` (borrado).
+  - Filas `ConfigSetting key='rarity_map'` que existan en BD quedan huérfanas e inertes (nadie las lee);
+    no requieren migración. Los deploys nuevos ya no las siembran.
+- **DEPRECADO (no borrado) — `POST /admin/pricing/sync` («sync de precios (bóveda)»).** El front lo
+  retira del UI. **NO se borra** porque su servicio `PriceSyncJobService` es COMPARTIDO: el endpoint usa
+  `.enqueue()`, pero `PriceSyncJobService.run()` es el ejecutable del **job PROGRAMADO** `price-sync`
+  (BullMQ, cron `15 6 * * *` en `scheduler.service.ts:159/217`). Borrar el servicio rompería el cron.
+  Marqué el endpoint con `@deprecated` (JSDoc en `pricing.controller.ts`). **Retirarlo definitivamente
+  es follow-up del arquitecto** una vez confirmado que ningún cliente lo llama. `GET
+  /admin/pricing/sync-status` (barra de progreso del barrido de `price-ingest`) es OTRO endpoint (no
+  toca `PriceSyncJobService`) y **queda intacto**.
+- **NO tocado:** los endpoints E/H (los del "Avanzado" que el front solo esconde) siguen vivos.
+
 ## 0-bis. M-34 — `POST /admin/catalog/refresh-variants`: refrescar variantes + precios de un set YA importado SOLO desde TCGCSV (sin pokemontcg.io)
 
 > Rama `fix/variant-composition-regression`. Endpoint admin NUEVO, aditivo, **money-safe**. Solo

@@ -1475,13 +1475,6 @@ export interface PendingPriceEntryDTO {
   card?: { id: string; name: string; number: string; setName: string };
 }
 
-// GET/PUT /admin/pricing/rarity-map: tabla rareza→categoría de buylist.
-// DEPRECADO v1.3.1: la cotización ya no la usa; reemplazada por buylist-rules.
-export interface RarityMapEntryDTO {
-  rarity: string;
-  category: BuylistCategory;
-}
-
 // ---- M2: precio de buylist por RAREZA + ACABADO (contrato §M2; v1.29 dos ejes) ----
 // v1.29 (§4.28d): las reglas dejan de ser un mapa plano que MEZCLABA rareza y acabado (el parche
 // INV-1 del front con keys sintéticas "Holo"/"Reverse Holo"). Pasan a `PriceRuleSet` con DOS ejes
@@ -1633,10 +1626,21 @@ export interface PriceHistoryEntryDTO {
   isManualOverride: boolean;
 }
 
-// POST /admin/pricing/sync → dispara/encola el sync diario de bóveda.
-export interface PricingSyncResponse {
-  jobId: string;
-  queued: number;
+// POST /admin/catalog/unify-rarities → backfill LOCAL de `Card.rarityCanonical` (§19.5 / BACKEND_NOTES
+// §0-ter). Money-safe: NUNCA llama a pokemontcg.io/TCGCSV, no toca precios ni reglas; solo re-normaliza
+// la rareza canónica del catálogo para colapsar duplicados/variantes de escritura en el editor de reglas.
+// `unmapped` = rarezas crudas sin entrada en el catálogo canónico (el operador ve cuáles añadir).
+export interface UnifyRaritiesUnmappedEntry {
+  raw: string;
+  canonical: string;
+  count: number;
+}
+export interface UnifyRaritiesResponse {
+  ok: true;
+  cardsProcessed: number;
+  cardsUpdated: number;
+  distinctCanonical: number;
+  unmapped: UnifyRaritiesUnmappedEntry[];
 }
 
 // GET /admin/catalog/remote-sets: sets remotos de pokemontcg.io con estado local.

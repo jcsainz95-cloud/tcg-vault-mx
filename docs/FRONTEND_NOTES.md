@@ -4,6 +4,66 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §19 · Reorganización del panel M2 (catálogo/precios) + «Unificar rarezas» (2026-08-22, branch `fix/variant-composition-regression`)
+
+Implementa `DESIGN_SYSTEM.md §19` (v1.9). Reordena las 9 acciones de import/precio de `M2View.tsx` en
+**tres grupos con peso decreciente**, ancla el nuevo **«Unificar rarezas»** al editor de reglas por
+rareza, retira lo muerto/legacy y reencuadra el selector de proveedor. **Cero cambios de contrato**
+salvo el endpoint aditivo de unify (ya especificado por backend en `BACKEND_NOTES §0-ter`).
+
+- **Tres grupos (`M2View.tsx`), debajo de los editores de precio:**
+  - **G1 «Datos (rápido · TCGCSV)»** — `<section role="group" aria-labelledby>` destacado (eyebrow +
+    h2 + subtítulo con la garantía «funcionan siempre»). Acción global **F** (`refreshVariantsAll`,
+    `secondary`, confirmación) con etiqueta corta `catalog.refreshVariantsAllShort`; el «(solo TCGCSV)»
+    se movió del botón al subtítulo del grupo. **La tabla de sets ÚNICA vive aquí** (anclada a Datos): su
+    acción por-fila **primaria es I** (`refreshVariants`, `catalog.refreshVariantsShort`). El feedback
+    de las acciones por-fila (I y H) se pinta junto a la tabla para que sea visible.
+  - **G2 «Catálogo (cartas nuevas · usa fuente de catálogo)»** — `role="group"` con **Banner `info`
+    persistente** (`groups.catalog.sourceWarning`, `role=status`) que avisa la dependencia de
+    pokemontcg.io. Acciones globales **D** (`syncAll`) + **C** (`backfill`). Acción por-fila **G**
+    (`catalogSync`, «Importar/Re-sincronizar»), secundaria. **Degradación reactiva (§19.3):** ante
+    fuente no disponible (404/405) el warning ahora **reencamina a Datos** (`groups.catalog.sourceDownReroute`).
+  - **G3 «Avanzado»** — `<details>` nativo **plegado por defecto** (`groups.advanced.summary`). Contiene
+    la global **E** (`syncAllForce`, confirmación). La por-fila **H** (`fullSync`) se movió a un menú
+    overflow **«Más ▾»** por-fila (`RowMoreMenu`, `aria-haspopup="menu"` + `aria-expanded`, `Esc`/click
+    fuera cierran y devuelven foco; H es un `menuitem` con label completo). Su feedback se pinta en G1
+    (junto a la tabla) para que no quede oculto tras el `<details>`.
+  - **Orden por-fila:** I (1ª) → G (2ª) → H (overflow), reflejando la jerarquía de grupos.
+- **«Unificar rarezas» (§19.5):** botón `secondary sm` (`Wand2`) **en el encabezado del editor de reglas
+  de buylist** (Sección 4), no en Datos — el «por qué» solo se entiende viendo la lista fragmentada que
+  limpia. Confirmación one-shot (modal). Consume `POST /admin/catalog/unify-rarities` (200, sin body) →
+  `{ ok, cardsProcessed, cardsUpdated, distinctCanonical, unmapped: [{ raw, canonical, count }] }`
+  (`UnifyRaritiesResponse` en `contract.ts`; wrapper `unifyRarities()` + mock en `api.ts`). Muestra un
+  **resumen honesto** (cuántas actualizó + lista de `unmapped` para que el operador sepa qué añadir al
+  catálogo canónico). Al éxito **invalida** `buylist-rarities`, `sales-rarities`, `buylist-rules`,
+  `sales-rules` para recomponer el editor sin duplicados. Money-safe: local, one-shot, no toca precios.
+- **Retirados (§19.6):** sección **B** «Sync de precios de bóveda» (`syncMutation`/`sync.launch`) — se
+  eliminó el UI, el wrapper `syncPricing` y el tipo `PricingSyncResponse` (backend deja el endpoint
+  `@deprecated`, no lo borra: su servicio es compartido con el cron `price-sync`). Restos de **`rarity-map`**
+  (`RarityMapEntryDTO` en `contract.ts`, `mockRarityMap`/`setMockRarityMap` en fixtures, claves i18n
+  `admin.m2.rarityMap.*` y `admin.m2.sync.*` + `advancedOps.*`). Verificado que nada más los consumía.
+- **Selector de proveedor (§19.7):** fila fija no editable **«FUENTE PRIMARIA: TCGCSV»** + Select
+  reetiquetado **«Proveedor de respaldo (fallback)»** + línea de **precedencia** «TCGCSV (primario) →
+  respaldo: {selección} → override manual». Sin cambio de contrato (el dial `priceProvider` y sus
+  valores no cambian). Claves nuevas `priceIngest.{primarySourceLabel,primarySourceValue,
+  primarySourceHint,fallbackLabel,fallbackHint,precedenceHint}`; `providerLabel`/`providerHint` retiradas.
+- **Estados/accesibilidad (§19.8/§19.9):** se conserva la serialización (`catalogBusy`/`batchBusy`/
+  `otherPerSetPending`) y el keep-alive; confirmaciones para E, F y Unificar rarezas; `role="group"` por
+  grupo, `<details>` para Avanzado, kebab con `aria-haspopup="menu"`; **motivos de deshabilitado en
+  `aria-describedby`** (spans `sr-only` `m2-reason-needs-import` / `m2-reason-busy` + `title`).
+- **i18n:** claves nuevas `admin.m2.groups.*`, `admin.m2.unifyRarities.*`, short labels de botón
+  (`catalog.refreshVariantsShort/refreshVariantsAllShort/fullSyncMenuItem/rowMoreAria`), `catalog.setsEmpty`,
+  `catalog.busyReason`. Paridad ES/EN verificada (`i18n-parity.test.ts` verde).
+- **Gates:** `tsc --noEmit` ✅ · `next lint` ✅ (0 warnings) · `vitest run` ✅ **568/568** (M2 67/67, con
+  tests nuevos/ajustados: grupos renderizados, «Unificar rarezas» dispara el endpoint + muestra `unmapped`
+  + invalida rarezas, B/rarity-map ausentes, selector reencuadrado, H en menú «Más», F con etiqueta corta)
+  · `next build` ✅.
+- **Solicitud al arquitecto (no bloqueante):** el endpoint `POST /admin/catalog/unify-rarities` está
+  implementado por backend pero **aún no formalizado en `docs/API_CONTRACT.md`** (backend lo dejó anotado
+  en `BACKEND_NOTES §0-ter` como «pendiente de formalizar»). El front ya lo consume con el shape descrito;
+  conviene que el arquitecto lo incorpore al contrato oficial. También queda pendiente (§19.11) la señal
+  de salud de la fuente de catálogo (`source-health`) para volver el banner de G2 proactivo en vez de reactivo.
+
 ## P-13 · «Refrescar variantes + precios (solo TCGCSV)» por set en M2 (2026-08-22, branch `fix/variant-composition-regression`)
 
 Tercera acción por-fila en el **Sync de catálogo** de M2 que refresca variantes/acabados y precios
