@@ -164,14 +164,13 @@ async function main() {
     },
   });
 
-  // v1.27 (P-13, §4.25a) — carta de demostración de DOS casillas post-v1.27: la ESTRUCTURA manda,
-  // el precio CONFIRMA. TCGCSV resolvió AMBAS impresiones (`structuralFinishes=['normal',
-  // 'reverse_holo']`) y PPT confirma el reverse con market>0 (`pricedFinishesSnapshot=
-  // ['reverse_holo']`, decoración/observabilidad: desde v1.27 el snapshot ya NO compone). El
-  // reconcile deriva `availableFinishes = composeAvailableFinishes(structural)` ⇒ DOS casillas
-  // sostenidas SOLO por la estructura — el «rescate» por unión con la Señal C quedó DEROGADO.
-  // Junto con Charizard (holofoil puro, UNA casilla) el seed cumple el mínimo normativo §4.22e:
-  // ≥1 carta de dos casillas y ≥1 de una casilla, y ambas sobreviven un reconcile sin colapsar.
+  // v1.27.1 (P-13-fix, §4.25e) — carta de demostración de DOS casillas: la UNIÓN compone
+  // (structural ∪ snapshot) y, por ser rareza COMÚN (no premium), NO se filtra `normal`. TCGCSV
+  // resolvió AMBAS impresiones (`structuralFinishes=['normal','reverse_holo']`) y PPT confirma el
+  // reverse con market>0 (`pricedFinishesSnapshot=['reverse_holo']`). El reconcile deriva
+  // `availableFinishes = composeAvailableFinishes(structural, snapshot, rarity)` ⇒ DOS casillas.
+  // Junto con Charizard (holofoil puro, rareza no-premium, UNA casilla) el seed cumple el mínimo
+  // normativo §4.22e: ≥1 carta de dos casillas y ≥1 de una casilla, ambas sobreviven un reconcile.
   const pidgeyParts = deriveNumberParts('16');
   await prisma.card.upsert({
     where: { externalId: 'base1-16' },

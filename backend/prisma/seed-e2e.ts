@@ -166,11 +166,11 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       // producción); se siembra solo por realismo del dato persistido.
       const catalogFinishes = [...(c.catalogFinishes ?? c.availableFinishes)];
       const pricedFinishesSnapshot = [...(c.pricedFinishesSnapshot ?? [])];
-      // v1.27 (P-13, §4.25a): la ESTRUCTURA es la ÚNICA entrada del reconciliador
-      // (`availableFinishes = composeAvailableFinishes(structuralFinishes)`). Sin declarar ⇒
-      // = catalogFinishes; `reverse` declara AMBAS impresiones estructurales y el snapshot solo
-      // CONFIRMA el reverse con precio (observabilidad, jamás compone) — un reconcile sobre los
-      // fixtures es NO-OP, no colapsa casillas.
+      // v1.27.1 (P-13-fix, §4.25e): el reconciliador compone la UNIÓN structural ∪ snapshot menos
+      // `normal` si la rareza es premium (`availableFinishes = composeAvailableFinishes(
+      // structuralFinishes, pricedFinishesSnapshot, rarity)`). Sin declarar structural ⇒ =
+      // catalogFinishes; `reverse` (Reverse Holo, no premium) declara AMBAS impresiones y el snapshot
+      // aporta/confirma el reverse — un reconcile sobre los fixtures es NO-OP, no colapsa casillas.
       const structuralFinishes = [...(c.structuralFinishes ?? catalogFinishes)];
       const card = await prisma.card.upsert({
         where: { externalId: c.externalId },

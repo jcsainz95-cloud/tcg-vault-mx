@@ -43,6 +43,21 @@
 >   carta+grado es MANUAL vía el override de mercado existente (`gradeKey graded:PSA:10`) — sin proveedor de
 >   precios por grado en este stream (no verificado; doctrina P-6).
 >
+> **Changelog v1.27.1-fix-variant-composition-regression (2026-08-22, rama `fix/variant-composition-regression`) —
+> corrige la REGRESIÓN en prod que causó la fórmula «solo structural» de P-13 (§4.25a-1). Spec completa en §4.25e.
+> SIN migración de schema; SIN cambio de forma de contrato (solo semántica de la composición).**
+> - **Síntoma:** tras el re-sync forzado, los COMUNES perdieron su reverse holo (`[normal]` en vez de `[normal,
+>   reverse_holo]` — Tropius/Grubbin/Fomantis) y las EX conservaron un `normal` fantasma (`[normal, holofoil]` en vez
+>   de `[holofoil]` — Lurantis ex / Mega Delphox ex). Dos causas OPUESTAS: al común el reconciliador lo tocó y lo
+>   degradó (el reverse legítimo solo vive en `pricedFinishesSnapshot`, no en `structuralFinishes` de sets nuevos); a
+>   la ex no la tocó y no la limpió (su `normal` es stale de M-29 / envenenado por el barrido por-etiqueta de PPT).
+> - **Fórmula VIGENTE (deroga la de §4.25a-1):** `availableFinishes := orderFinishes( (structuralFinishes ∪
+>   pricedFinishesSnapshot) − { normal | isPremiumRarity(rarity) } ) || ['normal']`. La UNIÓN vuelve (recupera el
+>   reverse del común) pero se **filtra `normal` en rareza premium** (mata el fantasma de la ex — filtro ESTRUCTURAL
+>   por rareza, no por precio). Firma nueva: `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot,
+>   rarity)` en `card-order.ts` (reusa `isPremiumRarity` de `money.ts`). `FinishReconciler` sigue siendo el único
+>   escritor y ahora selecciona/pasa la `rarity`.
+>
 > **Changelog v1.27-stream-a-catalogo-precios (2026-08-22, Stream A «Catálogo y precios») — tres arreglos del plan
 > aprobado 2026-08-21: P-13 (variantes fantasma), P-15 (mercado por variante), P-12 (sync completo por set). Spec
 > completa en §4.25; contrato en API_CONTRACT (Changelog v1.27). SIN migración de schema (M-27/M-29 ya existen);
@@ -51,8 +66,9 @@
 >   La fórmula `structuralFinishes ∪ pricedFinishesSnapshot` era el vector de las variantes fantasma (ex con
 >   `Normal`, secret rares duplicadas): el barrido por-impresión de PPT (`fetchPrintings`) atribuye el finish por la
 >   **etiqueta del request**, no por dato de la carta, y la unión promovía ese `normal` CON precio a casilla — algo
->   que el propio comentario VAR-1 de `card-order.ts` ya prohibía. Fórmula nueva:
->   `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`.
+>   que el propio comentario VAR-1 de `card-order.ts` ya prohibía. Fórmula ~~nueva~~ **(⛔ derogada 2026-08-22 por
+>   regresión — ver changelog v1.27.1 arriba y §4.25e; la fórmula VIGENTE restaura la unión filtrando `normal` en
+>   rareza premium)**: ~~`availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`~~.
 >   `pricedFinishesSnapshot` **sale de la composición** (queda como observabilidad/confirmación); `fetchPrintings`
 >   sigue sirviendo para **PRECIOS por impresión** (P-15 lo necesita) pero jamás como evidencia estructural.
 >   Fallback legacy (structural vacío) = `['normal']` — conservador, trade-off documentado en §4.25a-3; se repara
@@ -1381,11 +1397,18 @@ holo a la derecha**.
     intacta (el precio jamás añade ni quita una impresión). La estructura entra por `Card.structuralFinishes` (§4.24a),
     que **ancla/reemplaza** el proxy-de-precio `catalogFinishes` ~~en la unión del reconciliador~~ (⛔ v1.27: la unión
     quedó derogada; ver bullet siguiente).
-  - ✅ **v1.27 (P-13, §4.25a) — FÓRMULA VIGENTE de la composición: el precio CONFIRMA, nunca AÑADE.**
-    `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']` — helper
-    `composeAvailableFinishes(structuralFinishes)` en `card-order.ts`, fallback `['normal']`. `pricedFinishesSnapshot`
-    **NO compone** (solo observabilidad/confirmación de precio de una impresión ya estructural). Escritor único
-    `FinishReconciler` sin cambio.
+  - ⛔ **v1.27 (P-13, §4.25a-1) — «SOLO STRUCTURAL» DEROGADA 2026-08-22 (regresión en prod).**
+    ~~`availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) : ['normal']`~~ — quitar el
+    snapshot degradó a los comunes (perdieron el reverse holo que solo trae el proveedor de precios) y no limpió a las
+    ex (su `normal` stale de M-29 sobrevivió). Ver §4.25e.
+  - ✅ **v1.27.1 (P-13-fix, §4.25e) — FÓRMULA VIGENTE: la unión vuelve, el fantasma no.**
+    `availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot) − { normal | isPremiumRarity(rarity) } ) || ['normal']`.
+    La UNIÓN vuelve (recupera el reverse legítimo del común, que en sets nuevos solo vive en el snapshot) pero se
+    **filtra `normal` en rareza premium** (mata el fantasma de la ex — filtro ESTRUCTURAL por rareza, no por precio).
+    Helper `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)` en `card-order.ts` (reusa
+    `isPremiumRarity` de `money.ts`), fallback `['normal']`. **VAR-1 intacto:** el precio confirma una impresión física
+    real (el reverse del común lo es); la rareza premium solo GATE-oculta un `normal` que esa carta nunca tiene físico,
+    jamás inventa un acabado. Escritor único `FinishReconciler`, ahora selecciona/pasa `rarity`.
 - **Alcance por tipo de producto:** el acabado aplica a **raw/singles**. Para `graded`/`sealed` el `finish` es
   siempre `normal` (el slab/sellado no distingue acabado a efectos de precio); el default lo cubre y no cambia el
   comportamiento actual.
@@ -3890,11 +3913,13 @@ originales de la regla 2:
    > **se conservan sin cambio**; solo se sustituye la columna de entrada del lado catálogo. Detalle, seed y semántica
    > money-safe de la sustitución en **§4.24a**.
 
-   > **⛔ v1.27 (P-13, §4.25a) — la UNIÓN de arriba queda DEROGADA (también en su forma v1.26): el precio CONFIRMA,
-   > nunca AÑADE.** Fórmula vigente: `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes)
-   > : ['normal']` (`composeAvailableFinishes`, `card-order.ts`). `pricedFinishesSnapshot` **sale de la composición**
-   > (queda como observabilidad/confirmación). Los cuatro candados y el escritor único siguen vigentes; toda mención
-   > a «la unión» en el resto de este §4.22g debe leerse como histórica. Ver **§4.25a**.
+   > **v1.27.1 (P-13-fix, §4.25e) — la UNIÓN vuelve, pero filtrada.** La versión intermedia «solo structural» de la
+   > primera P-13 quitó la unión entera y causó una regresión (los comunes perdieron su reverse holo). Fórmula VIGENTE:
+   > `availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot) − { normal | isPremiumRarity(rarity) } ) || ['normal']`
+   > (`composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`, `card-order.ts`). El snapshot SÍ
+   > compone otra vez (el precio confirma una impresión física real: el reverse del común lo es); lo único que se quita
+   > es el `normal` en cartas premium (fantasma estructural). Los cuatro candados y el escritor único siguen vigentes.
+   > Ver **§4.25e**.
 
    - `Card.catalogFinishes Finish[]` — la unión Señal A ∪ Señal B del **último payload de pokemontcg.io** (lo que hoy
      devuelve `deriveAvailableFinishes(c)`), con la MISMA semántica anti-regresión de §4.22a-4 (`null` ⇒ se omite y se
@@ -3942,10 +3967,13 @@ pokemontcg.io (cuando responde)                     PPT (paga, responde hoy)
                               availableFinishes := orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']
 ```
 
-> **⛔ v1.27 (P-13, §4.25a):** la última línea del diagrama (la unión) está **derogada** — el reconciliador vigente
-> computa `composeAvailableFinishes(structuralFinishes)` con fallback `['normal']`; el snapshot NO compone. El resto
-> del flujo (quién escribe qué columna, quién invoca al reconciliador) sigue vigente, con la excepción v1.27 de que
-> las filas `forced` de `fetchPrintings` NO escriben el snapshot (§4.25a-2).
+> **v1.27.1 (P-13-fix, §4.25e):** la última línea del diagrama (la unión cruda) evolucionó — el reconciliador vigente
+> computa `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)` = `orderFinishes( (structural
+> ∪ snapshot) − { normal si premium } ) || ['normal']`. El snapshot SÍ vuelve a componer (recupera el reverse legítimo
+> del común), pero el `normal` fantasma de las cartas premium se filtra por rareza. (⛔ La versión intermedia «solo
+> structural» de la primera P-13 quedó derogada por regresión, ver §4.25e.) El resto del flujo (quién escribe qué
+> columna, quién invoca al reconciliador) sigue vigente, con la excepción de que las filas `forced` de `fetchPrintings`
+> NO escriben el snapshot (§4.25a-2).
 
 - **Money-safe ante fallo transitorio de PPT.** `pricedFinishesSnapshot` se reemplaza **solo** para cartas que
   aparecieron con **≥ 1 fila válida** en una corrida **exitosa** (`requestOk && rows > 0`). Si PPT falla / devuelve 0
@@ -3987,10 +4015,12 @@ DERIVAR o INVENTAR una (en particular jamás un `reverse_holo`).
 
 #### (h) Reparto de trabajo (v1.22-1 / opción c)
 
-> **⛔ v1.27 (P-13, §4.25a) — sección HISTÓRICA en lo que toca a la fórmula.** Este reparto se implementó tal cual en
-> v1.22-1, pero la fórmula de `reconcile()` y las **expectativas de seeds** de abajo (carta A: snapshot ⇒ casilla)
-> asumen la unión, hoy derogada. Con la fórmula vigente (`composeAvailableFinishes(structuralFinishes)`), el snapshot
-> NO produce casillas; los seeds/fixtures se realinean según **§4.25a** (trabajo del stream v1.27, §4.25d).
+> **v1.27.1 (P-13-fix, §4.25e) — sección HISTÓRICA en lo que toca a la firma.** Este reparto se implementó en v1.22-1.
+> La versión intermedia «solo structural» de la primera P-13 derogó la unión, pero el fix v1.27.1 la **restauró** con un
+> filtro de `normal` por rareza premium: la fórmula vigente es `composeAvailableFinishes(structuralFinishes,
+> pricedFinishesSnapshot, rarity)`. La expectativa de seed «carta A (común): snapshot con `reverse_holo` ⇒ casilla»
+> **vuelve a ser CORRECTA** (la unión recompone); lo que NO produce casilla es un `normal` de snapshot/structural en
+> una carta PREMIUM. Los seeds/fixtures se alinean a §4.25e (worked examples).
 
 - **Schema — migración M-27 (backend, `backend/prisma/schema.prisma` + `backend/prisma/migrations/`):** añade
   `Card.catalogFinishes Finish[] @default([])` y `Card.pricedFinishesSnapshot Finish[] @default([])`. **Backfill:**
@@ -4303,11 +4333,14 @@ lado catálogo en la unión del reconciliador:
 availableFinishes  :=  orderFinishes( structuralFinishes ∪ pricedFinishesSnapshot )   ||  ['normal']
 ```
 
-> **⛔ v1.27 (P-13, §4.25a) — esta fórmula queda DEROGADA en su término de UNIÓN.** La unión resultó ser el vector de
-> las variantes fantasma (el `normal` CON precio que atribuye `fetchPrintings` por etiqueta de request entraba como
-> casilla). La fórmula vigente es `availableFinishes := structuralFinishes ≠ ∅ ? orderFinishes(structuralFinishes) :
-> ['normal']` — **el snapshot de precio CONFIRMA, nunca AÑADE**. Todo lo demás de esta sección (columna
-> `structuralFinishes`, resolver TCGCSV, semántica de escritura, S-D1..3) sigue vigente. Ver §4.25a.
+> **v1.27.1 (P-13-fix, §4.25e) — la unión cruda de arriba queda AFINADA (no eliminada).** La unión cruda dejaba pasar
+> el `normal` fantasma de las cartas premium (el `normal` CON precio que atribuye `fetchPrintings` por etiqueta de
+> request, o el structural stale de M-29). La versión intermedia «solo structural» de la primera P-13 mató la unión
+> entera y con ella el reverse holo legítimo de los comunes (regresión en prod). La fórmula VIGENTE es
+> `availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot) − { normal | isPremiumRarity(rarity) } ) || ['normal']`:
+> la unión se conserva (el precio confirma impresiones físicas reales) y solo se filtra `normal` por rareza premium.
+> Todo lo demás de esta sección (columna `structuralFinishes`, resolver TCGCSV, semántica de escritura, S-D1..3) sigue
+> vigente. Ver §4.25e.
 
 - `structuralFinishes` — derivada de TCGCSV (ver resolver abajo). La escribe **un solo sitio nuevo** en el módulo
   `catalog` (paso de `importSet`), **no** `price-ingest`.
@@ -4500,17 +4533,29 @@ ex con Normal+Holofoil (misma imagen), hasta 3 variantes, secret rares duplicada
 **1. Regla nueva (NORMATIVA).** La composición deja de ser unión:
 
 ```
+⛔ FÓRMULA DEROGADA 2026-08-22 (regresión en prod) — reemplazada por §4.25e. NO implementar:
 availableFinishes :=
   structuralFinishes ≠ ∅ :  orderFinishes(structuralFinishes)   // TCGCSV es LA autoridad; el precio solo confirma
   structuralFinishes = ∅ :  ['normal']                          // fallback legacy (sin resolver TCGCSV) — ver (3)
 ```
 
+> **⛔ ESTA FÓRMULA «SOLO STRUCTURAL» CAUSÓ UNA REGRESIÓN EN PRODUCCIÓN (set Pitch Black, 2026-08-22).** Quitar el
+> snapshot de la composición degradó a los COMUNES: su reverse holo legítimo NO vive en `structuralFinishes` (para
+> sets recién salidos TCGCSV solo trae la fila `Normal`), vive en `pricedFinishesSnapshot` (barrido por-impresión de
+> PPT). Resultado: Tropius/Grubbin/Fomantis perdieron `reverse_holo`. Y NO limpió a las ex (que no joinean a TCGCSV):
+> su `normal` fantasma STALE en `structuralFinishes` (sembrado por M-29 `structuralFinishes := availableFinishes`)
+> sobrevivió. Diagnóstico y **fórmula vigente en §4.25e** (unión de vuelta + filtro estructural de `normal` por rareza
+> premium). El resto de §4.25a-2/-3/-4 (exclusión de filas `forced` del snapshot, fallback `['normal']`, re-sync
+> forzado) sigue vigente.
+
 - `pricedFinishesSnapshot` **SALE de la composición**. Se **conserva la columna** con dos usos: (i) observabilidad
   (`dataHealth` / log `pricedNotStructural = snapshot ∖ structuralFinishes`, evidencia de drift proveedor↔estructura
   para el dueño de datos); (ii) confirmación «esta impresión estructural tiene precio» (decoración, jamás
   composición). `FinishReconciler` **sigue siendo el único escritor** de `availableFinishes` (candado 4, §4.22g);
-  solo cambia su fórmula. Firma sugerida (sustituye a `unionAvailableFinishes` en `card-order.ts`, junto a su
-  doctrina ya escrita): `composeAvailableFinishes(structuralFinishes: Finish[]): Finish[]`.
+  solo cambia su fórmula. Firma **actualizada en §4.25e** (2026-08-22): `composeAvailableFinishes(structuralFinishes,
+  pricedFinishesSnapshot, rarity)` — la unión vuelve (recupera el reverse legítimo que solo trae el proveedor) pero se
+  filtra `normal` en rareza premium (mata el fantasma estructural). ~~`composeAvailableFinishes(structuralFinishes:
+  Finish[]): Finish[]`~~ (firma de la fórmula derogada arriba).
 - Sigue **nunca vacía**, orden canónico `FINISH_ORDER`, recomputable y NO monótona (recomputar con una entrada menor
   ELIMINA — así se limpian los fantasmas ya materializados).
 - Un `PriceReference` de un finish fuera de `availableFinishes` sigue siendo **inerte** (el quote valida el finish
@@ -4546,6 +4591,135 @@ ya grabados; (3) verificación: una ex moderna queda con `['holofoil']` (una cas
 `['normal','reverse_holo']` (dos). `PENDIENTES.md` ya instruye al humano esperar este fix para re-sincronizar prod
 una sola vez. **Ordenar el re-sync ANTES de correr price-ingest masivo** minimiza la ventana de la regresión
 transitoria del punto 3.
+
+#### (e) P-13-fix — REGRESIÓN de composición de variantes: la unión vuelve, el fantasma no (2026-08-22)
+
+> **Changelog v1.27.1-fix-variant-composition-regression (2026-08-22, rama `fix/variant-composition-regression`).**
+> Corrige la regresión que introdujo §4.25a-1 (fórmula «solo structural» de P-13). SIN migración de schema; SIN cambio
+> de forma de contrato (`CardDTO.availableFinishes` sigue `Finish[]`, solo cambia la SEMÁNTICA de la composición).
+> Toca la lista blanca SEC-A1 → gate de seguridad por release. Paso de despliegue = re-sync forzado (§4.25a-4).
+
+**Diagnóstico (dos síntomas, causas OPUESTAS).** Tras el re-sync forzado de prod con la fórmula «solo structural»:
+
+| Síntoma en prod (set Pitch Black) | rareza | qué mostró | qué debía mostrar | causa |
+|---|---|---|---|---|
+| **Tropius** (y Grubbin/Fomantis) | Common | `[normal]` | `[normal, reverse_holo]` | el reverse holo del común **NO vive en `structuralFinishes`** (TCGCSV solo trae `Normal` en sets nuevos); vive en `pricedFinishesSnapshot` (barrido por-impresión PPT, Señal C). P-13 lo quitó de la composición ⇒ el común pierde su reverse. **El resolver SÍ tocó al común y lo degradó.** |
+| **Lurantis ex / Mega Delphox ex** | premium (Double Rare) | `[normal, holofoil]` | `[holofoil]` | `normal` fantasma que sobrevive: (a) barrido por-etiqueta de PPT que atribuía `normal` por el label del request (ya mitigado a que no escriba snapshot, §4.25a-2), y (b) valores STALE en `structuralFinishes` sembrados por M-29 (`UPDATE Card SET structuralFinishes = availableFinishes`) en cartas que **no joinean** a TCGCSV, que el resolver money-safe no limpia. **El resolver NO tocó a la ex y no la limpió.** |
+
+Las dos causas son opuestas: al común el reconciliador lo tocó y lo DEGRADÓ (le faltó el reverse del snapshot); a la ex
+no la tocó y NO la LIMPIÓ (le sobró el `normal` stale/fantasma). Una sola fórmula debe arreglar ambos: **volver a incluir
+el snapshot** (recupera el reverse legítimo del común) **pero filtrar `normal` cuando la rareza es premium** (mata el
+fantasma de la ex, venga de donde venga: snapshot envenenado, structural stale de M-29, o seed de pokemontcg.io).
+
+**1. Regla nueva VIGENTE (NORMATIVA, deroga §4.25a-1).**
+
+```
+availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot) − { normal | isPremiumRarity(rarity) } )
+                     || ['normal']          // fallback si la resta deja el conjunto vacío (energías básicas comunes)
+```
+
+Es decir, en tres pasos:
+1. **UNIÓN** de `structuralFinishes ∪ pricedFinishesSnapshot` (vuelve la unión de §4.24a/§4.22g — recupera el reverse
+   holo legítimo de los comunes, que en sets recién salidos SOLO trae el proveedor de precios).
+2. **RESTA de `normal` si `isPremiumRarity(rarity) === true`** — las cartas premium (ex/Double Rare, Ultra Rare, Secret
+   Rare, Illustration/Special Illustration Rare, Hyper Rare, Rainbow, Gold, V/VMAX/VSTAR/ex/GX, etc.) **nunca existen en
+   `normal`**, así que un `normal` en su composición es SIEMPRE fantasma, venga del snapshot, del structural stale de
+   M-29 o del seed. El filtro es **ESTRUCTURAL por rareza, en la composición misma** — no por precio.
+3. `orderFinishes(...)` (dedup + orden canónico `FINISH_ORDER`) y **fallback `|| ['normal']`** si el conjunto quedó
+   vacío (una energía básica común sin datos estructurales ni de precio no debe quedar sin casillas).
+
+**Por qué la unión vuelve pero el fantasma NO.** La unión de §4.24a era el vector de las variantes fantasma porque el
+`normal` de etiqueta de `fetchPrintings` (barrido por-impresión de PPT) entraba a la casilla de las ex CON precio (N-15
+no lo salvaba: solo ocultaba acabados SIN precio, y ese `normal` fantasma SÍ tenía precio). P-13 mató la unión entera y
+con ella el reverse LEGÍTIMO de los comunes. El fix es quirúrgico: la unión vuelve para todos, pero el ÚNICO acabado que
+la unión colaba de más — el `normal` en cartas premium — se filtra por rareza en la composición. El común (no premium)
+conserva su unión intacta (recupera el reverse); la ex (premium) pierde solo su `normal` (mata el fantasma). Nótese que
+esto **NO es el viejo `computeDisplayFinishes`/N-15**: aquél ocultaba en DISPLAY los acabados SIN precio y fallaba porque
+el `normal` fantasma SÍ tenía precio; aquí el filtro es estructural por rareza, sobre la lista blanca misma, no por precio.
+
+**2. Firma (sustituye la de §4.25a-1).**
+
+```ts
+composeAvailableFinishes(
+  structuralFinishes: Iterable<Finish>,
+  pricedFinishesSnapshot: Iterable<Finish>,
+  rarity: string | null,
+): Finish[]
+```
+
+Vive en `backend/src/common/card-order.ts` (lock de ESTE stream) junto a `orderFinishes`. **Reusa `isPremiumRarity` de
+`common/money.ts`** — es el MISMO clasificador chase del buylist (Fase 0.1) y del resolver de reglas por rareza: una sola
+definición de «premium» en todo el sistema, sin duplicar patrones. `isPremiumRarity(null) === false` ⇒ **rareza null/
+desconocida NO filtra `normal`** (fail-safe conservador: una carta de rareza desconocida conserva su `normal` de la unión;
+mejor conservar una casilla dudosa que borrar una legítima por no clasificar la rareza). Determinista, recomputable y NO
+monótona (recomputar con entrada menor ELIMINA — así se siguen limpiando los fantasmas ya materializados).
+
+Pseudocódigo NORMATIVO:
+
+```
+function composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity):
+    union := new Set(structuralFinishes)
+    for f in pricedFinishesSnapshot: union.add(f)
+    if isPremiumRarity(rarity): union.delete('normal')     // fantasma estructural por rareza
+    ordered := orderFinishes(union)                         // dedup + FINISH_ORDER
+    return ordered.length > 0 ? ordered : ['normal']        // fallback fail-closed
+```
+
+**3. Lista EXACTA de patrones premium que aplican el filtro** (de `PREMIUM_RARITY_PATTERNS` en `common/money.ts`,
+case-insensitive, match por substring/token — se REUSAN tal cual, NO se redefinen aquí):
+
+| Patrón (regex) | Cubre |
+|---|---|
+| `/illustration/` | Illustration Rare, Special Illustration Rare |
+| `/ultra\s*rare/` | Ultra Rare (full art) |
+| `/double\s*rare/` | Double Rare (= ex, era Scarlet & Violet) |
+| `/secret/` | Rare Secret, Secret Rare |
+| `/rainbow/` | Rainbow Rare |
+| `/hyper/` | Hyper Rare |
+| `/full\s*art/` | Full Art |
+| `/alt(ernate)?\s*art/` | Alternate Art / Alt Art |
+| `/special/` | Special Illustration Rare, etc. |
+| `/amazing/` | Amazing Rare |
+| `/radiant/` | Radiant |
+| `/shiny/` | Rare Shiny / Shiny Ultra Rare |
+| `/trainer\s*gallery/` | Trainer Gallery |
+| `/character/` | Character Rare / Super Rare |
+| `/gold/` | Gold (Secret) Rare |
+| `/prism/` | Prism Star |
+| `/\b(v\|vmax\|vstar\|vunion\|v-union\|ex\|gx)\b/` | V-series y EX/GX como tokens sueltos (p. ej. «Rare Holo VMAX», «… ex») |
+
+**NO premium (NO filtran `normal`, conservan su unión):** Common, Uncommon, Rare (no-holo), Rare Holo (plano), Reverse
+Holo, y rareza `null`/desconocida. Es exactamente el bulk legítimo — el común que DEBE poder tener `normal` + `reverse_holo`.
+
+**4. Worked examples (criterios de test — el reconciler + `card-order.spec` DEBEN cubrir los 6).**
+
+| # | Carta | rareza | structuralFinishes | pricedFinishesSnapshot | premium? | unión | tras filtro | **availableFinishes esperado** |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Tropius | Common | `[normal]` | `[normal, reverse_holo]` | no | `{normal, reverse_holo}` | igual | **`[normal, reverse_holo]`** |
+| 2 | Grubbin/Fomantis | Common | `[normal]` | `[normal, reverse_holo]` | no | `{normal, reverse_holo}` | igual | **`[normal, reverse_holo]`** |
+| 3 | Lurantis ex | Double Rare | `[normal, holofoil]` (stale) | `[holofoil]` o `[normal, holofoil]` | **sí** | `{normal, holofoil}` | `{holofoil}` | **`[holofoil]`** |
+| 4 | Mega Delphox ex | (premium) | `[normal, holofoil]` | `…` | **sí** | `{normal, holofoil}` | `{holofoil}` | **`[holofoil]`** |
+| 5 | Energía básica común | Common | `[]` o `[normal]` | `[normal]` | no | `{normal}` | igual | **`[normal]`** |
+| 6 | Secret rare (holo puro) | Secret Rare | `[holofoil]` | `…` (aun envenenado con `normal`) | **sí** | `{normal?, holofoil}` | `{holofoil}` | **`[holofoil]`** (nunca `normal`) |
+
+Los 6 casos quedan cubiertos por la fórmula: el filtro de `normal` por rareza premium arregla 3/4/6 (mata el fantasma) sin
+tocar 1/2/5 (comunes conservan la unión con su reverse); el fallback `|| ['normal']` cubre el 5 aunque structural venga vacío.
+
+**5. `FinishReconciler` — único escritor, ahora recibe también la rareza.** El reconciliador sigue siendo el ÚNICO escritor
+de `Card.availableFinishes` (candado 4, §4.22g). El único cambio en su cuerpo: además de `(structuralFinishes,
+pricedFinishesSnapshot, availableFinishes)`, su `findMany` debe **seleccionar `rarity`** y pasarla a la fórmula:
+`composeAvailableFinishes(structural, priced, c.rarity)`. El log de observabilidad `pricedNotStructural` (drift
+proveedor↔estructura) **se conserva** — sigue siendo evidencia útil para el dueño de datos, aunque el snapshot ahora sí
+componga: informa qué acabados priceados no tienen respaldo estructural TCGCSV (útil para pedir el override manual o el
+re-sync). Nada más cambia: idempotencia, dedup de ids y NO-monotonía intactas.
+
+**6. Reparto (para el orquestador).** **backend** (stream Catálogo y precios, lock de `common/`): (1) reescribir
+`composeAvailableFinishes` en `backend/src/common/card-order.ts` con la firma de 3 args y la unión-menos-normal-premium;
+(2) `FinishReconciler.reconcile` (`backend/src/modules/catalog/finish-reconciler.service.ts`) — seleccionar `rarity` y
+pasarla; (3) tests: unitarios de `card-order` con los 6 worked examples + spec del reconciler (común recupera reverse del
+snapshot; ex pierde `normal` stale; secret rare nunca `normal`; fallback vacío ⇒ `['normal']`). **devops/humano
+(post-merge):** re-sync forzado único (§4.25a-4) para recomputar prod con la fórmula corregida. **frontend:** sin cambio
+(la forma del DTO no cambia; solo mejora el contenido de `availableFinishes`).
 
 #### (b) P-15 — precio de mercado POR VARIANTE en el Master Set
 
@@ -5046,12 +5220,17 @@ Riesgos técnicos:
   > pricedFinishesSnapshot) || ['normal']`~~ (⛔ v1.27: unión derogada, ver abajo), conservando el núcleo money-safe
   > de VAR-1: el precio jamás sobrescribe/encoge la estructura. `FinishReconciler` sigue siendo el único escritor de
   > `availableFinishes`.
-  > **v1.27 (§4.25a) — VAR-1 COMPLETADA tal como quedó implementada: «el precio CONFIRMA, nunca AÑADE».** El
-  > invariante vigente cubre las DOS direcciones money↔estructura: el precio jamás **quita** una impresión (núcleo
-  > original) y el precio jamás **añade** una (la unión v1.26 violaba esta mitad: el snapshot con precio entraba como
-  > casilla ⇒ variantes fantasma). Fórmula implementada: `availableFinishes := composeAvailableFinishes(structuralFinishes)`
-  > con fallback `['normal']`; `pricedFinishesSnapshot` es solo confirmación/observabilidad. Una impresión estructural
-  > sin precio es «pendiente», nunca inventada ni dropeada.
+  > **⛔ v1.27 (§4.25a-1) — «el precio CONFIRMA, nunca AÑADE» (solo structural) DEROGADA 2026-08-22.** Fue demasiado
+  > lejos: sacar el snapshot de la composición no solo mató el `normal` fantasma, también mató el **reverse holo
+  > LEGÍTIMO de los comunes**, que en sets recién salidos SOLO trae el proveedor de precios (no `structuralFinishes`).
+  > Regresión en prod (set Pitch Black). Ver §4.25e.
+  > **✅ v1.27.1 (§4.25e) — VAR-1 VIGENTE: «la unión vuelve, el fantasma no».** El invariante money↔estructura sigue en
+  > pie por otra vía: la unión `structuralFinishes ∪ pricedFinishesSnapshot` recompone (el precio CONFIRMA una impresión
+  > física real — el reverse del común lo es), y el ÚNICO acabado que la unión colaba de más — el `normal` en cartas
+  > premium, que NUNCA existen en físico normal — se filtra por rareza (`isPremiumRarity`) en la composición. Fórmula:
+  > `availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot) − { normal | isPremiumRarity(rarity) } ) || ['normal']`
+  > (`composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`). El precio jamás inventa un acabado
+  > estructuralmente imposible (VAR-1 intacto): el filtro premium es un GATE por rareza, no una invención.
 - **VAR-2 (backend, v1.22) — la derivación de catálogo ignora Cardmarket.** `catalog-sync.service.ts:355` →
   `deriveAvailableFinishes(c.tcgplayer?.prices)` (`pricing.types.ts:32`): sin bloque `tcgplayer` en el payload →
   `['normal']`, y las llaves con `market` nulo no se distinguen de las ausentes. Se pierde el reverse holo de toda
@@ -5547,7 +5726,7 @@ Segura para ejecutar con la app corriendo: hasta que el nuevo código despliegue
 | M-26 | `@@index([setId, numberPrefix, numberSort])` | **Índice nuevo** | Create index | Sirve el `ORDER BY` del binder y de `GET /buylist/cards` **con `setId`** (el caso real de las tres vistas). Sin `setId` (búsqueda de texto global) el orden lo lidera `name`, ya indexado. |
 | M-27 | `Card.catalogFinishes Finish[] @default([])` | **Columna nueva** | Add column + backfill | v1.22-1 (§4.22g). «Opinión del catálogo» (Señal A ∪ B de pokemontcg.io), persistida para sobrevivir a un 502. **Backfill:** `UPDATE "Card" SET "catalogFinishes" = "availableFinishes"`. La escribe `upsertCards`. |
 | M-27 | `Card.pricedFinishesSnapshot Finish[] @default([])` | **Columna nueva** | Add column | v1.22-1 (§4.22g). Señal C: acabados con `market>0` en PPT (alias VERIFICADO). Default `[]`; la puebla `price-ingest` en la 1ª corrida. |
-| M-27 | `Card.availableFinishes` **pasa a DERIVADA** | Semántica (no cambia forma ni tipo) | (sin SQL: recompute en runtime) | Deja de escribirse directamente; la recomputa `catalog.FinishReconciler` = ~~`orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ **(⛔ fórmula superada: v1.26 sustituyó la entrada, v1.27 derogó la unión — vigente `composeAvailableFinishes(structuralFinishes)`, §4.25a)**. La columna y su índice/uso NO cambian. |
+| M-27 | `Card.availableFinishes` **pasa a DERIVADA** | Semántica (no cambia forma ni tipo) | (sin SQL: recompute en runtime) | Deja de escribirse directamente; la recomputa `catalog.FinishReconciler` = ~~`orderFinishes(catalogFinishes ∪ pricedFinishesSnapshot) || ['normal']`~~ **(⛔ fórmula superada varias veces; VIGENTE 2026-08-22: `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)` = `orderFinishes((structuralFinishes ∪ pricedFinishesSnapshot) − {normal si premium}) || ['normal']`, §4.25e)**. La columna y su índice/uso NO cambian. |
 
 **SQL de M-27** (solo `ADD COLUMN` + un `UPDATE` de backfill; sin índices nuevos):
 

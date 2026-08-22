@@ -5478,3 +5478,83 @@ porque el default no cambió).
 - `npm test` → **149 suites / 1397 tests VERDE**.
 - `npm run test:integration` (setup §8) → **9 suites / 124 tests VERDE** (incl. `infra-smoke`
   con S3 real).
+
+## v1.27.1 — P-13-fix: REGRESIÓN de composición de variantes (§4.25e, rama `fix/variant-composition-regression`, 2026-08-22)
+
+> Spec: ARCHITECTURE **§4.25e** (regla vigente, deroga §4.25a-1). Regresión en prod (set Pitch Black):
+> tras el re-sync con la fórmula «solo structural» de P-13, los COMUNES perdieron su `reverse_holo` y
+> las ex conservaron un `normal` fantasma. SIN migración de schema; SIN cambio de forma de contrato
+> (`CardDTO.availableFinishes` sigue `Finish[]`). Toca la lista blanca SEC-A1 → gate de seguridad por
+> release. **Paso de despliegue (devops/humano):** re-sync forzado único (§4.25a-4) para recomputar prod.
+
+### Regla vigente (deroga la «solo structural» de §4.25a-1)
+```
+availableFinishes := orderFinishes( (structuralFinishes ∪ pricedFinishesSnapshot)
+                                    − { normal | isPremiumRarity(rarity) } ) || ['normal']
+```
+1. **UNIÓN** `structural ∪ snapshot` (vuelve): recupera el `reverse_holo` legítimo del común, que en
+   sets recién salidos SOLO trae el proveedor de precios (`pricedFinishesSnapshot`, Señal C), no TCGCSV.
+2. **RESTA `normal` si `isPremiumRarity(rarity)`**: una premium (ex/Double Rare, Ultra/Secret/Illustration/
+   Hyper/Rainbow/Gold Rare, V/VMAX/VSTAR/ex/GX…) NUNCA existe en `normal` ⇒ es fantasma venga del
+   snapshot envenenado, del `structuralFinishes` STALE de M-29 o del seed. Filtro **estructural por
+   rareza**, en la composición misma — NO por precio (NO es N-15/`computeDisplayFinishes`).
+3. `orderFinishes` (dedup + `FINISH_ORDER`) + fallback `|| ['normal']` si la resta deja vacío.
+
+### Cambios (SOLO `backend/` + este doc; lock de `common/` de este stream)
+- **`src/common/card-order.ts`** — `composeAvailableFinishes` pasa de 1 arg a **3**:
+  `composeAvailableFinishes(structuralFinishes, pricedFinishesSnapshot, rarity)`. **Reusa
+  `isPremiumRarity` de `common/money.ts`** (mismo clasificador chase, sin redefinir patrones).
+  `isPremiumRarity(null) === false` ⇒ rareza null/desconocida NO filtra `normal` (fail-safe conservador).
+- **`src/modules/catalog/finish-reconciler.service.ts`** (ÚNICO escritor, candado 4 §4.22g) — el
+  `findMany` ahora **selecciona `rarity`**; la fórmula recibe `(structural, priced, c.rarity)`. El
+  snapshot **vuelve a componer** (antes P-13 lo excluía). Log `pricedNotStructural` (drift
+  proveedor↔estructura) **conservado**. Idempotencia, dedup de ids y NO-monotonía intactas.
+- **Callers de `composeAvailableFinishes`:** el ÚNICO caller de producción es `FinishReconciler`
+  (actualizado). Los seeds/fixtures no la invocan (solo describen su resultado en comentarios).
+  Comentarios normativos alineados a §4.25e en `catalog-sync.service.ts`, `prisma/seed.ts`,
+  `prisma/seed-e2e.ts`, `prisma/e2e-fixtures.ts` (SIN cambio de datos: los valores sembrados ya eran
+  NO-OP bajo la fórmula nueva — Pidgey Común da 2 casillas, Charizard `Rare Holo` da `['holofoil']`).
+
+### Tests
+- **`test/finish-reconciler.spec.ts`** reescrito a §4.25e:
+  - Unit `card-order`: los **6 worked examples** con datos reales de Pitch Black — Tropius/Grubbin
+    Common → `[normal, reverse_holo]`; Lurantis/Mega Delphox ex (Double Rare) → `[holofoil]`; energía
+    básica común → `[normal]`; secret rare holo puro (snapshot envenenado) → `[holofoil]`; premium con
+    struct/snap vacíos → `['normal']` fallback. + orden canónico/dedup, fail-safe rareza null, no-monotonía.
+  - Spec `FinishReconciler`: común RECUPERA su reverse del snapshot; ex PIERDE el `normal` stale;
+    secret rare nunca `normal`; fallback premium vacío ⇒ `['normal']`; el `select` LEE `rarity` +
+    snapshot; observabilidad `pricedNotStructural`; idempotencia; fast-path lista vacía.
+- Las aserciones que asumían «solo structural» de P-13 quedaron actualizadas a la regla nueva (el
+  común AHORA da 2 casillas, no 1; la ex sigue en `[holofoil]` pero por rareza-filtra-normal).
+
+### Gates (local, Postgres 16 + Redis reales + s3rver en 127.0.0.1:9000 → smoke S3 con PUT real)
+- `npm run typecheck` → limpio · `npm run lint` → 0 warnings.
+- `npm test` → **149 suites / 1405 tests VERDE**.
+- `npm run test:integration` (setup §8, `E2E_STRICT_INFRA=true`) → **9 suites / 124 tests VERDE**
+  (incl. `infra-smoke` con S3 real).
+
+### Cierre del gate techlead — arreglo del log contradictorio (2026-08-22, solo logging)
+> Techlead APROBÓ el fix CON DEUDA y pidió, antes de merge, corregir el mensaje del log (barato). Solo se
+> tocó el **logging** del reconciliador; la lógica de composición (ya aprobada) NO cambió.
+- **Problema:** el `logger.warn` de `pricedNotStructural` decía que el snapshot «NO compone la lista blanca
+  (§4.25a); es drift proveedor↔estructura». Bajo §4.25e eso es **falso** (el snapshot SÍ compone: es lo que
+  recupera el reverse holo del común) y además se disparaba en el **camino feliz** — cada común de set nuevo
+  logueaba su reverse recuperado como «drift» → spam inútil en `warn`.
+- **Fix (`finish-reconciler.service.ts`, `reconcile`):** la observabilidad `snapshot ∖ structural` se parte
+  por SEÑAL en dos buckets:
+  - **`snapshotRecovered` → `logger.debug`:** el acabado del snapshot sin respaldo estructural que **SÍ
+    compone** (`f ∈ next`) — camino feliz esperado (§4.25e recupera el reverse del común); trazado a `debug`
+    para no ensuciar `warn`.
+  - **`pricedNotStructural` → `logger.warn`:** el acabado del snapshot sin respaldo estructural que la
+    composición **DESCARTÓ** (`f ∉ next`, hoy `normal` fantasma en rareza premium filtrado por §4.25e-1) —
+    drift genuino proveedor↔estructura, con texto veraz.
+- **Tests (`test/finish-reconciler.spec.ts`):** la prueba de observabilidad se dividió en dos — (1) camino
+  feliz (común con reverse en snapshot) ⇒ `debug`/`snapshotRecovered` y `warn` NO llamado; (2) anomalía
+  (`normal` fantasma en `Double Rare`) ⇒ `warn`/`pricedNotStructural`. Comentario del header actualizado.
+- **Deuda del veredicto** registrada en `docs/TECH_DEBT.md`: VC-D1 (este arreglo, RESUELTA), VC-D2 (dos
+  clases residuales fuera de la doctrina §4.25e → arquitecto), VC-D3 (`isPremiumRarity` con 3 dueños
+  asimétricos → arquitecto/backend), VC-D4 (aclarar doctrina money-safe en comentarios de `card-order.ts`).
+- **Integración:** NO se re-corrió — no se tocó lógica de negocio ni endpoints, solo nivel/texto de logs y
+  sus tests unitarios.
+- **Gates:** `npm run typecheck` limpio · `npm run lint` 0 warnings · `npm test` → **149 suites / 1406 tests
+  VERDE** (el test único de observabilidad se dividió en dos sub-casos camino-feliz/anomalía: 1405 → 1406).
